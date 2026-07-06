@@ -2,7 +2,8 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { applyInstallPlan, createInstallPlan, inspectTargetInstall } from './lib/install-planner.js';
+import { applyRollbackPlan, createRollbackPlan } from './lib/install-state.js';
+import { applyInstallPlan, createInstallPlan, diffTargetInstall, inspectTargetInstall } from './lib/install-planner.js';
 import { validatePack } from './lib/pack-validation.js';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -38,6 +39,7 @@ async function install(args) {
     profile: args.profile ?? 'codex-internal',
     rootDir,
     targetDir,
+    upgrade: Boolean(args.upgrade),
   });
   plan.redZoneConfirmed = Boolean(args['confirm-red-zone']);
   const result = await applyInstallPlan(plan);
@@ -76,6 +78,28 @@ async function doctor(args) {
   console.log(JSON.stringify({ pack, rootDir, target, targetDir }, null, 2));
 }
 
+async function diff(args) {
+  const report = await diffTargetInstall({
+    profile: args.profile ?? 'codex-internal',
+    rootDir,
+    targetDir: path.resolve(args.target ?? process.cwd()),
+  });
+  console.log(JSON.stringify(report, null, 2));
+}
+
+async function rollback(args) {
+  if (args.apply && args['dry-run']) {
+    throw new Error('Use either --apply or --dry-run, not both.');
+  }
+  const plan = await createRollbackPlan({
+    dryRun: !args.apply,
+    redZoneConfirmed: Boolean(args['confirm-red-zone']),
+    targetDir: path.resolve(args.target ?? process.cwd()),
+  });
+  const result = await applyRollbackPlan(plan);
+  console.log(JSON.stringify({ actions: plan.actions, applied: result.applied, dryRun: plan.dryRun, skipped: result.skipped }, null, 2));
+}
+
 const args = parseArgs(process.argv.slice(2));
 const command = args._[0] ?? 'help';
 if (command === 'install') {
@@ -84,7 +108,11 @@ if (command === 'install') {
   await validate(args);
 } else if (command === 'doctor') {
   await doctor(args);
+} else if (command === 'diff') {
+  await diff(args);
+} else if (command === 'rollback') {
+  await rollback(args);
 } else {
-  console.log('Usage: loopengine <install|validate|doctor> [--target path] [--profile name] [--apply] [--dry-run] [--force] [--confirm-red-zone]');
+  console.log('Usage: loopengine <install|validate|doctor|diff|rollback> [--target path] [--profile name] [--apply] [--dry-run] [--force] [--upgrade] [--confirm-red-zone]');
   console.log('Install defaults to dry-run. Use --apply for writes. Red-zone writes require --confirm-red-zone.');
 }

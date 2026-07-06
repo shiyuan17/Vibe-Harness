@@ -1,6 +1,15 @@
 import { copyFile, mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import {
+  backupFile,
+  collectTargetFiles,
+  createBackupId,
+  hashFile,
+  readInstallState,
+  toTargetPath,
+  writeInstallState,
+} from './install-state.js';
 import { pathExists, readJson, validateCatalogManifest, validateInstallMapShape } from './manifest.js';
 
 async function loadProfileInstallMap({ profile, rootDir }) {
@@ -19,10 +28,24 @@ async function loadProfileInstallMap({ profile, rootDir }) {
   return { installMap, selectedProfile };
 }
 
-export async function createInstallPlan({ dryRun = true, force = false, profile = 'codex-internal', rootDir, targetDir }) {
+async function packageVersion(rootDir) {
+  const pkg = await readJson(path.join(rootDir, 'package.json'));
+  return pkg.version;
+}
+
+export async function createInstallPlan({
+  dryRun = true,
+  force = false,
+  profile = 'codex-internal',
+  rootDir,
+  targetDir,
+  upgrade = false,
+}) {
   const { installMap, selectedProfile } = await loadProfileInstallMap({ profile, rootDir });
   const allowedGroups = new Set(selectedProfile.groups);
   const actions = [];
+  const state = await readInstallState(path.resolve(targetDir));
+  const managed = new Map((state?.files ?? []).map((file) => [file.target, file]));
 
   for (const entry of installMap.entries) {
     if (!allowedGroups.has(entry.group)) {
@@ -30,11 +53,30 @@ export async function createInstallPlan({ dryRun = true, force = false, profile 
     }
     const source = path.resolve(rootDir, entry.source);
     const target = path.resolve(targetDir, entry.target);
+    const relativeSource = entry.source.replaceAll('\\', '/');
+    const relativeTarget = entry.target.replaceAll('\\', '/');
     const exists = await pathExists(target);
+    let kind = exists && !force ? 'conflict' : 'write';
+    const managedFile = managed.get(relativeTarget);
+
+    if (upgrade) {
+      kind = 'write';
+      if (exists && managedFile && !force) {
+        const currentHash = await hashFile(target);
+        if (currentHash !== managedFile.targetHash) {
+          kind = 'user-modified';
+        }
+      } else if (exists && !managedFile && !force) {
+        kind = 'conflict';
+      }
+    }
+
     actions.push({
       group: entry.group,
-      kind: exists && !force ? 'conflict' : 'write',
+      kind,
       redZone: Boolean(entry.redZone),
+      relativeSource,
+      relativeTarget,
       source,
       target,
     });
@@ -46,18 +88,21 @@ export async function createInstallPlan({ dryRun = true, force = false, profile 
     profile,
     redZoneConfirmed: false,
     targetDir: path.resolve(targetDir),
+    upgrade,
+    version: await packageVersion(rootDir),
     actions,
   };
 }
 
-export async function inspectTargetInstall({ profile = 'codex-internal', rootDir, targetDir }) {
+export async function diffTargetInstall({ profile = 'codex-internal', rootDir, targetDir }) {
   const { installMap, selectedProfile } = await loadProfileInstallMap({ profile, rootDir });
   const allowedGroups = new Set(selectedProfile.groups);
   const expected = [];
-  const installed = [];
   const missing = [];
-  const conflicts = [];
+  const same = [];
+  const changed = [];
   const redZone = [];
+  const expectedTargets = new Set();
 
   for (const entry of installMap.entries) {
     if (!allowedGroups.has(entry.group)) {
@@ -69,43 +114,55 @@ export async function inspectTargetInstall({ profile = 'codex-internal', rootDir
       group: entry.group,
       redZone: Boolean(entry.redZone),
       source,
-      target,
+      target: entry.target.replaceAll('\\', '/'),
     };
     expected.push(item);
+    expectedTargets.add(item.target);
+    if (item.redZone) {
+      redZone.push({ ...item, status: await pathExists(target) ? 'present' : 'missing' });
+    }
 
     if (await pathExists(target)) {
-      installed.push(item);
       const [sourceContent, targetContent] = await Promise.all([
         readFile(source, 'utf8'),
         readFile(target, 'utf8'),
       ]);
       if (sourceContent !== targetContent) {
-        conflicts.push(item);
-      }
-      if (item.redZone) {
-        redZone.push({ ...item, status: 'present' });
+        changed.push(item);
+      } else {
+        same.push(item);
       }
     } else {
       missing.push(item);
-      if (item.redZone) {
-        redZone.push({ ...item, status: 'missing' });
-      }
     }
   }
 
+  const unmanaged = (await collectTargetFiles(path.resolve(targetDir)))
+    .filter((target) => !expectedTargets.has(target))
+    .map((target) => ({ target }));
+
   return {
-    conflicts,
+    changed,
+    conflicts: changed,
     expected,
-    installed,
     missing,
-    ok: missing.length === 0 && conflicts.length === 0,
+    ok: missing.length === 0 && changed.length === 0,
     profile,
     redZone,
+    same,
     targetDir: path.resolve(targetDir),
+    unmanaged,
   };
 }
 
+export const inspectTargetInstall = diffTargetInstall;
+
 export async function applyInstallPlan(plan) {
+  const userModified = plan.actions.find((action) => action.kind === 'user-modified');
+  if (userModified) {
+    throw new Error(`Refusing to upgrade user-modified file: ${userModified.target}`);
+  }
+
   if (!plan.force) {
     const conflict = plan.actions.find((action) => action.kind === 'conflict');
     if (conflict) {
@@ -118,15 +175,46 @@ export async function applyInstallPlan(plan) {
   }
 
   const written = [];
+  const files = [];
+  const backupId = createBackupId();
   if (plan.dryRun) {
     return { written };
   }
 
   for (const action of plan.actions) {
+    if (action.kind !== 'write') {
+      continue;
+    }
+    const existed = await pathExists(action.target);
+    let backup = null;
+    let previousHash = null;
+    if (existed) {
+      previousHash = await hashFile(action.target);
+      backup = await backupFile({ backupId, target: action.target, targetDir: plan.targetDir });
+    }
+
     await mkdir(path.dirname(action.target), { recursive: true });
     await copyFile(action.source, action.target);
     written.push(action.target);
+    files.push({
+      backup,
+      created: !existed,
+      group: action.group,
+      previousHash,
+      redZone: Boolean(action.redZone),
+      source: action.relativeSource,
+      sourceHash: await hashFile(action.source),
+      target: toTargetPath(plan.targetDir, action.target),
+      targetHash: await hashFile(action.target),
+    });
   }
+
+  await writeInstallState(plan.targetDir, {
+    files,
+    installedAt: new Date().toISOString(),
+    profile: plan.profile,
+    version: plan.version,
+  });
 
   return { written };
 }

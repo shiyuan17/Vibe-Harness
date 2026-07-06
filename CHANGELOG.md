@@ -1,5 +1,12 @@
 # 更新日志
 
+## 0.2.0
+
+- 新增 `.loopengine/install-state.json` 安装状态记录。
+- 新增 `loopengine diff`、`install --upgrade` 和 `loopengine rollback`。
+- 强制覆盖或升级前生成目标项目本地备份。
+- 回滚红区文件时要求显式 `--confirm-red-zone`。
+
 ## 0.1.0
 
 - 初始化 Codex 优先的内部治理包。

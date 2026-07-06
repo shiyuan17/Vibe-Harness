@@ -18,7 +18,7 @@ test('target inspection reports missing files and red-zone status for an empty t
 
     assert.equal(report.profile, 'codex-internal');
     assert.ok(report.missing.some((item) => item.target.endsWith('AGENTS.md')));
-    assert.ok(report.redZone.some((item) => item.target.endsWith(path.join('.codex', 'hooks.json')) && item.status === 'missing'));
+    assert.ok(report.redZone.some((item) => item.target === '.codex/hooks.json' && item.status === 'missing'));
     assert.equal(report.ok, false);
   } finally {
     await rm(target, { force: true, recursive: true });
