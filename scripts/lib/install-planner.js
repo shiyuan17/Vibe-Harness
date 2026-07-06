@@ -34,6 +34,34 @@ async function packageVersion(rootDir) {
   return pkg.version;
 }
 
+export function createInstalledSurface({ profile, targets }) {
+  const installedTargets = targets.map((target) => target.replaceAll('\\', '/'));
+  const hasTarget = (expectedTarget) => installedTargets.includes(expectedTarget);
+  const hasPrefix = (prefix) => installedTargets.some((target) => target.startsWith(prefix));
+  const hasReviewLoop = hasTarget('docs/workflows/review.md')
+    || hasTarget('docs/workflows/loop.md')
+    || hasTarget('docs/rules/review-rules.md')
+    || hasTarget('docs/rules/loop-engineering.md');
+  const profileLines = {
+    'codex-internal': '- 当前 profile: `codex-internal`，包含完整 Codex 内部安装面。',
+    'codex-minimal': '- 当前 profile: `codex-minimal`，安装最小 Codex 入口规则和模板。',
+    core: '- 当前 profile: `core`，安装核心规则、模板、skills 和 workflows。',
+    'docs-only': '- 当前 profile: `docs-only`，仅安装文档类资产。',
+    full: '- 当前 profile: `full`，安装完整 MVP 规则、模板、skills 和 workflows。',
+    minimal: '- 当前 profile: `minimal`，安装最小 Codex 入口规则和模板。',
+  };
+
+  return {
+    hooksLine: hasTarget('.codex/hooks.json') ? '- Codex hook 配置位于 `.codex/hooks.json`。' : '',
+    profileLine: profileLines[profile] ?? `- 当前 profile: \`${profile}\`。`,
+    reviewLoopLine: hasReviewLoop ? '- 当前 profile 包含 review / loop 资产。' : '',
+    rulesLine: hasPrefix('docs/rules/') ? '- 规则位于 `docs/rules/`。' : '',
+    skillsLine: hasPrefix('.agents/skills/') ? '- Skills 位于 `.agents/skills/`。' : '',
+    templatesLine: hasPrefix('docs/templates/') ? '- 模板位于 `docs/templates/`。' : '',
+    workflowsLine: hasPrefix('docs/workflows/') ? '- Workflows 位于 `docs/workflows/`。' : '',
+  };
+}
+
 export async function createInstallPlan({
   dryRun = true,
   force = false,
@@ -84,11 +112,19 @@ export async function createInstallPlan({
     });
   }
 
+  const installedSurface = createInstalledSurface({
+    profile,
+    targets: actions.map((action) => action.relativeTarget),
+  });
+
   return {
     dryRun,
     force,
     profile,
-    renderData: withDefaultTemplateData(renderData),
+    renderData: withDefaultTemplateData({
+      ...renderData,
+      installedSurface,
+    }),
     redZoneConfirmed: false,
     targetDir: path.resolve(targetDir),
     upgrade,
@@ -121,6 +157,14 @@ export async function previewInstallPlan(plan) {
 export async function diffTargetInstall({ profile = 'codex-internal', renderData = {}, rootDir, targetDir }) {
   const { installMap, selectedProfile } = await loadProfileInstallMap({ profile, rootDir });
   const allowedGroups = new Set(selectedProfile.groups);
+  const selectedEntries = installMap.entries.filter((entry) => allowedGroups.has(entry.group));
+  const renderedData = withDefaultTemplateData({
+    ...renderData,
+    installedSurface: createInstalledSurface({
+      profile,
+      targets: selectedEntries.map((entry) => entry.target),
+    }),
+  });
   const expected = [];
   const missing = [];
   const same = [];
@@ -128,10 +172,7 @@ export async function diffTargetInstall({ profile = 'codex-internal', renderData
   const redZone = [];
   const expectedTargets = new Set();
 
-  for (const entry of installMap.entries) {
-    if (!allowedGroups.has(entry.group)) {
-      continue;
-    }
+  for (const entry of selectedEntries) {
     const target = path.resolve(targetDir, entry.target);
     const source = path.resolve(rootDir, entry.source);
     const item = {
@@ -148,7 +189,7 @@ export async function diffTargetInstall({ profile = 'codex-internal', renderData
 
     if (await pathExists(target)) {
       const [sourceContent, targetContent] = await Promise.all([
-        renderActionContent({ source }, withDefaultTemplateData(renderData)),
+        renderActionContent({ source }, renderedData),
         readFile(target, 'utf8'),
       ]);
       if (sourceContent !== targetContent) {

@@ -26,6 +26,26 @@ async function runCli(args) {
   return result.stdout ? JSON.parse(result.stdout) : null;
 }
 
+async function initAndDryRunProfile(profile) {
+  const target = await mkdtemp(path.join(tmpdir(), `loopengine-${profile}-profile-`));
+  await runCli(['init', '--project', target]);
+  const report = await runCli([
+    'install',
+    '--project',
+    target,
+    '--target',
+    'codex',
+    '--profile',
+    profile,
+    '--dry-run',
+  ]);
+  return { report, target };
+}
+
+function targetsFrom(report) {
+  return report.actions.map((action) => action.relativeTarget).sort();
+}
+
 test('init --project writes the MVP loopengine.config.json defaults', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-init-'));
   try {
@@ -110,6 +130,168 @@ test('validate --project rejects invalid config and forbidden generated output t
     await assert.rejects(
       execFileAsync(process.execPath, [cliPath, 'validate', '--project', target]),
       /forbidden term/i,
+    );
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('minimal profile excludes lifecycle, review, loop, and skills assets', async () => {
+  const { report, target } = await initAndDryRunProfile('minimal');
+  try {
+    const targets = targetsFrom(report);
+
+    assert.equal(targets.includes('AGENTS.md'), true);
+    assert.equal(targets.includes('docs/rules/agent-collaboration.md'), true);
+    assert.equal(targets.includes('docs/templates/workflow-packet.md'), true);
+    assert.equal(targets.includes('docs/rules/task-lifecycle.md'), false);
+    assert.equal(targets.includes('docs/rules/task-rules.md'), false);
+    assert.equal(targets.includes('docs/rules/review-rules.md'), false);
+    assert.equal(targets.includes('docs/rules/loop-engineering.md'), false);
+    assert.equal(targets.includes('.agents/skills/loop-planning/SKILL.md'), false);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('core profile includes lifecycle assets but excludes full review and loop assets', async () => {
+  const { report, target } = await initAndDryRunProfile('core');
+  try {
+    const targets = targetsFrom(report);
+
+    assert.equal(targets.includes('docs/rules/task-lifecycle.md'), true);
+    assert.equal(targets.includes('docs/rules/task-rules.md'), true);
+    assert.equal(targets.includes('docs/rules/skill-routing.md'), true);
+    assert.equal(targets.includes('.agents/skills/task-intake/SKILL.md'), true);
+    assert.equal(targets.includes('docs/workflows/full.md'), true);
+    assert.equal(targets.includes('docs/rules/review-rules.md'), false);
+    assert.equal(targets.includes('docs/rules/loop-engineering.md'), false);
+    assert.equal(targets.includes('docs/workflows/review.md'), false);
+    assert.equal(targets.includes('docs/workflows/loop.md'), false);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('full profile adds review and loop assets beyond core', async () => {
+  const core = await initAndDryRunProfile('core');
+  const full = await initAndDryRunProfile('full');
+  try {
+    const coreTargets = targetsFrom(core.report);
+    const fullTargets = targetsFrom(full.report);
+
+    assert.equal(fullTargets.length > coreTargets.length, true);
+    assert.equal(fullTargets.includes('docs/rules/review-rules.md'), true);
+    assert.equal(fullTargets.includes('docs/rules/loop-engineering.md'), true);
+    assert.equal(fullTargets.includes('.agents/skills/review-checklist/SKILL.md'), true);
+    assert.equal(fullTargets.includes('.agents/skills/loop-planning/SKILL.md'), true);
+    assert.equal(fullTargets.includes('docs/workflows/review.md'), true);
+    assert.equal(fullTargets.includes('docs/workflows/loop.md'), true);
+  } finally {
+    await rm(core.target, { force: true, recursive: true });
+    await rm(full.target, { force: true, recursive: true });
+  }
+});
+
+test('validate and install require init-generated loopengine.config.json', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-missing-config-'));
+  try {
+    await assert.rejects(
+      execFileAsync(process.execPath, [cliPath, 'validate', '--project', target]),
+      /loopengine\.config\.json/,
+    );
+    await assert.rejects(
+      execFileAsync(process.execPath, [
+        cliPath,
+        'install',
+        '--project',
+        target,
+        '--target',
+        'codex',
+        '--profile',
+        'core',
+        '--dry-run',
+      ]),
+      /loopengine\.config\.json/,
+    );
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('rendered AGENTS surface matches minimal, core, full, and internal profile installs', async () => {
+  const minimal = await initAndDryRunProfile('minimal');
+  const core = await initAndDryRunProfile('core');
+  const full = await initAndDryRunProfile('full');
+  const internalTarget = await mkdtemp(path.join(tmpdir(), 'loopengine-internal-profile-'));
+
+  try {
+    const minimalAgents = minimal.report.previewFiles.find((file) => file.target === 'AGENTS.md').content;
+    const coreAgents = core.report.previewFiles.find((file) => file.target === 'AGENTS.md').content;
+    const fullAgents = full.report.previewFiles.find((file) => file.target === 'AGENTS.md').content;
+    const internalReport = await runCli([
+      'install',
+      '--target',
+      internalTarget,
+      '--profile',
+      'codex-internal',
+      '--dry-run',
+    ]);
+    const internalAgents = internalReport.previewFiles.find((file) => file.target === 'AGENTS.md').content;
+
+    assert.equal(minimalAgents.includes('.agents/skills/'), false);
+    assert.equal(minimalAgents.includes('.codex/hooks.json'), false);
+    assert.equal(coreAgents.includes('.agents/skills/'), true);
+    assert.equal(coreAgents.includes('.codex/hooks.json'), false);
+    assert.equal(fullAgents.includes('.agents/skills/'), true);
+    assert.equal(fullAgents.includes('.codex/hooks.json'), false);
+    assert.equal(fullAgents.includes('review / loop'), true);
+    assert.equal(internalAgents.includes('.agents/skills/'), true);
+    assert.equal(internalAgents.includes('.codex/hooks.json'), true);
+  } finally {
+    await rm(minimal.target, { force: true, recursive: true });
+    await rm(core.target, { force: true, recursive: true });
+    await rm(full.target, { force: true, recursive: true });
+    await rm(internalTarget, { force: true, recursive: true });
+  }
+});
+
+test('validate --project catches generated AGENTS references that are not installed by the profile', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-mismatched-agents-'));
+  try {
+    await runCli(['init', '--project', target]);
+    await writeFile(
+      path.join(target, 'loopengine.config.json'),
+      JSON.stringify({
+        projectName: path.basename(target),
+        language: 'zh-CN',
+        packageManager: 'pnpm',
+        target: 'codex',
+        profile: 'minimal',
+        validationCommands: {
+          lint: 'pnpm lint',
+          typecheck: 'pnpm check:type',
+          governance: 'pnpm run check:governance',
+        },
+        riskZones: {
+          red: ['auth'],
+          yellow: ['shared components'],
+        },
+        crossRepo: {
+          enabled: false,
+          backendRepo: '',
+        },
+        installedSurface: {
+          skillsLine: '- Skills 位于 `.agents/skills/`。',
+          hooksLine: '- Codex hook 配置位于 `.codex/hooks.json`。',
+        },
+      }),
+      'utf8',
+    );
+
+    await assert.rejects(
+      execFileAsync(process.execPath, [cliPath, 'validate', '--project', target]),
+      /not installed by profile/i,
     );
   } finally {
     await rm(target, { force: true, recursive: true });

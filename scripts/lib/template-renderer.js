@@ -1,4 +1,13 @@
 const defaultTemplateData = {
+  installedSurface: {
+    hooksLine: '',
+    profileLine: '- 当前 profile 使用 LoopEngine Codex 安装面。',
+    reviewLoopLine: '',
+    rulesLine: '- 规则位于 `docs/rules/`。',
+    skillsLine: '',
+    templatesLine: '- 模板位于 `docs/templates/`。',
+    workflowsLine: '',
+  },
   packageManager: 'pnpm',
   projectName: 'target project',
   validationCommands: {
@@ -21,6 +30,10 @@ export function withDefaultTemplateData(data = {}) {
   return {
     ...defaultTemplateData,
     ...data,
+    installedSurface: {
+      ...defaultTemplateData.installedSurface,
+      ...(data.installedSurface ?? {}),
+    },
     validationCommands: {
       ...defaultTemplateData.validationCommands,
       ...(data.validationCommands ?? {}),

@@ -12,7 +12,7 @@ import {
 } from './lib/install-planner.js';
 import { validatePack } from './lib/pack-validation.js';
 import {
-  readProjectConfig,
+  readRequiredProjectConfig,
   validateConfigAndGeneratedContent,
   validateProjectConfig,
   writeDefaultProjectConfig,
@@ -66,13 +66,11 @@ async function install(args) {
   }
 
   const targetDir = isMvpMode ? path.resolve(args.project) : path.resolve(args.target ?? process.cwd());
-  const config = isMvpMode ? await readProjectConfig(targetDir) : null;
+  const config = isMvpMode ? await readRequiredProjectConfig(targetDir) : null;
   const profile = args.profile ?? config?.profile ?? 'codex-internal';
   const renderData = config ? { ...config, profile, target: args.target ?? config.target } : {};
   if (config) {
     validateProjectConfig({ ...config, profile, target: args.target ?? config.target });
-    const agentsTemplate = await readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8');
-    validateConfigAndGeneratedContent({ ...config, profile, target: args.target ?? config.target }, agentsTemplate);
   }
 
   const plan = await createInstallPlan({
@@ -84,6 +82,16 @@ async function install(args) {
     targetDir,
     upgrade: Boolean(args.upgrade),
   });
+  if (config) {
+    const agentsTemplate = await readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8');
+    const installedTargets = plan.actions.map((action) => action.relativeTarget);
+    validateConfigAndGeneratedContent(
+      { ...config, profile, target: args.target ?? config.target },
+      agentsTemplate,
+      { installedTargets },
+    );
+    validateConfigAndGeneratedContent(plan.renderData, agentsTemplate, { installedTargets });
+  }
   plan.redZoneConfirmed = Boolean(args['confirm-red-zone']);
   const result = await applyInstallPlan(plan);
   const previewFiles = plan.dryRun ? await previewInstallPlan(plan) : [];
@@ -101,10 +109,20 @@ async function install(args) {
 async function validate(args) {
   if (args.project) {
     const targetDir = path.resolve(args.project);
-    const config = await readProjectConfig(targetDir);
+    const config = await readRequiredProjectConfig(targetDir);
     validateProjectConfig(config);
+    const plan = await createInstallPlan({
+      dryRun: true,
+      force: true,
+      profile: config.profile,
+      renderData: config,
+      rootDir,
+      targetDir,
+    });
     const agentsTemplate = await readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8');
-    validateConfigAndGeneratedContent(config, agentsTemplate);
+    const installedTargets = plan.actions.map((action) => action.relativeTarget);
+    validateConfigAndGeneratedContent(config, agentsTemplate, { installedTargets });
+    validateConfigAndGeneratedContent(plan.renderData, agentsTemplate, { installedTargets });
     const pack = await validatePack(rootDir);
     if (!pack.ok) {
       console.error(JSON.stringify(pack, null, 2));

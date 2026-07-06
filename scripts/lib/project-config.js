@@ -71,6 +71,14 @@ export async function readProjectConfig(projectDir) {
   return JSON.parse(await readFile(configPath, 'utf8'));
 }
 
+export async function readRequiredProjectConfig(projectDir) {
+  const configPath = path.join(projectDir, 'loopengine.config.json');
+  if (!await pathExists(configPath)) {
+    throw new Error(`Missing loopengine.config.json. Run loopengine init --project ${projectDir} first.`);
+  }
+  return JSON.parse(await readFile(configPath, 'utf8'));
+}
+
 function assertObject(value, label) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`${label} must be an object`);
@@ -107,7 +115,14 @@ export function validateProjectConfig(config) {
   return true;
 }
 
-export function validateGeneratedContent(content) {
+function hasInstalledSurface(installedTargets, { exact, prefix }) {
+  if (exact) {
+    return installedTargets.includes(exact);
+  }
+  return installedTargets.some((target) => target.startsWith(prefix));
+}
+
+export function validateGeneratedContent(content, { installedTargets } = {}) {
   const requiredFragments = [
     'git status --short',
     '红区',
@@ -125,11 +140,38 @@ export function validateGeneratedContent(content) {
       throw new Error(`Generated content contains forbidden term: ${term}`);
     }
   }
+
+  if (Array.isArray(installedTargets)) {
+    const normalizedTargets = installedTargets.map((target) => target.replaceAll('\\', '/'));
+    const surfaceChecks = [
+      {
+        fragment: '.agents/skills/',
+        label: '.agents/skills/',
+        prefix: '.agents/skills/',
+      },
+      {
+        exact: '.codex/hooks.json',
+        fragment: '.codex/hooks.json',
+        label: '.codex/hooks.json',
+      },
+      {
+        fragment: 'docs/workflows/',
+        label: 'docs/workflows/',
+        prefix: 'docs/workflows/',
+      },
+    ];
+
+    for (const check of surfaceChecks) {
+      if (content.includes(check.fragment) && !hasInstalledSurface(normalizedTargets, check)) {
+        throw new Error(`Generated AGENTS.md references ${check.label} but it is not installed by profile.`);
+      }
+    }
+  }
 }
 
-export function validateConfigAndGeneratedContent(config, agentsTemplate) {
+export function validateConfigAndGeneratedContent(config, agentsTemplate, options = {}) {
   validateProjectConfig(config);
   const rendered = renderTemplate(agentsTemplate, config);
-  validateGeneratedContent(rendered);
+  validateGeneratedContent(rendered, options);
   return rendered;
 }

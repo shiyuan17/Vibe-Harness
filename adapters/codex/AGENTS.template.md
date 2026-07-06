@@ -28,9 +28,12 @@
 
 ## 核心位置
 
-- 规则位于 `docs/rules/`。
-- 模板位于 `docs/templates/`。
-- Skills 位于 `.agents/skills/`。
-- Codex hook 配置位于 `.codex/hooks.json`。
+{{installedSurface.profileLine}}
+{{installedSurface.rulesLine}}
+{{installedSurface.templatesLine}}
+{{installedSurface.skillsLine}}
+{{installedSurface.workflowsLine}}
+{{installedSurface.reviewLoopLine}}
+{{installedSurface.hooksLine}}
 
 LoopEngine 不覆盖本项目本地规则；如果本地规则更严格，遵循更严格的规则。
