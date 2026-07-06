@@ -3,8 +3,21 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { applyRollbackPlan, createRollbackPlan } from './lib/install-state.js';
-import { applyInstallPlan, createInstallPlan, diffTargetInstall, inspectTargetInstall } from './lib/install-planner.js';
+import {
+  applyInstallPlan,
+  createInstallPlan,
+  diffTargetInstall,
+  inspectTargetInstall,
+  previewInstallPlan,
+} from './lib/install-planner.js';
 import { validatePack } from './lib/pack-validation.js';
+import {
+  readProjectConfig,
+  validateConfigAndGeneratedContent,
+  validateProjectConfig,
+  writeDefaultProjectConfig,
+} from './lib/project-config.js';
+import { readFile } from 'node:fs/promises';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -28,25 +41,80 @@ function parseArgs(argv) {
   return args;
 }
 
-async function install(args) {
-  if (args.apply && args['dry-run']) {
-    throw new Error('Use either --apply or --dry-run, not both.');
-  }
-  const targetDir = path.resolve(args.target ?? process.cwd());
-  const plan = await createInstallPlan({
-    dryRun: !args.apply,
+async function init(args) {
+  const projectDir = path.resolve(args.project ?? process.cwd());
+  const result = await writeDefaultProjectConfig({
     force: Boolean(args.force),
-    profile: args.profile ?? 'codex-internal',
+    projectDir,
+  });
+  console.log(JSON.stringify({
+    config: result.config,
+    path: result.path,
+    written: [result.path],
+  }, null, 2));
+}
+
+async function install(args) {
+  const isMvpMode = Boolean(args.project);
+  const writeRequested = Boolean(args.write || args.apply);
+  const dryRunRequested = Boolean(args['dry-run']) || !writeRequested;
+  if ((args.apply || args.write) && args['dry-run']) {
+    throw new Error('Use --write/--apply or --dry-run, not both.');
+  }
+  if (isMvpMode && args.target && args.target !== 'codex') {
+    throw new Error(`Unknown target: ${args.target}`);
+  }
+
+  const targetDir = isMvpMode ? path.resolve(args.project) : path.resolve(args.target ?? process.cwd());
+  const config = isMvpMode ? await readProjectConfig(targetDir) : null;
+  const profile = args.profile ?? config?.profile ?? 'codex-internal';
+  const renderData = config ? { ...config, profile, target: args.target ?? config.target } : {};
+  if (config) {
+    validateProjectConfig({ ...config, profile, target: args.target ?? config.target });
+    const agentsTemplate = await readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8');
+    validateConfigAndGeneratedContent({ ...config, profile, target: args.target ?? config.target }, agentsTemplate);
+  }
+
+  const plan = await createInstallPlan({
+    dryRun: dryRunRequested,
+    force: Boolean(args.force || isMvpMode),
+    profile,
+    renderData,
     rootDir,
     targetDir,
     upgrade: Boolean(args.upgrade),
   });
   plan.redZoneConfirmed = Boolean(args['confirm-red-zone']);
   const result = await applyInstallPlan(plan);
-  console.log(JSON.stringify({ actions: plan.actions, dryRun: plan.dryRun, profile: plan.profile, written: result.written }, null, 2));
+  const previewFiles = plan.dryRun ? await previewInstallPlan(plan) : [];
+  console.log(JSON.stringify({
+    actions: plan.actions,
+    dryRun: plan.dryRun,
+    previewFiles,
+    profile: plan.profile,
+    target: isMvpMode ? (args.target ?? config.target) : undefined,
+    targetDir: plan.targetDir,
+    written: result.written,
+  }, null, 2));
 }
 
 async function validate(args) {
+  if (args.project) {
+    const targetDir = path.resolve(args.project);
+    const config = await readProjectConfig(targetDir);
+    validateProjectConfig(config);
+    const agentsTemplate = await readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8');
+    validateConfigAndGeneratedContent(config, agentsTemplate);
+    const pack = await validatePack(rootDir);
+    if (!pack.ok) {
+      console.error(JSON.stringify(pack, null, 2));
+      process.exitCode = 1;
+      return;
+    }
+    console.log(JSON.stringify({ ok: true, scope: 'project', targetDir }, null, 2));
+    return;
+  }
+
   if (args.target) {
     const report = await inspectTargetInstall({
       profile: args.profile ?? 'codex-internal',
@@ -102,7 +170,9 @@ async function rollback(args) {
 
 const args = parseArgs(process.argv.slice(2));
 const command = args._[0] ?? 'help';
-if (command === 'install') {
+if (command === 'init') {
+  await init(args);
+} else if (command === 'install') {
   await install(args);
 } else if (command === 'validate') {
   await validate(args);
@@ -113,6 +183,6 @@ if (command === 'install') {
 } else if (command === 'rollback') {
   await rollback(args);
 } else {
-  console.log('Usage: loopengine <install|validate|doctor|diff|rollback> [--target path] [--profile name] [--apply] [--dry-run] [--force] [--upgrade] [--confirm-red-zone]');
-  console.log('Install defaults to dry-run. Use --apply for writes. Red-zone writes require --confirm-red-zone.');
+  console.log('Usage: loopengine <init|install|validate|doctor|diff|rollback> [--project path] [--target codex|path] [--profile minimal|core|full] [--write|--apply] [--dry-run] [--force] [--upgrade] [--confirm-red-zone]');
+  console.log('MVP install uses --project <path> --target codex. Legacy install uses --target <path>. Install defaults to dry-run.');
 }

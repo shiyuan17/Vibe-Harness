@@ -1,0 +1,135 @@
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+
+import { pathExists } from './manifest.js';
+import { renderTemplate } from './template-renderer.js';
+
+export const mvpProfiles = new Set(['minimal', 'core', 'full']);
+export const mvpTargets = new Set(['codex']);
+
+export const defaultProjectConfig = {
+  projectName: 'ExampleProject',
+  language: 'zh-CN',
+  packageManager: 'pnpm',
+  target: 'codex',
+  profile: 'core',
+  validationCommands: {
+    lint: 'pnpm lint',
+    typecheck: 'pnpm check:type',
+    governance: 'pnpm run check:governance',
+  },
+  riskZones: {
+    red: ['auth', 'global request layer', 'ci/cd', 'env'],
+    yellow: ['shared components', 'stores', 'routing', 'request clients'],
+  },
+  crossRepo: {
+    enabled: false,
+    backendRepo: '',
+  },
+};
+
+export const forbiddenProjectTerms = [
+  'SYBaseProjectWeb',
+  'SYBaseProject',
+  '病理',
+  'localhost:5777',
+];
+
+export function profileToCatalogProfile(profile) {
+  if (profile === 'minimal') {
+    return 'minimal';
+  }
+  if (profile === 'core' || profile === 'full') {
+    return profile;
+  }
+  return profile;
+}
+
+export function createDefaultProjectConfig(projectDir) {
+  return {
+    ...defaultProjectConfig,
+    projectName: path.basename(path.resolve(projectDir)),
+  };
+}
+
+export async function writeDefaultProjectConfig({ force = false, projectDir }) {
+  const target = path.join(projectDir, 'loopengine.config.json');
+  if (!force && await pathExists(target)) {
+    throw new Error(`Refusing to overwrite existing config: ${target}`);
+  }
+  await mkdir(projectDir, { recursive: true });
+  const config = createDefaultProjectConfig(projectDir);
+  await writeFile(target, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+  return { config, path: target };
+}
+
+export async function readProjectConfig(projectDir) {
+  const configPath = path.join(projectDir, 'loopengine.config.json');
+  if (!await pathExists(configPath)) {
+    return createDefaultProjectConfig(projectDir);
+  }
+  return JSON.parse(await readFile(configPath, 'utf8'));
+}
+
+function assertObject(value, label) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${label} must be an object`);
+  }
+}
+
+function assertNonEmptyString(value, label) {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error(`${label} is required`);
+  }
+}
+
+export function validateProjectConfig(config) {
+  assertObject(config, 'loopengine.config.json');
+  for (const term of forbiddenProjectTerms) {
+    if (JSON.stringify(config).includes(term)) {
+      throw new Error(`Config contains forbidden term: ${term}`);
+    }
+  }
+  assertNonEmptyString(config.projectName, 'projectName');
+  assertNonEmptyString(config.packageManager, 'packageManager');
+  assertNonEmptyString(config.target, 'target');
+  assertNonEmptyString(config.profile, 'profile');
+  if (!mvpTargets.has(config.target)) {
+    throw new Error(`Unknown target: ${config.target}`);
+  }
+  if (!mvpProfiles.has(config.profile)) {
+    throw new Error(`Unknown profile: ${config.profile}`);
+  }
+  assertObject(config.validationCommands, 'validationCommands');
+  assertNonEmptyString(config.validationCommands.lint, 'validationCommands.lint');
+  assertNonEmptyString(config.validationCommands.typecheck, 'validationCommands.typecheck');
+  assertNonEmptyString(config.validationCommands.governance, 'validationCommands.governance');
+  return true;
+}
+
+export function validateGeneratedContent(content) {
+  const requiredFragments = [
+    'git status --short',
+    '红区',
+    '人工确认',
+    '验证证据',
+    '工作流交付包',
+  ];
+  const missing = requiredFragments.filter((fragment) => !content.includes(fragment));
+  if (missing.length > 0) {
+    throw new Error(`Generated AGENTS.md is missing required red lines: ${missing.join(', ')}`);
+  }
+
+  for (const term of forbiddenProjectTerms) {
+    if (content.includes(term)) {
+      throw new Error(`Generated content contains forbidden term: ${term}`);
+    }
+  }
+}
+
+export function validateConfigAndGeneratedContent(config, agentsTemplate) {
+  validateProjectConfig(config);
+  const rendered = renderTemplate(agentsTemplate, config);
+  validateGeneratedContent(rendered);
+  return rendered;
+}

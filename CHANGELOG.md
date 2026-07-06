@@ -4,6 +4,8 @@
 
 - 新增 `.loopengine/install-state.json` 安装状态记录。
 - 新增 `loopengine diff`、`install --upgrade` 和 `loopengine rollback`。
+- 新增 MVP 项目模式：`loopengine init --project`、`install --project <path> --target codex --profile minimal|core|full --write`、`validate --project`。
+- 新增 `loopengine.config.json`、Codex `AGENTS.md` 模板渲染和 `minimal` / `core` / `full` profiles。
 - 强制覆盖或升级前生成目标项目本地备份。
 - 回滚红区文件时要求显式 `--confirm-red-zone`。
 

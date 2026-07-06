@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
@@ -11,6 +11,7 @@ import {
   writeInstallState,
 } from './install-state.js';
 import { pathExists, readJson, validateCatalogManifest, validateInstallMapShape } from './manifest.js';
+import { renderTemplate, withDefaultTemplateData } from './template-renderer.js';
 
 async function loadProfileInstallMap({ profile, rootDir }) {
   const profiles = await readJson(path.join(rootDir, 'manifests/profiles.json'));
@@ -37,6 +38,7 @@ export async function createInstallPlan({
   dryRun = true,
   force = false,
   profile = 'codex-internal',
+  renderData = {},
   rootDir,
   targetDir,
   upgrade = false,
@@ -86,6 +88,7 @@ export async function createInstallPlan({
     dryRun,
     force,
     profile,
+    renderData: withDefaultTemplateData(renderData),
     redZoneConfirmed: false,
     targetDir: path.resolve(targetDir),
     upgrade,
@@ -94,7 +97,28 @@ export async function createInstallPlan({
   };
 }
 
-export async function diffTargetInstall({ profile = 'codex-internal', rootDir, targetDir }) {
+export async function renderActionContent(action, renderData = {}) {
+  const content = await readFile(action.source, 'utf8');
+  return renderTemplate(content, renderData);
+}
+
+export async function previewInstallPlan(plan) {
+  const previewFiles = [];
+  for (const action of plan.actions) {
+    if (action.kind === 'conflict' || action.kind === 'user-modified') {
+      continue;
+    }
+    previewFiles.push({
+      content: await renderActionContent(action, plan.renderData),
+      group: action.group,
+      redZone: action.redZone,
+      target: action.relativeTarget,
+    });
+  }
+  return previewFiles;
+}
+
+export async function diffTargetInstall({ profile = 'codex-internal', renderData = {}, rootDir, targetDir }) {
   const { installMap, selectedProfile } = await loadProfileInstallMap({ profile, rootDir });
   const allowedGroups = new Set(selectedProfile.groups);
   const expected = [];
@@ -124,7 +148,7 @@ export async function diffTargetInstall({ profile = 'codex-internal', rootDir, t
 
     if (await pathExists(target)) {
       const [sourceContent, targetContent] = await Promise.all([
-        readFile(source, 'utf8'),
+        renderActionContent({ source }, withDefaultTemplateData(renderData)),
         readFile(target, 'utf8'),
       ]);
       if (sourceContent !== targetContent) {
@@ -194,7 +218,7 @@ export async function applyInstallPlan(plan) {
     }
 
     await mkdir(path.dirname(action.target), { recursive: true });
-    await copyFile(action.source, action.target);
+    await writeFile(action.target, await renderActionContent(action, plan.renderData), 'utf8');
     written.push(action.target);
     files.push({
       backup,

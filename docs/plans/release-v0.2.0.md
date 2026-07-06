@@ -9,5 +9,8 @@
 - 运行 `rollback --target <temp-project> --dry-run`。
 - 运行 `rollback --target <temp-project> --apply --confirm-red-zone`。
 - 确认 rollback 不覆盖安装后又被用户修改的文件，并清理 `.loopengine/install-state.json`。
+- 运行 `init --project <temp-project>` 并确认生成 `loopengine.config.json`。
+- 运行 `install --project <temp-project> --target codex --profile core --dry-run` 并确认不写入 `AGENTS.md`。
+- 运行 `install --project <temp-project> --target codex --profile core --write` 和 `validate --project <temp-project>`。
 - 确认 README 明确 v0.2 仍只承诺 Codex adapter。
 - 获得批准后打发布 tag：`v0.2.0`。
