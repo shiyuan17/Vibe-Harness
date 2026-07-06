@@ -1,0 +1,8 @@
+{
+  "hooks": {
+    "session_start": [],
+    "pre_tool_use": [],
+    "post_tool_use": []
+  },
+  "notes": "LoopEngine v0.1 ships a placeholder hook file. Projects can opt in to stricter hooks later."
+}

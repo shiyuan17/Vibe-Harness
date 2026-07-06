@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    { "id": "agent-collaboration", "source": "rules/agent-collaboration.md" },
+    { "id": "quickstart", "source": "rules/quickstart.md" },
+    { "id": "workflow", "source": "rules/workflow.md" },
+    { "id": "dynamic-workflow", "source": "rules/dynamic-workflow.md" },
+    { "id": "task-lifecycle", "source": "rules/task-lifecycle.md" },
+    { "id": "task-rules", "source": "rules/task-rules.md" },
+    { "id": "git-rules", "source": "rules/git-rules.md" },
+    { "id": "review-rules", "source": "rules/review-rules.md" },
+    { "id": "test-rules", "source": "rules/test-rules.md" },
+    { "id": "loop-engineering", "source": "rules/loop-engineering.md" },
+    { "id": "skill-routing", "source": "rules/skill-routing.md" }
+  ]
+}

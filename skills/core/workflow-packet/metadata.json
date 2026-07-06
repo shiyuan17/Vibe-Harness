@@ -1,0 +1,1 @@
+{"id":"workflow-packet","kind":"core","entry":"SKILL.md","triggers":["delivery","risk classification","workflow"],"outputs":["workflow packet"]}

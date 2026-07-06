@@ -1,0 +1,1 @@
+{"id":"task-intake","kind":"core","entry":"SKILL.md","triggers":["new task","unclear request","intake"],"outputs":["task block"]}

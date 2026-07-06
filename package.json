@@ -1,0 +1,23 @@
+{
+  "name": "@jw/loopengine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reusable Codex-first AI coding governance, skills, workflow, and installer pack.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "loopengine": "./scripts/loopengine.js"
+  },
+  "scripts": {
+    "loopengine": "node ./scripts/loopengine.js",
+    "lint": "node ./scripts/validate.js --lint",
+    "test": "node --test tests/*.test.js",
+    "check": "node ./scripts/validate.js && node --test tests/*.test.js",
+    "pack:preview": "node ./scripts/pack-preview.js"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=10.0.0"
+  },
+  "packageManager": "pnpm@10.33.0"
+}

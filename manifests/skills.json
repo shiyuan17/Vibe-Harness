@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    { "id": "task-intake", "source": "skills/core/task-intake/SKILL.md", "metadata": "skills/core/task-intake/metadata.json" },
+    { "id": "workflow-packet", "source": "skills/core/workflow-packet/SKILL.md", "metadata": "skills/core/workflow-packet/metadata.json" },
+    { "id": "loop-planning", "source": "skills/core/loop-planning/SKILL.md", "metadata": "skills/core/loop-planning/metadata.json" },
+    { "id": "review-checklist", "source": "skills/core/review-checklist/SKILL.md", "metadata": "skills/core/review-checklist/metadata.json" },
+    { "id": "handoff", "source": "skills/core/handoff/SKILL.md", "metadata": "skills/core/handoff/metadata.json" },
+    { "id": "agentmemory", "source": "skills/integrations/agentmemory/SKILL.md", "metadata": "skills/integrations/agentmemory/metadata.json" },
+    { "id": "open-code-review", "source": "skills/integrations/open-code-review/SKILL.md", "metadata": "skills/integrations/open-code-review/metadata.json" },
+    { "id": "browser-verification", "source": "skills/integrations/browser-verification/SKILL.md", "metadata": "skills/integrations/browser-verification/metadata.json" }
+  ]
+}

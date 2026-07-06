@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    { "id": "codex-internal", "description": "Full Codex internal governance pack.", "installMap": "adapters/codex/install-map.json", "groups": ["agents", "rules", "templates", "skills", "workflows", "hooks"] },
+    { "id": "codex-minimal", "description": "Minimal Codex entry rules and task templates.", "installMap": "adapters/codex/install-map.json", "groups": ["agents", "rules", "templates"] },
+    { "id": "docs-only", "description": "Reusable docs without Codex hooks or skills.", "installMap": "adapters/codex/install-map.json", "groups": ["rules", "templates", "workflows"] }
+  ]
+}

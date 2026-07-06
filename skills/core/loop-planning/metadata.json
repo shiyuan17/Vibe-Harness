@@ -1,0 +1,1 @@
+{"id":"loop-planning","kind":"core","entry":"SKILL.md","triggers":["loop","continuous verification","bounded iteration"],"outputs":["loop packet","ledger"]}
