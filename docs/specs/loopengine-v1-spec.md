@@ -21,10 +21,14 @@
 
 ## 接口
 
-- `loopengine install --target <path> --profile <name> [--dry-run] [--force] [--confirm-red-zone]`
+- `loopengine install --target <path> --profile <name> [--dry-run] [--apply] [--force] [--confirm-red-zone]`
 - `loopengine validate --target <path>`
 - `loopengine doctor --target <path>`
 
+安装默认 dry-run。真实写入必须使用 `--apply`；红区写入必须同时使用 `--confirm-red-zone`。`--apply` 与 `--dry-run` 不应同时出现。
+
+`validate` 不带 `--target` 时校验 LoopEngine 包自身；带 `--target` 时检查目标项目是否已经具备所选 profile 的期望文件。`doctor` 用于输出包校验和目标安装状态。
+
 ## 验证
 
-发布前运行 `pnpm check`，对临时目标目录执行 dry-run install，并运行 `loopengine doctor`。
+发布前运行 `pnpm check`，对临时目标目录执行 dry-run install、真实安装 smoke、`loopengine validate --target <temp-project>` 和 `loopengine doctor --target <temp-project>`。

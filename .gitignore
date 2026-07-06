@@ -1,5 +1,7 @@
 node_modules/
 .pnpm-store/
+.codegraph/
+.cursor/
 .DS_Store
 *.log
 coverage/

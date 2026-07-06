@@ -2,9 +2,8 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { applyInstallPlan, createInstallPlan } from './lib/install-planner.js';
-import { loadAllManifests, validateManifestSources } from './lib/manifest.js';
-import { scanForForbiddenTerms } from './lib/redaction.js';
+import { applyInstallPlan, createInstallPlan, inspectTargetInstall } from './lib/install-planner.js';
+import { validatePack } from './lib/pack-validation.js';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -29,6 +28,9 @@ function parseArgs(argv) {
 }
 
 async function install(args) {
+  if (args.apply && args['dry-run']) {
+    throw new Error('Use either --apply or --dry-run, not both.');
+  }
   const targetDir = path.resolve(args.target ?? process.cwd());
   const plan = await createInstallPlan({
     dryRun: !args.apply,
@@ -42,27 +44,36 @@ async function install(args) {
   console.log(JSON.stringify({ actions: plan.actions, dryRun: plan.dryRun, profile: plan.profile, written: result.written }, null, 2));
 }
 
-async function validate() {
-  const manifests = await loadAllManifests(rootDir);
-  const missing = await validateManifestSources(rootDir, manifests);
-  const leaks = await scanForForbiddenTerms({
-    forbiddenTerms: ['SYBaseProjectWeb', 'SYBaseProject', 'D:\\Github\\JW', 'T-019', 'T-024', '患者', '病理', '医疗'],
-    includeDirs: ['rules', 'templates', 'skills/core', 'workflows', 'adapters/codex', 'manifests', 'schemas'],
-    rootDir,
-  });
-  if (missing.length || leaks.length) {
-    console.error(JSON.stringify({ leaks, missing }, null, 2));
+async function validate(args) {
+  if (args.target) {
+    const report = await inspectTargetInstall({
+      profile: args.profile ?? 'codex-internal',
+      rootDir,
+      targetDir: path.resolve(args.target),
+    });
+    console.log(JSON.stringify(report, null, 2));
+    if (!report.ok) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  const report = await validatePack(rootDir);
+  if (!report.ok) {
+    console.error(JSON.stringify(report, null, 2));
     process.exitCode = 1;
     return;
   }
-  console.log('LoopEngine validation passed.');
+  console.log(JSON.stringify({ ok: true, scope: 'pack' }, null, 2));
 }
 
 async function doctor(args) {
   const targetDir = path.resolve(args.target ?? process.cwd());
-  const manifests = await loadAllManifests(rootDir);
-  const missing = await validateManifestSources(rootDir, manifests);
-  console.log(JSON.stringify({ manifestSourcesMissing: missing, rootDir, targetDir }, null, 2));
+  const pack = await validatePack(rootDir);
+  const target = args.target
+    ? await inspectTargetInstall({ profile: args.profile ?? 'codex-internal', rootDir, targetDir })
+    : null;
+  console.log(JSON.stringify({ pack, rootDir, target, targetDir }, null, 2));
 }
 
 const args = parseArgs(process.argv.slice(2));
@@ -70,9 +81,10 @@ const command = args._[0] ?? 'help';
 if (command === 'install') {
   await install(args);
 } else if (command === 'validate') {
-  await validate();
+  await validate(args);
 } else if (command === 'doctor') {
   await doctor(args);
 } else {
-  console.log('Usage: loopengine <install|validate|doctor> [--target path] [--profile name] [--dry-run] [--force] [--confirm-red-zone]');
+  console.log('Usage: loopengine <install|validate|doctor> [--target path] [--profile name] [--apply] [--dry-run] [--force] [--confirm-red-zone]');
+  console.log('Install defaults to dry-run. Use --apply for writes. Red-zone writes require --confirm-red-zone.');
 }
