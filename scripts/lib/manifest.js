@@ -1,4 +1,5 @@
 import { access, readFile } from 'node:fs/promises';
+import path from 'node:path';
 
 export async function pathExists(filePath) {
   try {
@@ -23,6 +24,15 @@ export async function loadAllManifests(rootDir) {
   };
 }
 
+export async function loadAllManifestSchemas(rootDir) {
+  return {
+    profiles: await readJson(`${rootDir}/schemas/profile-pack.schema.json`),
+    rules: await readJson(`${rootDir}/schemas/rule-pack.schema.json`),
+    skills: await readJson(`${rootDir}/schemas/skill-pack.schema.json`),
+    workflows: await readJson(`${rootDir}/schemas/workflow-pack.schema.json`),
+  };
+}
+
 function assertObject(value, label) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`${label} must be an object`);
@@ -33,6 +43,31 @@ function assertNonEmptyString(value, label) {
   if (typeof value !== 'string' || value.length === 0) {
     throw new Error(`${label} is required`);
   }
+}
+
+export function assertPortableRelativePath(value, label) {
+  assertNonEmptyString(value, label);
+  const normalized = value.replaceAll('\\', '/');
+  const segments = normalized.split('/');
+  if (
+    path.isAbsolute(value)
+    || path.win32.isAbsolute(value)
+    || path.posix.isAbsolute(value)
+    || /^[a-zA-Z]:/u.test(value)
+    || segments.some((segment) => segment === '' || segment === '.' || segment === '..')
+  ) {
+    throw new Error(`${label} must be a portable relative path without . or .. segments: ${value}`);
+  }
+}
+
+export function assertInsideDir(baseDir, candidatePath, label) {
+  const resolvedBase = path.resolve(baseDir);
+  const resolvedCandidate = path.resolve(candidatePath);
+  const relative = path.relative(resolvedBase, resolvedCandidate);
+  if (relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))) {
+    return;
+  }
+  throw new Error(`${label} must stay inside ${resolvedBase}: ${resolvedCandidate}`);
 }
 
 export function validateCatalogManifest(name, manifest) {
@@ -55,12 +90,15 @@ export function validateCatalogManifest(name, manifest) {
 
     if (['rules', 'skills', 'workflows'].includes(name)) {
       assertNonEmptyString(item.source, `${name}.items[${index}].source`);
+      assertPortableRelativePath(item.source, `${name}.items[${index}].source`);
     }
     if (name === 'skills') {
       assertNonEmptyString(item.metadata, `${name}.items[${index}].metadata`);
+      assertPortableRelativePath(item.metadata, `${name}.items[${index}].metadata`);
     }
     if (name === 'profiles') {
       assertNonEmptyString(item.installMap, `${name}.items[${index}].installMap`);
+      assertPortableRelativePath(item.installMap, `${name}.items[${index}].installMap`);
       if (!Array.isArray(item.groups) || item.groups.length === 0) {
         throw new Error(`${name}.items[${index}].groups must be a non-empty array`);
       }
@@ -75,6 +113,88 @@ export function validateAllManifestShapes(manifests) {
   for (const [name, manifest] of Object.entries(manifests)) {
     validateCatalogManifest(name, manifest);
   }
+}
+
+function schemaTypeMatches(value, type) {
+  if (type === 'array') {
+    return Array.isArray(value);
+  }
+  if (type === 'integer') {
+    return Number.isInteger(value);
+  }
+  if (type === 'object') {
+    return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+  }
+  return typeof value === type;
+}
+
+export function validateJsonAgainstSchema(value, schema, label = 'value') {
+  const errors = [];
+
+  function visit(currentValue, currentSchema, currentLabel) {
+    if (currentSchema.type && !schemaTypeMatches(currentValue, currentSchema.type)) {
+      errors.push(`${currentLabel} must be ${currentSchema.type}`);
+      return;
+    }
+
+    if (currentSchema.type === 'object') {
+      const required = currentSchema.required ?? [];
+      for (const key of required) {
+        if (!Object.hasOwn(currentValue, key)) {
+          errors.push(`${currentLabel}.${key} is required`);
+        }
+      }
+
+      const properties = currentSchema.properties ?? {};
+      if (currentSchema.additionalProperties === false) {
+        for (const key of Object.keys(currentValue)) {
+          if (!Object.hasOwn(properties, key)) {
+            errors.push(`${currentLabel}.${key} is not allowed`);
+          }
+        }
+      }
+
+      for (const [key, propertySchema] of Object.entries(properties)) {
+        if (Object.hasOwn(currentValue, key)) {
+          visit(currentValue[key], propertySchema, `${currentLabel}.${key}`);
+        }
+      }
+    }
+
+    if (currentSchema.type === 'array') {
+      if (currentSchema.minItems !== undefined && currentValue.length < currentSchema.minItems) {
+        errors.push(`${currentLabel} must contain at least ${currentSchema.minItems} item(s)`);
+      }
+      if (currentSchema.uniqueItems) {
+        const serialized = currentValue.map((item) => JSON.stringify(item));
+        if (new Set(serialized).size !== serialized.length) {
+          errors.push(`${currentLabel} must contain unique items`);
+        }
+      }
+      if (currentSchema.items) {
+        currentValue.forEach((item, index) => visit(item, currentSchema.items, `${currentLabel}[${index}]`));
+      }
+    }
+
+    if (currentSchema.type === 'string' && currentSchema.minLength !== undefined && currentValue.length < currentSchema.minLength) {
+      errors.push(`${currentLabel} must have length >= ${currentSchema.minLength}`);
+    }
+
+    if (currentSchema.type === 'integer' && currentSchema.minimum !== undefined && currentValue < currentSchema.minimum) {
+      errors.push(`${currentLabel} must be >= ${currentSchema.minimum}`);
+    }
+  }
+
+  visit(value, schema, label);
+  return errors;
+}
+
+export function validateAllManifestSchemas(manifests, schemas) {
+  const errors = [];
+  for (const [name, manifest] of Object.entries(manifests)) {
+    errors.push(...validateJsonAgainstSchema(manifest, schemas[name], name));
+  }
+  return errors.sort();
 }
 
 function isRedZoneTarget(target) {
@@ -95,6 +215,8 @@ export function validateInstallMapShape(installMap, allowedGroups) {
     assertNonEmptyString(entry.group, `install-map.entries[${index}].group`);
     assertNonEmptyString(entry.source, `install-map.entries[${index}].source`);
     assertNonEmptyString(entry.target, `install-map.entries[${index}].target`);
+    assertPortableRelativePath(entry.source, `install-map.entries[${index}].source`);
+    assertPortableRelativePath(entry.target, `install-map.entries[${index}].target`);
     if (!allowedGroups.has(entry.group)) {
       throw new Error(`Unknown install-map group: ${entry.group}`);
     }
@@ -114,7 +236,10 @@ export async function validateManifestSources(rootDir, manifests) {
     for (const item of manifest.items ?? []) {
       const candidates = [item.source, item.path, item.template, item.metadata, item.installMap].filter(Boolean);
       for (const candidate of candidates) {
-        if (!(await pathExists(`${rootDir}/${candidate}`))) {
+        assertPortableRelativePath(candidate, 'manifest source');
+        const candidatePath = path.join(rootDir, candidate);
+        assertInsideDir(rootDir, candidatePath, 'manifest source');
+        if (!(await pathExists(candidatePath))) {
           missing.push(candidate);
         }
       }

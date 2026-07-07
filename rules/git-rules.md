@@ -1,18 +1,52 @@
 # Git Rules
 
-先保护用户工作。
+Git 规则的目标是保护用户改动、保持提交可审查、确保 worktree 任务真正 merge-back。
 
-## 基线
+## 启动门禁
 
-- 编辑前运行 `git status --short`。
-- 不回滚无关改动。
-- 当风险、并行或隔离需求较高时，使用分支或 worktree。
-- 未获得明确指令时，不运行破坏性命令。
+- 每次编辑前先运行 `git status --short`。
+- 只处理当前任务路径；归属不清的改动视为用户改动，不覆盖。
+- 低风险文档/只读任务可以不建 worktree；运行时代码、共享契约、构建、跨仓、多 Agent 或当前工作区脏且无法隔离时必须使用独立 worktree。
+
+## AI 提交分组
+
+AI 准备提交前先给出提交分组：
+
+| 字段 | 内容 |
+| --- | --- |
+| Commit group | 验收点和建议 commit message |
+| Included files | 本次提交包含文件 |
+| Excluded files | 明确排除的无关改动 |
+| Validation | 已跑命令和结果 |
+| Risk | 低 / 中 / 高与理由 |
+| Rollback | 回滚方式 |
+| Needs human approval? | 是否需要人工确认 |
+
+低风险可自动提交；中风险需说明验证和风险；高风险、红区或用户要求等待时必须暂停。
+
+## Branch / Commit / PR
+
+- Branch：默认使用 `codex/<scope>-<short-topic>`；已有任务分支或用户指定分支优先。
+- Commit：使用祈使句，说明一个可验收改动；避免 `fix bug`、`update`、`phase 1` 这类不可检索描述。
+- PR：包含 Summary、Risk、Validation、Rollback、Review notes；高风险 PR 必须说明红区确认和独立 Review 状态。
+- 一个 commit 只承载一个逻辑变更；重构和功能变更默认拆开。
 
 ## Worktree
 
-独立实现切片、并行 Agent、高风险实验，或主工作区已有无关改动时，优先使用 worktree。未确认 merge-back 状态前，交付不算闭环。
+- 一个实现任务对应一个 worktree + 分支，除非明确命中低风险例外。
+- worktree 不放在仓库内部，避免被构建或依赖扫描。
+- 子 Agent 只能在指定 worktree、分支和 write scope 内工作。
+- Review Agent 默认只读，不暂存、不提交、不合并。
 
-## Commit
+## Merge-back 完成定义
 
-只有项目规则允许或用户明确要求时才提交。即使不提交，也要在交付中包含验证证据。
+- worktree 中采纳的提交必须合并回当前集成分支或任务声明目标分支。
+- 目标分支未包含 merge-back 结果前，不得宣称任务完成。
+- merge-back 前不得清理 worktree 或删除分支。
+- 主 Agent 负责检查 diff、处理冲突、排除无关改动、统一验证和交付说明。
+
+## 禁止项
+
+- 不使用 `git reset --hard`、`checkout --` 或破坏性清理覆盖用户改动，除非用户明确要求。
+- 不用 `--no-verify` 绕过 hook；确需绕过必须人工确认并说明原因。
+- 不把本地孤立分支、未合并 worktree 或未验证 commit 当作完成状态。

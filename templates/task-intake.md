@@ -1,16 +1,31 @@
 # 任务启动模板
 
+填写规则：标记“必填”的字段不得留空；禁止空泛词（待定、视情况、合适测试、后续补充）。验收标准不清、红区确认缺失或 Write Scope 不明时不得进入 Execute。
+
 - 来源：
-- 编号 / 标题：
+- 编号 / 标题（必填）：
 - 链接：
-- 目标：
-- 验收标准：
-- 非目标：
-- 影响范围：
-- Packet 档位：
-- 主工作流：
+- 目标（必填）：
+- 验收标准（必填）：
+- 非目标（必填）：
+- 影响范围（必填）：
+- Packet 档位（必填：Fast Path / Lightweight / Full）：
+- 主工作流（必填）：
 - 必要修饰器：
-- 风险等级：
-- Worktree 决策：
-- 验证命令：
-- 停止条件：
+- 风险等级（必填：低 / 中 / 高）：
+- Worktree 决策（必填）：
+- 验证命令（必填）：
+- 停止条件（必填）：
+
+## Write Scope
+
+- Allowed（必填）：
+- Forbidden（必填）：
+- Requires human confirmation：
+- Frozen interfaces：
+
+## Forbidden Actions
+
+- 不覆盖用户未归属改动。
+- 不伪造 API、字段、权限、schema、测试结果或发布结果。
+- 不绕过测试、hook、review 或红区确认。

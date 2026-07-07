@@ -1,9 +1,14 @@
 const defaultTemplateData = {
   installedSurface: {
+    codegraphLine: '',
+    engineeringRulesLine: '',
     hooksLine: '',
+    memorySkillsLine: '',
+    operationalRulesLine: '',
     profileLine: '- 当前 profile 使用 LoopEngine Codex 安装面。',
     reviewLoopLine: '',
     rulesLine: '- 规则位于 `docs/rules/`。',
+    skillRoutingLine: '',
     skillsLine: '',
     templatesLine: '- 模板位于 `docs/templates/`。',
     workflowsLine: '',

@@ -2,13 +2,15 @@ import { createHash } from 'node:crypto';
 import { copyFile, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { pathExists, readJson } from './manifest.js';
+import { assertInsideDir, assertPortableRelativePath, pathExists, readJson } from './manifest.js';
 
 const stateDirName = '.loopengine';
 const stateFileName = 'install-state.json';
 
 export function toTargetPath(targetDir, filePath) {
-  return path.relative(targetDir, filePath).replaceAll('\\', '/');
+  const relative = path.relative(targetDir, filePath).replaceAll('\\', '/');
+  assertPortableRelativePath(relative, 'target path');
+  return relative;
 }
 
 export function stateFilePath(targetDir) {
@@ -42,6 +44,7 @@ export async function backupFile({ backupId, target, targetDir }) {
   const relativeTarget = toTargetPath(targetDir, target);
   const backupRelative = `${stateDirName}/backups/${backupId}/${relativeTarget}`;
   const backupPath = path.join(targetDir, backupRelative);
+  assertInsideDir(path.join(targetDir, stateDirName, 'backups'), backupPath, 'backup path');
   await mkdir(path.dirname(backupPath), { recursive: true });
   await copyFile(target, backupPath);
   return backupRelative;
@@ -77,8 +80,13 @@ export async function createRollbackPlan({ dryRun = true, redZoneConfirmed = fal
 
   const actions = [];
   for (const file of [...state.files].reverse()) {
+    assertPortableRelativePath(file.target, 'install-state target');
     const target = path.join(targetDir, file.target);
+    assertInsideDir(targetDir, target, 'install-state target');
     if (file.backup) {
+      assertPortableRelativePath(file.backup, 'install-state backup');
+      const backupPath = path.join(targetDir, file.backup);
+      assertInsideDir(path.join(targetDir, stateDirName, 'backups'), backupPath, 'install-state backup');
       actions.push({
         backup: file.backup,
         expectedHash: file.targetHash,
@@ -124,7 +132,9 @@ export async function applyRollbackPlan(plan) {
   }
 
   for (const action of plan.actions) {
+    assertPortableRelativePath(action.target, 'rollback target');
     const target = path.join(plan.targetDir, action.target);
+    assertInsideDir(plan.targetDir, target, 'rollback target');
     if (action.kind === 'restore-backup') {
       if (await pathExists(target)) {
         const currentHash = await hashFile(target);
@@ -133,7 +143,9 @@ export async function applyRollbackPlan(plan) {
           continue;
         }
       }
+      assertPortableRelativePath(action.backup, 'rollback backup');
       const backupPath = path.join(plan.targetDir, action.backup);
+      assertInsideDir(path.join(plan.targetDir, stateDirName, 'backups'), backupPath, 'rollback backup');
       await mkdir(path.dirname(target), { recursive: true });
       await copyFile(backupPath, target);
       applied.push(action.target);

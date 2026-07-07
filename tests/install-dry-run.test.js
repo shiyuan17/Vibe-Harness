@@ -73,6 +73,25 @@ test('actual install blocks red-zone files without explicit confirmation', async
   }
 });
 
+test('actual install refuses to write outside the target directory', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-escape-'));
+  try {
+    const plan = await createInstallPlan({
+      dryRun: false,
+      profile: 'codex-minimal',
+      rootDir,
+      targetDir: target,
+    });
+    const agents = plan.actions.find((action) => action.relativeTarget === 'AGENTS.md');
+    agents.relativeTarget = '../escape.md';
+    agents.target = path.resolve(target, '../escape.md');
+
+    await assert.rejects(applyInstallPlan(plan), /outside target directory|portable relative path/);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
 test('CLI apply mode writes files when red-zone confirmation is explicit', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-apply-'));
   try {

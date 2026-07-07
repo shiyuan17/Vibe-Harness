@@ -1,6 +1,6 @@
 {
   "name": "loopengine-codex-adapter",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Codex adapter for LoopEngine internal reusable governance pack.",
   "entrypoints": {
     "agents": "AGENTS.template.md",

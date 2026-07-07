@@ -1,1 +1,1 @@
-{"id":"task-intake","kind":"core","entry":"SKILL.md","triggers":["new task","unclear request","intake"],"outputs":["task block"]}
+{"id":"task-intake","kind":"core","entry":"SKILL.md","triggers":["新任务","请求不清","启动整理"],"outputs":["任务启动块"]}

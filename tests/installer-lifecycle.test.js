@@ -154,3 +154,21 @@ test('rollback blocks red-zone changes without explicit confirmation', async () 
     await rm(target, { force: true, recursive: true });
   }
 });
+
+test('rollback refuses install-state targets outside the project', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-rollback-escape-'));
+  try {
+    await runCli(['install', '--target', target, '--profile', 'codex-minimal', '--apply']);
+    const statePath = path.join(target, '.loopengine/install-state.json');
+    const state = JSON.parse(await readFile(statePath, 'utf8'));
+    state.files[0].target = '../escape.md';
+    await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+
+    await assert.rejects(
+      execFileAsync(process.execPath, [cliPath, 'rollback', '--target', target, '--apply']),
+      /outside target directory|portable relative path/,
+    );
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});

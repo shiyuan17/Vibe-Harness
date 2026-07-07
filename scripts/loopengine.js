@@ -2,6 +2,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { installCodeGraphCli, inspectCodeGraph } from './lib/codegraph.js';
 import { applyRollbackPlan, createRollbackPlan } from './lib/install-state.js';
 import {
   applyInstallPlan,
@@ -75,7 +76,7 @@ async function install(args) {
 
   const plan = await createInstallPlan({
     dryRun: dryRunRequested,
-    force: Boolean(args.force || isMvpMode),
+    force: Boolean(args.force),
     profile,
     renderData,
     rootDir,
@@ -123,6 +124,17 @@ async function validate(args) {
     const installedTargets = plan.actions.map((action) => action.relativeTarget);
     validateConfigAndGeneratedContent(config, agentsTemplate, { installedTargets });
     validateConfigAndGeneratedContent(plan.renderData, agentsTemplate, { installedTargets });
+    const target = await inspectTargetInstall({
+      profile: config.profile,
+      renderData: config,
+      rootDir,
+      targetDir,
+    });
+    if (!target.ok) {
+      console.error(JSON.stringify({ ok: false, scope: 'project', targetDir, target }, null, 2));
+      process.exitCode = 1;
+      return;
+    }
     const pack = await validatePack(rootDir);
     if (!pack.ok) {
       console.error(JSON.stringify(pack, null, 2));
@@ -158,10 +170,31 @@ async function validate(args) {
 async function doctor(args) {
   const targetDir = path.resolve(args.target ?? process.cwd());
   const pack = await validatePack(rootDir);
+  const codegraph = await inspectCodeGraph({ targetDir });
   const target = args.target
     ? await inspectTargetInstall({ profile: args.profile ?? 'codex-internal', rootDir, targetDir })
     : null;
-  console.log(JSON.stringify({ pack, rootDir, target, targetDir }, null, 2));
+  console.log(JSON.stringify({ codegraph, pack, rootDir, target, targetDir }, null, 2));
+}
+
+async function codegraph(args) {
+  const subcommand = args._[1] ?? 'status';
+  if (subcommand === 'install-cli') {
+    const report = await installCodeGraphCli({
+      dryRun: Boolean(args['dry-run']),
+      version: typeof args.version === 'string' ? args.version : undefined,
+    });
+    console.log(JSON.stringify(report, null, 2));
+    return;
+  }
+  if (subcommand === 'status') {
+    const report = await inspectCodeGraph({
+      targetDir: path.resolve(args.target ?? process.cwd()),
+    });
+    console.log(JSON.stringify(report, null, 2));
+    return;
+  }
+  throw new Error(`Unknown codegraph command: ${subcommand}`);
 }
 
 async function diff(args) {
@@ -186,21 +219,38 @@ async function rollback(args) {
   console.log(JSON.stringify({ actions: plan.actions, applied: result.applied, dryRun: plan.dryRun, skipped: result.skipped }, null, 2));
 }
 
-const args = parseArgs(process.argv.slice(2));
-const command = args._[0] ?? 'help';
-if (command === 'init') {
-  await init(args);
-} else if (command === 'install') {
-  await install(args);
-} else if (command === 'validate') {
-  await validate(args);
-} else if (command === 'doctor') {
-  await doctor(args);
-} else if (command === 'diff') {
-  await diff(args);
-} else if (command === 'rollback') {
-  await rollback(args);
-} else {
-  console.log('Usage: loopengine <init|install|validate|doctor|diff|rollback> [--project path] [--target codex|path] [--profile minimal|core|full] [--write|--apply] [--dry-run] [--force] [--upgrade] [--confirm-red-zone]');
-  console.log('MVP install uses --project <path> --target codex. Legacy install uses --target <path>. Install defaults to dry-run.');
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  const command = args._[0] ?? 'help';
+  if (command === 'init') {
+    await init(args);
+  } else if (command === 'install') {
+    await install(args);
+  } else if (command === 'validate') {
+    await validate(args);
+  } else if (command === 'doctor') {
+    await doctor(args);
+  } else if (command === 'codegraph') {
+    await codegraph(args);
+  } else if (command === 'diff') {
+    await diff(args);
+  } else if (command === 'rollback') {
+    await rollback(args);
+  } else {
+    console.log('Usage: loopengine <init|install|validate|doctor|diff|rollback|codegraph> [--project path] [--target codex|path] [--profile minimal|core|full] [--write|--apply] [--dry-run] [--force] [--upgrade] [--confirm-red-zone]');
+    console.log('MVP install uses --project <path> --target codex. Legacy install uses --target <path>. Install defaults to dry-run.');
+  }
+}
+
+try {
+  await main();
+} catch (error) {
+  console.error(JSON.stringify({
+    ok: false,
+    error: {
+      code: error.code ?? 'LOOPENGINE_ERROR',
+      message: error.message,
+    },
+  }, null, 2));
+  process.exitCode = 1;
 }

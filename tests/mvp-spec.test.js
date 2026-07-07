@@ -84,15 +84,45 @@ test('MVP dry-run uses --project for path and --target codex for adapter without
     assert.equal(report.dryRun, true);
     assert.equal(report.targetDir, path.resolve(target));
     assert.equal(report.previewFiles.some((file) => file.target === 'AGENTS.md'), true);
-    assert.equal(report.previewFiles.find((file) => file.target === 'AGENTS.md').content.includes(path.basename(target)), true);
+    const agents = report.previewFiles.find((file) => file.target === 'AGENTS.md').content;
+    assert.equal(agents.includes(path.basename(target)), true);
+    assert.equal(agents.includes('## 会话开始'), true);
+    assert.equal(agents.includes('## 会话结束'), true);
     assert.equal(await exists(path.join(target, 'AGENTS.md')), false);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
 });
 
-test('MVP --write backs up an existing AGENTS.md before installing rendered content', async () => {
+test('MVP --write refuses to overwrite an existing AGENTS.md without force', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-write-mvp-'));
+  try {
+    await runCli(['init', '--project', target]);
+    await writeFile(path.join(target, 'AGENTS.md'), 'local agents\n', 'utf8');
+
+    await assert.rejects(
+      execFileAsync(process.execPath, [
+        cliPath,
+        'install',
+        '--project',
+        target,
+        '--target',
+        'codex',
+        '--profile',
+        'core',
+        '--write',
+      ]),
+      /Refusing to overwrite/,
+    );
+
+    assert.equal(await readFile(path.join(target, 'AGENTS.md'), 'utf8'), 'local agents\n');
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('MVP --write --force backs up an existing AGENTS.md before installing rendered content', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-write-force-mvp-'));
   try {
     await runCli(['init', '--project', target]);
     await writeFile(path.join(target, 'AGENTS.md'), 'local agents\n', 'utf8');
@@ -106,6 +136,7 @@ test('MVP --write backs up an existing AGENTS.md before installing rendered cont
       '--profile',
       'core',
       '--write',
+      '--force',
     ]);
 
     const agents = await readFile(path.join(target, 'AGENTS.md'), 'utf8');
@@ -143,7 +174,11 @@ test('minimal profile excludes lifecycle, review, loop, and skills assets', asyn
 
     assert.equal(targets.includes('AGENTS.md'), true);
     assert.equal(targets.includes('docs/rules/agent-collaboration.md'), true);
+    assert.equal(targets.includes('docs/rules/codegraph.md'), true);
+    assert.equal(targets.includes('docs/rules/session-protocol.md'), true);
     assert.equal(targets.includes('docs/templates/workflow-packet.md'), true);
+    assert.equal(targets.includes('docs/rules/handoff-rules.md'), false);
+    assert.equal(targets.includes('docs/templates/handoff-template.md'), false);
     assert.equal(targets.includes('docs/rules/task-lifecycle.md'), false);
     assert.equal(targets.includes('docs/rules/task-rules.md'), false);
     assert.equal(targets.includes('docs/rules/review-rules.md'), false);
@@ -161,6 +196,7 @@ test('core profile includes lifecycle assets but excludes full review and loop a
 
     assert.equal(targets.includes('docs/rules/task-lifecycle.md'), true);
     assert.equal(targets.includes('docs/rules/task-rules.md'), true);
+    assert.equal(targets.includes('docs/rules/codegraph.md'), true);
     assert.equal(targets.includes('docs/rules/skill-routing.md'), true);
     assert.equal(targets.includes('.agents/skills/task-intake/SKILL.md'), true);
     assert.equal(targets.includes('docs/workflows/full.md'), true);
@@ -181,6 +217,7 @@ test('full profile adds review and loop assets beyond core', async () => {
     const fullTargets = targetsFrom(full.report);
 
     assert.equal(fullTargets.length > coreTargets.length, true);
+    assert.equal(fullTargets.includes('docs/rules/codegraph.md'), true);
     assert.equal(fullTargets.includes('docs/rules/review-rules.md'), true);
     assert.equal(fullTargets.includes('docs/rules/loop-engineering.md'), true);
     assert.equal(fullTargets.includes('.agents/skills/review-checklist/SKILL.md'), true);
@@ -219,6 +256,60 @@ test('validate and install require init-generated loopengine.config.json', async
   }
 });
 
+test('validate --project requires installed files to match the selected profile', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-project-validate-install-'));
+  try {
+    await runCli(['init', '--project', target]);
+
+    await assert.rejects(
+      execFileAsync(process.execPath, [cliPath, 'validate', '--project', target]),
+      /AGENTS\.md|missing/i,
+    );
+
+    await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'core', '--write']);
+    const valid = await runCli(['validate', '--project', target]);
+    assert.equal(valid.ok, true);
+
+    await writeFile(path.join(target, 'AGENTS.md'), 'locally changed agents\n', 'utf8');
+    await assert.rejects(
+      execFileAsync(process.execPath, [cliPath, 'validate', '--project', target]),
+      /AGENTS\.md|changed/i,
+    );
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('CLI failures return structured errors without Node stack traces', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-cli-error-'));
+  try {
+    const cases = [
+      ['validate', '--project', target],
+      ['install', '--project', target, '--target', 'claude', '--dry-run'],
+      ['install', '--target', target, '--profile', 'codex-internal', '--apply'],
+    ];
+
+    for (const args of cases) {
+      await assert.rejects(
+        execFileAsync(process.execPath, [cliPath, ...args]),
+        (error) => {
+          const stderr = String(error.stderr);
+          assert.equal(error.code, 1);
+          assert.equal(stderr.includes('file:///'), false);
+          assert.equal(/\s+at\s+/u.test(stderr), false);
+          const payload = JSON.parse(stderr);
+          assert.equal(payload.ok, false);
+          assert.equal(typeof payload.error.message, 'string');
+          assert.equal(typeof payload.error.code, 'string');
+          return true;
+        },
+      );
+    }
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
 test('rendered AGENTS surface matches minimal, core, full, and internal profile installs', async () => {
   const minimal = await initAndDryRunProfile('minimal');
   const core = await initAndDryRunProfile('core');
@@ -240,6 +331,7 @@ test('rendered AGENTS surface matches minimal, core, full, and internal profile 
     const internalAgents = internalReport.previewFiles.find((file) => file.target === 'AGENTS.md').content;
 
     assert.equal(minimalAgents.includes('.agents/skills/'), false);
+    assert.equal(minimalAgents.includes('docs/rules/skill-routing.md'), false);
     assert.equal(minimalAgents.includes('.codex/hooks.json'), false);
     assert.equal(coreAgents.includes('.agents/skills/'), true);
     assert.equal(coreAgents.includes('.codex/hooks.json'), false);
@@ -296,4 +388,23 @@ test('validate --project catches generated AGENTS references that are not instal
   } finally {
     await rm(target, { force: true, recursive: true });
   }
+});
+
+test('minimal project example documents the MVP project install path', async () => {
+  const readme = await readFile(path.join(rootDir, 'examples/minimal-project/README.md'), 'utf8');
+  assert.equal(readme.includes('--project examples/minimal-project --target codex'), true);
+  assert.equal(readme.includes('--profile codex-minimal'), false);
+
+  const report = await runCli([
+    'install',
+    '--project',
+    path.join(rootDir, 'examples/minimal-project'),
+    '--target',
+    'codex',
+    '--profile',
+    'minimal',
+    '--dry-run',
+  ]);
+  assert.equal(report.dryRun, true);
+  assert.equal(report.target, 'codex');
 });

@@ -1,0 +1,82 @@
+---
+name: test-driven-development
+description: 实现任何功能、bugfix、重构或行为变更前使用。要求先写失败测试，再写最小实现，并保持 red-green-refactor 循环。
+---
+
+# 测试驱动开发（TDD）
+
+先写测试，看到它因预期原因失败，再写最小代码让它通过。
+
+## 硬规则
+
+```text
+NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST
+```
+
+如果已经先写了生产代码：删除它，从失败测试重新开始。不要把它保留为“参考”。
+
+## 适用范围
+
+必须用于：
+
+- 新功能。
+- bug 修复。
+- 行为变更。
+- 会影响现有行为的重构。
+
+例外需要用户明确同意，例如一次性原型、生成代码或纯配置。
+
+## 循环
+
+1. RED：写一个最小失败测试，描述一个行为。
+2. Verify RED：运行测试，确认失败原因是功能缺失，不是拼写或环境错误。
+3. GREEN：写最小实现，只让当前测试通过。
+4. Verify GREEN：运行目标测试和相关测试，确认通过且输出干净。
+5. REFACTOR：仅在绿色状态下清理命名、重复和结构。
+6. Repeat：为下一个行为写下一个失败测试。
+
+## 好测试
+
+- 名称描述行为，不写 `test1` 或 `works`。
+- 每个测试只验证一件事；名字里有 “and” 往往该拆分。
+- 优先测真实代码；mock 只在无法避免外部边界时使用。
+- 断言用户可观察行为，而不是内部实现细节。
+
+## Bug 修复模板
+
+```typescript
+test('rejects empty email', async () => {
+  const result = await submitForm({ email: '' });
+  expect(result.error).toBe('Email required');
+});
+```
+
+先确认它失败，再实现：
+
+```typescript
+function submitForm(data: FormData) {
+  if (!data.email?.trim()) {
+    return { error: 'Email required' };
+  }
+  // ...
+}
+```
+
+## 红旗
+
+- 生产代码早于测试。
+- 测试第一次运行就通过。
+- 无法解释测试为什么失败。
+- 先手工验证，打算“稍后补测试”。
+- 为了测试生产代码而添加 test-only 方法。
+- mock 复杂到比被测逻辑还难懂。
+
+出现红旗时暂停；必要时阅读 `testing-anti-patterns.md`。
+
+## 完成前检查
+
+- [ ] 每个新增行为都有测试。
+- [ ] 每个测试都先失败，且失败原因正确。
+- [ ] 实现是让测试通过的最小改动。
+- [ ] 相关测试通过，输出无错误和警告。
+- [ ] mock 只用于明确边界。

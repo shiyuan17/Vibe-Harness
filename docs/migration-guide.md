@@ -7,6 +7,8 @@
 - 将源文件分类为可复用 rules、templates、skills、workflows，或仅用于示例的项目专属内容。
 - 排除当前 task 状态、memory 快照、本地 backlog 数据、具体端口、后端仓库名和业务契约。
 - 将项目专属值记录在 `loopengine.config.json` 中，不要硬编码到 core 文件。
+- 对照 `docs/inventory/source-rules-mapping.md` 判断每个源规则是通用化、摘要化、仅示例，还是排除业务内容。
+- 优先抽取三类可复用协议：会话启动、会话收尾、恢复型 handoff；不要把它们混在一个大型 `AGENTS.md` 中。
 
 ## 2. 初始化目标项目
 
@@ -36,7 +38,7 @@ Dry-run 输出会包含目标路径、动作列表和渲染后的预览内容。
 pnpm loopengine install --project ../target-project --target codex --profile core --write
 ```
 
-如果 `AGENTS.md` 或其他受管理文件已经存在，LoopEngine 会先在 `.loopengine/backups/` 下写入备份，再替换目标文件。
+如果 `AGENTS.md` 或其他受管理文件已经存在，LoopEngine 默认拒绝覆盖；确认需要替换时显式添加 `--force`，LoopEngine 会先在 `.loopengine/backups/` 下写入备份，再替换目标文件。
 
 ## 5. 校验
 
@@ -47,10 +49,14 @@ pnpm run validate
 git diff --check
 ```
 
-如果生成内容缺少必需红线，或包含禁止出现的源项目专属标识，校验会失败。
+如果生成内容缺少必需红线、目标文件尚未安装或已被改动，或包含禁止出现的源项目专属标识，校验会失败。
 
 ## Profile 选择
 
-- `minimal`：启动红线、红区确认、验证证据和交付 Packet 指引。
-- `core`：`minimal` 加上生命周期规则、workflows、templates 和核心 skills。
-- `full`：`core` 加上 memory、review 和 loop opt-in 相关指引，这些内容通过可复用规则包提供。
+- `minimal`：启动红线、会话开始/结束协议、红区确认、验证证据和交付 Packet 指引。
+- `core`：`minimal` 加上生命周期、coding、frontend、API、AI collaboration、project directory、workflows、templates 和完整 bundled skills。
+- `full`：`core` 加上 release、Pencil、task-management、troubleshooting、review 和 loop opt-in 相关规则。
+
+## Agentmemory Skills
+
+源项目中的 `handoff`、`recall`、`remember`、`forget`、`recap`、`session-history`、`commit-history`、`commit-context` 会作为 bundled memory 安装面进入 `core` / `full` / `codex-internal`。这些 skill 只描述通用 agentmemory 行为；目标项目没有记忆工具时，Agent 必须说明不可用并回退到本地 handoff 或任务 intake。

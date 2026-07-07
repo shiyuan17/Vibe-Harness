@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LoopEngine Task",
+  "type": "object",
+  "required": [
+    "id",
+    "title",
+    "phase",
+    "status",
+    "resolution",
+    "goal",
+    "acceptanceCriteria",
+    "nonGoals",
+    "writeScope",
+    "forbiddenActions",
+    "verification",
+    "stopCondition",
+    "rollbackPlan"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "parent": { "type": "string", "minLength": 1 },
+    "title": { "type": "string", "minLength": 1 },
+    "ownerRole": { "type": "string", "minLength": 1 },
+    "phase": {
+      "type": "string",
+      "enum": ["clarify", "ready", "execute", "review", "handoff", "done"]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["idle", "running", "blocked", "waiting_human", "failed_validation"]
+    },
+    "resolution": {
+      "type": "string",
+      "enum": ["open", "done", "wont_do", "duplicate"]
+    },
+    "goal": { "type": "string", "minLength": 1 },
+    "acceptanceCriteria": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "nonGoals": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "writeScope": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "forbiddenActions": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "parallelSafety": {
+      "type": "string",
+      "enum": ["exclusive", "shared-readonly", "independent"]
+    },
+    "dependsOn": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "humanConfirmation": {
+      "type": "string",
+      "enum": ["not_required", "required", "confirmed"]
+    },
+    "verification": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "stopCondition": { "type": "string", "minLength": 1 },
+    "rollbackPlan": { "type": "string", "minLength": 1 },
+    "evidence": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "nextAction": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": false
+}

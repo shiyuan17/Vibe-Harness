@@ -18,7 +18,7 @@ test('core reusable pack does not leak source project identifiers or business te
       '病理',
       '医疗'
     ],
-    includeDirs: ['rules', 'templates', 'skills/core', 'workflows', 'adapters/codex', 'manifests', 'schemas'],
+    includeDirs: ['rules', 'templates', 'skills/core', 'skills/integrations', 'workflows', 'adapters/codex', 'manifests', 'schemas'],
     rootDir,
   });
 

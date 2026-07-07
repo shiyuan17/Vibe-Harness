@@ -1,12 +1,35 @@
 # Task Lifecycle
 
-只有当生命周期产物能减少歧义或风险时才使用它们。
+本规则定义从需求到交付的可选产物。Fast Path 可以简化，但不能跳过红区、验证或用户改动保护。
 
-| 产物 | 使用时机 | 退出条件 |
+## 阶段
+
+| 阶段 | 目标 | 最小产出 |
 | --- | --- | --- |
-| Clarification | 目标、验收、业务规则或非目标不清 | 成功标准和非目标已清楚 |
-| Spec | 行为、接口、权限、数据或 UI 状态需要契约 | 验收标准可执行 |
-| Plan | 多步骤或多 Agent 工作需要排序 | 顺序、风险、验证、依赖明确 |
-| Review | 高风险、共享层或 Agent 产出 | 阻塞 finding 已关闭或记录 |
-| 交接 | 暂停、恢复或转交 | 下一位执行者能安全续接 |
-| Retrospective | 重复失败或规则缺口 | 经验沉淀为检查、规则、模板或 memory |
+| Clarify | 消除目标、验收、非目标歧义 | Task Intake |
+| Spec | 固定行为、契约和边界 | Spec |
+| Plan | 拆成可执行步骤 | Plan |
+| Task | 建立 parent/child 执行单元 | task.json 或任务卡 |
+| Execute | 在边界内实现 | diff + 证据 |
+| Verify | 证明成功标准 | 命令、截图、日志或人工核对 |
+| Review | 独立检查风险 | Review Packet |
+| Handoff | 保留续接状态 | Handoff |
+
+## 5 分钟 Child
+
+子任务应能在 5 分钟内判断完成、未完成或阻塞。必须包含：
+
+- `Execution Mode: goal`
+- `Timebox: <= 5 minutes`
+- Goal / Acceptance Criteria / Non-goals
+- Stop Condition
+- Verification Command
+- Rollback Plan
+- Evidence
+
+## 多 Agent
+
+- 实现、集成、审查角色分离。
+- 并行 child 必须声明 `writeScope`、`parallelSafety`、`humanConfirmation` 和冲突关系。
+- 无法判断 write scope 是否重叠时，回退串行。
+- 高风险默认启用独立 Review。

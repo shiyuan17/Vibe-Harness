@@ -17,4 +17,4 @@ description: 用于将工作归类为 Fast Path、Lightweight 或 Full，并收�
 
 ## 禁止项
 
-不得降级 security、database、production、release 或红区工作。
+不得降级 security、database、production、release 或红区工作。不得将触发 Full 工作流的任务降级为 Lightweight；如果任务同时满足多个档位，选择更高档位，不确定时先按更高档位处理。

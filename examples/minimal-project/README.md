@@ -5,5 +5,5 @@
 尝试运行：
 
 ```bash
-pnpm loopengine install --target examples/minimal-project --profile codex-minimal --dry-run
+pnpm loopengine install --project examples/minimal-project --target codex --profile minimal --dry-run
 ```

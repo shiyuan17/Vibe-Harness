@@ -145,6 +145,11 @@ export function validateGeneratedContent(content, { installedTargets } = {}) {
     const normalizedTargets = installedTargets.map((target) => target.replaceAll('\\', '/'));
     const surfaceChecks = [
       {
+        exact: 'docs/rules/codegraph.md',
+        fragment: 'docs/rules/codegraph.md',
+        label: 'docs/rules/codegraph.md',
+      },
+      {
         fragment: '.agents/skills/',
         label: '.agents/skills/',
         prefix: '.agents/skills/',

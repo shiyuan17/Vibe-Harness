@@ -10,7 +10,14 @@ import {
   toTargetPath,
   writeInstallState,
 } from './install-state.js';
-import { pathExists, readJson, validateCatalogManifest, validateInstallMapShape } from './manifest.js';
+import {
+  assertInsideDir,
+  assertPortableRelativePath,
+  pathExists,
+  readJson,
+  validateCatalogManifest,
+  validateInstallMapShape,
+} from './manifest.js';
 import { renderTemplate, withDefaultTemplateData } from './template-renderer.js';
 
 async function loadProfileInstallMap({ profile, rootDir }) {
@@ -42,6 +49,23 @@ export function createInstalledSurface({ profile, targets }) {
     || hasTarget('docs/workflows/loop.md')
     || hasTarget('docs/rules/review-rules.md')
     || hasTarget('docs/rules/loop-engineering.md');
+  const hasEngineeringRules = [
+    'docs/rules/coding-rules.md',
+    'docs/rules/frontend-rules.md',
+    'docs/rules/api-rules.md',
+    'docs/rules/ai-collab-rules.md',
+    'docs/rules/project-directory.md',
+  ].some(hasTarget);
+  const hasOperationalRules = [
+    'docs/rules/release-rules.md',
+    'docs/rules/pencil-rules.md',
+    'docs/rules/troubleshooting.md',
+  ].some(hasTarget);
+  const hasAgentMemorySkills = [
+    '.agents/skills/recall/SKILL.md',
+    '.agents/skills/remember/SKILL.md',
+    '.agents/skills/session-history/SKILL.md',
+  ].some(hasTarget);
   const profileLines = {
     'codex-internal': '- 当前 profile: `codex-internal`，包含完整 Codex 内部安装面。',
     'codex-minimal': '- 当前 profile: `codex-minimal`，安装最小 Codex 入口规则和模板。',
@@ -52,10 +76,17 @@ export function createInstalledSurface({ profile, targets }) {
   };
 
   return {
+    codegraphLine: hasTarget('docs/rules/codegraph.md') ? '- CodeGraph 规则位于 `docs/rules/codegraph.md`。' : '',
+    engineeringRulesLine: hasEngineeringRules ? '- 工程专项规则位于 `docs/rules/`。' : '',
     hooksLine: hasTarget('.codex/hooks.json') ? '- Codex hook 配置位于 `.codex/hooks.json`。' : '',
+    memorySkillsLine: hasAgentMemorySkills ? '- agentmemory skills 位于 `.agents/skills/`。' : '',
+    operationalRulesLine: hasOperationalRules ? '- 发布 / 设计 / 排障规则位于 `docs/rules/`。' : '',
     profileLine: profileLines[profile] ?? `- 当前 profile: \`${profile}\`。`,
     reviewLoopLine: hasReviewLoop ? '- 当前 profile 包含 review / loop 资产。' : '',
     rulesLine: hasPrefix('docs/rules/') ? '- 规则位于 `docs/rules/`。' : '',
+    skillRoutingLine: hasTarget('docs/rules/skill-routing.md')
+      ? '先按 `docs/rules/skill-routing.md` 选择最小 skill 集。`workflow-handoff` 用于交接模板；记忆类续接与召回能力仅在当前 profile 已安装且目标项目启用对应工具时使用。'
+      : '当前 profile 未安装 Skills；仅按已安装规则和模板执行，不引用未安装的 skill。',
     skillsLine: hasPrefix('.agents/skills/') ? '- Skills 位于 `.agents/skills/`。' : '',
     templatesLine: hasPrefix('docs/templates/') ? '- 模板位于 `docs/templates/`。' : '',
     workflowsLine: hasPrefix('docs/workflows/') ? '- Workflows 位于 `docs/workflows/`。' : '',
@@ -81,8 +112,12 @@ export async function createInstallPlan({
     if (!allowedGroups.has(entry.group)) {
       continue;
     }
+    assertPortableRelativePath(entry.source, 'install source');
+    assertPortableRelativePath(entry.target, 'install target');
     const source = path.resolve(rootDir, entry.source);
     const target = path.resolve(targetDir, entry.target);
+    assertInsideDir(rootDir, source, 'install source');
+    assertInsideDir(targetDir, target, 'install target');
     const relativeSource = entry.source.replaceAll('\\', '/');
     const relativeTarget = entry.target.replaceAll('\\', '/');
     const exists = await pathExists(target);
@@ -173,8 +208,12 @@ export async function diffTargetInstall({ profile = 'codex-internal', renderData
   const expectedTargets = new Set();
 
   for (const entry of selectedEntries) {
+    assertPortableRelativePath(entry.source, 'install source');
+    assertPortableRelativePath(entry.target, 'install target');
     const target = path.resolve(targetDir, entry.target);
     const source = path.resolve(rootDir, entry.source);
+    assertInsideDir(rootDir, source, 'install source');
+    assertInsideDir(targetDir, target, 'install target');
     const item = {
       group: entry.group,
       redZone: Boolean(entry.redZone),
@@ -250,6 +289,9 @@ export async function applyInstallPlan(plan) {
     if (action.kind !== 'write') {
       continue;
     }
+    assertPortableRelativePath(action.relativeSource, 'install source');
+    assertPortableRelativePath(action.relativeTarget, 'install target');
+    assertInsideDir(plan.targetDir, action.target, 'install target');
     const existed = await pathExists(action.target);
     let backup = null;
     let previousHash = null;

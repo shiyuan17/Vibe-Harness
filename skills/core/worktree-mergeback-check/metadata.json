@@ -1,0 +1,1 @@
+{"id":"worktree-mergeback-check","kind":"core","entry":"SKILL.md","triggers":["worktree","merge-back","分支清理","subagent"],"outputs":["merge-back 检查清单"]}

@@ -1,17 +1,45 @@
 # Task Rules
 
-任务是可恢复、可验证的工作单元。执行目标是一次执行尝试，不是状态真值来源。
+Task 是可验证、可恢复的工作单元；Goal 是一次执行尝试，不是状态真值。
 
 ## 状态模型
 
-- `phase`：intake、clarify、spec、plan、decompose、ready、execute、verify、review、done。
-- `status`：idle、in_progress、blocked、waiting_human、waiting_dependency、failed_validation、needs_rework。
-- `resolution`：open、done、cancelled。
+使用三层状态：
 
-## Parent / Child Task
+| 字段 | 示例 | 说明 |
+| --- | --- | --- |
+| `phase` | `clarify` / `ready` / `execute` / `review` / `done` | 生命周期阶段 |
+| `status` | `idle` / `running` / `blocked` / `waiting_human` / `failed_validation` | 当前执行状态 |
+| `resolution` | `open` / `done` / `wont_do` / `duplicate` | 结果判定 |
 
-Parent task 负责总目标、依赖、完成检查和编排。Child task 负责一个可独立验证的切片，并声明写入范围、禁止动作、回滚、停止条件和验证方式。
+`done` 只能来自验证证据和验收门禁；实现 Agent 不能自证高风险最终通过。
+
+## Parent / Child
+
+- Parent 负责目标、边界、拆分完整性、依赖和完成校验。
+- Child 负责一个可观察目标，必须有停止条件、验证命令和回滚计划。
+- Parent 作为 orchestrator 时不得直接实现业务改动。
+- Child 达到 Stop Condition 后立即交付；额外发现记录为后续 child 或阻塞项。
+
+## 最小执行卡
+
+执行 child 时至少包含：
+
+- Goal
+- phase/status/resolution
+- nextAction
+- Stop Condition
+- Verification Command
+- Rollback Plan
+- Write Scope
+- Forbidden Actions
 
 ## 完成规则
 
-只有当验收标准满足、验证证据已记录、必要审查已完成、开放风险已解决或转移、父任务完成检查通过，并且 `phase=done`、`resolution=done` 时，task 才算完成。
+任务完成前必须满足：
+
+- 验收标准已覆盖；
+- 验证命令有退出码或人工核对证据；
+- worktree 已 merge-back；
+- review 或人工确认门禁已满足；
+- handoff 记录剩余风险和恢复提示。
