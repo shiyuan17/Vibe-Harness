@@ -1,6 +1,6 @@
 ---
 name: verification-before-completion
-description: 在声称完成、修复或通过之前使用；提交或创建 PR 前也必须使用。要求运行验证命令、读取输出，再用证据支撑任何成功声明。
+description: 在声称完成、修复、通过、提交或创建 PR 前使用。
 ---
 
 # 完成前验证
@@ -38,6 +38,15 @@ NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE
 - 准备提交、推送或 PR，但还没跑验证。
 - 信任子 agent 或工具的成功报告而不复核。
 - 只跑部分检查却暗示整体通过。
+
+## 常见借口
+
+| 借口 | 现实 |
+| --- | --- |
+| 刚才跑过 | 需要本轮新鲜输出。 |
+| 只改文档不用跑 | 至少运行 pack validation 或对应文档检查。 |
+| 子 agent 说通过了 | 负责人仍要读取证据。 |
+| lint 通过就够了 | lint 不等于测试、构建或验收。 |
 
 ## 汇报格式
 

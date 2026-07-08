@@ -11,7 +11,7 @@
       "id": "core",
       "description": "Core Codex governance with lifecycle, engineering rules, workflows, and bundled skills.",
       "installMap": "adapters/codex/install-map.json",
-      "groups": ["agents", "rules-minimal", "rules-core", "templates-minimal", "templates-core", "schemas-core", "skills-core", "skills-full", "skills-memory", "workflows-core"]
+      "groups": ["agents", "rules-minimal", "rules-core", "templates-minimal", "templates-core", "schemas-core", "skills-core", "skills-memory", "workflows-core"]
     },
     {
       "id": "full",

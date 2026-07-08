@@ -33,6 +33,15 @@ Skill 只补强执行方式，不覆盖 `AGENTS.md`、红区确认、工作流�
 | Worktree / merge-back | `worktree-mergeback-check` |
 | Pencil 设计稿 | `pencil-design-check` |
 | 显式 loop | `loop-planning` |
+| Skill 编写 / manifest / 安装面 | `skill-authoring-check` |
+| 子 agent 执行 / 文件化交接 | `subagent-driven-development`（仅 full/internal profile） |
+
+## Profile 边界
+
+- `minimal` 不安装 `.agents/skills/`；只按已安装规则和模板执行。
+- `core` 安装常规工程、验证、审查请求、记忆和 skill 编写检查能力。
+- `full` / `codex-internal` 才安装 review / loop / subagent 等高阶执行能力。
+- 不直接引用未安装的 skill；若 profile 不包含所需能力，使用等价模板或说明需要升级 profile。
 
 ## 审查
 

@@ -61,6 +61,81 @@ async function checkRequiredTerms(rootDir, { file, terms }) {
     .map((term) => `${file} must document ${term}`);
 }
 
+function parseSkillFrontmatter(content) {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/u);
+  if (!match) {
+    return null;
+  }
+
+  const fields = {};
+  const lines = match[1].split(/\r?\n/u);
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const fieldMatch = line.match(/^([a-zA-Z][\w-]*):\s*(.*)$/u);
+    if (!fieldMatch) {
+      continue;
+    }
+
+    const [, key, rawValue] = fieldMatch;
+    if (rawValue === '>' || rawValue === '|') {
+      const valueLines = [];
+      for (index += 1; index < lines.length; index += 1) {
+        const nextLine = lines[index];
+        if (/^[a-zA-Z][\w-]*:\s*/u.test(nextLine)) {
+          index -= 1;
+          break;
+        }
+        valueLines.push(nextLine.trim());
+      }
+      fields[key] = valueLines.join(' ').trim();
+      continue;
+    }
+
+    fields[key] = rawValue.replace(/^["']|["']$/gu, '').trim();
+  }
+
+  return fields;
+}
+
+function hasWorkflowHeavyDescription(description) {
+  const processWords = ['先写', '再写', '再重构', '运行测试', '提交', '步骤', '流程'];
+  return processWords.filter((word) => description.includes(word)).length >= 2;
+}
+
+export async function validateSkillMetadataQuality(rootDir, skillItems) {
+  const errors = [];
+  for (const item of skillItems) {
+    const sourcePath = path.join(rootDir, item.source);
+    assertInsideDir(rootDir, sourcePath, 'skill source');
+    if (!(await pathExists(sourcePath))) {
+      errors.push(`${item.id} skill source is missing: ${item.source}`);
+      continue;
+    }
+
+    const content = await readFile(sourcePath, 'utf8');
+    const frontmatter = parseSkillFrontmatter(content);
+    if (!frontmatter) {
+      errors.push(`${item.id} SKILL.md must start with YAML frontmatter`);
+      continue;
+    }
+
+    if (frontmatter.name !== item.id) {
+      errors.push(`${item.id} frontmatter name must match manifest id`);
+    }
+    if (!frontmatter.description) {
+      errors.push(`${item.id} frontmatter description is required`);
+    } else {
+      if (frontmatter.description.length > 240) {
+        errors.push(`${item.id} description must be 240 characters or fewer`);
+      }
+      if (hasWorkflowHeavyDescription(frontmatter.description)) {
+        errors.push(`${item.id} description should describe triggers, not workflow steps`);
+      }
+    }
+  }
+  return errors.sort();
+}
+
 export async function validateGovernanceQuality(rootDir) {
   const checks = [
     {
@@ -204,6 +279,7 @@ export async function validatePack(rootDir) {
     .map((item) => item.source)
     .sort();
   const invalidSkillDirs = await findInvalidSkillDirs(rootDir);
+  const skillMetadataErrors = await validateSkillMetadataQuality(rootDir, manifests.skills.items);
   const governanceQualityErrors = await validateGovernanceQuality(rootDir);
   const leaks = await scanForForbiddenTerms({
     forbiddenTerms,
@@ -216,11 +292,13 @@ export async function validatePack(rootDir) {
     missing: [...missing, ...installMapMissing].sort(),
     missingSkillInstalls,
     invalidSkillDirs,
+    skillMetadataErrors,
     governanceQualityErrors,
     ok: missing.length === 0
       && installMapMissing.length === 0
       && missingSkillInstalls.length === 0
       && invalidSkillDirs.length === 0
+      && skillMetadataErrors.length === 0
       && governanceQualityErrors.length === 0
       && leaks.length === 0
       && schemaErrors.length === 0,
