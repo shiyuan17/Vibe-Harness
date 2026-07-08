@@ -69,6 +69,9 @@ test('CLI validate --target passes after a real install and reports Chinese temp
     assert.deepEqual(report.missing, []);
     assert.equal(intakeTemplate.includes('来源'), true);
     assert.equal(intakeTemplate.includes('Source'), false);
+    assert.equal(intakeTemplate.includes('写入范围'), true);
+    assert.equal(intakeTemplate.includes('禁止动作'), true);
+    assert.equal(intakeTemplate.includes('Write Scope'), false);
   } finally {
     await rm(target, { force: true, recursive: true });
   }

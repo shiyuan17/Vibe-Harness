@@ -4,7 +4,7 @@
 
 ## 启动门禁
 
-会话启动与收尾以 `session-protocol` 为单一来源。本规则只保留协作原则和红线摘要；执行前按 Session Start Protocol 完成入口阅读、`git status --short`、CodeGraph 判断、风险档位、红区确认和验证计划。
+会话启动与收尾以 `session-protocol` 为单一来源。本规则只保留协作原则和红线摘要；执行前按会话开始协议（`Session Start Protocol`）完成入口阅读、`git status --short`、CodeGraph 判断、风险档位、红区确认和验证计划。
 
 ## 五条红线
 
@@ -16,4 +16,4 @@
 
 ## 交付包
 
-会话结束先满足 Session End Protocol。交付包至少包含摘要、影响范围、验证证据、剩余风险、Git / worktree 状态和工作流档位。Fast Path 任务若不改变运行时行为，可以使用精简交付包，但不能省略未验证项和后续动作。
+会话结束先满足会话结束协议（`Session End Protocol`）。交付包至少包含摘要、影响范围、验证证据、剩余风险、Git / worktree 状态和工作流档位。快速路径（`Fast Path`）任务若不改变运行时行为，可以使用精简交付包，但不能省略未验证项和后续动作。

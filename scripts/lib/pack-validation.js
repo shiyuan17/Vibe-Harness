@@ -93,11 +93,11 @@ export async function validateGovernanceQuality(rootDir) {
     },
     {
       file: 'templates/task-intake.md',
-      terms: ['必填', 'Write Scope', 'Forbidden Actions'],
+      terms: ['必填', '写入范围', '禁止动作'],
     },
     {
       file: 'templates/review-packet.md',
-      terms: ['必填', '阻断条件', 'Severity'],
+      terms: ['必填', '阻断条件', '严重度'],
     },
     {
       file: 'templates/handoff-template.md',
@@ -105,7 +105,7 @@ export async function validateGovernanceQuality(rootDir) {
     },
     {
       file: 'templates/workflow-packet.md',
-      terms: ['必填', 'Workflow Tier', 'Install Profile'],
+      terms: ['必填', '工作流档位', '安装配置'],
     },
     {
       file: 'rules/test-rules.md',
@@ -117,7 +117,7 @@ export async function validateGovernanceQuality(rootDir) {
     },
     {
       file: 'rules/workflow.md',
-      terms: ['Clarify', 'Retrospective', 'Failure Packet'],
+      terms: ['澄清', '复盘', '失败记录包'],
     },
     {
       file: 'rules/handoff-rules.md',
@@ -129,11 +129,11 @@ export async function validateGovernanceQuality(rootDir) {
     },
     {
       file: 'rules/dynamic-workflow.md',
-      terms: ['Workflow Tier', 'Install Profile'],
+      terms: ['工作流档位', '安装配置'],
     },
     {
       file: 'rules/git-rules.md',
-      terms: ['Branch', 'Commit', 'PR'],
+      terms: ['分支', '提交', 'PR'],
     },
     {
       file: 'rules/api-rules.md',

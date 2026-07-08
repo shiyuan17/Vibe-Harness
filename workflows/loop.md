@@ -1,4 +1,4 @@
-# Loop 工作流（循环流程）
+# 循环工作流（Loop）
 
 仅在明确要求 loop 时使用。Loop 是有预算、有停止条件的反馈系统，不是无限寻找问题的授权。
 
@@ -8,23 +8,23 @@
 
 ## 输入内容
 
-- Loop Type、Scope、Stop Condition、Escalation Condition。
-- Verification Command、State Sink、判定来源和验收负责人。
+- 循环类型、范围、停止条件、升级条件。
+- 验证命令、状态写入位置、判定来源和验收负责人。
 - 迭代预算；不得写 `N/A`。
 - 允许动作和禁止动作。
 
 ## 输出内容
 
-- Loop Packet。
-- Loop Ledger：Cycle、Hypothesis、Action、Observation、Decision、Write-back。
+- 循环交付包。
+- 循环台账：`Cycle`、`Hypothesis`、`Action`、`Observation`、`Decision`、`Write-back`。
 - 每轮证据：命令输出、截图、diff、日志或人工核对。
-- 最终状态：继续、停止、升级、失败或 handoff。
+- 最终状态：继续、停止、升级、失败或交接。
 
 ## 完成标准
 
-- 每轮都有可追溯 Observation，不写空泛流水账。
-- 达到 Stop Condition、Escalation Condition 或预算上限时停止。
-- 状态写入 State Sink，下一位执行者能恢复。
+- 每轮都有可追溯 `Observation`，不写空泛流水账。
+- 达到停止条件、升级条件或预算上限时停止。
+- 状态写入指定位置，下一位执行者能恢复。
 - 未把新发现范围直接塞回当前 loop。
 
 ## 常见异常
@@ -36,7 +36,7 @@
 
 ## 异常处理方式
 
-- 验收条件不清时不启动 loop，先回到 Clarify。
+- 验收条件不清时不启动 loop，先回到澄清阶段（`Clarify`）。
 - 证据不足时缩小假设或改验证命令。
 - 触发红区、权限、发布或契约变化时停止并升级。
-- 预算耗尽时 handoff，不继续消耗轮次。
+- 预算耗尽时交接，不继续消耗轮次。

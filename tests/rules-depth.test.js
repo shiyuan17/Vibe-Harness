@@ -162,16 +162,17 @@ test('workflow tier guidance keeps three tiers and documents Full escalation tri
   const workflowPacket = await readFile(path.join(rootDir, 'templates/workflow-packet.md'), 'utf8');
   const workflowSkill = await readFile(path.join(rootDir, 'skills/core/workflow-packet/SKILL.md'), 'utf8');
 
-  assert.match(dynamicWorkflow, /Fast Path：纯文档、只读分析、测试-only、低风险文案/);
-  assert.match(dynamicWorkflow, /Lightweight：低风险实现，且不触发安全、数据库、发布、生产、红区、跨层或外部契约/);
-  assert.match(dynamicWorkflow, /Full 工作流：任何红区、安全、DB、生产、发布、高风险、跨层或外部契约工作/);
+  assert.match(dynamicWorkflow, /快速路径（`Fast Path`）：纯文档、只读分析、测试-only、低风险文案/);
+  assert.match(dynamicWorkflow, /轻量流程（`Lightweight`）：低风险实现，且不触发安全、数据库、发布、生产、红区、跨层或外部契约/);
+  assert.match(dynamicWorkflow, /完整流程（`Full`）：任何红区、安全、DB、生产、发布、高风险、跨层或外部契约工作/);
   assert.match(dynamicWorkflow, /升级优先/);
   assert.match(dynamicWorkflow, /不确定时先按更高档位处理/);
 
   assert.match(workflowPacket, /按触发器必填/);
   assert.match(workflowPacket, /Red Team.*红区、安全、DB、生产、发布、高风险或跨层/);
   assert.match(workflowPacket, /跨仓 \/ 外部契约证据.*外部契约或跨仓/);
-  assert.match(workflowSkill, /不得将触发 Full 工作流的任务降级为 Lightweight/);
+  assert.match(workflowPacket, /工作流档位（必填）：`Fast Path` \/ `Lightweight` \/ `Full`/);
+  assert.match(workflowSkill, /不得将触发完整流程（`Full`）的任务降级为轻量流程（`Lightweight`）/);
 });
 
 test('session protocol defines start and end requirements', async () => {

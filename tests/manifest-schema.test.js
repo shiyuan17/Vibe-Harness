@@ -53,7 +53,7 @@ test('README documents the MVP and legacy command surfaces distinctly', async ()
     assert.equal(content.includes('--project <path> --target codex --write'), true);
     assert.equal(content.includes('--target <path> --apply --confirm-red-zone'), true);
     assert.equal(content.includes('pnpm check'), true);
-    assert.equal(content.includes('workflow/template 质量门禁'), true);
+    assert.equal(content.includes('工作流 / 模板质量门禁'), true);
   }
 });
 

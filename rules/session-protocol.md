@@ -1,8 +1,8 @@
-# Session Protocol
+# 会话协议（Session Protocol）
 
-Session Protocol 是每次 Agent 会话的启动与收尾协议。它回答两个问题：开始前是否具备安全执行条件，结束时下一位执行者是否能判断真实状态。
+会话协议（`Session Protocol`）是每次 Agent 会话的启动与收尾协议。它回答两个问题：开始前是否具备安全执行条件，结束时下一位执行者是否能判断真实状态。
 
-## Session Start Protocol
+## 会话开始协议（Session Start Protocol）
 
 开始执行前先完成以下检查：
 
@@ -10,11 +10,11 @@ Session Protocol 是每次 Agent 会话的启动与收尾协议。它回答两�
 - 任务确认：确认任务目标、验收标准、非目标和用户限制；验收会改变行为且不清楚时先澄清。
 - 工作区事实：运行 `git status --short`，识别用户未归属改动、当前分支、暂存内容和可能冲突。
 - 代码上下文：若仓库存在 `.codegraph/`，理解或定位代码前先使用 CodeGraph；不可用时说明原因并回退到普通搜索。
-- 风险档位：将任务归类为 Fast Path、Lightweight 或 Full；不确定时按更高风险档位处理。
+- 风险档位：将任务归类为 `Fast Path`、`Lightweight` 或 `Full`；不确定时按更高风险档位处理。
 - 红区确认：命中认证、权限、全局请求层、环境变量、CI/CD、构建发布、破坏性数据操作或目标项目自定义红区时，先说明范围、原因、验证和回滚，再等待人工确认。
 - 验证计划：定义能证明成功标准的最小验证命令或人工核对来源；不能验证时先说明原因和风险。
 
-## Session End Protocol
+## 会话结束协议（Session End Protocol）
 
 每次会话结束都必须输出可核对的收尾信息，即使任务没有完成：
 

@@ -14,29 +14,29 @@ AI 准备提交前先给出提交分组：
 
 | 字段 | 内容 |
 | --- | --- |
-| Commit group | 验收点和建议 commit message |
-| Included files | 本次提交包含文件 |
-| Excluded files | 明确排除的无关改动 |
-| Validation | 已跑命令和结果 |
-| Risk | 低 / 中 / 高与理由 |
-| Rollback | 回滚方式 |
-| Needs human approval? | 是否需要人工确认 |
+| 提交分组 | 验收点和建议 commit message |
+| 包含文件 | 本次提交包含文件 |
+| 排除文件 | 明确排除的无关改动 |
+| 验证 | 已跑命令和结果 |
+| 风险 | 低 / 中 / 高与理由 |
+| 回滚 | 回滚方式 |
+| 是否需要人工确认 | 是否需要人工确认 |
 
 低风险可自动提交；中风险需说明验证和风险；高风险、红区或用户要求等待时必须暂停。
 
-## Branch / Commit / PR
+## 分支 / 提交 / PR
 
-- Branch：默认使用 `codex/<scope>-<short-topic>`；已有任务分支或用户指定分支优先。
-- Commit：使用祈使句，说明一个可验收改动；避免 `fix bug`、`update`、`phase 1` 这类不可检索描述。
-- PR：包含 Summary、Risk、Validation、Rollback、Review notes；高风险 PR 必须说明红区确认和独立 Review 状态。
+- 分支：默认使用 `codex/<scope>-<short-topic>`；已有任务分支或用户指定分支优先。
+- 提交：使用祈使句，说明一个可验收改动；避免 `fix bug`、`update`、`phase 1` 这类不可检索描述。
+- PR：包含摘要、风险、验证、回滚和审查备注；高风险 PR 必须说明红区确认和独立审查状态。
 - 一个 commit 只承载一个逻辑变更；重构和功能变更默认拆开。
 
 ## Worktree
 
 - 一个实现任务对应一个 worktree + 分支，除非明确命中低风险例外。
 - worktree 不放在仓库内部，避免被构建或依赖扫描。
-- 子 Agent 只能在指定 worktree、分支和 write scope 内工作。
-- Review Agent 默认只读，不暂存、不提交、不合并。
+- 子 Agent 只能在指定 worktree、分支和写入范围内工作。
+- 审查 Agent 默认只读，不暂存、不提交、不合并。
 
 ## Merge-back 完成定义
 

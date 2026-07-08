@@ -44,7 +44,7 @@ MVP 模式使用 `--project <path>` 表示目标项目路径，使用 `--target 
 ## MVP Profiles
 
 - `minimal`：入口红线、会话开始/结束协议、CodeGraph、`git status --short`、红区人工确认、验证证据和工作流交付包。
-- `core`：`minimal` + 八阶段 Workflow、lifecycle-v2 task 模型、工程专项规则、日志管理规范、templates、完整 bundled skills 和 skill 路由。
+- `core`：`minimal` + 八阶段工作流、lifecycle-v2 任务模型、工程专项规则、日志管理规范、模板、完整 bundled skills 和 skill 路由。
 - `full`：`core` + release / Pencil / task-management / troubleshooting、review 和 loop opt-in 规则。
 
 ## 验证门禁
@@ -55,7 +55,7 @@ pnpm check
 git diff --check
 ```
 
-`pnpm check` 会运行 lint、pack validation 和测试。Pack validation 不只校验 manifest、install map、核心文件存在性和脱敏词，也会检查 workflow、template、test/review/git/workflow 规则是否包含可执行字段，避免治理文档退化成空壳。
+`pnpm check` 会运行 lint、pack validation 和测试。Pack validation 不只校验 manifest、install map、核心文件存在性和脱敏词，也会检查工作流、模板、测试 / 审查 / Git / 工作流规则是否包含可执行字段，避免治理文档退化成空壳。
 
 ## 旧内部安装生命周期
 
@@ -97,7 +97,7 @@ pnpm loopengine rollback --target ../some-project --apply --confirm-red-zone
 | legacy `codex-internal` 生命周期 | 已完成 | 支持 diff、upgrade、backup、rollback 和红区确认。 |
 | 会话协议 | 已完成 | `minimal` 起安装 `session-protocol`，统一 Session Start Protocol 和 Session End Protocol。 |
 | 深化 rules / skills | 已完成 | core 包含工程专项规则、日志管理、handoff 规则、task schema 和完整 bundled skills；full 补充 release、Pencil、task-management、retrospective 和 troubleshooting 规则。 |
-| Pack validation | 已完成 | 校验 manifests、schema、源文件存在性、脱敏词、workflow/template 质量门禁和结构化治理资产。 |
+| Pack validation | 已完成 | 校验 manifests、schema、源文件存在性、脱敏词、工作流 / 模板质量门禁和结构化治理资产。 |
 | Codex hooks | 占位兼容 | 仅保留 legacy placeholder，不作为默认 MVP 安装面。 |
 | 非 Codex adapter | 后续路线 | Claude、Cursor、OpenCode 等暂不创建适配器。 |
 
