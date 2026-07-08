@@ -88,6 +88,7 @@ test('MVP dry-run uses --project for path and --target codex for adapter without
     assert.equal(agents.includes(path.basename(target)), true);
     assert.equal(agents.includes('## 会话开始'), true);
     assert.equal(agents.includes('## 会话结束'), true);
+    assert.equal(agents.includes('默认继续'), true);
     assert.equal(await exists(path.join(target, 'AGENTS.md')), false);
   } finally {
     await rm(target, { force: true, recursive: true });
@@ -204,6 +205,10 @@ test('core profile includes lifecycle assets but excludes full review and loop a
     assert.equal(targets.includes('docs/rules/loop-engineering.md'), false);
     assert.equal(targets.includes('docs/workflows/review.md'), false);
     assert.equal(targets.includes('docs/workflows/loop.md'), false);
+    assert.equal(targets.includes('.agents/skills/review-checklist/SKILL.md'), false);
+    assert.equal(targets.includes('.agents/skills/loop-planning/SKILL.md'), false);
+    assert.equal(targets.includes('.agents/skills/subagent-driven-development/SKILL.md'), false);
+    assert.equal(targets.includes('.agents/skills/skill-authoring-check/SKILL.md'), true);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
@@ -222,6 +227,7 @@ test('full profile adds review and loop assets beyond core', async () => {
     assert.equal(fullTargets.includes('docs/rules/loop-engineering.md'), true);
     assert.equal(fullTargets.includes('.agents/skills/review-checklist/SKILL.md'), true);
     assert.equal(fullTargets.includes('.agents/skills/loop-planning/SKILL.md'), true);
+    assert.equal(fullTargets.includes('.agents/skills/subagent-driven-development/SKILL.md'), true);
     assert.equal(fullTargets.includes('docs/workflows/review.md'), true);
     assert.equal(fullTargets.includes('docs/workflows/loop.md'), true);
   } finally {

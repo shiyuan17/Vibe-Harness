@@ -23,6 +23,7 @@ description: 完成任务、实现重要功能或合并前请求代码审查时�
 - 风险：安全、数据、兼容、性能或 UI 风险。
 - 验证：已运行命令、结果和未覆盖项。
 - 重点：希望审查者特别关注的问题。
+- 判定要求：请 reviewer 分别给出规格符合性和代码质量结论。
 
 ## 模板
 
@@ -43,6 +44,10 @@ description: 完成任务、实现重要功能或合并前请求代码审查时�
 
 重点关注：
 - [正确性/安全/契约/UI/性能等]
+
+判定要求：
+- 规格符合性：Pass / Fail / Cannot verify
+- 代码质量：Approved / Request changes / Blocked by evidence
 ```
 
 如需独立审查 prompt，可使用 `code-reviewer.md`。

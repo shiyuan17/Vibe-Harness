@@ -54,6 +54,8 @@ test('deep reusable rules and skills are declared in manifests', async () => {
     'verification-before-completion',
     'code-review-and-quality',
     'requesting-code-review',
+    'skill-authoring-check',
+    'subagent-driven-development',
     'open-code-review',
     'browser-verification',
     'workflow-handoff',
@@ -94,6 +96,7 @@ test('profiles install deep rules and memory skills at the intended tiers', asyn
     '.agents/skills/verification-before-completion/SKILL.md',
     '.agents/skills/code-review-and-quality/SKILL.md',
     '.agents/skills/requesting-code-review/SKILL.md',
+    '.agents/skills/skill-authoring-check/SKILL.md',
     '.agents/skills/open-code-review/SKILL.md',
     '.agents/skills/browser-verification/SKILL.md',
     '.agents/skills/handoff/SKILL.md',
@@ -133,8 +136,18 @@ test('profiles install deep rules and memory skills at the intended tiers', asyn
     '.agents/skills/remember/SKILL.md',
     '.agents/skills/pencil-design-check/SKILL.md',
     '.agents/skills/release-checklist/SKILL.md',
+    '.agents/skills/subagent-driven-development/SKILL.md',
   ]) {
     assert.equal(fullTargets.includes(target), true, `${target} should be in full`);
+  }
+
+  for (const target of [
+    '.agents/skills/review-checklist/SKILL.md',
+    '.agents/skills/loop-planning/SKILL.md',
+    '.agents/skills/subagent-driven-development/SKILL.md',
+  ]) {
+    assert.equal(coreTargets.includes(target), false, `${target} should be reserved for full`);
+    assert.equal(minimalTargets.includes(target), false, `${target} should not be in minimal`);
   }
 });
 
@@ -185,6 +198,10 @@ test('session protocol defines start and end requirements', async () => {
     '风险档位',
     '红区确认',
     '验证计划',
+    '默认继续',
+    '不可逆',
+    '范围变化',
+    '完成后再汇报',
   ]) {
     assert.equal(sessionProtocol.includes(required), true, `${required} should be documented for session start`);
   }
@@ -201,6 +218,49 @@ test('session protocol defines start and end requirements', async () => {
     '后续动作',
   ]) {
     assert.equal(sessionProtocol.includes(required), true, `${required} should be documented for session end`);
+  }
+});
+
+test('task rules define compatible parent-child decomposition boundaries', async () => {
+  const taskRules = await readFile(path.join(rootDir, 'rules/task-rules.md'), 'utf8');
+  const taskLifecycle = await readFile(path.join(rootDir, 'rules/task-lifecycle.md'), 'utf8');
+  const taskDecompositionSkill = await readFile(path.join(rootDir, 'skills/core/task-decomposition/SKILL.md'), 'utf8');
+  const subagentSkill = await readFile(path.join(rootDir, 'skills/core/subagent-driven-development/SKILL.md'), 'utf8');
+
+  for (const required of [
+    '小任务保持 `single`',
+    '子任务不能拆得太细',
+    '约 5 分钟内完成或明确阻塞',
+    '父任务不得直接改业务实现',
+    '所有子任务验证、审查、merge-back、集成验证',
+  ]) {
+    assert.equal(taskRules.includes(required), true, `${required} should be documented in task rules`);
+  }
+
+  for (const required of [
+    '多 agent',
+    '多个 worktree',
+    '写入范围可并行拆分',
+    '依赖 / 冲突关系',
+  ]) {
+    assert.equal(taskLifecycle.includes(required), true, `${required} should be documented in task lifecycle`);
+  }
+
+  for (const required of [
+    '先判断是否需要父子任务',
+    '小任务直接输出 `single`',
+    '不能把机械步骤拆成 child',
+    '约 5 分钟内完成或暴露阻塞',
+  ]) {
+    assert.equal(taskDecompositionSkill.includes(required), true, `${required} should be documented in task decomposition skill`);
+  }
+
+  for (const required of [
+    '只接收 child brief',
+    '父任务维护 progress ledger',
+    '最终集成验证',
+  ]) {
+    assert.equal(subagentSkill.includes(required), true, `${required} should be documented in subagent skill`);
   }
 });
 

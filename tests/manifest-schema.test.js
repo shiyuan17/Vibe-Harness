@@ -12,7 +12,12 @@ import {
   validateManifestSources,
   readJson,
 } from '../scripts/lib/manifest.js';
-import { findInvalidSkillDirs, validateGovernanceQuality, validatePack } from '../scripts/lib/pack-validation.js';
+import {
+  findInvalidSkillDirs,
+  validateGovernanceQuality,
+  validatePack,
+  validateSkillMetadataQuality,
+} from '../scripts/lib/pack-validation.js';
 
 const rootDir = path.resolve('.');
 
@@ -79,6 +84,69 @@ test('task schema accepts complete tasks and rejects missing verification', asyn
   assert.match(
     validateJsonAgainstSchema({ ...validTask, verification: [] }, schema, 'task').join('\n'),
     /task\.verification must contain at least 1 item/,
+  );
+});
+
+test('task schema accepts compatible parent and child task fields', async () => {
+  const schema = await readJson(path.join(rootDir, 'schemas/task.schema.json'));
+  const parentTask = {
+    id: 'T-010',
+    taskKind: 'parent',
+    title: 'Coordinate reusable governance update',
+    phase: 'ready',
+    status: 'idle',
+    resolution: 'open',
+    goal: 'Coordinate a parent task without doing child implementation directly.',
+    splitRationale: 'Multiple independent governance assets can be updated and reviewed separately.',
+    acceptanceCriteria: ['All child tasks are verified and merged back before parent completion.'],
+    nonGoals: ['Do not edit unrelated governance assets.'],
+    writeScope: ['rules/task-rules.md', 'templates/task-intake.md'],
+    forbiddenActions: ['Do not let the parent task implement child business changes.'],
+    parallelSafety: 'independent',
+    conflictsWith: ['T-010-C3'],
+    verification: ['pnpm test tests/manifest-schema.test.js'],
+    integrationVerification: ['pnpm check'],
+    stopCondition: 'All child evidence is present or a blocker is recorded.',
+    rollbackPlan: 'Revert the governance task changes.',
+    children: [
+      {
+        id: 'T-010-C1',
+        title: 'Update task rules',
+        goal: 'Make task rules describe parent-child boundaries.',
+        acceptanceCriteria: ['Rules explain when small tasks remain single tasks.'],
+        writeScope: ['rules/task-rules.md'],
+        verification: ['pnpm test tests/rules-depth.test.js'],
+        stopCondition: 'Rules contain the required parent-child guidance.',
+        parallelSafety: 'independent',
+        dependsOn: [],
+        humanConfirmation: 'not_required',
+        forbiddenActions: ['Do not edit templates.'],
+        rollbackPlan: 'Revert rules/task-rules.md.',
+        splitRationale: 'This child is a minimum reviewable rule update.',
+      },
+    ],
+  };
+
+  assert.deepEqual(validateJsonAgainstSchema(parentTask, schema, 'task'), []);
+  assert.match(
+    validateJsonAgainstSchema(
+      { ...parentTask, children: [{ ...parentTask.children[0], verification: [] }] },
+      schema,
+      'task',
+    ).join('\n'),
+    /task\.children\[0\]\.verification must contain at least 1 item/,
+  );
+  assert.match(
+    validateJsonAgainstSchema(
+      { ...parentTask, children: [{ ...parentTask.children[0], writeScope: [] }] },
+      schema,
+      'task',
+    ).join('\n'),
+    /task\.children\[0\]\.writeScope must contain at least 1 item/,
+  );
+  assert.match(
+    validateJsonAgainstSchema({ ...parentTask, unexpected: true }, schema, 'task').join('\n'),
+    /task\.unexpected is not allowed/,
   );
 });
 
@@ -161,6 +229,43 @@ test('every declared skill is installed by the codex install map', async () => {
     .sort();
 
   assert.deepEqual(missing, []);
+});
+
+test('skill metadata quality validation rejects missing frontmatter and workflow-heavy descriptions', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-skill-quality-'));
+  try {
+    await mkdir(path.join(target, 'skills/core/bad-skill'), { recursive: true });
+    await writeFile(
+      path.join(target, 'skills/core/bad-skill/SKILL.md'),
+      [
+        '---',
+        'name: wrong-name',
+        'description: 用于实现功能时，先写测试、运行测试、再写实现、再重构并提交。',
+        '---',
+        '',
+        '# Bad Skill',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const errors = await validateSkillMetadataQuality(target, [
+      { id: 'bad-skill', source: 'skills/core/bad-skill/SKILL.md' },
+      { id: 'missing-skill', source: 'skills/core/missing-skill/SKILL.md' },
+    ]);
+
+    assert.match(errors.join('\n'), /bad-skill.*frontmatter name must match manifest id/);
+    assert.match(errors.join('\n'), /bad-skill.*description should describe triggers/);
+    assert.match(errors.join('\n'), /missing-skill.*is missing/);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('pack skills have valid trigger-oriented frontmatter metadata', async () => {
+  const manifests = await loadAllManifests(rootDir);
+  const errors = await validateSkillMetadataQuality(rootDir, manifests.skills.items);
+
+  assert.deepEqual(errors, []);
 });
 
 test('skill directory validation rejects empty skill shells', async () => {

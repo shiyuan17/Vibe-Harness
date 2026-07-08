@@ -20,6 +20,10 @@
   "properties": {
     "id": { "type": "string", "minLength": 1 },
     "parent": { "type": "string", "minLength": 1 },
+    "taskKind": {
+      "type": "string",
+      "enum": ["single", "parent", "child"]
+    },
     "title": { "type": "string", "minLength": 1 },
     "ownerRole": { "type": "string", "minLength": 1 },
     "phase": {
@@ -40,6 +44,7 @@
       "minItems": 1,
       "items": { "type": "string", "minLength": 1 }
     },
+    "splitRationale": { "type": "string", "minLength": 1 },
     "nonGoals": {
       "type": "array",
       "items": { "type": "string", "minLength": 1 }
@@ -64,6 +69,11 @@
       "items": { "type": "string", "minLength": 1 },
       "uniqueItems": true
     },
+    "conflictsWith": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
     "humanConfirmation": {
       "type": "string",
       "enum": ["not_required", "required", "confirmed"]
@@ -73,8 +83,73 @@
       "minItems": 1,
       "items": { "type": "string", "minLength": 1 }
     },
+    "integrationVerification": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
     "stopCondition": { "type": "string", "minLength": 1 },
     "rollbackPlan": { "type": "string", "minLength": 1 },
+    "children": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "goal",
+          "acceptanceCriteria",
+          "writeScope",
+          "verification",
+          "stopCondition",
+          "parallelSafety",
+          "dependsOn",
+          "humanConfirmation"
+        ],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "title": { "type": "string", "minLength": 1 },
+          "ownerRole": { "type": "string", "minLength": 1 },
+          "goal": { "type": "string", "minLength": 1 },
+          "acceptanceCriteria": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "writeScope": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 },
+            "uniqueItems": true
+          },
+          "verification": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "stopCondition": { "type": "string", "minLength": 1 },
+          "parallelSafety": {
+            "type": "string",
+            "enum": ["exclusive", "shared-readonly", "independent"]
+          },
+          "dependsOn": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "uniqueItems": true
+          },
+          "humanConfirmation": {
+            "type": "string",
+            "enum": ["not_required", "required", "confirmed"]
+          },
+          "forbiddenActions": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "rollbackPlan": { "type": "string", "minLength": 1 },
+          "splitRationale": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
     "evidence": {
       "type": "array",
       "items": { "type": "string", "minLength": 1 }

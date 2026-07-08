@@ -69,6 +69,10 @@ test('CLI validate --target passes after a real install and reports Chinese temp
     assert.deepEqual(report.missing, []);
     assert.equal(intakeTemplate.includes('来源'), true);
     assert.equal(intakeTemplate.includes('Source'), false);
+    assert.equal(intakeTemplate.includes('任务模式'), true);
+    assert.equal(intakeTemplate.includes('拆分判断'), true);
+    assert.equal(intakeTemplate.includes('父任务'), true);
+    assert.equal(intakeTemplate.includes('子任务'), true);
     assert.equal(intakeTemplate.includes('写入范围'), true);
     assert.equal(intakeTemplate.includes('禁止动作'), true);
     assert.equal(intakeTemplate.includes('Write Scope'), false);
