@@ -95,34 +95,66 @@ test('MVP dry-run uses --project for path and --target codex for adapter without
   }
 });
 
-test('MVP --write refuses to overwrite an existing AGENTS.md without force', async () => {
+test('MVP --write appends or updates the managed AGENTS block without overwriting local content', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-write-mvp-'));
   try {
     await runCli(['init', '--project', target]);
-    await writeFile(path.join(target, 'AGENTS.md'), 'local agents\n', 'utf8');
+    await writeFile(path.join(target, 'AGENTS.md'), '# Project AGENTS\n\nlocal agents\n', 'utf8');
 
-    await assert.rejects(
-      execFileAsync(process.execPath, [
-        cliPath,
-        'install',
-        '--project',
-        target,
-        '--target',
-        'codex',
-        '--profile',
-        'core',
-        '--write',
-      ]),
-      /Refusing to overwrite/,
-    );
+    const report = await runCli([
+      'install',
+      '--project',
+      target,
+      '--target',
+      'codex',
+      '--profile',
+      'core',
+      '--write',
+    ]);
+    const agents = await readFile(path.join(target, 'AGENTS.md'), 'utf8');
 
-    assert.equal(await readFile(path.join(target, 'AGENTS.md'), 'utf8'), 'local agents\n');
+    assert.equal(report.written.some((file) => file.endsWith('AGENTS.md')), true);
+    assert.equal(agents.includes('# Project AGENTS'), true);
+    assert.equal(agents.includes('local agents'), true);
+    assert.equal(agents.includes('LoopEngine'), true);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
 });
 
-test('MVP --write --force backs up an existing AGENTS.md before installing rendered content', async () => {
+test('MVP repeated --write updates the managed AGENTS block in place', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-write-repeat-mvp-'));
+  try {
+    await runCli(['init', '--project', target]);
+    await writeFile(
+      path.join(target, 'AGENTS.md'),
+      '# Project AGENTS\n\nlocal agents\n\n<!-- LOOPENGINE:START -->\nold block\n<!-- LOOPENGINE:END -->\n',
+      'utf8',
+    );
+
+    await runCli([
+      'install',
+      '--project',
+      target,
+      '--target',
+      'codex',
+      '--profile',
+      'core',
+      '--write',
+    ]);
+
+    const agents = await readFile(path.join(target, 'AGENTS.md'), 'utf8');
+    assert.equal(agents.includes('old block'), false);
+    assert.equal((agents.match(/<!-- LOOPENGINE:START -->/gu) ?? []).length, 1);
+    assert.equal((agents.match(/<!-- LOOPENGINE:END -->/gu) ?? []).length, 1);
+    assert.equal(agents.includes('local agents'), true);
+    assert.equal(agents.includes('LoopEngine'), true);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('MVP --write --force keeps local AGENTS content and does not require a backup for block updates', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-write-force-mvp-'));
   try {
     await runCli(['init', '--project', target]);
@@ -142,9 +174,10 @@ test('MVP --write --force backs up an existing AGENTS.md before installing rende
 
     const agents = await readFile(path.join(target, 'AGENTS.md'), 'utf8');
     assert.equal(report.written.some((file) => file.endsWith('AGENTS.md')), true);
+    assert.equal(agents.includes('local agents'), true);
     assert.equal(agents.includes('LoopEngine'), true);
     assert.equal(agents.includes(path.basename(target)), true);
-    assert.equal(await exists(path.join(target, '.loopengine/backups')), true);
+    assert.equal(await exists(path.join(target, '.loopengine/backups')), false);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
@@ -276,11 +309,35 @@ test('validate --project requires installed files to match the selected profile'
     const valid = await runCli(['validate', '--project', target]);
     assert.equal(valid.ok, true);
 
-    await writeFile(path.join(target, 'AGENTS.md'), 'locally changed agents\n', 'utf8');
+    const agentsPath = path.join(target, 'AGENTS.md');
+    const agents = await readFile(agentsPath, 'utf8');
+    await writeFile(
+      agentsPath,
+      agents.replace('## 会话开始', '## 会话开始（本地改坏）'),
+      'utf8',
+    );
     await assert.rejects(
       execFileAsync(process.execPath, [cliPath, 'validate', '--project', target]),
       /AGENTS\.md|changed/i,
     );
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('validate --project allows local AGENTS content outside the managed block', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-project-validate-local-agents-'));
+  try {
+    await runCli(['init', '--project', target]);
+    await writeFile(path.join(target, 'AGENTS.md'), '# Local notes\n\nKeep this.\n', 'utf8');
+    await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'core', '--write']);
+
+    const agentsPath = path.join(target, 'AGENTS.md');
+    const agents = await readFile(agentsPath, 'utf8');
+    await writeFile(agentsPath, `${agents}\n## Extra local section\nStill mine.\n`, 'utf8');
+
+    const valid = await runCli(['validate', '--project', target]);
+    assert.equal(valid.ok, true);
   } finally {
     await rm(target, { force: true, recursive: true });
   }

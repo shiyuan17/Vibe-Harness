@@ -77,6 +77,7 @@ async function install(args) {
   const plan = await createInstallPlan({
     dryRun: dryRunRequested,
     force: Boolean(args.force),
+    managedAgentsBlock: isMvpMode,
     profile,
     renderData,
     rootDir,
@@ -115,6 +116,7 @@ async function validate(args) {
     const plan = await createInstallPlan({
       dryRun: true,
       force: true,
+      managedAgentsBlock: true,
       profile: config.profile,
       renderData: config,
       rootDir,
@@ -125,6 +127,7 @@ async function validate(args) {
     validateConfigAndGeneratedContent(config, agentsTemplate, { installedTargets });
     validateConfigAndGeneratedContent(plan.renderData, agentsTemplate, { installedTargets });
     const target = await inspectTargetInstall({
+      managedAgentsBlock: true,
       profile: config.profile,
       renderData: config,
       rootDir,

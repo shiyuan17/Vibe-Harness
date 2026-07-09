@@ -22,6 +22,11 @@ const defaultTemplateData = {
   },
 };
 
+export const managedAgentsBlockStart = '<!-- LOOPENGINE:START -->';
+export const managedAgentsBlockEnd = '<!-- LOOPENGINE:END -->';
+
+const managedAgentsBlockPattern = /<!-- LOOPENGINE:START -->[\s\S]*?<!-- LOOPENGINE:END -->\n?/u;
+
 function lookup(data, expression) {
   return expression.split('.').reduce((value, key) => {
     if (value && Object.hasOwn(value, key)) {
@@ -55,4 +60,42 @@ export function renderTemplate(template, data = {}) {
     }
     return String(value);
   });
+}
+
+export function hasIncompleteManagedAgentsBlock(content = '') {
+  const hasStart = content.includes(managedAgentsBlockStart);
+  const hasEnd = content.includes(managedAgentsBlockEnd);
+  return hasStart !== hasEnd;
+}
+
+export function renderManagedAgentsBlock(content) {
+  return `${managedAgentsBlockStart}\n${String(content).trimEnd()}\n${managedAgentsBlockEnd}\n`;
+}
+
+export function extractManagedAgentsBlock(content = '') {
+  const match = content.match(managedAgentsBlockPattern);
+  return match ? renderManagedAgentsBlock(match[0]
+    .replace(managedAgentsBlockStart, '')
+    .replace(managedAgentsBlockEnd, '')
+    .trim()) : null;
+}
+
+export function mergeManagedAgentsBlock(existingContent, managedContent) {
+  if (hasIncompleteManagedAgentsBlock(existingContent)) {
+    throw new Error('AGENTS.md contains an incomplete LoopEngine managed block.');
+  }
+
+  const managedBlock = renderManagedAgentsBlock(managedContent);
+  if (!existingContent || existingContent.trim().length === 0) {
+    return managedBlock;
+  }
+
+  if (managedAgentsBlockPattern.test(existingContent)) {
+    return existingContent.replace(managedAgentsBlockPattern, managedBlock);
+  }
+
+  const separator = existingContent.endsWith('\n')
+    ? (existingContent.endsWith('\n\n') ? '' : '\n')
+    : '\n\n';
+  return `${existingContent}${separator}${managedBlock}`;
 }

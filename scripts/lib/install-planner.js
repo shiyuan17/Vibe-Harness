@@ -18,7 +18,13 @@ import {
   validateCatalogManifest,
   validateInstallMapShape,
 } from './manifest.js';
-import { renderTemplate, withDefaultTemplateData } from './template-renderer.js';
+import {
+  extractManagedAgentsBlock,
+  mergeManagedAgentsBlock,
+  renderManagedAgentsBlock,
+  renderTemplate,
+  withDefaultTemplateData,
+} from './template-renderer.js';
 
 async function loadProfileInstallMap({ profile, rootDir }) {
   const profiles = await readJson(path.join(rootDir, 'manifests/profiles.json'));
@@ -96,6 +102,7 @@ export function createInstalledSurface({ profile, targets }) {
 export async function createInstallPlan({
   dryRun = true,
   force = false,
+  managedAgentsBlock = false,
   profile = 'codex-internal',
   renderData = {},
   rootDir,
@@ -120,9 +127,14 @@ export async function createInstallPlan({
     assertInsideDir(targetDir, target, 'install target');
     const relativeSource = entry.source.replaceAll('\\', '/');
     const relativeTarget = entry.target.replaceAll('\\', '/');
+    const contentStrategy = managedAgentsBlock && relativeTarget === 'AGENTS.md' ? 'managed-block' : 'replace';
     const exists = await pathExists(target);
     let kind = exists && !force ? 'conflict' : 'write';
     const managedFile = managed.get(relativeTarget);
+
+    if (contentStrategy === 'managed-block') {
+      kind = 'write';
+    }
 
     if (upgrade) {
       kind = 'write';
@@ -139,6 +151,7 @@ export async function createInstallPlan({
     actions.push({
       group: entry.group,
       kind,
+      contentStrategy,
       redZone: Boolean(entry.redZone),
       relativeSource,
       relativeTarget,
@@ -168,9 +181,17 @@ export async function createInstallPlan({
   };
 }
 
-export async function renderActionContent(action, renderData = {}) {
+export async function renderSourceContent(action, renderData = {}) {
   const content = await readFile(action.source, 'utf8');
   return renderTemplate(content, renderData);
+}
+
+export async function renderActionContent(action, renderData = {}, existingContent = '') {
+  const rendered = await renderSourceContent(action, renderData);
+  if (action.contentStrategy === 'managed-block') {
+    return mergeManagedAgentsBlock(existingContent, rendered);
+  }
+  return rendered;
 }
 
 export async function previewInstallPlan(plan) {
@@ -179,8 +200,11 @@ export async function previewInstallPlan(plan) {
     if (action.kind === 'conflict' || action.kind === 'user-modified') {
       continue;
     }
+    const existingContent = action.contentStrategy === 'managed-block' && await pathExists(action.target)
+      ? await readFile(action.target, 'utf8')
+      : '';
     previewFiles.push({
-      content: await renderActionContent(action, plan.renderData),
+      content: await renderActionContent(action, plan.renderData, existingContent),
       group: action.group,
       redZone: action.redZone,
       target: action.relativeTarget,
@@ -189,7 +213,13 @@ export async function previewInstallPlan(plan) {
   return previewFiles;
 }
 
-export async function diffTargetInstall({ profile = 'codex-internal', renderData = {}, rootDir, targetDir }) {
+export async function diffTargetInstall({
+  managedAgentsBlock = false,
+  profile = 'codex-internal',
+  renderData = {},
+  rootDir,
+  targetDir,
+}) {
   const { installMap, selectedProfile } = await loadProfileInstallMap({ profile, rootDir });
   const allowedGroups = new Set(selectedProfile.groups);
   const selectedEntries = installMap.entries.filter((entry) => allowedGroups.has(entry.group));
@@ -215,6 +245,7 @@ export async function diffTargetInstall({ profile = 'codex-internal', renderData
     assertInsideDir(rootDir, source, 'install source');
     assertInsideDir(targetDir, target, 'install target');
     const item = {
+      contentStrategy: managedAgentsBlock && entry.target.replaceAll('\\', '/') === 'AGENTS.md' ? 'managed-block' : 'replace',
       group: entry.group,
       redZone: Boolean(entry.redZone),
       source,
@@ -228,10 +259,13 @@ export async function diffTargetInstall({ profile = 'codex-internal', renderData
 
     if (await pathExists(target)) {
       const [sourceContent, targetContent] = await Promise.all([
-        renderActionContent({ source }, renderedData),
+        renderSourceContent(item, renderedData),
         readFile(target, 'utf8'),
       ]);
-      if (sourceContent !== targetContent) {
+      const matches = item.contentStrategy === 'managed-block'
+        ? extractManagedAgentsBlock(targetContent) === renderManagedAgentsBlock(sourceContent)
+        : sourceContent === targetContent;
+      if (!matches) {
         changed.push(item);
       } else {
         same.push(item);
@@ -295,13 +329,14 @@ export async function applyInstallPlan(plan) {
     const existed = await pathExists(action.target);
     let backup = null;
     let previousHash = null;
-    if (existed) {
+    const existingContent = existed ? await readFile(action.target, 'utf8') : '';
+    if (existed && action.contentStrategy !== 'managed-block') {
       previousHash = await hashFile(action.target);
       backup = await backupFile({ backupId, target: action.target, targetDir: plan.targetDir });
     }
 
     await mkdir(path.dirname(action.target), { recursive: true });
-    await writeFile(action.target, await renderActionContent(action, plan.renderData), 'utf8');
+    await writeFile(action.target, await renderActionContent(action, plan.renderData, existingContent), 'utf8');
     written.push(action.target);
     files.push({
       backup,
