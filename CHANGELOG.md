@@ -7,6 +7,7 @@
 - 新增 MVP 项目模式：`loopengine init --project`、`install --project <path> --target codex --profile minimal|core|full --write`、`validate --project`。
 - 新增 `loopengine.config.json`、Codex `AGENTS.md` 模板渲染和 `minimal` / `core` / `full` profiles。
 - `validate --project` 现在会检查目标项目已安装文件是否与所选 profile 匹配。
+- MVP `AGENTS.md` 安装改为受管块更新：保留目标项目原有内容，不默认修改 Node / pnpm 元文件。
 - CLI 运行时错误改为结构化 JSON 输出，避免暴露 Node stack trace。
 - Pack validation 接入 JSON Schema 校验，避免 schema 文件仅作为静态摆设。
 - 深化 rules / skills：core 增加 coding、frontend、API、AI collaboration 等工程规则与专项 skills；full 增加 memory skills、release、Pencil、task-management 和 troubleshooting。

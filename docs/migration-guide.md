@@ -38,7 +38,7 @@ Dry-run 输出会包含目标路径、动作列表和渲染后的预览内容。
 pnpm loopengine install --project ../target-project --target codex --profile core --write
 ```
 
-如果 `AGENTS.md` 或其他受管理文件已经存在，LoopEngine 默认拒绝覆盖；确认需要替换时显式添加 `--force`，LoopEngine 会先在 `.loopengine/backups/` 下写入备份，再替换目标文件。
+LoopEngine 会在项目根目录管理最小入口 `AGENTS.md`，其余治理资产写入 `docs/`、`.agents/skills/` 等命名空间目录，默认不会改 `package.json`、`.npmrc`、`pnpm-workspace.yaml` 等 Node / pnpm 元文件。如果目标项目已经存在 `AGENTS.md`，LoopEngine 默认只追加或更新 `<!-- LOOPENGINE:START -->` / `<!-- LOOPENGINE:END -->` 包围的受管块，并保留其余本地内容；其他受管理文件如已存在，确认需要替换时显式添加 `--force`，LoopEngine 会先在 `.loopengine/backups/` 下写入备份，再替换目标文件。
 
 ## 5. 校验
 

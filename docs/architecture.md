@@ -8,7 +8,7 @@ LoopEngine 是一套 Codex 优先的可复用 AI coding governance 包。MVP 保
 - `templates/`：可复用生命周期产物模板，包括 task intake、spec、plan、handoff、review packet 和 workflow packet。
 - `skills/`：轻量 `SKILL.md` 包，用来把 Agent 路由到既有 workflow。`skills/core` 提供治理和专项检查，`skills/integrations` 提供 agentmemory / review / browser 等可选集成。Skills 只补强规则，不覆盖目标项目的 `AGENTS.md`。
 - `workflows/`：profile 级交付流程，覆盖 Fast Path、Lightweight、Full、Review 和 Loop opt-in 场景。
-- `adapters/codex/`：Codex 安装表面，包括可渲染的 `AGENTS.md` 模板和 install map。
+- `adapters/codex/`：Codex 安装表面，包括可渲染的 `AGENTS.md` 受管块模板和 install map。
 - `manifests/`：catalog 与 profile 的真值来源。MVP 对外 profile 是 `minimal`、`core` 和 `full`；旧 profile 继续保留用于内部兼容。
 - `scripts/`：CLI、安装计划器、状态/回滚处理、pack validation、项目配置校验和模板渲染。
 
@@ -16,7 +16,7 @@ LoopEngine 是一套 Codex 优先的可复用 AI coding governance 包。MVP 保
 
 1. `loopengine init --project <path>` 写入 `loopengine.config.json`。
 2. `loopengine install --project <path> --target codex --profile <profile> --dry-run` 渲染预览内容，不写入文件。
-3. `loopengine install --project <path> --target codex --profile <profile> --write` 渲染并写入文件；如果目标文件已存在，默认拒绝覆盖；只有显式使用 `--force` 时才会先备份到 `.loopengine/backups/` 再覆盖。
+3. `loopengine install --project <path> --target codex --profile <profile> --write` 渲染并写入文件；根目录只管理最小入口 `AGENTS.md`，其余治理资产写入 `docs/`、`.agents/skills/` 等命名空间目录。若目标项目已存在 `AGENTS.md`，安装器默认只更新 `<!-- LOOPENGINE:START -->` / `<!-- LOOPENGINE:END -->` 包围的受管块并保留本地内容；其他受管理文件如已存在，只有显式使用 `--force` 时才会先备份到 `.loopengine/backups/` 再覆盖。
 4. `loopengine validate --project <path>` 校验配置结构、生成内容的必需红线、目标文件安装一致性、源项目专属标识和 pack 有效性。
 
 旧安装命令 `--target <project-path> --profile codex-internal --apply` 继续保留，用于兼容已有使用方。
@@ -37,8 +37,8 @@ LoopEngine 是一套 Codex 优先的可复用 AI coding governance 包。MVP 保
 
 ## 安全模型
 
-- 安装器不会写入全局 Agent 配置。
+- 安装器不会写入全局 Agent 配置，也不会默认修改 `package.json`、`.npmrc`、`pnpm-workspace.yaml` 等 Node / pnpm 元文件。
 - MVP 的 `minimal`、`core` 和 `full` profile 不安装 Codex hooks；带 hooks 的内部 profile 仍然需要显式红区确认。
-- MVP `--write` 默认拒绝覆盖已有目标文件；`--force` 覆盖前会备份已有目标文件。
+- MVP `--write` 对 `AGENTS.md` 采用受管块更新，默认保留目标项目已有内容；其他受管理文件仍然默认拒绝覆盖，`--force` 覆盖前会备份已有目标文件。
 - Pack validation 会拒绝 reusable core 目录中的源项目专属标识。
 - 生成的 `AGENTS.md` 必须包含 git status、红区确认、验证证据和 Workflow Packet 指引。
