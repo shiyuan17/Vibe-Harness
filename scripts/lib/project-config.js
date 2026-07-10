@@ -26,6 +26,14 @@ export const defaultProjectConfig = {
     enabled: false,
     backendRepo: '',
   },
+  projectRules: {
+    mode: 'auto',
+    overrides: {},
+  },
+  memory: {
+    enabled: true,
+    path: '.agents/memory',
+  },
 };
 
 export const forbiddenProjectTerms = [
@@ -93,11 +101,6 @@ function assertNonEmptyString(value, label) {
 
 export function validateProjectConfig(config) {
   assertObject(config, 'loopengine.config.json');
-  for (const term of forbiddenProjectTerms) {
-    if (JSON.stringify(config).includes(term)) {
-      throw new Error(`Config contains forbidden term: ${term}`);
-    }
-  }
   assertNonEmptyString(config.projectName, 'projectName');
   assertNonEmptyString(config.packageManager, 'packageManager');
   assertNonEmptyString(config.target, 'target');
@@ -112,6 +115,22 @@ export function validateProjectConfig(config) {
   assertNonEmptyString(config.validationCommands.lint, 'validationCommands.lint');
   assertNonEmptyString(config.validationCommands.typecheck, 'validationCommands.typecheck');
   assertNonEmptyString(config.validationCommands.governance, 'validationCommands.governance');
+  if (Object.hasOwn(config, 'projectRules')) {
+    assertObject(config.projectRules, 'projectRules');
+    if (!['auto', 'manual', 'off'].includes(config.projectRules.mode)) {
+      throw new Error('projectRules.mode must be auto, manual, or off');
+    }
+    if (Object.hasOwn(config.projectRules, 'overrides')) {
+      assertObject(config.projectRules.overrides, 'projectRules.overrides');
+    }
+  }
+  if (Object.hasOwn(config, 'memory')) {
+    assertObject(config.memory, 'memory');
+    if (typeof config.memory.enabled !== 'boolean') {
+      throw new Error('memory.enabled must be boolean');
+    }
+    assertNonEmptyString(config.memory.path, 'memory.path');
+  }
   return true;
 }
 
@@ -133,12 +152,6 @@ export function validateGeneratedContent(content, { installedTargets } = {}) {
   const missing = requiredFragments.filter((fragment) => !content.includes(fragment));
   if (missing.length > 0) {
     throw new Error(`Generated AGENTS.md is missing required red lines: ${missing.join(', ')}`);
-  }
-
-  for (const term of forbiddenProjectTerms) {
-    if (content.includes(term)) {
-      throw new Error(`Generated content contains forbidden term: ${term}`);
-    }
   }
 
   if (Array.isArray(installedTargets)) {

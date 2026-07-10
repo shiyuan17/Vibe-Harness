@@ -53,6 +53,7 @@
 ## 专项规则索引
 
 - 工程实现、任务治理、审查、loop、发布、设计和排障均以当前 profile 已安装的 `docs/rules/` 文件为准。
+- 若已安装 `docs/rules/project-specific-rules.md`，编码规范、验证命令、VCS 状态和 review 证据优先读取该项目画像规则。
 - 若任务命中未安装的专项规则面，先说明缺口，再回退到本地规则、人工确认或目标项目自有规范。
 
 ## Skills 路由

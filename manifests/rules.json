@@ -19,6 +19,7 @@
     { "id": "frontend-rules", "source": "rules/frontend-rules.md" },
     { "id": "log-management", "source": "rules/log-management.md" },
     { "id": "project-directory", "source": "rules/project-directory.md" },
+    { "id": "project-specific-rules", "source": "rules/project-specific-rules.md" },
     { "id": "db-rules", "source": "rules/db-rules.md" },
     { "id": "loop-engineering", "source": "rules/loop-engineering.md" },
     { "id": "pencil-rules", "source": "rules/pencil-rules.md" },

@@ -14,6 +14,16 @@ const defaultTemplateData = {
     workflowsLine: '',
   },
   packageManager: 'pnpm',
+  projectProfile: {
+    codingStandards: '未发现专用 lint/format 配置；沿用仓库现有代码风格并保持最小改动。',
+    directoryGuidance: '未发现显式模块清单；按现有目录职责就近修改。',
+    packageManager: 'pnpm',
+    reviewGuidance: 'Review 必须核对目标项目事实、风险区、验证证据和未覆盖路径。',
+    stackSummary: '未识别到主技术栈；以目标项目现有文件为准。',
+    vcsStatusCommand: 'git status --short',
+    vcsSummary: '未识别 VCS',
+    verificationSummary: '使用目标项目配置的验证命令，并补充聚焦测试或人工核对证据。',
+  },
   projectName: 'target project',
   validationCommands: {
     governance: 'pnpm run check:governance',
@@ -43,6 +53,10 @@ export function withDefaultTemplateData(data = {}) {
     installedSurface: {
       ...defaultTemplateData.installedSurface,
       ...(data.installedSurface ?? {}),
+    },
+    projectProfile: {
+      ...defaultTemplateData.projectProfile,
+      ...(data.projectProfile ?? {}),
     },
     validationCommands: {
       ...defaultTemplateData.validationCommands,

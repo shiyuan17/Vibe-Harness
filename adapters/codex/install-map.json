@@ -22,6 +22,7 @@
     { "group": "rules-core", "source": "rules/frontend-rules.md", "target": "docs/rules/frontend-rules.md" },
     { "group": "rules-core", "source": "rules/log-management.md", "target": "docs/rules/log-management.md" },
     { "group": "rules-core", "source": "rules/project-directory.md", "target": "docs/rules/project-directory.md" },
+    { "group": "rules-core", "source": "rules/project-specific-rules.md", "target": "docs/rules/project-specific-rules.md" },
 
     { "group": "rules-full", "source": "rules/db-rules.md", "target": "docs/rules/db-rules.md" },
     { "group": "rules-full", "source": "rules/review-rules.md", "target": "docs/rules/review-rules.md" },
@@ -36,6 +37,7 @@
     { "group": "templates-minimal", "source": "templates/workflow-packet.md", "target": "docs/templates/workflow-packet.md" },
     { "group": "templates-core", "source": "templates/spec-template.md", "target": "docs/templates/spec-template.md" },
     { "group": "templates-core", "source": "templates/plan-template.md", "target": "docs/templates/plan-template.md" },
+    { "group": "templates-core", "source": "templates/implementation-notes.md", "target": "docs/templates/implementation-notes.md" },
     { "group": "templates-core", "source": "templates/handoff-template.md", "target": "docs/templates/handoff-template.md" },
     { "group": "templates-full", "source": "templates/review-packet.md", "target": "docs/templates/review-packet.md" },
 
@@ -91,6 +93,10 @@
     { "group": "skills-memory", "source": "skills/integrations/agentmemory/session-history/SKILL.md", "target": ".agents/skills/session-history/SKILL.md" },
     { "group": "skills-memory", "source": "skills/integrations/agentmemory/commit-history/SKILL.md", "target": ".agents/skills/commit-history/SKILL.md" },
     { "group": "skills-memory", "source": "skills/integrations/agentmemory/commit-context/SKILL.md", "target": ".agents/skills/commit-context/SKILL.md" },
+    { "group": "skills-memory", "source": "memory/README.md", "target": ".agents/memory/README.md" },
+    { "group": "skills-memory", "source": "memory/observations.md", "target": ".agents/memory/observations.md" },
+    { "group": "skills-memory", "source": "memory/decisions.md", "target": ".agents/memory/decisions.md" },
+    { "group": "skills-memory", "source": "memory/sessions/README.md", "target": ".agents/memory/sessions/README.md" },
 
     { "group": "workflows-core", "source": "workflows/fast-path.md", "target": "docs/workflows/fast-path.md" },
     { "group": "workflows-core", "source": "workflows/lightweight.md", "target": "docs/workflows/lightweight.md" },

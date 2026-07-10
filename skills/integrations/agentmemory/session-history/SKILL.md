@@ -8,3 +8,5 @@ description: 列出当前项目的近期 agentmemory sessions。用于用户询�
 列出近期 session，帮助用户选择要恢复或查看的上下文。
 
 输出应包含 session 时间、标题或主题、相关项目、简短摘要和可用于继续追踪的标识。不要展开成完整 recap，除非用户继续要求。
+
+若安装了 `.agents/memory/sessions/`，优先把该目录中的本地 session 摘要作为候选来源，并注明仍需用当前仓库状态复核。

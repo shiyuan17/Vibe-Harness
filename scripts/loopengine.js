@@ -12,6 +12,7 @@ import {
   previewInstallPlan,
 } from './lib/install-planner.js';
 import { validatePack } from './lib/pack-validation.js';
+import { detectProjectProfile } from './lib/project-profile.js';
 import {
   readRequiredProjectConfig,
   validateConfigAndGeneratedContent,
@@ -69,7 +70,8 @@ async function install(args) {
   const targetDir = isMvpMode ? path.resolve(args.project) : path.resolve(args.target ?? process.cwd());
   const config = isMvpMode ? await readRequiredProjectConfig(targetDir) : null;
   const profile = args.profile ?? config?.profile ?? 'codex-internal';
-  const renderData = config ? { ...config, profile, target: args.target ?? config.target } : {};
+  const projectProfile = config ? await detectProjectProfile({ config, targetDir }) : null;
+  const renderData = config ? { ...config, profile, projectProfile, target: args.target ?? config.target } : {};
   if (config) {
     validateProjectConfig({ ...config, profile, target: args.target ?? config.target });
   }
@@ -113,23 +115,24 @@ async function validate(args) {
     const targetDir = path.resolve(args.project);
     const config = await readRequiredProjectConfig(targetDir);
     validateProjectConfig(config);
+    const projectProfile = await detectProjectProfile({ config, targetDir });
     const plan = await createInstallPlan({
       dryRun: true,
       force: true,
       managedAgentsBlock: true,
       profile: config.profile,
-      renderData: config,
+      renderData: { ...config, projectProfile },
       rootDir,
       targetDir,
     });
     const agentsTemplate = await readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8');
     const installedTargets = plan.actions.map((action) => action.relativeTarget);
-    validateConfigAndGeneratedContent(config, agentsTemplate, { installedTargets });
+    validateConfigAndGeneratedContent({ ...config, projectProfile }, agentsTemplate, { installedTargets });
     validateConfigAndGeneratedContent(plan.renderData, agentsTemplate, { installedTargets });
     const target = await inspectTargetInstall({
       managedAgentsBlock: true,
       profile: config.profile,
-      renderData: config,
+      renderData: { ...config, projectProfile },
       rootDir,
       targetDir,
     });
@@ -177,6 +180,9 @@ async function doctor(args) {
   const target = args.target
     ? await inspectTargetInstall({ profile: args.profile ?? 'codex-internal', rootDir, targetDir })
     : null;
+  if (target && !args.verbose) {
+    delete target.unmanaged;
+  }
   console.log(JSON.stringify({ codegraph, pack, rootDir, target, targetDir }, null, 2));
 }
 

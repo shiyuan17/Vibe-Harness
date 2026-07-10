@@ -50,6 +50,14 @@ test('structural remediation assets are declared and installed', async () => {
   assert.equal(installedSources.has('schemas/task.schema.json'), true);
 });
 
+test('implementation notes template is installed with core templates', async () => {
+  const installMap = await readJson(path.join(rootDir, 'adapters/codex/install-map.json'));
+  const implementationNotes = installMap.entries.find((entry) => entry.source === 'templates/implementation-notes.md');
+
+  assert.equal(implementationNotes?.group, 'templates-core');
+  assert.equal(implementationNotes?.target, 'docs/templates/implementation-notes.md');
+});
+
 test('README documents the MVP and legacy command surfaces distinctly', async () => {
   const readme = await readFile(path.join(rootDir, 'README.md'), 'utf8');
   const readmeZh = await readFile(path.join(rootDir, 'README.zh-CN.md'), 'utf8');

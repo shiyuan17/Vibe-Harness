@@ -21,3 +21,7 @@ description: 将耐久洞察、决策或学习保存到 agentmemory。用于用�
 - 未验证猜测。
 
 保存前把内容压缩成清晰、可复用、带项目上下文的一条 observation。
+
+## 本地写入
+
+默认写入 `.agents/memory/observations.md`；架构、流程或协作决策写入 `.agents/memory/decisions.md`。写入时包含日期、观察或决策、证据、适用范围。未验证猜测不得写入。

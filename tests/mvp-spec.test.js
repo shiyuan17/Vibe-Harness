@@ -26,6 +26,10 @@ async function runCli(args) {
   return result.stdout ? JSON.parse(result.stdout) : null;
 }
 
+async function writeJson(filePath, value) {
+  await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+}
+
 async function initAndDryRunProfile(profile) {
   const target = await mkdtemp(path.join(tmpdir(), `loopengine-${profile}-profile-`));
   await runCli(['init', '--project', target]);
@@ -183,19 +187,36 @@ test('MVP --write --force keeps local AGENTS content and does not require a back
   }
 });
 
-test('validate --project rejects invalid config and forbidden generated output terms', async () => {
+test('validate --project rejects invalid config', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-invalid-config-'));
   try {
     await writeFile(
       path.join(target, 'loopengine.config.json'),
-      JSON.stringify({ projectName: 'SYBaseProjectWeb', target: 'codex', profile: 'core' }),
+      JSON.stringify({ projectName: 'BrokenProject', target: 'codex', profile: 'core' }),
       'utf8',
     );
 
     await assert.rejects(
       execFileAsync(process.execPath, [cliPath, 'validate', '--project', target]),
-      /forbidden term/i,
+      /packageManager is required/i,
     );
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('project installs allow target-specific names in generated output', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-project-name-'));
+  try {
+    await runCli(['init', '--project', target]);
+    const configPath = path.join(target, 'loopengine.config.json');
+    const config = JSON.parse(await readFile(configPath, 'utf8'));
+    await writeJson(configPath, { ...config, projectName: 'SYBaseProjectWeb' });
+
+    const report = await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'core', '--dry-run']);
+    const agents = report.previewFiles.find((file) => file.target === 'AGENTS.md').content;
+
+    assert.match(agents, /SYBaseProjectWeb/);
   } finally {
     await rm(target, { force: true, recursive: true });
   }

@@ -16,3 +16,7 @@ description: 搜索 agentmemory 中的历史 observation、session、decision �
 5. 如需行动，先用当前仓库状态复核。
 
 不要用记忆覆盖当前文件、测试或用户最新指令。
+
+## 本地检索
+
+若目标项目安装了 `.agents/memory/`，先读取 `observations.md`、`decisions.md` 和相关 `sessions/` 摘要，再结合当前仓库状态复核。输出时区分“来自记忆”和“当前验证事实”。

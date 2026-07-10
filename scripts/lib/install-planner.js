@@ -47,7 +47,7 @@ async function packageVersion(rootDir) {
   return pkg.version;
 }
 
-export function createInstalledSurface({ profile, targets }) {
+export function createInstalledSurface({ memoryPath = '.agents/memory', profile, targets }) {
   const installedTargets = targets.map((target) => target.replaceAll('\\', '/'));
   const hasTarget = (expectedTarget) => installedTargets.includes(expectedTarget);
   const hasPrefix = (prefix) => installedTargets.some((target) => target.startsWith(prefix));
@@ -61,6 +61,7 @@ export function createInstalledSurface({ profile, targets }) {
     'docs/rules/api-rules.md',
     'docs/rules/ai-collab-rules.md',
     'docs/rules/project-directory.md',
+    'docs/rules/project-specific-rules.md',
   ].some(hasTarget);
   const hasOperationalRules = [
     'docs/rules/release-rules.md',
@@ -72,6 +73,8 @@ export function createInstalledSurface({ profile, targets }) {
     '.agents/skills/remember/SKILL.md',
     '.agents/skills/session-history/SKILL.md',
   ].some(hasTarget);
+  const normalizedMemoryPath = memoryPath.replaceAll('\\', '/').replace(/\/+$/u, '');
+  const hasLocalMemory = installedTargets.includes(`${normalizedMemoryPath}/README.md`);
   const profileLines = {
     'codex-internal': '- 当前 profile: `codex-internal`，包含完整 Codex 内部安装面。',
     'codex-minimal': '- 当前 profile: `codex-minimal`，安装最小 Codex 入口规则和模板。',
@@ -85,7 +88,9 @@ export function createInstalledSurface({ profile, targets }) {
     codegraphLine: hasTarget('docs/rules/codegraph.md') ? '- CodeGraph 规则位于 `docs/rules/codegraph.md`。' : '',
     engineeringRulesLine: hasEngineeringRules ? '- 工程专项规则位于 `docs/rules/`。' : '',
     hooksLine: hasTarget('.codex/hooks.json') ? '- Codex hook 配置位于 `.codex/hooks.json`。' : '',
-    memorySkillsLine: hasAgentMemorySkills ? '- agentmemory skills 位于 `.agents/skills/`。' : '',
+    memorySkillsLine: hasAgentMemorySkills
+      ? `- agentmemory skills 位于 \`.agents/skills/\`${hasLocalMemory ? `，本地记忆库位于 \`${normalizedMemoryPath}/\`` : ''}。`
+      : '',
     operationalRulesLine: hasOperationalRules ? '- 发布 / 设计 / 排障规则位于 `docs/rules/`。' : '',
     profileLine: profileLines[profile] ?? `- 当前 profile: \`${profile}\`。`,
     reviewLoopLine: hasReviewLoop ? '- 当前 profile 包含 review / loop 资产。' : '',
@@ -97,6 +102,25 @@ export function createInstalledSurface({ profile, targets }) {
     templatesLine: hasPrefix('docs/templates/') ? '- 模板位于 `docs/templates/`。' : '',
     workflowsLine: hasPrefix('docs/workflows/') ? '- Workflows 位于 `docs/workflows/`。' : '',
   };
+}
+
+function memoryTargetPath(renderData, relativeTarget) {
+  const normalizedTarget = relativeTarget.replaceAll('\\', '/');
+  if (!normalizedTarget.startsWith('.agents/memory/')) {
+    return normalizedTarget;
+  }
+  const memoryPath = renderData.memory?.path ?? '.agents/memory';
+  const normalizedMemoryPath = memoryPath.replaceAll('\\', '/').replace(/\/+$/u, '');
+  const suffix = normalizedTarget.slice('.agents/memory/'.length);
+  return `${normalizedMemoryPath}/${suffix}`;
+}
+
+function shouldInstallEntry(entry, renderData) {
+  const normalizedTarget = entry.target.replaceAll('\\', '/');
+  if (normalizedTarget.startsWith('.agents/memory/') && renderData.memory?.enabled === false) {
+    return false;
+  }
+  return true;
 }
 
 export async function createInstallPlan({
@@ -119,14 +143,18 @@ export async function createInstallPlan({
     if (!allowedGroups.has(entry.group)) {
       continue;
     }
+    if (!shouldInstallEntry(entry, renderData)) {
+      continue;
+    }
     assertPortableRelativePath(entry.source, 'install source');
-    assertPortableRelativePath(entry.target, 'install target');
+    const mappedTarget = memoryTargetPath(renderData, entry.target);
+    assertPortableRelativePath(mappedTarget, 'install target');
     const source = path.resolve(rootDir, entry.source);
-    const target = path.resolve(targetDir, entry.target);
+    const target = path.resolve(targetDir, mappedTarget);
     assertInsideDir(rootDir, source, 'install source');
     assertInsideDir(targetDir, target, 'install target');
     const relativeSource = entry.source.replaceAll('\\', '/');
-    const relativeTarget = entry.target.replaceAll('\\', '/');
+    const relativeTarget = mappedTarget;
     const contentStrategy = managedAgentsBlock && relativeTarget === 'AGENTS.md' ? 'managed-block' : 'replace';
     const exists = await pathExists(target);
     let kind = exists && !force ? 'conflict' : 'write';
@@ -161,6 +189,7 @@ export async function createInstallPlan({
   }
 
   const installedSurface = createInstalledSurface({
+    memoryPath: renderData.memory?.path,
     profile,
     targets: actions.map((action) => action.relativeTarget),
   });
@@ -222,12 +251,14 @@ export async function diffTargetInstall({
 }) {
   const { installMap, selectedProfile } = await loadProfileInstallMap({ profile, rootDir });
   const allowedGroups = new Set(selectedProfile.groups);
-  const selectedEntries = installMap.entries.filter((entry) => allowedGroups.has(entry.group));
+  const selectedEntries = installMap.entries.filter((entry) => allowedGroups.has(entry.group) && shouldInstallEntry(entry, renderData));
+  const installedTargets = selectedEntries.map((entry) => memoryTargetPath(renderData, entry.target));
   const renderedData = withDefaultTemplateData({
     ...renderData,
     installedSurface: createInstalledSurface({
+      memoryPath: renderData.memory?.path,
       profile,
-      targets: selectedEntries.map((entry) => entry.target),
+      targets: installedTargets,
     }),
   });
   const expected = [];
@@ -239,17 +270,18 @@ export async function diffTargetInstall({
 
   for (const entry of selectedEntries) {
     assertPortableRelativePath(entry.source, 'install source');
-    assertPortableRelativePath(entry.target, 'install target');
-    const target = path.resolve(targetDir, entry.target);
+    const mappedTarget = memoryTargetPath(renderData, entry.target);
+    assertPortableRelativePath(mappedTarget, 'install target');
+    const target = path.resolve(targetDir, mappedTarget);
     const source = path.resolve(rootDir, entry.source);
     assertInsideDir(rootDir, source, 'install source');
     assertInsideDir(targetDir, target, 'install target');
     const item = {
-      contentStrategy: managedAgentsBlock && entry.target.replaceAll('\\', '/') === 'AGENTS.md' ? 'managed-block' : 'replace',
+      contentStrategy: managedAgentsBlock && mappedTarget === 'AGENTS.md' ? 'managed-block' : 'replace',
       group: entry.group,
       redZone: Boolean(entry.redZone),
       source,
-      target: entry.target.replaceAll('\\', '/'),
+      target: mappedTarget,
     };
     expected.push(item);
     expectedTargets.add(item.target);
@@ -278,6 +310,7 @@ export async function diffTargetInstall({
   const unmanaged = (await collectTargetFiles(path.resolve(targetDir)))
     .filter((target) => !expectedTargets.has(target))
     .map((target) => ({ target }));
+  const sample = (items) => items.slice(0, 20);
 
   return {
     changed,
@@ -288,6 +321,17 @@ export async function diffTargetInstall({
     profile,
     redZone,
     same,
+    summary: {
+      changedCount: changed.length,
+      missingCount: missing.length,
+      sameCount: same.length,
+      unmanagedCount: unmanaged.length,
+      samples: {
+        changed: sample(changed),
+        missing: sample(missing),
+        unmanaged: sample(unmanaged),
+      },
+    },
     targetDir: path.resolve(targetDir),
     unmanaged,
   };
@@ -296,6 +340,10 @@ export async function diffTargetInstall({
 export const inspectTargetInstall = diffTargetInstall;
 
 export async function applyInstallPlan(plan) {
+  if (plan.dryRun) {
+    return { written: [] };
+  }
+
   const userModified = plan.actions.find((action) => action.kind === 'user-modified');
   if (userModified) {
     throw new Error(`Refusing to upgrade user-modified file: ${userModified.target}`);
@@ -315,9 +363,6 @@ export async function applyInstallPlan(plan) {
   const written = [];
   const files = [];
   const backupId = createBackupId();
-  if (plan.dryRun) {
-    return { written };
-  }
 
   for (const action of plan.actions) {
     if (action.kind !== 'write') {
