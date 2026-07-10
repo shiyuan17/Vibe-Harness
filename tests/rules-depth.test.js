@@ -267,7 +267,7 @@ test('task rules define compatible parent-child decomposition boundaries', async
 test('deep rules and integration skills do not leak source project terms', async () => {
   const findings = await scanForForbiddenTerms({
     forbiddenTerms: ['SYBaseProjectWeb', 'SYBaseProject', 'D:\\Github\\JW', 'T-019', 'T-024', '患者', '病理', '医疗', 'localhost:5777'],
-    includeDirs: ['rules', 'skills/core', 'skills/integrations', 'templates', 'workflows', 'adapters/codex', 'manifests', 'schemas'],
+    includeDirs: ['rules', 'skills/core', 'skills/integrations', 'memory', 'templates', 'workflows', 'adapters/codex', 'manifests', 'schemas'],
     rootDir,
   });
 

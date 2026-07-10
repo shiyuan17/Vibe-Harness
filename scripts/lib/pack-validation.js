@@ -17,7 +17,7 @@ import {
 import { scanForForbiddenTerms } from './redaction.js';
 
 const forbiddenTerms = ['SYBaseProjectWeb', 'SYBaseProject', 'D:\\Github\\JW', 'T-019', 'T-024', '患者', '病理', '医疗'];
-const redactionDirs = ['rules', 'templates', 'skills/core', 'skills/integrations', 'workflows', 'adapters/codex', 'manifests', 'schemas'];
+const redactionDirs = ['rules', 'templates', 'skills/core', 'skills/integrations', 'memory', 'workflows', 'adapters/codex', 'manifests', 'schemas'];
 
 async function collectEmptyDirs(dir, rootDir, results = []) {
   if (!(await pathExists(dir))) {
@@ -164,11 +164,15 @@ export async function validateGovernanceQuality(rootDir) {
     },
     {
       file: 'templates/plan-template.md',
-      terms: ['必填', '禁止空泛', '验证命令'],
+      terms: ['必填', '禁止空泛', '验证命令', 'implementation-notes.md', '偏离说明'],
     },
     {
       file: 'templates/task-intake.md',
-      terms: ['必填', '写入范围', '禁止动作'],
+      terms: ['必填', '写入范围', '禁止动作', '盲点审查结论', '下一步建议提问', '关键未决问题'],
+    },
+    {
+      file: 'templates/implementation-notes.md',
+      terms: ['原计划摘要', '当前假设', '边缘 case', '采用的保守备选', '偏离说明', '影响范围', '验证证据', '后续处理'],
     },
     {
       file: 'templates/review-packet.md',
@@ -204,7 +208,11 @@ export async function validateGovernanceQuality(rootDir) {
     },
     {
       file: 'rules/dynamic-workflow.md',
-      terms: ['工作流档位', '安装配置'],
+      terms: ['工作流档位', '安装配置', 'implementation-notes.md', '偏离说明'],
+    },
+    {
+      file: 'rules/session-protocol.md',
+      terms: ['会话开始协议', '会话结束协议', '盲点审查', '红区确认'],
     },
     {
       file: 'rules/git-rules.md',
@@ -241,6 +249,14 @@ export async function validateGovernanceQuality(rootDir) {
     {
       file: 'schemas/task.schema.json',
       terms: ['writeScope', 'forbiddenActions', 'verification', 'rollbackPlan'],
+    },
+    {
+      file: 'skills/core/brainstorming/SKILL.md',
+      terms: ['反向采访', '盲点审查', '每次只问一个'],
+    },
+    {
+      file: 'skills/core/task-intake/SKILL.md',
+      terms: ['反向采访', '盲点审查', '每次只问一个'],
     },
   ];
 
