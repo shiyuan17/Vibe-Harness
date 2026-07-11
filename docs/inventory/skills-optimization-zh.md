@@ -4,8 +4,8 @@
 
 ## 当前快照
 
-- 总数：45。
-- `native`：28；`integration`：11；`router`：4；`compatibility`：2。
+- 总数：31。
+- `native`：21；`integration`：9；`router`：1；`compatibility`：0。
 - router/compatibility 入口最多 30 行，其他入口最多 80 行。
 - 当前最长入口为 `api-and-interface-design`，低于 80 行。
 - `minimal` 不安装 skill；core/full/internal 均通过 profile 依赖闭包校验。
@@ -14,12 +14,13 @@
 
 | 能力簇 | 实现真值 | 保留入口 |
 | --- | --- | --- |
-| 调试 | `systematic-debugging` | `debugging-and-error-recovery` 为兼容路由 |
-| 浏览器 | `browser-verification` | `browser-testing-with-devtools` 为兼容路由 |
-| 设计 | `frontend-design` + 单层 reference | `taste-skill`、`impeccable` 按场景路由 |
-| Review | `code-review-and-quality` | 请求、OCR、Packet、对抗审查各自只承担一个阶段 |
-| Workflow | `governance-core` + `using-loopengine` | 五步内核常驻，handoff、release、Pencil、worktree 按触发加载 |
-| Memory | agentmemory 外部适配 | 八个子入口因调用和破坏性不同继续独立 |
+| 调试 | `systematic-debugging` | 删除 `debugging-and-error-recovery` 兼容入口 |
+| 浏览器 | `browser-verification` | 删除 `browser-testing-with-devtools` 兼容入口 |
+| 设计 | `frontend-design` + `references/design-modes.md` | 删除 `taste-skill`、`impeccable`，触发词并入 `frontend-design` |
+| 前端实现 | `frontend-implementation-check` + `rules/frontend-rules.md` | 删除 `frontend-ui-engineering` |
+| Review | `code-review-and-quality`、`requesting-code-review`、`adversarial-review-packet` | 删除 `review-checklist` 薄路由 |
+| Workflow / Git / Release / Pencil | `governance-core` 与专项 rules | 删除 `code-simplification`、`documentation-and-adrs`、`worktree-mergeback-check`、`git-delivery-batcher`、`release-checklist`、`pencil-design-check` |
+| Memory | `agentmemory` 外部适配 | 删除 `commit-history`、`commit-context`，提交查询协议并入 `agentmemory`；保留 `forget` 等危险操作独立入口 |
 
 `writing-plans` 的 core 硬依赖已改为 `executing-plans`；full 的 `subagent-driven-development` 仅为 optional，不再产生 core 安装后无法执行的计划。
 

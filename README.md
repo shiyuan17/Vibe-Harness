@@ -17,6 +17,51 @@ pnpm loopengine verify --project ../some-project
 
 MVP 模式使用 `--project <path>` 表示目标项目路径，使用 `--target codex` 表示安装 Codex adapter。安装器默认 dry-run；`--dry-run` 只打印目标路径、动作和渲染后的预览内容，不写文件。真实写入使用 `--write`。LoopEngine 只在项目根目录管理最小入口 `AGENTS.md`；其余治理资产写入 `docs/`、`.agents/skills/` 等命名空间目录，默认不会修改 `package.json`、`.npmrc`、`pnpm-workspace.yaml` 等 Node / pnpm 元文件。若项目已存在 `AGENTS.md`，LoopEngine 只会追加或更新 `<!-- LOOPENGINE:START -->` / `<!-- LOOPENGINE:END -->` 包围的受管块，保留其余本地内容；其他受管理文件如已存在，仍需显式加 `--force`，覆盖前会先备份到 `.loopengine/backups/`。
 
+## 什么时候用 LoopEngine
+
+| 场景 | 推荐做法 | 你会得到什么 |
+| --- | --- | --- |
+| 新项目接入 Codex governance | 先 `init`，再 `install --project ... --target codex --profile core --dry-run` | 先看写入面和风险，再决定是否 `--write`。 |
+| 既有项目补齐 Agent 协作规范 | 直接把 LoopEngine 当成治理包安装器，用 `core` 起步 | 得到规则、模板、skills 和校验器的统一入口。 |
+| 高风险任务要可验证 | 让 Agent 先判定为 `完整` 档，再给出证据、反例和回滚方案 | 任务不会跳过审查和验证步骤。 |
+| 旧 Codex hooks 仍要兼容 | 继续使用 legacy/internal 生命周期 | 保持 `--target <path> --apply --confirm-red-zone` 语义。 |
+
+## 核心使用流程
+
+1. 初始化目标项目配置。
+
+   ```bash
+   pnpm loopengine init --project ../some-project
+   ```
+
+2. 先 dry-run 看写入面、红区和 profile。
+
+   ```bash
+   pnpm loopengine install --project ../some-project --target codex --profile core --dry-run
+   ```
+
+3. 确认无误后再真实写入。
+
+   ```bash
+   pnpm loopengine install --project ../some-project --target codex --profile core --write
+   ```
+
+4. 用 `validate` 检查配置、安装一致性和包自身校验。
+
+   ```bash
+   pnpm loopengine validate --project ../some-project
+   ```
+
+5. 用 `verify` 执行目标项目配置的治理 / lint / typecheck 命令。
+
+   ```bash
+   pnpm loopengine verify --project ../some-project
+   ```
+
+`validate --project` 只做一致性与可用性检查，不执行目标项目命令。`verify --project` 才会真正执行配置里的命令；如果某条命令是手工流程，默认会阻断，只有显式使用 `--allow-manual` 才会继续。
+
+## 配置示例
+
 `loopengine.config.json` 示例：
 
 ```json
@@ -39,15 +84,146 @@ MVP 模式使用 `--project <path>` 表示目标项目路径，使用 `--target 
   "crossRepo": {
     "enabled": false,
     "backendRepo": ""
+  },
+  "projectRules": {
+    "mode": "auto",
+    "overrides": {}
+  },
+  "memory": {
+    "enabled": true,
+    "path": ".agents/memory"
   }
 }
 ```
 
-## MVP Profiles
+你通常只需要改这几类字段：
 
-- `minimal`：治理内核、codebase-memory-mcp 使用规则、`git status --short`、红区人工确认、验证证据和中文任务/交付模板。
-- `core`：`minimal` + 五步中文治理、Markdown 任务校验器、工程规则、模板和 `using-loopengine` 路由 skills。
-- `full`：`core` + task/backlog、durable governance memory、release / Pencil / troubleshooting、loop 和高级执行能力。
+- `profile`：决定装到什么治理面。
+- `validationCommands`：决定 `verify` 跑什么。
+- `riskZones`：告诉 Agent 哪些区域算红区 / 黄区。
+- `governance.mode`：决定治理内核是 `basic`、`full` 还是 `off`。
+- `projectRules` 和 `memory`：给项目专属规则和记忆目录留位置。
+
+## 如何让 Agent 跑一轮 loop
+
+LoopEngine 的工作流不是“直接给答案”，而是先把任务跑成一轮 loop：
+
+1. 获取事实。
+2. 做出决策。
+3. 执行最小改动。
+4. 验证结果。
+5. 交付证据、风险和下一步。
+
+你可以把这段话直接发给 Agent：
+
+```text
+请按 LoopEngine 的五步循环推进：
+先只做事实收集和档位判断，不要直接改文件。
+输出当前事实、关键假设、风险档位、需要我确认的点和下一步计划。
+等我回复继续后，再执行并在结束时给出“主张 → 证据 → 反例 → 剩余风险”。
+```
+
+如果任务会多轮推进，可以再补一句：
+
+```text
+如果你发现范围变化或风险升级，请先停下来重新做决策，不要默认继续。
+```
+
+## 提示词示例
+
+### 安装前先看写入面
+
+```text
+请先对当前仓库做 LoopEngine dry-run 安装审查。
+目标：判断应该用 core 还是 full profile，并说明会写入哪些文件、是否触及红区、是否会覆盖现有文件。
+先不要写入，先输出安装计划和风险。
+```
+
+### 让 Agent 先路由
+
+```text
+按 using-loopengine 路由。当前是任务开始阶段，请先判断风险档位，只选择一个流程 skill 和一个验证/审查 skill。
+如果信息不足，先列出需要我确认的内容，不要直接猜。
+```
+
+### 快速文档任务
+
+```text
+这是快速档位任务，只读文档，不改代码。
+请按“主张 → 证据 → 反例 → 剩余风险”输出结论，并给出需要补充的文档位置。
+```
+
+### 轻量代码任务
+
+```text
+这是轻量档位任务，范围只限于指定文件。
+先列验收标准和写入范围，再做最小改动，最后给出验证命令和结果。
+```
+
+### 完整高风险任务
+
+```text
+这是完整档位任务，涉及红区 / 外部契约 / 发布。
+先给出风险档位判断、回滚方案、验证计划和需要人工确认的点，再继续执行。
+```
+
+## 工作流档位选择
+
+| 档位 | 适用场景 | 读取方式 |
+| --- | --- | --- |
+| `快速` | 只读、纯文档、低风险文案，不改运行时、公开契约或红区 | 先收集事实，再给结论。 |
+| `轻量` | 单一范围的小改动，可用聚焦验证证明 | 先固定写入范围和验收标准。 |
+| `完整` | 红区、安全、数据库、发布、跨层、外部契约、多 Agent 或父子任务 | 先做决策，再执行，再验证。 |
+
+不确定时直接升级到 `完整`。不要让 Agent 静默猜测档位，应该先把判断说出来。
+
+## 常见操作场景
+
+### 1. dry-run 审查安装计划
+
+先看安装器准备写什么，再决定是否真实写入：
+
+```bash
+pnpm loopengine install --project ../some-project --target codex --profile core --dry-run
+```
+
+你会看到目标路径、动作列表和渲染后的预览内容。这个阶段不会写文件。
+
+### 2. 调整项目配置
+
+`loopengine.config.json` 里最常改的是这三块：
+
+- `validationCommands`：把 `lint` / `typecheck` / `governance` 对到项目真实命令。
+- `riskZones`：把你项目里真正的红区、黄区写进去。
+- `governance.mode`：如果项目不需要治理门禁，可以设为 `off`；需要基础门禁就保留 `basic`。
+
+### 3. 安装后跑目标项目校验
+
+安装完成后先校验安装一致性，再跑目标项目验证命令：
+
+```bash
+pnpm loopengine validate --project ../some-project
+pnpm loopengine verify --project ../some-project
+```
+
+`validate` 关注安装是否一致；`verify` 才会真正执行配置里的命令。
+
+### 4. 使用 full profile
+
+`full` 会在 `core` 基础上增加 durable memory、release、Pencil、troubleshooting、loop、review 和更完整的执行能力。适合要长期维护、跨层改动、发布前审查、或者需要更强证据链的任务。
+
+### 5. 继续兼容旧内部生命周期
+
+如果你在维护旧 Codex hooks 或内部 profile，继续使用 legacy/internal 生命周期：
+
+```bash
+pnpm loopengine install --target ../some-project --profile codex-internal --dry-run
+pnpm loopengine install --target ../some-project --profile codex-internal --apply --confirm-red-zone
+pnpm loopengine validate --target ../some-project --profile codex-internal
+pnpm loopengine doctor --target ../some-project
+```
+
+这里不要混入 MVP 的 `--project` 语义。`--apply` 是 legacy/internal 的真实写入开关，红区文件还要再加 `--confirm-red-zone`。
 
 ## 验证门禁
 
@@ -59,20 +235,20 @@ git diff --check
 
 `pnpm check` 会运行 lint、pack validation 和测试。Pack validation 不只校验 manifest、install map、核心文件存在性和脱敏词，也会检查 skill frontmatter、description 触发导向、工作流、模板、测试 / 审查 / Git / 工作流规则是否包含可执行字段，避免治理文档退化成空壳。
 
-`validate --project` 只检查配置、安装一致性和命令可用状态，不执行目标项目命令。`verify --project` 会先完成这些检查，再按 governance、lint、typecheck 顺序执行已配置命令；manual 命令默认阻断，审查命令内容后可显式使用 `--allow-manual`。
-
 安装后的项目可直接运行零依赖治理校验器：
 
 ```bash
 node .agents/loopengine/governance/validate.mjs
-node .agents/loopengine/governance/validate-packet.mjs --file path/to/packet.md
 ```
 
-`core` 默认执行 basic 文档和 Packet 门禁；`full` 增加 task/backlog、durable memory、设计预览配对和发布治理。LoopEngine 不自动修改目标项目 `package.json`。
+`core` 默认执行 basic 文档和任务门禁；`full` 增加 task/backlog、durable memory、设计预览配对和发布治理。LoopEngine 不自动修改目标项目 `package.json`。
 
 ## 旧内部安装生命周期
 
-旧命令仍可使用，用于包含 Codex hooks 的内部 profile。MVP 接入优先使用 `--project <path> --target codex --write`；legacy/internal 生命周期使用 `--target <path> --apply --confirm-red-zone`：
+旧命令仍可使用，用于包含 Codex hooks 的内部 profile。两条生命周期不要混用：
+
+- MVP 接入使用 `--project <path> --target codex --write`。
+- legacy/internal 生命周期使用 `--target <path> --apply --confirm-red-zone`。
 
 ```bash
 pnpm loopengine install --target ../some-project --profile codex-internal --apply --confirm-red-zone

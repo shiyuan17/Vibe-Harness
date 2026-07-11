@@ -22,10 +22,10 @@ LoopEngine 是 Codex 优先的可复用 AI coding governance 包。运行时使�
 
 ## Profile
 
-- minimal：AGENTS、治理内核、codebase-memory-mcp、Git/Test 规则和中文 task/delivery 模板，不安装 skills 或 runtime。
-- core：在 minimal 上增加专项规则、中文任务 runtime/schema、`using-loopengine` 和常规 skills。
-- full：在 core 上增加 durable memory、Pencil、release、loop、对抗审查和高级执行 skills。
-- codex-internal：full 加 legacy Codex hooks；真实写入需要红区确认。
+- minimal：最小安装，包含 AGENTS、治理内核、Git/Test 规则和中文 task/delivery 模板，不安装 skills、runtime、hook 或 MCP 安装面。
+- core：通用安装，在 minimal 上增加专项规则、中文任务 runtime/schema、`using-loopengine` 和常规 skills；不安装 hook、`codebase-memory-mcp` 或 agentmemory MCP 安装面。
+- full：全安装，在 core 上增加 `codebase-memory-mcp`、agentmemory skill 家族、`.agents/memory/` 本地回退库和 Codex hooks；真实写入 hooks 需要红区确认。
+- codex-internal：兼容全安装入口，等同 full，并保留 legacy/internal 生命周期。
 - docs-only：仅安装治理内核、专项规则、中文模板、memory 文档和 schema。
 
 ## 中文任务数据流

@@ -59,7 +59,7 @@ git diff --check
 
 ## Agentmemory Skills
 
-源项目中的 `handoff`、`recall`、`remember`、`forget`、`recap`、`session-history`、`commit-history`、`commit-context` 会作为 bundled memory 安装面进入 `core` / `full` / `codex-internal`。这些 skill 只描述通用 agentmemory 行为；目标项目没有记忆工具时，Agent 必须说明不可用并回退到本地 handoff 或任务 intake。
+源项目中的 `handoff`、`recall`、`remember`、`forget`、`recap`、`session-history` 会作为 bundled memory 安装面进入 `full` / `codex-internal`。提交历史和提交上下文能力已收敛到 `agentmemory` 总入口，不再安装独立 `commit-history` 或 `commit-context` skill。目标项目没有记忆工具时，Agent 必须说明不可用并回退到本地 handoff 或任务 intake。`core` 是不含 agentmemory MCP 安装面的通用安装。
 
 ## v0.3 升级
 
@@ -74,7 +74,7 @@ git diff --check
 
 - Skill manifest 新增 `kind`、`requiresSkills`、`optionalSkills`、`requiresTools` 和可选 `canonicalId`。自定义 manifest 条目必须补齐这些字段。
 - core 新增 `executing-plans`、结构化追问、UI、安全、精简、文档、Git 交付及调试/浏览器兼容入口；full 新增三类设计入口、对抗审查和跨仓 rollout。
-- 旧 ID 保持可用；`debugging-and-error-recovery` 与 `browser-testing-with-devtools` 解析到本地 canonical skill，不需要立即迁移调用方。
+- 薄包装和兼容 ID 已删除；调试使用 `systematic-debugging`，浏览器验证使用 `browser-verification`，规则类检查使用对应 `docs/rules/*.md` 或 canonical skill。
 - `open-code-review`、agentmemory 和浏览器 skill 只内置适配层，不捆绑第三方 runtime 或凭据。工具不可用时按 skill 中的回退协议执行。
 - 升级前运行 `loopengine diff`；使用 `install --upgrade` 安装新增受管文件。用户修改过的文件仍需 `--force` 才会备份并替换，失败时使用现有 `rollback` 生命周期恢复。
 - 使用 `pnpm skills:audit` 查看实时 inventory；pack validation 会阻止未知依赖、profile 越层、别名环、无回退 integration 和过长入口。
