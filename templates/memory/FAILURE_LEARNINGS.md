@@ -1,3 +1,3 @@
-# Failure Learnings
+# 失败经验
 
-Record repeated, costly failure patterns only after a concrete guardrail exists. Include evidence, root cause, guardrail, and verification.
+仅在具体护栏已经形成后，记录重复出现且代价较高的失败模式。内容应包含证据、根因、护栏和验证方式。

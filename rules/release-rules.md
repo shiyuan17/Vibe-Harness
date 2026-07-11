@@ -1,14 +1,14 @@
-# Release Rules
+# 发布规则
 
-Release rules require changes, verification, monitoring, and rollback evidence to travel together. A local build or successful upload is not proof that a release succeeded.
+发布规则要求变更、验证、监控和回滚证据一起交付。本地构建通过或上传成功不等于发布成功。
 
-## Rules
+## 规则
 
 - 发布前确认版本、changelog、迁移步骤、风险和监控信号。
 - 失败时按预先记录的回滚路径执行，不临场发明流程。
 - 交付时写清影响范围、验证命令和未覆盖风险。
 
-## Checklist
+## 检查清单
 
 - 版本：确认版本号、changelog、发布范围和目标环境。
 - 验证：发布前验证命令、人工核对和 smoke test 已记录。

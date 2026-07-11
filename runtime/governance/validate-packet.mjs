@@ -7,11 +7,16 @@ function argument(name) {
   return index >= 0 ? process.argv[index + 1] : null;
 }
 
-function section(body, name) {
+function names(value) {
+  return Array.isArray(value) ? value : [value];
+}
+
+function section(body, candidates) {
+  const wanted = new Set(names(candidates).map((name) => name.toLowerCase()));
   const lines = body.split(/\r?\n/u);
   const start = lines.findIndex((line) => {
     const heading = line.trim().match(/^(#{2,6})\s+(.+)$/u);
-    return heading?.[2]?.trim().toLowerCase() === name.toLowerCase();
+    return heading && wanted.has(heading[2].trim().toLowerCase());
   });
   if (start < 0) return null;
   const startLevel = lines[start].trim().match(/^(#{2,6})\s+/u)[1].length;
@@ -23,11 +28,15 @@ function section(body, name) {
   return lines.slice(start + 1, end < 0 ? undefined : end).join('\n');
 }
 
-function field(sectionBody, name) {
+function field(sectionBody, candidates) {
   if (sectionBody === null) return null;
-  const prefix = `- ${name}:`;
-  const line = sectionBody.split(/\r?\n/u).find((entry) => entry.trim().toLowerCase().startsWith(prefix.toLowerCase()));
-  return line === undefined ? null : line.trim().slice(prefix.length).trim();
+  const candidateNames = names(candidates);
+  for (const name of candidateNames) {
+    const prefix = `- ${name}:`;
+    const line = sectionBody.split(/\r?\n/u).find((entry) => entry.trim().toLowerCase().startsWith(prefix.toLowerCase()));
+    if (line !== undefined) return line.trim().slice(prefix.length).trim();
+  }
+  return null;
 }
 
 function substantive(value) {
@@ -43,47 +52,62 @@ if (!file) {
 } else {
   const body = readFileSync(resolve(file), 'utf8');
   const errors = [];
-  const reviewVerdict = section(body, 'Review Verdict');
+  const reviewVerdict = section(body, ['Review Verdict', '审查结论']);
   if (reviewVerdict !== null) {
-    for (const name of ['Specification', 'Code Quality']) {
-      const value = field(reviewVerdict, name);
+    for (const [name, aliases] of [
+      ['Specification', ['Specification', '规格符合度']],
+      ['Code Quality', ['Code Quality', '代码质量']],
+    ]) {
+      const value = field(reviewVerdict, aliases);
       if (value === null) errors.push(`Missing field: Review Verdict > ${name}`);
       else if (!substantive(value)) errors.push(`Empty field: Review Verdict > ${name}`);
     }
-    for (const name of ['Findings', 'Verification Checked', 'Residual Risk']) {
-      if (!substantive(section(body, name))) errors.push(`Missing or empty section: ${name}`);
+    for (const [name, aliases] of [
+      ['Findings', ['Findings', '问题列表']],
+      ['Verification Checked', ['Verification Checked', '已核验证']],
+      ['Residual Risk', ['Residual Risk', '剩余风险']],
+    ]) {
+      if (!substantive(section(body, aliases))) errors.push(`Missing or empty section: ${name}`);
     }
   } else {
-  const summary = section(body, 'Summary');
-  const workflow = section(body, 'Dynamic Workflow');
-  const primary = field(workflow, 'Primary Workflow') ?? '';
-  const modifiers = field(workflow, 'Required modifiers') ?? '';
+    const workflow = section(body, ['Dynamic Workflow', '动态工作流']);
+    const primary = field(workflow, ['Primary Workflow', '主工作流']) ?? '';
+    const modifiers = field(workflow, ['Required modifiers', '必要修饰器']) ?? '';
 
-  for (const [sectionName, fieldName] of [['Summary', 'Validation'], ['Summary', 'Risks'], ['Dynamic Workflow', 'Primary Workflow']]) {
-    const value = field(section(body, sectionName), fieldName);
-    if (value === null) errors.push(`Missing field: ${sectionName} > ${fieldName}`);
-    else if (!substantive(value)) errors.push(`Empty field: ${sectionName} > ${fieldName}`);
-  }
-
-  const normalizedPrimary = primary.replace(/\s*\([^)]*\)\s*$/u, '').trim();
-  const full = /^(security|db|production debug|workflow-infra|release)$/iu.test(normalizedPrimary) || /Security|DB|Red Team|Backend Cross-check|Browser Verification/iu.test(modifiers);
-  if (full) {
-    const evidence = section(body, 'Full Evidence');
-    if (evidence === null) errors.push('Missing section: Full Evidence');
-    for (const name of ['Exit codes']) {
-      const value = field(evidence, name);
-      if (value === null) errors.push(`Missing field: Full Evidence > ${name}`);
-      else if (!substantive(value)) errors.push(`Empty field: Full Evidence > ${name}`);
+    for (const [sectionName, sectionAliases, fieldName, fieldAliases] of [
+      ['Summary', ['Summary', '摘要'], 'Validation', ['Validation', '验证']],
+      ['Summary', ['Summary', '摘要'], 'Risks', ['Risks', '风险']],
+      ['Dynamic Workflow', ['Dynamic Workflow', '动态工作流'], 'Primary Workflow', ['Primary Workflow', '主工作流']],
+    ]) {
+      const value = field(section(body, sectionAliases), fieldAliases);
+      if (value === null) errors.push(`Missing field: ${sectionName} > ${fieldName}`);
+      else if (!substantive(value)) errors.push(`Empty field: ${sectionName} > ${fieldName}`);
     }
-  }
 
-  if (/^(security|db|production debug|workflow-infra|release)$/iu.test(normalizedPrimary) || /Security|DB|Red Team/iu.test(modifiers)) {
-    const redTeam = section(body, 'Red Team');
-    if (redTeam === null) errors.push('Missing section: Red Team');
-    for (const name of ['Attack path', 'Expected failure point', 'Attack result', 'Residual risk']) {
-      if (!substantive(field(redTeam, name))) errors.push(`Red Team evidence missing: ${name}`);
+    const normalizedPrimary = primary.replace(/\s*\([^)]*\)\s*$/u, '').trim();
+    const full = /^(security|db|production debug|workflow-infra|release)$/iu.test(normalizedPrimary) || /Security|DB|Red Team|Backend Cross-check|Browser Verification/iu.test(modifiers);
+    if (full) {
+      const evidence = section(body, ['Full Evidence', '完整流程证据']);
+      if (evidence === null) errors.push('Missing section: Full Evidence');
+      for (const [name, aliases] of [['Exit codes', ['Exit codes', '退出码']]]) {
+        const value = field(evidence, aliases);
+        if (value === null) errors.push(`Missing field: Full Evidence > ${name}`);
+        else if (!substantive(value)) errors.push(`Empty field: Full Evidence > ${name}`);
+      }
     }
-  }
+
+    if (/^(security|db|production debug|workflow-infra|release)$/iu.test(normalizedPrimary) || /Security|DB|Red Team/iu.test(modifiers)) {
+      const redTeam = section(body, ['Red Team', '红队证据']);
+      if (redTeam === null) errors.push('Missing section: Red Team');
+      for (const [name, aliases] of [
+        ['Attack path', ['Attack path', '攻击路径']],
+        ['Expected failure point', ['Expected failure point', '预期失效点']],
+        ['Attack result', ['Attack result', '攻击结果']],
+        ['Residual risk', ['Residual risk', '剩余风险']],
+      ]) {
+        if (!substantive(field(redTeam, aliases))) errors.push(`Red Team evidence missing: ${name}`);
+      }
+    }
   }
 
   if (errors.length > 0) {

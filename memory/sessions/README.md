@@ -1,4 +1,4 @@
-# Session Memory
+# 会话记忆
 
 需要跨 session 恢复时，在本目录保存简短摘要或交接记录。
 

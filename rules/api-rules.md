@@ -1,14 +1,14 @@
-# API Rules
+# API 规则
 
-API rules protect contract stability and boundary input. Before changing an interface, identify callers, error semantics, compatibility strategy, and test coverage. Validate requests, responses, configuration, and third-party data at system boundaries.
+API 规则用于保护契约稳定性和边界输入。变更接口前必须识别调用方、错误语义、兼容策略和测试覆盖；系统边界处的请求、响应、配置和第三方数据必须经过校验。
 
-## Rules
+## 规则
 
 - 变更接口前确认调用方、错误格式、兼容策略和测试覆盖。
 - 对请求、响应和第三方结果使用结构化校验，不用猜测替代契约。
 - 交付时写清影响范围、验证命令和未覆盖风险。
 
-## Checklist
+## 检查清单
 
 - 调用方：列出直接调用方、外部依赖和跨仓影响。
 - 契约：说明请求、响应、错误格式、状态码、字段默认值和兼容策略。

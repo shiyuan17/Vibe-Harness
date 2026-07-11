@@ -1,4 +1,4 @@
-# Loop Engineering
+# Loop 工程规则
 
 Loop 是显式 opt-in 的受控反馈系统，不是无限继续寻找问题的授权。
 

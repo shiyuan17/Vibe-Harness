@@ -1,4 +1,4 @@
-# Git Rules
+# Git 规则
 
 Git 规则的目标是保护用户改动、保持提交可审查、确保 worktree 任务真正 merge-back。
 

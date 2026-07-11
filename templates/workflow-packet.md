@@ -1,69 +1,69 @@
-# Workflow Packet
+# Workflow 交付包
 
-填写规则：Summary、Dynamic Workflow、Memory 和对应 Evidence 的必填字段不得留空；按触发器必填 Full / Red Team 证据。Red Team 适用于红区、安全、DB、生产、发布、高风险或跨层任务。跨仓 / 外部契约证据在外部契约或跨仓任务中必填。禁止空泛词（TODO、TBD、待定、视情况、后续补充）。字段名保持英文以供 validator 解析，内容使用项目语言。工作流档位表示任务风险档位；安装配置表示 `minimal/core/full` 等资产集合，两者不得混用。
+填写规则：`摘要`、`动态工作流`、`Memory` 和对应 `证据` 的必填字段不得留空；按触发器必填完整流程证据 / Red Team 证据。Red Team 适用于红区、安全、DB、生产、发布、高风险或跨层任务。跨仓 / 外部契约证据在外部契约或跨仓任务中必填。禁止空泛词（TODO、TBD、待定、视情况、后续补充）。字段名使用中文；validator 同时兼容旧英文字段。工作流档位表示任务风险档位；安装配置表示 `minimal/core/full` 等资产集合，两者不得混用。
 
 工作流档位（必填）：`Fast Path` / `Lightweight` / `Full`。
 
-## Summary
+## 摘要
 
-- Purpose:
-- Impact:
-- Validation:
-- Risks:
+- 目的:
+- 影响:
+- 验证:
+- 风险:
 
-## Lifecycle Artifacts
+## 生命周期产物
 
-- Clarification:
-- Spec:
-- Plan:
-- Tasks:
-- Handoff:
-- Retrospective:
+- 澄清:
+- 规格（Spec）:
+- 计划（Plan）:
+- 任务（Tasks）:
+- 交接（Handoff）:
+- 复盘:
 
-## Dynamic Workflow
+## 动态工作流
 
-- Primary Workflow:
-- Trigger signals:
-- Required modifiers:
-- Red-zone confirmation:
+- 主工作流:
+- 触发信号:
+- 必要修饰器:
+- 红区确认:
 
-## Memory
+## Memory 更新
 
-- Memory:
+- Memory 判定:
 
-## Evidence
+## 证据
 
-### Lightweight Evidence
+### 轻量流程证据
 
-- Validation commands:
-- Exit codes:
-- Environment:
-- Result summary:
-- Coverage:
-- Unverified items and reasons:
+- 验证命令:
+- 退出码:
+- 环境:
+- 结果摘要:
+- 覆盖范围:
+- 未验证项与原因:
 
-### Full Evidence
+### 完整流程证据
 
-- Required test commands:
-- Exit codes:
-- Environment:
-- Actual results:
-- Coverage:
-- Dynamic simulation:
-- Dynamic security:
-- Dynamic database:
-- Cross-repo evidence:
+- 必需测试命令:
+- 退出码:
+- 环境:
+- 实际结果:
+- 覆盖范围:
+- 动态模拟:
+- 动态安全:
+- 动态数据库:
+- 跨仓证据:
 
-### Red Team
+### 红队证据
 
-- Attack path:
-- Expected failure point:
-- Attack result:
-- Residual risk:
-- Checker / reviewer source:
+- 攻击路径:
+- 预期失效点:
+- 攻击结果:
+- 剩余风险:
+- checker / reviewer 来源:
 
-## Completion
+## 完成
 
-- Review evidence:
-- Rollback plan:
-- Unverified items and risks:
+- 审查证据:
+- 回滚计划:
+- 未验证项与风险:

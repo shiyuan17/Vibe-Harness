@@ -1,39 +1,39 @@
-# Task Management
+# 任务管理
 
-Task management keeps scheduling indexes, task manifests, child execution units, and handoff evidence consistent. `task-rules.md` owns lifecycle semantics; this rule owns storage, synchronization, and completion gates.
+任务管理规则用于保持调度索引、任务清单、子执行单元和交接证据一致。`task-rules.md` 负责生命周期语义；本文负责存储、同步和完成门禁。
 
-## Sources of truth
+## 真值来源
 
-1. A task manifest or external issue is the lifecycle truth for phase, execution status, resolution, and children.
-2. A backlog is a scheduling index. It must not silently override a task manifest.
-3. Child task documents contain executable scope and evidence; handoff and memory are recovery aids, not lifecycle truth.
+1. 任务清单或外部 issue 是 `phase`、执行状态、`resolution` 和子任务的生命周期真值。
+2. backlog 是调度索引，不得静默覆盖任务清单。
+3. 子任务文档保存可执行范围和证据；handoff 与 memory 是恢复辅助，不是生命周期真值。
 
-When sources disagree, report the conflict and repair the lower-priority index before execution.
+多个来源冲突时，先报告冲突，并在执行前修复低优先级索引。
 
-## Required task data
+## 必需任务数据
 
-- Identity, goal, acceptance criteria, non-goals, owner role, and task kind.
+- 身份标识、目标、验收标准、非目标、owner 角色和任务类型。
 - `phase`, `status`, and `resolution` as separate fields.
-- Write scope, forbidden actions, dependencies, conflicts, parallel safety, and human confirmation state.
-- Validation commands, evidence, stop condition, rollback plan, `nextAction`, and `resumeHint`.
-- `blockedReason` for blocked work and structured external-contract evidence when another repository or service is in scope.
+- 写入范围、禁止动作、依赖、冲突、并行安全性和人工确认状态。
+- 验证命令、证据、停止条件、回滚计划、`nextAction` 和 `resumeHint`。
+- 阻塞任务必须有 `blockedReason`；涉及其他仓库或服务时必须有结构化外部契约证据。
 
-## Parent and child rules
+## 父子任务规则
 
-- Keep a task `single` when one write scope and one verification cycle produce a reviewable result.
-- A parent coordinates scope, dependency order, integration verification, review, and merge-back; it does not implement child work directly.
-- Each child must produce a minimum reviewable result and declare its write scope. Mechanical steps such as “run a command” are not children unless independently deliverable.
-- Parallel children require non-overlapping writes or explicit conflict ownership. Unknown overlap means serial execution.
-- A parent cannot resolve as done while required children, validation, review, human confirmation, or merge-back remain open.
+- 一个写入范围和一次验证周期即可产出可审查结果时，任务保持 `single`。
+- 父任务负责协调范围、依赖顺序、集成验证、审查和 merge-back；不得直接实现子任务工作。
+- 每个子任务必须产出最小可审查结果并声明写入范围；“运行命令”等机械步骤不能作为 child，除非它本身可独立交付。
+- 并行子任务必须写入不重叠，或明确冲突 owner；重叠关系不明时串行执行。
+- 必需子任务、验证、审查、人工确认或 merge-back 未闭环时，父任务不得标记完成。
 
-## Recovery and escalation
+## 恢复与升级
 
-Blocked or waiting work must include the reason, the party or condition being awaited, the next action, and a resume hint. High-risk research may use `packetTier: Lightweight` only when it records `implementTier: Full`; the task must upgrade before runtime implementation begins.
+阻塞或等待中的任务必须记录原因、等待对象或条件、下一步动作和恢复提示。高风险调研只有在记录 `implementTier: Full` 时才允许 `packetTier: Lightweight`；进入运行时实现前必须升级。
 
-## Validation
+## 校验
 
-The installed full governance validator checks lifecycle consistency, blocked-task recovery fields, tier escalation, and parent completion. A validation failure blocks completion; do not edit the validator input merely to silence a valid finding.
+已安装的 full 治理校验器会检查生命周期一致性、阻塞任务恢复字段、档位升级和父任务完成约束。校验失败会阻断完成；不得为了消除有效 finding 而修改 validator 输入。
 
-## Completion standard
+## 完成标准
 
-A task is complete only when acceptance criteria map to current evidence, independent review and confirmation gates are satisfied, all worktree changes are merged back, remaining risks have owners, and the scheduling index matches lifecycle truth.
+只有当验收标准都能映射到当前证据、独立审查和确认门禁已满足、所有 worktree 变更已 merge-back、剩余风险有 owner，且调度索引与生命周期真值一致时，任务才算完成。

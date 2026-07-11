@@ -1,4 +1,4 @@
-# Review Rules
+# Review 规则
 
 Review 优先关注 bug、回归、测试缺口、安全风险和规则违规。
 

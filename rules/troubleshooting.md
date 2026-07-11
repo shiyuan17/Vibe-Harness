@@ -1,14 +1,14 @@
-# Troubleshooting
+# 排障规则
 
-Troubleshooting starts from reproducible evidence rather than guesses. Collect the symptom, scope, recent changes, logs, and minimum reproduction before proposing a fix.
+排障必须从可复现证据出发，而不是从猜测出发。提出修复前先收集症状、范围、最近变更、日志和最小复现。
 
-## Rules
+## 规则
 
 - 先收集症状、范围、最近变更和最小复现，再提出修复。
 - 每个修复都应对应一个能防止回归的验证。
 - 交付时写清影响范围、验证命令和未覆盖风险。
 
-## Checklist
+## 检查清单
 
 - 症状：记录实际错误、时间、环境、频率和影响范围。
 - 最小复现：给出最小命令、步骤、输入或测试。

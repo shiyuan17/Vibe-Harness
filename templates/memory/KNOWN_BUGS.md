@@ -1,3 +1,3 @@
-# Known Bugs
+# 已知缺陷
 
-Record reproducible defects with an ID, evidence, impact, status, and verification of the fix.
+记录可复现缺陷，包含 ID、证据、影响、状态和修复验证。

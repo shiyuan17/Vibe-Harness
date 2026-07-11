@@ -1,8 +1,8 @@
-# Log Management Rules
+# 日志管理规则
 
-Log Management Rules 日志管理规则让应用运行日志可被快速检索、关联和用于排障。 新增或调整日志时优先使用结构化日志，推荐 JSON Lines；已有 logger 可以映射等价字段。 日志证据必须能支持或推翻排障假设，不能泄露 secret、token、凭据或原始敏感数据。
+日志管理规则让应用运行日志可被快速检索、关联和用于排障。新增或调整日志时优先使用结构化日志，推荐 JSON Lines；已有 logger 可以映射等价字段。日志证据必须能支持或推翻排障假设，不能泄露 secret、token、凭据或原始敏感数据。
 
-## Rules
+## 规则
 
 - 新增应用日志优先结构化，推荐 JSON Lines；已有日志格式必须明确字段映射。
 - 每条关键日志应包含时间、级别、服务或组件、操作或事件、关联 ID、环境或版本、错误信息、耗时和安全上下文。
@@ -10,7 +10,7 @@ Log Management Rules 日志管理规则让应用运行日志可被快速检索�
 - 日志只保留定位问题所需上下文，不输出 secret、凭据、token、原始 PII 或业务专有标识。
 - 修复交付必须说明使用了哪些日志证据、如何检索、支持了哪个假设，以及修复后的验证证据。
 
-## Checklist
+## 检查清单
 
 - 位置：记录应用日志所在文件、容器、平台、dashboard 或命令入口。
 - 字段：确认 timestamp、level、service/component、operation/event、correlationId/requestId/traceId、environment/version、error.code、error.message、durationMs 和 safe context。

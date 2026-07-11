@@ -142,6 +142,30 @@ test('packet validator accepts completed workflow and review packets from instal
   try {
     const workflow = path.join(target, 'workflow.md');
     await writeFile(workflow, `# Workflow Packet
+## 摘要
+- 验证: node test.mjs, exit 0
+- 风险: low, docs only
+## 动态工作流
+- 主工作流: UI
+- 必要修饰器: none
+## 证据
+### 轻量流程证据
+- 退出码: 0
+`, 'utf8');
+    const review = path.join(target, 'review.md');
+    await writeFile(review, `# Review Packet
+## 审查结论
+- 规格符合度: Pass
+- 代码质量: Approved
+## 问题列表
+No blocking findings.
+## 已核验证
+node test.mjs, exit 0.
+## 剩余风险
+No browser verification; docs only.
+`, 'utf8');
+    const legacyWorkflow = path.join(target, 'legacy-workflow.md');
+    await writeFile(legacyWorkflow, `# Workflow Packet
 ## Summary
 - Validation: node test.mjs, exit 0
 - Risks: low, docs only
@@ -152,22 +176,12 @@ test('packet validator accepts completed workflow and review packets from instal
 ### Lightweight Evidence
 - Exit codes: 0
 `, 'utf8');
-    const review = path.join(target, 'review.md');
-    await writeFile(review, `# Review Packet
-## Review Verdict
-- Specification: Pass
-- Code Quality: Approved
-## Findings
-No blocking findings.
-## Verification Checked
-node test.mjs, exit 0.
-## Residual Risk
-No browser verification; docs only.
-`, 'utf8');
     const workflowResult = await run(['.agents/loopengine/governance/validate-packet.mjs', '--file', workflow], { cwd: target });
     const reviewResult = await run(['.agents/loopengine/governance/validate-packet.mjs', '--file', review], { cwd: target });
+    const legacyWorkflowResult = await run(['.agents/loopengine/governance/validate-packet.mjs', '--file', legacyWorkflow], { cwd: target });
     assert.equal(workflowResult.code, 0, workflowResult.stderr);
     assert.equal(reviewResult.code, 0, reviewResult.stderr);
+    assert.equal(legacyWorkflowResult.code, 0, legacyWorkflowResult.stderr);
   } finally {
     await rm(target, { force: true, recursive: true });
   }

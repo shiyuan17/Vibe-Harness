@@ -1,7 +1,7 @@
-# Project State
+# 项目状态
 
-- Last updated:
-- Current phase:
-- Active focus:
-- Next action:
-- Resume hint:
+- 最后更新:
+- 当前阶段:
+- 当前重点:
+- 下一步动作:
+- 恢复提示:
