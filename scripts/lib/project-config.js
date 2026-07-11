@@ -216,6 +216,16 @@ export function validateGeneratedContent(content, { installedTargets } = {}) {
         prefix: '.agents/skills/',
       },
       {
+        exact: '.agents/skills/agentmemory/SKILL.md',
+        fragment: 'agentmemory',
+        label: '.agents/skills/agentmemory/SKILL.md',
+      },
+      {
+        exact: '.agents/memory/README.md',
+        fragment: '.agents/memory/',
+        label: '.agents/memory/README.md',
+      },
+      {
         exact: '.codex/hooks.json',
         fragment: '.codex/hooks.json',
         label: '.codex/hooks.json',

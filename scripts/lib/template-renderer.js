@@ -1,6 +1,7 @@
 const defaultTemplateData = {
   installedSurface: {
     codebaseMemoryMcpLine: '',
+    discoveryLine: '使用仓库搜索和已安装规则定位相关代码；需要结构化索引时先确认目标项目已有能力。',
     engineeringRulesLine: '',
     hooksLine: '',
     memorySkillsLine: '',
@@ -35,6 +36,14 @@ export const managedAgentsBlockStart = '<!-- LOOPENGINE:START -->';
 export const managedAgentsBlockEnd = '<!-- LOOPENGINE:END -->';
 
 const managedAgentsBlockPattern = /<!-- LOOPENGINE:START -->[\s\S]*?<!-- LOOPENGINE:END -->\n?/u;
+const legacyAgentsMarkers = [
+  '## 最小启动步骤',
+  '## 五条红线',
+  '## 核心位置',
+  'docs/rules/quickstart.md',
+  'docs/rules/agent-collaboration.md',
+  'docs/workflows/',
+];
 
 function lookup(data, expression) {
   return expression.split('.').reduce((value, key) => {
@@ -96,22 +105,46 @@ export function extractManagedAgentsBlock(content = '') {
     .trim()) : null;
 }
 
+function isLegacyLoopEngineAgentsContent(content = '') {
+  const normalized = content.trim();
+  if (!normalized || !/^# AGENTS\.md(?:\s|$)/u.test(normalized)) {
+    return false;
+  }
+  const markerCount = legacyAgentsMarkers.filter((marker) => normalized.includes(marker)).length;
+  return markerCount >= 3;
+}
+
+function stripLegacyLoopEngineAgentsContent(content = '') {
+  const match = content.match(managedAgentsBlockPattern);
+  if (!match) {
+    return isLegacyLoopEngineAgentsContent(content) ? '' : content;
+  }
+
+  const legacyPrefix = content.slice(0, match.index);
+  if (!isLegacyLoopEngineAgentsContent(legacyPrefix)) {
+    return content;
+  }
+
+  return content.slice(match.index).replace(/^\s+/u, '');
+}
+
 export function mergeManagedAgentsBlock(existingContent, managedContent) {
   if (hasIncompleteManagedAgentsBlock(existingContent)) {
     throw new Error('AGENTS.md contains an incomplete LoopEngine managed block.');
   }
 
+  const normalizedExistingContent = stripLegacyLoopEngineAgentsContent(existingContent);
   const managedBlock = renderManagedAgentsBlock(managedContent);
-  if (!existingContent || existingContent.trim().length === 0) {
+  if (!normalizedExistingContent || normalizedExistingContent.trim().length === 0) {
     return managedBlock;
   }
 
-  if (managedAgentsBlockPattern.test(existingContent)) {
-    return existingContent.replace(managedAgentsBlockPattern, managedBlock);
+  if (managedAgentsBlockPattern.test(normalizedExistingContent)) {
+    return normalizedExistingContent.replace(managedAgentsBlockPattern, managedBlock);
   }
 
-  const separator = existingContent.endsWith('\n')
-    ? (existingContent.endsWith('\n\n') ? '' : '\n')
+  const separator = normalizedExistingContent.endsWith('\n')
+    ? (normalizedExistingContent.endsWith('\n\n') ? '' : '\n')
     : '\n\n';
-  return `${existingContent}${separator}${managedBlock}`;
+  return `${normalizedExistingContent}${separator}${managedBlock}`;
 }

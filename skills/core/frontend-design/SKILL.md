@@ -1,6 +1,6 @@
 ---
 name: frontend-design
-description: Use when a frontend needs a coherent visual direction and the request does not already select a more specific product or brand design mode.
+description: Use when a frontend needs visual direction, product polish, dashboard ergonomics, brand/landing presentation, portfolio design, or redesign work.
 ---
 
 # 前端设计
@@ -17,4 +17,4 @@ description: Use when a frontend needs a coherent visual direction and the reque
 4. 选择一个主视觉方向，避免多个相似设计 skill 叠加。
 5. 实现后用真实浏览器核对布局、溢出、对比度和交互。
 
-营销/品牌与产品工具的差异见 `references/design-modes.md`。浏览器能力不可用时回退到明确的人工检查清单并说明未验证项。
+营销、品牌、作品集、产品工具和后台界面的差异见 `references/design-modes.md`：品牌展示优先真实资产、首屏主体和层级；产品界面优先信息扫描、重复操作、状态完整和稳定布局。浏览器能力不可用时回退到明确的人工检查清单并说明未验证项。

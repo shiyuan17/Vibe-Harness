@@ -113,7 +113,7 @@ test('rollback defaults to dry-run and apply restores backups and removes safe c
     const preview = await runCli(['rollback', '--target', target]);
     assert.equal(preview.dryRun, true);
     assert.ok(preview.actions.some((action) => action.target === 'AGENTS.md' && action.kind === 'delete-created'));
-    assert.equal(await readFile(path.join(target, 'AGENTS.md'), 'utf8').then((content) => content.includes('LoopEngine')), true);
+    assert.equal(await readFile(path.join(target, 'AGENTS.md'), 'utf8').then((content) => content.includes('## 启动')), true);
 
     await runCli(['rollback', '--target', target, '--apply']);
     await assert.rejects(readFile(path.join(target, 'AGENTS.md'), 'utf8'), /ENOENT/);

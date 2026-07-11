@@ -35,17 +35,31 @@ test('LoopEngine removes the CodeGraph CLI integration and doctor report', async
 });
 
 test('codebase-memory-mcp rule uses MCP tools and a repository-search fallback without global writes', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-codebase-memory-profile-'));
   const rulePath = path.join(rootDir, 'rules/codebase-memory-mcp.md');
   const rule = await readFile(rulePath, 'utf8');
   const agents = await readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8');
 
-  for (const tool of ['index_repository', 'index_status', 'search_graph', 'trace_call_path', 'detect_changes', 'get_architecture']) {
-    assert.equal(rule.includes(`\`${tool}\``), true, `${tool} should be documented`);
+  try {
+    for (const tool of ['index_repository', 'index_status', 'search_graph', 'trace_call_path', 'detect_changes', 'get_architecture']) {
+      assert.equal(rule.includes(`\`${tool}\``), true, `${tool} should be documented`);
+    }
+    assert.match(rule, /MCP.*不可用.*(?:rg|仓库搜索)/su);
+    assert.match(rule, /不得.*(?:全局|Agent).*配置/su);
+    assert.equal(rule.includes('codebase-memory-mcp install'), false);
+    assert.equal(agents.includes('codebase-memory-mcp'), false);
+    assert.equal(agents.toLowerCase().includes('codegraph'), false);
+    assert.equal(await exists(path.join(rootDir, 'rules/codegraph.md')), false);
+
+    await execFileAsync(process.execPath, [cliPath, 'init', '--project', target]);
+    const core = await execFileAsync(process.execPath, [cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'core', '--dry-run']);
+    const full = await execFileAsync(process.execPath, [cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'full', '--dry-run']);
+    const coreAgents = JSON.parse(core.stdout).previewFiles.find((file) => file.target === 'AGENTS.md').content;
+    const fullAgents = JSON.parse(full.stdout).previewFiles.find((file) => file.target === 'AGENTS.md').content;
+
+    assert.equal(coreAgents.includes('codebase-memory-mcp'), false);
+    assert.equal(fullAgents.includes('codebase-memory-mcp'), true);
+  } finally {
+    await rm(target, { force: true, recursive: true });
   }
-  assert.match(rule, /MCP.*不可用.*(?:rg|仓库搜索)/su);
-  assert.match(rule, /不得.*(?:全局|Agent).*配置/su);
-  assert.equal(rule.includes('codebase-memory-mcp install'), false);
-  assert.equal(agents.includes('codebase-memory-mcp'), true);
-  assert.equal(agents.toLowerCase().includes('codegraph'), false);
-  assert.equal(await exists(path.join(rootDir, 'rules/codegraph.md')), false);
 });

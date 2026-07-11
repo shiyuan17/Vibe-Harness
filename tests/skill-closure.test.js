@@ -11,6 +11,22 @@ import { validateSkillGraph } from '../scripts/lib/pack-validation.js';
 
 const rootDir = path.resolve('.');
 const execFileAsync = promisify(execFile);
+const prunedSkillIds = [
+  'browser-testing-with-devtools',
+  'code-simplification',
+  'commit-history',
+  'commit-context',
+  'debugging-and-error-recovery',
+  'review-checklist',
+  'frontend-ui-engineering',
+  'documentation-and-adrs',
+  'worktree-mergeback-check',
+  'git-delivery-batcher',
+  'release-checklist',
+  'pencil-design-check',
+  'taste-skill',
+  'impeccable',
+];
 
 function skill(id, overrides = {}) {
   return {
@@ -138,14 +154,31 @@ test('all source-project routed skills are bundled under compatible ids', async 
   const manifest = await readJson(path.join(rootDir, 'manifests/skills.json'));
   const ids = new Set(manifest.items.map((item) => item.id));
   const expected = [
-    'executing-plans', 'grill-me', 'frontend-ui-engineering',
-    'browser-testing-with-devtools', 'security-and-hardening', 'code-simplification',
-    'debugging-and-error-recovery', 'documentation-and-adrs', 'frontend-design',
-    'taste-skill', 'impeccable', 'adversarial-review-packet',
-    'git-delivery-batcher', 'runtime-cross-repo-rollout',
+    'executing-plans', 'grill-me', 'security-and-hardening', 'frontend-design',
+    'adversarial-review-packet', 'runtime-cross-repo-rollout',
   ];
 
   assert.deepEqual(expected.filter((id) => !ids.has(id)), []);
+});
+
+test('pruned thin skills are absent from manifest, install map, and install plans', async () => {
+  const manifest = await readJson(path.join(rootDir, 'manifests/skills.json'));
+  const installMap = await readJson(path.join(rootDir, 'adapters/codex/install-map.json'));
+  const ids = new Set(manifest.items.map((item) => item.id));
+  const installSourcesAndTargets = installMap.entries.flatMap((entry) => [entry.source, entry.target]);
+
+  for (const id of prunedSkillIds) {
+    assert.equal(ids.has(id), false, `${id} should not remain in manifest`);
+    assert.equal(installSourcesAndTargets.some((value) => value.includes(id)), false, `${id} should not remain in install-map`);
+  }
+
+  for (const profile of ['core', 'full', 'codex-internal']) {
+    const plan = await createInstallPlan({ dryRun: true, profile, rootDir, targetDir: rootDir });
+    const plannedTargets = plan.actions.map((entry) => entry.relativeTarget.replaceAll('\\', '/'));
+    for (const id of prunedSkillIds) {
+      assert.equal(plannedTargets.some((target) => target.includes(`/.agents/skills/${id}/`) || target.includes(`.agents/skills/${id}/`)), false, `${profile} should not install ${id}`);
+    }
+  }
 });
 
 test('skill install targets and metadata agree with manifest identity', async () => {
@@ -194,11 +227,11 @@ test('skill entrypoints stay within progressive-disclosure line budgets', async 
 
 test('skills audit report derives inventory counts from the manifest', async () => {
   const { stdout } = await execFileAsync(process.execPath, ['scripts/skills-audit.js'], { cwd: rootDir });
-  assert.match(stdout, /总数：45/);
-  assert.match(stdout, /native：28/);
-  assert.match(stdout, /integration：11/);
-  assert.match(stdout, /router：4/);
-  assert.match(stdout, /compatibility：2/);
+  assert.match(stdout, /总数：31/);
+  assert.match(stdout, /native：21/);
+  assert.match(stdout, /integration：9/);
+  assert.match(stdout, /router：1/);
+  assert.match(stdout, /compatibility：0/);
   assert.match(stdout, /最长入口：`api-and-interface-design`（7[0-9] 行）/);
 });
 
@@ -210,5 +243,6 @@ test('external integration skills document usable and unavailable paths', async 
   };
   assert.match(await readSkill('open-code-review'), /ocr llm test[\s\S]*回退/u);
   assert.match(await readSkill('agentmemory'), /MCP[\s\S]*HTTP API[\s\S]*回退/u);
+  assert.match(await readSkill('agentmemory'), /memory_commits[\s\S]*memory_commit_lookup[\s\S]*git show/u);
   assert.match(await readSkill('browser-verification'), /MCP[\s\S]*回退/u);
 });

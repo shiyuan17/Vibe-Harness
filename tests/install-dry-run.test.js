@@ -131,7 +131,7 @@ test('CLI apply mode writes files when red-zone confirmation is explicit', async
     const deliveryTemplate = await readFile(path.join(target, 'docs/templates/delivery.md'), 'utf8');
     const routerSkill = await readFile(path.join(target, '.agents/skills/using-loopengine/SKILL.md'), 'utf8');
 
-    assert.equal(await readFile(path.join(target, 'AGENTS.md'), 'utf8').then((content) => content.includes('LoopEngine')), true);
+    assert.equal(await readFile(path.join(target, 'AGENTS.md'), 'utf8').then((content) => content.includes('## 启动')), true);
     assert.equal(await readFile(path.join(target, '.codex/hooks.json'), 'utf8').then((content) => content.includes('hooks')), true);
     assert.equal(taskTemplate.includes('工作流档位'), true);
     assert.equal(taskTemplate.includes('完整流程控制'), true);

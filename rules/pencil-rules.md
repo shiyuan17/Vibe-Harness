@@ -4,20 +4,22 @@ Pencil 设计资产是结构化源文件。只能通过能保持 schema 的受�
 
 ## 启动检查
 
-- Confirm the `.pen` path, target viewport, user workflow, component states, design variables, and implementation scope.
-- Inspect existing layouts and reusable components before adding new nodes.
-- Separate design approval from implementation approval when the change affects navigation, permissions, or data contracts.
+- 确认 `.pen` 路径、目标 viewport、用户流程、组件状态、设计变量和实现范围。
+- 新增节点前先检查现有布局和可复用组件。
+- 变更影响导航、权限或数据契约时，设计审批与实现审批分开处理。
 
 ## 设计要求
 
-- Define stable dimensions and responsive constraints for fixed-format controls and work surfaces.
-- Cover loading, empty, error, disabled, permission-denied, long-text, narrow-screen, and repeated-action states when applicable.
-- Keep component names and hierarchy understandable without relying on visual position alone.
-- Do not encode secrets, production data, or machine-specific absolute paths in design assets.
+- 为固定格式控件和工作区定义稳定尺寸与响应式约束。
+- 适用时覆盖加载、空状态、错误、禁用、权限拒绝、长文本、窄屏和重复操作状态。
+- 组件名称和层级必须可理解，不依赖视觉位置单独表达含义。
+- 不得在设计资产中写入 secret、生产数据或机器专属绝对路径。
 
 ## 交付门禁
 
 每个被引用的 `.pen` 文件必须有同目录、同 basename 的 `.png` 预览图。只引用源文件的 plan、task 或 handoff 视为不完整。存在 `design/` 目录时，full 治理校验器会强制检查这对文件。
+
+不要把截图当成可编辑源文件，也不要绕过专用工具链修改 `.pen`；Pencil 检查以规则和专用工具输出为准，不维护第二套 skill 清单。
 
 ## 验证
 

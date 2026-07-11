@@ -30,7 +30,7 @@ test('minimal uses the fallback kernel without skills or runtime', async () => {
   }
 });
 
-test('core and full install routed skills and Chinese task validation', async () => {
+test('core and full install routed skills and full adds memory, mcp, and hooks', async () => {
   const core = await preview('core');
   const full = await preview('full');
   try {
@@ -41,8 +41,14 @@ test('core and full install routed skills and Chinese task validation', async ()
       assert.equal(targets.has('docs/schemas/full-task-control.schema.json'), true);
       assert.equal(targets.has('.agents/loopengine/governance/lib/task-validation.mjs'), true);
     }
-    assert.equal(coreTargets.has('.agents/skills/adversarial-review-packet/SKILL.md'), false);
+    assert.equal(coreTargets.has('.agents/skills/adversarial-review-packet/SKILL.md'), true);
+    assert.equal(coreTargets.has('docs/rules/codebase-memory-mcp.md'), false);
+    assert.equal(coreTargets.has('.agents/skills/agentmemory/SKILL.md'), false);
+    assert.equal(coreTargets.has('.codex/hooks.json'), false);
     assert.equal(fullTargets.has('.agents/skills/adversarial-review-packet/SKILL.md'), true);
+    assert.equal(fullTargets.has('docs/rules/codebase-memory-mcp.md'), true);
+    assert.equal(fullTargets.has('.agents/skills/agentmemory/SKILL.md'), true);
+    assert.equal(fullTargets.has('.codex/hooks.json'), true);
   } finally {
     await rm(core.target, { force: true, recursive: true });
     await rm(full.target, { force: true, recursive: true });

@@ -168,7 +168,7 @@ test('detectProjectProfile summarizes Maven and legacy dotnet projects', async (
   }
 });
 
-test('core project install renders project-specific rules and local memory library', async () => {
+test('core project install renders project-specific rules without local memory library', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-project-assets-'));
   try {
     await runCli(['init', '--project', target]);
@@ -188,10 +188,13 @@ test('core project install renders project-specific rules and local memory libra
     const projectRules = report.previewFiles.find((file) => file.target === 'docs/rules/project-specific-rules.md').content;
 
     assert.equal(targets.includes('docs/rules/project-specific-rules.md'), true);
-    assert.equal(targets.includes('.agents/memory/README.md'), true);
-    assert.equal(targets.includes('.agents/memory/observations.md'), true);
-    assert.equal(targets.includes('.agents/memory/decisions.md'), true);
-    assert.equal(targets.includes('.agents/memory/sessions/README.md'), true);
+    assert.equal(targets.includes('docs/rules/codebase-memory-mcp.md'), false);
+    assert.equal(targets.includes('.agents/skills/agentmemory/SKILL.md'), false);
+    assert.equal(targets.includes('.agents/memory/README.md'), false);
+    assert.equal(targets.includes('.agents/memory/observations.md'), false);
+    assert.equal(targets.includes('.agents/memory/decisions.md'), false);
+    assert.equal(targets.includes('.agents/memory/sessions/README.md'), false);
+    assert.equal(targets.includes('.codex/hooks.json'), false);
     assert.match(projectRules, /Vue 3/);
     assert.match(projectRules, /Vite/);
     assert.match(projectRules, /oxlint/);
@@ -215,7 +218,7 @@ test('minimal profile excludes project-specific rules and local memory library',
   }
 });
 
-test('memory config can disable or relocate local memory library', async () => {
+test('full profile memory config can disable or relocate local memory library', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-memory-config-'));
   try {
     await runCli(['init', '--project', target]);
@@ -229,7 +232,7 @@ test('memory config can disable or relocate local memory library', async () => {
         path: '.agents/memory',
       },
     });
-    const disabled = await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'core', '--dry-run']);
+    const disabled = await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'full', '--dry-run']);
     assert.equal(disabled.actions.some((action) => action.relativeTarget.startsWith('.agents/memory/')), false);
 
     await writeJson(configPath, {
@@ -239,7 +242,7 @@ test('memory config can disable or relocate local memory library', async () => {
         path: 'docs/agent-memory',
       },
     });
-    const relocated = await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'core', '--dry-run']);
+    const relocated = await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'full', '--dry-run']);
     const targets = relocated.actions.map((action) => action.relativeTarget);
 
     assert.equal(targets.includes('docs/agent-memory/README.md'), true);

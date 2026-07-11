@@ -1,14 +1,12 @@
-# AGENTS.md - 由 LoopEngine 安装
+# AGENTS.md
 
 项目：{{projectName}}
-
-本项目使用 LoopEngine 中文治理合同，默认包管理器为 `{{packageManager}}`。
 
 ## 启动
 
 1. 阅读 `docs/rules/governance-core.md` 和命中场景的专项规则。
 2. 编辑前运行 `git status --short`，保护用户未归属改动。
-3. 若 `codebase-memory-mcp` 可用，先确认索引状态并用于结构化定位；不可用时说明并退回仓库搜索。
+3. {{installedSurface.discoveryLine}}
 4. 将任务归为快速、轻量或完整，并确定验证方式。
 5. 已安装 Skills 时先使用 `using-loopengine` 路由；否则按治理内核降级执行。
 

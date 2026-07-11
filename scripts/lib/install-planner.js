@@ -74,18 +74,21 @@ export function createInstalledSurface({ memoryPath = '.agents/memory', profile,
   const normalizedMemoryPath = memoryPath.replaceAll('\\', '/').replace(/\/+$/u, '');
   const hasLocalMemory = installedTargets.includes(`${normalizedMemoryPath}/README.md`);
   const profileLines = {
-    'codex-internal': '- 当前 profile: `codex-internal`，包含完整 Codex 内部安装面。',
-    'codex-minimal': '- 当前 profile: `codex-minimal`，安装最小 Codex 入口规则和模板。',
-    core: '- 当前 profile: `core`，安装治理内核、模板和路由 skills。',
-    'docs-only': '- 当前 profile: `docs-only`，仅安装文档类资产。',
-    full: '- 当前 profile: `full`，安装完整专项规则、模板和路由 skills。',
-    minimal: '- 当前 profile: `minimal`，安装最小 Codex 入口规则和模板。',
+    'codex-internal': '- 当前安装方式：`codex-internal` 兼容入口，等同全安装。',
+    'codex-minimal': '- 当前安装方式：最小安装（兼容入口 `codex-minimal`）。',
+    core: '- 当前安装方式：通用安装（不包含扩展 MCP 或 hooks 安装面）。',
+    'docs-only': '- 当前安装方式：仅文档安装。',
+    full: '- 当前安装方式：全安装（包含 codebase-memory-mcp、agentmemory MCP 项目内安装面和 Codex hooks）。',
+    minimal: '- 当前安装方式：最小安装。',
   };
 
   return {
     codebaseMemoryMcpLine: hasTarget('docs/rules/codebase-memory-mcp.md')
       ? '- codebase-memory-mcp 规则位于 `docs/rules/codebase-memory-mcp.md`。'
       : '',
+    discoveryLine: hasTarget('docs/rules/codebase-memory-mcp.md')
+      ? '若 `codebase-memory-mcp` 可用，先确认索引状态并用于结构化定位；不可用时说明并退回仓库搜索。'
+      : '使用仓库搜索和已安装规则定位相关代码；需要结构化索引时先确认目标项目已有能力。',
     engineeringRulesLine: hasEngineeringRules ? '- 工程专项规则位于 `docs/rules/`。' : '',
     hooksLine: hasTarget('.codex/hooks.json') ? '- Codex hook 配置位于 `.codex/hooks.json`。' : '',
     memorySkillsLine: hasAgentMemorySkills

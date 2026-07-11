@@ -93,6 +93,8 @@ test('MVP dry-run uses --project for path and --target codex for adapter without
     assert.equal(report.previewFiles.some((file) => file.target === 'AGENTS.md'), true);
     const agents = report.previewFiles.find((file) => file.target === 'AGENTS.md').content;
     assert.equal(agents.includes(path.basename(target)), true);
+    assert.equal(agents.includes('由 LoopEngine 安装'), false);
+    assert.equal(agents.includes('本项目使用 LoopEngine 中文治理合同'), false);
     assert.equal(agents.includes('## 启动'), true);
     assert.equal(agents.includes('## 五条硬约束'), true);
     assert.equal(agents.includes('轻量反证'), true);
@@ -123,7 +125,7 @@ test('MVP --write appends or updates the managed AGENTS block without overwritin
     assert.equal(report.written.some((file) => file.endsWith('AGENTS.md')), true);
     assert.equal(agents.includes('# Project AGENTS'), true);
     assert.equal(agents.includes('local agents'), true);
-    assert.equal(agents.includes('LoopEngine'), true);
+    assert.equal(agents.includes('## 启动'), true);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
@@ -155,7 +157,62 @@ test('MVP repeated --write updates the managed AGENTS block in place', async () 
     assert.equal((agents.match(/<!-- LOOPENGINE:START -->/gu) ?? []).length, 1);
     assert.equal((agents.match(/<!-- LOOPENGINE:END -->/gu) ?? []).length, 1);
     assert.equal(agents.includes('local agents'), true);
-    assert.equal(agents.includes('LoopEngine'), true);
+    assert.equal(agents.includes('## 启动'), true);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('MVP install replaces legacy unmarked LoopEngine AGENTS content with the managed block', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-write-legacy-agents-'));
+  try {
+    await runCli(['init', '--project', target]);
+    await writeFile(
+      path.join(target, 'AGENTS.md'),
+      [
+        '# AGENTS.md',
+        '',
+        '项目：LegacyProject',
+        '',
+        '## 最小启动步骤',
+        '',
+        '1. 阅读 `docs/rules/quickstart.md` 和 `docs/rules/agent-collaboration.md`。',
+        '2. 编辑前运行 `git status --short`。',
+        '',
+        '## 五条红线',
+        '',
+        '1. 编辑前必须先运行 `git status --short`。',
+        '',
+        '## 核心位置',
+        '',
+        '- Workflows 位于 `docs/workflows/`。',
+        '',
+        'LoopEngine 不覆盖本项目本地规则；如果本地规则更严格，遵循更严格的规则。',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    await runCli([
+      'install',
+      '--project',
+      target,
+      '--target',
+      'codex',
+      '--profile',
+      'core',
+      '--write',
+    ]);
+
+    const agents = await readFile(path.join(target, 'AGENTS.md'), 'utf8');
+    assert.equal(agents.includes('## 最小启动步骤'), false);
+    assert.equal(agents.includes('## 五条红线'), false);
+    assert.equal(agents.includes('docs/rules/quickstart.md'), false);
+    assert.equal(agents.includes('docs/workflows/'), false);
+    assert.equal((agents.match(/^# AGENTS\.md$/gmu) ?? []).length, 1);
+    assert.equal((agents.match(/<!-- LOOPENGINE:START -->/gu) ?? []).length, 1);
+    assert.equal((agents.match(/<!-- LOOPENGINE:END -->/gu) ?? []).length, 1);
+    assert.equal(agents.includes('## 启动'), true);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
@@ -182,7 +239,7 @@ test('MVP --write --force keeps local AGENTS content and does not require a back
     const agents = await readFile(path.join(target, 'AGENTS.md'), 'utf8');
     assert.equal(report.written.some((file) => file.endsWith('AGENTS.md')), true);
     assert.equal(agents.includes('local agents'), true);
-    assert.equal(agents.includes('LoopEngine'), true);
+    assert.equal(agents.includes('## 启动'), true);
     assert.equal(agents.includes(path.basename(target)), true);
     assert.equal(await exists(path.join(target, '.loopengine/backups')), false);
   } finally {
@@ -229,55 +286,108 @@ test('minimal profile installs the fallback kernel without skills', async () => 
   const { report, target } = await initAndDryRunProfile('minimal');
   try {
     const targets = targetsFrom(report);
+    const agents = report.previewFiles.find((file) => file.target === 'AGENTS.md').content;
 
     assert.equal(targets.includes('AGENTS.md'), true);
     assert.equal(targets.includes('docs/rules/governance-core.md'), true);
-    assert.equal(targets.includes('docs/rules/codebase-memory-mcp.md'), true);
+    assert.equal(targets.includes('docs/rules/codebase-memory-mcp.md'), false);
     assert.equal(targets.includes('docs/templates/task.md'), true);
     assert.equal(targets.includes('docs/templates/delivery.md'), true);
     assert.equal(targets.some((item) => item.startsWith('.agents/skills/')), false);
+    assert.equal(targets.some((item) => item.startsWith('.agents/memory/')), false);
+    assert.equal(targets.includes('.codex/hooks.json'), false);
     assert.equal(targets.some((item) => item.startsWith('docs/workflows/')), false);
+    assert.equal(agents.includes('codebase-memory-mcp'), false);
+    assert.equal(agents.includes('agentmemory'), false);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
 });
 
-test('core profile installs routed skills but excludes full-only review skills', async () => {
+test('core profile installs common routed skills without mcp, memory, or hooks', async () => {
   const { report, target } = await initAndDryRunProfile('core');
   try {
     const targets = targetsFrom(report);
+    const agents = report.previewFiles.find((file) => file.target === 'AGENTS.md').content;
 
     assert.equal(targets.includes('docs/rules/governance-core.md'), true);
-    assert.equal(targets.includes('docs/rules/codebase-memory-mcp.md'), true);
+    assert.equal(targets.includes('docs/rules/codebase-memory-mcp.md'), false);
     assert.equal(targets.includes('.agents/skills/using-loopengine/SKILL.md'), true);
+    assert.equal(targets.includes('.agents/skills/agentmemory/SKILL.md'), false);
+    assert.equal(targets.some((item) => item.startsWith('.agents/memory/')), false);
+    assert.equal(targets.includes('.codex/hooks.json'), false);
     assert.equal(targets.includes('docs/schemas/full-task-control.schema.json'), true);
     assert.equal(targets.some((item) => item.startsWith('docs/workflows/')), false);
     assert.equal(targets.includes('.agents/skills/review-checklist/SKILL.md'), false);
-    assert.equal(targets.includes('.agents/skills/loop-planning/SKILL.md'), false);
-    assert.equal(targets.includes('.agents/skills/subagent-driven-development/SKILL.md'), false);
+    assert.equal(targets.includes('.agents/skills/loop-planning/SKILL.md'), true);
+    assert.equal(targets.includes('.agents/skills/subagent-driven-development/SKILL.md'), true);
     assert.equal(targets.includes('.agents/skills/skill-authoring-check/SKILL.md'), true);
+    assert.equal(agents.includes('通用安装'), true);
+    assert.equal(agents.includes('codebase-memory-mcp'), false);
+    assert.equal(agents.includes('agentmemory'), false);
+    assert.equal(agents.includes('.agents/memory/'), false);
+    assert.equal(agents.includes('.codex/hooks.json'), false);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
 });
 
-test('full profile adds adversarial review and loop skills beyond core', async () => {
+test('full profile adds codebase memory, agentmemory, and hooks beyond core', async () => {
   const core = await initAndDryRunProfile('core');
   const full = await initAndDryRunProfile('full');
   try {
     const coreTargets = targetsFrom(core.report);
     const fullTargets = targetsFrom(full.report);
+    const fullAgents = full.report.previewFiles.find((file) => file.target === 'AGENTS.md').content;
 
     assert.equal(fullTargets.length > coreTargets.length, true);
+    assert.equal(coreTargets.includes('docs/rules/codebase-memory-mcp.md'), false);
+    assert.equal(coreTargets.includes('.agents/skills/agentmemory/SKILL.md'), false);
+    assert.equal(coreTargets.some((item) => item.startsWith('.agents/memory/')), false);
+    assert.equal(coreTargets.includes('.codex/hooks.json'), false);
     assert.equal(fullTargets.includes('docs/rules/codebase-memory-mcp.md'), true);
-    assert.equal(fullTargets.includes('.agents/skills/review-checklist/SKILL.md'), true);
+    assert.equal(fullTargets.includes('.agents/skills/agentmemory/SKILL.md'), true);
+    assert.equal(fullTargets.includes('.agents/skills/handoff/SKILL.md'), true);
+    assert.equal(fullTargets.includes('.agents/skills/recall/SKILL.md'), true);
+    assert.equal(fullTargets.includes('.agents/skills/remember/SKILL.md'), true);
+    assert.equal(fullTargets.includes('.agents/memory/README.md'), true);
+    assert.equal(fullTargets.includes('.codex/hooks.json'), true);
+    assert.equal(fullTargets.includes('.agents/skills/review-checklist/SKILL.md'), false);
     assert.equal(fullTargets.includes('.agents/skills/adversarial-review-packet/SKILL.md'), true);
     assert.equal(fullTargets.includes('.agents/skills/loop-planning/SKILL.md'), true);
     assert.equal(fullTargets.includes('.agents/skills/subagent-driven-development/SKILL.md'), true);
     assert.equal(fullTargets.some((item) => item.startsWith('docs/workflows/')), false);
+    assert.equal(fullAgents.includes('全安装'), true);
+    assert.equal(fullAgents.includes('codebase-memory-mcp'), true);
+    assert.equal(fullAgents.includes('agentmemory'), true);
+    assert.equal(fullAgents.includes('.agents/memory/'), true);
+    assert.equal(fullAgents.includes('.codex/hooks.json'), true);
   } finally {
     await rm(core.target, { force: true, recursive: true });
     await rm(full.target, { force: true, recursive: true });
+  }
+});
+
+test('installed rules use Chinese user-visible bullet text', async () => {
+  const pencilRules = await readFile(path.join(rootDir, 'rules/pencil-rules.md'), 'utf8');
+  const projectDirectoryRules = await readFile(path.join(rootDir, 'rules/project-directory.md'), 'utf8');
+  const content = `${pencilRules}\n${projectDirectoryRules}`;
+
+  for (const englishFragment of [
+    'Confirm the `.pen` path',
+    'Inspect existing layouts',
+    'Separate design approval',
+    'Define stable dimensions',
+    'Cover loading, empty',
+    'Keep component names',
+    'Do not encode secrets',
+    'Put domain behavior',
+    'Shared directories contain capabilities',
+    'Adapters translate between external',
+    'Generated, vendored',
+    'New top-level directories',
+  ]) {
+    assert.equal(content.includes(englishFragment), false, `${englishFragment} should be translated`);
   }
 });
 
@@ -406,14 +516,27 @@ test('rendered AGENTS surface matches minimal, core, full, and internal profile 
     const internalAgents = internalReport.previewFiles.find((file) => file.target === 'AGENTS.md').content;
 
     assert.equal(minimalAgents.includes('.agents/skills/'), false);
+    assert.equal(minimalAgents.includes('codebase-memory-mcp'), false);
+    assert.equal(minimalAgents.includes('agentmemory'), false);
     assert.equal(minimalAgents.includes('docs/rules/skill-routing.md'), false);
     assert.equal(minimalAgents.includes('.codex/hooks.json'), false);
     assert.equal(coreAgents.includes('.agents/skills/'), true);
+    assert.equal(coreAgents.includes('通用安装'), true);
+    assert.equal(coreAgents.includes('codebase-memory-mcp'), false);
+    assert.equal(coreAgents.includes('agentmemory'), false);
+    assert.equal(coreAgents.includes('.agents/memory/'), false);
     assert.equal(coreAgents.includes('.codex/hooks.json'), false);
     assert.equal(fullAgents.includes('.agents/skills/'), true);
-    assert.equal(fullAgents.includes('.codex/hooks.json'), false);
+    assert.equal(fullAgents.includes('全安装'), true);
+    assert.equal(fullAgents.includes('codebase-memory-mcp'), true);
+    assert.equal(fullAgents.includes('agentmemory'), true);
+    assert.equal(fullAgents.includes('.agents/memory/'), true);
+    assert.equal(fullAgents.includes('.codex/hooks.json'), true);
     assert.equal(fullAgents.includes('review / loop'), true);
     assert.equal(internalAgents.includes('.agents/skills/'), true);
+    assert.equal(internalAgents.includes('全安装'), true);
+    assert.equal(internalAgents.includes('codebase-memory-mcp'), true);
+    assert.equal(internalAgents.includes('agentmemory'), true);
     assert.equal(internalAgents.includes('.codex/hooks.json'), true);
   } finally {
     await rm(minimal.target, { force: true, recursive: true });

@@ -6,16 +6,22 @@
 
 1. 读取仓库入口指令；存在当前状态和架构文档时一并读取。
 2. 检查 package/workspace manifest、构建入口、adapter 和模块索引。
-3. `codebase-memory-mcp` 可用时确认索引状态并用于结构化定位；否则使用仓库搜索。
+3. 项目内已有代码结构索引工具时先确认索引状态并用于结构化定位；否则使用仓库搜索。
 4. 编辑前确认最近的测试和验证命令。
 
 ## 放置规则
 
-- Put domain behavior with the domain that owns its state and interfaces.
-- Shared directories contain capabilities proven reusable by multiple consumers, not convenient dumping grounds.
-- Adapters translate between external and internal contracts; they do not own business rules.
-- Generated, vendored, build, cache, evidence, and temporary directories are not source ownership locations.
-- New top-level directories require an architecture reason, an owner, and documentation of dependency direction.
+- 领域行为放在拥有对应状态和接口的领域内。
+- 共享目录只放已被多个消费者验证可复用的能力，不作为临时堆放区。
+- Adapter 只负责外部与内部契约转换，不拥有业务规则。
+- 生成物、vendored、构建、缓存、证据和临时目录都不是源码所有权位置。
+- 新增顶层目录必须有架构理由、owner 和依赖方向说明。
+
+## 文档与 ADR
+
+- 文档先找到单一来源和既有格式，避免创建第二套真值。
+- 面向读者记录当前事实、操作步骤和可验证命令；临时实现流水账不进入耐久文档。
+- ADR 至少包含上下文、决策、备选、后果和状态；代码或接口变化时同步相关文档并删除过期说法和悬空链接。
 
 ## 跨边界变更
 
