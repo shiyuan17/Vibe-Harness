@@ -14,9 +14,12 @@ export const defaultProjectConfig = {
   target: 'codex',
   profile: 'core',
   validationCommands: {
-    lint: 'pnpm lint',
-    typecheck: 'pnpm check:type',
-    governance: 'pnpm run check:governance',
+    lint: null,
+    typecheck: null,
+    governance: 'node .agents/loopengine/governance/validate.mjs',
+  },
+  governance: {
+    mode: 'basic',
   },
   riskZones: {
     red: ['auth', 'global request layer', 'ci/cd', 'env'],
@@ -25,6 +28,14 @@ export const defaultProjectConfig = {
   crossRepo: {
     enabled: false,
     backendRepo: '',
+  },
+  projectRules: {
+    mode: 'auto',
+    overrides: {},
+  },
+  memory: {
+    enabled: true,
+    path: '.agents/memory',
   },
 };
 
@@ -91,13 +102,43 @@ function assertNonEmptyString(value, label) {
   }
 }
 
+export function resolveGovernanceMode(config, profile = config?.profile) {
+  if (profile === config?.profile && config?.governance?.mode) return config.governance.mode;
+  if (profile === 'minimal' || profile === 'codex-minimal') return 'off';
+  if (['full', 'codex-internal', 'docs-only'].includes(profile)) return 'full';
+  return 'basic';
+}
+
+export function validateGovernanceModeForProfile(mode, profile) {
+  const allowed = profile === 'minimal' || profile === 'codex-minimal'
+    ? ['off']
+    : (profile === 'core' ? ['basic', 'off'] : ['basic', 'full', 'off']);
+  if (!allowed.includes(mode)) {
+    throw new Error(`governance.mode=${mode} is not supported by profile ${profile}`);
+  }
+}
+
+export function resolveValidationCommands(config, projectProfile, governanceMode) {
+  const configured = Object.fromEntries(
+    Object.entries(config?.validationCommands ?? {}).filter(([, value]) => value),
+  );
+  return {
+    ...(projectProfile?.validationCommands ?? {}),
+    ...configured,
+    governance: governanceMode === 'off'
+      ? null
+      : (configured.governance ?? 'node .agents/loopengine/governance/validate.mjs'),
+  };
+}
+
+function assertOptionalCommand(value, label) {
+  if (value !== null && value !== undefined) {
+    assertNonEmptyString(value, label);
+  }
+}
+
 export function validateProjectConfig(config) {
   assertObject(config, 'loopengine.config.json');
-  for (const term of forbiddenProjectTerms) {
-    if (JSON.stringify(config).includes(term)) {
-      throw new Error(`Config contains forbidden term: ${term}`);
-    }
-  }
   assertNonEmptyString(config.projectName, 'projectName');
   assertNonEmptyString(config.packageManager, 'packageManager');
   assertNonEmptyString(config.target, 'target');
@@ -109,9 +150,35 @@ export function validateProjectConfig(config) {
     throw new Error(`Unknown profile: ${config.profile}`);
   }
   assertObject(config.validationCommands, 'validationCommands');
-  assertNonEmptyString(config.validationCommands.lint, 'validationCommands.lint');
-  assertNonEmptyString(config.validationCommands.typecheck, 'validationCommands.typecheck');
-  assertNonEmptyString(config.validationCommands.governance, 'validationCommands.governance');
+  assertOptionalCommand(config.validationCommands.lint, 'validationCommands.lint');
+  assertOptionalCommand(config.validationCommands.typecheck, 'validationCommands.typecheck');
+  if (config.governance?.mode === 'off') {
+    assertOptionalCommand(config.validationCommands.governance, 'validationCommands.governance');
+  } else {
+    assertNonEmptyString(config.validationCommands.governance, 'validationCommands.governance');
+  }
+  if (Object.hasOwn(config, 'governance')) {
+    assertObject(config.governance, 'governance');
+    if (!['basic', 'full', 'off'].includes(config.governance.mode)) {
+      throw new Error('governance.mode must be basic, full, or off');
+    }
+  }
+  if (Object.hasOwn(config, 'projectRules')) {
+    assertObject(config.projectRules, 'projectRules');
+    if (!['auto', 'manual', 'off'].includes(config.projectRules.mode)) {
+      throw new Error('projectRules.mode must be auto, manual, or off');
+    }
+    if (Object.hasOwn(config.projectRules, 'overrides')) {
+      assertObject(config.projectRules.overrides, 'projectRules.overrides');
+    }
+  }
+  if (Object.hasOwn(config, 'memory')) {
+    assertObject(config.memory, 'memory');
+    if (typeof config.memory.enabled !== 'boolean') {
+      throw new Error('memory.enabled must be boolean');
+    }
+    assertNonEmptyString(config.memory.path, 'memory.path');
+  }
   return true;
 }
 
@@ -135,15 +202,14 @@ export function validateGeneratedContent(content, { installedTargets } = {}) {
     throw new Error(`Generated AGENTS.md is missing required red lines: ${missing.join(', ')}`);
   }
 
-  for (const term of forbiddenProjectTerms) {
-    if (content.includes(term)) {
-      throw new Error(`Generated content contains forbidden term: ${term}`);
-    }
-  }
-
   if (Array.isArray(installedTargets)) {
     const normalizedTargets = installedTargets.map((target) => target.replaceAll('\\', '/'));
     const surfaceChecks = [
+      {
+        exact: 'docs/rules/codegraph.md',
+        fragment: 'docs/rules/codegraph.md',
+        label: 'docs/rules/codegraph.md',
+      },
       {
         fragment: '.agents/skills/',
         label: '.agents/skills/',

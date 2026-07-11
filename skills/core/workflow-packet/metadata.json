@@ -1,1 +1,1 @@
-{"id":"workflow-packet","kind":"core","entry":"SKILL.md","triggers":["delivery","risk classification","workflow"],"outputs":["workflow packet"]}
+{"id":"workflow-packet","kind":"core","entry":"SKILL.md","triggers":["交付","风险分级","workflow"],"outputs":["workflow packet"]}

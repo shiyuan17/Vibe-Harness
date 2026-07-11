@@ -9,11 +9,16 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "source", "metadata"],
+        "required": ["id", "source", "metadata", "kind", "requiresSkills", "optionalSkills", "requiresTools"],
         "properties": {
           "id": { "type": "string", "minLength": 1 },
           "source": { "type": "string", "minLength": 1 },
-          "metadata": { "type": "string", "minLength": 1 }
+          "metadata": { "type": "string", "minLength": 1 },
+          "kind": { "enum": ["native", "router", "integration", "compatibility"] },
+          "requiresSkills": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+          "optionalSkills": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+          "requiresTools": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+          "canonicalId": { "type": "string", "minLength": 1 }
         },
         "additionalProperties": false
       }

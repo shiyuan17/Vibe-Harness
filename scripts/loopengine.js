@@ -2,6 +2,8 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { installCodeGraphCli, inspectCodeGraph } from './lib/codegraph.js';
+import { inspectValidationCommands } from './lib/command-status.js';
 import { applyRollbackPlan, createRollbackPlan } from './lib/install-state.js';
 import {
   applyInstallPlan,
@@ -11,9 +13,13 @@ import {
   previewInstallPlan,
 } from './lib/install-planner.js';
 import { validatePack } from './lib/pack-validation.js';
+import { detectProjectProfile } from './lib/project-profile.js';
 import {
   readRequiredProjectConfig,
+  resolveGovernanceMode,
+  resolveValidationCommands,
   validateConfigAndGeneratedContent,
+  validateGovernanceModeForProfile,
   validateProjectConfig,
   writeDefaultProjectConfig,
 } from './lib/project-config.js';
@@ -68,14 +74,28 @@ async function install(args) {
   const targetDir = isMvpMode ? path.resolve(args.project) : path.resolve(args.target ?? process.cwd());
   const config = isMvpMode ? await readRequiredProjectConfig(targetDir) : null;
   const profile = args.profile ?? config?.profile ?? 'codex-internal';
-  const renderData = config ? { ...config, profile, target: args.target ?? config.target } : {};
+  const projectProfile = config ? await detectProjectProfile({ config, targetDir }) : null;
+  const governanceMode = config ? resolveGovernanceMode(config, profile) : undefined;
+  if (config) validateGovernanceModeForProfile(governanceMode, profile);
+  const validationCommands = config
+    ? resolveValidationCommands(config, projectProfile, governanceMode)
+    : undefined;
+  const renderData = config ? {
+    ...config,
+    profile,
+    projectProfile,
+    target: args.target ?? config.target,
+    governance: { mode: governanceMode },
+    validationCommands,
+  } : {};
   if (config) {
     validateProjectConfig({ ...config, profile, target: args.target ?? config.target });
   }
 
   const plan = await createInstallPlan({
     dryRun: dryRunRequested,
-    force: Boolean(args.force || isMvpMode),
+    force: Boolean(args.force),
+    managedAgentsBlock: isMvpMode,
     profile,
     renderData,
     rootDir,
@@ -98,6 +118,7 @@ async function install(args) {
   console.log(JSON.stringify({
     actions: plan.actions,
     dryRun: plan.dryRun,
+    governanceMode,
     previewFiles,
     profile: plan.profile,
     target: isMvpMode ? (args.target ?? config.target) : undefined,
@@ -111,25 +132,46 @@ async function validate(args) {
     const targetDir = path.resolve(args.project);
     const config = await readRequiredProjectConfig(targetDir);
     validateProjectConfig(config);
+    const projectProfile = await detectProjectProfile({ config, targetDir });
+    const governanceMode = resolveGovernanceMode(config, config.profile);
+    validateGovernanceModeForProfile(governanceMode, config.profile);
+    const validationCommands = resolveValidationCommands(config, projectProfile, governanceMode);
     const plan = await createInstallPlan({
       dryRun: true,
       force: true,
+      managedAgentsBlock: true,
       profile: config.profile,
-      renderData: config,
+      renderData: { ...config, governance: { mode: governanceMode }, projectProfile, validationCommands },
       rootDir,
       targetDir,
     });
     const agentsTemplate = await readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8');
     const installedTargets = plan.actions.map((action) => action.relativeTarget);
-    validateConfigAndGeneratedContent(config, agentsTemplate, { installedTargets });
+    validateConfigAndGeneratedContent({ ...config, governance: { mode: governanceMode }, projectProfile, validationCommands }, agentsTemplate, { installedTargets });
     validateConfigAndGeneratedContent(plan.renderData, agentsTemplate, { installedTargets });
+    const target = await inspectTargetInstall({
+      managedAgentsBlock: true,
+      profile: config.profile,
+      renderData: { ...config, governance: { mode: governanceMode }, projectProfile, validationCommands },
+      rootDir,
+      targetDir,
+    });
+    if (!target.ok) {
+      console.error(JSON.stringify({ ok: false, scope: 'project', targetDir, target }, null, 2));
+      process.exitCode = 1;
+      return;
+    }
     const pack = await validatePack(rootDir);
     if (!pack.ok) {
       console.error(JSON.stringify(pack, null, 2));
       process.exitCode = 1;
       return;
     }
-    console.log(JSON.stringify({ ok: true, scope: 'project', targetDir }, null, 2));
+    const commandStatus = await inspectValidationCommands({
+      commands: validationCommands,
+      targetDir,
+    });
+    console.log(JSON.stringify({ commandStatus, ok: true, scope: 'project', targetDir }, null, 2));
     return;
   }
 
@@ -158,10 +200,34 @@ async function validate(args) {
 async function doctor(args) {
   const targetDir = path.resolve(args.target ?? process.cwd());
   const pack = await validatePack(rootDir);
+  const codegraph = await inspectCodeGraph({ targetDir });
   const target = args.target
     ? await inspectTargetInstall({ profile: args.profile ?? 'codex-internal', rootDir, targetDir })
     : null;
-  console.log(JSON.stringify({ pack, rootDir, target, targetDir }, null, 2));
+  if (target && !args.verbose) {
+    delete target.unmanaged;
+  }
+  console.log(JSON.stringify({ codegraph, pack, rootDir, target, targetDir }, null, 2));
+}
+
+async function codegraph(args) {
+  const subcommand = args._[1] ?? 'status';
+  if (subcommand === 'install-cli') {
+    const report = await installCodeGraphCli({
+      dryRun: Boolean(args['dry-run']),
+      version: typeof args.version === 'string' ? args.version : undefined,
+    });
+    console.log(JSON.stringify(report, null, 2));
+    return;
+  }
+  if (subcommand === 'status') {
+    const report = await inspectCodeGraph({
+      targetDir: path.resolve(args.target ?? process.cwd()),
+    });
+    console.log(JSON.stringify(report, null, 2));
+    return;
+  }
+  throw new Error(`Unknown codegraph command: ${subcommand}`);
 }
 
 async function diff(args) {
@@ -186,21 +252,38 @@ async function rollback(args) {
   console.log(JSON.stringify({ actions: plan.actions, applied: result.applied, dryRun: plan.dryRun, skipped: result.skipped }, null, 2));
 }
 
-const args = parseArgs(process.argv.slice(2));
-const command = args._[0] ?? 'help';
-if (command === 'init') {
-  await init(args);
-} else if (command === 'install') {
-  await install(args);
-} else if (command === 'validate') {
-  await validate(args);
-} else if (command === 'doctor') {
-  await doctor(args);
-} else if (command === 'diff') {
-  await diff(args);
-} else if (command === 'rollback') {
-  await rollback(args);
-} else {
-  console.log('Usage: loopengine <init|install|validate|doctor|diff|rollback> [--project path] [--target codex|path] [--profile minimal|core|full] [--write|--apply] [--dry-run] [--force] [--upgrade] [--confirm-red-zone]');
-  console.log('MVP install uses --project <path> --target codex. Legacy install uses --target <path>. Install defaults to dry-run.');
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  const command = args._[0] ?? 'help';
+  if (command === 'init') {
+    await init(args);
+  } else if (command === 'install') {
+    await install(args);
+  } else if (command === 'validate') {
+    await validate(args);
+  } else if (command === 'doctor') {
+    await doctor(args);
+  } else if (command === 'codegraph') {
+    await codegraph(args);
+  } else if (command === 'diff') {
+    await diff(args);
+  } else if (command === 'rollback') {
+    await rollback(args);
+  } else {
+    console.log('Usage: loopengine <init|install|validate|doctor|diff|rollback|codegraph> [--project path] [--target codex|path] [--profile minimal|core|full] [--write|--apply] [--dry-run] [--force] [--upgrade] [--confirm-red-zone]');
+    console.log('MVP install uses --project <path> --target codex. Legacy install uses --target <path>. Install defaults to dry-run.');
+  }
+}
+
+try {
+  await main();
+} catch (error) {
+  console.error(JSON.stringify({
+    ok: false,
+    error: {
+      code: error.code ?? 'LOOPENGINE_ERROR',
+      message: error.message,
+    },
+  }, null, 2));
+  process.exitCode = 1;
 }

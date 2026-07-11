@@ -1,1 +1,0 @@
-{"id":"handoff","kind":"core","entry":"SKILL.md","triggers":["handoff","pause","resume"],"outputs":["handoff packet"]}

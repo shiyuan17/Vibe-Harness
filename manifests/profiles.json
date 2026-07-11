@@ -1,11 +1,41 @@
 {
   "schemaVersion": 1,
   "items": [
-    { "id": "minimal", "description": "MVP minimal Codex AGENTS, entry rules, and templates.", "installMap": "adapters/codex/install-map.json", "groups": ["agents", "rules-minimal", "templates-minimal"] },
-    { "id": "core", "description": "MVP core Codex governance with lifecycle rules, workflows, and core skills.", "installMap": "adapters/codex/install-map.json", "groups": ["agents", "rules-minimal", "rules-core", "templates-minimal", "templates-core", "skills-core", "workflows-core"] },
-    { "id": "full", "description": "MVP full Codex governance with memory, review, and loop opt-in guidance.", "installMap": "adapters/codex/install-map.json", "groups": ["agents", "rules-minimal", "rules-core", "rules-full", "templates-minimal", "templates-core", "templates-full", "skills-core", "skills-full", "workflows-core", "workflows-full"] },
-    { "id": "codex-internal", "description": "Full Codex internal governance pack.", "installMap": "adapters/codex/install-map.json", "groups": ["agents", "rules-minimal", "rules-core", "rules-full", "templates-minimal", "templates-core", "templates-full", "skills-core", "skills-full", "workflows-core", "workflows-full", "hooks"] },
-    { "id": "codex-minimal", "description": "Minimal Codex entry rules and task templates.", "installMap": "adapters/codex/install-map.json", "groups": ["agents", "rules-minimal", "templates-minimal"] },
-    { "id": "docs-only", "description": "Reusable docs without Codex hooks or skills.", "installMap": "adapters/codex/install-map.json", "groups": ["rules-minimal", "rules-core", "rules-full", "templates-minimal", "templates-core", "templates-full", "workflows-core", "workflows-full"] }
+    {
+      "id": "minimal",
+      "description": "MVP minimal Codex AGENTS, entry rules, CodeGraph, and templates.",
+      "installMap": "adapters/codex/install-map.json",
+      "groups": ["agents", "rules-minimal", "templates-minimal"]
+    },
+    {
+      "id": "core",
+      "description": "Core Codex governance with lifecycle, engineering rules, workflows, and bundled skills.",
+      "installMap": "adapters/codex/install-map.json",
+      "groups": ["agents", "rules-minimal", "rules-core", "rules-review", "templates-minimal", "templates-core", "templates-review", "schemas-core", "runtime-basic", "skills-core", "skills-memory", "workflows-core"]
+    },
+    {
+      "id": "full",
+      "description": "Full Codex governance with memory, release, design, review, loop, and troubleshooting assets.",
+      "installMap": "adapters/codex/install-map.json",
+      "groups": ["agents", "rules-minimal", "rules-core", "rules-review", "rules-full", "templates-minimal", "templates-core", "templates-review", "templates-full", "templates-memory", "schemas-core", "runtime-basic", "runtime-full", "skills-core", "skills-full", "skills-memory", "workflows-core", "workflows-full"]
+    },
+    {
+      "id": "codex-internal",
+      "description": "Full Codex internal governance pack.",
+      "installMap": "adapters/codex/install-map.json",
+      "groups": ["agents", "rules-minimal", "rules-core", "rules-review", "rules-full", "templates-minimal", "templates-core", "templates-review", "templates-full", "templates-memory", "schemas-core", "runtime-basic", "runtime-full", "skills-core", "skills-full", "skills-memory", "workflows-core", "workflows-full", "hooks"]
+    },
+    {
+      "id": "codex-minimal",
+      "description": "Minimal Codex entry rules and task templates.",
+      "installMap": "adapters/codex/install-map.json",
+      "groups": ["agents", "rules-minimal", "templates-minimal"]
+    },
+    {
+      "id": "docs-only",
+      "description": "Reusable docs without Codex hooks or skills.",
+      "installMap": "adapters/codex/install-map.json",
+      "groups": ["rules-minimal", "rules-core", "rules-review", "rules-full", "templates-minimal", "templates-core", "templates-review", "templates-full", "templates-memory", "schemas-core", "workflows-core", "workflows-full"]
+    }
   ]
 }

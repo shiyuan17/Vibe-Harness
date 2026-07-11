@@ -1,6 +1,6 @@
 {
   "id": "loopengine-codex",
   "name": "LoopEngine Codex Adapter",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "installMap": "adapters/codex/install-map.json"
 }

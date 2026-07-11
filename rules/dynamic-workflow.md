@@ -1,28 +1,43 @@
 # 动态工作流
 
-先选择一个主 workflow，再叠加必要修饰器。
+先选择一个主工作流，再叠加必要修饰器。
+
+## 概念边界
+
+- 工作流档位：单次任务的风险档位，取值为 `Fast Path`、`Lightweight`、`Full`。
+- 安装配置：安装资产集合，取值为 `minimal`、`core`、`full`、`codex-internal`、`codex-minimal`、`docs-only`。
+- 完整工作流（`Full`）不等于 `full` 安装配置；不要用安装配置替代任务风险判断。
 
 | 信号 | 主工作流 | 必要修饰器 |
 | --- | --- | --- |
 | UI、布局、组件、浏览器行为 | UI | 浏览器验证，纯文案例外 |
-| API client、mapper、mock、集成 | API | 外部契约存在时 Backend Cross-check |
-| 数据库、migration、seed、数据修复 | DB | DB、Backend Cross-check、Red Team |
-| auth、权限、敏感数据、审计 | Security | Security、Red Team |
-| 重构、共享包、构建工具 | Architecture | 跨层时 Red Team |
-| 生产 bug、性能回退、日志问题 | Production Debug | Red Team；外部契约存在时 Backend Cross-check |
+| API client、mapper、mock、集成 | API | 外部契约存在时后端交叉核对 |
+| 数据库、migration、seed、数据修复 | DB | DB、后端交叉核对、Red Team |
+| auth、权限、敏感数据、审计 | 安全 | 安全、Red Team |
+| 重构、共享包、构建工具 | 架构 | 跨层时 Red Team |
+| 生产 bug、性能回退、日志问题 | 生产排障 | Red Team；外部契约存在时后端交叉核对 |
 | hooks、CI、发布、治理脚本 | 工作流基础设施 | 红区时 Red Team |
 | 纯文档 | Not applicable | 无 |
 
 ## 档位
 
-- Fast Path：文档、只读、测试-only 或低风险文案。
-- Lightweight：不触发 security、DB、Red Team 或外部契约的低风险实现。
-- Full：红区、跨层、安全、DB、生产、发布或高风险改动。
+- 快速路径（`Fast Path`）：纯文档、只读分析、测试-only、低风险文案。
+- 轻量流程（`Lightweight`）：低风险实现，且不触发安全、数据库、发布、生产、红区、跨层或外部契约。
+- 完整流程（`Full`）：任何红区、安全、DB、生产、发布、高风险、跨层或外部契约工作。
 
-## Packet 字段
+升级优先：如果同一任务同时满足多个档位，选择更高档位；不确定时先按更高档位处理。档位描述中的完整流程（`Full`）指任务交付流程，不等同于 `full` 安装配置。
 
-Fast Path：摘要、工作流不适用原因、验证。
+## 交付包字段
 
-Lightweight：主工作流、触发信号、必要修饰器、验证、剩余风险。
+快速路径（`Fast Path`）：摘要、工作流不适用原因、验证。
 
-Full：完整工作流 Packet、动态测试、模拟、安全、数据库、Red Team、跨仓/外部契约证据、剩余风险。
+轻量流程（`Lightweight`）：主工作流、触发信号、必要修饰器、验证、剩余风险。
+
+完整流程（`Full`）：完整工作流交付包、动态测试、模拟、安全、数据库、Red Team、跨仓/外部契约证据、剩余风险。
+
+## 执行偏离
+
+- 执行中遇到边缘 case 时，不扩大范围、不自造契约、不伪造 API、字段、权限或验证结果。
+- 默认选择最保守备选：保持现有行为、缩小写入范围、降级为只读核对或暂停危险操作。
+- 完整流程（`Full`）或红区任务必须维护 `implementation-notes.md`，记录边缘 case、采用的保守备选、偏离说明、影响范围和验证证据，再继续最小安全路径。
+- 如果偏离改变目标、验收标准、公开接口或风险档位，停止执行并更新 Spec、Plan 或 Task Intake。

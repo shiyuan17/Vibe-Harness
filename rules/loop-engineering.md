@@ -1,18 +1,54 @@
 # Loop Engineering
 
-Loop 是显式、受控、有边界的反馈系统，不是无限继续寻找问题的授权。
+Loop 是显式 opt-in 的受控反馈系统，不是无限继续寻找问题的授权。
 
-## 单轮流程
+## 一轮算法
 
-`Scope -> Hypothesis -> Action -> Observe -> Decide -> Write-back`
+每轮按 `Scope -> Hypothesis -> Action -> Observe -> Decide -> Write-back` 执行；这些英文是循环记录中的固定阶段名。
 
-- Scope：定义目标、写入范围和禁止动作。
-- Hypothesis：写出一个可证伪假设。
-- Action：执行能产生证据的最小动作。
-- Observe：记录命令输出、日志、截图、diff 或人工核对结果。
-- Decide：继续、停止、升级或创建新任务。
-- Write-back：更新 task、handoff、evidence 或 memory。
+| 阶段 | 要回答的问题 | 最小产出 |
+| --- | --- | --- |
+| Scope | 本轮只处理什么范围？ | 目标、写入范围、禁止动作 |
+| Hypothesis | 做一件最小事会证明什么？ | 可证伪假设 |
+| Action | 最小行动是什么？ | 命令、审查、浏览器步骤或受控编辑 |
+| Observe | 观察到什么事实？ | 退出码、日志、截图、diff 或人工核对 |
+| Decide | 继续、停止、升级还是拆新任务？ | 明确决策 |
+| Write-back | 状态写到哪里？ | 任务、交接、证据或记忆 |
 
-## Packet
+## 循环交付包
 
-Loop Packet 包含 loop 类型、停止条件、验证命令、状态写入位置、升级条件、验收负责人、最终开关、判定来源、验收冻结、澄清门禁、迭代预算和 ledger 路径。
+显式 loop 必须填写：
+
+- 循环类型
+- 停止条件
+- 验证命令
+- 状态写入位置
+- 升级条件
+- 验收负责人
+- 最终开关
+- 判定来源
+- 验收冻结
+- 澄清门禁
+- 迭代预算
+- 证据台账
+
+迭代预算不得写 `N/A`；验收条件不清时不启动 loop。
+
+## 循环台账
+
+每轮记录：
+
+```markdown
+| Cycle | Hypothesis | Action | Observation | Decision | Write-back |
+| --- | --- | --- | --- | --- | --- |
+```
+
+`Observation` 必须有可追溯证据，不写执行流水账。
+
+## 停止矩阵
+
+- 停止条件达成：停止并交付。
+- 红区、权限、发布、删除、跨仓契约：暂停人工确认。
+- 范围扩大或发现新契约：停止当前 loop，记录新 child 或阻塞项。
+- 验证失败且边界内无法修复：停止并标记失败。
+- 超过迭代预算：停止并交接。

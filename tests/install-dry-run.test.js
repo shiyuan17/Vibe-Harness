@@ -56,6 +56,27 @@ test('install refuses to overwrite existing files unless force is used', async (
   }
 });
 
+test('dry-run reports conflicts without failing or writing files', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-dry-run-conflict-'));
+  try {
+    await writeFile(path.join(target, 'AGENTS.md'), 'user-owned content\n', 'utf8');
+
+    const plan = await createInstallPlan({
+      dryRun: true,
+      profile: 'codex-minimal',
+      rootDir,
+      targetDir: target,
+    });
+    const result = await applyInstallPlan(plan);
+
+    assert.equal(plan.actions.find((action) => action.relativeTarget === 'AGENTS.md').kind, 'conflict');
+    assert.deepEqual(result.written, []);
+    assert.equal(await readFile(path.join(target, 'AGENTS.md'), 'utf8'), 'user-owned content\n');
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
 test('actual install blocks red-zone files without explicit confirmation', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-redzone-'));
   try {
@@ -68,6 +89,25 @@ test('actual install blocks red-zone files without explicit confirmation', async
 
     assert.ok(plan.actions.some((action) => action.redZone === true));
     await assert.rejects(applyInstallPlan(plan), /red-zone/);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('actual install refuses to write outside the target directory', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-escape-'));
+  try {
+    const plan = await createInstallPlan({
+      dryRun: false,
+      profile: 'codex-minimal',
+      rootDir,
+      targetDir: target,
+    });
+    const agents = plan.actions.find((action) => action.relativeTarget === 'AGENTS.md');
+    agents.relativeTarget = '../escape.md';
+    agents.target = path.resolve(target, '../escape.md');
+
+    await assert.rejects(applyInstallPlan(plan), /outside target directory|portable relative path/);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
@@ -88,6 +128,7 @@ test('CLI apply mode writes files when red-zone confirmation is explicit', async
     ]);
 
     const intakeTemplate = await readFile(path.join(target, 'docs/templates/task-intake.md'), 'utf8');
+    const implementationNotes = await readFile(path.join(target, 'docs/templates/implementation-notes.md'), 'utf8');
     const handoffTemplate = await readFile(path.join(target, 'docs/templates/handoff-template.md'), 'utf8');
     const intakeSkill = await readFile(path.join(target, '.agents/skills/task-intake/SKILL.md'), 'utf8');
 
@@ -95,6 +136,8 @@ test('CLI apply mode writes files when red-zone confirmation is explicit', async
     assert.equal(await readFile(path.join(target, '.codex/hooks.json'), 'utf8').then((content) => content.includes('hooks')), true);
     assert.equal(intakeTemplate.includes('来源'), true);
     assert.equal(intakeTemplate.includes('Source'), false);
+    assert.equal(implementationNotes.includes('偏离说明'), true);
+    assert.equal(implementationNotes.includes('采用的保守备选'), true);
     assert.equal(handoffTemplate.includes('已完成事项'), true);
     assert.equal(handoffTemplate.includes('Completed'), false);
     assert.equal(intakeSkill.includes('任务启动'), true);

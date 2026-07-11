@@ -1,0 +1,29 @@
+# Frontend Rules
+
+Frontend rules protect usability, state consistency, accessibility, and real-browser behavior. Layout and interaction changes cover loading, empty, error, narrow-screen, and long-text states.
+
+## Rules
+
+- 布局和交互变更要覆盖加载、空态、错误、窄屏和长文本。
+- 不要只凭组件快照判断体验；关键路径需要浏览器检查。
+- 交付时写清影响范围、验证命令和未覆盖风险。
+
+## Checklist
+
+- 状态：加载、空态、错误、成功、禁用和长文本都有表现。
+- 响应式：至少覆盖窄屏、常规桌面和内容溢出场景。
+- 可用性：交互控件可发现、可聚焦、可恢复，错误文案能指导下一步。
+- 浏览器：关键布局和交互需要真实浏览器验证；纯文案例外要说明。
+- 性能：避免无界渲染、重复请求和明显的布局抖动。
+- 行为：防止重复提交、过期异步响应覆盖新状态、失败后无恢复入口和权限不足时仍暴露操作。
+- 契约：视图模型通过 mapper 或 boundary adapter 获得，不直接依赖不稳定的 transport DTO。
+
+## 验证证据
+
+- 组件/页面测试、lint/typecheck 和浏览器检查结果。
+- 截图、步骤记录或状态核对。
+- 未覆盖设备、浏览器或交互风险。
+
+## 停止条件
+
+设计来源、状态模型、浏览器验证方式或响应式约束不清时停止并澄清。

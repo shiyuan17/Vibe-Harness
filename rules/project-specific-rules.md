@@ -1,0 +1,40 @@
+# Project Specific Rules
+
+本文件由 LoopEngine 根据目标项目文件和 `loopengine.config.json` 渲染。当前事实优先于历史记忆；若本文件与目标项目更严格的本地规则冲突，遵循更严格规则。
+
+## 项目画像
+
+- 技术栈：{{projectProfile.stackSummary}}
+- 包管理器：`{{projectProfile.packageManager}}`
+- 版本控制：{{projectProfile.vcsSummary}}
+- 状态命令：`{{projectProfile.vcsStatusCommand}}`
+- 关键目录 / 模块：{{projectProfile.directoryGuidance}}
+
+## 编码规范
+
+- {{projectProfile.codingStandards}}
+- 优先沿用目标项目已有分层、命名、错误处理和测试写法。
+- 新增依赖前先确认现有栈不能满足，并说明维护状态、许可证、体积和安全风险。
+- 不手改构建产物、依赖缓存、生成目录或 VCS 元数据。
+
+## 验证规范
+
+- 默认验证：{{projectProfile.verificationSummary}}
+- Lint：`{{validationCommands.lint}}`
+- Typecheck：`{{validationCommands.typecheck}}`
+- Governance：`{{validationCommands.governance}}`
+- 无法运行某项验证时，交付必须说明原因、替代证据和剩余风险。
+
+## Git / VCS 规范
+
+- 编辑前运行 `{{projectProfile.vcsStatusCommand}}`，识别用户未归属改动。
+- Git 项目按 `docs/rules/git-rules.md` 管理分支、提交、worktree 和 merge-back。
+- SVN 项目不得套用 Git commit / branch 假设；交付时报告 `svn status` 结果和本地修改范围。
+- 混合 Git/SVN 痕迹时，以当前任务实际改动所在工作副本为准，并在交付中说明判断依据。
+
+## Review 规范
+
+- {{projectProfile.reviewGuidance}}
+- Review 先列问题，再写摘要；问题按严重度排序并包含文件/行号。
+- 无 finding 时必须明确说明已核对范围、未覆盖验证和残余风险。
+- 高风险、红区、跨模块或验证缺口任务必须进入独立审查。
