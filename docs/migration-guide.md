@@ -60,3 +60,12 @@ git diff --check
 ## Agentmemory Skills
 
 源项目中的 `handoff`、`recall`、`remember`、`forget`、`recap`、`session-history`、`commit-history`、`commit-context` 会作为 bundled memory 安装面进入 `core` / `full` / `codex-internal`。这些 skill 只描述通用 agentmemory 行为；目标项目没有记忆工具时，Agent 必须说明不可用并回退到本地 handoff 或任务 intake。
+
+## v0.3 升级
+
+- `core` 新增 Review 规则、Review Packet、task-intake 规则与 `.agents/loopengine/governance/` 基础校验器。
+- `full` 新增 `docs/memory/` 六类 durable governance 模板、task/backlog 语义校验和 Pencil `.pen/.png` 配对检查。
+- `validationCommands.lint` 与 `typecheck` 可为 `null`；未检测到真实脚本时不会生成虚假的 pnpm 命令。已有非空字符串配置继续兼容。
+- `governance.mode` 可为 `basic`、`full` 或 `off`；未配置的 v0.2 项目按 profile 推导。
+- 升级前使用 `diff` 审查新增文件，再运行 `install --upgrade`。用户修改过的 managed 文件仍默认拒绝覆盖；需要强制更新时先备份，失败可使用 `rollback`。
+- `.agents/memory/` 是会话辅助记忆；`docs/memory/` 是 durable 项目治理真值，两者不得互相替代。

@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    { "id": "entry-and-session", "source": "AGENTS.md / QUICKSTART.md", "disposition": "generalize", "targets": ["adapters/codex/AGENTS.template.md", "rules/session-protocol.md", "rules/quickstart.md"], "tests": ["tests/mvp-spec.test.js", "tests/rules-depth.test.js"] },
+    { "id": "task-intake", "source": "TASK_INTAKE.md", "disposition": "generalize", "targets": ["rules/task-intake.md", "templates/task-intake.md"], "tests": ["tests/v03-governance-equivalence.test.js"] },
+    { "id": "task-lifecycle", "source": "TASK_RULES.md / TASK_LIFECYCLE_RULES.md", "disposition": "generalize", "targets": ["rules/task-rules.md", "rules/task-lifecycle.md", "schemas/task.schema.json"], "tests": ["tests/manifest-schema.test.js", "tests/v03-governance-equivalence.test.js"] },
+    { "id": "task-backlog-semantics", "source": "TASK_MANAGEMENT_RULES.md", "disposition": "validator", "targets": ["rules/task-management.md", "runtime/governance/lib/task-validation.mjs", "runtime/governance/lib/schema-validation.mjs"], "tests": ["tests/governance-runtime.test.js"] },
+    { "id": "workflow-packet", "source": "DYNAMIC_WORKFLOW_RULES.md", "disposition": "validator", "targets": ["templates/workflow-packet.md", "runtime/governance/validate-packet.mjs"], "tests": ["tests/governance-runtime.test.js"] },
+    { "id": "review", "source": "REVIEW_RULES.md", "disposition": "generalize", "targets": ["rules/review-rules.md", "templates/review-packet.md"], "tests": ["tests/rules-depth.test.js", "tests/v03-governance-equivalence.test.js"] },
+    { "id": "git-and-worktree", "source": "GIT_RULES.md", "disposition": "generalize", "targets": ["rules/git-rules.md"], "tests": ["tests/rules-depth.test.js"] },
+    { "id": "engineering-rules", "source": "CODING / FRONTEND / API / DB", "disposition": "generalize", "targets": ["rules/coding-rules.md", "rules/frontend-rules.md", "rules/api-rules.md", "rules/db-rules.md"], "tests": ["tests/rules-depth.test.js"] },
+    { "id": "governance-memory", "source": "docs/memory", "disposition": "template", "targets": ["templates/memory/PROJECT_STATE.md", "templates/memory/ARCHITECTURE.md", "templates/memory/DECISIONS.md", "templates/memory/KNOWN_BUGS.md", "templates/memory/TECH_DEBT.md", "templates/memory/FAILURE_LEARNINGS.md", "runtime/governance/lib/memory-validation.mjs"], "tests": ["tests/v03-governance-equivalence.test.js", "tests/governance-runtime.test.js"] },
+    { "id": "pencil-assets", "source": "PENCIL_RULES.md", "disposition": "validator", "targets": ["rules/pencil-rules.md", "runtime/governance/lib/design-validation.mjs"], "tests": ["tests/governance-runtime.test.js"] },
+    { "id": "release", "source": "RELEASE.md", "disposition": "generalize", "targets": ["rules/release-rules.md"], "tests": ["tests/rules-depth.test.js"] },
+    { "id": "project-business-contracts", "source": "project memory contracts", "disposition": "project-only", "reason": "Business DTOs, permissions, ports, and repository names remain owned by the target project.", "tests": ["tests/redaction.test.js"] },
+    { "id": "runtime-application-code", "source": "application source", "disposition": "excluded-with-reason", "reason": "LoopEngine distributes governance assets and does not migrate product runtime code.", "tests": ["tests/redaction.test.js"] }
+  ]
+}

@@ -36,7 +36,8 @@ test('apply install writes install state with hashes and red-zone metadata', asy
     const agents = state.files.find((file) => file.target === 'AGENTS.md');
     const hooks = state.files.find((file) => file.target === '.codex/hooks.json');
 
-    assert.equal(state.version, '0.2.0');
+    const pkg = JSON.parse(await readFile(path.join(rootDir, 'package.json'), 'utf8'));
+    assert.equal(state.version, pkg.version);
     assert.equal(state.profile, 'codex-internal');
     assert.equal(state.files.length > 0, true);
     assert.match(state.installedAt, /^\d{4}-\d{2}-\d{2}T/);

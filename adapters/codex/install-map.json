@@ -15,6 +15,7 @@
     { "group": "rules-core", "source": "rules/handoff-rules.md", "target": "docs/rules/handoff-rules.md" },
     { "group": "rules-core", "source": "rules/task-lifecycle.md", "target": "docs/rules/task-lifecycle.md" },
     { "group": "rules-core", "source": "rules/task-rules.md", "target": "docs/rules/task-rules.md" },
+    { "group": "rules-core", "source": "rules/task-intake.md", "target": "docs/rules/task-intake.md" },
     { "group": "rules-core", "source": "rules/skill-routing.md", "target": "docs/rules/skill-routing.md" },
     { "group": "rules-core", "source": "rules/ai-collab-rules.md", "target": "docs/rules/ai-collab-rules.md" },
     { "group": "rules-core", "source": "rules/api-rules.md", "target": "docs/rules/api-rules.md" },
@@ -25,7 +26,7 @@
     { "group": "rules-core", "source": "rules/project-specific-rules.md", "target": "docs/rules/project-specific-rules.md" },
 
     { "group": "rules-full", "source": "rules/db-rules.md", "target": "docs/rules/db-rules.md" },
-    { "group": "rules-full", "source": "rules/review-rules.md", "target": "docs/rules/review-rules.md" },
+    { "group": "rules-review", "source": "rules/review-rules.md", "target": "docs/rules/review-rules.md" },
     { "group": "rules-full", "source": "rules/loop-engineering.md", "target": "docs/rules/loop-engineering.md" },
     { "group": "rules-full", "source": "rules/pencil-rules.md", "target": "docs/rules/pencil-rules.md" },
     { "group": "rules-full", "source": "rules/release-rules.md", "target": "docs/rules/release-rules.md" },
@@ -39,9 +40,23 @@
     { "group": "templates-core", "source": "templates/plan-template.md", "target": "docs/templates/plan-template.md" },
     { "group": "templates-core", "source": "templates/implementation-notes.md", "target": "docs/templates/implementation-notes.md" },
     { "group": "templates-core", "source": "templates/handoff-template.md", "target": "docs/templates/handoff-template.md" },
-    { "group": "templates-full", "source": "templates/review-packet.md", "target": "docs/templates/review-packet.md" },
+    { "group": "templates-review", "source": "templates/review-packet.md", "target": "docs/templates/review-packet.md" },
+
+    { "group": "templates-memory", "source": "templates/memory/PROJECT_STATE.md", "target": "docs/memory/PROJECT_STATE.md" },
+    { "group": "templates-memory", "source": "templates/memory/ARCHITECTURE.md", "target": "docs/memory/ARCHITECTURE.md" },
+    { "group": "templates-memory", "source": "templates/memory/DECISIONS.md", "target": "docs/memory/DECISIONS.md" },
+    { "group": "templates-memory", "source": "templates/memory/KNOWN_BUGS.md", "target": "docs/memory/KNOWN_BUGS.md" },
+    { "group": "templates-memory", "source": "templates/memory/TECH_DEBT.md", "target": "docs/memory/TECH_DEBT.md" },
+    { "group": "templates-memory", "source": "templates/memory/FAILURE_LEARNINGS.md", "target": "docs/memory/FAILURE_LEARNINGS.md" },
 
     { "group": "schemas-core", "source": "schemas/task.schema.json", "target": "docs/schemas/task.schema.json" },
+
+    { "group": "runtime-basic", "source": "runtime/governance/validate.mjs", "target": ".agents/loopengine/governance/validate.mjs" },
+    { "group": "runtime-basic", "source": "runtime/governance/validate-packet.mjs", "target": ".agents/loopengine/governance/validate-packet.mjs" },
+    { "group": "runtime-full", "source": "runtime/governance/lib/task-validation.mjs", "target": ".agents/loopengine/governance/lib/task-validation.mjs" },
+    { "group": "runtime-full", "source": "runtime/governance/lib/design-validation.mjs", "target": ".agents/loopengine/governance/lib/design-validation.mjs" },
+    { "group": "runtime-full", "source": "runtime/governance/lib/memory-validation.mjs", "target": ".agents/loopengine/governance/lib/memory-validation.mjs" },
+    { "group": "runtime-full", "source": "runtime/governance/lib/schema-validation.mjs", "target": ".agents/loopengine/governance/lib/schema-validation.mjs" },
 
     { "group": "skills-core", "source": "skills/core/brainstorming/SKILL.md", "target": ".agents/skills/brainstorming/SKILL.md" },
     { "group": "skills-core", "source": "skills/core/brainstorming/spec-document-reviewer-prompt.md", "target": ".agents/skills/brainstorming/spec-document-reviewer-prompt.md" },

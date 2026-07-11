@@ -11,6 +11,7 @@
 | `TASK_RULES.md` | `rules/task-rules.md` | copy-generalize |
 | `TASK_LIFECYCLE_RULES.md` | `rules/task-lifecycle.md` | copy-generalize |
 | `TASK_MANAGEMENT_RULES.md` | `rules/task-management.md` | copy-generalize |
+| `TASK_INTAKE.md` | `rules/task-intake.md`、`templates/task-intake.md` | copy-generalize |
 | `GIT_RULES.md` | `rules/git-rules.md` | copy-generalize |
 | `CODING_RULES.md` | `rules/coding-rules.md` | copy-generalize |
 | `FRONTEND_RULES.md` | `rules/frontend-rules.md` | copy-generalize |
@@ -25,6 +26,8 @@
 | `AGENT_SKILL_ROUTING.md` | `rules/skill-routing.md` | copy-generalize |
 | `TROUBLESHOOTING.md` | `rules/troubleshooting.md` | copy-generalize |
 | project memory/current tasks/contracts | examples or target project only | exclude-business |
+| durable memory categories | `templates/memory/*`、full governance validator | template |
+| governance / PR packet validation | `runtime/governance/*` | validator |
 
 处理方式说明：
 

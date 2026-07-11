@@ -1,6 +1,6 @@
 # Coding Rules
 
-Coding Rules 编码规则强调小步、清晰和可验证。 优先复用本仓库既有模式，避免为一次性需求引入抽象。 共享逻辑变更必须配套聚焦测试，并说明影响范围。[1]
+Coding rules emphasize small, clear, reviewable, and verifiable changes. Reuse repository patterns and add abstractions only when they remove real complexity or match an established boundary.
 
 ## Rules
 

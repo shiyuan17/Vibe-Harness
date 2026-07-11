@@ -1,6 +1,6 @@
 # Release Rules
 
-Release Rules 发布规则要求变更、验证和回滚证据一起交付。 发布前确认版本、changelog、迁移步骤、风险和监控信号。 失败时按预先记录的回滚路径执行，不临场发明流程。[1]
+Release rules require changes, verification, monitoring, and rollback evidence to travel together. A local build or successful upload is not proof that a release succeeded.
 
 ## Rules
 
@@ -15,6 +15,7 @@ Release Rules 发布规则要求变更、验证和回滚证据一起交付。 �
 - 风险：列出迁移、配置、权限、数据和用户影响。
 - 回滚：记录回滚命令、备份位置、兼容窗口和负责人。
 - 监控：记录发布后监控指标、日志位置和告警信号。
+- 停止：定义取消发布、停止扩量或执行回滚的可观察阈值。
 
 ## 发布证据
 

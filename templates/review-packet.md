@@ -1,51 +1,47 @@
-# 审查包模板
+# Review Packet
 
-填写规则：标记“必填”的字段不得留空；禁止空泛词（待定、视情况、合适测试、后续补充）。问题必须按严重度排序，先列问题，再写摘要。
+填写规则：字段名保持英文以供 validator 解析，内容使用项目语言。标记“必填”的字段不得留空；禁止 TODO、TBD、待定和无证据结论。问题按严重度排序，先列问题，再写摘要。
 
-## 输入
+## Inputs
 
-必填。说明 reviewer 实际读取的来源，避免只凭口头摘要判断。
+必填。列出 reviewer 实际读取的规格、任务 brief、实现报告、diff 和验证证据。
 
-| 输入 | 路径 / 证据 | 用途 |
-| --- | --- | --- |
-| 规格 / 任务 brief |  | 核对验收标准和禁止动作 |
-| 实现报告 / report |  | 核对变更意图、测试输出和未决风险 |
-| diff / review package |  | 核对实际代码和文件范围 |
+## Review Verdict
 
-## 双判定
+- Specification:
+- Code Quality:
 
-必填。规格符合性和代码质量分开填写。
+必填值：Specification 使用 `Pass` / `Fail` / `Cannot verify`；Code Quality 使用 `Approved` / `Request changes` / `Blocked by missing evidence`。
 
-- 规格符合性：`Pass` / `Fail` / `Cannot verify`
-- 代码质量：`Approved` / `Request changes` / `Blocked by missing evidence`
+## Findings
 
-## 问题
-
-必填。每项包含严重度、位置或证据、问题、影响、建议处理。
+必填。每项包含严重度、位置或证据、问题、影响和建议处理；无问题时明确写 `No blocking findings`。
 
 | 严重度 | 位置 / 证据 | 问题 | 影响 | 建议处理 |
 | --- | --- | --- | --- | --- |
 | `Critical` / `High` / `Medium` / `Low` |  |  |  |  |
 
-## 阻断条件
+## Blocking Conditions
+
+以下阻断条件任一命中时不得批准：
 
 - `Critical` 或 `High` 未处理。
-- 验证证据缺失或无法覆盖验收标准。
+- 验证证据无法覆盖验收标准。
 - 红区人工确认缺失。
 - 实现者自证高风险最终通过。
 
-## 待确认问题
+## Open Questions
 
 列出需要用户、owner、外部系统或 reviewer 决策的问题。
 
-## 已核对验证
+## Verification Checked
 
 必填。列出命令、退出码、关键输出、截图或人工核对来源。
 
-## 剩余风险
+## Residual Risk
 
-必填。说明未覆盖场景、可接受原因和后续建议。
+必填。说明未覆盖场景、可接受原因和后续 owner。
 
-## 摘要
+## Summary
 
 简述审查结论：`Approve` / `Request changes` / `Blocked by missing evidence`。
