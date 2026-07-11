@@ -1,14 +1,14 @@
-# Coding Rules
+# 编码规则
 
-Coding rules emphasize small, clear, reviewable, and verifiable changes. Reuse repository patterns and add abstractions only when they remove real complexity or match an established boundary.
+编码规则强调小、清晰、可审查、可验证的变更。优先复用仓库既有模式；只有在确实降低复杂度或匹配既有边界时才新增抽象。
 
-## Rules
+## 规则
 
 - 优先复用本仓库既有模式，避免为一次性需求引入抽象。
 - 共享逻辑变更必须配套聚焦测试，并说明影响范围。
 - 交付时写清影响范围、验证命令和未覆盖风险。
 
-## Checklist
+## 检查清单
 
 - 范围：只改当前任务需要的文件，不夹带无关重构。
 - 模式：优先复用已有工具、目录结构、命名和错误处理方式。

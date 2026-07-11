@@ -1,9 +1,9 @@
-# Architecture
+# 架构
 
-## System shape
+## 系统形态
 
-## Ownership boundaries
+## 所有权边界
 
-## Durable interfaces
+## 稳定接口
 
-## Constraints
+## 约束

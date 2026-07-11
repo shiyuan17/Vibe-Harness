@@ -1,3 +1,3 @@
-# Decisions
+# 决策
 
-Record durable decisions with an ID, date, decision, evidence, impact, and review condition.
+记录长期有效的决策，包含 ID、日期、决策、证据、影响和复核条件。

@@ -1,15 +1,15 @@
-# Project Directory
+# 项目目录规则
 
-Project directory guidance records ownership and dependency direction so agents can locate the correct change boundary without inventing a new structure.
+项目目录规则记录所有权和依赖方向，让 Agent 能定位正确变更边界，而不是临时发明新结构。
 
-## Discovery order
+## 发现顺序
 
-1. Read the repository entry instructions, current-state and architecture documents when present.
-2. Inspect package/workspace manifests, build entrypoints, adapters, and module indexes.
-3. Use CodeGraph when the repository already contains an index; otherwise use repository search.
-4. Confirm the nearest tests and validation commands before editing.
+1. 读取仓库入口指令；存在当前状态和架构文档时一并读取。
+2. 检查 package/workspace manifest、构建入口、adapter 和模块索引。
+3. 仓库已有 CodeGraph 索引时优先使用；否则使用仓库搜索。
+4. 编辑前确认最近的测试和验证命令。
 
-## Placement rules
+## 放置规则
 
 - Put domain behavior with the domain that owns its state and interfaces.
 - Shared directories contain capabilities proven reusable by multiple consumers, not convenient dumping grounds.
@@ -17,10 +17,10 @@ Project directory guidance records ownership and dependency direction so agents 
 - Generated, vendored, build, cache, evidence, and temporary directories are not source ownership locations.
 - New top-level directories require an architecture reason, an owner, and documentation of dependency direction.
 
-## Cross-boundary changes
+## 跨边界变更
 
-When a change crosses modules, packages, repositories, or services, list each owner and interface, identify the compatibility and rollback strategy, and validate both sides. If ownership remains unclear, stop at clarification rather than spreading logic across layers.
+变更跨模块、package、仓库或服务时，列出每个 owner 和接口，识别兼容与回滚策略，并验证两侧。所有权仍不清晰时停在澄清阶段，不把逻辑散落到多层。
 
-## Completion standard
+## 完成标准
 
-The change is complete when new and modified files live in declared ownership boundaries, imports follow the intended direction, and tests demonstrate the affected consumers.
+只有当新增和修改文件都位于声明的所有权边界内、import 遵循预期方向、测试能证明受影响消费者时，变更才算完成。

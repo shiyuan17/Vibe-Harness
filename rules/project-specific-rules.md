@@ -1,4 +1,4 @@
-# Project Specific Rules
+# 项目专属规则
 
 本文件由 LoopEngine 根据目标项目文件和 `loopengine.config.json` 渲染。当前事实优先于历史记忆；若本文件与目标项目更严格的本地规则冲突，遵循更严格规则。
 

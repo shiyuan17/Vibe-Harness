@@ -1,20 +1,20 @@
-# Task Intake
+# 任务启动
 
-Task intake turns an issue, request, local task, or conversation into an executable start block. It does not redefine task state; lifecycle truth belongs to `task-rules.md`.
+任务启动规则把 issue、请求、本地任务或对话转换成可执行的启动块。它不重新定义任务状态；生命周期真值以 `task-rules.md` 为准。
 
-## Required fields
+## 必填字段
 
-- Source and identifier, or an explicit `N/A` when no external source exists.
-- Goal, acceptance criteria, non-goals, and impact scope.
-- Workflow tier, primary workflow, required modifiers, and risk level.
-- Worktree decision, write scope, forbidden actions, validation commands, stop conditions, and rollback plan.
+- 来源与标识；没有外部来源时明确写 `N/A`。
+- 目标、验收标准、非目标和影响范围。
+- workflow tier、主 workflow、必要修饰器和风险等级。
+- worktree 决策、写入范围、禁止动作、验证命令、停止条件和回滚计划。
 
-## Entry gate
+## 入口门禁
 
-Before execution, read the source and related specification, inspect version-control status, select the minimum reading path, and identify evidence that can prove each acceptance criterion. If ambiguity changes behavior, contract, security, or validation, return to clarification.
+执行前必须读取来源和相关规格，检查版本控制状态，选择最小阅读路径，并识别每条验收标准对应的证明证据。若歧义会改变行为、契约、安全或验证方式，回到澄清。
 
-Red-zone work must record scope, reason, validation, rollback, and human confirmation. A parent or child task must additionally declare dependencies, conflicts, parallel safety, and completion ownership.
+红区工作必须记录范围、原因、验证、回滚和人工确认。父任务或子任务还必须声明依赖、冲突、并行安全性和完成责任。
 
-## Completion standard
+## 完成标准
 
-The intake is complete only when another engineer or agent can execute it without inventing requirements, interfaces, permissions, or validation evidence.
+只有当另一位工程师或 Agent 不需要编造需求、接口、权限或验证证据即可执行时，任务启动才算完成。

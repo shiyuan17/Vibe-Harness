@@ -1,14 +1,14 @@
-# Frontend Rules
+# 前端规则
 
-Frontend rules protect usability, state consistency, accessibility, and real-browser behavior. Layout and interaction changes cover loading, empty, error, narrow-screen, and long-text states.
+前端规则用于保护可用性、状态一致性、可访问性和真实浏览器行为。布局和交互变更必须覆盖加载、空态、错误、窄屏和长文本状态。
 
-## Rules
+## 规则
 
 - 布局和交互变更要覆盖加载、空态、错误、窄屏和长文本。
 - 不要只凭组件快照判断体验；关键路径需要浏览器检查。
 - 交付时写清影响范围、验证命令和未覆盖风险。
 
-## Checklist
+## 检查清单
 
 - 状态：加载、空态、错误、成功、禁用和长文本都有表现。
 - 响应式：至少覆盖窄屏、常规桌面和内容溢出场景。

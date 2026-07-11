@@ -1,4 +1,4 @@
-# Local Agent Memory
+# 本地 Agent Memory
 
 本目录保存 Agent 工具和跨会话恢复所需的辅助记忆。只记录未来 session 仍有价值的观察与恢复线索，不保存 secret、token、凭据或临时闲聊。
 

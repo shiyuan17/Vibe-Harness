@@ -1,14 +1,14 @@
-# DB Rules
+# DB 规则
 
-DB rules protect data integrity, migration safety, compatibility, and rollback. Before migration, inspect existing data shape, idempotency, lock impact, transaction boundaries, and backup strategy.
+DB 规则用于保护数据完整性、迁移安全、兼容性和回滚能力。迁移前必须检查现有数据形状、幂等性、锁影响、事务边界和备份策略。
 
-## Rules
+## 规则
 
 - 迁移前确认数据形状、幂等性、锁影响和备份策略。
 - 读写路径要覆盖空值、重复、并发和权限失败。
 - 交付时写清影响范围、验证命令和未覆盖风险。
 
-## Checklist
+## 检查清单
 
 - 数据形状：确认现有数据、空值、重复、历史异常和规模。
 - 迁移：说明幂等性、锁影响、运行顺序、降级行为和回滚路径。

@@ -1,30 +1,30 @@
-# AI Collaboration Rules
+# AI 协作规则
 
-AI collaboration separates facts, decisions, implementation, verification, and approval so that model confidence cannot become project truth.
+AI 协作规则把事实、决策、实现、验证和批准分开，避免模型信心被误当成项目真值。
 
-## Evidence boundaries
+## 证据边界
 
-- Repository files, current command output, external contracts, and explicit human decisions are evidence. Model recollection and generated summaries are hypotheses until checked.
-- Never invent APIs, fields, permissions, schemas, test results, deployments, or reviewer approval.
-- Tool failures, incomplete reads, stale indexes, and unverified external state must be reported with the fallback used.
-- Preserve user changes. If ownership is unclear and overlap matters, stop before editing.
+- 仓库文件、当前命令输出、外部契约和明确的人类决策才是证据；模型记忆和生成摘要在核对前只是待验证假设。
+- 不得编造 API、字段、权限、schema、测试结果、部署结果或 reviewer 批准。
+- 工具失败、读取不完整、索引过期和未验证的外部状态必须说明，并写清采用的替代方式。
+- 保护用户改动；归属不清且可能重叠时，先停止再确认。
 
-## Roles
+## 角色边界
 
-- The primary agent owns clarification, scope, integration, and final accounting.
-- An implementation agent may report its changes and tests but cannot approve high-risk work it created.
-- A test agent proves stated acceptance criteria; it does not redefine scope.
-- A reviewer is read-only by default and classifies confirmed findings separately from risks that need evidence.
-- Human confirmation remains mandatory for red-zone changes and unresolved business or security decisions.
+- 主 Agent 负责澄清、范围、集成和最终交付说明。
+- 实现 Agent 可以报告自己的改动和测试，但不能批准自己创建的高风险工作。
+- 测试 Agent 负责证明既定验收标准，不重新定义范围。
+- Reviewer 默认只读；已确认问题和仍需证据的风险必须分开记录。
+- 红区变更、未决业务决策和安全决策仍必须有人类确认。
 
-## Multi-agent and tool use
+## 多 Agent 与工具使用
 
-Parallel work requires independent deliverables, explicit write scopes, dependencies, and conflict rules. External skills and tools supplement local governance; they do not override repository instructions, red-zone gates, or verification requirements.
+并行工作必须具备独立交付物、明确写入范围、依赖关系和冲突处理规则。外部 skill 与工具只补充本地治理，不覆盖仓库指令、红区门禁或验证要求。
 
-## Handoff
+## 交接
 
-Record the current phase and status, completed and incomplete work, latest evidence, failed commands, Git/worktree/merge-back state, next action, and resume hint. Do not use memory or a handoff to bypass validation or review.
+交接必须记录当前阶段和状态、已完成与未完成事项、最新证据、失败命令、Git/worktree/merge-back 状态、下一步动作和恢复提示。不得用 memory 或 handoff 绕过验证或审查。
 
-## Completion standard
+## 完成标准
 
-Completion requires evidence from the current workspace, an accountable reviewer for high-risk work, and a delivery packet that distinguishes verified results from residual risk.
+完成必须有来自当前工作区的证据；高风险工作必须有可追责 reviewer；交付包必须区分已验证结果和剩余风险。

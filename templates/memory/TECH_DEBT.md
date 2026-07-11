@@ -1,3 +1,3 @@
-# Technical Debt
+# 技术债
 
-Record open debt with an ID, evidence, impact, owner, and closure condition.
+记录未关闭技术债，包含 ID、证据、影响、owner 和关闭条件。

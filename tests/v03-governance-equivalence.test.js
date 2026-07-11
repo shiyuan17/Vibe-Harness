@@ -244,8 +244,31 @@ test('command status recognizes run scripts and does not overclaim external tool
 test('installed packet templates expose the validator section contract', async () => {
   const workflow = await readFile('templates/workflow-packet.md', 'utf8');
   const review = await readFile('templates/review-packet.md', 'utf8');
-  for (const heading of ['## Summary', '## Dynamic Workflow', '## Evidence']) assert.match(workflow, new RegExp(heading));
-  assert.match(workflow, /^- Validation:$/mu);
-  for (const heading of ['## Review Verdict', '## Findings', '## Verification Checked', '## Residual Risk']) assert.match(review, new RegExp(heading));
-  assert.match(review, /^- Specification:$/mu);
+  for (const heading of ['## 摘要', '## 动态工作流', '## 证据']) assert.match(workflow, new RegExp(heading));
+  assert.match(workflow, /^- 验证:$/mu);
+  for (const heading of ['## 审查结论', '## 问题列表', '## 已核验证', '## 剩余风险']) assert.match(review, new RegExp(heading));
+  assert.match(review, /^- 规格符合度:$/mu);
+});
+
+test('installed user-facing markdown avoids English governance shell headings', async () => {
+  const installMap = JSON.parse(await readFile('adapters/codex/install-map.json', 'utf8'));
+  const banned = [
+    /^#{1,6}\s+(?:Summary|Dynamic Workflow|Evidence|Review Verdict|Findings|Verification Checked|Residual Risk|Inputs|Blocking Conditions|Open Questions)$/imu,
+    /^#{1,6}\s+(?:Evidence boundaries|Sources of truth|Required task data|Parent and child rules|Recovery and escalation|Completion standard|Required fields|Entry gate|Design requirements|Delivery gate)$/imu,
+    /^#{1,6}\s+(?:Rules|Checklist|Discovery order|Placement rules|Cross-boundary changes|Intake|Validation)$/imu,
+  ];
+  const checked = [];
+  const failures = [];
+  for (const entry of installMap.entries) {
+    if (!entry.source.endsWith('.md')) continue;
+    if (!/^(rules|templates|workflows|memory|skills)\//u.test(entry.source)) continue;
+    const content = await readFile(entry.source, 'utf8');
+    checked.push(entry.source);
+    for (const pattern of banned) {
+      if (pattern.test(content)) failures.push(entry.source);
+    }
+  }
+
+  assert.equal(checked.length > 0, true);
+  assert.deepEqual([...new Set(failures)].sort(), []);
 });
