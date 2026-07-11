@@ -1,48 +1,45 @@
 # Skill Routing
 
-Skill 只补强执行方式，不覆盖 `AGENTS.md`、红区确认、工作流、审查或验证门禁。
+Skill 只补强执行方式，不覆盖 `AGENTS.md`、红区确认、工作流、审查或验证门禁。常规任务最多选择一个流程 skill、一个专项 skill 和一个验证 skill；兼容入口解析到 canonical skill 后不重复加载同类能力。
 
-## 选择原则
+## 生命周期
 
-- 先声明主工作流与风险，再选择最小 skill 集。
-- 常规任务最多选择一个流程 skill、一个专项 skill、一个验证 skill。
-- 不引用未安装 skill；不可用时说明原因并回退到已安装规则、等价流程或人工步骤。
-- Skill 不得降低错误处理、权限、数据映射、验证或用户反馈要求。
+| 阶段 | 首选 | 需要时补充 |
+| --- | --- | --- |
+| Clarify | `task-intake` | 深度未知用 `grill-me`；创意方案用 `brainstorming` |
+| Spec | `api-and-interface-design` | 外部契约用 `api-contract-check` |
+| Plan | `writing-plans` | - |
+| Task | `task-decomposition` | - |
+| Execute | `executing-plans` | 行为变更用 `test-driven-development`；故障用 `systematic-debugging` |
+| Verify | `verification-before-completion` | UI 用 `browser-verification` |
+| Review | `open-code-review` | 不可用时回退 `code-review-and-quality` |
+| Handoff | `workflow-handoff` | 恢复历史用 agentmemory 子 skill |
 
-## 生命周期映射
-
-| 阶段 | 推荐 skill |
-| --- | --- |
-| 澄清（`Clarify`） | `task-intake` / `brainstorming` |
-| 规格（`Spec`） | `api-contract-check` / `api-and-interface-design` |
-| 计划（`Plan`） | `writing-plans` |
-| 任务拆分（`Task`） | `task-decomposition` |
-| 执行（`Execute`） | `test-driven-development` / `systematic-debugging` |
-| 验证（`Verify`） | `verification-before-completion` / `browser-verification` |
-| 审查（`Review`） | `open-code-review` 优先，失败回退 `code-review-and-quality` |
-| 交接（`Handoff`） | `workflow-handoff` |
-| 恢复（`Resume`） | agentmemory `handoff` / `recall` / `session-history` |
-
-## 专项映射
+## 专项
 
 | 场景 | Skill |
 | --- | --- |
-| API / DTO / mock / 联调 | `api-contract-check` |
-| 前端页面 / 组件 / 状态 | `frontend-implementation-check` |
-| 发布 / 回滚 | `release-checklist` |
-| Worktree / merge-back | `worktree-mergeback-check` |
-| Pencil 设计稿 | `pencil-design-check` |
-| 显式 loop | `loop-planning` |
-| Skill 编写 / manifest / 安装面 | `skill-authoring-check` |
-| 子 agent 执行 / 文件化交接 | `subagent-driven-development`（仅 full/internal profile） |
+| 前端实现 | `frontend-ui-engineering` |
+| 安全、认证、敏感数据 | `security-and-hardening` |
+| 等价精简 | `code-simplification` |
+| 文档和 ADR | `documentation-and-adrs` |
+| Git 分批交付 | `git-delivery-batcher` |
+| Worktree merge-back | `worktree-mergeback-check` |
+| 发布 / Pencil / loop | `release-checklist` / `pencil-design-check` / `loop-planning` |
+| Full 高风险审查 | `adversarial-review-packet` |
+| 跨仓运行时落地 | `runtime-cross-repo-rollout` |
 
-## Profile 边界
+设计类只选一个主入口：营销、品牌、作品集用 `taste-skill`；产品 UI、后台、表单和工具用 `impeccable`；方向未定时用 `frontend-design`。三者共享同一设计真值，不叠加使用。
 
-- `minimal` 不安装 `.agents/skills/`；只按已安装规则和模板执行。
-- `core` 安装常规工程、验证、审查请求、记忆和 skill 编写检查能力。
-- `full` / `codex-internal` 才安装 review / loop / subagent 等高阶执行能力。
-- 不直接引用未安装的 skill；若 profile 不包含所需能力，使用等价模板或说明需要升级 profile。
+## 兼容与外部工具
 
-## 审查
+- `debugging-and-error-recovery` 兼容路由到 `systematic-debugging`。
+- `browser-testing-with-devtools` 兼容路由到 `browser-verification`。
+- `open-code-review`、agentmemory 和浏览器能力是本地适配层；第三方 CLI/MCP 不可用时必须按 skill 的回退协议执行。
+- 不引用当前 profile 未安装的 skill；optional skill 不可用时使用已声明回退。
 
-默认 AI 审查入口是 `open-code-review`；不可用时说明原因，并回退到 `code-review-and-quality` 或人工审查。`open-code-review` 不替代高风险人工确认。
+## Profile
+
+- `minimal` / `codex-minimal`：不安装 skills。
+- `core`：常规澄清、计划、inline 执行、实现、调试、安全、审查、验证、文档、Git 和 memory。
+- `full` / `codex-internal`：在 core 上增加设计、对抗审查、跨仓、发布、Pencil、loop 和 subagent 执行。

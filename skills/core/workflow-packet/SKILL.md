@@ -5,15 +5,11 @@ description: 用于将工作归类为 `Fast Path`、`Lightweight` 或 `Full`，�
 
 # 工作流交付包
 
-选择主工作流，叠加必要修饰器，确定档位，并记录证据。完整流程（`Full`）工作需要 Red Team 和审查证据。
+读取 `docs/rules/dynamic-workflow.md` 选择主工作流、修饰器和档位，使用 `docs/templates/workflow-packet.md` 记录证据。skill 不复制档位定义。
 
 ## 触发条件
 
 交付前或风险变化时使用。
-
-## 输出
-
-使用 `templates/workflow-packet.md`。
 
 ## 禁止项
 

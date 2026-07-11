@@ -1,0 +1,1 @@
+{"id":"git-delivery-batcher","kind":"core","entry":"SKILL.md","triggers":["commit","push","stage","PR"],"outputs":["可审计交付分组"]}

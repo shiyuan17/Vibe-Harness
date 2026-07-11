@@ -12,6 +12,7 @@
     "loopengine": "node ./scripts/loopengine.js",
     "lint": "node ./scripts/lint.js",
     "validate": "node ./scripts/validate.js",
+    "skills:audit": "node ./scripts/skills-audit.js",
     "test": "node --test tests/*.test.js",
     "check": "node ./scripts/lint.js && node ./scripts/validate.js && node --test tests/*.test.js",
     "pack:preview": "node ./scripts/pack-preview.js"

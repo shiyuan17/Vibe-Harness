@@ -1,10 +1,10 @@
 ---
 name: commit-history
-description: 展示与 agent session 或 memory context 关联的近期 git commits。用于用户询问 agent 做了哪些 commit、带 session context 的近期提交历史，或 commit 到 session 的可追踪性。
+description: Use when listing recent Git commits linked to agent sessions, optionally filtered by branch, repository, or count.
 ---
 
 # 提交历史
 
-列出 commit 与 agentmemory 上下文的关联。
+解析 `branch`、`repo`、`limit`，默认 limit 100、最大 500。调用 `memory_commits`；MCP 不可用时回退到 `GET $AGENTMEMORY_URL/agentmemory/commits`，所有 query 参数必须 URL 编码，凭据从 `AGENTMEMORY_SECRET` 读取。
 
-输出应包含 commit hash、提交信息、时间、关联 session 或记忆线索，以及仍需用 `git show` 或当前仓库复核的事项。
+倒序展示 short SHA、branch、authored time、message、关联 session 和文件数，并用本地 `git show` 复核。Git 不可用时明确无法核对；服务不可用时只报告本地 Git 历史。不得编造关联。

@@ -69,3 +69,12 @@ git diff --check
 - `governance.mode` 可为 `basic`、`full` 或 `off`；未配置的 v0.2 项目按 profile 推导。
 - 升级前使用 `diff` 审查新增文件，再运行 `install --upgrade`。用户修改过的 managed 文件仍默认拒绝覆盖；需要强制更新时先备份，失败可使用 `rollback`。
 - `.agents/memory/` 是会话辅助记忆；`docs/memory/` 是 durable 项目治理真值，两者不得互相替代。
+
+## Skills 闭包升级
+
+- Skill manifest 新增 `kind`、`requiresSkills`、`optionalSkills`、`requiresTools` 和可选 `canonicalId`。自定义 manifest 条目必须补齐这些字段。
+- core 新增 `executing-plans`、结构化追问、UI、安全、精简、文档、Git 交付及调试/浏览器兼容入口；full 新增三类设计入口、对抗审查和跨仓 rollout。
+- 旧 ID 保持可用；`debugging-and-error-recovery` 与 `browser-testing-with-devtools` 解析到本地 canonical skill，不需要立即迁移调用方。
+- `open-code-review`、agentmemory 和浏览器 skill 只内置适配层，不捆绑第三方 runtime 或凭据。工具不可用时按 skill 中的回退协议执行。
+- 升级前运行 `loopengine diff`；使用 `install --upgrade` 安装新增受管文件。用户修改过的文件仍需 `--force` 才会备份并替换，失败时使用现有 `rollback` 生命周期恢复。
+- 使用 `pnpm skills:audit` 查看实时 inventory；pack validation 会阻止未知依赖、profile 越层、别名环、无回退 integration 和过长入口。

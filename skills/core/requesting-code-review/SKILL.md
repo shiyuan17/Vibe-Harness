@@ -52,6 +52,8 @@ description: 完成任务、实现重要功能或合并前请求代码审查时�
 
 如需独立审查 prompt，可使用 `code-reviewer.md`。
 
+优先把请求交给 `open-code-review`；不可用时回退到 `code-review-and-quality` 或独立人工 reviewer，并说明工具缺口。
+
 ## 红旗
 
 - 只说“帮我看一下”，不提供目标或验证。

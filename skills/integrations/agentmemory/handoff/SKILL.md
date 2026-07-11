@@ -1,18 +1,10 @@
 ---
 name: handoff
-description: 从当前项目最相关的近期 agentmemory session 恢复上下文。用于用户说 resume、where were we、pick up、continue from last time，或要求从记忆中接续。
+description: Use when resuming the most relevant recent agent session for the current project or an explicitly supplied working directory.
 ---
 
-# Agentmemory 交接
+# Agentmemory 恢复
 
-目标是恢复“最可能相关”的上一段工作，而不是罗列全部历史。
+解析并规范化项目路径，调用 `memory_sessions`。按目录边界匹配 cwd，不使用裸字符串前缀；优先最近的 completed session。选定后先呈现未回答问题，再用 session 核心概念调用 `memory_recall`（limit 10），总结决策、文件、错误和下一步。
 
-## 流程
-
-1. 根据当前仓库、分支、用户描述和近期 session 查找候选。
-2. 优先选择同项目、同主题、最近且有未完成事项的 session。
-3. 汇总：目标、已完成、未完成、关键文件、验证证据和风险。
-4. 明确哪些内容来自 agentmemory，哪些仍需重新验证。
-5. 给出下一步建议；执行前遵守当前仓库规则。
-
-不要把历史记忆当作事实。涉及代码状态时，以当前工作区为准。
+MCP 不可用时回退到授权 HTTP：`GET $AGENTMEMORY_URL/agentmemory/sessions` 与 `POST .../agentmemory/recall`，凭据从 `AGENTMEMORY_SECRET` 读取。仍不可用时使用本地 handoff，并明确未访问外部记忆。不得编造 observation；恢复后必须复核当前 Git 和文件状态。

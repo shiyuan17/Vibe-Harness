@@ -22,3 +22,5 @@ description: 将宽泛工作拆成 parent/child task，并明确 lifecycle-v2 �
 5. 给高风险 child 标记红区、review 或人工确认需求。
 
 不要把“实现整个功能”当作单个 child。无法独立验收的子任务继续拆，但子任务不能拆得太细；不能把机械步骤拆成 child，例如单独的“写测试”“改一行”或“运行命令”，除非该步骤本身就是可交付、可验收的完整目标。
+
+`subagent-driven-development` 未安装或任务写入范围无法隔离时，回退为串行 child 清单，由当前执行者逐项验证。

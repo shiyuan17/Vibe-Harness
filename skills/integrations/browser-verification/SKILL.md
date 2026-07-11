@@ -7,6 +7,8 @@ description: 通过 Chrome DevTools MCP 在真实浏览器中测试。用于构�
 
 用 Chrome DevTools MCP 观察真实运行时：页面截图、DOM、console、network、样式、可访问性和性能。不要只凭静态代码猜 UI 是否正确。
 
+先检测可用的 browser/DevTools MCP。不可用时回退到人工浏览器步骤，列出 URL、视口、操作、预期结果以及未采集的 console/network/performance 证据。
+
 ## 使用时机
 
 - 构建或修改浏览器中渲染的页面、组件或交互。

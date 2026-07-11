@@ -14,3 +14,4 @@ description: 检查前端页面、组件、状态、路由、样式和浏览器�
 5. 浏览器验证是否包含截图、console、network 和关键交互。
 
 不要只凭静态代码判断 UI 正确。涉及可视结果时，必须在真实浏览器中验证。
+`browser-verification` 不可用时回退为明确的人工浏览器步骤，并列出未采集的 console、network 或截图证据。

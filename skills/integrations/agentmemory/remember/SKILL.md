@@ -1,27 +1,10 @@
 ---
 name: remember
-description: 将耐久洞察、决策或学习保存到 agentmemory。用于用户说 remember this、save this、preserve this for future sessions，或要求保存项目经验。
+description: Use when the user explicitly asks to preserve a durable insight, decision, fact, or learning for future sessions.
 ---
 
 # Agentmemory 保存
 
-只保存未来 session 真的有价值的内容。
+提炼用户要求保存的原意、2-5 个可搜索 concepts 和相关 files。调用 `memory_save`：`content` 保留原意，`concepts` 使用具体小写关键词，`files` 无相关路径时为空数组。成功后报告保存内容和标签。
 
-## 可保存
-
-- 用户明确要求保存的偏好或决策。
-- 项目长期规则、约定、陷阱或架构事实。
-- 调试后得到的可复用经验。
-- 重要工具、命令或验证注意事项。
-
-## 不保存
-
-- 临时状态、聊天寒暄、一次性待办。
-- secret、token、凭据或敏感个人信息。
-- 未验证猜测。
-
-保存前把内容压缩成清晰、可复用、带项目上下文的一条 observation。
-
-## 本地写入
-
-默认写入 `.agents/memory/observations.md`；架构、流程或协作决策写入 `.agents/memory/decisions.md`。写入时包含日期、观察或决策、证据、适用范围。未验证猜测不得写入。
+不得保存 secret、未经确认的推测、临时流水账或可由当前仓库直接读取的噪声。MCP 不可用时回退到获授权的 HTTP save；仍不可用时仅在用户允许时写本地 memory，否则报告未保存，不得假称成功。

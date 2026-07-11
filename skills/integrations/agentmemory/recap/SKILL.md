@@ -1,17 +1,10 @@
 ---
 name: recap
-description: 汇总某个项目或主题的近期 agentmemory sessions。用于用户要求 recap、recent work summary、weekly/session summary 或询问 lately happened。
+description: Use when summarizing recent agent sessions for a project over today, this week, or a requested count.
 ---
 
-# Agentmemory 摘要
+# Agentmemory 汇总
 
-把近期工作浓缩成可读摘要，突出结果和后续行动。
+解析窗口：today、最近 7 天、last N 或默认 10。调用 `memory_sessions`，按 cwd 目录边界过滤当前项目并按 startedAt 倒序；每个 session 用 `memory_recall`（limit 3）取高重要度摘要。按本地日期分组，最后统计 session、天数和 observation。
 
-## 流程
-
-1. 根据项目、主题或时间范围检索 sessions。
-2. 合并重复事项，按时间或主题组织。
-3. 汇总完成内容、未完成内容、关键决策、验证证据和风险。
-4. 标明信息来源于 agentmemory，可能需要用当前仓库复核。
-
-不要把 recap 写成完整流水账；优先保留可行动信息。
+MCP 不可用时回退到授权 HTTP sessions/recall；仍不可用时使用本地 session 记录并说明范围。不得把不同项目的同前缀路径混入，也不得编造空窗口内容。

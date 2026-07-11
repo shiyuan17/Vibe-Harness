@@ -1,17 +1,10 @@
 ---
 name: forget
-description: 当用户明确要求删除保存的 memory、删除 observation/session 或忘记先前上下文时，删除或遗忘指定 agentmemory 内容。
+description: Use when the user explicitly requests deletion of specific agentmemory observations or session memories for privacy or correction.
 ---
 
 # Agentmemory 遗忘
 
-遗忘是破坏性操作，只在用户明确要求时执行。
+这是破坏性操作。先用 `memory_smart_search`（query 为用户描述，limit 20）列出候选 memory/session IDs、标题和范围；获得针对明确候选的再次确认后，调用 `memory_governance_delete`，传入 `memoryIds` 和简短 `reason`。整 session 删除也必须展开为 memory IDs。报告实际删除数。
 
-## 流程
-
-1. 确认要删除的具体 memory、observation 或 session。
-2. 如果描述含糊，先列出候选并让用户确认。
-3. 删除后汇报删除对象和范围。
-4. 不删除当前仓库文件；此 skill 只处理 agentmemory 数据。
-
-不要基于推测删除记忆。不要把“不要使用这段上下文”理解为永久删除，除非用户明确要求 forget/delete。
+不得用裸 sessionId、不得删除仓库文件、不得在确认前执行。MCP 不可用时停止；HTTP 或本地回退只有在具备等价预览、精确 ID 和显式确认语义时才允许，否则报告阻塞。

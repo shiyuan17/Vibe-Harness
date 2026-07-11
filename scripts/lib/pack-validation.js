@@ -136,6 +136,138 @@ export async function validateSkillMetadataQuality(rootDir, skillItems) {
   return errors.sort();
 }
 
+function findCanonicalCycle(itemsById, startId) {
+  const pathIds = [];
+  const positions = new Map();
+  let currentId = startId;
+  while (currentId) {
+    if (positions.has(currentId)) {
+      return [...pathIds.slice(positions.get(currentId)), currentId];
+    }
+    positions.set(currentId, pathIds.length);
+    pathIds.push(currentId);
+    currentId = itemsById.get(currentId)?.canonicalId;
+  }
+  return null;
+}
+
+export async function validateSkillGraph(
+  rootDir,
+  skillItems,
+  profiles,
+  { checkFiles = true, installEntries = [] } = {},
+) {
+  const errors = [];
+  const itemsById = new Map(skillItems.map((item) => [item.id, item]));
+  const reportedCycles = new Set();
+  const proseOwners = new Map();
+
+  for (const item of skillItems) {
+    for (const dependency of item.requiresSkills ?? []) {
+      if (!itemsById.has(dependency)) errors.push(`${item.id} requires unknown skill: ${dependency}`);
+    }
+    for (const dependency of item.optionalSkills ?? []) {
+      if (!itemsById.has(dependency)) errors.push(`${item.id} optional skill is unknown: ${dependency}`);
+    }
+    if (['router', 'compatibility'].includes(item.kind)) {
+      if (!item.canonicalId) errors.push(`${item.id} requires canonicalId`);
+      else if (!itemsById.has(item.canonicalId)) errors.push(`${item.id} canonical skill is unknown: ${item.canonicalId}`);
+    } else if (item.canonicalId) {
+      errors.push(`${item.id} may not declare canonicalId for kind ${item.kind}`);
+    }
+
+    const cycle = findCanonicalCycle(itemsById, item.id);
+    if (cycle) {
+      const normalized = [...cycle.slice(0, -1)].sort().join('|');
+      if (!reportedCycles.has(normalized)) {
+        errors.push(`canonical skill cycle: ${cycle.join(' -> ')}`);
+        reportedCycles.add(normalized);
+      }
+    }
+
+    if (checkFiles && await pathExists(path.join(rootDir, item.source))) {
+      const content = await readFile(path.join(rootDir, item.source), 'utf8');
+      const prose = content
+        .replace(/^---\r?\n[\s\S]*?\r?\n---/u, '')
+        .replace(/```[\s\S]*?```/gu, '');
+      for (const paragraph of prose.split(/(?:\r?\n){2,}/u)) {
+        const normalized = paragraph.replace(/\s+/gu, ' ').trim();
+        if (normalized.length < 200) continue;
+        const owner = proseOwners.get(normalized);
+        if (owner && owner !== item.id) errors.push(`duplicated long skill prose in ${owner} and ${item.id}`);
+        else proseOwners.set(normalized, item.id);
+      }
+      const declaredSkills = new Set([
+        ...(item.requiresSkills ?? []),
+        ...(item.optionalSkills ?? []),
+        ...(item.canonicalId ? [item.canonicalId] : []),
+      ]);
+      const backtickIds = [...content.matchAll(/`([a-z][a-z0-9-]+)`/gu)].map((match) => match[1]);
+      for (const reference of new Set(backtickIds.filter((id) => id.includes('-') && !itemsById.has(id)))) {
+        errors.push(`${item.id} references unregistered skill id: ${reference}`);
+      }
+      const referencedSkills = backtickIds.filter((id) => itemsById.has(id) && id !== item.id);
+      for (const reference of new Set(referencedSkills)) {
+        if (!declaredSkills.has(reference)) errors.push(`${item.id} has undeclared skill reference: ${reference}`);
+      }
+      const requiresFallback = (item.optionalSkills?.length ?? 0) > 0
+        || (item.requiresTools?.length ?? 0) > 0;
+      if (requiresFallback && !/(回退|fallback)/iu.test(content)) {
+        errors.push(`${item.id} must document fallback for optional skills or tools`);
+      }
+      const lineCount = content.split(/\r?\n/u).length;
+      const maxLines = ['router', 'compatibility'].includes(item.kind) ? 30 : 160;
+      if (lineCount > maxLines) errors.push(`${item.id} exceeds ${maxLines} line SKILL.md budget`);
+      if (!(await pathExists(path.join(rootDir, item.metadata)))) {
+        errors.push(`${item.id} metadata is missing: ${item.metadata}`);
+      } else {
+        const metadata = await readJson(path.join(rootDir, item.metadata));
+        if (metadata.id !== item.id) errors.push(`${item.id} metadata id must match manifest id`);
+      }
+    } else if (!checkFiles) {
+      if ((item.optionalSkills?.length ?? 0) > 0) errors.push(`${item.id} must document fallback for optional skills`);
+      if ((item.requiresTools?.length ?? 0) > 0) errors.push(`${item.id} must document fallback for tools`);
+    }
+  }
+
+  if (checkFiles) {
+    for (const root of ['skills/core', 'skills/integrations']) {
+      const base = path.join(rootDir, root);
+      if (!(await pathExists(base))) continue;
+      const walk = async (directory, referenceDepth = 0) => {
+        for (const entry of await readdir(directory, { withFileTypes: true })) {
+          if (!entry.isDirectory()) continue;
+          const nextDepth = entry.name === 'references' ? referenceDepth + 1 : referenceDepth;
+          if (nextDepth > 1) errors.push(`nested skill references are not allowed: ${path.relative(rootDir, path.join(directory, entry.name))}`);
+          await walk(path.join(directory, entry.name), nextDepth);
+        }
+      };
+      await walk(base);
+    }
+  }
+
+  const sourceToId = new Map(skillItems.map((item) => [item.source, item.id]));
+  for (const item of skillItems) {
+    const entry = installEntries.find((candidate) => candidate.source === item.source);
+    const expectedTarget = `.agents/skills/${item.id}/SKILL.md`;
+    if (entry && entry.target.replaceAll('\\', '/') !== expectedTarget) {
+      errors.push(`${item.id} must install to ${expectedTarget}`);
+    }
+  }
+  for (const profile of profiles) {
+    const installedIds = new Set(installEntries
+      .filter((entry) => profile.groups.includes(entry.group) && sourceToId.has(entry.source))
+      .map((entry) => sourceToId.get(entry.source)));
+    for (const id of installedIds) {
+      for (const dependency of itemsById.get(id)?.requiresSkills ?? []) {
+        if (!installedIds.has(dependency)) errors.push(`${profile.id} installs ${id} without required skill ${dependency}`);
+      }
+    }
+  }
+
+  return errors.sort();
+}
+
 export async function validateGovernanceQuality(rootDir) {
   const checks = [
     {
@@ -216,23 +348,23 @@ export async function validateGovernanceQuality(rootDir) {
     },
     {
       file: 'rules/task-intake.md',
-      terms: ['Required fields', 'Entry gate', 'write scope', 'rollback plan'],
+      terms: ['必填字段', '入口门禁', '写入范围', '回滚计划'],
     },
     {
       file: 'rules/task-management.md',
-      terms: ['Sources of truth', 'Parent and child rules', 'resumeHint', 'merge-back'],
+      terms: ['真值来源', '父子任务规则', 'resumeHint', 'merge-back'],
     },
     {
       file: 'rules/ai-collab-rules.md',
-      terms: ['Evidence boundaries', 'Roles', 'implementation agent', 'reviewer'],
+      terms: ['证据边界', '角色边界', '实现 Agent', 'reviewer'],
     },
     {
       file: 'rules/pencil-rules.md',
-      terms: ['Delivery gate', '.pen', '.png', 'Verification'],
+      terms: ['交付门禁', '.pen', '.png', '验证'],
     },
     {
       file: 'rules/project-directory.md',
-      terms: ['Discovery order', 'Placement rules', 'Cross-boundary changes'],
+      terms: ['发现顺序', '放置规则', '跨边界变更'],
     },
     {
       file: 'rules/git-rules.md',
@@ -240,31 +372,31 @@ export async function validateGovernanceQuality(rootDir) {
     },
     {
       file: 'rules/api-rules.md',
-      terms: ['Checklist', '兼容策略', '验证证据'],
+      terms: ['检查清单', '兼容策略', '验证证据'],
     },
     {
       file: 'rules/db-rules.md',
-      terms: ['Checklist', '回滚路径', '验证证据'],
+      terms: ['检查清单', '回滚路径', '验证证据'],
     },
     {
       file: 'rules/coding-rules.md',
-      terms: ['Checklist', '依赖', '验证证据'],
+      terms: ['检查清单', '依赖', '验证证据'],
     },
     {
       file: 'rules/frontend-rules.md',
-      terms: ['Checklist', '浏览器', '验证证据'],
+      terms: ['检查清单', '浏览器', '验证证据'],
     },
     {
       file: 'rules/log-management.md',
-      terms: ['Checklist', '关联 ID', '检索', '脱敏', '验证证据'],
+      terms: ['检查清单', '关联 ID', '检索', '脱敏', '验证证据'],
     },
     {
       file: 'rules/release-rules.md',
-      terms: ['Checklist', '回滚', '监控'],
+      terms: ['检查清单', '回滚', '监控'],
     },
     {
       file: 'rules/troubleshooting.md',
-      terms: ['Checklist', '最小复现', '验证证据'],
+      terms: ['检查清单', '最小复现', '验证证据'],
     },
     {
       file: 'schemas/task.schema.json',
@@ -370,6 +502,9 @@ export async function validatePack(rootDir) {
     .sort();
   const invalidSkillDirs = await findInvalidSkillDirs(rootDir);
   const skillMetadataErrors = await validateSkillMetadataQuality(rootDir, manifests.skills.items);
+  const skillGraphErrors = await validateSkillGraph(rootDir, manifests.skills.items, manifests.profiles.items, {
+    installEntries: (await readJson(path.join(rootDir, manifests.profiles.items[0].installMap))).entries,
+  });
   const governanceQualityErrors = await validateGovernanceQuality(rootDir);
   const capabilityMatrix = await readJson(path.join(rootDir, 'manifests/capabilities.json'));
   const capabilityErrors = await validateCapabilityMatrix(rootDir, capabilityMatrix);
@@ -386,12 +521,14 @@ export async function validatePack(rootDir) {
     missingSkillInstalls,
     invalidSkillDirs,
     skillMetadataErrors,
+    skillGraphErrors,
     governanceQualityErrors,
     ok: missing.length === 0
       && installMapMissing.length === 0
       && missingSkillInstalls.length === 0
       && invalidSkillDirs.length === 0
       && skillMetadataErrors.length === 0
+      && skillGraphErrors.length === 0
       && governanceQualityErrors.length === 0
       && capabilityErrors.length === 0
       && leaks.length === 0
