@@ -12,6 +12,7 @@
     { "id": "handoff-rules", "source": "rules/handoff-rules.md" },
     { "id": "task-lifecycle", "source": "rules/task-lifecycle.md" },
     { "id": "task-rules", "source": "rules/task-rules.md" },
+    { "id": "task-intake", "source": "rules/task-intake.md" },
     { "id": "skill-routing", "source": "rules/skill-routing.md" },
     { "id": "ai-collab-rules", "source": "rules/ai-collab-rules.md" },
     { "id": "api-rules", "source": "rules/api-rules.md" },

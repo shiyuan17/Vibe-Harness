@@ -1,6 +1,8 @@
 # Local Agent Memory
 
-本目录保存目标项目可复用的长期记忆。只记录未来 session 仍有价值的事实、决策和经验，不保存 secret、token、凭据或临时闲聊。
+本目录保存 Agent 工具和跨会话恢复所需的辅助记忆。只记录未来 session 仍有价值的观察与恢复线索，不保存 secret、token、凭据或临时闲聊。
+
+若 full profile 安装了 `docs/memory/`，该目录保存项目的 durable governance truth（状态、架构、决策、缺陷、债务和失败护栏）。`.agents/memory/` 不得覆盖 `docs/memory/`、当前源码、测试结果或用户最新指令。
 
 ## 文件
 

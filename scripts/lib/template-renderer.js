@@ -26,9 +26,9 @@ const defaultTemplateData = {
   },
   projectName: 'target project',
   validationCommands: {
-    governance: 'pnpm run check:governance',
-    lint: 'pnpm lint',
-    typecheck: 'pnpm check:type',
+    governance: 'node .agents/loopengine/governance/validate.mjs',
+    lint: 'Not configured; use detected project checks or manual evidence',
+    typecheck: 'Not configured; use detected project checks or manual evidence',
   },
 };
 
@@ -69,8 +69,11 @@ export function renderTemplate(template, data = {}) {
   const resolvedData = withDefaultTemplateData(data);
   return template.replaceAll(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/gu, (match, expression) => {
     const value = lookup(resolvedData, expression);
-    if (value === undefined || value === null) {
+    if (value === undefined) {
       throw new Error(`Missing template variable: ${expression}`);
+    }
+    if (value === null) {
+      return 'Not configured; use detected project checks or manual evidence';
     }
     return String(value);
   });

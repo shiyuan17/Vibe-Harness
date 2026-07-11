@@ -137,6 +137,11 @@ export function validateJsonAgainstSchema(value, schema, label = 'value') {
       return;
     }
 
+    if (Array.isArray(currentSchema.enum) && !currentSchema.enum.includes(currentValue)) {
+      errors.push(`${currentLabel} must be one of ${currentSchema.enum.join(', ')}`);
+      return;
+    }
+
     if (currentSchema.type === 'object') {
       const required = currentSchema.required ?? [];
       for (const key of required) {

@@ -1,42 +1,69 @@
-# 工作流交付包示例
+# Workflow Packet
 
-填写规则：标记“必填”的字段不得留空；禁止空泛词（待定、视情况、合适测试、后续补充）。会话结束输出优先满足 `session-protocol`，工作流交付包是其中的工作流证据部分。工作流档位表示单次任务风险档位；安装配置表示安装资产集合，二者不得混用。
+填写规则：Summary、Dynamic Workflow、Memory 和对应 Evidence 的必填字段不得留空；按触发器必填 Full / Red Team 证据。Red Team 适用于红区、安全、DB、生产、发布、高风险或跨层任务。跨仓 / 外部契约证据在外部契约或跨仓任务中必填。禁止空泛词（TODO、TBD、待定、视情况、后续补充）。字段名保持英文以供 validator 解析，内容使用项目语言。工作流档位表示任务风险档位；安装配置表示 `minimal/core/full` 等资产集合，两者不得混用。
 
-## 概念区分
+工作流档位（必填）：`Fast Path` / `Lightweight` / `Full`。
 
-- 工作流档位（必填）：`Fast Path` / `Lightweight` / `Full`。
-- 安装配置：`minimal` / `core` / `full` / `codex-internal` / `codex-minimal` / `docs-only`。
-- 选择更高风险档位优先；不确定时按更高档位处理。
+## Summary
 
-## 快速路径（`Fast Path`）
+- Purpose:
+- Impact:
+- Validation:
+- Risks:
 
-- 摘要（必填）：
-- 主工作流：不适用（文档 / 只读 / 测试-only）
-- 快速路径适用原因（必填）：
-- 验证（必填）：
-- 未验证项与风险：
+## Lifecycle Artifacts
 
-## 轻量流程（`Lightweight`）
+- Clarification:
+- Spec:
+- Plan:
+- Tasks:
+- Handoff:
+- Retrospective:
 
-- 主工作流（必填）：
-- 触发信号（必填）：
-- 必要修饰器：
-- 动态测试 / 验证（必填）：
-- 写入范围：
-- 未验证事项与风险（必填）：
+## Dynamic Workflow
 
-## 完整流程（`Full`）
+- Primary Workflow:
+- Trigger signals:
+- Required modifiers:
+- Red-zone confirmation:
 
-- 主工作流（必填）：
-- 触发信号（必填）：
-- 必要修饰器：
-- 专家 Agent：
-- 动态测试（按触发器必填）：
-- 动态模拟（按触发器必填）：
-- 动态安全（按触发器必填；安全、auth、权限、敏感数据或审计触发）：
-- 动态数据库（按触发器必填；DB、migration、seed 或数据修复触发）：
-- Red Team（按触发器必填；红区、安全、DB、生产、发布、高风险或跨层触发）：
-- 跨仓 / 外部契约证据（按触发器必填；外部契约或跨仓触发）：
-- 审查证据（必填）：
-- 回滚方案（必填）：
-- 未验证事项与风险（必填）：
+## Memory
+
+- Memory:
+
+## Evidence
+
+### Lightweight Evidence
+
+- Validation commands:
+- Exit codes:
+- Environment:
+- Result summary:
+- Coverage:
+- Unverified items and reasons:
+
+### Full Evidence
+
+- Required test commands:
+- Exit codes:
+- Environment:
+- Actual results:
+- Coverage:
+- Dynamic simulation:
+- Dynamic security:
+- Dynamic database:
+- Cross-repo evidence:
+
+### Red Team
+
+- Attack path:
+- Expected failure point:
+- Attack result:
+- Residual risk:
+- Checker / reviewer source:
+
+## Completion
+
+- Review evidence:
+- Rollback plan:
+- Unverified items and risks:

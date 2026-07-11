@@ -36,6 +36,8 @@
 - Typecheck: `{{validationCommands.typecheck}}`
 - Governance: `{{validationCommands.governance}}`
 
+`loopengine validate --project` 只静态报告这些命令为 available、missing、manual 或 not_configured，不执行目标项目命令。Governance 命令在 basic/full 模式由 LoopEngine 安装；lint/typecheck 未检测到时必须补充人工证据或显式配置，不能假定 pnpm scripts 存在。
+
 ## 核心位置
 
 {{installedSurface.profileLine}}

@@ -61,7 +61,10 @@ test('init --project writes the MVP loopengine.config.json defaults', async () =
     assert.equal(config.packageManager, 'pnpm');
     assert.equal(config.target, 'codex');
     assert.equal(config.profile, 'core');
-    assert.equal(config.validationCommands.governance, 'pnpm run check:governance');
+    assert.equal(config.validationCommands.governance, 'node .agents/loopengine/governance/validate.mjs');
+    assert.equal(config.validationCommands.lint, null);
+    assert.equal(config.validationCommands.typecheck, null);
+    assert.deepEqual(config.governance, { mode: 'basic' });
     assert.deepEqual(config.crossRepo, { backendRepo: '', enabled: false });
   } finally {
     await rm(target, { force: true, recursive: true });
@@ -244,7 +247,7 @@ test('minimal profile excludes lifecycle, review, loop, and skills assets', asyn
   }
 });
 
-test('core profile includes lifecycle assets but excludes full review and loop assets', async () => {
+test('core profile includes lifecycle and review gates but excludes full loop assets', async () => {
   const { report, target } = await initAndDryRunProfile('core');
   try {
     const targets = targetsFrom(report);
@@ -255,7 +258,8 @@ test('core profile includes lifecycle assets but excludes full review and loop a
     assert.equal(targets.includes('docs/rules/skill-routing.md'), true);
     assert.equal(targets.includes('.agents/skills/task-intake/SKILL.md'), true);
     assert.equal(targets.includes('docs/workflows/full.md'), true);
-    assert.equal(targets.includes('docs/rules/review-rules.md'), false);
+    assert.equal(targets.includes('docs/rules/review-rules.md'), true);
+    assert.equal(targets.includes('docs/templates/review-packet.md'), true);
     assert.equal(targets.includes('docs/rules/loop-engineering.md'), false);
     assert.equal(targets.includes('docs/workflows/review.md'), false);
     assert.equal(targets.includes('docs/workflows/loop.md'), false);

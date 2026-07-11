@@ -1,5 +1,14 @@
 # 更新日志
 
+## 0.3.0
+
+- 新增机器可校验的治理能力覆盖矩阵。
+- 新增安装到目标项目的零依赖 basic/full 治理校验器和 Packet 校验器。
+- core 默认包含 Review 门禁；full 增加 task/backlog、durable memory 和 Pencil 配对检查。
+- task schema 增加恢复、阻塞、档位升级、verifier 和结构化跨仓证据字段。
+- lint/typecheck 配置改为可选，`validate --project` 静态报告命令可用性且不执行用户命令。
+- 深化通用治理规则并移除悬空来源引用。
+
 ## 0.2.0
 
 - 新增 `.loopengine/install-state.json` 安装状态记录。

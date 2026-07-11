@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { installCodeGraphCli, inspectCodeGraph } from './lib/codegraph.js';
+import { inspectValidationCommands } from './lib/command-status.js';
 import { applyRollbackPlan, createRollbackPlan } from './lib/install-state.js';
 import {
   applyInstallPlan,
@@ -15,7 +16,10 @@ import { validatePack } from './lib/pack-validation.js';
 import { detectProjectProfile } from './lib/project-profile.js';
 import {
   readRequiredProjectConfig,
+  resolveGovernanceMode,
+  resolveValidationCommands,
   validateConfigAndGeneratedContent,
+  validateGovernanceModeForProfile,
   validateProjectConfig,
   writeDefaultProjectConfig,
 } from './lib/project-config.js';
@@ -71,7 +75,19 @@ async function install(args) {
   const config = isMvpMode ? await readRequiredProjectConfig(targetDir) : null;
   const profile = args.profile ?? config?.profile ?? 'codex-internal';
   const projectProfile = config ? await detectProjectProfile({ config, targetDir }) : null;
-  const renderData = config ? { ...config, profile, projectProfile, target: args.target ?? config.target } : {};
+  const governanceMode = config ? resolveGovernanceMode(config, profile) : undefined;
+  if (config) validateGovernanceModeForProfile(governanceMode, profile);
+  const validationCommands = config
+    ? resolveValidationCommands(config, projectProfile, governanceMode)
+    : undefined;
+  const renderData = config ? {
+    ...config,
+    profile,
+    projectProfile,
+    target: args.target ?? config.target,
+    governance: { mode: governanceMode },
+    validationCommands,
+  } : {};
   if (config) {
     validateProjectConfig({ ...config, profile, target: args.target ?? config.target });
   }
@@ -102,6 +118,7 @@ async function install(args) {
   console.log(JSON.stringify({
     actions: plan.actions,
     dryRun: plan.dryRun,
+    governanceMode,
     previewFiles,
     profile: plan.profile,
     target: isMvpMode ? (args.target ?? config.target) : undefined,
@@ -116,23 +133,26 @@ async function validate(args) {
     const config = await readRequiredProjectConfig(targetDir);
     validateProjectConfig(config);
     const projectProfile = await detectProjectProfile({ config, targetDir });
+    const governanceMode = resolveGovernanceMode(config, config.profile);
+    validateGovernanceModeForProfile(governanceMode, config.profile);
+    const validationCommands = resolveValidationCommands(config, projectProfile, governanceMode);
     const plan = await createInstallPlan({
       dryRun: true,
       force: true,
       managedAgentsBlock: true,
       profile: config.profile,
-      renderData: { ...config, projectProfile },
+      renderData: { ...config, governance: { mode: governanceMode }, projectProfile, validationCommands },
       rootDir,
       targetDir,
     });
     const agentsTemplate = await readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8');
     const installedTargets = plan.actions.map((action) => action.relativeTarget);
-    validateConfigAndGeneratedContent({ ...config, projectProfile }, agentsTemplate, { installedTargets });
+    validateConfigAndGeneratedContent({ ...config, governance: { mode: governanceMode }, projectProfile, validationCommands }, agentsTemplate, { installedTargets });
     validateConfigAndGeneratedContent(plan.renderData, agentsTemplate, { installedTargets });
     const target = await inspectTargetInstall({
       managedAgentsBlock: true,
       profile: config.profile,
-      renderData: { ...config, projectProfile },
+      renderData: { ...config, governance: { mode: governanceMode }, projectProfile, validationCommands },
       rootDir,
       targetDir,
     });
@@ -147,7 +167,11 @@ async function validate(args) {
       process.exitCode = 1;
       return;
     }
-    console.log(JSON.stringify({ ok: true, scope: 'project', targetDir }, null, 2));
+    const commandStatus = await inspectValidationCommands({
+      commands: validationCommands,
+      targetDir,
+    });
+    console.log(JSON.stringify({ commandStatus, ok: true, scope: 'project', targetDir }, null, 2));
     return;
   }
 

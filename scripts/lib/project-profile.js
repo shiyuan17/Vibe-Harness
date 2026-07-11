@@ -196,6 +196,11 @@ function createGenericProfile(config = {}) {
     vcsStatusCommand: '检查目标项目 VCS 状态',
     vcsSummary: '未识别 VCS',
     verificationSummary: '使用 loopengine.config.json 中的 validationCommands，并补充聚焦测试或人工核对证据。',
+    validationCommands: {
+      governance: 'node .agents/loopengine/governance/validate.mjs',
+      lint: null,
+      typecheck: null,
+    },
   };
 }
 
@@ -275,6 +280,11 @@ export async function detectProjectProfile({ config = {}, targetDir }) {
     vcsStatusCommand,
     vcsSummary: vcsKinds.join(' + ') || '未识别 VCS',
     verificationSummary: unique(commands).join(', ') || '使用 loopengine.config.json 中的 validationCommands，并补充聚焦测试或人工核对证据。',
+    validationCommands: {
+      governance: 'node .agents/loopengine/governance/validate.mjs',
+      lint: commands.find((command) => /(?:^|\s)(?:run\s+)?lint(?:\s|$)/u.test(command)) ?? null,
+      typecheck: commands.find((command) => /(?:check:type|typecheck|ts:check)/u.test(command)) ?? null,
+    },
   };
 
   return applyOverrides(detected, config.projectRules?.overrides);

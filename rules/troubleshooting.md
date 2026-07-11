@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Troubleshooting 排障规则从可复现事实开始，而不是从猜测开始。 先收集症状、范围、最近变更和最小复现，再提出修复。 每个修复都应对应一个能防止回归的验证。[1]
+Troubleshooting starts from reproducible evidence rather than guesses. Collect the symptom, scope, recent changes, logs, and minimum reproduction before proposing a fix.
 
 ## Rules
 
@@ -15,6 +15,7 @@ Troubleshooting 排障规则从可复现事实开始，而不是从猜测开始�
 - 分界：确认最近变更、相关模块、外部依赖和排除项。
 - 假设：每次只验证一个主要假设，观察结果要能证伪。
 - 修复：修复必须对应回归测试、验证命令或人工核对。
+- 变更：一次只改变能验证当前假设的最小变量；不要同时升级依赖、重构和修改配置。
 
 ## 验证证据
 

@@ -1,6 +1,6 @@
 # API Rules
 
-API Rules API 规则保护契约稳定性和边界输入。 变更接口前确认调用方、错误格式、兼容策略和测试覆盖。 对请求、响应和第三方结果使用结构化校验，不用猜测替代契约。[1]
+API rules protect contract stability and boundary input. Before changing an interface, identify callers, error semantics, compatibility strategy, and test coverage. Validate requests, responses, configuration, and third-party data at system boundaries.
 
 ## Rules
 
@@ -15,6 +15,8 @@ API Rules API 规则保护契约稳定性和边界输入。 变更接口前确�
 - 校验：对外部输入、第三方返回、mock 数据和配置使用结构化校验。
 - 测试：覆盖成功、失败、空值、未知字段、权限失败和向后兼容。
 - 文档：公开接口变化必须同步 Spec、README、schema 或示例。
+- 演进：优先新增可选字段和兼容行为；删除、改名或改类型必须有迁移和弃用路径。
+- 错误：同一接口面使用一致且可机读的错误结构，不泄漏内部实现或敏感数据。
 
 ## 验证证据
 

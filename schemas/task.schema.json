@@ -26,17 +26,18 @@
     },
     "title": { "type": "string", "minLength": 1 },
     "ownerRole": { "type": "string", "minLength": 1 },
+    "risk": { "type": "string", "enum": ["low", "medium", "high"] },
     "phase": {
       "type": "string",
-      "enum": ["clarify", "ready", "execute", "review", "handoff", "done"]
+      "enum": ["clarify", "spec", "plan", "decompose", "ready", "execute", "verify", "review", "handoff", "done"]
     },
     "status": {
       "type": "string",
-      "enum": ["idle", "running", "blocked", "waiting_human", "failed_validation"]
+      "enum": ["idle", "running", "in_progress", "blocked", "waiting_human", "waiting_dependency", "failed_validation"]
     },
     "resolution": {
       "type": "string",
-      "enum": ["open", "done", "wont_do", "duplicate"]
+      "enum": ["open", "done", "wont_do", "duplicate", "cancelled"]
     },
     "goal": { "type": "string", "minLength": 1 },
     "acceptanceCriteria": {
@@ -109,6 +110,10 @@
           "id": { "type": "string", "minLength": 1 },
           "title": { "type": "string", "minLength": 1 },
           "ownerRole": { "type": "string", "minLength": 1 },
+          "phase": { "type": "string", "enum": ["clarify", "spec", "plan", "decompose", "ready", "execute", "verify", "review", "handoff", "done"] },
+          "status": { "type": "string", "enum": ["idle", "running", "in_progress", "blocked", "waiting_human", "waiting_dependency", "failed_validation"] },
+          "resolution": { "type": "string", "enum": ["open", "done", "wont_do", "duplicate", "cancelled"] },
+          "risk": { "type": "string", "enum": ["low", "medium", "high"] },
           "goal": { "type": "string", "minLength": 1 },
           "acceptanceCriteria": {
             "type": "array",
@@ -146,6 +151,8 @@
           },
           "rollbackPlan": { "type": "string", "minLength": 1 },
           "splitRationale": { "type": "string", "minLength": 1 }
+          ,"verifier": { "type": "string", "minLength": 1 }
+          ,"mergeBackStatus": { "type": "string", "enum": ["not_required", "pending", "complete"] }
         },
         "additionalProperties": false
       }
@@ -155,6 +162,22 @@
       "items": { "type": "string", "minLength": 1 }
     },
     "nextAction": { "type": "string", "minLength": 1 }
+    ,"resumeHint": { "type": "string", "minLength": 1 }
+    ,"blockedReason": { "type": "string", "minLength": 1 }
+    ,"packetTier": { "type": "string", "enum": ["Fast Path", "Lightweight", "Full"] }
+    ,"implementTier": { "type": "string", "enum": ["Fast Path", "Lightweight", "Full"] }
+    ,"verifier": { "type": "string", "minLength": 1 }
+    ,"mergeBackStatus": { "type": "string", "enum": ["not_required", "pending", "complete"] }
+    ,"crossRepoEvidence": {
+      "type": "object",
+      "properties": {
+        "backendRef": { "type": "string", "minLength": 1 },
+        "endpoint": { "type": "string", "minLength": 1 },
+        "verifyCommand": { "type": "string", "minLength": 1 },
+        "resultSummary": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
   },
   "additionalProperties": false
 }

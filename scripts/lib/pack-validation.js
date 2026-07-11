@@ -17,7 +17,7 @@ import {
 import { scanForForbiddenTerms } from './redaction.js';
 
 const forbiddenTerms = ['SYBaseProjectWeb', 'SYBaseProject', 'D:\\Github\\JW', 'T-019', 'T-024', '患者', '病理', '医疗'];
-const redactionDirs = ['rules', 'templates', 'skills/core', 'skills/integrations', 'memory', 'workflows', 'adapters/codex', 'manifests', 'schemas'];
+const redactionDirs = ['rules', 'templates', 'skills/core', 'skills/integrations', 'memory', 'runtime', 'workflows', 'adapters/codex', 'manifests', 'schemas'];
 
 async function collectEmptyDirs(dir, rootDir, results = []) {
   if (!(await pathExists(dir))) {
@@ -215,6 +215,26 @@ export async function validateGovernanceQuality(rootDir) {
       terms: ['会话开始协议', '会话结束协议', '盲点审查', '红区确认'],
     },
     {
+      file: 'rules/task-intake.md',
+      terms: ['Required fields', 'Entry gate', 'write scope', 'rollback plan'],
+    },
+    {
+      file: 'rules/task-management.md',
+      terms: ['Sources of truth', 'Parent and child rules', 'resumeHint', 'merge-back'],
+    },
+    {
+      file: 'rules/ai-collab-rules.md',
+      terms: ['Evidence boundaries', 'Roles', 'implementation agent', 'reviewer'],
+    },
+    {
+      file: 'rules/pencil-rules.md',
+      terms: ['Delivery gate', '.pen', '.png', 'Verification'],
+    },
+    {
+      file: 'rules/project-directory.md',
+      terms: ['Discovery order', 'Placement rules', 'Cross-boundary changes'],
+    },
+    {
       file: 'rules/git-rules.md',
       terms: ['分支', '提交', 'PR'],
     },
@@ -264,6 +284,60 @@ export async function validateGovernanceQuality(rootDir) {
   return results.flat().sort();
 }
 
+export async function validateCapabilityMatrix(rootDir, matrix, { checkFiles = true } = {}) {
+  const errors = [];
+  const allowed = new Set(['generalize', 'validator', 'template', 'project-only', 'excluded-with-reason']);
+  if (matrix?.schemaVersion !== 1 || !Array.isArray(matrix?.items)) {
+    return ['manifests/capabilities.json must use schemaVersion 1 with an items array'];
+  }
+  const ids = new Set();
+  for (const item of matrix.items) {
+    const id = item?.id ?? '<missing-id>';
+    if (ids.has(id)) errors.push(`Duplicate capability id: ${id}`);
+    ids.add(id);
+    if (!allowed.has(item?.disposition)) errors.push(`${id} has invalid disposition`);
+    if (!Array.isArray(item?.tests) || item.tests.length === 0) {
+      errors.push(`${id} requires at least one test`);
+    }
+    if (['project-only', 'excluded-with-reason'].includes(item?.disposition)) {
+      if (typeof item?.reason !== 'string' || !item.reason.trim()) errors.push(`${id} requires a reason`);
+    } else if (!Array.isArray(item?.targets) || item.targets.length === 0) {
+      errors.push(`${id} requires at least one target`);
+    }
+    if (checkFiles) {
+      for (const candidate of [...(item?.targets ?? []), ...(item?.tests ?? [])]) {
+        try {
+          assertPortableRelativePath(candidate, `${id} evidence path`);
+          const candidatePath = path.join(rootDir, candidate);
+          assertInsideDir(rootDir, candidatePath, `${id} evidence path`);
+          if (!await pathExists(candidatePath)) errors.push(`${id} evidence path is missing: ${candidate}`);
+        } catch (error) {
+          errors.push(error.message);
+        }
+      }
+    }
+  }
+  const requiredCapabilities = [
+    'entry-and-session',
+    'task-intake',
+    'task-lifecycle',
+    'task-backlog-semantics',
+    'workflow-packet',
+    'review',
+    'git-and-worktree',
+    'engineering-rules',
+    'governance-memory',
+    'pencil-assets',
+    'release',
+    'project-business-contracts',
+    'runtime-application-code',
+  ];
+  for (const id of requiredCapabilities) {
+    if (!ids.has(id)) errors.push(`Missing required capability: ${id}`);
+  }
+  return errors.sort();
+}
+
 export async function validatePack(rootDir) {
   const manifests = await loadAllManifests(rootDir);
   const schemas = await loadAllManifestSchemas(rootDir);
@@ -297,6 +371,8 @@ export async function validatePack(rootDir) {
   const invalidSkillDirs = await findInvalidSkillDirs(rootDir);
   const skillMetadataErrors = await validateSkillMetadataQuality(rootDir, manifests.skills.items);
   const governanceQualityErrors = await validateGovernanceQuality(rootDir);
+  const capabilityMatrix = await readJson(path.join(rootDir, 'manifests/capabilities.json'));
+  const capabilityErrors = await validateCapabilityMatrix(rootDir, capabilityMatrix);
   const leaks = await scanForForbiddenTerms({
     forbiddenTerms,
     includeDirs: redactionDirs,
@@ -304,6 +380,7 @@ export async function validatePack(rootDir) {
   });
 
   return {
+    capabilityErrors,
     leaks,
     missing: [...missing, ...installMapMissing].sort(),
     missingSkillInstalls,
@@ -316,6 +393,7 @@ export async function validatePack(rootDir) {
       && invalidSkillDirs.length === 0
       && skillMetadataErrors.length === 0
       && governanceQualityErrors.length === 0
+      && capabilityErrors.length === 0
       && leaks.length === 0
       && schemaErrors.length === 0,
     schemaErrors: schemaErrors.sort(),

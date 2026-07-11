@@ -15,6 +15,7 @@ import {
 import {
   findInvalidSkillDirs,
   validateGovernanceQuality,
+  validateCapabilityMatrix,
   validatePack,
   validateSkillMetadataQuality,
 } from '../scripts/lib/pack-validation.js';
@@ -297,6 +298,26 @@ test('pack validation enforces governance document quality gates', async () => {
   assert.deepEqual(report.governanceQualityErrors, []);
 });
 
+test('capability matrix validation rejects incomplete mappings and missing evidence', async () => {
+  const errors = await validateCapabilityMatrix(rootDir, {
+    schemaVersion: 1,
+    items: [
+      { id: 'missing-targets', disposition: 'generalize', targets: [], tests: ['tests/example.test.js'] },
+      { id: 'missing-tests', disposition: 'validator', targets: ['runtime/example.mjs'], tests: [] },
+      { id: 'missing-reason', disposition: 'excluded-with-reason', tests: ['tests/example.test.js'] },
+    ],
+  }, { checkFiles: false });
+
+  assert.match(errors.join('\n'), /missing-targets requires at least one target/);
+  assert.match(errors.join('\n'), /missing-tests requires at least one test/);
+  assert.match(errors.join('\n'), /missing-reason requires a reason/);
+
+  const current = await readJson(path.join(rootDir, 'manifests/capabilities.json'));
+  const withoutRelease = { ...current, items: current.items.filter((item) => item.id !== 'release') };
+  const missingCapabilityErrors = await validateCapabilityMatrix(rootDir, withoutRelease, { checkFiles: false });
+  assert.match(missingCapabilityErrors.join('\n'), /Missing required capability: release/);
+});
+
 test('governance quality validation rejects hollow workflow and template files', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-hollow-governance-'));
   try {
@@ -345,5 +366,9 @@ test('JSON schema validation rejects additional properties and missing required 
   assert.match(
     validateJsonAgainstSchema({ id: 'ok', tags: ['a', 'a'] }, schema, 'sample').join('\n'),
     /sample\.tags must contain unique items/,
+  );
+  assert.match(
+    validateJsonAgainstSchema('unknown', { type: 'string', enum: ['ready', 'done'] }, 'phase').join('\n'),
+    /phase must be one of ready, done/,
   );
 });

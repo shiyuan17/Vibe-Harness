@@ -1,6 +1,6 @@
 # DB Rules
 
-DB Rules 数据库规则保护数据完整性、迁移安全和回滚路径。 迁移前确认数据形状、幂等性、锁影响和备份策略。 读写路径要覆盖空值、重复、并发和权限失败。[1]
+DB rules protect data integrity, migration safety, compatibility, and rollback. Before migration, inspect existing data shape, idempotency, lock impact, transaction boundaries, and backup strategy.
 
 ## Rules
 
@@ -15,6 +15,7 @@ DB Rules 数据库规则保护数据完整性、迁移安全和回滚路径。 �
 - 读写：覆盖并发、权限失败、部分失败和事务边界。
 - 备份：高风险数据变更必须记录备份或恢复策略。
 - 兼容：应用代码、任务脚本和报表查询必须与迁移顺序兼容。
+- 约束：数据库约束与应用校验共同保护不变量；并发写入必须定义冲突结果和重试边界。
 
 ## 验证证据
 

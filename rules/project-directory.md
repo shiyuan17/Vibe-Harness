@@ -1,9 +1,26 @@
 # Project Directory
 
-Project Directory 项目目录规则帮助 Agent 快速定位所有权边界。 先从入口文档、manifest、adapter 和脚本目录判断系统形状。 新增文件应放入已有职责区域；无法归类时先补文档说明。[1]
+Project directory guidance records ownership and dependency direction so agents can locate the correct change boundary without inventing a new structure.
 
-## Rules
+## Discovery order
 
-- 先从入口文档、manifest、adapter 和脚本目录判断系统形状。
-- 新增文件应放入已有职责区域；无法归类时先补文档说明。
-- 交付时写清影响范围、验证命令和未覆盖风险。
+1. Read the repository entry instructions, current-state and architecture documents when present.
+2. Inspect package/workspace manifests, build entrypoints, adapters, and module indexes.
+3. Use CodeGraph when the repository already contains an index; otherwise use repository search.
+4. Confirm the nearest tests and validation commands before editing.
+
+## Placement rules
+
+- Put domain behavior with the domain that owns its state and interfaces.
+- Shared directories contain capabilities proven reusable by multiple consumers, not convenient dumping grounds.
+- Adapters translate between external and internal contracts; they do not own business rules.
+- Generated, vendored, build, cache, evidence, and temporary directories are not source ownership locations.
+- New top-level directories require an architecture reason, an owner, and documentation of dependency direction.
+
+## Cross-boundary changes
+
+When a change crosses modules, packages, repositories, or services, list each owner and interface, identify the compatibility and rollback strategy, and validate both sides. If ownership remains unclear, stop at clarification rather than spreading logic across layers.
+
+## Completion standard
+
+The change is complete when new and modified files live in declared ownership boundaries, imports follow the intended direction, and tests demonstrate the affected consumers.

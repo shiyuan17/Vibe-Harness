@@ -26,10 +26,11 @@ MVP 模式使用 `--project <path>` 表示目标项目路径，使用 `--target 
   "target": "codex",
   "profile": "core",
   "validationCommands": {
-    "lint": "pnpm lint",
-    "typecheck": "pnpm check:type",
-    "governance": "pnpm run check:governance"
+    "lint": null,
+    "typecheck": null,
+    "governance": "node .agents/loopengine/governance/validate.mjs"
   },
+  "governance": { "mode": "basic" },
   "riskZones": {
     "red": ["auth", "global request layer", "ci/cd", "env"],
     "yellow": ["shared components", "stores", "routing", "request clients"]
@@ -44,8 +45,8 @@ MVP 模式使用 `--project <path>` 表示目标项目路径，使用 `--target 
 ## MVP Profiles
 
 - `minimal`：入口红线、会话开始/结束协议、CodeGraph、`git status --short`、红区人工确认、验证证据和工作流交付包。
-- `core`：`minimal` + 八阶段工作流、lifecycle-v2 任务模型、工程专项规则、日志管理规范、模板、常规 bundled skills、skill 编写检查和 skill 路由。
-- `full`：`core` + release / Pencil / task-management / troubleshooting、review、loop 和 subagent 高阶执行能力。
+- `core`：`minimal` + 八阶段工作流、lifecycle-v2、Review 门禁、基础治理校验器、工程规则、模板和常规 bundled skills。
+- `full`：`core` + task/backlog、durable governance memory、release / Pencil / troubleshooting、loop 和高级执行能力。
 
 ## 验证门禁
 
@@ -56,6 +57,15 @@ git diff --check
 ```
 
 `pnpm check` 会运行 lint、pack validation 和测试。Pack validation 不只校验 manifest、install map、核心文件存在性和脱敏词，也会检查 skill frontmatter、description 触发导向、工作流、模板、测试 / 审查 / Git / 工作流规则是否包含可执行字段，避免治理文档退化成空壳。
+
+安装后的项目可直接运行零依赖治理校验器：
+
+```bash
+node .agents/loopengine/governance/validate.mjs
+node .agents/loopengine/governance/validate-packet.mjs --file path/to/packet.md
+```
+
+`core` 默认执行 basic 文档和 Packet 门禁；`full` 增加 task/backlog、durable memory、设计预览配对和发布治理。LoopEngine 不自动修改目标项目 `package.json`。
 
 ## 旧内部安装生命周期
 
@@ -83,8 +93,8 @@ pnpm loopengine rollback --target ../some-project --apply --confirm-red-zone
 ## Profiles
 
 - `minimal`：MVP 最小 Codex 包，包含会话开始/结束协议，不安装 heavy rules 或 skills。
-- `core`：标准工程治理包，包含 coding / frontend / API / log-management / task / workflow 规则、常规 bundled skills 和 skill 编写检查。
-- `full`：完整治理包，包含 release、Pencil、task-management、troubleshooting、review、loop 和 subagent 高阶执行能力，不安装 hooks。
+- `core`：标准工程治理包，包含 coding / frontend / API / task / workflow / review 规则、基础 validator、常规 bundled skills 和 skill 编写检查。
+- `full`：完整治理包，增加 durable memory、release、Pencil、task-management、troubleshooting、loop 和高级执行能力，不安装 hooks。
 - `codex-internal`：安装 AGENTS、全部规则、模板、skills、workflows 和 Codex hooks。
 - `codex-minimal`：安装 AGENTS 与最小规则/模板集。
 - `docs-only`：只安装规则、模板和 workflows。
