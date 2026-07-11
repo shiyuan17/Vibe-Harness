@@ -24,7 +24,7 @@ test('dry-run install plans codex-internal files without writing them', async ()
     assert.equal(plan.profile, 'codex-internal');
     assert.equal(plan.dryRun, true);
     assert.ok(plan.actions.some((action) => action.target.endsWith('AGENTS.md')));
-    assert.ok(plan.actions.some((action) => action.target.endsWith(path.join('docs', 'rules', 'quickstart.md'))));
+    assert.ok(plan.actions.some((action) => action.target.endsWith(path.join('docs', 'rules', 'governance-core.md'))));
     assert.ok(plan.actions.some((action) => action.redZone === true));
 
     const result = await applyInstallPlan(plan);
@@ -127,21 +127,16 @@ test('CLI apply mode writes files when red-zone confirmation is explicit', async
       '--confirm-red-zone',
     ]);
 
-    const intakeTemplate = await readFile(path.join(target, 'docs/templates/task-intake.md'), 'utf8');
-    const implementationNotes = await readFile(path.join(target, 'docs/templates/implementation-notes.md'), 'utf8');
-    const handoffTemplate = await readFile(path.join(target, 'docs/templates/handoff-template.md'), 'utf8');
-    const intakeSkill = await readFile(path.join(target, '.agents/skills/task-intake/SKILL.md'), 'utf8');
+    const taskTemplate = await readFile(path.join(target, 'docs/templates/task.md'), 'utf8');
+    const deliveryTemplate = await readFile(path.join(target, 'docs/templates/delivery.md'), 'utf8');
+    const routerSkill = await readFile(path.join(target, '.agents/skills/using-loopengine/SKILL.md'), 'utf8');
 
     assert.equal(await readFile(path.join(target, 'AGENTS.md'), 'utf8').then((content) => content.includes('LoopEngine')), true);
     assert.equal(await readFile(path.join(target, '.codex/hooks.json'), 'utf8').then((content) => content.includes('hooks')), true);
-    assert.equal(intakeTemplate.includes('来源'), true);
-    assert.equal(intakeTemplate.includes('Source'), false);
-    assert.equal(implementationNotes.includes('偏离说明'), true);
-    assert.equal(implementationNotes.includes('采用的保守备选'), true);
-    assert.equal(handoffTemplate.includes('已完成事项'), true);
-    assert.equal(handoffTemplate.includes('Completed'), false);
-    assert.equal(intakeSkill.includes('任务启动'), true);
-    assert.equal(intakeSkill.includes('Task Intake'), false);
+    assert.equal(taskTemplate.includes('工作流档位'), true);
+    assert.equal(taskTemplate.includes('完整流程控制'), true);
+    assert.equal(deliveryTemplate.includes('轻量反证'), true);
+    assert.equal(routerSkill.includes('LoopEngine 路由'), true);
   } finally {
     await rm(target, { force: true, recursive: true });
   }

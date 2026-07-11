@@ -8,7 +8,6 @@ const ignoredDirs = new Set([
   '.svn',
   '.hg',
   '.loopengine',
-  '.codegraph',
   '.agents',
   '.codex',
   'node_modules',

@@ -11,9 +11,9 @@ test('codex adapter declares AGENTS, rules, templates, skills, and hooks mapping
   const targets = installMap.entries.map((entry) => entry.target);
 
   assert.ok(targets.includes('AGENTS.md'));
-  assert.ok(targets.includes('docs/rules/quickstart.md'));
-  assert.ok(targets.includes('docs/templates/task-intake.md'));
-  assert.ok(targets.includes('.agents/skills/task-intake/SKILL.md'));
+  assert.ok(targets.includes('docs/rules/governance-core.md'));
+  assert.ok(targets.includes('docs/templates/task.md'));
+  assert.ok(targets.includes('.agents/skills/using-loopengine/SKILL.md'));
   assert.ok(targets.includes('.codex/hooks.json'));
   assert.ok(installMap.entries.find((entry) => entry.target === '.codex/hooks.json').redZone);
 });

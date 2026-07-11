@@ -63,19 +63,18 @@ test('CLI validate --target passes after a real install and reports Chinese temp
     ]);
 
     const report = JSON.parse(stdout);
-    const intakeTemplate = await readFile(path.join(target, 'docs/templates/task-intake.md'), 'utf8');
+    const taskTemplate = await readFile(path.join(target, 'docs/templates/task.md'), 'utf8');
 
     assert.equal(report.ok, true);
     assert.deepEqual(report.missing, []);
-    assert.equal(intakeTemplate.includes('来源'), true);
-    assert.equal(intakeTemplate.includes('Source'), false);
-    assert.equal(intakeTemplate.includes('任务模式'), true);
-    assert.equal(intakeTemplate.includes('拆分判断'), true);
-    assert.equal(intakeTemplate.includes('父任务'), true);
-    assert.equal(intakeTemplate.includes('子任务'), true);
-    assert.equal(intakeTemplate.includes('写入范围'), true);
-    assert.equal(intakeTemplate.includes('禁止动作'), true);
-    assert.equal(intakeTemplate.includes('Write Scope'), false);
+    assert.equal(taskTemplate.includes('工作流档位'), true);
+    assert.equal(taskTemplate.includes('当前阶段'), true);
+    assert.equal(taskTemplate.includes('完整流程控制'), true);
+    assert.equal(taskTemplate.includes('父任务'), true);
+    assert.equal(taskTemplate.includes('子任务'), true);
+    assert.equal(taskTemplate.includes('写入范围'), true);
+    assert.equal(taskTemplate.includes('禁止动作'), true);
+    assert.equal(taskTemplate.includes('Write Scope'), false);
   } finally {
     await rm(target, { force: true, recursive: true });
   }

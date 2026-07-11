@@ -4,7 +4,7 @@
 
 ## 启动门禁
 
-会话启动与收尾以 `session-protocol` 为单一来源。本规则只保留协作原则和红线摘要；执行前按会话开始协议（`Session Start Protocol`）完成入口阅读、`git status --short`、CodeGraph 判断、风险档位、红区确认和验证计划。
+会话启动与收尾以 `governance-core` 的五步循环为单一来源。本规则只补充多 Agent 协作边界；执行前完成入口阅读、`git status --short`、代码索引能力判断、风险档位、红区确认和验证计划。
 
 ## 确认权限规范
 

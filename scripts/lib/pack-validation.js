@@ -17,7 +17,7 @@ import {
 import { scanForForbiddenTerms } from './redaction.js';
 
 const forbiddenTerms = ['SYBaseProjectWeb', 'SYBaseProject', 'D:\\Github\\JW', 'T-019', 'T-024', '患者', '病理', '医疗'];
-const redactionDirs = ['rules', 'templates', 'skills/core', 'skills/integrations', 'memory', 'runtime', 'workflows', 'adapters/codex', 'manifests', 'schemas'];
+const redactionDirs = ['rules', 'templates', 'skills/core', 'skills/integrations', 'memory', 'runtime', 'adapters/codex', 'manifests', 'schemas'];
 
 async function collectEmptyDirs(dir, rootDir, results = []) {
   if (!(await pathExists(dir))) {
@@ -169,10 +169,12 @@ export async function validateSkillGraph(
     for (const dependency of item.optionalSkills ?? []) {
       if (!itemsById.has(dependency)) errors.push(`${item.id} optional skill is unknown: ${dependency}`);
     }
-    if (['router', 'compatibility'].includes(item.kind)) {
+    if (item.kind === 'compatibility') {
       if (!item.canonicalId) errors.push(`${item.id} requires canonicalId`);
       else if (!itemsById.has(item.canonicalId)) errors.push(`${item.id} canonical skill is unknown: ${item.canonicalId}`);
-    } else if (item.canonicalId) {
+    } else if (item.kind === 'router' && item.canonicalId && !itemsById.has(item.canonicalId)) {
+      errors.push(`${item.id} canonical skill is unknown: ${item.canonicalId}`);
+    } else if (item.kind !== 'router' && item.canonicalId) {
       errors.push(`${item.id} may not declare canonicalId for kind ${item.kind}`);
     }
 
@@ -271,88 +273,28 @@ export async function validateSkillGraph(
 export async function validateGovernanceQuality(rootDir) {
   const checks = [
     {
-      file: 'workflows/fast-path.md',
-      terms: ['阶段目标', '输入内容', '输出内容', '完成标准', '常见异常', '异常处理方式'],
+      file: 'rules/governance-core.md',
+      terms: ['获取事实', '做出决策', '执行', '验证', '交付', '主张 → 证据 → 反例 → 剩余风险', '快速', '轻量', '完整'],
     },
     {
-      file: 'workflows/lightweight.md',
-      terms: ['阶段目标', '输入内容', '输出内容', '完成标准', '常见异常', '异常处理方式'],
+      file: 'templates/task.md',
+      terms: ['工作流档位', '当前阶段', '当前状态', '处理结果', 'AC-ID', '完整流程控制', '验收证据'],
     },
     {
-      file: 'workflows/full.md',
-      terms: ['阶段目标', '输入内容', '输出内容', '完成标准', '常见异常', '异常处理方式'],
+      file: 'templates/delivery.md',
+      terms: ['轻量反证', '主张', '本轮证据', '可推翻主张的反例', '剩余风险'],
     },
     {
-      file: 'workflows/review.md',
-      terms: ['阶段目标', '输入内容', '输出内容', '完成标准', '常见异常', '异常处理方式'],
+      file: 'schemas/full-task-control.schema.json',
+      terms: ['任务类型', '责任角色', '写入范围', '禁止动作', '并行安全', '人工确认', '核验者'],
     },
     {
-      file: 'workflows/loop.md',
-      terms: ['阶段目标', '输入内容', '输出内容', '完成标准', '常见异常', '异常处理方式'],
-    },
-    {
-      file: 'templates/spec-template.md',
-      terms: ['必填', '禁止空泛', '完成标准'],
-    },
-    {
-      file: 'templates/plan-template.md',
-      terms: ['必填', '禁止空泛', '验证命令', 'implementation-notes.md', '偏离说明'],
-    },
-    {
-      file: 'templates/task-intake.md',
-      terms: ['必填', '写入范围', '禁止动作', '盲点审查结论', '下一步建议提问', '关键未决问题'],
-    },
-    {
-      file: 'templates/implementation-notes.md',
-      terms: ['原计划摘要', '当前假设', '边缘 case', '采用的保守备选', '偏离说明', '影响范围', '验证证据', '后续处理'],
-    },
-    {
-      file: 'templates/review-packet.md',
-      terms: ['必填', '阻断条件', '严重度'],
-    },
-    {
-      file: 'templates/handoff-template.md',
-      terms: ['必填', '恢复提示', '下一步最小动作'],
-    },
-    {
-      file: 'templates/workflow-packet.md',
-      terms: ['必填', '工作流档位', '安装配置'],
+      file: 'skills/core/using-loopengine/SKILL.md',
+      terms: ['权限、红区和风险档位', '当前处于', '专项 Skill', '验证或审查 Skill', 'adversarial-review-packet'],
     },
     {
       file: 'rules/test-rules.md',
       terms: ['验收矩阵', '退出码', '未验证项'],
-    },
-    {
-      file: 'rules/review-rules.md',
-      terms: ['输入', '输出', '阻断条件'],
-    },
-    {
-      file: 'rules/workflow.md',
-      terms: ['澄清', '复盘', '失败记录包'],
-    },
-    {
-      file: 'rules/handoff-rules.md',
-      terms: ['触发条件', '必填字段', '恢复提示', '完成标准'],
-    },
-    {
-      file: 'rules/retrospective-rules.md',
-      terms: ['触发条件', '失败模式', '根因', '验证方式'],
-    },
-    {
-      file: 'rules/dynamic-workflow.md',
-      terms: ['工作流档位', '安装配置', 'implementation-notes.md', '偏离说明'],
-    },
-    {
-      file: 'rules/session-protocol.md',
-      terms: ['会话开始协议', '会话结束协议', '盲点审查', '红区确认'],
-    },
-    {
-      file: 'rules/task-intake.md',
-      terms: ['必填字段', '入口门禁', '写入范围', '回滚计划'],
-    },
-    {
-      file: 'rules/task-management.md',
-      terms: ['真值来源', '父子任务规则', 'resumeHint', 'merge-back'],
     },
     {
       file: 'rules/ai-collab-rules.md',
@@ -399,21 +341,44 @@ export async function validateGovernanceQuality(rootDir) {
       terms: ['检查清单', '最小复现', '验证证据'],
     },
     {
-      file: 'schemas/task.schema.json',
-      terms: ['writeScope', 'forbiddenActions', 'verification', 'rollbackPlan'],
-    },
-    {
       file: 'skills/core/brainstorming/SKILL.md',
-      terms: ['反向采访', '盲点审查', '每次只问一个'],
-    },
-    {
-      file: 'skills/core/task-intake/SKILL.md',
       terms: ['反向采访', '盲点审查', '每次只问一个'],
     },
   ];
 
   const results = await Promise.all(checks.map((check) => checkRequiredTerms(rootDir, check)));
-  return results.flat().sort();
+  const errors = results.flat();
+  const agentsPath = path.join(rootDir, 'AGENTS.md');
+  if (await pathExists(agentsPath)) {
+    const agents = await readFile(agentsPath, 'utf8');
+    if (!/MVP[^\n]*--write/u.test(agents)) errors.push('AGENTS.md must document MVP --write lifecycle');
+    if (!/legacy\/internal[^\n]*--apply/u.test(agents)) errors.push('AGENTS.md must document legacy/internal --apply lifecycle');
+    if (/^\s*3\. 真实写入必须使用 `--apply`/mu.test(agents)) errors.push('AGENTS.md must not apply legacy --apply semantics to every real write');
+  }
+  const [agentsTemplate, governanceCore] = await Promise.all([
+    readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8'),
+    readFile(path.join(rootDir, 'rules/governance-core.md'), 'utf8'),
+  ]);
+  const residentLines = `${agentsTemplate}\n${governanceCore}`.split(/\r?\n/u).length;
+  if (residentLines > 90) errors.push(`resident governance surface exceeds 90 lines: ${residentLines}`);
+
+  const proseOwners = new Map();
+  for (const directory of ['rules', 'templates']) {
+    for (const entry of await readdir(path.join(rootDir, directory), { recursive: true, withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
+      const file = path.join(entry.parentPath ?? entry.path, entry.name);
+      const relative = path.relative(rootDir, file).replaceAll('\\', '/');
+      const content = await readFile(file, 'utf8');
+      for (const paragraph of content.replace(/```[\s\S]*?```/gu, '').split(/(?:\r?\n){2,}/u)) {
+        const normalized = paragraph.replace(/\s+/gu, ' ').trim();
+        if (normalized.length < 240) continue;
+        const owner = proseOwners.get(normalized);
+        if (owner && owner !== relative) errors.push(`duplicated long governance prose in ${owner} and ${relative}`);
+        else proseOwners.set(normalized, relative);
+      }
+    }
+  }
+  return errors.sort();
 }
 
 export async function validateCapabilityMatrix(rootDir, matrix, { checkFiles = true } = {}) {
@@ -450,11 +415,9 @@ export async function validateCapabilityMatrix(rootDir, matrix, { checkFiles = t
     }
   }
   const requiredCapabilities = [
-    'entry-and-session',
-    'task-intake',
-    'task-lifecycle',
-    'task-backlog-semantics',
-    'workflow-packet',
+    'governance-kernel',
+    'chinese-task-contract',
+    'skill-routing',
     'review',
     'git-and-worktree',
     'engineering-rules',

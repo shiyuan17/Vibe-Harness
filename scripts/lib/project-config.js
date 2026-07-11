@@ -195,7 +195,7 @@ export function validateGeneratedContent(content, { installedTargets } = {}) {
     '红区',
     '人工确认',
     '验证证据',
-    '工作流交付包',
+    '轻量反证',
   ];
   const missing = requiredFragments.filter((fragment) => !content.includes(fragment));
   if (missing.length > 0) {
@@ -206,9 +206,9 @@ export function validateGeneratedContent(content, { installedTargets } = {}) {
     const normalizedTargets = installedTargets.map((target) => target.replaceAll('\\', '/'));
     const surfaceChecks = [
       {
-        exact: 'docs/rules/codegraph.md',
-        fragment: 'docs/rules/codegraph.md',
-        label: 'docs/rules/codegraph.md',
+        exact: 'docs/rules/codebase-memory-mcp.md',
+        fragment: 'docs/rules/codebase-memory-mcp.md',
+        label: 'docs/rules/codebase-memory-mcp.md',
       },
       {
         fragment: '.agents/skills/',
@@ -219,11 +219,6 @@ export function validateGeneratedContent(content, { installedTargets } = {}) {
         exact: '.codex/hooks.json',
         fragment: '.codex/hooks.json',
         label: '.codex/hooks.json',
-      },
-      {
-        fragment: 'docs/workflows/',
-        label: 'docs/workflows/',
-        prefix: 'docs/workflows/',
       },
     ];
 

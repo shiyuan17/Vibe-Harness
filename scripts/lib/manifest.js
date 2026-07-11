@@ -20,7 +20,6 @@ export async function loadAllManifests(rootDir) {
     profiles: await readJson(`${rootDir}/manifests/profiles.json`),
     rules: await readJson(`${rootDir}/manifests/rules.json`),
     skills: await readJson(`${rootDir}/manifests/skills.json`),
-    workflows: await readJson(`${rootDir}/manifests/workflows.json`),
   };
 }
 
@@ -29,7 +28,6 @@ export async function loadAllManifestSchemas(rootDir) {
     profiles: await readJson(`${rootDir}/schemas/profile-pack.schema.json`),
     rules: await readJson(`${rootDir}/schemas/rule-pack.schema.json`),
     skills: await readJson(`${rootDir}/schemas/skill-pack.schema.json`),
-    workflows: await readJson(`${rootDir}/schemas/workflow-pack.schema.json`),
   };
 }
 
@@ -88,7 +86,7 @@ export function validateCatalogManifest(name, manifest) {
     }
     ids.add(item.id);
 
-    if (['rules', 'skills', 'workflows'].includes(name)) {
+    if (['rules', 'skills'].includes(name)) {
       assertNonEmptyString(item.source, `${name}.items[${index}].source`);
       assertPortableRelativePath(item.source, `${name}.items[${index}].source`);
     }
@@ -132,6 +130,13 @@ export function validateJsonAgainstSchema(value, schema, label = 'value') {
   const errors = [];
 
   function visit(currentValue, currentSchema, currentLabel) {
+    if (Array.isArray(currentSchema.anyOf)) {
+      const variants = currentSchema.anyOf.map((candidate) => validateJsonAgainstSchema(currentValue, candidate, currentLabel));
+      if (!variants.some((variantErrors) => variantErrors.length === 0)) {
+        errors.push(...variants[0]);
+      }
+      return;
+    }
     if (currentSchema.type && !schemaTypeMatches(currentValue, currentSchema.type)) {
       errors.push(`${currentLabel} must be ${currentSchema.type}`);
       return;

@@ -3,20 +3,11 @@
   "entries": [
     { "group": "agents", "source": "adapters/codex/AGENTS.template.md", "target": "AGENTS.md" },
 
-    { "group": "rules-minimal", "source": "rules/agent-collaboration.md", "target": "docs/rules/agent-collaboration.md" },
-    { "group": "rules-minimal", "source": "rules/codegraph.md", "target": "docs/rules/codegraph.md" },
-    { "group": "rules-minimal", "source": "rules/session-protocol.md", "target": "docs/rules/session-protocol.md" },
-    { "group": "rules-minimal", "source": "rules/quickstart.md", "target": "docs/rules/quickstart.md" },
+    { "group": "rules-minimal", "source": "rules/governance-core.md", "target": "docs/rules/governance-core.md" },
+    { "group": "rules-minimal", "source": "rules/codebase-memory-mcp.md", "target": "docs/rules/codebase-memory-mcp.md" },
     { "group": "rules-minimal", "source": "rules/git-rules.md", "target": "docs/rules/git-rules.md" },
     { "group": "rules-minimal", "source": "rules/test-rules.md", "target": "docs/rules/test-rules.md" },
-    { "group": "rules-minimal", "source": "rules/dynamic-workflow.md", "target": "docs/rules/dynamic-workflow.md" },
 
-    { "group": "rules-core", "source": "rules/workflow.md", "target": "docs/rules/workflow.md" },
-    { "group": "rules-core", "source": "rules/handoff-rules.md", "target": "docs/rules/handoff-rules.md" },
-    { "group": "rules-core", "source": "rules/task-lifecycle.md", "target": "docs/rules/task-lifecycle.md" },
-    { "group": "rules-core", "source": "rules/task-rules.md", "target": "docs/rules/task-rules.md" },
-    { "group": "rules-core", "source": "rules/task-intake.md", "target": "docs/rules/task-intake.md" },
-    { "group": "rules-core", "source": "rules/skill-routing.md", "target": "docs/rules/skill-routing.md" },
     { "group": "rules-core", "source": "rules/ai-collab-rules.md", "target": "docs/rules/ai-collab-rules.md" },
     { "group": "rules-core", "source": "rules/api-rules.md", "target": "docs/rules/api-rules.md" },
     { "group": "rules-core", "source": "rules/coding-rules.md", "target": "docs/rules/coding-rules.md" },
@@ -26,21 +17,12 @@
     { "group": "rules-core", "source": "rules/project-specific-rules.md", "target": "docs/rules/project-specific-rules.md" },
 
     { "group": "rules-full", "source": "rules/db-rules.md", "target": "docs/rules/db-rules.md" },
-    { "group": "rules-review", "source": "rules/review-rules.md", "target": "docs/rules/review-rules.md" },
-    { "group": "rules-full", "source": "rules/loop-engineering.md", "target": "docs/rules/loop-engineering.md" },
     { "group": "rules-full", "source": "rules/pencil-rules.md", "target": "docs/rules/pencil-rules.md" },
     { "group": "rules-full", "source": "rules/release-rules.md", "target": "docs/rules/release-rules.md" },
-    { "group": "rules-full", "source": "rules/retrospective-rules.md", "target": "docs/rules/retrospective-rules.md" },
-    { "group": "rules-full", "source": "rules/task-management.md", "target": "docs/rules/task-management.md" },
     { "group": "rules-full", "source": "rules/troubleshooting.md", "target": "docs/rules/troubleshooting.md" },
 
-    { "group": "templates-minimal", "source": "templates/task-intake.md", "target": "docs/templates/task-intake.md" },
-    { "group": "templates-minimal", "source": "templates/workflow-packet.md", "target": "docs/templates/workflow-packet.md" },
-    { "group": "templates-core", "source": "templates/spec-template.md", "target": "docs/templates/spec-template.md" },
-    { "group": "templates-core", "source": "templates/plan-template.md", "target": "docs/templates/plan-template.md" },
-    { "group": "templates-core", "source": "templates/implementation-notes.md", "target": "docs/templates/implementation-notes.md" },
-    { "group": "templates-core", "source": "templates/handoff-template.md", "target": "docs/templates/handoff-template.md" },
-    { "group": "templates-review", "source": "templates/review-packet.md", "target": "docs/templates/review-packet.md" },
+    { "group": "templates-minimal", "source": "templates/task.md", "target": "docs/templates/task.md" },
+    { "group": "templates-minimal", "source": "templates/delivery.md", "target": "docs/templates/delivery.md" },
 
     { "group": "templates-memory", "source": "templates/memory/PROJECT_STATE.md", "target": "docs/memory/PROJECT_STATE.md" },
     { "group": "templates-memory", "source": "templates/memory/ARCHITECTURE.md", "target": "docs/memory/ARCHITECTURE.md" },
@@ -49,17 +31,18 @@
     { "group": "templates-memory", "source": "templates/memory/TECH_DEBT.md", "target": "docs/memory/TECH_DEBT.md" },
     { "group": "templates-memory", "source": "templates/memory/FAILURE_LEARNINGS.md", "target": "docs/memory/FAILURE_LEARNINGS.md" },
 
-    { "group": "schemas-core", "source": "schemas/task.schema.json", "target": "docs/schemas/task.schema.json" },
+    { "group": "schemas-core", "source": "schemas/full-task-control.schema.json", "target": "docs/schemas/full-task-control.schema.json" },
 
     { "group": "runtime-basic", "source": "runtime/governance/validate.mjs", "target": ".agents/loopengine/governance/validate.mjs" },
-    { "group": "runtime-basic", "source": "runtime/governance/validate-packet.mjs", "target": ".agents/loopengine/governance/validate-packet.mjs" },
-    { "group": "runtime-full", "source": "runtime/governance/lib/task-validation.mjs", "target": ".agents/loopengine/governance/lib/task-validation.mjs" },
+    { "group": "runtime-task", "source": "runtime/governance/lib/task-validation.mjs", "target": ".agents/loopengine/governance/lib/task-validation.mjs" },
     { "group": "runtime-full", "source": "runtime/governance/lib/design-validation.mjs", "target": ".agents/loopengine/governance/lib/design-validation.mjs" },
     { "group": "runtime-full", "source": "runtime/governance/lib/memory-validation.mjs", "target": ".agents/loopengine/governance/lib/memory-validation.mjs" },
-    { "group": "runtime-full", "source": "runtime/governance/lib/schema-validation.mjs", "target": ".agents/loopengine/governance/lib/schema-validation.mjs" },
+    { "group": "runtime-task", "source": "runtime/governance/lib/schema-validation.mjs", "target": ".agents/loopengine/governance/lib/schema-validation.mjs" },
 
     { "group": "skills-core", "source": "skills/core/brainstorming/SKILL.md", "target": ".agents/skills/brainstorming/SKILL.md" },
+    { "group": "skills-core", "source": "skills/core/using-loopengine/SKILL.md", "target": ".agents/skills/using-loopengine/SKILL.md" },
     { "group": "skills-core", "source": "skills/core/brainstorming/spec-document-reviewer-prompt.md", "target": ".agents/skills/brainstorming/spec-document-reviewer-prompt.md" },
+    { "group": "skills-core", "source": "skills/core/brainstorming/references/spec.md", "target": ".agents/skills/brainstorming/references/spec.md" },
     { "group": "skills-core", "source": "skills/core/brainstorming/visual-companion.md", "target": ".agents/skills/brainstorming/visual-companion.md" },
     { "group": "skills-core", "source": "skills/core/brainstorming/scripts/frame-template.html", "target": ".agents/skills/brainstorming/scripts/frame-template.html" },
     { "group": "skills-core", "source": "skills/core/brainstorming/scripts/helper.js", "target": ".agents/skills/brainstorming/scripts/helper.js" },
@@ -70,6 +53,7 @@
     { "group": "skills-core", "source": "skills/core/api-and-interface-design/SKILL.md", "target": ".agents/skills/api-and-interface-design/SKILL.md" },
     { "group": "skills-core", "source": "skills/core/writing-plans/SKILL.md", "target": ".agents/skills/writing-plans/SKILL.md" },
     { "group": "skills-core", "source": "skills/core/writing-plans/plan-document-reviewer-prompt.md", "target": ".agents/skills/writing-plans/plan-document-reviewer-prompt.md" },
+    { "group": "skills-core", "source": "skills/core/writing-plans/references/plan.md", "target": ".agents/skills/writing-plans/references/plan.md" },
     { "group": "skills-core", "source": "skills/core/executing-plans/SKILL.md", "target": ".agents/skills/executing-plans/SKILL.md" },
     { "group": "skills-core", "source": "skills/core/test-driven-development/SKILL.md", "target": ".agents/skills/test-driven-development/SKILL.md" },
     { "group": "skills-core", "source": "skills/core/test-driven-development/testing-anti-patterns.md", "target": ".agents/skills/test-driven-development/testing-anti-patterns.md" },
@@ -79,6 +63,7 @@
     { "group": "skills-core", "source": "skills/core/systematic-debugging/condition-based-waiting.md", "target": ".agents/skills/systematic-debugging/condition-based-waiting.md" },
     { "group": "skills-core", "source": "skills/core/systematic-debugging/condition-based-waiting-example.ts", "target": ".agents/skills/systematic-debugging/condition-based-waiting-example.ts" },
     { "group": "skills-core", "source": "skills/core/systematic-debugging/find-polluter.sh", "target": ".agents/skills/systematic-debugging/find-polluter.sh" },
+    { "group": "skills-core", "source": "skills/core/systematic-debugging/references/failure.md", "target": ".agents/skills/systematic-debugging/references/failure.md" },
     { "group": "skills-core", "source": "skills/core/debugging-and-error-recovery/SKILL.md", "target": ".agents/skills/debugging-and-error-recovery/SKILL.md" },
     { "group": "skills-core", "source": "skills/core/verification-before-completion/SKILL.md", "target": ".agents/skills/verification-before-completion/SKILL.md" },
     { "group": "skills-core", "source": "skills/core/code-review-and-quality/SKILL.md", "target": ".agents/skills/code-review-and-quality/SKILL.md" },
@@ -90,9 +75,9 @@
     { "group": "skills-core", "source": "skills/integrations/open-code-review/references/cli.md", "target": ".agents/skills/open-code-review/references/cli.md" },
     { "group": "skills-core", "source": "skills/integrations/browser-verification/SKILL.md", "target": ".agents/skills/browser-verification/SKILL.md" },
 
-    { "group": "skills-core", "source": "skills/core/task-intake/SKILL.md", "target": ".agents/skills/task-intake/SKILL.md" },
-    { "group": "skills-core", "source": "skills/core/workflow-packet/SKILL.md", "target": ".agents/skills/workflow-packet/SKILL.md" },
     { "group": "skills-core", "source": "skills/core/workflow-handoff/SKILL.md", "target": ".agents/skills/workflow-handoff/SKILL.md" },
+    { "group": "skills-core", "source": "skills/core/workflow-handoff/references/handoff.md", "target": ".agents/skills/workflow-handoff/references/handoff.md" },
+    { "group": "skills-core", "source": "skills/core/workflow-handoff/references/retrospective.md", "target": ".agents/skills/workflow-handoff/references/retrospective.md" },
     { "group": "skills-core", "source": "skills/core/api-contract-check/SKILL.md", "target": ".agents/skills/api-contract-check/SKILL.md" },
     { "group": "skills-core", "source": "skills/core/frontend-implementation-check/SKILL.md", "target": ".agents/skills/frontend-implementation-check/SKILL.md" },
     { "group": "skills-core", "source": "skills/core/task-decomposition/SKILL.md", "target": ".agents/skills/task-decomposition/SKILL.md" },
@@ -105,6 +90,7 @@
     { "group": "skills-core", "source": "skills/core/browser-testing-with-devtools/SKILL.md", "target": ".agents/skills/browser-testing-with-devtools/SKILL.md" },
 
     { "group": "skills-full", "source": "skills/core/loop-planning/SKILL.md", "target": ".agents/skills/loop-planning/SKILL.md" },
+    { "group": "skills-full", "source": "skills/core/loop-planning/references/loop.md", "target": ".agents/skills/loop-planning/references/loop.md" },
     { "group": "skills-full", "source": "skills/core/review-checklist/SKILL.md", "target": ".agents/skills/review-checklist/SKILL.md" },
     { "group": "skills-full", "source": "skills/core/subagent-driven-development/SKILL.md", "target": ".agents/skills/subagent-driven-development/SKILL.md" },
     { "group": "skills-full", "source": "skills/core/release-checklist/SKILL.md", "target": ".agents/skills/release-checklist/SKILL.md" },
@@ -114,6 +100,7 @@
     { "group": "skills-full", "source": "skills/core/taste-skill/SKILL.md", "target": ".agents/skills/taste-skill/SKILL.md" },
     { "group": "skills-full", "source": "skills/core/impeccable/SKILL.md", "target": ".agents/skills/impeccable/SKILL.md" },
     { "group": "skills-full", "source": "skills/core/adversarial-review-packet/SKILL.md", "target": ".agents/skills/adversarial-review-packet/SKILL.md" },
+    { "group": "skills-full", "source": "skills/core/adversarial-review-packet/references/review.md", "target": ".agents/skills/adversarial-review-packet/references/review.md" },
     { "group": "skills-full", "source": "skills/core/runtime-cross-repo-rollout/SKILL.md", "target": ".agents/skills/runtime-cross-repo-rollout/SKILL.md" },
 
     { "group": "skills-memory", "source": "skills/integrations/agentmemory/handoff/SKILL.md", "target": ".agents/skills/handoff/SKILL.md" },
@@ -128,12 +115,6 @@
     { "group": "skills-memory", "source": "memory/observations.md", "target": ".agents/memory/observations.md" },
     { "group": "skills-memory", "source": "memory/decisions.md", "target": ".agents/memory/decisions.md" },
     { "group": "skills-memory", "source": "memory/sessions/README.md", "target": ".agents/memory/sessions/README.md" },
-
-    { "group": "workflows-core", "source": "workflows/fast-path.md", "target": "docs/workflows/fast-path.md" },
-    { "group": "workflows-core", "source": "workflows/lightweight.md", "target": "docs/workflows/lightweight.md" },
-    { "group": "workflows-core", "source": "workflows/full.md", "target": "docs/workflows/full.md" },
-    { "group": "workflows-full", "source": "workflows/loop.md", "target": "docs/workflows/loop.md" },
-    { "group": "workflows-full", "source": "workflows/review.md", "target": "docs/workflows/review.md" },
 
     { "group": "hooks", "source": "adapters/codex/hooks.template.json", "target": ".codex/hooks.json", "redZone": true }
   ]

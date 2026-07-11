@@ -25,10 +25,10 @@ LoopEngine 用来打包可复用的 AI coding governance 资产。源项目只�
 
 1. 安装器不得写入全局 Agent 配置。
 2. 未使用 `--force` 时不得覆盖目标项目已有文件。
-3. 真实写入必须使用 `--apply`；未显式确认时不得写入红区文件。
-4. 项目专有示例不得进入 `rules`、`templates`、`skills/core`、`workflows`、`adapters`、`manifests`、`schemas` 等通用核心目录。
+3. MVP 真实写入必须使用 `--write`；legacy/internal 安装或 rollback 真实写入必须使用 `--apply`，且未显式确认时不得写入红区文件。
+4. 项目专有示例不得进入 `rules`、`templates`、`skills/core`、`adapters`、`manifests`、`schemas` 等通用核心目录。
 5. 优先用 dry-run 和命令输出作为证据，不用猜测代替验证。
 
-## CodeGraph
+## codebase-memory-mcp
 
-若仓库根目录存在 `.codegraph/`，理解或定位代码前先使用 CodeGraph；若不存在则跳过，不要擅自初始化。未安装 CLI 时先运行 `loopengine codegraph install-cli`。
+若 `codebase-memory-mcp` MCP 工具可用，理解或定位代码前先检查当前仓库索引状态，并按需使用结构查询。MCP 不可用时明确说明缺少该能力，退回 `rg` 和直接文件阅读；不要修改全局 Agent 或 MCP 配置。

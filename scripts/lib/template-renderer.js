@@ -1,6 +1,6 @@
 const defaultTemplateData = {
   installedSurface: {
-    codegraphLine: '',
+    codebaseMemoryMcpLine: '',
     engineeringRulesLine: '',
     hooksLine: '',
     memorySkillsLine: '',
@@ -11,7 +11,6 @@ const defaultTemplateData = {
     skillRoutingLine: '',
     skillsLine: '',
     templatesLine: '- 模板位于 `docs/templates/`。',
-    workflowsLine: '',
   },
   packageManager: 'pnpm',
   projectProfile: {

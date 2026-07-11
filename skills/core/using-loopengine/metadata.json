@@ -1,0 +1,1 @@
+{"id":"using-loopengine","kind":"router","entry":"SKILL.md","triggers":["任务开始","风险变化","交付"],"outputs":["Skill 路由决策"]}

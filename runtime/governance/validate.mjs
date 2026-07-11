@@ -6,14 +6,12 @@ const root = process.cwd();
 const errors = [];
 const requiredBasicFiles = [
   'AGENTS.md',
-  'docs/rules/quickstart.md',
-  'docs/rules/dynamic-workflow.md',
-  'docs/rules/review-rules.md',
-  'docs/templates/workflow-packet.md',
-  'docs/templates/review-packet.md',
+  'docs/rules/governance-core.md',
+  'docs/templates/task.md',
+  'docs/templates/delivery.md',
+  'docs/schemas/full-task-control.schema.json',
 ];
 const requiredFullFiles = [
-  'docs/rules/task-management.md',
   'docs/rules/pencil-rules.md',
   'docs/rules/release-rules.md',
   'docs/memory/PROJECT_STATE.md',
@@ -68,20 +66,24 @@ if (!['basic', 'full', 'off'].includes(mode)) {
   errors.push('governance.mode must be basic, full, or off');
 }
 
+if (mode !== 'off') {
+  const { validateTasks } = await import('./lib/task-validation.mjs');
+  errors.push(...validateTasks(root));
+}
+
 if (mode === 'full') {
   for (const file of requiredFullFiles) {
     if (!existsSync(resolve(root, file))) errors.push(`Missing required full governance file: ${file}`);
   }
-  const { validateTasks } = await import('./lib/task-validation.mjs');
   const { validateDesignAssets } = await import('./lib/design-validation.mjs');
   const { validateMemory } = await import('./lib/memory-validation.mjs');
-  errors.push(...validateTasks(root), ...validateDesignAssets(root), ...validateMemory(root));
+  errors.push(...validateDesignAssets(root), ...validateMemory(root));
 }
 
 if (errors.length > 0) {
-  console.error('Governance validation failed:');
+  console.error('治理校验失败：');
   for (const error of errors) console.error(`- ${error}`);
   process.exitCode = 1;
 } else {
-  console.log('Governance validation passed.');
+  console.log('治理校验通过。');
 }

@@ -7,5 +7,4 @@ console.log(JSON.stringify({
   profiles: manifests.profiles.items.map((item) => item.id),
   rules: manifests.rules.items.length,
   skills: manifests.skills.items.length,
-  workflows: manifests.workflows.items.length,
 }, null, 2));

@@ -59,11 +59,11 @@ test('diff reports missing, same, changed, red-zone, and unmanaged files', async
 
     await runCli(['install', '--target', target, '--profile', 'codex-internal', '--apply', '--confirm-red-zone']);
     await writeFile(path.join(target, 'local-only.md'), 'unmanaged\n', 'utf8');
-    await writeFile(path.join(target, 'docs/templates/task-intake.md'), 'user changed template\n', 'utf8');
+    await writeFile(path.join(target, 'docs/templates/task.md'), 'user changed template\n', 'utf8');
 
     report = await runCli(['diff', '--target', target, '--profile', 'codex-internal']);
     assert.ok(report.same.some((item) => item.target === 'AGENTS.md'));
-    assert.ok(report.changed.some((item) => item.target === 'docs/templates/task-intake.md'));
+    assert.ok(report.changed.some((item) => item.target === 'docs/templates/task.md'));
     assert.ok(report.unmanaged.some((item) => item.target === 'local-only.md'));
   } finally {
     await rm(target, { force: true, recursive: true });
@@ -74,7 +74,7 @@ test('upgrade refuses user modified managed files unless force is used and force
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-upgrade-'));
   try {
     await runCli(['install', '--target', target, '--profile', 'codex-internal', '--apply', '--confirm-red-zone']);
-    await writeFile(path.join(target, 'docs/templates/task-intake.md'), 'user changed template\n', 'utf8');
+    await writeFile(path.join(target, 'docs/templates/task.md'), 'user changed template\n', 'utf8');
 
     await assert.rejects(
       execFileAsync(process.execPath, [
@@ -94,7 +94,7 @@ test('upgrade refuses user modified managed files unless force is used and force
     await runCli(['install', '--target', target, '--profile', 'codex-internal', '--apply', '--upgrade', '--force', '--confirm-red-zone']);
 
     const state = JSON.parse(await readFile(path.join(target, '.loopengine/install-state.json'), 'utf8'));
-    const changedTemplate = state.files.find((file) => file.target === 'docs/templates/task-intake.md');
+    const changedTemplate = state.files.find((file) => file.target === 'docs/templates/task.md');
     const backups = await readdir(path.join(target, '.loopengine/backups'));
 
     assert.equal(backups.length, 1);

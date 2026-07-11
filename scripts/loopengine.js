@@ -2,7 +2,6 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { installCodeGraphCli, inspectCodeGraph } from './lib/codegraph.js';
 import { inspectValidationCommands } from './lib/command-status.js';
 import { applyRollbackPlan, createRollbackPlan } from './lib/install-state.js';
 import {
@@ -13,6 +12,7 @@ import {
   previewInstallPlan,
 } from './lib/install-planner.js';
 import { validatePack } from './lib/pack-validation.js';
+import { executeProjectVerification } from './lib/project-verification.js';
 import { detectProjectProfile } from './lib/project-profile.js';
 import {
   readRequiredProjectConfig,
@@ -197,37 +197,53 @@ async function validate(args) {
   console.log(JSON.stringify({ ok: true, scope: 'pack' }, null, 2));
 }
 
+async function verify(args) {
+  if (!args.project) throw new Error('verify requires --project <path>.');
+  const targetDir = path.resolve(args.project);
+  const config = await readRequiredProjectConfig(targetDir);
+  validateProjectConfig(config);
+  const projectProfile = await detectProjectProfile({ config, targetDir });
+  const governanceMode = resolveGovernanceMode(config, config.profile);
+  validateGovernanceModeForProfile(governanceMode, config.profile);
+  const validationCommands = resolveValidationCommands(config, projectProfile, governanceMode);
+  const renderData = { ...config, governance: { mode: governanceMode }, projectProfile, validationCommands };
+  const target = await inspectTargetInstall({
+    managedAgentsBlock: true,
+    profile: config.profile,
+    renderData,
+    rootDir,
+    targetDir,
+  });
+  if (!target.ok) {
+    const error = new Error('Project installation is not consistent; run loopengine validate --project first.');
+    error.code = 'PROJECT_VERIFICATION_FAILED';
+    throw error;
+  }
+  const pack = await validatePack(rootDir);
+  if (!pack.ok) {
+    const error = new Error('LoopEngine pack validation failed.');
+    error.code = 'PROJECT_VERIFICATION_FAILED';
+    throw error;
+  }
+  const commandStatus = await inspectValidationCommands({ commands: validationCommands, targetDir });
+  const results = await executeProjectVerification({
+    allowManual: Boolean(args['allow-manual']),
+    commandStatus,
+    targetDir,
+  });
+  console.log(JSON.stringify({ ok: true, results, scope: 'project', targetDir }, null, 2));
+}
+
 async function doctor(args) {
   const targetDir = path.resolve(args.target ?? process.cwd());
   const pack = await validatePack(rootDir);
-  const codegraph = await inspectCodeGraph({ targetDir });
   const target = args.target
     ? await inspectTargetInstall({ profile: args.profile ?? 'codex-internal', rootDir, targetDir })
     : null;
   if (target && !args.verbose) {
     delete target.unmanaged;
   }
-  console.log(JSON.stringify({ codegraph, pack, rootDir, target, targetDir }, null, 2));
-}
-
-async function codegraph(args) {
-  const subcommand = args._[1] ?? 'status';
-  if (subcommand === 'install-cli') {
-    const report = await installCodeGraphCli({
-      dryRun: Boolean(args['dry-run']),
-      version: typeof args.version === 'string' ? args.version : undefined,
-    });
-    console.log(JSON.stringify(report, null, 2));
-    return;
-  }
-  if (subcommand === 'status') {
-    const report = await inspectCodeGraph({
-      targetDir: path.resolve(args.target ?? process.cwd()),
-    });
-    console.log(JSON.stringify(report, null, 2));
-    return;
-  }
-  throw new Error(`Unknown codegraph command: ${subcommand}`);
+  console.log(JSON.stringify({ pack, rootDir, target, targetDir }, null, 2));
 }
 
 async function diff(args) {
@@ -261,16 +277,16 @@ async function main() {
     await install(args);
   } else if (command === 'validate') {
     await validate(args);
+  } else if (command === 'verify') {
+    await verify(args);
   } else if (command === 'doctor') {
     await doctor(args);
-  } else if (command === 'codegraph') {
-    await codegraph(args);
   } else if (command === 'diff') {
     await diff(args);
   } else if (command === 'rollback') {
     await rollback(args);
   } else {
-    console.log('Usage: loopengine <init|install|validate|doctor|diff|rollback|codegraph> [--project path] [--target codex|path] [--profile minimal|core|full] [--write|--apply] [--dry-run] [--force] [--upgrade] [--confirm-red-zone]');
+    console.log('Usage: loopengine <init|install|validate|verify|doctor|diff|rollback> [--project path] [--target codex|path] [--profile minimal|core|full] [--write|--apply] [--dry-run] [--force] [--upgrade] [--confirm-red-zone] [--allow-manual]');
     console.log('MVP install uses --project <path> --target codex. Legacy install uses --target <path>. Install defaults to dry-run.');
   }
 }

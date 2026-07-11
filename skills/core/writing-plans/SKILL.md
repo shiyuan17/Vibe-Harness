@@ -15,7 +15,7 @@ description: 当已有规格或需求、准备在动代码前写多步骤实现�
 
 ## 计划内容
 
-使用 `docs/templates/plan-template.md`，每个任务写清：
+使用 `references/plan.md`，每个任务写清：
 
 1. 新建、修改和测试文件的精确路径与职责。
 2. 消费和产出的函数、类型、命令、模板或契约。

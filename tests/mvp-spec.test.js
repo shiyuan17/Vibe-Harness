@@ -93,9 +93,9 @@ test('MVP dry-run uses --project for path and --target codex for adapter without
     assert.equal(report.previewFiles.some((file) => file.target === 'AGENTS.md'), true);
     const agents = report.previewFiles.find((file) => file.target === 'AGENTS.md').content;
     assert.equal(agents.includes(path.basename(target)), true);
-    assert.equal(agents.includes('## 会话开始'), true);
-    assert.equal(agents.includes('## 会话结束'), true);
-    assert.equal(agents.includes('默认继续'), true);
+    assert.equal(agents.includes('## 启动'), true);
+    assert.equal(agents.includes('## 五条硬约束'), true);
+    assert.equal(agents.includes('轻量反证'), true);
     assert.equal(await exists(path.join(target, 'AGENTS.md')), false);
   } finally {
     await rm(target, { force: true, recursive: true });
@@ -225,44 +225,33 @@ test('project installs allow target-specific names in generated output', async (
   }
 });
 
-test('minimal profile excludes lifecycle, review, loop, and skills assets', async () => {
+test('minimal profile installs the fallback kernel without skills', async () => {
   const { report, target } = await initAndDryRunProfile('minimal');
   try {
     const targets = targetsFrom(report);
 
     assert.equal(targets.includes('AGENTS.md'), true);
-    assert.equal(targets.includes('docs/rules/agent-collaboration.md'), true);
-    assert.equal(targets.includes('docs/rules/codegraph.md'), true);
-    assert.equal(targets.includes('docs/rules/session-protocol.md'), true);
-    assert.equal(targets.includes('docs/templates/workflow-packet.md'), true);
-    assert.equal(targets.includes('docs/rules/handoff-rules.md'), false);
-    assert.equal(targets.includes('docs/templates/handoff-template.md'), false);
-    assert.equal(targets.includes('docs/rules/task-lifecycle.md'), false);
-    assert.equal(targets.includes('docs/rules/task-rules.md'), false);
-    assert.equal(targets.includes('docs/rules/review-rules.md'), false);
-    assert.equal(targets.includes('docs/rules/loop-engineering.md'), false);
-    assert.equal(targets.includes('.agents/skills/loop-planning/SKILL.md'), false);
+    assert.equal(targets.includes('docs/rules/governance-core.md'), true);
+    assert.equal(targets.includes('docs/rules/codebase-memory-mcp.md'), true);
+    assert.equal(targets.includes('docs/templates/task.md'), true);
+    assert.equal(targets.includes('docs/templates/delivery.md'), true);
+    assert.equal(targets.some((item) => item.startsWith('.agents/skills/')), false);
+    assert.equal(targets.some((item) => item.startsWith('docs/workflows/')), false);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
 });
 
-test('core profile includes lifecycle and review gates but excludes full loop assets', async () => {
+test('core profile installs routed skills but excludes full-only review skills', async () => {
   const { report, target } = await initAndDryRunProfile('core');
   try {
     const targets = targetsFrom(report);
 
-    assert.equal(targets.includes('docs/rules/task-lifecycle.md'), true);
-    assert.equal(targets.includes('docs/rules/task-rules.md'), true);
-    assert.equal(targets.includes('docs/rules/codegraph.md'), true);
-    assert.equal(targets.includes('docs/rules/skill-routing.md'), true);
-    assert.equal(targets.includes('.agents/skills/task-intake/SKILL.md'), true);
-    assert.equal(targets.includes('docs/workflows/full.md'), true);
-    assert.equal(targets.includes('docs/rules/review-rules.md'), true);
-    assert.equal(targets.includes('docs/templates/review-packet.md'), true);
-    assert.equal(targets.includes('docs/rules/loop-engineering.md'), false);
-    assert.equal(targets.includes('docs/workflows/review.md'), false);
-    assert.equal(targets.includes('docs/workflows/loop.md'), false);
+    assert.equal(targets.includes('docs/rules/governance-core.md'), true);
+    assert.equal(targets.includes('docs/rules/codebase-memory-mcp.md'), true);
+    assert.equal(targets.includes('.agents/skills/using-loopengine/SKILL.md'), true);
+    assert.equal(targets.includes('docs/schemas/full-task-control.schema.json'), true);
+    assert.equal(targets.some((item) => item.startsWith('docs/workflows/')), false);
     assert.equal(targets.includes('.agents/skills/review-checklist/SKILL.md'), false);
     assert.equal(targets.includes('.agents/skills/loop-planning/SKILL.md'), false);
     assert.equal(targets.includes('.agents/skills/subagent-driven-development/SKILL.md'), false);
@@ -272,7 +261,7 @@ test('core profile includes lifecycle and review gates but excludes full loop as
   }
 });
 
-test('full profile adds review and loop assets beyond core', async () => {
+test('full profile adds adversarial review and loop skills beyond core', async () => {
   const core = await initAndDryRunProfile('core');
   const full = await initAndDryRunProfile('full');
   try {
@@ -280,14 +269,12 @@ test('full profile adds review and loop assets beyond core', async () => {
     const fullTargets = targetsFrom(full.report);
 
     assert.equal(fullTargets.length > coreTargets.length, true);
-    assert.equal(fullTargets.includes('docs/rules/codegraph.md'), true);
-    assert.equal(fullTargets.includes('docs/rules/review-rules.md'), true);
-    assert.equal(fullTargets.includes('docs/rules/loop-engineering.md'), true);
+    assert.equal(fullTargets.includes('docs/rules/codebase-memory-mcp.md'), true);
     assert.equal(fullTargets.includes('.agents/skills/review-checklist/SKILL.md'), true);
+    assert.equal(fullTargets.includes('.agents/skills/adversarial-review-packet/SKILL.md'), true);
     assert.equal(fullTargets.includes('.agents/skills/loop-planning/SKILL.md'), true);
     assert.equal(fullTargets.includes('.agents/skills/subagent-driven-development/SKILL.md'), true);
-    assert.equal(fullTargets.includes('docs/workflows/review.md'), true);
-    assert.equal(fullTargets.includes('docs/workflows/loop.md'), true);
+    assert.equal(fullTargets.some((item) => item.startsWith('docs/workflows/')), false);
   } finally {
     await rm(core.target, { force: true, recursive: true });
     await rm(full.target, { force: true, recursive: true });
@@ -338,7 +325,7 @@ test('validate --project requires installed files to match the selected profile'
     const agents = await readFile(agentsPath, 'utf8');
     await writeFile(
       agentsPath,
-      agents.replace('## 会话开始', '## 会话开始（本地改坏）'),
+      agents.replace('## 启动', '## 启动（本地改坏）'),
       'utf8',
     );
     await assert.rejects(

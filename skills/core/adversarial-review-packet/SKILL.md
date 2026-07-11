@@ -5,6 +5,8 @@ description: Use when Full or high-risk changes require independent multi-axis r
 
 # 对抗式审查包
 
+输出使用 `references/review.md`。
+
 ## 前置
 
 保持只读并确认目标 diff、规格、风险档位、验证证据和审查者独立性。实现者不得自我批准高风险工作。

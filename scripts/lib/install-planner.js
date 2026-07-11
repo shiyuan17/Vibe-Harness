@@ -51,10 +51,8 @@ export function createInstalledSurface({ memoryPath = '.agents/memory', profile,
   const installedTargets = targets.map((target) => target.replaceAll('\\', '/'));
   const hasTarget = (expectedTarget) => installedTargets.includes(expectedTarget);
   const hasPrefix = (prefix) => installedTargets.some((target) => target.startsWith(prefix));
-  const hasReviewLoop = hasTarget('docs/workflows/review.md')
-    || hasTarget('docs/workflows/loop.md')
-    || hasTarget('docs/rules/review-rules.md')
-    || hasTarget('docs/rules/loop-engineering.md');
+  const hasReviewLoop = hasTarget('.agents/skills/adversarial-review-packet/SKILL.md')
+    || hasTarget('.agents/skills/loop-planning/SKILL.md');
   const hasEngineeringRules = [
     'docs/rules/coding-rules.md',
     'docs/rules/frontend-rules.md',
@@ -78,14 +76,16 @@ export function createInstalledSurface({ memoryPath = '.agents/memory', profile,
   const profileLines = {
     'codex-internal': '- 当前 profile: `codex-internal`，包含完整 Codex 内部安装面。',
     'codex-minimal': '- 当前 profile: `codex-minimal`，安装最小 Codex 入口规则和模板。',
-    core: '- 当前 profile: `core`，安装核心规则、模板、skills 和 workflows。',
+    core: '- 当前 profile: `core`，安装治理内核、模板和路由 skills。',
     'docs-only': '- 当前 profile: `docs-only`，仅安装文档类资产。',
-    full: '- 当前 profile: `full`，安装完整 MVP 规则、模板、skills 和 workflows。',
+    full: '- 当前 profile: `full`，安装完整专项规则、模板和路由 skills。',
     minimal: '- 当前 profile: `minimal`，安装最小 Codex 入口规则和模板。',
   };
 
   return {
-    codegraphLine: hasTarget('docs/rules/codegraph.md') ? '- CodeGraph 规则位于 `docs/rules/codegraph.md`。' : '',
+    codebaseMemoryMcpLine: hasTarget('docs/rules/codebase-memory-mcp.md')
+      ? '- codebase-memory-mcp 规则位于 `docs/rules/codebase-memory-mcp.md`。'
+      : '',
     engineeringRulesLine: hasEngineeringRules ? '- 工程专项规则位于 `docs/rules/`。' : '',
     hooksLine: hasTarget('.codex/hooks.json') ? '- Codex hook 配置位于 `.codex/hooks.json`。' : '',
     memorySkillsLine: hasAgentMemorySkills
@@ -95,12 +95,11 @@ export function createInstalledSurface({ memoryPath = '.agents/memory', profile,
     profileLine: profileLines[profile] ?? `- 当前 profile: \`${profile}\`。`,
     reviewLoopLine: hasReviewLoop ? '- 当前 profile 包含 review / loop 资产。' : '',
     rulesLine: hasPrefix('docs/rules/') ? '- 规则位于 `docs/rules/`。' : '',
-    skillRoutingLine: hasTarget('docs/rules/skill-routing.md')
-      ? '先按 `docs/rules/skill-routing.md` 选择最小 skill 集。`workflow-handoff` 用于交接模板；记忆类续接与召回能力仅在当前 profile 已安装且目标项目启用对应工具时使用。'
+    skillRoutingLine: hasTarget('.agents/skills/using-loopengine/SKILL.md')
+      ? '先使用 `using-loopengine` 选择最小 Skill 集；详细流程按任务信号加载。'
       : '当前 profile 未安装 Skills；仅按已安装规则和模板执行，不引用未安装的 skill。',
     skillsLine: hasPrefix('.agents/skills/') ? '- Skills 位于 `.agents/skills/`。' : '',
     templatesLine: hasPrefix('docs/templates/') ? '- 模板位于 `docs/templates/`。' : '',
-    workflowsLine: hasPrefix('docs/workflows/') ? '- Workflows 位于 `docs/workflows/`。' : '',
   };
 }
 
