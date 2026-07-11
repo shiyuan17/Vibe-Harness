@@ -1,5 +1,7 @@
 # LoopEngine v1 规格
 
+状态：Superseded。本文仅保留 legacy/internal v1 基线；当前治理契约以 `loopengine-v0.5-simplified-governance-spec.md` 为准。
+
 ## 目标
 
 构建一套可复用的 Codex 优先 AI coding governance 包，并通过默认 dry-run 的 CLI 安装到其他项目中。

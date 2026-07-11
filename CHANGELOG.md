@@ -1,5 +1,16 @@
 # 更新日志
 
+## Unreleased
+
+- 将常驻治理收敛为“获取事实 → 做出决策 → 执行 → 验证 → 交付”，删除独立 workflows catalog 和重复生命周期规则。
+- 任务真值改为中文 Markdown；完整档位使用中文 JSON 控制块和独立核验门禁。
+- 新增 `using-loopengine` router，模板随 skill 渐进披露；minimal/docs-only 使用短治理内核降级。
+- 统一 MVP `--write` 与 legacy/internal `--apply` 命令边界，并将生命周期收口为 Intake + 九阶段。
+- task schema 和 full governance validator 增加 AC-ID、验收证据、责任人、确认状态、artifact 存在性和可声明时间盒门禁。
+- Review Packet 对未修复的 Medium finding 强制要求有 owner、关闭条件和批准者的结构化延期。
+- 新增 `loopengine verify --project`，显式执行目标项目配置的验证命令，同时保持 `validate --project` 只读。
+- 新增 Failure、Retrospective 模板、双生命周期 smoke script 和 GitHub Actions CI。
+
 ## 0.3.0
 
 - 新增机器可校验的治理能力覆盖矩阵。

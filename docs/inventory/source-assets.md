@@ -17,7 +17,7 @@
 
 - Codex AGENTS 入口模板。
 - Codex hook 配置占位文件。
-- 规则、模板、skills、workflows、hooks 的 install map。
+- 治理内核、专项规则、模板、skills 和 hooks 的 install map。
 
 ## 不进入核心的内容
 

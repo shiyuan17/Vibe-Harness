@@ -4,8 +4,8 @@
 
 ## 当前快照
 
-- 总数：46。
-- `native`：30；`integration`：11；`router`：3；`compatibility`：2。
+- 总数：45。
+- `native`：28；`integration`：11；`router`：4；`compatibility`：2。
 - router/compatibility 入口最多 30 行，其他入口最多 80 行。
 - 当前最长入口为 `api-and-interface-design`，低于 80 行。
 - `minimal` 不安装 skill；core/full/internal 均通过 profile 依赖闭包校验。
@@ -18,7 +18,7 @@
 | 浏览器 | `browser-verification` | `browser-testing-with-devtools` 为兼容路由 |
 | 设计 | `frontend-design` + 单层 reference | `taste-skill`、`impeccable` 按场景路由 |
 | Review | `code-review-and-quality` | 请求、OCR、Packet、对抗审查各自只承担一个阶段 |
-| Workflow | 对应规则与模板 | intake、packet、handoff、release、Pencil、worktree 均为薄执行器 |
+| Workflow | `governance-core` + `using-loopengine` | 五步内核常驻，handoff、release、Pencil、worktree 按触发加载 |
 | Memory | agentmemory 外部适配 | 八个子入口因调用和破坏性不同继续独立 |
 
 `writing-plans` 的 core 硬依赖已改为 `executing-plans`；full 的 `subagent-driven-development` 仅为 optional，不再产生 core 安装后无法执行的计划。

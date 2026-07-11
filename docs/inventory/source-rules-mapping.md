@@ -5,13 +5,13 @@
 | 源规则 | LoopEngine 目标 | 处理方式 |
 | --- | --- | --- |
 | `AGENTS.md` | `adapters/codex/AGENTS.template.md`、`rules/agent-collaboration.md` | summarize |
-| `QUICKSTART.md` | `rules/quickstart.md` | copy-generalize |
+| `QUICKSTART.md` | `rules/governance-core.md` | consolidate |
 | `WORKFLOW.md` | `rules/workflow.md` | copy-generalize |
 | `DYNAMIC_WORKFLOW_RULES.md` | `rules/dynamic-workflow.md` | copy-generalize |
-| `TASK_RULES.md` | `rules/task-rules.md` | copy-generalize |
-| `TASK_LIFECYCLE_RULES.md` | `rules/task-lifecycle.md` | copy-generalize |
-| `TASK_MANAGEMENT_RULES.md` | `rules/task-management.md` | copy-generalize |
-| `TASK_INTAKE.md` | `rules/task-intake.md`、`templates/task-intake.md` | copy-generalize |
+| `TASK_RULES.md` | `templates/task.md`、Markdown validator | consolidate |
+| `TASK_LIFECYCLE_RULES.md` | `rules/governance-core.md` | consolidate |
+| `TASK_MANAGEMENT_RULES.md` | Markdown validator | validator |
+| `TASK_INTAKE.md` | `templates/task.md` | consolidate |
 | `GIT_RULES.md` | `rules/git-rules.md` | copy-generalize |
 | `CODING_RULES.md` | `rules/coding-rules.md` | copy-generalize |
 | `FRONTEND_RULES.md` | `rules/frontend-rules.md` | copy-generalize |
@@ -21,9 +21,9 @@
 | `AI_COLLAB_RULES.md` | `rules/ai-collab-rules.md` | copy-generalize |
 | `PENCIL_RULES.md` | `rules/pencil-rules.md` | copy-generalize |
 | `RELEASE.md` | `rules/release-rules.md` | copy-generalize |
-| `REVIEW_RULES.md` | `rules/review-rules.md` | copy-generalize |
-| `LOOP_ENGINEERING_RULES.md` | `rules/loop-engineering.md` | copy-generalize |
-| `AGENT_SKILL_ROUTING.md` | `rules/skill-routing.md` | copy-generalize |
+| `REVIEW_RULES.md` | `adversarial-review-packet` | skill |
+| `LOOP_ENGINEERING_RULES.md` | `loop-planning` | skill |
+| `AGENT_SKILL_ROUTING.md` | `using-loopengine` | skill |
 | `TROUBLESHOOTING.md` | `rules/troubleshooting.md` | copy-generalize |
 | project memory/current tasks/contracts | examples or target project only | exclude-business |
 | durable memory categories | `templates/memory/*`、full governance validator | template |

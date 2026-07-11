@@ -12,6 +12,7 @@ pnpm loopengine init --project ../some-project
 pnpm loopengine install --project ../some-project --target codex --profile core --dry-run
 pnpm loopengine install --project ../some-project --target codex --profile core --write
 pnpm loopengine validate --project ../some-project
+pnpm loopengine verify --project ../some-project
 ```
 
 MVP 模式使用 `--project <path>` 表示目标项目路径，使用 `--target codex` 表示安装 Codex adapter。安装器默认 dry-run；`--dry-run` 只打印目标路径、动作和渲染后的预览内容，不写文件。真实写入使用 `--write`。LoopEngine 只在项目根目录管理最小入口 `AGENTS.md`；其余治理资产写入 `docs/`、`.agents/skills/` 等命名空间目录，默认不会修改 `package.json`、`.npmrc`、`pnpm-workspace.yaml` 等 Node / pnpm 元文件。若项目已存在 `AGENTS.md`，LoopEngine 只会追加或更新 `<!-- LOOPENGINE:START -->` / `<!-- LOOPENGINE:END -->` 包围的受管块，保留其余本地内容；其他受管理文件如已存在，仍需显式加 `--force`，覆盖前会先备份到 `.loopengine/backups/`。
@@ -44,8 +45,8 @@ MVP 模式使用 `--project <path>` 表示目标项目路径，使用 `--target 
 
 ## MVP Profiles
 
-- `minimal`：入口红线、会话开始/结束协议、CodeGraph、`git status --short`、红区人工确认、验证证据和工作流交付包。
-- `core`：`minimal` + 八阶段工作流、lifecycle-v2、Review 门禁、基础治理校验器、工程规则、模板和常规 bundled skills。
+- `minimal`：治理内核、codebase-memory-mcp 使用规则、`git status --short`、红区人工确认、验证证据和中文任务/交付模板。
+- `core`：`minimal` + 五步中文治理、Markdown 任务校验器、工程规则、模板和 `using-loopengine` 路由 skills。
 - `full`：`core` + task/backlog、durable governance memory、release / Pencil / troubleshooting、loop 和高级执行能力。
 
 ## 验证门禁
@@ -57,6 +58,8 @@ git diff --check
 ```
 
 `pnpm check` 会运行 lint、pack validation 和测试。Pack validation 不只校验 manifest、install map、核心文件存在性和脱敏词，也会检查 skill frontmatter、description 触发导向、工作流、模板、测试 / 审查 / Git / 工作流规则是否包含可执行字段，避免治理文档退化成空壳。
+
+`validate --project` 只检查配置、安装一致性和命令可用状态，不执行目标项目命令。`verify --project` 会先完成这些检查，再按 governance、lint、typecheck 顺序执行已配置命令；manual 命令默认阻断，审查命令内容后可显式使用 `--allow-manual`。
 
 安装后的项目可直接运行零依赖治理校验器：
 
@@ -94,10 +97,10 @@ pnpm loopengine rollback --target ../some-project --apply --confirm-red-zone
 
 - `minimal`：MVP 最小 Codex 包，包含会话开始/结束协议，不安装 heavy rules 或 skills。
 - `core`：标准工程治理包，包含 coding / frontend / API / task / workflow / review 规则、基础 validator、常规 bundled skills 和 skill 编写检查。
-- `full`：完整治理包，增加 durable memory、release、Pencil、task-management、troubleshooting、loop 和高级执行能力，不安装 hooks。
-- `codex-internal`：安装 AGENTS、全部规则、模板、skills、workflows 和 Codex hooks。
+- `full`：完整治理包，增加 durable memory、release、Pencil、troubleshooting、对抗审查、loop 和高级执行能力，不安装 hooks。
+- `codex-internal`：安装 AGENTS、全部规则、模板、skills 和 Codex hooks。
 - `codex-minimal`：安装 AGENTS 与最小规则/模板集。
-- `docs-only`：只安装规则、模板和 workflows。
+- `docs-only`：只安装治理内核、专项规则、中文模板和 schema。
 
 ## 当前状态
 
@@ -105,8 +108,8 @@ pnpm loopengine rollback --target ../some-project --apply --confirm-red-zone
 | --- | --- | --- |
 | Codex `minimal` / `core` / `full` 安装 | 已完成 | `--project <path> --target codex` 支持 dry-run、write、validate。 |
 | legacy `codex-internal` 生命周期 | 已完成 | 支持 diff、upgrade、backup、rollback 和红区确认。 |
-| 会话协议 | 已完成 | `minimal` 起安装 `session-protocol`，统一 Session Start Protocol 和 Session End Protocol。 |
-| 深化 rules / skills | 已完成 | core 包含工程专项规则、日志管理、handoff 规则、task schema、常规 bundled skills 和 skill 编写检查；full 补充 release、Pencil、task-management、retrospective、troubleshooting、review / loop / subagent 能力。 |
+| 中文治理内核 | 已完成 | `minimal` 起安装五步循环、三档风险、轻量反证和无 Skill 降级合同。 |
+| Skills 路由 | 已完成 | core 使用 `using-loopengine` 按需加载流程、专项和验证 Skill；full 补充对抗审查、release、Pencil、loop 和 subagent 能力。 |
 | Pack validation | 已完成 | 校验 manifests、schema、源文件存在性、skill frontmatter / description、脱敏词、工作流 / 模板质量门禁和结构化治理资产。 |
 | Codex hooks | 占位兼容 | 仅保留 legacy placeholder，不作为默认 MVP 安装面。 |
 | 非 Codex adapter | 后续路线 | Claude、Cursor、OpenCode 等暂不创建适配器。 |
@@ -115,15 +118,10 @@ pnpm loopengine rollback --target ../some-project --apply --confirm-red-zone
 
 LoopEngine 不写入全局 Codex 配置。目标项目已有文件默认不覆盖；如需覆盖必须显式使用 `--force`。`.codex/hooks.json` 等红区文件在非 dry-run 安装时必须显式确认。
 
-## CodeGraph
+## codebase-memory-mcp
 
-CodeGraph 是可选的本地代码索引能力。安装 CLI 使用：
+`codebase-memory-mcp` 是可选的代码结构与影响分析能力。LoopEngine 只向目标项目安装 `docs/rules/codebase-memory-mcp.md`，不会安装 MCP 服务、修改全局 Agent/MCP 配置或在 `doctor` 中探测服务状态。
 
-```bash
-pnpm loopengine codegraph install-cli
-pnpm loopengine codegraph status --target ../some-project
-```
-
-LoopEngine 不自动运行 `codegraph init`，不自动写入 Codex MCP 全局配置。若目标项目存在 `.codegraph/`，安装后的规则会要求 Agent 在理解或定位代码前优先使用 CodeGraph；若不存在则跳过。
+MCP 可用时，安装后的规则要求 Agent 先用 `list_projects` / `index_status` 确认索引，再按任务使用 `index_repository`、`search_graph`、`trace_call_path`、`detect_changes` 或 `get_architecture`。MCP 不可用或索引失败时必须说明缺少该能力，并退回 `rg` 与直接源码阅读。
 
 回滚策略保持简单透明：安装器只复制文件，不修改全局配置，不自动合并已有文件。真实安装或强制升级前会记录状态和备份；若需要撤销，优先使用 `loopengine rollback`，也可以按 `.loopengine/install-state.json` 中的记录手工处理。

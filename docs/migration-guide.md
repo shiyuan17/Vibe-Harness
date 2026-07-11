@@ -4,7 +4,7 @@
 
 ## 1. 盘点源项目
 
-- 将源文件分类为可复用 rules、templates、skills、workflows，或仅用于示例的项目专属内容。
+- 将源文件分类为治理内核、专项 rules、templates、skills，或仅用于示例的项目专属内容；独立 workflow 文档应收敛到治理内核或对应 skill。
 - 排除当前 task 状态、memory 快照、本地 backlog 数据、具体端口、后端仓库名和业务契约。
 - 将项目专属值记录在 `loopengine.config.json` 中，不要硬编码到 core 文件。
 - 对照 `docs/inventory/source-rules-mapping.md` 判断每个源规则是通用化、摘要化、仅示例，还是排除业务内容。
@@ -54,8 +54,8 @@ git diff --check
 ## Profile 选择
 
 - `minimal`：启动红线、会话开始/结束协议、红区确认、验证证据和交付 Packet 指引。
-- `core`：`minimal` 加上生命周期、coding、frontend、API、AI collaboration、project directory、workflows、templates 和完整 bundled skills。
-- `full`：`core` 加上 release、Pencil、task-management、troubleshooting、review 和 loop opt-in 相关规则。
+- `core`：`minimal` 加上中文任务 runtime/schema、工程专项规则、`using-loopengine` 和常规 bundled skills。
+- `full`：`core` 加上 release、Pencil、troubleshooting、对抗审查和 loop skills。
 
 ## Agentmemory Skills
 
@@ -63,7 +63,7 @@ git diff --check
 
 ## v0.3 升级
 
-- `core` 新增 Review 规则、Review Packet、task-intake 规则与 `.agents/loopengine/governance/` 基础校验器。
+- `core` 新增中文 Markdown 任务校验器、完整流程控制 schema 与 `.agents/skills/using-loopengine/`。
 - `full` 新增 `docs/memory/` 六类 durable governance 模板、task/backlog 语义校验和 Pencil `.pen/.png` 配对检查。
 - `validationCommands.lint` 与 `typecheck` 可为 `null`；未检测到真实脚本时不会生成虚假的 pnpm 命令。已有非空字符串配置继续兼容。
 - `governance.mode` 可为 `basic`、`full` 或 `off`；未配置的 v0.2 项目按 profile 推导。
