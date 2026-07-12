@@ -20,9 +20,9 @@ import {
   validateInstallMapShape,
 } from './manifest.js';
 import {
-  extractManagedAgentsBlock,
-  mergeManagedAgentsBlock,
-  renderManagedAgentsBlock,
+  extractManagedInstructionBlock,
+  mergeManagedInstructionBlock,
+  renderManagedInstructionBlock,
   renderTemplate,
   withDefaultTemplateData,
 } from './template-renderer.js';
@@ -31,8 +31,14 @@ import {
   PLAYWRIGHT_TOOL_RELATIVE_DIR,
 } from '../../runtime/tools/playwright-cli/run.mjs';
 import { extractManagedMcpBlock, mergeManagedMcpBlock } from './tool-provisioning.js';
+import { applyBaselinePlan, createBaselinePlan } from './installation-baseline.js';
+import { resolveModuleSelection } from './module-selection.js';
+import { assertAdapterProfile, resolveAdapter, resolveAdapterEntry } from './adapter.js';
 
-async function loadProfileInstallMap({ profile, rootDir }) {
+const isManagedInstruction = (strategy) => ['managed-block', 'managed-instruction-block'].includes(strategy);
+const isManagedToml = (strategy) => ['managed-mcp-block', 'managed-toml-block'].includes(strategy);
+
+async function loadProfileInstallMap({ adapterId = 'codex', profile, rootDir }) {
   const profiles = await readJson(path.join(rootDir, 'manifests/profiles.json'));
   validateCatalogManifest('profiles', profiles);
 
@@ -41,11 +47,19 @@ async function loadProfileInstallMap({ profile, rootDir }) {
     throw new Error(`Unknown profile: ${profile}`);
   }
 
-  const installMap = await readJson(path.join(rootDir, selectedProfile.installMap));
+  const adapter = await resolveAdapter(rootDir, adapterId);
+  assertAdapterProfile(adapter, profile);
+  const rawInstallMap = await readJson(path.join(rootDir, adapter.installMap));
   const knownGroups = new Set(profiles.items.flatMap((item) => item.groups));
-  validateInstallMapShape(installMap, knownGroups);
+  validateInstallMapShape(rawInstallMap, knownGroups);
+  const installMap = {
+    ...rawInstallMap,
+    adapter: adapter.id,
+    entries: rawInstallMap.entries.map((entry) => resolveAdapterEntry(adapter, entry)).filter(Boolean),
+    retiredEntries: (rawInstallMap.retiredEntries ?? []).map((entry) => resolveAdapterEntry(adapter, entry)).filter(Boolean),
+  };
 
-  return { installMap, selectedProfile };
+  return { adapter, installMap, selectedProfile };
 }
 
 async function packageVersion(rootDir) {
@@ -53,12 +67,16 @@ async function packageVersion(rootDir) {
   return pkg.version;
 }
 
-export function createInstalledSurface({ memoryPath = '.agents/memory', profile, targets }) {
+export function createInstalledSurface({ customModules = false, memoryPath = '.agents/memory', profile, targets }) {
   const installedTargets = targets.map((target) => target.replaceAll('\\', '/'));
   const hasTarget = (expectedTarget) => installedTargets.includes(expectedTarget);
   const hasPrefix = (prefix) => installedTargets.some((target) => target.startsWith(prefix));
-  const hasReviewLoop = hasTarget('.agents/skills/adversarial-review-packet/SKILL.md')
-    || hasTarget('.agents/skills/loop-planning/SKILL.md');
+  const hasSkill = (suffix) => installedTargets.some((target) => target.endsWith(`/skills/${suffix}`));
+  const skillRoots = [...new Set(installedTargets
+    .filter((target) => /^\.(?:agents|claude|gemini)\/skills\//u.test(target))
+    .map((target) => target.split('/skills/')[0] + '/skills'))];
+  const hasReviewLoop = hasSkill('adversarial-review-packet/SKILL.md')
+    || hasSkill('loop-planning/SKILL.md');
   const hasEngineeringRules = [
     'docs/rules/coding-rules.md',
     'docs/rules/frontend-rules.md',
@@ -72,7 +90,7 @@ export function createInstalledSurface({ memoryPath = '.agents/memory', profile,
     'docs/rules/pencil-rules.md',
     'docs/rules/troubleshooting.md',
   ].some(hasTarget);
-  const hasAgentMemorySkills = hasTarget('.agents/skills/agentmemory/SKILL.md');
+  const hasAgentMemorySkills = hasSkill('agentmemory/SKILL.md');
   const normalizedMemoryPath = memoryPath.replaceAll('\\', '/').replace(/\/+$/u, '');
   const hasLocalMemory = installedTargets.includes(`${normalizedMemoryPath}/README.md`);
   const profileLines = {
@@ -97,13 +115,15 @@ export function createInstalledSurface({ memoryPath = '.agents/memory', profile,
       ? `- agentmemory skills 位于 \`.agents/skills/\`${hasLocalMemory ? `，本地记忆库位于 \`${normalizedMemoryPath}/\`` : ''}。`
       : '',
     operationalRulesLine: hasOperationalRules ? '- 发布 / 设计 / 排障规则位于 `docs/rules/`。' : '',
-    profileLine: profileLines[profile] ?? `- 当前 profile: \`${profile}\`。`,
+    profileLine: customModules
+      ? '- 当前安装方式：自定义能力模块安装。'
+      : (profileLines[profile] ?? `- 当前 profile: \`${profile}\`。`),
     reviewLoopLine: hasReviewLoop ? '- 当前 profile 包含 review / loop 资产。' : '',
     rulesLine: hasPrefix('docs/rules/') ? '- 规则位于 `docs/rules/`。' : '',
-    skillRoutingLine: hasTarget('.agents/skills/using-loopengine/SKILL.md')
+    skillRoutingLine: hasSkill('using-loopengine/SKILL.md')
       ? '先使用 `using-loopengine` 选择最小 Skill 集；详细流程按任务信号加载。'
       : '当前 profile 未安装 Skills；仅按已安装规则和模板执行，不引用未安装的 skill。',
-    skillsLine: hasPrefix('.agents/skills/') ? '- Skills 位于 `.agents/skills/`。' : '',
+    skillsLine: skillRoots.length > 0 ? `- Skills 位于 ${skillRoots.map((root) => `\`${root}/\``).join('、')}。` : '',
     templatesLine: hasPrefix('docs/templates/') ? '- 模板位于 `docs/templates/`。' : '',
     toolingLine: hasTarget('.agents/loopengine/tools/codebase-memory-mcp/run.mjs')
       ? '- 项目内工具位于 `.agents/loopengine/tools/`；使用 `loopengine doctor --target <path>` 查看初始化状态。'
@@ -130,42 +150,53 @@ function shouldInstallEntry(entry, renderData) {
   return true;
 }
 
-function createManagedMcpServers(targetDir) {
+function createManagedMcpServers(targetDir, resolvedModules) {
   const codebaseTool = path.join(targetDir, '.agents/loopengine/tools/codebase-memory-mcp/run.mjs');
   const agentmemoryTool = path.join(targetDir, '.agents/loopengine/tools/agentmemory/run.mjs');
   const memoryHome = path.join(targetDir, '.loopengine/tool-state/agentmemory/home');
-  return {
-    agentmemory: {
+  const servers = {};
+  if (resolvedModules.includes('agentmemory')) servers.agentmemory = {
       args: [agentmemoryTool],
       command: process.execPath,
       env: { HOME: memoryHome, USERPROFILE: memoryHome },
-    },
-    'codebase-memory-mcp': {
+    };
+  if (resolvedModules.includes('codebase-memory')) servers['codebase-memory-mcp'] = {
       args: [codebaseTool],
       command: process.execPath,
       env: {
         CBM_ALLOWED_ROOT: targetDir,
         CBM_CACHE_DIR: path.join(targetDir, '.loopengine/tool-state/codebase-memory-mcp/cache'),
       },
-    },
-  };
+    };
+  return servers;
 }
 
 export async function createInstallPlan({
+  adapterId = 'codex',
   dryRun = true,
   force = false,
   managedAgentsBlock = false,
   profile = 'codex-internal',
+  requestedModules,
   renderData = {},
   rootDir,
   targetDir,
   upgrade = false,
 }) {
-  const { installMap, selectedProfile } = await loadProfileInstallMap({ profile, rootDir });
-  const allowedGroups = new Set(selectedProfile.groups);
+  const { adapter, installMap, selectedProfile } = await loadProfileInstallMap({ adapterId, profile, rootDir });
+  const moduleSelection = resolveModuleSelection({
+    profile,
+    profileGroups: selectedProfile.groups,
+    requestedModules,
+  });
+  const allowedGroups = moduleSelection.allowedGroups;
   const actions = [];
   const state = await readInstallState(path.resolve(targetDir));
+  if (state && state.adapter !== adapter.id) {
+    throw new Error(`Installed adapter ${state.adapter} does not match install target ${adapter.id}; uninstall the existing adapter first.`);
+  }
   const managed = new Map((state?.files ?? []).map((file) => [file.target, file]));
+  const baselinePlan = await createBaselinePlan({ baseline: state?.baseline, targetDir: path.resolve(targetDir) });
 
   for (const entry of installMap.entries) {
     if (!allowedGroups.has(entry.group)) {
@@ -183,25 +214,35 @@ export async function createInstallPlan({
     assertInsideDir(targetDir, target, 'install target');
     const relativeSource = entry.source.replaceAll('\\', '/');
     const relativeTarget = mappedTarget;
-    const contentStrategy = managedAgentsBlock && relativeTarget === 'AGENTS.md'
-      ? 'managed-block'
-      : (relativeTarget === '.codex/config.toml' ? 'managed-mcp-block' : 'replace');
+    const contentStrategy = entry.contentStrategy === 'managed-instruction-block'
+      ? (managedAgentsBlock && relativeTarget === adapter.instructionTarget ? entry.contentStrategy : 'replace')
+      : entry.contentStrategy;
     const exists = await pathExists(target);
     let kind = exists && !force ? 'conflict' : 'write';
     const managedFile = managed.get(relativeTarget);
 
-    if (contentStrategy === 'managed-block' || contentStrategy === 'managed-mcp-block') {
+    if (exists && managedFile && !force) {
+      let currentHash;
+      if (isManagedInstruction(contentStrategy)) {
+        const content = await readFile(target, 'utf8');
+        currentHash = createHash('sha256').update(extractManagedInstructionBlock(content) ?? '').digest('hex');
+      } else if (isManagedToml(contentStrategy)) {
+        const content = await readFile(target, 'utf8');
+        currentHash = createHash('sha256').update(extractManagedMcpBlock(content) ?? '').digest('hex');
+      } else {
+        currentHash = await hashFile(target);
+      }
+      const expectedHash = (isManagedInstruction(contentStrategy) || isManagedToml(contentStrategy))
+        ? managedFile.managedBlockHash
+        : managedFile.targetHash;
+      kind = currentHash === expectedHash ? 'write' : 'user-modified';
+    } else if (isManagedInstruction(contentStrategy) || isManagedToml(contentStrategy)) {
       kind = 'write';
     }
 
     if (upgrade) {
-      kind = 'write';
-      if (exists && managedFile && !force) {
-        const currentHash = await hashFile(target);
-        if (currentHash !== managedFile.targetHash) {
-          kind = 'user-modified';
-        }
-      } else if (exists && !managedFile && !force) {
+      if (!exists || force) kind = 'write';
+      else if (!managedFile) {
         kind = 'conflict';
       }
     }
@@ -211,7 +252,9 @@ export async function createInstallPlan({
       kind,
       contentStrategy,
       executable: Boolean(entry.executable),
-      mcpServers: contentStrategy === 'managed-mcp-block' ? createManagedMcpServers(path.resolve(targetDir)) : undefined,
+      mcpServers: isManagedToml(contentStrategy)
+        ? createManagedMcpServers(path.resolve(targetDir), moduleSelection.resolvedModules)
+        : undefined,
       redZone: Boolean(entry.redZone),
       relativeSource,
       relativeTarget,
@@ -249,6 +292,7 @@ export async function createInstallPlan({
   }
 
   const installedSurface = createInstalledSurface({
+    customModules: moduleSelection.requestedModules !== null,
     memoryPath: renderData.memory?.path,
     profile,
     targets: actions.map((action) => action.relativeTarget),
@@ -277,10 +321,16 @@ export async function createInstallPlan({
   }
 
   return {
+    adapter: adapter.id,
+    baselinePlan,
     dryRun,
     force,
     generatedDirectories,
+    implicitModules: moduleSelection.implicitModules,
+    instructionTarget: adapter.instructionTarget,
     profile,
+    requestedModules: moduleSelection.requestedModules,
+    resolvedModules: moduleSelection.resolvedModules,
     renderData: withDefaultTemplateData({
       ...renderData,
       installedSurface,
@@ -299,33 +349,34 @@ export async function renderSourceContent(action, renderData = {}) {
 }
 
 export async function renderActionContent(action, renderData = {}, existingContent = '') {
-  if (action.contentStrategy === 'managed-mcp-block') {
+  if (isManagedToml(action.contentStrategy)) {
     return mergeManagedMcpBlock(existingContent, action.mcpServers).content;
   }
   const rendered = await renderSourceContent(action, renderData);
-  if (action.contentStrategy === 'managed-block') {
-    return mergeManagedAgentsBlock(existingContent, rendered);
+  if (isManagedInstruction(action.contentStrategy)) {
+    return mergeManagedInstructionBlock(existingContent, rendered);
   }
   return rendered;
 }
 
-export async function previewInstallPlan(plan) {
+export async function previewInstallPlan(plan, { includeContent = true } = {}) {
   const previewFiles = [];
   for (const action of plan.actions) {
     if (action.kind !== 'write') {
       continue;
     }
-    const existingContent = ['managed-block', 'managed-mcp-block'].includes(action.contentStrategy) && await pathExists(action.target)
+    const existingContent = (isManagedInstruction(action.contentStrategy) || isManagedToml(action.contentStrategy)) && await pathExists(action.target)
       ? await readFile(action.target, 'utf8')
       : '';
-    const mergedMcp = action.contentStrategy === 'managed-mcp-block'
+    const mergedMcp = isManagedToml(action.contentStrategy)
       ? mergeManagedMcpBlock(existingContent, action.mcpServers)
       : null;
+    const content = mergedMcp?.content ?? await renderActionContent(action, plan.renderData, existingContent);
     previewFiles.push({
+      byteCount: Buffer.byteLength(content),
       conflicts: mergedMcp?.conflicts ?? [],
-      content: mergedMcp?.content ?? await renderActionContent(action, plan.renderData, existingContent),
-      group: action.group,
-      redZone: action.redZone,
+      contentHash: createHash('sha256').update(content).digest('hex').slice(0, 12),
+      ...(includeContent ? { content } : {}),
       target: action.relativeTarget,
     });
   }
@@ -333,19 +384,27 @@ export async function previewInstallPlan(plan) {
 }
 
 export async function diffTargetInstall({
+  adapterId = 'codex',
   managedAgentsBlock = false,
   profile = 'codex-internal',
+  requestedModules,
   renderData = {},
   rootDir,
   targetDir,
 }) {
-  const { installMap, selectedProfile } = await loadProfileInstallMap({ profile, rootDir });
-  const allowedGroups = new Set(selectedProfile.groups);
+  const { adapter, installMap, selectedProfile } = await loadProfileInstallMap({ adapterId, profile, rootDir });
+  const moduleSelection = resolveModuleSelection({
+    profile,
+    profileGroups: selectedProfile.groups,
+    requestedModules,
+  });
+  const allowedGroups = moduleSelection.allowedGroups;
   const selectedEntries = installMap.entries.filter((entry) => allowedGroups.has(entry.group) && shouldInstallEntry(entry, renderData));
   const installedTargets = selectedEntries.map((entry) => memoryTargetPath(renderData, entry.target));
   const renderedData = withDefaultTemplateData({
     ...renderData,
     installedSurface: createInstalledSurface({
+      customModules: moduleSelection.requestedModules !== null,
       memoryPath: renderData.memory?.path,
       profile,
       targets: installedTargets,
@@ -367,11 +426,13 @@ export async function diffTargetInstall({
     assertInsideDir(rootDir, source, 'install source');
     assertInsideDir(targetDir, target, 'install target');
     const item = {
-      contentStrategy: managedAgentsBlock && mappedTarget === 'AGENTS.md'
-        ? 'managed-block'
-        : (mappedTarget === '.codex/config.toml' ? 'managed-mcp-block' : 'replace'),
+      contentStrategy: entry.contentStrategy === 'managed-instruction-block'
+        ? (managedAgentsBlock && mappedTarget === adapter.instructionTarget ? entry.contentStrategy : 'replace')
+        : entry.contentStrategy,
       group: entry.group,
-      mcpServers: mappedTarget === '.codex/config.toml' ? createManagedMcpServers(path.resolve(targetDir)) : undefined,
+      mcpServers: mappedTarget === '.codex/config.toml'
+        ? createManagedMcpServers(path.resolve(targetDir), moduleSelection.resolvedModules)
+        : undefined,
       redZone: Boolean(entry.redZone),
       source,
       target: mappedTarget,
@@ -387,10 +448,13 @@ export async function diffTargetInstall({
         renderSourceContent(item, renderedData),
         readFile(target, 'utf8'),
       ]);
-      const matches = item.contentStrategy === 'managed-block'
-        ? extractManagedAgentsBlock(targetContent) === renderManagedAgentsBlock(sourceContent)
-        : item.contentStrategy === 'managed-mcp-block'
-          ? mergeManagedMcpBlock(targetContent, createManagedMcpServers(path.resolve(targetDir))).content === targetContent
+      const matches = isManagedInstruction(item.contentStrategy)
+        ? extractManagedInstructionBlock(targetContent) === renderManagedInstructionBlock(sourceContent)
+        : isManagedToml(item.contentStrategy)
+          ? mergeManagedMcpBlock(
+              targetContent,
+              createManagedMcpServers(path.resolve(targetDir), moduleSelection.resolvedModules),
+            ).content === targetContent
         : sourceContent === targetContent;
       if (!matches) {
         changed.push(item);
@@ -463,6 +527,7 @@ export async function applyInstallPlan(plan) {
   const mcpConflicts = [];
   const backupId = createBackupId();
   const previousState = await readInstallState(plan.targetDir);
+  const baseline = await applyBaselinePlan(plan.baselinePlan);
   const generatedFiles = [];
   for (const file of previousState?.generatedFiles ?? []) {
     assertPortableRelativePath(file.target, 'install-state generated file');
@@ -484,13 +549,13 @@ export async function applyInstallPlan(plan) {
     let backup = null;
     let previousHash = null;
     const existingContent = existed ? await readFile(action.target, 'utf8') : '';
-    if (existed && !['managed-block', 'managed-mcp-block'].includes(action.contentStrategy)) {
+    if (existed && !isManagedInstruction(action.contentStrategy) && !isManagedToml(action.contentStrategy)) {
       previousHash = await hashFile(action.target);
       backup = await backupFile({ backupId, target: action.target, targetDir: plan.targetDir });
     }
 
     await mkdir(path.dirname(action.target), { recursive: true });
-    const mergedMcp = action.contentStrategy === 'managed-mcp-block'
+    const mergedMcp = isManagedToml(action.contentStrategy)
       ? mergeManagedMcpBlock(existingContent, action.mcpServers)
       : null;
     if (mergedMcp) mcpConflicts.push(...mergedMcp.conflicts);
@@ -503,10 +568,14 @@ export async function applyInstallPlan(plan) {
       contentStrategy: action.contentStrategy,
       created: !existed,
       group: action.group,
-      managedBlockHash: action.contentStrategy === 'managed-mcp-block'
+      managedBlockHash: isManagedToml(action.contentStrategy)
         ? createHash('sha256').update(extractManagedMcpBlock(targetContent)).digest('hex')
-        : undefined,
+        : (isManagedInstruction(action.contentStrategy)
+            ? createHash('sha256').update(extractManagedInstructionBlock(targetContent) ?? '').digest('hex')
+            : undefined),
       previousHash,
+      originalBackup: backup,
+      originalCreated: !existed,
       redZone: Boolean(action.redZone),
       source: action.relativeSource,
       sourceHash: await hashFile(action.source),
@@ -551,15 +620,36 @@ export async function applyInstallPlan(plan) {
     });
   }
 
+  const retiredTargets = new Set(retiredFiles.map((file) => file.target));
+  const mergedFiles = new Map((previousState?.files ?? [])
+    .filter((file) => !retiredTargets.has(file.target))
+    .map((file) => [file.target, file]));
+  for (const file of files) {
+    const previous = mergedFiles.get(file.target);
+    mergedFiles.set(file.target, previous ? {
+      ...file,
+      originalBackup: Object.hasOwn(previous, 'originalBackup') ? previous.originalBackup : previous.backup,
+      originalCreated: previous.originalCreated ?? previous.created,
+    } : file);
+  }
+  const generatedDirectories = [...new Map([
+    ...(previousState?.generatedDirectories ?? []),
+    ...plan.generatedDirectories,
+  ].map((item) => [item.target, item])).values()];
   await writeInstallState(plan.targetDir, {
-    files,
-    generatedDirectories: plan.generatedDirectories,
+    adapter: plan.adapter,
+    baseline,
+    files: [...mergedFiles.values()],
+    generatedDirectories,
     generatedFiles,
     installedAt: new Date().toISOString(),
     profile: plan.profile,
+    requestedModules: plan.requestedModules,
+    resolvedModules: plan.resolvedModules,
     retiredFiles,
+    stateVersion: 2,
     version: plan.version,
   });
 
-  return { mcpConflicts: [...new Set(mcpConflicts)], retired, skipped, written };
+  return { baseline, mcpConflicts: [...new Set(mcpConflicts)], retired, skipped, written };
 }

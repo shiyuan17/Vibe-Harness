@@ -3,7 +3,6 @@
   "items": [
     { "id": "governance-core", "source": "rules/governance-core.md" },
     { "id": "agent-skill-routing", "source": "rules/agent-skill-routing.md" },
-    { "id": "agent-collaboration", "source": "rules/agent-collaboration.md" },
     { "id": "codebase-memory-mcp", "source": "rules/codebase-memory-mcp.md" },
     { "id": "git-rules", "source": "rules/git-rules.md" },
     { "id": "test-rules", "source": "rules/test-rules.md" },

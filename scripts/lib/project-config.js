@@ -3,9 +3,10 @@ import path from 'node:path';
 
 import { pathExists } from './manifest.js';
 import { renderTemplate } from './template-renderer.js';
+import { resolveModuleSelection } from './module-selection.js';
 
-export const mvpProfiles = new Set(['minimal', 'core', 'full']);
-export const mvpTargets = new Set(['codex']);
+export const mvpProfiles = new Set(['minimal', 'core', 'full', 'docs-only']);
+export const mvpTargets = new Set(['codex', 'claude', 'gemini']);
 
 export const defaultProjectConfig = {
   projectName: 'ExampleProject',
@@ -60,22 +61,24 @@ export function profileToCatalogProfile(profile) {
   return profile;
 }
 
-export function createDefaultProjectConfig(projectDir) {
+export function createDefaultProjectConfig(projectDir, target = 'codex') {
   return {
     ...defaultProjectConfig,
     projectName: path.basename(path.resolve(projectDir)),
+    target,
   };
 }
 
-export async function writeDefaultProjectConfig({ force = false, projectDir }) {
-  const target = path.join(projectDir, 'loopengine.config.json');
-  if (!force && await pathExists(target)) {
-    throw new Error(`Refusing to overwrite existing config: ${target}`);
+export async function writeDefaultProjectConfig({ force = false, projectDir, target = 'codex' }) {
+  const configPath = path.join(projectDir, 'loopengine.config.json');
+  if (!force && await pathExists(configPath)) {
+    throw new Error(`Refusing to overwrite existing config: ${configPath}`);
   }
   await mkdir(projectDir, { recursive: true });
-  const config = createDefaultProjectConfig(projectDir);
-  await writeFile(target, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
-  return { config, path: target };
+  if (!mvpTargets.has(target)) throw new Error(`Unknown target: ${target}`);
+  const config = createDefaultProjectConfig(projectDir, target);
+  await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+  return { config, path: configPath };
 }
 
 export async function readProjectConfig(projectDir) {
@@ -153,6 +156,9 @@ export function validateProjectConfig(config) {
   if (!mvpProfiles.has(config.profile)) {
     throw new Error(`Unknown profile: ${config.profile}`);
   }
+  if (Object.hasOwn(config, 'modules')) {
+    resolveModuleSelection({ requestedModules: config.modules });
+  }
   assertObject(config.validationCommands, 'validationCommands');
   assertOptionalCommand(config.validationCommands.lint, 'validationCommands.lint');
   assertOptionalCommand(config.validationCommands.typecheck, 'validationCommands.typecheck');
@@ -204,7 +210,7 @@ function hasInstalledSurface(installedTargets, { exact, prefix }) {
 
 export function validateGeneratedContent(content, { installedTargets } = {}) {
   const requiredFragments = [
-    'git status --short',
+    '编辑前',
     '红区',
     '人工确认',
     '验证证据',

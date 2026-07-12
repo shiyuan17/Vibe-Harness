@@ -27,7 +27,12 @@ test('LoopEngine removes the CodeGraph CLI integration and doctor report', async
     const help = await execFileAsync(process.execPath, [cliPath, 'help']);
     assert.equal(help.stdout.toLowerCase().includes('codegraph'), false);
 
-    const doctor = await execFileAsync(process.execPath, [cliPath, 'doctor', '--target', target]);
+    let doctor;
+    try {
+      doctor = await execFileAsync(process.execPath, [cliPath, 'doctor', '--target', target]);
+    } catch (error) {
+      doctor = error;
+    }
     const report = JSON.parse(doctor.stdout);
     assert.equal(Object.hasOwn(report, 'codegraph'), false);
     assert.equal(await exists(path.join(rootDir, 'scripts/lib/codegraph.js')), false);
@@ -54,8 +59,8 @@ test('codebase-memory-mcp rule uses MCP tools and a repository-search fallback w
     assert.equal(await exists(path.join(rootDir, 'rules/codegraph.md')), false);
 
     await execFileAsync(process.execPath, [cliPath, 'init', '--project', target]);
-    const core = await execFileAsync(process.execPath, [cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'core', '--dry-run']);
-    const full = await execFileAsync(process.execPath, [cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'full', '--dry-run']);
+    const core = await execFileAsync(process.execPath, [cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'core', '--dry-run', '--verbose']);
+    const full = await execFileAsync(process.execPath, [cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'full', '--dry-run', '--verbose']);
     const coreAgents = JSON.parse(core.stdout).previewFiles.find((file) => file.target === 'AGENTS.md').content;
     const fullAgents = JSON.parse(full.stdout).previewFiles.find((file) => file.target === 'AGENTS.md').content;
 

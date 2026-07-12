@@ -41,7 +41,7 @@ test('core and full install routed skills and full adds memory, mcp, and hooks',
       assert.equal(targets.has('docs/schemas/full-task-control.schema.json'), true);
       assert.equal(targets.has('.agents/loopengine/governance/lib/task-validation.mjs'), true);
     }
-    assert.equal(coreTargets.has('.agents/skills/adversarial-review-packet/SKILL.md'), true);
+    assert.equal(coreTargets.has('.agents/skills/adversarial-review-packet/SKILL.md'), false);
     assert.equal(coreTargets.has('docs/rules/codebase-memory-mcp.md'), false);
     assert.equal(coreTargets.has('.agents/skills/agentmemory/SKILL.md'), false);
     assert.equal(coreTargets.has('.codex/hooks.json'), false);

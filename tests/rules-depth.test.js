@@ -27,7 +27,11 @@ test('profiles install minimal, common, and full surfaces at intended tiers', as
   assert.equal([...minimal].some((item) => item.startsWith('.agents/skills/')), false);
   assert.equal(core.has('docs/rules/coding-rules.md'), true);
   assert.equal(core.has('.agents/skills/using-loopengine/SKILL.md'), true);
-  assert.equal(core.has('.agents/skills/adversarial-review-packet/SKILL.md'), true);
+  assert.equal(core.has('.agents/skills/adversarial-review-packet/SKILL.md'), false);
+  assert.equal(core.has('.agents/skills/loop-planning/SKILL.md'), false);
+  assert.equal(core.has('docs/rules/release-rules.md'), false);
+  assert.equal(core.has('docs/rules/db-rules.md'), false);
+  assert.equal(core.has('docs/rules/pencil-rules.md'), false);
   assert.equal(core.has('docs/rules/codebase-memory-mcp.md'), false);
   assert.equal(core.has('.agents/skills/agentmemory/SKILL.md'), false);
   assert.equal(core.has('.codex/hooks.json'), false);
@@ -59,6 +63,12 @@ test('rules absorb pruned thin skill guidance', async () => {
 
   assert.match(coding, /characterization test/u);
   assert.match(git, /验证只来自临时 worktree/u);
+  assert.match(git, /`<type>\(<scope>\): <中文描述>`/u);
+  assert.match(git, /类型前缀和可选 scope 保持英文/u);
+  assert.match(git, /主题、正文和人工编写的说明使用中文/u);
+  assert.match(git, /`feat: 增加项目基线快照`/u);
+  assert.match(git, /`feat: add project baseline snapshots`[^\n]*不符合/u);
+  assert.match(git, /Git 自动生成且无需人工编辑的 merge 或 revert 信息不受此限制/u);
   assert.match(projectDirectory, /ADR/u);
   assert.match(frontend, /品牌展示|产品界面/u);
   assert.match(release, /本 skill 不维护第二套发布规则|规则是真值/u);
@@ -68,9 +78,26 @@ test('rules absorb pruned thin skill guidance', async () => {
 test('reusable assets do not leak source project terms', async () => {
   const leaks = await scanForForbiddenTerms({
     forbiddenTerms: ['SYBaseProjectWeb', 'SYBaseProject', 'D:\\Github\\JW', 'T-019', '患者', '病理'],
-    includeDirs: ['rules', 'templates', 'skills/core', 'skills/integrations', 'memory', 'adapters/codex', 'manifests', 'schemas'],
+    includeDirs: ['rules', 'templates', 'skills/core', 'skills/integrations', 'memory', 'adapters/codex', 'adapters/claude', 'adapters/gemini', 'manifests', 'schemas'],
     rootDir,
   });
   assert.deepEqual(leaks, []);
   assert.equal((await readJson(path.join(rootDir, 'manifests/profiles.json'))).items.length >= 3, true);
+});
+
+test('governance rules use deterministic precedence and expose no retired collaboration rule', async () => {
+  const manifests = await loadAllManifests(rootDir);
+  const reusableFiles = [
+    'adapters/codex/AGENTS.template.md',
+    'rules/ai-collab-rules.md',
+    'rules/project-specific-rules.md',
+  ];
+  const contents = await Promise.all(reusableFiles.map((file) => readFile(path.join(rootDir, file), 'utf8')));
+
+  assert.equal(manifests.rules.items.some((item) => item.id === 'agent-collaboration'), false);
+  for (const content of contents) {
+    assert.doesNotMatch(content, /更严格(?:的本地)?规则/u);
+  }
+  assert.match(contents[0], /同一层级.*停止.*确认/u);
+  assert.match(contents[1], /平台系统指令/u);
 });

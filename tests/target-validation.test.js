@@ -53,6 +53,7 @@ test('CLI validate --target passes after a real install and reports Chinese temp
       'codex-internal',
       '--apply',
       '--confirm-red-zone',
+      '--allow-degraded',
     ]);
 
     const { stdout } = await execFileAsync(process.execPath, [
@@ -62,12 +63,14 @@ test('CLI validate --target passes after a real install and reports Chinese temp
       target,
       '--profile',
       'codex-internal',
+      '--allow-degraded',
     ]);
 
     const report = JSON.parse(stdout);
     const taskTemplate = await readFile(path.join(target, 'docs/templates/task.md'), 'utf8');
 
-    assert.equal(report.ok, true);
+    assert.equal(report.ok, false);
+    assert.equal(report.status, 'degraded');
     assert.deepEqual(report.missing, []);
     assert.equal(taskTemplate.includes('工作流档位'), true);
     assert.equal(taskTemplate.includes('当前阶段'), true);

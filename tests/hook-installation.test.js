@@ -57,8 +57,12 @@ test('doctor reports Git hook activation without modifying local Git config', as
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-hook-doctor-'));
   try {
     await execFileAsync('git', ['init'], { cwd: target });
+    await execFileAsync(process.execPath, [cliPath, 'init', '--project', target, '--target', 'codex']);
+    await execFileAsync(process.execPath, [
+      cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'minimal', '--write',
+    ]);
     const doctor = async () => JSON.parse((await execFileAsync(process.execPath, [
-      cliPath, 'doctor', '--target', target, '--profile', 'codex-minimal',
+      cliPath, 'doctor', '--target', target, '--profile', 'minimal',
     ])).stdout);
 
     const inactive = await doctor();

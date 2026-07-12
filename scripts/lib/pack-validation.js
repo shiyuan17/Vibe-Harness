@@ -15,9 +15,10 @@ import {
   validateManifestSources,
 } from './manifest.js';
 import { scanForForbiddenTerms } from './redaction.js';
+import { resolveAdapterEntry } from './adapter.js';
 
 const forbiddenTerms = ['SYBaseProjectWeb', 'SYBaseProject', 'D:\\Github\\JW', 'T-019', 'T-024', '患者', '病理', '医疗'];
-const redactionDirs = ['rules', 'templates', 'skills/core', 'skills/integrations', 'memory', 'runtime', 'adapters/codex', 'manifests', 'schemas'];
+const redactionDirs = ['rules', 'templates', 'skills/core', 'skills/integrations', 'memory', 'runtime', 'adapters/codex', 'adapters/claude', 'adapters/gemini', 'manifests', 'schemas'];
 
 async function collectEmptyDirs(dir, rootDir, results = []) {
   if (!(await pathExists(dir))) {
@@ -377,6 +378,9 @@ export async function validateGovernanceQuality(rootDir) {
       const file = path.join(entry.parentPath ?? entry.path, entry.name);
       const relative = path.relative(rootDir, file).replaceAll('\\', '/');
       const content = await readFile(file, 'utf8');
+      if (/更严格(?:的本地)?规则/u.test(content)) {
+        errors.push(`${relative} uses ambiguous stricter-rule precedence`);
+      }
       for (const paragraph of content.replace(/```[\s\S]*?```/gu, '').split(/(?:\r?\n){2,}/u)) {
         const normalized = paragraph.replace(/\s+/gu, ' ').trim();
         if (normalized.length < 240) continue;
@@ -496,11 +500,18 @@ export async function validatePack(rootDir) {
   const knownGroups = new Set(manifests.profiles.items.flatMap((item) => item.groups));
   const installMapMissing = [];
   const installedSources = new Set();
-  for (const profile of manifests.profiles.items) {
-    const installMap = await readJson(path.join(rootDir, profile.installMap));
-    schemaErrors.push(...validateJsonAgainstSchema(installMap, installMapSchema, profile.installMap));
+  const installMaps = new Map();
+  for (const adapter of manifests.adapters.items) {
+    let installMap = installMaps.get(adapter.installMap);
+    if (!installMap) {
+      installMap = await readJson(path.join(rootDir, adapter.installMap));
+      installMaps.set(adapter.installMap, installMap);
+      schemaErrors.push(...validateJsonAgainstSchema(installMap, installMapSchema, adapter.installMap));
+    }
     validateInstallMapShape(installMap, knownGroups);
-    for (const entry of installMap.entries) {
+    for (const rawEntry of installMap.entries) {
+      const entry = resolveAdapterEntry(adapter, rawEntry);
+      if (!entry) continue;
       installedSources.add(entry.source);
       assertPortableRelativePath(entry.source, 'install-map source');
       const sourcePath = path.join(rootDir, entry.source);
@@ -518,7 +529,7 @@ export async function validatePack(rootDir) {
     .sort();
   const invalidSkillDirs = await findInvalidSkillDirs(rootDir);
   const skillMetadataErrors = await validateSkillMetadataQuality(rootDir, manifests.skills.items);
-  const installEntries = (await readJson(path.join(rootDir, manifests.profiles.items[0].installMap))).entries;
+  const installEntries = [...installMaps.values()][0].entries;
   const skillGraphErrors = await validateSkillGraph(rootDir, manifests.skills.items, manifests.profiles.items, {
     installEntries,
   });

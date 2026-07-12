@@ -9,11 +9,12 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["group", "source", "target"],
+        "required": ["group", "source", "target", "contentStrategy"],
         "properties": {
           "group": { "type": "string", "minLength": 1 },
           "source": { "type": "string", "minLength": 1 },
           "target": { "type": "string", "minLength": 1 },
+          "contentStrategy": { "type": "string", "enum": ["managed-instruction-block", "managed-toml-block", "replace"] },
           "executable": { "type": "boolean" },
           "redZone": { "type": "boolean" }
         },

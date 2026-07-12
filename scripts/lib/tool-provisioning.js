@@ -47,7 +47,22 @@ function resolveToolSpec(spec, targetDir, mode = 'eager') {
   return { ...spec, mode, toolDir };
 }
 
-export function createToolProvisioningPlan({ profile, targetDir }) {
+export function createToolProvisioningPlan({ profile, resolvedModules, targetDir }) {
+  if (Array.isArray(resolvedModules)) {
+    const moduleByTool = new Map([
+      ['codebaseMemoryMcp', 'codebase-memory'],
+      ['playwrightCli', 'playwright'],
+      ['openCodeReview', 'open-code-review'],
+      ['agentmemory', 'agentmemory'],
+    ]);
+    return toolSpecs
+      .filter((spec) => resolvedModules.includes(moduleByTool.get(spec.id)))
+      .map((spec) => resolveToolSpec(
+        spec,
+        targetDir,
+        spec.id === 'playwrightCli' && profile === 'core' ? 'lazy' : 'eager',
+      ));
+  }
   if (profile === 'core') {
     return [resolveToolSpec(toolSpecs[1], targetDir, 'lazy')];
   }
@@ -174,6 +189,13 @@ async function defaultCommandRunner({ args, command, cwd, env, timeout = 120_000
   });
 }
 
+function boundedTimeout(env, fallback) {
+  const timeoutLimit = Number.parseInt(env.LOOPENGINE_TOOL_TIMEOUT_MS ?? '', 10);
+  return Number.isInteger(timeoutLimit) && timeoutLimit >= 1000
+    ? Math.min(fallback, timeoutLimit)
+    : fallback;
+}
+
 async function npmInvocation(args) {
   if (process.platform !== 'win32') return { args, command: 'npm' };
   const candidates = [
@@ -274,7 +296,7 @@ async function phaseRequest(spec, phase, targetDir, env) {
   };
 }
 
-async function runMcpHandshake(request) {
+export async function runMcpHandshake(request) {
   await new Promise((resolve, reject) => {
     const child = spawn(request.command, request.args, {
       cwd: request.cwd,
@@ -296,6 +318,7 @@ async function runMcpHandshake(request) {
     };
     const timer = setTimeout(() => finish(Object.assign(new Error('MCP handshake timed out.'), { code: 'MCP_HANDSHAKE_TIMEOUT' })), request.timeout);
     child.once('error', () => finish(Object.assign(new Error('MCP process failed to start.'), { code: 'MCP_START_FAILED' })));
+    child.stdin.once('error', () => finish(Object.assign(new Error('MCP process closed stdin during handshake.'), { code: 'MCP_STDIN_FAILED' })));
     child.once('exit', (code) => {
       if (!settled) finish(Object.assign(new Error('MCP process exited before handshake.'), { code: code === 0 ? 'MCP_EARLY_EXIT' : 'MCP_START_FAILED' }));
     });
@@ -351,6 +374,7 @@ async function runToolPhases(spec, commandRunner, env, targetDir) {
       return { phase: 'llm-config', status: 'pending-config', version: spec.version };
     }
     const request = await phaseRequest(spec, phase, targetDir, env);
+    request.timeout = boundedTimeout(env, request.timeout);
     try {
       await commandRunner(request);
     } catch (error) {
@@ -385,8 +409,11 @@ async function writeToolState(targetDir, tools, fingerprints) {
   await writeFile(statePath, `${JSON.stringify({ fingerprints, tools, updatedAt: new Date().toISOString() }, null, 2)}\n`, 'utf8');
 }
 
-export async function provisionProfileTools({ commandRunner, env = process.env, mcpConflicts = [], profile, targetDir }) {
-  const plan = createToolProvisioningPlan({ profile, targetDir });
+export async function provisionProfileTools({ commandRunner, env = process.env, mcpConflicts = [], profile, resolvedModules, targetDir }) {
+  const plan = createToolProvisioningPlan({ profile, resolvedModules, targetDir });
+  const effectiveCommandRunner = commandRunner ?? (env.LOOPENGINE_TEST_OFFLINE === '1'
+    ? async () => { throw Object.assign(new Error('Offline test fixture.'), { code: 'TOOL_TEST_OFFLINE' }); }
+    : null);
   const previous = await readToolState(targetDir);
   const tools = {};
   const fingerprints = {};
@@ -411,10 +438,17 @@ export async function provisionProfileTools({ commandRunner, env = process.env, 
       continue;
     }
     try {
-      if (commandRunner) {
-        tools[spec.id] = await runToolPhases(spec, commandRunner, env, targetDir);
+      if (effectiveCommandRunner) {
+        tools[spec.id] = await runToolPhases(spec, effectiveCommandRunner, env, targetDir);
       } else if (spec.id === 'playwrightCli') {
-        const result = await preparePlaywrightTool({ targetDir, toolDir: spec.toolDir });
+        const runCommand = async (command, args, options) => defaultCommandRunner({
+          args,
+          command,
+          cwd: options.cwd,
+          env: options.env,
+          timeout: boundedTimeout(env, 600_000),
+        });
+        const result = await preparePlaywrightTool({ runCommand, targetDir, toolDir: spec.toolDir });
         tools[spec.id] = result.status === 'ready' ? ready(spec) : { phase: 'browser-install', status: 'degraded', version: spec.version };
       } else {
         tools[spec.id] = await runToolPhases(spec, defaultPhaseRunner, env, targetDir);
@@ -438,7 +472,7 @@ export async function provisionProfileTools({ commandRunner, env = process.env, 
   return tools;
 }
 
-export async function inspectProfileTools(profile, targetDir) {
+export async function inspectProfileTools(profile, targetDir, resolvedModules) {
   const statePath = path.resolve(targetDir, stateRelativePath);
   assertInsideDir(targetDir, statePath, 'tool state');
   if (await pathExists(statePath)) {
@@ -446,7 +480,7 @@ export async function inspectProfileTools(profile, targetDir) {
     return state?.tools ?? {};
   }
   const tools = {};
-  for (const spec of createToolProvisioningPlan({ profile, targetDir })) {
+  for (const spec of createToolProvisioningPlan({ profile, resolvedModules, targetDir })) {
     if (spec.id === 'playwrightCli') {
       const inspected = await inspectPlaywrightTool({ targetDir, toolDir: spec.toolDir });
       tools[spec.id] = {

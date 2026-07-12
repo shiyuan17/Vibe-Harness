@@ -4,7 +4,14 @@ import { fileURLToPath } from 'node:url';
 
 import { inspectValidationCommands } from './lib/command-status.js';
 import { inspectGitHooks } from './lib/git-hooks.js';
-import { applyRollbackPlan, createRollbackPlan, registerGeneratedFile } from './lib/install-state.js';
+import {
+  applyRollbackPlan,
+  applyUninstallPlan,
+  createRollbackPlan,
+  createUninstallPlan,
+  readInstallState,
+  registerGeneratedFile,
+} from './lib/install-state.js';
 import { readJson } from './lib/manifest.js';
 import {
   applyInstallPlan,
@@ -26,6 +33,8 @@ import {
   writeDefaultProjectConfig,
 } from './lib/project-config.js';
 import { collectProjectBaselineInputs, createProjectBaseline } from './lib/project-baseline.js';
+import { parseModulesOption } from './lib/module-selection.js';
+import { resolveAdapter } from './lib/adapter.js';
 import { readFile } from 'node:fs/promises';
 import {
   createToolProvisioningPlan,
@@ -35,6 +44,78 @@ import {
 } from './lib/tool-provisioning.js';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+function requiredToolsDegraded(profile, tools = {}) {
+  return ['full', 'codex-internal'].includes(profile)
+    && Object.values(tools).some((tool) => tool.status !== 'ready');
+}
+
+function healthReport({ baseOk = true, profile, tools = {} }) {
+  if (!baseOk) return { ok: false, status: 'invalid' };
+  if (requiredToolsDegraded(profile, tools)) return { ok: false, status: 'degraded' };
+  return { ok: true, status: 'ready' };
+}
+
+function applyHealthExit(status, args) {
+  if (status === 'invalid') process.exitCode = 1;
+  if (status === 'degraded' && !args['allow-degraded']) process.exitCode = 2;
+}
+
+function compactAction(action) {
+  return {
+    ...(action.kind === 'write' ? {} : { kind: action.kind }),
+    ...(action.contentStrategy === 'replace' ? {} : { contentStrategy: action.contentStrategy }),
+    ...(action.redZone ? { redZone: true } : {}),
+    relativeTarget: action.relativeTarget,
+  };
+}
+
+function normalizeReport(report) {
+  const status = report.status ?? (report.ok === false ? 'invalid' : 'ready');
+  return {
+    ...report,
+    ok: status === 'ready' && report.ok !== false,
+    status,
+    warnings: report.warnings ?? [],
+    recommendations: report.recommendations ?? [],
+  };
+}
+
+function compactTargetReport(report) {
+  if (!report) return report;
+  return {
+    ok: report.ok,
+    profile: report.profile,
+    redZone: (report.redZone ?? []).map(({ status, target }) => ({ status, target })),
+    summary: report.summary ? {
+      changedCount: report.summary.changedCount,
+      missingCount: report.summary.missingCount,
+      sameCount: report.summary.sameCount,
+      unmanagedCount: report.summary.unmanagedCount,
+      samples: Object.fromEntries(Object.entries(report.summary.samples ?? {}).map(
+        ([name, items]) => [name, items.map(({ target }) => ({ target }))],
+      )),
+    } : undefined,
+  };
+}
+
+function emitReport(report, args, { error = false } = {}) {
+  const normalized = normalizeReport(report);
+  const output = args.output ?? 'json';
+  if (!['json', 'summary'].includes(output)) throw new Error(`Unknown output format: ${output}`);
+  if (output === 'summary') {
+    const lines = [
+      `status: ${normalized.status}`,
+      ...(normalized.profile ? [`profile: ${normalized.profile}`] : []),
+      ...(typeof normalized.target === 'string' ? [`target: ${normalized.target}`] : []),
+      ...(normalized.dryRun !== undefined ? [`dryRun: ${normalized.dryRun}`] : []),
+      `warnings: ${normalized.warnings.length}`,
+    ];
+    (error ? console.error : console.log)(lines.join('\n'));
+    return;
+  }
+  (error ? console.error : console.log)(JSON.stringify(normalized, null, args.verbose ? 2 : 0));
+}
 
 function parseArgs(argv) {
   const args = { _: [] };
@@ -56,11 +137,17 @@ function parseArgs(argv) {
   return args;
 }
 
+async function projectRequestedModules(config, targetDir) {
+  if (config.modules) return config.modules;
+  return (await readInstallState(targetDir))?.requestedModules ?? undefined;
+}
+
 async function init(args) {
   const projectDir = path.resolve(args.project ?? process.cwd());
   const result = await writeDefaultProjectConfig({
     force: Boolean(args.force),
     projectDir,
+    target: args.target ?? 'codex',
   });
   console.log(JSON.stringify({
     config: result.config,
@@ -71,17 +158,21 @@ async function init(args) {
 
 async function install(args) {
   const isMvpMode = Boolean(args.project);
+  if (!isMvpMode && ['claude', 'gemini'].includes(args.target)) {
+    throw new Error('Legacy/internal install is Codex-only; use --project <path> --target <claude|gemini> for MVP adapters.');
+  }
   const writeRequested = Boolean(args.write || args.apply);
   const dryRunRequested = Boolean(args['dry-run']) || !writeRequested;
   if ((args.apply || args.write) && args['dry-run']) {
     throw new Error('Use --write/--apply or --dry-run, not both.');
   }
-  if (isMvpMode && args.target && args.target !== 'codex') {
-    throw new Error(`Unknown target: ${args.target}`);
-  }
-
   const targetDir = isMvpMode ? path.resolve(args.project) : path.resolve(args.target ?? process.cwd());
   const config = isMvpMode ? await readRequiredProjectConfig(targetDir) : null;
+  const adapterId = isMvpMode ? (args.target ?? config.target) : 'codex';
+  if (config && args.target && args.target !== config.target) {
+    throw new Error(`CLI target ${args.target} does not match loopengine.config.json target ${config.target}.`);
+  }
+  const adapter = await resolveAdapter(rootDir, adapterId);
   const profile = args.profile ?? config?.profile ?? 'codex-internal';
   const projectProfile = config ? await detectProjectProfile({ config, targetDir }) : null;
   const governanceMode = config ? resolveGovernanceMode(config, profile) : undefined;
@@ -100,112 +191,144 @@ async function install(args) {
   if (config) {
     validateProjectConfig({ ...config, profile, target: args.target ?? config.target });
   }
+  const requestedModules = args.modules !== undefined
+    ? parseModulesOption(args.modules)
+    : config?.modules;
 
   const plan = await createInstallPlan({
+    adapterId,
     dryRun: dryRunRequested,
     force: Boolean(args.force),
     managedAgentsBlock: isMvpMode,
     profile,
+    requestedModules,
     renderData,
     rootDir,
     targetDir,
     upgrade: Boolean(args.upgrade),
   });
   if (config) {
-    const agentsTemplate = await readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8');
+    const agentsTemplate = await readFile(path.join(rootDir, `adapters/${adapter.id}/${path.basename(adapter.instructionTarget, '.md')}.template.md`), 'utf8');
     const installedTargets = plan.actions.map((action) => action.relativeTarget);
-    validateConfigAndGeneratedContent(
-      { ...config, profile, target: args.target ?? config.target },
-      agentsTemplate,
-      { installedTargets },
-    );
     validateConfigAndGeneratedContent(plan.renderData, agentsTemplate, { installedTargets });
   }
   plan.redZoneConfirmed = Boolean(args['confirm-red-zone']);
   const result = await applyInstallPlan(plan);
-  const previewFiles = plan.dryRun ? await previewInstallPlan(plan) : [];
-  const plannedToolActions = createToolProvisioningPlan({ profile, targetDir }).map(({ id, mode, phases, version }) => ({
+  const previewFiles = plan.dryRun ? await previewInstallPlan(plan, { includeContent: Boolean(args.verbose) }) : [];
+  const plannedToolActions = createToolProvisioningPlan({
+    profile,
+    resolvedModules: plan.resolvedModules,
+    targetDir,
+  }).map(({ id, mode, phases, version }) => ({
     id,
     mode,
     phases,
     version,
   }));
   const tools = plan.dryRun
-    ? await inspectProfileTools(profile, targetDir)
-    : await provisionProfileTools({ mcpConflicts: result.mcpConflicts, profile, targetDir });
+    ? await inspectProfileTools(profile, targetDir, plan.resolvedModules)
+    : await provisionProfileTools({
+        mcpConflicts: result.mcpConflicts,
+        profile,
+        resolvedModules: plan.resolvedModules,
+        targetDir,
+      });
   if (!plan.dryRun && plannedToolActions.length > 0) {
     await registerGeneratedFile(targetDir, '.loopengine/tool-state/tools.json');
   }
-  console.log(JSON.stringify({
-    actions: plan.actions,
+  const health = plan.dryRun ? { ok: true, status: 'ready' } : healthReport({ profile, tools });
+  emitReport({
+    ...health,
+    actions: args.verbose ? plan.actions : plan.actions.map(compactAction),
+    backupActions: plan.baselinePlan.actions,
+    baselineId: result.baseline?.id ?? plan.baselinePlan.baselineId,
     dryRun: plan.dryRun,
     governanceMode,
+    implicitModules: plan.implicitModules,
     plannedToolActions,
     previewFiles,
     profile: plan.profile,
-    target: isMvpMode ? (args.target ?? config.target) : undefined,
-    targetDir: plan.targetDir,
+    requestedModules: plan.requestedModules,
+    resolvedModules: plan.resolvedModules,
+    target: isMvpMode ? adapterId : undefined,
+    ...(args.verbose ? { targetDir: plan.targetDir } : {}),
     tools,
+    recommendations: toolRecommendations(tools, profile, { adapterId, mvp: isMvpMode }),
     warnings: toolWarnings(tools),
     retired: result.retired,
     skipped: result.skipped,
     written: result.written,
-  }, null, 2));
+  }, args);
+  applyHealthExit(health.status, args);
 }
 
 async function validate(args) {
   if (args.project) {
     const targetDir = path.resolve(args.project);
     const config = await readRequiredProjectConfig(targetDir);
+    const requestedModules = await projectRequestedModules(config, targetDir);
     validateProjectConfig(config);
+    const adapter = await resolveAdapter(rootDir, config.target);
     const projectProfile = await detectProjectProfile({ config, targetDir });
     const governanceMode = resolveGovernanceMode(config, config.profile);
     validateGovernanceModeForProfile(governanceMode, config.profile);
     const validationCommands = resolveValidationCommands(config, projectProfile, governanceMode);
     const plan = await createInstallPlan({
+      adapterId: adapter.id,
       dryRun: true,
       force: true,
       managedAgentsBlock: true,
       profile: config.profile,
+      requestedModules,
       renderData: { ...config, governance: { mode: governanceMode }, projectProfile, validationCommands },
       rootDir,
       targetDir,
     });
-    const agentsTemplate = await readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8');
+    const agentsTemplate = await readFile(path.join(rootDir, `adapters/${adapter.id}/${path.basename(adapter.instructionTarget, '.md')}.template.md`), 'utf8');
     const installedTargets = plan.actions.map((action) => action.relativeTarget);
     validateConfigAndGeneratedContent({ ...config, governance: { mode: governanceMode }, projectProfile, validationCommands }, agentsTemplate, { installedTargets });
     validateConfigAndGeneratedContent(plan.renderData, agentsTemplate, { installedTargets });
     const target = await inspectTargetInstall({
+      adapterId: adapter.id,
       managedAgentsBlock: true,
       profile: config.profile,
+      requestedModules,
       renderData: { ...config, governance: { mode: governanceMode }, projectProfile, validationCommands },
       rootDir,
       targetDir,
     });
     if (!target.ok) {
-      console.error(JSON.stringify({ ok: false, scope: 'project', targetDir, target }, null, 2));
-      process.exitCode = 1;
+      emitReport({
+        ok: false,
+        scope: 'project',
+        ...(args.verbose ? { targetDir } : {}),
+        target: args.verbose ? target : compactTargetReport(target),
+      }, args, { error: true });
+      applyHealthExit('invalid', args);
       return;
     }
     const pack = await validatePack(rootDir);
     if (!pack.ok) {
-      console.error(JSON.stringify(pack, null, 2));
-      process.exitCode = 1;
+      emitReport({ ...pack, status: 'invalid' }, args, { error: true });
+      applyHealthExit('invalid', args);
       return;
     }
     const commandStatus = await inspectValidationCommands({
       commands: validationCommands,
       targetDir,
     });
-    const tools = await inspectProfileTools(config.profile, targetDir);
-    console.log(JSON.stringify({
+    const tools = await inspectProfileTools(config.profile, targetDir, plan.resolvedModules);
+    const health = healthReport({ profile: config.profile, tools });
+    emitReport({
+      ...health,
       commandStatus,
-      ok: true,
+      recommendations: toolRecommendations(tools, config.profile, { adapterId: adapter.id, mvp: true }),
       scope: 'project',
-      targetDir,
+      ...(args.verbose ? { targetDir } : {}),
       tools,
       warnings: toolWarnings(tools),
-    }, null, 2));
+    }, args);
+    applyHealthExit(health.status, args);
     return;
   }
 
@@ -220,35 +343,39 @@ async function validate(args) {
     const tools = await inspectProfileTools(profile, targetDir);
     report.tools = tools;
     report.warnings = toolWarnings(tools);
-    console.log(JSON.stringify(report, null, 2));
-    if (!report.ok) {
-      process.exitCode = 1;
-    }
+    report.recommendations = toolRecommendations(tools, profile);
+    Object.assign(report, healthReport({ baseOk: report.ok, profile, tools }));
+    emitReport(args.verbose ? report : { ...report, targetDir: undefined }, args, { error: report.status === 'invalid' });
+    applyHealthExit(report.status, args);
     return;
   }
 
   const report = await validatePack(rootDir);
   if (!report.ok) {
-    console.error(JSON.stringify(report, null, 2));
-    process.exitCode = 1;
+    emitReport({ ...report, status: 'invalid' }, args, { error: true });
+    applyHealthExit('invalid', args);
     return;
   }
-  console.log(JSON.stringify({ ok: true, scope: 'pack' }, null, 2));
+  emitReport({ ok: true, scope: 'pack', status: 'ready' }, args);
 }
 
 async function verify(args) {
   if (!args.project) throw new Error('verify requires --project <path>.');
   const targetDir = path.resolve(args.project);
   const config = await readRequiredProjectConfig(targetDir);
+  const requestedModules = await projectRequestedModules(config, targetDir);
   validateProjectConfig(config);
+  const adapter = await resolveAdapter(rootDir, config.target);
   const projectProfile = await detectProjectProfile({ config, targetDir });
   const governanceMode = resolveGovernanceMode(config, config.profile);
   validateGovernanceModeForProfile(governanceMode, config.profile);
   const validationCommands = resolveValidationCommands(config, projectProfile, governanceMode);
   const renderData = { ...config, governance: { mode: governanceMode }, projectProfile, validationCommands };
   const target = await inspectTargetInstall({
+    adapterId: adapter.id,
     managedAgentsBlock: true,
     profile: config.profile,
+    requestedModules,
     renderData,
     rootDir,
     targetDir,
@@ -300,13 +427,25 @@ async function baseline(args) {
     });
   }
   const projectProfile = await detectProjectProfile({ config, targetDir });
+  const adapter = await resolveAdapter(rootDir, config.target);
+  let requestedModules;
+  try {
+    requestedModules = await projectRequestedModules(config, targetDir);
+  } catch (cause) {
+    throw Object.assign(new Error('Project installation state is invalid; reinstall before baseline.'), {
+      cause,
+      code: 'BASELINE_INSTALL_INVALID',
+    });
+  }
   const governanceMode = resolveGovernanceMode(config, config.profile);
   validateGovernanceModeForProfile(governanceMode, config.profile);
   const validationCommands = resolveValidationCommands(config, projectProfile, governanceMode);
   const renderData = { ...config, governance: { mode: governanceMode }, projectProfile, validationCommands };
   const target = await inspectTargetInstall({
+    adapterId: adapter.id,
     managedAgentsBlock: true,
     profile: config.profile,
+    requestedModules,
     renderData,
     rootDir,
     targetDir,
@@ -335,8 +474,10 @@ async function baseline(args) {
   if (!result.ok) process.exitCode = 1;
 }
 
-function toolRecommendations(tools, profile) {
-  const retryCommand = `loopengine install --target <target> --profile ${profile} --apply --confirm-red-zone`;
+function toolRecommendations(tools, profile, { adapterId = 'codex', mvp = false } = {}) {
+  const retryCommand = mvp
+    ? `loopengine install --project <project> --target ${adapterId} --profile ${profile} --write --confirm-red-zone`
+    : `loopengine install --target <target> --profile ${profile} --apply --confirm-red-zone`;
   return Object.entries(tools).flatMap(([tool, state]) => {
     if (state.status === 'degraded') {
       return [{
@@ -363,28 +504,52 @@ function toolRecommendations(tools, profile) {
 
 async function doctor(args) {
   const targetDir = path.resolve(args.target ?? process.cwd());
-  const profile = args.profile ?? 'codex-internal';
+  const installState = args.target ? await readInstallState(targetDir) : null;
+  const profile = args.profile ?? installState?.profile ?? 'codex-internal';
+  const managedAgentsBlock = installState?.files?.some(
+    (file) => ['managed-block', 'managed-instruction-block'].includes(file.contentStrategy),
+  );
+  let renderData = {};
+  if (managedAgentsBlock) {
+    const config = await readRequiredProjectConfig(targetDir);
+    const projectProfile = await detectProjectProfile({ config, targetDir });
+    const governanceMode = resolveGovernanceMode(config, profile);
+    const validationCommands = resolveValidationCommands(config, projectProfile, governanceMode);
+    renderData = { ...config, profile, governance: { mode: governanceMode }, projectProfile, validationCommands };
+  }
   const [pack, gitHooks] = await Promise.all([
     validatePack(rootDir),
     inspectGitHooks(targetDir),
   ]);
-  const target = args.target
-    ? await inspectTargetInstall({ profile, rootDir, targetDir })
+  let target = args.target
+    ? await inspectTargetInstall({
+        managedAgentsBlock,
+        adapterId: installState?.adapter ?? 'codex',
+        profile,
+        requestedModules: installState?.requestedModules,
+        renderData,
+        rootDir,
+        targetDir,
+      })
     : null;
   const tools = args.target ? await inspectProfileTools(profile, targetDir) : {};
-  if (target && !args.verbose) {
-    delete target.unmanaged;
-  }
-  console.log(JSON.stringify({
+  if (target && !args.verbose) target = compactTargetReport(target);
+  const health = healthReport({ baseOk: pack.ok && (!target || target.ok), profile, tools });
+  emitReport({
+    ...health,
     gitHooks,
     pack,
-    rootDir,
+    ...(args.verbose ? { rootDir } : {}),
     target,
-    targetDir,
+    ...(args.verbose ? { targetDir } : {}),
     tools,
-    recommendations: toolRecommendations(tools, profile),
+    recommendations: toolRecommendations(tools, profile, {
+      adapterId: installState?.adapter ?? 'codex',
+      mvp: Boolean(managedAgentsBlock),
+    }),
     warnings: toolWarnings(tools),
-  }, null, 2));
+  }, args);
+  applyHealthExit(health.status, args);
 }
 
 async function diff(args) {
@@ -409,6 +574,42 @@ async function rollback(args) {
   console.log(JSON.stringify({ actions: plan.actions, applied: result.applied, dryRun: plan.dryRun, skipped: result.skipped }, null, 2));
 }
 
+async function uninstall(args) {
+  if (!args.project) throw new Error('uninstall requires --project <path>.');
+  const targetDir = path.resolve(args.project);
+  const config = await readRequiredProjectConfig(targetDir);
+  const adapter = await resolveAdapter(rootDir, args.target ?? config.target);
+  if (args.target && args.target !== config.target) {
+    throw new Error(`CLI target ${args.target} does not match loopengine.config.json target ${config.target}.`);
+  }
+  const state = await readInstallState(targetDir);
+  if (state && state.adapter !== adapter.id) {
+    throw new Error(`Installed adapter ${state.adapter} does not match uninstall target ${adapter.id}.`);
+  }
+  if (args.apply) throw new Error('MVP uninstall uses --write, not legacy --apply.');
+  if (args.write && args['dry-run']) throw new Error('Use --write or --dry-run, not both.');
+  const allowedOptions = new Set(['_', 'confirm-red-zone', 'dry-run', 'project', 'target', 'write']);
+  const unknownOption = Object.keys(args).find((key) => !allowedOptions.has(key));
+  if (unknownOption) throw new Error(`Unknown uninstall option: --${unknownOption}`);
+
+  const plan = await createUninstallPlan({
+    dryRun: !args.write,
+    redZoneConfirmed: Boolean(args['confirm-red-zone']),
+    targetDir,
+  });
+  const result = await applyUninstallPlan(plan);
+  console.log(JSON.stringify({
+    actions: plan.actions,
+    applied: result.applied,
+    dryRun: plan.dryRun,
+    retainedState: result.retainedState,
+    skipped: result.skipped,
+    target: adapter.id,
+    targetDir: plan.targetDir,
+  }, null, 2));
+  if (result.skipped.length > 0) process.exitCode = 1;
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const command = args._[0] ?? 'help';
@@ -428,21 +629,25 @@ async function main() {
     await diff(args);
   } else if (command === 'rollback') {
     await rollback(args);
+  } else if (command === 'uninstall') {
+    await uninstall(args);
   } else {
-    console.log('Usage: loopengine <init|install|validate|verify|baseline|doctor|diff|rollback> [--project path] [--target codex|path] [--profile minimal|core|full] [--write|--apply] [--dry-run] [--verify] [--force] [--upgrade] [--confirm-red-zone] [--allow-manual]');
-    console.log('MVP install uses --project <path> --target codex. Legacy install uses --target <path>. Install defaults to dry-run.');
+    console.log('Usage: loopengine <init|install|uninstall|validate|verify|baseline|doctor|diff|rollback> [--project path] [--target codex|claude|gemini|path] [--profile minimal|core|full|docs-only] [--modules list] [--write|--apply] [--dry-run] [--output json|summary] [--verbose] [--verify] [--force] [--upgrade] [--confirm-red-zone] [--allow-manual] [--allow-degraded]');
+    console.log('MVP uses --project <path> --target <codex|claude|gemini> and --write. Legacy Codex-only install uses --target <path> and --apply. Install defaults to dry-run.');
   }
 }
 
 try {
   await main();
 } catch (error) {
-  console.error(JSON.stringify({
+  const args = parseArgs(process.argv.slice(2));
+  emitReport({
     ok: false,
+    status: 'invalid',
     error: {
       code: error.code ?? 'LOOPENGINE_ERROR',
       message: error.message,
     },
-  }, null, 2));
+  }, args, { error: true });
   process.exitCode = 1;
 }

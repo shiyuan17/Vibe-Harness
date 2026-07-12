@@ -14,9 +14,9 @@ import { validateCapabilityMatrix, validatePack } from '../scripts/lib/pack-vali
 
 const rootDir = path.resolve('.');
 
-test('manifests expose profiles, rules, and skills only', async () => {
+test('manifests expose adapters, profiles, rules, and skills', async () => {
   const manifests = await loadAllManifests(rootDir);
-  assert.deepEqual(Object.keys(manifests).sort(), ['profiles', 'rules', 'skills']);
+  assert.deepEqual(Object.keys(manifests).sort(), ['adapters', 'profiles', 'rules', 'skills']);
   assert.equal(manifests.rules.items.some((item) => item.id === 'governance-core'), true);
   assert.equal(manifests.skills.items.some((item) => item.id === 'using-loopengine'), true);
   assert.equal(manifests.profiles.items.some((item) => item.id === 'codex-internal'), true);
@@ -86,10 +86,10 @@ test('manifest validation rejects missing sources and duplicate ids', () => {
 
 test('install map validation rejects unknown groups and unsafe red-zone mappings', () => {
   assert.throws(() => validateInstallMapShape({ adapter: 'codex', entries: [
-    { group: 'unknown', source: 'rules/governance-core.md', target: 'docs/rules/governance-core.md' },
+    { contentStrategy: 'replace', group: 'unknown', source: 'rules/governance-core.md', target: 'docs/rules/governance-core.md' },
   ] }, new Set(['rules-minimal'])), /Unknown install-map group/u);
   assert.throws(() => validateInstallMapShape({ adapter: 'codex', entries: [
-    { group: 'rules-minimal', source: 'rules/governance-core.md', target: '.codex/hooks.json' },
+    { contentStrategy: 'replace', group: 'rules-minimal', source: 'rules/governance-core.md', target: '.codex/hooks.json' },
   ] }, new Set(['rules-minimal'])), /redZone/u);
 });
 
@@ -97,7 +97,7 @@ test('install map validation accepts explicit retired entries and rejects unsafe
   const valid = {
     adapter: 'codex',
     entries: [
-      { group: 'skills-memory', source: 'skills/integrations/agentmemory/SKILL.md', target: '.agents/skills/agentmemory/SKILL.md' },
+      { contentStrategy: 'replace', group: 'skills-memory', source: 'skills/integrations/agentmemory/SKILL.md', target: '.agents/skills/agentmemory/SKILL.md' },
     ],
     retiredEntries: [
       { group: 'skills-memory', target: '.agents/skills/recall/SKILL.md' },

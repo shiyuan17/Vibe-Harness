@@ -9,11 +9,10 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "description", "installMap", "groups"],
+        "required": ["id", "description", "groups"],
         "properties": {
           "id": { "type": "string", "minLength": 1 },
           "description": { "type": "string", "minLength": 1 },
-          "installMap": { "type": "string", "minLength": 1 },
           "groups": {
             "type": "array",
             "minItems": 1,

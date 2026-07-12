@@ -15,7 +15,10 @@ const rootDir = path.resolve('.');
 const cliPath = path.join(rootDir, 'scripts/loopengine.js');
 
 async function runCli(args) {
-  const result = await execFileAsync(process.execPath, [cliPath, ...args], {
+  const effectiveArgs = args[0] === 'install' && args.includes('--dry-run') && !args.includes('--verbose')
+    ? [...args, '--verbose']
+    : args;
+  const result = await execFileAsync(process.execPath, [cliPath, ...effectiveArgs], {
     maxBuffer: 1024 * 1024 * 8,
   });
   return result.stdout ? JSON.parse(result.stdout) : null;
@@ -170,6 +173,25 @@ test('detectProjectProfile summarizes Maven and legacy dotnet projects', async (
   }
 });
 
+test('generated entry uses detected VCS command and plain unconfigured validation labels', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-profile-entry-'));
+  try {
+    await mkdir(path.join(target, '.svn'));
+    await runCli(['init', '--project', target]);
+
+    const report = await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'core', '--dry-run', '--verbose']);
+    const agents = report.previewFiles.find((file) => file.target === 'AGENTS.md').content;
+
+    assert.match(agents, /编辑前运行 `svn status`/u);
+    assert.doesNotMatch(agents, /编辑前运行 `git status --short`/u);
+    assert.match(agents, /Lint: 未配置/u);
+    assert.match(agents, /Typecheck: 未配置/u);
+    assert.doesNotMatch(agents, /`未配置`/u);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
 test('core project install renders project-specific rules without local memory library', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-project-assets-'));
   try {
@@ -258,16 +280,21 @@ test('full profile memory config can disable or relocate local memory library', 
 test('doctor summarizes unmanaged files by default and shows full list only when verbose', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-doctor-summary-'));
   try {
+    await runCli(['init', '--project', target]);
+    const configPath = path.join(target, 'loopengine.config.json');
+    const config = JSON.parse(await readFile(configPath, 'utf8'));
+    await writeJson(configPath, { ...config, governance: { mode: 'off' }, profile: 'minimal' });
+    await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'minimal', '--write']);
     await writeFile(path.join(target, 'local-a.txt'), 'a\n', 'utf8');
     await writeFile(path.join(target, 'local-b.txt'), 'b\n', 'utf8');
 
-    const report = await runCli(['doctor', '--target', target, '--profile', 'codex-minimal']);
+    const report = await runCli(['doctor', '--target', target, '--profile', 'minimal']);
     assert.equal(typeof report.target.summary.unmanagedCount, 'number');
     assert.equal(report.target.summary.unmanagedCount >= 2, true);
     assert.equal(Array.isArray(report.target.summary.samples.unmanaged), true);
     assert.equal(Object.hasOwn(report.target, 'unmanaged'), false);
 
-    const verbose = await runCli(['doctor', '--target', target, '--profile', 'codex-minimal', '--verbose']);
+    const verbose = await runCli(['doctor', '--target', target, '--profile', 'minimal', '--verbose']);
     assert.equal(Array.isArray(verbose.target.unmanaged), true);
     assert.equal(verbose.target.unmanaged.some((item) => item.target === 'local-a.txt'), true);
   } finally {

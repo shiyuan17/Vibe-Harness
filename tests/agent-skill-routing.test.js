@@ -51,7 +51,7 @@ test('agent skill routing policy is registered, installable, and tracked by capa
   );
   assert.deepEqual(
     installMap.entries.find((entry) => entry.source === routingRuleSource),
-    { group: 'rules-minimal', source: routingRuleSource, target: routingRuleTarget },
+    { contentStrategy: 'replace', group: 'rules-minimal', source: routingRuleSource, target: routingRuleTarget },
   );
 
   const capability = capabilities.items.find((item) => item.id === 'skill-routing');

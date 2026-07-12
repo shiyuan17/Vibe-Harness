@@ -17,6 +17,7 @@ export async function readJson(filePath) {
 
 export async function loadAllManifests(rootDir) {
   return {
+    adapters: await readJson(`${rootDir}/manifests/adapters.json`),
     profiles: await readJson(`${rootDir}/manifests/profiles.json`),
     rules: await readJson(`${rootDir}/manifests/rules.json`),
     skills: await readJson(`${rootDir}/manifests/skills.json`),
@@ -25,6 +26,7 @@ export async function loadAllManifests(rootDir) {
 
 export async function loadAllManifestSchemas(rootDir) {
   return {
+    adapters: await readJson(`${rootDir}/schemas/adapter-pack.schema.json`),
     profiles: await readJson(`${rootDir}/schemas/profile-pack.schema.json`),
     rules: await readJson(`${rootDir}/schemas/rule-pack.schema.json`),
     skills: await readJson(`${rootDir}/schemas/skill-pack.schema.json`),
@@ -95,14 +97,17 @@ export function validateCatalogManifest(name, manifest) {
       assertPortableRelativePath(item.metadata, `${name}.items[${index}].metadata`);
     }
     if (name === 'profiles') {
-      assertNonEmptyString(item.installMap, `${name}.items[${index}].installMap`);
-      assertPortableRelativePath(item.installMap, `${name}.items[${index}].installMap`);
       if (!Array.isArray(item.groups) || item.groups.length === 0) {
         throw new Error(`${name}.items[${index}].groups must be a non-empty array`);
       }
       for (const [groupIndex, group] of item.groups.entries()) {
         assertNonEmptyString(group, `${name}.items[${index}].groups[${groupIndex}]`);
       }
+    }
+    if (name === 'adapters') {
+      assertNonEmptyString(item.installMap, `${name}.items[${index}].installMap`);
+      assertPortableRelativePath(item.installMap, `${name}.items[${index}].installMap`);
+      assertPortableRelativePath(item.instructionTarget, `${name}.items[${index}].instructionTarget`);
     }
   }
 }
@@ -228,7 +233,7 @@ export function validateInstallMapShape(installMap, allowedGroups) {
   const targets = new Set();
   for (const [index, entry] of installMap.entries.entries()) {
     assertObject(entry, `install-map.entries[${index}]`);
-    const allowedEntryKeys = new Set(['executable', 'group', 'redZone', 'source', 'target']);
+    const allowedEntryKeys = new Set(['contentStrategy', 'executable', 'group', 'redZone', 'source', 'target']);
     for (const key of Object.keys(entry)) {
       if (!allowedEntryKeys.has(key)) {
         throw new Error(`install-map.entries[${index}].${key} is not allowed`);
@@ -237,6 +242,9 @@ export function validateInstallMapShape(installMap, allowedGroups) {
     assertNonEmptyString(entry.group, `install-map.entries[${index}].group`);
     assertNonEmptyString(entry.source, `install-map.entries[${index}].source`);
     assertNonEmptyString(entry.target, `install-map.entries[${index}].target`);
+    if (!['managed-instruction-block', 'managed-toml-block', 'replace'].includes(entry.contentStrategy)) {
+      throw new Error(`install-map.entries[${index}].contentStrategy is invalid`);
+    }
     assertPortableRelativePath(entry.source, `install-map.entries[${index}].source`);
     assertPortableRelativePath(entry.target, `install-map.entries[${index}].target`);
     if (!allowedGroups.has(entry.group)) {

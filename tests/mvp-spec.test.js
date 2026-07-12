@@ -22,7 +22,10 @@ async function exists(filePath) {
 }
 
 async function runCli(args) {
-  const result = await execFileAsync(process.execPath, [cliPath, ...args], {
+  const effectiveArgs = args[0] === 'install' && args.includes('--dry-run') && !args.includes('--verbose')
+    ? [...args, '--verbose']
+    : args;
+  const result = await execFileAsync(process.execPath, [cliPath, ...effectiveArgs], {
     maxBuffer: 1024 * 1024 * 8,
   });
   return result.stdout ? JSON.parse(result.stdout) : null;
@@ -321,8 +324,8 @@ test('core profile installs common routed skills without mcp, memory, or hooks',
     assert.equal(targets.includes('docs/schemas/full-task-control.schema.json'), true);
     assert.equal(targets.some((item) => item.startsWith('docs/workflows/')), false);
     assert.equal(targets.includes('.agents/skills/review-checklist/SKILL.md'), false);
-    assert.equal(targets.includes('.agents/skills/loop-planning/SKILL.md'), true);
-    assert.equal(targets.includes('.agents/skills/subagent-driven-development/SKILL.md'), true);
+    assert.equal(targets.includes('.agents/skills/loop-planning/SKILL.md'), false);
+    assert.equal(targets.includes('.agents/skills/subagent-driven-development/SKILL.md'), false);
     assert.equal(targets.includes('.agents/skills/skill-authoring-check/SKILL.md'), true);
     assert.equal(agents.includes('通用安装'), true);
     assert.equal(agents.includes('codebase-memory-mcp'), false);

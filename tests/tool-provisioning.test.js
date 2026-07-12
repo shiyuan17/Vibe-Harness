@@ -12,6 +12,7 @@ import {
   inspectProfileTools,
   mergeManagedMcpBlock,
   provisionProfileTools,
+  runMcpHandshake,
 } from '../scripts/lib/tool-provisioning.js';
 
 const rootDir = path.resolve('.');
@@ -35,6 +36,18 @@ async function runCli(args, options = {}) {
     ...options,
   });
   return JSON.parse(stdout);
+}
+
+async function runCliFailure(args, options = {}) {
+  try {
+    await runCli(args, options);
+  } catch (error) {
+    return {
+      code: error.code,
+      report: JSON.parse(error.stdout),
+    };
+  }
+  assert.fail('Expected CLI command to fail');
 }
 
 test('full tool plan pins four project-local components while core keeps Playwright lazy', () => {
@@ -123,6 +136,37 @@ test('provisioning continues after one component fails and never persists comman
     const state = await readFile(path.join(targetDir, '.loopengine/tool-state/tools.json'), 'utf8');
     assert.equal(state.includes('super-secret-token'), false);
     assert.equal(state.includes('token='), false);
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('tool phase timeouts can be bounded by the lifecycle smoke environment', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-timeout-'));
+  const calls = [];
+  try {
+    await provisionProfileTools({
+      commandRunner: async (request) => { calls.push(request); return { stdout: '{}' }; },
+      env: { LOOPENGINE_TOOL_TIMEOUT_MS: '1500', OPENAI_API_KEY: 'configured' },
+      profile: 'full',
+      targetDir,
+    });
+    assert.equal(calls.length > 0, true);
+    assert.equal(calls.every((request) => request.timeout <= 1500), true);
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('MCP handshake reports a closed stdin without an unhandled EPIPE', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-mcp-stdin-'));
+  const script = path.join(targetDir, 'close-stdin.mjs');
+  try {
+    await writeFile(script, 'process.stdin.destroy(); setTimeout(() => {}, 1000);\n', 'utf8');
+    await assert.rejects(
+      runMcpHandshake({ args: [script], command: process.execPath, cwd: targetDir, env: process.env, timeout: 2000 }),
+      (error) => ['MCP_EARLY_EXIT', 'MCP_STDIN_FAILED'].includes(error.code),
+    );
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }
@@ -243,7 +287,7 @@ test('full install map includes project-local runtimes and managed Codex MCP con
     assert.equal(full.generatedDirectories.some((item) => item.target === '.loopengine/tool-state/codebase-memory-mcp'), true);
 
     const config = (await previewInstallPlan(full)).find((file) => file.target === '.codex/config.toml');
-    assert.equal(config.redZone, true);
+    assert.equal(full.actions.find((action) => action.relativeTarget === '.codex/config.toml').redZone, true);
     assert.match(config.content, /# LOOPENGINE:MCP:START[\s\S]*mcp_servers\.agentmemory[\s\S]*mcp_servers\.codebase-memory-mcp/u);
   } finally {
     await rm(targetDir, { force: true, recursive: true });
@@ -285,7 +329,7 @@ test('full write degrades unavailable tools and rollback removes only the manage
     await writeFile(configPath, 'model = "gpt-5"\n', 'utf8');
 
     const report = await runCli(
-      ['install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--write', '--confirm-red-zone'],
+      ['install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--write', '--confirm-red-zone', '--allow-degraded'],
       { env: offlineEnv, timeout: 120_000 },
     );
     const config = await readFile(configPath, 'utf8');
@@ -293,19 +337,30 @@ test('full write degrades unavailable tools and rollback removes only the manage
     assert.equal(config.includes('model = "gpt-5"'), true);
     assert.equal(config.includes('# LOOPENGINE:MCP:START'), true);
     assert.equal(Object.values(report.tools).some((tool) => tool.status === 'degraded'), true);
+    assert.equal(report.status, 'degraded');
+    assert.equal(report.ok, false);
     assert.equal(report.warnings.length > 0, true);
 
-    const validation = await runCli(['validate', '--project', targetDir], { env: offlineEnv });
-    assert.equal(validation.ok, true);
+    const failedValidation = await runCliFailure(['validate', '--project', targetDir], { env: offlineEnv });
+    assert.equal(failedValidation.code, 2);
+    assert.equal(failedValidation.report.status, 'degraded');
+    assert.equal(failedValidation.report.ok, false);
+    const validation = await runCli(['validate', '--project', targetDir, '--allow-degraded'], { env: offlineEnv });
+    assert.equal(validation.status, 'degraded');
+    assert.equal(validation.ok, false);
     assert.equal(validation.warnings.length > 0, true);
 
-    const doctor = await runCli(['doctor', '--target', targetDir, '--profile', 'full'], { env: offlineEnv });
+    const failedDoctor = await runCliFailure(['doctor', '--target', targetDir, '--profile', 'full'], { env: offlineEnv });
+    assert.equal(failedDoctor.code, 2);
+    const doctor = await runCli(['doctor', '--target', targetDir, '--profile', 'full', '--allow-degraded'], { env: offlineEnv });
+    assert.equal(doctor.status, 'degraded');
+    assert.equal(doctor.ok, false);
     const degradedRecommendation = doctor.recommendations.find(
       (recommendation) => recommendation.tool === 'codebaseMemoryMcp',
     );
     assert.equal(degradedRecommendation.phase, doctor.tools.codebaseMemoryMcp.phase);
     assert.equal(degradedRecommendation.action, 'retry-provision');
-    assert.match(degradedRecommendation.command, /install --target <target> --profile full --apply --confirm-red-zone/u);
+    assert.match(degradedRecommendation.command, /install --project <project> --target codex --profile full --write --confirm-red-zone/u);
     assert.equal(JSON.stringify(degradedRecommendation).includes(targetDir), false);
 
     await runCli(['rollback', '--target', targetDir, '--apply', '--confirm-red-zone'], { env: offlineEnv });

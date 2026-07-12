@@ -33,7 +33,7 @@ async function installProject(profile = 'core') {
   }
   const installArgs = [cliPath, 'install', '--project', target, '--target', 'codex', '--profile', profile, '--write'];
   if (profile === 'full') {
-    installArgs.push('--confirm-red-zone');
+    installArgs.push('--confirm-red-zone', '--allow-degraded');
   }
   assert.equal((await run(installArgs)).code, 0);
   return target;

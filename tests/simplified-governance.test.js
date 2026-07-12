@@ -228,9 +228,9 @@ test('旧 task.json 被明确拒绝', async () => {
   }
 });
 
-test('治理资产只暴露规则、skills 和 profiles catalog', async () => {
+test('治理资产只暴露 adapters、规则、skills 和 profiles catalog', async () => {
   const manifests = await loadAllManifests(rootDir);
-  assert.deepEqual(Object.keys(manifests).sort(), ['profiles', 'rules', 'skills']);
+  assert.deepEqual(Object.keys(manifests).sort(), ['adapters', 'profiles', 'rules', 'skills']);
   assert.equal(manifests.rules.items.some((item) => item.id === 'governance-core'), true);
   assert.equal(manifests.skills.items.find((item) => item.id === 'using-loopengine')?.kind, 'router');
   await assert.rejects(access(path.join(rootDir, 'manifests/workflows.json')));

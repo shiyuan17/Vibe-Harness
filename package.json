@@ -2,7 +2,7 @@
   "name": "@jw/loopengine",
   "version": "0.3.0",
   "private": true,
-  "description": "Reusable Codex-first AI coding governance, skills, workflow, and installer pack.",
+  "description": "Reusable cross-platform AI coding governance, skills, workflow, and installer pack.",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -13,8 +13,9 @@
     "lint": "node ./scripts/lint.js",
     "validate": "node ./scripts/validate.js",
     "skills:audit": "node ./scripts/skills-audit.js",
-    "test": "node --test tests/*.test.js",
-    "check": "node ./scripts/lint.js && node ./scripts/validate.js && node --test tests/*.test.js",
+    "test": "node --test --test-concurrency=4 tests/*.test.js",
+    "test:integration": "node --test --test-concurrency=1 tests/installation-baseline.test.js tests/installer-lifecycle.test.js tests/mvp-spec.test.js tests/cross-platform-adapters.test.js tests/tool-provisioning.test.js tests/uninstall.test.js",
+    "check": "node ./scripts/lint.js && node ./scripts/validate.js && pnpm test",
     "pack:preview": "node ./scripts/pack-preview.js",
     "smoke:lifecycle": "node ./scripts/smoke-lifecycles.js"
   },

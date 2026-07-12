@@ -1,4 +1,4 @@
-# AGENTS.md
+# CLAUDE.md
 
 项目：{{projectName}}
 
@@ -31,7 +31,6 @@
 ## 已安装表面
 
 {{installedSurface.profileLine}}
-{{installedSurface.codebaseMemoryMcpLine}}
 {{installedSurface.rulesLine}}
 {{installedSurface.engineeringRulesLine}}
 {{installedSurface.operationalRulesLine}}

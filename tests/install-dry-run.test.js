@@ -127,6 +127,7 @@ test('CLI apply mode writes files when red-zone confirmation is explicit', async
       'codex-internal',
       '--apply',
       '--confirm-red-zone',
+      '--allow-degraded',
     ]);
 
     const taskTemplate = await readFile(path.join(target, 'docs/templates/task.md'), 'utf8');
