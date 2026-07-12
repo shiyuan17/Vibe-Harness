@@ -33,7 +33,7 @@ v0.2 聚焦安装器增强：保持 v0.1 CLI 兼容，同时新增状态记录�
 
 ## 非目标
 
-- 不新增非 Codex adapter。
+- 本历史规格只覆盖 Codex；当前 Claude/Gemini 项目级 adapter 以 `manifests/adapters.json` 和 `docs/architecture.md` 为准。
 - 不写入全局 Codex 配置。
 - 不自动合并用户改过的文档。
 - MCP runtime 和配置仅位于目标项目，不写入全局 Agent 或 MCP 配置。

@@ -11,7 +11,7 @@
 - 不删除或重命名现有 MVP、legacy/internal 命令。
 - 不改变 `validate --project` 的只读安装一致性检查语义。
 - 不自动执行未经用户显式请求的目标项目命令。
-- 不新增非 Codex adapter，不写入全局 Agent 配置。
+- 本规格当时只定义 Codex；当前 Claude/Gemini 项目级 adapter 以 `manifests/adapters.json` 和 `docs/architecture.md` 为准，仍不得写入全局 Agent 配置。
 
 ## 命令契约
 
@@ -27,7 +27,7 @@
 
 标准生命周期使用九个阶段：`Clarify`、`Spec`、`Plan`、`Task`、`Execute`、`Verify`、`Review`、`Handoff`、`Retrospective`。`Intake` 是进入生命周期前的入口门禁，不计入九阶段。
 
-每个阶段必须声明目标、输入、输出、责任角色、准入条件、完成标准、常见异常和回退阶段。Fast Path 可以合并产物，但不得跳过 Intake、Verify、红区确认或交付证据。
+每个阶段必须声明目标、输入、输出、责任角色、准入条件、完成标准、常见异常和回退阶段。快速档可合并产物，但不得跳过事实收集、验证、红区确认或交付证据。
 
 ## 任务与证据契约
 

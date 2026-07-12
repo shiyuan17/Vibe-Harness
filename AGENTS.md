@@ -10,8 +10,8 @@ LoopEngine 用来打包可复用的 AI coding governance 资产。源项目只�
 
 ## 必跑检查
 
-- `pnpm test`
 - `pnpm check`
+- installer、profile、runtime 或工具变更额外运行 `pnpm test:integration` 和 `pnpm smoke:lifecycle`
 - `pnpm loopengine init --project <temp-project>`
 - `pnpm loopengine install --project <temp-project> --target codex --profile core --dry-run`
 - `pnpm loopengine install --project <temp-project> --target codex --profile core --write`

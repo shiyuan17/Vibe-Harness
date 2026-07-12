@@ -1,6 +1,6 @@
 # LoopEngine 架构说明
 
-LoopEngine 是 Codex 优先的可复用 AI coding governance 包。运行时使用 Node.js ESM、JSON manifests、Markdown 治理资产和文件复制式安装器。
+LoopEngine 是跨平台、Codex 完整能力优先的可复用 AI coding governance 包。运行时使用 Node.js ESM、JSON manifests、Markdown 治理资产和文件复制式安装器。
 
 ## 子系统
 
@@ -11,20 +11,32 @@ LoopEngine 是 Codex 优先的可复用 AI coding governance 包。运行时使�
 - `runtime/hooks/`：规范化 Codex 事件并执行可移植的安全、上下文和完成策略。
 - `runtime/tools/`：四个固定版本的项目内工具 bootstrap；full/internal 由统一 provisioner 安装、初始化和检查。
 - `scripts/lib/project-baseline.js`：汇总项目画像、安装状态、验证摘要、drift 和后续工作流，生成受管 JSON/Markdown 基线。
-- `adapters/codex/`：包含精简 AGENTS 模板、install map 和官方 PascalCase Codex hook 配置。
+- `adapters/codex/`：包含精简 AGENTS 模板、共享 install map 和官方 PascalCase Codex hook 配置。
+- `adapters/claude/`、`adapters/gemini/`：包含项目级 `CLAUDE.md` / `GEMINI.md` 模板；Skills target 由 adapter catalog 转换。
 - `adapters/git/`：包含默认不启用的版本化 pre-commit / pre-push 入口。
-- `manifests/`：rules、skills 和 profiles 的 catalog 真值；不再维护 workflow catalog。
+- `manifests/`：rules、skills、profiles 和 adapters 的 catalog 真值；`profiles.json` 是能力组唯一来源，`adapters.json` 只声明平台安装面与能力边界。
 - `schemas/`：manifest schema 和完整流程中文控制块 schema。
 
 ## 安装流程
 
-1. `loopengine init --project <path>` 创建项目配置。
-2. `loopengine install --project <path> --target codex --profile <profile> --dry-run` 只预览。
+1. `loopengine init --project <path> --target <codex|claude|gemini>` 创建项目配置。
+2. `loopengine install --project <path> --target <adapter> --profile <profile> --dry-run` 只预览；CLI target 与配置不一致时拒绝执行。
 3. MVP 使用 `--write` 写入；legacy/internal 使用 `--apply --confirm-red-zone`。
-4. full/internal 写入完成后初始化四组件；失败记录为 degraded 并继续其他组件。
+4. Codex full/internal 写入完成后初始化四组件；失败记录为 degraded 并继续其他组件。
 5. `loopengine validate --project <path>` 校验安装一致性和组件状态，不执行目标项目命令。
 6. `loopengine baseline --project <path>` 默认预览双层基线；`--write` 建档，`--verify` 才顺序执行 governance、lint 和 typecheck。
 7. `loopengine verify --project <path>` 顺序执行 governance、lint 和 typecheck。
+
+默认 JSON 是稳定、紧凑的机器接口，preview 只含 hash、字节数和摘要；`--verbose` 才含完整正文和绝对诊断路径，`--output summary` 输出短报告。install、validate、doctor 共用 `ready=0`、`invalid=1`、`degraded=2` 健康合同；`--allow-degraded` 只覆盖退出码，不改变报告状态。
+
+## Adapter 边界
+
+- Codex：`AGENTS.md`、`.agents/skills/`、项目 `.codex/config.toml` 与 `.codex/hooks.json`，支持全部 profiles。
+- Claude Code：`CLAUDE.md`、`.claude/skills/`，支持 `minimal`、`core`、`docs-only`。
+- Gemini CLI：`GEMINI.md`、`.gemini/skills/`，支持 `minimal`、`core`、`docs-only`。
+- Claude/Gemini 首版只承诺原生 instructions/skills，不安装伪兼容 MCP/hooks，不写用户级配置。
+
+install state 记录 adapter；缺少该字段的 schemaVersion 1 状态按 Codex 读取。三种入口都只更新 `LOOPENGINE` 受管块，upgrade/uninstall 必须与原 adapter 一致。
 
 ## 基线数据流
 
@@ -34,11 +46,11 @@ drift 只比较项目画像、安装摘要、工具和验证状态，排除生�
 
 ## Profile
 
-- minimal：最小安装，包含 AGENTS、治理内核、Git/Test 规则和中文 task/delivery 模板，不安装 skills、runtime、hook 或 MCP 安装面。
+- minimal：最小安装，包含平台入口、治理内核、Git/VCS/Test 规则和中文 task/delivery 模板，不安装 skills、runtime、hook 或 MCP 安装面。
 - core：通用安装，在 minimal 上增加专项规则、中文任务 runtime/schema、`using-loopengine` 和常规 skills；不安装 hook、`codebase-memory-mcp` 或 agentmemory MCP 安装面。
 - full：全安装，在 core 上增加四个项目内工具 runtime、codebase 初始索引、两个 MCP 注册、agentmemory skill、`.agents/memory/` 本地回退库和 Codex hooks；真实写入红区需要确认。
 - codex-internal：兼容全安装入口，等同 full，并保留 legacy/internal 生命周期。
-- docs-only：仅安装治理内核、专项规则、中文模板、memory 文档和 schema。
+- docs-only：仅安装平台入口、治理内核、专项规则、中文模板、memory 文档和 schema，不安装 runtime、Skills、MCP 或 hooks。
 
 ## 中文任务数据流
 

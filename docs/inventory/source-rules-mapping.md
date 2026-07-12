@@ -4,7 +4,7 @@
 
 | 源规则 | LoopEngine 目标 | 处理方式 |
 | --- | --- | --- |
-| `AGENTS.md` | `adapters/codex/AGENTS.template.md`、`rules/agent-collaboration.md` | summarize |
+| `AGENTS.md` | `adapters/codex/AGENTS.template.md`、`rules/ai-collab-rules.md` | summarize |
 | `QUICKSTART.md` | `rules/governance-core.md` | consolidate |
 | `WORKFLOW.md` | `rules/workflow.md` | copy-generalize |
 | `DYNAMIC_WORKFLOW_RULES.md` | `rules/dynamic-workflow.md` | copy-generalize |
