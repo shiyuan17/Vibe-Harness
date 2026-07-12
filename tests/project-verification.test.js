@@ -6,6 +6,8 @@ import path from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
 
+import { executeProjectVerification } from '../scripts/lib/project-verification.js';
+
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve('.');
 const cliPath = path.join(rootDir, 'scripts/loopengine.js');
@@ -99,6 +101,31 @@ test('verify --project propagates command failures', async () => {
         return true;
       },
     );
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('project verification report mode preserves failed and blocked diagnostics', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-verify-report-'));
+  try {
+    await writeFile(path.join(target, 'fail.mjs'), "console.error('secret-output'); process.exitCode = 7;\n", 'utf8');
+
+    const results = await executeProjectVerification({
+      commandStatus: {
+        governance: { command: 'node fail.mjs', status: 'available' },
+        lint: { command: 'pnpm missing-script', status: 'missing' },
+        typecheck: { command: 'node -e "console.log(42)"', status: 'manual' },
+      },
+      failureMode: 'report',
+      targetDir: target,
+    });
+
+    assert.equal(results.governance.status, 'failed');
+    assert.equal(results.governance.exitCode, 7);
+    assert.match(results.governance.stderr, /secret-output/u);
+    assert.deepEqual(results.lint, { command: 'pnpm missing-script', status: 'blocked' });
+    assert.deepEqual(results.typecheck, { command: 'node -e "console.log(42)"', status: 'blocked' });
   } finally {
     await rm(target, { force: true, recursive: true });
   }

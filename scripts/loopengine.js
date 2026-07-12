@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { inspectValidationCommands } from './lib/command-status.js';
 import { inspectGitHooks } from './lib/git-hooks.js';
 import { applyRollbackPlan, createRollbackPlan, registerGeneratedFile } from './lib/install-state.js';
+import { readJson } from './lib/manifest.js';
 import {
   applyInstallPlan,
   createInstallPlan,
@@ -24,6 +25,7 @@ import {
   validateProjectConfig,
   writeDefaultProjectConfig,
 } from './lib/project-config.js';
+import { collectProjectBaselineInputs, createProjectBaseline } from './lib/project-baseline.js';
 import { readFile } from 'node:fs/promises';
 import {
   createToolProvisioningPlan,
@@ -271,6 +273,68 @@ async function verify(args) {
   console.log(JSON.stringify({ ok: true, results, scope: 'project', targetDir }, null, 2));
 }
 
+async function baseline(args) {
+  if (!args.project) throw Object.assign(new Error('baseline requires --project <path>.'), { code: 'BASELINE_PROJECT_REQUIRED' });
+  if (args.target) throw Object.assign(new Error('baseline supports MVP --project only; legacy --target is not supported.'), { code: 'BASELINE_PROJECT_REQUIRED' });
+  if (args.apply) throw new Error('baseline uses --write, not legacy --apply.');
+  if (args.write && args['dry-run']) throw new Error('Use --write or --dry-run, not both.');
+  const allowedOptions = new Set(['_', 'dry-run', 'force', 'project', 'verify', 'write']);
+  const unknownOption = Object.keys(args).find((key) => !allowedOptions.has(key));
+  if (unknownOption) throw new Error(`Unknown baseline option: --${unknownOption}`);
+  const targetDir = path.resolve(args.project);
+  let config;
+  try {
+    config = await readRequiredProjectConfig(targetDir);
+  } catch (cause) {
+    throw Object.assign(new Error('Project configuration is missing or invalid; run loopengine init before baseline.'), {
+      cause,
+      code: 'BASELINE_INSTALL_INVALID',
+    });
+  }
+  try {
+    validateProjectConfig(config);
+  } catch (cause) {
+    throw Object.assign(new Error('Project configuration is invalid; fix loopengine.config.json before baseline.'), {
+      cause,
+      code: 'BASELINE_INSTALL_INVALID',
+    });
+  }
+  const projectProfile = await detectProjectProfile({ config, targetDir });
+  const governanceMode = resolveGovernanceMode(config, config.profile);
+  validateGovernanceModeForProfile(governanceMode, config.profile);
+  const validationCommands = resolveValidationCommands(config, projectProfile, governanceMode);
+  const renderData = { ...config, governance: { mode: governanceMode }, projectProfile, validationCommands };
+  const target = await inspectTargetInstall({
+    managedAgentsBlock: true,
+    profile: config.profile,
+    renderData,
+    rootDir,
+    targetDir,
+  });
+  const inputs = await collectProjectBaselineInputs({
+    config,
+    governanceMode,
+    projectProfile,
+    target,
+    targetDir,
+    validationCommands,
+  });
+  const result = await createProjectBaseline({
+    ...inputs,
+    baselineSchema: await readJson(path.join(rootDir, 'schemas/project-baseline.schema.json')),
+    config,
+    force: Boolean(args.force),
+    governanceMode,
+    projectProfile,
+    target,
+    targetDir,
+    verify: Boolean(args.verify),
+    write: Boolean(args.write),
+  });
+  console.log(JSON.stringify(result, null, 2));
+  if (!result.ok) process.exitCode = 1;
+}
+
 function toolRecommendations(tools, profile) {
   const retryCommand = `loopengine install --target <target> --profile ${profile} --apply --confirm-red-zone`;
   return Object.entries(tools).flatMap(([tool, state]) => {
@@ -356,6 +420,8 @@ async function main() {
     await validate(args);
   } else if (command === 'verify') {
     await verify(args);
+  } else if (command === 'baseline') {
+    await baseline(args);
   } else if (command === 'doctor') {
     await doctor(args);
   } else if (command === 'diff') {
@@ -363,7 +429,7 @@ async function main() {
   } else if (command === 'rollback') {
     await rollback(args);
   } else {
-    console.log('Usage: loopengine <init|install|validate|verify|doctor|diff|rollback> [--project path] [--target codex|path] [--profile minimal|core|full] [--write|--apply] [--dry-run] [--force] [--upgrade] [--confirm-red-zone] [--allow-manual]');
+    console.log('Usage: loopengine <init|install|validate|verify|baseline|doctor|diff|rollback> [--project path] [--target codex|path] [--profile minimal|core|full] [--write|--apply] [--dry-run] [--verify] [--force] [--upgrade] [--confirm-red-zone] [--allow-manual]');
     console.log('MVP install uses --project <path> --target codex. Legacy install uses --target <path>. Install defaults to dry-run.');
   }
 }

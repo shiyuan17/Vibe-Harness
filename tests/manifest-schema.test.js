@@ -38,6 +38,44 @@ test('full task control schema rejects missing and unknown Chinese fields', asyn
   assert.match(validateJsonAgainstSchema({ ...sample, 额外字段: true }, schema, '控制').join('\n'), /额外字段/u);
 });
 
+test('project baseline schema rejects unknown fields', async () => {
+  const schema = await readJson(path.join(rootDir, 'schemas/project-baseline.schema.json'));
+  const sample = {
+    schemaVersion: 1,
+    generatedAt: '2026-07-12T00:00:00.000Z',
+    project: {
+      name: 'example',
+      packageManager: 'pnpm',
+      stackSummary: 'Node.js',
+      directoryGuidance: 'src',
+      vcs: { kind: 'Git', workingTreeStatus: 'clean' },
+    },
+    installation: {
+      governanceMode: 'off',
+      managedFileCount: 4,
+      profile: 'minimal',
+      status: 'consistent',
+      tools: {},
+      version: '0.3.0',
+    },
+    verification: {
+      mode: 'static',
+      status: 'not_run',
+      commands: {
+        governance: { status: 'not_configured' },
+        lint: { status: 'not_configured' },
+        typecheck: { status: 'not_configured' },
+      },
+    },
+    workflows: [],
+    recommendations: [],
+    drift: { changes: [], status: 'initial' },
+  };
+
+  assert.deepEqual(validateJsonAgainstSchema(sample, schema, 'baseline'), []);
+  assert.match(validateJsonAgainstSchema({ ...sample, extra: true }, schema, 'baseline').join('\n'), /extra/u);
+});
+
 test('manifest validation rejects missing sources and duplicate ids', () => {
   assert.throws(() => validateCatalogManifest('rules', { schemaVersion: 1, items: [{ id: 'core' }] }), /source is required/u);
   assert.throws(() => validateCatalogManifest('rules', { schemaVersion: 1, items: [
