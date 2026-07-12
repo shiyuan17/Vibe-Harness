@@ -14,6 +14,20 @@
           "group": { "type": "string", "minLength": 1 },
           "source": { "type": "string", "minLength": 1 },
           "target": { "type": "string", "minLength": 1 },
+          "executable": { "type": "boolean" },
+          "redZone": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "retiredEntries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["group", "target"],
+        "properties": {
+          "group": { "type": "string", "minLength": 1 },
+          "target": { "type": "string", "minLength": 1 },
           "redZone": { "type": "boolean" }
         },
         "additionalProperties": false

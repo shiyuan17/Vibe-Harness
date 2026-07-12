@@ -53,22 +53,43 @@ git diff --check
 
 ## Profile 选择
 
-- `minimal`：启动红线、会话开始/结束协议、红区确认、验证证据和交付 Packet 指引。
+- `minimal`：启动红线、会话开始/结束协议、红区确认、验证证据、Skill 路由 fallback 和交付 Packet 指引。
 - `core`：`minimal` 加上中文任务 runtime/schema、工程专项规则、`using-loopengine` 和常规 bundled skills。
 - `full`：`core` 加上 release、Pencil、troubleshooting、对抗审查和 loop skills。
 
 ## Agentmemory Skills
 
-源项目中的 `handoff`、`recall`、`remember`、`forget`、`recap`、`session-history` 会作为 bundled memory 安装面进入 `full` / `codex-internal`。提交历史和提交上下文能力已收敛到 `agentmemory` 总入口，不再安装独立 `commit-history` 或 `commit-context` skill。目标项目没有记忆工具时，Agent 必须说明不可用并回退到本地 handoff 或任务 intake。`core` 是不含 agentmemory MCP 安装面的通用安装。
+`full` / `codex-internal` 只安装 `.agents/skills/agentmemory/` 一个 skill。`handoff`、`recall`、`remember`、`forget`、`recap`、`session-history` 已收敛为该目录下按需读取的 references，不再占用顶层 skill ID；提交历史和提交上下文也由同一入口处理。目标项目没有记忆工具时，Agent 必须说明不可用并回退到本地 handoff 或任务 intake。`core` 不包含 agentmemory MCP 安装面。
+
+从旧版 `full` 升级时先 dry-run 审查六个 `retire` 动作。MVP 生命周期使用：
+
+```bash
+pnpm loopengine install --project ../target-project --target codex --profile full --dry-run --upgrade
+pnpm loopengine install --project ../target-project --target codex --profile full --write --upgrade --confirm-red-zone
+```
+
+legacy/internal 生命周期使用：
+
+```bash
+pnpm loopengine install --target ../target-project --profile codex-internal --dry-run --upgrade
+pnpm loopengine install --target ../target-project --profile codex-internal --apply --upgrade --confirm-red-zone
+```
+
+只有旧 `.loopengine/install-state.json` 明确记录且 hash 未变化的入口会被备份和删除。用户修改、未受管或已缺失的旧入口不会被自动删除；真实退役记录写入 `retiredFiles`，可由现有 `rollback` 生命周期恢复。
 
 ## v0.3 升级
 
+- 所有 profile 从 `minimal` 起新增受管文件 `docs/rules/AGENT_SKILL_ROUTING.md`；它是 Skill 选择与降级政策真值，`using-loopengine` 仍是安装 Skills 后的执行入口。升级前使用 `diff` 检查目标项目是否已有同名文件；默认拒绝覆盖，确认替换时使用 `--force` 生成备份，失败后沿用现有 `rollback`。
 - `core` 新增中文 Markdown 任务校验器、完整流程控制 schema 与 `.agents/skills/using-loopengine/`。
 - `full` 新增 `docs/memory/` 六类 durable governance 模板、task/backlog 语义校验和 Pencil `.pen/.png` 配对检查。
 - `validationCommands.lint` 与 `typecheck` 可为 `null`；未检测到真实脚本时不会生成虚假的 pnpm 命令。已有非空字符串配置继续兼容。
 - `governance.mode` 可为 `basic`、`full` 或 `off`；未配置的 v0.2 项目按 profile 推导。
+- `hooks.mode` 可为 `off`、`observe`、`guarded` 或 `strict`，默认 `guarded`；`hooks.completionGate` 可为 `off`、`advisory` 或 `blocking`，默认 `advisory`。
+- v0.2 snake_case hook 占位配置已替换为 Codex 官方 PascalCase 事件。升级前用 `diff` 审查 `.codex/hooks.json` 和 `.agents/loopengine/hooks/`，真实写入仍需红区确认。
+- `.githooks/` 只提供版本化脚本；LoopEngine 不自动修改 `core.hooksPath`。需要启用时人工执行 `git config --local core.hooksPath .githooks`。
 - 升级前使用 `diff` 审查新增文件，再运行 `install --upgrade`。用户修改过的 managed 文件仍默认拒绝覆盖；需要强制更新时先备份，失败可使用 `rollback`。
 - `.agents/memory/` 是会话辅助记忆；`docs/memory/` 是 durable 项目治理真值，两者不得互相替代。
+- Agentmemory 的六个薄入口已合并为单一 skill；`install --upgrade` 通过显式 `retiredEntries` 安全退役未修改的旧顶层入口，并允许 rollback 恢复。
 
 ## Skills 闭包升级
 

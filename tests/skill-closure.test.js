@@ -27,6 +27,14 @@ const prunedSkillIds = [
   'taste-skill',
   'impeccable',
 ];
+const consolidatedAgentmemoryOperations = [
+  'handoff',
+  'recall',
+  'remember',
+  'forget',
+  'recap',
+  'session-history',
+];
 
 function skill(id, overrides = {}) {
   return {
@@ -181,6 +189,38 @@ test('pruned thin skills are absent from manifest, install map, and install plan
   }
 });
 
+test('agentmemory operations are references under one installed skill', async () => {
+  const manifest = await readJson(path.join(rootDir, 'manifests/skills.json'));
+  const installMap = await readJson(path.join(rootDir, 'adapters/codex/install-map.json'));
+  const ids = new Set(manifest.items.map((item) => item.id));
+  const agentmemory = manifest.items.find((item) => item.id === 'agentmemory');
+  const content = await readFile(path.join(rootDir, agentmemory.source), 'utf8');
+
+  assert.deepEqual(agentmemory.optionalSkills, []);
+  for (const operation of consolidatedAgentmemoryOperations) {
+    assert.equal(ids.has(operation), false, `${operation} should not remain a skill id`);
+    assert.equal(
+      installMap.entries.some((entry) => entry.target === `.agents/skills/${operation}/SKILL.md`),
+      false,
+      `${operation} should not remain a top-level installed skill`,
+    );
+    assert.match(content, new RegExp(`references/${operation}\\.md`, 'u'));
+    assert.equal(
+      await readFile(path.join(rootDir, `skills/integrations/agentmemory/references/${operation}.md`), 'utf8')
+        .then((reference) => reference.length > 0),
+      true,
+    );
+  }
+
+  const plan = await createInstallPlan({ dryRun: true, profile: 'full', rootDir, targetDir: rootDir });
+  const targets = plan.actions.map((action) => action.relativeTarget.replaceAll('\\', '/'));
+  assert.ok(targets.includes('.agents/skills/agentmemory/SKILL.md'));
+  for (const operation of consolidatedAgentmemoryOperations) {
+    assert.ok(targets.includes(`.agents/skills/agentmemory/references/${operation}.md`));
+    assert.equal(targets.includes(`.agents/skills/${operation}/SKILL.md`), false);
+  }
+});
+
 test('skill install targets and metadata agree with manifest identity', async () => {
   const manifest = await readJson(path.join(rootDir, 'manifests/skills.json'));
   const installMap = await readJson(path.join(rootDir, 'adapters/codex/install-map.json'));
@@ -227,9 +267,9 @@ test('skill entrypoints stay within progressive-disclosure line budgets', async 
 
 test('skills audit report derives inventory counts from the manifest', async () => {
   const { stdout } = await execFileAsync(process.execPath, ['scripts/skills-audit.js'], { cwd: rootDir });
-  assert.match(stdout, /总数：31/);
+  assert.match(stdout, /总数：25/);
   assert.match(stdout, /native：21/);
-  assert.match(stdout, /integration：9/);
+  assert.match(stdout, /integration：3/);
   assert.match(stdout, /router：1/);
   assert.match(stdout, /compatibility：0/);
   assert.match(stdout, /最长入口：`api-and-interface-design`（7[0-9] 行）/);
@@ -244,5 +284,5 @@ test('external integration skills document usable and unavailable paths', async 
   assert.match(await readSkill('open-code-review'), /ocr llm test[\s\S]*回退/u);
   assert.match(await readSkill('agentmemory'), /MCP[\s\S]*HTTP API[\s\S]*回退/u);
   assert.match(await readSkill('agentmemory'), /memory_commits[\s\S]*memory_commit_lookup[\s\S]*git show/u);
-  assert.match(await readSkill('browser-verification'), /MCP[\s\S]*回退/u);
+  assert.match(await readSkill('browser-verification'), /Playwright CLI[\s\S]*DevTools MCP[\s\S]*回退/u);
 });

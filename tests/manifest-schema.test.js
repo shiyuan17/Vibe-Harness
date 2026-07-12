@@ -55,6 +55,46 @@ test('install map validation rejects unknown groups and unsafe red-zone mappings
   ] }, new Set(['rules-minimal'])), /redZone/u);
 });
 
+test('install map validation accepts explicit retired entries and rejects unsafe retirement declarations', () => {
+  const valid = {
+    adapter: 'codex',
+    entries: [
+      { group: 'skills-memory', source: 'skills/integrations/agentmemory/SKILL.md', target: '.agents/skills/agentmemory/SKILL.md' },
+    ],
+    retiredEntries: [
+      { group: 'skills-memory', target: '.agents/skills/recall/SKILL.md' },
+    ],
+  };
+  assert.doesNotThrow(() => validateInstallMapShape(valid, new Set(['skills-memory'])));
+  assert.throws(() => validateInstallMapShape({
+    ...valid,
+    retiredEntries: [{ group: 'missing', target: '.agents/skills/recall/SKILL.md' }],
+  }, new Set(['skills-memory'])), /Unknown retired install-map group/u);
+  assert.throws(() => validateInstallMapShape({
+    ...valid,
+    retiredEntries: [{ group: 'skills-memory', target: '../escape/SKILL.md' }],
+  }, new Set(['skills-memory'])), /portable relative path/u);
+  assert.throws(() => validateInstallMapShape({
+    ...valid,
+    retiredEntries: [{ group: 'skills-memory', target: '.agents/skills/agentmemory/SKILL.md' }],
+  }, new Set(['skills-memory'])), /conflicts with active install target/u);
+  assert.throws(() => validateInstallMapShape({
+    ...valid,
+    retiredEntries: [
+      { group: 'skills-memory', target: '.agents/skills/recall/SKILL.md' },
+      { group: 'skills-memory', target: '.agents/skills/recall/SKILL.md' },
+    ],
+  }, new Set(['skills-memory'])), /Duplicate retired install target/u);
+  assert.throws(() => validateInstallMapShape({
+    ...valid,
+    retiredEntries: [{ group: 'skills-memory', target: '.codex/hooks.json' }],
+  }, new Set(['skills-memory'])), /Red-zone retired target must be marked redZone/u);
+  assert.throws(() => validateInstallMapShape({
+    ...valid,
+    retiredEntries: [{ group: 'skills-memory', target: '.agents/skills/recall/SKILL.md', source: 'legacy.md' }],
+  }, new Set(['skills-memory'])), /source is not allowed/u);
+});
+
 test('capability matrix maps every reusable capability to current assets', async () => {
   const matrix = await readJson(path.join(rootDir, 'manifests/capabilities.json'));
   assert.deepEqual(await validateCapabilityMatrix(rootDir, matrix), []);

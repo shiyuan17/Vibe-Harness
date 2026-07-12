@@ -10,6 +10,8 @@
 - Review Packet 对未修复的 Medium finding 强制要求有 owner、关闭条件和批准者的结构化延期。
 - 新增 `loopengine verify --project`，显式执行目标项目配置的验证命令，同时保持 `validate --project` 只读。
 - 新增 Failure、Retrospective 模板、双生命周期 smoke script 和 GitHub Actions CI。
+- `browser-verification` 改为项目内 Playwright CLI 优先，core/full/internal 安装隔离的懒加载 Chromium 工具链，并保留 DevTools MCP 与人工回退。
+- 将六个 Agentmemory 薄 skill 收敛为单一入口和按需 references；升级器新增显式、hash 保护且可回滚的旧入口退役动作。
 
 ## 0.3.0
 

@@ -11,19 +11,19 @@
       "id": "core",
       "description": "通用安装：常规规则、模板、runtime 和路由 skills；不包含 hook、codebase-memory-mcp 或 agentmemory MCP 安装面。",
       "installMap": "adapters/codex/install-map.json",
-      "groups": ["agents", "rules-minimal", "rules-core", "rules-full", "templates-minimal", "templates-core", "templates-full", "templates-memory", "schemas-core", "runtime-basic", "runtime-task", "runtime-full", "skills-core", "skills-full"]
+      "groups": ["agents", "rules-minimal", "rules-core", "rules-full", "templates-minimal", "templates-core", "templates-full", "templates-memory", "schemas-core", "runtime-basic", "runtime-task", "runtime-full", "skills-core", "skills-full", "tools-playwright"]
     },
     {
       "id": "full",
       "description": "全安装：通用安装加 codebase-memory-mcp、agentmemory MCP 项目内安装面和 Codex hooks。",
       "installMap": "adapters/codex/install-map.json",
-      "groups": ["agents", "rules-minimal", "rules-core", "rules-full", "rules-codebase-memory", "templates-minimal", "templates-core", "templates-full", "templates-memory", "schemas-core", "runtime-basic", "runtime-task", "runtime-full", "skills-core", "skills-full", "skills-memory", "hooks"]
+      "groups": ["agents", "rules-minimal", "rules-core", "rules-full", "rules-codebase-memory", "templates-minimal", "templates-core", "templates-full", "templates-memory", "schemas-core", "runtime-basic", "runtime-task", "runtime-full", "skills-core", "skills-full", "skills-memory", "tools-playwright", "hooks"]
     },
     {
       "id": "codex-internal",
       "description": "兼容全安装入口：等同 full，保留 legacy/internal 生命周期。",
       "installMap": "adapters/codex/install-map.json",
-      "groups": ["agents", "rules-minimal", "rules-core", "rules-full", "rules-codebase-memory", "templates-minimal", "templates-core", "templates-full", "templates-memory", "schemas-core", "runtime-basic", "runtime-task", "runtime-full", "skills-core", "skills-full", "skills-memory", "hooks"]
+      "groups": ["agents", "rules-minimal", "rules-core", "rules-full", "rules-codebase-memory", "templates-minimal", "templates-core", "templates-full", "templates-memory", "schemas-core", "runtime-basic", "runtime-task", "runtime-full", "skills-core", "skills-full", "skills-memory", "tools-playwright", "hooks"]
     },
     {
       "id": "codex-minimal",

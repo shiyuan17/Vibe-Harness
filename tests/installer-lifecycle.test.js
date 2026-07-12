@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { access, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -24,6 +25,49 @@ async function exists(filePath) {
     return true;
   } catch {
     return false;
+  }
+}
+
+const legacyMemoryOperations = ['handoff', 'recall', 'remember', 'forget', 'recap', 'session-history'];
+
+function sha256(content) {
+  return createHash('sha256').update(content).digest('hex');
+}
+
+async function seedLegacyMemoryInstall(target, { modifiedOperation } = {}) {
+  const files = [];
+  for (const operation of legacyMemoryOperations) {
+    const relativeTarget = `.agents/skills/${operation}/SKILL.md`;
+    const content = `legacy ${operation}\n`;
+    const targetPath = path.join(target, relativeTarget);
+    await mkdir(path.dirname(targetPath), { recursive: true });
+    await writeFile(targetPath, content, 'utf8');
+    files.push({
+      backup: null,
+      created: true,
+      group: 'skills-memory',
+      previousHash: null,
+      redZone: false,
+      source: `skills/integrations/agentmemory/${operation}/SKILL.md`,
+      sourceHash: sha256(content),
+      target: relativeTarget,
+      targetHash: sha256(content),
+    });
+  }
+  await mkdir(path.join(target, '.loopengine'), { recursive: true });
+  await writeFile(path.join(target, '.loopengine/install-state.json'), `${JSON.stringify({
+    files,
+    generatedDirectories: [],
+    installedAt: new Date().toISOString(),
+    profile: 'full',
+    version: '0.2.0',
+  }, null, 2)}\n`, 'utf8');
+  if (modifiedOperation) {
+    await writeFile(
+      path.join(target, `.agents/skills/${modifiedOperation}/SKILL.md`),
+      `user modified ${modifiedOperation}\n`,
+      'utf8',
+    );
   }
 }
 
@@ -100,6 +144,85 @@ test('upgrade refuses user modified managed files unless force is used and force
     assert.equal(backups.length, 1);
     assert.ok(changedTemplate.backup);
     assert.equal(await readFile(path.join(target, changedTemplate.backup), 'utf8'), 'user changed template\n');
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('agentmemory upgrade dry-run retires only legacy entries tracked by install state', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-agentmemory-retire-preview-'));
+  try {
+    await seedLegacyMemoryInstall(target);
+    const preview = await runCli(['install', '--target', target, '--profile', 'full', '--dry-run', '--upgrade']);
+    assert.deepEqual(
+      preview.actions.filter((action) => action.kind === 'retire').map((action) => action.relativeTarget).sort(),
+      legacyMemoryOperations.map((operation) => `.agents/skills/${operation}/SKILL.md`).sort(),
+    );
+    assert.equal(await exists(path.join(target, '.agents/skills/handoff/SKILL.md')), true);
+
+    const untracked = await mkdtemp(path.join(tmpdir(), 'loopengine-agentmemory-untracked-'));
+    try {
+      const untrackedTarget = path.join(untracked, '.agents/skills/recall/SKILL.md');
+      await mkdir(path.dirname(untrackedTarget), { recursive: true });
+      await writeFile(untrackedTarget, 'user owned\n', 'utf8');
+      const untrackedPreview = await runCli(['install', '--target', untracked, '--profile', 'full', '--dry-run', '--upgrade']);
+      assert.equal(untrackedPreview.actions.some((action) => action.relativeTarget === '.agents/skills/recall/SKILL.md'), false);
+    } finally {
+      await rm(untracked, { force: true, recursive: true });
+    }
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('agentmemory upgrade preserves modified legacy entries and rollback restores retired entries', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-agentmemory-retire-'));
+  try {
+    await seedLegacyMemoryInstall(target, { modifiedOperation: 'recall' });
+    const result = await runCli([
+      'install', '--target', target, '--profile', 'full', '--apply', '--upgrade', '--confirm-red-zone',
+    ]);
+
+    assert.equal(result.retired.length, 5);
+    assert.ok(result.skipped.some((item) => item.target === '.agents/skills/recall/SKILL.md' && item.reason === 'target-modified'));
+    assert.equal(await exists(path.join(target, '.agents/skills/forget/SKILL.md')), false);
+    assert.equal(await readFile(path.join(target, '.agents/skills/recall/SKILL.md'), 'utf8'), 'user modified recall\n');
+    assert.equal(await exists(path.join(target, '.agents/skills/agentmemory/references/forget.md')), true);
+
+    const state = JSON.parse(await readFile(path.join(target, '.loopengine/install-state.json'), 'utf8'));
+    assert.equal(state.retiredFiles.length, 5);
+
+    const recreated = path.join(target, '.agents/skills/handoff/SKILL.md');
+    await mkdir(path.dirname(recreated), { recursive: true });
+    await writeFile(recreated, 'recreated handoff\n', 'utf8');
+    const rollback = await runCli(['rollback', '--target', target, '--apply', '--confirm-red-zone']);
+    assert.ok(rollback.skipped.some((item) => item.target === '.agents/skills/handoff/SKILL.md' && item.reason === 'target-recreated'));
+    assert.equal(await readFile(recreated, 'utf8'), 'recreated handoff\n');
+    assert.equal(await readFile(path.join(target, '.agents/skills/forget/SKILL.md'), 'utf8'), 'legacy forget\n');
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('MVP write upgrade uses the same tracked agentmemory retirement lifecycle', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-agentmemory-mvp-retire-'));
+  try {
+    await seedLegacyMemoryInstall(target);
+    await runCli(['init', '--project', target]);
+    const result = await runCli([
+      'install',
+      '--project', target,
+      '--target', 'codex',
+      '--profile', 'full',
+      '--write',
+      '--upgrade',
+      '--confirm-red-zone',
+    ]);
+
+    assert.equal(result.retired.length, 6);
+    assert.equal(result.skipped.length, 0);
+    assert.equal(await exists(path.join(target, '.agents/skills/handoff/SKILL.md')), false);
+    assert.equal(await exists(path.join(target, '.agents/skills/agentmemory/references/handoff.md')), true);
   } finally {
     await rm(target, { force: true, recursive: true });
   }

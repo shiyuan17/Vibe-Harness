@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rm, rmdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
@@ -25,6 +25,10 @@ import {
   renderTemplate,
   withDefaultTemplateData,
 } from './template-renderer.js';
+import {
+  PLAYWRIGHT_GENERATED_RELATIVE_DIR,
+  PLAYWRIGHT_TOOL_RELATIVE_DIR,
+} from '../../runtime/tools/playwright-cli/run.mjs';
 
 async function loadProfileInstallMap({ profile, rootDir }) {
   const profiles = await readJson(path.join(rootDir, 'manifests/profiles.json'));
@@ -66,11 +70,7 @@ export function createInstalledSurface({ memoryPath = '.agents/memory', profile,
     'docs/rules/pencil-rules.md',
     'docs/rules/troubleshooting.md',
   ].some(hasTarget);
-  const hasAgentMemorySkills = [
-    '.agents/skills/recall/SKILL.md',
-    '.agents/skills/remember/SKILL.md',
-    '.agents/skills/session-history/SKILL.md',
-  ].some(hasTarget);
+  const hasAgentMemorySkills = hasTarget('.agents/skills/agentmemory/SKILL.md');
   const normalizedMemoryPath = memoryPath.replaceAll('\\', '/').replace(/\/+$/u, '');
   const hasLocalMemory = installedTargets.includes(`${normalizedMemoryPath}/README.md`);
   const profileLines = {
@@ -182,6 +182,7 @@ export async function createInstallPlan({
       group: entry.group,
       kind,
       contentStrategy,
+      executable: Boolean(entry.executable),
       redZone: Boolean(entry.redZone),
       relativeSource,
       relativeTarget,
@@ -190,15 +191,50 @@ export async function createInstallPlan({
     });
   }
 
+  if (upgrade) {
+    for (const entry of installMap.retiredEntries ?? []) {
+      if (!allowedGroups.has(entry.group)) {
+        continue;
+      }
+      assertPortableRelativePath(entry.target, 'retired install target');
+      const relativeTarget = entry.target.replaceAll('\\', '/');
+      const managedFile = managed.get(relativeTarget);
+      if (!managedFile) {
+        continue;
+      }
+      const target = path.resolve(targetDir, relativeTarget);
+      assertInsideDir(targetDir, target, 'retired install target');
+      if (!(await pathExists(target))) {
+        continue;
+      }
+      const currentHash = await hashFile(target);
+      actions.push({
+        expectedHash: managedFile.targetHash,
+        group: entry.group,
+        kind: currentHash === managedFile.targetHash ? 'retire' : 'retire-modified',
+        redZone: Boolean(entry.redZone),
+        relativeTarget,
+        target,
+      });
+    }
+  }
+
   const installedSurface = createInstalledSurface({
     memoryPath: renderData.memory?.path,
     profile,
     targets: actions.map((action) => action.relativeTarget),
   });
+  const generatedDirectories = actions.some((action) => action.group === 'tools-playwright')
+    ? [{
+        ownerTarget: `${PLAYWRIGHT_TOOL_RELATIVE_DIR}/package.json`,
+        target: PLAYWRIGHT_GENERATED_RELATIVE_DIR,
+      }]
+    : [];
 
   return {
     dryRun,
     force,
+    generatedDirectories,
     profile,
     renderData: withDefaultTemplateData({
       ...renderData,
@@ -228,7 +264,7 @@ export async function renderActionContent(action, renderData = {}, existingConte
 export async function previewInstallPlan(plan) {
   const previewFiles = [];
   for (const action of plan.actions) {
-    if (action.kind === 'conflict' || action.kind === 'user-modified') {
+    if (action.kind !== 'write') {
       continue;
     }
     const existingContent = action.contentStrategy === 'managed-block' && await pathExists(action.target)
@@ -343,7 +379,7 @@ export const inspectTargetInstall = diffTargetInstall;
 
 export async function applyInstallPlan(plan) {
   if (plan.dryRun) {
-    return { written: [] };
+    return { retired: [], skipped: [], written: [] };
   }
 
   const userModified = plan.actions.find((action) => action.kind === 'user-modified');
@@ -363,6 +399,9 @@ export async function applyInstallPlan(plan) {
   }
 
   const written = [];
+  const retired = [];
+  const retiredFiles = [];
+  const skipped = [];
   const files = [];
   const backupId = createBackupId();
 
@@ -384,6 +423,7 @@ export async function applyInstallPlan(plan) {
 
     await mkdir(path.dirname(action.target), { recursive: true });
     await writeFile(action.target, await renderActionContent(action, plan.renderData, existingContent), 'utf8');
+    if (action.executable) await chmod(action.target, 0o755);
     written.push(action.target);
     files.push({
       backup,
@@ -398,12 +438,50 @@ export async function applyInstallPlan(plan) {
     });
   }
 
+  for (const action of plan.actions) {
+    if (action.kind === 'retire-modified') {
+      skipped.push({ reason: 'target-modified', target: action.relativeTarget });
+      continue;
+    }
+    if (action.kind !== 'retire') {
+      continue;
+    }
+    assertPortableRelativePath(action.relativeTarget, 'retired install target');
+    assertInsideDir(plan.targetDir, action.target, 'retired install target');
+    if (!(await pathExists(action.target))) {
+      skipped.push({ reason: 'target-missing', target: action.relativeTarget });
+      continue;
+    }
+    const currentHash = await hashFile(action.target);
+    if (currentHash !== action.expectedHash) {
+      skipped.push({ reason: 'target-modified', target: action.relativeTarget });
+      continue;
+    }
+    const backup = await backupFile({ backupId, target: action.target, targetDir: plan.targetDir });
+    await rm(action.target, { force: true });
+    try {
+      await rmdir(path.dirname(action.target));
+    } catch (error) {
+      if (!['ENOENT', 'ENOTEMPTY'].includes(error.code)) throw error;
+    }
+    retired.push(action.relativeTarget);
+    retiredFiles.push({
+      backup,
+      group: action.group,
+      redZone: Boolean(action.redZone),
+      target: action.relativeTarget,
+      targetHash: currentHash,
+    });
+  }
+
   await writeInstallState(plan.targetDir, {
     files,
+    generatedDirectories: plan.generatedDirectories,
     installedAt: new Date().toISOString(),
     profile: plan.profile,
+    retiredFiles,
     version: plan.version,
   });
 
-  return { written };
+  return { retired, skipped, written };
 }

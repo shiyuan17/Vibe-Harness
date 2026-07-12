@@ -8,7 +8,9 @@ LoopEngine 是 Codex 优先的可复用 AI coding governance 包。运行时使�
 - `templates/`：无 Skill 环境使用的中文任务和交付模板；专项模板与对应 skill 共置。
 - `skills/`：`using-loopengine` 负责路由，canonical skills 按需提供规格、计划、实现、验证、审查和恢复流程。
 - `runtime/governance/`：解析 `docs/tasks/*.md`，校验中文字段、AC-ID、完成证据和完整流程控制块。
-- `adapters/codex/`：包含精简 AGENTS 模板、install map 和 legacy/internal hooks。
+- `runtime/hooks/`：规范化 Codex 事件并执行可移植的安全、上下文和完成策略。
+- `adapters/codex/`：包含精简 AGENTS 模板、install map 和官方 PascalCase Codex hook 配置。
+- `adapters/git/`：包含默认不启用的版本化 pre-commit / pre-push 入口。
 - `manifests/`：rules、skills 和 profiles 的 catalog 真值；不再维护 workflow catalog。
 - `schemas/`：manifest schema 和完整流程中文控制块 schema。
 
@@ -35,6 +37,7 @@ LoopEngine 是 Codex 优先的可复用 AI coding governance 包。运行时使�
 ## 安全模型
 
 - 安装器不写全局 Agent 配置，不默认覆盖目标项目文件。
+- 安装器不修改 `.git/config`；Git hooks 只能由用户显式设置本仓库 `core.hooksPath` 后启用。
 - AGENTS 使用受管块更新；其他冲突文件只有 `--force` 才备份并覆盖。
 - reusable 目录不得包含源项目标识、业务契约、个人路径或具体任务编号。
 - 红区、不可逆操作和高风险最终批准保留人工或独立核验门禁。

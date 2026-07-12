@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { inspectValidationCommands } from './lib/command-status.js';
+import { inspectGitHooks } from './lib/git-hooks.js';
 import { applyRollbackPlan, createRollbackPlan } from './lib/install-state.js';
 import {
   applyInstallPlan,
@@ -24,8 +25,26 @@ import {
   writeDefaultProjectConfig,
 } from './lib/project-config.js';
 import { readFile } from 'node:fs/promises';
+import { inspectPlaywrightTool } from '../runtime/tools/playwright-cli/run.mjs';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const playwrightProfiles = new Set(['core', 'full', 'codex-internal']);
+
+async function inspectProfileTools(profile, targetDir) {
+  if (!playwrightProfiles.has(profile)) return {};
+  return { playwrightCli: await inspectPlaywrightTool({ targetDir }) };
+}
+
+function toolWarnings(tools) {
+  const status = tools.playwrightCli?.status;
+  if (!status || status === 'ready') return [];
+  return [{
+    code: status === 'pending' ? 'PLAYWRIGHT_CLI_PENDING' : 'PLAYWRIGHT_CLI_UNAVAILABLE',
+    message: status === 'pending'
+      ? 'Playwright CLI will be prepared on first use.'
+      : 'Playwright CLI preparation failed; retry it or use the browser fallback.',
+  }];
+}
 
 function parseArgs(argv) {
   const args = { _: [] };
@@ -115,6 +134,7 @@ async function install(args) {
   plan.redZoneConfirmed = Boolean(args['confirm-red-zone']);
   const result = await applyInstallPlan(plan);
   const previewFiles = plan.dryRun ? await previewInstallPlan(plan) : [];
+  const tools = await inspectProfileTools(profile, targetDir);
   console.log(JSON.stringify({
     actions: plan.actions,
     dryRun: plan.dryRun,
@@ -123,6 +143,9 @@ async function install(args) {
     profile: plan.profile,
     target: isMvpMode ? (args.target ?? config.target) : undefined,
     targetDir: plan.targetDir,
+    tools,
+    retired: result.retired,
+    skipped: result.skipped,
     written: result.written,
   }, null, 2));
 }
@@ -171,16 +194,29 @@ async function validate(args) {
       commands: validationCommands,
       targetDir,
     });
-    console.log(JSON.stringify({ commandStatus, ok: true, scope: 'project', targetDir }, null, 2));
+    const tools = await inspectProfileTools(config.profile, targetDir);
+    console.log(JSON.stringify({
+      commandStatus,
+      ok: true,
+      scope: 'project',
+      targetDir,
+      tools,
+      warnings: toolWarnings(tools),
+    }, null, 2));
     return;
   }
 
   if (args.target) {
+    const profile = args.profile ?? 'codex-internal';
+    const targetDir = path.resolve(args.target);
     const report = await inspectTargetInstall({
-      profile: args.profile ?? 'codex-internal',
+      profile,
       rootDir,
-      targetDir: path.resolve(args.target),
+      targetDir,
     });
+    const tools = await inspectProfileTools(profile, targetDir);
+    report.tools = tools;
+    report.warnings = toolWarnings(tools);
     console.log(JSON.stringify(report, null, 2));
     if (!report.ok) {
       process.exitCode = 1;
@@ -236,14 +272,27 @@ async function verify(args) {
 
 async function doctor(args) {
   const targetDir = path.resolve(args.target ?? process.cwd());
-  const pack = await validatePack(rootDir);
+  const profile = args.profile ?? 'codex-internal';
+  const [pack, gitHooks] = await Promise.all([
+    validatePack(rootDir),
+    inspectGitHooks(targetDir),
+  ]);
   const target = args.target
-    ? await inspectTargetInstall({ profile: args.profile ?? 'codex-internal', rootDir, targetDir })
+    ? await inspectTargetInstall({ profile, rootDir, targetDir })
     : null;
+  const tools = args.target ? await inspectProfileTools(profile, targetDir) : {};
   if (target && !args.verbose) {
     delete target.unmanaged;
   }
-  console.log(JSON.stringify({ pack, rootDir, target, targetDir }, null, 2));
+  console.log(JSON.stringify({
+    gitHooks,
+    pack,
+    rootDir,
+    target,
+    targetDir,
+    tools,
+    warnings: toolWarnings(tools),
+  }, null, 2));
 }
 
 async function diff(args) {

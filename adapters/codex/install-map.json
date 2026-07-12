@@ -4,6 +4,7 @@
     { "group": "agents", "source": "adapters/codex/AGENTS.template.md", "target": "AGENTS.md" },
 
     { "group": "rules-minimal", "source": "rules/governance-core.md", "target": "docs/rules/governance-core.md" },
+    { "group": "rules-minimal", "source": "rules/agent-skill-routing.md", "target": "docs/rules/AGENT_SKILL_ROUTING.md" },
     { "group": "rules-minimal", "source": "rules/git-rules.md", "target": "docs/rules/git-rules.md" },
     { "group": "rules-minimal", "source": "rules/test-rules.md", "target": "docs/rules/test-rules.md" },
 
@@ -40,6 +41,10 @@
     { "group": "runtime-full", "source": "runtime/governance/lib/memory-validation.mjs", "target": ".agents/loopengine/governance/lib/memory-validation.mjs" },
     { "group": "runtime-task", "source": "runtime/governance/lib/schema-validation.mjs", "target": ".agents/loopengine/governance/lib/schema-validation.mjs" },
 
+    { "group": "tools-playwright", "source": "runtime/tools/playwright-cli/package.json", "target": ".agents/loopengine/tools/playwright-cli/package.json" },
+    { "group": "tools-playwright", "source": "runtime/tools/playwright-cli/package-lock.json", "target": ".agents/loopengine/tools/playwright-cli/package-lock.json" },
+    { "group": "tools-playwright", "source": "runtime/tools/playwright-cli/run.mjs", "target": ".agents/loopengine/tools/playwright-cli/run.mjs", "executable": true },
+
     { "group": "skills-core", "source": "skills/core/brainstorming/SKILL.md", "target": ".agents/skills/brainstorming/SKILL.md" },
     { "group": "skills-core", "source": "skills/core/using-loopengine/SKILL.md", "target": ".agents/skills/using-loopengine/SKILL.md" },
     { "group": "skills-core", "source": "skills/core/brainstorming/spec-document-reviewer-prompt.md", "target": ".agents/skills/brainstorming/spec-document-reviewer-prompt.md" },
@@ -73,6 +78,7 @@
     { "group": "skills-core", "source": "skills/integrations/open-code-review/SKILL.md", "target": ".agents/skills/open-code-review/SKILL.md" },
     { "group": "skills-core", "source": "skills/integrations/open-code-review/references/cli.md", "target": ".agents/skills/open-code-review/references/cli.md" },
     { "group": "skills-core", "source": "skills/integrations/browser-verification/SKILL.md", "target": ".agents/skills/browser-verification/SKILL.md" },
+    { "group": "skills-core", "source": "skills/integrations/browser-verification/references/cli.md", "target": ".agents/skills/browser-verification/references/cli.md" },
 
     { "group": "skills-core", "source": "skills/core/workflow-handoff/SKILL.md", "target": ".agents/skills/workflow-handoff/SKILL.md" },
     { "group": "skills-core", "source": "skills/core/workflow-handoff/references/handoff.md", "target": ".agents/skills/workflow-handoff/references/handoff.md" },
@@ -92,17 +98,31 @@
     { "group": "skills-full", "source": "skills/core/runtime-cross-repo-rollout/SKILL.md", "target": ".agents/skills/runtime-cross-repo-rollout/SKILL.md" },
 
     { "group": "skills-memory", "source": "skills/integrations/agentmemory/SKILL.md", "target": ".agents/skills/agentmemory/SKILL.md" },
-    { "group": "skills-memory", "source": "skills/integrations/agentmemory/handoff/SKILL.md", "target": ".agents/skills/handoff/SKILL.md" },
-    { "group": "skills-memory", "source": "skills/integrations/agentmemory/recall/SKILL.md", "target": ".agents/skills/recall/SKILL.md" },
-    { "group": "skills-memory", "source": "skills/integrations/agentmemory/remember/SKILL.md", "target": ".agents/skills/remember/SKILL.md" },
-    { "group": "skills-memory", "source": "skills/integrations/agentmemory/forget/SKILL.md", "target": ".agents/skills/forget/SKILL.md" },
-    { "group": "skills-memory", "source": "skills/integrations/agentmemory/recap/SKILL.md", "target": ".agents/skills/recap/SKILL.md" },
-    { "group": "skills-memory", "source": "skills/integrations/agentmemory/session-history/SKILL.md", "target": ".agents/skills/session-history/SKILL.md" },
+    { "group": "skills-memory", "source": "skills/integrations/agentmemory/references/handoff.md", "target": ".agents/skills/agentmemory/references/handoff.md" },
+    { "group": "skills-memory", "source": "skills/integrations/agentmemory/references/recall.md", "target": ".agents/skills/agentmemory/references/recall.md" },
+    { "group": "skills-memory", "source": "skills/integrations/agentmemory/references/remember.md", "target": ".agents/skills/agentmemory/references/remember.md" },
+    { "group": "skills-memory", "source": "skills/integrations/agentmemory/references/forget.md", "target": ".agents/skills/agentmemory/references/forget.md" },
+    { "group": "skills-memory", "source": "skills/integrations/agentmemory/references/recap.md", "target": ".agents/skills/agentmemory/references/recap.md" },
+    { "group": "skills-memory", "source": "skills/integrations/agentmemory/references/session-history.md", "target": ".agents/skills/agentmemory/references/session-history.md" },
     { "group": "skills-memory", "source": "memory/README.md", "target": ".agents/memory/README.md" },
     { "group": "skills-memory", "source": "memory/observations.md", "target": ".agents/memory/observations.md" },
     { "group": "skills-memory", "source": "memory/decisions.md", "target": ".agents/memory/decisions.md" },
     { "group": "skills-memory", "source": "memory/sessions/README.md", "target": ".agents/memory/sessions/README.md" },
 
+    { "group": "hooks", "source": "runtime/hooks/codex-hook.mjs", "target": ".agents/loopengine/hooks/codex-hook.mjs", "executable": true },
+    { "group": "hooks", "source": "runtime/hooks/git-hook.mjs", "target": ".agents/loopengine/hooks/git-hook.mjs", "executable": true },
+    { "group": "hooks", "source": "runtime/hooks/lib/context.mjs", "target": ".agents/loopengine/hooks/lib/context.mjs" },
+    { "group": "hooks", "source": "runtime/hooks/lib/policy.mjs", "target": ".agents/loopengine/hooks/lib/policy.mjs" },
+    { "group": "hooks", "source": "adapters/git/pre-commit", "target": ".githooks/pre-commit", "executable": true },
+    { "group": "hooks", "source": "adapters/git/pre-push", "target": ".githooks/pre-push", "executable": true },
     { "group": "hooks", "source": "adapters/codex/hooks.template.json", "target": ".codex/hooks.json", "redZone": true }
+  ],
+  "retiredEntries": [
+    { "group": "skills-memory", "target": ".agents/skills/handoff/SKILL.md" },
+    { "group": "skills-memory", "target": ".agents/skills/recall/SKILL.md" },
+    { "group": "skills-memory", "target": ".agents/skills/remember/SKILL.md" },
+    { "group": "skills-memory", "target": ".agents/skills/forget/SKILL.md" },
+    { "group": "skills-memory", "target": ".agents/skills/recap/SKILL.md" },
+    { "group": "skills-memory", "target": ".agents/skills/session-history/SKILL.md" }
   ]
 }

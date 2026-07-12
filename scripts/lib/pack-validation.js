@@ -293,6 +293,14 @@ export async function validateGovernanceQuality(rootDir) {
       terms: ['权限、红区和风险档位', '当前处于', '专项 Skill', '验证或审查 Skill', 'adversarial-review-packet'],
     },
     {
+      file: 'rules/agent-skill-routing.md',
+      terms: [
+        '不得覆盖', '一个流程 Skill', '一个领域 Skill', '一个验证或审查 Skill',
+        'Clarify', 'Spec', 'Plan', 'Tasks', 'Execute', 'Verify', 'Review', 'Handoff', 'Retrospective',
+        'OpenCodeReview', 'fallback', 'Memory', 'using-loopengine',
+      ],
+    },
+    {
       file: 'rules/test-rules.md',
       terms: ['验收矩阵', '退出码', '未验证项'],
     },
@@ -381,6 +389,51 @@ export async function validateGovernanceQuality(rootDir) {
   return errors.sort();
 }
 
+export function validateAgentSkillRoutingIntegrity({
+  agentsContent,
+  capabilityMatrix,
+  installEntries,
+  routerContent,
+  ruleContent,
+  ruleItems,
+}) {
+  const errors = [];
+  const ruleSource = 'rules/agent-skill-routing.md';
+  const ruleTarget = 'docs/rules/AGENT_SKILL_ROUTING.md';
+  const testTarget = 'tests/agent-skill-routing.test.js';
+
+  const manifestEntry = ruleItems.find((item) => item.id === 'agent-skill-routing');
+  if (manifestEntry?.source !== ruleSource) {
+    errors.push(`agent-skill-routing must be registered in manifests/rules.json with source ${ruleSource}`);
+  }
+
+  const installEntry = installEntries.find((entry) => entry.source === ruleSource);
+  if (installEntry?.group !== 'rules-minimal' || installEntry?.target !== ruleTarget) {
+    errors.push(`agent-skill-routing must install from rules-minimal to ${ruleTarget}`);
+  }
+
+  const capability = capabilityMatrix?.items?.find((item) => item.id === 'skill-routing');
+  if (!capability) {
+    errors.push('skill-routing capability must track the routing policy and router');
+  } else {
+    for (const target of [ruleSource, 'skills/core/using-loopengine/SKILL.md']) {
+      if (!capability.targets?.includes(target)) errors.push(`skill-routing capability must target ${target}`);
+    }
+    if (!capability.tests?.includes(testTarget)) {
+      errors.push(`skill-routing capability must list ${testTarget}`);
+    }
+  }
+
+  if (!routerContent.includes(ruleTarget)) errors.push(`using-loopengine router must reference ${ruleTarget}`);
+  if (!ruleContent.includes('using-loopengine')) errors.push('agent skill routing policy must reference using-loopengine');
+  if (!agentsContent.includes(ruleTarget)) errors.push(`AGENTS template must reference ${ruleTarget}`);
+  if (!/Skills 未安装时.*fallback/u.test(agentsContent)) {
+    errors.push('AGENTS template must document the no-skill fallback');
+  }
+
+  return errors.sort();
+}
+
 export async function validateCapabilityMatrix(rootDir, matrix, { checkFiles = true } = {}) {
   const errors = [];
   const allowed = new Set(['generalize', 'validator', 'template', 'project-only', 'excluded-with-reason']);
@@ -465,12 +518,30 @@ export async function validatePack(rootDir) {
     .sort();
   const invalidSkillDirs = await findInvalidSkillDirs(rootDir);
   const skillMetadataErrors = await validateSkillMetadataQuality(rootDir, manifests.skills.items);
+  const installEntries = (await readJson(path.join(rootDir, manifests.profiles.items[0].installMap))).entries;
   const skillGraphErrors = await validateSkillGraph(rootDir, manifests.skills.items, manifests.profiles.items, {
-    installEntries: (await readJson(path.join(rootDir, manifests.profiles.items[0].installMap))).entries,
+    installEntries,
   });
   const governanceQualityErrors = await validateGovernanceQuality(rootDir);
   const capabilityMatrix = await readJson(path.join(rootDir, 'manifests/capabilities.json'));
   const capabilityErrors = await validateCapabilityMatrix(rootDir, capabilityMatrix);
+  const readOptionalText = async (relativePath) => {
+    const file = path.join(rootDir, relativePath);
+    return await pathExists(file) ? readFile(file, 'utf8') : '';
+  };
+  const [agentsContent, routerContent, ruleContent] = await Promise.all([
+    readOptionalText('adapters/codex/AGENTS.template.md'),
+    readOptionalText('skills/core/using-loopengine/SKILL.md'),
+    readOptionalText('rules/agent-skill-routing.md'),
+  ]);
+  const agentSkillRoutingErrors = validateAgentSkillRoutingIntegrity({
+    agentsContent,
+    capabilityMatrix,
+    installEntries,
+    routerContent,
+    ruleContent,
+    ruleItems: manifests.rules.items,
+  });
   const leaks = await scanForForbiddenTerms({
     forbiddenTerms,
     includeDirs: redactionDirs,
@@ -478,6 +549,7 @@ export async function validatePack(rootDir) {
   });
 
   return {
+    agentSkillRoutingErrors,
     capabilityErrors,
     leaks,
     missing: [...missing, ...installMapMissing].sort(),
@@ -493,6 +565,7 @@ export async function validatePack(rootDir) {
       && skillMetadataErrors.length === 0
       && skillGraphErrors.length === 0
       && governanceQualityErrors.length === 0
+      && agentSkillRoutingErrors.length === 0
       && capabilityErrors.length === 0
       && leaks.length === 0
       && schemaErrors.length === 0,

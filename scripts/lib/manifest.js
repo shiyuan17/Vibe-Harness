@@ -214,6 +214,12 @@ function isRedZoneTarget(target) {
 
 export function validateInstallMapShape(installMap, allowedGroups) {
   assertObject(installMap, 'install-map');
+  const allowedTopLevelKeys = new Set(['adapter', 'entries', 'retiredEntries']);
+  for (const key of Object.keys(installMap)) {
+    if (!allowedTopLevelKeys.has(key)) {
+      throw new Error(`install-map.${key} is not allowed`);
+    }
+  }
   assertNonEmptyString(installMap.adapter, 'install-map.adapter');
   if (!Array.isArray(installMap.entries)) {
     throw new Error('install-map.entries must be an array');
@@ -222,6 +228,12 @@ export function validateInstallMapShape(installMap, allowedGroups) {
   const targets = new Set();
   for (const [index, entry] of installMap.entries.entries()) {
     assertObject(entry, `install-map.entries[${index}]`);
+    const allowedEntryKeys = new Set(['executable', 'group', 'redZone', 'source', 'target']);
+    for (const key of Object.keys(entry)) {
+      if (!allowedEntryKeys.has(key)) {
+        throw new Error(`install-map.entries[${index}].${key} is not allowed`);
+      }
+    }
     assertNonEmptyString(entry.group, `install-map.entries[${index}].group`);
     assertNonEmptyString(entry.source, `install-map.entries[${index}].source`);
     assertNonEmptyString(entry.target, `install-map.entries[${index}].target`);
@@ -236,6 +248,42 @@ export function validateInstallMapShape(installMap, allowedGroups) {
     targets.add(entry.target);
     if (isRedZoneTarget(entry.target) && entry.redZone !== true) {
       throw new Error(`Red-zone target must be marked redZone: ${entry.target}`);
+    }
+    if (Object.hasOwn(entry, 'executable') && typeof entry.executable !== 'boolean') {
+      throw new Error(`install-map.entries[${index}].executable must be boolean`);
+    }
+  }
+
+  if (installMap.retiredEntries !== undefined && !Array.isArray(installMap.retiredEntries)) {
+    throw new Error('install-map.retiredEntries must be an array');
+  }
+  const retiredTargets = new Set();
+  for (const [index, entry] of (installMap.retiredEntries ?? []).entries()) {
+    assertObject(entry, `install-map.retiredEntries[${index}]`);
+    const allowedEntryKeys = new Set(['group', 'redZone', 'target']);
+    for (const key of Object.keys(entry)) {
+      if (!allowedEntryKeys.has(key)) {
+        throw new Error(`install-map.retiredEntries[${index}].${key} is not allowed`);
+      }
+    }
+    assertNonEmptyString(entry.group, `install-map.retiredEntries[${index}].group`);
+    assertNonEmptyString(entry.target, `install-map.retiredEntries[${index}].target`);
+    assertPortableRelativePath(entry.target, `install-map.retiredEntries[${index}].target`);
+    if (!allowedGroups.has(entry.group)) {
+      throw new Error(`Unknown retired install-map group: ${entry.group}`);
+    }
+    if (targets.has(entry.target)) {
+      throw new Error(`Retired install target conflicts with active install target: ${entry.target}`);
+    }
+    if (retiredTargets.has(entry.target)) {
+      throw new Error(`Duplicate retired install target: ${entry.target}`);
+    }
+    retiredTargets.add(entry.target);
+    if (isRedZoneTarget(entry.target) && entry.redZone !== true) {
+      throw new Error(`Red-zone retired target must be marked redZone: ${entry.target}`);
+    }
+    if (Object.hasOwn(entry, 'redZone') && typeof entry.redZone !== 'boolean') {
+      throw new Error(`install-map.retiredEntries[${index}].redZone must be boolean`);
     }
   }
 }

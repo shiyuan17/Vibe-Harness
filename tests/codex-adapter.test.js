@@ -26,5 +26,9 @@ test('codex adapter and plugin metadata track the package version', async () => 
 
   assert.equal(adapter.version, pkg.version);
   assert.equal(plugin.version, pkg.version);
-  assert.match(hooks.notes, /legacy placeholder/i);
+  assert.match(hooks.notes, /official PascalCase lifecycle surface/i);
+  assert.ok(hooks.hooks.PreToolUse);
+  assert.ok(hooks.hooks.PermissionRequest);
+  assert.ok(hooks.hooks.Stop);
+  assert.equal(Object.hasOwn(hooks.hooks, 'SessionEnd'), false);
 });

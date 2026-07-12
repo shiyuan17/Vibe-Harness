@@ -1,8 +1,133 @@
 {
   "hooks": {
-    "session_start": [],
-    "pre_tool_use": [],
-    "post_tool_use": []
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\"",
+            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs')\"",
+            "timeout": 10,
+            "statusMessage": "Loading LoopEngine project context"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\"",
+            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs')\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Edit|Write|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\"",
+            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs')\"",
+            "timeout": 10,
+            "statusMessage": "Checking LoopEngine tool policy"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "Bash|Edit|Write|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\"",
+            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs')\"",
+            "timeout": 10,
+            "statusMessage": "Checking LoopEngine approval policy"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|Edit|Write|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\"",
+            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs')\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\"",
+            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs')\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\"",
+            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs')\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\"",
+            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs')\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\"",
+            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs')\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\"",
+            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs')\"",
+            "timeout": 20,
+            "statusMessage": "Checking LoopEngine completion evidence"
+          }
+        ]
+      }
+    ]
   },
-  "notes": "LoopEngine v0.2 keeps Codex hooks as a legacy placeholder surface. Projects can opt in to stricter hooks later."
+  "notes": "LoopEngine Codex hooks use the official PascalCase lifecycle surface documented on 2026-07-12. Project hooks require Codex trust review and do not intercept every tool implementation."
 }

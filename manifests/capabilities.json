@@ -3,7 +3,7 @@
   "items": [
     { "id": "governance-kernel", "source": "agent governance prompts", "disposition": "generalize", "targets": ["adapters/codex/AGENTS.template.md", "rules/governance-core.md"], "tests": ["tests/simplified-governance.test.js"] },
     { "id": "chinese-task-contract", "source": "task lifecycle contracts", "disposition": "validator", "targets": ["templates/task.md", "schemas/full-task-control.schema.json", "runtime/governance/lib/task-validation.mjs"], "tests": ["tests/simplified-governance.test.js"] },
-    { "id": "skill-routing", "source": "composable agent skills", "disposition": "generalize", "targets": ["skills/core/using-loopengine/SKILL.md"], "tests": ["tests/simplified-governance.test.js", "tests/skill-closure.test.js"] },
+    { "id": "skill-routing", "source": "AGENT_SKILL_ROUTING.md and composable agent skills", "disposition": "generalize", "targets": ["rules/agent-skill-routing.md", "skills/core/using-loopengine/SKILL.md"], "tests": ["tests/agent-skill-routing.test.js", "tests/simplified-governance.test.js", "tests/skill-closure.test.js"] },
     { "id": "review", "source": "adversarial review", "disposition": "generalize", "targets": ["skills/core/adversarial-review-packet/SKILL.md", "templates/delivery.md"], "tests": ["tests/simplified-governance.test.js"] },
     { "id": "git-and-worktree", "source": "GIT_RULES.md", "disposition": "generalize", "targets": ["rules/git-rules.md"], "tests": ["tests/rules-depth.test.js"] },
     { "id": "engineering-rules", "source": "CODING / FRONTEND / API / DB", "disposition": "generalize", "targets": ["rules/coding-rules.md", "rules/frontend-rules.md", "rules/api-rules.md", "rules/db-rules.md"], "tests": ["tests/rules-depth.test.js"] },

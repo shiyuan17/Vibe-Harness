@@ -63,6 +63,9 @@ export async function collectTargetFiles(targetDir, currentDir = targetDir) {
     if (relative === stateDirName || relative.startsWith(`${stateDirName}/`)) {
       continue;
     }
+    if (entry.isDirectory() && entry.name === 'node_modules') {
+      continue;
+    }
     if (entry.isDirectory()) {
       files.push(...await collectTargetFiles(targetDir, fullPath));
     } else if (entry.isFile()) {
@@ -79,6 +82,24 @@ export async function createRollbackPlan({ dryRun = true, redZoneConfirmed = fal
   }
 
   const actions = [];
+  for (const directory of state.generatedDirectories ?? []) {
+    assertPortableRelativePath(directory.target, 'install-state generated directory');
+    assertPortableRelativePath(directory.ownerTarget, 'install-state generated directory owner');
+    const target = path.join(targetDir, directory.target);
+    const ownerTarget = path.join(targetDir, directory.ownerTarget);
+    assertInsideDir(path.dirname(ownerTarget), target, 'generated directory');
+    const owner = state.files.find((file) => file.target === directory.ownerTarget);
+    if (!owner) {
+      throw new Error(`Generated directory owner is not managed: ${directory.ownerTarget}`);
+    }
+    actions.push({
+      expectedOwnerHash: owner.targetHash,
+      kind: 'delete-generated-directory',
+      ownerTarget: directory.ownerTarget,
+      redZone: false,
+      target: directory.target,
+    });
+  }
   for (const file of [...state.files].reverse()) {
     assertPortableRelativePath(file.target, 'install-state target');
     const target = path.join(targetDir, file.target);
@@ -110,6 +131,20 @@ export async function createRollbackPlan({ dryRun = true, redZoneConfirmed = fal
       });
     }
   }
+  for (const file of state.retiredFiles ?? []) {
+    assertPortableRelativePath(file.target, 'install-state retired target');
+    assertPortableRelativePath(file.backup, 'install-state retired backup');
+    const target = path.join(targetDir, file.target);
+    const backupPath = path.join(targetDir, file.backup);
+    assertInsideDir(targetDir, target, 'install-state retired target');
+    assertInsideDir(path.join(targetDir, stateDirName, 'backups'), backupPath, 'install-state retired backup');
+    actions.push({
+      backup: file.backup,
+      kind: 'restore-retired',
+      redZone: Boolean(file.redZone),
+      target: file.target,
+    });
+  }
 
   return {
     actions,
@@ -135,7 +170,30 @@ export async function applyRollbackPlan(plan) {
     assertPortableRelativePath(action.target, 'rollback target');
     const target = path.join(plan.targetDir, action.target);
     assertInsideDir(plan.targetDir, target, 'rollback target');
-    if (action.kind === 'restore-backup') {
+    if (action.kind === 'delete-generated-directory') {
+      assertPortableRelativePath(action.ownerTarget, 'rollback generated directory owner');
+      const ownerTarget = path.join(plan.targetDir, action.ownerTarget);
+      assertInsideDir(path.dirname(ownerTarget), target, 'rollback generated directory');
+      if (await pathExists(target)) {
+        if (!(await pathExists(ownerTarget)) || await hashFile(ownerTarget) !== action.expectedOwnerHash) {
+          skipped.push({ reason: 'owner-modified', target: action.target });
+          continue;
+        }
+        await rm(target, { force: true, recursive: true });
+        applied.push(action.target);
+      }
+    } else if (action.kind === 'restore-retired') {
+      if (await pathExists(target)) {
+        skipped.push({ reason: 'target-recreated', target: action.target });
+        continue;
+      }
+      assertPortableRelativePath(action.backup, 'rollback retired backup');
+      const backupPath = path.join(plan.targetDir, action.backup);
+      assertInsideDir(path.join(plan.targetDir, stateDirName, 'backups'), backupPath, 'rollback retired backup');
+      await mkdir(path.dirname(target), { recursive: true });
+      await copyFile(backupPath, target);
+      applied.push(action.target);
+    } else if (action.kind === 'restore-backup') {
       if (await pathExists(target)) {
         const currentHash = await hashFile(target);
         if (currentHash !== action.expectedHash) {

@@ -20,7 +20,7 @@
 | 前端实现 | `frontend-implementation-check` + `rules/frontend-rules.md` | 删除 `frontend-ui-engineering` |
 | Review | `code-review-and-quality`、`requesting-code-review`、`adversarial-review-packet` | 删除 `review-checklist` 薄路由 |
 | Workflow / Git / Release / Pencil | `governance-core` 与专项 rules | 删除 `code-simplification`、`documentation-and-adrs`、`worktree-mergeback-check`、`git-delivery-batcher`、`release-checklist`、`pencil-design-check` |
-| Memory | `agentmemory` 外部适配 | 删除 `commit-history`、`commit-context`，提交查询协议并入 `agentmemory`；保留 `forget` 等危险操作独立入口 |
+| Memory | `agentmemory` 外部适配 | 提交查询与保存、检索、恢复、遗忘、汇总、历史流程统一由 `agentmemory` 路由到按需 references；危险删除仍要求精确候选和再次确认 |
 
 `writing-plans` 的 core 硬依赖已改为 `executing-plans`；full 的 `subagent-driven-development` 仅为 optional，不再产生 core 安装后无法执行的计划。
 

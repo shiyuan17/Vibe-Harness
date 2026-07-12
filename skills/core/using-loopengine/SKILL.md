@@ -5,7 +5,7 @@ description: 用于在任务开始、风险变化或交付前选择 LoopEngine �
 
 # LoopEngine 路由
 
-先读取 `docs/rules/governance-core.md`，再按以下顺序路由：
+先读取 `docs/rules/governance-core.md` 和 `docs/rules/AGENT_SKILL_ROUTING.md`。前者定义流程硬约束，后者定义 Skill 选择与 fallback；本 Skill 只负责执行路由。
 
 1. 判断权限、红区和风险档位。
 2. 确认当前处于获取事实、做出决策、执行、验证或交付。

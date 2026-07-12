@@ -23,7 +23,7 @@
 | `RELEASE.md` | `rules/release-rules.md` | copy-generalize |
 | `REVIEW_RULES.md` | `adversarial-review-packet` | skill |
 | `LOOP_ENGINEERING_RULES.md` | `loop-planning` | skill |
-| `AGENT_SKILL_ROUTING.md` | `using-loopengine` | skill |
+| `AGENT_SKILL_ROUTING.md` | `rules/agent-skill-routing.md`、`using-loopengine` | copy-generalize + skill |
 | `TROUBLESHOOTING.md` | `rules/troubleshooting.md` | copy-generalize |
 | project memory/current tasks/contracts | examples or target project only | exclude-business |
 | durable memory categories | `templates/memory/*`、full governance validator | template |

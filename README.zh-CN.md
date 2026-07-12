@@ -77,6 +77,10 @@ MVP 模式使用 `--project <path>` 表示目标项目路径，使用 `--target 
     "governance": "node .agents/loopengine/governance/validate.mjs"
   },
   "governance": { "mode": "basic" },
+  "hooks": {
+    "mode": "guarded",
+    "completionGate": "advisory"
+  },
   "riskZones": {
     "red": ["auth", "global request layer", "ci/cd", "env"],
     "yellow": ["shared components", "stores", "routing", "request clients"]
@@ -102,6 +106,7 @@ MVP 模式使用 `--project <path>` 表示目标项目路径，使用 `--target 
 - `validationCommands`：决定 `verify` 跑什么。
 - `riskZones`：告诉 Agent 哪些区域算红区 / 黄区。
 - `governance.mode`：决定治理内核是 `basic`、`full` 还是 `off`。
+- `hooks`：决定 full/internal hook 使用观测、保护或严格模式，以及完成门禁是否阻断。
 - `projectRules` 和 `memory`：给项目专属规则和记忆目录留位置。
 
 ## 如何让 Agent 跑一轮 loop
@@ -243,6 +248,8 @@ node .agents/loopengine/governance/validate.mjs
 
 `core` 默认执行 basic 文档和任务门禁；`full` 增加 task/backlog、durable memory、设计预览配对和发布治理。LoopEngine 不自动修改目标项目 `package.json`。
 
+`core`、`full` 和 `codex-internal` 会在 `.agents/loopengine/tools/playwright-cli/` 安装隔离的 Playwright CLI bootstrap。安装阶段不访问 npm 或下载浏览器；第一次运行 `node .agents/loopengine/tools/playwright-cli/run.mjs ...` 时才会用精确 lockfile 执行 `npm ci` 并准备项目内 Chromium，因此首次调用需要网络、时间和额外磁盘空间。`doctor` 报告 `pending`、`ready` 或 `unavailable`，截图、snapshot、trace 和 video 写入 `.loopengine/artifacts/playwright/`。CLI 不可用时，`browser-verification` 依次回退到 DevTools MCP 和人工步骤。
+
 ## 旧内部安装生命周期
 
 旧命令仍可使用，用于包含 Codex hooks 的内部 profile。两条生命周期不要混用：
@@ -269,11 +276,13 @@ pnpm loopengine rollback --target ../some-project --apply --confirm-red-zone
 
 `diff` 用于审查 expected、missing、same、changed、redZone 和 unmanaged 文件。`install --upgrade` 只更新 LoopEngine 管理且 hash 可追踪的文件；用户改过的 managed 文件默认拒绝，使用 `--force` 时会先生成备份。`rollback` 默认 dry-run，真实回滚需要 `--apply`；涉及红区文件时必须加 `--confirm-red-zone`。
 
+Agentmemory 在 `full` / `codex-internal` 中只安装一个 `.agents/skills/agentmemory/` 入口，保存、检索、恢复、遗忘、汇总和 session 历史流程按需读取该目录的 `references/`。升级时，install map 显式声明的旧顶层 memory skills 只会在 `--upgrade` 且旧 install state 可验证时退役：未修改文件先备份再删除，用户修改过的文件保留并报告，`rollback` 可恢复已退役文件。
+
 ## Profiles
 
 - `minimal`：MVP 最小 Codex 包，包含会话开始/结束协议，不安装 heavy rules 或 skills。
-- `core`：标准工程治理包，包含 coding / frontend / API / task / workflow / review 规则、基础 validator、常规 bundled skills 和 skill 编写检查。
-- `full`：完整治理包，增加 durable memory、release、Pencil、troubleshooting、对抗审查、loop 和高级执行能力，不安装 hooks。
+- `core`：标准工程治理包，包含 coding / frontend / API / task / workflow / review 规则、基础 validator、常规 bundled skills、skill 编写检查和懒加载 Playwright CLI bootstrap。
+- `full`：完整治理包，增加 durable memory、release、Pencil、troubleshooting、对抗审查、loop、Codex hooks 和默认未启用的 Git hooks。
 - `codex-internal`：安装 AGENTS、全部规则、模板、skills 和 Codex hooks。
 - `codex-minimal`：安装 AGENTS 与最小规则/模板集。
 - `docs-only`：只安装治理内核、专项规则、中文模板和 schema。
@@ -286,13 +295,15 @@ pnpm loopengine rollback --target ../some-project --apply --confirm-red-zone
 | legacy `codex-internal` 生命周期 | 已完成 | 支持 diff、upgrade、backup、rollback 和红区确认。 |
 | 中文治理内核 | 已完成 | `minimal` 起安装五步循环、三档风险、轻量反证和无 Skill 降级合同。 |
 | Skills 路由 | 已完成 | core 使用 `using-loopengine` 按需加载流程、专项和验证 Skill；full 补充对抗审查、release、Pencil、loop 和 subagent 能力。 |
+| 浏览器自动化 | 已完成 | core/full/internal 安装项目内 Playwright CLI bootstrap，首次使用准备 Chromium，并保留 MCP / 人工回退。 |
 | Pack validation | 已完成 | 校验 manifests、schema、源文件存在性、skill frontmatter / description、脱敏词、工作流 / 模板质量门禁和结构化治理资产。 |
-| Codex hooks | 占位兼容 | 仅保留 legacy placeholder，不作为默认 MVP 安装面。 |
+| Codex hooks | 已完成 | full/internal 安装官方 PascalCase 事件、项目内 runner 和 guarded 默认策略。 |
+| Git hooks | 已完成 | full/internal 安装版本化模板；需显式设置本仓库 `core.hooksPath`，doctor 只读报告状态。 |
 | 非 Codex adapter | 后续路线 | Claude、Cursor、OpenCode 等暂不创建适配器。 |
 
 ## 安全边界
 
-LoopEngine 不写入全局 Codex 配置。目标项目已有文件默认不覆盖；如需覆盖必须显式使用 `--force`。`.codex/hooks.json` 等红区文件在非 dry-run 安装时必须显式确认。
+LoopEngine 不写入全局 Codex 配置，也不修改 `.git/config`。目标项目已有文件默认不覆盖；如需覆盖必须显式使用 `--force`。`.codex/hooks.json` 等红区文件在非 dry-run 安装时必须显式确认。Hook 事件、模式、Git 启用方式和限制见 `docs/hooks.md`。
 
 ## codebase-memory-mcp
 

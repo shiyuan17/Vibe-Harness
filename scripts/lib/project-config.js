@@ -21,6 +21,10 @@ export const defaultProjectConfig = {
   governance: {
     mode: 'basic',
   },
+  hooks: {
+    completionGate: 'advisory',
+    mode: 'guarded',
+  },
   riskZones: {
     red: ['auth', 'global request layer', 'ci/cd', 'env'],
     yellow: ['shared components', 'stores', 'routing', 'request clients'],
@@ -161,6 +165,15 @@ export function validateProjectConfig(config) {
     assertObject(config.governance, 'governance');
     if (!['basic', 'full', 'off'].includes(config.governance.mode)) {
       throw new Error('governance.mode must be basic, full, or off');
+    }
+  }
+  if (Object.hasOwn(config, 'hooks')) {
+    assertObject(config.hooks, 'hooks');
+    if (Object.hasOwn(config.hooks, 'mode') && !['off', 'observe', 'guarded', 'strict'].includes(config.hooks.mode)) {
+      throw new Error('hooks.mode must be off, observe, guarded, or strict');
+    }
+    if (Object.hasOwn(config.hooks, 'completionGate') && !['off', 'advisory', 'blocking'].includes(config.hooks.completionGate)) {
+      throw new Error('hooks.completionGate must be off, advisory, or blocking');
     }
   }
   if (Object.hasOwn(config, 'projectRules')) {

@@ -347,9 +347,10 @@ test('full profile adds codebase memory, agentmemory, and hooks beyond core', as
     assert.equal(coreTargets.includes('.codex/hooks.json'), false);
     assert.equal(fullTargets.includes('docs/rules/codebase-memory-mcp.md'), true);
     assert.equal(fullTargets.includes('.agents/skills/agentmemory/SKILL.md'), true);
-    assert.equal(fullTargets.includes('.agents/skills/handoff/SKILL.md'), true);
-    assert.equal(fullTargets.includes('.agents/skills/recall/SKILL.md'), true);
-    assert.equal(fullTargets.includes('.agents/skills/remember/SKILL.md'), true);
+    assert.equal(fullTargets.includes('.agents/skills/agentmemory/references/handoff.md'), true);
+    assert.equal(fullTargets.includes('.agents/skills/agentmemory/references/recall.md'), true);
+    assert.equal(fullTargets.includes('.agents/skills/agentmemory/references/remember.md'), true);
+    assert.equal(fullTargets.includes('.agents/skills/handoff/SKILL.md'), false);
     assert.equal(fullTargets.includes('.agents/memory/README.md'), true);
     assert.equal(fullTargets.includes('.codex/hooks.json'), true);
     assert.equal(fullTargets.includes('.agents/skills/review-checklist/SKILL.md'), false);
@@ -519,6 +520,7 @@ test('rendered AGENTS surface matches minimal, core, full, and internal profile 
     assert.equal(minimalAgents.includes('codebase-memory-mcp'), false);
     assert.equal(minimalAgents.includes('agentmemory'), false);
     assert.equal(minimalAgents.includes('docs/rules/skill-routing.md'), false);
+    assert.equal(minimalAgents.includes('docs/rules/AGENT_SKILL_ROUTING.md'), true);
     assert.equal(minimalAgents.includes('.codex/hooks.json'), false);
     assert.equal(coreAgents.includes('.agents/skills/'), true);
     assert.equal(coreAgents.includes('通用安装'), true);

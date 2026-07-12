@@ -1,8 +1,3 @@
----
-name: handoff
-description: Use when resuming the most relevant recent agent session for the current project or an explicitly supplied working directory.
----
-
 # Agentmemory 恢复
 
 解析并规范化项目路径，调用 `memory_sessions`。按目录边界匹配 cwd，不使用裸字符串前缀；优先最近的 completed session。选定后先呈现未回答问题，再用 session 核心概念调用 `memory_recall`（limit 10），总结决策、文件、错误和下一步。

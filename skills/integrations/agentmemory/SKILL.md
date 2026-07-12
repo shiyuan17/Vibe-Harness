@@ -1,11 +1,18 @@
 ---
 name: agentmemory
-description: 管理 agentmemory skill 家族入口，或需要选择记忆保存、检索、恢复、遗忘和 session 历史能力时使用。
+description: Use when saving, recalling, resuming, forgetting, summarizing, or listing Agentmemory project memories and sessions, including commit history and commit context lookup.
 ---
 
 # Agentmemory 集成
 
-agentmemory skill 家族用于保存、检索、恢复和解释跨 session 的项目记忆。按具体意图使用 `handoff`、`recall`、`remember`、`forget`、`recap` 或 `session-history`。
+使用 Agentmemory 保存、检索、恢复和解释跨 session 的项目记忆。根据当前意图只读取对应流程：
+
+- 恢复最近相关 session：读取 [references/handoff.md](references/handoff.md)。
+- 检索历史观察、决策或经验：读取 [references/recall.md](references/recall.md)。
+- 保存长期事实、决策或经验：读取 [references/remember.md](references/remember.md)。
+- 删除明确的 memory：读取 [references/forget.md](references/forget.md)。
+- 汇总指定时间窗口的 sessions：读取 [references/recap.md](references/recap.md)。
+- 列出可选择的 session 时间线：读取 [references/session-history.md](references/session-history.md)。
 
 先检测 agentmemory MCP；不可用时可使用已配置且获授权的 HTTP API。两者均不可用时回退到 `.agents/memory/` 和当前仓库事实，并明确没有访问外部记忆。
 

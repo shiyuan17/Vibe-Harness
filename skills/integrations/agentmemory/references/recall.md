@@ -1,8 +1,3 @@
----
-name: recall
-description: Use when searching past agentmemory observations, sessions, decisions, or learnings about a topic.
----
-
 # Agentmemory 检索
 
 调用 `memory_smart_search`，参数为用户查询和 `limit: 10`。按 session 分组展示 observation 的 type、title、narrative 和来源，突出 importance >= 7；无结果时建议更具体的替代查询词。
