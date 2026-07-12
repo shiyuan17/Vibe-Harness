@@ -96,6 +96,8 @@ pnpm loopengine install --target ../target-project --profile codex-internal --ap
 - Skill manifest 新增 `kind`、`requiresSkills`、`optionalSkills`、`requiresTools` 和可选 `canonicalId`。自定义 manifest 条目必须补齐这些字段。
 - core 新增 `executing-plans`、结构化追问、UI、安全、精简、文档、Git 交付及调试/浏览器兼容入口；full 新增三类设计入口、对抗审查和跨仓 rollout。
 - 薄包装和兼容 ID 已删除；调试使用 `systematic-debugging`，浏览器验证使用 `browser-verification`，规则类检查使用对应 `docs/rules/*.md` 或 canonical skill。
-- `open-code-review`、agentmemory 和浏览器 skill 只内置适配层，不捆绑第三方 runtime 或凭据。工具不可用时按 skill 中的回退协议执行。
+- `full` / `codex-internal` 现在捆绑固定版本的 codebase-memory、Playwright CLI、Open Code Review 和 Agentmemory stdio MCP runtime，并在真实安装后初始化。`core` 仍只安装懒加载 Playwright bootstrap。
+- 新增 `.codex/config.toml` LoopEngine MCP 受管块；它与 `.codex/hooks.json` 一样属于红区，真实写入需要确认。同名非受管 MCP 表不会被覆盖，而是报告 degraded。
+- OCR 凭据只从进程环境读取；缺失时状态为 `pending-config`。升级前先 dry-run 审查新增下载与项目磁盘占用。
 - 升级前运行 `loopengine diff`；使用 `install --upgrade` 安装新增受管文件。用户修改过的文件仍需 `--force` 才会备份并替换，失败时使用现有 `rollback` 生命周期恢复。
 - 使用 `pnpm skills:audit` 查看实时 inventory；pack validation 会阻止未知依赖、profile 越层、别名环、无回退 integration 和过长入口。

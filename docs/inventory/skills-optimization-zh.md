@@ -28,4 +28,4 @@
 
 Pack validation 阻止以下问题：manifest/schema 不一致、source/metadata/install target 漂移、未知依赖、profile 硬依赖缺失、canonical 环、未登记跨 skill 引用、外部工具或 optional skill 无回退、嵌套 references 和入口超出行数预算。
 
-第三方 CLI、MCP、凭据和服务不随 LoopEngine 捆绑。仓库只提供检测、调用、失败回退与验证协议，避免把“说明已安装”误当成“运行时可用”。
+minimal/core 的第三方集成仍以检测和回退为主；full/internal 捆绑四个固定版本的项目内 runtime，并以 `doctor` 的真实状态区分 `ready`、`pending-config` 与 `degraded`。凭据不随 LoopEngine 捆绑或写盘。

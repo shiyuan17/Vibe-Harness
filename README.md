@@ -12,6 +12,7 @@ pnpm loopengine init --project ../some-project
 pnpm loopengine install --project ../some-project --target codex --profile core --dry-run
 pnpm loopengine install --project ../some-project --target codex --profile core --write
 pnpm loopengine validate --project ../some-project
+pnpm loopengine baseline --project ../some-project --write
 pnpm loopengine verify --project ../some-project
 ```
 
@@ -58,7 +59,16 @@ MVP 模式使用 `--project <path>` 表示目标项目路径，使用 `--target 
    pnpm loopengine verify --project ../some-project
    ```
 
+6. 安装一致后建立项目基线，供后续 Agent 读取项目事实、工作流和建议。
+
+   ```bash
+   pnpm loopengine baseline --project ../some-project --dry-run
+   pnpm loopengine baseline --project ../some-project --write
+   ```
+
 `validate --project` 只做一致性与可用性检查，不执行目标项目命令。`verify --project` 才会真正执行配置里的命令；如果某条命令是手工流程，默认会阻断，只有显式使用 `--allow-manual` 才会继续。
+
+`baseline --project` 默认只预览 `.loopengine/baseline.json` 和 `docs/loopengine/PROJECT_BASELINE.md`，不会写文件或执行目标项目命令。使用 `--write` 建档，使用 `--verify` 才执行 governance、lint、typecheck 并记录脱敏摘要；重复运行会报告 `initial`、`unchanged` 或 `changed` drift。该命令只属于 MVP `--project` 生命周期，不接受 legacy `--target` 或 `--apply`。
 
 ## 配置示例
 
@@ -248,7 +258,9 @@ node .agents/loopengine/governance/validate.mjs
 
 `core` 默认执行 basic 文档和任务门禁；`full` 增加 task/backlog、durable memory、设计预览配对和发布治理。LoopEngine 不自动修改目标项目 `package.json`。
 
-`core`、`full` 和 `codex-internal` 会在 `.agents/loopengine/tools/playwright-cli/` 安装隔离的 Playwright CLI bootstrap。安装阶段不访问 npm 或下载浏览器；第一次运行 `node .agents/loopengine/tools/playwright-cli/run.mjs ...` 时才会用精确 lockfile 执行 `npm ci` 并准备项目内 Chromium，因此首次调用需要网络、时间和额外磁盘空间。`doctor` 报告 `pending`、`ready` 或 `unavailable`，截图、snapshot、trace 和 video 写入 `.loopengine/artifacts/playwright/`。CLI 不可用时，`browser-verification` 依次回退到 DevTools MCP 和人工步骤。
+`core` 会在 `.agents/loopengine/tools/playwright-cli/` 安装隔离的 Playwright CLI bootstrap，并在首次使用时准备 Chromium。`full` / `codex-internal` 则在真实安装阶段立即初始化 Playwright、codebase-memory-mcp、Open Code Review 和 Agentmemory；首次安装需要网络、时间和额外磁盘空间。四个 runtime 使用精确 lockfile，写入 `.agents/loopengine/tools/`，状态写入 `.loopengine/tool-state/`。组件失败不会伪装成完成：安装报告和 `doctor` 使用 `ready`、`pending`、`pending-config` 或 `degraded`，同时继续安装其他组件。
+
+MVP full 使用 `--project <path> --target codex --write --confirm-red-zone`；legacy/internal 使用 `--target <path> --apply --confirm-red-zone`。full/internal 会把 codebase-memory 和 agentmemory 注册到项目 `.codex/config.toml` 的 LoopEngine 受管块，不写用户级 Codex 配置。OCR 只从当前进程环境读取凭据；没有可用凭据时安装 runtime，但状态为 `pending-config`，不会把 secret 写入项目。
 
 ## 旧内部安装生命周期
 
@@ -276,14 +288,14 @@ pnpm loopengine rollback --target ../some-project --apply --confirm-red-zone
 
 `diff` 用于审查 expected、missing、same、changed、redZone 和 unmanaged 文件。`install --upgrade` 只更新 LoopEngine 管理且 hash 可追踪的文件；用户改过的 managed 文件默认拒绝，使用 `--force` 时会先生成备份。`rollback` 默认 dry-run，真实回滚需要 `--apply`；涉及红区文件时必须加 `--confirm-red-zone`。
 
-Agentmemory 在 `full` / `codex-internal` 中只安装一个 `.agents/skills/agentmemory/` 入口，保存、检索、恢复、遗忘、汇总和 session 历史流程按需读取该目录的 `references/`。升级时，install map 显式声明的旧顶层 memory skills 只会在 `--upgrade` 且旧 install state 可验证时退役：未修改文件先备份再删除，用户修改过的文件保留并报告，`rollback` 可恢复已退役文件。
+Agentmemory 在 `full` / `codex-internal` 中安装一个 `.agents/skills/agentmemory/` 入口和项目内 stdio MCP runtime，不启动 3111/3113 常驻服务。安装使用 `--omit=optional` 排除非必需的本地 embedding/ONNX 依赖，保存、检索、恢复、遗忘、汇总和 session 历史流程按需读取该目录的 `references/`。升级时，install map 显式声明的旧顶层 memory skills 只会在 `--upgrade` 且旧 install state 可验证时退役：未修改文件先备份再删除，用户修改过的文件保留并报告，`rollback` 可恢复已退役文件。
 
 ## Profiles
 
 - `minimal`：MVP 最小 Codex 包，包含会话开始/结束协议，不安装 heavy rules 或 skills。
 - `core`：标准工程治理包，包含 coding / frontend / API / task / workflow / review 规则、基础 validator、常规 bundled skills、skill 编写检查和懒加载 Playwright CLI bootstrap。
-- `full`：完整治理包，增加 durable memory、release、Pencil、troubleshooting、对抗审查、loop、Codex hooks 和默认未启用的 Git hooks。
-- `codex-internal`：安装 AGENTS、全部规则、模板、skills 和 Codex hooks。
+- `full`：完整治理包，增加 durable memory、release、Pencil、troubleshooting、对抗审查、loop、四个项目内工具 runtime、Codex hooks 和默认未启用的 Git hooks。
+- `codex-internal`：等同 full，使用 legacy/internal 的 `--target` / `--apply` 生命周期。
 - `codex-minimal`：安装 AGENTS 与最小规则/模板集。
 - `docs-only`：只安装治理内核、专项规则、中文模板和 schema。
 
@@ -292,10 +304,11 @@ Agentmemory 在 `full` / `codex-internal` 中只安装一个 `.agents/skills/age
 | 能力 | 状态 | 说明 |
 | --- | --- | --- |
 | Codex `minimal` / `core` / `full` 安装 | 已完成 | `--project <path> --target codex` 支持 dry-run、write、validate。 |
+| 安装后项目基线 | 已完成 | `baseline --project` 生成 JSON 快照和 Markdown 工作流建议，支持 dry-run、write、verify 和 drift。 |
 | legacy `codex-internal` 生命周期 | 已完成 | 支持 diff、upgrade、backup、rollback 和红区确认。 |
 | 中文治理内核 | 已完成 | `minimal` 起安装五步循环、三档风险、轻量反证和无 Skill 降级合同。 |
 | Skills 路由 | 已完成 | core 使用 `using-loopengine` 按需加载流程、专项和验证 Skill；full 补充对抗审查、release、Pencil、loop 和 subagent 能力。 |
-| 浏览器自动化 | 已完成 | core/full/internal 安装项目内 Playwright CLI bootstrap，首次使用准备 Chromium，并保留 MCP / 人工回退。 |
+| 项目内工具 | 已完成 | core 懒加载 Playwright；full/internal 初始化 Playwright、codebase-memory、Open Code Review 和 Agentmemory。 |
 | Pack validation | 已完成 | 校验 manifests、schema、源文件存在性、skill frontmatter / description、脱敏词、工作流 / 模板质量门禁和结构化治理资产。 |
 | Codex hooks | 已完成 | full/internal 安装官方 PascalCase 事件、项目内 runner 和 guarded 默认策略。 |
 | Git hooks | 已完成 | full/internal 安装版本化模板；需显式设置本仓库 `core.hooksPath`，doctor 只读报告状态。 |
@@ -303,12 +316,12 @@ Agentmemory 在 `full` / `codex-internal` 中只安装一个 `.agents/skills/age
 
 ## 安全边界
 
-LoopEngine 不写入全局 Codex 配置，也不修改 `.git/config`。目标项目已有文件默认不覆盖；如需覆盖必须显式使用 `--force`。`.codex/hooks.json` 等红区文件在非 dry-run 安装时必须显式确认。Hook 事件、模式、Git 启用方式和限制见 `docs/hooks.md`。
+LoopEngine 不写入全局 Codex 配置，也不修改 `.git/config`。目标项目已有文件默认不覆盖；如需覆盖必须显式使用 `--force`。基线不会记录绝对项目路径、凭据、源码或验证命令原始输出；受管基线被用户修改后同样默认拒绝覆盖，强制更新前会备份。`.codex/hooks.json` 和 `.codex/config.toml` 属于红区文件，在非 dry-run 安装时必须显式确认；后者只更新 LoopEngine MCP 受管块并保留本地内容。Hook 事件、模式、Git 启用方式和限制见 `docs/hooks.md`。
 
 ## codebase-memory-mcp
 
-`codebase-memory-mcp` 是可选的代码结构与影响分析能力。LoopEngine 只向目标项目安装 `docs/rules/codebase-memory-mcp.md`，不会安装 MCP 服务、修改全局 Agent/MCP 配置或在 `doctor` 中探测服务状态。
+`full` / `codex-internal` 会在项目内安装 `codebase-memory-mcp@0.9.0`，把缓存限制到 `.loopengine/tool-state/codebase-memory-mcp/`，并以 `moderate`、`persistence=false` 为目标项目建立初始索引。安装器不会调用第三方全局 `install` 命令，也不会修改全局 Agent/MCP 配置。
 
 MCP 可用时，安装后的规则要求 Agent 先用 `list_projects` / `index_status` 确认索引，再按任务使用 `index_repository`、`search_graph`、`trace_call_path`、`detect_changes` 或 `get_architecture`。MCP 不可用或索引失败时必须说明缺少该能力，并退回 `rg` 与直接源码阅读。
 
-回滚策略保持简单透明：安装器只复制文件，不修改全局配置，不自动合并已有文件。真实安装或强制升级前会记录状态和备份；若需要撤销，优先使用 `loopengine rollback`，也可以按 `.loopengine/install-state.json` 中的记录手工处理。
+回滚会删除未修改的项目内 runtime 生成目录和工具状态，并只移除 `.codex/config.toml` 的 LoopEngine MCP 受管块；块外本地配置保持不变。真实安装或强制升级前会记录状态和备份；若需要撤销，优先使用 `loopengine rollback`。

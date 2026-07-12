@@ -18,7 +18,7 @@ v0.2 聚焦安装器增强：保持 v0.1 CLI 兼容，同时新增状态记录�
 - `install --project <path> --target codex --profile minimal|core|full` 渲染 Codex `AGENTS.md` 模板；默认 dry-run，真实写入使用 `--write`。
 - MVP `--write` 遇到已有目标文件默认失败；只有显式 `--force` 时才备份并覆盖。
 - `validate --project` 校验配置结构、生成内容红线、目标文件安装一致性和 pack 自身完整性。
-- 安装面提供 `codebase-memory-mcp` 项目内使用规则，但不安装或探测 MCP 服务。
+- v0.3 起 full/internal 安装项目内 `codebase-memory-mcp` runtime、初始索引和 MCP 受管配置；minimal/core 不安装该 MCP。
 - MCP 不可用时，Agent 明确说明能力缺失并退回仓库搜索和源码阅读。
 - `doctor` 只输出 LoopEngine 包校验和目标项目安装状态。
 
@@ -36,4 +36,4 @@ v0.2 聚焦安装器增强：保持 v0.1 CLI 兼容，同时新增状态记录�
 - 不新增非 Codex adapter。
 - 不写入全局 Codex 配置。
 - 不自动合并用户改过的文档。
-- 不安装 MCP 服务，不写入全局 Agent 或 MCP 配置。
+- MCP runtime 和配置仅位于目标项目，不写入全局 Agent 或 MCP 配置。
