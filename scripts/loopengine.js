@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import { inspectValidationCommands } from './lib/command-status.js';
 import { inspectGitHooks } from './lib/git-hooks.js';
-import { applyRollbackPlan, createRollbackPlan } from './lib/install-state.js';
+import { applyRollbackPlan, createRollbackPlan, registerGeneratedFile } from './lib/install-state.js';
 import {
   applyInstallPlan,
   createInstallPlan,
@@ -25,26 +25,14 @@ import {
   writeDefaultProjectConfig,
 } from './lib/project-config.js';
 import { readFile } from 'node:fs/promises';
-import { inspectPlaywrightTool } from '../runtime/tools/playwright-cli/run.mjs';
+import {
+  createToolProvisioningPlan,
+  inspectProfileTools,
+  provisionProfileTools,
+  toolWarnings,
+} from './lib/tool-provisioning.js';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const playwrightProfiles = new Set(['core', 'full', 'codex-internal']);
-
-async function inspectProfileTools(profile, targetDir) {
-  if (!playwrightProfiles.has(profile)) return {};
-  return { playwrightCli: await inspectPlaywrightTool({ targetDir }) };
-}
-
-function toolWarnings(tools) {
-  const status = tools.playwrightCli?.status;
-  if (!status || status === 'ready') return [];
-  return [{
-    code: status === 'pending' ? 'PLAYWRIGHT_CLI_PENDING' : 'PLAYWRIGHT_CLI_UNAVAILABLE',
-    message: status === 'pending'
-      ? 'Playwright CLI will be prepared on first use.'
-      : 'Playwright CLI preparation failed; retry it or use the browser fallback.',
-  }];
-}
 
 function parseArgs(argv) {
   const args = { _: [] };
@@ -134,16 +122,29 @@ async function install(args) {
   plan.redZoneConfirmed = Boolean(args['confirm-red-zone']);
   const result = await applyInstallPlan(plan);
   const previewFiles = plan.dryRun ? await previewInstallPlan(plan) : [];
-  const tools = await inspectProfileTools(profile, targetDir);
+  const plannedToolActions = createToolProvisioningPlan({ profile, targetDir }).map(({ id, mode, phases, version }) => ({
+    id,
+    mode,
+    phases,
+    version,
+  }));
+  const tools = plan.dryRun
+    ? await inspectProfileTools(profile, targetDir)
+    : await provisionProfileTools({ mcpConflicts: result.mcpConflicts, profile, targetDir });
+  if (!plan.dryRun && plannedToolActions.length > 0) {
+    await registerGeneratedFile(targetDir, '.loopengine/tool-state/tools.json');
+  }
   console.log(JSON.stringify({
     actions: plan.actions,
     dryRun: plan.dryRun,
     governanceMode,
+    plannedToolActions,
     previewFiles,
     profile: plan.profile,
     target: isMvpMode ? (args.target ?? config.target) : undefined,
     targetDir: plan.targetDir,
     tools,
+    warnings: toolWarnings(tools),
     retired: result.retired,
     skipped: result.skipped,
     written: result.written,
@@ -270,6 +271,32 @@ async function verify(args) {
   console.log(JSON.stringify({ ok: true, results, scope: 'project', targetDir }, null, 2));
 }
 
+function toolRecommendations(tools, profile) {
+  const retryCommand = `loopengine install --target <target> --profile ${profile} --apply --confirm-red-zone`;
+  return Object.entries(tools).flatMap(([tool, state]) => {
+    if (state.status === 'degraded') {
+      return [{
+        action: 'retry-provision',
+        code: state.code,
+        command: retryCommand,
+        message: `Retry ${tool} provisioning after checking network access and the reported phase.`,
+        phase: state.phase,
+        tool,
+      }];
+    }
+    if (state.status === 'pending-config') {
+      return [{
+        action: 'configure-credentials',
+        command: retryCommand,
+        message: `Configure a supported ${tool} credential in the environment, then retry provisioning.`,
+        phase: state.phase,
+        tool,
+      }];
+    }
+    return [];
+  });
+}
+
 async function doctor(args) {
   const targetDir = path.resolve(args.target ?? process.cwd());
   const profile = args.profile ?? 'codex-internal';
@@ -291,6 +318,7 @@ async function doctor(args) {
     target,
     targetDir,
     tools,
+    recommendations: toolRecommendations(tools, profile),
     warnings: toolWarnings(tools),
   }, null, 2));
 }

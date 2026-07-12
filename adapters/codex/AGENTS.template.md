@@ -40,6 +40,7 @@
 {{installedSurface.memorySkillsLine}}
 {{installedSurface.reviewLoopLine}}
 {{installedSurface.hooksLine}}
+{{installedSurface.toolingLine}}
 
 {{installedSurface.skillRoutingLine}}
 

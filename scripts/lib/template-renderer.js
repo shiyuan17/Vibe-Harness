@@ -12,6 +12,7 @@ const defaultTemplateData = {
     skillRoutingLine: '',
     skillsLine: '',
     templatesLine: '- 模板位于 `docs/templates/`。',
+    toolingLine: '',
   },
   packageManager: 'pnpm',
   projectProfile: {

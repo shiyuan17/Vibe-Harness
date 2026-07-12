@@ -45,6 +45,17 @@
     { "group": "tools-playwright", "source": "runtime/tools/playwright-cli/package-lock.json", "target": ".agents/loopengine/tools/playwright-cli/package-lock.json" },
     { "group": "tools-playwright", "source": "runtime/tools/playwright-cli/run.mjs", "target": ".agents/loopengine/tools/playwright-cli/run.mjs", "executable": true },
 
+    { "group": "tools-full", "source": "runtime/tools/codebase-memory-mcp/package.json", "target": ".agents/loopengine/tools/codebase-memory-mcp/package.json" },
+    { "group": "tools-full", "source": "runtime/tools/codebase-memory-mcp/package-lock.json", "target": ".agents/loopengine/tools/codebase-memory-mcp/package-lock.json" },
+    { "group": "tools-full", "source": "runtime/tools/codebase-memory-mcp/run.mjs", "target": ".agents/loopengine/tools/codebase-memory-mcp/run.mjs", "executable": true },
+    { "group": "tools-full", "source": "runtime/tools/open-code-review/package.json", "target": ".agents/loopengine/tools/open-code-review/package.json" },
+    { "group": "tools-full", "source": "runtime/tools/open-code-review/package-lock.json", "target": ".agents/loopengine/tools/open-code-review/package-lock.json" },
+    { "group": "tools-full", "source": "runtime/tools/open-code-review/run.mjs", "target": ".agents/loopengine/tools/open-code-review/run.mjs", "executable": true },
+    { "group": "tools-full", "source": "runtime/tools/agentmemory/package.json", "target": ".agents/loopengine/tools/agentmemory/package.json" },
+    { "group": "tools-full", "source": "runtime/tools/agentmemory/package-lock.json", "target": ".agents/loopengine/tools/agentmemory/package-lock.json" },
+    { "group": "tools-full", "source": "runtime/tools/agentmemory/run.mjs", "target": ".agents/loopengine/tools/agentmemory/run.mjs", "executable": true },
+    { "group": "tools-full", "source": "adapters/codex/mcp.template.toml", "target": ".codex/config.toml", "redZone": true },
+
     { "group": "skills-core", "source": "skills/core/brainstorming/SKILL.md", "target": ".agents/skills/brainstorming/SKILL.md" },
     { "group": "skills-core", "source": "skills/core/using-loopengine/SKILL.md", "target": ".agents/skills/using-loopengine/SKILL.md" },
     { "group": "skills-core", "source": "skills/core/brainstorming/spec-document-reviewer-prompt.md", "target": ".agents/skills/brainstorming/spec-document-reviewer-prompt.md" },

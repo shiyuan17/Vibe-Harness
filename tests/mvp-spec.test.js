@@ -1,3 +1,5 @@
+import './helpers/offline-tools.js';
+
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';

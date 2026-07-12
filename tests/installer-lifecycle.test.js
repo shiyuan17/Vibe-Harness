@@ -1,3 +1,5 @@
+import './helpers/offline-tools.js';
+
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
@@ -294,5 +296,27 @@ test('rollback refuses install-state targets outside the project', async () => {
     );
   } finally {
     await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('reinstall refuses generated-file registrations outside the project', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-reinstall-generated-escape-'));
+  const outside = path.join(path.dirname(target), `${path.basename(target)}-outside.txt`);
+  try {
+    await runCli(['install', '--target', target, '--profile', 'codex-minimal', '--apply']);
+    await writeFile(outside, 'outside\n', 'utf8');
+    const statePath = path.join(target, '.loopengine/install-state.json');
+    const state = JSON.parse(await readFile(statePath, 'utf8'));
+    state.generatedFiles = [{ target: `../${path.basename(outside)}`, targetHash: 'not-the-real-hash' }];
+    await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+
+    await assert.rejects(
+      execFileAsync(process.execPath, [cliPath, 'install', '--target', target, '--profile', 'codex-minimal', '--apply', '--force']),
+      /outside target directory|portable relative path/,
+    );
+    await assert.rejects(access(path.join(target, '.loopengine/backups')), /ENOENT/u);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+    await rm(outside, { force: true });
   }
 });

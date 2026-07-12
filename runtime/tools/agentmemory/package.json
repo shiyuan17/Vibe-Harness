@@ -1,0 +1,12 @@
+{
+  "name": "@loopengine/agentmemory-runtime",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Project-local Agentmemory MCP runtime managed by LoopEngine.",
+  "dependencies": {
+    "@agentmemory/mcp": "0.9.27"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

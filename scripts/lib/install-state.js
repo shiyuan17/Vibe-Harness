@@ -3,6 +3,7 @@ import { copyFile, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promi
 import path from 'node:path';
 
 import { assertInsideDir, assertPortableRelativePath, pathExists, readJson } from './manifest.js';
+import { extractManagedMcpBlock, removeManagedMcpBlock } from './tool-provisioning.js';
 
 const stateDirName = '.loopengine';
 const stateFileName = 'install-state.json';
@@ -34,6 +35,18 @@ export async function writeInstallState(targetDir, state) {
   const filePath = stateFilePath(targetDir);
   await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(filePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+}
+
+export async function registerGeneratedFile(targetDir, relativeTarget) {
+  assertPortableRelativePath(relativeTarget, 'generated file');
+  const target = path.join(targetDir, relativeTarget);
+  assertInsideDir(targetDir, target, 'generated file');
+  if (!(await pathExists(target))) return;
+  const state = await readInstallState(targetDir);
+  if (!state) throw new Error('Cannot register generated file without install state.');
+  const generatedFiles = (state.generatedFiles ?? []).filter((file) => file.target !== relativeTarget);
+  generatedFiles.push({ target: relativeTarget, targetHash: await hashFile(target) });
+  await writeInstallState(targetDir, { ...state, generatedFiles });
 }
 
 export function createBackupId(date = new Date()) {
@@ -87,7 +100,8 @@ export async function createRollbackPlan({ dryRun = true, redZoneConfirmed = fal
     assertPortableRelativePath(directory.ownerTarget, 'install-state generated directory owner');
     const target = path.join(targetDir, directory.target);
     const ownerTarget = path.join(targetDir, directory.ownerTarget);
-    assertInsideDir(path.dirname(ownerTarget), target, 'generated directory');
+    if (directory.projectScoped) assertInsideDir(targetDir, target, 'generated directory');
+    else assertInsideDir(path.dirname(ownerTarget), target, 'generated directory');
     const owner = state.files.find((file) => file.target === directory.ownerTarget);
     if (!owner) {
       throw new Error(`Generated directory owner is not managed: ${directory.ownerTarget}`);
@@ -96,15 +110,34 @@ export async function createRollbackPlan({ dryRun = true, redZoneConfirmed = fal
       expectedOwnerHash: owner.targetHash,
       kind: 'delete-generated-directory',
       ownerTarget: directory.ownerTarget,
+      projectScoped: Boolean(directory.projectScoped),
       redZone: false,
       target: directory.target,
+    });
+  }
+  for (const file of state.generatedFiles ?? []) {
+    assertPortableRelativePath(file.target, 'install-state generated file');
+    const target = path.join(targetDir, file.target);
+    assertInsideDir(targetDir, target, 'generated file');
+    actions.push({
+      expectedHash: file.targetHash,
+      kind: 'delete-generated-file',
+      redZone: false,
+      target: file.target,
     });
   }
   for (const file of [...state.files].reverse()) {
     assertPortableRelativePath(file.target, 'install-state target');
     const target = path.join(targetDir, file.target);
     assertInsideDir(targetDir, target, 'install-state target');
-    if (file.backup) {
+    if (file.contentStrategy === 'managed-mcp-block') {
+      actions.push({
+        expectedManagedBlockHash: file.managedBlockHash,
+        kind: 'remove-managed-mcp-block',
+        redZone: Boolean(file.redZone),
+        target: file.target,
+      });
+    } else if (file.backup) {
       assertPortableRelativePath(file.backup, 'install-state backup');
       const backupPath = path.join(targetDir, file.backup);
       assertInsideDir(path.join(targetDir, stateDirName, 'backups'), backupPath, 'install-state backup');
@@ -173,7 +206,8 @@ export async function applyRollbackPlan(plan) {
     if (action.kind === 'delete-generated-directory') {
       assertPortableRelativePath(action.ownerTarget, 'rollback generated directory owner');
       const ownerTarget = path.join(plan.targetDir, action.ownerTarget);
-      assertInsideDir(path.dirname(ownerTarget), target, 'rollback generated directory');
+      if (action.projectScoped) assertInsideDir(plan.targetDir, target, 'rollback generated directory');
+      else assertInsideDir(path.dirname(ownerTarget), target, 'rollback generated directory');
       if (await pathExists(target)) {
         if (!(await pathExists(ownerTarget)) || await hashFile(ownerTarget) !== action.expectedOwnerHash) {
           skipped.push({ reason: 'owner-modified', target: action.target });
@@ -182,6 +216,25 @@ export async function applyRollbackPlan(plan) {
         await rm(target, { force: true, recursive: true });
         applied.push(action.target);
       }
+    } else if (action.kind === 'delete-generated-file' && await pathExists(target)) {
+      if (await hashFile(target) !== action.expectedHash) {
+        skipped.push({ reason: 'target-modified', target: action.target });
+        continue;
+      }
+      await rm(target, { force: true });
+      applied.push(action.target);
+    } else if (action.kind === 'remove-managed-mcp-block' && await pathExists(target)) {
+      const content = await readFile(target, 'utf8');
+      const block = extractManagedMcpBlock(content);
+      const blockHash = createHash('sha256').update(block).digest('hex');
+      if (!block || blockHash !== action.expectedManagedBlockHash) {
+        skipped.push({ reason: 'managed-block-modified', target: action.target });
+        continue;
+      }
+      const remaining = removeManagedMcpBlock(content);
+      if (remaining) await writeFile(target, remaining, 'utf8');
+      else await rm(target, { force: true });
+      applied.push(action.target);
     } else if (action.kind === 'restore-retired') {
       if (await pathExists(target)) {
         skipped.push({ reason: 'target-recreated', target: action.target });

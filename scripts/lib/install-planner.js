@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { chmod, mkdir, readFile, rm, rmdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -29,6 +30,7 @@ import {
   PLAYWRIGHT_GENERATED_RELATIVE_DIR,
   PLAYWRIGHT_TOOL_RELATIVE_DIR,
 } from '../../runtime/tools/playwright-cli/run.mjs';
+import { extractManagedMcpBlock, mergeManagedMcpBlock } from './tool-provisioning.js';
 
 async function loadProfileInstallMap({ profile, rootDir }) {
   const profiles = await readJson(path.join(rootDir, 'manifests/profiles.json'));
@@ -103,6 +105,9 @@ export function createInstalledSurface({ memoryPath = '.agents/memory', profile,
       : '当前 profile 未安装 Skills；仅按已安装规则和模板执行，不引用未安装的 skill。',
     skillsLine: hasPrefix('.agents/skills/') ? '- Skills 位于 `.agents/skills/`。' : '',
     templatesLine: hasPrefix('docs/templates/') ? '- 模板位于 `docs/templates/`。' : '',
+    toolingLine: hasTarget('.agents/loopengine/tools/codebase-memory-mcp/run.mjs')
+      ? '- 项目内工具位于 `.agents/loopengine/tools/`；使用 `loopengine doctor --target <path>` 查看初始化状态。'
+      : (hasTarget('.agents/loopengine/tools/playwright-cli/run.mjs') ? '- Playwright CLI 将在首次使用时于项目内初始化。' : ''),
   };
 }
 
@@ -123,6 +128,27 @@ function shouldInstallEntry(entry, renderData) {
     return false;
   }
   return true;
+}
+
+function createManagedMcpServers(targetDir) {
+  const codebaseTool = path.join(targetDir, '.agents/loopengine/tools/codebase-memory-mcp/run.mjs');
+  const agentmemoryTool = path.join(targetDir, '.agents/loopengine/tools/agentmemory/run.mjs');
+  const memoryHome = path.join(targetDir, '.loopengine/tool-state/agentmemory/home');
+  return {
+    agentmemory: {
+      args: [agentmemoryTool],
+      command: process.execPath,
+      env: { HOME: memoryHome, USERPROFILE: memoryHome },
+    },
+    'codebase-memory-mcp': {
+      args: [codebaseTool],
+      command: process.execPath,
+      env: {
+        CBM_ALLOWED_ROOT: targetDir,
+        CBM_CACHE_DIR: path.join(targetDir, '.loopengine/tool-state/codebase-memory-mcp/cache'),
+      },
+    },
+  };
 }
 
 export async function createInstallPlan({
@@ -157,12 +183,14 @@ export async function createInstallPlan({
     assertInsideDir(targetDir, target, 'install target');
     const relativeSource = entry.source.replaceAll('\\', '/');
     const relativeTarget = mappedTarget;
-    const contentStrategy = managedAgentsBlock && relativeTarget === 'AGENTS.md' ? 'managed-block' : 'replace';
+    const contentStrategy = managedAgentsBlock && relativeTarget === 'AGENTS.md'
+      ? 'managed-block'
+      : (relativeTarget === '.codex/config.toml' ? 'managed-mcp-block' : 'replace');
     const exists = await pathExists(target);
     let kind = exists && !force ? 'conflict' : 'write';
     const managedFile = managed.get(relativeTarget);
 
-    if (contentStrategy === 'managed-block') {
+    if (contentStrategy === 'managed-block' || contentStrategy === 'managed-mcp-block') {
       kind = 'write';
     }
 
@@ -183,6 +211,7 @@ export async function createInstallPlan({
       kind,
       contentStrategy,
       executable: Boolean(entry.executable),
+      mcpServers: contentStrategy === 'managed-mcp-block' ? createManagedMcpServers(path.resolve(targetDir)) : undefined,
       redZone: Boolean(entry.redZone),
       relativeSource,
       relativeTarget,
@@ -230,6 +259,22 @@ export async function createInstallPlan({
         target: PLAYWRIGHT_GENERATED_RELATIVE_DIR,
       }]
     : [];
+  for (const component of ['codebase-memory-mcp', 'open-code-review', 'agentmemory']) {
+    const ownerTarget = `.agents/loopengine/tools/${component}/package.json`;
+    if (actions.some((action) => action.relativeTarget === ownerTarget)) {
+      generatedDirectories.push({ ownerTarget, target: `.agents/loopengine/tools/${component}/node_modules` });
+      generatedDirectories.push({
+        ownerTarget,
+        projectScoped: true,
+        target: `.loopengine/tool-state/${component}`,
+      });
+      generatedDirectories.push({
+        ownerTarget,
+        projectScoped: true,
+        target: `.loopengine/tool-state/npm-cache/${component === 'codebase-memory-mcp' ? 'codebaseMemoryMcp' : component === 'open-code-review' ? 'openCodeReview' : component}`,
+      });
+    }
+  }
 
   return {
     dryRun,
@@ -254,6 +299,9 @@ export async function renderSourceContent(action, renderData = {}) {
 }
 
 export async function renderActionContent(action, renderData = {}, existingContent = '') {
+  if (action.contentStrategy === 'managed-mcp-block') {
+    return mergeManagedMcpBlock(existingContent, action.mcpServers).content;
+  }
   const rendered = await renderSourceContent(action, renderData);
   if (action.contentStrategy === 'managed-block') {
     return mergeManagedAgentsBlock(existingContent, rendered);
@@ -267,11 +315,15 @@ export async function previewInstallPlan(plan) {
     if (action.kind !== 'write') {
       continue;
     }
-    const existingContent = action.contentStrategy === 'managed-block' && await pathExists(action.target)
+    const existingContent = ['managed-block', 'managed-mcp-block'].includes(action.contentStrategy) && await pathExists(action.target)
       ? await readFile(action.target, 'utf8')
       : '';
+    const mergedMcp = action.contentStrategy === 'managed-mcp-block'
+      ? mergeManagedMcpBlock(existingContent, action.mcpServers)
+      : null;
     previewFiles.push({
-      content: await renderActionContent(action, plan.renderData, existingContent),
+      conflicts: mergedMcp?.conflicts ?? [],
+      content: mergedMcp?.content ?? await renderActionContent(action, plan.renderData, existingContent),
       group: action.group,
       redZone: action.redZone,
       target: action.relativeTarget,
@@ -315,8 +367,11 @@ export async function diffTargetInstall({
     assertInsideDir(rootDir, source, 'install source');
     assertInsideDir(targetDir, target, 'install target');
     const item = {
-      contentStrategy: managedAgentsBlock && mappedTarget === 'AGENTS.md' ? 'managed-block' : 'replace',
+      contentStrategy: managedAgentsBlock && mappedTarget === 'AGENTS.md'
+        ? 'managed-block'
+        : (mappedTarget === '.codex/config.toml' ? 'managed-mcp-block' : 'replace'),
       group: entry.group,
+      mcpServers: mappedTarget === '.codex/config.toml' ? createManagedMcpServers(path.resolve(targetDir)) : undefined,
       redZone: Boolean(entry.redZone),
       source,
       target: mappedTarget,
@@ -334,6 +389,8 @@ export async function diffTargetInstall({
       ]);
       const matches = item.contentStrategy === 'managed-block'
         ? extractManagedAgentsBlock(targetContent) === renderManagedAgentsBlock(sourceContent)
+        : item.contentStrategy === 'managed-mcp-block'
+          ? mergeManagedMcpBlock(targetContent, createManagedMcpServers(path.resolve(targetDir))).content === targetContent
         : sourceContent === targetContent;
       if (!matches) {
         changed.push(item);
@@ -379,7 +436,7 @@ export const inspectTargetInstall = diffTargetInstall;
 
 export async function applyInstallPlan(plan) {
   if (plan.dryRun) {
-    return { retired: [], skipped: [], written: [] };
+    return { mcpConflicts: [], retired: [], skipped: [], written: [] };
   }
 
   const userModified = plan.actions.find((action) => action.kind === 'user-modified');
@@ -403,7 +460,18 @@ export async function applyInstallPlan(plan) {
   const retiredFiles = [];
   const skipped = [];
   const files = [];
+  const mcpConflicts = [];
   const backupId = createBackupId();
+  const previousState = await readInstallState(plan.targetDir);
+  const generatedFiles = [];
+  for (const file of previousState?.generatedFiles ?? []) {
+    assertPortableRelativePath(file.target, 'install-state generated file');
+    const generatedTarget = path.join(plan.targetDir, file.target);
+    assertInsideDir(plan.targetDir, generatedTarget, 'install-state generated file');
+    if (await pathExists(generatedTarget) && await hashFile(generatedTarget) === file.targetHash) {
+      generatedFiles.push(file);
+    }
+  }
 
   for (const action of plan.actions) {
     if (action.kind !== 'write') {
@@ -416,19 +484,28 @@ export async function applyInstallPlan(plan) {
     let backup = null;
     let previousHash = null;
     const existingContent = existed ? await readFile(action.target, 'utf8') : '';
-    if (existed && action.contentStrategy !== 'managed-block') {
+    if (existed && !['managed-block', 'managed-mcp-block'].includes(action.contentStrategy)) {
       previousHash = await hashFile(action.target);
       backup = await backupFile({ backupId, target: action.target, targetDir: plan.targetDir });
     }
 
     await mkdir(path.dirname(action.target), { recursive: true });
-    await writeFile(action.target, await renderActionContent(action, plan.renderData, existingContent), 'utf8');
+    const mergedMcp = action.contentStrategy === 'managed-mcp-block'
+      ? mergeManagedMcpBlock(existingContent, action.mcpServers)
+      : null;
+    if (mergedMcp) mcpConflicts.push(...mergedMcp.conflicts);
+    const targetContent = mergedMcp?.content ?? await renderActionContent(action, plan.renderData, existingContent);
+    await writeFile(action.target, targetContent, 'utf8');
     if (action.executable) await chmod(action.target, 0o755);
     written.push(action.target);
     files.push({
       backup,
+      contentStrategy: action.contentStrategy,
       created: !existed,
       group: action.group,
+      managedBlockHash: action.contentStrategy === 'managed-mcp-block'
+        ? createHash('sha256').update(extractManagedMcpBlock(targetContent)).digest('hex')
+        : undefined,
       previousHash,
       redZone: Boolean(action.redZone),
       source: action.relativeSource,
@@ -477,11 +554,12 @@ export async function applyInstallPlan(plan) {
   await writeInstallState(plan.targetDir, {
     files,
     generatedDirectories: plan.generatedDirectories,
+    generatedFiles,
     installedAt: new Date().toISOString(),
     profile: plan.profile,
     retiredFiles,
     version: plan.version,
   });
 
-  return { retired, skipped, written };
+  return { mcpConflicts: [...new Set(mcpConflicts)], retired, skipped, written };
 }

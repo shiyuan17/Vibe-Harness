@@ -15,15 +15,15 @@
     },
     {
       "id": "full",
-      "description": "全安装：通用安装加 codebase-memory-mcp、agentmemory MCP 项目内安装面和 Codex hooks。",
+      "description": "全安装：通用安装加四个项目内工具 runtime、codebase 索引、MCP 注册和 Codex hooks。",
       "installMap": "adapters/codex/install-map.json",
-      "groups": ["agents", "rules-minimal", "rules-core", "rules-full", "rules-codebase-memory", "templates-minimal", "templates-core", "templates-full", "templates-memory", "schemas-core", "runtime-basic", "runtime-task", "runtime-full", "skills-core", "skills-full", "skills-memory", "tools-playwright", "hooks"]
+      "groups": ["agents", "rules-minimal", "rules-core", "rules-full", "rules-codebase-memory", "templates-minimal", "templates-core", "templates-full", "templates-memory", "schemas-core", "runtime-basic", "runtime-task", "runtime-full", "skills-core", "skills-full", "skills-memory", "tools-playwright", "tools-full", "hooks"]
     },
     {
       "id": "codex-internal",
-      "description": "兼容全安装入口：等同 full，保留 legacy/internal 生命周期。",
+      "description": "兼容全安装入口：等同 full 并初始化四个项目内工具，保留 legacy/internal 生命周期。",
       "installMap": "adapters/codex/install-map.json",
-      "groups": ["agents", "rules-minimal", "rules-core", "rules-full", "rules-codebase-memory", "templates-minimal", "templates-core", "templates-full", "templates-memory", "schemas-core", "runtime-basic", "runtime-task", "runtime-full", "skills-core", "skills-full", "skills-memory", "tools-playwright", "hooks"]
+      "groups": ["agents", "rules-minimal", "rules-core", "rules-full", "rules-codebase-memory", "templates-minimal", "templates-core", "templates-full", "templates-memory", "schemas-core", "runtime-basic", "runtime-task", "runtime-full", "skills-core", "skills-full", "skills-memory", "tools-playwright", "tools-full", "hooks"]
     },
     {
       "id": "codex-minimal",

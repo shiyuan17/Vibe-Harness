@@ -1,0 +1,319 @@
+import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+import { promisify } from 'node:util';
+
+import { createInstallPlan, previewInstallPlan } from '../scripts/lib/install-planner.js';
+import {
+  createToolProvisioningPlan,
+  inspectProfileTools,
+  mergeManagedMcpBlock,
+  provisionProfileTools,
+} from '../scripts/lib/tool-provisioning.js';
+
+const rootDir = path.resolve('.');
+const execFileAsync = promisify(execFile);
+const cliPath = path.join(rootDir, 'scripts/loopengine.js');
+const offlineEnv = {
+  ...process.env,
+  ANTHROPIC_API_KEY: '',
+  OCR_LLM_MODEL: '',
+  OCR_LLM_TOKEN: '',
+  OCR_LLM_URL: '',
+  OPENAI_API_KEY: '',
+  npm_config_cache: path.join(tmpdir(), 'loopengine-empty-npm-cache'),
+  npm_config_offline: 'true',
+};
+
+async function runCli(args, options = {}) {
+  const { stdout } = await execFileAsync(process.execPath, [cliPath, ...args], {
+    cwd: rootDir,
+    maxBuffer: 1024 * 1024 * 8,
+    ...options,
+  });
+  return JSON.parse(stdout);
+}
+
+test('full tool plan pins four project-local components while core keeps Playwright lazy', () => {
+  const targetDir = path.resolve('target-project');
+  const full = createToolProvisioningPlan({ profile: 'full', targetDir });
+  const core = createToolProvisioningPlan({ profile: 'core', targetDir });
+
+  assert.deepEqual(
+    full.map(({ id, version }) => ({ id, version })),
+    [
+      { id: 'codebaseMemoryMcp', version: '0.9.0' },
+      { id: 'playwrightCli', version: '0.1.17' },
+      { id: 'openCodeReview', version: '1.7.7' },
+      { id: 'agentmemory', version: '0.9.27' },
+    ],
+  );
+  assert.equal(full.every((item) => item.toolDir.startsWith(targetDir)), true);
+  assert.deepEqual(core.map(({ id, mode }) => ({ id, mode })), [{ id: 'playwrightCli', mode: 'lazy' }]);
+});
+
+test('managed MCP block preserves local TOML and refuses duplicate unmanaged server tables', () => {
+  const local = [
+    'model = "gpt-5"',
+    '',
+    '[mcp_servers.agentmemory]',
+    'command = "user-memory"',
+    '',
+  ].join('\n');
+
+  const result = mergeManagedMcpBlock(local, {
+    agentmemory: { args: ['memory.mjs'], command: 'node', env: { HOME: 'project-home' } },
+    'codebase-memory-mcp': { args: ['codebase.mjs'], command: 'node', env: { CBM_ALLOWED_ROOT: 'project' } },
+  });
+
+  assert.equal(result.content.includes('model = "gpt-5"'), true);
+  assert.equal(result.content.includes('command = "user-memory"'), true);
+  assert.equal(result.content.includes('# LOOPENGINE:MCP:START'), true);
+  assert.equal(result.content.includes('[mcp_servers.codebase-memory-mcp]'), true);
+  assert.equal(result.content.includes('[mcp_servers.agentmemory]\ncommand = "node"'), false);
+  assert.deepEqual(result.conflicts, ['agentmemory']);
+});
+
+test('provisioning continues after one component fails and never persists command secrets', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-'));
+  const calls = [];
+  const env = {
+    OCR_LLM_TOKEN: 'super-secret-token',
+    OCR_LLM_URL: 'https://llm.example.test',
+    OCR_LLM_MODEL: 'test-model',
+  };
+  try {
+    const report = await provisionProfileTools({
+      commandRunner: async (request) => {
+        calls.push(request);
+        if (request.component === 'codebaseMemoryMcp' && request.phase === 'index') {
+          throw new Error('token=super-secret-token failed');
+        }
+        return { stdout: '{"ok":true}' };
+      },
+      env,
+      profile: 'full',
+      targetDir,
+    });
+
+    assert.equal(report.codebaseMemoryMcp.status, 'degraded');
+    assert.equal(report.playwrightCli.status, 'ready');
+    assert.equal(report.openCodeReview.status, 'ready');
+    assert.equal(report.agentmemory.status, 'ready');
+    assert.equal(calls.some((call) => call.component === 'agentmemory' && call.phase === 'mcp-handshake'), true);
+    assert.equal(calls.some((call) => call.component === 'openCodeReview' && call.phase === 'llm-test'), true);
+    const dependency = calls.find((call) => call.component === 'agentmemory' && call.phase === 'dependency-install');
+    assert.equal(dependency.args.includes('ci'), true);
+    assert.equal(dependency.args.includes('--omit=optional'), true);
+    assert.equal(dependency.cwd.startsWith(targetDir), true);
+    const index = calls.find((call) => call.component === 'codebaseMemoryMcp' && call.phase === 'index');
+    const indexInput = JSON.parse(index.args.at(-1));
+    assert.equal(indexInput.repo_path, targetDir);
+    assert.equal(indexInput.mode, 'moderate');
+    assert.equal(indexInput.persistence, false);
+    assert.equal(index.env.CBM_ALLOWED_ROOT, targetDir);
+    assert.equal(index.env.CBM_CACHE_DIR.startsWith(targetDir), true);
+    const agentmemory = calls.find((call) => call.component === 'agentmemory' && call.phase === 'mcp-handshake');
+    assert.equal(agentmemory.env.HOME.startsWith(targetDir), true);
+    assert.equal(agentmemory.env.USERPROFILE, agentmemory.env.HOME);
+
+    const state = await readFile(path.join(targetDir, '.loopengine/tool-state/tools.json'), 'utf8');
+    assert.equal(state.includes('super-secret-token'), false);
+    assert.equal(state.includes('token='), false);
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('OCR without credentials is pending-config and inspect restores persisted statuses', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-pending-'));
+  try {
+    const report = await provisionProfileTools({
+      commandRunner: async () => ({ stdout: '{}' }),
+      env: {},
+      profile: 'full',
+      targetDir,
+    });
+    const inspected = await inspectProfileTools('full', targetDir);
+
+    assert.equal(report.openCodeReview.status, 'pending-config');
+    assert.equal(report.openCodeReview.phase, 'llm-config');
+    assert.equal(inspected.openCodeReview.status, 'pending-config');
+    assert.equal(inspected.codebaseMemoryMcp.version, '0.9.0');
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('unchanged OCR pending-config is reused until credentials become available', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-ocr-reuse-'));
+  const ocr = createToolProvisioningPlan({ profile: 'full', targetDir })
+    .find((tool) => tool.id === 'openCodeReview');
+  const calls = [];
+  const runner = async (request) => {
+    calls.push(request);
+    return { stdout: '{}' };
+  };
+  try {
+    await mkdir(ocr.toolDir, { recursive: true });
+    await writeFile(path.join(ocr.toolDir, 'package-lock.json'), 'ocr-lock\n', 'utf8');
+
+    await provisionProfileTools({ commandRunner: runner, env: {}, profile: 'full', targetDir });
+    const firstOcrCallCount = calls.filter((call) => call.component === 'openCodeReview').length;
+    await provisionProfileTools({ commandRunner: runner, env: {}, profile: 'full', targetDir });
+    assert.equal(calls.filter((call) => call.component === 'openCodeReview').length, firstOcrCallCount);
+
+    const configured = await provisionProfileTools({
+      commandRunner: runner,
+      env: { OPENAI_API_KEY: 'configured' },
+      profile: 'full',
+      targetDir,
+    });
+    assert.equal(configured.openCodeReview.status, 'ready');
+    assert.equal(calls.some((call) => call.component === 'openCodeReview' && call.phase === 'llm-test'), true);
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('ready tools reuse matching lockfiles while a changed lockfile reprovisions its component', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-reuse-'));
+  const plan = createToolProvisioningPlan({ profile: 'full', targetDir });
+  const calls = [];
+  const runner = async (request) => {
+    calls.push(request);
+    return { stdout: '{}' };
+  };
+  const env = { OPENAI_API_KEY: 'configured' };
+  try {
+    for (const tool of plan) {
+      await mkdir(tool.toolDir, { recursive: true });
+      await writeFile(path.join(tool.toolDir, 'package-lock.json'), `${tool.id}\n`, 'utf8');
+    }
+    await provisionProfileTools({ commandRunner: runner, env, profile: 'full', targetDir });
+    const firstCallCount = calls.length;
+    await provisionProfileTools({ commandRunner: runner, env, profile: 'full', targetDir });
+    assert.equal(calls.length, firstCallCount);
+
+    const agentmemory = plan.find((tool) => tool.id === 'agentmemory');
+    await writeFile(path.join(agentmemory.toolDir, 'package-lock.json'), 'changed\n', 'utf8');
+    await provisionProfileTools({ commandRunner: runner, env, profile: 'full', targetDir });
+    const newCalls = calls.slice(firstCallCount);
+    assert.equal(newCalls.every((call) => call.component === 'agentmemory'), true);
+    assert.equal(newCalls.length > 0, true);
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('managed MCP block is idempotent and replaces only its own previous content', () => {
+  const first = mergeManagedMcpBlock('', {
+    agentmemory: { args: ['old.mjs'], command: 'node', env: {} },
+  }).content;
+  const second = mergeManagedMcpBlock(`${first}\n# local tail\n`, {
+    agentmemory: { args: ['new.mjs'], command: 'node', env: {} },
+  }).content;
+
+  assert.equal((second.match(/# LOOPENGINE:MCP:START/gu) ?? []).length, 1);
+  assert.equal(second.includes('old.mjs'), false);
+  assert.equal(second.includes('new.mjs'), true);
+  assert.equal(second.includes('# local tail'), true);
+});
+
+test('full install map includes project-local runtimes and managed Codex MCP config', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-plan-'));
+  try {
+    await writeFile(path.join(targetDir, '.codex-config-local'), '', 'utf8');
+    const full = await createInstallPlan({ dryRun: true, profile: 'full', rootDir, targetDir });
+    const core = await createInstallPlan({ dryRun: true, profile: 'core', rootDir, targetDir });
+    const fullTargets = full.actions.map((action) => action.relativeTarget);
+    const coreTargets = core.actions.map((action) => action.relativeTarget);
+
+    assert.equal(fullTargets.includes('.agents/loopengine/tools/codebase-memory-mcp/package-lock.json'), true);
+    assert.equal(fullTargets.includes('.agents/loopengine/tools/open-code-review/package-lock.json'), true);
+    assert.equal(fullTargets.includes('.agents/loopengine/tools/agentmemory/package-lock.json'), true);
+    assert.equal(fullTargets.includes('.codex/config.toml'), true);
+    assert.equal(coreTargets.includes('.codex/config.toml'), false);
+    assert.equal(coreTargets.some((target) => target.includes('codebase-memory-mcp/package-lock.json')), false);
+    assert.equal(full.generatedDirectories.some((item) => item.target.endsWith('codebase-memory-mcp/node_modules')), true);
+    assert.equal(full.generatedDirectories.some((item) => item.target.endsWith('agentmemory/node_modules')), true);
+    assert.equal(full.generatedDirectories.some((item) => item.target === '.loopengine/tool-state/codebase-memory-mcp'), true);
+
+    const config = (await previewInstallPlan(full)).find((file) => file.target === '.codex/config.toml');
+    assert.equal(config.redZone, true);
+    assert.match(config.content, /# LOOPENGINE:MCP:START[\s\S]*mcp_servers\.agentmemory[\s\S]*mcp_servers\.codebase-memory-mcp/u);
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('full CLI dry-run reports four planned tools without provisioning them', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-cli-plan-'));
+  try {
+    await runCli(['init', '--project', targetDir]);
+    const report = await runCli(
+      ['install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--dry-run'],
+      { env: { ...process.env, ANTHROPIC_API_KEY: '', OCR_LLM_MODEL: '', OCR_LLM_TOKEN: '', OCR_LLM_URL: '', OPENAI_API_KEY: '' } },
+    );
+
+    assert.deepEqual(report.plannedToolActions.map((item) => item.id), [
+      'codebaseMemoryMcp', 'playwrightCli', 'openCodeReview', 'agentmemory',
+    ]);
+    assert.equal(report.tools.codebaseMemoryMcp.status, 'pending');
+    assert.equal(report.tools.playwrightCli.status, 'pending');
+    assert.equal(report.tools.openCodeReview.status, 'pending-config');
+    assert.equal(report.tools.agentmemory.status, 'pending');
+    await assert.rejects(readFile(path.join(targetDir, '.loopengine/tool-state/tools.json'), 'utf8'), /ENOENT/u);
+    await assert.rejects(readFile(path.join(targetDir, '.agents/loopengine/tools/agentmemory/node_modules/.package-lock.json'), 'utf8'), /ENOENT/u);
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('full write degrades unavailable tools and rollback removes only the managed MCP block', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-cli-write-'));
+  try {
+    await runCli(['init', '--project', targetDir]);
+    const projectConfigPath = path.join(targetDir, 'loopengine.config.json');
+    const projectConfig = JSON.parse(await readFile(projectConfigPath, 'utf8'));
+    await writeFile(projectConfigPath, `${JSON.stringify({ ...projectConfig, profile: 'full' }, null, 2)}\n`, 'utf8');
+    const configPath = path.join(targetDir, '.codex/config.toml');
+    await mkdir(path.dirname(configPath), { recursive: true });
+    await writeFile(configPath, 'model = "gpt-5"\n', 'utf8');
+
+    const report = await runCli(
+      ['install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--write', '--confirm-red-zone'],
+      { env: offlineEnv, timeout: 120_000 },
+    );
+    const config = await readFile(configPath, 'utf8');
+
+    assert.equal(config.includes('model = "gpt-5"'), true);
+    assert.equal(config.includes('# LOOPENGINE:MCP:START'), true);
+    assert.equal(Object.values(report.tools).some((tool) => tool.status === 'degraded'), true);
+    assert.equal(report.warnings.length > 0, true);
+
+    const validation = await runCli(['validate', '--project', targetDir], { env: offlineEnv });
+    assert.equal(validation.ok, true);
+    assert.equal(validation.warnings.length > 0, true);
+
+    const doctor = await runCli(['doctor', '--target', targetDir, '--profile', 'full'], { env: offlineEnv });
+    const degradedRecommendation = doctor.recommendations.find(
+      (recommendation) => recommendation.tool === 'codebaseMemoryMcp',
+    );
+    assert.equal(degradedRecommendation.phase, doctor.tools.codebaseMemoryMcp.phase);
+    assert.equal(degradedRecommendation.action, 'retry-provision');
+    assert.match(degradedRecommendation.command, /install --target <target> --profile full --apply --confirm-red-zone/u);
+    assert.equal(JSON.stringify(degradedRecommendation).includes(targetDir), false);
+
+    await runCli(['rollback', '--target', targetDir, '--apply', '--confirm-red-zone'], { env: offlineEnv });
+    const rolledBack = await readFile(configPath, 'utf8');
+    assert.equal(rolledBack.includes('model = "gpt-5"'), true);
+    assert.equal(rolledBack.includes('# LOOPENGINE:MCP:START'), false);
+    await assert.rejects(readFile(path.join(targetDir, '.loopengine/tool-state/tools.json'), 'utf8'), /ENOENT/u);
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
