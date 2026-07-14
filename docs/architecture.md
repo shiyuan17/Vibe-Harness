@@ -7,7 +7,7 @@ LoopEngine 是跨平台、Codex 完整能力优先的可复用 AI coding governa
 - `rules/`：`governance-core` 是五步循环、风险和证据的唯一流程真值；其余文件只保存工程专项约束。
 - `templates/`：无 Skill 环境使用的中文任务和交付模板；专项模板与对应 skill 共置。
 - `skills/`：`using-loopengine` 负责路由，canonical skills 按需提供规格、计划、实现、验证、审查和恢复流程。
-- `runtime/governance/`：解析 `docs/tasks/*.md`，校验中文字段、AC-ID、完成证据和完整流程控制块。
+- `runtime/governance/`：解析 `docs/tasks/*.md`，校验中文字段、AC-ID、完成证据、完整流程控制块和结构化 Red Team 审查包。
 - `runtime/hooks/`：规范化 Codex 事件并执行可移植的安全、上下文和完成策略。
 - `runtime/tools/`：四个固定版本的项目内工具 bootstrap；full/internal 由统一 provisioner 安装、初始化和检查。
 - `scripts/lib/project-baseline.js`：汇总项目画像、安装状态、验证摘要、drift 和后续工作流，生成受管 JSON/Markdown 基线。
@@ -22,12 +22,12 @@ LoopEngine 是跨平台、Codex 完整能力优先的可复用 AI coding governa
 1. `loopengine init --project <path> --target <codex|claude|gemini>` 创建项目配置。
 2. `loopengine install --project <path> --target <adapter> --profile <profile> --dry-run` 只预览；CLI target 与配置不一致时拒绝执行。
 3. MVP 使用 `--write` 写入；legacy/internal 使用 `--apply --confirm-red-zone`。
-4. Codex full/internal 写入完成后初始化四组件；失败记录为 degraded 并继续其他组件。
+4. Codex full/internal 写入完成后初始化四组件；失败记录为 degraded 并继续其他组件，同时将最近一次脱敏的阶段、错误码、退出码和限长输出尾部写入工具状态。
 5. `loopengine validate --project <path>` 校验安装一致性和组件状态，不执行目标项目命令。
 6. `loopengine baseline --project <path>` 默认预览双层基线；`--write` 建档，`--verify` 才顺序执行 governance、lint 和 typecheck。
 7. `loopengine verify --project <path>` 顺序执行 governance、lint 和 typecheck。
 
-默认 JSON 是稳定、紧凑的机器接口，preview 只含 hash、字节数和摘要；`--verbose` 才含完整正文和绝对诊断路径，`--output summary` 输出短报告。install、validate、doctor 共用 `ready=0`、`invalid=1`、`degraded=2` 健康合同；`--allow-degraded` 只覆盖退出码，不改变报告状态。
+默认 JSON 是稳定、紧凑的机器接口，preview 只含 hash、字节数和摘要；`--verbose` 才含完整正文和绝对诊断路径，`--output summary` 输出短报告和工具降级原因。工具诊断会脱敏项目路径与凭据，仅保存限长尾部。install、validate、doctor 共用 `ready=0`、`invalid=1`、`degraded=2` 健康合同；`--allow-degraded` 只覆盖退出码，不改变报告状态。
 
 ## Adapter 边界
 

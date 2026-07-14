@@ -1,84 +1,130 @@
 # LoopEngine
 
-LoopEngine 是一套跨平台、Codex 完整能力优先的可复用 AI coding governance 包。它把协作规则、workflow 档位、任务生命周期模板、skills、manifests 和默认 dry-run 的安装器打包在一起，让新项目可以快速接入一套更稳的 Agent 协作流程。
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-LoopEngine 参考 ECC 的组织方式：规则、skills、manifests、adapters、installer。Codex 原生支持 `minimal` / `core` / `full`；Claude Code 和 Gemini CLI 原生支持项目级 instructions/skills 的 `minimal` / `core` / `docs-only`。既有 legacy/internal 生命周期保持 Codex-only。
+[![CI](https://github.com/shiyuan17/LoopEngine/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/shiyuan17/LoopEngine/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/Node.js-20.19%2B-339933?logo=node.js&logoColor=white)](package.json)
+[![pnpm](https://img.shields.io/badge/pnpm-10%2B-F69220?logo=pnpm&logoColor=white)](package.json)
+
+**让 AI 不只会改代码，还能用证据说明任务真的完成了。**
+
+LoopEngine 让 Codex、Claude Code 和 Gemini CLI 使用同一套规划、执行与验证方式。它把项目说明、任务校验、状态快照和可选工具组合起来，让 AI 能说明改了什么，以及怎样确认结果正确。所有内容都放在项目内，不会修改电脑上的全局 Agent 配置。
+
+> [!IMPORTANT]
+> LoopEngine 会先展示准备修改的内容，确认后才写入。除非使用 `--force`，否则它不会覆盖已有文件。修改 Codex 的敏感配置前，还会要求额外确认。
+
+## 从常见问题到可验证结果
+
+| 常见问题 | LoopEngine 怎么处理 | 用户得到什么 |
+| --- | --- | --- |
+| AI 还没有理解任务，就直接开始改代码。 | 使用五步工作流程，并按风险选择快速、轻量或完整档位。 | 简单任务可以快速完成；高风险任务会先给出方案和撤销办法。 |
+| AI 只说“已经完成”，却没有提供依据。 | 任务模板用 `AC-ID` 连接每条验收标准和对应证据，validator（自动检查程序）会检查已完成任务。 | 可以用命令、产物、审查或人工确认逐项核对完成结果。 |
+| 长任务跨会话后丢失重要上下文。 | `baseline` 记录项目、安装、工具和验证状态；项目记忆与交接模板保留决策和已知问题。 | 新会话可以直接读取项目事实，不必只靠聊天记录重新整理。 |
+| 不同 AI 编程工具中的规则逐渐不一致。 | 为 Codex、Claude Code 和 Gemini CLI 提供原生项目文件和经过测试的安装级别（`profiles`）。 | 每个工具都能用自己支持的格式获得同一套核心工作规则。 |
+| 安装或更新公共规则时担心覆盖项目文件。 | 提供 dry-run 预览、明确标记的内容区域、备份、校验、安全卸载和回滚。 | 写入前可以检查变化，也能撤销 LoopEngine 管理的内容而不影响项目其他文件。 |
+| 代码理解、浏览器检查、审查和记忆工具分散在不同环境中。 | Codex `full` 会在项目内准备代码库索引、Playwright、Open Code Review 和 Agentmemory。 | 常用工具跟随项目保存；工具不可用时会明确报告为 `degraded`。 |
+
+## 为什么不只写一个 AGENTS.md
+
+`AGENTS.md` 可以告诉 AI 应该怎样工作，但它本身不会安装有版本的规则和 skills，也不会校验任务证据、记录项目状态，或安全地更新和移除自己的文件。LoopEngine 把平台主说明文件作为入口，再补上这些检查和管理能力。你仍然可以自由编辑原有内容，因为 LoopEngine 只更新带有明确标记的那一段。
 
 ## 快速开始
 
+需要 pnpm `10` 或更高版本，并安装以下任一 Node.js 版本：`20.19+`、`22.18+` 或 `24+`。
+
 ```bash
 pnpm install
-pnpm loopengine init --project ../some-project
+pnpm loopengine init --project ../some-project --target codex
 pnpm loopengine install --project ../some-project --target codex --profile core --dry-run
 pnpm loopengine install --project ../some-project --target codex --profile core --write
-pnpm loopengine init --project ../claude-project --target claude
-pnpm loopengine install --project ../claude-project --target claude --profile core --write
-pnpm loopengine init --project ../gemini-project --target gemini
-pnpm loopengine install --project ../gemini-project --target gemini --profile core --write
 pnpm loopengine validate --project ../some-project
-pnpm loopengine uninstall --project ../some-project --target codex --dry-run
-pnpm loopengine baseline --project ../some-project --write
-pnpm loopengine verify --project ../some-project
 ```
 
-MVP 模式使用 `--project <path>` 表示项目路径，使用 `--target codex|claude|gemini` 选择 adapter；该值必须与 `loopengine.config.json` 一致。安装器默认 dry-run；默认 JSON 只输出相对 target、动作摘要、hash、字节数和冲突，`--verbose` 才包含完整 preview 与绝对诊断路径，`--output summary` 输出人工短报告。真实写入使用 `--write`。首次写入前会备份已有项目级入口和根 `docs/` 普通文件；安装只更新入口文件的 LoopEngine 受管块并保留块外内容。Codex 写入 `AGENTS.md` / `.agents/skills/`，Claude 写入 `CLAUDE.md` / `.claude/skills/`，Gemini 写入 `GEMINI.md` / `.gemini/skills/`，且都不修改全局 Agent 配置。
+这些命令会依次完成四件事：
 
-## 什么时候用 LoopEngine
+1. 在目标项目中创建 LoopEngine 配置文件。
+2. 预览 LoopEngine 准备安装的文件。
+3. 确认预览后，写入推荐的 `core` 安装内容。
+4. 检查文件是否安装完整，内容是否仍然一致。
 
-| 场景 | 推荐做法 | 你会得到什么 |
+## 支持哪些 AI 编程工具
+
+| 工具 | 项目主文件 | 可选安装级别 | LoopEngine 可以安装什么 |
+| --- | --- | --- | --- |
+| Codex | `AGENTS.md` | `minimal`、`core`、`full`、`docs-only` | 使用说明、skills、通过 MCP 接入的项目工具，以及通过 hooks 自动执行的检查 |
+| Claude Code | `CLAUDE.md` | `minimal`、`core`、`docs-only` | 项目使用说明和 skills |
+| Gemini CLI | `GEMINI.md` | `minimal`、`core`、`docs-only` | 项目使用说明和 skills |
+
+MCP 让 AI 可以调用当前项目配套的工具；hooks 会在 AI 工作到特定阶段时自动运行检查。LoopEngine 目前只为 Codex 安装这两类能力。
+
+Codex 还支持旧版兼容名称 `codex-minimal` 和 `codex-internal`。Claude Code 与 Gemini CLI 不支持 `full`。如果选择 `full`，LoopEngine 会停止安装并建议改用 `core`，不会假装已经安装 MCP 或 hooks。
+
+## AI 会按什么步骤工作
+
+```text
+理解任务 -> 选择方案 -> 执行修改 -> 检查结果 -> 说明完成情况
+```
+
+| 流程 | 适用场景 | AI 至少要做到什么 |
 | --- | --- | --- |
-| 新项目接入 Codex governance | 先 `init`，再 `install --project ... --target codex --profile core --dry-run` | 先看写入面和风险，再决定是否 `--write`。 |
-| Claude Code / Gemini CLI 接入 | 使用对应 target 的 `minimal`、`core` 或 `docs-only` | 得到原生项目级 instructions/skills，不伪装 hooks/MCP 等价。 |
-| 既有项目补齐 Agent 协作规范 | 直接把 LoopEngine 当成治理包安装器，用 `core` 起步 | 得到规则、模板、skills 和校验器的统一入口。 |
-| 高风险任务要可验证 | 让 Agent 先判定为 `完整` 档，再给出证据、反例和回滚方案 | 任务不会跳过审查和验证步骤。 |
-| 旧 Codex hooks 仍要兼容 | 继续使用 legacy/internal 生命周期 | 保持 `--target <path> --apply --confirm-red-zone` 语义。 |
+| 快速 | 阅读、文档和其他低风险任务 | 先确认事实，再给出清楚的结论和依据。 |
+| 轻量 | 范围明确的小改动 | 修改前说明会动哪些文件，以及准备怎样检查结果。 |
+| 完整 | 安全、发布、敏感配置、公开接口、跨层修改或多个 Agent 协作 | 先给出方案再修改，保留撤销办法，并在完成前取得独立 Red Team 审查包的“批准”结论。 |
 
-## 核心使用流程
+无法确定风险时，使用完整流程。
 
-1. 初始化目标项目配置。
+## 选择安装级别
 
-   ```bash
-   pnpm loopengine init --project ../some-project
-   ```
+安装级别在命令和配置中叫作 `profile`。每个 profile 都是一组已经搭配好的 LoopEngine 文件和功能。
 
-2. 先 dry-run 看写入面、红区和 profile。
+| Profile | 会安装什么 | 适合什么项目 |
+| --- | --- | --- |
+| `minimal` | Agent 主说明文件、基本工作规则、Git 与测试规则、任务模板 | 只需要基本规则，不需要额外 skills 或工具的小项目 |
+| `core` | `minimal` 的全部内容，加上常用工程规则、任务检查、Red Team 完成门禁、skills 路由和按需启动的 Playwright | 大多数项目，建议从这里开始 |
+| `full` | `core` 的全部内容，加上项目记忆、高级流程 skills、四个项目工具、Codex MCP 配置和 Codex hooks | 长期维护或风险较高的 Codex 项目 |
+| `docs-only` | 使用说明、公共规则、模板和 schemas，不安装可执行工具、skills、MCP 或 hooks | 只希望使用文档规则的项目 |
+| `codex-internal` | 功能与 `full` 相同，但使用旧版 Codex 命令安装 | 仅供已有的内部 Codex 项目使用 |
 
-   ```bash
-   pnpm loopengine install --project ../some-project --target codex --profile core --dry-run
-   ```
+每个 profile 实际包含哪些文件，由 `manifests/profiles.json` 定义。已经使用旧名称的项目仍可继续使用 `codex-minimal`。
 
-3. 确认无误后再真实写入。
+## 更多命令
 
-   ```bash
-   pnpm loopengine install --project ../some-project --target codex --profile core --write
-   ```
+<details>
+<summary><strong>标准项目安装方式</strong></summary>
 
-4. 用 `validate` 检查配置、安装一致性和包自身校验。
+大多数用户都应该使用这种方式。`--project` 后面填写项目目录，`--target` 选择 AI 编程工具；查看预览并确认无误后，再使用 `--write` 写入。
 
-   ```bash
-   pnpm loopengine validate --project ../some-project
-   ```
+```bash
+# 创建项目配置
+pnpm loopengine init --project ../some-project --target codex
 
-5. 用 `verify` 执行目标项目配置的治理 / lint / typecheck 命令。
+# 先预览，再安装
+pnpm loopengine install --project ../some-project --target codex --profile core --dry-run
+pnpm loopengine install --project ../some-project --target codex --profile core --write
 
-   ```bash
-   pnpm loopengine verify --project ../some-project
-   ```
+# 检查安装内容是否仍然有效
+pnpm loopengine validate --project ../some-project
+```
 
-6. 安装一致后建立项目基线，供后续 Agent 读取项目事实、工作流和建议。
+命令默认输出方便脚本读取的精简 JSON。需要更容易阅读的短报告时，添加 `--output summary`；需要查看完整文件预览和诊断路径时，添加 `--verbose`。
 
-   ```bash
-   pnpm loopengine baseline --project ../some-project --dry-run
-   pnpm loopengine baseline --project ../some-project --write
-   ```
+安装 Claude Code 或 Gemini CLI 时，`init` 和 `install` 必须使用相同的 target：
 
-`validate --project` 只做一致性与可用性检查，不执行目标项目命令。`verify --project` 才会真正执行配置里的命令；如果某条命令是手工流程，默认会阻断，只有显式使用 `--allow-manual` 才会继续。
+```bash
+pnpm loopengine init --project ../claude-project --target claude
+pnpm loopengine install --project ../claude-project --target claude --profile core --write
 
-`baseline --project` 默认只预览 `.loopengine/baseline.json` 和 `docs/loopengine/PROJECT_BASELINE.md`，不会写文件或执行目标项目命令。使用 `--write` 建档，使用 `--verify` 才执行 governance、lint、typecheck 并记录脱敏摘要；重复运行会报告 `initial`、`unchanged` 或 `changed` drift。该命令只属于 MVP `--project` 生命周期，不接受 legacy `--target` 或 `--apply`。
+pnpm loopengine init --project ../gemini-project --target gemini
+pnpm loopengine install --project ../gemini-project --target gemini --profile core --write
+```
 
-## 配置示例
+</details>
 
-`loopengine.config.json` 示例：
+<details>
+<summary><strong>项目设置</strong></summary>
+
+大多数用户只需要在运行 `init` 后检查一次这个文件。LoopEngine 会创建 `loopengine.config.json`，你可以在其中选择安装级别、填写项目检查命令，并标出需要谨慎修改的区域。
 
 ```json
 {
@@ -101,152 +147,128 @@ MVP 模式使用 `--project <path>` 表示项目路径，使用 `--target codex|
     "red": ["auth", "global request layer", "ci/cd", "env"],
     "yellow": ["shared components", "stores", "routing", "request clients"]
   },
-  "crossRepo": {
-    "enabled": false,
-    "backendRepo": ""
-  },
-  "projectRules": {
-    "mode": "auto",
-    "overrides": {}
-  },
-  "memory": {
-    "enabled": true,
-    "path": ".agents/memory"
-  }
+  "crossRepo": { "enabled": false, "backendRepo": "" },
+  "projectRules": { "mode": "auto", "overrides": {} },
+  "memory": { "enabled": true, "path": ".agents/memory" }
 }
 ```
 
-你通常只需要改这几类字段：
+配置文件中的 `target` 必须与后续命令使用的 `--target` 一致。LoopEngine 会读取目标项目的信息，但不会修改它的 `package.json`。
 
-- `profile`：决定装到什么治理面。
-- `validationCommands`：决定 `verify` 跑什么。
-- `riskZones`：告诉 Agent 哪些区域算红区 / 黄区。
-- `governance.mode`：决定治理内核是 `basic`、`full` 还是 `off`。
-- `hooks`：决定 full/internal hook 使用观测、保护或严格模式，以及完成门禁是否阻断。
-- `projectRules` 和 `memory`：给项目专属规则和记忆目录留位置。
+</details>
 
-## 如何让 Agent 跑一轮 loop
+<details>
+<summary><strong>按需选择安装内容</strong></summary>
 
-LoopEngine 的工作流不是“直接给答案”，而是先把任务跑成一轮 loop：
-
-1. 获取事实。
-2. 做出决策。
-3. 执行最小改动。
-4. 验证结果。
-5. 交付证据、风险和下一步。
-
-你可以把这段话直接发给 Agent：
-
-```text
-请按 LoopEngine 的五步循环推进：
-先只做事实收集和档位判断，不要直接改文件。
-输出当前事实、关键假设、风险档位、需要我确认的点和下一步计划。
-等我回复继续后，再执行并在结束时给出“主张 → 证据 → 反例 → 剩余风险”。
-```
-
-如果任务会多轮推进，可以再补一句：
-
-```text
-如果你发现范围变化或风险升级，请先停下来重新做决策，不要默认继续。
-```
-
-## 提示词示例
-
-### 安装前先看写入面
-
-```text
-请先对当前仓库做 LoopEngine dry-run 安装审查。
-目标：判断应该用 core 还是 full profile，并说明会写入哪些文件、是否触及红区、是否会覆盖现有文件。
-先不要写入，先输出安装计划和风险。
-```
-
-### 让 Agent 先路由
-
-```text
-按 using-loopengine 路由。当前是任务开始阶段，请先判断风险档位，只选择一个流程 skill 和一个验证/审查 skill。
-如果信息不足，先列出需要我确认的内容，不要直接猜。
-```
-
-### 快速文档任务
-
-```text
-这是快速档位任务，只读文档，不改代码。
-请按“主张 → 证据 → 反例 → 剩余风险”输出结论，并给出需要补充的文档位置。
-```
-
-### 轻量代码任务
-
-```text
-这是轻量档位任务，范围只限于指定文件。
-先列验收标准和写入范围，再做最小改动，最后给出验证命令和结果。
-```
-
-### 完整高风险任务
-
-```text
-这是完整档位任务，涉及红区 / 外部契约 / 发布。
-先给出风险档位判断、回滚方案、验证计划和需要人工确认的点，再继续执行。
-```
-
-## 工作流档位选择
-
-| 档位 | 适用场景 | 读取方式 |
-| --- | --- | --- |
-| `快速` | 只读、纯文档、低风险文案，不改运行时、公开契约或红区 | 先收集事实，再给结论。 |
-| `轻量` | 单一范围的小改动，可用聚焦验证证明 | 先固定写入范围和验收标准。 |
-| `完整` | 红区、安全、数据库、发布、跨层、外部契约、多 Agent 或父子任务 | 先做决策，再执行，再验证。 |
-
-不确定时直接升级到 `完整`。不要让 Agent 静默猜测档位，应该先把判断说出来。
-
-## 常见操作场景
-
-### 1. dry-run 审查安装计划
-
-先看安装器准备写什么，再决定是否真实写入：
+如果预设的 profiles 都不合适，可以使用这个高级功能。你可以在 `loopengine.config.json` 中填写 modules，也可以只在某次安装命令中指定：
 
 ```bash
-pnpm loopengine install --project ../some-project --target codex --profile core --dry-run
+pnpm loopengine install --project ../some-project --target codex --profile core --modules agents,rules,skills --dry-run
+pnpm loopengine install --project ../some-project --target codex --profile core --modules agents,rules,skills --write
 ```
 
-默认会看到相对目标、动作、hash、字节数和冲突摘要；增加 `--verbose` 才输出完整渲染正文。这个阶段不会写文件。
+可选 modules 包括 `agents`、`rules`、`templates`、`governance`、`skills`、`memory`、`playwright`、`codebase-memory`、`open-code-review`、`agentmemory` 和 `hooks`。LoopEngine 会自动补上必需的依赖。命令报告会通过 `requestedModules`、`resolvedModules` 和 `implicitModules` 分别列出你选择的内容、最终安装的内容和自动补充的依赖。
 
-### 2. 调整项目配置
+</details>
 
-`loopengine.config.json` 里最常改的是这三块：
+<details>
+<summary><strong>检查项目并保存状态快照</strong></summary>
 
-- `validationCommands`：把 `lint` / `typecheck` / `governance` 对到项目真实命令。
-- `riskZones`：把你项目里真正的红区、黄区写进去。
-- `governance.mode`：如果项目不需要治理门禁，可以设为 `off`；需要基础门禁就保留 `basic`。
-
-### 3. 安装后跑目标项目校验
-
-安装完成后先校验安装一致性，再跑目标项目验证命令：
+安装完成后可以使用这组命令。`validate` 检查 LoopEngine 文件，`verify` 执行项目配置的检查命令，`baseline` 则保存当前项目与安装状态的快照。
 
 ```bash
+# 检查 LoopEngine 配置和已安装文件，不执行项目命令
 pnpm loopengine validate --project ../some-project
+
+# 执行配置中的 governance、lint 和 typecheck 命令
 pnpm loopengine verify --project ../some-project
+
+# 预览或保存项目状态快照
+pnpm loopengine baseline --project ../some-project --dry-run
+pnpm loopengine baseline --project ../some-project --write
+
+# 执行项目检查，并把安全的结果摘要写入快照
+pnpm loopengine baseline --project ../some-project --verify --write
 ```
 
-`validate` 关注安装是否一致；`verify` 才会真正执行配置里的命令。
+如果某项检查必须由人工完成，`verify` 默认会停下来；只有明确添加 `--allow-manual` 才会继续。状态快照会记录有用的项目信息，但不会保存源码、凭据、项目绝对路径或命令的原始输出。
 
-### 4. 使用 full profile
+</details>
 
-`full` 会在 `core` 基础上增加 durable memory、release、Pencil、troubleshooting、loop、review 和更完整的执行能力。适合要长期维护、跨层改动、发布前审查、或者需要更强证据链的任务。
+<details>
+<summary><strong>安全移除 LoopEngine</strong></summary>
 
-### 5. 继续兼容旧内部生命周期
+使用下面的命令先预览，再移除标准项目安装：
 
-如果你在维护旧 Codex hooks 或内部 profile，继续使用 legacy/internal 生命周期：
+```bash
+pnpm loopengine uninstall --project ../some-project --target codex --dry-run
+pnpm loopengine uninstall --project ../some-project --target codex --write
+```
+
+LoopEngine 只删除自己安装且没有被修改的文件。对于共用的说明文件和 MCP 配置，它只移除自己标记的那一段。项目配置、状态快照、备份、无关文档和修改过的文件都会保留。标准卸载使用 `--write`，不使用旧版的 `--apply`。
+
+</details>
+
+<details>
+<summary><strong>旧版 Codex 安装方式</strong></summary>
+
+只有已经使用 `codex-internal` 的项目需要阅读这一节。旧版命令用 `--target` 指定项目目录，用 `--apply` 执行写入，并且只支持 Codex。
 
 ```bash
 pnpm loopengine install --target ../some-project --profile codex-internal --dry-run
 pnpm loopengine install --target ../some-project --profile codex-internal --apply --confirm-red-zone
 pnpm loopengine validate --target ../some-project --profile codex-internal
 pnpm loopengine doctor --target ../some-project
+
+pnpm loopengine diff --target ../some-project --profile codex-internal
+pnpm loopengine install --target ../some-project --profile codex-internal --apply --upgrade --confirm-red-zone
+pnpm loopengine rollback --target ../some-project --dry-run
+pnpm loopengine rollback --target ../some-project --apply --confirm-red-zone
 ```
 
-这里不要混入 MVP 的 `--project` 语义。`--apply` 是 legacy/internal 的真实写入开关，红区文件还要再加 `--confirm-red-zone`。
+不要在同一套安装流程中混用 `--project` 和 `--apply`。标准安装使用 `--project` 与 `--write`；旧版内部安装使用 `--target <项目目录>` 与 `--apply`。
 
-## 验证门禁
+</details>
+
+<details>
+<summary><strong>内置工具与命令状态</strong></summary>
+
+当安装或健康检查报告问题时，可以查看这一节。`core` 会准备 Playwright，并在第一次需要浏览器检查时完成启动。Codex `full` 和 `codex-internal` 还会准备 `codebase-memory-mcp`、Open Code Review 和 Agentmemory。
+
+LoopEngine 只会把 MCP 设置写入项目 `.codex/config.toml` 中自己标记的区域。凭据只从当前终端环境读取，绝不会保存到项目中。
+
+Install、validate 和 doctor 使用相同的三种状态：
+
+| 状态 | 退出码 | 表示什么 |
+| --- | --- | --- |
+| `ready` | `0` | 安装内容和必需工具都可以使用。 |
+| `invalid` | `1` | 配置或已安装文件与 LoopEngine 的预期不一致。 |
+| `degraded` | `2` | 某个必需工具、凭据或功能当前不可用。 |
+
+`--allow-degraded` 可以为自动化流程把退出码改成 `0`，但不会隐藏问题。报告仍会保留 `ok: false`、`status: "degraded"`、警告和建议的处理办法。
+
+工具降级时，LoopEngine 会把最近一次经过脱敏的诊断记录在 `.loopengine/tool-state/tools.json`，并在 install、validate、doctor 和 summary 输出中展示。诊断包含失败阶段、稳定错误码、可用时的退出码及限长输出尾部；项目路径和类似凭据的值会被替换，绝不保存原始命令环境或完整输出。
+
+</details>
+
+## LoopEngine 会修改什么
+
+- 只在目标项目内写入，不修改用户级或全局 Agent 配置。
+- 除非使用 `--force`，否则不替换已有文件；确实需要替换时会先创建备份。
+- 对于共用的说明文件和 Codex MCP 配置，只更新带有明确标记的 LoopEngine 区域。
+- 不修改 `.git/config`。只有在当前仓库中明确设置 `core.hooksPath` 后，打包的 Git hooks 才会启用。
+- `.codex/` 中的文件属于敏感配置。Codex `full` 或内部安装要修改这些文件时，必须添加 `--confirm-red-zone`。
+- 公共文件中不会写入私有项目名称、业务约定、个人路径或具体任务数据。
+
+## 进一步了解
+
+- [LoopEngine 的目录和组成](docs/architecture.md)
+- [从旧版本迁移](docs/migration-guide.md)
+- [自动 hooks 如何工作](docs/hooks.md)
+- [各版本的变化](CHANGELOG.md)
+- [最小项目示例](examples/minimal-project/README.md)
+
+## 贡献代码前的检查
 
 ```bash
 pnpm check
@@ -255,98 +277,8 @@ pnpm smoke:lifecycle
 git diff --check
 ```
 
-`pnpm check` 会运行 lint、pack validation 和一次固定并发为 4 的本地单元测试。installer、profile、runtime 或工具变更额外运行串行 `pnpm test:integration` 与真实 `pnpm smoke:lifecycle`。Pack validation 还检查 manifest、install map、规则优先级、链接可达性、skill 契约和通用目录脱敏。
+`pnpm check` 会执行代码风格检查、安装包校验和本地测试。修改 installer、profiles、runtime 或内置工具时，还必须通过上面的集成测试和完整安装流程测试。
 
-安装后的项目可直接运行零依赖治理校验器：
+## License
 
-```bash
-node .agents/loopengine/governance/validate.mjs
-```
-
-`core` 默认执行 basic 文档和任务门禁；`full` 增加 task/backlog、durable memory、设计预览配对和发布治理。LoopEngine 不自动修改目标项目 `package.json`。
-
-`core` 会在项目内安装隔离的 Playwright CLI bootstrap，并在首次使用时准备 Chromium。Codex `full` / `codex-internal` 则在真实安装阶段初始化 Playwright、codebase-memory-mcp、Open Code Review 和 Agentmemory。健康合同统一为：`ready` 退出 `0`；安装漂移或配置错误为 `invalid`，退出 `1`；必需工具、凭据或能力缺失为 `degraded`，退出 `2`。`--allow-degraded` 只把退出码降为 `0`，报告仍保持 `ok:false`、`status:"degraded"` 和 warnings/recommendations。
-
-MVP full 使用 `--project <path> --target codex --write --confirm-red-zone`；legacy/internal 使用 `--target <path> --apply --confirm-red-zone`。full/internal 会把 codebase-memory 和 agentmemory 注册到项目 `.codex/config.toml` 的 LoopEngine 受管块，不写用户级 Codex 配置。OCR 只从当前进程环境读取凭据；没有可用凭据时安装 runtime，但状态为 `pending-config`，不会把 secret 写入项目。
-
-## 自定义模块与安全卸载
-
-Profile 仍是默认预设；未指定 modules 时，`minimal`、`core`、`full` 的安装面保持不变。高级用法可在 `loopengine.config.json` 增加 `"modules": ["agents", "rules", "skills"]`，或在单次安装中使用 `--modules agents,rules,skills`。CLI 覆盖配置文件，显式 modules 替换 profile 预设，安装器会自动补齐依赖，并在报告中输出 `requestedModules`、`resolvedModules` 和 `implicitModules`。
-
-公共模块为：`agents`、`rules`、`templates`、`governance`、`skills`、`memory`、`playwright`、`codebase-memory`、`open-code-review`、`agentmemory`、`hooks`。内部 install-map group 不是公共接口。
-
-```bash
-pnpm loopengine install --project ../some-project --target codex --profile core --modules agents,rules,skills --dry-run
-pnpm loopengine install --project ../some-project --target codex --profile core --modules agents,rules,skills --write
-pnpm loopengine uninstall --project ../some-project --target codex --dry-run
-pnpm loopengine uninstall --project ../some-project --target codex --write
-```
-
-`uninstall` 只属于 MVP 生命周期，真实清理使用 `--write`，不接受 legacy `--apply`。它只删除 hash 未变化的安装资产，并只移除当前 adapter instruction 与 MCP 配置的 LoopEngine 受管块；保留 `loopengine.config.json`、baseline、审计备份和无关项目文档。upgrade/uninstall 必须与 install state 的 adapter 一致；旧 schemaVersion 1 状态缺少 adapter 时按 Codex 读取。
-
-## 旧内部安装生命周期
-
-旧命令仍可使用，用于包含 Codex hooks 的内部 profile。两条生命周期不要混用：
-
-- MVP 接入使用 `--project <path> --target <codex|claude|gemini> --write`。
-- legacy/internal 生命周期使用 `--target <path> --apply --confirm-red-zone`。
-
-```bash
-pnpm loopengine install --target ../some-project --profile codex-internal --apply --confirm-red-zone
-```
-
-`loopengine validate --target <path>` 用来检查目标项目是否已经具备旧 profile 期望的文件；不带 `--target` 或 `--project` 时校验 LoopEngine 包自身。`loopengine doctor --target <path>` 会同时输出包校验结果和目标项目安装状态。
-
-## v0.2 安装生命周期
-
-真实安装会写入 `.loopengine/install-state.json`，记录 profile、版本、写入文件、hash、红区文件和备份位置。该目录只存在于目标项目内，不写入全局配置。
-
-```bash
-pnpm loopengine diff --target ../some-project --profile codex-internal
-pnpm loopengine install --target ../some-project --profile codex-internal --apply --upgrade --confirm-red-zone
-pnpm loopengine rollback --target ../some-project --dry-run
-pnpm loopengine rollback --target ../some-project --apply --confirm-red-zone
-```
-
-`diff` 用于审查 expected、missing、same、changed、redZone 和 unmanaged 文件。`install --upgrade` 只更新 LoopEngine 管理且 hash 可追踪的文件；用户改过的 managed 文件默认拒绝，使用 `--force` 时会先生成备份。`rollback` 默认 dry-run，真实回滚需要 `--apply`；涉及红区文件时必须加 `--confirm-red-zone`。
-
-Agentmemory 在 `full` / `codex-internal` 中安装一个 `.agents/skills/agentmemory/` 入口和项目内 stdio MCP runtime，不启动 3111/3113 常驻服务。安装使用 `--omit=optional` 排除非必需的本地 embedding/ONNX 依赖，保存、检索、恢复、遗忘、汇总和 session 历史流程按需读取该目录的 `references/`。升级时，install map 显式声明的旧顶层 memory skills 只会在 `--upgrade` 且旧 install state 可验证时退役：未修改文件先备份再删除，用户修改过的文件保留并报告，`rollback` 可恢复已退役文件。
-
-## Profiles
-
-- `minimal`：入口、治理内核、Git/VCS、测试规则和基础模板，不安装 Skills 或 runtime。
-- `core`：minimal 加常规工程规则、基础 runtime、常规 Skills 和懒加载 Playwright；不包含 full-only rules、Skills、memory、MCP 或 hooks。
-- `full`：完整治理包，增加 durable memory、release、Pencil、troubleshooting、对抗审查、loop、四个项目内工具 runtime、Codex hooks 和默认未启用的 Git hooks。
-- `codex-internal`：等同 full，使用 legacy/internal 的 `--target` / `--apply` 生命周期。
-- `codex-minimal`：安装 AGENTS 与最小规则/模板集。
-- `docs-only`：只安装平台入口、治理规则、中文模板和 schema，不安装 runtime、Skills、MCP 或 hooks。
-
-`manifests/profiles.json` 是 profile 能力组的唯一真值。Codex 支持全部 profile；Claude/Gemini 只支持 `minimal`、`core`、`docs-only`。对 Claude/Gemini 请求 `full` 会失败并提示缺失 MCP/hooks 能力及 `core` 替代方案。
-
-## 当前状态
-
-| 能力 | 状态 | 说明 |
-| --- | --- | --- |
-| Codex `minimal` / `core` / `full` 安装 | 已完成 | `--project <path> --target codex` 支持 dry-run、write、validate。 |
-| Claude Code `minimal` / `core` / `docs-only` | 已完成 | 项目级 `CLAUDE.md` 与 `.claude/skills/`，不写全局配置。 |
-| Gemini CLI `minimal` / `core` / `docs-only` | 已完成 | 项目级 `GEMINI.md` 与 `.gemini/skills/`，不写全局配置。 |
-| 安装后项目基线 | 已完成 | `baseline --project` 生成 JSON 快照和 Markdown 工作流建议，支持 dry-run、write、verify 和 drift。 |
-| legacy `codex-internal` 生命周期 | 已完成 | 支持 diff、upgrade、backup、rollback 和红区确认。 |
-| 中文治理内核 | 已完成 | `minimal` 起安装五步循环、三档风险、轻量反证和无 Skill 降级合同。 |
-| Skills 路由 | 已完成 | core 使用 `using-loopengine` 按需加载流程、专项和验证 Skill；full 补充对抗审查、release、Pencil、loop 和 subagent 能力。 |
-| 项目内工具 | 已完成 | core 懒加载 Playwright；full/internal 初始化 Playwright、codebase-memory、Open Code Review 和 Agentmemory。 |
-| Pack validation | 已完成 | 校验 manifests、schema、源文件存在性、skill frontmatter / description、脱敏词、工作流 / 模板质量门禁和结构化治理资产。 |
-| Codex hooks | 已完成 | full/internal 安装官方 PascalCase 事件、项目内 runner 和 guarded 默认策略。 |
-| Git hooks | 已完成 | full/internal 安装版本化模板；需显式设置本仓库 `core.hooksPath`，doctor 只读报告状态。 |
-
-## 安全边界
-
-LoopEngine 不写入全局 Codex 配置，也不修改 `.git/config`。目标项目已有文件默认不覆盖；如需覆盖必须显式使用 `--force`。基线不会记录绝对项目路径、凭据、源码或验证命令原始输出；受管基线被用户修改后同样默认拒绝覆盖，强制更新前会备份。`.codex/hooks.json` 和 `.codex/config.toml` 属于红区文件，在非 dry-run 安装时必须显式确认；后者只更新 LoopEngine MCP 受管块并保留本地内容。Hook 事件、模式、Git 启用方式和限制见 `docs/hooks.md`。
-
-## codebase-memory-mcp
-
-`full` / `codex-internal` 会在项目内安装 `codebase-memory-mcp@0.9.0`，把缓存限制到 `.loopengine/tool-state/codebase-memory-mcp/`，并以 `moderate`、`persistence=false` 为目标项目建立初始索引。安装器不会调用第三方全局 `install` 命令，也不会修改全局 Agent/MCP 配置。
-
-MCP 可用时，安装后的规则要求 Agent 先用 `list_projects` / `index_status` 确认索引，再按任务使用 `index_repository`、`search_graph`、`trace_call_path`、`detect_changes` 或 `get_architecture`。MCP 不可用或索引失败时必须说明缺少该能力，并退回 `rg` 与直接源码阅读。
-
-回滚会删除未修改的项目内 runtime 生成目录和工具状态，并只移除 `.codex/config.toml` 的 LoopEngine MCP 受管块；块外本地配置保持不变。真实安装或强制升级前会记录状态和备份；若需要撤销，优先使用 `loopengine rollback`。
+[MIT](LICENSE)

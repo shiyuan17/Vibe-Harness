@@ -8,6 +8,7 @@
 - 统一 MVP `--write` 与 legacy/internal `--apply` 命令边界，并将生命周期收口为 Intake + 九阶段。
 - task schema 和 full governance validator 增加 AC-ID、验收证据、责任人、确认状态、artifact 存在性和可声明时间盒门禁。
 - Review Packet 对未修复的 Medium finding 强制要求有 owner、关闭条件和批准者的结构化延期。
+- 完整档位任务新增 Red Team 完成门禁、结构化审查包和独立审查者校验；该能力随 core profile 安装，旧开放任务在完成前迁移。
 - 新增 `loopengine verify --project`，显式执行目标项目配置的验证命令，同时保持 `validate --project` 只读。
 - 新增 `loopengine baseline --project`，在安装后生成可比较的 JSON 快照和 Markdown 工作流建议，并支持可选验证与受管回滚。
 - 新增 Failure、Retrospective 模板、双生命周期 smoke script 和 GitHub Actions CI。

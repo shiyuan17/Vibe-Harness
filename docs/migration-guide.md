@@ -54,8 +54,8 @@ git diff --check
 ## Profile 选择
 
 - `minimal`：启动红线、会话开始/结束协议、红区确认、验证证据、Skill 路由 fallback 和交付 Packet 指引。
-- `core`：`minimal` 加上中文任务 runtime/schema、工程专项规则、`using-loopengine` 和常规 bundled skills。
-- `full`：`core` 加上 release、Pencil、troubleshooting、对抗审查和 loop skills。
+- `core`：`minimal` 加上中文任务 runtime/schema、工程专项规则、`using-loopengine`、Red Team 完成门禁和常规 bundled skills。
+- `full`：`core` 加上 release、Pencil、troubleshooting 和 loop skills。
 
 ## Agentmemory Skills
 
@@ -86,6 +86,7 @@ pnpm loopengine install --target ../target-project --profile codex-internal --ap
 
 - 所有 profile 从 `minimal` 起新增受管文件 `docs/rules/AGENT_SKILL_ROUTING.md`；它是 Skill 选择与降级政策真值，`using-loopengine` 仍是安装 Skills 后的执行入口。升级前使用 `diff` 检查目标项目是否已有同名文件；默认拒绝覆盖，确认替换时使用 `--force` 生成备份，失败后沿用现有 `rollback`。
 - `core` 新增中文 Markdown 任务校验器、完整流程控制 schema 与 `.agents/skills/using-loopengine/`。
+- `core` 的完整任务完成前必须补齐红队审查者、审查包路径和批准结论；旧的未完成任务可在完成前迁移，不会因升级立即失败。
 - `full` 新增 `docs/memory/` 六类 durable governance 模板、task/backlog 语义校验和 Pencil `.pen/.png` 配对检查。
 - `validationCommands.lint` 与 `typecheck` 可为 `null`；未检测到真实脚本时不会生成虚假的 pnpm 命令。已有非空字符串配置继续兼容。
 - `governance.mode` 可为 `basic`、`full` 或 `off`；未配置的 v0.2 项目按 profile 推导。
@@ -99,7 +100,7 @@ pnpm loopengine install --target ../target-project --profile codex-internal --ap
 ## Skills 闭包升级
 
 - Skill manifest 新增 `kind`、`requiresSkills`、`optionalSkills`、`requiresTools` 和可选 `canonicalId`。自定义 manifest 条目必须补齐这些字段。
-- core 新增 `executing-plans`、结构化追问、UI、安全、精简、文档、Git 交付及调试/浏览器兼容入口；full 新增三类设计入口、对抗审查和跨仓 rollout。
+- core 新增 `executing-plans`、结构化追问、UI、安全、Red Team、精简、文档、Git 交付及调试/浏览器兼容入口；full 新增三类设计入口和跨仓 rollout。
 - 薄包装和兼容 ID 已删除；调试使用 `systematic-debugging`，浏览器验证使用 `browser-verification`，规则类检查使用对应 `docs/rules/*.md` 或 canonical skill。
 - `full` / `codex-internal` 现在捆绑固定版本的 codebase-memory、Playwright CLI、Open Code Review 和 Agentmemory stdio MCP runtime，并在真实安装后初始化。`core` 仍只安装懒加载 Playwright bootstrap。
 - 新增 `.codex/config.toml` LoopEngine MCP 受管块；它与 `.codex/hooks.json` 一样属于红区，真实写入需要确认。同名非受管 MCP 表不会被覆盖，而是报告 degraded。
