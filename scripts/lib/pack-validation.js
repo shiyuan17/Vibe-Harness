@@ -275,11 +275,11 @@ export async function validateGovernanceQuality(rootDir) {
   const checks = [
     {
       file: 'rules/governance-core.md',
-      terms: ['获取事实', '做出决策', '执行', '验证', '交付', '主张 → 证据 → 反例 → 剩余风险', '快速', '轻量', '完整'],
+      terms: ['获取事实', '做出决策', '执行', '验证', '交付', '主张 → 证据 → 反例 → 剩余风险', '快速', '轻量', '完整', 'Red Team（红队审查）'],
     },
     {
       file: 'templates/task.md',
-      terms: ['工作流档位', '当前阶段', '当前状态', '处理结果', 'AC-ID', '完整流程控制', '验收证据'],
+      terms: ['工作流档位', '当前阶段', '当前状态', '处理结果', 'AC-ID', '完整流程控制', '验收证据', '红队审查者', '红队审查包', '红队审查结论'],
     },
     {
       file: 'templates/delivery.md',
@@ -287,11 +287,15 @@ export async function validateGovernanceQuality(rootDir) {
     },
     {
       file: 'schemas/full-task-control.schema.json',
-      terms: ['任务类型', '责任角色', '写入范围', '禁止动作', '并行安全', '人工确认', '核验者'],
+      terms: ['任务类型', '责任角色', '写入范围', '禁止动作', '并行安全', '人工确认', '核验者', '红队审查者', '红队审查包', '红队审查结论'],
     },
     {
       file: 'skills/core/using-loopengine/SKILL.md',
       terms: ['权限、红区和风险档位', '当前处于', '专项 Skill', '验证或审查 Skill', 'adversarial-review-packet'],
+    },
+    {
+      file: 'skills/core/adversarial-review-packet/references/review.md',
+      terms: ['任务编号', '审查者', '审查对象', '审查时间', '问题列表', '状态', 'Medium 延期', '未覆盖审查轴与剩余风险'],
     },
     {
       file: 'rules/agent-skill-routing.md',

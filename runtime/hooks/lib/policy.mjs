@@ -49,6 +49,7 @@ export function normalizeCodexHookInput(value) {
   return {
     cwd: value.cwd,
     event,
+    lastAssistantMessage: typeof value.last_assistant_message === 'string' ? value.last_assistant_message : '',
     permissionMode: value.permission_mode,
     sessionId: value.session_id,
     source: value.source,

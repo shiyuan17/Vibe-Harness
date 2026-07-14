@@ -170,6 +170,12 @@
       "contentStrategy": "replace"
     },
     {
+      "group": "runtime-task",
+      "source": "runtime/governance/lib/red-team-validation.mjs",
+      "target": ".agents/loopengine/governance/lib/red-team-validation.mjs",
+      "contentStrategy": "replace"
+    },
+    {
       "group": "runtime-full",
       "source": "runtime/governance/lib/design-validation.mjs",
       "target": ".agents/loopengine/governance/lib/design-validation.mjs",
@@ -547,13 +553,13 @@
       "contentStrategy": "replace"
     },
     {
-      "group": "skills-full",
+      "group": "skills-core",
       "source": "skills/core/adversarial-review-packet/SKILL.md",
       "target": ".agents/skills/adversarial-review-packet/SKILL.md",
       "contentStrategy": "replace"
     },
     {
-      "group": "skills-full",
+      "group": "skills-core",
       "source": "skills/core/adversarial-review-packet/references/review.md",
       "target": ".agents/skills/adversarial-review-packet/references/review.md",
       "contentStrategy": "replace"
@@ -648,6 +654,12 @@
       "group": "hooks",
       "source": "runtime/hooks/lib/context.mjs",
       "target": ".agents/loopengine/hooks/lib/context.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "hooks",
+      "source": "runtime/hooks/lib/delivery-validation.mjs",
+      "target": ".agents/loopengine/hooks/lib/delivery-validation.mjs",
       "contentStrategy": "replace"
     },
     {

@@ -169,6 +169,20 @@ test('all source-project routed skills are bundled under compatible ids', async 
   assert.deepEqual(expected.filter((id) => !ids.has(id)), []);
 });
 
+test('Red Team review skill is available to every profile with task runtime', async () => {
+  for (const profile of ['core', 'full', 'codex-internal']) {
+    const plan = await createInstallPlan({ dryRun: true, profile, rootDir, targetDir: rootDir });
+    const targets = new Set(plan.actions.map((entry) => entry.relativeTarget.replaceAll('\\', '/')));
+    assert.equal(targets.has('.agents/skills/adversarial-review-packet/SKILL.md'), true, `${profile} should install Red Team review`);
+    assert.equal(targets.has('.agents/skills/adversarial-review-packet/references/review.md'), true, `${profile} should install Red Team template`);
+  }
+  for (const profile of ['minimal', 'codex-minimal', 'docs-only']) {
+    const plan = await createInstallPlan({ dryRun: true, profile, rootDir, targetDir: rootDir });
+    const targets = new Set(plan.actions.map((entry) => entry.relativeTarget.replaceAll('\\', '/')));
+    assert.equal(targets.has('.agents/skills/adversarial-review-packet/SKILL.md'), false, `${profile} should not install executable Red Team skill`);
+  }
+});
+
 test('pruned thin skills are absent from manifest, install map, and install plans', async () => {
   const manifest = await readJson(path.join(rootDir, 'manifests/skills.json'));
   const installMap = await readJson(path.join(rootDir, 'adapters/codex/install-map.json'));

@@ -8,7 +8,7 @@
     },
     {
       "id": "core",
-      "description": "通用安装：常规规则、模板、runtime 和路由 skills；不包含 hook、codebase-memory-mcp 或 agentmemory MCP 安装面。",
+      "description": "通用安装：常规规则、模板、runtime、路由 skills 和 Red Team 完成门禁；不包含 hook、codebase-memory-mcp 或 agentmemory MCP 安装面。",
       "groups": ["agents", "rules-minimal", "rules-core", "templates-minimal", "templates-core", "schemas-core", "runtime-basic", "runtime-task", "runtime-full", "skills-core", "tools-playwright"]
     },
     {

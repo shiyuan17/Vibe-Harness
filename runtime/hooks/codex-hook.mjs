@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { buildProjectContext, findProjectRoot, readHookSettings, runGovernanceCheck } from './lib/context.mjs';
+import { validateDeliveryMessage } from './lib/delivery-validation.mjs';
 import { analyzeToolRequest, createCodexHookResult, normalizeCodexHookInput } from './lib/policy.mjs';
 
 const MAX_INPUT_BYTES = 1024 * 1024;
@@ -35,6 +36,14 @@ export async function evaluateCodexHook(rawInput) {
       },
     };
   }
+  if (input.event === 'UserPromptSubmit') {
+    return {
+      hookSpecificOutput: {
+        additionalContext: '如果当前请求创建新任务或使任务范围发生实质变化，在首次使用工具前按治理内核输出“任务确认”；普通追问不要重复输出。',
+        hookEventName: input.event,
+      },
+    };
+  }
   if (input.event === 'SubagentStart') {
     return {
       hookSpecificOutput: {
@@ -55,13 +64,17 @@ export async function evaluateCodexHook(rawInput) {
     return { systemMessage: 'Subagent stopped; verify its claimed changes and evidence before adoption.' };
   }
   if (input.event === 'Stop' && settings.completionGate !== 'off') {
-    const governance = await runGovernanceCheck(rootDir);
-    if (!governance.ok && settings.completionGate === 'blocking' && !input.stopHookActive) {
-      return { decision: 'block', reason: 'LoopEngine governance validation failed. Fix the evidence or task state, then verify again.' };
-    }
-    if (!governance.ok) {
-      return { systemMessage: 'LoopEngine governance validation is still failing; completion was not blocked again.' };
-    }
+    const [governance, delivery] = await Promise.all([
+      runGovernanceCheck(rootDir),
+      Promise.resolve(validateDeliveryMessage(input.lastAssistantMessage)),
+    ]);
+    const issues = [];
+    if (!governance.ok) issues.push('LoopEngine governance validation failed. Fix the evidence or task state, then verify again.');
+    if (!delivery.ok) issues.push(`Delivery packet missing: ${delivery.missing.join(', ')}.`);
+    if (issues.length === 0) return {};
+    const reason = issues.join(' ');
+    if (settings.completionGate === 'blocking' && !input.stopHookActive) return { decision: 'block', reason };
+    return { systemMessage: input.stopHookActive ? `${reason} Completion was not blocked again.` : reason };
   }
   return {};
 }

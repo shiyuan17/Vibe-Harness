@@ -20,7 +20,7 @@ Skill 只补强任务 Workflow，不得覆盖目标项目 `AGENTS.md`、治理�
 | Tasks | `task-decomposition` | 拆成可独立验收单元；无 Skill 时使用任务模板。 |
 | Execute | `test-driven-development`；故障使用 `systematic-debugging` | 小步实现并保护用户改动。 |
 | Verify | `verification-before-completion`；UI 可用 `browser-verification` | 提供本轮真实命令、浏览器、接口或日志证据。 |
-| Review | OpenCodeReview、`requesting-code-review`、`code-review-and-quality` | 高风险或交付前独立审查；不可用时记录降级和未覆盖轴。 |
+| Review | 完整/高风险使用 `adversarial-review-packet`；其他任务使用 OpenCodeReview、`requesting-code-review` 或 `code-review-and-quality` | Red Team 审查包或常规审查；不可用时记录降级和未覆盖轴。 |
 | Handoff | `workflow-handoff`；环境可提供 handoff/recall | 保留状态、证据、风险和恢复动作。 |
 | Retrospective | `workflow-handoff` 的复盘参考 | 将重复失败转化为最小防复发动作。 |
 

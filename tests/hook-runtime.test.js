@@ -11,6 +11,8 @@ import {
   createCodexHookResult,
   normalizeCodexHookInput,
 } from '../runtime/hooks/lib/policy.mjs';
+import { buildProjectContext } from '../runtime/hooks/lib/context.mjs';
+import { validateDeliveryMessage } from '../runtime/hooks/lib/delivery-validation.mjs';
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve('.');
@@ -44,13 +46,110 @@ function hookInput(overrides = {}) {
   };
 }
 
+function taskContract({
+  id,
+  title,
+  tier = '轻量',
+  phase = '执行',
+  status = '进行中',
+  result = '开放',
+  next = '继续执行。',
+}) {
+  return `# ${id} ${title}\n\n- 工作流档位：${tier}\n- 当前阶段：${phase}\n- 当前状态：${status}\n- 处理结果：${result}\n\n## 下一步动作\n\n${next}\n`;
+}
+
+function completeDeliveryMessage() {
+  return `## 交付\n\n- 结果状态：完成\n- 变更摘要：实现会话门禁。\n- 影响范围：Codex hooks。\n- 工作流档位：完整。\n- 验证证据：pnpm test，退出码 0。\n- 未验证项：无。\n- 剩余风险：无已知风险。\n- Git 状态：当前分支有本轮修改，未暂存。\n- Worktree / 分支 / merge-back 状态：当前 worktree，无待 merge-back。\n- 后续动作：无。\n- Memory：无需更新，无 durable context 变化。\n`;
+}
+
 test('normalizes supported Codex events without retaining unrelated payload fields', () => {
-  const input = normalizeCodexHookInput(hookInput({ secret_extra: 'do-not-retain' }));
+  const input = normalizeCodexHookInput(hookInput({
+    last_assistant_message: 'final delivery',
+    secret_extra: 'do-not-retain',
+  }));
 
   assert.equal(input.event, 'PreToolUse');
   assert.equal(input.sessionId, 'session-test');
   assert.equal(input.toolName, 'Bash');
+  assert.equal(input.lastAssistantMessage, 'final delivery');
   assert.equal(Object.hasOwn(input, 'secret_extra'), false);
+});
+
+test('project context summarizes open task contracts recursively in status order', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-task-context-'));
+  try {
+    await mkdir(path.join(target, 'docs', 'tasks', 'nested'), { recursive: true });
+    const tasks = [
+      ['T-006.md', taskContract({ id: 'T-006', title: '空闲任务', status: '空闲' })],
+      ['T-002.md', taskContract({ id: 'T-002', title: '阻塞任务', status: '阻塞' })],
+      ['T-001.md', taskContract({ id: 'T-001', title: '进行中任务', next: '运行聚焦测试。' })],
+      ['T-003.md', taskContract({ id: 'T-003', title: '已完成任务', result: '完成' })],
+      ['T-004.md', taskContract({ id: 'T-004', title: '验证失败任务', status: '验证失败' })],
+      ['T-005.md', taskContract({ id: 'T-005', title: '等待人工任务', status: '等待人工' })],
+      ['T-007.md', taskContract({ id: 'T-007', title: '等待依赖任务', status: '等待依赖' })],
+    ];
+    for (const [name, body] of tasks) {
+      await writeFile(path.join(target, 'docs', 'tasks', 'nested', name), body, 'utf8');
+    }
+    await writeFile(path.join(target, 'docs', 'tasks', 'BROKEN.md'), '# incomplete\n', 'utf8');
+
+    const context = await buildProjectContext(target);
+
+    assert.match(context, /Active task contracts:/);
+    assert.ok(context.indexOf('T-001 进行中任务') < context.indexOf('T-004 验证失败任务'));
+    assert.ok(context.indexOf('T-004 验证失败任务') < context.indexOf('T-002 阻塞任务'));
+    assert.match(context, /下一步=运行聚焦测试。/);
+    assert.doesNotMatch(context, /T-003 已完成任务/);
+    assert.doesNotMatch(context, /T-006 空闲任务/);
+    assert.match(context, /docs\/tasks\/BROKEN\.md \[格式不可识别\]/);
+    assert.equal((context.match(/^  - /gmu) ?? []).length, 6);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('project context bounds task content and does not include prompt text', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-task-context-bounds-'));
+  try {
+    await mkdir(path.join(target, 'docs', 'tasks'), { recursive: true });
+    await writeFile(path.join(target, 'docs', 'tasks', 'T-LONG.md'), taskContract({
+      id: 'T-LONG',
+      title: '长任务',
+      next: 'x'.repeat(10000),
+    }), 'utf8');
+
+    const context = await buildProjectContext(target);
+
+    assert.equal(context.length <= 4096, true);
+    assert.doesNotMatch(context, /sensitive prompt/);
+    assert.match(context, /Use repository rules/);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('delivery validation reports every missing canonical field and accepts English aliases', () => {
+  const missing = validateDeliveryMessage('- 结果状态：完成\n');
+  assert.equal(missing.ok, false);
+  assert.deepEqual(missing.missing, [
+    '变更摘要', '影响范围', '工作流档位', '验证证据', '未验证项', '剩余风险',
+    'Git 状态', 'Worktree / 分支 / merge-back 状态', '后续动作', 'Memory',
+  ]);
+
+  const english = validateDeliveryMessage(`
+- Result status: completed
+- Change summary: added delivery validation
+- Impact scope: Codex hooks
+- Workflow tier: full
+- Verification evidence: node --test, exit 0
+- Unverified items: none
+- Residual risks: none
+- Git status: modified files are unstaged
+- Worktree / branch / merge-back status: no pending merge-back
+- Next steps: none
+- Memory: no durable update required
+`);
+  assert.deepEqual(english, { ok: true, missing: [] });
 });
 
 test('rejects malformed or unsupported Codex hook input at the boundary', () => {
@@ -164,6 +263,58 @@ test('installed Codex hook runner injects deterministic session context without 
   }
 });
 
+test('UserPromptSubmit injects task-confirmation guidance without echoing the prompt', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-hook-prompt-'));
+  try {
+    await writeFile(path.join(target, 'loopengine.config.json'), JSON.stringify({ hooks: { mode: 'guarded' } }), 'utf8');
+    const { stdout } = await runNodeWithInput(path.join(rootDir, 'runtime/hooks/codex-hook.mjs'), {
+      cwd: target,
+      hook_event_name: 'UserPromptSubmit',
+      prompt: 'sensitive task contents',
+      session_id: 'session-prompt',
+      turn_id: 'turn-prompt',
+    }, { cwd: target });
+    const result = JSON.parse(stdout);
+    const context = result.hookSpecificOutput.additionalContext;
+
+    assert.match(context, /任务确认/);
+    assert.match(context, /任务范围发生实质变化/);
+    assert.doesNotMatch(context, /sensitive task contents/);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('Stop delivery gate follows off, advisory, and blocking modes', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-hook-delivery-gate-'));
+  try {
+    const input = {
+      cwd: target,
+      hook_event_name: 'Stop',
+      last_assistant_message: '- 结果状态：完成',
+      session_id: 'session-delivery',
+      turn_id: 'turn-delivery',
+    };
+    const run = async (completionGate, extra = {}) => {
+      await writeFile(path.join(target, 'loopengine.config.json'), JSON.stringify({
+        hooks: { completionGate, mode: 'strict' },
+      }), 'utf8');
+      return JSON.parse((await runNodeWithInput(path.join(rootDir, 'runtime/hooks/codex-hook.mjs'), {
+        ...input,
+        ...extra,
+      }, { cwd: target })).stdout);
+    };
+
+    assert.deepEqual(await run('off'), {});
+    assert.match((await run('advisory')).systemMessage, /变更摘要/);
+    assert.equal((await run('blocking')).decision, 'block');
+    assert.notEqual((await run('blocking', { stop_hook_active: true })).decision, 'block');
+    assert.deepEqual(await run('blocking', { last_assistant_message: completeDeliveryMessage() }), {});
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
 test('blocking Stop gate continues at most once when governance validation fails', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-hook-stop-'));
   try {
@@ -177,6 +328,7 @@ test('blocking Stop gate continues at most once when governance validation fails
     const base = {
       cwd: target,
       hook_event_name: 'Stop',
+      last_assistant_message: '- 结果状态：完成',
       session_id: 'session-stop',
       turn_id: 'turn-stop',
     };
@@ -190,6 +342,8 @@ test('blocking Stop gate continues at most once when governance validation fails
     }, { cwd: target });
 
     assert.equal(JSON.parse(first.stdout).decision, 'block');
+    assert.match(JSON.parse(first.stdout).reason, /governance validation failed/i);
+    assert.match(JSON.parse(first.stdout).reason, /变更摘要/);
     assert.notEqual(JSON.parse(second.stdout).decision, 'block');
   } finally {
     await rm(target, { force: true, recursive: true });

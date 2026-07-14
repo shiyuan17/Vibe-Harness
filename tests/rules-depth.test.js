@@ -27,7 +27,7 @@ test('profiles install minimal, common, and full surfaces at intended tiers', as
   assert.equal([...minimal].some((item) => item.startsWith('.agents/skills/')), false);
   assert.equal(core.has('docs/rules/coding-rules.md'), true);
   assert.equal(core.has('.agents/skills/using-loopengine/SKILL.md'), true);
-  assert.equal(core.has('.agents/skills/adversarial-review-packet/SKILL.md'), false);
+  assert.equal(core.has('.agents/skills/adversarial-review-packet/SKILL.md'), true);
   assert.equal(core.has('.agents/skills/loop-planning/SKILL.md'), false);
   assert.equal(core.has('docs/rules/release-rules.md'), false);
   assert.equal(core.has('docs/rules/db-rules.md'), false);
@@ -52,11 +52,12 @@ test('router only names registered skills', async () => {
 });
 
 test('rules absorb pruned thin skill guidance', async () => {
-  const [coding, git, projectDirectory, frontend, release, pencil] = await Promise.all([
+  const [coding, git, projectDirectory, frontend, logManagement, release, pencil] = await Promise.all([
     readFile(path.join(rootDir, 'rules/coding-rules.md'), 'utf8'),
     readFile(path.join(rootDir, 'rules/git-rules.md'), 'utf8'),
     readFile(path.join(rootDir, 'rules/project-directory.md'), 'utf8'),
     readFile(path.join(rootDir, 'rules/frontend-rules.md'), 'utf8'),
+    readFile(path.join(rootDir, 'rules/log-management.md'), 'utf8'),
     readFile(path.join(rootDir, 'rules/release-rules.md'), 'utf8'),
     readFile(path.join(rootDir, 'rules/pencil-rules.md'), 'utf8'),
   ]);
@@ -71,6 +72,9 @@ test('rules absorb pruned thin skill guidance', async () => {
   assert.match(git, /Git 自动生成且无需人工编辑的 merge 或 revert 信息不受此限制/u);
   assert.match(projectDirectory, /ADR/u);
   assert.match(frontend, /品牌展示|产品界面/u);
+  assert.match(logManagement, /\.loopengine\/log\//u);
+  assert.match(logManagement, /vite-dev\.out\/err/u);
+  assert.doesNotMatch(logManagement, /vite-dev\.out\/err[^\n]*写入[^\n]*artifacts|artifacts[^\n]*vite-dev\.out\/err/u);
   assert.match(release, /本 skill 不维护第二套发布规则|规则是真值/u);
   assert.match(pencil, /同名预览|截图/u);
 });

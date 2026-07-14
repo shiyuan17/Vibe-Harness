@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { isAbsolute, resolve, win32 } from 'node:path';
 
 import { validateJsonAgainstSchema } from './schema-validation.mjs';
+import { validateRedTeamReview } from './red-team-validation.mjs';
 
 const FIELD_VALUES = {
   工作流档位: new Set(['快速', '轻量', '完整']),
@@ -132,6 +133,7 @@ function validateTask(root, file, body, schema) {
       if (control['人工确认'] === '需要') errors.push(`${file}：完成任务的人工确认不得为“需要”`);
       if (control['责任角色'] === control['核验者']) errors.push(`${file}：完整任务的核验者不得与实现者相同`);
       if (control['合并回主线状态'] === '待处理') errors.push(`${file}：完成任务仍有待处理的合并回主线状态`);
+      errors.push(...validateRedTeamReview({ control, root, taskFile: file, taskId: title?.[1] }));
     }
   }
   return errors;

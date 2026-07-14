@@ -44,6 +44,7 @@ test('full and internal profiles install hook runtime and inactive Git hook temp
     for (const targets of [full, internal]) {
       assert.ok(targets.includes('.codex/hooks.json'));
       assert.ok(targets.includes('.agents/loopengine/hooks/codex-hook.mjs'));
+      assert.ok(targets.includes('.agents/loopengine/hooks/lib/delivery-validation.mjs'));
       assert.ok(targets.includes('.githooks/pre-commit'));
       assert.ok(targets.includes('.githooks/pre-push'));
     }

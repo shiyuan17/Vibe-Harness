@@ -34,6 +34,14 @@ test('full task control schema rejects missing and unknown Chinese fields', asyn
     核验者: '独立核验者', 合并回主线状态: '不需要',
   };
   assert.deepEqual(validateJsonAgainstSchema(sample, schema, '控制'), []);
+  assert.deepEqual(validateJsonAgainstSchema({
+    ...sample,
+    红队审查者: '独立核验者',
+    红队审查包: 'docs/reviews/T-001-red-team.md',
+    红队审查结论: '批准',
+  }, schema, '控制'), []);
+  assert.match(validateJsonAgainstSchema({ ...sample, 红队审查结论: '跳过' }, schema, '控制').join('\n'), /红队审查结论/u);
+  assert.match(validateJsonAgainstSchema({ ...sample, 红队审查者: [] }, schema, '控制').join('\n'), /红队审查者/u);
   assert.match(validateJsonAgainstSchema({ ...sample, 核验者: undefined }, schema, '控制').join('\n'), /核验者/u);
   assert.match(validateJsonAgainstSchema({ ...sample, 额外字段: true }, schema, '控制').join('\n'), /额外字段/u);
 });

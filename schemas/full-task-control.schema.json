@@ -29,6 +29,9 @@
     "回滚方案": { "type": "string", "minLength": 1 },
     "人工确认": { "type": "string", "enum": ["不需要", "需要", "已确认"] },
     "核验者": { "type": "string", "minLength": 1 },
+    "红队审查者": { "type": "string", "minLength": 1 },
+    "红队审查包": { "type": "string", "minLength": 1 },
+    "红队审查结论": { "type": "string", "enum": ["待审查", "批准", "要求修改", "缺少证据而阻塞"] },
     "合并回主线状态": { "type": "string", "enum": ["不需要", "待处理", "已完成"] }
   },
   "additionalProperties": false
