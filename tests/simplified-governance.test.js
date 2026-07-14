@@ -84,6 +84,17 @@ ${JSON.stringify(control, null, 2)}
 `;
 }
 
+function openFullTask(control) {
+  return `${baseTask.replace('工作流档位：快速', '工作流档位：完整')}
+
+## 完整流程控制
+
+\`\`\`json
+${JSON.stringify(control, null, 2)}
+\`\`\`
+`;
+}
+
 async function writeRedTeamPacket(root, {
   conclusion = '批准',
   deferrals = [],
@@ -619,6 +630,54 @@ test('完整父子任务要求时间盒，完成时禁止实现者自批', async
   }
 });
 
+function childControl(overrides = {}) {
+  return fullControl({
+    任务类型: '子任务',
+    父任务编号: 'T-PARENT',
+    冲突任务: [],
+    时间盒分钟: 15,
+    输入: ['父任务验收标准和前置验证输出'],
+    输出格式: ['docs/reports/T-001.md，包含状态、变更、测试和风险'],
+    不得修改范围: ['写入范围之外的所有文件'],
+    ...overrides,
+  });
+}
+
+test('子任务要求输入、输出格式和不得修改范围', async () => {
+  const root = await taskProject(openFullTask(childControl({ 输入: undefined })));
+  try {
+    const errors = validateTasks(root).join('\n');
+    assert.match(errors, /子任务缺少或未填写“输入”/u);
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
+});
+
+test('子任务拒绝空的交接契约字段', async () => {
+  const root = await taskProject(openFullTask(childControl({
+    输入: [],
+    输出格式: [''],
+    不得修改范围: [],
+  })));
+  try {
+    const errors = validateTasks(root).join('\n');
+    assert.match(errors, /输入/u);
+    assert.match(errors, /输出格式/u);
+    assert.match(errors, /不得修改范围/u);
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
+});
+
+test('合法子任务交接契约通过治理校验', async () => {
+  const root = await taskProject(openFullTask(childControl()));
+  try {
+    assert.deepEqual(validateTasks(root), []);
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
+});
+
 test('旧 task.json 被明确拒绝', async () => {
   const root = await taskProject(null, { legacyJson: { id: 'T-OLD' } });
   try {
@@ -665,6 +724,21 @@ test('治理资产定义 Red Team 完成门禁和结构化审查包', async () =
   for (const fragment of ['任务编号', '审查者', '审查对象', '审查时间', '状态', 'Medium 延期', '未覆盖审查轴与剩余风险']) {
     assert.match(reviewTemplate, new RegExp(fragment, 'u'));
   }
+});
+
+test('治理资产定义 Small Change 和 Fan-out/Fan-in 契约', async () => {
+  const [coding, collaboration, subagent, task] = await Promise.all([
+    readFile(path.join(rootDir, 'rules/coding-rules.md'), 'utf8'),
+    readFile(path.join(rootDir, 'rules/ai-collab-rules.md'), 'utf8'),
+    readFile(path.join(rootDir, 'skills/core/subagent-driven-development/SKILL.md'), 'utf8'),
+    readFile(path.join(rootDir, 'templates/task.md'), 'utf8'),
+  ]);
+  assert.match(coding, /一个任务只解决一个问题/u);
+  assert.match(coding, /格式化.*业务/u);
+  assert.match(collaboration, /Fan-out/u);
+  assert.match(collaboration, /Fan-in/u);
+  assert.match(subagent, /输出格式/u);
+  assert.match(task, /不得修改范围/u);
 });
 
 test('治理内核和交付模板定义任务确认与完整会话交付', async () => {

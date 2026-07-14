@@ -17,12 +17,12 @@ description: 执行已有实现计划且任务可隔离、需要子 agent、任�
 
 1. 先审计划：发现互相矛盾、缺验收或越权写入时先暂停。
 2. 父任务维护 progress ledger、依赖顺序、冲突关系和最终集成验证。
-3. 为每个 child 创建 brief 文件，只包含该任务需求、接口、约束和验证命令。
+3. 为每个 child 创建 brief 文件，只包含该任务目标、输入、接口、约束、写入范围、不得修改范围、输出格式和验证命令。
 4. 子 agent 只接收 child brief 和必要上下文，不读取整份长计划。
-5. 子 agent 报告写入 report 文件。
+5. 子 agent 报告写入独立 report 文件，报告必须遵循 brief 声明的输出格式。
 6. reviewer 读取 brief、report、diff/review package，分别给出“规格符合性”和“代码质量”结论。
 7. 只有阻断问题解决并复审后，才把任务写入 progress ledger。
-8. 全部任务完成后，用最终 review package 做整体审查，并在父任务记录最终集成验证。
+8. Fan-in 时由父 Agent 汇总、去重、处理冲突、审查最终 diff，并在集成位置记录最终验证；不得用一个大提交掩盖多个独立目的。
 
 ## 文件化交接
 

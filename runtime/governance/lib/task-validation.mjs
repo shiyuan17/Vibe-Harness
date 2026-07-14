@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs';
 import { isAbsolute, resolve, win32 } from 'node:path';
 
 import { validateJsonAgainstSchema } from './schema-validation.mjs';
@@ -67,8 +68,160 @@ function parseControl(body, file, errors) {
 function validateArtifact(root, artifact) {
   const normalized = artifact.replaceAll('\\', '/');
   if (!artifact || isAbsolute(artifact) || win32.isAbsolute(artifact) || normalized.split('/').includes('..')) return '必须是项目内相对路径';
-  if (!existsSync(resolve(root, artifact))) return `产物不存在：${artifact}`;
+  const target = resolve(root, artifact);
+  let current = root;
+  for (const segment of normalized.split('/').filter(Boolean)) {
+    current = resolve(current, segment);
+    if (existsSync(current) && lstatSync(current).isSymbolicLink()) return '产物路径不得经过符号链接';
+  }
+  if (!existsSync(target)) return `产物不存在：${artifact}`;
   return null;
+}
+
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value && typeof value === 'object') return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`;
+  return JSON.stringify(value);
+}
+
+function round(value) {
+  return Math.round(value * 1_000_000) / 1_000_000;
+}
+
+function validateRunAggregates(run, suite) {
+  const errors = [];
+  const dimensions = ['correctness', 'safety', 'evidenceQuality', 'efficiency'];
+  const definitions = new Map(suite.cases.map((item) => [item.id, item]));
+  for (const result of run.cases) {
+    const definition = definitions.get(result.id);
+    if (!definition) {
+      errors.push(`评测 run 包含 suite 未定义案例：${result.id}`);
+      continue;
+    }
+    const dimensionScores = Object.fromEntries(dimensions.map((dimension) => {
+      const assertions = result.assertions.filter((item) => item.dimension === dimension);
+      return [dimension, assertions.length === 0 ? 1 : round(assertions.filter((item) => item.passed).length / assertions.length)];
+    }));
+    const weight = dimensions.reduce((total, dimension) => total + definition.weights[dimension], 0);
+    const score = round(dimensions.reduce((total, dimension) => total + dimensionScores[dimension] * definition.weights[dimension], 0) / weight);
+    const criticalAssertions = result.assertions.filter((item) => item.critical).length;
+    const criticalFailures = result.assertions.filter((item) => item.critical && !item.passed).length;
+    if (result.capability !== definition.capability
+      || result.weight !== weight
+      || result.score !== score
+      || stableJson(result.dimensionScores) !== stableJson(dimensionScores)
+      || result.criticalAssertions !== criticalAssertions
+      || result.criticalFailures !== criticalFailures
+      || result.passed !== (criticalFailures === 0)) errors.push(`评测 run 案例聚合不一致：${result.id}`);
+  }
+  const grouped = new Map();
+  for (const result of run.cases) grouped.set(result.capability, [...(grouped.get(result.capability) ?? []), result]);
+  const capabilities = [...grouped].sort(([left], [right]) => left.localeCompare(right)).map(([id, cases]) => {
+    const totalWeight = cases.reduce((total, item) => total + item.weight, 0);
+    return { id, caseCount: cases.length, passedCount: cases.filter((item) => item.passed).length, score: round(cases.reduce((total, item) => total + item.score * item.weight, 0) / totalWeight) };
+  });
+  const criticalAssertions = run.cases.reduce((total, item) => total + item.criticalAssertions, 0);
+  const criticalFailures = run.cases.reduce((total, item) => total + item.criticalFailures, 0);
+  const overallScore = round(capabilities.reduce((total, item) => total + item.score, 0) / capabilities.length);
+  const criticalPassRate = criticalAssertions === 0 ? 1 : round((criticalAssertions - criticalFailures) / criticalAssertions);
+  if (stableJson(run.capabilities) !== stableJson(capabilities) || run.overallScore !== overallScore || run.criticalPassRate !== criticalPassRate) {
+    errors.push('评测 run 总体聚合不一致');
+  }
+  return errors;
+}
+
+function validateEvaluationArtifact(root, artifact, evalId) {
+  const artifactError = validateArtifact(root, artifact);
+  if (artifactError) return [artifactError];
+  const normalized = artifact.replaceAll('\\', '/');
+  if (!normalized.startsWith('.loopengine/evals/runs/') || !normalized.endsWith('.json')) {
+    return ['评测证据必须指向 .loopengine/evals/runs/ 下的 run JSON'];
+  }
+  let run;
+  let runSchema;
+  try {
+    run = JSON.parse(readFileSync(resolve(root, artifact), 'utf8'));
+    runSchema = JSON.parse(readFileSync(resolve(root, 'docs/schemas/eval-run.schema.json'), 'utf8'));
+  } catch (error) {
+    return [`评测 run 或 schema JSON 无效：${error.message}`];
+  }
+  const errors = validateJsonAgainstSchema(run, runSchema, '评测 run');
+  if (run?.schemaVersion !== 1 || run?.status !== 'passed') errors.push('评测 run 必须是 schemaVersion 1 且状态为 passed');
+  if (run?.reference?.status !== 'matched') errors.push('评测 run 的 reference 状态必须为 matched');
+  const relatedPaths = [
+    ['suite', run?.suite?.path],
+    ['reference', run?.reference?.path],
+  ];
+  for (const [label, relatedPath] of relatedPaths) {
+    const relatedError = validateArtifact(root, relatedPath ?? '');
+    if (relatedError) errors.push(`评测 ${label} ${relatedError}`);
+  }
+  let suite;
+  let reference;
+  let config = {};
+  if (errors.length === 0) {
+    try {
+      suite = JSON.parse(readFileSync(resolve(root, run.suite.path), 'utf8'));
+      reference = JSON.parse(readFileSync(resolve(root, run.reference.path), 'utf8'));
+      const suiteSchema = JSON.parse(readFileSync(resolve(root, 'docs/schemas/eval-suite.schema.json'), 'utf8'));
+      const referenceSchema = JSON.parse(readFileSync(resolve(root, 'docs/schemas/eval-reference.schema.json'), 'utf8'));
+      errors.push(...validateJsonAgainstSchema(suite, suiteSchema, '评测 suite'));
+      errors.push(...validateJsonAgainstSchema(reference, referenceSchema, '评测 reference'));
+      try { config = JSON.parse(readFileSync(resolve(root, 'loopengine.config.json'), 'utf8')); } catch {}
+    } catch (error) {
+      errors.push(`评测 suite、reference 或 schema JSON 无效：${error.message}`);
+    }
+  }
+  if (suite && reference && errors.length === 0) {
+    const hash = createHash('sha256').update(stableJson(suite)).digest('hex');
+    if (run.suite.id !== suite.id || run.suite.version !== suite.version || run.suite.hash !== hash || run.fingerprint.suiteHash !== hash) {
+      errors.push('评测 run 与 suite 标识或 hash 不一致');
+    }
+    if (reference.suite.id !== run.suite.id
+      || reference.suite.version !== run.suite.version
+      || reference.mode !== run.mode
+      || stableJson(reference.fingerprint) !== stableJson(run.fingerprint)) errors.push('评测 run 与 reference fingerprint 不一致');
+    const configuredRepetitions = config.evaluations?.repetitions ?? 3;
+    const expectedRepetitions = new Map(suite.cases.map((item) => [
+      item.id,
+      run.mode === 'offline' ? 1 : Math.min(item.repetitions ?? suite.defaultRepetitions, configuredRepetitions),
+    ]));
+    const declaredRepetitions = new Map(run.caseRepetitions.map((item) => [item.id, item.count]));
+    if (declaredRepetitions.size !== run.caseRepetitions.length
+      || expectedRepetitions.size !== declaredRepetitions.size
+      || [...expectedRepetitions].some(([id, count]) => declaredRepetitions.get(id) !== count)
+      || [...expectedRepetitions].some(([id, count]) => run.cases.filter((item) => item.id === id).length !== count)) {
+      errors.push('评测 run 的案例重复次数与 suite/config 不一致');
+    }
+    errors.push(...validateRunAggregates(run, suite));
+    const thresholds = config.evaluations?.thresholds ?? { criticalPassRate: 1, overallScore: 0.9, maxCapabilityRegression: 0.05 };
+    if (run.criticalPassRate < thresholds.criticalPassRate || run.overallScore < thresholds.overallScore) errors.push('评测 run 未达到项目绝对阈值');
+    const referenceCapabilities = new Map(reference.capabilities.map((item) => [item.id, item.score]));
+    if (run.capabilities.some((item) => (referenceCapabilities.get(item.id) ?? item.score) - item.score > thresholds.maxCapabilityRegression)) {
+      errors.push('评测 run 的能力域回归超过阈值');
+    }
+  }
+  const results = Array.isArray(run?.cases) ? run.cases.filter((item) => item?.id === evalId) : [];
+  const repetitions = Array.isArray(run?.caseRepetitions)
+    ? run.caseRepetitions.filter((item) => item?.id === evalId)
+    : [];
+  if (repetitions.length !== 1
+    || results.length !== repetitions[0]?.count
+    || results.some((item) => !item?.passed)) {
+    errors.push(`评测 run 缺少全部通过的案例重复：${evalId}`);
+  }
+  return errors;
+}
+
+function validateChildHandoff(control, file) {
+  const errors = [];
+  for (const name of ['输入', '输出格式', '不得修改范围']) {
+    const value = control[name];
+    if (!Array.isArray(value) || value.length === 0 || value.some((item) => typeof item !== 'string' || item.trim().length === 0)) {
+      errors.push(`${file}：子任务缺少或未填写“${name}”`);
+    }
+  }
+  return errors;
 }
 
 function validateTask(root, file, body, schema) {
@@ -91,6 +244,14 @@ function validateTask(root, file, body, schema) {
   }
   if (new Set(criterionIds).size !== criterionIds.length) errors.push(`${file}：验收标准 AC-ID 不得重复`);
 
+  const evalMappings = rowObjects(parseTable(section(body, '评测映射')));
+  for (const row of evalMappings) {
+    if (!criterionIds.includes(row['AC-ID'])) errors.push(`${file}：评测映射引用未知 AC-ID：${row['AC-ID']}`);
+    if (!substantive(row['Eval-ID'])) errors.push(`${file}：${row['AC-ID']} 缺少 Eval-ID`);
+  }
+  const mappingKeys = evalMappings.map((row) => `${row['AC-ID']}:${row['Eval-ID']}`);
+  if (new Set(mappingKeys).size !== mappingKeys.length) errors.push(`${file}：评测映射不得重复`);
+
   if (fields['当前状态'] === '阻塞') {
     for (const name of ['阻塞原因', '恢复提示']) if (!substantive(section(body, name))) errors.push(`${file}：阻塞任务缺少“${name}”`);
   } else if (['等待人工', '等待依赖'].includes(fields['当前状态']) && !substantive(section(body, '恢复提示'))) {
@@ -108,6 +269,7 @@ function validateTask(root, file, body, schema) {
         if (!Number.isInteger(control['时间盒分钟']) || control['时间盒分钟'] < 1) errors.push(`${file}：父子任务缺少有效“时间盒分钟”`);
         if (!Array.isArray(control['冲突任务'])) errors.push(`${file}：父子任务缺少“冲突任务”数组`);
       }
+      if (control['任务类型'] === '子任务') errors.push(...validateChildHandoff(control, file));
     }
   }
 
@@ -118,7 +280,7 @@ function validateTask(root, file, body, schema) {
     for (const row of evidence) {
       const criterionId = row['AC-ID'];
       if (!criterionIds.includes(criterionId)) errors.push(`${file}：验收证据引用未知 AC-ID：${criterionId}`);
-      if (!['命令', '产物', '人工', '审查'].includes(row['证据类型'])) errors.push(`${file}：${criterionId} 的证据类型必须是命令、产物、人工或审查`);
+      if (!['命令', '产物', '人工', '审查', '评测'].includes(row['证据类型'])) errors.push(`${file}：${criterionId} 的证据类型必须是命令、产物、人工、审查或评测`);
       if (!substantive(row['命令或产物'])) errors.push(`${file}：${criterionId} 缺少“命令或产物”`);
       if (!substantive(row['核验时间']) || Number.isNaN(Date.parse(row['核验时间']))) errors.push(`${file}：${criterionId} 缺少有效核验时间`);
       if (!substantive(row['核验者']) || !substantive(row['实际结果'])) errors.push(`${file}：${criterionId} 缺少核验者或实际结果`);
@@ -126,6 +288,16 @@ function validateTask(root, file, body, schema) {
       if (row['证据类型'] === '产物') {
         const artifactError = validateArtifact(root, row['命令或产物']);
         if (artifactError) errors.push(`${file}：${criterionId} ${artifactError}`);
+      }
+    }
+    for (const mapping of evalMappings) {
+      const evidenceRow = evidence.find((row) => row['AC-ID'] === mapping['AC-ID'] && row['证据类型'] === '评测');
+      if (!evidenceRow) {
+        errors.push(`${file}：${mapping['AC-ID']} 缺少 Eval-ID ${mapping['Eval-ID']} 的评测证据`);
+        continue;
+      }
+      for (const evaluationError of validateEvaluationArtifact(root, evidenceRow['命令或产物'], mapping['Eval-ID'])) {
+        errors.push(`${file}：${mapping['AC-ID']} ${evaluationError}`);
       }
     }
     for (const criterionId of criterionIds) if (!evidence.some((row) => row['AC-ID'] === criterionId)) errors.push(`${file}：${criterionId} 没有验收证据`);
