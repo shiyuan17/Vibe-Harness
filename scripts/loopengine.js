@@ -99,6 +99,29 @@ function compactTargetReport(report) {
   };
 }
 
+function summaryText(value, maxLength = 480) {
+  const compact = String(value ?? '').replace(/\s+/gu, ' ').trim();
+  return compact.length > maxLength ? `${compact.slice(0, maxLength - 3)}...` : compact;
+}
+
+function toolSummaryLines(tools = {}, recommendations = []) {
+  return Object.entries(tools).flatMap(([tool, state]) => {
+    if (state.status !== 'degraded') return [];
+    const diagnostic = state.diagnostic;
+    const details = diagnostic?.stderrTail ?? diagnostic?.stdoutTail;
+    const recommendation = recommendations.find((item) => item.tool === tool);
+    return [
+      `tool: ${tool}`,
+      `phase: ${state.phase}`,
+      `reason: ${summaryText(diagnostic?.message ?? `${tool} is degraded during ${state.phase}.`)}`,
+      ...(details && details !== diagnostic?.message ? [`details: ${summaryText(details)}`] : []),
+      ...(diagnostic?.exitCode !== undefined ? [`exitCode: ${diagnostic.exitCode}`] : []),
+      ...(diagnostic?.truncated ? ['detailsTruncated: true'] : []),
+      ...(recommendation?.command || recommendation?.message ? [`next: ${recommendation.command ?? recommendation.message}`] : []),
+    ];
+  });
+}
+
 function emitReport(report, args, { error = false } = {}) {
   const normalized = normalizeReport(report);
   const output = args.output ?? 'json';
@@ -110,6 +133,7 @@ function emitReport(report, args, { error = false } = {}) {
       ...(typeof normalized.target === 'string' ? [`target: ${normalized.target}`] : []),
       ...(normalized.dryRun !== undefined ? [`dryRun: ${normalized.dryRun}`] : []),
       `warnings: ${normalized.warnings.length}`,
+      ...toolSummaryLines(normalized.tools, normalized.recommendations),
     ];
     (error ? console.error : console.log)(lines.join('\n'));
     return;
@@ -480,10 +504,21 @@ function toolRecommendations(tools, profile, { adapterId = 'codex', mvp = false 
     : `loopengine install --target <target> --profile ${profile} --apply --confirm-red-zone`;
   return Object.entries(tools).flatMap(([tool, state]) => {
     if (state.status === 'degraded') {
+      if (state.code === 'MCP_CONFIG_CONFLICT') {
+        return [{
+          action: 'resolve-mcp-config',
+          code: state.code,
+          ...(state.diagnostic ? { diagnostic: state.diagnostic } : {}),
+          message: `Remove or rename the unmanaged MCP server for ${tool}, then retry provisioning.`,
+          phase: state.phase,
+          tool,
+        }];
+      }
       return [{
         action: 'retry-provision',
         code: state.code,
         command: retryCommand,
+        ...(state.diagnostic ? { diagnostic: state.diagnostic } : {}),
         message: `Retry ${tool} provisioning after checking network access and the reported phase.`,
         phase: state.phase,
         tool,

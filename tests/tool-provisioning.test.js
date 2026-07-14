@@ -50,6 +50,15 @@ async function runCliFailure(args, options = {}) {
   assert.fail('Expected CLI command to fail');
 }
 
+async function runCliSummary(args, options = {}) {
+  const { stdout } = await execFileAsync(process.execPath, [cliPath, ...args], {
+    cwd: rootDir,
+    maxBuffer: 1024 * 1024 * 8,
+    ...options,
+  });
+  return stdout;
+}
+
 test('full tool plan pins four project-local components while core keeps Playwright lazy', () => {
   const targetDir = path.resolve('target-project');
   const full = createToolProvisioningPlan({ profile: 'full', targetDir });
@@ -103,7 +112,22 @@ test('provisioning continues after one component fails and never persists comman
       commandRunner: async (request) => {
         calls.push(request);
         if (request.component === 'codebaseMemoryMcp' && request.phase === 'index') {
-          throw new Error('token=super-secret-token failed');
+          throw Object.assign(new Error('token=super-secret-token failed'), {
+            code: 'TOOL_COMMAND_FAILED',
+            exitCode: 23,
+            stderr: [
+              `connect ETIMEDOUT for ${targetDir}: Bearer super-secret-token`,
+              `path=${targetDir.replaceAll('\\', '/').toUpperCase()}`,
+              'payload={"token":"json-secret","password":"json-password"}',
+              'api_key: colon-secret',
+              'request=https://user:pa:ss@example.test/resource',
+              'tokenUri=https://token-only@example.test/resource',
+              'passwordUri=https://:password-only@example.test/resource',
+              'You can install manually: https://example.test/install',
+              'Try reinstalling: npm install -g codebase-memory-mcp',
+            ].join('\n'),
+            stdout: 'retrying index',
+          });
         }
         return { stdout: '{"ok":true}' };
       },
@@ -113,6 +137,25 @@ test('provisioning continues after one component fails and never persists comman
     });
 
     assert.equal(report.codebaseMemoryMcp.status, 'degraded');
+    assert.deepEqual(report.codebaseMemoryMcp.diagnostic, {
+      code: 'TOOL_COMMAND_FAILED',
+      exitCode: 23,
+      message: 'connect ETIMEDOUT for <project>: Bearer [REDACTED]',
+      phase: 'index',
+      stderrTail: [
+        'connect ETIMEDOUT for <project>: Bearer [REDACTED]',
+        'path=<project>',
+        'payload={"token":"[REDACTED]","password":"[REDACTED]"}',
+        'api_key: [REDACTED]',
+        'request=https://[REDACTED]@example.test/resource',
+        'tokenUri=https://[REDACTED]@example.test/resource',
+        'passwordUri=https://[REDACTED]@example.test/resource',
+        'You can install manually: https://example.test/install',
+        'Try reinstalling: npm install -g codebase-memory-mcp',
+      ].join('\n'),
+      stdoutTail: 'retrying index',
+      truncated: false,
+    });
     assert.equal(report.playwrightCli.status, 'ready');
     assert.equal(report.openCodeReview.status, 'ready');
     assert.equal(report.agentmemory.status, 'ready');
@@ -134,10 +177,56 @@ test('provisioning continues after one component fails and never persists comman
     assert.equal(agentmemory.env.USERPROFILE, agentmemory.env.HOME);
 
     const state = await readFile(path.join(targetDir, '.loopengine/tool-state/tools.json'), 'utf8');
+    assert.equal(state.includes('connect ETIMEDOUT for <project>'), true);
     assert.equal(state.includes('super-secret-token'), false);
+    assert.equal(state.includes('json-secret'), false);
+    assert.equal(state.includes('json-password'), false);
+    assert.equal(state.includes('colon-secret'), false);
+    assert.equal(state.includes('pa:ss'), false);
+    assert.equal(state.includes('token-only'), false);
+    assert.equal(state.includes('password-only'), false);
     assert.equal(state.includes('token='), false);
+    assert.equal(state.includes(targetDir), false);
   } finally {
     await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('every full-profile tool persists a sanitized diagnostic for its failed phase', async () => {
+  const failures = [
+    ['codebaseMemoryMcp', 'index'],
+    ['playwrightCli', 'browser-install'],
+    ['openCodeReview', 'llm-test'],
+    ['agentmemory', 'mcp-handshake'],
+  ];
+  for (const [toolId, phase] of failures) {
+    const targetDir = await mkdtemp(path.join(tmpdir(), `loopengine-diagnostic-${toolId}-`));
+    try {
+      const report = await provisionProfileTools({
+        commandRunner: async (request) => {
+          if (request.component === toolId && request.phase === phase) {
+            throw Object.assign(new Error('token=diagnostic-secret'), {
+              code: 'TOOL_COMMAND_FAILED',
+              exitCode: 9,
+              stderr: `failed in ${targetDir}: Bearer diagnostic-secret`,
+            });
+          }
+          return { stdout: '{}' };
+        },
+        env: { OPENAI_API_KEY: 'configured' },
+        profile: 'full',
+        targetDir,
+      });
+      const diagnostic = report[toolId].diagnostic;
+
+      assert.equal(report[toolId].status, 'degraded');
+      assert.equal(diagnostic.code, 'TOOL_COMMAND_FAILED');
+      assert.equal(diagnostic.phase, phase);
+      assert.equal(diagnostic.exitCode, 9);
+      assert.equal(diagnostic.stderrTail, 'failed in <project>: Bearer [REDACTED]');
+    } finally {
+      await rm(targetDir, { force: true, recursive: true });
+    }
   }
 });
 
@@ -267,6 +356,57 @@ test('managed MCP block is idempotent and replaces only its own previous content
   assert.equal(second.includes('# local tail'), true);
 });
 
+test('MCP configuration conflicts retain an actionable diagnostic', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-conflict-'));
+  try {
+    const report = await provisionProfileTools({
+      commandRunner: async () => ({ stdout: '{}' }),
+      mcpConflicts: ['codebase-memory-mcp'],
+      env: { OPENAI_API_KEY: 'configured' },
+      profile: 'full',
+      targetDir,
+    });
+
+    assert.deepEqual(report.codebaseMemoryMcp.diagnostic, {
+      code: 'MCP_CONFIG_CONFLICT',
+      message: 'An unmanaged MCP server already uses the codebase-memory-mcp name.',
+      phase: 'mcp-config',
+      truncated: false,
+    });
+    assert.equal(report.codebaseMemoryMcp.status, 'degraded');
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('MCP configuration conflicts tell summary users to resolve the duplicate server', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-conflict-summary-'));
+  try {
+    await runCli(['init', '--project', targetDir]);
+    const configPath = path.join(targetDir, '.codex/config.toml');
+    await mkdir(path.dirname(configPath), { recursive: true });
+    await writeFile(configPath, '[mcp_servers.codebase-memory-mcp]\ncommand = "user-managed"\n', 'utf8');
+    const projectConfigPath = path.join(targetDir, 'loopengine.config.json');
+    const projectConfig = JSON.parse(await readFile(projectConfigPath, 'utf8'));
+    await writeFile(projectConfigPath, `${JSON.stringify({ ...projectConfig, profile: 'full' }, null, 2)}\n`, 'utf8');
+
+    const report = await runCli(
+      ['install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--write', '--confirm-red-zone', '--allow-degraded'],
+      { env: offlineEnv, timeout: 120_000 },
+    );
+    const summary = await runCliSummary(
+      ['doctor', '--target', targetDir, '--profile', 'full', '--allow-degraded', '--output', 'summary'],
+      { env: offlineEnv },
+    );
+
+    assert.equal(report.tools.codebaseMemoryMcp.code, 'MCP_CONFIG_CONFLICT');
+    assert.match(summary, /reason: An unmanaged MCP server already uses the codebase-memory-mcp name\./u);
+    assert.match(summary, /next: Remove or rename the unmanaged MCP server for codebaseMemoryMcp, then retry provisioning\./u);
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
 test('full install map includes project-local runtimes and managed Codex MCP config', async () => {
   const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-plan-'));
   try {
@@ -362,6 +502,15 @@ test('full write degrades unavailable tools and rollback removes only the manage
     assert.equal(degradedRecommendation.action, 'retry-provision');
     assert.match(degradedRecommendation.command, /install --project <project> --target codex --profile full --write --confirm-red-zone/u);
     assert.equal(JSON.stringify(degradedRecommendation).includes(targetDir), false);
+
+    const summary = await runCliSummary(
+      ['doctor', '--target', targetDir, '--profile', 'full', '--allow-degraded', '--output', 'summary'],
+      { env: offlineEnv },
+    );
+    assert.match(summary, /tool: codebaseMemoryMcp/u);
+    assert.match(summary, /phase: dependency-install/u);
+    assert.match(summary, /reason: npm error request .*cache mode is 'only-if-cached'/u);
+    assert.match(summary, /next: loopengine install --project <project> --target codex --profile full --write --confirm-red-zone/u);
 
     await runCli(['rollback', '--target', targetDir, '--apply', '--confirm-red-zone'], { env: offlineEnv });
     const rolledBack = await readFile(configPath, 'utf8');

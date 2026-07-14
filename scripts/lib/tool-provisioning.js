@@ -9,6 +9,8 @@ import { inspectPlaywrightTool, preparePlaywrightTool } from '../../runtime/tool
 const stateRelativePath = '.loopengine/tool-state/tools.json';
 const managedMcpStart = '# LOOPENGINE:MCP:START';
 const managedMcpEnd = '# LOOPENGINE:MCP:END';
+const maxDiagnosticOutput = 8 * 1024;
+const maxToolOutput = 1024 * 1024;
 
 const toolSpecs = [
   {
@@ -159,32 +161,111 @@ async function terminateProcessTree(child) {
   });
 }
 
+function appendOutputTail(current, chunk) {
+  const combined = `${current}${chunk.toString('utf8')}`;
+  return combined.length > maxDiagnosticOutput ? combined.slice(-maxDiagnosticOutput) : combined;
+}
+
+function toolCommandError(message, code, output, extra = {}) {
+  return Object.assign(new Error(message), {
+    code,
+    outputTruncated: output.truncated,
+    stderr: output.stderr,
+    stdout: output.stdout,
+    ...extra,
+  });
+}
+
+function redactDiagnosticText(value, targetDir) {
+  if (!value) return '';
+  const projectPath = path.resolve(targetDir);
+  const projectPaths = [projectPath, projectPath.replaceAll('\\', '/')];
+  let redacted = String(value);
+  for (const projectVariant of projectPaths) {
+    const projectPattern = new RegExp(projectVariant.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'giu');
+    redacted = redacted.replace(projectPattern, '<project>');
+  }
+  return redacted
+    .replace(/(["'](?:api[-_]?key|password|secret|token)["']\s*:\s*["'])[^"']*(["'])/giu, '$1[REDACTED]$2')
+    .replace(/\b((?:api[-_]?key|password|secret|token)=)[^\s/]+/giu, '$1[REDACTED]')
+    .replace(/(^|\s)(--?(?:api[-_]?key|password|secret|token)(?:=|\s+))[^\s]+/giu, '$1$2[REDACTED]')
+    .replace(/\b((?:api[-_]?key|password|secret|token)\s*:\s*)[^\s,}"']+/giu, '$1[REDACTED]')
+    .replace(/\bBearer\s+[^\s]+/giu, 'Bearer [REDACTED]')
+    .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@]*@/giu, '$1[REDACTED]@')
+    .replace(/([?&](?:api[-_]?key|password|secret|token)=)[^&#\s]+/giu, '$1[REDACTED]')
+    .trim();
+}
+
+function lastDiagnosticLine(...values) {
+  for (const value of values) {
+    const lines = value.split(/\r?\n/gu).map((line) => line.trim()).filter(Boolean);
+    const usable = [...lines].reverse().filter((line) => !/^(?:npm (?:error )?A complete log of this run can be found in:|npm warn cleanup|You can install manually:|Try reinstalling:)/iu.test(line));
+    const informative = usable.find((line) => /\b(?:error|failed|timeout|e(?:conn|timedout|not|perm|acces|pipe|exist|busy|ai_|host|addr|rr_)[a-z_]*)\b/iu.test(line));
+    if (informative) return informative;
+    if (usable.length > 0) return usable.at(-1);
+    if (lines.length > 0) return lines.at(-1);
+  }
+  return '';
+}
+
+function diagnosticMessage(error, code, stderrTail, stdoutTail) {
+  const outputMessage = lastDiagnosticLine(stderrTail, stdoutTail);
+  if (outputMessage) return outputMessage;
+  if (code === 'TOOL_TIMEOUT') return 'Tool command timed out.';
+  if (code === 'TOOL_OUTPUT_LIMIT') return 'Tool command exceeded the output limit.';
+  if (code === 'TOOL_START_FAILED' || code === 'MCP_START_FAILED') return 'Tool process could not start.';
+  if (code === 'MCP_HANDSHAKE_TIMEOUT') return 'MCP handshake timed out.';
+  if (code === 'MCP_STDIN_FAILED') return 'MCP process closed stdin during handshake.';
+  return error?.message || 'Tool command failed.';
+}
+
+function createDiagnostic(error, phase, targetDir) {
+  const code = typeof error?.code === 'string' && /^[A-Z0-9_]+$/u.test(error.code)
+    ? error.code
+    : 'TOOL_PROVISION_FAILED';
+  const stderrTail = redactDiagnosticText(error?.stderr, targetDir);
+  const stdoutTail = redactDiagnosticText(error?.stdout, targetDir);
+  const diagnostic = {
+    code,
+    message: redactDiagnosticText(diagnosticMessage(error, code, stderrTail, stdoutTail), targetDir),
+    phase,
+    truncated: Boolean(error?.outputTruncated),
+  };
+  if (Number.isInteger(error?.exitCode)) diagnostic.exitCode = error.exitCode;
+  if (stderrTail) diagnostic.stderrTail = stderrTail;
+  if (stdoutTail) diagnostic.stdoutTail = stdoutTail;
+  return diagnostic;
+}
+
 async function defaultCommandRunner({ args, command, cwd, env, timeout = 120_000 }) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd, env, shell: false, windowsHide: true });
     let outputSize = 0;
     let settled = false;
+    const output = { stderr: '', stdout: '', truncated: false };
     const finish = async (error) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       if (error) await terminateProcessTree(child);
       if (error) reject(error);
-      else resolve({ stdout: '' });
+      else resolve(output);
     };
-    const timer = setTimeout(() => void finish(Object.assign(new Error('Tool command timed out.'), { code: 'TOOL_TIMEOUT' })), timeout);
-    const countOutput = (chunk) => {
+    const timer = setTimeout(() => void finish(toolCommandError('Tool command timed out.', 'TOOL_TIMEOUT', output)), timeout);
+    const countOutput = (stream, chunk) => {
       outputSize += chunk.length;
-      if (outputSize > 1024 * 1024) {
-        void finish(Object.assign(new Error('Tool command output limit exceeded.'), { code: 'TOOL_OUTPUT_LIMIT' }));
+      output[stream] = appendOutputTail(output[stream], chunk);
+      if (outputSize > maxToolOutput) {
+        output.truncated = true;
+        void finish(toolCommandError('Tool command output limit exceeded.', 'TOOL_OUTPUT_LIMIT', output));
       }
     };
-    child.stdout.on('data', countOutput);
-    child.stderr.on('data', countOutput);
-    child.once('error', () => void finish(Object.assign(new Error('Tool command failed to start.'), { code: 'TOOL_START_FAILED' })));
+    child.stdout.on('data', (chunk) => countOutput('stdout', chunk));
+    child.stderr.on('data', (chunk) => countOutput('stderr', chunk));
+    child.once('error', () => void finish(toolCommandError('Tool command failed to start.', 'TOOL_START_FAILED', output)));
     child.once('close', (code) => {
       if (code === 0) void finish();
-      else void finish(Object.assign(new Error('Tool command failed.'), { code: 'TOOL_COMMAND_FAILED' }));
+      else void finish(toolCommandError('Tool command failed.', 'TOOL_COMMAND_FAILED', output, { exitCode: code }));
     });
   });
 }
@@ -307,6 +388,7 @@ export async function runMcpHandshake(request) {
     });
     let buffer = '';
     let settled = false;
+    const output = { stderr: '', stdout: '', truncated: false };
     const finish = (error) => {
       if (settled) return;
       settled = true;
@@ -316,16 +398,18 @@ export async function runMcpHandshake(request) {
         else resolve();
       });
     };
-    const timer = setTimeout(() => finish(Object.assign(new Error('MCP handshake timed out.'), { code: 'MCP_HANDSHAKE_TIMEOUT' })), request.timeout);
-    child.once('error', () => finish(Object.assign(new Error('MCP process failed to start.'), { code: 'MCP_START_FAILED' })));
-    child.stdin.once('error', () => finish(Object.assign(new Error('MCP process closed stdin during handshake.'), { code: 'MCP_STDIN_FAILED' })));
+    const timer = setTimeout(() => finish(toolCommandError('MCP handshake timed out.', 'MCP_HANDSHAKE_TIMEOUT', output)), request.timeout);
+    child.once('error', () => finish(toolCommandError('MCP process failed to start.', 'MCP_START_FAILED', output)));
+    child.stdin.once('error', () => finish(toolCommandError('MCP process closed stdin during handshake.', 'MCP_STDIN_FAILED', output)));
     child.once('exit', (code) => {
-      if (!settled) finish(Object.assign(new Error('MCP process exited before handshake.'), { code: code === 0 ? 'MCP_EARLY_EXIT' : 'MCP_START_FAILED' }));
+      if (!settled) finish(toolCommandError('MCP process exited before handshake.', code === 0 ? 'MCP_EARLY_EXIT' : 'MCP_START_FAILED', output, { exitCode: code }));
     });
     child.stdout.on('data', (chunk) => {
+      output.stdout = appendOutputTail(output.stdout, chunk);
       buffer += chunk.toString('utf8');
       if (buffer.length > 1024 * 1024) {
-        finish(Object.assign(new Error('MCP handshake output limit exceeded.'), { code: 'MCP_OUTPUT_LIMIT' }));
+        output.truncated = true;
+        finish(toolCommandError('MCP handshake output limit exceeded.', 'MCP_OUTPUT_LIMIT', output));
         return;
       }
       for (const line of buffer.split(/\r?\n/u)) {
@@ -343,6 +427,9 @@ export async function runMcpHandshake(request) {
         }
       }
     });
+    child.stderr.on('data', (chunk) => {
+      output.stderr = appendOutputTail(output.stderr, chunk);
+    });
     child.stdin.write(`${JSON.stringify({
       id: 1,
       jsonrpc: '2.0',
@@ -357,11 +444,11 @@ async function defaultPhaseRunner(request) {
   return defaultCommandRunner(request);
 }
 
-function publicFailure(spec, phase, error) {
+function publicFailure(spec, phase, error, targetDir) {
   const code = typeof error?.code === 'string' && /^[A-Z0-9_]+$/u.test(error.code)
     ? error.code
     : 'TOOL_PROVISION_FAILED';
-  return { code, phase, status: 'degraded', version: spec.version };
+  return { code, diagnostic: createDiagnostic(error, phase, targetDir), phase, status: 'degraded', version: spec.version };
 }
 
 function ready(spec, phase = 'ready') {
@@ -455,7 +542,7 @@ export async function provisionProfileTools({ commandRunner, env = process.env, 
       }
     } catch (error) {
       const phase = spec.phases.find((item) => item === error?.phase) ?? 'provision';
-      tools[spec.id] = publicFailure(spec, phase, error);
+      tools[spec.id] = publicFailure(spec, phase, error, targetDir);
     }
   }
   const conflictIds = {
@@ -465,7 +552,18 @@ export async function provisionProfileTools({ commandRunner, env = process.env, 
   for (const conflict of mcpConflicts) {
     const id = conflictIds[conflict];
     if (id && tools[id]) {
-      tools[id] = { code: 'MCP_CONFIG_CONFLICT', phase: 'mcp-config', status: 'degraded', version: tools[id].version };
+      tools[id] = {
+        ...tools[id],
+        code: 'MCP_CONFIG_CONFLICT',
+        diagnostic: {
+          code: 'MCP_CONFIG_CONFLICT',
+          message: `An unmanaged MCP server already uses the ${conflict} name.`,
+          phase: 'mcp-config',
+          truncated: false,
+        },
+        phase: 'mcp-config',
+        status: 'degraded',
+      };
     }
   }
   await writeToolState(targetDir, tools, fingerprints);
@@ -502,7 +600,8 @@ export function toolWarnings(tools) {
     .filter(([, tool]) => tool.status !== 'ready')
     .map(([id, tool]) => ({
       code: `${id.replace(/([a-z])([A-Z])/gu, '$1_$2').toUpperCase()}_${tool.status.replaceAll('-', '_').toUpperCase()}`,
-      message: `${id} is ${tool.status} during ${tool.phase}.`,
+      ...(tool.diagnostic ? { diagnostic: tool.diagnostic } : {}),
+      message: tool.diagnostic?.message ?? `${id} is ${tool.status} during ${tool.phase}.`,
       tool: id,
     }));
 }

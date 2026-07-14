@@ -232,6 +232,10 @@ export async function preparePlaywrightTool({ runCommand = defaultRunCommand, ta
     const wrapped = new Error('Unable to prepare Playwright CLI. Retry the command or use the documented browser fallback.');
     wrapped.code = 'PLAYWRIGHT_CLI_PROVISION_FAILED';
     wrapped.cause = error;
+    wrapped.phase = phase;
+    for (const property of ['exitCode', 'outputTruncated', 'stderr', 'stdout']) {
+      if (error?.[property] !== undefined) wrapped[property] = error[property];
+    }
     throw wrapped;
   } finally {
     await rm(paths.lockDir, { force: true, recursive: true });

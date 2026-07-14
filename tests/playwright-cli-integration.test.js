@@ -86,11 +86,25 @@ test('failed Playwright preparation records unavailable without leaking command 
     await writeFile(path.join(toolDir, 'package.json'), '{}\n', 'utf8');
     await assert.rejects(
       preparePlaywrightTool({
-        runCommand: async () => { throw new Error('token=super-secret'); },
+        runCommand: async () => {
+          throw Object.assign(new Error('token=super-secret'), {
+            code: 'TOOL_COMMAND_FAILED',
+            exitCode: 19,
+            stderr: 'browser download failed: Bearer super-secret',
+            stdout: 'downloading chromium',
+          });
+        },
         targetDir,
         toolDir,
       }),
-      /prepare Playwright CLI/i,
+      (error) => {
+        assert.match(error.message, /prepare Playwright CLI/i);
+        assert.equal(error.phase, 'dependency-install');
+        assert.equal(error.exitCode, 19);
+        assert.equal(error.stderr, 'browser download failed: Bearer super-secret');
+        assert.equal(error.stdout, 'downloading chromium');
+        return true;
+      },
     );
 
     const stateText = await readFile(path.join(targetDir, '.loopengine/tool-state/playwright-cli.json'), 'utf8');
