@@ -4,6 +4,7 @@ import path from 'node:path';
 import { pathExists } from './manifest.js';
 import { renderTemplate } from './template-renderer.js';
 import { resolveModuleSelection } from './module-selection.js';
+import { assertPortableRelativePath } from './manifest.js';
 
 export const mvpProfiles = new Set(['minimal', 'core', 'full', 'docs-only']);
 export const mvpTargets = new Set(['codex', 'claude', 'gemini']);
@@ -18,6 +19,19 @@ export const defaultProjectConfig = {
     lint: null,
     typecheck: null,
     governance: 'node .agents/loopengine/governance/validate.mjs',
+    eval: null,
+  },
+  evaluations: {
+    enabled: false,
+    suites: [],
+    reference: 'evals/references/project.json',
+    thresholds: {
+      criticalPassRate: 1,
+      overallScore: 0.9,
+      maxCapabilityRegression: 0.05,
+    },
+    onlineRunner: null,
+    repetitions: 3,
   },
   governance: {
     mode: 'basic',
@@ -135,6 +149,7 @@ export function resolveValidationCommands(config, projectProfile, governanceMode
     governance: governanceMode === 'off'
       ? null
       : (configured.governance ?? 'node .agents/loopengine/governance/validate.mjs'),
+    eval: configured.eval ?? null,
   };
 }
 
@@ -162,6 +177,7 @@ export function validateProjectConfig(config) {
   assertObject(config.validationCommands, 'validationCommands');
   assertOptionalCommand(config.validationCommands.lint, 'validationCommands.lint');
   assertOptionalCommand(config.validationCommands.typecheck, 'validationCommands.typecheck');
+  assertOptionalCommand(config.validationCommands.eval, 'validationCommands.eval');
   if (config.governance?.mode === 'off') {
     assertOptionalCommand(config.validationCommands.governance, 'validationCommands.governance');
   } else {
@@ -197,6 +213,39 @@ export function validateProjectConfig(config) {
       throw new Error('memory.enabled must be boolean');
     }
     assertNonEmptyString(config.memory.path, 'memory.path');
+  }
+  if (Object.hasOwn(config, 'evaluations')) {
+    assertObject(config.evaluations, 'evaluations');
+    if (typeof config.evaluations.enabled !== 'boolean') throw new Error('evaluations.enabled must be boolean');
+    if (!Array.isArray(config.evaluations.suites)) throw new Error('evaluations.suites must be an array');
+    for (const suite of config.evaluations.suites) {
+      try {
+        assertPortableRelativePath(suite, 'evaluations.suites');
+      } catch {
+        throw new Error('evaluations.suites must contain project-relative paths');
+      }
+    }
+    try {
+      assertPortableRelativePath(config.evaluations.reference, 'evaluations.reference');
+    } catch {
+      throw new Error('evaluations.reference must be a project-relative path');
+    }
+    if (config.evaluations.reference.replaceAll('\\', '/').startsWith('.agents/')) {
+      throw new Error('evaluations.reference must be project-owned and cannot be stored under .agents');
+    }
+    assertObject(config.evaluations.thresholds, 'evaluations.thresholds');
+    for (const name of ['criticalPassRate', 'overallScore', 'maxCapabilityRegression']) {
+      const value = config.evaluations.thresholds[name];
+      if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
+        throw new Error(`evaluations.thresholds.${name} must be between 0 and 1`);
+      }
+    }
+    if (config.evaluations.onlineRunner !== null && typeof config.evaluations.onlineRunner !== 'string') {
+      throw new Error('evaluations.onlineRunner must be null or a command string');
+    }
+    if (!Number.isInteger(config.evaluations.repetitions) || config.evaluations.repetitions < 1 || config.evaluations.repetitions > 3) {
+      throw new Error('evaluations.repetitions must be an integer from 1 to 3');
+    }
   }
   return true;
 }

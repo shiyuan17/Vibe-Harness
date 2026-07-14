@@ -20,6 +20,7 @@ LoopEngine 让 Codex、Claude Code 和 Gemini CLI 使用同一套规划、执行
 | --- | --- | --- |
 | AI 还没有理解任务，就直接开始改代码。 | 使用五步工作流程，并按风险选择快速、轻量或完整档位。 | 简单任务可以快速完成；高风险任务会先给出方案和撤销办法。 |
 | AI 只说“已经完成”，却没有提供依据。 | 任务模板用 `AC-ID` 连接每条验收标准和对应证据，validator（自动检查程序）会检查已完成任务。 | 可以用命令、产物、审查或人工确认逐项核对完成结果。 |
+| Agent 规则或 Skill 改变后缺少行为回归证据。 | 使用 Eval-ID 场景把离线和真实 Agent 运行结果与批准的 evaluation reference 比较。 | 提示和治理变更不只比较文件，还能核对 critical 行为。 |
 | 长任务跨会话后丢失重要上下文。 | `baseline` 记录项目、安装、工具和验证状态；项目记忆与交接模板保留决策和已知问题。 | 新会话可以直接读取项目事实，不必只靠聊天记录重新整理。 |
 | 不同 AI 编程工具中的规则逐渐不一致。 | 为 Codex、Claude Code 和 Gemini CLI 提供原生项目文件和经过测试的安装级别（`profiles`）。 | 每个工具都能用自己支持的格式获得同一套核心工作规则。 |
 | 安装或更新公共规则时担心覆盖项目文件。 | 提供 dry-run 预览、明确标记的内容区域、备份、校验、安全卸载和回滚。 | 写入前可以检查变化，也能撤销 LoopEngine 管理的内容而不影响项目其他文件。 |
@@ -136,7 +137,16 @@ pnpm loopengine install --project ../gemini-project --target gemini --profile co
   "validationCommands": {
     "lint": null,
     "typecheck": null,
-    "governance": "node .agents/loopengine/governance/validate.mjs"
+    "governance": "node .agents/loopengine/governance/validate.mjs",
+    "eval": null
+  },
+  "evaluations": {
+    "enabled": false,
+    "suites": [],
+    "reference": "evals/references/project.json",
+    "thresholds": { "criticalPassRate": 1, "overallScore": 0.9, "maxCapabilityRegression": 0.05 },
+    "onlineRunner": null,
+    "repetitions": 3
   },
   "governance": { "mode": "basic" },
   "hooks": {
@@ -154,6 +164,19 @@ pnpm loopengine install --project ../gemini-project --target gemini --profile co
 ```
 
 配置文件中的 `target` 必须与后续命令使用的 `--target` 一致。LoopEngine 会读取目标项目的信息，但不会修改它的 `package.json`。
+
+</details>
+
+<details>
+<summary><strong>运行评测驱动开发检查</strong></summary>
+
+```bash
+pnpm loopengine eval check --project ../some-project
+pnpm loopengine eval run --project ../some-project --mode offline
+pnpm loopengine eval run --project ../some-project --mode offline --write
+```
+
+evaluation `reference` 与项目 `baseline` 相互独立。更新 reference 必须使用 `eval reference --write --confirm-reference-update`；LoopEngine 不会自动提升 reference。详见[评测驱动开发](docs/evals.md)。
 
 </details>
 

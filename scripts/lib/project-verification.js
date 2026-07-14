@@ -24,7 +24,7 @@ function verificationError(message) {
 }
 
 export async function executeProjectVerification({ allowManual = false, commandStatus, failureMode = 'throw', targetDir }) {
-  const order = ['governance', 'lint', 'typecheck'];
+  const order = ['governance', 'lint', 'typecheck', 'eval'];
   if (failureMode === 'throw') {
     for (const name of order) {
       const item = commandStatus[name];

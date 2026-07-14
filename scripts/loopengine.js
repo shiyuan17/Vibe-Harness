@@ -33,6 +33,11 @@ import {
   writeDefaultProjectConfig,
 } from './lib/project-config.js';
 import { collectProjectBaselineInputs, createProjectBaseline } from './lib/project-baseline.js';
+import {
+  checkProjectEvaluations,
+  runProjectEvaluations,
+  writeProjectEvaluationReference,
+} from './lib/project-evaluation.js';
 import { parseModulesOption } from './lib/module-selection.js';
 import { resolveAdapter } from './lib/adapter.js';
 import { readFile } from 'node:fs/promises';
@@ -498,6 +503,57 @@ async function baseline(args) {
   if (!result.ok) process.exitCode = 1;
 }
 
+async function evaluateProject(args) {
+  const action = args._[1];
+  if (!['check', 'run', 'reference'].includes(action)) throw new Error('eval requires check, run, or reference.');
+  if (!args.project) throw new Error('eval requires --project <path>.');
+  if (args.target) throw new Error('eval supports MVP --project only; legacy --target is not supported.');
+  if (args.apply) throw new Error('eval uses --write, not legacy --apply.');
+  if (args.write && args['dry-run']) throw new Error('Use --write or --dry-run, not both.');
+  const allowed = {
+    check: new Set(['_', 'output', 'project', 'suite', 'verbose']),
+    run: new Set(['_', 'allow-degraded', 'dry-run', 'mode', 'output', 'project', 'reference', 'runner', 'suite', 'verbose', 'write']),
+    reference: new Set(['_', 'confirm-reference-update', 'dry-run', 'force', 'from', 'output', 'project', 'verbose', 'write']),
+  }[action];
+  const unknownOption = Object.keys(args).find((key) => !allowed.has(key));
+  if (unknownOption) throw new Error(`Unknown eval ${action} option: --${unknownOption}`);
+  const targetDir = path.resolve(args.project);
+  const config = await readRequiredProjectConfig(targetDir);
+  validateProjectConfig(config);
+  if (!config.evaluations?.enabled) throw new Error('Project evaluations are disabled.');
+
+  let report;
+  if (action === 'check') {
+    report = await checkProjectEvaluations({ config, rootDir, suiteId: args.suite, targetDir });
+  } else if (action === 'run') {
+    report = await runProjectEvaluations({
+      config,
+      mode: args.mode,
+      reference: args.reference,
+      rootDir,
+      runner: args.runner,
+      suiteId: args.suite,
+      targetDir,
+      write: Boolean(args.write),
+    });
+  } else {
+    if (!args.from) throw new Error('eval reference requires --from <run>.');
+    if (args.write && !args['confirm-reference-update']) {
+      throw new Error('eval reference --write requires --confirm-reference-update.');
+    }
+    report = await writeProjectEvaluationReference({
+      config,
+      force: Boolean(args.force),
+      from: args.from,
+      rootDir,
+      targetDir,
+      write: Boolean(args.write),
+    });
+  }
+  emitReport(report, args, { error: report.status === 'invalid' });
+  applyHealthExit(report.status, args);
+}
+
 function toolRecommendations(tools, profile, { adapterId = 'codex', mvp = false } = {}) {
   const retryCommand = mvp
     ? `loopengine install --project <project> --target ${adapterId} --profile ${profile} --write --confirm-red-zone`
@@ -658,6 +714,8 @@ async function main() {
     await verify(args);
   } else if (command === 'baseline') {
     await baseline(args);
+  } else if (command === 'eval') {
+    await evaluateProject(args);
   } else if (command === 'doctor') {
     await doctor(args);
   } else if (command === 'diff') {
@@ -667,7 +725,7 @@ async function main() {
   } else if (command === 'uninstall') {
     await uninstall(args);
   } else {
-    console.log('Usage: loopengine <init|install|uninstall|validate|verify|baseline|doctor|diff|rollback> [--project path] [--target codex|claude|gemini|path] [--profile minimal|core|full|docs-only] [--modules list] [--write|--apply] [--dry-run] [--output json|summary] [--verbose] [--verify] [--force] [--upgrade] [--confirm-red-zone] [--allow-manual] [--allow-degraded]');
+    console.log('Usage: loopengine <init|install|uninstall|validate|verify|baseline|eval|doctor|diff|rollback> [--project path] [--target codex|claude|gemini|path] [--profile minimal|core|full|docs-only] [--modules list] [--write|--apply] [--dry-run] [--output json|summary] [--verbose] [--verify] [--force] [--upgrade] [--confirm-red-zone] [--allow-manual] [--allow-degraded]');
     console.log('MVP uses --project <path> --target <codex|claude|gemini> and --write. Legacy Codex-only install uses --target <path> and --apply. Install defaults to dry-run.');
   }
 }

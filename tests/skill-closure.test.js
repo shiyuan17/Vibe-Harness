@@ -281,8 +281,8 @@ test('skill entrypoints stay within progressive-disclosure line budgets', async 
 
 test('skills audit report derives inventory counts from the manifest', async () => {
   const { stdout } = await execFileAsync(process.execPath, ['scripts/skills-audit.js'], { cwd: rootDir });
-  assert.match(stdout, /总数：25/);
-  assert.match(stdout, /native：21/);
+  assert.match(stdout, /总数：26/);
+  assert.match(stdout, /native：22/);
   assert.match(stdout, /integration：3/);
   assert.match(stdout, /router：1/);
   assert.match(stdout, /compatibility：0/);

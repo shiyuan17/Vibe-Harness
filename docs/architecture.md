@@ -9,13 +9,14 @@ LoopEngine 是跨平台、Codex 完整能力优先的可复用 AI coding governa
 - `skills/`：`using-loopengine` 负责路由，canonical skills 按需提供规格、计划、实现、验证、审查和恢复流程。
 - `runtime/governance/`：解析 `docs/tasks/*.md`，校验中文字段、AC-ID、完成证据、完整流程控制块和结构化 Red Team 审查包。
 - `runtime/hooks/`：规范化 Codex 事件并执行可移植的安全、上下文和完成策略。
+- `runtime/evals/`：提供项目内离线评测 runtime 和 full/internal 使用的 Codex 在线 runner；runner 只在一次性项目中执行。
 - `runtime/tools/`：四个固定版本的项目内工具 bootstrap；full/internal 由统一 provisioner 安装、初始化和检查。
 - `scripts/lib/project-baseline.js`：汇总项目画像、安装状态、验证摘要、drift 和后续工作流，生成受管 JSON/Markdown 基线。
 - `adapters/codex/`：包含精简 AGENTS 模板、共享 install map 和官方 PascalCase Codex hook 配置。
 - `adapters/claude/`、`adapters/gemini/`：包含项目级 `CLAUDE.md` / `GEMINI.md` 模板；Skills target 由 adapter catalog 转换。
 - `adapters/git/`：包含默认不启用的版本化 pre-commit / pre-push 入口。
 - `manifests/`：rules、skills、profiles 和 adapters 的 catalog 真值；`profiles.json` 是能力组唯一来源，`adapters.json` 只声明平台安装面与能力边界。
-- `schemas/`：manifest schema 和完整流程中文控制块 schema。
+- `schemas/`：manifest、完整流程中文控制块和 suite/run/reference 评测 schema。
 
 ## 安装流程
 
@@ -24,8 +25,9 @@ LoopEngine 是跨平台、Codex 完整能力优先的可复用 AI coding governa
 3. MVP 使用 `--write` 写入；legacy/internal 使用 `--apply --confirm-red-zone`。
 4. Codex full/internal 写入完成后初始化四组件；失败记录为 degraded 并继续其他组件，同时将最近一次脱敏的阶段、错误码、退出码和限长输出尾部写入工具状态。
 5. `loopengine validate --project <path>` 校验安装一致性和组件状态，不执行目标项目命令。
-6. `loopengine baseline --project <path>` 默认预览双层基线；`--write` 建档，`--verify` 才顺序执行 governance、lint 和 typecheck。
-7. `loopengine verify --project <path>` 顺序执行 governance、lint 和 typecheck。
+6. `loopengine eval check|run|reference --project <path>` 校验、执行和显式批准评测 reference；不支持 legacy `--apply`。
+7. `loopengine baseline --project <path>` 默认预览双层基线；`--write` 建档，`--verify` 才顺序执行 governance、lint、typecheck 和 eval。
+8. `loopengine verify --project <path>` 顺序执行 governance、lint、typecheck 和 eval。
 
 默认 JSON 是稳定、紧凑的机器接口，preview 只含 hash、字节数和摘要；`--verbose` 才含完整正文和绝对诊断路径，`--output summary` 输出短报告和工具降级原因。工具诊断会脱敏项目路径与凭据，仅保存限长尾部。install、validate、doctor 共用 `ready=0`、`invalid=1`、`degraded=2` 健康合同；`--allow-degraded` 只覆盖退出码，不改变报告状态。
 
@@ -43,6 +45,8 @@ install state 记录 adapter；缺少该字段的 schemaVersion 1 状态按 Code
 baseline 先复用项目 profile 探测、安装一致性、命令状态和工具状态，再生成 `.loopengine/baseline.json` 与 `docs/loopengine/PROJECT_BASELINE.md`。JSON 是 schemaVersion 1 的机器合同，Markdown 是派生的人读报告；两者登记到 install-state `generatedFiles`，重复运行只覆盖 hash 仍匹配的受管文件，项目重新安装时保留未修改的登记。
 
 drift 只比较项目画像、安装摘要、工具和验证状态，排除生成时间。持久化内容不包含绝对路径、源码、凭据或命令 stdout/stderr；工作流只引用当前 profile 实际安装的 skills。
+
+evaluation reference 与项目 baseline 分离。reference 只保存批准的 fingerprint 和聚合分数；run 保存在 `.loopengine/evals/runs/`，只有显式 `--write` 才落盘。
 
 ## Profile
 

@@ -75,7 +75,7 @@ function redactProjectPath(command, targetDir) {
 
 function sanitizeVerification(commandStatus, results, targetDir, verify) {
   const commands = {};
-  for (const name of ['governance', 'lint', 'typecheck']) {
+  for (const name of ['governance', 'lint', 'typecheck', 'eval']) {
     const source = results?.[name] ?? commandStatus[name] ?? { command: null, status: 'not_configured' };
     commands[name] = stableObject({
       ...(source.command ? { command: redactProjectPath(source.command, targetDir) } : {}),

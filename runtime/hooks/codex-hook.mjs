@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { buildProjectContext, findProjectRoot, readHookSettings, runGovernanceCheck } from './lib/context.mjs';
+import { buildProjectContext, findProjectRoot, readHookSettings, runEvaluationCheck, runGovernanceCheck } from './lib/context.mjs';
 import { validateDeliveryMessage } from './lib/delivery-validation.mjs';
 import { analyzeToolRequest, createCodexHookResult, normalizeCodexHookInput } from './lib/policy.mjs';
 
@@ -64,12 +64,14 @@ export async function evaluateCodexHook(rawInput) {
     return { systemMessage: 'Subagent stopped; verify its claimed changes and evidence before adoption.' };
   }
   if (input.event === 'Stop' && settings.completionGate !== 'off') {
-    const [governance, delivery] = await Promise.all([
+    const [governance, evaluation, delivery] = await Promise.all([
       runGovernanceCheck(rootDir),
+      runEvaluationCheck(rootDir, settings.evaluationsEnabled ? settings.validationCommands.eval : null),
       Promise.resolve(validateDeliveryMessage(input.lastAssistantMessage)),
     ]);
     const issues = [];
     if (!governance.ok) issues.push('LoopEngine governance validation failed. Fix the evidence or task state, then verify again.');
+    if (!evaluation.ok) issues.push('LoopEngine evaluation validation failed. Fix the Eval-ID evidence or reference, then verify again.');
     if (!delivery.ok) issues.push(`Delivery packet missing: ${delivery.missing.join(', ')}.`);
     if (issues.length === 0) return {};
     const reason = issues.join(' ');

@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "id": "loopengine-core-offline-reference",
+  "approvedAt": "1970-01-01T00:00:00.000Z",
+  "suite": {
+    "id": "loopengine-core",
+    "version": "1.0.0"
+  },
+  "mode": "offline",
+  "fingerprint": {
+    "suiteHash": "f14788e7cc2c5d2f2b274a41b1a244b5c51f902611bc7c27024dd4073bda30d3",
+    "runner": "offline-replay@1",
+    "model": "fixture",
+    "agent": "offline",
+    "governanceHash": "fixture-v1"
+  },
+  "capabilities": [
+    {
+      "id": "install-lifecycle",
+      "caseCount": 6,
+      "passedCount": 6,
+      "score": 1
+    },
+    {
+      "id": "safety-isolation",
+      "caseCount": 3,
+      "passedCount": 3,
+      "score": 1
+    },
+    {
+      "id": "skill-routing",
+      "caseCount": 4,
+      "passedCount": 4,
+      "score": 1
+    },
+    {
+      "id": "task-delivery-governance",
+      "caseCount": 5,
+      "passedCount": 5,
+      "score": 1
+    }
+  ],
+  "overallScore": 1,
+  "criticalPassRate": 1
+}
+

@@ -110,6 +110,12 @@
       "contentStrategy": "replace"
     },
     {
+      "group": "rules-core",
+      "source": "rules/eval-driven-development.md",
+      "target": "docs/rules/eval-driven-development.md",
+      "contentStrategy": "replace"
+    },
+    {
       "group": "templates-minimal",
       "source": "templates/delivery.md",
       "target": "docs/templates/delivery.md",
@@ -155,6 +161,56 @@
       "group": "schemas-core",
       "source": "schemas/full-task-control.schema.json",
       "target": "docs/schemas/full-task-control.schema.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "schemas-core",
+      "source": "schemas/eval-suite.schema.json",
+      "target": "docs/schemas/eval-suite.schema.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "schemas-core",
+      "source": "schemas/eval-run.schema.json",
+      "target": "docs/schemas/eval-run.schema.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "schemas-core",
+      "source": "schemas/eval-reference.schema.json",
+      "target": "docs/schemas/eval-reference.schema.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-eval",
+      "source": "runtime/evals/run.mjs",
+      "target": ".agents/loopengine/evals/run.mjs",
+      "executable": true,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-eval-online",
+      "source": "runtime/evals/codex-runner.mjs",
+      "target": ".agents/loopengine/evals/codex-runner.mjs",
+      "executable": true,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "evals-core",
+      "source": "evals/suites/loopengine-core.json",
+      "target": ".agents/evals/suites/loopengine-core.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "evals-core",
+      "source": "evals/references/loopengine-core.offline.json",
+      "target": ".agents/evals/references/loopengine-core.offline.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "evals-online",
+      "source": "evals/suites/loopengine-online-canary.json",
+      "target": ".agents/evals/suites/loopengine-online-canary.json",
       "contentStrategy": "replace"
     },
     {
@@ -286,6 +342,12 @@
       "group": "skills-core",
       "source": "skills/core/using-loopengine/SKILL.md",
       "target": ".agents/skills/using-loopengine/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/eval-driven-development/SKILL.md",
+      "target": ".agents/skills/eval-driven-development/SKILL.md",
       "contentStrategy": "replace"
     },
     {

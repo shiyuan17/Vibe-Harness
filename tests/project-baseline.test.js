@@ -34,7 +34,7 @@ async function runCliFailure(args) {
   assert.fail(`Expected command to fail: ${args.join(' ')}`);
 }
 
-async function initMinimalProject(target, validationCommands = { governance: null, lint: null, typecheck: null }) {
+async function initMinimalProject(target, validationCommands = { governance: null, lint: null, typecheck: null, eval: null }) {
   await runCli(['init', '--project', target]);
   const configPath = path.join(target, 'loopengine.config.json');
   const config = JSON.parse(await readFile(configPath, 'utf8'));
@@ -76,6 +76,7 @@ test('baseline previews then writes a managed project snapshot', async () => {
     assert.equal(written.dryRun, false);
     assert.equal(baseline.schemaVersion, 1);
     assert.equal(baseline.installation.profile, 'minimal');
+    assert.equal(baseline.verification.commands.eval.status, 'not_configured');
     const schema = await readJson(path.join(rootDir, 'schemas/project-baseline.schema.json'));
     assert.deepEqual(validateJsonAgainstSchema(baseline, schema, 'baseline'), []);
     assert.match(report, /项目基线/u);

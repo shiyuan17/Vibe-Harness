@@ -72,8 +72,9 @@ test('project baseline schema rejects unknown fields', async () => {
       commands: {
         governance: { status: 'not_configured' },
         lint: { status: 'not_configured' },
-        typecheck: { status: 'not_configured' },
-      },
+          typecheck: { status: 'not_configured' },
+          eval: { status: 'not_configured' },
+        },
     },
     workflows: [],
     recommendations: [],

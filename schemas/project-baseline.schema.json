@@ -96,7 +96,7 @@
         "status": { "type": "string", "enum": ["not_run", "passed", "failed", "blocked"] },
         "commands": {
           "type": "object",
-          "required": ["governance", "lint", "typecheck"],
+          "required": ["governance", "lint", "typecheck", "eval"],
           "properties": {
             "governance": {
               "type": "object",
@@ -119,6 +119,16 @@
               "additionalProperties": false
             },
             "typecheck": {
+              "type": "object",
+              "required": ["status"],
+              "properties": {
+                "command": { "type": "string", "minLength": 1 },
+                "exitCode": { "type": "integer", "minimum": 0 },
+                "status": { "type": "string", "enum": ["available", "blocked", "failed", "manual", "missing", "not_configured", "passed"] }
+              },
+              "additionalProperties": false
+            },
+            "eval": {
               "type": "object",
               "required": ["status"],
               "properties": {

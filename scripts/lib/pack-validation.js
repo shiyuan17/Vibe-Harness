@@ -461,9 +461,11 @@ export async function validateCapabilityMatrix(rootDir, matrix, { checkFiles = t
       if (typeof item?.reason !== 'string' || !item.reason.trim()) errors.push(`${id} requires a reason`);
     } else if (!Array.isArray(item?.targets) || item.targets.length === 0) {
       errors.push(`${id} requires at least one target`);
+    } else if (!Array.isArray(item?.evals) || item.evals.length === 0) {
+      errors.push(`${id} requires at least one eval suite`);
     }
     if (checkFiles) {
-      for (const candidate of [...(item?.targets ?? []), ...(item?.tests ?? [])]) {
+      for (const candidate of [...(item?.targets ?? []), ...(item?.tests ?? []), ...(item?.evals ?? [])]) {
         try {
           assertPortableRelativePath(candidate, `${id} evidence path`);
           const candidatePath = path.join(rootDir, candidate);
@@ -485,6 +487,7 @@ export async function validateCapabilityMatrix(rootDir, matrix, { checkFiles = t
     'governance-memory',
     'pencil-assets',
     'release',
+    'eval-driven-development',
     'project-business-contracts',
     'runtime-application-code',
   ];

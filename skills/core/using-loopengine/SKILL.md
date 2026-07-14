@@ -14,4 +14,4 @@ description: 用于在任务开始、风险变化或交付前选择 LoopEngine �
 
 快速任务默认直接执行五步循环，不加载规格、计划或审查 Skill。需求仍有关键歧义时使用 `brainstorming`；已有稳定规格且需要多步实施时使用 `writing-plans`；执行计划使用 `executing-plans`；故障使用 `systematic-debugging`。
 
-行为变更使用 `test-driven-development`，完成声明前使用 `verification-before-completion`。完整、高风险、红区、安全、数据、发布或外部契约任务使用 `adversarial-review-packet`；不可用时回退 `code-review-and-quality` 并记录未覆盖审查轴。
+确定性行为变更使用 `test-driven-development`；Agent 规则、Skill、模板、适配器、Hook 或提示行为变更使用 `eval-driven-development`，并对其中的确定性代码继续使用 TDD。完成声明前使用 `verification-before-completion`。完整、高风险、红区、安全、数据、发布或外部契约任务使用 `adversarial-review-packet`；不可用时回退 `code-review-and-quality` 并记录未覆盖审查轴。

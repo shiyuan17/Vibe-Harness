@@ -18,7 +18,7 @@ Skill 只补强任务 Workflow，不得覆盖目标项目 `AGENTS.md`、治理�
 | Spec | 接口任务使用 `api-and-interface-design` | 明确行为、契约、错误和验收；无 Skill 时按专项规则编写规格。 |
 | Plan | `writing-plans` | 形成可执行计划；简单任务可按治理内核直接进入执行。 |
 | Tasks | `task-decomposition` | 拆成可独立验收单元；无 Skill 时使用任务模板。 |
-| Execute | `test-driven-development`；故障使用 `systematic-debugging` | 小步实现并保护用户改动。 |
+| Execute | 确定性行为使用 `test-driven-development`；Agent 行为使用 `eval-driven-development`；故障使用 `systematic-debugging` | 先观察失败，再小步实现并保护用户改动。 |
 | Verify | `verification-before-completion`；UI 可用 `browser-verification` | 提供本轮真实命令、浏览器、接口或日志证据。 |
 | Review | 完整/高风险使用 `adversarial-review-packet`；其他任务使用 OpenCodeReview、`requesting-code-review` 或 `code-review-and-quality` | Red Team 审查包或常规审查；不可用时记录降级和未覆盖轴。 |
 | Handoff | `workflow-handoff`；环境可提供 handoff/recall | 保留状态、证据、风险和恢复动作。 |
@@ -35,6 +35,7 @@ Skill 只补强任务 Workflow，不得覆盖目标项目 `AGENTS.md`、治理�
 | Security | `security-and-hardening` | 独立安全/质量审查 |
 | Architecture | 对应架构规则或环境提供的简化 Skill | `code-review-and-quality` |
 | Debug | `systematic-debugging` | 回归测试和根因证据 |
+| Agent 规则、Skill、模板、适配器、Hook 或提示行为 | `eval-driven-development` | reference matched 的评测运行证据 |
 | Memory 续接 | full profile 的 agentmemory 能力或环境提供的 recall/handoff/session-history | 无工具时回退本地任务与 handoff 文档 |
 
 ## 执行入口

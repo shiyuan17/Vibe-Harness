@@ -20,6 +20,7 @@ LoopEngine gives Codex, Claude Code, and Gemini CLI a shared way to plan, execut
 | --- | --- | --- |
 | The Agent starts editing before it understands the task. | A five-step workflow and fast, lightweight, or full risk levels. | Small tasks stay quick; risky work starts with a plan and a rollback path. |
 | The Agent says “done” without showing proof. | Task templates connect each acceptance criterion (`AC-ID`) to evidence, and the installed validator (automatic checker) checks completed tasks. | A completion claim can be checked against commands, artifacts, reviews, or manual confirmation. |
+| Agent rules or skills change without behavioral regression evidence. | Eval-ID scenarios compare offline and real-Agent runs with an approved evaluation reference. | Prompt and governance changes can be reviewed against critical behavior, not only file snapshots. |
 | A long task loses important context between sessions. | `baseline` records project, installation, tool, and verification status; project memory and handoff templates preserve decisions and known issues. | The next session can recover project facts without reconstructing everything from chat history. |
 | Rules drift between AI coding tools. | Native project files and tested install levels (`profiles`) for Codex, Claude Code, and Gemini CLI. | Each tool gets the same core working rules in the format it actually supports. |
 | Installing or updating shared rules feels risky. | Dry-run previews, clearly marked sections, backups, validation, safe uninstall, and rollback. | You can inspect changes before writing and reverse managed changes without replacing unrelated project content. |
@@ -136,7 +137,16 @@ Most users only need to review this file after running `init`. LoopEngine create
   "validationCommands": {
     "lint": null,
     "typecheck": null,
-    "governance": "node .agents/loopengine/governance/validate.mjs"
+    "governance": "node .agents/loopengine/governance/validate.mjs",
+    "eval": null
+  },
+  "evaluations": {
+    "enabled": false,
+    "suites": [],
+    "reference": "evals/references/project.json",
+    "thresholds": { "criticalPassRate": 1, "overallScore": 0.9, "maxCapabilityRegression": 0.05 },
+    "onlineRunner": null,
+    "repetitions": 3
   },
   "governance": { "mode": "basic" },
   "hooks": {
@@ -154,6 +164,19 @@ Most users only need to review this file after running `init`. LoopEngine create
 ```
 
 The `target` value must match the `--target` option you use later. LoopEngine reads the target project but does not change its `package.json`.
+
+</details>
+
+<details>
+<summary><strong>Run evaluation-driven development checks</strong></summary>
+
+```bash
+pnpm loopengine eval check --project ../some-project
+pnpm loopengine eval run --project ../some-project --mode offline
+pnpm loopengine eval run --project ../some-project --mode offline --write
+```
+
+An evaluation `reference` is separate from the project `baseline`. Updating it requires `eval reference --write --confirm-reference-update`; LoopEngine never promotes a reference automatically. See [Evaluation-driven development](docs/evals.md).
 
 </details>
 

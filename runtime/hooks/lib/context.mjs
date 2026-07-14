@@ -38,9 +38,14 @@ export async function readHookSettings(rootDir) {
     const completionGate = ['off', 'advisory', 'blocking'].includes(config.hooks?.completionGate)
       ? config.hooks.completionGate
       : 'advisory';
-    return { completionGate, mode, validationCommands: config.validationCommands ?? {} };
+    return {
+      completionGate,
+      evaluationsEnabled: Boolean(config.evaluations?.enabled),
+      mode,
+      validationCommands: config.validationCommands ?? {},
+    };
   } catch {
-    return { completionGate: 'advisory', mode: 'guarded', validationCommands: {} };
+    return { completionGate: 'advisory', evaluationsEnabled: false, mode: 'guarded', validationCommands: {} };
   }
 }
 
@@ -151,6 +156,33 @@ export async function runGovernanceCheck(rootDir) {
     return { ok: true };
   } catch (error) {
     if (error.code === 'ENOENT') return { ok: true, skipped: true };
+    return { ok: false };
+  }
+}
+
+function splitCommand(command) {
+  const tokens = [];
+  const pattern = /"([^"]*)"|'([^']*)'|([^\s]+)/gu;
+  for (const match of command.matchAll(pattern)) tokens.push(match[1] ?? match[2] ?? match[3]);
+  return tokens;
+}
+
+export async function runEvaluationCheck(rootDir, command) {
+  if (!command) return { ok: true, skipped: true };
+  const [program, ...args] = splitCommand(command);
+  if (!program) return { ok: false };
+  const executable = process.platform === 'win32' && ['pnpm', 'npm', 'yarn'].includes(program)
+    ? `${program}.cmd`
+    : (program === 'node' ? process.execPath : program);
+  try {
+    await execFileAsync(executable, args, {
+      cwd: rootDir,
+      maxBuffer: 1024 * 1024,
+      timeout: 10 * 60 * 1000,
+      windowsHide: true,
+    });
+    return { ok: true };
+  } catch {
     return { ok: false };
   }
 }
