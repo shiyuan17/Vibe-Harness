@@ -16,8 +16,6 @@ const profileModules = {
   minimal: ['agents', 'rules', 'templates'],
   core: ['agents', 'rules', 'templates', 'governance', 'skills', 'playwright'],
   full: Object.keys(moduleCatalog),
-  'codex-minimal': ['agents', 'rules', 'templates'],
-  'codex-internal': Object.keys(moduleCatalog),
   'docs-only': ['rules', 'templates'],
 };
 

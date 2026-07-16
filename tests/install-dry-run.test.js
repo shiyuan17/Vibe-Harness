@@ -13,17 +13,17 @@ import { applyInstallPlan, createInstallPlan } from '../scripts/lib/install-plan
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve('.');
 
-test('dry-run install plans codex-internal files without writing them', async () => {
+test('dry-run install plans full files without writing them', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-dry-run-'));
   try {
     const plan = await createInstallPlan({
       dryRun: true,
-      profile: 'codex-internal',
+      profile: 'full',
       rootDir,
       targetDir: target,
     });
 
-    assert.equal(plan.profile, 'codex-internal');
+    assert.equal(plan.profile, 'full');
     assert.equal(plan.dryRun, true);
     assert.ok(plan.actions.some((action) => action.target.endsWith('AGENTS.md')));
     assert.ok(plan.actions.some((action) => action.target.endsWith(path.join('docs', 'rules', 'governance-core.md'))));
@@ -45,7 +45,7 @@ test('install refuses to overwrite existing files unless force is used', async (
 
     const plan = await createInstallPlan({
       dryRun: false,
-      profile: 'codex-minimal',
+      profile: 'minimal',
       rootDir,
       targetDir: target,
     });
@@ -65,7 +65,7 @@ test('dry-run reports conflicts without failing or writing files', async () => {
 
     const plan = await createInstallPlan({
       dryRun: true,
-      profile: 'codex-minimal',
+      profile: 'minimal',
       rootDir,
       targetDir: target,
     });
@@ -84,7 +84,7 @@ test('actual install blocks red-zone files without explicit confirmation', async
   try {
     const plan = await createInstallPlan({
       dryRun: false,
-      profile: 'codex-internal',
+      profile: 'full',
       rootDir,
       targetDir: target,
     });
@@ -101,7 +101,7 @@ test('actual install refuses to write outside the target directory', async () =>
   try {
     const plan = await createInstallPlan({
       dryRun: false,
-      profile: 'codex-minimal',
+      profile: 'minimal',
       rootDir,
       targetDir: target,
     });
@@ -115,17 +115,21 @@ test('actual install refuses to write outside the target directory', async () =>
   }
 });
 
-test('CLI apply mode writes files when red-zone confirmation is explicit', async () => {
+test('CLI write mode writes files when red-zone confirmation is explicit', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-apply-'));
   try {
+    const cliPath = path.join(rootDir, 'scripts/loopengine.js');
+    await execFileAsync(process.execPath, [cliPath, 'init', '--project', target, '--target', 'codex', '--profile', 'full']);
     await execFileAsync(process.execPath, [
-      path.join(rootDir, 'scripts/loopengine.js'),
+      cliPath,
       'install',
-      '--target',
+      '--project',
       target,
+      '--target',
+      'codex',
       '--profile',
-      'codex-internal',
-      '--apply',
+      'full',
+      '--write',
       '--confirm-red-zone',
       '--allow-degraded',
     ]);

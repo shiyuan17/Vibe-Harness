@@ -9,6 +9,19 @@ import { assertPortableRelativePath } from './manifest.js';
 export const mvpProfiles = new Set(['minimal', 'core', 'full', 'docs-only']);
 export const mvpTargets = new Set(['codex', 'claude', 'gemini']);
 
+export function canonicalProfile(profile) {
+  if (profile === 'codex-internal') return 'full';
+  if (profile === 'codex-minimal') return 'minimal';
+  return profile;
+}
+
+export function validateProfileName(profile) {
+  const canonical = canonicalProfile(profile);
+  if (canonical !== profile) throw new Error(`Profile ${profile} was removed; use ${canonical}.`);
+  if (!mvpProfiles.has(profile)) throw new Error(`Unknown profile: ${profile}`);
+  return profile;
+}
+
 export const defaultProjectConfig = {
   projectName: 'ExampleProject',
   language: 'zh-CN',
@@ -75,22 +88,28 @@ export function profileToCatalogProfile(profile) {
   return profile;
 }
 
-export function createDefaultProjectConfig(projectDir, target = 'codex') {
+export function createDefaultProjectConfig(projectDir, target = 'codex', profile = 'core') {
   return {
     ...defaultProjectConfig,
+    governance: {
+      ...defaultProjectConfig.governance,
+      mode: profile === 'minimal' ? 'off' : (profile === 'full' || profile === 'docs-only' ? 'full' : 'basic'),
+    },
     projectName: path.basename(path.resolve(projectDir)),
+    profile,
     target,
   };
 }
 
-export async function writeDefaultProjectConfig({ force = false, projectDir, target = 'codex' }) {
+export async function writeDefaultProjectConfig({ force = false, projectDir, profile = 'core', target = 'codex' }) {
   const configPath = path.join(projectDir, 'loopengine.config.json');
   if (!force && await pathExists(configPath)) {
     throw new Error(`Refusing to overwrite existing config: ${configPath}`);
   }
   await mkdir(projectDir, { recursive: true });
   if (!mvpTargets.has(target)) throw new Error(`Unknown target: ${target}`);
-  const config = createDefaultProjectConfig(projectDir, target);
+  validateProfileName(profile);
+  const config = createDefaultProjectConfig(projectDir, target, profile);
   await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
   return { config, path: configPath };
 }
@@ -98,7 +117,7 @@ export async function writeDefaultProjectConfig({ force = false, projectDir, tar
 export async function readProjectConfig(projectDir) {
   const configPath = path.join(projectDir, 'loopengine.config.json');
   if (!await pathExists(configPath)) {
-    return createDefaultProjectConfig(projectDir);
+  return createDefaultProjectConfig(projectDir);
   }
   return JSON.parse(await readFile(configPath, 'utf8'));
 }
@@ -125,13 +144,13 @@ function assertNonEmptyString(value, label) {
 
 export function resolveGovernanceMode(config, profile = config?.profile) {
   if (profile === config?.profile && config?.governance?.mode) return config.governance.mode;
-  if (profile === 'minimal' || profile === 'codex-minimal') return 'off';
-  if (['full', 'codex-internal', 'docs-only'].includes(profile)) return 'full';
+  if (profile === 'minimal') return 'off';
+  if (['full', 'docs-only'].includes(profile)) return 'full';
   return 'basic';
 }
 
 export function validateGovernanceModeForProfile(mode, profile) {
-  const allowed = profile === 'minimal' || profile === 'codex-minimal'
+  const allowed = profile === 'minimal'
     ? ['off']
     : (profile === 'core' ? ['basic', 'off'] : ['basic', 'full', 'off']);
   if (!allowed.includes(mode)) {
@@ -168,9 +187,7 @@ export function validateProjectConfig(config) {
   if (!mvpTargets.has(config.target)) {
     throw new Error(`Unknown target: ${config.target}`);
   }
-  if (!mvpProfiles.has(config.profile)) {
-    throw new Error(`Unknown profile: ${config.profile}`);
-  }
+  validateProfileName(config.profile);
   if (Object.hasOwn(config, 'modules')) {
     resolveModuleSelection({ requestedModules: config.modules });
   }

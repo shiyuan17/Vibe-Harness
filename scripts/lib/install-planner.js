@@ -94,8 +94,6 @@ export function createInstalledSurface({ customModules = false, memoryPath = '.a
   const normalizedMemoryPath = memoryPath.replaceAll('\\', '/').replace(/\/+$/u, '');
   const hasLocalMemory = installedTargets.includes(`${normalizedMemoryPath}/README.md`);
   const profileLines = {
-    'codex-internal': '- 当前安装方式：`codex-internal` 兼容入口，等同全安装。',
-    'codex-minimal': '- 当前安装方式：最小安装（兼容入口 `codex-minimal`）。',
     core: '- 当前安装方式：通用安装（不包含扩展 MCP 或 hooks 安装面）。',
     'docs-only': '- 当前安装方式：仅文档安装。',
     full: '- 当前安装方式：全安装（包含 codebase-memory-mcp、agentmemory MCP 项目内安装面和 Codex hooks）。',
@@ -176,7 +174,7 @@ export async function createInstallPlan({
   dryRun = true,
   force = false,
   managedAgentsBlock = false,
-  profile = 'codex-internal',
+  profile = 'core',
   requestedModules,
   renderData = {},
   rootDir,
@@ -386,7 +384,7 @@ export async function previewInstallPlan(plan, { includeContent = true } = {}) {
 export async function diffTargetInstall({
   adapterId = 'codex',
   managedAgentsBlock = false,
-  profile = 'codex-internal',
+  profile = 'core',
   requestedModules,
   renderData = {},
   rootDir,

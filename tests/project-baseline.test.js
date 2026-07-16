@@ -136,8 +136,8 @@ test('baseline requires an installed MVP project', async () => {
     const invalidState = await runCliFailure(['baseline', '--project', target]);
     assert.equal(invalidState.payload.error.code, 'BASELINE_INSTALL_INVALID');
 
-    const legacy = await runCliFailure(['baseline', '--target', target]);
-    assert.equal(legacy.payload.error.code, 'BASELINE_PROJECT_REQUIRED');
+    const invalidTarget = await runCliFailure(['baseline', '--target', target]);
+    assert.equal(invalidTarget.payload.error.code, 'BASELINE_PROJECT_REQUIRED');
   } finally {
     await rm(target, { force: true, recursive: true });
   }
@@ -173,7 +173,7 @@ test('baseline protects conflicting artifacts, backs up forced writes, and rolls
     assert.equal(modified.payload.error.code, 'BASELINE_ARTIFACT_CONFLICT');
     await runCli(['baseline', '--project', target, '--write', '--force']);
 
-    const rollback = await runCli(['rollback', '--target', target, '--apply']);
+    const rollback = await runCli(['rollback', '--project', target, '--write']);
     assert.equal(rollback.applied.includes('.loopengine/baseline.json'), true);
     assert.equal(rollback.applied.includes('docs/loopengine/PROJECT_BASELINE.md'), true);
     await assert.rejects(readFile(path.join(target, '.loopengine/baseline.json'), 'utf8'), /ENOENT/u);

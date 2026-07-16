@@ -2,7 +2,7 @@ import './helpers/offline-tools.js';
 
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -50,7 +50,7 @@ test('default dry-run is compact while verbose retains rendered content', async 
     assert.doesNotMatch(summary.stdout, /^\s*\{/u);
 
     await run(['install', '--project', target, '--target', 'codex', '--profile', 'core', '--write']);
-    const doctor = await run(['doctor', '--target', target, '--profile', 'core']);
+    const doctor = await run(['doctor', '--project', target, '--profile', 'core']);
     assert.equal(Buffer.byteLength(doctor.stdout) < 20 * 1024, true);
     const doctorReport = JSON.parse(doctor.stdout);
     assert.equal(Object.hasOwn(doctorReport.target, 'expected'), false);
@@ -75,6 +75,74 @@ test('validate and command errors use the shared health contract', async () => {
     assert.equal(pack.ok, true);
     assert.deepEqual(pack.warnings, []);
     assert.deepEqual(pack.recommendations, []);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('legacy CLI options and profile names are rejected with migration guidance', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-legacy-rejected-'));
+  try {
+    await run(['init', '--project', target]);
+
+    for (const args of [
+      ['install', '--project', target, '--apply'],
+      ['install', '--target', target, '--profile', 'full', '--dry-run'],
+      ['install', '--project', target, '--target', 'codex', '--profile', 'codex-internal', '--dry-run'],
+      ['doctor', '--project', target, '--profile', 'codex-minimal'],
+      ['diff', '--project', target, '--profile', 'codex-internal'],
+      ['doctor', '--project', target, '--target', target],
+    ]) {
+      const result = await fail(args);
+      assert.equal(result.code, 1);
+      assert.match(result.report.error.message, /--project[\s\S]*--write|legacy[\s\S]*removed|profile[\s\S]*removed|--target[\s\S]*adapter/iu);
+    }
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('project commands reject adapter targets that conflict with project state', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-target-mismatch-'));
+  try {
+    await run(['init', '--project', target, '--target', 'codex']);
+
+    for (const command of ['validate', 'verify', 'doctor', 'diff']) {
+      const result = await fail([command, '--project', target, '--target', 'claude']);
+      assert.match(result.report.error.message, /target claude does not match[\s\S]*codex/iu);
+    }
+
+    await run(['install', '--project', target, '--target', 'codex', '--profile', 'core', '--write']);
+    const rollback = await fail(['rollback', '--project', target, '--target', 'claude']);
+    assert.match(rollback.report.error.message, /target claude does not match installed adapter codex/iu);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('init and upgrade normalize legacy install state to a canonical profile', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-legacy-state-'));
+  try {
+    await mkdir(path.join(target, '.loopengine'), { recursive: true });
+    await writeFile(path.join(target, '.loopengine/install-state.json'), `${JSON.stringify({
+      adapter: 'codex',
+      files: [],
+      generatedDirectories: [],
+      profile: 'codex-internal',
+      stateVersion: 2,
+      version: '0.3.0',
+    }, null, 2)}\n`, 'utf8');
+
+    await run(['init', '--project', target]);
+    const config = JSON.parse(await readFile(path.join(target, 'loopengine.config.json'), 'utf8'));
+    assert.equal(config.profile, 'full');
+
+    await run([
+      'install', '--project', target, '--target', 'codex', '--profile', 'full', '--upgrade', '--write',
+      '--confirm-red-zone', '--allow-degraded',
+    ]);
+    const state = JSON.parse(await readFile(path.join(target, '.loopengine/install-state.json'), 'utf8'));
+    assert.equal(state.profile, 'full');
   } finally {
     await rm(target, { force: true, recursive: true });
   }

@@ -310,8 +310,8 @@ export async function validateGovernanceQuality(rootDir) {
       file: 'rules/agent-skill-routing.md',
       terms: [
         '不得覆盖', '一个流程 Skill', '一个领域 Skill', '一个验证或审查 Skill',
-        'Clarify', 'Spec', 'Plan', 'Tasks', 'Execute', 'Verify', 'Review', 'Handoff', 'Retrospective',
-        'OpenCodeReview', 'fallback', 'Memory', 'using-loopengine',
+        'Clarify', 'Spec', 'Plan', 'Execute', 'Verify', 'Review', 'Handoff', 'Retrospective',
+        'ocr', 'fallback', 'Memory', 'using-loopengine',
       ],
     },
     {
@@ -373,9 +373,8 @@ export async function validateGovernanceQuality(rootDir) {
   const agentsPath = path.join(rootDir, 'AGENTS.md');
   if (await pathExists(agentsPath)) {
     const agents = await readFile(agentsPath, 'utf8');
-    if (!/MVP[^\n]*--write/u.test(agents)) errors.push('AGENTS.md must document MVP --write lifecycle');
-    if (!/legacy\/internal[^\n]*--apply/u.test(agents)) errors.push('AGENTS.md must document legacy/internal --apply lifecycle');
-    if (/^\s*3\. 真实写入必须使用 `--apply`/mu.test(agents)) errors.push('AGENTS.md must not apply legacy --apply semantics to every real write');
+    if (!/--project[^\n]*--write/u.test(agents)) errors.push('AGENTS.md must document the --project/--write lifecycle');
+    if (/pnpm loopengine[^\n]*(?:codex-internal|codex-minimal|--apply)/u.test(agents)) errors.push('AGENTS.md must not contain removed legacy lifecycle commands');
   }
   const [agentsTemplate, governanceCore] = await Promise.all([
     readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8'),

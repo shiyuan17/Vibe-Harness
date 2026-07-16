@@ -150,12 +150,12 @@ test('eval check and offline run are read-only until write is explicit', async (
   }
 });
 
-test('eval rejects legacy lifecycle flags and unsafe suite selection', async () => {
+test('eval rejects removed lifecycle flags and unsafe suite selection', async () => {
   const target = await createEvalProject();
   try {
-    const legacy = await run(['eval', 'check', '--target', target]);
-    assert.equal(legacy.code, 1);
-    assert.match(legacy.payload.error.message, /--project/u);
+    const invalidTarget = await run(['eval', 'check', '--target', target]);
+    assert.equal(invalidTarget.code, 1);
+    assert.match(invalidTarget.payload.error.message, /--project/u);
     const apply = await run(['eval', 'run', '--project', target, '--mode', 'offline', '--apply']);
     assert.equal(apply.code, 1);
     assert.match(apply.payload.error.message, /--apply/u);

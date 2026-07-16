@@ -26,14 +26,15 @@ test('LoopEngine removes the CodeGraph CLI integration and doctor report', async
   try {
     const help = await execFileAsync(process.execPath, [cliPath, 'help']);
     assert.equal(help.stdout.toLowerCase().includes('codegraph'), false);
+    await execFileAsync(process.execPath, [cliPath, 'init', '--project', target]);
 
     let doctor;
     try {
-      doctor = await execFileAsync(process.execPath, [cliPath, 'doctor', '--target', target]);
+      doctor = await execFileAsync(process.execPath, [cliPath, 'doctor', '--project', target]);
     } catch (error) {
       doctor = error;
     }
-    const report = JSON.parse(doctor.stdout);
+    const report = JSON.parse(doctor.stdout || doctor.stderr);
     assert.equal(Object.hasOwn(report, 'codegraph'), false);
     assert.equal(await exists(path.join(rootDir, 'scripts/lib/codegraph.js')), false);
   } finally {

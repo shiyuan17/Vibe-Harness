@@ -197,7 +197,7 @@ test('core profiles install a lazy Playwright tool without changing the project 
     assert.equal(await readFile(path.join(targetDir, 'package.json'), 'utf8'), packageText);
     await assert.rejects(readFile(path.join(targetDir, '.agents/loopengine/tools/playwright-cli/node_modules/.package-lock.json'), 'utf8'), /ENOENT/);
 
-    const doctor = await runCli(['doctor', '--target', targetDir, '--profile', 'core']);
+    const doctor = await runCli(['doctor', '--project', targetDir, '--profile', 'core']);
     assert.equal(doctor.tools.playwrightCli.status, 'pending');
   } finally {
     await rm(targetDir, { force: true, recursive: true });
@@ -220,8 +220,9 @@ test('project validation warns for a pending Playwright tool without failing gov
 test('rollback removes generated Playwright dependencies but preserves browser evidence', async () => {
   const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-playwright-rollback-'));
   try {
-    await runCli(['install', '--target', targetDir, '--profile', 'core', '--apply']);
-    const validation = await runCli(['validate', '--target', targetDir, '--profile', 'core']);
+    await runCli(['init', '--project', targetDir, '--profile', 'core']);
+    await runCli(['install', '--project', targetDir, '--target', 'codex', '--profile', 'core', '--write']);
+    const validation = await runCli(['validate', '--project', targetDir, '--profile', 'core']);
     assert.ok(validation.warnings.some((warning) => warning.code === 'PLAYWRIGHT_CLI_PENDING'));
     const generated = path.join(targetDir, '.agents/loopengine/tools/playwright-cli/node_modules/fake');
     const evidence = path.join(targetDir, '.loopengine/artifacts/playwright/screenshot.png');
@@ -230,7 +231,7 @@ test('rollback removes generated Playwright dependencies but preserves browser e
     await writeFile(path.join(generated, 'index.js'), '', 'utf8');
     await writeFile(evidence, 'evidence', 'utf8');
 
-    const result = await runCli(['rollback', '--target', targetDir, '--apply']);
+    const result = await runCli(['rollback', '--project', targetDir, '--write']);
 
     assert.ok(result.applied.includes('.agents/loopengine/tools/playwright-cli/node_modules'));
     await assert.rejects(readFile(path.join(generated, 'index.js'), 'utf8'), /ENOENT/);

@@ -370,48 +370,6 @@
     },
     {
       "group": "skills-core",
-      "source": "skills/core/brainstorming/visual-companion.md",
-      "target": ".agents/skills/brainstorming/visual-companion.md",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
-      "source": "skills/core/brainstorming/scripts/frame-template.html",
-      "target": ".agents/skills/brainstorming/scripts/frame-template.html",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
-      "source": "skills/core/brainstorming/scripts/helper.js",
-      "target": ".agents/skills/brainstorming/scripts/helper.js",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
-      "source": "skills/core/brainstorming/scripts/server.cjs",
-      "target": ".agents/skills/brainstorming/scripts/server.cjs",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
-      "source": "skills/core/brainstorming/scripts/start-server.sh",
-      "target": ".agents/skills/brainstorming/scripts/start-server.sh",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
-      "source": "skills/core/brainstorming/scripts/stop-server.sh",
-      "target": ".agents/skills/brainstorming/scripts/stop-server.sh",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
-      "source": "skills/core/grill-me/SKILL.md",
-      "target": ".agents/skills/grill-me/SKILL.md",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
       "source": "skills/core/api-and-interface-design/SKILL.md",
       "target": ".agents/skills/api-and-interface-design/SKILL.md",
       "contentStrategy": "replace"
@@ -508,32 +466,8 @@
     },
     {
       "group": "skills-core",
-      "source": "skills/core/requesting-code-review/SKILL.md",
-      "target": ".agents/skills/requesting-code-review/SKILL.md",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
-      "source": "skills/core/requesting-code-review/code-reviewer.md",
-      "target": ".agents/skills/requesting-code-review/code-reviewer.md",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
-      "source": "skills/core/skill-authoring-check/SKILL.md",
-      "target": ".agents/skills/skill-authoring-check/SKILL.md",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
-      "source": "skills/integrations/open-code-review/SKILL.md",
-      "target": ".agents/skills/open-code-review/SKILL.md",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
-      "source": "skills/integrations/open-code-review/references/cli.md",
-      "target": ".agents/skills/open-code-review/references/cli.md",
+      "source": "skills/core/code-review-and-quality/references/cli.md",
+      "target": ".agents/skills/code-review-and-quality/references/cli.md",
       "contentStrategy": "replace"
     },
     {
@@ -546,42 +480,6 @@
       "group": "skills-core",
       "source": "skills/integrations/browser-verification/references/cli.md",
       "target": ".agents/skills/browser-verification/references/cli.md",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
-      "source": "skills/core/workflow-handoff/SKILL.md",
-      "target": ".agents/skills/workflow-handoff/SKILL.md",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
-      "source": "skills/core/workflow-handoff/references/handoff.md",
-      "target": ".agents/skills/workflow-handoff/references/handoff.md",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
-      "source": "skills/core/workflow-handoff/references/retrospective.md",
-      "target": ".agents/skills/workflow-handoff/references/retrospective.md",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
-      "source": "skills/core/api-contract-check/SKILL.md",
-      "target": ".agents/skills/api-contract-check/SKILL.md",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
-      "source": "skills/core/frontend-implementation-check/SKILL.md",
-      "target": ".agents/skills/frontend-implementation-check/SKILL.md",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
-      "source": "skills/core/task-decomposition/SKILL.md",
-      "target": ".agents/skills/task-decomposition/SKILL.md",
       "contentStrategy": "replace"
     },
     {
@@ -759,6 +657,24 @@
     }
   ],
   "retiredEntries": [
+    { "group": "skills-core", "target": ".agents/skills/brainstorming/visual-companion.md" },
+    { "group": "skills-core", "target": ".agents/skills/brainstorming/scripts/frame-template.html" },
+    { "group": "skills-core", "target": ".agents/skills/brainstorming/scripts/helper.js" },
+    { "group": "skills-core", "target": ".agents/skills/brainstorming/scripts/server.cjs" },
+    { "group": "skills-core", "target": ".agents/skills/brainstorming/scripts/start-server.sh" },
+    { "group": "skills-core", "target": ".agents/skills/brainstorming/scripts/stop-server.sh" },
+    { "group": "skills-core", "target": ".agents/skills/grill-me/SKILL.md" },
+    { "group": "skills-core", "target": ".agents/skills/requesting-code-review/SKILL.md" },
+    { "group": "skills-core", "target": ".agents/skills/requesting-code-review/code-reviewer.md" },
+    { "group": "skills-core", "target": ".agents/skills/skill-authoring-check/SKILL.md" },
+    { "group": "skills-core", "target": ".agents/skills/open-code-review/SKILL.md" },
+    { "group": "skills-core", "target": ".agents/skills/open-code-review/references/cli.md" },
+    { "group": "skills-core", "target": ".agents/skills/workflow-handoff/SKILL.md" },
+    { "group": "skills-core", "target": ".agents/skills/workflow-handoff/references/handoff.md" },
+    { "group": "skills-core", "target": ".agents/skills/workflow-handoff/references/retrospective.md" },
+    { "group": "skills-core", "target": ".agents/skills/api-contract-check/SKILL.md" },
+    { "group": "skills-core", "target": ".agents/skills/frontend-implementation-check/SKILL.md" },
+    { "group": "skills-core", "target": ".agents/skills/task-decomposition/SKILL.md" },
     {
       "group": "skills-memory",
       "target": ".agents/skills/handoff/SKILL.md"

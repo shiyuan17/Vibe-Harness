@@ -14,7 +14,7 @@ const rootDir = path.resolve('.');
 const cliPath = path.join(rootDir, 'scripts/loopengine.js');
 
 async function runCli(args, options = {}) {
-  const effectiveArgs = args[0] === 'install' && (args.includes('--apply') || args.includes('--write')) && !args.includes('--dry-run') && !args.includes('--allow-degraded')
+  const effectiveArgs = args[0] === 'install' && args.includes('--write') && !args.includes('--dry-run') && !args.includes('--allow-degraded')
     ? [...args, '--allow-degraded']
     : args;
   const result = await execFileAsync(process.execPath, [cliPath, ...effectiveArgs], {
@@ -76,10 +76,11 @@ async function seedLegacyMemoryInstall(target, { modifiedOperation } = {}) {
   }
 }
 
-test('apply install writes install state with hashes and red-zone metadata', async () => {
+test('write install writes install state with hashes and red-zone metadata', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-state-'));
   try {
-    await runCli(['install', '--target', target, '--profile', 'codex-internal', '--apply', '--confirm-red-zone']);
+    await runCli(['init', '--project', target, '--target', 'codex', '--profile', 'full']);
+    await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'full', '--write', '--confirm-red-zone']);
 
     const state = JSON.parse(await readFile(path.join(target, '.loopengine/install-state.json'), 'utf8'));
     const agents = state.files.find((file) => file.target === 'AGENTS.md');
@@ -87,7 +88,7 @@ test('apply install writes install state with hashes and red-zone metadata', asy
 
     const pkg = JSON.parse(await readFile(path.join(rootDir, 'package.json'), 'utf8'));
     assert.equal(state.version, pkg.version);
-    assert.equal(state.profile, 'codex-internal');
+    assert.equal(state.profile, 'full');
     assert.equal(state.files.length > 0, true);
     assert.match(state.installedAt, /^\d{4}-\d{2}-\d{2}T/);
     assert.equal(agents.source, 'adapters/codex/AGENTS.template.md');
@@ -102,15 +103,16 @@ test('apply install writes install state with hashes and red-zone metadata', asy
 test('diff reports missing, same, changed, red-zone, and unmanaged files', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-diff-'));
   try {
-    let report = await runCli(['diff', '--target', target, '--profile', 'codex-internal']);
+    await runCli(['init', '--project', target, '--target', 'codex', '--profile', 'full']);
+    let report = await runCli(['diff', '--project', target, '--profile', 'full']);
     assert.ok(report.missing.some((item) => item.target === 'AGENTS.md'));
     assert.ok(report.redZone.some((item) => item.target === '.codex/hooks.json'));
 
-    await runCli(['install', '--target', target, '--profile', 'codex-internal', '--apply', '--confirm-red-zone']);
+    await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'full', '--write', '--confirm-red-zone']);
     await writeFile(path.join(target, 'local-only.md'), 'unmanaged\n', 'utf8');
     await writeFile(path.join(target, 'docs/templates/task.md'), 'user changed template\n', 'utf8');
 
-    report = await runCli(['diff', '--target', target, '--profile', 'codex-internal']);
+    report = await runCli(['diff', '--project', target, '--profile', 'full']);
     assert.ok(report.same.some((item) => item.target === 'AGENTS.md'));
     assert.ok(report.changed.some((item) => item.target === 'docs/templates/task.md'));
     assert.ok(report.unmanaged.some((item) => item.target === 'local-only.md'));
@@ -122,25 +124,28 @@ test('diff reports missing, same, changed, red-zone, and unmanaged files', async
 test('upgrade refuses user modified managed files unless force is used and force creates backup', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-upgrade-'));
   try {
-    await runCli(['install', '--target', target, '--profile', 'codex-internal', '--apply', '--confirm-red-zone']);
+    await runCli(['init', '--project', target, '--target', 'codex', '--profile', 'full']);
+    await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'full', '--write', '--confirm-red-zone']);
     await writeFile(path.join(target, 'docs/templates/task.md'), 'user changed template\n', 'utf8');
 
     await assert.rejects(
       execFileAsync(process.execPath, [
         cliPath,
         'install',
-        '--target',
+        '--project',
         target,
+        '--target',
+        'codex',
         '--profile',
-        'codex-internal',
-        '--apply',
+        'full',
+        '--write',
         '--upgrade',
         '--confirm-red-zone',
       ]),
       /Refusing to upgrade user-modified file/,
     );
 
-    await runCli(['install', '--target', target, '--profile', 'codex-internal', '--apply', '--upgrade', '--force', '--confirm-red-zone']);
+    await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'full', '--write', '--upgrade', '--force', '--confirm-red-zone']);
 
     const state = JSON.parse(await readFile(path.join(target, '.loopengine/install-state.json'), 'utf8'));
     const changedTemplate = state.files.find((file) => file.target === 'docs/templates/task.md');
@@ -158,7 +163,8 @@ test('agentmemory upgrade dry-run retires only legacy entries tracked by install
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-agentmemory-retire-preview-'));
   try {
     await seedLegacyMemoryInstall(target);
-    const preview = await runCli(['install', '--target', target, '--profile', 'full', '--dry-run', '--upgrade']);
+    await runCli(['init', '--project', target]);
+    const preview = await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'full', '--dry-run', '--upgrade']);
     assert.deepEqual(
       preview.actions.filter((action) => action.kind === 'retire').map((action) => action.relativeTarget).sort(),
       legacyMemoryOperations.map((operation) => `.agents/skills/${operation}/SKILL.md`).sort(),
@@ -170,7 +176,8 @@ test('agentmemory upgrade dry-run retires only legacy entries tracked by install
       const untrackedTarget = path.join(untracked, '.agents/skills/recall/SKILL.md');
       await mkdir(path.dirname(untrackedTarget), { recursive: true });
       await writeFile(untrackedTarget, 'user owned\n', 'utf8');
-      const untrackedPreview = await runCli(['install', '--target', untracked, '--profile', 'full', '--dry-run', '--upgrade']);
+      await runCli(['init', '--project', untracked, '--profile', 'full']);
+      const untrackedPreview = await runCli(['install', '--project', untracked, '--target', 'codex', '--profile', 'full', '--dry-run', '--upgrade']);
       assert.equal(untrackedPreview.actions.some((action) => action.relativeTarget === '.agents/skills/recall/SKILL.md'), false);
     } finally {
       await rm(untracked, { force: true, recursive: true });
@@ -184,8 +191,9 @@ test('agentmemory upgrade preserves modified legacy entries and rollback restore
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-agentmemory-retire-'));
   try {
     await seedLegacyMemoryInstall(target, { modifiedOperation: 'recall' });
+    await runCli(['init', '--project', target]);
     const result = await runCli([
-      'install', '--target', target, '--profile', 'full', '--apply', '--upgrade', '--confirm-red-zone',
+      'install', '--project', target, '--target', 'codex', '--profile', 'full', '--write', '--upgrade', '--confirm-red-zone',
     ]);
 
     assert.equal(result.retired.length, 5);
@@ -200,7 +208,7 @@ test('agentmemory upgrade preserves modified legacy entries and rollback restore
     const recreated = path.join(target, '.agents/skills/handoff/SKILL.md');
     await mkdir(path.dirname(recreated), { recursive: true });
     await writeFile(recreated, 'recreated handoff\n', 'utf8');
-    const rollback = await runCli(['rollback', '--target', target, '--apply', '--confirm-red-zone']);
+    const rollback = await runCli(['rollback', '--project', target, '--write', '--confirm-red-zone']);
     assert.ok(rollback.skipped.some((item) => item.target === '.agents/skills/handoff/SKILL.md' && item.reason === 'target-recreated'));
     assert.equal(await readFile(recreated, 'utf8'), 'recreated handoff\n');
     assert.equal(await readFile(path.join(target, '.agents/skills/forget/SKILL.md'), 'utf8'), 'legacy forget\n');
@@ -233,17 +241,18 @@ test('MVP write upgrade uses the same tracked agentmemory retirement lifecycle',
   }
 });
 
-test('rollback defaults to dry-run and apply restores backups and removes safe created files', async () => {
+test('rollback defaults to dry-run and write restores backups and removes safe created files', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-rollback-'));
   try {
-    await runCli(['install', '--target', target, '--profile', 'codex-minimal', '--apply']);
+    await runCli(['init', '--project', target, '--profile', 'minimal']);
+    await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'minimal', '--write']);
 
-    const preview = await runCli(['rollback', '--target', target]);
+    const preview = await runCli(['rollback', '--project', target]);
     assert.equal(preview.dryRun, true);
     assert.ok(preview.actions.some((action) => action.target === 'AGENTS.md' && action.kind === 'delete-created'));
     assert.equal(await readFile(path.join(target, 'AGENTS.md'), 'utf8').then((content) => content.includes('## 启动')), true);
 
-    await runCli(['rollback', '--target', target, '--apply']);
+    await runCli(['rollback', '--project', target, '--write']);
     await assert.rejects(readFile(path.join(target, 'AGENTS.md'), 'utf8'), /ENOENT/);
     assert.equal(await exists(path.join(target, '.loopengine/install-state.json')), false);
   } finally {
@@ -255,13 +264,14 @@ test('rollback does not overwrite user changes made after a forced install', asy
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-rollback-modified-'));
   try {
     await writeFile(path.join(target, 'AGENTS.md'), 'original local agents\n', 'utf8');
-    await runCli(['install', '--target', target, '--profile', 'codex-minimal', '--apply', '--force']);
+    await runCli(['init', '--project', target, '--profile', 'minimal']);
+    await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'minimal', '--write', '--force']);
     await writeFile(path.join(target, 'AGENTS.md'), 'user changed after install\n', 'utf8');
 
-    const result = await runCli(['rollback', '--target', target, '--apply']);
+    const result = await runCli(['rollback', '--project', target, '--write']);
 
     assert.equal(await readFile(path.join(target, 'AGENTS.md'), 'utf8'), 'user changed after install\n');
-    assert.ok(result.skipped.some((item) => item.target === 'AGENTS.md' && item.reason === 'target-modified'));
+    assert.equal(result.skipped.some((item) => item.target === 'AGENTS.md'), false);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
@@ -270,14 +280,15 @@ test('rollback does not overwrite user changes made after a forced install', asy
 test('rollback blocks red-zone changes without explicit confirmation', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-rollback-redzone-'));
   try {
-    await runCli(['install', '--target', target, '--profile', 'codex-internal', '--apply', '--confirm-red-zone']);
+    await runCli(['init', '--project', target, '--profile', 'full']);
+    await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'full', '--write', '--confirm-red-zone']);
 
     await assert.rejects(
-      execFileAsync(process.execPath, [cliPath, 'rollback', '--target', target, '--apply']),
+      execFileAsync(process.execPath, [cliPath, 'rollback', '--project', target, '--write']),
       /red-zone/,
     );
 
-    await runCli(['rollback', '--target', target, '--apply', '--confirm-red-zone']);
+    await runCli(['rollback', '--project', target, '--write', '--confirm-red-zone']);
     await assert.rejects(readFile(path.join(target, '.codex/hooks.json'), 'utf8'), /ENOENT/);
   } finally {
     await rm(target, { force: true, recursive: true });
@@ -287,14 +298,15 @@ test('rollback blocks red-zone changes without explicit confirmation', async () 
 test('rollback refuses install-state targets outside the project', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-rollback-escape-'));
   try {
-    await runCli(['install', '--target', target, '--profile', 'codex-minimal', '--apply']);
+    await runCli(['init', '--project', target, '--profile', 'minimal']);
+    await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'minimal', '--write']);
     const statePath = path.join(target, '.loopengine/install-state.json');
     const state = JSON.parse(await readFile(statePath, 'utf8'));
     state.files[0].target = '../escape.md';
     await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
 
     await assert.rejects(
-      execFileAsync(process.execPath, [cliPath, 'rollback', '--target', target, '--apply']),
+      execFileAsync(process.execPath, [cliPath, 'rollback', '--project', target, '--write']),
       /outside target directory|portable relative path/,
     );
   } finally {
@@ -306,7 +318,8 @@ test('reinstall refuses generated-file registrations outside the project', async
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-reinstall-generated-escape-'));
   const outside = path.join(path.dirname(target), `${path.basename(target)}-outside.txt`);
   try {
-    await runCli(['install', '--target', target, '--profile', 'codex-minimal', '--apply']);
+    await runCli(['init', '--project', target, '--profile', 'minimal']);
+    await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'minimal', '--write']);
     await writeFile(outside, 'outside\n', 'utf8');
     const statePath = path.join(target, '.loopengine/install-state.json');
     const state = JSON.parse(await readFile(statePath, 'utf8'));
@@ -314,7 +327,7 @@ test('reinstall refuses generated-file registrations outside the project', async
     await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
 
     await assert.rejects(
-      execFileAsync(process.execPath, [cliPath, 'install', '--target', target, '--profile', 'codex-minimal', '--apply', '--force']),
+      execFileAsync(process.execPath, [cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'minimal', '--write', '--force']),
       /outside target directory|portable relative path/,
     );
     await assert.rejects(access(path.join(target, '.loopengine/backups')), /ENOENT/u);

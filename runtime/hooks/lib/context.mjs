@@ -162,7 +162,7 @@ export async function runGovernanceCheck(rootDir) {
     if (error.code === 'ENOENT') {
       try {
         const state = JSON.parse(await readFile(path.join(rootDir, '.loopengine', 'install-state.json'), 'utf8'));
-        if (['minimal', 'codex-minimal', 'docs-only'].includes(state.profile)) {
+        if (['minimal', 'docs-only'].includes(state.profile)) {
           return { ok: true, status: 'not-applicable' };
         }
       } catch {}

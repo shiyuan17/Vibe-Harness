@@ -60,7 +60,7 @@ if (existsSync(resolve(root, 'loopengine.config.json'))) {
 } else {
   errors.push('Missing governance configuration: loopengine.config.json or .loopengine/install-state.json');
 }
-const fullProfiles = new Set(['full', 'codex-internal']);
+const fullProfiles = new Set(['full']);
 const mode = config?.governance?.mode ?? (fullProfiles.has(config?.profile) ? 'full' : 'basic');
 if (!['basic', 'full', 'off'].includes(mode)) {
   errors.push('governance.mode must be basic, full, or off');

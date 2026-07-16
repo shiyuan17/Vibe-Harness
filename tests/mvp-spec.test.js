@@ -326,7 +326,7 @@ test('core profile installs common routed skills without mcp, memory, or hooks',
     assert.equal(targets.includes('.agents/skills/review-checklist/SKILL.md'), false);
     assert.equal(targets.includes('.agents/skills/loop-planning/SKILL.md'), false);
     assert.equal(targets.includes('.agents/skills/subagent-driven-development/SKILL.md'), false);
-    assert.equal(targets.includes('.agents/skills/skill-authoring-check/SKILL.md'), true);
+    assert.equal(targets.includes('.agents/skills/skill-authoring-check/SKILL.md'), false);
     assert.equal(agents.includes('通用安装'), true);
     assert.equal(agents.includes('codebase-memory-mcp'), false);
     assert.equal(agents.includes('agentmemory'), false);
@@ -477,7 +477,7 @@ test('CLI failures return structured errors without Node stack traces', async ()
     const cases = [
       ['validate', '--project', target],
       ['install', '--project', target, '--target', 'claude', '--dry-run'],
-      ['install', '--target', target, '--profile', 'codex-internal', '--apply'],
+      ['install', '--target', target, '--profile', 'full', '--dry-run'],
     ];
 
     for (const args of cases) {
@@ -501,26 +501,14 @@ test('CLI failures return structured errors without Node stack traces', async ()
   }
 });
 
-test('rendered AGENTS surface matches minimal, core, full, and internal profile installs', async () => {
+test('rendered AGENTS surface matches minimal, core, and full profile installs', async () => {
   const minimal = await initAndDryRunProfile('minimal');
   const core = await initAndDryRunProfile('core');
   const full = await initAndDryRunProfile('full');
-  const internalTarget = await mkdtemp(path.join(tmpdir(), 'loopengine-internal-profile-'));
-
   try {
     const minimalAgents = minimal.report.previewFiles.find((file) => file.target === 'AGENTS.md').content;
     const coreAgents = core.report.previewFiles.find((file) => file.target === 'AGENTS.md').content;
     const fullAgents = full.report.previewFiles.find((file) => file.target === 'AGENTS.md').content;
-    const internalReport = await runCli([
-      'install',
-      '--target',
-      internalTarget,
-      '--profile',
-      'codex-internal',
-      '--dry-run',
-    ]);
-    const internalAgents = internalReport.previewFiles.find((file) => file.target === 'AGENTS.md').content;
-
     assert.equal(minimalAgents.includes('.agents/skills/'), false);
     assert.equal(minimalAgents.includes('codebase-memory-mcp'), false);
     assert.equal(minimalAgents.includes('agentmemory'), false);
@@ -540,16 +528,10 @@ test('rendered AGENTS surface matches minimal, core, full, and internal profile 
     assert.equal(fullAgents.includes('.agents/memory/'), true);
     assert.equal(fullAgents.includes('.codex/hooks.json'), true);
     assert.equal(fullAgents.includes('review / loop'), true);
-    assert.equal(internalAgents.includes('.agents/skills/'), true);
-    assert.equal(internalAgents.includes('全安装'), true);
-    assert.equal(internalAgents.includes('codebase-memory-mcp'), true);
-    assert.equal(internalAgents.includes('agentmemory'), true);
-    assert.equal(internalAgents.includes('.codex/hooks.json'), true);
   } finally {
     await rm(minimal.target, { force: true, recursive: true });
     await rm(core.target, { force: true, recursive: true });
     await rm(full.target, { force: true, recursive: true });
-    await rm(internalTarget, { force: true, recursive: true });
   }
 });
 

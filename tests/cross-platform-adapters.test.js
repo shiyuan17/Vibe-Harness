@@ -114,7 +114,7 @@ test('adapter catalog rejects unsupported profiles and target mismatch', async (
     const mismatch = await fail(['install', '--project', target, '--target', 'gemini', '--profile', 'core', '--dry-run']);
     assert.match(mismatch.error.message, /target.*does not match/iu);
     const legacy = await fail(['install', '--target', 'claude', '--profile', 'core', '--dry-run']);
-    assert.match(legacy.error.message, /Legacy.*Codex-only/iu);
+    assert.match(legacy.error.message, /--project.*--apply|removed/iu);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
@@ -175,13 +175,13 @@ test('all platform instruction entrypoints stay below ninety lines', async () =>
 
 test('adapter profile file sets match the reviewed snapshots', async () => {
   const snapshots = {
-    'claude:core': [75, '2913d7dd9976dbcc6d1b8b193016bec0ded35a18e7139bcdfbfee6e670020b0f'],
+    'claude:core': [58, 'ab877541dfd45bb7dff89ebda18f4053c7f6cbc5533b329719facb647564df8d'],
     'claude:docs-only': [29, '66b1c875eed445824b30d7f6d7ae001107f5d4f197e181ba865096794925724f'],
     'claude:minimal': [7, 'de8bef97b2444d03ddb8077a187a05e0dc1d976f97cfce2daf87d77262d5c9ba'],
-    'codex:core': [75, 'b5ceea7f822fe3b7f472b1f9533465992ee4768d17d509d807f07e41e6ed4581'],
-    'codex:full': [124, '19dd23be171eb167fe1e033b7bbe8f135e2dd8906aa1c673ccc42199064dc945'],
+    'codex:core': [58, 'e3d755dc394503d794fc4c344db71fa6ec0c3886e5842c5ad2297acf87696fb3'],
+    'codex:full': [107, 'c031e4c2523e402e773228bfcda634830cd7d102f8cd4a78dcb921b4dd970722'],
     'codex:minimal': [7, 'acf92f049c50289f3eec6136e888f50b32b389d8a80e75a8b344a20ad37d6789'],
-    'gemini:core': [75, '77a882b6ef480f8da06cbe1464270efc5d6ec0e7b7659a3d1f598b23bbcb68bc'],
+    'gemini:core': [58, '207058b8907120c7474245686fda0e3769d9006560bb9df8e7ca0d2b5bd588f4'],
     'gemini:docs-only': [29, '428c26d9f51fe99cfa520cb63f4b2aa8cfb7bfdd8b605a927cc0352af6ca2b89'],
     'gemini:minimal': [7, '8e6fc02f1c019b5cea55ac49567af9bd4b2b75ed62f97731e0dbcd962293eb4a'],
   };

@@ -17,16 +17,6 @@
       "groups": ["agents", "rules-minimal", "rules-core", "rules-full", "rules-codebase-memory", "templates-minimal", "templates-core", "templates-full", "templates-memory", "schemas-core", "runtime-basic", "runtime-task", "runtime-full", "runtime-eval", "runtime-eval-online", "skills-core", "skills-full", "skills-memory", "evals-core", "evals-online", "tools-playwright", "tools-codebase-memory", "tools-open-code-review", "tools-agentmemory", "mcp-config", "hooks"]
     },
     {
-      "id": "codex-internal",
-      "description": "兼容全安装入口：等同 full 并初始化四个项目内工具，保留 legacy/internal 生命周期。",
-      "groups": ["agents", "rules-minimal", "rules-core", "rules-full", "rules-codebase-memory", "templates-minimal", "templates-core", "templates-full", "templates-memory", "schemas-core", "runtime-basic", "runtime-task", "runtime-full", "runtime-eval", "runtime-eval-online", "skills-core", "skills-full", "skills-memory", "evals-core", "evals-online", "tools-playwright", "tools-codebase-memory", "tools-open-code-review", "tools-agentmemory", "mcp-config", "hooks"]
-    },
-    {
-      "id": "codex-minimal",
-      "description": "兼容最小安装入口：Codex 入口规则和任务模板。",
-      "groups": ["agents", "rules-minimal", "templates-minimal"]
-    },
-    {
       "id": "docs-only",
       "description": "仅文档安装：平台入口、可复用规则、模板和 schema，不包含 runtime、hooks、MCP 或 skills。",
       "groups": ["agents", "rules-minimal", "rules-core", "rules-full", "templates-minimal", "templates-core", "templates-full", "templates-memory", "schemas-core"]

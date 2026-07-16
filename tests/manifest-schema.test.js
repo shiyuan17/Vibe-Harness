@@ -19,7 +19,7 @@ test('manifests expose adapters, profiles, rules, and skills', async () => {
   assert.deepEqual(Object.keys(manifests).sort(), ['adapters', 'profiles', 'rules', 'skills']);
   assert.equal(manifests.rules.items.some((item) => item.id === 'governance-core'), true);
   assert.equal(manifests.skills.items.some((item) => item.id === 'using-loopengine'), true);
-  assert.equal(manifests.profiles.items.some((item) => item.id === 'codex-internal'), true);
+  assert.deepEqual(manifests.profiles.items.map((item) => item.id), ['minimal', 'core', 'full', 'docs-only']);
 });
 
 test('manifest source files all exist', async () => {

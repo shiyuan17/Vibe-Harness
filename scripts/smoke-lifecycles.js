@@ -40,23 +40,24 @@ async function runInstalledEval(step, project) {
   return { exitCode: 0, step };
 }
 
-const mvp = await mkdtemp(path.join(tmpdir(), 'loopengine-smoke-mvp-'));
-const legacy = await mkdtemp(path.join(tmpdir(), 'loopengine-smoke-legacy-'));
+const core = await mkdtemp(path.join(tmpdir(), 'loopengine-smoke-core-'));
+const full = await mkdtemp(path.join(tmpdir(), 'loopengine-smoke-full-'));
 const results = [];
 
 try {
-  results.push(await run('mvp-init', ['init', '--project', mvp]));
-  results.push(await run('mvp-dry-run', ['install', '--project', mvp, '--target', 'codex', '--profile', 'core', '--dry-run']));
-  results.push(await run('mvp-write', ['install', '--project', mvp, '--target', 'codex', '--profile', 'core', '--write']));
-  results.push(await run('mvp-validate', ['validate', '--project', mvp]));
-  results.push(await runInstalledEval('mvp-eval-offline', mvp));
-  results.push(await run('legacy-dry-run', ['install', '--target', legacy, '--profile', 'codex-internal', '--dry-run']));
-  results.push(await run('legacy-apply', ['install', '--target', legacy, '--profile', 'codex-internal', '--apply', '--confirm-red-zone', '--allow-degraded']));
-  results.push(await run('legacy-validate', ['validate', '--target', legacy, '--profile', 'codex-internal', '--allow-degraded']));
-  results.push(await run('legacy-doctor', ['doctor', '--target', legacy, '--allow-degraded']));
+  results.push(await run('core-init', ['init', '--project', core]));
+  results.push(await run('core-dry-run', ['install', '--project', core, '--target', 'codex', '--profile', 'core', '--dry-run']));
+  results.push(await run('core-write', ['install', '--project', core, '--target', 'codex', '--profile', 'core', '--write']));
+  results.push(await run('core-validate', ['validate', '--project', core]));
+  results.push(await runInstalledEval('core-eval-offline', core));
+  results.push(await run('full-init', ['init', '--project', full, '--profile', 'full']));
+  results.push(await run('full-dry-run', ['install', '--project', full, '--target', 'codex', '--profile', 'full', '--dry-run']));
+  results.push(await run('full-write', ['install', '--project', full, '--target', 'codex', '--profile', 'full', '--write', '--confirm-red-zone', '--allow-degraded']));
+  results.push(await run('full-validate', ['validate', '--project', full, '--allow-degraded']));
+  results.push(await run('full-doctor', ['doctor', '--project', full, '--allow-degraded']));
   console.log(JSON.stringify({ ok: true, results }, null, 2));
 } finally {
-  await removeTemporaryDirectory(mvp);
-  await removeTemporaryDirectory(legacy);
+  await removeTemporaryDirectory(core);
+  await removeTemporaryDirectory(full);
 }
 

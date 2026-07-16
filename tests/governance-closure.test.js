@@ -6,10 +6,10 @@ import test from 'node:test';
 const rootDir = path.resolve('.');
 const read = (relativePath) => readFile(path.join(rootDir, relativePath), 'utf8');
 
-test('contributor contract distinguishes MVP writes from legacy apply', async () => {
+test('contributor contract defines one project write lifecycle', async () => {
   const agents = await read('AGENTS.md');
-  assert.match(agents, /MVP[^\n]*--write/u);
-  assert.match(agents, /legacy\/internal[^\n]*--apply/u);
+  assert.match(agents, /--project[^\n]*--write/u);
+  assert.doesNotMatch(agents, /pnpm loopengine[^\n]*(?:codex-internal|codex-minimal|--apply)/u);
 });
 
 test('governance kernel defines five Chinese stages and adversarial evidence', async () => {

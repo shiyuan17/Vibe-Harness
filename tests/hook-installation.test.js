@@ -30,18 +30,21 @@ test('project config exposes guarded hook defaults and validates optional hook s
   );
 });
 
-test('full and internal profiles install hook runtime and inactive Git hook templates while core does not', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-hook-profile-'));
-  try {
-    const run = async (profile) => {
-      const { stdout } = await execFileAsync(process.execPath, [cliPath, 'install', '--target', target, '--profile', profile, '--dry-run']);
+test('full installs hook runtime and inactive Git hook templates while core does not', async () => {
+  const run = async (profile) => {
+    const target = await mkdtemp(path.join(tmpdir(), `loopengine-hook-${profile}-`));
+    try {
+      await execFileAsync(process.execPath, [cliPath, 'init', '--project', target, '--target', 'codex', '--profile', profile]);
+      const { stdout } = await execFileAsync(process.execPath, [cliPath, 'install', '--project', target, '--target', 'codex', '--profile', profile, '--dry-run']);
       return JSON.parse(stdout).actions.map((action) => action.relativeTarget);
-    };
+    } finally {
+      await rm(target, { force: true, recursive: true });
+    }
+  };
     const core = await run('core');
     const full = await run('full');
-    const internal = await run('codex-internal');
 
-    for (const targets of [full, internal]) {
+    for (const targets of [full]) {
       assert.ok(targets.includes('.codex/hooks.json'));
       assert.ok(targets.includes('.agents/loopengine/hooks/codex-hook.mjs'));
       assert.ok(targets.includes('.agents/loopengine/hooks/lib/delivery-validation.mjs'));
@@ -49,9 +52,6 @@ test('full and internal profiles install hook runtime and inactive Git hook temp
       assert.ok(targets.includes('.githooks/pre-push'));
     }
     assert.equal(core.some((targetPath) => targetPath.includes('/hooks/') || targetPath.startsWith('.githooks/')), false);
-  } finally {
-    await rm(target, { force: true, recursive: true });
-  }
 });
 
 test('doctor reports Git hook activation without modifying local Git config', async () => {
@@ -63,7 +63,7 @@ test('doctor reports Git hook activation without modifying local Git config', as
       cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'minimal', '--write',
     ]);
     const doctor = async () => JSON.parse((await execFileAsync(process.execPath, [
-      cliPath, 'doctor', '--target', target, '--profile', 'minimal',
+      cliPath, 'doctor', '--project', target, '--profile', 'minimal',
     ])).stdout);
 
     const inactive = await doctor();

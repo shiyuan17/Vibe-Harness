@@ -109,7 +109,7 @@ function createWorkflows(target) {
     workflow('scoped-change', '轻量代码修改', '单一范围且不涉及红区或外部契约', ['固定写入范围', '先写失败测试', '实施最小改动', '运行聚焦验证并交付证据'], ['test-driven-development', 'verification-before-completion'], skills),
     workflow('debugging', '故障排查', '测试失败、构建错误或行为异常', ['复现问题', '定位根因', '用失败测试锁定问题', '修复并验证反例'], ['systematic-debugging'], skills),
     workflow('high-risk', '完整高风险任务', '涉及安全、数据、发布、红区、跨层或外部契约', ['先完成风险和回滚设计', '分解任务并实施', '执行独立审查', '验证后交付剩余风险'], ['writing-plans', 'adversarial-review-packet', 'code-review-and-quality'], skills),
-    workflow('delivery', '验证与交付', '准备声明任务完成', ['运行本轮有效检查', '核对主张、证据、反例和剩余风险', '报告 Git 状态与下一步'], ['verification-before-completion', 'requesting-code-review', 'workflow-handoff'], skills),
+    workflow('delivery', '验证与交付', '准备声明任务完成', ['运行本轮有效检查', '核对主张、证据、反例和剩余风险', '报告 Git 状态与下一步'], ['verification-before-completion', 'code-review-and-quality'], skills),
   ];
 }
 

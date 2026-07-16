@@ -30,6 +30,8 @@ import {
   validateConfigAndGeneratedContent,
   validateGovernanceModeForProfile,
   validateProjectConfig,
+  mvpTargets,
+  validateProfileName,
   writeDefaultProjectConfig,
 } from './lib/project-config.js';
 import { collectProjectBaselineInputs, createProjectBaseline } from './lib/project-baseline.js';
@@ -51,7 +53,7 @@ import {
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 function requiredToolsDegraded(profile, tools = {}) {
-  return ['full', 'codex-internal'].includes(profile)
+  return profile === 'full'
     && Object.values(tools).some((tool) => tool.status !== 'ready');
 }
 
@@ -173,10 +175,12 @@ async function projectRequestedModules(config, targetDir) {
 
 async function init(args) {
   const projectDir = path.resolve(args.project ?? process.cwd());
+  const existingState = await readInstallState(projectDir);
   const result = await writeDefaultProjectConfig({
     force: Boolean(args.force),
+    profile: args.profile ?? existingState?.profile ?? 'core',
     projectDir,
-    target: args.target ?? 'codex',
+    target: args.target ?? existingState?.adapter ?? 'codex',
   });
   console.log(JSON.stringify({
     config: result.config,
@@ -186,43 +190,38 @@ async function init(args) {
 }
 
 async function install(args) {
-  const isMvpMode = Boolean(args.project);
-  if (!isMvpMode && ['claude', 'gemini'].includes(args.target)) {
-    throw new Error('Legacy/internal install is Codex-only; use --project <path> --target <claude|gemini> for MVP adapters.');
-  }
-  const writeRequested = Boolean(args.write || args.apply);
+  if (!args.project) throw new Error('install requires --project <path>; legacy --target path and --apply were removed.');
+  const isMvpMode = true;
+  const writeRequested = Boolean(args.write);
   const dryRunRequested = Boolean(args['dry-run']) || !writeRequested;
-  if ((args.apply || args.write) && args['dry-run']) {
-    throw new Error('Use --write/--apply or --dry-run, not both.');
+  if (args.write && args['dry-run']) {
+    throw new Error('Use --write or --dry-run, not both.');
   }
-  const targetDir = isMvpMode ? path.resolve(args.project) : path.resolve(args.target ?? process.cwd());
-  const config = isMvpMode ? await readRequiredProjectConfig(targetDir) : null;
-  const adapterId = isMvpMode ? (args.target ?? config.target) : 'codex';
-  if (config && args.target && args.target !== config.target) {
+  const targetDir = path.resolve(args.project);
+  const config = await readRequiredProjectConfig(targetDir);
+  const adapterId = args.target ?? config.target;
+  if (args.target && args.target !== config.target) {
     throw new Error(`CLI target ${args.target} does not match loopengine.config.json target ${config.target}.`);
   }
   const adapter = await resolveAdapter(rootDir, adapterId);
-  const profile = args.profile ?? config?.profile ?? 'codex-internal';
-  const projectProfile = config ? await detectProjectProfile({ config, targetDir }) : null;
-  const governanceMode = config ? resolveGovernanceMode(config, profile) : undefined;
-  if (config) validateGovernanceModeForProfile(governanceMode, profile);
-  const validationCommands = config
-    ? resolveValidationCommands(config, projectProfile, governanceMode)
-    : undefined;
-  const renderData = config ? {
+  const requestedProfile = args.profile ?? config.profile;
+  const profile = validateProfileName(requestedProfile);
+  const projectProfile = await detectProjectProfile({ config, targetDir });
+  const governanceMode = resolveGovernanceMode(config, profile);
+  validateGovernanceModeForProfile(governanceMode, profile);
+  const validationCommands = resolveValidationCommands(config, projectProfile, governanceMode);
+  const renderData = {
     ...config,
     profile,
     projectProfile,
     target: args.target ?? config.target,
     governance: { mode: governanceMode },
     validationCommands,
-  } : {};
-  if (config) {
-    validateProjectConfig({ ...config, profile, target: args.target ?? config.target });
-  }
+  };
+  validateProjectConfig({ ...config, profile, target: args.target ?? config.target });
   const requestedModules = args.modules !== undefined
     ? parseModulesOption(args.modules)
-    : config?.modules;
+    : config.modules;
 
   const plan = await createInstallPlan({
     adapterId,
@@ -236,11 +235,9 @@ async function install(args) {
     targetDir,
     upgrade: Boolean(args.upgrade),
   });
-  if (config) {
-    const agentsTemplate = await readFile(path.join(rootDir, `adapters/${adapter.id}/${path.basename(adapter.instructionTarget, '.md')}.template.md`), 'utf8');
-    const installedTargets = plan.actions.map((action) => action.relativeTarget);
-    validateConfigAndGeneratedContent(plan.renderData, agentsTemplate, { installedTargets });
-  }
+  const agentsTemplate = await readFile(path.join(rootDir, `adapters/${adapter.id}/${path.basename(adapter.instructionTarget, '.md')}.template.md`), 'utf8');
+  const installedTargets = plan.actions.map((action) => action.relativeTarget);
+  validateConfigAndGeneratedContent(plan.renderData, agentsTemplate, { installedTargets });
   plan.redZoneConfirmed = Boolean(args['confirm-red-zone']);
   const result = await applyInstallPlan(plan);
   const previewFiles = plan.dryRun ? await previewInstallPlan(plan, { includeContent: Boolean(args.verbose) }) : [];
@@ -295,6 +292,9 @@ async function validate(args) {
   if (args.project) {
     const targetDir = path.resolve(args.project);
     const config = await readRequiredProjectConfig(targetDir);
+    if (args.target && args.target !== config.target) {
+      throw new Error(`CLI target ${args.target} does not match loopengine.config.json target ${config.target}.`);
+    }
     const requestedModules = await projectRequestedModules(config, targetDir);
     validateProjectConfig(config);
     const adapter = await resolveAdapter(rootDir, config.target);
@@ -361,23 +361,7 @@ async function validate(args) {
     return;
   }
 
-  if (args.target) {
-    const profile = args.profile ?? 'codex-internal';
-    const targetDir = path.resolve(args.target);
-    const report = await inspectTargetInstall({
-      profile,
-      rootDir,
-      targetDir,
-    });
-    const tools = await inspectProfileTools(profile, targetDir);
-    report.tools = tools;
-    report.warnings = toolWarnings(tools);
-    report.recommendations = toolRecommendations(tools, profile);
-    Object.assign(report, healthReport({ baseOk: report.ok, profile, tools }));
-    emitReport(args.verbose ? report : { ...report, targetDir: undefined }, args, { error: report.status === 'invalid' });
-    applyHealthExit(report.status, args);
-    return;
-  }
+  if (args.target) throw new Error('validate uses --project <path>; --target only selects an adapter.');
 
   const report = await validatePack(rootDir);
   if (!report.ok) {
@@ -392,6 +376,9 @@ async function verify(args) {
   if (!args.project) throw new Error('verify requires --project <path>.');
   const targetDir = path.resolve(args.project);
   const config = await readRequiredProjectConfig(targetDir);
+  if (args.target && args.target !== config.target) {
+    throw new Error(`CLI target ${args.target} does not match loopengine.config.json target ${config.target}.`);
+  }
   const requestedModules = await projectRequestedModules(config, targetDir);
   validateProjectConfig(config);
   const adapter = await resolveAdapter(rootDir, config.target);
@@ -431,8 +418,7 @@ async function verify(args) {
 
 async function baseline(args) {
   if (!args.project) throw Object.assign(new Error('baseline requires --project <path>.'), { code: 'BASELINE_PROJECT_REQUIRED' });
-  if (args.target) throw Object.assign(new Error('baseline supports MVP --project only; legacy --target is not supported.'), { code: 'BASELINE_PROJECT_REQUIRED' });
-  if (args.apply) throw new Error('baseline uses --write, not legacy --apply.');
+  if (args.target) throw Object.assign(new Error('baseline uses --project <path> and does not accept --target.'), { code: 'BASELINE_PROJECT_REQUIRED' });
   if (args.write && args['dry-run']) throw new Error('Use --write or --dry-run, not both.');
   const allowedOptions = new Set(['_', 'dry-run', 'force', 'project', 'verify', 'write']);
   const unknownOption = Object.keys(args).find((key) => !allowedOptions.has(key));
@@ -507,8 +493,7 @@ async function evaluateProject(args) {
   const action = args._[1];
   if (!['check', 'run', 'reference'].includes(action)) throw new Error('eval requires check, run, or reference.');
   if (!args.project) throw new Error('eval requires --project <path>.');
-  if (args.target) throw new Error('eval supports MVP --project only; legacy --target is not supported.');
-  if (args.apply) throw new Error('eval uses --write, not legacy --apply.');
+  if (args.target) throw new Error('eval uses --project <path> and does not accept --target.');
   if (args.write && args['dry-run']) throw new Error('Use --write or --dry-run, not both.');
   const allowed = {
     check: new Set(['_', 'output', 'project', 'suite', 'verbose']),
@@ -554,10 +539,8 @@ async function evaluateProject(args) {
   applyHealthExit(report.status, args);
 }
 
-function toolRecommendations(tools, profile, { adapterId = 'codex', mvp = false } = {}) {
-  const retryCommand = mvp
-    ? `loopengine install --project <project> --target ${adapterId} --profile ${profile} --write --confirm-red-zone`
-    : `loopengine install --target <target> --profile ${profile} --apply --confirm-red-zone`;
+function toolRecommendations(tools, profile, { adapterId = 'codex' } = {}) {
+  const retryCommand = `loopengine install --project <project> --target ${adapterId} --profile ${profile} --write --confirm-red-zone`;
   return Object.entries(tools).flatMap(([tool, state]) => {
     if (state.status === 'degraded') {
       if (state.code === 'MCP_CONFIG_CONFLICT') {
@@ -594,15 +577,20 @@ function toolRecommendations(tools, profile, { adapterId = 'codex', mvp = false 
 }
 
 async function doctor(args) {
-  const targetDir = path.resolve(args.target ?? process.cwd());
-  const installState = args.target ? await readInstallState(targetDir) : null;
-  const profile = args.profile ?? installState?.profile ?? 'codex-internal';
+  if (!args.project) throw new Error('doctor requires --project <path>.');
+  const targetDir = path.resolve(args.project);
+  const installState = await readInstallState(targetDir);
+  const config = await readRequiredProjectConfig(targetDir);
+  if (args.target && args.target !== config.target) {
+    throw new Error(`CLI target ${args.target} does not match loopengine.config.json target ${config.target}.`);
+  }
+  validateProjectConfig(config);
+  const profile = validateProfileName(args.profile ?? config.profile);
   const managedAgentsBlock = installState?.files?.some(
     (file) => ['managed-block', 'managed-instruction-block'].includes(file.contentStrategy),
   );
   let renderData = {};
   if (managedAgentsBlock) {
-    const config = await readRequiredProjectConfig(targetDir);
     const projectProfile = await detectProjectProfile({ config, targetDir });
     const governanceMode = resolveGovernanceMode(config, profile);
     const validationCommands = resolveValidationCommands(config, projectProfile, governanceMode);
@@ -612,19 +600,17 @@ async function doctor(args) {
     validatePack(rootDir),
     inspectGitHooks(targetDir),
   ]);
-  let target = args.target
-    ? await inspectTargetInstall({
-        managedAgentsBlock,
-        adapterId: installState?.adapter ?? 'codex',
-        profile,
-        requestedModules: installState?.requestedModules,
-        renderData,
-        rootDir,
-        targetDir,
-      })
-    : null;
-  const tools = args.target ? await inspectProfileTools(profile, targetDir) : {};
-  if (target && !args.verbose) target = compactTargetReport(target);
+  let target = await inspectTargetInstall({
+    managedAgentsBlock: true,
+    adapterId: args.target ?? installState?.adapter ?? config.target,
+    profile,
+    requestedModules: installState?.requestedModules,
+    renderData,
+    rootDir,
+    targetDir,
+  });
+  const tools = await inspectProfileTools(profile, targetDir);
+  if (!args.verbose) target = compactTargetReport(target);
   const health = healthReport({ baseOk: pack.ok && (!target || target.ok), profile, tools });
   emitReport({
     ...health,
@@ -636,7 +622,7 @@ async function doctor(args) {
     tools,
     recommendations: toolRecommendations(tools, profile, {
       adapterId: installState?.adapter ?? 'codex',
-      mvp: Boolean(managedAgentsBlock),
+      mvp: true,
     }),
     warnings: toolWarnings(tools),
   }, args);
@@ -644,22 +630,47 @@ async function doctor(args) {
 }
 
 async function diff(args) {
+  if (!args.project) throw new Error('diff requires --project <path>.');
+  const targetDir = path.resolve(args.project);
+  const config = await readRequiredProjectConfig(targetDir);
+  const installState = await readInstallState(targetDir);
+  if (args.target && args.target !== config.target) {
+    throw new Error(`CLI target ${args.target} does not match loopengine.config.json target ${config.target}.`);
+  }
+  validateProjectConfig(config);
+  const profile = validateProfileName(args.profile ?? config.profile);
+  const projectProfile = await detectProjectProfile({ config, targetDir });
+  const governanceMode = resolveGovernanceMode(config, profile);
+  const validationCommands = resolveValidationCommands(config, projectProfile, governanceMode);
+  const renderData = { ...config, profile, governance: { mode: governanceMode }, projectProfile, validationCommands };
   const report = await diffTargetInstall({
-    profile: args.profile ?? 'codex-internal',
+    adapterId: args.target ?? config.target,
+    managedAgentsBlock: true,
+    profile,
+    requestedModules: config.modules ?? installState?.requestedModules,
+    renderData,
     rootDir,
-    targetDir: path.resolve(args.target ?? process.cwd()),
+    targetDir,
   });
   console.log(JSON.stringify(report, null, 2));
 }
 
 async function rollback(args) {
-  if (args.apply && args['dry-run']) {
-    throw new Error('Use either --apply or --dry-run, not both.');
+  if (!args.project) throw new Error('rollback requires --project <path>.');
+  if (args.target) {
+    const state = await readInstallState(path.resolve(args.project));
+    if (!state) throw new Error(`No LoopEngine install state found in ${path.resolve(args.project)}`);
+    if (state.adapter !== args.target) {
+      throw new Error(`CLI target ${args.target} does not match installed adapter ${state.adapter}.`);
+    }
+  }
+  if (args.write && args['dry-run']) {
+    throw new Error('Use either --write or --dry-run, not both.');
   }
   const plan = await createRollbackPlan({
-    dryRun: !args.apply,
+    dryRun: !args.write,
     redZoneConfirmed: Boolean(args['confirm-red-zone']),
-    targetDir: path.resolve(args.target ?? process.cwd()),
+    targetDir: path.resolve(args.project),
   });
   const result = await applyRollbackPlan(plan);
   console.log(JSON.stringify({ actions: plan.actions, applied: result.applied, dryRun: plan.dryRun, skipped: result.skipped }, null, 2));
@@ -677,7 +688,6 @@ async function uninstall(args) {
   if (state && state.adapter !== adapter.id) {
     throw new Error(`Installed adapter ${state.adapter} does not match uninstall target ${adapter.id}.`);
   }
-  if (args.apply) throw new Error('MVP uninstall uses --write, not legacy --apply.');
   if (args.write && args['dry-run']) throw new Error('Use --write or --dry-run, not both.');
   const allowedOptions = new Set(['_', 'confirm-red-zone', 'dry-run', 'project', 'target', 'write']);
   const unknownOption = Object.keys(args).find((key) => !allowedOptions.has(key));
@@ -704,6 +714,13 @@ async function uninstall(args) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const command = args._[0] ?? 'help';
+  if (args.apply) throw new Error('Legacy --apply was removed; use --project <path> with --write.');
+  if (args.profile) validateProfileName(args.profile);
+  if (args.target && !mvpTargets.has(args.target)) {
+    const error = new Error('--target only accepts adapter ids codex|claude|gemini; use --project <path> for a project path.');
+    if (command === 'baseline') error.code = 'BASELINE_PROJECT_REQUIRED';
+    throw error;
+  }
   if (command === 'init') {
     await init(args);
   } else if (command === 'install') {
@@ -725,8 +742,8 @@ async function main() {
   } else if (command === 'uninstall') {
     await uninstall(args);
   } else {
-    console.log('Usage: loopengine <init|install|uninstall|validate|verify|baseline|eval|doctor|diff|rollback> [--project path] [--target codex|claude|gemini|path] [--profile minimal|core|full|docs-only] [--modules list] [--write|--apply] [--dry-run] [--output json|summary] [--verbose] [--verify] [--force] [--upgrade] [--confirm-red-zone] [--allow-manual] [--allow-degraded]');
-    console.log('MVP uses --project <path> --target <codex|claude|gemini> and --write. Legacy Codex-only install uses --target <path> and --apply. Install defaults to dry-run.');
+    console.log('Usage: loopengine <init|install|uninstall|validate|verify|baseline|eval|doctor|diff|rollback> [--project path] [--target codex|claude|gemini] [--profile minimal|core|full|docs-only] [--modules list] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--force] [--upgrade] [--confirm-red-zone] [--allow-manual] [--allow-degraded]');
+    console.log('All project commands use --project <path>; --target selects an adapter and --write performs mutations. Legacy --apply and path-valued --target are removed.');
   }
 }
 

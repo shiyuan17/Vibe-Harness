@@ -395,7 +395,7 @@ test('MCP configuration conflicts tell summary users to resolve the duplicate se
       { env: offlineEnv, timeout: 120_000 },
     );
     const summary = await runCliSummary(
-      ['doctor', '--target', targetDir, '--profile', 'full', '--allow-degraded', '--output', 'summary'],
+      ['doctor', '--project', targetDir, '--profile', 'full', '--allow-degraded', '--output', 'summary'],
       { env: offlineEnv },
     );
 
@@ -490,9 +490,9 @@ test('full write degrades unavailable tools and rollback removes only the manage
     assert.equal(validation.ok, false);
     assert.equal(validation.warnings.length > 0, true);
 
-    const failedDoctor = await runCliFailure(['doctor', '--target', targetDir, '--profile', 'full'], { env: offlineEnv });
+    const failedDoctor = await runCliFailure(['doctor', '--project', targetDir, '--profile', 'full'], { env: offlineEnv });
     assert.equal(failedDoctor.code, 2);
-    const doctor = await runCli(['doctor', '--target', targetDir, '--profile', 'full', '--allow-degraded'], { env: offlineEnv });
+    const doctor = await runCli(['doctor', '--project', targetDir, '--profile', 'full', '--allow-degraded'], { env: offlineEnv });
     assert.equal(doctor.status, 'degraded');
     assert.equal(doctor.ok, false);
     const degradedRecommendation = doctor.recommendations.find(
@@ -504,7 +504,7 @@ test('full write degrades unavailable tools and rollback removes only the manage
     assert.equal(JSON.stringify(degradedRecommendation).includes(targetDir), false);
 
     const summary = await runCliSummary(
-      ['doctor', '--target', targetDir, '--profile', 'full', '--allow-degraded', '--output', 'summary'],
+      ['doctor', '--project', targetDir, '--profile', 'full', '--allow-degraded', '--output', 'summary'],
       { env: offlineEnv },
     );
     assert.match(summary, /tool: codebaseMemoryMcp/u);
@@ -512,7 +512,7 @@ test('full write degrades unavailable tools and rollback removes only the manage
     assert.match(summary, /reason: npm error request .*cache mode is 'only-if-cached'/u);
     assert.match(summary, /next: loopengine install --project <project> --target codex --profile full --write --confirm-red-zone/u);
 
-    await runCli(['rollback', '--target', targetDir, '--apply', '--confirm-red-zone'], { env: offlineEnv });
+    await runCli(['rollback', '--project', targetDir, '--write', '--confirm-red-zone'], { env: offlineEnv });
     const rolledBack = await readFile(configPath, 'utf8');
     assert.equal(rolledBack.includes('model = "gpt-5"'), true);
     assert.equal(rolledBack.includes('# LOOPENGINE:MCP:START'), false);

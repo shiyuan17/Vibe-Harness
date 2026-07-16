@@ -288,13 +288,13 @@ test('doctor summarizes unmanaged files by default and shows full list only when
     await writeFile(path.join(target, 'local-a.txt'), 'a\n', 'utf8');
     await writeFile(path.join(target, 'local-b.txt'), 'b\n', 'utf8');
 
-    const report = await runCli(['doctor', '--target', target, '--profile', 'minimal']);
+    const report = await runCli(['doctor', '--project', target, '--profile', 'minimal']);
     assert.equal(typeof report.target.summary.unmanagedCount, 'number');
     assert.equal(report.target.summary.unmanagedCount >= 2, true);
     assert.equal(Array.isArray(report.target.summary.samples.unmanaged), true);
     assert.equal(Object.hasOwn(report.target, 'unmanaged'), false);
 
-    const verbose = await runCli(['doctor', '--target', target, '--profile', 'minimal', '--verbose']);
+    const verbose = await runCli(['doctor', '--project', target, '--profile', 'minimal', '--verbose']);
     assert.equal(Array.isArray(verbose.target.unmanaged), true);
     assert.equal(verbose.target.unmanaged.some((item) => item.target === 'local-a.txt'), true);
   } finally {

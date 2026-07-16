@@ -16,9 +16,9 @@ const rootDir = path.resolve('.');
 test('target inspection reports missing files and red-zone status for an empty target', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-target-empty-'));
   try {
-    const report = await inspectTargetInstall({ profile: 'codex-internal', rootDir, targetDir: target });
+    const report = await inspectTargetInstall({ profile: 'full', rootDir, targetDir: target });
 
-    assert.equal(report.profile, 'codex-internal');
+    assert.equal(report.profile, 'full');
     assert.ok(report.missing.some((item) => item.target.endsWith('AGENTS.md')));
     assert.ok(report.redZone.some((item) => item.target === '.codex/hooks.json' && item.status === 'missing'));
     assert.equal(report.ok, false);
@@ -32,7 +32,7 @@ test('target inspection reports conflicts when existing target content differs',
   try {
     await writeFile(path.join(target, 'AGENTS.md'), 'project-owned content\n', 'utf8');
 
-    const report = await inspectTargetInstall({ profile: 'codex-minimal', rootDir, targetDir: target });
+    const report = await inspectTargetInstall({ profile: 'minimal', rootDir, targetDir: target });
 
     assert.ok(report.conflicts.some((item) => item.target.endsWith('AGENTS.md')));
     assert.equal(report.ok, false);
@@ -41,28 +41,30 @@ test('target inspection reports conflicts when existing target content differs',
   }
 });
 
-test('CLI validate --target passes after a real install and reports Chinese template content', async () => {
+test('CLI validate --project passes after a real install and reports Chinese template content', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-target-installed-'));
   try {
+    const cliPath = path.join(rootDir, 'scripts/loopengine.js');
+    await execFileAsync(process.execPath, [cliPath, 'init', '--project', target, '--target', 'codex', '--profile', 'full']);
     await execFileAsync(process.execPath, [
-      path.join(rootDir, 'scripts/loopengine.js'),
+      cliPath,
       'install',
-      '--target',
+      '--project',
       target,
+      '--target',
+      'codex',
       '--profile',
-      'codex-internal',
-      '--apply',
+      'full',
+      '--write',
       '--confirm-red-zone',
       '--allow-degraded',
     ]);
 
     const { stdout } = await execFileAsync(process.execPath, [
-      path.join(rootDir, 'scripts/loopengine.js'),
+      cliPath,
       'validate',
-      '--target',
+      '--project',
       target,
-      '--profile',
-      'codex-internal',
       '--allow-degraded',
     ]);
 
@@ -71,7 +73,7 @@ test('CLI validate --target passes after a real install and reports Chinese temp
 
     assert.equal(report.ok, false);
     assert.equal(report.status, 'degraded');
-    assert.deepEqual(report.missing, []);
+    assert.equal(report.scope, 'project');
     assert.equal(taskTemplate.includes('工作流档位'), true);
     assert.equal(taskTemplate.includes('当前阶段'), true);
     assert.equal(taskTemplate.includes('完整流程控制'), true);

@@ -3,6 +3,7 @@ import { copyFile, mkdir, readFile, readdir, rm, rmdir, writeFile } from 'node:f
 import path from 'node:path';
 
 import { assertInsideDir, assertPortableRelativePath, pathExists, readJson } from './manifest.js';
+import { canonicalProfile } from './project-config.js';
 import { extractManagedInstructionBlock, removeManagedInstructionBlock } from './template-renderer.js';
 import { extractManagedMcpBlock, removeManagedMcpBlock } from './tool-provisioning.js';
 
@@ -32,7 +33,7 @@ export async function readInstallState(targetDir) {
     return null;
   }
   const state = await readJson(filePath);
-  return { adapter: 'codex', ...state };
+  return { adapter: 'codex', ...state, profile: canonicalProfile(state.profile) };
 }
 
 export async function writeInstallState(targetDir, state) {

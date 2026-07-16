@@ -5,7 +5,7 @@
       "id": "codex",
       "installMap": "adapters/codex/install-map.json",
       "instructionTarget": "AGENTS.md",
-      "supportedProfiles": ["minimal", "core", "full", "codex-internal", "codex-minimal", "docs-only"],
+      "supportedProfiles": ["minimal", "core", "full", "docs-only"],
       "capabilities": { "instructions": true, "skills": true, "mcp": true, "hooks": true },
       "redZonePrefixes": [".codex/"]
     },

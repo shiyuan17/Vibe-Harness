@@ -68,7 +68,7 @@ export function createToolProvisioningPlan({ profile, resolvedModules, targetDir
   if (profile === 'core') {
     return [resolveToolSpec(toolSpecs[1], targetDir, 'lazy')];
   }
-  if (!['full', 'codex-internal'].includes(profile)) {
+  if (profile !== 'full') {
     return [];
   }
   return toolSpecs.map((spec) => resolveToolSpec(spec, targetDir));
