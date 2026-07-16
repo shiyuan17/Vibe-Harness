@@ -1,1 +1,0 @@
-{"id":"requesting-code-review","kind":"core","entry":"SKILL.md","triggers":["请求审查","subagent 审查","合并前"],"outputs":["审查请求"]}

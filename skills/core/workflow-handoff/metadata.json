@@ -1,1 +1,0 @@
-{"id":"workflow-handoff","kind":"core","entry":"SKILL.md","triggers":["交接","暂停工作","转交上下文"],"outputs":["handoff packet"]}

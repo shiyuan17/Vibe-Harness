@@ -11,7 +11,7 @@ description: Use when a feature spans multiple repositories or services and must
 
 ## 执行
 
-1. 用 `api-contract-check` 锁定字段、状态、错误、权限和兼容策略。
+1. 用 `api-and-interface-design` 锁定字段、状态、错误、权限和兼容策略。
 2. 按仓库划分写入范围、依赖顺序、独立验证和 merge-back 责任。
 3. 先验证提供方契约，再接线消费方；不以 mock 通过代替真实接口证据。
 4. 收集接口、日志、测试和必要的浏览器证据。

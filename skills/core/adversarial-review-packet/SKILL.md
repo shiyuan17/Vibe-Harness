@@ -15,6 +15,6 @@ description: Use when Full or high-risk changes require an independent Red Team 
 
 并行核对正确性与边界、安全/滥用路径、架构依赖、测试有效性、发布/回滚、治理合规；涉及 UI 或外部契约时再核对浏览器运行时和契约证据。先报告 findings，按严重度给出位置、触发方式、影响和最小修复方向。
 
-优先使用 `open-code-review` 获取第二视角，并以 `code-review-and-quality` 统一判定；工具不可用时回退到独立人工审查，记录原因与未覆盖轴。`Critical`/`High` 必须修复；`Medium` 必须修复或完成结构化延期。证据、红区确认或必需审查轴缺失时结论不得为“批准”。
+优先按 `code-review-and-quality` 的 OCR 检测和 fallback 获取第二视角；工具不可用时回退到独立人工审查，记录原因与未覆盖轴。`Critical`/`High` 必须修复；`Medium` 必须修复或完成结构化延期。证据、红区确认或必需审查轴缺失时结论不得为“批准”。
 
 任务完成前将控制块中的 `红队审查者`、`红队审查包` 和 `红队审查结论` 与实际审查包同步；只有“批准”可通过治理门禁。

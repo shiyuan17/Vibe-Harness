@@ -13,14 +13,22 @@ import { runSkillsAudit } from '../scripts/lib/skills-audit.js';
 const rootDir = path.resolve('.');
 const execFileAsync = promisify(execFile);
 const prunedSkillIds = [
+  'api-contract-check',
   'browser-testing-with-devtools',
   'code-simplification',
   'commit-history',
   'commit-context',
   'debugging-and-error-recovery',
+  'frontend-implementation-check',
+  'grill-me',
   'review-checklist',
   'frontend-ui-engineering',
   'documentation-and-adrs',
+  'open-code-review',
+  'requesting-code-review',
+  'skill-authoring-check',
+  'task-decomposition',
+  'workflow-handoff',
   'worktree-mergeback-check',
   'git-delivery-batcher',
   'release-checklist',
@@ -133,7 +141,7 @@ test('current skill catalog is closed for every installable profile', async () =
     [],
   );
 
-  for (const profile of ['minimal', 'core', 'full', 'codex-internal']) {
+  for (const profile of ['minimal', 'core', 'full']) {
     const plan = await createInstallPlan({ dryRun: true, profile, rootDir, targetDir: rootDir });
     const installed = new Set(plan.actions
       .map((entry) => entry.relativeTarget.replaceAll('\\', '/'))
@@ -163,7 +171,7 @@ test('all source-project routed skills are bundled under compatible ids', async 
   const manifest = await readJson(path.join(rootDir, 'manifests/skills.json'));
   const ids = new Set(manifest.items.map((item) => item.id));
   const expected = [
-    'executing-plans', 'grill-me', 'security-and-hardening', 'frontend-design',
+    'executing-plans', 'security-and-hardening', 'frontend-design',
     'adversarial-review-packet', 'runtime-cross-repo-rollout',
   ];
 
@@ -185,13 +193,13 @@ test('skill graph rejects missing or mismatched frontmatter', async () => {
 });
 
 test('Red Team review skill is available to every profile with task runtime', async () => {
-  for (const profile of ['core', 'full', 'codex-internal']) {
+  for (const profile of ['core', 'full']) {
     const plan = await createInstallPlan({ dryRun: true, profile, rootDir, targetDir: rootDir });
     const targets = new Set(plan.actions.map((entry) => entry.relativeTarget.replaceAll('\\', '/')));
     assert.equal(targets.has('.agents/skills/adversarial-review-packet/SKILL.md'), true, `${profile} should install Red Team review`);
     assert.equal(targets.has('.agents/skills/adversarial-review-packet/references/review.md'), true, `${profile} should install Red Team template`);
   }
-  for (const profile of ['minimal', 'codex-minimal', 'docs-only']) {
+  for (const profile of ['minimal', 'docs-only']) {
     const plan = await createInstallPlan({ dryRun: true, profile, rootDir, targetDir: rootDir });
     const targets = new Set(plan.actions.map((entry) => entry.relativeTarget.replaceAll('\\', '/')));
     assert.equal(targets.has('.agents/skills/adversarial-review-packet/SKILL.md'), false, `${profile} should not install executable Red Team skill`);
@@ -202,19 +210,26 @@ test('pruned thin skills are absent from manifest, install map, and install plan
   const manifest = await readJson(path.join(rootDir, 'manifests/skills.json'));
   const installMap = await readJson(path.join(rootDir, 'adapters/codex/install-map.json'));
   const ids = new Set(manifest.items.map((item) => item.id));
-  const installSourcesAndTargets = installMap.entries.flatMap((entry) => [entry.source, entry.target]);
+  const installedSkillPaths = installMap.entries
+    .filter((entry) => entry.source.startsWith('skills/') || entry.target.startsWith('.agents/skills/'))
+    .flatMap((entry) => [entry.source, entry.target]);
 
   for (const id of prunedSkillIds) {
     assert.equal(ids.has(id), false, `${id} should not remain in manifest`);
-    assert.equal(installSourcesAndTargets.some((value) => value.includes(id)), false, `${id} should not remain in install-map`);
+    assert.equal(installedSkillPaths.some((value) => value.includes(id)), false, `${id} should not remain in skill install-map`);
   }
 
-  for (const profile of ['core', 'full', 'codex-internal']) {
+  for (const profile of ['core', 'full']) {
     const plan = await createInstallPlan({ dryRun: true, profile, rootDir, targetDir: rootDir });
     const plannedTargets = plan.actions.map((entry) => entry.relativeTarget.replaceAll('\\', '/'));
     for (const id of prunedSkillIds) {
       assert.equal(plannedTargets.some((target) => target.includes(`/.agents/skills/${id}/`) || target.includes(`.agents/skills/${id}/`)), false, `${profile} should not install ${id}`);
     }
+  }
+
+  const baselineSource = await readFile(path.join(rootDir, 'scripts/lib/project-baseline.js'), 'utf8');
+  for (const id of ['requesting-code-review', 'workflow-handoff']) {
+    assert.equal(baselineSource.includes(`'${id}'`), false, `${id} should not be recommended by project baseline`);
   }
 });
 
@@ -296,9 +311,9 @@ test('skill entrypoints stay within progressive-disclosure line budgets', async 
 
 test('skills audit report derives inventory counts from the manifest', async () => {
   const { stdout } = await execFileAsync(process.execPath, ['scripts/skills-audit.js'], { cwd: rootDir });
-  assert.match(stdout, /总数：26/);
-  assert.match(stdout, /native：22/);
-  assert.match(stdout, /integration：3/);
+  assert.match(stdout, /总数：18/);
+  assert.match(stdout, /native：15/);
+  assert.match(stdout, /integration：2/);
   assert.match(stdout, /router：1/);
   assert.match(stdout, /compatibility：0/);
   assert.match(stdout, /最长入口：`api-and-interface-design`（7[0-9] 行）/);
@@ -329,8 +344,45 @@ test('external integration skills document usable and unavailable paths', async 
     const item = manifest.items.find((candidate) => candidate.id === id);
     return readFile(path.join(rootDir, item.source), 'utf8');
   };
-  assert.match(await readSkill('open-code-review'), /ocr llm test[\s\S]*回退/u);
+  assert.match(await readSkill('code-review-and-quality'), /ocr llm test[\s\S]*回退/u);
   assert.match(await readSkill('agentmemory'), /MCP[\s\S]*HTTP API[\s\S]*回退/u);
   assert.match(await readSkill('agentmemory'), /memory_commits[\s\S]*memory_commit_lookup[\s\S]*git show/u);
   assert.match(await readSkill('browser-verification'), /Playwright CLI[\s\S]*DevTools MCP[\s\S]*回退/u);
+});
+
+test('core and full install only the streamlined skill sets', async () => {
+  const expectedCore = new Set([
+    'adversarial-review-packet',
+    'api-and-interface-design',
+    'brainstorming',
+    'browser-verification',
+    'code-review-and-quality',
+    'eval-driven-development',
+    'executing-plans',
+    'security-and-hardening',
+    'systematic-debugging',
+    'test-driven-development',
+    'using-loopengine',
+    'verification-before-completion',
+    'writing-plans',
+  ]);
+  const expectedFullOnly = new Set([
+    'agentmemory',
+    'frontend-design',
+    'loop-planning',
+    'runtime-cross-repo-rollout',
+    'subagent-driven-development',
+  ]);
+
+  for (const [profile, expected] of [
+    ['core', expectedCore],
+    ['full', new Set([...expectedCore, ...expectedFullOnly])],
+  ]) {
+    const plan = await createInstallPlan({ dryRun: true, profile, rootDir, targetDir: rootDir });
+    const installed = new Set(plan.actions
+      .map((entry) => entry.relativeTarget.replaceAll('\\', '/'))
+      .filter((target) => /^\.agents\/skills\/[^/]+\/SKILL\.md$/u.test(target))
+      .map((target) => target.split('/')[2]));
+    assert.deepEqual(installed, expected, `${profile} installed skill set`);
+  }
 });

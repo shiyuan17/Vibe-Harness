@@ -22,13 +22,12 @@ test('agent skill routing policy preserves governance priority and lifecycle rou
     'Clarify',
     'Spec',
     'Plan',
-    'Tasks',
     'Execute',
     'Verify',
     'Review',
     'Handoff',
     'Retrospective',
-    'OpenCodeReview',
+    'ocr',
     'fallback',
     'Memory',
     'using-loopengine',
@@ -61,7 +60,7 @@ test('agent skill routing policy is registered, installable, and tracked by capa
 });
 
 test('all profiles install the routing policy while only skill profiles install the router', async () => {
-  for (const profile of ['minimal', 'core', 'full', 'codex-minimal', 'codex-internal', 'docs-only']) {
+  for (const profile of ['minimal', 'core', 'full', 'docs-only']) {
     const plan = await createInstallPlan({
       dryRun: true,
       profile,
@@ -72,7 +71,7 @@ test('all profiles install the routing policy while only skill profiles install 
     assert.equal(targets.has(routingRuleTarget), true, `${profile} should install the routing policy`);
     assert.equal(
       targets.has('.agents/skills/using-loopengine/SKILL.md'),
-      !['minimal', 'codex-minimal', 'docs-only'].includes(profile),
+      !['minimal', 'docs-only'].includes(profile),
       `${profile} router installation should match its skill surface`,
     );
   }

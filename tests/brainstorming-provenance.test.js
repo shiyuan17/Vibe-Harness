@@ -40,18 +40,10 @@ test('brainstorming assets contain no external provenance or legacy paths', asyn
 });
 
 test('brainstorming paths and branding are project-local and generic', async () => {
-  const [skill, visualGuide, startScript, server, frame] = await Promise.all([
-    readFile(path.join(brainstormingDir, 'SKILL.md'), 'utf8'),
-    readFile(path.join(brainstormingDir, 'visual-companion.md'), 'utf8'),
-    readFile(path.join(brainstormingDir, 'scripts/start-server.sh'), 'utf8'),
-    readFile(path.join(brainstormingDir, 'scripts/server.cjs'), 'utf8'),
-    readFile(path.join(brainstormingDir, 'scripts/frame-template.html'), 'utf8'),
-  ]);
+  const skill = await readFile(path.join(brainstormingDir, 'SKILL.md'), 'utf8');
+  const files = await collectFiles(brainstormingDir);
 
   assert.match(skill, /docs\/specs\/YYYY-MM-DD-<topic>-design\.md/u);
-  assert.match(visualGuide, /\.loopengine\/brainstorm/u);
-  assert.match(startScript, /\.loopengine\/brainstorm/u);
-  assert.match(server, /Brainstorm Companion/u);
-  assert.doesNotMatch(server, /https:\/\//u);
-  assert.doesNotMatch(frame, /brand-logo/u);
+  assert.doesNotMatch(skill, /visual companion|浏览器辅助/u);
+  assert.equal(files.some((file) => file.includes('visual-companion') || file.includes(`${path.sep}scripts${path.sep}`)), false);
 });
