@@ -38,4 +38,4 @@ node .agents/loopengine/tools/playwright-cli/run.mjs -s=task-ui close
 
 ## 回退
 
-CLI 返回非零时先保留错误码并运行 doctor。若错误来自依赖或 Chromium 准备，重试一次；仍失败则使用可用的 DevTools MCP 完成同一验收矩阵。MCP 不可用时给出人工步骤和未验证证据，不能把缺少工具描述为测试通过。
+CLI 返回非零时先保留错误码并运行 doctor。若错误来自依赖或 Chromium 准备，重试一次；仍失败则给出同一验收矩阵的人工浏览器步骤和未验证证据，不能把缺少工具描述为测试通过。

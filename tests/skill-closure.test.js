@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
@@ -56,6 +56,20 @@ function skill(id, overrides = {}) {
     requiresTools: [],
     ...overrides,
   };
+}
+
+async function filesUnder(directory) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name !== 'node_modules') files.push(...await filesUnder(entryPath));
+      continue;
+    }
+    files.push(entryPath);
+  }
+  return files;
 }
 
 test('skill graph rejects missing dependencies, invalid aliases, and missing fallbacks', async () => {
@@ -347,7 +361,21 @@ test('external integration skills document usable and unavailable paths', async 
   assert.match(await readSkill('code-review-and-quality'), /ocr llm test[\s\S]*回退/u);
   assert.match(await readSkill('agentmemory'), /MCP[\s\S]*HTTP API[\s\S]*回退/u);
   assert.match(await readSkill('agentmemory'), /memory_commits[\s\S]*memory_commit_lookup[\s\S]*git show/u);
-  assert.match(await readSkill('browser-verification'), /Playwright CLI[\s\S]*DevTools MCP[\s\S]*回退/u);
+  const browserVerification = await readSkill('browser-verification');
+  assert.match(browserVerification, /Playwright CLI[\s\S]*人工浏览器步骤/u);
+  assert.doesNotMatch(browserVerification, /DevTools MCP|browser MCP/iu);
+});
+
+test('active installable assets do not depend on retired environment-provided capabilities', async () => {
+  const roots = ['rules', 'skills', 'manifests', 'adapters', 'runtime'];
+  const forbidden = /DevTools MCP|browser MCP|browser-testing-with-devtools|`impeccable`|`taste-skill`|环境提供的/iu;
+  for (const root of roots) {
+    for (const file of await filesUnder(path.join(rootDir, root))) {
+      if (!['.js', '.json', '.md', '.mjs', '.toml', '.ts', '.yaml', '.yml'].includes(path.extname(file))) continue;
+      const content = await readFile(file, 'utf8');
+      assert.doesNotMatch(content, forbidden, path.relative(rootDir, file));
+    }
+  }
 });
 
 test('core and full install only the streamlined skill sets', async () => {

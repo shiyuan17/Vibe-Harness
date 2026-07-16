@@ -5,13 +5,12 @@ description: 使用项目内 Playwright CLI 或真实浏览器验证页面交互
 
 # 浏览器验证
 
-优先使用 LoopEngine 管理的 Playwright CLI 做可重复自动化；CLI 不可用时使用现有 DevTools MCP；两者都不可用时回退到明确的人工浏览器步骤。不要只凭静态代码声称界面正确。
+优先使用 LoopEngine 管理的 Playwright CLI 做可重复自动化；CLI 不可用时回退到明确的人工浏览器步骤。不要只凭静态代码声称界面正确。
 
 ## 入口选择
 
 1. 若存在 `.agents/loopengine/tools/playwright-cli/run.mjs`，使用项目内 CLI。首次调用会在隔离工具目录准备固定版本 CLI 和 Chromium，不修改业务 `package.json`。
-2. CLI 准备或执行失败时，记录退出码和失败阶段，再使用可用的 DevTools MCP。
-3. DevTools MCP 也不可用时，列出 URL、视口、操作、预期结果，以及未采集的 console、network、截图或 trace 证据。
+2. CLI 准备或执行失败时，记录退出码和失败阶段，并列出 URL、视口、操作、预期结果，以及未采集的 console、network、截图或 trace 证据，交由人工浏览器验证。
 
 完整命令和证据采集方式见 `references/cli.md`。
 

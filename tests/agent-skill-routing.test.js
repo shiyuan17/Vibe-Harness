@@ -34,9 +34,12 @@ test('agent skill routing policy preserves governance priority and lifecycle rou
   ]) {
     assert.equal(rule.includes(term), true, `routing policy should document ${term}`);
   }
-  assert.match(rule, /营销.*`taste-skill`/u);
-  assert.match(rule, /产品 UI.*`impeccable`/u);
+  assert.match(rule, /产品 UI.*`frontend-design`.*产品、后台与工具/u);
+  assert.match(rule, /营销.*`frontend-design`.*营销、品牌与作品集/u);
   assert.match(rule, /方向不明确.*`frontend-design`/u);
+  assert.match(rule, /Architecture.*架构规则.*`code-review-and-quality`/u);
+  assert.match(rule, /Memory 续接.*`agentmemory`.*本地任务与 handoff 文档/u);
+  assert.doesNotMatch(rule, /环境提供|`impeccable`|`taste-skill`|recall\/handoff\/session-history/u);
 });
 
 test('agent skill routing policy is registered, installable, and tracked by capability evidence', async () => {

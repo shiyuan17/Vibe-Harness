@@ -5,7 +5,7 @@ Skill 只补强任务 Workflow，不得覆盖目标项目 `AGENTS.md`、治理�
 ## 选择原则
 
 - 常规任务最多选择一个流程 Skill、一个领域 Skill和一个验证或审查 Skill；设计任务只选择一个主设计 Skill。
-- LoopEngine manifest 中登记并由当前 profile 安装的是内置 canonical Skill。本文提到的其他名称仅是环境提供的路由示例，不代表 LoopEngine 已捆绑或目标项目可以调用。
+- LoopEngine manifest 中登记并由当前 profile 安装的是内置 canonical Skill。路由表只使用这些 Skill、明确安装的项目内工具或本地治理规则。
 - 不引用或假定未安装的 Skill。首选能力不可用时必须记录原因、缺失的覆盖轴和 fallback，再使用已安装的等价 Skill、对应治理规则、项目命令或人工核验。
 - 红区、权限、数据、构建发布、不可逆操作和范围扩大仍按目标项目治理要求升级确认，使用 Skill 不降低门禁。
 - Review 统一进入 `code-review-and-quality`；该入口可检测项目内 `ocr` 工具并在可用时获取第二视角，CLI、LLM 或凭据不可用时回退到本地或人工审查。实现者不得因此自批高风险变更。
@@ -27,15 +27,15 @@ Skill 只补强任务 Workflow，不得覆盖目标项目 `AGENTS.md`、治理�
 
 | 场景 | 领域能力 | 验证 |
 | --- | --- | --- |
-| 产品 UI、后台、表单、设置与界面 polish | 环境提供的 `impeccable` | `browser-verification` 或人工浏览器证据 |
-| 营销、品牌、作品集与视觉 redesign | 环境提供的 `taste-skill` | 浏览器和多视口证据 |
+| 产品 UI、后台、表单、设置与界面 polish | `frontend-design` 的产品、后台与工具模式 | `browser-verification` 或人工浏览器证据 |
+| 营销、品牌、作品集与视觉 redesign | `frontend-design` 的营销、品牌与作品集模式 | 浏览器和多视口证据 |
 | 泛设计提升且页面方向不明确 | `frontend-design` | `browser-verification` 或人工浏览器证据 |
 | API 与跨仓契约 | `api-and-interface-design` | `code-review-and-quality` 和契约证据 |
 | Security | `security-and-hardening` | 独立安全/质量审查 |
-| Architecture | 对应架构规则或环境提供的简化 Skill | `code-review-and-quality` |
+| Architecture | 对应架构规则 | `code-review-and-quality` |
 | Debug | `systematic-debugging` | 回归测试和根因证据 |
 | Agent 规则、Skill、模板、适配器、Hook 或提示行为 | `eval-driven-development` | reference matched 的评测运行证据 |
-| Memory 续接 | full profile 的 agentmemory 能力或环境提供的 recall/handoff/session-history | 无工具时回退本地任务与 handoff 文档 |
+| Memory 续接 | full profile 的 `agentmemory` | 无工具时回退本地任务与 handoff 文档 |
 
 ## 执行入口
 
