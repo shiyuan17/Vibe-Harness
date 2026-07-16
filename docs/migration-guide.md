@@ -61,30 +61,23 @@ git diff --check
 
 ## Agentmemory Skills
 
-`full` / `codex-internal` 只安装 `.agents/skills/agentmemory/` 一个 skill。`handoff`、`recall`、`remember`、`forget`、`recap`、`session-history` 已收敛为该目录下按需读取的 references，不再占用顶层 skill ID；提交历史和提交上下文也由同一入口处理。目标项目没有记忆工具时，Agent 必须说明不可用并回退到本地 handoff 或任务 intake。`core` 不包含 agentmemory MCP 安装面。
+`full` 只安装 `.agents/skills/agentmemory/` 一个 skill。`handoff`、`recall`、`remember`、`forget`、`recap`、`session-history` 已收敛为该目录下按需读取的 references，不再占用顶层 skill ID；提交历史和提交上下文也由同一入口处理。目标项目没有记忆工具时，Agent 必须说明不可用并回退到本地 handoff 或任务 intake。`core` 不包含 agentmemory MCP 安装面。
 
-从旧版 `full` 升级时先 dry-run 审查六个 `retire` 动作。MVP 生命周期使用：
+从旧版安装升级时先 dry-run 审查 retire 动作：
 
 ```bash
 pnpm loopengine install --project ../target-project --target codex --profile full --dry-run --upgrade
 pnpm loopengine install --project ../target-project --target codex --profile full --write --upgrade --confirm-red-zone
 ```
 
-legacy/internal 生命周期使用：
-
-```bash
-pnpm loopengine install --target ../target-project --profile codex-internal --dry-run --upgrade
-pnpm loopengine install --target ../target-project --profile codex-internal --apply --upgrade --confirm-red-zone
-```
-
-只有旧 `.loopengine/install-state.json` 明确记录且 hash 未变化的入口会被备份和删除。用户修改、未受管或已缺失的旧入口不会被自动删除；真实退役记录写入 `retiredFiles`，可由现有 `rollback` 生命周期恢复。
+只有旧 `.loopengine/install-state.json` 明确记录且 hash 未变化的入口会被备份和删除。`codex-internal` 会归一为 `full`，`codex-minimal` 会归一为 `minimal`；用户修改、未受管或已缺失的旧入口不会被自动删除，真实退役记录写入 `retiredFiles`，可由 `rollback --project <path> --write` 恢复。
 
 ## v0.3 升级
 
 - Profile 文件集合有意调整：`core` 不再包含 `rules-full`、`skills-full` 或 memory/full 专属组；`manifests/profiles.json` 成为唯一能力真值。升级前应 dry-run 并审查移除项。
 - install/validate/doctor 采用统一健康状态：ready 退出 0、invalid 退出 1、degraded 退出 2；自动化若接受能力降级需显式增加 `--allow-degraded`，但仍应读取 `status` 与 warnings。
 - install state 新增 `adapter`。旧 schemaVersion 1 状态缺少该字段时迁移为 Codex，不重写未变化文件；upgrade/uninstall 的 adapter 必须与原安装一致。
-- Claude/Gemini adapter 只提供项目级原生 instructions/skills，并支持 `minimal/core/docs-only`；请求 full 会明确失败。legacy/internal 仍只接受 Codex 路径语义。
+- Claude/Gemini adapter 只提供项目级原生 instructions/skills，并支持 `minimal/core/docs-only`；请求 full 会明确失败。
 
 - 所有 profile 从 `minimal` 起新增受管文件 `docs/rules/AGENT_SKILL_ROUTING.md`；它是 Skill 选择与降级政策真值，`using-loopengine` 仍是安装 Skills 后的执行入口。升级前使用 `diff` 检查目标项目是否已有同名文件；默认拒绝覆盖，确认替换时使用 `--force` 生成备份，失败后沿用现有 `rollback`。
 - `core` 新增中文 Markdown 任务校验器、完整流程控制 schema 与 `.agents/skills/using-loopengine/`。
@@ -104,7 +97,7 @@ pnpm loopengine install --target ../target-project --profile codex-internal --ap
 - Skill manifest 新增 `kind`、`requiresSkills`、`optionalSkills`、`requiresTools` 和可选 `canonicalId`。自定义 manifest 条目必须补齐这些字段。
 - core 新增 `executing-plans`、结构化追问、UI、安全、Red Team、精简、文档、Git 交付及调试/浏览器兼容入口；full 新增三类设计入口和跨仓 rollout。
 - 薄包装和兼容 ID 已删除；调试使用 `systematic-debugging`，浏览器验证使用 `browser-verification`，规则类检查使用对应 `docs/rules/*.md` 或 canonical skill。
-- `full` / `codex-internal` 现在捆绑固定版本的 codebase-memory、Playwright CLI、Open Code Review 和 Agentmemory stdio MCP runtime，并在真实安装后初始化。`core` 仍只安装懒加载 Playwright bootstrap。
+- `full` 现在捆绑固定版本的 codebase-memory、Playwright CLI、Open Code Review 和 Agentmemory stdio MCP runtime，并在真实安装后初始化。`core` 仍只安装懒加载 Playwright bootstrap。
 - 新增 `.codex/config.toml` LoopEngine MCP 受管块；它与 `.codex/hooks.json` 一样属于红区，真实写入需要确认。同名非受管 MCP 表不会被覆盖，而是报告 degraded。
 - OCR 凭据只从进程环境读取；缺失时状态为 `pending-config`。升级前先 dry-run 审查新增下载与项目磁盘占用。
 - 升级前运行 `loopengine diff`；使用 `install --upgrade` 安装新增受管文件。用户修改过的文件仍需 `--force` 才会备份并替换，失败时使用现有 `rollback` 生命周期恢复。

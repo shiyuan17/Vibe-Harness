@@ -9,8 +9,8 @@ LoopEngine 是跨平台、Codex 完整能力优先的可复用 AI coding governa
 - `skills/`：`using-loopengine` 负责路由，canonical skills 按需提供规格、计划、实现、验证、审查和恢复流程。
 - `runtime/governance/`：解析 `docs/tasks/*.md`，校验中文字段、AC-ID、完成证据、完整流程控制块和结构化 Red Team 审查包。
 - `runtime/hooks/`：规范化 Codex 事件并执行可移植的安全、上下文和完成策略。
-- `runtime/evals/`：提供项目内离线评测 runtime 和 full/internal 使用的 Codex 在线 runner；runner 只在一次性项目中执行。
-- `runtime/tools/`：四个固定版本的项目内工具 bootstrap；full/internal 由统一 provisioner 安装、初始化和检查。
+- `runtime/evals/`：提供项目内离线评测 runtime 和 full 使用的 Codex 在线 runner；runner 只在一次性项目中执行。
+- `runtime/tools/`：四个固定版本的项目内工具 bootstrap；full 由统一 provisioner 安装、初始化和检查。
 - `scripts/lib/project-baseline.js`：汇总项目画像、安装状态、验证摘要、drift 和后续工作流，生成受管 JSON/Markdown 基线。
 - `adapters/codex/`：包含精简 AGENTS 模板、共享 install map 和官方 PascalCase Codex hook 配置。
 - `adapters/claude/`、`adapters/gemini/`：包含项目级 `CLAUDE.md` / `GEMINI.md` 模板；Skills target 由 adapter catalog 转换。
@@ -22,10 +22,10 @@ LoopEngine 是跨平台、Codex 完整能力优先的可复用 AI coding governa
 
 1. `loopengine init --project <path> --target <codex|claude|gemini>` 创建项目配置。
 2. `loopengine install --project <path> --target <adapter> --profile <profile> --dry-run` 只预览；CLI target 与配置不一致时拒绝执行。
-3. MVP 使用 `--write` 写入；legacy/internal 使用 `--apply --confirm-red-zone`。
-4. Codex full/internal 写入完成后初始化四组件；失败记录为 degraded 并继续其他组件，同时将最新一条脱敏的阶段、错误码、退出码和限长输出尾部写入工具状态。
+3. 所有 profile 使用 `--write` 写入；Codex full 写入红区另需 `--confirm-red-zone`。
+4. Codex full 写入完成后初始化四组件；失败记录为 degraded 并继续其他组件，同时将最新一条脱敏的阶段、错误码、退出码和限长输出尾部写入工具状态。
 5. `loopengine validate --project <path>` 校验安装一致性和组件状态，不执行目标项目命令。
-6. `loopengine eval check|run|reference --project <path>` 校验、执行和显式批准评测 reference；不支持 legacy `--apply`。
+6. `loopengine eval check|run|reference --project <path>` 校验、执行和显式批准评测 reference。
 7. `loopengine baseline --project <path>` 默认预览双层基线；`--write` 建档，`--verify` 才顺序执行 governance、lint、typecheck 和 eval。
 8. `loopengine verify --project <path>` 顺序执行 governance、lint、typecheck 和 eval。
 
@@ -53,7 +53,6 @@ evaluation reference 与项目 baseline 分离。reference 只保存批准的 fi
 - minimal：最小安装，包含平台入口、治理内核、Git/VCS/Test 规则和中文 task/delivery 模板，不安装 skills、runtime、hook 或 MCP 安装面。
 - core：通用安装，在 minimal 上增加专项规则、中文任务 runtime/schema、`using-loopengine` 和常规 skills；不安装 hook、`codebase-memory-mcp` 或 agentmemory MCP 安装面。
 - full：全安装，在 core 上增加四个项目内工具 runtime、codebase 初始索引、两个 MCP 注册、agentmemory skill、`.agents/memory/` 本地回退库和 Codex hooks；真实写入红区需要确认。
-- codex-internal：兼容全安装入口，等同 full，并保留 legacy/internal 生命周期。
 - docs-only：仅安装平台入口、治理内核、专项规则、中文模板、memory 文档和 schema，不安装 runtime、Skills、MCP 或 hooks。
 
 ## 中文任务数据流

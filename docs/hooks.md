@@ -45,28 +45,22 @@ Codex 会并发启动同一事件的多个匹配 hook，项目 hook 需要通过
 
 ## Git hooks
 
-`full` 和 `codex-internal` 会安装 `.githooks/pre-commit` 与 `.githooks/pre-push`，但不会修改 `.git/config`。确认脚本内容后，仅对当前仓库显式启用：
+`full` 会安装 `.githooks/pre-commit` 与 `.githooks/pre-push`，但不会修改 `.git/config`。确认脚本内容后，仅对当前仓库显式启用：
 
 ```bash
 git config --local core.hooksPath .githooks
 ```
 
-`pre-commit` 只检查 staged diff、敏感信息、生成目录和备份目录，不读取或修改 unstaged 内容。`pre-push` 顺序执行 `loopengine.config.json.validationCommands` 中已配置的 governance、lint 和 typecheck。`loopengine doctor --target <project>` 会报告 active、inactive 或 conflict，但不会修改配置。
+`pre-commit` 只检查 staged diff、敏感信息、生成目录和备份目录，不读取或修改 unstaged 内容。`pre-push` 顺序执行 `loopengine.config.json.validationCommands` 中已配置的 governance、lint 和 typecheck。`loopengine doctor --project <project>` 会报告 active、inactive 或 conflict，但不会修改配置。
 
 Git hooks 可以被本地用户绕过，最终强制策略仍应放在 CI、required checks 和服务端保护中。
 
 ## 安装生命周期
 
-MVP 项目安装使用：
+所有项目安装使用：
 
 ```bash
 pnpm loopengine install --project <project> --target codex --profile full --write --confirm-red-zone
 ```
 
-legacy/internal 安装使用：
-
-```bash
-pnpm loopengine install --target <project> --profile codex-internal --apply --confirm-red-zone
-```
-
-不要把 `--project` 与 legacy `--apply` 语义混用。两条路径都不会写全局 Codex 或 Git 配置，且没有 `--force` 时不会覆盖已有文件。
+不会再解析 `--target <project>` 或 `--apply`；旧项目先运行 `init --project <project>`，再用 `install --upgrade --write` 归一状态。该流程不会写全局 Codex 或 Git 配置，且没有 `--force` 时不会覆盖已有文件。

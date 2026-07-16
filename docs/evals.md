@@ -43,7 +43,7 @@ pnpm loopengine eval run --project ../some-project --mode offline --write
 pnpm loopengine eval reference --project ../some-project --from .loopengine/evals/runs/<run>.json --write --confirm-reference-update
 ```
 
-评测只使用 MVP `--project` 和 `--write`，不支持 legacy `--target <project>` 或 `--apply`。reference 已存在时还需要 `--force`，并在覆盖前创建项目内备份。reference 更新必须单独审查，不能为让变更通过而自动提升基准。
+评测只使用 `--project` 和 `--write`；旧的路径型 `--target` 与 `--apply` 不属于当前生命周期。reference 已存在时还需要 `--force`，并在覆盖前创建项目内备份。reference 更新必须单独审查，不能为让变更通过而自动提升基准。
 
 ## Online Runner
 

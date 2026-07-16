@@ -9,15 +9,16 @@
 - 将常驻治理收敛为“获取事实 → 做出决策 → 执行 → 验证 → 交付”，删除独立 workflows catalog 和重复生命周期规则。
 - 任务真值改为中文 Markdown；完整档位使用中文 JSON 控制块和独立核验门禁。
 - 新增 `using-loopengine` router，模板随 skill 渐进披露；minimal/docs-only 使用短治理内核降级。
-- 统一 MVP `--write` 与 legacy/internal `--apply` 命令边界，并由五步循环按风险路由规格、计划、验证、审查和交接能力。
+- 统一所有项目命令为 `--project` + `--write`；移除 `--apply`、路径型 `--target`、`codex-internal` 和 `codex-minimal`，旧 install-state 在标准升级时归一。
 - task schema 和 full governance validator 增加 AC-ID、验收证据、责任人、确认状态、artifact 存在性和可声明时间盒门禁。
 - Review Packet 对未修复的 Medium finding 强制要求有 owner、关闭条件和批准者的结构化延期。
 - 完整档位任务新增 Red Team 完成门禁、结构化审查包和独立审查者校验；该能力随 core profile 安装，旧开放任务在完成前迁移。
 - 新增 `loopengine verify --project`，显式执行目标项目配置的验证命令，同时保持 `validate --project` 只读。
 - 新增 `loopengine baseline --project`，在安装后生成可比较的 JSON 快照和 Markdown 工作流建议，并支持可选验证与受管回滚。
-- 新增 Failure、Retrospective 模板、双生命周期 smoke script 和 GitHub Actions CI。
-- `browser-verification` 改为项目内 Playwright CLI 优先，core/full/internal 安装隔离的懒加载 Chromium 工具链，并保留 DevTools MCP 与人工回退。
+- 新增 Failure、Retrospective 模板、core/full smoke script 和 GitHub Actions CI。
+- `browser-verification` 改为项目内 Playwright CLI 优先，core/full 安装隔离的懒加载 Chromium 工具链，并保留 DevTools MCP 与人工回退。
 - 将六个 Agentmemory 薄 skill 收敛为单一入口和按需 references；升级器新增显式、hash 保护且可回滚的旧入口退役动作。
+- 删除八个重复或薄包装 skill；OCR、契约、前端实现、任务拆解和交接职责并入 canonical skill 或规则，core/full skill 数量收敛为 13/18。
 
 ## 0.3.0
 

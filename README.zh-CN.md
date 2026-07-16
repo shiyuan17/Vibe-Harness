@@ -59,7 +59,7 @@ pnpm loopengine validate --project ../some-project
 
 MCP 让 AI 可以调用当前项目配套的工具；hooks 会在 AI 工作到特定阶段时自动运行检查。LoopEngine 目前只为 Codex 安装这两类能力。
 
-Codex 还支持旧版兼容名称 `codex-minimal` 和 `codex-internal`。Claude Code 与 Gemini CLI 不支持 `full`。如果选择 `full`，LoopEngine 会停止安装并建议改用 `core`，不会假装已经安装 MCP 或 hooks。
+Claude Code 与 Gemini CLI 不支持 `full`。如果选择 `full`，LoopEngine 会停止安装并建议改用 `core`，不会假装已经安装 MCP 或 hooks。
 
 ## AI 会按什么步骤工作
 
@@ -85,9 +85,7 @@ Codex 还支持旧版兼容名称 `codex-minimal` 和 `codex-internal`。Claude 
 | `core` | `minimal` 的全部内容，加上常用工程规则、任务检查、Red Team 完成门禁、skills 路由和按需启动的 Playwright | 大多数项目，建议从这里开始 |
 | `full` | `core` 的全部内容，加上项目记忆、高级流程 skills、四个项目工具、Codex MCP 配置和 Codex hooks | 长期维护或风险较高的 Codex 项目 |
 | `docs-only` | 使用说明、公共规则、模板和 schemas，不安装可执行工具、skills、MCP 或 hooks | 只希望使用文档规则的项目 |
-| `codex-internal` | 功能与 `full` 相同，但使用旧版 Codex 命令安装 | 仅供已有的内部 Codex 项目使用 |
-
-每个 profile 实际包含哪些文件，由 `manifests/profiles.json` 定义。已经使用旧名称的项目仍可继续使用 `codex-minimal`。
+每个 profile 实际包含哪些文件，由 `manifests/profiles.json` 定义。
 
 ## 更多命令
 
@@ -228,35 +226,31 @@ pnpm loopengine uninstall --project ../some-project --target codex --dry-run
 pnpm loopengine uninstall --project ../some-project --target codex --write
 ```
 
-LoopEngine 只删除自己安装且没有被修改的文件。对于共用的说明文件和 MCP 配置，它只移除自己标记的那一段。项目配置、状态快照、备份、无关文档和修改过的文件都会保留。标准卸载使用 `--write`，不使用旧版的 `--apply`。
+LoopEngine 只删除自己安装且没有被修改的文件。对于共用的说明文件和 MCP 配置，它只移除自己标记的那一段。项目配置、状态快照、备份、无关文档和修改过的文件都会保留。
 
 </details>
 
 <details>
-<summary><strong>旧版 Codex 安装方式</strong></summary>
+<summary><strong>从旧版 Codex 安装迁移</strong></summary>
 
-只有已经使用 `codex-internal` 的项目需要阅读这一节。旧版命令用 `--target` 指定项目目录，用 `--apply` 执行写入，并且只支持 Codex。
+旧版 profile 和命令已移除。对仍含旧 install-state 的项目，先运行标准 init；LoopEngine 会把旧状态归一为 `full` 或 `minimal`，然后使用标准升级命令写回 canonical profile。
 
 ```bash
-pnpm loopengine install --target ../some-project --profile codex-internal --dry-run
-pnpm loopengine install --target ../some-project --profile codex-internal --apply --confirm-red-zone
-pnpm loopengine validate --target ../some-project --profile codex-internal
-pnpm loopengine doctor --target ../some-project
-
-pnpm loopengine diff --target ../some-project --profile codex-internal
-pnpm loopengine install --target ../some-project --profile codex-internal --apply --upgrade --confirm-red-zone
-pnpm loopengine rollback --target ../some-project --dry-run
-pnpm loopengine rollback --target ../some-project --apply --confirm-red-zone
+pnpm loopengine init --project ../some-project
+pnpm loopengine install --project ../some-project --target codex --profile full --dry-run --upgrade
+pnpm loopengine install --project ../some-project --target codex --profile full --write --upgrade --confirm-red-zone
+pnpm loopengine validate --project ../some-project
+pnpm loopengine doctor --project ../some-project
 ```
 
-不要在同一套安装流程中混用 `--project` 和 `--apply`。标准安装使用 `--project` 与 `--write`；旧版内部安装使用 `--target <项目目录>` 与 `--apply`。
+`--target` 只选择 adapter，不再接受项目路径；所有真实写入使用 `--write`。
 
 </details>
 
 <details>
 <summary><strong>内置工具与命令状态</strong></summary>
 
-当安装或健康检查报告问题时，可以查看这一节。`core` 会准备 Playwright，并在第一次需要浏览器检查时完成启动。Codex `full` 和 `codex-internal` 还会准备 `codebase-memory-mcp`、Open Code Review 和 Agentmemory。
+当安装或健康检查报告问题时，可以查看这一节。`core` 会准备 Playwright，并在第一次需要浏览器检查时完成启动。Codex `full` 还会准备 `codebase-memory-mcp`、Open Code Review 和 Agentmemory。
 
 LoopEngine 只会把 MCP 设置写入项目 `.codex/config.toml` 中自己标记的区域。凭据只从当前终端环境读取，绝不会保存到项目中。
 

@@ -40,5 +40,5 @@
 
 - 常驻 AGENTS 与治理内核不超过 90 行。
 - 中文任务 parser、Full schema、AC evidence、独立核验和 Red Team 完成门禁均有自动测试。
-- 三个 MVP profiles 和 legacy/internal 安装生命周期通过。
+- `minimal`、`core`、`full`、`docs-only` 四个 canonical profiles 和统一 `--project`/`--write` 安装生命周期通过。
 - `pnpm test`、`pnpm check` 与贡献指南中的 smoke 命令全部通过。

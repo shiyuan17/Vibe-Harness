@@ -59,7 +59,7 @@ These commands do four things:
 
 MCP lets an Agent call tools that belong to the current project. Hooks run checks automatically at specific points in an Agent session. LoopEngine currently installs these features only for Codex.
 
-Codex also supports the older compatibility names `codex-minimal` and `codex-internal`. Claude Code and Gemini CLI do not support the `full` level. If you request it, LoopEngine stops and recommends `core` instead of pretending that MCP and hooks are available.
+Claude Code and Gemini CLI do not support the `full` level. If you request it, LoopEngine stops and recommends `core` instead of pretending that MCP and hooks are available.
 
 ## How the Workflow Works
 
@@ -85,9 +85,7 @@ An install level, called a `profile` in commands and configuration, is a ready-m
 | `core` | Everything in `minimal`, plus common engineering rules, task checks, Red Team completion review, routing skills, and Playwright prepared for on-demand use | Most projects; this is the recommended starting point |
 | `full` | Everything in `core`, plus project memory, advanced workflow skills, four project tools, Codex MCP setup, and Codex hooks | Long-running or high-risk Codex projects |
 | `docs-only` | Instructions, reusable rules, templates, and schemas, without executable tools, skills, MCP, or hooks | Projects that only want the documentation-based setup |
-| `codex-internal` | The same features as `full`, installed with the older Codex command format | Existing internal Codex installations only |
-
-The exact files included in each profile are defined in `manifests/profiles.json`. `codex-minimal` remains available for projects that already use the older minimal Codex profile name.
+The exact files included in each profile are defined in `manifests/profiles.json`.
 
 ## More Commands
 
@@ -228,35 +226,31 @@ pnpm loopengine uninstall --project ../some-project --target codex --dry-run
 pnpm loopengine uninstall --project ../some-project --target codex --write
 ```
 
-LoopEngine removes only files that it installed and that have not been changed. It also removes only its own marked sections from shared instruction and MCP files. Your configuration, status snapshots, backups, unrelated documents, and edited files stay in place. Standard uninstall uses `--write`, not the older `--apply` option.
+LoopEngine removes only files that it installed and that have not been changed. It also removes only its own marked sections from shared instruction and MCP files. Your configuration, status snapshots, backups, unrelated documents, and edited files stay in place.
 
 </details>
 
 <details>
-<summary><strong>Older Codex installation method</strong></summary>
+<summary><strong>Migrate an older Codex installation</strong></summary>
 
-Only existing `codex-internal` users need this section. This older command format uses `--target` for the project folder and `--apply` to write files. It is available only for Codex.
+The old profile names and command format have been removed. For a project that still has an older install state, run standard init first. LoopEngine normalizes the state to `full` or `minimal`, and the standard upgrade writes back the canonical profile.
 
 ```bash
-pnpm loopengine install --target ../some-project --profile codex-internal --dry-run
-pnpm loopengine install --target ../some-project --profile codex-internal --apply --confirm-red-zone
-pnpm loopengine validate --target ../some-project --profile codex-internal
-pnpm loopengine doctor --target ../some-project
-
-pnpm loopengine diff --target ../some-project --profile codex-internal
-pnpm loopengine install --target ../some-project --profile codex-internal --apply --upgrade --confirm-red-zone
-pnpm loopengine rollback --target ../some-project --dry-run
-pnpm loopengine rollback --target ../some-project --apply --confirm-red-zone
+pnpm loopengine init --project ../some-project
+pnpm loopengine install --project ../some-project --target codex --profile full --dry-run --upgrade
+pnpm loopengine install --project ../some-project --target codex --profile full --write --upgrade --confirm-red-zone
+pnpm loopengine validate --project ../some-project
+pnpm loopengine doctor --project ../some-project
 ```
 
-Do not use `--project` and `--apply` in the same installation flow. Standard installations use `--project` with `--write`; older internal installations use `--target <project-folder>` with `--apply`.
+`--target` now selects only the adapter and never accepts a project path. All mutations use `--write`.
 
 </details>
 
 <details>
 <summary><strong>Built-in tools and command status</strong></summary>
 
-This section helps when an install or health check reports a problem. The `core` profile prepares Playwright for browser checks when it is first needed. Codex `full` and `codex-internal` also prepare `codebase-memory-mcp`, Open Code Review, and Agentmemory.
+This section helps when an install or health check reports a problem. The `core` profile prepares Playwright for browser checks when it is first needed. Codex `full` also prepares `codebase-memory-mcp`, Open Code Review, and Agentmemory.
 
 LoopEngine writes MCP settings only to its own marked section in the project's `.codex/config.toml`. It reads credentials from the current terminal session and never saves them in the project.
 

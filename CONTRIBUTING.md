@@ -39,9 +39,8 @@
 
 ## 命令生命周期
 
-- MVP：项目路径由 `--project <path>` 指定，adapter 由 `--target <codex|claude|gemini>` 指定；真实写入使用 `--write`。
-- legacy/internal：项目路径由 `--target <path>` 指定；真实写入使用 `--apply`，红区另需 `--confirm-red-zone`。
-- 不得在同一命令或同一临时项目中混用两套生命周期。MVP 与 legacy/internal smoke 必须使用两个独立临时目录。
+- 所有项目命令使用 `--project <path>`；adapter 由 `--target <codex|claude|gemini>` 指定；真实写入使用 `--write`。
+- `--apply`、路径型 `--target`、`codex-internal` 和 `codex-minimal` 已移除；旧 install-state 只在标准升级时归一。
 - `validate --project` 只检查安装一致性；执行目标项目命令使用 `verify --project`。
 
 ## 验证矩阵
@@ -60,7 +59,7 @@ git diff --check
 | 文档、catalog 或 schema | `pnpm docs:audit` |
 | `rules/`、`templates/`、`skills/`、`adapters/`、`manifests/`、`schemas/`、`evals/` | `pnpm eval:check`、`pnpm eval:offline` |
 | `skills/` | `pnpm skills:audit` |
-| installer、profile、runtime 或内置工具 | `pnpm test:integration`、`pnpm smoke:lifecycle`，以及 `AGENTS.md` 中两套显式临时项目命令 |
+| installer、profile、runtime 或内置工具 | `pnpm test:integration`、`pnpm smoke:lifecycle`，以及 `AGENTS.md` 中 core/full 两套显式临时项目命令 |
 | runtime tool lockfile 或 provision 参数 | `pnpm runtime:audit` |
 
 失败、跳过、degraded 和人工检查都必须如实记录。没有本轮输出时，不得复用旧结果声称完成。

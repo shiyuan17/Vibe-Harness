@@ -9,9 +9,9 @@ LoopEngine 用来打包可复用的 AI coding governance 资产。源项目只�
 
 ## 命令面边界
 
-- MVP 接入命令使用 `--project <temp-project> --target codex --write`。
-- legacy/internal profile 使用 `--target <temp-project> --apply --confirm-red-zone`。
-- 不要混用 `--project` 和 legacy `--apply` 语义；文档、测试和交付说明必须写清使用的是哪条生命周期。
+- 所有项目命令使用 `--project <temp-project>`；`--target codex|claude|gemini` 只选择 adapter。
+- 真实写入统一使用 `--write`；`--apply`、`codex-internal` 和 `codex-minimal` 已移除。
+- Codex `full` 写入红区文件时仍需 `--confirm-red-zone`。
 
 ## 必跑检查
 
@@ -22,16 +22,17 @@ LoopEngine 用来打包可复用的 AI coding governance 资产。源项目只�
 - `pnpm loopengine install --project <temp-project> --target codex --profile core --dry-run`
 - `pnpm loopengine install --project <temp-project> --target codex --profile core --write`
 - `pnpm loopengine validate --project <temp-project>`
-- `pnpm loopengine install --target <temp-project> --profile codex-internal --dry-run`
-- `pnpm loopengine install --target <temp-project> --profile codex-internal --apply --confirm-red-zone`
-- `pnpm loopengine validate --target <temp-project> --profile codex-internal`
-- `pnpm loopengine doctor --target <temp-project>`
+- `pnpm loopengine init --project <full-temp-project> --profile full`
+- `pnpm loopengine install --project <full-temp-project> --target codex --profile full --dry-run`
+- `pnpm loopengine install --project <full-temp-project> --target codex --profile full --write --confirm-red-zone`
+- `pnpm loopengine validate --project <full-temp-project>`
+- `pnpm loopengine doctor --project <full-temp-project>`
 
 ## 安全规则
 
 1. 安装器不得写入全局 Agent 配置。
 2. 未使用 `--force` 时不得覆盖目标项目已有文件。
-3. MVP 真实写入必须使用 `--write`；legacy/internal 安装或 rollback 真实写入必须使用 `--apply`，且未显式确认时不得写入红区文件。
+3. 安装、rollback 和卸载真实写入必须使用 `--write`，且未显式确认时不得写入红区文件。
 4. 项目专有示例不得进入 `rules`、`templates`、`skills/core`、`adapters`、`manifests`、`schemas` 等通用核心目录。
 5. 优先用 dry-run 和命令输出作为证据，不用猜测代替验证。
 

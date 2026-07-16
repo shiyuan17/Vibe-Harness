@@ -11,12 +11,19 @@ router/compatibility 入口最多 30 行，其他入口最多 160 行。`minimal
 | 调试 | `systematic-debugging` | 删除 `debugging-and-error-recovery` 兼容入口 |
 | 浏览器 | `browser-verification` | 删除 `browser-testing-with-devtools` 兼容入口 |
 | 设计 | `frontend-design` + `references/design-modes.md` | 删除 `taste-skill`、`impeccable`，触发词并入 `frontend-design` |
-| 前端实现 | `frontend-implementation-check` + `rules/frontend-rules.md` | 删除 `frontend-ui-engineering` |
-| Review | `code-review-and-quality`、`requesting-code-review`、`adversarial-review-packet` | 删除 `review-checklist` 薄路由 |
+| 澄清 | `brainstorming` | 删除 `grill-me`，结构化追问并入主入口；删除视觉伴侣和本地服务器资产 |
+| 计划与拆解 | `writing-plans`、`executing-plans` | 删除 `task-decomposition`，父子任务约束并入计划和任务模板 |
+| API | `api-and-interface-design` + `rules/api-rules.md` | 删除 `api-contract-check`，契约来源和 mapper 核对并入设计入口 |
+| 前端 | `frontend-design` + `rules/frontend-rules.md` | 删除 `frontend-implementation-check`，实现状态和浏览器证据并入设计入口与规则 |
+| Review | `code-review-and-quality`、`adversarial-review-packet` | 删除 `requesting-code-review` 与顶层 `open-code-review`；OCR 调用并入统一审查入口，工具 runtime 保留 |
+| 交接 | task/delivery 模板、AI 协作规则、full 的 `agentmemory` | 删除 `workflow-handoff` 顶层入口 |
+| Skill 贡献检查 | `CONTRIBUTING.md`、`pnpm skills:audit` | 删除下发到目标项目的 `skill-authoring-check` |
 | Workflow / Git / Release / Pencil | `governance-core` 与专项 rules | 删除 `code-simplification`、`documentation-and-adrs`、`worktree-mergeback-check`、`git-delivery-batcher`、`release-checklist`、`pencil-design-check` |
 | Memory | `agentmemory` 外部适配 | 提交查询与保存、检索、恢复、遗忘、汇总、历史流程统一由 `agentmemory` 路由到按需 references；危险删除仍要求精确候选和再次确认 |
 
 `writing-plans` 的 core 硬依赖已改为 `executing-plans`；full 的 `subagent-driven-development` 仅为 optional，不再产生 core 安装后无法执行的计划。
+
+当前 manifest 共 18 个 skill：core 安装 13 个，full 在其上增加 5 个独特能力；core/full 分别安装 26/39 个 skill 文件。删除项全部登记为 retired entries，升级只退休 install-state 跟踪且未被用户修改的文件。
 
 ## 自动门禁
 
