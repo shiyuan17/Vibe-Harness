@@ -9,7 +9,7 @@ router/compatibility 入口最多 30 行，其他入口最多 160 行。`minimal
 | 能力簇 | 实现真值 | 保留入口 |
 | --- | --- | --- |
 | 调试 | `systematic-debugging` | 删除 `debugging-and-error-recovery` 兼容入口 |
-| 浏览器 | `browser-verification` | 删除 `browser-testing-with-devtools` 兼容入口 |
+| 浏览器 | `browser-verification` + 项目内 Playwright CLI | `browser-testing-with-devtools` 已退役且不再作为 fallback，自动化不可用时输出人工验收矩阵 |
 | 设计 | `frontend-design` + `references/design-modes.md` | 删除 `taste-skill`、`impeccable`，触发词并入 `frontend-design` |
 | 澄清 | `brainstorming` | 删除 `grill-me`，结构化追问并入主入口；删除视觉伴侣和本地服务器资产 |
 | 计划与拆解 | `writing-plans`、`executing-plans` | 删除 `task-decomposition`，父子任务约束并入计划和任务模板 |

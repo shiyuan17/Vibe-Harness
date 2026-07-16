@@ -52,7 +52,7 @@ evaluation reference 与项目 baseline 分离。reference 只保存批准的 fi
 
 - minimal：最小安装，包含平台入口、治理内核、Git/VCS/Test 规则和中文 task/delivery 模板，不安装 skills、runtime、hook 或 MCP 安装面。
 - core：通用安装，在 minimal 上增加专项规则、中文任务 runtime/schema、`using-loopengine` 和常规 skills；不安装 hook、`codebase-memory-mcp` 或 agentmemory MCP 安装面。
-- full：全安装，在 core 上增加四个项目内工具 runtime、codebase 初始索引、两个 MCP 注册、agentmemory skill、`.agents/memory/` 本地回退库和 Codex hooks；真实写入红区需要确认。
+- full：全安装，在 core 上增加四个项目内工具 runtime、经 `index_status` 验证的 codebase 初始索引、两个 MCP 注册、agentmemory skill、`.agents/memory/` 本地回退库和 Codex hooks；真实写入红区需要确认。
 - docs-only：仅安装平台入口、治理内核、专项规则、中文模板、memory 文档和 schema，不安装 runtime、Skills、MCP 或 hooks。
 
 ## 中文任务数据流

@@ -16,7 +16,8 @@
 - 新增 `loopengine verify --project`，显式执行目标项目配置的验证命令，同时保持 `validate --project` 只读。
 - 新增 `loopengine baseline --project`，在安装后生成可比较的 JSON 快照和 Markdown 工作流建议，并支持可选验证与受管回滚。
 - 新增 Failure、Retrospective 模板、core/full smoke script 和 GitHub Actions CI。
-- `browser-verification` 改为项目内 Playwright CLI 优先，core/full 安装隔离的懒加载 Chromium 工具链，并保留 DevTools MCP 与人工回退。
+- `browser-verification` 改为项目内 Playwright CLI 优先，core/full 安装隔离的懒加载 Chromium 工具链；DevTools MCP fallback 已退役，仅保留明确的人工浏览器回退。
+- `codebase-memory-mcp` 安装改用稳定 flags 执行 moderate 索引，并以项目根目录匹配的 `index_status` ready 结果作为工具就绪门禁。
 - 将六个 Agentmemory 薄 skill 收敛为单一入口和按需 references；升级器新增显式、hash 保护且可回滚的旧入口退役动作。
 - 删除八个重复或薄包装 skill；OCR、契约、前端实现、任务拆解和交接职责并入 canonical skill 或规则，core/full skill 数量收敛为 13/18。
 
