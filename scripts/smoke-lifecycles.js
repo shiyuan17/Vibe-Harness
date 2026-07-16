@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 import { execFile } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+
+import { removeTemporaryDirectory } from './lib/temp-cleanup.js';
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -54,7 +56,7 @@ try {
   results.push(await run('legacy-doctor', ['doctor', '--target', legacy, '--allow-degraded']));
   console.log(JSON.stringify({ ok: true, results }, null, 2));
 } finally {
-  await rm(mvp, { force: true, recursive: true });
-  await rm(legacy, { force: true, recursive: true });
+  await removeTemporaryDirectory(mvp);
+  await removeTemporaryDirectory(legacy);
 }
 
