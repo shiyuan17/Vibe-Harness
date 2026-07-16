@@ -11,7 +11,7 @@ import {
   createCodexHookResult,
   normalizeCodexHookInput,
 } from '../runtime/hooks/lib/policy.mjs';
-import { buildProjectContext } from '../runtime/hooks/lib/context.mjs';
+import { buildProjectContext, runGovernanceCheck } from '../runtime/hooks/lib/context.mjs';
 import { validateDeliveryMessage } from '../runtime/hooks/lib/delivery-validation.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -128,6 +128,21 @@ test('project context bounds task content and does not include prompt text', asy
   }
 });
 
+test('project context reports the total changed paths while showing a bounded summary', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-context-count-'));
+  try {
+    await execFileAsync('git', ['init'], { cwd: target });
+    for (let index = 0; index < 21; index += 1) {
+      await writeFile(path.join(target, `change-${index}.txt`), `${index}\n`, 'utf8');
+    }
+    const context = await buildProjectContext(target);
+    assert.match(context, /21 changed path\(s\), first 20 shown/u);
+    assert.equal(context.length <= 4096, true);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
 test('delivery validation reports every missing canonical field and accepts English aliases', () => {
   const missing = validateDeliveryMessage('- 结果状态：完成\n');
   assert.equal(missing.ok, false);
@@ -152,18 +167,51 @@ test('delivery validation reports every missing canonical field and accepts Engl
   assert.deepEqual(english, { ok: true, missing: [] });
 });
 
+test('delivery validation ignores examples, HTML, quotes, and placeholder values', () => {
+  const fenced = validateDeliveryMessage(`\`\`\`markdown\n${completeDeliveryMessage()}\n\`\`\``);
+  assert.equal(fenced.ok, false);
+  const hidden = validateDeliveryMessage(`<!--\n${completeDeliveryMessage()}\n-->`);
+  assert.equal(hidden.ok, false);
+  const quoted = validateDeliveryMessage(completeDeliveryMessage().split('\n').map((line) => `> ${line}`).join('\n'));
+  assert.equal(quoted.ok, false);
+  const placeholders = validateDeliveryMessage(completeDeliveryMessage()
+    .replace('实现会话门禁。', 'TODO')
+    .replace('Codex hooks。', '待补充'));
+  assert.equal(placeholders.ok, false);
+  assert.equal(placeholders.missing.includes('变更摘要'), true);
+  assert.equal(placeholders.missing.includes('影响范围'), true);
+});
+
 test('rejects malformed or unsupported Codex hook input at the boundary', () => {
   assert.throws(() => normalizeCodexHookInput({ hook_event_name: 'SessionEnd' }), /unsupported hook event/i);
   assert.throws(() => normalizeCodexHookInput('not-an-object'), /JSON object/i);
 });
 
 test('guarded tool policy blocks destructive Git and hook bypass commands', () => {
-  for (const command of ['git reset --hard HEAD~1', 'git clean -fd', 'git commit --no-verify']) {
+  for (const command of [
+    'git reset --hard HEAD~1',
+    'git clean -fd',
+    'git commit --no-verify',
+    'git restore README.md',
+    'git checkout HEAD -- README.md',
+    'git -C . reset --hard',
+    'git --no-pager reset --hard',
+    'git.exe reset --hard',
+    'git switch --discard-changes main',
+    'git stash clear',
+  ]) {
     const decision = analyzeToolRequest(normalizeCodexHookInput(hookInput({ tool_input: { command } })), {
       mode: 'guarded',
       projectRoot: rootDir,
     });
     assert.equal(decision.action, 'deny', command);
+  }
+  for (const command of ['git status', 'git diff', 'git log -1', 'git clean -n']) {
+    const decision = analyzeToolRequest(normalizeCodexHookInput(hookInput({ tool_input: { command } })), {
+      mode: 'guarded',
+      projectRoot: rootDir,
+    });
+    assert.equal(decision.action, 'allow', command);
   }
 });
 
@@ -204,6 +252,39 @@ test('guarded tool policy covers POSIX home paths and camelCase MCP path fields'
 
   assert.equal(posixGlobal.action, 'deny');
   assert.equal(camelCaseOutside.action, 'deny');
+});
+
+test('guarded tool policy distinguishes global configuration reads from writes on Windows', () => {
+  const writes = [
+    "Set-Content ($env:USERPROFILE + '/.codex/config.toml') 'x'",
+    "Add-Content (Join-Path $env:HOME '.claude/settings.json') 'x'",
+    'git config --global user.email attacker@example.test',
+  ];
+  for (const command of writes) {
+    const decision = analyzeToolRequest(normalizeCodexHookInput(hookInput({ tool_input: { command } })), {
+      mode: 'guarded', projectRoot: rootDir,
+    });
+    assert.equal(decision.action, 'deny', command);
+  }
+  for (const command of [
+    'Get-Content $HOME/.codex/config.toml',
+    'type %USERPROFILE%\\.codex\\config.toml',
+    'git config --global --get user.email',
+  ]) {
+    const decision = analyzeToolRequest(normalizeCodexHookInput(hookInput({ tool_input: { command } })), {
+      mode: 'guarded', projectRoot: rootDir,
+    });
+    assert.equal(decision.action, 'allow', command);
+  }
+});
+
+test('governance check reports a missing validator as unavailable', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-validator-missing-'));
+  try {
+    assert.deepEqual(await runGovernanceCheck(target), { ok: false, status: 'unavailable' });
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
 });
 
 test('guarded tool policy warns about project red-zone writes without blocking them', () => {
@@ -288,6 +369,9 @@ test('UserPromptSubmit injects task-confirmation guidance without echoing the pr
 test('Stop delivery gate follows off, advisory, and blocking modes', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-hook-delivery-gate-'));
   try {
+    const validatorDir = path.join(target, '.agents', 'loopengine', 'governance');
+    await mkdir(validatorDir, { recursive: true });
+    await writeFile(path.join(validatorDir, 'validate.mjs'), 'process.exit(0);\n', 'utf8');
     const input = {
       cwd: target,
       hook_event_name: 'Stop',

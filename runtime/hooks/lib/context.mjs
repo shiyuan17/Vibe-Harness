@@ -131,12 +131,16 @@ export async function buildProjectContext(rootDir) {
     git(rootDir, ['status', '--short']),
     taskSummary(rootDir),
   ]);
-  const statusLines = status ? status.split(/\r?\n/u).slice(0, 20) : [];
+  const allStatusLines = status ? status.split(/\r?\n/u) : [];
+  const statusLines = allStatusLines.slice(0, 20);
+  const changedSummary = allStatusLines.length > statusLines.length
+    ? `${allStatusLines.length} changed path(s), first ${statusLines.length} shown`
+    : `${allStatusLines.length} changed path(s)`;
   const instruction = 'Use repository rules and verify current filesystem state before acting.';
   const context = [
     `Project root: ${rootDir}`,
     `Git branch: ${branch || '(detached or unavailable)'}`,
-    `Working tree: ${statusLines.length === 0 ? 'clean' : `${statusLines.length} changed path(s)`}`,
+    `Working tree: ${statusLines.length === 0 ? 'clean' : changedSummary}`,
     'Active task contracts:',
     tasks,
   ].join('\n');
@@ -153,10 +157,18 @@ export async function runGovernanceCheck(rootDir) {
       timeout: 15000,
       windowsHide: true,
     });
-    return { ok: true };
+    return { ok: true, status: 'passed' };
   } catch (error) {
-    if (error.code === 'ENOENT') return { ok: true, skipped: true };
-    return { ok: false };
+    if (error.code === 'ENOENT') {
+      try {
+        const state = JSON.parse(await readFile(path.join(rootDir, '.loopengine', 'install-state.json'), 'utf8'));
+        if (['minimal', 'codex-minimal', 'docs-only'].includes(state.profile)) {
+          return { ok: true, status: 'not-applicable' };
+        }
+      } catch {}
+      return { ok: false, status: 'unavailable' };
+    }
+    return { ok: false, status: 'failed' };
   }
 }
 

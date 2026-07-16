@@ -15,14 +15,7 @@ export const supportedCodexHookEvents = new Set([
 
 const writeToolPattern = /(?:apply_patch|write|edit|delete|remove|move|rename|create)/iu;
 const pathKeyPattern = /^(?:file_?path|path|target|destination|directory(?:_?path)?|dir)$/iu;
-const destructiveGitPatterns = [
-  /\bgit\s+reset\s+--hard\b/iu,
-  /\bgit\s+clean\s+(?=[^\r\n]*-[a-z]*f)/iu,
-  /\bgit\s+(?:checkout|restore)\s+--\s+/iu,
-  /\bgit\s+[^\r\n]*--no-verify\b/iu,
-  /\bgit\s+config\s+--global\b/iu,
-];
-const globalAgentConfigPattern = /(?:~|\$HOME|%USERPROFILE%|[A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/][^\\/]+|[\\/](?:home|Users)[\\/][^\\/]+)[\\/]+\.(?:codex|claude|cursor|gemini)(?:[\\/]|$)/iu;
+const globalAgentConfigPattern = /(?:~|\$(?:\{)?HOME(?:\})?|\$env:(?:HOME|USERPROFILE)|%USERPROFILE%|[A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/][^\\/]+|[\\/](?:home|Users)[\\/][^\\/]+)[^\r\n]{0,96}[\\/'"]+\.(?:codex|claude|cursor|gemini)(?:[\\/'"]|$)/iu;
 const projectRedZonePattern = /(?:^|\/)(?:\.codex\/hooks\.json|\.github\/workflows\/|\.env(?:\.|$)|auth(?:\/|$)|ci\/cd(?:\/|$))/iu;
 const networkCommandPattern = /\b(?:curl|wget|Invoke-WebRequest|Invoke-RestMethod)\b/iu;
 const secretReferencePattern = /(?:\$\{?[A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD)\}?|%(?:[A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD))%|Authorization\s*:[^\r\n]*(?:KEY|TOKEN|SECRET))/iu;
@@ -69,6 +62,102 @@ function commandFrom(input) {
   return typeof input.toolInput?.command === 'string' ? input.toolInput.command : '';
 }
 
+function shellSegments(command) {
+  const segments = [];
+  let current = '';
+  let quote = null;
+  for (let index = 0; index < command.length; index += 1) {
+    const character = command[index];
+    if (quote) {
+      current += character;
+      if (character === quote && command[index - 1] !== '\\') quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      current += character;
+      continue;
+    }
+    const pair = command.slice(index, index + 2);
+    if (['&&', '||'].includes(pair)) {
+      if (current.trim()) segments.push(current.trim());
+      current = '';
+      index += 1;
+      continue;
+    }
+    if ([';', '|', '\n', '\r'].includes(character)) {
+      if (current.trim()) segments.push(current.trim());
+      current = '';
+      continue;
+    }
+    current += character;
+  }
+  if (current.trim()) segments.push(current.trim());
+  return segments;
+}
+
+function commandTokens(command) {
+  const tokens = [];
+  const pattern = /"([^"]*)"|'([^']*)'|([^\s]+)/gu;
+  for (const match of command.matchAll(pattern)) tokens.push(match[1] ?? match[2] ?? match[3]);
+  return tokens;
+}
+
+function gitCommandRisk(segment) {
+  const tokens = commandTokens(segment);
+  const executableIndex = tokens.findIndex((token) => /(?:^|[\\/])git(?:\.exe)?$/iu.test(token));
+  if (executableIndex < 0) return null;
+  const args = tokens.slice(executableIndex + 1);
+  let index = 0;
+  while (index < args.length) {
+    const value = args[index].toLowerCase();
+    if (['-c', '--git-dir', '--work-tree', '--namespace', '--config-env'].includes(value)) {
+      index += 2;
+      continue;
+    }
+    if (['-p', '--paginate', '--no-pager', '--bare', '--no-replace-objects', '--literal-pathspecs', '--glob-pathspecs', '--noglob-pathspecs', '--icase-pathspecs'].includes(value)) {
+      index += 1;
+      continue;
+    }
+    if (/^--(?:git-dir|work-tree|namespace|config-env)=/u.test(value)) {
+      index += 1;
+      continue;
+    }
+    break;
+  }
+  const command = args[index]?.toLowerCase();
+  const rest = args.slice(index + 1).map((item) => item.toLowerCase());
+  if (!command) return null;
+  if (args.some((item) => item.toLowerCase() === '--no-verify')) return 'hook bypass';
+  if (command === 'reset' && rest.some((item) => ['--hard', '--merge', '--keep'].includes(item))) return 'destructive reset';
+  if (command === 'clean' && !rest.some((item) => item === '-n' || item === '--dry-run' || /^-[a-z]*n[a-z]*$/u.test(item))) return 'destructive clean';
+  if (command === 'restore') return 'destructive restore';
+  if (command === 'checkout' && (rest.includes('--') || rest.some((item) => ['-f', '--force'].includes(item)))) return 'destructive checkout';
+  if (command === 'switch' && rest.some((item) => ['-f', '--force', '--discard-changes'].includes(item))) return 'destructive switch';
+  if (command === 'stash' && rest.some((item) => ['clear', 'drop'].includes(item))) return 'destructive stash';
+  if (['merge', 'rebase', 'cherry-pick'].includes(command) && rest.includes('--abort')) return 'destructive abort';
+  if (command === 'branch' && rest.some((item) => item === '-D' || item === '-d')) return 'destructive branch deletion';
+  if (command === 'tag' && rest.includes('-d')) return 'destructive tag deletion';
+  if (command === 'config' && rest.includes('--global')) {
+    const readOnly = rest.some((item) => ['--get', '--get-all', '--get-regexp', '--list', '-l'].includes(item));
+    if (!readOnly) return 'global Git configuration write';
+  }
+  return null;
+}
+
+function referencesGlobalAgentConfig(value) {
+  return globalAgentConfigPattern.test(value);
+}
+
+function commandWrites(segment) {
+  if (/(?:^|\s)(?:Set-Content|Add-Content|Out-File|New-Item|Remove-Item|Move-Item|Copy-Item|tee|rm|mv|cp|sed\s+-i)\b/iu.test(segment)) return true;
+  return /(?:^|[^<])>>?/u.test(segment);
+}
+
+function commandReads(segment) {
+  return /^\s*(?:Get-Content|Test-Path|Get-Item|Resolve-Path|cat|type)\b/iu.test(segment);
+}
+
 function collectStructuredPaths(value, key = '', result = []) {
   if (typeof value === 'string' && pathKeyPattern.test(key)) {
     result.push(value);
@@ -91,10 +180,13 @@ function patchPaths(command) {
 
 function classifyRisk(input, projectRoot) {
   const command = commandFrom(input);
-  if (destructiveGitPatterns.some((pattern) => pattern.test(command))) {
+  const segments = shellSegments(command);
+  if (segments.some((segment) => gitCommandRisk(segment))) {
     return { level: 'deny', reason: 'Destructive Git operation or hook bypass is blocked by repository policy.' };
   }
-  if (globalAgentConfigPattern.test(command)) {
+  for (const segment of segments) {
+    if (!referencesGlobalAgentConfig(segment)) continue;
+    if (commandReads(segment) && !commandWrites(segment)) continue;
     return { level: 'deny', reason: 'Writes to global Agent configuration are blocked by repository policy.' };
   }
   if (networkCommandPattern.test(command) && secretReferencePattern.test(command)) {
@@ -107,7 +199,7 @@ function classifyRisk(input, projectRoot) {
     ...(input.toolName === 'apply_patch' ? patchPaths(command) : []),
   ];
   for (const candidate of candidates) {
-    if (globalAgentConfigPattern.test(candidate)) {
+    if (referencesGlobalAgentConfig(candidate)) {
       return { level: 'deny', reason: 'Writes to global Agent configuration are blocked by repository policy.' };
     }
     const absolute = path.isAbsolute(candidate) || path.win32.isAbsolute(candidate)

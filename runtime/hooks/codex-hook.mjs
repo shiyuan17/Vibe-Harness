@@ -70,7 +70,11 @@ export async function evaluateCodexHook(rawInput) {
       Promise.resolve(validateDeliveryMessage(input.lastAssistantMessage)),
     ]);
     const issues = [];
-    if (!governance.ok) issues.push('LoopEngine governance validation failed. Fix the evidence or task state, then verify again.');
+    if (governance.status === 'unavailable') {
+      issues.push('LoopEngine governance validator is unavailable. Repair or reinstall the expected runtime, then verify again.');
+    } else if (!governance.ok) {
+      issues.push('LoopEngine governance validation failed. Fix the evidence or task state, then verify again.');
+    }
     if (!evaluation.ok) issues.push('LoopEngine evaluation validation failed. Fix the Eval-ID evidence or reference, then verify again.');
     if (!delivery.ok) issues.push(`Delivery packet missing: ${delivery.missing.join(', ')}.`);
     if (issues.length === 0) return {};
