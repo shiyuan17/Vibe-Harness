@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 import { createInstallPlan } from '../scripts/lib/install-planner.js';
 import { readJson } from '../scripts/lib/manifest.js';
 import { validateSkillGraph } from '../scripts/lib/pack-validation.js';
+import { runSkillsAudit } from '../scripts/lib/skills-audit.js';
 
 const rootDir = path.resolve('.');
 const execFileAsync = promisify(execFile);
@@ -169,6 +170,20 @@ test('all source-project routed skills are bundled under compatible ids', async 
   assert.deepEqual(expected.filter((id) => !ids.has(id)), []);
 });
 
+test('skill graph rejects missing or mismatched frontmatter', async () => {
+  const target = await mkdtemp(path.join(rootDir, '.tmp-skill-frontmatter-'));
+  try {
+    await mkdir(path.join(target, 'skills/core/router'), { recursive: true });
+    await writeFile(path.join(target, 'skills/core/router/SKILL.md'), '---\nname: wrong\n---\n\n# Router\n', 'utf8');
+    await writeFile(path.join(target, 'skills/core/router/metadata.json'), '{"id":"router"}\n', 'utf8');
+    const errors = await validateSkillGraph(target, [skill('router')], [], { installEntries: [] });
+    assert.match(errors.join('\n'), /frontmatter name must equal router/u);
+    assert.match(errors.join('\n'), /frontmatter description is required/u);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
 test('Red Team review skill is available to every profile with task runtime', async () => {
   for (const profile of ['core', 'full', 'codex-internal']) {
     const plan = await createInstallPlan({ dryRun: true, profile, rootDir, targetDir: rootDir });
@@ -287,6 +302,25 @@ test('skills audit report derives inventory counts from the manifest', async () 
   assert.match(stdout, /router：1/);
   assert.match(stdout, /compatibility：0/);
   assert.match(stdout, /最长入口：`api-and-interface-design`（7[0-9] 行）/);
+});
+
+test('skills audit executes the real graph validator', async () => {
+  const report = await runSkillsAudit(rootDir);
+  assert.deepEqual(report.errors, []);
+
+  const target = await mkdtemp(path.join(rootDir, '.tmp-skills-audit-'));
+  try {
+    const item = skill('broken', { optionalSkills: ['missing'] });
+    await mkdir(path.dirname(path.join(target, item.source)), { recursive: true });
+    await writeFile(path.join(target, item.source), '---\nname: broken\ndescription: Broken fixture.\n---\n', 'utf8');
+    await writeFile(path.join(target, item.metadata), '{"id":"broken"}\n', 'utf8');
+    const invalid = await runSkillsAudit(target, {
+      installEntries: [], manifest: { items: [item] }, profiles: { items: [] },
+    });
+    assert.match(invalid.errors.join('\n'), /missing/u);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
 });
 
 test('external integration skills document usable and unavailable paths', async () => {

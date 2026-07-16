@@ -31,8 +31,8 @@ skills/core/brainstorming/scripts/start-server.sh --open --project-dir .
   "type": "server-started",
   "port": 52341,
   "url": "http://localhost:52341/?key=ab12...",
-  "screen_dir": "/path/to/project/.superpowers/brainstorm/.../content",
-  "state_dir": "/path/to/project/.superpowers/brainstorm/.../state"
+  "screen_dir": "/path/to/project/.loopengine/brainstorm/.../content",
+  "state_dir": "/path/to/project/.loopengine/brainstorm/.../state"
 }
 ```
 

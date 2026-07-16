@@ -89,6 +89,15 @@ test('AGENTS and using-loopengine link the policy and document the no-skill fall
   assert.equal(router.includes(routingRuleTarget), true);
 });
 
+test('brainstorming only gates tasks with unresolved high-impact design choices', async () => {
+  const content = await readFile(path.join(rootDir, 'skills/core/brainstorming/SKILL.md'), 'utf8');
+  const frontmatter = content.match(/^---\r?\n([\s\S]*?)\r?\n---/u)?.[1] ?? '';
+  assert.match(frontmatter, /高影响歧义/u);
+  assert.doesNotMatch(frontmatter, /任何创造性工作/u);
+  assert.match(content, /已有决策完整规格.*不触发/u);
+  assert.match(content, /纯修复.*不触发/u);
+});
+
 test('pack quality rejects routing policy registration, evidence, and link drift', async () => {
   const validate = packValidation.validateAgentSkillRoutingIntegrity;
   assert.equal(typeof validate, 'function', 'pack validation should expose the routing integrity gate');
@@ -113,7 +122,7 @@ test('pack quality rejects routing policy registration, evidence, and link drift
   assert.deepEqual(validate(valid), []);
   assert.match(validate({ ...valid, ruleItems: [] }).join('\n'), /registered in manifests\/rules\.json/u);
   assert.match(validate({ ...valid, installEntries: [] }).join('\n'), /rules-minimal/u);
-  assert.match(validate({ ...valid, capabilityMatrix: { schemaVersion: 1, items: [] } }).join('\n'), /skill-routing capability/u);
+  assert.match(validate({ ...valid, capabilityMatrix: { schemaVersion: 2, items: [] } }).join('\n'), /skill-routing capability/u);
   assert.doesNotThrow(() => validate({ ...valid, capabilityMatrix: {} }));
   assert.match(validate({ ...valid, capabilityMatrix: {} }).join('\n'), /skill-routing capability/u);
   assert.match(validate({ ...valid, routerContent: '# router' }).join('\n'), /router must reference/u);
