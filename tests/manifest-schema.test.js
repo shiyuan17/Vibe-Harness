@@ -144,7 +144,19 @@ test('install map validation accepts explicit retired entries and rejects unsafe
 
 test('capability matrix maps every reusable capability to current assets', async () => {
   const matrix = await readJson(path.join(rootDir, 'manifests/capabilities.json'));
+  const schema = await readJson(path.join(rootDir, 'schemas/capability-catalog.schema.json'));
+  assert.deepEqual(validateJsonAgainstSchema(matrix, schema, 'capabilities'), []);
   assert.deepEqual(await validateCapabilityMatrix(rootDir, matrix), []);
+  assert.match((await validateCapabilityMatrix(rootDir, { schemaVersion: 1, items: [] })).join('\n'), /schemaVersion 2/u);
+  const invalid = structuredClone(matrix);
+  invalid.items[0].evaluation = { required: false };
+  assert.match((await validateCapabilityMatrix(rootDir, invalid, { checkFiles: false })).join('\n'), /evaluation reason/u);
+  const unknownProfile = structuredClone(matrix);
+  unknownProfile.items[0].profiles.push('unknown-profile');
+  assert.match((await validateCapabilityMatrix(rootDir, unknownProfile)).join('\n'), /unknown profile/u);
+  const unmanagedDoc = structuredClone(matrix);
+  unmanagedDoc.items[0].docs = ['docs/not-cataloged.md'];
+  assert.match((await validateCapabilityMatrix(rootDir, unmanagedDoc, { checkFiles: false })).join('\n'), /documentation catalog/u);
 });
 
 test('complete pack validates', async () => {

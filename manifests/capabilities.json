@@ -1,17 +1,195 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "items": [
-    { "id": "governance-kernel", "source": "agent governance prompts", "disposition": "generalize", "targets": ["adapters/codex/AGENTS.template.md", "rules/governance-core.md"], "tests": ["tests/simplified-governance.test.js"], "evals": ["evals/suites/loopengine-core.json"] },
-    { "id": "chinese-task-contract", "source": "task lifecycle contracts", "disposition": "validator", "targets": ["templates/task.md", "schemas/full-task-control.schema.json", "runtime/governance/lib/task-validation.mjs"], "tests": ["tests/simplified-governance.test.js"], "evals": ["evals/suites/loopengine-core.json"] },
-    { "id": "skill-routing", "source": "AGENT_SKILL_ROUTING.md and composable agent skills", "disposition": "generalize", "targets": ["rules/agent-skill-routing.md", "skills/core/using-loopengine/SKILL.md"], "tests": ["tests/agent-skill-routing.test.js", "tests/simplified-governance.test.js", "tests/skill-closure.test.js"], "evals": ["evals/suites/loopengine-core.json"] },
-    { "id": "review", "source": "adversarial review", "disposition": "validator", "targets": ["rules/governance-core.md", "templates/task.md", "templates/delivery.md", "schemas/full-task-control.schema.json", "runtime/governance/lib/red-team-validation.mjs", "skills/core/adversarial-review-packet/SKILL.md", "skills/core/adversarial-review-packet/references/review.md"], "tests": ["tests/manifest-schema.test.js", "tests/simplified-governance.test.js", "tests/skill-closure.test.js"], "evals": ["evals/suites/loopengine-core.json"] },
-    { "id": "git-and-worktree", "source": "GIT_RULES.md", "disposition": "generalize", "targets": ["rules/git-rules.md"], "tests": ["tests/rules-depth.test.js"], "evals": ["evals/suites/loopengine-core.json"] },
-    { "id": "engineering-rules", "source": "CODING / FRONTEND / API / DB", "disposition": "generalize", "targets": ["rules/coding-rules.md", "rules/frontend-rules.md", "rules/api-rules.md", "rules/db-rules.md"], "tests": ["tests/rules-depth.test.js"], "evals": ["evals/suites/loopengine-core.json"] },
-    { "id": "governance-memory", "source": "docs/memory", "disposition": "template", "targets": ["templates/memory/PROJECT_STATE.md", "templates/memory/ARCHITECTURE.md", "templates/memory/DECISIONS.md", "templates/memory/KNOWN_BUGS.md", "templates/memory/TECH_DEBT.md", "templates/memory/FAILURE_LEARNINGS.md", "runtime/governance/lib/memory-validation.mjs"], "tests": ["tests/v03-governance-equivalence.test.js", "tests/governance-runtime.test.js"], "evals": ["evals/suites/loopengine-core.json"] },
-    { "id": "pencil-assets", "source": "PENCIL_RULES.md", "disposition": "validator", "targets": ["rules/pencil-rules.md", "runtime/governance/lib/design-validation.mjs"], "tests": ["tests/governance-runtime.test.js"], "evals": ["evals/suites/loopengine-core.json"] },
-    { "id": "release", "source": "RELEASE.md", "disposition": "generalize", "targets": ["rules/release-rules.md"], "tests": ["tests/rules-depth.test.js"], "evals": ["evals/suites/loopengine-core.json"] },
-    { "id": "eval-driven-development", "source": "evaluation governance", "disposition": "validator", "targets": ["rules/eval-driven-development.md", "skills/core/eval-driven-development/SKILL.md", "runtime/evals/run.mjs", "runtime/evals/codex-runner.mjs"], "tests": ["tests/eval-contract.test.js", "tests/eval-governance.test.js", "tests/eval-runner.test.js"], "evals": ["evals/suites/loopengine-core.json", "evals/suites/loopengine-online-canary.json"] },
-    { "id": "project-business-contracts", "source": "project memory contracts", "disposition": "project-only", "reason": "Business DTOs, permissions, ports, and repository names remain owned by the target project.", "tests": ["tests/redaction.test.js"] },
-    { "id": "runtime-application-code", "source": "application source", "disposition": "excluded-with-reason", "reason": "LoopEngine distributes governance assets and does not migrate product runtime code.", "tests": ["tests/redaction.test.js"] }
+    {
+      "id": "governance-kernel",
+      "source": "agent governance prompts",
+      "disposition": "generalize",
+      "targets": ["adapters/codex/AGENTS.template.md", "rules/governance-core.md"],
+      "tests": ["tests/simplified-governance.test.js"],
+      "profiles": ["minimal", "core", "full", "codex-internal", "codex-minimal", "docs-only"],
+      "docs": ["docs/specs/loopengine-v0.5-simplified-governance-spec.md"],
+      "evaluation": { "required": true, "suites": ["evals/suites/loopengine-core.json"] }
+    },
+    {
+      "id": "chinese-task-contract",
+      "source": "task lifecycle contracts",
+      "disposition": "validator",
+      "targets": ["templates/task.md", "schemas/full-task-control.schema.json", "runtime/governance/lib/task-validation.mjs"],
+      "tests": ["tests/simplified-governance.test.js"],
+      "profiles": ["core", "full", "codex-internal", "docs-only"],
+      "docs": ["docs/specs/loopengine-v0.5-simplified-governance-spec.md"],
+      "evaluation": { "required": true, "suites": ["evals/suites/loopengine-core.json"] }
+    },
+    {
+      "id": "skill-routing",
+      "source": "AGENT_SKILL_ROUTING.md and composable agent skills",
+      "disposition": "generalize",
+      "targets": ["rules/agent-skill-routing.md", "skills/core/using-loopengine/SKILL.md", "skills/core/brainstorming/SKILL.md"],
+      "tests": ["tests/agent-skill-routing.test.js", "tests/simplified-governance.test.js", "tests/skill-closure.test.js"],
+      "profiles": ["core", "full", "codex-internal"],
+      "docs": ["docs/inventory/skills-optimization-zh.md"],
+      "evaluation": { "required": true, "suites": ["evals/suites/loopengine-core.json"] }
+    },
+    {
+      "id": "review",
+      "source": "adversarial review",
+      "disposition": "validator",
+      "targets": ["rules/governance-core.md", "templates/task.md", "templates/delivery.md", "schemas/full-task-control.schema.json", "runtime/governance/lib/red-team-validation.mjs", "skills/core/adversarial-review-packet/SKILL.md", "skills/core/adversarial-review-packet/references/review.md"],
+      "tests": ["tests/manifest-schema.test.js", "tests/simplified-governance.test.js", "tests/skill-closure.test.js"],
+      "profiles": ["core", "full", "codex-internal", "docs-only"],
+      "docs": ["docs/specs/loopengine-v0.5-simplified-governance-spec.md"],
+      "evaluation": { "required": true, "suites": ["evals/suites/loopengine-core.json"] }
+    },
+    {
+      "id": "git-and-worktree",
+      "source": "GIT_RULES.md",
+      "disposition": "generalize",
+      "targets": ["rules/git-rules.md"],
+      "tests": ["tests/rules-depth.test.js"],
+      "profiles": ["minimal", "core", "full", "codex-internal", "codex-minimal", "docs-only"],
+      "docs": ["CONTRIBUTING.md"],
+      "evaluation": { "required": true, "suites": ["evals/suites/loopengine-core.json"] }
+    },
+    {
+      "id": "engineering-rules",
+      "source": "CODING / FRONTEND / API / DB",
+      "disposition": "generalize",
+      "targets": ["rules/coding-rules.md", "rules/frontend-rules.md", "rules/api-rules.md", "rules/db-rules.md"],
+      "tests": ["tests/rules-depth.test.js"],
+      "profiles": ["core", "full", "codex-internal", "docs-only"],
+      "docs": ["README.zh-CN.md"],
+      "evaluation": { "required": true, "suites": ["evals/suites/loopengine-core.json"] }
+    },
+    {
+      "id": "governance-memory",
+      "source": "docs/memory",
+      "disposition": "template",
+      "targets": ["templates/memory/PROJECT_STATE.md", "templates/memory/ARCHITECTURE.md", "templates/memory/DECISIONS.md", "templates/memory/KNOWN_BUGS.md", "templates/memory/TECH_DEBT.md", "templates/memory/FAILURE_LEARNINGS.md", "runtime/governance/lib/memory-validation.mjs"],
+      "tests": ["tests/v03-governance-equivalence.test.js", "tests/governance-runtime.test.js"],
+      "profiles": ["full", "codex-internal", "docs-only"],
+      "docs": ["docs/architecture.md"],
+      "evaluation": { "required": true, "suites": ["evals/suites/loopengine-core.json"] }
+    },
+    {
+      "id": "pencil-assets",
+      "source": "PENCIL_RULES.md",
+      "disposition": "validator",
+      "targets": ["rules/pencil-rules.md", "runtime/governance/lib/design-validation.mjs"],
+      "tests": ["tests/governance-runtime.test.js"],
+      "profiles": ["full", "codex-internal", "docs-only"],
+      "docs": ["docs/architecture.md"],
+      "evaluation": { "required": true, "suites": ["evals/suites/loopengine-core.json"] }
+    },
+    {
+      "id": "release",
+      "source": "RELEASE.md",
+      "disposition": "generalize",
+      "targets": ["rules/release-rules.md"],
+      "tests": ["tests/rules-depth.test.js"],
+      "profiles": ["full", "codex-internal", "docs-only"],
+      "docs": ["CONTRIBUTING.md"],
+      "evaluation": { "required": true, "suites": ["evals/suites/loopengine-core.json"] }
+    },
+    {
+      "id": "eval-driven-development",
+      "source": "evaluation governance",
+      "disposition": "validator",
+      "targets": ["rules/eval-driven-development.md", "skills/core/eval-driven-development/SKILL.md", "runtime/evals/run.mjs", "scripts/lib/eval-replay.js", "scripts/lib/eval-runner.js", "scripts/lib/eval-scoring.js", "scripts/lib/project-evaluation.js"],
+      "tests": ["tests/eval-contract.test.js", "tests/eval-governance.test.js", "tests/eval-runner.test.js"],
+      "profiles": ["core", "full", "codex-internal"],
+      "docs": ["docs/evals.md"],
+      "evaluation": { "required": true, "suites": ["evals/suites/loopengine-core.json", "evals/suites/loopengine-online-canary.json"] }
+    },
+    {
+      "id": "installer-lifecycle",
+      "source": "LoopEngine CLI lifecycle and ownership contract",
+      "disposition": "validator",
+      "targets": ["scripts/loopengine.js", "scripts/lib/install-planner.js", "scripts/lib/install-state.js"],
+      "tests": ["tests/installer-lifecycle.test.js", "tests/uninstall.test.js", "tests/installation-baseline.test.js"],
+      "profiles": ["minimal", "core", "full", "codex-internal", "codex-minimal", "docs-only"],
+      "docs": ["docs/migration-guide.md", "docs/architecture.md"],
+      "evaluation": { "required": true, "suites": ["evals/suites/loopengine-core.json", "evals/suites/loopengine-online-canary.json"] }
+    },
+    {
+      "id": "hook-policy",
+      "source": "Codex and Git hook policy",
+      "disposition": "validator",
+      "targets": ["runtime/hooks/codex-hook.mjs", "runtime/hooks/lib/policy.mjs", "runtime/hooks/lib/context.mjs", "runtime/hooks/lib/delivery-validation.mjs"],
+      "tests": ["tests/hook-runtime.test.js"],
+      "profiles": ["full", "codex-internal"],
+      "docs": ["docs/hooks.md"],
+      "evaluation": { "required": true, "suites": ["evals/suites/loopengine-core.json", "evals/suites/loopengine-online-canary.json"] }
+    },
+    {
+      "id": "docs-governance",
+      "source": "documentation catalog and policy",
+      "disposition": "validator",
+      "targets": ["docs/catalog.json", "manifests/capabilities.json", "schemas/docs-catalog.schema.json", "scripts/docs-audit.js", "scripts/lib/docs-validation.js"],
+      "tests": ["tests/documentation-governance.test.js"],
+      "profiles": [],
+      "docs": ["docs/README.md"],
+      "evaluation": { "required": false, "reason": "Documentation catalog integrity is deterministic and enforced by schema and link tests." }
+    },
+    {
+      "id": "tool-provisioning",
+      "source": "project-local tool provisioning",
+      "disposition": "validator",
+      "targets": ["scripts/lib/tool-provisioning.js", "scripts/lib/runtime-audit.js", "runtime/tools/agentmemory/package-lock.json"],
+      "tests": ["tests/tool-provisioning.test.js", "tests/runtime-audit.test.js"],
+      "profiles": ["core", "full", "codex-internal"],
+      "docs": ["docs/architecture.md"],
+      "evaluation": { "required": false, "reason": "Provisioning ownership, command flags, and dependency audits are deterministic lifecycle checks." }
+    },
+    {
+      "id": "skill-quality",
+      "source": "canonical Skill catalog and closure",
+      "disposition": "validator",
+      "targets": ["manifests/skills.json", "scripts/lib/pack-validation.js", "scripts/skills-audit.js"],
+      "tests": ["tests/skill-closure.test.js", "tests/agent-skill-routing.test.js"],
+      "profiles": ["core", "full", "codex-internal"],
+      "docs": ["docs/inventory/skills-optimization-zh.md"],
+      "evaluation": { "required": true, "suites": ["evals/suites/loopengine-core.json"] }
+    },
+    {
+      "id": "eval-observability",
+      "source": "evaluation runner and canary observability",
+      "disposition": "validator",
+      "targets": ["runtime/evals/codex-runner.mjs", "runtime/evals/lib/protected-config.mjs", "runtime/evals/observers.json", "scripts/eval-change-check.js", "scripts/eval-check.js", "scripts/eval-health.js", "scripts/eval-online.js", "scripts/lib/eval-contract.js", "scripts/lib/eval-health.js", ".github/workflows/evals.yml"],
+      "tests": ["tests/eval-ci.test.js", "tests/eval-runner.test.js"],
+      "profiles": ["full", "codex-internal"],
+      "docs": ["docs/evals.md"],
+      "evaluation": { "required": true, "suites": ["evals/suites/loopengine-online-canary.json"] }
+    },
+    {
+      "id": "cross-platform-adapters",
+      "source": "Codex, Claude, and Gemini adapters",
+      "disposition": "validator",
+      "targets": ["manifests/adapters.json", "adapters/codex/install-map.json", "adapters/claude/CLAUDE.template.md", "adapters/gemini/GEMINI.template.md"],
+      "tests": ["tests/cross-platform-adapters.test.js"],
+      "profiles": ["minimal", "core", "full", "codex-internal", "codex-minimal", "docs-only"],
+      "docs": ["README.md", "README.zh-CN.md"],
+      "evaluation": { "required": false, "reason": "Adapter file sets and lifecycle behavior are deterministic and verified on Linux and Windows." }
+    },
+    {
+      "id": "project-business-contracts",
+      "source": "project memory contracts",
+      "disposition": "project-only",
+      "reason": "Business DTOs, permissions, ports, and repository names remain owned by the target project.",
+      "tests": ["tests/redaction.test.js"],
+      "profiles": [],
+      "docs": ["docs/inventory/source-rules-mapping.md"],
+      "evaluation": { "required": false, "reason": "Project-specific contracts are outside the reusable pack." }
+    },
+    {
+      "id": "runtime-application-code",
+      "source": "application source",
+      "disposition": "excluded-with-reason",
+      "reason": "LoopEngine distributes governance assets and does not migrate product runtime code.",
+      "tests": ["tests/redaction.test.js"],
+      "profiles": [],
+      "docs": ["docs/inventory/source-rules-mapping.md"],
+      "evaluation": { "required": false, "reason": "Application runtime code is explicitly excluded from LoopEngine." }
+    }
   ]
 }

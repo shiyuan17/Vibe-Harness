@@ -16,6 +16,7 @@ import {
 } from './manifest.js';
 import { scanForForbiddenTerms } from './redaction.js';
 import { resolveAdapterEntry } from './adapter.js';
+import { validateDocumentation } from './docs-validation.js';
 
 const forbiddenTerms = ['SYBaseProjectWeb', 'SYBaseProject', 'D:\\Github\\JW', 'T-019', 'T-024', '患者', '病理', '医疗'];
 const redactionDirs = ['rules', 'templates', 'skills/core', 'skills/integrations', 'memory', 'runtime', 'adapters/codex', 'adapters/claude', 'adapters/gemini', 'manifests', 'schemas'];
@@ -190,6 +191,14 @@ export async function validateSkillGraph(
 
     if (checkFiles && await pathExists(path.join(rootDir, item.source))) {
       const content = await readFile(path.join(rootDir, item.source), 'utf8');
+      const frontmatter = content.match(/^---\r?\n([\s\S]*?)\r?\n---/u)?.[1] ?? '';
+      const frontmatterValue = (name) => {
+        const value = frontmatter.match(new RegExp(`^${name}:\\s*(.+)$`, 'mu'))?.[1]?.trim() ?? '';
+        return value.replace(/^(?:"([\s\S]*)"|'([\s\S]*)')$/u, '$1$2');
+      };
+      if (!frontmatter) errors.push(`${item.id} frontmatter is required`);
+      if (frontmatterValue('name') !== item.id) errors.push(`${item.id} frontmatter name must equal ${item.id}`);
+      if (!frontmatterValue('description')) errors.push(`${item.id} frontmatter description is required`);
       const prose = content
         .replace(/^---\r?\n[\s\S]*?\r?\n---/u, '')
         .replace(/```[\s\S]*?```/gu, '');
@@ -445,8 +454,20 @@ export function validateAgentSkillRoutingIntegrity({
 export async function validateCapabilityMatrix(rootDir, matrix, { checkFiles = true } = {}) {
   const errors = [];
   const allowed = new Set(['generalize', 'validator', 'template', 'project-only', 'excluded-with-reason']);
-  if (matrix?.schemaVersion !== 1 || !Array.isArray(matrix?.items)) {
-    return ['manifests/capabilities.json must use schemaVersion 1 with an items array'];
+  if (matrix?.schemaVersion !== 2 || !Array.isArray(matrix?.items)) {
+    return ['manifests/capabilities.json must use schemaVersion 2 with an items array'];
+  }
+  let knownProfiles = new Set();
+  let catalogDocs = new Set();
+  try {
+    const [profiles, catalog] = await Promise.all([
+      readJson(path.join(rootDir, 'manifests/profiles.json')),
+      readJson(path.join(rootDir, 'docs/catalog.json')),
+    ]);
+    knownProfiles = new Set(profiles.items.map((item) => item.id));
+    catalogDocs = new Set(catalog.items.map((item) => item.path));
+  } catch (error) {
+    errors.push(`capability evidence catalogs are unavailable: ${error.message}`);
   }
   const ids = new Set();
   for (const item of matrix.items) {
@@ -457,15 +478,33 @@ export async function validateCapabilityMatrix(rootDir, matrix, { checkFiles = t
     if (!Array.isArray(item?.tests) || item.tests.length === 0) {
       errors.push(`${id} requires at least one test`);
     }
+    if (!Array.isArray(item?.profiles)) errors.push(`${id} requires a profiles array`);
+    else for (const profile of item.profiles) {
+      if (!knownProfiles.has(profile)) errors.push(`${id} references unknown profile: ${profile}`);
+    }
+    if (!Array.isArray(item?.docs) || item.docs.length === 0) errors.push(`${id} requires at least one documentation path`);
+    else for (const document of item.docs) {
+      if (!catalogDocs.has(document)) errors.push(`${id} documentation path is not in the documentation catalog: ${document}`);
+    }
+    if (typeof item?.evaluation?.required !== 'boolean') {
+      errors.push(`${id} requires an evaluation policy`);
+    } else if (item.evaluation.required && (!Array.isArray(item.evaluation.suites) || item.evaluation.suites.length === 0)) {
+      errors.push(`${id} requires at least one evaluation suite`);
+    } else if (!item.evaluation.required && (typeof item.evaluation.reason !== 'string' || !item.evaluation.reason.trim())) {
+      errors.push(`${id} requires an evaluation reason when model evaluation is not required`);
+    }
     if (['project-only', 'excluded-with-reason'].includes(item?.disposition)) {
       if (typeof item?.reason !== 'string' || !item.reason.trim()) errors.push(`${id} requires a reason`);
     } else if (!Array.isArray(item?.targets) || item.targets.length === 0) {
       errors.push(`${id} requires at least one target`);
-    } else if (!Array.isArray(item?.evals) || item.evals.length === 0) {
-      errors.push(`${id} requires at least one eval suite`);
     }
     if (checkFiles) {
-      for (const candidate of [...(item?.targets ?? []), ...(item?.tests ?? []), ...(item?.evals ?? [])]) {
+      for (const candidate of [
+        ...(item?.targets ?? []),
+        ...(item?.tests ?? []),
+        ...(item?.docs ?? []),
+        ...(item?.evaluation?.suites ?? []),
+      ]) {
         try {
           assertPortableRelativePath(candidate, `${id} evidence path`);
           const candidatePath = path.join(rootDir, candidate);
@@ -490,6 +529,13 @@ export async function validateCapabilityMatrix(rootDir, matrix, { checkFiles = t
     'eval-driven-development',
     'project-business-contracts',
     'runtime-application-code',
+    'installer-lifecycle',
+    'hook-policy',
+    'docs-governance',
+    'tool-provisioning',
+    'skill-quality',
+    'eval-observability',
+    'cross-platform-adapters',
   ];
   for (const id of requiredCapabilities) {
     if (!ids.has(id)) errors.push(`Missing required capability: ${id}`);
@@ -565,6 +611,7 @@ export async function validatePack(rootDir) {
     includeDirs: redactionDirs,
     rootDir,
   });
+  const documentation = await validateDocumentation({ rootDir });
 
   return {
     agentSkillRoutingErrors,
@@ -576,6 +623,8 @@ export async function validatePack(rootDir) {
     skillMetadataErrors,
     skillGraphErrors,
     governanceQualityErrors,
+    documentationErrors: documentation.errors,
+    documentationWarnings: documentation.warnings,
     ok: missing.length === 0
       && installMapMissing.length === 0
       && missingSkillInstalls.length === 0
@@ -585,6 +634,7 @@ export async function validatePack(rootDir) {
       && governanceQualityErrors.length === 0
       && agentSkillRoutingErrors.length === 0
       && capabilityErrors.length === 0
+      && documentation.errors.length === 0
       && leaks.length === 0
       && schemaErrors.length === 0,
     schemaErrors: schemaErrors.sort(),
