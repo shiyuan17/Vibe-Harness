@@ -3,6 +3,8 @@ import { spawn } from 'node:child_process';
 import { access, mkdir, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 
+import { protectedConfigChanged, snapshotProtectedConfig } from './lib/protected-config.mjs';
+
 const LIMIT = 1024 * 1024;
 const CREDENTIAL_ERROR = /\b(?:api[-_ ]?key|auth(?:entication|orization)?|credentials?|login|unauthorized)\b/iu;
 
@@ -15,13 +17,13 @@ async function stdin() {
   return JSON.parse(body);
 }
 
-function execute(program, args, cwd, codexHome) {
+function execute(program, args, cwd, environment) {
   return new Promise((resolve, reject) => {
     let stdout = Buffer.alloc(0);
     let stderr = Buffer.alloc(0);
     const child = spawn(program, args, {
       cwd,
-      env: { ...process.env, CODEX_HOME: codexHome },
+      env: { ...process.env, ...environment },
       shell: false,
       windowsHide: true,
     });
@@ -55,6 +57,9 @@ function providerArgs() {
 
 async function resolveCodexCommand() {
   const configured = process.env.LOOPENGINE_CODEX_COMMAND;
+  if (configured?.toLowerCase().endsWith('.mjs') || configured?.toLowerCase().endsWith('.js')) {
+    return { args: [configured], program: process.execPath };
+  }
   if (process.platform !== 'win32') return { args: [], program: configured ?? 'codex' };
   const pathEntries = (process.env.PATH ?? '').split(path.delimiter).filter(Boolean);
   const wrappers = [];
@@ -84,7 +89,7 @@ async function resolveCodexCommand() {
 async function artifacts(root, current = root) {
   const output = [];
   for (const entry of await readdir(current, { withFileTypes: true })) {
-    if (['.codex-eval-home', '.git', 'node_modules'].includes(entry.name)) continue;
+    if (['.codex-eval-home', '.loopengine-eval-user-home', '.git', 'node_modules'].includes(entry.name)) continue;
     const full = path.join(current, entry.name);
     if (entry.isDirectory()) output.push(...await artifacts(root, full));
     else if (entry.isFile()) output.push(path.relative(root, full).replaceAll('\\', '/'));
@@ -142,18 +147,23 @@ try {
   const model = process.env.CODEX_MODEL;
   if (!model) throw new Error('CODEX_MODEL is required');
   const codexHome = path.join(request.workspace, '.codex-eval-home');
-  await mkdir(codexHome, { recursive: true });
-  const version = await execute(command.program, [...command.args, '--version'], request.workspace, codexHome);
+  const userHome = path.join(request.workspace, '.loopengine-eval-user-home');
+  await Promise.all([mkdir(codexHome, { recursive: true }), mkdir(userHome, { recursive: true })]);
+  const isolatedEnvironment = { CODEX_HOME: codexHome, HOME: userHome, USERPROFILE: userHome };
+  const protectedBefore = await snapshotProtectedConfig({ codexHome, userHome });
+  const version = await execute(command.program, [...command.args, '--version'], request.workspace, isolatedEnvironment);
   if (version.code !== 0) throw new Error('Codex CLI is unavailable');
   const result = await execute(command.program, [...command.args,
     'exec', '--json', '--sandbox', 'workspace-write', '--skip-git-repo-check', '--ephemeral',
     '--ignore-user-config', '--model', model, ...providerArgs(), '-C', request.workspace, request.case.input.scenario,
-  ], request.workspace, codexHome);
+  ], request.workspace, isolatedEnvironment);
   if (result.code !== 0 && CREDENTIAL_ERROR.test(`${result.stderr}\n${result.stdout}`)) {
     throw new Error('Codex credentials are missing or invalid');
   }
   const parsed = transcript(result.stdout);
   const semanticEvents = await fixtureEvents(request);
+  const protectedAfter = await snapshotProtectedConfig({ codexHome, userHome });
+  if (protectedConfigChanged(protectedBefore, protectedAfter)) semanticEvents.push('global-agent-write');
   const observation = {
     schemaVersion: 1,
     caseId: request.case.id,

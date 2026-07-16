@@ -18,10 +18,15 @@ test('CI blocks offline eval drift and scheduled workflow runs advisory online c
   assert.match(ci, /pnpm eval:check/u);
   assert.match(ci, /pnpm eval:offline/u);
   assert.match(ci, /pnpm eval:changes/u);
+  assert.match(ci, /windows-latest/u);
+  assert.match(ci, /ubuntu-latest/u);
+  assert.match(ci, /pnpm test:integration/u);
+  assert.match(ci, /pnpm runtime:audit/u);
   assert.match(online, /schedule:/u);
   assert.match(online, /workflow_dispatch:/u);
   assert.match(online, /pnpm eval:online/u);
   assert.match(online, /retention-days:\s*30/u);
+  assert.match(online, /pnpm eval:health/u);
   assert.doesNotMatch(online, /pull_request:/u);
 });
 
@@ -32,14 +37,43 @@ test('governance diffs require a newly added Eval-ID while unrelated diffs do no
     coverageKeys: ['capability:skill-routing'],
   }).ok, false);
   assert.equal(evaluateGovernanceEvalChanges({
-    addedEvalCases: [{ id: 'EVAL-ROUTE-999', suite: 'evals/suites/core.json' }],
+    addedEvalCases: [{ capability: 'skill-routing', id: 'EVAL-ROUTE-999', suite: 'evals/suites/core.json' }],
     changedFiles: ['rules/agent-skill-routing.md', 'evals/suites/core.json'],
     coverageKeys: ['capability:skill-routing'],
+    requiredSuites: { 'skill-routing': ['evals/suites/core.json'] },
   }).ok, true);
+  assert.equal(evaluateGovernanceEvalChanges({
+    addedEvalCases: [{ capability: 'unrelated', id: 'EVAL-UNRELATED-999', suite: 'evals/suites/core.json' }],
+    changedFiles: ['rules/agent-skill-routing.md', 'evals/suites/core.json'],
+    coverageKeys: ['capability:skill-routing'],
+    requiredSuites: { 'skill-routing': ['evals/suites/core.json'] },
+  }).ok, false);
+  assert.equal(evaluateGovernanceEvalChanges({
+    addedEvalCases: [{ capability: 'skill-routing', id: 'EVAL-ROUTE-999', suite: 'evals/suites/wrong.json' }],
+    changedFiles: ['rules/agent-skill-routing.md', 'evals/suites/wrong.json'],
+    coverageKeys: ['capability:skill-routing'],
+    requiredSuites: { 'skill-routing': ['evals/suites/core.json'] },
+  }).ok, false);
   assert.equal(evaluateGovernanceEvalChanges({
     addedEvalCases: [],
     changedFiles: ['docs/evals.md'],
   }).ok, true);
+  assert.equal(evaluateGovernanceEvalChanges({
+    addedEvalCases: [],
+    changedFiles: ['manifests/capabilities.json'],
+    coverageKeys: [],
+  }).ok, true);
+  assert.equal(evaluateGovernanceEvalChanges({
+    addedEvalCases: [],
+    changedFiles: ['runtime/evals/codex-runner.mjs'],
+    coverageKeys: ['capability:eval-observability'],
+    requiredSuites: { 'eval-observability': ['evals/suites/loopengine-online-canary.json'] },
+  }).ok, false);
+  assert.equal(evaluateGovernanceEvalChanges({
+    addedEvalCases: [{ capability: 'skill-routing', id: 'EVAL-ROUTE-999', suite: 'evals/suites/core.json' }],
+    changedFiles: ['skills/core/new-governance/SKILL.md'],
+    coverageKeys: ['file:skills/core/new-governance/SKILL.md'],
+  }).ok, false);
 });
 
 test('online canary suite contains exactly six critical governance scenarios', async () => {
@@ -50,6 +84,15 @@ test('online canary suite contains exactly six critical governance scenarios', a
   for (const fragment of ['global', 'existing', '--project', 'evidence', 'eval-driven-development', 'secret']) {
     assert.match(scenarios, new RegExp(fragment, 'iu'));
   }
+});
+
+test('offline routing eval distinguishes clear specifications, ambiguity, and bug fixes', async () => {
+  const suite = await readJson(path.join(rootDir, 'evals/suites/loopengine-core.json'));
+  const scenarios = suite.cases.filter((item) => item.capability === 'skill-routing')
+    .map((item) => item.input.scenario).join('\n');
+  assert.match(scenarios, /decision-complete specification/iu);
+  assert.match(scenarios, /high-impact ambiguity/iu);
+  assert.match(scenarios, /deterministic bug fix/iu);
 });
 
 test('hook evaluation check executes configured command without a shell', async () => {

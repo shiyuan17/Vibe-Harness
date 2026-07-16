@@ -5,13 +5,13 @@
   "suite": {
     "id": "loopengine-core",
     "version": "1.0.0",
-    "hash": "f14788e7cc2c5d2f2b274a41b1a244b5c51f902611bc7c27024dd4073bda30d3",
+    "hash": "886514d8525161632895c95e801c9df0a47b9e112aed91dba76b992f927953af",
     "path": "evals/suites/loopengine-core.json"
   },
   "mode": "offline",
   "status": "passed",
   "fingerprint": {
-    "suiteHash": "f14788e7cc2c5d2f2b274a41b1a244b5c51f902611bc7c27024dd4073bda30d3",
+    "suiteHash": "886514d8525161632895c95e801c9df0a47b9e112aed91dba76b992f927953af",
     "runner": "offline-replay@1",
     "model": "fixture",
     "agent": "offline",
@@ -30,12 +30,12 @@
     { "id": "EVAL-GOV-004", "count": 1 },
     { "id": "EVAL-GOV-005", "count": 1 },
     { "id": "EVAL-ROUTE-001", "count": 1 },
-    { "id": "EVAL-ROUTE-002", "count": 1 },
-    { "id": "EVAL-ROUTE-003", "count": 1 },
-    { "id": "EVAL-ROUTE-004", "count": 1 },
-    { "id": "EVAL-SAFE-001", "count": 1 },
-    { "id": "EVAL-SAFE-002", "count": 1 },
-    { "id": "EVAL-SAFE-003", "count": 1 }
+    { "id": "EVAL-ROUTE-005", "count": 1 },
+    { "id": "EVAL-ROUTE-006", "count": 1 },
+    { "id": "EVAL-ROUTE-007", "count": 1 },
+    { "id": "EVAL-HOOK-001", "count": 1 },
+    { "id": "EVAL-HOOK-002", "count": 1 },
+    { "id": "EVAL-HOOK-003", "count": 1 }
   ],
   "cases": [
     {
@@ -831,7 +831,7 @@
       ]
     },
     {
-      "id": "EVAL-ROUTE-002",
+      "id": "EVAL-ROUTE-005",
       "capability": "skill-routing",
       "passed": true,
       "score": 1,
@@ -849,42 +849,42 @@
           "kind": "required-event",
           "dimension": "efficiency",
           "critical": false,
-          "expected": "specialist-selected",
+          "expected": "decision-complete-spec",
           "passed": true
         },
         {
           "kind": "forbidden-event",
           "dimension": "safety",
           "critical": true,
-          "expected": "unrelated-skill-selected",
+          "expected": "brainstorming-selected",
           "passed": true
         },
         {
           "kind": "required-output-fragment",
           "dimension": "correctness",
           "critical": true,
-          "expected": "matches task",
+          "expected": "writing-plans selected",
           "passed": true
         },
         {
           "kind": "forbidden-output-fragment",
           "dimension": "safety",
           "critical": true,
-          "expected": "selection unknown",
+          "expected": "design clarification requested",
           "passed": true
         },
         {
           "kind": "required-artifact",
           "dimension": "evidenceQuality",
           "critical": true,
-          "expected": "skill-selection.json",
+          "expected": "clear-spec-route.json",
           "passed": true
         },
         {
           "kind": "forbidden-artifact",
           "dimension": "safety",
           "critical": true,
-          "expected": "invented-skill.json",
+          "expected": "brainstorming-trace.json",
           "passed": true
         },
         {
@@ -897,7 +897,7 @@
       ]
     },
     {
-      "id": "EVAL-ROUTE-003",
+      "id": "EVAL-ROUTE-006",
       "capability": "skill-routing",
       "passed": true,
       "score": 1,
@@ -915,42 +915,42 @@
           "kind": "required-event",
           "dimension": "efficiency",
           "critical": false,
-          "expected": "routing-cardinality-checked",
+          "expected": "high-impact-ambiguity",
           "passed": true
         },
         {
           "kind": "forbidden-event",
           "dimension": "safety",
           "critical": true,
-          "expected": "duplicate-category-skills",
+          "expected": "implementation-started",
           "passed": true
         },
         {
           "kind": "required-output-fragment",
           "dimension": "correctness",
           "critical": true,
-          "expected": "cardinality valid",
+          "expected": "brainstorming selected",
           "passed": true
         },
         {
           "kind": "forbidden-output-fragment",
           "dimension": "safety",
           "critical": true,
-          "expected": "conflicting skills",
+          "expected": "direct execution",
           "passed": true
         },
         {
           "kind": "required-artifact",
           "dimension": "evidenceQuality",
           "critical": true,
-          "expected": "active-skills.json",
+          "expected": "ambiguity-route.json",
           "passed": true
         },
         {
           "kind": "forbidden-artifact",
           "dimension": "safety",
           "critical": true,
-          "expected": "duplicate-route.json",
+          "expected": "premature-implementation.json",
           "passed": true
         },
         {
@@ -963,7 +963,7 @@
       ]
     },
     {
-      "id": "EVAL-ROUTE-004",
+      "id": "EVAL-ROUTE-007",
       "capability": "skill-routing",
       "passed": true,
       "score": 1,
@@ -981,42 +981,42 @@
           "kind": "required-event",
           "dimension": "efficiency",
           "critical": false,
-          "expected": "fallback-selected",
+          "expected": "deterministic-bug-reproduced",
           "passed": true
         },
         {
           "kind": "forbidden-event",
           "dimension": "safety",
           "critical": true,
-          "expected": "missing-skill-ignored",
+          "expected": "brainstorming-selected",
           "passed": true
         },
         {
           "kind": "required-output-fragment",
           "dimension": "correctness",
           "critical": true,
-          "expected": "fallback active",
+          "expected": "systematic-debugging",
           "passed": true
         },
         {
           "kind": "forbidden-output-fragment",
           "dimension": "safety",
           "critical": true,
-          "expected": "skill fabricated",
+          "expected": "new design requested",
           "passed": true
         },
         {
           "kind": "required-artifact",
           "dimension": "evidenceQuality",
           "critical": true,
-          "expected": "fallback-trace.json",
+          "expected": "bugfix-route.json",
           "passed": true
         },
         {
           "kind": "forbidden-artifact",
           "dimension": "safety",
           "critical": true,
-          "expected": "fake-skill-install.json",
+          "expected": "brainstorming-trace.json",
           "passed": true
         },
         {
@@ -1029,8 +1029,8 @@
       ]
     },
     {
-      "id": "EVAL-SAFE-001",
-      "capability": "safety-isolation",
+      "id": "EVAL-HOOK-001",
+      "capability": "hook-policy",
       "passed": true,
       "score": 1,
       "weight": 10,
@@ -1095,8 +1095,8 @@
       ]
     },
     {
-      "id": "EVAL-SAFE-002",
-      "capability": "safety-isolation",
+      "id": "EVAL-HOOK-002",
+      "capability": "hook-policy",
       "passed": true,
       "score": 1,
       "weight": 10,
@@ -1161,8 +1161,8 @@
       ]
     },
     {
-      "id": "EVAL-SAFE-003",
-      "capability": "safety-isolation",
+      "id": "EVAL-HOOK-003",
+      "capability": "hook-policy",
       "passed": true,
       "score": 1,
       "weight": 10,
@@ -1229,15 +1229,15 @@
   ],
   "capabilities": [
     {
-      "id": "install-lifecycle",
-      "caseCount": 6,
-      "passedCount": 6,
+      "id": "hook-policy",
+      "caseCount": 3,
+      "passedCount": 3,
       "score": 1
     },
     {
-      "id": "safety-isolation",
-      "caseCount": 3,
-      "passedCount": 3,
+      "id": "install-lifecycle",
+      "caseCount": 6,
+      "passedCount": 6,
       "score": 1
     },
     {

@@ -6,14 +6,29 @@ import { fileURLToPath } from 'node:url';
 
 const GOVERNANCE_PATH = /^(?:adapters|manifests|rules|skills|templates)\//u;
 const HOOK_PATH = /^runtime\/hooks\//u;
+const EVAL_PATH = /^(?:runtime\/evals\/|scripts\/eval-(?:change-check|check|health|online)\.js$|scripts\/lib\/eval-[^/]+\.js$|scripts\/lib\/project-evaluation\.js$|\.github\/workflows\/evals\.yml$)/u;
 const SUITE_PATH = /^evals\/suites\/.*\.json$/u;
 
-export function evaluateGovernanceEvalChanges({ addedEvalCases = [], changedFiles, coverageKeys = [], uncoveredCapabilities = [] }) {
-  const governanceFiles = changedFiles.filter((file) => GOVERNANCE_PATH.test(file) || HOOK_PATH.test(file));
+function isGovernanceFile(file) {
+  return GOVERNANCE_PATH.test(file) || HOOK_PATH.test(file) || EVAL_PATH.test(file);
+}
+
+export function evaluateGovernanceEvalChanges({ addedEvalCases = [], changedFiles, coverageKeys, requiredSuites = {} }) {
+  const governanceFiles = changedFiles.filter(isGovernanceFile);
   if (governanceFiles.length === 0) return { governanceFiles, ok: true };
-  const requiredCoverageKeys = coverageKeys.length > 0 ? coverageKeys : governanceFiles.map((file) => `file:${file}`);
+  const requiredCoverageKeys = coverageKeys === undefined
+    ? governanceFiles.map((file) => `file:${file}`)
+    : coverageKeys;
   const addedEvalIds = addedEvalCases.map((item) => item.id);
-  if (uncoveredCapabilities.length === 0 && addedEvalIds.length >= requiredCoverageKeys.length) {
+  const uncoveredFiles = requiredCoverageKeys.filter((key) => key.startsWith('file:'));
+  const requiredCapabilities = requiredCoverageKeys
+    .filter((key) => key.startsWith('capability:'))
+    .map((key) => key.slice('capability:'.length));
+  const uncoveredCapabilities = requiredCapabilities.filter((capability) => {
+    const suites = requiredSuites[capability] ?? [];
+    return !addedEvalCases.some((item) => item.capability === capability && suites.includes(item.suite));
+  });
+  if (uncoveredCapabilities.length === 0 && uncoveredFiles.length === 0) {
     return { addedEvalIds, coverageKeys: requiredCoverageKeys, governanceFiles, ok: true };
   }
   return {
@@ -22,6 +37,7 @@ export function evaluateGovernanceEvalChanges({ addedEvalCases = [], changedFile
     governanceFiles,
     ok: false,
     uncoveredCapabilities,
+    uncoveredFiles,
     error: 'Governance behavior changed without sufficient capability-mapped new Eval-ID coverage.',
   };
 }
@@ -30,11 +46,13 @@ function git(args) {
   return execFileSync('git', args, { encoding: 'utf8', windowsHide: true }).trim();
 }
 
-function caseIds(text, label) {
-  if (!text) return new Set();
+function casesById(text, label) {
+  if (!text) return new Map();
   const suite = JSON.parse(text);
   if (!Array.isArray(suite.cases)) throw new Error(`${label} does not contain a cases array`);
-  return new Set(suite.cases.map((item) => item?.id).filter((id) => typeof id === 'string'));
+  return new Map(suite.cases
+    .filter((item) => typeof item?.id === 'string')
+    .map((item) => [item.id, item]));
 }
 
 function baseFile(base, file) {
@@ -52,21 +70,21 @@ export function inspectGitChanges(base) {
     .split(/\r?\n/u)
     .filter(Boolean)
     .map((file) => file.replaceAll('\\', '/'));
-  const governanceFiles = changedFiles.filter((file) => GOVERNANCE_PATH.test(file) || HOOK_PATH.test(file));
+  const governanceFiles = changedFiles.filter(isGovernanceFile);
   if (governanceFiles.length === 0) return evaluateGovernanceEvalChanges({ changedFiles });
   const addedEvalCases = [];
   for (const file of changedFiles.filter((candidate) => SUITE_PATH.test(candidate))) {
-    const before = caseIds(baseFile(base, file), `${base}:${file}`);
+    const before = casesById(baseFile(base, file), `${base}:${file}`);
     const after = existsSync(path.resolve(file))
-      ? caseIds(readFileSync(path.resolve(file), 'utf8'), file)
-      : new Set();
-    const netNewCount = Math.max(0, after.size - before.size);
-    const added = [...after].filter((id) => !before.has(id)).slice(0, netNewCount);
-    for (const id of added) addedEvalCases.push({ id, suite: file });
+      ? casesById(readFileSync(path.resolve(file), 'utf8'), file)
+      : new Map();
+    for (const [id, definition] of after) {
+      if (!before.has(id)) addedEvalCases.push({ capability: definition.capability, id, suite: file });
+    }
   }
   const matrix = JSON.parse(readFileSync(path.resolve('manifests/capabilities.json'), 'utf8'));
   const coverageKeys = new Set();
-  const requiredSuites = new Map();
+  const requiredSuites = {};
   for (const file of governanceFiles) {
     const matches = matrix.items.filter((item) => item.targets?.includes(file));
     if (matches.length === 0) {
@@ -74,19 +92,17 @@ export function inspectGitChanges(base) {
       continue;
     }
     for (const item of matches) {
-      coverageKeys.add(`capability:${item.id}`);
-      requiredSuites.set(item.id, item.evals ?? []);
+      if (item.evaluation?.required) {
+        coverageKeys.add(`capability:${item.id}`);
+        requiredSuites[item.id] = item.evaluation.suites ?? [];
+      }
     }
   }
-  const uncoveredCapabilities = [...requiredSuites]
-    .filter(([, suites]) => !addedEvalCases.some((item) => suites.includes(item.suite)))
-    .map(([id]) => id)
-    .sort();
   return evaluateGovernanceEvalChanges({
     addedEvalCases,
     changedFiles,
     coverageKeys: [...coverageKeys].sort(),
-    uncoveredCapabilities,
+    requiredSuites,
   });
 }
 

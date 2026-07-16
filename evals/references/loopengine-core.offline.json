@@ -8,7 +8,7 @@
   },
   "mode": "offline",
   "fingerprint": {
-    "suiteHash": "f14788e7cc2c5d2f2b274a41b1a244b5c51f902611bc7c27024dd4073bda30d3",
+    "suiteHash": "886514d8525161632895c95e801c9df0a47b9e112aed91dba76b992f927953af",
     "runner": "offline-replay@1",
     "model": "fixture",
     "agent": "offline",
@@ -16,15 +16,15 @@
   },
   "capabilities": [
     {
-      "id": "install-lifecycle",
-      "caseCount": 6,
-      "passedCount": 6,
+      "id": "hook-policy",
+      "caseCount": 3,
+      "passedCount": 3,
       "score": 1
     },
     {
-      "id": "safety-isolation",
-      "caseCount": 3,
-      "passedCount": 3,
+      "id": "install-lifecycle",
+      "caseCount": 6,
+      "passedCount": 6,
       "score": 1
     },
     {
@@ -43,4 +43,3 @@
   "overallScore": 1,
   "criticalPassRate": 1
 }
-

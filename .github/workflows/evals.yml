@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
@@ -45,12 +46,30 @@ jobs:
         run: |
           mkdir -p .loopengine/evals/runs
           printf '{"status":"degraded","code":"EVAL_RUNNER_INSTALL_FAILED"}\n' > .loopengine/evals/runs/degraded.json
-      - if: steps.preflight.outputs.ready == 'true' && steps.codex-install.outcome == 'success'
+      - id: online-eval
+        if: steps.preflight.outputs.ready == 'true' && steps.codex-install.outcome == 'success'
+        continue-on-error: true
         env:
           CODEX_MODEL: ${{ vars.CODEX_MODEL }}
           LOOPENGINE_EVAL_ENFORCE: ${{ vars.LOOPENGINE_EVAL_ENFORCE }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: pnpm eval:online
+      - name: Download recent online evaluation health artifacts
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p .loopengine/evals/history
+          gh run list --workflow evals.yml --branch "$GITHUB_REF_NAME" --status completed --limit 2 --json databaseId --jq '.[].databaseId' | while read -r run_id; do
+            [ -z "$run_id" ] && continue
+            mkdir -p ".loopengine/evals/history/$run_id"
+            gh run download "$run_id" --pattern 'loopengine-online-evals-*' --dir ".loopengine/evals/history/$run_id"
+          done
+      - name: Enforce online evaluation health
+        if: always()
+        env:
+          LOOPENGINE_EVAL_ENFORCE: ${{ vars.LOOPENGINE_EVAL_ENFORCE }}
+        run: pnpm eval:health --current-dir .loopengine/evals/runs --history-dir .loopengine/evals/history --summary "$GITHUB_STEP_SUMMARY"
       - if: always()
         uses: actions/upload-artifact@v4
         with:

@@ -43,6 +43,26 @@ export function validateEvalSuiteSemantics(suite) {
   return errors.sort();
 }
 
+export function validateEvalObserverCoverage(suites, registry) {
+  const errors = [];
+  if (registry?.schemaVersion !== 1 || !registry.events || typeof registry.events !== 'object') {
+    return ['evaluation observer registry must use schemaVersion 1 with an events object'];
+  }
+  const required = new Set();
+  for (const suite of suites) {
+    for (const definition of suite.cases ?? []) {
+      for (const assertion of definition.oracle?.forbiddenEvents ?? []) required.add(assertion.value);
+    }
+  }
+  for (const event of required) {
+    const observer = registry.events[event];
+    if (!observer || typeof observer.producer !== 'string' || typeof observer.observer !== 'string') {
+      errors.push(`forbidden event requires a registered observer: ${event}`);
+    }
+  }
+  return errors.sort();
+}
+
 function validateScore(value, label, errors) {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
     errors.push(`${label} must be a number from 0 to 1`);

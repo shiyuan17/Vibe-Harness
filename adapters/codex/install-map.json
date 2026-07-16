@@ -196,6 +196,12 @@
       "contentStrategy": "replace"
     },
     {
+      "group": "runtime-eval-online",
+      "source": "runtime/evals/lib/protected-config.mjs",
+      "target": ".agents/loopengine/evals/lib/protected-config.mjs",
+      "contentStrategy": "replace"
+    },
+    {
       "group": "evals-core",
       "source": "evals/suites/loopengine-core.json",
       "target": ".agents/evals/suites/loopengine-core.json",

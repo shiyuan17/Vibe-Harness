@@ -8,6 +8,7 @@ import { readJson, validateJsonAgainstSchema } from '../scripts/lib/manifest.js'
 import {
   loadEvalAssets,
   validateEvalAssets,
+  validateEvalObserverCoverage,
   validateEvalSuiteSemantics,
 } from '../scripts/lib/eval-contract.js';
 import { buildOfflineRun } from '../scripts/lib/eval-replay.js';
@@ -59,6 +60,17 @@ test('suite semantic validation rejects duplicate ids, all-zero weights, and wei
   assert.match(validateEvalSuiteSemantics(invalid).join('\n'), /duplicate case id/u);
   assert.match(validateEvalSuiteSemantics(invalid).join('\n'), /positive weight/u);
   assert.match(validateEvalSuiteSemantics(invalid).join('\n'), /efficiency has weight/u);
+});
+
+test('online forbidden events require registered observers', async () => {
+  const [suite, observers] = await Promise.all([
+    readJson(path.join(rootDir, 'evals/suites/loopengine-online-canary.json')),
+    readJson(path.join(rootDir, 'runtime/evals/observers.json')),
+  ]);
+  assert.deepEqual(validateEvalObserverCoverage([suite], observers), []);
+  const incomplete = structuredClone(observers);
+  delete incomplete.events['global-agent-write'];
+  assert.match(validateEvalObserverCoverage([suite], incomplete).join('\n'), /global-agent-write/u);
 });
 
 test('checked-in suite, run, and reference satisfy their schemas and cross references', async () => {
