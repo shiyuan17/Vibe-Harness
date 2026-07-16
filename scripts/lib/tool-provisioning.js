@@ -16,7 +16,7 @@ const toolSpecs = [
   {
     id: 'codebaseMemoryMcp',
     packageName: 'codebase-memory-mcp',
-    phases: ['dependency-install', 'binary-install', 'index', 'mcp-handshake'],
+    phases: ['dependency-install', 'binary-install', 'index', 'index-verify', 'mcp-handshake'],
     relativeDir: '.agents/loopengine/tools/codebase-memory-mcp',
     version: '0.9.0',
   },
@@ -310,7 +310,7 @@ function componentEnvironment(spec, targetDir, env) {
   return { ...env, npm_config_cache: npmCache };
 }
 
-async function phaseRequest(spec, phase, targetDir, env) {
+async function phaseRequest(spec, phase, targetDir, env, context = {}) {
   const componentEnv = componentEnvironment(spec, targetDir, env);
   if (phase === 'dependency-install') {
     const npmArgs = ['ci', '--no-audit', '--no-fund', '--ignore-scripts'];
@@ -334,7 +334,12 @@ async function phaseRequest(spec, phase, targetDir, env) {
         path.join(spec.toolDir, 'run.mjs'),
         'cli',
         'index_repository',
-        JSON.stringify({ mode: 'moderate', persistence: false, repo_path: targetDir }),
+        '--repo-path',
+        targetDir,
+        '--mode',
+        'moderate',
+        '--persistence',
+        'false',
       ],
       command: process.execPath,
       component: spec.id,
@@ -342,6 +347,23 @@ async function phaseRequest(spec, phase, targetDir, env) {
       env: componentEnv,
       phase,
       timeout: 600_000,
+    };
+  }
+  if (phase === 'index-verify') {
+    return {
+      args: [
+        path.join(spec.toolDir, 'run.mjs'),
+        'cli',
+        'index_status',
+        '--project',
+        context.indexProject,
+      ],
+      command: process.execPath,
+      component: spec.id,
+      cwd: targetDir,
+      env: componentEnv,
+      phase,
+      timeout: 120_000,
     };
   }
   if (phase === 'llm-test') {
@@ -451,31 +473,92 @@ function publicFailure(spec, phase, error, targetDir) {
   return { code, diagnostic: createDiagnostic(error, phase, targetDir), phase, status: 'degraded', version: spec.version };
 }
 
-function ready(spec, phase = 'ready') {
-  return { phase, status: 'ready', version: spec.version };
+function ready(spec, phase = 'ready', details = {}) {
+  return { ...details, phase, status: 'ready', version: spec.version };
 }
 
-async function runToolPhases(spec, commandRunner, env, targetDir) {
-  for (const phase of spec.phases) {
+function toolContractError(code, message) {
+  return Object.assign(new Error(message), { code });
+}
+
+function parseCommandJson(output, code, message) {
+  const line = String(output?.stdout ?? '')
+    .split(/\r?\n/gu)
+    .map((item) => item.trim())
+    .findLast((item) => item.startsWith('{'));
+  if (!line) throw toolContractError(code, message);
+  try {
+    return JSON.parse(line);
+  } catch {
+    throw toolContractError(code, message);
+  }
+}
+
+function normalizedProjectPath(value) {
+  const resolved = path.resolve(String(value));
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+}
+
+function validateIndexResult(output) {
+  const result = parseCommandJson(output, 'INDEX_OUTPUT_INVALID', 'Index command did not return valid JSON.');
+  if (result.status !== 'indexed' || typeof result.project !== 'string' || !result.project.trim()) {
+    throw toolContractError('INDEX_RESULT_INVALID', 'Index command did not confirm an indexed project.');
+  }
+  return result.project;
+}
+
+function validateIndexStatus(output, targetDir) {
+  const result = parseCommandJson(output, 'INDEX_OUTPUT_INVALID', 'Index verification did not return valid JSON.');
+  if (result.status !== 'ready') {
+    throw toolContractError('INDEX_NOT_READY', 'Indexed project is not ready.');
+  }
+  if (typeof result.root_path !== 'string'
+    || normalizedProjectPath(result.root_path) !== normalizedProjectPath(targetDir)) {
+    throw toolContractError('INDEX_ROOT_MISMATCH', 'Indexed project root does not match the target project.');
+  }
+  if (!Number.isInteger(result.nodes) || result.nodes < 0
+    || !Number.isInteger(result.edges) || result.edges < 0) {
+    throw toolContractError('INDEX_STATUS_INVALID', 'Index verification did not return valid graph counts.');
+  }
+  return {
+    edges: result.edges,
+    mode: 'moderate',
+    nodes: result.nodes,
+    status: 'ready',
+  };
+}
+
+async function runToolPhases(spec, commandRunner, env, targetDir, phases = spec.phases) {
+  const context = {};
+  for (const phase of phases) {
     if (spec.id === 'openCodeReview' && phase === 'llm-test' && !hasOcrCredentials(env)) {
       return { phase: 'llm-config', status: 'pending-config', version: spec.version };
     }
-    const request = await phaseRequest(spec, phase, targetDir, env);
-    request.timeout = boundedTimeout(env, request.timeout);
     try {
-      await commandRunner(request);
+      const request = await phaseRequest(spec, phase, targetDir, env, context);
+      request.timeout = boundedTimeout(env, request.timeout);
+      const output = await commandRunner(request);
+      if (phase === 'index') context.indexProject = validateIndexResult(output);
+      if (phase === 'index-verify') context.index = validateIndexStatus(output, targetDir);
     } catch (error) {
       error.phase = phase;
       throw error;
     }
   }
-  return ready(spec);
+  return ready(spec, 'ready', context.index ? { index: context.index } : {});
 }
 
 async function lockFingerprint(spec) {
   const lockPath = path.join(spec.toolDir, 'package-lock.json');
   if (!(await pathExists(lockPath))) return null;
   return createHash('sha256').update(await readFile(lockPath)).digest('hex');
+}
+
+async function codebaseMemoryRuntimeAvailable(spec) {
+  const packageDir = path.join(spec.toolDir, 'node_modules/codebase-memory-mcp');
+  const binary = process.platform === 'win32' ? 'codebase-memory-mcp.exe' : 'codebase-memory-mcp';
+  return await pathExists(path.join(packageDir, 'bin.js'))
+    && await pathExists(path.join(packageDir, 'bin', binary));
 }
 
 async function readToolState(targetDir) {
@@ -515,18 +598,24 @@ export async function provisionProfileTools({ commandRunner, env = process.env, 
     const previousTool = previous?.tools?.[spec.id];
     const reusableStatus = previousTool?.status === 'ready'
       || (spec.id === 'openCodeReview' && previousTool?.status === 'pending-config' && !hasOcrCredentials(env));
-    if (
+    const reusableRuntime = spec.id !== 'codebaseMemoryMcp' || await codebaseMemoryRuntimeAvailable(spec);
+    const reusable = (
       fingerprint
       && previous?.fingerprints?.[spec.id] === fingerprint
       && reusableStatus
+      && reusableRuntime
       && !mcpConflicts.includes(spec.id === 'codebaseMemoryMcp' ? 'codebase-memory-mcp' : spec.id)
-    ) {
+    );
+    if (reusable && spec.id !== 'codebaseMemoryMcp') {
       tools[spec.id] = previousTool;
       continue;
     }
+    const phases = reusable
+      ? spec.phases.filter((phase) => !['dependency-install', 'binary-install'].includes(phase))
+      : spec.phases;
     try {
       if (effectiveCommandRunner) {
-        tools[spec.id] = await runToolPhases(spec, effectiveCommandRunner, env, targetDir);
+        tools[spec.id] = await runToolPhases(spec, effectiveCommandRunner, env, targetDir, phases);
       } else if (spec.id === 'playwrightCli') {
         const runCommand = async (command, args, options) => defaultCommandRunner({
           args,
@@ -538,7 +627,7 @@ export async function provisionProfileTools({ commandRunner, env = process.env, 
         const result = await preparePlaywrightTool({ runCommand, targetDir, toolDir: spec.toolDir });
         tools[spec.id] = result.status === 'ready' ? ready(spec) : { phase: 'browser-install', status: 'degraded', version: spec.version };
       } else {
-        tools[spec.id] = await runToolPhases(spec, defaultPhaseRunner, env, targetDir);
+        tools[spec.id] = await runToolPhases(spec, defaultPhaseRunner, env, targetDir, phases);
       }
     } catch (error) {
       const phase = spec.phases.find((item) => item === error?.phase) ?? 'provision';

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -28,6 +28,39 @@ const offlineEnv = {
   npm_config_cache: path.join(tmpdir(), 'loopengine-empty-npm-cache'),
   npm_config_offline: 'true',
 };
+
+function successfulToolOutput(request, targetDir) {
+  if (request.component === 'codebaseMemoryMcp' && request.phase === 'index') {
+    return {
+      stdout: JSON.stringify({
+        edges: 13,
+        nodes: 21,
+        project: 'loopengine-target',
+        status: 'indexed',
+      }),
+    };
+  }
+  if (request.component === 'codebaseMemoryMcp' && request.phase === 'index-verify') {
+    return {
+      stdout: JSON.stringify({
+        edges: 13,
+        nodes: 21,
+        project: 'loopengine-target',
+        root_path: path.resolve(targetDir).replaceAll('\\', '/'),
+        status: 'ready',
+      }),
+    };
+  }
+  return { stdout: '{}' };
+}
+
+async function seedCodebaseMemoryRuntime(toolDir) {
+  const packageDir = path.join(toolDir, 'node_modules/codebase-memory-mcp');
+  const binary = process.platform === 'win32' ? 'codebase-memory-mcp.exe' : 'codebase-memory-mcp';
+  await mkdir(path.join(packageDir, 'bin'), { recursive: true });
+  await writeFile(path.join(packageDir, 'bin.js'), 'runtime shim\n', 'utf8');
+  await writeFile(path.join(packageDir, 'bin', binary), 'runtime binary\n', 'utf8');
+}
 
 async function runCli(args, options = {}) {
   const { stdout } = await execFileAsync(process.execPath, [cliPath, ...args], {
@@ -74,6 +107,7 @@ test('full tool plan pins four project-local components while core keeps Playwri
     ],
   );
   assert.equal(full.every((item) => item.toolDir.startsWith(targetDir)), true);
+  assert.deepEqual(full[0].phases, ['dependency-install', 'binary-install', 'index', 'index-verify', 'mcp-handshake']);
   assert.deepEqual(core.map(({ id, mode }) => ({ id, mode })), [{ id: 'playwrightCli', mode: 'lazy' }]);
 });
 
@@ -129,7 +163,7 @@ test('provisioning continues after one component fails and never persists comman
             stdout: 'retrying index',
           });
         }
-        return { stdout: '{"ok":true}' };
+        return successfulToolOutput(request, targetDir);
       },
       env,
       profile: 'full',
@@ -166,10 +200,12 @@ test('provisioning continues after one component fails and never persists comman
     assert.equal(dependency.args.includes('--omit=optional'), true);
     assert.equal(dependency.cwd.startsWith(targetDir), true);
     const index = calls.find((call) => call.component === 'codebaseMemoryMcp' && call.phase === 'index');
-    const indexInput = JSON.parse(index.args.at(-1));
-    assert.equal(indexInput.repo_path, targetDir);
-    assert.equal(indexInput.mode, 'moderate');
-    assert.equal(indexInput.persistence, false);
+    assert.deepEqual(index.args.slice(1), [
+      'cli', 'index_repository',
+      '--repo-path', targetDir,
+      '--mode', 'moderate',
+      '--persistence', 'false',
+    ]);
     assert.equal(index.env.CBM_ALLOWED_ROOT, targetDir);
     assert.equal(index.env.CBM_CACHE_DIR.startsWith(targetDir), true);
     const agentmemory = calls.find((call) => call.component === 'agentmemory' && call.phase === 'mcp-handshake');
@@ -192,9 +228,160 @@ test('provisioning continues after one component fails and never persists comman
   }
 });
 
+test('codebase-memory index verification gates ready status and persists only a sanitized summary', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-index-verify-'));
+  const calls = [];
+  try {
+    const report = await provisionProfileTools({
+      commandRunner: async (request) => {
+        calls.push(request);
+        return successfulToolOutput(request, targetDir);
+      },
+      env: { OPENAI_API_KEY: 'configured' },
+      profile: 'full',
+      targetDir,
+    });
+
+    const verify = calls.find((call) => call.component === 'codebaseMemoryMcp' && call.phase === 'index-verify');
+    assert.deepEqual(verify.args.slice(1), ['cli', 'index_status', '--project', 'loopengine-target']);
+    assert.deepEqual(report.codebaseMemoryMcp.index, {
+      edges: 13,
+      mode: 'moderate',
+      nodes: 21,
+      status: 'ready',
+    });
+
+    const state = await readFile(path.join(targetDir, '.loopengine/tool-state/tools.json'), 'utf8');
+    assert.equal(state.includes('loopengine-target'), false);
+    assert.equal(state.includes(targetDir), false);
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('codebase-memory rejects empty verification output and mismatched project roots', async () => {
+  for (const [name, verifyOutput, expectedCode] of [
+    ['empty-output', '', 'INDEX_OUTPUT_INVALID'],
+    ['wrong-root', JSON.stringify({ root_path: 'C:/other-project', status: 'ready' }), 'INDEX_ROOT_MISMATCH'],
+  ]) {
+    const targetDir = await mkdtemp(path.join(tmpdir(), `loopengine-index-${name}-`));
+    try {
+      const report = await provisionProfileTools({
+        commandRunner: async (request) => {
+          if (request.component === 'codebaseMemoryMcp' && request.phase === 'index-verify') {
+            return { stdout: verifyOutput };
+          }
+          return successfulToolOutput(request, targetDir);
+        },
+        env: { OPENAI_API_KEY: 'configured' },
+        profile: 'full',
+        targetDir,
+      });
+
+      assert.equal(report.codebaseMemoryMcp.status, 'degraded');
+      assert.equal(report.codebaseMemoryMcp.phase, 'index-verify');
+      assert.equal(report.codebaseMemoryMcp.code, expectedCode);
+      const state = await readFile(path.join(targetDir, '.loopengine/tool-state/tools.json'), 'utf8');
+      assert.equal(state.includes('C:/other-project'), false);
+    } finally {
+      await rm(targetDir, { force: true, recursive: true });
+    }
+  }
+});
+
+test('codebase-memory rejects index output that does not identify an indexed project', async () => {
+  for (const [indexOutput, expectedCode] of [
+    ['', 'INDEX_OUTPUT_INVALID'],
+    [JSON.stringify({ status: 'indexed' }), 'INDEX_RESULT_INVALID'],
+    [JSON.stringify({ project: 'loopengine-target', status: 'failed' }), 'INDEX_RESULT_INVALID'],
+  ]) {
+    const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-index-result-'));
+    try {
+      const report = await provisionProfileTools({
+        commandRunner: async (request) => request.component === 'codebaseMemoryMcp' && request.phase === 'index'
+          ? { stdout: indexOutput }
+          : successfulToolOutput(request, targetDir),
+        env: { OPENAI_API_KEY: 'configured' },
+        profile: 'full',
+        targetDir,
+      });
+      assert.equal(report.codebaseMemoryMcp.status, 'degraded');
+      assert.equal(report.codebaseMemoryMcp.phase, 'index');
+      assert.equal(report.codebaseMemoryMcp.code, expectedCode);
+    } finally {
+      await rm(targetDir, { force: true, recursive: true });
+    }
+  }
+});
+
+test('real codebase-memory provisioning creates a verified project-local index', {
+  skip: process.env.LOOPENGINE_REAL_TOOL_INTEGRATION !== '1',
+}, async (testContext) => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-index-integration-'));
+  const toolDir = path.join(targetDir, '.agents/loopengine/tools/codebase-memory-mcp');
+  const runtimeSource = path.join(rootDir, 'runtime/tools/codebase-memory-mcp');
+  try {
+    const locator = process.platform === 'win32' ? ['where.exe', ['codebase-memory-mcp']] : ['which', ['codebase-memory-mcp']];
+    let systemBinary;
+    try {
+      const { stdout } = await execFileAsync(locator[0], locator[1]);
+      systemBinary = stdout.split(/\r?\n/u).map((line) => line.trim()).find(Boolean);
+      const { stdout: versionOutput } = await execFileAsync(systemBinary, ['--version']);
+      if (!versionOutput.includes('0.9.0')) {
+        testContext.skip('requires a local codebase-memory-mcp 0.9.0 binary fixture');
+        return;
+      }
+    } catch {
+      testContext.skip('requires a local codebase-memory-mcp 0.9.0 binary fixture');
+      return;
+    }
+
+    await mkdir(toolDir, { recursive: true });
+    await writeFile(path.join(targetDir, 'example.js'), 'export const indexedValue = 42;\n', 'utf8');
+    for (const file of ['package.json', 'package-lock.json', 'run.mjs']) {
+      await copyFile(path.join(runtimeSource, file), path.join(toolDir, file));
+    }
+
+    const report = await provisionProfileTools({
+      commandRunner: async (request) => {
+        if (request.phase === 'binary-install') {
+          const binary = process.platform === 'win32' ? 'codebase-memory-mcp.exe' : 'codebase-memory-mcp';
+          const binaryDir = path.join(toolDir, 'node_modules/codebase-memory-mcp/bin');
+          await mkdir(binaryDir, { recursive: true });
+          await copyFile(systemBinary, path.join(binaryDir, binary));
+        }
+        if (request.phase === 'mcp-handshake') {
+          await runMcpHandshake(request);
+          return { stderr: '', stdout: '' };
+        }
+        const { stderr, stdout } = await execFileAsync(request.command, request.args, {
+          cwd: request.cwd,
+          env: request.env,
+          maxBuffer: 1024 * 1024,
+          timeout: request.timeout,
+        });
+        return { stderr, stdout };
+      },
+      env: { ...process.env, LOOPENGINE_TOOL_TIMEOUT_MS: '60000' },
+      profile: 'full',
+      resolvedModules: ['codebase-memory'],
+      targetDir,
+    });
+    assert.equal(report.codebaseMemoryMcp.status, 'ready', JSON.stringify(report.codebaseMemoryMcp));
+    assert.equal(report.codebaseMemoryMcp.index.status, 'ready');
+    assert.equal(report.codebaseMemoryMcp.index.nodes > 0, true);
+    const state = await readFile(path.join(targetDir, '.loopengine/tool-state/tools.json'), 'utf8');
+    assert.equal(state.includes(targetDir), false);
+    await assert.rejects(readFile(path.join(targetDir, '.codebase-memory/graph.db.zst')), /ENOENT/u);
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
 test('every full-profile tool persists a sanitized diagnostic for its failed phase', async () => {
   const failures = [
     ['codebaseMemoryMcp', 'index'],
+    ['codebaseMemoryMcp', 'index-verify'],
     ['playwrightCli', 'browser-install'],
     ['openCodeReview', 'llm-test'],
     ['agentmemory', 'mcp-handshake'],
@@ -211,7 +398,7 @@ test('every full-profile tool persists a sanitized diagnostic for its failed pha
               stderr: `failed in ${targetDir}: Bearer diagnostic-secret`,
             });
           }
-          return { stdout: '{}' };
+          return successfulToolOutput(request, targetDir);
         },
         env: { OPENAI_API_KEY: 'configured' },
         profile: 'full',
@@ -235,7 +422,7 @@ test('tool phase timeouts can be bounded by the lifecycle smoke environment', as
   const calls = [];
   try {
     await provisionProfileTools({
-      commandRunner: async (request) => { calls.push(request); return { stdout: '{}' }; },
+      commandRunner: async (request) => { calls.push(request); return successfulToolOutput(request, targetDir); },
       env: { LOOPENGINE_TOOL_TIMEOUT_MS: '1500', OPENAI_API_KEY: 'configured' },
       profile: 'full',
       targetDir,
@@ -265,7 +452,7 @@ test('OCR without credentials is pending-config and inspect restores persisted s
   const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-pending-'));
   try {
     const report = await provisionProfileTools({
-      commandRunner: async () => ({ stdout: '{}' }),
+      commandRunner: async (request) => successfulToolOutput(request, targetDir),
       env: {},
       profile: 'full',
       targetDir,
@@ -288,7 +475,7 @@ test('unchanged OCR pending-config is reused until credentials become available'
   const calls = [];
   const runner = async (request) => {
     calls.push(request);
-    return { stdout: '{}' };
+    return successfulToolOutput(request, targetDir);
   };
   try {
     await mkdir(ocr.toolDir, { recursive: true });
@@ -312,13 +499,13 @@ test('unchanged OCR pending-config is reused until credentials become available'
   }
 });
 
-test('ready tools reuse matching lockfiles while a changed lockfile reprovisions its component', async () => {
+test('ready tools reuse package phases while codebase-memory reindexes and verifies every install', async () => {
   const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-reuse-'));
   const plan = createToolProvisioningPlan({ profile: 'full', targetDir });
   const calls = [];
   const runner = async (request) => {
     calls.push(request);
-    return { stdout: '{}' };
+    return successfulToolOutput(request, targetDir);
   };
   const env = { OPENAI_API_KEY: 'configured' };
   try {
@@ -326,17 +513,58 @@ test('ready tools reuse matching lockfiles while a changed lockfile reprovisions
       await mkdir(tool.toolDir, { recursive: true });
       await writeFile(path.join(tool.toolDir, 'package-lock.json'), `${tool.id}\n`, 'utf8');
     }
+    await seedCodebaseMemoryRuntime(plan.find((tool) => tool.id === 'codebaseMemoryMcp').toolDir);
     await provisionProfileTools({ commandRunner: runner, env, profile: 'full', targetDir });
     const firstCallCount = calls.length;
     await provisionProfileTools({ commandRunner: runner, env, profile: 'full', targetDir });
-    assert.equal(calls.length, firstCallCount);
+    const repeatedCalls = calls.slice(firstCallCount);
+    assert.deepEqual(repeatedCalls.map((call) => [call.component, call.phase]), [
+      ['codebaseMemoryMcp', 'index'],
+      ['codebaseMemoryMcp', 'index-verify'],
+      ['codebaseMemoryMcp', 'mcp-handshake'],
+    ]);
 
     const agentmemory = plan.find((tool) => tool.id === 'agentmemory');
     await writeFile(path.join(agentmemory.toolDir, 'package-lock.json'), 'changed\n', 'utf8');
+    const beforeChangedLock = calls.length;
     await provisionProfileTools({ commandRunner: runner, env, profile: 'full', targetDir });
-    const newCalls = calls.slice(firstCallCount);
-    assert.equal(newCalls.every((call) => call.component === 'agentmemory'), true);
-    assert.equal(newCalls.length > 0, true);
+    const newCalls = calls.slice(beforeChangedLock);
+    assert.deepEqual(newCalls.filter((call) => call.component === 'codebaseMemoryMcp').map((call) => call.phase), [
+      'index', 'index-verify', 'mcp-handshake',
+    ]);
+    assert.equal(newCalls.some((call) => call.component === 'agentmemory'), true);
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('a missing codebase-memory runtime bypasses package reuse and reinstalls before indexing', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-runtime-repair-'));
+  const plan = createToolProvisioningPlan({ profile: 'full', targetDir });
+  const codebaseMemory = plan.find((tool) => tool.id === 'codebaseMemoryMcp');
+  const binary = process.platform === 'win32' ? 'codebase-memory-mcp.exe' : 'codebase-memory-mcp';
+  const calls = [];
+  const runner = async (request) => {
+    calls.push(request);
+    return successfulToolOutput(request, targetDir);
+  };
+  try {
+    for (const tool of plan) {
+      await mkdir(tool.toolDir, { recursive: true });
+      await writeFile(path.join(tool.toolDir, 'package-lock.json'), `${tool.id}\n`, 'utf8');
+    }
+    await seedCodebaseMemoryRuntime(codebaseMemory.toolDir);
+    await provisionProfileTools({ commandRunner: runner, env: { OPENAI_API_KEY: 'configured' }, profile: 'full', targetDir });
+
+    await rm(path.join(codebaseMemory.toolDir, 'node_modules/codebase-memory-mcp/bin', binary), { force: true });
+    const beforeRepair = calls.length;
+    await provisionProfileTools({ commandRunner: runner, env: { OPENAI_API_KEY: 'configured' }, profile: 'full', targetDir });
+
+    assert.deepEqual(calls.slice(beforeRepair)
+      .filter((call) => call.component === 'codebaseMemoryMcp')
+      .map((call) => call.phase), [
+      'dependency-install', 'binary-install', 'index', 'index-verify', 'mcp-handshake',
+    ]);
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }
@@ -360,7 +588,7 @@ test('MCP configuration conflicts retain an actionable diagnostic', async () => 
   const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-conflict-'));
   try {
     const report = await provisionProfileTools({
-      commandRunner: async () => ({ stdout: '{}' }),
+      commandRunner: async (request) => successfulToolOutput(request, targetDir),
       mcpConflicts: ['codebase-memory-mcp'],
       env: { OPENAI_API_KEY: 'configured' },
       profile: 'full',

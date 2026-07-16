@@ -1,6 +1,6 @@
 # codebase-memory-mcp
 
-`codebase-memory-mcp` 是代码结构与影响分析能力。full/internal profile 会安装项目内固定版本 runtime、建立初始索引并写入项目级 MCP 受管块；其他 profile 仍可能没有该工具。不得修改全局 Agent 或 MCP 配置，也不得以该能力替代源码和测试证据。
+`codebase-memory-mcp` 是代码结构与影响分析能力。full/internal profile 会安装项目内固定版本 runtime、建立初始索引、验证索引对应当前项目且状态 ready，并写入项目级 MCP 受管块；验证失败时工具必须标记为 degraded。其他 profile 仍可能没有该工具。不得修改全局 Agent 或 MCP 配置，也不得以该能力替代源码和测试证据。
 
 ## 使用顺序
 
