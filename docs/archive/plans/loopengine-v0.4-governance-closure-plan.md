@@ -1,5 +1,7 @@
 # LoopEngine v0.4 Governance Closure Implementation Plan
 
+Status: Completed. This document is retained for implementation history only.
+
 > **For agentic workers:** Execute inline with test-driven development. Each task must finish its own red-green cycle before the next task starts.
 
 **Goal:** Make LoopEngine's lifecycle, task evidence, review, verification, and CI contracts internally consistent and machine-enforced.

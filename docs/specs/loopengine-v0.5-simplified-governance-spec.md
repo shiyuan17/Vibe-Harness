@@ -2,6 +2,8 @@
 
 状态：Implemented
 
+版本说明：`v0.5` 是治理规格修订号，不等同于 `package.json` 的产品发布版本；当前 package release 仍按独立语义化版本演进。
+
 ## 目标
 
 用最小常驻上下文驱动安全、可验证的 coding-agent 工作，并消除规则、workflow、模板与 task JSON 之间的多源真值。

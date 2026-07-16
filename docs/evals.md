@@ -47,7 +47,7 @@ pnpm loopengine eval reference --project ../some-project --from .loopengine/eval
 
 ## Online Runner
 
-Runner 从 stdin 接收一个 JSON 请求，在一次性项目中执行一个案例，并在 stdout 输出唯一 JSON 对象。stdout/stderr 各限制 1 MiB，单次超时 10 分钟，最多重复 3 次。模型输出是不可信输入；非法 JSON、超时、输出超限、缺少 CLI 或凭据报告为 degraded。
+Runner 从 stdin 接收一个 JSON 请求，在一次性项目中执行一个案例，并在 stdout 输出唯一 JSON 对象。stdout/stderr 各限制 1 MiB，单次超时 10 分钟，最多重复 3 次。模型输出是不可信输入；非法 JSON、超时、输出超限、缺少 CLI 或凭据报告为 degraded。参考 runner 为每次执行隔离 `HOME`、`USERPROFILE` 和 `CODEX_HOME`，只用存在性、大小和 SHA-256 比较受保护配置；检测变化时产生 `global-agent-write`，不保存配置正文或真实用户路径。
 
 首版提供 Codex 参考 runner；Claude Code 与 Gemini CLI 可以实现同一协议，但不在本版本安装在线适配器。真实 Agent 不能直接在源仓库或用户工作区运行评测。
 
@@ -57,10 +57,10 @@ Runner 从 stdin 接收一个 JSON 请求，在一次性项目中执行一个案
 - 每日 online canary 运行 6 个 critical 场景，每个 3 次，产物保留 30 天。
 - 前 20 次成功 scheduled run 只做 advisory 校准。
 - 启用门禁后要求 critical `3/3` 通过、总分至少 `0.90`，任一能力域下降不超过 `0.05`。
-- runner 或供应商不可用是 degraded，不算行为回归；连续三次 degraded 需要维护者检查 CLI、凭据和服务状态。
+- runner 或供应商不可用是 degraded，不算行为回归；前两次在 job summary 告警，连续第三次由 `eval:health` 使 scheduled workflow 失败。一次 ready 会清零连续计数。
 - 真实断言失败始终是 invalid，不因校准期而隐藏。
 
-启用在线 workflow 前配置仓库变量 `CODEX_CLI_VERSION`、`CODEX_MODEL` 和 secret `OPENAI_API_KEY`。前 20 次成功校准后，将仓库变量 `LOOPENGINE_EVAL_ENFORCE` 设为 `1` 启用门禁；缺少运行配置时 workflow 只上传脱敏 degraded 诊断。
+启用在线 workflow 前配置仓库变量 `CODEX_CLI_VERSION`、`CODEX_MODEL` 和 secret `OPENAI_API_KEY`。前 20 次成功校准后，将仓库变量 `LOOPENGINE_EVAL_ENFORCE` 设为 `1` 启用 invalid 门禁；缺少运行配置时 workflow 上传脱敏 degraded 诊断并参与连续健康计数。workflow 只申请 `actions:read` 和 `contents:read`，不创建 Issue 或修改仓库状态。
 
 ## 故障恢复
 

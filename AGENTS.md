@@ -2,6 +2,11 @@
 
 LoopEngine 用来打包可复用的 AI coding governance 资产。源项目只能作为只读输入；通用核心内容不得包含项目专有标识；声称完成前必须验证安装器和校验器行为。
 
+## 深入文档
+
+- 贡献流程、变更影响矩阵、PR 与发布要求见 `CONTRIBUTING.md`。
+- 当前架构、规格、参考审计与历史归档从 `docs/README.md` 进入。
+
 ## 命令面边界
 
 - MVP 接入命令使用 `--project <temp-project> --target codex --write`。
@@ -11,6 +16,7 @@ LoopEngine 用来打包可复用的 AI coding governance 资产。源项目只�
 ## 必跑检查
 
 - `pnpm check`
+- 文档、catalog 或 schema 变更额外运行 `pnpm docs:audit`
 - installer、profile、runtime 或工具变更额外运行 `pnpm test:integration` 和 `pnpm smoke:lifecycle`
 - `pnpm loopengine init --project <temp-project>`
 - `pnpm loopengine install --project <temp-project> --target codex --profile core --dry-run`

@@ -270,7 +270,9 @@ Install、validate 和 doctor 使用相同的三种状态：
 
 `--allow-degraded` 可以为自动化流程把退出码改成 `0`，但不会隐藏问题。报告仍会保留 `ok: false`、`status: "degraded"`、警告和建议的处理办法。
 
-工具降级时，LoopEngine 会把最近一次经过脱敏的诊断记录在 `.loopengine/tool-state/tools.json`，并在 install、validate、doctor 和 summary 输出中展示。诊断包含失败阶段、稳定错误码、可用时的退出码及限长输出尾部；项目路径和类似凭据的值会被替换，绝不保存原始命令环境或完整输出。
+维护者使用 `pnpm runtime:audit` 按 provision 的真实依赖面执行审计。Critical、High 或审计不可用会使命令失败，Moderate 保留为可见告警；Agentmemory 在 provision 和强制审计中都排除 optional 依赖。
+
+工具降级时，LoopEngine 会把最新一条经过脱敏的诊断记录在 `.loopengine/tool-state/tools.json`，并在 install、validate、doctor 和 summary 输出中展示。诊断包含失败阶段、稳定错误码、可用时的退出码及限长输出尾部；项目路径和类似凭据的值会被替换，绝不保存原始命令环境或完整输出。
 
 </details>
 
@@ -285,22 +287,17 @@ Install、validate 和 doctor 使用相同的三种状态：
 
 ## 进一步了解
 
+- [文档索引](docs/README.md)
 - [LoopEngine 的目录和组成](docs/architecture.md)
 - [从旧版本迁移](docs/migration-guide.md)
 - [自动 hooks 如何工作](docs/hooks.md)
 - [各版本的变化](CHANGELOG.md)
 - [最小项目示例](examples/minimal-project/README.md)
+- [贡献指南](CONTRIBUTING.md)
 
 ## 贡献代码前的检查
 
-```bash
-pnpm check
-pnpm test:integration
-pnpm smoke:lifecycle
-git diff --check
-```
-
-`pnpm check` 会执行代码风格检查、安装包校验和本地测试。修改 installer、profiles、runtime 或内置工具时，还必须通过上面的集成测试和完整安装流程测试。
+变更分类、文档影响、验证、PR 与发布流程以中文[贡献指南](CONTRIBUTING.md)为唯一真值；`AGENTS.md` 只保留 Agent 必须常驻读取的命令速查和硬边界。
 
 ## License
 

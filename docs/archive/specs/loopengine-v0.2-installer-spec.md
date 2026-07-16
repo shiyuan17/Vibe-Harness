@@ -1,5 +1,7 @@
 # LoopEngine v0.2 安装器增强规格
 
+状态：Superseded。当前安装器行为以 [`docs/architecture.md`](../../architecture.md) 和现行测试为准；本文仅保留 v0.2 历史合同。
+
 ## 目标
 
 v0.2 聚焦安装器增强：保持 v0.1 CLI 兼容，同时新增状态记录、差异预览、可控升级、备份、回滚和 MVP 项目安装模式。

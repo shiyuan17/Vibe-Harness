@@ -1,5 +1,7 @@
 # 发布检查清单
 
+状态：Completed。本文仅保留 v0.1.0 发布历史，当前发布流程见 [`CONTRIBUTING.md`](../../../CONTRIBUTING.md)。
+
 - 运行 `pnpm check`。
 - 运行 `pnpm pack:preview`。
 - 运行 `pnpm loopengine install --target <temp-project> --profile codex-internal --dry-run`。

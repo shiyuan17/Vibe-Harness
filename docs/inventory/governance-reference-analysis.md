@@ -4,7 +4,7 @@
 
 | 来源 | 审计 commit | 采用模式 |
 | --- | --- | --- |
-| obra/superpowers | `d884ae04edebef577e82ff7c4e143debd0bbec99` | 少数强门禁、证据优先、关键流程 pressure test |
+| 外部公开治理模式 | — | 少数强门禁、证据优先、关键流程 pressure test |
 | mattpocock/skills | `391a2701dd948f94f56a39f7533f8eea9a859c87` | 小而可组合、单一真值、用户调用与模型调用分离 |
 | addyosmani/agent-skills | `4e8bd9fde4a38cd009053e649f4cdc7cd36b568b` | 渐进披露、触发描述、反合理化、行为验证 |
 | [Andrej Karpathy coding guidelines](https://x.com/karpathy/status/2015883857489522876) | 用户提供的 MIT 来源文本 | 公开假设与取舍、简单优先、精准改动、可验证目标 |

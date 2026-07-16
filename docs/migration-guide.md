@@ -53,9 +53,11 @@ git diff --check
 
 ## Profile 选择
 
-- `minimal`：启动红线、会话开始/结束协议、红区确认、验证证据、Skill 路由 fallback 和交付 Packet 指引。
-- `core`：`minimal` 加上中文任务 runtime/schema、工程专项规则、`using-loopengine`、Red Team 完成门禁和常规 bundled skills。
-- `full`：`core` 加上 release、Pencil、troubleshooting 和 loop skills。
+- `minimal`：平台入口、治理内核、Git/Test 规则和中文 task/delivery 模板，不安装 skills、runtime、hooks 或 MCP。
+- `core`：`minimal` 加上工程专项规则、中文任务 runtime/schema、`using-loopengine`、常规 skills、Red Team 完成门禁和按需 Playwright。
+- `full`：`core` 加上 full 专项规则与 skills、durable memory 模板、在线评测、四个项目内工具 runtime、codebase 索引、MCP 注册和 Codex hooks。
+
+以上是面向选择的摘要；精确文件集合只以 `manifests/profiles.json` 为真值。
 
 ## Agentmemory Skills
 
@@ -106,4 +108,5 @@ pnpm loopengine install --target ../target-project --profile codex-internal --ap
 - 新增 `.codex/config.toml` LoopEngine MCP 受管块；它与 `.codex/hooks.json` 一样属于红区，真实写入需要确认。同名非受管 MCP 表不会被覆盖，而是报告 degraded。
 - OCR 凭据只从进程环境读取；缺失时状态为 `pending-config`。升级前先 dry-run 审查新增下载与项目磁盘占用。
 - 升级前运行 `loopengine diff`；使用 `install --upgrade` 安装新增受管文件。用户修改过的文件仍需 `--force` 才会备份并替换，失败时使用现有 `rollback` 生命周期恢复。
-- 使用 `pnpm skills:audit` 查看实时 inventory；pack validation 会阻止未知依赖、profile 越层、别名环、无回退 integration 和过长入口。
+- 使用 `pnpm skills:audit` 执行真实 Skill 图审计并查看实时 inventory；frontmatter、未知依赖、profile 越层、别名环、无回退 integration、metadata 和过长入口都会使命令失败。
+- 使用 `pnpm runtime:audit` 按实际 provision 参数审计四个项目内 runtime；Critical/High 和审计不可用均阻断，Moderate 只报告。Agentmemory 的有效安装面使用 `--omit=optional`，完整 lockfile 仅作为被排除 surface 的非阻断证据。

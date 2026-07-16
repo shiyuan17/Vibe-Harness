@@ -1,5 +1,7 @@
 # v0.2.0 发布检查清单
 
+状态：Completed。本文仅保留 v0.2.0 发布历史，当前发布流程见 [`CONTRIBUTING.md`](../../../CONTRIBUTING.md)。
+
 - 运行 `pnpm check`。
 - 运行 `pnpm pack:preview`。
 - 在临时目录运行 `install --apply --confirm-red-zone`，确认 `.loopengine/install-state.json` 存在。

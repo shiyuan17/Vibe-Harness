@@ -6,11 +6,11 @@
 | --- | --- | --- |
 | `AGENTS.md` | `adapters/codex/AGENTS.template.md`、`rules/ai-collab-rules.md` | summarize |
 | `QUICKSTART.md` | `rules/governance-core.md` | consolidate |
-| `WORKFLOW.md` | `rules/workflow.md` | copy-generalize |
-| `DYNAMIC_WORKFLOW_RULES.md` | `rules/dynamic-workflow.md` | copy-generalize |
-| `TASK_RULES.md` | `templates/task.md`、Markdown validator | consolidate |
+| `WORKFLOW.md` | `rules/governance-core.md` | consolidate |
+| `DYNAMIC_WORKFLOW_RULES.md` | `rules/governance-core.md` | consolidate |
+| `TASK_RULES.md` | `templates/task.md`、`runtime/governance/lib/task-validation.mjs` | consolidate + validator |
 | `TASK_LIFECYCLE_RULES.md` | `rules/governance-core.md` | consolidate |
-| `TASK_MANAGEMENT_RULES.md` | Markdown validator | validator |
+| `TASK_MANAGEMENT_RULES.md` | `runtime/governance/lib/task-validation.mjs` | validator |
 | `TASK_INTAKE.md` | `templates/task.md` | consolidate |
 | `GIT_RULES.md` | `rules/git-rules.md` | copy-generalize |
 | `CODING_RULES.md` | `rules/coding-rules.md` | copy-generalize |
@@ -21,13 +21,13 @@
 | `AI_COLLAB_RULES.md` | `rules/ai-collab-rules.md` | copy-generalize |
 | `PENCIL_RULES.md` | `rules/pencil-rules.md` | copy-generalize |
 | `RELEASE.md` | `rules/release-rules.md` | copy-generalize |
-| `REVIEW_RULES.md` | `adversarial-review-packet` | skill |
-| `LOOP_ENGINEERING_RULES.md` | `loop-planning` | skill |
+| `REVIEW_RULES.md` | `skills/core/adversarial-review-packet/SKILL.md` | skill |
+| `LOOP_ENGINEERING_RULES.md` | `skills/core/loop-planning/SKILL.md` | skill |
 | `AGENT_SKILL_ROUTING.md` | `rules/agent-skill-routing.md`、`using-loopengine` | copy-generalize + skill |
 | `TROUBLESHOOTING.md` | `rules/troubleshooting.md` | copy-generalize |
 | project memory/current tasks/contracts | examples or target project only | exclude-business |
 | durable memory categories | `templates/memory/*`、full governance validator | template |
-| governance / PR packet validation | `runtime/governance/*` | validator |
+| governance / PR packet validation | `runtime/governance/validate.mjs` | validator |
 
 处理方式说明：
 

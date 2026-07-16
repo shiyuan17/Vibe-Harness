@@ -2,10 +2,14 @@
 
 ## Unreleased
 
+- 加固 Codex Hook 的破坏性 Git 与跨平台全局配置策略，Stop validator 缺失改为 unavailable，交付解析忽略示例和占位内容。
+- 能力目录升级为 schemaVersion 2，Eval 变更门禁要求 capability 与 suite 精确匹配；online canary 增加隔离 HOME 配置写观测和连续 degraded 告警。
+- 新增 `runtime:audit`，按真实 provision 参数阻断 Critical/High；`skills:audit` 改为真实 Skill 图审计，lint 覆盖所有分发脚本，CI 增加 Windows required matrix。
+- 新增文档 Catalog、历史归档索引和 `docs:audit` 机械校验，并将文档漂移门禁接入 `pnpm check`。
 - 将常驻治理收敛为“获取事实 → 做出决策 → 执行 → 验证 → 交付”，删除独立 workflows catalog 和重复生命周期规则。
 - 任务真值改为中文 Markdown；完整档位使用中文 JSON 控制块和独立核验门禁。
 - 新增 `using-loopengine` router，模板随 skill 渐进披露；minimal/docs-only 使用短治理内核降级。
-- 统一 MVP `--write` 与 legacy/internal `--apply` 命令边界，并将生命周期收口为 Intake + 九阶段。
+- 统一 MVP `--write` 与 legacy/internal `--apply` 命令边界，并由五步循环按风险路由规格、计划、验证、审查和交接能力。
 - task schema 和 full governance validator 增加 AC-ID、验收证据、责任人、确认状态、artifact 存在性和可声明时间盒门禁。
 - Review Packet 对未修复的 Medium finding 强制要求有 owner、关闭条件和批准者的结构化延期。
 - 完整档位任务新增 Red Team 完成门禁、结构化审查包和独立审查者校验；该能力随 core profile 安装，旧开放任务在完成前迁移。

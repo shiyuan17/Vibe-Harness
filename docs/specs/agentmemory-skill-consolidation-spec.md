@@ -1,5 +1,7 @@
 # Agentmemory Skill 收敛规格
 
+状态：Implemented
+
 ## 目标
 
 - `full` / `codex-internal` 只暴露一个顶层 `agentmemory` skill。

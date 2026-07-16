@@ -272,6 +272,8 @@ Install, validate, and doctor use the same three status values:
 
 For a degraded project tool, LoopEngine stores the latest safe diagnostic in `.loopengine/tool-state/tools.json` and shows it in install, validate, doctor, and summary output. Diagnostics include the failed phase, stable code, exit code when available, and bounded output tails. Project paths and credential-like values are redacted; raw command environments and full output are never stored.
 
+Maintainers run `pnpm runtime:audit` against the same dependency surface used by provisioning. Critical or High findings and unavailable audits fail the command; Moderate findings remain visible warnings. Agentmemory excludes optional dependencies during both provisioning and the enforced audit.
+
 </details>
 
 ## What LoopEngine Will and Will Not Change
@@ -285,22 +287,17 @@ For a degraded project tool, LoopEngine stores the latest safe diagnostic in `.l
 
 ## Learn More
 
+- [Documentation index](docs/README.md)
 - [How LoopEngine is organized](docs/architecture.md)
 - [How to move from an older version](docs/migration-guide.md)
 - [How automatic hooks work](docs/hooks.md)
 - [What changed between versions](CHANGELOG.md)
 - [Minimal project example](examples/minimal-project/README.md)
+- [Contributing](CONTRIBUTING.md)
 
 ## Checks for Contributors
 
-```bash
-pnpm check
-pnpm test:integration
-pnpm smoke:lifecycle
-git diff --check
-```
-
-`pnpm check` runs linting, package validation, and the local test suite. Changes to the installer, profiles, runtime, or built-in tools must also pass the integration and lifecycle smoke checks shown above.
+The Chinese [contribution guide](CONTRIBUTING.md) is the source of truth for change classification, documentation impact, verification, pull requests, and releases. `AGENTS.md` keeps the mandatory Agent command quick reference.
 
 ## License
 

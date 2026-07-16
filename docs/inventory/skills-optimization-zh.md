@@ -1,14 +1,8 @@
 # Skills 本地化与精简审计
 
-本审计以 `manifests/skills.json` 为真值。运行 `pnpm skills:audit` 可实时生成逐 skill 的类型、行数、硬依赖、可选依赖和外部工具报告。
+本审计以 `manifests/skills.json` 为真值。运行 `pnpm skills:audit` 会先校验 frontmatter、依赖与 profile 闭包、fallback、metadata 和安装映射，再生成逐 skill 的数量、类型、行数、硬依赖、可选依赖和外部工具报告；本文不保存会随 manifest 变化而过期的数量快照。
 
-## 当前快照
-
-- 总数：31。
-- `native`：21；`integration`：9；`router`：1；`compatibility`：0。
-- router/compatibility 入口最多 30 行，其他入口最多 80 行。
-- 当前最长入口为 `api-and-interface-design`，低于 80 行。
-- `minimal` 不安装 skill；core/full/internal 均通过 profile 依赖闭包校验。
+router/compatibility 入口最多 30 行，其他入口最多 160 行。`minimal` 不安装 skill；core/full/internal 均通过 profile 依赖闭包校验。
 
 ## 收敛结果
 

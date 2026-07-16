@@ -23,7 +23,7 @@ LoopEngine 是跨平台、Codex 完整能力优先的可复用 AI coding governa
 1. `loopengine init --project <path> --target <codex|claude|gemini>` 创建项目配置。
 2. `loopengine install --project <path> --target <adapter> --profile <profile> --dry-run` 只预览；CLI target 与配置不一致时拒绝执行。
 3. MVP 使用 `--write` 写入；legacy/internal 使用 `--apply --confirm-red-zone`。
-4. Codex full/internal 写入完成后初始化四组件；失败记录为 degraded 并继续其他组件，同时将最近一次脱敏的阶段、错误码、退出码和限长输出尾部写入工具状态。
+4. Codex full/internal 写入完成后初始化四组件；失败记录为 degraded 并继续其他组件，同时将最新一条脱敏的阶段、错误码、退出码和限长输出尾部写入工具状态。
 5. `loopengine validate --project <path>` 校验安装一致性和组件状态，不执行目标项目命令。
 6. `loopengine eval check|run|reference --project <path>` 校验、执行和显式批准评测 reference；不支持 legacy `--apply`。
 7. `loopengine baseline --project <path>` 默认预览双层基线；`--write` 建档，`--verify` 才顺序执行 governance、lint、typecheck 和 eval。

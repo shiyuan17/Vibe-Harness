@@ -1,5 +1,7 @@
 # LoopEngine v1 抽取计划
 
+状态：Completed。本文仅保留实施历史，不构成当前贡献或发布流程。
+
 ## 摘要
 
 从通用化后的协作规则、任务生命周期、workflow packet、skills 和安装器行为中，创建一套内部可复用的 Codex governance 包。
