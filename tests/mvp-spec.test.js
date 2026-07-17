@@ -270,6 +270,44 @@ test('validate --project rejects invalid config', async () => {
   }
 });
 
+test('project config rejects unsupported languages', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-invalid-language-'));
+  try {
+    await runCli(['init', '--project', target]);
+    const configPath = path.join(target, 'loopengine.config.json');
+    const config = JSON.parse(await readFile(configPath, 'utf8'));
+    await writeJson(configPath, { ...config, language: 'fr-FR' });
+
+    await assert.rejects(
+      execFileAsync(process.execPath, [cliPath, 'validate', '--project', target]),
+      /language.*zh-CN.*en-US/iu,
+    );
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('en-US projects install localized task and delivery templates', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-english-templates-'));
+  try {
+    await runCli(['init', '--project', target]);
+    const configPath = path.join(target, 'loopengine.config.json');
+    const config = JSON.parse(await readFile(configPath, 'utf8'));
+    await writeJson(configPath, { ...config, language: 'en-US' });
+
+    const report = await runCli([
+      'install', '--project', target, '--target', 'codex', '--profile', 'core', '--dry-run', '--verbose',
+    ]);
+    const task = report.previewFiles.find((file) => file.target === 'docs/templates/task.md').content;
+    const delivery = report.previewFiles.find((file) => file.target === 'docs/templates/delivery.md').content;
+    assert.match(task, /Workflow tier/u);
+    assert.doesNotMatch(task, /工作流档位/u);
+    assert.match(delivery, /Result status/u);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
 test('project installs allow target-specific names in generated output', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-project-name-'));
   try {

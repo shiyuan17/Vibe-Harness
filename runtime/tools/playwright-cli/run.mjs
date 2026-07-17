@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
 import { execFile, spawn } from 'node:child_process';
-import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -18,12 +18,59 @@ const configFileName = 'playwright-cli.config.json';
 const lockDirName = 'playwright-cli.lock';
 const cliRelativePath = 'node_modules/@playwright/cli/playwright-cli.js';
 const browsersRelativeDir = 'node_modules/playwright-core/.local-browsers';
+const baseEnvironmentNames = new Set([
+  'APPDATA', 'COMSPEC', 'HOME', 'LANG', 'LC_ALL', 'LC_CTYPE', 'LOCALAPPDATA', 'PATH', 'Path',
+  'PATHEXT', 'PROGRAMDATA', 'ProgramData', 'SHELL', 'SystemRoot', 'TEMP', 'TMP', 'TMPDIR',
+  'USERPROFILE', 'WINDIR',
+]);
+const playwrightEnvironmentNames = new Set([
+  ...baseEnvironmentNames,
+  'ALL_PROXY', 'HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'SSL_CERT_DIR', 'SSL_CERT_FILE',
+  'all_proxy', 'https_proxy', 'http_proxy', 'no_proxy', 'npm_config_offline',
+  'npm_config_prefer_offline', 'npm_config_registry',
+]);
+
+function allowedPlaywrightEnvironment(env) {
+  return Object.fromEntries(Object.entries(env).filter(([name]) => playwrightEnvironmentNames.has(name)));
+}
 
 function assertInside(parent, candidate, label) {
   const relative = path.relative(path.resolve(parent), path.resolve(candidate));
   if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
     throw new Error(`${label} must stay inside the target project.`);
   }
+}
+
+async function assertSafeRuntimePath(targetDir, candidate, label) {
+  assertInside(targetDir, candidate, label);
+  const resolvedTarget = path.resolve(targetDir);
+  const canonicalTarget = await realpath(resolvedTarget);
+  let lexical = resolvedTarget;
+  let expected = canonicalTarget;
+  for (const segment of path.relative(resolvedTarget, path.resolve(candidate)).split(path.sep).filter(Boolean)) {
+    lexical = path.join(lexical, segment);
+    expected = path.join(expected, segment);
+    try {
+      const info = await lstat(lexical);
+      const canonical = await realpath(lexical);
+      const normalizedCanonical = process.platform === 'win32' ? path.resolve(canonical).toLowerCase() : path.resolve(canonical);
+      const normalizedExpected = process.platform === 'win32' ? path.resolve(expected).toLowerCase() : path.resolve(expected);
+      if (info.isSymbolicLink() || normalizedCanonical !== normalizedExpected) {
+        throw new Error(`${label} must not traverse a symbolic link, junction, or reparse point.`);
+      }
+    } catch (error) {
+      if (error.code === 'ENOENT') break;
+      throw error;
+    }
+  }
+}
+
+async function assertRuntimePathsSafe(paths) {
+  for (const [label, candidate] of [
+    ['Playwright artifacts directory', paths.artifactsDir],
+    ['Playwright state directory', paths.stateDir],
+    ['Playwright tool directory', paths.toolDir],
+  ]) await assertSafeRuntimePath(paths.targetDir, candidate, label);
 }
 
 async function pathExists(filePath) {
@@ -97,6 +144,7 @@ function normalizeArtifactArgs(args, artifactsDir) {
 }
 
 async function writeRuntimeConfig(paths) {
+  await assertRuntimePathsSafe(paths);
   const config = {
     allowUnrestrictedFileAccess: false,
     browser: { isolated: true },
@@ -142,7 +190,12 @@ async function acquireLock(lockDir, { now = () => Date.now(), pause = (ms) => ne
 }
 
 async function defaultRunCommand(command, args, options) {
-  await execFileAsync(command, args, { ...options, maxBuffer: 10 * 1024 * 1024, windowsHide: true });
+  await execFileAsync(command, args, {
+    ...options,
+    maxBuffer: 10 * 1024 * 1024,
+    timeout: 600_000,
+    windowsHide: true,
+  });
 }
 
 async function npmInvocation(args) {
@@ -177,6 +230,7 @@ async function defaultRunCliCommand(command, args, options) {
 
 export async function inspectPlaywrightTool({ targetDir, toolDir } = {}) {
   const paths = runtimePaths({ targetDir, toolDir });
+  await assertRuntimePathsSafe(paths);
   const manifestPath = path.join(paths.toolDir, 'package.json');
   const lockPath = path.join(paths.toolDir, 'package-lock.json');
   const state = await readJsonIfExists(paths.statePath);
@@ -193,8 +247,9 @@ export async function inspectPlaywrightTool({ targetDir, toolDir } = {}) {
   };
 }
 
-export async function preparePlaywrightTool({ runCommand = defaultRunCommand, targetDir, toolDir } = {}) {
+export async function preparePlaywrightTool({ env = process.env, runCommand = defaultRunCommand, targetDir, toolDir } = {}) {
   const paths = runtimePaths({ targetDir, toolDir });
+  await assertRuntimePathsSafe(paths);
   const expectedLockHash = await lockHash(paths.toolDir);
   await writeRuntimeConfig(paths);
   if (await isReady(paths, expectedLockHash)) return inspectPlaywrightTool({ targetDir, toolDir });
@@ -204,11 +259,11 @@ export async function preparePlaywrightTool({ runCommand = defaultRunCommand, ta
   let phase = 'dependency-install';
   try {
     if (await isReady(paths, expectedLockHash)) return inspectPlaywrightTool({ targetDir, toolDir });
-    const env = { ...process.env, PLAYWRIGHT_BROWSERS_PATH: '0' };
+    const childEnvironment = { ...allowedPlaywrightEnvironment(env), PLAYWRIGHT_BROWSERS_PATH: '0' };
     const npm = await npmInvocation(['ci', '--ignore-scripts', '--no-audit', '--no-fund']);
-    await runCommand(npm.command, npm.args, { cwd: paths.toolDir, env });
+    await runCommand(npm.command, npm.args, { cwd: paths.toolDir, env: childEnvironment });
     phase = 'browser-install';
-    await runCommand(process.execPath, [paths.cliPath, 'install-browser', 'chromium'], { cwd: paths.toolDir, env });
+    await runCommand(process.execPath, [paths.cliPath, 'install-browser', 'chromium'], { cwd: paths.toolDir, env: childEnvironment });
     phase = 'runtime-verification';
     if (!(await pathExists(paths.cliPath)) || !(await hasChromium(paths.toolDir))) {
       throw new Error('Playwright CLI preparation did not create the expected runtime files.');
@@ -246,9 +301,10 @@ export async function runPlaywrightCli(args, options = {}) {
   const toolDir = options.toolDir ?? path.dirname(fileURLToPath(import.meta.url));
   const targetDir = options.targetDir ?? path.resolve(toolDir, '../../../..');
   const paths = runtimePaths({ targetDir, toolDir });
+  await assertRuntimePathsSafe(paths);
   await preparePlaywrightTool({ ...options, targetDir, toolDir });
   const env = {
-    ...process.env,
+    ...allowedPlaywrightEnvironment(options.env ?? process.env),
     PLAYWRIGHT_BROWSERS_PATH: '0',
     PLAYWRIGHT_MCP_CONFIG: paths.configPath,
   };

@@ -8,10 +8,25 @@ const skillRoots = {
   gemini: '.gemini/skills',
 };
 
+const fullCapabilities = ['instructions', 'skills', 'hooks', 'policy', 'mcp', 'sandbox', 'memory'];
+
+function supportLevel(value) {
+  if (value === true) return 'stable';
+  if (value === false || value === undefined) return 'unsupported';
+  return value;
+}
+
+function normalizeAdapter(adapter) {
+  return {
+    ...adapter,
+    capabilities: Object.fromEntries(Object.entries(adapter.capabilities).map(([name, value]) => [name, supportLevel(value)])),
+  };
+}
+
 export async function loadAdapterCatalog(rootDir) {
   const catalog = await readJson(path.join(rootDir, 'manifests/adapters.json'));
   validateCatalogManifest('adapters', catalog);
-  return catalog;
+  return { ...catalog, items: catalog.items.map(normalizeAdapter) };
 }
 
 export async function resolveAdapter(rootDir, id) {
@@ -21,17 +36,22 @@ export async function resolveAdapter(rootDir, id) {
   return adapter;
 }
 
-export function assertAdapterProfile(adapter, profile) {
+export function assertAdapterProfile(adapter, profile, { allowPreview = false } = {}) {
   if (!adapter.supportedProfiles.includes(profile)) {
-    const missing = ['mcp', 'hooks'].filter((capability) => !adapter.capabilities[capability]);
+    const missing = fullCapabilities.filter((capability) => supportLevel(adapter.capabilities[capability]) === 'unsupported');
     const capabilityNote = missing.length > 0 ? `; unavailable capabilities: ${missing.join(', ')}` : '';
     throw new Error(`${adapter.id} does not support profile ${profile}${capabilityNote}; use core or docs-only.`);
+  }
+  const required = profile === 'full' ? fullCapabilities : ['instructions', 'skills', 'policy'];
+  const preview = required.filter((capability) => supportLevel(adapter.capabilities[capability]) === 'preview');
+  if (preview.length > 0 && !allowPreview) {
+    throw new Error(`${adapter.id} profile ${profile} includes preview capabilities: ${preview.join(', ')}; retry with --allow-preview.`);
   }
 }
 
 export function resolveAdapterEntry(adapter, entry) {
-  if (entry.group === 'mcp-config' && !adapter.capabilities.mcp) return null;
-  if (entry.group === 'hooks' && !adapter.capabilities.hooks) return null;
+  if (entry.group === 'mcp-config' && supportLevel(adapter.capabilities.mcp) === 'unsupported') return null;
+  if (entry.group === 'hooks' && supportLevel(adapter.capabilities.hooks) === 'unsupported') return null;
 
   let source = entry.source;
   let target = entry.target.replaceAll('\\', '/');

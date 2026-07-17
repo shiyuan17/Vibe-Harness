@@ -10,6 +10,7 @@ import { backupFile, createBackupId } from './install-state.js';
 import {
   assertInsideDir,
   assertPortableRelativePath,
+  assertSafePathInside,
   pathExists,
   readJson,
   validateJsonAgainstSchema,
@@ -23,6 +24,7 @@ async function resolveProjectPath(targetDir, relative, label) {
   assertPortableRelativePath(relative, label);
   const target = path.resolve(targetDir, relative);
   assertInsideDir(targetDir, target, label);
+  await assertSafePathInside(targetDir, target, label);
   let current = targetDir;
   for (const segment of path.relative(targetDir, target).split(path.sep).filter(Boolean)) {
     current = path.join(current, segment);

@@ -15,8 +15,8 @@
       "id": "chinese-task-contract",
       "source": "task lifecycle contracts",
       "disposition": "validator",
-      "targets": ["templates/task.md", "schemas/full-task-control.schema.json", "runtime/governance/lib/task-validation.mjs"],
-      "tests": ["tests/simplified-governance.test.js"],
+      "targets": ["templates/task.md", "templates/task.en-US.md", "templates/delivery.en-US.md", "schemas/full-task-control.schema.json", "runtime/governance/lib/task-validation.mjs"],
+      "tests": ["tests/simplified-governance.test.js", "tests/task-ir.test.js", "tests/mvp-spec.test.js"],
       "profiles": ["core", "full", "docs-only"],
       "docs": ["docs/specs/loopengine-v0.5-simplified-governance-spec.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/loopengine-core.json"] }
@@ -105,8 +105,8 @@
       "id": "installer-lifecycle",
       "source": "LoopEngine CLI lifecycle and ownership contract",
       "disposition": "validator",
-      "targets": ["scripts/loopengine.js", "scripts/lib/install-planner.js", "scripts/lib/install-state.js"],
-      "tests": ["tests/installer-lifecycle.test.js", "tests/uninstall.test.js", "tests/installation-baseline.test.js"],
+      "targets": ["scripts/loopengine.js", "scripts/lib/install-planner.js", "scripts/lib/install-state.js", "scripts/lib/file-transaction.js"],
+      "tests": ["tests/installer-lifecycle.test.js", "tests/uninstall.test.js", "tests/installation-baseline.test.js", "tests/transaction-recovery.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
       "docs": ["docs/migration-guide.md", "docs/architecture.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/loopengine-core.json", "evals/suites/loopengine-online-canary.json"] }
@@ -145,8 +145,8 @@
       "id": "skill-quality",
       "source": "canonical Skill catalog and closure",
       "disposition": "validator",
-      "targets": ["manifests/skills.json", "scripts/lib/pack-validation.js", "scripts/skills-audit.js"],
-      "tests": ["tests/skill-closure.test.js", "tests/agent-skill-routing.test.js"],
+      "targets": ["manifests/skills.json", "evals/skill-routing-cases.json", "scripts/lib/pack-validation.js", "scripts/lib/skill-routing-metrics.js", "scripts/skills-audit.js"],
+      "tests": ["tests/skill-closure.test.js", "tests/agent-skill-routing.test.js", "tests/skill-routing-metrics.test.js"],
       "profiles": ["core", "full"],
       "docs": ["docs/inventory/skills-optimization-zh.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/loopengine-core.json"] }

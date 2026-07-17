@@ -12,7 +12,7 @@ import {
   readInstallState,
   registerGeneratedFile,
 } from './lib/install-state.js';
-import { readJson } from './lib/manifest.js';
+import { pathExists, readJson } from './lib/manifest.js';
 import {
   applyInstallPlan,
   createInstallPlan,
@@ -45,16 +45,18 @@ import { resolveAdapter } from './lib/adapter.js';
 import { readFile } from 'node:fs/promises';
 import {
   createToolProvisioningPlan,
+  inspectProvisioningMarker,
   inspectProfileTools,
   provisionProfileTools,
   toolWarnings,
 } from './lib/tool-provisioning.js';
+import { inspectTransactions, recoverTransaction } from './lib/file-transaction.js';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 function requiredToolsDegraded(profile, tools = {}) {
   return profile === 'full'
-    && Object.values(tools).some((tool) => tool.status !== 'ready');
+    && Object.values(tools).some((tool) => tool.status === 'degraded');
 }
 
 function healthReport({ baseOk = true, profile, tools = {} }) {
@@ -158,7 +160,11 @@ function parseArgs(argv) {
       if (!next || next.startsWith('--')) {
         args[key] = true;
       } else {
-        args[key] = next;
+        if (key === 'tool' && args[key] !== undefined) {
+          args[key] = Array.isArray(args[key]) ? [...args[key], next] : [args[key], next];
+        } else {
+          args[key] = next;
+        }
         index += 1;
       }
     } else {
@@ -225,6 +231,7 @@ async function install(args) {
 
   const plan = await createInstallPlan({
     adapterId,
+    allowPreview: Boolean(args['allow-preview']),
     dryRun: dryRunRequested,
     force: Boolean(args.force),
     managedAgentsBlock: isMvpMode,
@@ -242,45 +249,70 @@ async function install(args) {
   const result = await applyInstallPlan(plan);
   const previewFiles = plan.dryRun ? await previewInstallPlan(plan, { includeContent: Boolean(args.verbose) }) : [];
   const plannedToolActions = createToolProvisioningPlan({
+    allowPreview: Boolean(args['allow-preview']),
     profile,
     resolvedModules: plan.resolvedModules,
     targetDir,
-  }).map(({ id, mode, phases, version }) => ({
+  }).map(({ id, mode, phases, supportLevel, version }) => ({
     id,
     mode,
     phases,
+    supportLevel,
     version,
   }));
-  const tools = plan.dryRun
-    ? await inspectProfileTools(profile, targetDir, plan.resolvedModules)
-    : await provisionProfileTools({
+  const deferredToolActions = createToolProvisioningPlan({
+    allowPreview: true,
+    profile,
+    resolvedModules: plan.resolvedModules,
+    targetDir,
+  }).filter((item) => item.supportLevel === 'preview' && !args['allow-preview'])
+    .map(({ id, mode, phases, supportLevel, version }) => ({ id, mode, phases, supportLevel, version }));
+  const provisionRequested = Boolean(args.provision);
+  const provisionExecuted = provisionRequested && !plan.dryRun;
+  const tools = provisionExecuted
+    ? await provisionWithSignalHandling({
+        allowPreview: Boolean(args['allow-preview']),
         mcpConflicts: result.mcpConflicts,
         profile,
         resolvedModules: plan.resolvedModules,
         targetDir,
+      })
+    : await inspectProfileTools(profile, targetDir, plan.resolvedModules, undefined, {
+        allowPreview: Boolean(args['allow-preview']),
       });
-  if (!plan.dryRun && plannedToolActions.length > 0) {
+  if (provisionExecuted && plannedToolActions.length > 0) {
     await registerGeneratedFile(targetDir, '.loopengine/tool-state/tools.json');
   }
-  const health = plan.dryRun ? { ok: true, status: 'ready' } : healthReport({ profile, tools });
+  const health = provisionExecuted ? healthReport({ profile, tools }) : { ok: true, status: 'ready' };
+  const warnings = provisionExecuted
+    ? toolWarnings(tools)
+    : (plannedToolActions.length > 0 ? [{
+        code: 'PROVISIONING_NOT_RUN',
+        message: 'Tool provisioning was not run; use loopengine provision --project <project> --write.',
+      }] : []);
   emitReport({
     ...health,
     actions: args.verbose ? plan.actions : plan.actions.map(compactAction),
     backupActions: plan.baselinePlan.actions,
     baselineId: result.baseline?.id ?? plan.baselinePlan.baselineId,
+    deferredToolActions,
     dryRun: plan.dryRun,
     governanceMode,
     implicitModules: plan.implicitModules,
     plannedToolActions,
+    adapterCapabilities: plan.adapterCapabilities,
+    missingCapabilities: plan.missingCapabilities,
+    provisioning: { executed: provisionExecuted, requested: provisionRequested },
     previewFiles,
     profile: plan.profile,
+    previewCapabilities: plan.previewCapabilities,
     requestedModules: plan.requestedModules,
     resolvedModules: plan.resolvedModules,
     target: isMvpMode ? adapterId : undefined,
     ...(args.verbose ? { targetDir: plan.targetDir } : {}),
     tools,
     recommendations: toolRecommendations(tools, profile, { adapterId, mvp: isMvpMode }),
-    warnings: toolWarnings(tools),
+    warnings,
     retired: result.retired,
     skipped: result.skipped,
     written: result.written,
@@ -540,7 +572,7 @@ async function evaluateProject(args) {
 }
 
 function toolRecommendations(tools, profile, { adapterId = 'codex' } = {}) {
-  const retryCommand = `loopengine install --project <project> --target ${adapterId} --profile ${profile} --write --confirm-red-zone`;
+  const retryCommand = `loopengine provision --project <project> --target ${adapterId} --profile ${profile} --write`;
   return Object.entries(tools).flatMap(([tool, state]) => {
     if (state.status === 'degraded') {
       if (state.code === 'MCP_CONFIG_CONFLICT') {
@@ -596,9 +628,12 @@ async function doctor(args) {
     const validationCommands = resolveValidationCommands(config, projectProfile, governanceMode);
     renderData = { ...config, profile, governance: { mode: governanceMode }, projectProfile, validationCommands };
   }
-  const [pack, gitHooks] = await Promise.all([
+  const [pack, gitHooks, provisioningProcess, transactions, transactionLock] = await Promise.all([
     validatePack(rootDir),
     inspectGitHooks(targetDir),
+    inspectProvisioningMarker(targetDir),
+    inspectTransactions(targetDir),
+    pathExists(path.join(targetDir, '.loopengine', 'transaction.lock')),
   ]);
   let target = await inspectTargetInstall({
     managedAgentsBlock: true,
@@ -611,20 +646,32 @@ async function doctor(args) {
   });
   const tools = await inspectProfileTools(profile, targetDir);
   if (!args.verbose) target = compactTargetReport(target);
-  const health = healthReport({ baseOk: pack.ok && (!target || target.ok), profile, tools });
+  const health = provisioningProcess
+    ? { ok: false, status: 'degraded' }
+    : healthReport({ baseOk: pack.ok && (!target || target.ok), profile, tools });
   emitReport({
     ...health,
     gitHooks,
     pack,
+    previewCapabilities: installState?.previewCapabilities ?? [],
+    provisioningProcess,
     ...(args.verbose ? { rootDir } : {}),
     target,
     ...(args.verbose ? { targetDir } : {}),
     tools,
+    transactionLock,
+    transactions,
     recommendations: toolRecommendations(tools, profile, {
       adapterId: installState?.adapter ?? 'codex',
       mvp: true,
     }),
-    warnings: toolWarnings(tools),
+    warnings: [
+      ...toolWarnings(tools),
+      ...(provisioningProcess ? [{
+        code: 'PROVISIONING_PROCESS_INCOMPLETE',
+        message: `Provisioning process state is ${provisioningProcess.status}.`,
+      }] : []),
+    ],
   }, args);
   applyHealthExit(health.status, args);
 }
@@ -711,6 +758,103 @@ async function uninstall(args) {
   if (result.skipped.length > 0) process.exitCode = 1;
 }
 
+function selectedToolIds(value) {
+  if (value === undefined) return undefined;
+  return Array.isArray(value) ? value : [value];
+}
+
+async function provisionWithSignalHandling(options) {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  process.once('SIGINT', abort);
+  process.once('SIGTERM', abort);
+  try {
+    return await provisionProfileTools({ ...options, signal: controller.signal });
+  } finally {
+    process.removeListener('SIGINT', abort);
+    process.removeListener('SIGTERM', abort);
+  }
+}
+
+async function provision(args) {
+  if (!args.project) throw new Error('provision requires --project <path>.');
+  if (args.write && args['dry-run']) throw new Error('Use --write or --dry-run, not both.');
+  const allowedOptions = new Set([
+    '_', 'allow-degraded', 'allow-preview', 'dry-run', 'force', 'output', 'profile', 'project', 'target', 'tool', 'verbose', 'write',
+  ]);
+  const unknownOption = Object.keys(args).find((key) => !allowedOptions.has(key));
+  if (unknownOption) throw new Error(`Unknown provision option: --${unknownOption}`);
+  const targetDir = path.resolve(args.project);
+  const config = await readRequiredProjectConfig(targetDir);
+  const state = await readInstallState(targetDir);
+  if (!state) throw new Error(`No LoopEngine install state found in ${targetDir}; run install first.`);
+  const adapterId = args.target ?? state.adapter ?? config.target;
+  if (adapterId !== config.target || adapterId !== state.adapter) {
+    throw new Error(`Provision target ${adapterId} does not match installed adapter ${state.adapter}.`);
+  }
+  const profile = validateProfileName(args.profile ?? state.profile);
+  if (profile !== state.profile) {
+    throw new Error(`Provision profile ${profile} does not match installed profile ${state.profile}.`);
+  }
+  const toolIds = selectedToolIds(args.tool);
+  const plannedToolActions = createToolProvisioningPlan({
+    allowPreview: Boolean(args['allow-preview']),
+    profile,
+    resolvedModules: state.resolvedModules,
+    targetDir,
+    toolIds,
+  }).map(({ id, mode, phases, supportLevel, version }) => ({ id, mode, phases, supportLevel, version }));
+  const dryRun = !args.write;
+  const tools = dryRun
+    ? await inspectProfileTools(profile, targetDir, state.resolvedModules, toolIds, {
+        allowPreview: Boolean(args['allow-preview']),
+      })
+    : await provisionWithSignalHandling({
+        allowPreview: Boolean(args['allow-preview']),
+        force: Boolean(args.force),
+        profile,
+        resolvedModules: state.resolvedModules,
+        targetDir,
+        toolIds,
+      });
+  if (!dryRun && plannedToolActions.length > 0) {
+    await registerGeneratedFile(targetDir, '.loopengine/tool-state/tools.json');
+  }
+  const health = dryRun ? { ok: true, status: 'ready' } : healthReport({ profile, tools });
+  emitReport({
+    ...health,
+    dryRun,
+    plannedToolActions,
+    profile,
+    recommendations: toolRecommendations(tools, profile, { adapterId }),
+    target: adapterId,
+    tools,
+    warnings: dryRun ? [] : toolWarnings(tools),
+  }, args);
+  applyHealthExit(health.status, args);
+}
+
+async function recover(args) {
+  if (!args.project) throw new Error('recover requires --project <path>.');
+  if (args.write && args['dry-run']) throw new Error('Use --write or --dry-run, not both.');
+  const allowedOptions = new Set(['_', 'dry-run', 'output', 'project', 'transaction', 'verbose', 'write']);
+  const unknownOption = Object.keys(args).find((key) => !allowedOptions.has(key));
+  if (unknownOption) throw new Error(`Unknown recover option: --${unknownOption}`);
+  const targetDir = path.resolve(args.project);
+  const result = await recoverTransaction({
+    id: typeof args.transaction === 'string' ? args.transaction : undefined,
+    targetDir,
+    write: Boolean(args.write),
+  });
+  emitReport({
+    dryRun: !args.write,
+    ok: true,
+    ...result,
+    status: 'ready',
+    targetDir,
+  }, args);
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const command = args._[0] ?? 'help';
@@ -725,6 +869,8 @@ async function main() {
     await init(args);
   } else if (command === 'install') {
     await install(args);
+  } else if (command === 'provision') {
+    await provision(args);
   } else if (command === 'validate') {
     await validate(args);
   } else if (command === 'verify') {
@@ -741,8 +887,10 @@ async function main() {
     await rollback(args);
   } else if (command === 'uninstall') {
     await uninstall(args);
+  } else if (command === 'recover') {
+    await recover(args);
   } else {
-    console.log('Usage: loopengine <init|install|uninstall|validate|verify|baseline|eval|doctor|diff|rollback> [--project path] [--target codex|claude|gemini] [--profile minimal|core|full|docs-only] [--modules list] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--force] [--upgrade] [--confirm-red-zone] [--allow-manual] [--allow-degraded]');
+    console.log('Usage: loopengine <init|install|provision|recover|uninstall|validate|verify|baseline|eval|doctor|diff|rollback> [--project path] [--target codex|claude|gemini] [--profile minimal|core|full|docs-only] [--modules list] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--force] [--upgrade] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded]');
     console.log('All project commands use --project <path>; --target selects an adapter and --write performs mutations. Legacy --apply and path-valued --target are removed.');
   }
 }

@@ -57,7 +57,6 @@ test('CLI validate --project passes after a real install and reports Chinese tem
       'full',
       '--write',
       '--confirm-red-zone',
-      '--allow-degraded',
     ]);
 
     const { stdout } = await execFileAsync(process.execPath, [
@@ -65,14 +64,14 @@ test('CLI validate --project passes after a real install and reports Chinese tem
       'validate',
       '--project',
       target,
-      '--allow-degraded',
     ]);
 
     const report = JSON.parse(stdout);
     const taskTemplate = await readFile(path.join(target, 'docs/templates/task.md'), 'utf8');
 
-    assert.equal(report.ok, false);
-    assert.equal(report.status, 'degraded');
+    assert.equal(report.ok, true);
+    assert.equal(report.status, 'ready');
+    assert.ok(report.warnings.some((warning) => warning.code === 'CODEBASE_MEMORY_MCP_PENDING'));
     assert.equal(report.scope, 'project');
     assert.equal(taskTemplate.includes('工作流档位'), true);
     assert.equal(taskTemplate.includes('当前阶段'), true);

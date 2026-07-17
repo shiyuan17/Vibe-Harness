@@ -184,6 +184,9 @@ export function validateProjectConfig(config) {
   assertNonEmptyString(config.packageManager, 'packageManager');
   assertNonEmptyString(config.target, 'target');
   assertNonEmptyString(config.profile, 'profile');
+  if (Object.hasOwn(config, 'language') && !['zh-CN', 'en-US'].includes(config.language)) {
+    throw new Error('language must be zh-CN or en-US');
+  }
   if (!mvpTargets.has(config.target)) {
     throw new Error(`Unknown target: ${config.target}`);
   }
@@ -267,10 +270,11 @@ export function validateProjectConfig(config) {
   return true;
 }
 
-function hasInstalledSurface(installedTargets, { exact, prefix }) {
+function hasInstalledSurface(installedTargets, { exact, prefix, suffix }) {
   if (exact) {
     return installedTargets.includes(exact);
   }
+  if (suffix) return installedTargets.some((target) => target.endsWith(suffix));
   return installedTargets.some((target) => target.startsWith(prefix));
 }
 
@@ -296,14 +300,9 @@ export function validateGeneratedContent(content, { installedTargets } = {}) {
         label: 'docs/rules/codebase-memory-mcp.md',
       },
       {
-        fragment: '.agents/skills/',
-        label: '.agents/skills/',
-        prefix: '.agents/skills/',
-      },
-      {
-        exact: '.agents/skills/agentmemory/SKILL.md',
         fragment: 'agentmemory',
-        label: '.agents/skills/agentmemory/SKILL.md',
+        label: '<adapter>/skills/agentmemory/SKILL.md',
+        suffix: '/skills/agentmemory/SKILL.md',
       },
       {
         exact: '.agents/memory/README.md',
@@ -316,6 +315,12 @@ export function validateGeneratedContent(content, { installedTargets } = {}) {
         label: '.codex/hooks.json',
       },
     ];
+
+    for (const skillRoot of ['.agents/skills/', '.claude/skills/', '.gemini/skills/']) {
+      if (content.includes(skillRoot) && !normalizedTargets.some((target) => target.startsWith(skillRoot))) {
+        throw new Error(`Generated AGENTS.md references ${skillRoot} but it is not installed by profile.`);
+      }
+    }
 
     for (const check of surfaceChecks) {
       if (content.includes(check.fragment) && !hasInstalledSurface(normalizedTargets, check)) {

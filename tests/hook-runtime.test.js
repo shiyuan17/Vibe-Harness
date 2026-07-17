@@ -17,9 +17,9 @@ import { validateDeliveryMessage } from '../runtime/hooks/lib/delivery-validatio
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve('.');
 
-function runNodeWithInput(script, input, { cwd }) {
+function runNodeWithInput(script, input, { args = [], cwd, raw = false }) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [script], { cwd, windowsHide: true });
+    const child = spawn(process.execPath, [script, ...args], { cwd, windowsHide: true });
     let stdout = '';
     let stderr = '';
     child.stdout.setEncoding('utf8');
@@ -31,7 +31,7 @@ function runNodeWithInput(script, input, { cwd }) {
       if (code === 0) resolve({ stderr, stdout });
       else reject(new Error(stderr || `Hook exited ${code}`));
     });
-    child.stdin.end(JSON.stringify(input));
+    child.stdin.end(raw ? input : JSON.stringify(input));
   });
 }
 
@@ -185,6 +185,31 @@ test('delivery validation ignores examples, HTML, quotes, and placeholder values
 test('rejects malformed or unsupported Codex hook input at the boundary', () => {
   assert.throws(() => normalizeCodexHookInput({ hook_event_name: 'SessionEnd' }), /unsupported hook event/i);
   assert.throws(() => normalizeCodexHookInput('not-an-object'), /JSON object/i);
+});
+
+test('hook runner fails closed for guarded events and warns for notification failures', async () => {
+  const script = path.join(rootDir, 'runtime/hooks/codex-hook.mjs');
+  const guarded = await runNodeWithInput(script, '{invalid-json', {
+    args: ['--expected-event', 'PreToolUse'],
+    cwd: rootDir,
+    raw: true,
+  });
+  const guardedResult = JSON.parse(guarded.stdout);
+  assert.equal(guardedResult.hookSpecificOutput.permissionDecision, 'deny');
+  assert.match(guardedResult.hookSpecificOutput.permissionDecisionReason, /HOOK_RUNTIME_ERROR/u);
+
+  const notification = await runNodeWithInput(script, '{invalid-json', {
+    args: ['--expected-event', 'PostToolUse'],
+    cwd: rootDir,
+    raw: true,
+  });
+  assert.match(JSON.parse(notification.stdout).systemMessage, /HOOK_RUNTIME_ERROR/u);
+
+  const mismatch = await runNodeWithInput(script, hookInput({ hook_event_name: 'PostToolUse' }), {
+    args: ['--expected-event', 'PreToolUse'],
+    cwd: rootDir,
+  });
+  assert.equal(JSON.parse(mismatch.stdout).hookSpecificOutput.permissionDecision, 'deny');
 });
 
 test('guarded tool policy blocks destructive Git and hook bypass commands', () => {
@@ -480,10 +505,12 @@ test('Codex hook template declares current events and cross-platform commands', 
   ];
 
   assert.deepEqual(Object.keys(hooks.hooks), expected);
-  for (const definitions of Object.values(hooks.hooks)) {
+  for (const [event, definitions] of Object.entries(hooks.hooks)) {
     for (const handler of definitions.flatMap((definition) => definition.hooks)) {
       assert.match(handler.command, /git rev-parse --show-toplevel/);
       assert.match(handler.commandWindows, /git rev-parse --show-toplevel/);
+      assert.match(handler.command, new RegExp(`--expected-event ${event}$`, 'u'));
+      assert.match(handler.commandWindows, new RegExp(`--expected-event ${event}\"?$`, 'u'));
       assert.equal(handler.timeout <= 30, true);
     }
   }

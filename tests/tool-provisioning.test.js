@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -25,6 +25,7 @@ const offlineEnv = {
   OCR_LLM_TOKEN: '',
   OCR_LLM_URL: '',
   OPENAI_API_KEY: '',
+  LOOPENGINE_TEST_OFFLINE: '1',
   npm_config_cache: path.join(tmpdir(), 'loopengine-empty-npm-cache'),
   npm_config_offline: 'true',
 };
@@ -94,7 +95,8 @@ async function runCliSummary(args, options = {}) {
 
 test('full tool plan pins four project-local components while core keeps Playwright lazy', () => {
   const targetDir = path.resolve('target-project');
-  const full = createToolProvisioningPlan({ profile: 'full', targetDir });
+  const stable = createToolProvisioningPlan({ profile: 'full', targetDir });
+  const full = createToolProvisioningPlan({ allowPreview: true, profile: 'full', targetDir });
   const core = createToolProvisioningPlan({ profile: 'core', targetDir });
 
   assert.deepEqual(
@@ -106,6 +108,7 @@ test('full tool plan pins four project-local components while core keeps Playwri
       { id: 'agentmemory', version: '0.9.27' },
     ],
   );
+  assert.deepEqual(stable.map(({ id }) => id), ['codebaseMemoryMcp', 'playwrightCli', 'openCodeReview']);
   assert.equal(full.every((item) => item.toolDir.startsWith(targetDir)), true);
   assert.deepEqual(full[0].phases, ['dependency-install', 'binary-install', 'index', 'index-verify', 'mcp-handshake']);
   assert.deepEqual(core.map(({ id, mode }) => ({ id, mode })), [{ id: 'playwrightCli', mode: 'lazy' }]);
@@ -143,6 +146,7 @@ test('provisioning continues after one component fails and never persists comman
   };
   try {
     const report = await provisionProfileTools({
+      allowPreview: true,
       commandRunner: async (request) => {
         calls.push(request);
         if (request.component === 'codebaseMemoryMcp' && request.phase === 'index') {
@@ -390,6 +394,7 @@ test('every full-profile tool persists a sanitized diagnostic for its failed pha
     const targetDir = await mkdtemp(path.join(tmpdir(), `loopengine-diagnostic-${toolId}-`));
     try {
       const report = await provisionProfileTools({
+        allowPreview: true,
         commandRunner: async (request) => {
           if (request.component === toolId && request.phase === phase) {
             throw Object.assign(new Error('token=diagnostic-secret'), {
@@ -501,7 +506,7 @@ test('unchanged OCR pending-config is reused until credentials become available'
 
 test('ready tools reuse package phases while codebase-memory reindexes and verifies every install', async () => {
   const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-reuse-'));
-  const plan = createToolProvisioningPlan({ profile: 'full', targetDir });
+  const plan = createToolProvisioningPlan({ allowPreview: true, profile: 'full', targetDir });
   const calls = [];
   const runner = async (request) => {
     calls.push(request);
@@ -514,9 +519,9 @@ test('ready tools reuse package phases while codebase-memory reindexes and verif
       await writeFile(path.join(tool.toolDir, 'package-lock.json'), `${tool.id}\n`, 'utf8');
     }
     await seedCodebaseMemoryRuntime(plan.find((tool) => tool.id === 'codebaseMemoryMcp').toolDir);
-    await provisionProfileTools({ commandRunner: runner, env, profile: 'full', targetDir });
+    await provisionProfileTools({ allowPreview: true, commandRunner: runner, env, profile: 'full', targetDir });
     const firstCallCount = calls.length;
-    await provisionProfileTools({ commandRunner: runner, env, profile: 'full', targetDir });
+    await provisionProfileTools({ allowPreview: true, commandRunner: runner, env, profile: 'full', targetDir });
     const repeatedCalls = calls.slice(firstCallCount);
     assert.deepEqual(repeatedCalls.map((call) => [call.component, call.phase]), [
       ['codebaseMemoryMcp', 'index'],
@@ -527,7 +532,7 @@ test('ready tools reuse package phases while codebase-memory reindexes and verif
     const agentmemory = plan.find((tool) => tool.id === 'agentmemory');
     await writeFile(path.join(agentmemory.toolDir, 'package-lock.json'), 'changed\n', 'utf8');
     const beforeChangedLock = calls.length;
-    await provisionProfileTools({ commandRunner: runner, env, profile: 'full', targetDir });
+    await provisionProfileTools({ allowPreview: true, commandRunner: runner, env, profile: 'full', targetDir });
     const newCalls = calls.slice(beforeChangedLock);
     assert.deepEqual(newCalls.filter((call) => call.component === 'codebaseMemoryMcp').map((call) => call.phase), [
       'index', 'index-verify', 'mcp-handshake',
@@ -619,7 +624,7 @@ test('MCP configuration conflicts tell summary users to resolve the duplicate se
     await writeFile(projectConfigPath, `${JSON.stringify({ ...projectConfig, profile: 'full' }, null, 2)}\n`, 'utf8');
 
     const report = await runCli(
-      ['install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--write', '--confirm-red-zone', '--allow-degraded'],
+      ['install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--write', '--provision', '--confirm-red-zone', '--allow-degraded'],
       { env: offlineEnv, timeout: 120_000 },
     );
     const summary = await runCliSummary(
@@ -662,7 +667,7 @@ test('full install map includes project-local runtimes and managed Codex MCP con
   }
 });
 
-test('full CLI dry-run reports four planned tools without provisioning them', async () => {
+test('full CLI dry-run reports stable tools and defers preview tools', async () => {
   const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-cli-plan-'));
   try {
     await runCli(['init', '--project', targetDir]);
@@ -672,16 +677,231 @@ test('full CLI dry-run reports four planned tools without provisioning them', as
     );
 
     assert.deepEqual(report.plannedToolActions.map((item) => item.id), [
-      'codebaseMemoryMcp', 'playwrightCli', 'openCodeReview', 'agentmemory',
+      'codebaseMemoryMcp', 'playwrightCli', 'openCodeReview',
     ]);
+    assert.deepEqual(report.deferredToolActions.map((item) => item.id), ['agentmemory']);
     assert.equal(report.tools.codebaseMemoryMcp.status, 'pending');
     assert.equal(report.tools.playwrightCli.status, 'pending');
     assert.equal(report.tools.openCodeReview.status, 'pending-config');
-    assert.equal(report.tools.agentmemory.status, 'pending');
+    assert.equal(report.tools.agentmemory, undefined);
     await assert.rejects(readFile(path.join(targetDir, '.loopengine/tool-state/tools.json'), 'utf8'), /ENOENT/u);
     await assert.rejects(readFile(path.join(targetDir, '.agents/loopengine/tools/agentmemory/node_modules/.package-lock.json'), 'utf8'), /ENOENT/u);
   } finally {
     await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('tool command cancellation terminates the child before rejecting', async () => {
+  const controller = new AbortController();
+  const module = await import('../scripts/lib/tool-provisioning.js');
+  const running = module.runToolCommand({
+    args: ['-e', 'setInterval(() => {}, 1000)'],
+    command: process.execPath,
+    cwd: rootDir,
+    env: process.env,
+    signal: controller.signal,
+    timeout: 10_000,
+  });
+  setTimeout(() => controller.abort(), 50);
+
+  await assert.rejects(running, (error) => error.code === 'TOOL_CANCELLED');
+});
+
+test('tool processes receive only base variables and tool-specific credentials', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-env-policy-'));
+  const requests = [];
+  try {
+    await provisionProfileTools({
+      allowPreview: true,
+      commandRunner: async (request) => requests.push(request),
+      env: {
+        ...process.env,
+        LOOPENGINE_SECRET_SENTINEL: 'must-not-leak',
+        OPENAI_API_KEY: 'ocr-only-secret',
+      },
+      profile: 'full',
+      resolvedModules: ['agentmemory', 'open-code-review'],
+      targetDir,
+    });
+
+    const agentmemory = requests.find((request) => request.component === 'agentmemory');
+    const openCodeReview = requests.find((request) => request.component === 'openCodeReview');
+    assert.equal(agentmemory.env.LOOPENGINE_SECRET_SENTINEL, undefined);
+    assert.equal(agentmemory.env.OPENAI_API_KEY, undefined);
+    assert.equal(openCodeReview.env.LOOPENGINE_SECRET_SENTINEL, undefined);
+    assert.equal(openCodeReview.env.OPENAI_API_KEY, 'ocr-only-secret');
+    assert.equal(openCodeReview.env.PATH ?? openCodeReview.env.Path, process.env.PATH ?? process.env.Path);
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('installed tool wrappers enforce runtime environment allowlists', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-runtime-env-'));
+  const fixtureSource = 'console.log(JSON.stringify({ cbmRoot: process.env.CBM_ALLOWED_ROOT, openai: process.env.OPENAI_API_KEY, sentinel: process.env.LOOPENGINE_SECRET_SENTINEL }));\n';
+  const cases = [
+    {
+      entry: 'node_modules/@alibaba-group/open-code-review/bin/ocr.js',
+      expected: { openai: 'ocr-secret' },
+      runtime: 'open-code-review',
+    },
+    {
+      entry: 'node_modules/codebase-memory-mcp/bin.js',
+      expected: { cbmRoot: targetDir },
+      runtime: 'codebase-memory-mcp',
+    },
+    {
+      entry: 'node_modules/@agentmemory/mcp/bin.mjs',
+      expected: {},
+      runtime: 'agentmemory',
+    },
+  ];
+  try {
+    for (const item of cases) {
+      const runtimeDir = path.join(targetDir, item.runtime);
+      const entryPath = path.join(runtimeDir, item.entry);
+      await mkdir(path.dirname(entryPath), { recursive: true });
+      await copyFile(path.join(rootDir, `runtime/tools/${item.runtime}/run.mjs`), path.join(runtimeDir, 'run.mjs'));
+      await writeFile(entryPath, fixtureSource, 'utf8');
+      const { stdout } = await execFileAsync(process.execPath, [path.join(runtimeDir, 'run.mjs')], {
+        cwd: targetDir,
+        env: {
+          ...process.env,
+          CBM_ALLOWED_ROOT: targetDir,
+          LOOPENGINE_SECRET_SENTINEL: 'must-not-leak',
+          OPENAI_API_KEY: 'ocr-secret',
+        },
+      });
+      const observed = JSON.parse(stdout);
+      assert.deepEqual(observed, item.expected);
+    }
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('cancelled provisioning preserves an interrupted process marker for doctor', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-interrupted-'));
+  const controller = new AbortController();
+  try {
+    await runCli(['init', '--project', targetDir, '--profile', 'core']);
+    await runCli(['install', '--project', targetDir, '--profile', 'core', '--write']);
+    await assert.rejects(
+      provisionProfileTools({
+        commandRunner: async () => {
+          controller.abort();
+          throw Object.assign(new Error('token=must-not-leak'), { code: 'TOOL_CANCELLED' });
+        },
+        env: process.env,
+        profile: 'full',
+        resolvedModules: ['codebase-memory'],
+        signal: controller.signal,
+        targetDir,
+      }),
+      (error) => error.code === 'TOOL_CANCELLED',
+    );
+
+    const markerText = await readFile(path.join(targetDir, '.loopengine/tool-state/provisioning.json'), 'utf8');
+    const marker = JSON.parse(markerText);
+    assert.equal(marker.status, 'interrupted');
+    assert.equal(marker.currentTool, 'codebaseMemoryMcp');
+    assert.equal(markerText.includes('must-not-leak'), false);
+
+    const doctor = await runCli(['doctor', '--project', targetDir, '--allow-degraded']);
+    assert.equal(doctor.status, 'degraded');
+    assert.equal(doctor.provisioningProcess.status, 'interrupted');
+    assert.equal(doctor.warnings.some((warning) => warning.code === 'PROVISIONING_PROCESS_INCOMPLETE'), true);
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('full write installs governance assets without provisioning tools by default', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-assets-only-'));
+  try {
+    await runCli(['init', '--project', targetDir, '--profile', 'full']);
+    const report = await runCli([
+      'install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--write', '--confirm-red-zone',
+    ], { env: offlineEnv });
+
+    assert.equal(report.status, 'ready');
+    assert.deepEqual(report.provisioning, { executed: false, requested: false });
+    assert.equal(report.warnings.some((item) => item.code === 'PROVISIONING_NOT_RUN'), true);
+    assert.equal(report.tools.codebaseMemoryMcp.status, 'pending');
+    await assert.rejects(readFile(path.join(targetDir, '.loopengine/tool-state/tools.json'), 'utf8'), /ENOENT/u);
+
+    const validation = await runCli(['validate', '--project', targetDir], { env: offlineEnv });
+    assert.equal(validation.status, 'ready');
+    assert.equal(validation.tools.codebaseMemoryMcp.status, 'pending');
+
+    const doctor = await runCli(['doctor', '--project', targetDir], { env: offlineEnv });
+    assert.equal(doctor.status, 'ready');
+    assert.equal(doctor.tools.codebaseMemoryMcp.status, 'pending');
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('provision previews and writes only explicitly selected tools', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-provision-command-'));
+  try {
+    await runCli(['init', '--project', targetDir, '--profile', 'full']);
+    await runCli([
+      'install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--write', '--confirm-red-zone',
+    ], { env: offlineEnv });
+
+    await assert.rejects(
+      execFileAsync(process.execPath, [
+        cliPath, 'provision', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--tool', 'agentmemory', '--dry-run',
+      ], { cwd: rootDir, env: offlineEnv }),
+      /preview.*allow-preview/iu,
+    );
+    const preview = await runCli([
+      'provision', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--tool', 'agentmemory', '--dry-run', '--allow-preview',
+    ], { env: offlineEnv });
+    assert.deepEqual(preview.plannedToolActions.map((item) => item.id), ['agentmemory']);
+    assert.equal(preview.dryRun, true);
+    await assert.rejects(readFile(path.join(targetDir, '.loopengine/tool-state/tools.json'), 'utf8'), /ENOENT/u);
+
+    const result = await runCli([
+      'provision', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--tool', 'agentmemory', '--write', '--allow-preview', '--allow-degraded',
+    ], { env: offlineEnv });
+    assert.deepEqual(Object.keys(result.tools), ['agentmemory']);
+    const state = JSON.parse(await readFile(path.join(targetDir, '.loopengine/tool-state/tools.json'), 'utf8'));
+    assert.deepEqual(Object.keys(state.tools), ['agentmemory']);
+    assert.match(state.tools.agentmemory.source, /^npm:@agentmemory\/mcp@/u);
+    assert.equal(Number.isNaN(Date.parse(state.tools.agentmemory.startedAt)), false);
+    assert.equal(Number.isNaN(Date.parse(state.tools.agentmemory.finishedAt)), false);
+    assert.equal(state.tools.agentmemory.result, state.tools.agentmemory.status);
+    assert.equal(typeof state.tools.agentmemory.logSummary, 'string');
+    assert.equal(state.tools.agentmemory.logSummary.includes('secret'), false);
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('provision rejects tool directories redirected outside the project', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-link-project-'));
+  const outside = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-link-outside-'));
+  try {
+    await runCli(['init', '--project', targetDir, '--profile', 'full']);
+    await runCli([
+      'install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--write', '--confirm-red-zone',
+    ], { env: offlineEnv });
+    const toolDir = path.join(targetDir, '.agents/loopengine/tools/agentmemory');
+    await rm(toolDir, { force: true, recursive: true });
+    await symlink(outside, toolDir, process.platform === 'win32' ? 'junction' : 'dir');
+
+    await assert.rejects(
+      execFileAsync(process.execPath, [
+        cliPath, 'provision', '--project', targetDir, '--profile', 'full', '--tool', 'agentmemory', '--write', '--allow-degraded',
+      ], { cwd: rootDir, env: offlineEnv }),
+      /link|junction|reparse/iu,
+    );
+    assert.deepEqual(await import('node:fs/promises').then(({ readdir }) => readdir(outside)), []);
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+    await rm(outside, { force: true, recursive: true });
   }
 });
 
@@ -697,7 +917,7 @@ test('full write degrades unavailable tools and rollback removes only the manage
     await writeFile(configPath, 'model = "gpt-5"\n', 'utf8');
 
     const report = await runCli(
-      ['install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--write', '--confirm-red-zone', '--allow-degraded'],
+      ['install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--write', '--provision', '--confirm-red-zone', '--allow-degraded'],
       { env: offlineEnv, timeout: 120_000 },
     );
     const config = await readFile(configPath, 'utf8');
@@ -728,7 +948,7 @@ test('full write degrades unavailable tools and rollback removes only the manage
     );
     assert.equal(degradedRecommendation.phase, doctor.tools.codebaseMemoryMcp.phase);
     assert.equal(degradedRecommendation.action, 'retry-provision');
-    assert.match(degradedRecommendation.command, /install --project <project> --target codex --profile full --write --confirm-red-zone/u);
+    assert.match(degradedRecommendation.command, /provision --project <project> --target codex --profile full --write/u);
     assert.equal(JSON.stringify(degradedRecommendation).includes(targetDir), false);
 
     const summary = await runCliSummary(
@@ -737,8 +957,8 @@ test('full write degrades unavailable tools and rollback removes only the manage
     );
     assert.match(summary, /tool: codebaseMemoryMcp/u);
     assert.match(summary, /phase: dependency-install/u);
-    assert.match(summary, /reason: npm error request .*cache mode is 'only-if-cached'/u);
-    assert.match(summary, /next: loopengine install --project <project> --target codex --profile full --write --confirm-red-zone/u);
+    assert.match(summary, /reason: Offline test fixture\./u);
+    assert.match(summary, /next: loopengine provision --project <project> --target codex --profile full --write/u);
 
     await runCli(['rollback', '--project', targetDir, '--write', '--confirm-red-zone'], { env: offlineEnv });
     const rolledBack = await readFile(configPath, 'utf8');

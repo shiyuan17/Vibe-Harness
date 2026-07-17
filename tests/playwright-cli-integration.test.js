@@ -34,7 +34,7 @@ test('Playwright tool preparation is lazy, reproducible, and project-local', asy
     await writeFile(path.join(toolDir, 'package.json'), JSON.stringify({ devDependencies: { '@playwright/cli': PLAYWRIGHT_CLI_VERSION } }), 'utf8');
 
     const runCommand = async (command, args, options) => {
-      calls.push({ args, command, cwd: options.cwd, browserPath: options.env.PLAYWRIGHT_BROWSERS_PATH });
+      calls.push({ args, command, cwd: options.cwd, env: options.env, browserPath: options.env.PLAYWRIGHT_BROWSERS_PATH });
       if (command.includes('npm') || args[0]?.includes('npm-cli')) {
         await mkdir(path.join(toolDir, 'node_modules/@playwright/cli'), { recursive: true });
         await writeFile(path.join(toolDir, 'node_modules/@playwright/cli/playwright-cli.js'), '', 'utf8');
@@ -43,7 +43,16 @@ test('Playwright tool preparation is lazy, reproducible, and project-local', asy
       }
     };
 
-    const prepared = await preparePlaywrightTool({ runCommand, targetDir, toolDir });
+    const prepared = await preparePlaywrightTool({
+      env: {
+        HTTPS_PROXY: 'https://proxy.example.test',
+        LOOPENGINE_SECRET_SENTINEL: 'must-not-leak',
+        PATH: 'playwright-test-path',
+      },
+      runCommand,
+      targetDir,
+      toolDir,
+    });
     const inspected = await inspectPlaywrightTool({ targetDir });
 
     assert.equal(prepared.status, 'ready');
@@ -59,6 +68,9 @@ test('Playwright tool preparation is lazy, reproducible, and project-local', asy
     }
     assert.deepEqual(calls[1].args.slice(-2), ['install-browser', 'chromium']);
     assert.equal(calls[1].browserPath, '0');
+    assert.equal(calls[0].env.PATH, 'playwright-test-path');
+    assert.equal(calls[0].env.HTTPS_PROXY, 'https://proxy.example.test');
+    assert.equal(calls[0].env.LOOPENGINE_SECRET_SENTINEL, undefined);
     assert.equal(calls.every((call) => call.cwd === toolDir), true);
 
     await preparePlaywrightTool({ runCommand, targetDir, toolDir });
@@ -149,7 +161,13 @@ test('Playwright command forwards output while provisioning remains injectable',
     };
     const runCliCommand = async (command, args, options) => invocations.push({ args, command, options });
 
-    await runPlaywrightCli(['-s=smoke', 'snapshot', '--filename=smoke.yml'], { runCliCommand, runCommand, targetDir, toolDir });
+    await runPlaywrightCli(['-s=smoke', 'snapshot', '--filename=smoke.yml'], {
+      env: { LOOPENGINE_SECRET_SENTINEL: 'must-not-leak', PATH: 'playwright-test-path' },
+      runCliCommand,
+      runCommand,
+      targetDir,
+      toolDir,
+    });
 
     assert.equal(invocations.length, 1);
     assert.equal(invocations[0].command, process.execPath);
@@ -163,6 +181,8 @@ test('Playwright command forwards output while provisioning remains injectable',
       invocations[0].options.env.PLAYWRIGHT_MCP_CONFIG,
       path.join(targetDir, '.loopengine/tool-state/playwright-cli.config.json'),
     );
+    assert.equal(invocations[0].options.env.PATH, 'playwright-test-path');
+    assert.equal(invocations[0].options.env.LOOPENGINE_SECRET_SENTINEL, undefined);
     assert.equal(invocations[0].options.stdio, 'inherit');
 
     await assert.rejects(

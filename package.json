@@ -1,6 +1,6 @@
 {
   "name": "@jw/loopengine",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Reusable cross-platform AI coding governance, skills, workflow, and installer pack.",
   "license": "MIT",
@@ -17,12 +17,13 @@
     "eval:check": "node ./scripts/eval-check.js",
     "eval:changes": "node ./scripts/eval-change-check.js",
     "eval:offline": "node ./scripts/eval-offline.js",
+    "eval:routing": "node ./scripts/eval-routing-check.js",
     "eval:online": "node ./scripts/eval-online.js",
     "eval:health": "node ./scripts/eval-health.js",
     "runtime:audit": "node ./scripts/runtime-audit.js",
     "test": "node --test --test-concurrency=4 tests/*.test.js",
     "test:integration": "node --test --test-concurrency=1 tests/installation-baseline.test.js tests/installer-lifecycle.test.js tests/mvp-spec.test.js tests/cross-platform-adapters.test.js tests/tool-provisioning.test.js tests/uninstall.test.js",
-    "check": "node ./scripts/lint.js && node ./scripts/validate.js && pnpm test",
+    "check": "node ./scripts/lint.js && node ./scripts/validate.js && pnpm eval:routing && pnpm test",
     "pack:preview": "node ./scripts/pack-preview.js",
     "smoke:lifecycle": "node ./scripts/smoke-lifecycles.js"
   },

@@ -24,7 +24,7 @@ LoopEngine 让 Codex、Claude Code 和 Gemini CLI 使用同一套规划、执行
 | 长任务跨会话后丢失重要上下文。 | `baseline` 记录项目、安装、工具和验证状态；项目记忆与交接模板保留决策和已知问题。 | 新会话可以直接读取项目事实，不必只靠聊天记录重新整理。 |
 | 不同 AI 编程工具中的规则逐渐不一致。 | 为 Codex、Claude Code 和 Gemini CLI 提供原生项目文件和经过测试的安装级别（`profiles`）。 | 每个工具都能用自己支持的格式获得同一套核心工作规则。 |
 | 安装或更新公共规则时担心覆盖项目文件。 | 提供 dry-run 预览、明确标记的内容区域、备份、校验、安全卸载和回滚。 | 写入前可以检查变化，也能撤销 LoopEngine 管理的内容而不影响项目其他文件。 |
-| 代码理解、浏览器检查、审查和记忆工具分散在不同环境中。 | Codex `full` 会在项目内准备代码库索引、Playwright、Open Code Review 和 Agentmemory。 | 常用工具跟随项目保存；工具不可用时会明确报告为 `degraded`。 |
+| 代码理解、浏览器检查、审查和记忆工具分散在不同环境中。 | Codex `full` 会在项目内准备代码库索引、Playwright 和 Open Code Review；Agentmemory 在依赖风险解决前保持显式 preview。 | 常用工具跟随项目保存；工具不可用时会明确报告为 `degraded`。 |
 
 ## 为什么不只写一个 AGENTS.md
 
@@ -49,17 +49,26 @@ pnpm loopengine validate --project ../some-project
 3. 确认预览后，写入推荐的 `core` 安装内容。
 4. 检查文件是否安装完整，内容是否仍然一致。
 
+`install` 默认只写治理资产。项目内工具使用独立命令预览和安装：
+
+```bash
+pnpm loopengine provision --project ../some-project --target codex --profile full --dry-run
+pnpm loopengine provision --project ../some-project --target codex --profile full --write
+```
+
+`install --provision` 保留一条命令完成两阶段的兼容路径。写入被中断时，`recover --project <project>` 只预览活跃事务，`recover --project <project> --write` 才恢复 preimage。
+
 ## 支持哪些 AI 编程工具
 
 | 工具 | 项目主文件 | 可选安装级别 | LoopEngine 可以安装什么 |
 | --- | --- | --- | --- |
 | Codex | `AGENTS.md` | `minimal`、`core`、`full`、`docs-only` | 使用说明、skills、通过 MCP 接入的项目工具，以及通过 hooks 自动执行的检查 |
-| Claude Code | `CLAUDE.md` | `minimal`、`core`、`docs-only` | 项目使用说明和 skills |
-| Gemini CLI | `GEMINI.md` | `minimal`、`core`、`docs-only` | 项目使用说明和 skills |
+| Claude Code | `CLAUDE.md` | `minimal`、`core`、`docs-only`；`full` preview | 项目说明和 skills；实验性 full 映射需要 `--allow-preview` |
+| Gemini CLI | `GEMINI.md` | `minimal`、`core`、`docs-only`；`full` preview | 项目说明和 skills；实验性 full 映射需要 `--allow-preview` |
 
 MCP 让 AI 可以调用当前项目配套的工具；hooks 会在 AI 工作到特定阶段时自动运行检查。LoopEngine 目前只为 Codex 安装这两类能力。
 
-Claude Code 与 Gemini CLI 不支持 `full`。如果选择 `full`，LoopEngine 会停止安装并建议改用 `core`，不会假装已经安装 MCP 或 hooks。
+Claude Code 与 Gemini CLI 的 `full` 默认被 preview 门禁阻止，只有显式使用 `--allow-preview` 才生成计划。报告会列出 preview 与缺失能力，不会把不完整映射标记为 stable。
 
 ## AI 会按什么步骤工作
 
@@ -83,7 +92,7 @@ Claude Code 与 Gemini CLI 不支持 `full`。如果选择 `full`，LoopEngine �
 | --- | --- | --- |
 | `minimal` | Agent 主说明文件、基本工作规则、Git 与测试规则、任务模板 | 只需要基本规则，不需要额外 skills 或工具的小项目 |
 | `core` | `minimal` 的全部内容，加上常用工程规则、任务检查、Red Team 完成门禁、skills 路由和按需启动的 Playwright | 大多数项目，建议从这里开始 |
-| `full` | `core` 的全部内容，加上项目记忆、高级流程 skills、四个项目工具、Codex MCP 配置和 Codex hooks | 长期维护或风险较高的 Codex 项目 |
+| `full` | `core` 的全部内容，加上项目记忆、高级流程 skills、三个 stable 项目工具、preview Agentmemory 资产、Codex MCP 配置和 Codex hooks | 长期维护或风险较高的 Codex 项目 |
 | `docs-only` | 使用说明、公共规则、模板和 schemas，不安装可执行工具、skills、MCP 或 hooks | 只希望使用文档规则的项目 |
 每个 profile 实际包含哪些文件，由 `manifests/profiles.json` 定义。
 
@@ -258,15 +267,15 @@ Install、validate 和 doctor 使用相同的三种状态：
 
 | 状态 | 退出码 | 表示什么 |
 | --- | --- | --- |
-| `ready` | `0` | 安装内容和必需工具都可以使用。 |
+| `ready` | `0` | 治理资产有效，且没有已尝试 provisioning 的工具失败；尚未 provision 的工具以 `pending` 或 `pending-config` 告警展示。 |
 | `invalid` | `1` | 配置或已安装文件与 LoopEngine 的预期不一致。 |
 | `degraded` | `2` | 某个必需工具、凭据或功能当前不可用。 |
 
-`--allow-degraded` 可以为自动化流程把退出码改成 `0`，但不会隐藏问题。报告仍会保留 `ok: false`、`status: "degraded"`、警告和建议的处理办法。
+`--allow-degraded` 可以为自动化流程把退出码改成 `0`，但不会隐藏问题。报告仍会保留 `ok: false`、`status: "degraded"`、警告和建议的处理办法。`pending` 与 `pending-config` 不会让资产优先安装失败；运行 `provision --write` 后出现的真实工具失败，以及未完成的 provisioning 进程标记，才会使健康状态降级。
 
 维护者使用 `pnpm runtime:audit` 按 provision 的真实依赖面执行审计。Critical、High 或审计不可用会使命令失败，Moderate 保留为可见告警；Agentmemory 在 provision 和强制审计中都排除 optional 依赖。
 
-工具降级时，LoopEngine 会把最新一条经过脱敏的诊断记录在 `.loopengine/tool-state/tools.json`，并在 install、validate、doctor 和 summary 输出中展示。诊断包含失败阶段、稳定错误码、可用时的退出码及限长输出尾部；项目路径和类似凭据的值会被替换，绝不保存原始命令环境或完整输出。
+LoopEngine 会在 `.loopengine/tool-state/tools.json` 逐工具记录版本、包来源、起止时间、结果和脱敏日志摘要，并在 install、validate、doctor 和 summary 输出中展示。失败诊断包含失败阶段、稳定错误码、可用时的退出码及限长输出尾部；项目路径和类似凭据的值会被替换，绝不保存原始命令环境或完整输出。provisioning 被中断时会保留 `.loopengine/tool-state/provisioning.json`，`doctor` 只报告并降级，不会自动修改环境。
 
 </details>
 

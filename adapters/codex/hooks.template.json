@@ -6,8 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\"",
-            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs')\"",
+            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\" --expected-event SessionStart",
+            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs') --expected-event SessionStart\"",
             "timeout": 10,
             "statusMessage": "Loading LoopEngine project context"
           }
@@ -19,8 +19,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\"",
-            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs')\"",
+            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\" --expected-event UserPromptSubmit",
+            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs') --expected-event UserPromptSubmit\"",
             "timeout": 5
           }
         ]
@@ -32,8 +32,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\"",
-            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs')\"",
+            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\" --expected-event PreToolUse",
+            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs') --expected-event PreToolUse\"",
             "timeout": 10,
             "statusMessage": "Checking LoopEngine tool policy"
           }
@@ -46,8 +46,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\"",
-            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs')\"",
+            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\" --expected-event PermissionRequest",
+            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs') --expected-event PermissionRequest\"",
             "timeout": 10,
             "statusMessage": "Checking LoopEngine approval policy"
           }
@@ -60,8 +60,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\"",
-            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs')\"",
+            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\" --expected-event PostToolUse",
+            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs') --expected-event PostToolUse\"",
             "timeout": 10
           }
         ]
@@ -72,8 +72,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\"",
-            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs')\"",
+            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\" --expected-event PreCompact",
+            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs') --expected-event PreCompact\"",
             "timeout": 5
           }
         ]
@@ -84,8 +84,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\"",
-            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs')\"",
+            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\" --expected-event PostCompact",
+            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs') --expected-event PostCompact\"",
             "timeout": 10
           }
         ]
@@ -96,8 +96,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\"",
-            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs')\"",
+            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\" --expected-event SubagentStart",
+            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs') --expected-event SubagentStart\"",
             "timeout": 5
           }
         ]
@@ -108,8 +108,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\"",
-            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs')\"",
+            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\" --expected-event SubagentStop",
+            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs') --expected-event SubagentStop\"",
             "timeout": 5
           }
         ]
@@ -120,8 +120,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\"",
-            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs')\"",
+            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\" --expected-event Stop",
+            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs') --expected-event Stop\"",
             "timeout": 20,
             "statusMessage": "Checking LoopEngine completion evidence"
           }

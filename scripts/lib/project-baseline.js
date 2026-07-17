@@ -10,8 +10,10 @@ import {
   hashFile,
   readInstallState,
   registerGeneratedFile,
+  stateFilePath,
 } from './install-state.js';
-import { pathExists, validateJsonAgainstSchema } from './manifest.js';
+import { assertSafePathInside, pathExists, validateJsonAgainstSchema } from './manifest.js';
+import { beginFileTransaction } from './file-transaction.js';
 import { executeProjectVerification } from './project-verification.js';
 import { inspectProfileTools } from './tool-provisioning.js';
 
@@ -295,14 +297,29 @@ export async function createProjectBaseline({
   const backups = [];
   if (write) {
     const backupId = createBackupId(now);
+    const transaction = await beginFileTransaction({
+      cleanupPaths: [path.join(targetDir, '.loopengine', 'backups', backupId)],
+      operation: 'baseline',
+      targetDir,
+      trackedPaths: [...artifacts.map((item) => item.target), stateFilePath(targetDir)],
+    });
+    try {
     for (const item of conflicts) {
       backups.push({ target: item.relativeTarget, backup: await backupFile({ backupId, target: item.target, targetDir }) });
     }
-    for (const item of artifacts) await mkdir(path.dirname(item.target), { recursive: true });
+    for (const item of artifacts) {
+      await assertSafePathInside(targetDir, item.target, 'project baseline artifact');
+      await mkdir(path.dirname(item.target), { recursive: true });
+    }
     await writeFile(path.join(targetDir, baselineTarget), `${JSON.stringify(baseline, null, 2)}\n`, 'utf8');
     await writeFile(path.join(targetDir, reportTarget), report, 'utf8');
     await registerGeneratedFile(targetDir, baselineTarget);
     await registerGeneratedFile(targetDir, reportTarget);
+    await transaction.commit();
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
   }
   return {
     artifacts: artifacts.map((item) => ({ action: item.action, target: item.relativeTarget })),

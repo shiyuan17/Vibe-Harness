@@ -1,12 +1,13 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { assertInsideDir, pathExists } from './manifest.js';
+import { assertInsideDir, assertSafePathInside, pathExists } from './manifest.js';
 import { inspectPlaywrightTool, preparePlaywrightTool } from '../../runtime/tools/playwright-cli/run.mjs';
 
 const stateRelativePath = '.loopengine/tool-state/tools.json';
+const provisioningMarkerRelativePath = '.loopengine/tool-state/provisioning.json';
 const managedMcpStart = '# LOOPENGINE:MCP:START';
 const managedMcpEnd = '# LOOPENGINE:MCP:END';
 const maxDiagnosticOutput = 8 * 1024;
@@ -39,6 +40,7 @@ const toolSpecs = [
     packageName: '@agentmemory/mcp',
     phases: ['dependency-install', 'mcp-handshake'],
     relativeDir: '.agents/loopengine/tools/agentmemory',
+    supportLevel: 'preview',
     version: '0.9.27',
   },
 ];
@@ -49,7 +51,8 @@ function resolveToolSpec(spec, targetDir, mode = 'eager') {
   return { ...spec, mode, toolDir };
 }
 
-export function createToolProvisioningPlan({ profile, resolvedModules, targetDir }) {
+export function createToolProvisioningPlan({ allowPreview = false, profile, resolvedModules, targetDir, toolIds }) {
+  let plan;
   if (Array.isArray(resolvedModules)) {
     const moduleByTool = new Map([
       ['codebaseMemoryMcp', 'codebase-memory'],
@@ -57,21 +60,33 @@ export function createToolProvisioningPlan({ profile, resolvedModules, targetDir
       ['openCodeReview', 'open-code-review'],
       ['agentmemory', 'agentmemory'],
     ]);
-    return toolSpecs
+    plan = toolSpecs
       .filter((spec) => resolvedModules.includes(moduleByTool.get(spec.id)))
       .map((spec) => resolveToolSpec(
         spec,
         targetDir,
         spec.id === 'playwrightCli' && profile === 'core' ? 'lazy' : 'eager',
       ));
+  } else if (profile === 'core') {
+    plan = [resolveToolSpec(toolSpecs[1], targetDir, 'lazy')];
+  } else if (profile !== 'full') {
+    plan = [];
+  } else {
+    plan = toolSpecs.map((spec) => resolveToolSpec(spec, targetDir));
   }
-  if (profile === 'core') {
-    return [resolveToolSpec(toolSpecs[1], targetDir, 'lazy')];
+  plan = plan.map((spec) => ({ supportLevel: spec.supportLevel ?? 'stable', ...spec }));
+  if (!toolIds?.length) return allowPreview ? plan : plan.filter((spec) => spec.supportLevel !== 'preview');
+  const requested = new Set(toolIds);
+  const selected = plan.filter((spec) => requested.has(spec.id));
+  const unavailable = [...requested].filter((id) => !selected.some((spec) => spec.id === id));
+  if (unavailable.length > 0) {
+    throw new Error(`Unknown or unavailable tool for profile ${profile}: ${unavailable.join(', ')}`);
   }
-  if (profile !== 'full') {
-    return [];
+  const preview = selected.filter((spec) => spec.supportLevel === 'preview').map((spec) => spec.id);
+  if (preview.length > 0 && !allowPreview) {
+    throw new Error(`Preview tools require --allow-preview: ${preview.join(', ')}`);
   }
-  return toolSpecs.map((spec) => resolveToolSpec(spec, targetDir));
+  return selected;
 }
 
 function tomlString(value) {
@@ -145,7 +160,22 @@ function hasOcrCredentials(env) {
 async function terminateProcessTree(child) {
   if (!child.pid) return;
   if (process.platform !== 'win32') {
-    child.kill('SIGTERM');
+    try {
+      process.kill(-child.pid, 'SIGTERM');
+    } catch {
+      child.kill('SIGTERM');
+    }
+    await Promise.race([
+      new Promise((resolve) => child.once('close', resolve)),
+      new Promise((resolve) => setTimeout(resolve, 500)),
+    ]);
+    if (child.exitCode === null) {
+      try {
+        process.kill(-child.pid, 'SIGKILL');
+      } catch {
+        child.kill('SIGKILL');
+      }
+    }
     return;
   }
   await new Promise((resolve) => {
@@ -237,9 +267,15 @@ function createDiagnostic(error, phase, targetDir) {
   return diagnostic;
 }
 
-async function defaultCommandRunner({ args, command, cwd, env, timeout = 120_000 }) {
+export async function runToolCommand({ args, command, cwd, env, signal, timeout = 120_000 }) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, env, shell: false, windowsHide: true });
+    const child = spawn(command, args, {
+      cwd,
+      detached: process.platform !== 'win32',
+      env,
+      shell: false,
+      windowsHide: true,
+    });
     let outputSize = 0;
     let settled = false;
     const output = { stderr: '', stdout: '', truncated: false };
@@ -247,11 +283,15 @@ async function defaultCommandRunner({ args, command, cwd, env, timeout = 120_000
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
       if (error) await terminateProcessTree(child);
       if (error) reject(error);
       else resolve(output);
     };
+    const abort = () => void finish(toolCommandError('Tool command was cancelled.', 'TOOL_CANCELLED', output));
     const timer = setTimeout(() => void finish(toolCommandError('Tool command timed out.', 'TOOL_TIMEOUT', output)), timeout);
+    if (signal?.aborted) abort();
+    else signal?.addEventListener('abort', abort, { once: true });
     const countOutput = (stream, chunk) => {
       outputSize += chunk.length;
       output[stream] = appendOutputTail(output[stream], chunk);
@@ -269,6 +309,8 @@ async function defaultCommandRunner({ args, command, cwd, env, timeout = 120_000
     });
   });
 }
+
+const defaultCommandRunner = runToolCommand;
 
 function boundedTimeout(env, fallback) {
   const timeoutLimit = Number.parseInt(env.LOOPENGINE_TOOL_TIMEOUT_MS ?? '', 10);
@@ -288,12 +330,42 @@ async function npmInvocation(args) {
   return { args: [npmCli, ...args], command: process.execPath };
 }
 
+const baseEnvironmentNames = new Set([
+  'APPDATA', 'COMSPEC', 'HOME', 'LANG', 'LC_ALL', 'LC_CTYPE', 'LOCALAPPDATA', 'PATH', 'Path',
+  'PATHEXT', 'PROGRAMDATA', 'ProgramData', 'SHELL', 'SystemRoot', 'TEMP', 'TMP', 'TMPDIR',
+  'USERPROFILE', 'WINDIR',
+]);
+
+const packageManagerEnvironmentNames = new Set([
+  'ALL_PROXY', 'HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'SSL_CERT_DIR', 'SSL_CERT_FILE',
+  'all_proxy', 'https_proxy', 'http_proxy', 'no_proxy', 'npm_config_offline',
+  'npm_config_prefer_offline', 'npm_config_registry',
+]);
+
+const toolEnvironmentNames = Object.fromEntries(
+  toolSpecs.map((spec) => [spec.id, packageManagerEnvironmentNames]),
+);
+
+const toolCredentialNames = {
+  openCodeReview: new Set(['ANTHROPIC_API_KEY', 'OCR_LLM_MODEL', 'OCR_LLM_TOKEN', 'OCR_LLM_URL', 'OPENAI_API_KEY']),
+};
+
+function allowedEnvironment(spec, env) {
+  const allowedNames = new Set([
+    ...baseEnvironmentNames,
+    ...(toolEnvironmentNames[spec.id] ?? []),
+    ...(toolCredentialNames[spec.id] ?? []),
+  ]);
+  return Object.fromEntries(Object.entries(env).filter(([name]) => allowedNames.has(name)));
+}
+
 function componentEnvironment(spec, targetDir, env) {
   const stateRoot = path.join(targetDir, '.loopengine/tool-state');
   const npmCache = path.join(stateRoot, 'npm-cache', spec.id);
+  const baseEnv = allowedEnvironment(spec, env);
   if (spec.id === 'codebaseMemoryMcp') {
     return {
-      ...env,
+      ...baseEnv,
       CBM_ALLOWED_ROOT: targetDir,
       CBM_CACHE_DIR: path.join(stateRoot, 'codebase-memory-mcp/cache'),
       npm_config_cache: npmCache,
@@ -301,13 +373,13 @@ function componentEnvironment(spec, targetDir, env) {
   }
   if (spec.id === 'agentmemory') {
     const home = path.join(stateRoot, 'agentmemory/home');
-    return { ...env, HOME: home, USERPROFILE: home, npm_config_cache: npmCache };
+    return { ...baseEnv, HOME: home, USERPROFILE: home, npm_config_cache: npmCache };
   }
   if (spec.id === 'openCodeReview') {
     const home = path.join(stateRoot, 'open-code-review/home');
-    return { ...env, HOME: home, USERPROFILE: home, npm_config_cache: npmCache };
+    return { ...baseEnv, HOME: home, USERPROFILE: home, npm_config_cache: npmCache };
   }
-  return { ...env, npm_config_cache: npmCache };
+  return { ...baseEnv, npm_config_cache: npmCache };
 }
 
 async function phaseRequest(spec, phase, targetDir, env, context = {}) {
@@ -403,6 +475,7 @@ export async function runMcpHandshake(request) {
   await new Promise((resolve, reject) => {
     const child = spawn(request.command, request.args, {
       cwd: request.cwd,
+      detached: process.platform !== 'win32',
       env: request.env,
       shell: false,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -456,7 +529,7 @@ export async function runMcpHandshake(request) {
       id: 1,
       jsonrpc: '2.0',
       method: 'initialize',
-      params: { capabilities: {}, clientInfo: { name: 'loopengine', version: '0.3.0' }, protocolVersion: '2025-03-26' },
+      params: { capabilities: {}, clientInfo: { name: 'loopengine', version: '0.4.0' }, protocolVersion: '2025-03-26' },
     })}\n`);
   });
 }
@@ -528,7 +601,24 @@ function validateIndexStatus(output, targetDir) {
   };
 }
 
-async function runToolPhases(spec, commandRunner, env, targetDir, phases = spec.phases) {
+function withProvisioningMetadata(spec, state, startedAt, { reused = false } = {}) {
+  const summaries = {
+    degraded: state.diagnostic?.message ?? 'Provisioning failed.',
+    pending: 'Provisioning is deferred.',
+    'pending-config': 'Provisioning requires additional configuration.',
+    ready: reused ? 'Existing compliant tool state reused.' : 'Provisioning completed.',
+  };
+  return {
+    ...state,
+    finishedAt: new Date().toISOString(),
+    logSummary: summaries[state.status] ?? 'Provisioning state recorded.',
+    result: state.status,
+    source: `npm:${spec.packageName}@${spec.version}`,
+    startedAt,
+  };
+}
+
+async function runToolPhases(spec, commandRunner, env, targetDir, phases = spec.phases, signal) {
   const context = {};
   for (const phase of phases) {
     if (spec.id === 'openCodeReview' && phase === 'llm-test' && !hasOcrCredentials(env)) {
@@ -536,6 +626,7 @@ async function runToolPhases(spec, commandRunner, env, targetDir, phases = spec.
     }
     try {
       const request = await phaseRequest(spec, phase, targetDir, env, context);
+      request.signal = signal;
       request.timeout = boundedTimeout(env, request.timeout);
       const output = await commandRunner(request);
       if (phase === 'index') context.indexProject = validateIndexResult(output);
@@ -564,6 +655,7 @@ async function codebaseMemoryRuntimeAvailable(spec) {
 async function readToolState(targetDir) {
   const statePath = path.resolve(targetDir, stateRelativePath);
   assertInsideDir(targetDir, statePath, 'tool state');
+  await assertSafePathInside(targetDir, statePath, 'tool state');
   if (!(await pathExists(statePath))) return null;
   try {
     return JSON.parse(await readFile(statePath, 'utf8'));
@@ -575,21 +667,70 @@ async function readToolState(targetDir) {
 async function writeToolState(targetDir, tools, fingerprints) {
   const statePath = path.resolve(targetDir, stateRelativePath);
   assertInsideDir(targetDir, statePath, 'tool state');
+  await assertSafePathInside(targetDir, statePath, 'tool state');
   await mkdir(path.dirname(statePath), { recursive: true });
   await writeFile(statePath, `${JSON.stringify({ fingerprints, tools, updatedAt: new Date().toISOString() }, null, 2)}\n`, 'utf8');
 }
 
-export async function provisionProfileTools({ commandRunner, env = process.env, mcpConflicts = [], profile, resolvedModules, targetDir }) {
-  const plan = createToolProvisioningPlan({ profile, resolvedModules, targetDir });
+async function writeProvisioningMarker(targetDir, marker) {
+  const markerPath = path.resolve(targetDir, provisioningMarkerRelativePath);
+  assertInsideDir(targetDir, markerPath, 'provisioning marker');
+  await assertSafePathInside(targetDir, markerPath, 'provisioning marker');
+  await mkdir(path.dirname(markerPath), { recursive: true });
+  await writeFile(markerPath, `${JSON.stringify(marker, null, 2)}\n`, 'utf8');
+}
+
+async function removeProvisioningMarker(targetDir) {
+  const markerPath = path.resolve(targetDir, provisioningMarkerRelativePath);
+  await assertSafePathInside(targetDir, markerPath, 'provisioning marker');
+  await rm(markerPath, { force: true });
+}
+
+export async function inspectProvisioningMarker(targetDir) {
+  const markerPath = path.resolve(targetDir, provisioningMarkerRelativePath);
+  await assertSafePathInside(targetDir, markerPath, 'provisioning marker');
+  if (!(await pathExists(markerPath))) return null;
+  try {
+    return JSON.parse(await readFile(markerPath, 'utf8'));
+  } catch {
+    return { code: 'PROVISIONING_MARKER_INVALID', status: 'invalid' };
+  }
+}
+
+export async function provisionProfileTools({ allowPreview = false, commandRunner, env = process.env, force = false, mcpConflicts = [], profile, resolvedModules, signal, targetDir, toolIds }) {
+  const plan = createToolProvisioningPlan({ allowPreview, profile, resolvedModules, targetDir, toolIds });
   const effectiveCommandRunner = commandRunner ?? (env.LOOPENGINE_TEST_OFFLINE === '1'
     ? async () => { throw Object.assign(new Error('Offline test fixture.'), { code: 'TOOL_TEST_OFFLINE' }); }
     : null);
+  const provisioningStartedAt = new Date().toISOString();
+  const marker = {
+    parentPid: process.pid,
+    startedAt: provisioningStartedAt,
+    status: 'active',
+    tools: plan.map((spec) => spec.id),
+  };
+  let currentTool = null;
+  await writeProvisioningMarker(targetDir, marker);
+  try {
   const previous = await readToolState(targetDir);
   const tools = {};
   const fingerprints = {};
   for (const spec of plan) {
+    currentTool = spec.id;
+    await writeProvisioningMarker(targetDir, {
+      ...marker,
+      currentTool,
+      updatedAt: new Date().toISOString(),
+    });
+    const startedAt = new Date().toISOString();
+    if (signal?.aborted) throw Object.assign(new Error('Tool provisioning was cancelled.'), { code: 'TOOL_CANCELLED' });
+    await assertSafePathInside(targetDir, spec.toolDir, `${spec.id} tool directory`);
     if (spec.mode === 'lazy') {
-      tools[spec.id] = { phase: 'first-use', status: 'pending', version: spec.version };
+      tools[spec.id] = withProvisioningMetadata(
+        spec,
+        { phase: 'first-use', status: 'pending', version: spec.version },
+        startedAt,
+      );
       continue;
     }
     await mkdir(spec.toolDir, { recursive: true });
@@ -600,14 +741,15 @@ export async function provisionProfileTools({ commandRunner, env = process.env, 
       || (spec.id === 'openCodeReview' && previousTool?.status === 'pending-config' && !hasOcrCredentials(env));
     const reusableRuntime = spec.id !== 'codebaseMemoryMcp' || await codebaseMemoryRuntimeAvailable(spec);
     const reusable = (
-      fingerprint
+      !force
+      && fingerprint
       && previous?.fingerprints?.[spec.id] === fingerprint
       && reusableStatus
       && reusableRuntime
       && !mcpConflicts.includes(spec.id === 'codebaseMemoryMcp' ? 'codebase-memory-mcp' : spec.id)
     );
     if (reusable && spec.id !== 'codebaseMemoryMcp') {
-      tools[spec.id] = previousTool;
+      tools[spec.id] = withProvisioningMetadata(spec, previousTool, startedAt, { reused: true });
       continue;
     }
     const phases = reusable
@@ -615,24 +757,32 @@ export async function provisionProfileTools({ commandRunner, env = process.env, 
       : spec.phases;
     try {
       if (effectiveCommandRunner) {
-        tools[spec.id] = await runToolPhases(spec, effectiveCommandRunner, env, targetDir, phases);
+        tools[spec.id] = await runToolPhases(spec, effectiveCommandRunner, env, targetDir, phases, signal);
       } else if (spec.id === 'playwrightCli') {
         const runCommand = async (command, args, options) => defaultCommandRunner({
           args,
           command,
           cwd: options.cwd,
           env: options.env,
+          signal,
           timeout: boundedTimeout(env, 600_000),
         });
-        const result = await preparePlaywrightTool({ runCommand, targetDir, toolDir: spec.toolDir });
+        const result = await preparePlaywrightTool({
+          env: componentEnvironment(spec, targetDir, env),
+          runCommand,
+          targetDir,
+          toolDir: spec.toolDir,
+        });
         tools[spec.id] = result.status === 'ready' ? ready(spec) : { phase: 'browser-install', status: 'degraded', version: spec.version };
       } else {
-        tools[spec.id] = await runToolPhases(spec, defaultPhaseRunner, env, targetDir, phases);
+        tools[spec.id] = await runToolPhases(spec, defaultPhaseRunner, env, targetDir, phases, signal);
       }
     } catch (error) {
+      if (signal?.aborted || error.code === 'TOOL_CANCELLED') throw error;
       const phase = spec.phases.find((item) => item === error?.phase) ?? 'provision';
       tools[spec.id] = publicFailure(spec, phase, error, targetDir);
     }
+    tools[spec.id] = withProvisioningMetadata(spec, tools[spec.id], startedAt);
   }
   const conflictIds = {
     agentmemory: 'agentmemory',
@@ -651,23 +801,40 @@ export async function provisionProfileTools({ commandRunner, env = process.env, 
           truncated: false,
         },
         phase: 'mcp-config',
+        result: 'degraded',
         status: 'degraded',
+        logSummary: `An unmanaged MCP server already uses the ${conflict} name.`,
       };
     }
   }
   await writeToolState(targetDir, tools, fingerprints);
+  await removeProvisioningMarker(targetDir);
   return tools;
+  } catch (error) {
+    await writeProvisioningMarker(targetDir, {
+      ...marker,
+      code: signal?.aborted || error.code === 'TOOL_CANCELLED' ? 'TOOL_CANCELLED' : 'PROVISIONING_INTERRUPTED',
+      currentTool,
+      finishedAt: new Date().toISOString(),
+      status: signal?.aborted || error.code === 'TOOL_CANCELLED' ? 'interrupted' : 'failed',
+    });
+    throw error;
+  }
 }
 
-export async function inspectProfileTools(profile, targetDir, resolvedModules) {
+export async function inspectProfileTools(profile, targetDir, resolvedModules, toolIds, { allowPreview = false } = {}) {
   const statePath = path.resolve(targetDir, stateRelativePath);
   assertInsideDir(targetDir, statePath, 'tool state');
+  await assertSafePathInside(targetDir, statePath, 'tool state');
   if (await pathExists(statePath)) {
     const state = await readToolState(targetDir);
-    return state?.tools ?? {};
+    const tools = state?.tools ?? {};
+    const allowedIds = createToolProvisioningPlan({ allowPreview, profile, resolvedModules, targetDir, toolIds }).map((spec) => spec.id);
+    return Object.fromEntries(allowedIds.filter((id) => tools[id]).map((id) => [id, tools[id]]));
   }
   const tools = {};
-  for (const spec of createToolProvisioningPlan({ profile, resolvedModules, targetDir })) {
+  for (const spec of createToolProvisioningPlan({ allowPreview, profile, resolvedModules, targetDir, toolIds })) {
+    await assertSafePathInside(targetDir, spec.toolDir, `${spec.id} tool directory`);
     if (spec.id === 'playwrightCli') {
       const inspected = await inspectPlaywrightTool({ targetDir, toolDir: spec.toolDir });
       tools[spec.id] = {

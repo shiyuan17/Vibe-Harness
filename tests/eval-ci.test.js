@@ -30,6 +30,24 @@ test('CI blocks offline eval drift and scheduled workflow runs advisory online c
   assert.doesNotMatch(online, /pull_request:/u);
 });
 
+test('GitHub Actions are commit-pinned and receive automated update PRs', async () => {
+  const [ci, online, dependabot] = await Promise.all([
+    readFile(path.join(rootDir, '.github/workflows/ci.yml'), 'utf8'),
+    readFile(path.join(rootDir, '.github/workflows/evals.yml'), 'utf8'),
+    readFile(path.join(rootDir, '.github/dependabot.yml'), 'utf8'),
+  ]);
+  for (const workflow of [ci, online]) {
+    assert.doesNotMatch(workflow, /uses:\s+[^\s]+@v\d+/u);
+    assert.match(workflow, /actions\/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5/u);
+    assert.match(workflow, /actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020/u);
+    assert.match(workflow, /pnpm\/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa/u);
+  }
+  assert.match(online, /actions\/upload-artifact@[a-f0-9]{40}/u);
+  assert.match(dependabot, /package-ecosystem:\s*"github-actions"/u);
+  assert.match(dependabot, /package-ecosystem:\s*"npm"/u);
+  assert.match(dependabot, /interval:\s*"weekly"/u);
+});
+
 test('governance diffs require a newly added Eval-ID while unrelated diffs do not', () => {
   assert.equal(evaluateGovernanceEvalChanges({
     addedEvalCases: [],

@@ -1,11 +1,18 @@
-import { createHash } from 'node:crypto';
-import { copyFile, mkdir, readFile, readdir, rm, rmdir, writeFile } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { copyFile, mkdir, readFile, readdir, rename, rm, rmdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { assertInsideDir, assertPortableRelativePath, pathExists, readJson } from './manifest.js';
+import {
+  assertInsideDir,
+  assertPortableRelativePath,
+  assertSafePathInside,
+  pathExists,
+  readJson,
+} from './manifest.js';
 import { canonicalProfile } from './project-config.js';
 import { extractManagedInstructionBlock, removeManagedInstructionBlock } from './template-renderer.js';
 import { extractManagedMcpBlock, removeManagedMcpBlock } from './tool-provisioning.js';
+import { beginFileTransaction } from './file-transaction.js';
 
 const stateDirName = '.loopengine';
 const stateFileName = 'install-state.json';
@@ -38,14 +45,23 @@ export async function readInstallState(targetDir) {
 
 export async function writeInstallState(targetDir, state) {
   const filePath = stateFilePath(targetDir);
+  await assertSafePathInside(targetDir, filePath, 'install state');
   await mkdir(path.dirname(filePath), { recursive: true });
-  await writeFile(filePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+  const temporaryPath = `${filePath}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporaryPath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+    await rename(temporaryPath, filePath);
+  } catch (error) {
+    await rm(temporaryPath, { force: true });
+    throw error;
+  }
 }
 
 export async function registerGeneratedFile(targetDir, relativeTarget) {
   assertPortableRelativePath(relativeTarget, 'generated file');
   const target = path.join(targetDir, relativeTarget);
   assertInsideDir(targetDir, target, 'generated file');
+  await assertSafePathInside(targetDir, target, 'generated file');
   if (!(await pathExists(target))) return;
   const state = await readInstallState(targetDir);
   if (!state) throw new Error('Cannot register generated file without install state.');
@@ -63,6 +79,7 @@ export async function backupFile({ backupId, target, targetDir }) {
   const backupRelative = `${stateDirName}/backups/${backupId}/${relativeTarget}`;
   const backupPath = path.join(targetDir, backupRelative);
   assertInsideDir(path.join(targetDir, stateDirName, 'backups'), backupPath, 'backup path');
+  await assertSafePathInside(targetDir, backupPath, 'backup path');
   await mkdir(path.dirname(backupPath), { recursive: true });
   await copyFile(target, backupPath);
   return backupRelative;
@@ -94,6 +111,17 @@ export async function collectTargetFiles(targetDir, currentDir = targetDir) {
     }
   }
   return files.sort();
+}
+
+async function assertStateActionPathsSafe(targetDir, actions, label) {
+  await assertSafePathInside(targetDir, stateFilePath(targetDir), `${label} state`);
+  for (const action of actions) {
+    for (const key of ['target', 'ownerTarget', 'backup', 'baselineBackup']) {
+      if (typeof action[key] !== 'string') continue;
+      assertPortableRelativePath(action[key], `${label} ${key}`);
+      await assertSafePathInside(targetDir, path.join(targetDir, action[key]), `${label} ${key}`);
+    }
+  }
 }
 
 export async function createRollbackPlan({ dryRun = true, redZoneConfirmed = false, targetDir }) {
@@ -187,6 +215,8 @@ export async function createRollbackPlan({ dryRun = true, redZoneConfirmed = fal
     });
   }
 
+  await assertStateActionPathsSafe(targetDir, actions, 'rollback');
+
   return {
     actions,
     dryRun,
@@ -196,17 +226,28 @@ export async function createRollbackPlan({ dryRun = true, redZoneConfirmed = fal
   };
 }
 
-export async function applyRollbackPlan(plan) {
+export async function applyRollbackPlan(plan, hooks = {}) {
   if (!plan.dryRun && !plan.redZoneConfirmed && plan.actions.some((action) => action.redZone)) {
     throw new Error('Refusing to rollback red-zone files without explicit red-zone confirmation.');
   }
 
   const applied = [];
   const skipped = [];
+  await assertStateActionPathsSafe(plan.targetDir, plan.actions, 'rollback');
   if (plan.dryRun) {
     return { applied, skipped };
   }
 
+  const transaction = await beginFileTransaction({
+    operation: 'rollback',
+    targetDir: plan.targetDir,
+    trackedPaths: [
+      ...plan.actions.map((action) => path.join(plan.targetDir, action.target)),
+      stateFilePath(plan.targetDir),
+    ],
+  });
+
+  try {
   for (const action of plan.actions) {
     assertPortableRelativePath(action.target, 'rollback target');
     const target = path.join(plan.targetDir, action.target);
@@ -277,10 +318,16 @@ export async function applyRollbackPlan(plan) {
         skipped.push({ reason: 'target-modified', target: action.target });
       }
     }
+    await hooks.afterAction?.({ action, applied, skipped });
   }
 
   await rm(stateFilePath(plan.targetDir), { force: true });
+  await transaction.commit();
   return { applied, skipped };
+  } catch (error) {
+    await transaction.rollback();
+    throw error;
+  }
 }
 
 export async function createUninstallPlan({ dryRun = true, redZoneConfirmed = false, targetDir }) {
@@ -369,6 +416,8 @@ export async function createUninstallPlan({ dryRun = true, redZoneConfirmed = fa
     }
   }
 
+  await assertStateActionPathsSafe(targetDir, actions, 'uninstall');
+
   return { actions, dryRun, redZoneConfirmed, state, targetDir, version: state.version };
 }
 
@@ -376,6 +425,7 @@ async function applyUninstallAction(plan, action) {
   assertPortableRelativePath(action.target, 'uninstall target');
   const target = path.join(plan.targetDir, action.target);
   assertInsideDir(plan.targetDir, target, 'uninstall target');
+  await assertSafePathInside(plan.targetDir, target, 'uninstall target');
 
   if (action.kind === 'leave-existing') return null;
   if (action.kind === 'delete-generated-directory') {
@@ -452,6 +502,7 @@ async function pruneEmptyAncestors(startDir, targetDir) {
   const root = path.resolve(targetDir);
   let current = path.resolve(startDir);
   assertInsideDir(root, current, 'uninstall directory cleanup');
+  await assertSafePathInside(root, current, 'uninstall directory cleanup');
   while (current !== root) {
     try {
       await rmdir(current);
@@ -467,12 +518,24 @@ async function pruneEmptyAncestors(startDir, targetDir) {
   }
 }
 
-export async function applyUninstallPlan(plan) {
+export async function applyUninstallPlan(plan, hooks = {}) {
   if (!plan.dryRun && !plan.redZoneConfirmed && plan.actions.some((action) => action.redZone)) {
     throw new Error('Refusing to uninstall red-zone files without explicit red-zone confirmation.');
   }
   if (plan.dryRun) return { applied: [], retainedState: true, skipped: [] };
 
+  await assertStateActionPathsSafe(plan.targetDir, plan.actions, 'uninstall');
+
+  const transaction = await beginFileTransaction({
+    operation: 'uninstall',
+    targetDir: plan.targetDir,
+    trackedPaths: [
+      ...plan.actions.map((action) => path.join(plan.targetDir, action.target)),
+      stateFilePath(plan.targetDir),
+    ],
+  });
+
+  try {
   const applied = [];
   const skipped = [];
   for (const action of plan.actions) {
@@ -482,10 +545,12 @@ export async function applyUninstallPlan(plan) {
       applied.push(action.target);
       await pruneEmptyAncestors(path.dirname(path.join(plan.targetDir, action.target)), plan.targetDir);
     }
+    await hooks.afterAction?.({ action, applied, skipped });
   }
 
   if (skipped.length === 0) {
     await rm(stateFilePath(plan.targetDir), { force: true });
+    await transaction.commit();
     return { applied, retainedState: false, skipped };
   }
 
@@ -501,5 +566,10 @@ export async function applyUninstallPlan(plan) {
     retiredFiles: (plan.state.retiredFiles ?? []).filter((item) => remainingTargets.has(item.target)),
   };
   await writeInstallState(plan.targetDir, remainingState);
+  await transaction.commit();
   return { applied, retainedState: true, skipped };
+  } catch (error) {
+    await transaction.rollback();
+    throw error;
+  }
 }

@@ -30,7 +30,7 @@ pnpm loopengine init --project ../target-project
 pnpm loopengine install --project ../target-project --target codex --profile core --dry-run
 ```
 
-将 `codex` 替换为 `claude` 或 `gemini` 可安装对应项目级入口。Codex 支持 `minimal/core/full`；Claude/Gemini 支持 `minimal/core/docs-only`，不提供伪兼容 MCP/hooks。Dry-run 默认只输出相对目标、动作、hash、字节数和冲突摘要；需要完整渲染正文时增加 `--verbose`。该命令不得创建入口文件。
+将 `codex` 替换为 `claude` 或 `gemini` 可安装对应项目级入口。Codex full 为 stable；Claude/Gemini full 为 preview，必须增加 `--allow-preview`，并审查报告中的 preview/missing capabilities。Dry-run 默认只输出相对目标、动作、hash、字节数和冲突摘要；需要完整渲染正文时增加 `--verbose`。该命令不得创建入口文件。
 
 ## 4. 执行安装
 
@@ -39,6 +39,15 @@ pnpm loopengine install --project ../target-project --target codex --profile cor
 ```
 
 LoopEngine 会在项目根目录管理 adapter 入口：Codex 为 `AGENTS.md`，Claude 为 `CLAUDE.md`，Gemini 为 `GEMINI.md`；Skills 分别写入 `.agents/skills/`、`.claude/skills/`、`.gemini/skills/`。已有入口只追加或更新 `<!-- LOOPENGINE:START -->` / `<!-- LOOPENGINE:END -->` 受管块，块外内容保持不变。其他冲突文件仍需显式 `--force`，覆盖前写入项目内备份。
+
+从 v0.4 起，`install` 不再隐式下载第三方工具。资产安装完成后单独执行：
+
+```bash
+pnpm loopengine provision --project ../target-project --target codex --profile full --dry-run
+pnpm loopengine provision --project ../target-project --target codex --profile full --write
+```
+
+Agentmemory 因已知 Moderate 依赖风险保持 preview；显式选择时仍需 `--allow-preview`。被中断的文件事务先运行 `recover --project ../target-project` 查看恢复计划，确认后再增加 `--write`。
 
 ## 5. 校验
 
@@ -55,7 +64,7 @@ git diff --check
 
 - `minimal`：平台入口、治理内核、Git/Test 规则和中文 task/delivery 模板，不安装 skills、runtime、hooks 或 MCP。
 - `core`：`minimal` 加上工程专项规则、中文任务 runtime/schema、`using-loopengine`、常规 skills、Red Team 完成门禁和按需 Playwright。
-- `full`：`core` 加上 full 专项规则与 skills、durable memory 模板、在线评测、四个项目内工具 runtime、codebase 索引、MCP 注册和 Codex hooks。
+- `full`：`core` 加上 full 专项规则与 skills、durable memory 模板、在线评测、三个 stable 工具与 Agentmemory preview runtime、codebase 索引、MCP 注册和 Codex hooks。
 
 以上是面向选择的摘要；精确文件集合只以 `manifests/profiles.json` 为真值。
 
@@ -71,6 +80,15 @@ pnpm loopengine install --project ../target-project --target codex --profile ful
 ```
 
 只有旧 `.loopengine/install-state.json` 明确记录且 hash 未变化的入口会被备份和删除。`codex-internal` 会归一为 `full`，`codex-minimal` 会归一为 `minimal`；用户修改、未受管或已缺失的旧入口不会被自动删除，真实退役记录写入 `retiredFiles`，可由 `rollback --project <path> --write` 恢复。
+
+## v0.4 升级
+
+- `install` 默认只写治理资产；原一站式自动化迁移为 `install --provision`，推荐改成独立 `install` 与 `provision` 两步。
+- install-state 新写入 stateVersion 3，包含 transaction ID、owner 与来源；v1/v2 保持只读兼容。
+- Claude/Gemini full 进入显式 preview，不再以布尔 capability 表示支持；自动化必须读取 `previewCapabilities` 与 `missingCapabilities`。
+- Hook 模板为每个命令传递 `--expected-event`。PreToolUse/PermissionRequest 外层异常 fail-closed；通知类异常只输出脱敏 warning。
+- `language` 只接受 `zh-CN` 或 `en-US`；任务 Markdown 先转为语言无关 TaskDocument IR。
+- Agentmemory provisioning 默认延期；只有 `provision --tool agentmemory --allow-preview --write` 才进入实际安装面。
 
 ## v0.3 升级
 

@@ -4,6 +4,23 @@ import { validateDeliveryMessage } from './lib/delivery-validation.mjs';
 import { analyzeToolRequest, createCodexHookResult, normalizeCodexHookInput } from './lib/policy.mjs';
 
 const MAX_INPUT_BYTES = 1024 * 1024;
+const guardedEvents = new Set(['PermissionRequest', 'PreToolUse']);
+
+function expectedEventFromArgs(argv) {
+  const index = argv.indexOf('--expected-event');
+  if (index === -1) return null;
+  const expectedEvent = argv[index + 1];
+  if (!expectedEvent || expectedEvent.startsWith('--')) throw new Error('Missing expected hook event.');
+  return expectedEvent;
+}
+
+function hookFailureResult(expectedEvent) {
+  const reason = 'HOOK_RUNTIME_ERROR: LoopEngine could not safely evaluate this hook event.';
+  if (guardedEvents.has(expectedEvent)) {
+    return createCodexHookResult(expectedEvent, { action: 'deny', reason });
+  }
+  return { systemMessage: reason };
+}
 
 async function readStdin() {
   const chunks = [];
@@ -16,8 +33,11 @@ async function readStdin() {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
-export async function evaluateCodexHook(rawInput) {
+export async function evaluateCodexHook(rawInput, { expectedEvent } = {}) {
   const input = normalizeCodexHookInput(rawInput);
+  if (expectedEvent && input.event !== expectedEvent) {
+    throw new Error('Hook event does not match the configured event.');
+  }
   const rootDir = await findProjectRoot(input.cwd);
   const settings = await readHookSettings(rootDir);
   if (settings.mode === 'off') return {};
@@ -85,10 +105,11 @@ export async function evaluateCodexHook(rawInput) {
   return {};
 }
 
+const expectedEvent = expectedEventFromArgs(process.argv.slice(2));
+
 try {
-  const result = await evaluateCodexHook(await readStdin());
+  const result = await evaluateCodexHook(await readStdin(), { expectedEvent });
   process.stdout.write(`${JSON.stringify(result)}\n`);
-} catch (error) {
-  process.stderr.write(`LoopEngine hook error: ${error.message}\n`);
-  process.exitCode = 2;
+} catch {
+  process.stdout.write(`${JSON.stringify(hookFailureResult(expectedEvent))}\n`);
 }

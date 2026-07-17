@@ -115,6 +115,35 @@ test('actual install refuses to write outside the target directory', async () =>
   }
 });
 
+test('failed install rolls back every file before install state is committed', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-transaction-failure-'));
+  try {
+    await writeFile(path.join(target, 'AGENTS.md'), 'user-owned content\n', 'utf8');
+    const plan = await createInstallPlan({
+      dryRun: false,
+      force: true,
+      profile: 'minimal',
+      rootDir,
+      targetDir: target,
+    });
+
+    await assert.rejects(
+      applyInstallPlan(plan, {
+        afterFileWrite() {
+          throw new Error('injected install failure');
+        },
+      }),
+      /injected install failure/,
+    );
+
+    assert.equal(await readFile(path.join(target, 'AGENTS.md'), 'utf8'), 'user-owned content\n');
+    await assert.rejects(readFile(path.join(target, 'docs/rules/governance-core.md'), 'utf8'), /ENOENT/);
+    await assert.rejects(readFile(path.join(target, '.loopengine/install-state.json'), 'utf8'), /ENOENT/);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
 test('CLI write mode writes files when red-zone confirmation is explicit', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-apply-'));
   try {
