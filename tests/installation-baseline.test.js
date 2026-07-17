@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -102,5 +102,53 @@ test('baseline backup failure happens before any install target is changed', asy
     assert.equal(await exists(path.join(target, '.loopengine', 'install-state.json')), false);
   } finally {
     await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('write install rejects project links that redirect managed files outside the project', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-install-link-project-'));
+  const outside = await mkdtemp(path.join(tmpdir(), 'loopengine-install-link-outside-'));
+  try {
+    await runCli(['init', '--project', target, '--target', 'codex', '--profile', 'core']);
+    await symlink(outside, path.join(target, 'docs'), process.platform === 'win32' ? 'junction' : 'dir');
+
+    await assert.rejects(
+      execFileAsync(process.execPath, [
+        cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'core', '--write',
+      ], { cwd: rootDir, env: { ...process.env, LOOPENGINE_TEST_OFFLINE: '1' } }),
+      /link|junction|reparse/iu,
+    );
+
+    assert.equal(await exists(path.join(outside, 'rules', 'governance-core.md')), false);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+    await rm(outside, { force: true, recursive: true });
+  }
+});
+
+test('rollback rejects project links before deleting managed files outside the project', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-rollback-link-project-'));
+  const outside = await mkdtemp(path.join(tmpdir(), 'loopengine-rollback-link-outside-'));
+  try {
+    await runCli(['init', '--project', target, '--target', 'codex', '--profile', 'core']);
+    await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'core', '--write']);
+    const managed = path.join(target, 'docs', 'rules', 'governance-core.md');
+    const managedContent = await readFile(managed, 'utf8');
+    await rm(path.join(target, 'docs', 'rules'), { force: true, recursive: true });
+    await symlink(outside, path.join(target, 'docs', 'rules'), process.platform === 'win32' ? 'junction' : 'dir');
+    await writeFile(path.join(outside, 'governance-core.md'), managedContent, 'utf8');
+
+    await assert.rejects(
+      execFileAsync(process.execPath, [cliPath, 'rollback', '--project', target, '--write'], {
+        cwd: rootDir,
+        env: { ...process.env, LOOPENGINE_TEST_OFFLINE: '1' },
+      }),
+      /link|junction|reparse/iu,
+    );
+
+    assert.equal(await readFile(path.join(outside, 'governance-core.md'), 'utf8'), managedContent);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+    await rm(outside, { force: true, recursive: true });
   }
 });

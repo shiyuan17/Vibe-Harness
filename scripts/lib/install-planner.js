@@ -5,7 +5,6 @@ import path from 'node:path';
 import {
   backupFile,
   collectTargetFiles,
-  createBackupId,
   hashFile,
   readInstallState,
   toTargetPath,
@@ -14,6 +13,7 @@ import {
 import {
   assertInsideDir,
   assertPortableRelativePath,
+  assertSafePathInside,
   pathExists,
   readJson,
   validateCatalogManifest,
@@ -34,11 +34,12 @@ import { extractManagedMcpBlock, mergeManagedMcpBlock } from './tool-provisionin
 import { applyBaselinePlan, createBaselinePlan } from './installation-baseline.js';
 import { resolveModuleSelection } from './module-selection.js';
 import { assertAdapterProfile, resolveAdapter, resolveAdapterEntry } from './adapter.js';
+import { beginFileTransaction, createTransactionId } from './file-transaction.js';
 
 const isManagedInstruction = (strategy) => ['managed-block', 'managed-instruction-block'].includes(strategy);
 const isManagedToml = (strategy) => ['managed-mcp-block', 'managed-toml-block'].includes(strategy);
 
-async function loadProfileInstallMap({ adapterId = 'codex', profile, rootDir }) {
+async function loadProfileInstallMap({ adapterId = 'codex', allowPreview = false, profile, rootDir }) {
   const profiles = await readJson(path.join(rootDir, 'manifests/profiles.json'));
   validateCatalogManifest('profiles', profiles);
 
@@ -48,7 +49,7 @@ async function loadProfileInstallMap({ adapterId = 'codex', profile, rootDir }) 
   }
 
   const adapter = await resolveAdapter(rootDir, adapterId);
-  assertAdapterProfile(adapter, profile);
+  assertAdapterProfile(adapter, profile, { allowPreview });
   const rawInstallMap = await readJson(path.join(rootDir, adapter.installMap));
   const knownGroups = new Set(profiles.items.flatMap((item) => item.groups));
   validateInstallMapShape(rawInstallMap, knownGroups);
@@ -91,6 +92,8 @@ export function createInstalledSurface({ customModules = false, memoryPath = '.a
     'docs/rules/troubleshooting.md',
   ].some(hasTarget);
   const hasAgentMemorySkills = hasSkill('agentmemory/SKILL.md');
+  const agentMemoryTarget = installedTargets.find((target) => target.endsWith('/skills/agentmemory/SKILL.md'));
+  const agentMemorySkillRoot = agentMemoryTarget?.slice(0, agentMemoryTarget.indexOf('/agentmemory/SKILL.md'));
   const normalizedMemoryPath = memoryPath.replaceAll('\\', '/').replace(/\/+$/u, '');
   const hasLocalMemory = installedTargets.includes(`${normalizedMemoryPath}/README.md`);
   const profileLines = {
@@ -110,7 +113,7 @@ export function createInstalledSurface({ customModules = false, memoryPath = '.a
     engineeringRulesLine: hasEngineeringRules ? '- 工程专项规则位于 `docs/rules/`。' : '',
     hooksLine: hasTarget('.codex/hooks.json') ? '- Codex hook 配置位于 `.codex/hooks.json`。' : '',
     memorySkillsLine: hasAgentMemorySkills
-      ? `- agentmemory skills 位于 \`.agents/skills/\`${hasLocalMemory ? `，本地记忆库位于 \`${normalizedMemoryPath}/\`` : ''}。`
+      ? `- agentmemory skills 位于 \`${agentMemorySkillRoot}/\`${hasLocalMemory ? `，本地记忆库位于 \`${normalizedMemoryPath}/\`` : ''}。`
       : '',
     operationalRulesLine: hasOperationalRules ? '- 发布 / 设计 / 排障规则位于 `docs/rules/`。' : '',
     profileLine: customModules
@@ -171,6 +174,7 @@ function createManagedMcpServers(targetDir, resolvedModules) {
 
 export async function createInstallPlan({
   adapterId = 'codex',
+  allowPreview = false,
   dryRun = true,
   force = false,
   managedAgentsBlock = false,
@@ -181,7 +185,7 @@ export async function createInstallPlan({
   targetDir,
   upgrade = false,
 }) {
-  const { adapter, installMap, selectedProfile } = await loadProfileInstallMap({ adapterId, profile, rootDir });
+  const { adapter, installMap, selectedProfile } = await loadProfileInstallMap({ adapterId, allowPreview, profile, rootDir });
   const moduleSelection = resolveModuleSelection({
     profile,
     profileGroups: selectedProfile.groups,
@@ -204,13 +208,22 @@ export async function createInstallPlan({
       continue;
     }
     assertPortableRelativePath(entry.source, 'install source');
+    const localizedSource = renderData.language === 'en-US'
+      ? ({
+          'templates/delivery.md': 'templates/delivery.en-US.md',
+          'templates/task.md': 'templates/task.en-US.md',
+        }[entry.source] ?? entry.source)
+      : entry.source;
+    assertPortableRelativePath(localizedSource, 'localized install source');
     const mappedTarget = memoryTargetPath(renderData, entry.target);
     assertPortableRelativePath(mappedTarget, 'install target');
-    const source = path.resolve(rootDir, entry.source);
+    const source = path.resolve(rootDir, localizedSource);
     const target = path.resolve(targetDir, mappedTarget);
     assertInsideDir(rootDir, source, 'install source');
     assertInsideDir(targetDir, target, 'install target');
-    const relativeSource = entry.source.replaceAll('\\', '/');
+    await assertSafePathInside(rootDir, source, 'install source');
+    await assertSafePathInside(targetDir, target, 'install target');
+    const relativeSource = localizedSource.replaceAll('\\', '/');
     const relativeTarget = mappedTarget;
     const contentStrategy = entry.contentStrategy === 'managed-instruction-block'
       ? (managedAgentsBlock && relativeTarget === adapter.instructionTarget ? entry.contentStrategy : 'replace')
@@ -274,6 +287,7 @@ export async function createInstallPlan({
       }
       const target = path.resolve(targetDir, relativeTarget);
       assertInsideDir(targetDir, target, 'retired install target');
+      await assertSafePathInside(targetDir, target, 'retired install target');
       if (!(await pathExists(target))) {
         continue;
       }
@@ -320,13 +334,16 @@ export async function createInstallPlan({
 
   return {
     adapter: adapter.id,
+    adapterCapabilities: adapter.capabilities,
     baselinePlan,
     dryRun,
     force,
     generatedDirectories,
     implicitModules: moduleSelection.implicitModules,
     instructionTarget: adapter.instructionTarget,
+    missingCapabilities: Object.entries(adapter.capabilities).filter(([, status]) => status === 'unsupported').map(([name]) => name),
     profile,
+    previewCapabilities: Object.entries(adapter.capabilities).filter(([, status]) => status === 'preview').map(([name]) => name),
     requestedModules: moduleSelection.requestedModules,
     resolvedModules: moduleSelection.resolvedModules,
     renderData: withDefaultTemplateData({
@@ -496,7 +513,7 @@ export async function diffTargetInstall({
 
 export const inspectTargetInstall = diffTargetInstall;
 
-export async function applyInstallPlan(plan) {
+export async function applyInstallPlan(plan, hooks = {}) {
   if (plan.dryRun) {
     return { mcpConflicts: [], retired: [], skipped: [], written: [] };
   }
@@ -517,13 +534,41 @@ export async function applyInstallPlan(plan) {
     throw new Error('Refusing to write red-zone files without explicit red-zone confirmation.');
   }
 
+  for (const action of plan.actions.filter((item) => ['write', 'retire'].includes(item.kind))) {
+    assertPortableRelativePath(action.relativeTarget, 'install target');
+    assertInsideDir(plan.targetDir, action.target, 'install target outside target directory');
+    await assertSafePathInside(plan.targetDir, action.target, 'install target');
+  }
+
+  const transactionId = createTransactionId();
+  const backupRoot = path.join(plan.targetDir, '.loopengine', 'backups', transactionId);
+  const trackedPaths = [
+    ...plan.actions
+      .filter((action) => ['write', 'retire'].includes(action.kind))
+      .map((action) => action.target),
+    ...plan.baselinePlan.actions.map((action) => path.join(plan.targetDir, action.target)),
+    ...(plan.baselinePlan.manifestTarget ? [path.join(plan.targetDir, plan.baselinePlan.manifestTarget)] : []),
+    path.join(plan.targetDir, '.loopengine', 'install-state.json'),
+  ];
+  const transaction = await beginFileTransaction({
+    cleanupPaths: [
+      backupRoot,
+      ...(plan.baselinePlan.root ? [plan.baselinePlan.root] : []),
+    ],
+    id: transactionId,
+    operation: 'install',
+    targetDir: plan.targetDir,
+    trackedPaths,
+  });
+
+  try {
   const written = [];
   const retired = [];
   const retiredFiles = [];
   const skipped = [];
   const files = [];
   const mcpConflicts = [];
-  const backupId = createBackupId();
+  const backupId = transactionId;
   const previousState = await readInstallState(plan.targetDir);
   const baseline = await applyBaselinePlan(plan.baselinePlan);
   const generatedFiles = [];
@@ -543,6 +588,7 @@ export async function applyInstallPlan(plan) {
     assertPortableRelativePath(action.relativeSource, 'install source');
     assertPortableRelativePath(action.relativeTarget, 'install target');
     assertInsideDir(plan.targetDir, action.target, 'install target');
+    await assertSafePathInside(plan.targetDir, action.target, 'install target');
     const existed = await pathExists(action.target);
     let backup = null;
     let previousHash = null;
@@ -559,6 +605,7 @@ export async function applyInstallPlan(plan) {
     if (mergedMcp) mcpConflicts.push(...mergedMcp.conflicts);
     const targetContent = mergedMcp?.content ?? await renderActionContent(action, plan.renderData, existingContent);
     await writeFile(action.target, targetContent, 'utf8');
+    await hooks.afterFileWrite?.({ action, writtenCount: written.length + 1 });
     if (action.executable) await chmod(action.target, 0o755);
     written.push(action.target);
     files.push({
@@ -577,8 +624,10 @@ export async function applyInstallPlan(plan) {
       redZone: Boolean(action.redZone),
       source: action.relativeSource,
       sourceHash: await hashFile(action.source),
+      owner: 'loopengine',
       target: toTargetPath(plan.targetDir, action.target),
       targetHash: await hashFile(action.target),
+      transactionId,
     });
   }
 
@@ -592,6 +641,7 @@ export async function applyInstallPlan(plan) {
     }
     assertPortableRelativePath(action.relativeTarget, 'retired install target');
     assertInsideDir(plan.targetDir, action.target, 'retired install target');
+    await assertSafePathInside(plan.targetDir, action.target, 'retired install target');
     if (!(await pathExists(action.target))) {
       skipped.push({ reason: 'target-missing', target: action.relativeTarget });
       continue;
@@ -642,12 +692,23 @@ export async function applyInstallPlan(plan) {
     generatedFiles,
     installedAt: new Date().toISOString(),
     profile: plan.profile,
+    previewCapabilities: plan.previewCapabilities,
     requestedModules: plan.requestedModules,
     resolvedModules: plan.resolvedModules,
     retiredFiles,
-    stateVersion: 2,
+    stateVersion: 3,
+    transactionId,
     version: plan.version,
   });
 
+  await transaction.commit();
   return { baseline, mcpConflicts: [...new Set(mcpConflicts)], retired, skipped, written };
+  } catch (error) {
+    try {
+      await transaction.rollback();
+    } catch (rollbackError) {
+      throw new AggregateError([error, rollbackError], error.message);
+    }
+    throw error;
+  }
 }

@@ -30,6 +30,8 @@ LoopEngine 使用 Codex 原生 hook 协议承载项目内安全策略，并把�
 - 全局 Agent 配置策略区分读写：允许 `Get-Content`、`cat`、`type` 和 `git config --global --get/--list`，阻断 PowerShell、cmd、POSIX 写法及无法安全判定的敏感路径命令。
 - `PermissionRequest` 只会拒绝已命中策略的请求；其他请求继续走 Codex 正常审批，不会自动授权。
 - hook 不保存 prompt、完整工具结果或 secret，也不在 `PostToolUse` 自动格式化文件。
+- 每条模板命令携带 `--expected-event <Event>`。输入事件与配置不一致时不得继续执行策略。
+- `PreToolUse` 与 `PermissionRequest` 发生 JSON、策略或 runtime 异常时输出事件正确的 deny JSON 并退出 0，确保宿主消费拒绝决定；通知类事件返回 `HOOK_RUNTIME_ERROR` warning。外层错误不输出 stack、绝对路径或环境变量。
 
 ## 会话输入与输出
 

@@ -1,28 +1,28 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "items": [
     {
       "id": "codex",
       "installMap": "adapters/codex/install-map.json",
       "instructionTarget": "AGENTS.md",
       "supportedProfiles": ["minimal", "core", "full", "docs-only"],
-      "capabilities": { "instructions": true, "skills": true, "mcp": true, "hooks": true },
+      "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "stable", "policy": "stable", "mcp": "stable", "sandbox": "stable", "memory": "stable", "plugin": "stable" },
       "redZonePrefixes": [".codex/"]
     },
     {
       "id": "claude",
       "installMap": "adapters/codex/install-map.json",
       "instructionTarget": "CLAUDE.md",
-      "supportedProfiles": ["minimal", "core", "docs-only"],
-      "capabilities": { "instructions": true, "skills": true, "mcp": false, "hooks": false },
+      "supportedProfiles": ["minimal", "core", "full", "docs-only"],
+      "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "preview", "policy": "stable", "mcp": "preview", "sandbox": "preview", "memory": "preview", "plugin": "unsupported" },
       "redZonePrefixes": []
     },
     {
       "id": "gemini",
       "installMap": "adapters/codex/install-map.json",
       "instructionTarget": "GEMINI.md",
-      "supportedProfiles": ["minimal", "core", "docs-only"],
-      "capabilities": { "instructions": true, "skills": true, "mcp": false, "hooks": false },
+      "supportedProfiles": ["minimal", "core", "full", "docs-only"],
+      "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "preview", "policy": "stable", "mcp": "preview", "sandbox": "preview", "memory": "preview", "plugin": "unsupported" },
       "redZonePrefixes": []
     }
   ]

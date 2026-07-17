@@ -77,6 +77,36 @@ test('runner receives one JSON request in an isolated disposable workspace', asy
   }
 });
 
+test('runner receives only declared provider credentials and base environment variables', async () => {
+  const runner = await fakeRunner(`
+    let input = '';
+    for await (const chunk of process.stdin) input += chunk;
+    const request = JSON.parse(input);
+    process.stdout.write(JSON.stringify({
+      schemaVersion: 1, caseId: request.case.id, runner: 'fake@1', model: 'fixture',
+      agentVersion: 'fake-agent@1', governanceHash: 'fixture-v1',
+      events: [process.env.OPENAI_API_KEY ? 'provider-credential-present' : 'provider-credential-missing'],
+      output: process.env.LOOPENGINE_SECRET_SENTINEL ? 'sentinel-leaked' : 'ready',
+      artifacts: ['report.json'], exitCode: 0, diagnostics: []
+    }));
+  `);
+  const previousCredential = process.env.OPENAI_API_KEY;
+  const previousSentinel = process.env.LOOPENGINE_SECRET_SENTINEL;
+  try {
+    process.env.OPENAI_API_KEY = 'provider-test-secret';
+    process.env.LOOPENGINE_SECRET_SENTINEL = 'must-not-leak';
+    const result = await runEvaluationCase({ command: runner.command, definition, timeoutMs: 2000 });
+    assert.deepEqual(result.observation.events, ['provider-credential-present']);
+    assert.equal(result.observation.output, 'ready');
+  } finally {
+    if (previousCredential === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousCredential;
+    if (previousSentinel === undefined) delete process.env.LOOPENGINE_SECRET_SENTINEL;
+    else process.env.LOOPENGINE_SECRET_SENTINEL = previousSentinel;
+    await rm(runner.root, { force: true, recursive: true });
+  }
+});
+
 test('runner reports stable degraded codes for invalid JSON, timeout, overflow, credentials, and missing command', async () => {
   const invalid = await fakeRunner("process.stdout.write('not-json')");
   const timeout = await fakeRunner('setTimeout(() => {}, 5000)');

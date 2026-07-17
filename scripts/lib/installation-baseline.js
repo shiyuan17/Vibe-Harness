@@ -2,7 +2,7 @@ import { copyFile, lstat, mkdir, readFile, readdir, rm, writeFile } from 'node:f
 import path from 'node:path';
 
 import { hashFile } from './install-state.js';
-import { assertInsideDir, pathExists } from './manifest.js';
+import { assertInsideDir, assertSafePathInside, pathExists } from './manifest.js';
 
 const instructionFiles = [
   'AGENTS.md',
@@ -69,6 +69,8 @@ export async function applyBaselinePlan(plan) {
       const target = path.join(plan.targetDir, action.target);
       assertInsideDir(plan.targetDir, source, 'baseline source');
       assertInsideDir(path.join(plan.targetDir, '.agents', 'backup'), target, 'baseline target');
+      await assertSafePathInside(plan.targetDir, source, 'baseline source');
+      await assertSafePathInside(plan.targetDir, target, 'baseline target');
       await mkdir(path.dirname(target), { recursive: true });
       await copyFile(source, target);
       files.push({
@@ -85,6 +87,7 @@ export async function applyBaselinePlan(plan) {
       schemaVersion: 1,
     };
     const manifestTarget = path.join(plan.targetDir, plan.manifestTarget);
+    await assertSafePathInside(plan.targetDir, manifestTarget, 'baseline manifest');
     await mkdir(path.dirname(manifestTarget), { recursive: true });
     await writeFile(manifestTarget, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
     return {

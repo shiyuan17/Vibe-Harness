@@ -9,6 +9,19 @@ import { sanitizeEvalValue, scoreCase } from './eval-scoring.js';
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const OUTPUT_LIMIT = 1024 * 1024;
 const CREDENTIAL_ERROR = /\b(?:api[-_ ]?key|auth(?:entication|orization)?|credentials?|login|unauthorized)\b/iu;
+const evaluationEnvironmentNames = new Set([
+  'ALL_PROXY', 'ANTHROPIC_API_KEY', 'APPDATA', 'AZURE_OPENAI_API_KEY', 'CODEX_CLI_VERSION',
+  'CODEX_HOME', 'CODEX_MODEL', 'COMSPEC', 'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'HOME',
+  'HTTPS_PROXY', 'HTTP_PROXY', 'LANG', 'LC_ALL', 'LC_CTYPE', 'LOCALAPPDATA',
+  'LOOPENGINE_CODEX_COMMAND', 'NO_PROXY', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'PATH', 'Path',
+  'PATHEXT', 'PROGRAMDATA', 'ProgramData', 'SHELL', 'SSL_CERT_DIR', 'SSL_CERT_FILE', 'SystemRoot',
+  'TEMP', 'TMP', 'TMPDIR', 'USERPROFILE', 'WINDIR', 'all_proxy', 'https_proxy', 'http_proxy',
+  'no_proxy',
+]);
+
+function evaluationEnvironment(env) {
+  return Object.fromEntries(Object.entries(env).filter(([name]) => evaluationEnvironmentNames.has(name)));
+}
 
 function splitCommand(command) {
   const tokens = [];
@@ -64,7 +77,7 @@ function executeRunner({ command, request, timeoutMs }) {
     const child = spawn(program, args, {
       cwd: request.workspace,
       detached: process.platform !== 'win32',
-      env: process.env,
+      env: evaluationEnvironment(process.env),
       shell: false,
       windowsHide: true,
       stdio: ['pipe', 'pipe', 'pipe'],

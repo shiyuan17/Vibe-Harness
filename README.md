@@ -24,7 +24,7 @@ LoopEngine gives Codex, Claude Code, and Gemini CLI a shared way to plan, execut
 | A long task loses important context between sessions. | `baseline` records project, installation, tool, and verification status; project memory and handoff templates preserve decisions and known issues. | The next session can recover project facts without reconstructing everything from chat history. |
 | Rules drift between AI coding tools. | Native project files and tested install levels (`profiles`) for Codex, Claude Code, and Gemini CLI. | Each tool gets the same core working rules in the format it actually supports. |
 | Installing or updating shared rules feels risky. | Dry-run previews, clearly marked sections, backups, validation, safe uninstall, and rollback. | You can inspect changes before writing and reverse managed changes without replacing unrelated project content. |
-| Useful coding tools are scattered or configured globally. | Codex `full` prepares codebase indexing, Playwright, Open Code Review, and Agentmemory inside the project. | Code understanding, browser checks, review, and memory stay project-local; unavailable tools are reported as `degraded`. |
+| Useful coding tools are scattered or configured globally. | Codex `full` prepares codebase indexing, Playwright, and Open Code Review inside the project; Agentmemory remains explicit preview while its dependency advisories are unresolved. | Code understanding, browser checks, and review stay project-local; unavailable tools are reported as `degraded`. |
 
 ## Why Not Just Write an AGENTS.md?
 
@@ -49,17 +49,26 @@ These commands do four things:
 3. Install the `core` setup after you review the preview.
 4. Check that the installation is complete and unchanged.
 
+`install` writes governance assets only. Preview and provision project-local tools separately:
+
+```bash
+pnpm loopengine provision --project ../some-project --target codex --profile full --dry-run
+pnpm loopengine provision --project ../some-project --target codex --profile full --write
+```
+
+`install --provision` keeps the one-command compatibility path. If a write is interrupted, `recover --project <project>` previews the active transaction and `recover --project <project> --write` restores its preimages.
+
 ## Supported AI Coding Tools
 
 | Tool | Main project file | Available install levels | What LoopEngine can add |
 | --- | --- | --- | --- |
 | Codex | `AGENTS.md` | `minimal`, `core`, `full`, `docs-only` | Instructions, skills, project tools through MCP, and automatic checks through hooks |
-| Claude Code | `CLAUDE.md` | `minimal`, `core`, `docs-only` | Project instructions and skills |
-| Gemini CLI | `GEMINI.md` | `minimal`, `core`, `docs-only` | Project instructions and skills |
+| Claude Code | `CLAUDE.md` | `minimal`, `core`, `docs-only`; `full` preview | Project instructions and skills; experimental full mappings require `--allow-preview` |
+| Gemini CLI | `GEMINI.md` | `minimal`, `core`, `docs-only`; `full` preview | Project instructions and skills; experimental full mappings require `--allow-preview` |
 
 MCP lets an Agent call tools that belong to the current project. Hooks run checks automatically at specific points in an Agent session. LoopEngine currently installs these features only for Codex.
 
-Claude Code and Gemini CLI do not support the `full` level. If you request it, LoopEngine stops and recommends `core` instead of pretending that MCP and hooks are available.
+Claude Code and Gemini CLI keep `full` behind `--allow-preview`. The report lists preview and missing capabilities so incomplete platform mappings are never presented as stable.
 
 ## How the Workflow Works
 
@@ -83,7 +92,7 @@ An install level, called a `profile` in commands and configuration, is a ready-m
 | --- | --- | --- |
 | `minimal` | The main Agent instruction file, basic working rules, Git and test rules, and task templates | Small projects that want basic guidance without extra skills or tools |
 | `core` | Everything in `minimal`, plus common engineering rules, task checks, Red Team completion review, routing skills, and Playwright prepared for on-demand use | Most projects; this is the recommended starting point |
-| `full` | Everything in `core`, plus project memory, advanced workflow skills, four project tools, Codex MCP setup, and Codex hooks | Long-running or high-risk Codex projects |
+| `full` | Everything in `core`, plus project memory, advanced workflow skills, three stable project tools, preview Agentmemory assets, Codex MCP setup, and Codex hooks | Long-running or high-risk Codex projects |
 | `docs-only` | Instructions, reusable rules, templates, and schemas, without executable tools, skills, MCP, or hooks | Projects that only want the documentation-based setup |
 The exact files included in each profile are defined in `manifests/profiles.json`.
 
@@ -258,13 +267,13 @@ Install, validate, and doctor use the same three status values:
 
 | Status | Exit code | What it means |
 | --- | --- | --- |
-| `ready` | `0` | The installation and its required tools are ready to use. |
+| `ready` | `0` | Governance assets are valid and no attempted provisioning has failed; tools not yet provisioned remain visible as `pending` or `pending-config` warnings. |
 | `invalid` | `1` | The configuration or installed files do not match what LoopEngine expects. |
 | `degraded` | `2` | A required tool, credential, or feature is not currently available. |
 
-`--allow-degraded` changes the exit code to `0` for automation, but it does not hide the problem. The report still contains `ok: false`, `status: "degraded"`, warnings, and recommended next steps.
+`--allow-degraded` changes the exit code to `0` for automation, but it does not hide the problem. The report still contains `ok: false`, `status: "degraded"`, warnings, and recommended next steps. `pending` and `pending-config` do not fail an asset-first install; an attempted provisioning failure or an incomplete provisioning process marker does degrade health.
 
-For a degraded project tool, LoopEngine stores the latest safe diagnostic in `.loopengine/tool-state/tools.json` and shows it in install, validate, doctor, and summary output. Diagnostics include the failed phase, stable code, exit code when available, and bounded output tails. Project paths and credential-like values are redacted; raw command environments and full output are never stored.
+LoopEngine records each tool's version, package source, start and finish times, result, and redacted log summary in `.loopengine/tool-state/tools.json`, then shows it in install, validate, doctor, and summary output. Failure diagnostics include the failed phase, stable code, exit code when available, and bounded output tails. Project paths and credential-like values are redacted; raw command environments and full output are never stored. Interrupted provisioning leaves `.loopengine/tool-state/provisioning.json`; `doctor` reports and degrades on it without modifying the environment.
 
 Maintainers run `pnpm runtime:audit` against the same dependency surface used by provisioning. Critical or High findings and unavailable audits fail the command; Moderate findings remain visible warnings. Agentmemory excludes optional dependencies during both provisioning and the enforced audit.
 

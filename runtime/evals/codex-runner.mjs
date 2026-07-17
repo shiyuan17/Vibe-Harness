@@ -7,6 +7,17 @@ import { protectedConfigChanged, snapshotProtectedConfig } from './lib/protected
 
 const LIMIT = 1024 * 1024;
 const CREDENTIAL_ERROR = /\b(?:api[-_ ]?key|auth(?:entication|orization)?|credentials?|login|unauthorized)\b/iu;
+const codexEnvironmentNames = new Set([
+  'ALL_PROXY', 'APPDATA', 'AZURE_OPENAI_API_KEY', 'CODEX_HOME', 'COMSPEC', 'HOME',
+  'HTTPS_PROXY', 'HTTP_PROXY', 'LANG', 'LC_ALL', 'LC_CTYPE', 'LOCALAPPDATA', 'NO_PROXY',
+  'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'PATH', 'Path', 'PATHEXT', 'PROGRAMDATA', 'ProgramData',
+  'SHELL', 'SSL_CERT_DIR', 'SSL_CERT_FILE', 'SystemRoot', 'TEMP', 'TMP', 'TMPDIR', 'USERPROFILE',
+  'WINDIR', 'all_proxy', 'https_proxy', 'http_proxy', 'no_proxy',
+]);
+
+function codexEnvironment(env) {
+  return Object.fromEntries(Object.entries(env).filter(([name]) => codexEnvironmentNames.has(name)));
+}
 
 async function stdin() {
   let body = '';
@@ -23,7 +34,7 @@ function execute(program, args, cwd, environment) {
     let stderr = Buffer.alloc(0);
     const child = spawn(program, args, {
       cwd,
-      env: { ...process.env, ...environment },
+      env: { ...codexEnvironment(process.env), ...environment },
       shell: false,
       windowsHide: true,
     });

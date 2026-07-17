@@ -10,6 +10,7 @@ import {
   validateJsonAgainstSchema,
   validateManifestSources,
 } from '../scripts/lib/manifest.js';
+import { validateJsonAgainstSchema as validateRuntimeSchema } from '../runtime/governance/lib/schema-validation.mjs';
 import { validateCapabilityMatrix, validatePack } from '../scripts/lib/pack-validation.js';
 
 const rootDir = path.resolve('.');
@@ -83,6 +84,28 @@ test('project baseline schema rejects unknown fields', async () => {
 
   assert.deepEqual(validateJsonAgainstSchema(sample, schema, 'baseline'), []);
   assert.match(validateJsonAgainstSchema({ ...sample, extra: true }, schema, 'baseline').join('\n'), /extra/u);
+});
+
+test('canonical schema validation enforces numeric and string constraints and rejects unknown keywords', () => {
+  const schema = {
+    additionalProperties: false,
+    properties: {
+      count: { exclusiveMinimum: 0, maximum: 3, type: 'number' },
+      id: { minLength: 2, pattern: '^[A-Z]+$', type: 'string' },
+    },
+    required: ['count', 'id'],
+    type: 'object',
+  };
+  const invalid = { count: 4, id: 'a' };
+  const cliErrors = validateJsonAgainstSchema(invalid, schema, 'sample');
+
+  assert.match(cliErrors.join('\n'), /maximum|<= 3/iu);
+  assert.match(cliErrors.join('\n'), /pattern|匹配/iu);
+  assert.deepEqual(cliErrors, validateRuntimeSchema(invalid, schema, 'sample'));
+  assert.throws(
+    () => validateJsonAgainstSchema({}, { type: 'object', unsupportedConstraint: true }, 'sample'),
+    /unsupported schema keyword.*unsupportedConstraint/iu,
+  );
 });
 
 test('manifest validation rejects missing sources and duplicate ids', () => {

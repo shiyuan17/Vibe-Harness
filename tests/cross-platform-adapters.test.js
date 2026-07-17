@@ -105,18 +105,37 @@ for (const adapter of ['claude', 'gemini']) {
   }
 }
 
-test('adapter catalog rejects unsupported profiles and target mismatch', async () => {
+test('adapter catalog gates preview profiles and rejects target mismatch', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'loopengine-adapter-errors-'));
   try {
     await run(['init', '--project', target, '--target', 'claude']);
     const unsupported = await fail(['install', '--project', target, '--target', 'claude', '--profile', 'full', '--dry-run']);
-    assert.match(unsupported.error.message, /claude.*does not support profile full.*mcp.*hooks.*core/iu);
+    assert.match(unsupported.error.message, /claude.*profile full.*preview.*allow-preview/iu);
+    const preview = await run([
+      'install', '--project', target, '--target', 'claude', '--profile', 'full', '--dry-run', '--allow-preview',
+    ]);
+    assert.equal(preview.previewCapabilities.includes('hooks'), true);
+    assert.equal(preview.previewCapabilities.includes('mcp'), true);
+    assert.equal(preview.missingCapabilities.includes('plugin'), true);
     const mismatch = await fail(['install', '--project', target, '--target', 'gemini', '--profile', 'core', '--dry-run']);
     assert.match(mismatch.error.message, /target.*does not match/iu);
     const legacy = await fail(['install', '--target', 'claude', '--profile', 'core', '--dry-run']);
     assert.match(legacy.error.message, /--project.*--apply|removed/iu);
   } finally {
     await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('adapter capability v2 uses explicit support levels for every governed surface', async () => {
+  const catalog = JSON.parse(await readFile(path.join(rootDir, 'manifests/adapters.json'), 'utf8'));
+  const capabilityNames = ['instructions', 'skills', 'hooks', 'policy', 'mcp', 'sandbox', 'memory', 'plugin'];
+  assert.equal(catalog.schemaVersion, 2);
+  for (const adapter of catalog.items) {
+    assert.deepEqual(Object.keys(adapter.capabilities).sort(), [...capabilityNames].sort());
+    assert.equal(
+      Object.values(adapter.capabilities).every((status) => ['unsupported', 'preview', 'stable'].includes(status)),
+      true,
+    );
   }
 });
 
