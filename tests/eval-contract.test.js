@@ -25,7 +25,7 @@ test('eval schemas use draft 2020-12 and schemaVersion 1 contracts', async () =>
 });
 
 test('core suite contains exactly 20 generic cases in the required category split', async () => {
-  const suite = await readJson(path.join(rootDir, 'evals/suites/loopengine-core.json'));
+  const suite = await readJson(path.join(rootDir, 'evals/suites/cognis-core.json'));
   assert.equal(suite.cases.length, 20);
   const counts = suite.cases.reduce((result, item) => ({
     ...result,
@@ -45,7 +45,7 @@ test('core suite contains exactly 20 generic cases in the required category spli
 });
 
 test('suite semantic validation rejects duplicate ids, all-zero weights, and weighted dimensions without assertions', async () => {
-  const suite = await readJson(path.join(rootDir, 'evals/suites/loopengine-core.json'));
+  const suite = await readJson(path.join(rootDir, 'evals/suites/cognis-core.json'));
   assert.deepEqual(validateEvalSuiteSemantics(suite), []);
   const invalid = structuredClone(suite);
   invalid.cases[1].id = invalid.cases[0].id;
@@ -64,7 +64,7 @@ test('suite semantic validation rejects duplicate ids, all-zero weights, and wei
 
 test('online forbidden events require registered observers', async () => {
   const [suite, observers] = await Promise.all([
-    readJson(path.join(rootDir, 'evals/suites/loopengine-online-canary.json')),
+    readJson(path.join(rootDir, 'evals/suites/cognis-online-canary.json')),
     readJson(path.join(rootDir, 'runtime/evals/observers.json')),
   ]);
   assert.deepEqual(validateEvalObserverCoverage([suite], observers), []);
@@ -146,6 +146,6 @@ test('eval scripts validate contracts and reproduce the approved offline referen
     criticalPassRate: 1,
     overallScore: 1,
     status: 'passed',
-    suite: 'loopengine-core',
+    suite: 'cognis-core',
   });
 });

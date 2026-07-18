@@ -11,6 +11,7 @@ import {
   createUninstallPlan,
   readInstallState,
   registerGeneratedFile,
+  stateFilePath,
 } from './lib/install-state.js';
 import { pathExists, readJson } from './lib/manifest.js';
 import {
@@ -28,6 +29,7 @@ import {
   resolveGovernanceMode,
   resolveValidationCommands,
   validateConfigAndGeneratedContent,
+  createProjectConfigMigration,
   validateGovernanceModeForProfile,
   validateProjectConfig,
   mvpTargets,
@@ -51,8 +53,19 @@ import {
   toolWarnings,
 } from './lib/tool-provisioning.js';
 import { inspectTransactions, recoverTransaction } from './lib/file-transaction.js';
+import { resolveProjectConfigLocation } from './lib/project-layout.js';
+import { readProductEnv } from './lib/product-identity.js';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+function reportDeprecatedEnvironment() {
+  for (const suffix of ['CODEX_COMMAND', 'EVAL_ENFORCE', 'TEST_OFFLINE', 'TOOL_TIMEOUT_MS']) {
+    const resolved = readProductEnv(process.env, suffix);
+    if (resolved.deprecated) {
+      process.stderr.write(`${resolved.name} is deprecated; use COGNIS_${suffix}.\n`);
+    }
+  }
+}
 
 function requiredToolsDegraded(profile, tools = {}) {
   return profile === 'full'
@@ -68,6 +81,13 @@ function healthReport({ baseOk = true, profile, tools = {} }) {
 function applyHealthExit(status, args) {
   if (status === 'invalid') process.exitCode = 1;
   if (status === 'degraded' && !args['allow-degraded']) process.exitCode = 2;
+}
+
+function toolStateRelativePath(targetDir) {
+  return path.relative(
+    targetDir,
+    path.join(path.dirname(stateFilePath(targetDir)), 'tool-state/tools.json'),
+  ).replaceAll('\\', '/');
 }
 
 function compactAction(action) {
@@ -204,10 +224,30 @@ async function install(args) {
     throw new Error('Use --write or --dry-run, not both.');
   }
   const targetDir = path.resolve(args.project);
-  const config = await readRequiredProjectConfig(targetDir);
+  const configLocation = await resolveProjectConfigLocation(targetDir);
+  if (configLocation?.legacy && !args.upgrade) {
+    throw Object.assign(new Error('Legacy loopengine.config.json requires cognis install --upgrade.'), {
+      code: 'COGNIS_CONFIG_MIGRATION_REQUIRED',
+    });
+  }
+  const existingState = await readInstallState(targetDir);
+  if (
+    existingState
+    && !args.upgrade
+    && (existingState.stateVersion !== 4 || existingState.product !== 'cognis')
+  ) {
+    throw Object.assign(new Error('Pre-v4 install state requires cognis install --upgrade.'), {
+      code: 'COGNIS_STATE_MIGRATION_REQUIRED',
+    });
+  }
+  const sourceConfig = await readRequiredProjectConfig(targetDir);
+  const configMigration = configLocation?.legacy
+    ? await createProjectConfigMigration(targetDir, sourceConfig)
+    : null;
+  const config = configMigration?.config ?? sourceConfig;
   const adapterId = args.target ?? config.target;
   if (args.target && args.target !== config.target) {
-    throw new Error(`CLI target ${args.target} does not match loopengine.config.json target ${config.target}.`);
+    throw new Error(`CLI target ${args.target} does not match cognis.config.json target ${config.target}.`);
   }
   const adapter = await resolveAdapter(rootDir, adapterId);
   const requestedProfile = args.profile ?? config.profile;
@@ -232,6 +272,7 @@ async function install(args) {
   const plan = await createInstallPlan({
     adapterId,
     allowPreview: Boolean(args['allow-preview']),
+    configMigration,
     dryRun: dryRunRequested,
     force: Boolean(args.force),
     managedAgentsBlock: isMvpMode,
@@ -281,20 +322,27 @@ async function install(args) {
         allowPreview: Boolean(args['allow-preview']),
       });
   if (provisionExecuted && plannedToolActions.length > 0) {
-    await registerGeneratedFile(targetDir, '.loopengine/tool-state/tools.json');
+    await registerGeneratedFile(targetDir, toolStateRelativePath(targetDir));
   }
   const health = provisionExecuted ? healthReport({ profile, tools }) : { ok: true, status: 'ready' };
   const warnings = provisionExecuted
     ? toolWarnings(tools)
     : (plannedToolActions.length > 0 ? [{
         code: 'PROVISIONING_NOT_RUN',
-        message: 'Tool provisioning was not run; use loopengine provision --project <project> --write.',
+        message: 'Tool provisioning was not run; use cognis provision --project <project> --write.',
       }] : []);
   emitReport({
     ...health,
     actions: args.verbose ? plan.actions : plan.actions.map(compactAction),
     backupActions: plan.baselinePlan.actions,
     baselineId: result.baseline?.id ?? plan.baselinePlan.baselineId,
+    ...(plan.configMigration ? {
+      configMigration: {
+        dryRun: plan.dryRun,
+        from: plan.configMigration.from,
+        to: plan.configMigration.to,
+      },
+    } : {}),
     deferredToolActions,
     dryRun: plan.dryRun,
     governanceMode,
@@ -325,7 +373,7 @@ async function validate(args) {
     const targetDir = path.resolve(args.project);
     const config = await readRequiredProjectConfig(targetDir);
     if (args.target && args.target !== config.target) {
-      throw new Error(`CLI target ${args.target} does not match loopengine.config.json target ${config.target}.`);
+      throw new Error(`CLI target ${args.target} does not match cognis.config.json target ${config.target}.`);
     }
     const requestedModules = await projectRequestedModules(config, targetDir);
     validateProjectConfig(config);
@@ -409,7 +457,7 @@ async function verify(args) {
   const targetDir = path.resolve(args.project);
   const config = await readRequiredProjectConfig(targetDir);
   if (args.target && args.target !== config.target) {
-    throw new Error(`CLI target ${args.target} does not match loopengine.config.json target ${config.target}.`);
+    throw new Error(`CLI target ${args.target} does not match cognis.config.json target ${config.target}.`);
   }
   const requestedModules = await projectRequestedModules(config, targetDir);
   validateProjectConfig(config);
@@ -429,13 +477,13 @@ async function verify(args) {
     targetDir,
   });
   if (!target.ok) {
-    const error = new Error('Project installation is not consistent; run loopengine validate --project first.');
+    const error = new Error('Project installation is not consistent; run cognis validate --project first.');
     error.code = 'PROJECT_VERIFICATION_FAILED';
     throw error;
   }
   const pack = await validatePack(rootDir);
   if (!pack.ok) {
-    const error = new Error('LoopEngine pack validation failed.');
+    const error = new Error('Cognis pack validation failed.');
     error.code = 'PROJECT_VERIFICATION_FAILED';
     throw error;
   }
@@ -460,7 +508,7 @@ async function baseline(args) {
   try {
     config = await readRequiredProjectConfig(targetDir);
   } catch (cause) {
-    throw Object.assign(new Error('Project configuration is missing or invalid; run loopengine init before baseline.'), {
+    throw Object.assign(new Error('Project configuration is missing or invalid; run cognis init before baseline.'), {
       cause,
       code: 'BASELINE_INSTALL_INVALID',
     });
@@ -468,7 +516,7 @@ async function baseline(args) {
   try {
     validateProjectConfig(config);
   } catch (cause) {
-    throw Object.assign(new Error('Project configuration is invalid; fix loopengine.config.json before baseline.'), {
+    throw Object.assign(new Error('Project configuration is invalid; fix cognis.config.json before baseline.'), {
       cause,
       code: 'BASELINE_INSTALL_INVALID',
     });
@@ -572,7 +620,7 @@ async function evaluateProject(args) {
 }
 
 function toolRecommendations(tools, profile, { adapterId = 'codex' } = {}) {
-  const retryCommand = `loopengine provision --project <project> --target ${adapterId} --profile ${profile} --write`;
+  const retryCommand = `cognis provision --project <project> --target ${adapterId} --profile ${profile} --write`;
   return Object.entries(tools).flatMap(([tool, state]) => {
     if (state.status === 'degraded') {
       if (state.code === 'MCP_CONFIG_CONFLICT') {
@@ -614,7 +662,7 @@ async function doctor(args) {
   const installState = await readInstallState(targetDir);
   const config = await readRequiredProjectConfig(targetDir);
   if (args.target && args.target !== config.target) {
-    throw new Error(`CLI target ${args.target} does not match loopengine.config.json target ${config.target}.`);
+    throw new Error(`CLI target ${args.target} does not match cognis.config.json target ${config.target}.`);
   }
   validateProjectConfig(config);
   const profile = validateProfileName(args.profile ?? config.profile);
@@ -633,7 +681,7 @@ async function doctor(args) {
     inspectGitHooks(targetDir),
     inspectProvisioningMarker(targetDir),
     inspectTransactions(targetDir),
-    pathExists(path.join(targetDir, '.loopengine', 'transaction.lock')),
+    pathExists(path.join(path.dirname(stateFilePath(targetDir)), 'transaction.lock')),
   ]);
   let target = await inspectTargetInstall({
     managedAgentsBlock: true,
@@ -682,7 +730,7 @@ async function diff(args) {
   const config = await readRequiredProjectConfig(targetDir);
   const installState = await readInstallState(targetDir);
   if (args.target && args.target !== config.target) {
-    throw new Error(`CLI target ${args.target} does not match loopengine.config.json target ${config.target}.`);
+    throw new Error(`CLI target ${args.target} does not match cognis.config.json target ${config.target}.`);
   }
   validateProjectConfig(config);
   const profile = validateProfileName(args.profile ?? config.profile);
@@ -706,7 +754,7 @@ async function rollback(args) {
   if (!args.project) throw new Error('rollback requires --project <path>.');
   if (args.target) {
     const state = await readInstallState(path.resolve(args.project));
-    if (!state) throw new Error(`No LoopEngine install state found in ${path.resolve(args.project)}`);
+    if (!state) throw new Error(`No Cognis install state found in ${path.resolve(args.project)}`);
     if (state.adapter !== args.target) {
       throw new Error(`CLI target ${args.target} does not match installed adapter ${state.adapter}.`);
     }
@@ -720,7 +768,13 @@ async function rollback(args) {
     targetDir: path.resolve(args.project),
   });
   const result = await applyRollbackPlan(plan);
-  console.log(JSON.stringify({ actions: plan.actions, applied: result.applied, dryRun: plan.dryRun, skipped: result.skipped }, null, 2));
+  console.log(JSON.stringify({
+    actions: plan.actions,
+    applied: result.applied,
+    dryRun: plan.dryRun,
+    retainedState: result.retainedState,
+    skipped: result.skipped,
+  }, null, 2));
 }
 
 async function uninstall(args) {
@@ -729,7 +783,7 @@ async function uninstall(args) {
   const config = await readRequiredProjectConfig(targetDir);
   const adapter = await resolveAdapter(rootDir, args.target ?? config.target);
   if (args.target && args.target !== config.target) {
-    throw new Error(`CLI target ${args.target} does not match loopengine.config.json target ${config.target}.`);
+    throw new Error(`CLI target ${args.target} does not match cognis.config.json target ${config.target}.`);
   }
   const state = await readInstallState(targetDir);
   if (state && state.adapter !== adapter.id) {
@@ -787,7 +841,7 @@ async function provision(args) {
   const targetDir = path.resolve(args.project);
   const config = await readRequiredProjectConfig(targetDir);
   const state = await readInstallState(targetDir);
-  if (!state) throw new Error(`No LoopEngine install state found in ${targetDir}; run install first.`);
+  if (!state) throw new Error(`No Cognis install state found in ${targetDir}; run install first.`);
   const adapterId = args.target ?? state.adapter ?? config.target;
   if (adapterId !== config.target || adapterId !== state.adapter) {
     throw new Error(`Provision target ${adapterId} does not match installed adapter ${state.adapter}.`);
@@ -818,7 +872,7 @@ async function provision(args) {
         toolIds,
       });
   if (!dryRun && plannedToolActions.length > 0) {
-    await registerGeneratedFile(targetDir, '.loopengine/tool-state/tools.json');
+    await registerGeneratedFile(targetDir, toolStateRelativePath(targetDir));
   }
   const health = dryRun ? { ok: true, status: 'ready' } : healthReport({ profile, tools });
   emitReport({
@@ -890,12 +944,13 @@ async function main() {
   } else if (command === 'recover') {
     await recover(args);
   } else {
-    console.log('Usage: loopengine <init|install|provision|recover|uninstall|validate|verify|baseline|eval|doctor|diff|rollback> [--project path] [--target codex|claude|gemini] [--profile minimal|core|full|docs-only] [--modules list] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--force] [--upgrade] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded]');
+    console.log('Usage: cognis <init|install|provision|recover|uninstall|validate|verify|baseline|eval|doctor|diff|rollback> [--project path] [--target codex|claude|gemini] [--profile minimal|core|full|docs-only] [--modules list] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--force] [--upgrade] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded]');
     console.log('All project commands use --project <path>; --target selects an adapter and --write performs mutations. Legacy --apply and path-valued --target are removed.');
   }
 }
 
 try {
+  reportDeprecatedEnvironment();
   await main();
 } catch (error) {
   const args = parseArgs(process.argv.slice(2));
@@ -903,7 +958,7 @@ try {
     ok: false,
     status: 'invalid',
     error: {
-      code: error.code ?? 'LOOPENGINE_ERROR',
+      code: error.code ?? 'COGNIS_ERROR',
       message: error.message,
     },
   }, args, { error: true });

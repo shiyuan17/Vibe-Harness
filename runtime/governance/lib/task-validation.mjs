@@ -188,8 +188,9 @@ function validateEvaluationArtifact(root, artifact, evalId) {
   const artifactError = validateArtifact(root, artifact);
   if (artifactError) return [artifactError];
   const normalized = artifact.replaceAll('\\', '/');
-  if (!normalized.startsWith('.loopengine/evals/runs/') || !normalized.endsWith('.json')) {
-    return ['评测证据必须指向 .loopengine/evals/runs/ 下的 run JSON'];
+  const runRoots = ['.cognis/evals/runs/', '.loopengine/evals/runs/'];
+  if (!runRoots.some((runRoot) => normalized.startsWith(runRoot)) || !normalized.endsWith('.json')) {
+    return ['评测证据必须指向 .cognis/evals/runs/ 或 .loopengine/evals/runs/ 下的 run JSON'];
   }
   let run;
   let runSchema;
@@ -221,7 +222,12 @@ function validateEvaluationArtifact(root, artifact, evalId) {
       const referenceSchema = JSON.parse(readFileSync(resolve(root, 'docs/schemas/eval-reference.schema.json'), 'utf8'));
       errors.push(...validateJsonAgainstSchema(suite, suiteSchema, '评测 suite'));
       errors.push(...validateJsonAgainstSchema(reference, referenceSchema, '评测 reference'));
-      try { config = JSON.parse(readFileSync(resolve(root, 'loopengine.config.json'), 'utf8')); } catch {}
+      for (const relativePath of ['cognis.config.json', 'loopengine.config.json']) {
+        try {
+          config = JSON.parse(readFileSync(resolve(root, relativePath), 'utf8'));
+          break;
+        } catch {}
+      }
     } catch (error) {
       errors.push(`评测 suite、reference 或 schema JSON 无效：${error.message}`);
     }

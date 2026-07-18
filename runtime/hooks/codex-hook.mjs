@@ -15,7 +15,7 @@ function expectedEventFromArgs(argv) {
 }
 
 function hookFailureResult(expectedEvent) {
-  const reason = 'HOOK_RUNTIME_ERROR: LoopEngine could not safely evaluate this hook event.';
+  const reason = 'HOOK_RUNTIME_ERROR: Cognis could not safely evaluate this hook event.';
   if (guardedEvents.has(expectedEvent)) {
     return createCodexHookResult(expectedEvent, { action: 'deny', reason });
   }
@@ -91,11 +91,11 @@ export async function evaluateCodexHook(rawInput, { expectedEvent } = {}) {
     ]);
     const issues = [];
     if (governance.status === 'unavailable') {
-      issues.push('LoopEngine governance validator is unavailable. Repair or reinstall the expected runtime, then verify again.');
+      issues.push('Cognis governance validator is unavailable. Repair or reinstall the expected runtime, then verify again.');
     } else if (!governance.ok) {
-      issues.push('LoopEngine governance validation failed. Fix the evidence or task state, then verify again.');
+      issues.push('Cognis governance validation failed. Fix the evidence or task state, then verify again.');
     }
-    if (!evaluation.ok) issues.push('LoopEngine evaluation validation failed. Fix the Eval-ID evidence or reference, then verify again.');
+    if (!evaluation.ok) issues.push('Cognis evaluation validation failed. Fix the Eval-ID evidence or reference, then verify again.');
     if (!delivery.ok) issues.push(`Delivery packet missing: ${delivery.missing.join(', ')}.`);
     if (issues.length === 0) return {};
     const reason = issues.join(' ');

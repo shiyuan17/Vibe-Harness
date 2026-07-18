@@ -3,14 +3,17 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { runProjectEvaluations } from './lib/project-evaluation.js';
+import { readProductEnv } from './lib/product-identity.js';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const runner = `${JSON.stringify(process.execPath)} ${JSON.stringify(path.join(rootDir, 'runtime/evals/codex-runner.mjs'))}`;
+const enforce = readProductEnv(process.env, 'EVAL_ENFORCE');
+if (enforce.deprecated) console.error(`${enforce.name} is deprecated; use COGNIS_EVAL_ENFORCE.`);
 const config = {
   evaluations: {
     enabled: true,
-    suites: ['evals/suites/loopengine-online-canary.json'],
-    reference: 'evals/references/loopengine-online-canary.json',
+    suites: ['evals/suites/cognis-online-canary.json'],
+    reference: 'evals/references/cognis-online-canary.json',
     thresholds: { criticalPassRate: 1, overallScore: 0.9, maxCapabilityRegression: 0.05 },
     onlineRunner: runner,
     repetitions: 3,
@@ -21,9 +24,9 @@ const report = await runProjectEvaluations({
   mode: 'online',
   rootDir,
   runner,
-  suiteId: 'loopengine-online-canary',
+  suiteId: 'cognis-online-canary',
   targetDir: rootDir,
   write: true,
 });
 console.log(JSON.stringify(report, null, 2));
-if (report.status === 'invalid' && process.env.LOOPENGINE_EVAL_ENFORCE === '1') process.exitCode = 1;
+if (report.status === 'invalid' && enforce.value === '1') process.exitCode = 1;

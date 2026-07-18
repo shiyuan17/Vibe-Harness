@@ -5,6 +5,8 @@ import { pathExists } from './manifest.js';
 import { renderTemplate } from './template-renderer.js';
 import { resolveModuleSelection } from './module-selection.js';
 import { assertPortableRelativePath } from './manifest.js';
+import { productIdentity } from './product-identity.js';
+import { resolveProjectConfigLocation } from './project-layout.js';
 
 export const mvpProfiles = new Set(['minimal', 'core', 'full', 'docs-only']);
 export const mvpTargets = new Set(['codex', 'claude', 'gemini']);
@@ -31,7 +33,7 @@ export const defaultProjectConfig = {
   validationCommands: {
     lint: null,
     typecheck: null,
-    governance: 'node .agents/loopengine/governance/validate.mjs',
+    governance: 'node .agents/cognis/governance/validate.mjs',
     eval: null,
   },
   evaluations: {
@@ -102,7 +104,13 @@ export function createDefaultProjectConfig(projectDir, target = 'codex', profile
 }
 
 export async function writeDefaultProjectConfig({ force = false, projectDir, profile = 'core', target = 'codex' }) {
-  const configPath = path.join(projectDir, 'loopengine.config.json');
+  const existing = await resolveProjectConfigLocation(projectDir);
+  if (existing?.legacy) {
+    throw Object.assign(new Error(`Legacy ${productIdentity.legacy.configFile} exists; run cognis install --upgrade.`), {
+      code: 'COGNIS_CONFIG_MIGRATION_REQUIRED',
+    });
+  }
+  const configPath = path.join(projectDir, productIdentity.configFile);
   if (!force && await pathExists(configPath)) {
     throw new Error(`Refusing to overwrite existing config: ${configPath}`);
   }
@@ -115,19 +123,45 @@ export async function writeDefaultProjectConfig({ force = false, projectDir, pro
 }
 
 export async function readProjectConfig(projectDir) {
-  const configPath = path.join(projectDir, 'loopengine.config.json');
-  if (!await pathExists(configPath)) {
+  const location = await resolveProjectConfigLocation(projectDir);
+  if (!location) {
   return createDefaultProjectConfig(projectDir);
   }
-  return JSON.parse(await readFile(configPath, 'utf8'));
+  return JSON.parse(await readFile(location.path, 'utf8'));
 }
 
 export async function readRequiredProjectConfig(projectDir) {
-  const configPath = path.join(projectDir, 'loopengine.config.json');
-  if (!await pathExists(configPath)) {
-    throw new Error(`Missing loopengine.config.json. Run loopengine init --project ${projectDir} first.`);
+  const location = await resolveProjectConfigLocation(projectDir);
+  if (!location) {
+    throw new Error(`Missing ${productIdentity.configFile}. Run cognis init --project ${projectDir} first.`);
   }
-  return JSON.parse(await readFile(configPath, 'utf8'));
+  return JSON.parse(await readFile(location.path, 'utf8'));
+}
+
+export async function createProjectConfigMigration(projectDir, config) {
+  const location = await resolveProjectConfigLocation(projectDir);
+  if (!location?.legacy) return null;
+  const migrated = structuredClone(config);
+  const legacyDefault = 'node .agents/loopengine/governance/validate.mjs';
+  const canonicalDefault = 'node .agents/cognis/governance/validate.mjs';
+  for (const [name, command] of Object.entries(migrated.validationCommands ?? {})) {
+    if (command === legacyDefault && name === 'governance') {
+      migrated.validationCommands[name] = canonicalDefault;
+      continue;
+    }
+    if (typeof command === 'string' && command.includes('.agents/loopengine/')) {
+      throw Object.assign(new Error(`validationCommands.${name} still references the legacy .agents/loopengine runtime.`), {
+        code: 'COGNIS_CONFIG_MIGRATION_REQUIRED',
+      });
+    }
+  }
+  return {
+    config: migrated,
+    from: productIdentity.legacy.configFile,
+    fromPath: location.path,
+    to: productIdentity.configFile,
+    toPath: path.join(projectDir, productIdentity.configFile),
+  };
 }
 
 function assertObject(value, label) {
@@ -167,7 +201,7 @@ export function resolveValidationCommands(config, projectProfile, governanceMode
     ...configured,
     governance: governanceMode === 'off'
       ? null
-      : (configured.governance ?? 'node .agents/loopengine/governance/validate.mjs'),
+      : (configured.governance ?? 'node .agents/cognis/governance/validate.mjs'),
     eval: configured.eval ?? null,
   };
 }
@@ -179,7 +213,7 @@ function assertOptionalCommand(value, label) {
 }
 
 export function validateProjectConfig(config) {
-  assertObject(config, 'loopengine.config.json');
+  assertObject(config, 'cognis.config.json');
   assertNonEmptyString(config.projectName, 'projectName');
   assertNonEmptyString(config.packageManager, 'packageManager');
   assertNonEmptyString(config.target, 'target');

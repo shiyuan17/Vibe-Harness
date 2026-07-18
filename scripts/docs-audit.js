@@ -21,5 +21,5 @@ if (!report.ok) {
   process.exit(1);
 }
 
-console.log(`LoopEngine documentation audit passed (${report.counts.cataloged} documents checked).`);
+console.log(`Cognis documentation audit passed (${report.counts.cataloged} documents checked).`);
 for (const warning of report.warnings) console.warn(`Warning: ${warning}`);

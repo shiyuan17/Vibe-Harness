@@ -14,7 +14,7 @@ test('canonical governance and routed skills are declared', async () => {
   const rules = new Set(manifests.rules.items.map((item) => item.id));
   const skills = new Set(manifests.skills.items.map((item) => item.id));
   for (const id of ['governance-core', 'codebase-memory-mcp', 'git-rules', 'test-rules']) assert.equal(rules.has(id), true);
-  for (const id of ['using-loopengine', 'verification-before-completion', 'code-review-and-quality', 'adversarial-review-packet']) assert.equal(skills.has(id), true);
+  for (const id of ['using-cognis', 'verification-before-completion', 'code-review-and-quality', 'adversarial-review-packet']) assert.equal(skills.has(id), true);
 });
 
 test('profiles install minimal, common, and full surfaces at intended tiers', async () => {
@@ -26,7 +26,7 @@ test('profiles install minimal, common, and full surfaces at intended tiers', as
   assert.equal(minimal.has('docs/rules/coding-rules.md'), false);
   assert.equal([...minimal].some((item) => item.startsWith('.agents/skills/')), false);
   assert.equal(core.has('docs/rules/coding-rules.md'), true);
-  assert.equal(core.has('.agents/skills/using-loopengine/SKILL.md'), true);
+  assert.equal(core.has('.agents/skills/using-cognis/SKILL.md'), true);
   assert.equal(core.has('.agents/skills/adversarial-review-packet/SKILL.md'), true);
   assert.equal(core.has('.agents/skills/loop-planning/SKILL.md'), false);
   assert.equal(core.has('docs/rules/release-rules.md'), false);
@@ -47,7 +47,7 @@ test('profiles install minimal, common, and full surfaces at intended tiers', as
 test('router only names registered skills', async () => {
   const manifests = await loadAllManifests(rootDir);
   const registered = new Set(manifests.skills.items.map((item) => item.id));
-  const router = manifests.skills.items.find((item) => item.id === 'using-loopengine');
+  const router = manifests.skills.items.find((item) => item.id === 'using-cognis');
   for (const id of [...router.requiresSkills, ...router.optionalSkills]) assert.equal(registered.has(id), true, `${id} should be registered`);
 });
 
@@ -72,7 +72,7 @@ test('rules absorb pruned thin skill guidance', async () => {
   assert.match(git, /Git 自动生成且无需人工编辑的 merge 或 revert 信息不受此限制/u);
   assert.match(projectDirectory, /ADR/u);
   assert.match(frontend, /品牌展示|产品界面/u);
-  assert.match(logManagement, /\.loopengine\/log\//u);
+  assert.match(logManagement, /\.cognis\/log\//u);
   assert.match(logManagement, /vite-dev\.out\/err/u);
   assert.doesNotMatch(logManagement, /vite-dev\.out\/err[^\n]*写入[^\n]*artifacts|artifacts[^\n]*vite-dev\.out\/err/u);
   assert.match(release, /本 skill 不维护第二套发布规则|规则是真值/u);

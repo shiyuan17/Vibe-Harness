@@ -11,7 +11,7 @@ import {
   createCodexHookResult,
   normalizeCodexHookInput,
 } from '../runtime/hooks/lib/policy.mjs';
-import { buildProjectContext, runGovernanceCheck } from '../runtime/hooks/lib/context.mjs';
+import { buildProjectContext, readHookSettings, runGovernanceCheck } from '../runtime/hooks/lib/context.mjs';
 import { validateDeliveryMessage } from '../runtime/hooks/lib/delivery-validation.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -76,7 +76,7 @@ test('normalizes supported Codex events without retaining unrelated payload fiel
 });
 
 test('project context summarizes open task contracts recursively in status order', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-task-context-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-task-context-'));
   try {
     await mkdir(path.join(target, 'docs', 'tasks', 'nested'), { recursive: true });
     const tasks = [
@@ -109,7 +109,7 @@ test('project context summarizes open task contracts recursively in status order
 });
 
 test('project context bounds task content and does not include prompt text', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-task-context-bounds-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-task-context-bounds-'));
   try {
     await mkdir(path.join(target, 'docs', 'tasks'), { recursive: true });
     await writeFile(path.join(target, 'docs', 'tasks', 'T-LONG.md'), taskContract({
@@ -129,7 +129,7 @@ test('project context bounds task content and does not include prompt text', asy
 });
 
 test('project context reports the total changed paths while showing a bounded summary', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-context-count-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-context-count-'));
   try {
     await execFileAsync('git', ['init'], { cwd: target });
     for (let index = 0; index < 21; index += 1) {
@@ -304,9 +304,62 @@ test('guarded tool policy distinguishes global configuration reads from writes o
 });
 
 test('governance check reports a missing validator as unavailable', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-validator-missing-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-validator-missing-'));
   try {
     assert.deepEqual(await runGovernanceCheck(target), { ok: false, status: 'unavailable' });
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('hook runtime reads legacy settings and validator paths as compatibility fallbacks', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-hook-legacy-'));
+  try {
+    await writeFile(path.join(target, 'loopengine.config.json'), JSON.stringify({
+      hooks: { completionGate: 'blocking', mode: 'strict' },
+      evaluations: { enabled: true },
+      validationCommands: { governance: 'legacy-governance' },
+    }), 'utf8');
+    const validatorDir = path.join(target, '.agents', 'loopengine', 'governance');
+    await mkdir(validatorDir, { recursive: true });
+    await writeFile(path.join(validatorDir, 'validate.mjs'), 'process.exit(0);\n', 'utf8');
+
+    assert.deepEqual(await readHookSettings(target), {
+      completionGate: 'blocking',
+      evaluationsEnabled: true,
+      mode: 'strict',
+      validationCommands: { governance: 'legacy-governance' },
+    });
+    assert.deepEqual(await runGovernanceCheck(target), { ok: true, status: 'passed' });
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('Codex and Git hooks fail closed when canonical and legacy configs coexist', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-hook-config-conflict-'));
+  try {
+    await execFileAsync('git', ['init'], { cwd: target });
+    await writeFile(path.join(target, 'cognis.config.json'), JSON.stringify({ hooks: { mode: 'off' } }), 'utf8');
+    await writeFile(path.join(target, 'loopengine.config.json'), JSON.stringify({
+      validationCommands: { governance: `${JSON.stringify(process.execPath)} -e "process.exit(0)"` },
+    }), 'utf8');
+
+    await assert.rejects(readHookSettings(target), (error) => error.code === 'COGNIS_CONFIG_CONFLICT');
+
+    const codex = await runNodeWithInput(path.join(rootDir, 'runtime/hooks/codex-hook.mjs'), {
+      cwd: target,
+      hook_event_name: 'PreToolUse',
+      session_id: 'session-conflict',
+      tool_input: { command: 'git status --short' },
+      tool_name: 'Bash',
+    }, { args: ['--expected-event', 'PreToolUse'], cwd: target });
+    assert.equal(JSON.parse(codex.stdout).hookSpecificOutput.permissionDecision, 'deny');
+
+    await assert.rejects(
+      execFileAsync(process.execPath, [path.join(rootDir, 'runtime/hooks/git-hook.mjs'), 'pre-push'], { cwd: target }),
+      /COGNIS_CONFIG_CONFLICT/u,
+    );
   } finally {
     await rm(target, { force: true, recursive: true });
   }
@@ -344,10 +397,10 @@ test('creates event-specific Codex denial output and never auto-allows permissio
 });
 
 test('installed Codex hook runner injects deterministic session context without prompt contents', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-hook-session-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-hook-session-'));
   try {
     await execFileAsync('git', ['init'], { cwd: target });
-    await writeFile(path.join(target, 'loopengine.config.json'), JSON.stringify({ hooks: { mode: 'guarded' } }), 'utf8');
+    await writeFile(path.join(target, 'cognis.config.json'), JSON.stringify({ hooks: { mode: 'guarded' } }), 'utf8');
     await mkdir(path.join(target, 'docs', 'tasks'), { recursive: true });
     await writeFile(path.join(target, 'docs', 'tasks', 'TASK-1.md'), '# Task\n当前状态：进行中\n', 'utf8');
 
@@ -370,9 +423,9 @@ test('installed Codex hook runner injects deterministic session context without 
 });
 
 test('UserPromptSubmit injects task-confirmation guidance without echoing the prompt', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-hook-prompt-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-hook-prompt-'));
   try {
-    await writeFile(path.join(target, 'loopengine.config.json'), JSON.stringify({ hooks: { mode: 'guarded' } }), 'utf8');
+    await writeFile(path.join(target, 'cognis.config.json'), JSON.stringify({ hooks: { mode: 'guarded' } }), 'utf8');
     const { stdout } = await runNodeWithInput(path.join(rootDir, 'runtime/hooks/codex-hook.mjs'), {
       cwd: target,
       hook_event_name: 'UserPromptSubmit',
@@ -392,9 +445,9 @@ test('UserPromptSubmit injects task-confirmation guidance without echoing the pr
 });
 
 test('Stop delivery gate follows off, advisory, and blocking modes', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-hook-delivery-gate-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-hook-delivery-gate-'));
   try {
-    const validatorDir = path.join(target, '.agents', 'loopengine', 'governance');
+    const validatorDir = path.join(target, '.agents', 'cognis', 'governance');
     await mkdir(validatorDir, { recursive: true });
     await writeFile(path.join(validatorDir, 'validate.mjs'), 'process.exit(0);\n', 'utf8');
     const input = {
@@ -405,7 +458,7 @@ test('Stop delivery gate follows off, advisory, and blocking modes', async () =>
       turn_id: 'turn-delivery',
     };
     const run = async (completionGate, extra = {}) => {
-      await writeFile(path.join(target, 'loopengine.config.json'), JSON.stringify({
+      await writeFile(path.join(target, 'cognis.config.json'), JSON.stringify({
         hooks: { completionGate, mode: 'strict' },
       }), 'utf8');
       return JSON.parse((await runNodeWithInput(path.join(rootDir, 'runtime/hooks/codex-hook.mjs'), {
@@ -425,12 +478,12 @@ test('Stop delivery gate follows off, advisory, and blocking modes', async () =>
 });
 
 test('blocking Stop gate continues at most once when governance validation fails', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-hook-stop-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-hook-stop-'));
   try {
-    const validatorDir = path.join(target, '.agents', 'loopengine', 'governance');
+    const validatorDir = path.join(target, '.agents', 'cognis', 'governance');
     await mkdir(validatorDir, { recursive: true });
     await writeFile(path.join(validatorDir, 'validate.mjs'), 'process.exit(1);\n', 'utf8');
-    await writeFile(path.join(target, 'loopengine.config.json'), JSON.stringify({
+    await writeFile(path.join(target, 'cognis.config.json'), JSON.stringify({
       hooks: { completionGate: 'blocking', mode: 'strict' },
     }), 'utf8');
 
@@ -460,7 +513,7 @@ test('blocking Stop gate continues at most once when governance validation fails
 });
 
 test('Git pre-commit hook inspects staged content only', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-git-hook-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-git-hook-'));
   try {
     await execFileAsync('git', ['init'], { cwd: target });
     await writeFile(path.join(target, 'safe.txt'), 'safe\n', 'utf8');
@@ -480,14 +533,23 @@ test('Git pre-commit hook inspects staged content only', async () => {
   }
 });
 
-test('Git pre-push hook propagates configured validation failures', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-git-push-'));
+test('Git pre-push hook propagates validation failures from canonical and legacy configuration', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-git-push-'));
   try {
     await execFileAsync('git', ['init'], { cwd: target });
-    await writeFile(path.join(target, 'loopengine.config.json'), JSON.stringify({
+    await writeFile(path.join(target, 'cognis.config.json'), JSON.stringify({
       validationCommands: { governance: `${JSON.stringify(process.execPath)} -e "process.exit(7)"` },
     }), 'utf8');
 
+    await assert.rejects(
+      execFileAsync(process.execPath, [path.join(rootDir, 'runtime/hooks/git-hook.mjs'), 'pre-push'], { cwd: target }),
+      /validation command failed/i,
+    );
+
+    await rm(path.join(target, 'cognis.config.json'));
+    await writeFile(path.join(target, 'loopengine.config.json'), JSON.stringify({
+      validationCommands: { governance: `${JSON.stringify(process.execPath)} -e "process.exit(8)"` },
+    }), 'utf8');
     await assert.rejects(
       execFileAsync(process.execPath, [path.join(rootDir, 'runtime/hooks/git-hook.mjs'), 'pre-push'], { cwd: target }),
       /validation command failed/i,

@@ -25,4 +25,4 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-console.log('LoopEngine evaluation contracts passed.');
+console.log('Cognis evaluation contracts passed.');

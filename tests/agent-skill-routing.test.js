@@ -30,7 +30,7 @@ test('agent skill routing policy preserves governance priority and lifecycle rou
     'ocr',
     'fallback',
     'Memory',
-    'using-loopengine',
+    'using-cognis',
   ]) {
     assert.equal(rule.includes(term), true, `routing policy should document ${term}`);
   }
@@ -58,7 +58,7 @@ test('agent skill routing policy is registered, installable, and tracked by capa
 
   const capability = capabilities.items.find((item) => item.id === 'skill-routing');
   assert.equal(capability.targets.includes(routingRuleSource), true);
-  assert.equal(capability.targets.includes('skills/core/using-loopengine/SKILL.md'), true);
+  assert.equal(capability.targets.includes('skills/core/using-cognis/SKILL.md'), true);
   assert.equal(capability.tests.includes('tests/agent-skill-routing.test.js'), true);
 });
 
@@ -73,17 +73,17 @@ test('all profiles install the routing policy while only skill profiles install 
     const targets = new Set(plan.actions.map((action) => action.relativeTarget));
     assert.equal(targets.has(routingRuleTarget), true, `${profile} should install the routing policy`);
     assert.equal(
-      targets.has('.agents/skills/using-loopengine/SKILL.md'),
+      targets.has('.agents/skills/using-cognis/SKILL.md'),
       !['minimal', 'docs-only'].includes(profile),
       `${profile} router installation should match its skill surface`,
     );
   }
 });
 
-test('AGENTS and using-loopengine link the policy and document the no-skill fallback', async () => {
+test('AGENTS and using-cognis link the policy and document the no-skill fallback', async () => {
   const [agents, router] = await Promise.all([
     readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8'),
-    readFile(path.join(rootDir, 'skills/core/using-loopengine/SKILL.md'), 'utf8'),
+    readFile(path.join(rootDir, 'skills/core/using-cognis/SKILL.md'), 'utf8'),
   ]);
 
   assert.equal(agents.includes(routingRuleTarget), true);
@@ -106,7 +106,7 @@ test('pack quality rejects routing policy registration, evidence, and link drift
 
   const [agentsContent, routerContent, ruleContent, manifests, installMap, capabilityMatrix] = await Promise.all([
     readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8'),
-    readFile(path.join(rootDir, 'skills/core/using-loopengine/SKILL.md'), 'utf8'),
+    readFile(path.join(rootDir, 'skills/core/using-cognis/SKILL.md'), 'utf8'),
     readFile(path.join(rootDir, routingRuleSource), 'utf8'),
     loadAllManifests(rootDir),
     readJson(path.join(rootDir, 'adapters/codex/install-map.json')),

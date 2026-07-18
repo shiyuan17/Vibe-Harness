@@ -8,7 +8,7 @@
 2. {{projectProfile.vcsStatusInstruction}}
 3. {{installedSurface.discoveryLine}}
 4. 将任务归为快速、轻量或完整，并确定验证方式。
-5. 已安装 Skills 时先使用 `using-loopengine` 路由；Skills 未安装时按路由规则和治理内核 fallback 执行。
+5. 已安装 Skills 时先使用 `using-cognis` 路由；Skills 未安装时按路由规则和治理内核 fallback 执行。
 
 ## 五条硬约束
 
@@ -26,7 +26,7 @@
 - Typecheck: {{validationCommands.typecheck}}
 - Governance: {{validationCommands.governance}}
 
-`loopengine validate --project` 只检查安装一致性；实际执行配置命令使用 `loopengine verify --project <path>`。manual 命令只有检查内容后才使用 `--allow-manual`。
+`cognis validate --project` 只检查安装一致性；实际执行配置命令使用 `cognis verify --project <path>`。manual 命令只有检查内容后才使用 `--allow-manual`。
 
 ## 已安装表面
 
@@ -43,4 +43,4 @@
 
 {{installedSurface.skillRoutingLine}}
 
-规则优先级：平台系统与用户本轮指令优先；目标项目明确的本地规则优先于 LoopEngine 默认规则；目录级规则只作用于其子树。同一层级冲突时停止并请求确认。
+规则优先级：平台系统与用户本轮指令优先；目标项目明确的本地规则优先于 Cognis 默认规则；目录级规则只作用于其子树。同一层级冲突时停止并请求确认。

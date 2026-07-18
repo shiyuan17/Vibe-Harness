@@ -36,7 +36,7 @@ const baseTask = `# T-001 中文任务合同
 `;
 
 async function taskProject(body, { legacyJson } = {}) {
-  const root = await mkdtemp(path.join(tmpdir(), 'loopengine-chinese-task-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'cognis-chinese-task-'));
   await mkdir(path.join(root, 'docs/tasks'), { recursive: true });
   await mkdir(path.join(root, 'docs/schemas'), { recursive: true });
   const schema = await readFile(path.join(rootDir, 'schemas/full-task-control.schema.json'), 'utf8');
@@ -691,7 +691,7 @@ test('治理资产只暴露 adapters、规则、skills 和 profiles catalog', as
   const manifests = await loadAllManifests(rootDir);
   assert.deepEqual(Object.keys(manifests).sort(), ['adapters', 'profiles', 'rules', 'skills']);
   assert.equal(manifests.rules.items.some((item) => item.id === 'governance-core'), true);
-  assert.equal(manifests.skills.items.find((item) => item.id === 'using-loopengine')?.kind, 'router');
+  assert.equal(manifests.skills.items.find((item) => item.id === 'using-cognis')?.kind, 'router');
   await assert.rejects(access(path.join(rootDir, 'manifests/workflows.json')));
   await assert.rejects(access(path.join(rootDir, 'schemas/workflow-pack.schema.json')));
   await assert.rejects(access(path.join(rootDir, 'schemas/task.schema.json')));
@@ -703,7 +703,7 @@ test('安装表面使用精简模板并移除 workflows', async () => {
   assert.equal(sources.has('rules/governance-core.md'), true);
   assert.equal(sources.has('templates/task.md'), true);
   assert.equal(sources.has('templates/delivery.md'), true);
-  assert.equal(sources.has('skills/core/using-loopengine/SKILL.md'), true);
+  assert.equal(sources.has('skills/core/using-cognis/SKILL.md'), true);
   assert.equal(sources.has('runtime/governance/lib/red-team-validation.mjs'), true);
   assert.equal([...sources].some((source) => source.startsWith('workflows/')), false);
   assert.equal(sources.has('templates/workflow-packet.md'), false);
@@ -760,7 +760,7 @@ test('AI 协作规则定义自适应信息呈现契约', async () => {
   const capability = capabilities.items.find((item) => item.id === 'adaptive-information-presentation');
   assert.ok(capability, 'adaptive-information-presentation capability should be declared');
   assert.deepEqual(capability.profiles, ['core', 'full', 'docs-only']);
-  assert.deepEqual(capability.evaluation.suites, ['evals/suites/loopengine-core.json']);
+  assert.deepEqual(capability.evaluation.suites, ['evals/suites/cognis-core.json']);
 });
 
 test('治理内核和交付模板定义任务确认与完整会话交付', async () => {

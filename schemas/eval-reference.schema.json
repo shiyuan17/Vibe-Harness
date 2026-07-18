@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "LoopEngine evaluation reference",
+  "title": "Cognis evaluation reference",
   "type": "object",
   "required": ["schemaVersion", "id", "approvedAt", "suite", "mode", "fingerprint", "capabilities", "overallScore", "criticalPassRate"],
   "properties": {

@@ -1,123 +1,124 @@
-# LoopEngine 迁移指南
+# Cognis 迁移指南
 
-本指南用于将项目内的 AI coding governance 抽取到 LoopEngine，同时避免带入业务专属状态。
+Cognis（智序）是 LoopEngine 的新名称。本指南同时覆盖新项目接入和旧安装升级；历史文档、审计报告及发布记录中的旧名称保持原样。
 
 ## 1. 盘点源项目
 
-- 将源文件分类为治理内核、专项 rules、templates、skills，或仅用于示例的项目专属内容；独立 workflow 文档应收敛到治理内核或对应 skill。
-- 排除当前 task 状态、memory 快照、本地 backlog 数据、具体端口、后端仓库名和业务契约。
-- 将项目专属值记录在 `loopengine.config.json` 中，不要硬编码到 core 文件。
-- 对照 `docs/inventory/source-rules-mapping.md` 判断每个源规则是通用化、摘要化、仅示例，还是排除业务内容。
-- 优先抽取三类可复用协议：会话启动、会话收尾、恢复型 handoff；不要把它们混在一个大型 `AGENTS.md` 中。
+- 将源文件分类为治理内核、专项 rules、templates、skills，或仅用于示例的项目专属内容。
+- 排除当前 task 状态、memory 快照、本地 backlog、具体端口、仓库名和业务契约。
+- 将项目专属值记录在 `cognis.config.json`，不要硬编码到通用核心资产。
+- 对照 `docs/inventory/source-rules-mapping.md` 判断每个源规则应通用化、摘要化、仅作示例或排除。
 
-## 2. 初始化目标项目
+## 2. 新项目接入
 
-```bash
-pnpm loopengine init --project ../target-project
-```
-
-检查生成的 `loopengine.config.json`，并按目标项目调整：
-
-- `projectName`
-- `packageManager`
-- `validationCommands`
-- `riskZones`
-- 可选的 `crossRepo`
-
-## 3. 选择并预览 Adapter
+初始化只创建 Cognis 配置：
 
 ```bash
-pnpm loopengine install --project ../target-project --target codex --profile core --dry-run
+pnpm cognis init --project ../target-project
 ```
 
-将 `codex` 替换为 `claude` 或 `gemini` 可安装对应项目级入口。Codex full 为 stable；Claude/Gemini full 为 preview，必须增加 `--allow-preview`，并审查报告中的 preview/missing capabilities。Dry-run 默认只输出相对目标、动作、hash、字节数和冲突摘要；需要完整渲染正文时增加 `--verbose`。该命令不得创建入口文件。
-
-## 4. 执行安装
+检查 `cognis.config.json` 中的 `projectName`、`validationCommands`、`riskZones` 和可选 `crossRepo`，然后先预览安装：
 
 ```bash
-pnpm loopengine install --project ../target-project --target codex --profile core --write
+pnpm cognis install --project ../target-project --target codex --profile core --dry-run
 ```
 
-LoopEngine 会在项目根目录管理 adapter 入口：Codex 为 `AGENTS.md`，Claude 为 `CLAUDE.md`，Gemini 为 `GEMINI.md`；Skills 分别写入 `.agents/skills/`、`.claude/skills/`、`.gemini/skills/`。已有入口只追加或更新 `<!-- LOOPENGINE:START -->` / `<!-- LOOPENGINE:END -->` 受管块，块外内容保持不变。其他冲突文件仍需显式 `--force`，覆盖前写入项目内备份。
-
-从 v0.4 起，`install` 不再隐式下载第三方工具。资产安装完成后单独执行：
+将 `codex` 替换为 `claude` 或 `gemini` 可选择对应 adapter。Codex full 为 stable；Claude/Gemini full 为 preview，必须增加 `--allow-preview` 并审查缺失能力。确认计划后真实写入：
 
 ```bash
-pnpm loopengine provision --project ../target-project --target codex --profile full --dry-run
-pnpm loopengine provision --project ../target-project --target codex --profile full --write
+pnpm cognis install --project ../target-project --target codex --profile core --write
+pnpm cognis validate --project ../target-project
+pnpm cognis doctor --project ../target-project
 ```
 
-Agentmemory 因已知 Moderate 依赖风险保持 preview；显式选择时仍需 `--allow-preview`。被中断的文件事务先运行 `recover --project ../target-project` 查看恢复计划，确认后再增加 `--write`。
+新安装只生成 `cognis.config.json`、`.cognis/`、`.agents/cognis/`、`using-cognis` 和 `COGNIS:*` 受管标记。
 
-## 5. 校验
+## 3. 从 LoopEngine 升级
+
+旧安装继续被识别，但普通 install 不会静默迁移。必须显式使用 `--upgrade`，并先检查 dry-run：
 
 ```bash
-pnpm loopengine validate --project ../target-project
-pnpm test
-pnpm run validate
-git diff --check
+pnpm cognis install --project ../target-project --target codex --profile core --upgrade --dry-run
+pnpm cognis install --project ../target-project --target codex --profile core --upgrade --write
 ```
 
-如果生成内容缺少必需红线、目标文件尚未安装或已被改动，或包含禁止出现的源项目专属标识，校验会失败。
-
-## Profile 选择
-
-- `minimal`：平台入口、治理内核、Git/Test 规则和中文 task/delivery 模板，不安装 skills、runtime、hooks 或 MCP。
-- `core`：`minimal` 加上工程专项规则、中文任务 runtime/schema、`using-loopengine`、常规 skills、Red Team 完成门禁和按需 Playwright。
-- `full`：`core` 加上 full 专项规则与 skills、durable memory 模板、在线评测、三个 stable 工具与 Agentmemory preview runtime、codebase 索引、MCP 注册和 Codex hooks。
-
-以上是面向选择的摘要；精确文件集合只以 `manifests/profiles.json` 为真值。
-
-## Agentmemory Skills
-
-`full` 只安装 `.agents/skills/agentmemory/` 一个 skill。`handoff`、`recall`、`remember`、`forget`、`recap`、`session-history` 已收敛为该目录下按需读取的 references，不再占用顶层 skill ID；提交历史和提交上下文也由同一入口处理。目标项目没有记忆工具时，Agent 必须说明不可用并回退到本地 handoff 或任务 intake。`core` 不包含 agentmemory MCP 安装面。
-
-从旧版安装升级时先 dry-run 审查 retire 动作：
+Codex full 涉及 `.codex/` 红区，真实写入还需要 `--confirm-red-zone`：
 
 ```bash
-pnpm loopengine install --project ../target-project --target codex --profile full --dry-run --upgrade
-pnpm loopengine install --project ../target-project --target codex --profile full --write --upgrade --confirm-red-zone
+pnpm cognis install --project ../target-project --target codex --profile full --upgrade --write --confirm-red-zone
 ```
 
-只有旧 `.loopengine/install-state.json` 明确记录且 hash 未变化的入口会被备份和删除。`codex-internal` 会归一为 `full`，`codex-minimal` 会归一为 `minimal`；用户修改、未受管或已缺失的旧入口不会被自动删除，真实退役记录写入 `retiredFiles`，可由 `rollback --project <path> --write` 恢复。
+升级事务会：
 
-## v0.4 升级
+- 将 `loopengine.config.json` 迁移为 `cognis.config.json`。
+- 仅改写完全匹配旧默认值的 `.agents/loopengine/` governance 命令。
+- 备份并退休旧 install-state 明确追踪且 hash 未变化的品牌资产。
+- 写入 `.agents/cognis/`、`using-cognis` 和 `COGNIS:*` 活动资产。
+- 将状态升级为 `stateVersion: 4`，记录 `product: "cognis"` 与实际 `storageNamespace`。
 
-- `install` 默认只写治理资产；原一站式自动化迁移为 `install --provision`，推荐改成独立 `install` 与 `provision` 两步。
-- install-state 新写入 stateVersion 3，包含 transaction ID、owner 与来源；v1/v2 保持只读兼容。
-- Claude/Gemini full 进入显式 preview，不再以布尔 capability 表示支持；自动化必须读取 `previewCapabilities` 与 `missingCapabilities`。
-- Hook 模板为每个命令传递 `--expected-event`。PreToolUse/PermissionRequest 外层异常 fail-closed；通知类异常只输出脱敏 warning。
-- `language` 只接受 `zh-CN` 或 `en-US`；任务 Markdown 先转为语言无关 TaskDocument IR。
-- Agentmemory provisioning 默认延期；只有 `provision --tool agentmemory --allow-preview --write` 才进入实际安装面。
+旧安装升级后保留 `.loopengine/` 状态根，以避免在事务期间搬移日志和备份；活动治理资产使用 Cognis 命名。rollback 和 uninstall 继续从该状态根工作。
 
-## v0.3 升级
+以下冲突会阻止执行：
 
-- Profile 文件集合有意调整：`core` 不再包含 `rules-full`、`skills-full` 或 memory/full 专属组；`manifests/profiles.json` 成为唯一能力真值。升级前应 dry-run 并审查移除项。
-- install/validate/doctor 采用统一健康状态：ready 退出 0、invalid 退出 1、degraded 退出 2；自动化若接受能力降级需显式增加 `--allow-degraded`，但仍应读取 `status` 与 warnings。
-- install state 新增 `adapter`。旧 schemaVersion 1 状态缺少该字段时迁移为 Codex，不重写未变化文件；upgrade/uninstall 的 adapter 必须与原安装一致。
-- Claude/Gemini adapter 只提供项目级原生 instructions/skills，并支持 `minimal/core/docs-only`；请求 full 会明确失败。
+- `cognis.config.json` 与 `loopengine.config.json` 并存：`COGNIS_CONFIG_CONFLICT`。
+- `.cognis/install-state.json` 与 `.loopengine/install-state.json` 并存：`COGNIS_STATE_CONFLICT`。
+- 同一文件同时存在 `COGNIS:*` 与 `LOOPENGINE:*` 块：拒绝读写。
+- 自定义 governance 命令仍引用 `.agents/loopengine/`：`COGNIS_CONFIG_MIGRATION_REQUIRED`。
 
-- 所有 profile 从 `minimal` 起新增受管文件 `docs/rules/AGENT_SKILL_ROUTING.md`；它是 Skill 选择与降级政策真值，`using-loopengine` 仍是安装 Skills 后的执行入口。升级前使用 `diff` 检查目标项目是否已有同名文件；默认拒绝覆盖，确认替换时使用 `--force` 生成备份，失败后沿用现有 `rollback`。
-- `core` 新增中文 Markdown 任务校验器、完整流程控制 schema 与 `.agents/skills/using-loopengine/`。
-- `core` 的完整任务完成前必须补齐红队审查者、审查包路径和批准结论；旧的未完成任务可在完成前迁移，不会因升级立即失败。
-- `full` 新增 `docs/memory/` 六类 durable governance 模板、task/backlog 语义校验和 Pencil `.pen/.png` 配对检查。
-- `validationCommands.lint` 与 `typecheck` 可为 `null`；未检测到真实脚本时不会生成虚假的 pnpm 命令。已有非空字符串配置继续兼容。
-- `governance.mode` 可为 `basic`、`full` 或 `off`；未配置的 v0.2 项目按 profile 推导。
-- `hooks.mode` 可为 `off`、`observe`、`guarded` 或 `strict`，默认 `guarded`；`hooks.completionGate` 可为 `off`、`advisory` 或 `blocking`，默认 `advisory`。
-- v0.2 snake_case hook 占位配置已替换为 Codex 官方 PascalCase 事件。升级前用 `diff` 审查 `.codex/hooks.json` 和 `.agents/loopengine/hooks/`，真实写入仍需红区确认。
-- `.githooks/` 只提供版本化脚本；LoopEngine 不自动修改 `core.hooksPath`。需要启用时人工执行 `git config --local core.hooksPath .githooks`。
-- 升级前使用 `diff` 审查新增文件，再运行 `install --upgrade`。用户修改过的 managed 文件仍默认拒绝覆盖；需要强制更新时先备份，失败可使用 `rollback`。
-- `.agents/memory/` 是会话辅助记忆；`docs/memory/` 是 durable 项目治理真值，两者不得互相替代。
-- Agentmemory 的六个薄入口已合并为单一 skill；`install --upgrade` 通过显式 `retiredEntries` 安全退役未修改的旧顶层入口，并允许 rollback 恢复。
+用户修改、未受管或已缺失的旧资产不会被自动删除。升级后需要撤销时先 dry-run，再执行：
 
-## Skills 闭包升级
+```bash
+pnpm cognis rollback --project ../target-project
+pnpm cognis rollback --project ../target-project --write
+```
 
-- Skill manifest 新增 `kind`、`requiresSkills`、`optionalSkills`、`requiresTools` 和可选 `canonicalId`。自定义 manifest 条目必须补齐这些字段。
-- core 新增 `executing-plans`、结构化追问、UI、安全、Red Team、精简、文档、Git 交付及调试/浏览器兼容入口；full 新增三类设计入口和跨仓 rollout。
-- 薄包装和兼容 ID 已删除；调试使用 `systematic-debugging`，浏览器验证使用 `browser-verification`，规则类检查使用对应 `docs/rules/*.md` 或 canonical skill。
-- `full` 现在捆绑固定版本的 codebase-memory、Playwright CLI、Open Code Review 和 Agentmemory stdio MCP runtime，并在真实安装后初始化。`core` 仍只安装懒加载 Playwright bootstrap。
-- 新增 `.codex/config.toml` LoopEngine MCP 受管块；它与 `.codex/hooks.json` 一样属于红区，真实写入需要确认。同名非受管 MCP 表不会被覆盖，而是报告 degraded。
-- OCR 凭据只从进程环境读取；缺失时状态为 `pending-config`。升级前先 dry-run 审查新增下载与项目磁盘占用。
-- 升级前运行 `loopengine diff`；使用 `install --upgrade` 安装新增受管文件。用户修改过的文件仍需 `--force` 才会备份并替换，失败时使用现有 `rollback` 生命周期恢复。
-- 使用 `pnpm skills:audit` 执行真实 Skill 图审计并查看实时 inventory；frontmatter、未知依赖、profile 越层、别名环、无回退 integration、metadata 和过长入口都会使命令失败。
-- 使用 `pnpm runtime:audit` 按实际 provision 参数审计四个项目内 runtime；Critical/High 和审计不可用均阻断，Moderate 只报告。Agentmemory 的有效安装面使用 `--omit=optional`，完整 lockfile 仅作为被排除 surface 的非阻断证据。
+rollback 会恢复旧配置和已退休资产；若 canonical 配置已被用户修改，则保留修改并报告跳过。uninstall 只删除未修改的受管资产，并保留用户配置。
+
+## 4. 兼容接口
+
+- `loopengine` CLI shim 在整个 `0.x` 保留，弃用提示只写 stderr，stdout JSON 保持机器可读。
+- `LOOPENGINE_*` 环境变量作为 fallback 保留；对应 `COGNIS_*` 变量优先，并报告旧变量弃用。
+- 读取器长期接受旧配置、旧状态、旧 marker 和旧 eval 证据路径。
+- fresh run 只写 `cognis-*` 评测和产物路径。
+- 第三方工具 ID `codebase-memory-mcp`、`open-code-review` 和 `agentmemory` 不重命名。
+
+兼容层最早只能在独立的 `1.0` breaking release 中移除。
+
+## 5. Profile 与工具
+
+- `minimal`：平台入口、治理内核、Git/Test 规则和中文 task/delivery 模板。
+- `core`：minimal 加工程专项规则、任务 runtime/schema、`using-cognis`、常规 skills 和 Red Team 门禁。
+- `full`：core 加 durable memory、在线评测、项目内工具、MCP 注册和 Codex hooks。
+- `docs-only`：只安装文档治理资产。
+
+精确文件集合以 `manifests/profiles.json` 为真值。`install` 不隐式下载第三方工具；需要工具时单独执行：
+
+```bash
+pnpm cognis provision --project ../target-project --target codex --profile full --dry-run
+pnpm cognis provision --project ../target-project --target codex --profile full --write
+```
+
+Agentmemory 因已知依赖风险保持 preview，显式选择时还需 `--allow-preview`。
+
+## 6. 中断恢复与验证
+
+被中断的事务先查看恢复计划，确认后再写入：
+
+```bash
+pnpm cognis recover --project ../target-project
+pnpm cognis recover --project ../target-project --write
+```
+
+迁移完成后运行：
+
+```bash
+pnpm cognis validate --project ../target-project
+pnpm cognis doctor --project ../target-project
+pnpm cognis verify --project ../target-project
+```
+
+`validate` 只检查安装一致性；`verify` 才执行目标项目在配置中声明的验证命令。manual 命令必须检查内容后显式增加 `--allow-manual`。
+
+## 7. 仓库与发布切换
+
+`v0.5.0` 本地验证和独立审查通过后，再将 GitHub 仓库改名为 Cognis，并更新 badge、artifact 名和仓库 URL。本地目录名与 `origin` URL 属于仓库外人工步骤，不由安装器修改。

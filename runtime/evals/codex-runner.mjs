@@ -57,17 +57,20 @@ function providerArgs() {
   const parsed = new URL(baseUrl);
   if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('OPENAI_BASE_URL must use http or https');
   return [
-    '-c', 'model_provider="loopengine-env"',
-    '-c', 'model_providers.loopengine-env.name="loopengine-env"',
-    '-c', `model_providers.loopengine-env.base_url=${JSON.stringify(parsed.toString().replace(/\/$/u, ''))}`,
-    '-c', 'model_providers.loopengine-env.wire_api="responses"',
-    '-c', 'model_providers.loopengine-env.env_key="OPENAI_API_KEY"',
-    '-c', 'model_providers.loopengine-env.requires_openai_auth=false',
+    '-c', 'model_provider="cognis-env"',
+    '-c', 'model_providers.cognis-env.name="cognis-env"',
+    '-c', `model_providers.cognis-env.base_url=${JSON.stringify(parsed.toString().replace(/\/$/u, ''))}`,
+    '-c', 'model_providers.cognis-env.wire_api="responses"',
+    '-c', 'model_providers.cognis-env.env_key="OPENAI_API_KEY"',
+    '-c', 'model_providers.cognis-env.requires_openai_auth=false',
   ];
 }
 
 async function resolveCodexCommand() {
-  const configured = process.env.LOOPENGINE_CODEX_COMMAND;
+  const configured = process.env.COGNIS_CODEX_COMMAND ?? process.env.LOOPENGINE_CODEX_COMMAND;
+  if (!process.env.COGNIS_CODEX_COMMAND && process.env.LOOPENGINE_CODEX_COMMAND) {
+    process.stderr.write('LOOPENGINE_CODEX_COMMAND is deprecated; use COGNIS_CODEX_COMMAND.\n');
+  }
   if (configured?.toLowerCase().endsWith('.mjs') || configured?.toLowerCase().endsWith('.js')) {
     return { args: [configured], program: process.execPath };
   }
@@ -100,7 +103,7 @@ async function resolveCodexCommand() {
 async function artifacts(root, current = root) {
   const output = [];
   for (const entry of await readdir(current, { withFileTypes: true })) {
-    if (['.codex-eval-home', '.loopengine-eval-user-home', '.git', 'node_modules'].includes(entry.name)) continue;
+    if (['.codex-eval-home', '.cognis-eval-user-home', '.git', 'node_modules'].includes(entry.name)) continue;
     const full = path.join(current, entry.name);
     if (entry.isDirectory()) output.push(...await artifacts(root, full));
     else if (entry.isFile()) output.push(path.relative(root, full).replaceAll('\\', '/'));
@@ -158,7 +161,7 @@ try {
   const model = process.env.CODEX_MODEL;
   if (!model) throw new Error('CODEX_MODEL is required');
   const codexHome = path.join(request.workspace, '.codex-eval-home');
-  const userHome = path.join(request.workspace, '.loopengine-eval-user-home');
+  const userHome = path.join(request.workspace, '.cognis-eval-user-home');
   await Promise.all([mkdir(codexHome, { recursive: true }), mkdir(userHome, { recursive: true })]);
   const isolatedEnvironment = { CODEX_HOME: codexHome, HOME: userHome, USERPROFILE: userHome };
   const protectedBefore = await snapshotProtectedConfig({ codexHome, userHome });

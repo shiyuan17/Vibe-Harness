@@ -299,7 +299,7 @@ export async function validateGovernanceQuality(rootDir) {
       terms: ['任务类型', '责任角色', '写入范围', '禁止动作', '并行安全', '人工确认', '核验者', '红队审查者', '红队审查包', '红队审查结论'],
     },
     {
-      file: 'skills/core/using-loopengine/SKILL.md',
+      file: 'skills/core/using-cognis/SKILL.md',
       terms: ['权限、红区和风险档位', '当前处于', '专项 Skill', '验证或审查 Skill', 'adversarial-review-packet'],
     },
     {
@@ -311,7 +311,7 @@ export async function validateGovernanceQuality(rootDir) {
       terms: [
         '不得覆盖', '一个流程 Skill', '一个领域 Skill', '一个验证或审查 Skill',
         'Clarify', 'Spec', 'Plan', 'Execute', 'Verify', 'Review', 'Handoff', 'Retrospective',
-        'ocr', 'fallback', 'Memory', 'using-loopengine',
+        'ocr', 'fallback', 'Memory', 'using-cognis',
       ],
     },
     {
@@ -378,7 +378,7 @@ export async function validateGovernanceQuality(rootDir) {
   if (await pathExists(agentsPath)) {
     const agents = await readFile(agentsPath, 'utf8');
     if (!/--project[^\n]*--write/u.test(agents)) errors.push('AGENTS.md must document the --project/--write lifecycle');
-    if (/pnpm loopengine[^\n]*(?:codex-internal|codex-minimal|--apply)/u.test(agents)) errors.push('AGENTS.md must not contain removed legacy lifecycle commands');
+    if (/pnpm cognis[^\n]*(?:codex-internal|codex-minimal|--apply)/u.test(agents)) errors.push('AGENTS.md must not contain removed legacy lifecycle commands');
   }
   const [agentsTemplate, governanceCore] = await Promise.all([
     readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8'),
@@ -436,7 +436,7 @@ export function validateAgentSkillRoutingIntegrity({
   if (!capability) {
     errors.push('skill-routing capability must track the routing policy and router');
   } else {
-    for (const target of [ruleSource, 'skills/core/using-loopengine/SKILL.md']) {
+    for (const target of [ruleSource, 'skills/core/using-cognis/SKILL.md']) {
       if (!capability.targets?.includes(target)) errors.push(`skill-routing capability must target ${target}`);
     }
     if (!capability.tests?.includes(testTarget)) {
@@ -444,8 +444,8 @@ export function validateAgentSkillRoutingIntegrity({
     }
   }
 
-  if (!routerContent.includes(ruleTarget)) errors.push(`using-loopengine router must reference ${ruleTarget}`);
-  if (!ruleContent.includes('using-loopengine')) errors.push('agent skill routing policy must reference using-loopengine');
+  if (!routerContent.includes(ruleTarget)) errors.push(`using-cognis router must reference ${ruleTarget}`);
+  if (!ruleContent.includes('using-cognis')) errors.push('agent skill routing policy must reference using-cognis');
   if (!agentsContent.includes(ruleTarget)) errors.push(`AGENTS template must reference ${ruleTarget}`);
   if (!/Skills 未安装时.*fallback/u.test(agentsContent)) {
     errors.push('AGENTS template must document the no-skill fallback');
@@ -598,7 +598,7 @@ export async function validatePack(rootDir) {
   };
   const [agentsContent, routerContent, ruleContent] = await Promise.all([
     readOptionalText('adapters/codex/AGENTS.template.md'),
-    readOptionalText('skills/core/using-loopengine/SKILL.md'),
+    readOptionalText('skills/core/using-cognis/SKILL.md'),
     readOptionalText('rules/agent-skill-routing.md'),
   ]);
   const agentSkillRoutingErrors = validateAgentSkillRoutingIntegrity({

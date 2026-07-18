@@ -184,150 +184,164 @@
     {
       "group": "runtime-eval",
       "source": "runtime/evals/run.mjs",
-      "target": ".agents/loopengine/evals/run.mjs",
+      "target": ".agents/cognis/evals/run.mjs",
       "executable": true,
       "contentStrategy": "replace"
     },
     {
       "group": "runtime-eval-online",
       "source": "runtime/evals/codex-runner.mjs",
-      "target": ".agents/loopengine/evals/codex-runner.mjs",
+      "target": ".agents/cognis/evals/codex-runner.mjs",
       "executable": true,
       "contentStrategy": "replace"
     },
     {
       "group": "runtime-eval-online",
       "source": "runtime/evals/lib/protected-config.mjs",
-      "target": ".agents/loopengine/evals/lib/protected-config.mjs",
+      "target": ".agents/cognis/evals/lib/protected-config.mjs",
       "contentStrategy": "replace"
     },
     {
       "group": "evals-core",
-      "source": "evals/suites/loopengine-core.json",
-      "target": ".agents/evals/suites/loopengine-core.json",
+      "source": "evals/suites/cognis-core.json",
+      "target": ".agents/evals/suites/cognis-core.json",
       "contentStrategy": "replace"
     },
     {
       "group": "evals-core",
-      "source": "evals/references/loopengine-core.offline.json",
-      "target": ".agents/evals/references/loopengine-core.offline.json",
+      "source": "evals/references/cognis-core.offline.json",
+      "target": ".agents/evals/references/cognis-core.offline.json",
       "contentStrategy": "replace"
     },
     {
       "group": "evals-online",
-      "source": "evals/suites/loopengine-online-canary.json",
-      "target": ".agents/evals/suites/loopengine-online-canary.json",
+      "source": "evals/suites/cognis-online-canary.json",
+      "target": ".agents/evals/suites/cognis-online-canary.json",
       "contentStrategy": "replace"
     },
     {
       "group": "runtime-basic",
       "source": "runtime/governance/validate.mjs",
-      "target": ".agents/loopengine/governance/validate.mjs",
+      "target": ".agents/cognis/governance/validate.mjs",
       "contentStrategy": "replace"
     },
     {
       "group": "runtime-task",
       "source": "runtime/governance/lib/task-validation.mjs",
-      "target": ".agents/loopengine/governance/lib/task-validation.mjs",
+      "target": ".agents/cognis/governance/lib/task-validation.mjs",
       "contentStrategy": "replace"
     },
     {
       "group": "runtime-task",
       "source": "runtime/governance/lib/red-team-validation.mjs",
-      "target": ".agents/loopengine/governance/lib/red-team-validation.mjs",
+      "target": ".agents/cognis/governance/lib/red-team-validation.mjs",
       "contentStrategy": "replace"
     },
     {
       "group": "runtime-full",
       "source": "runtime/governance/lib/design-validation.mjs",
-      "target": ".agents/loopengine/governance/lib/design-validation.mjs",
+      "target": ".agents/cognis/governance/lib/design-validation.mjs",
       "contentStrategy": "replace"
     },
     {
       "group": "runtime-full",
       "source": "runtime/governance/lib/memory-validation.mjs",
-      "target": ".agents/loopengine/governance/lib/memory-validation.mjs",
+      "target": ".agents/cognis/governance/lib/memory-validation.mjs",
       "contentStrategy": "replace"
     },
     {
       "group": "runtime-task",
       "source": "runtime/governance/lib/schema-validation.mjs",
-      "target": ".agents/loopengine/governance/lib/schema-validation.mjs",
+      "target": ".agents/cognis/governance/lib/schema-validation.mjs",
       "contentStrategy": "replace"
     },
     {
       "group": "tools-playwright",
       "source": "runtime/tools/playwright-cli/package.json",
-      "target": ".agents/loopengine/tools/playwright-cli/package.json",
+      "target": ".agents/cognis/tools/playwright-cli/package.json",
       "contentStrategy": "replace"
     },
     {
       "group": "tools-playwright",
       "source": "runtime/tools/playwright-cli/package-lock.json",
-      "target": ".agents/loopengine/tools/playwright-cli/package-lock.json",
+      "target": ".agents/cognis/tools/playwright-cli/package-lock.json",
       "contentStrategy": "replace"
     },
     {
       "group": "tools-playwright",
       "source": "runtime/tools/playwright-cli/run.mjs",
-      "target": ".agents/loopengine/tools/playwright-cli/run.mjs",
+      "target": ".agents/cognis/tools/playwright-cli/run.mjs",
       "executable": true,
       "contentStrategy": "replace"
     },
     {
       "group": "tools-codebase-memory",
       "source": "runtime/tools/codebase-memory-mcp/package.json",
-      "target": ".agents/loopengine/tools/codebase-memory-mcp/package.json",
+      "target": ".agents/cognis/tools/codebase-memory-mcp/package.json",
       "contentStrategy": "replace"
     },
     {
       "group": "tools-codebase-memory",
       "source": "runtime/tools/codebase-memory-mcp/package-lock.json",
-      "target": ".agents/loopengine/tools/codebase-memory-mcp/package-lock.json",
+      "target": ".agents/cognis/tools/codebase-memory-mcp/package-lock.json",
       "contentStrategy": "replace"
     },
     {
       "group": "tools-codebase-memory",
       "source": "runtime/tools/codebase-memory-mcp/run.mjs",
-      "target": ".agents/loopengine/tools/codebase-memory-mcp/run.mjs",
+      "target": ".agents/cognis/tools/codebase-memory-mcp/run.mjs",
       "executable": true,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-codebase-memory",
+      "source": "runtime/tools/codebase-memory-mcp/path-alias.mjs",
+      "target": ".agents/cognis/tools/codebase-memory-mcp/path-alias.mjs",
+      "executable": false,
       "contentStrategy": "replace"
     },
     {
       "group": "tools-open-code-review",
       "source": "runtime/tools/open-code-review/package.json",
-      "target": ".agents/loopengine/tools/open-code-review/package.json",
+      "target": ".agents/cognis/tools/open-code-review/package.json",
       "contentStrategy": "replace"
     },
     {
       "group": "tools-open-code-review",
       "source": "runtime/tools/open-code-review/package-lock.json",
-      "target": ".agents/loopengine/tools/open-code-review/package-lock.json",
+      "target": ".agents/cognis/tools/open-code-review/package-lock.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-open-code-review",
+      "source": "runtime/tools/open-code-review/ocr-config.mjs",
+      "target": ".agents/cognis/tools/open-code-review/ocr-config.mjs",
+      "executable": false,
       "contentStrategy": "replace"
     },
     {
       "group": "tools-open-code-review",
       "source": "runtime/tools/open-code-review/run.mjs",
-      "target": ".agents/loopengine/tools/open-code-review/run.mjs",
+      "target": ".agents/cognis/tools/open-code-review/run.mjs",
       "executable": true,
       "contentStrategy": "replace"
     },
     {
       "group": "tools-agentmemory",
       "source": "runtime/tools/agentmemory/package.json",
-      "target": ".agents/loopengine/tools/agentmemory/package.json",
+      "target": ".agents/cognis/tools/agentmemory/package.json",
       "contentStrategy": "replace"
     },
     {
       "group": "tools-agentmemory",
       "source": "runtime/tools/agentmemory/package-lock.json",
-      "target": ".agents/loopengine/tools/agentmemory/package-lock.json",
+      "target": ".agents/cognis/tools/agentmemory/package-lock.json",
       "contentStrategy": "replace"
     },
     {
       "group": "tools-agentmemory",
       "source": "runtime/tools/agentmemory/run.mjs",
-      "target": ".agents/loopengine/tools/agentmemory/run.mjs",
+      "target": ".agents/cognis/tools/agentmemory/run.mjs",
       "executable": true,
       "contentStrategy": "replace"
     },
@@ -346,8 +360,8 @@
     },
     {
       "group": "skills-core",
-      "source": "skills/core/using-loopengine/SKILL.md",
-      "target": ".agents/skills/using-loopengine/SKILL.md",
+      "source": "skills/core/using-cognis/SKILL.md",
+      "target": ".agents/skills/using-cognis/SKILL.md",
       "contentStrategy": "replace"
     },
     {
@@ -605,33 +619,33 @@
     {
       "group": "hooks",
       "source": "runtime/hooks/codex-hook.mjs",
-      "target": ".agents/loopengine/hooks/codex-hook.mjs",
+      "target": ".agents/cognis/hooks/codex-hook.mjs",
       "executable": true,
       "contentStrategy": "replace"
     },
     {
       "group": "hooks",
       "source": "runtime/hooks/git-hook.mjs",
-      "target": ".agents/loopengine/hooks/git-hook.mjs",
+      "target": ".agents/cognis/hooks/git-hook.mjs",
       "executable": true,
       "contentStrategy": "replace"
     },
     {
       "group": "hooks",
       "source": "runtime/hooks/lib/context.mjs",
-      "target": ".agents/loopengine/hooks/lib/context.mjs",
+      "target": ".agents/cognis/hooks/lib/context.mjs",
       "contentStrategy": "replace"
     },
     {
       "group": "hooks",
       "source": "runtime/hooks/lib/delivery-validation.mjs",
-      "target": ".agents/loopengine/hooks/lib/delivery-validation.mjs",
+      "target": ".agents/cognis/hooks/lib/delivery-validation.mjs",
       "contentStrategy": "replace"
     },
     {
       "group": "hooks",
       "source": "runtime/hooks/lib/policy.mjs",
-      "target": ".agents/loopengine/hooks/lib/policy.mjs",
+      "target": ".agents/cognis/hooks/lib/policy.mjs",
       "contentStrategy": "replace"
     },
     {

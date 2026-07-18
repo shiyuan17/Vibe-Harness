@@ -92,9 +92,9 @@ export async function loadEvalAssets(rootDir) {
     readJson(path.join(rootDir, 'schemas/eval-suite.schema.json')),
     readJson(path.join(rootDir, 'schemas/eval-run.schema.json')),
     readJson(path.join(rootDir, 'schemas/eval-reference.schema.json')),
-    readJson(path.join(rootDir, 'evals/suites/loopengine-core.json')),
-    readJson(path.join(rootDir, 'evals/results/loopengine-core.offline.json')),
-    readJson(path.join(rootDir, 'evals/references/loopengine-core.offline.json')),
+    readJson(path.join(rootDir, 'evals/suites/cognis-core.json')),
+    readJson(path.join(rootDir, 'evals/results/cognis-core.offline.json')),
+    readJson(path.join(rootDir, 'evals/references/cognis-core.offline.json')),
   ]);
   return {
     suite,

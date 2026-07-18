@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "items": [
-    { "id": "using-loopengine", "source": "skills/core/using-loopengine/SKILL.md", "metadata": "skills/core/using-loopengine/metadata.json", "kind": "router", "requiresSkills": ["verification-before-completion", "code-review-and-quality"], "optionalSkills": ["brainstorming", "writing-plans", "executing-plans", "systematic-debugging", "test-driven-development", "eval-driven-development", "adversarial-review-packet"], "requiresTools": [] },
+    { "id": "using-cognis", "source": "skills/core/using-cognis/SKILL.md", "metadata": "skills/core/using-cognis/metadata.json", "kind": "router", "requiresSkills": ["verification-before-completion", "code-review-and-quality"], "optionalSkills": ["brainstorming", "writing-plans", "executing-plans", "systematic-debugging", "test-driven-development", "eval-driven-development", "adversarial-review-packet"], "requiresTools": [] },
     { "id": "brainstorming", "source": "skills/core/brainstorming/SKILL.md", "metadata": "skills/core/brainstorming/metadata.json", "kind": "native", "requiresSkills": [], "optionalSkills": ["writing-plans"], "requiresTools": [] },
     { "id": "api-and-interface-design", "source": "skills/core/api-and-interface-design/SKILL.md", "metadata": "skills/core/api-and-interface-design/metadata.json", "kind": "native", "requiresSkills": [], "optionalSkills": [], "requiresTools": [] },
     { "id": "writing-plans", "source": "skills/core/writing-plans/SKILL.md", "metadata": "skills/core/writing-plans/metadata.json", "kind": "native", "requiresSkills": ["executing-plans"], "optionalSkills": ["subagent-driven-development"], "requiresTools": [] },

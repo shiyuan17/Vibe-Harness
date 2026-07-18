@@ -1,4 +1,4 @@
-# LoopEngine 贡献指南
+# Cognis 贡献指南
 
 本文件是仓库贡献流程的中文真值。`AGENTS.md` 保存 Agent 必须常驻读取的硬边界和命令速查；README 面向使用者；`docs/` 解释系统与历史。不要在多个位置复制同一套流程。
 
@@ -79,7 +79,7 @@ PR 使用仓库模板并至少说明：
 
 ## 发布
 
-发布规则以 `rules/release-rules.md` 为通用行为真值，本节只说明 LoopEngine 仓库的执行面：
+发布规则以 `rules/release-rules.md` 为通用行为真值，本节只说明 Cognis 仓库的执行面：
 
 1. 确认 `package.json`、adapter/plugin 元数据和计划 tag 的版本一致。
 2. 将 Unreleased 收敛为最终用户可观察变化，删除开发过程中的中间态叙事。

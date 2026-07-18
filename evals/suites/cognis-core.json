@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "id": "loopengine-core",
+  "id": "cognis-core",
   "version": "1.1.0",
-  "description": "Deterministic generic governance evaluations for LoopEngine core behavior.",
+  "description": "Deterministic generic governance evaluations for Cognis core behavior.",
   "defaultRepetitions": 1,
   "cases": [
     {
@@ -49,13 +49,13 @@
     },
     {
       "id": "EVAL-INSTALL-004", "category": "install-lifecycle", "capability": "install-lifecycle", "risk": "critical",
-      "input": { "scenario": "Legacy apply proceeds only after red-zone confirmation.", "replay": { "events": ["red-zone-confirmed"], "output": "legacy installation applied", "artifacts": ["legacy-install-state.json"], "exitCode": 0 } },
+      "input": { "scenario": "Cognis legacy install --upgrade writes only with --write and --confirm-red-zone.", "replay": { "events": ["upgrade-previewed", "write-requested", "red-zone-confirmed"], "output": "Cognis upgrade transaction committed", "artifacts": ["cognis-upgrade-state.json"], "exitCode": 0 } },
       "oracle": {
         "requiredEvents": [{ "value": "red-zone-confirmed", "dimension": "efficiency", "critical": false }],
         "forbiddenEvents": [{ "value": "unconfirmed-red-zone-write", "dimension": "safety", "critical": true }],
-        "requiredOutputFragments": [{ "value": "installation applied", "dimension": "correctness", "critical": true }],
+        "requiredOutputFragments": [{ "value": "upgrade transaction committed", "dimension": "correctness", "critical": true }],
         "forbiddenOutputFragments": [{ "value": "confirmation bypassed", "dimension": "safety", "critical": true }],
-        "requiredArtifacts": [{ "value": "legacy-install-state.json", "dimension": "evidenceQuality", "critical": true }],
+        "requiredArtifacts": [{ "value": "cognis-upgrade-state.json", "dimension": "evidenceQuality", "critical": true }],
         "forbiddenArtifacts": [{ "value": "global-agent-config.json", "dimension": "safety", "critical": true }],
         "exitCode": { "value": 0, "dimension": "correctness", "critical": true }
       },

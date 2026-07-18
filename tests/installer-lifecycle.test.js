@@ -11,7 +11,7 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve('.');
-const cliPath = path.join(rootDir, 'scripts/loopengine.js');
+const cliPath = path.join(rootDir, 'scripts/cognis.js');
 
 async function runCli(args, options = {}) {
   const effectiveArgs = args[0] === 'install' && args.includes('--write') && !args.includes('--dry-run') && !args.includes('--allow-degraded')
@@ -59,8 +59,8 @@ async function seedLegacyMemoryInstall(target, { modifiedOperation } = {}) {
       targetHash: sha256(content),
     });
   }
-  await mkdir(path.join(target, '.loopengine'), { recursive: true });
-  await writeFile(path.join(target, '.loopengine/install-state.json'), `${JSON.stringify({
+  await mkdir(path.join(target, '.cognis'), { recursive: true });
+  await writeFile(path.join(target, '.cognis/install-state.json'), `${JSON.stringify({
     files,
     generatedDirectories: [],
     installedAt: new Date().toISOString(),
@@ -77,12 +77,12 @@ async function seedLegacyMemoryInstall(target, { modifiedOperation } = {}) {
 }
 
 test('write install writes install state with hashes and red-zone metadata', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-state-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-state-'));
   try {
     await runCli(['init', '--project', target, '--target', 'codex', '--profile', 'full']);
     await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'full', '--write', '--confirm-red-zone']);
 
-    const state = JSON.parse(await readFile(path.join(target, '.loopengine/install-state.json'), 'utf8'));
+    const state = JSON.parse(await readFile(path.join(target, '.cognis/install-state.json'), 'utf8'));
     const agents = state.files.find((file) => file.target === 'AGENTS.md');
     const hooks = state.files.find((file) => file.target === '.codex/hooks.json');
 
@@ -101,7 +101,7 @@ test('write install writes install state with hashes and red-zone metadata', asy
 });
 
 test('diff reports missing, same, changed, red-zone, and unmanaged files', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-diff-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-diff-'));
   try {
     await runCli(['init', '--project', target, '--target', 'codex', '--profile', 'full']);
     let report = await runCli(['diff', '--project', target, '--profile', 'full']);
@@ -122,7 +122,7 @@ test('diff reports missing, same, changed, red-zone, and unmanaged files', async
 });
 
 test('upgrade refuses user modified managed files unless force is used and force creates backup', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-upgrade-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-upgrade-'));
   try {
     await runCli(['init', '--project', target, '--target', 'codex', '--profile', 'full']);
     await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'full', '--write', '--confirm-red-zone']);
@@ -147,9 +147,9 @@ test('upgrade refuses user modified managed files unless force is used and force
 
     await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'full', '--write', '--upgrade', '--force', '--confirm-red-zone']);
 
-    const state = JSON.parse(await readFile(path.join(target, '.loopengine/install-state.json'), 'utf8'));
+    const state = JSON.parse(await readFile(path.join(target, '.cognis/install-state.json'), 'utf8'));
     const changedTemplate = state.files.find((file) => file.target === 'docs/templates/task.md');
-    const backups = await readdir(path.join(target, '.loopengine/backups'));
+    const backups = await readdir(path.join(target, '.cognis/backups'));
 
     assert.equal(backups.length, 1);
     assert.ok(changedTemplate.backup);
@@ -160,7 +160,7 @@ test('upgrade refuses user modified managed files unless force is used and force
 });
 
 test('agentmemory upgrade dry-run retires only legacy entries tracked by install state', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-agentmemory-retire-preview-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-agentmemory-retire-preview-'));
   try {
     await seedLegacyMemoryInstall(target);
     await runCli(['init', '--project', target]);
@@ -171,7 +171,7 @@ test('agentmemory upgrade dry-run retires only legacy entries tracked by install
     );
     assert.equal(await exists(path.join(target, '.agents/skills/handoff/SKILL.md')), true);
 
-    const untracked = await mkdtemp(path.join(tmpdir(), 'loopengine-agentmemory-untracked-'));
+    const untracked = await mkdtemp(path.join(tmpdir(), 'cognis-agentmemory-untracked-'));
     try {
       const untrackedTarget = path.join(untracked, '.agents/skills/recall/SKILL.md');
       await mkdir(path.dirname(untrackedTarget), { recursive: true });
@@ -187,8 +187,8 @@ test('agentmemory upgrade dry-run retires only legacy entries tracked by install
   }
 });
 
-test('agentmemory upgrade preserves modified legacy entries and rollback restores retired entries', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-agentmemory-retire-'));
+test('agentmemory upgrade preserves modified legacy entries and rollback restores retired entries atomically', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-agentmemory-retire-'));
   try {
     await seedLegacyMemoryInstall(target, { modifiedOperation: 'recall' });
     await runCli(['init', '--project', target]);
@@ -202,7 +202,7 @@ test('agentmemory upgrade preserves modified legacy entries and rollback restore
     assert.equal(await readFile(path.join(target, '.agents/skills/recall/SKILL.md'), 'utf8'), 'user modified recall\n');
     assert.equal(await exists(path.join(target, '.agents/skills/agentmemory/references/forget.md')), true);
 
-    const state = JSON.parse(await readFile(path.join(target, '.loopengine/install-state.json'), 'utf8'));
+    const state = JSON.parse(await readFile(path.join(target, '.cognis/install-state.json'), 'utf8'));
     assert.equal(state.retiredFiles.length, 5);
 
     const recreated = path.join(target, '.agents/skills/handoff/SKILL.md');
@@ -210,15 +210,26 @@ test('agentmemory upgrade preserves modified legacy entries and rollback restore
     await writeFile(recreated, 'recreated handoff\n', 'utf8');
     const rollback = await runCli(['rollback', '--project', target, '--write', '--confirm-red-zone']);
     assert.ok(rollback.skipped.some((item) => item.target === '.agents/skills/handoff/SKILL.md' && item.reason === 'target-recreated'));
+    assert.ok(rollback.skipped.some((item) => item.target === '.agents/skills/recall/SKILL.md' && item.reason === 'target-modified'));
+    assert.deepEqual(rollback.applied, []);
+    assert.equal(rollback.retainedState, true);
     assert.equal(await readFile(recreated, 'utf8'), 'recreated handoff\n');
+    assert.equal(await exists(path.join(target, '.agents/skills/forget/SKILL.md')), false);
+    assert.equal(await exists(path.join(target, '.cognis/install-state.json')), true);
+
+    await rm(recreated, { force: true });
+    await writeFile(path.join(target, '.agents/skills/recall/SKILL.md'), 'legacy recall\n', 'utf8');
+    const retried = await runCli(['rollback', '--project', target, '--write', '--confirm-red-zone']);
+    assert.equal(retried.retainedState, false);
     assert.equal(await readFile(path.join(target, '.agents/skills/forget/SKILL.md'), 'utf8'), 'legacy forget\n');
+    assert.equal(await readFile(path.join(target, '.agents/skills/handoff/SKILL.md'), 'utf8'), 'legacy handoff\n');
   } finally {
     await rm(target, { force: true, recursive: true });
   }
 });
 
 test('MVP write upgrade uses the same tracked agentmemory retirement lifecycle', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-agentmemory-mvp-retire-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-agentmemory-mvp-retire-'));
   try {
     await seedLegacyMemoryInstall(target);
     await runCli(['init', '--project', target]);
@@ -242,7 +253,7 @@ test('MVP write upgrade uses the same tracked agentmemory retirement lifecycle',
 });
 
 test('rollback defaults to dry-run and write restores backups and removes safe created files', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-rollback-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-rollback-'));
   try {
     await runCli(['init', '--project', target, '--profile', 'minimal']);
     await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'minimal', '--write']);
@@ -254,14 +265,14 @@ test('rollback defaults to dry-run and write restores backups and removes safe c
 
     await runCli(['rollback', '--project', target, '--write']);
     await assert.rejects(readFile(path.join(target, 'AGENTS.md'), 'utf8'), /ENOENT/);
-    assert.equal(await exists(path.join(target, '.loopengine/install-state.json')), false);
+    assert.equal(await exists(path.join(target, '.cognis/install-state.json')), false);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
 });
 
 test('rollback does not overwrite user changes made after a forced install', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-rollback-modified-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-rollback-modified-'));
   try {
     await writeFile(path.join(target, 'AGENTS.md'), 'original local agents\n', 'utf8');
     await runCli(['init', '--project', target, '--profile', 'minimal']);
@@ -278,7 +289,7 @@ test('rollback does not overwrite user changes made after a forced install', asy
 });
 
 test('rollback blocks red-zone changes without explicit confirmation', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-rollback-redzone-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-rollback-redzone-'));
   try {
     await runCli(['init', '--project', target, '--profile', 'full']);
     await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'full', '--write', '--confirm-red-zone']);
@@ -296,11 +307,11 @@ test('rollback blocks red-zone changes without explicit confirmation', async () 
 });
 
 test('rollback refuses install-state targets outside the project', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-rollback-escape-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-rollback-escape-'));
   try {
     await runCli(['init', '--project', target, '--profile', 'minimal']);
     await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'minimal', '--write']);
-    const statePath = path.join(target, '.loopengine/install-state.json');
+    const statePath = path.join(target, '.cognis/install-state.json');
     const state = JSON.parse(await readFile(statePath, 'utf8'));
     state.files[0].target = '../escape.md';
     await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
@@ -315,13 +326,13 @@ test('rollback refuses install-state targets outside the project', async () => {
 });
 
 test('reinstall refuses generated-file registrations outside the project', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-reinstall-generated-escape-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-reinstall-generated-escape-'));
   const outside = path.join(path.dirname(target), `${path.basename(target)}-outside.txt`);
   try {
     await runCli(['init', '--project', target, '--profile', 'minimal']);
     await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'minimal', '--write']);
     await writeFile(outside, 'outside\n', 'utf8');
-    const statePath = path.join(target, '.loopengine/install-state.json');
+    const statePath = path.join(target, '.cognis/install-state.json');
     const state = JSON.parse(await readFile(statePath, 'utf8'));
     state.generatedFiles = [{ target: `../${path.basename(outside)}`, targetHash: 'not-the-real-hash' }];
     await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
@@ -330,7 +341,7 @@ test('reinstall refuses generated-file registrations outside the project', async
       execFileAsync(process.execPath, [cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'minimal', '--write', '--force']),
       /outside target directory|portable relative path/,
     );
-    await assert.rejects(access(path.join(target, '.loopengine/backups')), /ENOENT/u);
+    await assert.rejects(access(path.join(target, '.cognis/backups')), /ENOENT/u);
   } finally {
     await rm(target, { force: true, recursive: true });
     await rm(outside, { force: true });

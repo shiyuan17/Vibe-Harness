@@ -19,7 +19,7 @@ test('manifests expose adapters, profiles, rules, and skills', async () => {
   const manifests = await loadAllManifests(rootDir);
   assert.deepEqual(Object.keys(manifests).sort(), ['adapters', 'profiles', 'rules', 'skills']);
   assert.equal(manifests.rules.items.some((item) => item.id === 'governance-core'), true);
-  assert.equal(manifests.skills.items.some((item) => item.id === 'using-loopengine'), true);
+  assert.equal(manifests.skills.items.some((item) => item.id === 'using-cognis'), true);
   assert.deepEqual(manifests.profiles.items.map((item) => item.id), ['minimal', 'core', 'full', 'docs-only']);
 });
 

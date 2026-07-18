@@ -1,9 +1,9 @@
 ---
-name: using-loopengine
-description: 用于在任务开始、风险变化或交付前选择 LoopEngine 流程、专项和验证 Skill。
+name: using-cognis
+description: 用于在任务开始、风险变化或交付前选择 Cognis 流程、专项和验证 Skill。
 ---
 
-# LoopEngine 路由
+# Cognis 路由
 
 先读取 `docs/rules/governance-core.md` 和 `docs/rules/AGENT_SKILL_ROUTING.md`。前者定义流程硬约束，后者定义 Skill 选择与 fallback；本 Skill 只负责执行路由。
 

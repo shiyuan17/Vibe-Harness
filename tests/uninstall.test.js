@@ -8,7 +8,7 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '..');
-const cliPath = path.join(rootDir, 'scripts/loopengine.js');
+const cliPath = path.join(rootDir, 'scripts/cognis.js');
 
 async function runCli(args) {
   const { stdout } = await execFileAsync(process.execPath, [cliPath, ...args], { cwd: rootDir });
@@ -39,7 +39,7 @@ async function exists(filePath) {
 }
 
 test('MVP uninstall previews then removes managed assets while retaining local project data', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-uninstall-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-uninstall-'));
   try {
     await runCli(['init', '--project', target]);
     await mkdir(path.join(target, 'docs'), { recursive: true });
@@ -61,16 +61,16 @@ test('MVP uninstall previews then removes managed assets while retaining local p
     assert.equal(await readFile(path.join(target, 'docs', 'product.md'), 'utf8'), '# Product\n');
     assert.equal(await exists(path.join(target, 'docs', 'rules', 'git-rules.md')), false);
     assert.equal(await exists(path.join(target, 'docs', 'rules')), false);
-    assert.equal(await exists(path.join(target, 'loopengine.config.json')), true);
+    assert.equal(await exists(path.join(target, 'cognis.config.json')), true);
     assert.equal(await exists(path.join(target, '.agents', 'backup', install.baselineId, 'manifest.json')), true);
-    assert.equal(await exists(path.join(target, '.loopengine', 'install-state.json')), false);
+    assert.equal(await exists(path.join(target, '.cognis', 'install-state.json')), false);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
 });
 
 test('MVP uninstall keeps modified ownership state and succeeds after the file is restored', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-uninstall-retry-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-uninstall-retry-'));
   try {
     await runCli(['init', '--project', target]);
     await runCli([
@@ -84,7 +84,7 @@ test('MVP uninstall keeps modified ownership state and succeeds after the file i
     const failed = await runCliFailure(['uninstall', '--project', target, '--target', 'codex', '--write']);
     assert.equal(failed.report.retainedState, true);
     assert.deepEqual(failed.report.skipped, [{ reason: 'target-modified', target: 'docs/rules/git-rules.md' }]);
-    const remaining = JSON.parse(await readFile(path.join(target, '.loopengine', 'install-state.json'), 'utf8'));
+    const remaining = JSON.parse(await readFile(path.join(target, '.cognis', 'install-state.json'), 'utf8'));
     assert.deepEqual(remaining.files.map((item) => item.target), ['docs/rules/git-rules.md']);
 
     await writeFile(changedPath, installedContent, 'utf8');
@@ -97,7 +97,7 @@ test('MVP uninstall keeps modified ownership state and succeeds after the file i
 });
 
 test('MVP uninstall restores legacy unmarked AGENTS content from the install baseline', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-uninstall-legacy-agents-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-uninstall-legacy-agents-'));
   try {
     await runCli(['init', '--project', target]);
     const legacy = [
@@ -123,7 +123,7 @@ test('MVP uninstall restores legacy unmarked AGENTS content from the install bas
 });
 
 test('MVP uninstall requires explicit confirmation before changing red-zone files', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-uninstall-red-zone-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-uninstall-red-zone-'));
   try {
     await runCli(['init', '--project', target]);
     await runCli([
@@ -145,14 +145,14 @@ test('MVP uninstall requires explicit confirmation before changing red-zone file
 });
 
 test('MVP uninstall rejects install-state targets outside the project', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-uninstall-escape-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-uninstall-escape-'));
   const outside = path.join(path.dirname(target), `${path.basename(target)}-outside.md`);
   try {
     await runCli(['init', '--project', target]);
     await runCli([
       'install', '--project', target, '--target', 'codex', '--profile', 'minimal', '--write',
     ]);
-    const statePath = path.join(target, '.loopengine', 'install-state.json');
+    const statePath = path.join(target, '.cognis', 'install-state.json');
     const state = JSON.parse(await readFile(statePath, 'utf8'));
     state.files[0].target = `../${path.basename(outside)}`;
     await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');

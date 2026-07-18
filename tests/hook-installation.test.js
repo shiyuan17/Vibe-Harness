@@ -12,7 +12,7 @@ import { defaultProjectConfig, validateProjectConfig } from '../scripts/lib/proj
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve('.');
-const cliPath = path.join(rootDir, 'scripts/loopengine.js');
+const cliPath = path.join(rootDir, 'scripts/cognis.js');
 
 test('project config exposes guarded hook defaults and validates optional hook settings', () => {
   assert.deepEqual(defaultProjectConfig.hooks, {
@@ -32,7 +32,7 @@ test('project config exposes guarded hook defaults and validates optional hook s
 
 test('full installs hook runtime and inactive Git hook templates while core does not', async () => {
   const run = async (profile) => {
-    const target = await mkdtemp(path.join(tmpdir(), `loopengine-hook-${profile}-`));
+    const target = await mkdtemp(path.join(tmpdir(), `cognis-hook-${profile}-`));
     try {
       await execFileAsync(process.execPath, [cliPath, 'init', '--project', target, '--target', 'codex', '--profile', profile]);
       const { stdout } = await execFileAsync(process.execPath, [cliPath, 'install', '--project', target, '--target', 'codex', '--profile', profile, '--dry-run']);
@@ -46,8 +46,8 @@ test('full installs hook runtime and inactive Git hook templates while core does
 
     for (const targets of [full]) {
       assert.ok(targets.includes('.codex/hooks.json'));
-      assert.ok(targets.includes('.agents/loopengine/hooks/codex-hook.mjs'));
-      assert.ok(targets.includes('.agents/loopengine/hooks/lib/delivery-validation.mjs'));
+      assert.ok(targets.includes('.agents/cognis/hooks/codex-hook.mjs'));
+      assert.ok(targets.includes('.agents/cognis/hooks/lib/delivery-validation.mjs'));
       assert.ok(targets.includes('.githooks/pre-commit'));
       assert.ok(targets.includes('.githooks/pre-push'));
     }
@@ -55,7 +55,7 @@ test('full installs hook runtime and inactive Git hook templates while core does
 });
 
 test('doctor reports Git hook activation without modifying local Git config', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-hook-doctor-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-hook-doctor-'));
   try {
     await execFileAsync('git', ['init'], { cwd: target });
     await execFileAsync(process.execPath, [cliPath, 'init', '--project', target, '--target', 'codex']);

@@ -3,9 +3,15 @@ import { copyFile, cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile } 
 import path from 'node:path';
 
 import { assertPortableRelativePath, assertSafePathInside, pathExists } from './manifest.js';
+import { projectStateDir } from './project-layout.js';
 
-const transactionRootName = '.loopengine/transactions';
-const lockRelativePath = '.loopengine/transaction.lock';
+async function transactionLayout(targetDir) {
+  const stateDir = await projectStateDir(targetDir);
+  return {
+    lockPath: path.join(stateDir, 'transaction.lock'),
+    transactionRoot: path.join(stateDir, 'transactions'),
+  };
+}
 
 export function createTransactionId(date = new Date()) {
   return `${date.toISOString().replaceAll(':', '-').replaceAll('.', '-')}-${randomUUID()}`;
@@ -65,8 +71,9 @@ async function restoreJournal(targetDir, transactionDir, journal) {
   }
 }
 
-async function readTransactionLockId(targetDir) {
-  const transactionIdPath = path.join(targetDir, lockRelativePath, 'transaction-id');
+async function readTransactionLockId(targetDir, lockPath) {
+  const resolvedLockPath = lockPath ?? (await transactionLayout(targetDir)).lockPath;
+  const transactionIdPath = path.join(resolvedLockPath, 'transaction-id');
   await assertSafePathInside(targetDir, transactionIdPath, 'transaction lock');
   try {
     return (await readFile(transactionIdPath, 'utf8')).trim() || null;
@@ -76,11 +83,11 @@ async function readTransactionLockId(targetDir) {
   }
 }
 
-async function releaseTransaction(targetDir, transactionDir, transactionId) {
+async function releaseTransaction(targetDir, transactionDir, transactionId, lockPath) {
   await rm(transactionDir, { force: true, recursive: true });
-  const lockOwner = await readTransactionLockId(targetDir);
+  const lockOwner = await readTransactionLockId(targetDir, lockPath);
   if (lockOwner === null || lockOwner === transactionId) {
-    await rm(path.join(targetDir, lockRelativePath), { force: true, recursive: true });
+    await rm(lockPath, { force: true, recursive: true });
   }
 }
 
@@ -92,10 +99,9 @@ export async function beginFileTransaction({
   trackedPaths,
 }) {
   const resolvedTargetDir = path.resolve(targetDir);
-  const transactionRoot = path.join(resolvedTargetDir, transactionRootName);
+  const { lockPath, transactionRoot } = await transactionLayout(resolvedTargetDir);
   const transactionDir = path.join(transactionRoot, id);
   const preimagesDir = path.join(transactionDir, 'preimages');
-  const lockPath = path.join(resolvedTargetDir, lockRelativePath);
   for (const candidatePath of [...trackedPaths, ...cleanupPaths, transactionDir, lockPath]) {
     await assertSafePathInside(resolvedTargetDir, candidatePath, 'transaction path');
   }
@@ -105,7 +111,7 @@ export async function beginFileTransaction({
     await mkdir(lockPath);
   } catch (error) {
     if (error.code === 'EEXIST') {
-      throw new Error(`Another LoopEngine write transaction is active; run recover --project ${resolvedTargetDir}.`);
+      throw new Error(`Another Cognis write transaction is active; run recover --project ${resolvedTargetDir}.`);
     }
     throw error;
   }
@@ -141,13 +147,13 @@ export async function beginFileTransaction({
       id,
       async commit() {
         await writeJsonAtomic(journalPath, { ...journal, completedAt: new Date().toISOString(), status: 'committed' });
-        await releaseTransaction(resolvedTargetDir, transactionDir, id);
+        await releaseTransaction(resolvedTargetDir, transactionDir, id, lockPath);
       },
       async rollback() {
         try {
           await restoreJournal(resolvedTargetDir, transactionDir, journal);
           await writeJsonAtomic(journalPath, { ...journal, completedAt: new Date().toISOString(), status: 'rolled-back' });
-          await releaseTransaction(resolvedTargetDir, transactionDir, id);
+          await releaseTransaction(resolvedTargetDir, transactionDir, id, lockPath);
         } catch (error) {
           await writeJsonAtomic(journalPath, {
             ...journal,
@@ -159,14 +165,14 @@ export async function beginFileTransaction({
       },
     };
   } catch (error) {
-    await releaseTransaction(resolvedTargetDir, transactionDir, id);
+    await releaseTransaction(resolvedTargetDir, transactionDir, id, lockPath);
     throw error;
   }
 }
 
 export async function inspectTransactions(targetDir) {
   const resolvedTargetDir = path.resolve(targetDir);
-  const transactionRoot = path.join(resolvedTargetDir, transactionRootName);
+  const { transactionRoot } = await transactionLayout(resolvedTargetDir);
   if (!(await pathExists(transactionRoot))) return [];
   await assertSafePathInside(resolvedTargetDir, transactionRoot, 'transaction root');
   const entries = await readdir(transactionRoot, { withFileTypes: true });
@@ -197,14 +203,15 @@ export async function recoverTransaction({ id, targetDir, write = false }) {
   const selected = id ? recoverable.find((item) => item.id === id) : recoverable[0];
   if (!selected) return { recovered: [], transactions };
   if (!write) return { recovered: [], selected, transactions };
-  const lockOwner = await readTransactionLockId(resolvedTargetDir);
+  const { lockPath, transactionRoot } = await transactionLayout(resolvedTargetDir);
+  const lockOwner = await readTransactionLockId(resolvedTargetDir, lockPath);
   if (lockOwner !== null && lockOwner !== selected.id) {
     throw new Error(`Transaction lock is owned by transaction ${lockOwner}; refusing to recover ${selected.id}.`);
   }
-  const transactionDir = path.join(resolvedTargetDir, transactionRootName, selected.id);
+  const transactionDir = path.join(transactionRoot, selected.id);
   const journalPath = path.join(transactionDir, 'journal.json');
   const journal = JSON.parse(await readFile(journalPath, 'utf8'));
   await restoreJournal(resolvedTargetDir, transactionDir, journal);
-  await releaseTransaction(resolvedTargetDir, transactionDir, selected.id);
+  await releaseTransaction(resolvedTargetDir, transactionDir, selected.id, lockPath);
   return { recovered: [selected.id], selected, transactions };
 }

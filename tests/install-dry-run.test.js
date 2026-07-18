@@ -14,7 +14,7 @@ const execFileAsync = promisify(execFile);
 const rootDir = path.resolve('.');
 
 test('dry-run install plans full files without writing them', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-dry-run-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-dry-run-'));
   try {
     const plan = await createInstallPlan({
       dryRun: true,
@@ -39,7 +39,7 @@ test('dry-run install plans full files without writing them', async () => {
 });
 
 test('install refuses to overwrite existing files unless force is used', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-conflict-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-conflict-'));
   try {
     await writeFile(path.join(target, 'AGENTS.md'), 'user-owned content\n', 'utf8');
 
@@ -59,7 +59,7 @@ test('install refuses to overwrite existing files unless force is used', async (
 });
 
 test('dry-run reports conflicts without failing or writing files', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-dry-run-conflict-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-dry-run-conflict-'));
   try {
     await writeFile(path.join(target, 'AGENTS.md'), 'user-owned content\n', 'utf8');
 
@@ -80,7 +80,7 @@ test('dry-run reports conflicts without failing or writing files', async () => {
 });
 
 test('actual install blocks red-zone files without explicit confirmation', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-redzone-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-redzone-'));
   try {
     const plan = await createInstallPlan({
       dryRun: false,
@@ -97,7 +97,7 @@ test('actual install blocks red-zone files without explicit confirmation', async
 });
 
 test('actual install refuses to write outside the target directory', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-escape-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-escape-'));
   try {
     const plan = await createInstallPlan({
       dryRun: false,
@@ -116,7 +116,7 @@ test('actual install refuses to write outside the target directory', async () =>
 });
 
 test('failed install rolls back every file before install state is committed', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-transaction-failure-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-transaction-failure-'));
   try {
     await writeFile(path.join(target, 'AGENTS.md'), 'user-owned content\n', 'utf8');
     const plan = await createInstallPlan({
@@ -138,16 +138,16 @@ test('failed install rolls back every file before install state is committed', a
 
     assert.equal(await readFile(path.join(target, 'AGENTS.md'), 'utf8'), 'user-owned content\n');
     await assert.rejects(readFile(path.join(target, 'docs/rules/governance-core.md'), 'utf8'), /ENOENT/);
-    await assert.rejects(readFile(path.join(target, '.loopengine/install-state.json'), 'utf8'), /ENOENT/);
+    await assert.rejects(readFile(path.join(target, '.cognis/install-state.json'), 'utf8'), /ENOENT/);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
 });
 
 test('CLI write mode writes files when red-zone confirmation is explicit', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-apply-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-apply-'));
   try {
-    const cliPath = path.join(rootDir, 'scripts/loopengine.js');
+    const cliPath = path.join(rootDir, 'scripts/cognis.js');
     await execFileAsync(process.execPath, [cliPath, 'init', '--project', target, '--target', 'codex', '--profile', 'full']);
     await execFileAsync(process.execPath, [
       cliPath,
@@ -165,14 +165,14 @@ test('CLI write mode writes files when red-zone confirmation is explicit', async
 
     const taskTemplate = await readFile(path.join(target, 'docs/templates/task.md'), 'utf8');
     const deliveryTemplate = await readFile(path.join(target, 'docs/templates/delivery.md'), 'utf8');
-    const routerSkill = await readFile(path.join(target, '.agents/skills/using-loopengine/SKILL.md'), 'utf8');
+    const routerSkill = await readFile(path.join(target, '.agents/skills/using-cognis/SKILL.md'), 'utf8');
 
     assert.equal(await readFile(path.join(target, 'AGENTS.md'), 'utf8').then((content) => content.includes('## 启动')), true);
     assert.equal(await readFile(path.join(target, '.codex/hooks.json'), 'utf8').then((content) => content.includes('hooks')), true);
     assert.equal(taskTemplate.includes('工作流档位'), true);
     assert.equal(taskTemplate.includes('完整流程控制'), true);
     assert.equal(deliveryTemplate.includes('轻量反证'), true);
-    assert.equal(routerSkill.includes('LoopEngine 路由'), true);
+    assert.equal(routerSkill.includes('Cognis 路由'), true);
   } finally {
     await rm(target, { force: true, recursive: true });
   }

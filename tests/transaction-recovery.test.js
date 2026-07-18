@@ -10,7 +10,7 @@ import { beginFileTransaction, recoverTransaction } from '../scripts/lib/file-tr
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve('.');
-const cliPath = path.join(rootDir, 'scripts/loopengine.js');
+const cliPath = path.join(rootDir, 'scripts/cognis.js');
 
 async function exists(filePath) {
   try {
@@ -27,7 +27,7 @@ async function runCli(args) {
 }
 
 test('recover previews then restores the active transaction only with --write', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-recover-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-recover-'));
   const managedPath = path.join(target, 'managed.md');
   try {
     await writeFile(managedPath, 'original\n', 'utf8');
@@ -46,14 +46,14 @@ test('recover previews then restores the active transaction only with --write', 
     const recovered = await runCli(['recover', '--project', target, '--write']);
     assert.deepEqual(recovered.recovered, [transaction.id]);
     assert.equal(await readFile(managedPath, 'utf8'), 'original\n');
-    assert.equal(await exists(path.join(target, '.loopengine', 'transaction.lock')), false);
+    assert.equal(await exists(path.join(target, '.cognis', 'transaction.lock')), false);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
 });
 
 test('doctor reports active transactions without modifying them', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-doctor-transaction-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-doctor-transaction-'));
   let transaction;
   try {
     await runCli(['init', '--project', target]);
@@ -68,7 +68,7 @@ test('doctor reports active transactions without modifying them', async () => {
     const report = await runCli(['doctor', '--project', target, '--allow-degraded']);
     assert.equal(report.transactionLock, true);
     assert.equal(report.transactions.some((item) => item.id === transaction.id && item.status === 'active'), true);
-    assert.equal(await exists(path.join(target, '.loopengine', 'transaction.lock')), true);
+    assert.equal(await exists(path.join(target, '.cognis', 'transaction.lock')), true);
   } finally {
     if (transaction) await transaction.rollback();
     await rm(target, { force: true, recursive: true });
@@ -76,9 +76,9 @@ test('doctor reports active transactions without modifying them', async () => {
 });
 
 test('recover rejects journal ids that do not match their transaction directory', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-recover-id-'));
-  const transactionDir = path.join(target, '.loopengine/transactions/safe-id');
-  const victimDir = path.join(target, '.loopengine/victim');
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-recover-id-'));
+  const transactionDir = path.join(target, '.cognis/transactions/safe-id');
+  const victimDir = path.join(target, '.cognis/victim');
   try {
     const journal = {
       cleanup: [],
@@ -106,9 +106,9 @@ test('recover rejects journal ids that do not match their transaction directory'
 });
 
 test('recover refuses to release a lock owned by another transaction', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-recover-lock-'));
-  const transactionDir = path.join(target, '.loopengine/transactions/older');
-  const lockDir = path.join(target, '.loopengine/transaction.lock');
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-recover-lock-'));
+  const transactionDir = path.join(target, '.cognis/transactions/older');
+  const lockDir = path.join(target, '.cognis/transaction.lock');
   try {
     const journal = {
       cleanup: [],
@@ -130,6 +130,53 @@ test('recover refuses to release a lock owned by another transaction', async () 
     );
     assert.equal((await readFile(path.join(lockDir, 'transaction-id'), 'utf8')).trim(), 'newer');
     assert.equal(await exists(transactionDir), true);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('legacy transaction commit releases its original lock after install state is removed', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-legacy-commit-'));
+  const statePath = path.join(target, '.loopengine', 'install-state.json');
+  try {
+    await mkdir(path.dirname(statePath), { recursive: true });
+    await writeFile(statePath, '{}\n', 'utf8');
+    const transaction = await beginFileTransaction({
+      operation: 'legacy-uninstall',
+      targetDir: target,
+      trackedPaths: [statePath],
+    });
+
+    await rm(statePath);
+    await transaction.commit();
+
+    assert.equal(await exists(path.join(target, '.loopengine', 'transaction.lock')), false);
+    assert.equal(await exists(path.join(target, '.cognis', 'transaction.lock')), false);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('recover discovers a legacy transaction while install state is temporarily absent', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-legacy-recover-'));
+  const statePath = path.join(target, '.loopengine', 'install-state.json');
+  try {
+    await mkdir(path.dirname(statePath), { recursive: true });
+    await writeFile(statePath, '{"legacy":true}\n', 'utf8');
+    const transaction = await beginFileTransaction({
+      operation: 'legacy-rollback',
+      targetDir: target,
+      trackedPaths: [statePath],
+    });
+    await rm(statePath);
+
+    const preview = await recoverTransaction({ targetDir: target });
+    assert.equal(preview.selected.id, transaction.id);
+
+    const result = await recoverTransaction({ targetDir: target, write: true });
+    assert.deepEqual(result.recovered, [transaction.id]);
+    assert.equal(await readFile(statePath, 'utf8'), '{"legacy":true}\n');
+    assert.equal(await exists(path.join(target, '.loopengine', 'transaction.lock')), false);
   } finally {
     await rm(target, { force: true, recursive: true });
   }

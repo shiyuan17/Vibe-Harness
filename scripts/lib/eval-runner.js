@@ -13,7 +13,7 @@ const evaluationEnvironmentNames = new Set([
   'ALL_PROXY', 'ANTHROPIC_API_KEY', 'APPDATA', 'AZURE_OPENAI_API_KEY', 'CODEX_CLI_VERSION',
   'CODEX_HOME', 'CODEX_MODEL', 'COMSPEC', 'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'HOME',
   'HTTPS_PROXY', 'HTTP_PROXY', 'LANG', 'LC_ALL', 'LC_CTYPE', 'LOCALAPPDATA',
-  'LOOPENGINE_CODEX_COMMAND', 'NO_PROXY', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'PATH', 'Path',
+  'COGNIS_CODEX_COMMAND', 'LOOPENGINE_CODEX_COMMAND', 'NO_PROXY', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'PATH', 'Path',
   'PATHEXT', 'PROGRAMDATA', 'ProgramData', 'SHELL', 'SSL_CERT_DIR', 'SSL_CERT_FILE', 'SystemRoot',
   'TEMP', 'TMP', 'TMPDIR', 'USERPROFILE', 'WINDIR', 'all_proxy', 'https_proxy', 'http_proxy',
   'no_proxy',
@@ -32,7 +32,7 @@ function splitCommand(command) {
 }
 
 async function createWorkspace(definition) {
-  const workspace = await mkdtemp(path.join(tmpdir(), 'loopengine-eval-case-'));
+  const workspace = await mkdtemp(path.join(tmpdir(), 'cognis-eval-case-'));
   for (const file of definition.input.fixture?.files ?? []) {
     assertPortableRelativePath(file.path, 'evaluation fixture file');
     const target = path.resolve(workspace, file.path);

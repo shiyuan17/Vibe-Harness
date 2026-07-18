@@ -40,7 +40,7 @@ async function resolveProjectPath(targetDir, relative, label) {
 
 function runArtifactPath(now, suffix = '') {
   const timestamp = now.toISOString().replaceAll(':', '-').replaceAll('.', '-');
-  return `.loopengine/evals/runs/${timestamp}${suffix}.json`;
+  return `.cognis/evals/runs/${timestamp}${suffix}.json`;
 }
 
 async function writeProjectJson({ targetDir, relative, label, value }) {
@@ -50,9 +50,9 @@ async function writeProjectJson({ targetDir, relative, label, value }) {
 }
 
 const GOVERNANCE_PATHS = [
-  '.agents/loopengine/evals',
-  '.agents/loopengine/governance',
-  '.agents/loopengine/hooks',
+  '.agents/cognis/evals',
+  '.agents/cognis/governance',
+  '.agents/cognis/hooks',
   '.agents/skills',
   '.codex/hooks.json',
   'adapters',

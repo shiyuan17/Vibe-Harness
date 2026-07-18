@@ -19,7 +19,7 @@ import { createInstallPlan } from '../scripts/lib/install-planner.js';
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve('.');
-const cliPath = path.join(rootDir, 'scripts/loopengine.js');
+const cliPath = path.join(rootDir, 'scripts/cognis.js');
 
 async function exists(filePath) {
   try { await access(filePath); return true; } catch { return false; }
@@ -40,10 +40,10 @@ for (const adapter of [
   { id: 'gemini', instruction: 'GEMINI.md', skills: '.gemini/skills' },
 ]) {
   test(`${adapter.id} core install preserves local instructions and supports validate/uninstall`, async () => {
-    const target = await mkdtemp(path.join(tmpdir(), `loopengine-${adapter.id}-`));
+    const target = await mkdtemp(path.join(tmpdir(), `cognis-${adapter.id}-`));
     try {
       await run(['init', '--project', target, '--target', adapter.id]);
-      const config = JSON.parse(await readFile(path.join(target, 'loopengine.config.json'), 'utf8'));
+      const config = JSON.parse(await readFile(path.join(target, 'cognis.config.json'), 'utf8'));
       assert.equal(config.target, adapter.id);
       await writeFile(path.join(target, adapter.instruction), '# Local instructions\n', 'utf8');
 
@@ -55,12 +55,12 @@ for (const adapter of [
       assert.equal(targets.some((item) => item.startsWith('.codex/')), false);
 
       await run(['install', '--project', target, '--target', adapter.id, '--profile', 'core', '--write']);
-      const state = JSON.parse(await readFile(path.join(target, '.loopengine/install-state.json'), 'utf8'));
+      const state = JSON.parse(await readFile(path.join(target, '.cognis/install-state.json'), 'utf8'));
       assert.equal(state.adapter, adapter.id);
       assert.equal(state.files.find((file) => file.target === adapter.instruction).contentStrategy, 'managed-instruction-block');
       const installed = await readFile(path.join(target, adapter.instruction), 'utf8');
       assert.match(installed, /# Local instructions/u);
-      assert.match(installed, /<!-- LOOPENGINE:START -->/u);
+      assert.match(installed, /<!-- COGNIS:START -->/u);
       const validation = await run(['validate', '--project', target]);
       assert.equal(validation.status, 'ready');
 
@@ -84,10 +84,10 @@ for (const adapter of [
 for (const adapter of ['claude', 'gemini']) {
   for (const profile of ['minimal', 'docs-only']) {
     test(`${adapter} ${profile} supports an empty-project write, validate, and uninstall lifecycle`, async () => {
-      const target = await mkdtemp(path.join(tmpdir(), `loopengine-${adapter}-${profile}-`));
+      const target = await mkdtemp(path.join(tmpdir(), `cognis-${adapter}-${profile}-`));
       try {
         await run(['init', '--project', target, '--target', adapter]);
-        const configPath = path.join(target, 'loopengine.config.json');
+        const configPath = path.join(target, 'cognis.config.json');
         const config = JSON.parse(await readFile(configPath, 'utf8'));
         config.profile = profile;
         config.governance.mode = profile === 'minimal' ? 'off' : 'basic';
@@ -106,7 +106,7 @@ for (const adapter of ['claude', 'gemini']) {
 }
 
 test('adapter catalog gates preview profiles and rejects target mismatch', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-adapter-errors-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-adapter-errors-'));
   try {
     await run(['init', '--project', target, '--target', 'claude']);
     const unsupported = await fail(['install', '--project', target, '--target', 'claude', '--profile', 'full', '--dry-run']);
@@ -140,11 +140,11 @@ test('adapter capability v2 uses explicit support levels for every governed surf
 });
 
 test('install and upgrade reject an adapter that differs from install state', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-adapter-state-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-adapter-state-'));
   try {
     await run(['init', '--project', target, '--target', 'claude']);
     await run(['install', '--project', target, '--target', 'claude', '--profile', 'core', '--write']);
-    const configPath = path.join(target, 'loopengine.config.json');
+    const configPath = path.join(target, 'cognis.config.json');
     const config = JSON.parse(await readFile(configPath, 'utf8'));
     await writeFile(configPath, `${JSON.stringify({ ...config, target: 'gemini' }, null, 2)}\n`, 'utf8');
 
@@ -194,13 +194,13 @@ test('all platform instruction entrypoints stay below ninety lines', async () =>
 
 test('adapter profile file sets match the reviewed snapshots', async () => {
   const snapshots = {
-    'claude:core': [58, 'ab877541dfd45bb7dff89ebda18f4053c7f6cbc5533b329719facb647564df8d'],
+    'claude:core': [58, 'fa8c3998e9c7ec5e68141a6b095f067d84ceb67657db8f6353a791033f3b2ff3'],
     'claude:docs-only': [29, '66b1c875eed445824b30d7f6d7ae001107f5d4f197e181ba865096794925724f'],
     'claude:minimal': [7, 'de8bef97b2444d03ddb8077a187a05e0dc1d976f97cfce2daf87d77262d5c9ba'],
-    'codex:core': [58, 'e3d755dc394503d794fc4c344db71fa6ec0c3886e5842c5ad2297acf87696fb3'],
-    'codex:full': [107, 'c031e4c2523e402e773228bfcda634830cd7d102f8cd4a78dcb921b4dd970722'],
+    'codex:core': [58, 'dcddc76817019c0bab3c9a67561ea16d10fa570145b5ac64ec5bd03efe0e4ada'],
+    'codex:full': [109, 'debd898169c48f6b89a9af1ac9e24dada68f11c6a523cdbe758c5641f46a3826'],
     'codex:minimal': [7, 'acf92f049c50289f3eec6136e888f50b32b389d8a80e75a8b344a20ad37d6789'],
-    'gemini:core': [58, '207058b8907120c7474245686fda0e3769d9006560bb9df8e7ca0d2b5bd588f4'],
+    'gemini:core': [58, 'a82188c750a32c253d0027bcccbda7561eec060465fb05bed8229d229278185c'],
     'gemini:docs-only': [29, '428c26d9f51fe99cfa520cb63f4b2aa8cfb7bfdd8b605a927cc0352af6ca2b89'],
     'gemini:minimal': [7, '8e6fc02f1c019b5cea55ac49567af9bd4b2b75ed62f97731e0dbcd962293eb4a'],
   };

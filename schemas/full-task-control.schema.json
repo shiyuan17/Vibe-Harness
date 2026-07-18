@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "LoopEngine 完整流程任务控制",
+  "title": "Cognis 完整流程任务控制",
   "type": "object",
   "required": [
     "任务类型",

@@ -18,5 +18,5 @@ if (errors.length > 0) {
   console.error(JSON.stringify({ errors, ok: false }, null, 2));
   process.exitCode = 1;
 } else {
-  console.log(`LoopEngine routing evaluation catalog passed (${skillIds.length} core skills).`);
+  console.log(`Cognis routing evaluation catalog passed (${skillIds.length} core skills).`);
 }

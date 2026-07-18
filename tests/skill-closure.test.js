@@ -390,7 +390,7 @@ test('core and full install only the streamlined skill sets', async () => {
     'security-and-hardening',
     'systematic-debugging',
     'test-driven-development',
-    'using-loopengine',
+    'using-cognis',
     'verification-before-completion',
     'writing-plans',
   ]);

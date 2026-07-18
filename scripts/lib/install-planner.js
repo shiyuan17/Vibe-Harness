@@ -7,6 +7,7 @@ import {
   collectTargetFiles,
   hashFile,
   readInstallState,
+  stateFilePath,
   toTargetPath,
   writeInstallState,
 } from './install-state.js';
@@ -38,6 +39,13 @@ import { beginFileTransaction, createTransactionId } from './file-transaction.js
 
 const isManagedInstruction = (strategy) => ['managed-block', 'managed-instruction-block'].includes(strategy);
 const isManagedToml = (strategy) => ['managed-mcp-block', 'managed-toml-block'].includes(strategy);
+
+function isLegacyProductManagedTarget(target) {
+  const normalized = target.replaceAll('\\', '/');
+  return normalized.startsWith('.agents/loopengine/')
+    || /^\.(?:agents|claude|gemini)\/skills\/using-loopengine(?:\/|$)/u.test(normalized)
+    || /^\.agents\/evals\/(?:references|suites)\/loopengine[-.]/u.test(normalized);
+}
 
 async function loadProfileInstallMap({ adapterId = 'codex', allowPreview = false, profile, rootDir }) {
   const profiles = await readJson(path.join(rootDir, 'manifests/profiles.json'));
@@ -121,14 +129,14 @@ export function createInstalledSurface({ customModules = false, memoryPath = '.a
       : (profileLines[profile] ?? `- 当前 profile: \`${profile}\`。`),
     reviewLoopLine: hasReviewLoop ? '- 当前 profile 包含 review / loop 资产。' : '',
     rulesLine: hasPrefix('docs/rules/') ? '- 规则位于 `docs/rules/`。' : '',
-    skillRoutingLine: hasSkill('using-loopengine/SKILL.md')
-      ? '先使用 `using-loopengine` 选择最小 Skill 集；详细流程按任务信号加载。'
+    skillRoutingLine: hasSkill('using-cognis/SKILL.md')
+      ? '先使用 `using-cognis` 选择最小 Skill 集；详细流程按任务信号加载。'
       : '当前 profile 未安装 Skills；仅按已安装规则和模板执行，不引用未安装的 skill。',
     skillsLine: skillRoots.length > 0 ? `- Skills 位于 ${skillRoots.map((root) => `\`${root}/\``).join('、')}。` : '',
     templatesLine: hasPrefix('docs/templates/') ? '- 模板位于 `docs/templates/`。' : '',
-    toolingLine: hasTarget('.agents/loopengine/tools/codebase-memory-mcp/run.mjs')
-      ? '- 项目内工具位于 `.agents/loopengine/tools/`；使用 `loopengine doctor --target <path>` 查看初始化状态。'
-      : (hasTarget('.agents/loopengine/tools/playwright-cli/run.mjs') ? '- Playwright CLI 将在首次使用时于项目内初始化。' : ''),
+    toolingLine: hasTarget('.agents/cognis/tools/codebase-memory-mcp/run.mjs')
+      ? '- 项目内工具位于 `.agents/cognis/tools/`；使用 `cognis doctor --target <path>` 查看初始化状态。'
+      : (hasTarget('.agents/cognis/tools/playwright-cli/run.mjs') ? '- Playwright CLI 将在首次使用时于项目内初始化。' : ''),
   };
 }
 
@@ -152,9 +160,10 @@ function shouldInstallEntry(entry, renderData) {
 }
 
 function createManagedMcpServers(targetDir, resolvedModules) {
-  const codebaseTool = path.join(targetDir, '.agents/loopengine/tools/codebase-memory-mcp/run.mjs');
-  const agentmemoryTool = path.join(targetDir, '.agents/loopengine/tools/agentmemory/run.mjs');
-  const memoryHome = path.join(targetDir, '.loopengine/tool-state/agentmemory/home');
+  const codebaseTool = path.join(targetDir, '.agents/cognis/tools/codebase-memory-mcp/run.mjs');
+  const agentmemoryTool = path.join(targetDir, '.agents/cognis/tools/agentmemory/run.mjs');
+  const stateRoot = path.dirname(stateFilePath(targetDir));
+  const memoryHome = path.join(stateRoot, 'tool-state/agentmemory/home');
   const servers = {};
   if (resolvedModules.includes('agentmemory')) servers.agentmemory = {
       args: [agentmemoryTool],
@@ -166,7 +175,7 @@ function createManagedMcpServers(targetDir, resolvedModules) {
       command: process.execPath,
       env: {
         CBM_ALLOWED_ROOT: targetDir,
-        CBM_CACHE_DIR: path.join(targetDir, '.loopengine/tool-state/codebase-memory-mcp/cache'),
+        CBM_CACHE_DIR: path.join(stateRoot, 'tool-state/codebase-memory-mcp/cache'),
       },
     };
   return servers;
@@ -175,6 +184,7 @@ function createManagedMcpServers(targetDir, resolvedModules) {
 export async function createInstallPlan({
   adapterId = 'codex',
   allowPreview = false,
+  configMigration = null,
   dryRun = true,
   force = false,
   managedAgentsBlock = false,
@@ -301,6 +311,30 @@ export async function createInstallPlan({
         target,
       });
     }
+
+    const plannedRetirements = new Set(actions
+      .filter((action) => ['retire', 'retire-modified'].includes(action.kind))
+      .map((action) => action.relativeTarget));
+    for (const managedFile of state?.files ?? []) {
+      const relativeTarget = managedFile.target.replaceAll('\\', '/');
+      if (!isLegacyProductManagedTarget(relativeTarget) || plannedRetirements.has(relativeTarget)) {
+        continue;
+      }
+      assertPortableRelativePath(relativeTarget, 'legacy branded install target');
+      const target = path.resolve(targetDir, relativeTarget);
+      assertInsideDir(targetDir, target, 'legacy branded install target');
+      await assertSafePathInside(targetDir, target, 'legacy branded install target');
+      if (!(await pathExists(target))) continue;
+      const currentHash = await hashFile(target);
+      actions.push({
+        expectedHash: managedFile.targetHash,
+        group: managedFile.group,
+        kind: currentHash === managedFile.targetHash ? 'retire' : 'retire-modified',
+        redZone: Boolean(managedFile.redZone),
+        relativeTarget,
+        target,
+      });
+    }
   }
 
   const installedSurface = createInstalledSurface({
@@ -315,19 +349,20 @@ export async function createInstallPlan({
         target: PLAYWRIGHT_GENERATED_RELATIVE_DIR,
       }]
     : [];
+  const stateDirectory = path.basename(path.dirname(stateFilePath(path.resolve(targetDir))));
   for (const component of ['codebase-memory-mcp', 'open-code-review', 'agentmemory']) {
-    const ownerTarget = `.agents/loopengine/tools/${component}/package.json`;
+    const ownerTarget = `.agents/cognis/tools/${component}/package.json`;
     if (actions.some((action) => action.relativeTarget === ownerTarget)) {
-      generatedDirectories.push({ ownerTarget, target: `.agents/loopengine/tools/${component}/node_modules` });
+      generatedDirectories.push({ ownerTarget, target: `.agents/cognis/tools/${component}/node_modules` });
       generatedDirectories.push({
         ownerTarget,
         projectScoped: true,
-        target: `.loopengine/tool-state/${component}`,
+        target: `${stateDirectory}/tool-state/${component}`,
       });
       generatedDirectories.push({
         ownerTarget,
         projectScoped: true,
-        target: `.loopengine/tool-state/npm-cache/${component === 'codebase-memory-mcp' ? 'codebaseMemoryMcp' : component === 'open-code-review' ? 'openCodeReview' : component}`,
+        target: `${stateDirectory}/tool-state/npm-cache/${component === 'codebase-memory-mcp' ? 'codebaseMemoryMcp' : component === 'open-code-review' ? 'openCodeReview' : component}`,
       });
     }
   }
@@ -336,6 +371,7 @@ export async function createInstallPlan({
     adapter: adapter.id,
     adapterCapabilities: adapter.capabilities,
     baselinePlan,
+    configMigration,
     dryRun,
     force,
     generatedDirectories,
@@ -541,14 +577,16 @@ export async function applyInstallPlan(plan, hooks = {}) {
   }
 
   const transactionId = createTransactionId();
-  const backupRoot = path.join(plan.targetDir, '.loopengine', 'backups', transactionId);
+  const statePath = stateFilePath(plan.targetDir);
+  const backupRoot = path.join(path.dirname(statePath), 'backups', transactionId);
   const trackedPaths = [
     ...plan.actions
       .filter((action) => ['write', 'retire'].includes(action.kind))
       .map((action) => action.target),
     ...plan.baselinePlan.actions.map((action) => path.join(plan.targetDir, action.target)),
     ...(plan.baselinePlan.manifestTarget ? [path.join(plan.targetDir, plan.baselinePlan.manifestTarget)] : []),
-    path.join(plan.targetDir, '.loopengine', 'install-state.json'),
+    statePath,
+    ...(plan.configMigration ? [plan.configMigration.fromPath, plan.configMigration.toPath] : []),
   ];
   const transaction = await beginFileTransaction({
     cleanupPaths: [
@@ -564,12 +602,29 @@ export async function applyInstallPlan(plan, hooks = {}) {
   try {
   const written = [];
   const retired = [];
-  const retiredFiles = [];
   const skipped = [];
   const files = [];
   const mcpConflicts = [];
   const backupId = transactionId;
   const previousState = await readInstallState(plan.targetDir);
+  const retiredFiles = [...(previousState?.retiredFiles ?? [])];
+  let configMigrationState = previousState?.configMigration ?? null;
+  if (plan.configMigration) {
+    const backup = await backupFile({
+      backupId,
+      target: plan.configMigration.fromPath,
+      targetDir: plan.targetDir,
+    });
+    await mkdir(path.dirname(plan.configMigration.toPath), { recursive: true });
+    await writeFile(plan.configMigration.toPath, `${JSON.stringify(plan.configMigration.config, null, 2)}\n`, 'utf8');
+    await rm(plan.configMigration.fromPath, { force: true });
+    configMigrationState = {
+      backup,
+      from: plan.configMigration.from,
+      targetHash: await hashFile(plan.configMigration.toPath),
+      to: plan.configMigration.to,
+    };
+  }
   const baseline = await applyBaselinePlan(plan.baselinePlan);
   const generatedFiles = [];
   for (const file of previousState?.generatedFiles ?? []) {
@@ -624,7 +679,7 @@ export async function applyInstallPlan(plan, hooks = {}) {
       redZone: Boolean(action.redZone),
       source: action.relativeSource,
       sourceHash: await hashFile(action.source),
-      owner: 'loopengine',
+      owner: 'cognis',
       target: toTargetPath(plan.targetDir, action.target),
       targetHash: await hashFile(action.target),
       transactionId,
@@ -681,12 +736,13 @@ export async function applyInstallPlan(plan, hooks = {}) {
     } : file);
   }
   const generatedDirectories = [...new Map([
-    ...(previousState?.generatedDirectories ?? []),
+    ...(previousState?.generatedDirectories ?? []).filter((item) => !retiredTargets.has(item.ownerTarget)),
     ...plan.generatedDirectories,
   ].map((item) => [item.target, item])).values()];
   await writeInstallState(plan.targetDir, {
     adapter: plan.adapter,
     baseline,
+    configMigration: configMigrationState,
     files: [...mergedFiles.values()],
     generatedDirectories,
     generatedFiles,
@@ -696,7 +752,7 @@ export async function applyInstallPlan(plan, hooks = {}) {
     requestedModules: plan.requestedModules,
     resolvedModules: plan.resolvedModules,
     retiredFiles,
-    stateVersion: 3,
+    stateVersion: 4,
     transactionId,
     version: plan.version,
   });

@@ -1,12 +1,12 @@
-# LoopEngine 架构说明
+# Cognis 架构说明
 
-LoopEngine 是跨平台、Codex 完整能力优先的可复用 AI coding governance 包。运行时使用 Node.js ESM、JSON manifests、Markdown 治理资产和文件复制式安装器。
+Cognis 是跨平台、Codex 完整能力优先的可复用 AI coding governance 包。运行时使用 Node.js ESM、JSON manifests、Markdown 治理资产和文件复制式安装器。
 
 ## 子系统
 
 - `rules/`：`governance-core` 是五步循环、风险和证据的唯一流程真值；其余文件只保存工程专项约束。
 - `templates/`：无 Skill 环境使用的中文任务和交付模板；专项模板与对应 skill 共置。
-- `skills/`：`using-loopengine` 负责路由，canonical skills 按需提供规格、计划、实现、验证、审查和恢复流程。
+- `skills/`：`using-cognis` 负责路由，canonical skills 按需提供规格、计划、实现、验证、审查和恢复流程。
 - `runtime/governance/`：将中英文 Markdown 视图解析为语言无关 TaskDocument IR，再校验 AC-ID、完成证据、完整流程控制块和结构化 Red Team 审查包。
 - `runtime/hooks/`：规范化 Codex 事件并执行可移植的安全、上下文和完成策略。
 - `runtime/evals/`：提供项目内离线评测 runtime 和 full 使用的 Codex 在线 runner；runner 只在一次性项目中执行。
@@ -20,16 +20,18 @@ LoopEngine 是跨平台、Codex 完整能力优先的可复用 AI coding governa
 
 ## 安装流程
 
-1. `loopengine init --project <path> --target <codex|claude|gemini>` 创建项目配置。
-2. `loopengine install --project <path> --target <adapter> --profile <profile> --dry-run` 只预览；CLI target 与配置不一致时拒绝执行。
+1. `cognis init --project <path> --target <codex|claude|gemini>` 创建项目配置。
+2. `cognis install --project <path> --target <adapter> --profile <profile> --dry-run` 只预览；CLI target 与配置不一致时拒绝执行。
 3. 所有 profile 使用 `--write` 事务性写入；Codex full 写入红区另需 `--confirm-red-zone`。事务按 preflight、journal、preimage、apply、state v3 commit 顺序执行。
-4. `loopengine provision --project <path> --profile <profile>` 独立预览工具；只有 `--write` 才执行。`install --provision` 是兼容的一站式入口。
-5. 中断事务由 `loopengine recover --project <path>` 预览，显式 `--write` 才逆序恢复；`doctor` 只读报告锁和 journal。
+4. `cognis provision --project <path> --profile <profile>` 独立预览工具；只有 `--write` 才执行。`install --provision` 是兼容的一站式入口。
+5. 中断事务由 `cognis recover --project <path>` 预览，显式 `--write` 才逆序恢复；`doctor` 只读报告锁和 journal。
 6. 工具子进程使用 allowlist 环境与独立进程组；SIGINT、SIGTERM、超时和输出上限都会先清理进程树。失败诊断脱敏后写入工具状态。
-7. `loopengine validate --project <path>` 校验安装一致性和组件状态，不执行目标项目命令。
-8. `loopengine eval check|run|reference --project <path>` 校验、执行和显式批准评测 reference。
-9. `loopengine baseline --project <path>` 默认预览双层基线；`--write` 建档，`--verify` 才顺序执行 governance、lint、typecheck 和 eval。
-10. `loopengine verify --project <path>` 顺序执行 governance、lint、typecheck 和 eval。
+7. `cognis validate --project <path>` 校验安装一致性和组件状态，不执行目标项目命令。
+8. `cognis eval check|run|reference --project <path>` 校验、执行和显式批准评测 reference。
+9. `cognis baseline --project <path>` 默认预览双层基线；`--write` 建档，`--verify` 才顺序执行 governance、lint、typecheck 和 eval。
+10. `cognis verify --project <path>` 顺序执行 governance、lint、typecheck 和 eval。
+
+Open Code Review 的运行配置解析顺序固定为完整 `OCR_LLM_*` 环境变量、用户级 Open Code Review active provider、Anthropic/OpenAI 兼容环境变量、Codex provider TOML。解析后的 endpoint、model、protocol 和 token 只存在于子进程环境；项目配置、MCP 受管块和工具状态不保存凭据。codebase-memory 则把项目根作为 `CBM_ALLOWED_ROOT` 和 cwd，根索引统一使用 `--repo-path .`，并用 `index_status` 二次确认根路径、状态以及 nodes/edges。路径越界和损坏缓存分别使用 `INDEX_PATH_OUTSIDE_ALLOWED_ROOT` 与 `INDEX_CORRUPT_REINDEX_REQUIRED`，后者会在下一次 provision 中自动重建受管缓存。
 
 默认 JSON 是稳定、紧凑的机器接口，preview 只含 hash、字节数和摘要；`--verbose` 才含完整正文和绝对诊断路径，`--output summary` 输出短报告和工具降级原因。工具诊断会脱敏项目路径与凭据，仅保存限长尾部。install、validate、doctor 共用 `ready=0`、`invalid=1`、`degraded=2` 健康合同；未执行 provisioning 的 `pending`/`pending-config` 只产生告警，已尝试 provisioning 的失败或未完成进程标记才进入 degraded。`--allow-degraded` 只覆盖退出码，不改变报告状态。
 
@@ -40,20 +42,20 @@ LoopEngine 是跨平台、Codex 完整能力优先的可复用 AI coding governa
 - Gemini CLI：`GEMINI.md`、`.gemini/skills/`；`minimal/core/docs-only` stable，full 能力映射为 preview。
 - adapter capability v2 使用 `unsupported/preview/stable` 描述 instructions、skills、hooks、policy、MCP、sandbox、memory 和 plugin；preview full 必须显式 `--allow-preview`，且不写用户级配置。
 
-install state 记录 adapter；缺少该字段的 schemaVersion 1 状态按 Codex 读取。三种入口都只更新 `LOOPENGINE` 受管块，upgrade/uninstall 必须与原 adapter 一致。
+install state 记录 adapter；缺少该字段的 schemaVersion 1 状态按 Codex 读取。三种入口都只更新 `COGNIS` 受管块，upgrade/uninstall 必须与原 adapter 一致。
 
 ## 基线数据流
 
-baseline 先复用项目 profile 探测、安装一致性、命令状态和工具状态，再生成 `.loopengine/baseline.json` 与 `docs/loopengine/PROJECT_BASELINE.md`。JSON 是 schemaVersion 1 的机器合同，Markdown 是派生的人读报告；两者登记到 install-state `generatedFiles`，重复运行只覆盖 hash 仍匹配的受管文件，项目重新安装时保留未修改的登记。
+baseline 先复用项目 profile 探测、安装一致性、命令状态和工具状态，再生成 `.cognis/baseline.json` 与 `docs/cognis/PROJECT_BASELINE.md`。JSON 是 schemaVersion 1 的机器合同，Markdown 是派生的人读报告；两者登记到 install-state `generatedFiles`，重复运行只覆盖 hash 仍匹配的受管文件，项目重新安装时保留未修改的登记。
 
 drift 只比较项目画像、安装摘要、工具和验证状态，排除生成时间。持久化内容不包含绝对路径、源码、凭据或命令 stdout/stderr；工作流只引用当前 profile 实际安装的 skills。
 
-evaluation reference 与项目 baseline 分离。reference 只保存批准的 fingerprint 和聚合分数；run 保存在 `.loopengine/evals/runs/`，只有显式 `--write` 才落盘。
+evaluation reference 与项目 baseline 分离。reference 只保存批准的 fingerprint 和聚合分数；run 保存在 `.cognis/evals/runs/`，只有显式 `--write` 才落盘。
 
 ## Profile
 
 - minimal：最小安装，包含平台入口、治理内核、Git/VCS/Test 规则和中文 task/delivery 模板，不安装 skills、runtime、hook 或 MCP 安装面。
-- core：通用安装，在 minimal 上增加专项规则、中文任务 runtime/schema、`using-loopengine` 和常规 skills；不安装 hook、`codebase-memory-mcp` 或 agentmemory MCP 安装面。
+- core：通用安装，在 minimal 上增加专项规则、中文任务 runtime/schema、`using-cognis` 和常规 skills；不安装 hook、`codebase-memory-mcp` 或 agentmemory MCP 安装面。
 - full：全安装，在 core 上增加四个项目内工具 runtime、经 `index_status` 验证的 codebase 初始索引、两个 MCP 注册、agentmemory skill、`.agents/memory/` 本地回退库和 Codex hooks；稳定 provision 排除 Agentmemory，显式 `--allow-preview` 后才能安装该依赖面，真实写入红区仍需确认。
 - docs-only：仅安装平台入口、治理内核、专项规则、中文模板、memory 文档和 schema，不安装 runtime、Skills、MCP 或 hooks。
 

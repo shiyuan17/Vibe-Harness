@@ -1,4 +1,4 @@
-# LoopEngine v0.5 中文精简治理规格
+# Cognis v0.5 中文精简治理规格
 
 状态：Implemented
 
@@ -40,7 +40,7 @@
 
 - `rules/governance-core.md` 是唯一流程规则真值。
 - minimal/docs-only 在没有 skills 时使用 task/delivery 模板降级。
-- core/full 使用 `using-loopengine`，一次最多选择一个流程、一个专项和一个验证或审查 skill。
+- core/full 使用 `using-cognis`，一次最多选择一个流程、一个专项和一个验证或审查 skill。
 - 不再提供 `workflows/`、workflow manifest、旧 task schema 或旧全局生命周期模板。
 
 ## 完成标准

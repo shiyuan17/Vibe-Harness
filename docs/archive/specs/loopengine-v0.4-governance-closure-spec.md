@@ -1,6 +1,6 @@
 # LoopEngine v0.4 治理闭环规格
 
-状态：Superseded。本文的阶段模型与 JSON task 合同已由 [v0.5 中文精简治理规格](../../specs/loopengine-v0.5-simplified-governance-spec.md) 取代；本文只记录 v0.4 实施历史。
+状态：Superseded。本文的阶段模型与 JSON task 合同已由 [v0.5 中文精简治理规格](../../specs/cognis-v0.5-simplified-governance-spec.md) 取代；本文只记录 v0.4 实施历史。
 
 ## 目标
 

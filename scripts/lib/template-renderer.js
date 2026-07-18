@@ -6,7 +6,7 @@ const defaultTemplateData = {
     hooksLine: '',
     memorySkillsLine: '',
     operationalRulesLine: '',
-    profileLine: '- 当前 profile 使用 LoopEngine Codex 安装面。',
+    profileLine: '- 当前 profile 使用 Cognis Codex 安装面。',
     reviewLoopLine: '',
     rulesLine: '- 规则位于 `docs/rules/`。',
     skillRoutingLine: '',
@@ -28,18 +28,21 @@ const defaultTemplateData = {
   },
   projectName: 'target project',
   validationCommands: {
-    governance: 'node .agents/loopengine/governance/validate.mjs',
+    governance: 'node .agents/cognis/governance/validate.mjs',
     lint: '未配置',
     typecheck: '未配置',
   },
 };
 
-export const managedInstructionBlockStart = '<!-- LOOPENGINE:START -->';
-export const managedInstructionBlockEnd = '<!-- LOOPENGINE:END -->';
+export const managedInstructionBlockStart = '<!-- COGNIS:START -->';
+export const managedInstructionBlockEnd = '<!-- COGNIS:END -->';
+export const legacyManagedInstructionBlockStart = '<!-- LOOPENGINE:START -->';
+export const legacyManagedInstructionBlockEnd = '<!-- LOOPENGINE:END -->';
 export const managedAgentsBlockStart = managedInstructionBlockStart;
 export const managedAgentsBlockEnd = managedInstructionBlockEnd;
 
-const managedInstructionBlockPattern = /<!-- LOOPENGINE:START -->[\s\S]*?<!-- LOOPENGINE:END -->\n?/u;
+const managedInstructionBlockPattern = /<!-- COGNIS:START -->[\s\S]*?<!-- COGNIS:END -->\n?/u;
+const legacyManagedInstructionBlockPattern = /<!-- LOOPENGINE:START -->[\s\S]*?<!-- LOOPENGINE:END -->\n?/u;
 const legacyAgentsMarkers = [
   '## 最小启动步骤',
   '## 五条红线',
@@ -92,9 +95,24 @@ export function renderTemplate(template, data = {}) {
 }
 
 export function hasIncompleteManagedInstructionBlock(content = '') {
-  const hasStart = content.includes(managedInstructionBlockStart);
-  const hasEnd = content.includes(managedInstructionBlockEnd);
-  return hasStart !== hasEnd;
+  const canonicalIncomplete = content.includes(managedInstructionBlockStart) !== content.includes(managedInstructionBlockEnd);
+  const legacyIncomplete = content.includes(legacyManagedInstructionBlockStart) !== content.includes(legacyManagedInstructionBlockEnd);
+  return canonicalIncomplete || legacyIncomplete;
+}
+
+function managedInstructionMatch(content = '') {
+  const canonical = content.match(managedInstructionBlockPattern);
+  const legacy = content.match(legacyManagedInstructionBlockPattern);
+  if (canonical && legacy) {
+    throw Object.assign(new Error('Instruction file contains both Cognis and LoopEngine managed blocks.'), {
+      code: 'COGNIS_MANAGED_BLOCK_CONFLICT',
+    });
+  }
+  return canonical
+    ? { end: managedInstructionBlockEnd, match: canonical, pattern: managedInstructionBlockPattern, start: managedInstructionBlockStart }
+    : legacy
+      ? { end: legacyManagedInstructionBlockEnd, match: legacy, pattern: legacyManagedInstructionBlockPattern, start: legacyManagedInstructionBlockStart }
+      : null;
 }
 
 export function renderManagedInstructionBlock(content) {
@@ -102,19 +120,20 @@ export function renderManagedInstructionBlock(content) {
 }
 
 export function extractManagedInstructionBlock(content = '') {
-  const match = content.match(managedInstructionBlockPattern);
-  return match ? renderManagedInstructionBlock(match[0]
-    .replace(managedInstructionBlockStart, '')
-    .replace(managedInstructionBlockEnd, '')
+  const found = managedInstructionMatch(content);
+  return found ? renderManagedInstructionBlock(found.match[0]
+    .replace(found.start, '')
+    .replace(found.end, '')
     .trim()) : null;
 }
 
 export function removeManagedInstructionBlock(content = '') {
   if (hasIncompleteManagedInstructionBlock(content)) {
-    throw new Error('Instruction file contains an incomplete LoopEngine managed block.');
+    throw new Error('Instruction file contains an incomplete Cognis managed block.');
   }
-  const match = content.match(managedInstructionBlockPattern);
-  if (!match) return content;
+  const found = managedInstructionMatch(content);
+  if (!found) return content;
+  const { match } = found;
   const start = match.index > 0 && content[match.index - 1] === '\n' ? match.index - 1 : match.index;
   const remaining = `${content.slice(0, start)}${content.slice(match.index + match[0].length)}`.trimEnd();
   return remaining ? `${remaining}\n` : '';
@@ -130,10 +149,11 @@ function isLegacyLoopEngineAgentsContent(content = '') {
 }
 
 function stripLegacyLoopEngineAgentsContent(content = '') {
-  const match = content.match(managedInstructionBlockPattern);
-  if (!match) {
+  const found = managedInstructionMatch(content);
+  if (!found) {
     return isLegacyLoopEngineAgentsContent(content) ? '' : content;
   }
+  const { match } = found;
 
   const legacyPrefix = content.slice(0, match.index);
   if (!isLegacyLoopEngineAgentsContent(legacyPrefix)) {
@@ -145,7 +165,7 @@ function stripLegacyLoopEngineAgentsContent(content = '') {
 
 export function mergeManagedInstructionBlock(existingContent, managedContent) {
   if (hasIncompleteManagedInstructionBlock(existingContent)) {
-    throw new Error('Instruction file contains an incomplete LoopEngine managed block.');
+    throw new Error('Instruction file contains an incomplete Cognis managed block.');
   }
 
   const normalizedExistingContent = stripLegacyLoopEngineAgentsContent(existingContent);
@@ -154,8 +174,9 @@ export function mergeManagedInstructionBlock(existingContent, managedContent) {
     return managedBlock;
   }
 
-  if (managedInstructionBlockPattern.test(normalizedExistingContent)) {
-    return normalizedExistingContent.replace(managedInstructionBlockPattern, managedBlock);
+  const found = managedInstructionMatch(normalizedExistingContent);
+  if (found) {
+    return normalizedExistingContent.replace(found.pattern, managedBlock);
   }
 
   const separator = normalizedExistingContent.endsWith('\n')

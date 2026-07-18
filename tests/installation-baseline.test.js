@@ -8,12 +8,12 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '..');
-const cliPath = path.join(rootDir, 'scripts/loopengine.js');
+const cliPath = path.join(rootDir, 'scripts/cognis.js');
 
 async function runCli(args) {
   const { stdout } = await execFileAsync(process.execPath, [cliPath, ...args], {
     cwd: rootDir,
-    env: { ...process.env, LOOPENGINE_TEST_OFFLINE: '1' },
+    env: { ...process.env, COGNIS_TEST_OFFLINE: '1' },
   });
   return JSON.parse(stdout);
 }
@@ -30,7 +30,7 @@ async function exists(filePath) {
 }
 
 test('MVP install previews then writes one reusable project baseline backup', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-install-baseline-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-install-baseline-'));
   try {
     await runCli(['init', '--project', target]);
     await mkdir(path.join(target, 'docs', 'nested'), { recursive: true });
@@ -62,7 +62,7 @@ test('MVP install previews then writes one reusable project baseline backup', as
       '# Claude rules\n',
     );
 
-    const stateAfterFirst = JSON.parse(await readFile(path.join(target, '.loopengine', 'install-state.json'), 'utf8'));
+    const stateAfterFirst = JSON.parse(await readFile(path.join(target, '.cognis', 'install-state.json'), 'utf8'));
     const firstAgents = stateAfterFirst.files.find((item) => item.target === 'AGENTS.md');
     assert.equal(stateAfterFirst.baseline.id, first.baselineId);
     assert.equal(firstAgents.created, false);
@@ -70,13 +70,13 @@ test('MVP install previews then writes one reusable project baseline backup', as
     const second = await runCli([
       'install', '--project', target, '--target', 'codex', '--profile', 'core', '--write', '--upgrade',
     ]);
-    const stateAfterSecond = JSON.parse(await readFile(path.join(target, '.loopengine', 'install-state.json'), 'utf8'));
+    const stateAfterSecond = JSON.parse(await readFile(path.join(target, '.cognis', 'install-state.json'), 'utf8'));
     assert.equal(second.baselineId, first.baselineId);
     assert.equal(stateAfterSecond.files.find((item) => item.target === 'AGENTS.md').created, false);
     const repeatedRule = stateAfterSecond.files.find((item) => item.target === 'docs/rules/git-rules.md');
     assert.equal(repeatedRule.originalCreated, true);
     assert.equal(repeatedRule.originalBackup, null);
-    assert.match(repeatedRule.backup, /^\.loopengine\/backups\//u);
+    assert.match(repeatedRule.backup, /^\.cognis\/backups\//u);
     assert.deepEqual(await readdir(path.join(target, '.agents', 'backup')), [first.baselineId]);
   } finally {
     await rm(target, { force: true, recursive: true });
@@ -84,7 +84,7 @@ test('MVP install previews then writes one reusable project baseline backup', as
 });
 
 test('baseline backup failure happens before any install target is changed', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-install-baseline-failure-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-install-baseline-failure-'));
   try {
     await runCli(['init', '--project', target]);
     await mkdir(path.join(target, '.agents'), { recursive: true });
@@ -99,15 +99,15 @@ test('baseline backup failure happens before any install target is changed', asy
 
     assert.equal(await readFile(path.join(target, 'AGENTS.md'), 'utf8'), '# Original agents\n');
     assert.equal(await exists(path.join(target, 'docs', 'rules', 'governance-core.md')), false);
-    assert.equal(await exists(path.join(target, '.loopengine', 'install-state.json')), false);
+    assert.equal(await exists(path.join(target, '.cognis', 'install-state.json')), false);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
 });
 
 test('write install rejects project links that redirect managed files outside the project', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-install-link-project-'));
-  const outside = await mkdtemp(path.join(tmpdir(), 'loopengine-install-link-outside-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-install-link-project-'));
+  const outside = await mkdtemp(path.join(tmpdir(), 'cognis-install-link-outside-'));
   try {
     await runCli(['init', '--project', target, '--target', 'codex', '--profile', 'core']);
     await symlink(outside, path.join(target, 'docs'), process.platform === 'win32' ? 'junction' : 'dir');
@@ -115,7 +115,7 @@ test('write install rejects project links that redirect managed files outside th
     await assert.rejects(
       execFileAsync(process.execPath, [
         cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'core', '--write',
-      ], { cwd: rootDir, env: { ...process.env, LOOPENGINE_TEST_OFFLINE: '1' } }),
+      ], { cwd: rootDir, env: { ...process.env, COGNIS_TEST_OFFLINE: '1' } }),
       /link|junction|reparse/iu,
     );
 
@@ -127,8 +127,8 @@ test('write install rejects project links that redirect managed files outside th
 });
 
 test('rollback rejects project links before deleting managed files outside the project', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-rollback-link-project-'));
-  const outside = await mkdtemp(path.join(tmpdir(), 'loopengine-rollback-link-outside-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-rollback-link-project-'));
+  const outside = await mkdtemp(path.join(tmpdir(), 'cognis-rollback-link-outside-'));
   try {
     await runCli(['init', '--project', target, '--target', 'codex', '--profile', 'core']);
     await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'core', '--write']);
@@ -141,7 +141,7 @@ test('rollback rejects project links before deleting managed files outside the p
     await assert.rejects(
       execFileAsync(process.execPath, [cliPath, 'rollback', '--project', target, '--write'], {
         cwd: rootDir,
-        env: { ...process.env, LOOPENGINE_TEST_OFFLINE: '1' },
+        env: { ...process.env, COGNIS_TEST_OFFLINE: '1' },
       }),
       /link|junction|reparse/iu,
     );

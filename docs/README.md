@@ -1,4 +1,4 @@
-# LoopEngine 文档索引
+# Cognis 文档索引
 
 本页是项目知识导航。文档角色和状态的机器真值位于 [`catalog.json`](catalog.json)；当前行为优先读取现行指南和现行规格，历史文件只用于审计。
 
@@ -11,7 +11,7 @@
 
 ## 现行规格
 
-- [v0.5 中文精简治理规格](specs/loopengine-v0.5-simplified-governance-spec.md)：当前治理合同。
+- [v0.5 中文精简治理规格](specs/cognis-v0.5-simplified-governance-spec.md)：当前治理合同。
 - [Agentmemory Skill 收敛规格](specs/agentmemory-skill-consolidation-spec.md)：当前 Agentmemory 安装与升级合同。
 
 ## 参考审计

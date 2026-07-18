@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -28,9 +28,37 @@ test('repository declares the documentation governance contract', async () => {
   }
 });
 
-test('repository ignores project-local LoopEngine runtime state', async () => {
+test('repository ignores canonical and legacy project-local runtime state', async () => {
   const gitignore = await readFile(path.join(rootDir, '.gitignore'), 'utf8');
+  assert.match(gitignore, /^\.cognis\/$/mu);
   assert.match(gitignore, /^\.loopengine\/$/mu);
+});
+
+test('legacy product names are rejected outside the compatibility allowlist', async () => {
+  const { validateLegacyBrandUsage } = await loadValidator();
+  const fixture = await mkdtemp(path.join(os.tmpdir(), 'cognis-brand-audit-'));
+  try {
+    await writeFile(path.join(fixture, 'active.js'), "export const product = 'LoopEngine';\n", 'utf8');
+    await mkdir(path.join(fixture, 'scripts'));
+    await writeFile(path.join(fixture, 'scripts', 'cognis.js'), [
+      "console.log('Cognis still ships as LoopEngine');",
+      'const product = "loopengine";',
+      '',
+    ].join('\n'), 'utf8');
+    const errors = await validateLegacyBrandUsage({ rootDir: fixture });
+    assert.deepEqual(errors, [
+      'active.js contains legacy product identity outside the compatibility allowlist',
+      'scripts/cognis.js contains legacy product identity outside the compatibility allowlist',
+    ]);
+  } finally {
+    await rm(fixture, { force: true, recursive: true });
+  }
+});
+
+test('current release notes use Cognis names for current interfaces', async () => {
+  const changelog = await readFile(path.join(rootDir, 'CHANGELOG.md'), 'utf8');
+  const currentRelease = changelog.split(/^## 0\.3\.0$/mu, 1)[0];
+  assert.doesNotMatch(currentRelease, /using-loopengine|新增 `loopengine (?:verify|baseline)/u);
 });
 
 test('source mapping points only at current governance assets', async () => {
@@ -115,7 +143,7 @@ test('documentation policy detects broken links, mixed lifecycle flags, relative
   const errors = await validateCurrentDocumentContent({
     content: [
       '[broken](missing.md)',
-      'pnpm loopengine install `',
+      'pnpm cognis install `',
       '  --project ../app `',
       '  --apply',
       '最近需要复核。',
@@ -137,7 +165,7 @@ test('documentation policy detects broken links, mixed lifecycle flags, relative
 
 test('documentation coverage includes every root Markdown knowledge file', async () => {
   const { collectGovernedPaths } = await loadValidator();
-  const fixture = await mkdtemp(path.join(os.tmpdir(), 'loopengine-docs-coverage-'));
+  const fixture = await mkdtemp(path.join(os.tmpdir(), 'cognis-docs-coverage-'));
   try {
     await writeFile(path.join(fixture, 'README.md'), '# README\n', 'utf8');
     await writeFile(path.join(fixture, 'ROOT-NOTES.md'), '# Notes\n', 'utf8');
@@ -194,7 +222,7 @@ test('English and Chinese README command and JSON examples remain equivalent', a
     '```json\n{"outer":{"a":1,"b":2}}\n```',
   ), []);
   assert.match(validateReadmeParity(
-    'pnpm loopengine install \\\n  --project app \\\n  --write',
-    'pnpm loopengine install \\\n  --project app \\\n  --dry-run',
+    'pnpm cognis install \\\n  --project app \\\n  --write',
+    'pnpm cognis install \\\n  --project app \\\n  --dry-run',
   ).join('\n'), /command examples differ/iu);
 });

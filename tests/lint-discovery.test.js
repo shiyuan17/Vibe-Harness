@@ -12,12 +12,12 @@ test('executable discovery covers runtime and Skill scripts', async () => {
   const files = (await discoverExecutables(rootDir)).map((file) => path.relative(rootDir, file).replaceAll('\\', '/'));
   assert.equal(files.includes('runtime/hooks/lib/policy.mjs'), true);
   assert.equal(files.includes('runtime/evals/codex-runner.mjs'), true);
-  assert.equal(files.includes('scripts/loopengine.js'), true);
+  assert.equal(files.includes('scripts/cognis.js'), true);
   assert.equal(files.every((file) => /\.(?:cjs|js|mjs)$/u.test(file)), true);
 });
 
 test('executable discovery includes cjs and skips dependency directories', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-lint-discovery-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-lint-discovery-'));
   try {
     await mkdir(path.join(target, 'runtime'), { recursive: true });
     await mkdir(path.join(target, 'node_modules', 'package'), { recursive: true });

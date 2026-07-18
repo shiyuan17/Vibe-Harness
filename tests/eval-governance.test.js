@@ -12,10 +12,10 @@ import { validateTasks } from '../runtime/governance/lib/task-validation.mjs';
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve('.');
-const cliPath = path.join(rootDir, 'scripts/loopengine.js');
+const cliPath = path.join(rootDir, 'scripts/cognis.js');
 
 async function evaluationRun({ cases, referenceStatus = 'matched' }) {
-  const run = await readJson(path.join(rootDir, 'evals/results/loopengine-core.offline.json'));
+  const run = await readJson(path.join(rootDir, 'evals/results/cognis-core.offline.json'));
   run.reference = { path: 'evals/references/core.json', status: referenceStatus };
   if (cases[0]?.id === 'EVAL-OTHER-001') {
     const result = run.cases.find((item) => item.id === 'EVAL-GOV-001');
@@ -30,10 +30,10 @@ async function evaluationRun({ cases, referenceStatus = 'matched' }) {
 }
 
 async function taskProject(run) {
-  const root = await mkdtemp(path.join(tmpdir(), 'loopengine-eval-task-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'cognis-eval-task-'));
   await mkdir(path.join(root, 'docs/tasks'), { recursive: true });
   await mkdir(path.join(root, 'docs/schemas'), { recursive: true });
-  await mkdir(path.join(root, '.loopengine/evals/runs'), { recursive: true });
+  await mkdir(path.join(root, '.cognis/evals/runs'), { recursive: true });
   await writeFile(
     path.join(root, 'docs/schemas/full-task-control.schema.json'),
     await readFile(path.join(rootDir, 'schemas/full-task-control.schema.json'), 'utf8'),
@@ -54,22 +54,22 @@ async function taskProject(run) {
   await mkdir(path.join(root, 'evals/suites'), { recursive: true });
   await mkdir(path.join(root, 'evals/references'), { recursive: true });
   await writeFile(
-    path.join(root, 'evals/suites/loopengine-core.json'),
-    await readFile(path.join(rootDir, 'evals/suites/loopengine-core.json'), 'utf8'),
+    path.join(root, 'evals/suites/cognis-core.json'),
+    await readFile(path.join(rootDir, 'evals/suites/cognis-core.json'), 'utf8'),
     'utf8',
   );
   await writeFile(
     path.join(root, 'evals/references/core.json'),
-    await readFile(path.join(rootDir, 'evals/references/loopengine-core.offline.json'), 'utf8'),
+    await readFile(path.join(rootDir, 'evals/references/cognis-core.offline.json'), 'utf8'),
     'utf8',
   );
-  await writeFile(path.join(root, 'loopengine.config.json'), `${JSON.stringify({
+  await writeFile(path.join(root, 'cognis.config.json'), `${JSON.stringify({
     evaluations: {
       repetitions: 3,
       thresholds: { criticalPassRate: 1, overallScore: 0.9, maxCapabilityRegression: 0.05 },
     },
   })}\n`, 'utf8');
-  await writeFile(path.join(root, '.loopengine/evals/runs/pass.json'), `${JSON.stringify(run, null, 2)}\n`, 'utf8');
+  await writeFile(path.join(root, '.cognis/evals/runs/pass.json'), `${JSON.stringify(run, null, 2)}\n`, 'utf8');
   await writeFile(path.join(root, 'docs/tasks/T-EVAL.md'), `# T-EVAL 评测任务
 
 - 工作流档位：快速
@@ -105,7 +105,7 @@ async function taskProject(run) {
 
 | AC-ID | 证据类型 | 命令或产物 | 退出码 | 核验时间 | 核验者 | 实际结果 |
 | --- | --- | --- | --- | --- | --- | --- |
-| AC-01 | 评测 | .loopengine/evals/runs/pass.json | 0 | 2026-07-14T00:00:00Z | 独立核验者 | 评测通过 |
+| AC-01 | 评测 | .cognis/evals/runs/pass.json | 0 | 2026-07-14T00:00:00Z | 独立核验者 | 评测通过 |
 
 ## 剩余风险
 
@@ -170,7 +170,7 @@ test('EDD skill is routed, registered, capability-backed, and installed by core'
     readJson(path.join(rootDir, 'manifests/profiles.json')),
     readJson(path.join(rootDir, 'adapters/codex/install-map.json')),
     readJson(path.join(rootDir, 'manifests/capabilities.json')),
-    readFile(path.join(rootDir, 'skills/core/using-loopengine/SKILL.md'), 'utf8'),
+    readFile(path.join(rootDir, 'skills/core/using-cognis/SKILL.md'), 'utf8'),
     readFile(path.join(rootDir, 'rules/agent-skill-routing.md'), 'utf8'),
   ]);
   assert.ok(skills.items.find((item) => item.id === 'eval-driven-development'));
@@ -188,19 +188,19 @@ test('EDD skill is routed, registered, capability-backed, and installed by core'
 });
 
 test('profile installation exposes only the claimed EDD surfaces', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-eval-install-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-eval-install-'));
   try {
     await execFileAsync(process.execPath, [cliPath, 'init', '--project', target], { cwd: rootDir });
     await execFileAsync(process.execPath, [cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'core', '--write'], { cwd: rootDir });
     await readFile(path.join(target, '.agents/skills/eval-driven-development/SKILL.md'), 'utf8');
-    await readFile(path.join(target, '.agents/loopengine/evals/run.mjs'), 'utf8');
-    await readFile(path.join(target, '.agents/evals/suites/loopengine-core.json'), 'utf8');
+    await readFile(path.join(target, '.agents/cognis/evals/run.mjs'), 'utf8');
+    await readFile(path.join(target, '.agents/evals/suites/cognis-core.json'), 'utf8');
     await readFile(path.join(target, 'docs/schemas/eval-run.schema.json'), 'utf8');
     const offline = await execFileAsync(process.execPath, [
-      '.agents/loopengine/evals/run.mjs',
+      '.agents/cognis/evals/run.mjs',
       '--project', target,
-      '--suite', '.agents/evals/suites/loopengine-core.json',
-      '--reference', '.agents/evals/references/loopengine-core.offline.json',
+      '--suite', '.agents/evals/suites/cognis-core.json',
+      '--reference', '.agents/evals/references/cognis-core.offline.json',
     ], { cwd: target });
     const report = JSON.parse(offline.stdout);
     assert.equal(report.status, 'passed');

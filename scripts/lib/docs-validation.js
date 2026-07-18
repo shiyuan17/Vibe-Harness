@@ -12,6 +12,67 @@ const historicalStatuses = new Set(['completed', 'superseded']);
 const relativeTimePattern = /(?:今天|昨天|刚刚|最近|上周|\btoday\b|\byesterday\b|\brecently\b)/iu;
 const openItemPattern = /(?:待办|未决|暂缓|搁置|待评估|仍未|观察期再评估|TODO)/iu;
 const datePattern = /\b(\d{4}-\d{2}-\d{2})\b/gu;
+const legacyBrandPattern = /LoopEngine|loopengine|LOOPENGINE/u;
+const legacyBrandFullyAllowedPrefixes = [
+  'audit-reports/',
+  'docs/archive/',
+  'tests/',
+];
+const legacyBrandFullyAllowedFiles = new Set([
+  'docs/catalog.json',
+  'docs/migration-guide.md',
+  'scripts/lib/docs-validation.js',
+  'scripts/lib/product-identity.js',
+  'scripts/loopengine.js',
+]);
+const legacyBrandCompatibilityFiles = new Set([
+  '.gitignore',
+  '.github/workflows/evals.yml',
+  'CHANGELOG.md',
+  'package.json',
+  'runtime/evals/codex-runner.mjs',
+  'runtime/governance/lib/task-validation.mjs',
+  'runtime/governance/validate.mjs',
+  'runtime/hooks/git-hook.mjs',
+  'runtime/hooks/lib/context.mjs',
+  'runtime/tools/playwright-cli/run.mjs',
+  'scripts/cognis.js',
+  'scripts/lib/eval-runner.js',
+  'scripts/lib/install-planner.js',
+  'scripts/lib/install-state.js',
+  'scripts/lib/project-config.js',
+  'scripts/lib/project-layout.js',
+  'scripts/lib/template-renderer.js',
+  'scripts/lib/tool-provisioning.js',
+]);
+const legacyCompatibilityContextPattern = /(?:legacy|deprecated|fallback|migration|compatib|旧|兼容|迁移|弃用|历史)/iu;
+const legacyCompatibilitySurfacePattern = /(?:\.loopengine(?:[\\/]|\b)|\.agents[\\/]loopengine|loopengine\.config\.json|LOOPENGINE[_:]|using-loopengine|loopengine-(?:core|online)|loopengine\[-\.\]|@jw\/loopengine)/u;
+const legacyBrandFileLinePatterns = new Map([
+  ['package.json', [
+    /"loopengine":\s*"\.\/scripts\/loopengine\.js"/u,
+    /"loopengine":\s*"node \.\/scripts\/loopengine\.js"/u,
+  ]],
+  ['runtime/hooks/git-hook.mjs', [/cognis\|loopengine.*backups/u]],
+  ['scripts/lib/install-state.js', [/\?\s*'loopengine'/u]],
+  ['scripts/lib/template-renderer.js', [/both Cognis and LoopEngine managed blocks/iu]],
+  ['scripts/lib/tool-provisioning.js', [/both Cognis and LoopEngine MCP managed blocks/iu]],
+]);
+const repositoryScanExcludedDirectories = new Set([
+  '.agents',
+  '.codebase-memory',
+  '.codegraph',
+  '.codex',
+  '.cognis',
+  '.cursor',
+  '.git',
+  '.githooks',
+  '.loopengine',
+  'coverage',
+  'dist',
+  'node_modules',
+  'output',
+  'tmp',
+]);
 
 function normalize(relativePath) {
   return relativePath.replaceAll('\\', '/');
@@ -39,6 +100,48 @@ async function collectMarkdown(directory, rootDir, results = []) {
     }
   }
   return results;
+}
+
+async function collectRepositoryFiles(directory, rootDir, results = []) {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    if (entry.isDirectory() && repositoryScanExcludedDirectories.has(entry.name)) continue;
+    const fullPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) await collectRepositoryFiles(fullPath, rootDir, results);
+    else if (entry.isFile()) results.push(normalize(path.relative(rootDir, fullPath)));
+  }
+  return results;
+}
+
+function legacyBrandFullyAllowed(file) {
+  return legacyBrandFullyAllowedFiles.has(file)
+    || legacyBrandFullyAllowedPrefixes.some((prefix) => file.startsWith(prefix));
+}
+
+function legacyLineAllowed(file, line, lineIndex, lines) {
+  if (!legacyBrandCompatibilityFiles.has(file)) return false;
+  if (file === 'CHANGELOG.md') {
+    const historicalStart = lines.findIndex((candidate) => /^## 0\.[0-4]\./u.test(candidate));
+    if (historicalStart >= 0 && lineIndex >= historicalStart) return true;
+  }
+  return legacyCompatibilityContextPattern.test(line)
+    || legacyCompatibilitySurfacePattern.test(line)
+    || (legacyBrandFileLinePatterns.get(file) ?? []).some((pattern) => pattern.test(line));
+}
+
+export async function validateLegacyBrandUsage({ rootDir }) {
+  const errors = [];
+  for (const file of await collectRepositoryFiles(rootDir, rootDir)) {
+    if (legacyBrandFullyAllowed(file)) continue;
+    const content = (await readFile(path.join(rootDir, file))).toString('utf8');
+    const lines = content.split(/\r?\n/u);
+    const invalidContent = lines.some((line, lineIndex) => (
+      legacyBrandPattern.test(line) && !legacyLineAllowed(file, line, lineIndex, lines)
+    ));
+    if ((legacyBrandPattern.test(file) && !legacyBrandCompatibilityFiles.has(file)) || invalidContent) {
+      errors.push(`${file} contains legacy product identity outside the compatibility allowlist`);
+    }
+  }
+  return errors.sort();
 }
 
 export async function collectGovernedPaths(rootDir) {
@@ -125,7 +228,7 @@ function staleOpenItemErrors(content, file, today) {
   return errors;
 }
 
-function logicalLoopEngineCommands(content) {
+function logicalCognisCommands(content) {
   const lines = content.split(/\r?\n/u);
   const commands = [];
   const hasContinuation = (line) => {
@@ -134,7 +237,7 @@ function logicalLoopEngineCommands(content) {
     return (line.match(/`/gu)?.length ?? 0) % 2 === 1;
   };
   for (let index = 0; index < lines.length; index += 1) {
-    if (!lines[index].includes('pnpm loopengine ')) continue;
+    if (!lines[index].includes('pnpm cognis ')) continue;
     let command = lines[index].trim();
     while (hasContinuation(command) && index + 1 < lines.length) {
       command = `${command.replace(/(?:\\|`)\s*$/u, '').trim()} ${lines[index + 1].trim()}`;
@@ -163,7 +266,7 @@ export async function validateCurrentDocumentContent({
 
   if (!enforceCurrent) return errors;
 
-  for (const command of logicalLoopEngineCommands(content)) {
+  for (const command of logicalCognisCommands(content)) {
     if (command.includes('--project') && command.includes('--apply')) {
       errors.push(`${file} mixes --project with legacy --apply`);
     }
@@ -175,8 +278,8 @@ export async function validateCurrentDocumentContent({
 }
 
 function commandExamples(content) {
-  return logicalLoopEngineCommands(content).map((command) => {
-    const start = command.indexOf('pnpm loopengine ');
+  return logicalCognisCommands(content).map((command) => {
+    const start = command.indexOf('pnpm cognis ');
     return command.slice(start).replace(/\s+/gu, ' ').trim();
   });
 }
@@ -367,6 +470,7 @@ async function validateDocumentationUnchecked({ catalog, rootDir, today = new Da
   if (await pathExists(path.join(rootDir, 'docs/inventory/source-rules-mapping.md'))) {
     errors.push(...await validateSourceMapping(rootDir));
   }
+  errors.push(...await validateLegacyBrandUsage({ rootDir }));
 
   const [english, chinese, gitignore] = await Promise.all([
     readFile(path.join(rootDir, 'README.md'), 'utf8'),
@@ -374,6 +478,7 @@ async function validateDocumentationUnchecked({ catalog, rootDir, today = new Da
     readFile(path.join(rootDir, '.gitignore'), 'utf8'),
   ]);
   errors.push(...validateReadmeParity(english, chinese));
+  if (!/^\.cognis\/$/mu.test(gitignore)) errors.push('.gitignore must ignore .cognis/');
   if (!/^\.loopengine\/$/mu.test(gitignore)) errors.push('.gitignore must ignore .loopengine/');
 
   return {

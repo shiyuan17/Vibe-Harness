@@ -10,13 +10,13 @@ import { removeTemporaryDirectory } from './lib/temp-cleanup.js';
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const cliPath = path.join(rootDir, 'scripts/loopengine.js');
+const cliPath = path.join(rootDir, 'scripts/cognis.js');
 
 async function run(step, args) {
   console.error(`smoke: ${step}`);
   await execFileAsync(process.execPath, [cliPath, ...args], {
     cwd: rootDir,
-    env: { ...process.env, LOOPENGINE_TOOL_TIMEOUT_MS: '10000' },
+    env: { ...process.env, COGNIS_TOOL_TIMEOUT_MS: '10000' },
     maxBuffer: 1024 * 1024 * 8,
     timeout: 180_000,
     windowsHide: true,
@@ -27,10 +27,10 @@ async function run(step, args) {
 async function runInstalledEval(step, project) {
   console.error(`smoke: ${step}`);
   await execFileAsync(process.execPath, [
-    path.join(project, '.agents/loopengine/evals/run.mjs'),
+    path.join(project, '.agents/cognis/evals/run.mjs'),
     '--project', project,
-    '--suite', '.agents/evals/suites/loopengine-core.json',
-    '--reference', '.agents/evals/references/loopengine-core.offline.json',
+    '--suite', '.agents/evals/suites/cognis-core.json',
+    '--reference', '.agents/evals/references/cognis-core.offline.json',
   ], {
     cwd: project,
     maxBuffer: 1024 * 1024 * 8,
@@ -40,8 +40,8 @@ async function runInstalledEval(step, project) {
   return { exitCode: 0, step };
 }
 
-const core = await mkdtemp(path.join(tmpdir(), 'loopengine-smoke-core-'));
-const full = await mkdtemp(path.join(tmpdir(), 'loopengine-smoke-full-'));
+const core = await mkdtemp(path.join(tmpdir(), 'cognis-smoke-core-'));
+const full = await mkdtemp(path.join(tmpdir(), 'cognis-smoke-full-'));
 const results = [];
 
 try {

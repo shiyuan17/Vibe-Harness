@@ -1,6 +1,6 @@
 # Hook 场景与运行边界
 
-LoopEngine 使用 Codex 原生 hook 协议承载项目内安全策略，并把策略实现放在 `.agents/loopengine/hooks/`。截至 2026-07-12，Codex 项目 hook 使用 `SessionStart`、`UserPromptSubmit`、`PreToolUse`、`PermissionRequest`、`PostToolUse`、`PreCompact`、`PostCompact`、`SubagentStart`、`SubagentStop` 和 `Stop`；没有 `SessionEnd`。
+Cognis 使用 Codex 原生 hook 协议承载项目内安全策略，并把策略实现放在 `.agents/cognis/hooks/`。截至 2026-07-12，Codex 项目 hook 使用 `SessionStart`、`UserPromptSubmit`、`PreToolUse`、`PermissionRequest`、`PostToolUse`、`PreCompact`、`PostCompact`、`SubagentStart`、`SubagentStop` 和 `Stop`；没有 `SessionEnd`。
 
 参考实现：
 
@@ -13,7 +13,7 @@ LoopEngine 使用 Codex 原生 hook 协议承载项目内安全策略，并把�
 
 ## 默认策略
 
-`loopengine.config.json` 支持：
+`cognis.config.json` 支持：
 
 ```json
 {
@@ -53,7 +53,7 @@ Codex 会并发启动同一事件的多个匹配 hook，项目 hook 需要通过
 git config --local core.hooksPath .githooks
 ```
 
-`pre-commit` 只检查 staged diff、敏感信息、生成目录和备份目录，不读取或修改 unstaged 内容。`pre-push` 顺序执行 `loopengine.config.json.validationCommands` 中已配置的 governance、lint 和 typecheck。`loopengine doctor --project <project>` 会报告 active、inactive 或 conflict，但不会修改配置。
+`pre-commit` 只检查 staged diff、敏感信息、生成目录和备份目录，不读取或修改 unstaged 内容。`pre-push` 顺序执行 `cognis.config.json.validationCommands` 中已配置的 governance、lint 和 typecheck。`cognis doctor --project <project>` 会报告 active、inactive 或 conflict，但不会修改配置。
 
 Git hooks 可以被本地用户绕过，最终强制策略仍应放在 CI、required checks 和服务端保护中。
 
@@ -62,7 +62,7 @@ Git hooks 可以被本地用户绕过，最终强制策略仍应放在 CI、requ
 所有项目安装使用：
 
 ```bash
-pnpm loopengine install --project <project> --target codex --profile full --write --confirm-red-zone
+pnpm cognis install --project <project> --target codex --profile full --write --confirm-red-zone
 ```
 
 不会再解析 `--target <project>` 或 `--apply`；旧项目先运行 `init --project <project>`，再用 `install --upgrade --write` 归一状态。该流程不会写全局 Codex 或 Git 配置，且没有 `--force` 时不会覆盖已有文件。

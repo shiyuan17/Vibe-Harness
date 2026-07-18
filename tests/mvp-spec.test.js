@@ -10,7 +10,7 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve('.');
-const cliPath = path.join(rootDir, 'scripts/loopengine.js');
+const cliPath = path.join(rootDir, 'scripts/cognis.js');
 
 async function exists(filePath) {
   try {
@@ -36,7 +36,7 @@ async function writeJson(filePath, value) {
 }
 
 async function initAndDryRunProfile(profile) {
-  const target = await mkdtemp(path.join(tmpdir(), `loopengine-${profile}-profile-`));
+  const target = await mkdtemp(path.join(tmpdir(), `cognis-${profile}-profile-`));
   await runCli(['init', '--project', target]);
   const report = await runCli([
     'install',
@@ -55,18 +55,18 @@ function targetsFrom(report) {
   return report.actions.map((action) => action.relativeTarget).sort();
 }
 
-test('init --project writes the MVP loopengine.config.json defaults', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-init-'));
+test('init --project writes the MVP cognis.config.json defaults', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-init-'));
   try {
     await runCli(['init', '--project', target]);
 
-    const config = JSON.parse(await readFile(path.join(target, 'loopengine.config.json'), 'utf8'));
+    const config = JSON.parse(await readFile(path.join(target, 'cognis.config.json'), 'utf8'));
     assert.equal(config.projectName, path.basename(target));
     assert.equal(config.language, 'zh-CN');
     assert.equal(config.packageManager, 'pnpm');
     assert.equal(config.target, 'codex');
     assert.equal(config.profile, 'core');
-    assert.equal(config.validationCommands.governance, 'node .agents/loopengine/governance/validate.mjs');
+    assert.equal(config.validationCommands.governance, 'node .agents/cognis/governance/validate.mjs');
     assert.equal(config.validationCommands.lint, null);
     assert.equal(config.validationCommands.typecheck, null);
     assert.deepEqual(config.governance, { mode: 'basic' });
@@ -77,7 +77,7 @@ test('init --project writes the MVP loopengine.config.json defaults', async () =
 });
 
 test('MVP dry-run uses --project for path and --target codex for adapter without writing AGENTS.md', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-dryrun-mvp-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-dryrun-mvp-'));
   try {
     await runCli(['init', '--project', target]);
     const report = await runCli([
@@ -98,8 +98,8 @@ test('MVP dry-run uses --project for path and --target codex for adapter without
     assert.equal(report.previewFiles.some((file) => file.target === 'AGENTS.md'), true);
     const agents = report.previewFiles.find((file) => file.target === 'AGENTS.md').content;
     assert.equal(agents.includes(path.basename(target)), true);
-    assert.equal(agents.includes('由 LoopEngine 安装'), false);
-    assert.equal(agents.includes('本项目使用 LoopEngine 中文治理合同'), false);
+    assert.equal(agents.includes('由 Cognis 安装'), false);
+    assert.equal(agents.includes('本项目使用 Cognis 中文治理合同'), false);
     assert.equal(agents.includes('## 启动'), true);
     assert.equal(agents.includes('## 五条硬约束'), true);
     assert.equal(agents.includes('轻量反证'), true);
@@ -110,7 +110,7 @@ test('MVP dry-run uses --project for path and --target codex for adapter without
 });
 
 test('MVP --write appends or updates the managed AGENTS block without overwriting local content', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-write-mvp-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-write-mvp-'));
   try {
     await runCli(['init', '--project', target]);
     await writeFile(path.join(target, 'AGENTS.md'), '# Project AGENTS\n\nlocal agents\n', 'utf8');
@@ -137,12 +137,12 @@ test('MVP --write appends or updates the managed AGENTS block without overwritin
 });
 
 test('MVP repeated --write updates the managed AGENTS block in place', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-write-repeat-mvp-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-write-repeat-mvp-'));
   try {
     await runCli(['init', '--project', target]);
     await writeFile(
       path.join(target, 'AGENTS.md'),
-      '# Project AGENTS\n\nlocal agents\n\n<!-- LOOPENGINE:START -->\nold block\n<!-- LOOPENGINE:END -->\n',
+      '# Project AGENTS\n\nlocal agents\n\n<!-- COGNIS:START -->\nold block\n<!-- COGNIS:END -->\n',
       'utf8',
     );
 
@@ -159,8 +159,8 @@ test('MVP repeated --write updates the managed AGENTS block in place', async () 
 
     const agents = await readFile(path.join(target, 'AGENTS.md'), 'utf8');
     assert.equal(agents.includes('old block'), false);
-    assert.equal((agents.match(/<!-- LOOPENGINE:START -->/gu) ?? []).length, 1);
-    assert.equal((agents.match(/<!-- LOOPENGINE:END -->/gu) ?? []).length, 1);
+    assert.equal((agents.match(/<!-- COGNIS:START -->/gu) ?? []).length, 1);
+    assert.equal((agents.match(/<!-- COGNIS:END -->/gu) ?? []).length, 1);
     assert.equal(agents.includes('local agents'), true);
     assert.equal(agents.includes('## 启动'), true);
   } finally {
@@ -168,8 +168,8 @@ test('MVP repeated --write updates the managed AGENTS block in place', async () 
   }
 });
 
-test('MVP install replaces legacy unmarked LoopEngine AGENTS content with the managed block', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-write-legacy-agents-'));
+test('MVP install replaces legacy unmarked Cognis AGENTS content with the managed block', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-write-legacy-agents-'));
   try {
     await runCli(['init', '--project', target]);
     await writeFile(
@@ -192,7 +192,7 @@ test('MVP install replaces legacy unmarked LoopEngine AGENTS content with the ma
         '',
         '- Workflows 位于 `docs/workflows/`。',
         '',
-        'LoopEngine 不覆盖本项目本地规则；如果本地规则更严格，遵循更严格的规则。',
+        'Cognis 不覆盖本项目本地规则；如果本地规则更严格，遵循更严格的规则。',
         '',
       ].join('\n'),
       'utf8',
@@ -215,8 +215,8 @@ test('MVP install replaces legacy unmarked LoopEngine AGENTS content with the ma
     assert.equal(agents.includes('docs/rules/quickstart.md'), false);
     assert.equal(agents.includes('docs/workflows/'), false);
     assert.equal((agents.match(/^# AGENTS\.md$/gmu) ?? []).length, 1);
-    assert.equal((agents.match(/<!-- LOOPENGINE:START -->/gu) ?? []).length, 1);
-    assert.equal((agents.match(/<!-- LOOPENGINE:END -->/gu) ?? []).length, 1);
+    assert.equal((agents.match(/<!-- COGNIS:START -->/gu) ?? []).length, 1);
+    assert.equal((agents.match(/<!-- COGNIS:END -->/gu) ?? []).length, 1);
     assert.equal(agents.includes('## 启动'), true);
   } finally {
     await rm(target, { force: true, recursive: true });
@@ -224,7 +224,7 @@ test('MVP install replaces legacy unmarked LoopEngine AGENTS content with the ma
 });
 
 test('MVP --write --force keeps local AGENTS content and does not require a backup for block updates', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-write-force-mvp-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-write-force-mvp-'));
   try {
     await runCli(['init', '--project', target]);
     await writeFile(path.join(target, 'AGENTS.md'), 'local agents\n', 'utf8');
@@ -246,17 +246,17 @@ test('MVP --write --force keeps local AGENTS content and does not require a back
     assert.equal(agents.includes('local agents'), true);
     assert.equal(agents.includes('## 启动'), true);
     assert.equal(agents.includes(path.basename(target)), true);
-    assert.equal(await exists(path.join(target, '.loopengine/backups')), false);
+    assert.equal(await exists(path.join(target, '.cognis/backups')), false);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
 });
 
 test('validate --project rejects invalid config', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-invalid-config-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-invalid-config-'));
   try {
     await writeFile(
-      path.join(target, 'loopengine.config.json'),
+      path.join(target, 'cognis.config.json'),
       JSON.stringify({ projectName: 'BrokenProject', target: 'codex', profile: 'core' }),
       'utf8',
     );
@@ -271,10 +271,10 @@ test('validate --project rejects invalid config', async () => {
 });
 
 test('project config rejects unsupported languages', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-invalid-language-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-invalid-language-'));
   try {
     await runCli(['init', '--project', target]);
-    const configPath = path.join(target, 'loopengine.config.json');
+    const configPath = path.join(target, 'cognis.config.json');
     const config = JSON.parse(await readFile(configPath, 'utf8'));
     await writeJson(configPath, { ...config, language: 'fr-FR' });
 
@@ -288,10 +288,10 @@ test('project config rejects unsupported languages', async () => {
 });
 
 test('en-US projects install localized task and delivery templates', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-english-templates-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-english-templates-'));
   try {
     await runCli(['init', '--project', target]);
-    const configPath = path.join(target, 'loopengine.config.json');
+    const configPath = path.join(target, 'cognis.config.json');
     const config = JSON.parse(await readFile(configPath, 'utf8'));
     await writeJson(configPath, { ...config, language: 'en-US' });
 
@@ -309,10 +309,10 @@ test('en-US projects install localized task and delivery templates', async () =>
 });
 
 test('project installs allow target-specific names in generated output', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-project-name-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-project-name-'));
   try {
     await runCli(['init', '--project', target]);
-    const configPath = path.join(target, 'loopengine.config.json');
+    const configPath = path.join(target, 'cognis.config.json');
     const config = JSON.parse(await readFile(configPath, 'utf8'));
     await writeJson(configPath, { ...config, projectName: 'SYBaseProjectWeb' });
 
@@ -355,7 +355,7 @@ test('core profile installs common routed skills without mcp, memory, or hooks',
 
     assert.equal(targets.includes('docs/rules/governance-core.md'), true);
     assert.equal(targets.includes('docs/rules/codebase-memory-mcp.md'), false);
-    assert.equal(targets.includes('.agents/skills/using-loopengine/SKILL.md'), true);
+    assert.equal(targets.includes('.agents/skills/using-cognis/SKILL.md'), true);
     assert.equal(targets.includes('.agents/skills/agentmemory/SKILL.md'), false);
     assert.equal(targets.some((item) => item.startsWith('.agents/memory/')), false);
     assert.equal(targets.includes('.codex/hooks.json'), false);
@@ -435,12 +435,12 @@ test('installed rules use Chinese user-visible bullet text', async () => {
   }
 });
 
-test('validate and install require init-generated loopengine.config.json', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-missing-config-'));
+test('validate and install require init-generated cognis.config.json', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-missing-config-'));
   try {
     await assert.rejects(
       execFileAsync(process.execPath, [cliPath, 'validate', '--project', target]),
-      /loopengine\.config\.json/,
+      /cognis\.config\.json/,
     );
     await assert.rejects(
       execFileAsync(process.execPath, [
@@ -454,7 +454,7 @@ test('validate and install require init-generated loopengine.config.json', async
         'core',
         '--dry-run',
       ]),
-      /loopengine\.config\.json/,
+      /cognis\.config\.json/,
     );
   } finally {
     await rm(target, { force: true, recursive: true });
@@ -462,7 +462,7 @@ test('validate and install require init-generated loopengine.config.json', async
 });
 
 test('validate --project requires installed files to match the selected profile', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-project-validate-install-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-project-validate-install-'));
   try {
     await runCli(['init', '--project', target]);
 
@@ -492,7 +492,7 @@ test('validate --project requires installed files to match the selected profile'
 });
 
 test('validate --project allows local AGENTS content outside the managed block', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-project-validate-local-agents-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-project-validate-local-agents-'));
   try {
     await runCli(['init', '--project', target]);
     await writeFile(path.join(target, 'AGENTS.md'), '# Local notes\n\nKeep this.\n', 'utf8');
@@ -510,7 +510,7 @@ test('validate --project allows local AGENTS content outside the managed block',
 });
 
 test('CLI failures return structured errors without Node stack traces', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-cli-error-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-cli-error-'));
   try {
     const cases = [
       ['validate', '--project', target],
@@ -574,11 +574,11 @@ test('rendered AGENTS surface matches minimal, core, and full profile installs',
 });
 
 test('validate --project catches generated AGENTS references that are not installed by the profile', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-mismatched-agents-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-mismatched-agents-'));
   try {
     await runCli(['init', '--project', target]);
     await writeFile(
-      path.join(target, 'loopengine.config.json'),
+      path.join(target, 'cognis.config.json'),
       JSON.stringify({
         projectName: path.basename(target),
         language: 'zh-CN',

@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
-  "id": "loopengine-core-offline-reference",
-  "approvedAt": "1970-01-01T00:00:00.000Z",
+  "id": "cognis-core-offline-reference",
+  "approvedAt": "2026-07-18T06:53:42.893Z",
   "suite": {
-    "id": "loopengine-core",
+    "id": "cognis-core",
     "version": "1.1.0"
   },
   "mode": "offline",
   "fingerprint": {
-    "suiteHash": "c02a84ed54b2c6978ad60ff29065f5e69c28454a5e650bdca2b95711aed3c8db",
+    "suiteHash": "d46fbd2eccbce04f674ac32b90aa5eb062e001796e6ade2eb47f70588525673b",
     "runner": "offline-replay@1",
     "model": "fixture",
     "agent": "offline",

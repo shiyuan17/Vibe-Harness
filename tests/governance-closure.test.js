@@ -9,7 +9,7 @@ const read = (relativePath) => readFile(path.join(rootDir, relativePath), 'utf8'
 test('contributor contract defines one project write lifecycle', async () => {
   const agents = await read('AGENTS.md');
   assert.match(agents, /--project[^\n]*--write/u);
-  assert.doesNotMatch(agents, /pnpm loopengine[^\n]*(?:codex-internal|codex-minimal|--apply)/u);
+  assert.doesNotMatch(agents, /pnpm cognis[^\n]*(?:codex-internal|codex-minimal|--apply)/u);
 });
 
 test('governance kernel defines five Chinese stages and adversarial evidence', async () => {

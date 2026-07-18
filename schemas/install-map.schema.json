@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "LoopEngine Adapter Install Map",
+  "title": "Cognis Adapter Install Map",
   "type": "object",
   "required": ["adapter", "entries"],
   "properties": {

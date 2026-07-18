@@ -13,4 +13,4 @@ for (const file of files) {
   }
 }
 if (failed) process.exit(1);
-console.log(`LoopEngine lint passed (${files.length} files checked).`);
+console.log(`Cognis lint passed (${files.length} files checked).`);

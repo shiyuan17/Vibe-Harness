@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "id": "loopengine-online-canary",
+  "id": "cognis-online-canary",
   "version": "1.0.0",
-  "description": "Six critical Codex behavior canaries for LoopEngine governance.",
+  "description": "Six critical Codex behavior canaries for Cognis governance.",
   "defaultRepetitions": 3,
   "cases": [
     {

@@ -10,7 +10,7 @@ import { executeProjectVerification } from '../scripts/lib/project-verification.
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve('.');
-const cliPath = path.join(rootDir, 'scripts/loopengine.js');
+const cliPath = path.join(rootDir, 'scripts/cognis.js');
 
 async function runCli(args) {
   const result = await execFileAsync(process.execPath, [cliPath, ...args], { maxBuffer: 1024 * 1024 * 8 });
@@ -18,9 +18,9 @@ async function runCli(args) {
 }
 
 async function createProject(validationCommands) {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-verify-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-verify-'));
   await runCli(['init', '--project', target]);
-  const configPath = path.join(target, 'loopengine.config.json');
+  const configPath = path.join(target, 'cognis.config.json');
   const config = JSON.parse(await readFile(configPath, 'utf8'));
   config.validationCommands = validationCommands;
   config.governance.mode = 'off';
@@ -66,7 +66,7 @@ test('verify --project blocks missing and manual commands by default', async () 
       },
     );
 
-    const manualOnlyConfigPath = path.join(target, 'loopengine.config.json');
+    const manualOnlyConfigPath = path.join(target, 'cognis.config.json');
     const manualOnlyConfig = JSON.parse(await readFile(manualOnlyConfigPath, 'utf8'));
     manualOnlyConfig.validationCommands.lint = null;
     await writeFile(manualOnlyConfigPath, `${JSON.stringify(manualOnlyConfig, null, 2)}\n`, 'utf8');
@@ -107,7 +107,7 @@ test('verify --project propagates command failures', async () => {
 });
 
 test('project verification report mode preserves failed and blocked diagnostics', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-verify-report-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-verify-report-'));
   try {
     await writeFile(path.join(target, 'fail.mjs'), "console.error('secret-output'); process.exitCode = 7;\n", 'utf8');
 

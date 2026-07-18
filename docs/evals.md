@@ -1,6 +1,6 @@
 # 评测驱动开发
 
-LoopEngine 使用 Eval-Driven Development 管理 Agent 规则、Skill、模板、适配器和 Hook 的非确定性行为。确定性代码仍使用单元测试与 TDD；评测补充“Agent 在场景中是否做对了”的证据。
+Cognis 使用 Eval-Driven Development 管理 Agent 规则、Skill、模板、适配器和 Hook 的非确定性行为。确定性代码仍使用单元测试与 TDD；评测补充“Agent 在场景中是否做对了”的证据。
 
 ## 合同
 
@@ -15,11 +15,11 @@ LoopEngine 使用 Eval-Driven Development 管理 Agent 规则、Skill、模板�
 ```json
 {
   "validationCommands": {
-    "eval": "node .agents/loopengine/evals/run.mjs --project . --suite .agents/evals/suites/loopengine-core.json --reference .agents/evals/references/loopengine-core.offline.json"
+    "eval": "node .agents/cognis/evals/run.mjs --project . --suite .agents/evals/suites/cognis-core.json --reference .agents/evals/references/cognis-core.offline.json"
   },
   "evaluations": {
     "enabled": true,
-    "suites": [".agents/evals/suites/loopengine-core.json"],
+    "suites": [".agents/evals/suites/cognis-core.json"],
     "reference": "evals/references/project.json",
     "thresholds": {
       "criticalPassRate": 1,
@@ -32,15 +32,15 @@ LoopEngine 使用 Eval-Driven Development 管理 Agent 规则、Skill、模板�
 }
 ```
 
-`.agents/evals/references/loopengine-core.offline.json` 是随 profile 安装的只读 seed，仅供内建离线 runtime 自检；项目审批生成的 reference 必须写入 `evals/references/` 等项目自有路径，不能覆盖 `.agents/` 下的安装器受管文件。
+`.agents/evals/references/cognis-core.offline.json` 是随 profile 安装的只读 seed，仅供内建离线 runtime 自检；项目审批生成的 reference 必须写入 `evals/references/` 等项目自有路径，不能覆盖 `.agents/` 下的安装器受管文件。
 
 ## 生命周期
 
 ```bash
-pnpm loopengine eval check --project ../some-project
-pnpm loopengine eval run --project ../some-project --mode offline
-pnpm loopengine eval run --project ../some-project --mode offline --write
-pnpm loopengine eval reference --project ../some-project --from .loopengine/evals/runs/<run>.json --write --confirm-reference-update
+pnpm cognis eval check --project ../some-project
+pnpm cognis eval run --project ../some-project --mode offline
+pnpm cognis eval run --project ../some-project --mode offline --write
+pnpm cognis eval reference --project ../some-project --from .cognis/evals/runs/<run>.json --write --confirm-reference-update
 ```
 
 评测只使用 `--project` 和 `--write`；旧的路径型 `--target` 与 `--apply` 不属于当前生命周期。reference 已存在时还需要 `--force`，并在覆盖前创建项目内备份。reference 更新必须单独审查，不能为让变更通过而自动提升基准。
@@ -60,7 +60,7 @@ Runner 从 stdin 接收一个 JSON 请求，在一次性项目中执行一个案
 - runner 或供应商不可用是 degraded，不算行为回归；前两次在 job summary 告警，连续第三次由 `eval:health` 使 scheduled workflow 失败。一次 ready 会清零连续计数。
 - 真实断言失败始终是 invalid，不因校准期而隐藏。
 
-启用在线 workflow 前配置仓库变量 `CODEX_CLI_VERSION`、`CODEX_MODEL` 和 secret `OPENAI_API_KEY`。前 20 次成功校准后，将仓库变量 `LOOPENGINE_EVAL_ENFORCE` 设为 `1` 启用 invalid 门禁；缺少运行配置时 workflow 上传脱敏 degraded 诊断并参与连续健康计数。workflow 只申请 `actions:read` 和 `contents:read`，不创建 Issue 或修改仓库状态。
+启用在线 workflow 前配置仓库变量 `CODEX_CLI_VERSION`、`CODEX_MODEL` 和 secret `OPENAI_API_KEY`。前 20 次成功校准后，将仓库变量 `COGNIS_EVAL_ENFORCE` 设为 `1` 启用 invalid 门禁；缺少运行配置时 workflow 上传脱敏 degraded 诊断并参与连续健康计数。workflow 只申请 `actions:read` 和 `contents:read`，不创建 Issue 或修改仓库状态。
 
 ## 故障恢复
 

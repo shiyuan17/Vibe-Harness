@@ -1,6 +1,6 @@
 # LoopEngine v1 规格
 
-状态：Superseded。本文仅保留 legacy/internal v1 基线；当前治理契约以 [v0.5 中文精简治理规格](../../specs/loopengine-v0.5-simplified-governance-spec.md) 为准。
+状态：Superseded。本文仅保留 legacy/internal v1 基线；当前治理契约以 [v0.5 中文精简治理规格](../../specs/cognis-v0.5-simplified-governance-spec.md) 为准。
 
 ## 目标
 

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "LoopEngine Profile Pack Manifest",
+  "title": "Cognis Profile Pack Manifest",
   "type": "object",
   "required": ["schemaVersion", "items"],
   "properties": {

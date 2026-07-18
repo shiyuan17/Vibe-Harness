@@ -14,7 +14,7 @@ import { executeProjectVerification } from '../scripts/lib/project-verification.
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve('.');
-const cliPath = path.join(rootDir, 'scripts/loopengine.js');
+const cliPath = path.join(rootDir, 'scripts/cognis.js');
 
 async function run(args) {
   try {
@@ -33,20 +33,20 @@ async function run(args) {
 }
 
 async function createEvalProject() {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-eval-cli-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-eval-cli-'));
   await mkdir(path.join(target, 'evals/suites'), { recursive: true });
   await mkdir(path.join(target, 'evals/references'), { recursive: true });
   await cp(
-    path.join(rootDir, 'evals/suites/loopengine-core.json'),
+    path.join(rootDir, 'evals/suites/cognis-core.json'),
     path.join(target, 'evals/suites/core.json'),
   );
   await cp(
-    path.join(rootDir, 'evals/references/loopengine-core.offline.json'),
+    path.join(rootDir, 'evals/references/cognis-core.offline.json'),
     path.join(target, 'evals/references/core.json'),
   );
   const init = await run(['init', '--project', target]);
   assert.equal(init.code, 0);
-  const configPath = path.join(target, 'loopengine.config.json');
+  const configPath = path.join(target, 'cognis.config.json');
   const config = JSON.parse(await readFile(configPath, 'utf8'));
   config.evaluations = {
     enabled: true,
@@ -103,7 +103,7 @@ test('project config exposes disabled evaluation defaults and validates safe pat
 });
 
 test('project verification executes eval after governance, lint, and typecheck', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-eval-order-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-eval-order-'));
   const orderFile = path.join(target, 'order.txt');
   try {
     for (const name of ['governance', 'lint', 'typecheck', 'eval']) {
@@ -131,18 +131,18 @@ test('eval check and offline run are read-only until write is explicit', async (
     const checked = await run(['eval', 'check', '--project', target]);
     assert.equal(checked.code, 0);
     assert.equal(checked.payload.status, 'ready');
-    assert.equal(checked.payload.suites[0].id, 'loopengine-core');
+    assert.equal(checked.payload.suites[0].id, 'cognis-core');
 
     const preview = await run(['eval', 'run', '--project', target, '--mode', 'offline']);
     assert.equal(preview.code, 0);
     assert.equal(preview.payload.dryRun, true);
     assert.equal(preview.payload.run.status, 'passed');
-    await assert.rejects(readFile(path.join(target, '.loopengine/evals/runs'), 'utf8'), /ENOENT|EISDIR/u);
+    await assert.rejects(readFile(path.join(target, '.cognis/evals/runs'), 'utf8'), /ENOENT|EISDIR/u);
 
     const written = await run(['eval', 'run', '--project', target, '--mode', 'offline', '--write']);
     assert.equal(written.code, 0);
     assert.equal(written.payload.dryRun, false);
-    assert.match(written.payload.written[0], /^\.loopengine\/evals\/runs\/.+\.json$/u);
+    assert.match(written.payload.written[0], /^\.cognis\/evals\/runs\/.+\.json$/u);
     const persisted = JSON.parse(await readFile(path.join(target, written.payload.written[0]), 'utf8'));
     assert.equal(persisted.status, 'passed');
   } finally {
@@ -169,7 +169,7 @@ test('eval rejects removed lifecycle flags and unsafe suite selection', async ()
 
 test('eval paths reject project-internal links that escape the project', async () => {
   const target = await createEvalProject();
-  const outside = await mkdtemp(path.join(tmpdir(), 'loopengine-eval-outside-'));
+  const outside = await mkdtemp(path.join(tmpdir(), 'cognis-eval-outside-'));
   try {
     await writeFile(path.join(outside, 'run.json'), '{}\n', 'utf8');
     await symlink(outside, path.join(target, 'linked-runs'), process.platform === 'win32' ? 'junction' : 'dir');
@@ -202,7 +202,7 @@ test('reference update requires confirmation and force protects existing files',
     assert.equal(forced.code, 0);
     assert.equal(forced.payload.backups.length, 1);
     const reference = JSON.parse(await readFile(path.join(target, 'evals/references/core.json'), 'utf8'));
-    assert.equal(reference.suite.id, 'loopengine-core');
+    assert.equal(reference.suite.id, 'cognis-core');
     assert.equal(Object.hasOwn(reference, 'cases'), false);
   } finally {
     await rm(target, { force: true, recursive: true });
@@ -222,7 +222,7 @@ test('threshold failures stay invalid without a reference and cannot be promoted
       value: `missing-${index}`,
     })));
     await writeFile(suitePath, `${JSON.stringify(suite, null, 2)}\n`, 'utf8');
-    const configPath = path.join(target, 'loopengine.config.json');
+    const configPath = path.join(target, 'cognis.config.json');
     const config = JSON.parse(await readFile(configPath, 'utf8'));
     config.evaluations.reference = 'evals/references/low-score.json';
     await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
@@ -244,14 +244,14 @@ test('threshold failures stay invalid without a reference and cannot be promoted
 
 test('online eval uses the runner contract, degrades without reference, then passes approved reference', async () => {
   const target = await createEvalProject();
-  const runnerRoot = await mkdtemp(path.join(tmpdir(), 'loopengine-online-runner-'));
+  const runnerRoot = await mkdtemp(path.join(tmpdir(), 'cognis-online-runner-'));
   try {
     const suitePath = path.join(target, 'evals/suites/core.json');
     const suite = JSON.parse(await readFile(suitePath, 'utf8'));
     suite.id = 'online-smoke';
     suite.cases = suite.cases.slice(0, 2);
     await writeFile(suitePath, `${JSON.stringify(suite, null, 2)}\n`, 'utf8');
-    const configPath = path.join(target, 'loopengine.config.json');
+    const configPath = path.join(target, 'cognis.config.json');
     const config = JSON.parse(await readFile(configPath, 'utf8'));
     config.evaluations.reference = 'evals/references/online.json';
     config.evaluations.repetitions = 1;
@@ -293,7 +293,7 @@ test('online eval uses the runner contract, degrades without reference, then pas
 
 test('online runner degradation writes a diagnostic artifact and stops immediately', async () => {
   const target = await createEvalProject();
-  const runnerRoot = await mkdtemp(path.join(tmpdir(), 'loopengine-degraded-runner-'));
+  const runnerRoot = await mkdtemp(path.join(tmpdir(), 'cognis-degraded-runner-'));
   try {
     const runnerPath = path.join(runnerRoot, 'runner.mjs');
     await writeFile(runnerPath, "process.stdout.write('invalid-json')\n", 'utf8');

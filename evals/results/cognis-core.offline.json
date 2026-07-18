@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "id": "loopengine-core-offline",
+  "id": "cognis-core-offline",
   "generatedAt": "1970-01-01T00:00:00.000Z",
   "suite": {
-    "id": "loopengine-core",
+    "id": "cognis-core",
     "version": "1.1.0",
-    "hash": "c02a84ed54b2c6978ad60ff29065f5e69c28454a5e650bdca2b95711aed3c8db",
-    "path": "evals/suites/loopengine-core.json"
+    "hash": "d46fbd2eccbce04f674ac32b90aa5eb062e001796e6ade2eb47f70588525673b",
+    "path": "evals/suites/cognis-core.json"
   },
   "mode": "offline",
   "status": "passed",
   "fingerprint": {
-    "suiteHash": "c02a84ed54b2c6978ad60ff29065f5e69c28454a5e650bdca2b95711aed3c8db",
+    "suiteHash": "d46fbd2eccbce04f674ac32b90aa5eb062e001796e6ade2eb47f70588525673b",
     "runner": "offline-replay@1",
     "model": "fixture",
     "agent": "offline",
@@ -331,7 +331,7 @@
           "kind": "required-output-fragment",
           "dimension": "correctness",
           "critical": true,
-          "expected": "installation applied",
+          "expected": "upgrade transaction committed",
           "passed": true
         },
         {
@@ -345,7 +345,7 @@
           "kind": "required-artifact",
           "dimension": "evidenceQuality",
           "critical": true,
-          "expected": "legacy-install-state.json",
+          "expected": "cognis-upgrade-state.json",
           "passed": true
         },
         {

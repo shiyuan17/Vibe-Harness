@@ -11,7 +11,7 @@ import { validateProjectConfig } from '../scripts/lib/project-config.js';
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '..');
-const cliPath = path.join(rootDir, 'scripts/loopengine.js');
+const cliPath = path.join(rootDir, 'scripts/cognis.js');
 
 async function runCli(args) {
   const { stdout } = await execFileAsync(process.execPath, [cliPath, ...args], { cwd: rootDir });
@@ -51,10 +51,10 @@ test('project config accepts valid modules and rejects invalid module arrays', (
 });
 
 test('CLI modules override config and provision only the selected tool capability', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-modules-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-modules-'));
   try {
     await runCli(['init', '--project', target]);
-    const configPath = path.join(target, 'loopengine.config.json');
+    const configPath = path.join(target, 'cognis.config.json');
     const config = JSON.parse(await readFile(configPath, 'utf8'));
     await writeFile(configPath, `${JSON.stringify({ ...config, modules: ['open-code-review'] }, null, 2)}\n`, 'utf8');
 
@@ -76,7 +76,7 @@ test('CLI modules override config and provision only the selected tool capabilit
 });
 
 test('project validation reuses CLI module selection recorded by the install state', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-modules-validate-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-modules-validate-'));
   try {
     await runCli(['init', '--project', target]);
     await runCli([
@@ -86,7 +86,7 @@ test('project validation reuses CLI module selection recorded by the install sta
 
     const validation = await runCli(['validate', '--project', target]);
     assert.equal(validation.ok, true);
-    const state = JSON.parse(await readFile(path.join(target, '.loopengine', 'install-state.json'), 'utf8'));
+    const state = JSON.parse(await readFile(path.join(target, '.cognis', 'install-state.json'), 'utf8'));
     assert.deepEqual(state.requestedModules, ['agents', 'rules']);
     assert.deepEqual(state.resolvedModules, ['agents', 'rules']);
   } finally {
