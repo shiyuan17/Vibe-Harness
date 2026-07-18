@@ -7,7 +7,7 @@ const ignoredDirs = new Set([
   '.git',
   '.svn',
   '.hg',
-  '.loopengine',
+  '.cognis',
   '.agents',
   '.codex',
   'node_modules',
@@ -185,6 +185,16 @@ function applyOverrides(profile, overrides = {}) {
   };
 }
 
+function withVcsStatusInstruction(profile) {
+  const command = profile.vcsStatusCommand;
+  return {
+    ...profile,
+    vcsStatusInstruction: command && !command.startsWith('检查')
+      ? `编辑前运行 \`${command}\`，保护用户未归属改动。`
+      : '编辑前检查目标目录文件状态；当前未配置 VCS 状态命令。',
+  };
+}
+
 function createGenericProfile(config = {}) {
   return {
     codingStandards: '未发现专用 lint/format 配置；沿用仓库现有代码风格并保持最小改动。',
@@ -193,10 +203,11 @@ function createGenericProfile(config = {}) {
     reviewGuidance: 'Review 必须核对目标项目事实、风险区、验证证据和未覆盖路径。',
     stackSummary: '未识别到主技术栈；以目标项目现有文件为准。',
     vcsStatusCommand: '检查目标项目 VCS 状态',
+    vcsStatusInstruction: '编辑前检查目标目录文件状态；当前未配置 VCS 状态命令。',
     vcsSummary: '未识别 VCS',
-    verificationSummary: '使用 loopengine.config.json 中的 validationCommands，并补充聚焦测试或人工核对证据。',
+    verificationSummary: '使用 cognis.config.json 中的 validationCommands，并补充聚焦测试或人工核对证据。',
     validationCommands: {
-      governance: 'node .agents/loopengine/governance/validate.mjs',
+      governance: 'node .agents/cognis/governance/validate.mjs',
       lint: null,
       typecheck: null,
     },
@@ -206,10 +217,10 @@ function createGenericProfile(config = {}) {
 export async function detectProjectProfile({ config = {}, targetDir }) {
   const mode = config.projectRules?.mode ?? 'auto';
   if (mode === 'off') {
-    return createGenericProfile(config);
+    return withVcsStatusInstruction(createGenericProfile(config));
   }
   if (mode === 'manual') {
-    return applyOverrides(createGenericProfile(config), config.projectRules?.overrides);
+    return withVcsStatusInstruction(applyOverrides(createGenericProfile(config), config.projectRules?.overrides));
   }
 
   const pkg = await readJsonIfExists(path.join(targetDir, 'package.json'));
@@ -278,13 +289,13 @@ export async function detectProjectProfile({ config = {}, targetDir }) {
     stackSummary: unique(stacks).join(', ') || '未识别到主技术栈；以目标项目现有文件为准。',
     vcsStatusCommand,
     vcsSummary: vcsKinds.join(' + ') || '未识别 VCS',
-    verificationSummary: unique(commands).join(', ') || '使用 loopengine.config.json 中的 validationCommands，并补充聚焦测试或人工核对证据。',
+    verificationSummary: unique(commands).join(', ') || '使用 cognis.config.json 中的 validationCommands，并补充聚焦测试或人工核对证据。',
     validationCommands: {
-      governance: 'node .agents/loopengine/governance/validate.mjs',
+      governance: 'node .agents/cognis/governance/validate.mjs',
       lint: commands.find((command) => /(?:^|\s)(?:run\s+)?lint(?:\s|$)/u.test(command)) ?? null,
       typecheck: commands.find((command) => /(?:check:type|typecheck|ts:check)/u.test(command)) ?? null,
     },
   };
 
-  return applyOverrides(detected, config.projectRules?.overrides);
+  return withVcsStatusInstruction(applyOverrides(detected, config.projectRules?.overrides));
 }

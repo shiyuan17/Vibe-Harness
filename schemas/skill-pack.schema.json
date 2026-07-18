@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "LoopEngine Skill Pack Manifest",
+  "title": "Cognis Skill Pack Manifest",
   "type": "object",
   "required": ["schemaVersion", "items"],
   "properties": {

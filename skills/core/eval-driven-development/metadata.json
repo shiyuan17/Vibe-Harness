@@ -1,0 +1,7 @@
+{
+  "id": "eval-driven-development",
+  "kind": "native",
+  "entry": "SKILL.md",
+  "triggers": ["Agent 行为变更", "规则或 Skill 修改", "评测回归"],
+  "outputs": ["Eval-ID", "评测运行证据"]
+}

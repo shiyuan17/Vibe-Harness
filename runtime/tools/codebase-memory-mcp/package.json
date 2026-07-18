@@ -1,0 +1,12 @@
+{
+  "name": "@cognis/codebase-memory-mcp-runtime",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Project-local codebase-memory-mcp runtime managed by Cognis.",
+  "dependencies": {
+    "codebase-memory-mcp": "0.9.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

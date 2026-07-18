@@ -9,4 +9,4 @@ if (!report.ok) {
   process.exit(1);
 }
 
-console.log('LoopEngine validation passed.');
+console.log('Cognis validation passed.');

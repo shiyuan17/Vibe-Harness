@@ -15,9 +15,11 @@ import {
   validateManifestSources,
 } from './manifest.js';
 import { scanForForbiddenTerms } from './redaction.js';
+import { resolveAdapterEntry } from './adapter.js';
+import { validateDocumentation } from './docs-validation.js';
 
 const forbiddenTerms = ['SYBaseProjectWeb', 'SYBaseProject', 'D:\\Github\\JW', 'T-019', 'T-024', '患者', '病理', '医疗'];
-const redactionDirs = ['rules', 'templates', 'skills/core', 'skills/integrations', 'memory', 'runtime', 'adapters/codex', 'manifests', 'schemas'];
+const redactionDirs = ['rules', 'templates', 'skills/core', 'skills/integrations', 'memory', 'runtime', 'adapters/codex', 'adapters/claude', 'adapters/gemini', 'manifests', 'schemas'];
 
 async function collectEmptyDirs(dir, rootDir, results = []) {
   if (!(await pathExists(dir))) {
@@ -189,6 +191,14 @@ export async function validateSkillGraph(
 
     if (checkFiles && await pathExists(path.join(rootDir, item.source))) {
       const content = await readFile(path.join(rootDir, item.source), 'utf8');
+      const frontmatter = content.match(/^---\r?\n([\s\S]*?)\r?\n---/u)?.[1] ?? '';
+      const frontmatterValue = (name) => {
+        const value = frontmatter.match(new RegExp(`^${name}:\\s*(.+)$`, 'mu'))?.[1]?.trim() ?? '';
+        return value.replace(/^(?:"([\s\S]*)"|'([\s\S]*)')$/u, '$1$2');
+      };
+      if (!frontmatter) errors.push(`${item.id} frontmatter is required`);
+      if (frontmatterValue('name') !== item.id) errors.push(`${item.id} frontmatter name must equal ${item.id}`);
+      if (!frontmatterValue('description')) errors.push(`${item.id} frontmatter description is required`);
       const prose = content
         .replace(/^---\r?\n[\s\S]*?\r?\n---/u, '')
         .replace(/```[\s\S]*?```/gu, '');
@@ -274,11 +284,11 @@ export async function validateGovernanceQuality(rootDir) {
   const checks = [
     {
       file: 'rules/governance-core.md',
-      terms: ['获取事实', '做出决策', '执行', '验证', '交付', '主张 → 证据 → 反例 → 剩余风险', '快速', '轻量', '完整'],
+      terms: ['获取事实', '做出决策', '执行', '验证', '交付', '主张 → 证据 → 反例 → 剩余风险', '快速', '轻量', '完整', 'Red Team（红队审查）'],
     },
     {
       file: 'templates/task.md',
-      terms: ['工作流档位', '当前阶段', '当前状态', '处理结果', 'AC-ID', '完整流程控制', '验收证据'],
+      terms: ['工作流档位', '当前阶段', '当前状态', '处理结果', 'AC-ID', '完整流程控制', '验收证据', '红队审查者', '红队审查包', '红队审查结论'],
     },
     {
       file: 'templates/delivery.md',
@@ -286,18 +296,22 @@ export async function validateGovernanceQuality(rootDir) {
     },
     {
       file: 'schemas/full-task-control.schema.json',
-      terms: ['任务类型', '责任角色', '写入范围', '禁止动作', '并行安全', '人工确认', '核验者'],
+      terms: ['任务类型', '责任角色', '写入范围', '禁止动作', '并行安全', '人工确认', '核验者', '红队审查者', '红队审查包', '红队审查结论'],
     },
     {
-      file: 'skills/core/using-loopengine/SKILL.md',
+      file: 'skills/core/using-cognis/SKILL.md',
       terms: ['权限、红区和风险档位', '当前处于', '专项 Skill', '验证或审查 Skill', 'adversarial-review-packet'],
+    },
+    {
+      file: 'skills/core/adversarial-review-packet/references/review.md',
+      terms: ['任务编号', '审查者', '审查对象', '审查时间', '问题列表', '状态', 'Medium 延期', '未覆盖审查轴与剩余风险'],
     },
     {
       file: 'rules/agent-skill-routing.md',
       terms: [
         '不得覆盖', '一个流程 Skill', '一个领域 Skill', '一个验证或审查 Skill',
-        'Clarify', 'Spec', 'Plan', 'Tasks', 'Execute', 'Verify', 'Review', 'Handoff', 'Retrospective',
-        'OpenCodeReview', 'fallback', 'Memory', 'using-loopengine',
+        'Clarify', 'Spec', 'Plan', 'Execute', 'Verify', 'Review', 'Handoff', 'Retrospective',
+        'ocr', 'fallback', 'Memory', 'using-cognis',
       ],
     },
     {
@@ -306,7 +320,11 @@ export async function validateGovernanceQuality(rootDir) {
     },
     {
       file: 'rules/ai-collab-rules.md',
-      terms: ['证据边界', '角色边界', '实现 Agent', 'reviewer'],
+      terms: [
+        '证据边界', '角色边界', '实现 Agent', 'reviewer', '信息呈现',
+        '目标、范围、约束、验收标准、待决策项', '`- [ ]` / `- [x]`',
+        'Markdown 表格', '信息块', '用户明确指定格式',
+      ],
     },
     {
       file: 'rules/pencil-rules.md',
@@ -359,9 +377,8 @@ export async function validateGovernanceQuality(rootDir) {
   const agentsPath = path.join(rootDir, 'AGENTS.md');
   if (await pathExists(agentsPath)) {
     const agents = await readFile(agentsPath, 'utf8');
-    if (!/MVP[^\n]*--write/u.test(agents)) errors.push('AGENTS.md must document MVP --write lifecycle');
-    if (!/legacy\/internal[^\n]*--apply/u.test(agents)) errors.push('AGENTS.md must document legacy/internal --apply lifecycle');
-    if (/^\s*3\. 真实写入必须使用 `--apply`/mu.test(agents)) errors.push('AGENTS.md must not apply legacy --apply semantics to every real write');
+    if (!/--project[^\n]*--write/u.test(agents)) errors.push('AGENTS.md must document the --project/--write lifecycle');
+    if (/pnpm cognis[^\n]*(?:codex-internal|codex-minimal|--apply)/u.test(agents)) errors.push('AGENTS.md must not contain removed legacy lifecycle commands');
   }
   const [agentsTemplate, governanceCore] = await Promise.all([
     readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8'),
@@ -377,6 +394,9 @@ export async function validateGovernanceQuality(rootDir) {
       const file = path.join(entry.parentPath ?? entry.path, entry.name);
       const relative = path.relative(rootDir, file).replaceAll('\\', '/');
       const content = await readFile(file, 'utf8');
+      if (/更严格(?:的本地)?规则/u.test(content)) {
+        errors.push(`${relative} uses ambiguous stricter-rule precedence`);
+      }
       for (const paragraph of content.replace(/```[\s\S]*?```/gu, '').split(/(?:\r?\n){2,}/u)) {
         const normalized = paragraph.replace(/\s+/gu, ' ').trim();
         if (normalized.length < 240) continue;
@@ -416,7 +436,7 @@ export function validateAgentSkillRoutingIntegrity({
   if (!capability) {
     errors.push('skill-routing capability must track the routing policy and router');
   } else {
-    for (const target of [ruleSource, 'skills/core/using-loopengine/SKILL.md']) {
+    for (const target of [ruleSource, 'skills/core/using-cognis/SKILL.md']) {
       if (!capability.targets?.includes(target)) errors.push(`skill-routing capability must target ${target}`);
     }
     if (!capability.tests?.includes(testTarget)) {
@@ -424,8 +444,8 @@ export function validateAgentSkillRoutingIntegrity({
     }
   }
 
-  if (!routerContent.includes(ruleTarget)) errors.push(`using-loopengine router must reference ${ruleTarget}`);
-  if (!ruleContent.includes('using-loopengine')) errors.push('agent skill routing policy must reference using-loopengine');
+  if (!routerContent.includes(ruleTarget)) errors.push(`using-cognis router must reference ${ruleTarget}`);
+  if (!ruleContent.includes('using-cognis')) errors.push('agent skill routing policy must reference using-cognis');
   if (!agentsContent.includes(ruleTarget)) errors.push(`AGENTS template must reference ${ruleTarget}`);
   if (!/Skills 未安装时.*fallback/u.test(agentsContent)) {
     errors.push('AGENTS template must document the no-skill fallback');
@@ -437,8 +457,20 @@ export function validateAgentSkillRoutingIntegrity({
 export async function validateCapabilityMatrix(rootDir, matrix, { checkFiles = true } = {}) {
   const errors = [];
   const allowed = new Set(['generalize', 'validator', 'template', 'project-only', 'excluded-with-reason']);
-  if (matrix?.schemaVersion !== 1 || !Array.isArray(matrix?.items)) {
-    return ['manifests/capabilities.json must use schemaVersion 1 with an items array'];
+  if (matrix?.schemaVersion !== 2 || !Array.isArray(matrix?.items)) {
+    return ['manifests/capabilities.json must use schemaVersion 2 with an items array'];
+  }
+  let knownProfiles = new Set();
+  let catalogDocs = new Set();
+  try {
+    const [profiles, catalog] = await Promise.all([
+      readJson(path.join(rootDir, 'manifests/profiles.json')),
+      readJson(path.join(rootDir, 'docs/catalog.json')),
+    ]);
+    knownProfiles = new Set(profiles.items.map((item) => item.id));
+    catalogDocs = new Set(catalog.items.map((item) => item.path));
+  } catch (error) {
+    errors.push(`capability evidence catalogs are unavailable: ${error.message}`);
   }
   const ids = new Set();
   for (const item of matrix.items) {
@@ -449,13 +481,33 @@ export async function validateCapabilityMatrix(rootDir, matrix, { checkFiles = t
     if (!Array.isArray(item?.tests) || item.tests.length === 0) {
       errors.push(`${id} requires at least one test`);
     }
+    if (!Array.isArray(item?.profiles)) errors.push(`${id} requires a profiles array`);
+    else for (const profile of item.profiles) {
+      if (!knownProfiles.has(profile)) errors.push(`${id} references unknown profile: ${profile}`);
+    }
+    if (!Array.isArray(item?.docs) || item.docs.length === 0) errors.push(`${id} requires at least one documentation path`);
+    else for (const document of item.docs) {
+      if (!catalogDocs.has(document)) errors.push(`${id} documentation path is not in the documentation catalog: ${document}`);
+    }
+    if (typeof item?.evaluation?.required !== 'boolean') {
+      errors.push(`${id} requires an evaluation policy`);
+    } else if (item.evaluation.required && (!Array.isArray(item.evaluation.suites) || item.evaluation.suites.length === 0)) {
+      errors.push(`${id} requires at least one evaluation suite`);
+    } else if (!item.evaluation.required && (typeof item.evaluation.reason !== 'string' || !item.evaluation.reason.trim())) {
+      errors.push(`${id} requires an evaluation reason when model evaluation is not required`);
+    }
     if (['project-only', 'excluded-with-reason'].includes(item?.disposition)) {
       if (typeof item?.reason !== 'string' || !item.reason.trim()) errors.push(`${id} requires a reason`);
     } else if (!Array.isArray(item?.targets) || item.targets.length === 0) {
       errors.push(`${id} requires at least one target`);
     }
     if (checkFiles) {
-      for (const candidate of [...(item?.targets ?? []), ...(item?.tests ?? [])]) {
+      for (const candidate of [
+        ...(item?.targets ?? []),
+        ...(item?.tests ?? []),
+        ...(item?.docs ?? []),
+        ...(item?.evaluation?.suites ?? []),
+      ]) {
         try {
           assertPortableRelativePath(candidate, `${id} evidence path`);
           const candidatePath = path.join(rootDir, candidate);
@@ -477,8 +529,16 @@ export async function validateCapabilityMatrix(rootDir, matrix, { checkFiles = t
     'governance-memory',
     'pencil-assets',
     'release',
+    'eval-driven-development',
     'project-business-contracts',
     'runtime-application-code',
+    'installer-lifecycle',
+    'hook-policy',
+    'docs-governance',
+    'tool-provisioning',
+    'skill-quality',
+    'eval-observability',
+    'cross-platform-adapters',
   ];
   for (const id of requiredCapabilities) {
     if (!ids.has(id)) errors.push(`Missing required capability: ${id}`);
@@ -496,11 +556,18 @@ export async function validatePack(rootDir) {
   const knownGroups = new Set(manifests.profiles.items.flatMap((item) => item.groups));
   const installMapMissing = [];
   const installedSources = new Set();
-  for (const profile of manifests.profiles.items) {
-    const installMap = await readJson(path.join(rootDir, profile.installMap));
-    schemaErrors.push(...validateJsonAgainstSchema(installMap, installMapSchema, profile.installMap));
+  const installMaps = new Map();
+  for (const adapter of manifests.adapters.items) {
+    let installMap = installMaps.get(adapter.installMap);
+    if (!installMap) {
+      installMap = await readJson(path.join(rootDir, adapter.installMap));
+      installMaps.set(adapter.installMap, installMap);
+      schemaErrors.push(...validateJsonAgainstSchema(installMap, installMapSchema, adapter.installMap));
+    }
     validateInstallMapShape(installMap, knownGroups);
-    for (const entry of installMap.entries) {
+    for (const rawEntry of installMap.entries) {
+      const entry = resolveAdapterEntry(adapter, rawEntry);
+      if (!entry) continue;
       installedSources.add(entry.source);
       assertPortableRelativePath(entry.source, 'install-map source');
       const sourcePath = path.join(rootDir, entry.source);
@@ -518,7 +585,7 @@ export async function validatePack(rootDir) {
     .sort();
   const invalidSkillDirs = await findInvalidSkillDirs(rootDir);
   const skillMetadataErrors = await validateSkillMetadataQuality(rootDir, manifests.skills.items);
-  const installEntries = (await readJson(path.join(rootDir, manifests.profiles.items[0].installMap))).entries;
+  const installEntries = [...installMaps.values()][0].entries;
   const skillGraphErrors = await validateSkillGraph(rootDir, manifests.skills.items, manifests.profiles.items, {
     installEntries,
   });
@@ -531,7 +598,7 @@ export async function validatePack(rootDir) {
   };
   const [agentsContent, routerContent, ruleContent] = await Promise.all([
     readOptionalText('adapters/codex/AGENTS.template.md'),
-    readOptionalText('skills/core/using-loopengine/SKILL.md'),
+    readOptionalText('skills/core/using-cognis/SKILL.md'),
     readOptionalText('rules/agent-skill-routing.md'),
   ]);
   const agentSkillRoutingErrors = validateAgentSkillRoutingIntegrity({
@@ -547,6 +614,7 @@ export async function validatePack(rootDir) {
     includeDirs: redactionDirs,
     rootDir,
   });
+  const documentation = await validateDocumentation({ rootDir });
 
   return {
     agentSkillRoutingErrors,
@@ -558,6 +626,8 @@ export async function validatePack(rootDir) {
     skillMetadataErrors,
     skillGraphErrors,
     governanceQualityErrors,
+    documentationErrors: documentation.errors,
+    documentationWarnings: documentation.warnings,
     ok: missing.length === 0
       && installMapMissing.length === 0
       && missingSkillInstalls.length === 0
@@ -567,6 +637,7 @@ export async function validatePack(rootDir) {
       && governanceQualityErrors.length === 0
       && agentSkillRoutingErrors.length === 0
       && capabilityErrors.length === 0
+      && documentation.errors.length === 0
       && leaks.length === 0
       && schemaErrors.length === 0,
     schemaErrors: schemaErrors.sort(),

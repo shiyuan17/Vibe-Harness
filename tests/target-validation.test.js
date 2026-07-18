@@ -1,3 +1,5 @@
+import './helpers/offline-tools.js';
+
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -12,11 +14,11 @@ const execFileAsync = promisify(execFile);
 const rootDir = path.resolve('.');
 
 test('target inspection reports missing files and red-zone status for an empty target', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-target-empty-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-target-empty-'));
   try {
-    const report = await inspectTargetInstall({ profile: 'codex-internal', rootDir, targetDir: target });
+    const report = await inspectTargetInstall({ profile: 'full', rootDir, targetDir: target });
 
-    assert.equal(report.profile, 'codex-internal');
+    assert.equal(report.profile, 'full');
     assert.ok(report.missing.some((item) => item.target.endsWith('AGENTS.md')));
     assert.ok(report.redZone.some((item) => item.target === '.codex/hooks.json' && item.status === 'missing'));
     assert.equal(report.ok, false);
@@ -26,11 +28,11 @@ test('target inspection reports missing files and red-zone status for an empty t
 });
 
 test('target inspection reports conflicts when existing target content differs', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-target-conflict-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-target-conflict-'));
   try {
     await writeFile(path.join(target, 'AGENTS.md'), 'project-owned content\n', 'utf8');
 
-    const report = await inspectTargetInstall({ profile: 'codex-minimal', rootDir, targetDir: target });
+    const report = await inspectTargetInstall({ profile: 'minimal', rootDir, targetDir: target });
 
     assert.ok(report.conflicts.some((item) => item.target.endsWith('AGENTS.md')));
     assert.equal(report.ok, false);
@@ -39,34 +41,38 @@ test('target inspection reports conflicts when existing target content differs',
   }
 });
 
-test('CLI validate --target passes after a real install and reports Chinese template content', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-target-installed-'));
+test('CLI validate --project passes after a real install and reports Chinese template content', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-target-installed-'));
   try {
+    const cliPath = path.join(rootDir, 'scripts/cognis.js');
+    await execFileAsync(process.execPath, [cliPath, 'init', '--project', target, '--target', 'codex', '--profile', 'full']);
     await execFileAsync(process.execPath, [
-      path.join(rootDir, 'scripts/loopengine.js'),
+      cliPath,
       'install',
-      '--target',
+      '--project',
       target,
+      '--target',
+      'codex',
       '--profile',
-      'codex-internal',
-      '--apply',
+      'full',
+      '--write',
       '--confirm-red-zone',
     ]);
 
     const { stdout } = await execFileAsync(process.execPath, [
-      path.join(rootDir, 'scripts/loopengine.js'),
+      cliPath,
       'validate',
-      '--target',
+      '--project',
       target,
-      '--profile',
-      'codex-internal',
     ]);
 
     const report = JSON.parse(stdout);
     const taskTemplate = await readFile(path.join(target, 'docs/templates/task.md'), 'utf8');
 
     assert.equal(report.ok, true);
-    assert.deepEqual(report.missing, []);
+    assert.equal(report.status, 'ready');
+    assert.ok(report.warnings.some((warning) => warning.code === 'CODEBASE_MEMORY_MCP_PENDING'));
+    assert.equal(report.scope, 'project');
     assert.equal(taskTemplate.includes('工作流档位'), true);
     assert.equal(taskTemplate.includes('当前阶段'), true);
     assert.equal(taskTemplate.includes('完整流程控制'), true);

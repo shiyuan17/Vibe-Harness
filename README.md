@@ -1,68 +1,139 @@
-# LoopEngine
+# Cognis
 
-LoopEngine 是一套 Codex 优先的可复用 AI coding governance 包。它把协作规则、workflow 档位、任务生命周期模板、skills、manifests 和默认 dry-run 的安装器打包在一起，让新项目可以快速接入一套更稳的 Agent 协作流程。
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-LoopEngine 参考 ECC 的组织方式：规则、skills、manifests、adapters、installer。当前 MVP 聚焦 `Codex 可安装`：通过项目配置渲染 `AGENTS.md` 受管块，提供 `minimal` / `core` / `full` 三档 profile，并保留既有内部安装生命周期。
+[![CI](https://github.com/shiyuan17/Cognis/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/shiyuan17/Cognis/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/Node.js-20.19%2B-339933?logo=node.js&logoColor=white)](package.json)
+[![pnpm](https://img.shields.io/badge/pnpm-10%2B-F69220?logo=pnpm&logoColor=white)](package.json)
 
-## 快速开始
+**Make AI coding end with evidence, not just a claim.**
+
+Cognis gives Codex, Claude Code, and Gemini CLI a shared way to plan, execute, and verify work. It combines project instructions, task validation, status snapshots, and optional tools so an Agent can show what it changed and how the result was checked. Everything stays inside the project; Cognis does not change your global Agent settings.
+
+> [!IMPORTANT]
+> Cognis shows you what it plans to change before it writes anything. It does not replace existing files unless you use `--force`, and it asks for extra confirmation before changing sensitive Codex configuration.
+
+## From Common AI Failures to Verifiable Work
+
+| Common problem | What Cognis adds | What you get |
+| --- | --- | --- |
+| The Agent starts editing before it understands the task. | A five-step workflow and fast, lightweight, or full risk levels. | Small tasks stay quick; risky work starts with a plan and a rollback path. |
+| The Agent says “done” without showing proof. | Task templates connect each acceptance criterion (`AC-ID`) to evidence, and the installed validator (automatic checker) checks completed tasks. | A completion claim can be checked against commands, artifacts, reviews, or manual confirmation. |
+| Important coding context gets buried in prose. | Core, full, and docs-only profiles choose compact Markdown structures for complex requests and replies: checkbox todos, lists, comparison tables, and portable information blocks. | Simple answers stay short while plans, progress, evidence, and decisions remain easy to scan without altering code or command output. |
+| Agent rules or skills change without behavioral regression evidence. | Eval-ID scenarios compare offline and real-Agent runs with an approved evaluation reference. | Prompt and governance changes can be reviewed against critical behavior, not only file snapshots. |
+| A long task loses important context between sessions. | `baseline` records project, installation, tool, and verification status; project memory and handoff templates preserve decisions and known issues. | The next session can recover project facts without reconstructing everything from chat history. |
+| Rules drift between AI coding tools. | Native project files and tested install levels (`profiles`) for Codex, Claude Code, and Gemini CLI. | Each tool gets the same core working rules in the format it actually supports. |
+| Installing or updating shared rules feels risky. | Dry-run previews, clearly marked sections, backups, validation, safe uninstall, and rollback. | You can inspect changes before writing and reverse managed changes without replacing unrelated project content. |
+| Useful coding tools are scattered or configured globally. | Codex `full` prepares codebase indexing, Playwright, Chrome DevTools MCP, and Open Code Review inside the project; Agentmemory remains explicit preview while its dependency advisories are unresolved. | Code understanding, browser checks, diagnostics, and review stay project-local; unavailable tools are reported as `degraded`. |
+
+## Why Not Just Write an AGENTS.md?
+
+An `AGENTS.md` file can tell an Agent how to work, but it does not install versioned rules and skills, validate task evidence, record project status, or safely update and remove its own files. Cognis uses the platform instruction file as the entry point, then adds automatic checks and safe file management around it. Your existing content stays editable because Cognis updates only its clearly marked section.
+
+## Quick Start
+
+You need pnpm `10` or later and one of these Node.js versions: `20.19+`, `22.18+`, or `24+`.
 
 ```bash
 pnpm install
-pnpm loopengine init --project ../some-project
-pnpm loopengine install --project ../some-project --target codex --profile core --dry-run
-pnpm loopengine install --project ../some-project --target codex --profile core --write
-pnpm loopengine validate --project ../some-project
-pnpm loopengine verify --project ../some-project
+pnpm cognis init --project ../some-project --target codex
+pnpm cognis install --project ../some-project --target codex --profile core --dry-run
+pnpm cognis install --project ../some-project --target codex --profile core --write
+pnpm cognis validate --project ../some-project
 ```
 
-MVP 模式使用 `--project <path>` 表示目标项目路径，使用 `--target codex` 表示安装 Codex adapter。安装器默认 dry-run；`--dry-run` 只打印目标路径、动作和渲染后的预览内容，不写文件。真实写入使用 `--write`。LoopEngine 只在项目根目录管理最小入口 `AGENTS.md`；其余治理资产写入 `docs/`、`.agents/skills/` 等命名空间目录，默认不会修改 `package.json`、`.npmrc`、`pnpm-workspace.yaml` 等 Node / pnpm 元文件。若项目已存在 `AGENTS.md`，LoopEngine 只会追加或更新 `<!-- LOOPENGINE:START -->` / `<!-- LOOPENGINE:END -->` 包围的受管块，保留其余本地内容；其他受管理文件如已存在，仍需显式加 `--force`，覆盖前会先备份到 `.loopengine/backups/`。
+These commands do four things:
 
-## 什么时候用 LoopEngine
+1. Create a Cognis configuration file in the target project.
+2. Preview the files Cognis wants to install.
+3. Install the `core` setup after you review the preview.
+4. Check that the installation is complete and unchanged.
 
-| 场景 | 推荐做法 | 你会得到什么 |
+`install` writes governance assets only. Preview and provision project-local tools separately:
+
+```bash
+pnpm cognis provision --project ../some-project --target codex --profile full --dry-run
+pnpm cognis provision --project ../some-project --target codex --profile full --write
+```
+
+`install --provision` keeps the one-command compatibility path. If a write is interrupted, `recover --project <project>` previews the active transaction and `recover --project <project> --write` restores its preimages.
+
+## Supported AI Coding Tools
+
+| Tool | Main project file | Available install levels | What Cognis can add |
+| --- | --- | --- | --- |
+| Codex | `AGENTS.md` | `minimal`, `core`, `full`, `docs-only` | Instructions, skills, project tools through MCP, and automatic checks through hooks |
+| Claude Code | `CLAUDE.md` | `minimal`, `core`, `docs-only`; `full` preview | Project instructions and skills; experimental full mappings require `--allow-preview` |
+| Gemini CLI | `GEMINI.md` | `minimal`, `core`, `docs-only`; `full` preview | Project instructions and skills; experimental full mappings require `--allow-preview` |
+
+MCP lets an Agent call tools that belong to the current project. Hooks run checks automatically at specific points in an Agent session. Cognis currently installs these features only for Codex.
+
+Claude Code and Gemini CLI keep `full` behind `--allow-preview`. The report lists preview and missing capabilities so incomplete platform mappings are never presented as stable.
+
+## How the Workflow Works
+
+```text
+Understand the task -> Choose an approach -> Make the change -> Check the result -> Report what happened
+```
+
+| Workflow | When to use it | What the Agent must do |
 | --- | --- | --- |
-| 新项目接入 Codex governance | 先 `init`，再 `install --project ... --target codex --profile core --dry-run` | 先看写入面和风险，再决定是否 `--write`。 |
-| 既有项目补齐 Agent 协作规范 | 直接把 LoopEngine 当成治理包安装器，用 `core` 起步 | 得到规则、模板、skills 和校验器的统一入口。 |
-| 高风险任务要可验证 | 让 Agent 先判定为 `完整` 档，再给出证据、反例和回滚方案 | 任务不会跳过审查和验证步骤。 |
-| 旧 Codex hooks 仍要兼容 | 继续使用 legacy/internal 生命周期 | 保持 `--target <path> --apply --confirm-red-zone` 语义。 |
+| Fast | Reading, documentation, and other low-risk work | Confirm the facts, then give a clear answer with evidence. |
+| Lightweight | A small change in a clearly defined area | State which files may change and how the result will be checked. |
+| Full | Security, releases, sensitive configuration, public APIs, cross-layer changes, or multi-Agent work | Plan before editing, keep a rollback path, and obtain an approved independent Red Team review packet before completion. |
 
-## 核心使用流程
+If the risk is unclear, use the full workflow.
 
-1. 初始化目标项目配置。
+## Choose an Install Level
 
-   ```bash
-   pnpm loopengine init --project ../some-project
-   ```
+An install level, called a `profile` in commands and configuration, is a ready-made group of Cognis files and features.
 
-2. 先 dry-run 看写入面、红区和 profile。
+| Profile | What you get | Best for |
+| --- | --- | --- |
+| `minimal` | The main Agent instruction file, basic working rules, Git and test rules, and task templates | Small projects that want basic guidance without extra skills or tools |
+| `core` | Everything in `minimal`, plus common engineering rules, task checks, Red Team completion review, routing skills, and Playwright prepared for on-demand use | Most projects; this is the recommended starting point |
+| `full` | Everything in `core`, plus project memory, advanced workflow skills, four stable project tools, preview Agentmemory assets, Codex MCP setup, and Codex hooks | Long-running or high-risk Codex projects |
+| `docs-only` | Instructions, reusable rules, templates, and schemas, without executable tools, skills, MCP, or hooks | Projects that only want the documentation-based setup |
+The exact files included in each profile are defined in `manifests/profiles.json`.
 
-   ```bash
-   pnpm loopengine install --project ../some-project --target codex --profile core --dry-run
-   ```
+## More Commands
 
-3. 确认无误后再真实写入。
+<details>
+<summary><strong>Standard project installation</strong></summary>
 
-   ```bash
-   pnpm loopengine install --project ../some-project --target codex --profile core --write
-   ```
+This is the installation method most users should choose. Use `--project` for the project folder, `--target` for the AI coding tool, and `--write` only after you have reviewed the preview.
 
-4. 用 `validate` 检查配置、安装一致性和包自身校验。
+```bash
+# Create the project configuration
+pnpm cognis init --project ../some-project --target codex
 
-   ```bash
-   pnpm loopengine validate --project ../some-project
-   ```
+# Preview first, then install
+pnpm cognis install --project ../some-project --target codex --profile core --dry-run
+pnpm cognis install --project ../some-project --target codex --profile core --write
 
-5. 用 `verify` 执行目标项目配置的治理 / lint / typecheck 命令。
+# Check that the installation is still valid
+pnpm cognis validate --project ../some-project
+```
 
-   ```bash
-   pnpm loopengine verify --project ../some-project
-   ```
+By default, commands return compact JSON that scripts can read. Add `--output summary` for a short report written for people. Add `--verbose` when you need the full file preview and complete diagnostic paths.
 
-`validate --project` 只做一致性与可用性检查，不执行目标项目命令。`verify --project` 才会真正执行配置里的命令；如果某条命令是手工流程，默认会阻断，只有显式使用 `--allow-manual` 才会继续。
+Use the same target in both `init` and `install` when installing for Claude Code or Gemini CLI:
 
-## 配置示例
+```bash
+pnpm cognis init --project ../claude-project --target claude
+pnpm cognis install --project ../claude-project --target claude --profile core --write
 
-`loopengine.config.json` 示例：
+pnpm cognis init --project ../gemini-project --target gemini
+pnpm cognis install --project ../gemini-project --target gemini --profile core --write
+```
+
+</details>
+
+<details>
+<summary><strong>Project settings</strong></summary>
+
+Most users only need to review this file after running `init`. Cognis creates `cognis.config.json`, where you can choose the install level, list project checks, and identify sensitive areas.
 
 ```json
 {
@@ -74,7 +145,16 @@ MVP 模式使用 `--project <path>` 表示目标项目路径，使用 `--target 
   "validationCommands": {
     "lint": null,
     "typecheck": null,
-    "governance": "node .agents/loopengine/governance/validate.mjs"
+    "governance": "node .agents/cognis/governance/validate.mjs",
+    "eval": null
+  },
+  "evaluations": {
+    "enabled": false,
+    "suites": [],
+    "reference": "evals/references/project.json",
+    "thresholds": { "criticalPassRate": 1, "overallScore": 0.9, "maxCapabilityRegression": 0.05 },
+    "onlineRunner": null,
+    "repetitions": 3
   },
   "governance": { "mode": "basic" },
   "hooks": {
@@ -85,230 +165,150 @@ MVP 模式使用 `--project <path>` 表示目标项目路径，使用 `--target 
     "red": ["auth", "global request layer", "ci/cd", "env"],
     "yellow": ["shared components", "stores", "routing", "request clients"]
   },
-  "crossRepo": {
-    "enabled": false,
-    "backendRepo": ""
-  },
-  "projectRules": {
-    "mode": "auto",
-    "overrides": {}
-  },
-  "memory": {
-    "enabled": true,
-    "path": ".agents/memory"
-  }
+  "crossRepo": { "enabled": false, "backendRepo": "" },
+  "projectRules": { "mode": "auto", "overrides": {} },
+  "memory": { "enabled": true, "path": ".agents/memory" }
 }
 ```
 
-你通常只需要改这几类字段：
+The `target` value must match the `--target` option you use later. Cognis reads the target project but does not change its `package.json`.
 
-- `profile`：决定装到什么治理面。
-- `validationCommands`：决定 `verify` 跑什么。
-- `riskZones`：告诉 Agent 哪些区域算红区 / 黄区。
-- `governance.mode`：决定治理内核是 `basic`、`full` 还是 `off`。
-- `hooks`：决定 full/internal hook 使用观测、保护或严格模式，以及完成门禁是否阻断。
-- `projectRules` 和 `memory`：给项目专属规则和记忆目录留位置。
+</details>
 
-## 如何让 Agent 跑一轮 loop
+<details>
+<summary><strong>Run evaluation-driven development checks</strong></summary>
 
-LoopEngine 的工作流不是“直接给答案”，而是先把任务跑成一轮 loop：
-
-1. 获取事实。
-2. 做出决策。
-3. 执行最小改动。
-4. 验证结果。
-5. 交付证据、风险和下一步。
-
-你可以把这段话直接发给 Agent：
-
-```text
-请按 LoopEngine 的五步循环推进：
-先只做事实收集和档位判断，不要直接改文件。
-输出当前事实、关键假设、风险档位、需要我确认的点和下一步计划。
-等我回复继续后，再执行并在结束时给出“主张 → 证据 → 反例 → 剩余风险”。
+```bash
+pnpm cognis eval check --project ../some-project
+pnpm cognis eval run --project ../some-project --mode offline
+pnpm cognis eval run --project ../some-project --mode offline --write
 ```
 
-如果任务会多轮推进，可以再补一句：
+An evaluation `reference` is separate from the project `baseline`. Updating it requires `eval reference --write --confirm-reference-update`; Cognis never promotes a reference automatically. See [Evaluation-driven development](docs/evals.md).
 
-```text
-如果你发现范围变化或风险升级，请先停下来重新做决策，不要默认继续。
+</details>
+
+<details>
+<summary><strong>Choose individual features</strong></summary>
+
+This is an advanced option for users who do not want one of the ready-made profiles. You can list individual modules in `cognis.config.json` or pass them to a single install command:
+
+```bash
+pnpm cognis install --project ../some-project --target codex --profile core --modules agents,rules,skills --dry-run
+pnpm cognis install --project ../some-project --target codex --profile core --modules agents,rules,skills --write
 ```
 
-## 提示词示例
+Available modules are `agents`, `rules`, `templates`, `governance`, `skills`, `memory`, `playwright`, `chrome-devtools`, `codebase-memory`, `open-code-review`, `agentmemory`, and `hooks`. Cognis automatically adds any required dependencies. The command report shows what you requested, what will be installed, and which dependencies were added as `requestedModules`, `resolvedModules`, and `implicitModules`.
 
-### 安装前先看写入面
+</details>
 
-```text
-请先对当前仓库做 LoopEngine dry-run 安装审查。
-目标：判断应该用 core 还是 full profile，并说明会写入哪些文件、是否触及红区、是否会覆盖现有文件。
-先不要写入，先输出安装计划和风险。
+<details>
+<summary><strong>Check a project and create a status snapshot</strong></summary>
+
+Use these commands after installation. `validate` checks the Cognis files, `verify` runs your project's configured checks, and `baseline` creates a snapshot of the current project and installation status.
+
+```bash
+# Check Cognis configuration and installed files; do not run project commands
+pnpm cognis validate --project ../some-project
+
+# Run the configured governance, lint, and typecheck commands
+pnpm cognis verify --project ../some-project
+
+# Preview or save a project status snapshot
+pnpm cognis baseline --project ../some-project --dry-run
+pnpm cognis baseline --project ../some-project --write
+
+# Run project checks and include a safe summary in the snapshot
+pnpm cognis baseline --project ../some-project --verify --write
 ```
 
-### 让 Agent 先路由
+If a configured check requires a person to complete it, `verify` stops unless you explicitly add `--allow-manual`. A baseline records useful status information, but it does not save source code, credentials, absolute project paths, or raw command output.
 
-```text
-按 using-loopengine 路由。当前是任务开始阶段，请先判断风险档位，只选择一个流程 skill 和一个验证/审查 skill。
-如果信息不足，先列出需要我确认的内容，不要直接猜。
+</details>
+
+<details>
+<summary><strong>Remove Cognis safely</strong></summary>
+
+Use these commands to preview and then remove a standard project installation:
+
+```bash
+pnpm cognis uninstall --project ../some-project --target codex --dry-run
+pnpm cognis uninstall --project ../some-project --target codex --write
 ```
 
-### 快速文档任务
+Cognis removes only files that it installed and that have not been changed. It also removes only its own marked sections from shared instruction and MCP files. Your configuration, status snapshots, backups, unrelated documents, and edited files stay in place.
 
-```text
-这是快速档位任务，只读文档，不改代码。
-请按“主张 → 证据 → 反例 → 剩余风险”输出结论，并给出需要补充的文档位置。
+</details>
+
+<details>
+<summary><strong>Migrate an older Codex installation</strong></summary>
+
+The old profile names and command format have been removed. For a project that still has an older install state, run standard init first. Cognis normalizes the state to `full` or `minimal`, and the standard upgrade writes back the canonical profile.
+
+```bash
+pnpm cognis init --project ../some-project
+pnpm cognis install --project ../some-project --target codex --profile full --dry-run --upgrade
+pnpm cognis install --project ../some-project --target codex --profile full --write --upgrade --confirm-red-zone
+pnpm cognis validate --project ../some-project
+pnpm cognis doctor --project ../some-project
 ```
 
-### 轻量代码任务
+`--target` now selects only the adapter and never accepts a project path. All mutations use `--write`.
 
-```text
-这是轻量档位任务，范围只限于指定文件。
-先列验收标准和写入范围，再做最小改动，最后给出验证命令和结果。
-```
+</details>
 
-### 完整高风险任务
+<details>
+<summary><strong>Built-in tools and command status</strong></summary>
 
-```text
-这是完整档位任务，涉及红区 / 外部契约 / 发布。
-先给出风险档位判断、回滚方案、验证计划和需要人工确认的点，再继续执行。
-```
+This section helps when an install or health check reports a problem. The `core` profile prepares Playwright for browser checks when it is first needed. Codex `full` also prepares `codebase-memory-mcp`, Chrome DevTools MCP, Open Code Review, and Agentmemory preview assets.
 
-## 工作流档位选择
+Cognis writes MCP settings only to its own marked section in the project's `.codex/config.toml`. It reads credentials from the current terminal session and never saves them in the project.
 
-| 档位 | 适用场景 | 读取方式 |
+The `chrome-devtools` module pins `chrome-devtools-mcp@1.6.0` and starts the project-local entry with system Google Chrome in headless isolated mode. It disables usage statistics, update checks, and CrUX enrichment, redacts network headers, does not forward arbitrary command arguments, and never connects to a personal Chrome profile or remote debugging port. Provisioning calls `list_pages` as a real browser smoke check; a missing or failed Chrome launch is reported as `CHROME_LAUNCH_FAILED` without persisting pages, headers, response bodies, credentials, or the raw process environment.
+
+Open Code Review resolves its endpoint in this order: a complete `OCR_LLM_URL` + `OCR_LLM_TOKEN` + `OCR_LLM_MODEL` set, the active provider in the current user's `~/.opencodereview/config.json`, compatible `ANTHROPIC_*` or `OPENAI_*` environment variables, and finally the current Codex provider in `~/.codex/config.toml`. The selected values are passed only to the Open Code Review child process. They are never written to `cognis.config.json`, `.cognis/tool-state`, or MCP configuration. Missing or incomplete settings remain `pending-config` with a redacted diagnostic.
+
+Codebase-memory indexing is project-scoped. Cognis sets `CBM_ALLOWED_ROOT` and the child process working directory to the target project, then sends `--repo-path .` when indexing that root. This keeps ASCII, spaced, and Unicode Windows paths on the same path-validation route. A root-boundary failure is reported as `INDEX_PATH_OUTSIDE_ALLOWED_ROOT`; a corrupt local cache is cleared and rebuilt on the next provision attempt, and a repeated failure is reported as `INDEX_CORRUPT_REINDEX_REQUIRED`. `index_status` must still confirm `ready`, the target root, and non-negative node and edge counts.
+
+Install, validate, and doctor use the same three status values:
+
+| Status | Exit code | What it means |
 | --- | --- | --- |
-| `快速` | 只读、纯文档、低风险文案，不改运行时、公开契约或红区 | 先收集事实，再给结论。 |
-| `轻量` | 单一范围的小改动，可用聚焦验证证明 | 先固定写入范围和验收标准。 |
-| `完整` | 红区、安全、数据库、发布、跨层、外部契约、多 Agent 或父子任务 | 先做决策，再执行，再验证。 |
+| `ready` | `0` | Governance assets are valid and no attempted provisioning has failed; tools not yet provisioned remain visible as `pending` or `pending-config` warnings. |
+| `invalid` | `1` | The configuration or installed files do not match what Cognis expects. |
+| `degraded` | `2` | A required tool, credential, or feature is not currently available. |
 
-不确定时直接升级到 `完整`。不要让 Agent 静默猜测档位，应该先把判断说出来。
+`--allow-degraded` changes the exit code to `0` for automation, but it does not hide the problem. The report still contains `ok: false`, `status: "degraded"`, warnings, and recommended next steps. `pending` and `pending-config` do not fail an asset-first install; an attempted provisioning failure or an incomplete provisioning process marker does degrade health.
 
-## 常见操作场景
+Cognis records each tool's version, package source, start and finish times, result, and redacted log summary in `.cognis/tool-state/tools.json`, then shows it in install, validate, doctor, and summary output. Failure diagnostics include the failed phase, stable code, exit code when available, and bounded output tails. Project paths and credential-like values are redacted; raw command environments and full output are never stored. Interrupted provisioning leaves `.cognis/tool-state/provisioning.json`; `doctor` reports and degrades on it without modifying the environment.
 
-### 1. dry-run 审查安装计划
+Maintainers run `pnpm runtime:audit` against the same dependency surface used by provisioning. Critical or High findings and unavailable audits fail the command; Moderate findings remain visible warnings. Agentmemory excludes optional dependencies during both provisioning and the enforced audit.
 
-先看安装器准备写什么，再决定是否真实写入：
+</details>
 
-```bash
-pnpm loopengine install --project ../some-project --target codex --profile core --dry-run
-```
+## What Cognis Will and Will Not Change
 
-你会看到目标路径、动作列表和渲染后的预览内容。这个阶段不会写文件。
+- It writes only inside the target project, never to user-level or global Agent settings.
+- It does not replace an existing file unless you use `--force`. When replacement is necessary, it creates a backup first.
+- In shared instruction and Codex MCP files, it updates only the clearly marked section that belongs to Cognis.
+- It does not change `.git/config`. Packaged Git hooks work only after you explicitly set `core.hooksPath` for that repository.
+- It treats `.codex/` configuration as a sensitive area. A real Codex `full` or internal install must include `--confirm-red-zone` before changing it.
+- It keeps private project names, contracts, personal paths, and task data out of reusable shared files.
 
-### 2. 调整项目配置
+## Learn More
 
-`loopengine.config.json` 里最常改的是这三块：
+- [Documentation index](docs/README.md)
+- [How Cognis is organized](docs/architecture.md)
+- [How to move from an older version](docs/migration-guide.md)
+- [How automatic hooks work](docs/hooks.md)
+- [What changed between versions](CHANGELOG.md)
+- [Minimal project example](examples/minimal-project/README.md)
+- [Contributing](CONTRIBUTING.md)
 
-- `validationCommands`：把 `lint` / `typecheck` / `governance` 对到项目真实命令。
-- `riskZones`：把你项目里真正的红区、黄区写进去。
-- `governance.mode`：如果项目不需要治理门禁，可以设为 `off`；需要基础门禁就保留 `basic`。
+## Checks for Contributors
 
-### 3. 安装后跑目标项目校验
+The Chinese [contribution guide](CONTRIBUTING.md) is the source of truth for change classification, documentation impact, verification, pull requests, and releases. `AGENTS.md` keeps the mandatory Agent command quick reference.
 
-安装完成后先校验安装一致性，再跑目标项目验证命令：
+## License
 
-```bash
-pnpm loopengine validate --project ../some-project
-pnpm loopengine verify --project ../some-project
-```
-
-`validate` 关注安装是否一致；`verify` 才会真正执行配置里的命令。
-
-### 4. 使用 full profile
-
-`full` 会在 `core` 基础上增加 durable memory、release、Pencil、troubleshooting、loop、review 和更完整的执行能力。适合要长期维护、跨层改动、发布前审查、或者需要更强证据链的任务。
-
-### 5. 继续兼容旧内部生命周期
-
-如果你在维护旧 Codex hooks 或内部 profile，继续使用 legacy/internal 生命周期：
-
-```bash
-pnpm loopengine install --target ../some-project --profile codex-internal --dry-run
-pnpm loopengine install --target ../some-project --profile codex-internal --apply --confirm-red-zone
-pnpm loopengine validate --target ../some-project --profile codex-internal
-pnpm loopengine doctor --target ../some-project
-```
-
-这里不要混入 MVP 的 `--project` 语义。`--apply` 是 legacy/internal 的真实写入开关，红区文件还要再加 `--confirm-red-zone`。
-
-## 验证门禁
-
-```bash
-pnpm test
-pnpm check
-git diff --check
-```
-
-`pnpm check` 会运行 lint、pack validation 和测试。Pack validation 不只校验 manifest、install map、核心文件存在性和脱敏词，也会检查 skill frontmatter、description 触发导向、工作流、模板、测试 / 审查 / Git / 工作流规则是否包含可执行字段，避免治理文档退化成空壳。
-
-安装后的项目可直接运行零依赖治理校验器：
-
-```bash
-node .agents/loopengine/governance/validate.mjs
-```
-
-`core` 默认执行 basic 文档和任务门禁；`full` 增加 task/backlog、durable memory、设计预览配对和发布治理。LoopEngine 不自动修改目标项目 `package.json`。
-
-`core`、`full` 和 `codex-internal` 会在 `.agents/loopengine/tools/playwright-cli/` 安装隔离的 Playwright CLI bootstrap。安装阶段不访问 npm 或下载浏览器；第一次运行 `node .agents/loopengine/tools/playwright-cli/run.mjs ...` 时才会用精确 lockfile 执行 `npm ci` 并准备项目内 Chromium，因此首次调用需要网络、时间和额外磁盘空间。`doctor` 报告 `pending`、`ready` 或 `unavailable`，截图、snapshot、trace 和 video 写入 `.loopengine/artifacts/playwright/`。CLI 不可用时，`browser-verification` 依次回退到 DevTools MCP 和人工步骤。
-
-## 旧内部安装生命周期
-
-旧命令仍可使用，用于包含 Codex hooks 的内部 profile。两条生命周期不要混用：
-
-- MVP 接入使用 `--project <path> --target codex --write`。
-- legacy/internal 生命周期使用 `--target <path> --apply --confirm-red-zone`。
-
-```bash
-pnpm loopengine install --target ../some-project --profile codex-internal --apply --confirm-red-zone
-```
-
-`loopengine validate --target <path>` 用来检查目标项目是否已经具备旧 profile 期望的文件；不带 `--target` 或 `--project` 时校验 LoopEngine 包自身。`loopengine doctor --target <path>` 会同时输出包校验结果和目标项目安装状态。
-
-## v0.2 安装生命周期
-
-真实安装会写入 `.loopengine/install-state.json`，记录 profile、版本、写入文件、hash、红区文件和备份位置。该目录只存在于目标项目内，不写入全局配置。
-
-```bash
-pnpm loopengine diff --target ../some-project --profile codex-internal
-pnpm loopengine install --target ../some-project --profile codex-internal --apply --upgrade --confirm-red-zone
-pnpm loopengine rollback --target ../some-project --dry-run
-pnpm loopengine rollback --target ../some-project --apply --confirm-red-zone
-```
-
-`diff` 用于审查 expected、missing、same、changed、redZone 和 unmanaged 文件。`install --upgrade` 只更新 LoopEngine 管理且 hash 可追踪的文件；用户改过的 managed 文件默认拒绝，使用 `--force` 时会先生成备份。`rollback` 默认 dry-run，真实回滚需要 `--apply`；涉及红区文件时必须加 `--confirm-red-zone`。
-
-Agentmemory 在 `full` / `codex-internal` 中只安装一个 `.agents/skills/agentmemory/` 入口，保存、检索、恢复、遗忘、汇总和 session 历史流程按需读取该目录的 `references/`。升级时，install map 显式声明的旧顶层 memory skills 只会在 `--upgrade` 且旧 install state 可验证时退役：未修改文件先备份再删除，用户修改过的文件保留并报告，`rollback` 可恢复已退役文件。
-
-## Profiles
-
-- `minimal`：MVP 最小 Codex 包，包含会话开始/结束协议，不安装 heavy rules 或 skills。
-- `core`：标准工程治理包，包含 coding / frontend / API / task / workflow / review 规则、基础 validator、常规 bundled skills、skill 编写检查和懒加载 Playwright CLI bootstrap。
-- `full`：完整治理包，增加 durable memory、release、Pencil、troubleshooting、对抗审查、loop、Codex hooks 和默认未启用的 Git hooks。
-- `codex-internal`：安装 AGENTS、全部规则、模板、skills 和 Codex hooks。
-- `codex-minimal`：安装 AGENTS 与最小规则/模板集。
-- `docs-only`：只安装治理内核、专项规则、中文模板和 schema。
-
-## 当前状态
-
-| 能力 | 状态 | 说明 |
-| --- | --- | --- |
-| Codex `minimal` / `core` / `full` 安装 | 已完成 | `--project <path> --target codex` 支持 dry-run、write、validate。 |
-| legacy `codex-internal` 生命周期 | 已完成 | 支持 diff、upgrade、backup、rollback 和红区确认。 |
-| 中文治理内核 | 已完成 | `minimal` 起安装五步循环、三档风险、轻量反证和无 Skill 降级合同。 |
-| Skills 路由 | 已完成 | core 使用 `using-loopengine` 按需加载流程、专项和验证 Skill；full 补充对抗审查、release、Pencil、loop 和 subagent 能力。 |
-| 浏览器自动化 | 已完成 | core/full/internal 安装项目内 Playwright CLI bootstrap，首次使用准备 Chromium，并保留 MCP / 人工回退。 |
-| Pack validation | 已完成 | 校验 manifests、schema、源文件存在性、skill frontmatter / description、脱敏词、工作流 / 模板质量门禁和结构化治理资产。 |
-| Codex hooks | 已完成 | full/internal 安装官方 PascalCase 事件、项目内 runner 和 guarded 默认策略。 |
-| Git hooks | 已完成 | full/internal 安装版本化模板；需显式设置本仓库 `core.hooksPath`，doctor 只读报告状态。 |
-| 非 Codex adapter | 后续路线 | Claude、Cursor、OpenCode 等暂不创建适配器。 |
-
-## 安全边界
-
-LoopEngine 不写入全局 Codex 配置，也不修改 `.git/config`。目标项目已有文件默认不覆盖；如需覆盖必须显式使用 `--force`。`.codex/hooks.json` 等红区文件在非 dry-run 安装时必须显式确认。Hook 事件、模式、Git 启用方式和限制见 `docs/hooks.md`。
-
-## codebase-memory-mcp
-
-`codebase-memory-mcp` 是可选的代码结构与影响分析能力。LoopEngine 只向目标项目安装 `docs/rules/codebase-memory-mcp.md`，不会安装 MCP 服务、修改全局 Agent/MCP 配置或在 `doctor` 中探测服务状态。
-
-MCP 可用时，安装后的规则要求 Agent 先用 `list_projects` / `index_status` 确认索引，再按任务使用 `index_repository`、`search_graph`、`trace_call_path`、`detect_changes` 或 `get_architecture`。MCP 不可用或索引失败时必须说明缺少该能力，并退回 `rg` 与直接源码阅读。
-
-回滚策略保持简单透明：安装器只复制文件，不修改全局配置，不自动合并已有文件。真实安装或强制升级前会记录状态和备份；若需要撤销，优先使用 `loopengine rollback`，也可以按 `.loopengine/install-state.json` 中的记录手工处理。
+[MIT](LICENSE)

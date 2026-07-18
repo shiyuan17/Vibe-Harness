@@ -1,8 +1,26 @@
 #!/usr/bin/env node
-import { buildProjectContext, findProjectRoot, readHookSettings, runGovernanceCheck } from './lib/context.mjs';
+import { buildProjectContext, findProjectRoot, readHookSettings, runEvaluationCheck, runGovernanceCheck } from './lib/context.mjs';
+import { validateDeliveryMessage } from './lib/delivery-validation.mjs';
 import { analyzeToolRequest, createCodexHookResult, normalizeCodexHookInput } from './lib/policy.mjs';
 
 const MAX_INPUT_BYTES = 1024 * 1024;
+const guardedEvents = new Set(['PermissionRequest', 'PreToolUse']);
+
+function expectedEventFromArgs(argv) {
+  const index = argv.indexOf('--expected-event');
+  if (index === -1) return null;
+  const expectedEvent = argv[index + 1];
+  if (!expectedEvent || expectedEvent.startsWith('--')) throw new Error('Missing expected hook event.');
+  return expectedEvent;
+}
+
+function hookFailureResult(expectedEvent) {
+  const reason = 'HOOK_RUNTIME_ERROR: Cognis could not safely evaluate this hook event.';
+  if (guardedEvents.has(expectedEvent)) {
+    return createCodexHookResult(expectedEvent, { action: 'deny', reason });
+  }
+  return { systemMessage: reason };
+}
 
 async function readStdin() {
   const chunks = [];
@@ -15,8 +33,11 @@ async function readStdin() {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
-export async function evaluateCodexHook(rawInput) {
+export async function evaluateCodexHook(rawInput, { expectedEvent } = {}) {
   const input = normalizeCodexHookInput(rawInput);
+  if (expectedEvent && input.event !== expectedEvent) {
+    throw new Error('Hook event does not match the configured event.');
+  }
   const rootDir = await findProjectRoot(input.cwd);
   const settings = await readHookSettings(rootDir);
   if (settings.mode === 'off') return {};
@@ -31,6 +52,14 @@ export async function evaluateCodexHook(rawInput) {
     return {
       hookSpecificOutput: {
         additionalContext: await buildProjectContext(rootDir),
+        hookEventName: input.event,
+      },
+    };
+  }
+  if (input.event === 'UserPromptSubmit') {
+    return {
+      hookSpecificOutput: {
+        additionalContext: '如果当前请求创建新任务或使任务范围发生实质变化，在首次使用工具前按治理内核输出“任务确认”；普通追问不要重复输出。',
         hookEventName: input.event,
       },
     };
@@ -55,21 +84,32 @@ export async function evaluateCodexHook(rawInput) {
     return { systemMessage: 'Subagent stopped; verify its claimed changes and evidence before adoption.' };
   }
   if (input.event === 'Stop' && settings.completionGate !== 'off') {
-    const governance = await runGovernanceCheck(rootDir);
-    if (!governance.ok && settings.completionGate === 'blocking' && !input.stopHookActive) {
-      return { decision: 'block', reason: 'LoopEngine governance validation failed. Fix the evidence or task state, then verify again.' };
+    const [governance, evaluation, delivery] = await Promise.all([
+      runGovernanceCheck(rootDir),
+      runEvaluationCheck(rootDir, settings.evaluationsEnabled ? settings.validationCommands.eval : null),
+      Promise.resolve(validateDeliveryMessage(input.lastAssistantMessage)),
+    ]);
+    const issues = [];
+    if (governance.status === 'unavailable') {
+      issues.push('Cognis governance validator is unavailable. Repair or reinstall the expected runtime, then verify again.');
+    } else if (!governance.ok) {
+      issues.push('Cognis governance validation failed. Fix the evidence or task state, then verify again.');
     }
-    if (!governance.ok) {
-      return { systemMessage: 'LoopEngine governance validation is still failing; completion was not blocked again.' };
-    }
+    if (!evaluation.ok) issues.push('Cognis evaluation validation failed. Fix the Eval-ID evidence or reference, then verify again.');
+    if (!delivery.ok) issues.push(`Delivery packet missing: ${delivery.missing.join(', ')}.`);
+    if (issues.length === 0) return {};
+    const reason = issues.join(' ');
+    if (settings.completionGate === 'blocking' && !input.stopHookActive) return { decision: 'block', reason };
+    return { systemMessage: input.stopHookActive ? `${reason} Completion was not blocked again.` : reason };
   }
   return {};
 }
 
+const expectedEvent = expectedEventFromArgs(process.argv.slice(2));
+
 try {
-  const result = await evaluateCodexHook(await readStdin());
+  const result = await evaluateCodexHook(await readStdin(), { expectedEvent });
   process.stdout.write(`${JSON.stringify(result)}\n`);
-} catch (error) {
-  process.stderr.write(`LoopEngine hook error: ${error.message}\n`);
-  process.exitCode = 2;
+} catch {
+  process.stdout.write(`${JSON.stringify(hookFailureResult(expectedEvent))}\n`);
 }

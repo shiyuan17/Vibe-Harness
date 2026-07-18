@@ -1,3 +1,3 @@
 #!/bin/sh
 root="$(git rev-parse --show-toplevel)" || exit 1
-exec node "$root/.agents/loopengine/hooks/git-hook.mjs" pre-push
+exec node "$root/.agents/cognis/hooks/git-hook.mjs" pre-push

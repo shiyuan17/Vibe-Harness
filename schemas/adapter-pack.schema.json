@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cognis Adapter Catalog",
+  "type": "object",
+  "required": ["schemaVersion", "items"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "minimum": 1 },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "installMap", "instructionTarget", "supportedProfiles", "capabilities", "redZonePrefixes"],
+        "properties": {
+          "id": { "type": "string", "enum": ["codex", "claude", "gemini"] },
+          "installMap": { "type": "string", "minLength": 1 },
+          "instructionTarget": { "type": "string", "minLength": 1 },
+          "supportedProfiles": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+          "capabilities": {
+            "type": "object",
+            "required": ["instructions", "skills", "hooks", "policy", "mcp", "sandbox", "memory", "plugin"],
+            "properties": {
+              "instructions": { "type": "string", "enum": ["unsupported", "preview", "stable"] },
+              "skills": { "type": "string", "enum": ["unsupported", "preview", "stable"] },
+              "hooks": { "type": "string", "enum": ["unsupported", "preview", "stable"] },
+              "policy": { "type": "string", "enum": ["unsupported", "preview", "stable"] },
+              "mcp": { "type": "string", "enum": ["unsupported", "preview", "stable"] },
+              "sandbox": { "type": "string", "enum": ["unsupported", "preview", "stable"] },
+              "memory": { "type": "string", "enum": ["unsupported", "preview", "stable"] },
+              "plugin": { "type": "string", "enum": ["unsupported", "preview", "stable"] }
+            },
+            "additionalProperties": false
+          },
+          "redZonePrefixes": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

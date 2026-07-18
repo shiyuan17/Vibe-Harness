@@ -1,0 +1,199 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cognis 项目基线",
+  "type": "object",
+  "required": ["schemaVersion", "generatedAt", "project", "installation", "verification", "workflows", "recommendations", "drift"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "enum": [1] },
+    "generatedAt": { "type": "string", "minLength": 1 },
+    "project": {
+      "type": "object",
+      "required": ["name", "packageManager", "stackSummary", "directoryGuidance", "vcs"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "packageManager": { "type": "string", "minLength": 1 },
+        "stackSummary": { "type": "string", "minLength": 1 },
+        "directoryGuidance": { "type": "string", "minLength": 1 },
+        "vcs": {
+          "type": "object",
+          "required": ["kind", "workingTreeStatus"],
+          "properties": {
+            "kind": { "type": "string", "minLength": 1 },
+            "workingTreeStatus": { "type": "string", "enum": ["clean", "dirty", "unknown"] }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "installation": {
+      "type": "object",
+      "required": ["governanceMode", "managedFileCount", "profile", "status", "tools", "version"],
+      "properties": {
+        "governanceMode": { "type": "string", "enum": ["basic", "full", "off"] },
+        "managedFileCount": { "type": "integer", "minimum": 0 },
+        "profile": { "type": "string", "enum": ["minimal", "core", "full"] },
+        "status": { "type": "string", "enum": ["consistent"] },
+        "tools": {
+          "type": "object",
+          "properties": {
+            "playwrightCli": {
+              "type": "object",
+              "required": ["phase", "status", "version"],
+              "properties": {
+                "code": { "type": "string", "minLength": 1 },
+                "phase": { "type": "string", "minLength": 1 },
+                "status": { "type": "string", "enum": ["degraded", "pending", "pending-config", "ready"] },
+                "version": { "type": "string", "minLength": 1 }
+              },
+              "additionalProperties": false
+            },
+            "codebaseMemoryMcp": {
+              "type": "object",
+              "required": ["phase", "status", "version"],
+              "properties": {
+                "code": { "type": "string", "minLength": 1 },
+                "phase": { "type": "string", "minLength": 1 },
+                "status": { "type": "string", "enum": ["degraded", "pending", "pending-config", "ready"] },
+                "version": { "type": "string", "minLength": 1 }
+              },
+              "additionalProperties": false
+            },
+            "openCodeReview": {
+              "type": "object",
+              "required": ["phase", "status", "version"],
+              "properties": {
+                "code": { "type": "string", "minLength": 1 },
+                "phase": { "type": "string", "minLength": 1 },
+                "status": { "type": "string", "enum": ["degraded", "pending", "pending-config", "ready"] },
+                "version": { "type": "string", "minLength": 1 }
+              },
+              "additionalProperties": false
+            },
+            "agentmemory": {
+              "type": "object",
+              "required": ["phase", "status", "version"],
+              "properties": {
+                "code": { "type": "string", "minLength": 1 },
+                "phase": { "type": "string", "minLength": 1 },
+                "status": { "type": "string", "enum": ["degraded", "pending", "pending-config", "ready"] },
+                "version": { "type": "string", "minLength": 1 }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "version": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "verification": {
+      "type": "object",
+      "required": ["mode", "status", "commands"],
+      "properties": {
+        "mode": { "type": "string", "enum": ["static", "executed"] },
+        "status": { "type": "string", "enum": ["not_run", "passed", "failed", "blocked"] },
+        "commands": {
+          "type": "object",
+          "required": ["governance", "lint", "typecheck", "eval"],
+          "properties": {
+            "governance": {
+              "type": "object",
+              "required": ["status"],
+              "properties": {
+                "command": { "type": "string", "minLength": 1 },
+                "exitCode": { "type": "integer", "minimum": 0 },
+                "status": { "type": "string", "enum": ["available", "blocked", "failed", "manual", "missing", "not_configured", "passed"] }
+              },
+              "additionalProperties": false
+            },
+            "lint": {
+              "type": "object",
+              "required": ["status"],
+              "properties": {
+                "command": { "type": "string", "minLength": 1 },
+                "exitCode": { "type": "integer", "minimum": 0 },
+                "status": { "type": "string", "enum": ["available", "blocked", "failed", "manual", "missing", "not_configured", "passed"] }
+              },
+              "additionalProperties": false
+            },
+            "typecheck": {
+              "type": "object",
+              "required": ["status"],
+              "properties": {
+                "command": { "type": "string", "minLength": 1 },
+                "exitCode": { "type": "integer", "minimum": 0 },
+                "status": { "type": "string", "enum": ["available", "blocked", "failed", "manual", "missing", "not_configured", "passed"] }
+              },
+              "additionalProperties": false
+            },
+            "eval": {
+              "type": "object",
+              "required": ["status"],
+              "properties": {
+                "command": { "type": "string", "minLength": 1 },
+                "exitCode": { "type": "integer", "minimum": 0 },
+                "status": { "type": "string", "enum": ["available", "blocked", "failed", "manual", "missing", "not_configured", "passed"] }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "workflows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "trigger", "steps"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "name": { "type": "string", "minLength": 1 },
+          "trigger": { "type": "string", "minLength": 1 },
+          "steps": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+          "skills": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+        },
+        "additionalProperties": false
+      }
+    },
+    "recommendations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "message", "priority"],
+        "properties": {
+          "code": { "type": "string", "minLength": 1 },
+          "command": { "type": "string", "minLength": 1 },
+          "message": { "type": "string", "minLength": 1 },
+          "priority": { "type": "string", "enum": ["P0", "P1", "P2"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "drift": {
+      "type": "object",
+      "required": ["changes", "status"],
+      "properties": {
+        "changes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path"],
+            "properties": {
+              "path": { "type": "string", "minLength": 1 },
+              "before": {},
+              "after": {}
+            },
+            "additionalProperties": false
+          }
+        },
+        "status": { "type": "string", "enum": ["initial", "unchanged", "changed"] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

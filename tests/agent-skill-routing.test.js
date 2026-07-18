@@ -22,22 +22,24 @@ test('agent skill routing policy preserves governance priority and lifecycle rou
     'Clarify',
     'Spec',
     'Plan',
-    'Tasks',
     'Execute',
     'Verify',
     'Review',
     'Handoff',
     'Retrospective',
-    'OpenCodeReview',
+    'ocr',
     'fallback',
     'Memory',
-    'using-loopengine',
+    'using-cognis',
   ]) {
     assert.equal(rule.includes(term), true, `routing policy should document ${term}`);
   }
-  assert.match(rule, /营销.*`taste-skill`/u);
-  assert.match(rule, /产品 UI.*`impeccable`/u);
+  assert.match(rule, /产品 UI.*`frontend-design`.*产品、后台与工具/u);
+  assert.match(rule, /营销.*`frontend-design`.*营销、品牌与作品集/u);
   assert.match(rule, /方向不明确.*`frontend-design`/u);
+  assert.match(rule, /Architecture.*架构规则.*`code-review-and-quality`/u);
+  assert.match(rule, /Memory 续接.*`agentmemory`.*本地任务与 handoff 文档/u);
+  assert.doesNotMatch(rule, /环境提供|`impeccable`|`taste-skill`|recall\/handoff\/session-history/u);
 });
 
 test('agent skill routing policy is registered, installable, and tracked by capability evidence', async () => {
@@ -51,17 +53,17 @@ test('agent skill routing policy is registered, installable, and tracked by capa
   );
   assert.deepEqual(
     installMap.entries.find((entry) => entry.source === routingRuleSource),
-    { group: 'rules-minimal', source: routingRuleSource, target: routingRuleTarget },
+    { contentStrategy: 'replace', group: 'rules-minimal', source: routingRuleSource, target: routingRuleTarget },
   );
 
   const capability = capabilities.items.find((item) => item.id === 'skill-routing');
   assert.equal(capability.targets.includes(routingRuleSource), true);
-  assert.equal(capability.targets.includes('skills/core/using-loopengine/SKILL.md'), true);
+  assert.equal(capability.targets.includes('skills/core/using-cognis/SKILL.md'), true);
   assert.equal(capability.tests.includes('tests/agent-skill-routing.test.js'), true);
 });
 
 test('all profiles install the routing policy while only skill profiles install the router', async () => {
-  for (const profile of ['minimal', 'core', 'full', 'codex-minimal', 'codex-internal', 'docs-only']) {
+  for (const profile of ['minimal', 'core', 'full', 'docs-only']) {
     const plan = await createInstallPlan({
       dryRun: true,
       profile,
@@ -71,22 +73,31 @@ test('all profiles install the routing policy while only skill profiles install 
     const targets = new Set(plan.actions.map((action) => action.relativeTarget));
     assert.equal(targets.has(routingRuleTarget), true, `${profile} should install the routing policy`);
     assert.equal(
-      targets.has('.agents/skills/using-loopengine/SKILL.md'),
-      !['minimal', 'codex-minimal', 'docs-only'].includes(profile),
+      targets.has('.agents/skills/using-cognis/SKILL.md'),
+      !['minimal', 'docs-only'].includes(profile),
       `${profile} router installation should match its skill surface`,
     );
   }
 });
 
-test('AGENTS and using-loopengine link the policy and document the no-skill fallback', async () => {
+test('AGENTS and using-cognis link the policy and document the no-skill fallback', async () => {
   const [agents, router] = await Promise.all([
     readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8'),
-    readFile(path.join(rootDir, 'skills/core/using-loopengine/SKILL.md'), 'utf8'),
+    readFile(path.join(rootDir, 'skills/core/using-cognis/SKILL.md'), 'utf8'),
   ]);
 
   assert.equal(agents.includes(routingRuleTarget), true);
   assert.match(agents, /Skills 未安装时.*fallback/u);
   assert.equal(router.includes(routingRuleTarget), true);
+});
+
+test('brainstorming only gates tasks with unresolved high-impact design choices', async () => {
+  const content = await readFile(path.join(rootDir, 'skills/core/brainstorming/SKILL.md'), 'utf8');
+  const frontmatter = content.match(/^---\r?\n([\s\S]*?)\r?\n---/u)?.[1] ?? '';
+  assert.match(frontmatter, /高影响歧义/u);
+  assert.doesNotMatch(frontmatter, /任何创造性工作/u);
+  assert.match(content, /已有决策完整规格.*不触发/u);
+  assert.match(content, /纯修复.*不触发/u);
 });
 
 test('pack quality rejects routing policy registration, evidence, and link drift', async () => {
@@ -95,7 +106,7 @@ test('pack quality rejects routing policy registration, evidence, and link drift
 
   const [agentsContent, routerContent, ruleContent, manifests, installMap, capabilityMatrix] = await Promise.all([
     readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8'),
-    readFile(path.join(rootDir, 'skills/core/using-loopengine/SKILL.md'), 'utf8'),
+    readFile(path.join(rootDir, 'skills/core/using-cognis/SKILL.md'), 'utf8'),
     readFile(path.join(rootDir, routingRuleSource), 'utf8'),
     loadAllManifests(rootDir),
     readJson(path.join(rootDir, 'adapters/codex/install-map.json')),
@@ -113,7 +124,7 @@ test('pack quality rejects routing policy registration, evidence, and link drift
   assert.deepEqual(validate(valid), []);
   assert.match(validate({ ...valid, ruleItems: [] }).join('\n'), /registered in manifests\/rules\.json/u);
   assert.match(validate({ ...valid, installEntries: [] }).join('\n'), /rules-minimal/u);
-  assert.match(validate({ ...valid, capabilityMatrix: { schemaVersion: 1, items: [] } }).join('\n'), /skill-routing capability/u);
+  assert.match(validate({ ...valid, capabilityMatrix: { schemaVersion: 2, items: [] } }).join('\n'), /skill-routing capability/u);
   assert.doesNotThrow(() => validate({ ...valid, capabilityMatrix: {} }));
   assert.match(validate({ ...valid, capabilityMatrix: {} }).join('\n'), /skill-routing capability/u);
   assert.match(validate({ ...valid, routerContent: '# router' }).join('\n'), /router must reference/u);

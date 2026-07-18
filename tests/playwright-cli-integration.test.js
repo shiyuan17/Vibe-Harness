@@ -1,3 +1,5 @@
+import './helpers/offline-tools.js';
+
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -15,7 +17,7 @@ import {
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve('.');
-const cliPath = path.join(rootDir, 'scripts/loopengine.js');
+const cliPath = path.join(rootDir, 'scripts/cognis.js');
 
 async function runCli(args) {
   const { stdout } = await execFileAsync(process.execPath, [cliPath, ...args], { cwd: rootDir });
@@ -23,8 +25,8 @@ async function runCli(args) {
 }
 
 test('Playwright tool preparation is lazy, reproducible, and project-local', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-playwright-tool-'));
-  const toolDir = path.join(targetDir, '.agents/loopengine/tools/playwright-cli');
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-playwright-tool-'));
+  const toolDir = path.join(targetDir, '.agents/cognis/tools/playwright-cli');
   const calls = [];
   try {
     await mkdir(toolDir, { recursive: true });
@@ -32,7 +34,7 @@ test('Playwright tool preparation is lazy, reproducible, and project-local', asy
     await writeFile(path.join(toolDir, 'package.json'), JSON.stringify({ devDependencies: { '@playwright/cli': PLAYWRIGHT_CLI_VERSION } }), 'utf8');
 
     const runCommand = async (command, args, options) => {
-      calls.push({ args, command, cwd: options.cwd, browserPath: options.env.PLAYWRIGHT_BROWSERS_PATH });
+      calls.push({ args, command, cwd: options.cwd, env: options.env, browserPath: options.env.PLAYWRIGHT_BROWSERS_PATH });
       if (command.includes('npm') || args[0]?.includes('npm-cli')) {
         await mkdir(path.join(toolDir, 'node_modules/@playwright/cli'), { recursive: true });
         await writeFile(path.join(toolDir, 'node_modules/@playwright/cli/playwright-cli.js'), '', 'utf8');
@@ -41,7 +43,16 @@ test('Playwright tool preparation is lazy, reproducible, and project-local', asy
       }
     };
 
-    const prepared = await preparePlaywrightTool({ runCommand, targetDir, toolDir });
+    const prepared = await preparePlaywrightTool({
+      env: {
+        HTTPS_PROXY: 'https://proxy.example.test',
+        COGNIS_SECRET_SENTINEL: 'must-not-leak',
+        PATH: 'playwright-test-path',
+      },
+      runCommand,
+      targetDir,
+      toolDir,
+    });
     const inspected = await inspectPlaywrightTool({ targetDir });
 
     assert.equal(prepared.status, 'ready');
@@ -57,6 +68,9 @@ test('Playwright tool preparation is lazy, reproducible, and project-local', asy
     }
     assert.deepEqual(calls[1].args.slice(-2), ['install-browser', 'chromium']);
     assert.equal(calls[1].browserPath, '0');
+    assert.equal(calls[0].env.PATH, 'playwright-test-path');
+    assert.equal(calls[0].env.HTTPS_PROXY, 'https://proxy.example.test');
+    assert.equal(calls[0].env.COGNIS_SECRET_SENTINEL, undefined);
     assert.equal(calls.every((call) => call.cwd === toolDir), true);
 
     await preparePlaywrightTool({ runCommand, targetDir, toolDir });
@@ -66,32 +80,75 @@ test('Playwright tool preparation is lazy, reproducible, and project-local', asy
     await preparePlaywrightTool({ runCommand, targetDir, toolDir });
     assert.equal(calls.length, 4, 'changed lock hash must prepare the tool again');
 
-    const config = JSON.parse(await readFile(path.join(targetDir, '.loopengine/tool-state/playwright-cli.config.json'), 'utf8'));
+    const config = JSON.parse(await readFile(path.join(targetDir, '.cognis/tool-state/playwright-cli.config.json'), 'utf8'));
     assert.equal(config.browser.isolated, true);
     assert.equal(config.allowUnrestrictedFileAccess, false);
-    assert.equal(config.outputDir, path.join(targetDir, '.loopengine/artifacts/playwright'));
+    assert.equal(config.outputDir, path.join(targetDir, '.cognis/artifacts/playwright'));
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('Playwright tool keeps runtime state in the legacy state root after upgrade', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-playwright-legacy-state-'));
+  const toolDir = path.join(targetDir, '.agents/cognis/tools/playwright-cli');
+  try {
+    await mkdir(path.join(targetDir, '.loopengine'), { recursive: true });
+    await writeFile(path.join(targetDir, '.loopengine/install-state.json'), '{}\n', 'utf8');
+    await mkdir(toolDir, { recursive: true });
+    await writeFile(path.join(toolDir, 'package-lock.json'), '{}\n', 'utf8');
+    await writeFile(path.join(toolDir, 'package.json'), '{}\n', 'utf8');
+    await preparePlaywrightTool({
+      runCommand: async (command, args) => {
+        if (command.includes('npm') || args[0]?.includes('npm-cli')) {
+          await mkdir(path.join(toolDir, 'node_modules/@playwright/cli'), { recursive: true });
+          await writeFile(path.join(toolDir, 'node_modules/@playwright/cli/playwright-cli.js'), '', 'utf8');
+        } else {
+          await mkdir(path.join(toolDir, 'node_modules/playwright-core/.local-browsers/chromium-legacy'), { recursive: true });
+        }
+      },
+      targetDir,
+      toolDir,
+    });
+
+    const config = JSON.parse(await readFile(path.join(targetDir, '.loopengine/tool-state/playwright-cli.config.json'), 'utf8'));
+    assert.equal(config.outputDir, path.join(targetDir, '.cognis/artifacts/playwright'));
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }
 });
 
 test('failed Playwright preparation records unavailable without leaking command output and can retry', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-playwright-failure-'));
-  const toolDir = path.join(targetDir, '.agents/loopengine/tools/playwright-cli');
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-playwright-failure-'));
+  const toolDir = path.join(targetDir, '.agents/cognis/tools/playwright-cli');
   try {
     await mkdir(toolDir, { recursive: true });
     await writeFile(path.join(toolDir, 'package-lock.json'), '{}\n', 'utf8');
     await writeFile(path.join(toolDir, 'package.json'), '{}\n', 'utf8');
     await assert.rejects(
       preparePlaywrightTool({
-        runCommand: async () => { throw new Error('token=super-secret'); },
+        runCommand: async () => {
+          throw Object.assign(new Error('token=super-secret'), {
+            code: 'TOOL_COMMAND_FAILED',
+            exitCode: 19,
+            stderr: 'browser download failed: Bearer super-secret',
+            stdout: 'downloading chromium',
+          });
+        },
         targetDir,
         toolDir,
       }),
-      /prepare Playwright CLI/i,
+      (error) => {
+        assert.match(error.message, /prepare Playwright CLI/i);
+        assert.equal(error.phase, 'dependency-install');
+        assert.equal(error.exitCode, 19);
+        assert.equal(error.stderr, 'browser download failed: Bearer super-secret');
+        assert.equal(error.stdout, 'downloading chromium');
+        return true;
+      },
     );
 
-    const stateText = await readFile(path.join(targetDir, '.loopengine/tool-state/playwright-cli.json'), 'utf8');
+    const stateText = await readFile(path.join(targetDir, '.cognis/tool-state/playwright-cli.json'), 'utf8');
     const state = JSON.parse(stateText);
     assert.equal(stateText.includes('super-secret'), false);
     assert.equal(state.phase, 'dependency-install');
@@ -116,8 +173,8 @@ test('failed Playwright preparation records unavailable without leaking command 
 });
 
 test('Playwright command forwards output while provisioning remains injectable', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-playwright-command-'));
-  const toolDir = path.join(targetDir, '.agents/loopengine/tools/playwright-cli');
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-playwright-command-'));
+  const toolDir = path.join(targetDir, '.agents/cognis/tools/playwright-cli');
   const invocations = [];
   try {
     await mkdir(toolDir, { recursive: true });
@@ -133,20 +190,28 @@ test('Playwright command forwards output while provisioning remains injectable',
     };
     const runCliCommand = async (command, args, options) => invocations.push({ args, command, options });
 
-    await runPlaywrightCli(['-s=smoke', 'snapshot', '--filename=smoke.yml'], { runCliCommand, runCommand, targetDir, toolDir });
+    await runPlaywrightCli(['-s=smoke', 'snapshot', '--filename=smoke.yml'], {
+      env: { COGNIS_SECRET_SENTINEL: 'must-not-leak', PATH: 'playwright-test-path' },
+      runCliCommand,
+      runCommand,
+      targetDir,
+      toolDir,
+    });
 
     assert.equal(invocations.length, 1);
     assert.equal(invocations[0].command, process.execPath);
     assert.deepEqual(invocations[0].args.slice(1), [
       '-s=smoke',
       'snapshot',
-      `--filename=${path.join(targetDir, '.loopengine/artifacts/playwright/smoke.yml')}`,
+      `--filename=${path.join(targetDir, '.cognis/artifacts/playwright/smoke.yml')}`,
     ]);
     assert.equal(invocations[0].options.cwd, targetDir);
     assert.equal(
       invocations[0].options.env.PLAYWRIGHT_MCP_CONFIG,
-      path.join(targetDir, '.loopengine/tool-state/playwright-cli.config.json'),
+      path.join(targetDir, '.cognis/tool-state/playwright-cli.config.json'),
     );
+    assert.equal(invocations[0].options.env.PATH, 'playwright-test-path');
+    assert.equal(invocations[0].options.env.COGNIS_SECRET_SENTINEL, undefined);
     assert.equal(invocations[0].options.stdio, 'inherit');
 
     await assert.rejects(
@@ -163,7 +228,7 @@ test('Playwright command forwards output while provisioning remains injectable',
 });
 
 test('core profiles install a lazy Playwright tool without changing the project package', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-playwright-install-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-playwright-install-'));
   try {
     const packageText = '{"name":"business-app","private":true}\n';
     await writeFile(path.join(targetDir, 'package.json'), packageText, 'utf8');
@@ -171,7 +236,7 @@ test('core profiles install a lazy Playwright tool without changing the project 
 
     const dryRun = await runCli(['install', '--project', targetDir, '--target', 'codex', '--profile', 'core', '--dry-run']);
     assert.equal(dryRun.tools.playwrightCli.status, 'pending');
-    assert.ok(dryRun.actions.some((action) => action.relativeTarget === '.agents/loopengine/tools/playwright-cli/run.mjs'));
+    assert.ok(dryRun.actions.some((action) => action.relativeTarget === '.agents/cognis/tools/playwright-cli/run.mjs'));
     assert.ok(dryRun.actions.some((action) => action.relativeTarget === '.agents/skills/browser-verification/references/cli.md'));
 
     const minimal = await runCli(['install', '--project', targetDir, '--target', 'codex', '--profile', 'minimal', '--dry-run']);
@@ -179,9 +244,9 @@ test('core profiles install a lazy Playwright tool without changing the project 
 
     await runCli(['install', '--project', targetDir, '--target', 'codex', '--profile', 'core', '--write']);
     assert.equal(await readFile(path.join(targetDir, 'package.json'), 'utf8'), packageText);
-    await assert.rejects(readFile(path.join(targetDir, '.agents/loopengine/tools/playwright-cli/node_modules/.package-lock.json'), 'utf8'), /ENOENT/);
+    await assert.rejects(readFile(path.join(targetDir, '.agents/cognis/tools/playwright-cli/node_modules/.package-lock.json'), 'utf8'), /ENOENT/);
 
-    const doctor = await runCli(['doctor', '--target', targetDir, '--profile', 'core']);
+    const doctor = await runCli(['doctor', '--project', targetDir, '--profile', 'core']);
     assert.equal(doctor.tools.playwrightCli.status, 'pending');
   } finally {
     await rm(targetDir, { force: true, recursive: true });
@@ -189,7 +254,7 @@ test('core profiles install a lazy Playwright tool without changing the project 
 });
 
 test('project validation warns for a pending Playwright tool without failing governance', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-playwright-validate-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-playwright-validate-'));
   try {
     await runCli(['init', '--project', targetDir]);
     await runCli(['install', '--project', targetDir, '--target', 'codex', '--profile', 'core', '--write']);
@@ -202,21 +267,22 @@ test('project validation warns for a pending Playwright tool without failing gov
 });
 
 test('rollback removes generated Playwright dependencies but preserves browser evidence', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-playwright-rollback-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-playwright-rollback-'));
   try {
-    await runCli(['install', '--target', targetDir, '--profile', 'core', '--apply']);
-    const validation = await runCli(['validate', '--target', targetDir, '--profile', 'core']);
+    await runCli(['init', '--project', targetDir, '--profile', 'core']);
+    await runCli(['install', '--project', targetDir, '--target', 'codex', '--profile', 'core', '--write']);
+    const validation = await runCli(['validate', '--project', targetDir, '--profile', 'core']);
     assert.ok(validation.warnings.some((warning) => warning.code === 'PLAYWRIGHT_CLI_PENDING'));
-    const generated = path.join(targetDir, '.agents/loopengine/tools/playwright-cli/node_modules/fake');
-    const evidence = path.join(targetDir, '.loopengine/artifacts/playwright/screenshot.png');
+    const generated = path.join(targetDir, '.agents/cognis/tools/playwright-cli/node_modules/fake');
+    const evidence = path.join(targetDir, '.cognis/artifacts/playwright/screenshot.png');
     await mkdir(generated, { recursive: true });
     await mkdir(path.dirname(evidence), { recursive: true });
     await writeFile(path.join(generated, 'index.js'), '', 'utf8');
     await writeFile(evidence, 'evidence', 'utf8');
 
-    const result = await runCli(['rollback', '--target', targetDir, '--apply']);
+    const result = await runCli(['rollback', '--project', targetDir, '--write']);
 
-    assert.ok(result.applied.includes('.agents/loopengine/tools/playwright-cli/node_modules'));
+    assert.ok(result.applied.includes('.agents/cognis/tools/playwright-cli/node_modules'));
     await assert.rejects(readFile(path.join(generated, 'index.js'), 'utf8'), /ENOENT/);
     assert.equal(await readFile(evidence, 'utf8'), 'evidence');
   } finally {

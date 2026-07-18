@@ -1,3 +1,5 @@
+import './helpers/offline-tools.js';
+
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -10,10 +12,13 @@ import { detectProjectProfile } from '../scripts/lib/project-profile.js';
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve('.');
-const cliPath = path.join(rootDir, 'scripts/loopengine.js');
+const cliPath = path.join(rootDir, 'scripts/cognis.js');
 
 async function runCli(args) {
-  const result = await execFileAsync(process.execPath, [cliPath, ...args], {
+  const effectiveArgs = args[0] === 'install' && args.includes('--dry-run') && !args.includes('--verbose')
+    ? [...args, '--verbose']
+    : args;
+  const result = await execFileAsync(process.execPath, [cliPath, ...effectiveArgs], {
     maxBuffer: 1024 * 1024 * 8,
   });
   return result.stdout ? JSON.parse(result.stdout) : null;
@@ -24,7 +29,7 @@ async function writeJson(filePath, value) {
 }
 
 test('detectProjectProfile summarizes Vue Vite pnpm projects', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-profile-node-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-profile-node-'));
   try {
     await mkdir(path.join(target, '.git'));
     await writeJson(path.join(target, 'package.json'), {
@@ -66,7 +71,7 @@ test('detectProjectProfile summarizes Vue Vite pnpm projects', async () => {
 });
 
 test('detectProjectProfile prefers target package manager unless overrides are explicit', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-profile-package-manager-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-profile-package-manager-'));
   try {
     await writeJson(path.join(target, 'package.json'), {
       packageManager: 'npm@10.8.0',
@@ -99,7 +104,7 @@ test('detectProjectProfile prefers target package manager unless overrides are e
 });
 
 test('detectProjectProfile supports manual and off project rule modes', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-profile-mode-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-profile-mode-'));
   try {
     await writeJson(path.join(target, 'package.json'), {
       packageManager: 'npm@10.8.0',
@@ -141,7 +146,7 @@ test('detectProjectProfile supports manual and off project rule modes', async ()
 });
 
 test('detectProjectProfile summarizes Maven and legacy dotnet projects', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-profile-mixed-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-profile-mixed-'));
   try {
     await mkdir(path.join(target, '.svn'));
     await writeFile(
@@ -168,8 +173,27 @@ test('detectProjectProfile summarizes Maven and legacy dotnet projects', async (
   }
 });
 
+test('generated entry uses detected VCS command and plain unconfigured validation labels', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-profile-entry-'));
+  try {
+    await mkdir(path.join(target, '.svn'));
+    await runCli(['init', '--project', target]);
+
+    const report = await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'core', '--dry-run', '--verbose']);
+    const agents = report.previewFiles.find((file) => file.target === 'AGENTS.md').content;
+
+    assert.match(agents, /编辑前运行 `svn status`/u);
+    assert.doesNotMatch(agents, /编辑前运行 `git status --short`/u);
+    assert.match(agents, /Lint: 未配置/u);
+    assert.match(agents, /Typecheck: 未配置/u);
+    assert.doesNotMatch(agents, /`未配置`/u);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
 test('core project install renders project-specific rules without local memory library', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-project-assets-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-project-assets-'));
   try {
     await runCli(['init', '--project', target]);
     await writeJson(path.join(target, 'package.json'), {
@@ -205,7 +229,7 @@ test('core project install renders project-specific rules without local memory l
 });
 
 test('minimal profile excludes project-specific rules and local memory library', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-project-minimal-assets-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-project-minimal-assets-'));
   try {
     await runCli(['init', '--project', target]);
     const report = await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'minimal', '--dry-run']);
@@ -219,10 +243,10 @@ test('minimal profile excludes project-specific rules and local memory library',
 });
 
 test('full profile memory config can disable or relocate local memory library', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-memory-config-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-memory-config-'));
   try {
     await runCli(['init', '--project', target]);
-    const configPath = path.join(target, 'loopengine.config.json');
+    const configPath = path.join(target, 'cognis.config.json');
     const config = JSON.parse(await readFile(configPath, 'utf8'));
 
     await writeJson(configPath, {
@@ -254,18 +278,23 @@ test('full profile memory config can disable or relocate local memory library', 
 });
 
 test('doctor summarizes unmanaged files by default and shows full list only when verbose', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-doctor-summary-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-doctor-summary-'));
   try {
+    await runCli(['init', '--project', target]);
+    const configPath = path.join(target, 'cognis.config.json');
+    const config = JSON.parse(await readFile(configPath, 'utf8'));
+    await writeJson(configPath, { ...config, governance: { mode: 'off' }, profile: 'minimal' });
+    await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'minimal', '--write']);
     await writeFile(path.join(target, 'local-a.txt'), 'a\n', 'utf8');
     await writeFile(path.join(target, 'local-b.txt'), 'b\n', 'utf8');
 
-    const report = await runCli(['doctor', '--target', target, '--profile', 'codex-minimal']);
+    const report = await runCli(['doctor', '--project', target, '--profile', 'minimal']);
     assert.equal(typeof report.target.summary.unmanagedCount, 'number');
     assert.equal(report.target.summary.unmanagedCount >= 2, true);
     assert.equal(Array.isArray(report.target.summary.samples.unmanaged), true);
     assert.equal(Object.hasOwn(report.target, 'unmanaged'), false);
 
-    const verbose = await runCli(['doctor', '--target', target, '--profile', 'codex-minimal', '--verbose']);
+    const verbose = await runCli(['doctor', '--project', target, '--profile', 'minimal', '--verbose']);
     assert.equal(Array.isArray(verbose.target.unmanaged), true);
     assert.equal(verbose.target.unmanaged.some((item) => item.target === 'local-a.txt'), true);
   } finally {

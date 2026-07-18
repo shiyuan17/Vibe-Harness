@@ -27,8 +27,11 @@ AI 准备提交前先给出提交分组：
 
 ## 分支 / 提交 / PR
 
-- 分支：默认使用 `codex/<scope>-<short-topic>`；已有任务分支或用户指定分支优先。
-- 提交：使用祈使句，说明一个可验收改动；避免 `fix bug`、`update`、`phase 1` 这类不可检索描述。
+- 分支：默认使用 `loop_engine/<scope>-<short-topic>`；已有任务分支或用户指定分支优先。
+- 提交主题格式为 `<type>(<scope>): <中文描述>`，其中 scope 可选；类型前缀和可选 scope 保持英文，主题、正文和人工编写的说明使用中文。
+- 常用类型包括 `feat`、`fix`、`docs`、`refactor`、`test` 和 `chore`。例如：`feat: 增加项目基线快照`、`fix(installer): 修复强制覆盖前未备份的问题`、`docs: 补充基线与工具配置说明`、`refactor: 简化安装计划生成逻辑`、`test: 覆盖中文提交规范`、`chore: 更新开发依赖`。
+- 中文描述使用祈使句，说明一个可验收改动；`feat: add project baseline snapshots` 不符合本规范，也应避免 `fix bug`、`update`、`phase 1` 这类不可检索描述。
+- Git 自动生成且无需人工编辑的 merge 或 revert 信息不受此限制；人工修改时仍使用中文描述。
 - PR：包含摘要、风险、验证、回滚和审查备注；高风险 PR 必须说明红区确认和独立审查状态。
 - 一个 commit 只承载一个逻辑变更；重构和功能变更默认拆开。
 - 分批交付前检查 working tree 和 staged diff，明确包含文件、排除文件、验证证据、风险和回滚方式；工具不可用时只给出分组清单和命令建议，不声称已经提交。

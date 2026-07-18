@@ -8,10 +8,10 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve('.');
-const cliPath = path.join(rootDir, 'scripts/loopengine.js');
+const cliPath = path.join(rootDir, 'scripts/cognis.js');
 
 async function preview(profile) {
-  const target = await mkdtemp(path.join(tmpdir(), `loopengine-profile-${profile}-`));
+  const target = await mkdtemp(path.join(tmpdir(), `cognis-profile-${profile}-`));
   await execFileAsync(process.execPath, [cliPath, 'init', '--project', target]);
   const result = await execFileAsync(process.execPath, [cliPath, 'install', '--project', target, '--target', 'codex', '--profile', profile, '--dry-run'], { maxBuffer: 8 * 1024 * 1024 });
   return { report: JSON.parse(result.stdout), target };
@@ -37,9 +37,10 @@ test('core and full install routed skills and full adds memory, mcp, and hooks',
     const coreTargets = new Set(core.report.actions.map((action) => action.relativeTarget));
     const fullTargets = new Set(full.report.actions.map((action) => action.relativeTarget));
     for (const targets of [coreTargets, fullTargets]) {
-      assert.equal(targets.has('.agents/skills/using-loopengine/SKILL.md'), true);
+      assert.equal(targets.has('.agents/skills/using-cognis/SKILL.md'), true);
       assert.equal(targets.has('docs/schemas/full-task-control.schema.json'), true);
-      assert.equal(targets.has('.agents/loopengine/governance/lib/task-validation.mjs'), true);
+      assert.equal(targets.has('.agents/cognis/governance/lib/task-validation.mjs'), true);
+      assert.equal(targets.has('.agents/cognis/governance/lib/red-team-validation.mjs'), true);
     }
     assert.equal(coreTargets.has('.agents/skills/adversarial-review-packet/SKILL.md'), true);
     assert.equal(coreTargets.has('docs/rules/codebase-memory-mcp.md'), false);

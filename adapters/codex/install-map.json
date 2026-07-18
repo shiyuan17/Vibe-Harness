@@ -1,128 +1,742 @@
 {
   "adapter": "codex",
   "entries": [
-    { "group": "agents", "source": "adapters/codex/AGENTS.template.md", "target": "AGENTS.md" },
-
-    { "group": "rules-minimal", "source": "rules/governance-core.md", "target": "docs/rules/governance-core.md" },
-    { "group": "rules-minimal", "source": "rules/agent-skill-routing.md", "target": "docs/rules/AGENT_SKILL_ROUTING.md" },
-    { "group": "rules-minimal", "source": "rules/git-rules.md", "target": "docs/rules/git-rules.md" },
-    { "group": "rules-minimal", "source": "rules/test-rules.md", "target": "docs/rules/test-rules.md" },
-
-    { "group": "rules-codebase-memory", "source": "rules/codebase-memory-mcp.md", "target": "docs/rules/codebase-memory-mcp.md" },
-
-    { "group": "rules-core", "source": "rules/ai-collab-rules.md", "target": "docs/rules/ai-collab-rules.md" },
-    { "group": "rules-core", "source": "rules/api-rules.md", "target": "docs/rules/api-rules.md" },
-    { "group": "rules-core", "source": "rules/coding-rules.md", "target": "docs/rules/coding-rules.md" },
-    { "group": "rules-core", "source": "rules/frontend-rules.md", "target": "docs/rules/frontend-rules.md" },
-    { "group": "rules-core", "source": "rules/log-management.md", "target": "docs/rules/log-management.md" },
-    { "group": "rules-core", "source": "rules/project-directory.md", "target": "docs/rules/project-directory.md" },
-    { "group": "rules-core", "source": "rules/project-specific-rules.md", "target": "docs/rules/project-specific-rules.md" },
-
-    { "group": "rules-full", "source": "rules/db-rules.md", "target": "docs/rules/db-rules.md" },
-    { "group": "rules-full", "source": "rules/pencil-rules.md", "target": "docs/rules/pencil-rules.md" },
-    { "group": "rules-full", "source": "rules/release-rules.md", "target": "docs/rules/release-rules.md" },
-    { "group": "rules-full", "source": "rules/troubleshooting.md", "target": "docs/rules/troubleshooting.md" },
-
-    { "group": "templates-minimal", "source": "templates/task.md", "target": "docs/templates/task.md" },
-    { "group": "templates-minimal", "source": "templates/delivery.md", "target": "docs/templates/delivery.md" },
-
-    { "group": "templates-memory", "source": "templates/memory/PROJECT_STATE.md", "target": "docs/memory/PROJECT_STATE.md" },
-    { "group": "templates-memory", "source": "templates/memory/ARCHITECTURE.md", "target": "docs/memory/ARCHITECTURE.md" },
-    { "group": "templates-memory", "source": "templates/memory/DECISIONS.md", "target": "docs/memory/DECISIONS.md" },
-    { "group": "templates-memory", "source": "templates/memory/KNOWN_BUGS.md", "target": "docs/memory/KNOWN_BUGS.md" },
-    { "group": "templates-memory", "source": "templates/memory/TECH_DEBT.md", "target": "docs/memory/TECH_DEBT.md" },
-    { "group": "templates-memory", "source": "templates/memory/FAILURE_LEARNINGS.md", "target": "docs/memory/FAILURE_LEARNINGS.md" },
-
-    { "group": "schemas-core", "source": "schemas/full-task-control.schema.json", "target": "docs/schemas/full-task-control.schema.json" },
-
-    { "group": "runtime-basic", "source": "runtime/governance/validate.mjs", "target": ".agents/loopengine/governance/validate.mjs" },
-    { "group": "runtime-task", "source": "runtime/governance/lib/task-validation.mjs", "target": ".agents/loopengine/governance/lib/task-validation.mjs" },
-    { "group": "runtime-full", "source": "runtime/governance/lib/design-validation.mjs", "target": ".agents/loopengine/governance/lib/design-validation.mjs" },
-    { "group": "runtime-full", "source": "runtime/governance/lib/memory-validation.mjs", "target": ".agents/loopengine/governance/lib/memory-validation.mjs" },
-    { "group": "runtime-task", "source": "runtime/governance/lib/schema-validation.mjs", "target": ".agents/loopengine/governance/lib/schema-validation.mjs" },
-
-    { "group": "tools-playwright", "source": "runtime/tools/playwright-cli/package.json", "target": ".agents/loopengine/tools/playwright-cli/package.json" },
-    { "group": "tools-playwright", "source": "runtime/tools/playwright-cli/package-lock.json", "target": ".agents/loopengine/tools/playwright-cli/package-lock.json" },
-    { "group": "tools-playwright", "source": "runtime/tools/playwright-cli/run.mjs", "target": ".agents/loopengine/tools/playwright-cli/run.mjs", "executable": true },
-
-    { "group": "skills-core", "source": "skills/core/brainstorming/SKILL.md", "target": ".agents/skills/brainstorming/SKILL.md" },
-    { "group": "skills-core", "source": "skills/core/using-loopengine/SKILL.md", "target": ".agents/skills/using-loopengine/SKILL.md" },
-    { "group": "skills-core", "source": "skills/core/brainstorming/spec-document-reviewer-prompt.md", "target": ".agents/skills/brainstorming/spec-document-reviewer-prompt.md" },
-    { "group": "skills-core", "source": "skills/core/brainstorming/references/spec.md", "target": ".agents/skills/brainstorming/references/spec.md" },
-    { "group": "skills-core", "source": "skills/core/brainstorming/visual-companion.md", "target": ".agents/skills/brainstorming/visual-companion.md" },
-    { "group": "skills-core", "source": "skills/core/brainstorming/scripts/frame-template.html", "target": ".agents/skills/brainstorming/scripts/frame-template.html" },
-    { "group": "skills-core", "source": "skills/core/brainstorming/scripts/helper.js", "target": ".agents/skills/brainstorming/scripts/helper.js" },
-    { "group": "skills-core", "source": "skills/core/brainstorming/scripts/server.cjs", "target": ".agents/skills/brainstorming/scripts/server.cjs" },
-    { "group": "skills-core", "source": "skills/core/brainstorming/scripts/start-server.sh", "target": ".agents/skills/brainstorming/scripts/start-server.sh" },
-    { "group": "skills-core", "source": "skills/core/brainstorming/scripts/stop-server.sh", "target": ".agents/skills/brainstorming/scripts/stop-server.sh" },
-    { "group": "skills-core", "source": "skills/core/grill-me/SKILL.md", "target": ".agents/skills/grill-me/SKILL.md" },
-    { "group": "skills-core", "source": "skills/core/api-and-interface-design/SKILL.md", "target": ".agents/skills/api-and-interface-design/SKILL.md" },
-    { "group": "skills-core", "source": "skills/core/writing-plans/SKILL.md", "target": ".agents/skills/writing-plans/SKILL.md" },
-    { "group": "skills-core", "source": "skills/core/writing-plans/plan-document-reviewer-prompt.md", "target": ".agents/skills/writing-plans/plan-document-reviewer-prompt.md" },
-    { "group": "skills-core", "source": "skills/core/writing-plans/references/plan.md", "target": ".agents/skills/writing-plans/references/plan.md" },
-    { "group": "skills-core", "source": "skills/core/executing-plans/SKILL.md", "target": ".agents/skills/executing-plans/SKILL.md" },
-    { "group": "skills-core", "source": "skills/core/test-driven-development/SKILL.md", "target": ".agents/skills/test-driven-development/SKILL.md" },
-    { "group": "skills-core", "source": "skills/core/test-driven-development/testing-anti-patterns.md", "target": ".agents/skills/test-driven-development/testing-anti-patterns.md" },
-    { "group": "skills-core", "source": "skills/core/systematic-debugging/SKILL.md", "target": ".agents/skills/systematic-debugging/SKILL.md" },
-    { "group": "skills-core", "source": "skills/core/systematic-debugging/root-cause-tracing.md", "target": ".agents/skills/systematic-debugging/root-cause-tracing.md" },
-    { "group": "skills-core", "source": "skills/core/systematic-debugging/defense-in-depth.md", "target": ".agents/skills/systematic-debugging/defense-in-depth.md" },
-    { "group": "skills-core", "source": "skills/core/systematic-debugging/condition-based-waiting.md", "target": ".agents/skills/systematic-debugging/condition-based-waiting.md" },
-    { "group": "skills-core", "source": "skills/core/systematic-debugging/condition-based-waiting-example.ts", "target": ".agents/skills/systematic-debugging/condition-based-waiting-example.ts" },
-    { "group": "skills-core", "source": "skills/core/systematic-debugging/find-polluter.sh", "target": ".agents/skills/systematic-debugging/find-polluter.sh" },
-    { "group": "skills-core", "source": "skills/core/systematic-debugging/references/failure.md", "target": ".agents/skills/systematic-debugging/references/failure.md" },
-    { "group": "skills-core", "source": "skills/core/verification-before-completion/SKILL.md", "target": ".agents/skills/verification-before-completion/SKILL.md" },
-    { "group": "skills-core", "source": "skills/core/code-review-and-quality/SKILL.md", "target": ".agents/skills/code-review-and-quality/SKILL.md" },
-    { "group": "skills-core", "source": "skills/core/requesting-code-review/SKILL.md", "target": ".agents/skills/requesting-code-review/SKILL.md" },
-    { "group": "skills-core", "source": "skills/core/requesting-code-review/code-reviewer.md", "target": ".agents/skills/requesting-code-review/code-reviewer.md" },
-    { "group": "skills-core", "source": "skills/core/skill-authoring-check/SKILL.md", "target": ".agents/skills/skill-authoring-check/SKILL.md" },
-    { "group": "skills-core", "source": "skills/integrations/open-code-review/SKILL.md", "target": ".agents/skills/open-code-review/SKILL.md" },
-    { "group": "skills-core", "source": "skills/integrations/open-code-review/references/cli.md", "target": ".agents/skills/open-code-review/references/cli.md" },
-    { "group": "skills-core", "source": "skills/integrations/browser-verification/SKILL.md", "target": ".agents/skills/browser-verification/SKILL.md" },
-    { "group": "skills-core", "source": "skills/integrations/browser-verification/references/cli.md", "target": ".agents/skills/browser-verification/references/cli.md" },
-
-    { "group": "skills-core", "source": "skills/core/workflow-handoff/SKILL.md", "target": ".agents/skills/workflow-handoff/SKILL.md" },
-    { "group": "skills-core", "source": "skills/core/workflow-handoff/references/handoff.md", "target": ".agents/skills/workflow-handoff/references/handoff.md" },
-    { "group": "skills-core", "source": "skills/core/workflow-handoff/references/retrospective.md", "target": ".agents/skills/workflow-handoff/references/retrospective.md" },
-    { "group": "skills-core", "source": "skills/core/api-contract-check/SKILL.md", "target": ".agents/skills/api-contract-check/SKILL.md" },
-    { "group": "skills-core", "source": "skills/core/frontend-implementation-check/SKILL.md", "target": ".agents/skills/frontend-implementation-check/SKILL.md" },
-    { "group": "skills-core", "source": "skills/core/task-decomposition/SKILL.md", "target": ".agents/skills/task-decomposition/SKILL.md" },
-    { "group": "skills-core", "source": "skills/core/security-and-hardening/SKILL.md", "target": ".agents/skills/security-and-hardening/SKILL.md" },
-
-    { "group": "skills-full", "source": "skills/core/loop-planning/SKILL.md", "target": ".agents/skills/loop-planning/SKILL.md" },
-    { "group": "skills-full", "source": "skills/core/loop-planning/references/loop.md", "target": ".agents/skills/loop-planning/references/loop.md" },
-    { "group": "skills-full", "source": "skills/core/subagent-driven-development/SKILL.md", "target": ".agents/skills/subagent-driven-development/SKILL.md" },
-    { "group": "skills-full", "source": "skills/core/frontend-design/SKILL.md", "target": ".agents/skills/frontend-design/SKILL.md" },
-    { "group": "skills-full", "source": "skills/core/frontend-design/references/design-modes.md", "target": ".agents/skills/frontend-design/references/design-modes.md" },
-    { "group": "skills-full", "source": "skills/core/adversarial-review-packet/SKILL.md", "target": ".agents/skills/adversarial-review-packet/SKILL.md" },
-    { "group": "skills-full", "source": "skills/core/adversarial-review-packet/references/review.md", "target": ".agents/skills/adversarial-review-packet/references/review.md" },
-    { "group": "skills-full", "source": "skills/core/runtime-cross-repo-rollout/SKILL.md", "target": ".agents/skills/runtime-cross-repo-rollout/SKILL.md" },
-
-    { "group": "skills-memory", "source": "skills/integrations/agentmemory/SKILL.md", "target": ".agents/skills/agentmemory/SKILL.md" },
-    { "group": "skills-memory", "source": "skills/integrations/agentmemory/references/handoff.md", "target": ".agents/skills/agentmemory/references/handoff.md" },
-    { "group": "skills-memory", "source": "skills/integrations/agentmemory/references/recall.md", "target": ".agents/skills/agentmemory/references/recall.md" },
-    { "group": "skills-memory", "source": "skills/integrations/agentmemory/references/remember.md", "target": ".agents/skills/agentmemory/references/remember.md" },
-    { "group": "skills-memory", "source": "skills/integrations/agentmemory/references/forget.md", "target": ".agents/skills/agentmemory/references/forget.md" },
-    { "group": "skills-memory", "source": "skills/integrations/agentmemory/references/recap.md", "target": ".agents/skills/agentmemory/references/recap.md" },
-    { "group": "skills-memory", "source": "skills/integrations/agentmemory/references/session-history.md", "target": ".agents/skills/agentmemory/references/session-history.md" },
-    { "group": "skills-memory", "source": "memory/README.md", "target": ".agents/memory/README.md" },
-    { "group": "skills-memory", "source": "memory/observations.md", "target": ".agents/memory/observations.md" },
-    { "group": "skills-memory", "source": "memory/decisions.md", "target": ".agents/memory/decisions.md" },
-    { "group": "skills-memory", "source": "memory/sessions/README.md", "target": ".agents/memory/sessions/README.md" },
-
-    { "group": "hooks", "source": "runtime/hooks/codex-hook.mjs", "target": ".agents/loopengine/hooks/codex-hook.mjs", "executable": true },
-    { "group": "hooks", "source": "runtime/hooks/git-hook.mjs", "target": ".agents/loopengine/hooks/git-hook.mjs", "executable": true },
-    { "group": "hooks", "source": "runtime/hooks/lib/context.mjs", "target": ".agents/loopengine/hooks/lib/context.mjs" },
-    { "group": "hooks", "source": "runtime/hooks/lib/policy.mjs", "target": ".agents/loopengine/hooks/lib/policy.mjs" },
-    { "group": "hooks", "source": "adapters/git/pre-commit", "target": ".githooks/pre-commit", "executable": true },
-    { "group": "hooks", "source": "adapters/git/pre-push", "target": ".githooks/pre-push", "executable": true },
-    { "group": "hooks", "source": "adapters/codex/hooks.template.json", "target": ".codex/hooks.json", "redZone": true }
+    {
+      "group": "agents",
+      "source": "adapters/codex/AGENTS.template.md",
+      "target": "AGENTS.md",
+      "contentStrategy": "managed-instruction-block"
+    },
+    {
+      "group": "rules-minimal",
+      "source": "rules/governance-core.md",
+      "target": "docs/rules/governance-core.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-minimal",
+      "source": "rules/agent-skill-routing.md",
+      "target": "docs/rules/AGENT_SKILL_ROUTING.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-minimal",
+      "source": "rules/git-rules.md",
+      "target": "docs/rules/git-rules.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-minimal",
+      "source": "rules/test-rules.md",
+      "target": "docs/rules/test-rules.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-codebase-memory",
+      "source": "rules/codebase-memory-mcp.md",
+      "target": "docs/rules/codebase-memory-mcp.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-chrome-devtools",
+      "source": "rules/chrome-devtools-mcp.md",
+      "target": "docs/rules/chrome-devtools-mcp.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-core",
+      "source": "rules/ai-collab-rules.md",
+      "target": "docs/rules/ai-collab-rules.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-core",
+      "source": "rules/api-rules.md",
+      "target": "docs/rules/api-rules.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-core",
+      "source": "rules/coding-rules.md",
+      "target": "docs/rules/coding-rules.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-core",
+      "source": "rules/frontend-rules.md",
+      "target": "docs/rules/frontend-rules.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-core",
+      "source": "rules/log-management.md",
+      "target": "docs/rules/log-management.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-core",
+      "source": "rules/project-directory.md",
+      "target": "docs/rules/project-directory.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-core",
+      "source": "rules/project-specific-rules.md",
+      "target": "docs/rules/project-specific-rules.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-full",
+      "source": "rules/db-rules.md",
+      "target": "docs/rules/db-rules.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-full",
+      "source": "rules/pencil-rules.md",
+      "target": "docs/rules/pencil-rules.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-full",
+      "source": "rules/release-rules.md",
+      "target": "docs/rules/release-rules.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-full",
+      "source": "rules/troubleshooting.md",
+      "target": "docs/rules/troubleshooting.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "templates-minimal",
+      "source": "templates/task.md",
+      "target": "docs/templates/task.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-core",
+      "source": "rules/eval-driven-development.md",
+      "target": "docs/rules/eval-driven-development.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "templates-minimal",
+      "source": "templates/delivery.md",
+      "target": "docs/templates/delivery.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "templates-memory",
+      "source": "templates/memory/PROJECT_STATE.md",
+      "target": "docs/memory/PROJECT_STATE.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "templates-memory",
+      "source": "templates/memory/ARCHITECTURE.md",
+      "target": "docs/memory/ARCHITECTURE.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "templates-memory",
+      "source": "templates/memory/DECISIONS.md",
+      "target": "docs/memory/DECISIONS.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "templates-memory",
+      "source": "templates/memory/KNOWN_BUGS.md",
+      "target": "docs/memory/KNOWN_BUGS.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "templates-memory",
+      "source": "templates/memory/TECH_DEBT.md",
+      "target": "docs/memory/TECH_DEBT.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "templates-memory",
+      "source": "templates/memory/FAILURE_LEARNINGS.md",
+      "target": "docs/memory/FAILURE_LEARNINGS.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "schemas-core",
+      "source": "schemas/full-task-control.schema.json",
+      "target": "docs/schemas/full-task-control.schema.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "schemas-core",
+      "source": "schemas/eval-suite.schema.json",
+      "target": "docs/schemas/eval-suite.schema.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "schemas-core",
+      "source": "schemas/eval-run.schema.json",
+      "target": "docs/schemas/eval-run.schema.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "schemas-core",
+      "source": "schemas/eval-reference.schema.json",
+      "target": "docs/schemas/eval-reference.schema.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-eval",
+      "source": "runtime/evals/run.mjs",
+      "target": ".agents/cognis/evals/run.mjs",
+      "executable": true,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-eval-online",
+      "source": "runtime/evals/codex-runner.mjs",
+      "target": ".agents/cognis/evals/codex-runner.mjs",
+      "executable": true,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-eval-online",
+      "source": "runtime/evals/lib/protected-config.mjs",
+      "target": ".agents/cognis/evals/lib/protected-config.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "evals-core",
+      "source": "evals/suites/cognis-core.json",
+      "target": ".agents/evals/suites/cognis-core.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "evals-core",
+      "source": "evals/references/cognis-core.offline.json",
+      "target": ".agents/evals/references/cognis-core.offline.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "evals-online",
+      "source": "evals/suites/cognis-online-canary.json",
+      "target": ".agents/evals/suites/cognis-online-canary.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-basic",
+      "source": "runtime/governance/validate.mjs",
+      "target": ".agents/cognis/governance/validate.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-task",
+      "source": "runtime/governance/lib/task-validation.mjs",
+      "target": ".agents/cognis/governance/lib/task-validation.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-task",
+      "source": "runtime/governance/lib/red-team-validation.mjs",
+      "target": ".agents/cognis/governance/lib/red-team-validation.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-full",
+      "source": "runtime/governance/lib/design-validation.mjs",
+      "target": ".agents/cognis/governance/lib/design-validation.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-full",
+      "source": "runtime/governance/lib/memory-validation.mjs",
+      "target": ".agents/cognis/governance/lib/memory-validation.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-task",
+      "source": "runtime/governance/lib/schema-validation.mjs",
+      "target": ".agents/cognis/governance/lib/schema-validation.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-playwright",
+      "source": "runtime/tools/playwright-cli/package.json",
+      "target": ".agents/cognis/tools/playwright-cli/package.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-playwright",
+      "source": "runtime/tools/playwright-cli/package-lock.json",
+      "target": ".agents/cognis/tools/playwright-cli/package-lock.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-playwright",
+      "source": "runtime/tools/playwright-cli/run.mjs",
+      "target": ".agents/cognis/tools/playwright-cli/run.mjs",
+      "executable": true,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-chrome-devtools",
+      "source": "runtime/tools/chrome-devtools-mcp/package.json",
+      "target": ".agents/cognis/tools/chrome-devtools-mcp/package.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-chrome-devtools",
+      "source": "runtime/tools/chrome-devtools-mcp/package-lock.json",
+      "target": ".agents/cognis/tools/chrome-devtools-mcp/package-lock.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-chrome-devtools",
+      "source": "runtime/tools/chrome-devtools-mcp/run.mjs",
+      "target": ".agents/cognis/tools/chrome-devtools-mcp/run.mjs",
+      "executable": true,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-codebase-memory",
+      "source": "runtime/tools/codebase-memory-mcp/package.json",
+      "target": ".agents/cognis/tools/codebase-memory-mcp/package.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-codebase-memory",
+      "source": "runtime/tools/codebase-memory-mcp/package-lock.json",
+      "target": ".agents/cognis/tools/codebase-memory-mcp/package-lock.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-codebase-memory",
+      "source": "runtime/tools/codebase-memory-mcp/run.mjs",
+      "target": ".agents/cognis/tools/codebase-memory-mcp/run.mjs",
+      "executable": true,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-codebase-memory",
+      "source": "runtime/tools/codebase-memory-mcp/path-alias.mjs",
+      "target": ".agents/cognis/tools/codebase-memory-mcp/path-alias.mjs",
+      "executable": false,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-open-code-review",
+      "source": "runtime/tools/open-code-review/package.json",
+      "target": ".agents/cognis/tools/open-code-review/package.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-open-code-review",
+      "source": "runtime/tools/open-code-review/package-lock.json",
+      "target": ".agents/cognis/tools/open-code-review/package-lock.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-open-code-review",
+      "source": "runtime/tools/open-code-review/ocr-config.mjs",
+      "target": ".agents/cognis/tools/open-code-review/ocr-config.mjs",
+      "executable": false,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-open-code-review",
+      "source": "runtime/tools/open-code-review/run.mjs",
+      "target": ".agents/cognis/tools/open-code-review/run.mjs",
+      "executable": true,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-agentmemory",
+      "source": "runtime/tools/agentmemory/package.json",
+      "target": ".agents/cognis/tools/agentmemory/package.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-agentmemory",
+      "source": "runtime/tools/agentmemory/package-lock.json",
+      "target": ".agents/cognis/tools/agentmemory/package-lock.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-agentmemory",
+      "source": "runtime/tools/agentmemory/run.mjs",
+      "target": ".agents/cognis/tools/agentmemory/run.mjs",
+      "executable": true,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "mcp-config",
+      "source": "adapters/codex/mcp.template.toml",
+      "target": ".codex/config.toml",
+      "redZone": true,
+      "contentStrategy": "managed-toml-block"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/brainstorming/SKILL.md",
+      "target": ".agents/skills/brainstorming/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/using-cognis/SKILL.md",
+      "target": ".agents/skills/using-cognis/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/eval-driven-development/SKILL.md",
+      "target": ".agents/skills/eval-driven-development/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/brainstorming/spec-document-reviewer-prompt.md",
+      "target": ".agents/skills/brainstorming/spec-document-reviewer-prompt.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/brainstorming/references/spec.md",
+      "target": ".agents/skills/brainstorming/references/spec.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/api-and-interface-design/SKILL.md",
+      "target": ".agents/skills/api-and-interface-design/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/writing-plans/SKILL.md",
+      "target": ".agents/skills/writing-plans/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/writing-plans/plan-document-reviewer-prompt.md",
+      "target": ".agents/skills/writing-plans/plan-document-reviewer-prompt.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/writing-plans/references/plan.md",
+      "target": ".agents/skills/writing-plans/references/plan.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/executing-plans/SKILL.md",
+      "target": ".agents/skills/executing-plans/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/test-driven-development/SKILL.md",
+      "target": ".agents/skills/test-driven-development/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/test-driven-development/testing-anti-patterns.md",
+      "target": ".agents/skills/test-driven-development/testing-anti-patterns.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/systematic-debugging/SKILL.md",
+      "target": ".agents/skills/systematic-debugging/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/systematic-debugging/root-cause-tracing.md",
+      "target": ".agents/skills/systematic-debugging/root-cause-tracing.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/systematic-debugging/defense-in-depth.md",
+      "target": ".agents/skills/systematic-debugging/defense-in-depth.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/systematic-debugging/condition-based-waiting.md",
+      "target": ".agents/skills/systematic-debugging/condition-based-waiting.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/systematic-debugging/condition-based-waiting-example.ts",
+      "target": ".agents/skills/systematic-debugging/condition-based-waiting-example.ts",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/systematic-debugging/find-polluter.sh",
+      "target": ".agents/skills/systematic-debugging/find-polluter.sh",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/systematic-debugging/references/failure.md",
+      "target": ".agents/skills/systematic-debugging/references/failure.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/verification-before-completion/SKILL.md",
+      "target": ".agents/skills/verification-before-completion/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/code-review-and-quality/SKILL.md",
+      "target": ".agents/skills/code-review-and-quality/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/code-review-and-quality/references/cli.md",
+      "target": ".agents/skills/code-review-and-quality/references/cli.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/integrations/browser-verification/SKILL.md",
+      "target": ".agents/skills/browser-verification/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/integrations/browser-verification/references/cli.md",
+      "target": ".agents/skills/browser-verification/references/cli.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/security-and-hardening/SKILL.md",
+      "target": ".agents/skills/security-and-hardening/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-full",
+      "source": "skills/core/loop-planning/SKILL.md",
+      "target": ".agents/skills/loop-planning/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-full",
+      "source": "skills/core/loop-planning/references/loop.md",
+      "target": ".agents/skills/loop-planning/references/loop.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-full",
+      "source": "skills/core/subagent-driven-development/SKILL.md",
+      "target": ".agents/skills/subagent-driven-development/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-full",
+      "source": "skills/core/frontend-design/SKILL.md",
+      "target": ".agents/skills/frontend-design/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-full",
+      "source": "skills/core/frontend-design/references/design-modes.md",
+      "target": ".agents/skills/frontend-design/references/design-modes.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/adversarial-review-packet/SKILL.md",
+      "target": ".agents/skills/adversarial-review-packet/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/adversarial-review-packet/references/review.md",
+      "target": ".agents/skills/adversarial-review-packet/references/review.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-full",
+      "source": "skills/core/runtime-cross-repo-rollout/SKILL.md",
+      "target": ".agents/skills/runtime-cross-repo-rollout/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-memory",
+      "source": "skills/integrations/agentmemory/SKILL.md",
+      "target": ".agents/skills/agentmemory/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-memory",
+      "source": "skills/integrations/agentmemory/references/handoff.md",
+      "target": ".agents/skills/agentmemory/references/handoff.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-memory",
+      "source": "skills/integrations/agentmemory/references/recall.md",
+      "target": ".agents/skills/agentmemory/references/recall.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-memory",
+      "source": "skills/integrations/agentmemory/references/remember.md",
+      "target": ".agents/skills/agentmemory/references/remember.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-memory",
+      "source": "skills/integrations/agentmemory/references/forget.md",
+      "target": ".agents/skills/agentmemory/references/forget.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-memory",
+      "source": "skills/integrations/agentmemory/references/recap.md",
+      "target": ".agents/skills/agentmemory/references/recap.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-memory",
+      "source": "skills/integrations/agentmemory/references/session-history.md",
+      "target": ".agents/skills/agentmemory/references/session-history.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-memory",
+      "source": "memory/README.md",
+      "target": ".agents/memory/README.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-memory",
+      "source": "memory/observations.md",
+      "target": ".agents/memory/observations.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-memory",
+      "source": "memory/decisions.md",
+      "target": ".agents/memory/decisions.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-memory",
+      "source": "memory/sessions/README.md",
+      "target": ".agents/memory/sessions/README.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "hooks",
+      "source": "runtime/hooks/codex-hook.mjs",
+      "target": ".agents/cognis/hooks/codex-hook.mjs",
+      "executable": true,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "hooks",
+      "source": "runtime/hooks/git-hook.mjs",
+      "target": ".agents/cognis/hooks/git-hook.mjs",
+      "executable": true,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "hooks",
+      "source": "runtime/hooks/lib/context.mjs",
+      "target": ".agents/cognis/hooks/lib/context.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "hooks",
+      "source": "runtime/hooks/lib/delivery-validation.mjs",
+      "target": ".agents/cognis/hooks/lib/delivery-validation.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "hooks",
+      "source": "runtime/hooks/lib/policy.mjs",
+      "target": ".agents/cognis/hooks/lib/policy.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "hooks",
+      "source": "adapters/git/pre-commit",
+      "target": ".githooks/pre-commit",
+      "executable": true,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "hooks",
+      "source": "adapters/git/pre-push",
+      "target": ".githooks/pre-push",
+      "executable": true,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "hooks",
+      "source": "adapters/codex/hooks.template.json",
+      "target": ".codex/hooks.json",
+      "redZone": true,
+      "contentStrategy": "replace"
+    }
   ],
   "retiredEntries": [
-    { "group": "skills-memory", "target": ".agents/skills/handoff/SKILL.md" },
-    { "group": "skills-memory", "target": ".agents/skills/recall/SKILL.md" },
-    { "group": "skills-memory", "target": ".agents/skills/remember/SKILL.md" },
-    { "group": "skills-memory", "target": ".agents/skills/forget/SKILL.md" },
-    { "group": "skills-memory", "target": ".agents/skills/recap/SKILL.md" },
-    { "group": "skills-memory", "target": ".agents/skills/session-history/SKILL.md" }
+    { "group": "skills-core", "target": ".agents/skills/brainstorming/visual-companion.md" },
+    { "group": "skills-core", "target": ".agents/skills/brainstorming/scripts/frame-template.html" },
+    { "group": "skills-core", "target": ".agents/skills/brainstorming/scripts/helper.js" },
+    { "group": "skills-core", "target": ".agents/skills/brainstorming/scripts/server.cjs" },
+    { "group": "skills-core", "target": ".agents/skills/brainstorming/scripts/start-server.sh" },
+    { "group": "skills-core", "target": ".agents/skills/brainstorming/scripts/stop-server.sh" },
+    { "group": "skills-core", "target": ".agents/skills/grill-me/SKILL.md" },
+    { "group": "skills-core", "target": ".agents/skills/requesting-code-review/SKILL.md" },
+    { "group": "skills-core", "target": ".agents/skills/requesting-code-review/code-reviewer.md" },
+    { "group": "skills-core", "target": ".agents/skills/skill-authoring-check/SKILL.md" },
+    { "group": "skills-core", "target": ".agents/skills/open-code-review/SKILL.md" },
+    { "group": "skills-core", "target": ".agents/skills/open-code-review/references/cli.md" },
+    { "group": "skills-core", "target": ".agents/skills/workflow-handoff/SKILL.md" },
+    { "group": "skills-core", "target": ".agents/skills/workflow-handoff/references/handoff.md" },
+    { "group": "skills-core", "target": ".agents/skills/workflow-handoff/references/retrospective.md" },
+    { "group": "skills-core", "target": ".agents/skills/api-contract-check/SKILL.md" },
+    { "group": "skills-core", "target": ".agents/skills/frontend-implementation-check/SKILL.md" },
+    { "group": "skills-core", "target": ".agents/skills/task-decomposition/SKILL.md" },
+    {
+      "group": "skills-memory",
+      "target": ".agents/skills/handoff/SKILL.md"
+    },
+    {
+      "group": "skills-memory",
+      "target": ".agents/skills/recall/SKILL.md"
+    },
+    {
+      "group": "skills-memory",
+      "target": ".agents/skills/remember/SKILL.md"
+    },
+    {
+      "group": "skills-memory",
+      "target": ".agents/skills/forget/SKILL.md"
+    },
+    {
+      "group": "skills-memory",
+      "target": ".agents/skills/recap/SKILL.md"
+    },
+    {
+      "group": "skills-memory",
+      "target": ".agents/skills/session-history/SKILL.md"
+    }
   ]
 }

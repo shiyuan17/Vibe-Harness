@@ -4,38 +4,22 @@
     {
       "id": "minimal",
       "description": "最小安装：Codex AGENTS、基础治理规则、Git/Test 规则和任务交付模板。",
-      "installMap": "adapters/codex/install-map.json",
       "groups": ["agents", "rules-minimal", "templates-minimal"]
     },
     {
       "id": "core",
-      "description": "通用安装：常规规则、模板、runtime 和路由 skills；不包含 hook、codebase-memory-mcp 或 agentmemory MCP 安装面。",
-      "installMap": "adapters/codex/install-map.json",
-      "groups": ["agents", "rules-minimal", "rules-core", "rules-full", "templates-minimal", "templates-core", "templates-full", "templates-memory", "schemas-core", "runtime-basic", "runtime-task", "runtime-full", "skills-core", "skills-full", "tools-playwright"]
+      "description": "通用安装：常规规则、模板、runtime、路由 skills 和 Red Team 完成门禁；不包含 hook、codebase-memory-mcp 或 agentmemory MCP 安装面。",
+      "groups": ["agents", "rules-minimal", "rules-core", "templates-minimal", "templates-core", "schemas-core", "runtime-basic", "runtime-task", "runtime-full", "runtime-eval", "skills-core", "evals-core", "tools-playwright"]
     },
     {
       "id": "full",
-      "description": "全安装：通用安装加 codebase-memory-mcp、agentmemory MCP 项目内安装面和 Codex hooks。",
-      "installMap": "adapters/codex/install-map.json",
-      "groups": ["agents", "rules-minimal", "rules-core", "rules-full", "rules-codebase-memory", "templates-minimal", "templates-core", "templates-full", "templates-memory", "schemas-core", "runtime-basic", "runtime-task", "runtime-full", "skills-core", "skills-full", "skills-memory", "tools-playwright", "hooks"]
-    },
-    {
-      "id": "codex-internal",
-      "description": "兼容全安装入口：等同 full，保留 legacy/internal 生命周期。",
-      "installMap": "adapters/codex/install-map.json",
-      "groups": ["agents", "rules-minimal", "rules-core", "rules-full", "rules-codebase-memory", "templates-minimal", "templates-core", "templates-full", "templates-memory", "schemas-core", "runtime-basic", "runtime-task", "runtime-full", "skills-core", "skills-full", "skills-memory", "tools-playwright", "hooks"]
-    },
-    {
-      "id": "codex-minimal",
-      "description": "兼容最小安装入口：Codex 入口规则和任务模板。",
-      "installMap": "adapters/codex/install-map.json",
-      "groups": ["agents", "rules-minimal", "templates-minimal"]
+      "description": "全安装：通用安装加四个 stable 项目内工具、Agentmemory preview runtime、codebase 索引、浏览器诊断、MCP 注册和 Codex hooks。",
+      "groups": ["agents", "rules-minimal", "rules-core", "rules-full", "rules-codebase-memory", "rules-chrome-devtools", "templates-minimal", "templates-core", "templates-full", "templates-memory", "schemas-core", "runtime-basic", "runtime-task", "runtime-full", "runtime-eval", "runtime-eval-online", "skills-core", "skills-full", "skills-memory", "evals-core", "evals-online", "tools-playwright", "tools-chrome-devtools", "tools-codebase-memory", "tools-open-code-review", "tools-agentmemory", "mcp-config", "hooks"]
     },
     {
       "id": "docs-only",
-      "description": "仅文档安装：可复用规则、模板和 schema，不包含 Codex hooks 或 skills。",
-      "installMap": "adapters/codex/install-map.json",
-      "groups": ["rules-minimal", "rules-core", "rules-full", "templates-minimal", "templates-core", "templates-full", "templates-memory", "schemas-core"]
+      "description": "仅文档安装：平台入口、可复用规则、模板和 schema，不包含 runtime、hooks、MCP 或 skills。",
+      "groups": ["agents", "rules-minimal", "rules-core", "rules-full", "templates-minimal", "templates-core", "templates-full", "templates-memory", "schemas-core"]
     }
   ]
 }

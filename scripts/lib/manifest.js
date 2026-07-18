@@ -1,5 +1,9 @@
-import { access, readFile } from 'node:fs/promises';
+import { access, lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
+
+import { validateJsonAgainstSchema } from '../../runtime/governance/lib/schema-validation.mjs';
+
+export { validateJsonAgainstSchema };
 
 export async function pathExists(filePath) {
   try {
@@ -17,6 +21,7 @@ export async function readJson(filePath) {
 
 export async function loadAllManifests(rootDir) {
   return {
+    adapters: await readJson(`${rootDir}/manifests/adapters.json`),
     profiles: await readJson(`${rootDir}/manifests/profiles.json`),
     rules: await readJson(`${rootDir}/manifests/rules.json`),
     skills: await readJson(`${rootDir}/manifests/skills.json`),
@@ -25,6 +30,7 @@ export async function loadAllManifests(rootDir) {
 
 export async function loadAllManifestSchemas(rootDir) {
   return {
+    adapters: await readJson(`${rootDir}/schemas/adapter-pack.schema.json`),
     profiles: await readJson(`${rootDir}/schemas/profile-pack.schema.json`),
     rules: await readJson(`${rootDir}/schemas/rule-pack.schema.json`),
     skills: await readJson(`${rootDir}/schemas/skill-pack.schema.json`),
@@ -68,6 +74,68 @@ export function assertInsideDir(baseDir, candidatePath, label) {
   throw new Error(`${label} must stay inside ${resolvedBase}: ${resolvedCandidate}`);
 }
 
+function normalizePathForComparison(value) {
+  const normalized = path.resolve(value);
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+
+function isInsideResolvedDir(baseDir, candidatePath) {
+  const relative = path.relative(baseDir, candidatePath);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+export async function assertSafePathInside(baseDir, candidatePath, label) {
+  const resolvedBase = path.resolve(baseDir);
+  const resolvedCandidate = path.resolve(candidatePath);
+  assertInsideDir(resolvedBase, resolvedCandidate, label);
+
+  let existingBase = resolvedBase;
+  let baseInfo;
+  while (!baseInfo) {
+    try {
+      baseInfo = await lstat(existingBase);
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+      const parent = path.dirname(existingBase);
+      if (parent === existingBase) throw error;
+      existingBase = parent;
+    }
+  }
+  if (!baseInfo.isDirectory() || baseInfo.isSymbolicLink()) {
+    throw new Error(`${label} base directory must not be a symbolic link, junction, or reparse point: ${existingBase}`);
+  }
+
+  const canonicalBase = await realpath(existingBase);
+  const relative = path.relative(existingBase, resolvedCandidate);
+  const segments = relative === '' ? [] : relative.split(path.sep);
+  let lexicalPath = existingBase;
+  let expectedCanonicalPath = canonicalBase;
+
+  for (const segment of segments) {
+    lexicalPath = path.join(lexicalPath, segment);
+    expectedCanonicalPath = path.join(expectedCanonicalPath, segment);
+    let info;
+    try {
+      info = await lstat(lexicalPath);
+    } catch (error) {
+      if (error.code === 'ENOENT') break;
+      throw error;
+    }
+    if (info.isSymbolicLink()) {
+      throw new Error(`${label} must not traverse a symbolic link, junction, or reparse point: ${lexicalPath}`);
+    }
+    const canonicalPath = await realpath(lexicalPath);
+    if (
+      !isInsideResolvedDir(canonicalBase, canonicalPath)
+      || normalizePathForComparison(canonicalPath) !== normalizePathForComparison(expectedCanonicalPath)
+    ) {
+      throw new Error(`${label} must not traverse a symbolic link, junction, or reparse point: ${lexicalPath}`);
+    }
+  }
+
+  return resolvedCandidate;
+}
+
 export function validateCatalogManifest(name, manifest) {
   assertObject(manifest, name);
   if (!Number.isInteger(manifest.schemaVersion) || manifest.schemaVersion < 1) {
@@ -95,14 +163,17 @@ export function validateCatalogManifest(name, manifest) {
       assertPortableRelativePath(item.metadata, `${name}.items[${index}].metadata`);
     }
     if (name === 'profiles') {
-      assertNonEmptyString(item.installMap, `${name}.items[${index}].installMap`);
-      assertPortableRelativePath(item.installMap, `${name}.items[${index}].installMap`);
       if (!Array.isArray(item.groups) || item.groups.length === 0) {
         throw new Error(`${name}.items[${index}].groups must be a non-empty array`);
       }
       for (const [groupIndex, group] of item.groups.entries()) {
         assertNonEmptyString(group, `${name}.items[${index}].groups[${groupIndex}]`);
       }
+    }
+    if (name === 'adapters') {
+      assertNonEmptyString(item.installMap, `${name}.items[${index}].installMap`);
+      assertPortableRelativePath(item.installMap, `${name}.items[${index}].installMap`);
+      assertPortableRelativePath(item.instructionTarget, `${name}.items[${index}].instructionTarget`);
     }
   }
 }
@@ -111,92 +182,6 @@ export function validateAllManifestShapes(manifests) {
   for (const [name, manifest] of Object.entries(manifests)) {
     validateCatalogManifest(name, manifest);
   }
-}
-
-function schemaTypeMatches(value, type) {
-  if (type === 'array') {
-    return Array.isArray(value);
-  }
-  if (type === 'integer') {
-    return Number.isInteger(value);
-  }
-  if (type === 'object') {
-    return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-  }
-  return typeof value === type;
-}
-
-export function validateJsonAgainstSchema(value, schema, label = 'value') {
-  const errors = [];
-
-  function visit(currentValue, currentSchema, currentLabel) {
-    if (Array.isArray(currentSchema.anyOf)) {
-      const variants = currentSchema.anyOf.map((candidate) => validateJsonAgainstSchema(currentValue, candidate, currentLabel));
-      if (!variants.some((variantErrors) => variantErrors.length === 0)) {
-        errors.push(...variants[0]);
-      }
-      return;
-    }
-    if (currentSchema.type && !schemaTypeMatches(currentValue, currentSchema.type)) {
-      errors.push(`${currentLabel} must be ${currentSchema.type}`);
-      return;
-    }
-
-    if (Array.isArray(currentSchema.enum) && !currentSchema.enum.includes(currentValue)) {
-      errors.push(`${currentLabel} must be one of ${currentSchema.enum.join(', ')}`);
-      return;
-    }
-
-    if (currentSchema.type === 'object') {
-      const required = currentSchema.required ?? [];
-      for (const key of required) {
-        if (!Object.hasOwn(currentValue, key)) {
-          errors.push(`${currentLabel}.${key} is required`);
-        }
-      }
-
-      const properties = currentSchema.properties ?? {};
-      if (currentSchema.additionalProperties === false) {
-        for (const key of Object.keys(currentValue)) {
-          if (!Object.hasOwn(properties, key)) {
-            errors.push(`${currentLabel}.${key} is not allowed`);
-          }
-        }
-      }
-
-      for (const [key, propertySchema] of Object.entries(properties)) {
-        if (Object.hasOwn(currentValue, key)) {
-          visit(currentValue[key], propertySchema, `${currentLabel}.${key}`);
-        }
-      }
-    }
-
-    if (currentSchema.type === 'array') {
-      if (currentSchema.minItems !== undefined && currentValue.length < currentSchema.minItems) {
-        errors.push(`${currentLabel} must contain at least ${currentSchema.minItems} item(s)`);
-      }
-      if (currentSchema.uniqueItems) {
-        const serialized = currentValue.map((item) => JSON.stringify(item));
-        if (new Set(serialized).size !== serialized.length) {
-          errors.push(`${currentLabel} must contain unique items`);
-        }
-      }
-      if (currentSchema.items) {
-        currentValue.forEach((item, index) => visit(item, currentSchema.items, `${currentLabel}[${index}]`));
-      }
-    }
-
-    if (currentSchema.type === 'string' && currentSchema.minLength !== undefined && currentValue.length < currentSchema.minLength) {
-      errors.push(`${currentLabel} must have length >= ${currentSchema.minLength}`);
-    }
-
-    if (currentSchema.type === 'integer' && currentSchema.minimum !== undefined && currentValue < currentSchema.minimum) {
-      errors.push(`${currentLabel} must be >= ${currentSchema.minimum}`);
-    }
-  }
-
-  visit(value, schema, label);
-  return errors;
 }
 
 export function validateAllManifestSchemas(manifests, schemas) {
@@ -228,7 +213,7 @@ export function validateInstallMapShape(installMap, allowedGroups) {
   const targets = new Set();
   for (const [index, entry] of installMap.entries.entries()) {
     assertObject(entry, `install-map.entries[${index}]`);
-    const allowedEntryKeys = new Set(['executable', 'group', 'redZone', 'source', 'target']);
+    const allowedEntryKeys = new Set(['contentStrategy', 'executable', 'group', 'redZone', 'source', 'target']);
     for (const key of Object.keys(entry)) {
       if (!allowedEntryKeys.has(key)) {
         throw new Error(`install-map.entries[${index}].${key} is not allowed`);
@@ -237,6 +222,9 @@ export function validateInstallMapShape(installMap, allowedGroups) {
     assertNonEmptyString(entry.group, `install-map.entries[${index}].group`);
     assertNonEmptyString(entry.source, `install-map.entries[${index}].source`);
     assertNonEmptyString(entry.target, `install-map.entries[${index}].target`);
+    if (!['managed-instruction-block', 'managed-toml-block', 'replace'].includes(entry.contentStrategy)) {
+      throw new Error(`install-map.entries[${index}].contentStrategy is invalid`);
+    }
     assertPortableRelativePath(entry.source, `install-map.entries[${index}].source`);
     assertPortableRelativePath(entry.target, `install-map.entries[${index}].target`);
     if (!allowedGroups.has(entry.group)) {

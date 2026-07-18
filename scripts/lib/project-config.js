@@ -3,9 +3,26 @@ import path from 'node:path';
 
 import { pathExists } from './manifest.js';
 import { renderTemplate } from './template-renderer.js';
+import { resolveModuleSelection } from './module-selection.js';
+import { assertPortableRelativePath } from './manifest.js';
+import { productIdentity } from './product-identity.js';
+import { resolveProjectConfigLocation } from './project-layout.js';
 
-export const mvpProfiles = new Set(['minimal', 'core', 'full']);
-export const mvpTargets = new Set(['codex']);
+export const mvpProfiles = new Set(['minimal', 'core', 'full', 'docs-only']);
+export const mvpTargets = new Set(['codex', 'claude', 'gemini']);
+
+export function canonicalProfile(profile) {
+  if (profile === 'codex-internal') return 'full';
+  if (profile === 'codex-minimal') return 'minimal';
+  return profile;
+}
+
+export function validateProfileName(profile) {
+  const canonical = canonicalProfile(profile);
+  if (canonical !== profile) throw new Error(`Profile ${profile} was removed; use ${canonical}.`);
+  if (!mvpProfiles.has(profile)) throw new Error(`Unknown profile: ${profile}`);
+  return profile;
+}
 
 export const defaultProjectConfig = {
   projectName: 'ExampleProject',
@@ -16,7 +33,20 @@ export const defaultProjectConfig = {
   validationCommands: {
     lint: null,
     typecheck: null,
-    governance: 'node .agents/loopengine/governance/validate.mjs',
+    governance: 'node .agents/cognis/governance/validate.mjs',
+    eval: null,
+  },
+  evaluations: {
+    enabled: false,
+    suites: [],
+    reference: 'evals/references/project.json',
+    thresholds: {
+      criticalPassRate: 1,
+      overallScore: 0.9,
+      maxCapabilityRegression: 0.05,
+    },
+    onlineRunner: null,
+    repetitions: 3,
   },
   governance: {
     mode: 'basic',
@@ -60,38 +90,78 @@ export function profileToCatalogProfile(profile) {
   return profile;
 }
 
-export function createDefaultProjectConfig(projectDir) {
+export function createDefaultProjectConfig(projectDir, target = 'codex', profile = 'core') {
   return {
     ...defaultProjectConfig,
+    governance: {
+      ...defaultProjectConfig.governance,
+      mode: profile === 'minimal' ? 'off' : (profile === 'full' || profile === 'docs-only' ? 'full' : 'basic'),
+    },
     projectName: path.basename(path.resolve(projectDir)),
+    profile,
+    target,
   };
 }
 
-export async function writeDefaultProjectConfig({ force = false, projectDir }) {
-  const target = path.join(projectDir, 'loopengine.config.json');
-  if (!force && await pathExists(target)) {
-    throw new Error(`Refusing to overwrite existing config: ${target}`);
+export async function writeDefaultProjectConfig({ force = false, projectDir, profile = 'core', target = 'codex' }) {
+  const existing = await resolveProjectConfigLocation(projectDir);
+  if (existing?.legacy) {
+    throw Object.assign(new Error(`Legacy ${productIdentity.legacy.configFile} exists; run cognis install --upgrade.`), {
+      code: 'COGNIS_CONFIG_MIGRATION_REQUIRED',
+    });
+  }
+  const configPath = path.join(projectDir, productIdentity.configFile);
+  if (!force && await pathExists(configPath)) {
+    throw new Error(`Refusing to overwrite existing config: ${configPath}`);
   }
   await mkdir(projectDir, { recursive: true });
-  const config = createDefaultProjectConfig(projectDir);
-  await writeFile(target, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
-  return { config, path: target };
+  if (!mvpTargets.has(target)) throw new Error(`Unknown target: ${target}`);
+  validateProfileName(profile);
+  const config = createDefaultProjectConfig(projectDir, target, profile);
+  await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+  return { config, path: configPath };
 }
 
 export async function readProjectConfig(projectDir) {
-  const configPath = path.join(projectDir, 'loopengine.config.json');
-  if (!await pathExists(configPath)) {
-    return createDefaultProjectConfig(projectDir);
+  const location = await resolveProjectConfigLocation(projectDir);
+  if (!location) {
+  return createDefaultProjectConfig(projectDir);
   }
-  return JSON.parse(await readFile(configPath, 'utf8'));
+  return JSON.parse(await readFile(location.path, 'utf8'));
 }
 
 export async function readRequiredProjectConfig(projectDir) {
-  const configPath = path.join(projectDir, 'loopengine.config.json');
-  if (!await pathExists(configPath)) {
-    throw new Error(`Missing loopengine.config.json. Run loopengine init --project ${projectDir} first.`);
+  const location = await resolveProjectConfigLocation(projectDir);
+  if (!location) {
+    throw new Error(`Missing ${productIdentity.configFile}. Run cognis init --project ${projectDir} first.`);
   }
-  return JSON.parse(await readFile(configPath, 'utf8'));
+  return JSON.parse(await readFile(location.path, 'utf8'));
+}
+
+export async function createProjectConfigMigration(projectDir, config) {
+  const location = await resolveProjectConfigLocation(projectDir);
+  if (!location?.legacy) return null;
+  const migrated = structuredClone(config);
+  const legacyDefault = 'node .agents/loopengine/governance/validate.mjs';
+  const canonicalDefault = 'node .agents/cognis/governance/validate.mjs';
+  for (const [name, command] of Object.entries(migrated.validationCommands ?? {})) {
+    if (command === legacyDefault && name === 'governance') {
+      migrated.validationCommands[name] = canonicalDefault;
+      continue;
+    }
+    if (typeof command === 'string' && command.includes('.agents/loopengine/')) {
+      throw Object.assign(new Error(`validationCommands.${name} still references the legacy .agents/loopengine runtime.`), {
+        code: 'COGNIS_CONFIG_MIGRATION_REQUIRED',
+      });
+    }
+  }
+  return {
+    config: migrated,
+    from: productIdentity.legacy.configFile,
+    fromPath: location.path,
+    to: productIdentity.configFile,
+    toPath: path.join(projectDir, productIdentity.configFile),
+  };
 }
 
 function assertObject(value, label) {
@@ -108,13 +178,13 @@ function assertNonEmptyString(value, label) {
 
 export function resolveGovernanceMode(config, profile = config?.profile) {
   if (profile === config?.profile && config?.governance?.mode) return config.governance.mode;
-  if (profile === 'minimal' || profile === 'codex-minimal') return 'off';
-  if (['full', 'codex-internal', 'docs-only'].includes(profile)) return 'full';
+  if (profile === 'minimal') return 'off';
+  if (['full', 'docs-only'].includes(profile)) return 'full';
   return 'basic';
 }
 
 export function validateGovernanceModeForProfile(mode, profile) {
-  const allowed = profile === 'minimal' || profile === 'codex-minimal'
+  const allowed = profile === 'minimal'
     ? ['off']
     : (profile === 'core' ? ['basic', 'off'] : ['basic', 'full', 'off']);
   if (!allowed.includes(mode)) {
@@ -131,7 +201,8 @@ export function resolveValidationCommands(config, projectProfile, governanceMode
     ...configured,
     governance: governanceMode === 'off'
       ? null
-      : (configured.governance ?? 'node .agents/loopengine/governance/validate.mjs'),
+      : (configured.governance ?? 'node .agents/cognis/governance/validate.mjs'),
+    eval: configured.eval ?? null,
   };
 }
 
@@ -142,20 +213,25 @@ function assertOptionalCommand(value, label) {
 }
 
 export function validateProjectConfig(config) {
-  assertObject(config, 'loopengine.config.json');
+  assertObject(config, 'cognis.config.json');
   assertNonEmptyString(config.projectName, 'projectName');
   assertNonEmptyString(config.packageManager, 'packageManager');
   assertNonEmptyString(config.target, 'target');
   assertNonEmptyString(config.profile, 'profile');
+  if (Object.hasOwn(config, 'language') && !['zh-CN', 'en-US'].includes(config.language)) {
+    throw new Error('language must be zh-CN or en-US');
+  }
   if (!mvpTargets.has(config.target)) {
     throw new Error(`Unknown target: ${config.target}`);
   }
-  if (!mvpProfiles.has(config.profile)) {
-    throw new Error(`Unknown profile: ${config.profile}`);
+  validateProfileName(config.profile);
+  if (Object.hasOwn(config, 'modules')) {
+    resolveModuleSelection({ requestedModules: config.modules });
   }
   assertObject(config.validationCommands, 'validationCommands');
   assertOptionalCommand(config.validationCommands.lint, 'validationCommands.lint');
   assertOptionalCommand(config.validationCommands.typecheck, 'validationCommands.typecheck');
+  assertOptionalCommand(config.validationCommands.eval, 'validationCommands.eval');
   if (config.governance?.mode === 'off') {
     assertOptionalCommand(config.validationCommands.governance, 'validationCommands.governance');
   } else {
@@ -192,19 +268,53 @@ export function validateProjectConfig(config) {
     }
     assertNonEmptyString(config.memory.path, 'memory.path');
   }
+  if (Object.hasOwn(config, 'evaluations')) {
+    assertObject(config.evaluations, 'evaluations');
+    if (typeof config.evaluations.enabled !== 'boolean') throw new Error('evaluations.enabled must be boolean');
+    if (!Array.isArray(config.evaluations.suites)) throw new Error('evaluations.suites must be an array');
+    for (const suite of config.evaluations.suites) {
+      try {
+        assertPortableRelativePath(suite, 'evaluations.suites');
+      } catch {
+        throw new Error('evaluations.suites must contain project-relative paths');
+      }
+    }
+    try {
+      assertPortableRelativePath(config.evaluations.reference, 'evaluations.reference');
+    } catch {
+      throw new Error('evaluations.reference must be a project-relative path');
+    }
+    if (config.evaluations.reference.replaceAll('\\', '/').startsWith('.agents/')) {
+      throw new Error('evaluations.reference must be project-owned and cannot be stored under .agents');
+    }
+    assertObject(config.evaluations.thresholds, 'evaluations.thresholds');
+    for (const name of ['criticalPassRate', 'overallScore', 'maxCapabilityRegression']) {
+      const value = config.evaluations.thresholds[name];
+      if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
+        throw new Error(`evaluations.thresholds.${name} must be between 0 and 1`);
+      }
+    }
+    if (config.evaluations.onlineRunner !== null && typeof config.evaluations.onlineRunner !== 'string') {
+      throw new Error('evaluations.onlineRunner must be null or a command string');
+    }
+    if (!Number.isInteger(config.evaluations.repetitions) || config.evaluations.repetitions < 1 || config.evaluations.repetitions > 3) {
+      throw new Error('evaluations.repetitions must be an integer from 1 to 3');
+    }
+  }
   return true;
 }
 
-function hasInstalledSurface(installedTargets, { exact, prefix }) {
+function hasInstalledSurface(installedTargets, { exact, prefix, suffix }) {
   if (exact) {
     return installedTargets.includes(exact);
   }
+  if (suffix) return installedTargets.some((target) => target.endsWith(suffix));
   return installedTargets.some((target) => target.startsWith(prefix));
 }
 
 export function validateGeneratedContent(content, { installedTargets } = {}) {
   const requiredFragments = [
-    'git status --short',
+    '编辑前',
     '红区',
     '人工确认',
     '验证证据',
@@ -224,14 +334,9 @@ export function validateGeneratedContent(content, { installedTargets } = {}) {
         label: 'docs/rules/codebase-memory-mcp.md',
       },
       {
-        fragment: '.agents/skills/',
-        label: '.agents/skills/',
-        prefix: '.agents/skills/',
-      },
-      {
-        exact: '.agents/skills/agentmemory/SKILL.md',
         fragment: 'agentmemory',
-        label: '.agents/skills/agentmemory/SKILL.md',
+        label: '<adapter>/skills/agentmemory/SKILL.md',
+        suffix: '/skills/agentmemory/SKILL.md',
       },
       {
         exact: '.agents/memory/README.md',
@@ -244,6 +349,12 @@ export function validateGeneratedContent(content, { installedTargets } = {}) {
         label: '.codex/hooks.json',
       },
     ];
+
+    for (const skillRoot of ['.agents/skills/', '.claude/skills/', '.gemini/skills/']) {
+      if (content.includes(skillRoot) && !normalizedTargets.some((target) => target.startsWith(skillRoot))) {
+        throw new Error(`Generated AGENTS.md references ${skillRoot} but it is not installed by profile.`);
+      }
+    }
 
     for (const check of surfaceChecks) {
       if (content.includes(check.fragment) && !hasInstalledSurface(normalizedTargets, check)) {

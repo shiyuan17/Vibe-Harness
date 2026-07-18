@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    { "path": "AGENTS.md", "kind": "agent-rules", "status": "current", "language": "zh-CN", "audiences": ["agent"] },
+    { "path": "CONTRIBUTING.md", "kind": "contributor-guide", "status": "current", "language": "zh-CN", "audiences": ["contributor", "agent"] },
+    { "path": "README.md", "kind": "user-guide", "status": "current", "language": "en", "audiences": ["user"] },
+    { "path": "README.zh-CN.md", "kind": "user-guide", "status": "current", "language": "zh-CN", "audiences": ["user"] },
+    { "path": "CHANGELOG.md", "kind": "changelog", "status": "current", "language": "zh-CN", "audiences": ["user", "maintainer"] },
+    { "path": "docs/README.md", "kind": "index", "status": "current", "language": "zh-CN", "audiences": ["user", "contributor", "maintainer", "auditor"] },
+    { "path": "docs/architecture.md", "kind": "architecture", "status": "current", "language": "zh-CN", "audiences": ["maintainer", "contributor"] },
+    { "path": "docs/hooks.md", "kind": "operations", "status": "current", "language": "zh-CN", "audiences": ["maintainer", "contributor"] },
+    { "path": "docs/evals.md", "kind": "operations", "status": "current", "language": "zh-CN", "audiences": ["maintainer", "contributor"] },
+    { "path": "docs/migration-guide.md", "kind": "migration", "status": "current", "language": "zh-CN", "audiences": ["user", "maintainer"] },
+    { "path": "docs/specs/cognis-v0.5-simplified-governance-spec.md", "kind": "spec", "status": "implemented", "language": "zh-CN", "audiences": ["maintainer", "reviewer"] },
+    { "path": "docs/specs/agentmemory-skill-consolidation-spec.md", "kind": "spec", "status": "implemented", "language": "zh-CN", "audiences": ["maintainer", "reviewer"] },
+    { "path": "docs/inventory/source-rules-mapping.md", "kind": "inventory", "status": "reference", "language": "zh-CN", "audiences": ["auditor", "maintainer"] },
+    { "path": "docs/inventory/source-assets.md", "kind": "inventory", "status": "reference", "language": "zh-CN", "audiences": ["auditor"] },
+    { "path": "docs/inventory/skills-optimization-zh.md", "kind": "inventory", "status": "reference", "language": "zh-CN", "audiences": ["auditor", "maintainer"] },
+    { "path": "docs/inventory/redaction-map.md", "kind": "inventory", "status": "reference", "language": "zh-CN", "audiences": ["auditor", "maintainer"] },
+    { "path": "docs/inventory/governance-reference-analysis.md", "kind": "inventory", "status": "reference", "language": "zh-CN", "audiences": ["auditor"] },
+    { "path": "docs/archive/README.md", "kind": "index", "status": "reference", "language": "zh-CN", "audiences": ["auditor"] },
+    { "path": "docs/archive/specs/loopengine-v1-spec.md", "kind": "spec", "status": "superseded", "language": "zh-CN", "audiences": ["auditor"], "supersededBy": "docs/specs/cognis-v0.5-simplified-governance-spec.md" },
+    { "path": "docs/archive/specs/loopengine-v0.2-installer-spec.md", "kind": "spec", "status": "superseded", "language": "zh-CN", "audiences": ["auditor"], "supersededBy": "docs/architecture.md" },
+    { "path": "docs/archive/specs/loopengine-v0.4-governance-closure-spec.md", "kind": "spec", "status": "superseded", "language": "zh-CN", "audiences": ["auditor"], "supersededBy": "docs/specs/cognis-v0.5-simplified-governance-spec.md" },
+    { "path": "docs/archive/plans/loopengine-v1-extraction-plan.md", "kind": "plan", "status": "completed", "language": "zh-CN", "audiences": ["auditor"] },
+    { "path": "docs/archive/plans/loopengine-v0.4-governance-closure-plan.md", "kind": "plan", "status": "completed", "language": "en", "audiences": ["auditor"] },
+    { "path": "docs/archive/releases/release-v0.1.0.md", "kind": "plan", "status": "completed", "language": "zh-CN", "audiences": ["auditor"] },
+    { "path": "docs/archive/releases/release-v0.2.0.md", "kind": "plan", "status": "completed", "language": "zh-CN", "audiences": ["auditor"] }
+  ]
+}

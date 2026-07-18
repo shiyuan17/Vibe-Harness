@@ -1,8 +1,10 @@
 # Agentmemory Skill 收敛规格
 
+状态：Implemented
+
 ## 目标
 
-- `full` / `codex-internal` 只暴露一个顶层 `agentmemory` skill。
+- `full` 只暴露一个顶层 `agentmemory` skill。
 - 保存、检索、恢复、遗忘、汇总和 session 历史流程作为入口内的按需 references。
 - 已安装旧入口通过显式、可审查、可回滚的升级动作退役，不删除用户拥有或修改的文件。
 
@@ -17,4 +19,4 @@
 
 - `retire` 在删除前再次校验 hash 并写入项目内 backup，删除后记录到 install state 的 `retiredFiles`。
 - rollback 对缺失目标执行 `restore-retired`；目标已被重新创建时以 `target-recreated` 跳过。
-- full MVP 真实升级使用 `--project <path> --target codex --profile full --write --upgrade --confirm-red-zone`；legacy/internal 使用 `--target <path> --profile codex-internal --apply --upgrade --confirm-red-zone`。
+- full 真实升级使用 `--project <path> --target codex --profile full --write --upgrade --confirm-red-zone`；旧 state 由标准 init/upgrade 归一，不再提供 legacy/internal 命令。

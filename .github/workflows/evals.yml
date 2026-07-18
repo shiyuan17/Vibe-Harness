@@ -1,0 +1,79 @@
+name: Online evaluation canaries
+
+on:
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  codex-canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - id: preflight
+        env:
+          CODEX_CLI_VERSION: ${{ vars.CODEX_CLI_VERSION }}
+          CODEX_MODEL: ${{ vars.CODEX_MODEL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -z "$CODEX_CLI_VERSION" ] || [ -z "$CODEX_MODEL" ] || [ -z "$OPENAI_API_KEY" ]; then
+            mkdir -p .cognis/evals/runs
+            printf '{"status":"degraded","code":"EVAL_RUNNER_CONFIG_MISSING"}\n' > .cognis/evals/runs/degraded.json
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - id: codex-install
+        if: steps.preflight.outputs.ready == 'true'
+        continue-on-error: true
+        env:
+          CODEX_CLI_VERSION: ${{ vars.CODEX_CLI_VERSION }}
+        run: npm install --global "@openai/codex@$CODEX_CLI_VERSION"
+      - if: steps.preflight.outputs.ready == 'true' && steps.codex-install.outcome == 'failure'
+        run: |
+          mkdir -p .cognis/evals/runs
+          printf '{"status":"degraded","code":"EVAL_RUNNER_INSTALL_FAILED"}\n' > .cognis/evals/runs/degraded.json
+      - id: online-eval
+        if: steps.preflight.outputs.ready == 'true' && steps.codex-install.outcome == 'success'
+        continue-on-error: true
+        env:
+          CODEX_MODEL: ${{ vars.CODEX_MODEL }}
+          COGNIS_EVAL_ENFORCE: ${{ vars.COGNIS_EVAL_ENFORCE || vars.LOOPENGINE_EVAL_ENFORCE }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: pnpm eval:online
+      - name: Download recent online evaluation health artifacts
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p .cognis/evals/history
+          gh run list --workflow evals.yml --branch "$GITHUB_REF_NAME" --status completed --limit 2 --json databaseId --jq '.[].databaseId' | while read -r run_id; do
+            [ -z "$run_id" ] && continue
+            mkdir -p ".cognis/evals/history/$run_id"
+            gh run download "$run_id" --pattern 'cognis-online-evals-*' --dir ".cognis/evals/history/$run_id"
+          done
+      - name: Enforce online evaluation health
+        if: always()
+        env:
+          COGNIS_EVAL_ENFORCE: ${{ vars.COGNIS_EVAL_ENFORCE || vars.LOOPENGINE_EVAL_ENFORCE }}
+        run: pnpm eval:health --current-dir .cognis/evals/runs --history-dir .cognis/evals/history --summary "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cognis-online-evals-${{ github.run_id }}
+          path: .cognis/evals/runs/*.json
+          retention-days: 30
+          if-no-files-found: error

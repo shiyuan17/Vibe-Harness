@@ -1,7 +1,7 @@
 {
-  "name": "loopengine-codex-adapter",
-  "version": "0.3.0",
-  "description": "Codex adapter for LoopEngine internal reusable governance pack.",
+  "name": "cognis-codex-adapter",
+  "version": "0.5.0",
+  "description": "Codex adapter for Cognis internal reusable governance pack.",
   "entrypoints": {
     "agents": "AGENTS.template.md",
     "installMap": "install-map.json"

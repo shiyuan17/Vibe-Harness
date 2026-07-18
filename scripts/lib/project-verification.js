@@ -23,14 +23,16 @@ function verificationError(message) {
   return error;
 }
 
-export async function executeProjectVerification({ allowManual = false, commandStatus, targetDir }) {
-  const order = ['governance', 'lint', 'typecheck'];
-  for (const name of order) {
-    const item = commandStatus[name];
-    if (!item || item.status === 'not_configured') continue;
-    if (item.status === 'missing') throw verificationError(`${name} is missing: ${item.command}`);
-    if (item.status === 'manual' && !allowManual) {
-      throw verificationError(`${name} is manual; pass --allow-manual to execute it explicitly: ${item.command}`);
+export async function executeProjectVerification({ allowManual = false, commandStatus, failureMode = 'throw', targetDir }) {
+  const order = ['governance', 'lint', 'typecheck', 'eval'];
+  if (failureMode === 'throw') {
+    for (const name of order) {
+      const item = commandStatus[name];
+      if (!item || item.status === 'not_configured') continue;
+      if (item.status === 'missing') throw verificationError(`${name} is missing: ${item.command}`);
+      if (item.status === 'manual' && !allowManual) {
+        throw verificationError(`${name} is manual; pass --allow-manual to execute it explicitly: ${item.command}`);
+      }
     }
   }
 
@@ -39,6 +41,10 @@ export async function executeProjectVerification({ allowManual = false, commandS
     const item = commandStatus[name] ?? { command: null, status: 'not_configured' };
     if (item.status === 'not_configured') {
       results[name] = item;
+      continue;
+    }
+    if (item.status === 'missing' || (item.status === 'manual' && !allowManual)) {
+      results[name] = { command: item.command, status: 'blocked' };
       continue;
     }
     const [program, ...args] = splitCommand(item.command);
@@ -57,6 +63,16 @@ export async function executeProjectVerification({ allowManual = false, commandS
       };
     } catch (cause) {
       const exitCode = typeof cause.code === 'number' ? cause.code : 1;
+      if (failureMode === 'report') {
+        results[name] = {
+          command: item.command,
+          exitCode,
+          status: 'failed',
+          stderr: cause.stderr ?? '',
+          stdout: cause.stdout ?? '',
+        };
+        continue;
+      }
       throw verificationError(`${name} failed with exit ${exitCode}: ${cause.stderr || cause.message}`);
     }
   }
