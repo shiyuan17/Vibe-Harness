@@ -1,18 +1,18 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
 import { execFile, spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 export const PLAYWRIGHT_CLI_VERSION = '0.1.17';
-export const PLAYWRIGHT_TOOL_RELATIVE_DIR = '.agents/loopengine/tools/playwright-cli';
-export const PLAYWRIGHT_ARTIFACTS_RELATIVE_DIR = '.loopengine/artifacts/playwright';
+export const PLAYWRIGHT_TOOL_RELATIVE_DIR = '.agents/cognis/tools/playwright-cli';
+export const PLAYWRIGHT_ARTIFACTS_RELATIVE_DIR = '.cognis/artifacts/playwright';
 export const PLAYWRIGHT_GENERATED_RELATIVE_DIR = `${PLAYWRIGHT_TOOL_RELATIVE_DIR}/node_modules`;
 
 const execFileAsync = promisify(execFile);
-const stateRelativeDir = '.loopengine/tool-state';
 const stateFileName = 'playwright-cli.json';
 const configFileName = 'playwright-cli.config.json';
 const lockDirName = 'playwright-cli.lock';
@@ -107,7 +107,14 @@ function runtimePaths({ targetDir, toolDir = path.join(targetDir, PLAYWRIGHT_TOO
   const resolvedTarget = path.resolve(targetDir);
   const resolvedTool = path.resolve(toolDir);
   assertInside(resolvedTarget, resolvedTool, 'Playwright tool directory');
-  const stateDir = path.join(resolvedTarget, stateRelativeDir);
+  const canonicalState = existsSync(path.join(resolvedTarget, '.cognis', 'install-state.json'));
+  const legacyState = existsSync(path.join(resolvedTarget, '.loopengine', 'install-state.json'));
+  if (canonicalState && legacyState) {
+    throw Object.assign(new Error('Both .cognis and .loopengine contain install state.'), {
+      code: 'COGNIS_STATE_CONFLICT',
+    });
+  }
+  const stateDir = path.join(resolvedTarget, legacyState ? '.loopengine/tool-state' : '.cognis/tool-state');
   return {
     artifactsDir: path.join(resolvedTarget, PLAYWRIGHT_ARTIFACTS_RELATIVE_DIR),
     cliPath: path.join(resolvedTool, cliRelativePath),

@@ -8,9 +8,14 @@ import path from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
 
+import {
+  aliasPathForRoot,
+  replaceAliasInStatusOutput,
+} from '../runtime/tools/codebase-memory-mcp/path-alias.mjs';
+
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve('.');
-const cliPath = path.join(rootDir, 'scripts/loopengine.js');
+const cliPath = path.join(rootDir, 'scripts/cognis.js');
 
 async function exists(filePath) {
   try {
@@ -21,8 +26,8 @@ async function exists(filePath) {
   }
 }
 
-test('LoopEngine removes the CodeGraph CLI integration and doctor report', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-doctor-'));
+test('Cognis removes the CodeGraph CLI integration and doctor report', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-doctor-'));
   try {
     const help = await execFileAsync(process.execPath, [cliPath, 'help']);
     assert.equal(help.stdout.toLowerCase().includes('codegraph'), false);
@@ -43,7 +48,7 @@ test('LoopEngine removes the CodeGraph CLI integration and doctor report', async
 });
 
 test('codebase-memory-mcp rule uses MCP tools and a repository-search fallback without global writes', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'loopengine-codebase-memory-profile-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-codebase-memory-profile-'));
   const rulePath = path.join(rootDir, 'rules/codebase-memory-mcp.md');
   const rule = await readFile(rulePath, 'utf8');
   const agents = await readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8');
@@ -70,4 +75,24 @@ test('codebase-memory-mcp rule uses MCP tools and a repository-search fallback w
   } finally {
     await rm(target, { force: true, recursive: true });
   }
+});
+
+test('codebase-memory uses a stable Windows alias for the same Unicode root', () => {
+  const root = 'D:\\SVN-Project\\H5Web\\H5端\\code\\vue-element-plus-admin';
+  const first = aliasPathForRoot(root);
+  const second = aliasPathForRoot(root);
+
+  assert.equal(first, second);
+  assert.match(path.basename(first), /^cognis-cbm-[a-f0-9]{16}$/u);
+  assert.notEqual(aliasPathForRoot(`${root}-other`), first);
+});
+
+test('codebase-memory preserves valid JSON when replacing a Windows alias in status output', () => {
+  const alias = 'C:\\Users\\hexi\\AppData\\Local\\Temp\\cognis-cbm-0123456789abcdef';
+  const target = 'D:\\SVN-Project\\H5Web\\H5端\\code\\vue-element-plus-admin';
+  const output = JSON.stringify({ root_path: alias, status: 'ready' });
+  const parsed = JSON.parse(replaceAliasInStatusOutput(output, alias, target));
+
+  assert.equal(parsed.root_path, target);
+  assert.equal(parsed.status, 'ready');
 });

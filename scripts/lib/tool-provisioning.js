@@ -1,45 +1,51 @@
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { promisify } from 'node:util';
 
 import { assertInsideDir, assertSafePathInside, pathExists } from './manifest.js';
+import { resolveOcrEndpoint } from './ocr-config.js';
 import { inspectPlaywrightTool, preparePlaywrightTool } from '../../runtime/tools/playwright-cli/run.mjs';
+import { productIdentity, readProductEnv } from './product-identity.js';
+import { projectStateDir } from './project-layout.js';
 
-const stateRelativePath = '.loopengine/tool-state/tools.json';
-const provisioningMarkerRelativePath = '.loopengine/tool-state/provisioning.json';
-const managedMcpStart = '# LOOPENGINE:MCP:START';
-const managedMcpEnd = '# LOOPENGINE:MCP:END';
+const managedMcpStart = '# COGNIS:MCP:START';
+const managedMcpEnd = '# COGNIS:MCP:END';
+const legacyManagedMcpStart = '# LOOPENGINE:MCP:START';
+const legacyManagedMcpEnd = '# LOOPENGINE:MCP:END';
 const maxDiagnosticOutput = 8 * 1024;
 const maxToolOutput = 1024 * 1024;
+const execFileAsync = promisify(execFile);
+const cognisVersion = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8')).version;
 
 const toolSpecs = [
   {
     id: 'codebaseMemoryMcp',
     packageName: 'codebase-memory-mcp',
     phases: ['dependency-install', 'binary-install', 'index', 'index-verify', 'mcp-handshake'],
-    relativeDir: '.agents/loopengine/tools/codebase-memory-mcp',
+    relativeDir: '.agents/cognis/tools/codebase-memory-mcp',
     version: '0.9.0',
   },
   {
     id: 'playwrightCli',
     packageName: '@playwright/cli',
     phases: ['dependency-install', 'browser-install'],
-    relativeDir: '.agents/loopengine/tools/playwright-cli',
+    relativeDir: '.agents/cognis/tools/playwright-cli',
     version: '0.1.17',
   },
   {
     id: 'openCodeReview',
     packageName: '@alibaba-group/open-code-review',
     phases: ['dependency-install', 'llm-test'],
-    relativeDir: '.agents/loopengine/tools/open-code-review',
+    relativeDir: '.agents/cognis/tools/open-code-review',
     version: '1.7.7',
   },
   {
     id: 'agentmemory',
     packageName: '@agentmemory/mcp',
     phases: ['dependency-install', 'mcp-handshake'],
-    relativeDir: '.agents/loopengine/tools/agentmemory',
+    relativeDir: '.agents/cognis/tools/agentmemory',
     supportLevel: 'preview',
     version: '0.9.27',
   },
@@ -107,20 +113,31 @@ function renderMcpServer(name, server) {
   return lines.join('\n');
 }
 
+function findManagedMcpBlock(content) {
+  const canonicalStart = content.indexOf(managedMcpStart);
+  const legacyStart = content.indexOf(legacyManagedMcpStart);
+  if (canonicalStart !== -1 && legacyStart !== -1) {
+    throw Object.assign(new Error('Configuration contains both Cognis and LoopEngine MCP managed blocks.'), {
+      code: 'COGNIS_MCP_BLOCK_CONFLICT',
+    });
+  }
+  const start = canonicalStart !== -1 ? canonicalStart : legacyStart;
+  if (start === -1) return null;
+  const endMarker = canonicalStart !== -1 ? managedMcpEnd : legacyManagedMcpEnd;
+  const end = content.indexOf(endMarker, start);
+  if (end === -1) throw new Error('Malformed Cognis MCP managed block.');
+  return { end, endMarker, start };
+}
+
 function stripManagedMcpBlock(content) {
-  const start = content.indexOf(managedMcpStart);
-  if (start === -1) return content;
-  const end = content.indexOf(managedMcpEnd, start);
-  if (end === -1) throw new Error('Malformed LoopEngine MCP managed block.');
-  return `${content.slice(0, start)}${content.slice(end + managedMcpEnd.length)}`.replace(/\n{3,}/gu, '\n\n');
+  const found = findManagedMcpBlock(content);
+  if (!found) return content;
+  return `${content.slice(0, found.start)}${content.slice(found.end + found.endMarker.length)}`.replace(/\n{3,}/gu, '\n\n');
 }
 
 export function extractManagedMcpBlock(content) {
-  const start = content.indexOf(managedMcpStart);
-  if (start === -1) return '';
-  const end = content.indexOf(managedMcpEnd, start);
-  if (end === -1) throw new Error('Malformed LoopEngine MCP managed block.');
-  return content.slice(start, end + managedMcpEnd.length);
+  const found = findManagedMcpBlock(content);
+  return found ? content.slice(found.start, found.end + found.endMarker.length) : '';
 }
 
 export function removeManagedMcpBlock(content) {
@@ -246,6 +263,8 @@ function diagnosticMessage(error, code, stderrTail, stdoutTail) {
   if (code === 'TOOL_START_FAILED' || code === 'MCP_START_FAILED') return 'Tool process could not start.';
   if (code === 'MCP_HANDSHAKE_TIMEOUT') return 'MCP handshake timed out.';
   if (code === 'MCP_STDIN_FAILED') return 'MCP process closed stdin during handshake.';
+  if (code === 'INDEX_CORRUPT_REINDEX_REQUIRED') return 'Index database is corrupt; re-index is required.';
+  if (code === 'INDEX_PATH_OUTSIDE_ALLOWED_ROOT') return 'Repository path is outside the allowed root.';
   return error?.message || 'Tool command failed.';
 }
 
@@ -313,7 +332,7 @@ export async function runToolCommand({ args, command, cwd, env, signal, timeout 
 const defaultCommandRunner = runToolCommand;
 
 function boundedTimeout(env, fallback) {
-  const timeoutLimit = Number.parseInt(env.LOOPENGINE_TOOL_TIMEOUT_MS ?? '', 10);
+  const timeoutLimit = Number.parseInt(readProductEnv(env, 'TOOL_TIMEOUT_MS').value ?? '', 10);
   return Number.isInteger(timeoutLimit) && timeoutLimit >= 1000
     ? Math.min(fallback, timeoutLimit)
     : fallback;
@@ -347,7 +366,12 @@ const toolEnvironmentNames = Object.fromEntries(
 );
 
 const toolCredentialNames = {
-  openCodeReview: new Set(['ANTHROPIC_API_KEY', 'OCR_LLM_MODEL', 'OCR_LLM_TOKEN', 'OCR_LLM_URL', 'OPENAI_API_KEY']),
+  openCodeReview: new Set([
+    'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'ANTHROPIC_MODEL',
+    'OCR_LLM_AUTH_HEADER', 'OCR_LLM_EXTRA_HEADERS', 'OCR_LLM_MODEL', 'OCR_LLM_PROTOCOL',
+    'OCR_LLM_TIMEOUT', 'OCR_LLM_TOKEN', 'OCR_LLM_URL', 'OCR_USE_ANTHROPIC',
+    'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'OPENAI_MODEL',
+  ]),
 };
 
 function allowedEnvironment(spec, env) {
@@ -359,15 +383,15 @@ function allowedEnvironment(spec, env) {
   return Object.fromEntries(Object.entries(env).filter(([name]) => allowedNames.has(name)));
 }
 
-function componentEnvironment(spec, targetDir, env) {
-  const stateRoot = path.join(targetDir, '.loopengine/tool-state');
+async function componentEnvironment(spec, targetDir, env, { codebaseMemoryCacheDir } = {}) {
+  const stateRoot = path.join(await projectStateDir(targetDir), 'tool-state');
   const npmCache = path.join(stateRoot, 'npm-cache', spec.id);
   const baseEnv = allowedEnvironment(spec, env);
   if (spec.id === 'codebaseMemoryMcp') {
     return {
       ...baseEnv,
       CBM_ALLOWED_ROOT: targetDir,
-      CBM_CACHE_DIR: path.join(stateRoot, 'codebase-memory-mcp/cache'),
+      CBM_CACHE_DIR: codebaseMemoryCacheDir ?? path.join(stateRoot, 'codebase-memory-mcp/cache'),
       npm_config_cache: npmCache,
     };
   }
@@ -383,7 +407,7 @@ function componentEnvironment(spec, targetDir, env) {
 }
 
 async function phaseRequest(spec, phase, targetDir, env, context = {}) {
-  const componentEnv = componentEnvironment(spec, targetDir, env);
+  const componentEnv = await componentEnvironment(spec, targetDir, env, context);
   if (phase === 'dependency-install') {
     const npmArgs = ['ci', '--no-audit', '--no-fund', '--ignore-scripts'];
     if (spec.id === 'agentmemory') npmArgs.push('--omit=optional');
@@ -402,12 +426,12 @@ async function phaseRequest(spec, phase, targetDir, env, context = {}) {
   }
   if (phase === 'index') {
     return {
-      args: [
+    args: [
         path.join(spec.toolDir, 'run.mjs'),
         'cli',
         'index_repository',
         '--repo-path',
-        targetDir,
+        '.',
         '--mode',
         'moderate',
         '--persistence',
@@ -529,7 +553,7 @@ export async function runMcpHandshake(request) {
       id: 1,
       jsonrpc: '2.0',
       method: 'initialize',
-      params: { capabilities: {}, clientInfo: { name: 'loopengine', version: '0.4.0' }, protocolVersion: '2025-03-26' },
+      params: { capabilities: {}, clientInfo: { name: productIdentity.command, version: cognisVersion }, protocolVersion: '2025-03-26' },
     })}\n`);
   });
 }
@@ -539,11 +563,27 @@ async function defaultPhaseRunner(request) {
   return defaultCommandRunner(request);
 }
 
-function publicFailure(spec, phase, error, targetDir) {
-  const code = typeof error?.code === 'string' && /^[A-Z0-9_]+$/u.test(error.code)
+function diagnosticCode(error) {
+  const output = `${error?.message ?? ''}\n${error?.stderr ?? ''}\n${error?.stdout ?? ''}`;
+  if (/repo_path\s+is\s+outside\s+the\s+allowed\s+root/iu.test(output)) return 'INDEX_PATH_OUTSIDE_ALLOWED_ROOT';
+  if (/(?:index|database|graph).*(?:corrupt|invalid)|corrupt.*(?:index|database|graph)|需要重新索引/iu.test(output)) {
+    return 'INDEX_CORRUPT_REINDEX_REQUIRED';
+  }
+  return typeof error?.code === 'string' && /^[A-Z0-9_]+$/u.test(error.code)
     ? error.code
     : 'TOOL_PROVISION_FAILED';
-  return { code, diagnostic: createDiagnostic(error, phase, targetDir), phase, status: 'degraded', version: spec.version };
+}
+
+function publicFailure(spec, phase, error, targetDir) {
+  const code = diagnosticCode(error);
+  const diagnosticError = Object.assign(new Error(error?.message ?? ''), error, { code });
+  return {
+    code,
+    diagnostic: createDiagnostic(diagnosticError, phase, targetDir),
+    phase,
+    status: 'degraded',
+    version: spec.version,
+  };
 }
 
 function ready(spec, phase = 'ready', details = {}) {
@@ -574,6 +614,10 @@ function normalizedProjectPath(value) {
 
 function validateIndexResult(output) {
   const result = parseCommandJson(output, 'INDEX_OUTPUT_INVALID', 'Index command did not return valid JSON.');
+  const hint = typeof result.hint === 'string' ? result.hint : '';
+  if (/(?:integrity|database).*(?:corrupt|failed)|corrupt.*(?:index|database)|重新索引|re-?run.*index/iu.test(hint)) {
+    throw toolContractError('INDEX_CORRUPT_REINDEX_REQUIRED', 'Index database is corrupt; re-index is required.');
+  }
   if (result.status !== 'indexed' || typeof result.project !== 'string' || !result.project.trim()) {
     throw toolContractError('INDEX_RESULT_INVALID', 'Index command did not confirm an indexed project.');
   }
@@ -618,11 +662,17 @@ function withProvisioningMetadata(spec, state, startedAt, { reused = false } = {
   };
 }
 
-async function runToolPhases(spec, commandRunner, env, targetDir, phases = spec.phases, signal) {
+async function runToolPhases(spec, commandRunner, env, targetDir, phases = spec.phases, signal, ocrResolution) {
   const context = {};
+  const retriedCorruptIndex = new Set();
   for (const phase of phases) {
     if (spec.id === 'openCodeReview' && phase === 'llm-test' && !hasOcrCredentials(env)) {
-      return { phase: 'llm-config', status: 'pending-config', version: spec.version };
+      return {
+        ...(ocrResolution?.diagnostic ? { diagnostic: ocrResolution.diagnostic } : {}),
+        phase: 'llm-config',
+        status: 'pending-config',
+        version: spec.version,
+      };
     }
     try {
       const request = await phaseRequest(spec, phase, targetDir, env, context);
@@ -632,6 +682,46 @@ async function runToolPhases(spec, commandRunner, env, targetDir, phases = spec.
       if (phase === 'index') context.indexProject = validateIndexResult(output);
       if (phase === 'index-verify') context.index = validateIndexStatus(output, targetDir);
     } catch (error) {
+      if (spec.id === 'codebaseMemoryMcp'
+        && phase === 'binary-install'
+        && /(?:binary\s+not\s+found|download\s+failed|install\s+failed)/iu.test(`${error?.message ?? ''}\n${error?.stderr ?? ''}`)
+        && await repairCodebaseMemoryBinary(spec)) {
+        continue;
+      }
+      if (spec.id === 'codebaseMemoryMcp'
+        && phase === 'index'
+        && /(?:binary\s+not\s+found|download\s+failed|install\s+failed)/iu.test(`${error?.message ?? ''}\n${error?.stderr ?? ''}`)
+        && await repairCodebaseMemoryBinary(spec)) {
+        const retryRequest = await phaseRequest(spec, phase, targetDir, env, context);
+        retryRequest.signal = signal;
+        retryRequest.timeout = boundedTimeout(env, retryRequest.timeout);
+        const retryOutput = await commandRunner(retryRequest);
+        context.indexProject = validateIndexResult(retryOutput);
+        continue;
+      }
+      if (spec.id === 'codebaseMemoryMcp'
+        && phase === 'index'
+        && diagnosticCode(error) === 'INDEX_CORRUPT_REINDEX_REQUIRED'
+        && !retriedCorruptIndex.has(phase)) {
+        retriedCorruptIndex.add(phase);
+        const cacheDir = path.join(await projectStateDir(targetDir), 'tool-state/codebase-memory-mcp/cache');
+        await assertSafePathInside(targetDir, cacheDir, 'codebase-memory cache');
+        await rm(cacheDir, { force: true, recursive: true });
+        const projectIndexDir = path.join(targetDir, '.codebase-memory');
+        await assertSafePathInside(targetDir, projectIndexDir, 'codebase-memory project index');
+        await rm(projectIndexDir, { force: true, recursive: true });
+        context.codebaseMemoryCacheDir = cacheDir;
+        const retryRequest = await phaseRequest(spec, phase, targetDir, env, context);
+        retryRequest.signal = signal;
+        retryRequest.timeout = boundedTimeout(env, retryRequest.timeout);
+        try {
+          const retryOutput = await commandRunner(retryRequest);
+          context.indexProject = validateIndexResult(retryOutput);
+          continue;
+        } catch (retryError) {
+          error = retryError;
+        }
+      }
       error.phase = phase;
       throw error;
     }
@@ -652,8 +742,26 @@ async function codebaseMemoryRuntimeAvailable(spec) {
     && await pathExists(path.join(packageDir, 'bin', binary));
 }
 
+async function repairCodebaseMemoryBinary(spec) {
+  if (process.platform !== 'win32') return false;
+  try {
+    const { stdout } = await execFileAsync('where.exe', ['codebase-memory-mcp'], { windowsHide: true });
+    const source = stdout.split(/\r?\n/u).map((line) => line.trim()).find(Boolean);
+    if (!source) return false;
+    const { stdout: version } = await execFileAsync(source, ['--version'], { windowsHide: true });
+    if (!version.includes(spec.version)) return false;
+    const destination = path.join(spec.toolDir, 'node_modules/codebase-memory-mcp/bin/codebase-memory-mcp.exe');
+    await assertSafePathInside(spec.toolDir, destination, 'codebase-memory binary');
+    await mkdir(path.dirname(destination), { recursive: true });
+    await copyFile(source, destination);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function readToolState(targetDir) {
-  const statePath = path.resolve(targetDir, stateRelativePath);
+  const statePath = path.join(await projectStateDir(targetDir), 'tool-state/tools.json');
   assertInsideDir(targetDir, statePath, 'tool state');
   await assertSafePathInside(targetDir, statePath, 'tool state');
   if (!(await pathExists(statePath))) return null;
@@ -665,7 +773,7 @@ async function readToolState(targetDir) {
 }
 
 async function writeToolState(targetDir, tools, fingerprints) {
-  const statePath = path.resolve(targetDir, stateRelativePath);
+  const statePath = path.join(await projectStateDir(targetDir), 'tool-state/tools.json');
   assertInsideDir(targetDir, statePath, 'tool state');
   await assertSafePathInside(targetDir, statePath, 'tool state');
   await mkdir(path.dirname(statePath), { recursive: true });
@@ -673,7 +781,7 @@ async function writeToolState(targetDir, tools, fingerprints) {
 }
 
 async function writeProvisioningMarker(targetDir, marker) {
-  const markerPath = path.resolve(targetDir, provisioningMarkerRelativePath);
+  const markerPath = path.join(await projectStateDir(targetDir), 'tool-state/provisioning.json');
   assertInsideDir(targetDir, markerPath, 'provisioning marker');
   await assertSafePathInside(targetDir, markerPath, 'provisioning marker');
   await mkdir(path.dirname(markerPath), { recursive: true });
@@ -681,13 +789,13 @@ async function writeProvisioningMarker(targetDir, marker) {
 }
 
 async function removeProvisioningMarker(targetDir) {
-  const markerPath = path.resolve(targetDir, provisioningMarkerRelativePath);
+  const markerPath = path.join(await projectStateDir(targetDir), 'tool-state/provisioning.json');
   await assertSafePathInside(targetDir, markerPath, 'provisioning marker');
   await rm(markerPath, { force: true });
 }
 
 export async function inspectProvisioningMarker(targetDir) {
-  const markerPath = path.resolve(targetDir, provisioningMarkerRelativePath);
+  const markerPath = path.join(await projectStateDir(targetDir), 'tool-state/provisioning.json');
   await assertSafePathInside(targetDir, markerPath, 'provisioning marker');
   if (!(await pathExists(markerPath))) return null;
   try {
@@ -697,9 +805,11 @@ export async function inspectProvisioningMarker(targetDir) {
   }
 }
 
-export async function provisionProfileTools({ allowPreview = false, commandRunner, env = process.env, force = false, mcpConflicts = [], profile, resolvedModules, signal, targetDir, toolIds }) {
+export async function provisionProfileTools({ allowPreview = false, commandRunner, env = process.env, force = false, mcpConflicts = [], ocrHomeDir, profile, resolvedModules, signal, targetDir, toolIds }) {
   const plan = createToolProvisioningPlan({ allowPreview, profile, resolvedModules, targetDir, toolIds });
-  const effectiveCommandRunner = commandRunner ?? (env.LOOPENGINE_TEST_OFFLINE === '1'
+  const ocrResolution = await resolveOcrEndpoint({ env, homeDir: ocrHomeDir });
+  const provisionEnv = { ...env, ...(ocrResolution.env ?? {}) };
+  const effectiveCommandRunner = commandRunner ?? (readProductEnv(env, 'TEST_OFFLINE').value === '1'
     ? async () => { throw Object.assign(new Error('Offline test fixture.'), { code: 'TOOL_TEST_OFFLINE' }); }
     : null);
   const provisioningStartedAt = new Date().toISOString();
@@ -738,7 +848,7 @@ export async function provisionProfileTools({ allowPreview = false, commandRunne
     fingerprints[spec.id] = fingerprint;
     const previousTool = previous?.tools?.[spec.id];
     const reusableStatus = previousTool?.status === 'ready'
-      || (spec.id === 'openCodeReview' && previousTool?.status === 'pending-config' && !hasOcrCredentials(env));
+      || (spec.id === 'openCodeReview' && previousTool?.status === 'pending-config' && !hasOcrCredentials(provisionEnv));
     const reusableRuntime = spec.id !== 'codebaseMemoryMcp' || await codebaseMemoryRuntimeAvailable(spec);
     const reusable = (
       !force
@@ -757,7 +867,7 @@ export async function provisionProfileTools({ allowPreview = false, commandRunne
       : spec.phases;
     try {
       if (effectiveCommandRunner) {
-        tools[spec.id] = await runToolPhases(spec, effectiveCommandRunner, env, targetDir, phases, signal);
+        tools[spec.id] = await runToolPhases(spec, effectiveCommandRunner, provisionEnv, targetDir, phases, signal, ocrResolution);
       } else if (spec.id === 'playwrightCli') {
         const runCommand = async (command, args, options) => defaultCommandRunner({
           args,
@@ -768,14 +878,14 @@ export async function provisionProfileTools({ allowPreview = false, commandRunne
           timeout: boundedTimeout(env, 600_000),
         });
         const result = await preparePlaywrightTool({
-          env: componentEnvironment(spec, targetDir, env),
+          env: componentEnvironment(spec, targetDir, provisionEnv),
           runCommand,
           targetDir,
           toolDir: spec.toolDir,
         });
         tools[spec.id] = result.status === 'ready' ? ready(spec) : { phase: 'browser-install', status: 'degraded', version: spec.version };
       } else {
-        tools[spec.id] = await runToolPhases(spec, defaultPhaseRunner, env, targetDir, phases, signal);
+        tools[spec.id] = await runToolPhases(spec, defaultPhaseRunner, provisionEnv, targetDir, phases, signal, ocrResolution);
       }
     } catch (error) {
       if (signal?.aborted || error.code === 'TOOL_CANCELLED') throw error;
@@ -823,7 +933,7 @@ export async function provisionProfileTools({ allowPreview = false, commandRunne
 }
 
 export async function inspectProfileTools(profile, targetDir, resolvedModules, toolIds, { allowPreview = false } = {}) {
-  const statePath = path.resolve(targetDir, stateRelativePath);
+  const statePath = path.join(await projectStateDir(targetDir), 'tool-state/tools.json');
   assertInsideDir(targetDir, statePath, 'tool state');
   await assertSafePathInside(targetDir, statePath, 'tool state');
   if (await pathExists(statePath)) {
@@ -843,7 +953,7 @@ export async function inspectProfileTools(profile, targetDir, resolvedModules, t
         version: spec.version,
       };
     } else {
-      tools[spec.id] = spec.id === 'openCodeReview' && !hasOcrCredentials(process.env)
+      tools[spec.id] = spec.id === 'openCodeReview' && !(await resolveOcrEndpoint({ env: process.env })).env
         ? { phase: 'llm-config', status: 'pending-config', version: spec.version }
         : { phase: 'install', status: 'pending', version: spec.version };
     }

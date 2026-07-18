@@ -1,10 +1,11 @@
 {
-  "name": "@loopengine/open-code-review-runtime",
+  "name": "@cognis/open-code-review-runtime",
   "version": "0.0.0",
   "private": true,
-  "description": "Project-local Open Code Review runtime managed by LoopEngine.",
+  "description": "Project-local Open Code Review runtime managed by Cognis.",
   "dependencies": {
-    "@alibaba-group/open-code-review": "1.7.7"
+    "@alibaba-group/open-code-review": "1.7.7",
+    "@iarna/toml": "2.2.5"
   },
   "engines": {
     "node": ">=20"

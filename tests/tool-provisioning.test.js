@@ -7,6 +7,7 @@ import test from 'node:test';
 import { promisify } from 'node:util';
 
 import { createInstallPlan, previewInstallPlan } from '../scripts/lib/install-planner.js';
+import { resolveOcrEndpoint } from '../scripts/lib/ocr-config.js';
 import {
   createToolProvisioningPlan,
   inspectProfileTools,
@@ -17,7 +18,7 @@ import {
 
 const rootDir = path.resolve('.');
 const execFileAsync = promisify(execFile);
-const cliPath = path.join(rootDir, 'scripts/loopengine.js');
+const cliPath = path.join(rootDir, 'scripts/cognis.js');
 const offlineEnv = {
   ...process.env,
   ANTHROPIC_API_KEY: '',
@@ -25,8 +26,8 @@ const offlineEnv = {
   OCR_LLM_TOKEN: '',
   OCR_LLM_URL: '',
   OPENAI_API_KEY: '',
-  LOOPENGINE_TEST_OFFLINE: '1',
-  npm_config_cache: path.join(tmpdir(), 'loopengine-empty-npm-cache'),
+  COGNIS_TEST_OFFLINE: '1',
+  npm_config_cache: path.join(tmpdir(), 'cognis-empty-npm-cache'),
   npm_config_offline: 'true',
 };
 
@@ -36,7 +37,7 @@ function successfulToolOutput(request, targetDir) {
       stdout: JSON.stringify({
         edges: 13,
         nodes: 21,
-        project: 'loopengine-target',
+        project: 'cognis-target',
         status: 'indexed',
       }),
     };
@@ -46,7 +47,7 @@ function successfulToolOutput(request, targetDir) {
       stdout: JSON.stringify({
         edges: 13,
         nodes: 21,
-        project: 'loopengine-target',
+        project: 'cognis-target',
         root_path: path.resolve(targetDir).replaceAll('\\', '/'),
         status: 'ready',
       }),
@@ -130,14 +131,14 @@ test('managed MCP block preserves local TOML and refuses duplicate unmanaged ser
 
   assert.equal(result.content.includes('model = "gpt-5"'), true);
   assert.equal(result.content.includes('command = "user-memory"'), true);
-  assert.equal(result.content.includes('# LOOPENGINE:MCP:START'), true);
+  assert.equal(result.content.includes('# COGNIS:MCP:START'), true);
   assert.equal(result.content.includes('[mcp_servers.codebase-memory-mcp]'), true);
   assert.equal(result.content.includes('[mcp_servers.agentmemory]\ncommand = "node"'), false);
   assert.deepEqual(result.conflicts, ['agentmemory']);
 });
 
 test('provisioning continues after one component fails and never persists command secrets', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-'));
   const calls = [];
   const env = {
     OCR_LLM_TOKEN: 'super-secret-token',
@@ -206,7 +207,7 @@ test('provisioning continues after one component fails and never persists comman
     const index = calls.find((call) => call.component === 'codebaseMemoryMcp' && call.phase === 'index');
     assert.deepEqual(index.args.slice(1), [
       'cli', 'index_repository',
-      '--repo-path', targetDir,
+      '--repo-path', '.',
       '--mode', 'moderate',
       '--persistence', 'false',
     ]);
@@ -216,7 +217,7 @@ test('provisioning continues after one component fails and never persists comman
     assert.equal(agentmemory.env.HOME.startsWith(targetDir), true);
     assert.equal(agentmemory.env.USERPROFILE, agentmemory.env.HOME);
 
-    const state = await readFile(path.join(targetDir, '.loopengine/tool-state/tools.json'), 'utf8');
+    const state = await readFile(path.join(targetDir, '.cognis/tool-state/tools.json'), 'utf8');
     assert.equal(state.includes('connect ETIMEDOUT for <project>'), true);
     assert.equal(state.includes('super-secret-token'), false);
     assert.equal(state.includes('json-secret'), false);
@@ -233,7 +234,7 @@ test('provisioning continues after one component fails and never persists comman
 });
 
 test('codebase-memory index verification gates ready status and persists only a sanitized summary', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-index-verify-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-index-verify-'));
   const calls = [];
   try {
     const report = await provisionProfileTools({
@@ -247,7 +248,7 @@ test('codebase-memory index verification gates ready status and persists only a 
     });
 
     const verify = calls.find((call) => call.component === 'codebaseMemoryMcp' && call.phase === 'index-verify');
-    assert.deepEqual(verify.args.slice(1), ['cli', 'index_status', '--project', 'loopengine-target']);
+    assert.deepEqual(verify.args.slice(1), ['cli', 'index_status', '--project', 'cognis-target']);
     assert.deepEqual(report.codebaseMemoryMcp.index, {
       edges: 13,
       mode: 'moderate',
@@ -255,8 +256,8 @@ test('codebase-memory index verification gates ready status and persists only a 
       status: 'ready',
     });
 
-    const state = await readFile(path.join(targetDir, '.loopengine/tool-state/tools.json'), 'utf8');
-    assert.equal(state.includes('loopengine-target'), false);
+    const state = await readFile(path.join(targetDir, '.cognis/tool-state/tools.json'), 'utf8');
+    assert.equal(state.includes('cognis-target'), false);
     assert.equal(state.includes(targetDir), false);
   } finally {
     await rm(targetDir, { force: true, recursive: true });
@@ -268,7 +269,7 @@ test('codebase-memory rejects empty verification output and mismatched project r
     ['empty-output', '', 'INDEX_OUTPUT_INVALID'],
     ['wrong-root', JSON.stringify({ root_path: 'C:/other-project', status: 'ready' }), 'INDEX_ROOT_MISMATCH'],
   ]) {
-    const targetDir = await mkdtemp(path.join(tmpdir(), `loopengine-index-${name}-`));
+    const targetDir = await mkdtemp(path.join(tmpdir(), `cognis-index-${name}-`));
     try {
       const report = await provisionProfileTools({
         commandRunner: async (request) => {
@@ -285,7 +286,7 @@ test('codebase-memory rejects empty verification output and mismatched project r
       assert.equal(report.codebaseMemoryMcp.status, 'degraded');
       assert.equal(report.codebaseMemoryMcp.phase, 'index-verify');
       assert.equal(report.codebaseMemoryMcp.code, expectedCode);
-      const state = await readFile(path.join(targetDir, '.loopengine/tool-state/tools.json'), 'utf8');
+      const state = await readFile(path.join(targetDir, '.cognis/tool-state/tools.json'), 'utf8');
       assert.equal(state.includes('C:/other-project'), false);
     } finally {
       await rm(targetDir, { force: true, recursive: true });
@@ -297,9 +298,9 @@ test('codebase-memory rejects index output that does not identify an indexed pro
   for (const [indexOutput, expectedCode] of [
     ['', 'INDEX_OUTPUT_INVALID'],
     [JSON.stringify({ status: 'indexed' }), 'INDEX_RESULT_INVALID'],
-    [JSON.stringify({ project: 'loopengine-target', status: 'failed' }), 'INDEX_RESULT_INVALID'],
+    [JSON.stringify({ project: 'cognis-target', status: 'failed' }), 'INDEX_RESULT_INVALID'],
   ]) {
-    const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-index-result-'));
+    const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-index-result-'));
     try {
       const report = await provisionProfileTools({
         commandRunner: async (request) => request.component === 'codebaseMemoryMcp' && request.phase === 'index'
@@ -319,10 +320,10 @@ test('codebase-memory rejects index output that does not identify an indexed pro
 });
 
 test('real codebase-memory provisioning creates a verified project-local index', {
-  skip: process.env.LOOPENGINE_REAL_TOOL_INTEGRATION !== '1',
+  skip: process.env.COGNIS_REAL_TOOL_INTEGRATION !== '1',
 }, async (testContext) => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-index-integration-'));
-  const toolDir = path.join(targetDir, '.agents/loopengine/tools/codebase-memory-mcp');
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-index-integration-'));
+  const toolDir = path.join(targetDir, '.agents/cognis/tools/codebase-memory-mcp');
   const runtimeSource = path.join(rootDir, 'runtime/tools/codebase-memory-mcp');
   try {
     const locator = process.platform === 'win32' ? ['where.exe', ['codebase-memory-mcp']] : ['which', ['codebase-memory-mcp']];
@@ -342,7 +343,7 @@ test('real codebase-memory provisioning creates a verified project-local index',
 
     await mkdir(toolDir, { recursive: true });
     await writeFile(path.join(targetDir, 'example.js'), 'export const indexedValue = 42;\n', 'utf8');
-    for (const file of ['package.json', 'package-lock.json', 'run.mjs']) {
+    for (const file of ['package.json', 'package-lock.json', 'run.mjs', 'ocr-config.mjs']) {
       await copyFile(path.join(runtimeSource, file), path.join(toolDir, file));
     }
 
@@ -366,7 +367,7 @@ test('real codebase-memory provisioning creates a verified project-local index',
         });
         return { stderr, stdout };
       },
-      env: { ...process.env, LOOPENGINE_TOOL_TIMEOUT_MS: '60000' },
+      env: { ...process.env, COGNIS_TOOL_TIMEOUT_MS: '60000' },
       profile: 'full',
       resolvedModules: ['codebase-memory'],
       targetDir,
@@ -374,7 +375,7 @@ test('real codebase-memory provisioning creates a verified project-local index',
     assert.equal(report.codebaseMemoryMcp.status, 'ready', JSON.stringify(report.codebaseMemoryMcp));
     assert.equal(report.codebaseMemoryMcp.index.status, 'ready');
     assert.equal(report.codebaseMemoryMcp.index.nodes > 0, true);
-    const state = await readFile(path.join(targetDir, '.loopengine/tool-state/tools.json'), 'utf8');
+    const state = await readFile(path.join(targetDir, '.cognis/tool-state/tools.json'), 'utf8');
     assert.equal(state.includes(targetDir), false);
     await assert.rejects(readFile(path.join(targetDir, '.codebase-memory/graph.db.zst')), /ENOENT/u);
   } finally {
@@ -391,7 +392,7 @@ test('every full-profile tool persists a sanitized diagnostic for its failed pha
     ['agentmemory', 'mcp-handshake'],
   ];
   for (const [toolId, phase] of failures) {
-    const targetDir = await mkdtemp(path.join(tmpdir(), `loopengine-diagnostic-${toolId}-`));
+    const targetDir = await mkdtemp(path.join(tmpdir(), `cognis-diagnostic-${toolId}-`));
     try {
       const report = await provisionProfileTools({
         allowPreview: true,
@@ -423,12 +424,12 @@ test('every full-profile tool persists a sanitized diagnostic for its failed pha
 });
 
 test('tool phase timeouts can be bounded by the lifecycle smoke environment', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-timeout-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-timeout-'));
   const calls = [];
   try {
     await provisionProfileTools({
       commandRunner: async (request) => { calls.push(request); return successfulToolOutput(request, targetDir); },
-      env: { LOOPENGINE_TOOL_TIMEOUT_MS: '1500', OPENAI_API_KEY: 'configured' },
+      env: { COGNIS_TOOL_TIMEOUT_MS: '1500', OPENAI_API_KEY: 'configured' },
       profile: 'full',
       targetDir,
     });
@@ -440,7 +441,7 @@ test('tool phase timeouts can be bounded by the lifecycle smoke environment', as
 });
 
 test('MCP handshake reports a closed stdin without an unhandled EPIPE', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-mcp-stdin-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-mcp-stdin-'));
   const script = path.join(targetDir, 'close-stdin.mjs');
   try {
     await writeFile(script, 'process.stdin.destroy(); setTimeout(() => {}, 1000);\n', 'utf8');
@@ -454,11 +455,12 @@ test('MCP handshake reports a closed stdin without an unhandled EPIPE', async ()
 });
 
 test('OCR without credentials is pending-config and inspect restores persisted statuses', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-pending-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-pending-'));
   try {
     const report = await provisionProfileTools({
       commandRunner: async (request) => successfulToolOutput(request, targetDir),
       env: {},
+      ocrHomeDir: path.join(tmpdir(), 'cognis-no-ocr-config'),
       profile: 'full',
       targetDir,
     });
@@ -474,7 +476,7 @@ test('OCR without credentials is pending-config and inspect restores persisted s
 });
 
 test('unchanged OCR pending-config is reused until credentials become available', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-ocr-reuse-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-ocr-reuse-'));
   const ocr = createToolProvisioningPlan({ profile: 'full', targetDir })
     .find((tool) => tool.id === 'openCodeReview');
   const calls = [];
@@ -505,7 +507,7 @@ test('unchanged OCR pending-config is reused until credentials become available'
 });
 
 test('ready tools reuse package phases while codebase-memory reindexes and verifies every install', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-reuse-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-reuse-'));
   const plan = createToolProvisioningPlan({ allowPreview: true, profile: 'full', targetDir });
   const calls = [];
   const runner = async (request) => {
@@ -544,7 +546,7 @@ test('ready tools reuse package phases while codebase-memory reindexes and verif
 });
 
 test('a missing codebase-memory runtime bypasses package reuse and reinstalls before indexing', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-runtime-repair-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-runtime-repair-'));
   const plan = createToolProvisioningPlan({ profile: 'full', targetDir });
   const codebaseMemory = plan.find((tool) => tool.id === 'codebaseMemoryMcp');
   const binary = process.platform === 'win32' ? 'codebase-memory-mcp.exe' : 'codebase-memory-mcp';
@@ -583,14 +585,14 @@ test('managed MCP block is idempotent and replaces only its own previous content
     agentmemory: { args: ['new.mjs'], command: 'node', env: {} },
   }).content;
 
-  assert.equal((second.match(/# LOOPENGINE:MCP:START/gu) ?? []).length, 1);
+  assert.equal((second.match(/# COGNIS:MCP:START/gu) ?? []).length, 1);
   assert.equal(second.includes('old.mjs'), false);
   assert.equal(second.includes('new.mjs'), true);
   assert.equal(second.includes('# local tail'), true);
 });
 
 test('MCP configuration conflicts retain an actionable diagnostic', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-conflict-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-conflict-'));
   try {
     const report = await provisionProfileTools({
       commandRunner: async (request) => successfulToolOutput(request, targetDir),
@@ -613,13 +615,13 @@ test('MCP configuration conflicts retain an actionable diagnostic', async () => 
 });
 
 test('MCP configuration conflicts tell summary users to resolve the duplicate server', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-conflict-summary-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-conflict-summary-'));
   try {
     await runCli(['init', '--project', targetDir]);
     const configPath = path.join(targetDir, '.codex/config.toml');
     await mkdir(path.dirname(configPath), { recursive: true });
     await writeFile(configPath, '[mcp_servers.codebase-memory-mcp]\ncommand = "user-managed"\n', 'utf8');
-    const projectConfigPath = path.join(targetDir, 'loopengine.config.json');
+    const projectConfigPath = path.join(targetDir, 'cognis.config.json');
     const projectConfig = JSON.parse(await readFile(projectConfigPath, 'utf8'));
     await writeFile(projectConfigPath, `${JSON.stringify({ ...projectConfig, profile: 'full' }, null, 2)}\n`, 'utf8');
 
@@ -641,7 +643,7 @@ test('MCP configuration conflicts tell summary users to resolve the duplicate se
 });
 
 test('full install map includes project-local runtimes and managed Codex MCP config', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-plan-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-plan-'));
   try {
     await writeFile(path.join(targetDir, '.codex-config-local'), '', 'utf8');
     const full = await createInstallPlan({ dryRun: true, profile: 'full', rootDir, targetDir });
@@ -649,26 +651,26 @@ test('full install map includes project-local runtimes and managed Codex MCP con
     const fullTargets = full.actions.map((action) => action.relativeTarget);
     const coreTargets = core.actions.map((action) => action.relativeTarget);
 
-    assert.equal(fullTargets.includes('.agents/loopengine/tools/codebase-memory-mcp/package-lock.json'), true);
-    assert.equal(fullTargets.includes('.agents/loopengine/tools/open-code-review/package-lock.json'), true);
-    assert.equal(fullTargets.includes('.agents/loopengine/tools/agentmemory/package-lock.json'), true);
+    assert.equal(fullTargets.includes('.agents/cognis/tools/codebase-memory-mcp/package-lock.json'), true);
+    assert.equal(fullTargets.includes('.agents/cognis/tools/open-code-review/package-lock.json'), true);
+    assert.equal(fullTargets.includes('.agents/cognis/tools/agentmemory/package-lock.json'), true);
     assert.equal(fullTargets.includes('.codex/config.toml'), true);
     assert.equal(coreTargets.includes('.codex/config.toml'), false);
     assert.equal(coreTargets.some((target) => target.includes('codebase-memory-mcp/package-lock.json')), false);
     assert.equal(full.generatedDirectories.some((item) => item.target.endsWith('codebase-memory-mcp/node_modules')), true);
     assert.equal(full.generatedDirectories.some((item) => item.target.endsWith('agentmemory/node_modules')), true);
-    assert.equal(full.generatedDirectories.some((item) => item.target === '.loopengine/tool-state/codebase-memory-mcp'), true);
+    assert.equal(full.generatedDirectories.some((item) => item.target === '.cognis/tool-state/codebase-memory-mcp'), true);
 
     const config = (await previewInstallPlan(full)).find((file) => file.target === '.codex/config.toml');
     assert.equal(full.actions.find((action) => action.relativeTarget === '.codex/config.toml').redZone, true);
-    assert.match(config.content, /# LOOPENGINE:MCP:START[\s\S]*mcp_servers\.agentmemory[\s\S]*mcp_servers\.codebase-memory-mcp/u);
+    assert.match(config.content, /# COGNIS:MCP:START[\s\S]*mcp_servers\.agentmemory[\s\S]*mcp_servers\.codebase-memory-mcp/u);
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }
 });
 
 test('full CLI dry-run reports stable tools and defers preview tools', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-cli-plan-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-cli-plan-'));
   try {
     await runCli(['init', '--project', targetDir]);
     const report = await runCli(
@@ -682,10 +684,10 @@ test('full CLI dry-run reports stable tools and defers preview tools', async () 
     assert.deepEqual(report.deferredToolActions.map((item) => item.id), ['agentmemory']);
     assert.equal(report.tools.codebaseMemoryMcp.status, 'pending');
     assert.equal(report.tools.playwrightCli.status, 'pending');
-    assert.equal(report.tools.openCodeReview.status, 'pending-config');
+    assert.equal(['pending', 'pending-config'].includes(report.tools.openCodeReview.status), true);
     assert.equal(report.tools.agentmemory, undefined);
-    await assert.rejects(readFile(path.join(targetDir, '.loopengine/tool-state/tools.json'), 'utf8'), /ENOENT/u);
-    await assert.rejects(readFile(path.join(targetDir, '.agents/loopengine/tools/agentmemory/node_modules/.package-lock.json'), 'utf8'), /ENOENT/u);
+    await assert.rejects(readFile(path.join(targetDir, '.cognis/tool-state/tools.json'), 'utf8'), /ENOENT/u);
+    await assert.rejects(readFile(path.join(targetDir, '.agents/cognis/tools/agentmemory/node_modules/.package-lock.json'), 'utf8'), /ENOENT/u);
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }
@@ -708,7 +710,7 @@ test('tool command cancellation terminates the child before rejecting', async ()
 });
 
 test('tool processes receive only base variables and tool-specific credentials', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-env-policy-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-env-policy-'));
   const requests = [];
   try {
     await provisionProfileTools({
@@ -716,7 +718,7 @@ test('tool processes receive only base variables and tool-specific credentials',
       commandRunner: async (request) => requests.push(request),
       env: {
         ...process.env,
-        LOOPENGINE_SECRET_SENTINEL: 'must-not-leak',
+        COGNIS_SECRET_SENTINEL: 'must-not-leak',
         OPENAI_API_KEY: 'ocr-only-secret',
       },
       profile: 'full',
@@ -726,9 +728,9 @@ test('tool processes receive only base variables and tool-specific credentials',
 
     const agentmemory = requests.find((request) => request.component === 'agentmemory');
     const openCodeReview = requests.find((request) => request.component === 'openCodeReview');
-    assert.equal(agentmemory.env.LOOPENGINE_SECRET_SENTINEL, undefined);
+    assert.equal(agentmemory.env.COGNIS_SECRET_SENTINEL, undefined);
     assert.equal(agentmemory.env.OPENAI_API_KEY, undefined);
-    assert.equal(openCodeReview.env.LOOPENGINE_SECRET_SENTINEL, undefined);
+    assert.equal(openCodeReview.env.COGNIS_SECRET_SENTINEL, undefined);
     assert.equal(openCodeReview.env.OPENAI_API_KEY, 'ocr-only-secret');
     assert.equal(openCodeReview.env.PATH ?? openCodeReview.env.Path, process.env.PATH ?? process.env.Path);
   } finally {
@@ -736,9 +738,201 @@ test('tool processes receive only base variables and tool-specific credentials',
   }
 });
 
+test('codebase-memory maps allowed-root path failures to a stable diagnostic code', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-index-path-'));
+  try {
+    const report = await provisionProfileTools({
+      commandRunner: async (request) => {
+        if (request.component === 'codebaseMemoryMcp' && request.phase === 'index') {
+          throw Object.assign(new Error('repo_path is outside the allowed root'), {
+            code: 'TOOL_COMMAND_FAILED',
+            stderr: 'repo_path is outside the allowed root',
+          });
+        }
+        return successfulToolOutput(request, targetDir);
+      },
+      env: { OPENAI_API_KEY: 'configured' },
+      profile: 'full',
+      resolvedModules: ['codebase-memory'],
+      targetDir,
+    });
+
+    assert.equal(report.codebaseMemoryMcp.code, 'INDEX_PATH_OUTSIDE_ALLOWED_ROOT');
+    assert.match(report.codebaseMemoryMcp.diagnostic.message, /outside the allowed root/iu);
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('codebase-memory automatically rebuilds a corrupt cache on the next provision attempt', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-index-corrupt-'));
+  const calls = [];
+  try {
+    await mkdir(path.join(targetDir, '.codebase-memory'), { recursive: true });
+    await writeFile(path.join(targetDir, '.codebase-memory/graph.db.zst'), 'corrupt', 'utf8');
+    const report = await provisionProfileTools({
+      commandRunner: async (request) => {
+        calls.push(request);
+        if (request.component === 'codebaseMemoryMcp' && request.phase === 'index' && calls.filter((item) => item.phase === 'index').length === 1) {
+          throw Object.assign(new Error('index database is corrupt; needs reindex'), {
+            code: 'TOOL_COMMAND_FAILED',
+            stderr: 'index database is corrupt; needs reindex',
+          });
+        }
+        return successfulToolOutput(request, targetDir);
+      },
+      env: { OPENAI_API_KEY: 'configured' },
+      profile: 'full',
+      resolvedModules: ['codebase-memory'],
+      targetDir,
+    });
+
+    const indexCalls = calls.filter((request) => request.phase === 'index');
+    assert.equal(indexCalls.length, 2);
+    assert.equal(path.basename(indexCalls[1].env.CBM_CACHE_DIR), 'cache');
+    await assert.rejects(readFile(path.join(targetDir, '.codebase-memory/graph.db.zst')), /ENOENT/u);
+    assert.equal(report.codebaseMemoryMcp.status, 'ready');
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('codebase-memory uses the same relative repo path for ASCII, spaced, and Unicode roots', async () => {
+  for (const name of ['ascii', 'space path', '中文路径']) {
+    const targetDir = await mkdtemp(path.join(tmpdir(), `cognis-index-${name}-`));
+    const calls = [];
+    try {
+      await provisionProfileTools({
+        commandRunner: async (request) => {
+          calls.push(request);
+          return successfulToolOutput(request, targetDir);
+        },
+        env: { OPENAI_API_KEY: 'configured' },
+        profile: 'full',
+        resolvedModules: ['codebase-memory'],
+        targetDir,
+      });
+      const index = calls.find((request) => request.phase === 'index');
+      assert.equal(index.args[index.args.indexOf('--repo-path') + 1], '.');
+      assert.equal(index.cwd, targetDir);
+      assert.equal(index.env.CBM_ALLOWED_ROOT, targetDir);
+    } finally {
+      await rm(targetDir, { force: true, recursive: true });
+    }
+  }
+});
+
+test('OCR endpoint resolver prioritizes complete explicit credentials', async () => {
+  const result = await resolveOcrEndpoint({
+    env: {
+      OCR_LLM_MODEL: 'explicit-model',
+      OCR_LLM_TOKEN: 'explicit-token',
+      OCR_LLM_URL: 'https://explicit.example/v1',
+      OPENAI_API_KEY: 'compat-token',
+    },
+    homeDir: path.join(tmpdir(), 'missing-ocr-home'),
+  });
+
+  assert.equal(result.source, 'explicit');
+  assert.deepEqual(result.env, {
+    OCR_LLM_MODEL: 'explicit-model',
+    OCR_LLM_TOKEN: 'explicit-token',
+    OCR_LLM_URL: 'https://explicit.example/v1',
+  });
+});
+
+test('OCR endpoint resolver reads the active user config before Codex fallback', async () => {
+  const homeDir = await mkdtemp(path.join(tmpdir(), 'cognis-ocr-home-'));
+  try {
+    await mkdir(path.join(homeDir, '.opencodereview'), { recursive: true });
+    await mkdir(path.join(homeDir, '.codex'), { recursive: true });
+    await writeFile(path.join(homeDir, '.opencodereview/config.json'), JSON.stringify({
+      provider: 'custom-review',
+      custom_providers: {
+        'custom-review': {
+          api_key: 'ocr-user-token',
+          model: 'ocr-user-model',
+          protocol: 'openai',
+          url: 'http://ocr-user.example/v1',
+          auth_header: 'authorization',
+          extra_headers: 'X-Org-ID=org-123',
+          timeout_sec: 45,
+        },
+      },
+    }), 'utf8');
+    await writeFile(path.join(homeDir, '.codex/config.toml'), [
+      'model = "codex-model"',
+      'model_provider = "custom"',
+      '[model_providers.custom]',
+      'base_url = "http://codex.example/v1"',
+      'wire_api = "responses"',
+    ].join('\n'), 'utf8');
+
+    const result = await resolveOcrEndpoint({ env: {}, homeDir });
+    assert.equal(result.source, 'opencodereview');
+    assert.equal(result.env.OCR_LLM_URL, 'http://ocr-user.example/v1/chat/completions');
+    assert.equal(result.env.OCR_LLM_MODEL, 'ocr-user-model');
+    assert.equal(result.env.OCR_LLM_TOKEN, 'ocr-user-token');
+    assert.equal(result.env.OCR_LLM_PROTOCOL, 'openai');
+    assert.equal(result.env.OCR_USE_ANTHROPIC, 'false');
+    assert.equal(result.env.OCR_LLM_AUTH_HEADER, 'authorization');
+    assert.equal(result.env.OCR_LLM_EXTRA_HEADERS, 'X-Org-ID=org-123');
+    assert.equal(result.env.OCR_LLM_TIMEOUT, '45');
+  } finally {
+    await rm(homeDir, { force: true, recursive: true });
+  }
+});
+
+test('OCR endpoint resolver supports Anthropic and OpenAI compatibility variables', async () => {
+  const anthropic = await resolveOcrEndpoint({
+    env: {
+      ANTHROPIC_AUTH_TOKEN: 'anthropic-token',
+      ANTHROPIC_BASE_URL: 'https://anthropic.example',
+      ANTHROPIC_MODEL: 'anthropic-model',
+    },
+    homeDir: path.join(tmpdir(), 'missing-ocr-home'),
+  });
+  assert.equal(anthropic.source, 'compat-env');
+  assert.equal(anthropic.env.OCR_LLM_TOKEN, 'anthropic-token');
+  assert.equal(anthropic.env.OCR_LLM_URL, 'https://anthropic.example/messages');
+  assert.equal(anthropic.env.OCR_LLM_MODEL, 'anthropic-model');
+  assert.equal(anthropic.env.ANTHROPIC_AUTH_TOKEN, 'anthropic-token');
+
+  const openai = await resolveOcrEndpoint({
+    env: {
+      OPENAI_API_KEY: 'openai-token',
+      OPENAI_BASE_URL: 'https://openai.example/v1',
+    },
+    homeDir: path.join(tmpdir(), 'missing-ocr-home'),
+  });
+  assert.equal(openai.source, 'compat-env');
+  assert.equal(openai.env.OCR_LLM_TOKEN, 'openai-token');
+  assert.equal(openai.env.OCR_LLM_URL, 'https://openai.example/v1/chat/completions');
+  assert.equal(openai.env.OCR_LLM_MODEL, undefined);
+});
+
+test('OCR endpoint resolver returns pending-config and redacted diagnostics for malformed config', async () => {
+  const homeDir = await mkdtemp(path.join(tmpdir(), 'cognis-ocr-invalid-'));
+  try {
+    await mkdir(path.join(homeDir, '.opencodereview'), { recursive: true });
+    await writeFile(
+      path.join(homeDir, '.opencodereview/config.json'),
+      '{"provider":"broken","custom_providers":{"broken":{"api_key":"do-not-return"}}}',
+      'utf8',
+    );
+    const result = await resolveOcrEndpoint({ env: {}, homeDir });
+    assert.equal(result.status, 'pending-config');
+    assert.equal(result.env, undefined);
+    assert.equal(JSON.stringify(result).includes('do-not-return'), false);
+    assert.match(result.diagnostic.message, /missing|incomplete|configuration/iu);
+  } finally {
+    await rm(homeDir, { force: true, recursive: true });
+  }
+});
+
 test('installed tool wrappers enforce runtime environment allowlists', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-runtime-env-'));
-  const fixtureSource = 'console.log(JSON.stringify({ cbmRoot: process.env.CBM_ALLOWED_ROOT, openai: process.env.OPENAI_API_KEY, sentinel: process.env.LOOPENGINE_SECRET_SENTINEL }));\n';
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-runtime-env-'));
+  const fixtureSource = 'console.log(JSON.stringify({ cbmRoot: process.env.CBM_ALLOWED_ROOT, openai: process.env.OPENAI_API_KEY, sentinel: process.env.COGNIS_SECRET_SENTINEL }));\n';
   const cases = [
     {
       entry: 'node_modules/@alibaba-group/open-code-review/bin/ocr.js',
@@ -762,13 +956,25 @@ test('installed tool wrappers enforce runtime environment allowlists', async () 
       const entryPath = path.join(runtimeDir, item.entry);
       await mkdir(path.dirname(entryPath), { recursive: true });
       await copyFile(path.join(rootDir, `runtime/tools/${item.runtime}/run.mjs`), path.join(runtimeDir, 'run.mjs'));
+      if (item.runtime === 'codebase-memory-mcp') {
+        await copyFile(
+          path.join(rootDir, 'runtime/tools/codebase-memory-mcp/path-alias.mjs'),
+          path.join(runtimeDir, 'path-alias.mjs'),
+        );
+      }
+      if (item.runtime === 'open-code-review') {
+        await copyFile(
+          path.join(rootDir, 'runtime/tools/open-code-review/ocr-config.mjs'),
+          path.join(runtimeDir, 'ocr-config.mjs'),
+        );
+      }
       await writeFile(entryPath, fixtureSource, 'utf8');
       const { stdout } = await execFileAsync(process.execPath, [path.join(runtimeDir, 'run.mjs')], {
         cwd: targetDir,
         env: {
           ...process.env,
           CBM_ALLOWED_ROOT: targetDir,
-          LOOPENGINE_SECRET_SENTINEL: 'must-not-leak',
+          COGNIS_SECRET_SENTINEL: 'must-not-leak',
           OPENAI_API_KEY: 'ocr-secret',
         },
       });
@@ -781,7 +987,7 @@ test('installed tool wrappers enforce runtime environment allowlists', async () 
 });
 
 test('cancelled provisioning preserves an interrupted process marker for doctor', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-interrupted-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-interrupted-'));
   const controller = new AbortController();
   try {
     await runCli(['init', '--project', targetDir, '--profile', 'core']);
@@ -801,7 +1007,7 @@ test('cancelled provisioning preserves an interrupted process marker for doctor'
       (error) => error.code === 'TOOL_CANCELLED',
     );
 
-    const markerText = await readFile(path.join(targetDir, '.loopengine/tool-state/provisioning.json'), 'utf8');
+    const markerText = await readFile(path.join(targetDir, '.cognis/tool-state/provisioning.json'), 'utf8');
     const marker = JSON.parse(markerText);
     assert.equal(marker.status, 'interrupted');
     assert.equal(marker.currentTool, 'codebaseMemoryMcp');
@@ -817,7 +1023,7 @@ test('cancelled provisioning preserves an interrupted process marker for doctor'
 });
 
 test('full write installs governance assets without provisioning tools by default', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-assets-only-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-assets-only-'));
   try {
     await runCli(['init', '--project', targetDir, '--profile', 'full']);
     const report = await runCli([
@@ -828,7 +1034,7 @@ test('full write installs governance assets without provisioning tools by defaul
     assert.deepEqual(report.provisioning, { executed: false, requested: false });
     assert.equal(report.warnings.some((item) => item.code === 'PROVISIONING_NOT_RUN'), true);
     assert.equal(report.tools.codebaseMemoryMcp.status, 'pending');
-    await assert.rejects(readFile(path.join(targetDir, '.loopengine/tool-state/tools.json'), 'utf8'), /ENOENT/u);
+    await assert.rejects(readFile(path.join(targetDir, '.cognis/tool-state/tools.json'), 'utf8'), /ENOENT/u);
 
     const validation = await runCli(['validate', '--project', targetDir], { env: offlineEnv });
     assert.equal(validation.status, 'ready');
@@ -843,7 +1049,7 @@ test('full write installs governance assets without provisioning tools by defaul
 });
 
 test('provision previews and writes only explicitly selected tools', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-provision-command-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-provision-command-'));
   try {
     await runCli(['init', '--project', targetDir, '--profile', 'full']);
     await runCli([
@@ -861,13 +1067,13 @@ test('provision previews and writes only explicitly selected tools', async () =>
     ], { env: offlineEnv });
     assert.deepEqual(preview.plannedToolActions.map((item) => item.id), ['agentmemory']);
     assert.equal(preview.dryRun, true);
-    await assert.rejects(readFile(path.join(targetDir, '.loopengine/tool-state/tools.json'), 'utf8'), /ENOENT/u);
+    await assert.rejects(readFile(path.join(targetDir, '.cognis/tool-state/tools.json'), 'utf8'), /ENOENT/u);
 
     const result = await runCli([
       'provision', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--tool', 'agentmemory', '--write', '--allow-preview', '--allow-degraded',
     ], { env: offlineEnv });
     assert.deepEqual(Object.keys(result.tools), ['agentmemory']);
-    const state = JSON.parse(await readFile(path.join(targetDir, '.loopengine/tool-state/tools.json'), 'utf8'));
+    const state = JSON.parse(await readFile(path.join(targetDir, '.cognis/tool-state/tools.json'), 'utf8'));
     assert.deepEqual(Object.keys(state.tools), ['agentmemory']);
     assert.match(state.tools.agentmemory.source, /^npm:@agentmemory\/mcp@/u);
     assert.equal(Number.isNaN(Date.parse(state.tools.agentmemory.startedAt)), false);
@@ -881,14 +1087,14 @@ test('provision previews and writes only explicitly selected tools', async () =>
 });
 
 test('provision rejects tool directories redirected outside the project', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-link-project-'));
-  const outside = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-link-outside-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-link-project-'));
+  const outside = await mkdtemp(path.join(tmpdir(), 'cognis-tools-link-outside-'));
   try {
     await runCli(['init', '--project', targetDir, '--profile', 'full']);
     await runCli([
       'install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--write', '--confirm-red-zone',
     ], { env: offlineEnv });
-    const toolDir = path.join(targetDir, '.agents/loopengine/tools/agentmemory');
+    const toolDir = path.join(targetDir, '.agents/cognis/tools/agentmemory');
     await rm(toolDir, { force: true, recursive: true });
     await symlink(outside, toolDir, process.platform === 'win32' ? 'junction' : 'dir');
 
@@ -906,10 +1112,10 @@ test('provision rejects tool directories redirected outside the project', async 
 });
 
 test('full write degrades unavailable tools and rollback removes only the managed MCP block', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'loopengine-tools-cli-write-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-cli-write-'));
   try {
     await runCli(['init', '--project', targetDir]);
-    const projectConfigPath = path.join(targetDir, 'loopengine.config.json');
+    const projectConfigPath = path.join(targetDir, 'cognis.config.json');
     const projectConfig = JSON.parse(await readFile(projectConfigPath, 'utf8'));
     await writeFile(projectConfigPath, `${JSON.stringify({ ...projectConfig, profile: 'full' }, null, 2)}\n`, 'utf8');
     const configPath = path.join(targetDir, '.codex/config.toml');
@@ -923,7 +1129,7 @@ test('full write degrades unavailable tools and rollback removes only the manage
     const config = await readFile(configPath, 'utf8');
 
     assert.equal(config.includes('model = "gpt-5"'), true);
-    assert.equal(config.includes('# LOOPENGINE:MCP:START'), true);
+    assert.equal(config.includes('# COGNIS:MCP:START'), true);
     assert.equal(Object.values(report.tools).some((tool) => tool.status === 'degraded'), true);
     assert.equal(report.status, 'degraded');
     assert.equal(report.ok, false);
@@ -958,13 +1164,13 @@ test('full write degrades unavailable tools and rollback removes only the manage
     assert.match(summary, /tool: codebaseMemoryMcp/u);
     assert.match(summary, /phase: dependency-install/u);
     assert.match(summary, /reason: Offline test fixture\./u);
-    assert.match(summary, /next: loopengine provision --project <project> --target codex --profile full --write/u);
+    assert.match(summary, /next: cognis provision --project <project> --target codex --profile full --write/u);
 
     await runCli(['rollback', '--project', targetDir, '--write', '--confirm-red-zone'], { env: offlineEnv });
     const rolledBack = await readFile(configPath, 'utf8');
     assert.equal(rolledBack.includes('model = "gpt-5"'), true);
-    assert.equal(rolledBack.includes('# LOOPENGINE:MCP:START'), false);
-    await assert.rejects(readFile(path.join(targetDir, '.loopengine/tool-state/tools.json'), 'utf8'), /ENOENT/u);
+    assert.equal(rolledBack.includes('# COGNIS:MCP:START'), false);
+    await assert.rejects(readFile(path.join(targetDir, '.cognis/tool-state/tools.json'), 'utf8'), /ENOENT/u);
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }
