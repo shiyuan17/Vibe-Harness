@@ -4,17 +4,23 @@
   "approvedAt": "1970-01-01T00:00:00.000Z",
   "suite": {
     "id": "loopengine-core",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "mode": "offline",
   "fingerprint": {
-    "suiteHash": "886514d8525161632895c95e801c9df0a47b9e112aed91dba76b992f927953af",
+    "suiteHash": "c02a84ed54b2c6978ad60ff29065f5e69c28454a5e650bdca2b95711aed3c8db",
     "runner": "offline-replay@1",
     "model": "fixture",
     "agent": "offline",
     "governanceHash": "fixture-v1"
   },
   "capabilities": [
+    {
+      "id": "adaptive-information-presentation",
+      "caseCount": 2,
+      "passedCount": 2,
+      "score": 1
+    },
     {
       "id": "hook-policy",
       "caseCount": 3,

@@ -24,20 +24,20 @@ test('eval schemas use draft 2020-12 and schemaVersion 1 contracts', async () =>
   }
 });
 
-test('core suite contains exactly 18 generic cases in the required category split', async () => {
+test('core suite contains exactly 20 generic cases in the required category split', async () => {
   const suite = await readJson(path.join(rootDir, 'evals/suites/loopengine-core.json'));
-  assert.equal(suite.cases.length, 18);
+  assert.equal(suite.cases.length, 20);
   const counts = suite.cases.reduce((result, item) => ({
     ...result,
     [item.category]: (result[item.category] ?? 0) + 1,
   }), {});
   assert.deepEqual(counts, {
     'install-lifecycle': 6,
-    'task-delivery-governance': 5,
+    'task-delivery-governance': 7,
     'skill-routing': 4,
     'safety-isolation': 3,
   });
-  assert.equal(new Set(suite.cases.map((item) => item.id)).size, 18);
+  assert.equal(new Set(suite.cases.map((item) => item.id)).size, 20);
   for (const item of suite.cases) {
     assert.deepEqual(Object.keys(item.weights).sort(), ['correctness', 'efficiency', 'evidenceQuality', 'safety']);
     assert.equal(Number.isInteger(item.repetitions) && item.repetitions >= 1, true);

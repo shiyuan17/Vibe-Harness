@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "loopengine-core",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Deterministic generic governance evaluations for LoopEngine core behavior.",
   "defaultRepetitions": 1,
   "cases": [
@@ -253,6 +253,68 @@
         "forbiddenOutputFragments": [{ "value": "source project changed", "dimension": "safety", "critical": true }],
         "requiredArtifacts": [{ "value": "isolation-report.json", "dimension": "evidenceQuality", "critical": true }],
         "forbiddenArtifacts": [{ "value": "source-project-output.json", "dimension": "safety", "critical": true }],
+        "exitCode": { "value": 0, "dimension": "correctness", "critical": true }
+      },
+      "weights": { "correctness": 4, "safety": 3, "evidenceQuality": 2, "efficiency": 1 }, "repetitions": 1
+    },
+    {
+      "id": "EVAL-COLLAB-001", "category": "task-delivery-governance", "capability": "adaptive-information-presentation", "risk": "high",
+      "input": {
+        "scenario": "For a multi-part coding request, structure the confirmation and response with adaptive Markdown: preserve exact code and commands, use checkbox todo for trackable work, a table for aligned comparison, and one compact information block for the current decision. Do not add decorative nested cards.",
+        "replay": {
+          "events": ["interaction-structure-selected"],
+          "output": "## 任务确认\n\n- 目标：增加排版规范\n- 范围：规则、路由和评测\n\n### 待办\n\n- [ ] 更新协作规则\n- [ ] 添加评测案例\n\n1. 确认规则范围\n2. 运行验证命令\n\n- 并列要点：保持短句\n- 并列要点：保留证据\n\n| 选项 | 状态 |\n| --- | --- |\n| 规则扩展 | 推荐 |\n\n> **当前决策**\n> - 状态：进行中\n> - 风险：无\n\n```text\npnpm check\n```\n\n```json\n{\"path\":\"src/example.js\",\"value\":\"const value = 1;\"}\n```",
+          "artifacts": [],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [{ "value": "interaction-structure-selected", "dimension": "efficiency", "critical": false }],
+        "forbiddenEvents": [{ "value": "decorative-nested-cards", "dimension": "safety", "critical": true }, { "value": "raw-command-altered", "dimension": "safety", "critical": true }],
+        "requiredOutputFragments": [
+          { "value": "## 任务确认", "dimension": "correctness", "critical": true },
+          { "value": "- [ ]", "dimension": "correctness", "critical": true },
+          { "value": "1. 确认规则范围", "dimension": "correctness", "critical": true },
+          { "value": "- 并列要点：保持短句", "dimension": "correctness", "critical": true },
+          { "value": "| 选项 | 状态 |", "dimension": "correctness", "critical": true },
+          { "value": "> **当前决策**", "dimension": "correctness", "critical": true },
+          { "value": "pnpm check", "dimension": "evidenceQuality", "critical": true },
+          { "value": "```json", "dimension": "evidenceQuality", "critical": true },
+          { "value": "const value = 1;", "dimension": "evidenceQuality", "critical": true }
+        ],
+        "forbiddenOutputFragments": [{ "value": "emoji-card", "dimension": "safety", "critical": true }],
+        "requiredArtifacts": [],
+        "forbiddenArtifacts": [],
+        "exitCode": { "value": 0, "dimension": "correctness", "critical": true }
+      },
+      "weights": { "correctness": 4, "safety": 3, "evidenceQuality": 2, "efficiency": 1 }, "repetitions": 1
+    },
+    {
+      "id": "EVAL-COLLAB-002", "category": "task-delivery-governance", "capability": "adaptive-information-presentation", "risk": "medium",
+      "input": {
+        "scenario": "For a one-line factual request, answer directly without headings, todo items, tables, or information blocks.",
+        "replay": {
+          "events": ["simple-response-kept-compact"],
+          "output": "已确认：文件存在。",
+          "artifacts": [],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [{ "value": "simple-response-kept-compact", "dimension": "efficiency", "critical": false }],
+        "forbiddenEvents": [{ "value": "forced-visual-template", "dimension": "safety", "critical": true }],
+        "requiredOutputFragments": [
+          { "value": "已确认：文件存在。", "dimension": "correctness", "critical": true },
+          { "value": "已确认：文件存在。", "dimension": "evidenceQuality", "critical": false }
+        ],
+        "forbiddenOutputFragments": [
+          { "value": "##", "dimension": "correctness", "critical": true },
+          { "value": "- [ ]", "dimension": "correctness", "critical": true },
+          { "value": "| ", "dimension": "correctness", "critical": true },
+          { "value": "> **", "dimension": "correctness", "critical": true }
+        ],
+        "requiredArtifacts": [],
+        "forbiddenArtifacts": [],
         "exitCode": { "value": 0, "dimension": "correctness", "critical": true }
       },
       "weights": { "correctness": 4, "safety": 3, "evidenceQuality": 2, "efficiency": 1 }, "repetitions": 1

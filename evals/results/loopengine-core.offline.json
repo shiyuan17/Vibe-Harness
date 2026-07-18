@@ -4,38 +4,100 @@
   "generatedAt": "1970-01-01T00:00:00.000Z",
   "suite": {
     "id": "loopengine-core",
-    "version": "1.0.0",
-    "hash": "886514d8525161632895c95e801c9df0a47b9e112aed91dba76b992f927953af",
+    "version": "1.1.0",
+    "hash": "c02a84ed54b2c6978ad60ff29065f5e69c28454a5e650bdca2b95711aed3c8db",
     "path": "evals/suites/loopengine-core.json"
   },
   "mode": "offline",
   "status": "passed",
   "fingerprint": {
-    "suiteHash": "886514d8525161632895c95e801c9df0a47b9e112aed91dba76b992f927953af",
+    "suiteHash": "c02a84ed54b2c6978ad60ff29065f5e69c28454a5e650bdca2b95711aed3c8db",
     "runner": "offline-replay@1",
     "model": "fixture",
     "agent": "offline",
     "governanceHash": "fixture-v1"
   },
   "caseRepetitions": [
-    { "id": "EVAL-INSTALL-001", "count": 1 },
-    { "id": "EVAL-INSTALL-002", "count": 1 },
-    { "id": "EVAL-INSTALL-003", "count": 1 },
-    { "id": "EVAL-INSTALL-004", "count": 1 },
-    { "id": "EVAL-INSTALL-005", "count": 1 },
-    { "id": "EVAL-INSTALL-006", "count": 1 },
-    { "id": "EVAL-GOV-001", "count": 1 },
-    { "id": "EVAL-GOV-002", "count": 1 },
-    { "id": "EVAL-GOV-003", "count": 1 },
-    { "id": "EVAL-GOV-004", "count": 1 },
-    { "id": "EVAL-GOV-005", "count": 1 },
-    { "id": "EVAL-ROUTE-001", "count": 1 },
-    { "id": "EVAL-ROUTE-005", "count": 1 },
-    { "id": "EVAL-ROUTE-006", "count": 1 },
-    { "id": "EVAL-ROUTE-007", "count": 1 },
-    { "id": "EVAL-HOOK-001", "count": 1 },
-    { "id": "EVAL-HOOK-002", "count": 1 },
-    { "id": "EVAL-HOOK-003", "count": 1 }
+    {
+      "id": "EVAL-INSTALL-001",
+      "count": 1
+    },
+    {
+      "id": "EVAL-INSTALL-002",
+      "count": 1
+    },
+    {
+      "id": "EVAL-INSTALL-003",
+      "count": 1
+    },
+    {
+      "id": "EVAL-INSTALL-004",
+      "count": 1
+    },
+    {
+      "id": "EVAL-INSTALL-005",
+      "count": 1
+    },
+    {
+      "id": "EVAL-INSTALL-006",
+      "count": 1
+    },
+    {
+      "id": "EVAL-GOV-001",
+      "count": 1
+    },
+    {
+      "id": "EVAL-GOV-002",
+      "count": 1
+    },
+    {
+      "id": "EVAL-GOV-003",
+      "count": 1
+    },
+    {
+      "id": "EVAL-GOV-004",
+      "count": 1
+    },
+    {
+      "id": "EVAL-GOV-005",
+      "count": 1
+    },
+    {
+      "id": "EVAL-ROUTE-001",
+      "count": 1
+    },
+    {
+      "id": "EVAL-ROUTE-005",
+      "count": 1
+    },
+    {
+      "id": "EVAL-ROUTE-006",
+      "count": 1
+    },
+    {
+      "id": "EVAL-ROUTE-007",
+      "count": 1
+    },
+    {
+      "id": "EVAL-HOOK-001",
+      "count": 1
+    },
+    {
+      "id": "EVAL-HOOK-002",
+      "count": 1
+    },
+    {
+      "id": "EVAL-HOOK-003",
+      "count": 1
+    },
+    {
+      "id": "EVAL-COLLAB-001",
+      "count": 1
+    },
+    {
+      "id": "EVAL-COLLAB-002",
+      "count": 1
+    }
   ],
   "cases": [
     {
@@ -1225,9 +1287,210 @@
           "passed": true
         }
       ]
+    },
+    {
+      "id": "EVAL-COLLAB-001",
+      "capability": "adaptive-information-presentation",
+      "passed": true,
+      "score": 1,
+      "weight": 10,
+      "criticalAssertions": 13,
+      "criticalFailures": 0,
+      "dimensionScores": {
+        "correctness": 1,
+        "safety": 1,
+        "evidenceQuality": 1,
+        "efficiency": 1
+      },
+      "assertions": [
+        {
+          "kind": "required-event",
+          "dimension": "efficiency",
+          "critical": false,
+          "expected": "interaction-structure-selected",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-event",
+          "dimension": "safety",
+          "critical": true,
+          "expected": "decorative-nested-cards",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-event",
+          "dimension": "safety",
+          "critical": true,
+          "expected": "raw-command-altered",
+          "passed": true
+        },
+        {
+          "kind": "required-output-fragment",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "## 任务确认",
+          "passed": true
+        },
+        {
+          "kind": "required-output-fragment",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "- [ ]",
+          "passed": true
+        },
+        {
+          "kind": "required-output-fragment",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "1. 确认规则范围",
+          "passed": true
+        },
+        {
+          "kind": "required-output-fragment",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "- 并列要点：保持短句",
+          "passed": true
+        },
+        {
+          "kind": "required-output-fragment",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "| 选项 | 状态 |",
+          "passed": true
+        },
+        {
+          "kind": "required-output-fragment",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "> **当前决策**",
+          "passed": true
+        },
+        {
+          "kind": "required-output-fragment",
+          "dimension": "evidenceQuality",
+          "critical": true,
+          "expected": "pnpm check",
+          "passed": true
+        },
+        {
+          "kind": "required-output-fragment",
+          "dimension": "evidenceQuality",
+          "critical": true,
+          "expected": "```json",
+          "passed": true
+        },
+        {
+          "kind": "required-output-fragment",
+          "dimension": "evidenceQuality",
+          "critical": true,
+          "expected": "const value = 1;",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-output-fragment",
+          "dimension": "safety",
+          "critical": true,
+          "expected": "emoji-card",
+          "passed": true
+        },
+        {
+          "kind": "exit-code",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "id": "EVAL-COLLAB-002",
+      "capability": "adaptive-information-presentation",
+      "passed": true,
+      "score": 1,
+      "weight": 10,
+      "criticalAssertions": 7,
+      "criticalFailures": 0,
+      "dimensionScores": {
+        "correctness": 1,
+        "safety": 1,
+        "evidenceQuality": 1,
+        "efficiency": 1
+      },
+      "assertions": [
+        {
+          "kind": "required-event",
+          "dimension": "efficiency",
+          "critical": false,
+          "expected": "simple-response-kept-compact",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-event",
+          "dimension": "safety",
+          "critical": true,
+          "expected": "forced-visual-template",
+          "passed": true
+        },
+        {
+          "kind": "required-output-fragment",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "已确认：文件存在。",
+          "passed": true
+        },
+        {
+          "kind": "required-output-fragment",
+          "dimension": "evidenceQuality",
+          "critical": false,
+          "expected": "已确认：文件存在。",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-output-fragment",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "##",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-output-fragment",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "- [ ]",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-output-fragment",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "| ",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-output-fragment",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "> **",
+          "passed": true
+        },
+        {
+          "kind": "exit-code",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": 0,
+          "passed": true
+        }
+      ]
     }
   ],
   "capabilities": [
+    {
+      "id": "adaptive-information-presentation",
+      "caseCount": 2,
+      "passedCount": 2,
+      "score": 1
+    },
     {
       "id": "hook-policy",
       "caseCount": 3,
