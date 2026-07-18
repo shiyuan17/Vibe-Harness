@@ -26,9 +26,11 @@ test('runtime audit mirrors the installed dependency surface for every tool', as
   });
 
   assert.equal(report.ok, true);
-  assert.equal(report.tools.length, 4);
+  assert.equal(report.tools.length, 5);
   const agentmemory = calls.find((call) => call.id === 'agentmemory' && call.surface === 'installed');
+  const chromeDevtools = calls.find((call) => call.id === 'chrome-devtools-mcp' && call.surface === 'installed');
   const playwright = calls.find((call) => call.id === 'playwright-cli' && call.surface === 'installed');
+  assert.ok(chromeDevtools, 'Chrome DevTools MCP dependency surface should be audited');
   assert.equal(agentmemory.args.includes('--omit=optional'), true);
   assert.equal(agentmemory.args.includes('--omit=dev'), false);
   assert.equal(playwright.args.includes('--omit=dev'), false);

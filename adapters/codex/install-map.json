@@ -38,6 +38,12 @@
       "contentStrategy": "replace"
     },
     {
+      "group": "rules-chrome-devtools",
+      "source": "rules/chrome-devtools-mcp.md",
+      "target": "docs/rules/chrome-devtools-mcp.md",
+      "contentStrategy": "replace"
+    },
+    {
       "group": "rules-core",
       "source": "rules/ai-collab-rules.md",
       "target": "docs/rules/ai-collab-rules.md",
@@ -271,6 +277,25 @@
       "group": "tools-playwright",
       "source": "runtime/tools/playwright-cli/run.mjs",
       "target": ".agents/cognis/tools/playwright-cli/run.mjs",
+      "executable": true,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-chrome-devtools",
+      "source": "runtime/tools/chrome-devtools-mcp/package.json",
+      "target": ".agents/cognis/tools/chrome-devtools-mcp/package.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-chrome-devtools",
+      "source": "runtime/tools/chrome-devtools-mcp/package-lock.json",
+      "target": ".agents/cognis/tools/chrome-devtools-mcp/package-lock.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-chrome-devtools",
+      "source": "runtime/tools/chrome-devtools-mcp/run.mjs",
+      "target": ".agents/cognis/tools/chrome-devtools-mcp/run.mjs",
       "executable": true,
       "contentStrategy": "replace"
     },

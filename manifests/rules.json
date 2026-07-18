@@ -5,6 +5,7 @@
     { "id": "agent-skill-routing", "source": "rules/agent-skill-routing.md" },
     { "id": "eval-driven-development", "source": "rules/eval-driven-development.md" },
     { "id": "codebase-memory-mcp", "source": "rules/codebase-memory-mcp.md" },
+    { "id": "chrome-devtools-mcp", "source": "rules/chrome-devtools-mcp.md" },
     { "id": "git-rules", "source": "rules/git-rules.md" },
     { "id": "test-rules", "source": "rules/test-rules.md" },
     { "id": "ai-collab-rules", "source": "rules/ai-collab-rules.md" },

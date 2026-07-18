@@ -7,6 +7,7 @@ const REGISTRY = 'https://registry.npmjs.org';
 const SEVERITIES = ['info', 'low', 'moderate', 'high', 'critical'];
 const RUNTIMES = [
   { directory: 'codebase-memory-mcp', id: 'codebase-memory-mcp' },
+  { directory: 'chrome-devtools-mcp', id: 'chrome-devtools-mcp' },
   { directory: 'playwright-cli', id: 'playwright-cli' },
   { directory: 'open-code-review', id: 'open-code-review' },
   { directory: 'agentmemory', id: 'agentmemory', omitOptional: true },

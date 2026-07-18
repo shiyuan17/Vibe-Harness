@@ -1,0 +1,12 @@
+{
+  "name": "@cognis/chrome-devtools-mcp-runtime",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Project-local Chrome DevTools MCP runtime managed by Cognis.",
+  "dependencies": {
+    "chrome-devtools-mcp": "1.6.0"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  }
+}

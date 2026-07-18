@@ -362,13 +362,15 @@ test('external integration skills document usable and unavailable paths', async 
   assert.match(await readSkill('agentmemory'), /MCP[\s\S]*HTTP API[\s\S]*回退/u);
   assert.match(await readSkill('agentmemory'), /memory_commits[\s\S]*memory_commit_lookup[\s\S]*git show/u);
   const browserVerification = await readSkill('browser-verification');
-  assert.match(browserVerification, /Playwright CLI[\s\S]*人工浏览器步骤/u);
-  assert.doesNotMatch(browserVerification, /DevTools MCP|browser MCP/iu);
+  const browserManifest = manifest.items.find((item) => item.id === 'browser-verification');
+  assert.match(browserVerification, /Playwright CLI[\s\S]*Chrome DevTools MCP[\s\S]*人工浏览器步骤/u);
+  assert.match(browserVerification, /DevTools 定位[\s\S]*Playwright 回归/u);
+  assert.deepEqual(browserManifest.requiresTools, ['managed Playwright CLI or Chrome DevTools MCP']);
 });
 
 test('active installable assets do not depend on retired environment-provided capabilities', async () => {
   const roots = ['rules', 'skills', 'manifests', 'adapters', 'runtime'];
-  const forbidden = /DevTools MCP|browser MCP|browser-testing-with-devtools|`impeccable`|`taste-skill`|环境提供的/iu;
+  const forbidden = /browser-testing-with-devtools|`impeccable`|`taste-skill`|环境提供的/iu;
   for (const root of roots) {
     for (const file of await filesUnder(path.join(rootDir, root))) {
       if (!['.js', '.json', '.md', '.mjs', '.toml', '.ts', '.yaml', '.yml'].includes(path.extname(file))) continue;

@@ -145,11 +145,21 @@
       "id": "tool-provisioning",
       "source": "project-local tool provisioning",
       "disposition": "validator",
-      "targets": ["scripts/lib/tool-provisioning.js", "scripts/lib/runtime-audit.js", "runtime/tools/agentmemory/package-lock.json"],
+      "targets": ["scripts/lib/tool-provisioning.js", "scripts/lib/runtime-audit.js", "runtime/tools/agentmemory/package-lock.json", "runtime/tools/chrome-devtools-mcp/package-lock.json"],
       "tests": ["tests/tool-provisioning.test.js", "tests/runtime-audit.test.js"],
       "profiles": ["core", "full"],
       "docs": ["docs/architecture.md"],
       "evaluation": { "required": false, "reason": "Provisioning ownership, command flags, and dependency audits are deterministic lifecycle checks." }
+    },
+    {
+      "id": "chrome-devtools-mcp",
+      "source": "project-local Chrome DevTools diagnostics",
+      "disposition": "generalize",
+      "targets": ["rules/chrome-devtools-mcp.md", "runtime/tools/chrome-devtools-mcp/run.mjs", "runtime/tools/chrome-devtools-mcp/package-lock.json", "skills/integrations/browser-verification/SKILL.md"],
+      "tests": ["tests/module-selection.test.js", "tests/tool-provisioning.test.js", "tests/runtime-audit.test.js", "tests/skill-closure.test.js"],
+      "profiles": ["full"],
+      "docs": ["README.md", "README.zh-CN.md", "docs/architecture.md"],
+      "evaluation": { "required": true, "suites": ["evals/suites/cognis-core.json"] }
     },
     {
       "id": "skill-quality",

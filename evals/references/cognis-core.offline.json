@@ -4,11 +4,11 @@
   "approvedAt": "2026-07-18T06:53:42.893Z",
   "suite": {
     "id": "cognis-core",
-    "version": "1.1.0"
+    "version": "1.2.0"
   },
   "mode": "offline",
   "fingerprint": {
-    "suiteHash": "d46fbd2eccbce04f674ac32b90aa5eb062e001796e6ade2eb47f70588525673b",
+    "suiteHash": "2231ad7f30a21bca6adc2b8e9118d49d2564e675d997bbf3c99a80134e091420",
     "runner": "offline-replay@1",
     "model": "fixture",
     "agent": "offline",
@@ -19,6 +19,12 @@
       "id": "adaptive-information-presentation",
       "caseCount": 2,
       "passedCount": 2,
+      "score": 1
+    },
+    {
+      "id": "chrome-devtools-mcp",
+      "caseCount": 3,
+      "passedCount": 3,
       "score": 1
     },
     {

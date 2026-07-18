@@ -13,8 +13,8 @@
     },
     {
       "id": "full",
-      "description": "全安装：通用安装加三个 stable 项目内工具、Agentmemory preview runtime、codebase 索引、MCP 注册和 Codex hooks。",
-      "groups": ["agents", "rules-minimal", "rules-core", "rules-full", "rules-codebase-memory", "templates-minimal", "templates-core", "templates-full", "templates-memory", "schemas-core", "runtime-basic", "runtime-task", "runtime-full", "runtime-eval", "runtime-eval-online", "skills-core", "skills-full", "skills-memory", "evals-core", "evals-online", "tools-playwright", "tools-codebase-memory", "tools-open-code-review", "tools-agentmemory", "mcp-config", "hooks"]
+      "description": "全安装：通用安装加四个 stable 项目内工具、Agentmemory preview runtime、codebase 索引、浏览器诊断、MCP 注册和 Codex hooks。",
+      "groups": ["agents", "rules-minimal", "rules-core", "rules-full", "rules-codebase-memory", "rules-chrome-devtools", "templates-minimal", "templates-core", "templates-full", "templates-memory", "schemas-core", "runtime-basic", "runtime-task", "runtime-full", "runtime-eval", "runtime-eval-online", "skills-core", "skills-full", "skills-memory", "evals-core", "evals-online", "tools-playwright", "tools-chrome-devtools", "tools-codebase-memory", "tools-open-code-review", "tools-agentmemory", "mcp-config", "hooks"]
     },
     {
       "id": "docs-only",

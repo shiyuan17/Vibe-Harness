@@ -25,7 +25,7 @@ Cognis gives Codex, Claude Code, and Gemini CLI a shared way to plan, execute, a
 | A long task loses important context between sessions. | `baseline` records project, installation, tool, and verification status; project memory and handoff templates preserve decisions and known issues. | The next session can recover project facts without reconstructing everything from chat history. |
 | Rules drift between AI coding tools. | Native project files and tested install levels (`profiles`) for Codex, Claude Code, and Gemini CLI. | Each tool gets the same core working rules in the format it actually supports. |
 | Installing or updating shared rules feels risky. | Dry-run previews, clearly marked sections, backups, validation, safe uninstall, and rollback. | You can inspect changes before writing and reverse managed changes without replacing unrelated project content. |
-| Useful coding tools are scattered or configured globally. | Codex `full` prepares codebase indexing, Playwright, and Open Code Review inside the project; Agentmemory remains explicit preview while its dependency advisories are unresolved. | Code understanding, browser checks, and review stay project-local; unavailable tools are reported as `degraded`. |
+| Useful coding tools are scattered or configured globally. | Codex `full` prepares codebase indexing, Playwright, Chrome DevTools MCP, and Open Code Review inside the project; Agentmemory remains explicit preview while its dependency advisories are unresolved. | Code understanding, browser checks, diagnostics, and review stay project-local; unavailable tools are reported as `degraded`. |
 
 ## Why Not Just Write an AGENTS.md?
 
@@ -93,7 +93,7 @@ An install level, called a `profile` in commands and configuration, is a ready-m
 | --- | --- | --- |
 | `minimal` | The main Agent instruction file, basic working rules, Git and test rules, and task templates | Small projects that want basic guidance without extra skills or tools |
 | `core` | Everything in `minimal`, plus common engineering rules, task checks, Red Team completion review, routing skills, and Playwright prepared for on-demand use | Most projects; this is the recommended starting point |
-| `full` | Everything in `core`, plus project memory, advanced workflow skills, three stable project tools, preview Agentmemory assets, Codex MCP setup, and Codex hooks | Long-running or high-risk Codex projects |
+| `full` | Everything in `core`, plus project memory, advanced workflow skills, four stable project tools, preview Agentmemory assets, Codex MCP setup, and Codex hooks | Long-running or high-risk Codex projects |
 | `docs-only` | Instructions, reusable rules, templates, and schemas, without executable tools, skills, MCP, or hooks | Projects that only want the documentation-based setup |
 The exact files included in each profile are defined in `manifests/profiles.json`.
 
@@ -198,7 +198,7 @@ pnpm cognis install --project ../some-project --target codex --profile core --mo
 pnpm cognis install --project ../some-project --target codex --profile core --modules agents,rules,skills --write
 ```
 
-Available modules are `agents`, `rules`, `templates`, `governance`, `skills`, `memory`, `playwright`, `codebase-memory`, `open-code-review`, `agentmemory`, and `hooks`. Cognis automatically adds any required dependencies. The command report shows what you requested, what will be installed, and which dependencies were added as `requestedModules`, `resolvedModules`, and `implicitModules`.
+Available modules are `agents`, `rules`, `templates`, `governance`, `skills`, `memory`, `playwright`, `chrome-devtools`, `codebase-memory`, `open-code-review`, `agentmemory`, and `hooks`. Cognis automatically adds any required dependencies. The command report shows what you requested, what will be installed, and which dependencies were added as `requestedModules`, `resolvedModules`, and `implicitModules`.
 
 </details>
 
@@ -260,9 +260,11 @@ pnpm cognis doctor --project ../some-project
 <details>
 <summary><strong>Built-in tools and command status</strong></summary>
 
-This section helps when an install or health check reports a problem. The `core` profile prepares Playwright for browser checks when it is first needed. Codex `full` also prepares `codebase-memory-mcp`, Open Code Review, and Agentmemory.
+This section helps when an install or health check reports a problem. The `core` profile prepares Playwright for browser checks when it is first needed. Codex `full` also prepares `codebase-memory-mcp`, Chrome DevTools MCP, Open Code Review, and Agentmemory preview assets.
 
 Cognis writes MCP settings only to its own marked section in the project's `.codex/config.toml`. It reads credentials from the current terminal session and never saves them in the project.
+
+The `chrome-devtools` module pins `chrome-devtools-mcp@1.6.0` and starts the project-local entry with system Google Chrome in headless isolated mode. It disables usage statistics, update checks, and CrUX enrichment, redacts network headers, does not forward arbitrary command arguments, and never connects to a personal Chrome profile or remote debugging port. Provisioning calls `list_pages` as a real browser smoke check; a missing or failed Chrome launch is reported as `CHROME_LAUNCH_FAILED` without persisting pages, headers, response bodies, credentials, or the raw process environment.
 
 Open Code Review resolves its endpoint in this order: a complete `OCR_LLM_URL` + `OCR_LLM_TOKEN` + `OCR_LLM_MODEL` set, the active provider in the current user's `~/.opencodereview/config.json`, compatible `ANTHROPIC_*` or `OPENAI_*` environment variables, and finally the current Codex provider in `~/.codex/config.toml`. The selected values are passed only to the Open Code Review child process. They are never written to `cognis.config.json`, `.cognis/tool-state`, or MCP configuration. Missing or incomplete settings remain `pending-config` with a redacted diagnostic.
 

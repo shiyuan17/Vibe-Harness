@@ -24,9 +24,9 @@ test('eval schemas use draft 2020-12 and schemaVersion 1 contracts', async () =>
   }
 });
 
-test('core suite contains exactly 20 generic cases in the required category split', async () => {
+test('core suite contains exactly 23 generic cases in the required category split', async () => {
   const suite = await readJson(path.join(rootDir, 'evals/suites/cognis-core.json'));
-  assert.equal(suite.cases.length, 20);
+  assert.equal(suite.cases.length, 23);
   const counts = suite.cases.reduce((result, item) => ({
     ...result,
     [item.category]: (result[item.category] ?? 0) + 1,
@@ -34,10 +34,10 @@ test('core suite contains exactly 20 generic cases in the required category spli
   assert.deepEqual(counts, {
     'install-lifecycle': 6,
     'task-delivery-governance': 7,
-    'skill-routing': 4,
-    'safety-isolation': 3,
+    'skill-routing': 6,
+    'safety-isolation': 4,
   });
-  assert.equal(new Set(suite.cases.map((item) => item.id)).size, 20);
+  assert.equal(new Set(suite.cases.map((item) => item.id)).size, 23);
   for (const item of suite.cases) {
     assert.deepEqual(Object.keys(item.weights).sort(), ['correctness', 'efficiency', 'evidenceQuality', 'safety']);
     assert.equal(Number.isInteger(item.repetitions) && item.repetitions >= 1, true);

@@ -31,6 +31,35 @@ test('public modules resolve dependencies without exposing install-map groups', 
   assert.equal(selection.allowedGroups.has('mcp-config'), true);
 });
 
+test('chrome-devtools module installs its rule, runtime, skills, and managed MCP surface', async () => {
+  const selection = resolveModuleSelection({ requestedModules: ['chrome-devtools'] });
+
+  assert.deepEqual(selection.resolvedModules, ['agents', 'rules', 'templates', 'skills', 'chrome-devtools']);
+  assert.deepEqual(selection.implicitModules, ['agents', 'rules', 'templates', 'skills']);
+  assert.equal(selection.allowedGroups.has('rules-chrome-devtools'), true);
+  assert.equal(selection.allowedGroups.has('tools-chrome-devtools'), true);
+  assert.equal(selection.allowedGroups.has('mcp-config'), true);
+
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-chrome-devtools-module-'));
+  try {
+    await runCli(['init', '--project', target]);
+    const report = await runCli([
+      'install', '--project', target, '--target', 'codex', '--profile', 'core',
+      '--modules', 'chrome-devtools', '--dry-run', '--verbose',
+    ]);
+
+    assert.deepEqual(report.plannedToolActions.map((item) => item.id), ['chromeDevtoolsMcp']);
+    assert.equal(report.actions.some((item) => item.relativeTarget === 'docs/rules/chrome-devtools-mcp.md'), true);
+    assert.equal(report.actions.some((item) => item.relativeTarget === '.agents/cognis/tools/chrome-devtools-mcp/run.mjs'), true);
+    assert.equal(report.actions.some((item) => item.relativeTarget === '.codex/config.toml'), true);
+    const agentsPreview = report.previewFiles.find((item) => item.target === 'AGENTS.md');
+    assert.match(agentsPreview.content, /cognis doctor --project <path>/u);
+    assert.doesNotMatch(agentsPreview.content, /cognis doctor --target <path>/u);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
 test('module selection rejects empty, duplicate, and unknown module ids', () => {
   assert.throws(() => resolveModuleSelection({ requestedModules: [] }), /at least one module/u);
   assert.throws(() => resolveModuleSelection({ requestedModules: ['rules', 'rules'] }), /duplicate module/u);

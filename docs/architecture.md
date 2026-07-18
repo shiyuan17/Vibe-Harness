@@ -10,7 +10,7 @@ Cognis 是跨平台、Codex 完整能力优先的可复用 AI coding governance 
 - `runtime/governance/`：将中英文 Markdown 视图解析为语言无关 TaskDocument IR，再校验 AC-ID、完成证据、完整流程控制块和结构化 Red Team 审查包。
 - `runtime/hooks/`：规范化 Codex 事件并执行可移植的安全、上下文和完成策略。
 - `runtime/evals/`：提供项目内离线评测 runtime 和 full 使用的 Codex 在线 runner；runner 只在一次性项目中执行。
-- `runtime/tools/`：固定版本的项目内工具 bootstrap；稳定 full 默认 provision 三个工具，Agentmemory 在风险接受前保持 opt-in preview。
+- `runtime/tools/`：固定版本的项目内工具 bootstrap；稳定 full 默认 provision 四个工具，Agentmemory 在风险接受前保持 opt-in preview。
 - `scripts/lib/project-baseline.js`：汇总项目画像、安装状态、验证摘要、drift 和后续工作流，生成受管 JSON/Markdown 基线。
 - `adapters/codex/`：包含精简 AGENTS 模板、共享 install map 和官方 PascalCase Codex hook 配置。
 - `adapters/claude/`、`adapters/gemini/`：包含项目级 `CLAUDE.md` / `GEMINI.md` 模板；Skills target 由 adapter catalog 转换。
@@ -32,6 +32,8 @@ Cognis 是跨平台、Codex 完整能力优先的可复用 AI coding governance 
 10. `cognis verify --project <path>` 顺序执行 governance、lint、typecheck 和 eval。
 
 Open Code Review 的运行配置解析顺序固定为完整 `OCR_LLM_*` 环境变量、用户级 Open Code Review active provider、Anthropic/OpenAI 兼容环境变量、Codex provider TOML。解析后的 endpoint、model、protocol 和 token 只存在于子进程环境；项目配置、MCP 受管块和工具状态不保存凭据。codebase-memory 则把项目根作为 `CBM_ALLOWED_ROOT` 和 cwd，根索引统一使用 `--repo-path .`，并用 `index_status` 二次确认根路径、状态以及 nodes/edges。路径越界和损坏缓存分别使用 `INDEX_PATH_OUTSIDE_ALLOWED_ROOT` 与 `INDEX_CORRUPT_REINDEX_REQUIRED`，后者会在下一次 provision 中自动重建受管缓存。
+
+Chrome DevTools MCP 固定为项目内 `chrome-devtools-mcp@1.6.0`，只调用 lockfile 对应的本地入口。wrapper 以系统 Google Chrome 的无头隔离模式运行，固定关闭遥测、更新检查和 CrUX，脱敏 network header，不接入个人 profile、远程调试端口或任意外部路径。依赖 lockfile 未变化时可复用安装，但每次真实 provision 都通过 `list_pages` 重跑浏览器 smoke；Chrome 启动失败稳定映射为 `CHROME_LAUNCH_FAILED`。子进程环境使用系统启动变量 allowlist，不继承 token、云凭据或带凭据代理；工具状态只保存版本、阶段、时间和脱敏诊断，不保存页面、header、响应体或原始环境。
 
 默认 JSON 是稳定、紧凑的机器接口，preview 只含 hash、字节数和摘要；`--verbose` 才含完整正文和绝对诊断路径，`--output summary` 输出短报告和工具降级原因。工具诊断会脱敏项目路径与凭据，仅保存限长尾部。install、validate、doctor 共用 `ready=0`、`invalid=1`、`degraded=2` 健康合同；未执行 provisioning 的 `pending`/`pending-config` 只产生告警，已尝试 provisioning 的失败或未完成进程标记才进入 degraded。`--allow-degraded` 只覆盖退出码，不改变报告状态。
 
@@ -56,7 +58,7 @@ evaluation reference 与项目 baseline 分离。reference 只保存批准的 fi
 
 - minimal：最小安装，包含平台入口、治理内核、Git/VCS/Test 规则和中文 task/delivery 模板，不安装 skills、runtime、hook 或 MCP 安装面。
 - core：通用安装，在 minimal 上增加专项规则、中文任务 runtime/schema、`using-cognis` 和常规 skills；不安装 hook、`codebase-memory-mcp` 或 agentmemory MCP 安装面。
-- full：全安装，在 core 上增加四个项目内工具 runtime、经 `index_status` 验证的 codebase 初始索引、两个 MCP 注册、agentmemory skill、`.agents/memory/` 本地回退库和 Codex hooks；稳定 provision 排除 Agentmemory，显式 `--allow-preview` 后才能安装该依赖面，真实写入红区仍需确认。
+- full：全安装，在 core 上增加五个项目内工具 runtime、经 `index_status` 验证的 codebase 初始索引、三个 MCP 注册、agentmemory skill、`.agents/memory/` 本地回退库和 Codex hooks；其中 Chrome DevTools MCP 使用受管项目配置和无头隔离 smoke，稳定 provision 排除 Agentmemory，显式 `--allow-preview` 后才能安装该依赖面，真实写入红区仍需确认。
 - docs-only：仅安装平台入口、治理内核、专项规则、中文模板、memory 文档和 schema，不安装 runtime、Skills、MCP 或 hooks。
 
 ## 中文任务数据流

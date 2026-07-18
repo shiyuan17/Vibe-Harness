@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
+import { parse as parseToml } from '@iarna/toml';
 
 import { createInstallPlan, previewInstallPlan } from '../scripts/lib/install-planner.js';
 import { resolveOcrEndpoint } from '../scripts/lib/ocr-config.js';
@@ -64,6 +65,12 @@ async function seedCodebaseMemoryRuntime(toolDir) {
   await writeFile(path.join(packageDir, 'bin', binary), 'runtime binary\n', 'utf8');
 }
 
+async function seedChromeDevtoolsRuntime(toolDir) {
+  const entryDir = path.join(toolDir, 'node_modules/chrome-devtools-mcp/build/src/bin');
+  await mkdir(entryDir, { recursive: true });
+  await writeFile(path.join(entryDir, 'chrome-devtools-mcp.js'), 'runtime shim\n', 'utf8');
+}
+
 async function runCli(args, options = {}) {
   const { stdout } = await execFileAsync(process.execPath, [cliPath, ...args], {
     cwd: rootDir,
@@ -94,7 +101,7 @@ async function runCliSummary(args, options = {}) {
   return stdout;
 }
 
-test('full tool plan pins four project-local components while core keeps Playwright lazy', () => {
+test('full tool plan pins five project-local components while core keeps Playwright lazy', () => {
   const targetDir = path.resolve('target-project');
   const stable = createToolProvisioningPlan({ profile: 'full', targetDir });
   const full = createToolProvisioningPlan({ allowPreview: true, profile: 'full', targetDir });
@@ -105,13 +112,15 @@ test('full tool plan pins four project-local components while core keeps Playwri
     [
       { id: 'codebaseMemoryMcp', version: '0.9.0' },
       { id: 'playwrightCli', version: '0.1.17' },
+      { id: 'chromeDevtoolsMcp', version: '1.6.0' },
       { id: 'openCodeReview', version: '1.7.7' },
       { id: 'agentmemory', version: '0.9.27' },
     ],
   );
-  assert.deepEqual(stable.map(({ id }) => id), ['codebaseMemoryMcp', 'playwrightCli', 'openCodeReview']);
+  assert.deepEqual(stable.map(({ id }) => id), ['codebaseMemoryMcp', 'playwrightCli', 'chromeDevtoolsMcp', 'openCodeReview']);
   assert.equal(full.every((item) => item.toolDir.startsWith(targetDir)), true);
   assert.deepEqual(full[0].phases, ['dependency-install', 'binary-install', 'index', 'index-verify', 'mcp-handshake']);
+  assert.deepEqual(full[2].phases, ['dependency-install', 'browser-smoke']);
   assert.deepEqual(core.map(({ id, mode }) => ({ id, mode })), [{ id: 'playwrightCli', mode: 'lazy' }]);
 });
 
@@ -122,19 +131,88 @@ test('managed MCP block preserves local TOML and refuses duplicate unmanaged ser
     '[mcp_servers.agentmemory]',
     'command = "user-memory"',
     '',
+    '[mcp_servers."chrome-devtools"]',
+    'command = "user-chrome"',
+    '',
   ].join('\n');
 
   const result = mergeManagedMcpBlock(local, {
     agentmemory: { args: ['memory.mjs'], command: 'node', env: { HOME: 'project-home' } },
+    'chrome-devtools': { args: ['chrome.mjs'], command: 'node', env: { CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS: '1' } },
     'codebase-memory-mcp': { args: ['codebase.mjs'], command: 'node', env: { CBM_ALLOWED_ROOT: 'project' } },
   });
 
   assert.equal(result.content.includes('model = "gpt-5"'), true);
   assert.equal(result.content.includes('command = "user-memory"'), true);
+  assert.equal(result.content.includes('command = "user-chrome"'), true);
   assert.equal(result.content.includes('# COGNIS:MCP:START'), true);
   assert.equal(result.content.includes('[mcp_servers.codebase-memory-mcp]'), true);
+  assert.equal(result.content.includes('[mcp_servers.chrome-devtools]'), false);
   assert.equal(result.content.includes('[mcp_servers.agentmemory]\ncommand = "node"'), false);
-  assert.deepEqual(result.conflicts, ['agentmemory']);
+  assert.deepEqual(result.conflicts, ['agentmemory', 'chrome-devtools']);
+  assert.doesNotThrow(() => parseToml(result.content));
+});
+
+test('Chrome DevTools runtime pins safe headless isolated defaults without forwarding arbitrary arguments', async () => {
+  const plan = await createInstallPlan({
+    dryRun: true,
+    profile: 'full',
+    rootDir,
+    targetDir: path.resolve('target-project'),
+  });
+  const runtime = plan.actions.find((action) => action.relativeTarget === '.agents/cognis/tools/chrome-devtools-mcp/run.mjs');
+  assert.ok(runtime, 'full profile should install the Chrome DevTools runtime');
+
+  const source = await readFile(path.join(rootDir, 'runtime/tools/chrome-devtools-mcp/run.mjs'), 'utf8');
+  const packageJson = JSON.parse(await readFile(path.join(rootDir, 'runtime/tools/chrome-devtools-mcp/package.json'), 'utf8'));
+  assert.equal(packageJson.dependencies['chrome-devtools-mcp'], '1.6.0');
+  for (const flag of ['--headless', '--isolated', '--no-usage-statistics', '--no-performance-crux', '--redact-network-headers']) {
+    assert.match(source, new RegExp(flag, 'u'));
+  }
+  assert.match(source, /CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS/u);
+  assert.match(source, /build\/src\/bin\/chrome-devtools-mcp\.js/u);
+  assert.doesNotMatch(source, /process\.argv\.slice/u);
+});
+
+test('Chrome DevTools wrapper strips secrets, credentialed proxies, and caller arguments from its child', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-chrome-wrapper-'));
+  const runtimeDir = path.join(targetDir, 'runtime');
+  const entryDir = path.join(runtimeDir, 'node_modules/chrome-devtools-mcp/build/src/bin');
+  try {
+    await mkdir(entryDir, { recursive: true });
+    await copyFile(path.join(rootDir, 'runtime/tools/chrome-devtools-mcp/run.mjs'), path.join(runtimeDir, 'run.mjs'));
+    await writeFile(path.join(entryDir, 'chrome-devtools-mcp.js'), [
+      "import { writeFile } from 'node:fs/promises';",
+      "await writeFile('child-observation.json', JSON.stringify({ argv: process.argv.slice(2), env: process.env }));",
+    ].join('\n'), 'utf8');
+
+    await execFileAsync(process.execPath, [path.join(runtimeDir, 'run.mjs'), '--browser-url=http://127.0.0.1:9222'], {
+      cwd: targetDir,
+      env: {
+        ...process.env,
+        AWS_SECRET_ACCESS_KEY: 'cloud-secret',
+        COGNIS_SECRET_SENTINEL: 'must-not-leak',
+        HTTPS_PROXY: 'http://user:password@proxy.example.test',
+        SSL_CERT_DIR: 'C:\\untrusted-ca-dir',
+        SSL_CERT_FILE: 'C:\\untrusted-ca.pem',
+      },
+    });
+
+    const observation = JSON.parse(await readFile(path.join(targetDir, 'child-observation.json'), 'utf8'));
+    assert.deepEqual(observation.argv, [
+      '--headless', '--isolated', '--no-usage-statistics', '--no-performance-crux', '--redact-network-headers',
+    ]);
+    assert.equal(observation.env.AWS_SECRET_ACCESS_KEY, undefined);
+    assert.equal(observation.env.COGNIS_SECRET_SENTINEL, undefined);
+    assert.equal(observation.env.HTTPS_PROXY, undefined);
+    assert.equal(observation.env.SSL_CERT_DIR, undefined);
+    assert.equal(observation.env.SSL_CERT_FILE, undefined);
+    assert.equal(observation.env.CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS, '1');
+    assert.equal(observation.env.CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS, '1');
+    assert.equal(observation.env.PATH ?? observation.env.Path, process.env.PATH ?? process.env.Path);
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
 });
 
 test('provisioning continues after one component fails and never persists command secrets', async () => {
@@ -521,6 +599,7 @@ test('ready tools reuse package phases while codebase-memory reindexes and verif
       await writeFile(path.join(tool.toolDir, 'package-lock.json'), `${tool.id}\n`, 'utf8');
     }
     await seedCodebaseMemoryRuntime(plan.find((tool) => tool.id === 'codebaseMemoryMcp').toolDir);
+    await seedChromeDevtoolsRuntime(plan.find((tool) => tool.id === 'chromeDevtoolsMcp').toolDir);
     await provisionProfileTools({ allowPreview: true, commandRunner: runner, env, profile: 'full', targetDir });
     const firstCallCount = calls.length;
     await provisionProfileTools({ allowPreview: true, commandRunner: runner, env, profile: 'full', targetDir });
@@ -529,6 +608,7 @@ test('ready tools reuse package phases while codebase-memory reindexes and verif
       ['codebaseMemoryMcp', 'index'],
       ['codebaseMemoryMcp', 'index-verify'],
       ['codebaseMemoryMcp', 'mcp-handshake'],
+      ['chromeDevtoolsMcp', 'browser-smoke'],
     ]);
 
     const agentmemory = plan.find((tool) => tool.id === 'agentmemory');
@@ -577,6 +657,31 @@ test('a missing codebase-memory runtime bypasses package reuse and reinstalls be
   }
 });
 
+test('a missing Chrome DevTools runtime bypasses dependency reuse before browser smoke', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-chrome-runtime-repair-'));
+  const plan = createToolProvisioningPlan({ profile: 'full', resolvedModules: ['chrome-devtools'], targetDir });
+  const chromeDevtools = plan.find((tool) => tool.id === 'chromeDevtoolsMcp');
+  const calls = [];
+  const runner = async (request) => {
+    calls.push(request);
+    return successfulToolOutput(request, targetDir);
+  };
+  try {
+    await mkdir(chromeDevtools.toolDir, { recursive: true });
+    await writeFile(path.join(chromeDevtools.toolDir, 'package-lock.json'), 'chromeDevtoolsMcp\n', 'utf8');
+    await seedChromeDevtoolsRuntime(chromeDevtools.toolDir);
+    await provisionProfileTools({ commandRunner: runner, env: {}, profile: 'full', resolvedModules: ['chrome-devtools'], targetDir });
+
+    await rm(path.join(chromeDevtools.toolDir, 'node_modules/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js'), { force: true });
+    const beforeRepair = calls.length;
+    await provisionProfileTools({ commandRunner: runner, env: {}, profile: 'full', resolvedModules: ['chrome-devtools'], targetDir });
+
+    assert.deepEqual(calls.slice(beforeRepair).map((call) => call.phase), ['dependency-install', 'browser-smoke']);
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
 test('managed MCP block is idempotent and replaces only its own previous content', () => {
   const first = mergeManagedMcpBlock('', {
     agentmemory: { args: ['old.mjs'], command: 'node', env: {} },
@@ -609,6 +714,27 @@ test('MCP configuration conflicts retain an actionable diagnostic', async () => 
       truncated: false,
     });
     assert.equal(report.codebaseMemoryMcp.status, 'degraded');
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('an unmanaged chrome-devtools server degrades only the Chrome tool', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-chrome-conflict-'));
+  try {
+    const report = await provisionProfileTools({
+      commandRunner: async (request) => successfulToolOutput(request, targetDir),
+      mcpConflicts: ['chrome-devtools'],
+      env: {},
+      profile: 'full',
+      resolvedModules: ['chrome-devtools', 'playwright'],
+      targetDir,
+    });
+
+    assert.equal(report.chromeDevtoolsMcp.status, 'degraded');
+    assert.equal(report.chromeDevtoolsMcp.code, 'MCP_CONFIG_CONFLICT');
+    assert.equal(report.chromeDevtoolsMcp.diagnostic.message, 'An unmanaged MCP server already uses the chrome-devtools name.');
+    assert.notEqual(report.playwrightCli.status, 'degraded');
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }
@@ -652,18 +778,20 @@ test('full install map includes project-local runtimes and managed Codex MCP con
     const coreTargets = core.actions.map((action) => action.relativeTarget);
 
     assert.equal(fullTargets.includes('.agents/cognis/tools/codebase-memory-mcp/package-lock.json'), true);
+    assert.equal(fullTargets.includes('.agents/cognis/tools/chrome-devtools-mcp/package-lock.json'), true);
     assert.equal(fullTargets.includes('.agents/cognis/tools/open-code-review/package-lock.json'), true);
     assert.equal(fullTargets.includes('.agents/cognis/tools/agentmemory/package-lock.json'), true);
     assert.equal(fullTargets.includes('.codex/config.toml'), true);
     assert.equal(coreTargets.includes('.codex/config.toml'), false);
     assert.equal(coreTargets.some((target) => target.includes('codebase-memory-mcp/package-lock.json')), false);
     assert.equal(full.generatedDirectories.some((item) => item.target.endsWith('codebase-memory-mcp/node_modules')), true);
+    assert.equal(full.generatedDirectories.some((item) => item.target.endsWith('chrome-devtools-mcp/node_modules')), true);
     assert.equal(full.generatedDirectories.some((item) => item.target.endsWith('agentmemory/node_modules')), true);
     assert.equal(full.generatedDirectories.some((item) => item.target === '.cognis/tool-state/codebase-memory-mcp'), true);
 
     const config = (await previewInstallPlan(full)).find((file) => file.target === '.codex/config.toml');
     assert.equal(full.actions.find((action) => action.relativeTarget === '.codex/config.toml').redZone, true);
-    assert.match(config.content, /# COGNIS:MCP:START[\s\S]*mcp_servers\.agentmemory[\s\S]*mcp_servers\.codebase-memory-mcp/u);
+    assert.match(config.content, /# COGNIS:MCP:START[\s\S]*mcp_servers\.agentmemory[\s\S]*mcp_servers\.chrome-devtools[\s\S]*mcp_servers\.codebase-memory-mcp/u);
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }
@@ -679,7 +807,7 @@ test('full CLI dry-run reports stable tools and defers preview tools', async () 
     );
 
     assert.deepEqual(report.plannedToolActions.map((item) => item.id), [
-      'codebaseMemoryMcp', 'playwrightCli', 'openCodeReview',
+      'codebaseMemoryMcp', 'playwrightCli', 'chromeDevtoolsMcp', 'openCodeReview',
     ]);
     assert.deepEqual(report.deferredToolActions.map((item) => item.id), ['agentmemory']);
     assert.equal(report.tools.codebaseMemoryMcp.status, 'pending');
@@ -707,6 +835,28 @@ test('tool command cancellation terminates the child before rejecting', async ()
   setTimeout(() => controller.abort(), 50);
 
   await assert.rejects(running, (error) => error.code === 'TOOL_CANCELLED');
+});
+
+test('MCP handshake cancellation terminates the process and rejects as TOOL_CANCELLED', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-mcp-cancel-'));
+  const script = path.join(targetDir, 'hanging-mcp.mjs');
+  const controller = new AbortController();
+  try {
+    await writeFile(script, 'setInterval(() => {}, 1000);\n', 'utf8');
+    const running = runMcpHandshake({
+      args: [script],
+      command: process.execPath,
+      cwd: targetDir,
+      env: process.env,
+      signal: controller.signal,
+      timeout: 10_000,
+    });
+    setTimeout(() => controller.abort(), 50);
+
+    await assert.rejects(running, (error) => error.code === 'TOOL_CANCELLED');
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
 });
 
 test('tool processes receive only base variables and tool-specific credentials', async () => {
@@ -759,6 +909,121 @@ test('codebase-memory maps allowed-root path failures to a stable diagnostic cod
 
     assert.equal(report.codebaseMemoryMcp.code, 'INDEX_PATH_OUTSIDE_ALLOWED_ROOT');
     assert.match(report.codebaseMemoryMcp.diagnostic.message, /outside the allowed root/iu);
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('MCP browser probe invokes list_pages after tool discovery', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-mcp-browser-probe-'));
+  const script = path.join(targetDir, 'browser-probe.mjs');
+  const marker = path.join(targetDir, 'list-pages-called.txt');
+  try {
+    await writeFile(script, [
+      "import { writeFile } from 'node:fs/promises';",
+      "import path from 'node:path';",
+      "let buffer = '';",
+      "process.stdin.setEncoding('utf8');",
+      "process.stdin.on('data', async (chunk) => {",
+      "  buffer += chunk;",
+      "  const lines = buffer.split(/\\r?\\n/u);",
+      "  buffer = lines.pop() ?? '';",
+      "  for (const line of lines) {",
+      "    if (!line.trim()) continue;",
+      "    const message = JSON.parse(line);",
+      "    if (message.id === 1) process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2025-03-26', capabilities: {}, serverInfo: { name: 'fixture', version: '1.0.0' } } }) + '\\n');",
+      "    if (message.id === 2) process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: 2, result: { tools: [{ name: 'list_pages' }] } }) + '\\n');",
+      `    if (message.id === 3 && message.method === 'tools/call' && message.params?.name === 'list_pages') { await writeFile(path.join(process.cwd(), ${JSON.stringify(path.basename(marker))}), 'called\\n'); process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: 3, result: { content: [{ type: 'text', text: 'about:blank' }] } }) + '\\n'); }`,
+      "  }",
+      "});",
+      "setTimeout(() => {}, 10000);",
+    ].join('\n'), 'utf8');
+
+    await runMcpHandshake(
+      { args: [script], command: process.execPath, cwd: targetDir, env: process.env, timeout: 2000 },
+      { probeTool: 'list_pages' },
+    );
+    assert.equal(await readFile(marker, 'utf8'), 'called\n');
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('MCP browser probe maps list_pages failures without persisting probe response text', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-mcp-browser-failure-'));
+  const script = path.join(targetDir, 'browser-probe-failure.mjs');
+  try {
+    await writeFile(script, [
+      "let buffer = '';",
+      "process.stdin.setEncoding('utf8');",
+      "process.stdin.on('data', (chunk) => {",
+      "  buffer += chunk;",
+      "  const lines = buffer.split(/\\r?\\n/u);",
+      "  buffer = lines.pop() ?? '';",
+      "  for (const line of lines) {",
+      "    if (!line.trim()) continue;",
+      "    const message = JSON.parse(line);",
+      "    if (message.id === 1) process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2025-03-26', capabilities: {}, serverInfo: { name: 'fixture', version: '1.0.0' } } }) + '\\n');",
+      "    if (message.id === 2) process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: 2, result: { tools: [{ name: 'list_pages' }] } }) + '\\n');",
+      "    if (message.id === 3) process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: 3, result: { isError: true, content: [{ type: 'text', text: 'sensitive-page-response' }] } }) + '\\n');",
+      "  }",
+      "});",
+      "setTimeout(() => {}, 10000);",
+    ].join('\n'), 'utf8');
+
+    await assert.rejects(
+      runMcpHandshake(
+        { args: [script], command: process.execPath, cwd: targetDir, env: process.env, timeout: 2000 },
+        { probeTool: 'list_pages' },
+      ),
+      (error) => {
+        assert.equal(error.code, 'CHROME_LAUNCH_FAILED');
+        assert.equal(error.stdout, '');
+        assert.doesNotMatch(JSON.stringify(error), /sensitive-page-response/u);
+        return true;
+      },
+    );
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('MCP browser probe reports initialize and tools/list JSON-RPC errors as protocol failures', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-mcp-protocol-failure-'));
+  try {
+    for (const failedId of [1, 2]) {
+      const script = path.join(targetDir, `browser-protocol-failure-${failedId}.mjs`);
+      await writeFile(script, [
+        "let buffer = '';",
+        "process.stdin.setEncoding('utf8');",
+        "process.stdin.on('data', (chunk) => {",
+        "  buffer += chunk;",
+        "  const lines = buffer.split(/\\r?\\n/u);",
+        "  buffer = lines.pop() ?? '';",
+        "  for (const line of lines) {",
+        "    if (!line.trim()) continue;",
+        "    const message = JSON.parse(line);",
+        `    if (message.id === ${failedId}) process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: ${failedId}, error: { code: -32603, message: 'fixture protocol failure' } }) + '\\n');`,
+        ...(failedId === 2 ? [
+          "    if (message.id === 1) process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2025-03-26', capabilities: {}, serverInfo: { name: 'fixture', version: '1.0.0' } } }) + '\\n');",
+        ] : []),
+        "  }",
+        "});",
+        "setTimeout(() => {}, 10000);",
+      ].join('\n'), 'utf8');
+
+      await assert.rejects(
+        runMcpHandshake(
+          { args: [script], command: process.execPath, cwd: targetDir, env: process.env, timeout: 500 },
+          { probeTool: 'list_pages' },
+        ),
+        (error) => {
+          assert.equal(error.code, 'MCP_PROTOCOL_ERROR');
+          assert.notEqual(error.code, 'MCP_HANDSHAKE_TIMEOUT');
+          return true;
+        },
+      );
+    }
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }
@@ -1130,6 +1395,8 @@ test('full write degrades unavailable tools and rollback removes only the manage
 
     assert.equal(config.includes('model = "gpt-5"'), true);
     assert.equal(config.includes('# COGNIS:MCP:START'), true);
+    assert.equal(config.includes('[mcp_servers.chrome-devtools]'), true);
+    assert.equal(await readFile(path.join(targetDir, '.agents/cognis/tools/chrome-devtools-mcp/run.mjs'), 'utf8').then(Boolean), true);
     assert.equal(Object.values(report.tools).some((tool) => tool.status === 'degraded'), true);
     assert.equal(report.status, 'degraded');
     assert.equal(report.ok, false);
@@ -1170,6 +1437,7 @@ test('full write degrades unavailable tools and rollback removes only the manage
     const rolledBack = await readFile(configPath, 'utf8');
     assert.equal(rolledBack.includes('model = "gpt-5"'), true);
     assert.equal(rolledBack.includes('# COGNIS:MCP:START'), false);
+    await assert.rejects(readFile(path.join(targetDir, '.agents/cognis/tools/chrome-devtools-mcp/run.mjs'), 'utf8'), /ENOENT/u);
     await assert.rejects(readFile(path.join(targetDir, '.cognis/tool-state/tools.json'), 'utf8'), /ENOENT/u);
   } finally {
     await rm(targetDir, { force: true, recursive: true });

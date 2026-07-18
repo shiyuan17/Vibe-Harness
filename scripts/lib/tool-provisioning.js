@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { parse as parseToml } from '@iarna/toml';
 
 import { assertInsideDir, assertSafePathInside, pathExists } from './manifest.js';
 import { resolveOcrEndpoint } from './ocr-config.js';
@@ -35,6 +36,13 @@ const toolSpecs = [
     version: '0.1.17',
   },
   {
+    id: 'chromeDevtoolsMcp',
+    packageName: 'chrome-devtools-mcp',
+    phases: ['dependency-install', 'browser-smoke'],
+    relativeDir: '.agents/cognis/tools/chrome-devtools-mcp',
+    version: '1.6.0',
+  },
+  {
     id: 'openCodeReview',
     packageName: '@alibaba-group/open-code-review',
     phases: ['dependency-install', 'llm-test'],
@@ -63,6 +71,7 @@ export function createToolProvisioningPlan({ allowPreview = false, profile, reso
     const moduleByTool = new Map([
       ['codebaseMemoryMcp', 'codebase-memory'],
       ['playwrightCli', 'playwright'],
+      ['chromeDevtoolsMcp', 'chrome-devtools'],
       ['openCodeReview', 'open-code-review'],
       ['agentmemory', 'agentmemory'],
     ]);
@@ -147,12 +156,21 @@ export function removeManagedMcpBlock(content) {
 
 export function mergeManagedMcpBlock(existingContent, servers) {
   const unmanaged = stripManagedMcpBlock(existingContent);
+  let unmanagedServerNames = new Set();
+  try {
+    const parsedServers = parseToml(unmanaged).mcp_servers;
+    if (parsedServers && typeof parsedServers === 'object') {
+      unmanagedServerNames = new Set(Object.keys(parsedServers));
+    }
+  } catch {
+    // Preserve malformed user content; the table-header check below still avoids known duplicates.
+  }
   const conflicts = [];
   const rendered = [];
   for (const [name, server] of Object.entries(servers).sort(([left], [right]) => left.localeCompare(right))) {
     const escaped = name.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
-    const duplicate = new RegExp(`^\\s*\\[mcp_servers\\.${escaped}\\]\\s*$`, 'mu');
-    if (duplicate.test(unmanaged)) {
+    const duplicate = new RegExp(`^\\s*\\[\\s*mcp_servers\\s*\\.\\s*(?:${escaped}|["']${escaped}["'])\\s*\\]\\s*(?:#.*)?$`, 'mu');
+    if (unmanagedServerNames.has(name) || duplicate.test(unmanaged)) {
       conflicts.push(name);
       continue;
     }
@@ -484,6 +502,17 @@ async function phaseRequest(spec, phase, targetDir, env, context = {}) {
       timeout: 600_000,
     };
   }
+  if (phase === 'browser-smoke') {
+    return {
+      args: [path.join(spec.toolDir, 'run.mjs')],
+      command: process.execPath,
+      component: spec.id,
+      cwd: targetDir,
+      env: componentEnv,
+      phase,
+      timeout: 60_000,
+    };
+  }
   return {
     args: [path.join(spec.toolDir, 'run.mjs')],
     command: process.execPath,
@@ -495,7 +524,7 @@ async function phaseRequest(spec, phase, targetDir, env, context = {}) {
   };
 }
 
-export async function runMcpHandshake(request) {
+export async function runMcpHandshake(request, { probeTool } = {}) {
   await new Promise((resolve, reject) => {
     const child = spawn(request.command, request.args, {
       cwd: request.cwd,
@@ -507,39 +536,61 @@ export async function runMcpHandshake(request) {
     });
     let buffer = '';
     let settled = false;
+    let timer;
     const output = { stderr: '', stdout: '', truncated: false };
+    const diagnosticOutput = () => probeTool ? { ...output, stdout: '' } : output;
+    const send = (message) => child.stdin.write(`${JSON.stringify(message)}\n`);
     const finish = (error) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      request.signal?.removeEventListener('abort', abort);
       void terminateProcessTree(child).then(() => {
         if (error) reject(error);
         else resolve();
       });
     };
-    const timer = setTimeout(() => finish(toolCommandError('MCP handshake timed out.', 'MCP_HANDSHAKE_TIMEOUT', output)), request.timeout);
-    child.once('error', () => finish(toolCommandError('MCP process failed to start.', 'MCP_START_FAILED', output)));
-    child.stdin.once('error', () => finish(toolCommandError('MCP process closed stdin during handshake.', 'MCP_STDIN_FAILED', output)));
+    const abort = () => finish(toolCommandError('MCP handshake was cancelled.', 'TOOL_CANCELLED', diagnosticOutput()));
+    timer = setTimeout(() => finish(toolCommandError('MCP handshake timed out.', 'MCP_HANDSHAKE_TIMEOUT', diagnosticOutput())), request.timeout);
+    child.once('error', () => finish(toolCommandError('MCP process failed to start.', 'MCP_START_FAILED', diagnosticOutput())));
+    child.stdin.once('error', () => finish(toolCommandError('MCP process closed stdin during handshake.', 'MCP_STDIN_FAILED', diagnosticOutput())));
     child.once('exit', (code) => {
-      if (!settled) finish(toolCommandError('MCP process exited before handshake.', code === 0 ? 'MCP_EARLY_EXIT' : 'MCP_START_FAILED', output, { exitCode: code }));
+      if (!settled) finish(toolCommandError('MCP process exited before handshake.', code === 0 ? 'MCP_EARLY_EXIT' : 'MCP_START_FAILED', diagnosticOutput(), { exitCode: code }));
     });
     child.stdout.on('data', (chunk) => {
       output.stdout = appendOutputTail(output.stdout, chunk);
       buffer += chunk.toString('utf8');
       if (buffer.length > 1024 * 1024) {
         output.truncated = true;
-        finish(toolCommandError('MCP handshake output limit exceeded.', 'MCP_OUTPUT_LIMIT', output));
+        finish(toolCommandError('MCP handshake output limit exceeded.', 'MCP_OUTPUT_LIMIT', diagnosticOutput()));
         return;
       }
-      for (const line of buffer.split(/\r?\n/u)) {
+      const lines = buffer.split(/\r?\n/u);
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
         if (!line.trim().startsWith('{')) continue;
         try {
           const message = JSON.parse(line);
-          if (message.id === 1) {
-            child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`);
-            child.stdin.write(`${JSON.stringify({ id: 2, jsonrpc: '2.0', method: 'tools/list', params: {} })}\n`);
+          if (message.error && [1, 2].includes(message.id)) {
+            const operation = message.id === 1 ? 'initialize' : 'tools/list';
+            finish(toolCommandError(`MCP ${operation} failed.`, 'MCP_PROTOCOL_ERROR', diagnosticOutput()));
+          } else if (message.id === 1) {
+            send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+            send({ id: 2, jsonrpc: '2.0', method: 'tools/list', params: {} });
           } else if (message.id === 2 && Array.isArray(message.result?.tools)) {
-            finish();
+            if (!probeTool) {
+              finish();
+            } else if (!message.result.tools.some((tool) => tool.name === probeTool)) {
+              finish(toolCommandError(`MCP server does not expose ${probeTool}.`, 'MCP_TOOL_MISSING', diagnosticOutput()));
+            } else {
+              send({ id: 3, jsonrpc: '2.0', method: 'tools/call', params: { arguments: {}, name: probeTool } });
+            }
+          } else if (message.id === 3) {
+            if (message.error || message.result?.isError) {
+              finish(toolCommandError('Chrome failed to launch during browser smoke.', 'CHROME_LAUNCH_FAILED', diagnosticOutput()));
+            } else {
+              finish();
+            }
           }
         } catch {
           // Wait for a complete JSON line.
@@ -549,17 +600,23 @@ export async function runMcpHandshake(request) {
     child.stderr.on('data', (chunk) => {
       output.stderr = appendOutputTail(output.stderr, chunk);
     });
-    child.stdin.write(`${JSON.stringify({
+    request.signal?.addEventListener('abort', abort, { once: true });
+    if (request.signal?.aborted) {
+      abort();
+      return;
+    }
+    send({
       id: 1,
       jsonrpc: '2.0',
       method: 'initialize',
       params: { capabilities: {}, clientInfo: { name: productIdentity.command, version: cognisVersion }, protocolVersion: '2025-03-26' },
-    })}\n`);
+    });
   });
 }
 
 async function defaultPhaseRunner(request) {
   if (request.phase === 'mcp-handshake') return runMcpHandshake(request);
+  if (request.phase === 'browser-smoke') return runMcpHandshake(request, { probeTool: 'list_pages' });
   return defaultCommandRunner(request);
 }
 
@@ -742,6 +799,13 @@ async function codebaseMemoryRuntimeAvailable(spec) {
     && await pathExists(path.join(packageDir, 'bin', binary));
 }
 
+async function chromeDevtoolsRuntimeAvailable(spec) {
+  return pathExists(path.join(
+    spec.toolDir,
+    'node_modules/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js',
+  ));
+}
+
 async function repairCodebaseMemoryBinary(spec) {
   if (process.platform !== 'win32') return false;
   try {
@@ -849,16 +913,25 @@ export async function provisionProfileTools({ allowPreview = false, commandRunne
     const previousTool = previous?.tools?.[spec.id];
     const reusableStatus = previousTool?.status === 'ready'
       || (spec.id === 'openCodeReview' && previousTool?.status === 'pending-config' && !hasOcrCredentials(provisionEnv));
-    const reusableRuntime = spec.id !== 'codebaseMemoryMcp' || await codebaseMemoryRuntimeAvailable(spec);
+    const reusableRuntime = spec.id === 'codebaseMemoryMcp'
+      ? await codebaseMemoryRuntimeAvailable(spec)
+      : spec.id === 'chromeDevtoolsMcp'
+        ? await chromeDevtoolsRuntimeAvailable(spec)
+        : true;
+    const mcpServerName = {
+      agentmemory: 'agentmemory',
+      chromeDevtoolsMcp: 'chrome-devtools',
+      codebaseMemoryMcp: 'codebase-memory-mcp',
+    }[spec.id];
     const reusable = (
       !force
       && fingerprint
       && previous?.fingerprints?.[spec.id] === fingerprint
       && reusableStatus
       && reusableRuntime
-      && !mcpConflicts.includes(spec.id === 'codebaseMemoryMcp' ? 'codebase-memory-mcp' : spec.id)
+      && !mcpConflicts.includes(mcpServerName ?? spec.id)
     );
-    if (reusable && spec.id !== 'codebaseMemoryMcp') {
+    if (reusable && !['chromeDevtoolsMcp', 'codebaseMemoryMcp'].includes(spec.id)) {
       tools[spec.id] = withProvisioningMetadata(spec, previousTool, startedAt, { reused: true });
       continue;
     }
@@ -896,6 +969,7 @@ export async function provisionProfileTools({ allowPreview = false, commandRunne
   }
   const conflictIds = {
     agentmemory: 'agentmemory',
+    'chrome-devtools': 'chromeDevtoolsMcp',
     'codebase-memory-mcp': 'codebaseMemoryMcp',
   };
   for (const conflict of mcpConflicts) {

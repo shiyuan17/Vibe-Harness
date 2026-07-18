@@ -25,7 +25,7 @@ Cognis 让 Codex、Claude Code 和 Gemini CLI 使用同一套规划、执行与�
 | 长任务跨会话后丢失重要上下文。 | `baseline` 记录项目、安装、工具和验证状态；项目记忆与交接模板保留决策和已知问题。 | 新会话可以直接读取项目事实，不必只靠聊天记录重新整理。 |
 | 不同 AI 编程工具中的规则逐渐不一致。 | 为 Codex、Claude Code 和 Gemini CLI 提供原生项目文件和经过测试的安装级别（`profiles`）。 | 每个工具都能用自己支持的格式获得同一套核心工作规则。 |
 | 安装或更新公共规则时担心覆盖项目文件。 | 提供 dry-run 预览、明确标记的内容区域、备份、校验、安全卸载和回滚。 | 写入前可以检查变化，也能撤销 Cognis 管理的内容而不影响项目其他文件。 |
-| 代码理解、浏览器检查、审查和记忆工具分散在不同环境中。 | Codex `full` 会在项目内准备代码库索引、Playwright 和 Open Code Review；Agentmemory 在依赖风险解决前保持显式 preview。 | 常用工具跟随项目保存；工具不可用时会明确报告为 `degraded`。 |
+| 代码理解、浏览器检查、审查和记忆工具分散在不同环境中。 | Codex `full` 会在项目内准备代码库索引、Playwright、Chrome DevTools MCP 和 Open Code Review；Agentmemory 在依赖风险解决前保持显式 preview。 | 常用工具跟随项目保存；工具不可用时会明确报告为 `degraded`。 |
 
 ## 为什么不只写一个 AGENTS.md
 
@@ -93,7 +93,7 @@ Claude Code 与 Gemini CLI 的 `full` 默认被 preview 门禁阻止，只有显
 | --- | --- | --- |
 | `minimal` | Agent 主说明文件、基本工作规则、Git 与测试规则、任务模板 | 只需要基本规则，不需要额外 skills 或工具的小项目 |
 | `core` | `minimal` 的全部内容，加上常用工程规则、任务检查、Red Team 完成门禁、skills 路由和按需启动的 Playwright | 大多数项目，建议从这里开始 |
-| `full` | `core` 的全部内容，加上项目记忆、高级流程 skills、三个 stable 项目工具、preview Agentmemory 资产、Codex MCP 配置和 Codex hooks | 长期维护或风险较高的 Codex 项目 |
+| `full` | `core` 的全部内容，加上项目记忆、高级流程 skills、四个 stable 项目工具、preview Agentmemory 资产、Codex MCP 配置和 Codex hooks | 长期维护或风险较高的 Codex 项目 |
 | `docs-only` | 使用说明、公共规则、模板和 schemas，不安装可执行工具、skills、MCP 或 hooks | 只希望使用文档规则的项目 |
 每个 profile 实际包含哪些文件，由 `manifests/profiles.json` 定义。
 
@@ -198,7 +198,7 @@ pnpm cognis install --project ../some-project --target codex --profile core --mo
 pnpm cognis install --project ../some-project --target codex --profile core --modules agents,rules,skills --write
 ```
 
-可选 modules 包括 `agents`、`rules`、`templates`、`governance`、`skills`、`memory`、`playwright`、`codebase-memory`、`open-code-review`、`agentmemory` 和 `hooks`。Cognis 会自动补上必需的依赖。命令报告会通过 `requestedModules`、`resolvedModules` 和 `implicitModules` 分别列出你选择的内容、最终安装的内容和自动补充的依赖。
+可选 modules 包括 `agents`、`rules`、`templates`、`governance`、`skills`、`memory`、`playwright`、`chrome-devtools`、`codebase-memory`、`open-code-review`、`agentmemory` 和 `hooks`。Cognis 会自动补上必需的依赖。命令报告会通过 `requestedModules`、`resolvedModules` 和 `implicitModules` 分别列出你选择的内容、最终安装的内容和自动补充的依赖。
 
 </details>
 
@@ -260,9 +260,11 @@ pnpm cognis doctor --project ../some-project
 <details>
 <summary><strong>内置工具与命令状态</strong></summary>
 
-当安装或健康检查报告问题时，可以查看这一节。`core` 会准备 Playwright，并在第一次需要浏览器检查时完成启动。Codex `full` 还会准备 `codebase-memory-mcp`、Open Code Review 和 Agentmemory。
+当安装或健康检查报告问题时，可以查看这一节。`core` 会准备 Playwright，并在第一次需要浏览器检查时完成启动。Codex `full` 还会准备 `codebase-memory-mcp`、Chrome DevTools MCP、Open Code Review 和 Agentmemory preview 资产。
 
 Cognis 只会把 MCP 设置写入项目 `.codex/config.toml` 中自己标记的区域。凭据只从当前终端环境读取，绝不会保存到项目中。
+
+`chrome-devtools` 模块固定使用 `chrome-devtools-mcp@1.6.0`，通过项目内入口以系统 Google Chrome 的无头隔离模式启动。它关闭使用统计、更新检查和 CrUX 补充数据，脱敏 network header，不转发任意命令参数，也不连接个人 Chrome profile 或远程调试端口。Provisioning 会调用 `list_pages` 完成真实浏览器 smoke；Chrome 缺失或启动失败会报告 `CHROME_LAUNCH_FAILED`，且不会持久化页面、header、响应体、凭据或原始进程环境。
 
 Open Code Review 的 endpoint 按以下顺序解析：完整的 `OCR_LLM_URL` + `OCR_LLM_TOKEN` + `OCR_LLM_MODEL`，当前用户 `~/.opencodereview/config.json` 的 active provider，兼容的 `ANTHROPIC_*` 或 `OPENAI_*` 环境变量，最后才是当前 Codex provider 的 `~/.codex/config.toml`。解析结果只传给 Open Code Review 子进程，不会写入 `cognis.config.json`、`.cognis/tool-state` 或 MCP 配置。配置缺失或不完整时保持 `pending-config`，并只输出脱敏诊断。
 

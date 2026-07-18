@@ -61,6 +61,25 @@ test('current release notes use Cognis names for current interfaces', async () =
   assert.doesNotMatch(currentRelease, /using-loopengine|新增 `loopengine (?:verify|baseline)/u);
 });
 
+test('current docs describe Chrome DevTools MCP as a managed full-profile tool', async () => {
+  const [english, chinese, architecture, changelog, capabilities] = await Promise.all([
+    readFile(path.join(rootDir, 'README.md'), 'utf8'),
+    readFile(path.join(rootDir, 'README.zh-CN.md'), 'utf8'),
+    readFile(path.join(rootDir, 'docs/architecture.md'), 'utf8'),
+    readFile(path.join(rootDir, 'CHANGELOG.md'), 'utf8'),
+    readJson(path.join(rootDir, 'manifests/capabilities.json')),
+  ]);
+
+  assert.match(english, /four stable project tools/u);
+  assert.match(english, /`chrome-devtools`/u);
+  assert.match(chinese, /四个 stable 项目工具/u);
+  assert.match(chinese, /`chrome-devtools`/u);
+  assert.match(architecture, /Chrome DevTools MCP[\s\S]*无头隔离/u);
+  assert.match(changelog, /Chrome DevTools MCP[\s\S]*项目内/u);
+  assert.doesNotMatch(changelog, /DevTools MCP fallback 已退役/u);
+  assert.ok(capabilities.items.some((item) => item.id === 'chrome-devtools-mcp'));
+});
+
 test('source mapping points only at current governance assets', async () => {
   const mapping = await readFile(path.join(rootDir, 'docs/inventory/source-rules-mapping.md'), 'utf8');
   for (const retired of ['rules/workflow.md', 'rules/dynamic-workflow.md', 'rules/task-lifecycle.md']) {

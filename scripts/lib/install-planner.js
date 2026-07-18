@@ -135,8 +135,10 @@ export function createInstalledSurface({ customModules = false, memoryPath = '.a
     skillsLine: skillRoots.length > 0 ? `- Skills 位于 ${skillRoots.map((root) => `\`${root}/\``).join('、')}。` : '',
     templatesLine: hasPrefix('docs/templates/') ? '- 模板位于 `docs/templates/`。' : '',
     toolingLine: hasTarget('.agents/cognis/tools/codebase-memory-mcp/run.mjs')
-      ? '- 项目内工具位于 `.agents/cognis/tools/`；使用 `cognis doctor --target <path>` 查看初始化状态。'
-      : (hasTarget('.agents/cognis/tools/playwright-cli/run.mjs') ? '- Playwright CLI 将在首次使用时于项目内初始化。' : ''),
+      ? `- 项目内工具位于 \`.agents/cognis/tools/\`；使用 \`cognis doctor --project <path>\` 查看初始化状态。${hasTarget('docs/rules/chrome-devtools-mcp.md') ? ' Chrome DevTools MCP 规则位于 \`docs/rules/chrome-devtools-mcp.md\`。' : ''}`
+      : hasTarget('.agents/cognis/tools/chrome-devtools-mcp/run.mjs')
+        ? '- Chrome DevTools MCP 规则位于 `docs/rules/chrome-devtools-mcp.md`；使用 `cognis doctor --project <path>` 查看初始化状态。'
+        : (hasTarget('.agents/cognis/tools/playwright-cli/run.mjs') ? '- Playwright CLI 将在首次使用时于项目内初始化。' : ''),
   };
 }
 
@@ -161,6 +163,7 @@ function shouldInstallEntry(entry, renderData) {
 
 function createManagedMcpServers(targetDir, resolvedModules) {
   const codebaseTool = path.join(targetDir, '.agents/cognis/tools/codebase-memory-mcp/run.mjs');
+  const chromeDevtoolsTool = path.join(targetDir, '.agents/cognis/tools/chrome-devtools-mcp/run.mjs');
   const agentmemoryTool = path.join(targetDir, '.agents/cognis/tools/agentmemory/run.mjs');
   const stateRoot = path.dirname(stateFilePath(targetDir));
   const memoryHome = path.join(stateRoot, 'tool-state/agentmemory/home');
@@ -169,6 +172,14 @@ function createManagedMcpServers(targetDir, resolvedModules) {
       args: [agentmemoryTool],
       command: process.execPath,
       env: { HOME: memoryHome, USERPROFILE: memoryHome },
+    };
+  if (resolvedModules.includes('chrome-devtools')) servers['chrome-devtools'] = {
+      args: [chromeDevtoolsTool],
+      command: process.execPath,
+      env: {
+        CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS: '1',
+        CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS: '1',
+      },
     };
   if (resolvedModules.includes('codebase-memory')) servers['codebase-memory-mcp'] = {
       args: [codebaseTool],
@@ -350,7 +361,7 @@ export async function createInstallPlan({
       }]
     : [];
   const stateDirectory = path.basename(path.dirname(stateFilePath(path.resolve(targetDir))));
-  for (const component of ['codebase-memory-mcp', 'open-code-review', 'agentmemory']) {
+  for (const component of ['chrome-devtools-mcp', 'codebase-memory-mcp', 'open-code-review', 'agentmemory']) {
     const ownerTarget = `.agents/cognis/tools/${component}/package.json`;
     if (actions.some((action) => action.relativeTarget === ownerTarget)) {
       generatedDirectories.push({ ownerTarget, target: `.agents/cognis/tools/${component}/node_modules` });
@@ -362,7 +373,7 @@ export async function createInstallPlan({
       generatedDirectories.push({
         ownerTarget,
         projectScoped: true,
-        target: `${stateDirectory}/tool-state/npm-cache/${component === 'codebase-memory-mcp' ? 'codebaseMemoryMcp' : component === 'open-code-review' ? 'openCodeReview' : component}`,
+        target: `${stateDirectory}/tool-state/npm-cache/${component === 'chrome-devtools-mcp' ? 'chromeDevtoolsMcp' : component === 'codebase-memory-mcp' ? 'codebaseMemoryMcp' : component === 'open-code-review' ? 'openCodeReview' : component}`,
       });
     }
   }
