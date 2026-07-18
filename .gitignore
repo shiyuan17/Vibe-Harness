@@ -11,3 +11,4 @@ dist/
 .loopengine/
 /.codebase-memory
 /output
+/.agents/backup
