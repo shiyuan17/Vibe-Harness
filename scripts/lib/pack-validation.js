@@ -320,7 +320,11 @@ export async function validateGovernanceQuality(rootDir) {
     },
     {
       file: 'rules/ai-collab-rules.md',
-      terms: ['证据边界', '角色边界', '实现 Agent', 'reviewer'],
+      terms: [
+        '证据边界', '角色边界', '实现 Agent', 'reviewer', '信息呈现',
+        '目标、范围、约束、验收标准、待决策项', '`- [ ]` / `- [x]`',
+        'Markdown 表格', '信息块', '用户明确指定格式',
+      ],
     },
     {
       file: 'rules/pencil-rules.md',

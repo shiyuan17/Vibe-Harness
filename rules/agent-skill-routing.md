@@ -23,6 +23,10 @@ Skill 只补强任务 Workflow，不得覆盖目标项目 `AGENTS.md`、治理�
 | Handoff | task/delivery 模板；full 可使用 `agentmemory` | 保留状态、证据、风险和恢复动作。 |
 | Retrospective | AI 协作规则与交付模板 | 将重复失败转化为最小防复发动作。 |
 
+## 信息呈现路由
+
+- 复杂输入、进度、比较、证据或交付输出：若已安装 `ai-collab-rules.md`，读取该规则选择 todo、列表、表格或信息块；未安装时使用治理内核和任务/交付模板的最小结构。
+
 ## 领域路由
 
 | 场景 | 领域能力 | 验证 |

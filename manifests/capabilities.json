@@ -32,6 +32,16 @@
       "evaluation": { "required": true, "suites": ["evals/suites/loopengine-core.json"] }
     },
     {
+      "id": "adaptive-information-presentation",
+      "source": "adaptive AI coding information presentation",
+      "disposition": "generalize",
+      "targets": ["rules/ai-collab-rules.md", "rules/agent-skill-routing.md"],
+      "tests": ["tests/simplified-governance.test.js", "tests/rules-depth.test.js"],
+      "profiles": ["core", "full", "docs-only"],
+      "docs": ["docs/specs/loopengine-v0.5-simplified-governance-spec.md", "README.md", "README.zh-CN.md"],
+      "evaluation": { "required": true, "suites": ["evals/suites/loopengine-core.json"] }
+    },
+    {
       "id": "review",
       "source": "adversarial review",
       "disposition": "validator",

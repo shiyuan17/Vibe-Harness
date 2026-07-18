@@ -105,3 +105,20 @@ test('governance rules use deterministic precedence and expose no retired collab
   assert.match(contents[0], /同一层级.*停止.*确认/u);
   assert.match(contents[1], /平台系统指令/u);
 });
+
+test('adaptive information presentation is routed and scoped to non-minimal profiles', async () => {
+  const capabilityManifest = await readJson(path.join(rootDir, 'manifests/capabilities.json'));
+  const capability = capabilityManifest.items.find((item) => item.id === 'adaptive-information-presentation');
+  assert.ok(capability, 'adaptive-information-presentation capability should be declared');
+  assert.deepEqual(capability.targets, ['rules/ai-collab-rules.md', 'rules/agent-skill-routing.md']);
+  const targets = async (profile) => new Set((await createInstallPlan({
+    dryRun: true,
+    profile,
+    rootDir,
+    targetDir: path.join(rootDir, '.tmp-profile-check'),
+  })).actions.map((item) => item.relativeTarget));
+  assert.equal((await targets('minimal')).has('docs/rules/ai-collab-rules.md'), false);
+  for (const profile of ['core', 'full', 'docs-only']) {
+    assert.equal((await targets(profile)).has('docs/rules/ai-collab-rules.md'), true);
+  }
+});

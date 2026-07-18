@@ -741,6 +741,28 @@ test('治理资产定义 Small Change 和 Fan-out/Fan-in 契约', async () => {
   assert.match(task, /不得修改范围/u);
 });
 
+test('AI 协作规则定义自适应信息呈现契约', async () => {
+  const [collaboration, routing, capabilities] = await Promise.all([
+    readFile(path.join(rootDir, 'rules/ai-collab-rules.md'), 'utf8'),
+    readFile(path.join(rootDir, 'rules/agent-skill-routing.md'), 'utf8'),
+    readJson(path.join(rootDir, 'manifests/capabilities.json')),
+  ]);
+  for (const fragment of [
+    '信息呈现', '目标、范围、约束、验收标准、待决策项',
+    '`- [ ]` / `- [x]`', 'Markdown 表格', '信息块',
+    '顺序流程', '并列要点', '代码、日志、JSON 和命令输出',
+    '原始缩进、换行和字面量', '不嵌套信息块', '装饰性卡片',
+    '简单回答', '用户明确指定格式',
+  ]) {
+    assert.match(collaboration, new RegExp(fragment.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'));
+  }
+  assert.match(routing, /ai-collab-rules\.md.*复杂输入|复杂输入.*ai-collab-rules\.md/u);
+  const capability = capabilities.items.find((item) => item.id === 'adaptive-information-presentation');
+  assert.ok(capability, 'adaptive-information-presentation capability should be declared');
+  assert.deepEqual(capability.profiles, ['core', 'full', 'docs-only']);
+  assert.deepEqual(capability.evaluation.suites, ['evals/suites/loopengine-core.json']);
+});
+
 test('治理内核和交付模板定义任务确认与完整会话交付', async () => {
   const kernel = await readFile(path.join(rootDir, 'rules/governance-core.md'), 'utf8');
   const agents = await readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8');
