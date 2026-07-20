@@ -67,7 +67,12 @@ export async function evaluateCodexHook(rawInput, { expectedEvent } = {}) {
   if (input.event === 'SubagentStart') {
     return {
       hookSpecificOutput: {
-        additionalContext: 'Stay within the delegated write scope, preserve user changes, and return verification evidence.',
+        additionalContext: [
+          'Work only from the delegated child-task brief and minimum required context.',
+          'Stay within its project-relative write scope and do not modify the parent-controlled task Markdown.',
+          'Do not delegate, create subagents, or split the task further; report a blocked status and requested split to the parent Agent.',
+          'Preserve user changes, do not approve your own work, and return status, change summary, changed paths, verification evidence, unverified items, remaining risks, and next action.',
+        ].join(' '),
         hookEventName: input.event,
       },
     };
@@ -81,7 +86,9 @@ export async function evaluateCodexHook(rawInput, { expectedEvent } = {}) {
     };
   }
   if (input.event === 'SubagentStop') {
-    return { systemMessage: 'Subagent stopped; verify its claimed changes and evidence before adoption.' };
+    return {
+      systemMessage: 'Subagent stopped. The parent Agent must inspect the actual diff and claimed evidence, persist the child status in the parent-controlled task Markdown, resolve merge-back state, and rerun affected validation in the integrated target workspace before adoption or completion.',
+    };
   }
   if (input.event === 'Stop' && settings.completionGate !== 'off') {
     const [governance, evaluation, delivery] = await Promise.all([

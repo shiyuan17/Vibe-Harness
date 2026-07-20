@@ -194,13 +194,13 @@ test('all platform instruction entrypoints stay below ninety lines', async () =>
 
 test('adapter profile file sets match the reviewed snapshots', async () => {
   const snapshots = {
-    'claude:core': [58, 'fa8c3998e9c7ec5e68141a6b095f067d84ceb67657db8f6353a791033f3b2ff3'],
+    'claude:core': [59, 'a299771a0b197a6e2f48562999b39cd5ac31f22722658c826b957b2e101e547d'],
     'claude:docs-only': [29, '66b1c875eed445824b30d7f6d7ae001107f5d4f197e181ba865096794925724f'],
     'claude:minimal': [7, 'de8bef97b2444d03ddb8077a187a05e0dc1d976f97cfce2daf87d77262d5c9ba'],
-    'codex:core': [58, 'dcddc76817019c0bab3c9a67561ea16d10fa570145b5ac64ec5bd03efe0e4ada'],
-    'codex:full': [113, 'b22010d1cf3e17d695ed50520ee1ac03e145a77ec291360373f179d71b9d8f7a'],
+    'codex:core': [59, '6015b48be7b2a951159c4733aeffe920c206a110189d5a211796c8f753f0ca36'],
+    'codex:full': [114, '8ce9b5ad611048c394d018b0b95aaaa41182a444704792f64e4a51c3a559d199'],
     'codex:minimal': [7, 'acf92f049c50289f3eec6136e888f50b32b389d8a80e75a8b344a20ad37d6789'],
-    'gemini:core': [58, 'a82188c750a32c253d0027bcccbda7561eec060465fb05bed8229d229278185c'],
+    'gemini:core': [59, '893d25d8ff3e1f9299a71150ee57de2fd7a8bafaeb4741d73ae02c1b7ee6538d'],
     'gemini:docs-only': [29, '428c26d9f51fe99cfa520cb63f4b2aa8cfb7bfdd8b605a927cc0352af6ca2b89'],
     'gemini:minimal': [7, '8e6fc02f1c019b5cea55ac49567af9bd4b2b75ed62f97731e0dbcd962293eb4a'],
   };

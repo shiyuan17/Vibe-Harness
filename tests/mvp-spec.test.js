@@ -339,6 +339,7 @@ test('minimal profile installs the fallback kernel without skills', async () => 
     assert.equal(targets.some((item) => item.startsWith('.agents/skills/')), false);
     assert.equal(targets.some((item) => item.startsWith('.agents/memory/')), false);
     assert.equal(targets.includes('.codex/hooks.json'), false);
+    assert.equal(targets.includes('.agents/cognis/governance/lib/task-graph-validation.mjs'), false);
     assert.equal(targets.some((item) => item.startsWith('docs/workflows/')), false);
     assert.equal(agents.includes('codebase-memory-mcp'), false);
     assert.equal(agents.includes('agentmemory'), false);
@@ -360,6 +361,7 @@ test('core profile installs common routed skills without mcp, memory, or hooks',
     assert.equal(targets.some((item) => item.startsWith('.agents/memory/')), false);
     assert.equal(targets.includes('.codex/hooks.json'), false);
     assert.equal(targets.includes('docs/schemas/full-task-control.schema.json'), true);
+    assert.equal(targets.includes('.agents/cognis/governance/lib/task-graph-validation.mjs'), true);
     assert.equal(targets.some((item) => item.startsWith('docs/workflows/')), false);
     assert.equal(targets.includes('.agents/skills/review-checklist/SKILL.md'), false);
     assert.equal(targets.includes('.agents/skills/loop-planning/SKILL.md'), false);

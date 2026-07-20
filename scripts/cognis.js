@@ -55,6 +55,7 @@ import {
 import { inspectTransactions, recoverTransaction } from './lib/file-transaction.js';
 import { resolveProjectConfigLocation } from './lib/project-layout.js';
 import { readProductEnv } from './lib/product-identity.js';
+import { inspectTaskContracts } from '../runtime/governance/lib/task-validation.mjs';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -162,6 +163,7 @@ function emitReport(report, args, { error = false } = {}) {
       ...(typeof normalized.target === 'string' ? [`target: ${normalized.target}`] : []),
       ...(normalized.dryRun !== undefined ? [`dryRun: ${normalized.dryRun}`] : []),
       `warnings: ${normalized.warnings.length}`,
+      ...(normalized.taskContracts ? [`taskContracts: v2=${normalized.taskContracts.version2}, legacy=${normalized.taskContracts.legacy}, parents=${normalized.taskContracts.parents}, children=${normalized.taskContracts.children}`] : []),
       ...toolSummaryLines(normalized.tools, normalized.recommendations),
     ];
     (error ? console.error : console.log)(lines.join('\n'));
@@ -693,6 +695,7 @@ async function doctor(args) {
     targetDir,
   });
   const tools = await inspectProfileTools(profile, targetDir);
+  const taskContracts = inspectTaskContracts(targetDir, { verbose: args.verbose });
   if (!args.verbose) target = compactTargetReport(target);
   const health = provisioningProcess
     ? { ok: false, status: 'degraded' }
@@ -705,6 +708,7 @@ async function doctor(args) {
     provisioningProcess,
     ...(args.verbose ? { rootDir } : {}),
     target,
+    taskContracts,
     ...(args.verbose ? { targetDir } : {}),
     tools,
     transactionLock,
@@ -718,6 +722,10 @@ async function doctor(args) {
       ...(provisioningProcess ? [{
         code: 'PROVISIONING_PROCESS_INCOMPLETE',
         message: `Provisioning process state is ${provisioningProcess.status}.`,
+      }] : []),
+      ...(taskContracts.legacyMultiAgent > 0 ? [{
+        code: 'TASK_CONTROL_V1_LEGACY',
+        message: `${taskContracts.legacyMultiAgent} legacy parent/child task contract(s) remain readable but should migrate to control version 2.`,
       }] : []),
     ],
   }, args);

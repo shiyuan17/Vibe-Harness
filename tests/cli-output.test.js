@@ -60,6 +60,45 @@ test('default dry-run is compact while verbose retains rendered content', async 
   }
 });
 
+test('doctor summarizes legacy multi-agent task contracts and only reveals paths when verbose', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-doctor-task-contract-'));
+  try {
+    await run(['init', '--project', target]);
+    await run(['install', '--project', target, '--target', 'codex', '--profile', 'core', '--write']);
+    const tasksDir = path.join(target, 'docs/tasks');
+    await mkdir(tasksDir, { recursive: true });
+    await writeFile(path.join(tasksDir, 'LEGACY-PARENT.md'), `# LEGACY-PARENT legacy parent
+
+- 工作流档位：完整
+- 当前阶段：执行
+- 当前状态：进行中
+- 处理结果：开放
+
+## 完整流程控制
+
+\`\`\`json
+{"任务类型":"父任务"}
+\`\`\`
+`, 'utf8');
+
+    const compact = JSON.parse((await run(['doctor', '--project', target, '--profile', 'core'])).stdout);
+    assert.equal(compact.taskContracts.total, 1);
+    assert.equal(compact.taskContracts.legacy, 1);
+    assert.equal(compact.taskContracts.legacyMultiAgent, 1);
+    assert.equal(Object.hasOwn(compact.taskContracts, 'legacyPaths'), false);
+    assert.equal(compact.warnings.some((warning) => warning.code === 'TASK_CONTROL_V1_LEGACY'), true);
+
+    const verbose = JSON.parse((await run(['doctor', '--project', target, '--profile', 'core', '--verbose'])).stdout);
+    assert.deepEqual(verbose.taskContracts.legacyPaths, ['docs/tasks/LEGACY-PARENT.md']);
+
+    const summary = await run(['doctor', '--project', target, '--profile', 'core', '--output', 'summary']);
+    assert.match(summary.stdout, /taskContracts: v2=0, legacy=1, parents=1, children=0/u);
+    assert.doesNotMatch(summary.stdout, /LEGACY-PARENT\.md/u);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
 test('validate and command errors use the shared health contract', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'cognis-output-invalid-'));
   try {

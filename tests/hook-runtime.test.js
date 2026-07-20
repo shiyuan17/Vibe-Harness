@@ -444,6 +444,33 @@ test('UserPromptSubmit injects task-confirmation guidance without echoing the pr
   }
 });
 
+test('subagent hooks inject flat-DAG boundaries and parent fan-in reminders without blocking claims', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-hook-subagent-'));
+  try {
+    await writeFile(path.join(target, 'cognis.config.json'), JSON.stringify({ hooks: { mode: 'guarded' } }), 'utf8');
+    const run = async (event) => JSON.parse((await runNodeWithInput(path.join(rootDir, 'runtime/hooks/codex-hook.mjs'), {
+      cwd: target,
+      hook_event_name: event,
+      session_id: 'session-subagent',
+    }, { cwd: target })).stdout);
+
+    const start = await run('SubagentStart');
+    const context = start.hookSpecificOutput.additionalContext;
+    assert.match(context, /delegated child-task brief/u);
+    assert.match(context, /Do not delegate, create subagents/u);
+    assert.match(context, /do not approve your own work/u);
+    assert.match(context, /changed paths.*verification evidence.*remaining risks/u);
+    assert.doesNotMatch(context, /prevent|block the subagent|deny/iu);
+
+    const stop = await run('SubagentStop');
+    assert.match(stop.systemMessage, /parent Agent.*actual diff.*persist the child status/iu);
+    assert.match(stop.systemMessage, /integrated target workspace/iu);
+    assert.equal(Object.hasOwn(stop, 'decision'), false);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
 test('Stop delivery gate follows off, advisory, and blocking modes', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'cognis-hook-delivery-gate-'));
   try {
