@@ -1,5 +1,11 @@
 # 更新日志
 
+## Unreleased
+
+- 新增 v0.6 父子任务多 Agent 治理合同：v1 保持可读，新模板默认 v2，跨文档 validator 校验扁平 DAG、批次、依赖、冲突和写入范围。
+- `doctor` 新增非阻断 legacy task-contract 摘要；full profile 的 Skill 与 Codex Subagent hooks 提供最小上下文、禁止再委派和父 Agent fan-in 提醒，不宣称阻止 subagent 启动。
+- 父任务完成前必须关闭 child 与 merge-back、记录目标工作区集成验证证据，并取得最终 diff 的独立 Red Team 批准。
+
 ## 0.5.0 - 2026-07-18
 
 - 产品正式命名为 Cognis（智序，旧称 LoopEngine），package、主 CLI、配置、活动 runtime、Skill、评测及产物统一使用 Cognis 命名。

@@ -11,8 +11,13 @@
 
 ## 现行规格
 
-- [v0.5 中文精简治理规格](specs/cognis-v0.5-simplified-governance-spec.md)：当前治理合同。
+- [v0.6 父子任务多 Agent 治理规格](specs/cognis-v0.6-multi-agent-governance-spec.md)：当前治理合同与 v1 兼容边界。
 - [Agentmemory Skill 收敛规格](specs/agentmemory-skill-consolidation-spec.md)：当前 Agentmemory 安装与升级合同。
+
+## 实施记录
+
+- [COGNIS-MA-001 父子任务多 Agent 治理闭环](tasks/COGNIS-MA-001.md)：v0.6 合同、运行时、安装 surface 与验证记录。
+- [COGNIS-MA-001 Red Team 审查包](reviews/COGNIS-MA-001-red-team.md)：独立核验结论、反例和剩余风险。
 
 ## 参考审计
 

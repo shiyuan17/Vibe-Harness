@@ -1,6 +1,6 @@
 # Cognis v0.5 中文精简治理规格
 
-状态：Implemented
+状态：Superseded。多 Agent 章节已由 v0.6 父子任务治理规格取代；本文仅保留 v0.5 历史合同。
 
 版本说明：`v0.5` 是治理规格修订号，不等同于 `package.json` 的产品发布版本；当前 package release 仍按独立语义化版本演进。
 

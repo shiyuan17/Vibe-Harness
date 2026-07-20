@@ -7,7 +7,7 @@ Cognis 是跨平台、Codex 完整能力优先的可复用 AI coding governance 
 - `rules/`：`governance-core` 是五步循环、风险和证据的唯一流程真值；其余文件只保存工程专项约束。
 - `templates/`：无 Skill 环境使用的中文任务和交付模板；专项模板与对应 skill 共置。
 - `skills/`：`using-cognis` 负责路由，canonical skills 按需提供规格、计划、实现、验证、审查和恢复流程。
-- `runtime/governance/`：将中英文 Markdown 视图解析为语言无关 TaskDocument IR，再校验 AC-ID、完成证据、完整流程控制块和结构化 Red Team 审查包。
+- `runtime/governance/`：将中英文 Markdown 视图解析为语言无关 TaskDocument IR，再校验 AC-ID、完成证据、完整流程控制块、跨文档任务图和结构化 Red Team 审查包。
 - `runtime/hooks/`：规范化 Codex 事件并执行可移植的安全、上下文和完成策略。
 - `runtime/evals/`：提供项目内离线评测 runtime 和 full 使用的 Codex 在线 runner；runner 只在一次性项目中执行。
 - `runtime/tools/`：固定版本的项目内工具 bootstrap；稳定 full 默认 provision 四个工具，Agentmemory 在风险接受前保持 opt-in preview。
@@ -56,14 +56,16 @@ evaluation reference 与项目 baseline 分离。reference 只保存批准的 fi
 
 ## Profile
 
-- minimal：最小安装，包含平台入口、治理内核、Git/VCS/Test 规则和中文 task/delivery 模板，不安装 skills、runtime、hook 或 MCP 安装面。
-- core：通用安装，在 minimal 上增加专项规则、中文任务 runtime/schema、`using-cognis` 和常规 skills；不安装 hook、`codebase-memory-mcp` 或 agentmemory MCP 安装面。
-- full：全安装，在 core 上增加五个项目内工具 runtime、经 `index_status` 验证的 codebase 初始索引、三个 MCP 注册、agentmemory skill、`.agents/memory/` 本地回退库和 Codex hooks；其中 Chrome DevTools MCP 使用受管项目配置和无头隔离 smoke，稳定 provision 排除 Agentmemory，显式 `--allow-preview` 后才能安装该依赖面，真实写入红区仍需确认。
-- docs-only：仅安装平台入口、治理内核、专项规则、中文模板、memory 文档和 schema，不安装 runtime、Skills、MCP 或 hooks。
+- minimal：最小安装，包含平台入口、治理内核、Git/VCS/Test 规则和默认 v2 中文 task/delivery 模板，不安装 skills、runtime、hook 或 MCP 安装面。
+- core：通用安装，在 minimal 上增加专项规则、v1/v2 任务 runtime/schema、跨文档任务图 validator、`using-cognis` 和 inline fallback skills；不安装 hook、`codebase-memory-mcp` 或 agentmemory MCP 安装面。
+- full：全安装，在 core 上增加多 Agent 执行 Skill、五个项目内工具 runtime、经 `index_status` 验证的 codebase 初始索引、三个 MCP 注册、agentmemory skill、`.agents/memory/` 本地回退库和 Codex hooks；其中 Chrome DevTools MCP 使用受管项目配置和无头隔离 smoke，稳定 provision 排除 Agentmemory，显式 `--allow-preview` 后才能安装该依赖面，真实写入红区仍需确认。
+- docs-only：仅安装平台入口、治理内核、专项规则、v2 中文模板、memory 文档和 schema，不安装 runtime、Skills、MCP 或 hooks。
 
 ## 中文任务数据流
 
-人工只维护 `docs/tasks/<任务编号>.md`。`language` 支持 `zh-CN` 与 `en-US`；两种 Markdown 视图都归一为 schemaVersion 1 TaskDocument IR，状态、阶段和结果使用语言无关枚举。validator 在 IR 上校验控制块、证据覆盖、人工确认、独立核验和 merge-back。
+人工只维护 `docs/tasks/<任务编号>.md`。无 `控制版本` 的控制块按 v1 读取；新模板默认 v2。`language` 支持 `zh-CN` 与 `en-US`；两种 Markdown 视图都归一为 schemaVersion 1 TaskDocument IR，状态、阶段和结果使用语言无关枚举。validator 先逐文档校验控制块、证据覆盖、人工确认、独立核验和 merge-back，再校验 v2 父子双向关系、扁平 DAG、批次、依赖、冲突和写入范围重叠。
+
+只有父 Agent 能派发并维护任务文档。child 使用最小上下文，不能再委派，只返回固定结构化结果；父 Agent 在 fan-in 时核对实际 diff 与证据、持久化状态，并在目标工作区执行集成验证。`doctor` 默认只汇总 v1/v2 数量，`--verbose` 才显示 legacy 路径。
 
 ## 安全模型
 

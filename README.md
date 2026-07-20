@@ -20,6 +20,7 @@ Cognis gives Codex, Claude Code, and Gemini CLI a shared way to plan, execute, a
 | --- | --- | --- |
 | The Agent starts editing before it understands the task. | A five-step workflow and fast, lightweight, or full risk levels. | Small tasks stay quick; risky work starts with a plan and a rollback path. |
 | The Agent says “done” without showing proof. | Task templates connect each acceptance criterion (`AC-ID`) to evidence, and the installed validator (automatic checker) checks completed tasks. | A completion claim can be checked against commands, artifacts, reviews, or manual confirmation. |
+| Multiple Agents overwrite shared work or trust self-reported tests. | Version 2 parent/child task contracts define a flat DAG, write scopes, serial/parallel batches, merge-back state, and integrated validation. | Only independent child work runs in parallel; the parent Agent inspects the final diff and reruns checks in the target workspace. |
 | Important coding context gets buried in prose. | Core, full, and docs-only profiles choose compact Markdown structures for complex requests and replies: checkbox todos, lists, comparison tables, and portable information blocks. | Simple answers stay short while plans, progress, evidence, and decisions remain easy to scan without altering code or command output. |
 | Agent rules or skills change without behavioral regression evidence. | Eval-ID scenarios compare offline and real-Agent runs with an approved evaluation reference. | Prompt and governance changes can be reviewed against critical behavior, not only file snapshots. |
 | A long task loses important context between sessions. | `baseline` records project, installation, tool, and verification status; project memory and handoff templates preserve decisions and known issues. | The next session can recover project facts without reconstructing everything from chat history. |
@@ -85,16 +86,18 @@ Understand the task -> Choose an approach -> Make the change -> Check the result
 
 If the risk is unclear, use the full workflow.
 
+For multi-Agent work, keep one Markdown file per task under `docs/tasks/`. New tasks use control version 2. Only the parent Agent dispatches children and updates task state; children cannot delegate again. `doctor` reports legacy v1 parent/child contracts without making them invalid, while `--verbose` reveals the paths that should be migrated.
+
 ## Choose an Install Level
 
 An install level, called a `profile` in commands and configuration, is a ready-made group of Cognis files and features.
 
 | Profile | What you get | Best for |
 | --- | --- | --- |
-| `minimal` | The main Agent instruction file, basic working rules, Git and test rules, and task templates | Small projects that want basic guidance without extra skills or tools |
-| `core` | Everything in `minimal`, plus common engineering rules, task checks, Red Team completion review, routing skills, and Playwright prepared for on-demand use | Most projects; this is the recommended starting point |
-| `full` | Everything in `core`, plus project memory, advanced workflow skills, four stable project tools, preview Agentmemory assets, Codex MCP setup, and Codex hooks | Long-running or high-risk Codex projects |
-| `docs-only` | Instructions, reusable rules, templates, and schemas, without executable tools, skills, MCP, or hooks | Projects that only want the documentation-based setup |
+| `minimal` | The main Agent instruction file, hard boundaries, Git and test rules, and version 2 task templates | Small projects that want basic guidance without extra skills or tools |
+| `core` | Everything in `minimal`, plus common engineering rules, v1/v2 task and graph checks, Red Team completion review, routing skills, and Playwright prepared for on-demand use | Most projects; this is the recommended starting point |
+| `full` | Everything in `core`, plus the multi-Agent execution skill, project memory, advanced workflow skills, four stable project tools, preview Agentmemory assets, Codex MCP setup, and Codex hooks | Long-running or high-risk Codex projects |
+| `docs-only` | Instructions, reusable rules, version 2 templates, and schemas, without executable runtime, skills, MCP, or hooks | Projects that only want the documentation-based setup |
 The exact files included in each profile are defined in `manifests/profiles.json`.
 
 ## More Commands

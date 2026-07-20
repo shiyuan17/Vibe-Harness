@@ -84,12 +84,18 @@ rollback 会恢复旧配置和已退休资产；若 canonical 配置已被用户
 
 兼容层最早只能在独立的 `1.0` breaking release 中移除。
 
+### v1 任务合同迁移
+
+无 `控制版本` 的现有完整流程控制块按 v1 继续读取，升级和安装不会自动改写 `docs/tasks/*.md`，`validate` 也不会仅因 legacy 版本新增失败。`cognis doctor --project <path>` 默认报告 legacy 数量；存在 v1 父子合同时增加非阻断 `TASK_CONTROL_V1_LEGACY`，只有 `--verbose` 才列具体路径。
+
+新建或主动迁移任务时写入 `"控制版本": 2`。单任务补齐冲突与时间盒字段；parent 补 `子任务`、`执行批次`、`集成验证`；child 补 `父任务编号`、最小输入、固定输出字段和不得修改范围。先用 dry-run 安装最新 schema/runtime，再运行 `cognis validate --project <path>` 检查整张任务图。不要恢复 `task.json`、workflow manifest，也不要在升级中批量重写用户任务。
+
 ## 5. Profile 与工具
 
-- `minimal`：平台入口、治理内核、Git/Test 规则和中文 task/delivery 模板。
-- `core`：minimal 加工程专项规则、任务 runtime/schema、`using-cognis`、常规 skills 和 Red Team 门禁。
-- `full`：core 加 durable memory、在线评测、项目内工具、MCP 注册和 Codex hooks。
-- `docs-only`：只安装文档治理资产。
+- `minimal`：平台入口、治理内核、Git/Test 规则和默认 v2 中文 task/delivery 模板。
+- `core`：minimal 加工程专项规则、v1/v2 任务 runtime/schema、任务图 validator、`using-cognis`、inline fallback 和 Red Team 门禁。
+- `full`：core 加多 Agent Skill、durable memory、在线评测、项目内工具、MCP 注册和 Codex hooks。
+- `docs-only`：只安装可读规则、v2 模板与 schema，不提供 runtime 或平台 hook。
 
 精确文件集合以 `manifests/profiles.json` 为真值。`install` 不隐式下载第三方工具；需要工具时单独执行：
 

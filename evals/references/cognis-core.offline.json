@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "id": "cognis-core-offline-reference",
-  "approvedAt": "2026-07-18T06:53:42.893Z",
+  "approvedAt": "2026-07-19T14:38:58.375Z",
   "suite": {
     "id": "cognis-core",
-    "version": "1.2.0"
+    "version": "1.3.0"
   },
   "mode": "offline",
   "fingerprint": {
-    "suiteHash": "2231ad7f30a21bca6adc2b8e9118d49d2564e675d997bbf3c99a80134e091420",
+    "suiteHash": "63c10f3904e735c7adc304433718992bd642115e86c5142ee9687a8d399221a5",
     "runner": "offline-replay@1",
     "model": "fixture",
     "agent": "offline",
@@ -35,6 +35,12 @@
     },
     {
       "id": "install-lifecycle",
+      "caseCount": 6,
+      "passedCount": 6,
+      "score": 1
+    },
+    {
+      "id": "multi-agent-task-governance",
       "caseCount": 6,
       "passedCount": 6,
       "score": 1

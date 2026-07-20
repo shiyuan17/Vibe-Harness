@@ -20,6 +20,7 @@ Cognis 让 Codex、Claude Code 和 Gemini CLI 使用同一套规划、执行与�
 | --- | --- | --- |
 | AI 还没有理解任务，就直接开始改代码。 | 使用五步工作流程，并按风险选择快速、轻量或完整档位。 | 简单任务可以快速完成；高风险任务会先给出方案和撤销办法。 |
 | AI 只说“已经完成”，却没有提供依据。 | 任务模板用 `AC-ID` 连接每条验收标准和对应证据，validator（自动检查程序）会检查已完成任务。 | 可以用命令、产物、审查或人工确认逐项核对完成结果。 |
+| 多个 Agent 覆盖共享修改，或直接采信彼此自报的测试。 | v2 父子任务合同定义扁平 DAG、写入范围、串并行批次、merge-back 状态和集成验证。 | 只有真正独立的 child 才并行；父 Agent 核对最终 diff，并在目标工作区重新运行检查。 |
 | 重要的 coding 上下文被长段落淹没。 | `core`、`full` 和 `docs-only` 会为复杂请求和回复按内容选择 checkbox todo、列表、比较表格和跨平台信息块。 | 简单回答保持简洁，计划、进度、证据和决策更容易扫读，同时不改写代码或命令输出。 |
 | Agent 规则或 Skill 改变后缺少行为回归证据。 | 使用 Eval-ID 场景把离线和真实 Agent 运行结果与批准的 evaluation reference 比较。 | 提示和治理变更不只比较文件，还能核对 critical 行为。 |
 | 长任务跨会话后丢失重要上下文。 | `baseline` 记录项目、安装、工具和验证状态；项目记忆与交接模板保留决策和已知问题。 | 新会话可以直接读取项目事实，不必只靠聊天记录重新整理。 |
@@ -85,16 +86,18 @@ Claude Code 与 Gemini CLI 的 `full` 默认被 preview 门禁阻止，只有显
 
 无法确定风险时，使用完整流程。
 
+多 Agent 工作仍为每个任务只维护一个 `docs/tasks/` 下的 Markdown。新任务使用控制版本 2；只有父 Agent 能派发 child 和更新任务状态，child 不得再次委派。`doctor` 会提示 legacy v1 父子合同但不会把它们判为无效，只有 `--verbose` 才显示待迁移路径。
+
 ## 选择安装级别
 
 安装级别在命令和配置中叫作 `profile`。每个 profile 都是一组已经搭配好的 Cognis 文件和功能。
 
 | Profile | 会安装什么 | 适合什么项目 |
 | --- | --- | --- |
-| `minimal` | Agent 主说明文件、基本工作规则、Git 与测试规则、任务模板 | 只需要基本规则，不需要额外 skills 或工具的小项目 |
-| `core` | `minimal` 的全部内容，加上常用工程规则、任务检查、Red Team 完成门禁、skills 路由和按需启动的 Playwright | 大多数项目，建议从这里开始 |
-| `full` | `core` 的全部内容，加上项目记忆、高级流程 skills、四个 stable 项目工具、preview Agentmemory 资产、Codex MCP 配置和 Codex hooks | 长期维护或风险较高的 Codex 项目 |
-| `docs-only` | 使用说明、公共规则、模板和 schemas，不安装可执行工具、skills、MCP 或 hooks | 只希望使用文档规则的项目 |
+| `minimal` | Agent 主说明文件、硬边界、Git 与测试规则、v2 任务模板 | 只需要基本规则，不需要额外 skills 或工具的小项目 |
+| `core` | `minimal` 的全部内容，加上常用工程规则、v1/v2 任务与任务图检查、Red Team 完成门禁、skills 路由和按需启动的 Playwright | 大多数项目，建议从这里开始 |
+| `full` | `core` 的全部内容，加上多 Agent 执行 Skill、项目记忆、高级流程 skills、四个 stable 项目工具、preview Agentmemory 资产、Codex MCP 配置和 Codex hooks | 长期维护或风险较高的 Codex 项目 |
+| `docs-only` | 使用说明、公共规则、v2 模板和 schemas，不安装可执行 runtime、skills、MCP 或 hooks | 只希望使用文档规则的项目 |
 每个 profile 实际包含哪些文件，由 `manifests/profiles.json` 定义。
 
 ## 更多命令
