@@ -239,6 +239,12 @@
     },
     {
       "group": "runtime-task",
+      "source": "runtime/governance/lib/task-graph-validation.mjs",
+      "target": ".agents/cognis/governance/lib/task-graph-validation.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-task",
       "source": "runtime/governance/lib/red-team-validation.mjs",
       "target": ".agents/cognis/governance/lib/red-team-validation.mjs",
       "contentStrategy": "replace"

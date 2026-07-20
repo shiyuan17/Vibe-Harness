@@ -17,7 +17,7 @@ Skill 只补强任务 Workflow，不得覆盖目标项目 `AGENTS.md`、治理�
 | Clarify | `brainstorming` | 澄清目标、成功标准和非目标；高强度追问由同一入口按需执行，无 Skill 时使用任务确认模板。 |
 | Spec | 接口任务使用 `api-and-interface-design` | 明确行为、契约、错误和验收；无 Skill 时按专项规则编写规格。 |
 | Plan | `writing-plans` | 形成可执行计划并按需拆成可独立验收单元；简单任务可按治理内核直接进入执行。 |
-| Execute | 确定性行为使用 `test-driven-development`；Agent 行为使用 `eval-driven-development`；故障使用 `systematic-debugging` | 先观察失败，再小步实现并保护用户改动。 |
+| Execute | 确定性行为使用 `test-driven-development`；Agent 行为使用 `eval-driven-development`；故障使用 `systematic-debugging`；full 可对已登记的独立 child 使用 `subagent-driven-development` | 默认单 Agent；多 Agent 遵循扁平 DAG、父 Agent 单一派发与 fan-in，先观察失败，再小步实现并保护用户改动。 |
 | Verify | `verification-before-completion`；UI 可用 `browser-verification` | 提供本轮真实命令、浏览器、接口或日志证据。 |
 | Review | 完整/高风险使用 `adversarial-review-packet`；其他任务使用 `code-review-and-quality` | Red Team 审查包或常规审查；OCR 不可用时记录降级和未覆盖轴。 |
 | Handoff | task/delivery 模板；full 可使用 `agentmemory` | 保留状态、证据、风险和恢复动作。 |

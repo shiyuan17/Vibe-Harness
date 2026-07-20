@@ -8,7 +8,7 @@
       "targets": ["adapters/codex/AGENTS.template.md", "rules/governance-core.md"],
       "tests": ["tests/simplified-governance.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
-      "docs": ["docs/specs/cognis-v0.5-simplified-governance-spec.md"],
+      "docs": ["docs/specs/cognis-v0.6-multi-agent-governance-spec.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/cognis-core.json"] }
     },
     {
@@ -18,7 +18,17 @@
       "targets": ["templates/task.md", "templates/task.en-US.md", "templates/delivery.en-US.md", "schemas/full-task-control.schema.json", "runtime/governance/lib/task-validation.mjs"],
       "tests": ["tests/simplified-governance.test.js", "tests/task-ir.test.js", "tests/mvp-spec.test.js"],
       "profiles": ["core", "full", "docs-only"],
-      "docs": ["docs/specs/cognis-v0.5-simplified-governance-spec.md"],
+      "docs": ["docs/specs/cognis-v0.6-multi-agent-governance-spec.md"],
+      "evaluation": { "required": true, "suites": ["evals/suites/cognis-core.json"] }
+    },
+    {
+      "id": "multi-agent-task-governance",
+      "source": "versioned parent-child task contracts and flat DAG orchestration",
+      "disposition": "validator",
+      "targets": ["templates/task.md", "templates/task.en-US.md", "schemas/full-task-control.schema.json", "runtime/governance/lib/task-validation.mjs", "runtime/governance/lib/task-graph-validation.mjs", "rules/ai-collab-rules.md", "skills/core/subagent-driven-development/SKILL.md", "runtime/hooks/codex-hook.mjs"],
+      "tests": ["tests/multi-agent-governance.test.js", "tests/hook-runtime.test.js", "tests/cli-output.test.js"],
+      "profiles": ["minimal", "core", "full", "docs-only"],
+      "docs": ["docs/specs/cognis-v0.6-multi-agent-governance-spec.md", "docs/architecture.md", "docs/migration-guide.md", "docs/hooks.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/cognis-core.json"] }
     },
     {
@@ -38,7 +48,7 @@
       "targets": ["rules/ai-collab-rules.md", "rules/agent-skill-routing.md"],
       "tests": ["tests/simplified-governance.test.js", "tests/rules-depth.test.js"],
       "profiles": ["core", "full", "docs-only"],
-      "docs": ["docs/specs/cognis-v0.5-simplified-governance-spec.md", "README.md", "README.zh-CN.md"],
+      "docs": ["docs/specs/cognis-v0.6-multi-agent-governance-spec.md", "README.md", "README.zh-CN.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/cognis-core.json"] }
     },
     {
@@ -48,7 +58,7 @@
       "targets": ["rules/governance-core.md", "templates/task.md", "templates/delivery.md", "schemas/full-task-control.schema.json", "runtime/governance/lib/red-team-validation.mjs", "skills/core/adversarial-review-packet/SKILL.md", "skills/core/adversarial-review-packet/references/review.md"],
       "tests": ["tests/manifest-schema.test.js", "tests/simplified-governance.test.js", "tests/skill-closure.test.js"],
       "profiles": ["core", "full", "docs-only"],
-      "docs": ["docs/specs/cognis-v0.5-simplified-governance-spec.md"],
+      "docs": ["docs/specs/cognis-v0.6-multi-agent-governance-spec.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/cognis-core.json"] }
     },
     {
