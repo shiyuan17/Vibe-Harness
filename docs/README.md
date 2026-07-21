@@ -11,7 +11,7 @@
 
 ## 现行规格
 
-- [v0.6 父子任务多 Agent 治理规格](specs/cognis-v0.6-multi-agent-governance-spec.md)：当前治理合同、Prompt Cache 上下文边界与 v1 兼容边界。
+- [v0.7 自适应单/多 Agent 编排规格](specs/cognis-v0.7-adaptive-orchestration-spec.md)：当前三阶段路由、v2 父子任务合同、Prompt Cache 上下文边界与能力降级规则。
 - [Agentmemory Skill 收敛规格](specs/agentmemory-skill-consolidation-spec.md)：当前 Agentmemory 安装与升级合同。
 - [显式工具插件规格](specs/cognis-tooling-modules-spec.md)：7 个项目内工具的选择、版本校验、状态、规则和降级合同。
 
@@ -19,6 +19,10 @@
 
 - [COGNIS-MA-001 父子任务多 Agent 治理闭环](tasks/COGNIS-MA-001.md)：v0.6 合同、运行时、安装 surface 与验证记录。
 - [COGNIS-MA-001 Red Team 审查包](reviews/COGNIS-MA-001-red-team.md)：独立核验结论、反例和剩余风险。
+- [COGNIS-AO-001 自适应单/多 Agent 路由治理](tasks/COGNIS-AO-001.md)：v0.7 路由规则、评测和集成验证记录。
+- [COGNIS-AO-001 Red Team 审查包](reviews/COGNIS-AO-001-red-team.md)：最终实际 diff、反例修复、独立核验结论与剩余风险。
+- [COGNIS-AO-001 测试 child](tasks/COGNIS-AO-001-TESTS.md) / [测试 Red Team](reviews/COGNIS-AO-001-TESTS-red-team.md)：聚焦合同测试及 RED 证据。
+- [COGNIS-AO-001 规范 child](tasks/COGNIS-AO-001-POLICY.md) / [规范 Red Team](reviews/COGNIS-AO-001-POLICY-red-team.md)：规则、Skill 和 v0.7 规格的限定实现与审查记录。
 
 ## 参考审计
 

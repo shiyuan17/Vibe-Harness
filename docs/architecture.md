@@ -27,7 +27,7 @@ Cognis 是跨平台、Codex 完整能力优先的可复用 AI coding governance 
 1. `cognis init --project <path> --target <codex|claude|gemini>` 创建项目配置。
 2. `cognis install --project <path> --target <adapter> --profile <profile> --dry-run` 只预览；CLI target 与配置不一致时拒绝执行。
 3. 所有 profile 使用 `--write` 事务性写入；Codex full 写入红区另需 `--confirm-red-zone`。事务按 preflight、journal、preimage、apply、state v3 commit 顺序执行。
-4. `cognis install ... --plugin <plugins>` 将工具模块及依赖闭包增量并入 profile；`-all` 选择全部 7 个，单选、多选与 install-state 持久化互相独立。`cognis provision --project <path> --profile <profile>` 独立预览已选工具；只有 `--write` 才执行。`install --provision` 是兼容的一站式入口。
+4. `cognis install ... --plugin <plugins>` 将工具模块及依赖闭包增量并入 profile；`-all` 选择全部 7 个，单选、多选与 install-state 持久化互相独立。`--rtk-hooks on|off` 是独立、默认关闭的 Codex-only 集成开关，只有启用时才隐式加入 hooks 及治理依赖。`cognis provision --project <path> --profile <profile>` 独立预览已选工具；只有 `--write` 才执行。`install --provision` 是兼容的一站式入口。
 5. 中断事务由 `cognis recover --project <path>` 预览，显式 `--write` 才逆序恢复；`doctor` 只读报告锁和 journal。
 6. 工具子进程使用 allowlist 环境与独立进程组；SIGINT、SIGTERM、超时和输出上限都会先清理进程树。失败诊断脱敏后写入工具状态。
 7. `cognis validate --project <path>` 校验安装一致性和组件状态，不执行目标项目命令。
@@ -40,6 +40,8 @@ Open Code Review 的运行配置解析顺序固定为完整 `OCR_LLM_*` 环境�
 Chrome DevTools MCP 固定为项目内 `chrome-devtools-mcp@1.6.0`，只调用 lockfile 对应的本地入口。wrapper 以系统 Google Chrome 的无头隔离模式运行，固定关闭遥测、更新检查和 CrUX，脱敏 network header，不接入个人 profile、远程调试端口或任意外部路径。依赖 lockfile 未变化时可复用安装，但每次真实 provision 都通过 `list_pages` 重跑浏览器 smoke；Chrome 启动失败稳定映射为 `CHROME_LAUNCH_FAILED`。子进程环境使用系统启动变量 allowlist，不继承 token、云凭据或带凭据代理；工具状态只保存版本、阶段、时间和脱敏诊断，不保存页面、header、响应体或原始环境。
 
 RTK 固定为 `rtk-ai/rtk v0.43.0`，按平台/架构选择官方 release 资产并校验 SHA-256；ast-grep 固定为 `@ast-grep/cli@0.44.1`，使用 lockfile 安装并显式运行已审查的 native binary postinstall。显式 provision 执行固定版本检查并记录二进制 SHA-256；后续只读命令只比对状态版本、lock 指纹和文件哈希，不执行目标项目二进制。两者的 runtime payload 位于 `.agents/cognis/tools/`，状态与受管安装缓存位于 `.cognis/tool-state/`；它们不修改 PATH 或全局配置。工具状态为 `pending`、`ready`、`degraded` 或 `unsupported`，失败时 doctor 提供原命令或 `rg` 回退建议。
+
+RTK hook 集成只读取项目内 canonical/legacy tool-state，并调用固定版本 binary 的 `rewrite`。CLI、项目配置、install-state 的开关优先级依次降低；移除 RTK 插件会关闭仅由 install-state 继承的 hook。Cognis 不调用 `rtk init -g`，也不写用户级 Codex 配置。
 
 默认 JSON 是稳定、紧凑的机器接口，preview 只含 hash、字节数和摘要；`--verbose` 才含完整正文和绝对诊断路径，`--output summary` 输出短报告和工具降级原因。工具诊断会脱敏项目路径与凭据，仅保存限长尾部。install、validate、doctor 共用 `ready=0`、`invalid=1`、`degraded=2` 健康合同；未执行 provisioning 的 `pending`/`pending-config` 只产生告警，已尝试 provisioning 的失败或未完成进程标记才进入 degraded。`--allow-degraded` 只覆盖退出码，不改变报告状态。
 
@@ -73,7 +75,9 @@ evaluation reference 与项目 baseline 分离。reference 只保存批准的 fi
 
 人工只维护 `docs/tasks/<任务编号>.md`。无 `控制版本` 的控制块按 v1 读取；新模板默认 v2。`language` 支持 `zh-CN` 与 `en-US`；两种 Markdown 视图都归一为 schemaVersion 1 TaskDocument IR，状态、阶段和结果使用语言无关枚举。validator 先逐文档校验控制块、证据覆盖、人工确认、独立核验和 merge-back，再校验 v2 父子双向关系、扁平 DAG、批次、依赖、冲突和写入范围重叠。
 
-只有父 Agent 能派发并维护任务文档。child 使用最小上下文，不能再委派，只返回固定结构化结果；父 Agent 在 fan-in 时核对实际 diff 与证据、持久化状态，并在目标工作区执行集成验证。`doctor` 默认只汇总 v1/v2 数量，`--verbose` 才显示 legacy 路径。
+任务先执行 `风险分级 → 需求分类 → 编排判定`。查询、文档、局部页面和单模块任务默认使用单 Agent；完整任务只有在存在至少两个独立验收单元，边界和依赖可预先固定，同批写入不重叠，child 与父任务验证明确，且平台具备真实能力并有明确协调收益时才自动进入多 Agent。共享契约、共享文件或未固定接口保持单 Agent 串行。其他 profile 或平台缺少子 Agent 能力时明确降级，不模拟执行；交互偏好不改变安全、验证或编排结论。
+
+只有父 Agent 能派发并维护任务文档。child 使用最小上下文，不能再委派，只返回固定结构化结果；父 Agent 默认最多同时运行三个 ready child，adapter 只能降低并发。连续三次验证失败、范围漂移或需要再拆分时，child 停止并上报。父 Agent 在 fan-in 时核对实际 diff 与证据、持久化状态，并在目标工作区执行集成验证；独立 Judge/Reviewer 不能由 Build 实现角色代替。`doctor` 默认只汇总 v1/v2 数量，`--verbose` 才显示 legacy 路径。
 
 ## 安全模型
 

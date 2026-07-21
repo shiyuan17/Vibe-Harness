@@ -5,6 +5,7 @@ Skill 只补强任务 Workflow，不得覆盖目标项目 `AGENTS.md`、治理�
 ## 选择原则
 
 - 常规任务最多选择一个流程 Skill、一个领域 Skill和一个验证或审查 Skill；设计任务只选择一个主设计 Skill。
+- 查询、文档、只读解释、文案调整和局部页面调整固定保持单 Agent；单模块功能和小型缺陷默认也不创建 child。只有满足全部拆分门禁的完整任务才能进入 `subagent-driven-development`。
 - Cognis manifest 中登记并由当前 profile 安装的是内置 canonical Skill。路由表只使用这些 Skill、明确安装的项目内工具或本地治理规则。
 - 不引用或假定未安装的 Skill。首选能力不可用时必须记录原因、缺失的覆盖轴和 fallback，再使用已安装的等价 Skill、对应治理规则、项目命令或人工核验。
 - 红区、权限、数据、构建发布、不可逆操作和范围扩大仍按目标项目治理要求升级确认，使用 Skill 不降低门禁。
@@ -43,4 +44,4 @@ Skill 只补强任务 Workflow，不得覆盖目标项目 `AGENTS.md`、治理�
 
 ## 执行入口
 
-安装了 Skills 时由 `using-cognis` 读取本规则并选择实际可用入口；未安装 Skills 的 minimal 或 docs-only 项目直接按本规则、`docs/rules/governance-core.md` 和专项规则 fallback。本文维护推荐政策，不维护用户环境的全量 Skill 清单。
+安装了 Skills 时由 `using-cognis` 读取本规则并选择实际可用入口；full profile 仅在平台具备真实子 Agent 能力且通过拆分门禁时使用 `subagent-driven-development`。其他 profile 或平台能力不可用时明确原因并降级为单 Agent，不模拟派发。未安装 Skills 的 minimal 或 docs-only 项目直接按本规则、`docs/rules/governance-core.md` 和专项规则 fallback。本文维护推荐政策，不维护用户环境的全量 Skill 清单。

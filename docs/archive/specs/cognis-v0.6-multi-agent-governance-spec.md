@@ -1,6 +1,6 @@
 # Cognis v0.6 父子任务多 Agent 治理规格
 
-状态：Implemented
+状态：Superseded
 
 版本说明：`v0.6` 是治理规格修订号，不等同于 `package.json` 的产品版本。本规格继承 v0.5 的五步循环、风险档位、单一 Markdown 真值、证据和 Red Team 等不变量，并替换其多 Agent 章节；历史关系由 `docs/catalog.json` 记录。
 

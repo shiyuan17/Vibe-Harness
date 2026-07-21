@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- 新增 v0.7 自适应单/多 Agent 编排：在风险档位之后按需求类型和 all-of 拆分门禁选择模式，简单任务固定单 Agent，复杂耦合任务串行，仅对独立、可验证且有真实平台能力的完整任务自动派发；保留 v2 合同、人工安全门禁和 fan-in 独立核验。
 - 新增显式 `--plugin` 安装面：`core` 与 `full` 默认均不安装外部工具；`-all`、单选、多选和 `none` 分别管理 RTK、ast-grep、codebase-memory-mcp、Chrome DevTools MCP、Playwright CLI、Open Code Review 与 Agentmemory，并将规范化选择持久化到 install-state。
 - 新增项目内 RTK `v0.43.0` 与 `@ast-grep/cli@0.44.1`：提供命令输出压缩、结构化搜索规则、checksum/lockfile 校验、doctor 状态和安全回退。
 - 新增 v0.6 父子任务多 Agent 治理合同：v1 保持可读，新模板默认 v2，跨文档 validator 校验扁平 DAG、批次、依赖、冲突和写入范围。

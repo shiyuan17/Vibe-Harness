@@ -73,7 +73,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | AC-01 | 命令 | node --test tests/multi-agent-governance.test.js tests/manifest-schema.test.js tests/documentation-governance.test.js | 0 | 2026-07-20T00:09:49+08:00 | 实现负责人 | v1 兼容、v2 变体、路径与模板合同通过，38/38。 |
 | AC-02 | 命令 | pnpm check | 0 | 2026-07-20T00:09:49+08:00 | 实现负责人 | 385 pass、0 fail、2 skip；含任务图正反例。 |
-| AC-03 | 评测 | .cognis/evals/runs/2026-07-19T16-11-35-399Z.json |  | 2026-07-20T00:11:35+08:00 | 实现负责人 | 29 个案例通过，reference matched，critical pass rate 与 overall score 均为 1。 |
+| AC-03 | 评测 | .cognis/evals/runs/2026-07-21T16-10-22-133Z.json |  | 2026-07-22T00:10:22+08:00 | 父 Agent | 当前 41 个案例通过，reference fingerprint matched；v0.6 的 EVAL-MULTI-AGENT-001..006 保持通过，critical pass rate 与 overall score 均为 1。 |
 | AC-03 | 命令 | pnpm docs:audit | 0 | 2026-07-20T00:09:49+08:00 | 实现负责人 | 28 个治理文档通过审计。 |
 | AC-03 | 命令 | pnpm skills:audit | 0 | 2026-07-20T00:09:49+08:00 | 实现负责人 | 18 个 Skill 图与入口预算通过。 |
 | AC-04 | 命令 | pnpm test:integration | 0 | 2026-07-20T00:09:49+08:00 | 实现负责人 | 97 pass、0 fail、1 个真实工具 smoke 按设计跳过。 |

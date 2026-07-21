@@ -20,7 +20,7 @@ Cognis 让 Codex、Claude Code 和 Gemini CLI 使用同一套规划、执行与�
 | --- | --- | --- |
 | AI 还没有理解任务，就直接开始改代码。 | 使用五步工作流程，并按风险选择快速、轻量或完整档位。 | 简单任务可以快速完成；高风险任务会先给出方案和撤销办法。 |
 | AI 只说“已经完成”，却没有提供依据。 | 任务模板用 `AC-ID` 连接每条验收标准和对应证据，validator（自动检查程序）会检查已完成任务。 | 可以用命令、产物、审查或人工确认逐项核对完成结果。 |
-| 多个 Agent 覆盖共享修改，或直接采信彼此自报的测试。 | v2 父子任务合同定义扁平 DAG、写入范围、串并行批次、merge-back 状态和集成验证。 | 只有真正独立的 child 才并行；父 Agent 核对最终 diff，并在目标工作区重新运行检查。 |
+| 多个 Agent 覆盖共享修改，或直接采信彼此自报的测试。 | 自适应路由依次执行风险分级、需求分类和编排准入，再决定是否使用 v2 父子任务合同。 | 查询、文档、局部页面和单模块任务保持单 Agent；只有可独立验收的工作才并行，最后由父 Agent 完成集成复验。 |
 | 重要的 coding 上下文被长段落淹没。 | `core`、`full` 和 `docs-only` 会为复杂请求和回复按内容选择 checkbox todo、列表、比较表格和跨平台信息块。 | 简单回答保持简洁，计划、进度、证据和决策更容易扫读，同时不改写代码或命令输出。 |
 | Agent 规则或 Skill 改变后缺少行为回归证据。 | 使用 Eval-ID 场景把离线和真实 Agent 运行结果与批准的 evaluation reference 比较。 | 提示和治理变更不只比较文件，还能核对 critical 行为。 |
 | 长任务跨会话后丢失重要上下文。 | `baseline` 记录项目、安装、工具和验证状态；项目记忆与交接模板保留决策和已知问题。 | 新会话可以直接读取项目事实，不必只靠聊天记录重新整理。 |
@@ -86,7 +86,9 @@ Claude Code 与 Gemini CLI 的 `full` 默认被 preview 门禁阻止，只有显
 
 无法确定风险时，使用完整流程。
 
-多 Agent 工作仍为每个任务只维护一个 `docs/tasks/` 下的 Markdown。新任务使用控制版本 2；只有父 Agent 能派发 child 和更新任务状态，child 不得再次委派。`doctor` 会提示 legacy v1 父子合同但不会把它们判为无效，只有 `--verbose` 才显示待迁移路径。
+Agent 数量在风险分级和需求分类之后判定。默认使用单 Agent，包括文档查询、文案调整、局部页面修改和单模块工作。只有完整任务含至少两个可独立验收单元，且边界固定、同批写入不重叠、child 与父任务验证明确、平台具备真实能力、协调收益足够时，才自动使用多 Agent。共享契约或文件保持串行；缺少子 Agent 能力时降级为单 Agent并明确报告。新手、标准或专家等交互偏好只改变解释深度，不改变安全、验证或编排门禁。
+
+通过准入门禁的多 Agent 工作仍为每个任务只维护一个 `docs/tasks/` 下的 Markdown。新任务使用控制版本 2；只有父 Agent 能派发 child 和更新任务状态，child 不得再次委派。父 Agent 默认最多同时运行三个 ready child，fan-in 后检查实际 diff 并重跑集成验证。`doctor` 会提示 legacy v1 父子合同但不会把它们判为无效，只有 `--verbose` 才显示待迁移路径。
 
 ## 选择安装级别
 
@@ -200,6 +202,9 @@ evaluation `reference` 与项目 `baseline` 相互独立。更新 reference 必�
 # 启用一个插件
 pnpm cognis install --project ../some-project --target codex --profile core --plugin -rtk --dry-run
 
+# 显式加入项目级 Codex RTK hook（.codex/hooks.json 属于红区）
+pnpm cognis install --project ../some-project --target codex --profile core --plugin -rtk --rtk-hooks on --write --confirm-red-zone
+
 # 同时启用多个插件
 pnpm cognis install --project ../some-project --target codex --profile core --plugin -rtk ast-grep --write
 
@@ -211,6 +216,8 @@ pnpm cognis install --project ../some-project --target codex --profile core --pl
 ```
 
 公开插件名为 `rtk`、`ast-grep`、`codebase-memory-mcp`、`chrome-devtools-mcp`、`playwright-cli`、`open-code-review` 和 `agentmemory`；`all` 展开为全部 7 个。命令支持上述单前导 `-` 写法、逗号分隔和重复 `--plugin`，未知或重复名称会被拒绝。选择 Agentmemory 进入安装或 provisioning 都需要 `--allow-preview`。
+
+从 hook 角度看，`--plugin -rtk` 仍只安装 instructions。`--rtk-hooks on` 显式加入并持久化 Codex 项目 hook，`--rtk-hooks off` 关闭它。Cognis 不运行 `rtk init -g`，不修改 PATH，也不写用户级 Codex 或 Agent 配置。
 
 CLI 选择优先于 `cognis.config.json` 的 `plugins`，后者优先于 `.cognis/install-state.json` 保存的选择。后续 install、validate、doctor、baseline、provision、rollback 和 uninstall 会复用该选择。报告用 `requestedPlugins` 展示规范化插件模块，并用 `resolvedModules` 展示完整依赖闭包。
 

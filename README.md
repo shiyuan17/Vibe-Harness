@@ -20,7 +20,7 @@ Cognis gives Codex, Claude Code, and Gemini CLI a shared way to plan, execute, a
 | --- | --- | --- |
 | The Agent starts editing before it understands the task. | A five-step workflow and fast, lightweight, or full risk levels. | Small tasks stay quick; risky work starts with a plan and a rollback path. |
 | The Agent says “done” without showing proof. | Task templates connect each acceptance criterion (`AC-ID`) to evidence, and the installed validator (automatic checker) checks completed tasks. | A completion claim can be checked against commands, artifacts, reviews, or manual confirmation. |
-| Multiple Agents overwrite shared work or trust self-reported tests. | Version 2 parent/child task contracts define a flat DAG, write scopes, serial/parallel batches, merge-back state, and integrated validation. | Only independent child work runs in parallel; the parent Agent inspects the final diff and reruns checks in the target workspace. |
+| Multiple Agents overwrite shared work or trust self-reported tests. | Adaptive routing applies risk level, request type, then orchestration admission before using the version 2 parent/child contract. | Queries, documentation, local page work, and single-module changes stay with one Agent; only independently verifiable work runs in parallel, followed by parent integration checks. |
 | Important coding context gets buried in prose. | Core, full, and docs-only profiles choose compact Markdown structures for complex requests and replies: checkbox todos, lists, comparison tables, and portable information blocks. | Simple answers stay short while plans, progress, evidence, and decisions remain easy to scan without altering code or command output. |
 | Agent rules or skills change without behavioral regression evidence. | Eval-ID scenarios compare offline and real-Agent runs with an approved evaluation reference. | Prompt and governance changes can be reviewed against critical behavior, not only file snapshots. |
 | A long task loses important context between sessions. | `baseline` records project, installation, tool, and verification status; project memory and handoff templates preserve decisions and known issues. | The next session can recover project facts without reconstructing everything from chat history. |
@@ -86,7 +86,9 @@ Understand the task -> Choose an approach -> Make the change -> Check the result
 
 If the risk is unclear, use the full workflow.
 
-For multi-Agent work, keep one Markdown file per task under `docs/tasks/`. New tasks use control version 2. Only the parent Agent dispatches children and updates task state; children cannot delegate again. `doctor` reports legacy v1 parent/child contracts without making them invalid, while `--verbose` reveals the paths that should be migrated.
+Agent count is chosen after risk level and request type. The default is one Agent, including documentation queries, copy changes, local page adjustments, and single-module work. A full task uses multiple Agents automatically only when it has at least two independently acceptable units with fixed non-overlapping scopes, deterministic child checks, parent integration checks, native platform support, and a clear coordination benefit. Shared contracts or files stay serial; missing child capability falls back to one Agent and is reported. Interaction preferences change explanation depth, never safety, verification, or orchestration gates.
+
+For admitted multi-Agent work, keep one Markdown file per task under `docs/tasks/`. New tasks use control version 2. Only the parent Agent dispatches children and updates task state; children cannot delegate again. The parent runs at most three ready children by default, inspects the fan-in diff, and reruns integration checks. `doctor` reports legacy v1 parent/child contracts without making them invalid, while `--verbose` reveals the paths that should be migrated.
 
 ## Choose an Install Level
 
@@ -200,6 +202,9 @@ No profile installs external tool plugins by default. `--plugin` adds tools to t
 # Enable one plugin
 pnpm cognis install --project ../some-project --target codex --profile core --plugin -rtk --dry-run
 
+# Explicitly add the project-local Codex RTK hook (.codex/hooks.json is red-zone)
+pnpm cognis install --project ../some-project --target codex --profile core --plugin -rtk --rtk-hooks on --write --confirm-red-zone
+
 # Enable multiple plugins
 pnpm cognis install --project ../some-project --target codex --profile core --plugin -rtk ast-grep --write
 
@@ -211,6 +216,8 @@ pnpm cognis install --project ../some-project --target codex --profile core --pl
 ```
 
 Public plugin names are `rtk`, `ast-grep`, `codebase-memory-mcp`, `chrome-devtools-mcp`, `playwright-cli`, `open-code-review`, and `agentmemory`. `all` expands to all seven. One leading `-` is accepted for the requested command style, comma-separated values and repeated `--plugin` options are also accepted, and duplicate or unknown names are rejected. Selecting Agentmemory for installation or provisioning requires `--allow-preview`.
+
+`--plugin -rtk` remains instructions-only from a hook perspective. `--rtk-hooks on` explicitly adds the Codex project hook and persists the selection; `--rtk-hooks off` disables it. Cognis never runs `rtk init -g`, modifies PATH, or writes user-level Codex/Agent configuration.
 
 CLI selection takes precedence over `plugins` in `cognis.config.json`, which takes precedence over the selection saved in `.cognis/install-state.json`. Later install, validate, doctor, baseline, provision, rollback, and uninstall operations reuse that saved selection. Reports expose the canonical module ids in `requestedPlugins` and the complete dependency closure in `resolvedModules`.
 

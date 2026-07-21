@@ -4,6 +4,7 @@
 
 ## 被取代的规格
 
+- [Cognis v0.6 父子任务多 Agent 治理规格](specs/cognis-v0.6-multi-agent-governance-spec.md)
 - [Cognis v0.5 中文精简治理规格](specs/cognis-v0.5-simplified-governance-spec.md)
 - [LoopEngine v1 规格](specs/loopengine-v1-spec.md)
 - [LoopEngine v0.2 安装器增强规格](specs/loopengine-v0.2-installer-spec.md)

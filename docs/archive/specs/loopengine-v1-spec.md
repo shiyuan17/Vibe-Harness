@@ -1,6 +1,6 @@
 # LoopEngine v1 规格
 
-状态：Superseded。本文仅保留 legacy/internal v1 基线；当前治理契约以 [v0.6 父子任务多 Agent 治理规格](../../specs/cognis-v0.6-multi-agent-governance-spec.md) 为准。
+状态：Superseded。本文仅保留 legacy/internal v1 基线；当前治理契约以 [v0.7 自适应单/多 Agent 编排规格](../../specs/cognis-v0.7-adaptive-orchestration-spec.md) 为准。
 
 ## 目标
 
