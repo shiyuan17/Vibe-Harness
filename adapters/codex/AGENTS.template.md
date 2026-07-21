@@ -26,7 +26,7 @@
 - Typecheck: {{validationCommands.typecheck}}
 - Governance: {{validationCommands.governance}}
 
-`cognis validate --project` 只检查安装一致性；实际执行配置命令使用 `cognis verify --project <path>`。manual 命令只有检查内容后才使用 `--allow-manual`。
+`cognis validate --project` 只检查安装一致性；实际执行配置命令使用 `cognis verify --project <path>`。manual 命令只有检查内容后才使用 `--allow-manual`。测试前先在任务确认或验证记录中写明验证范围与升级理由；普通会话或只读任务不自动运行全量测试，行为改动先验证受影响范围，只有命中 `docs/rules/test-rules.md` 的升级条件、项目门禁或用户明确要求时才运行全量测试，且聚焦验证不能用于声称全项目通过。
 
 ## 已安装表面
 

@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
-import { createInstallPlan } from '../scripts/lib/install-planner.js';
+import { createInstallPlan, renderActionContent } from '../scripts/lib/install-planner.js';
 import { loadAllManifests, readJson } from '../scripts/lib/manifest.js';
 import { scanForForbiddenTerms } from '../scripts/lib/redaction.js';
 
@@ -15,6 +15,83 @@ test('canonical governance and routed skills are declared', async () => {
   const skills = new Set(manifests.skills.items.map((item) => item.id));
   for (const id of ['governance-core', 'codebase-memory-mcp', 'git-rules', 'test-rules']) assert.equal(rules.has(id), true);
   for (const id of ['using-cognis', 'verification-before-completion', 'code-review-and-quality', 'adversarial-review-packet']) assert.equal(skills.has(id), true);
+});
+
+test('installed instructions scope tests to the task instead of ordinary sessions', async () => {
+  const [testRules, verificationSkill, ...adapterTemplates] = await Promise.all([
+    readFile(path.join(rootDir, 'rules/test-rules.md'), 'utf8'),
+    readFile(path.join(rootDir, 'skills/core/verification-before-completion/SKILL.md'), 'utf8'),
+    ...[
+      'adapters/codex/AGENTS.template.md',
+      'adapters/claude/CLAUDE.template.md',
+      'adapters/gemini/GEMINI.template.md',
+    ].map((file) => readFile(path.join(rootDir, file), 'utf8')),
+  ]);
+
+  assert.match(testRules, /普通对话\s*\/\s*只读诊断/u);
+  assert.match(testRules, /默认不运行测试/u);
+  assert.match(testRules, /全量测试不是默认验证/u);
+  for (const term of [
+    '用户明确要求',
+    '目标项目将其配置为门禁',
+    '发布 / CI',
+    '安装器、运行时、hook、模板行为变化',
+    '跨模块高风险变更',
+    '不因安装而继承',
+  ]) {
+    assert.match(testRules, new RegExp(term, 'u'));
+  }
+  assert.match(verificationSkill, /当前主张.*完整命令/u);
+  for (const term of [
+    '不等于默认运行目标项目的全量测试',
+    '只能声明受影响行为已验证',
+    '未运行全量测试时必须说明未覆盖范围和升级理由',
+  ]) {
+    assert.match(verificationSkill, new RegExp(term, 'u'));
+  }
+  for (const template of adapterTemplates) {
+    assert.match(template, /普通会话或只读任务不自动运行全量测试/u);
+    assert.match(template, /验证范围.*升级理由/u);
+  }
+
+  for (const adapterId of ['codex', 'claude', 'gemini']) {
+    for (const profile of ['minimal', 'core', 'full']) {
+      const plan = await createInstallPlan({
+        adapterId,
+        allowPreview: adapterId !== 'codex' && profile === 'full',
+        dryRun: true,
+        managedAgentsBlock: true,
+        profile,
+        rootDir,
+        targetDir: path.join(rootDir, `.tmp-test-scope-${adapterId}-${profile}`),
+      });
+      const instruction = plan.actions.find((action) => action.relativeTarget === plan.instructionTarget);
+      assert.ok(instruction, `${adapterId}:${profile} instruction should be installed`);
+      const content = await renderActionContent(instruction, plan.renderData);
+      assert.match(content, /普通会话或只读任务不自动运行全量测试/u);
+      assert.match(content, /验证范围.*升级理由/u);
+
+      const testRule = plan.actions.find((action) => action.relativeTarget === 'docs/rules/test-rules.md');
+      assert.ok(testRule, `${adapterId}:${profile} test rule should be installed`);
+      assert.match(await renderActionContent(testRule, plan.renderData), /全量测试不是默认验证/u);
+
+      const verification = plan.actions.find((action) => action.relativeSource === 'skills/core/verification-before-completion/SKILL.md');
+      if (['core', 'full'].includes(profile)) {
+        assert.ok(verification, `${adapterId}:${profile} should install completion verification`);
+        const verificationContent = await renderActionContent(verification, plan.renderData);
+        assert.match(verificationContent, /当前主张.*完整命令/u);
+        for (const term of [
+          '不等于默认运行目标项目的全量测试',
+          '只能声明受影响行为已验证',
+          '未运行全量测试时必须说明未覆盖范围和升级理由',
+        ]) {
+          assert.match(verificationContent, new RegExp(term, 'u'));
+        }
+      } else {
+        assert.equal(verification, undefined, `${adapterId}:${profile} should not install completion verification`);
+      }
+    }
+  }
 });
 
 test('profiles install minimal, common, and full surfaces at intended tiers', async () => {

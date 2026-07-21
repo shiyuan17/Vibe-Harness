@@ -16,10 +16,12 @@ NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE
 任何成功表达前执行：
 
 1. 识别：哪个命令能证明这个结论。
-2. 运行：执行完整命令，不用历史结果替代。
+2. 运行：执行能够完整证明当前主张的命令，不用历史结果替代。
 3. 阅读：看完整输出、退出码和失败数量。
 4. 判断：输出是否真的支持结论。
 5. 汇报：用命令和关键结果支撑结论；若失败，说明实际状态。
+
+“完整命令”指覆盖当前主张所选验证范围的完整命令，不等于默认运行目标项目的全量测试。聚焦测试通过时只能声明受影响行为已验证；未运行全量测试时必须说明未覆盖范围和升级理由。
 
 ## 常见声明与证据
 
@@ -52,9 +54,9 @@ NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE
 
 ```text
 验证：
-- `pnpm test`：通过，N/N tests passed。
-- `pnpm check`：失败，pack validation 报 X 个 missing sources。
-结论：测试通过，但 check 未通过；当前不能声称完成。
+- `node --test tests/changed-feature.test.js`：通过，N/N tests passed；范围为变更行为。
+- 全量测试：未运行；当前变更未命中升级条件。
+结论：聚焦测试通过；不声明全项目测试通过。
 ```
 
 没有捷径。运行命令，读输出，再下结论。
