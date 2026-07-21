@@ -25,8 +25,21 @@ async function git(rootDir, args) {
 }
 
 export async function findProjectRoot(cwd) {
-  const root = await git(cwd, ['rev-parse', '--show-toplevel']);
-  return root ? path.resolve(root) : path.resolve(cwd);
+  const start = path.resolve(cwd);
+  const gitRoot = await git(start, ['rev-parse', '--show-toplevel']);
+  const boundary = gitRoot ? path.resolve(gitRoot) : path.parse(start).root;
+  let current = start;
+  while (true) {
+    const [canonical, legacy] = await Promise.all([
+      access(path.join(current, 'cognis.config.json')).then(() => true, () => false),
+      access(path.join(current, 'loopengine.config.json')).then(() => true, () => false),
+    ]);
+    if (canonical || legacy) return current;
+    if (current === boundary) return boundary;
+    const parent = path.dirname(current);
+    if (parent === current) return boundary;
+    current = parent;
+  }
 }
 
 async function readOptionalText(filePath) {
@@ -56,6 +69,14 @@ export async function readProjectConfig(rootDir) {
 export async function readHookSettings(rootDir) {
   try {
     const config = await readProjectConfig(rootDir);
+    let installState = null;
+    for (const relativePath of ['.cognis/install-state.json', '.loopengine/install-state.json']) {
+      const content = await readOptionalText(path.join(rootDir, relativePath));
+      if (content !== null) {
+        installState = JSON.parse(content);
+        break;
+      }
+    }
     const mode = ['off', 'observe', 'guarded', 'strict'].includes(config.hooks?.mode)
       ? config.hooks.mode
       : 'guarded';
@@ -66,11 +87,14 @@ export async function readHookSettings(rootDir) {
       completionGate,
       evaluationsEnabled: Boolean(config.evaluations?.enabled),
       mode,
+      rtkEnabled: Object.hasOwn(config.hooks?.rtk ?? {}, 'enabled')
+        ? config.hooks.rtk.enabled
+        : Boolean(installState?.rtkHooksEnabled),
       validationCommands: config.validationCommands ?? {},
     };
   } catch (error) {
     if (error.code === 'COGNIS_CONFIG_CONFLICT') throw error;
-    return { completionGate: 'advisory', evaluationsEnabled: false, mode: 'guarded', validationCommands: {} };
+    return { completionGate: 'advisory', evaluationsEnabled: false, mode: 'guarded', rtkEnabled: false, validationCommands: {} };
   }
 }
 

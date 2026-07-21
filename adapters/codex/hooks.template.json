@@ -6,8 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/cognis/hooks/codex-hook.mjs\" --expected-event SessionStart",
-            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/cognis/hooks/codex-hook.mjs') --expected-event SessionStart\"",
+            "command": "node \"{{hookRunnerPath}}\" --expected-event SessionStart",
+            "commandWindows": "node \"{{hookRunnerPath}}\" --expected-event SessionStart",
             "timeout": 10,
             "statusMessage": "Loading Cognis project context"
           }
@@ -19,8 +19,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/cognis/hooks/codex-hook.mjs\" --expected-event UserPromptSubmit",
-            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/cognis/hooks/codex-hook.mjs') --expected-event UserPromptSubmit\"",
+            "command": "node \"{{hookRunnerPath}}\" --expected-event UserPromptSubmit",
+            "commandWindows": "node \"{{hookRunnerPath}}\" --expected-event UserPromptSubmit",
             "timeout": 5
           }
         ]
@@ -32,8 +32,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/cognis/hooks/codex-hook.mjs\" --expected-event PreToolUse",
-            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/cognis/hooks/codex-hook.mjs') --expected-event PreToolUse\"",
+            "command": "node \"{{hookRunnerPath}}\" --expected-event PreToolUse",
+            "commandWindows": "node \"{{hookRunnerPath}}\" --expected-event PreToolUse",
             "timeout": 10,
             "statusMessage": "Checking Cognis tool policy"
           }
@@ -46,8 +46,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/cognis/hooks/codex-hook.mjs\" --expected-event PermissionRequest",
-            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/cognis/hooks/codex-hook.mjs') --expected-event PermissionRequest\"",
+            "command": "node \"{{hookRunnerPath}}\" --expected-event PermissionRequest",
+            "commandWindows": "node \"{{hookRunnerPath}}\" --expected-event PermissionRequest",
             "timeout": 10,
             "statusMessage": "Checking Cognis approval policy"
           }
@@ -60,8 +60,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/cognis/hooks/codex-hook.mjs\" --expected-event PostToolUse",
-            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/cognis/hooks/codex-hook.mjs') --expected-event PostToolUse\"",
+            "command": "node \"{{hookRunnerPath}}\" --expected-event PostToolUse",
+            "commandWindows": "node \"{{hookRunnerPath}}\" --expected-event PostToolUse",
             "timeout": 10
           }
         ]
@@ -72,8 +72,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/cognis/hooks/codex-hook.mjs\" --expected-event PreCompact",
-            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/cognis/hooks/codex-hook.mjs') --expected-event PreCompact\"",
+            "command": "node \"{{hookRunnerPath}}\" --expected-event PreCompact",
+            "commandWindows": "node \"{{hookRunnerPath}}\" --expected-event PreCompact",
             "timeout": 5
           }
         ]
@@ -84,8 +84,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/cognis/hooks/codex-hook.mjs\" --expected-event PostCompact",
-            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/cognis/hooks/codex-hook.mjs') --expected-event PostCompact\"",
+            "command": "node \"{{hookRunnerPath}}\" --expected-event PostCompact",
+            "commandWindows": "node \"{{hookRunnerPath}}\" --expected-event PostCompact",
             "timeout": 10
           }
         ]
@@ -96,8 +96,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/cognis/hooks/codex-hook.mjs\" --expected-event SubagentStart",
-            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/cognis/hooks/codex-hook.mjs') --expected-event SubagentStart\"",
+            "command": "node \"{{hookRunnerPath}}\" --expected-event SubagentStart",
+            "commandWindows": "node \"{{hookRunnerPath}}\" --expected-event SubagentStart",
             "timeout": 5
           }
         ]
@@ -108,8 +108,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/cognis/hooks/codex-hook.mjs\" --expected-event SubagentStop",
-            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/cognis/hooks/codex-hook.mjs') --expected-event SubagentStop\"",
+            "command": "node \"{{hookRunnerPath}}\" --expected-event SubagentStop",
+            "commandWindows": "node \"{{hookRunnerPath}}\" --expected-event SubagentStop",
             "timeout": 5
           }
         ]
@@ -120,8 +120,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/cognis/hooks/codex-hook.mjs\" --expected-event Stop",
-            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/cognis/hooks/codex-hook.mjs') --expected-event Stop\"",
+            "command": "node \"{{hookRunnerPath}}\" --expected-event Stop",
+            "commandWindows": "node \"{{hookRunnerPath}}\" --expected-event Stop",
             "timeout": 20,
             "statusMessage": "Checking Cognis completion evidence"
           }

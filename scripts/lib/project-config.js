@@ -254,6 +254,12 @@ export function validateProjectConfig(config) {
     if (Object.hasOwn(config.hooks, 'completionGate') && !['off', 'advisory', 'blocking'].includes(config.hooks.completionGate)) {
       throw new Error('hooks.completionGate must be off, advisory, or blocking');
     }
+    if (Object.hasOwn(config.hooks, 'rtk')) {
+      assertObject(config.hooks.rtk, 'hooks.rtk');
+      if (typeof config.hooks.rtk.enabled !== 'boolean') {
+        throw new Error('hooks.rtk.enabled must be boolean');
+      }
+    }
   }
   if (Object.hasOwn(config, 'projectRules')) {
     assertObject(config.projectRules, 'projectRules');

@@ -83,6 +83,20 @@ function applyHealthExit(status, args) {
   if (status === 'degraded' && !args['allow-degraded']) process.exitCode = 2;
 }
 
+function rtkHooksReport(enabled, tools = {}) {
+  if (!enabled) return { enabled: false, status: 'disabled', reason: 'RTK hooks are disabled.' };
+  const state = tools.rtk;
+  if (state?.status === 'ready') {
+    return { enabled: true, status: 'ready', reason: 'Project-local RTK runtime is ready.' };
+  }
+  const status = state?.status ?? 'degraded';
+  return {
+    enabled: true,
+    status,
+    reason: state?.diagnostic?.message ?? `Project-local RTK runtime is ${status}. Original commands remain available.`,
+  };
+}
+
 function toolStateRelativePath(targetDir) {
   return path.relative(
     targetDir,
@@ -174,6 +188,8 @@ function emitReport(report, args, { error = false } = {}) {
       `status: ${normalized.status}`,
       ...(normalized.profile ? [`profile: ${normalized.profile}`] : []),
       ...(Array.isArray(normalized.requestedPlugins) ? [`plugins: ${normalized.requestedPlugins.length ? normalized.requestedPlugins.join(',') : 'none'}`] : []),
+      ...(normalized.rtkHooks ? [`rtkHooks: ${normalized.rtkHooks.status} (enabled=${normalized.rtkHooks.enabled})`] : []),
+      ...(normalized.rtkHooks && normalized.rtkHooks.status !== 'ready' ? [`rtkHooksReason: ${summaryText(normalized.rtkHooks.reason)}`] : []),
       ...(typeof normalized.target === 'string' ? [`target: ${normalized.target}`] : []),
       ...(normalized.dryRun !== undefined ? [`dryRun: ${normalized.dryRun}`] : []),
       `warnings: ${normalized.warnings.length}`,
@@ -227,6 +243,27 @@ async function projectRequestedModules(config, targetDir) {
 async function projectRequestedPlugins(config, targetDir) {
   if (config.plugins) return parsePluginsOption(config.plugins);
   return (await readInstallState(targetDir))?.requestedPlugins ?? undefined;
+}
+
+function parseRtkHooksOption(value) {
+  if (value === 'on') return true;
+  if (value === 'off') return false;
+  throw new Error('--rtk-hooks must be on or off.');
+}
+
+function resolveRtkHooksEnabled({ adapterId, args = {}, config, installState, requestedPlugins = [] }) {
+  const configured = Object.hasOwn(config.hooks?.rtk ?? {}, 'enabled');
+  let enabled;
+  if (args['rtk-hooks'] !== undefined) enabled = parseRtkHooksOption(args['rtk-hooks']);
+  else if (configured) enabled = config.hooks.rtk.enabled;
+  else enabled = Boolean(installState?.rtkHooksEnabled && requestedPlugins.includes('rtk'));
+  if (enabled && adapterId !== 'codex') {
+    throw new Error('RTK hooks are only supported for the codex target.');
+  }
+  if (enabled && !requestedPlugins.includes('rtk')) {
+    throw new Error('RTK hook integration requires the rtk plugin. Select --plugin -rtk.');
+  }
+  return enabled;
 }
 
 async function init(args) {
@@ -301,6 +338,13 @@ async function install(args) {
   const requestedPlugins = args.plugin !== undefined
     ? parsePluginsOption(args.plugin)
     : (config.plugins ? parsePluginsOption(config.plugins) : existingState?.requestedPlugins);
+  const rtkHooksEnabled = resolveRtkHooksEnabled({
+    adapterId,
+    args,
+    config,
+    installState: existingState,
+    requestedPlugins: requestedPlugins ?? [],
+  });
 
   const plan = await createInstallPlan({
     adapterId,
@@ -312,6 +356,7 @@ async function install(args) {
     profile,
     requestedModules,
     requestedPlugins,
+    rtkHooksEnabled,
     renderData,
     rootDir,
     targetDir,
@@ -391,6 +436,10 @@ async function install(args) {
     requestedModules: plan.requestedModules,
     requestedPlugins: plan.requestedPlugins,
     resolvedModules: plan.resolvedModules,
+    rtkHooks: rtkHooksReport(plan.rtkHooksEnabled, tools),
+    requiresRedZoneConfirmation: plan.dryRun
+      && !args['confirm-red-zone']
+      && plan.actions.some((action) => action.redZone && action.kind === 'write'),
     target: isMvpMode ? adapterId : undefined,
     ...(args.verbose ? { targetDir: plan.targetDir } : {}),
     tools,
@@ -407,6 +456,7 @@ async function validate(args) {
   if (args.project) {
     const targetDir = path.resolve(args.project);
     const config = await readRequiredProjectConfig(targetDir);
+    const installState = await readInstallState(targetDir);
     if (args.target && args.target !== config.target) {
       throw new Error(`CLI target ${args.target} does not match cognis.config.json target ${config.target}.`);
     }
@@ -414,6 +464,12 @@ async function validate(args) {
     const requestedPlugins = await projectRequestedPlugins(config, targetDir);
     validateProjectConfig(config);
     const adapter = await resolveAdapter(rootDir, config.target);
+    const rtkHooksEnabled = resolveRtkHooksEnabled({
+      adapterId: adapter.id,
+      config,
+      installState,
+      requestedPlugins: requestedPlugins ?? [],
+    });
     const projectProfile = await detectProjectProfile({ config, targetDir });
     const governanceMode = resolveGovernanceMode(config, config.profile);
     validateGovernanceModeForProfile(governanceMode, config.profile);
@@ -427,6 +483,7 @@ async function validate(args) {
       profile: config.profile,
       requestedModules,
       requestedPlugins,
+      rtkHooksEnabled,
       renderData: { ...config, governance: { mode: governanceMode }, projectProfile, validationCommands },
       rootDir,
       targetDir,
@@ -441,6 +498,7 @@ async function validate(args) {
       profile: config.profile,
       requestedModules,
       requestedPlugins,
+      rtkHooksEnabled,
       renderData: { ...config, governance: { mode: governanceMode }, projectProfile, validationCommands },
       rootDir,
       targetDir,
@@ -473,6 +531,7 @@ async function validate(args) {
       ...health,
       commandStatus,
       recommendations: toolRecommendations(tools, config.profile, { adapterId: adapter.id, mvp: true }),
+      rtkHooks: rtkHooksReport(rtkHooksEnabled, tools),
       scope: 'project',
       ...(args.verbose ? { targetDir } : {}),
       tools,
@@ -497,6 +556,7 @@ async function verify(args) {
   if (!args.project) throw new Error('verify requires --project <path>.');
   const targetDir = path.resolve(args.project);
   const config = await readRequiredProjectConfig(targetDir);
+  const installState = await readInstallState(targetDir);
   if (args.target && args.target !== config.target) {
     throw new Error(`CLI target ${args.target} does not match cognis.config.json target ${config.target}.`);
   }
@@ -504,6 +564,12 @@ async function verify(args) {
   const requestedPlugins = await projectRequestedPlugins(config, targetDir);
   validateProjectConfig(config);
   const adapter = await resolveAdapter(rootDir, config.target);
+  const rtkHooksEnabled = resolveRtkHooksEnabled({
+    adapterId: adapter.id,
+    config,
+    installState,
+    requestedPlugins: requestedPlugins ?? [],
+  });
   const projectProfile = await detectProjectProfile({ config, targetDir });
   const governanceMode = resolveGovernanceMode(config, config.profile);
   validateGovernanceModeForProfile(governanceMode, config.profile);
@@ -515,6 +581,7 @@ async function verify(args) {
     profile: config.profile,
     requestedModules,
     requestedPlugins,
+    rtkHooksEnabled,
     renderData,
     rootDir,
     targetDir,
@@ -566,9 +633,12 @@ async function baseline(args) {
   }
   const projectProfile = await detectProjectProfile({ config, targetDir });
   const adapter = await resolveAdapter(rootDir, config.target);
+  let installState;
   let requestedModules;
   let requestedPlugins;
   try {
+    installState = await readInstallState(targetDir);
+    if (!installState) throw new Error('Install state is missing.');
     requestedModules = await projectRequestedModules(config, targetDir);
     requestedPlugins = await projectRequestedPlugins(config, targetDir);
   } catch (cause) {
@@ -578,6 +648,12 @@ async function baseline(args) {
     });
   }
   const governanceMode = resolveGovernanceMode(config, config.profile);
+  const rtkHooksEnabled = resolveRtkHooksEnabled({
+    adapterId: adapter.id,
+    config,
+    installState,
+    requestedPlugins: requestedPlugins ?? [],
+  });
   validateGovernanceModeForProfile(governanceMode, config.profile);
   const validationCommands = resolveValidationCommands(config, projectProfile, governanceMode);
   const renderData = { ...config, governance: { mode: governanceMode }, projectProfile, validationCommands };
@@ -587,6 +663,7 @@ async function baseline(args) {
     profile: config.profile,
     requestedModules,
     requestedPlugins,
+    rtkHooksEnabled,
     renderData,
     rootDir,
     targetDir,
@@ -740,6 +817,15 @@ async function doctor(args) {
   }
   validateProjectConfig(config);
   const profile = validateProfileName(args.profile ?? config.profile);
+  const requestedPlugins = config.plugins
+    ? parsePluginsOption(config.plugins)
+    : (installState?.requestedPlugins ?? []);
+  const rtkHooksEnabled = resolveRtkHooksEnabled({
+    adapterId: args.target ?? installState?.adapter ?? config.target,
+    config,
+    installState,
+    requestedPlugins,
+  });
   const managedAgentsBlock = installState?.files?.some(
     (file) => ['managed-block', 'managed-instruction-block'].includes(file.contentStrategy),
   );
@@ -762,7 +848,8 @@ async function doctor(args) {
     adapterId: args.target ?? installState?.adapter ?? config.target,
     profile,
     requestedModules: installState?.requestedModules,
-    requestedPlugins: installState?.requestedPlugins,
+    requestedPlugins,
+    rtkHooksEnabled,
     renderData,
     rootDir,
     targetDir,
@@ -780,8 +867,9 @@ async function doctor(args) {
     gitHooks,
     pack,
     previewCapabilities: installState?.previewCapabilities ?? [],
-    requestedPlugins: installState?.requestedPlugins ?? [],
+    requestedPlugins,
     resolvedModules: installState?.resolvedModules ?? [],
+    rtkHooks: rtkHooksReport(rtkHooksEnabled, tools),
     provisioningProcess,
     ...(args.verbose ? { rootDir } : {}),
     target,
@@ -823,12 +911,22 @@ async function diff(args) {
   const governanceMode = resolveGovernanceMode(config, profile);
   const validationCommands = resolveValidationCommands(config, projectProfile, governanceMode);
   const renderData = { ...config, profile, governance: { mode: governanceMode }, projectProfile, validationCommands };
+  const requestedPlugins = config.plugins
+    ? parsePluginsOption(config.plugins)
+    : (installState?.requestedPlugins ?? []);
+  const rtkHooksEnabled = resolveRtkHooksEnabled({
+    adapterId: args.target ?? config.target,
+    config,
+    installState,
+    requestedPlugins,
+  });
   const report = await diffTargetInstall({
     adapterId: args.target ?? config.target,
     managedAgentsBlock: true,
     profile,
     requestedModules: config.modules ?? installState?.requestedModules,
-    requestedPlugins: config.plugins ?? installState?.requestedPlugins,
+    requestedPlugins,
+    rtkHooksEnabled,
     renderData,
     rootDir,
     targetDir,
@@ -1030,7 +1128,7 @@ async function main() {
   } else if (command === 'recover') {
     await recover(args);
   } else {
-    console.log('Usage: cognis <init|install|provision|recover|uninstall|validate|verify|baseline|eval|doctor|diff|rollback> [--project path] [--target codex|claude|gemini] [--profile minimal|core|full|docs-only] [--modules list] [--plugin -all|-rtk ast-grep ...] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--force] [--upgrade] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded]');
+    console.log('Usage: cognis <init|install|provision|recover|uninstall|validate|verify|baseline|eval|doctor|diff|rollback> [--project path] [--target codex|claude|gemini] [--profile minimal|core|full|docs-only] [--modules list] [--plugin -all|-rtk ast-grep ...] [--rtk-hooks on|off] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--force] [--upgrade] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded]');
     console.log('All project commands use --project <path>; --target selects an adapter and --write performs mutations. Legacy --apply and path-valued --target are removed.');
   }
 }

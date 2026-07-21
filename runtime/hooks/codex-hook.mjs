@@ -1,7 +1,10 @@
 #!/usr/bin/env node
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { buildProjectContext, findProjectRoot, readHookSettings, runEvaluationCheck, runGovernanceCheck } from './lib/context.mjs';
 import { validateDeliveryMessage } from './lib/delivery-validation.mjs';
 import { analyzeToolRequest, createCodexHookResult, normalizeCodexHookInput } from './lib/policy.mjs';
+import { inspectRtkHook, routeRtkCommand, rtkSessionContext } from './lib/rtk.mjs';
 
 const MAX_INPUT_BYTES = 1024 * 1024;
 const guardedEvents = new Set(['PermissionRequest', 'PreToolUse']);
@@ -33,7 +36,7 @@ async function readStdin() {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
-export async function evaluateCodexHook(rawInput, { expectedEvent } = {}) {
+export async function evaluateCodexHook(rawInput, { expectedEvent, rtkRunner } = {}) {
   const input = normalizeCodexHookInput(rawInput);
   if (expectedEvent && input.event !== expectedEvent) {
     throw new Error('Hook event does not match the configured event.');
@@ -43,15 +46,27 @@ export async function evaluateCodexHook(rawInput, { expectedEvent } = {}) {
   if (settings.mode === 'off') return {};
 
   if (input.event === 'PreToolUse' || input.event === 'PermissionRequest') {
-    return createCodexHookResult(input.event, analyzeToolRequest(input, {
+    const safetyDecision = analyzeToolRequest(input, {
       mode: settings.mode,
       projectRoot: rootDir,
-    }));
+    });
+    if (safetyDecision.action !== 'allow' || input.event === 'PermissionRequest') {
+      return createCodexHookResult(input.event, safetyDecision);
+    }
+    const rtk = await inspectRtkHook(rootDir, { enabled: settings.rtkEnabled });
+    const rtkDecision = await routeRtkCommand(input, {
+      mode: settings.mode,
+      projectRoot: rootDir,
+      rtk,
+      ...(rtkRunner ? { runner: rtkRunner } : {}),
+    });
+    return createCodexHookResult(input.event, rtkDecision);
   }
   if (input.event === 'SessionStart' || input.event === 'PostCompact') {
+    const rtk = await inspectRtkHook(rootDir, { enabled: settings.rtkEnabled });
     return {
       hookSpecificOutput: {
-        additionalContext: await buildProjectContext(rootDir),
+        additionalContext: `${await buildProjectContext(rootDir)}\n${rtkSessionContext(rtk)}`,
         hookEventName: input.event,
       },
     };
@@ -112,11 +127,12 @@ export async function evaluateCodexHook(rawInput, { expectedEvent } = {}) {
   return {};
 }
 
-const expectedEvent = expectedEventFromArgs(process.argv.slice(2));
-
-try {
-  const result = await evaluateCodexHook(await readStdin(), { expectedEvent });
-  process.stdout.write(`${JSON.stringify(result)}\n`);
-} catch {
-  process.stdout.write(`${JSON.stringify(hookFailureResult(expectedEvent))}\n`);
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const expectedEvent = expectedEventFromArgs(process.argv.slice(2));
+  try {
+    const result = await evaluateCodexHook(await readStdin(), { expectedEvent });
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+  } catch {
+    process.stdout.write(`${JSON.stringify(hookFailureResult(expectedEvent))}\n`);
+  }
 }

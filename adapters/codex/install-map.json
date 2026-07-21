@@ -725,6 +725,12 @@
     },
     {
       "group": "hooks",
+      "source": "runtime/hooks/lib/rtk.mjs",
+      "target": ".agents/cognis/hooks/lib/rtk.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "hooks",
       "source": "adapters/git/pre-commit",
       "target": ".githooks/pre-commit",
       "executable": true,

@@ -35,6 +35,7 @@ const legacyBrandCompatibilityFiles = new Set([
   'runtime/governance/validate.mjs',
   'runtime/hooks/git-hook.mjs',
   'runtime/hooks/lib/context.mjs',
+  'runtime/hooks/lib/rtk.mjs',
   'runtime/tools/playwright-cli/run.mjs',
   'scripts/cognis.js',
   'scripts/lib/eval-runner.js',

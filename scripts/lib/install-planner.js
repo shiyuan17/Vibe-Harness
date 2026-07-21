@@ -205,6 +205,7 @@ export async function createInstallPlan({
   profile = 'core',
   requestedModules,
   requestedPlugins,
+  rtkHooksEnabled = false,
   renderData = {},
   rootDir,
   targetDir,
@@ -216,6 +217,7 @@ export async function createInstallPlan({
     profileGroups: selectedProfile.groups,
     requestedModules,
     requestedPlugins,
+    rtkHooksEnabled,
   });
   if (!allowPreview && moduleSelection.requestedPlugins.includes('agentmemory')) {
     throw new Error('Preview plugins require --allow-preview: agentmemory');
@@ -472,8 +474,10 @@ export async function createInstallPlan({
     requestedModules: moduleSelection.requestedModules,
     requestedPlugins: moduleSelection.requestedPlugins,
     resolvedModules: moduleSelection.resolvedModules,
+    rtkHooksEnabled,
     renderData: withDefaultTemplateData({
       ...renderData,
+      hookRunnerPath: path.join(path.resolve(targetDir), '.agents/cognis/hooks/codex-hook.mjs').replaceAll('\\', '/'),
       installedSurface,
     }),
     redZoneConfirmed: false,
@@ -530,6 +534,7 @@ export async function diffTargetInstall({
   profile = 'core',
   requestedModules,
   requestedPlugins,
+  rtkHooksEnabled = false,
   renderData = {},
   rootDir,
   targetDir,
@@ -540,12 +545,14 @@ export async function diffTargetInstall({
     profileGroups: selectedProfile.groups,
     requestedModules,
     requestedPlugins,
+    rtkHooksEnabled,
   });
   const allowedGroups = moduleSelection.allowedGroups;
   const selectedEntries = installMap.entries.filter((entry) => allowedGroups.has(entry.group) && shouldInstallEntry(entry, renderData));
   const installedTargets = selectedEntries.map((entry) => memoryTargetPath(renderData, entry.target));
   const renderedData = withDefaultTemplateData({
     ...renderData,
+    hookRunnerPath: path.join(path.resolve(targetDir), '.agents/cognis/hooks/codex-hook.mjs').replaceAll('\\', '/'),
     installedSurface: createInstalledSurface({
       customModules: moduleSelection.requestedModules !== null,
       memoryPath: renderData.memory?.path,
@@ -884,6 +891,7 @@ export async function applyInstallPlan(plan, hooks = {}) {
     requestedModules: plan.requestedModules,
     requestedPlugins: plan.requestedPlugins,
     resolvedModules: plan.resolvedModules,
+    rtkHooksEnabled: plan.rtkHooksEnabled,
     retiredFiles,
     stateVersion: 4,
     transactionId,

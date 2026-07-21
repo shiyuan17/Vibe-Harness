@@ -105,7 +105,13 @@ function resolveDependencies(moduleIds) {
   return selected;
 }
 
-export function resolveModuleSelection({ profile, profileGroups = [], requestedModules, requestedPlugins }) {
+export function resolveModuleSelection({
+  profile,
+  profileGroups = [],
+  requestedModules,
+  requestedPlugins,
+  rtkHooksEnabled = false,
+}) {
   const customModules = requestedModules !== undefined && requestedModules !== null;
   if (customModules) validateModules(requestedModules);
   const baseModules = customModules ? requestedModules : (profileModules[profile] ?? []);
@@ -113,14 +119,19 @@ export function resolveModuleSelection({ profile, profileGroups = [], requestedM
   const plugins = requestedPlugins === undefined || requestedPlugins === null || requestedPlugins.length === 0
     ? []
     : parsePluginsOption(requestedPlugins);
+  if (rtkHooksEnabled && !plugins.includes('rtk')) {
+    throw new Error('RTK hook integration requires the rtk plugin. Select --plugin -rtk.');
+  }
   const pluginSelection = resolveDependencies(plugins);
-  const selected = new Set([...baseSelection, ...pluginSelection]);
+  const integrationSelection = resolveDependencies(rtkHooksEnabled ? ['hooks'] : []);
+  const selected = new Set([...baseSelection, ...pluginSelection, ...integrationSelection]);
   const resolvedModules = Object.keys(moduleCatalog).filter((id) => selected.has(id));
   const requested = new Set(customModules ? requestedModules : baseModules);
   const allowedGroups = customModules || profileGroups.length === 0
     ? new Set([...baseSelection].flatMap((id) => moduleCatalog[id].groups))
     : new Set(profileGroups);
   for (const group of [...pluginSelection].flatMap((id) => moduleCatalog[id].groups)) allowedGroups.add(group);
+  for (const group of [...integrationSelection].flatMap((id) => moduleCatalog[id].groups)) allowedGroups.add(group);
   return {
     allowedGroups,
     implicitModules: resolvedModules.filter((id) => !requested.has(id) && !plugins.includes(id)),

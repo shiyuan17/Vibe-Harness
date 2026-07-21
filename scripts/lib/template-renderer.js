@@ -1,4 +1,5 @@
 const defaultTemplateData = {
+  hookRunnerPath: '.agents/cognis/hooks/codex-hook.mjs',
   installedSurface: {
     codebaseMemoryMcpLine: '',
     discoveryLine: '使用仓库搜索和已安装规则定位相关代码；需要结构化索引时先确认目标项目已有能力。',
