@@ -155,11 +155,41 @@
       "id": "tool-provisioning",
       "source": "project-local tool provisioning",
       "disposition": "validator",
-      "targets": ["scripts/lib/tool-provisioning.js", "scripts/lib/runtime-audit.js", "runtime/tools/agentmemory/package-lock.json", "runtime/tools/chrome-devtools-mcp/package-lock.json"],
-      "tests": ["tests/tool-provisioning.test.js", "tests/runtime-audit.test.js"],
-      "profiles": ["core", "full"],
-      "docs": ["docs/architecture.md"],
+      "targets": ["scripts/cognis.js", "scripts/lib/module-selection.js", "scripts/lib/tool-provisioning.js", "scripts/lib/runtime-audit.js", "manifests/profiles.json", "runtime/tools/agentmemory/package-lock.json", "runtime/tools/chrome-devtools-mcp/package-lock.json", "runtime/tools/ast-grep/package-lock.json", "runtime/tools/rtk/run.mjs"],
+      "tests": ["tests/tool-provisioning.test.js", "tests/runtime-audit.test.js", "tests/tooling-modules.test.js"],
+      "profiles": ["minimal", "core", "full", "docs-only"],
+      "docs": ["docs/architecture.md", "docs/specs/cognis-tooling-modules-spec.md"],
       "evaluation": { "required": false, "reason": "Provisioning ownership, command flags, and dependency audits are deterministic lifecycle checks." }
+    },
+    {
+      "id": "explicit-tool-plugin-selection",
+      "source": "explicit project-local tool plugin selection",
+      "disposition": "validator",
+      "targets": ["scripts/cognis.js", "scripts/lib/module-selection.js", "scripts/lib/install-planner.js", "scripts/lib/tool-provisioning.js", "manifests/profiles.json"],
+      "tests": ["tests/module-selection.test.js", "tests/tool-provisioning.test.js", "tests/tooling-modules.test.js"],
+      "profiles": ["minimal", "core", "full", "docs-only"],
+      "docs": ["README.md", "README.zh-CN.md", "docs/architecture.md", "docs/migration-guide.md", "docs/specs/cognis-tooling-modules-spec.md"],
+      "evaluation": { "required": false, "reason": "Plugin aliases, dependency closure, persistence, and zero-tool profile defaults are deterministic installer contracts." }
+    },
+    {
+      "id": "rtk-output-compression",
+      "source": "project-local RTK command output compression",
+      "disposition": "generalize",
+      "targets": ["rules/rtk.md", "runtime/tools/rtk/run.mjs", "scripts/lib/tool-provisioning.js", "scripts/lib/module-selection.js"],
+      "tests": ["tests/tooling-modules.test.js", "tests/module-selection.test.js"],
+      "profiles": ["minimal", "core", "full", "docs-only"],
+      "docs": ["README.md", "README.zh-CN.md", "docs/architecture.md"],
+      "evaluation": { "required": true, "suites": ["evals/suites/cognis-core.json"] }
+    },
+    {
+      "id": "ast-grep-structured-search",
+      "source": "project-local ast-grep structured code search",
+      "disposition": "generalize",
+      "targets": ["rules/ast-grep.md", "runtime/tools/ast-grep/run.mjs", "runtime/tools/ast-grep/package-lock.json", "scripts/lib/tool-provisioning.js", "scripts/lib/module-selection.js"],
+      "tests": ["tests/tooling-modules.test.js", "tests/module-selection.test.js", "tests/runtime-audit.test.js"],
+      "profiles": ["minimal", "core", "full", "docs-only"],
+      "docs": ["README.md", "README.zh-CN.md", "docs/architecture.md"],
+      "evaluation": { "required": true, "suites": ["evals/suites/cognis-core.json"] }
     },
     {
       "id": "chrome-devtools-mcp",
@@ -167,7 +197,7 @@
       "disposition": "generalize",
       "targets": ["rules/chrome-devtools-mcp.md", "runtime/tools/chrome-devtools-mcp/run.mjs", "runtime/tools/chrome-devtools-mcp/package-lock.json", "skills/integrations/browser-verification/SKILL.md"],
       "tests": ["tests/module-selection.test.js", "tests/tool-provisioning.test.js", "tests/runtime-audit.test.js", "tests/skill-closure.test.js"],
-      "profiles": ["full"],
+      "profiles": ["minimal", "core", "full", "docs-only"],
       "docs": ["README.md", "README.zh-CN.md", "docs/architecture.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/cognis-core.json"] }
     },

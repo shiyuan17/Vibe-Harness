@@ -67,11 +67,14 @@ test('codebase-memory-mcp rule uses MCP tools and a repository-search fallback w
     await execFileAsync(process.execPath, [cliPath, 'init', '--project', target]);
     const core = await execFileAsync(process.execPath, [cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'core', '--dry-run', '--verbose']);
     const full = await execFileAsync(process.execPath, [cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'full', '--dry-run', '--verbose']);
+    const selected = await execFileAsync(process.execPath, [cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'full', '--plugin', '-codebase-memory-mcp', '--dry-run', '--verbose']);
     const coreAgents = JSON.parse(core.stdout).previewFiles.find((file) => file.target === 'AGENTS.md').content;
     const fullAgents = JSON.parse(full.stdout).previewFiles.find((file) => file.target === 'AGENTS.md').content;
+    const selectedAgents = JSON.parse(selected.stdout).previewFiles.find((file) => file.target === 'AGENTS.md').content;
 
     assert.equal(coreAgents.includes('codebase-memory-mcp'), false);
-    assert.equal(fullAgents.includes('codebase-memory-mcp'), true);
+    assert.equal(fullAgents.includes('codebase-memory-mcp'), false);
+    assert.equal(selectedAgents.includes('codebase-memory-mcp'), true);
   } finally {
     await rm(target, { force: true, recursive: true });
   }

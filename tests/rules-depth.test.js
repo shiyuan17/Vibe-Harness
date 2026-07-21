@@ -36,7 +36,7 @@ test('profiles install minimal, common, and full surfaces at intended tiers', as
   assert.equal(core.has('.agents/skills/agentmemory/SKILL.md'), false);
   assert.equal(core.has('.codex/hooks.json'), false);
   assert.equal(full.has('.agents/skills/adversarial-review-packet/SKILL.md'), true);
-  assert.equal(full.has('docs/rules/codebase-memory-mcp.md'), true);
+  assert.equal(full.has('docs/rules/codebase-memory-mcp.md'), false);
   assert.equal(full.has('.agents/skills/agentmemory/SKILL.md'), true);
   assert.equal(full.has('.agents/memory/README.md'), true);
   assert.equal(full.has('.codex/hooks.json'), true);

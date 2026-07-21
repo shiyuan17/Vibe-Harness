@@ -30,7 +30,7 @@ test('minimal uses the fallback kernel without skills or runtime', async () => {
   }
 });
 
-test('core and full install routed skills and full adds memory, mcp, and hooks', async () => {
+test('core and full install routed skills and full adds memory and hooks without tool MCPs', async () => {
   const core = await preview('core');
   const full = await preview('full');
   try {
@@ -47,7 +47,7 @@ test('core and full install routed skills and full adds memory, mcp, and hooks',
     assert.equal(coreTargets.has('.agents/skills/agentmemory/SKILL.md'), false);
     assert.equal(coreTargets.has('.codex/hooks.json'), false);
     assert.equal(fullTargets.has('.agents/skills/adversarial-review-packet/SKILL.md'), true);
-    assert.equal(fullTargets.has('docs/rules/codebase-memory-mcp.md'), true);
+    assert.equal(fullTargets.has('docs/rules/codebase-memory-mcp.md'), false);
     assert.equal(fullTargets.has('.agents/skills/agentmemory/SKILL.md'), true);
     assert.equal(fullTargets.has('.codex/hooks.json'), true);
   } finally {

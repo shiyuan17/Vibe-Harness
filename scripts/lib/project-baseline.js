@@ -40,7 +40,9 @@ function singleLine(value) {
 function publicTools(tools) {
   return stableObject(Object.fromEntries(Object.entries(tools).map(([id, tool]) => [id, {
     ...(tool.code ? { code: tool.code } : {}),
+    ...(tool.platform ? { platform: tool.platform } : {}),
     phase: tool.phase,
+    ...(tool.source ? { source: tool.source } : {}),
     status: tool.status,
     version: tool.version,
   }])));
@@ -136,7 +138,7 @@ function createRecommendations({ profile, tools, verification, vcs }) {
     recommendations.push({ code: 'VCS_WORKTREE_DIRTY', message: '开始修改前先确认并保护当前未提交改动。', priority: 'P2' });
   }
   if (profile !== 'full') {
-    recommendations.push({ code: 'OPTIONAL_FULL_CAPABILITIES_DISABLED', message: '当前 profile 未启用 full 的持久记忆、MCP 和 hooks；仅在项目确有需要时升级。', priority: 'P2' });
+    recommendations.push({ code: 'OPTIONAL_FULL_CAPABILITIES_DISABLED', message: '当前 profile 未启用 full 的持久记忆和 hooks；仅在项目确有需要时升级。外部工具独立使用 --plugin 管理。', priority: 'P2' });
   }
   return recommendations.sort((a, b) => `${a.priority}:${a.code}`.localeCompare(`${b.priority}:${b.code}`));
 }
@@ -190,6 +192,7 @@ function renderReport(baseline) {
 - 项目：${baseline.project.name}
 - 技术栈：${baseline.project.stackSummary}
 - Profile：${baseline.installation.profile}
+- 工具插件：${baseline.installation.requestedPlugins.length ? baseline.installation.requestedPlugins.map((plugin) => `\`${plugin}\``).join('、') : '未选择'}
 - 安装状态：${baseline.installation.status}
 - 漂移状态：${baseline.drift.status}
 
@@ -202,7 +205,7 @@ function renderReport(baseline) {
 
 ## 工具状态
 
-${toolLines.length ? toolLines.join('\n') : '- 当前 profile 未安装项目内工具。'}
+${toolLines.length ? toolLines.join('\n') : '- 当前安装未选择项目内工具插件。'}
 
 ## 验证状态
 
@@ -269,6 +272,8 @@ export async function createProjectBaseline({
       governanceMode,
       managedFileCount: target.expected.length,
       profile: config.profile,
+      requestedPlugins: installState.requestedPlugins ?? [],
+      resolvedModules: installState.resolvedModules ?? [],
       status: 'consistent',
       tools: publicToolStates,
       version: installState.version,
@@ -358,7 +363,9 @@ export async function collectProjectBaselineInputs({
   }
   const [commandStatus, tools] = await Promise.all([
     inspectValidationCommands({ commands: validationCommands, targetDir }),
-    inspectProfileTools(config.profile, targetDir),
+    inspectProfileTools(config.profile, targetDir, installState.resolvedModules, undefined, {
+      allowPreview: true,
+    }),
   ]);
   return { commandStatus, installState, tools };
 }

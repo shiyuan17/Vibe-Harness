@@ -377,7 +377,7 @@ test('core profile installs common routed skills without mcp, memory, or hooks',
   }
 });
 
-test('full profile adds codebase memory, agentmemory, and hooks beyond core', async () => {
+test('full profile adds governance memory and hooks without enabling tool plugins', async () => {
   const core = await initAndDryRunProfile('core');
   const full = await initAndDryRunProfile('full');
   try {
@@ -390,7 +390,7 @@ test('full profile adds codebase memory, agentmemory, and hooks beyond core', as
     assert.equal(coreTargets.includes('.agents/skills/agentmemory/SKILL.md'), false);
     assert.equal(coreTargets.some((item) => item.startsWith('.agents/memory/')), false);
     assert.equal(coreTargets.includes('.codex/hooks.json'), false);
-    assert.equal(fullTargets.includes('docs/rules/codebase-memory-mcp.md'), true);
+    assert.equal(fullTargets.includes('docs/rules/codebase-memory-mcp.md'), false);
     assert.equal(fullTargets.includes('.agents/skills/agentmemory/SKILL.md'), true);
     assert.equal(fullTargets.includes('.agents/skills/agentmemory/references/handoff.md'), true);
     assert.equal(fullTargets.includes('.agents/skills/agentmemory/references/recall.md'), true);
@@ -403,8 +403,8 @@ test('full profile adds codebase memory, agentmemory, and hooks beyond core', as
     assert.equal(fullTargets.includes('.agents/skills/loop-planning/SKILL.md'), true);
     assert.equal(fullTargets.includes('.agents/skills/subagent-driven-development/SKILL.md'), true);
     assert.equal(fullTargets.some((item) => item.startsWith('docs/workflows/')), false);
-    assert.equal(fullAgents.includes('全安装'), true);
-    assert.equal(fullAgents.includes('codebase-memory-mcp'), true);
+    assert.equal(fullAgents.includes('完整治理安装'), true);
+    assert.equal(fullAgents.includes('codebase-memory-mcp'), false);
     assert.equal(fullAgents.includes('agentmemory'), true);
     assert.equal(fullAgents.includes('.agents/memory/'), true);
     assert.equal(fullAgents.includes('.codex/hooks.json'), true);
@@ -562,8 +562,8 @@ test('rendered AGENTS surface matches minimal, core, and full profile installs',
     assert.equal(coreAgents.includes('.agents/memory/'), false);
     assert.equal(coreAgents.includes('.codex/hooks.json'), false);
     assert.equal(fullAgents.includes('.agents/skills/'), true);
-    assert.equal(fullAgents.includes('全安装'), true);
-    assert.equal(fullAgents.includes('codebase-memory-mcp'), true);
+    assert.equal(fullAgents.includes('完整治理安装'), true);
+    assert.equal(fullAgents.includes('codebase-memory-mcp'), false);
     assert.equal(fullAgents.includes('agentmemory'), true);
     assert.equal(fullAgents.includes('.agents/memory/'), true);
     assert.equal(fullAgents.includes('.codex/hooks.json'), true);

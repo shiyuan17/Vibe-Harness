@@ -31,6 +31,13 @@ const offlineEnv = {
   npm_config_cache: path.join(tmpdir(), 'cognis-empty-npm-cache'),
   npm_config_offline: 'true',
 };
+const PROFILE_TOOL_MODULES = [
+  'codebase-memory',
+  'playwright',
+  'chrome-devtools',
+  'open-code-review',
+  'agentmemory',
+];
 
 function successfulToolOutput(request, targetDir) {
   if (request.component === 'codebaseMemoryMcp' && request.phase === 'index') {
@@ -101,27 +108,15 @@ async function runCliSummary(args, options = {}) {
   return stdout;
 }
 
-test('full tool plan pins five project-local components while core keeps Playwright lazy', () => {
+test('tool plans require explicitly resolved plugin modules', () => {
   const targetDir = path.resolve('target-project');
   const stable = createToolProvisioningPlan({ profile: 'full', targetDir });
   const full = createToolProvisioningPlan({ allowPreview: true, profile: 'full', targetDir });
   const core = createToolProvisioningPlan({ profile: 'core', targetDir });
 
-  assert.deepEqual(
-    full.map(({ id, version }) => ({ id, version })),
-    [
-      { id: 'codebaseMemoryMcp', version: '0.9.0' },
-      { id: 'playwrightCli', version: '0.1.17' },
-      { id: 'chromeDevtoolsMcp', version: '1.6.0' },
-      { id: 'openCodeReview', version: '1.7.7' },
-      { id: 'agentmemory', version: '0.9.27' },
-    ],
-  );
-  assert.deepEqual(stable.map(({ id }) => id), ['codebaseMemoryMcp', 'playwrightCli', 'chromeDevtoolsMcp', 'openCodeReview']);
-  assert.equal(full.every((item) => item.toolDir.startsWith(targetDir)), true);
-  assert.deepEqual(full[0].phases, ['dependency-install', 'binary-install', 'index', 'index-verify', 'mcp-handshake']);
-  assert.deepEqual(full[2].phases, ['dependency-install', 'browser-smoke']);
-  assert.deepEqual(core.map(({ id, mode }) => ({ id, mode })), [{ id: 'playwrightCli', mode: 'lazy' }]);
+  assert.deepEqual(stable, []);
+  assert.deepEqual(full, []);
+  assert.deepEqual(core, []);
 });
 
 test('managed MCP block preserves local TOML and refuses duplicate unmanaged server tables', () => {
@@ -157,6 +152,7 @@ test('Chrome DevTools runtime pins safe headless isolated defaults without forwa
   const plan = await createInstallPlan({
     dryRun: true,
     profile: 'full',
+    requestedPlugins: ['chrome-devtools'],
     rootDir,
     targetDir: path.resolve('target-project'),
   });
@@ -250,6 +246,7 @@ test('provisioning continues after one component fails and never persists comman
       },
       env,
       profile: 'full',
+      resolvedModules: PROFILE_TOOL_MODULES,
       targetDir,
     });
 
@@ -322,6 +319,7 @@ test('codebase-memory index verification gates ready status and persists only a 
       },
       env: { OPENAI_API_KEY: 'configured' },
       profile: 'full',
+      resolvedModules: ['codebase-memory'],
       targetDir,
     });
 
@@ -358,6 +356,7 @@ test('codebase-memory rejects empty verification output and mismatched project r
         },
         env: { OPENAI_API_KEY: 'configured' },
         profile: 'full',
+        resolvedModules: ['codebase-memory'],
         targetDir,
       });
 
@@ -386,6 +385,7 @@ test('codebase-memory rejects index output that does not identify an indexed pro
           : successfulToolOutput(request, targetDir),
         env: { OPENAI_API_KEY: 'configured' },
         profile: 'full',
+        resolvedModules: ['codebase-memory'],
         targetDir,
       });
       assert.equal(report.codebaseMemoryMcp.status, 'degraded');
@@ -486,6 +486,7 @@ test('every full-profile tool persists a sanitized diagnostic for its failed pha
         },
         env: { OPENAI_API_KEY: 'configured' },
         profile: 'full',
+        resolvedModules: PROFILE_TOOL_MODULES,
         targetDir,
       });
       const diagnostic = report[toolId].diagnostic;
@@ -509,6 +510,7 @@ test('tool phase timeouts can be bounded by the lifecycle smoke environment', as
       commandRunner: async (request) => { calls.push(request); return successfulToolOutput(request, targetDir); },
       env: { COGNIS_TOOL_TIMEOUT_MS: '1500', OPENAI_API_KEY: 'configured' },
       profile: 'full',
+      resolvedModules: PROFILE_TOOL_MODULES,
       targetDir,
     });
     assert.equal(calls.length > 0, true);
@@ -540,9 +542,10 @@ test('OCR without credentials is pending-config and inspect restores persisted s
       env: {},
       ocrHomeDir: path.join(tmpdir(), 'cognis-no-ocr-config'),
       profile: 'full',
+      resolvedModules: ['codebase-memory', 'open-code-review'],
       targetDir,
     });
-    const inspected = await inspectProfileTools('full', targetDir);
+    const inspected = await inspectProfileTools('full', targetDir, ['codebase-memory', 'open-code-review']);
 
     assert.equal(report.openCodeReview.status, 'pending-config');
     assert.equal(report.openCodeReview.phase, 'llm-config');
@@ -555,7 +558,7 @@ test('OCR without credentials is pending-config and inspect restores persisted s
 
 test('unchanged OCR pending-config is reused until credentials become available', async () => {
   const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-ocr-reuse-'));
-  const ocr = createToolProvisioningPlan({ profile: 'full', targetDir })
+  const ocr = createToolProvisioningPlan({ profile: 'full', resolvedModules: ['open-code-review'], targetDir })
     .find((tool) => tool.id === 'openCodeReview');
   const calls = [];
   const runner = async (request) => {
@@ -566,15 +569,16 @@ test('unchanged OCR pending-config is reused until credentials become available'
     await mkdir(ocr.toolDir, { recursive: true });
     await writeFile(path.join(ocr.toolDir, 'package-lock.json'), 'ocr-lock\n', 'utf8');
 
-    await provisionProfileTools({ commandRunner: runner, env: {}, profile: 'full', targetDir });
+    await provisionProfileTools({ commandRunner: runner, env: {}, profile: 'full', resolvedModules: ['open-code-review'], targetDir });
     const firstOcrCallCount = calls.filter((call) => call.component === 'openCodeReview').length;
-    await provisionProfileTools({ commandRunner: runner, env: {}, profile: 'full', targetDir });
+    await provisionProfileTools({ commandRunner: runner, env: {}, profile: 'full', resolvedModules: ['open-code-review'], targetDir });
     assert.equal(calls.filter((call) => call.component === 'openCodeReview').length, firstOcrCallCount);
 
     const configured = await provisionProfileTools({
       commandRunner: runner,
       env: { OPENAI_API_KEY: 'configured' },
       profile: 'full',
+      resolvedModules: ['open-code-review'],
       targetDir,
     });
     assert.equal(configured.openCodeReview.status, 'ready');
@@ -586,7 +590,7 @@ test('unchanged OCR pending-config is reused until credentials become available'
 
 test('ready tools reuse package phases while codebase-memory reindexes and verifies every install', async () => {
   const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-reuse-'));
-  const plan = createToolProvisioningPlan({ allowPreview: true, profile: 'full', targetDir });
+  const plan = createToolProvisioningPlan({ allowPreview: true, profile: 'full', resolvedModules: PROFILE_TOOL_MODULES, targetDir });
   const calls = [];
   const runner = async (request) => {
     calls.push(request);
@@ -600,9 +604,9 @@ test('ready tools reuse package phases while codebase-memory reindexes and verif
     }
     await seedCodebaseMemoryRuntime(plan.find((tool) => tool.id === 'codebaseMemoryMcp').toolDir);
     await seedChromeDevtoolsRuntime(plan.find((tool) => tool.id === 'chromeDevtoolsMcp').toolDir);
-    await provisionProfileTools({ allowPreview: true, commandRunner: runner, env, profile: 'full', targetDir });
+    await provisionProfileTools({ allowPreview: true, commandRunner: runner, env, profile: 'full', resolvedModules: PROFILE_TOOL_MODULES, targetDir });
     const firstCallCount = calls.length;
-    await provisionProfileTools({ allowPreview: true, commandRunner: runner, env, profile: 'full', targetDir });
+    await provisionProfileTools({ allowPreview: true, commandRunner: runner, env, profile: 'full', resolvedModules: PROFILE_TOOL_MODULES, targetDir });
     const repeatedCalls = calls.slice(firstCallCount);
     assert.deepEqual(repeatedCalls.map((call) => [call.component, call.phase]), [
       ['codebaseMemoryMcp', 'index'],
@@ -614,7 +618,7 @@ test('ready tools reuse package phases while codebase-memory reindexes and verif
     const agentmemory = plan.find((tool) => tool.id === 'agentmemory');
     await writeFile(path.join(agentmemory.toolDir, 'package-lock.json'), 'changed\n', 'utf8');
     const beforeChangedLock = calls.length;
-    await provisionProfileTools({ allowPreview: true, commandRunner: runner, env, profile: 'full', targetDir });
+    await provisionProfileTools({ allowPreview: true, commandRunner: runner, env, profile: 'full', resolvedModules: PROFILE_TOOL_MODULES, targetDir });
     const newCalls = calls.slice(beforeChangedLock);
     assert.deepEqual(newCalls.filter((call) => call.component === 'codebaseMemoryMcp').map((call) => call.phase), [
       'index', 'index-verify', 'mcp-handshake',
@@ -627,7 +631,7 @@ test('ready tools reuse package phases while codebase-memory reindexes and verif
 
 test('a missing codebase-memory runtime bypasses package reuse and reinstalls before indexing', async () => {
   const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-runtime-repair-'));
-  const plan = createToolProvisioningPlan({ profile: 'full', targetDir });
+  const plan = createToolProvisioningPlan({ profile: 'full', resolvedModules: ['codebase-memory'], targetDir });
   const codebaseMemory = plan.find((tool) => tool.id === 'codebaseMemoryMcp');
   const binary = process.platform === 'win32' ? 'codebase-memory-mcp.exe' : 'codebase-memory-mcp';
   const calls = [];
@@ -641,11 +645,11 @@ test('a missing codebase-memory runtime bypasses package reuse and reinstalls be
       await writeFile(path.join(tool.toolDir, 'package-lock.json'), `${tool.id}\n`, 'utf8');
     }
     await seedCodebaseMemoryRuntime(codebaseMemory.toolDir);
-    await provisionProfileTools({ commandRunner: runner, env: { OPENAI_API_KEY: 'configured' }, profile: 'full', targetDir });
+    await provisionProfileTools({ commandRunner: runner, env: { OPENAI_API_KEY: 'configured' }, profile: 'full', resolvedModules: ['codebase-memory'], targetDir });
 
     await rm(path.join(codebaseMemory.toolDir, 'node_modules/codebase-memory-mcp/bin', binary), { force: true });
     const beforeRepair = calls.length;
-    await provisionProfileTools({ commandRunner: runner, env: { OPENAI_API_KEY: 'configured' }, profile: 'full', targetDir });
+    await provisionProfileTools({ commandRunner: runner, env: { OPENAI_API_KEY: 'configured' }, profile: 'full', resolvedModules: ['codebase-memory'], targetDir });
 
     assert.deepEqual(calls.slice(beforeRepair)
       .filter((call) => call.component === 'codebaseMemoryMcp')
@@ -704,6 +708,7 @@ test('MCP configuration conflicts retain an actionable diagnostic', async () => 
       mcpConflicts: ['codebase-memory-mcp'],
       env: { OPENAI_API_KEY: 'configured' },
       profile: 'full',
+      resolvedModules: ['codebase-memory'],
       targetDir,
     });
 
@@ -752,7 +757,7 @@ test('MCP configuration conflicts tell summary users to resolve the duplicate se
     await writeFile(projectConfigPath, `${JSON.stringify({ ...projectConfig, profile: 'full' }, null, 2)}\n`, 'utf8');
 
     const report = await runCli(
-      ['install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--write', '--provision', '--confirm-red-zone', '--allow-degraded'],
+      ['install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--plugin', '-codebase-memory-mcp', '--write', '--provision', '--confirm-red-zone', '--allow-degraded'],
       { env: offlineEnv, timeout: 120_000 },
     );
     const summary = await runCliSummary(
@@ -772,7 +777,7 @@ test('full install map includes project-local runtimes and managed Codex MCP con
   const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-plan-'));
   try {
     await writeFile(path.join(targetDir, '.codex-config-local'), '', 'utf8');
-    const full = await createInstallPlan({ dryRun: true, profile: 'full', rootDir, targetDir });
+    const full = await createInstallPlan({ allowPreview: true, dryRun: true, profile: 'full', requestedPlugins: PROFILE_TOOL_MODULES, rootDir, targetDir });
     const core = await createInstallPlan({ dryRun: true, profile: 'core', rootDir, targetDir });
     const fullTargets = full.actions.map((action) => action.relativeTarget);
     const coreTargets = core.actions.map((action) => action.relativeTarget);
@@ -797,23 +802,23 @@ test('full install map includes project-local runtimes and managed Codex MCP con
   }
 });
 
-test('full CLI dry-run reports stable tools and defers preview tools', async () => {
+test('full CLI dry-run includes preview tools only after explicit approval', async () => {
   const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-cli-plan-'));
   try {
     await runCli(['init', '--project', targetDir]);
     const report = await runCli(
-      ['install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--dry-run'],
+      ['install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--plugin', '-codebase-memory-mcp', 'playwright-cli', 'chrome-devtools-mcp', 'open-code-review', 'agentmemory', '--dry-run', '--allow-preview'],
       { env: { ...process.env, ANTHROPIC_API_KEY: '', OCR_LLM_MODEL: '', OCR_LLM_TOKEN: '', OCR_LLM_URL: '', OPENAI_API_KEY: '' } },
     );
 
     assert.deepEqual(report.plannedToolActions.map((item) => item.id), [
-      'codebaseMemoryMcp', 'playwrightCli', 'chromeDevtoolsMcp', 'openCodeReview',
+      'codebaseMemoryMcp', 'playwrightCli', 'chromeDevtoolsMcp', 'openCodeReview', 'agentmemory',
     ]);
-    assert.deepEqual(report.deferredToolActions.map((item) => item.id), ['agentmemory']);
+    assert.deepEqual(report.deferredToolActions, []);
     assert.equal(report.tools.codebaseMemoryMcp.status, 'pending');
     assert.equal(report.tools.playwrightCli.status, 'pending');
     assert.equal(['pending', 'pending-config'].includes(report.tools.openCodeReview.status), true);
-    assert.equal(report.tools.agentmemory, undefined);
+    assert.equal(report.tools.agentmemory.status, 'pending');
     await assert.rejects(readFile(path.join(targetDir, '.cognis/tool-state/tools.json'), 'utf8'), /ENOENT/u);
     await assert.rejects(readFile(path.join(targetDir, '.agents/cognis/tools/agentmemory/node_modules/.package-lock.json'), 'utf8'), /ENOENT/u);
   } finally {
@@ -1297,17 +1302,17 @@ test('full write installs governance assets without provisioning tools by defaul
 
     assert.equal(report.status, 'ready');
     assert.deepEqual(report.provisioning, { executed: false, requested: false });
-    assert.equal(report.warnings.some((item) => item.code === 'PROVISIONING_NOT_RUN'), true);
-    assert.equal(report.tools.codebaseMemoryMcp.status, 'pending');
+    assert.deepEqual(report.warnings, []);
+    assert.deepEqual(report.tools, {});
     await assert.rejects(readFile(path.join(targetDir, '.cognis/tool-state/tools.json'), 'utf8'), /ENOENT/u);
 
     const validation = await runCli(['validate', '--project', targetDir], { env: offlineEnv });
     assert.equal(validation.status, 'ready');
-    assert.equal(validation.tools.codebaseMemoryMcp.status, 'pending');
+    assert.deepEqual(validation.tools, {});
 
     const doctor = await runCli(['doctor', '--project', targetDir], { env: offlineEnv });
     assert.equal(doctor.status, 'ready');
-    assert.equal(doctor.tools.codebaseMemoryMcp.status, 'pending');
+    assert.deepEqual(doctor.tools, {});
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }
@@ -1318,7 +1323,7 @@ test('provision previews and writes only explicitly selected tools', async () =>
   try {
     await runCli(['init', '--project', targetDir, '--profile', 'full']);
     await runCli([
-      'install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--write', '--confirm-red-zone',
+      'install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--plugin', '-agentmemory', '--write', '--confirm-red-zone', '--allow-preview',
     ], { env: offlineEnv });
 
     await assert.rejects(
@@ -1357,7 +1362,7 @@ test('provision rejects tool directories redirected outside the project', async 
   try {
     await runCli(['init', '--project', targetDir, '--profile', 'full']);
     await runCli([
-      'install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--write', '--confirm-red-zone',
+      'install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--plugin', '-agentmemory', '--write', '--confirm-red-zone', '--allow-preview',
     ], { env: offlineEnv });
     const toolDir = path.join(targetDir, '.agents/cognis/tools/agentmemory');
     await rm(toolDir, { force: true, recursive: true });
@@ -1388,7 +1393,7 @@ test('full write degrades unavailable tools and rollback removes only the manage
     await writeFile(configPath, 'model = "gpt-5"\n', 'utf8');
 
     const report = await runCli(
-      ['install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--write', '--provision', '--confirm-red-zone', '--allow-degraded'],
+      ['install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--plugin', '-codebase-memory-mcp', 'playwright-cli', 'chrome-devtools-mcp', 'open-code-review', '--write', '--provision', '--confirm-red-zone', '--allow-degraded'],
       { env: offlineEnv, timeout: 120_000 },
     );
     const config = await readFile(configPath, 'utf8');
@@ -1439,6 +1444,28 @@ test('full write degrades unavailable tools and rollback removes only the manage
     assert.equal(rolledBack.includes('# COGNIS:MCP:START'), false);
     await assert.rejects(readFile(path.join(targetDir, '.agents/cognis/tools/chrome-devtools-mcp/run.mjs'), 'utf8'), /ENOENT/u);
     await assert.rejects(readFile(path.join(targetDir, '.cognis/tool-state/tools.json'), 'utf8'), /ENOENT/u);
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('core plugin provisioning failures degrade health and exit status', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-core-plugin-degraded-'));
+  try {
+    await runCli(['init', '--project', targetDir]);
+    const report = await runCli([
+      'install', '--project', targetDir, '--target', 'codex', '--profile', 'core',
+      '--plugin', '-chrome-devtools-mcp', '--write', '--provision',
+      '--confirm-red-zone', '--allow-degraded',
+    ], { env: offlineEnv, timeout: 120_000 });
+
+    assert.equal(report.tools.chromeDevtoolsMcp.status, 'degraded');
+    assert.equal(report.status, 'degraded');
+    assert.equal(report.ok, false);
+
+    const failedDoctor = await runCliFailure(['doctor', '--project', targetDir], { env: offlineEnv });
+    assert.equal(failedDoctor.code, 2);
+    assert.equal(failedDoctor.report.status, 'degraded');
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }

@@ -26,7 +26,7 @@ Cognis 让 Codex、Claude Code 和 Gemini CLI 使用同一套规划、执行与�
 | 长任务跨会话后丢失重要上下文。 | `baseline` 记录项目、安装、工具和验证状态；项目记忆与交接模板保留决策和已知问题。 | 新会话可以直接读取项目事实，不必只靠聊天记录重新整理。 |
 | 不同 AI 编程工具中的规则逐渐不一致。 | 为 Codex、Claude Code 和 Gemini CLI 提供原生项目文件和经过测试的安装级别（`profiles`）。 | 每个工具都能用自己支持的格式获得同一套核心工作规则。 |
 | 安装或更新公共规则时担心覆盖项目文件。 | 提供 dry-run 预览、明确标记的内容区域、备份、校验、安全卸载和回滚。 | 写入前可以检查变化，也能撤销 Cognis 管理的内容而不影响项目其他文件。 |
-| 代码理解、浏览器检查、审查和记忆工具分散在不同环境中。 | Codex `full` 会在项目内准备代码库索引、Playwright、Chrome DevTools MCP 和 Open Code Review；Agentmemory 在依赖风险解决前保持显式 preview。 | 常用工具跟随项目保存；工具不可用时会明确报告为 `degraded`。 |
+| 代码理解、浏览器检查、审查和记忆工具分散在不同环境中。 | 使用显式 `--plugin` 在项目内安装固定版本工具；Agentmemory 在依赖风险解决前保持 preview。 | 常用工具跟随项目保存，同时不会让每次 `full` 安装都下载外部工具。 |
 
 ## 为什么不只写一个 AGENTS.md
 
@@ -95,8 +95,8 @@ Claude Code 与 Gemini CLI 的 `full` 默认被 preview 门禁阻止，只有显
 | Profile | 会安装什么 | 适合什么项目 |
 | --- | --- | --- |
 | `minimal` | Agent 主说明文件、硬边界、Git 与测试规则、v2 任务模板 | 只需要基本规则，不需要额外 skills 或工具的小项目 |
-| `core` | `minimal` 的全部内容，加上常用工程规则、v1/v2 任务与任务图检查、Red Team 完成门禁、skills 路由和按需启动的 Playwright | 大多数项目，建议从这里开始 |
-| `full` | `core` 的全部内容，加上多 Agent 执行 Skill、项目记忆、高级流程 skills、四个 stable 项目工具、preview Agentmemory 资产、Codex MCP 配置和 Codex hooks | 长期维护或风险较高的 Codex 项目 |
+| `core` | `minimal` 的全部内容，加上常用工程规则、v1/v2 任务与任务图检查、Red Team 完成门禁和 skills 路由 | 大多数项目，建议从这里开始 |
+| `full` | `core` 的全部内容，加上多 Agent 执行 Skill、项目记忆、高级流程 skills、在线评测资产和 Codex hooks | 长期维护或风险较高的 Codex 项目 |
 | `docs-only` | 使用说明、公共规则、v2 模板和 schemas，不安装可执行 runtime、skills、MCP 或 hooks | 只希望使用文档规则的项目 |
 每个 profile 实际包含哪些文件，由 `manifests/profiles.json` 定义。
 
@@ -192,16 +192,41 @@ evaluation `reference` 与项目 `baseline` 相互独立。更新 reference 必�
 </details>
 
 <details>
+<summary><strong>启用项目内工具插件</strong></summary>
+
+所有 profile 默认都不安装外部工具插件。`--plugin` 会在保留 profile 治理、memory、skills 和 hooks 的前提下增加工具：
+
+```bash
+# 启用一个插件
+pnpm cognis install --project ../some-project --target codex --profile core --plugin -rtk --dry-run
+
+# 同时启用多个插件
+pnpm cognis install --project ../some-project --target codex --profile core --plugin -rtk ast-grep --write
+
+# 启用全部插件，包括 preview Agentmemory
+pnpm cognis install --project ../some-project --target codex --profile full --plugin -all --dry-run --allow-preview
+
+# 清除先前安装持久化的插件选择
+pnpm cognis install --project ../some-project --target codex --profile core --plugin none --write
+```
+
+公开插件名为 `rtk`、`ast-grep`、`codebase-memory-mcp`、`chrome-devtools-mcp`、`playwright-cli`、`open-code-review` 和 `agentmemory`；`all` 展开为全部 7 个。命令支持上述单前导 `-` 写法、逗号分隔和重复 `--plugin`，未知或重复名称会被拒绝。选择 Agentmemory 进入安装或 provisioning 都需要 `--allow-preview`。
+
+CLI 选择优先于 `cognis.config.json` 的 `plugins`，后者优先于 `.cognis/install-state.json` 保存的选择。后续 install、validate、doctor、baseline、provision、rollback 和 uninstall 会复用该选择。报告用 `requestedPlugins` 展示规范化插件模块，并用 `resolvedModules` 展示完整依赖闭包。
+
+</details>
+
+<details>
 <summary><strong>按需选择安装内容</strong></summary>
 
-如果预设的 profiles 都不合适，可以使用这个高级功能。你可以在 `cognis.config.json` 中填写 modules，也可以只在某次安装命令中指定：
+这是不使用预设 profile 时的高级替换接口。与增量的 `--plugin` 不同，`--modules` 会替换整个 profile 模块集合。你可以在 `cognis.config.json` 中填写 modules，也可以只在某次安装命令中指定：
 
 ```bash
 pnpm cognis install --project ../some-project --target codex --profile core --modules agents,rules,skills --dry-run
 pnpm cognis install --project ../some-project --target codex --profile core --modules agents,rules,skills --write
 ```
 
-可选 modules 包括 `agents`、`rules`、`templates`、`governance`、`skills`、`memory`、`playwright`、`chrome-devtools`、`codebase-memory`、`open-code-review`、`agentmemory` 和 `hooks`。Cognis 会自动补上必需的依赖。命令报告会通过 `requestedModules`、`resolvedModules` 和 `implicitModules` 分别列出你选择的内容、最终安装的内容和自动补充的依赖。
+可选 modules 包括 `agents`、`rules`、`templates`、`governance`、`skills`、`memory`、`playwright`、`chrome-devtools`、`codebase-memory`、`open-code-review`、`agentmemory`、`rtk`、`ast-grep` 和 `hooks`。Cognis 会自动补上必需依赖。命令报告通过 `requestedModules`、`resolvedModules` 和 `implicitModules` 分别列出替换请求、最终安装内容和自动补充依赖。
 
 </details>
 
@@ -263,7 +288,7 @@ pnpm cognis doctor --project ../some-project
 <details>
 <summary><strong>内置工具与命令状态</strong></summary>
 
-当安装或健康检查报告问题时，可以查看这一节。`core` 会准备 Playwright，并在第一次需要浏览器检查时完成启动。Codex `full` 还会准备 `codebase-memory-mcp`、Chrome DevTools MCP、Open Code Review 和 Agentmemory preview 资产。
+当安装或健康检查报告问题时，可以查看这一节。`core` 与 `full` 默认都不安装外部工具插件。RTK、ast-grep、codebase-memory-mcp、Chrome DevTools MCP、Playwright CLI、Open Code Review 和 Agentmemory 均通过 `--plugin` 启用；`--plugin -all --allow-preview` 选择全部 7 个。
 
 Cognis 只会把 MCP 设置写入项目 `.codex/config.toml` 中自己标记的区域。凭据只从当前终端环境读取，绝不会保存到项目中。
 
@@ -273,19 +298,23 @@ Open Code Review 的 endpoint 按以下顺序解析：完整的 `OCR_LLM_URL` + 
 
 codebase-memory 的索引范围始终是目标项目。Cognis 将 `CBM_ALLOWED_ROOT` 和子进程 cwd 固定为项目根；索引该根时传递 `--repo-path .`，让 ASCII、空格和 Windows 中文路径经过同一套校验。根边界错误使用 `INDEX_PATH_OUTSIDE_ALLOWED_ROOT`；本地索引缓存损坏时，下一次 provision 会自动清理受管缓存并重建，重试仍失败则报告 `INDEX_CORRUPT_REINDEX_REQUIRED`。`index_status` 仍必须确认状态为 `ready`、根路径匹配，并返回合法的节点和边数量。
 
-Install、validate 和 doctor 使用相同的三种状态：
+RTK `v0.43.0` 只从固定官方 release 资产下载，并在项目内 wrapper 使用前完成 SHA-256 校验。ast-grep 使用锁定的 `@ast-grep/cli@0.44.1`，同时提供 `sg` 与 `ast-grep` 入口。高输出且非敏感的命令优先使用 RTK，结构化代码查询优先使用 ast-grep；工具处于 `pending`、`degraded` 或 `unsupported` 时，按规则回退到原命令或 `rg`，并记录原因和影响。
+
+Install、validate 和 doctor 使用相同的健康状态：
 
 | 状态 | 退出码 | 表示什么 |
 | --- | --- | --- |
-| `ready` | `0` | 治理资产有效，且没有已尝试 provisioning 的工具失败；尚未 provision 的工具以 `pending` 或 `pending-config` 告警展示。 |
+| `ready` | `0` | 治理资产有效，且没有已尝试 provisioning 的工具失败；已选但尚未 provision 的工具以 `pending` 或 `pending-config` 告警展示。 |
 | `invalid` | `1` | 配置或已安装文件与 Cognis 的预期不一致。 |
 | `degraded` | `2` | 某个必需工具、凭据或功能当前不可用。 |
 
 `--allow-degraded` 可以为自动化流程把退出码改成 `0`，但不会隐藏问题。报告仍会保留 `ok: false`、`status: "degraded"`、警告和建议的处理办法。`pending` 与 `pending-config` 不会让资产优先安装失败；运行 `provision --write` 后出现的真实工具失败，以及未完成的 provisioning 进程标记，才会使健康状态降级。
 
+单个工具还会报告 `pending`、`ready`、`degraded` 或 `unsupported`；`unsupported` 表示当前平台没有经过校验的官方资产，必须使用规则规定的回退方式。
+
 维护者使用 `pnpm runtime:audit` 按 provision 的真实依赖面执行审计。Critical、High 或审计不可用会使命令失败，Moderate 保留为可见告警；Agentmemory 在 provision 和强制审计中都排除 optional 依赖。
 
-Cognis 会在 `.cognis/tool-state/tools.json` 逐工具记录版本、包来源、起止时间、结果和脱敏日志摘要，并在 install、validate、doctor 和 summary 输出中展示。失败诊断包含失败阶段、稳定错误码、可用时的退出码及限长输出尾部；项目路径和类似凭据的值会被替换，绝不保存原始命令环境或完整输出。provisioning 被中断时会保留 `.cognis/tool-state/provisioning.json`，`doctor` 只报告并降级，不会自动修改环境。
+首次 provision 前，Cognis 根据已选插件和当前平台只读计算 `pending` 或 `unsupported`，不会写入状态。真实 provision 会在 `.cognis/tool-state/tools.json` 逐工具记录版本、平台、包来源、起止时间、结果和脱敏日志摘要；install、validate、doctor、baseline 和 summary 会展示当前计算或已持久化的状态。失败诊断包含失败阶段、稳定错误码、可用时的退出码及限长输出尾部；项目路径和类似凭据的值会被替换，绝不保存原始命令环境或完整输出。provisioning 被中断时会保留 `.cognis/tool-state/provisioning.json`，`doctor` 只报告并降级，不会自动修改环境。
 
 </details>
 

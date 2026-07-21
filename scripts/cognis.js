@@ -42,7 +42,7 @@ import {
   runProjectEvaluations,
   writeProjectEvaluationReference,
 } from './lib/project-evaluation.js';
-import { parseModulesOption } from './lib/module-selection.js';
+import { parseModulesOption, parsePluginsOption } from './lib/module-selection.js';
 import { resolveAdapter } from './lib/adapter.js';
 import { readFile } from 'node:fs/promises';
 import {
@@ -69,8 +69,7 @@ function reportDeprecatedEnvironment() {
 }
 
 function requiredToolsDegraded(profile, tools = {}) {
-  return profile === 'full'
-    && Object.values(tools).some((tool) => tool.status === 'degraded');
+  return Object.values(tools).some((tool) => ['degraded', 'unsupported'].includes(tool.status));
 }
 
 function healthReport({ baseOk = true, profile, tools = {} }) {
@@ -134,20 +133,34 @@ function summaryText(value, maxLength = 480) {
   return compact.length > maxLength ? `${compact.slice(0, maxLength - 3)}...` : compact;
 }
 
+function optionalToolFallback(tool) {
+  if (tool === 'rtk') return 'Use the original command directly and record the fallback.';
+  if (tool === 'astGrep') return 'Use rg or the project search command and record the fallback.';
+  return null;
+}
+
 function toolSummaryLines(tools = {}, recommendations = []) {
   return Object.entries(tools).flatMap(([tool, state]) => {
-    if (state.status !== 'degraded') return [];
+    const fallback = optionalToolFallback(tool);
     const diagnostic = state.diagnostic;
     const details = diagnostic?.stderrTail ?? diagnostic?.stdoutTail;
     const recommendation = recommendations.find((item) => item.tool === tool);
-    return [
+    const lines = [
       `tool: ${tool}`,
+      `status: ${state.status}`,
+      ...(state.version ? [`version: ${state.version}`] : []),
+      ...(state.platform ? [`platform: ${state.platform}`] : []),
+      ...(state.source ? [`source: ${state.source}`] : []),
       `phase: ${state.phase}`,
-      `reason: ${summaryText(diagnostic?.message ?? `${tool} is degraded during ${state.phase}.`)}`,
+    ];
+    if (state.status === 'ready') return lines;
+    return [
+      ...lines,
+      `reason: ${summaryText(diagnostic?.message ?? `${tool} is ${state.status} during ${state.phase}.`)}`,
       ...(details && details !== diagnostic?.message ? [`details: ${summaryText(details)}`] : []),
       ...(diagnostic?.exitCode !== undefined ? [`exitCode: ${diagnostic.exitCode}`] : []),
       ...(diagnostic?.truncated ? ['detailsTruncated: true'] : []),
-      ...(recommendation?.command || recommendation?.message ? [`next: ${recommendation.command ?? recommendation.message}`] : []),
+      ...(recommendation?.command || recommendation?.message || fallback ? [`next: ${recommendation?.action === 'fallback' ? recommendation.message : (recommendation?.command ?? recommendation?.message ?? fallback)}`] : []),
     ];
   });
 }
@@ -160,6 +173,7 @@ function emitReport(report, args, { error = false } = {}) {
     const lines = [
       `status: ${normalized.status}`,
       ...(normalized.profile ? [`profile: ${normalized.profile}`] : []),
+      ...(Array.isArray(normalized.requestedPlugins) ? [`plugins: ${normalized.requestedPlugins.length ? normalized.requestedPlugins.join(',') : 'none'}`] : []),
       ...(typeof normalized.target === 'string' ? [`target: ${normalized.target}`] : []),
       ...(normalized.dryRun !== undefined ? [`dryRun: ${normalized.dryRun}`] : []),
       `warnings: ${normalized.warnings.length}`,
@@ -178,6 +192,15 @@ function parseArgs(argv) {
     const token = argv[index];
     if (token.startsWith('--')) {
       const key = token.slice(2);
+      if (key === 'plugin') {
+        const values = [];
+        while (index + 1 < argv.length && !argv[index + 1].startsWith('--')) {
+          values.push(argv[index + 1]);
+          index += 1;
+        }
+        args[key] = [...(Array.isArray(args[key]) ? args[key] : []), ...values];
+        continue;
+      }
       const next = argv[index + 1];
       if (!next || next.startsWith('--')) {
         args[key] = true;
@@ -199,6 +222,11 @@ function parseArgs(argv) {
 async function projectRequestedModules(config, targetDir) {
   if (config.modules) return config.modules;
   return (await readInstallState(targetDir))?.requestedModules ?? undefined;
+}
+
+async function projectRequestedPlugins(config, targetDir) {
+  if (config.plugins) return parsePluginsOption(config.plugins);
+  return (await readInstallState(targetDir))?.requestedPlugins ?? undefined;
 }
 
 async function init(args) {
@@ -270,6 +298,9 @@ async function install(args) {
   const requestedModules = args.modules !== undefined
     ? parseModulesOption(args.modules)
     : config.modules;
+  const requestedPlugins = args.plugin !== undefined
+    ? parsePluginsOption(args.plugin)
+    : (config.plugins ? parsePluginsOption(config.plugins) : existingState?.requestedPlugins);
 
   const plan = await createInstallPlan({
     adapterId,
@@ -280,6 +311,7 @@ async function install(args) {
     managedAgentsBlock: isMvpMode,
     profile,
     requestedModules,
+    requestedPlugins,
     renderData,
     rootDir,
     targetDir,
@@ -357,6 +389,7 @@ async function install(args) {
     profile: plan.profile,
     previewCapabilities: plan.previewCapabilities,
     requestedModules: plan.requestedModules,
+    requestedPlugins: plan.requestedPlugins,
     resolvedModules: plan.resolvedModules,
     target: isMvpMode ? adapterId : undefined,
     ...(args.verbose ? { targetDir: plan.targetDir } : {}),
@@ -378,6 +411,7 @@ async function validate(args) {
       throw new Error(`CLI target ${args.target} does not match cognis.config.json target ${config.target}.`);
     }
     const requestedModules = await projectRequestedModules(config, targetDir);
+    const requestedPlugins = await projectRequestedPlugins(config, targetDir);
     validateProjectConfig(config);
     const adapter = await resolveAdapter(rootDir, config.target);
     const projectProfile = await detectProjectProfile({ config, targetDir });
@@ -386,11 +420,13 @@ async function validate(args) {
     const validationCommands = resolveValidationCommands(config, projectProfile, governanceMode);
     const plan = await createInstallPlan({
       adapterId: adapter.id,
+      allowPreview: true,
       dryRun: true,
       force: true,
       managedAgentsBlock: true,
       profile: config.profile,
       requestedModules,
+      requestedPlugins,
       renderData: { ...config, governance: { mode: governanceMode }, projectProfile, validationCommands },
       rootDir,
       targetDir,
@@ -404,6 +440,7 @@ async function validate(args) {
       managedAgentsBlock: true,
       profile: config.profile,
       requestedModules,
+      requestedPlugins,
       renderData: { ...config, governance: { mode: governanceMode }, projectProfile, validationCommands },
       rootDir,
       targetDir,
@@ -428,7 +465,9 @@ async function validate(args) {
       commands: validationCommands,
       targetDir,
     });
-    const tools = await inspectProfileTools(config.profile, targetDir, plan.resolvedModules);
+    const tools = await inspectProfileTools(config.profile, targetDir, plan.resolvedModules, undefined, {
+      allowPreview: true,
+    });
     const health = healthReport({ profile: config.profile, tools });
     emitReport({
       ...health,
@@ -462,6 +501,7 @@ async function verify(args) {
     throw new Error(`CLI target ${args.target} does not match cognis.config.json target ${config.target}.`);
   }
   const requestedModules = await projectRequestedModules(config, targetDir);
+  const requestedPlugins = await projectRequestedPlugins(config, targetDir);
   validateProjectConfig(config);
   const adapter = await resolveAdapter(rootDir, config.target);
   const projectProfile = await detectProjectProfile({ config, targetDir });
@@ -474,6 +514,7 @@ async function verify(args) {
     managedAgentsBlock: true,
     profile: config.profile,
     requestedModules,
+    requestedPlugins,
     renderData,
     rootDir,
     targetDir,
@@ -526,8 +567,10 @@ async function baseline(args) {
   const projectProfile = await detectProjectProfile({ config, targetDir });
   const adapter = await resolveAdapter(rootDir, config.target);
   let requestedModules;
+  let requestedPlugins;
   try {
     requestedModules = await projectRequestedModules(config, targetDir);
+    requestedPlugins = await projectRequestedPlugins(config, targetDir);
   } catch (cause) {
     throw Object.assign(new Error('Project installation state is invalid; reinstall before baseline.'), {
       cause,
@@ -543,6 +586,7 @@ async function baseline(args) {
     managedAgentsBlock: true,
     profile: config.profile,
     requestedModules,
+    requestedPlugins,
     renderData,
     rootDir,
     targetDir,
@@ -624,6 +668,32 @@ async function evaluateProject(args) {
 function toolRecommendations(tools, profile, { adapterId = 'codex' } = {}) {
   const retryCommand = `cognis provision --project <project> --target ${adapterId} --profile ${profile} --write`;
   return Object.entries(tools).flatMap(([tool, state]) => {
+    const fallback = optionalToolFallback(tool);
+    if (fallback && ['pending', 'degraded', 'unsupported'].includes(state.status)) {
+      return [{
+        action: 'fallback',
+        ...(state.code ? { code: state.code } : {}),
+        ...(state.status === 'degraded' ? { command: retryCommand } : {}),
+        ...(state.diagnostic ? { diagnostic: state.diagnostic } : {}),
+        message: `${tool} is ${state.status} during ${state.phase}. ${fallback}`,
+        phase: state.phase,
+        tool,
+      }];
+    }
+    if (state.status === 'unsupported') {
+      const fallback = tool === 'rtk'
+        ? 'Use the original command without RTK and record the fallback.'
+        : tool === 'astGrep'
+          ? 'Use rg or the project search command and record the fallback.'
+          : 'Use the project-supported fallback and record the limitation.';
+      return [{
+        action: 'fallback',
+        code: state.code,
+        message: `${tool} is unsupported on this platform. ${fallback}`,
+        phase: state.phase,
+        tool,
+      }];
+    }
     if (state.status === 'degraded') {
       if (state.code === 'MCP_CONFIG_CONFLICT') {
         return [{
@@ -640,7 +710,9 @@ function toolRecommendations(tools, profile, { adapterId = 'codex' } = {}) {
         code: state.code,
         command: retryCommand,
         ...(state.diagnostic ? { diagnostic: state.diagnostic } : {}),
-        message: `Retry ${tool} provisioning after checking network access and the reported phase.`,
+        message: ['rtk', 'astGrep'].includes(tool)
+          ? `${tool} is unavailable; retry provisioning after checking the pinned download or package, or use the documented fallback.`
+          : `Retry ${tool} provisioning after checking network access and the reported phase.`,
         phase: state.phase,
         tool,
       }];
@@ -690,11 +762,14 @@ async function doctor(args) {
     adapterId: args.target ?? installState?.adapter ?? config.target,
     profile,
     requestedModules: installState?.requestedModules,
+    requestedPlugins: installState?.requestedPlugins,
     renderData,
     rootDir,
     targetDir,
   });
-  const tools = await inspectProfileTools(profile, targetDir);
+  const tools = await inspectProfileTools(profile, targetDir, installState?.resolvedModules, undefined, {
+    allowPreview: true,
+  });
   const taskContracts = inspectTaskContracts(targetDir, { verbose: args.verbose });
   if (!args.verbose) target = compactTargetReport(target);
   const health = provisioningProcess
@@ -705,6 +780,8 @@ async function doctor(args) {
     gitHooks,
     pack,
     previewCapabilities: installState?.previewCapabilities ?? [],
+    requestedPlugins: installState?.requestedPlugins ?? [],
+    resolvedModules: installState?.resolvedModules ?? [],
     provisioningProcess,
     ...(args.verbose ? { rootDir } : {}),
     target,
@@ -751,6 +828,7 @@ async function diff(args) {
     managedAgentsBlock: true,
     profile,
     requestedModules: config.modules ?? installState?.requestedModules,
+    requestedPlugins: config.plugins ?? installState?.requestedPlugins,
     renderData,
     rootDir,
     targetDir,
@@ -952,7 +1030,7 @@ async function main() {
   } else if (command === 'recover') {
     await recover(args);
   } else {
-    console.log('Usage: cognis <init|install|provision|recover|uninstall|validate|verify|baseline|eval|doctor|diff|rollback> [--project path] [--target codex|claude|gemini] [--profile minimal|core|full|docs-only] [--modules list] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--force] [--upgrade] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded]');
+    console.log('Usage: cognis <init|install|provision|recover|uninstall|validate|verify|baseline|eval|doctor|diff|rollback> [--project path] [--target codex|claude|gemini] [--profile minimal|core|full|docs-only] [--modules list] [--plugin -all|-rtk ast-grep ...] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--force] [--upgrade] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded]');
     console.log('All project commands use --project <path>; --target selects an adapter and --write performs mutations. Legacy --apply and path-valued --target are removed.');
   }
 }

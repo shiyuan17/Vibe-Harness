@@ -15,6 +15,7 @@
     { "path": "docs/reviews/COGNIS-MA-001-red-team.md", "kind": "plan", "status": "current", "language": "zh-CN", "audiences": ["maintainer", "reviewer"] },
     { "path": "docs/specs/cognis-v0.6-multi-agent-governance-spec.md", "kind": "spec", "status": "implemented", "language": "zh-CN", "audiences": ["maintainer", "reviewer"] },
     { "path": "docs/specs/agentmemory-skill-consolidation-spec.md", "kind": "spec", "status": "implemented", "language": "zh-CN", "audiences": ["maintainer", "reviewer"] },
+    { "path": "docs/specs/cognis-tooling-modules-spec.md", "kind": "spec", "status": "implemented", "language": "zh-CN", "audiences": ["maintainer", "reviewer", "user"] },
     { "path": "docs/inventory/source-rules-mapping.md", "kind": "inventory", "status": "reference", "language": "zh-CN", "audiences": ["auditor", "maintainer"] },
     { "path": "docs/inventory/source-assets.md", "kind": "inventory", "status": "reference", "language": "zh-CN", "audiences": ["auditor"] },
     { "path": "docs/inventory/skills-optimization-zh.md", "kind": "inventory", "status": "reference", "language": "zh-CN", "audiences": ["auditor", "maintainer"] },

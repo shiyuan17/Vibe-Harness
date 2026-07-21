@@ -24,9 +24,9 @@ test('eval schemas use draft 2020-12 and schemaVersion 1 contracts', async () =>
   }
 });
 
-test('core suite contains exactly 29 generic cases in the required category split', async () => {
+test('core suite contains exactly 31 generic cases in the required category split', async () => {
   const suite = await readJson(path.join(rootDir, 'evals/suites/cognis-core.json'));
-  assert.equal(suite.cases.length, 29);
+  assert.equal(suite.cases.length, 31);
   const counts = suite.cases.reduce((result, item) => ({
     ...result,
     [item.category]: (result[item.category] ?? 0) + 1,
@@ -34,14 +34,25 @@ test('core suite contains exactly 29 generic cases in the required category spli
   assert.deepEqual(counts, {
     'install-lifecycle': 6,
     'task-delivery-governance': 13,
-    'skill-routing': 6,
+    'skill-routing': 8,
     'safety-isolation': 4,
   });
-  assert.equal(new Set(suite.cases.map((item) => item.id)).size, 29);
+  assert.equal(new Set(suite.cases.map((item) => item.id)).size, 31);
   for (const item of suite.cases) {
     assert.deepEqual(Object.keys(item.weights).sort(), ['correctness', 'efficiency', 'evidenceQuality', 'safety']);
     assert.equal(Number.isInteger(item.repetitions) && item.repetitions >= 1, true);
   }
+});
+
+test('RTK and ast-grep rules have reference-backed fallback and evidence cases', async () => {
+  const suite = await readJson(path.join(rootDir, 'evals/suites/cognis-core.json'));
+  const rtk = suite.cases.find((item) => item.id === 'EVAL-TOOL-RTK-001');
+  const astGrep = suite.cases.find((item) => item.id === 'EVAL-TOOL-AST-001');
+  assert.equal(rtk.capability, 'rtk-output-compression');
+  assert.equal(rtk.oracle.forbiddenEvents.some((item) => item.value === 'rtk-used-for-sensitive-command'), true);
+  assert.equal(astGrep.capability, 'ast-grep-structured-search');
+  assert.equal(astGrep.oracle.requiredEvents.some((item) => item.value === 'source-and-tests-verified'), true);
+  assert.equal(astGrep.oracle.forbiddenEvents.some((item) => item.value === 'unverified-structural-match-accepted'), true);
 });
 
 test('suite semantic validation rejects duplicate ids, all-zero weights, and weighted dimensions without assertions', async () => {

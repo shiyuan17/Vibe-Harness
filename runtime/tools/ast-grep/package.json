@@ -1,0 +1,9 @@
+{
+  "name": "@cognis/ast-grep-runtime",
+  "version": "0.44.1",
+  "private": true,
+  "description": "Project-local ast-grep runtime managed by Cognis.",
+  "dependencies": {
+    "@ast-grep/cli": "0.44.1"
+  }
+}

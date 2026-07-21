@@ -11,8 +11,9 @@
 
 ## 现行规格
 
-- [v0.6 父子任务多 Agent 治理规格](specs/cognis-v0.6-multi-agent-governance-spec.md)：当前治理合同与 v1 兼容边界。
+- [v0.6 父子任务多 Agent 治理规格](specs/cognis-v0.6-multi-agent-governance-spec.md)：当前治理合同、Prompt Cache 上下文边界与 v1 兼容边界。
 - [Agentmemory Skill 收敛规格](specs/agentmemory-skill-consolidation-spec.md)：当前 Agentmemory 安装与升级合同。
+- [显式工具插件规格](specs/cognis-tooling-modules-spec.md)：7 个项目内工具的选择、版本校验、状态、规则和降级合同。
 
 ## 实施记录
 

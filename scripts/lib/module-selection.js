@@ -10,30 +10,76 @@ export const moduleCatalog = {
   'codebase-memory': { dependencies: ['agents', 'rules'], groups: ['rules-codebase-memory', 'tools-codebase-memory', 'mcp-config'] },
   'open-code-review': { dependencies: ['skills'], groups: ['tools-open-code-review'] },
   agentmemory: { dependencies: ['memory'], groups: ['tools-agentmemory', 'mcp-config'] },
+  rtk: { dependencies: ['agents', 'rules'], groups: ['rules-rtk', 'tools-rtk'] },
+  'ast-grep': { dependencies: ['agents', 'rules'], groups: ['rules-ast-grep', 'tools-ast-grep'] },
   hooks: { dependencies: ['agents', 'governance'], groups: ['hooks'] },
 };
 
 const profileModules = {
   minimal: ['agents', 'rules', 'templates'],
-  core: ['agents', 'rules', 'templates', 'governance', 'skills', 'playwright'],
-  full: Object.keys(moduleCatalog),
+  core: ['agents', 'rules', 'templates', 'governance', 'skills'],
+  full: [
+    'agents', 'rules', 'templates', 'governance', 'skills', 'memory',
+    'hooks',
+  ],
   'docs-only': ['rules', 'templates'],
 };
+
+export const pluginModules = [
+  'rtk',
+  'ast-grep',
+  'codebase-memory',
+  'chrome-devtools',
+  'playwright',
+  'open-code-review',
+  'agentmemory',
+];
+
+const pluginAliases = new Map([
+  ['rtk', 'rtk'],
+  ['ast-grep', 'ast-grep'],
+  ['codebase-memory-mcp', 'codebase-memory'],
+  ['codebase-memory', 'codebase-memory'],
+  ['chrome-devtools-mcp', 'chrome-devtools'],
+  ['chrome-devtools', 'chrome-devtools'],
+  ['playwright-cli', 'playwright'],
+  ['playwright', 'playwright'],
+  ['open-code-review', 'open-code-review'],
+  ['agentmemory', 'agentmemory'],
+]);
 
 export function parseModulesOption(value) {
   if (typeof value !== 'string') throw new Error('--modules requires a comma-separated module list.');
   return value.split(',').map((item) => item.trim()).filter(Boolean);
 }
 
-export function resolveModuleSelection({ profile, profileGroups = [], requestedModules }) {
-  if (requestedModules === undefined || requestedModules === null) {
-    return {
-      allowedGroups: new Set(profileGroups),
-      implicitModules: [],
-      requestedModules: null,
-      resolvedModules: profileModules[profile] ?? [],
-    };
+export function parsePluginsOption(value) {
+  const values = typeof value === 'string' ? [value] : value;
+  if (!Array.isArray(values)) throw new Error('--plugin requires at least one plugin.');
+  const tokens = values
+    .flatMap((item) => typeof item === 'string' ? item.split(',') : [])
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => item.startsWith('-') ? item.slice(1) : item);
+  if (tokens.length === 0) throw new Error('--plugin requires at least one plugin.');
+  if (tokens.includes('all')) {
+    if (tokens.length !== 1) throw new Error('plugin all cannot be combined with another plugin.');
+    return [...pluginModules];
   }
+  if (tokens.includes('none')) {
+    if (tokens.length !== 1) throw new Error('plugin none cannot be combined with another plugin.');
+    return [];
+  }
+  const plugins = tokens.map((token) => {
+    const plugin = pluginAliases.get(token);
+    if (!plugin) throw new Error(`Unknown plugin: ${token}`);
+    return plugin;
+  });
+  if (new Set(plugins).size !== plugins.length) throw new Error('plugins contains a duplicate plugin.');
+  return plugins;
+}
+
+function validateModules(requestedModules) {
   if (!Array.isArray(requestedModules) || requestedModules.length === 0) {
     throw new Error('modules must contain at least one module.');
   }
@@ -42,7 +88,9 @@ export function resolveModuleSelection({ profile, profileGroups = [], requestedM
   for (const id of requestedModules) {
     if (!Object.hasOwn(moduleCatalog, id)) throw new Error(`Unknown module: ${id}`);
   }
+}
 
+function resolveDependencies(moduleIds) {
   const selected = new Set();
   const visiting = new Set();
   const visit = (id) => {
@@ -53,14 +101,31 @@ export function resolveModuleSelection({ profile, profileGroups = [], requestedM
     visiting.delete(id);
     selected.add(id);
   };
-  for (const id of requestedModules) visit(id);
+  for (const id of moduleIds) visit(id);
+  return selected;
+}
 
+export function resolveModuleSelection({ profile, profileGroups = [], requestedModules, requestedPlugins }) {
+  const customModules = requestedModules !== undefined && requestedModules !== null;
+  if (customModules) validateModules(requestedModules);
+  const baseModules = customModules ? requestedModules : (profileModules[profile] ?? []);
+  const baseSelection = resolveDependencies(baseModules);
+  const plugins = requestedPlugins === undefined || requestedPlugins === null || requestedPlugins.length === 0
+    ? []
+    : parsePluginsOption(requestedPlugins);
+  const pluginSelection = resolveDependencies(plugins);
+  const selected = new Set([...baseSelection, ...pluginSelection]);
   const resolvedModules = Object.keys(moduleCatalog).filter((id) => selected.has(id));
-  const requested = new Set(requestedModules);
+  const requested = new Set(customModules ? requestedModules : baseModules);
+  const allowedGroups = customModules || profileGroups.length === 0
+    ? new Set([...baseSelection].flatMap((id) => moduleCatalog[id].groups))
+    : new Set(profileGroups);
+  for (const group of [...pluginSelection].flatMap((id) => moduleCatalog[id].groups)) allowedGroups.add(group);
   return {
-    allowedGroups: new Set(resolvedModules.flatMap((id) => moduleCatalog[id].groups)),
-    implicitModules: resolvedModules.filter((id) => !requested.has(id)),
-    requestedModules: [...requestedModules],
+    allowedGroups,
+    implicitModules: resolvedModules.filter((id) => !requested.has(id) && !plugins.includes(id)),
+    requestedModules: customModules ? [...requestedModules] : null,
+    requestedPlugins: plugins,
     resolvedModules,
   };
 }

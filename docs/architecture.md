@@ -10,7 +10,7 @@ Cognis 是跨平台、Codex 完整能力优先的可复用 AI coding governance 
 - `runtime/governance/`：将中英文 Markdown 视图解析为语言无关 TaskDocument IR，再校验 AC-ID、完成证据、完整流程控制块、跨文档任务图和结构化 Red Team 审查包。
 - `runtime/hooks/`：规范化 Codex 事件并执行可移植的安全、上下文和完成策略。
 - `runtime/evals/`：提供项目内离线评测 runtime 和 full 使用的 Codex 在线 runner；runner 只在一次性项目中执行。
-- `runtime/tools/`：固定版本的项目内工具 bootstrap；稳定 full 默认 provision 四个工具，Agentmemory 在风险接受前保持 opt-in preview。
+- `runtime/tools/`：固定版本的项目内工具 bootstrap；所有外部工具都通过独立 `--plugin` 选择显式启用，任何默认 profile 都不安装它们。
 - `scripts/lib/project-baseline.js`：汇总项目画像、安装状态、验证摘要、drift 和后续工作流，生成受管 JSON/Markdown 基线。
 - `adapters/codex/`：包含精简 AGENTS 模板、共享 install map 和官方 PascalCase Codex hook 配置。
 - `adapters/claude/`、`adapters/gemini/`：包含项目级 `CLAUDE.md` / `GEMINI.md` 模板；Skills target 由 adapter catalog 转换。
@@ -18,12 +18,16 @@ Cognis 是跨平台、Codex 完整能力优先的可复用 AI coding governance 
 - `manifests/`：rules、skills、profiles 和 adapters 的 catalog 真值；`profiles.json` 是能力组唯一来源，`adapters.json` 只声明平台安装面与能力边界。
 - `schemas/`：manifest、完整流程中文控制块和 suite/run/reference 评测 schema。
 
+## Prompt Cache 边界
+
+规范提示按稳定前缀、动态后缀、当前请求的顺序组织。稳定前缀由治理规则、profile/工具能力、adapter 能力和规范指纹组成；工作区状态、命令输出、时间敏感证据和 fan-in 结果只进入动态后缀。规范、模板、profile 或 adapter 变化会使受影响的稳定前缀失效，动态事实更新则只刷新动态后缀。无法提供 prefix cache 的 adapter 按完整提示发送，且不改变治理合同或证据门禁；提示正文和敏感数据不写入持久化缓存。
+
 ## 安装流程
 
 1. `cognis init --project <path> --target <codex|claude|gemini>` 创建项目配置。
 2. `cognis install --project <path> --target <adapter> --profile <profile> --dry-run` 只预览；CLI target 与配置不一致时拒绝执行。
 3. 所有 profile 使用 `--write` 事务性写入；Codex full 写入红区另需 `--confirm-red-zone`。事务按 preflight、journal、preimage、apply、state v3 commit 顺序执行。
-4. `cognis provision --project <path> --profile <profile>` 独立预览工具；只有 `--write` 才执行。`install --provision` 是兼容的一站式入口。
+4. `cognis install ... --plugin <plugins>` 将工具模块及依赖闭包增量并入 profile；`-all` 选择全部 7 个，单选、多选与 install-state 持久化互相独立。`cognis provision --project <path> --profile <profile>` 独立预览已选工具；只有 `--write` 才执行。`install --provision` 是兼容的一站式入口。
 5. 中断事务由 `cognis recover --project <path>` 预览，显式 `--write` 才逆序恢复；`doctor` 只读报告锁和 journal。
 6. 工具子进程使用 allowlist 环境与独立进程组；SIGINT、SIGTERM、超时和输出上限都会先清理进程树。失败诊断脱敏后写入工具状态。
 7. `cognis validate --project <path>` 校验安装一致性和组件状态，不执行目标项目命令。
@@ -34,6 +38,8 @@ Cognis 是跨平台、Codex 完整能力优先的可复用 AI coding governance 
 Open Code Review 的运行配置解析顺序固定为完整 `OCR_LLM_*` 环境变量、用户级 Open Code Review active provider、Anthropic/OpenAI 兼容环境变量、Codex provider TOML。解析后的 endpoint、model、protocol 和 token 只存在于子进程环境；项目配置、MCP 受管块和工具状态不保存凭据。codebase-memory 则把项目根作为 `CBM_ALLOWED_ROOT` 和 cwd，根索引统一使用 `--repo-path .`，并用 `index_status` 二次确认根路径、状态以及 nodes/edges。路径越界和损坏缓存分别使用 `INDEX_PATH_OUTSIDE_ALLOWED_ROOT` 与 `INDEX_CORRUPT_REINDEX_REQUIRED`，后者会在下一次 provision 中自动重建受管缓存。
 
 Chrome DevTools MCP 固定为项目内 `chrome-devtools-mcp@1.6.0`，只调用 lockfile 对应的本地入口。wrapper 以系统 Google Chrome 的无头隔离模式运行，固定关闭遥测、更新检查和 CrUX，脱敏 network header，不接入个人 profile、远程调试端口或任意外部路径。依赖 lockfile 未变化时可复用安装，但每次真实 provision 都通过 `list_pages` 重跑浏览器 smoke；Chrome 启动失败稳定映射为 `CHROME_LAUNCH_FAILED`。子进程环境使用系统启动变量 allowlist，不继承 token、云凭据或带凭据代理；工具状态只保存版本、阶段、时间和脱敏诊断，不保存页面、header、响应体或原始环境。
+
+RTK 固定为 `rtk-ai/rtk v0.43.0`，按平台/架构选择官方 release 资产并校验 SHA-256；ast-grep 固定为 `@ast-grep/cli@0.44.1`，使用 lockfile 安装并显式运行已审查的 native binary postinstall。显式 provision 执行固定版本检查并记录二进制 SHA-256；后续只读命令只比对状态版本、lock 指纹和文件哈希，不执行目标项目二进制。两者的 runtime payload 位于 `.agents/cognis/tools/`，状态与受管安装缓存位于 `.cognis/tool-state/`；它们不修改 PATH 或全局配置。工具状态为 `pending`、`ready`、`degraded` 或 `unsupported`，失败时 doctor 提供原命令或 `rg` 回退建议。
 
 默认 JSON 是稳定、紧凑的机器接口，preview 只含 hash、字节数和摘要；`--verbose` 才含完整正文和绝对诊断路径，`--output summary` 输出短报告和工具降级原因。工具诊断会脱敏项目路径与凭据，仅保存限长尾部。install、validate、doctor 共用 `ready=0`、`invalid=1`、`degraded=2` 健康合同；未执行 provisioning 的 `pending`/`pending-config` 只产生告警，已尝试 provisioning 的失败或未完成进程标记才进入 degraded。`--allow-degraded` 只覆盖退出码，不改变报告状态。
 
@@ -57,9 +63,11 @@ evaluation reference 与项目 baseline 分离。reference 只保存批准的 fi
 ## Profile
 
 - minimal：最小安装，包含平台入口、治理内核、Git/VCS/Test 规则和默认 v2 中文 task/delivery 模板，不安装 skills、runtime、hook 或 MCP 安装面。
-- core：通用安装，在 minimal 上增加专项规则、v1/v2 任务 runtime/schema、跨文档任务图 validator、`using-cognis` 和 inline fallback skills；不安装 hook、`codebase-memory-mcp` 或 agentmemory MCP 安装面。
-- full：全安装，在 core 上增加多 Agent 执行 Skill、五个项目内工具 runtime、经 `index_status` 验证的 codebase 初始索引、三个 MCP 注册、agentmemory skill、`.agents/memory/` 本地回退库和 Codex hooks；其中 Chrome DevTools MCP 使用受管项目配置和无头隔离 smoke，稳定 provision 排除 Agentmemory，显式 `--allow-preview` 后才能安装该依赖面，真实写入红区仍需确认。
+- core：通用安装，在 minimal 上增加专项规则、v1/v2 任务 runtime/schema、跨文档任务图 validator、`using-cognis` 和 inline fallback skills；不安装外部工具或 hook。
+- full：完整治理安装，在 core 上增加多 Agent 执行 Skill、agentmemory 治理 skill、`.agents/memory/` 本地回退库、在线评测资产和 Codex hooks；不默认安装外部工具、创建 codebase 索引或注册工具 MCP，真实写入红区仍需确认。
 - docs-only：仅安装平台入口、治理内核、专项规则、v2 中文模板、memory 文档和 schema，不安装 runtime、Skills、MCP 或 hooks。
+
+公开插件名与内部模块映射固定为：`rtk` → `rtk`、`ast-grep` → `ast-grep`、`codebase-memory-mcp` → `codebase-memory`、`chrome-devtools-mcp` → `chrome-devtools`、`playwright-cli` → `playwright`、`open-code-review` → `open-code-review`、`agentmemory` → `agentmemory`。CLI 插件选择优先于项目配置，项目配置优先于 install-state；`--plugin none` 清空持久化选择。`--modules` 仍是替换整个 profile 的高级接口，不能作为插件增量接口。Agentmemory 仍受 `--allow-preview` 门禁。
 
 ## 中文任务数据流
 

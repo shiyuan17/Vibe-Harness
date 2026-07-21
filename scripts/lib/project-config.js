@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { pathExists } from './manifest.js';
 import { renderTemplate } from './template-renderer.js';
-import { resolveModuleSelection } from './module-selection.js';
+import { parsePluginsOption, resolveModuleSelection } from './module-selection.js';
 import { assertPortableRelativePath } from './manifest.js';
 import { productIdentity } from './product-identity.js';
 import { resolveProjectConfigLocation } from './project-layout.js';
@@ -227,6 +227,9 @@ export function validateProjectConfig(config) {
   validateProfileName(config.profile);
   if (Object.hasOwn(config, 'modules')) {
     resolveModuleSelection({ requestedModules: config.modules });
+  }
+  if (Object.hasOwn(config, 'plugins')) {
+    parsePluginsOption(config.plugins);
   }
   assertObject(config.validationCommands, 'validationCommands');
   assertOptionalCommand(config.validationCommands.lint, 'validationCommands.lint');

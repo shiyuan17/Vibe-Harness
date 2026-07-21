@@ -31,9 +31,9 @@ import {
   PLAYWRIGHT_GENERATED_RELATIVE_DIR,
   PLAYWRIGHT_TOOL_RELATIVE_DIR,
 } from '../../runtime/tools/playwright-cli/run.mjs';
-import { extractManagedMcpBlock, mergeManagedMcpBlock } from './tool-provisioning.js';
+import { extractManagedMcpBlock, mergeManagedMcpBlock, removeManagedMcpBlock } from './tool-provisioning.js';
 import { applyBaselinePlan, createBaselinePlan } from './installation-baseline.js';
-import { resolveModuleSelection } from './module-selection.js';
+import { moduleCatalog, resolveModuleSelection } from './module-selection.js';
 import { assertAdapterProfile, resolveAdapter, resolveAdapterEntry } from './adapter.js';
 import { beginFileTransaction, createTransactionId } from './file-transaction.js';
 
@@ -59,7 +59,10 @@ async function loadProfileInstallMap({ adapterId = 'codex', allowPreview = false
   const adapter = await resolveAdapter(rootDir, adapterId);
   assertAdapterProfile(adapter, profile, { allowPreview });
   const rawInstallMap = await readJson(path.join(rootDir, adapter.installMap));
-  const knownGroups = new Set(profiles.items.flatMap((item) => item.groups));
+  const knownGroups = new Set([
+    ...profiles.items.flatMap((item) => item.groups),
+    ...Object.values(moduleCatalog).flatMap((module) => module.groups),
+  ]);
   validateInstallMapShape(rawInstallMap, knownGroups);
   const installMap = {
     ...rawInstallMap,
@@ -100,6 +103,8 @@ export function createInstalledSurface({ customModules = false, memoryPath = '.a
     'docs/rules/troubleshooting.md',
   ].some(hasTarget);
   const hasAgentMemorySkills = hasSkill('agentmemory/SKILL.md');
+  const hasRtkTool = hasTarget('.agents/cognis/tools/rtk/run.mjs');
+  const hasAstGrepTool = hasTarget('.agents/cognis/tools/ast-grep/run.mjs');
   const agentMemoryTarget = installedTargets.find((target) => target.endsWith('/skills/agentmemory/SKILL.md'));
   const agentMemorySkillRoot = agentMemoryTarget?.slice(0, agentMemoryTarget.indexOf('/agentmemory/SKILL.md'));
   const normalizedMemoryPath = memoryPath.replaceAll('\\', '/').replace(/\/+$/u, '');
@@ -107,7 +112,7 @@ export function createInstalledSurface({ customModules = false, memoryPath = '.a
   const profileLines = {
     core: '- 当前安装方式：通用安装（不包含扩展 MCP 或 hooks 安装面）。',
     'docs-only': '- 当前安装方式：仅文档安装。',
-    full: '- 当前安装方式：全安装（包含 codebase-memory-mcp、agentmemory MCP 项目内安装面和 Codex hooks）。',
+    full: '- 当前安装方式：完整治理安装（包含 memory 和 Codex hooks；外部工具仅通过 `--plugin` 显式启用）。',
     minimal: '- 当前安装方式：最小安装。',
   };
 
@@ -134,11 +139,9 @@ export function createInstalledSurface({ customModules = false, memoryPath = '.a
       : '当前 profile 未安装 Skills；仅按已安装规则和模板执行，不引用未安装的 skill。',
     skillsLine: skillRoots.length > 0 ? `- Skills 位于 ${skillRoots.map((root) => `\`${root}/\``).join('、')}。` : '',
     templatesLine: hasPrefix('docs/templates/') ? '- 模板位于 `docs/templates/`。' : '',
-    toolingLine: hasTarget('.agents/cognis/tools/codebase-memory-mcp/run.mjs')
-      ? `- 项目内工具位于 \`.agents/cognis/tools/\`；使用 \`cognis doctor --project <path>\` 查看初始化状态。${hasTarget('docs/rules/chrome-devtools-mcp.md') ? ' Chrome DevTools MCP 规则位于 \`docs/rules/chrome-devtools-mcp.md\`。' : ''}`
-      : hasTarget('.agents/cognis/tools/chrome-devtools-mcp/run.mjs')
-        ? '- Chrome DevTools MCP 规则位于 `docs/rules/chrome-devtools-mcp.md`；使用 `cognis doctor --project <path>` 查看初始化状态。'
-        : (hasTarget('.agents/cognis/tools/playwright-cli/run.mjs') ? '- Playwright CLI 将在首次使用时于项目内初始化。' : ''),
+    toolingLine: hasPrefix('.agents/cognis/tools/')
+      ? `- 项目内工具位于 \`.agents/cognis/tools/\`；使用 \`cognis doctor --project <path>\` 查看初始化状态。${hasTarget('docs/rules/chrome-devtools-mcp.md') ? ' Chrome DevTools MCP 规则位于 \`docs/rules/chrome-devtools-mcp.md\`。' : ''}${hasRtkTool ? ' RTK 规则位于 \`docs/rules/rtk.md\`。' : ''}${hasAstGrepTool ? ' ast-grep 规则位于 \`docs/rules/ast-grep.md\`。' : ''}`
+      : '',
   };
 }
 
@@ -201,6 +204,7 @@ export async function createInstallPlan({
   managedAgentsBlock = false,
   profile = 'core',
   requestedModules,
+  requestedPlugins,
   renderData = {},
   rootDir,
   targetDir,
@@ -211,7 +215,11 @@ export async function createInstallPlan({
     profile,
     profileGroups: selectedProfile.groups,
     requestedModules,
+    requestedPlugins,
   });
+  if (!allowPreview && moduleSelection.requestedPlugins.includes('agentmemory')) {
+    throw new Error('Preview plugins require --allow-preview: agentmemory');
+  }
   const allowedGroups = moduleSelection.allowedGroups;
   const actions = [];
   const state = await readInstallState(path.resolve(targetDir));
@@ -348,22 +356,88 @@ export async function createInstallPlan({
     }
   }
 
+  const currentModules = new Set(moduleSelection.resolvedModules);
+  const removedGroups = new Set((state?.resolvedModules ?? [])
+    .filter((id) => !currentModules.has(id) && Object.hasOwn(moduleCatalog, id))
+    .flatMap((id) => moduleCatalog[id].groups));
+  const plannedTargets = new Set(actions.map((action) => action.relativeTarget));
+  for (const managedFile of state?.files ?? []) {
+    const relativeTarget = managedFile.target.replaceAll('\\', '/');
+    if (!removedGroups.has(managedFile.group)
+      || allowedGroups.has(managedFile.group)
+      || plannedTargets.has(relativeTarget)) {
+      continue;
+    }
+    assertPortableRelativePath(relativeTarget, 'deselected module target');
+    const target = path.resolve(targetDir, relativeTarget);
+    assertInsideDir(targetDir, target, 'deselected module target');
+    await assertSafePathInside(targetDir, target, 'deselected module target');
+    if (!(await pathExists(target))) continue;
+    let currentHash;
+    let expectedHash;
+    let kind = 'retire';
+    if (isManagedToml(managedFile.contentStrategy)) {
+      const content = await readFile(target, 'utf8');
+      currentHash = createHash('sha256').update(extractManagedMcpBlock(content)).digest('hex');
+      expectedHash = managedFile.managedBlockHash;
+      kind = currentHash === expectedHash ? 'retire-managed-mcp' : 'retire-modified';
+    } else {
+      currentHash = await hashFile(target);
+      expectedHash = managedFile.targetHash;
+      kind = currentHash === expectedHash ? 'retire' : 'retire-modified';
+    }
+    actions.push({
+      discard: true,
+      expectedHash,
+      group: managedFile.group,
+      kind,
+      redZone: Boolean(managedFile.redZone),
+      relativeTarget,
+      target,
+    });
+    plannedTargets.add(relativeTarget);
+  }
+
+  const retiringOwners = new Map(actions
+    .filter((action) => action.discard && action.kind === 'retire')
+    .map((action) => [action.relativeTarget, action.expectedHash]));
+  for (const directory of state?.generatedDirectories ?? []) {
+    const expectedOwnerHash = retiringOwners.get(directory.ownerTarget);
+    if (!expectedOwnerHash) continue;
+    assertPortableRelativePath(directory.target, 'deselected generated directory');
+    const target = path.resolve(targetDir, directory.target);
+    const ownerTarget = path.resolve(targetDir, directory.ownerTarget);
+    if (directory.projectScoped) assertInsideDir(targetDir, target, 'deselected generated directory');
+    else assertInsideDir(path.dirname(ownerTarget), target, 'deselected generated directory');
+    await assertSafePathInside(targetDir, target, 'deselected generated directory');
+    actions.push({
+      discard: true,
+      expectedOwnerHash,
+      kind: 'retire-generated-directory',
+      ownerTarget: directory.ownerTarget,
+      projectScoped: Boolean(directory.projectScoped),
+      redZone: false,
+      relativeTarget: directory.target,
+      target,
+    });
+  }
+
   const installedSurface = createInstalledSurface({
     customModules: moduleSelection.requestedModules !== null,
     memoryPath: renderData.memory?.path,
     profile,
-    targets: actions.map((action) => action.relativeTarget),
+    targets: actions.filter((action) => action.kind === 'write').map((action) => action.relativeTarget),
   });
-  const generatedDirectories = actions.some((action) => action.group === 'tools-playwright')
+  const generatedDirectories = actions.some((action) => action.kind === 'write' && action.group === 'tools-playwright')
     ? [{
         ownerTarget: `${PLAYWRIGHT_TOOL_RELATIVE_DIR}/package.json`,
         target: PLAYWRIGHT_GENERATED_RELATIVE_DIR,
       }]
     : [];
   const stateDirectory = path.basename(path.dirname(stateFilePath(path.resolve(targetDir))));
-  for (const component of ['chrome-devtools-mcp', 'codebase-memory-mcp', 'open-code-review', 'agentmemory']) {
+  for (const component of ['chrome-devtools-mcp', 'codebase-memory-mcp', 'open-code-review', 'agentmemory', 'ast-grep']) {
     const ownerTarget = `.agents/cognis/tools/${component}/package.json`;
-    if (actions.some((action) => action.relativeTarget === ownerTarget)) {
+    if (actions.some((action) => action.kind === 'write' && action.relativeTarget === ownerTarget)) {
       generatedDirectories.push({ ownerTarget, target: `.agents/cognis/tools/${component}/node_modules` });
       generatedDirectories.push({
         ownerTarget,
@@ -373,9 +447,13 @@ export async function createInstallPlan({
       generatedDirectories.push({
         ownerTarget,
         projectScoped: true,
-        target: `${stateDirectory}/tool-state/npm-cache/${component === 'chrome-devtools-mcp' ? 'chromeDevtoolsMcp' : component === 'codebase-memory-mcp' ? 'codebaseMemoryMcp' : component === 'open-code-review' ? 'openCodeReview' : component}`,
+        target: `${stateDirectory}/tool-state/npm-cache/${component === 'chrome-devtools-mcp' ? 'chromeDevtoolsMcp' : component === 'codebase-memory-mcp' ? 'codebaseMemoryMcp' : component === 'open-code-review' ? 'openCodeReview' : component === 'ast-grep' ? 'astGrep' : component}`,
       });
     }
+  }
+  const rtkOwnerTarget = '.agents/cognis/tools/rtk/package.json';
+  if (actions.some((action) => action.kind === 'write' && action.relativeTarget === rtkOwnerTarget)) {
+    generatedDirectories.push({ ownerTarget: rtkOwnerTarget, target: '.agents/cognis/tools/rtk/bin' });
   }
 
   return {
@@ -392,6 +470,7 @@ export async function createInstallPlan({
     profile,
     previewCapabilities: Object.entries(adapter.capabilities).filter(([, status]) => status === 'preview').map(([name]) => name),
     requestedModules: moduleSelection.requestedModules,
+    requestedPlugins: moduleSelection.requestedPlugins,
     resolvedModules: moduleSelection.resolvedModules,
     renderData: withDefaultTemplateData({
       ...renderData,
@@ -450,6 +529,7 @@ export async function diffTargetInstall({
   managedAgentsBlock = false,
   profile = 'core',
   requestedModules,
+  requestedPlugins,
   renderData = {},
   rootDir,
   targetDir,
@@ -459,6 +539,7 @@ export async function diffTargetInstall({
     profile,
     profileGroups: selectedProfile.groups,
     requestedModules,
+    requestedPlugins,
   });
   const allowedGroups = moduleSelection.allowedGroups;
   const selectedEntries = installMap.entries.filter((entry) => allowedGroups.has(entry.group) && shouldInstallEntry(entry, renderData));
@@ -581,7 +662,7 @@ export async function applyInstallPlan(plan, hooks = {}) {
     throw new Error('Refusing to write red-zone files without explicit red-zone confirmation.');
   }
 
-  for (const action of plan.actions.filter((item) => ['write', 'retire'].includes(item.kind))) {
+  for (const action of plan.actions.filter((item) => ['write', 'retire', 'retire-managed-mcp', 'retire-generated-directory'].includes(item.kind))) {
     assertPortableRelativePath(action.relativeTarget, 'install target');
     assertInsideDir(plan.targetDir, action.target, 'install target outside target directory');
     await assertSafePathInside(plan.targetDir, action.target, 'install target');
@@ -592,7 +673,7 @@ export async function applyInstallPlan(plan, hooks = {}) {
   const backupRoot = path.join(path.dirname(statePath), 'backups', transactionId);
   const trackedPaths = [
     ...plan.actions
-      .filter((action) => ['write', 'retire'].includes(action.kind))
+      .filter((action) => ['write', 'retire', 'retire-managed-mcp', 'retire-generated-directory'].includes(action.kind))
       .map((action) => action.target),
     ...plan.baselinePlan.actions.map((action) => path.join(plan.targetDir, action.target)),
     ...(plan.baselinePlan.manifestTarget ? [path.join(plan.targetDir, plan.baselinePlan.manifestTarget)] : []),
@@ -619,6 +700,7 @@ export async function applyInstallPlan(plan, hooks = {}) {
   const backupId = transactionId;
   const previousState = await readInstallState(plan.targetDir);
   const retiredFiles = [...(previousState?.retiredFiles ?? [])];
+  const discardedTargets = new Set();
   let configMigrationState = previousState?.configMigration ?? null;
   if (plan.configMigration) {
     const backup = await backupFile({
@@ -697,9 +779,42 @@ export async function applyInstallPlan(plan, hooks = {}) {
     });
   }
 
+  for (const action of plan.actions.filter((item) => item.kind === 'retire-generated-directory')) {
+    const ownerTarget = path.join(plan.targetDir, action.ownerTarget);
+    if (!(await pathExists(action.target))) {
+      discardedTargets.add(action.relativeTarget);
+      continue;
+    }
+    if (!(await pathExists(ownerTarget)) || await hashFile(ownerTarget) !== action.expectedOwnerHash) {
+      skipped.push({ reason: 'owner-modified', target: action.relativeTarget });
+      continue;
+    }
+    await rm(action.target, { force: true, recursive: true });
+    discardedTargets.add(action.relativeTarget);
+    retired.push(action.relativeTarget);
+  }
+
   for (const action of plan.actions) {
     if (action.kind === 'retire-modified') {
       skipped.push({ reason: 'target-modified', target: action.relativeTarget });
+      continue;
+    }
+    if (action.kind === 'retire-managed-mcp') {
+      if (!(await pathExists(action.target))) {
+        discardedTargets.add(action.relativeTarget);
+        continue;
+      }
+      const content = await readFile(action.target, 'utf8');
+      const blockHash = createHash('sha256').update(extractManagedMcpBlock(content)).digest('hex');
+      if (blockHash !== action.expectedHash) {
+        skipped.push({ reason: 'managed-block-modified', target: action.relativeTarget });
+        continue;
+      }
+      const remaining = removeManagedMcpBlock(content);
+      if (remaining) await writeFile(action.target, remaining, 'utf8');
+      else await rm(action.target, { force: true });
+      retired.push(action.relativeTarget);
+      discardedTargets.add(action.relativeTarget);
       continue;
     }
     if (action.kind !== 'retire') {
@@ -717,7 +832,9 @@ export async function applyInstallPlan(plan, hooks = {}) {
       skipped.push({ reason: 'target-modified', target: action.relativeTarget });
       continue;
     }
-    const backup = await backupFile({ backupId, target: action.target, targetDir: plan.targetDir });
+    const backup = action.discard
+      ? null
+      : await backupFile({ backupId, target: action.target, targetDir: plan.targetDir });
     await rm(action.target, { force: true });
     try {
       await rmdir(path.dirname(action.target));
@@ -725,16 +842,20 @@ export async function applyInstallPlan(plan, hooks = {}) {
       if (!['ENOENT', 'ENOTEMPTY'].includes(error.code)) throw error;
     }
     retired.push(action.relativeTarget);
-    retiredFiles.push({
-      backup,
-      group: action.group,
-      redZone: Boolean(action.redZone),
-      target: action.relativeTarget,
-      targetHash: currentHash,
-    });
+    if (action.discard) {
+      discardedTargets.add(action.relativeTarget);
+    } else {
+      retiredFiles.push({
+        backup,
+        group: action.group,
+        redZone: Boolean(action.redZone),
+        target: action.relativeTarget,
+        targetHash: currentHash,
+      });
+    }
   }
 
-  const retiredTargets = new Set(retiredFiles.map((file) => file.target));
+  const retiredTargets = new Set([...retiredFiles.map((file) => file.target), ...discardedTargets]);
   const mergedFiles = new Map((previousState?.files ?? [])
     .filter((file) => !retiredTargets.has(file.target))
     .map((file) => [file.target, file]));
@@ -761,6 +882,7 @@ export async function applyInstallPlan(plan, hooks = {}) {
     profile: plan.profile,
     previewCapabilities: plan.previewCapabilities,
     requestedModules: plan.requestedModules,
+    requestedPlugins: plan.requestedPlugins,
     resolvedModules: plan.resolvedModules,
     retiredFiles,
     stateVersion: 4,

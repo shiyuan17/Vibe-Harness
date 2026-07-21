@@ -26,7 +26,7 @@ Cognis gives Codex, Claude Code, and Gemini CLI a shared way to plan, execute, a
 | A long task loses important context between sessions. | `baseline` records project, installation, tool, and verification status; project memory and handoff templates preserve decisions and known issues. | The next session can recover project facts without reconstructing everything from chat history. |
 | Rules drift between AI coding tools. | Native project files and tested install levels (`profiles`) for Codex, Claude Code, and Gemini CLI. | Each tool gets the same core working rules in the format it actually supports. |
 | Installing or updating shared rules feels risky. | Dry-run previews, clearly marked sections, backups, validation, safe uninstall, and rollback. | You can inspect changes before writing and reverse managed changes without replacing unrelated project content. |
-| Useful coding tools are scattered or configured globally. | Codex `full` prepares codebase indexing, Playwright, Chrome DevTools MCP, and Open Code Review inside the project; Agentmemory remains explicit preview while its dependency advisories are unresolved. | Code understanding, browser checks, diagnostics, and review stay project-local; unavailable tools are reported as `degraded`. |
+| Useful coding tools are scattered or configured globally. | Explicit `--plugin` selection installs pinned tools inside the project; Agentmemory remains preview while its dependency advisories are unresolved. | Code understanding, browser checks, diagnostics, review, and memory stay project-local without making every `full` install download tools. |
 
 ## Why Not Just Write an AGENTS.md?
 
@@ -95,8 +95,8 @@ An install level, called a `profile` in commands and configuration, is a ready-m
 | Profile | What you get | Best for |
 | --- | --- | --- |
 | `minimal` | The main Agent instruction file, hard boundaries, Git and test rules, and version 2 task templates | Small projects that want basic guidance without extra skills or tools |
-| `core` | Everything in `minimal`, plus common engineering rules, v1/v2 task and graph checks, Red Team completion review, routing skills, and Playwright prepared for on-demand use | Most projects; this is the recommended starting point |
-| `full` | Everything in `core`, plus the multi-Agent execution skill, project memory, advanced workflow skills, four stable project tools, preview Agentmemory assets, Codex MCP setup, and Codex hooks | Long-running or high-risk Codex projects |
+| `core` | Everything in `minimal`, plus common engineering rules, v1/v2 task and graph checks, Red Team completion review, and routing skills | Most projects; this is the recommended starting point |
+| `full` | Everything in `core`, plus the multi-Agent execution skill, project memory, advanced workflow skills, online evaluation assets, and Codex hooks | Long-running or high-risk Codex projects |
 | `docs-only` | Instructions, reusable rules, version 2 templates, and schemas, without executable runtime, skills, MCP, or hooks | Projects that only want the documentation-based setup |
 The exact files included in each profile are defined in `manifests/profiles.json`.
 
@@ -192,16 +192,41 @@ An evaluation `reference` is separate from the project `baseline`. Updating it r
 </details>
 
 <details>
+<summary><strong>Enable project-local tool plugins</strong></summary>
+
+No profile installs external tool plugins by default. `--plugin` adds tools to the selected profile without replacing its governance, memory, skills, or hooks:
+
+```bash
+# Enable one plugin
+pnpm cognis install --project ../some-project --target codex --profile core --plugin -rtk --dry-run
+
+# Enable multiple plugins
+pnpm cognis install --project ../some-project --target codex --profile core --plugin -rtk ast-grep --write
+
+# Enable all plugins, including preview Agentmemory
+pnpm cognis install --project ../some-project --target codex --profile full --plugin -all --dry-run --allow-preview
+
+# Clear a plugin selection persisted by an earlier install
+pnpm cognis install --project ../some-project --target codex --profile core --plugin none --write
+```
+
+Public plugin names are `rtk`, `ast-grep`, `codebase-memory-mcp`, `chrome-devtools-mcp`, `playwright-cli`, `open-code-review`, and `agentmemory`. `all` expands to all seven. One leading `-` is accepted for the requested command style, comma-separated values and repeated `--plugin` options are also accepted, and duplicate or unknown names are rejected. Selecting Agentmemory for installation or provisioning requires `--allow-preview`.
+
+CLI selection takes precedence over `plugins` in `cognis.config.json`, which takes precedence over the selection saved in `.cognis/install-state.json`. Later install, validate, doctor, baseline, provision, rollback, and uninstall operations reuse that saved selection. Reports expose the canonical module ids in `requestedPlugins` and the complete dependency closure in `resolvedModules`.
+
+</details>
+
+<details>
 <summary><strong>Choose individual features</strong></summary>
 
-This is an advanced option for users who do not want one of the ready-made profiles. You can list individual modules in `cognis.config.json` or pass them to a single install command:
+This is an advanced replacement interface for users who do not want one of the ready-made profiles. Unlike `--plugin`, `--modules` replaces the profile module set. You can list individual modules in `cognis.config.json` or pass them to a single install command:
 
 ```bash
 pnpm cognis install --project ../some-project --target codex --profile core --modules agents,rules,skills --dry-run
 pnpm cognis install --project ../some-project --target codex --profile core --modules agents,rules,skills --write
 ```
 
-Available modules are `agents`, `rules`, `templates`, `governance`, `skills`, `memory`, `playwright`, `chrome-devtools`, `codebase-memory`, `open-code-review`, `agentmemory`, and `hooks`. Cognis automatically adds any required dependencies. The command report shows what you requested, what will be installed, and which dependencies were added as `requestedModules`, `resolvedModules`, and `implicitModules`.
+Available modules are `agents`, `rules`, `templates`, `governance`, `skills`, `memory`, `playwright`, `chrome-devtools`, `codebase-memory`, `open-code-review`, `agentmemory`, `rtk`, `ast-grep`, and `hooks`. Cognis automatically adds required dependencies. The command report shows the replacement request, final installation, and added dependencies as `requestedModules`, `resolvedModules`, and `implicitModules`.
 
 </details>
 
@@ -263,7 +288,7 @@ pnpm cognis doctor --project ../some-project
 <details>
 <summary><strong>Built-in tools and command status</strong></summary>
 
-This section helps when an install or health check reports a problem. The `core` profile prepares Playwright for browser checks when it is first needed. Codex `full` also prepares `codebase-memory-mcp`, Chrome DevTools MCP, Open Code Review, and Agentmemory preview assets.
+This section helps when an install or health check reports a problem. `core` and `full` install no external tool plugins by default. Enable RTK, ast-grep, codebase-memory-mcp, Chrome DevTools MCP, Playwright CLI, Open Code Review, or Agentmemory with `--plugin`; `--plugin -all --allow-preview` selects all seven.
 
 Cognis writes MCP settings only to its own marked section in the project's `.codex/config.toml`. It reads credentials from the current terminal session and never saves them in the project.
 
@@ -273,17 +298,21 @@ Open Code Review resolves its endpoint in this order: a complete `OCR_LLM_URL` +
 
 Codebase-memory indexing is project-scoped. Cognis sets `CBM_ALLOWED_ROOT` and the child process working directory to the target project, then sends `--repo-path .` when indexing that root. This keeps ASCII, spaced, and Unicode Windows paths on the same path-validation route. A root-boundary failure is reported as `INDEX_PATH_OUTSIDE_ALLOWED_ROOT`; a corrupt local cache is cleared and rebuilt on the next provision attempt, and a repeated failure is reported as `INDEX_CORRUPT_REINDEX_REQUIRED`. `index_status` must still confirm `ready`, the target root, and non-negative node and edge counts.
 
-Install, validate, and doctor use the same three status values:
+RTK `v0.43.0` is downloaded from a pinned official release asset and SHA-256 verified before the project-local wrapper can run it. ast-grep uses the pinned `@ast-grep/cli@0.44.1` lockfile and exposes both `sg` and `ast-grep`. RTK is preferred for high-volume, non-sensitive command output; ast-grep is preferred for structural code searches. If either tool is `pending`, `degraded`, or `unsupported`, use the documented original-command or `rg` fallback and record the limitation.
+
+Install, validate, and doctor use the same health status values:
 
 | Status | Exit code | What it means |
 | --- | --- | --- |
-| `ready` | `0` | Governance assets are valid and no attempted provisioning has failed; tools not yet provisioned remain visible as `pending` or `pending-config` warnings. |
+| `ready` | `0` | Governance assets are valid and no attempted provisioning has failed; selected tools not yet provisioned remain visible as `pending` or `pending-config` warnings. |
 | `invalid` | `1` | The configuration or installed files do not match what Cognis expects. |
 | `degraded` | `2` | A required tool, credential, or feature is not currently available. |
 
 `--allow-degraded` changes the exit code to `0` for automation, but it does not hide the problem. The report still contains `ok: false`, `status: "degraded"`, warnings, and recommended next steps. `pending` and `pending-config` do not fail an asset-first install; an attempted provisioning failure or an incomplete provisioning process marker does degrade health.
 
-Cognis records each tool's version, package source, start and finish times, result, and redacted log summary in `.cognis/tool-state/tools.json`, then shows it in install, validate, doctor, and summary output. Failure diagnostics include the failed phase, stable code, exit code when available, and bounded output tails. Project paths and credential-like values are redacted; raw command environments and full output are never stored. Interrupted provisioning leaves `.cognis/tool-state/provisioning.json`; `doctor` reports and degrades on it without modifying the environment.
+Individual tools additionally report `pending`, `ready`, `degraded`, or `unsupported`; `unsupported` means no verified release asset exists for the current platform and the documented fallback must be used.
+
+Before the first provision attempt, Cognis computes `pending` or `unsupported` from the selected plugins and current platform without writing state. A real provision records each attempted tool's version, platform, package source, start and finish times, result, and redacted log summary in `.cognis/tool-state/tools.json`. Install, validate, doctor, baseline, and summary output show the current computed or persisted state. Failure diagnostics include the failed phase, stable code, exit code when available, and bounded output tails. Project paths and credential-like values are redacted; raw command environments and full output are never stored. Interrupted provisioning leaves `.cognis/tool-state/provisioning.json`; `doctor` reports and degrades on it without modifying the environment.
 
 Maintainers run `pnpm runtime:audit` against the same dependency surface used by provisioning. Critical or High findings and unavailable audits fail the command; Moderate findings remain visible warnings. Agentmemory excludes optional dependencies during both provisioning and the enforced audit.
 

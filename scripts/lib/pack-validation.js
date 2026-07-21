@@ -14,6 +14,7 @@ import {
   validateInstallMapShape,
   validateManifestSources,
 } from './manifest.js';
+import { moduleCatalog } from './module-selection.js';
 import { scanForForbiddenTerms } from './redaction.js';
 import { resolveAdapterEntry } from './adapter.js';
 import { validateDocumentation } from './docs-validation.js';
@@ -553,7 +554,10 @@ export async function validatePack(rootDir) {
   validateAllManifestShapes(manifests);
   const schemaErrors = validateAllManifestSchemas(manifests, schemas);
 
-  const knownGroups = new Set(manifests.profiles.items.flatMap((item) => item.groups));
+  const knownGroups = new Set([
+    ...manifests.profiles.items.flatMap((item) => item.groups),
+    ...Object.values(moduleCatalog).flatMap((module) => module.groups),
+  ]);
   const installMapMissing = [];
   const installedSources = new Set();
   const installMaps = new Map();

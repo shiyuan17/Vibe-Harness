@@ -11,6 +11,7 @@ const RUNTIMES = [
   { directory: 'playwright-cli', id: 'playwright-cli' },
   { directory: 'open-code-review', id: 'open-code-review' },
   { directory: 'agentmemory', id: 'agentmemory', omitOptional: true },
+  { directory: 'ast-grep', id: 'ast-grep' },
 ];
 
 function emptyCounts() {

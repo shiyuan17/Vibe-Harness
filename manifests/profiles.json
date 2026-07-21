@@ -8,13 +8,13 @@
     },
     {
       "id": "core",
-      "description": "通用安装：常规规则、模板、runtime、路由 skills 和 Red Team 完成门禁；不包含 hook、codebase-memory-mcp 或 agentmemory MCP 安装面。",
-      "groups": ["agents", "rules-minimal", "rules-core", "templates-minimal", "templates-core", "schemas-core", "runtime-basic", "runtime-task", "runtime-full", "runtime-eval", "skills-core", "evals-core", "tools-playwright"]
+      "description": "通用安装：常规规则、模板、runtime、路由 skills 和 Red Team 完成门禁；外部工具通过 --plugin 显式启用。",
+      "groups": ["agents", "rules-minimal", "rules-core", "templates-minimal", "templates-core", "schemas-core", "runtime-basic", "runtime-task", "runtime-full", "runtime-eval", "skills-core", "evals-core"]
     },
     {
       "id": "full",
-      "description": "全安装：通用安装加四个 stable 项目内工具、Agentmemory preview runtime、codebase 索引、浏览器诊断、MCP 注册和 Codex hooks。",
-      "groups": ["agents", "rules-minimal", "rules-core", "rules-full", "rules-codebase-memory", "rules-chrome-devtools", "templates-minimal", "templates-core", "templates-full", "templates-memory", "schemas-core", "runtime-basic", "runtime-task", "runtime-full", "runtime-eval", "runtime-eval-online", "skills-core", "skills-full", "skills-memory", "evals-core", "evals-online", "tools-playwright", "tools-chrome-devtools", "tools-codebase-memory", "tools-open-code-review", "tools-agentmemory", "mcp-config", "hooks"]
+      "description": "完整治理安装：通用安装加完整规则、memory、在线评测和 Codex hooks；外部工具通过 --plugin 显式启用。",
+      "groups": ["agents", "rules-minimal", "rules-core", "rules-full", "templates-minimal", "templates-core", "templates-full", "templates-memory", "schemas-core", "runtime-basic", "runtime-task", "runtime-full", "runtime-eval", "runtime-eval-online", "skills-core", "skills-full", "skills-memory", "evals-core", "evals-online", "hooks"]
     },
     {
       "id": "docs-only",

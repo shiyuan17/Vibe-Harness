@@ -227,14 +227,14 @@ test('Playwright command forwards output while provisioning remains injectable',
   }
 });
 
-test('core profiles install a lazy Playwright tool without changing the project package', async () => {
+test('the Playwright plugin installs a lazy project-local tool without changing the project package', async () => {
   const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-playwright-install-'));
   try {
     const packageText = '{"name":"business-app","private":true}\n';
     await writeFile(path.join(targetDir, 'package.json'), packageText, 'utf8');
     await runCli(['init', '--project', targetDir]);
 
-    const dryRun = await runCli(['install', '--project', targetDir, '--target', 'codex', '--profile', 'core', '--dry-run']);
+    const dryRun = await runCli(['install', '--project', targetDir, '--target', 'codex', '--profile', 'core', '--plugin', '-playwright-cli', '--dry-run']);
     assert.equal(dryRun.tools.playwrightCli.status, 'pending');
     assert.ok(dryRun.actions.some((action) => action.relativeTarget === '.agents/cognis/tools/playwright-cli/run.mjs'));
     assert.ok(dryRun.actions.some((action) => action.relativeTarget === '.agents/skills/browser-verification/references/cli.md'));
@@ -242,7 +242,7 @@ test('core profiles install a lazy Playwright tool without changing the project 
     const minimal = await runCli(['install', '--project', targetDir, '--target', 'codex', '--profile', 'minimal', '--dry-run']);
     assert.equal(Object.hasOwn(minimal.tools, 'playwrightCli'), false);
 
-    await runCli(['install', '--project', targetDir, '--target', 'codex', '--profile', 'core', '--write']);
+    await runCli(['install', '--project', targetDir, '--target', 'codex', '--profile', 'core', '--plugin', '-playwright-cli', '--write']);
     assert.equal(await readFile(path.join(targetDir, 'package.json'), 'utf8'), packageText);
     await assert.rejects(readFile(path.join(targetDir, '.agents/cognis/tools/playwright-cli/node_modules/.package-lock.json'), 'utf8'), /ENOENT/);
 
@@ -257,7 +257,7 @@ test('project validation warns for a pending Playwright tool without failing gov
   const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-playwright-validate-'));
   try {
     await runCli(['init', '--project', targetDir]);
-    await runCli(['install', '--project', targetDir, '--target', 'codex', '--profile', 'core', '--write']);
+    await runCli(['install', '--project', targetDir, '--target', 'codex', '--profile', 'core', '--plugin', '-playwright-cli', '--write']);
     const report = await runCli(['validate', '--project', targetDir]);
     assert.equal(report.ok, true);
     assert.ok(report.warnings.some((warning) => warning.code === 'PLAYWRIGHT_CLI_PENDING'));
@@ -270,7 +270,7 @@ test('rollback removes generated Playwright dependencies but preserves browser e
   const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-playwright-rollback-'));
   try {
     await runCli(['init', '--project', targetDir, '--profile', 'core']);
-    await runCli(['install', '--project', targetDir, '--target', 'codex', '--profile', 'core', '--write']);
+    await runCli(['install', '--project', targetDir, '--target', 'codex', '--profile', 'core', '--plugin', '-playwright-cli', '--write']);
     const validation = await runCli(['validate', '--project', targetDir, '--profile', 'core']);
     assert.ok(validation.warnings.some((warning) => warning.code === 'PLAYWRIGHT_CLI_PENDING'));
     const generated = path.join(targetDir, '.agents/cognis/tools/playwright-cli/node_modules/fake');

@@ -129,6 +129,23 @@ test('baseline keeps an upgraded legacy installation in its existing state root'
   }
 });
 
+test('baseline schema accepts every selected Chrome DevTools tool state', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-baseline-chrome-plugin-'));
+  try {
+    await runCli(['init', '--project', target]);
+    await runCli([
+      'install', '--project', target, '--target', 'codex', '--profile', 'core',
+      '--plugin', '-chrome-devtools-mcp', '--write', '--confirm-red-zone',
+    ]);
+
+    const preview = await runCli(['baseline', '--project', target]);
+    assert.deepEqual(preview.baseline.installation.requestedPlugins, ['chrome-devtools']);
+    assert.equal(preview.baseline.installation.tools.chromeDevtoolsMcp.status, 'pending');
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
 test('baseline requires an installed MVP project', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'cognis-baseline-invalid-'));
   try {

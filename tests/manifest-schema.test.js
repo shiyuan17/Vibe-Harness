@@ -64,6 +64,8 @@ test('project baseline schema rejects unknown fields', async () => {
       governanceMode: 'off',
       managedFileCount: 4,
       profile: 'minimal',
+      requestedPlugins: [],
+      resolvedModules: ['agents', 'rules', 'templates'],
       status: 'consistent',
       tools: {},
       version: '0.3.0',

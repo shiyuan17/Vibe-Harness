@@ -8,6 +8,7 @@ import { parse as parseToml } from '@iarna/toml';
 import { assertInsideDir, assertSafePathInside, pathExists } from './manifest.js';
 import { resolveOcrEndpoint } from './ocr-config.js';
 import { inspectPlaywrightTool, preparePlaywrightTool } from '../../runtime/tools/playwright-cli/run.mjs';
+import { resolveRtkAsset } from '../../runtime/tools/rtk/run.mjs';
 import { productIdentity, readProductEnv } from './product-identity.js';
 import { projectStateDir } from './project-layout.js';
 
@@ -57,6 +58,21 @@ const toolSpecs = [
     supportLevel: 'preview',
     version: '0.9.27',
   },
+  {
+    id: 'rtk',
+    packageName: 'rtk-ai/rtk',
+    phases: ['binary-install'],
+    relativeDir: '.agents/cognis/tools/rtk',
+    source: 'github:rtk-ai/rtk@v0.43.0',
+    version: '0.43.0',
+  },
+  {
+    id: 'astGrep',
+    packageName: '@ast-grep/cli',
+    phases: ['dependency-install', 'binary-install'],
+    relativeDir: '.agents/cognis/tools/ast-grep',
+    version: '0.44.1',
+  },
 ];
 
 function resolveToolSpec(spec, targetDir, mode = 'eager') {
@@ -66,7 +82,7 @@ function resolveToolSpec(spec, targetDir, mode = 'eager') {
 }
 
 export function createToolProvisioningPlan({ allowPreview = false, profile, resolvedModules, targetDir, toolIds }) {
-  let plan;
+  let plan = [];
   if (Array.isArray(resolvedModules)) {
     const moduleByTool = new Map([
       ['codebaseMemoryMcp', 'codebase-memory'],
@@ -74,6 +90,8 @@ export function createToolProvisioningPlan({ allowPreview = false, profile, reso
       ['chromeDevtoolsMcp', 'chrome-devtools'],
       ['openCodeReview', 'open-code-review'],
       ['agentmemory', 'agentmemory'],
+      ['rtk', 'rtk'],
+      ['astGrep', 'ast-grep'],
     ]);
     plan = toolSpecs
       .filter((spec) => resolvedModules.includes(moduleByTool.get(spec.id)))
@@ -82,12 +100,6 @@ export function createToolProvisioningPlan({ allowPreview = false, profile, reso
         targetDir,
         spec.id === 'playwrightCli' && profile === 'core' ? 'lazy' : 'eager',
       ));
-  } else if (profile === 'core') {
-    plan = [resolveToolSpec(toolSpecs[1], targetDir, 'lazy')];
-  } else if (profile !== 'full') {
-    plan = [];
-  } else {
-    plan = toolSpecs.map((spec) => resolveToolSpec(spec, targetDir));
   }
   plan = plan.map((spec) => ({ supportLevel: spec.supportLevel ?? 'stable', ...spec }));
   if (!toolIds?.length) return allowPreview ? plan : plan.filter((spec) => spec.supportLevel !== 'preview');
@@ -431,6 +443,28 @@ async function phaseRequest(spec, phase, targetDir, env, context = {}) {
     if (spec.id === 'agentmemory') npmArgs.push('--omit=optional');
     return { ...await npmInvocation(npmArgs), component: spec.id, cwd: spec.toolDir, env: componentEnv, phase, timeout: 600_000 };
   }
+  if (phase === 'binary-install' && spec.id === 'rtk') {
+    return {
+      args: [path.join(spec.toolDir, 'run.mjs'), 'install'],
+      command: process.execPath,
+      component: spec.id,
+      cwd: targetDir,
+      env: componentEnv,
+      phase,
+      timeout: 600_000,
+    };
+  }
+  if (phase === 'binary-install' && spec.id === 'astGrep') {
+    return {
+      args: [path.join(spec.toolDir, 'node_modules/@ast-grep/cli/postinstall.js')],
+      command: process.execPath,
+      component: spec.id,
+      cwd: spec.toolDir,
+      env: componentEnv,
+      phase,
+      timeout: 120_000,
+    };
+  }
   if (phase === 'binary-install') {
     return {
       args: [path.join(spec.toolDir, 'node_modules/codebase-memory-mcp/install.js')],
@@ -638,7 +672,7 @@ function publicFailure(spec, phase, error, targetDir) {
     code,
     diagnostic: createDiagnostic(diagnosticError, phase, targetDir),
     phase,
-    status: 'degraded',
+    status: code === 'RTK_UNSUPPORTED_PLATFORM' ? 'unsupported' : 'degraded',
     version: spec.version,
   };
 }
@@ -708,14 +742,24 @@ function withProvisioningMetadata(spec, state, startedAt, { reused = false } = {
     pending: 'Provisioning is deferred.',
     'pending-config': 'Provisioning requires additional configuration.',
     ready: reused ? 'Existing compliant tool state reused.' : 'Provisioning completed.',
+    unsupported: 'Tool is not available for this platform.',
   };
   return {
     ...state,
     finishedAt: new Date().toISOString(),
     logSummary: summaries[state.status] ?? 'Provisioning state recorded.',
     result: state.status,
-    source: `npm:${spec.packageName}@${spec.version}`,
+    source: spec.source ?? `npm:${spec.packageName}@${spec.version}`,
     startedAt,
+  };
+}
+
+function withOptionalToolIdentity(spec, state, platform, arch) {
+  if (!['rtk', 'astGrep'].includes(spec.id)) return state;
+  return {
+    ...state,
+    platform: `${platform}-${arch}`,
+    source: state.source ?? spec.source ?? `npm:${spec.packageName}@${spec.version}`,
   };
 }
 
@@ -788,8 +832,9 @@ async function runToolPhases(spec, commandRunner, env, targetDir, phases = spec.
 
 async function lockFingerprint(spec) {
   const lockPath = path.join(spec.toolDir, 'package-lock.json');
-  if (!(await pathExists(lockPath))) return null;
-  return createHash('sha256').update(await readFile(lockPath)).digest('hex');
+  const fingerprintPath = await pathExists(lockPath) ? lockPath : path.join(spec.toolDir, 'package.json');
+  if (!(await pathExists(fingerprintPath))) return null;
+  return createHash('sha256').update(await readFile(fingerprintPath)).digest('hex');
 }
 
 async function codebaseMemoryRuntimeAvailable(spec) {
@@ -804,6 +849,43 @@ async function chromeDevtoolsRuntimeAvailable(spec) {
     spec.toolDir,
     'node_modules/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js',
   ));
+}
+
+function astGrepBinaryPath(spec, platform = process.platform) {
+  const binaryName = platform === 'win32' ? 'ast-grep.exe' : 'ast-grep';
+  return path.join(spec.toolDir, 'node_modules/@ast-grep/cli', binaryName);
+}
+
+async function astGrepRuntimeAvailable(spec, platform = process.platform) {
+  return pathExists(astGrepBinaryPath(spec, platform));
+}
+
+function rtkBinaryPath(spec, platform = process.platform) {
+  const binaryName = platform === 'win32' ? 'rtk.exe' : 'rtk';
+  return path.join(spec.toolDir, 'bin', binaryName);
+}
+
+async function rtkRuntimeAvailable(spec, platform = process.platform, arch = process.arch) {
+  try {
+    resolveRtkAsset({ platform, arch });
+  } catch {
+    return false;
+  }
+  return pathExists(rtkBinaryPath(spec, platform));
+}
+
+async function optionalRuntimeHash(spec, platform = process.platform) {
+  const binary = spec.id === 'rtk' ? rtkBinaryPath(spec, platform) : astGrepBinaryPath(spec, platform);
+  await assertSafePathInside(spec.toolDir, binary, `${spec.id} runtime binary`);
+  if (!(await pathExists(binary))) return null;
+  return createHash('sha256').update(await readFile(binary)).digest('hex');
+}
+
+async function reusableOptionalRuntime(spec, previousTool, platform, arch) {
+  if (previousTool?.version !== spec.version || !previousTool?.binarySha256) return false;
+  if (spec.id === 'rtk' && !(await rtkRuntimeAvailable(spec, platform, arch))) return false;
+  if (spec.id === 'astGrep' && !(await astGrepRuntimeAvailable(spec, platform))) return false;
+  return await optionalRuntimeHash(spec, platform) === previousTool.binarySha256;
 }
 
 async function repairCodebaseMemoryBinary(spec) {
@@ -869,7 +951,7 @@ export async function inspectProvisioningMarker(targetDir) {
   }
 }
 
-export async function provisionProfileTools({ allowPreview = false, commandRunner, env = process.env, force = false, mcpConflicts = [], ocrHomeDir, profile, resolvedModules, signal, targetDir, toolIds }) {
+export async function provisionProfileTools({ allowPreview = false, arch = process.arch, commandRunner, env = process.env, force = false, mcpConflicts = [], ocrHomeDir, platform = process.platform, profile, resolvedModules, runtimeVersionRunner = defaultRuntimeVersionRunner, signal, targetDir, toolIds }) {
   const plan = createToolProvisioningPlan({ allowPreview, profile, resolvedModules, targetDir, toolIds });
   const ocrResolution = await resolveOcrEndpoint({ env, homeDir: ocrHomeDir });
   const provisionEnv = { ...env, ...(ocrResolution.env ?? {}) };
@@ -907,6 +989,18 @@ export async function provisionProfileTools({ allowPreview = false, commandRunne
       );
       continue;
     }
+    if (spec.id === 'rtk') {
+      try {
+        resolveRtkAsset({ platform, arch });
+      } catch (error) {
+        tools[spec.id] = withProvisioningMetadata(
+          spec,
+          publicFailure(spec, 'binary-install', error, targetDir),
+          startedAt,
+        );
+        continue;
+      }
+    }
     await mkdir(spec.toolDir, { recursive: true });
     const fingerprint = await lockFingerprint(spec);
     fingerprints[spec.id] = fingerprint;
@@ -917,7 +1011,11 @@ export async function provisionProfileTools({ allowPreview = false, commandRunne
       ? await codebaseMemoryRuntimeAvailable(spec)
       : spec.id === 'chromeDevtoolsMcp'
         ? await chromeDevtoolsRuntimeAvailable(spec)
-        : true;
+        : spec.id === 'astGrep'
+          ? await reusableOptionalRuntime(spec, previousTool, platform, arch)
+          : spec.id === 'rtk'
+            ? await reusableOptionalRuntime(spec, previousTool, platform, arch)
+            : true;
     const mcpServerName = {
       agentmemory: 'agentmemory',
       chromeDevtoolsMcp: 'chrome-devtools',
@@ -965,7 +1063,24 @@ export async function provisionProfileTools({ allowPreview = false, commandRunne
       const phase = spec.phases.find((item) => item === error?.phase) ?? 'provision';
       tools[spec.id] = publicFailure(spec, phase, error, targetDir);
     }
+    if (tools[spec.id].status === 'ready' && ['rtk', 'astGrep'].includes(spec.id)) {
+      try {
+        tools[spec.id] = {
+          ...tools[spec.id],
+          binarySha256: await verifyProvisionedOptionalRuntime(
+            spec,
+            targetDir,
+            { arch, env: provisionEnv, platform, runtimeVersionRunner },
+          ),
+        };
+      } catch (error) {
+        tools[spec.id] = publicFailure(spec, 'version-check', error, targetDir);
+      }
+    }
     tools[spec.id] = withProvisioningMetadata(spec, tools[spec.id], startedAt);
+  }
+  for (const spec of plan) {
+    if (tools[spec.id]) tools[spec.id] = withOptionalToolIdentity(spec, tools[spec.id], platform, arch);
   }
   const conflictIds = {
     agentmemory: 'agentmemory',
@@ -991,7 +1106,9 @@ export async function provisionProfileTools({ allowPreview = false, commandRunne
       };
     }
   }
-  await writeToolState(targetDir, tools, fingerprints);
+  const persistedTools = toolIds?.length ? { ...(previous?.tools ?? {}), ...tools } : tools;
+  const persistedFingerprints = toolIds?.length ? { ...(previous?.fingerprints ?? {}), ...fingerprints } : fingerprints;
+  await writeToolState(targetDir, persistedTools, persistedFingerprints);
   await removeProvisioningMarker(targetDir);
   return tools;
   } catch (error) {
@@ -1006,20 +1123,161 @@ export async function provisionProfileTools({ allowPreview = false, commandRunne
   }
 }
 
-export async function inspectProfileTools(profile, targetDir, resolvedModules, toolIds, { allowPreview = false } = {}) {
+function inspectedRuntimeFailure(spec, code, message, targetDir) {
+  const error = toolContractError(code, message);
+  return {
+    ...publicFailure(spec, 'runtime-check', error, targetDir),
+    code,
+  };
+}
+
+async function defaultRuntimeVersionRunner(request) {
+  return execFileAsync(request.command, request.args, {
+    cwd: request.cwd,
+    env: request.env,
+    maxBuffer: maxDiagnosticOutput,
+    timeout: 5_000,
+    windowsHide: true,
+  });
+}
+
+function exactVersionPattern(version) {
+  const escaped = version.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+  return new RegExp(`(?:^|\\s|v)${escaped}(?:\\s|$)`, 'u');
+}
+
+async function verifyProvisionedOptionalRuntime(spec, targetDir, {
+  arch,
+  env,
+  platform,
+  runtimeVersionRunner,
+}) {
+  const prefix = spec.id === 'rtk' ? 'RTK' : 'AST_GREP';
+  const available = spec.id === 'rtk'
+    ? await rtkRuntimeAvailable(spec, platform, arch)
+    : await astGrepRuntimeAvailable(spec, platform);
+  if (!available) {
+    throw toolContractError(`${prefix}_RUNTIME_MISSING`, `The project-local ${spec.id} binary is missing after installation.`);
+  }
+  const command = spec.id === 'rtk' ? rtkBinaryPath(spec, platform) : astGrepBinaryPath(spec, platform);
+  let result;
+  try {
+    result = await runtimeVersionRunner({
+      args: ['--version'],
+      command,
+      cwd: targetDir,
+      env: allowedEnvironment(spec, env),
+    });
+  } catch {
+    throw toolContractError(`${prefix}_RUNTIME_INVALID`, `The project-local ${spec.id} binary failed its provisioning version check.`);
+  }
+  const output = `${result?.stdout ?? ''}\n${result?.stderr ?? ''}`;
+  if (!exactVersionPattern(spec.version).test(output)) {
+    throw toolContractError(`${prefix}_VERSION_MISMATCH`, `The project-local ${spec.id} binary did not report pinned version ${spec.version}.`);
+  }
+  const binarySha256 = await optionalRuntimeHash(spec, platform);
+  if (!binarySha256) {
+    throw toolContractError(`${prefix}_RUNTIME_MISSING`, `The project-local ${spec.id} binary disappeared after its version check.`);
+  }
+  return binarySha256;
+}
+
+async function inspectReadyRuntime(spec, saved, fingerprint, targetDir, {
+  arch,
+  platform,
+}) {
+  const prefix = spec.id === 'rtk' ? 'RTK' : 'AST_GREP';
+  if (saved.version !== spec.version) {
+    return inspectedRuntimeFailure(
+      spec,
+      `${prefix}_STATE_VERSION_MISMATCH`,
+      `The recorded ${spec.id} version does not match the pinned version; provision the tool again.`,
+      targetDir,
+    );
+  }
+  const available = spec.id === 'rtk'
+    ? await rtkRuntimeAvailable(spec, platform, arch)
+    : await astGrepRuntimeAvailable(spec, platform);
+  if (!available) {
+    return inspectedRuntimeFailure(
+      spec,
+      `${prefix}_RUNTIME_MISSING`,
+      spec.id === 'rtk'
+        ? 'The project-local RTK binary is missing; provision the tool again or use the original command directly.'
+        : 'The project-local ast-grep binary is missing; provision the tool again or use rg/project search and record the fallback.',
+      targetDir,
+    );
+  }
+  const currentFingerprint = await lockFingerprint(spec);
+  if (!fingerprint || !currentFingerprint || fingerprint !== currentFingerprint) {
+    return inspectedRuntimeFailure(
+      spec,
+      `${prefix}_FINGERPRINT_MISMATCH`,
+      `The project-local ${spec.id} package metadata no longer matches the provisioned state; provision the tool again.`,
+      targetDir,
+    );
+  }
+  if (!saved.binarySha256) {
+    return inspectedRuntimeFailure(
+      spec,
+      `${prefix}_BINARY_HASH_MISSING`,
+      `The recorded ${spec.id} state has no verified binary hash; provision the tool again.`,
+      targetDir,
+    );
+  }
+  const currentHash = await optionalRuntimeHash(spec, platform);
+  if (currentHash !== saved.binarySha256) {
+    return inspectedRuntimeFailure(
+      spec,
+      `${prefix}_BINARY_HASH_MISMATCH`,
+      `The project-local ${spec.id} binary no longer matches its provisioning hash; provision the tool again.`,
+      targetDir,
+    );
+  }
+  return saved;
+}
+
+export async function inspectProfileTools(profile, targetDir, resolvedModules, toolIds, {
+  allowPreview = false,
+  arch = process.arch,
+  platform = process.platform,
+} = {}) {
   const statePath = path.join(await projectStateDir(targetDir), 'tool-state/tools.json');
   assertInsideDir(targetDir, statePath, 'tool state');
   await assertSafePathInside(targetDir, statePath, 'tool state');
-  if (await pathExists(statePath)) {
-    const state = await readToolState(targetDir);
-    const tools = state?.tools ?? {};
-    const allowedIds = createToolProvisioningPlan({ allowPreview, profile, resolvedModules, targetDir, toolIds }).map((spec) => spec.id);
-    return Object.fromEntries(allowedIds.filter((id) => tools[id]).map((id) => [id, tools[id]]));
-  }
+  const state = await readToolState(targetDir);
   const tools = {};
   for (const spec of createToolProvisioningPlan({ allowPreview, profile, resolvedModules, targetDir, toolIds })) {
     await assertSafePathInside(targetDir, spec.toolDir, `${spec.id} tool directory`);
-    if (spec.id === 'playwrightCli') {
+    const saved = state?.tools?.[spec.id];
+    if (spec.id === 'rtk') {
+      try {
+        resolveRtkAsset({ platform, arch });
+        tools[spec.id] = saved ?? { phase: 'install', status: 'pending', version: spec.version };
+        if (tools[spec.id].status === 'ready') {
+          tools[spec.id] = await inspectReadyRuntime(
+            spec,
+            tools[spec.id],
+            state?.fingerprints?.[spec.id],
+            targetDir,
+            { arch, platform },
+          );
+        }
+      } catch (error) {
+        tools[spec.id] = publicFailure(spec, 'install', error, targetDir);
+      }
+    } else if (spec.id === 'astGrep') {
+      tools[spec.id] = saved ?? { phase: 'install', status: 'pending', version: spec.version };
+      if (tools[spec.id].status === 'ready') {
+        tools[spec.id] = await inspectReadyRuntime(
+          spec,
+          tools[spec.id],
+          state?.fingerprints?.[spec.id],
+          targetDir,
+          { arch, platform },
+        );
+      }
+    } else if (spec.id === 'playwrightCli') {
       const inspected = await inspectPlaywrightTool({ targetDir, toolDir: spec.toolDir });
       tools[spec.id] = {
         phase: inspected.status === 'ready' ? 'ready' : 'first-use',
@@ -1027,10 +1285,11 @@ export async function inspectProfileTools(profile, targetDir, resolvedModules, t
         version: spec.version,
       };
     } else {
-      tools[spec.id] = spec.id === 'openCodeReview' && !(await resolveOcrEndpoint({ env: process.env })).env
+      tools[spec.id] = saved ?? (spec.id === 'openCodeReview' && !(await resolveOcrEndpoint({ env: process.env })).env
         ? { phase: 'llm-config', status: 'pending-config', version: spec.version }
-        : { phase: 'install', status: 'pending', version: spec.version };
+        : { phase: 'install', status: 'pending', version: spec.version });
     }
+    tools[spec.id] = withOptionalToolIdentity(spec, tools[spec.id], platform, arch);
   }
   return tools;
 }

@@ -71,7 +71,8 @@ test('CLI validate --project passes after a real install and reports Chinese tem
 
     assert.equal(report.ok, true);
     assert.equal(report.status, 'ready');
-    assert.ok(report.warnings.some((warning) => warning.code === 'CODEBASE_MEMORY_MCP_PENDING'));
+    assert.deepEqual(report.warnings, []);
+    assert.deepEqual(report.tools, {});
     assert.equal(report.scope, 'project');
     assert.equal(taskTemplate.includes('工作流档位'), true);
     assert.equal(taskTemplate.includes('当前阶段'), true);

@@ -61,7 +61,36 @@ test('current release notes use Cognis names for current interfaces', async () =
   assert.doesNotMatch(currentRelease, /using-loopengine|新增 `loopengine (?:verify|baseline)/u);
 });
 
-test('current docs describe Chrome DevTools MCP as a managed full-profile tool', async () => {
+test('governance documentation defines a vendor-neutral prompt cache contract', async () => {
+  const [kernel, spec, template, architecture, index] = await Promise.all([
+    readFile(path.join(rootDir, 'rules/governance-core.md'), 'utf8'),
+    readFile(path.join(rootDir, 'docs/specs/cognis-v0.6-multi-agent-governance-spec.md'), 'utf8'),
+    readFile(path.join(rootDir, 'templates/task.md'), 'utf8'),
+    readFile(path.join(rootDir, 'docs/architecture.md'), 'utf8'),
+    readFile(path.join(rootDir, 'docs/README.md'), 'utf8'),
+  ]);
+
+  assert.match(kernel, /Prompt Cache/iu);
+  assert.match(kernel, /稳定前缀[\s\S]*动态后缀/iu);
+  assert.match(kernel, /指纹/iu);
+  assert.match(kernel, /敏感[^\n]*(?:不得|不应)[^\n]*(?:持久化|缓存)/iu);
+  const stablePrefix = kernel.match(/#### 稳定前缀([\s\S]*?)#### 动态后缀/iu)?.[1] ?? '';
+  assert.notEqual(stablePrefix, '');
+  assert.doesNotMatch(stablePrefix, /时间戳|随机 ID|实时日志|未排序集合/iu);
+
+  assert.match(spec, /Prompt Cache/iu);
+  assert.match(spec, /child[\s\S]*(?:最小|稳定)[^\n]*上下文/iu);
+  assert.match(spec, /fan-in[\s\S]*(?:刷新|复验)[^\n]*动态/iu);
+  assert.match(spec, /governanceHash[\s\S]*(?:不变|语义)/iu);
+  assert.match(spec, /任务切换|规范变更|adapter 变更/iu);
+  assert.match(template, /上下文缓存边界/iu);
+  assert.match(template, /稳定前缀/iu);
+  assert.match(architecture, /Prompt Cache/iu);
+  assert.match(architecture, /无法提供 prefix cache[\s\S]*(?:完整|原有)[^\n]*提示/iu);
+  assert.match(index, /Prompt Cache|缓存分层/iu);
+});
+
+test('current docs describe all managed tools as explicit plugins', async () => {
   const [english, chinese, architecture, changelog, capabilities] = await Promise.all([
     readFile(path.join(rootDir, 'README.md'), 'utf8'),
     readFile(path.join(rootDir, 'README.zh-CN.md'), 'utf8'),
@@ -70,10 +99,12 @@ test('current docs describe Chrome DevTools MCP as a managed full-profile tool',
     readJson(path.join(rootDir, 'manifests/capabilities.json')),
   ]);
 
-  assert.match(english, /four stable project tools/u);
-  assert.match(english, /`chrome-devtools`/u);
-  assert.match(chinese, /四个 stable 项目工具/u);
-  assert.match(chinese, /`chrome-devtools`/u);
+  assert.match(english, /No profile installs external tool plugins by default/u);
+  assert.match(english, /`chrome-devtools-mcp`/u);
+  assert.match(english, /`open-code-review`.*`agentmemory`/u);
+  assert.match(chinese, /所有 profile 默认都不安装外部工具插件/u);
+  assert.match(chinese, /`chrome-devtools-mcp`/u);
+  assert.match(chinese, /`open-code-review`.*`agentmemory`/u);
   assert.match(architecture, /Chrome DevTools MCP[\s\S]*无头隔离/u);
   assert.match(changelog, /Chrome DevTools MCP[\s\S]*项目内/u);
   assert.doesNotMatch(changelog, /DevTools MCP fallback 已退役/u);
