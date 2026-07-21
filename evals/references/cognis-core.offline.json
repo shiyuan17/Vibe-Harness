@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "id": "cognis-core-offline-reference",
-  "approvedAt": "2026-07-21T00:26:15.633Z",
+  "approvedAt": "2026-07-21T16:10:20.130Z",
   "suite": {
     "id": "cognis-core",
-    "version": "1.4.0"
+    "version": "1.6.0"
   },
   "mode": "offline",
   "fingerprint": {
-    "suiteHash": "a0915fa9b167fcb49baf4c9164867cf5e42f4537d82e786e391ab18f5dd0f098",
+    "suiteHash": "be2002848bf9b2347321320f7ac33baba92e80389113b8e4b420f357b75159ec",
     "runner": "offline-replay@1",
     "model": "fixture",
     "agent": "offline",
@@ -17,8 +17,8 @@
   "capabilities": [
     {
       "id": "adaptive-information-presentation",
-      "caseCount": 2,
-      "passedCount": 2,
+      "caseCount": 3,
+      "passedCount": 3,
       "score": 1
     },
     {
@@ -31,6 +31,12 @@
       "id": "chrome-devtools-mcp",
       "caseCount": 3,
       "passedCount": 3,
+      "score": 1
+    },
+    {
+      "id": "governance-kernel",
+      "caseCount": 1,
+      "passedCount": 1,
       "score": 1
     },
     {
@@ -47,20 +53,26 @@
     },
     {
       "id": "multi-agent-task-governance",
-      "caseCount": 6,
-      "passedCount": 6,
+      "caseCount": 8,
+      "passedCount": 8,
       "score": 1
     },
     {
-      "id": "rtk-output-compression",
+      "id": "review",
       "caseCount": 1,
       "passedCount": 1,
       "score": 1
     },
     {
+      "id": "rtk-output-compression",
+      "caseCount": 5,
+      "passedCount": 5,
+      "score": 1
+    },
+    {
       "id": "skill-routing",
-      "caseCount": 4,
-      "passedCount": 4,
+      "caseCount": 5,
+      "passedCount": 5,
       "score": 1
     },
     {

@@ -11,8 +11,11 @@ import {
   createCodexHookResult,
   normalizeCodexHookInput,
 } from '../runtime/hooks/lib/policy.mjs';
-import { buildProjectContext, readHookSettings, runGovernanceCheck } from '../runtime/hooks/lib/context.mjs';
+import { buildProjectContext, findProjectRoot, readHookSettings, runGovernanceCheck } from '../runtime/hooks/lib/context.mjs';
 import { validateDeliveryMessage } from '../runtime/hooks/lib/delivery-validation.mjs';
+import { evaluateCodexHook } from '../runtime/hooks/codex-hook.mjs';
+import { inspectRtkHook, routeRtkCommand, runRtkRewrite } from '../runtime/hooks/lib/rtk.mjs';
+import { createInstallPlan, previewInstallPlan } from '../scripts/lib/install-planner.js';
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve('.');
@@ -45,6 +48,214 @@ function hookInput(overrides = {}) {
     ...overrides,
   };
 }
+
+test('hook project root prefers the nearest Cognis config inside a parent Git repository', async () => {
+  const parent = await mkdtemp(path.join(tmpdir(), 'cognis-nested-root-'));
+  const nested = path.join(parent, 'apps', 'nested');
+  try {
+    await execFileAsync('git', ['init'], { cwd: parent });
+    await mkdir(path.join(nested, 'src'), { recursive: true });
+    await writeFile(path.join(parent, 'cognis.config.json'), '{}\n', 'utf8');
+    await writeFile(path.join(nested, 'cognis.config.json'), '{}\n', 'utf8');
+    assert.equal(await findProjectRoot(nested), nested);
+    assert.equal(await findProjectRoot(path.join(nested, 'src')), nested);
+  } finally {
+    await rm(parent, { force: true, recursive: true });
+  }
+});
+
+test('hook project root finds the nearest Cognis config without a Git repository', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-no-git-root-'));
+  const nested = path.join(target, 'src', 'nested');
+  try {
+    await mkdir(nested, { recursive: true });
+    await writeFile(path.join(target, 'cognis.config.json'), '{}\n', 'utf8');
+    assert.equal(await findProjectRoot(nested), target);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+async function writeReadyRtk(target, { legacy = false } = {}) {
+  const stateDir = path.join(target, legacy ? '.loopengine' : '.cognis');
+  const runner = path.join(target, '.agents', 'cognis', 'tools', 'rtk', 'run.mjs');
+  const binary = path.join(target, '.agents', 'cognis', 'tools', 'rtk', 'bin', process.platform === 'win32' ? 'rtk.exe' : 'rtk');
+  await mkdir(path.dirname(binary), { recursive: true });
+  await writeFile(runner, '// fixture\n', 'utf8');
+  await writeFile(binary, 'fixture\n', 'utf8');
+  await mkdir(path.join(stateDir, 'tool-state'), { recursive: true });
+  await writeFile(path.join(stateDir, 'install-state.json'), JSON.stringify({
+    adapter: 'codex',
+    requestedPlugins: ['rtk'],
+    rtkHooksEnabled: true,
+  }), 'utf8');
+  await writeFile(path.join(stateDir, 'tool-state', 'tools.json'), JSON.stringify({
+    tools: { rtk: { phase: 'ready', status: 'ready', version: '0.43.0' } },
+  }), 'utf8');
+  return { binary, runner };
+}
+
+test('RTK hook inspection requires ready project-local state and supports legacy tool state', async () => {
+  for (const legacy of [false, true]) {
+    const target = await mkdtemp(path.join(tmpdir(), 'cognis-rtk-state-'));
+    try {
+      const paths = await writeReadyRtk(target, { legacy });
+      const ready = await inspectRtkHook(target, { enabled: true });
+      assert.equal(ready.status, 'ready');
+      assert.equal(ready.binary, paths.binary);
+      assert.equal(ready.runner, paths.runner);
+
+      await rm(paths.binary);
+      const degraded = await inspectRtkHook(target, { enabled: true });
+      assert.equal(degraded.status, 'degraded');
+      assert.match(degraded.reason, /binary/i);
+    } finally {
+      await rm(target, { force: true, recursive: true });
+    }
+  }
+});
+
+test('RTK hook inspection degrades invalid and unversioned ready state', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-rtk-invalid-state-'));
+  try {
+    await writeReadyRtk(target);
+    const statePath = path.join(target, '.cognis', 'tool-state', 'tools.json');
+    await writeFile(statePath, '{invalid', 'utf8');
+    assert.equal((await inspectRtkHook(target, { enabled: true })).status, 'degraded');
+
+    await writeFile(statePath, JSON.stringify({ tools: { rtk: { status: 'ready' } } }), 'utf8');
+    const unversioned = await inspectRtkHook(target, { enabled: true });
+    assert.equal(unversioned.status, 'degraded');
+    assert.match(unversioned.reason, /missing/u);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('RTK command routing handles supported results, exit 3, strict mode, and safe compound rewrites', async () => {
+  const state = { binary: 'fixture-rtk', enabled: true, runner: 'fixture-runner', status: 'ready' };
+  for (const mode of ['observe', 'guarded']) {
+    const decision = await routeRtkCommand(hookInput(), {
+      mode,
+      projectRoot: rootDir,
+      rtk: state,
+      runner: async () => ({ code: 0, stderr: '', stdout: 'rtk git status --short' }),
+    });
+    assert.equal(decision.action, 'warn');
+    assert.equal(decision.retryCommand, 'node ".agents/cognis/tools/rtk/run.mjs" git status --short');
+    assert.match(decision.reason, /exact retry command/i);
+  }
+
+  const strict = await routeRtkCommand(hookInput({
+    tool_input: { command: 'git status --short && rg TODO src' },
+  }), {
+    mode: 'strict',
+    projectRoot: rootDir,
+    rtk: state,
+    runner: async () => ({ code: 3, stderr: '', stdout: 'rtk git status --short && rtk rg TODO src' }),
+  });
+  assert.equal(strict.action, 'deny');
+  assert.equal(
+    strict.retryCommand,
+    'node ".agents/cognis/tools/rtk/run.mjs" git status --short && node ".agents/cognis/tools/rtk/run.mjs" rg TODO src',
+  );
+
+  for (const stdout of [
+    'rtk rm -rf important',
+    'rtk git status --short && rm -rf important',
+    'rtk git status --short && rtk rm -rf important',
+  ]) {
+    assert.deepEqual(await routeRtkCommand(hookInput(), {
+      mode: 'strict',
+      projectRoot: rootDir,
+      rtk: state,
+      runner: async () => ({ code: 0, stderr: '', stdout }),
+    }), { action: 'allow' });
+  }
+});
+
+test('RTK rewrite timeout resolves without waiting for child close', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-rtk-timeout-'));
+  try {
+    await writeFile(
+      path.join(target, 'rewrite'),
+      "process.on('SIGTERM', () => {}); setTimeout(() => process.exit(0), 300);\n",
+      'utf8',
+    );
+    const started = Date.now();
+    const result = await runRtkRewrite(process.execPath, 'ignored', {
+      cwd: target,
+      timeoutMs: 50,
+    });
+    assert.equal(result.timedOut, true);
+    assert.ok(Date.now() - started < 250);
+  } finally {
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('RTK routing bypasses wrappers, proxy, sensitive/raw commands, unsupported, degraded, and timeouts', async () => {
+  const ready = { binary: 'fixture-rtk', enabled: true, runner: 'fixture-runner', status: 'ready' };
+  const noRun = async () => { throw new Error('runner must not execute'); };
+  for (const command of [
+    'node ".agents/cognis/tools/rtk/run.mjs" git status',
+    'rtk proxy git status',
+    'cat .env',
+    'docker logs api',
+  ]) {
+    assert.deepEqual(await routeRtkCommand(hookInput({ tool_input: { command } }), {
+      mode: 'strict', projectRoot: rootDir, rtk: ready, runner: noRun,
+    }), { action: 'allow' });
+  }
+
+  for (const result of [
+    { code: 1, stderr: '', stdout: '' },
+    { code: 2, stderr: 'failed', stdout: '' },
+    { code: 0, stderr: '', stdout: '' },
+    { code: null, stderr: '', stdout: '', timedOut: true },
+  ]) {
+    assert.deepEqual(await routeRtkCommand(hookInput(), {
+      mode: 'strict', projectRoot: rootDir, rtk: ready, runner: async () => result,
+    }), { action: 'allow' });
+  }
+  assert.deepEqual(await routeRtkCommand(hookInput(), {
+    mode: 'strict', projectRoot: rootDir, rtk: { ...ready, status: 'degraded' }, runner: noRun,
+  }), { action: 'allow' });
+});
+
+test('Codex RTK routing preserves safety denial priority and injects status into session context', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-rtk-hook-runtime-'));
+  try {
+    await execFileAsync('git', ['init'], { cwd: target });
+    await writeReadyRtk(target);
+    await writeFile(path.join(target, 'cognis.config.json'), JSON.stringify({
+      hooks: { mode: 'strict', rtk: { enabled: true } },
+      plugins: ['rtk'],
+    }), 'utf8');
+    let routed = false;
+    const denied = await evaluateCodexHook(hookInput({
+      cwd: target,
+      tool_input: { command: 'git reset --hard HEAD' },
+    }), {
+      rtkRunner: async () => { routed = true; return { code: 0, stdout: 'rtk git reset --hard HEAD', stderr: '' }; },
+    });
+    assert.equal(denied.hookSpecificOutput.permissionDecision, 'deny');
+    assert.match(denied.hookSpecificOutput.permissionDecisionReason, /destructive/i);
+    assert.equal(routed, false);
+
+    const session = await evaluateCodexHook({
+      cwd: target,
+      hook_event_name: 'PostCompact',
+      session_id: 'session-rtk-context',
+    });
+    assert.match(session.hookSpecificOutput.additionalContext, /RTK hook: ready/i);
+    assert.match(session.hookSpecificOutput.additionalContext, /\.agents\/cognis\/tools\/rtk\/run\.mjs/u);
+    assert.match(session.hookSpecificOutput.additionalContext, /proxy/u);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
 
 function taskContract({
   id,
@@ -328,6 +539,7 @@ test('hook runtime reads legacy settings and validator paths as compatibility fa
       completionGate: 'blocking',
       evaluationsEnabled: true,
       mode: 'strict',
+      rtkEnabled: false,
       validationCommands: { governance: 'legacy-governance' },
     });
     assert.deepEqual(await runGovernanceCheck(target), { ok: true, status: 'passed' });
@@ -586,7 +798,7 @@ test('Git pre-push hook propagates validation failures from canonical and legacy
   }
 });
 
-test('Codex hook template declares current events and cross-platform commands', async () => {
+test('Codex hook template declares current events with a project-scoped runner', async () => {
   const hooks = JSON.parse(await readFile(path.join(rootDir, 'adapters/codex/hooks.template.json'), 'utf8'));
   const expected = [
     'SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PermissionRequest', 'PostToolUse',
@@ -596,11 +808,42 @@ test('Codex hook template declares current events and cross-platform commands', 
   assert.deepEqual(Object.keys(hooks.hooks), expected);
   for (const [event, definitions] of Object.entries(hooks.hooks)) {
     for (const handler of definitions.flatMap((definition) => definition.hooks)) {
-      assert.match(handler.command, /git rev-parse --show-toplevel/);
-      assert.match(handler.commandWindows, /git rev-parse --show-toplevel/);
+      assert.match(handler.command, /node "\{\{hookRunnerPath\}\}"/u);
+      assert.match(handler.commandWindows, /node "\{\{hookRunnerPath\}\}"/u);
+      assert.doesNotMatch(handler.command, /git rev-parse --show-toplevel/u);
+      assert.doesNotMatch(handler.commandWindows, /git rev-parse --show-toplevel/u);
       assert.match(handler.command, new RegExp(`--expected-event ${event}$`, 'u'));
       assert.match(handler.commandWindows, new RegExp(`--expected-event ${event}\"?$`, 'u'));
       assert.equal(handler.timeout <= 30, true);
     }
+  }
+});
+
+test('Codex hook install renders the nested target runner instead of the parent Git root', async () => {
+  const parent = await mkdtemp(path.join(tmpdir(), 'cognis-nested-hook-install-'));
+  const target = path.join(parent, 'apps', 'nested');
+  try {
+    await execFileAsync('git', ['init'], { cwd: parent });
+    await mkdir(target, { recursive: true });
+    const plan = await createInstallPlan({
+      dryRun: true,
+      profile: 'full',
+      rootDir,
+      targetDir: target,
+    });
+    const hooksFile = (await previewInstallPlan(plan)).find((file) => file.target === '.codex/hooks.json');
+    const hooks = JSON.parse(hooksFile.content);
+    const expectedRunner = path.join(target, '.agents/cognis/hooks/codex-hook.mjs').replaceAll('\\', '/');
+
+    for (const definitions of Object.values(hooks.hooks)) {
+      for (const handler of definitions.flatMap((definition) => definition.hooks)) {
+        assert.match(handler.command, new RegExp(`node "${expectedRunner.replaceAll('\\', '\\\\')}"`, 'u'));
+        assert.match(handler.commandWindows, new RegExp(`node "${expectedRunner.replaceAll('\\', '\\\\')}"`, 'u'));
+        assert.doesNotMatch(handler.command, /git rev-parse --show-toplevel/u);
+        assert.doesNotMatch(handler.commandWindows, /git rev-parse --show-toplevel/u);
+      }
+    }
+  } finally {
+    await rm(parent, { force: true, recursive: true });
   }
 });

@@ -64,7 +64,7 @@ test('current release notes use Cognis names for current interfaces', async () =
 test('governance documentation defines a vendor-neutral prompt cache contract', async () => {
   const [kernel, spec, template, architecture, index] = await Promise.all([
     readFile(path.join(rootDir, 'rules/governance-core.md'), 'utf8'),
-    readFile(path.join(rootDir, 'docs/specs/cognis-v0.6-multi-agent-governance-spec.md'), 'utf8'),
+    readFile(path.join(rootDir, 'docs/specs/cognis-v0.7-adaptive-orchestration-spec.md'), 'utf8'),
     readFile(path.join(rootDir, 'templates/task.md'), 'utf8'),
     readFile(path.join(rootDir, 'docs/architecture.md'), 'utf8'),
     readFile(path.join(rootDir, 'docs/README.md'), 'utf8'),

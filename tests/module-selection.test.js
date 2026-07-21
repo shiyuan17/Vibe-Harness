@@ -174,6 +174,24 @@ test('plugins augment the profile selection instead of replacing it', () => {
   assert.equal(selection.allowedGroups.has('tools-rtk'), true);
 });
 
+test('RTK hooks add hooks and governance only when explicitly enabled', () => {
+  const instructionsOnly = resolveModuleSelection({
+    profile: 'core',
+    requestedPlugins: ['rtk'],
+  });
+  assert.equal(instructionsOnly.resolvedModules.includes('hooks'), false);
+
+  const integrated = resolveModuleSelection({
+    profile: 'core',
+    requestedPlugins: ['rtk'],
+    rtkHooksEnabled: true,
+  });
+  assert.equal(integrated.resolvedModules.includes('rtk'), true);
+  assert.equal(integrated.resolvedModules.includes('hooks'), true);
+  assert.equal(integrated.resolvedModules.includes('governance'), true);
+  assert.equal(integrated.implicitModules.includes('hooks'), true);
+});
+
 test('project config accepts valid plugins and rejects invalid plugin arrays', () => {
   const base = {
     packageManager: 'pnpm',
@@ -185,6 +203,134 @@ test('project config accepts valid plugins and rejects invalid plugin arrays', (
   assert.equal(validateProjectConfig({ ...base, plugins: ['rtk', 'playwright-cli'] }), true);
   assert.throws(() => validateProjectConfig({ ...base, plugins: [] }), /at least one plugin/u);
   assert.throws(() => validateProjectConfig({ ...base, plugins: ['missing'] }), /Unknown plugin/u);
+  assert.equal(validateProjectConfig({
+    ...base,
+    hooks: { mode: 'guarded', rtk: { enabled: true } },
+    plugins: ['rtk'],
+  }), true);
+  assert.throws(
+    () => validateProjectConfig({ ...base, hooks: { rtk: { enabled: 'yes' } }, plugins: ['rtk'] }),
+    /hooks\.rtk\.enabled must be boolean/u,
+  );
+  assert.equal(validateProjectConfig({ ...base, hooks: { rtk: { enabled: true } }, plugins: ['ast-grep'] }), true);
+});
+
+test('RTK hook CLI is explicit, Codex-only, and requires the RTK plugin', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-rtk-hook-contract-'));
+  try {
+    await runCli(['init', '--project', target]);
+    const instructionsOnly = await runCli([
+      'install', '--project', target, '--target', 'codex', '--profile', 'core',
+      '--plugin', '-rtk', '--dry-run',
+    ]);
+    assert.equal(instructionsOnly.rtkHooks.enabled, false);
+    assert.equal(instructionsOnly.actions.some((item) => item.relativeTarget === '.codex/hooks.json'), false);
+
+    const enabled = await runCli([
+      'install', '--project', target, '--target', 'codex', '--profile', 'core',
+      '--plugin', '-rtk', '--rtk-hooks', 'on', '--dry-run',
+    ]);
+    assert.equal(enabled.rtkHooks.enabled, true);
+    assert.equal(enabled.resolvedModules.includes('hooks'), true);
+    assert.equal(enabled.implicitModules.includes('hooks'), true);
+    assert.equal(enabled.actions.some((item) => item.relativeTarget === '.codex/hooks.json' && item.redZone), true);
+    assert.equal(enabled.requiresRedZoneConfirmation, true);
+
+    const missingPlugin = await runCliFailure([
+      'install', '--project', target, '--target', 'codex', '--profile', 'core',
+      '--rtk-hooks', 'on', '--dry-run',
+    ]);
+    assert.match(missingPlugin.error.message, /requires the rtk plugin/u);
+
+    const configPath = path.join(target, 'cognis.config.json');
+    const config = JSON.parse(await readFile(configPath, 'utf8'));
+    config.hooks.rtk = { enabled: true };
+    config.plugins = ['ast-grep'];
+    await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+    const invalidConfig = await runCliFailure([
+      'install', '--project', target, '--target', 'codex', '--profile', 'core', '--dry-run',
+    ]);
+    assert.match(invalidConfig.error.message, /requires the rtk plugin/u);
+    delete config.hooks.rtk;
+    delete config.plugins;
+    await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+
+    const unsupportedTarget = await mkdtemp(path.join(tmpdir(), 'cognis-rtk-hook-claude-'));
+    try {
+      await runCli(['init', '--project', unsupportedTarget, '--target', 'claude']);
+      const failure = await runCliFailure([
+        'install', '--project', unsupportedTarget, '--target', 'claude', '--profile', 'core',
+        '--plugin', '-rtk', '--rtk-hooks', 'on', '--dry-run',
+      ]);
+      assert.match(failure.error.message, /only supported for the codex target/u);
+    } finally {
+      await rm(unsupportedTarget, { force: true, recursive: true });
+    }
+
+    const invalid = await runCliFailure([
+      'install', '--project', target, '--target', 'codex', '--profile', 'core',
+      '--plugin', '-rtk', '--rtk-hooks', 'maybe', '--dry-run',
+    ]);
+    assert.match(invalid.error.message, /--rtk-hooks must be on or off/u);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('RTK hook precedence persists CLI state and disables inherited hooks when RTK is removed', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-rtk-hook-precedence-'));
+  try {
+    await runCli(['init', '--project', target]);
+    const installed = await runCli([
+      'install', '--project', target, '--target', 'codex', '--profile', 'core',
+      '--plugin', '-rtk', '--rtk-hooks', 'on', '--write', '--confirm-red-zone',
+    ]);
+    assert.equal(installed.rtkHooks.enabled, true);
+    let state = JSON.parse(await readFile(path.join(target, '.cognis/install-state.json'), 'utf8'));
+    assert.equal(state.rtkHooksEnabled, true);
+    assert.equal(await readFile(path.join(target, '.agents/cognis/hooks/lib/rtk.mjs'), 'utf8').then(Boolean), true);
+    const validation = await runCli(['validate', '--project', target]);
+    const doctor = await runCli(['doctor', '--project', target]);
+    assert.equal(validation.rtkHooks.enabled, true);
+    assert.equal(validation.rtkHooks.status, 'pending');
+    assert.equal(doctor.rtkHooks.enabled, true);
+    assert.equal(doctor.rtkHooks.status, 'pending');
+
+    const inherited = await runCli([
+      'install', '--project', target, '--target', 'codex', '--profile', 'core',
+      '--dry-run',
+    ]);
+    assert.equal(inherited.rtkHooks.enabled, true);
+
+    const configPath = path.join(target, 'cognis.config.json');
+    const config = JSON.parse(await readFile(configPath, 'utf8'));
+    config.hooks.rtk = { enabled: false };
+    await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+    const configDisabled = await runCli([
+      'install', '--project', target, '--target', 'codex', '--profile', 'core', '--dry-run',
+    ]);
+    assert.equal(configDisabled.rtkHooks.enabled, false);
+    const cliEnabled = await runCli([
+      'install', '--project', target, '--target', 'codex', '--profile', 'core',
+      '--rtk-hooks', 'on', '--dry-run',
+    ]);
+    assert.equal(cliEnabled.rtkHooks.enabled, true);
+
+    delete config.hooks.rtk;
+    await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+    const removed = await runCli([
+      'install', '--project', target, '--target', 'codex', '--profile', 'core',
+      '--plugin', 'none', '--write', '--confirm-red-zone',
+    ]);
+    assert.equal(removed.rtkHooks.enabled, false);
+    state = JSON.parse(await readFile(path.join(target, '.cognis/install-state.json'), 'utf8'));
+    assert.equal(state.rtkHooksEnabled, false);
+    assert.equal(state.resolvedModules.includes('hooks'), false);
+    await assert.rejects(readFile(path.join(target, '.codex/hooks.json'), 'utf8'), /ENOENT/u);
+    await assert.rejects(readFile(path.join(target, '.agents/cognis/hooks/lib/rtk.mjs'), 'utf8'), /ENOENT/u);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
 });
 
 test('core and full install no tool plugins by default', async () => {
