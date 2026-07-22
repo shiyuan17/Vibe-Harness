@@ -28,9 +28,10 @@
     },
     "installation": {
       "type": "object",
-      "required": ["governanceMode", "managedFileCount", "profile", "requestedPlugins", "resolvedModules", "status", "tools", "version"],
+      "required": ["governanceMode", "governanceWorkflow", "managedFileCount", "profile", "requestedPlugins", "resolvedModules", "status", "tools", "version"],
       "properties": {
         "governanceMode": { "type": "string", "enum": ["basic", "full", "off"] },
+        "governanceWorkflow": { "type": "string", "enum": ["adaptive", "strict"] },
         "managedFileCount": { "type": "integer", "minimum": 0 },
         "profile": { "type": "string", "enum": ["minimal", "core", "full"] },
         "requestedPlugins": {

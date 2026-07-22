@@ -54,6 +54,30 @@ test('full installs hook runtime and inactive Git hook templates while core does
     assert.equal(core.some((targetPath) => targetPath.includes('/hooks/') || targetPath.startsWith('.githooks/')), false);
 });
 
+test('full Codex install selects adaptive hooks for new projects and strict hooks when requested', async () => {
+  const run = async (workflow) => {
+    const target = await mkdtemp(path.join(tmpdir(), `cognis-hook-workflow-${workflow}-`));
+    try {
+      await execFileAsync(process.execPath, [cliPath, 'init', '--project', target, '--profile', 'full', '--workflow', workflow]);
+      await execFileAsync(process.execPath, [
+        cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'full',
+        '--write', '--confirm-red-zone',
+      ]);
+      return Object.keys(JSON.parse(await readFile(path.join(target, '.codex/hooks.json'), 'utf8')).hooks);
+    } finally {
+      await rm(target, { force: true, recursive: true });
+    }
+  };
+
+  assert.deepEqual(await run('adaptive'), [
+    'SessionStart', 'PostCompact', 'PreToolUse', 'SubagentStart', 'SubagentStop', 'Stop',
+  ]);
+  assert.deepEqual(await run('strict'), [
+    'SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PermissionRequest', 'PostToolUse',
+    'PreCompact', 'PostCompact', 'SubagentStart', 'SubagentStop', 'Stop',
+  ]);
+});
+
 test('doctor reports Git hook activation without modifying local Git config', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'cognis-hook-doctor-'));
   try {

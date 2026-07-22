@@ -1,17 +1,16 @@
 ---
 name: using-cognis
-description: 用于在任务开始、风险变化或交付前选择 Cognis 流程、专项和验证 Skill。
+description: 在任务开始、失败信号、风险变化或交付前选择最小必要 Cognis 能力。
 ---
 
-# Cognis 路由
+# Cognis 短路由
 
-先读取 `docs/rules/governance-core.md` 和 `docs/rules/AGENT_SKILL_ROUTING.md`。前者定义流程硬约束，后者定义 Skill 选择与 fallback；本 Skill 只负责执行路由。
+读取 `docs/rules/governance-core.md` 与 `docs/rules/AGENT_SKILL_ROUTING.md`。
 
-1. 判断权限、红区和风险档位。
-2. 确认当前处于获取事实、做出决策、执行、验证或交付。
-3. 最多选择一个流程 Skill 和一个专项 Skill。
-4. 最多选择一个验证或审查 Skill。
+1. 解析 `governance.workflow`；缺失按 `strict`。
+2. `adaptive` 默认直接走“获取事实 → 直接执行 → 聚焦验证 → 简洁交付”，不加载流程 Skill 链。
+3. 只有关键产品歧义、重复失败、特殊领域知识、复杂验证或完整路径信号出现时，加载一个必要 Skill。
+4. `strict` 保留既有生命周期路由与完整交付合同。
+5. 安全、外部写入、生产、权限、凭据、红区、不可逆动作和范围扩大始终等待人工确认。
 
-快速任务默认直接执行五步循环，不加载规格、计划或审查 Skill。需求仍有关键歧义时使用 `brainstorming`；已有稳定规格且需要多步实施时使用 `writing-plans`；执行计划使用 `executing-plans`；故障使用 `systematic-debugging`。
-
-确定性行为变更使用 `test-driven-development`；Agent 规则、Skill、模板、适配器、Hook 或提示行为变更使用 `eval-driven-development`，并对其中的确定性代码继续使用 TDD。完成声明前使用 `verification-before-completion`。完整、高风险、红区、安全、数据、发布或外部契约任务使用 `adversarial-review-packet`；不可用时回退 `code-review-and-quality` 并记录未覆盖审查轴。
+Agent 规则、Skill、模板、adapter 或 Hook 行为变化时，必要入口是 `eval-driven-development`。能力不可用时 fallback 到治理内核与专项规则。验证真实性是治理内核要求；普通完成声明不必再加载验证 Skill。多 Agent 只用于边界与验证独立且有明确墙钟收益的完整任务。

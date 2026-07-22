@@ -12,8 +12,9 @@ test('contributor contract defines one project write lifecycle', async () => {
   assert.doesNotMatch(agents, /pnpm cognis[^\n]*(?:codex-internal|codex-minimal|--apply)/u);
 });
 
-test('governance kernel defines five Chinese stages and adversarial evidence', async () => {
+test('governance kernel defines adaptive and strict stages with adversarial evidence', async () => {
   const kernel = await read('rules/governance-core.md');
+  assert.match(kernel, /获取事实 → 直接执行 → 聚焦验证 → 简洁交付/u);
   for (const stage of ['获取事实', '做出决策', '执行', '验证', '交付']) assert.match(kernel, new RegExp(stage, 'u'));
   assert.match(kernel, /主张 → 证据 → 反例 → 剩余风险/u);
   assert.match(kernel, /问题编号、理由、责任人、关闭条件和批准者/u);

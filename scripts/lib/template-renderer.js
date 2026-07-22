@@ -1,4 +1,8 @@
 const defaultTemplateData = {
+  governance: {
+    mode: 'basic',
+    workflow: 'strict',
+  },
   hookRunnerPath: '.agents/cognis/hooks/codex-hook.mjs',
   installedSurface: {
     codebaseMemoryMcpLine: '',
@@ -66,6 +70,10 @@ export function withDefaultTemplateData(data = {}) {
   return {
     ...defaultTemplateData,
     ...data,
+    governance: {
+      ...defaultTemplateData.governance,
+      ...(data.governance ?? {}),
+    },
     installedSurface: {
       ...defaultTemplateData.installedSurface,
       ...(data.installedSurface ?? {}),

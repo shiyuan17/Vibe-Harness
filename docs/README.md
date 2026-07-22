@@ -11,6 +11,7 @@
 
 ## 现行规格
 
+- [v0.8 结果优先自适应执行路径](specs/cognis-v0.8-outcome-first-adaptive-spec.md)：adaptive/strict 兼容边界、精简 Hook、短 Skill 路由和 40×3 对照发布门禁。
 - [v0.7 自适应单/多 Agent 编排规格](specs/cognis-v0.7-adaptive-orchestration-spec.md)：当前三阶段路由、v2 父子任务合同、Prompt Cache 上下文边界与能力降级规则。
 - [Agentmemory Skill 收敛规格](specs/agentmemory-skill-consolidation-spec.md)：当前 Agentmemory 安装与升级合同。
 - [显式工具插件规格](specs/cognis-tooling-modules-spec.md)：7 个项目内工具的选择、版本校验、状态、规则和降级合同。

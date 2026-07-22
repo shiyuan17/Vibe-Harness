@@ -72,6 +72,46 @@ test('Cognis CLI init writes canonical configuration and machine-readable stdout
     assert.equal(result.stderr, '');
     const config = JSON.parse(await readFile(report.path, 'utf8'));
     assert.equal(config.validationCommands.governance, 'node .agents/cognis/governance/validate.mjs');
+    assert.equal(config.governance.workflow, 'adaptive');
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('init accepts an explicit strict workflow and rejects unknown workflows', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-cli-workflow-'));
+  try {
+    await execFileAsync(process.execPath, [cognisCli, 'init', '--project', target, '--workflow', 'strict']);
+    const config = JSON.parse(await readFile(path.join(target, 'cognis.config.json'), 'utf8'));
+    assert.equal(config.governance.workflow, 'strict');
+    await assert.rejects(
+      execFileAsync(process.execPath, [cognisCli, 'init', '--project', `${target}-bad`, '--workflow', 'unknown']),
+      /governance\.workflow/u,
+    );
+  } finally {
+    await rm(target, { force: true, recursive: true });
+    await rm(`${target}-bad`, { force: true, recursive: true });
+  }
+});
+
+test('upgrade writes strict for an existing canonical config without workflow while dry-run does not mutate it', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-cli-workflow-upgrade-'));
+  try {
+    const config = createDefaultProjectConfig(target);
+    delete config.governance.workflow;
+    const configPath = path.join(target, 'cognis.config.json');
+    await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+
+    const preview = JSON.parse((await execFileAsync(process.execPath, [
+      cognisCli, 'install', '--project', target, '--profile', 'core', '--upgrade', '--dry-run',
+    ])).stdout);
+    assert.equal(preview.governanceWorkflow, 'strict');
+    assert.equal(JSON.parse(await readFile(configPath, 'utf8')).governance.workflow, undefined);
+
+    await execFileAsync(process.execPath, [
+      cognisCli, 'install', '--project', target, '--profile', 'core', '--upgrade', '--write',
+    ]);
+    assert.equal(JSON.parse(await readFile(configPath, 'utf8')).governance.workflow, 'strict');
   } finally {
     await rm(target, { force: true, recursive: true });
   }

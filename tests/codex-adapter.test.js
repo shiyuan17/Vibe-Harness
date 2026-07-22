@@ -23,12 +23,14 @@ test('codex adapter and plugin metadata track the package version', async () => 
   const adapter = await readJson(path.join(rootDir, 'adapters/codex/codex-plugin.json'));
   const plugin = await readJson(path.join(rootDir, '.codex-plugin/plugin.json'));
   const hooks = await readJson(path.join(rootDir, 'adapters/codex/hooks.template.json'));
+  const strictHooks = await readJson(path.join(rootDir, 'adapters/codex/hooks.strict.template.json'));
 
   assert.equal(adapter.version, pkg.version);
   assert.equal(plugin.version, pkg.version);
   assert.equal(Object.hasOwn(hooks, 'notes'), false);
   assert.ok(hooks.hooks.PreToolUse);
-  assert.ok(hooks.hooks.PermissionRequest);
+  assert.equal(Object.hasOwn(hooks.hooks, 'PermissionRequest'), false);
+  assert.ok(strictHooks.hooks.PermissionRequest);
   assert.ok(hooks.hooks.Stop);
   assert.equal(Object.hasOwn(hooks.hooks, 'SessionEnd'), false);
 });

@@ -164,6 +164,19 @@ function shouldInstallEntry(entry, renderData) {
   return true;
 }
 
+function sourceForEntry(entrySource, renderData) {
+  const localized = renderData.language === 'en-US'
+    ? ({
+        'templates/delivery.md': 'templates/delivery.en-US.md',
+        'templates/task.md': 'templates/task.en-US.md',
+      }[entrySource] ?? entrySource)
+    : entrySource;
+  if (localized === 'adapters/codex/hooks.template.json' && (renderData.governance?.workflow ?? 'strict') === 'strict') {
+    return 'adapters/codex/hooks.strict.template.json';
+  }
+  return localized;
+}
+
 function createManagedMcpServers(targetDir, resolvedModules) {
   const codebaseTool = path.join(targetDir, '.agents/cognis/tools/codebase-memory-mcp/run.mjs');
   const chromeDevtoolsTool = path.join(targetDir, '.agents/cognis/tools/chrome-devtools-mcp/run.mjs');
@@ -199,6 +212,7 @@ export async function createInstallPlan({
   adapterId = 'codex',
   allowPreview = false,
   configMigration = null,
+  configUpdate = null,
   dryRun = true,
   force = false,
   managedAgentsBlock = false,
@@ -239,12 +253,7 @@ export async function createInstallPlan({
       continue;
     }
     assertPortableRelativePath(entry.source, 'install source');
-    const localizedSource = renderData.language === 'en-US'
-      ? ({
-          'templates/delivery.md': 'templates/delivery.en-US.md',
-          'templates/task.md': 'templates/task.en-US.md',
-        }[entry.source] ?? entry.source)
-      : entry.source;
+    const localizedSource = sourceForEntry(entry.source, renderData);
     assertPortableRelativePath(localizedSource, 'localized install source');
     const mappedTarget = memoryTargetPath(renderData, entry.target);
     assertPortableRelativePath(mappedTarget, 'install target');
@@ -463,6 +472,7 @@ export async function createInstallPlan({
     adapterCapabilities: adapter.capabilities,
     baselinePlan,
     configMigration,
+    configUpdate,
     dryRun,
     force,
     generatedDirectories,
@@ -572,7 +582,7 @@ export async function diffTargetInstall({
     const mappedTarget = memoryTargetPath(renderData, entry.target);
     assertPortableRelativePath(mappedTarget, 'install target');
     const target = path.resolve(targetDir, mappedTarget);
-    const source = path.resolve(rootDir, entry.source);
+    const source = path.resolve(rootDir, sourceForEntry(entry.source, renderData));
     assertInsideDir(rootDir, source, 'install source');
     assertInsideDir(targetDir, target, 'install target');
     const item = {
@@ -686,6 +696,7 @@ export async function applyInstallPlan(plan, hooks = {}) {
     ...(plan.baselinePlan.manifestTarget ? [path.join(plan.targetDir, plan.baselinePlan.manifestTarget)] : []),
     statePath,
     ...(plan.configMigration ? [plan.configMigration.fromPath, plan.configMigration.toPath] : []),
+    ...(plan.configUpdate ? [plan.configUpdate.path] : []),
   ];
   const transaction = await beginFileTransaction({
     cleanupPaths: [
@@ -724,6 +735,9 @@ export async function applyInstallPlan(plan, hooks = {}) {
       targetHash: await hashFile(plan.configMigration.toPath),
       to: plan.configMigration.to,
     };
+  }
+  if (plan.configUpdate) {
+    await writeFile(plan.configUpdate.path, `${JSON.stringify(plan.configUpdate.config, null, 2)}\n`, 'utf8');
   }
   const baseline = await applyBaselinePlan(plan.baselinePlan);
   const generatedFiles = [];

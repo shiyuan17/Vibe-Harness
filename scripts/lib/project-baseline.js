@@ -106,8 +106,15 @@ function workflow(id, name, trigger, steps, candidates, installedSkills) {
   return { id, name, trigger, steps, ...(skills.length > 0 ? { skills } : {}) };
 }
 
-function createWorkflows(target) {
+function createWorkflows(target, governanceWorkflow) {
   const skills = installedSkillNames(target);
+  if (governanceWorkflow === 'adaptive') {
+    return [
+      workflow('outcome-first', '结果优先执行', '目标清晰且属于已授权、可逆的本地工作', ['获取仓库事实', '实施最小改动', '运行与主张匹配的验证', '简洁交付结果与证据'], [], skills),
+      workflow('clarification', '必要澄清', '存在无法由仓库或公开契约确定的用户可见分支', ['批量询问同轮独立的产品决定', '答案关闭分支后直接继续'], [], skills),
+      workflow('escalation', '失败或风险升级', '出现重复失败、特殊领域知识或完整路径信号', ['只加载一个必要 Skill', '安全、外部契约、红区或不可逆动作进入完整路径', '验证后交付真实风险'], ['systematic-debugging', 'adversarial-review-packet'], skills),
+    ];
+  }
   return [
     workflow('requirements', '需求澄清', '目标、范围或验收标准仍有关键歧义', ['先获取项目事实', '固定目标、非目标和验收标准', '批准设计后再实施'], ['brainstorming'], skills),
     workflow('scoped-change', '轻量代码修改', '单一范围且不涉及红区或外部契约', ['固定写入范围', '先写失败测试', '实施最小改动', '运行聚焦验证并交付证据'], ['test-driven-development', 'verification-before-completion'], skills),
@@ -192,6 +199,7 @@ function renderReport(baseline) {
 - 项目：${baseline.project.name}
 - 技术栈：${baseline.project.stackSummary}
 - Profile：${baseline.installation.profile}
+- Workflow：${baseline.installation.governanceWorkflow}
 - 工具插件：${baseline.installation.requestedPlugins.length ? baseline.installation.requestedPlugins.map((plugin) => `\`${plugin}\``).join('、') : '未选择'}
 - 安装状态：${baseline.installation.status}
 - 漂移状态：${baseline.drift.status}
@@ -238,6 +246,7 @@ export async function createProjectBaseline({
   config,
   force = false,
   governanceMode,
+  governanceWorkflow,
   installState,
   now = new Date(),
   projectProfile,
@@ -270,6 +279,7 @@ export async function createProjectBaseline({
     },
     installation: {
       governanceMode,
+      governanceWorkflow,
       managedFileCount: target.expected.length,
       profile: config.profile,
       requestedPlugins: installState.requestedPlugins ?? [],
@@ -279,7 +289,7 @@ export async function createProjectBaseline({
       version: installState.version,
     },
     verification,
-    workflows: createWorkflows(target),
+    workflows: createWorkflows(target, governanceWorkflow),
     recommendations: createRecommendations({ profile: config.profile, tools: publicToolStates, verification, vcs }),
     drift: { changes: [], status: 'initial' },
   };

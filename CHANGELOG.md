@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- 新项目默认启用 v0.8 `adaptive` 结果优先路径，既有缺失字段项目保持 `strict`；新增 `init --workflow`、workflow 报告、兼容升级写回和 baseline 观测。
+- Codex adaptive Hook 收敛为 6 个事件，普通 Stop 不再运行全量治理/Eval；Skill 路由改为失败或风险信号触发，交付收敛为结果、实际变更和本轮验证。
+- 新增 40 案例 × 3 次的 adaptive/strict 对照合同、12 案例 smoke 子集、配对非劣 bootstrap、critical 零回退和全部尝试每成功任务成本报告。
 - 新增 v0.7 自适应单/多 Agent 编排：在风险档位之后按需求类型和 all-of 拆分门禁选择模式，简单任务固定单 Agent，复杂耦合任务串行，仅对独立、可验证且有真实平台能力的完整任务自动派发；保留 v2 合同、人工安全门禁和 fan-in 独立核验。
 - 新增显式 `--plugin` 安装面：`core` 与 `full` 默认均不安装外部工具；`-all`、单选、多选和 `none` 分别管理 RTK、ast-grep、codebase-memory-mcp、Chrome DevTools MCP、Playwright CLI、Open Code Review 与 Agentmemory，并将规范化选择持久化到 install-state。
 - 新增项目内 RTK `v0.43.0` 与 `@ast-grep/cli@0.44.1`：提供命令输出压缩、结构化搜索规则、checksum/lockfile 校验、doctor 状态和安全回退。

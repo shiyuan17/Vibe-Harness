@@ -16,6 +16,11 @@ const DELIVERY_FIELDS = [
   { label: '后续动作', names: ['后续动作', 'Next step', 'Next steps'] },
   { label: 'Memory', names: ['Memory'] },
 ];
+const ADAPTIVE_FIELDS = [
+  { label: '结果', names: ['结果', 'Result', 'Outcome'] },
+  { label: '实际变更', names: ['实际变更', '变更', 'Changes', 'Changed'] },
+  { label: '验证', names: ['本轮验证', '验证', 'Verification', 'Tests'] },
+];
 
 function stripNonEvidenceMarkdown(message) {
   const withoutComments = message.replace(/<!--[\s\S]*?-->/gu, '');
@@ -58,10 +63,11 @@ function fieldValue(body, names) {
   return '';
 }
 
-export function validateDeliveryMessage(message) {
+export function validateDeliveryMessage(message, { workflow = 'strict' } = {}) {
   const body = stripNonEvidenceMarkdown(typeof message === 'string' ? message : '');
   const missing = [];
-  for (const field of DELIVERY_FIELDS) {
+  const fields = workflow === 'adaptive' ? ADAPTIVE_FIELDS : DELIVERY_FIELDS;
+  for (const field of fields) {
     const value = fieldValue(body, field.names);
     if (!value || PLACEHOLDER.test(value) || (field.validate && !field.validate(value))) missing.push(field.label);
   }

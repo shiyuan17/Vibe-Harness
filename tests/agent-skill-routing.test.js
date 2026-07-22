@@ -11,34 +11,32 @@ const rootDir = path.resolve('.');
 const routingRuleSource = 'rules/agent-skill-routing.md';
 const routingRuleTarget = 'docs/rules/AGENT_SKILL_ROUTING.md';
 
-test('agent skill routing policy preserves governance priority and lifecycle routing', async () => {
+test('agent skill routing policy preserves governance priority and adaptive short routing', async () => {
   const rule = await readFile(path.join(rootDir, routingRuleSource), 'utf8');
 
   for (const term of [
     '不得覆盖',
+    'governance.workflow',
+    '默认不嵌套调用',
+    '一个必要 Skill',
+    '失败信号',
+    'Adaptive',
+    'Strict',
     '一个流程 Skill',
     '一个领域 Skill',
-    '一个验证或审查 Skill',
     'Clarify',
-    'Spec',
     'Plan',
-    'Execute',
-    'Verify',
     'Review',
-    'Handoff',
-    'Retrospective',
-    'ocr',
     'fallback',
-    'Memory',
     'using-cognis',
   ]) {
     assert.equal(rule.includes(term), true, `routing policy should document ${term}`);
   }
-  assert.match(rule, /产品 UI.*`frontend-design`.*产品、后台与工具/u);
-  assert.match(rule, /营销.*`frontend-design`.*营销、品牌与作品集/u);
-  assert.match(rule, /方向不明确.*`frontend-design`/u);
-  assert.match(rule, /Architecture.*架构规则.*`code-review-and-quality`/u);
-  assert.match(rule, /Memory 续接.*`agentmemory`.*本地任务与 handoff 文档/u);
+  assert.match(rule, /关键歧义.*`brainstorming`/u);
+  assert.match(rule, /同一实现失败.*`systematic-debugging`/u);
+  assert.match(rule, /Hook 行为变化.*`eval-driven-development`/u);
+  assert.match(rule, /复杂验证设计.*`verification-before-completion`/u);
+  assert.match(rule, /完整任务.*`subagent-driven-development`/u);
   assert.doesNotMatch(rule, /环境提供|`impeccable`|`taste-skill`|recall\/handoff\/session-history/u);
 });
 

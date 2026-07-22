@@ -16,14 +16,15 @@ test('adaptive routing keeps simple request types on a single agent', async () =
     readContract('rules/agent-skill-routing.md'),
   ]);
 
-  assert.match(governance, /风险分级[\s\S]*需求分类[\s\S]*编排判定/u);
-  assert.match(governance, /轻量[\s/、和或与]*(?:完整|完整档)[\s\S]{0,160}需求类型[\s\S]{0,160}编排模式[\s\S]{0,160}判定依据/u);
-  assert.match(governance, /快速[\s\S]{0,100}(?:保持|维持|只需).*简洁/u);
+  assert.match(governance, /获取事实 → 直接执行 → 聚焦验证 → 简洁交付/u);
+  assert.match(governance, /轻量[^\n]*已授权、可逆、本地/u);
+  assert.match(governance, /单 Agent 默认/u);
+  assert.match(governance, /不要求工具前任务确认、计划批准或任务文档/u);
 
   assert.match(collaboration, /文档查询[\s、/和或与]*代码定位[\s、/和或与]*只读解释[\s\S]{0,120}单 Agent/u);
   assert.match(collaboration, /文案修改[\s、/和或与]*局部样式[\s、/和或与]*单页面调整[\s\S]{0,120}单 Agent/u);
   assert.match(collaboration, /单模块功能[\s、/和或与]*小型缺陷修复[\s\S]{0,120}单 Agent/u);
-  assert.match(routing, /(?:查询|文档)[\s\S]{0,120}(?:局部页面|页面调整)[\s\S]{0,120}(?:固定|保持|默认)[\s\S]{0,40}单 Agent/u);
+  assert.match(routing, /默认不嵌套调用规划、TDD、验证和审查 Skill/u);
 });
 
 test('multi-agent admission is all-of, bounded, and degrades safely', async () => {
@@ -44,7 +45,7 @@ test('multi-agent admission is all-of, bounded, and degrades safely', async () =
   assert.match(collaboration, /(?:尽量多用|多用)[\s\S]{0,80}Agent[\s\S]{0,120}(?:不得|不能)[\s\S]{0,80}(?:绕过|替代)[\s\S]{0,60}(?:门禁|准入)/u);
   assert.match(collaboration, /能力不可用[\s\S]{0,100}(?:降级|回退)[\s\S]{0,40}单 Agent[\s\S]{0,120}(?:不得|不能)[\s\S]{0,60}(?:模拟|虚构)/u);
   assert.match(collaboration, /(?:新手|标准|专家|交互偏好)[\s\S]{0,180}(?:不影响|不得改变)[\s\S]{0,100}(?:安全|风险|验证|编排)/u);
-  assert.match(routing, /(?:满足|通过)[\s\S]{0,80}(?:拆分门禁|准入条件)[\s\S]{0,100}(?:完整任务|完整档)[\s\S]{0,120}`subagent-driven-development`/u);
+  assert.match(routing, /完整任务通过多 Agent 准入条件后才可加载 `subagent-driven-development`/u);
 });
 
 test('subagent execution is capped, fail-stopped, and independently verified', async () => {

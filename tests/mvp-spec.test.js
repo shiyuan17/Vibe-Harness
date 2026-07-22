@@ -69,7 +69,7 @@ test('init --project writes the MVP cognis.config.json defaults', async () => {
     assert.equal(config.validationCommands.governance, 'node .agents/cognis/governance/validate.mjs');
     assert.equal(config.validationCommands.lint, null);
     assert.equal(config.validationCommands.typecheck, null);
-    assert.deepEqual(config.governance, { mode: 'basic' });
+    assert.deepEqual(config.governance, { mode: 'basic', workflow: 'adaptive' });
     assert.deepEqual(config.crossRepo, { backendRepo: '', enabled: false });
   } finally {
     await rm(target, { force: true, recursive: true });

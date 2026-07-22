@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildProjectContext, findProjectRoot, readHookSettings, runEvaluationCheck, runGovernanceCheck } from './lib/context.mjs';
+import {
+  buildProjectContext,
+  findProjectRoot,
+  inspectActiveTasks,
+  readHookSettings,
+  runEvaluationCheck,
+  runGovernanceCheck,
+} from './lib/context.mjs';
 import { validateDeliveryMessage } from './lib/delivery-validation.mjs';
 import { analyzeToolRequest, createCodexHookResult, normalizeCodexHookInput } from './lib/policy.mjs';
 import { inspectRtkHook, routeRtkCommand, rtkSessionContext } from './lib/rtk.mjs';
@@ -44,6 +51,7 @@ export async function evaluateCodexHook(rawInput, { expectedEvent, rtkRunner } =
   const rootDir = await findProjectRoot(input.cwd);
   const settings = await readHookSettings(rootDir);
   if (settings.mode === 'off') return {};
+  const strictWorkflow = settings.workflow === 'strict';
 
   if (input.event === 'PreToolUse' || input.event === 'PermissionRequest') {
     const safetyDecision = analyzeToolRequest(input, {
@@ -53,6 +61,7 @@ export async function evaluateCodexHook(rawInput, { expectedEvent, rtkRunner } =
     if (safetyDecision.action !== 'allow' || input.event === 'PermissionRequest') {
       return createCodexHookResult(input.event, safetyDecision);
     }
+    if (!strictWorkflow) return {};
     const rtk = await inspectRtkHook(rootDir, { enabled: settings.rtkEnabled });
     const rtkDecision = await routeRtkCommand(input, {
       mode: settings.mode,
@@ -63,6 +72,7 @@ export async function evaluateCodexHook(rawInput, { expectedEvent, rtkRunner } =
     return createCodexHookResult(input.event, rtkDecision);
   }
   if (input.event === 'SessionStart' || input.event === 'PostCompact') {
+    if (!strictWorkflow && !(await inspectActiveTasks(rootDir)).any) return {};
     const rtk = await inspectRtkHook(rootDir, { enabled: settings.rtkEnabled });
     return {
       hookSpecificOutput: {
@@ -72,6 +82,7 @@ export async function evaluateCodexHook(rawInput, { expectedEvent, rtkRunner } =
     };
   }
   if (input.event === 'UserPromptSubmit') {
+    if (!strictWorkflow) return {};
     return {
       hookSpecificOutput: {
         additionalContext: '如果当前请求创建新任务或使任务范围发生实质变化，在首次使用工具前按治理内核输出“任务确认”；普通追问不要重复输出。',
@@ -93,6 +104,7 @@ export async function evaluateCodexHook(rawInput, { expectedEvent, rtkRunner } =
     };
   }
   if (input.event === 'PostToolUse' && /(?:apply_patch|write|edit)/iu.test(input.toolName ?? '')) {
+    if (!strictWorkflow) return {};
     return {
       hookSpecificOutput: {
         additionalContext: 'Files changed; keep validation evidence current before claiming completion.',
@@ -106,10 +118,13 @@ export async function evaluateCodexHook(rawInput, { expectedEvent, rtkRunner } =
     };
   }
   if (input.event === 'Stop' && settings.completionGate !== 'off') {
+    const activeTasks = strictWorkflow ? { full: true } : await inspectActiveTasks(rootDir);
     const [governance, evaluation, delivery] = await Promise.all([
-      runGovernanceCheck(rootDir),
-      runEvaluationCheck(rootDir, settings.evaluationsEnabled ? settings.validationCommands.eval : null),
-      Promise.resolve(validateDeliveryMessage(input.lastAssistantMessage)),
+      activeTasks.full ? runGovernanceCheck(rootDir) : Promise.resolve({ ok: true, status: 'not-applicable' }),
+      strictWorkflow
+        ? runEvaluationCheck(rootDir, settings.evaluationsEnabled ? settings.validationCommands.eval : null)
+        : Promise.resolve({ ok: true, skipped: true }),
+      Promise.resolve(validateDeliveryMessage(input.lastAssistantMessage, { workflow: settings.workflow })),
     ]);
     const issues = [];
     if (governance.status === 'unavailable') {

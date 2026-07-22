@@ -4,7 +4,7 @@ Cognis 是跨平台、Codex 完整能力优先的可复用 AI coding governance 
 
 ## 子系统
 
-- `rules/`：`governance-core` 是五步循环、风险和证据的唯一流程真值；其余文件只保存工程专项约束。
+- `rules/`：`governance-core` 是 adaptive 结果优先循环、strict 兼容循环、风险和证据的唯一流程真值；其余文件只保存工程专项约束。
 - `templates/`：无 Skill 环境使用的中文任务和交付模板；专项模板与对应 skill 共置。
 - `skills/`：`using-cognis` 负责路由，canonical skills 按需提供规格、计划、实现、验证、审查和恢复流程。
 - `runtime/governance/`：将中英文 Markdown 视图解析为语言无关 TaskDocument IR，再校验 AC-ID、完成证据、完整流程控制块、跨文档任务图和结构化 Red Team 审查包。
@@ -34,6 +34,8 @@ Cognis 是跨平台、Codex 完整能力优先的可复用 AI coding governance 
 8. `cognis eval check|run|reference --project <path>` 校验、执行和显式批准评测 reference。
 9. `cognis baseline --project <path>` 默认预览双层基线；`--write` 建档，`--verify` 才顺序执行 governance、lint、typecheck 和 eval。
 10. `cognis verify --project <path>` 顺序执行 governance、lint、typecheck 和 eval。
+
+`governance.mode` 只控制安装/校验深度；`governance.workflow` 只控制运行行为。新项目默认 adaptive，既有缺失字段的项目解析为 strict；baseline、doctor、dry-run 和安装摘要都报告最终 workflow。
 
 工具名称、版本、项目内入口、状态和逐工具 fallback 以[显式工具插件规格](specs/cognis-tooling-modules-spec.md)为唯一文档真值。架构层只保证共同边界：runtime、缓存、索引和状态都留在目标项目；wrapper 使用受限环境和受管入口；凭据、原始命令环境、页面内容和完整工具输出不写入项目状态；只读检查不执行目标项目二进制。Hook 专属数据流见 [Hook 场景与运行边界](hooks.md)。
 

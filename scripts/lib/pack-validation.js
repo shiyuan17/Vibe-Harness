@@ -285,7 +285,7 @@ export async function validateGovernanceQuality(rootDir) {
   const checks = [
     {
       file: 'rules/governance-core.md',
-      terms: ['获取事实', '做出决策', '执行', '验证', '交付', '主张 → 证据 → 反例 → 剩余风险', '快速', '轻量', '完整', 'Red Team（红队审查）'],
+      terms: ['governance.mode', 'governance.workflow', '获取事实 → 直接执行 → 聚焦验证 → 简洁交付', '主张 → 证据 → 反例 → 剩余风险', '连续三次', '快速', '轻量', '完整', 'Red Team（红队审查）'],
     },
     {
       file: 'templates/task.md',
@@ -293,7 +293,7 @@ export async function validateGovernanceQuality(rootDir) {
     },
     {
       file: 'templates/delivery.md',
-      terms: ['轻量反证', '主张', '本轮证据', '可推翻主张的反例', '剩余风险'],
+      terms: ['Adaptive', '结果', '实际变更', '本轮验证', 'Strict', '结果状态', '验证证据', '剩余风险'],
     },
     {
       file: 'schemas/full-task-control.schema.json',
@@ -301,7 +301,7 @@ export async function validateGovernanceQuality(rootDir) {
     },
     {
       file: 'skills/core/using-cognis/SKILL.md',
-      terms: ['权限、红区和风险档位', '当前处于', '专项 Skill', '验证或审查 Skill', 'adversarial-review-packet'],
+      terms: ['governance.workflow', '获取事实 → 直接执行 → 聚焦验证 → 简洁交付', '一个必要 Skill', 'strict', '人工确认'],
     },
     {
       file: 'skills/core/adversarial-review-packet/references/review.md',
@@ -310,9 +310,8 @@ export async function validateGovernanceQuality(rootDir) {
     {
       file: 'rules/agent-skill-routing.md',
       terms: [
-        '不得覆盖', '一个流程 Skill', '一个领域 Skill', '一个验证或审查 Skill',
-        'Clarify', 'Spec', 'Plan', 'Execute', 'Verify', 'Review', 'Handoff', 'Retrospective',
-        'ocr', 'fallback', 'Memory', 'using-cognis',
+        '不得覆盖', '默认不嵌套调用', '一个必要 Skill', '失败信号',
+        'Adaptive', 'Strict', 'fallback', 'using-cognis', '多 Agent',
       ],
     },
     {

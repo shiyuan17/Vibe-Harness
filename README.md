@@ -74,17 +74,25 @@ Claude Code and Gemini CLI keep `full` behind `--allow-preview`. The report list
 
 ## How the Workflow Works
 
+New projects default to the outcome-first adaptive path:
+
 ```text
-Understand the task -> Choose an approach -> Make the change -> Check the result -> Report what happened
+Get facts -> Act directly -> Verify the claim -> Deliver briefly
 ```
+
+Clear, authorized, reversible local work proceeds without a plan-confirmation round or a mandatory Skill chain. Product decisions that cannot be inferred from the repository are grouped into one question; production, credentials, external writes, red zones, destructive actions, and scope expansion still require confirmation. Existing projects without `governance.workflow` remain on `strict` until explicitly migrated.
 
 | Workflow | When to use it | What the Agent must do |
 | --- | --- | --- |
 | Fast | Reading, documentation, and other low-risk work | Confirm the facts, then give a clear answer with evidence. |
-| Lightweight | A small change in a clearly defined area | State which files may change and how the result will be checked. |
+| Lightweight | Any authorized, reversible local implementation without an external contract | Make the smallest useful change and run focused verification. |
 | Full | Security, releases, sensitive configuration, public APIs, cross-layer changes, or multi-Agent work | Plan before editing, keep a rollback path, and obtain an approved independent Red Team review packet before completion. |
 
-If the risk is unclear, use the full workflow.
+For a new project that needs the legacy full-lifecycle behavior, run:
+
+```bash
+pnpm cognis init --project <path> --workflow strict
+```
 
 Agent count is chosen after risk level and request type. The default is one Agent, including documentation queries, copy changes, local page adjustments, and single-module work. A full task uses multiple Agents automatically only when it has at least two independently acceptable units with fixed non-overlapping scopes, deterministic child checks, parent integration checks, native platform support, and a clear coordination benefit. Shared contracts or files stay serial; missing child capability falls back to one Agent and is reported. Interaction preferences change explanation depth, never safety, verification, or orchestration gates.
 
@@ -149,7 +157,7 @@ Most users only need to review this file after running `init`. Cognis creates `c
     "onlineRunner": null,
     "repetitions": 3
   },
-  "governance": { "mode": "basic" },
+  "governance": { "mode": "basic", "workflow": "adaptive" },
   "hooks": {
     "mode": "guarded",
     "completionGate": "advisory"

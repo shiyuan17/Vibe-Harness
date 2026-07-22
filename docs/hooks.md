@@ -1,6 +1,6 @@
 # Hook 场景与运行边界
 
-Cognis 使用 Codex 原生 hook 协议承载项目内安全策略，并把策略实现放在 `.agents/cognis/hooks/`。截至 2026-07-12，Codex 项目 hook 使用 `SessionStart`、`UserPromptSubmit`、`PreToolUse`、`PermissionRequest`、`PostToolUse`、`PreCompact`、`PostCompact`、`SubagentStart`、`SubagentStop` 和 `Stop`；没有 `SessionEnd`。
+Cognis 使用 Codex 原生 hook 协议承载项目内安全策略，并把策略实现放在 `.agents/cognis/hooks/`。Adaptive 安装 `SessionStart`、`PostCompact`、`PreToolUse`、`SubagentStart`、`SubagentStop` 和 `Stop`；strict 兼容路径保留 `UserPromptSubmit`、`PermissionRequest`、`PostToolUse` 与 `PreCompact` 在内的原 10 事件集合。两条路径都没有 `SessionEnd`。
 
 参考实现：
 
@@ -17,6 +17,7 @@ Cognis 使用 Codex 原生 hook 协议承载项目内安全策略，并把策略
 
 ```json
 {
+  "governance": { "workflow": "adaptive" },
   "hooks": {
     "mode": "guarded",
     "completionGate": "advisory",
@@ -40,11 +41,11 @@ RTK 项目 hook 调用项目内 binary 的 `rewrite`，上限 750ms，并限制 
 
 ## 会话输入与输出
 
-- `SessionStart` / `PostCompact` 读取 `cwd`，输出项目根、Git 分支、工作区状态和活跃任务合同。任务从 `docs/tasks/**/*.md` 读取，只展示最多 5 个开放任务的编号、标题、档位、阶段、状态和下一步；无法解析的合同只显示相对路径。
+- `SessionStart` / `PostCompact` 读取 `cwd`，输出项目根、Git 分支、工作区状态和活跃任务合同。Adaptive 没有 active task 时不注入；strict 保留原行为。任务只展示最多 5 个开放任务的编号、标题、档位、阶段、状态和下一步。
 - `UserPromptSubmit` 不保留或回显 `prompt`，只注入通用要求：新任务或范围实质变化时先输出任务确认，普通追问不重复输出。
 - `SubagentStart` 只注入 child 写入边界、最小上下文、禁止再委派和不得自批等提醒；Codex 事件合同不支持在这里阻止 subagent 启动，Cognis 不宣称该能力。
 - `SubagentStop` 只提醒父 Agent 核对实际 diff 与自报证据、将状态持久化到父 Agent 维护的任务 Markdown，并在合并后的目标工作区复验；它不替代任务图 validator 或独立审查。
-- `Stop` 读取 `last_assistant_message`，同时执行治理校验和交付字段检查。治理 runtime 应存在但 validator 缺失时报告 unavailable；blocking 首次阻断，第二次只提示。交付必须包含结果状态、变更摘要、影响范围、工作流档位、验证证据、未验证项、剩余风险、Git 状态、worktree/分支/merge-back 状态、后续动作和 Memory 判定。
+- `Stop` 读取 `last_assistant_message`。Adaptive 普通任务只检查结果、实际变更和本轮验证，不运行 Eval；只有 active 完整任务才运行治理门禁。Strict 继续运行治理、可选 Eval 和结果状态、变更摘要、影响范围、工作流档位、验证证据、未验证项、剩余风险、Git、worktree/merge-back、后续动作与 Memory 的完整交付检查。
 - 交付解析忽略代码围栏、缩进代码、HTML、注释和引用示例，并拒绝 TODO、TBD、N/A、待补充等占位值。
 - `blocking` 首次返回 `{ "decision": "block", "reason": "..." }`；advisory 或第二次 Stop 返回 `systemMessage`，不会形成无限续跑。
 

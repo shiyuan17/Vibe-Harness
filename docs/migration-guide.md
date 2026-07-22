@@ -17,6 +17,8 @@ Cognis（智序）是 LoopEngine 的新名称。本指南同时覆盖新项目�
 pnpm cognis init --project ../target-project
 ```
 
+新项目默认写入 `governance.workflow: adaptive`。需要沿用完整生命周期时可使用 `--workflow strict`。
+
 检查 `cognis.config.json` 中的 `projectName`、`validationCommands`、`riskZones` 和可选 `crossRepo`，然后先预览安装：
 
 ```bash
@@ -41,6 +43,8 @@ pnpm cognis doctor --project ../target-project
 pnpm cognis install --project ../target-project --target codex --profile core --upgrade --dry-run
 pnpm cognis install --project ../target-project --target codex --profile core --upgrade --write
 ```
+
+既有配置缺少 `governance.workflow` 时始终解析为 `strict`；显式 upgrade 会把 `strict` 写回配置。迁移到 adaptive 必须由用户随后明确修改该字段，升级过程不会静默改变运行行为。
 
 Codex full 涉及 `.codex/` 红区，真实写入还需要 `--confirm-red-zone`：
 

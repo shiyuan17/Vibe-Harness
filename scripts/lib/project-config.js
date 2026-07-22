@@ -50,6 +50,7 @@ export const defaultProjectConfig = {
   },
   governance: {
     mode: 'basic',
+    workflow: 'adaptive',
   },
   hooks: {
     completionGate: 'advisory',
@@ -90,12 +91,16 @@ export function profileToCatalogProfile(profile) {
   return profile;
 }
 
-export function createDefaultProjectConfig(projectDir, target = 'codex', profile = 'core') {
+export function createDefaultProjectConfig(projectDir, target = 'codex', profile = 'core', workflow = 'adaptive') {
+  if (!['adaptive', 'strict'].includes(workflow)) {
+    throw new Error('governance.workflow must be adaptive or strict');
+  }
   return {
     ...defaultProjectConfig,
     governance: {
       ...defaultProjectConfig.governance,
       mode: profile === 'minimal' ? 'off' : (profile === 'full' || profile === 'docs-only' ? 'full' : 'basic'),
+      workflow,
     },
     projectName: path.basename(path.resolve(projectDir)),
     profile,
@@ -103,7 +108,7 @@ export function createDefaultProjectConfig(projectDir, target = 'codex', profile
   };
 }
 
-export async function writeDefaultProjectConfig({ force = false, projectDir, profile = 'core', target = 'codex' }) {
+export async function writeDefaultProjectConfig({ force = false, projectDir, profile = 'core', target = 'codex', workflow = 'adaptive' }) {
   const existing = await resolveProjectConfigLocation(projectDir);
   if (existing?.legacy) {
     throw Object.assign(new Error(`Legacy ${productIdentity.legacy.configFile} exists; run cognis install --upgrade.`), {
@@ -117,7 +122,7 @@ export async function writeDefaultProjectConfig({ force = false, projectDir, pro
   await mkdir(projectDir, { recursive: true });
   if (!mvpTargets.has(target)) throw new Error(`Unknown target: ${target}`);
   validateProfileName(profile);
-  const config = createDefaultProjectConfig(projectDir, target, profile);
+  const config = createDefaultProjectConfig(projectDir, target, profile, workflow);
   await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
   return { config, path: configPath };
 }
@@ -142,6 +147,7 @@ export async function createProjectConfigMigration(projectDir, config) {
   const location = await resolveProjectConfigLocation(projectDir);
   if (!location?.legacy) return null;
   const migrated = structuredClone(config);
+  migrated.governance = { ...(migrated.governance ?? {}), workflow: migrated.governance?.workflow ?? 'strict' };
   const legacyDefault = 'node .agents/loopengine/governance/validate.mjs';
   const canonicalDefault = 'node .agents/cognis/governance/validate.mjs';
   for (const [name, command] of Object.entries(migrated.validationCommands ?? {})) {
@@ -164,6 +170,18 @@ export async function createProjectConfigMigration(projectDir, config) {
   };
 }
 
+export function createGovernanceWorkflowUpdate(projectDir, config) {
+  if (config.governance?.workflow) return null;
+  return {
+    config: {
+      ...structuredClone(config),
+      governance: { ...(config.governance ?? {}), workflow: 'strict' },
+    },
+    path: path.join(projectDir, productIdentity.configFile),
+    workflow: 'strict',
+  };
+}
+
 function assertObject(value, label) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`${label} must be an object`);
@@ -181,6 +199,10 @@ export function resolveGovernanceMode(config, profile = config?.profile) {
   if (profile === 'minimal') return 'off';
   if (['full', 'docs-only'].includes(profile)) return 'full';
   return 'basic';
+}
+
+export function resolveGovernanceWorkflow(config) {
+  return config?.governance?.workflow ?? 'strict';
 }
 
 export function validateGovernanceModeForProfile(mode, profile) {
@@ -244,6 +266,9 @@ export function validateProjectConfig(config) {
     assertObject(config.governance, 'governance');
     if (!['basic', 'full', 'off'].includes(config.governance.mode)) {
       throw new Error('governance.mode must be basic, full, or off');
+    }
+    if (Object.hasOwn(config.governance, 'workflow') && !['adaptive', 'strict'].includes(config.governance.workflow)) {
+      throw new Error('governance.workflow must be adaptive or strict');
     }
   }
   if (Object.hasOwn(config, 'hooks')) {
@@ -321,13 +346,13 @@ function hasInstalledSurface(installedTargets, { exact, prefix, suffix }) {
   return installedTargets.some((target) => target.startsWith(prefix));
 }
 
-export function validateGeneratedContent(content, { installedTargets } = {}) {
+export function validateGeneratedContent(content, { installedTargets, workflow = 'strict' } = {}) {
   const requiredFragments = [
     '编辑前',
     '红区',
     '人工确认',
     '验证证据',
-    '轻量反证',
+    ...(workflow === 'strict' ? ['轻量反证'] : []),
   ];
   const missing = requiredFragments.filter((fragment) => !content.includes(fragment));
   if (missing.length > 0) {
@@ -376,6 +401,6 @@ export function validateGeneratedContent(content, { installedTargets } = {}) {
 export function validateConfigAndGeneratedContent(config, agentsTemplate, options = {}) {
   validateProjectConfig(config);
   const rendered = renderTemplate(agentsTemplate, config);
-  validateGeneratedContent(rendered, options);
+  validateGeneratedContent(rendered, { ...options, workflow: resolveGovernanceWorkflow(config) });
   return rendered;
 }

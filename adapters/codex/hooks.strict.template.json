@@ -9,19 +9,19 @@
             "command": "node \"{{hookRunnerPath}}\" --expected-event SessionStart",
             "commandWindows": "node \"{{hookRunnerPath}}\" --expected-event SessionStart",
             "timeout": 10,
-            "statusMessage": "Loading active Cognis task context"
+            "statusMessage": "Loading Cognis project context"
           }
         ]
       }
     ],
-    "PostCompact": [
+    "UserPromptSubmit": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "node \"{{hookRunnerPath}}\" --expected-event PostCompact",
-            "commandWindows": "node \"{{hookRunnerPath}}\" --expected-event PostCompact",
-            "timeout": 10
+            "command": "node \"{{hookRunnerPath}}\" --expected-event UserPromptSubmit",
+            "commandWindows": "node \"{{hookRunnerPath}}\" --expected-event UserPromptSubmit",
+            "timeout": 5
           }
         ]
       }
@@ -35,7 +35,58 @@
             "command": "node \"{{hookRunnerPath}}\" --expected-event PreToolUse",
             "commandWindows": "node \"{{hookRunnerPath}}\" --expected-event PreToolUse",
             "timeout": 10,
-            "statusMessage": "Checking Cognis safety policy"
+            "statusMessage": "Checking Cognis tool policy"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "Bash|Edit|Write|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"{{hookRunnerPath}}\" --expected-event PermissionRequest",
+            "commandWindows": "node \"{{hookRunnerPath}}\" --expected-event PermissionRequest",
+            "timeout": 10,
+            "statusMessage": "Checking Cognis approval policy"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|Edit|Write|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"{{hookRunnerPath}}\" --expected-event PostToolUse",
+            "commandWindows": "node \"{{hookRunnerPath}}\" --expected-event PostToolUse",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"{{hookRunnerPath}}\" --expected-event PreCompact",
+            "commandWindows": "node \"{{hookRunnerPath}}\" --expected-event PreCompact",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"{{hookRunnerPath}}\" --expected-event PostCompact",
+            "commandWindows": "node \"{{hookRunnerPath}}\" --expected-event PostCompact",
+            "timeout": 10
           }
         ]
       }

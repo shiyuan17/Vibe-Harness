@@ -171,8 +171,9 @@ test('CLI write mode writes files when red-zone confirmation is explicit', async
     assert.equal(await readFile(path.join(target, '.codex/hooks.json'), 'utf8').then((content) => content.includes('hooks')), true);
     assert.equal(taskTemplate.includes('工作流档位'), true);
     assert.equal(taskTemplate.includes('完整流程控制'), true);
-    assert.equal(deliveryTemplate.includes('轻量反证'), true);
-    assert.equal(routerSkill.includes('Cognis 路由'), true);
+    assert.equal(deliveryTemplate.includes('实际变更'), true);
+    assert.equal(deliveryTemplate.includes('本轮验证'), true);
+    assert.equal(routerSkill.includes('Cognis 短路由'), true);
   } finally {
     await rm(target, { force: true, recursive: true });
   }

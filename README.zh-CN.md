@@ -74,17 +74,25 @@ Claude Code 与 Gemini CLI 的 `full` 默认被 preview 门禁阻止，只有显
 
 ## AI 会按什么步骤工作
 
+新项目默认使用结果优先 adaptive 路径：
+
 ```text
-理解任务 -> 选择方案 -> 执行修改 -> 检查结果 -> 说明完成情况
+获取事实 -> 直接执行 -> 聚焦验证 -> 简洁交付
 ```
+
+清晰、已授权、可逆的本地工作不再增加计划确认轮次，也不强制加载 Skill 链；无法从仓库确定的产品决定会在同轮批量询问。生产、凭据、外部写入、红区、破坏性动作和范围扩大仍需确认。缺少 `governance.workflow` 的既有项目继续按 `strict` 运行，只有显式迁移才改变行为。
 
 | 流程 | 适用场景 | AI 至少要做到什么 |
 | --- | --- | --- |
 | 快速 | 阅读、文档和其他低风险任务 | 先确认事实，再给出清楚的结论和依据。 |
-| 轻量 | 范围明确的小改动 | 修改前说明会动哪些文件，以及准备怎样检查结果。 |
+| 轻量 | 已授权、可逆、且不涉及外部契约的本地实现 | 完成最小改动，并运行与主张匹配的聚焦验证。 |
 | 完整 | 安全、发布、敏感配置、公开接口、跨层修改或多个 Agent 协作 | 先给出方案再修改，保留撤销办法，并在完成前取得独立 Red Team 审查包的“批准”结论。 |
 
-无法确定风险时，使用完整流程。
+新项目需要旧的完整生命周期时，运行：
+
+```bash
+pnpm cognis init --project <path> --workflow strict
+```
 
 Agent 数量在风险分级和需求分类之后判定。默认使用单 Agent，包括文档查询、文案调整、局部页面修改和单模块工作。只有完整任务含至少两个可独立验收单元，且边界固定、同批写入不重叠、child 与父任务验证明确、平台具备真实能力、协调收益足够时，才自动使用多 Agent。共享契约或文件保持串行；缺少子 Agent 能力时降级为单 Agent并明确报告。新手、标准或专家等交互偏好只改变解释深度，不改变安全、验证或编排门禁。
 
@@ -149,7 +157,7 @@ pnpm cognis install --project ../gemini-project --target gemini --profile core -
     "onlineRunner": null,
     "repetitions": 3
   },
-  "governance": { "mode": "basic" },
+  "governance": { "mode": "basic", "workflow": "adaptive" },
   "hooks": {
     "mode": "guarded",
     "completionGate": "advisory"

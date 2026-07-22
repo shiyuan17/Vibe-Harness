@@ -25,7 +25,8 @@
     "repetitions": 3
   },
   "governance": {
-    "mode": "basic"
+    "mode": "basic",
+    "workflow": "adaptive"
   },
   "hooks": {
     "completionGate": "advisory",

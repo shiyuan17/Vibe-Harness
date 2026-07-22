@@ -11,7 +11,7 @@ import {
   createCodexHookResult,
   normalizeCodexHookInput,
 } from '../runtime/hooks/lib/policy.mjs';
-import { buildProjectContext, findProjectRoot, readHookSettings, runGovernanceCheck } from '../runtime/hooks/lib/context.mjs';
+import { buildProjectContext, findProjectRoot, inspectActiveTasks, readHookSettings, runGovernanceCheck } from '../runtime/hooks/lib/context.mjs';
 import { validateDeliveryMessage } from '../runtime/hooks/lib/delivery-validation.mjs';
 import { evaluateCodexHook } from '../runtime/hooks/codex-hook.mjs';
 import { inspectRtkHook, routeRtkCommand, runRtkRewrite } from '../runtime/hooks/lib/rtk.mjs';
@@ -339,6 +339,29 @@ test('project context bounds task content and does not include prompt text', asy
   }
 });
 
+test('active task inspection recognizes the localized English full-task contract', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-task-context-en-'));
+  try {
+    await mkdir(path.join(target, 'docs', 'tasks'), { recursive: true });
+    await writeFile(path.join(target, 'docs', 'tasks', 'TASK-EN.md'), `# TASK-EN English task
+
+- Workflow tier: full
+- Current phase: execution
+- Current status: in_progress
+- Result: open
+
+## Next action
+
+Run focused verification.
+`, 'utf8');
+    assert.deepEqual(await inspectActiveTasks(target), { any: true, full: true });
+    assert.match(await buildProjectContext(target), /TASK-EN English task/iu);
+    assert.match(await buildProjectContext(target), /Run focused verification/iu);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
 test('project context reports the total changed paths while showing a bounded summary', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'cognis-context-count-'));
   try {
@@ -541,6 +564,7 @@ test('hook runtime reads legacy settings and validator paths as compatibility fa
       mode: 'strict',
       rtkEnabled: false,
       validationCommands: { governance: 'legacy-governance' },
+      workflow: 'strict',
     });
     assert.deepEqual(await runGovernanceCheck(target), { ok: true, status: 'passed' });
   } finally {
@@ -651,6 +675,62 @@ test('UserPromptSubmit injects task-confirmation guidance without echoing the pr
     assert.match(context, /任务确认/);
     assert.match(context, /任务范围发生实质变化/);
     assert.doesNotMatch(context, /sensitive task contents/);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('adaptive prompt and recovery hooks stay silent without an active task', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-hook-adaptive-silent-'));
+  try {
+    await writeFile(path.join(target, 'cognis.config.json'), JSON.stringify({
+      governance: { workflow: 'adaptive' },
+      hooks: { mode: 'guarded' },
+    }), 'utf8');
+    for (const event of ['SessionStart', 'PostCompact', 'UserPromptSubmit', 'PostToolUse']) {
+      const result = await evaluateCodexHook({
+        cwd: target,
+        hook_event_name: event,
+        session_id: 'adaptive-silent',
+        tool_name: event === 'PostToolUse' ? 'apply_patch' : undefined,
+      });
+      assert.deepEqual(result, {}, event);
+    }
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('adaptive delivery accepts the compact contract and gates governance only for active full tasks', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-hook-adaptive-stop-'));
+  try {
+    await writeFile(path.join(target, 'cognis.config.json'), JSON.stringify({
+      governance: { workflow: 'adaptive' },
+      hooks: { completionGate: 'blocking', mode: 'guarded' },
+      evaluations: { enabled: true },
+      validationCommands: { eval: 'node -e "process.exit(9)"' },
+    }), 'utf8');
+    const compact = '- 结果：完成\n- 实际变更：修改本地实现。\n- 本轮验证：聚焦测试通过。';
+    assert.deepEqual(await evaluateCodexHook({
+      cwd: target,
+      hook_event_name: 'Stop',
+      last_assistant_message: compact,
+      session_id: 'adaptive-stop',
+    }), {});
+
+    await mkdir(path.join(target, 'docs', 'tasks'), { recursive: true });
+    await writeFile(path.join(target, 'docs', 'tasks', 'FULL.md'), taskContract({
+      id: 'FULL-1', title: '完整任务', tier: '完整',
+    }), 'utf8');
+    const blocked = await evaluateCodexHook({
+      cwd: target,
+      hook_event_name: 'Stop',
+      last_assistant_message: compact,
+      session_id: 'adaptive-stop-full',
+    });
+    assert.equal(blocked.decision, 'block');
+    assert.match(blocked.reason, /validator is unavailable/iu);
+    assert.doesNotMatch(blocked.reason, /evaluation/iu);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
@@ -798,15 +878,19 @@ test('Git pre-push hook propagates validation failures from canonical and legacy
   }
 });
 
-test('Codex hook template declares current events with a project-scoped runner', async () => {
-  const hooks = JSON.parse(await readFile(path.join(rootDir, 'adapters/codex/hooks.template.json'), 'utf8'));
-  const expected = [
+test('Codex hook templates declare adaptive and strict event sets with a project-scoped runner', async () => {
+  const adaptive = JSON.parse(await readFile(path.join(rootDir, 'adapters/codex/hooks.template.json'), 'utf8'));
+  const strict = JSON.parse(await readFile(path.join(rootDir, 'adapters/codex/hooks.strict.template.json'), 'utf8'));
+  assert.deepEqual(Object.keys(adaptive.hooks), [
+    'SessionStart', 'PostCompact', 'PreToolUse', 'SubagentStart', 'SubagentStop', 'Stop',
+  ]);
+  const expectedStrict = [
     'SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PermissionRequest', 'PostToolUse',
     'PreCompact', 'PostCompact', 'SubagentStart', 'SubagentStop', 'Stop',
   ];
 
-  assert.deepEqual(Object.keys(hooks.hooks), expected);
-  for (const [event, definitions] of Object.entries(hooks.hooks)) {
+  assert.deepEqual(Object.keys(strict.hooks), expectedStrict);
+  for (const [event, definitions] of Object.entries({ ...adaptive.hooks, ...strict.hooks })) {
     for (const handler of definitions.flatMap((definition) => definition.hooks)) {
       assert.match(handler.command, /node "\{\{hookRunnerPath\}\}"/u);
       assert.match(handler.commandWindows, /node "\{\{hookRunnerPath\}\}"/u);
