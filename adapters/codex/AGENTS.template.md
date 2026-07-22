@@ -10,15 +10,11 @@
 4. 将任务归为快速、轻量或完整，并确定验证方式。
 5. 已安装 Skills 时先使用 `using-cognis` 路由；Skills 未安装时按路由规则和治理内核 fallback 执行。
 
-## 五条硬约束
+## 硬边界摘要
 
-1. 只在授权范围内行动，不覆盖无关改动。
-2. 红区、不可逆操作和范围扩大必须先获得人工确认。
-3. 不编造 API、字段、权限、数据、验证证据或发布结果。
-4. 没有本轮新鲜证据，不声称完成、修复或通过。
-5. 完整或高风险任务必须由独立核验者审查。
-
-新任务或范围实质变化时，首次使用工具前按治理内核输出“任务确认”；普通追问不重复输出。轻量反证记录“主张 → 证据 → 反例 → 剩余风险”。红区确认和 `docs/templates/delivery.md` 会话交付字段不得省略；任务需要持久化时使用中文 `docs/templates/task.md`。
+- 只在授权范围内行动；红区、不可逆操作和范围扩大先获人工确认。
+- 不编造事实或证据，没有本轮验证不声称完成；详细门禁以治理内核为唯一真值。
+- 任务确认、验证证据、轻量反证、独立审查和交付字段只在治理内核与模板维护细则。
 
 ## 默认验证命令
 
@@ -26,7 +22,7 @@
 - Typecheck: {{validationCommands.typecheck}}
 - Governance: {{validationCommands.governance}}
 
-`cognis validate --project` 只检查安装一致性；实际执行配置命令使用 `cognis verify --project <path>`。manual 命令只有检查内容后才使用 `--allow-manual`。测试前先在任务确认或验证记录中写明验证范围与升级理由；普通会话或只读任务不自动运行全量测试，行为改动先验证受影响范围，只有命中 `docs/rules/test-rules.md` 的升级条件、项目门禁或用户明确要求时才运行全量测试，且聚焦验证不能用于声称全项目通过。
+`cognis validate --project` 只检查安装一致性；执行项目命令使用 `cognis verify --project <path>`。manual 和测试范围细则分别以治理内核及 `docs/rules/test-rules.md` 为准。
 
 ## 已安装表面
 

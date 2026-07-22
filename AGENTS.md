@@ -47,21 +47,18 @@ Cognis 用来打包可复用的 AI coding governance 资产。源项目只能作
 
 ## 启动
 
-1. 阅读 `docs/rules/governance-core.md`、`docs/rules/AGENT_SKILL_ROUTING.md` 和命中场景的专项规则。
+1. 本源仓库读取 `rules/governance-core.md`、`rules/agent-skill-routing.md` 和命中场景的专项规则；安装后的目标项目使用 `docs/rules/` 映射。
 2. 编辑前运行 `git status --short`，保护用户未归属改动。
 3. 使用仓库搜索和已安装规则定位相关代码；需要结构化索引时先确认目标项目已有能力。
 4. 将任务归为快速、轻量或完整，并确定验证方式。
 5. 已安装 Skills 时先使用 `using-cognis` 路由；Skills 未安装时按路由规则和治理内核 fallback 执行。
 
-## 五条硬约束
+## 硬边界摘要
 
-1. 只在授权范围内行动，不覆盖无关改动。
-2. 红区、不可逆操作和范围扩大必须先获得人工确认。
-3. 不编造 API、字段、权限、数据、验证证据或发布结果。
-4. 没有本轮新鲜证据，不声称完成、修复或通过。
-5. 完整或高风险任务必须由独立核验者审查。
-
-新任务或范围实质变化时，首次使用工具前按治理内核输出“任务确认”；普通追问不重复输出。轻量反证记录“主张 → 证据 → 反例 → 剩余风险”。红区确认和 `docs/templates/delivery.md` 会话交付字段不得省略；任务需要持久化时使用中文 `docs/templates/task.md`。
+- 只在授权范围内行动；红区、不可逆操作和范围扩大先获人工确认。
+- 不编造事实或证据，没有本轮验证不声称完成；详细门禁以治理内核为唯一真值。
+- 任务确认、验证证据、轻量反证、独立审查和交付字段只在治理内核与模板维护细则。
+- 本源仓库交付使用 `templates/delivery.md`，持久化任务使用 `templates/task.md`；安装后路径位于 `docs/templates/`。
 
 ## 默认验证命令
 
@@ -69,7 +66,7 @@ Cognis 用来打包可复用的 AI coding governance 资产。源项目只能作
 - Typecheck: 未配置
 - Governance: node .agents/cognis/governance/validate.mjs
 
-`cognis validate --project` 只检查安装一致性；实际执行配置命令使用 `cognis verify --project <path>`。manual 命令只有检查内容后才使用 `--allow-manual`。
+`cognis validate --project` 只检查安装一致性；执行项目命令使用 `cognis verify --project <path>`。manual 和测试范围细则分别以治理内核及 `rules/test-rules.md` 为准。
 
 ## 已安装表面
 

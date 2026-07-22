@@ -28,7 +28,7 @@
 
 | 插件 | 固定版本 | 项目内入口 |
 | --- | --- | --- |
-| RTK | `rtk-ai/rtk v0.43.0` | `node .agents/cognis/tools/rtk/run.mjs <command> ...` |
+| RTK | `rtk-ai/rtk v0.43.0` | `node .agents/cognis/tools/rtk/run.mjs <command> ...`；原始输出使用 `node .agents/cognis/tools/rtk/run.mjs proxy <command> ...` |
 | ast-grep | `@ast-grep/cli@0.44.1` | `node .agents/cognis/tools/ast-grep/run.mjs <sg\|ast-grep> ...` |
 | codebase-memory-mcp | `0.9.0` | `.agents/cognis/tools/codebase-memory-mcp/run.mjs` |
 | Chrome DevTools MCP | `1.6.0` | `.agents/cognis/tools/chrome-devtools-mcp/run.mjs` |

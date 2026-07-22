@@ -107,19 +107,7 @@ Agent 数量在风险分级和需求分类之后判定。默认使用单 Agent�
 <details>
 <summary><strong>标准项目安装方式</strong></summary>
 
-大多数用户都应该使用这种方式。`--project` 后面填写项目目录，`--target` 选择 AI 编程工具；查看预览并确认无误后，再使用 `--write` 写入。
-
-```bash
-# 创建项目配置
-pnpm cognis init --project ../some-project --target codex
-
-# 先预览，再安装
-pnpm cognis install --project ../some-project --target codex --profile core --dry-run
-pnpm cognis install --project ../some-project --target codex --profile core --write
-
-# 检查安装内容是否仍然有效
-pnpm cognis validate --project ../some-project
-```
+大多数用户都应该使用这种方式。Codex 的规范安装生命周期只保留在[快速开始](#快速开始)；查看预览并确认无误后，再使用 `--write` 写入。
 
 命令默认输出方便脚本读取的精简 JSON。需要更容易阅读的短报告时，添加 `--output summary`；需要查看完整文件预览和诊断路径时，添加 `--verbose`。
 
@@ -202,9 +190,6 @@ evaluation `reference` 与项目 `baseline` 相互独立。更新 reference 必�
 # 启用一个插件
 pnpm cognis install --project ../some-project --target codex --profile core --plugin -rtk --dry-run
 
-# 显式加入项目级 Codex RTK hook（.codex/hooks.json 属于红区）
-pnpm cognis install --project ../some-project --target codex --profile core --plugin -rtk --rtk-hooks on --write --confirm-red-zone
-
 # 同时启用多个插件
 pnpm cognis install --project ../some-project --target codex --profile core --plugin -rtk ast-grep --write
 
@@ -217,7 +202,7 @@ pnpm cognis install --project ../some-project --target codex --profile core --pl
 
 公开插件名为 `rtk`、`ast-grep`、`codebase-memory-mcp`、`chrome-devtools-mcp`、`playwright-cli`、`open-code-review` 和 `agentmemory`；`all` 展开为全部 7 个。命令支持上述单前导 `-` 写法、逗号分隔和重复 `--plugin`，未知或重复名称会被拒绝。选择 Agentmemory 进入安装或 provisioning 都需要 `--allow-preview`。
 
-从 hook 角度看，`--plugin -rtk` 仍只安装 instructions。`--rtk-hooks on` 显式加入并持久化 Codex 项目 hook，`--rtk-hooks off` 关闭它。Cognis 不运行 `rtk init -g`，不修改 PATH，也不写用户级 Codex 或 Agent 配置。
+RTK hook 集成是可选能力，统一记录在 [Hook 场景与运行边界](docs/hooks.md)；工具使用和 fallback 只由安装后的工具规则说明。
 
 CLI 选择优先于 `cognis.config.json` 的 `plugins`，后者优先于 `.cognis/install-state.json` 保存的选择。后续 install、validate、doctor、baseline、provision、rollback 和 uninstall 会复用该选择。报告用 `requestedPlugins` 展示规范化插件模块，并用 `resolvedModules` 展示完整依赖闭包。
 
@@ -242,10 +227,9 @@ pnpm cognis install --project ../some-project --target codex --profile core --mo
 
 安装完成后可以使用这组命令。`validate` 检查 Cognis 文件，`verify` 执行项目配置的检查命令，`baseline` 则保存当前项目与安装状态的快照。
 
-```bash
-# 检查 Cognis 配置和已安装文件，不执行项目命令
-pnpm cognis validate --project ../some-project
+规范安装检查已在[快速开始](#快速开始)给出。下面只保留项目验证和快照命令：
 
+```bash
 # 执行配置中的 governance、lint 和 typecheck 命令
 pnpm cognis verify --project ../some-project
 
@@ -284,7 +268,6 @@ Cognis 只删除自己安装且没有被修改的文件。对于共用的说明�
 pnpm cognis init --project ../some-project
 pnpm cognis install --project ../some-project --target codex --profile full --dry-run --upgrade
 pnpm cognis install --project ../some-project --target codex --profile full --write --upgrade --confirm-red-zone
-pnpm cognis validate --project ../some-project
 pnpm cognis doctor --project ../some-project
 ```
 
@@ -295,33 +278,9 @@ pnpm cognis doctor --project ../some-project
 <details>
 <summary><strong>内置工具与命令状态</strong></summary>
 
-当安装或健康检查报告问题时，可以查看这一节。`core` 与 `full` 默认都不安装外部工具插件。RTK、ast-grep、codebase-memory-mcp、Chrome DevTools MCP、Playwright CLI、Open Code Review 和 Agentmemory 均通过 `--plugin` 启用；`--plugin -all --allow-preview` 选择全部 7 个。
+当安装或健康检查报告问题时，可以查看这一节。全部 7 个工具都是可选的项目内插件；名称、版本、入口、状态和 fallback 只以[显式工具插件规格](docs/specs/cognis-tooling-modules-spec.md)为真值。浏览器与 hook runtime 细节见 [Hook 场景与运行边界](docs/hooks.md)。
 
-Cognis 只会把 MCP 设置写入项目 `.codex/config.toml` 中自己标记的区域。凭据只从当前终端环境读取，绝不会保存到项目中。
-
-`chrome-devtools` 模块固定使用 `chrome-devtools-mcp@1.6.0`，通过项目内入口以系统 Google Chrome 的无头隔离模式启动。它关闭使用统计、更新检查和 CrUX 补充数据，脱敏 network header，不转发任意命令参数，也不连接个人 Chrome profile 或远程调试端口。Provisioning 会调用 `list_pages` 完成真实浏览器 smoke；Chrome 缺失或启动失败会报告 `CHROME_LAUNCH_FAILED`，且不会持久化页面、header、响应体、凭据或原始进程环境。
-
-Open Code Review 的 endpoint 按以下顺序解析：完整的 `OCR_LLM_URL` + `OCR_LLM_TOKEN` + `OCR_LLM_MODEL`，当前用户 `~/.opencodereview/config.json` 的 active provider，兼容的 `ANTHROPIC_*` 或 `OPENAI_*` 环境变量，最后才是当前 Codex provider 的 `~/.codex/config.toml`。解析结果只传给 Open Code Review 子进程，不会写入 `cognis.config.json`、`.cognis/tool-state` 或 MCP 配置。配置缺失或不完整时保持 `pending-config`，并只输出脱敏诊断。
-
-codebase-memory 的索引范围始终是目标项目。Cognis 将 `CBM_ALLOWED_ROOT` 和子进程 cwd 固定为项目根；索引该根时传递 `--repo-path .`，让 ASCII、空格和 Windows 中文路径经过同一套校验。根边界错误使用 `INDEX_PATH_OUTSIDE_ALLOWED_ROOT`；本地索引缓存损坏时，下一次 provision 会自动清理受管缓存并重建，重试仍失败则报告 `INDEX_CORRUPT_REINDEX_REQUIRED`。`index_status` 仍必须确认状态为 `ready`、根路径匹配，并返回合法的节点和边数量。
-
-RTK `v0.43.0` 只从固定官方 release 资产下载，并在项目内 wrapper 使用前完成 SHA-256 校验。ast-grep 使用锁定的 `@ast-grep/cli@0.44.1`，同时提供 `sg` 与 `ast-grep` 入口。高输出且非敏感的命令优先使用 RTK，结构化代码查询优先使用 ast-grep；工具处于 `pending`、`degraded` 或 `unsupported` 时，按规则回退到原命令或 `rg`，并记录原因和影响。
-
-Install、validate 和 doctor 使用相同的健康状态：
-
-| 状态 | 退出码 | 表示什么 |
-| --- | --- | --- |
-| `ready` | `0` | 治理资产有效，且没有已尝试 provisioning 的工具失败；已选但尚未 provision 的工具以 `pending` 或 `pending-config` 告警展示。 |
-| `invalid` | `1` | 配置或已安装文件与 Cognis 的预期不一致。 |
-| `degraded` | `2` | 某个必需工具、凭据或功能当前不可用。 |
-
-`--allow-degraded` 可以为自动化流程把退出码改成 `0`，但不会隐藏问题。报告仍会保留 `ok: false`、`status: "degraded"`、警告和建议的处理办法。`pending` 与 `pending-config` 不会让资产优先安装失败；运行 `provision --write` 后出现的真实工具失败，以及未完成的 provisioning 进程标记，才会使健康状态降级。
-
-单个工具还会报告 `pending`、`ready`、`degraded` 或 `unsupported`；`unsupported` 表示当前平台没有经过校验的官方资产，必须使用规则规定的回退方式。
-
-维护者使用 `pnpm runtime:audit` 按 provision 的真实依赖面执行审计。Critical、High 或审计不可用会使命令失败，Moderate 保留为可见告警；Agentmemory 在 provision 和强制审计中都排除 optional 依赖。
-
-首次 provision 前，Cognis 根据已选插件和当前平台只读计算 `pending` 或 `unsupported`，不会写入状态。真实 provision 会在 `.cognis/tool-state/tools.json` 逐工具记录版本、平台、包来源、起止时间、结果和脱敏日志摘要；install、validate、doctor、baseline 和 summary 会展示当前计算或已持久化的状态。失败诊断包含失败阶段、稳定错误码、可用时的退出码及限长输出尾部；项目路径和类似凭据的值会被替换，绝不保存原始命令环境或完整输出。provisioning 被中断时会保留 `.cognis/tool-state/provisioning.json`，`doctor` 只报告并降级，不会自动修改环境。
+Cognis 只写项目内受管 MCP 区域，只把凭据传给所需子进程，并保存脱敏诊断而不是原始环境或完整工具输出。
 
 </details>
 

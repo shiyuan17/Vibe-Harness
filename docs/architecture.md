@@ -27,7 +27,7 @@ Cognis 是跨平台、Codex 完整能力优先的可复用 AI coding governance 
 1. `cognis init --project <path> --target <codex|claude|gemini>` 创建项目配置。
 2. `cognis install --project <path> --target <adapter> --profile <profile> --dry-run` 只预览；CLI target 与配置不一致时拒绝执行。
 3. 所有 profile 使用 `--write` 事务性写入；Codex full 写入红区另需 `--confirm-red-zone`。事务按 preflight、journal、preimage、apply、state v3 commit 顺序执行。
-4. `cognis install ... --plugin <plugins>` 将工具模块及依赖闭包增量并入 profile；`-all` 选择全部 7 个，单选、多选与 install-state 持久化互相独立。`--rtk-hooks on|off` 是独立、默认关闭的 Codex-only 集成开关，只有启用时才隐式加入 hooks 及治理依赖。`cognis provision --project <path> --profile <profile>` 独立预览已选工具；只有 `--write` 才执行。`install --provision` 是兼容的一站式入口。
+4. `cognis install ... --plugin <plugins>` 将工具模块及依赖闭包增量并入 profile；`-all` 选择全部 7 个，单选、多选与 install-state 持久化互相独立。Codex-only 工具 hook 的配置和行为由 [Hook 场景与运行边界](hooks.md) 定义。`cognis provision --project <path> --profile <profile>` 独立预览已选工具；只有 `--write` 才执行。`install --provision` 是兼容的一站式入口。
 5. 中断事务由 `cognis recover --project <path>` 预览，显式 `--write` 才逆序恢复；`doctor` 只读报告锁和 journal。
 6. 工具子进程使用 allowlist 环境与独立进程组；SIGINT、SIGTERM、超时和输出上限都会先清理进程树。失败诊断脱敏后写入工具状态。
 7. `cognis validate --project <path>` 校验安装一致性和组件状态，不执行目标项目命令。
@@ -35,13 +35,7 @@ Cognis 是跨平台、Codex 完整能力优先的可复用 AI coding governance 
 9. `cognis baseline --project <path>` 默认预览双层基线；`--write` 建档，`--verify` 才顺序执行 governance、lint、typecheck 和 eval。
 10. `cognis verify --project <path>` 顺序执行 governance、lint、typecheck 和 eval。
 
-Open Code Review 的运行配置解析顺序固定为完整 `OCR_LLM_*` 环境变量、用户级 Open Code Review active provider、Anthropic/OpenAI 兼容环境变量、Codex provider TOML。解析后的 endpoint、model、protocol 和 token 只存在于子进程环境；项目配置、MCP 受管块和工具状态不保存凭据。codebase-memory 则把项目根作为 `CBM_ALLOWED_ROOT` 和 cwd，根索引统一使用 `--repo-path .`，并用 `index_status` 二次确认根路径、状态以及 nodes/edges。路径越界和损坏缓存分别使用 `INDEX_PATH_OUTSIDE_ALLOWED_ROOT` 与 `INDEX_CORRUPT_REINDEX_REQUIRED`，后者会在下一次 provision 中自动重建受管缓存。
-
-Chrome DevTools MCP 固定为项目内 `chrome-devtools-mcp@1.6.0`，只调用 lockfile 对应的本地入口。wrapper 以系统 Google Chrome 的无头隔离模式运行，固定关闭遥测、更新检查和 CrUX，脱敏 network header，不接入个人 profile、远程调试端口或任意外部路径。依赖 lockfile 未变化时可复用安装，但每次真实 provision 都通过 `list_pages` 重跑浏览器 smoke；Chrome 启动失败稳定映射为 `CHROME_LAUNCH_FAILED`。子进程环境使用系统启动变量 allowlist，不继承 token、云凭据或带凭据代理；工具状态只保存版本、阶段、时间和脱敏诊断，不保存页面、header、响应体或原始环境。
-
-RTK 固定为 `rtk-ai/rtk v0.43.0`，按平台/架构选择官方 release 资产并校验 SHA-256；ast-grep 固定为 `@ast-grep/cli@0.44.1`，使用 lockfile 安装并显式运行已审查的 native binary postinstall。显式 provision 执行固定版本检查并记录二进制 SHA-256；后续只读命令只比对状态版本、lock 指纹和文件哈希，不执行目标项目二进制。两者的 runtime payload 位于 `.agents/cognis/tools/`，状态与受管安装缓存位于 `.cognis/tool-state/`；它们不修改 PATH 或全局配置。工具状态为 `pending`、`ready`、`degraded` 或 `unsupported`，失败时 doctor 提供原命令或 `rg` 回退建议。
-
-RTK hook 集成只读取项目内 canonical/legacy tool-state，并调用固定版本 binary 的 `rewrite`。CLI、项目配置、install-state 的开关优先级依次降低；移除 RTK 插件会关闭仅由 install-state 继承的 hook。Cognis 不调用 `rtk init -g`，也不写用户级 Codex 配置。
+工具名称、版本、项目内入口、状态和逐工具 fallback 以[显式工具插件规格](specs/cognis-tooling-modules-spec.md)为唯一文档真值。架构层只保证共同边界：runtime、缓存、索引和状态都留在目标项目；wrapper 使用受限环境和受管入口；凭据、原始命令环境、页面内容和完整工具输出不写入项目状态；只读检查不执行目标项目二进制。Hook 专属数据流见 [Hook 场景与运行边界](hooks.md)。
 
 默认 JSON 是稳定、紧凑的机器接口，preview 只含 hash、字节数和摘要；`--verbose` 才含完整正文和绝对诊断路径，`--output summary` 输出短报告和工具降级原因。工具诊断会脱敏项目路径与凭据，仅保存限长尾部。install、validate、doctor 共用 `ready=0`、`invalid=1`、`degraded=2` 健康合同；未执行 provisioning 的 `pending`/`pending-config` 只产生告警，已尝试 provisioning 的失败或未完成进程标记才进入 degraded。`--allow-degraded` 只覆盖退出码，不改变报告状态。
 

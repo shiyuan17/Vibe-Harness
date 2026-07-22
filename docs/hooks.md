@@ -36,7 +36,7 @@ Cognis 使用 Codex 原生 hook 协议承载项目内安全策略，并把策略
 - 每条模板命令携带 `--expected-event <Event>`。输入事件与配置不一致时不得继续执行策略。
 - `PreToolUse` 与 `PermissionRequest` 发生 JSON、策略或 runtime 异常时输出事件正确的 deny JSON 并退出 0，确保宿主消费拒绝决定；通知类事件返回 `HOOK_RUNTIME_ERROR` warning。外层错误不输出 stack、绝对路径或环境变量。
 
-RTK 项目 hook 使用固定版本 binary 的 `rewrite`，上限 750ms，并限制 stdout/stderr。`observe`/`guarded` 只提示项目内精确重试命令，`strict` 阻断原命令后要求重试；安全策略始终先执行。敏感命令、原始日志、已包装命令、`proxy` bypass、unsupported、超时和 degraded 状态不会被强制压缩。需要原始输出时使用 `node .agents/cognis/tools/rtk/run.mjs proxy ...`。
+RTK 项目 hook 调用项目内 binary 的 `rewrite`，上限 750ms，并限制 stdout/stderr。`observe`/`guarded` 只提示项目内精确重试命令，`strict` 阻断原命令后要求重试；安全策略始终先执行。敏感命令、原始日志、已包装命令、显式 bypass、工具不可用和超时不会被强制压缩。命令使用与 bypass 入口见 [`rules/rtk.md`](../rules/rtk.md)。
 
 ## 会话输入与输出
 
@@ -78,6 +78,6 @@ pnpm cognis install --project <project> --target codex --profile full --write --
 pnpm cognis install --project <project> --target codex --profile core --plugin -rtk --rtk-hooks on --write --confirm-red-zone
 ```
 
-Cognis 不运行 `rtk init -g`，不安装 RTK 官方全局 hook，也不修改 PATH、用户级 Codex 配置或其他 adapter。
+RTK 的全局安装边界与降级要求由 [`rules/rtk.md`](../rules/rtk.md) 统一定义。
 
 不会再解析 `--target <project>` 或 `--apply`；旧项目先运行 `init --project <project>`，再用 `install --upgrade --write` 归一状态。该流程不会写全局 Codex 或 Git 配置，且没有 `--force` 时不会覆盖已有文件。
