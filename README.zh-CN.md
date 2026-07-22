@@ -159,6 +159,7 @@ pnpm cognis install --project ../gemini-project --target gemini --profile core -
   },
   "governance": { "mode": "basic", "workflow": "adaptive" },
   "hooks": {
+    "allowedWriteRoots": [],
     "mode": "guarded",
     "completionGate": "advisory"
   },

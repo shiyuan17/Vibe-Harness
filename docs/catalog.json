@@ -15,6 +15,8 @@
     { "path": "docs/tasks/COGNIS-AO-001.md", "kind": "plan", "status": "current", "language": "zh-CN", "audiences": ["maintainer", "reviewer"] },
     { "path": "docs/tasks/COGNIS-AO-001-TESTS.md", "kind": "plan", "status": "current", "language": "zh-CN", "audiences": ["maintainer", "reviewer"] },
     { "path": "docs/tasks/COGNIS-AO-001-POLICY.md", "kind": "plan", "status": "current", "language": "zh-CN", "audiences": ["maintainer", "reviewer"] },
+    { "path": "docs/tasks/COGNIS-HOOK-001.md", "kind": "plan", "status": "current", "language": "zh-CN", "audiences": ["maintainer", "reviewer"] },
+    { "path": "docs/reviews/COGNIS-HOOK-001-red-team.md", "kind": "plan", "status": "current", "language": "zh-CN", "audiences": ["maintainer", "reviewer"] },
     { "path": "docs/reviews/COGNIS-MA-001-red-team.md", "kind": "plan", "status": "current", "language": "zh-CN", "audiences": ["maintainer", "reviewer"] },
     { "path": "docs/reviews/COGNIS-AO-001-TESTS-red-team.md", "kind": "plan", "status": "current", "language": "zh-CN", "audiences": ["maintainer", "reviewer"] },
     { "path": "docs/reviews/COGNIS-AO-001-POLICY-red-team.md", "kind": "plan", "status": "current", "language": "zh-CN", "audiences": ["maintainer", "reviewer"] },
@@ -38,5 +40,29 @@
     { "path": "docs/archive/plans/loopengine-v0.4-governance-closure-plan.md", "kind": "plan", "status": "completed", "language": "en", "audiences": ["auditor"] },
     { "path": "docs/archive/releases/release-v0.1.0.md", "kind": "plan", "status": "completed", "language": "zh-CN", "audiences": ["auditor"] },
     { "path": "docs/archive/releases/release-v0.2.0.md", "kind": "plan", "status": "completed", "language": "zh-CN", "audiences": ["auditor"] }
+    ,{ "path": "docs/memory/ARCHITECTURE.md", "kind": "operations", "status": "current", "language": "zh-CN", "audiences": ["maintainer", "agent"] }
+    ,{ "path": "docs/memory/DECISIONS.md", "kind": "operations", "status": "current", "language": "zh-CN", "audiences": ["maintainer", "agent"] }
+    ,{ "path": "docs/memory/FAILURE_LEARNINGS.md", "kind": "operations", "status": "current", "language": "zh-CN", "audiences": ["maintainer", "agent"] }
+    ,{ "path": "docs/memory/KNOWN_BUGS.md", "kind": "operations", "status": "current", "language": "zh-CN", "audiences": ["maintainer", "agent"] }
+    ,{ "path": "docs/memory/PROJECT_STATE.md", "kind": "operations", "status": "current", "language": "zh-CN", "audiences": ["maintainer", "agent"] }
+    ,{ "path": "docs/memory/TECH_DEBT.md", "kind": "operations", "status": "current", "language": "zh-CN", "audiences": ["maintainer", "agent"] }
+    ,{ "path": "docs/rules/AGENT_SKILL_ROUTING.md", "kind": "agent-rules", "status": "current", "language": "zh-CN", "audiences": ["agent", "maintainer"] }
+    ,{ "path": "docs/rules/ai-collab-rules.md", "kind": "agent-rules", "status": "current", "language": "zh-CN", "audiences": ["agent", "maintainer"] }
+    ,{ "path": "docs/rules/api-rules.md", "kind": "agent-rules", "status": "current", "language": "zh-CN", "audiences": ["agent", "maintainer"] }
+    ,{ "path": "docs/rules/coding-rules.md", "kind": "agent-rules", "status": "current", "language": "zh-CN", "audiences": ["agent", "maintainer"] }
+    ,{ "path": "docs/rules/db-rules.md", "kind": "agent-rules", "status": "current", "language": "zh-CN", "audiences": ["agent", "maintainer"] }
+    ,{ "path": "docs/rules/eval-driven-development.md", "kind": "agent-rules", "status": "current", "language": "zh-CN", "audiences": ["agent", "maintainer"] }
+    ,{ "path": "docs/rules/frontend-rules.md", "kind": "agent-rules", "status": "current", "language": "zh-CN", "audiences": ["agent", "maintainer"] }
+    ,{ "path": "docs/rules/git-rules.md", "kind": "agent-rules", "status": "current", "language": "zh-CN", "audiences": ["agent", "maintainer"] }
+    ,{ "path": "docs/rules/governance-core.md", "kind": "agent-rules", "status": "current", "language": "zh-CN", "audiences": ["agent", "maintainer"] }
+    ,{ "path": "docs/rules/log-management.md", "kind": "agent-rules", "status": "current", "language": "zh-CN", "audiences": ["agent", "maintainer"] }
+    ,{ "path": "docs/rules/pencil-rules.md", "kind": "agent-rules", "status": "current", "language": "zh-CN", "audiences": ["agent", "maintainer"] }
+    ,{ "path": "docs/rules/project-directory.md", "kind": "agent-rules", "status": "current", "language": "zh-CN", "audiences": ["agent", "maintainer"] }
+    ,{ "path": "docs/rules/project-specific-rules.md", "kind": "agent-rules", "status": "current", "language": "zh-CN", "audiences": ["agent", "maintainer"] }
+    ,{ "path": "docs/rules/release-rules.md", "kind": "agent-rules", "status": "current", "language": "zh-CN", "audiences": ["agent", "maintainer"] }
+    ,{ "path": "docs/rules/test-rules.md", "kind": "agent-rules", "status": "current", "language": "zh-CN", "audiences": ["agent", "maintainer"] }
+    ,{ "path": "docs/rules/troubleshooting.md", "kind": "agent-rules", "status": "current", "language": "zh-CN", "audiences": ["agent", "maintainer"] }
+    ,{ "path": "docs/templates/delivery.md", "kind": "plan", "status": "current", "language": "zh-CN", "audiences": ["agent", "maintainer"] }
+    ,{ "path": "docs/templates/task.md", "kind": "plan", "status": "current", "language": "zh-CN", "audiences": ["agent", "maintainer"] }
   ]
 }

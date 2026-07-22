@@ -159,6 +159,7 @@ Most users only need to review this file after running `init`. Cognis creates `c
   },
   "governance": { "mode": "basic", "workflow": "adaptive" },
   "hooks": {
+    "allowedWriteRoots": [],
     "mode": "guarded",
     "completionGate": "advisory"
   },

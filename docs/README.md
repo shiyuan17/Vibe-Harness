@@ -24,6 +24,7 @@
 - [COGNIS-AO-001 Red Team 审查包](reviews/COGNIS-AO-001-red-team.md)：最终实际 diff、反例修复、独立核验结论与剩余风险。
 - [COGNIS-AO-001 测试 child](tasks/COGNIS-AO-001-TESTS.md) / [测试 Red Team](reviews/COGNIS-AO-001-TESTS-red-team.md)：聚焦合同测试及 RED 证据。
 - [COGNIS-AO-001 规范 child](tasks/COGNIS-AO-001-POLICY.md) / [规范 Red Team](reviews/COGNIS-AO-001-POLICY-red-team.md)：规则、Skill 和 v0.7 规格的限定实现与审查记录。
+- [COGNIS-HOOK-001 项目级外部写入目录白名单](tasks/COGNIS-HOOK-001.md) / [Red Team](reviews/COGNIS-HOOK-001-red-team.md)：Hook 白名单配置、验证与审查记录。
 
 ## 参考审计
 
@@ -43,3 +44,10 @@
 - [贡献指南](../CONTRIBUTING.md)
 - [Agent 规则](../AGENTS.md)
 - [更新日志](../CHANGELOG.md)
+
+## 治理规则与运行记忆
+
+- [Agent Skill 路由](rules/AGENT_SKILL_ROUTING.md) / [治理内核](rules/governance-core.md)：任务路由与硬约束。
+- 规则： [协作](rules/ai-collab-rules.md)、[API](rules/api-rules.md)、[编码](rules/coding-rules.md)、[数据库](rules/db-rules.md)、[评测驱动开发](rules/eval-driven-development.md)、[前端](rules/frontend-rules.md)、[Git](rules/git-rules.md)、[日志](rules/log-management.md)、[Pencil](rules/pencil-rules.md)、[项目目录](rules/project-directory.md)、[项目专项](rules/project-specific-rules.md)、[发布](rules/release-rules.md)、[测试](rules/test-rules.md)、[排障](rules/troubleshooting.md)。
+- 项目记忆：[架构](memory/ARCHITECTURE.md)、[决策](memory/DECISIONS.md)、[故障学习](memory/FAILURE_LEARNINGS.md)、[已知问题](memory/KNOWN_BUGS.md)、[项目状态](memory/PROJECT_STATE.md)、[技术债](memory/TECH_DEBT.md)。
+- [交付模板](templates/delivery.md) / [任务模板](templates/task.md)：治理交付记录格式。

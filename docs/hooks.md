@@ -19,6 +19,7 @@ Cognis 使用 Codex 原生 hook 协议承载项目内安全策略，并把策略
 {
   "governance": { "workflow": "adaptive" },
   "hooks": {
+    "allowedWriteRoots": ["/absolute/path/to/companion-project"],
     "mode": "guarded",
     "completionGate": "advisory",
     "rtk": { "enabled": true }
@@ -28,6 +29,7 @@ Cognis 使用 Codex 原生 hook 协议承载项目内安全策略，并把策略
 ```
 
 - `mode`：`off` 关闭；`observe` 只提示；`guarded` 和 `strict` 阻断高置信危险行为。默认 `guarded`。
+- `hooks.allowedWriteRoots`：可选的绝对目录白名单。默认 `[]`，因此 Hook 可识别的结构化文件写入仍限于当前项目根目录；仅白名单目录及其真实子路径可作为跨项目写入目标。全局 Agent 配置路径始终拒绝，不能通过此字段放行；目录链接逃逸会被拒绝。Shell 命令不具备通用的跨平台路径提取能力，不以该字段解析其任意写入参数。不要在通用规则或模板中硬编码机器专有路径，应在目标项目自己的 `cognis.config.json` 配置。
 - `completionGate`：`off` 不检查最终回复；`advisory` 提醒治理失败或交付字段缺失；`blocking` 在存在任一问题且 `stop_hook_active` 为 false 时强制续跑一次。
 - `hooks.rtk.enabled`：可选布尔值。优先级为 CLI `--rtk-hooks`、项目配置、install-state；默认关闭，且启用时必须选择 `rtk` 插件并使用 Codex target。
 - 默认规范化 `git` / `git.exe`、`-C` 等全局参数并阻断破坏性 reset、clean、restore、path checkout、强制 switch、stash 删除和 `--no-verify`。
