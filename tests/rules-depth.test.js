@@ -50,8 +50,8 @@ test('installed instructions scope tests to the task instead of ordinary session
     assert.match(verificationSkill, new RegExp(term, 'u'));
   }
   for (const template of adapterTemplates) {
-    assert.match(template, /普通会话或只读任务不自动运行全量测试/u);
-    assert.match(template, /验证范围.*升级理由/u);
+    assert.match(template, /测试范围细则.*docs\/rules\/test-rules\.md/u);
+    assert.doesNotMatch(template, /普通会话或只读任务不自动运行全量测试/u);
   }
 
   for (const adapterId of ['codex', 'claude', 'gemini']) {
@@ -68,8 +68,8 @@ test('installed instructions scope tests to the task instead of ordinary session
       const instruction = plan.actions.find((action) => action.relativeTarget === plan.instructionTarget);
       assert.ok(instruction, `${adapterId}:${profile} instruction should be installed`);
       const content = await renderActionContent(instruction, plan.renderData);
-      assert.match(content, /普通会话或只读任务不自动运行全量测试/u);
-      assert.match(content, /验证范围.*升级理由/u);
+      assert.match(content, /测试范围细则.*docs\/rules\/test-rules\.md/u);
+      assert.doesNotMatch(content, /普通会话或只读任务不自动运行全量测试/u);
 
       const testRule = plan.actions.find((action) => action.relativeTarget === 'docs/rules/test-rules.md');
       assert.ok(testRule, `${adapterId}:${profile} test rule should be installed`);

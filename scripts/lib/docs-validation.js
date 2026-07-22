@@ -272,6 +272,7 @@ export async function validateCurrentDocumentContent({
       errors.push(`${file} mixes --project with legacy --apply`);
     }
   }
+  errors.push(...duplicateReadmeCommandErrors(content, file));
   if (relativeTimePattern.test(content)) errors.push(`${file} contains relative time wording`);
   if (content.includes('九阶段')) errors.push(`${file} contains superseded nine-stage governance wording`);
   errors.push(...staleOpenItemErrors(content, file, today));
@@ -283,6 +284,19 @@ function commandExamples(content) {
     const start = command.indexOf('pnpm cognis ');
     return command.slice(start).replace(/\s+/gu, ' ').trim();
   });
+}
+
+function duplicateReadmeCommandErrors(content, file) {
+  if (!/(?:^|\/)README(?:\.[^/]+)?\.md$/u.test(file)) return [];
+  const seen = new Set();
+  const duplicates = new Set();
+  for (const command of commandExamples(content)) {
+    if (seen.has(command)) duplicates.add(command);
+    else seen.add(command);
+  }
+  return [...duplicates]
+    .sort()
+    .map((command) => `${file} contains duplicate Cognis command: ${command}`);
 }
 
 function jsonExamples(content, label, errors) {

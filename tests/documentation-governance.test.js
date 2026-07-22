@@ -91,10 +91,11 @@ test('governance documentation defines a vendor-neutral prompt cache contract', 
 });
 
 test('current docs describe all managed tools as explicit plugins', async () => {
-  const [english, chinese, architecture, changelog, capabilities] = await Promise.all([
+  const [english, chinese, architecture, toolingSpec, changelog, capabilities] = await Promise.all([
     readFile(path.join(rootDir, 'README.md'), 'utf8'),
     readFile(path.join(rootDir, 'README.zh-CN.md'), 'utf8'),
     readFile(path.join(rootDir, 'docs/architecture.md'), 'utf8'),
+    readFile(path.join(rootDir, 'docs/specs/cognis-tooling-modules-spec.md'), 'utf8'),
     readFile(path.join(rootDir, 'CHANGELOG.md'), 'utf8'),
     readJson(path.join(rootDir, 'manifests/capabilities.json')),
   ]);
@@ -105,7 +106,8 @@ test('current docs describe all managed tools as explicit plugins', async () => 
   assert.match(chinese, /所有 profile 默认都不安装外部工具插件/u);
   assert.match(chinese, /`chrome-devtools-mcp`/u);
   assert.match(chinese, /`open-code-review`.*`agentmemory`/u);
-  assert.match(architecture, /Chrome DevTools MCP[\s\S]*无头隔离/u);
+  assert.match(architecture, /显式工具插件规格/u);
+  assert.match(toolingSpec, /Chrome DevTools MCP[\s\S]*1\.6\.0/u);
   assert.match(changelog, /Chrome DevTools MCP[\s\S]*项目内/u);
   assert.doesNotMatch(changelog, /DevTools MCP fallback 已退役/u);
   assert.ok(capabilities.items.some((item) => item.id === 'chrome-devtools-mcp'));
@@ -211,6 +213,71 @@ test('documentation policy detects broken links, mixed lifecycle flags, relative
   assert.match(errors.join('\n'), /relative time/iu);
   assert.match(errors.join('\n'), /stale open item/iu);
   assert.match(errors.join('\n'), /nine-stage governance/iu);
+});
+
+test('documentation policy rejects duplicate Cognis commands within one README', async () => {
+  const { validateCurrentDocumentContent } = await loadValidator();
+  const command = 'pnpm cognis validate --project ../example';
+  const errors = await validateCurrentDocumentContent({
+    content: ['# Example', '', command, '', 'More guidance.', '', command].join('\n'),
+    file: 'README.md',
+    rootDir,
+  });
+  assert.match(errors.join('\n'), /duplicate Cognis command/iu);
+});
+
+test('resident adapter instructions keep detailed governance in the kernel only', async () => {
+  const [kernel, rootAgents, ...templates] = await Promise.all([
+    readFile(path.join(rootDir, 'rules/governance-core.md'), 'utf8'),
+    readFile(path.join(rootDir, 'AGENTS.md'), 'utf8'),
+    readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8'),
+    readFile(path.join(rootDir, 'adapters/claude/CLAUDE.template.md'), 'utf8'),
+    readFile(path.join(rootDir, 'adapters/gemini/GEMINI.template.md'), 'utf8'),
+  ]);
+
+  assert.match(kernel, /## 五条硬约束/u);
+  for (const template of templates) {
+    assert.doesNotMatch(template, /## 五条硬约束/u);
+    assert.doesNotMatch(template, /主张 → 证据 → 反例 → 剩余风险/u);
+    assert.match(template, /治理内核/u);
+  }
+  assert.match(rootAgents, /`rules\/governance-core\.md`/u);
+  assert.match(rootAgents, /`templates\/delivery\.md`/u);
+});
+
+test('RTK documentation assigns hook, usage, entry, version, and status contracts to one owner', async () => {
+  const files = Object.fromEntries(await Promise.all([
+    ['readme', 'README.md'],
+    ['readmeZh', 'README.zh-CN.md'],
+    ['architecture', 'docs/architecture.md'],
+    ['hooks', 'docs/hooks.md'],
+    ['rule', 'rules/rtk.md'],
+    ['spec', 'docs/specs/cognis-tooling-modules-spec.md'],
+  ].map(async ([name, file]) => [name, await readFile(path.join(rootDir, file), 'utf8')])));
+
+  assert.match(files.hooks, /--rtk-hooks/u);
+  assert.match(files.hooks, /observe[\s\S]*guarded[\s\S]*strict/iu);
+  assert.match(files.rule, /rtk init -g/u);
+  assert.match(files.rule, /`proxy` 子命令显式 bypass/u);
+  assert.match(files.spec, /tools\/rtk\/run\.mjs proxy/u);
+  assert.match(files.spec, /v0\.43\.0/u);
+  assert.match(files.spec, /工具状态为 `pending`、`ready`、`degraded` 或 `unsupported`/u);
+
+  for (const name of ['readme', 'readmeZh', 'architecture', 'rule']) {
+    assert.doesNotMatch(files[name], /--rtk-hooks/u, `${name} duplicates the RTK hook contract`);
+  }
+  for (const name of ['readme', 'readmeZh', 'architecture', 'hooks']) {
+    assert.doesNotMatch(files[name], /rtk init -g/u, `${name} duplicates the RTK global-install boundary`);
+  }
+  for (const name of ['readme', 'readmeZh', 'architecture', 'hooks', 'rule']) {
+    assert.doesNotMatch(files[name], /tools\/rtk\/run\.mjs/u, `${name} duplicates the RTK entry contract`);
+  }
+  for (const name of ['readme', 'readmeZh', 'architecture', 'hooks', 'rule']) {
+    assert.doesNotMatch(files[name], /v0\.43\.0/u, `${name} duplicates the RTK version contract`);
+  }
+  for (const name of ['readme', 'readmeZh', 'hooks', 'rule']) {
+    assert.doesNotMatch(files[name], /工具状态为|Individual tools additionally report/u, `${name} duplicates the tool status contract`);
+  }
 });
 
 test('documentation coverage includes every root Markdown knowledge file', async () => {

@@ -101,7 +101,7 @@ test('MVP dry-run uses --project for path and --target codex for adapter without
     assert.equal(agents.includes('由 Cognis 安装'), false);
     assert.equal(agents.includes('本项目使用 Cognis 中文治理合同'), false);
     assert.equal(agents.includes('## 启动'), true);
-    assert.equal(agents.includes('## 五条硬约束'), true);
+    assert.equal(agents.includes('## 硬边界摘要'), true);
     assert.equal(agents.includes('轻量反证'), true);
     assert.equal(await exists(path.join(target, 'AGENTS.md')), false);
   } finally {
