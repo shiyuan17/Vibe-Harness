@@ -51,6 +51,19 @@ async function readOptionalText(filePath) {
   }
 }
 
+function readAllowedWriteRoots(config) {
+  const roots = config.hooks?.allowedWriteRoots;
+  if (roots === undefined) return [];
+  if (!Array.isArray(roots) || roots.some((root) => (
+    typeof root !== 'string'
+    || root.trim().length === 0
+    || !path.isAbsolute(root)
+  ))) {
+    throw new Error('hooks.allowedWriteRoots must contain non-empty absolute paths.');
+  }
+  return roots;
+}
+
 export async function readProjectConfig(rootDir) {
   const [canonical, legacy] = await Promise.all([
     readOptionalText(path.join(rootDir, 'cognis.config.json')),
@@ -84,6 +97,7 @@ export async function readHookSettings(rootDir) {
       ? config.hooks.completionGate
       : 'advisory';
     return {
+      allowedWriteRoots: readAllowedWriteRoots(config),
       completionGate,
       evaluationsEnabled: Boolean(config.evaluations?.enabled),
       mode,
@@ -96,6 +110,7 @@ export async function readHookSettings(rootDir) {
   } catch (error) {
     if (error.code === 'COGNIS_CONFIG_CONFLICT') throw error;
     return {
+      allowedWriteRoots: [],
       completionGate: 'advisory',
       evaluationsEnabled: false,
       mode: 'guarded',

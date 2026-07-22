@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -486,7 +486,14 @@ test('guarded tool policy blocks obvious credential exfiltration but allows norm
   assert.equal(allowed.action, 'allow');
 });
 
-test('guarded tool policy blocks structured writes outside the project and global Agent config', () => {
+test('guarded tool policy permits only explicitly allowlisted external write roots', () => {
+  const companionRoot = path.resolve(rootDir, '..', 'companion-project');
+  const allowed = analyzeToolRequest(normalizeCodexHookInput(hookInput({
+    tool_input: { path: path.join(companionRoot, 'src', 'client.js') },
+    tool_name: 'mcp__filesystem__write_file',
+  })), {
+    allowedWriteRoots: [companionRoot], mode: 'guarded', projectRoot: rootDir,
+  });
   const outside = analyzeToolRequest(normalizeCodexHookInput(hookInput({
     tool_input: { path: path.resolve(rootDir, '..', 'outside.txt') },
     tool_name: 'mcp__filesystem__write_file',
@@ -496,6 +503,7 @@ test('guarded tool policy blocks structured writes outside the project and globa
     tool_name: 'apply_patch',
   })), { mode: 'guarded', projectRoot: rootDir });
 
+  assert.equal(allowed.action, 'allow');
   assert.equal(outside.action, 'deny');
   assert.equal(outside.reasonCode, 'PROJECT_BOUNDARY');
   assert.equal(globalConfig.action, 'deny');
@@ -514,6 +522,28 @@ test('guarded tool policy accepts real shell payload aliases and blocks shell pa
     });
     assert.equal(decision.action, 'deny');
     assert.equal(decision.reasonCode, 'PROJECT_BOUNDARY');
+  }
+});
+
+test('guarded tool policy rejects a linked path that escapes an allowlisted root', async () => {
+  const parent = await mkdtemp(path.join(tmpdir(), 'cognis-hook-linked-root-'));
+  const target = path.join(parent, 'project');
+  const allowedRoot = path.join(target, 'allowed');
+  const outsideRoot = path.join(parent, 'outside');
+  const linkedRoot = path.join(allowedRoot, 'linked');
+  try {
+    await mkdir(allowedRoot, { recursive: true });
+    await mkdir(outsideRoot, { recursive: true });
+    await symlink(outsideRoot, linkedRoot, process.platform === 'win32' ? 'junction' : 'dir');
+    const decision = analyzeToolRequest(normalizeCodexHookInput(hookInput({
+      tool_input: { path: path.join(linkedRoot, 'cache.json') },
+      tool_name: 'mcp__filesystem__write_file',
+    })), {
+      allowedWriteRoots: [allowedRoot], mode: 'guarded', projectRoot: target,
+    });
+    assert.equal(decision.action, 'deny');
+  } finally {
+    await rm(parent, { force: true, recursive: true });
   }
 });
 
@@ -576,6 +606,7 @@ test('hook runtime reads legacy settings and validator paths as compatibility fa
     await writeFile(path.join(validatorDir, 'validate.mjs'), 'process.exit(0);\n', 'utf8');
 
     assert.deepEqual(await readHookSettings(target), {
+      allowedWriteRoots: [],
       completionGate: 'blocking',
       evaluationsEnabled: true,
       mode: 'strict',
@@ -586,6 +617,36 @@ test('hook runtime reads legacy settings and validator paths as compatibility fa
     assert.deepEqual(await runGovernanceCheck(target), { ok: true, status: 'passed' });
   } finally {
     await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('installed Hook runtime honors configured external write roots and fails closed for malformed roots', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-hook-allowed-root-'));
+  const companionRoot = path.join(target, '..', 'cognis-hook-companion-root');
+  try {
+    await mkdir(companionRoot, { recursive: true });
+    await writeFile(path.join(target, 'cognis.config.json'), JSON.stringify({
+      hooks: { allowedWriteRoots: [companionRoot], mode: 'guarded' },
+    }), 'utf8');
+    const allowed = await evaluateCodexHook(hookInput({
+      cwd: target,
+      tool_input: { path: path.join(companionRoot, 'cache.json') },
+      tool_name: 'mcp__filesystem__write_file',
+    }));
+    assert.deepEqual(allowed, {});
+
+    await writeFile(path.join(target, 'cognis.config.json'), JSON.stringify({
+      hooks: { allowedWriteRoots: ['../companion-root'], mode: 'guarded' },
+    }), 'utf8');
+    const denied = await evaluateCodexHook(hookInput({
+      cwd: target,
+      tool_input: { path: path.join(companionRoot, 'cache.json') },
+      tool_name: 'mcp__filesystem__write_file',
+    }));
+    assert.equal(denied.hookSpecificOutput.permissionDecision, 'deny');
+  } finally {
+    await rm(target, { force: true, recursive: true });
+    await rm(companionRoot, { force: true, recursive: true });
   }
 });
 

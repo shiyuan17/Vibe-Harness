@@ -53,12 +53,21 @@ for (const file of requiredBasicFiles.filter((file) => file.endsWith('.md'))) {
 }
 
 let config = null;
-if (existsSync(resolve(root, 'loopengine.config.json'))) {
-  config = readJson('loopengine.config.json');
-} else if (existsSync(resolve(root, '.loopengine/install-state.json'))) {
-  config = readJson('.loopengine/install-state.json');
+const configCandidates = ['cognis.config.json', 'loopengine.config.json']
+  .filter((relativePath) => existsSync(resolve(root, relativePath)));
+const stateCandidates = ['.cognis/install-state.json', '.loopengine/install-state.json']
+  .filter((relativePath) => existsSync(resolve(root, relativePath)));
+if (configCandidates.length > 1) {
+  errors.push('Conflicting governance configuration: both cognis.config.json and loopengine.config.json exist');
+} else if (stateCandidates.length > 1) {
+  errors.push('Conflicting governance install state: both .cognis and .loopengine contain install state');
+}
+if (configCandidates.length > 0) {
+  config = readJson(configCandidates[0]);
+} else if (stateCandidates.length > 0) {
+  config = readJson(stateCandidates[0]);
 } else {
-  errors.push('Missing governance configuration: loopengine.config.json or .loopengine/install-state.json');
+  errors.push('Missing governance configuration: cognis.config.json, loopengine.config.json, or project install state');
 }
 const fullProfiles = new Set(['full']);
 const mode = config?.governance?.mode ?? (fullProfiles.has(config?.profile) ? 'full' : 'basic');

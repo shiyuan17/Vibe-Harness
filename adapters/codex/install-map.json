@@ -578,6 +578,12 @@
     },
     {
       "group": "hooks",
+      "source": "runtime/hooks/README.md",
+      "target": ".agents/cognis/hooks/README.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "hooks",
       "source": "runtime/hooks/codex-hook.mjs",
       "target": ".agents/cognis/hooks/codex-hook.mjs",
       "executable": true,

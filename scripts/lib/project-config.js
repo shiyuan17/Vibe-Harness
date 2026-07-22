@@ -53,6 +53,7 @@ export const defaultProjectConfig = {
     workflow: 'adaptive',
   },
   hooks: {
+    allowedWriteRoots: [],
     completionGate: 'advisory',
     mode: 'guarded',
   },
@@ -278,6 +279,16 @@ export function validateProjectConfig(config) {
     }
     if (Object.hasOwn(config.hooks, 'completionGate') && !['off', 'advisory', 'blocking'].includes(config.hooks.completionGate)) {
       throw new Error('hooks.completionGate must be off, advisory, or blocking');
+    }
+    if (Object.hasOwn(config.hooks, 'allowedWriteRoots')) {
+      if (!Array.isArray(config.hooks.allowedWriteRoots)) {
+        throw new Error('hooks.allowedWriteRoots must be an array');
+      }
+      for (const root of config.hooks.allowedWriteRoots) {
+        if (typeof root !== 'string' || root.trim().length === 0 || !path.isAbsolute(root)) {
+          throw new Error('hooks.allowedWriteRoots must contain non-empty absolute paths');
+        }
+      }
     }
     if (Object.hasOwn(config.hooks, 'rtk')) {
       assertObject(config.hooks.rtk, 'hooks.rtk');

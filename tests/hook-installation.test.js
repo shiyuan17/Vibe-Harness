@@ -16,6 +16,7 @@ const cliPath = path.join(rootDir, 'scripts/cognis.js');
 
 test('project config exposes guarded hook defaults and validates optional hook settings', () => {
   assert.deepEqual(defaultProjectConfig.hooks, {
+    allowedWriteRoots: [],
     completionGate: 'advisory',
     mode: 'guarded',
   });
@@ -27,6 +28,14 @@ test('project config exposes guarded hook defaults and validates optional hook s
   assert.throws(
     () => validateProjectConfig({ ...defaultProjectConfig, hooks: { completionGate: 'always' } }),
     /hooks\.completionGate/,
+  );
+  assert.equal(validateProjectConfig({
+    ...defaultProjectConfig,
+    hooks: { allowedWriteRoots: [path.resolve(rootDir, '..', 'companion-project')] },
+  }), true);
+  assert.throws(
+    () => validateProjectConfig({ ...defaultProjectConfig, hooks: { allowedWriteRoots: ['../companion-project'] } }),
+    /hooks\.allowedWriteRoots/,
   );
 });
 

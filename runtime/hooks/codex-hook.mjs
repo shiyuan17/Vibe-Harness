@@ -55,6 +55,7 @@ export async function evaluateCodexHook(rawInput, { expectedEvent, rtkRunner } =
 
   if (input.event === 'PreToolUse' || input.event === 'PermissionRequest') {
     const safetyDecision = analyzeToolRequest(input, {
+      allowedWriteRoots: settings.allowedWriteRoots,
       mode: settings.mode,
       projectRoot: rootDir,
     });

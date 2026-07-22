@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { realpathSync } from 'node:fs';
 
 export const supportedCodexHookEvents = new Set([
   'SessionStart',
@@ -56,6 +57,22 @@ export function normalizeCodexHookInput(value) {
 function isInside(baseDir, candidate) {
   const relative = path.relative(path.resolve(baseDir), path.resolve(candidate));
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+function canonicalPath(candidate) {
+  const suffix = [];
+  let current = path.resolve(candidate);
+  while (true) {
+    try {
+      return path.join(realpathSync.native(current), ...suffix);
+    } catch (error) {
+      if (error.code !== 'ENOENT') return null;
+      const parent = path.dirname(current);
+      if (parent === current) return null;
+      suffix.unshift(path.basename(current));
+      current = parent;
+    }
+  }
 }
 
 function commandFrom(input) {
@@ -178,7 +195,11 @@ function patchPaths(command) {
   return [...command.matchAll(/^\*\*\* (?:Add|Update|Delete) File:\s*(.+)$/gmu)].map((match) => match[1].trim());
 }
 
-function classifyRisk(input, projectRoot) {
+function isInsideAny(baseDirs, candidate) {
+  return baseDirs.some((baseDir) => isInside(baseDir, candidate));
+}
+
+function classifyRisk(input, projectRoot, allowedWriteRoots) {
   const command = commandFrom(input);
   const segments = shellSegments(command);
   if (segments.some((segment) => gitCommandRisk(segment))) {
@@ -202,15 +223,22 @@ function classifyRisk(input, projectRoot) {
     if (referencesGlobalAgentConfig(candidate)) {
       return { level: 'deny', reason: 'Writes to global Agent configuration are blocked by repository policy.' };
     }
-    const absolute = path.isAbsolute(candidate) || path.win32.isAbsolute(candidate)
+    const absolute = path.isAbsolute(candidate)
       ? candidate
       : path.resolve(projectRoot, candidate);
-    if (!isInside(projectRoot, absolute)) {
+    const canonicalCandidate = canonicalPath(absolute);
+    const canonicalRoots = [projectRoot, ...allowedWriteRoots].map(canonicalPath);
+    if (
+      !canonicalCandidate
+      || canonicalRoots.some((root) => root === null)
+      || referencesGlobalAgentConfig(canonicalCandidate)
+      || !isInsideAny(canonicalRoots, canonicalCandidate)
+    ) {
       return { level: 'deny', reason: 'Write target escapes the project boundary.' };
     }
   }
   const touchesRedZone = candidates.some((candidate) => {
-    const absolute = path.isAbsolute(candidate) || path.win32.isAbsolute(candidate)
+    const absolute = path.isAbsolute(candidate)
       ? candidate
       : path.resolve(projectRoot, candidate);
     return projectRedZonePattern.test(path.relative(projectRoot, absolute).replaceAll('\\', '/'));
@@ -221,9 +249,13 @@ function classifyRisk(input, projectRoot) {
   return null;
 }
 
-export function analyzeToolRequest(input, { mode = 'guarded', projectRoot = input.cwd } = {}) {
+export function analyzeToolRequest(input, {
+  allowedWriteRoots = [],
+  mode = 'guarded',
+  projectRoot = input.cwd,
+} = {}) {
   if (mode === 'off') return { action: 'allow' };
-  const risk = classifyRisk(input, projectRoot);
+  const risk = classifyRisk(input, projectRoot, allowedWriteRoots);
   if (!risk) return { action: 'allow' };
   if (risk.level === 'warn' || mode === 'observe') return { action: 'warn', reason: risk.reason };
   return { action: 'deny', reason: risk.reason };

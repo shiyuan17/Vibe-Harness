@@ -1,10 +1,8 @@
 #!/usr/bin/env node
 import { execFile, spawn } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
 import { promisify } from 'node:util';
 
-import { findProjectRoot } from './lib/context.mjs';
+import { findProjectRoot, readProjectConfig } from './lib/context.mjs';
 
 const execFileAsync = promisify(execFile);
 const secretPatterns = [
@@ -12,7 +10,7 @@ const secretPatterns = [
   /\b(?:OPENAI|ANTHROPIC|GITHUB|GEMINI)_[A-Z0-9_]*(?:KEY|TOKEN|SECRET)\s*=\s*[^\s"']{8,}/iu,
   /\bsk-[A-Za-z0-9_-]{16,}\b/u,
 ];
-const forbiddenPathPattern = /^(?:node_modules|\.loopengine\/backups)\//u;
+const forbiddenPathPattern = /^(?:node_modules|\.(?:cognis|loopengine)\/backups)\//u;
 
 export function scanStagedDiff(diff) {
   const added = diff.split(/\r?\n/u).filter((line) => line.startsWith('+') && !line.startsWith('+++'));
@@ -52,11 +50,12 @@ function runCommand(command, cwd) {
 }
 
 async function prePush(rootDir) {
-  let config = {};
+  let config;
   try {
-    config = JSON.parse(await readFile(path.join(rootDir, 'loopengine.config.json'), 'utf8'));
-  } catch {
-    // Legacy installs may not have project configuration.
+    config = await readProjectConfig(rootDir);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    config = {};
   }
   const commands = ['governance', 'lint', 'typecheck']
     .map((name) => config.validationCommands?.[name])
@@ -71,6 +70,6 @@ try {
   else if (hook === 'pre-push') await prePush(rootDir);
   else throw new Error(`Unknown Git hook: ${String(hook)}`);
 } catch (error) {
-  process.stderr.write(`LoopEngine ${hook ?? 'git-hook'}: ${error.message}\n`);
+  process.stderr.write(`Cognis ${hook ?? 'git-hook'}: ${error.message}\n`);
   process.exitCode = 1;
 }

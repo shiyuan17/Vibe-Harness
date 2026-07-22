@@ -25,13 +25,71 @@ async function git(rootDir, args) {
 }
 
 export async function findProjectRoot(cwd) {
-  const root = await git(cwd, ['rev-parse', '--show-toplevel']);
-  return root ? path.resolve(root) : path.resolve(cwd);
+  const start = path.resolve(cwd);
+  const gitRoot = await git(start, ['rev-parse', '--show-toplevel']);
+  const boundary = gitRoot ? path.resolve(gitRoot) : path.parse(start).root;
+  let current = start;
+  while (true) {
+    const [canonical, legacy] = await Promise.all([
+      access(path.join(current, 'cognis.config.json')).then(() => true, () => false),
+      access(path.join(current, 'loopengine.config.json')).then(() => true, () => false),
+    ]);
+    if (canonical || legacy) return current;
+    if (current === boundary) return boundary;
+    const parent = path.dirname(current);
+    if (parent === current) return boundary;
+    current = parent;
+  }
+}
+
+async function readOptionalText(filePath) {
+  try {
+    return await readFile(filePath, 'utf8');
+  } catch (error) {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+function readAllowedWriteRoots(config) {
+  const roots = config.hooks?.allowedWriteRoots;
+  if (roots === undefined) return [];
+  if (!Array.isArray(roots) || roots.some((root) => (
+    typeof root !== 'string'
+    || root.trim().length === 0
+    || !path.isAbsolute(root)
+  ))) {
+    throw new Error('hooks.allowedWriteRoots must contain non-empty absolute paths.');
+  }
+  return roots;
+}
+
+export async function readProjectConfig(rootDir) {
+  const [canonical, legacy] = await Promise.all([
+    readOptionalText(path.join(rootDir, 'cognis.config.json')),
+    readOptionalText(path.join(rootDir, 'loopengine.config.json')),
+  ]);
+  if (canonical !== null && legacy !== null) {
+    throw Object.assign(new Error('COGNIS_CONFIG_CONFLICT: canonical and legacy project configs coexist.'), {
+      code: 'COGNIS_CONFIG_CONFLICT',
+    });
+  }
+  const content = canonical ?? legacy;
+  if (content === null) throw Object.assign(new Error('Project configuration is missing.'), { code: 'ENOENT' });
+  return JSON.parse(content);
 }
 
 export async function readHookSettings(rootDir) {
   try {
-    const config = JSON.parse(await readFile(path.join(rootDir, 'loopengine.config.json'), 'utf8'));
+    const config = await readProjectConfig(rootDir);
+    let installState = null;
+    for (const relativePath of ['.cognis/install-state.json', '.loopengine/install-state.json']) {
+      const content = await readOptionalText(path.join(rootDir, relativePath));
+      if (content !== null) {
+        installState = JSON.parse(content);
+        break;
+      }
+    }
     const mode = ['off', 'observe', 'guarded', 'strict'].includes(config.hooks?.mode)
       ? config.hooks.mode
       : 'guarded';
@@ -39,13 +97,25 @@ export async function readHookSettings(rootDir) {
       ? config.hooks.completionGate
       : 'advisory';
     return {
+      allowedWriteRoots: readAllowedWriteRoots(config),
       completionGate,
       evaluationsEnabled: Boolean(config.evaluations?.enabled),
       mode,
+      rtkEnabled: Object.hasOwn(config.hooks?.rtk ?? {}, 'enabled')
+        ? config.hooks.rtk.enabled
+        : Boolean(installState?.rtkHooksEnabled),
       validationCommands: config.validationCommands ?? {},
     };
-  } catch {
-    return { completionGate: 'advisory', evaluationsEnabled: false, mode: 'guarded', validationCommands: {} };
+  } catch (error) {
+    if (error.code === 'COGNIS_CONFIG_CONFLICT') throw error;
+    return {
+      allowedWriteRoots: [],
+      completionGate: 'advisory',
+      evaluationsEnabled: false,
+      mode: 'guarded',
+      rtkEnabled: false,
+      validationCommands: {},
+    };
   }
 }
 
@@ -149,9 +219,22 @@ export async function buildProjectContext(rootDir) {
 }
 
 export async function runGovernanceCheck(rootDir) {
-  const validator = path.join(rootDir, '.agents', 'loopengine', 'governance', 'validate.mjs');
+  let validator;
+  for (const relativePath of [
+    '.agents/cognis/governance/validate.mjs',
+    '.agents/loopengine/governance/validate.mjs',
+  ]) {
+    const candidate = path.join(rootDir, relativePath);
+    try {
+      await access(candidate);
+      validator = candidate;
+      break;
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+  }
   try {
-    await access(validator);
+    if (!validator) throw Object.assign(new Error('Governance validator is missing.'), { code: 'ENOENT' });
     await execFileAsync(process.execPath, [validator], {
       cwd: rootDir,
       timeout: 15000,
@@ -160,12 +243,17 @@ export async function runGovernanceCheck(rootDir) {
     return { ok: true, status: 'passed' };
   } catch (error) {
     if (error.code === 'ENOENT') {
-      try {
-        const state = JSON.parse(await readFile(path.join(rootDir, '.loopengine', 'install-state.json'), 'utf8'));
-        if (['minimal', 'docs-only'].includes(state.profile)) {
-          return { ok: true, status: 'not-applicable' };
+      for (const relativePath of ['.cognis/install-state.json', '.loopengine/install-state.json']) {
+        try {
+          const state = JSON.parse(await readFile(path.join(rootDir, relativePath), 'utf8'));
+          if (['minimal', 'docs-only'].includes(state.profile)) {
+            return { ok: true, status: 'not-applicable' };
+          }
+          break;
+        } catch (stateError) {
+          if (stateError.code !== 'ENOENT') break;
         }
-      } catch {}
+      }
       return { ok: false, status: 'unavailable' };
     }
     return { ok: false, status: 'failed' };

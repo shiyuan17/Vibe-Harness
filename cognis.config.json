@@ -3,7 +3,7 @@
   "language": "zh-CN",
   "packageManager": "pnpm",
   "target": "codex",
-  "profile": "core",
+  "profile": "full",
   "validationCommands": {
     "lint": "pnpm lint",
     "typecheck": null,
@@ -30,7 +30,10 @@
   },
   "hooks": {
     "completionGate": "advisory",
-    "mode": "guarded"
+    "mode": "guarded",
+    "allowedWriteRoots": [
+      "D:\\SVN-Project\\PaProject"
+    ]
   },
   "riskZones": {
     "red": [

@@ -4,6 +4,7 @@ import { isAbsolute, resolve, win32 } from 'node:path';
 
 import { validateJsonAgainstSchema } from './schema-validation.mjs';
 import { validateRedTeamReview } from './red-team-validation.mjs';
+import { validateTaskGraph } from './task-graph-validation.mjs';
 
 const FIELD_VALUES = {
   工作流档位: new Set(['快速', '轻量', '完整']),
@@ -188,8 +189,9 @@ function validateEvaluationArtifact(root, artifact, evalId) {
   const artifactError = validateArtifact(root, artifact);
   if (artifactError) return [artifactError];
   const normalized = artifact.replaceAll('\\', '/');
-  if (!normalized.startsWith('.loopengine/evals/runs/') || !normalized.endsWith('.json')) {
-    return ['评测证据必须指向 .loopengine/evals/runs/ 下的 run JSON'];
+  const runRoots = ['.cognis/evals/runs/', '.loopengine/evals/runs/'];
+  if (!runRoots.some((runRoot) => normalized.startsWith(runRoot)) || !normalized.endsWith('.json')) {
+    return ['评测证据必须指向 .cognis/evals/runs/ 或 .loopengine/evals/runs/ 下的 run JSON'];
   }
   let run;
   let runSchema;
@@ -221,7 +223,12 @@ function validateEvaluationArtifact(root, artifact, evalId) {
       const referenceSchema = JSON.parse(readFileSync(resolve(root, 'docs/schemas/eval-reference.schema.json'), 'utf8'));
       errors.push(...validateJsonAgainstSchema(suite, suiteSchema, '评测 suite'));
       errors.push(...validateJsonAgainstSchema(reference, referenceSchema, '评测 reference'));
-      try { config = JSON.parse(readFileSync(resolve(root, 'loopengine.config.json'), 'utf8')); } catch {}
+      for (const relativePath of ['cognis.config.json', 'loopengine.config.json']) {
+        try {
+          config = JSON.parse(readFileSync(resolve(root, relativePath), 'utf8'));
+          break;
+        } catch {}
+      }
     } catch (error) {
       errors.push(`评测 suite、reference 或 schema JSON 无效：${error.message}`);
     }
@@ -267,12 +274,44 @@ function validateEvaluationArtifact(root, artifact, evalId) {
   return errors;
 }
 
+const CHILD_OUTPUT_FIELDS = ['状态', '变更摘要', '变更路径', '验证证据', '未验证项', '剩余风险', '下一步动作'];
+
+function validateV2WriteScopes(control, file) {
+  const errors = [];
+  for (const scope of control['写入范围'] ?? []) {
+    const normalized = typeof scope === 'string' ? scope.replaceAll('\\', '/') : '';
+    const segments = normalized.split('/');
+    const globSuffix = normalized.endsWith('/**');
+    const pathPart = globSuffix ? normalized.slice(0, -3) : normalized;
+    const invalidGlob = /[*?\[\]{}!]/u.test(pathPart);
+    if (!normalized
+      || isAbsolute(normalized)
+      || win32.isAbsolute(normalized)
+      || win32.parse(normalized).root.length > 0
+      || segments.some((segment) => segment.length === 0)
+      || segments.some((segment) => ['.', '..'].includes(segment))
+      || invalidGlob
+      || (normalized.includes('**') && !globSuffix)) {
+      errors.push(`${file}：v2 写入范围必须是项目相对路径、精确路径或以 /** 结尾的目录范围：${scope}`);
+    }
+  }
+  return errors;
+}
+
 function validateChildHandoff(control, file) {
   const errors = [];
   for (const name of ['输入', '输出格式', '不得修改范围']) {
     const value = control[name];
     if (!Array.isArray(value) || value.length === 0 || value.some((item) => typeof item !== 'string' || item.trim().length === 0)) {
       errors.push(`${file}：子任务缺少或未填写“${name}”`);
+    }
+  }
+  if (control['控制版本'] === 2) {
+    const output = control['输出格式'];
+    if (!Array.isArray(output)
+      || output.length !== CHILD_OUTPUT_FIELDS.length
+      || CHILD_OUTPUT_FIELDS.some((field) => !output.includes(field))) {
+      errors.push(`${file}：v2 子任务“输出格式”必须完整包含：${CHILD_OUTPUT_FIELDS.join('、')}`);
     }
   }
   return errors;
@@ -419,6 +458,11 @@ export function validateTaskSemantics({ document, schema }) {
 
   if (fields['工作流档位'] === '完整' && control) {
     for (const error of validateJsonAgainstSchema(control, schema, '完整流程控制')) errors.push(`${file}：${error}`);
+    if (control['控制版本'] === 2) {
+      errors.push(...validateV2WriteScopes(control, file));
+      if (!Array.isArray(control['冲突任务'])) errors.push(`${file}：v2 任务缺少“冲突任务”数组`);
+      if (!Number.isInteger(control['时间盒分钟']) || control['时间盒分钟'] < 1) errors.push(`${file}：v2 任务缺少有效“时间盒分钟”`);
+    }
     if (['父任务', '子任务'].includes(control['任务类型'])) {
       if (!substantive(control['父任务编号']) && control['任务类型'] === '子任务') errors.push(`${file}：子任务缺少“父任务编号”`);
       if (!Number.isInteger(control['时间盒分钟']) || control['时间盒分钟'] < 1) errors.push(`${file}：父子任务缺少有效“时间盒分钟”`);
@@ -478,14 +522,6 @@ export function validateTaskDocument({ document, root, schema }) {
   ];
 }
 
-function validateTask(root, file, body, schema) {
-  return validateTaskDocument({
-    document: normalizeTaskDocument(parseTaskMarkdown(file, body)),
-    root,
-    schema,
-  });
-}
-
 export function validateTasks(root) {
   const tasksRoot = resolve(root, 'docs/tasks');
   if (!existsSync(tasksRoot)) return [];
@@ -496,6 +532,7 @@ export function validateTasks(root) {
   } catch (error) {
     return [`完整流程控制 schema 无效：${error.message}`];
   }
+  const documents = [];
   for (const entry of readdirSync(tasksRoot, { recursive: true, withFileTypes: true })) {
     if (!entry.isFile()) continue;
     const file = resolve(entry.parentPath ?? entry.path, entry.name);
@@ -503,8 +540,49 @@ export function validateTasks(root) {
     if (entry.name === 'task.json') {
       errors.push(`${relative}：不再支持 task.json，请迁移为中文 Markdown 任务合同`);
     } else if (entry.name.endsWith('.md')) {
-      errors.push(...validateTask(root, relative, readFileSync(file, 'utf8'), schema));
+      const document = normalizeTaskDocument(parseTaskMarkdown(relative, readFileSync(file, 'utf8')));
+      documents.push(document);
+      errors.push(...validateTaskDocument({ document, root, schema }));
     }
   }
+  errors.push(...validateTaskGraph(documents));
   return errors;
+}
+
+export function inspectTaskContracts(root, { verbose = false } = {}) {
+  const tasksRoot = resolve(root, 'docs/tasks');
+  const summary = {
+    children: 0,
+    legacy: 0,
+    legacyMultiAgent: 0,
+    malformed: 0,
+    parents: 0,
+    status: existsSync(tasksRoot) ? 'present' : 'absent',
+    total: 0,
+    version2: 0,
+  };
+  const legacyPaths = [];
+  if (!existsSync(tasksRoot)) return summary;
+  for (const entry of readdirSync(tasksRoot, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
+    const file = resolve(entry.parentPath ?? entry.path, entry.name);
+    const relative = file.slice(root.length + 1).replaceAll('\\', '/');
+    const parsed = parseTaskMarkdown(relative, readFileSync(file, 'utf8'));
+    summary.total += 1;
+    if (parsed.parseErrors.length > 0) summary.malformed += 1;
+    if (!parsed.control) continue;
+    const kind = parsed.control['任务类型'];
+    if (kind === '父任务') summary.parents += 1;
+    if (kind === '子任务') summary.children += 1;
+    if (parsed.control['控制版本'] === 2) {
+      summary.version2 += 1;
+    } else {
+      summary.legacy += 1;
+      if (['父任务', '子任务'].includes(kind)) {
+        summary.legacyMultiAgent += 1;
+        legacyPaths.push(relative);
+      }
+    }
+  }
+  return verbose && legacyPaths.length > 0 ? { ...summary, legacyPaths } : summary;
 }
