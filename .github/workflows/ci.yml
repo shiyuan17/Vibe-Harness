@@ -32,6 +32,7 @@ jobs:
       - run: pnpm check
       - run: pnpm eval:check
       - run: pnpm eval:offline
+      - run: pnpm eval:workflow:check
       - run: pnpm test:integration
       - if: matrix.os == 'ubuntu-latest'
         run: pnpm runtime:audit
@@ -42,4 +43,3 @@ jobs:
         shell: bash
       - run: pnpm smoke:lifecycle
       - run: git diff --check
-

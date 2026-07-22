@@ -60,6 +60,16 @@ Runner 从 stdin 接收一个 JSON 请求，在一次性项目中执行一个案
 - runner 或供应商不可用是 degraded，不算行为回归；前两次在 job summary 告警，连续第三次由 `eval:health` 使 scheduled workflow 失败。一次 ready 会清零连续计数。
 - 真实断言失败始终是 invalid，不因校准期而隐藏。
 
+## Adaptive / Strict 对照
+
+`evals/workflow-benchmark/cases.json` 固定 40 个真实任务合同，每条路径重复 3 次；其中 12 个案例用于受影响能力的 PR smoke。使用 `pnpm eval:workflow:check` 校验案例数量、类别和指标合同；runner 生成两份 120-attempt run 后，执行：
+
+```bash
+pnpm eval:workflow:compare --adaptive <adaptive-run.json> --strict <strict-run.json>
+```
+
+比较器报告 pass@1、pass@3、pass^3、按任务配对 bootstrap 下界、共同成功尝试的三项效率下降，以及全部尝试的每成功任务成本。发布要求 pass@1 95% 下界不低于 -2pp、critical 零失败、交互/墙钟/Token 中位数分别下降至少 40%/30%/35%。Runner 不可用可以让 PR 只做合同检查，但不能批准 release reference。
+
 启用在线 workflow 前配置仓库变量 `CODEX_CLI_VERSION`、`CODEX_MODEL` 和 secret `OPENAI_API_KEY`。前 20 次成功校准后，将仓库变量 `COGNIS_EVAL_ENFORCE` 设为 `1` 启用 invalid 门禁；缺少运行配置时 workflow 上传脱敏 degraded 诊断并参与连续健康计数。workflow 只申请 `actions:read` 和 `contents:read`，不创建 Issue 或修改仓库状态。
 
 ## 故障恢复

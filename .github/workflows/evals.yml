@@ -23,6 +23,7 @@ jobs:
           node-version: 20.19.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm eval:workflow:check
       - id: preflight
         env:
           CODEX_CLI_VERSION: ${{ vars.CODEX_CLI_VERSION }}

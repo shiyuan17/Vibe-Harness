@@ -25,6 +25,8 @@
     "eval:routing": "node ./scripts/eval-routing-check.js",
     "eval:online": "node ./scripts/eval-online.js",
     "eval:health": "node ./scripts/eval-health.js",
+    "eval:workflow:check": "node ./scripts/workflow-benchmark-check.js",
+    "eval:workflow:compare": "node ./scripts/workflow-benchmark-compare.js",
     "runtime:audit": "node ./scripts/runtime-audit.js",
     "test": "node --test --test-concurrency=4 tests/*.test.js",
     "test:integration": "node --test --test-concurrency=1 tests/installation-baseline.test.js tests/installer-lifecycle.test.js tests/mvp-spec.test.js tests/cross-platform-adapters.test.js tests/tool-provisioning.test.js tests/uninstall.test.js",
