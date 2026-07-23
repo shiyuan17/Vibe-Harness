@@ -102,10 +102,10 @@ test('current docs describe all managed tools as explicit plugins', async () => 
 
   assert.match(english, /No profile installs external tool plugins by default/u);
   assert.match(english, /`chrome-devtools-mcp`/u);
-  assert.match(english, /`open-code-review`.*`agentmemory`/u);
+  assert.match(english, /`playwright-cli`.*`open-code-review`/u);
   assert.match(chinese, /所有 profile 默认都不安装外部工具插件/u);
   assert.match(chinese, /`chrome-devtools-mcp`/u);
-  assert.match(chinese, /`open-code-review`.*`agentmemory`/u);
+  assert.match(chinese, /`playwright-cli`.*`open-code-review`/u);
   assert.match(architecture, /显式工具插件规格/u);
   assert.match(toolingSpec, /Chrome DevTools MCP[\s\S]*1\.6\.0/u);
   assert.match(changelog, /Chrome DevTools MCP[\s\S]*项目内/u);

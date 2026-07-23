@@ -36,12 +36,12 @@
         "profile": { "type": "string", "enum": ["minimal", "core", "full"] },
         "requestedPlugins": {
           "type": "array",
-          "items": { "type": "string", "enum": ["rtk", "ast-grep", "codebase-memory", "chrome-devtools", "playwright", "open-code-review", "agentmemory"] },
+          "items": { "type": "string", "enum": ["rtk", "ast-grep", "codebase-memory", "chrome-devtools", "playwright", "open-code-review"] },
           "uniqueItems": true
         },
         "resolvedModules": {
           "type": "array",
-          "items": { "type": "string", "enum": ["agents", "rules", "templates", "governance", "skills", "memory", "playwright", "chrome-devtools", "codebase-memory", "open-code-review", "agentmemory", "rtk", "ast-grep", "hooks"] },
+          "items": { "type": "string", "enum": ["agents", "rules", "templates", "governance", "skills", "memory", "playwright", "chrome-devtools", "codebase-memory", "open-code-review", "rtk", "ast-grep", "hooks"] },
           "uniqueItems": true
         },
         "status": { "type": "string", "enum": ["consistent"] },
@@ -82,17 +82,6 @@
               "additionalProperties": false
             },
             "openCodeReview": {
-              "type": "object",
-              "required": ["phase", "status", "version"],
-              "properties": {
-                "code": { "type": "string", "minLength": 1 },
-                "phase": { "type": "string", "minLength": 1 },
-                "status": { "type": "string", "enum": ["degraded", "pending", "pending-config", "ready"] },
-                "version": { "type": "string", "minLength": 1 }
-              },
-              "additionalProperties": false
-            },
-            "agentmemory": {
               "type": "object",
               "required": ["phase", "status", "version"],
               "properties": {

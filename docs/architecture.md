@@ -27,7 +27,7 @@ Cognis 是跨平台、Codex 完整能力优先的可复用 AI coding governance 
 1. `cognis init --project <path> --target <codex|claude|gemini>` 创建项目配置。
 2. `cognis install --project <path> --target <adapter> --profile <profile> --dry-run` 只预览；CLI target 与配置不一致时拒绝执行。
 3. 所有 profile 使用 `--write` 事务性写入；Codex full 写入红区另需 `--confirm-red-zone`。事务按 preflight、journal、preimage、apply、state v3 commit 顺序执行。
-4. `cognis install ... --plugin <plugins>` 将工具模块及依赖闭包增量并入 profile；`-all` 选择全部 7 个，单选、多选与 install-state 持久化互相独立。Codex-only 工具 hook 的配置和行为由 [Hook 场景与运行边界](hooks.md) 定义。`cognis provision --project <path> --profile <profile>` 独立预览已选工具；只有 `--write` 才执行。`install --provision` 是兼容的一站式入口。
+4. `cognis install ... --plugin <plugins>` 将工具模块及依赖闭包增量并入 profile；`-all` 选择当前全部 6 个，单选、多选与 install-state 持久化互相独立。Codex-only 工具 hook 的配置和行为由 [Hook 场景与运行边界](hooks.md) 定义。`cognis provision --project <path> --profile <profile>` 独立预览已选工具；只有 `--write` 才执行。`install --provision` 是兼容的一站式入口。
 5. 中断事务由 `cognis recover --project <path>` 预览，显式 `--write` 才逆序恢复；`doctor` 只读报告锁和 journal。
 6. 工具子进程使用 allowlist 环境与独立进程组；SIGINT、SIGTERM、超时和输出上限都会先清理进程树。失败诊断脱敏后写入工具状态。
 7. `cognis validate --project <path>` 校验安装一致性和组件状态，不执行目标项目命令。
@@ -62,10 +62,10 @@ evaluation reference 与项目 baseline 分离。reference 只保存批准的 fi
 
 - minimal：最小安装，包含平台入口、治理内核、Git/VCS/Test 规则和默认 v2 中文 task/delivery 模板，不安装 skills、runtime、hook 或 MCP 安装面。
 - core：通用安装，在 minimal 上增加专项规则、v1/v2 任务 runtime/schema、跨文档任务图 validator，以及澄清、调试、Eval、安全四个原生 Skill；不安装外部工具或 hook。
-- full：完整治理安装，在 core 上增加 API/接口、前端设计、跨仓 rollout 三个原生 Skill、在线评测资产和 Codex hooks；memory 与外部工具都通过插件显式启用，真实写入红区仍需确认。
+- full：完整治理安装，在 core 上增加 API/接口、前端设计、跨仓 rollout 三个原生 Skill、在线评测资产和 Codex hooks；memory 通过高级 module、外部工具通过插件显式启用，真实写入红区仍需确认。
 - docs-only：仅安装平台入口、治理内核、专项规则、v2 中文模板、memory 文档和 schema，不安装 runtime、Skills、MCP 或 hooks。
 
-公开插件名与内部模块映射固定为：`rtk` → `rtk`、`ast-grep` → `ast-grep`、`codebase-memory-mcp` → `codebase-memory`、`chrome-devtools-mcp` → `chrome-devtools`、`playwright-cli` → `playwright`、`open-code-review` → `open-code-review`、`agentmemory` → `agentmemory`。CLI 插件选择优先于项目配置，项目配置优先于 install-state；`--plugin none` 清空持久化选择。`--modules` 仍是替换整个 profile 的高级接口，不能作为插件增量接口。Agentmemory 仍受 `--allow-preview` 门禁。
+公开插件名与内部模块映射固定为：`rtk` → `rtk`、`ast-grep` → `ast-grep`、`codebase-memory-mcp` → `codebase-memory`、`chrome-devtools-mcp` → `chrome-devtools`、`playwright-cli` → `playwright`、`open-code-review` → `open-code-review`。CLI 插件选择优先于项目配置，项目配置优先于 install-state；`--plugin none` 清空持久化选择。`--modules` 仍是替换整个 profile 的高级接口，不能作为插件增量接口。Agentmemory runtime 在上游 High 漏洞修复前退出可安装面，本地 `memory` module 保持可用。
 
 ## 中文任务数据流
 

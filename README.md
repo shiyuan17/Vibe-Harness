@@ -26,7 +26,7 @@ Cognis gives Codex, Claude Code, and Gemini CLI a shared way to plan, execute, a
 | A long task loses important context between sessions. | `baseline` records project, installation, tool, and verification status; project memory and handoff templates preserve decisions and known issues. | The next session can recover project facts without reconstructing everything from chat history. |
 | Rules drift between AI coding tools. | Native project files and tested install levels (`profiles`) for Codex, Claude Code, and Gemini CLI. | Each tool gets the same core working rules in the format it actually supports. |
 | Installing or updating shared rules feels risky. | Dry-run previews, clearly marked sections, backups, validation, safe uninstall, and rollback. | You can inspect changes before writing and reverse managed changes without replacing unrelated project content. |
-| Useful coding tools are scattered or configured globally. | Explicit `--plugin` selection installs pinned tools inside the project; Agentmemory remains preview while its dependency advisories are unresolved. | Code understanding, browser checks, diagnostics, review, and memory stay project-local without making every `full` install download tools. |
+| Useful coding tools are scattered or configured globally. | Explicit `--plugin` selection installs pinned tools inside the project; the Agentmemory runtime is unavailable while upstream high-severity advisories remain unresolved. | Code understanding, browser checks, diagnostics, review, and local memory stay project-local without making every `full` install download tools. |
 
 ## Why Not Just Write an AGENTS.md?
 
@@ -201,14 +201,14 @@ pnpm cognis install --project ../some-project --target codex --profile core --pl
 # Enable multiple plugins
 pnpm cognis install --project ../some-project --target codex --profile core --plugin -rtk ast-grep --write
 
-# Enable all plugins, including preview Agentmemory
-pnpm cognis install --project ../some-project --target codex --profile full --plugin -all --dry-run --allow-preview
+# Enable all available plugins
+pnpm cognis install --project ../some-project --target codex --profile full --plugin -all --dry-run
 
 # Clear a plugin selection persisted by an earlier install
 pnpm cognis install --project ../some-project --target codex --profile core --plugin none --write
 ```
 
-Public plugin names are `rtk`, `ast-grep`, `codebase-memory-mcp`, `chrome-devtools-mcp`, `playwright-cli`, `open-code-review`, and `agentmemory`. `all` expands to all seven. One leading `-` is accepted for the requested command style, comma-separated values and repeated `--plugin` options are also accepted, and duplicate or unknown names are rejected. Selecting Agentmemory for installation or provisioning requires `--allow-preview`.
+Public plugin names are `rtk`, `ast-grep`, `codebase-memory-mcp`, `chrome-devtools-mcp`, `playwright-cli`, and `open-code-review`. `all` expands to all six. One leading `-` is accepted for the requested command style, comma-separated values and repeated `--plugin` options are also accepted, and duplicate or unknown names are rejected. The Agentmemory runtime plugin is temporarily unavailable because its upstream dependency tree has unresolved high-severity advisories; use the project-local `memory` module for durable notes and handoff records.
 
 RTK hook integration is optional and documented in [Hook scenarios and runtime boundaries](docs/hooks.md); tool-specific usage and fallback rules stay with the installed tool rule.
 
@@ -226,7 +226,7 @@ pnpm cognis install --project ../some-project --target codex --profile core --mo
 pnpm cognis install --project ../some-project --target codex --profile core --modules agents,rules,skills --write
 ```
 
-Available modules are `agents`, `rules`, `templates`, `governance`, `skills`, `memory`, `playwright`, `chrome-devtools`, `codebase-memory`, `open-code-review`, `agentmemory`, `rtk`, `ast-grep`, and `hooks`. Cognis automatically adds required dependencies. The command report shows the replacement request, final installation, and added dependencies as `requestedModules`, `resolvedModules`, and `implicitModules`.
+Available modules are `agents`, `rules`, `templates`, `governance`, `skills`, `memory`, `playwright`, `chrome-devtools`, `codebase-memory`, `open-code-review`, `rtk`, `ast-grep`, and `hooks`. Cognis automatically adds required dependencies. The command report shows the replacement request, final installation, and added dependencies as `requestedModules`, `resolvedModules`, and `implicitModules`.
 
 </details>
 
@@ -286,7 +286,7 @@ pnpm cognis doctor --project ../some-project
 <details>
 <summary><strong>Built-in tools and command status</strong></summary>
 
-This section helps when an install or health check reports a problem. All seven tools are optional, project-local plugins; the [explicit tool plugin specification](docs/specs/cognis-tooling-modules-spec.md) is the single source for names, versions, entries, states, and fallback behavior. Browser and hook runtime details remain in [Hook scenarios and runtime boundaries](docs/hooks.md).
+This section helps when an install or health check reports a problem. All six available tools are optional, project-local plugins; the [explicit tool plugin specification](docs/specs/cognis-tooling-modules-spec.md) is the single source for names, versions, entries, states, and fallback behavior. Browser and hook runtime details remain in [Hook scenarios and runtime boundaries](docs/hooks.md).
 
 Cognis writes MCP settings only to its marked project section, passes credentials only to the required child process, and stores redacted diagnostics rather than raw environments or tool output.
 

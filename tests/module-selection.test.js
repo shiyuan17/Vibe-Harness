@@ -28,16 +28,16 @@ async function runCliFailure(args) {
 }
 
 test('public modules resolve dependencies without exposing install-map groups', () => {
-  const selection = resolveModuleSelection({ requestedModules: ['agentmemory', 'hooks'] });
+  const selection = resolveModuleSelection({ requestedModules: ['memory', 'hooks'] });
 
-  assert.deepEqual(selection.requestedModules, ['agentmemory', 'hooks']);
+  assert.deepEqual(selection.requestedModules, ['memory', 'hooks']);
   assert.deepEqual(selection.resolvedModules, [
-    'agents', 'rules', 'templates', 'governance', 'skills', 'memory', 'agentmemory', 'hooks',
+    'agents', 'rules', 'templates', 'governance', 'skills', 'memory', 'hooks',
   ]);
-  assert.deepEqual(selection.implicitModules, ['agents', 'rules', 'templates', 'governance', 'skills', 'memory']);
-  assert.equal(selection.allowedGroups.has('tools-agentmemory'), true);
+  assert.deepEqual(selection.implicitModules, ['agents', 'rules', 'templates', 'governance', 'skills']);
+  assert.equal(selection.allowedGroups.has('skills-memory'), true);
   assert.equal(selection.allowedGroups.has('tools-codebase-memory'), false);
-  assert.equal(selection.allowedGroups.has('mcp-config'), true);
+  assert.equal(selection.allowedGroups.has('mcp-config'), false);
 });
 
 test('chrome-devtools module installs its rule, runtime, skills, and managed MCP surface', async () => {
@@ -140,7 +140,7 @@ test('plugin option accepts public aliases and normalizes a single leading dash'
   );
 });
 
-test('plugin option expands all seven plugins and rejects ambiguous input', () => {
+test('plugin option expands all six plugins and rejects ambiguous input', () => {
   assert.deepEqual(parsePluginsOption(['-all']), [
     'rtk',
     'ast-grep',
@@ -148,7 +148,6 @@ test('plugin option expands all seven plugins and rejects ambiguous input', () =
     'chrome-devtools',
     'playwright',
     'open-code-review',
-    'agentmemory',
   ]);
   assert.deepEqual(parsePluginsOption(['none']), []);
   assert.throws(() => parsePluginsOption([]), /requires at least one plugin/u);
@@ -376,7 +375,6 @@ test('CLI plugin selection supports one, many, and all public plugins', async ()
       'playwrightCli',
       'chromeDevtoolsMcp',
       'openCodeReview',
-      'agentmemory',
       'rtk',
       'astGrep',
     ]);
@@ -385,7 +383,7 @@ test('CLI plugin selection supports one, many, and all public plugins', async ()
   }
 });
 
-test('Agentmemory plugin installation requires explicit preview approval', async () => {
+test('retired Agentmemory plugin is rejected', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'cognis-agentmemory-plugin-preview-'));
   try {
     await runCli(['init', '--project', target]);
@@ -394,33 +392,7 @@ test('Agentmemory plugin installation requires explicit preview approval', async
       '--plugin', '-agentmemory', '--dry-run',
     ]);
     assert.equal(failure.ok, false);
-    assert.match(failure.error.message, /Preview plugins require --allow-preview: agentmemory/u);
-
-    const approved = await runCli([
-      'install', '--project', target, '--target', 'codex', '--profile', 'core',
-      '--plugin', '-agentmemory', '--dry-run', '--allow-preview',
-    ]);
-    assert.deepEqual(approved.requestedPlugins, ['agentmemory']);
-  } finally {
-    await rm(target, { force: true, recursive: true });
-  }
-});
-
-test('read-only health commands retain an approved Agentmemory selection', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-agentmemory-plugin-health-'));
-  try {
-    await runCli(['init', '--project', target]);
-    await runCli([
-      'install', '--project', target, '--target', 'codex', '--profile', 'core',
-      '--plugin', '-agentmemory', '--write', '--allow-preview', '--confirm-red-zone',
-    ]);
-
-    const validation = await runCli(['validate', '--project', target]);
-    const doctor = await runCli(['doctor', '--project', target]);
-    const baseline = await runCli(['baseline', '--project', target]);
-    assert.equal(validation.tools.agentmemory.status, 'pending');
-    assert.equal(doctor.tools.agentmemory.status, 'pending');
-    assert.equal(baseline.baseline.installation.tools.agentmemory.status, 'pending');
+    assert.match(failure.error.message, /Unknown plugin: agentmemory/u);
   } finally {
     await rm(target, { force: true, recursive: true });
   }

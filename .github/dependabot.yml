@@ -10,7 +10,6 @@ updates:
       interval: "weekly"
   - package-ecosystem: "npm"
     directories:
-      - "/runtime/tools/agentmemory"
       - "/runtime/tools/codebase-memory-mcp"
       - "/runtime/tools/open-code-review"
       - "/runtime/tools/playwright-cli"

@@ -9,7 +9,6 @@ export const moduleCatalog = {
   'chrome-devtools': { dependencies: ['skills'], groups: ['rules-chrome-devtools', 'skills-browser', 'tools-chrome-devtools', 'mcp-config'] },
   'codebase-memory': { dependencies: ['agents', 'rules'], groups: ['rules-codebase-memory', 'tools-codebase-memory', 'mcp-config'] },
   'open-code-review': { dependencies: ['skills'], groups: ['tools-open-code-review'] },
-  agentmemory: { dependencies: ['memory'], groups: ['tools-agentmemory', 'mcp-config'] },
   rtk: { dependencies: ['agents', 'rules'], groups: ['rules-rtk', 'tools-rtk'] },
   'ast-grep': { dependencies: ['agents', 'rules'], groups: ['rules-ast-grep', 'tools-ast-grep'] },
   hooks: { dependencies: ['agents', 'governance'], groups: ['hooks'] },
@@ -31,7 +30,6 @@ export const pluginModules = [
   'chrome-devtools',
   'playwright',
   'open-code-review',
-  'agentmemory',
 ];
 
 const pluginAliases = new Map([
@@ -44,7 +42,6 @@ const pluginAliases = new Map([
   ['playwright-cli', 'playwright'],
   ['playwright', 'playwright'],
   ['open-code-review', 'open-code-review'],
-  ['agentmemory', 'agentmemory'],
 ]);
 
 export function parseModulesOption(value) {

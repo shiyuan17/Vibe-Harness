@@ -85,7 +85,7 @@ rollback 会恢复旧配置和已退休资产；若 canonical 配置已被用户
 - `LOOPENGINE_*` 环境变量作为 fallback 保留；对应 `COGNIS_*` 变量优先，并报告旧变量弃用。
 - 读取器长期接受旧配置、旧状态、旧 marker 和旧 eval 证据路径。
 - fresh run 只写 `cognis-*` 评测和产物路径。
-- 第三方工具 ID `codebase-memory-mcp`、`open-code-review`、`agentmemory`、`rtk` 和 `ast-grep` 不重命名。
+- 仍提供的第三方工具 ID `codebase-memory-mcp`、`open-code-review`、`rtk` 和 `ast-grep` 不重命名；`agentmemory` runtime 因未修复 High 漏洞退出可安装面。
 
 兼容层最早只能在独立的 `1.0` breaking release 中移除。
 
@@ -99,10 +99,10 @@ rollback 会恢复旧配置和已退休资产；若 canonical 配置已被用户
 
 - `minimal`：平台入口、治理内核、Git/Test 规则和默认 v2 中文 task/delivery 模板。
 - `core`：minimal 加工程专项规则、v1/v2 任务 runtime/schema、任务图 validator、四个聚焦原生 Skill 和 Red Team 门禁。
-- `full`：core 加 API/接口、前端设计和跨仓 rollout 三个领域 Skill、在线评测与 Codex hooks；memory 和外部工具均需显式插件。
+- `full`：core 加 API/接口、前端设计和跨仓 rollout 三个领域 Skill、在线评测与 Codex hooks；memory 需显式 module，外部工具需显式插件。
 - `docs-only`：只安装可读规则、v2 模板与 schema，不提供 runtime 或平台 hook。
 
-精确文件集合以 `manifests/profiles.json` 为真值。升级后 `core` 与 `full` 都不会自动带入 Playwright、Chrome DevTools MCP、codebase-memory-mcp、Open Code Review、Agentmemory、RTK 或 ast-grep。使用 `--plugin` 增量选择，不要用会替换整个 profile 的 `--modules` 代替：
+精确文件集合以 `manifests/profiles.json` 为真值。升级后 `core` 与 `full` 都不会自动带入 Playwright、Chrome DevTools MCP、codebase-memory-mcp、Open Code Review、RTK 或 ast-grep。使用 `--plugin` 增量选择，不要用会替换整个 profile 的 `--modules` 代替：
 
 ```bash
 pnpm cognis install --project ../target-project --target codex --profile full --plugin -rtk ast-grep --dry-run
@@ -111,7 +111,7 @@ pnpm cognis provision --project ../target-project --target codex --profile full 
 pnpm cognis provision --project ../target-project --target codex --profile full --write
 ```
 
-`--plugin none` 清除 install-state 中保存的插件选择。项目配置可使用 `plugins` 数组；CLI、项目配置、install-state 的优先级依次降低。Agentmemory 因已知依赖风险保持 preview，显式选择时还需 `--allow-preview`。所有插件仍只写项目内目录；平台不支持或校验失败时按各自规则回退，不写全局配置。
+`--plugin none` 清除 install-state 中保存的插件选择。项目配置可使用 `plugins` 数组；CLI、项目配置、install-state 的优先级依次降低。若旧配置或 install-state 仍包含 `agentmemory`，先使用 `--plugin none` 或移除该配置项，再执行升级；项目内 `memory` module 仍可用于模板与交接记录。所有可用插件仍只写项目内目录；平台不支持或校验失败时按各自规则回退，不写全局配置。
 
 ## 6. 中断恢复与验证
 

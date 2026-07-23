@@ -110,7 +110,7 @@ export function createInstalledSurface({ customModules = false, memoryPath = '.a
   const profileLines = {
     core: '- 当前安装方式：通用安装（不包含扩展 MCP 或 hooks 安装面）。',
     'docs-only': '- 当前安装方式：仅文档安装。',
-    full: '- 当前安装方式：完整治理安装（包含七个原生 Skills 和 Codex hooks；memory 与外部工具仅通过 `--plugin` 显式启用）。',
+    full: '- 当前安装方式：完整治理安装（包含七个原生 Skills 和 Codex hooks；memory 通过高级 module、外部工具通过 `--plugin` 显式启用）。',
     minimal: '- 当前安装方式：最小安装。',
   };
 
@@ -178,15 +178,8 @@ function sourceForEntry(entrySource, renderData) {
 function createManagedMcpServers(targetDir, resolvedModules) {
   const codebaseTool = path.join(targetDir, '.agents/cognis/tools/codebase-memory-mcp/run.mjs');
   const chromeDevtoolsTool = path.join(targetDir, '.agents/cognis/tools/chrome-devtools-mcp/run.mjs');
-  const agentmemoryTool = path.join(targetDir, '.agents/cognis/tools/agentmemory/run.mjs');
   const stateRoot = path.dirname(stateFilePath(targetDir));
-  const memoryHome = path.join(stateRoot, 'tool-state/agentmemory/home');
   const servers = {};
-  if (resolvedModules.includes('agentmemory')) servers.agentmemory = {
-      args: [agentmemoryTool],
-      command: process.execPath,
-      env: { HOME: memoryHome, USERPROFILE: memoryHome },
-    };
   if (resolvedModules.includes('chrome-devtools')) servers['chrome-devtools'] = {
       args: [chromeDevtoolsTool],
       command: process.execPath,
@@ -231,9 +224,6 @@ export async function createInstallPlan({
     requestedPlugins,
     rtkHooksEnabled,
   });
-  if (!allowPreview && moduleSelection.requestedPlugins.includes('agentmemory')) {
-    throw new Error('Preview plugins require --allow-preview: agentmemory');
-  }
   const allowedGroups = moduleSelection.allowedGroups;
   const actions = [];
   const state = await readInstallState(path.resolve(targetDir));
@@ -468,7 +458,7 @@ export async function createInstallPlan({
       }]
     : [];
   const stateDirectory = path.basename(path.dirname(stateFilePath(path.resolve(targetDir))));
-  for (const component of ['chrome-devtools-mcp', 'codebase-memory-mcp', 'open-code-review', 'agentmemory', 'ast-grep']) {
+  for (const component of ['chrome-devtools-mcp', 'codebase-memory-mcp', 'open-code-review', 'ast-grep']) {
     const ownerTarget = `.agents/cognis/tools/${component}/package.json`;
     if (actions.some((action) => action.kind === 'write' && action.relativeTarget === ownerTarget)) {
       generatedDirectories.push({ ownerTarget, target: `.agents/cognis/tools/${component}/node_modules` });

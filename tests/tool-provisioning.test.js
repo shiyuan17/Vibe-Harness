@@ -36,7 +36,6 @@ const PROFILE_TOOL_MODULES = [
   'playwright',
   'chrome-devtools',
   'open-code-review',
-  'agentmemory',
 ];
 
 function successfulToolOutput(request, targetDir) {
@@ -272,13 +271,7 @@ test('provisioning continues after one component fails and never persists comman
     });
     assert.equal(report.playwrightCli.status, 'ready');
     assert.equal(report.openCodeReview.status, 'ready');
-    assert.equal(report.agentmemory.status, 'ready');
-    assert.equal(calls.some((call) => call.component === 'agentmemory' && call.phase === 'mcp-handshake'), true);
     assert.equal(calls.some((call) => call.component === 'openCodeReview' && call.phase === 'llm-test'), true);
-    const dependency = calls.find((call) => call.component === 'agentmemory' && call.phase === 'dependency-install');
-    assert.equal(dependency.args.includes('ci'), true);
-    assert.equal(dependency.args.includes('--omit=optional'), true);
-    assert.equal(dependency.cwd.startsWith(targetDir), true);
     const index = calls.find((call) => call.component === 'codebaseMemoryMcp' && call.phase === 'index');
     assert.deepEqual(index.args.slice(1), [
       'cli', 'index_repository',
@@ -288,10 +281,6 @@ test('provisioning continues after one component fails and never persists comman
     ]);
     assert.equal(index.env.CBM_ALLOWED_ROOT, targetDir);
     assert.equal(index.env.CBM_CACHE_DIR.startsWith(targetDir), true);
-    const agentmemory = calls.find((call) => call.component === 'agentmemory' && call.phase === 'mcp-handshake');
-    assert.equal(agentmemory.env.HOME.startsWith(targetDir), true);
-    assert.equal(agentmemory.env.USERPROFILE, agentmemory.env.HOME);
-
     const state = await readFile(path.join(targetDir, '.cognis/tool-state/tools.json'), 'utf8');
     assert.equal(state.includes('connect ETIMEDOUT for <project>'), true);
     assert.equal(state.includes('super-secret-token'), false);
@@ -467,7 +456,6 @@ test('every full-profile tool persists a sanitized diagnostic for its failed pha
     ['codebaseMemoryMcp', 'index-verify'],
     ['playwrightCli', 'browser-install'],
     ['openCodeReview', 'llm-test'],
-    ['agentmemory', 'mcp-handshake'],
   ];
   for (const [toolId, phase] of failures) {
     const targetDir = await mkdtemp(path.join(tmpdir(), `cognis-diagnostic-${toolId}-`));
@@ -615,15 +603,15 @@ test('ready tools reuse package phases while codebase-memory reindexes and verif
       ['chromeDevtoolsMcp', 'browser-smoke'],
     ]);
 
-    const agentmemory = plan.find((tool) => tool.id === 'agentmemory');
-    await writeFile(path.join(agentmemory.toolDir, 'package-lock.json'), 'changed\n', 'utf8');
+    const openCodeReview = plan.find((tool) => tool.id === 'openCodeReview');
+    await writeFile(path.join(openCodeReview.toolDir, 'package-lock.json'), 'changed\n', 'utf8');
     const beforeChangedLock = calls.length;
     await provisionProfileTools({ allowPreview: true, commandRunner: runner, env, profile: 'full', resolvedModules: PROFILE_TOOL_MODULES, targetDir });
     const newCalls = calls.slice(beforeChangedLock);
     assert.deepEqual(newCalls.filter((call) => call.component === 'codebaseMemoryMcp').map((call) => call.phase), [
       'index', 'index-verify', 'mcp-handshake',
     ]);
-    assert.equal(newCalls.some((call) => call.component === 'agentmemory'), true);
+    assert.equal(newCalls.some((call) => call.component === 'openCodeReview'), true);
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }
@@ -785,42 +773,38 @@ test('full install map includes project-local runtimes and managed Codex MCP con
     assert.equal(fullTargets.includes('.agents/cognis/tools/codebase-memory-mcp/package-lock.json'), true);
     assert.equal(fullTargets.includes('.agents/cognis/tools/chrome-devtools-mcp/package-lock.json'), true);
     assert.equal(fullTargets.includes('.agents/cognis/tools/open-code-review/package-lock.json'), true);
-    assert.equal(fullTargets.includes('.agents/cognis/tools/agentmemory/package-lock.json'), true);
     assert.equal(fullTargets.includes('.codex/config.toml'), true);
     assert.equal(coreTargets.includes('.codex/config.toml'), false);
     assert.equal(coreTargets.some((target) => target.includes('codebase-memory-mcp/package-lock.json')), false);
     assert.equal(full.generatedDirectories.some((item) => item.target.endsWith('codebase-memory-mcp/node_modules')), true);
     assert.equal(full.generatedDirectories.some((item) => item.target.endsWith('chrome-devtools-mcp/node_modules')), true);
-    assert.equal(full.generatedDirectories.some((item) => item.target.endsWith('agentmemory/node_modules')), true);
     assert.equal(full.generatedDirectories.some((item) => item.target === '.cognis/tool-state/codebase-memory-mcp'), true);
 
     const config = (await previewInstallPlan(full)).find((file) => file.target === '.codex/config.toml');
     assert.equal(full.actions.find((action) => action.relativeTarget === '.codex/config.toml').redZone, true);
-    assert.match(config.content, /# COGNIS:MCP:START[\s\S]*mcp_servers\.agentmemory[\s\S]*mcp_servers\.chrome-devtools[\s\S]*mcp_servers\.codebase-memory-mcp/u);
+    assert.match(config.content, /# COGNIS:MCP:START[\s\S]*mcp_servers\.chrome-devtools[\s\S]*mcp_servers\.codebase-memory-mcp/u);
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }
 });
 
-test('full CLI dry-run includes preview tools only after explicit approval', async () => {
+test('full CLI dry-run includes all explicitly selected stable tools', async () => {
   const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-cli-plan-'));
   try {
     await runCli(['init', '--project', targetDir]);
     const report = await runCli(
-      ['install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--plugin', '-codebase-memory-mcp', 'playwright-cli', 'chrome-devtools-mcp', 'open-code-review', 'agentmemory', '--dry-run', '--allow-preview'],
+      ['install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--plugin', '-codebase-memory-mcp', 'playwright-cli', 'chrome-devtools-mcp', 'open-code-review', '--dry-run'],
       { env: { ...process.env, ANTHROPIC_API_KEY: '', OCR_LLM_MODEL: '', OCR_LLM_TOKEN: '', OCR_LLM_URL: '', OPENAI_API_KEY: '' } },
     );
 
     assert.deepEqual(report.plannedToolActions.map((item) => item.id), [
-      'codebaseMemoryMcp', 'playwrightCli', 'chromeDevtoolsMcp', 'openCodeReview', 'agentmemory',
+      'codebaseMemoryMcp', 'playwrightCli', 'chromeDevtoolsMcp', 'openCodeReview',
     ]);
     assert.deepEqual(report.deferredToolActions, []);
     assert.equal(report.tools.codebaseMemoryMcp.status, 'pending');
     assert.equal(report.tools.playwrightCli.status, 'pending');
     assert.equal(['pending', 'pending-config'].includes(report.tools.openCodeReview.status), true);
-    assert.equal(report.tools.agentmemory.status, 'pending');
     await assert.rejects(readFile(path.join(targetDir, '.cognis/tool-state/tools.json'), 'utf8'), /ENOENT/u);
-    await assert.rejects(readFile(path.join(targetDir, '.agents/cognis/tools/agentmemory/node_modules/.package-lock.json'), 'utf8'), /ENOENT/u);
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }
@@ -877,14 +861,11 @@ test('tool processes receive only base variables and tool-specific credentials',
         OPENAI_API_KEY: 'ocr-only-secret',
       },
       profile: 'full',
-      resolvedModules: ['agentmemory', 'open-code-review'],
+      resolvedModules: ['open-code-review'],
       targetDir,
     });
 
-    const agentmemory = requests.find((request) => request.component === 'agentmemory');
     const openCodeReview = requests.find((request) => request.component === 'openCodeReview');
-    assert.equal(agentmemory.env.COGNIS_SECRET_SENTINEL, undefined);
-    assert.equal(agentmemory.env.OPENAI_API_KEY, undefined);
     assert.equal(openCodeReview.env.COGNIS_SECRET_SENTINEL, undefined);
     assert.equal(openCodeReview.env.OPENAI_API_KEY, 'ocr-only-secret');
     assert.equal(openCodeReview.env.PATH ?? openCodeReview.env.Path, process.env.PATH ?? process.env.Path);
@@ -1214,11 +1195,6 @@ test('installed tool wrappers enforce runtime environment allowlists', async () 
       expected: { cbmRoot: targetDir },
       runtime: 'codebase-memory-mcp',
     },
-    {
-      entry: 'node_modules/@agentmemory/mcp/bin.mjs',
-      expected: {},
-      runtime: 'agentmemory',
-    },
   ];
   try {
     for (const item of cases) {
@@ -1323,34 +1299,28 @@ test('provision previews and writes only explicitly selected tools', async () =>
   try {
     await runCli(['init', '--project', targetDir, '--profile', 'full']);
     await runCli([
-      'install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--plugin', '-agentmemory', '--write', '--confirm-red-zone', '--allow-preview',
+      'install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--plugin', '-open-code-review', '--write', '--confirm-red-zone',
     ], { env: offlineEnv });
 
-    await assert.rejects(
-      execFileAsync(process.execPath, [
-        cliPath, 'provision', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--tool', 'agentmemory', '--dry-run',
-      ], { cwd: rootDir, env: offlineEnv }),
-      /preview.*allow-preview/iu,
-    );
     const preview = await runCli([
-      'provision', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--tool', 'agentmemory', '--dry-run', '--allow-preview',
+      'provision', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--tool', 'openCodeReview', '--dry-run',
     ], { env: offlineEnv });
-    assert.deepEqual(preview.plannedToolActions.map((item) => item.id), ['agentmemory']);
+    assert.deepEqual(preview.plannedToolActions.map((item) => item.id), ['openCodeReview']);
     assert.equal(preview.dryRun, true);
     await assert.rejects(readFile(path.join(targetDir, '.cognis/tool-state/tools.json'), 'utf8'), /ENOENT/u);
 
     const result = await runCli([
-      'provision', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--tool', 'agentmemory', '--write', '--allow-preview', '--allow-degraded',
+      'provision', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--tool', 'openCodeReview', '--write', '--allow-degraded',
     ], { env: offlineEnv });
-    assert.deepEqual(Object.keys(result.tools), ['agentmemory']);
+    assert.deepEqual(Object.keys(result.tools), ['openCodeReview']);
     const state = JSON.parse(await readFile(path.join(targetDir, '.cognis/tool-state/tools.json'), 'utf8'));
-    assert.deepEqual(Object.keys(state.tools), ['agentmemory']);
-    assert.match(state.tools.agentmemory.source, /^npm:@agentmemory\/mcp@/u);
-    assert.equal(Number.isNaN(Date.parse(state.tools.agentmemory.startedAt)), false);
-    assert.equal(Number.isNaN(Date.parse(state.tools.agentmemory.finishedAt)), false);
-    assert.equal(state.tools.agentmemory.result, state.tools.agentmemory.status);
-    assert.equal(typeof state.tools.agentmemory.logSummary, 'string');
-    assert.equal(state.tools.agentmemory.logSummary.includes('secret'), false);
+    assert.deepEqual(Object.keys(state.tools), ['openCodeReview']);
+    assert.match(state.tools.openCodeReview.source, /^npm:@alibaba-group\/open-code-review@/u);
+    assert.equal(Number.isNaN(Date.parse(state.tools.openCodeReview.startedAt)), false);
+    assert.equal(Number.isNaN(Date.parse(state.tools.openCodeReview.finishedAt)), false);
+    assert.equal(state.tools.openCodeReview.result, state.tools.openCodeReview.status);
+    assert.equal(typeof state.tools.openCodeReview.logSummary, 'string');
+    assert.equal(state.tools.openCodeReview.logSummary.includes('secret'), false);
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }
@@ -1362,15 +1332,15 @@ test('provision rejects tool directories redirected outside the project', async 
   try {
     await runCli(['init', '--project', targetDir, '--profile', 'full']);
     await runCli([
-      'install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--plugin', '-agentmemory', '--write', '--confirm-red-zone', '--allow-preview',
+      'install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--plugin', '-open-code-review', '--write', '--confirm-red-zone',
     ], { env: offlineEnv });
-    const toolDir = path.join(targetDir, '.agents/cognis/tools/agentmemory');
+    const toolDir = path.join(targetDir, '.agents/cognis/tools/open-code-review');
     await rm(toolDir, { force: true, recursive: true });
     await symlink(outside, toolDir, process.platform === 'win32' ? 'junction' : 'dir');
 
     await assert.rejects(
       execFileAsync(process.execPath, [
-        cliPath, 'provision', '--project', targetDir, '--profile', 'full', '--tool', 'agentmemory', '--write', '--allow-degraded',
+        cliPath, 'provision', '--project', targetDir, '--profile', 'full', '--tool', 'openCodeReview', '--write', '--allow-degraded',
       ], { cwd: rootDir, env: offlineEnv }),
       /link|junction|reparse/iu,
     );

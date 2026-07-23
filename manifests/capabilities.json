@@ -155,7 +155,7 @@
       "id": "tool-provisioning",
       "source": "project-local tool provisioning",
       "disposition": "validator",
-      "targets": ["scripts/cognis.js", "scripts/lib/module-selection.js", "scripts/lib/tool-provisioning.js", "scripts/lib/runtime-audit.js", "manifests/profiles.json", "runtime/tools/agentmemory/package-lock.json", "runtime/tools/chrome-devtools-mcp/package-lock.json", "runtime/tools/ast-grep/package-lock.json", "runtime/tools/rtk/run.mjs"],
+      "targets": ["scripts/cognis.js", "scripts/lib/module-selection.js", "scripts/lib/tool-provisioning.js", "scripts/lib/runtime-audit.js", "manifests/profiles.json", "runtime/tools/chrome-devtools-mcp/package-lock.json", "runtime/tools/ast-grep/package-lock.json", "runtime/tools/rtk/run.mjs"],
       "tests": ["tests/tool-provisioning.test.js", "tests/runtime-audit.test.js", "tests/tooling-modules.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
       "docs": ["docs/architecture.md", "docs/specs/cognis-tooling-modules-spec.md"],

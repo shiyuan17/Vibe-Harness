@@ -51,14 +51,6 @@ const toolSpecs = [
     version: '1.7.7',
   },
   {
-    id: 'agentmemory',
-    packageName: '@agentmemory/mcp',
-    phases: ['dependency-install', 'mcp-handshake'],
-    relativeDir: '.agents/cognis/tools/agentmemory',
-    supportLevel: 'preview',
-    version: '0.9.27',
-  },
-  {
     id: 'rtk',
     packageName: 'rtk-ai/rtk',
     phases: ['binary-install'],
@@ -89,7 +81,6 @@ export function createToolProvisioningPlan({ allowPreview = false, profile, reso
       ['playwrightCli', 'playwright'],
       ['chromeDevtoolsMcp', 'chrome-devtools'],
       ['openCodeReview', 'open-code-review'],
-      ['agentmemory', 'agentmemory'],
       ['rtk', 'rtk'],
       ['astGrep', 'ast-grep'],
     ]);
@@ -425,10 +416,6 @@ async function componentEnvironment(spec, targetDir, env, { codebaseMemoryCacheD
       npm_config_cache: npmCache,
     };
   }
-  if (spec.id === 'agentmemory') {
-    const home = path.join(stateRoot, 'agentmemory/home');
-    return { ...baseEnv, HOME: home, USERPROFILE: home, npm_config_cache: npmCache };
-  }
   if (spec.id === 'openCodeReview') {
     const home = path.join(stateRoot, 'open-code-review/home');
     return { ...baseEnv, HOME: home, USERPROFILE: home, npm_config_cache: npmCache };
@@ -440,7 +427,6 @@ async function phaseRequest(spec, phase, targetDir, env, context = {}) {
   const componentEnv = await componentEnvironment(spec, targetDir, env, context);
   if (phase === 'dependency-install') {
     const npmArgs = ['ci', '--no-audit', '--no-fund', '--ignore-scripts'];
-    if (spec.id === 'agentmemory') npmArgs.push('--omit=optional');
     return { ...await npmInvocation(npmArgs), component: spec.id, cwd: spec.toolDir, env: componentEnv, phase, timeout: 600_000 };
   }
   if (phase === 'binary-install' && spec.id === 'rtk') {
@@ -1017,7 +1003,6 @@ export async function provisionProfileTools({ allowPreview = false, arch = proce
             ? await reusableOptionalRuntime(spec, previousTool, platform, arch)
             : true;
     const mcpServerName = {
-      agentmemory: 'agentmemory',
       chromeDevtoolsMcp: 'chrome-devtools',
       codebaseMemoryMcp: 'codebase-memory-mcp',
     }[spec.id];
@@ -1083,7 +1068,6 @@ export async function provisionProfileTools({ allowPreview = false, arch = proce
     if (tools[spec.id]) tools[spec.id] = withOptionalToolIdentity(spec, tools[spec.id], platform, arch);
   }
   const conflictIds = {
-    agentmemory: 'agentmemory',
     'chrome-devtools': 'chromeDevtoolsMcp',
     'codebase-memory-mcp': 'codebaseMemoryMcp',
   };

@@ -370,25 +370,6 @@
       "contentStrategy": "replace"
     },
     {
-      "group": "tools-agentmemory",
-      "source": "runtime/tools/agentmemory/package.json",
-      "target": ".agents/cognis/tools/agentmemory/package.json",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "tools-agentmemory",
-      "source": "runtime/tools/agentmemory/package-lock.json",
-      "target": ".agents/cognis/tools/agentmemory/package-lock.json",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "tools-agentmemory",
-      "source": "runtime/tools/agentmemory/run.mjs",
-      "target": ".agents/cognis/tools/agentmemory/run.mjs",
-      "executable": true,
-      "contentStrategy": "replace"
-    },
-    {
       "group": "tools-rtk",
       "source": "runtime/tools/rtk/package.json",
       "target": ".agents/cognis/tools/rtk/package.json",

@@ -26,7 +26,7 @@ Cognis 让 Codex、Claude Code 和 Gemini CLI 使用同一套规划、执行与�
 | 长任务跨会话后丢失重要上下文。 | `baseline` 记录项目、安装、工具和验证状态；项目记忆与交接模板保留决策和已知问题。 | 新会话可以直接读取项目事实，不必只靠聊天记录重新整理。 |
 | 不同 AI 编程工具中的规则逐渐不一致。 | 为 Codex、Claude Code 和 Gemini CLI 提供原生项目文件和经过测试的安装级别（`profiles`）。 | 每个工具都能用自己支持的格式获得同一套核心工作规则。 |
 | 安装或更新公共规则时担心覆盖项目文件。 | 提供 dry-run 预览、明确标记的内容区域、备份、校验、安全卸载和回滚。 | 写入前可以检查变化，也能撤销 Cognis 管理的内容而不影响项目其他文件。 |
-| 代码理解、浏览器检查、审查和记忆工具分散在不同环境中。 | 使用显式 `--plugin` 在项目内安装固定版本工具；Agentmemory 在依赖风险解决前保持 preview。 | 常用工具跟随项目保存，同时不会让每次 `full` 安装都下载外部工具。 |
+| 代码理解、浏览器检查、审查和记忆工具分散在不同环境中。 | 使用显式 `--plugin` 在项目内安装固定版本工具；Agentmemory runtime 在上游高危依赖修复前暂停提供。 | 常用工具跟随项目保存，本地 memory 仍可记录长期信息，同时不会让每次 `full` 安装都下载外部工具。 |
 
 ## 为什么不只写一个 AGENTS.md
 
@@ -201,14 +201,14 @@ pnpm cognis install --project ../some-project --target codex --profile core --pl
 # 同时启用多个插件
 pnpm cognis install --project ../some-project --target codex --profile core --plugin -rtk ast-grep --write
 
-# 启用全部插件，包括 preview Agentmemory
-pnpm cognis install --project ../some-project --target codex --profile full --plugin -all --dry-run --allow-preview
+# 启用当前全部可用插件
+pnpm cognis install --project ../some-project --target codex --profile full --plugin -all --dry-run
 
 # 清除先前安装持久化的插件选择
 pnpm cognis install --project ../some-project --target codex --profile core --plugin none --write
 ```
 
-公开插件名为 `rtk`、`ast-grep`、`codebase-memory-mcp`、`chrome-devtools-mcp`、`playwright-cli`、`open-code-review` 和 `agentmemory`；`all` 展开为全部 7 个。命令支持上述单前导 `-` 写法、逗号分隔和重复 `--plugin`，未知或重复名称会被拒绝。选择 Agentmemory 进入安装或 provisioning 都需要 `--allow-preview`。
+公开插件名为 `rtk`、`ast-grep`、`codebase-memory-mcp`、`chrome-devtools-mcp`、`playwright-cli` 和 `open-code-review`；`all` 展开为全部 6 个。命令支持上述单前导 `-` 写法、逗号分隔和重复 `--plugin`，未知或重复名称会被拒绝。Agentmemory runtime 因上游依赖树仍含 High 漏洞而暂不提供安装；长期记录和交接可继续使用项目内 `memory` module。
 
 RTK hook 集成是可选能力，统一记录在 [Hook 场景与运行边界](docs/hooks.md)；工具使用和 fallback 只由安装后的工具规则说明。
 
@@ -226,7 +226,7 @@ pnpm cognis install --project ../some-project --target codex --profile core --mo
 pnpm cognis install --project ../some-project --target codex --profile core --modules agents,rules,skills --write
 ```
 
-可选 modules 包括 `agents`、`rules`、`templates`、`governance`、`skills`、`memory`、`playwright`、`chrome-devtools`、`codebase-memory`、`open-code-review`、`agentmemory`、`rtk`、`ast-grep` 和 `hooks`。Cognis 会自动补上必需依赖。命令报告通过 `requestedModules`、`resolvedModules` 和 `implicitModules` 分别列出替换请求、最终安装内容和自动补充依赖。
+可选 modules 包括 `agents`、`rules`、`templates`、`governance`、`skills`、`memory`、`playwright`、`chrome-devtools`、`codebase-memory`、`open-code-review`、`rtk`、`ast-grep` 和 `hooks`。Cognis 会自动补上必需依赖。命令报告通过 `requestedModules`、`resolvedModules` 和 `implicitModules` 分别列出替换请求、最终安装内容和自动补充依赖。
 
 </details>
 
@@ -286,7 +286,7 @@ pnpm cognis doctor --project ../some-project
 <details>
 <summary><strong>内置工具与命令状态</strong></summary>
 
-当安装或健康检查报告问题时，可以查看这一节。全部 7 个工具都是可选的项目内插件；名称、版本、入口、状态和 fallback 只以[显式工具插件规格](docs/specs/cognis-tooling-modules-spec.md)为真值。浏览器与 hook runtime 细节见 [Hook 场景与运行边界](docs/hooks.md)。
+当安装或健康检查报告问题时，可以查看这一节。当前 6 个工具都是可选的项目内插件；名称、版本、入口、状态和 fallback 只以[显式工具插件规格](docs/specs/cognis-tooling-modules-spec.md)为真值。浏览器与 hook runtime 细节见 [Hook 场景与运行边界](docs/hooks.md)。
 
 Cognis 只写项目内受管 MCP 区域，只把凭据传给所需子进程，并保存脱敏诊断而不是原始环境或完整工具输出。
 
