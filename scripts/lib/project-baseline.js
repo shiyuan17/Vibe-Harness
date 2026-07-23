@@ -111,16 +111,16 @@ function createWorkflows(target, governanceWorkflow) {
   if (governanceWorkflow === 'adaptive') {
     return [
       workflow('outcome-first', '结果优先执行', '目标清晰且属于已授权、可逆的本地工作', ['获取仓库事实', '实施最小改动', '运行与主张匹配的验证', '简洁交付结果与证据'], [], skills),
-      workflow('clarification', '必要澄清', '存在无法由仓库或公开契约确定的用户可见分支', ['批量询问同轮独立的产品决定', '答案关闭分支后直接继续'], [], skills),
-      workflow('escalation', '失败或风险升级', '出现重复失败、特殊领域知识或完整路径信号', ['只加载一个必要 Skill', '安全、外部契约、红区或不可逆动作进入完整路径', '验证后交付真实风险'], ['systematic-debugging', 'adversarial-review-packet'], skills),
+      workflow('clarification', '必要澄清', '仓库事实无法消除会改变结果的产品决定', ['区分审批、产品决定和实现选择', '单轮询问最多三个独立决定', '答案关闭分支后直接继续'], ['clarify-requirements'], skills),
+      workflow('escalation', '失败或风险升级', '出现未知根因、特殊领域知识或完整路径信号', ['按 description 只加载当前阶段一个必要 Skill', '安全、外部契约、红区或不可逆动作进入完整路径', '验证后交付真实风险'], ['systematic-debugging', 'security-and-hardening'], skills),
     ];
   }
   return [
-    workflow('requirements', '需求澄清', '目标、范围或验收标准仍有关键歧义', ['先获取项目事实', '固定目标、非目标和验收标准', '批准设计后再实施'], ['brainstorming'], skills),
-    workflow('scoped-change', '轻量代码修改', '单一范围且不涉及红区或外部契约', ['固定写入范围', '先写失败测试', '实施最小改动', '运行聚焦验证并交付证据'], ['test-driven-development', 'verification-before-completion'], skills),
+    workflow('requirements', '需求澄清', '仓库事实无法消除会改变结果的产品决定', ['区分审批、产品决定和实现选择', '单轮询问最多三个独立决定', '答案关闭分支后直接继续'], ['clarify-requirements'], skills),
+    workflow('scoped-change', '轻量代码修改', '单一范围且不涉及红区或外部契约', ['固定写入范围', '为行为变化匹配测试', '实施最小改动', '运行聚焦验证并交付证据'], [], skills),
     workflow('debugging', '故障排查', '测试失败、构建错误或行为异常', ['复现问题', '定位根因', '用失败测试锁定问题', '修复并验证反例'], ['systematic-debugging'], skills),
-    workflow('high-risk', '完整高风险任务', '涉及安全、数据、发布、红区、跨层或外部契约', ['先完成风险和回滚设计', '分解任务并实施', '执行独立审查', '验证后交付剩余风险'], ['writing-plans', 'adversarial-review-packet', 'code-review-and-quality'], skills),
-    workflow('delivery', '验证与交付', '准备声明任务完成', ['运行本轮有效检查', '核对主张、证据、反例和剩余风险', '报告 Git 状态与下一步'], ['verification-before-completion', 'code-review-and-quality'], skills),
+    workflow('high-risk', '完整高风险任务', '涉及安全、数据、发布、红区、跨层或外部契约', ['先完成风险和回滚设计', '分解任务并实施', '执行宿主原生 Review 和独立 Red Team', '验证后交付剩余风险'], ['security-and-hardening'], skills),
+    workflow('delivery', '验证与交付', '准备声明任务完成', ['运行本轮有效检查', '核对主张、证据、反例和剩余风险', '报告 Git 状态与下一步'], [], skills),
   ];
 }
 

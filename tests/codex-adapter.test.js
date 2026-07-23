@@ -13,7 +13,8 @@ test('codex adapter declares AGENTS, rules, templates, skills, and hooks mapping
   assert.ok(targets.includes('AGENTS.md'));
   assert.ok(targets.includes('docs/rules/governance-core.md'));
   assert.ok(targets.includes('docs/templates/task.md'));
-  assert.ok(targets.includes('.agents/skills/using-cognis/SKILL.md'));
+  assert.ok(targets.includes('.agents/skills/clarify-requirements/SKILL.md'));
+  assert.ok(targets.includes('.agents/skills/clarify-requirements/agents/openai.yaml'));
   assert.ok(targets.includes('.codex/hooks.json'));
   assert.ok(installMap.entries.find((entry) => entry.target === '.codex/hooks.json').redZone);
 });

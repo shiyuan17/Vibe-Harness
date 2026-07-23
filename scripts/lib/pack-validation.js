@@ -128,8 +128,8 @@ export async function validateSkillMetadataQuality(rootDir, skillItems) {
     if (!frontmatter.description) {
       errors.push(`${item.id} frontmatter description is required`);
     } else {
-      if (frontmatter.description.length > 240) {
-        errors.push(`${item.id} description must be 240 characters or fewer`);
+      if (frontmatter.description.length > 300) {
+        errors.push(`${item.id} description must be 300 characters or fewer`);
       }
       if (hasWorkflowHeavyDescription(frontmatter.description)) {
         errors.push(`${item.id} description should describe triggers, not workflow steps`);
@@ -164,6 +164,8 @@ export async function validateSkillGraph(
   const itemsById = new Map(skillItems.map((item) => [item.id, item]));
   const reportedCycles = new Set();
   const proseOwners = new Map();
+  let nativeBodyLines = 0;
+  let nativeIdentityCharacters = 0;
 
   for (const item of skillItems) {
     for (const dependency of item.requiresSkills ?? []) {
@@ -229,8 +231,26 @@ export async function validateSkillGraph(
         errors.push(`${item.id} must document fallback for optional skills or tools`);
       }
       const lineCount = content.split(/\r?\n/u).length;
-      const maxLines = ['router', 'compatibility'].includes(item.kind) ? 30 : 160;
+      const maxLines = item.kind === 'native' ? 35 : 160;
       if (lineCount > maxLines) errors.push(`${item.id} exceeds ${maxLines} line SKILL.md budget`);
+      if (item.kind === 'native') {
+        const description = frontmatterValue('description');
+        nativeBodyLines += lineCount;
+        nativeIdentityCharacters += item.id.length + description.length;
+        const skillDir = path.dirname(path.join(rootDir, item.source));
+        const openaiMetadata = path.join(skillDir, 'agents/openai.yaml');
+        if (!(await pathExists(openaiMetadata))) {
+          errors.push(`${item.id} must provide agents/openai.yaml`);
+        } else {
+          const yaml = await readFile(openaiMetadata, 'utf8');
+          for (const term of ['interface:', 'display_name:', 'short_description:', 'default_prompt:', 'policy:', 'allow_implicit_invocation: true']) {
+            if (!yaml.includes(term)) errors.push(`${item.id} agents/openai.yaml must contain ${term}`);
+          }
+        }
+        const assets = await readdir(skillDir, { withFileTypes: true });
+        const resourceCount = assets.filter((entry) => !['SKILL.md', 'metadata.json', 'agents'].includes(entry.name)).length;
+        if (resourceCount > 2) errors.push(`${item.id} may contain at most two on-demand resources`);
+      }
       if (!(await pathExists(path.join(rootDir, item.metadata)))) {
         errors.push(`${item.id} metadata is missing: ${item.metadata}`);
       } else {
@@ -242,6 +262,9 @@ export async function validateSkillGraph(
       if ((item.requiresTools?.length ?? 0) > 0) errors.push(`${item.id} must document fallback for tools`);
     }
   }
+
+  if (nativeBodyLines > 250) errors.push(`native Skill body budget exceeds 250 lines: ${nativeBodyLines}`);
+  if (nativeIdentityCharacters > 900) errors.push(`native Skill name and description budget exceeds 900 characters: ${nativeIdentityCharacters}`);
 
   if (checkFiles) {
     for (const root of ['skills/core', 'skills/integrations']) {
@@ -300,18 +323,10 @@ export async function validateGovernanceQuality(rootDir) {
       terms: ['任务类型', '责任角色', '写入范围', '禁止动作', '并行安全', '人工确认', '核验者', '红队审查者', '红队审查包', '红队审查结论'],
     },
     {
-      file: 'skills/core/using-cognis/SKILL.md',
-      terms: ['governance.workflow', '获取事实 → 直接执行 → 聚焦验证 → 简洁交付', '一个必要 Skill', 'strict', '人工确认'],
-    },
-    {
-      file: 'skills/core/adversarial-review-packet/references/review.md',
-      terms: ['任务编号', '审查者', '审查对象', '审查时间', '问题列表', '状态', 'Medium 延期', '未覆盖审查轴与剩余风险'],
-    },
-    {
       file: 'rules/agent-skill-routing.md',
       terms: [
-        '不得覆盖', '默认不嵌套调用', '一个必要 Skill', '失败信号',
-        'Adaptive', 'Strict', 'fallback', 'using-cognis', '多 Agent',
+        '不覆盖', 'description', '不使用 Router', '同一阶段默认只加载一个 Skill',
+        '计划', 'Review', '多 Agent', 'Red Team', '人工门禁',
       ],
     },
     {
@@ -367,8 +382,8 @@ export async function validateGovernanceQuality(rootDir) {
       terms: ['检查清单', '最小复现', '验证证据'],
     },
     {
-      file: 'skills/core/brainstorming/SKILL.md',
-      terms: ['反向采访', '盲点审查', '每次只问一个'],
+      file: 'skills/core/clarify-requirements/SKILL.md',
+      terms: ['安全审批', '阻塞产品决定', '可逆实现选择', '最多三个', '推荐项', '回答关闭分支后立即继续'],
     },
   ];
 
@@ -413,7 +428,6 @@ export function validateAgentSkillRoutingIntegrity({
   agentsContent,
   capabilityMatrix,
   installEntries,
-  routerContent,
   ruleContent,
   ruleItems,
 }) {
@@ -434,9 +448,9 @@ export function validateAgentSkillRoutingIntegrity({
 
   const capability = capabilityMatrix?.items?.find((item) => item.id === 'skill-routing');
   if (!capability) {
-    errors.push('skill-routing capability must track the routing policy and router');
+    errors.push('skill-routing capability must track the native routing policy');
   } else {
-    for (const target of [ruleSource, 'skills/core/using-cognis/SKILL.md']) {
+    for (const target of [ruleSource, 'skills/core/clarify-requirements/SKILL.md']) {
       if (!capability.targets?.includes(target)) errors.push(`skill-routing capability must target ${target}`);
     }
     if (!capability.tests?.includes(testTarget)) {
@@ -444,11 +458,11 @@ export function validateAgentSkillRoutingIntegrity({
     }
   }
 
-  if (!routerContent.includes(ruleTarget)) errors.push(`using-cognis router must reference ${ruleTarget}`);
-  if (!ruleContent.includes('using-cognis')) errors.push('agent skill routing policy must reference using-cognis');
   if (!agentsContent.includes(ruleTarget)) errors.push(`AGENTS template must reference ${ruleTarget}`);
-  if (!/Skills 未安装时.*fallback/u.test(agentsContent)) {
-    errors.push('AGENTS template must document the no-skill fallback');
+  if (!/按 description 原生选择/u.test(agentsContent)) errors.push('AGENTS template must document native description routing');
+  if (!/不使用 Router/u.test(ruleContent)) errors.push('agent skill routing policy must reject Router chains');
+  for (const retired of ['using-cognis', 'brainstorming', 'writing-plans', 'verification-before-completion']) {
+    if (ruleContent.includes(retired)) errors.push(`agent skill routing policy must not reference retired skill ${retired}`);
   }
 
   return errors.sort();
@@ -599,16 +613,14 @@ export async function validatePack(rootDir) {
     const file = path.join(rootDir, relativePath);
     return await pathExists(file) ? readFile(file, 'utf8') : '';
   };
-  const [agentsContent, routerContent, ruleContent] = await Promise.all([
+  const [agentsContent, ruleContent] = await Promise.all([
     readOptionalText('adapters/codex/AGENTS.template.md'),
-    readOptionalText('skills/core/using-cognis/SKILL.md'),
     readOptionalText('rules/agent-skill-routing.md'),
   ]);
   const agentSkillRoutingErrors = validateAgentSkillRoutingIntegrity({
     agentsContent,
     capabilityMatrix,
     installEntries,
-    routerContent,
     ruleContent,
     ruleItems: manifests.rules.items,
   });

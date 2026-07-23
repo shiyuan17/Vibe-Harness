@@ -106,7 +106,7 @@ Agent 数量在风险分级和需求分类之后判定。默认使用单 Agent�
 | --- | --- | --- |
 | `minimal` | Agent 主说明文件、硬边界、Git 与测试规则、v2 任务模板 | 只需要基本规则，不需要额外 skills 或工具的小项目 |
 | `core` | `minimal` 的全部内容，加上常用工程规则、v1/v2 任务与任务图检查、Red Team 完成门禁和 skills 路由 | 大多数项目，建议从这里开始 |
-| `full` | `core` 的全部内容，加上多 Agent 执行 Skill、项目记忆、高级流程 skills、在线评测资产和 Codex hooks | 长期维护或风险较高的 Codex 项目 |
+| `full` | `core` 的全部内容，加上三个聚焦领域 Skill、在线评测资产和 Codex hooks；memory 保持显式启用 | 长期维护或风险较高的 Codex 项目 |
 | `docs-only` | 使用说明、公共规则、v2 模板和 schemas，不安装可执行 runtime、skills、MCP 或 hooks | 只希望使用文档规则的项目 |
 每个 profile 实际包含哪些文件，由 `manifests/profiles.json` 定义。
 

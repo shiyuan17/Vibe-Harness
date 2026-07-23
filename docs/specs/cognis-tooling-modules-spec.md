@@ -20,7 +20,7 @@
 
 `--plugin -all` 或 `--plugin all` 展开为全部 7 个；`--plugin -rtk` 启用一个；`--plugin -rtk ast-grep` 启用多个。支持逗号分隔和重复 `--plugin`，规范化后拒绝未知值、重复值以及 `all`/`none` 与其他值混用。`--plugin none` 显式清空已持久化选择。
 
-插件选择是 profile 的增量集合：先解析 profile 或高级 `--modules` 替换集合，再加入插件及依赖闭包。因此 `full --plugin -rtk` 仍保留 full 的 governance、memory、skills 与 hooks。`--modules` 继续作为完整模块替换接口，不等同于插件选择。
+插件选择是 profile 的增量集合：先解析 profile 或高级 `--modules` 替换集合，再加入插件及依赖闭包。因此 `full --plugin -rtk` 仍保留 full 的 governance、skills 与 hooks；memory 仅在显式选择相关插件或模块时加入。`--modules` 继续作为完整模块替换接口，不等同于插件选择。
 
 选择优先级为 CLI `--plugin`、`cognis.config.json` 的 `plugins`、install-state 的 `requestedPlugins`、空集合。install-state 同时保存 `requestedPlugins` 与 `resolvedModules`；validate、doctor、baseline、diff、reinstall 和 provision 复用该状态。卸载与 rollback 仅处理状态拥有的插件文件、runtime、缓存与 MCP 受管块。
 

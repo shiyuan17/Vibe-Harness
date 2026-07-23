@@ -429,14 +429,14 @@
     },
     {
       "group": "skills-core",
-      "source": "skills/core/brainstorming/SKILL.md",
-      "target": ".agents/skills/brainstorming/SKILL.md",
+      "source": "skills/core/clarify-requirements/SKILL.md",
+      "target": ".agents/skills/clarify-requirements/SKILL.md",
       "contentStrategy": "replace"
     },
     {
       "group": "skills-core",
-      "source": "skills/core/using-cognis/SKILL.md",
-      "target": ".agents/skills/using-cognis/SKILL.md",
+      "source": "skills/core/clarify-requirements/agents/openai.yaml",
+      "target": ".agents/skills/clarify-requirements/agents/openai.yaml",
       "contentStrategy": "replace"
     },
     {
@@ -447,56 +447,8 @@
     },
     {
       "group": "skills-core",
-      "source": "skills/core/brainstorming/spec-document-reviewer-prompt.md",
-      "target": ".agents/skills/brainstorming/spec-document-reviewer-prompt.md",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
-      "source": "skills/core/brainstorming/references/spec.md",
-      "target": ".agents/skills/brainstorming/references/spec.md",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
-      "source": "skills/core/api-and-interface-design/SKILL.md",
-      "target": ".agents/skills/api-and-interface-design/SKILL.md",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
-      "source": "skills/core/writing-plans/SKILL.md",
-      "target": ".agents/skills/writing-plans/SKILL.md",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
-      "source": "skills/core/writing-plans/plan-document-reviewer-prompt.md",
-      "target": ".agents/skills/writing-plans/plan-document-reviewer-prompt.md",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
-      "source": "skills/core/writing-plans/references/plan.md",
-      "target": ".agents/skills/writing-plans/references/plan.md",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
-      "source": "skills/core/executing-plans/SKILL.md",
-      "target": ".agents/skills/executing-plans/SKILL.md",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
-      "source": "skills/core/test-driven-development/SKILL.md",
-      "target": ".agents/skills/test-driven-development/SKILL.md",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
-      "source": "skills/core/test-driven-development/testing-anti-patterns.md",
-      "target": ".agents/skills/test-driven-development/testing-anti-patterns.md",
+      "source": "skills/core/eval-driven-development/agents/openai.yaml",
+      "target": ".agents/skills/eval-driven-development/agents/openai.yaml",
       "contentStrategy": "replace"
     },
     {
@@ -507,26 +459,8 @@
     },
     {
       "group": "skills-core",
-      "source": "skills/core/systematic-debugging/root-cause-tracing.md",
-      "target": ".agents/skills/systematic-debugging/root-cause-tracing.md",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
-      "source": "skills/core/systematic-debugging/defense-in-depth.md",
-      "target": ".agents/skills/systematic-debugging/defense-in-depth.md",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
-      "source": "skills/core/systematic-debugging/condition-based-waiting.md",
-      "target": ".agents/skills/systematic-debugging/condition-based-waiting.md",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
-      "source": "skills/core/systematic-debugging/condition-based-waiting-example.ts",
-      "target": ".agents/skills/systematic-debugging/condition-based-waiting-example.ts",
+      "source": "skills/core/systematic-debugging/agents/openai.yaml",
+      "target": ".agents/skills/systematic-debugging/agents/openai.yaml",
       "contentStrategy": "replace"
     },
     {
@@ -536,37 +470,13 @@
       "contentStrategy": "replace"
     },
     {
-      "group": "skills-core",
-      "source": "skills/core/systematic-debugging/references/failure.md",
-      "target": ".agents/skills/systematic-debugging/references/failure.md",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
-      "source": "skills/core/verification-before-completion/SKILL.md",
-      "target": ".agents/skills/verification-before-completion/SKILL.md",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
-      "source": "skills/core/code-review-and-quality/SKILL.md",
-      "target": ".agents/skills/code-review-and-quality/SKILL.md",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
-      "source": "skills/core/code-review-and-quality/references/cli.md",
-      "target": ".agents/skills/code-review-and-quality/references/cli.md",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
+      "group": "skills-browser",
       "source": "skills/integrations/browser-verification/SKILL.md",
       "target": ".agents/skills/browser-verification/SKILL.md",
       "contentStrategy": "replace"
     },
     {
-      "group": "skills-core",
+      "group": "skills-browser",
       "source": "skills/integrations/browser-verification/references/cli.md",
       "target": ".agents/skills/browser-verification/references/cli.md",
       "contentStrategy": "replace"
@@ -578,21 +488,21 @@
       "contentStrategy": "replace"
     },
     {
-      "group": "skills-full",
-      "source": "skills/core/loop-planning/SKILL.md",
-      "target": ".agents/skills/loop-planning/SKILL.md",
+      "group": "skills-core",
+      "source": "skills/core/security-and-hardening/agents/openai.yaml",
+      "target": ".agents/skills/security-and-hardening/agents/openai.yaml",
       "contentStrategy": "replace"
     },
     {
       "group": "skills-full",
-      "source": "skills/core/loop-planning/references/loop.md",
-      "target": ".agents/skills/loop-planning/references/loop.md",
+      "source": "skills/core/api-and-interface-design/SKILL.md",
+      "target": ".agents/skills/api-and-interface-design/SKILL.md",
       "contentStrategy": "replace"
     },
     {
       "group": "skills-full",
-      "source": "skills/core/subagent-driven-development/SKILL.md",
-      "target": ".agents/skills/subagent-driven-development/SKILL.md",
+      "source": "skills/core/api-and-interface-design/agents/openai.yaml",
+      "target": ".agents/skills/api-and-interface-design/agents/openai.yaml",
       "contentStrategy": "replace"
     },
     {
@@ -603,26 +513,20 @@
     },
     {
       "group": "skills-full",
-      "source": "skills/core/frontend-design/references/design-modes.md",
-      "target": ".agents/skills/frontend-design/references/design-modes.md",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
-      "source": "skills/core/adversarial-review-packet/SKILL.md",
-      "target": ".agents/skills/adversarial-review-packet/SKILL.md",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "skills-core",
-      "source": "skills/core/adversarial-review-packet/references/review.md",
-      "target": ".agents/skills/adversarial-review-packet/references/review.md",
+      "source": "skills/core/frontend-design/agents/openai.yaml",
+      "target": ".agents/skills/frontend-design/agents/openai.yaml",
       "contentStrategy": "replace"
     },
     {
       "group": "skills-full",
       "source": "skills/core/runtime-cross-repo-rollout/SKILL.md",
       "target": ".agents/skills/runtime-cross-repo-rollout/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-full",
+      "source": "skills/core/runtime-cross-repo-rollout/agents/openai.yaml",
+      "target": ".agents/skills/runtime-cross-repo-rollout/agents/openai.yaml",
       "contentStrategy": "replace"
     },
     {
@@ -752,6 +656,30 @@
     }
   ],
   "retiredEntries": [
+    { "group": "skills-core", "target": ".agents/skills/using-cognis/SKILL.md" },
+    { "group": "skills-core", "target": ".agents/skills/brainstorming/SKILL.md" },
+    { "group": "skills-core", "target": ".agents/skills/brainstorming/spec-document-reviewer-prompt.md" },
+    { "group": "skills-core", "target": ".agents/skills/brainstorming/references/spec.md" },
+    { "group": "skills-core", "target": ".agents/skills/writing-plans/SKILL.md" },
+    { "group": "skills-core", "target": ".agents/skills/writing-plans/plan-document-reviewer-prompt.md" },
+    { "group": "skills-core", "target": ".agents/skills/writing-plans/references/plan.md" },
+    { "group": "skills-core", "target": ".agents/skills/executing-plans/SKILL.md" },
+    { "group": "skills-core", "target": ".agents/skills/test-driven-development/SKILL.md" },
+    { "group": "skills-core", "target": ".agents/skills/test-driven-development/testing-anti-patterns.md" },
+    { "group": "skills-core", "target": ".agents/skills/verification-before-completion/SKILL.md" },
+    { "group": "skills-core", "target": ".agents/skills/code-review-and-quality/SKILL.md" },
+    { "group": "skills-core", "target": ".agents/skills/code-review-and-quality/references/cli.md" },
+    { "group": "skills-core", "target": ".agents/skills/adversarial-review-packet/SKILL.md" },
+    { "group": "skills-core", "target": ".agents/skills/adversarial-review-packet/references/review.md" },
+    { "group": "skills-full", "target": ".agents/skills/loop-planning/SKILL.md" },
+    { "group": "skills-full", "target": ".agents/skills/loop-planning/references/loop.md" },
+    { "group": "skills-full", "target": ".agents/skills/subagent-driven-development/SKILL.md" },
+    { "group": "skills-core", "target": ".agents/skills/systematic-debugging/root-cause-tracing.md" },
+    { "group": "skills-core", "target": ".agents/skills/systematic-debugging/defense-in-depth.md" },
+    { "group": "skills-core", "target": ".agents/skills/systematic-debugging/condition-based-waiting.md" },
+    { "group": "skills-core", "target": ".agents/skills/systematic-debugging/condition-based-waiting-example.ts" },
+    { "group": "skills-core", "target": ".agents/skills/systematic-debugging/references/failure.md" },
+    { "group": "skills-full", "target": ".agents/skills/frontend-design/references/design-modes.md" },
     { "group": "skills-core", "target": ".agents/skills/brainstorming/visual-companion.md" },
     { "group": "skills-core", "target": ".agents/skills/brainstorming/scripts/frame-template.html" },
     { "group": "skills-core", "target": ".agents/skills/brainstorming/scripts/helper.js" },

@@ -5,8 +5,8 @@ export const moduleCatalog = {
   governance: { dependencies: [], groups: ['schemas-core', 'runtime-basic', 'runtime-task', 'runtime-full'] },
   skills: { dependencies: ['agents', 'rules', 'templates'], groups: ['skills-core', 'skills-full'] },
   memory: { dependencies: ['skills'], groups: ['templates-memory', 'skills-memory'] },
-  playwright: { dependencies: ['skills'], groups: ['tools-playwright'] },
-  'chrome-devtools': { dependencies: ['skills'], groups: ['rules-chrome-devtools', 'tools-chrome-devtools', 'mcp-config'] },
+  playwright: { dependencies: ['skills'], groups: ['skills-browser', 'tools-playwright'] },
+  'chrome-devtools': { dependencies: ['skills'], groups: ['rules-chrome-devtools', 'skills-browser', 'tools-chrome-devtools', 'mcp-config'] },
   'codebase-memory': { dependencies: ['agents', 'rules'], groups: ['rules-codebase-memory', 'tools-codebase-memory', 'mcp-config'] },
   'open-code-review': { dependencies: ['skills'], groups: ['tools-open-code-review'] },
   agentmemory: { dependencies: ['memory'], groups: ['tools-agentmemory', 'mcp-config'] },
@@ -19,8 +19,7 @@ const profileModules = {
   minimal: ['agents', 'rules', 'templates'],
   core: ['agents', 'rules', 'templates', 'governance', 'skills'],
   full: [
-    'agents', 'rules', 'templates', 'governance', 'skills', 'memory',
-    'hooks',
+    'agents', 'rules', 'templates', 'governance', 'skills', 'hooks',
   ],
   'docs-only': ['rules', 'templates'],
 };

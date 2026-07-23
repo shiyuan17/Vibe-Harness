@@ -1,0 +1,6 @@
+interface:
+  display_name: "API and Interface Design"
+  short_description: "Design stable contracts for real interface consumers"
+  default_prompt: "Use $api-and-interface-design to define a compatible contract and prove both producer and consumer behavior."
+policy:
+  allow_implicit_invocation: true

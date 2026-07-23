@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import { access, mkdir, readFile, readdir } from 'node:fs/promises';
+import { access, chmod, copyFile, mkdir, readFile, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 import { protectedConfigChanged, snapshotProtectedConfig } from './lib/protected-config.mjs';
@@ -100,6 +100,17 @@ async function resolveCodexCommand() {
   return { args: [], program: 'codex.exe' };
 }
 
+async function provisionAuthentication(codexHome) {
+  const source = process.env.COGNIS_EVAL_AUTH_FILE;
+  if (!source) return;
+  if (!path.isAbsolute(source)) throw new Error('COGNIS_EVAL_AUTH_FILE must be absolute');
+  const details = await stat(source);
+  if (!details.isFile()) throw new Error('COGNIS_EVAL_AUTH_FILE must reference a file');
+  const target = path.join(codexHome, 'auth.json');
+  await copyFile(source, target);
+  await chmod(target, 0o600);
+}
+
 async function artifacts(root, current = root) {
   const output = [];
   for (const entry of await readdir(current, { withFileTypes: true })) {
@@ -113,19 +124,35 @@ async function artifacts(root, current = root) {
 
 function transcript(stdout) {
   const events = [];
+  const commands = [];
   const messages = [];
+  let totalTokens = 0;
+  let toolCalls = 0;
   for (const line of stdout.split(/\r?\n/u).filter(Boolean)) {
     try {
       const event = JSON.parse(line);
       if (typeof event.type === 'string') events.push(event.type);
       if (typeof event.item?.type === 'string') events.push(event.item.type);
+      if (event.type === 'item.completed' && !['agent_message', 'reasoning'].includes(event.item?.type)) toolCalls += 1;
+      const command = event.item?.command ?? event.command;
+      if (typeof command === 'string') commands.push(command);
+      if (event.type === 'turn.completed' && event.usage) {
+        totalTokens += Number(event.usage.input_tokens ?? 0) + Number(event.usage.output_tokens ?? 0);
+      }
       const text = event.item?.text ?? event.message?.content ?? event.text;
       if (typeof text === 'string') messages.push(text);
     } catch {
       messages.push(line);
     }
   }
-  return { events: [...new Set(events)], output: messages.join('\n') };
+  return {
+    commands,
+    events: [...new Set(events)],
+    messages,
+    output: messages.join('\n'),
+    totalTokens,
+    toolCalls,
+  };
 }
 
 async function fixtureEvents(request) {
@@ -163,13 +190,24 @@ try {
   const codexHome = path.join(request.workspace, '.codex-eval-home');
   const userHome = path.join(request.workspace, '.cognis-eval-user-home');
   await Promise.all([mkdir(codexHome, { recursive: true }), mkdir(userHome, { recursive: true })]);
+  await provisionAuthentication(codexHome);
   const isolatedEnvironment = { CODEX_HOME: codexHome, HOME: userHome, USERPROFILE: userHome };
   const protectedBefore = await snapshotProtectedConfig({ codexHome, userHome });
   const version = await execute(command.program, [...command.args, '--version'], request.workspace, isolatedEnvironment);
   if (version.code !== 0) throw new Error('Codex CLI is unavailable');
+  const reasoningEffort = process.env.CODEX_REASONING_EFFORT ?? 'medium';
+  if (!['low', 'medium', 'high', 'xhigh'].includes(reasoningEffort)) throw new Error('CODEX_REASONING_EFFORT is invalid');
+  const trustedHooks = process.env.COGNIS_EVAL_TRUST_PROJECT_HOOKS === '1'
+    ? ['--dangerously-bypass-hook-trust']
+    : [];
   const result = await execute(command.program, [...command.args,
     'exec', '--json', '--sandbox', 'workspace-write', '--skip-git-repo-check', '--ephemeral',
-    '--ignore-user-config', '--model', model, ...providerArgs(), '-C', request.workspace, request.case.input.scenario,
+    '--ignore-user-config', ...trustedHooks,
+    '--disable', 'apps', '--disable', 'plugins', '--disable', 'remote_plugin',
+    '--disable', 'browser_use', '--disable', 'computer_use', '--disable', 'image_generation',
+    '--disable', 'in_app_browser', '--disable', 'goals', '--disable', 'workspace_dependencies',
+    '--model', model, '-c', `model_reasoning_effort=${JSON.stringify(reasoningEffort)}`,
+    ...providerArgs(), '-C', request.workspace, request.case.input.scenario,
   ], request.workspace, isolatedEnvironment);
   if (result.code !== 0 && CREDENTIAL_ERROR.test(`${result.stderr}\n${result.stdout}`)) {
     throw new Error('Codex credentials are missing or invalid');
@@ -187,6 +225,12 @@ try {
     governanceHash: request.governanceHash,
     events: [...new Set([...parsed.events, ...semanticEvents])],
     output: parsed.output,
+    metrics: {
+      commands: parsed.commands,
+      messages: parsed.messages,
+      totalTokens: parsed.totalTokens,
+      toolCalls: parsed.toolCalls,
+    },
     artifacts: await artifacts(request.workspace),
     exitCode: result.code,
     diagnostics: result.stderr ? ['Codex CLI returned diagnostics.'] : [],

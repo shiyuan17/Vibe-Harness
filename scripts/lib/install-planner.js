@@ -87,8 +87,6 @@ export function createInstalledSurface({ customModules = false, memoryPath = '.a
   const skillRoots = [...new Set(installedTargets
     .filter((target) => /^\.(?:agents|claude|gemini)\/skills\//u.test(target))
     .map((target) => target.split('/skills/')[0] + '/skills'))];
-  const hasReviewLoop = hasSkill('adversarial-review-packet/SKILL.md')
-    || hasSkill('loop-planning/SKILL.md');
   const hasEngineeringRules = [
     'docs/rules/coding-rules.md',
     'docs/rules/frontend-rules.md',
@@ -112,7 +110,7 @@ export function createInstalledSurface({ customModules = false, memoryPath = '.a
   const profileLines = {
     core: '- 当前安装方式：通用安装（不包含扩展 MCP 或 hooks 安装面）。',
     'docs-only': '- 当前安装方式：仅文档安装。',
-    full: '- 当前安装方式：完整治理安装（包含 memory 和 Codex hooks；外部工具仅通过 `--plugin` 显式启用）。',
+    full: '- 当前安装方式：完整治理安装（包含七个原生 Skills 和 Codex hooks；memory 与外部工具仅通过 `--plugin` 显式启用）。',
     minimal: '- 当前安装方式：最小安装。',
   };
 
@@ -132,10 +130,10 @@ export function createInstalledSurface({ customModules = false, memoryPath = '.a
     profileLine: customModules
       ? '- 当前安装方式：自定义能力模块安装。'
       : (profileLines[profile] ?? `- 当前 profile: \`${profile}\`。`),
-    reviewLoopLine: hasReviewLoop ? '- 当前 profile 包含 review / loop 资产。' : '',
+    reviewLoopLine: '',
     rulesLine: hasPrefix('docs/rules/') ? '- 规则位于 `docs/rules/`。' : '',
-    skillRoutingLine: hasSkill('using-cognis/SKILL.md')
-      ? '先使用 `using-cognis` 选择最小 Skill 集；详细流程按任务信号加载。'
+    skillRoutingLine: skillRoots.length > 0
+      ? '宿主按 Skill description 原生选择一个当前阶段所需能力；不使用 Router 或流程 Skill 链。'
       : '当前 profile 未安装 Skills；仅按已安装规则和模板执行，不引用未安装的 skill。',
     skillsLine: skillRoots.length > 0 ? `- Skills 位于 ${skillRoots.map((root) => `\`${root}/\``).join('、')}。` : '',
     templatesLine: hasPrefix('docs/templates/') ? '- 模板位于 `docs/templates/`。' : '',
@@ -342,6 +340,30 @@ export async function createInstallPlan({
       });
     }
 
+    const plannedSkillTargets = new Set(actions.map((action) => action.relativeTarget));
+    for (const managedFile of state?.files ?? []) {
+      const relativeTarget = managedFile.target.replaceAll('\\', '/');
+      if (!/^\.(?:agents|claude|gemini)\/skills\//u.test(relativeTarget)
+        || plannedSkillTargets.has(relativeTarget)) {
+        continue;
+      }
+      assertPortableRelativePath(relativeTarget, 'orphaned skill target');
+      const target = path.resolve(targetDir, relativeTarget);
+      assertInsideDir(targetDir, target, 'orphaned skill target');
+      await assertSafePathInside(targetDir, target, 'orphaned skill target');
+      if (!(await pathExists(target))) continue;
+      const currentHash = await hashFile(target);
+      actions.push({
+        expectedHash: managedFile.targetHash,
+        group: managedFile.group,
+        kind: currentHash === managedFile.targetHash ? 'retire' : 'retire-modified',
+        redZone: Boolean(managedFile.redZone),
+        relativeTarget,
+        target,
+      });
+      plannedSkillTargets.add(relativeTarget);
+    }
+
     const plannedRetirements = new Set(actions
       .filter((action) => ['retire', 'retire-modified'].includes(action.kind))
       .map((action) => action.relativeTarget));
@@ -540,6 +562,7 @@ export async function previewInstallPlan(plan, { includeContent = true } = {}) {
 
 export async function diffTargetInstall({
   adapterId = 'codex',
+  allowPreview = true,
   managedAgentsBlock = false,
   profile = 'core',
   requestedModules,
@@ -549,7 +572,7 @@ export async function diffTargetInstall({
   rootDir,
   targetDir,
 }) {
-  const { adapter, installMap, selectedProfile } = await loadProfileInstallMap({ adapterId, profile, rootDir });
+  const { adapter, installMap, selectedProfile } = await loadProfileInstallMap({ adapterId, allowPreview, profile, rootDir });
   const moduleSelection = resolveModuleSelection({
     profile,
     profileGroups: selectedProfile.groups,
@@ -817,7 +840,12 @@ export async function applyInstallPlan(plan, hooks = {}) {
 
   for (const action of plan.actions) {
     if (action.kind === 'retire-modified') {
-      skipped.push({ reason: 'target-modified', target: action.relativeTarget });
+      skipped.push({
+        reason: /^\.(?:agents|claude|gemini)\/skills\//u.test(action.relativeTarget)
+          ? 'retained-user-modified'
+          : 'target-modified',
+        target: action.relativeTarget,
+      });
       continue;
     }
     if (action.kind === 'retire-managed-mcp') {

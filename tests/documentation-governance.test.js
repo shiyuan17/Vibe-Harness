@@ -121,7 +121,7 @@ test('source mapping points only at current governance assets', async () => {
   for (const current of [
     'rules/governance-core.md',
     'templates/task.md',
-    'skills/core/adversarial-review-packet/SKILL.md',
+    'rules/agent-skill-routing.md',
   ]) {
     assert.equal(mapping.includes(current), true, `current source mapping is missing: ${current}`);
     assert.equal(await pathExists(path.join(rootDir, current)), true, `mapped target is missing: ${current}`);

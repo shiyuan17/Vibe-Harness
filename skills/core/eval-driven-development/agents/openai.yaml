@@ -1,0 +1,6 @@
+interface:
+  display_name: "Eval Driven Development"
+  short_description: "Evaluate nondeterministic Agent behavior changes"
+  default_prompt: "Use $eval-driven-development to define and run a paired evaluation for this Agent behavior change."
+policy:
+  allow_implicit_invocation: true

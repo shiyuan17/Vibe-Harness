@@ -105,6 +105,30 @@ for (const adapter of ['claude', 'gemini']) {
   }
 }
 
+for (const adapter of [
+  { id: 'claude', skills: '.claude/skills' },
+  { id: 'gemini', skills: '.gemini/skills' },
+]) {
+  test(`${adapter.id} full preview installs seven native Skills without Codex metadata or hooks`, async () => {
+    const target = await mkdtemp(path.join(tmpdir(), `cognis-${adapter.id}-full-`));
+    try {
+      await run(['init', '--project', target, '--target', adapter.id, '--profile', 'full']);
+      await run(['install', '--project', target, '--target', adapter.id, '--profile', 'full', '--allow-preview', '--write']);
+      const validation = await run(['validate', '--project', target]);
+      const doctor = await run(['doctor', '--project', target]);
+      assert.equal(validation.status, 'ready');
+      assert.equal(doctor.status, 'ready');
+      for (const skill of ['clarify-requirements', 'systematic-debugging', 'eval-driven-development', 'security-and-hardening', 'api-and-interface-design', 'frontend-design', 'runtime-cross-repo-rollout']) {
+        assert.equal(await exists(path.join(target, adapter.skills, skill, 'SKILL.md')), true);
+        assert.equal(await exists(path.join(target, adapter.skills, skill, 'agents/openai.yaml')), false);
+      }
+      assert.equal(await exists(path.join(target, '.codex/hooks.json')), false);
+    } finally {
+      await rm(target, { force: true, recursive: true });
+    }
+  });
+}
+
 test('adapter catalog gates preview profiles and rejects target mismatch', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'cognis-adapter-errors-'));
   try {
@@ -194,13 +218,13 @@ test('all platform instruction entrypoints stay below ninety lines', async () =>
 
 test('adapter profile file sets match the reviewed snapshots', async () => {
   const snapshots = {
-    'claude:core': [56, 'ebd17852b52925e7727534fd530540ee2f0196254ff3acbfe29632250e06d9b5'],
+    'claude:core': [34, 'b7ada2376dd30fc00959a5a0f60f8796615d7be393390468117af45f829606d1'],
     'claude:docs-only': [29, '66b1c875eed445824b30d7f6d7ae001107f5d4f197e181ba865096794925724f'],
     'claude:minimal': [7, 'de8bef97b2444d03ddb8077a187a05e0dc1d976f97cfce2daf87d77262d5c9ba'],
-    'codex:core': [56, 'd3c365ead4a88cabcee1a4943ff962957cdc350d75e9adf60afa7708232d23ec'],
-    'codex:full': [95, '236ee0adbdc021fda97c1b89f53d6b344c16e61ad1ecd4b487fd026f39e876a2'],
+    'codex:core': [38, 'ce39431a705060cab04f650bfcf06ca13d884dca412f5fb3fce14b300045e348'],
+    'codex:full': [60, '4fad0771aae3df50ca3b8f0f2c2a7649968a618cf717e0d8e0ebeebf3eef99cf'],
     'codex:minimal': [7, 'acf92f049c50289f3eec6136e888f50b32b389d8a80e75a8b344a20ad37d6789'],
-    'gemini:core': [56, 'ec70a8805ee22e2c1c440d3e94f5dad1147c8d2d0b86c14341ca2ac933c636e0'],
+    'gemini:core': [34, 'cbd5827e4346d57e8062aae868c940a9cd4e314c2dd53c67c29e3b4c34dd5f98'],
     'gemini:docs-only': [29, '428c26d9f51fe99cfa520cb63f4b2aa8cfb7bfdd8b605a927cc0352af6ca2b89'],
     'gemini:minimal': [7, '8e6fc02f1c019b5cea55ac49567af9bd4b2b75ed62f97731e0dbcd962293eb4a'],
   };

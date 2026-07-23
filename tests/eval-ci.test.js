@@ -105,13 +105,13 @@ test('online canary suite contains exactly six critical governance scenarios', a
   }
 });
 
-test('offline routing eval distinguishes clear specifications, ambiguity, and bug fixes', async () => {
+test('offline routing eval distinguishes direct execution, product ambiguity, and debugging', async () => {
   const suite = await readJson(path.join(rootDir, 'evals/suites/cognis-core.json'));
   const scenarios = suite.cases.filter((item) => item.capability === 'skill-routing')
     .map((item) => item.input.scenario).join('\n');
-  assert.match(scenarios, /decision-complete specification/iu);
-  assert.match(scenarios, /high-impact ambiguity/iu);
-  assert.match(scenarios, /deterministic bug fix/iu);
+  assert.match(scenarios, /decision-complete local task proceeds without clarification/iu);
+  assert.match(scenarios, /product decision changes user-visible behavior/iu);
+  assert.match(scenarios, /deterministic bug with a reproduction/iu);
 });
 
 test('offline install lifecycle eval covers Cognis legacy upgrade and red-zone confirmation', async () => {

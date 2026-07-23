@@ -348,7 +348,7 @@ test('minimal profile installs the fallback kernel without skills', async () => 
   }
 });
 
-test('core profile installs common routed skills without mcp, memory, or hooks', async () => {
+test('core profile installs four native skills without mcp, memory, or hooks', async () => {
   const { report, target } = await initAndDryRunProfile('core');
   try {
     const targets = targetsFrom(report);
@@ -356,7 +356,9 @@ test('core profile installs common routed skills without mcp, memory, or hooks',
 
     assert.equal(targets.includes('docs/rules/governance-core.md'), true);
     assert.equal(targets.includes('docs/rules/codebase-memory-mcp.md'), false);
-    assert.equal(targets.includes('.agents/skills/using-cognis/SKILL.md'), true);
+    for (const skill of ['clarify-requirements', 'systematic-debugging', 'eval-driven-development', 'security-and-hardening']) {
+      assert.equal(targets.includes(`.agents/skills/${skill}/SKILL.md`), true);
+    }
     assert.equal(targets.includes('.agents/skills/agentmemory/SKILL.md'), false);
     assert.equal(targets.some((item) => item.startsWith('.agents/memory/')), false);
     assert.equal(targets.includes('.codex/hooks.json'), false);
@@ -364,8 +366,7 @@ test('core profile installs common routed skills without mcp, memory, or hooks',
     assert.equal(targets.includes('.agents/cognis/governance/lib/task-graph-validation.mjs'), true);
     assert.equal(targets.some((item) => item.startsWith('docs/workflows/')), false);
     assert.equal(targets.includes('.agents/skills/review-checklist/SKILL.md'), false);
-    assert.equal(targets.includes('.agents/skills/loop-planning/SKILL.md'), false);
-    assert.equal(targets.includes('.agents/skills/subagent-driven-development/SKILL.md'), false);
+    assert.equal(targets.includes('.agents/skills/api-and-interface-design/SKILL.md'), false);
     assert.equal(targets.includes('.agents/skills/skill-authoring-check/SKILL.md'), false);
     assert.equal(agents.includes('通用安装'), true);
     assert.equal(agents.includes('codebase-memory-mcp'), false);
@@ -377,7 +378,7 @@ test('core profile installs common routed skills without mcp, memory, or hooks',
   }
 });
 
-test('full profile adds governance memory and hooks without enabling tool plugins', async () => {
+test('full profile adds three domain skills and hooks without memory or tool plugins', async () => {
   const core = await initAndDryRunProfile('core');
   const full = await initAndDryRunProfile('full');
   try {
@@ -391,22 +392,19 @@ test('full profile adds governance memory and hooks without enabling tool plugin
     assert.equal(coreTargets.some((item) => item.startsWith('.agents/memory/')), false);
     assert.equal(coreTargets.includes('.codex/hooks.json'), false);
     assert.equal(fullTargets.includes('docs/rules/codebase-memory-mcp.md'), false);
-    assert.equal(fullTargets.includes('.agents/skills/agentmemory/SKILL.md'), true);
-    assert.equal(fullTargets.includes('.agents/skills/agentmemory/references/handoff.md'), true);
-    assert.equal(fullTargets.includes('.agents/skills/agentmemory/references/recall.md'), true);
-    assert.equal(fullTargets.includes('.agents/skills/agentmemory/references/remember.md'), true);
+    assert.equal(fullTargets.includes('.agents/skills/agentmemory/SKILL.md'), false);
     assert.equal(fullTargets.includes('.agents/skills/handoff/SKILL.md'), false);
-    assert.equal(fullTargets.includes('.agents/memory/README.md'), true);
+    assert.equal(fullTargets.includes('.agents/memory/README.md'), false);
     assert.equal(fullTargets.includes('.codex/hooks.json'), true);
     assert.equal(fullTargets.includes('.agents/skills/review-checklist/SKILL.md'), false);
-    assert.equal(fullTargets.includes('.agents/skills/adversarial-review-packet/SKILL.md'), true);
-    assert.equal(fullTargets.includes('.agents/skills/loop-planning/SKILL.md'), true);
-    assert.equal(fullTargets.includes('.agents/skills/subagent-driven-development/SKILL.md'), true);
+    assert.equal(fullTargets.includes('.agents/skills/api-and-interface-design/SKILL.md'), true);
+    assert.equal(fullTargets.includes('.agents/skills/frontend-design/SKILL.md'), true);
+    assert.equal(fullTargets.includes('.agents/skills/runtime-cross-repo-rollout/SKILL.md'), true);
     assert.equal(fullTargets.some((item) => item.startsWith('docs/workflows/')), false);
     assert.equal(fullAgents.includes('完整治理安装'), true);
     assert.equal(fullAgents.includes('codebase-memory-mcp'), false);
-    assert.equal(fullAgents.includes('agentmemory'), true);
-    assert.equal(fullAgents.includes('.agents/memory/'), true);
+    assert.equal(fullAgents.includes('agentmemory'), false);
+    assert.equal(fullAgents.includes('.agents/memory/'), false);
     assert.equal(fullAgents.includes('.codex/hooks.json'), true);
   } finally {
     await rm(core.target, { force: true, recursive: true });
@@ -564,10 +562,10 @@ test('rendered AGENTS surface matches minimal, core, and full profile installs',
     assert.equal(fullAgents.includes('.agents/skills/'), true);
     assert.equal(fullAgents.includes('完整治理安装'), true);
     assert.equal(fullAgents.includes('codebase-memory-mcp'), false);
-    assert.equal(fullAgents.includes('agentmemory'), true);
-    assert.equal(fullAgents.includes('.agents/memory/'), true);
+    assert.equal(fullAgents.includes('agentmemory'), false);
+    assert.equal(fullAgents.includes('.agents/memory/'), false);
     assert.equal(fullAgents.includes('.codex/hooks.json'), true);
-    assert.equal(fullAgents.includes('review / loop'), true);
+    assert.equal(fullAgents.includes('review / loop'), false);
   } finally {
     await rm(minimal.target, { force: true, recursive: true });
     await rm(core.target, { force: true, recursive: true });

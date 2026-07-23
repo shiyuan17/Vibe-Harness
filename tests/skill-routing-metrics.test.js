@@ -4,22 +4,80 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
+  compareSkillSetVariants,
   evaluateSkillRouting,
+  evaluateTriggerRepetitions,
   validateRoutingCatalog,
+  validateSkillSetBaseline,
 } from '../scripts/lib/skill-routing-metrics.js';
 
 const rootDir = path.resolve('.');
 
-test('routing catalog covers every core skill with positive, negative, and confusion cases', async () => {
-  const [catalog, installMap] = await Promise.all([
+test('routing catalog covers every native skill with eight positive and near-miss cases', async () => {
+  const [catalog, skills] = await Promise.all([
     readFile(path.join(rootDir, 'evals/skill-routing-cases.json'), 'utf8').then(JSON.parse),
-    readFile(path.join(rootDir, 'adapters/codex/install-map.json'), 'utf8').then(JSON.parse),
+    readFile(path.join(rootDir, 'manifests/skills.json'), 'utf8').then(JSON.parse),
   ]);
-  const skillIds = installMap.entries
-    .filter((entry) => entry.group === 'skills-core' && entry.target.endsWith('/SKILL.md'))
-    .map((entry) => entry.target.split('/').at(-2));
+  const skillIds = skills.items.filter((item) => item.kind === 'native').map((item) => item.id);
 
   assert.deepEqual(validateRoutingCatalog({ catalog, skillIds }), []);
+});
+
+test('old/new/no-Skill comparison enforces non-inferiority, loaded tokens, safety, and retained value', () => {
+  const trials = [];
+  for (const variant of ['old-skills', 'new-skills', 'no-skills']) {
+    for (const [caseId, skill] of [['clarify-case', 'clarify-requirements'], ['debug-case', 'systematic-debugging']]) {
+      for (let repetition = 1; repetition <= 3; repetition += 1) {
+        trials.push({
+          caseId,
+          critical: caseId === 'clarify-case',
+          loadedSkillTokens: variant === 'old-skills' ? 1000 : (variant === 'new-skills' ? 400 : 0),
+          passed: variant !== 'no-skills',
+          repetition,
+          skill,
+          totalTokens: variant === 'old-skills' ? 2000 : (variant === 'new-skills' ? 1000 : 1200),
+          variant,
+        });
+      }
+    }
+  }
+  const comparison = compareSkillSetVariants(trials);
+  assert.equal(comparison.ok, true);
+  assert.equal(comparison.gates.loadedTokenReduction, true);
+  assert.equal(comparison.gates.retainedSkillValue, true);
+});
+
+test('frozen old/new/no-Skill baseline enforces metadata reduction', async () => {
+  const baseline = JSON.parse(await readFile(path.join(rootDir, 'evals/skill-set-baseline.json'), 'utf8'));
+  const passing = validateSkillSetBaseline({ baseline, current: { identityCharacters: 852, skillCount: 7 } });
+  assert.equal(passing.ok, true);
+  assert.ok(passing.identityReduction >= 0.4);
+  const failing = validateSkillSetBaseline({ baseline, current: { identityCharacters: 1600, skillCount: 8 } });
+  assert.equal(failing.ok, false);
+});
+
+test('trigger repetitions require two positive hits and at most one near-miss hit', () => {
+  const repetitions = (caseId, shouldTrigger, predictions, criticalNegative = false) => predictions.map((predictedSkill, index) => ({
+    caseId,
+    criticalNegative,
+    predictedSkill,
+    repetition: index + 1,
+    shouldTrigger,
+    skill: 'clarify-requirements',
+  }));
+  const passing = evaluateTriggerRepetitions([
+    ...repetitions('positive', true, ['clarify-requirements', null, 'clarify-requirements']),
+    ...repetitions('near-miss', false, [null, 'clarify-requirements', null]),
+    ...repetitions('clear-local-critical', false, [null, null, null], true),
+  ]);
+  assert.equal(passing.ok, true);
+
+  const failing = evaluateTriggerRepetitions([
+    ...repetitions('weak-positive', true, [null, 'clarify-requirements', null]),
+    ...repetitions('false-positive', false, ['clarify-requirements', null, 'clarify-requirements']),
+  ]);
+  assert.equal(failing.ok, false);
+  assert.match(failing.errors.join('\n'), /at least 2\/3|at most 1\/3/u);
 });
 
 test('routing metrics enforce precision, recall, critical repetitions, and A/B pass rate', () => {

@@ -76,6 +76,38 @@ async function seedLegacyMemoryInstall(target, { modifiedOperation } = {}) {
   }
 }
 
+async function seedRetiredFlowSkills(target, { modifiedSkill } = {}) {
+  const retired = ['using-cognis', 'brainstorming', 'writing-plans'];
+  const files = [];
+  for (const skill of retired) {
+    const relativeTarget = `.agents/skills/${skill}/SKILL.md`;
+    const content = `legacy ${skill}\n`;
+    const targetPath = path.join(target, relativeTarget);
+    await mkdir(path.dirname(targetPath), { recursive: true });
+    await writeFile(targetPath, content, 'utf8');
+    files.push({
+      backup: null,
+      created: true,
+      group: 'skills-core',
+      previousHash: null,
+      redZone: false,
+      source: `skills/core/${skill}/SKILL.md`,
+      sourceHash: sha256(content),
+      target: relativeTarget,
+      targetHash: sha256(content),
+    });
+  }
+  await mkdir(path.join(target, '.cognis'), { recursive: true });
+  await writeFile(path.join(target, '.cognis/install-state.json'), `${JSON.stringify({
+    files,
+    generatedDirectories: [],
+    installedAt: new Date().toISOString(),
+    profile: 'core',
+    version: '0.4.0',
+  }, null, 2)}\n`, 'utf8');
+  if (modifiedSkill) await writeFile(path.join(target, `.agents/skills/${modifiedSkill}/SKILL.md`), `user modified ${modifiedSkill}\n`, 'utf8');
+}
+
 test('write install writes install state with hashes and red-zone metadata', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'cognis-state-'));
   try {
@@ -159,12 +191,28 @@ test('upgrade refuses user modified managed files unless force is used and force
   }
 });
 
+test('upgrade retires unchanged flow Skills and reports user-modified copies as retained', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-flow-skill-retirement-'));
+  try {
+    await seedRetiredFlowSkills(target, { modifiedSkill: 'brainstorming' });
+    await runCli(['init', '--project', target]);
+    const result = await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'core', '--write', '--upgrade']);
+    assert.equal(await exists(path.join(target, '.agents/skills/using-cognis/SKILL.md')), false);
+    assert.equal(await exists(path.join(target, '.agents/skills/writing-plans/SKILL.md')), false);
+    assert.equal(await readFile(path.join(target, '.agents/skills/brainstorming/SKILL.md'), 'utf8'), 'user modified brainstorming\n');
+    assert.ok(result.skipped.some((item) => item.target === '.agents/skills/brainstorming/SKILL.md' && item.reason === 'retained-user-modified'));
+    assert.equal(await exists(path.join(target, '.agents/skills/clarify-requirements/SKILL.md')), true);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
 test('agentmemory upgrade dry-run retires only legacy entries tracked by install state', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'cognis-agentmemory-retire-preview-'));
   try {
     await seedLegacyMemoryInstall(target);
     await runCli(['init', '--project', target]);
-    const preview = await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'full', '--dry-run', '--upgrade']);
+    const preview = await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'full', '--plugin', 'agentmemory', '--allow-preview', '--dry-run', '--upgrade']);
     assert.deepEqual(
       preview.actions.filter((action) => action.kind === 'retire').map((action) => action.relativeTarget).sort(),
       legacyMemoryOperations.map((operation) => `.agents/skills/${operation}/SKILL.md`).sort(),
@@ -177,7 +225,7 @@ test('agentmemory upgrade dry-run retires only legacy entries tracked by install
       await mkdir(path.dirname(untrackedTarget), { recursive: true });
       await writeFile(untrackedTarget, 'user owned\n', 'utf8');
       await runCli(['init', '--project', untracked, '--profile', 'full']);
-      const untrackedPreview = await runCli(['install', '--project', untracked, '--target', 'codex', '--profile', 'full', '--dry-run', '--upgrade']);
+      const untrackedPreview = await runCli(['install', '--project', untracked, '--target', 'codex', '--profile', 'full', '--plugin', 'agentmemory', '--allow-preview', '--dry-run', '--upgrade']);
       assert.equal(untrackedPreview.actions.some((action) => action.relativeTarget === '.agents/skills/recall/SKILL.md'), false);
     } finally {
       await rm(untracked, { force: true, recursive: true });
@@ -193,11 +241,11 @@ test('agentmemory upgrade preserves modified legacy entries and rollback restore
     await seedLegacyMemoryInstall(target, { modifiedOperation: 'recall' });
     await runCli(['init', '--project', target]);
     const result = await runCli([
-      'install', '--project', target, '--target', 'codex', '--profile', 'full', '--write', '--upgrade', '--confirm-red-zone',
+      'install', '--project', target, '--target', 'codex', '--profile', 'full', '--plugin', 'agentmemory', '--allow-preview', '--write', '--upgrade', '--confirm-red-zone',
     ]);
 
     assert.equal(result.retired.length, 5);
-    assert.ok(result.skipped.some((item) => item.target === '.agents/skills/recall/SKILL.md' && item.reason === 'target-modified'));
+    assert.ok(result.skipped.some((item) => item.target === '.agents/skills/recall/SKILL.md' && item.reason === 'retained-user-modified'));
     assert.equal(await exists(path.join(target, '.agents/skills/forget/SKILL.md')), false);
     assert.equal(await readFile(path.join(target, '.agents/skills/recall/SKILL.md'), 'utf8'), 'user modified recall\n');
     assert.equal(await exists(path.join(target, '.agents/skills/agentmemory/references/forget.md')), true);
@@ -238,6 +286,8 @@ test('MVP write upgrade uses the same tracked agentmemory retirement lifecycle',
       '--project', target,
       '--target', 'codex',
       '--profile', 'full',
+      '--plugin', 'agentmemory',
+      '--allow-preview',
       '--write',
       '--upgrade',
       '--confirm-red-zone',

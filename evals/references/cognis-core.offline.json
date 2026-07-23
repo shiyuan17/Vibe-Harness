@@ -4,11 +4,11 @@
   "approvedAt": "2026-07-21T16:10:20.130Z",
   "suite": {
     "id": "cognis-core",
-    "version": "1.6.0"
+    "version": "1.7.0"
   },
   "mode": "offline",
   "fingerprint": {
-    "suiteHash": "be2002848bf9b2347321320f7ac33baba92e80389113b8e4b420f357b75159ec",
+    "suiteHash": "a3955da21a1b8b3dba6098a43f0ef22f00743db2f1b1f3447cd5e4f1daa54321",
     "runner": "offline-replay@1",
     "model": "fixture",
     "agent": "offline",

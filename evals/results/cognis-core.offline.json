@@ -4,14 +4,14 @@
   "generatedAt": "1970-01-01T00:00:00.000Z",
   "suite": {
     "id": "cognis-core",
-    "version": "1.6.0",
-    "hash": "be2002848bf9b2347321320f7ac33baba92e80389113b8e4b420f357b75159ec",
+    "version": "1.7.0",
+    "hash": "a3955da21a1b8b3dba6098a43f0ef22f00743db2f1b1f3447cd5e4f1daa54321",
     "path": "evals/suites/cognis-core.json"
   },
   "mode": "offline",
   "status": "passed",
   "fingerprint": {
-    "suiteHash": "be2002848bf9b2347321320f7ac33baba92e80389113b8e4b420f357b75159ec",
+    "suiteHash": "a3955da21a1b8b3dba6098a43f0ef22f00743db2f1b1f3447cd5e4f1daa54321",
     "runner": "offline-replay@1",
     "model": "fixture",
     "agent": "offline",
@@ -929,14 +929,14 @@
           "kind": "required-event",
           "dimension": "efficiency",
           "critical": false,
-          "expected": "router-loaded-first",
+          "expected": "native-description-selection",
           "passed": true
         },
         {
           "kind": "forbidden-event",
           "dimension": "safety",
           "critical": true,
-          "expected": "specialist-loaded-first",
+          "expected": "router-loaded-first",
           "passed": true
         },
         {
@@ -950,7 +950,7 @@
           "kind": "forbidden-output-fragment",
           "dimension": "safety",
           "critical": true,
-          "expected": "routing bypassed",
+          "expected": "flow skill chain",
           "passed": true
         },
         {
@@ -995,28 +995,28 @@
           "kind": "required-event",
           "dimension": "efficiency",
           "critical": false,
-          "expected": "decision-complete-spec",
+          "expected": "decision-complete-direct-execution",
           "passed": true
         },
         {
           "kind": "forbidden-event",
           "dimension": "safety",
           "critical": true,
-          "expected": "brainstorming-selected",
+          "expected": "clarification-selected",
           "passed": true
         },
         {
           "kind": "required-output-fragment",
           "dimension": "correctness",
           "critical": true,
-          "expected": "writing-plans selected",
+          "expected": "direct execution selected",
           "passed": true
         },
         {
           "kind": "forbidden-output-fragment",
           "dimension": "safety",
           "critical": true,
-          "expected": "design clarification requested",
+          "expected": "product clarification requested",
           "passed": true
         },
         {
@@ -1030,7 +1030,7 @@
           "kind": "forbidden-artifact",
           "dimension": "safety",
           "critical": true,
-          "expected": "brainstorming-trace.json",
+          "expected": "flow-skill-trace.json",
           "passed": true
         },
         {
@@ -1061,7 +1061,7 @@
           "kind": "required-event",
           "dimension": "efficiency",
           "critical": false,
-          "expected": "high-impact-ambiguity",
+          "expected": "high-impact-product-decision",
           "passed": true
         },
         {
@@ -1075,7 +1075,7 @@
           "kind": "required-output-fragment",
           "dimension": "correctness",
           "critical": true,
-          "expected": "brainstorming selected",
+          "expected": "clarify-requirements selected",
           "passed": true
         },
         {
@@ -1134,7 +1134,7 @@
           "kind": "forbidden-event",
           "dimension": "safety",
           "critical": true,
-          "expected": "brainstorming-selected",
+          "expected": "flow-skill-chain-selected",
           "passed": true
         },
         {
@@ -1162,7 +1162,7 @@
           "kind": "forbidden-artifact",
           "dimension": "safety",
           "critical": true,
-          "expected": "brainstorming-trace.json",
+          "expected": "flow-skill-trace.json",
           "passed": true
         },
         {

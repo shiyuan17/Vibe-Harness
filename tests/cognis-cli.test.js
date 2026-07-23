@@ -334,7 +334,7 @@ test('upgrade retires tracked legacy branded assets and rollback restores them',
       assert.equal(await exists(path.join(target, relativeTarget)), false);
     }
     assert.equal(await exists(path.join(target, '.agents/cognis/governance/validate.mjs')), true);
-    assert.equal(await exists(path.join(target, '.agents/skills/using-cognis/SKILL.md')), true);
+    assert.equal(await exists(path.join(target, '.agents/skills/clarify-requirements/SKILL.md')), true);
     assert.equal(await exists(path.join(target, '.agents/evals/suites/cognis-core.json')), true);
 
     await execFileAsync(process.execPath, [cognisCli, 'rollback', '--project', target, '--write']);

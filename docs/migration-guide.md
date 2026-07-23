@@ -33,7 +33,7 @@ pnpm cognis validate --project ../target-project
 pnpm cognis doctor --project ../target-project
 ```
 
-新安装只生成 `cognis.config.json`、`.cognis/`、`.agents/cognis/`、`using-cognis` 和 `COGNIS:*` 受管标记。
+新安装只生成 `cognis.config.json`、`.cognis/`、`.agents/cognis/`、profile 选择的原生 Skills 和 `COGNIS:*` 受管标记。
 
 ## 3. 从 LoopEngine 升级
 
@@ -57,7 +57,8 @@ pnpm cognis install --project ../target-project --target codex --profile full --
 - 将 `loopengine.config.json` 迁移为 `cognis.config.json`。
 - 仅改写完全匹配旧默认值的 `.agents/loopengine/` governance 命令。
 - 备份并退休旧 install-state 明确追踪且 hash 未变化的品牌资产。
-- 写入 `.agents/cognis/`、`using-cognis` 和 `COGNIS:*` 活动资产。
+- 写入 `.agents/cognis/`、新原生 Skill 集和 `COGNIS:*` 活动资产。
+- 删除 install-state 跟踪且 hash 未变化的旧 Router/流程 Skill；用户修改版本保留并报告 `retained-user-modified`。
 - 将状态升级为 `stateVersion: 4`，记录 `product: "cognis"` 与实际 `storageNamespace`。
 
 旧安装升级后保留 `.loopengine/` 状态根，以避免在事务期间搬移日志和备份；活动治理资产使用 Cognis 命名。rollback 和 uninstall 继续从该状态根工作。
@@ -97,8 +98,8 @@ rollback 会恢复旧配置和已退休资产；若 canonical 配置已被用户
 ## 5. Profile 与工具
 
 - `minimal`：平台入口、治理内核、Git/Test 规则和默认 v2 中文 task/delivery 模板。
-- `core`：minimal 加工程专项规则、v1/v2 任务 runtime/schema、任务图 validator、`using-cognis`、inline fallback 和 Red Team 门禁。
-- `full`：core 加多 Agent Skill、durable memory、在线评测和 Codex hooks；不再默认安装外部工具或注册工具 MCP。
+- `core`：minimal 加工程专项规则、v1/v2 任务 runtime/schema、任务图 validator、四个聚焦原生 Skill 和 Red Team 门禁。
+- `full`：core 加 API/接口、前端设计和跨仓 rollout 三个领域 Skill、在线评测与 Codex hooks；memory 和外部工具均需显式插件。
 - `docs-only`：只安装可读规则、v2 模板与 schema，不提供 runtime 或平台 hook。
 
 精确文件集合以 `manifests/profiles.json` 为真值。升级后 `core` 与 `full` 都不会自动带入 Playwright、Chrome DevTools MCP、codebase-memory-mcp、Open Code Review、Agentmemory、RTK 或 ast-grep。使用 `--plugin` 增量选择，不要用会替换整个 profile 的 `--modules` 代替：

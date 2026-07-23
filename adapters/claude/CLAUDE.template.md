@@ -8,7 +8,7 @@
 2. {{projectProfile.vcsStatusInstruction}}
 3. {{installedSurface.discoveryLine}}
 4. 将任务归为快速、轻量或完整，并确定验证方式。
-5. 当前运行 Workflow 为 `{{governance.workflow}}`；adaptive 默认直接执行结果优先主循环，strict 保留完整生命周期。已安装 Skills 时使用 `using-cognis` 短路由；Skills 未安装时按治理内核 fallback。
+5. 当前运行 Workflow 为 `{{governance.workflow}}`；adaptive 默认直接执行结果优先主循环，strict 保留完整生命周期。已安装 Skills 由宿主按 description 原生选择，不使用 Router 或流程 Skill 链。
 
 ## 硬边界摘要
 

@@ -51,7 +51,7 @@ Cognis 用来打包可复用的 AI coding governance 资产。源项目只能作
 2. 编辑前运行 `git status --short`，保护用户未归属改动。
 3. 使用仓库搜索和已安装规则定位相关代码；需要结构化索引时先确认目标项目已有能力。
 4. 将任务归为快速、轻量或完整，并确定验证方式。
-5. 已安装 Skills 时先使用 `using-cognis` 路由；Skills 未安装时按路由规则和治理内核 fallback 执行。
+5. 已安装 Skills 由宿主按 description 原生选择，同一阶段默认只加载一个；Skills 未安装时按路由规则和治理内核 fallback 执行。
 
 ## 硬边界摘要
 

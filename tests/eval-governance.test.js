@@ -164,17 +164,15 @@ test('evaluation evidence recomputes reference fingerprint instead of trusting m
   }
 });
 
-test('EDD skill is routed, registered, capability-backed, and installed by core', async () => {
-  const [skills, profiles, installMap, capabilities, router, routing] = await Promise.all([
+test('EDD skill is description-routed, registered, capability-backed, and installed by core', async () => {
+  const [skills, profiles, installMap, capabilities, routing] = await Promise.all([
     readJson(path.join(rootDir, 'manifests/skills.json')),
     readJson(path.join(rootDir, 'manifests/profiles.json')),
     readJson(path.join(rootDir, 'adapters/codex/install-map.json')),
     readJson(path.join(rootDir, 'manifests/capabilities.json')),
-    readFile(path.join(rootDir, 'skills/core/using-cognis/SKILL.md'), 'utf8'),
     readFile(path.join(rootDir, 'rules/agent-skill-routing.md'), 'utf8'),
   ]);
   assert.ok(skills.items.find((item) => item.id === 'eval-driven-development'));
-  assert.match(router, /eval-driven-development/u);
   assert.match(routing, /eval-driven-development/u);
   assert.ok(capabilities.items.find((item) => item.id === 'eval-driven-development'));
   assert.deepEqual(await validateCapabilityMatrix(rootDir, capabilities), []);

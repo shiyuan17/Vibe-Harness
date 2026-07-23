@@ -161,13 +161,13 @@ test('plugin option expands all seven plugins and rejects ambiguous input', () =
 test('plugins augment the profile selection instead of replacing it', () => {
   const selection = resolveModuleSelection({
     profile: 'full',
-    profileGroups: ['agents', 'rules-full', 'templates-full', 'runtime-full', 'skills-full', 'templates-memory', 'skills-memory', 'hooks'],
+    profileGroups: ['agents', 'rules-full', 'templates-full', 'runtime-full', 'skills-full', 'hooks'],
     requestedPlugins: ['rtk'],
   });
 
   assert.deepEqual(selection.requestedPlugins, ['rtk']);
   assert.equal(selection.resolvedModules.includes('hooks'), true);
-  assert.equal(selection.resolvedModules.includes('memory'), true);
+  assert.equal(selection.resolvedModules.includes('memory'), false);
   assert.equal(selection.resolvedModules.includes('rtk'), true);
   assert.equal(selection.resolvedModules.includes('playwright'), false);
   assert.equal(selection.allowedGroups.has('rules-rtk'), true);
@@ -436,7 +436,7 @@ test('CLI plugin selection augments full and persists for validation and reinsta
     ]);
     assert.deepEqual(installed.requestedPlugins, ['rtk']);
     assert.equal(installed.resolvedModules.includes('hooks'), true);
-    assert.equal(installed.resolvedModules.includes('memory'), true);
+    assert.equal(installed.resolvedModules.includes('memory'), false);
     assert.deepEqual(installed.plannedToolActions.map((item) => item.id), ['rtk']);
 
     const state = JSON.parse(await readFile(path.join(target, '.cognis/install-state.json'), 'utf8'));

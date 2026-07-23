@@ -242,7 +242,7 @@ test('minimal profile excludes project-specific rules and local memory library',
   }
 });
 
-test('full profile memory config can disable or relocate local memory library', async () => {
+test('explicit memory module can disable or relocate the local memory library', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'cognis-memory-config-'));
   try {
     await runCli(['init', '--project', target]);
@@ -256,7 +256,7 @@ test('full profile memory config can disable or relocate local memory library', 
         path: '.agents/memory',
       },
     });
-    const disabled = await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'full', '--dry-run']);
+    const disabled = await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'full', '--modules', 'memory', '--dry-run']);
     assert.equal(disabled.actions.some((action) => action.relativeTarget.startsWith('.agents/memory/')), false);
 
     await writeJson(configPath, {
@@ -266,7 +266,7 @@ test('full profile memory config can disable or relocate local memory library', 
         path: 'docs/agent-memory',
       },
     });
-    const relocated = await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'full', '--dry-run']);
+    const relocated = await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'full', '--modules', 'memory', '--dry-run']);
     const targets = relocated.actions.map((action) => action.relativeTarget);
 
     assert.equal(targets.includes('docs/agent-memory/README.md'), true);

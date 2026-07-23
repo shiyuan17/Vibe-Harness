@@ -21,9 +21,9 @@
 | `AI_COLLAB_RULES.md` | `rules/ai-collab-rules.md` | copy-generalize |
 | `PENCIL_RULES.md` | `rules/pencil-rules.md` | copy-generalize |
 | `RELEASE.md` | `rules/release-rules.md` | copy-generalize |
-| `REVIEW_RULES.md` | `skills/core/adversarial-review-packet/SKILL.md` | skill |
-| `LOOP_ENGINEERING_RULES.md` | `skills/core/loop-planning/SKILL.md` | skill |
-| `AGENT_SKILL_ROUTING.md` | `rules/agent-skill-routing.md`、`using-cognis` | copy-generalize + skill |
+| `REVIEW_RULES.md` | `rules/governance-core.md`、完整任务 Runtime | consolidate + validator |
+| `LOOP_ENGINEERING_RULES.md` | `rules/governance-core.md` | consolidate |
+| `AGENT_SKILL_ROUTING.md` | `rules/agent-skill-routing.md`、Skill descriptions | copy-generalize + native routing |
 | `TROUBLESHOOTING.md` | `rules/troubleshooting.md` | copy-generalize |
 | project memory/current tasks/contracts | examples or target project only | exclude-business |
 | durable memory categories | `templates/memory/*`、full governance validator | template |

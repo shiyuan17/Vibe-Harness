@@ -691,7 +691,8 @@ test('治理资产只暴露 adapters、规则、skills 和 profiles catalog', as
   const manifests = await loadAllManifests(rootDir);
   assert.deepEqual(Object.keys(manifests).sort(), ['adapters', 'profiles', 'rules', 'skills']);
   assert.equal(manifests.rules.items.some((item) => item.id === 'governance-core'), true);
-  assert.equal(manifests.skills.items.find((item) => item.id === 'using-cognis')?.kind, 'router');
+  assert.equal(manifests.skills.items.filter((item) => item.kind === 'native').length, 7);
+  assert.equal(manifests.skills.items.some((item) => ['router', 'compatibility'].includes(item.kind)), false);
   await assert.rejects(access(path.join(rootDir, 'manifests/workflows.json')));
   await assert.rejects(access(path.join(rootDir, 'schemas/workflow-pack.schema.json')));
   await assert.rejects(access(path.join(rootDir, 'schemas/task.schema.json')));
@@ -703,41 +704,38 @@ test('安装表面使用精简模板并移除 workflows', async () => {
   assert.equal(sources.has('rules/governance-core.md'), true);
   assert.equal(sources.has('templates/task.md'), true);
   assert.equal(sources.has('templates/delivery.md'), true);
-  assert.equal(sources.has('skills/core/using-cognis/SKILL.md'), true);
+  assert.equal(sources.has('skills/core/clarify-requirements/SKILL.md'), true);
   assert.equal(sources.has('runtime/governance/lib/red-team-validation.mjs'), true);
   assert.equal([...sources].some((source) => source.startsWith('workflows/')), false);
   assert.equal(sources.has('templates/workflow-packet.md'), false);
 });
 
 test('治理资产定义 Red Team 完成门禁和结构化审查包', async () => {
-  const [kernel, taskTemplate, deliveryTemplate, reviewSkill, reviewTemplate] = await Promise.all([
+  const [kernel, taskTemplate, deliveryTemplate, reviewRuntime] = await Promise.all([
     readFile(path.join(rootDir, 'rules/governance-core.md'), 'utf8'),
     readFile(path.join(rootDir, 'templates/task.md'), 'utf8'),
     readFile(path.join(rootDir, 'templates/delivery.md'), 'utf8'),
-    readFile(path.join(rootDir, 'skills/core/adversarial-review-packet/SKILL.md'), 'utf8'),
-    readFile(path.join(rootDir, 'skills/core/adversarial-review-packet/references/review.md'), 'utf8'),
+    readFile(path.join(rootDir, 'runtime/governance/lib/red-team-validation.mjs'), 'utf8'),
   ]);
   for (const fragment of ['Red Team（红队审查）', '红队审查包', '批准']) {
-    assert.match(`${kernel}\n${taskTemplate}\n${deliveryTemplate}\n${reviewSkill}`, new RegExp(fragment, 'u'));
+    assert.match(`${kernel}\n${taskTemplate}\n${deliveryTemplate}\n${reviewRuntime}`, new RegExp(fragment, 'u'));
   }
   assert.match(deliveryTemplate, /^- Red Team：/mu);
-  for (const fragment of ['任务编号', '审查者', '审查对象', '审查时间', '状态', 'Medium 延期', '未覆盖审查轴与剩余风险']) {
-    assert.match(reviewTemplate, new RegExp(fragment, 'u'));
-  }
+  assert.match(reviewRuntime, /red.?team|红队/iu);
 });
 
 test('治理资产定义 Small Change 和 Fan-out/Fan-in 契约', async () => {
-  const [coding, collaboration, subagent, task] = await Promise.all([
+  const [coding, collaboration, governance, task] = await Promise.all([
     readFile(path.join(rootDir, 'rules/coding-rules.md'), 'utf8'),
     readFile(path.join(rootDir, 'rules/ai-collab-rules.md'), 'utf8'),
-    readFile(path.join(rootDir, 'skills/core/subagent-driven-development/SKILL.md'), 'utf8'),
+    readFile(path.join(rootDir, 'rules/governance-core.md'), 'utf8'),
     readFile(path.join(rootDir, 'templates/task.md'), 'utf8'),
   ]);
   assert.match(coding, /一个任务只解决一个问题/u);
   assert.match(coding, /格式化.*业务/u);
   assert.match(collaboration, /Fan-out/u);
   assert.match(collaboration, /Fan-in/u);
-  assert.match(subagent, /输出格式/u);
+  assert.match(governance, /父 Agent 单一派发与 fan-in/u);
   assert.match(task, /不得修改范围/u);
 });
 
@@ -756,7 +754,8 @@ test('AI 协作规则定义自适应信息呈现契约', async () => {
   ]) {
     assert.match(collaboration, new RegExp(fragment.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'));
   }
-  assert.match(routing, /ai-collab-rules\.md.*复杂输入|复杂输入.*ai-collab-rules\.md/u);
+  assert.match(routing, /同一阶段默认只加载一个 Skill/u);
+  assert.doesNotMatch(routing, /信息块|装饰性卡片/u);
   const capability = capabilities.items.find((item) => item.id === 'adaptive-information-presentation');
   assert.ok(capability, 'adaptive-information-presentation capability should be declared');
   assert.deepEqual(capability.profiles, ['core', 'full', 'docs-only']);

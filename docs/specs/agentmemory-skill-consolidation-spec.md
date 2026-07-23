@@ -4,7 +4,7 @@
 
 ## 目标
 
-- `full` 只暴露一个顶层 `agentmemory` skill。
+- 显式 `agentmemory` 插件只暴露一个顶层 `agentmemory` skill；默认 `full` 不安装 memory。
 - 保存、检索、恢复、遗忘、汇总和 session 历史流程作为入口内的按需 references。
 - 已安装旧入口通过显式、可审查、可回滚的升级动作退役，不删除用户拥有或修改的文件。
 
@@ -19,4 +19,4 @@
 
 - `retire` 在删除前再次校验 hash 并写入项目内 backup，删除后记录到 install state 的 `retiredFiles`。
 - rollback 对缺失目标执行 `restore-retired`；目标已被重新创建时以 `target-recreated` 跳过。
-- full 真实升级使用 `--project <path> --target codex --profile full --write --upgrade --confirm-red-zone`；旧 state 由标准 init/upgrade 归一，不再提供 legacy/internal 命令。
+- 真实升级显式增加 `--plugin agentmemory --allow-preview`，并使用 `--project <path> --target codex --profile full --write --upgrade --confirm-red-zone`；旧 state 由标准 init/upgrade 归一，不再提供 legacy/internal 命令。

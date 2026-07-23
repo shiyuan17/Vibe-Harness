@@ -1,14 +1,36 @@
 #!/usr/bin/env node
 import path from 'node:path';
-import { readdir } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
 import { loadEvalAssets, validateEvalAssets, validateEvalObserverCoverage, validateEvalSuiteSemantics } from './lib/eval-contract.js';
+import { validateClarificationCatalog } from './lib/clarification-metrics.js';
 import { readJson, validateJsonAgainstSchema } from './lib/manifest.js';
+import { validateRoutingCatalog, validateSkillSetBaseline } from './lib/skill-routing-metrics.js';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const assets = await loadEvalAssets(rootDir);
 const errors = validateEvalAssets(assets);
+const [clarificationCatalog, routingCatalog, skillSetBaseline, skills] = await Promise.all([
+  readJson(path.join(rootDir, 'evals/clarification-cases.json')),
+  readJson(path.join(rootDir, 'evals/skill-routing-cases.json')),
+  readJson(path.join(rootDir, 'evals/skill-set-baseline.json')),
+  readJson(path.join(rootDir, 'manifests/skills.json')),
+]);
+errors.push(...validateClarificationCatalog(clarificationCatalog));
+errors.push(...validateRoutingCatalog({
+  catalog: routingCatalog,
+  skillIds: skills.items.filter((item) => item.kind === 'native').map((item) => item.id),
+}));
+let identityCharacters = 0;
+for (const item of skills.items.filter((candidate) => candidate.kind === 'native')) {
+  const content = await readFile(path.join(rootDir, item.source), 'utf8');
+  identityCharacters += item.id.length + (content.match(/^description:\s*(.+)$/mu)?.[1]?.length ?? 0);
+}
+errors.push(...validateSkillSetBaseline({
+  baseline: skillSetBaseline,
+  current: { identityCharacters, skillCount: skills.items.filter((item) => item.kind === 'native').length },
+}).errors);
 const suiteFiles = (await readdir(path.join(rootDir, 'evals/suites'))).filter((name) => name.endsWith('.json'));
 const onlineSuites = [];
 for (const file of suiteFiles) {

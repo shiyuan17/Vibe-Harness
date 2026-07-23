@@ -165,7 +165,7 @@ test('CLI write mode writes files when red-zone confirmation is explicit', async
 
     const taskTemplate = await readFile(path.join(target, 'docs/templates/task.md'), 'utf8');
     const deliveryTemplate = await readFile(path.join(target, 'docs/templates/delivery.md'), 'utf8');
-    const routerSkill = await readFile(path.join(target, '.agents/skills/using-cognis/SKILL.md'), 'utf8');
+    const clarifySkill = await readFile(path.join(target, '.agents/skills/clarify-requirements/SKILL.md'), 'utf8');
 
     assert.equal(await readFile(path.join(target, 'AGENTS.md'), 'utf8').then((content) => content.includes('## 启动')), true);
     assert.equal(await readFile(path.join(target, '.codex/hooks.json'), 'utf8').then((content) => content.includes('hooks')), true);
@@ -173,7 +173,7 @@ test('CLI write mode writes files when red-zone confirmation is explicit', async
     assert.equal(taskTemplate.includes('完整流程控制'), true);
     assert.equal(deliveryTemplate.includes('实际变更'), true);
     assert.equal(deliveryTemplate.includes('本轮验证'), true);
-    assert.equal(routerSkill.includes('Cognis 短路由'), true);
+    assert.equal(clarifySkill.includes('澄清关键需求'), true);
   } finally {
     await rm(target, { force: true, recursive: true });
   }

@@ -30,25 +30,28 @@ test('minimal uses the fallback kernel without skills or runtime', async () => {
   }
 });
 
-test('core and full install routed skills and full adds memory and hooks without tool MCPs', async () => {
+test('core and full install native skills while full adds domain skills and hooks', async () => {
   const core = await preview('core');
   const full = await preview('full');
   try {
     const coreTargets = new Set(core.report.actions.map((action) => action.relativeTarget));
     const fullTargets = new Set(full.report.actions.map((action) => action.relativeTarget));
     for (const targets of [coreTargets, fullTargets]) {
-      assert.equal(targets.has('.agents/skills/using-cognis/SKILL.md'), true);
+      assert.equal(targets.has('.agents/skills/clarify-requirements/SKILL.md'), true);
       assert.equal(targets.has('docs/schemas/full-task-control.schema.json'), true);
       assert.equal(targets.has('.agents/cognis/governance/lib/task-validation.mjs'), true);
       assert.equal(targets.has('.agents/cognis/governance/lib/red-team-validation.mjs'), true);
     }
-    assert.equal(coreTargets.has('.agents/skills/adversarial-review-packet/SKILL.md'), true);
+    assert.equal(coreTargets.has('.agents/skills/api-and-interface-design/SKILL.md'), false);
     assert.equal(coreTargets.has('docs/rules/codebase-memory-mcp.md'), false);
     assert.equal(coreTargets.has('.agents/skills/agentmemory/SKILL.md'), false);
     assert.equal(coreTargets.has('.codex/hooks.json'), false);
-    assert.equal(fullTargets.has('.agents/skills/adversarial-review-packet/SKILL.md'), true);
+    assert.equal(fullTargets.has('.agents/skills/api-and-interface-design/SKILL.md'), true);
+    assert.equal(fullTargets.has('.agents/skills/frontend-design/SKILL.md'), true);
+    assert.equal(fullTargets.has('.agents/skills/runtime-cross-repo-rollout/SKILL.md'), true);
     assert.equal(fullTargets.has('docs/rules/codebase-memory-mcp.md'), false);
-    assert.equal(fullTargets.has('.agents/skills/agentmemory/SKILL.md'), true);
+    assert.equal(fullTargets.has('.agents/skills/agentmemory/SKILL.md'), false);
+    assert.equal(fullTargets.has('.agents/memory/README.md'), false);
     assert.equal(fullTargets.has('.codex/hooks.json'), true);
   } finally {
     await rm(core.target, { force: true, recursive: true });

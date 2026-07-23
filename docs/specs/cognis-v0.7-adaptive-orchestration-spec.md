@@ -40,7 +40,7 @@
 
 自动派发仅适用于用户已授权、可逆且不涉及红区的范围。安全分析和核验可以拆分，但外部发布、权限变化、红区、破坏性操作、不可逆动作和未决业务决策仍保留人工门禁。
 
-full profile 可使用已安装的 `subagent-driven-development` 和平台真实子 Agent 能力；其他 profile 或能力不足的平台按单 Agent 降级并明确报告。CLI 命令面、profile 安装语义、v2 task schema、治理校验与 adapter 选择行为均保持不变。
+full profile 可使用平台真实子 Agent 能力；多 Agent 边界与验证由治理和 Runtime 承担，不再依赖流程 Skill。其他 profile 或能力不足的平台按单 Agent 降级并明确报告。CLI 命令面、v2 task schema、治理校验与 adapter 选择行为均保持不变。
 
 ## 验收场景
 

@@ -106,7 +106,7 @@ An install level, called a `profile` in commands and configuration, is a ready-m
 | --- | --- | --- |
 | `minimal` | The main Agent instruction file, hard boundaries, Git and test rules, and version 2 task templates | Small projects that want basic guidance without extra skills or tools |
 | `core` | Everything in `minimal`, plus common engineering rules, v1/v2 task and graph checks, Red Team completion review, and routing skills | Most projects; this is the recommended starting point |
-| `full` | Everything in `core`, plus the multi-Agent execution skill, project memory, advanced workflow skills, online evaluation assets, and Codex hooks | Long-running or high-risk Codex projects |
+| `full` | Everything in `core`, plus three focused domain Skills, online evaluation assets, and Codex hooks; memory stays opt-in | Long-running or high-risk Codex projects |
 | `docs-only` | Instructions, reusable rules, version 2 templates, and schemas, without executable runtime, skills, MCP, or hooks | Projects that only want the documentation-based setup |
 The exact files included in each profile are defined in `manifests/profiles.json`.
 

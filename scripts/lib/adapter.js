@@ -52,6 +52,7 @@ export function assertAdapterProfile(adapter, profile, { allowPreview = false } 
 export function resolveAdapterEntry(adapter, entry) {
   if (entry.group === 'mcp-config' && supportLevel(adapter.capabilities.mcp) === 'unsupported') return null;
   if (entry.group === 'hooks' && supportLevel(adapter.capabilities.hooks) === 'unsupported') return null;
+  if (entry.source?.endsWith('/agents/openai.yaml') && adapter.id !== 'codex') return null;
 
   let source = entry.source;
   let target = entry.target.replaceAll('\\', '/');

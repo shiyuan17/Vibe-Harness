@@ -6,7 +6,7 @@ Cognis 是跨平台、Codex 完整能力优先的可复用 AI coding governance 
 
 - `rules/`：`governance-core` 是 adaptive 结果优先循环、strict 兼容循环、风险和证据的唯一流程真值；其余文件只保存工程专项约束。
 - `templates/`：无 Skill 环境使用的中文任务和交付模板；专项模板与对应 skill 共置。
-- `skills/`：`using-cognis` 负责路由，canonical skills 按需提供规格、计划、实现、验证、审查和恢复流程。
+- `skills/`：七个聚焦原生 Skill 由宿主依据 description 直接选择；计划、测试、完成证据、Review、多 Agent 和 Red Team 留在治理与 Runtime。
 - `runtime/governance/`：将中英文 Markdown 视图解析为语言无关 TaskDocument IR，再校验 AC-ID、完成证据、完整流程控制块、跨文档任务图和结构化 Red Team 审查包。
 - `runtime/hooks/`：规范化 Codex 事件并执行可移植的安全、上下文和完成策略。
 - `runtime/evals/`：提供项目内离线评测 runtime 和 full 使用的 Codex 在线 runner；runner 只在一次性项目中执行。
@@ -61,8 +61,8 @@ evaluation reference 与项目 baseline 分离。reference 只保存批准的 fi
 ## Profile
 
 - minimal：最小安装，包含平台入口、治理内核、Git/VCS/Test 规则和默认 v2 中文 task/delivery 模板，不安装 skills、runtime、hook 或 MCP 安装面。
-- core：通用安装，在 minimal 上增加专项规则、v1/v2 任务 runtime/schema、跨文档任务图 validator、`using-cognis` 和 inline fallback skills；不安装外部工具或 hook。
-- full：完整治理安装，在 core 上增加多 Agent 执行 Skill、agentmemory 治理 skill、`.agents/memory/` 本地回退库、在线评测资产和 Codex hooks；不默认安装外部工具、创建 codebase 索引或注册工具 MCP，真实写入红区仍需确认。
+- core：通用安装，在 minimal 上增加专项规则、v1/v2 任务 runtime/schema、跨文档任务图 validator，以及澄清、调试、Eval、安全四个原生 Skill；不安装外部工具或 hook。
+- full：完整治理安装，在 core 上增加 API/接口、前端设计、跨仓 rollout 三个原生 Skill、在线评测资产和 Codex hooks；memory 与外部工具都通过插件显式启用，真实写入红区仍需确认。
 - docs-only：仅安装平台入口、治理内核、专项规则、v2 中文模板、memory 文档和 schema，不安装 runtime、Skills、MCP 或 hooks。
 
 公开插件名与内部模块映射固定为：`rtk` → `rtk`、`ast-grep` → `ast-grep`、`codebase-memory-mcp` → `codebase-memory`、`chrome-devtools-mcp` → `chrome-devtools`、`playwright-cli` → `playwright`、`open-code-review` → `open-code-review`、`agentmemory` → `agentmemory`。CLI 插件选择优先于项目配置，项目配置优先于 install-state；`--plugin none` 清空持久化选择。`--modules` 仍是替换整个 profile 的高级接口，不能作为插件增量接口。Agentmemory 仍受 `--allow-preview` 门禁。
