@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { readJson } from '../scripts/lib/manifest.js';
-import { evaluateGovernanceEvalChanges } from '../scripts/eval-change-check.js';
+import { coverageForGovernanceFiles, evaluateGovernanceEvalChanges } from '../scripts/eval-change-check.js';
 import { runEvaluationCheck } from '../runtime/hooks/lib/context.mjs';
 
 const rootDir = path.resolve('.');
@@ -93,6 +93,21 @@ test('governance diffs require a newly added Eval-ID while unrelated diffs do no
     changedFiles: ['skills/core/new-governance/SKILL.md'],
     coverageKeys: ['file:skills/core/new-governance/SKILL.md'],
   }).ok, false);
+});
+
+test('governance diff coverage retains baseline ownership and classifies retired Skills', () => {
+  const evaluation = { required: true, suites: ['evals/suites/cognis-core.json'] };
+  const report = coverageForGovernanceFiles({
+    baseItems: [{ id: 'review', evaluation, targets: ['skills/core/retired-review/SKILL.md'] }],
+    currentItems: [{ id: 'review', evaluation, targets: [] }, { id: 'skill-quality', evaluation, targets: [] }],
+    fileExists: () => false,
+    governanceFiles: ['skills/core/retired-review/SKILL.md', 'skills/core/unmapped-retired/SKILL.md'],
+  });
+  assert.deepEqual(report.coverageKeys, ['capability:review', 'capability:skill-quality']);
+  assert.deepEqual(report.requiredSuites, {
+    review: ['evals/suites/cognis-core.json'],
+    'skill-quality': ['evals/suites/cognis-core.json'],
+  });
 });
 
 test('online canary suite contains exactly six critical governance scenarios', async () => {

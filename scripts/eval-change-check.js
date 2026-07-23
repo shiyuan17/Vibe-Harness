@@ -63,6 +63,33 @@ function baseFile(base, file) {
   }
 }
 
+export function coverageForGovernanceFiles({ baseItems = [], currentItems, fileExists, governanceFiles }) {
+  const baseById = new Map(baseItems.map((item) => [item.id, item]));
+  const currentById = new Map(currentItems.map((item) => [item.id, item]));
+  const coverageKeys = new Set();
+  const requiredSuites = {};
+  for (const file of governanceFiles) {
+    const capabilityIds = new Set([...baseItems, ...currentItems]
+      .filter((item) => item.targets?.includes(file))
+      .map((item) => item.id));
+    if (capabilityIds.size === 0 && !fileExists(file) && file.startsWith('skills/')) {
+      capabilityIds.add('skill-quality');
+    }
+    if (capabilityIds.size === 0) {
+      coverageKeys.add(`file:${file}`);
+      continue;
+    }
+    for (const id of capabilityIds) {
+      const item = currentById.get(id) ?? baseById.get(id);
+      if (item?.evaluation?.required) {
+        coverageKeys.add(`capability:${item.id}`);
+        requiredSuites[item.id] = item.evaluation.suites ?? [];
+      }
+    }
+  }
+  return { coverageKeys: [...coverageKeys].sort(), requiredSuites };
+}
+
 export function inspectGitChanges(base) {
   if (!base) throw new Error('eval change check requires --base <git-sha>');
   git(['cat-file', '-e', `${base}^{commit}`]);
@@ -83,25 +110,18 @@ export function inspectGitChanges(base) {
     }
   }
   const matrix = JSON.parse(readFileSync(path.resolve('manifests/capabilities.json'), 'utf8'));
-  const coverageKeys = new Set();
-  const requiredSuites = {};
-  for (const file of governanceFiles) {
-    const matches = matrix.items.filter((item) => item.targets?.includes(file));
-    if (matches.length === 0) {
-      coverageKeys.add(`file:${file}`);
-      continue;
-    }
-    for (const item of matches) {
-      if (item.evaluation?.required) {
-        coverageKeys.add(`capability:${item.id}`);
-        requiredSuites[item.id] = item.evaluation.suites ?? [];
-      }
-    }
-  }
+  const baseMatrixText = baseFile(base, 'manifests/capabilities.json');
+  const baseMatrix = baseMatrixText ? JSON.parse(baseMatrixText) : { items: [] };
+  const { coverageKeys, requiredSuites } = coverageForGovernanceFiles({
+    baseItems: baseMatrix.items,
+    currentItems: matrix.items,
+    fileExists: (file) => existsSync(path.resolve(file)),
+    governanceFiles,
+  });
   return evaluateGovernanceEvalChanges({
     addedEvalCases,
     changedFiles,
-    coverageKeys: [...coverageKeys].sort(),
+    coverageKeys,
     requiredSuites,
   });
 }

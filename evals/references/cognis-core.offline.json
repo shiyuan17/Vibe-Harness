@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "id": "cognis-core-offline-reference",
-  "approvedAt": "2026-07-21T16:10:20.130Z",
+  "approvedAt": "2026-07-23T01:59:22.066Z",
   "suite": {
     "id": "cognis-core",
-    "version": "1.7.0"
+    "version": "1.8.0"
   },
   "mode": "offline",
   "fingerprint": {
-    "suiteHash": "a3955da21a1b8b3dba6098a43f0ef22f00743db2f1b1f3447cd5e4f1daa54321",
+    "suiteHash": "76a43fedc47f4dc50d0259513f8ec72ea61739d22340962daf6de272d218c687",
     "runner": "offline-replay@1",
     "model": "fixture",
     "agent": "offline",
@@ -28,9 +28,27 @@
       "score": 1
     },
     {
+      "id": "chinese-task-contract",
+      "caseCount": 1,
+      "passedCount": 1,
+      "score": 1
+    },
+    {
       "id": "chrome-devtools-mcp",
-      "caseCount": 3,
-      "passedCount": 3,
+      "caseCount": 4,
+      "passedCount": 4,
+      "score": 1
+    },
+    {
+      "id": "eval-driven-development",
+      "caseCount": 1,
+      "passedCount": 1,
+      "score": 1
+    },
+    {
+      "id": "git-and-worktree",
+      "caseCount": 1,
+      "passedCount": 1,
       "score": 1
     },
     {
@@ -41,8 +59,8 @@
     },
     {
       "id": "hook-policy",
-      "caseCount": 3,
-      "passedCount": 3,
+      "caseCount": 4,
+      "passedCount": 4,
       "score": 1
     },
     {
@@ -67,6 +85,12 @@
       "id": "rtk-output-compression",
       "caseCount": 5,
       "passedCount": 5,
+      "score": 1
+    },
+    {
+      "id": "skill-quality",
+      "caseCount": 1,
+      "passedCount": 1,
       "score": 1
     },
     {
