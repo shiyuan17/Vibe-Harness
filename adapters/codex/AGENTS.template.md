@@ -4,7 +4,7 @@
 
 ## 启动
 
-1. 阅读 `docs/rules/governance-core.md`、`docs/rules/AGENT_SKILL_ROUTING.md` 和命中场景的专项规则。
+1. 先读取 `docs/rules/governance-core.md`；只有出现 Skill 或专项领域信号时再读取 `docs/rules/AGENT_SKILL_ROUTING.md` 和一个命中的专项规则。
 2. {{projectProfile.vcsStatusInstruction}}
 3. {{installedSurface.discoveryLine}}
 4. 将任务归为快速、轻量或完整，并确定验证方式。

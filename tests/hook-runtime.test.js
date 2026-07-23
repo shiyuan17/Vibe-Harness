@@ -497,7 +497,24 @@ test('guarded tool policy blocks structured writes outside the project and globa
   })), { mode: 'guarded', projectRoot: rootDir });
 
   assert.equal(outside.action, 'deny');
+  assert.equal(outside.reasonCode, 'PROJECT_BOUNDARY');
   assert.equal(globalConfig.action, 'deny');
+  assert.equal(globalConfig.reasonCode, 'GLOBAL_AGENT_CONFIG');
+});
+
+test('guarded tool policy accepts real shell payload aliases and blocks shell path escapes', () => {
+  for (const toolInput of [
+    { command: `printf secret > ${JSON.stringify(path.resolve(rootDir, '..', 'outside.txt'))}` },
+    { cmd: `tee ${JSON.stringify(path.resolve(rootDir, '..', 'outside.txt'))}` },
+    { input: `cp README.md ${JSON.stringify(path.resolve(rootDir, '..', 'outside.txt'))}` },
+  ]) {
+    const decision = analyzeToolRequest(normalizeCodexHookInput(hookInput({ tool_input: toolInput })), {
+      mode: 'guarded',
+      projectRoot: rootDir,
+    });
+    assert.equal(decision.action, 'deny');
+    assert.equal(decision.reasonCode, 'PROJECT_BOUNDARY');
+  }
 });
 
 test('guarded tool policy covers POSIX home paths and camelCase MCP path fields', () => {
@@ -608,6 +625,7 @@ test('guarded tool policy warns about project red-zone writes without blocking t
   })), { mode: 'guarded', projectRoot: rootDir });
 
   assert.equal(decision.action, 'warn');
+  assert.equal(decision.reasonCode, 'RED_ZONE');
   assert.match(decision.reason, /red-zone/i);
 });
 
@@ -622,11 +640,17 @@ test('observe mode reports risky behavior without denying it', () => {
 
 test('creates event-specific Codex denial output and never auto-allows permission requests', () => {
   const preTool = createCodexHookResult('PreToolUse', { action: 'deny', reason: 'Blocked.' });
+  const coded = createCodexHookResult('PreToolUse', {
+    action: 'deny',
+    reason: 'Blocked.',
+    reasonCode: 'DESTRUCTIVE_GIT',
+  });
   const permission = createCodexHookResult('PermissionRequest', { action: 'deny', reason: 'Blocked.' });
   const undecided = createCodexHookResult('PermissionRequest', { action: 'allow' });
   const advisory = createCodexHookResult('PermissionRequest', { action: 'warn', reason: 'Review red-zone.' });
 
   assert.equal(preTool.hookSpecificOutput.permissionDecision, 'deny');
+  assert.match(coded.hookSpecificOutput.permissionDecisionReason, /\[COGNIS_POLICY:DESTRUCTIVE_GIT\]/u);
   assert.equal(permission.hookSpecificOutput.decision.behavior, 'deny');
   assert.deepEqual(undecided, {});
   assert.deepEqual(advisory, {});

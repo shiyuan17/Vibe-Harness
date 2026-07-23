@@ -12,7 +12,7 @@ permissions:
 jobs:
   codex-canary:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
@@ -24,6 +24,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm eval:workflow:check
+      - run: pnpm eval:workflow:v2:check
       - id: preflight
         env:
           CODEX_CLI_VERSION: ${{ vars.CODEX_CLI_VERSION }}
@@ -55,6 +56,19 @@ jobs:
           COGNIS_EVAL_ENFORCE: ${{ vars.COGNIS_EVAL_ENFORCE || vars.LOOPENGINE_EVAL_ENFORCE }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: pnpm eval:online
+      - id: workflow-v2
+        if: steps.preflight.outputs.ready == 'true' && steps.codex-install.outcome == 'success'
+        continue-on-error: true
+        env:
+          CODEX_MODEL: ${{ vars.CODEX_MODEL }}
+          CODEX_REASONING_EFFORT: medium
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          pnpm eval:workflow:v2:run --run-id "github-${GITHUB_RUN_ID}" --concurrency 4 --timeout-ms 600000
+          pnpm eval:workflow:v2:compare \
+            --adaptive ".cognis/evals/workflow-benchmark/github-${GITHUB_RUN_ID}/adaptive.json" \
+            --strict ".cognis/evals/workflow-benchmark/github-${GITHUB_RUN_ID}/strict.json" \
+            --output ".cognis/evals/workflow-benchmark/github-${GITHUB_RUN_ID}/comparison.json"
       - name: Download recent online evaluation health artifacts
         if: always()
         env:
@@ -75,6 +89,8 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cognis-online-evals-${{ github.run_id }}
-          path: .cognis/evals/runs/*.json
+          path: |
+            .cognis/evals/runs/*.json
+            .cognis/evals/workflow-benchmark/github-${{ github.run_id }}/*.json
           retention-days: 30
           if-no-files-found: error

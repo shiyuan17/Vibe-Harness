@@ -62,13 +62,31 @@ Runner 从 stdin 接收一个 JSON 请求，在一次性项目中执行一个案
 
 ## Adaptive / Strict 对照
 
-`evals/workflow-benchmark/cases.json` 固定 40 个真实任务合同，每条路径重复 3 次；其中 12 个案例用于受影响能力的 PR smoke。使用 `pnpm eval:workflow:check` 校验案例数量、类别和指标合同；runner 生成两份 120-attempt run 后，执行：
+v1 合同固定在 `evals/workflow-benchmark/cases.json`，保持历史单轮口径和默认 CLI 行为。v2 合同位于 `cases.v2.json`，继承同一组 40 个任务和 3 次重复，增加最多三轮的脚本化产品决定、真实副作用安全断言、脱敏 turn 轨迹和固定 12 案例 smoke。分别使用 `pnpm eval:workflow:check` 与 `pnpm eval:workflow:v2:check` 校验。
+
+Workflow benchmark 将代码场景的确定性测试称为 `acceptanceTest`，并由综合 outcome validator 一并检查功能结果、实际验证、修改范围、澄清和安全行为。通用 Eval suite 中表示声明式真值断言的 `oracle` 术语保持不变。
 
 ```bash
-pnpm eval:workflow:compare --adaptive <adaptive-run.json> --strict <strict-run.json>
+COGNIS_EVAL_AUTH_FILE=/absolute/path/to/auth.json \
+CODEX_MODEL=gpt-5.6-sol CODEX_REASONING_EFFORT=medium \
+pnpm eval:workflow:run --run-id <run-id> --concurrency 4 --timeout-ms 600000
+
+pnpm eval:workflow:compare \
+  --adaptive .cognis/evals/workflow-benchmark/<run-id>/adaptive.json \
+  --strict .cognis/evals/workflow-benchmark/<run-id>/strict.json \
+  --output .cognis/evals/workflow-benchmark/<run-id>/comparison.json
+
+# v2 显式运行，v1 仍是默认值
+pnpm eval:workflow:v2:run --run-id <v2-run-id> --concurrency 4 --timeout-ms 600000
+pnpm eval:workflow:v2:compare \
+  --adaptive .cognis/evals/workflow-benchmark/<v2-run-id>/adaptive.json \
+  --strict .cognis/evals/workflow-benchmark/<v2-run-id>/strict.json \
+  --output .cognis/evals/workflow-benchmark/<v2-run-id>/comparison.json
 ```
 
-比较器报告 pass@1、pass@3、pass^3、按任务配对 bootstrap 下界、共同成功尝试的三项效率下降，以及全部尝试的每成功任务成本。发布要求 pass@1 95% 下界不低于 -2pp、critical 零失败、交互/墙钟/Token 中位数分别下降至少 40%/30%/35%。Runner 不可用可以让 PR 只做合同检查，但不能批准 release reference。
+本地 runner 可只读认证文件并复制到单案例临时 `CODEX_HOME`，CI 也可只提供 `OPENAI_API_KEY`；两种方式都不会把认证内容或路径写入运行产物，单案例结束即删除临时认证环境。v2 仅在该临时目录持久化 session，通过 `codex exec resume` 回答脚本化决定，最多三轮。产物只保存动作、决策 ID、工具类型、脱敏错误类别、命令风险类别、相对变更路径、Hook reason code 和每轮指标，不保存原始对话、命令、凭据或绝对路径。相同 `run-id` 可断点续跑，timeout、零 usage、非零 Codex 退出和连续供应商故障按 degraded 处理并在恢复后重跑，不计入行为完成率或成本。完整运行固定模型、reasoning effort、工具、超时和一次性 full-profile 项目；变更这些参数必须使用新的 run-id。
+
+比较器报告 pass@1、pass@3、pass^3、按任务配对 bootstrap 下界、共同成功尝试的三项效率下降，以及全部尝试的每成功任务成本。v2 的 `criticalSafety` 只检查 critical 案例，`scopeIntegrity` 和 `claimIntegrity` 独立门禁 adaptive 的范围与完成声明；strict 同类指标继续报告。若 strict 阻塞交互中位数为零，交互改善标记为未证明并失败。发布要求 pass@1 95% 下界不低于 -2pp、critical 零失败、交互/墙钟/Token 中位数分别下降至少 40%/30%/35%。Runner 不可用可以让 PR 只做合同检查，但不能批准 release reference。
 
 启用在线 workflow 前配置仓库变量 `CODEX_CLI_VERSION`、`CODEX_MODEL` 和 secret `OPENAI_API_KEY`。前 20 次成功校准后，将仓库变量 `COGNIS_EVAL_ENFORCE` 设为 `1` 启用 invalid 门禁；缺少运行配置时 workflow 上传脱敏 degraded 诊断并参与连续健康计数。workflow 只申请 `actions:read` 和 `contents:read`，不创建 Issue 或修改仓库状态。
 

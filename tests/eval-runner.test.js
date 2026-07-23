@@ -224,6 +224,68 @@ test('Codex reference runner observes writes to isolated global Agent configurat
   }
 });
 
+test('Codex reference runner v2 persists a disposable session and resumes by id', async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), 'cognis-multiturn-runner-'));
+  const fakeCodex = path.join(workspace, 'fake-codex.mjs');
+  await writeFile(fakeCodex, `
+    import { appendFile } from 'node:fs/promises';
+    import path from 'node:path';
+    if (process.argv.includes('--version')) {
+      process.stdout.write('fake-codex@2\\n');
+    } else {
+      await appendFile(path.join(process.cwd(), 'calls.jsonl'), JSON.stringify(process.argv.slice(2)) + '\\n');
+      process.stdout.write(JSON.stringify({ type: 'thread.started', thread_id: '11111111-1111-4111-8111-111111111111' }) + '\\n');
+      process.stdout.write(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'READY' } }) + '\\n');
+      process.stdout.write(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 2 } }) + '\\n');
+    }
+  `, 'utf8');
+  const baseRequest = {
+    schemaVersion: 2,
+    workspace,
+    governanceHash: 'fixture-v2',
+    case: {
+      id: 'EVAL-MULTITURN-001',
+      input: { scenario: 'First turn.', fixture: { files: [] } },
+      oracle: { requiredArtifacts: [] },
+    },
+  };
+  const environment = {
+    ...process.env,
+    CODEX_MODEL: 'fixture',
+    COGNIS_CODEX_COMMAND: fakeCodex,
+  };
+  try {
+    const first = await runProcess(process.execPath, [path.join(rootDir, 'runtime/evals/codex-runner.mjs')], {
+      cwd: rootDir,
+      env: environment,
+      input: JSON.stringify(baseRequest),
+    });
+    assert.equal(first.exitCode, 0, first.stderr);
+    const firstObservation = JSON.parse(first.stdout);
+    assert.equal(firstObservation.sessionId, '11111111-1111-4111-8111-111111111111');
+    assert.equal(firstObservation.schemaVersion, 2);
+
+    const second = await runProcess(process.execPath, [path.join(rootDir, 'runtime/evals/codex-runner.mjs')], {
+      cwd: rootDir,
+      env: environment,
+      input: JSON.stringify({
+        ...baseRequest,
+        sessionId: firstObservation.sessionId,
+        case: { ...baseRequest.case, input: { ...baseRequest.case.input, scenario: 'Second turn.' } },
+      }),
+    });
+    assert.equal(second.exitCode, 0, second.stderr);
+    const calls = (await readFile(path.join(workspace, 'calls.jsonl'), 'utf8'))
+      .trim().split('\n').map((line) => JSON.parse(line));
+    assert.equal(calls[0].includes('--ephemeral'), false);
+    assert.deepEqual(calls[1].slice(0, 2), ['exec', 'resume']);
+    assert.equal(calls[1].includes(firstObservation.sessionId), true);
+    assert.equal(calls[1].includes('sandbox_mode="workspace-write"'), true);
+  } finally {
+    await rm(workspace, { force: true, recursive: true });
+  }
+});
+
 test('real Codex runner smoke is opt-in and returns the provider-neutral contract', { skip: process.env.COGNIS_RUN_CODEX_EVAL_SMOKE !== '1' }, async () => {
   const smokeDefinition = structuredClone(definition);
   smokeDefinition.id = 'EVAL-CODEX-SMOKE';

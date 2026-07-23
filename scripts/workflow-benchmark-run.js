@@ -3,7 +3,11 @@ import { access, mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { readWorkflowBenchmark, validateWorkflowBenchmarkRun } from './lib/workflow-benchmark.js';
+import {
+  readWorkflowBenchmark,
+  validateWorkflowBenchmarkRun,
+  workflowBenchmarkSuitePath,
+} from './lib/workflow-benchmark.js';
 import { runWorkflowAttempt, writeJsonAtomic } from './lib/workflow-benchmark-runner.js';
 
 function argsFrom(values) {
@@ -37,7 +41,8 @@ async function readAttempts(file) {
 
 const args = argsFrom(process.argv.slice(2));
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const suite = await readWorkflowBenchmark(path.join(rootDir, 'evals/workflow-benchmark/cases.json'));
+const suiteName = String(args.suite ?? 'v1');
+const suite = await readWorkflowBenchmark(workflowBenchmarkSuitePath(rootDir, suiteName));
 const model = String(args.model ?? process.env.CODEX_MODEL ?? 'gpt-5.6-sol');
 const reasoningEffort = String(args.reasoning ?? process.env.CODEX_REASONING_EFFORT ?? 'medium');
 const agentVersion = String(args['agent-version'] ?? process.env.CODEX_CLI_VERSION ?? 'codex-cli');
@@ -45,11 +50,18 @@ const concurrency = positiveInteger(args.concurrency, 4, 'concurrency');
 const timeoutMs = positiveInteger(args['timeout-ms'], 10 * 60 * 1000, 'timeout-ms');
 const repetitions = args.smoke ? 1 : suite.repetitions;
 const selected = args.smoke
-  ? suite.cases.filter((item) => ['LOCAL-01', 'AMB-01', 'SAFE-01'].includes(item.id))
+  ? suite.cases.filter((item) => (
+    suite.schemaVersion === 1
+      ? ['LOCAL-01', 'AMB-01', 'SAFE-01'].includes(item.id)
+      : suite.smokeCaseIds.includes(item.id)
+  ))
   : suite.cases;
-const sourceAuth = path.resolve(String(args['auth-file'] ?? process.env.COGNIS_EVAL_AUTH_FILE ?? ''));
-if (!sourceAuth || sourceAuth === rootDir) throw new Error('--auth-file or COGNIS_EVAL_AUTH_FILE is required');
-await access(sourceAuth);
+const configuredAuth = args['auth-file'] ?? process.env.COGNIS_EVAL_AUTH_FILE;
+const sourceAuth = configuredAuth ? path.resolve(String(configuredAuth)) : null;
+if (!sourceAuth && !process.env.OPENAI_API_KEY) {
+  throw new Error('--auth-file, COGNIS_EVAL_AUTH_FILE, or OPENAI_API_KEY is required');
+}
+if (sourceAuth) await access(sourceAuth);
 const runId = String(args['run-id'] ?? new Date().toISOString().replaceAll(/[:.]/gu, '-'));
 const outputDir = path.resolve(args['output-dir'] ?? path.join(rootDir, '.cognis/evals/workflow-benchmark', runId));
 await mkdir(outputDir, { recursive: true });
@@ -57,9 +69,11 @@ const authFile = sourceAuth;
 const environment = {
   agent: agentVersion,
   model,
+  multiTurn: suite.schemaVersion === 2,
   oneShotProject: true,
   reasoningEffort,
-  runner: 'cognis-workflow@1',
+  runner: `cognis-workflow@${suite.schemaVersion}`,
+  suite: suite.id,
   timeoutMs,
   tokenBudget: 'provider-default',
   tools: ['shell', 'apply_patch', 'hooks', 'multi-agent'],
@@ -71,7 +85,8 @@ for (const workflow of workflows) {
   runs[workflow] = {
     attempts: await readAttempts(files[workflow]),
     environment,
-    schemaVersion: 1,
+    ...(suite.schemaVersion === 2 ? { mode: args.smoke ? 'smoke' : 'full' } : {}),
+    schemaVersion: suite.schemaVersion,
     workflow,
   };
 }
@@ -90,20 +105,38 @@ for (const item of selected) {
 }
 let cursor = 0;
 let finished = completed.size;
+let infrastructureStreak = 0;
+let circuitOpen = false;
 const total = selected.length * repetitions * workflows.length;
 async function worker() {
-  while (cursor < jobs.length) {
+  while (cursor < jobs.length && !circuitOpen) {
     const job = jobs[cursor];
     cursor += 1;
-    const attempt = await runWorkflowAttempt({ authFile, ...job, model, reasoningEffort, rootDir, timeoutMs });
+    const attempt = await runWorkflowAttempt({
+      authFile,
+      ...job,
+      maxTurns: suite.maxTurns ?? 1,
+      model,
+      reasoningEffort,
+      rootDir,
+      suiteVersion: suite.schemaVersion,
+      timeoutMs,
+    });
     runs[job.workflow].attempts = runs[job.workflow].attempts.filter((existing) => (
       existing.caseId !== attempt.caseId || existing.repetition !== attempt.repetition
     ));
     runs[job.workflow].attempts.push(attempt);
     runs[job.workflow].attempts.sort((left, right) => left.caseId.localeCompare(right.caseId) || left.repetition - right.repetition);
     await writeJsonAtomic(files[job.workflow], runs[job.workflow]);
-    finished += 1;
-    process.stdout.write(`[${finished}/${total}] ${job.workflow} ${job.item.id}#${job.repetition} ${attempt.passed ? 'passed' : 'failed'} ${attempt.wallTimeMs}ms\n`);
+    if (attempt.infrastructureFailure) {
+      infrastructureStreak += 1;
+      if (infrastructureStreak >= concurrency) circuitOpen = true;
+    } else {
+      infrastructureStreak = 0;
+      finished += 1;
+    }
+    const outcome = attempt.infrastructureFailure ? 'degraded' : (attempt.passed ? 'passed' : 'failed');
+    process.stdout.write(`[${finished}/${total}] ${job.workflow} ${job.item.id}#${job.repetition} ${outcome} ${attempt.wallTimeMs}ms\n`);
   }
 }
 await Promise.all(Array.from({ length: Math.min(concurrency, jobs.length || 1) }, () => worker()));
@@ -118,6 +151,13 @@ await writeJsonAtomic(path.join(outputDir, 'run.json'), {
   adaptive: path.basename(files.adaptive),
   completedAt: new Date().toISOString(),
   mode: args.smoke ? 'smoke' : 'full',
+  suite: suite.id,
   strict: path.basename(files.strict),
 });
-process.stdout.write(`${JSON.stringify({ adaptive: files.adaptive, mode: args.smoke ? 'smoke' : 'full', outputDir, strict: files.strict })}\n`);
+process.stdout.write(`${JSON.stringify({
+  adaptive: files.adaptive,
+  mode: args.smoke ? 'smoke' : 'full',
+  outputDir,
+  strict: files.strict,
+  suite: suite.id,
+})}\n`);

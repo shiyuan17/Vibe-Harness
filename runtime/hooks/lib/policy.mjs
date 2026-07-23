@@ -59,7 +59,10 @@ function isInside(baseDir, candidate) {
 }
 
 function commandFrom(input) {
-  return typeof input.toolInput?.command === 'string' ? input.toolInput.command : '';
+  for (const key of ['command', 'cmd', 'input']) {
+    if (typeof input.toolInput?.[key] === 'string') return input.toolInput[key];
+  }
+  return '';
 }
 
 function shellSegments(command) {
@@ -154,6 +157,27 @@ function commandWrites(segment) {
   return /(?:^|[^<])>>?/u.test(segment);
 }
 
+function shellWritePaths(command) {
+  const targets = [];
+  for (const match of command.matchAll(/(?:^|[\s\d])>{1,2}\s*(?:"([^"]+)"|'([^']+)'|([^\s;&|]+))/gu)) {
+    targets.push(match[1] ?? match[2] ?? match[3]);
+  }
+  for (const segment of shellSegments(command)) {
+    const tokens = commandTokens(segment);
+    const executable = tokens.findIndex((token) => /(?:^|[\\/])(?:cp|mv|rm|tee|truncate)(?:\.exe)?$/iu.test(token));
+    if (executable < 0) continue;
+    const commandName = path.basename(tokens[executable]).toLowerCase().replace(/\.exe$/u, '');
+    const operands = tokens.slice(executable + 1).filter((token) => !token.startsWith('-'));
+    if (['cp', 'mv'].includes(commandName) && operands.length > 1) targets.push(operands.at(-1));
+    if (['rm', 'tee', 'truncate'].includes(commandName)) targets.push(...operands);
+  }
+  return targets.filter((target) => !['/dev/null', 'NUL', 'nul'].includes(target));
+}
+
+function risk(level, reasonCode, reason) {
+  return { level, reason, reasonCode };
+}
+
 function commandReads(segment) {
   return /^\s*(?:Get-Content|Test-Path|Get-Item|Resolve-Path|cat|type)\b/iu.test(segment);
 }
@@ -182,31 +206,33 @@ function classifyRisk(input, projectRoot) {
   const command = commandFrom(input);
   const segments = shellSegments(command);
   if (segments.some((segment) => gitCommandRisk(segment))) {
-    return { level: 'deny', reason: 'Destructive Git operation or hook bypass is blocked by repository policy.' };
+    return risk('deny', 'DESTRUCTIVE_GIT', 'Destructive Git operation or hook bypass is blocked by repository policy.');
   }
   for (const segment of segments) {
     if (!referencesGlobalAgentConfig(segment)) continue;
     if (commandReads(segment) && !commandWrites(segment)) continue;
-    return { level: 'deny', reason: 'Writes to global Agent configuration are blocked by repository policy.' };
+    return risk('deny', 'GLOBAL_AGENT_CONFIG', 'Writes to global Agent configuration are blocked by repository policy.');
   }
   if (networkCommandPattern.test(command) && secretReferencePattern.test(command)) {
-    return { level: 'deny', reason: 'Possible credential exfiltration is blocked by repository policy.' };
+    return risk('deny', 'CREDENTIAL_EXFILTRATION', 'Possible credential exfiltration is blocked by repository policy.');
   }
 
-  if (!writeToolPattern.test(input.toolName ?? '')) return null;
+  const shellTargets = shellWritePaths(command);
+  if (!writeToolPattern.test(input.toolName ?? '') && shellTargets.length === 0) return null;
   const candidates = [
     ...collectStructuredPaths(input.toolInput),
     ...(input.toolName === 'apply_patch' ? patchPaths(command) : []),
+    ...shellTargets,
   ];
   for (const candidate of candidates) {
     if (referencesGlobalAgentConfig(candidate)) {
-      return { level: 'deny', reason: 'Writes to global Agent configuration are blocked by repository policy.' };
+      return risk('deny', 'GLOBAL_AGENT_CONFIG', 'Writes to global Agent configuration are blocked by repository policy.');
     }
     const absolute = path.isAbsolute(candidate) || path.win32.isAbsolute(candidate)
       ? candidate
       : path.resolve(projectRoot, candidate);
     if (!isInside(projectRoot, absolute)) {
-      return { level: 'deny', reason: 'Write target escapes the project boundary.' };
+      return risk('deny', 'PROJECT_BOUNDARY', 'Write target escapes the project boundary.');
     }
   }
   const touchesRedZone = candidates.some((candidate) => {
@@ -216,7 +242,7 @@ function classifyRisk(input, projectRoot) {
     return projectRedZonePattern.test(path.relative(projectRoot, absolute).replaceAll('\\', '/'));
   });
   if (touchesRedZone) {
-    return { level: 'warn', reason: 'The pending write touches a project red-zone; keep explicit approval and verification evidence.' };
+    return risk('warn', 'RED_ZONE', 'The pending write touches a project red-zone; keep explicit approval and verification evidence.');
   }
   return null;
 }
@@ -225,17 +251,22 @@ export function analyzeToolRequest(input, { mode = 'guarded', projectRoot = inpu
   if (mode === 'off') return { action: 'allow' };
   const risk = classifyRisk(input, projectRoot);
   if (!risk) return { action: 'allow' };
-  if (risk.level === 'warn' || mode === 'observe') return { action: 'warn', reason: risk.reason };
-  return { action: 'deny', reason: risk.reason };
+  if (risk.level === 'warn' || mode === 'observe') {
+    return { action: 'warn', reason: risk.reason, reasonCode: risk.reasonCode };
+  }
+  return { action: 'deny', reason: risk.reason, reasonCode: risk.reasonCode };
 }
 
 export function createCodexHookResult(event, decision) {
   if (!decision || decision.action === 'allow') return {};
+  const reason = decision.reasonCode
+    ? `[COGNIS_POLICY:${decision.reasonCode}] ${decision.reason}`
+    : decision.reason;
   if (event === 'PermissionRequest' && decision.action !== 'deny') return {};
   if (decision.action === 'warn') {
     return {
       hookSpecificOutput: {
-        additionalContext: decision.reason,
+        additionalContext: reason,
         hookEventName: event,
       },
     };
@@ -243,7 +274,7 @@ export function createCodexHookResult(event, decision) {
   if (event === 'PermissionRequest') {
     return {
       hookSpecificOutput: {
-        decision: { behavior: 'deny', message: decision.reason },
+        decision: { behavior: 'deny', message: reason },
         hookEventName: event,
       },
     };
@@ -253,9 +284,9 @@ export function createCodexHookResult(event, decision) {
       hookSpecificOutput: {
         hookEventName: event,
         permissionDecision: 'deny',
-        permissionDecisionReason: decision.reason,
+        permissionDecisionReason: reason,
       },
     };
   }
-  return { decision: 'block', reason: decision.reason };
+  return { decision: 'block', reason };
 }

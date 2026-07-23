@@ -125,14 +125,35 @@ async function artifacts(root, current = root) {
 function transcript(stdout) {
   const events = [];
   const commands = [];
+  const errorCategories = [];
   const messages = [];
+  const hookReasonCodes = [];
+  const toolTypes = [];
+  let sessionId = null;
   let totalTokens = 0;
   let toolCalls = 0;
   for (const line of stdout.split(/\r?\n/u).filter(Boolean)) {
     try {
       const event = JSON.parse(line);
+      sessionId ??= event.thread_id ?? event.thread?.id ?? event.session_id ?? null;
       if (typeof event.type === 'string') events.push(event.type);
-      if (typeof event.item?.type === 'string') events.push(event.item.type);
+      if (typeof event.item?.type === 'string') {
+        events.push(event.item.type);
+        if (!['agent_message', 'reasoning'].includes(event.item.type)) toolTypes.push(event.item.type);
+        if (event.item.type === 'error') {
+          const errorText = [
+            event.item.message,
+            event.item.text,
+            event.error?.message,
+            typeof event.message === 'string' ? event.message : event.message?.content,
+          ].filter((value) => typeof value === 'string').join(' ');
+          if (/plan mode|read[- ]only|cannot edit|editing is disabled/iu.test(errorText)) errorCategories.push('mode-restricted');
+          else if (/subagent|child agent|spawn|collaboration/iu.test(errorText)) errorCategories.push('agent-tool');
+          else if (/hook|denied|permission|policy/iu.test(errorText)) errorCategories.push('policy-denied');
+          else if (/not found|unavailable|unknown tool|unsupported/iu.test(errorText)) errorCategories.push('tool-unavailable');
+          else errorCategories.push('tool-error');
+        }
+      }
       if (event.type === 'item.completed' && !['agent_message', 'reasoning'].includes(event.item?.type)) toolCalls += 1;
       const command = event.item?.command ?? event.command;
       if (typeof command === 'string') commands.push(command);
@@ -140,18 +161,25 @@ function transcript(stdout) {
         totalTokens += Number(event.usage.input_tokens ?? 0) + Number(event.usage.output_tokens ?? 0);
       }
       const text = event.item?.text ?? event.message?.content ?? event.text;
-      if (typeof text === 'string') messages.push(text);
+      if (typeof text === 'string') {
+        messages.push(text);
+        for (const match of text.matchAll(/\[COGNIS_POLICY:([A-Z0-9_]+)\]/gu)) hookReasonCodes.push(match[1]);
+      }
     } catch {
       messages.push(line);
     }
   }
   return {
     commands,
+    errorCategories: [...new Set(errorCategories)],
     events: [...new Set(events)],
+    hookReasonCodes: [...new Set(hookReasonCodes)],
     messages,
     output: messages.join('\n'),
+    sessionId,
     totalTokens,
     toolCalls,
+    toolTypes: [...new Set(toolTypes)],
   };
 }
 
@@ -181,7 +209,7 @@ async function fixtureEvents(request) {
 
 try {
   const request = await stdin();
-  if (request?.schemaVersion !== 1 || typeof request?.workspace !== 'string' || typeof request?.case?.input?.scenario !== 'string') {
+  if (![1, 2].includes(request?.schemaVersion) || typeof request?.workspace !== 'string' || typeof request?.case?.input?.scenario !== 'string') {
     throw new Error('invalid runner request');
   }
   const command = await resolveCodexCommand();
@@ -200,15 +228,21 @@ try {
   const trustedHooks = process.env.COGNIS_EVAL_TRUST_PROJECT_HOOKS === '1'
     ? ['--dangerously-bypass-hook-trust']
     : [];
-  const result = await execute(command.program, [...command.args,
-    'exec', '--json', '--sandbox', 'workspace-write', '--skip-git-repo-check', '--ephemeral',
-    '--ignore-user-config', ...trustedHooks,
+  const sharedArgs = [
+    '--json', '--skip-git-repo-check', '--ignore-user-config', ...trustedHooks,
     '--disable', 'apps', '--disable', 'plugins', '--disable', 'remote_plugin',
     '--disable', 'browser_use', '--disable', 'computer_use', '--disable', 'image_generation',
     '--disable', 'in_app_browser', '--disable', 'goals', '--disable', 'workspace_dependencies',
     '--model', model, '-c', `model_reasoning_effort=${JSON.stringify(reasoningEffort)}`,
-    ...providerArgs(), '-C', request.workspace, request.case.input.scenario,
-  ], request.workspace, isolatedEnvironment);
+    '-c', 'sandbox_mode="workspace-write"',
+    ...providerArgs(),
+  ];
+  const invocationArgs = request.sessionId
+    ? [...command.args, 'exec', 'resume', ...sharedArgs, request.sessionId, request.case.input.scenario]
+    : [...command.args, 'exec', ...sharedArgs, '--sandbox', 'workspace-write',
+      ...(request.schemaVersion === 1 ? ['--ephemeral'] : []),
+      '-C', request.workspace, request.case.input.scenario];
+  const result = await execute(command.program, invocationArgs, request.workspace, isolatedEnvironment);
   if (result.code !== 0 && CREDENTIAL_ERROR.test(`${result.stderr}\n${result.stdout}`)) {
     throw new Error('Codex credentials are missing or invalid');
   }
@@ -217,9 +251,9 @@ try {
   const protectedAfter = await snapshotProtectedConfig({ codexHome, userHome });
   if (protectedConfigChanged(protectedBefore, protectedAfter)) semanticEvents.push('global-agent-write');
   const observation = {
-    schemaVersion: 1,
+    schemaVersion: request.schemaVersion,
     caseId: request.case.id,
-    runner: 'codex-reference@1',
+    runner: `codex-reference@${request.schemaVersion}`,
     model,
     agentVersion: version.stdout.trim() || 'codex-cli',
     governanceHash: request.governanceHash,
@@ -227,10 +261,14 @@ try {
     output: parsed.output,
     metrics: {
       commands: parsed.commands,
+      errorCategories: parsed.errorCategories,
+      hookReasonCodes: parsed.hookReasonCodes,
       messages: parsed.messages,
       totalTokens: parsed.totalTokens,
       toolCalls: parsed.toolCalls,
+      toolTypes: parsed.toolTypes,
     },
+    sessionId: parsed.sessionId ?? request.sessionId ?? null,
     artifacts: await artifacts(request.workspace),
     exitCode: result.code,
     diagnostics: result.stderr ? ['Codex CLI returned diagnostics.'] : [],

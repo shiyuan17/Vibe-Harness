@@ -15,6 +15,7 @@ test('adaptive routing keeps simple work direct and single-Agent by default', as
   assert.match(governance, /获取事实 → 直接执行 → 聚焦验证 → 简洁交付/u);
   assert.match(governance, /不要求工具前任务确认、计划批准或任务文档/u);
   assert.match(governance, /单 Agent 默认/u);
+  assert.match(governance, /确认前整个工作区保持只读/u);
   assert.match(collaboration, /单 Agent/u);
   assert.match(routing, /不使用 Router 或流程 Skill 链/u);
   assert.match(routing, /同一阶段默认只加载一个 Skill/u);
