@@ -46,6 +46,16 @@ export function validateWorkflowBenchmarkSuite(suite) {
   return true;
 }
 
+export function selectWorkflowBenchmarkCases(suite, { smoke = false } = {}) {
+  if (!smoke) return suite.cases;
+  const casesById = new Map(suite.cases.map((item) => [item.id, item]));
+  return suite.smokeCaseIds.map((id) => {
+    const item = casesById.get(id);
+    if (!item) fail(`unknown smoke case: ${id}`);
+    return item;
+  });
+}
+
 export function validateWorkflowBenchmarkRun(run, suite) {
   if (run?.schemaVersion !== suite.schemaVersion || !['adaptive', 'strict'].includes(run?.workflow)) {
     fail('run workflow or schema version is invalid');

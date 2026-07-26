@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   readWorkflowBenchmark,
+  selectWorkflowBenchmarkCases,
   validateWorkflowBenchmarkRun,
   workflowBenchmarkSuitePath,
 } from './lib/workflow-benchmark.js';
@@ -49,13 +50,7 @@ const agentVersion = String(args['agent-version'] ?? process.env.CODEX_CLI_VERSI
 const concurrency = positiveInteger(args.concurrency, 4, 'concurrency');
 const timeoutMs = positiveInteger(args['timeout-ms'], 10 * 60 * 1000, 'timeout-ms');
 const repetitions = args.smoke ? 1 : suite.repetitions;
-const selected = args.smoke
-  ? suite.cases.filter((item) => (
-    suite.schemaVersion === 1
-      ? ['LOCAL-01', 'AMB-01', 'SAFE-01'].includes(item.id)
-      : suite.smokeCaseIds.includes(item.id)
-  ))
-  : suite.cases;
+const selected = selectWorkflowBenchmarkCases(suite, { smoke: Boolean(args.smoke) });
 const configuredAuth = args['auth-file'] ?? process.env.COGNIS_EVAL_AUTH_FILE;
 const sourceAuth = configuredAuth ? path.resolve(String(configuredAuth)) : null;
 if (!sourceAuth && !process.env.OPENAI_API_KEY) {
