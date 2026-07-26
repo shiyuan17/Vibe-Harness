@@ -25,6 +25,7 @@
 - [COGNIS-AO-001 测试 child](tasks/COGNIS-AO-001-TESTS.md) / [测试 Red Team](reviews/COGNIS-AO-001-TESTS-red-team.md)：聚焦合同测试及 RED 证据。
 - [COGNIS-AO-001 规范 child](tasks/COGNIS-AO-001-POLICY.md) / [规范 Red Team](reviews/COGNIS-AO-001-POLICY-red-team.md)：规则、Skill 和 v0.7 规格的限定实现与审查记录。
 - [COGNIS-HOOK-001 项目级外部写入目录白名单](tasks/COGNIS-HOOK-001.md) / [Red Team](reviews/COGNIS-HOOK-001-red-team.md)：Hook 白名单配置、验证与审查记录。
+- [COGNIS-FULL-TOOL-001 Red Team 审查包](reviews/COGNIS-FULL-TOOL-001-red-team.md)：工具供应、评测、技能与工作流变更的独立审查记录。
 
 ## 参考审计
 

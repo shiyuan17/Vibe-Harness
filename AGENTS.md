@@ -47,7 +47,7 @@ Cognis 用来打包可复用的 AI coding governance 资产。源项目只能作
 
 ## 启动
 
-1. 阅读 `docs/rules/governance-core.md`、`docs/rules/AGENT_SKILL_ROUTING.md` 和命中场景的专项规则。
+1. 阅读 `rules/governance-core.md`、`rules/agent-skill-routing.md` 和命中场景的专项规则。
 2. 编辑前运行 `git status --short`，保护用户未归属改动。
 3. 使用仓库搜索和已安装规则定位相关代码；需要结构化索引时先确认目标项目已有能力。
 4. 将任务归为快速、轻量或完整，并确定验证方式。
@@ -56,7 +56,7 @@ Cognis 用来打包可复用的 AI coding governance 资产。源项目只能作
 ## 硬边界摘要
 
 - 只在授权范围内行动；红区、不可逆操作和范围扩大先获人工确认。
-- 不编造事实或证据，没有本轮验证不声称完成；详细门禁以治理内核为唯一真值。
+- 不编造事实或证据，没有本轮验证不声称完成；详细门禁以 `rules/governance-core.md` 和 `templates/delivery.md` 为唯一真值。
 - 任务确认、验证证据、轻量反证、独立审查和交付字段只在治理内核与模板维护细则。
 
 ## 默认验证命令
