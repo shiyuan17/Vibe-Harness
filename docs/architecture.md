@@ -39,6 +39,9 @@ Cognis 是跨平台、Codex 完整能力优先的可复用 AI coding governance 
 
 工具名称、版本、项目内入口、状态和逐工具 fallback 以[显式工具插件规格](specs/cognis-tooling-modules-spec.md)为唯一文档真值。架构层只保证共同边界：runtime、缓存、索引和状态都留在目标项目；wrapper 使用受限环境和受管入口；凭据、原始命令环境、页面内容和完整工具输出不写入项目状态；只读检查不执行目标项目二进制。Hook 专属数据流见 [Hook 场景与运行边界](hooks.md)。
 工具名称、版本、项目内入口、状态和逐工具 fallback 以[显式工具插件规格](specs/cognis-tooling-modules-spec.md)为唯一文档真值。架构层只保证共同边界：runtime、缓存、索引和状态都留在目标项目；wrapper 使用受限环境和受管入口；凭据、原始命令环境、页面内容和完整工具输出不写入项目状态；只读检查不执行目标项目二进制。Codex Hook 默认将可识别的结构化文件写入限制在项目根目录，跨项目写入必须由目标项目 `cognis.config.json` 的绝对目录白名单显式授予，并按真实路径阻断目录链接逃逸；Hook 专属数据流见 [Hook 场景与运行边界](hooks.md)。
+`governance.mode` 只控制安装/校验深度；`governance.workflow` 只控制运行行为。新项目默认 adaptive，既有缺失字段的项目解析为 strict；baseline、doctor、dry-run 和安装摘要都报告最终 workflow。
+
+工具名称、版本、项目内入口、状态和逐工具 fallback 以[显式工具插件规格](specs/cognis-tooling-modules-spec.md)为唯一文档真值。架构层只保证共同边界：runtime、缓存、索引和状态都留在目标项目；wrapper 使用受限环境和受管入口；凭据、原始命令环境、页面内容和完整工具输出不写入项目状态；只读检查不执行目标项目二进制。Hook 专属数据流见 [Hook 场景与运行边界](hooks.md)。
 
 默认 JSON 是稳定、紧凑的机器接口，preview 只含 hash、字节数和摘要；`--verbose` 才含完整正文和绝对诊断路径，`--output summary` 输出短报告和工具降级原因。工具诊断会脱敏项目路径与凭据，仅保存限长尾部。install、validate、doctor 共用 `ready=0`、`invalid=1`、`degraded=2` 健康合同；未执行 provisioning 的 `pending`/`pending-config` 只产生告警，已尝试 provisioning 的失败或未完成进程标记才进入 degraded。`--allow-degraded` 只覆盖退出码，不改变报告状态。
 

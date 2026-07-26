@@ -222,7 +222,7 @@ test('adapter profile file sets match the reviewed snapshots', async () => {
     'claude:docs-only': [29, '66b1c875eed445824b30d7f6d7ae001107f5d4f197e181ba865096794925724f'],
     'claude:minimal': [7, 'de8bef97b2444d03ddb8077a187a05e0dc1d976f97cfce2daf87d77262d5c9ba'],
     'codex:core': [38, 'ce39431a705060cab04f650bfcf06ca13d884dca412f5fb3fce14b300045e348'],
-    'codex:full': [60, '4fad0771aae3df50ca3b8f0f2c2a7649968a618cf717e0d8e0ebeebf3eef99cf'],
+    'codex:full': [61, '26b231d6ebcc1a6c0e3f38fb54fecb2f41554d959c74545d70750a3555f7664b'],
     'codex:minimal': [7, 'acf92f049c50289f3eec6136e888f50b32b389d8a80e75a8b344a20ad37d6789'],
     'gemini:core': [34, 'cbd5827e4346d57e8062aae868c940a9cd4e314c2dd53c67c29e3b4c34dd5f98'],
     'gemini:docs-only': [29, '428c26d9f51fe99cfa520cb63f4b2aa8cfb7bfdd8b605a927cc0352af6ca2b89'],
