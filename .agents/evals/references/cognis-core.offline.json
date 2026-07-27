@@ -4,11 +4,11 @@
   "approvedAt": "2026-07-21T16:10:20.130Z",
   "suite": {
     "id": "cognis-core",
-    "version": "1.6.0"
+    "version": "1.8.0"
   },
   "mode": "offline",
   "fingerprint": {
-    "suiteHash": "be2002848bf9b2347321320f7ac33baba92e80389113b8e4b420f357b75159ec",
+    "suiteHash": "f74663e1380793c646d1d13333d8005b1b0ab4861dd088a6cbca2f8866c91416",
     "runner": "offline-replay@1",
     "model": "fixture",
     "agent": "offline",
@@ -53,8 +53,8 @@
     },
     {
       "id": "multi-agent-task-governance",
-      "caseCount": 8,
-      "passedCount": 8,
+      "caseCount": 10,
+      "passedCount": 10,
       "score": 1
     },
     {
@@ -73,6 +73,12 @@
       "id": "skill-routing",
       "caseCount": 5,
       "passedCount": 5,
+      "score": 1
+    },
+    {
+      "id": "subagents",
+      "caseCount": 6,
+      "passedCount": 6,
       "score": 1
     },
     {

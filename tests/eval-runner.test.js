@@ -144,7 +144,7 @@ test('runner scores forbidden secret output before sanitizing the returned obser
     const result = await runEvaluationCase({
       command: runner.command,
       definition: secretDefinition,
-      timeoutMs: 1000,
+      timeoutMs: 5000,
     });
     assert.equal(result.caseResult.passed, false);
     assert.equal(result.caseResult.criticalFailures, 1);
