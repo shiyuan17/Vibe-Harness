@@ -9,19 +9,19 @@
             "command": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event SessionStart",
             "commandWindows": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event SessionStart",
             "timeout": 10,
-            "statusMessage": "Loading Cognis project context"
+            "statusMessage": "Loading active Cognis task context"
           }
         ]
       }
     ],
-    "UserPromptSubmit": [
+    "PostCompact": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event UserPromptSubmit",
-            "commandWindows": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event UserPromptSubmit",
-            "timeout": 5
+            "command": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event PostCompact",
+            "commandWindows": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event PostCompact",
+            "timeout": 10
           }
         ]
       }
@@ -35,58 +35,7 @@
             "command": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event PreToolUse",
             "commandWindows": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event PreToolUse",
             "timeout": 10,
-            "statusMessage": "Checking Cognis tool policy"
-          }
-        ]
-      }
-    ],
-    "PermissionRequest": [
-      {
-        "matcher": "Bash|Edit|Write|mcp__.*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event PermissionRequest",
-            "commandWindows": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event PermissionRequest",
-            "timeout": 10,
-            "statusMessage": "Checking Cognis approval policy"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Bash|Edit|Write|mcp__.*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event PostToolUse",
-            "commandWindows": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event PostToolUse",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
-    "PreCompact": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event PreCompact",
-            "commandWindows": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event PreCompact",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
-    "PostCompact": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event PostCompact",
-            "commandWindows": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event PostCompact",
-            "timeout": 10
+            "statusMessage": "Checking Cognis safety policy"
           }
         ]
       }

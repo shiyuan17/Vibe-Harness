@@ -4,6 +4,7 @@ import { isAbsolute, resolve, win32 } from 'node:path';
 
 import { validateJsonAgainstSchema } from './schema-validation.mjs';
 import { validateRedTeamReview } from './red-team-validation.mjs';
+import { validateHandoffRecords } from './handoff-validation.mjs';
 import { validateTaskGraph } from './task-graph-validation.mjs';
 
 const FIELD_VALUES = {
@@ -36,6 +37,7 @@ const SECTION_ALIASES = {
   下一步动作: ['下一步动作', 'Next action'],
   评测映射: ['评测映射', 'Evaluation mapping'],
   完整流程控制: ['完整流程控制', 'Full workflow control'],
+  交接记录: ['交接记录', 'Handoff records'],
   阻塞原因: ['阻塞原因', 'Blocker'],
   恢复提示: ['恢复提示', 'Resume hint'],
   剩余风险: ['剩余风险', 'Residual risks'],
@@ -298,6 +300,24 @@ function validateV2WriteScopes(control, file) {
   return errors;
 }
 
+function parseHandoffs(body, file, errors) {
+  const handoffSection = section(body, '交接记录');
+  if (!handoffSection) return null;
+  const block = handoffSection.match(/```json\s*([\s\S]*?)```/u);
+  if (!block) {
+    errors.push(`${file}：“交接记录”必须包含 json 代码块`);
+    return null;
+  }
+  try {
+    const value = JSON.parse(block[1]);
+    if (!Array.isArray(value)) errors.push(`${file}：“交接记录”JSON 必须是数组`);
+    return value;
+  } catch (error) {
+    errors.push(`${file}：“交接记录”JSON 无效：${error.message}`);
+    return null;
+  }
+}
+
 function validateChildHandoff(control, file) {
   const errors = [];
   for (const name of ['输入', '输出格式', '不得修改范围']) {
@@ -322,11 +342,12 @@ export function parseTaskMarkdown(file, body) {
   const parseErrors = [];
   const sectionNames = [
     '目标', '约束', '写入范围', '验收标准', '验证计划', '下一步动作', '评测映射',
-    '完整流程控制', '阻塞原因', '恢复提示', '剩余风险', '验收证据',
+    '完整流程控制', '交接记录', '阻塞原因', '恢复提示', '剩余风险', '验收证据',
   ];
   const sections = Object.fromEntries(sectionNames.map((name) => [name, section(body, name)]));
   const title = body.match(/^#\s+(\S+)\s+(.+)$/mu);
   const control = fields['工作流档位'] === '完整' ? parseControl(body, file, parseErrors) : null;
+  const handoffs = control?.['控制版本'] === 3 ? parseHandoffs(body, file, parseErrors) : [];
   return {
     body,
     control,
@@ -335,6 +356,7 @@ export function parseTaskMarkdown(file, body) {
     evidence: rowObjects(parseTable(sections['验收证据'])),
     fields,
     file,
+    handoffs,
     parseErrors,
     sections,
     title,
@@ -353,8 +375,10 @@ export function normalizeTaskDocument(parsed) {
     acceptanceCriteria: parsed.criteria.map((row) => ({ id: row['AC-ID'], standard: row['标准'] })),
     constraints: normalizedList(parsed.sections['约束']),
     control: parsed.control,
+    controlVersion: parsed.control?.['控制版本'] ?? 1,
     evidence: parsed.evidence,
     goal: parsed.sections['目标'],
+    handoffs: parsed.handoffs,
     id: parsed.title?.[1] ?? null,
     nextAction: parsed.sections['下一步动作'],
     phase: FIELD_ENUMS['当前阶段'][parsed.fields['当前阶段']] ?? null,
@@ -423,7 +447,7 @@ export function renderTaskDocumentMarkdown(document, { language = 'zh-CN' } = {}
   return lines.join('\n');
 }
 
-export function validateTaskSemantics({ document, schema }) {
+export function validateTaskSemantics({ document, handoffSchema, receiptSchema, root, schema }) {
   const { _parsed: parsed } = document;
   const { control, criteria, evalMappings, fields, file, parseErrors, sections, title } = parsed;
   const errors = [...parseErrors];
@@ -458,10 +482,10 @@ export function validateTaskSemantics({ document, schema }) {
 
   if (fields['工作流档位'] === '完整' && control) {
     for (const error of validateJsonAgainstSchema(control, schema, '完整流程控制')) errors.push(`${file}：${error}`);
-    if (control['控制版本'] === 2) {
+    if ([2, 3].includes(control['控制版本'])) {
       errors.push(...validateV2WriteScopes(control, file));
-      if (!Array.isArray(control['冲突任务'])) errors.push(`${file}：v2 任务缺少“冲突任务”数组`);
-      if (!Number.isInteger(control['时间盒分钟']) || control['时间盒分钟'] < 1) errors.push(`${file}：v2 任务缺少有效“时间盒分钟”`);
+      if (!Array.isArray(control['冲突任务'])) errors.push(`${file}：版本化任务缺少“冲突任务”数组`);
+      if (!Number.isInteger(control['时间盒分钟']) || control['时间盒分钟'] < 1) errors.push(`${file}：版本化任务缺少有效“时间盒分钟”`);
     }
     if (['父任务', '子任务'].includes(control['任务类型'])) {
       if (!substantive(control['父任务编号']) && control['任务类型'] === '子任务') errors.push(`${file}：子任务缺少“父任务编号”`);
@@ -469,6 +493,15 @@ export function validateTaskSemantics({ document, schema }) {
       if (!Array.isArray(control['冲突任务'])) errors.push(`${file}：父子任务缺少“冲突任务”数组`);
     }
     if (control['任务类型'] === '子任务') errors.push(...validateChildHandoff(control, file));
+    errors.push(...validateHandoffRecords({
+      control: { ...control, _taskResult: fields['处理结果'], _taskStatus: fields['当前状态'] },
+      evidence: parsed.evidence,
+      file,
+      handoffSchema,
+      handoffs: parsed.handoffs,
+      receiptSchema,
+      root,
+    }));
   }
   return errors;
 }
@@ -515,11 +548,32 @@ export function validateTaskEvidence({ document, root }) {
   return errors;
 }
 
-export function validateTaskDocument({ document, root, schema }) {
+export function validateTaskDocument({ document, handoffSchema, receiptSchema, root, schema }) {
   return [
-    ...validateTaskSemantics({ document, schema }),
+    ...validateTaskSemantics({ document, handoffSchema, receiptSchema, root, schema }),
     ...validateTaskEvidence({ document, root }),
   ];
+}
+
+export function validateCrossTaskReceiptOwnership(documents) {
+  const errors = [];
+  const owners = new Map();
+  for (const document of documents) {
+    if (document.controlVersion !== 3 || document.control?.['独立核验模式'] !== '原生子智能体') continue;
+    const taskReceipts = new Set((document.handoffs ?? [])
+      .filter((record) => record?.['类型'] === '子任务回传')
+      .map((record) => record?.['Agent/运行收据'])
+      .filter(substantive));
+    for (const receiptPath of taskReceipts) {
+      const previous = owners.get(receiptPath);
+      if (previous && previous !== document.source.path) {
+        errors.push(`${document.source.path}：运行收据不得跨任务复用：${receiptPath} 已由 ${previous} 引用`);
+      } else {
+        owners.set(receiptPath, document.source.path);
+      }
+    }
+  }
+  return errors;
 }
 
 export function validateTasks(root) {
@@ -527,11 +581,19 @@ export function validateTasks(root) {
   if (!existsSync(tasksRoot)) return [];
   const errors = [];
   let schema;
+  let handoffSchema = null;
+  let receiptSchema = null;
   try {
     schema = JSON.parse(readFileSync(resolve(root, 'docs/schemas/full-task-control.schema.json'), 'utf8'));
   } catch (error) {
     return [`完整流程控制 schema 无效：${error.message}`];
   }
+  try {
+    handoffSchema = JSON.parse(readFileSync(resolve(root, 'docs/schemas/handoff-record.schema.json'), 'utf8'));
+  } catch {}
+  try {
+    receiptSchema = JSON.parse(readFileSync(resolve(root, 'docs/schemas/subagent-receipt.schema.json'), 'utf8'));
+  } catch {}
   const documents = [];
   for (const entry of readdirSync(tasksRoot, { recursive: true, withFileTypes: true })) {
     if (!entry.isFile()) continue;
@@ -542,9 +604,12 @@ export function validateTasks(root) {
     } else if (entry.name.endsWith('.md')) {
       const document = normalizeTaskDocument(parseTaskMarkdown(relative, readFileSync(file, 'utf8')));
       documents.push(document);
-      errors.push(...validateTaskDocument({ document, root, schema }));
+      if (document.controlVersion === 3 && !handoffSchema) errors.push(`${relative}：v3 任务缺少 handoff-record schema`);
+      if (document.controlVersion === 3 && !receiptSchema) errors.push(`${relative}：v3 任务缺少 subagent-receipt schema`);
+      errors.push(...validateTaskDocument({ document, handoffSchema, receiptSchema, root, schema }));
     }
   }
+  errors.push(...validateCrossTaskReceiptOwnership(documents));
   errors.push(...validateTaskGraph(documents));
   return errors;
 }
@@ -560,6 +625,7 @@ export function inspectTaskContracts(root, { verbose = false } = {}) {
     status: existsSync(tasksRoot) ? 'present' : 'absent',
     total: 0,
     version2: 0,
+    version3: 0,
   };
   const legacyPaths = [];
   if (!existsSync(tasksRoot)) return summary;
@@ -574,7 +640,9 @@ export function inspectTaskContracts(root, { verbose = false } = {}) {
     const kind = parsed.control['任务类型'];
     if (kind === '父任务') summary.parents += 1;
     if (kind === '子任务') summary.children += 1;
-    if (parsed.control['控制版本'] === 2) {
+    if (parsed.control['控制版本'] === 3) {
+      summary.version3 += 1;
+    } else if (parsed.control['控制版本'] === 2) {
       summary.version2 += 1;
     } else {
       summary.legacy += 1;

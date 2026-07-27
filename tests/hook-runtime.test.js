@@ -826,9 +826,12 @@ test('subagent hooks inject flat-DAG boundaries and parent fan-in reminders with
   try {
     await writeFile(path.join(target, 'cognis.config.json'), JSON.stringify({ hooks: { mode: 'guarded' } }), 'utf8');
     const run = async (event) => JSON.parse((await runNodeWithInput(path.join(rootDir, 'runtime/hooks/codex-hook.mjs'), {
+      agent_id: 'agent-generic',
+      agent_type: 'explorer',
       cwd: target,
       hook_event_name: event,
       session_id: 'session-subagent',
+      turn_id: 'turn-subagent',
     }, { cwd: target })).stdout);
 
     const start = await run('SubagentStart');

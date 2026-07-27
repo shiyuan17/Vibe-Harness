@@ -76,6 +76,7 @@ test('baseline previews then writes a managed project snapshot', async () => {
     assert.equal(written.dryRun, false);
     assert.equal(baseline.schemaVersion, 1);
     assert.equal(baseline.installation.profile, 'minimal');
+    assert.equal(baseline.installation.subagents.status, 'disabled');
     assert.equal(baseline.verification.commands.eval.status, 'not_configured');
     const schema = await readJson(path.join(rootDir, 'schemas/project-baseline.schema.json'));
     assert.deepEqual(validateJsonAgainstSchema(baseline, schema, 'baseline'), []);
@@ -100,6 +101,29 @@ test('baseline previews then writes a managed project snapshot', async () => {
     assert.equal(changed.baseline.drift.status, 'changed');
     assert.equal(changed.baseline.drift.changes.some((item) => item.path === 'project.stackSummary'), true);
     assert.deepEqual(changed.artifacts.map((item) => item.action), ['update', 'update']);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('Codex full baseline reports installed verification roles and receipt health', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-baseline-subagents-'));
+  try {
+    await runCli(['init', '--project', target, '--target', 'codex', '--profile', 'full']);
+    await runCli([
+      'install', '--project', target, '--target', 'codex', '--profile', 'full', '--write', '--confirm-red-zone',
+    ]);
+    const preview = await runCli(['baseline', '--project', target]);
+    const subagents = preview.baseline.installation.subagents;
+    assert.equal(subagents.support, 'stable');
+    assert.equal(subagents.status, 'ready');
+    assert.deepEqual(subagents.roles, { reviewer: 'installed', tester: 'installed' });
+    assert.deepEqual(subagents.receipts, {
+      status: 'absent', started: 0, continuationRequested: 0, sealed: 0, invalid: 0,
+    });
+    assert.match(subagents.reason, /Tester and Reviewer roles are available/u);
+    await runCli(['baseline', '--project', target, '--write']);
+    assert.match(await readFile(path.join(target, 'docs/cognis/PROJECT_BASELINE.md'), 'utf8'), /子智能体：ready/u);
   } finally {
     await rm(target, { force: true, recursive: true });
   }

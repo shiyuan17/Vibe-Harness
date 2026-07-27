@@ -92,7 +92,8 @@ test('doctor summarizes legacy multi-agent task contracts and only reveals paths
     assert.deepEqual(verbose.taskContracts.legacyPaths, ['docs/tasks/LEGACY-PARENT.md']);
 
     const summary = await run(['doctor', '--project', target, '--profile', 'core', '--output', 'summary']);
-    assert.match(summary.stdout, /taskContracts: v2=0, legacy=1, parents=1, children=0/u);
+    assert.match(summary.stdout, /taskContracts: v3=0, v2=0, legacy=1, parents=1, children=0/u);
+    assert.match(summary.stdout, /subagents: disabled \(support=stable, tester=missing, reviewer=missing, sealed=0, invalid=0\)/u);
     assert.doesNotMatch(summary.stdout, /LEGACY-PARENT\.md/u);
   } finally {
     await rm(target, { force: true, recursive: true });

@@ -59,7 +59,11 @@ test('full installs hook runtime and inactive Git hook templates while core does
       assert.ok(targets.includes('.agents/cognis/hooks/lib/delivery-validation.mjs'));
       assert.ok(targets.includes('.githooks/pre-commit'));
       assert.ok(targets.includes('.githooks/pre-push'));
+      assert.ok(targets.includes('.codex/agents/cognis_tester.toml'));
+      assert.ok(targets.includes('.codex/agents/cognis_reviewer.toml'));
+      assert.ok(targets.includes('.agents/cognis/hooks/lib/subagent-receipts.mjs'));
     }
+    assert.equal(core.some((targetPath) => targetPath.startsWith('.codex/agents/')), false);
     assert.equal(core.some((targetPath) => targetPath.includes('/hooks/') || targetPath.startsWith('.githooks/')), false);
 });
 

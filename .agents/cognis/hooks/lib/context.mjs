@@ -105,6 +105,7 @@ export async function readHookSettings(rootDir) {
         ? config.hooks.rtk.enabled
         : Boolean(installState?.rtkHooksEnabled),
       validationCommands: config.validationCommands ?? {},
+      workflow: config.governance?.workflow ?? 'strict',
     };
   } catch (error) {
     if (error.code === 'COGNIS_CONFIG_CONFLICT') throw error;
@@ -115,6 +116,7 @@ export async function readHookSettings(rootDir) {
       mode: 'guarded',
       rtkEnabled: false,
       validationCommands: {},
+      workflow: 'strict',
     };
   }
 }
@@ -139,18 +141,22 @@ function parseTask(body, relativePath) {
     [...preamble.matchAll(/^-\s*([^：:\r\n]+)[：:]\s*(.+)$/gmu)]
       .map((match) => [match[1].trim(), match[2].trim()]),
   );
-  const required = ['工作流档位', '当前阶段', '当前状态', '处理结果'];
-  if (!title || required.some((name) => !fields[name])) {
+  const value = (...names) => names.map((name) => fields[name]).find(Boolean);
+  const tier = value('工作流档位', 'Workflow tier');
+  const phase = value('当前阶段', 'Current phase');
+  const status = value('当前状态', 'Current status');
+  const result = value('处理结果', 'Result');
+  if (!title || !tier || !phase || !status || !result) {
     return { malformed: true, relativePath };
   }
-  if (fields['处理结果'] !== '开放') return null;
+  if (!['开放', 'open'].includes(result.toLowerCase())) return null;
   return {
     id: truncate(title[1], 80),
-    next: truncate(section(body, '下一步动作') || '未填写', 240),
-    phase: truncate(fields['当前阶段'], 40),
+    next: truncate(section(body, '下一步动作') || section(body, 'Next action') || '未填写', 240),
+    phase: truncate(phase, 40),
     relativePath,
-    status: truncate(fields['当前状态'], 40),
-    tier: truncate(fields['工作流档位'], 40),
+    status: truncate(status, 40),
+    tier: truncate(tier, 40),
     title: truncate(title[2], 120),
   };
 }
@@ -166,13 +172,30 @@ async function collectMarkdownFiles(directory, rootDir, result = []) {
   return result;
 }
 
-async function taskSummary(rootDir) {
+async function taskContracts(rootDir) {
   const taskDir = path.join(rootDir, 'docs', 'tasks');
   try {
     const files = await collectMarkdownFiles(taskDir, rootDir);
-    const parsed = await Promise.all(files.map(async ({ absolute, relative }) => (
+    return Promise.all(files.map(async ({ absolute, relative }) => (
       parseTask(await readFile(absolute, 'utf8'), relative)
     )));
+  } catch {
+    return [];
+  }
+}
+
+export async function inspectActiveTasks(rootDir) {
+  const tasks = (await taskContracts(rootDir))
+    .filter((task) => task && !task.malformed && !['空闲', 'idle'].includes(task.status.toLowerCase()));
+  return {
+    any: tasks.length > 0,
+    full: tasks.some((task) => ['完整', 'full'].includes(task.tier.toLowerCase())),
+  };
+}
+
+async function taskSummary(rootDir) {
+  try {
+    const parsed = await taskContracts(rootDir);
     const malformed = parsed.filter((task) => task?.malformed)
       .sort((left, right) => left.relativePath.localeCompare(right.relativePath));
     const active = parsed.filter((task) => task && !task.malformed)

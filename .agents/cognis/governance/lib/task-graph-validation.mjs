@@ -2,8 +2,8 @@ import path from 'node:path';
 
 const TERMINAL_RESULTS = new Set(['completed', 'wont_do', 'duplicate', 'cancelled']);
 
-function isV2(document) {
-  return document.control?.['控制版本'] === 2;
+function isVersioned(document) {
+  return [2, 3].includes(document.control?.['控制版本']);
 }
 
 function taskKind(document) {
@@ -51,7 +51,7 @@ function duplicateIds(documents) {
     groups.set(document.id, [...(groups.get(document.id) ?? []), document]);
   }
   return [...groups.entries()]
-    .filter(([, matches]) => matches.length > 1 && matches.some(isV2))
+    .filter(([, matches]) => matches.length > 1 && matches.some(isVersioned))
     .map(([id]) => id);
 }
 
@@ -103,7 +103,7 @@ function validateParent(parent, byId) {
       errors.push(`${parent.source.path}：子任务 ${id} 不存在`);
       continue;
     }
-    if (!isV2(child) || taskKind(child) !== '子任务') errors.push(`${parent.source.path}：${id} 必须是 v2 子任务`);
+    if (!isVersioned(child) || taskKind(child) !== '子任务') errors.push(`${parent.source.path}：${id} 必须是 v2/v3 子任务`);
     if (child.control?.['父任务编号'] !== parent.id) errors.push(`${parent.source.path}：子任务 ${id} 未反向声明父任务 ${parent.id}`);
   }
 
@@ -186,14 +186,14 @@ function validateParent(parent, byId) {
 }
 
 export function validateTaskGraph(documents) {
-  const v2Documents = documents.filter(isV2);
-  if (v2Documents.length === 0) return [];
+  const versionedDocuments = documents.filter(isVersioned);
+  if (versionedDocuments.length === 0) return [];
   const errors = [];
   const byId = new Map();
   for (const document of documents) if (document.id && !byId.has(document.id)) byId.set(document.id, document);
 
   for (const id of duplicateIds(documents)) errors.push(`任务编号 ${id} 重复`);
-  for (const document of v2Documents) {
+  for (const document of versionedDocuments) {
     const basename = path.basename(document.source.path, path.extname(document.source.path));
     if (basename !== document.id) errors.push(`${document.source.path}：文件名 ${basename} 必须与任务编号 ${document.id} 一致`);
     for (const dependency of list(document.control?.['依赖任务'])) {
@@ -217,8 +217,8 @@ export function validateTaskGraph(documents) {
       const parent = byId.get(parentId);
       if (!parent) {
         errors.push(`${document.source.path}：父任务 ${parentId} 不存在`);
-      } else if (!isV2(parent) || taskKind(parent) !== '父任务') {
-        errors.push(`${document.source.path}：父任务 ${parentId} 必须是“父任务”类型的 v2 合同`);
+      } else if (!isVersioned(parent) || taskKind(parent) !== '父任务') {
+        errors.push(`${document.source.path}：父任务 ${parentId} 必须是“父任务”类型的 v2/v3 合同`);
       } else if (!list(parent.control?.['子任务']).includes(document.id)) {
         errors.push(`${document.source.path}：父任务 ${parentId} 未声明子任务 ${document.id}`);
       }
@@ -229,10 +229,10 @@ export function validateTaskGraph(documents) {
       }
     }
   }
-  for (const cycle of findDependencyCycles(v2Documents)) {
-    errors.push(`v2 任务依赖环 ${cycle.join(' -> ')}`);
+  for (const cycle of findDependencyCycles(versionedDocuments)) {
+    errors.push(`v2/v3 任务依赖环 ${cycle.join(' -> ')}`);
   }
-  for (const parent of v2Documents.filter((document) => taskKind(document) === '父任务')) {
+  for (const parent of versionedDocuments.filter((document) => taskKind(document) === '父任务')) {
     errors.push(...validateParent(parent, byId));
   }
   return errors;

@@ -17,6 +17,11 @@ test('codex adapter declares AGENTS, rules, templates, skills, and hooks mapping
   assert.ok(targets.includes('.agents/skills/clarify-requirements/agents/openai.yaml'));
   assert.ok(targets.includes('.codex/hooks.json'));
   assert.ok(installMap.entries.find((entry) => entry.target === '.codex/hooks.json').redZone);
+  for (const role of ['cognis_tester', 'cognis_reviewer']) {
+    const entry = installMap.entries.find((item) => item.target === `.codex/agents/${role}.toml`);
+    assert.equal(entry.group, 'codex-subagents');
+    assert.equal(entry.redZone, true);
+  }
 });
 
 test('codex adapter and plugin metadata track the package version', async () => {

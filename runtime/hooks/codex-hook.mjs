@@ -12,6 +12,7 @@ import {
 import { validateDeliveryMessage } from './lib/delivery-validation.mjs';
 import { analyzeToolRequest, createCodexHookResult, normalizeCodexHookInput } from './lib/policy.mjs';
 import { inspectRtkHook, routeRtkCommand, rtkSessionContext } from './lib/rtk.mjs';
+import { finishSubagentReceipt, startSubagentReceipt } from './lib/subagent-receipts.mjs';
 
 const MAX_INPUT_BYTES = 1024 * 1024;
 const guardedEvents = new Set(['PermissionRequest', 'PreToolUse']);
@@ -92,13 +93,16 @@ export async function evaluateCodexHook(rawInput, { expectedEvent, rtkRunner } =
     };
   }
   if (input.event === 'SubagentStart') {
+    const governedRole = ['cognis_tester', 'cognis_reviewer'].includes(input.agentType);
+    const started = governedRole ? await startSubagentReceipt(rootDir, input) : null;
     return {
       hookSpecificOutput: {
         additionalContext: [
           'Work only from the delegated child-task brief and minimum required context.',
           'Stay within its project-relative write scope and do not modify the parent-controlled task Markdown.',
           'Do not delegate, create subagents, or split the task further; report a blocked status and requested split to the parent Agent.',
-          'Preserve user changes, do not approve your own work, and return status, change summary, changed paths, verification evidence, unverified items, remaining risks, and next action.',
+          'Preserve user changes, do not approve your own work, and return status, change summary, changed paths, verification evidence, unverified items, remaining risks, and next action using explicit field labels.',
+          governedRole ? `A project-local run receipt was started at ${started.relativePath}; do not edit receipt files.` : '',
         ].join(' '),
         hookEventName: input.event,
       },
@@ -114,6 +118,13 @@ export async function evaluateCodexHook(rawInput, { expectedEvent, rtkRunner } =
     };
   }
   if (input.event === 'SubagentStop') {
+    if (['cognis_tester', 'cognis_reviewer'].includes(input.agentType)) {
+      const finished = await finishSubagentReceipt(rootDir, input);
+      if (finished.block) return { decision: 'block', reason: finished.reason };
+      return {
+        systemMessage: `${finished.reason} The parent Agent must inspect the actual diff and claimed evidence, persist a same-file Handoff referencing receipt ${finished.receipt.receiptId}, and rerun affected validation in the integrated target workspace before adoption or completion.`,
+      };
+    }
     return {
       systemMessage: 'Subagent stopped. The parent Agent must inspect the actual diff and claimed evidence, persist the child status in the parent-controlled task Markdown, resolve merge-back state, and rerun affected validation in the integrated target workspace before adoption or completion.',
     };
