@@ -8,6 +8,8 @@ Cognis 使用 Eval-Driven Development 管理 Agent 规则、Skill、模板、适
 - run：一次 offline 或 online 执行的逐案例结果、汇总分数和 fingerprint。
 - reference：经过人工批准的汇总结果，不包含原始对话、凭据或绝对路径。
 
+内建 offline 模式是确定性的 replay/oracle 合同检查：它证明 suite、断言、聚合和 reference fingerprint 一致，但不会启动真实子 Agent，也不能单独证明真实派发、Handoff 或 fan-in 行为。此类完成主张必须同时引用 hook/runtime 确定性测试、项目内 v2 收据和适用的 online canary；provider 不可用时将在线覆盖记录为剩余风险，不得把 49/49 replay 当成真实编排证明。
+
 项目 `baseline` 是安装、工具和验证状态快照；evaluation `reference` 是评测比较基准。两者用途、命令和生命周期不同。
 
 ## 项目配置

@@ -20,7 +20,7 @@ Cognis 让 Codex、Claude Code 和 Gemini CLI 使用同一套规划、执行与�
 | --- | --- | --- |
 | AI 还没有理解任务，就直接开始改代码。 | 使用五步工作流程，并按风险选择快速、轻量或完整档位。 | 简单任务可以快速完成；高风险任务会先给出方案和撤销办法。 |
 | AI 只说“已经完成”，却没有提供依据。 | 任务模板用 `AC-ID` 连接每条验收标准和对应证据，validator（自动检查程序）会检查已完成任务。 | 可以用命令、产物、审查或人工确认逐项核对完成结果。 |
-| 多个 Agent 覆盖共享修改，或直接采信彼此自报的测试。 | 自适应路由依次执行风险分级、需求分类和编排准入，再决定是否使用 v2 父子任务合同。 | 查询、文档、局部页面和单模块任务保持单 Agent；只有可独立验收的工作才并行，最后由父 Agent 完成集成复验。 |
+| 多个 Agent 覆盖共享修改，或直接采信彼此自报的测试。 | v3 先冻结变更集，再派发独立 Tester/Reviewer，并记录运行收据与 Handoff，最后由父 Agent 集成复验。 | 查询和非行为改动保持单 Agent；完整任务不能凭 child 自报或过期审查证据完成。 |
 | 重要的 coding 上下文被长段落淹没。 | `core`、`full` 和 `docs-only` 会为复杂请求和回复按内容选择 checkbox todo、列表、比较表格和跨平台信息块。 | 简单回答保持简洁，计划、进度、证据和决策更容易扫读，同时不改写代码或命令输出。 |
 | Agent 规则或 Skill 改变后缺少行为回归证据。 | 使用 Eval-ID 场景把离线和真实 Agent 运行结果与批准的 evaluation reference 比较。 | 提示和治理变更不只比较文件，还能核对 critical 行为。 |
 | 长任务跨会话后丢失重要上下文。 | `baseline` 记录项目、安装、工具和验证状态；项目记忆与交接模板保留决策和已知问题。 | 新会话可以直接读取项目事实，不必只靠聊天记录重新整理。 |
@@ -64,9 +64,9 @@ pnpm cognis provision --project ../some-project --target codex --profile full --
 
 | 工具 | 项目主文件 | 可选安装级别 | Cognis 可以安装什么 |
 | --- | --- | --- | --- |
-| Codex | `AGENTS.md` | `minimal`、`core`、`full`、`docs-only` | 使用说明、skills、通过 MCP 接入的项目工具，以及通过 hooks 自动执行的检查 |
-| Claude Code | `CLAUDE.md` | `minimal`、`core`、`docs-only`；`full` preview | 项目说明和 skills；实验性 full 映射需要 `--allow-preview` |
-| Gemini CLI | `GEMINI.md` | `minimal`、`core`、`docs-only`；`full` preview | 项目说明和 skills；实验性 full 映射需要 `--allow-preview` |
+| Codex | `AGENTS.md` | `minimal`、`core`、`full`、`docs-only` | 使用说明、skills、MCP 项目工具、hooks，以及 `full` 的原生 Tester/Reviewer 角色 |
+| Claude Code | `CLAUDE.md` | `minimal`、`core`、`docs-only`；`full` preview | 项目说明和 skills；暂不支持 Cognis 原生子智能体角色，完整任务需要可追责的人工等价核验 |
+| Gemini CLI | `GEMINI.md` | `minimal`、`core`、`docs-only`；`full` preview | 项目说明和 skills；暂不支持 Cognis 原生子智能体角色，完整任务需要可追责的人工等价核验 |
 
 MCP 让 AI 可以调用当前项目配套的工具；hooks 会在 AI 工作到特定阶段时自动运行检查。Cognis 目前只为 Codex 安装这两类能力。
 
@@ -96,7 +96,7 @@ pnpm cognis init --project <path> --workflow strict
 
 Agent 数量在风险分级和需求分类之后判定。默认使用单 Agent，包括文档查询、文案调整、局部页面修改和单模块工作。只有完整任务含至少两个可独立验收单元，且边界固定、同批写入不重叠、child 与父任务验证明确、平台具备真实能力、协调收益足够时，才自动使用多 Agent。共享契约或文件保持串行；缺少子 Agent 能力时降级为单 Agent并明确报告。新手、标准或专家等交互偏好只改变解释深度，不改变安全、验证或编排门禁。
 
-通过准入门禁的多 Agent 工作仍为每个任务只维护一个 `docs/tasks/` 下的 Markdown。新任务使用控制版本 2；只有父 Agent 能派发 child 和更新任务状态，child 不得再次委派。父 Agent 默认最多同时运行三个 ready child，fan-in 后检查实际 diff 并重跑集成验证。`doctor` 会提示 legacy v1 父子合同但不会把它们判为无效，只有 `--verbose` 才显示待迁移路径。
+通过准入门禁的多 Agent 工作仍为每个任务只维护一个 `docs/tasks/` 下的 Markdown。新任务使用控制版本 3，并在同一文件维护结构化 Handoff；历史 v1/v2 任务只有主动升级后才启用新门禁。Codex full 固定执行 `Build → 冻结变更集 → Tester + Reviewer → Handoff/Fan-in → 修复后重新核验 → 集成验证 → Delivery`。只有父 Agent 能派发、等待、检查实际 diff、写回从 `待接收` 开始的 Handoff 状态历史和重跑集成验证；child 不得继续委派或自批。v2 收据只有 Tester `通过` 与 Reviewer `批准` 才合格，并同时锁定 Git 可见变更集与核验期间的任务/审查证据；v3 单任务和父任务的集成命令证据必须晚于两份收据完成时间。缺少原生角色时，除非合同记录当前指纹下相互独立、可追责的人工等价 Tester/Reviewer 证据，否则阻止完成。项目内公开哈希提供宿主观察和意外篡改检测，不是抵御工作区写入者的强认证。
 
 ## 选择安装级别
 
@@ -104,10 +104,10 @@ Agent 数量在风险分级和需求分类之后判定。默认使用单 Agent�
 
 | Profile | 会安装什么 | 适合什么项目 |
 | --- | --- | --- |
-| `minimal` | Agent 主说明文件、硬边界、Git 与测试规则、v2 任务模板 | 只需要基本规则，不需要额外 skills 或工具的小项目 |
-| `core` | `minimal` 的全部内容，加上常用工程规则、v1/v2 任务与任务图检查、Red Team 完成门禁和 skills 路由 | 大多数项目，建议从这里开始 |
-| `full` | `core` 的全部内容，加上三个聚焦领域 Skill、在线评测资产和 Codex hooks；memory 保持显式启用 | 长期维护或风险较高的 Codex 项目 |
-| `docs-only` | 使用说明、公共规则、v2 模板和 schemas，不安装可执行 runtime、skills、MCP 或 hooks | 只希望使用文档规则的项目 |
+| `minimal` | Agent 主说明文件、硬边界、Git 与测试规则、v3 任务模板 | 只需要基本规则，不需要额外 skills 或工具的小项目 |
+| `core` | `minimal` 的全部内容，加上常用工程规则、v1/v2/v3 任务与任务图检查、Red Team 完成门禁和 skills 路由 | 大多数项目，建议从这里开始 |
+| `full` | `core` 的全部内容，加上三个聚焦领域 Skill、在线评测资产、Codex hooks 和原生 Tester/Reviewer 角色；memory 保持显式启用 | 长期维护或风险较高的 Codex 项目 |
+| `docs-only` | 使用说明、公共规则、v3 模板和 schemas，不安装可执行 runtime、skills、MCP 或 hooks | 只希望使用文档规则的项目 |
 每个 profile 实际包含哪些文件，由 `manifests/profiles.json` 定义。
 
 ## 更多命令

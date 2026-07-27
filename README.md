@@ -20,7 +20,7 @@ Cognis gives Codex, Claude Code, and Gemini CLI a shared way to plan, execute, a
 | --- | --- | --- |
 | The Agent starts editing before it understands the task. | A five-step workflow and fast, lightweight, or full risk levels. | Small tasks stay quick; risky work starts with a plan and a rollback path. |
 | The Agent says “done” without showing proof. | Task templates connect each acceptance criterion (`AC-ID`) to evidence, and the installed validator (automatic checker) checks completed tasks. | A completion claim can be checked against commands, artifacts, reviews, or manual confirmation. |
-| Multiple Agents overwrite shared work or trust self-reported tests. | Adaptive routing applies risk level, request type, then orchestration admission before using the version 2 parent/child contract. | Queries, documentation, local page work, and single-module changes stay with one Agent; only independently verifiable work runs in parallel, followed by parent integration checks. |
+| Multiple Agents overwrite shared work or trust self-reported tests. | Version 3 freezes the change set, dispatches independent Tester and Reviewer roles, records receipts and Handoffs, then requires parent integration checks. | Queries and non-behavioral edits stay with one Agent; full work cannot complete from child self-report or stale review evidence. |
 | Important coding context gets buried in prose. | Core, full, and docs-only profiles choose compact Markdown structures for complex requests and replies: checkbox todos, lists, comparison tables, and portable information blocks. | Simple answers stay short while plans, progress, evidence, and decisions remain easy to scan without altering code or command output. |
 | Agent rules or skills change without behavioral regression evidence. | Eval-ID scenarios compare offline and real-Agent runs with an approved evaluation reference. | Prompt and governance changes can be reviewed against critical behavior, not only file snapshots. |
 | A long task loses important context between sessions. | `baseline` records project, installation, tool, and verification status; project memory and handoff templates preserve decisions and known issues. | The next session can recover project facts without reconstructing everything from chat history. |
@@ -64,9 +64,9 @@ pnpm cognis provision --project ../some-project --target codex --profile full --
 
 | Tool | Main project file | Available install levels | What Cognis can add |
 | --- | --- | --- | --- |
-| Codex | `AGENTS.md` | `minimal`, `core`, `full`, `docs-only` | Instructions, skills, project tools through MCP, and automatic checks through hooks |
-| Claude Code | `CLAUDE.md` | `minimal`, `core`, `docs-only`; `full` preview | Project instructions and skills; experimental full mappings require `--allow-preview` |
-| Gemini CLI | `GEMINI.md` | `minimal`, `core`, `docs-only`; `full` preview | Project instructions and skills; experimental full mappings require `--allow-preview` |
+| Codex | `AGENTS.md` | `minimal`, `core`, `full`, `docs-only` | Instructions, skills, project tools through MCP, hooks, and native Tester/Reviewer roles in `full` |
+| Claude Code | `CLAUDE.md` | `minimal`, `core`, `docs-only`; `full` preview | Project instructions and skills; native Cognis subagent roles are unsupported, so full completion needs traceable manual-equivalent verification |
+| Gemini CLI | `GEMINI.md` | `minimal`, `core`, `docs-only`; `full` preview | Project instructions and skills; native Cognis subagent roles are unsupported, so full completion needs traceable manual-equivalent verification |
 
 MCP lets an Agent call tools that belong to the current project. Hooks run checks automatically at specific points in an Agent session. Cognis currently installs these features only for Codex.
 
@@ -96,7 +96,7 @@ pnpm cognis init --project <path> --workflow strict
 
 Agent count is chosen after risk level and request type. The default is one Agent, including documentation queries, copy changes, local page adjustments, and single-module work. A full task uses multiple Agents automatically only when it has at least two independently acceptable units with fixed non-overlapping scopes, deterministic child checks, parent integration checks, native platform support, and a clear coordination benefit. Shared contracts or files stay serial; missing child capability falls back to one Agent and is reported. Interaction preferences change explanation depth, never safety, verification, or orchestration gates.
 
-For admitted multi-Agent work, keep one Markdown file per task under `docs/tasks/`. New tasks use control version 2. Only the parent Agent dispatches children and updates task state; children cannot delegate again. The parent runs at most three ready children by default, inspects the fan-in diff, and reruns integration checks. `doctor` reports legacy v1 parent/child contracts without making them invalid, while `--verbose` reveals the paths that should be migrated.
+For admitted multi-Agent work, keep one Markdown file per task under `docs/tasks/`. New tasks use control version 3 and keep structured Handoff records in that same file; historical v1/v2 tasks retain their old semantics until explicitly upgraded. Full Codex work follows `Build -> freeze change set -> Tester + Reviewer -> Handoff/fan-in -> reverify after fixes -> integration verification -> delivery`. Only the parent dispatches, waits, checks the actual diff, records Handoff histories starting at `待接收`, and reruns integration checks; children cannot delegate or approve themselves. A v2 receipt is accepted only for Tester `通过` and Reviewer `批准`, and it locks both the Git-visible change set and task/review evidence during verification. v3 single and parent task integration evidence must be later than both receipt completion times. When native roles are unavailable, completion is blocked unless the contract records separate, traceable manual-equivalent Tester and Reviewer evidence for the current fingerprint. Project-local public hashes provide host-observed evidence and accidental tamper detection, not strong authentication against a workspace writer.
 
 ## Choose an Install Level
 
@@ -104,10 +104,10 @@ An install level, called a `profile` in commands and configuration, is a ready-m
 
 | Profile | What you get | Best for |
 | --- | --- | --- |
-| `minimal` | The main Agent instruction file, hard boundaries, Git and test rules, and version 2 task templates | Small projects that want basic guidance without extra skills or tools |
-| `core` | Everything in `minimal`, plus common engineering rules, v1/v2 task and graph checks, Red Team completion review, and routing skills | Most projects; this is the recommended starting point |
-| `full` | Everything in `core`, plus three focused domain Skills, online evaluation assets, and Codex hooks; memory stays opt-in | Long-running or high-risk Codex projects |
-| `docs-only` | Instructions, reusable rules, version 2 templates, and schemas, without executable runtime, skills, MCP, or hooks | Projects that only want the documentation-based setup |
+| `minimal` | The main Agent instruction file, hard boundaries, Git and test rules, and version 3 task templates | Small projects that want basic guidance without extra skills or tools |
+| `core` | Everything in `minimal`, plus common engineering rules, v1/v2/v3 task and graph checks, Red Team completion review, and routing skills | Most projects; this is the recommended starting point |
+| `full` | Everything in `core`, plus three focused domain Skills, online evaluation assets, Codex hooks, and native Tester/Reviewer roles; memory stays opt-in | Long-running or high-risk Codex projects |
+| `docs-only` | Instructions, reusable rules, version 3 templates, and schemas, without executable runtime, skills, MCP, or hooks | Projects that only want the documentation-based setup |
 The exact files included in each profile are defined in `manifests/profiles.json`.
 
 ## More Commands

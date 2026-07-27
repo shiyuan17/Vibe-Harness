@@ -45,8 +45,10 @@ RTK 项目 hook 调用项目内 binary 的 `rewrite`，上限 750ms，并限制 
 
 - `SessionStart` / `PostCompact` 读取 `cwd`，输出项目根、Git 分支、工作区状态和活跃任务合同。Adaptive 没有 active task 时不注入；strict 保留原行为。任务只展示最多 5 个开放任务的编号、标题、档位、阶段、状态和下一步。
 - `UserPromptSubmit` 不保留或回显 `prompt`，只注入通用要求：新任务或范围实质变化时先输出任务确认，普通追问不重复输出。
-- `SubagentStart` 只注入 child 写入边界、最小上下文、禁止再委派和不得自批等提醒；Codex 事件合同不支持在这里阻止 subagent 启动，Cognis 不宣称该能力。
-- `SubagentStop` 只提醒父 Agent 核对实际 diff 与自报证据、将状态持久化到父 Agent 维护的任务 Markdown，并在合并后的目标工作区复验；它不替代任务图 validator 或独立审查。
+- `SubagentStart` 注入 child 写入边界、最小上下文、禁止再委派和不得自批等提醒；对 `cognis_tester`/`cognis_reviewer` 还会在 `.cognis/subagents/receipts/` 创建 v2 运行收据，记录哈希标识、角色、时间、冻结变更集与受保护任务/审查证据指纹。Codex 事件合同不支持在这里阻止 subagent 启动，Cognis 不宣称该能力。
+- `SubagentStop` 只从 fenced code、HTML block、引用、列表和缩进代码之外解析唯一的 Markdown 根级固定字段，closing fence 必须只包含 fence 与空白；重复或歧义字段无效。只有缺字段、重复字段或不可识别状态才通过原生 stop continuation 最多续跑一次；结构完整的 Tester `阻塞` 或 Reviewer `要求修改` / `缺少证据而阻塞` 直接形成不可批准的终态收据，不要求 child 改判。只有 Tester `通过` 与 Reviewer `批准` 可 sealed。核验角色产生 Git 可见修改、修改 `docs/tasks`/`docs/reviews`、角色/ID 错配或指纹漂移都会封存为 invalid。同一 `session/agent/turn/role` 派生稳定 receipt key 并通过 exclusive create 原子保证只能创建一份收据，同一收据也不能跨任务复用；修复后必须使用新的 turn ID 重新核验。父 Agent仍须核对实际 diff、把完整状态历史与收据引用写入同一任务 Markdown，并在目标工作区复验；v3 单任务和父任务的完成门禁要求集成命令证据晚于两份收据的 `completedAt`，子任务不重复承担父级 fan-in 门禁。人工等价证据必须是项目内非空常规文件。
+
+收据不保存 prompt、transcript 或模型原文。doctor 只把收据状态作为宿主观察到的派发证据之一；角色文件已安装不等价于已经运行或通过核验。项目内公开哈希可检测意外损坏和错配，但不能抵御已拥有工作区写权限的恶意进程；更强保证必须来自工作区外的宿主或 CI attestation。
 - `Stop` 读取 `last_assistant_message`。Adaptive 普通任务只检查结果、实际变更和本轮验证，不运行 Eval；只有 active 完整任务才运行治理门禁。Strict 继续运行治理、可选 Eval 和结果状态、变更摘要、影响范围、工作流档位、验证证据、未验证项、剩余风险、Git、worktree/merge-back、后续动作与 Memory 的完整交付检查。
 - 交付解析忽略代码围栏、缩进代码、HTML、注释和引用示例，并拒绝 TODO、TBD、N/A、待补充等占位值。
 - `blocking` 首次返回 `{ "decision": "block", "reason": "..." }`；advisory 或第二次 Stop 返回 `systemMessage`，不会形成无限续跑。

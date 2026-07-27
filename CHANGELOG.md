@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- 新增 v0.9 Handoff 与独立核验：新完整任务默认 v3，同一任务 Markdown 保存从 `待接收` 开始的结构化 Handoff；Codex full 安装红区 Tester/Reviewer 角色，Subagent hooks 生成不含 prompt/transcript 的 v2 哈希收据，只有 Tester `通过` 与 Reviewer `批准` 可封存，并以实现/治理证据指纹和 fan-in 后集成验证时序阻断过期批准；Claude/Gemini 明确降级。输出解析拒绝 fenced/HTML/引用/列表伪字段，结构完整的负面结论直接终止而不要求改判；同一运行身份使用稳定 key 与 exclusive create 原子保证一份收据，重核验必须使用新 turn；人工等价证据必须是项目内非空常规文件。
 - 新项目默认启用 v0.8 `adaptive` 结果优先路径，既有缺失字段项目保持 `strict`；新增 `init --workflow`、workflow 报告、兼容升级写回和 baseline 观测。
 - Codex adaptive Hook 收敛为 6 个事件，普通 Stop 不再运行全量治理/Eval；宿主按 description 直接选择单个聚焦 Skill，交付收敛为结果、实际变更和本轮验证。
 - 原生 Skill 集全局收敛为 core 4 个、full 7 个；退休 Router 与计划/TDD/验证/Review/多 Agent 流程 Skill，新增影响分级澄清、Codex `agents/openai.yaml`、触发/近邻评测及 old/new/no-Skill 冻结基线。Browser 与 Agentmemory 改为显式集成。

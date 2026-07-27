@@ -7,12 +7,12 @@ Cognis 是跨平台、Codex 完整能力优先的可复用 AI coding governance 
 - `rules/`：`governance-core` 是 adaptive 结果优先循环、strict 兼容循环、风险和证据的唯一流程真值；其余文件只保存工程专项约束。
 - `templates/`：无 Skill 环境使用的中文任务和交付模板；专项模板与对应 skill 共置。
 - `skills/`：七个聚焦原生 Skill 由宿主依据 description 直接选择；计划、测试、完成证据、Review、多 Agent 和 Red Team 留在治理与 Runtime。
-- `runtime/governance/`：将中英文 Markdown 视图解析为语言无关 TaskDocument IR，再校验 AC-ID、完成证据、完整流程控制块、跨文档任务图和结构化 Red Team 审查包。
-- `runtime/hooks/`：规范化 Codex 事件并执行可移植的安全、上下文和完成策略。
+- `runtime/governance/`：将中英文 Markdown 视图解析为语言无关 TaskDocument IR，再校验 AC-ID、v1/v2/v3 控制块、同文件 Handoff、收据新鲜度、跨文档任务图和结构化 Red Team 审查包。
+- `runtime/hooks/`：规范化 Codex 事件并执行可移植的安全、上下文和完成策略；SubagentStart/Stop 为独立角色生成不含 prompt/transcript 的 v2 项目内哈希收据，并锁定核验期间的实现与任务/审查证据。
 - `runtime/evals/`：提供项目内离线评测 runtime 和 full 使用的 Codex 在线 runner；runner 只在一次性项目中执行。
 - `runtime/tools/`：固定版本的项目内工具 bootstrap；所有外部工具都通过独立 `--plugin` 选择显式启用，任何默认 profile 都不安装它们。
 - `scripts/lib/project-baseline.js`：汇总项目画像、安装状态、验证摘要、drift 和后续工作流，生成受管 JSON/Markdown 基线。
-- `adapters/codex/`：包含精简 AGENTS 模板、共享 install map 和官方 PascalCase Codex hook 配置。
+- `adapters/codex/`：包含精简 AGENTS 模板、共享 install map、官方 PascalCase Codex hook 配置和 full 专用 Tester/Reviewer 角色。
 - `adapters/claude/`、`adapters/gemini/`：包含项目级 `CLAUDE.md` / `GEMINI.md` 模板；Skills target 由 adapter catalog 转换。
 - `adapters/git/`：包含默认不启用的版本化 pre-commit / pre-push 入口。
 - `manifests/`：rules、skills、profiles 和 adapters 的 catalog 真值；`profiles.json` 是能力组唯一来源，`adapters.json` 只声明平台安装面与能力边界。
@@ -27,7 +27,7 @@ Cognis 是跨平台、Codex 完整能力优先的可复用 AI coding governance 
 1. `cognis init --project <path> --target <codex|claude|gemini>` 创建项目配置。
 2. `cognis install --project <path> --target <adapter> --profile <profile> --dry-run` 只预览；CLI target 与配置不一致时拒绝执行。
 3. 所有 profile 使用 `--write` 事务性写入；Codex full 写入红区另需 `--confirm-red-zone`。事务按 preflight、journal、preimage、apply、state v3 commit 顺序执行。
-4. `cognis install ... --plugin <plugins>` 将工具模块及依赖闭包增量并入 profile；`-all` 选择当前全部 6 个，单选、多选与 install-state 持久化互相独立。Codex-only 工具 hook 的配置和行为由 [Hook 场景与运行边界](hooks.md) 定义。`cognis provision --project <path> --profile <profile>` 独立预览已选工具；只有 `--write` 才执行。`install --provision` 是兼容的一站式入口。
+4. `cognis install ... --plugin <plugins>` 将工具模块及依赖闭包增量并入 profile；`-all` 选择全部 7 个，单选、多选与 install-state 持久化互相独立。Codex-only 工具 hook 的配置和行为由 [Hook 场景与运行边界](hooks.md) 定义。`cognis provision --project <path> --profile <profile>` 独立预览已选工具；只有 `--write` 才执行。`install --provision` 是兼容的一站式入口。
 5. 中断事务由 `cognis recover --project <path>` 预览，显式 `--write` 才逆序恢复；`doctor` 只读报告锁和 journal。
 6. 工具子进程使用 allowlist 环境与独立进程组；SIGINT、SIGTERM、超时和输出上限都会先清理进程树。失败诊断脱敏后写入工具状态。
 7. `cognis validate --project <path>` 校验安装一致性和组件状态，不执行目标项目命令。
@@ -50,7 +50,7 @@ Cognis 是跨平台、Codex 完整能力优先的可复用 AI coding governance 
 - Codex：`AGENTS.md`、`.agents/skills/`、项目 `.codex/config.toml` 与 `.codex/hooks.json`，支持全部 profiles。
 - Claude Code：`CLAUDE.md`、`.claude/skills/`；`minimal/core/docs-only` stable，full 能力映射为 preview。
 - Gemini CLI：`GEMINI.md`、`.gemini/skills/`；`minimal/core/docs-only` stable，full 能力映射为 preview。
-- adapter capability v2 使用 `unsupported/preview/stable` 描述 instructions、skills、hooks、policy、MCP、sandbox、memory 和 plugin；preview full 必须显式 `--allow-preview`，且不写用户级配置。
+- adapter capability v2 使用 `unsupported/preview/stable` 描述 instructions、skills、hooks、policy、MCP、sandbox、memory、plugin 和 subagents；Codex subagents 为 stable，Claude/Gemini 本轮为 unsupported，preview full 必须显式 `--allow-preview`，且不写用户级配置。
 
 install state 记录 adapter；缺少该字段的 schemaVersion 1 状态按 Codex 读取。三种入口都只更新 `COGNIS` 受管块，upgrade/uninstall 必须与原 adapter 一致。
 
@@ -64,20 +64,20 @@ evaluation reference 与项目 baseline 分离。reference 只保存批准的 fi
 
 ## Profile
 
-- minimal：最小安装，包含平台入口、治理内核、Git/VCS/Test 规则和默认 v2 中文 task/delivery 模板，不安装 skills、runtime、hook 或 MCP 安装面。
-- core：通用安装，在 minimal 上增加专项规则、v1/v2 任务 runtime/schema、跨文档任务图 validator，以及澄清、调试、Eval、安全四个原生 Skill；不安装外部工具或 hook。
-- full：完整治理安装，在 core 上增加 API/接口、前端设计、跨仓 rollout 三个原生 Skill、在线评测资产和 Codex hooks；memory 通过高级 module、外部工具通过插件显式启用，真实写入红区仍需确认。
-- docs-only：仅安装平台入口、治理内核、专项规则、v2 中文模板、memory 文档和 schema，不安装 runtime、Skills、MCP 或 hooks。
+- minimal：最小安装，包含平台入口、治理内核、Git/VCS/Test 规则和默认 v3 中文 task/delivery 模板，不安装 skills、runtime、hook 或 MCP 安装面。
+- core：通用安装，在 minimal 上增加专项规则、v1/v2/v3 任务 runtime/schema、跨文档任务图 validator，以及澄清、调试、Eval、安全四个原生 Skill；不安装外部工具、hook 或角色。
+- full：完整治理安装，在 core 上增加 API/接口、前端设计、跨仓 rollout 三个原生 Skill、在线评测资产、Codex hooks 和 Codex Tester/Reviewer 红区角色；memory 与外部工具都通过插件显式启用。
+- docs-only：仅安装平台入口、治理内核、专项规则、v3 中文模板、memory 文档和 schema，不安装 runtime、Skills、MCP、hooks 或角色。
 
-公开插件名与内部模块映射固定为：`rtk` → `rtk`、`ast-grep` → `ast-grep`、`codebase-memory-mcp` → `codebase-memory`、`chrome-devtools-mcp` → `chrome-devtools`、`playwright-cli` → `playwright`、`open-code-review` → `open-code-review`。CLI 插件选择优先于项目配置，项目配置优先于 install-state；`--plugin none` 清空持久化选择。`--modules` 仍是替换整个 profile 的高级接口，不能作为插件增量接口。Agentmemory runtime 在上游 High 漏洞修复前退出可安装面，本地 `memory` module 保持可用。
+公开插件名与内部模块映射固定为：`rtk` → `rtk`、`ast-grep` → `ast-grep`、`codebase-memory-mcp` → `codebase-memory`、`chrome-devtools-mcp` → `chrome-devtools`、`playwright-cli` → `playwright`、`open-code-review` → `open-code-review`、`agentmemory` → `agentmemory`。CLI 插件选择优先于项目配置，项目配置优先于 install-state；`--plugin none` 清空持久化选择。`--modules` 仍是替换整个 profile 的高级接口，不能作为插件增量接口。Agentmemory 仍受 `--allow-preview` 门禁。
 
 ## 中文任务数据流
 
-人工只维护 `docs/tasks/<任务编号>.md`。无 `控制版本` 的控制块按 v1 读取；新模板默认 v2。`language` 支持 `zh-CN` 与 `en-US`；两种 Markdown 视图都归一为 schemaVersion 1 TaskDocument IR，状态、阶段和结果使用语言无关枚举。validator 先逐文档校验控制块、证据覆盖、人工确认、独立核验和 merge-back，再校验 v2 父子双向关系、扁平 DAG、批次、依赖、冲突和写入范围重叠。
+人工只维护 `docs/tasks/<任务编号>.md`。无 `控制版本` 的控制块按 v1 读取，v2 继续旧语义，新模板默认 v3。`language` 支持 `zh-CN` 与 `en-US`；两种 Markdown 视图都归一为 schemaVersion 1 TaskDocument IR。validator 先逐文档校验控制块、从 `待接收` 开始且身份不变的 Handoff、v2 收据完整生命周期、证据覆盖、人工确认、独立核验、fan-in 后集成验证时序和 merge-back，再全局拒绝收据跨任务复用，并校验 v2/v3 父子双向关系、扁平 DAG、批次、依赖、冲突和写入范围重叠。人工身份先经 NFKC、trim 与大小写归一后比较。
 
 任务先执行 `风险分级 → 需求分类 → 编排判定`。查询、文档、局部页面和单模块任务默认使用单 Agent；完整任务只有在存在至少两个独立验收单元，边界和依赖可预先固定，同批写入不重叠，child 与父任务验证明确，且平台具备真实能力并有明确协调收益时才自动进入多 Agent。共享契约、共享文件或未固定接口保持单 Agent 串行。其他 profile 或平台缺少子 Agent 能力时明确降级，不模拟执行；交互偏好不改变安全、验证或编排结论。
 
-只有父 Agent 能派发并维护任务文档。child 使用最小上下文，不能再委派，只返回固定结构化结果；父 Agent 默认最多同时运行三个 ready child，adapter 只能降低并发。连续三次验证失败、范围漂移或需要再拆分时，child 停止并上报。父 Agent 在 fan-in 时核对实际 diff 与证据、持久化状态，并在目标工作区执行集成验证；独立 Judge/Reviewer 不能由 Build 实现角色代替。`doctor` 默认只汇总 v1/v2 数量，`--verbose` 才显示 legacy 路径。
+只有父 Agent 能派发并维护任务文档。完整任务固定为 `Build → 冻结变更集 → Tester + Reviewer → Handoff/Fan-in → 修复后重新核验 → 集成验证 → Delivery`。child 使用最小上下文，不能再委派，只返回固定结构化结果。父 Agent 在 fan-in 时核对实际 diff 与证据、持久化同文件 Handoff，并在目标工作区执行集成验证；独立 Reviewer 不能由 Build 实现角色代替。`doctor` 汇总 v1/v2/v3、角色安装和收据健康，`--verbose` 才显示 legacy 路径。
 
 ## 安全模型
 

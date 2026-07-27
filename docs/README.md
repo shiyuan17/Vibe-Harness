@@ -11,6 +11,7 @@
 
 ## 现行规格
 
+- [v0.9 Handoff 与独立核验规格](specs/cognis-v0.9-handoff-independent-verification-spec.md)：v3、Tester/Reviewer、运行收据、指纹新鲜度与 adapter 降级。
 - [v0.8 结果优先自适应执行路径](specs/cognis-v0.8-outcome-first-adaptive-spec.md)：adaptive/strict 兼容边界、精简 Hook、短 Skill 路由和 40×3 对照发布门禁。
 - [v0.7 自适应单/多 Agent 编排规格](specs/cognis-v0.7-adaptive-orchestration-spec.md)：当前三阶段路由、v2 父子任务合同、Prompt Cache 上下文边界与能力降级规则。
 - [Agentmemory Skill 收敛规格](specs/agentmemory-skill-consolidation-spec.md)：当前本地 memory Skill 安装与升级合同。
@@ -25,6 +26,8 @@
 - [COGNIS-AO-001 测试 child](tasks/COGNIS-AO-001-TESTS.md) / [测试 Red Team](reviews/COGNIS-AO-001-TESTS-red-team.md)：聚焦合同测试及 RED 证据。
 - [COGNIS-AO-001 规范 child](tasks/COGNIS-AO-001-POLICY.md) / [规范 Red Team](reviews/COGNIS-AO-001-POLICY-red-team.md)：规则、Skill 和 v0.7 规格的限定实现与审查记录。
 - [COGNIS-HOOK-001 项目级外部写入目录白名单](tasks/COGNIS-HOOK-001.md) / [Red Team](reviews/COGNIS-HOOK-001-red-team.md)：Hook 白名单配置、验证与审查记录。
+- [COGNIS-HANDOFF-001 Handoff 与独立测试审查流程](tasks/COGNIS-HANDOFF-001.md) / [Red Team](reviews/COGNIS-HANDOFF-001-red-team.md)：v3 任务合同、原生 Tester/Reviewer、运行收据、证据新鲜度门禁与独立审查结论。
+- [CBM-RESOURCE-001 codebase-memory 资源治理](tasks/CBM-RESOURCE-001.md)：索引资源上限、后台 watcher、忽略契约和真实项目验证记录。
 - [COGNIS-FULL-TOOL-001 Red Team 审查包](reviews/COGNIS-FULL-TOOL-001-red-team.md)：工具供应、评测、技能与工作流变更的独立审查记录。
 
 ## 参考审计
