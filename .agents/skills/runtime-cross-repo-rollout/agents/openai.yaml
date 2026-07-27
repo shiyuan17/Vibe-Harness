@@ -1,0 +1,6 @@
+interface:
+  display_name: "Cross Repo Rollout"
+  short_description: "Coordinate and prove multi-repository runtime changes"
+  default_prompt: "Use $runtime-cross-repo-rollout to coordinate contracts, ordering, integration evidence, and rollback across repositories."
+policy:
+  allow_implicit_invocation: true

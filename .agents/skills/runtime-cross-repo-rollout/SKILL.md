@@ -1,20 +1,16 @@
 ---
 name: runtime-cross-repo-rollout
-description: Use when a feature spans multiple repositories or services and must be proven through real runtime contracts end to end.
+description: Use for coordinated contracts and rollout across repositories—not modules in one repository.
 ---
 
-# 跨仓运行时落地
-
-## 前置
-
-识别所有仓库、目标分支、写入权限、脏工作区、契约真值、部署边界和回滚负责人。跨仓、权限、数据或发布工作按高风险处理。
+# 落地跨仓运行时变更
 
 ## 执行
 
-1. 用 `api-and-interface-design` 锁定字段、状态、错误、权限和兼容策略。
-2. 按仓库划分写入范围、依赖顺序、独立验证和 merge-back 责任。
-3. 先验证提供方契约，再接线消费方；不以 mock 通过代替真实接口证据。
-4. 收集接口、日志、测试和必要的浏览器证据。
-5. 在最终集成位置运行端到端验证并确认回滚路径。
+1. 识别所有仓库、授权、脏工作区、契约真值、部署边界和回滚责任人。
+2. 固定生产者与消费者的字段、状态、错误、权限及兼容策略。
+3. 按依赖顺序划分写入范围和独立验证；先证明提供方，再接线消费方。
+4. 收集两侧测试、真实接口和最终集成位置的运行证据。
+5. 在最终组合上验证成功、失败与回滚路径。
 
-浏览器工具不可用时回退到人工运行步骤并明确缺口。任一仓库无授权、契约冲突或最终集成未闭环时标记阻塞，不宣称完成；完成声明使用 `verification-before-completion`。
+任一仓库无授权、契约冲突或集成证据缺失时停止；mock 或单仓测试不能证明跨仓完成。

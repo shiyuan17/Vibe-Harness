@@ -1,22 +1,19 @@
 ---
 name: security-and-hardening
-description: Use when changes handle untrusted input, authentication, authorization, sensitive data, storage, or external integrations.
+description: Use for trust boundaries, untrusted input, auth, secrets, sensitive data, or external actions.
 ---
 
-# 安全加固
-
-## 前置
-
-识别资产、信任边界、攻击者能力和失败影响；认证、权限、密钥、生产配置等红区先获得确认。
+# 加固安全边界
 
 ## 执行
 
-1. 在输入边界做结构和语义校验，输出按上下文编码。
-2. 服务端强制认证与授权，不信任客户端声明。
-3. 使用参数化查询、最小权限、受限文件路径和安全默认值。
-4. secret 不进入代码、日志、错误响应或测试快照。
-5. 为拒绝路径、越权、注入和敏感信息泄漏增加测试。
+1. 识别资产、信任边界、攻击者能力和失败影响。
+2. 在入口执行结构与语义校验，在服务端强制认证和授权。
+3. 使用参数化查询、最小权限、受限路径和安全默认值。
+4. 禁止 secret 进入代码、日志、错误响应、测试快照或持久化上下文。
+5. 为拒绝路径、越权、注入、路径逃逸和敏感信息泄漏增加测试。
+6. 对生产、凭据、外部写入或不可逆动作使用治理审批，不自行放宽控制。
 
-## 输出
+## 交付
 
-列出威胁、控制措施、验证证据、残余风险和人工确认状态。缺少契约或安全边界时停止并请求证据，不自行放宽控制。
+报告威胁、控制措施、验证证据、审批状态和残余风险。
