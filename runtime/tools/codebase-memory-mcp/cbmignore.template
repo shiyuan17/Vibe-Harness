@@ -1,0 +1,15 @@
+/.agents/
+/.codex/
+/{{codebaseMemoryStateDirectory}}/
+/.codebase-memory/
+/node_modules/
+/bin/
+/obj/
+/dist/
+/target/
+/vendor/
+/artifacts/
+/_pkg_review/
+*.log
+*.log.*
+*.zip

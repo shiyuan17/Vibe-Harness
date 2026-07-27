@@ -28,7 +28,7 @@
     },
     "installation": {
       "type": "object",
-      "required": ["governanceMode", "governanceWorkflow", "managedFileCount", "profile", "requestedPlugins", "resolvedModules", "status", "tools", "version"],
+      "required": ["governanceMode", "governanceWorkflow", "managedFileCount", "profile", "requestedPlugins", "resolvedModules", "status", "subagents", "tools", "version"],
       "properties": {
         "governanceMode": { "type": "string", "enum": ["basic", "full", "off"] },
         "governanceWorkflow": { "type": "string", "enum": ["adaptive", "strict"] },
@@ -45,6 +45,37 @@
           "uniqueItems": true
         },
         "status": { "type": "string", "enum": ["consistent"] },
+        "subagents": {
+          "type": "object",
+          "required": ["support", "status", "roles", "receipts", "reason"],
+          "properties": {
+            "support": { "type": "string", "enum": ["unsupported", "preview", "stable"] },
+            "status": { "type": "string", "enum": ["disabled", "ready", "planned", "degraded", "missing", "invalid"] },
+            "roles": {
+              "type": "object",
+              "required": ["reviewer", "tester"],
+              "properties": {
+                "reviewer": { "type": "string", "enum": ["installed", "planned", "missing", "invalid"] },
+                "tester": { "type": "string", "enum": ["installed", "planned", "missing", "invalid"] }
+              },
+              "additionalProperties": false
+            },
+            "receipts": {
+              "type": "object",
+              "required": ["status", "started", "continuationRequested", "sealed", "invalid"],
+              "properties": {
+                "status": { "type": "string", "enum": ["absent", "healthy", "invalid"] },
+                "started": { "type": "integer", "minimum": 0 },
+                "continuationRequested": { "type": "integer", "minimum": 0 },
+                "sealed": { "type": "integer", "minimum": 0 },
+                "invalid": { "type": "integer", "minimum": 0 }
+              },
+              "additionalProperties": false
+            },
+            "reason": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
         "tools": {
           "type": "object",
           "properties": {

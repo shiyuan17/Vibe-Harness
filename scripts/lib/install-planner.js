@@ -31,7 +31,14 @@ import {
   PLAYWRIGHT_GENERATED_RELATIVE_DIR,
   PLAYWRIGHT_TOOL_RELATIVE_DIR,
 } from '../../runtime/tools/playwright-cli/run.mjs';
-import { extractManagedMcpBlock, mergeManagedMcpBlock, removeManagedMcpBlock } from './tool-provisioning.js';
+import {
+  extractManagedCbmIgnoreBlock,
+  extractManagedMcpBlock,
+  mergeManagedCbmIgnoreBlock,
+  mergeManagedMcpBlock,
+  removeManagedCbmIgnoreBlock,
+  removeManagedMcpBlock,
+} from './tool-provisioning.js';
 import { applyBaselinePlan, createBaselinePlan } from './installation-baseline.js';
 import { moduleCatalog, resolveModuleSelection } from './module-selection.js';
 import { assertAdapterProfile, resolveAdapter, resolveAdapterEntry } from './adapter.js';
@@ -39,6 +46,7 @@ import { beginFileTransaction, createTransactionId } from './file-transaction.js
 
 const isManagedInstruction = (strategy) => ['managed-block', 'managed-instruction-block'].includes(strategy);
 const isManagedToml = (strategy) => ['managed-mcp-block', 'managed-toml-block'].includes(strategy);
+const isManagedIgnore = (strategy) => strategy === 'managed-ignore-block';
 
 function isLegacyProductManagedTarget(target) {
   const normalized = target.replaceAll('\\', '/');
@@ -136,6 +144,9 @@ export function createInstalledSurface({ customModules = false, memoryPath = '.a
       ? '宿主按 Skill description 原生选择一个当前阶段所需能力；不使用 Router 或流程 Skill 链。'
       : '当前 profile 未安装 Skills；仅按已安装规则和模板执行，不引用未安装的 skill。',
     skillsLine: skillRoots.length > 0 ? `- Skills 位于 ${skillRoots.map((root) => `\`${root}/\``).join('、')}。` : '',
+    subagentsLine: hasTarget('.codex/agents/cognis_tester.toml') && hasTarget('.codex/agents/cognis_reviewer.toml')
+      ? '- Codex full 已安装 `cognis_tester` 与 `cognis_reviewer`。轻量行为改动在冻结变更集后派发 Tester；完整或高风险任务并行派发 Tester 与 Reviewer，等待两者回传并写入同一任务 Markdown 的 Handoff。核验期间主 Agent 不得修改变更集；任何后续 Git 可见实现改动都要求重新派发。父 Agent 必须检查实际 diff，并在 fan-in 后重跑集成验证。'
+      : '',
     templatesLine: hasPrefix('docs/templates/') ? '- 模板位于 `docs/templates/`。' : '',
     toolingLine: hasPrefix('.agents/cognis/tools/')
       ? `- 项目内工具位于 \`.agents/cognis/tools/\`；使用 \`cognis doctor --project <path>\` 查看初始化状态。${hasTarget('docs/rules/chrome-devtools-mcp.md') ? ' Chrome DevTools MCP 规则位于 \`docs/rules/chrome-devtools-mcp.md\`。' : ''}${hasRtkTool ? ' RTK 规则位于 \`docs/rules/rtk.md\`。' : ''}${hasAstGrepTool ? ' ast-grep 规则位于 \`docs/rules/ast-grep.md\`。' : ''}`
@@ -194,6 +205,8 @@ function createManagedMcpServers(targetDir, resolvedModules) {
       env: {
         CBM_ALLOWED_ROOT: targetDir,
         CBM_CACHE_DIR: path.join(stateRoot, 'tool-state/codebase-memory-mcp/cache'),
+        CBM_MEM_BUDGET_MB: '2048',
+        CBM_WORKERS: '2',
       },
     };
   return servers;
@@ -268,20 +281,27 @@ export async function createInstallPlan({
       } else if (isManagedToml(contentStrategy)) {
         const content = await readFile(target, 'utf8');
         currentHash = createHash('sha256').update(extractManagedMcpBlock(content) ?? '').digest('hex');
+      } else if (isManagedIgnore(contentStrategy)) {
+        const content = await readFile(target, 'utf8');
+        currentHash = createHash('sha256').update(extractManagedCbmIgnoreBlock(content)).digest('hex');
       } else {
         currentHash = await hashFile(target);
       }
-      const expectedHash = (isManagedInstruction(contentStrategy) || isManagedToml(contentStrategy))
+      const expectedHash = (isManagedInstruction(contentStrategy) || isManagedToml(contentStrategy) || isManagedIgnore(contentStrategy))
         ? managedFile.managedBlockHash
         : managedFile.targetHash;
       kind = currentHash === expectedHash ? 'write' : 'user-modified';
     } else if (isManagedInstruction(contentStrategy) || isManagedToml(contentStrategy)) {
       kind = 'write';
+    } else if (isManagedIgnore(contentStrategy)) {
+      const hasManagedBlock = exists && Boolean(extractManagedCbmIgnoreBlock(await readFile(target, 'utf8')));
+      kind = !exists || force || hasManagedBlock ? 'write' : 'conflict';
     }
 
     if (upgrade) {
       if (!exists || force) kind = 'write';
-      else if (!managedFile) {
+      else if (!managedFile && !(isManagedIgnore(contentStrategy)
+        && extractManagedCbmIgnoreBlock(await readFile(target, 'utf8')))) {
         kind = 'conflict';
       }
     }
@@ -404,12 +424,18 @@ export async function createInstallPlan({
       currentHash = createHash('sha256').update(extractManagedMcpBlock(content)).digest('hex');
       expectedHash = managedFile.managedBlockHash;
       kind = currentHash === expectedHash ? 'retire-managed-mcp' : 'retire-modified';
+    } else if (isManagedIgnore(managedFile.contentStrategy)) {
+      const content = await readFile(target, 'utf8');
+      currentHash = createHash('sha256').update(extractManagedCbmIgnoreBlock(content)).digest('hex');
+      expectedHash = managedFile.managedBlockHash;
+      kind = currentHash === expectedHash ? 'retire-managed-ignore' : 'retire-modified';
     } else {
       currentHash = await hashFile(target);
       expectedHash = managedFile.targetHash;
       kind = currentHash === expectedHash ? 'retire' : 'retire-modified';
     }
     actions.push({
+      created: Boolean(managedFile.originalCreated ?? managedFile.created),
       discard: true,
       expectedHash,
       group: managedFile.group,
@@ -499,6 +525,7 @@ export async function createInstallPlan({
     rtkHooksEnabled,
     renderData: withDefaultTemplateData({
       ...renderData,
+      codebaseMemoryStateDirectory: stateDirectory,
       hookRunnerPath: path.join(path.resolve(targetDir), '.agents/cognis/hooks/codex-hook.mjs').replaceAll('\\', '/'),
       installedSurface,
     }),
@@ -520,6 +547,9 @@ export async function renderActionContent(action, renderData = {}, existingConte
     return mergeManagedMcpBlock(existingContent, action.mcpServers).content;
   }
   const rendered = await renderSourceContent(action, renderData);
+  if (isManagedIgnore(action.contentStrategy)) {
+    return mergeManagedCbmIgnoreBlock(existingContent, rendered);
+  }
   if (isManagedInstruction(action.contentStrategy)) {
     return mergeManagedInstructionBlock(existingContent, rendered);
   }
@@ -532,7 +562,9 @@ export async function previewInstallPlan(plan, { includeContent = true } = {}) {
     if (action.kind !== 'write') {
       continue;
     }
-    const existingContent = (isManagedInstruction(action.contentStrategy) || isManagedToml(action.contentStrategy)) && await pathExists(action.target)
+    const existingContent = (isManagedInstruction(action.contentStrategy)
+      || isManagedToml(action.contentStrategy)
+      || isManagedIgnore(action.contentStrategy)) && await pathExists(action.target)
       ? await readFile(action.target, 'utf8')
       : '';
     const mergedMcp = isManagedToml(action.contentStrategy)
@@ -628,6 +660,8 @@ export async function diffTargetInstall({
               targetContent,
               createManagedMcpServers(path.resolve(targetDir), moduleSelection.resolvedModules),
             ).content === targetContent
+          : isManagedIgnore(item.contentStrategy)
+            ? mergeManagedCbmIgnoreBlock(targetContent, sourceContent) === targetContent
         : sourceContent === targetContent;
       if (!matches) {
         changed.push(item);
@@ -692,7 +726,13 @@ export async function applyInstallPlan(plan, hooks = {}) {
     throw new Error('Refusing to write red-zone files without explicit red-zone confirmation.');
   }
 
-  for (const action of plan.actions.filter((item) => ['write', 'retire', 'retire-managed-mcp', 'retire-generated-directory'].includes(item.kind))) {
+  for (const action of plan.actions.filter((item) => [
+    'write',
+    'retire',
+    'retire-managed-ignore',
+    'retire-managed-mcp',
+    'retire-generated-directory',
+  ].includes(item.kind))) {
     assertPortableRelativePath(action.relativeTarget, 'install target');
     assertInsideDir(plan.targetDir, action.target, 'install target outside target directory');
     await assertSafePathInside(plan.targetDir, action.target, 'install target');
@@ -703,7 +743,13 @@ export async function applyInstallPlan(plan, hooks = {}) {
   const backupRoot = path.join(path.dirname(statePath), 'backups', transactionId);
   const trackedPaths = [
     ...plan.actions
-      .filter((action) => ['write', 'retire', 'retire-managed-mcp', 'retire-generated-directory'].includes(action.kind))
+      .filter((action) => [
+        'write',
+        'retire',
+        'retire-managed-ignore',
+        'retire-managed-mcp',
+        'retire-generated-directory',
+      ].includes(action.kind))
       .map((action) => action.target),
     ...plan.baselinePlan.actions.map((action) => path.join(plan.targetDir, action.target)),
     ...(plan.baselinePlan.manifestTarget ? [path.join(plan.targetDir, plan.baselinePlan.manifestTarget)] : []),
@@ -775,7 +821,10 @@ export async function applyInstallPlan(plan, hooks = {}) {
     let backup = null;
     let previousHash = null;
     const existingContent = existed ? await readFile(action.target, 'utf8') : '';
-    if (existed && !isManagedInstruction(action.contentStrategy) && !isManagedToml(action.contentStrategy)) {
+    if (existed
+      && !isManagedInstruction(action.contentStrategy)
+      && !isManagedToml(action.contentStrategy)
+      && !isManagedIgnore(action.contentStrategy)) {
       previousHash = await hashFile(action.target);
       backup = await backupFile({ backupId, target: action.target, targetDir: plan.targetDir });
     }
@@ -797,9 +846,11 @@ export async function applyInstallPlan(plan, hooks = {}) {
       group: action.group,
       managedBlockHash: isManagedToml(action.contentStrategy)
         ? createHash('sha256').update(extractManagedMcpBlock(targetContent)).digest('hex')
+        : (isManagedIgnore(action.contentStrategy)
+            ? createHash('sha256').update(extractManagedCbmIgnoreBlock(targetContent)).digest('hex')
         : (isManagedInstruction(action.contentStrategy)
             ? createHash('sha256').update(extractManagedInstructionBlock(targetContent) ?? '').digest('hex')
-            : undefined),
+            : undefined)),
       previousHash,
       originalBackup: backup,
       originalCreated: !existed,
@@ -852,6 +903,25 @@ export async function applyInstallPlan(plan, hooks = {}) {
       const remaining = removeManagedMcpBlock(content);
       if (remaining) await writeFile(action.target, remaining, 'utf8');
       else await rm(action.target, { force: true });
+      retired.push(action.relativeTarget);
+      discardedTargets.add(action.relativeTarget);
+      continue;
+    }
+    if (action.kind === 'retire-managed-ignore') {
+      if (!(await pathExists(action.target))) {
+        discardedTargets.add(action.relativeTarget);
+        continue;
+      }
+      const content = await readFile(action.target, 'utf8');
+      const blockHash = createHash('sha256').update(extractManagedCbmIgnoreBlock(content)).digest('hex');
+      if (blockHash !== action.expectedHash) {
+        skipped.push({ reason: 'managed-block-modified', target: action.relativeTarget });
+        continue;
+      }
+      const remaining = removeManagedCbmIgnoreBlock(content);
+      if (remaining) await writeFile(action.target, remaining, 'utf8');
+      else if (action.created) await rm(action.target, { force: true });
+      else await writeFile(action.target, '', 'utf8');
       retired.push(action.relativeTarget);
       discardedTargets.add(action.relativeTarget);
       continue;

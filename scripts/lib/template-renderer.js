@@ -1,4 +1,5 @@
 const defaultTemplateData = {
+  codebaseMemoryStateDirectory: '.cognis',
   governance: {
     mode: 'basic',
     workflow: 'strict',
@@ -16,6 +17,7 @@ const defaultTemplateData = {
     rulesLine: '- 规则位于 `docs/rules/`。',
     skillRoutingLine: '',
     skillsLine: '',
+    subagentsLine: '',
     templatesLine: '- 模板位于 `docs/templates/`。',
     toolingLine: '',
   },

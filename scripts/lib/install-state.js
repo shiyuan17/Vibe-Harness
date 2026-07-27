@@ -12,13 +12,19 @@ import {
 } from './manifest.js';
 import { canonicalProfile } from './project-config.js';
 import { extractManagedInstructionBlock, removeManagedInstructionBlock } from './template-renderer.js';
-import { extractManagedMcpBlock, removeManagedMcpBlock } from './tool-provisioning.js';
+import {
+  extractManagedCbmIgnoreBlock,
+  extractManagedMcpBlock,
+  removeManagedCbmIgnoreBlock,
+  removeManagedMcpBlock,
+} from './tool-provisioning.js';
 import { beginFileTransaction } from './file-transaction.js';
 import { productIdentity } from './product-identity.js';
 
 const stateFileName = 'install-state.json';
 const isManagedInstruction = (strategy) => ['managed-block', 'managed-instruction-block'].includes(strategy);
 const isManagedToml = (strategy) => ['managed-mcp-block', 'managed-toml-block'].includes(strategy);
+const isManagedIgnore = (strategy) => strategy === 'managed-ignore-block';
 
 export function toTargetPath(targetDir, filePath) {
   const relative = path.relative(targetDir, filePath).replaceAll('\\', '/');
@@ -188,7 +194,15 @@ export async function createRollbackPlan({ dryRun = true, redZoneConfirmed = fal
     assertPortableRelativePath(file.target, 'install-state target');
     const target = path.join(targetDir, file.target);
     assertInsideDir(targetDir, target, 'install-state target');
-    if (isManagedToml(file.contentStrategy)) {
+    if (isManagedIgnore(file.contentStrategy)) {
+      actions.push({
+        created: Boolean(file.created),
+        expectedManagedBlockHash: file.managedBlockHash,
+        kind: 'remove-managed-ignore-block',
+        redZone: Boolean(file.redZone),
+        target: file.target,
+      });
+    } else if (isManagedToml(file.contentStrategy)) {
       actions.push({
         expectedManagedBlockHash: file.managedBlockHash,
         kind: 'remove-managed-mcp-block',
@@ -316,6 +330,19 @@ export async function applyRollbackPlan(plan, hooks = {}) {
         continue;
       }
       await rm(target, { force: true });
+      applied.push(action.target);
+    } else if (action.kind === 'remove-managed-ignore-block' && await pathExists(target)) {
+      const content = await readFile(target, 'utf8');
+      const block = extractManagedCbmIgnoreBlock(content);
+      const blockHash = createHash('sha256').update(block).digest('hex');
+      if (!block || blockHash !== action.expectedManagedBlockHash) {
+        skipped.push({ reason: 'managed-block-modified', target: action.target });
+        continue;
+      }
+      const remaining = removeManagedCbmIgnoreBlock(content);
+      if (remaining) await writeFile(target, remaining, 'utf8');
+      else if (action.created) await rm(target, { force: true });
+      else await writeFile(target, '', 'utf8');
       applied.push(action.target);
     } else if (action.kind === 'remove-managed-mcp-block' && await pathExists(target)) {
       const content = await readFile(target, 'utf8');
@@ -465,6 +492,14 @@ export async function createUninstallPlan({ dryRun = true, redZoneConfirmed = fa
         redZone: Boolean(file.redZone),
         target: file.target,
       });
+    } else if (isManagedIgnore(file.contentStrategy)) {
+      actions.push({
+        created: Boolean(originalCreated),
+        expectedManagedBlockHash: file.managedBlockHash,
+        kind: 'remove-managed-ignore-block',
+        redZone: Boolean(file.redZone),
+        target: file.target,
+      });
     } else if (isManagedToml(file.contentStrategy)) {
       actions.push({
         expectedManagedBlockHash: file.managedBlockHash,
@@ -526,6 +561,18 @@ async function applyUninstallAction(plan, action) {
       assertInsideDir(path.join(plan.targetDir, '.agents', 'backup'), backupPath, 'uninstall baseline backup');
       await copyFile(backupPath, target);
     } else if (action.created) await rm(target, { force: true });
+    else await writeFile(target, '', 'utf8');
+    return null;
+  }
+  if (action.kind === 'remove-managed-ignore-block') {
+    if (!(await pathExists(target))) return null;
+    const content = await readFile(target, 'utf8');
+    const block = extractManagedCbmIgnoreBlock(content);
+    const blockHash = createHash('sha256').update(block).digest('hex');
+    if (!block || blockHash !== action.expectedManagedBlockHash) return 'managed-block-modified';
+    const remaining = removeManagedCbmIgnoreBlock(content);
+    if (remaining) await writeFile(target, remaining, 'utf8');
+    else if (action.created) await rm(target, { force: true });
     else await writeFile(target, '', 'utf8');
     return null;
   }

@@ -14,18 +14,31 @@ import { projectStateDir } from './project-layout.js';
 
 const managedMcpStart = '# COGNIS:MCP:START';
 const managedMcpEnd = '# COGNIS:MCP:END';
+const managedCbmIgnoreStart = '# COGNIS:CBM:START';
+const managedCbmIgnoreEnd = '# COGNIS:CBM:END';
 const legacyManagedMcpStart = '# LOOPENGINE:MCP:START';
 const legacyManagedMcpEnd = '# LOOPENGINE:MCP:END';
 const maxDiagnosticOutput = 8 * 1024;
 const maxToolOutput = 1024 * 1024;
 const execFileAsync = promisify(execFile);
 const cognisVersion = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8')).version;
+const codebaseMemoryWindowsBinaryHashes = new Map([
+  ['0.9.0', '9a205fa5ae759fbc866bfe1554f0c05a303be9ae6e0a00f94d875dc0c25e0680'],
+]);
 
 const toolSpecs = [
   {
     id: 'codebaseMemoryMcp',
     packageName: 'codebase-memory-mcp',
-    phases: ['dependency-install', 'binary-install', 'index', 'index-verify', 'mcp-handshake'],
+    phases: [
+      'dependency-install',
+      'binary-install',
+      'configure-auto-index',
+      'configure-auto-watch',
+      'index',
+      'index-verify',
+      'mcp-handshake',
+    ],
     relativeDir: '.agents/cognis/tools/codebase-memory-mcp',
     version: '0.9.0',
   },
@@ -185,6 +198,42 @@ export function mergeManagedMcpBlock(existingContent, servers) {
     conflicts,
     content: `${prefix ? `${prefix}\n\n` : ''}${block}\n`,
   };
+}
+
+function findManagedCbmIgnoreBlock(content) {
+  const starts = [...content.matchAll(new RegExp(managedCbmIgnoreStart, 'gu'))];
+  const ends = [...content.matchAll(new RegExp(managedCbmIgnoreEnd, 'gu'))];
+  if (starts.length === 0 && ends.length === 0) return null;
+  if (starts.length !== 1 || ends.length !== 1) {
+    throw new Error('Multiple Cognis codebase-memory ignore blocks are not allowed.');
+  }
+  const start = starts[0].index;
+  const end = ends[0].index;
+  if (end < start) throw new Error('Malformed Cognis codebase-memory ignore block.');
+  return { end, start };
+}
+
+function stripManagedCbmIgnoreBlock(content) {
+  const found = findManagedCbmIgnoreBlock(content);
+  if (!found) return content;
+  return `${content.slice(0, found.start)}${content.slice(found.end + managedCbmIgnoreEnd.length)}`
+    .replace(/\n{3,}/gu, '\n\n');
+}
+
+export function extractManagedCbmIgnoreBlock(content) {
+  const found = findManagedCbmIgnoreBlock(content);
+  return found ? content.slice(found.start, found.end + managedCbmIgnoreEnd.length) : '';
+}
+
+export function removeManagedCbmIgnoreBlock(content) {
+  const remaining = stripManagedCbmIgnoreBlock(content).trim();
+  return remaining ? `${remaining}\n` : '';
+}
+
+export function mergeManagedCbmIgnoreBlock(existingContent, managedContent) {
+  const unmanaged = stripManagedCbmIgnoreBlock(existingContent).trimEnd();
+  const block = [managedCbmIgnoreStart, managedContent.trim(), managedCbmIgnoreEnd].join('\n');
+  return `${unmanaged ? `${unmanaged}\n\n` : ''}${block}\n`;
 }
 
 function hasOcrCredentials(env) {
@@ -382,9 +431,10 @@ const packageManagerEnvironmentNames = new Set([
   'npm_config_prefer_offline', 'npm_config_registry',
 ]);
 
-const toolEnvironmentNames = Object.fromEntries(
-  toolSpecs.map((spec) => [spec.id, packageManagerEnvironmentNames]),
-);
+const toolEnvironmentNames = Object.fromEntries(toolSpecs.map((spec) => [
+  spec.id,
+  packageManagerEnvironmentNames,
+]));
 
 const toolCredentialNames = {
   openCodeReview: new Set([
@@ -413,6 +463,8 @@ async function componentEnvironment(spec, targetDir, env, { codebaseMemoryCacheD
       ...baseEnv,
       CBM_ALLOWED_ROOT: targetDir,
       CBM_CACHE_DIR: codebaseMemoryCacheDir ?? path.join(stateRoot, 'codebase-memory-mcp/cache'),
+      CBM_MEM_BUDGET_MB: '2048',
+      CBM_WORKERS: '2',
       npm_config_cache: npmCache,
     };
   }
@@ -520,6 +572,23 @@ async function phaseRequest(spec, phase, targetDir, env, context = {}) {
       env: componentEnv,
       phase,
       timeout: 600_000,
+    };
+  }
+  if (phase === 'configure-auto-index' || phase === 'configure-auto-watch') {
+    return {
+      args: [
+        path.join(spec.toolDir, 'run.mjs'),
+        'config',
+        'set',
+        phase === 'configure-auto-index' ? 'auto_index' : 'auto_watch',
+        'false',
+      ],
+      command: process.execPath,
+      component: spec.id,
+      cwd: targetDir,
+      env: componentEnv,
+      phase,
+      timeout: 120_000,
     };
   }
   if (phase === 'browser-smoke') {
@@ -749,7 +818,16 @@ function withOptionalToolIdentity(spec, state, platform, arch) {
   };
 }
 
-async function runToolPhases(spec, commandRunner, env, targetDir, phases = spec.phases, signal, ocrResolution) {
+async function runToolPhases(
+  spec,
+  commandRunner,
+  env,
+  targetDir,
+  phases = spec.phases,
+  signal,
+  ocrResolution,
+  codebaseMemoryRepair = repairCodebaseMemoryBinary,
+) {
   const context = {};
   const retriedCorruptIndex = new Set();
   for (const phase of phases) {
@@ -766,19 +844,28 @@ async function runToolPhases(spec, commandRunner, env, targetDir, phases = spec.
       request.signal = signal;
       request.timeout = boundedTimeout(env, request.timeout);
       const output = await commandRunner(request);
+      if (spec.id === 'codebaseMemoryMcp'
+        && phase === 'binary-install'
+        && !(await codebaseMemoryRuntimeAvailable(spec))
+        && !(await codebaseMemoryRepair(spec))) {
+        throw toolContractError(
+          'BINARY_INSTALL_INCOMPLETE',
+          'codebase-memory-mcp binary install completed without a usable runtime.',
+        );
+      }
       if (phase === 'index') context.indexProject = validateIndexResult(output);
       if (phase === 'index-verify') context.index = validateIndexStatus(output, targetDir);
     } catch (error) {
       if (spec.id === 'codebaseMemoryMcp'
         && phase === 'binary-install'
         && /(?:binary\s+not\s+found|download\s+failed|install\s+failed)/iu.test(`${error?.message ?? ''}\n${error?.stderr ?? ''}`)
-        && await repairCodebaseMemoryBinary(spec)) {
+        && await codebaseMemoryRepair(spec)) {
         continue;
       }
       if (spec.id === 'codebaseMemoryMcp'
         && phase === 'index'
         && /(?:binary\s+not\s+found|download\s+failed|install\s+failed)/iu.test(`${error?.message ?? ''}\n${error?.stderr ?? ''}`)
-        && await repairCodebaseMemoryBinary(spec)) {
+        && await codebaseMemoryRepair(spec)) {
         const retryRequest = await phaseRequest(spec, phase, targetDir, env, context);
         retryRequest.signal = signal;
         retryRequest.timeout = boundedTimeout(env, retryRequest.timeout);
@@ -874,19 +961,29 @@ async function reusableOptionalRuntime(spec, previousTool, platform, arch) {
   return await optionalRuntimeHash(spec, platform) === previousTool.binarySha256;
 }
 
-async function repairCodebaseMemoryBinary(spec) {
-  if (process.platform !== 'win32') return false;
+async function locateCodebaseMemoryBinary() {
+  const { stdout } = await execFileAsync('where.exe', ['codebase-memory-mcp'], { windowsHide: true });
+  return stdout.split(/\r?\n/u).map((line) => line.trim()).find(Boolean);
+}
+
+export async function repairCodebaseMemoryBinary(spec, {
+  locateBinary = locateCodebaseMemoryBinary,
+  platform = process.platform,
+} = {}) {
+  if (platform !== 'win32') return false;
   try {
-    const { stdout } = await execFileAsync('where.exe', ['codebase-memory-mcp'], { windowsHide: true });
-    const source = stdout.split(/\r?\n/u).map((line) => line.trim()).find(Boolean);
+    const source = await locateBinary();
     if (!source) return false;
-    const { stdout: version } = await execFileAsync(source, ['--version'], { windowsHide: true });
-    if (!version.includes(spec.version)) return false;
+    const expectedHash = codebaseMemoryWindowsBinaryHashes.get(spec.version);
+    if (!expectedHash) return false;
+    const sourceHash = createHash('sha256').update(await readFile(source)).digest('hex');
+    if (sourceHash !== expectedHash) return false;
     const destination = path.join(spec.toolDir, 'node_modules/codebase-memory-mcp/bin/codebase-memory-mcp.exe');
     await assertSafePathInside(spec.toolDir, destination, 'codebase-memory binary');
     await mkdir(path.dirname(destination), { recursive: true });
     await copyFile(source, destination);
-    return true;
+    const destinationHash = createHash('sha256').update(await readFile(destination)).digest('hex');
+    return destinationHash === expectedHash;
   } catch {
     return false;
   }
@@ -937,7 +1034,7 @@ export async function inspectProvisioningMarker(targetDir) {
   }
 }
 
-export async function provisionProfileTools({ allowPreview = false, arch = process.arch, commandRunner, env = process.env, force = false, mcpConflicts = [], ocrHomeDir, platform = process.platform, profile, resolvedModules, runtimeVersionRunner = defaultRuntimeVersionRunner, signal, targetDir, toolIds }) {
+export async function provisionProfileTools({ allowPreview = false, arch = process.arch, codebaseMemoryRepair = repairCodebaseMemoryBinary, commandRunner, env = process.env, force = false, mcpConflicts = [], ocrHomeDir, platform = process.platform, profile, resolvedModules, runtimeVersionRunner = defaultRuntimeVersionRunner, signal, targetDir, toolIds }) {
   const plan = createToolProvisioningPlan({ allowPreview, profile, resolvedModules, targetDir, toolIds });
   const ocrResolution = await resolveOcrEndpoint({ env, homeDir: ocrHomeDir });
   const provisionEnv = { ...env, ...(ocrResolution.env ?? {}) };
@@ -1023,7 +1120,16 @@ export async function provisionProfileTools({ allowPreview = false, arch = proce
       : spec.phases;
     try {
       if (effectiveCommandRunner) {
-        tools[spec.id] = await runToolPhases(spec, effectiveCommandRunner, provisionEnv, targetDir, phases, signal, ocrResolution);
+        tools[spec.id] = await runToolPhases(
+          spec,
+          effectiveCommandRunner,
+          provisionEnv,
+          targetDir,
+          phases,
+          signal,
+          ocrResolution,
+          codebaseMemoryRepair,
+        );
       } else if (spec.id === 'playwrightCli') {
         const runCommand = async (command, args, options) => defaultCommandRunner({
           args,
@@ -1041,7 +1147,16 @@ export async function provisionProfileTools({ allowPreview = false, arch = proce
         });
         tools[spec.id] = result.status === 'ready' ? ready(spec) : { phase: 'browser-install', status: 'degraded', version: spec.version };
       } else {
-        tools[spec.id] = await runToolPhases(spec, defaultPhaseRunner, provisionEnv, targetDir, phases, signal, ocrResolution);
+        tools[spec.id] = await runToolPhases(
+          spec,
+          defaultPhaseRunner,
+          provisionEnv,
+          targetDir,
+          phases,
+          signal,
+          ocrResolution,
+          codebaseMemoryRepair,
+        );
       }
     } catch (error) {
       if (signal?.aborted || error.code === 'TOOL_CANCELLED') throw error;

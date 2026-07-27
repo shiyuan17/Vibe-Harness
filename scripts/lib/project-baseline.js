@@ -203,6 +203,7 @@ function renderReport(baseline) {
 - 工具插件：${baseline.installation.requestedPlugins.length ? baseline.installation.requestedPlugins.map((plugin) => `\`${plugin}\``).join('、') : '未选择'}
 - 安装状态：${baseline.installation.status}
 - 漂移状态：${baseline.drift.status}
+- 子智能体：${baseline.installation.subagents.status}（${baseline.installation.subagents.reason}）
 
 ## 项目事实
 
@@ -252,6 +253,7 @@ export async function createProjectBaseline({
   projectProfile,
   target,
   targetDir,
+  subagents,
   tools,
   verify = false,
   write = false,
@@ -285,6 +287,7 @@ export async function createProjectBaseline({
       requestedPlugins: installState.requestedPlugins ?? [],
       resolvedModules: installState.resolvedModules ?? [],
       status: 'consistent',
+      subagents,
       tools: publicToolStates,
       version: installState.version,
     },

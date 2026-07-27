@@ -32,6 +32,16 @@
       "evaluation": { "required": true, "suites": ["evals/suites/cognis-core.json"] }
     },
     {
+      "id": "handoff-independent-verification",
+      "source": "v3 Handoff and independent Tester/Reviewer governance",
+      "disposition": "validator",
+      "targets": ["adapters/codex/agents/cognis_tester.toml", "adapters/codex/agents/cognis_reviewer.toml", "runtime/hooks/lib/subagent-receipts.mjs", "runtime/governance/lib/handoff-validation.mjs", "schemas/handoff-record.schema.json", "schemas/subagent-receipt.schema.json", "schemas/full-task-control.schema.json", "scripts/lib/subagent-health.js"],
+      "tests": ["tests/handoff-governance.test.js", "tests/hook-runtime.test.js", "tests/codex-adapter.test.js", "tests/cross-platform-adapters.test.js"],
+      "profiles": ["full"],
+      "docs": ["docs/specs/cognis-v0.9-handoff-independent-verification-spec.md", "docs/architecture.md", "docs/hooks.md", "docs/migration-guide.md", "README.md", "README.zh-CN.md"],
+      "evaluation": { "required": true, "suites": ["evals/suites/cognis-core.json"] }
+    },
+    {
       "id": "skill-routing",
       "source": "native Skill descriptions and AGENT_SKILL_ROUTING.md",
       "disposition": "generalize",

@@ -9,7 +9,8 @@ import { aliasPathForRoot, replaceAliasInStatusOutput } from './path-alias.mjs';
 const toolDir = path.dirname(fileURLToPath(import.meta.url));
 const entry = path.join(toolDir, 'node_modules/codebase-memory-mcp/bin.js');
 const allowedEnvironmentNames = new Set([
-  'ALL_PROXY', 'APPDATA', 'CBM_ALLOWED_ROOT', 'CBM_CACHE_DIR', 'COMSPEC', 'HOME', 'HTTPS_PROXY',
+  'ALL_PROXY', 'APPDATA', 'CBM_ALLOWED_ROOT', 'CBM_CACHE_DIR', 'CBM_MEM_BUDGET_MB', 'CBM_WORKERS',
+  'COMSPEC', 'HOME', 'HTTPS_PROXY',
   'HTTP_PROXY', 'LANG', 'LC_ALL', 'LC_CTYPE', 'LOCALAPPDATA', 'NO_PROXY', 'PATH', 'Path',
   'PATHEXT', 'PROGRAMDATA', 'ProgramData', 'SHELL', 'SSL_CERT_DIR', 'SSL_CERT_FILE', 'SystemRoot',
   'TEMP', 'TMP', 'TMPDIR', 'USERPROFILE', 'WINDIR', 'all_proxy', 'https_proxy', 'http_proxy',

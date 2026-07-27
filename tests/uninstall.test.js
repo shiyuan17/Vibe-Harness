@@ -69,6 +69,27 @@ test('MVP uninstall previews then removes managed assets while retaining local p
   }
 });
 
+test('uninstall preserves an existing empty codebase-memory ignore file', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-uninstall-empty-cbmignore-'));
+  try {
+    await runCli(['init', '--project', target, '--profile', 'full']);
+    await writeFile(path.join(target, '.cbmignore'), '', 'utf8');
+    await runCli([
+      'install', '--project', target, '--target', 'codex', '--profile', 'full',
+      '--plugin', 'codebase-memory', '--write', '--force', '--confirm-red-zone',
+    ]);
+
+    await runCli([
+      'uninstall', '--project', target, '--target', 'codex', '--write', '--confirm-red-zone',
+    ]);
+
+    assert.equal(await exists(path.join(target, '.cbmignore')), true);
+    assert.equal(await readFile(path.join(target, '.cbmignore'), 'utf8'), '');
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
 test('MVP uninstall keeps modified ownership state and succeeds after the file is restored', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'cognis-uninstall-retry-'));
   try {

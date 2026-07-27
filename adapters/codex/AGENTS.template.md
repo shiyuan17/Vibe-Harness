@@ -31,6 +31,7 @@
 {{installedSurface.operationalRulesLine}}
 {{installedSurface.templatesLine}}
 {{installedSurface.skillsLine}}
+{{installedSurface.subagentsLine}}
 {{installedSurface.memorySkillsLine}}
 {{installedSurface.hooksLine}}
 {{installedSurface.toolingLine}}

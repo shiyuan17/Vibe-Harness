@@ -11,9 +11,12 @@ import { createInstallPlan, previewInstallPlan } from '../scripts/lib/install-pl
 import { resolveOcrEndpoint } from '../scripts/lib/ocr-config.js';
 import {
   createToolProvisioningPlan,
+  mergeManagedCbmIgnoreBlock,
   inspectProfileTools,
   mergeManagedMcpBlock,
   provisionProfileTools,
+  repairCodebaseMemoryBinary,
+  removeManagedCbmIgnoreBlock,
   runMcpHandshake,
 } from '../scripts/lib/tool-provisioning.js';
 
@@ -273,6 +276,20 @@ test('provisioning continues after one component fails and never persists comman
     assert.equal(report.openCodeReview.status, 'ready');
     assert.equal(calls.some((call) => call.component === 'openCodeReview' && call.phase === 'llm-test'), true);
     const index = calls.find((call) => call.component === 'codebaseMemoryMcp' && call.phase === 'index');
+    assert.deepEqual(calls
+      .filter((call) => call.component === 'codebaseMemoryMcp')
+      .map((call) => call.phase)
+      .slice(0, 5), [
+      'dependency-install',
+      'binary-install',
+      'configure-auto-index',
+      'configure-auto-watch',
+      'index',
+    ]);
+    const configureAutoIndex = calls.find((call) => call.component === 'codebaseMemoryMcp' && call.phase === 'configure-auto-index');
+    const configureAutoWatch = calls.find((call) => call.component === 'codebaseMemoryMcp' && call.phase === 'configure-auto-watch');
+    assert.deepEqual(configureAutoIndex.args.slice(1), ['config', 'set', 'auto_index', 'false']);
+    assert.deepEqual(configureAutoWatch.args.slice(1), ['config', 'set', 'auto_watch', 'false']);
     assert.deepEqual(index.args.slice(1), [
       'cli', 'index_repository',
       '--repo-path', '.',
@@ -281,6 +298,8 @@ test('provisioning continues after one component fails and never persists comman
     ]);
     assert.equal(index.env.CBM_ALLOWED_ROOT, targetDir);
     assert.equal(index.env.CBM_CACHE_DIR.startsWith(targetDir), true);
+    assert.equal(index.env.CBM_MEM_BUDGET_MB, '2048');
+    assert.equal(index.env.CBM_WORKERS, '2');
     const state = await readFile(path.join(targetDir, '.cognis/tool-state/tools.json'), 'utf8');
     assert.equal(state.includes('connect ETIMEDOUT for <project>'), true);
     assert.equal(state.includes('super-secret-token'), false);
@@ -410,7 +429,7 @@ test('real codebase-memory provisioning creates a verified project-local index',
 
     await mkdir(toolDir, { recursive: true });
     await writeFile(path.join(targetDir, 'example.js'), 'export const indexedValue = 42;\n', 'utf8');
-    for (const file of ['package.json', 'package-lock.json', 'run.mjs', 'ocr-config.mjs']) {
+    for (const file of ['package.json', 'package-lock.json', 'run.mjs', 'path-alias.mjs']) {
       await copyFile(path.join(runtimeSource, file), path.join(toolDir, file));
     }
 
@@ -597,6 +616,8 @@ test('ready tools reuse package phases while codebase-memory reindexes and verif
     await provisionProfileTools({ allowPreview: true, commandRunner: runner, env, profile: 'full', resolvedModules: PROFILE_TOOL_MODULES, targetDir });
     const repeatedCalls = calls.slice(firstCallCount);
     assert.deepEqual(repeatedCalls.map((call) => [call.component, call.phase]), [
+      ['codebaseMemoryMcp', 'configure-auto-index'],
+      ['codebaseMemoryMcp', 'configure-auto-watch'],
       ['codebaseMemoryMcp', 'index'],
       ['codebaseMemoryMcp', 'index-verify'],
       ['codebaseMemoryMcp', 'mcp-handshake'],
@@ -609,7 +630,7 @@ test('ready tools reuse package phases while codebase-memory reindexes and verif
     await provisionProfileTools({ allowPreview: true, commandRunner: runner, env, profile: 'full', resolvedModules: PROFILE_TOOL_MODULES, targetDir });
     const newCalls = calls.slice(beforeChangedLock);
     assert.deepEqual(newCalls.filter((call) => call.component === 'codebaseMemoryMcp').map((call) => call.phase), [
-      'index', 'index-verify', 'mcp-handshake',
+      'configure-auto-index', 'configure-auto-watch', 'index', 'index-verify', 'mcp-handshake',
     ]);
     assert.equal(newCalls.some((call) => call.component === 'openCodeReview'), true);
   } finally {
@@ -642,7 +663,8 @@ test('a missing codebase-memory runtime bypasses package reuse and reinstalls be
     assert.deepEqual(calls.slice(beforeRepair)
       .filter((call) => call.component === 'codebaseMemoryMcp')
       .map((call) => call.phase), [
-      'dependency-install', 'binary-install', 'index', 'index-verify', 'mcp-handshake',
+      'dependency-install', 'binary-install', 'configure-auto-index', 'configure-auto-watch',
+      'index', 'index-verify', 'mcp-handshake',
     ]);
   } finally {
     await rm(targetDir, { force: true, recursive: true });
@@ -656,6 +678,9 @@ test('a missing Chrome DevTools runtime bypasses dependency reuse before browser
   const calls = [];
   const runner = async (request) => {
     calls.push(request);
+    if (request.component === 'codebaseMemoryMcp' && request.phase === 'binary-install') {
+      await seedCodebaseMemoryRuntime(codebaseMemory.toolDir);
+    }
     return successfulToolOutput(request, targetDir);
   };
   try {
@@ -669,6 +694,99 @@ test('a missing Chrome DevTools runtime bypasses dependency reuse before browser
     await provisionProfileTools({ commandRunner: runner, env: {}, profile: 'full', resolvedModules: ['chrome-devtools'], targetDir });
 
     assert.deepEqual(calls.slice(beforeRepair).map((call) => call.phase), ['dependency-install', 'browser-smoke']);
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('a successful codebase-memory binary install repairs a still-missing runtime before configuration', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-runtime-false-success-'));
+  const plan = createToolProvisioningPlan({ profile: 'full', resolvedModules: ['codebase-memory'], targetDir });
+  const codebaseMemory = plan.find((tool) => tool.id === 'codebaseMemoryMcp');
+  const calls = [];
+  let repairCalls = 0;
+  try {
+    await mkdir(codebaseMemory.toolDir, { recursive: true });
+    await writeFile(path.join(codebaseMemory.toolDir, 'package-lock.json'), 'codebaseMemoryMcp\n', 'utf8');
+    await mkdir(path.join(codebaseMemory.toolDir, 'node_modules/codebase-memory-mcp'), { recursive: true });
+    await writeFile(
+      path.join(codebaseMemory.toolDir, 'node_modules/codebase-memory-mcp/bin.js'),
+      'runtime shim\n',
+      'utf8',
+    );
+
+    const report = await provisionProfileTools({
+      codebaseMemoryRepair: async (spec) => {
+        repairCalls += 1;
+        await seedCodebaseMemoryRuntime(spec.toolDir);
+        return true;
+      },
+      commandRunner: async (request) => {
+        calls.push(request);
+        return successfulToolOutput(request, targetDir);
+      },
+      env: {},
+      profile: 'full',
+      resolvedModules: ['codebase-memory'],
+      targetDir,
+    });
+
+    assert.equal(report.codebaseMemoryMcp.status, 'ready');
+    assert.equal(repairCalls, 1);
+    assert.deepEqual(calls.map((call) => call.phase), [
+      'dependency-install', 'binary-install', 'configure-auto-index', 'configure-auto-watch',
+      'index', 'index-verify', 'mcp-handshake',
+    ]);
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('codebase-memory provisioning fixes resource limits even when the parent environment overrides them', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-resource-defaults-'));
+  const plan = createToolProvisioningPlan({ profile: 'full', resolvedModules: ['codebase-memory'], targetDir });
+  const codebaseMemory = plan.find((tool) => tool.id === 'codebaseMemoryMcp');
+  const calls = [];
+  try {
+    await mkdir(codebaseMemory.toolDir, { recursive: true });
+    await writeFile(path.join(codebaseMemory.toolDir, 'package-lock.json'), 'codebaseMemoryMcp\n', 'utf8');
+    const report = await provisionProfileTools({
+      commandRunner: async (request) => {
+        calls.push(request);
+        if (request.phase === 'binary-install') await seedCodebaseMemoryRuntime(codebaseMemory.toolDir);
+        return successfulToolOutput(request, targetDir);
+      },
+      env: { CBM_MEM_BUDGET_MB: '99999', CBM_WORKERS: '999' },
+      profile: 'full',
+      resolvedModules: ['codebase-memory'],
+      targetDir,
+    });
+
+    assert.equal(report.codebaseMemoryMcp.status, 'ready');
+    for (const request of calls) {
+      assert.equal(request.env.CBM_MEM_BUDGET_MB, '2048');
+      assert.equal(request.env.CBM_WORKERS, '2');
+    }
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('codebase-memory PATH repair rejects an untrusted binary before copying it', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-untrusted-runtime-'));
+  const spec = createToolProvisioningPlan({ profile: 'full', resolvedModules: ['codebase-memory'], targetDir })[0];
+  const untrustedBinary = path.join(targetDir, 'codebase-memory-mcp.exe');
+  try {
+    await writeFile(untrustedBinary, 'untrusted binary\n', 'utf8');
+    const repaired = await repairCodebaseMemoryBinary(spec, {
+      locateBinary: async () => untrustedBinary,
+      platform: 'win32',
+    });
+    assert.equal(repaired, false);
+    await assert.rejects(
+      readFile(path.join(spec.toolDir, 'node_modules/codebase-memory-mcp/bin/codebase-memory-mcp.exe')),
+      /ENOENT/u,
+    );
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }
@@ -771,6 +889,7 @@ test('full install map includes project-local runtimes and managed Codex MCP con
     const coreTargets = core.actions.map((action) => action.relativeTarget);
 
     assert.equal(fullTargets.includes('.agents/cognis/tools/codebase-memory-mcp/package-lock.json'), true);
+    assert.equal(fullTargets.includes('.cbmignore'), true);
     assert.equal(fullTargets.includes('.agents/cognis/tools/chrome-devtools-mcp/package-lock.json'), true);
     assert.equal(fullTargets.includes('.agents/cognis/tools/open-code-review/package-lock.json'), true);
     assert.equal(fullTargets.includes('.codex/config.toml'), true);
@@ -781,8 +900,12 @@ test('full install map includes project-local runtimes and managed Codex MCP con
     assert.equal(full.generatedDirectories.some((item) => item.target === '.cognis/tool-state/codebase-memory-mcp'), true);
 
     const config = (await previewInstallPlan(full)).find((file) => file.target === '.codex/config.toml');
+    const cbmignore = (await previewInstallPlan(full)).find((file) => file.target === '.cbmignore');
     assert.equal(full.actions.find((action) => action.relativeTarget === '.codex/config.toml').redZone, true);
     assert.match(config.content, /# COGNIS:MCP:START[\s\S]*mcp_servers\.chrome-devtools[\s\S]*mcp_servers\.codebase-memory-mcp/u);
+    assert.match(config.content, /CBM_MEM_BUDGET_MB = "2048"/u);
+    assert.match(config.content, /CBM_WORKERS = "2"/u);
+    assert.match(cbmignore.content, /# COGNIS:CBM:START[\s\S]*\/\.agents\/[\s\S]*# COGNIS:CBM:END/u);
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }
@@ -824,6 +947,47 @@ test('tool command cancellation terminates the child before rejecting', async ()
   setTimeout(() => controller.abort(), 50);
 
   await assert.rejects(running, (error) => error.code === 'TOOL_CANCELLED');
+});
+
+test('codebase-memory ignore block preserves user rules and requires force for unmanaged files', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-cbmignore-'));
+  try {
+    const userContent = '# user rules\n/keep-private/\n';
+    await writeFile(path.join(targetDir, '.cbmignore'), userContent, 'utf8');
+
+    const blocked = await createInstallPlan({
+      dryRun: true,
+      force: false,
+      profile: 'full',
+      requestedPlugins: ['codebase-memory'],
+      rootDir,
+      targetDir,
+    });
+    assert.equal(blocked.actions.find((action) => action.relativeTarget === '.cbmignore').kind, 'conflict');
+
+    const forced = await createInstallPlan({
+      dryRun: true,
+      force: true,
+      profile: 'full',
+      requestedPlugins: ['codebase-memory'],
+      rootDir,
+      targetDir,
+    });
+    const preview = (await previewInstallPlan(forced)).find((file) => file.target === '.cbmignore');
+    assert.match(preview.content, /# user rules[\s\S]*\/keep-private\/[\s\S]*# COGNIS:CBM:START/u);
+    assert.equal(removeManagedCbmIgnoreBlock(preview.content), userContent);
+
+    const updated = mergeManagedCbmIgnoreBlock(preview.content, '/.agents/\n/.cognis/');
+    assert.equal((updated.match(/# COGNIS:CBM:START/gu) ?? []).length, 1);
+    assert.match(updated, /\/keep-private\/[\s\S]*\/\.agents\/[\s\S]*\/\.cognis\//u);
+
+    assert.throws(
+      () => mergeManagedCbmIgnoreBlock(`${preview.content}\n${preview.content}`, '/.agents/'),
+      /multiple Cognis codebase-memory ignore blocks/iu,
+    );
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
 });
 
 test('MCP handshake cancellation terminates the process and rejects as TOOL_CANCELLED', async () => {
@@ -1183,7 +1347,7 @@ test('OCR endpoint resolver returns pending-config and redacted diagnostics for 
 
 test('installed tool wrappers enforce runtime environment allowlists', async () => {
   const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-runtime-env-'));
-  const fixtureSource = 'console.log(JSON.stringify({ cbmRoot: process.env.CBM_ALLOWED_ROOT, openai: process.env.OPENAI_API_KEY, sentinel: process.env.COGNIS_SECRET_SENTINEL }));\n';
+  const fixtureSource = 'console.log(JSON.stringify({ cbmRoot: process.env.CBM_ALLOWED_ROOT, cbmMemory: process.env.CBM_MEM_BUDGET_MB, cbmWorkers: process.env.CBM_WORKERS, openai: process.env.OPENAI_API_KEY, sentinel: process.env.COGNIS_SECRET_SENTINEL }));\n';
   const cases = [
     {
       entry: 'node_modules/@alibaba-group/open-code-review/bin/ocr.js',
@@ -1192,7 +1356,7 @@ test('installed tool wrappers enforce runtime environment allowlists', async () 
     },
     {
       entry: 'node_modules/codebase-memory-mcp/bin.js',
-      expected: { cbmRoot: targetDir },
+      expected: { cbmMemory: '2048', cbmRoot: targetDir, cbmWorkers: '2' },
       runtime: 'codebase-memory-mcp',
     },
   ];
@@ -1220,6 +1384,8 @@ test('installed tool wrappers enforce runtime environment allowlists', async () 
         env: {
           ...process.env,
           CBM_ALLOWED_ROOT: targetDir,
+          CBM_MEM_BUDGET_MB: '2048',
+          CBM_WORKERS: '2',
           COGNIS_SECRET_SENTINEL: 'must-not-leak',
           OPENAI_API_KEY: 'ocr-secret',
         },

@@ -58,6 +58,7 @@ import { inspectTransactions, recoverTransaction } from './lib/file-transaction.
 import { resolveProjectConfigLocation } from './lib/project-layout.js';
 import { readProductEnv } from './lib/product-identity.js';
 import { inspectTaskContracts } from '../runtime/governance/lib/task-validation.mjs';
+import { inspectSubagentHealth } from './lib/subagent-health.js';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -193,10 +194,12 @@ function emitReport(report, args, { error = false } = {}) {
       ...(Array.isArray(normalized.requestedPlugins) ? [`plugins: ${normalized.requestedPlugins.length ? normalized.requestedPlugins.join(',') : 'none'}`] : []),
       ...(normalized.rtkHooks ? [`rtkHooks: ${normalized.rtkHooks.status} (enabled=${normalized.rtkHooks.enabled})`] : []),
       ...(normalized.rtkHooks && normalized.rtkHooks.status !== 'ready' ? [`rtkHooksReason: ${summaryText(normalized.rtkHooks.reason)}`] : []),
+      ...(normalized.subagents ? [`subagents: ${normalized.subagents.status} (support=${normalized.subagents.support}, tester=${normalized.subagents.roles.tester}, reviewer=${normalized.subagents.roles.reviewer}, sealed=${normalized.subagents.receipts.sealed}, invalid=${normalized.subagents.receipts.invalid})`] : []),
+      ...(normalized.subagents && !['ready', 'planned', 'disabled'].includes(normalized.subagents.status) ? [`subagentsReason: ${summaryText(normalized.subagents.reason)}`] : []),
       ...(typeof normalized.target === 'string' ? [`target: ${normalized.target}`] : []),
       ...(normalized.dryRun !== undefined ? [`dryRun: ${normalized.dryRun}`] : []),
       `warnings: ${normalized.warnings.length}`,
-      ...(normalized.taskContracts ? [`taskContracts: v2=${normalized.taskContracts.version2}, legacy=${normalized.taskContracts.legacy}, parents=${normalized.taskContracts.parents}, children=${normalized.taskContracts.children}`] : []),
+      ...(normalized.taskContracts ? [`taskContracts: v3=${normalized.taskContracts.version3}, v2=${normalized.taskContracts.version2}, legacy=${normalized.taskContracts.legacy}, parents=${normalized.taskContracts.parents}, children=${normalized.taskContracts.children}`] : []),
       ...toolSummaryLines(normalized.tools, normalized.recommendations),
     ];
     (error ? console.error : console.log)(lines.join('\n'));
@@ -413,6 +416,12 @@ async function install(args) {
     await registerGeneratedFile(targetDir, toolStateRelativePath(targetDir));
   }
   const health = provisionExecuted ? healthReport({ profile, tools }) : { ok: true, status: 'ready' };
+  const subagents = await inspectSubagentHealth({
+    adapter,
+    plannedTargets: plan.dryRun ? plan.actions.filter((action) => action.kind === 'write').map((action) => action.relativeTarget) : undefined,
+    profile,
+    targetDir,
+  });
   const warnings = provisionExecuted
     ? toolWarnings(tools)
     : (plannedToolActions.length > 0 ? [{
@@ -446,6 +455,7 @@ async function install(args) {
     requestedModules: plan.requestedModules,
     requestedPlugins: plan.requestedPlugins,
     resolvedModules: plan.resolvedModules,
+    subagents,
     rtkHooks: rtkHooksReport(plan.rtkHooksEnabled, tools),
     requiresRedZoneConfirmation: plan.dryRun
       && !args['confirm-red-zone']
@@ -696,6 +706,7 @@ async function baseline(args) {
     projectProfile,
     target,
     targetDir,
+    subagents: await inspectSubagentHealth({ adapter, profile: config.profile, targetDir }),
     verify: Boolean(args.verify),
     write: Boolean(args.write),
   });
@@ -848,12 +859,14 @@ async function doctor(args) {
     const validationCommands = resolveValidationCommands(config, projectProfile, governanceMode);
     renderData = { ...config, profile, governance: { mode: governanceMode, workflow: governanceWorkflow }, projectProfile, validationCommands };
   }
-  const [pack, gitHooks, provisioningProcess, transactions, transactionLock] = await Promise.all([
+  const adapter = await resolveAdapter(rootDir, args.target ?? installState?.adapter ?? config.target);
+  const [pack, gitHooks, provisioningProcess, transactions, transactionLock, subagents] = await Promise.all([
     validatePack(rootDir),
     inspectGitHooks(targetDir),
     inspectProvisioningMarker(targetDir),
     inspectTransactions(targetDir),
     pathExists(path.join(path.dirname(stateFilePath(targetDir)), 'transaction.lock')),
+    inspectSubagentHealth({ adapter, profile, targetDir }),
   ]);
   let target = await inspectTargetInstall({
     managedAgentsBlock: true,
@@ -887,6 +900,7 @@ async function doctor(args) {
     ...(args.verbose ? { rootDir } : {}),
     target,
     taskContracts,
+    subagents,
     ...(args.verbose ? { targetDir } : {}),
     tools,
     transactionLock,
@@ -903,7 +917,11 @@ async function doctor(args) {
       }] : []),
       ...(taskContracts.legacyMultiAgent > 0 ? [{
         code: 'TASK_CONTROL_V1_LEGACY',
-        message: `${taskContracts.legacyMultiAgent} legacy parent/child task contract(s) remain readable but should migrate to control version 2.`,
+        message: `${taskContracts.legacyMultiAgent} legacy parent/child task contract(s) remain readable; migrate unfinished work to control version 3 before enabling Handoff gates.`,
+      }] : []),
+      ...(['degraded', 'missing', 'invalid'].includes(subagents.status) ? [{
+        code: 'SUBAGENT_CAPABILITY_DEGRADED',
+        message: subagents.reason,
       }] : []),
     ],
   }, args);

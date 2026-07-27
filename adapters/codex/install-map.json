@@ -183,6 +183,18 @@
     },
     {
       "group": "schemas-core",
+      "source": "schemas/handoff-record.schema.json",
+      "target": "docs/schemas/handoff-record.schema.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "schemas-core",
+      "source": "schemas/subagent-receipt.schema.json",
+      "target": "docs/schemas/subagent-receipt.schema.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "schemas-core",
       "source": "schemas/eval-suite.schema.json",
       "target": "docs/schemas/eval-suite.schema.json",
       "contentStrategy": "replace"
@@ -247,6 +259,12 @@
       "group": "runtime-task",
       "source": "runtime/governance/lib/task-validation.mjs",
       "target": ".agents/cognis/governance/lib/task-validation.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-task",
+      "source": "runtime/governance/lib/handoff-validation.mjs",
+      "target": ".agents/cognis/governance/lib/handoff-validation.mjs",
       "contentStrategy": "replace"
     },
     {
@@ -316,6 +334,12 @@
       "target": ".agents/cognis/tools/chrome-devtools-mcp/run.mjs",
       "executable": true,
       "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-codebase-memory",
+      "source": "runtime/tools/codebase-memory-mcp/cbmignore.template",
+      "target": ".cbmignore",
+      "contentStrategy": "managed-ignore-block"
     },
     {
       "group": "tools-codebase-memory",
@@ -577,6 +601,20 @@
       "contentStrategy": "replace"
     },
     {
+      "group": "codex-subagents",
+      "source": "adapters/codex/agents/cognis_tester.toml",
+      "target": ".codex/agents/cognis_tester.toml",
+      "redZone": true,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "codex-subagents",
+      "source": "adapters/codex/agents/cognis_reviewer.toml",
+      "target": ".codex/agents/cognis_reviewer.toml",
+      "redZone": true,
+      "contentStrategy": "replace"
+    },
+    {
       "group": "hooks",
       "source": "runtime/hooks/README.md",
       "target": ".agents/cognis/hooks/README.md",
@@ -612,6 +650,12 @@
       "group": "hooks",
       "source": "runtime/hooks/lib/policy.mjs",
       "target": ".agents/cognis/hooks/lib/policy.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "hooks",
+      "source": "runtime/hooks/lib/subagent-receipts.mjs",
+      "target": ".agents/cognis/hooks/lib/subagent-receipts.mjs",
       "contentStrategy": "replace"
     },
     {

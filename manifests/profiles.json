@@ -14,7 +14,7 @@
     {
       "id": "full",
       "description": "完整治理安装：通用安装加三个领域 skills、完整规则、在线评测和 Codex hooks；memory 与外部工具通过 --plugin 显式启用。",
-      "groups": ["agents", "rules-minimal", "rules-core", "rules-full", "templates-minimal", "templates-core", "templates-full", "schemas-core", "runtime-basic", "runtime-task", "runtime-full", "runtime-eval", "runtime-eval-online", "skills-core", "skills-full", "evals-core", "evals-online", "hooks"]
+      "groups": ["agents", "rules-minimal", "rules-core", "rules-full", "templates-minimal", "templates-core", "templates-full", "schemas-core", "runtime-basic", "runtime-task", "runtime-full", "runtime-eval", "runtime-eval-online", "skills-core", "skills-full", "evals-core", "evals-online", "hooks", "codex-subagents"]
     },
     {
       "id": "docs-only",

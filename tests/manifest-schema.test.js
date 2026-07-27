@@ -69,6 +69,13 @@ test('project baseline schema rejects unknown fields', async () => {
       requestedPlugins: [],
       resolvedModules: ['agents', 'rules', 'templates'],
       status: 'consistent',
+      subagents: {
+        support: 'stable',
+        status: 'disabled',
+        roles: { reviewer: 'missing', tester: 'missing' },
+        receipts: { status: 'absent', started: 0, continuationRequested: 0, sealed: 0, invalid: 0 },
+        reason: 'The selected profile does not install independent subagent roles.',
+      },
       tools: {},
       version: '0.3.0',
     },

@@ -118,11 +118,16 @@ for (const adapter of [
       const doctor = await run(['doctor', '--project', target]);
       assert.equal(validation.status, 'ready');
       assert.equal(doctor.status, 'ready');
+      assert.equal(doctor.subagents.support, 'unsupported');
+      assert.equal(doctor.subagents.status, 'degraded');
+      assert.match(doctor.subagents.reason, /manual-equivalent Tester and Reviewer evidence/u);
       for (const skill of ['clarify-requirements', 'systematic-debugging', 'eval-driven-development', 'security-and-hardening', 'api-and-interface-design', 'frontend-design', 'runtime-cross-repo-rollout']) {
         assert.equal(await exists(path.join(target, adapter.skills, skill, 'SKILL.md')), true);
         assert.equal(await exists(path.join(target, adapter.skills, skill, 'agents/openai.yaml')), false);
       }
       assert.equal(await exists(path.join(target, '.codex/hooks.json')), false);
+      assert.equal(await exists(path.join(target, '.codex/agents/cognis_tester.toml')), false);
+      assert.equal(await exists(path.join(target, '.codex/agents/cognis_reviewer.toml')), false);
     } finally {
       await rm(target, { force: true, recursive: true });
     }
@@ -152,7 +157,7 @@ test('adapter catalog gates preview profiles and rejects target mismatch', async
 
 test('adapter capability v2 uses explicit support levels for every governed surface', async () => {
   const catalog = JSON.parse(await readFile(path.join(rootDir, 'manifests/adapters.json'), 'utf8'));
-  const capabilityNames = ['instructions', 'skills', 'hooks', 'policy', 'mcp', 'sandbox', 'memory', 'plugin'];
+  const capabilityNames = ['instructions', 'skills', 'hooks', 'policy', 'mcp', 'sandbox', 'memory', 'plugin', 'subagents'];
   assert.equal(catalog.schemaVersion, 2);
   for (const adapter of catalog.items) {
     assert.deepEqual(Object.keys(adapter.capabilities).sort(), [...capabilityNames].sort());
@@ -183,7 +188,7 @@ test('install and upgrade reject an adapter that differs from install state', as
 
 test('shared install map declares explicit portable content strategies', async () => {
   const installMap = JSON.parse(await readFile(path.join(rootDir, 'adapters/codex/install-map.json'), 'utf8'));
-  const allowed = new Set(['managed-instruction-block', 'managed-toml-block', 'replace']);
+  const allowed = new Set(['managed-ignore-block', 'managed-instruction-block', 'managed-toml-block', 'replace']);
   assert.equal(installMap.entries.every((entry) => allowed.has(entry.contentStrategy)), true);
 });
 
@@ -218,14 +223,14 @@ test('all platform instruction entrypoints stay below ninety lines', async () =>
 
 test('adapter profile file sets match the reviewed snapshots', async () => {
   const snapshots = {
-    'claude:core': [34, 'b7ada2376dd30fc00959a5a0f60f8796615d7be393390468117af45f829606d1'],
-    'claude:docs-only': [29, '66b1c875eed445824b30d7f6d7ae001107f5d4f197e181ba865096794925724f'],
+    'claude:core': [37, '3d91ba7835b896573f299aba3e729c444b29df15aed582fdf69a80ffaf77811c'],
+    'claude:docs-only': [31, 'f0f2bb95fe3f4e2839adcc46f230bf18ec27ac49d9bd0d672f4840412f90a3fc'],
     'claude:minimal': [7, 'de8bef97b2444d03ddb8077a187a05e0dc1d976f97cfce2daf87d77262d5c9ba'],
-    'codex:core': [38, 'ce39431a705060cab04f650bfcf06ca13d884dca412f5fb3fce14b300045e348'],
-    'codex:full': [61, '26b231d6ebcc1a6c0e3f38fb54fecb2f41554d959c74545d70750a3555f7664b'],
+    'codex:core': [41, 'f9152426a053a8a70c11c3fbbeee3c9a2f4969d08eed4620d8b330bf7361cafa'],
+    'codex:full': [67, '557fd9032885ea427d29d194dae8966f03e36b9f80b50aa8bf96fef1ebe8f804'],
     'codex:minimal': [7, 'acf92f049c50289f3eec6136e888f50b32b389d8a80e75a8b344a20ad37d6789'],
-    'gemini:core': [34, 'cbd5827e4346d57e8062aae868c940a9cd4e314c2dd53c67c29e3b4c34dd5f98'],
-    'gemini:docs-only': [29, '428c26d9f51fe99cfa520cb63f4b2aa8cfb7bfdd8b605a927cc0352af6ca2b89'],
+    'gemini:core': [37, '306dce605833e83d9cc8019ea7970ae8a84c87477341514e316ac1287515fab7'],
+    'gemini:docs-only': [31, '814cab84e77c4626f35739b39fb3edbe0ab1fd307aaf0920296f779bd41d34f0'],
     'gemini:minimal': [7, '8e6fc02f1c019b5cea55ac49567af9bd4b2b75ed62f97731e0dbcd962293eb4a'],
   };
 

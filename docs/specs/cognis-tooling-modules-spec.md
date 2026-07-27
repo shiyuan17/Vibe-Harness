@@ -41,6 +41,8 @@ Wrapper 原样或按各工具安全合同转发参数，只调用已校验的项
 - npm 工具使用提交的 lockfile 与受审查安装阶段；ast-grep 在 `npm ci --ignore-scripts` 后显式运行 native binary postinstall。RTK 使用官方 release 平台/架构映射和固定 SHA-256，未提供资产的平台报告 `unsupported`。
 - 工具状态为 `pending`、`ready`、`degraded` 或 `unsupported`；Open Code Review 还可在凭据缺失时报告 `pending-config`。错误使用稳定 code、脱敏诊断、限长输出和恢复或 fallback 建议。
 - 显式 provision 执行所需的版本、binary、索引、MCP 或 browser smoke；install、validate、doctor 和 baseline 的只读路径不执行目标项目二进制。
+- codebase-memory-mcp 的受管 MCP 环境固定设置 `CBM_MEM_BUDGET_MB=2048` 与 `CBM_WORKERS=2`。provisioning 在首次索引前将 `auto_index`、`auto_watch` 设为 `false`，后台不会在没有显式调用时重复索引。
+- 选择 codebase-memory-mcp 时，安装器在项目根维护 `# COGNIS:CBM:START` / `# COGNIS:CBM:END` 包围的 `.cbmignore` 块，排除 Cognis 状态、Agent 配置、构建输出、工具缓存、日志和压缩包。既有用户规则保留；无受管块的既有文件在未使用 `--force` 时报告冲突。
 - runtime、下载缓存、索引与工具状态均位于目标项目。未使用 `--force` 时不覆盖用户文件；真实 install、provision、rollback 和 uninstall 使用 `--write`，红区仍需显式确认。
 - `pnpm runtime:audit` 审计 npm runtime 的实际依赖面并对 High/Critical fail-closed；RTK 使用 release checksum 供应链校验。存在未修复 High 风险的 runtime 不进入可安装清单。
 
