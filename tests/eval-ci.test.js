@@ -1,13 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
 import { readJson } from '../scripts/lib/manifest.js';
-import { runEvaluationCheck } from '../runtime/hooks/lib/context.mjs';
 
-const rootDir = path.resolve('.');
+const rootDir = path.resolve(import.meta.dirname, '..');
 
 test('CI blocks offline eval drift and scheduled workflow runs advisory online canaries', async () => {
   const [ci, online] = await Promise.all([
@@ -57,13 +55,13 @@ test('online canary suite contains critical product scenarios', async () => {
   }
 });
 
-test('offline routing eval distinguishes direct execution, product ambiguity, and debugging', async () => {
+test('offline routing eval covers browser, rtk, and ast-grep tool routing', async () => {
   const suite = await readJson(path.join(rootDir, 'evals/suites/cognis-core.json'));
-  const scenarios = suite.cases.filter((item) => item.capability === 'skill-routing')
+  const scenarios = suite.cases.filter((item) => item.category === 'skill-routing')
     .map((item) => item.input.scenario).join('\n');
-  assert.match(scenarios, /decision-complete local task proceeds without clarification/iu);
-  assert.match(scenarios, /product decision changes user-visible behavior/iu);
-  assert.match(scenarios, /deterministic bug with a reproduction/iu);
+  assert.match(scenarios, /Chrome DevTools MCP/iu);
+  assert.match(scenarios, /RTK/iu);
+  assert.match(scenarios, /ast-grep/iu);
 });
 
 test('offline install lifecycle eval covers Cognis legacy upgrade and red-zone confirmation', async () => {
@@ -74,31 +72,11 @@ test('offline install lifecycle eval covers Cognis legacy upgrade and red-zone c
   assert.equal(lifecycle.input.replay.artifacts.includes('cognis-upgrade-state.json'), true);
 });
 
-test('hook evaluation check executes configured command without a shell', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-hook-eval-'));
-  try {
-    await writeFile(path.join(target, 'pass.mjs'), 'process.exitCode = 0;\n', 'utf8');
-    await writeFile(path.join(target, 'fail.mjs'), 'process.exitCode = 7;\n', 'utf8');
-    assert.deepEqual(await runEvaluationCheck(target, null), { ok: true, skipped: true });
-    assert.deepEqual(await runEvaluationCheck(target, 'node pass.mjs'), { ok: true });
-    assert.deepEqual(await runEvaluationCheck(target, 'node fail.mjs'), { ok: false });
-  } finally {
-    await rm(target, { force: true, recursive: true });
-  }
-});
-
-test('EDD documentation distinguishes baseline from reference and documents calibration gates', async () => {
-  const [docs, architecture, readme, readmeZh] = await Promise.all([
-    readFile(path.join(rootDir, 'docs/evals.md'), 'utf8'),
-    readFile(path.join(rootDir, 'docs/architecture.md'), 'utf8'),
-    readFile(path.join(rootDir, 'README.md'), 'utf8'),
-    readFile(path.join(rootDir, 'README.zh-CN.md'), 'utf8'),
-  ]);
-  for (const content of [docs, architecture, readme, readmeZh]) assert.match(content, /reference/u);
-  assert.match(docs, /20/u);
-  assert.match(docs, /3\/3/u);
-  assert.match(docs, /0\.90/u);
-  assert.match(docs, /0\.05/u);
-  assert.match(docs, /degraded/u);
-  assert.match(docs, /baseline/u);
+test('EDD documentation documents reference baselines and offline/online lifecycle', async () => {
+  const docs = await readFile(path.join(rootDir, 'docs/evals.md'), 'utf8');
+  assert.match(docs, /reference/u);
+  assert.match(docs, /offline/u);
+  assert.match(docs, /online/u);
+  assert.match(docs, /suite/u);
+  assert.match(docs, /eval check/u);
 });

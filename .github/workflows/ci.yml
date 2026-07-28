@@ -32,8 +32,7 @@ jobs:
       - run: pnpm check
       - run: pnpm eval:check
       - run: pnpm eval:offline
-      - run: pnpm eval:workflow:check
-      - run: pnpm eval:workflow:v2:check
+      - run: pnpm test:eval
       - run: pnpm test:integration
       - if: matrix.os == 'ubuntu-latest'
         run: pnpm runtime:audit

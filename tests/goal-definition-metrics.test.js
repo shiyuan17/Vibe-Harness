@@ -5,7 +5,7 @@ import test from 'node:test';
 
 import { evaluateGoalDefinition, validateGoalDefinitionCatalog } from '../scripts/lib/goal-definition-metrics.js';
 
-const rootDir = path.resolve('.');
+const rootDir = path.resolve(import.meta.dirname, '..');
 
 test('goal catalog covers execution, exploration, activation, and near-miss behavior', async () => {
   const catalog = JSON.parse(await readFile(path.join(rootDir, 'evals/goal-definition-cases.json'), 'utf8'));

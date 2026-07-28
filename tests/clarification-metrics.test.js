@@ -5,7 +5,7 @@ import test from 'node:test';
 
 import { evaluateClarification, validateClarificationCatalog } from '../scripts/lib/clarification-metrics.js';
 
-const rootDir = path.resolve('.');
+const rootDir = path.resolve(import.meta.dirname, '..');
 
 test('clarification catalog contains blocker and explicit-discovery cases', async () => {
   const catalog = JSON.parse(await readFile(path.join(rootDir, 'evals/clarification-cases.json'), 'utf8'));

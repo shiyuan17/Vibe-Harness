@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { assertInsideDir, assertPortableRelativePath } from './manifest.js';
+import { safeJsonParse } from './safe-json.js';
 import { sanitizeEvalValue, scoreCase } from './eval-scoring.js';
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
@@ -115,7 +116,7 @@ function executeRunner({ command, request, timeoutMs }) {
       }
       let observation;
       try {
-        observation = JSON.parse(text);
+        observation = safeJsonParse(text);
       } catch {
         return finish({ code: 'EVAL_RUNNER_INVALID_OUTPUT', diagnostic: 'runner stdout must contain exactly one JSON object' });
       }

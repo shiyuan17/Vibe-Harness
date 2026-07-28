@@ -8,7 +8,7 @@ import test from 'node:test';
 import { runEvaluationCase } from '../scripts/lib/eval-runner.js';
 import { readJson } from '../scripts/lib/manifest.js';
 
-const rootDir = path.resolve('.');
+const rootDir = path.resolve(import.meta.dirname, '..');
 
 function runProcess(program, args, { cwd, env, input }) {
   return new Promise((resolve, reject) => {

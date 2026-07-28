@@ -13,7 +13,7 @@ import {
 } from '../scripts/lib/eval-contract.js';
 import { buildOfflineRun } from '../scripts/lib/eval-replay.js';
 
-const rootDir = path.resolve('.');
+const rootDir = path.resolve(import.meta.dirname, '..');
 const execFileAsync = promisify(execFile);
 
 test('eval schemas use draft 2020-12 and schemaVersion 1 contracts', async () => {
@@ -24,20 +24,19 @@ test('eval schemas use draft 2020-12 and schemaVersion 1 contracts', async () =>
   }
 });
 
-test('core suite contains exactly 47 generic cases in the required category split', async () => {
+test('core suite contains exactly 18 generic cases in the required category split', async () => {
   const suite = await readJson(path.join(rootDir, 'evals/suites/cognis-core.json'));
-  assert.equal(suite.cases.length, 47);
+  assert.equal(suite.cases.length, 18);
   const counts = suite.cases.reduce((result, item) => ({
     ...result,
     [item.category]: (result[item.category] ?? 0) + 1,
   }), {});
   assert.deepEqual(counts, {
     'install-lifecycle': 6,
-    'task-delivery-governance': 21,
-    'skill-routing': 13,
-    'safety-isolation': 7,
+    'skill-routing': 7,
+    'safety-isolation': 5,
   });
-  assert.equal(new Set(suite.cases.map((item) => item.id)).size, 47);
+  assert.equal(new Set(suite.cases.map((item) => item.id)).size, 18);
   for (const item of suite.cases) {
     assert.deepEqual(Object.keys(item.weights).sort(), ['correctness', 'efficiency', 'evidenceQuality', 'safety']);
     assert.equal(Number.isInteger(item.repetitions) && item.repetitions >= 1, true);

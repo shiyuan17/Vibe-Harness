@@ -9,11 +9,12 @@ import { promisify } from 'node:util';
 import {
   defaultProjectConfig,
   validateProjectConfig,
+  validateProjectConfigWithSchema,
 } from '../scripts/lib/project-config.js';
 import { executeProjectVerification } from '../scripts/lib/project-verification.js';
 
 const execFileAsync = promisify(execFile);
-const rootDir = path.resolve('.');
+const rootDir = path.resolve(import.meta.dirname, '..');
 const cliPath = path.join(rootDir, 'scripts/cognis.js');
 
 async function run(args) {
@@ -102,24 +103,56 @@ test('project config exposes disabled evaluation defaults and validates safe pat
   );
 });
 
-test('project verification executes eval after governance, lint, and typecheck', async () => {
+test('schema-validated config accepts the default config and rejects unknown fields', () => {
+  assert.equal(validateProjectConfigWithSchema(defaultProjectConfig), true);
+
+  const withUnknownField = { ...defaultProjectConfig, rogueField: 'should-be-rejected' };
+  assert.throws(
+    () => validateProjectConfigWithSchema(withUnknownField),
+    /rogueField is not allowed/u,
+  );
+});
+
+test('schema-validated config rejects an out-of-range repetitions value', () => {
+  assert.throws(
+    () => validateProjectConfigWithSchema({
+      ...defaultProjectConfig,
+      evaluations: { ...defaultProjectConfig.evaluations, repetitions: 5 },
+    }),
+    /repetitions/u,
+  );
+});
+
+test('validateProjectConfig rejects forbidden source-project terms in projectName', () => {
+  assert.throws(
+    () => validateProjectConfig({ ...defaultProjectConfig, projectName: 'SYBaseProjectWeb-clone' }),
+    /forbidden source-project term/u,
+  );
+  assert.throws(
+    () => validateProjectConfig({ ...defaultProjectConfig, projectName: 'contains-病理-data' }),
+    /forbidden source-project term/u,
+  );
+  assert.equal(validateProjectConfig(defaultProjectConfig), true);
+});
+
+test('project verification executes eval after lint, typecheck, and test', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'cognis-eval-order-'));
   const orderFile = path.join(target, 'order.txt');
   try {
-    for (const name of ['governance', 'lint', 'typecheck', 'eval']) {
+    for (const name of ['lint', 'typecheck', 'test', 'eval']) {
       await writeFile(
         path.join(target, `${name}.mjs`),
         `import { appendFile } from 'node:fs/promises'; await appendFile(${JSON.stringify(orderFile)}, ${JSON.stringify(`${name}\n`)});\n`,
         'utf8',
       );
     }
-    const commandStatus = Object.fromEntries(['governance', 'lint', 'typecheck', 'eval'].map((name) => [
+    const commandStatus = Object.fromEntries(['lint', 'typecheck', 'test', 'eval'].map((name) => [
       name,
       { command: `node ${name}.mjs`, status: 'available' },
     ]));
     const results = await executeProjectVerification({ commandStatus, targetDir: target });
     assert.equal(results.eval.status, 'passed');
-    assert.equal(await readFile(orderFile, 'utf8'), 'governance\nlint\ntypecheck\neval\n');
+    assert.equal(await readFile(orderFile, 'utf8'), 'lint\ntypecheck\ntest\neval\n');
   } finally {
     await rm(target, { force: true, recursive: true });
   }
