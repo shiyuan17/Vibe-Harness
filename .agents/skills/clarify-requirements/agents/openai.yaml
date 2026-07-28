@@ -1,6 +1,6 @@
 interface:
   display_name: "Clarify Requirements"
-  short_description: "Clarify only product decisions that change outcomes"
-  default_prompt: "Use $clarify-requirements to resolve only the product decisions that truly block this request."
+  short_description: "Clarify blockers or discover decision-ready requirements"
+  default_prompt: "Use $clarify-requirements to resolve blocking product decisions or conduct explicit requirements discovery."
 policy:
   allow_implicit_invocation: true

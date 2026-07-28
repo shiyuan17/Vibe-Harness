@@ -1,6 +1,6 @@
 ---
 name: api-and-interface-design
-description: Use for public APIs, schemas, events, config contracts, or consumed module boundaries—not private code.
+description: Use for public APIs, schemas, events, config, or consumed module boundaries.
 ---
 
 # 设计接口契约

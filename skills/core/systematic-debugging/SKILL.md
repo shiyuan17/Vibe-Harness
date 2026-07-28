@@ -1,6 +1,6 @@
 ---
 name: systematic-debugging
-description: Use for bugs or failures without a proven cause; skip known causes and fixes.
+description: Use for bugs or failures without a proven cause—not known fixes.
 ---
 
 # 系统定位故障

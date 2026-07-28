@@ -1,6 +1,6 @@
 ---
 name: runtime-cross-repo-rollout
-description: Use for coordinated contracts and rollout across repositories—not modules in one repository.
+description: Use for coordinated contracts and rollout across repositories—not modules in one repo.
 ---
 
 # 落地跨仓运行时变更

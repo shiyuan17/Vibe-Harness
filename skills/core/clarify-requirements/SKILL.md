@@ -1,23 +1,25 @@
 ---
 name: clarify-requirements
-description: Use only for unresolved product choices affecting behavior, data, security, public contracts, or acceptance—not facts, implementation, or approvals.
+description: Use for unresolved product choices or explicit requirements discovery—not discoverable facts, implementation details, approvals, or final goals.
 ---
 
 # 澄清关键需求
 
-先消除事实未知，再询问真正改变结果的产品决定。
+先消除事实未知，再按请求深度处理真正改变结果的产品决定。
 
-## 执行
+## 普通解阻
 
 1. 检查仓库、测试、文档和公开契约；不要向用户询问可发现事实。
 2. 将剩余未知分为：安全审批、阻塞产品决定、可逆实现选择。
-3. 将安全审批交给治理门禁；可逆实现选择沿用仓库惯例或采用最小可逆默认值。
+3. 将安全审批交给人工确认；可逆实现选择沿用仓库惯例或采用最小可逆默认值。
 4. 仅当不同答案会改变用户行为、数据语义、安全、公共接口或验收结果时阻塞。
 5. 同轮合并最多三个互不依赖的决定；依赖前置答案的问题留到下一轮。
 6. 每题给出推荐项、二至三个互斥选择和一句结果影响。
 7. 回答关闭分支后立即继续，不追加通用设计、计划或最终确认。
 
-显式要求“采访我”或探索需求时可以深入发现，但除非用户要求，不创建规格文档。
+## 显式需求发现
+
+用户明确要求采访、探索或分析需求时，补齐：目标用户、真实问题、期望结果、当前基线、范围与非目标、成功证据、假设与风险。优先用仓库事实覆盖维度，只询问剩余高影响决定；把用户指定的技术手段记录为待验证假设，不替代结果目标。输出紧凑的需求决定摘要；除非用户要求，不创建规格文档。若用户要求最终 `/goal` 或目标书，交由目标定义能力独立处理。
 
 ## 禁止
 

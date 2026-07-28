@@ -11,7 +11,7 @@ import { runSkillsAudit } from '../scripts/lib/skills-audit.js';
 
 const rootDir = path.resolve('.');
 const execFileAsync = promisify(execFile);
-const coreSkills = ['clarify-requirements', 'systematic-debugging', 'eval-driven-development', 'security-and-hardening'];
+const coreSkills = ['clarify-requirements', 'define-goal', 'systematic-debugging', 'eval-driven-development', 'security-and-hardening'];
 const fullSkills = ['api-and-interface-design', 'frontend-design', 'runtime-cross-repo-rollout'];
 const nativeSkills = [...coreSkills, ...fullSkills];
 const retiredSkills = [
@@ -20,11 +20,11 @@ const retiredSkills = [
   'loop-planning', 'subagent-driven-development',
 ];
 
-test('manifest exposes seven native and two explicit integration Skills', async () => {
+test('manifest exposes eight native and two explicit integration Skills', async () => {
   const manifest = await readJson(path.join(rootDir, 'manifests/skills.json'));
   assert.deepEqual(manifest.items.filter((item) => item.kind === 'native').map((item) => item.id), nativeSkills);
   assert.deepEqual(manifest.items.filter((item) => item.kind === 'integration').map((item) => item.id), ['browser-verification', 'agentmemory']);
-  assert.equal(manifest.items.length, 9);
+  assert.equal(manifest.items.length, 10);
   for (const item of manifest.items) {
     assert.deepEqual(item.requiresSkills, []);
     assert.deepEqual(item.optionalSkills, []);
@@ -54,7 +54,7 @@ test('native Skill descriptions, bodies, resources, and OpenAI metadata stay wit
   assert.ok(identityCharacters <= 900);
 });
 
-test('core and full install exactly four and seven native Skills', async () => {
+test('core and full install exactly five and eight native Skills', async () => {
   for (const [profile, expected] of [['core', coreSkills], ['full', nativeSkills]]) {
     const plan = await createInstallPlan({ dryRun: true, profile, rootDir, targetDir: path.join(rootDir, `.tmp-skills-${profile}`) });
     const installed = plan.actions
@@ -87,8 +87,8 @@ test('retirement catalog covers every removed Router and flow Skill', async () =
 
 test('skills audit derives the compact inventory and executes the graph validator', async () => {
   const { stdout } = await execFileAsync(process.execPath, ['scripts/skills-audit.js'], { cwd: rootDir });
-  assert.match(stdout, /总数：9/u);
-  assert.match(stdout, /native：7/u);
+  assert.match(stdout, /总数：10/u);
+  assert.match(stdout, /native：8/u);
   assert.match(stdout, /integration：2/u);
   assert.match(stdout, /router：0/u);
   assert.deepEqual((await runSkillsAudit(rootDir)).errors, []);
