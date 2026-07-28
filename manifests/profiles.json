@@ -3,18 +3,18 @@
   "items": [
     {
       "id": "minimal",
-      "description": "最小安装：Codex AGENTS、基础治理规则、Git/Test 规则和任务交付模板。",
+      "description": "最小安装：平台说明、安全规则、Git/Test 规则和可选任务/交付模板。",
       "groups": ["agents", "rules-minimal", "templates-minimal"]
     },
     {
       "id": "core",
-      "description": "通用安装：常规规则、模板、runtime、四个聚焦原生 skills 和 Red Team 完成门禁；外部工具通过 --plugin 显式启用。",
-      "groups": ["agents", "rules-minimal", "rules-core", "templates-minimal", "templates-core", "schemas-core", "runtime-basic", "runtime-task", "runtime-full", "runtime-eval", "skills-core", "evals-core"]
+      "description": "通用安装：常规规则、模板、五个聚焦原生 Skills 和可选离线 Eval；外部工具通过 --plugin 显式启用。",
+      "groups": ["agents", "rules-minimal", "rules-core", "templates-minimal", "templates-core", "schemas-core", "runtime-eval", "skills-core", "evals-core"]
     },
     {
       "id": "full",
-      "description": "完整治理安装：通用安装加三个领域 skills、完整规则、在线评测和 Codex hooks；memory 与外部工具通过 --plugin 显式启用。",
-      "groups": ["agents", "rules-minimal", "rules-core", "rules-full", "templates-minimal", "templates-core", "templates-full", "schemas-core", "runtime-basic", "runtime-task", "runtime-full", "runtime-eval", "runtime-eval-online", "skills-core", "skills-full", "evals-core", "evals-online", "hooks", "codex-subagents"]
+      "description": "完整能力安装：通用安装加三个领域 Skills、完整规则、在线 Eval 和 Codex 安全 Hook；memory 与外部工具通过 --plugin 显式启用。",
+      "groups": ["agents", "rules-minimal", "rules-core", "rules-full", "templates-minimal", "templates-core", "templates-full", "schemas-core", "runtime-eval", "runtime-eval-online", "skills-core", "skills-full", "evals-core", "evals-online", "hooks"]
     },
     {
       "id": "docs-only",

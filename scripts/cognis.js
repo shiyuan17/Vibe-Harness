@@ -26,13 +26,8 @@ import { executeProjectVerification } from './lib/project-verification.js';
 import { detectProjectProfile } from './lib/project-profile.js';
 import {
   readRequiredProjectConfig,
-  resolveGovernanceMode,
   resolveValidationCommands,
   validateConfigAndGeneratedContent,
-  createProjectConfigMigration,
-  createGovernanceWorkflowUpdate,
-  resolveGovernanceWorkflow,
-  validateGovernanceModeForProfile,
   validateProjectConfig,
   mvpTargets,
   validateProfileName,
@@ -55,21 +50,9 @@ import {
   toolWarnings,
 } from './lib/tool-provisioning.js';
 import { inspectTransactions, recoverTransaction } from './lib/file-transaction.js';
-import { resolveProjectConfigLocation } from './lib/project-layout.js';
-import { readProductEnv } from './lib/product-identity.js';
-import { inspectTaskContracts } from '../runtime/governance/lib/task-validation.mjs';
-import { inspectSubagentHealth } from './lib/subagent-health.js';
+import { assertNoUnsupportedLegacyAssets } from './lib/project-layout.js';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-
-function reportDeprecatedEnvironment() {
-  for (const suffix of ['CODEX_COMMAND', 'EVAL_ENFORCE', 'TEST_OFFLINE', 'TOOL_TIMEOUT_MS']) {
-    const resolved = readProductEnv(process.env, suffix);
-    if (resolved.deprecated) {
-      process.stderr.write(`${resolved.name} is deprecated; use COGNIS_${suffix}.\n`);
-    }
-  }
-}
 
 function requiredToolsDegraded(profile, tools = {}) {
   return Object.values(tools).some((tool) => ['degraded', 'unsupported'].includes(tool.status));
@@ -190,16 +173,12 @@ function emitReport(report, args, { error = false } = {}) {
     const lines = [
       `status: ${normalized.status}`,
       ...(normalized.profile ? [`profile: ${normalized.profile}`] : []),
-      ...(normalized.governanceWorkflow ? [`workflow: ${normalized.governanceWorkflow}`] : []),
       ...(Array.isArray(normalized.requestedPlugins) ? [`plugins: ${normalized.requestedPlugins.length ? normalized.requestedPlugins.join(',') : 'none'}`] : []),
       ...(normalized.rtkHooks ? [`rtkHooks: ${normalized.rtkHooks.status} (enabled=${normalized.rtkHooks.enabled})`] : []),
       ...(normalized.rtkHooks && normalized.rtkHooks.status !== 'ready' ? [`rtkHooksReason: ${summaryText(normalized.rtkHooks.reason)}`] : []),
-      ...(normalized.subagents ? [`subagents: ${normalized.subagents.status} (support=${normalized.subagents.support}, tester=${normalized.subagents.roles.tester}, reviewer=${normalized.subagents.roles.reviewer}, sealed=${normalized.subagents.receipts.sealed}, invalid=${normalized.subagents.receipts.invalid})`] : []),
-      ...(normalized.subagents && !['ready', 'planned', 'disabled'].includes(normalized.subagents.status) ? [`subagentsReason: ${summaryText(normalized.subagents.reason)}`] : []),
       ...(typeof normalized.target === 'string' ? [`target: ${normalized.target}`] : []),
       ...(normalized.dryRun !== undefined ? [`dryRun: ${normalized.dryRun}`] : []),
       `warnings: ${normalized.warnings.length}`,
-      ...(normalized.taskContracts ? [`taskContracts: v3=${normalized.taskContracts.version3}, v2=${normalized.taskContracts.version2}, legacy=${normalized.taskContracts.legacy}, parents=${normalized.taskContracts.parents}, children=${normalized.taskContracts.children}`] : []),
       ...toolSummaryLines(normalized.tools, normalized.recommendations),
     ];
     (error ? console.error : console.log)(lines.join('\n'));
@@ -280,7 +259,6 @@ async function init(args) {
     profile: args.profile ?? existingState?.profile ?? 'core',
     projectDir,
     target: args.target ?? existingState?.adapter ?? 'codex',
-    workflow: args.workflow ?? 'adaptive',
   });
   console.log(JSON.stringify({
     config: result.config,
@@ -298,12 +276,6 @@ async function install(args) {
     throw new Error('Use --write or --dry-run, not both.');
   }
   const targetDir = path.resolve(args.project);
-  const configLocation = await resolveProjectConfigLocation(targetDir);
-  if (configLocation?.legacy && !args.upgrade) {
-    throw Object.assign(new Error('Legacy loopengine.config.json requires cognis install --upgrade.'), {
-      code: 'COGNIS_CONFIG_MIGRATION_REQUIRED',
-    });
-  }
   const existingState = await readInstallState(targetDir);
   if (
     existingState
@@ -315,13 +287,7 @@ async function install(args) {
     });
   }
   const sourceConfig = await readRequiredProjectConfig(targetDir);
-  const configMigration = configLocation?.legacy
-    ? await createProjectConfigMigration(targetDir, sourceConfig)
-    : null;
-  const configUpdate = !configMigration && args.upgrade
-    ? createGovernanceWorkflowUpdate(targetDir, sourceConfig)
-    : null;
-  const config = configMigration?.config ?? configUpdate?.config ?? sourceConfig;
+  const config = sourceConfig;
   const adapterId = args.target ?? config.target;
   if (args.target && args.target !== config.target) {
     throw new Error(`CLI target ${args.target} does not match cognis.config.json target ${config.target}.`);
@@ -329,20 +295,16 @@ async function install(args) {
   const adapter = await resolveAdapter(rootDir, adapterId);
   const requestedProfile = args.profile ?? config.profile;
   const profile = validateProfileName(requestedProfile);
+  validateProjectConfig({ ...config, profile, target: args.target ?? config.target });
   const projectProfile = await detectProjectProfile({ config, targetDir });
-  const governanceMode = resolveGovernanceMode(config, profile);
-  const governanceWorkflow = resolveGovernanceWorkflow(config);
-  validateGovernanceModeForProfile(governanceMode, profile);
-  const validationCommands = resolveValidationCommands(config, projectProfile, governanceMode);
+  const validationCommands = resolveValidationCommands(config, projectProfile);
   const renderData = {
     ...config,
     profile,
     projectProfile,
     target: args.target ?? config.target,
-    governance: { mode: governanceMode, workflow: governanceWorkflow },
     validationCommands,
   };
-  validateProjectConfig({ ...config, profile, target: args.target ?? config.target });
   const requestedModules = args.modules !== undefined
     ? parseModulesOption(args.modules)
     : config.modules;
@@ -360,8 +322,6 @@ async function install(args) {
   const plan = await createInstallPlan({
     adapterId,
     allowPreview: Boolean(args['allow-preview']),
-    configMigration,
-    configUpdate,
     dryRun: dryRunRequested,
     force: Boolean(args.force),
     managedAgentsBlock: isMvpMode,
@@ -416,12 +376,6 @@ async function install(args) {
     await registerGeneratedFile(targetDir, toolStateRelativePath(targetDir));
   }
   const health = provisionExecuted ? healthReport({ profile, tools }) : { ok: true, status: 'ready' };
-  const subagents = await inspectSubagentHealth({
-    adapter,
-    plannedTargets: plan.dryRun ? plan.actions.filter((action) => action.kind === 'write').map((action) => action.relativeTarget) : undefined,
-    profile,
-    targetDir,
-  });
   const warnings = provisionExecuted
     ? toolWarnings(tools)
     : (plannedToolActions.length > 0 ? [{
@@ -433,17 +387,8 @@ async function install(args) {
     actions: args.verbose ? plan.actions : plan.actions.map(compactAction),
     backupActions: plan.baselinePlan.actions,
     baselineId: result.baseline?.id ?? plan.baselinePlan.baselineId,
-    ...(plan.configMigration ? {
-      configMigration: {
-        dryRun: plan.dryRun,
-        from: plan.configMigration.from,
-        to: plan.configMigration.to,
-      },
-    } : {}),
     deferredToolActions,
     dryRun: plan.dryRun,
-    governanceMode,
-    governanceWorkflow,
     implicitModules: plan.implicitModules,
     plannedToolActions,
     adapterCapabilities: plan.adapterCapabilities,
@@ -455,7 +400,6 @@ async function install(args) {
     requestedModules: plan.requestedModules,
     requestedPlugins: plan.requestedPlugins,
     resolvedModules: plan.resolvedModules,
-    subagents,
     rtkHooks: rtkHooksReport(plan.rtkHooksEnabled, tools),
     requiresRedZoneConfirmation: plan.dryRun
       && !args['confirm-red-zone']
@@ -491,9 +435,7 @@ async function validate(args) {
       requestedPlugins: requestedPlugins ?? [],
     });
     const projectProfile = await detectProjectProfile({ config, targetDir });
-    const governanceMode = resolveGovernanceMode(config, config.profile);
-    validateGovernanceModeForProfile(governanceMode, config.profile);
-    const validationCommands = resolveValidationCommands(config, projectProfile, governanceMode);
+    const validationCommands = resolveValidationCommands(config, projectProfile);
     const plan = await createInstallPlan({
       adapterId: adapter.id,
       allowPreview: true,
@@ -504,13 +446,13 @@ async function validate(args) {
       requestedModules,
       requestedPlugins,
       rtkHooksEnabled,
-      renderData: { ...config, governance: { mode: governanceMode, workflow: resolveGovernanceWorkflow(config) }, projectProfile, validationCommands },
+      renderData: { ...config, projectProfile, validationCommands },
       rootDir,
       targetDir,
     });
     const agentsTemplate = await readFile(path.join(rootDir, `adapters/${adapter.id}/${path.basename(adapter.instructionTarget, '.md')}.template.md`), 'utf8');
     const installedTargets = plan.actions.map((action) => action.relativeTarget);
-    validateConfigAndGeneratedContent({ ...config, governance: { mode: governanceMode, workflow: resolveGovernanceWorkflow(config) }, projectProfile, validationCommands }, agentsTemplate, { installedTargets });
+    validateConfigAndGeneratedContent({ ...config, projectProfile, validationCommands }, agentsTemplate, { installedTargets });
     validateConfigAndGeneratedContent(plan.renderData, agentsTemplate, { installedTargets });
     const target = await inspectTargetInstall({
       adapterId: adapter.id,
@@ -519,7 +461,7 @@ async function validate(args) {
       requestedModules,
       requestedPlugins,
       rtkHooksEnabled,
-      renderData: { ...config, governance: { mode: governanceMode, workflow: resolveGovernanceWorkflow(config) }, projectProfile, validationCommands },
+      renderData: { ...config, projectProfile, validationCommands },
       rootDir,
       targetDir,
     });
@@ -591,10 +533,8 @@ async function verify(args) {
     requestedPlugins: requestedPlugins ?? [],
   });
   const projectProfile = await detectProjectProfile({ config, targetDir });
-  const governanceMode = resolveGovernanceMode(config, config.profile);
-  validateGovernanceModeForProfile(governanceMode, config.profile);
-  const validationCommands = resolveValidationCommands(config, projectProfile, governanceMode);
-  const renderData = { ...config, governance: { mode: governanceMode, workflow: resolveGovernanceWorkflow(config) }, projectProfile, validationCommands };
+  const validationCommands = resolveValidationCommands(config, projectProfile);
+  const renderData = { ...config, projectProfile, validationCommands };
   const target = await inspectTargetInstall({
     adapterId: adapter.id,
     managedAgentsBlock: true,
@@ -667,16 +607,14 @@ async function baseline(args) {
       code: 'BASELINE_INSTALL_INVALID',
     });
   }
-  const governanceMode = resolveGovernanceMode(config, config.profile);
   const rtkHooksEnabled = resolveRtkHooksEnabled({
     adapterId: adapter.id,
     config,
     installState,
     requestedPlugins: requestedPlugins ?? [],
   });
-  validateGovernanceModeForProfile(governanceMode, config.profile);
-  const validationCommands = resolveValidationCommands(config, projectProfile, governanceMode);
-  const renderData = { ...config, governance: { mode: governanceMode, workflow: resolveGovernanceWorkflow(config) }, projectProfile, validationCommands };
+  const validationCommands = resolveValidationCommands(config, projectProfile);
+  const renderData = { ...config, projectProfile, validationCommands };
   const target = await inspectTargetInstall({
     adapterId: adapter.id,
     managedAgentsBlock: true,
@@ -690,7 +628,6 @@ async function baseline(args) {
   });
   const inputs = await collectProjectBaselineInputs({
     config,
-    governanceMode,
     projectProfile,
     target,
     targetDir,
@@ -701,12 +638,9 @@ async function baseline(args) {
     baselineSchema: await readJson(path.join(rootDir, 'schemas/project-baseline.schema.json')),
     config,
     force: Boolean(args.force),
-    governanceMode,
-    governanceWorkflow: resolveGovernanceWorkflow(config),
     projectProfile,
     target,
     targetDir,
-    subagents: await inspectSubagentHealth({ adapter, profile: config.profile, targetDir }),
     verify: Boolean(args.verify),
     write: Boolean(args.write),
   });
@@ -854,19 +788,16 @@ async function doctor(args) {
   let renderData = {};
   if (managedAgentsBlock) {
     const projectProfile = await detectProjectProfile({ config, targetDir });
-    const governanceMode = resolveGovernanceMode(config, profile);
-    const governanceWorkflow = resolveGovernanceWorkflow(config);
-    const validationCommands = resolveValidationCommands(config, projectProfile, governanceMode);
-    renderData = { ...config, profile, governance: { mode: governanceMode, workflow: governanceWorkflow }, projectProfile, validationCommands };
+    const validationCommands = resolveValidationCommands(config, projectProfile);
+    renderData = { ...config, profile, projectProfile, validationCommands };
   }
   const adapter = await resolveAdapter(rootDir, args.target ?? installState?.adapter ?? config.target);
-  const [pack, gitHooks, provisioningProcess, transactions, transactionLock, subagents] = await Promise.all([
+  const [pack, gitHooks, provisioningProcess, transactions, transactionLock] = await Promise.all([
     validatePack(rootDir),
     inspectGitHooks(targetDir),
     inspectProvisioningMarker(targetDir),
     inspectTransactions(targetDir),
     pathExists(path.join(path.dirname(stateFilePath(targetDir)), 'transaction.lock')),
-    inspectSubagentHealth({ adapter, profile, targetDir }),
   ]);
   let target = await inspectTargetInstall({
     managedAgentsBlock: true,
@@ -882,7 +813,6 @@ async function doctor(args) {
   const tools = await inspectProfileTools(profile, targetDir, installState?.resolvedModules, undefined, {
     allowPreview: true,
   });
-  const taskContracts = inspectTaskContracts(targetDir, { verbose: args.verbose });
   if (!args.verbose) target = compactTargetReport(target);
   const health = provisioningProcess
     ? { ok: false, status: 'degraded' }
@@ -891,7 +821,6 @@ async function doctor(args) {
     ...health,
     gitHooks,
     pack,
-    governanceWorkflow: resolveGovernanceWorkflow(config),
     previewCapabilities: installState?.previewCapabilities ?? [],
     requestedPlugins,
     resolvedModules: installState?.resolvedModules ?? [],
@@ -899,8 +828,6 @@ async function doctor(args) {
     provisioningProcess,
     ...(args.verbose ? { rootDir } : {}),
     target,
-    taskContracts,
-    subagents,
     ...(args.verbose ? { targetDir } : {}),
     tools,
     transactionLock,
@@ -914,14 +841,6 @@ async function doctor(args) {
       ...(provisioningProcess ? [{
         code: 'PROVISIONING_PROCESS_INCOMPLETE',
         message: `Provisioning process state is ${provisioningProcess.status}.`,
-      }] : []),
-      ...(taskContracts.legacyMultiAgent > 0 ? [{
-        code: 'TASK_CONTROL_V1_LEGACY',
-        message: `${taskContracts.legacyMultiAgent} legacy parent/child task contract(s) remain readable; migrate unfinished work to control version 3 before enabling Handoff gates.`,
-      }] : []),
-      ...(['degraded', 'missing', 'invalid'].includes(subagents.status) ? [{
-        code: 'SUBAGENT_CAPABILITY_DEGRADED',
-        message: subagents.reason,
       }] : []),
     ],
   }, args);
@@ -939,9 +858,8 @@ async function diff(args) {
   validateProjectConfig(config);
   const profile = validateProfileName(args.profile ?? config.profile);
   const projectProfile = await detectProjectProfile({ config, targetDir });
-  const governanceMode = resolveGovernanceMode(config, profile);
-  const validationCommands = resolveValidationCommands(config, projectProfile, governanceMode);
-  const renderData = { ...config, profile, governance: { mode: governanceMode, workflow: resolveGovernanceWorkflow(config) }, projectProfile, validationCommands };
+  const validationCommands = resolveValidationCommands(config, projectProfile);
+  const renderData = { ...config, profile, projectProfile, validationCommands };
   const requestedPlugins = config.plugins
     ? parsePluginsOption(config.plugins)
     : (installState?.requestedPlugins ?? []);
@@ -1128,11 +1046,19 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const command = args._[0] ?? 'help';
   if (args.apply) throw new Error('Legacy --apply was removed; use --project <path> with --write.');
+  if (args.workflow !== undefined) {
+    throw Object.assign(new Error('Legacy --workflow was removed; Cognis now uses one execution path.'), {
+      code: 'COGNIS_OBSOLETE_GOVERNANCE_CONFIG',
+    });
+  }
   if (args.profile) validateProfileName(args.profile);
   if (args.target && !mvpTargets.has(args.target)) {
     const error = new Error('--target only accepts adapter ids codex|claude|gemini; use --project <path> for a project path.');
     if (command === 'baseline') error.code = 'BASELINE_PROJECT_REQUIRED';
     throw error;
+  }
+  if (args.project || command === 'init') {
+    await assertNoUnsupportedLegacyAssets(path.resolve(args.project ?? process.cwd()));
   }
   if (command === 'init') {
     await init(args);
@@ -1159,13 +1085,12 @@ async function main() {
   } else if (command === 'recover') {
     await recover(args);
   } else {
-    console.log('Usage: cognis <init|install|provision|recover|uninstall|validate|verify|baseline|eval|doctor|diff|rollback> [--project path] [--target codex|claude|gemini] [--profile minimal|core|full|docs-only] [--workflow adaptive|strict] [--modules list] [--plugin -all|-rtk ast-grep ...] [--rtk-hooks on|off] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--force] [--upgrade] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded]');
+    console.log('Usage: cognis <init|install|provision|recover|uninstall|validate|verify|baseline|eval|doctor|diff|rollback> [--project path] [--target codex|claude|gemini] [--profile minimal|core|full|docs-only] [--modules list] [--plugin -all|-rtk ast-grep ...] [--rtk-hooks on|off] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--force] [--upgrade] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded]');
     console.log('All project commands use --project <path>; --target selects an adapter and --write performs mutations. Legacy --apply and path-valued --target are removed.');
   }
 }
 
 try {
-  reportDeprecatedEnvironment();
   await main();
 } catch (error) {
   const args = parseArgs(process.argv.slice(2));

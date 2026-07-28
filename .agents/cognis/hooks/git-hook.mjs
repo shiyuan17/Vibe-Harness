@@ -10,7 +10,7 @@ const secretPatterns = [
   /\b(?:OPENAI|ANTHROPIC|GITHUB|GEMINI)_[A-Z0-9_]*(?:KEY|TOKEN|SECRET)\s*=\s*[^\s"']{8,}/iu,
   /\bsk-[A-Za-z0-9_-]{16,}\b/u,
 ];
-const forbiddenPathPattern = /^(?:node_modules|\.(?:cognis|loopengine)\/backups)\//u;
+const forbiddenPathPattern = /^(?:node_modules|\.cognis\/backups)\//u;
 
 export function scanStagedDiff(diff) {
   const added = diff.split(/\r?\n/u).filter((line) => line.startsWith('+') && !line.startsWith('+++'));
@@ -57,7 +57,7 @@ async function prePush(rootDir) {
     if (error.code !== 'ENOENT') throw error;
     config = {};
   }
-  const commands = ['governance', 'lint', 'typecheck']
+  const commands = ['lint', 'typecheck', 'test']
     .map((name) => config.validationCommands?.[name])
     .filter((command) => typeof command === 'string' && command.trim().length > 0);
   for (const command of commands) await runCommand(command, rootDir);

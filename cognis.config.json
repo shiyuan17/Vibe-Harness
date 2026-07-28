@@ -7,7 +7,7 @@
   "validationCommands": {
     "lint": "pnpm lint",
     "typecheck": null,
-    "governance": "node .agents/cognis/governance/validate.mjs",
+    "test": "pnpm test:unit",
     "eval": "pnpm eval:offline"
   },
   "evaluations": {
@@ -24,12 +24,7 @@
     "onlineRunner": null,
     "repetitions": 3
   },
-  "governance": {
-    "mode": "basic",
-    "workflow": "adaptive"
-  },
   "hooks": {
-    "completionGate": "advisory",
     "mode": "guarded",
     "allowedWriteRoots": [
       "D:\\SVN-Project\\PaProject"

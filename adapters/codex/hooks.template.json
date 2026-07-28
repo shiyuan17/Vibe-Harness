@@ -1,27 +1,14 @@
 {
   "hooks": {
-    "SessionStart": [
+    "PermissionRequest": [
       {
-        "matcher": "startup|resume|clear|compact",
         "hooks": [
           {
             "type": "command",
-            "command": "node \"{{hookRunnerPath}}\" --expected-event SessionStart",
-            "commandWindows": "node \"{{hookRunnerPath}}\" --expected-event SessionStart",
+            "command": "node \"{{hookRunnerPath}}\" --expected-event PermissionRequest",
+            "commandWindows": "node \"{{hookRunnerPath}}\" --expected-event PermissionRequest",
             "timeout": 10,
-            "statusMessage": "Loading active Cognis task context"
-          }
-        ]
-      }
-    ],
-    "PostCompact": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"{{hookRunnerPath}}\" --expected-event PostCompact",
-            "commandWindows": "node \"{{hookRunnerPath}}\" --expected-event PostCompact",
-            "timeout": 10
+            "statusMessage": "Checking Cognis safety policy"
           }
         ]
       }
@@ -36,43 +23,6 @@
             "commandWindows": "node \"{{hookRunnerPath}}\" --expected-event PreToolUse",
             "timeout": 10,
             "statusMessage": "Checking Cognis safety policy"
-          }
-        ]
-      }
-    ],
-    "SubagentStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"{{hookRunnerPath}}\" --expected-event SubagentStart",
-            "commandWindows": "node \"{{hookRunnerPath}}\" --expected-event SubagentStart",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"{{hookRunnerPath}}\" --expected-event SubagentStop",
-            "commandWindows": "node \"{{hookRunnerPath}}\" --expected-event SubagentStop",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"{{hookRunnerPath}}\" --expected-event Stop",
-            "commandWindows": "node \"{{hookRunnerPath}}\" --expected-event Stop",
-            "timeout": 20,
-            "statusMessage": "Checking Cognis completion evidence"
           }
         ]
       }

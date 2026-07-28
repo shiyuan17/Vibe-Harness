@@ -33,15 +33,11 @@ async function readJson(filePath) {
 export async function inspectRtkHook(rootDir, { enabled = false } = {}) {
   if (!enabled) return { enabled: false, status: 'disabled', reason: 'RTK hooks are disabled.' };
   const canonical = path.join(rootDir, '.cognis', 'tool-state', 'tools.json');
-  const legacy = path.join(rootDir, '.loopengine', 'tool-state', 'tools.json');
-  const [canonicalState, legacyState] = await Promise.all([readJson(canonical), readJson(legacy)]);
-  if (canonicalState === INVALID_STATE || legacyState === INVALID_STATE) {
+  const canonicalState = await readJson(canonical);
+  if (canonicalState === INVALID_STATE) {
     return { enabled: true, status: 'degraded', reason: 'RTK tool state is invalid.' };
   }
-  if (canonicalState && legacyState) {
-    return { enabled: true, status: 'degraded', reason: 'Canonical and legacy RTK tool state coexist.' };
-  }
-  const state = (canonicalState ?? legacyState)?.tools?.rtk;
+  const state = canonicalState?.tools?.rtk;
   if (state?.status !== 'ready') {
     const status = state?.status ?? 'degraded';
     return { enabled: true, status, reason: `RTK tool state is ${state?.status ?? 'missing'}.` };
@@ -154,7 +150,7 @@ export async function routeRtkCommand(input, {
   if (!retryCommand) return { action: 'allow' };
   const reason = `RTK can reduce this command's output. Use this exact retry command: ${retryCommand}`;
   return {
-    action: mode === 'strict' ? 'deny' : 'warn',
+    action: mode === 'guarded' ? 'deny' : 'warn',
     reason,
     retryCommand,
   };

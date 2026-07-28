@@ -6,7 +6,7 @@
       "installMap": "adapters/codex/install-map.json",
       "instructionTarget": "AGENTS.md",
       "supportedProfiles": ["minimal", "core", "full", "docs-only"],
-      "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "stable", "policy": "stable", "mcp": "stable", "sandbox": "stable", "memory": "stable", "plugin": "stable", "subagents": "stable" },
+      "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "stable", "policy": "stable", "mcp": "stable", "sandbox": "stable", "memory": "stable", "plugin": "stable", "goals": "stable" },
       "redZonePrefixes": [".codex/"]
     },
     {
@@ -14,7 +14,7 @@
       "installMap": "adapters/codex/install-map.json",
       "instructionTarget": "CLAUDE.md",
       "supportedProfiles": ["minimal", "core", "full", "docs-only"],
-      "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "preview", "policy": "stable", "mcp": "preview", "sandbox": "preview", "memory": "preview", "plugin": "unsupported", "subagents": "unsupported" },
+      "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "preview", "policy": "stable", "mcp": "preview", "sandbox": "preview", "memory": "preview", "plugin": "unsupported", "goals": "unsupported" },
       "redZonePrefixes": []
     },
     {
@@ -22,7 +22,7 @@
       "installMap": "adapters/codex/install-map.json",
       "instructionTarget": "GEMINI.md",
       "supportedProfiles": ["minimal", "core", "full", "docs-only"],
-      "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "preview", "policy": "stable", "mcp": "preview", "sandbox": "preview", "memory": "preview", "plugin": "unsupported", "subagents": "unsupported" },
+      "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "preview", "policy": "stable", "mcp": "preview", "sandbox": "preview", "memory": "preview", "plugin": "unsupported", "goals": "unsupported" },
       "redZonePrefixes": []
     }
   ]

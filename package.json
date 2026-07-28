@@ -2,28 +2,25 @@
   "name": "@jw/cognis",
   "version": "0.5.0",
   "private": true,
-  "description": "Reusable cross-platform AI coding governance, skills, workflow, and installer pack.",
+  "description": "Reusable cross-platform AI coding rules, domain skills, safety hooks, and installer pack.",
   "license": "MIT",
   "dependencies": {
     "@iarna/toml": "2.2.5"
   },
   "type": "module",
   "bin": {
-    "cognis": "./scripts/cognis.js",
-    "loopengine": "./scripts/loopengine.js"
+    "cognis": "./scripts/cognis.js"
   },
   "scripts": {
     "cognis": "node ./scripts/cognis.js",
-    "loopengine": "node ./scripts/loopengine.js",
     "lint": "node ./scripts/lint.js",
     "validate": "node ./scripts/validate.js",
     "skills:audit": "node ./scripts/skills-audit.js",
     "docs:audit": "node ./scripts/docs-audit.js",
     "eval:check": "node ./scripts/eval-check.js",
-    "eval:changes": "node ./scripts/eval-change-check.js",
     "eval:offline": "node ./scripts/eval-offline.js",
-    "eval:routing": "node ./scripts/eval-routing-check.js",
     "eval:clarification": "node ./scripts/eval-clarification-check.js",
+    "eval:goal": "node ./scripts/eval-goal-check.js",
     "eval:online": "node ./scripts/eval-online.js",
     "eval:health": "node ./scripts/eval-health.js",
     "eval:workflow:check": "node ./scripts/workflow-benchmark-check.js",
@@ -33,9 +30,10 @@
     "eval:workflow:v2:run": "node ./scripts/workflow-benchmark-run.js --suite v2",
     "eval:workflow:v2:compare": "node ./scripts/workflow-benchmark-compare.js --suite v2",
     "runtime:audit": "node ./scripts/runtime-audit.js",
-    "test": "node --test --test-concurrency=4",
+    "test": "node --test --test-concurrency=4 tests/*.test.js",
+    "test:unit": "node --test --test-concurrency=4 tests/execution-simplification.test.js tests/hook-runtime.test.js tests/manifest-schema.test.js tests/product-identity.test.js tests/redaction.test.js",
     "test:integration": "node --test --test-concurrency=1 tests/installation-baseline.test.js tests/installer-lifecycle.test.js tests/mvp-spec.test.js tests/cross-platform-adapters.test.js tests/tool-provisioning.test.js tests/uninstall.test.js",
-    "check": "node ./scripts/lint.js && node ./scripts/validate.js && pnpm eval:routing && pnpm eval:clarification && pnpm test",
+    "check": "node ./scripts/lint.js && node ./scripts/validate.js && pnpm test:unit",
     "pack:preview": "node ./scripts/pack-preview.js",
     "smoke:lifecycle": "node ./scripts/smoke-lifecycles.js"
   },

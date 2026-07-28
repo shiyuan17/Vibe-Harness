@@ -33,7 +33,7 @@ export const defaultProjectConfig = {
   validationCommands: {
     lint: null,
     typecheck: null,
-    governance: 'node .agents/cognis/governance/validate.mjs',
+    test: null,
     eval: null,
   },
   evaluations: {
@@ -48,13 +48,8 @@ export const defaultProjectConfig = {
     onlineRunner: null,
     repetitions: 3,
   },
-  governance: {
-    mode: 'basic',
-    workflow: 'adaptive',
-  },
   hooks: {
     allowedWriteRoots: [],
-    completionGate: 'advisory',
     mode: 'guarded',
   },
   riskZones: {
@@ -92,30 +87,16 @@ export function profileToCatalogProfile(profile) {
   return profile;
 }
 
-export function createDefaultProjectConfig(projectDir, target = 'codex', profile = 'core', workflow = 'adaptive') {
-  if (!['adaptive', 'strict'].includes(workflow)) {
-    throw new Error('governance.workflow must be adaptive or strict');
-  }
+export function createDefaultProjectConfig(projectDir, target = 'codex', profile = 'core') {
   return {
     ...defaultProjectConfig,
-    governance: {
-      ...defaultProjectConfig.governance,
-      mode: profile === 'minimal' ? 'off' : (profile === 'full' || profile === 'docs-only' ? 'full' : 'basic'),
-      workflow,
-    },
     projectName: path.basename(path.resolve(projectDir)),
     profile,
     target,
   };
 }
 
-export async function writeDefaultProjectConfig({ force = false, projectDir, profile = 'core', target = 'codex', workflow = 'adaptive' }) {
-  const existing = await resolveProjectConfigLocation(projectDir);
-  if (existing?.legacy) {
-    throw Object.assign(new Error(`Legacy ${productIdentity.legacy.configFile} exists; run cognis install --upgrade.`), {
-      code: 'COGNIS_CONFIG_MIGRATION_REQUIRED',
-    });
-  }
+export async function writeDefaultProjectConfig({ force = false, projectDir, profile = 'core', target = 'codex' }) {
   const configPath = path.join(projectDir, productIdentity.configFile);
   if (!force && await pathExists(configPath)) {
     throw new Error(`Refusing to overwrite existing config: ${configPath}`);
@@ -123,7 +104,7 @@ export async function writeDefaultProjectConfig({ force = false, projectDir, pro
   await mkdir(projectDir, { recursive: true });
   if (!mvpTargets.has(target)) throw new Error(`Unknown target: ${target}`);
   validateProfileName(profile);
-  const config = createDefaultProjectConfig(projectDir, target, profile, workflow);
+  const config = createDefaultProjectConfig(projectDir, target, profile);
   await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
   return { config, path: configPath };
 }
@@ -144,45 +125,6 @@ export async function readRequiredProjectConfig(projectDir) {
   return JSON.parse(await readFile(location.path, 'utf8'));
 }
 
-export async function createProjectConfigMigration(projectDir, config) {
-  const location = await resolveProjectConfigLocation(projectDir);
-  if (!location?.legacy) return null;
-  const migrated = structuredClone(config);
-  migrated.governance = { ...(migrated.governance ?? {}), workflow: migrated.governance?.workflow ?? 'strict' };
-  const legacyDefault = 'node .agents/loopengine/governance/validate.mjs';
-  const canonicalDefault = 'node .agents/cognis/governance/validate.mjs';
-  for (const [name, command] of Object.entries(migrated.validationCommands ?? {})) {
-    if (command === legacyDefault && name === 'governance') {
-      migrated.validationCommands[name] = canonicalDefault;
-      continue;
-    }
-    if (typeof command === 'string' && command.includes('.agents/loopengine/')) {
-      throw Object.assign(new Error(`validationCommands.${name} still references the legacy .agents/loopengine runtime.`), {
-        code: 'COGNIS_CONFIG_MIGRATION_REQUIRED',
-      });
-    }
-  }
-  return {
-    config: migrated,
-    from: productIdentity.legacy.configFile,
-    fromPath: location.path,
-    to: productIdentity.configFile,
-    toPath: path.join(projectDir, productIdentity.configFile),
-  };
-}
-
-export function createGovernanceWorkflowUpdate(projectDir, config) {
-  if (config.governance?.workflow) return null;
-  return {
-    config: {
-      ...structuredClone(config),
-      governance: { ...(config.governance ?? {}), workflow: 'strict' },
-    },
-    path: path.join(projectDir, productIdentity.configFile),
-    workflow: 'strict',
-  };
-}
-
 function assertObject(value, label) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`${label} must be an object`);
@@ -195,36 +137,13 @@ function assertNonEmptyString(value, label) {
   }
 }
 
-export function resolveGovernanceMode(config, profile = config?.profile) {
-  if (profile === config?.profile && config?.governance?.mode) return config.governance.mode;
-  if (profile === 'minimal') return 'off';
-  if (['full', 'docs-only'].includes(profile)) return 'full';
-  return 'basic';
-}
-
-export function resolveGovernanceWorkflow(config) {
-  return config?.governance?.workflow ?? 'strict';
-}
-
-export function validateGovernanceModeForProfile(mode, profile) {
-  const allowed = profile === 'minimal'
-    ? ['off']
-    : (profile === 'core' ? ['basic', 'off'] : ['basic', 'full', 'off']);
-  if (!allowed.includes(mode)) {
-    throw new Error(`governance.mode=${mode} is not supported by profile ${profile}`);
-  }
-}
-
-export function resolveValidationCommands(config, projectProfile, governanceMode) {
+export function resolveValidationCommands(config, projectProfile) {
   const configured = Object.fromEntries(
     Object.entries(config?.validationCommands ?? {}).filter(([, value]) => value),
   );
   return {
     ...(projectProfile?.validationCommands ?? {}),
     ...configured,
-    governance: governanceMode === 'off'
-      ? null
-      : (configured.governance ?? 'node .agents/cognis/governance/validate.mjs'),
     eval: configured.eval ?? null,
   };
 }
@@ -237,6 +156,16 @@ function assertOptionalCommand(value, label) {
 
 export function validateProjectConfig(config) {
   assertObject(config, 'cognis.config.json');
+  const obsolete = [
+    ...(Object.hasOwn(config, 'governance') ? ['governance'] : []),
+    ...(Object.hasOwn(config.hooks ?? {}, 'completionGate') ? ['hooks.completionGate'] : []),
+    ...(Object.hasOwn(config.validationCommands ?? {}, 'governance') ? ['validationCommands.governance'] : []),
+  ];
+  if (obsolete.length > 0) {
+    throw Object.assign(new Error(`Obsolete governance configuration: ${obsolete.join(', ')}. Remove these fields before continuing.`), {
+      code: 'COGNIS_OBSOLETE_GOVERNANCE_CONFIG',
+    });
+  }
   assertNonEmptyString(config.projectName, 'projectName');
   assertNonEmptyString(config.packageManager, 'packageManager');
   assertNonEmptyString(config.target, 'target');
@@ -257,28 +186,12 @@ export function validateProjectConfig(config) {
   assertObject(config.validationCommands, 'validationCommands');
   assertOptionalCommand(config.validationCommands.lint, 'validationCommands.lint');
   assertOptionalCommand(config.validationCommands.typecheck, 'validationCommands.typecheck');
+  assertOptionalCommand(config.validationCommands.test, 'validationCommands.test');
   assertOptionalCommand(config.validationCommands.eval, 'validationCommands.eval');
-  if (config.governance?.mode === 'off') {
-    assertOptionalCommand(config.validationCommands.governance, 'validationCommands.governance');
-  } else {
-    assertNonEmptyString(config.validationCommands.governance, 'validationCommands.governance');
-  }
-  if (Object.hasOwn(config, 'governance')) {
-    assertObject(config.governance, 'governance');
-    if (!['basic', 'full', 'off'].includes(config.governance.mode)) {
-      throw new Error('governance.mode must be basic, full, or off');
-    }
-    if (Object.hasOwn(config.governance, 'workflow') && !['adaptive', 'strict'].includes(config.governance.workflow)) {
-      throw new Error('governance.workflow must be adaptive or strict');
-    }
-  }
   if (Object.hasOwn(config, 'hooks')) {
     assertObject(config.hooks, 'hooks');
-    if (Object.hasOwn(config.hooks, 'mode') && !['off', 'observe', 'guarded', 'strict'].includes(config.hooks.mode)) {
-      throw new Error('hooks.mode must be off, observe, guarded, or strict');
-    }
-    if (Object.hasOwn(config.hooks, 'completionGate') && !['off', 'advisory', 'blocking'].includes(config.hooks.completionGate)) {
-      throw new Error('hooks.completionGate must be off, advisory, or blocking');
+    if (Object.hasOwn(config.hooks, 'mode') && !['off', 'observe', 'guarded'].includes(config.hooks.mode)) {
+      throw new Error('hooks.mode must be off, observe, or guarded');
     }
     if (Object.hasOwn(config.hooks, 'allowedWriteRoots')) {
       if (!Array.isArray(config.hooks.allowedWriteRoots)) {
@@ -357,13 +270,12 @@ function hasInstalledSurface(installedTargets, { exact, prefix, suffix }) {
   return installedTargets.some((target) => target.startsWith(prefix));
 }
 
-export function validateGeneratedContent(content, { installedTargets, workflow = 'strict' } = {}) {
+export function validateGeneratedContent(content, { installedTargets } = {}) {
   const requiredFragments = [
     '编辑前',
     '红区',
     '人工确认',
-    '验证证据',
-    ...(workflow === 'strict' ? ['轻量反证'] : []),
+    '验证',
   ];
   const missing = requiredFragments.filter((fragment) => !content.includes(fragment));
   if (missing.length > 0) {
@@ -412,6 +324,6 @@ export function validateGeneratedContent(content, { installedTargets, workflow =
 export function validateConfigAndGeneratedContent(config, agentsTemplate, options = {}) {
   validateProjectConfig(config);
   const rendered = renderTemplate(agentsTemplate, config);
-  validateGeneratedContent(rendered, { ...options, workflow: resolveGovernanceWorkflow(config) });
+  validateGeneratedContent(rendered, options);
   return rendered;
 }

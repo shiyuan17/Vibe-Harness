@@ -2,16 +2,8 @@ import path from 'node:path';
 import { realpathSync } from 'node:fs';
 
 export const supportedCodexHookEvents = new Set([
-  'SessionStart',
-  'UserPromptSubmit',
   'PreToolUse',
   'PermissionRequest',
-  'PostToolUse',
-  'PreCompact',
-  'PostCompact',
-  'SubagentStart',
-  'SubagentStop',
-  'Stop',
 ]);
 
 const writeToolPattern = /(?:apply_patch|write|edit|delete|remove|move|rename|create)/iu;
@@ -41,25 +33,13 @@ export function normalizeCodexHookInput(value) {
   }
 
   const normalized = {
-    agentId: typeof value.agent_id === 'string' ? value.agent_id : '',
-    agentType: typeof value.agent_type === 'string' ? value.agent_type : '',
     cwd: value.cwd,
     event,
-    lastAssistantMessage: typeof value.last_assistant_message === 'string' ? value.last_assistant_message : '',
     permissionMode: value.permission_mode,
     sessionId: value.session_id,
-    source: value.source,
-    stopHookActive: value.stop_hook_active === true,
     toolInput: value.tool_input,
     toolName: value.tool_name,
-    turnId: value.turn_id,
   };
-  if (['SubagentStart', 'SubagentStop'].includes(event)) {
-    for (const [field, current] of [['agent_id', normalized.agentId], ['agent_type', normalized.agentType], ['turn_id', normalized.turnId]]) {
-      if (typeof current !== 'string' || current.length === 0) throw new Error(`Codex hook input.${field} is required for ${event}.`);
-      if (current.length > 256 || /[\u0000-\u001f\u007f]/u.test(current)) throw new Error(`Codex hook input.${field} is invalid.`);
-    }
-  }
   return normalized;
 }
 

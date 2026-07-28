@@ -1,27 +1,14 @@
 {
   "hooks": {
-    "SessionStart": [
+    "PermissionRequest": [
       {
-        "matcher": "startup|resume|clear|compact",
         "hooks": [
           {
             "type": "command",
-            "command": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event SessionStart",
-            "commandWindows": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event SessionStart",
+            "command": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event PermissionRequest",
+            "commandWindows": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event PermissionRequest",
             "timeout": 10,
-            "statusMessage": "Loading active Cognis task context"
-          }
-        ]
-      }
-    ],
-    "PostCompact": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event PostCompact",
-            "commandWindows": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event PostCompact",
-            "timeout": 10
+            "statusMessage": "Checking Cognis safety policy"
           }
         ]
       }
@@ -36,43 +23,6 @@
             "commandWindows": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event PreToolUse",
             "timeout": 10,
             "statusMessage": "Checking Cognis safety policy"
-          }
-        ]
-      }
-    ],
-    "SubagentStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event SubagentStart",
-            "commandWindows": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event SubagentStart",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event SubagentStop",
-            "commandWindows": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event SubagentStop",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event Stop",
-            "commandWindows": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event Stop",
-            "timeout": 20,
-            "statusMessage": "Checking Cognis completion evidence"
           }
         ]
       }
