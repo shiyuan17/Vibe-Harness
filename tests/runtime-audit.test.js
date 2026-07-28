@@ -4,7 +4,7 @@ import test from 'node:test';
 
 import { auditRuntimeTools, resolveNpmAuditInvocation } from '../scripts/lib/runtime-audit.js';
 
-const rootDir = path.resolve('.');
+const rootDir = path.resolve(import.meta.dirname, '..');
 
 function auditPayload({ critical = 0, high = 0, low = 0, moderate = 0 } = {}) {
   return {

@@ -3,6 +3,7 @@ import { copyFile, cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile } 
 import path from 'node:path';
 
 import { assertPortableRelativePath, assertSafePathInside, pathExists } from './manifest.js';
+import { safeJsonParse } from './safe-json.js';
 import { projectStateDir } from './project-layout.js';
 
 async function transactionLayout(targetDir) {
@@ -182,7 +183,7 @@ export async function inspectTransactions(targetDir) {
     const journalPath = path.join(transactionRoot, entry.name, 'journal.json');
     await assertSafePathInside(resolvedTargetDir, journalPath, 'transaction journal');
     if (!(await pathExists(journalPath))) continue;
-    const journal = JSON.parse(await readFile(journalPath, 'utf8'));
+    const journal = safeJsonParse(await readFile(journalPath, 'utf8'));
     if (typeof journal.id !== 'string' || journal.id !== entry.name) {
       throw new Error(`Transaction journal id must match its transaction directory: ${entry.name}`);
     }
@@ -210,7 +211,7 @@ export async function recoverTransaction({ id, targetDir, write = false }) {
   }
   const transactionDir = path.join(transactionRoot, selected.id);
   const journalPath = path.join(transactionDir, 'journal.json');
-  const journal = JSON.parse(await readFile(journalPath, 'utf8'));
+  const journal = safeJsonParse(await readFile(journalPath, 'utf8'));
   await restoreJournal(resolvedTargetDir, transactionDir, journal);
   await releaseTransaction(resolvedTargetDir, transactionDir, selected.id, lockPath);
   return { recovered: [selected.id], selected, transactions };

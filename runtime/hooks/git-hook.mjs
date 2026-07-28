@@ -32,9 +32,28 @@ async function preCommit(rootDir) {
   scanStagedDiff(stdout);
 }
 
+// Reject shell metacharacters so a compromised cognis.config.json cannot inject
+// commands through validationCommands. We additionally tokenize and spawn with
+// shell:false so even a missed metacharacter cannot reach a shell interpreter.
+const shellMetacharacters = /[;|&`$()<>\\\n\r]/u;
+
+function splitCommand(command) {
+  const tokens = [];
+  const pattern = /"([^"]*)"|'([^']*)'|([^\s]+)/gu;
+  for (const match of command.matchAll(pattern)) tokens.push(match[1] ?? match[2] ?? match[3]);
+  if (tokens.length === 0) throw new Error('Validation command is empty.');
+  return tokens;
+}
+
 function runCommand(command, cwd) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, { cwd, shell: true, stdio: 'inherit', windowsHide: true });
+    if (shellMetacharacters.test(command)) {
+      reject(new Error(`Validation command contains shell metacharacters and cannot be run safely: ${command}`));
+      return;
+    }
+    const tokens = splitCommand(command);
+    const [program, ...args] = tokens;
+    const child = spawn(program, args, { cwd, shell: false, stdio: 'inherit', windowsHide: true });
     const timer = setTimeout(() => {
       child.kill();
       reject(new Error(`Validation command timed out: ${command}`));

@@ -182,19 +182,31 @@ export async function resolveOcrEndpoint({ env = process.env, homeDir, readText 
   const compatible = resolveCompatibilityEnvironment(env);
   if (compatible) return { env: compatible, source: 'compat-env', status: 'ready' };
 
-  try {
-    const raw = await readOptional(readText, path.join(resolvedHome, CODEX_CONFIG_FILE));
-    if (raw !== null) {
-      const config = await parseCodexConfig(raw);
-      if (config.error) diagnostics.push(config.error);
-      else {
-        const codex = resolveCodexEnvironment(config, env);
-        if (isComplete(codex)) return { env: codex, source: 'codex', status: 'ready' };
-        diagnostics.push({ code: 'CODEX_CONFIG_INCOMPLETE', message: 'Codex provider configuration is incomplete.' });
+  // The global Codex config (~/.codex/config.toml) holds the user's real LLM
+  // credentials. Auto-exfiltrating them into a project-scoped tool runner is
+  // unsafe: after install the project owns .agents/cognis/tools/open-code-review/
+  // run.mjs and any agent with project write access could tamper with it to
+  // capture the token. Require an explicit opt-in (OCR_ALLOW_CODEX_CONFIG=1)
+  // before reading credentials from the global Codex config. The dedicated
+  // Open Code Review config (~/.opencodereview/config.json) and explicit
+  // OCR_LLM_* env vars remain the preferred, project-scoped credential paths.
+  if (env.OCR_ALLOW_CODEX_CONFIG === '1') {
+    try {
+      const raw = await readOptional(readText, path.join(resolvedHome, CODEX_CONFIG_FILE));
+      if (raw !== null) {
+        const config = await parseCodexConfig(raw);
+        if (config.error) diagnostics.push(config.error);
+        else {
+          const codex = resolveCodexEnvironment(config, env);
+          if (isComplete(codex)) return { env: codex, source: 'codex', status: 'ready' };
+          diagnostics.push({ code: 'CODEX_CONFIG_INCOMPLETE', message: 'Codex provider configuration is incomplete.' });
+        }
       }
+    } catch {
+      diagnostics.push({ code: 'CODEX_CONFIG_READ_FAILED', message: 'Codex provider configuration could not be read.' });
     }
-  } catch {
-    diagnostics.push({ code: 'CODEX_CONFIG_READ_FAILED', message: 'Codex provider configuration could not be read.' });
+  } else {
+    diagnostics.push({ code: 'CODEX_CONFIG_OPT_IN_REQUIRED', message: 'Set OCR_ALLOW_CODEX_CONFIG=1 to read credentials from the global Codex config. Use OCR_LLM_* env vars or ~/.opencodereview/config.json for project-scoped credentials.' });
   }
 
   return pending(diagnostics);

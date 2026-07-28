@@ -20,7 +20,7 @@ import {
   runMcpHandshake,
 } from '../scripts/lib/tool-provisioning.js';
 
-const rootDir = path.resolve('.');
+const rootDir = path.resolve(import.meta.dirname, '..');
 const execFileAsync = promisify(execFile);
 const cliPath = path.join(rootDir, 'scripts/cognis.js');
 const offlineEnv = {
