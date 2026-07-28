@@ -69,9 +69,40 @@ Claude Code 和 Gemini CLI 使用相同的四个 profile；其 preview 能力需
     "test": null,
     "eval": null
   },
+  "evaluations": {
+    "enabled": false,
+    "suites": [],
+    "reference": "evals/references/project.json",
+    "thresholds": {
+      "criticalPassRate": 1,
+      "overallScore": 0.9,
+      "maxCapabilityRegression": 0.05
+    },
+    "onlineRunner": null,
+    "repetitions": 3
+  },
   "hooks": {
     "allowedWriteRoots": [],
     "mode": "guarded"
+  },
+  "riskZones": {
+    "red": ["auth", "secrets", "ci-cd", "env"],
+    "yellow": ["shared-libs", "state", "routing", "io-clients"]
+  },
+  "crossRepo": {
+    "enabled": false,
+    "backendRepo": ""
+  },
+  "projectRules": {
+    "mode": "auto",
+    "overrides": {}
+  },
+  "clarification": {
+    "posture": "balanced"
+  },
+  "memory": {
+    "enabled": true,
+    "path": ".agents/memory"
   }
 }
 ```

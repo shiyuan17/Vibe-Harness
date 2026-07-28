@@ -19,4 +19,4 @@
 
 - `retire` 在删除前再次校验 hash 并写入项目内 backup，删除后记录到 install state 的 `retiredFiles`。
 - rollback 对缺失目标执行 `restore-retired`；目标已被重新创建时以 `target-recreated` 跳过。
-- 真实升级显式增加 `--modules memory,governance,hooks`，并使用 `--project <path> --target codex --profile full --write --upgrade --confirm-red-zone`；旧 state 由标准 init/upgrade 归一，不再提供 legacy/internal 命令。
+- 真实升级显式增加 `--modules memory,hooks`，并使用 `--project <path> --target codex --profile full --write --upgrade --confirm-red-zone`；旧 state 由标准 init/upgrade 归一，不再提供 legacy/internal 命令。

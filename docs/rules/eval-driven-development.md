@@ -10,3 +10,5 @@
 - 真实 Agent 评测只能在一次性项目中运行，不得把评测任务直接指向源仓库或用户工作区。
 
 项目状态 `baseline` 描述安装与验证状态；evaluation `reference` 描述批准的评测结果，两者不得混用。
+
+本规则是常驻契约；按需展开的执行步骤见 `eval-driven-development` Skill（`.agents/skills/eval-driven-development/SKILL.md`），两者描述同一门禁，修改须同步。

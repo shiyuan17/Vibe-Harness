@@ -48,6 +48,8 @@
 - [Skills 精简](inventory/skills-optimization-zh.md)
 - [脱敏映射](inventory/redaction-map.md)
 - [参考分析](inventory/governance-reference-analysis.md)
+- [工作流与澄清能力审查](inventory/workflow-clarification-review.md)
+- [Pre-existing 测试失败处理方案](inventory/preexisting-test-failures-remediation.md)
 
 ## 历史
 

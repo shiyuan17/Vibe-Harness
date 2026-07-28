@@ -363,6 +363,25 @@
       ]
     },
     {
+      "path": "docs/inventory/workflow-clarification-review.md",
+      "kind": "inventory",
+      "status": "reference",
+      "language": "zh-CN",
+      "audiences": [
+        "auditor",
+        "maintainer"
+      ]
+    },
+    {
+      "path": "docs/inventory/preexisting-test-failures-remediation.md",
+      "kind": "inventory",
+      "status": "reference",
+      "language": "zh-CN",
+      "audiences": [
+        "maintainer"
+      ]
+    },
+    {
       "path": "docs/archive/README.md",
       "kind": "index",
       "status": "reference",

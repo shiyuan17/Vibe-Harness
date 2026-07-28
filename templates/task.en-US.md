@@ -2,7 +2,7 @@
 
 > Optional human-readable note.
 
-- Tier: quick / light / full
+- Workflow tier: quick / light / full
 - Status: in progress / waiting / blocked / complete / cancelled
 
 ## Goal

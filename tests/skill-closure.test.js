@@ -9,7 +9,7 @@ import { createInstallPlan } from '../scripts/lib/install-planner.js';
 import { readJson } from '../scripts/lib/manifest.js';
 import { runSkillsAudit } from '../scripts/lib/skills-audit.js';
 
-const rootDir = path.resolve('.');
+const rootDir = path.resolve(import.meta.dirname, '..');
 const execFileAsync = promisify(execFile);
 const coreSkills = ['clarify-requirements', 'define-goal', 'systematic-debugging', 'eval-driven-development', 'security-and-hardening'];
 const fullSkills = ['api-and-interface-design', 'frontend-design', 'runtime-cross-repo-rollout'];

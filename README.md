@@ -69,9 +69,40 @@ Claude Code and Gemini CLI use the same four profiles; preview capabilities requ
     "test": null,
     "eval": null
   },
+  "evaluations": {
+    "enabled": false,
+    "suites": [],
+    "reference": "evals/references/project.json",
+    "thresholds": {
+      "criticalPassRate": 1,
+      "overallScore": 0.9,
+      "maxCapabilityRegression": 0.05
+    },
+    "onlineRunner": null,
+    "repetitions": 3
+  },
   "hooks": {
     "allowedWriteRoots": [],
     "mode": "guarded"
+  },
+  "riskZones": {
+    "red": ["auth", "secrets", "ci-cd", "env"],
+    "yellow": ["shared-libs", "state", "routing", "io-clients"]
+  },
+  "crossRepo": {
+    "enabled": false,
+    "backendRepo": ""
+  },
+  "projectRules": {
+    "mode": "auto",
+    "overrides": {}
+  },
+  "clarification": {
+    "posture": "balanced"
+  },
+  "memory": {
+    "enabled": true,
+    "path": ".agents/memory"
   }
 }
 ```

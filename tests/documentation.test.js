@@ -5,7 +5,7 @@ import test from 'node:test';
 
 import { validateDocumentation, validateReadmeParity } from '../scripts/lib/docs-validation.js';
 
-const rootDir = path.resolve('.');
+const rootDir = path.resolve(import.meta.dirname, '..');
 
 test('documentation catalog covers current and archived Markdown', async () => {
   const report = await validateDocumentation({ rootDir });

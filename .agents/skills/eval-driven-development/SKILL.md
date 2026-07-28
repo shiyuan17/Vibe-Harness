@@ -5,6 +5,8 @@ description: Use for nondeterministic Agent rules, Skills, prompts, Hooks, or ro
 
 # 评测驱动修改 Agent 行为
 
+常驻契约见 `docs/rules/eval-driven-development.md`；本 Skill 是按需展开的执行步骤，两者描述同一门禁，修改须同步。
+
 ## 执行
 
 1. 用真实输入定义一个会失败的 `Eval-ID`，注明必须行为、禁止行为、风险和确定性断言。

@@ -4,7 +4,7 @@ Cognis 是跨平台的项目级 AI coding 资产包。运行时使用 Node.js ES
 
 ## 组件
 
-- `rules/`：执行内核、安全边界和工程专项规则。
+- `rules/`：执行内核、安全边界和工程专项规则的模板源（部分含 `{{}}` 占位符）。安装器按 `adapters/*/install-map.json` 将其渲染为目标项目的 `docs/rules/`；本仓库 `docs/rules/` 即 Cognis 安装到自身时的渲染产物。无占位符的规则两处字节相同；含占位符的 `project-specific-rules.md` 等仅模板在 `rules/`。
 - `templates/`：可选的人读任务与交付简表，以及 memory 文档模板。
 - `skills/`：八个由宿主按 description 直接选择的领域 Skills；不包含流程 Router。
 - `runtime/hooks/`：Codex `PreToolUse` 与 `PermissionRequest` 安全策略，以及可选 RTK 路由。

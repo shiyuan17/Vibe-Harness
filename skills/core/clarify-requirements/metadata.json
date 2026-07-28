@@ -1,1 +1,1 @@
-{"id":"clarify-requirements","kind":"core","entry":"SKILL.md","triggers":["产品决定","需求澄清","需求探索","需求采访"],"outputs":["关键决定","需求决定摘要"]}
+{"id":"clarify-requirements","kind":"core","entry":"SKILL.md","triggers":["产品决定","需求澄清","需求探索","需求采访","需求规格"],"outputs":["关键决定","需求决定摘要","单页规格"]}
