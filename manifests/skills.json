@@ -2,6 +2,7 @@
   "schemaVersion": 1,
   "items": [
     { "id": "clarify-requirements", "source": "skills/core/clarify-requirements/SKILL.md", "metadata": "skills/core/clarify-requirements/metadata.json", "kind": "native", "requiresSkills": [], "optionalSkills": [], "requiresTools": [] },
+    { "id": "define-goal", "source": "skills/core/define-goal/SKILL.md", "metadata": "skills/core/define-goal/metadata.json", "kind": "native", "requiresSkills": [], "optionalSkills": [], "requiresTools": [] },
     { "id": "systematic-debugging", "source": "skills/core/systematic-debugging/SKILL.md", "metadata": "skills/core/systematic-debugging/metadata.json", "kind": "native", "requiresSkills": [], "optionalSkills": [], "requiresTools": [] },
     { "id": "eval-driven-development", "source": "skills/core/eval-driven-development/SKILL.md", "metadata": "skills/core/eval-driven-development/metadata.json", "kind": "native", "requiresSkills": [], "optionalSkills": [], "requiresTools": [] },
     { "id": "security-and-hardening", "source": "skills/core/security-and-hardening/SKILL.md", "metadata": "skills/core/security-and-hardening/metadata.json", "kind": "native", "requiresSkills": [], "optionalSkills": [], "requiresTools": [] },
