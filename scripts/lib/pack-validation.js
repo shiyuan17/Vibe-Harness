@@ -304,30 +304,23 @@ export async function validateSkillGraph(
   return errors.sort();
 }
 
-export async function validateGovernanceQuality(rootDir) {
+export async function validateContentQuality(rootDir) {
   const checks = [
     {
       file: 'rules/governance-core.md',
-      terms: ['governance.mode', 'governance.workflow', '获取事实 → 直接执行 → 聚焦验证 → 简洁交付', '主张 → 证据 → 反例 → 剩余风险', '连续三次', '快速', '轻量', '完整', 'Red Team（红队审查）'],
+      terms: ['获取事实 → 直接执行 → 聚焦验证 → 简洁交付', '快速', '轻量', '完整', '人工确认', '验证范围必须与完成主张匹配'],
     },
     {
       file: 'templates/task.md',
-      terms: ['工作流档位', '当前阶段', '当前状态', '处理结果', 'AC-ID', '完整流程控制', '验收证据', '红队审查者', '红队审查包', '红队审查结论'],
+      terms: ['可选的人读记录', '档位', '状态', '目标', '验收', '下一步', '验证', '风险'],
     },
     {
       file: 'templates/delivery.md',
-      terms: ['Adaptive', '结果', '实际变更', '本轮验证', 'Strict', '结果状态', '验证证据', '剩余风险'],
-    },
-    {
-      file: 'schemas/full-task-control.schema.json',
-      terms: ['任务类型', '责任角色', '写入范围', '禁止动作', '并行安全', '人工确认', '核验者', '红队审查者', '红队审查包', '红队审查结论'],
+      terms: ['结果', '实际变更', '本轮验证', '未验证项', '风险', '后续动作'],
     },
     {
       file: 'rules/agent-skill-routing.md',
-      terms: [
-        '不覆盖', 'description', '不使用 Router', '同一阶段默认只加载一个 Skill',
-        '计划', 'Review', '多 Agent', 'Red Team', '人工门禁',
-      ],
+      terms: ['description', '不使用 Router', '领域 Skill', '人工确认'],
     },
     {
       file: 'rules/test-rules.md',
@@ -335,15 +328,11 @@ export async function validateGovernanceQuality(rootDir) {
     },
     {
       file: 'rules/ai-collab-rules.md',
-      terms: [
-        '证据边界', '角色边界', '实现 Agent', 'reviewer', '信息呈现',
-        '目标、范围、约束、验收标准、待决策项', '`- [ ]` / `- [x]`',
-        'Markdown 表格', '信息块', '用户明确指定格式',
-      ],
+      terms: ['单 Agent', '人工确认', '验证与主张匹配', '保护现有工作区'],
     },
     {
       file: 'rules/pencil-rules.md',
-      terms: ['交付门禁', '.pen', '.png', '验证'],
+      terms: ['.pen', '.png', '验证'],
     },
     {
       file: 'rules/project-directory.md',
@@ -385,6 +374,10 @@ export async function validateGovernanceQuality(rootDir) {
       file: 'skills/core/clarify-requirements/SKILL.md',
       terms: ['安全审批', '阻塞产品决定', '可逆实现选择', '最多三个', '推荐项', '回答关闭分支后立即继续'],
     },
+    {
+      file: 'skills/core/define-goal/SKILL.md',
+      terms: ['4000', '执行型', '探索型', '明确要求激活', '不得静默替换', '不扩大授权'],
+    },
   ];
 
   const results = await Promise.all(checks.map((check) => checkRequiredTerms(rootDir, check)));
@@ -416,55 +409,11 @@ export async function validateGovernanceQuality(rootDir) {
         const normalized = paragraph.replace(/\s+/gu, ' ').trim();
         if (normalized.length < 240) continue;
         const owner = proseOwners.get(normalized);
-        if (owner && owner !== relative) errors.push(`duplicated long governance prose in ${owner} and ${relative}`);
+        if (owner && owner !== relative) errors.push(`duplicated long policy prose in ${owner} and ${relative}`);
         else proseOwners.set(normalized, relative);
       }
     }
   }
-  return errors.sort();
-}
-
-export function validateAgentSkillRoutingIntegrity({
-  agentsContent,
-  capabilityMatrix,
-  installEntries,
-  ruleContent,
-  ruleItems,
-}) {
-  const errors = [];
-  const ruleSource = 'rules/agent-skill-routing.md';
-  const ruleTarget = 'docs/rules/AGENT_SKILL_ROUTING.md';
-  const testTarget = 'tests/agent-skill-routing.test.js';
-
-  const manifestEntry = ruleItems.find((item) => item.id === 'agent-skill-routing');
-  if (manifestEntry?.source !== ruleSource) {
-    errors.push(`agent-skill-routing must be registered in manifests/rules.json with source ${ruleSource}`);
-  }
-
-  const installEntry = installEntries.find((entry) => entry.source === ruleSource);
-  if (installEntry?.group !== 'rules-minimal' || installEntry?.target !== ruleTarget) {
-    errors.push(`agent-skill-routing must install from rules-minimal to ${ruleTarget}`);
-  }
-
-  const capability = capabilityMatrix?.items?.find((item) => item.id === 'skill-routing');
-  if (!capability) {
-    errors.push('skill-routing capability must track the native routing policy');
-  } else {
-    for (const target of [ruleSource, 'skills/core/clarify-requirements/SKILL.md']) {
-      if (!capability.targets?.includes(target)) errors.push(`skill-routing capability must target ${target}`);
-    }
-    if (!capability.tests?.includes(testTarget)) {
-      errors.push(`skill-routing capability must list ${testTarget}`);
-    }
-  }
-
-  if (!agentsContent.includes(ruleTarget)) errors.push(`AGENTS template must reference ${ruleTarget}`);
-  if (!/按 description 原生选择/u.test(agentsContent)) errors.push('AGENTS template must document native description routing');
-  if (!/不使用 Router/u.test(ruleContent)) errors.push('agent skill routing policy must reject Router chains');
-  for (const retired of ['using-cognis', 'brainstorming', 'writing-plans', 'verification-before-completion']) {
-    if (ruleContent.includes(retired)) errors.push(`agent skill routing policy must not reference retired skill ${retired}`);
-  }
-
   return errors.sort();
 }
 
@@ -534,13 +483,12 @@ export async function validateCapabilityMatrix(rootDir, matrix, { checkFiles = t
     }
   }
   const requiredCapabilities = [
-    'governance-kernel',
-    'chinese-task-contract',
-    'skill-routing',
-    'review',
+    'execution-kernel',
+    'native-skill-selection',
+    'goal-definition',
     'git-and-worktree',
     'engineering-rules',
-    'governance-memory',
+    'memory-templates',
     'pencil-assets',
     'release',
     'eval-driven-development',
@@ -606,24 +554,9 @@ export async function validatePack(rootDir) {
   const skillGraphErrors = await validateSkillGraph(rootDir, manifests.skills.items, manifests.profiles.items, {
     installEntries,
   });
-  const governanceQualityErrors = await validateGovernanceQuality(rootDir);
+  const contentQualityErrors = await validateContentQuality(rootDir);
   const capabilityMatrix = await readJson(path.join(rootDir, 'manifests/capabilities.json'));
   const capabilityErrors = await validateCapabilityMatrix(rootDir, capabilityMatrix);
-  const readOptionalText = async (relativePath) => {
-    const file = path.join(rootDir, relativePath);
-    return await pathExists(file) ? readFile(file, 'utf8') : '';
-  };
-  const [agentsContent, ruleContent] = await Promise.all([
-    readOptionalText('adapters/codex/AGENTS.template.md'),
-    readOptionalText('rules/agent-skill-routing.md'),
-  ]);
-  const agentSkillRoutingErrors = validateAgentSkillRoutingIntegrity({
-    agentsContent,
-    capabilityMatrix,
-    installEntries,
-    ruleContent,
-    ruleItems: manifests.rules.items,
-  });
   const leaks = await scanForForbiddenTerms({
     forbiddenTerms,
     includeDirs: redactionDirs,
@@ -632,15 +565,14 @@ export async function validatePack(rootDir) {
   const documentation = await validateDocumentation({ rootDir });
 
   return {
-    agentSkillRoutingErrors,
     capabilityErrors,
+    contentQualityErrors,
     leaks,
     missing: [...missing, ...installMapMissing].sort(),
     missingSkillInstalls,
     invalidSkillDirs,
     skillMetadataErrors,
     skillGraphErrors,
-    governanceQualityErrors,
     documentationErrors: documentation.errors,
     documentationWarnings: documentation.warnings,
     ok: missing.length === 0
@@ -649,8 +581,7 @@ export async function validatePack(rootDir) {
       && invalidSkillDirs.length === 0
       && skillMetadataErrors.length === 0
       && skillGraphErrors.length === 0
-      && governanceQualityErrors.length === 0
-      && agentSkillRoutingErrors.length === 0
+      && contentQualityErrors.length === 0
       && capabilityErrors.length === 0
       && documentation.errors.length === 0
       && leaks.length === 0

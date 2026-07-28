@@ -2,7 +2,6 @@ import './helpers/offline-tools.js';
 
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -90,7 +89,6 @@ for (const adapter of ['claude', 'gemini']) {
         const configPath = path.join(target, 'cognis.config.json');
         const config = JSON.parse(await readFile(configPath, 'utf8'));
         config.profile = profile;
-        config.governance.mode = profile === 'minimal' ? 'off' : 'basic';
         await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
 
         const installed = await run(['install', '--project', target, '--target', adapter, '--profile', profile, '--write']);
@@ -109,7 +107,7 @@ for (const adapter of [
   { id: 'claude', skills: '.claude/skills' },
   { id: 'gemini', skills: '.gemini/skills' },
 ]) {
-  test(`${adapter.id} full preview installs seven native Skills without Codex metadata or hooks`, async () => {
+  test(`${adapter.id} full preview installs eight native Skills without Codex metadata or hooks`, async () => {
     const target = await mkdtemp(path.join(tmpdir(), `cognis-${adapter.id}-full-`));
     try {
       await run(['init', '--project', target, '--target', adapter.id, '--profile', 'full']);
@@ -118,16 +116,12 @@ for (const adapter of [
       const doctor = await run(['doctor', '--project', target]);
       assert.equal(validation.status, 'ready');
       assert.equal(doctor.status, 'ready');
-      assert.equal(doctor.subagents.support, 'unsupported');
-      assert.equal(doctor.subagents.status, 'degraded');
-      assert.match(doctor.subagents.reason, /manual-equivalent Tester and Reviewer evidence/u);
-      for (const skill of ['clarify-requirements', 'systematic-debugging', 'eval-driven-development', 'security-and-hardening', 'api-and-interface-design', 'frontend-design', 'runtime-cross-repo-rollout']) {
+      assert.equal(Object.hasOwn(doctor, 'subagents'), false);
+      for (const skill of ['clarify-requirements', 'define-goal', 'systematic-debugging', 'eval-driven-development', 'security-and-hardening', 'api-and-interface-design', 'frontend-design', 'runtime-cross-repo-rollout']) {
         assert.equal(await exists(path.join(target, adapter.skills, skill, 'SKILL.md')), true);
         assert.equal(await exists(path.join(target, adapter.skills, skill, 'agents/openai.yaml')), false);
       }
       assert.equal(await exists(path.join(target, '.codex/hooks.json')), false);
-      assert.equal(await exists(path.join(target, '.codex/agents/cognis_tester.toml')), false);
-      assert.equal(await exists(path.join(target, '.codex/agents/cognis_reviewer.toml')), false);
     } finally {
       await rm(target, { force: true, recursive: true });
     }
@@ -155,9 +149,9 @@ test('adapter catalog gates preview profiles and rejects target mismatch', async
   }
 });
 
-test('adapter capability v2 uses explicit support levels for every governed surface', async () => {
+test('adapter capability v2 uses explicit support levels for every product surface', async () => {
   const catalog = JSON.parse(await readFile(path.join(rootDir, 'manifests/adapters.json'), 'utf8'));
-  const capabilityNames = ['instructions', 'skills', 'hooks', 'policy', 'mcp', 'sandbox', 'memory', 'plugin', 'subagents'];
+  const capabilityNames = ['instructions', 'skills', 'hooks', 'policy', 'mcp', 'sandbox', 'memory', 'plugin', 'goals'];
   assert.equal(catalog.schemaVersion, 2);
   for (const adapter of catalog.items) {
     assert.deepEqual(Object.keys(adapter.capabilities).sort(), [...capabilityNames].sort());
@@ -218,35 +212,6 @@ test('all platform instruction entrypoints stay below ninety lines', async () =>
   for (const [adapter, filename] of [['codex', 'AGENTS'], ['claude', 'CLAUDE'], ['gemini', 'GEMINI']]) {
     const content = await readFile(path.join(rootDir, 'adapters', adapter, `${filename}.template.md`), 'utf8');
     assert.equal(content.split(/\r?\n/u).length <= 90, true, `${filename}.md exceeds the resident line budget`);
-  }
-});
-
-test('adapter profile file sets match the reviewed snapshots', async () => {
-  const snapshots = {
-    'claude:core': [37, '3d91ba7835b896573f299aba3e729c444b29df15aed582fdf69a80ffaf77811c'],
-    'claude:docs-only': [31, 'f0f2bb95fe3f4e2839adcc46f230bf18ec27ac49d9bd0d672f4840412f90a3fc'],
-    'claude:minimal': [7, 'de8bef97b2444d03ddb8077a187a05e0dc1d976f97cfce2daf87d77262d5c9ba'],
-    'codex:core': [41, 'f9152426a053a8a70c11c3fbbeee3c9a2f4969d08eed4620d8b330bf7361cafa'],
-    'codex:full': [67, '557fd9032885ea427d29d194dae8966f03e36b9f80b50aa8bf96fef1ebe8f804'],
-    'codex:minimal': [7, 'acf92f049c50289f3eec6136e888f50b32b389d8a80e75a8b344a20ad37d6789'],
-    'gemini:core': [37, '306dce605833e83d9cc8019ea7970ae8a84c87477341514e316ac1287515fab7'],
-    'gemini:docs-only': [31, '814cab84e77c4626f35739b39fb3edbe0ab1fd307aaf0920296f779bd41d34f0'],
-    'gemini:minimal': [7, '8e6fc02f1c019b5cea55ac49567af9bd4b2b75ed62f97731e0dbcd962293eb4a'],
-  };
-
-  for (const [key, [count, digest]] of Object.entries(snapshots)) {
-    const [adapterId, profile] = key.split(':');
-    const plan = await createInstallPlan({
-      adapterId,
-      dryRun: true,
-      managedAgentsBlock: true,
-      profile,
-      rootDir,
-      targetDir: path.join(rootDir, '.tmp-adapter-snapshot'),
-    });
-    const targets = plan.actions.map((action) => action.relativeTarget).sort();
-    assert.equal(targets.length, count, `${key} file count changed`);
-    assert.equal(createHash('sha256').update(JSON.stringify(targets)).digest('hex'), digest, `${key} file set changed`);
   }
 });
 

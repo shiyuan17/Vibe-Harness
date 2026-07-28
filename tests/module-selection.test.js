@@ -32,9 +32,9 @@ test('public modules resolve dependencies without exposing install-map groups', 
 
   assert.deepEqual(selection.requestedModules, ['memory', 'hooks']);
   assert.deepEqual(selection.resolvedModules, [
-    'agents', 'rules', 'templates', 'governance', 'skills', 'memory', 'hooks',
+    'agents', 'rules', 'templates', 'skills', 'memory', 'hooks',
   ]);
-  assert.deepEqual(selection.implicitModules, ['agents', 'rules', 'templates', 'governance', 'skills']);
+  assert.deepEqual(selection.implicitModules, ['agents', 'rules', 'templates', 'skills']);
   assert.equal(selection.allowedGroups.has('skills-memory'), true);
   assert.equal(selection.allowedGroups.has('tools-codebase-memory'), false);
   assert.equal(selection.allowedGroups.has('mcp-config'), false);
@@ -81,7 +81,7 @@ test('project config accepts valid modules and rejects invalid module arrays', (
     profile: 'core',
     projectName: 'Example',
     target: 'codex',
-    validationCommands: { governance: 'node validate.mjs', lint: null, typecheck: null },
+    validationCommands: { lint: null, typecheck: null, test: null, eval: null },
   };
   assert.equal(validateProjectConfig({ ...base, modules: ['rules'] }), true);
   assert.throws(() => validateProjectConfig({ ...base, modules: [] }), /at least one module/u);
@@ -173,7 +173,7 @@ test('plugins augment the profile selection instead of replacing it', () => {
   assert.equal(selection.allowedGroups.has('tools-rtk'), true);
 });
 
-test('RTK hooks add hooks and governance only when explicitly enabled', () => {
+test('RTK integration adds safety hooks only when explicitly enabled', () => {
   const instructionsOnly = resolveModuleSelection({
     profile: 'core',
     requestedPlugins: ['rtk'],
@@ -187,7 +187,6 @@ test('RTK hooks add hooks and governance only when explicitly enabled', () => {
   });
   assert.equal(integrated.resolvedModules.includes('rtk'), true);
   assert.equal(integrated.resolvedModules.includes('hooks'), true);
-  assert.equal(integrated.resolvedModules.includes('governance'), true);
   assert.equal(integrated.implicitModules.includes('hooks'), true);
 });
 
@@ -197,7 +196,7 @@ test('project config accepts valid plugins and rejects invalid plugin arrays', (
     profile: 'core',
     projectName: 'Example',
     target: 'codex',
-    validationCommands: { governance: 'node validate.mjs', lint: null, typecheck: null },
+    validationCommands: { lint: null, typecheck: null, test: null, eval: null },
   };
   assert.equal(validateProjectConfig({ ...base, plugins: ['rtk', 'playwright-cli'] }), true);
   assert.throws(() => validateProjectConfig({ ...base, plugins: [] }), /at least one plugin/u);

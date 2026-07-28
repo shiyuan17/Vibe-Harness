@@ -89,35 +89,6 @@ test('Playwright tool preparation is lazy, reproducible, and project-local', asy
   }
 });
 
-test('Playwright tool keeps runtime state in the legacy state root after upgrade', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-playwright-legacy-state-'));
-  const toolDir = path.join(targetDir, '.agents/cognis/tools/playwright-cli');
-  try {
-    await mkdir(path.join(targetDir, '.loopengine'), { recursive: true });
-    await writeFile(path.join(targetDir, '.loopengine/install-state.json'), '{}\n', 'utf8');
-    await mkdir(toolDir, { recursive: true });
-    await writeFile(path.join(toolDir, 'package-lock.json'), '{}\n', 'utf8');
-    await writeFile(path.join(toolDir, 'package.json'), '{}\n', 'utf8');
-    await preparePlaywrightTool({
-      runCommand: async (command, args) => {
-        if (command.includes('npm') || args[0]?.includes('npm-cli')) {
-          await mkdir(path.join(toolDir, 'node_modules/@playwright/cli'), { recursive: true });
-          await writeFile(path.join(toolDir, 'node_modules/@playwright/cli/playwright-cli.js'), '', 'utf8');
-        } else {
-          await mkdir(path.join(toolDir, 'node_modules/playwright-core/.local-browsers/chromium-legacy'), { recursive: true });
-        }
-      },
-      targetDir,
-      toolDir,
-    });
-
-    const config = JSON.parse(await readFile(path.join(targetDir, '.loopengine/tool-state/playwright-cli.config.json'), 'utf8'));
-    assert.equal(config.outputDir, path.join(targetDir, '.cognis/artifacts/playwright'));
-  } finally {
-    await rm(targetDir, { force: true, recursive: true });
-  }
-});
-
 test('failed Playwright preparation records unavailable without leaking command output and can retry', async () => {
   const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-playwright-failure-'));
   const toolDir = path.join(targetDir, '.agents/cognis/tools/playwright-cli');

@@ -17,11 +17,7 @@ test('codex adapter declares AGENTS, rules, templates, skills, and hooks mapping
   assert.ok(targets.includes('.agents/skills/clarify-requirements/agents/openai.yaml'));
   assert.ok(targets.includes('.codex/hooks.json'));
   assert.ok(installMap.entries.find((entry) => entry.target === '.codex/hooks.json').redZone);
-  for (const role of ['cognis_tester', 'cognis_reviewer']) {
-    const entry = installMap.entries.find((item) => item.target === `.codex/agents/${role}.toml`);
-    assert.equal(entry.group, 'codex-subagents');
-    assert.equal(entry.redZone, true);
-  }
+  assert.equal(targets.some((target) => target.startsWith('.codex/agents/')), false);
 });
 
 test('codex adapter and plugin metadata track the package version', async () => {
@@ -29,14 +25,9 @@ test('codex adapter and plugin metadata track the package version', async () => 
   const adapter = await readJson(path.join(rootDir, 'adapters/codex/codex-plugin.json'));
   const plugin = await readJson(path.join(rootDir, '.codex-plugin/plugin.json'));
   const hooks = await readJson(path.join(rootDir, 'adapters/codex/hooks.template.json'));
-  const strictHooks = await readJson(path.join(rootDir, 'adapters/codex/hooks.strict.template.json'));
 
   assert.equal(adapter.version, pkg.version);
   assert.equal(plugin.version, pkg.version);
   assert.equal(Object.hasOwn(hooks, 'notes'), false);
-  assert.ok(hooks.hooks.PreToolUse);
-  assert.equal(Object.hasOwn(hooks.hooks, 'PermissionRequest'), false);
-  assert.ok(strictHooks.hooks.PermissionRequest);
-  assert.ok(hooks.hooks.Stop);
-  assert.equal(Object.hasOwn(hooks.hooks, 'SessionEnd'), false);
+  assert.deepEqual(Object.keys(hooks.hooks).sort(), ['PermissionRequest', 'PreToolUse']);
 });

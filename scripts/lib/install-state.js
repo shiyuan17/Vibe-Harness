@@ -1,5 +1,4 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
 import { copyFile, mkdir, readFile, readdir, rename, rm, rmdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -33,14 +32,7 @@ export function toTargetPath(targetDir, filePath) {
 }
 
 export function stateFilePath(targetDir) {
-  const canonical = path.join(targetDir, productIdentity.stateDir, stateFileName);
-  const legacy = path.join(targetDir, productIdentity.legacy.stateDir, stateFileName);
-  if (existsSync(canonical) && existsSync(legacy)) {
-    throw Object.assign(new Error('Both .cognis and .loopengine contain install state.'), {
-      code: 'COGNIS_STATE_CONFLICT',
-    });
-  }
-  return existsSync(legacy) ? legacy : canonical;
+  return path.join(targetDir, productIdentity.stateDir, stateFileName);
 }
 
 function stateDirNameFor(targetDir) {
@@ -67,14 +59,11 @@ export async function writeInstallState(targetDir, state) {
   await mkdir(path.dirname(filePath), { recursive: true });
   const temporaryPath = `${filePath}.${randomUUID()}.tmp`;
   try {
-    const storageNamespace = stateDirNameFor(targetDir) === productIdentity.legacy.stateDir
-      ? 'loopengine'
-      : 'cognis';
     await writeFile(temporaryPath, `${JSON.stringify({
       ...state,
       product: 'cognis',
       stateVersion: 4,
-      storageNamespace,
+      storageNamespace: 'cognis',
     }, null, 2)}\n`, 'utf8');
     await rename(temporaryPath, filePath);
   } catch (error) {
@@ -121,9 +110,7 @@ export async function collectTargetFiles(targetDir, currentDir = targetDir) {
   for (const entry of entries) {
     const fullPath = path.join(currentDir, entry.name);
     const relative = toTargetPath(targetDir, fullPath);
-    if ([productIdentity.stateDir, productIdentity.legacy.stateDir].some(
-      (stateDir) => relative === stateDir || relative.startsWith(`${stateDir}/`),
-    )) {
+    if (relative === productIdentity.stateDir || relative.startsWith(`${productIdentity.stateDir}/`)) {
       continue;
     }
     if (relative === '.agents/backup' || relative.startsWith('.agents/backup/')) {
@@ -248,26 +235,6 @@ export async function createRollbackPlan({ dryRun = true, redZoneConfirmed = fal
       kind: 'restore-retired',
       redZone: Boolean(file.redZone),
       target: file.target,
-    });
-  }
-  if (state.configMigration) {
-    const migration = state.configMigration;
-    assertPortableRelativePath(migration.from, 'install-state config migration source');
-    assertPortableRelativePath(migration.to, 'install-state config migration target');
-    assertPortableRelativePath(migration.backup, 'install-state config migration backup');
-    const target = path.join(targetDir, migration.to);
-    const restoreTarget = path.join(targetDir, migration.from);
-    const backupPath = path.join(targetDir, migration.backup);
-    assertInsideDir(targetDir, target, 'install-state config migration target');
-    assertInsideDir(targetDir, restoreTarget, 'install-state config migration source');
-    assertInsideDir(path.join(targetDir, stateDirNameFor(targetDir), 'backups'), backupPath, 'install-state config migration backup');
-    actions.push({
-      backup: migration.backup,
-      expectedHash: migration.targetHash,
-      kind: 'restore-config-migration',
-      redZone: false,
-      restoreTarget: migration.from,
-      target: migration.to,
     });
   }
 

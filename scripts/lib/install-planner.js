@@ -48,13 +48,6 @@ const isManagedInstruction = (strategy) => ['managed-block', 'managed-instructio
 const isManagedToml = (strategy) => ['managed-mcp-block', 'managed-toml-block'].includes(strategy);
 const isManagedIgnore = (strategy) => strategy === 'managed-ignore-block';
 
-function isLegacyProductManagedTarget(target) {
-  const normalized = target.replaceAll('\\', '/');
-  return normalized.startsWith('.agents/loopengine/')
-    || /^\.(?:agents|claude|gemini)\/skills\/using-loopengine(?:\/|$)/u.test(normalized)
-    || /^\.agents\/evals\/(?:references|suites)\/loopengine[-.]/u.test(normalized);
-}
-
 async function loadProfileInstallMap({ adapterId = 'codex', allowPreview = false, profile, rootDir }) {
   const profiles = await readJson(path.join(rootDir, 'manifests/profiles.json'));
   validateCatalogManifest('profiles', profiles);
@@ -118,7 +111,7 @@ export function createInstalledSurface({ customModules = false, memoryPath = '.a
   const profileLines = {
     core: '- 当前安装方式：通用安装（不包含扩展 MCP 或 hooks 安装面）。',
     'docs-only': '- 当前安装方式：仅文档安装。',
-    full: '- 当前安装方式：完整治理安装（包含七个原生 Skills 和 Codex hooks；memory 通过高级 module、外部工具通过 `--plugin` 显式启用）。',
+    full: '- 当前安装方式：完整能力安装（包含八个领域 Skills、可选 Eval 和 Codex 安全 hooks；memory 与外部工具仅通过 `--plugin` 显式启用）。',
     minimal: '- 当前安装方式：最小安装。',
   };
 
@@ -144,9 +137,6 @@ export function createInstalledSurface({ customModules = false, memoryPath = '.a
       ? '宿主按 Skill description 原生选择一个当前阶段所需能力；不使用 Router 或流程 Skill 链。'
       : '当前 profile 未安装 Skills；仅按已安装规则和模板执行，不引用未安装的 skill。',
     skillsLine: skillRoots.length > 0 ? `- Skills 位于 ${skillRoots.map((root) => `\`${root}/\``).join('、')}。` : '',
-    subagentsLine: hasTarget('.codex/agents/cognis_tester.toml') && hasTarget('.codex/agents/cognis_reviewer.toml')
-      ? '- Codex full 已安装 `cognis_tester` 与 `cognis_reviewer`。轻量行为改动在冻结变更集后派发 Tester；完整或高风险任务并行派发 Tester 与 Reviewer，等待两者回传并写入同一任务 Markdown 的 Handoff。核验期间主 Agent 不得修改变更集；任何后续 Git 可见实现改动都要求重新派发。父 Agent 必须检查实际 diff，并在 fan-in 后重跑集成验证。'
-      : '',
     templatesLine: hasPrefix('docs/templates/') ? '- 模板位于 `docs/templates/`。' : '',
     toolingLine: hasPrefix('.agents/cognis/tools/')
       ? `- 项目内工具位于 \`.agents/cognis/tools/\`；使用 \`cognis doctor --project <path>\` 查看初始化状态。${hasTarget('docs/rules/chrome-devtools-mcp.md') ? ' Chrome DevTools MCP 规则位于 \`docs/rules/chrome-devtools-mcp.md\`。' : ''}${hasRtkTool ? ' RTK 规则位于 \`docs/rules/rtk.md\`。' : ''}${hasAstGrepTool ? ' ast-grep 规则位于 \`docs/rules/ast-grep.md\`。' : ''}`
@@ -180,9 +170,6 @@ function sourceForEntry(entrySource, renderData) {
         'templates/task.md': 'templates/task.en-US.md',
       }[entrySource] ?? entrySource)
     : entrySource;
-  if (localized === 'adapters/codex/hooks.template.json' && (renderData.governance?.workflow ?? 'strict') === 'strict') {
-    return 'adapters/codex/hooks.strict.template.json';
-  }
   return localized;
 }
 
@@ -215,7 +202,6 @@ function createManagedMcpServers(targetDir, resolvedModules) {
 export async function createInstallPlan({
   adapterId = 'codex',
   allowPreview = false,
-  configMigration = null,
   configUpdate = null,
   dryRun = true,
   force = false,
@@ -374,21 +360,22 @@ export async function createInstallPlan({
       plannedSkillTargets.add(relativeTarget);
     }
 
-    const plannedRetirements = new Set(actions
-      .filter((action) => ['retire', 'retire-modified'].includes(action.kind))
-      .map((action) => action.relativeTarget));
+  }
+
+  if (upgrade) {
+    const currentPlanTargets = new Set(actions.map((action) => action.relativeTarget));
     for (const managedFile of state?.files ?? []) {
       const relativeTarget = managedFile.target.replaceAll('\\', '/');
-      if (!isLegacyProductManagedTarget(relativeTarget) || plannedRetirements.has(relativeTarget)) {
-        continue;
-      }
-      assertPortableRelativePath(relativeTarget, 'legacy branded install target');
+      if (currentPlanTargets.has(relativeTarget)) continue;
+      assertPortableRelativePath(relativeTarget, 'obsolete managed target');
       const target = path.resolve(targetDir, relativeTarget);
-      assertInsideDir(targetDir, target, 'legacy branded install target');
-      await assertSafePathInside(targetDir, target, 'legacy branded install target');
+      assertInsideDir(targetDir, target, 'obsolete managed target');
+      await assertSafePathInside(targetDir, target, 'obsolete managed target');
       if (!(await pathExists(target))) continue;
       const currentHash = await hashFile(target);
       actions.push({
+        created: Boolean(managedFile.originalCreated ?? managedFile.created),
+        discard: true,
         expectedHash: managedFile.targetHash,
         group: managedFile.group,
         kind: currentHash === managedFile.targetHash ? 'retire' : 'retire-modified',
@@ -396,6 +383,15 @@ export async function createInstallPlan({
         relativeTarget,
         target,
       });
+      currentPlanTargets.add(relativeTarget);
+    }
+    for (const relativeTarget of ['.cognis/session-task-bindings.json', '.cognis/subagents/receipts']) {
+      const target = path.resolve(targetDir, relativeTarget);
+      assertInsideDir(targetDir, target, 'obsolete runtime state');
+      await assertSafePathInside(targetDir, target, 'obsolete runtime state');
+      if (await pathExists(target)) {
+        actions.push({ discard: true, kind: 'retire-runtime-state', redZone: false, relativeTarget, target });
+      }
     }
   }
 
@@ -509,7 +505,6 @@ export async function createInstallPlan({
     adapter: adapter.id,
     adapterCapabilities: adapter.capabilities,
     baselinePlan,
-    configMigration,
     configUpdate,
     dryRun,
     force,
@@ -754,7 +749,6 @@ export async function applyInstallPlan(plan, hooks = {}) {
     ...plan.baselinePlan.actions.map((action) => path.join(plan.targetDir, action.target)),
     ...(plan.baselinePlan.manifestTarget ? [path.join(plan.targetDir, plan.baselinePlan.manifestTarget)] : []),
     statePath,
-    ...(plan.configMigration ? [plan.configMigration.fromPath, plan.configMigration.toPath] : []),
     ...(plan.configUpdate ? [plan.configUpdate.path] : []),
   ];
   const transaction = await beginFileTransaction({
@@ -778,23 +772,6 @@ export async function applyInstallPlan(plan, hooks = {}) {
   const previousState = await readInstallState(plan.targetDir);
   const retiredFiles = [...(previousState?.retiredFiles ?? [])];
   const discardedTargets = new Set();
-  let configMigrationState = previousState?.configMigration ?? null;
-  if (plan.configMigration) {
-    const backup = await backupFile({
-      backupId,
-      target: plan.configMigration.fromPath,
-      targetDir: plan.targetDir,
-    });
-    await mkdir(path.dirname(plan.configMigration.toPath), { recursive: true });
-    await writeFile(plan.configMigration.toPath, `${JSON.stringify(plan.configMigration.config, null, 2)}\n`, 'utf8');
-    await rm(plan.configMigration.fromPath, { force: true });
-    configMigrationState = {
-      backup,
-      from: plan.configMigration.from,
-      targetHash: await hashFile(plan.configMigration.toPath),
-      to: plan.configMigration.to,
-    };
-  }
   if (plan.configUpdate) {
     await writeFile(plan.configUpdate.path, `${JSON.stringify(plan.configUpdate.config, null, 2)}\n`, 'utf8');
   }
@@ -862,6 +839,11 @@ export async function applyInstallPlan(plan, hooks = {}) {
       targetHash: await hashFile(action.target),
       transactionId,
     });
+  }
+
+  for (const action of plan.actions.filter((item) => item.kind === 'retire-runtime-state')) {
+    await rm(action.target, { force: true, recursive: true });
+    retired.push(action.relativeTarget);
   }
 
   for (const action of plan.actions.filter((item) => item.kind === 'retire-generated-directory')) {
@@ -983,7 +965,6 @@ export async function applyInstallPlan(plan, hooks = {}) {
   await writeInstallState(plan.targetDir, {
     adapter: plan.adapter,
     baseline,
-    configMigration: configMigrationState,
     files: [...mergedFiles.values()],
     generatedDirectories,
     generatedFiles,

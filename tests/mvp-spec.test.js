@@ -66,10 +66,11 @@ test('init --project writes the MVP cognis.config.json defaults', async () => {
     assert.equal(config.packageManager, 'pnpm');
     assert.equal(config.target, 'codex');
     assert.equal(config.profile, 'core');
-    assert.equal(config.validationCommands.governance, 'node .agents/cognis/governance/validate.mjs');
     assert.equal(config.validationCommands.lint, null);
     assert.equal(config.validationCommands.typecheck, null);
-    assert.deepEqual(config.governance, { mode: 'basic', workflow: 'adaptive' });
+    assert.equal(config.validationCommands.test, null);
+    assert.equal(config.validationCommands.eval, null);
+    assert.equal(Object.hasOwn(config, 'governance'), false);
     assert.deepEqual(config.crossRepo, { backendRepo: '', enabled: false });
   } finally {
     await rm(target, { force: true, recursive: true });
@@ -168,7 +169,7 @@ test('MVP repeated --write updates the managed AGENTS block in place', async () 
   }
 });
 
-test('MVP install replaces legacy unmarked Cognis AGENTS content with the managed block', async () => {
+test('MVP install preserves unmarked local AGENTS content alongside the managed block', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'cognis-write-legacy-agents-'));
   try {
     await runCli(['init', '--project', target]);
@@ -210,11 +211,11 @@ test('MVP install replaces legacy unmarked Cognis AGENTS content with the manage
     ]);
 
     const agents = await readFile(path.join(target, 'AGENTS.md'), 'utf8');
-    assert.equal(agents.includes('## 最小启动步骤'), false);
-    assert.equal(agents.includes('## 五条红线'), false);
-    assert.equal(agents.includes('docs/rules/quickstart.md'), false);
-    assert.equal(agents.includes('docs/workflows/'), false);
-    assert.equal((agents.match(/^# AGENTS\.md$/gmu) ?? []).length, 1);
+    assert.equal(agents.includes('## 最小启动步骤'), true);
+    assert.equal(agents.includes('## 五条红线'), true);
+    assert.equal(agents.includes('docs/rules/quickstart.md'), true);
+    assert.equal(agents.includes('docs/workflows/'), true);
+    assert.equal((agents.match(/^# AGENTS\.md$/gmu) ?? []).length, 2);
     assert.equal((agents.match(/<!-- COGNIS:START -->/gu) ?? []).length, 1);
     assert.equal((agents.match(/<!-- COGNIS:END -->/gu) ?? []).length, 1);
     assert.equal(agents.includes('## 启动'), true);
@@ -339,7 +340,6 @@ test('minimal profile installs the fallback kernel without skills', async () => 
     assert.equal(targets.some((item) => item.startsWith('.agents/skills/')), false);
     assert.equal(targets.some((item) => item.startsWith('.agents/memory/')), false);
     assert.equal(targets.includes('.codex/hooks.json'), false);
-    assert.equal(targets.includes('.agents/cognis/governance/lib/task-graph-validation.mjs'), false);
     assert.equal(targets.some((item) => item.startsWith('docs/workflows/')), false);
     assert.equal(agents.includes('codebase-memory-mcp'), false);
     assert.equal(agents.includes('agentmemory'), false);
@@ -348,7 +348,7 @@ test('minimal profile installs the fallback kernel without skills', async () => 
   }
 });
 
-test('core profile installs four native skills without mcp, memory, or hooks', async () => {
+test('core profile installs five native skills without mcp, memory, or hooks', async () => {
   const { report, target } = await initAndDryRunProfile('core');
   try {
     const targets = targetsFrom(report);
@@ -356,16 +356,12 @@ test('core profile installs four native skills without mcp, memory, or hooks', a
 
     assert.equal(targets.includes('docs/rules/governance-core.md'), true);
     assert.equal(targets.includes('docs/rules/codebase-memory-mcp.md'), false);
-    for (const skill of ['clarify-requirements', 'systematic-debugging', 'eval-driven-development', 'security-and-hardening']) {
+    for (const skill of ['clarify-requirements', 'define-goal', 'systematic-debugging', 'eval-driven-development', 'security-and-hardening']) {
       assert.equal(targets.includes(`.agents/skills/${skill}/SKILL.md`), true);
     }
     assert.equal(targets.includes('.agents/skills/agentmemory/SKILL.md'), false);
     assert.equal(targets.some((item) => item.startsWith('.agents/memory/')), false);
     assert.equal(targets.includes('.codex/hooks.json'), false);
-    assert.equal(targets.includes('docs/schemas/full-task-control.schema.json'), true);
-    assert.equal(targets.includes('.agents/cognis/governance/lib/task-graph-validation.mjs'), true);
-    assert.equal(targets.some((item) => item.startsWith('docs/workflows/')), false);
-    assert.equal(targets.includes('.agents/skills/review-checklist/SKILL.md'), false);
     assert.equal(targets.includes('.agents/skills/api-and-interface-design/SKILL.md'), false);
     assert.equal(targets.includes('.agents/skills/skill-authoring-check/SKILL.md'), false);
     assert.equal(agents.includes('通用安装'), true);
@@ -401,7 +397,7 @@ test('full profile adds three domain skills and hooks without memory or tool plu
     assert.equal(fullTargets.includes('.agents/skills/frontend-design/SKILL.md'), true);
     assert.equal(fullTargets.includes('.agents/skills/runtime-cross-repo-rollout/SKILL.md'), true);
     assert.equal(fullTargets.some((item) => item.startsWith('docs/workflows/')), false);
-    assert.equal(fullAgents.includes('完整治理安装'), true);
+    assert.equal(fullAgents.includes('完整能力安装'), true);
     assert.equal(fullAgents.includes('codebase-memory-mcp'), false);
     assert.equal(fullAgents.includes('agentmemory'), false);
     assert.equal(fullAgents.includes('.agents/memory/'), false);
@@ -560,7 +556,7 @@ test('rendered AGENTS surface matches minimal, core, and full profile installs',
     assert.equal(coreAgents.includes('.agents/memory/'), false);
     assert.equal(coreAgents.includes('.codex/hooks.json'), false);
     assert.equal(fullAgents.includes('.agents/skills/'), true);
-    assert.equal(fullAgents.includes('完整治理安装'), true);
+    assert.equal(fullAgents.includes('完整能力安装'), true);
     assert.equal(fullAgents.includes('codebase-memory-mcp'), false);
     assert.equal(fullAgents.includes('agentmemory'), false);
     assert.equal(fullAgents.includes('.agents/memory/'), false);
@@ -588,7 +584,8 @@ test('validate --project catches generated AGENTS references that are not instal
         validationCommands: {
           lint: 'pnpm lint',
           typecheck: 'pnpm check:type',
-          governance: 'pnpm run check:governance',
+          test: 'pnpm test',
+          eval: null,
         },
         riskZones: {
           red: ['auth'],

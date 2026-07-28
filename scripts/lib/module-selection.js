@@ -2,7 +2,6 @@ export const moduleCatalog = {
   agents: { dependencies: [], groups: ['agents'] },
   rules: { dependencies: [], groups: ['rules-minimal', 'rules-core', 'rules-full'] },
   templates: { dependencies: [], groups: ['templates-minimal', 'templates-core', 'templates-full'] },
-  governance: { dependencies: [], groups: ['schemas-core', 'runtime-basic', 'runtime-task', 'runtime-full'] },
   skills: { dependencies: ['agents', 'rules', 'templates'], groups: ['skills-core', 'skills-full'] },
   memory: { dependencies: ['skills'], groups: ['templates-memory', 'skills-memory'] },
   playwright: { dependencies: ['skills'], groups: ['skills-browser', 'tools-playwright'] },
@@ -11,14 +10,14 @@ export const moduleCatalog = {
   'open-code-review': { dependencies: ['skills'], groups: ['tools-open-code-review'] },
   rtk: { dependencies: ['agents', 'rules'], groups: ['rules-rtk', 'tools-rtk'] },
   'ast-grep': { dependencies: ['agents', 'rules'], groups: ['rules-ast-grep', 'tools-ast-grep'] },
-  hooks: { dependencies: ['agents', 'governance'], groups: ['hooks'] },
+  hooks: { dependencies: ['agents'], groups: ['hooks'] },
 };
 
 const profileModules = {
   minimal: ['agents', 'rules', 'templates'],
-  core: ['agents', 'rules', 'templates', 'governance', 'skills'],
+  core: ['agents', 'rules', 'templates', 'skills'],
   full: [
-    'agents', 'rules', 'templates', 'governance', 'skills', 'hooks',
+    'agents', 'rules', 'templates', 'skills', 'hooks',
   ],
   'docs-only': ['rules', 'templates'],
 };

@@ -8,7 +8,7 @@ const skillRoots = {
   gemini: '.gemini/skills',
 };
 
-const fullCapabilities = ['instructions', 'skills', 'hooks', 'policy', 'mcp', 'sandbox', 'memory', 'subagents'];
+const fullCapabilities = ['instructions', 'skills', 'hooks', 'policy', 'mcp', 'sandbox', 'memory'];
 
 function supportLevel(value) {
   if (value === true) return 'stable';

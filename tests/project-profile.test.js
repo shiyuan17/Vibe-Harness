@@ -186,6 +186,8 @@ test('generated entry uses detected VCS command and plain unconfigured validatio
     assert.doesNotMatch(agents, /编辑前运行 `git status --short`/u);
     assert.match(agents, /Lint: 未配置/u);
     assert.match(agents, /Typecheck: 未配置/u);
+    assert.match(agents, /Test: 未配置/u);
+    assert.match(agents, /Eval: 未配置/u);
     assert.doesNotMatch(agents, /`未配置`/u);
   } finally {
     await rm(target, { force: true, recursive: true });
@@ -199,9 +201,9 @@ test('core project install renders project-specific rules without local memory l
     await writeJson(path.join(target, 'package.json'), {
       packageManager: 'pnpm@10.33.0',
       scripts: {
-        'check:governance': 'node ./scripts/validate-governance.mjs',
         'check:type': 'vue-tsc --noEmit',
         lint: 'oxlint . && oxfmt --check .',
+        test: 'vitest run',
       },
       dependencies: { vue: '^3.5.0' },
       devDependencies: { vite: '^5.0.0', vitest: '^2.0.0' },
@@ -283,7 +285,7 @@ test('doctor summarizes unmanaged files by default and shows full list only when
     await runCli(['init', '--project', target]);
     const configPath = path.join(target, 'cognis.config.json');
     const config = JSON.parse(await readFile(configPath, 'utf8'));
-    await writeJson(configPath, { ...config, governance: { mode: 'off' }, profile: 'minimal' });
+    await writeJson(configPath, { ...config, profile: 'minimal' });
     await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'minimal', '--write']);
     await writeFile(path.join(target, 'local-a.txt'), 'a\n', 'utf8');
     await writeFile(path.join(target, 'local-b.txt'), 'b\n', 'utf8');

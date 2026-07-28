@@ -2,7 +2,7 @@ import './helpers/offline-tools.js';
 
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -34,13 +34,12 @@ async function runCliFailure(args) {
   assert.fail(`Expected command to fail: ${args.join(' ')}`);
 }
 
-async function initMinimalProject(target, validationCommands = { governance: null, lint: null, typecheck: null, eval: null }) {
+async function initMinimalProject(target, validationCommands = { lint: null, typecheck: null, test: null, eval: null }) {
   await runCli(['init', '--project', target]);
   const configPath = path.join(target, 'cognis.config.json');
   const config = JSON.parse(await readFile(configPath, 'utf8'));
   await writeFile(configPath, `${JSON.stringify({
     ...config,
-    governance: { mode: 'off' },
     profile: 'minimal',
     validationCommands,
   }, null, 2)}\n`, 'utf8');
@@ -76,8 +75,8 @@ test('baseline previews then writes a managed project snapshot', async () => {
     assert.equal(written.dryRun, false);
     assert.equal(baseline.schemaVersion, 1);
     assert.equal(baseline.installation.profile, 'minimal');
-    assert.equal(baseline.installation.subagents.status, 'disabled');
     assert.equal(baseline.verification.commands.eval.status, 'not_configured');
+    assert.equal(baseline.verification.commands.test.status, 'not_configured');
     const schema = await readJson(path.join(rootDir, 'schemas/project-baseline.schema.json'));
     assert.deepEqual(validateJsonAgainstSchema(baseline, schema, 'baseline'), []);
     assert.match(report, /项目基线/u);
@@ -106,48 +105,18 @@ test('baseline previews then writes a managed project snapshot', async () => {
   }
 });
 
-test('Codex full baseline reports installed verification roles and receipt health', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-baseline-subagents-'));
+test('Codex full baseline reports the selected installation surface', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-baseline-full-'));
   try {
     await runCli(['init', '--project', target, '--target', 'codex', '--profile', 'full']);
     await runCli([
       'install', '--project', target, '--target', 'codex', '--profile', 'full', '--write', '--confirm-red-zone',
     ]);
     const preview = await runCli(['baseline', '--project', target]);
-    const subagents = preview.baseline.installation.subagents;
-    assert.equal(subagents.support, 'stable');
-    assert.equal(subagents.status, 'ready');
-    assert.deepEqual(subagents.roles, { reviewer: 'installed', tester: 'installed' });
-    assert.deepEqual(subagents.receipts, {
-      status: 'absent', started: 0, continuationRequested: 0, sealed: 0, invalid: 0,
-    });
-    assert.match(subagents.reason, /Tester and Reviewer roles are available/u);
+    assert.equal(preview.baseline.installation.profile, 'full');
+    assert.equal(preview.baseline.installation.resolvedModules.includes('hooks'), true);
     await runCli(['baseline', '--project', target, '--write']);
-    assert.match(await readFile(path.join(target, 'docs/cognis/PROJECT_BASELINE.md'), 'utf8'), /子智能体：ready/u);
-  } finally {
-    await rm(target, { force: true, recursive: true });
-  }
-});
-
-test('baseline keeps an upgraded legacy installation in its existing state root', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-baseline-legacy-state-'));
-  try {
-    await initMinimalProject(target);
-    await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'minimal', '--write']);
-    await rename(path.join(target, '.cognis'), path.join(target, '.loopengine'));
-
-    const preview = await runCli(['baseline', '--project', target]);
-    assert.deepEqual(preview.artifacts.map((item) => item.target), [
-      '.loopengine/baseline.json',
-      'docs/cognis/PROJECT_BASELINE.md',
-    ]);
-
-    await runCli(['baseline', '--project', target, '--write']);
-    assert.equal(JSON.parse(await readFile(path.join(target, '.loopengine/baseline.json'), 'utf8')).schemaVersion, 1);
-    await assert.rejects(readFile(path.join(target, '.cognis/baseline.json'), 'utf8'), /ENOENT/u);
-    const state = JSON.parse(await readFile(path.join(target, '.loopengine/install-state.json'), 'utf8'));
-    assert.equal(state.storageNamespace, 'loopengine');
-    assert.equal(state.generatedFiles.some((item) => item.target === '.loopengine/baseline.json'), true);
+    assert.match(await readFile(path.join(target, 'docs/cognis/PROJECT_BASELINE.md'), 'utf8'), /full/u);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
@@ -254,9 +223,10 @@ test('baseline verify persists sanitized failure diagnostics', async () => {
     const failureFile = path.join(target, 'token=top-secret.mjs');
     const absoluteFailureCommand = `node ${failureFile}`;
     await initMinimalProject(target, {
-      governance: null,
       lint: absoluteFailureCommand,
       typecheck: 'node -e "console.log(42)"',
+      test: null,
+      eval: null,
     });
     await writeFile(failureFile, "console.error('secret-output'); process.exitCode = 7;\n", 'utf8');
     await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'minimal', '--write']);
@@ -283,7 +253,7 @@ test('baseline verify persists sanitized failure diagnostics', async () => {
 test('baseline recommends static missing commands as P1 and verified blockers as P0', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'cognis-baseline-priority-'));
   try {
-    await initMinimalProject(target, { governance: null, lint: 'pnpm missing-script', typecheck: null });
+    await initMinimalProject(target, { lint: 'pnpm missing-script', typecheck: null, test: null, eval: null });
     await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'minimal', '--write']);
 
     const preview = await runCli(['baseline', '--project', target]);

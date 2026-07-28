@@ -1,7 +1,7 @@
 import { access, lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
-import { validateJsonAgainstSchema } from '../../runtime/governance/lib/schema-validation.mjs';
+import { validateJsonAgainstSchema } from './schema-validation.js';
 
 export { validateJsonAgainstSchema };
 

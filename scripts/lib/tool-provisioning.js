@@ -16,8 +16,6 @@ const managedMcpStart = '# COGNIS:MCP:START';
 const managedMcpEnd = '# COGNIS:MCP:END';
 const managedCbmIgnoreStart = '# COGNIS:CBM:START';
 const managedCbmIgnoreEnd = '# COGNIS:CBM:END';
-const legacyManagedMcpStart = '# LOOPENGINE:MCP:START';
-const legacyManagedMcpEnd = '# LOOPENGINE:MCP:END';
 const maxDiagnosticOutput = 8 * 1024;
 const maxToolOutput = 1024 * 1024;
 const execFileAsync = promisify(execFile);
@@ -140,18 +138,10 @@ function renderMcpServer(name, server) {
 
 function findManagedMcpBlock(content) {
   const canonicalStart = content.indexOf(managedMcpStart);
-  const legacyStart = content.indexOf(legacyManagedMcpStart);
-  if (canonicalStart !== -1 && legacyStart !== -1) {
-    throw Object.assign(new Error('Configuration contains both Cognis and LoopEngine MCP managed blocks.'), {
-      code: 'COGNIS_MCP_BLOCK_CONFLICT',
-    });
-  }
-  const start = canonicalStart !== -1 ? canonicalStart : legacyStart;
-  if (start === -1) return null;
-  const endMarker = canonicalStart !== -1 ? managedMcpEnd : legacyManagedMcpEnd;
-  const end = content.indexOf(endMarker, start);
+  if (canonicalStart === -1) return null;
+  const end = content.indexOf(managedMcpEnd, canonicalStart);
   if (end === -1) throw new Error('Malformed Cognis MCP managed block.');
-  return { end, endMarker, start };
+  return { end, endMarker: managedMcpEnd, start: canonicalStart };
 }
 
 function stripManagedMcpBlock(content) {

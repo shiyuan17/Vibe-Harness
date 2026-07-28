@@ -74,13 +74,13 @@ test('CLI validate --project passes after a real install and reports Chinese tem
     assert.deepEqual(report.warnings, []);
     assert.deepEqual(report.tools, {});
     assert.equal(report.scope, 'project');
-    assert.equal(taskTemplate.includes('工作流档位'), true);
-    assert.equal(taskTemplate.includes('当前阶段'), true);
-    assert.equal(taskTemplate.includes('完整流程控制'), true);
-    assert.equal(taskTemplate.includes('父任务'), true);
-    assert.equal(taskTemplate.includes('子任务'), true);
-    assert.equal(taskTemplate.includes('写入范围'), true);
-    assert.equal(taskTemplate.includes('禁止动作'), true);
+    assert.equal(taskTemplate.includes('可选的人读记录'), true);
+    assert.equal(taskTemplate.includes('档位'), true);
+    assert.equal(taskTemplate.includes('状态'), true);
+    assert.equal(taskTemplate.includes('验收'), true);
+    assert.equal(taskTemplate.includes('下一步'), true);
+    assert.equal(taskTemplate.includes('验证'), true);
+    assert.equal(taskTemplate.includes('风险'), true);
     assert.equal(taskTemplate.includes('Write Scope'), false);
   } finally {
     await rm(target, { force: true, recursive: true });
