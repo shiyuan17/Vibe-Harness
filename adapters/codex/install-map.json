@@ -177,24 +177,6 @@
     },
     {
       "group": "schemas-core",
-      "source": "schemas/full-task-control.schema.json",
-      "target": "docs/schemas/full-task-control.schema.json",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "schemas-core",
-      "source": "schemas/handoff-record.schema.json",
-      "target": "docs/schemas/handoff-record.schema.json",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "schemas-core",
-      "source": "schemas/subagent-receipt.schema.json",
-      "target": "docs/schemas/subagent-receipt.schema.json",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "schemas-core",
       "source": "schemas/eval-suite.schema.json",
       "target": "docs/schemas/eval-suite.schema.json",
       "contentStrategy": "replace"
@@ -247,54 +229,6 @@
       "group": "evals-online",
       "source": "evals/suites/cognis-online-canary.json",
       "target": ".agents/evals/suites/cognis-online-canary.json",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "runtime-basic",
-      "source": "runtime/governance/validate.mjs",
-      "target": ".agents/cognis/governance/validate.mjs",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "runtime-task",
-      "source": "runtime/governance/lib/task-validation.mjs",
-      "target": ".agents/cognis/governance/lib/task-validation.mjs",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "runtime-task",
-      "source": "runtime/governance/lib/handoff-validation.mjs",
-      "target": ".agents/cognis/governance/lib/handoff-validation.mjs",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "runtime-task",
-      "source": "runtime/governance/lib/task-graph-validation.mjs",
-      "target": ".agents/cognis/governance/lib/task-graph-validation.mjs",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "runtime-task",
-      "source": "runtime/governance/lib/red-team-validation.mjs",
-      "target": ".agents/cognis/governance/lib/red-team-validation.mjs",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "runtime-full",
-      "source": "runtime/governance/lib/design-validation.mjs",
-      "target": ".agents/cognis/governance/lib/design-validation.mjs",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "runtime-full",
-      "source": "runtime/governance/lib/memory-validation.mjs",
-      "target": ".agents/cognis/governance/lib/memory-validation.mjs",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "runtime-task",
-      "source": "runtime/governance/lib/schema-validation.mjs",
-      "target": ".agents/cognis/governance/lib/schema-validation.mjs",
       "contentStrategy": "replace"
     },
     {
@@ -442,6 +376,24 @@
       "group": "skills-core",
       "source": "skills/core/clarify-requirements/agents/openai.yaml",
       "target": ".agents/skills/clarify-requirements/agents/openai.yaml",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/define-goal/SKILL.md",
+      "target": ".agents/skills/define-goal/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/define-goal/agents/openai.yaml",
+      "target": ".agents/skills/define-goal/agents/openai.yaml",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/define-goal/references/goal-contract.md",
+      "target": ".agents/skills/define-goal/references/goal-contract.md",
       "contentStrategy": "replace"
     },
     {
@@ -601,20 +553,6 @@
       "contentStrategy": "replace"
     },
     {
-      "group": "codex-subagents",
-      "source": "adapters/codex/agents/cognis_tester.toml",
-      "target": ".codex/agents/cognis_tester.toml",
-      "redZone": true,
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "codex-subagents",
-      "source": "adapters/codex/agents/cognis_reviewer.toml",
-      "target": ".codex/agents/cognis_reviewer.toml",
-      "redZone": true,
-      "contentStrategy": "replace"
-    },
-    {
       "group": "hooks",
       "source": "runtime/hooks/README.md",
       "target": ".agents/cognis/hooks/README.md",
@@ -642,20 +580,8 @@
     },
     {
       "group": "hooks",
-      "source": "runtime/hooks/lib/delivery-validation.mjs",
-      "target": ".agents/cognis/hooks/lib/delivery-validation.mjs",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "hooks",
       "source": "runtime/hooks/lib/policy.mjs",
       "target": ".agents/cognis/hooks/lib/policy.mjs",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "hooks",
-      "source": "runtime/hooks/lib/subagent-receipts.mjs",
-      "target": ".agents/cognis/hooks/lib/subagent-receipts.mjs",
       "contentStrategy": "replace"
     },
     {
@@ -687,48 +613,6 @@
     }
   ],
   "retiredEntries": [
-    { "group": "skills-core", "target": ".agents/skills/using-cognis/SKILL.md" },
-    { "group": "skills-core", "target": ".agents/skills/brainstorming/SKILL.md" },
-    { "group": "skills-core", "target": ".agents/skills/brainstorming/spec-document-reviewer-prompt.md" },
-    { "group": "skills-core", "target": ".agents/skills/brainstorming/references/spec.md" },
-    { "group": "skills-core", "target": ".agents/skills/writing-plans/SKILL.md" },
-    { "group": "skills-core", "target": ".agents/skills/writing-plans/plan-document-reviewer-prompt.md" },
-    { "group": "skills-core", "target": ".agents/skills/writing-plans/references/plan.md" },
-    { "group": "skills-core", "target": ".agents/skills/executing-plans/SKILL.md" },
-    { "group": "skills-core", "target": ".agents/skills/test-driven-development/SKILL.md" },
-    { "group": "skills-core", "target": ".agents/skills/test-driven-development/testing-anti-patterns.md" },
-    { "group": "skills-core", "target": ".agents/skills/verification-before-completion/SKILL.md" },
-    { "group": "skills-core", "target": ".agents/skills/code-review-and-quality/SKILL.md" },
-    { "group": "skills-core", "target": ".agents/skills/code-review-and-quality/references/cli.md" },
-    { "group": "skills-core", "target": ".agents/skills/adversarial-review-packet/SKILL.md" },
-    { "group": "skills-core", "target": ".agents/skills/adversarial-review-packet/references/review.md" },
-    { "group": "skills-full", "target": ".agents/skills/loop-planning/SKILL.md" },
-    { "group": "skills-full", "target": ".agents/skills/loop-planning/references/loop.md" },
-    { "group": "skills-full", "target": ".agents/skills/subagent-driven-development/SKILL.md" },
-    { "group": "skills-core", "target": ".agents/skills/systematic-debugging/root-cause-tracing.md" },
-    { "group": "skills-core", "target": ".agents/skills/systematic-debugging/defense-in-depth.md" },
-    { "group": "skills-core", "target": ".agents/skills/systematic-debugging/condition-based-waiting.md" },
-    { "group": "skills-core", "target": ".agents/skills/systematic-debugging/condition-based-waiting-example.ts" },
-    { "group": "skills-core", "target": ".agents/skills/systematic-debugging/references/failure.md" },
-    { "group": "skills-full", "target": ".agents/skills/frontend-design/references/design-modes.md" },
-    { "group": "skills-core", "target": ".agents/skills/brainstorming/visual-companion.md" },
-    { "group": "skills-core", "target": ".agents/skills/brainstorming/scripts/frame-template.html" },
-    { "group": "skills-core", "target": ".agents/skills/brainstorming/scripts/helper.js" },
-    { "group": "skills-core", "target": ".agents/skills/brainstorming/scripts/server.cjs" },
-    { "group": "skills-core", "target": ".agents/skills/brainstorming/scripts/start-server.sh" },
-    { "group": "skills-core", "target": ".agents/skills/brainstorming/scripts/stop-server.sh" },
-    { "group": "skills-core", "target": ".agents/skills/grill-me/SKILL.md" },
-    { "group": "skills-core", "target": ".agents/skills/requesting-code-review/SKILL.md" },
-    { "group": "skills-core", "target": ".agents/skills/requesting-code-review/code-reviewer.md" },
-    { "group": "skills-core", "target": ".agents/skills/skill-authoring-check/SKILL.md" },
-    { "group": "skills-core", "target": ".agents/skills/open-code-review/SKILL.md" },
-    { "group": "skills-core", "target": ".agents/skills/open-code-review/references/cli.md" },
-    { "group": "skills-core", "target": ".agents/skills/workflow-handoff/SKILL.md" },
-    { "group": "skills-core", "target": ".agents/skills/workflow-handoff/references/handoff.md" },
-    { "group": "skills-core", "target": ".agents/skills/workflow-handoff/references/retrospective.md" },
-    { "group": "skills-core", "target": ".agents/skills/api-contract-check/SKILL.md" },
-    { "group": "skills-core", "target": ".agents/skills/frontend-implementation-check/SKILL.md" },
-    { "group": "skills-core", "target": ".agents/skills/task-decomposition/SKILL.md" },
     {
       "group": "skills-memory",
       "target": ".agents/skills/handoff/SKILL.md"

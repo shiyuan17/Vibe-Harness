@@ -1,3 +1,5 @@
+状态：Completed
+
 # COGNIS-HANDOFF-001 Handoff 与独立测试审查流程
 
 - 工作流档位：完整

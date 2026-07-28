@@ -8,10 +8,10 @@ import { loadAllManifests, readJson } from '../scripts/lib/manifest.js';
 import { scanForForbiddenTerms } from '../scripts/lib/redaction.js';
 
 const rootDir = path.resolve('.');
-const coreSkills = ['clarify-requirements', 'systematic-debugging', 'eval-driven-development', 'security-and-hardening'];
+const coreSkills = ['clarify-requirements', 'define-goal', 'systematic-debugging', 'eval-driven-development', 'security-and-hardening'];
 const fullSkills = [...coreSkills, 'api-and-interface-design', 'frontend-design', 'runtime-cross-repo-rollout'];
 
-test('canonical governance and seven native Skills are declared without a Router', async () => {
+test('canonical governance and eight native Skills are declared without a Router', async () => {
   const manifests = await loadAllManifests(rootDir);
   const rules = new Set(manifests.rules.items.map((item) => item.id));
   for (const id of ['governance-core', 'git-rules', 'test-rules', 'agent-skill-routing']) assert.equal(rules.has(id), true);
@@ -32,7 +32,7 @@ test('completion evidence and task-scoped testing live in governance rules', asy
   for (const template of templates) assert.match(template, /测试范围细则/u);
 });
 
-test('profiles install zero, four, or seven native Skills at intended tiers', async () => {
+test('profiles install zero, five, or eight native Skills at intended tiers', async () => {
   for (const [profile, expected] of [['minimal', []], ['docs-only', []], ['core', coreSkills], ['full', fullSkills]]) {
     const plan = await createInstallPlan({ dryRun: true, profile, rootDir, targetDir: path.join(rootDir, `.tmp-depth-${profile}`) });
     const targets = new Set(plan.actions.map((item) => item.relativeTarget));

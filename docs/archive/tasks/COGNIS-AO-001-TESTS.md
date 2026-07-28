@@ -1,3 +1,5 @@
+状态：Completed
+
 # COGNIS-AO-001-TESTS 自适应编排聚焦测试
 
 - 工作流档位：完整

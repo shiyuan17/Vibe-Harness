@@ -1,21 +1,47 @@
-# 历史文档归档
+# 历史归档
 
-本目录保存被取代的规格、已完成的实施计划和历史发布清单，仅用于审计决策与演进过程。文件中的旧路径、旧 profile 或旧命令不构成当前规范；当前行为从 [`docs/README.md`](../README.md) 进入。
+本目录只保存被取代的规格、已结束任务、审查记录和历史发布，不作为当前运行说明。
 
-## 被取代的规格
+## plans
 
-- [Cognis v0.6 父子任务多 Agent 治理规格](specs/cognis-v0.6-multi-agent-governance-spec.md)
-- [Cognis v0.5 中文精简治理规格](specs/cognis-v0.5-simplified-governance-spec.md)
-- [LoopEngine v1 规格](specs/loopengine-v1-spec.md)
-- [LoopEngine v0.2 安装器增强规格](specs/loopengine-v0.2-installer-spec.md)
-- [LoopEngine v0.4 治理闭环规格](specs/loopengine-v0.4-governance-closure-spec.md)
+- [loopengine-v0.4-governance-closure-plan.md](plans/loopengine-v0.4-governance-closure-plan.md)
+- [loopengine-v1-extraction-plan.md](plans/loopengine-v1-extraction-plan.md)
 
-## 已完成计划
+## releases
 
-- [LoopEngine v1 抽取计划](plans/loopengine-v1-extraction-plan.md)
-- [LoopEngine v0.4 Governance Closure Implementation Plan](plans/loopengine-v0.4-governance-closure-plan.md)
+- [release-v0.1.0.md](releases/release-v0.1.0.md)
+- [release-v0.2.0.md](releases/release-v0.2.0.md)
 
-## 历史发布清单
+## reviews
 
-- [v0.1.0 发布检查清单](releases/release-v0.1.0.md)
-- [v0.2.0 发布检查清单](releases/release-v0.2.0.md)
+- [COGNIS-AO-001-POLICY-red-team.md](reviews/COGNIS-AO-001-POLICY-red-team.md)
+- [COGNIS-AO-001-TESTS-red-team.md](reviews/COGNIS-AO-001-TESTS-red-team.md)
+- [COGNIS-AO-001-red-team.md](reviews/COGNIS-AO-001-red-team.md)
+- [COGNIS-FULL-TOOL-001-red-team.md](reviews/COGNIS-FULL-TOOL-001-red-team.md)
+- [COGNIS-GOAL-001-red-team.md](reviews/COGNIS-GOAL-001-red-team.md)
+- [COGNIS-HANDOFF-001-red-team.md](reviews/COGNIS-HANDOFF-001-red-team.md)
+- [COGNIS-HOOK-001-red-team.md](reviews/COGNIS-HOOK-001-red-team.md)
+- [COGNIS-MA-001-red-team.md](reviews/COGNIS-MA-001-red-team.md)
+
+## specs
+
+- [cognis-v0.5-simplified-governance-spec.md](specs/cognis-v0.5-simplified-governance-spec.md)
+- [cognis-v0.6-multi-agent-governance-spec.md](specs/cognis-v0.6-multi-agent-governance-spec.md)
+- [cognis-v0.7-adaptive-orchestration-spec.md](specs/cognis-v0.7-adaptive-orchestration-spec.md)
+- [cognis-v0.8-outcome-first-adaptive-spec.md](specs/cognis-v0.8-outcome-first-adaptive-spec.md)
+- [cognis-v0.9-handoff-independent-verification-spec.md](specs/cognis-v0.9-handoff-independent-verification-spec.md)
+- [loopengine-v0.2-installer-spec.md](specs/loopengine-v0.2-installer-spec.md)
+- [loopengine-v0.4-governance-closure-spec.md](specs/loopengine-v0.4-governance-closure-spec.md)
+- [loopengine-v1-spec.md](specs/loopengine-v1-spec.md)
+
+## tasks
+
+- [CBM-RESOURCE-001.md](tasks/CBM-RESOURCE-001.md)
+- [COGNIS-ADAPTIVE-002.md](tasks/COGNIS-ADAPTIVE-002.md)
+- [COGNIS-AO-001-POLICY.md](tasks/COGNIS-AO-001-POLICY.md)
+- [COGNIS-AO-001-TESTS.md](tasks/COGNIS-AO-001-TESTS.md)
+- [COGNIS-AO-001.md](tasks/COGNIS-AO-001.md)
+- [COGNIS-GOAL-001.md](tasks/COGNIS-GOAL-001.md)
+- [COGNIS-HANDOFF-001.md](tasks/COGNIS-HANDOFF-001.md)
+- [COGNIS-HOOK-001.md](tasks/COGNIS-HOOK-001.md)
+- [COGNIS-MA-001.md](tasks/COGNIS-MA-001.md)

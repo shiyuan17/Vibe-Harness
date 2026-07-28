@@ -1,3 +1,5 @@
+状态：Completed
+
 # COGNIS-FULL-TOOL-001 Red Team 审查包
 
 - 任务编号：COGNIS-FULL-TOOL-001
@@ -16,7 +18,7 @@
 
 ## 复核证据
 
-- `node --test tests/workflow-benchmark.test.js`：5/5 通过。
+- 历史 workflow benchmark 已退役，不作为当前核验入口。
 - `pnpm check`：440 通过、0 失败、2 跳过。
 - `pnpm docs:audit`：63 份文档通过。
 - `pnpm test:integration`：101 通过、0 失败、1 跳过；`pnpm smoke:lifecycle`：core/full 10/10 通过。

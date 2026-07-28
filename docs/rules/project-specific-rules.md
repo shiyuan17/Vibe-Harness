@@ -22,7 +22,8 @@
 - 默认验证：pnpm lint, pnpm test
 - Lint：`pnpm lint`
 - Typecheck：`未配置`
-- Governance：`node .agents/cognis/governance/validate.mjs`
+- Test：`pnpm test:unit`
+- Eval：`未配置`
 - 无法运行某项验证时，交付必须说明原因、替代证据和剩余风险。
 
 ## Git / VCS 规范
@@ -32,9 +33,6 @@
 - SVN 项目不得套用 Git commit / branch 假设；交付时报告 `svn status` 结果和本地修改范围。
 - 混合 Git/SVN 痕迹时，以当前任务实际改动所在工作副本为准，并在交付中说明判断依据。
 
-## Review 规范
+## 显式 Review
 
-- Review 必须核对目标项目事实、package.json scripts / pom.xml / solution 配置、风险区、验证证据和未覆盖路径。
-- Review 先列问题，再写摘要；问题按严重度排序并包含文件/行号。
-- 无 finding 时必须明确说明已核对范围、未覆盖验证和残余风险。
-- 高风险、红区、跨模块或验证缺口任务必须进入独立审查。
+- 仅在用户明确要求 Review 或显式调用 Review 工具时执行；Cognis 不自动创建审查角色或完成门禁。

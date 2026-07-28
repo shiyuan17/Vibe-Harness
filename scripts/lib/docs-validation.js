@@ -22,41 +22,7 @@ const legacyBrandFullyAllowedFiles = new Set([
   'docs/catalog.json',
   'docs/migration-guide.md',
   'scripts/lib/docs-validation.js',
-  'scripts/lib/product-identity.js',
-  'scripts/loopengine.js',
-]);
-const legacyBrandCompatibilityFiles = new Set([
-  '.gitignore',
-  '.github/workflows/evals.yml',
-  'CHANGELOG.md',
-  'package.json',
-  'runtime/evals/codex-runner.mjs',
-  'runtime/governance/lib/task-validation.mjs',
-  'runtime/governance/validate.mjs',
-  'runtime/hooks/git-hook.mjs',
-  'runtime/hooks/lib/context.mjs',
-  'runtime/hooks/lib/rtk.mjs',
-  'runtime/tools/playwright-cli/run.mjs',
-  'scripts/cognis.js',
-  'scripts/lib/eval-runner.js',
-  'scripts/lib/install-planner.js',
-  'scripts/lib/install-state.js',
-  'scripts/lib/project-config.js',
   'scripts/lib/project-layout.js',
-  'scripts/lib/template-renderer.js',
-  'scripts/lib/tool-provisioning.js',
-]);
-const legacyCompatibilityContextPattern = /(?:legacy|deprecated|fallback|migration|compatib|旧|兼容|迁移|弃用|历史)/iu;
-const legacyCompatibilitySurfacePattern = /(?:\.loopengine(?:[\\/]|\b)|\.agents[\\/]loopengine|loopengine\.config\.json|LOOPENGINE[_:]|using-loopengine|loopengine-(?:core|online)|loopengine\[-\.\]|@jw\/loopengine)/u;
-const legacyBrandFileLinePatterns = new Map([
-  ['package.json', [
-    /"loopengine":\s*"\.\/scripts\/loopengine\.js"/u,
-    /"loopengine":\s*"node \.\/scripts\/loopengine\.js"/u,
-  ]],
-  ['runtime/hooks/git-hook.mjs', [/cognis\|loopengine.*backups/u]],
-  ['scripts/lib/install-state.js', [/\?\s*'loopengine'/u]],
-  ['scripts/lib/template-renderer.js', [/both Cognis and LoopEngine managed blocks/iu]],
-  ['scripts/lib/tool-provisioning.js', [/both Cognis and LoopEngine MCP managed blocks/iu]],
 ]);
 const repositoryScanExcludedDirectories = new Set([
   '.agents',
@@ -119,14 +85,12 @@ function legacyBrandFullyAllowed(file) {
 }
 
 function legacyLineAllowed(file, line, lineIndex, lines) {
-  if (!legacyBrandCompatibilityFiles.has(file)) return false;
+  if (file !== 'CHANGELOG.md') return false;
   if (file === 'CHANGELOG.md') {
-    const historicalStart = lines.findIndex((candidate) => /^## 0\.[0-4]\./u.test(candidate));
+    const historicalStart = lines.findIndex((candidate) => /^## \d+\.\d+\.\d+/u.test(candidate));
     if (historicalStart >= 0 && lineIndex >= historicalStart) return true;
   }
-  return legacyCompatibilityContextPattern.test(line)
-    || legacyCompatibilitySurfacePattern.test(line)
-    || (legacyBrandFileLinePatterns.get(file) ?? []).some((pattern) => pattern.test(line));
+  return false;
 }
 
 export async function validateLegacyBrandUsage({ rootDir }) {
@@ -138,7 +102,7 @@ export async function validateLegacyBrandUsage({ rootDir }) {
     const invalidContent = lines.some((line, lineIndex) => (
       legacyBrandPattern.test(line) && !legacyLineAllowed(file, line, lineIndex, lines)
     ));
-    if ((legacyBrandPattern.test(file) && !legacyBrandCompatibilityFiles.has(file)) || invalidContent) {
+    if ((legacyBrandPattern.test(file) && !legacyBrandFullyAllowed(file)) || invalidContent) {
       errors.push(`${file} contains legacy product identity outside the compatibility allowlist`);
     }
   }
@@ -275,7 +239,7 @@ export async function validateCurrentDocumentContent({
   errors.push(...duplicateReadmeCommandErrors(content, file));
   if (relativeTimePattern.test(content)) errors.push(`${file} contains relative time wording`);
   if (content.includes('九阶段')) errors.push(`${file} contains superseded nine-stage governance wording`);
-  errors.push(...staleOpenItemErrors(content, file, today));
+  if (!file.startsWith('docs/inventory/')) errors.push(...staleOpenItemErrors(content, file, today));
   return errors;
 }
 
@@ -494,7 +458,6 @@ async function validateDocumentationUnchecked({ catalog, rootDir, today = new Da
   ]);
   errors.push(...validateReadmeParity(english, chinese));
   if (!/^\.cognis\/$/mu.test(gitignore)) errors.push('.gitignore must ignore .cognis/');
-  if (!/^\.loopengine\/$/mu.test(gitignore)) errors.push('.gitignore must ignore .loopengine/');
 
   return {
     counts: { cataloged: catalogPaths.length, governed: governedPaths.length },

@@ -1,3 +1,5 @@
+状态：Completed
+
 # COGNIS-AO-001-POLICY 自适应编排规范与 Skill
 
 - 工作流档位：完整

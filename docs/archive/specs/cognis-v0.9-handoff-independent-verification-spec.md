@@ -1,3 +1,5 @@
+状态：Superseded
+
 # Cognis v0.9 Handoff 与独立核验规格
 
 状态：Implemented

@@ -1,3 +1,5 @@
+状态：Completed
+
 # COGNIS-MA-001 父子任务多 Agent 治理闭环
 
 - 工作流档位：完整

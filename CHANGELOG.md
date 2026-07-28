@@ -2,17 +2,15 @@
 
 ## Unreleased
 
-- 新增 v0.9 Handoff 与独立核验：新完整任务默认 v3，同一任务 Markdown 保存从 `待接收` 开始的结构化 Handoff；Codex full 安装红区 Tester/Reviewer 角色，Subagent hooks 生成不含 prompt/transcript 的 v2 哈希收据，只有 Tester `通过` 与 Reviewer `批准` 可封存，并以实现/治理证据指纹和 fan-in 后集成验证时序阻断过期批准；Claude/Gemini 明确降级。输出解析拒绝 fenced/HTML/引用/列表伪字段，结构完整的负面结论直接终止而不要求改判；同一运行身份使用稳定 key 与 exclusive create 原子保证一份收据，重核验必须使用新 turn；人工等价证据必须是项目内非空常规文件。
-- 新项目默认启用 v0.8 `adaptive` 结果优先路径，既有缺失字段项目保持 `strict`；新增 `init --workflow`、workflow 报告、兼容升级写回和 baseline 观测。
-- Codex adaptive Hook 收敛为 6 个事件，普通 Stop 不再运行全量治理/Eval；宿主按 description 直接选择单个聚焦 Skill，交付收敛为结果、实际变更和本轮验证。
-- 原生 Skill 集全局收敛为 core 4 个、full 7 个；退休 Router 与计划/TDD/验证/Review/多 Agent 流程 Skill，新增影响分级澄清、Codex `agents/openai.yaml`、触发/近邻评测及 old/new/no-Skill 冻结基线。Browser 与 Agentmemory 改为显式集成。
-- 新增 40 案例 × 3 次的 adaptive/strict 对照合同、12 案例 smoke 子集、配对非劣 bootstrap、critical 零回退和全部尝试每成功任务成本报告。
-- 新增 v0.7 自适应单/多 Agent 编排：在风险档位之后按需求类型和 all-of 拆分门禁选择模式，简单任务固定单 Agent，复杂耦合任务串行，仅对独立、可验证且有真实平台能力的完整任务自动派发；保留 v2 合同、人工安全门禁和 fan-in 独立核验。
-- 新增显式 `--plugin` 安装面：`core` 与 `full` 默认均不安装外部工具；`-all`、单选、多选和 `none` 分别管理 RTK、ast-grep、codebase-memory-mcp、Chrome DevTools MCP、Playwright CLI 与 Open Code Review，并将规范化选择持久化到 install-state。Agentmemory runtime 因上游 High 漏洞暂停提供，安全审计门禁保持不变。
+- **Breaking change**：移除旧产品 CLI、配置、状态、环境变量和受管标记兼容层。检测到旧资产时以 `COGNIS_LEGACY_UNSUPPORTED` 拒绝执行，用户必须先自行备份和清理后重新初始化。
+- **Breaking change**：删除治理链配置、CLI workflow 参数、任务 schema/runtime、审查角色、收据、完成门禁和对应 Hook 事件；旧配置以 `COGNIS_OBSOLETE_GOVERNANCE_CONFIG` 只读拒绝。
+- 默认执行统一为“获取事实 → 直接执行 → 聚焦验证 → 简洁交付”；风险档位只影响审批和验证范围。
+- `cognis verify` 顺序执行可选 `lint`、`typecheck`、`test`、`eval`；`validate` 只检查安装一致性。
+- `full` 重定义为全部领域 Skills、可选 Eval 和 Codex 安全 Hook；Codex Hook 只保留 `PreToolUse` 与 `PermissionRequest`。
+- 升级器会安全退役新计划不再包含的旧受管文件，并精确清理旧运行状态而保留其他 `.cognis` 数据。
+- `pnpm check` 收敛为 lint、pack/catalog 静态校验和快速产品单测；integration、lifecycle 与在线 Eval 保持显式命令。
+- 新增显式 `--plugin` 安装面：`core` 与 `full` 默认均不安装外部工具；`-all`、单选、多选和 `none` 分别管理 RTK、ast-grep、codebase-memory-mcp、Chrome DevTools MCP、Playwright CLI、Open Code Review 与 Agentmemory，并将规范化选择持久化到 install-state。
 - 新增项目内 RTK `v0.43.0` 与 `@ast-grep/cli@0.44.1`：提供命令输出压缩、结构化搜索规则、checksum/lockfile 校验、doctor 状态和安全回退。
-- 新增 v0.6 父子任务多 Agent 治理合同：v1 保持可读，新模板默认 v2，跨文档 validator 校验扁平 DAG、批次、依赖、冲突和写入范围。
-- `doctor` 新增非阻断 legacy task-contract 摘要；治理 Runtime 与 Codex Subagent hooks 提供最小上下文、禁止再委派和父 Agent fan-in 提醒，不宣称阻止 subagent 启动。
-- 父任务完成前必须关闭 child 与 merge-back、记录目标工作区集成验证证据，并取得最终 diff 的独立 Red Team 批准。
 
 ## 0.5.0 - 2026-07-18
 

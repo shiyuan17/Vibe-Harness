@@ -8,9 +8,9 @@
 | `QUICKSTART.md` | `rules/governance-core.md` | consolidate |
 | `WORKFLOW.md` | `rules/governance-core.md` | consolidate |
 | `DYNAMIC_WORKFLOW_RULES.md` | `rules/governance-core.md` | consolidate |
-| `TASK_RULES.md` | `templates/task.md`、`runtime/governance/lib/task-validation.mjs` | consolidate + validator |
+| `TASK_RULES.md` | `templates/task.md` | optional template |
 | `TASK_LIFECYCLE_RULES.md` | `rules/governance-core.md` | consolidate |
-| `TASK_MANAGEMENT_RULES.md` | `runtime/governance/lib/task-validation.mjs` | validator |
+| `TASK_MANAGEMENT_RULES.md` | historical reference only | archive |
 | `TASK_INTAKE.md` | `templates/task.md` | consolidate |
 | `GIT_RULES.md` | `rules/git-rules.md` | copy-generalize |
 | `CODING_RULES.md` | `rules/coding-rules.md` | copy-generalize |
@@ -26,8 +26,8 @@
 | `AGENT_SKILL_ROUTING.md` | `rules/agent-skill-routing.md`、Skill descriptions | copy-generalize + native routing |
 | `TROUBLESHOOTING.md` | `rules/troubleshooting.md` | copy-generalize |
 | project memory/current tasks/contracts | examples or target project only | exclude-business |
-| durable memory categories | `templates/memory/*`、full governance validator | template |
-| governance / PR packet validation | `runtime/governance/validate.mjs` | validator |
+| durable memory categories | `templates/memory/*` | template |
+| governance / PR packet validation | historical reference only | archive |
 
 处理方式说明：
 
