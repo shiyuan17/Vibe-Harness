@@ -2,6 +2,7 @@ const defaultTemplateData = {
   codebaseMemoryStateDirectory: '.cognis',
   hookRunnerPath: '.agents/cognis/hooks/codex-hook.mjs',
   installedSurface: {
+    clarificationPostureLine: '',
     codebaseMemoryMcpLine: '',
     discoveryLine: '使用仓库搜索和已安装规则定位相关代码；需要结构化索引时先确认目标项目已有能力。',
     engineeringRulesLine: '',
@@ -39,8 +40,6 @@ const defaultTemplateData = {
 
 export const managedInstructionBlockStart = '<!-- COGNIS:START -->';
 export const managedInstructionBlockEnd = '<!-- COGNIS:END -->';
-export const managedAgentsBlockStart = managedInstructionBlockStart;
-export const managedAgentsBlockEnd = managedInstructionBlockEnd;
 
 const managedInstructionBlockPattern = /<!-- COGNIS:START -->[\s\S]*?<!-- COGNIS:END -->\n?/u;
 
@@ -141,9 +140,3 @@ export function mergeManagedInstructionBlock(existingContent, managedContent) {
     : '\n\n';
   return `${existingContent}${separator}${managedBlock}`;
 }
-
-export const hasIncompleteManagedAgentsBlock = hasIncompleteManagedInstructionBlock;
-export const renderManagedAgentsBlock = renderManagedInstructionBlock;
-export const extractManagedAgentsBlock = extractManagedInstructionBlock;
-export const removeManagedAgentsBlock = removeManagedInstructionBlock;
-export const mergeManagedAgentsBlock = mergeManagedInstructionBlock;

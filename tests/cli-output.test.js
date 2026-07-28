@@ -9,7 +9,7 @@ import test from 'node:test';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
-const rootDir = path.resolve('.');
+const rootDir = path.resolve(import.meta.dirname, '..');
 const cliPath = path.join(rootDir, 'scripts/cognis.js');
 
 async function run(args) {

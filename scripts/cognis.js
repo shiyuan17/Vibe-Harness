@@ -29,6 +29,7 @@ import {
   resolveValidationCommands,
   validateConfigAndGeneratedContent,
   validateProjectConfig,
+  validateProjectConfigWithSchema,
   mvpTargets,
   validateProfileName,
   writeDefaultProjectConfig,
@@ -295,7 +296,7 @@ async function install(args) {
   const adapter = await resolveAdapter(rootDir, adapterId);
   const requestedProfile = args.profile ?? config.profile;
   const profile = validateProfileName(requestedProfile);
-  validateProjectConfig({ ...config, profile, target: args.target ?? config.target });
+  validateProjectConfigWithSchema({ ...config, profile, target: args.target ?? config.target });
   const projectProfile = await detectProjectProfile({ config, targetDir });
   const validationCommands = resolveValidationCommands(config, projectProfile);
   const renderData = {
@@ -340,25 +341,21 @@ async function install(args) {
   plan.redZoneConfirmed = Boolean(args['confirm-red-zone']);
   const result = await applyInstallPlan(plan);
   const previewFiles = plan.dryRun ? await previewInstallPlan(plan, { includeContent: Boolean(args.verbose) }) : [];
-  const plannedToolActions = createToolProvisioningPlan({
-    allowPreview: Boolean(args['allow-preview']),
-    profile,
-    resolvedModules: plan.resolvedModules,
-    targetDir,
-  }).map(({ id, mode, phases, supportLevel, version }) => ({
-    id,
-    mode,
-    phases,
-    supportLevel,
-    version,
-  }));
-  const deferredToolActions = createToolProvisioningPlan({
+  const allowPreview = Boolean(args['allow-preview']);
+  // Single superset plan (allowPreview:true) derives both the user-facing plan and
+  // the deferred preview tools, avoiding a duplicate createToolProvisioningPlan call.
+  const allToolActions = createToolProvisioningPlan({
     allowPreview: true,
     profile,
     resolvedModules: plan.resolvedModules,
     targetDir,
-  }).filter((item) => item.supportLevel === 'preview' && !args['allow-preview'])
-    .map(({ id, mode, phases, supportLevel, version }) => ({ id, mode, phases, supportLevel, version }));
+  });
+  const compactToolAction = ({ id, mode, phases, supportLevel, version }) => ({ id, mode, phases, supportLevel, version });
+  const plannedToolActions = (allowPreview ? allToolActions : allToolActions.filter((item) => item.supportLevel !== 'preview'))
+    .map(compactToolAction);
+  const deferredToolActions = allToolActions
+    .filter((item) => item.supportLevel === 'preview' && !allowPreview)
+    .map(compactToolAction);
   const provisionRequested = Boolean(args.provision);
   const provisionExecuted = provisionRequested && !plan.dryRun;
   const tools = provisionExecuted
@@ -1042,9 +1039,21 @@ async function recover(args) {
   }, args);
 }
 
+async function printUsage() {
+  console.log('Usage: cognis <init|install|provision|recover|uninstall|validate|verify|baseline|eval|doctor|diff|rollback> [--project path] [--target codex|claude|gemini] [--profile minimal|core|full|docs-only] [--modules list] [--plugin -all|-rtk ast-grep ...] [--rtk-hooks on|off] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--force] [--upgrade] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded]');
+  console.log('All project commands use --project <path>; --target selects an adapter and --write performs mutations. Legacy --apply and path-valued --target are removed.');
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const command = args._[0] ?? 'help';
+  // help/usage is the lowest-friction surface; resolve it before legacy guards so
+  // `cognis` / `cognis help` / `cognis unknown-cmd` never trip obsolete-flag errors.
+  const knownCommands = new Set(['init', 'install', 'provision', 'validate', 'verify', 'baseline', 'eval', 'doctor', 'diff', 'rollback', 'uninstall', 'recover']);
+  if (command === 'help' || !knownCommands.has(command)) {
+    await printUsage();
+    return;
+  }
   if (args.apply) throw new Error('Legacy --apply was removed; use --project <path> with --write.');
   if (args.workflow !== undefined) {
     throw Object.assign(new Error('Legacy --workflow was removed; Cognis now uses one execution path.'), {
@@ -1084,9 +1093,6 @@ async function main() {
     await uninstall(args);
   } else if (command === 'recover') {
     await recover(args);
-  } else {
-    console.log('Usage: cognis <init|install|provision|recover|uninstall|validate|verify|baseline|eval|doctor|diff|rollback> [--project path] [--target codex|claude|gemini] [--profile minimal|core|full|docs-only] [--modules list] [--plugin -all|-rtk ast-grep ...] [--rtk-hooks on|off] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--force] [--upgrade] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded]');
-    console.log('All project commands use --project <path>; --target selects an adapter and --write performs mutations. Legacy --apply and path-valued --target are removed.');
   }
 }
 

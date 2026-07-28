@@ -1,10 +1,13 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { pathExists } from './manifest.js';
 import { renderTemplate } from './template-renderer.js';
 import { parsePluginsOption, resolveModuleSelection } from './module-selection.js';
 import { assertPortableRelativePath } from './manifest.js';
+import { validateJsonAgainstSchema } from './schema-validation.js';
+import { safeJsonParse } from './safe-json.js';
 import { productIdentity } from './product-identity.js';
 import { resolveProjectConfigLocation } from './project-layout.js';
 
@@ -53,8 +56,8 @@ export const defaultProjectConfig = {
     mode: 'guarded',
   },
   riskZones: {
-    red: ['auth', 'global request layer', 'ci/cd', 'env'],
-    yellow: ['shared components', 'stores', 'routing', 'request clients'],
+    red: ['auth', 'secrets', 'ci-cd', 'env'],
+    yellow: ['shared-libs', 'state', 'routing', 'io-clients'],
   },
   crossRepo: {
     enabled: false,
@@ -63,6 +66,9 @@ export const defaultProjectConfig = {
   projectRules: {
     mode: 'auto',
     overrides: {},
+  },
+  clarification: {
+    posture: 'balanced',
   },
   memory: {
     enabled: true,
@@ -76,6 +82,24 @@ export const forbiddenProjectTerms = [
   '病理',
   'localhost:5777',
 ];
+
+let cachedProjectConfigSchema;
+
+function loadProjectConfigSchema() {
+  if (cachedProjectConfigSchema) return cachedProjectConfigSchema;
+  const schemaPath = path.join(path.resolve(import.meta.dirname, '..', '..'), 'schemas', 'project-config.schema.json');
+  cachedProjectConfigSchema = JSON.parse(readFileSync(schemaPath, 'utf8'));
+  return cachedProjectConfigSchema;
+}
+
+export function validateProjectConfigWithSchema(config) {
+  const schema = loadProjectConfigSchema();
+  const schemaErrors = validateJsonAgainstSchema(config, schema, 'cognis.config.json');
+  if (schemaErrors.length > 0) {
+    throw new Error(`Invalid cognis.config.json:\n  - ${schemaErrors.join('\n  - ')}`);
+  }
+  return validateProjectConfig(config);
+}
 
 export function profileToCatalogProfile(profile) {
   if (profile === 'minimal') {
@@ -114,7 +138,7 @@ export async function readProjectConfig(projectDir) {
   if (!location) {
   return createDefaultProjectConfig(projectDir);
   }
-  return JSON.parse(await readFile(location.path, 'utf8'));
+  return safeJsonParse(await readFile(location.path, 'utf8'));
 }
 
 export async function readRequiredProjectConfig(projectDir) {
@@ -122,7 +146,7 @@ export async function readRequiredProjectConfig(projectDir) {
   if (!location) {
     throw new Error(`Missing ${productIdentity.configFile}. Run cognis init --project ${projectDir} first.`);
   }
-  return JSON.parse(await readFile(location.path, 'utf8'));
+  return safeJsonParse(await readFile(location.path, 'utf8'));
 }
 
 function assertObject(value, label) {
@@ -167,6 +191,13 @@ export function validateProjectConfig(config) {
     });
   }
   assertNonEmptyString(config.projectName, 'projectName');
+  const matchedTerm = forbiddenProjectTerms.find((term) => config.projectName.includes(term));
+  if (matchedTerm) {
+    throw Object.assign(
+      new Error(`projectName must not contain forbidden source-project term: ${matchedTerm}`),
+      { code: 'COGNIS_FORBIDDEN_PROJECT_TERM' },
+    );
+  }
   assertNonEmptyString(config.packageManager, 'packageManager');
   assertNonEmptyString(config.target, 'target');
   assertNonEmptyString(config.profile, 'profile');
@@ -217,6 +248,12 @@ export function validateProjectConfig(config) {
     }
     if (Object.hasOwn(config.projectRules, 'overrides')) {
       assertObject(config.projectRules.overrides, 'projectRules.overrides');
+    }
+  }
+  if (Object.hasOwn(config, 'clarification')) {
+    assertObject(config.clarification, 'clarification');
+    if (!['action-leaning', 'balanced', 'conservative'].includes(config.clarification.posture)) {
+      throw new Error('clarification.posture must be action-leaning, balanced, or conservative');
     }
   }
   if (Object.hasOwn(config, 'memory')) {
@@ -270,16 +307,24 @@ function hasInstalledSurface(installedTargets, { exact, prefix, suffix }) {
   return installedTargets.some((target) => target.startsWith(prefix));
 }
 
+// Localized red-line markers. The current adapter templates are zh-CN; the en-US
+// set guards against future localized templates silently dropping the safety surface.
+// Because the rendered template language may differ from config.language (e.g. an
+// en-US project that still renders the zh-CN AGENTS template until a localized
+// adapter template exists), we accept EITHER marker set: the safety surface must be
+// present, but we do not require a specific language's wording.
+const GENERATED_CONTENT_FRAGMENTS = {
+  'zh-CN': ['编辑前', '红区', '人工确认', '验证'],
+  'en-US': ['Edit before', 'red zone', 'manual confirmation', 'verify'],
+};
+
 export function validateGeneratedContent(content, { installedTargets } = {}) {
-  const requiredFragments = [
-    '编辑前',
-    '红区',
-    '人工确认',
-    '验证',
-  ];
-  const missing = requiredFragments.filter((fragment) => !content.includes(fragment));
-  if (missing.length > 0) {
-    throw new Error(`Generated AGENTS.md is missing required red lines: ${missing.join(', ')}`);
+  const passesSomeLanguage = Object.values(GENERATED_CONTENT_FRAGMENTS).some(
+    (fragments) => fragments.every((fragment) => content.includes(fragment)),
+  );
+  if (!passesSomeLanguage) {
+    const allFragments = Object.values(GENERATED_CONTENT_FRAGMENTS).flat();
+    throw new Error(`Generated AGENTS.md is missing required red lines; none of the localized marker sets (${allFragments.join(', ')}) were fully present.`);
   }
 
   if (Array.isArray(installedTargets)) {

@@ -11,7 +11,7 @@ import { promisify } from 'node:util';
 import { readJson, validateJsonAgainstSchema } from '../scripts/lib/manifest.js';
 
 const execFileAsync = promisify(execFile);
-const rootDir = path.resolve('.');
+const rootDir = path.resolve(import.meta.dirname, '..');
 const cliPath = path.join(rootDir, 'scripts/cognis.js');
 
 async function runCli(args) {

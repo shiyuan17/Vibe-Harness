@@ -8,6 +8,7 @@ coverage/
 dist/
 .turbo/
 .cognis/
+.loopengine/
 /.codebase-memory
 /output
 /.agents/backup

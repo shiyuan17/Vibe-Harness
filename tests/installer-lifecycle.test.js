@@ -10,7 +10,7 @@ import test from 'node:test';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
-const rootDir = path.resolve('.');
+const rootDir = path.resolve(import.meta.dirname, '..');
 const cliPath = path.join(rootDir, 'scripts/cognis.js');
 
 async function runCli(args, options = {}) {
@@ -212,7 +212,7 @@ test('agentmemory upgrade dry-run retires only legacy entries tracked by install
   try {
     await seedLegacyMemoryInstall(target);
     await runCli(['init', '--project', target]);
-    const preview = await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'full', '--modules', 'memory,governance,hooks', '--dry-run', '--upgrade']);
+    const preview = await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'full', '--modules', 'memory,hooks', '--dry-run', '--upgrade']);
     assert.deepEqual(
       preview.actions.filter((action) => action.kind === 'retire').map((action) => action.relativeTarget).sort(),
       legacyMemoryOperations.map((operation) => `.agents/skills/${operation}/SKILL.md`).sort(),
@@ -225,7 +225,7 @@ test('agentmemory upgrade dry-run retires only legacy entries tracked by install
       await mkdir(path.dirname(untrackedTarget), { recursive: true });
       await writeFile(untrackedTarget, 'user owned\n', 'utf8');
       await runCli(['init', '--project', untracked, '--profile', 'full']);
-      const untrackedPreview = await runCli(['install', '--project', untracked, '--target', 'codex', '--profile', 'full', '--modules', 'memory,governance,hooks', '--dry-run', '--upgrade']);
+      const untrackedPreview = await runCli(['install', '--project', untracked, '--target', 'codex', '--profile', 'full', '--modules', 'memory,hooks', '--dry-run', '--upgrade']);
       assert.equal(untrackedPreview.actions.some((action) => action.relativeTarget === '.agents/skills/recall/SKILL.md'), false);
     } finally {
       await rm(untracked, { force: true, recursive: true });
@@ -241,7 +241,7 @@ test('agentmemory upgrade preserves modified legacy entries and rollback restore
     await seedLegacyMemoryInstall(target, { modifiedOperation: 'recall' });
     await runCli(['init', '--project', target]);
     const result = await runCli([
-      'install', '--project', target, '--target', 'codex', '--profile', 'full', '--modules', 'memory,governance,hooks', '--write', '--upgrade', '--confirm-red-zone',
+      'install', '--project', target, '--target', 'codex', '--profile', 'full', '--modules', 'memory,hooks', '--write', '--upgrade', '--confirm-red-zone',
     ]);
 
     assert.equal(result.retired.length, 5);
@@ -286,7 +286,7 @@ test('MVP write upgrade uses the same tracked agentmemory retirement lifecycle',
       '--project', target,
       '--target', 'codex',
       '--profile', 'full',
-      '--modules', 'memory,governance,hooks',
+      '--modules', 'memory,hooks',
       '--write',
       '--upgrade',
       '--confirm-red-zone',

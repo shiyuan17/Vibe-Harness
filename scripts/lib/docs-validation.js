@@ -23,6 +23,9 @@ const legacyBrandFullyAllowedFiles = new Set([
   'docs/migration-guide.md',
   'scripts/lib/docs-validation.js',
   'scripts/lib/project-layout.js',
+  // .gitignore legitimately ignores leftover legacy state directories; this is
+  // compatibility bookkeeping, not a brand reference.
+  '.gitignore',
 ]);
 const repositoryScanExcludedDirectories = new Set([
   '.agents',

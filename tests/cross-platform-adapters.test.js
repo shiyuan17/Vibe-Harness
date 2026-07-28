@@ -17,7 +17,7 @@ import { resolveAdapterEntry } from '../scripts/lib/adapter.js';
 import { createInstallPlan } from '../scripts/lib/install-planner.js';
 
 const execFileAsync = promisify(execFile);
-const rootDir = path.resolve('.');
+const rootDir = path.resolve(import.meta.dirname, '..');
 const cliPath = path.join(rootDir, 'scripts/cognis.js');
 
 async function exists(filePath) {

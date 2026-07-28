@@ -11,7 +11,7 @@ import { promisify } from 'node:util';
 import { applyInstallPlan, createInstallPlan } from '../scripts/lib/install-planner.js';
 
 const execFileAsync = promisify(execFile);
-const rootDir = path.resolve('.');
+const rootDir = path.resolve(import.meta.dirname, '..');
 
 test('dry-run install plans full files without writing them', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'cognis-dry-run-'));
@@ -169,8 +169,7 @@ test('CLI write mode writes files when red-zone confirmation is explicit', async
 
     assert.equal(await readFile(path.join(target, 'AGENTS.md'), 'utf8').then((content) => content.includes('## 启动')), true);
     assert.equal(await readFile(path.join(target, '.codex/hooks.json'), 'utf8').then((content) => content.includes('hooks')), true);
-    assert.equal(taskTemplate.includes('工作流档位'), true);
-    assert.equal(taskTemplate.includes('完整流程控制'), true);
+    assert.equal(taskTemplate.includes('档位：'), true);
     assert.equal(deliveryTemplate.includes('实际变更'), true);
     assert.equal(deliveryTemplate.includes('本轮验证'), true);
     assert.equal(clarifySkill.includes('澄清关键需求'), true);

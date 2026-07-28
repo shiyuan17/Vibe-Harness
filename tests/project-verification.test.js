@@ -9,7 +9,7 @@ import { promisify } from 'node:util';
 import { executeProjectVerification } from '../scripts/lib/project-verification.js';
 
 const execFileAsync = promisify(execFile);
-const rootDir = path.resolve('.');
+const rootDir = path.resolve(import.meta.dirname, '..');
 const cliPath = path.join(rootDir, 'scripts/cognis.js');
 
 async function runCli(args) {

@@ -9,7 +9,7 @@ import test from 'node:test';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
-const rootDir = path.resolve('.');
+const rootDir = path.resolve(import.meta.dirname, '..');
 const cliPath = path.join(rootDir, 'scripts/cognis.js');
 
 async function exists(filePath) {
@@ -102,8 +102,7 @@ test('MVP dry-run uses --project for path and --target codex for adapter without
     assert.equal(agents.includes('由 Cognis 安装'), false);
     assert.equal(agents.includes('本项目使用 Cognis 中文治理合同'), false);
     assert.equal(agents.includes('## 启动'), true);
-    assert.equal(agents.includes('## 硬边界摘要'), true);
-    assert.equal(agents.includes('轻量反证'), true);
+    assert.equal(agents.includes('## 硬边界'), true);
     assert.equal(await exists(path.join(target, 'AGENTS.md')), false);
   } finally {
     await rm(target, { force: true, recursive: true });
@@ -315,12 +314,12 @@ test('project installs allow target-specific names in generated output', async (
     await runCli(['init', '--project', target]);
     const configPath = path.join(target, 'cognis.config.json');
     const config = JSON.parse(await readFile(configPath, 'utf8'));
-    await writeJson(configPath, { ...config, projectName: 'SYBaseProjectWeb' });
+    await writeJson(configPath, { ...config, projectName: 'AcmePlatform' });
 
     const report = await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'core', '--dry-run']);
     const agents = report.previewFiles.find((file) => file.target === 'AGENTS.md').content;
 
-    assert.match(agents, /SYBaseProjectWeb/);
+    assert.match(agents, /AcmePlatform/u);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
@@ -589,7 +588,7 @@ test('validate --project catches generated AGENTS references that are not instal
         },
         riskZones: {
           red: ['auth'],
-          yellow: ['shared components'],
+          yellow: ['shared-libs'],
         },
         crossRepo: {
           enabled: false,

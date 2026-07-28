@@ -80,7 +80,7 @@ async function packageVersion(rootDir) {
   return pkg.version;
 }
 
-export function createInstalledSurface({ customModules = false, memoryPath = '.agents/memory', profile, targets }) {
+export function createInstalledSurface({ clarificationPosture = 'balanced', customModules = false, memoryPath = '.agents/memory', profile, targets }) {
   const installedTargets = targets.map((target) => target.replaceAll('\\', '/'));
   const hasTarget = (expectedTarget) => installedTargets.includes(expectedTarget);
   const hasPrefix = (prefix) => installedTargets.some((target) => target.startsWith(prefix));
@@ -116,6 +116,9 @@ export function createInstalledSurface({ customModules = false, memoryPath = '.a
   };
 
   return {
+    clarificationPostureLine: hasSkill('clarify-requirements/SKILL.md')
+      ? `- 需求澄清姿态：\`${clarificationPosture}\`（action-leaning 偏向采用最小可逆默认值直接推进；balanced 按规则判断；conservative 对跨模块或公共契约改动也倾向先确认）。`
+      : '',
     codebaseMemoryMcpLine: hasTarget('docs/rules/codebase-memory-mcp.md')
       ? '- codebase-memory-mcp 规则位于 `docs/rules/codebase-memory-mcp.md`。'
       : '',
@@ -468,6 +471,7 @@ export async function createInstallPlan({
   }
 
   const installedSurface = createInstalledSurface({
+    clarificationPosture: renderData.clarification?.posture,
     customModules: moduleSelection.requestedModules !== null,
     memoryPath: renderData.memory?.path,
     profile,
@@ -604,6 +608,7 @@ export async function diffTargetInstall({
     ...renderData,
     hookRunnerPath: path.join(path.resolve(targetDir), '.agents/cognis/hooks/codex-hook.mjs').replaceAll('\\', '/'),
     installedSurface: createInstalledSurface({
+      clarificationPosture: renderData.clarification?.posture,
       customModules: moduleSelection.requestedModules !== null,
       memoryPath: renderData.memory?.path,
       profile,

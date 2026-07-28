@@ -12,7 +12,7 @@ import {
 } from '../scripts/lib/manifest.js';
 import { validateCapabilityMatrix, validatePack } from '../scripts/lib/pack-validation.js';
 
-const rootDir = path.resolve('.');
+const rootDir = path.resolve(import.meta.dirname, '..');
 
 test('manifests expose adapters, profiles, rules, and skills', async () => {
   const manifests = await loadAllManifests(rootDir);

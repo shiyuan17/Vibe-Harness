@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cognis 项目配置",
+  "type": "object",
+  "required": ["projectName", "language", "packageManager", "target", "profile", "validationCommands"],
+  "properties": {
+    "projectName": { "type": "string", "minLength": 1 },
+    "language": { "type": "string", "enum": ["zh-CN", "en-US"] },
+    "packageManager": { "type": "string", "minLength": 1 },
+    "target": { "type": "string", "enum": ["codex", "claude", "gemini"] },
+    "profile": { "type": "string", "enum": ["minimal", "core", "full", "docs-only"] },
+    "modules": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "plugins": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["rtk", "ast-grep", "codebase-memory", "chrome-devtools", "playwright", "open-code-review"] },
+      "uniqueItems": true
+    },
+    "validationCommands": {
+      "type": "object",
+      "properties": {
+        "lint": { "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }] },
+        "typecheck": { "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }] },
+        "test": { "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }] },
+        "eval": { "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }] }
+      },
+      "additionalProperties": false
+    },
+    "hooks": {
+      "type": "object",
+      "properties": {
+        "mode": { "type": "string", "enum": ["off", "observe", "guarded"] },
+        "allowedWriteRoots": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "rtk": {
+          "type": "object",
+          "required": ["enabled"],
+          "properties": {
+            "enabled": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "riskZones": {
+      "type": "object",
+      "properties": {
+        "red": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "yellow": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      },
+      "additionalProperties": false
+    },
+    "crossRepo": {
+      "type": "object",
+      "required": ["enabled", "backendRepo"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "backendRepo": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "projectRules": {
+      "type": "object",
+      "properties": {
+        "mode": { "type": "string", "enum": ["auto", "manual", "off"] },
+        "overrides": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "clarification": {
+      "type": "object",
+      "required": ["posture"],
+      "properties": {
+        "posture": { "type": "string", "enum": ["action-leaning", "balanced", "conservative"] }
+      },
+      "additionalProperties": false
+    },
+    "memory": {
+      "type": "object",
+      "required": ["enabled", "path"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "path": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "evaluations": {
+      "type": "object",
+      "required": ["enabled", "suites", "reference", "thresholds", "onlineRunner", "repetitions"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "suites": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "reference": { "type": "string", "minLength": 1 },
+        "thresholds": {
+          "type": "object",
+          "required": ["criticalPassRate", "overallScore", "maxCapabilityRegression"],
+          "properties": {
+            "criticalPassRate": { "type": "number", "minimum": 0, "maximum": 1 },
+            "overallScore": { "type": "number", "minimum": 0, "maximum": 1 },
+            "maxCapabilityRegression": { "type": "number", "minimum": 0, "maximum": 1 }
+          },
+          "additionalProperties": false
+        },
+        "onlineRunner": { "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }] },
+        "repetitions": { "type": "integer", "minimum": 1, "maximum": 3 }
+      },
+      "additionalProperties": false
+    },
+    "installedSurface": {
+      "type": "object",
+      "properties": {
+        "skillsLine": { "type": "string" },
+        "hooksLine": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

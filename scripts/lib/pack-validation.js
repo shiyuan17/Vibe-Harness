@@ -550,9 +550,23 @@ export async function validatePack(rootDir) {
     .sort();
   const invalidSkillDirs = await findInvalidSkillDirs(rootDir);
   const skillMetadataErrors = await validateSkillMetadataQuality(rootDir, manifests.skills.items);
-  const installEntries = [...installMaps.values()][0].entries;
+  // Merge install entries across all adapters so skill-graph validation covers
+  // every adapter's install map, not just the first. Entries are deduped by
+  // source so a skill installed by multiple adapters is counted once.
+  const mergedInstallEntries = [];
+  const seenEntrySources = new Set();
+  for (const adapter of manifests.adapters.items) {
+    const installMap = installMaps.get(adapter.installMap);
+    for (const rawEntry of installMap.entries) {
+      const entry = resolveAdapterEntry(adapter, rawEntry);
+      if (!entry) continue;
+      if (seenEntrySources.has(entry.source)) continue;
+      seenEntrySources.add(entry.source);
+      mergedInstallEntries.push(entry);
+    }
+  }
   const skillGraphErrors = await validateSkillGraph(rootDir, manifests.skills.items, manifests.profiles.items, {
-    installEntries,
+    installEntries: mergedInstallEntries,
   });
   const contentQualityErrors = await validateContentQuality(rootDir);
   const capabilityMatrix = await readJson(path.join(rootDir, 'manifests/capabilities.json'));

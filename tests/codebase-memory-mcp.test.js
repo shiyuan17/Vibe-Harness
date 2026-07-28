@@ -14,7 +14,7 @@ import {
 } from '../runtime/tools/codebase-memory-mcp/path-alias.mjs';
 
 const execFileAsync = promisify(execFile);
-const rootDir = path.resolve('.');
+const rootDir = path.resolve(import.meta.dirname, '..');
 const cliPath = path.join(rootDir, 'scripts/cognis.js');
 
 async function exists(filePath) {
@@ -81,7 +81,7 @@ test('codebase-memory-mcp rule uses MCP tools and a repository-search fallback w
 });
 
 test('codebase-memory uses a stable Windows alias for the same Unicode root', () => {
-  const root = 'D:\\SVN-Project\\H5Web\\H5端\\code\\vue-element-plus-admin';
+  const root = 'D:\\projects\\web-ui\\组件\\code\\sample-admin';
   const first = aliasPathForRoot(root);
   const second = aliasPathForRoot(root);
 
@@ -91,8 +91,8 @@ test('codebase-memory uses a stable Windows alias for the same Unicode root', ()
 });
 
 test('codebase-memory preserves valid JSON when replacing a Windows alias in status output', () => {
-  const alias = 'C:\\Users\\hexi\\AppData\\Local\\Temp\\cognis-cbm-0123456789abcdef';
-  const target = 'D:\\SVN-Project\\H5Web\\H5端\\code\\vue-element-plus-admin';
+  const alias = 'C:\\Users\\test\\AppData\\Local\\Temp\\cognis-cbm-0123456789abcdef';
+  const target = 'D:\\projects\\web-ui\\组件\\code\\sample-admin';
   const output = JSON.stringify({ root_path: alias, status: 'ready' });
   const parsed = JSON.parse(replaceAliasInStatusOutput(output, alias, target));
 

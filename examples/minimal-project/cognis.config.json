@@ -6,12 +6,11 @@
   "profile": "minimal",
   "validationCommands": {
     "lint": "pnpm lint",
-    "typecheck": "pnpm check:type",
-    "governance": "pnpm run check:governance"
+    "typecheck": "pnpm check:type"
   },
   "riskZones": {
-    "red": ["auth", "global request layer", "ci/cd", "env"],
-    "yellow": ["shared components", "stores", "routing", "request clients"]
+    "red": ["auth", "secrets", "ci-cd", "env"],
+    "yellow": ["shared-libs", "state", "routing", "io-clients"]
   },
   "crossRepo": {
     "enabled": false,

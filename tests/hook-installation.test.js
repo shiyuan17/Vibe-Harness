@@ -11,7 +11,7 @@ import { promisify } from 'node:util';
 import { defaultProjectConfig, validateProjectConfig } from '../scripts/lib/project-config.js';
 
 const execFileAsync = promisify(execFile);
-const rootDir = path.resolve('.');
+const rootDir = path.resolve(import.meta.dirname, '..');
 const cliPath = path.join(rootDir, 'scripts/cognis.js');
 
 test('project config exposes guarded safety Hook defaults', () => {

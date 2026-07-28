@@ -4,7 +4,7 @@ import test from 'node:test';
 
 import { readJson } from '../scripts/lib/manifest.js';
 
-const rootDir = path.resolve('.');
+const rootDir = path.resolve(import.meta.dirname, '..');
 
 test('codex adapter declares AGENTS, rules, templates, skills, and hooks mappings', async () => {
   const installMap = await readJson(path.join(rootDir, 'adapters/codex/install-map.json'));

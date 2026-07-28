@@ -26,22 +26,20 @@
   },
   "hooks": {
     "mode": "guarded",
-    "allowedWriteRoots": [
-      "D:\\SVN-Project\\PaProject"
-    ]
+    "allowedWriteRoots": []
   },
   "riskZones": {
     "red": [
       "auth",
-      "global request layer",
-      "ci/cd",
+      "secrets",
+      "ci-cd",
       "env"
     ],
     "yellow": [
-      "shared components",
-      "stores",
+      "shared-libs",
+      "state",
       "routing",
-      "request clients"
+      "io-clients"
     ]
   },
   "crossRepo": {
@@ -51,6 +49,9 @@
   "projectRules": {
     "mode": "auto",
     "overrides": {}
+  },
+  "clarification": {
+    "posture": "balanced"
   },
   "memory": {
     "enabled": true,

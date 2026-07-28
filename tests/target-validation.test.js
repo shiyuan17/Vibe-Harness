@@ -11,7 +11,7 @@ import { promisify } from 'node:util';
 import { inspectTargetInstall } from '../scripts/lib/install-planner.js';
 
 const execFileAsync = promisify(execFile);
-const rootDir = path.resolve('.');
+const rootDir = path.resolve(import.meta.dirname, '..');
 
 test('target inspection reports missing files and red-zone status for an empty target', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'cognis-target-empty-'));

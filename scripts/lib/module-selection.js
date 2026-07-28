@@ -3,6 +3,8 @@ export const moduleCatalog = {
   rules: { dependencies: [], groups: ['rules-minimal', 'rules-core', 'rules-full'] },
   templates: { dependencies: [], groups: ['templates-minimal', 'templates-core', 'templates-full'] },
   skills: { dependencies: ['agents', 'rules', 'templates'], groups: ['skills-core', 'skills-full'] },
+  schemas: { dependencies: [], groups: ['schemas-core'] },
+  evals: { dependencies: ['schemas'], groups: ['runtime-eval', 'runtime-eval-online', 'evals-core', 'evals-online'] },
   memory: { dependencies: ['skills'], groups: ['templates-memory', 'skills-memory'] },
   playwright: { dependencies: ['skills'], groups: ['skills-browser', 'tools-playwright'] },
   'chrome-devtools': { dependencies: ['skills'], groups: ['rules-chrome-devtools', 'skills-browser', 'tools-chrome-devtools', 'mcp-config'] },
@@ -15,11 +17,11 @@ export const moduleCatalog = {
 
 const profileModules = {
   minimal: ['agents', 'rules', 'templates'],
-  core: ['agents', 'rules', 'templates', 'skills'],
+  core: ['agents', 'rules', 'templates', 'skills', 'evals'],
   full: [
-    'agents', 'rules', 'templates', 'skills', 'hooks',
+    'agents', 'rules', 'templates', 'skills', 'evals', 'hooks',
   ],
-  'docs-only': ['rules', 'templates'],
+  'docs-only': ['rules', 'templates', 'schemas'],
 };
 
 export const pluginModules = [

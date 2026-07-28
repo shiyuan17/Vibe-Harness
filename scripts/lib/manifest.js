@@ -2,6 +2,7 @@ import { access, lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 import { validateJsonAgainstSchema } from './schema-validation.js';
+import { safeJsonParse } from './safe-json.js';
 
 export { validateJsonAgainstSchema };
 
@@ -16,7 +17,7 @@ export async function pathExists(filePath) {
 
 export async function readJson(filePath) {
   const raw = await readFile(filePath, 'utf8');
-  return JSON.parse(raw);
+  return safeJsonParse(raw);
 }
 
 export async function loadAllManifests(rootDir) {
@@ -192,9 +193,26 @@ export function validateAllManifestSchemas(manifests, schemas) {
   return errors.sort();
 }
 
-function isRedZoneTarget(target) {
+// Unified red-zone predicate. This must stay aligned with the runtime hook's
+// `projectRedZonePattern` (runtime/hooks/lib/policy.mjs): any install target
+// that the hook treats as a project red-zone must also be flagged red-zone at
+// install time so --confirm-red-zone gates it. Covers global Agent config
+// (.codex/, .claude/, etc.), CI/CD workflows, environment files, and auth/ci
+// directories.
+const RED_ZONE_PATTERNS = [
+  /(?:^|\/)\.codex\//u,
+  /(?:^|\/)\.claude\//u,
+  /(?:^|\/)\.gemini\//u,
+  /(?:^|\/)\.github\/workflows\//u,
+  /(?:^|\/)\.env(?:\.[^/]+)?$/u,
+  /(?:^|\/)auth(?:\/|$)/u,
+  /(?:^|\/)ci\/cd(?:\/|$)/u,
+  /\/hooks\.json$/u,
+];
+
+export function isRedZoneTarget(target) {
   const normalized = target.replaceAll('\\', '/');
-  return normalized.startsWith('.codex/') || normalized.includes('/.codex/') || normalized.endsWith('/hooks.json');
+  return RED_ZONE_PATTERNS.some((pattern) => pattern.test(normalized));
 }
 
 export function validateInstallMapShape(installMap, allowedGroups) {

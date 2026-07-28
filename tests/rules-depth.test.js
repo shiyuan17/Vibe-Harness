@@ -7,7 +7,7 @@ import { createInstallPlan, renderActionContent } from '../scripts/lib/install-p
 import { loadAllManifests, readJson } from '../scripts/lib/manifest.js';
 import { scanForForbiddenTerms } from '../scripts/lib/redaction.js';
 
-const rootDir = path.resolve('.');
+const rootDir = path.resolve(import.meta.dirname, '..');
 const coreSkills = ['clarify-requirements', 'define-goal', 'systematic-debugging', 'eval-driven-development', 'security-and-hardening'];
 const fullSkills = [...coreSkills, 'api-and-interface-design', 'frontend-design', 'runtime-cross-repo-rollout'];
 

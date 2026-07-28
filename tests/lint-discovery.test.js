@@ -6,7 +6,7 @@ import test from 'node:test';
 
 import { discoverExecutables } from '../scripts/lib/executable-discovery.js';
 
-const rootDir = path.resolve('.');
+const rootDir = path.resolve(import.meta.dirname, '..');
 
 test('executable discovery covers runtime and Skill scripts', async () => {
   const files = (await discoverExecutables(rootDir)).map((file) => path.relative(rootDir, file).replaceAll('\\', '/'));
