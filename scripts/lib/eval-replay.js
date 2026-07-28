@@ -29,7 +29,7 @@ export function buildOfflineRun(suite, {
     runner: 'offline-replay@1',
     model: 'fixture',
     agent: 'offline',
-    governanceHash: 'fixture-v1',
+    configHash: 'fixture-v1',
   };
   return {
     schemaVersion: 1,

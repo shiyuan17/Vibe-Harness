@@ -49,9 +49,8 @@ async function writeProjectJson({ targetDir, relative, label, value }) {
   await writeFile(target, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
 }
 
-const GOVERNANCE_PATHS = [
+const CONFIG_PATHS = [
   '.agents/cognis/evals',
-  '.agents/cognis/governance',
   '.agents/cognis/hooks',
   '.agents/skills',
   '.codex/hooks.json',
@@ -71,11 +70,11 @@ const GOVERNANCE_PATHS = [
   'templates',
 ];
 
-async function governanceFiles(root, relative) {
+async function configFiles(root, relative) {
   const absolute = path.join(root, relative);
   try {
     if ((await lstat(absolute)).isSymbolicLink()) {
-      throw evalError('EVAL_PATH_UNSAFE', `governance hash path must not be a symbolic link: ${relative}`);
+      throw evalError('EVAL_PATH_UNSAFE', `config hash path must not be a symbolic link: ${relative}`);
     }
   } catch (error) {
     if (error.code === 'ENOENT') return [];
@@ -92,14 +91,14 @@ async function governanceFiles(root, relative) {
   for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
     if (entry.isSymbolicLink()) continue;
     const child = path.join(relative, entry.name);
-    if (entry.isDirectory()) files.push(...await governanceFiles(root, child));
+    if (entry.isDirectory()) files.push(...await configFiles(root, child));
     else if (entry.isFile()) files.push({ absolute: path.join(root, child), relative: child.replaceAll('\\', '/') });
   }
   return files;
 }
 
-async function governanceHash(root) {
-  const files = (await Promise.all(GOVERNANCE_PATHS.map((relative) => governanceFiles(root, relative))))
+async function configHash(root) {
+  const files = (await Promise.all(CONFIG_PATHS.map((relative) => configFiles(root, relative))))
     .flat()
     .sort((left, right) => left.relative.localeCompare(right.relative));
   const hash = createHash('sha256');
@@ -157,7 +156,7 @@ function thresholdFailures(run, reference, thresholds) {
 
 async function buildOnlineRun({ command, config, now, suite, suitePath, targetDir }) {
   if (!command) return { degraded: ['Online evaluation runner is not configured.'], run: null };
-  const runGovernanceHash = await governanceHash(targetDir);
+  const runConfigHash = await configHash(targetDir);
   const results = [];
   const observations = [];
   const degraded = [];
@@ -169,7 +168,7 @@ async function buildOnlineRun({ command, config, now, suite, suitePath, targetDi
       const result = await runEvaluationCase({
         command,
         definition,
-        governanceHash: runGovernanceHash,
+        configHash: runConfigHash,
         repetition,
         runId: `${suite.id}-${now.toISOString()}`,
       });
@@ -188,7 +187,7 @@ async function buildOnlineRun({ command, config, now, suite, suitePath, targetDi
     runner: first.runner,
     model: first.model,
     agent: first.agentVersion,
-    governanceHash: first.governanceHash,
+    configHash: first.configHash,
   };
   for (const observation of observations.slice(1)) {
     const current = {
@@ -196,7 +195,7 @@ async function buildOnlineRun({ command, config, now, suite, suitePath, targetDi
       runner: observation.runner,
       model: observation.model,
       agent: observation.agentVersion,
-      governanceHash: observation.governanceHash,
+      configHash: observation.configHash,
     };
     if (!compareFingerprints(current, fingerprint).match) return { degraded: ['runner fingerprint changed within the evaluation run'], run: null };
   }

@@ -2,13 +2,14 @@ const expectedKinds = new Map([
   ['independent', 8],
   ['dependent', 4],
   ['mixed', 4],
+  ['discovery', 4],
   ['near-miss', 4],
 ]);
 
 export function validateClarificationCatalog(catalog) {
   const errors = [];
-  if (catalog?.schemaVersion !== 1 || catalog?.repetitions !== 3 || !Array.isArray(catalog.cases)) {
-    return ['clarification catalog must use schemaVersion 1, three repetitions, and contain cases'];
+  if (catalog?.schemaVersion !== 2 || catalog?.repetitions !== 3 || !Array.isArray(catalog.cases)) {
+    return ['clarification catalog must use schemaVersion 2, three repetitions, and contain cases'];
   }
   const ids = new Set();
   for (const item of catalog.cases) {
@@ -32,6 +33,9 @@ export function validateClarificationCatalog(catalog) {
         }
       }
     }
+    if (item.kind === 'discovery' && (!Array.isArray(item.requiredDimensions) || item.requiredDimensions.length === 0)) {
+      errors.push(`${item.id} must declare discovery dimensions`);
+    }
     if (item.kind === 'near-miss' && !item.expectedAction) errors.push(`${item.id} must declare expectedAction`);
   }
   for (const [kind, count] of expectedKinds) {
@@ -49,6 +53,10 @@ export function evaluateClarification({ catalog, trials }) {
   let dependencyViolations = 0;
   let implementationQuestionViolations = 0;
   let blockingRounds = 0;
+  let discoveryRequired = 0;
+  let discoveryCovered = 0;
+  let factQuestionViolations = 0;
+  let silentHighImpactDefaults = 0;
   const errors = [];
   for (const trial of trials) {
     const item = byId.get(trial.caseId);
@@ -63,18 +71,29 @@ export function evaluateClarification({ catalog, trials }) {
     dependencyViolations += trial.dependencyViolations ?? 0;
     implementationQuestionViolations += trial.implementationQuestionViolations ?? 0;
     blockingRounds += trial.blockingRounds ?? 0;
+    const dimensions = new Set(trial.coveredDimensions ?? []);
+    discoveryRequired += item.requiredDimensions?.length ?? 0;
+    discoveryCovered += (item.requiredDimensions ?? []).filter((dimension) => dimensions.has(dimension)).length;
+    factQuestionViolations += trial.factQuestionViolations ?? 0;
+    silentHighImpactDefaults += trial.silentHighImpactDefaults ?? 0;
     if ((trial.maxQuestionsInRound ?? 0) > 3) errors.push(`${trial.caseId} asked more than three questions in one round`);
     if ((trial.blockingRounds ?? 0) !== item.expectedBlockingRounds) errors.push(`${trial.caseId} used unexpected blocking rounds`);
   }
   if (dependencyViolations > 0) errors.push('dependent clarification order was violated');
   if (implementationQuestionViolations > 0) errors.push('implementation choices were delegated to the user');
+  if (discoveryCovered < discoveryRequired) errors.push('required discovery dimensions were not covered');
+  if (factQuestionViolations > 0) errors.push('discoverable facts were delegated to the user');
+  if (silentHighImpactDefaults > 0) errors.push('high-impact defaults were selected silently');
   return {
     blockingRounds,
     criticalDecisionCoverage: required === 0 ? 1 : covered / required,
     dependencyViolations,
+    discoveryCoverage: discoveryRequired === 0 ? 1 : discoveryCovered / discoveryRequired,
     errors,
+    factQuestionViolations,
     implementationQuestionViolations,
     ok: errors.length === 0,
     unrelatedQuestions,
+    silentHighImpactDefaults,
   };
 }

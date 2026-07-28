@@ -14,7 +14,7 @@ const evaluationEnvironmentNames = new Set([
   'CODEX_HOME', 'CODEX_MODEL', 'COMSPEC', 'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'HOME',
   'HTTPS_PROXY', 'HTTP_PROXY', 'LANG', 'LC_ALL', 'LC_CTYPE', 'LOCALAPPDATA',
   'CODEX_REASONING_EFFORT', 'COGNIS_CODEX_COMMAND', 'COGNIS_EVAL_AUTH_FILE', 'COGNIS_EVAL_TRUST_PROJECT_HOOKS',
-  'LOOPENGINE_CODEX_COMMAND', 'NO_PROXY', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'PATH', 'Path',
+  'NO_PROXY', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'PATH', 'Path',
   'PATHEXT', 'PROGRAMDATA', 'ProgramData', 'SHELL', 'SSL_CERT_DIR', 'SSL_CERT_FILE', 'SystemRoot',
   'TEMP', 'TMP', 'TMPDIR', 'USERPROFILE', 'WINDIR', 'all_proxy', 'https_proxy', 'http_proxy',
   'no_proxy',
@@ -44,12 +44,12 @@ async function createWorkspace(definition) {
   return workspace;
 }
 
-function validateObservation(value, caseId, governanceHash) {
+function validateObservation(value, caseId, configHash) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return 'runner output must be an object';
   if (value.schemaVersion !== 1) return 'runner output schemaVersion must be 1';
   if (value.caseId !== caseId) return 'runner output caseId does not match request';
-  if (value.governanceHash !== governanceHash) return 'runner output governanceHash does not match request';
-  for (const field of ['runner', 'model', 'agentVersion', 'governanceHash', 'output']) {
+  if (value.configHash !== configHash) return 'runner output configHash does not match request';
+  for (const field of ['runner', 'model', 'agentVersion', 'configHash', 'output']) {
     if (typeof value[field] !== 'string') return `runner output ${field} must be a string`;
   }
   for (const field of ['events', 'artifacts', 'diagnostics']) {
@@ -119,7 +119,7 @@ function executeRunner({ command, request, timeoutMs }) {
       } catch {
         return finish({ code: 'EVAL_RUNNER_INVALID_OUTPUT', diagnostic: 'runner stdout must contain exactly one JSON object' });
       }
-      const error = validateObservation(observation, request.case.id, request.governanceHash);
+      const error = validateObservation(observation, request.case.id, request.configHash);
       if (error) return finish({ code: 'EVAL_RUNNER_INVALID_OUTPUT', diagnostic: error });
       return finish({
         observation,
@@ -153,7 +153,7 @@ function terminateChildTree(child) {
   }
 }
 
-export async function runEvaluationCase({ command, definition, governanceHash = 'fixture-v1', repetition = 1, runId = 'online', timeoutMs = DEFAULT_TIMEOUT_MS }) {
+export async function runEvaluationCase({ command, definition, configHash = 'fixture-v1', repetition = 1, runId = 'online', timeoutMs = DEFAULT_TIMEOUT_MS }) {
   let workspace;
   let report;
   try {
@@ -163,7 +163,7 @@ export async function runEvaluationCase({ command, definition, governanceHash = 
       runId,
       repetition,
       workspace,
-      governanceHash,
+      configHash,
       case: definition,
     };
     const result = await executeRunner({ command, request, timeoutMs });

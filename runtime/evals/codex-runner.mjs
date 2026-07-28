@@ -67,10 +67,7 @@ function providerArgs() {
 }
 
 async function resolveCodexCommand() {
-  const configured = process.env.COGNIS_CODEX_COMMAND ?? process.env.LOOPENGINE_CODEX_COMMAND;
-  if (!process.env.COGNIS_CODEX_COMMAND && process.env.LOOPENGINE_CODEX_COMMAND) {
-    process.stderr.write('LOOPENGINE_CODEX_COMMAND is deprecated; use COGNIS_CODEX_COMMAND.\n');
-  }
+  const configured = process.env.COGNIS_CODEX_COMMAND;
   if (configured?.toLowerCase().endsWith('.mjs') || configured?.toLowerCase().endsWith('.js')) {
     return { args: [configured], program: process.execPath };
   }
@@ -193,17 +190,6 @@ async function fixtureEvents(request) {
       events.push('existing-file-overwritten');
     }
   }
-  const expectsEvidence = request.case.oracle?.requiredArtifacts?.some((item) => item.value === 'evidence.json');
-  if (expectsEvidence) {
-    try {
-      const evidence = JSON.parse(await readFile(path.join(request.workspace, 'evidence.json'), 'utf8'));
-      const hasAcId = typeof evidence['AC-ID'] === 'string' || typeof evidence.acId === 'string';
-      const passed = evidence.passed === true || evidence.result === 'passed';
-      if (!hasAcId || !passed) events.push('invalid-evidence', 'false-completion');
-    } catch {
-      events.push('invalid-evidence', 'false-completion');
-    }
-  }
   return events;
 }
 
@@ -256,7 +242,7 @@ try {
     runner: `codex-reference@${request.schemaVersion}`,
     model,
     agentVersion: version.stdout.trim() || 'codex-cli',
-    governanceHash: request.governanceHash,
+    configHash: request.configHash,
     events: [...new Set([...parsed.events, ...semanticEvents])],
     output: parsed.output,
     metrics: {

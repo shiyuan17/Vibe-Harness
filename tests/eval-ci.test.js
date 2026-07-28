@@ -5,7 +5,6 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { readJson } from '../scripts/lib/manifest.js';
-import { coverageForGovernanceFiles, evaluateGovernanceEvalChanges } from '../scripts/eval-change-check.js';
 import { runEvaluationCheck } from '../runtime/hooks/lib/context.mjs';
 
 const rootDir = path.resolve('.');
@@ -17,7 +16,6 @@ test('CI blocks offline eval drift and scheduled workflow runs advisory online c
   ]);
   assert.match(ci, /pnpm eval:check/u);
   assert.match(ci, /pnpm eval:offline/u);
-  assert.match(ci, /pnpm eval:changes/u);
   assert.match(ci, /windows-latest/u);
   assert.match(ci, /ubuntu-latest/u);
   assert.match(ci, /pnpm test:integration/u);
@@ -27,7 +25,8 @@ test('CI blocks offline eval drift and scheduled workflow runs advisory online c
   assert.match(online, /pnpm eval:online/u);
   assert.match(online, /retention-days:\s*30/u);
   assert.match(online, /pnpm eval:health/u);
-  assert.match(online, /vars\.COGNIS_EVAL_ENFORCE\s*\|\|\s*vars\.LOOPENGINE_EVAL_ENFORCE/u);
+  assert.match(online, /vars\.COGNIS_EVAL_ENFORCE/u);
+  assert.doesNotMatch(online, /LOOPENGINE_EVAL_ENFORCE/u);
   assert.doesNotMatch(online, /pull_request:/u);
 });
 
@@ -49,73 +48,11 @@ test('GitHub Actions are commit-pinned and receive automated update PRs', async 
   assert.match(dependabot, /interval:\s*"weekly"/u);
 });
 
-test('governance diffs require a newly added Eval-ID while unrelated diffs do not', () => {
-  assert.equal(evaluateGovernanceEvalChanges({
-    addedEvalCases: [],
-    changedFiles: ['rules/agent-skill-routing.md'],
-    coverageKeys: ['capability:skill-routing'],
-  }).ok, false);
-  assert.equal(evaluateGovernanceEvalChanges({
-    addedEvalCases: [{ capability: 'skill-routing', id: 'EVAL-ROUTE-999', suite: 'evals/suites/core.json' }],
-    changedFiles: ['rules/agent-skill-routing.md', 'evals/suites/core.json'],
-    coverageKeys: ['capability:skill-routing'],
-    requiredSuites: { 'skill-routing': ['evals/suites/core.json'] },
-  }).ok, true);
-  assert.equal(evaluateGovernanceEvalChanges({
-    addedEvalCases: [{ capability: 'unrelated', id: 'EVAL-UNRELATED-999', suite: 'evals/suites/core.json' }],
-    changedFiles: ['rules/agent-skill-routing.md', 'evals/suites/core.json'],
-    coverageKeys: ['capability:skill-routing'],
-    requiredSuites: { 'skill-routing': ['evals/suites/core.json'] },
-  }).ok, false);
-  assert.equal(evaluateGovernanceEvalChanges({
-    addedEvalCases: [{ capability: 'skill-routing', id: 'EVAL-ROUTE-999', suite: 'evals/suites/wrong.json' }],
-    changedFiles: ['rules/agent-skill-routing.md', 'evals/suites/wrong.json'],
-    coverageKeys: ['capability:skill-routing'],
-    requiredSuites: { 'skill-routing': ['evals/suites/core.json'] },
-  }).ok, false);
-  assert.equal(evaluateGovernanceEvalChanges({
-    addedEvalCases: [],
-    changedFiles: ['docs/evals.md'],
-  }).ok, true);
-  assert.equal(evaluateGovernanceEvalChanges({
-    addedEvalCases: [],
-    changedFiles: ['manifests/capabilities.json'],
-    coverageKeys: [],
-  }).ok, true);
-  assert.equal(evaluateGovernanceEvalChanges({
-    addedEvalCases: [],
-    changedFiles: ['runtime/evals/codex-runner.mjs'],
-    coverageKeys: ['capability:eval-observability'],
-    requiredSuites: { 'eval-observability': ['evals/suites/cognis-online-canary.json'] },
-  }).ok, false);
-  assert.equal(evaluateGovernanceEvalChanges({
-    addedEvalCases: [{ capability: 'skill-routing', id: 'EVAL-ROUTE-999', suite: 'evals/suites/core.json' }],
-    changedFiles: ['skills/core/new-governance/SKILL.md'],
-    coverageKeys: ['file:skills/core/new-governance/SKILL.md'],
-  }).ok, false);
-});
-
-test('governance diff coverage retains baseline ownership and classifies retired Skills', () => {
-  const evaluation = { required: true, suites: ['evals/suites/cognis-core.json'] };
-  const report = coverageForGovernanceFiles({
-    baseItems: [{ id: 'review', evaluation, targets: ['skills/core/retired-review/SKILL.md'] }],
-    currentItems: [{ id: 'review', evaluation, targets: [] }, { id: 'skill-quality', evaluation, targets: [] }],
-    fileExists: () => false,
-    governanceFiles: ['skills/core/retired-review/SKILL.md', 'skills/core/unmapped-retired/SKILL.md'],
-  });
-  assert.deepEqual(report.coverageKeys, ['capability:review', 'capability:skill-quality']);
-  assert.deepEqual(report.requiredSuites, {
-    review: ['evals/suites/cognis-core.json'],
-    'skill-quality': ['evals/suites/cognis-core.json'],
-  });
-});
-
-test('online canary suite contains exactly six critical governance scenarios', async () => {
+test('online canary suite contains critical product scenarios', async () => {
   const suite = await readJson(path.join(rootDir, 'evals/suites/cognis-online-canary.json'));
-  assert.equal(suite.cases.length, 6);
   assert.equal(suite.cases.every((item) => item.risk === 'critical'), true);
   const scenarios = suite.cases.map((item) => item.input.scenario).join('\n');
-  for (const fragment of ['global', 'existing', '--project', 'evidence', 'eval-driven-development', 'secret']) {
+  for (const fragment of ['global', 'existing', '--project', 'eval-driven-development', 'Goal Brief', 'secret']) {
     assert.match(scenarios, new RegExp(fragment, 'iu'));
   }
 });

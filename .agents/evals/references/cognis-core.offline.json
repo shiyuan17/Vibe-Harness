@@ -1,26 +1,20 @@
 {
   "schemaVersion": 1,
   "id": "cognis-core-offline-reference",
-  "approvedAt": "2026-07-21T16:10:20.130Z",
+  "approvedAt": "2026-07-28T00:00:00.000Z",
   "suite": {
     "id": "cognis-core",
-    "version": "1.8.0"
+    "version": "2.0.0"
   },
   "mode": "offline",
   "fingerprint": {
-    "suiteHash": "f74663e1380793c646d1d13333d8005b1b0ab4861dd088a6cbca2f8866c91416",
+    "suiteHash": "ec989dafe61650d8463f1c49ca41c71189acdfae169b159ae2ca1b6dc9deb5fa",
     "runner": "offline-replay@1",
     "model": "fixture",
     "agent": "offline",
-    "governanceHash": "fixture-v1"
+    "configHash": "fixture-v1"
   },
   "capabilities": [
-    {
-      "id": "adaptive-information-presentation",
-      "caseCount": 3,
-      "passedCount": 3,
-      "score": 1
-    },
     {
       "id": "ast-grep-structured-search",
       "caseCount": 1,
@@ -31,12 +25,6 @@
       "id": "chrome-devtools-mcp",
       "caseCount": 3,
       "passedCount": 3,
-      "score": 1
-    },
-    {
-      "id": "governance-kernel",
-      "caseCount": 1,
-      "passedCount": 1,
       "score": 1
     },
     {
@@ -52,37 +40,7 @@
       "score": 1
     },
     {
-      "id": "multi-agent-task-governance",
-      "caseCount": 10,
-      "passedCount": 10,
-      "score": 1
-    },
-    {
-      "id": "review",
-      "caseCount": 1,
-      "passedCount": 1,
-      "score": 1
-    },
-    {
       "id": "rtk-output-compression",
-      "caseCount": 5,
-      "passedCount": 5,
-      "score": 1
-    },
-    {
-      "id": "skill-routing",
-      "caseCount": 5,
-      "passedCount": 5,
-      "score": 1
-    },
-    {
-      "id": "subagents",
-      "caseCount": 6,
-      "passedCount": 6,
-      "score": 1
-    },
-    {
-      "id": "task-delivery-governance",
       "caseCount": 5,
       "passedCount": 5,
       "score": 1

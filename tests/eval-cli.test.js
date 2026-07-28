@@ -264,7 +264,7 @@ test('online eval uses the runner contract, degrades without reference, then pas
       const replay = request.case.input.replay;
       process.stdout.write(JSON.stringify({
         schemaVersion: 1, caseId: request.case.id, runner: 'fake-online@1', model: 'fixture',
-        agentVersion: 'fake-agent@1', governanceHash: request.governanceHash,
+        agentVersion: 'fake-agent@1', configHash: request.configHash,
         events: replay.events, output: replay.output, artifacts: replay.artifacts,
         exitCode: replay.exitCode, diagnostics: []
       }));

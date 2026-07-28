@@ -129,7 +129,7 @@ export function aggregateCaseScores(results) {
 }
 
 export function compareFingerprints(actual, expected) {
-  const fields = ['suiteHash', 'runner', 'model', 'agent', 'governanceHash'];
+  const fields = ['suiteHash', 'runner', 'model', 'agent', 'configHash'];
   const mismatches = fields
     .filter((field) => actual?.[field] !== expected?.[field])
     .map((field) => ({ field, actual: actual?.[field] ?? null, expected: expected?.[field] ?? null }));

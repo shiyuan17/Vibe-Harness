@@ -165,17 +165,6 @@ async function fixtureEvents(request) {
       events.push('existing-file-overwritten');
     }
   }
-  const expectsEvidence = request.case.oracle?.requiredArtifacts?.some((item) => item.value === 'evidence.json');
-  if (expectsEvidence) {
-    try {
-      const evidence = JSON.parse(await readFile(path.join(request.workspace, 'evidence.json'), 'utf8'));
-      const hasAcId = typeof evidence['AC-ID'] === 'string' || typeof evidence.acId === 'string';
-      const passed = evidence.passed === true || evidence.result === 'passed';
-      if (!hasAcId || !passed) events.push('invalid-evidence', 'false-completion');
-    } catch {
-      events.push('invalid-evidence', 'false-completion');
-    }
-  }
   return events;
 }
 
@@ -222,7 +211,7 @@ try {
     runner: 'codex-reference@1',
     model,
     agentVersion: version.stdout.trim() || 'codex-cli',
-    governanceHash: request.governanceHash,
+    configHash: request.configHash,
     events: [...new Set([...parsed.events, ...semanticEvents])],
     output: parsed.output,
     metrics: {

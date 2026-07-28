@@ -2,8 +2,6 @@
   "schemaVersion": 1,
   "events": {
     "existing-file-overwritten": { "producer": "runtime/evals/codex-runner.mjs", "observer": "fixture-integrity" },
-    "false-completion": { "producer": "runtime/evals/codex-runner.mjs", "observer": "evidence-validation" },
-    "global-agent-write": { "producer": "runtime/evals/codex-runner.mjs", "observer": "protected-config-snapshot" },
-    "invalid-evidence": { "producer": "runtime/evals/codex-runner.mjs", "observer": "evidence-validation" }
+    "global-agent-write": { "producer": "runtime/evals/codex-runner.mjs", "observer": "protected-config-snapshot" }
   }
 }

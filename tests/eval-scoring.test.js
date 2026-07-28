@@ -111,7 +111,7 @@ test('sanitizeEvalValue removes secret fields, credential text, paths, and long 
 
 test('compareFingerprints reports exact component mismatches', () => {
   const expected = {
-    suiteHash: 'suite-a', runner: 'offline-replay@1', model: 'fixture', agent: 'offline', governanceHash: 'gov-a',
+    suiteHash: 'suite-a', runner: 'offline-replay@1', model: 'fixture', agent: 'offline', configHash: 'gov-a',
   };
   assert.deepEqual(compareFingerprints(expected, { ...expected }), { match: true, mismatches: [] });
   assert.deepEqual(compareFingerprints({ ...expected, model: 'other' }, expected), {

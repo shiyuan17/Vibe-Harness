@@ -96,7 +96,7 @@ const [suite, reference] = await Promise.all([
 const hash = createHash('sha256').update(stable(suite)).digest('hex');
 const cases = suite.cases.map(score);
 const summary = aggregate(cases);
-const fingerprint = { suiteHash: hash, runner: 'offline-replay@1', model: 'fixture', agent: 'offline', governanceHash: 'fixture-v1' };
+const fingerprint = { suiteHash: hash, runner: 'offline-replay@1', model: 'fixture', agent: 'offline', configHash: 'fixture-v1' };
 const fingerprintMatches = Object.entries(fingerprint).every(([key, value]) => reference.fingerprint?.[key] === value);
 const generatedAt = new Date().toISOString();
 const run = {
