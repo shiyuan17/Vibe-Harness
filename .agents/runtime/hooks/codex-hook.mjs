@@ -46,8 +46,10 @@ export async function evaluateCodexHook(rawInput, { expectedEvent, rtkRunner } =
 
   const safetyDecision = analyzeToolRequest(input, {
     allowedWriteRoots: settings.allowedWriteRoots,
+    allowedEgressHosts: settings.allowedEgressHosts,
     mode: settings.mode,
     projectRoot: rootDir,
+    redZonePaths: settings.redZonePaths,
   });
   if (safetyDecision.action !== 'allow' || input.event === 'PermissionRequest') {
     return createCodexHookResult(input.event, safetyDecision);

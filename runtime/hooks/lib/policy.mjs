@@ -9,12 +9,31 @@ export const supportedCodexHookEvents = new Set([
 const writeToolPattern = /(?:apply_patch|write|edit|delete|remove|move|rename|create)/iu;
 const pathKeyPattern = /^(?:file_?path|path|target|destination|directory(?:_?path)?|dir)$/iu;
 const globalAgentConfigPattern = /(?:~|\$(?:\{)?HOME(?:\})?|\$env:(?:HOME|USERPROFILE)|%USERPROFILE%|[A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/][^\\/]+|[\\/](?:home|Users)[\\/][^\\/]+)[^\r\n]{0,96}[\\/'"]+\.(?:codex|claude|cursor|gemini)(?:[\\/'"]|$)/iu;
-const projectRedZonePattern = /(?:^|\/)(?:\.codex\/hooks\.json|\.github\/workflows\/|\.env(?:\.|$)|auth(?:\/|$)|ci\/cd(?:\/|$))/iu;
 const networkCommandPattern = /\b(?:curl|wget|Invoke-WebRequest|Invoke-RestMethod)\b/iu;
 const secretReferencePattern = /(?:\$\{?[A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD)\}?|%(?:[A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD))%|Authorization\s*:[^\r\n]*(?:KEY|TOKEN|SECRET))/iu;
 const egressUploadFlags = new Set(['-F', '--form', '-d', '--data', '--data-binary', '--data-raw', '-T', '--upload-file']);
 const urlHostPattern = /https?:\/\/\[?([^\]/:@\s]+)/iu;
 const privateEgressPattern = /(?:curl|wget)[^\n]*(?:-F|--form|-d|--data(?:-binary|-raw)?|-T|--upload-file)/iu;
+
+// Build a red-zone matcher from configured path patterns. Each pattern is a
+// project-relative path fragment (e.g. `.env`, `auth/`, `.codex/hooks.json`).
+// A trailing `/` matches the directory and its descendants; any other entry
+// matches the path itself or a `.`-extended sibling (so `.env` also covers
+// `.env.production` and `.codex/hooks.json` covers `.codex/hooks.json.bak`).
+// The compiled regex mirrors the previous hard-coded projectRedZonePattern so
+// behaviour is unchanged when the default patterns from context.mjs are used.
+function compileRedZonePattern(redZonePaths) {
+  const alternatives = redZonePaths.map((raw) => {
+    const escaped = raw.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (raw.endsWith('/')) return `${escaped.slice(0, -1)}(?:\\/|$)`;
+    return `${escaped}(?:\\.|$)`;
+  });
+  return new RegExp(`(?:^|/)(${alternatives.join('|')})`, 'iu');
+}
+
+export function redZoneMatcher(redZonePaths) {
+  return redZonePaths && redZonePaths.length > 0 ? compileRedZonePattern(redZonePaths) : null;
+}
 
 function assertObject(value, label) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -269,7 +288,8 @@ function isInsideAny(baseDirs, candidate) {
   return baseDirs.some((baseDir) => isInside(baseDir, candidate));
 }
 
-function classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts = []) {
+function classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts = [], redZonePaths = []) {
+  const redZonePattern = redZoneMatcher(redZonePaths);
   const command = commandFrom(input);
   const segments = shellSegments(command);
   if (segments.some((segment) => gitCommandRisk(segment))) {
@@ -283,11 +303,11 @@ function classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts 
   if (networkCommandPattern.test(command) && secretReferencePattern.test(command)) {
     return risk('deny', 'CREDENTIAL_EXFILTRATION', 'Possible credential exfiltration is blocked by repository policy.');
   }
-  if (privateEgressPattern.test(command)) {
+  if (privateEgressPattern.test(command) && redZonePattern) {
     const uploadPaths = egressUploadPaths(command);
     const touchesRedZoneFile = uploadPaths.some((candidate) => {
       const absolute = path.isAbsolute(candidate) ? candidate : path.resolve(projectRoot, candidate);
-      return projectRedZonePattern.test(path.relative(projectRoot, absolute).replaceAll('\\', '/'));
+      return redZonePattern.test(path.relative(projectRoot, absolute).replaceAll('\\', '/'));
     });
     if (touchesRedZoneFile) {
       return risk('deny', 'CREDENTIAL_EXFILTRATION', 'Possible credential exfiltration is blocked by repository policy.');
@@ -325,12 +345,14 @@ function classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts 
       return risk('deny', 'PROJECT_BOUNDARY', 'Write target escapes the project boundary.');
     }
   }
-  const touchesRedZone = candidates.some((candidate) => {
-    const absolute = path.isAbsolute(candidate)
-      ? candidate
-      : path.resolve(projectRoot, candidate);
-    return projectRedZonePattern.test(path.relative(projectRoot, absolute).replaceAll('\\', '/'));
-  });
+  const touchesRedZone = redZonePattern
+    ? candidates.some((candidate) => {
+        const absolute = path.isAbsolute(candidate)
+          ? candidate
+          : path.resolve(projectRoot, candidate);
+        return redZonePattern.test(path.relative(projectRoot, absolute).replaceAll('\\', '/'));
+      })
+    : false;
   if (touchesRedZone) {
     return risk('warn', 'RED_ZONE', 'The pending write touches a project red-zone; keep explicit approval and verification evidence.');
   }
@@ -342,9 +364,10 @@ export function analyzeToolRequest(input, {
   allowedEgressHosts = [],
   mode = 'guarded',
   projectRoot = input.cwd,
+  redZonePaths = [],
 } = {}) {
   if (mode === 'off') return { action: 'allow' };
-  const risk = classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts);
+  const risk = classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts, redZonePaths);
   if (!risk) return { action: 'allow' };
   if (risk.level === 'warn' || mode === 'observe') {
     return { action: 'warn', reason: risk.reason, reasonCode: risk.reasonCode };

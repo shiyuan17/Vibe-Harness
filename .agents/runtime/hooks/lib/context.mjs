@@ -5,6 +5,18 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
+// Default red-zone path patterns. Kept in sync with
+// scripts/lib/project-config.js defaultProjectConfig.hooks.redZonePaths and the
+// previously hard-coded projectRedZonePattern in policy.mjs. Each entry matches
+// the path itself or any descendant (a trailing '/' is optional).
+export const DEFAULT_RED_ZONE_PATHS = [
+  '.env',
+  'auth/',
+  'ci/cd/',
+  '.github/workflows/',
+  '.codex/hooks.json',
+];
+
 async function git(rootDir, args) {
   try {
     return (await execFileAsync('git', args, { cwd: rootDir, timeout: 3000, windowsHide: true })).stdout.trim();
@@ -45,6 +57,24 @@ function readAllowedWriteRoots(config) {
   return roots;
 }
 
+function readAllowedEgressHosts(config) {
+  const hosts = config.hooks?.allowedEgressHosts;
+  if (hosts === undefined) return [];
+  if (!Array.isArray(hosts) || hosts.some((host) => typeof host !== 'string' || host.trim().length === 0)) {
+    throw new Error('hooks.allowedEgressHosts must contain non-empty host strings.');
+  }
+  return hosts;
+}
+
+function readRedZonePaths(config) {
+  const paths = config.hooks?.redZonePaths;
+  if (paths === undefined) return DEFAULT_RED_ZONE_PATHS;
+  if (!Array.isArray(paths) || paths.some((entry) => typeof entry !== 'string' || entry.trim().length === 0)) {
+    throw new Error('hooks.redZonePaths must contain non-empty path strings.');
+  }
+  return paths;
+}
+
 export async function readHookSettings(rootDir) {
   try {
     const config = await readProjectConfig(rootDir);
@@ -56,10 +86,12 @@ export async function readHookSettings(rootDir) {
     }
     return {
       allowedWriteRoots: readAllowedWriteRoots(config),
+      allowedEgressHosts: readAllowedEgressHosts(config),
       mode: ['off', 'observe', 'guarded'].includes(config.hooks?.mode) ? config.hooks.mode : 'guarded',
+      redZonePaths: readRedZonePaths(config),
       rtkEnabled: Object.hasOwn(config.hooks?.rtk ?? {}, 'enabled') ? config.hooks.rtk.enabled : Boolean(state?.rtkHooksEnabled),
     };
   } catch {
-    return { allowedWriteRoots: [], mode: 'guarded', rtkEnabled: false };
+    return { allowedWriteRoots: [], allowedEgressHosts: [], mode: 'guarded', redZonePaths: DEFAULT_RED_ZONE_PATHS, rtkEnabled: false };
   }
 }

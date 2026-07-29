@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { evaluateCodexHook } from '../runtime/hooks/codex-hook.mjs';
-import { readHookSettings } from '../runtime/hooks/lib/context.mjs';
+import { DEFAULT_RED_ZONE_PATHS, readHookSettings } from '../runtime/hooks/lib/context.mjs';
 import { analyzeToolRequest, normalizeCodexHookInput, supportedCodexHookEvents } from '../runtime/hooks/lib/policy.mjs';
 
 async function withProject(callback, hooks = { mode: 'guarded' }) {
@@ -56,6 +56,7 @@ test('Hook settings contain safety configuration only', async () => {
       allowedWriteRoots: [],
       allowedEgressHosts: [],
       mode: 'guarded',
+      redZonePaths: DEFAULT_RED_ZONE_PATHS,
       rtkEnabled: false,
     });
   });
@@ -67,6 +68,7 @@ test('Hook reads allowedEgressHosts from project configuration', async () => {
       allowedWriteRoots: [],
       allowedEgressHosts: [],
       mode: 'guarded',
+      redZonePaths: DEFAULT_RED_ZONE_PATHS,
       rtkEnabled: false,
     });
   }, { mode: 'guarded' });
@@ -76,11 +78,18 @@ test('Hook reads allowedEgressHosts from project configuration', async () => {
   }, { mode: 'guarded', allowedEgressHosts: ['registry.npmjs.org', '*.github.com'] });
 });
 
+test('Hook reads redZonePaths from project configuration', async () => {
+  await withProject(async (target) => {
+    const settings = await readHookSettings(target);
+    assert.deepEqual(settings.redZonePaths, ['secrets/', '.env']);
+  }, { mode: 'guarded', redZonePaths: ['secrets/', '.env'] });
+});
+
 test('egress governance blocks credential exfiltration and red-zone file uploads', () => {
   const rootDir = path.resolve('.');
   const allow = (command) => analyzeToolRequest(
     normalizeCodexHookInput(input(rootDir, { tool_input: { command } })),
-    { mode: 'guarded', projectRoot: rootDir },
+    { mode: 'guarded', projectRoot: rootDir, redZonePaths: DEFAULT_RED_ZONE_PATHS },
   );
 
   assert.equal(allow('curl https://example.test/health').action, 'allow');
@@ -118,6 +127,33 @@ test('egress allowlist denies non-allowlisted hosts when configured', () => {
   );
   assert.equal(observe.action, 'warn');
   assert.equal(observe.reasonCode, 'EGRESS_VIOLATION');
+});
+
+test('red-zone writes warn under guarded and use configured paths', () => {
+  const rootDir = path.resolve('.');
+  const write = (filePath, redZonePaths = DEFAULT_RED_ZONE_PATHS) => analyzeToolRequest(
+    normalizeCodexHookInput(input(rootDir, { tool_name: 'Write', tool_input: { file_path: filePath } })),
+    { mode: 'guarded', projectRoot: rootDir, redZonePaths },
+  );
+
+  const envWrite = write('.env');
+  assert.equal(envWrite.action, 'warn');
+  assert.equal(envWrite.reasonCode, 'RED_ZONE');
+
+  const envProdWrite = write('.env.production');
+  assert.equal(envProdWrite.action, 'warn');
+  assert.equal(envProdWrite.reasonCode, 'RED_ZONE');
+
+  const authWrite = write('auth/token.json');
+  assert.equal(authWrite.action, 'warn');
+  assert.equal(authWrite.reasonCode, 'RED_ZONE');
+
+  // An ordinary project file is not a red-zone write.
+  assert.equal(write('src/app.js').action, 'allow');
+
+  // With an explicit, narrower redZonePaths, only the configured paths apply.
+  assert.equal(write('.env', ['secrets/']).action, 'allow');
+  assert.equal(write('secrets/key.pem', ['secrets/']).action, 'warn');
 });
 
 test('unsupported lifecycle events fail closed instead of creating task context', async () => {

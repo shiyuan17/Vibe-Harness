@@ -4,11 +4,11 @@ import path from 'node:path';
 
 const MAX_OUTPUT_BYTES = 16 * 1024;
 const REWRITE_TIMEOUT_MS = 750;
-const PROJECT_RUNNER = '.agents/cognis/tools/rtk/run.mjs';
+const PROJECT_RUNNER = '.agents/runtime/tools/rtk/run.mjs';
 const RETRY_PREFIX = `node "${PROJECT_RUNNER}"`;
 const INVALID_STATE = Symbol('invalid-rtk-state');
 const shellToolPattern = /(?:bash|shell|powershell|terminal)/iu;
-const bypassPattern = /(?:\.agents[\\/]cognis[\\/]tools[\\/]rtk[\\/]run\.mjs|(?:^|[;&|]\s*)rtk(?:\.exe)?\s+proxy\b)/iu;
+const bypassPattern = /(?:\.agents[\\/]runtime[\\/]tools[\\/]rtk[\\/]run\.mjs|(?:^|[;&|]\s*)rtk(?:\.exe)?\s+proxy\b)/iu;
 const sensitivePattern = /(?:^|[;&|]\s*)(?:env|printenv|set)\b|(?:\.env(?:\.|\b)|API[_-]?KEY|TOKEN|SECRET|PASSWORD)|Authorization\s*:/iu;
 const rawOutputPattern = /(?:^|[;&|]\s*)(?:cat|type|Get-Content|tail|journalctl)\b|\b(?:docker|kubectl)\s+logs\b/iu;
 

@@ -5,8 +5,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event PermissionRequest",
-            "commandWindows": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event PermissionRequest",
+            "command": "node \".agents/runtime/hooks/codex-hook.mjs\" --expected-event PermissionRequest",
+            "commandWindows": "node \".agents/runtime/hooks/codex-hook.mjs\" --expected-event PermissionRequest",
             "timeout": 10,
             "statusMessage": "Checking Cognis safety policy"
           }
@@ -19,8 +19,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event PreToolUse",
-            "commandWindows": "node \"D:/Github/JW/LoopEngine/.agents/cognis/hooks/codex-hook.mjs\" --expected-event PreToolUse",
+            "command": "node \".agents/runtime/hooks/codex-hook.mjs\" --expected-event PreToolUse",
+            "commandWindows": "node \".agents/runtime/hooks/codex-hook.mjs\" --expected-event PreToolUse",
             "timeout": 10,
             "statusMessage": "Checking Cognis safety policy"
           }
