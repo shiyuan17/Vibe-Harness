@@ -51,13 +51,14 @@ export function validateEvalObserverCoverage(suites, registry) {
   const required = new Set();
   for (const suite of suites) {
     for (const definition of suite.cases ?? []) {
+      for (const assertion of definition.oracle?.requiredEvents ?? []) required.add(assertion.value);
       for (const assertion of definition.oracle?.forbiddenEvents ?? []) required.add(assertion.value);
     }
   }
   for (const event of required) {
     const observer = registry.events[event];
     if (!observer || typeof observer.producer !== 'string' || typeof observer.observer !== 'string') {
-      errors.push(`forbidden event requires a registered observer: ${event}`);
+      errors.push(`observed event requires a registered observer: ${event}`);
     }
   }
   return errors.sort();

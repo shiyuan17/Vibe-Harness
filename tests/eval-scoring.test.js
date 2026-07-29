@@ -131,6 +131,14 @@ test('summarizeTrials reports pass@k, pass^k, and per-trial detail across outcom
   assert.equal(allFail.passCaretK, 0);
   assert.equal(allFail.passedTrials, 0);
   assert.equal(allFail.meanScore, 0.05);
+
+  // Empty trials must not vacuously pass: passCaretK guards against 0===0.
+  const empty = summarizeTrials('CASE-D', []);
+  assert.equal(empty.repetitions, 0);
+  assert.equal(empty.passAt1, 0);
+  assert.equal(empty.passAtK, 0);
+  assert.equal(empty.passCaretK, 0);
+  assert.equal(empty.meanScore, 0);
 });
 
 test('sanitizeEvalValue removes secret fields, credential text, paths, and long diagnostics', () => {

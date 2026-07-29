@@ -25,7 +25,7 @@ export function summarizeTrials(caseId, trials) {
     repetitions,
     passAt1: repetitions === 0 ? 0 : (trials[0].passed ? 1 : 0),
     passAtK: passedTrials >= 1 ? 1 : 0,
-    passCaretK: passedTrials === repetitions ? 1 : 0,
+    passCaretK: repetitions === 0 ? 0 : (passedTrials === repetitions ? 1 : 0),
     passedTrials,
     meanScore,
     perTrial,
