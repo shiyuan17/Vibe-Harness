@@ -40,6 +40,19 @@
                       },
                       "additionalProperties": false
                     }
+                  },
+                  "tests": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["command", "expectedExitCode"],
+                      "properties": {
+                        "command": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 },
+                        "expectedExitCode": { "type": "integer", "minimum": 0 },
+                        "timeoutMs": { "type": "integer", "minimum": 1000, "maximum": 120000 }
+                      },
+                      "additionalProperties": false
+                    }
                   }
                 },
                 "additionalProperties": false

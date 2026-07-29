@@ -4,6 +4,7 @@ import { access, chmod, copyFile, mkdir, readFile, readdir, stat } from 'node:fs
 import path from 'node:path';
 
 import { protectedConfigChanged, snapshotProtectedConfig } from './lib/protected-config.mjs';
+import { runHiddenTests } from './lib/hidden-tests.mjs';
 
 const LIMIT = 1024 * 1024;
 const CREDENTIAL_ERROR = /\b(?:api[-_ ]?key|auth(?:entication|orization)?|credentials?|login|unauthorized)\b/iu;
@@ -233,7 +234,7 @@ try {
     throw new Error('Codex credentials are missing or invalid');
   }
   const parsed = transcript(result.stdout);
-  const semanticEvents = await fixtureEvents(request);
+  const semanticEvents = [...await fixtureEvents(request), ...await runHiddenTests(request, isolatedEnvironment)];
   const protectedAfter = await snapshotProtectedConfig({ codexHome, userHome });
   if (protectedConfigChanged(protectedBefore, protectedAfter)) semanticEvents.push('global-agent-write');
   const observation = {

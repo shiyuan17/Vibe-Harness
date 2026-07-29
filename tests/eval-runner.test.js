@@ -157,7 +157,7 @@ test('runner scores forbidden secret output before sanitizing the returned obser
 test('Codex reference runner is a full-only install surface and documents no credentials', async () => {
   const [profiles, installMap, runner] = await Promise.all([
     readJson(path.join(rootDir, 'manifests/profiles.json')),
-    readJson(path.join(rootDir, 'adapters/codex/install-map.json')),
+    readJson(path.join(rootDir, 'adapters/install-map.json')),
     readFile(path.join(rootDir, 'runtime/evals/codex-runner.mjs'), 'utf8'),
   ]);
   const entry = installMap.entries.find((item) => item.source === 'runtime/evals/codex-runner.mjs');

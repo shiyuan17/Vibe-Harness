@@ -51,8 +51,8 @@ async function writeProjectJson({ targetDir, relative, label, value }) {
 }
 
 const CONFIG_PATHS = [
-  '.agents/cognis/evals',
-  '.agents/cognis/hooks',
+  '.agents/runtime/evals',
+  '.agents/runtime/hooks',
   '.agents/skills',
   '.codex/hooks.json',
   'adapters',
