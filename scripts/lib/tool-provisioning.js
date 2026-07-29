@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import { parse as parseToml } from '@iarna/toml';
 
 import { assertInsideDir, assertSafePathInside, pathExists } from './manifest.js';
+import { extractManagedBlock, removeManagedBlock, stripManagedBlock } from './managed-block.js';
 import { resolveOcrEndpoint } from './ocr-config.js';
 import { inspectPlaywrightTool, preparePlaywrightTool } from '../../runtime/tools/playwright-cli/run.mjs';
 import { resolveRtkAsset } from '../../runtime/tools/rtk/run.mjs';
@@ -136,28 +137,16 @@ function renderMcpServer(name, server) {
   return lines.join('\n');
 }
 
-function findManagedMcpBlock(content) {
-  const canonicalStart = content.indexOf(managedMcpStart);
-  if (canonicalStart === -1) return null;
-  const end = content.indexOf(managedMcpEnd, canonicalStart);
-  if (end === -1) throw new Error('Malformed Cognis MCP managed block.');
-  return { end, endMarker: managedMcpEnd, start: canonicalStart };
-}
-
 function stripManagedMcpBlock(content) {
-  const found = findManagedMcpBlock(content);
-  if (!found) return content;
-  return `${content.slice(0, found.start)}${content.slice(found.end + found.endMarker.length)}`.replace(/\n{3,}/gu, '\n\n');
+  return stripManagedBlock(content, managedMcpStart, managedMcpEnd);
 }
 
 export function extractManagedMcpBlock(content) {
-  const found = findManagedMcpBlock(content);
-  return found ? content.slice(found.start, found.end + found.endMarker.length) : '';
+  return extractManagedBlock(content, managedMcpStart, managedMcpEnd);
 }
 
 export function removeManagedMcpBlock(content) {
-  const remaining = stripManagedMcpBlock(content).trim();
-  return remaining ? `${remaining}\n` : '';
+  return removeManagedBlock(content, managedMcpStart, managedMcpEnd);
 }
 
 export function mergeManagedMcpBlock(existingContent, servers) {
