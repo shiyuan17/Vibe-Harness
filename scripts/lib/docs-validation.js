@@ -37,6 +37,7 @@ const repositoryScanExcludedDirectories = new Set([
   '.git',
   '.githooks',
   '.loopengine',
+  '.zcode',
   'coverage',
   'dist',
   'node_modules',

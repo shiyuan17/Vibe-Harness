@@ -9,6 +9,7 @@ dist/
 .turbo/
 .cognis/
 .loopengine/
+.zcode/
 /.codebase-memory
 /output
 /.agents/backup
