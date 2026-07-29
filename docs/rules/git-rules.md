@@ -40,9 +40,12 @@ AI 准备提交前先给出提交分组：
 ## Worktree
 
 - 一个实现任务对应一个 worktree + 分支，除非明确命中低风险例外。
-- worktree 不放在仓库内部，避免被构建或依赖扫描。
+- worktree 不放在仓库内部，避免被构建或依赖扫描；建议放在仓库同级目录，命名形如 `<repo>-worktrees/<task-scope>`。
+- 实现任务的 worktree 必须基于命名分支；`git worktree add -d` 的 detached HEAD 仅用于一次性、实验性改动，因为它让 merge-back 难以追踪。
 - 子 Agent 只能在指定 worktree、分支和写入范围内工作。
 - 审查 Agent 默认只读，不暂存、不提交、不合并。
+- 脚本解析 worktree 列表时使用 `git worktree list --porcelain -z`，跨版本稳定且能处理路径中的换行。
+- 项目使用子模块时慎用多 worktree 并发检出超级项目；官方标注子模块支持不完整，含子模块的 worktree 无法用 `git worktree move` 迁移。
 
 ## Merge-back 完成定义
 
@@ -51,6 +54,15 @@ AI 准备提交前先给出提交分组：
 - 验证只来自临时 worktree、目标分支未复核或存在未解释改动时，不得宣称完成。
 - merge-back 前不得清理 worktree 或删除分支。
 - 主 Agent 负责检查 diff、处理冲突、排除无关改动、统一验证和交付说明。
+
+## Worktree 生命周期 / 清理
+
+- 仅在 merge-back 完成、目标分支确认包含结果后才清理 worktree。
+- 清理顺序：先 `git -C <worktree> status --short` 确认无未提交改动，再 `git worktree remove <path>` 移除；脏 worktree 需先 stash 或显式确认丢弃并加 `--force`。
+- worktree 移除后运行 `git worktree prune` 清理残留 administrative 文件；只删目录而不 `remove` 会留下失效条目。
+- 仅当目标分支已合并或确认不再需要时才删除分支；删除前用 `git branch --merged` 复核。
+- 跨主机或可移动存储上的 worktree 用 `git worktree lock --reason <说明>` 防止被误 prune；手动移动 worktree 后用 `git worktree repair` 重建链接。
+- 主 Agent 定期审计 `git worktree list`，识别残留 detached HEAD 或未合并 worktree，按上述顺序处置。
 
 ## 禁止项
 
