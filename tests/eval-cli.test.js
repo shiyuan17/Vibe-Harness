@@ -319,6 +319,10 @@ test('online eval uses the runner contract, degrades without reference, then pas
     ]);
     assert.equal(second.code, 0);
     assert.equal(second.payload.status, 'ready');
+    assert.equal(Array.isArray(second.payload.run.trialSummaries), true);
+    assert.equal(second.payload.run.trialSummaries.length, suite.cases.length);
+    assert.equal(second.payload.run.cases.length, suite.cases.length);
+    assert.equal(second.payload.run.trialSummaries[0].passCaretK, 1);
   } finally {
     await Promise.all([target, runnerRoot].map((root) => rm(root, { force: true, recursive: true })));
   }

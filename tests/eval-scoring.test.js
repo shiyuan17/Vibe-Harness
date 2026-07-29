@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { summarizeTrials } from '../scripts/lib/eval-trials.js';
 import {
   aggregateCaseScores,
   compareFingerprints,
@@ -93,6 +94,43 @@ test('aggregateCaseScores weights cases within capabilities and capabilities equ
   ]);
   assert.equal(aggregate.overallScore, 0.625);
   assert.equal(aggregate.criticalPassRate, 0.5);
+});
+
+test('summarizeTrials reports pass@k, pass^k, and per-trial detail across outcomes', () => {
+  const allPass = summarizeTrials('CASE-A', [
+    { passed: true, score: 1 },
+    { passed: true, score: 0.9 },
+    { passed: true, score: 1 },
+  ]);
+  assert.equal(allPass.repetitions, 3);
+  assert.equal(allPass.passAt1, 1);
+  assert.equal(allPass.passAtK, 1);
+  assert.equal(allPass.passCaretK, 1);
+  assert.equal(allPass.passedTrials, 3);
+  assert.equal(allPass.meanScore, 0.966667);
+  assert.equal(allPass.perTrial.length, 3);
+  assert.deepEqual(allPass.perTrial[1], { repetition: 2, passed: true, score: 0.9 });
+
+  const partialPass = summarizeTrials('CASE-B', [
+    { passed: false, score: 0.4 },
+    { passed: true, score: 1 },
+    { passed: false, score: 0.2 },
+  ]);
+  assert.equal(partialPass.passAt1, 0);
+  assert.equal(partialPass.passAtK, 1);
+  assert.equal(partialPass.passCaretK, 0);
+  assert.equal(partialPass.passedTrials, 1);
+  assert.equal(partialPass.meanScore, 0.533333);
+
+  const allFail = summarizeTrials('CASE-C', [
+    { passed: false, score: 0 },
+    { passed: false, score: 0.1 },
+  ]);
+  assert.equal(allFail.passAt1, 0);
+  assert.equal(allFail.passAtK, 0);
+  assert.equal(allFail.passCaretK, 0);
+  assert.equal(allFail.passedTrials, 0);
+  assert.equal(allFail.meanScore, 0.05);
 });
 
 test('sanitizeEvalValue removes secret fields, credential text, paths, and long diagnostics', () => {

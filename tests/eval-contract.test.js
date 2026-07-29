@@ -123,6 +123,12 @@ test('offline replay deterministically reproduces the checked-in run and matches
   assert.deepEqual(replayed.fingerprint, assets.reference.fingerprint);
 });
 
+test('offline replay never emits multi-trial summaries', async () => {
+  const assets = await loadEvalAssets(rootDir);
+  const replayed = buildOfflineRun(assets.suite);
+  assert.equal(Object.hasOwn(replayed, 'trialSummaries'), false);
+});
+
 test('offline replay evaluates forbidden secret text before sanitizing persisted output', async () => {
   const assets = await loadEvalAssets(rootDir);
   const suite = structuredClone(assets.suite);

@@ -3,6 +3,7 @@ import { lstat, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { validateEvalSuiteSemantics } from './eval-contract.js';
+import { summarizeTrials } from './eval-trials.js';
 import { buildOfflineRun, suiteHash } from './eval-replay.js';
 import { aggregateCaseScores, compareFingerprints } from './eval-scoring.js';
 import { runEvaluationCase } from './eval-runner.js';
@@ -157,10 +158,10 @@ function thresholdFailures(run, reference, thresholds) {
 async function buildOnlineRun({ command, config, now, suite, suitePath, targetDir }) {
   if (!command) return { degraded: ['Online evaluation runner is not configured.'], run: null };
   const runConfigHash = await configHash(targetDir);
-  const results = [];
   const observations = [];
   const degraded = [];
   const caseRepetitions = [];
+  const trialsByCase = new Map();
   for (const definition of suite.cases) {
     const repetitions = Math.min(definition.repetitions ?? config.evaluations.repetitions, config.evaluations.repetitions);
     caseRepetitions.push({ id: definition.id, count: repetitions });
@@ -177,9 +178,12 @@ async function buildOnlineRun({ command, config, now, suite, suitePath, targetDi
         return { degraded, run: null };
       }
       observations.push(result.observation);
-      results.push(result.caseResult);
+      const group = trialsByCase.get(definition.id) ?? [];
+      group.push(result.caseResult);
+      trialsByCase.set(definition.id, group);
     }
   }
+  const results = suite.cases.map((definition) => trialsByCase.get(definition.id)[0]);
   if (degraded.length > 0 || results.length === 0) return { degraded, run: null };
   const first = observations[0];
   const fingerprint = {
@@ -200,6 +204,7 @@ async function buildOnlineRun({ command, config, now, suite, suitePath, targetDi
     if (!compareFingerprints(current, fingerprint).match) return { degraded: ['runner fingerprint changed within the evaluation run'], run: null };
   }
   const aggregate = aggregateCaseScores(results);
+  const trialSummaries = suite.cases.map((definition) => summarizeTrials(definition.id, trialsByCase.get(definition.id)));
   return {
     degraded: [],
     run: {
@@ -212,6 +217,7 @@ async function buildOnlineRun({ command, config, now, suite, suitePath, targetDi
       fingerprint,
       caseRepetitions,
       cases: results,
+      trialSummaries,
       capabilities: aggregate.capabilities,
       overallScore: aggregate.overallScore,
       criticalPassRate: aggregate.criticalPassRate,
