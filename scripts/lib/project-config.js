@@ -53,6 +53,7 @@ export const defaultProjectConfig = {
   },
   hooks: {
     allowedWriteRoots: [],
+    allowedEgressHosts: [],
     mode: 'guarded',
   },
   riskZones: {
@@ -231,6 +232,16 @@ export function validateProjectConfig(config) {
       for (const root of config.hooks.allowedWriteRoots) {
         if (typeof root !== 'string' || root.trim().length === 0 || !path.isAbsolute(root)) {
           throw new Error('hooks.allowedWriteRoots must contain non-empty absolute paths');
+        }
+      }
+    }
+    if (Object.hasOwn(config.hooks, 'allowedEgressHosts')) {
+      if (!Array.isArray(config.hooks.allowedEgressHosts)) {
+        throw new Error('hooks.allowedEgressHosts must be an array');
+      }
+      for (const host of config.hooks.allowedEgressHosts) {
+        if (typeof host !== 'string' || host.trim().length === 0) {
+          throw new Error('hooks.allowedEgressHosts must contain non-empty host strings');
         }
       }
     }

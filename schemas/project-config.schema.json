@@ -37,6 +37,10 @@
           "type": "array",
           "items": { "type": "string", "minLength": 1 }
         },
+        "allowedEgressHosts": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
         "rtk": {
           "type": "object",
           "required": ["enabled"],

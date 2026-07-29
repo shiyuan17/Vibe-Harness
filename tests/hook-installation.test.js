@@ -15,7 +15,7 @@ const rootDir = path.resolve(import.meta.dirname, '..');
 const cliPath = path.join(rootDir, 'scripts/cognis.js');
 
 test('project config exposes guarded safety Hook defaults', () => {
-  assert.deepEqual(defaultProjectConfig.hooks, { allowedWriteRoots: [], mode: 'guarded' });
+  assert.deepEqual(defaultProjectConfig.hooks, { allowedWriteRoots: [], allowedEgressHosts: [], mode: 'guarded' });
   assert.equal(validateProjectConfig(defaultProjectConfig), true);
   assert.throws(
     () => validateProjectConfig({ ...defaultProjectConfig, hooks: { mode: 'strict' } }),
@@ -28,6 +28,14 @@ test('project config exposes guarded safety Hook defaults', () => {
   assert.throws(
     () => validateProjectConfig({ ...defaultProjectConfig, hooks: { allowedWriteRoots: ['../companion-project'] } }),
     /hooks\.allowedWriteRoots/,
+  );
+  assert.equal(validateProjectConfig({
+    ...defaultProjectConfig,
+    hooks: { allowedEgressHosts: ['registry.npmjs.org', '*.github.com'] },
+  }), true);
+  assert.throws(
+    () => validateProjectConfig({ ...defaultProjectConfig, hooks: { allowedEgressHosts: [''] } }),
+    /hooks\.allowedEgressHosts/,
   );
 });
 

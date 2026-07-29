@@ -12,6 +12,9 @@ const globalAgentConfigPattern = /(?:~|\$(?:\{)?HOME(?:\})?|\$env:(?:HOME|USERPR
 const projectRedZonePattern = /(?:^|\/)(?:\.codex\/hooks\.json|\.github\/workflows\/|\.env(?:\.|$)|auth(?:\/|$)|ci\/cd(?:\/|$))/iu;
 const networkCommandPattern = /\b(?:curl|wget|Invoke-WebRequest|Invoke-RestMethod)\b/iu;
 const secretReferencePattern = /(?:\$\{?[A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD)\}?|%(?:[A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD))%|Authorization\s*:[^\r\n]*(?:KEY|TOKEN|SECRET))/iu;
+const egressUploadFlags = new Set(['-F', '--form', '-d', '--data', '--data-binary', '--data-raw', '-T', '--upload-file']);
+const urlHostPattern = /https?:\/\/\[?([^\]/:@\s]+)/iu;
+const privateEgressPattern = /(?:curl|wget)[^\n]*(?:-F|--form|-d|--data(?:-binary|-raw)?|-T|--upload-file)/iu;
 
 function assertObject(value, label) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -188,6 +191,60 @@ function commandReads(segment) {
   return /^\s*(?:Get-Content|Test-Path|Get-Item|Resolve-Path|cat|type)\b/iu.test(segment);
 }
 
+function egressUploadPaths(command) {
+  const paths = [];
+  for (const segment of shellSegments(command)) {
+    const tokens = commandTokens(segment);
+    const executable = tokens.findIndex((token) => /(?:^|[\\/])(?:curl|wget)(?:\.exe)?$/iu.test(token));
+    if (executable < 0) continue;
+    const extract = (operand) => {
+      if (!operand) return null;
+      const direct = operand.match(/^@(.+)$/u);
+      if (direct) return direct[1];
+      const named = operand.match(/^[^=@]*=@(.+)$/u);
+      if (named) return named[1];
+      return null;
+    };
+    let expectOperand = false;
+    for (let index = executable + 1; index < tokens.length; index += 1) {
+      const token = tokens[index];
+      if (expectOperand) {
+        const found = extract(token);
+        if (found) paths.push(found);
+        expectOperand = false;
+        continue;
+      }
+      if (egressUploadFlags.has(token)) {
+        expectOperand = true;
+        continue;
+      }
+      const assignment = token.match(/^(?:-F|--form|-d|--data(?:-binary|-raw)?|-T|--upload-file)=(.*)$/u);
+      if (assignment) {
+        const found = extract(assignment[1]);
+        if (found) paths.push(found);
+      }
+    }
+  }
+  return paths;
+}
+
+function extractEgressHost(command) {
+  const match = command.match(urlHostPattern);
+  return match ? match[1].toLowerCase() : null;
+}
+
+function hostMatches(host, pattern) {
+  const normalized = pattern.toLowerCase();
+  if (!normalized.includes('*')) return host === normalized;
+  const regex = new RegExp(`^${normalized.replaceAll(/[.+^${}()|[\]\\]/g, '\\$&').replaceAll(/\*/g, '.*')}$`, 'u');
+  return regex.test(host);
+}
+
+function hostAllowed(host, allowedEgressHosts) {
+  if (!host) return true;
+  return allowedEgressHosts.some((pattern) => hostMatches(host, pattern));
+}
+
 function collectStructuredPaths(value, key = '', result = []) {
   if (typeof value === 'string' && pathKeyPattern.test(key)) {
     result.push(value);
@@ -212,7 +269,7 @@ function isInsideAny(baseDirs, candidate) {
   return baseDirs.some((baseDir) => isInside(baseDir, candidate));
 }
 
-function classifyRisk(input, projectRoot, allowedWriteRoots) {
+function classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts = []) {
   const command = commandFrom(input);
   const segments = shellSegments(command);
   if (segments.some((segment) => gitCommandRisk(segment))) {
@@ -225,6 +282,22 @@ function classifyRisk(input, projectRoot, allowedWriteRoots) {
   }
   if (networkCommandPattern.test(command) && secretReferencePattern.test(command)) {
     return risk('deny', 'CREDENTIAL_EXFILTRATION', 'Possible credential exfiltration is blocked by repository policy.');
+  }
+  if (privateEgressPattern.test(command)) {
+    const uploadPaths = egressUploadPaths(command);
+    const touchesRedZoneFile = uploadPaths.some((candidate) => {
+      const absolute = path.isAbsolute(candidate) ? candidate : path.resolve(projectRoot, candidate);
+      return projectRedZonePattern.test(path.relative(projectRoot, absolute).replaceAll('\\', '/'));
+    });
+    if (touchesRedZoneFile) {
+      return risk('deny', 'CREDENTIAL_EXFILTRATION', 'Possible credential exfiltration is blocked by repository policy.');
+    }
+  }
+  if (allowedEgressHosts.length > 0 && networkCommandPattern.test(command)) {
+    const host = extractEgressHost(command);
+    if (host && !hostAllowed(host, allowedEgressHosts)) {
+      return risk('deny', 'EGRESS_VIOLATION', 'Network egress to a host outside the configured allowlist is blocked by repository policy.');
+    }
   }
 
   const shellTargets = shellWritePaths(command);
@@ -266,11 +339,12 @@ function classifyRisk(input, projectRoot, allowedWriteRoots) {
 
 export function analyzeToolRequest(input, {
   allowedWriteRoots = [],
+  allowedEgressHosts = [],
   mode = 'guarded',
   projectRoot = input.cwd,
 } = {}) {
   if (mode === 'off') return { action: 'allow' };
-  const risk = classifyRisk(input, projectRoot, allowedWriteRoots);
+  const risk = classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts);
   if (!risk) return { action: 'allow' };
   if (risk.level === 'warn' || mode === 'observe') {
     return { action: 'warn', reason: risk.reason, reasonCode: risk.reasonCode };

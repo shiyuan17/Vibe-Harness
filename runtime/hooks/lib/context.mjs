@@ -45,6 +45,15 @@ function readAllowedWriteRoots(config) {
   return roots;
 }
 
+function readAllowedEgressHosts(config) {
+  const hosts = config.hooks?.allowedEgressHosts;
+  if (hosts === undefined) return [];
+  if (!Array.isArray(hosts) || hosts.some((host) => typeof host !== 'string' || host.trim().length === 0)) {
+    throw new Error('hooks.allowedEgressHosts must contain non-empty host strings.');
+  }
+  return hosts;
+}
+
 export async function readHookSettings(rootDir) {
   try {
     const config = await readProjectConfig(rootDir);
@@ -56,10 +65,11 @@ export async function readHookSettings(rootDir) {
     }
     return {
       allowedWriteRoots: readAllowedWriteRoots(config),
+      allowedEgressHosts: readAllowedEgressHosts(config),
       mode: ['off', 'observe', 'guarded'].includes(config.hooks?.mode) ? config.hooks.mode : 'guarded',
       rtkEnabled: Object.hasOwn(config.hooks?.rtk ?? {}, 'enabled') ? config.hooks.rtk.enabled : Boolean(state?.rtkHooksEnabled),
     };
   } catch {
-    return { allowedWriteRoots: [], mode: 'guarded', rtkEnabled: false };
+    return { allowedWriteRoots: [], allowedEgressHosts: [], mode: 'guarded', rtkEnabled: false };
   }
 }
