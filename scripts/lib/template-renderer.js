@@ -1,6 +1,6 @@
 const defaultTemplateData = {
   codebaseMemoryStateDirectory: '.cognis',
-  hookRunnerPath: '.agents/cognis/hooks/codex-hook.mjs',
+  hookRunnerPath: '.agents/runtime/hooks/codex-hook.mjs',
   installedSurface: {
     clarificationPostureLine: '',
     codebaseMemoryMcpLine: '',

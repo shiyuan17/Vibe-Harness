@@ -9,7 +9,7 @@ Playwright CLI 负责可重复的功能验收、响应式检查和回归；Chrom
 
 ## 入口选择
 
-1. 可重复验收或回归若存在 `.agents/cognis/tools/playwright-cli/run.mjs`，使用项目内 CLI。首次调用会在隔离工具目录准备固定版本 CLI 和 Chromium，不修改业务 `package.json`。
+1. 可重复验收或回归若存在 `.agents/runtime/tools/playwright-cli/run.mjs`，使用项目内 CLI。首次调用会在隔离工具目录准备固定版本 CLI 和 Chromium，不修改业务 `package.json`。
 2. console、network、Lighthouse 或 performance 诊断若存在项目受管的 Chrome DevTools MCP，使用其隔离无头 Chrome；不连接个人 Chrome、不复用登录态，也不要求远程调试端口。
 3. 对复杂问题执行“DevTools 定位、Playwright 回归”：先缩小 console、请求或性能根因，再把修复后的关键路径固化为 Playwright 验收。
 4. 对应入口准备或执行失败时，记录退出码和失败阶段，并列出 URL、视口、操作、预期结果，以及未采集的 console、network、Lighthouse、截图或 trace 证据，交由另一个项目内入口或人工浏览器验证。

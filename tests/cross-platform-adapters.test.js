@@ -181,7 +181,7 @@ test('install and upgrade reject an adapter that differs from install state', as
 });
 
 test('shared install map declares explicit portable content strategies', async () => {
-  const installMap = JSON.parse(await readFile(path.join(rootDir, 'adapters/codex/install-map.json'), 'utf8'));
+  const installMap = JSON.parse(await readFile(path.join(rootDir, 'adapters/install-map.json'), 'utf8'));
   const allowed = new Set(['managed-ignore-block', 'managed-instruction-block', 'managed-toml-block', 'replace']);
   assert.equal(installMap.entries.every((entry) => allowed.has(entry.contentStrategy)), true);
 });

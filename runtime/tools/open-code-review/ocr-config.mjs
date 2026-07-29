@@ -184,7 +184,7 @@ export async function resolveOcrEndpoint({ env = process.env, homeDir, readText 
 
   // The global Codex config (~/.codex/config.toml) holds the user's real LLM
   // credentials. Auto-exfiltrating them into a project-scoped tool runner is
-  // unsafe: after install the project owns .agents/cognis/tools/open-code-review/
+  // unsafe: after install the project owns .agents/runtime/tools/open-code-review/
   // run.mjs and any agent with project write access could tamper with it to
   // capture the token. Require an explicit opt-in (OCR_ALLOW_CODEX_CONFIG=1)
   // before reading credentials from the global Codex config. The dedicated

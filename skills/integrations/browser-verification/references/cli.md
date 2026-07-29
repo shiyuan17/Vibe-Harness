@@ -3,7 +3,7 @@
 项目内入口：
 
 ```bash
-node .agents/cognis/tools/playwright-cli/run.mjs --help
+node .agents/runtime/tools/playwright-cli/run.mjs --help
 ```
 
 首次调用会运行锁定依赖的 `npm ci` 并安装项目内 Chromium。准备状态可通过 `cognis doctor --target <project> --profile core` 查看；`pending` 表示尚未首次使用，`unavailable` 表示上次准备失败且下次调用会重试。
@@ -13,14 +13,14 @@ node .agents/cognis/tools/playwright-cli/run.mjs --help
 为每个任务选择不包含姓名、token 或业务数据的 session 名：
 
 ```bash
-node .agents/cognis/tools/playwright-cli/run.mjs -s=task-ui open http://127.0.0.1:3000
-node .agents/cognis/tools/playwright-cli/run.mjs -s=task-ui resize 1440 900
-node .agents/cognis/tools/playwright-cli/run.mjs -s=task-ui snapshot --depth=5
-node .agents/cognis/tools/playwright-cli/run.mjs -s=task-ui click e15
-node .agents/cognis/tools/playwright-cli/run.mjs -s=task-ui screenshot --filename=success.png
-node .agents/cognis/tools/playwright-cli/run.mjs -s=task-ui console warning
-node .agents/cognis/tools/playwright-cli/run.mjs -s=task-ui requests
-node .agents/cognis/tools/playwright-cli/run.mjs -s=task-ui close
+node .agents/runtime/tools/playwright-cli/run.mjs -s=task-ui open http://127.0.0.1:3000
+node .agents/runtime/tools/playwright-cli/run.mjs -s=task-ui resize 1440 900
+node .agents/runtime/tools/playwright-cli/run.mjs -s=task-ui snapshot --depth=5
+node .agents/runtime/tools/playwright-cli/run.mjs -s=task-ui click e15
+node .agents/runtime/tools/playwright-cli/run.mjs -s=task-ui screenshot --filename=success.png
+node .agents/runtime/tools/playwright-cli/run.mjs -s=task-ui console warning
+node .agents/runtime/tools/playwright-cli/run.mjs -s=task-ui requests
+node .agents/runtime/tools/playwright-cli/run.mjs -s=task-ui close
 ```
 
 先从 snapshot 获取 ref。大型页面使用 `find <text>`、`snapshot --depth=N` 或局部 snapshot，避免把整个页面树塞入上下文。稳定 locator 优先使用 role、accessible name 或 test id；仅在没有语义定位时使用 CSS。

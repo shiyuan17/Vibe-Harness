@@ -22,7 +22,7 @@ async function exists(filePath) {
 
 test('Cognis identity exposes only canonical project surfaces', () => {
   assert.deepEqual(productIdentity, {
-    agentRuntimeDir: '.agents/cognis',
+    agentRuntimeDir: '.agents/runtime',
     chineseName: '智序',
     command: 'cognis',
     configFile: 'cognis.config.json',

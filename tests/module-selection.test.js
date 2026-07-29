@@ -59,7 +59,7 @@ test('chrome-devtools module installs its rule, runtime, skills, and managed MCP
 
     assert.deepEqual(report.plannedToolActions.map((item) => item.id), ['chromeDevtoolsMcp']);
     assert.equal(report.actions.some((item) => item.relativeTarget === 'docs/rules/chrome-devtools-mcp.md'), true);
-    assert.equal(report.actions.some((item) => item.relativeTarget === '.agents/cognis/tools/chrome-devtools-mcp/run.mjs'), true);
+    assert.equal(report.actions.some((item) => item.relativeTarget === '.agents/runtime/tools/chrome-devtools-mcp/run.mjs'), true);
     assert.equal(report.actions.some((item) => item.relativeTarget === '.codex/config.toml'), true);
     const agentsPreview = report.previewFiles.find((item) => item.target === 'AGENTS.md');
     assert.match(agentsPreview.content, /cognis doctor --project <path>/u);
@@ -160,7 +160,7 @@ test('plugin option expands all six plugins and rejects ambiguous input', () => 
 test('plugins augment the profile selection instead of replacing it', () => {
   const selection = resolveModuleSelection({
     profile: 'full',
-    profileGroups: ['agents', 'rules-full', 'templates-full', 'runtime-full', 'skills-full', 'hooks'],
+    profileGroups: ['agents', 'rules-full', 'templates-minimal', 'runtime-full', 'skills-full', 'hooks'],
     requestedPlugins: ['rtk'],
   });
 
@@ -286,7 +286,7 @@ test('RTK hook precedence persists CLI state and disables inherited hooks when R
     assert.equal(installed.rtkHooks.enabled, true);
     let state = JSON.parse(await readFile(path.join(target, '.cognis/install-state.json'), 'utf8'));
     assert.equal(state.rtkHooksEnabled, true);
-    assert.equal(await readFile(path.join(target, '.agents/cognis/hooks/lib/rtk.mjs'), 'utf8').then(Boolean), true);
+    assert.equal(await readFile(path.join(target, '.agents/runtime/hooks/lib/rtk.mjs'), 'utf8').then(Boolean), true);
     const validation = await runCli(['validate', '--project', target]);
     const doctor = await runCli(['doctor', '--project', target]);
     assert.equal(validation.rtkHooks.enabled, true);
@@ -325,7 +325,7 @@ test('RTK hook precedence persists CLI state and disables inherited hooks when R
     assert.equal(state.rtkHooksEnabled, false);
     assert.equal(state.resolvedModules.includes('hooks'), false);
     await assert.rejects(readFile(path.join(target, '.codex/hooks.json'), 'utf8'), /ENOENT/u);
-    await assert.rejects(readFile(path.join(target, '.agents/cognis/hooks/lib/rtk.mjs'), 'utf8'), /ENOENT/u);
+    await assert.rejects(readFile(path.join(target, '.agents/runtime/hooks/lib/rtk.mjs'), 'utf8'), /ENOENT/u);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
@@ -341,7 +341,7 @@ test('core and full install no tool plugins by default', async () => {
       ]);
       assert.deepEqual(report.plannedToolActions, []);
       assert.deepEqual(report.requestedPlugins, []);
-      assert.equal(report.actions.some((item) => item.relativeTarget.startsWith('.agents/cognis/tools/')), false);
+      assert.equal(report.actions.some((item) => item.relativeTarget.startsWith('.agents/runtime/tools/')), false);
       assert.equal(report.actions.some((item) => item.relativeTarget === '.codex/config.toml'), false);
     }
   } finally {

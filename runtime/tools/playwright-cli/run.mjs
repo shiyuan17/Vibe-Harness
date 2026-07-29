@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 export const PLAYWRIGHT_CLI_VERSION = '0.1.17';
-export const PLAYWRIGHT_TOOL_RELATIVE_DIR = '.agents/cognis/tools/playwright-cli';
+export const PLAYWRIGHT_TOOL_RELATIVE_DIR = '.agents/runtime/tools/playwright-cli';
 export const PLAYWRIGHT_ARTIFACTS_RELATIVE_DIR = '.cognis/artifacts/playwright';
 export const PLAYWRIGHT_GENERATED_RELATIVE_DIR = `${PLAYWRIGHT_TOOL_RELATIVE_DIR}/node_modules`;
 

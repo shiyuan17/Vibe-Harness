@@ -20,7 +20,7 @@ import { resolveAdapterEntry } from './adapter.js';
 import { validateDocumentation } from './docs-validation.js';
 
 const forbiddenTerms = ['SYBaseProjectWeb', 'SYBaseProject', 'D:\\Github\\JW', 'T-019', 'T-024', '患者', '病理', '医疗'];
-const redactionDirs = ['rules', 'templates', 'skills/core', 'skills/integrations', 'memory', 'runtime', 'adapters/codex', 'adapters/claude', 'adapters/gemini', 'manifests', 'schemas'];
+const redactionDirs = ['rules', 'templates', 'skills/core', 'skills/integrations', 'memory', 'runtime', 'adapters', 'manifests', 'schemas'];
 
 async function collectEmptyDirs(dir, rootDir, results = []) {
   if (!(await pathExists(dir))) {
@@ -508,6 +508,57 @@ export async function validateCapabilityMatrix(rootDir, matrix, { checkFiles = t
   return errors.sort();
 }
 
+// Cognis render placeholders take the form {{name}} or {{name.field}}. Sources
+// containing them are rendered at install time, so the installed artifact is
+// not expected to be byte-identical to the source and is excluded from the
+// self-install drift check.
+const renderPlaceholderPattern = /\{\{[a-zA-Z][\w]*(?:\.[\w]+)*\}\}/u;
+
+function normalizeLineEndings(value) {
+  return value.replace(/\r\n/gu, '\n').replace(/\r/gu, '\n');
+}
+
+// Cognis installs into its own repository to dogfood the installer. For
+// `replace` entries whose source carries no render placeholders, the
+// self-installed artifact must stay byte-identical (modulo line endings) to
+// the source. This catches drift such as a schema gaining a field in `schemas/`
+// but the rendered copy in `docs/schemas/` not being regenerated.
+export async function validateSelfInstalledArtifacts(rootDir, adapters, installMaps) {
+  const errors = [];
+  const codex = adapters.items.find((item) => item.id === 'codex');
+  if (!codex) return errors;
+  const installMap = installMaps.get(codex.installMap);
+  if (!installMap) return errors;
+
+  for (const rawEntry of installMap.entries) {
+    if (rawEntry.contentStrategy !== 'replace') continue;
+    const entry = resolveAdapterEntry(codex, rawEntry);
+    if (!entry) continue;
+    const sourcePath = path.join(rootDir, entry.source);
+    const targetPath = path.join(rootDir, entry.target);
+    let sourceContent;
+    try {
+      sourceContent = await readFile(sourcePath, 'utf8');
+    } catch {
+      // Missing sources are already reported by install-map source checks.
+      continue;
+    }
+    if (renderPlaceholderPattern.test(sourceContent)) continue;
+    let targetContent;
+    try {
+      targetContent = await readFile(targetPath, 'utf8');
+    } catch {
+      // The artifact is absent in this repository (e.g. a plugin not enabled
+      // for the self-install). Nothing to compare against.
+      continue;
+    }
+    if (normalizeLineEndings(sourceContent) !== normalizeLineEndings(targetContent)) {
+      errors.push(`self-installed artifact drifted from source: ${entry.source} -> ${entry.target}`);
+    }
+  }
+  return errors.sort();
+}
+
 export async function validatePack(rootDir) {
   const manifests = await loadAllManifests(rootDir);
   const schemas = await loadAllManifestSchemas(rootDir);
@@ -577,6 +628,7 @@ export async function validatePack(rootDir) {
     rootDir,
   });
   const documentation = await validateDocumentation({ rootDir });
+  const selfInstallErrors = await validateSelfInstalledArtifacts(rootDir, manifests.adapters, installMaps);
 
   return {
     capabilityErrors,
@@ -589,6 +641,7 @@ export async function validatePack(rootDir) {
     skillGraphErrors,
     documentationErrors: documentation.errors,
     documentationWarnings: documentation.warnings,
+    selfInstallErrors,
     ok: missing.length === 0
       && installMapMissing.length === 0
       && missingSkillInstalls.length === 0
@@ -599,7 +652,8 @@ export async function validatePack(rootDir) {
       && capabilityErrors.length === 0
       && documentation.errors.length === 0
       && leaks.length === 0
-      && schemaErrors.length === 0,
+      && schemaErrors.length === 0
+      && selfInstallErrors.length === 0,
     schemaErrors: schemaErrors.sort(),
   };
 }

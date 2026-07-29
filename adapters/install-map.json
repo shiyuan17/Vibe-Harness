@@ -196,21 +196,27 @@
     {
       "group": "runtime-eval",
       "source": "runtime/evals/run.mjs",
-      "target": ".agents/cognis/evals/run.mjs",
+      "target": ".agents/runtime/evals/run.mjs",
       "executable": true,
       "contentStrategy": "replace"
     },
     {
       "group": "runtime-eval-online",
       "source": "runtime/evals/codex-runner.mjs",
-      "target": ".agents/cognis/evals/codex-runner.mjs",
+      "target": ".agents/runtime/evals/codex-runner.mjs",
       "executable": true,
       "contentStrategy": "replace"
     },
     {
       "group": "runtime-eval-online",
       "source": "runtime/evals/lib/protected-config.mjs",
-      "target": ".agents/cognis/evals/lib/protected-config.mjs",
+      "target": ".agents/runtime/evals/lib/protected-config.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-eval-online",
+      "source": "runtime/evals/lib/hidden-tests.mjs",
+      "target": ".agents/runtime/evals/lib/hidden-tests.mjs",
       "contentStrategy": "replace"
     },
     {
@@ -232,40 +238,46 @@
       "contentStrategy": "replace"
     },
     {
+      "group": "evals-online",
+      "source": "evals/suites/cognis-online-execution.json",
+      "target": ".agents/evals/suites/cognis-online-execution.json",
+      "contentStrategy": "replace"
+    },
+    {
       "group": "tools-playwright",
       "source": "runtime/tools/playwright-cli/package.json",
-      "target": ".agents/cognis/tools/playwright-cli/package.json",
+      "target": ".agents/runtime/tools/playwright-cli/package.json",
       "contentStrategy": "replace"
     },
     {
       "group": "tools-playwright",
       "source": "runtime/tools/playwright-cli/package-lock.json",
-      "target": ".agents/cognis/tools/playwright-cli/package-lock.json",
+      "target": ".agents/runtime/tools/playwright-cli/package-lock.json",
       "contentStrategy": "replace"
     },
     {
       "group": "tools-playwright",
       "source": "runtime/tools/playwright-cli/run.mjs",
-      "target": ".agents/cognis/tools/playwright-cli/run.mjs",
+      "target": ".agents/runtime/tools/playwright-cli/run.mjs",
       "executable": true,
       "contentStrategy": "replace"
     },
     {
       "group": "tools-chrome-devtools",
       "source": "runtime/tools/chrome-devtools-mcp/package.json",
-      "target": ".agents/cognis/tools/chrome-devtools-mcp/package.json",
+      "target": ".agents/runtime/tools/chrome-devtools-mcp/package.json",
       "contentStrategy": "replace"
     },
     {
       "group": "tools-chrome-devtools",
       "source": "runtime/tools/chrome-devtools-mcp/package-lock.json",
-      "target": ".agents/cognis/tools/chrome-devtools-mcp/package-lock.json",
+      "target": ".agents/runtime/tools/chrome-devtools-mcp/package-lock.json",
       "contentStrategy": "replace"
     },
     {
       "group": "tools-chrome-devtools",
       "source": "runtime/tools/chrome-devtools-mcp/run.mjs",
-      "target": ".agents/cognis/tools/chrome-devtools-mcp/run.mjs",
+      "target": ".agents/runtime/tools/chrome-devtools-mcp/run.mjs",
       "executable": true,
       "contentStrategy": "replace"
     },
@@ -278,84 +290,84 @@
     {
       "group": "tools-codebase-memory",
       "source": "runtime/tools/codebase-memory-mcp/package.json",
-      "target": ".agents/cognis/tools/codebase-memory-mcp/package.json",
+      "target": ".agents/runtime/tools/codebase-memory-mcp/package.json",
       "contentStrategy": "replace"
     },
     {
       "group": "tools-codebase-memory",
       "source": "runtime/tools/codebase-memory-mcp/package-lock.json",
-      "target": ".agents/cognis/tools/codebase-memory-mcp/package-lock.json",
+      "target": ".agents/runtime/tools/codebase-memory-mcp/package-lock.json",
       "contentStrategy": "replace"
     },
     {
       "group": "tools-codebase-memory",
       "source": "runtime/tools/codebase-memory-mcp/run.mjs",
-      "target": ".agents/cognis/tools/codebase-memory-mcp/run.mjs",
+      "target": ".agents/runtime/tools/codebase-memory-mcp/run.mjs",
       "executable": true,
       "contentStrategy": "replace"
     },
     {
       "group": "tools-codebase-memory",
       "source": "runtime/tools/codebase-memory-mcp/path-alias.mjs",
-      "target": ".agents/cognis/tools/codebase-memory-mcp/path-alias.mjs",
+      "target": ".agents/runtime/tools/codebase-memory-mcp/path-alias.mjs",
       "executable": false,
       "contentStrategy": "replace"
     },
     {
       "group": "tools-open-code-review",
       "source": "runtime/tools/open-code-review/package.json",
-      "target": ".agents/cognis/tools/open-code-review/package.json",
+      "target": ".agents/runtime/tools/open-code-review/package.json",
       "contentStrategy": "replace"
     },
     {
       "group": "tools-open-code-review",
       "source": "runtime/tools/open-code-review/package-lock.json",
-      "target": ".agents/cognis/tools/open-code-review/package-lock.json",
+      "target": ".agents/runtime/tools/open-code-review/package-lock.json",
       "contentStrategy": "replace"
     },
     {
       "group": "tools-open-code-review",
       "source": "runtime/tools/open-code-review/ocr-config.mjs",
-      "target": ".agents/cognis/tools/open-code-review/ocr-config.mjs",
+      "target": ".agents/runtime/tools/open-code-review/ocr-config.mjs",
       "executable": false,
       "contentStrategy": "replace"
     },
     {
       "group": "tools-open-code-review",
       "source": "runtime/tools/open-code-review/run.mjs",
-      "target": ".agents/cognis/tools/open-code-review/run.mjs",
+      "target": ".agents/runtime/tools/open-code-review/run.mjs",
       "executable": true,
       "contentStrategy": "replace"
     },
     {
       "group": "tools-rtk",
       "source": "runtime/tools/rtk/package.json",
-      "target": ".agents/cognis/tools/rtk/package.json",
+      "target": ".agents/runtime/tools/rtk/package.json",
       "contentStrategy": "replace"
     },
     {
       "group": "tools-rtk",
       "source": "runtime/tools/rtk/run.mjs",
-      "target": ".agents/cognis/tools/rtk/run.mjs",
+      "target": ".agents/runtime/tools/rtk/run.mjs",
       "executable": true,
       "contentStrategy": "replace"
     },
     {
       "group": "tools-ast-grep",
       "source": "runtime/tools/ast-grep/package.json",
-      "target": ".agents/cognis/tools/ast-grep/package.json",
+      "target": ".agents/runtime/tools/ast-grep/package.json",
       "contentStrategy": "replace"
     },
     {
       "group": "tools-ast-grep",
       "source": "runtime/tools/ast-grep/package-lock.json",
-      "target": ".agents/cognis/tools/ast-grep/package-lock.json",
+      "target": ".agents/runtime/tools/ast-grep/package-lock.json",
       "contentStrategy": "replace"
     },
     {
       "group": "tools-ast-grep",
       "source": "runtime/tools/ast-grep/run.mjs",
-      "target": ".agents/cognis/tools/ast-grep/run.mjs",
+      "target": ".agents/runtime/tools/ast-grep/run.mjs",
       "executable": true,
       "contentStrategy": "replace"
     },
@@ -561,39 +573,39 @@
     {
       "group": "hooks",
       "source": "runtime/hooks/README.md",
-      "target": ".agents/cognis/hooks/README.md",
+      "target": ".agents/runtime/hooks/README.md",
       "contentStrategy": "replace"
     },
     {
       "group": "hooks",
       "source": "runtime/hooks/codex-hook.mjs",
-      "target": ".agents/cognis/hooks/codex-hook.mjs",
+      "target": ".agents/runtime/hooks/codex-hook.mjs",
       "executable": true,
       "contentStrategy": "replace"
     },
     {
       "group": "hooks",
       "source": "runtime/hooks/git-hook.mjs",
-      "target": ".agents/cognis/hooks/git-hook.mjs",
+      "target": ".agents/runtime/hooks/git-hook.mjs",
       "executable": true,
       "contentStrategy": "replace"
     },
     {
       "group": "hooks",
       "source": "runtime/hooks/lib/context.mjs",
-      "target": ".agents/cognis/hooks/lib/context.mjs",
+      "target": ".agents/runtime/hooks/lib/context.mjs",
       "contentStrategy": "replace"
     },
     {
       "group": "hooks",
       "source": "runtime/hooks/lib/policy.mjs",
-      "target": ".agents/cognis/hooks/lib/policy.mjs",
+      "target": ".agents/runtime/hooks/lib/policy.mjs",
       "contentStrategy": "replace"
     },
     {
       "group": "hooks",
       "source": "runtime/hooks/lib/rtk.mjs",
-      "target": ".agents/cognis/hooks/lib/rtk.mjs",
+      "target": ".agents/runtime/hooks/lib/rtk.mjs",
       "contentStrategy": "replace"
     },
     {
@@ -615,6 +627,12 @@
       "source": "adapters/codex/hooks.template.json",
       "target": ".codex/hooks.json",
       "redZone": true,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "agents-index",
+      "source": "templates/agents-index.md",
+      "target": ".agents/README.md",
       "contentStrategy": "replace"
     }
   ],
@@ -682,6 +700,118 @@
     {
       "group": "skills-full",
       "target": ".agents/skills/subagent-driven-development/SKILL.md"
+    },
+    {
+      "group": "runtime-eval",
+      "target": ".agents/cognis/evals/run.mjs"
+    },
+    {
+      "group": "runtime-eval-online",
+      "target": ".agents/cognis/evals/codex-runner.mjs"
+    },
+    {
+      "group": "runtime-eval-online",
+      "target": ".agents/cognis/evals/lib/protected-config.mjs"
+    },
+    {
+      "group": "tools-playwright",
+      "target": ".agents/cognis/tools/playwright-cli/package.json"
+    },
+    {
+      "group": "tools-playwright",
+      "target": ".agents/cognis/tools/playwright-cli/package-lock.json"
+    },
+    {
+      "group": "tools-playwright",
+      "target": ".agents/cognis/tools/playwright-cli/run.mjs"
+    },
+    {
+      "group": "tools-chrome-devtools",
+      "target": ".agents/cognis/tools/chrome-devtools-mcp/package.json"
+    },
+    {
+      "group": "tools-chrome-devtools",
+      "target": ".agents/cognis/tools/chrome-devtools-mcp/package-lock.json"
+    },
+    {
+      "group": "tools-chrome-devtools",
+      "target": ".agents/cognis/tools/chrome-devtools-mcp/run.mjs"
+    },
+    {
+      "group": "tools-codebase-memory",
+      "target": ".agents/cognis/tools/codebase-memory-mcp/package.json"
+    },
+    {
+      "group": "tools-codebase-memory",
+      "target": ".agents/cognis/tools/codebase-memory-mcp/package-lock.json"
+    },
+    {
+      "group": "tools-codebase-memory",
+      "target": ".agents/cognis/tools/codebase-memory-mcp/run.mjs"
+    },
+    {
+      "group": "tools-codebase-memory",
+      "target": ".agents/cognis/tools/codebase-memory-mcp/path-alias.mjs"
+    },
+    {
+      "group": "tools-open-code-review",
+      "target": ".agents/cognis/tools/open-code-review/package.json"
+    },
+    {
+      "group": "tools-open-code-review",
+      "target": ".agents/cognis/tools/open-code-review/package-lock.json"
+    },
+    {
+      "group": "tools-open-code-review",
+      "target": ".agents/cognis/tools/open-code-review/ocr-config.mjs"
+    },
+    {
+      "group": "tools-open-code-review",
+      "target": ".agents/cognis/tools/open-code-review/run.mjs"
+    },
+    {
+      "group": "tools-rtk",
+      "target": ".agents/cognis/tools/rtk/package.json"
+    },
+    {
+      "group": "tools-rtk",
+      "target": ".agents/cognis/tools/rtk/run.mjs"
+    },
+    {
+      "group": "tools-ast-grep",
+      "target": ".agents/cognis/tools/ast-grep/package.json"
+    },
+    {
+      "group": "tools-ast-grep",
+      "target": ".agents/cognis/tools/ast-grep/package-lock.json"
+    },
+    {
+      "group": "tools-ast-grep",
+      "target": ".agents/cognis/tools/ast-grep/run.mjs"
+    },
+    {
+      "group": "hooks",
+      "target": ".agents/cognis/hooks/README.md"
+    },
+    {
+      "group": "hooks",
+      "target": ".agents/cognis/hooks/codex-hook.mjs"
+    },
+    {
+      "group": "hooks",
+      "target": ".agents/cognis/hooks/git-hook.mjs"
+    },
+    {
+      "group": "hooks",
+      "target": ".agents/cognis/hooks/lib/context.mjs"
+    },
+    {
+      "group": "hooks",
+      "target": ".agents/cognis/hooks/lib/policy.mjs"
+    },
+    {
+      "group": "hooks",
+      "target": ".agents/cognis/hooks/lib/rtk.mjs"
     }
   ]
 }

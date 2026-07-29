@@ -27,7 +27,7 @@ async function run(step, args) {
 async function runInstalledEval(step, project) {
   console.error(`smoke: ${step}`);
   await execFileAsync(process.execPath, [
-    path.join(project, '.agents/cognis/evals/run.mjs'),
+    path.join(project, '.agents/runtime/evals/run.mjs'),
     '--project', project,
     '--suite', '.agents/evals/suites/cognis-core.json',
     '--reference', '.agents/evals/references/cognis-core.offline.json',

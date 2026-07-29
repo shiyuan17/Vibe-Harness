@@ -26,7 +26,7 @@ async function runCli(args) {
 
 test('Playwright tool preparation is lazy, reproducible, and project-local', async () => {
   const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-playwright-tool-'));
-  const toolDir = path.join(targetDir, '.agents/cognis/tools/playwright-cli');
+  const toolDir = path.join(targetDir, '.agents/runtime/tools/playwright-cli');
   const calls = [];
   try {
     await mkdir(toolDir, { recursive: true });
@@ -91,7 +91,7 @@ test('Playwright tool preparation is lazy, reproducible, and project-local', asy
 
 test('failed Playwright preparation records unavailable without leaking command output and can retry', async () => {
   const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-playwright-failure-'));
-  const toolDir = path.join(targetDir, '.agents/cognis/tools/playwright-cli');
+  const toolDir = path.join(targetDir, '.agents/runtime/tools/playwright-cli');
   try {
     await mkdir(toolDir, { recursive: true });
     await writeFile(path.join(toolDir, 'package-lock.json'), '{}\n', 'utf8');
@@ -145,7 +145,7 @@ test('failed Playwright preparation records unavailable without leaking command 
 
 test('Playwright command forwards output while provisioning remains injectable', async () => {
   const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-playwright-command-'));
-  const toolDir = path.join(targetDir, '.agents/cognis/tools/playwright-cli');
+  const toolDir = path.join(targetDir, '.agents/runtime/tools/playwright-cli');
   const invocations = [];
   try {
     await mkdir(toolDir, { recursive: true });
@@ -207,7 +207,7 @@ test('the Playwright plugin installs a lazy project-local tool without changing 
 
     const dryRun = await runCli(['install', '--project', targetDir, '--target', 'codex', '--profile', 'core', '--plugin', '-playwright-cli', '--dry-run']);
     assert.equal(dryRun.tools.playwrightCli.status, 'pending');
-    assert.ok(dryRun.actions.some((action) => action.relativeTarget === '.agents/cognis/tools/playwright-cli/run.mjs'));
+    assert.ok(dryRun.actions.some((action) => action.relativeTarget === '.agents/runtime/tools/playwright-cli/run.mjs'));
     assert.ok(dryRun.actions.some((action) => action.relativeTarget === '.agents/skills/browser-verification/references/cli.md'));
 
     const minimal = await runCli(['install', '--project', targetDir, '--target', 'codex', '--profile', 'minimal', '--dry-run']);
@@ -215,7 +215,7 @@ test('the Playwright plugin installs a lazy project-local tool without changing 
 
     await runCli(['install', '--project', targetDir, '--target', 'codex', '--profile', 'core', '--plugin', '-playwright-cli', '--write']);
     assert.equal(await readFile(path.join(targetDir, 'package.json'), 'utf8'), packageText);
-    await assert.rejects(readFile(path.join(targetDir, '.agents/cognis/tools/playwright-cli/node_modules/.package-lock.json'), 'utf8'), /ENOENT/);
+    await assert.rejects(readFile(path.join(targetDir, '.agents/runtime/tools/playwright-cli/node_modules/.package-lock.json'), 'utf8'), /ENOENT/);
 
     const doctor = await runCli(['doctor', '--project', targetDir, '--profile', 'core']);
     assert.equal(doctor.tools.playwrightCli.status, 'pending');
@@ -244,7 +244,7 @@ test('rollback removes generated Playwright dependencies but preserves browser e
     await runCli(['install', '--project', targetDir, '--target', 'codex', '--profile', 'core', '--plugin', '-playwright-cli', '--write']);
     const validation = await runCli(['validate', '--project', targetDir, '--profile', 'core']);
     assert.ok(validation.warnings.some((warning) => warning.code === 'PLAYWRIGHT_CLI_PENDING'));
-    const generated = path.join(targetDir, '.agents/cognis/tools/playwright-cli/node_modules/fake');
+    const generated = path.join(targetDir, '.agents/runtime/tools/playwright-cli/node_modules/fake');
     const evidence = path.join(targetDir, '.cognis/artifacts/playwright/screenshot.png');
     await mkdir(generated, { recursive: true });
     await mkdir(path.dirname(evidence), { recursive: true });
@@ -253,7 +253,7 @@ test('rollback removes generated Playwright dependencies but preserves browser e
 
     const result = await runCli(['rollback', '--project', targetDir, '--write']);
 
-    assert.ok(result.applied.includes('.agents/cognis/tools/playwright-cli/node_modules'));
+    assert.ok(result.applied.includes('.agents/runtime/tools/playwright-cli/node_modules'));
     await assert.rejects(readFile(path.join(generated, 'index.js'), 'utf8'), /ENOENT/);
     assert.equal(await readFile(evidence, 'utf8'), 'evidence');
   } finally {

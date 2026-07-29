@@ -1,7 +1,7 @@
 export const moduleCatalog = {
-  agents: { dependencies: [], groups: ['agents'] },
+  agents: { dependencies: [], groups: ['agents', 'agents-index'] },
   rules: { dependencies: [], groups: ['rules-minimal', 'rules-core', 'rules-full'] },
-  templates: { dependencies: [], groups: ['templates-minimal', 'templates-core', 'templates-full'] },
+  templates: { dependencies: [], groups: ['templates-minimal'] },
   skills: { dependencies: ['agents', 'rules', 'templates'], groups: ['skills-core', 'skills-full'] },
   schemas: { dependencies: [], groups: ['schemas-core'] },
   evals: { dependencies: ['schemas'], groups: ['runtime-eval', 'runtime-eval-online', 'evals-core', 'evals-online'] },

@@ -79,7 +79,7 @@ test('browser verification and Agentmemory remain explicit integrations', async 
 });
 
 test('retirement catalog covers every removed Router and flow Skill', async () => {
-  const installMap = await readJson(path.join(rootDir, 'adapters/codex/install-map.json'));
+  const installMap = await readJson(path.join(rootDir, 'adapters/install-map.json'));
   const retired = new Set(installMap.retiredEntries.map((entry) => entry.target));
   for (const skill of retiredSkills) assert.equal(retired.has(`.agents/skills/${skill}/SKILL.md`), true, skill);
   for (const skill of retiredSkills) assert.equal(installMap.entries.some((entry) => entry.source?.includes(`/skills/${skill}/`)), false, skill);

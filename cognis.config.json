@@ -26,7 +26,8 @@
   },
   "hooks": {
     "mode": "guarded",
-    "allowedWriteRoots": []
+    "allowedWriteRoots": [],
+    "redZonePaths": [".env", "auth/", "ci/cd/", ".github/workflows/", ".codex/hooks.json"]
   },
   "riskZones": {
     "red": [

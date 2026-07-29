@@ -55,6 +55,7 @@ export const defaultProjectConfig = {
     allowedWriteRoots: [],
     allowedEgressHosts: [],
     mode: 'guarded',
+    redZonePaths: ['.env', 'auth/', 'ci/cd/', '.github/workflows/', '.codex/hooks.json'],
   },
   riskZones: {
     red: ['auth', 'secrets', 'ci-cd', 'env'],

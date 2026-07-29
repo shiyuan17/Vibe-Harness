@@ -2,8 +2,6 @@
 
 # Cognis v0.7 自适应单/多 Agent 编排规格
 
-状态：Implemented
-
 版本说明：`v0.7` 是治理规格修订号，不等同于 `package.json` 的产品版本。本规格继承 v0.6 的 v2 父子任务合同、单一 Markdown 真值、扁平 DAG、父 Agent 单一派发、fan-in 复验和独立 Red Team，并以自适应编排规则替代 v0.6 的多 Agent 选择政策。v0.6 作为历史规格保留，版本关系由 `docs/catalog.json` 记录。
 
 ## 目标与决策顺序

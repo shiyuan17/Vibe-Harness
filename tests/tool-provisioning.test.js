@@ -158,7 +158,7 @@ test('Chrome DevTools runtime pins safe headless isolated defaults without forwa
     rootDir,
     targetDir: path.resolve('target-project'),
   });
-  const runtime = plan.actions.find((action) => action.relativeTarget === '.agents/cognis/tools/chrome-devtools-mcp/run.mjs');
+  const runtime = plan.actions.find((action) => action.relativeTarget === '.agents/runtime/tools/chrome-devtools-mcp/run.mjs');
   assert.ok(runtime, 'full profile should install the Chrome DevTools runtime');
 
   const source = await readFile(path.join(rootDir, 'runtime/tools/chrome-devtools-mcp/run.mjs'), 'utf8');
@@ -409,7 +409,7 @@ test('real codebase-memory provisioning creates a verified project-local index',
   skip: process.env.COGNIS_REAL_TOOL_INTEGRATION !== '1',
 }, async (testContext) => {
   const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-index-integration-'));
-  const toolDir = path.join(targetDir, '.agents/cognis/tools/codebase-memory-mcp');
+  const toolDir = path.join(targetDir, '.agents/runtime/tools/codebase-memory-mcp');
   const runtimeSource = path.join(rootDir, 'runtime/tools/codebase-memory-mcp');
   try {
     const locator = process.platform === 'win32' ? ['where.exe', ['codebase-memory-mcp']] : ['which', ['codebase-memory-mcp']];
@@ -888,10 +888,10 @@ test('full install map includes project-local runtimes and managed Codex MCP con
     const fullTargets = full.actions.map((action) => action.relativeTarget);
     const coreTargets = core.actions.map((action) => action.relativeTarget);
 
-    assert.equal(fullTargets.includes('.agents/cognis/tools/codebase-memory-mcp/package-lock.json'), true);
+    assert.equal(fullTargets.includes('.agents/runtime/tools/codebase-memory-mcp/package-lock.json'), true);
     assert.equal(fullTargets.includes('.cbmignore'), true);
-    assert.equal(fullTargets.includes('.agents/cognis/tools/chrome-devtools-mcp/package-lock.json'), true);
-    assert.equal(fullTargets.includes('.agents/cognis/tools/open-code-review/package-lock.json'), true);
+    assert.equal(fullTargets.includes('.agents/runtime/tools/chrome-devtools-mcp/package-lock.json'), true);
+    assert.equal(fullTargets.includes('.agents/runtime/tools/open-code-review/package-lock.json'), true);
     assert.equal(fullTargets.includes('.codex/config.toml'), true);
     assert.equal(coreTargets.includes('.codex/config.toml'), false);
     assert.equal(coreTargets.some((target) => target.includes('codebase-memory-mcp/package-lock.json')), false);
@@ -1500,7 +1500,7 @@ test('provision rejects tool directories redirected outside the project', async 
     await runCli([
       'install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--plugin', '-open-code-review', '--write', '--confirm-red-zone',
     ], { env: offlineEnv });
-    const toolDir = path.join(targetDir, '.agents/cognis/tools/open-code-review');
+    const toolDir = path.join(targetDir, '.agents/runtime/tools/open-code-review');
     await rm(toolDir, { force: true, recursive: true });
     await symlink(outside, toolDir, process.platform === 'win32' ? 'junction' : 'dir');
 
@@ -1537,7 +1537,7 @@ test('full write degrades unavailable tools and rollback removes only the manage
     assert.equal(config.includes('model = "gpt-5"'), true);
     assert.equal(config.includes('# COGNIS:MCP:START'), true);
     assert.equal(config.includes('[mcp_servers.chrome-devtools]'), true);
-    assert.equal(await readFile(path.join(targetDir, '.agents/cognis/tools/chrome-devtools-mcp/run.mjs'), 'utf8').then(Boolean), true);
+    assert.equal(await readFile(path.join(targetDir, '.agents/runtime/tools/chrome-devtools-mcp/run.mjs'), 'utf8').then(Boolean), true);
     assert.equal(Object.values(report.tools).some((tool) => tool.status === 'degraded'), true);
     assert.equal(report.status, 'degraded');
     assert.equal(report.ok, false);
@@ -1578,7 +1578,7 @@ test('full write degrades unavailable tools and rollback removes only the manage
     const rolledBack = await readFile(configPath, 'utf8');
     assert.equal(rolledBack.includes('model = "gpt-5"'), true);
     assert.equal(rolledBack.includes('# COGNIS:MCP:START'), false);
-    await assert.rejects(readFile(path.join(targetDir, '.agents/cognis/tools/chrome-devtools-mcp/run.mjs'), 'utf8'), /ENOENT/u);
+    await assert.rejects(readFile(path.join(targetDir, '.agents/runtime/tools/chrome-devtools-mcp/run.mjs'), 'utf8'), /ENOENT/u);
     await assert.rejects(readFile(path.join(targetDir, '.cognis/tool-state/tools.json'), 'utf8'), /ENOENT/u);
   } finally {
     await rm(targetDir, { force: true, recursive: true });

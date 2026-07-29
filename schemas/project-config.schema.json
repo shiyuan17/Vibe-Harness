@@ -41,6 +41,10 @@
           "type": "array",
           "items": { "type": "string", "minLength": 1 }
         },
+        "redZonePaths": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
         "rtk": {
           "type": "object",
           "required": ["enabled"],

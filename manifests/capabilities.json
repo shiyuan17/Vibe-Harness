@@ -89,7 +89,7 @@
       "tests": ["tests/eval-contract.test.js", "tests/eval-runner.test.js", "tests/eval-scoring.test.js"],
       "profiles": ["core", "full"],
       "docs": ["docs/evals.md"],
-      "evaluation": { "required": true, "suites": ["evals/suites/cognis-core.json", "evals/suites/cognis-online-canary.json"] }
+      "evaluation": { "required": true, "suites": ["evals/suites/cognis-core.json", "evals/suites/cognis-online-canary.json", "evals/suites/cognis-online-execution.json"] }
     },
     {
       "id": "installer-lifecycle",
@@ -195,7 +195,7 @@
       "id": "cross-platform-adapters",
       "source": "Codex, Claude, and Gemini adapters",
       "disposition": "validator",
-      "targets": ["manifests/adapters.json", "adapters/codex/install-map.json", "adapters/claude/CLAUDE.template.md", "adapters/gemini/GEMINI.template.md"],
+      "targets": ["manifests/adapters.json", "adapters/install-map.json", "adapters/claude/CLAUDE.template.md", "adapters/gemini/GEMINI.template.md"],
       "tests": ["tests/cross-platform-adapters.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
       "docs": ["README.md", "README.zh-CN.md"],

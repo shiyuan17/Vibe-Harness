@@ -102,8 +102,8 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
     'docs/rules/troubleshooting.md',
   ].some(hasTarget);
   const hasAgentMemorySkills = hasSkill('agentmemory/SKILL.md');
-  const hasRtkTool = hasTarget('.agents/cognis/tools/rtk/run.mjs');
-  const hasAstGrepTool = hasTarget('.agents/cognis/tools/ast-grep/run.mjs');
+  const hasRtkTool = hasTarget('.agents/runtime/tools/rtk/run.mjs');
+  const hasAstGrepTool = hasTarget('.agents/runtime/tools/ast-grep/run.mjs');
   const agentMemoryTarget = installedTargets.find((target) => target.endsWith('/skills/agentmemory/SKILL.md'));
   const agentMemorySkillRoot = agentMemoryTarget?.slice(0, agentMemoryTarget.indexOf('/agentmemory/SKILL.md'));
   const normalizedMemoryPath = memoryPath.replaceAll('\\', '/').replace(/\/+$/u, '');
@@ -141,8 +141,8 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
       : '当前 profile 未安装 Skills；仅按已安装规则和模板执行，不引用未安装的 skill。',
     skillsLine: skillRoots.length > 0 ? `- Skills 位于 ${skillRoots.map((root) => `\`${root}/\``).join('、')}。` : '',
     templatesLine: hasPrefix('docs/templates/') ? '- 模板位于 `docs/templates/`。' : '',
-    toolingLine: hasPrefix('.agents/cognis/tools/')
-      ? `- 项目内工具位于 \`.agents/cognis/tools/\`；使用 \`cognis doctor --project <path>\` 查看初始化状态。${hasTarget('docs/rules/chrome-devtools-mcp.md') ? ' Chrome DevTools MCP 规则位于 \`docs/rules/chrome-devtools-mcp.md\`。' : ''}${hasRtkTool ? ' RTK 规则位于 \`docs/rules/rtk.md\`。' : ''}${hasAstGrepTool ? ' ast-grep 规则位于 \`docs/rules/ast-grep.md\`。' : ''}`
+    toolingLine: hasPrefix('.agents/runtime/tools/')
+      ? `- 项目内工具位于 \`.agents/runtime/tools/\`；使用 \`cognis doctor --project <path>\` 查看初始化状态。${hasTarget('docs/rules/chrome-devtools-mcp.md') ? ' Chrome DevTools MCP 规则位于 \`docs/rules/chrome-devtools-mcp.md\`。' : ''}${hasRtkTool ? ' RTK 规则位于 \`docs/rules/rtk.md\`。' : ''}${hasAstGrepTool ? ' ast-grep 规则位于 \`docs/rules/ast-grep.md\`。' : ''}`
       : '',
   };
 }
@@ -177,8 +177,8 @@ function sourceForEntry(entrySource, renderData) {
 }
 
 function createManagedMcpServers(targetDir, resolvedModules) {
-  const codebaseTool = path.join(targetDir, '.agents/cognis/tools/codebase-memory-mcp/run.mjs');
-  const chromeDevtoolsTool = path.join(targetDir, '.agents/cognis/tools/chrome-devtools-mcp/run.mjs');
+  const codebaseTool = path.join(targetDir, '.agents/runtime/tools/codebase-memory-mcp/run.mjs');
+  const chromeDevtoolsTool = path.join(targetDir, '.agents/runtime/tools/chrome-devtools-mcp/run.mjs');
   const stateRoot = path.dirname(stateFilePath(targetDir));
   const servers = {};
   if (resolvedModules.includes('chrome-devtools')) servers['chrome-devtools'] = {
@@ -485,9 +485,9 @@ export async function createInstallPlan({
     : [];
   const stateDirectory = path.basename(path.dirname(stateFilePath(path.resolve(targetDir))));
   for (const component of ['chrome-devtools-mcp', 'codebase-memory-mcp', 'open-code-review', 'ast-grep']) {
-    const ownerTarget = `.agents/cognis/tools/${component}/package.json`;
+    const ownerTarget = `.agents/runtime/tools/${component}/package.json`;
     if (actions.some((action) => action.kind === 'write' && action.relativeTarget === ownerTarget)) {
-      generatedDirectories.push({ ownerTarget, target: `.agents/cognis/tools/${component}/node_modules` });
+      generatedDirectories.push({ ownerTarget, target: `.agents/runtime/tools/${component}/node_modules` });
       generatedDirectories.push({
         ownerTarget,
         projectScoped: true,
@@ -500,9 +500,9 @@ export async function createInstallPlan({
       });
     }
   }
-  const rtkOwnerTarget = '.agents/cognis/tools/rtk/package.json';
+  const rtkOwnerTarget = '.agents/runtime/tools/rtk/package.json';
   if (actions.some((action) => action.kind === 'write' && action.relativeTarget === rtkOwnerTarget)) {
-    generatedDirectories.push({ ownerTarget: rtkOwnerTarget, target: '.agents/cognis/tools/rtk/bin' });
+    generatedDirectories.push({ ownerTarget: rtkOwnerTarget, target: '.agents/runtime/tools/rtk/bin' });
   }
 
   return {
@@ -525,7 +525,6 @@ export async function createInstallPlan({
     renderData: withDefaultTemplateData({
       ...renderData,
       codebaseMemoryStateDirectory: stateDirectory,
-      hookRunnerPath: path.join(path.resolve(targetDir), '.agents/cognis/hooks/codex-hook.mjs').replaceAll('\\', '/'),
       installedSurface,
     }),
     redZoneConfirmed: false,
@@ -606,7 +605,6 @@ export async function diffTargetInstall({
   const installedTargets = selectedEntries.map((entry) => memoryTargetPath(renderData, entry.target));
   const renderedData = withDefaultTemplateData({
     ...renderData,
-    hookRunnerPath: path.join(path.resolve(targetDir), '.agents/cognis/hooks/codex-hook.mjs').replaceAll('\\', '/'),
     installedSurface: createInstalledSurface({
       clarificationPosture: renderData.clarification?.posture,
       customModules: moduleSelection.requestedModules !== null,

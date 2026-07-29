@@ -27,12 +27,12 @@
 
 | 插件 | 固定版本 | 项目内入口 |
 | --- | --- | --- |
-| RTK | `rtk-ai/rtk v0.43.0` | `node .agents/cognis/tools/rtk/run.mjs <command> ...`；原始输出使用 `node .agents/cognis/tools/rtk/run.mjs proxy <command> ...` |
-| ast-grep | `@ast-grep/cli@0.44.1` | `node .agents/cognis/tools/ast-grep/run.mjs <sg\|ast-grep> ...` |
-| codebase-memory-mcp | `0.9.0` | `.agents/cognis/tools/codebase-memory-mcp/run.mjs` |
-| Chrome DevTools MCP | `1.6.0` | `.agents/cognis/tools/chrome-devtools-mcp/run.mjs` |
-| Playwright CLI | `0.1.17` | `.agents/cognis/tools/playwright-cli/run.mjs` |
-| Open Code Review | `1.7.7` | `.agents/cognis/tools/open-code-review/run.mjs` |
+| RTK | `rtk-ai/rtk v0.43.0` | `node .agents/runtime/tools/rtk/run.mjs <command> ...`；原始输出使用 `node .agents/runtime/tools/rtk/run.mjs proxy <command> ...` |
+| ast-grep | `@ast-grep/cli@0.44.1` | `node .agents/runtime/tools/ast-grep/run.mjs <sg\|ast-grep> ...` |
+| codebase-memory-mcp | `0.9.0` | `.agents/runtime/tools/codebase-memory-mcp/run.mjs` |
+| Chrome DevTools MCP | `1.6.0` | `.agents/runtime/tools/chrome-devtools-mcp/run.mjs` |
+| Playwright CLI | `0.1.17` | `.agents/runtime/tools/playwright-cli/run.mjs` |
+| Open Code Review | `1.7.7` | `.agents/runtime/tools/open-code-review/run.mjs` |
 
 Wrapper 原样或按各工具安全合同转发参数，只调用已校验的项目内 runtime，不依赖全局安装，不修改 PATH、shell profile、用户级 Agent/MCP 配置或业务依赖。
 

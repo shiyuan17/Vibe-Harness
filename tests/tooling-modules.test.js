@@ -130,8 +130,8 @@ test('tool inspection hashes runtimes without executing project binaries', async
       'install', '--project', target, '--target', 'codex', '--profile', 'core',
       '--plugin', '-rtk', 'ast-grep', '--write',
     ]);
-    const rtkBinary = path.join(target, '.agents/cognis/tools/rtk/bin', process.platform === 'win32' ? 'rtk.exe' : 'rtk');
-    const astGrepBinary = path.join(target, '.agents/cognis/tools/ast-grep/node_modules/@ast-grep/cli', process.platform === 'win32' ? 'ast-grep.exe' : 'ast-grep');
+    const rtkBinary = path.join(target, '.agents/runtime/tools/rtk/bin', process.platform === 'win32' ? 'rtk.exe' : 'rtk');
+    const astGrepBinary = path.join(target, '.agents/runtime/tools/ast-grep/node_modules/@ast-grep/cli', process.platform === 'win32' ? 'ast-grep.exe' : 'ast-grep');
     await provisionProfileTools({
       commandRunner: async (request) => {
         if (request.phase === 'binary-install' && request.component === 'rtk') {
@@ -215,8 +215,8 @@ test('optional tool generated directories are owned by install state', async () 
     ]);
     const state = JSON.parse(await readFile(path.join(target, '.cognis/install-state.json'), 'utf8'));
     const generated = state.generatedDirectories.map((item) => item.target).sort();
-    assert.ok(generated.includes('.agents/cognis/tools/rtk/bin'));
-    assert.ok(generated.includes('.agents/cognis/tools/ast-grep/node_modules'));
+    assert.ok(generated.includes('.agents/runtime/tools/rtk/bin'));
+    assert.ok(generated.includes('.agents/runtime/tools/ast-grep/node_modules'));
     assert.ok(generated.includes('.cognis/tool-state/npm-cache/astGrep'));
     const summary = (await execFileAsync(process.execPath, [
       cliPath, 'doctor', '--project', target, '--output', 'summary',
@@ -236,8 +236,8 @@ test('optional tool uninstall removes managed runtimes and preserves user files'
   const target = await mkdtemp(path.join(tmpdir(), 'cognis-tool-uninstall-'));
   const userFile = path.join(target, 'user-owned.txt');
   const generatedFiles = [
-    path.join(target, '.agents/cognis/tools/rtk/bin/runtime.fixture'),
-    path.join(target, '.agents/cognis/tools/ast-grep/node_modules/runtime.fixture'),
+    path.join(target, '.agents/runtime/tools/rtk/bin/runtime.fixture'),
+    path.join(target, '.agents/runtime/tools/ast-grep/node_modules/runtime.fixture'),
     path.join(target, '.cognis/tool-state/npm-cache/astGrep/cache.fixture'),
   ];
   try {
@@ -258,8 +258,8 @@ test('optional tool uninstall removes managed runtimes and preserves user files'
     for (const file of generatedFiles) {
       await assert.rejects(readFile(file, 'utf8'), /ENOENT/u);
     }
-    await assert.rejects(readFile(path.join(target, '.agents/cognis/tools/rtk/run.mjs'), 'utf8'), /ENOENT/u);
-    await assert.rejects(readFile(path.join(target, '.agents/cognis/tools/ast-grep/run.mjs'), 'utf8'), /ENOENT/u);
+    await assert.rejects(readFile(path.join(target, '.agents/runtime/tools/rtk/run.mjs'), 'utf8'), /ENOENT/u);
+    await assert.rejects(readFile(path.join(target, '.agents/runtime/tools/ast-grep/run.mjs'), 'utf8'), /ENOENT/u);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
@@ -268,8 +268,8 @@ test('optional tool uninstall removes managed runtimes and preserves user files'
 test('plugin none retires deselected wrappers, generated directories, and managed MCP servers', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'cognis-tool-clear-selection-'));
   const configPath = path.join(target, '.codex/config.toml');
-  const rtkRuntime = path.join(target, '.agents/cognis/tools/rtk/bin/runtime.fixture');
-  const chromeRuntime = path.join(target, '.agents/cognis/tools/chrome-devtools-mcp/node_modules/runtime.fixture');
+  const rtkRuntime = path.join(target, '.agents/runtime/tools/rtk/bin/runtime.fixture');
+  const chromeRuntime = path.join(target, '.agents/runtime/tools/chrome-devtools-mcp/node_modules/runtime.fixture');
   try {
     await runCli(['init', '--project', target]);
     await mkdir(path.dirname(configPath), { recursive: true });
@@ -296,8 +296,8 @@ test('plugin none retires deselected wrappers, generated directories, and manage
     assert.equal(state.files.some((file) => file.group === 'mcp-config' || file.group.startsWith('tools-')), false);
     assert.equal(state.generatedDirectories.length, 0);
     assert.doesNotMatch(await readFile(path.join(target, 'AGENTS.md'), 'utf8'), /RTK|Chrome DevTools|项目内工具位于/u);
-    await assert.rejects(readFile(path.join(target, '.agents/cognis/tools/rtk/run.mjs'), 'utf8'), /ENOENT/u);
-    await assert.rejects(readFile(path.join(target, '.agents/cognis/tools/chrome-devtools-mcp/run.mjs'), 'utf8'), /ENOENT/u);
+    await assert.rejects(readFile(path.join(target, '.agents/runtime/tools/rtk/run.mjs'), 'utf8'), /ENOENT/u);
+    await assert.rejects(readFile(path.join(target, '.agents/runtime/tools/chrome-devtools-mcp/run.mjs'), 'utf8'), /ENOENT/u);
     await assert.rejects(readFile(rtkRuntime, 'utf8'), /ENOENT/u);
     await assert.rejects(readFile(chromeRuntime, 'utf8'), /ENOENT/u);
   } finally {
@@ -334,8 +334,8 @@ test('tool provisioning plans expose the expected phases and versions', () => {
 test('explicit tool provisioning uses project-local RTK and ast-grep phases', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'cognis-tool-provision-'));
   const calls = [];
-  const rtkBinary = path.join(target, '.agents/cognis/tools/rtk/bin', process.platform === 'win32' ? 'rtk.exe' : 'rtk');
-  const astGrepBinary = path.join(target, '.agents/cognis/tools/ast-grep/node_modules/@ast-grep/cli', process.platform === 'win32' ? 'ast-grep.exe' : 'ast-grep');
+  const rtkBinary = path.join(target, '.agents/runtime/tools/rtk/bin', process.platform === 'win32' ? 'rtk.exe' : 'rtk');
+  const astGrepBinary = path.join(target, '.agents/runtime/tools/ast-grep/node_modules/@ast-grep/cli', process.platform === 'win32' ? 'ast-grep.exe' : 'ast-grep');
   const runtimeVersionRunner = async ({ command }) => ({
     stderr: '',
     stdout: command === rtkBinary ? 'rtk 0.43.0' : 'ast-grep 0.44.1',
@@ -393,8 +393,8 @@ test('explicit tool provisioning uses project-local RTK and ast-grep phases', as
 
 test('optional tool provisioning rejects binaries with unexpected versions', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'cognis-tool-provision-version-'));
-  const rtkBinary = path.join(target, '.agents/cognis/tools/rtk/bin', process.platform === 'win32' ? 'rtk.exe' : 'rtk');
-  const astGrepBinary = path.join(target, '.agents/cognis/tools/ast-grep/node_modules/@ast-grep/cli', process.platform === 'win32' ? 'ast-grep.exe' : 'ast-grep');
+  const rtkBinary = path.join(target, '.agents/runtime/tools/rtk/bin', process.platform === 'win32' ? 'rtk.exe' : 'rtk');
+  const astGrepBinary = path.join(target, '.agents/runtime/tools/ast-grep/node_modules/@ast-grep/cli', process.platform === 'win32' ? 'ast-grep.exe' : 'ast-grep');
   try {
     const tools = await provisionProfileTools({
       commandRunner: async (request) => {

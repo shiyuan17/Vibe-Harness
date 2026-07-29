@@ -1,5 +1,5 @@
 export const productIdentity = Object.freeze({
-  agentRuntimeDir: '.agents/cognis',
+  agentRuntimeDir: '.agents/runtime',
   chineseName: '智序',
   command: 'cognis',
   configFile: 'cognis.config.json',

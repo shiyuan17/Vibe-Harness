@@ -177,3 +177,38 @@ test('CLI write mode writes files when red-zone confirmation is explicit', async
     await rm(target, { force: true, recursive: true });
   }
 });
+
+test('CLI write mode installs localized en-US templates when language is en-US', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-enus-'));
+  try {
+    const cliPath = path.join(rootDir, 'scripts/cognis.js');
+    await execFileAsync(process.execPath, [cliPath, 'init', '--project', target, '--target', 'codex', '--profile', 'full']);
+    // init defaults to zh-CN; switch to en-US before installing so the
+    // sourceForEntry localization picks the .en-US.md template sources.
+    const configPath = path.join(target, 'cognis.config.json');
+    const config = JSON.parse(await readFile(configPath, 'utf8'));
+    config.language = 'en-US';
+    await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+    await execFileAsync(process.execPath, [
+      cliPath,
+      'install',
+      '--project',
+      target,
+      '--target',
+      'codex',
+      '--profile',
+      'full',
+      '--write',
+      '--confirm-red-zone',
+      '--allow-degraded',
+    ]);
+
+    const deliveryTemplate = await readFile(path.join(target, 'docs/templates/delivery.md'), 'utf8');
+    const taskTemplate = await readFile(path.join(target, 'docs/templates/task.md'), 'utf8');
+    assert.equal(deliveryTemplate.includes('Actual changes'), true);
+    assert.equal(deliveryTemplate.includes('Verification performed this run'), true);
+    assert.equal(taskTemplate.includes('档位：'), false);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});

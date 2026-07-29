@@ -10,7 +10,8 @@ import {
   validateJsonAgainstSchema,
   validateManifestSources,
 } from '../scripts/lib/manifest.js';
-import { validateCapabilityMatrix, validatePack } from '../scripts/lib/pack-validation.js';
+import { resolveAdapterEntry } from '../scripts/lib/adapter.js';
+import { validateCapabilityMatrix, validatePack, validateSelfInstalledArtifacts } from '../scripts/lib/pack-validation.js';
 
 const rootDir = path.resolve(import.meta.dirname, '..');
 
@@ -169,6 +170,46 @@ test('capability matrix maps every reusable capability to current assets', async
   const unmanagedDoc = structuredClone(matrix);
   unmanagedDoc.items[0].docs = ['docs/not-cataloged.md'];
   assert.match((await validateCapabilityMatrix(rootDir, unmanagedDoc, { checkFiles: false })).join('\n'), /documentation catalog/u);
+});
+
+test('self-installed artifacts must stay in sync with their sources', async () => {
+  // The real pack validates (covered by the next test), which means every
+  // replace entry whose source has no render placeholder is byte-identical to
+  // its self-installed artifact. Build a synthetic install map that points a
+  // real source at a mismatched target to prove the drift detector fires.
+  const realSource = 'schemas/eval-run.schema.json';
+  const adapters = { items: [{ id: 'codex', installMap: 'synthetic.json', instructionTarget: 'AGENTS.md', capabilities: {}, redZonePrefixes: [] }] };
+  const drifted = {
+    adapter: 'codex',
+    entries: [{
+      contentStrategy: 'replace',
+      group: 'schemas-core',
+      source: realSource,
+      target: 'docs/rules/governance-core.md',
+    }],
+  };
+  const installMaps = new Map([['synthetic.json', drifted]]);
+  const errors = await validateSelfInstalledArtifacts(rootDir, adapters, installMaps);
+  assert.ok(errors.length > 0, 'drifted artifact must be reported');
+  assert.match(errors.join('\n'), /drifted from source/u);
+
+  // A matching source/target pair must report no drift.
+  const matched = { ...drifted, entries: [{ ...drifted.entries[0], target: 'docs/schemas/eval-run.schema.json' }] };
+  const matchedErrors = await validateSelfInstalledArtifacts(rootDir, adapters, new Map([['synthetic.json', matched]]));
+  assert.deepEqual(matchedErrors, []);
+
+  // Sources carrying render placeholders are skipped (source != artifact by design).
+  const placeholder = {
+    adapter: 'codex',
+    entries: [{
+      contentStrategy: 'replace',
+      group: 'rules-core',
+      source: 'rules/project-specific-rules.md',
+      target: 'docs/rules/governance-core.md',
+    }],
+  };
+  const placeholderErrors = await validateSelfInstalledArtifacts(rootDir, adapters, new Map([['synthetic.json', placeholder]]));
+  assert.deepEqual(placeholderErrors, []);
 });
 
 test('complete pack validates', async () => {
