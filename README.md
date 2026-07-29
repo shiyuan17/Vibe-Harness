@@ -83,6 +83,7 @@ Claude Code and Gemini CLI use the same four profiles; preview capabilities requ
   },
   "hooks": {
     "allowedWriteRoots": [],
+    "allowedEgressHosts": [],
     "mode": "guarded"
   },
   "riskZones": {
@@ -137,7 +138,7 @@ pnpm cognis uninstall --project ../some-project --target codex --write
 - Existing project files are preserved unless `--force` is explicit.
 - Every mutation requires `--write`; red-zone writes require explicit confirmation.
 - The installer does not modify global Agent configuration or `.git/config`.
-- Codex Hooks listen only to `PreToolUse` and `PermissionRequest` to block dangerous Git, global configuration writes, credential exfiltration, and out-of-project writes.
+- Codex Hooks listen only to `PreToolUse` and `PermissionRequest` to block dangerous Git, global configuration writes, credential exfiltration, red-zone file uploads, out-of-project writes, and (when an `allowedEgressHosts` allowlist is configured) non-allowlisted network egress.
 - Completion claims must match fresh evidence; narrow the claim and report risk when verification is unavailable.
 
 ## Documentation

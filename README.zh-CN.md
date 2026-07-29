@@ -83,6 +83,7 @@ Claude Code 和 Gemini CLI 使用相同的四个 profile；其 preview 能力需
   },
   "hooks": {
     "allowedWriteRoots": [],
+    "allowedEgressHosts": [],
     "mode": "guarded"
   },
   "riskZones": {
@@ -137,7 +138,7 @@ pnpm cognis uninstall --project ../some-project --target codex --write
 - 未使用 `--force` 时不覆盖已有项目文件。
 - 所有真实写入使用 `--write`；红区写入需要显式确认。
 - 安装器不修改全局 Agent 配置或 `.git/config`。
-- Codex Hook 只监听 `PreToolUse` 和 `PermissionRequest`，用于阻止危险 Git、全局配置写入、凭据外传和越界写入。
+- Codex Hook 只监听 `PreToolUse` 和 `PermissionRequest`，用于阻止危险 Git、全局配置写入、凭据外传、红区文件上传、越界写入，以及（配置 `allowedEgressHosts` 白名单后）非白名单主机出口。
 - 完成主张必须由本轮有效证据支持；无法验证时缩小主张并说明风险。
 
 ## 文档

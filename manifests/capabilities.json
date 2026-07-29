@@ -85,8 +85,8 @@
       "id": "eval-driven-development",
       "source": "evaluation-driven Agent behavior development",
       "disposition": "validator",
-      "targets": ["rules/eval-driven-development.md", "skills/core/eval-driven-development/SKILL.md", "runtime/evals/run.mjs", "scripts/lib/eval-replay.js", "scripts/lib/eval-runner.js", "scripts/lib/eval-scoring.js", "scripts/lib/project-evaluation.js"],
-      "tests": ["tests/eval-contract.test.js", "tests/eval-runner.test.js"],
+      "targets": ["rules/eval-driven-development.md", "skills/core/eval-driven-development/SKILL.md", "runtime/evals/run.mjs", "scripts/lib/eval-replay.js", "scripts/lib/eval-runner.js", "scripts/lib/eval-scoring.js", "scripts/lib/eval-trials.js", "scripts/lib/project-evaluation.js"],
+      "tests": ["tests/eval-contract.test.js", "tests/eval-runner.test.js", "tests/eval-scoring.test.js"],
       "profiles": ["core", "full"],
       "docs": ["docs/evals.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/cognis-core.json", "evals/suites/cognis-online-canary.json"] }

@@ -11,4 +11,6 @@
 
 项目状态 `baseline` 描述安装与验证状态；evaluation `reference` 描述批准的评测结果，两者不得混用。
 
+online run 对每个 case 按 `repetitions` 独立运行多轮并输出 `trialSummaries`（`passAt1`/`passAtK`/`passCaretK`/逐轮明细）；当前仅作报告指标，不新增阈值门禁。offline 是确定性 replay，不输出多轮摘要。
+
 本规则是常驻契约；按需展开的执行步骤见 `eval-driven-development` Skill（`.agents/skills/eval-driven-development/SKILL.md`），两者描述同一门禁，修改须同步。
