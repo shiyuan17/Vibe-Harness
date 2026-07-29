@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { copyFile, mkdir, readFile, readdir, rename, rm, rmdir, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, readdir, rm, rmdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
@@ -17,7 +17,7 @@ import {
   removeManagedCbmIgnoreBlock,
   removeManagedMcpBlock,
 } from './tool-provisioning.js';
-import { beginFileTransaction } from './file-transaction.js';
+import { beginFileTransaction, renameAtomic } from './file-transaction.js';
 import { productIdentity } from './product-identity.js';
 
 const stateFileName = 'install-state.json';
@@ -65,7 +65,7 @@ export async function writeInstallState(targetDir, state) {
       stateVersion: 4,
       storageNamespace: 'cognis',
     }, null, 2)}\n`, 'utf8');
-    await rename(temporaryPath, filePath);
+    await renameAtomic(temporaryPath, filePath);
   } catch (error) {
     await rm(temporaryPath, { force: true });
     throw error;
@@ -117,6 +117,12 @@ export async function collectTargetFiles(targetDir, currentDir = targetDir) {
       continue;
     }
     if (entry.isDirectory() && entry.name === 'node_modules') {
+      continue;
+    }
+    // Skip symlinked directories to avoid traversing outside the project,
+    // mirroring installation-baseline.js. A symlinked directory entry reports
+    // isDirectory() true but would follow the link during recursion.
+    if (entry.isSymbolicLink()) {
       continue;
     }
     if (entry.isDirectory()) {

@@ -765,6 +765,7 @@ export async function applyInstallPlan(plan, hooks = {}) {
     trackedPaths,
   });
 
+  let installStatePersisted = false;
   try {
   const written = [];
   const retired = [];
@@ -984,9 +985,24 @@ export async function applyInstallPlan(plan, hooks = {}) {
     version: plan.version,
   });
 
-  await transaction.commit();
+  // The install-state write above is the point of no return: once persisted,
+  // the on-disk install is complete and correct. A subsequent commit() failure
+  // is only a journal-finalisation error, so we must NOT roll back the
+  // preimages (that would revert a successful install). Release the lock only.
+  installStatePersisted = true;
+  try {
+    await transaction.commit();
+  } catch (error) {
+    try {
+      await transaction.release();
+    } catch (releaseError) {
+      throw new AggregateError([error, releaseError], error.message);
+    }
+    throw error;
+  }
   return { baseline, mcpConflicts: [...new Set(mcpConflicts)], retired, skipped, written };
   } catch (error) {
+    if (installStatePersisted) throw error;
     try {
       await transaction.rollback();
     } catch (rollbackError) {
