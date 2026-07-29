@@ -9,11 +9,15 @@ export const supportedCodexHookEvents = new Set([
 const writeToolPattern = /(?:apply_patch|write|edit|delete|remove|move|rename|create)/iu;
 const pathKeyPattern = /^(?:file_?path|path|target|destination|directory(?:_?path)?|dir)$/iu;
 const globalAgentConfigPattern = /(?:~|\$(?:\{)?HOME(?:\})?|\$env:(?:HOME|USERPROFILE)|%USERPROFILE%|[A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/][^\\/]+|[\\/](?:home|Users)[\\/][^\\/]+)[^\r\n]{0,96}[\\/'"]+\.(?:codex|claude|cursor|gemini)(?:[\\/'"]|$)/iu;
-const networkCommandPattern = /\b(?:curl|wget|Invoke-WebRequest|Invoke-RestMethod)\b/iu;
-const secretReferencePattern = /(?:\$\{?[A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD)\}?|%(?:[A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD))%|Authorization\s*:[^\r\n]*(?:KEY|TOKEN|SECRET))/iu;
-const egressUploadFlags = new Set(['-F', '--form', '-d', '--data', '--data-binary', '--data-raw', '-T', '--upload-file']);
-const urlHostPattern = /https?:\/\/\[?([^\]/:@\s]+)/iu;
-const privateEgressPattern = /(?:curl|wget)[^\n]*(?:-F|--form|-d|--data(?:-binary|-raw)?|-T|--upload-file)/iu;
+const networkCommandPattern = /\b(?:curl|wget|iwr|irm|Invoke-WebRequest|Invoke-RestMethod)\b/iu;
+const secretReferencePattern = /(?:\$\{?[A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|PAT|CRED)\}?|\$env:[A-Z0-9_]+|%(?:[A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD))%|Authorization\s*:[^\r\n]*(?:KEY|TOKEN|SECRET|Bearer)|-[HUu]\s+["']?[^"'\s]*(?:KEY|TOKEN|SECRET|PASSWORD|PAT|CRED))/iu;
+const egressUploadFlags = new Set(['-F', '--form', '-d', '--data', '--data-binary', '--data-raw', '-T', '--upload-file', '-K', '--config']);
+const urlHostPattern = /https?:\/\/\[?(?:[^\s:@/]+@)?([^\]/:@\s]+)/igu;
+const privateEgressPattern = /(?:curl|wget)[^\n]*(?:-F|--form|-d|--data(?:-binary|-raw)?|-T|--upload-file|-K|--config)/iu;
+// Shell constructs this lightweight segment splitter cannot safely tokenise.
+// When present, the command may hide a destructive payload inside a
+// substitution, so the policy fails closed (deny) rather than risk a bypass.
+const unsafeShellConstructPattern = /(?:\$\([^)]*\)|`[^`]*`|\\\r?\n)/u;
 
 // Build a red-zone matcher from configured path patterns. Each pattern is a
 // project-relative path fragment (e.g. `.env`, `auth/`, `.codex/hooks.json`).
@@ -142,7 +146,12 @@ function gitCommandRisk(segment) {
   let index = 0;
   while (index < args.length) {
     const value = args[index].toLowerCase();
-    if (['-c', '--git-dir', '--work-tree', '--namespace', '--config-env'].includes(value)) {
+    if (value === '-c' && index + 1 < args.length) {
+      if (/core\.hookspath\s*=/u.test(args[index + 1].toLowerCase())) return 'hook bypass';
+      index += 2;
+      continue;
+    }
+    if (['--git-dir', '--work-tree', '--namespace', '--config-env'].includes(value)) {
       index += 2;
       continue;
     }
@@ -154,12 +163,16 @@ function gitCommandRisk(segment) {
       index += 1;
       continue;
     }
+    if (/^--config-env=/u.test(value) && /core\.hookspath/u.test(value)) return 'hook bypass';
+    if (/^-c.*core\.hookspath\s*=/u.test(value)) return 'hook bypass';
     break;
   }
   const command = args[index]?.toLowerCase();
   const rest = args.slice(index + 1).map((item) => item.toLowerCase());
   if (!command) return null;
   if (args.some((item) => item.toLowerCase() === '--no-verify')) return 'hook bypass';
+  // For `git commit`, the short flag `-n` is `--no-verify` (hook bypass).
+  if (command === 'commit' && rest.some((item) => /^-[a-z]*n[a-z]*$/u.test(item))) return 'hook bypass';
   if (command === 'reset' && rest.some((item) => ['--hard', '--merge', '--keep'].includes(item))) return 'destructive reset';
   if (command === 'clean' && !rest.some((item) => item === '-n' || item === '--dry-run' || /^-[a-z]*n[a-z]*$/u.test(item))) return 'destructive clean';
   if (command === 'restore') return 'destructive restore';
@@ -169,6 +182,11 @@ function gitCommandRisk(segment) {
   if (['merge', 'rebase', 'cherry-pick'].includes(command) && rest.includes('--abort')) return 'destructive abort';
   if (command === 'branch' && rest.some((item) => item === '-D' || item === '-d')) return 'destructive branch deletion';
   if (command === 'tag' && rest.includes('-d')) return 'destructive tag deletion';
+  if (command === 'push' && rest.some((item) => ['-f', '--force', '--force-with-lease', '--delete', '-d'].includes(item))) return 'destructive push';
+  if (command === 'update-ref' && rest.includes('-d')) return 'destructive ref deletion';
+  if (command === 'filter-branch') return 'destructive history rewrite';
+  if (command === 'reflog' && rest.includes('expire') && rest.some((item) => item.startsWith('--expire'))) return 'destructive reflog expiry';
+  if (command === 'gc' && rest.some((item) => /^--prune(=|$)/u.test(item))) return 'destructive gc prune';
   if (command === 'config' && rest.includes('--global')) {
     const readOnly = rest.some((item) => ['--get', '--get-all', '--get-regexp', '--list', '-l'].includes(item));
     if (!readOnly) return 'global Git configuration write';
@@ -247,9 +265,10 @@ function egressUploadPaths(command) {
   return paths;
 }
 
-function extractEgressHost(command) {
-  const match = command.match(urlHostPattern);
-  return match ? match[1].toLowerCase() : null;
+function extractEgressHosts(command) {
+  const hosts = [];
+  for (const match of command.matchAll(urlHostPattern)) hosts.push(match[1].toLowerCase());
+  return hosts;
 }
 
 function hostMatches(host, pattern) {
@@ -291,6 +310,9 @@ function isInsideAny(baseDirs, candidate) {
 function classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts = [], redZonePaths = []) {
   const redZonePattern = redZoneMatcher(redZonePaths);
   const command = commandFrom(input);
+  if (unsafeShellConstructPattern.test(command)) {
+    return risk('deny', 'UNSAFE_SHELL_CONSTRUCT', 'Shell command substitution or line continuation cannot be safely analysed and is blocked by repository policy.');
+  }
   const segments = shellSegments(command);
   if (segments.some((segment) => gitCommandRisk(segment))) {
     return risk('deny', 'DESTRUCTIVE_GIT', 'Destructive Git operation or hook bypass is blocked by repository policy.');
@@ -314,8 +336,12 @@ function classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts 
     }
   }
   if (allowedEgressHosts.length > 0 && networkCommandPattern.test(command)) {
-    const host = extractEgressHost(command);
-    if (host && !hostAllowed(host, allowedEgressHosts)) {
+    const hosts = extractEgressHosts(command);
+    if (hosts.length === 0) {
+      return risk('deny', 'EGRESS_VIOLATION', 'Network command without a parseable URL is blocked while an egress allowlist is configured.');
+    }
+    const violating = hosts.find((host) => !hostAllowed(host, allowedEgressHosts));
+    if (violating) {
       return risk('deny', 'EGRESS_VIOLATION', 'Network egress to a host outside the configured allowlist is blocked by repository policy.');
     }
   }
