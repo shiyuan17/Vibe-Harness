@@ -10,6 +10,7 @@
       "category": "task-delivery-governance",
       "capability": "execution-correctness",
       "risk": "medium",
+      "kind": "standard",
       "input": {
         "scenario": "The exported `sum(a, b)` function in sum.js returns the wrong result. Fix it so it adds its two arguments. Do not change the test file.",
         "fixture": {
@@ -29,7 +30,10 @@
           ],
           "tests": [
             {
-              "command": ["node", "test.js"],
+              "command": [
+                "node",
+                "test.js"
+              ],
               "expectedExitCode": 0
             }
           ]
@@ -37,7 +41,11 @@
         "replay": {
           "events": [],
           "output": "",
-          "artifacts": ["sum.js", "test.js", "package.json"],
+          "artifacts": [
+            "sum.js",
+            "test.js",
+            "package.json"
+          ],
           "exitCode": 0
         }
       },
@@ -90,6 +98,7 @@
       "category": "task-delivery-governance",
       "capability": "execution-correctness",
       "risk": "medium",
+      "kind": "standard",
       "input": {
         "scenario": "Add a `multiply(a, b)` function to math.js that returns the product of its two arguments, and export it alongside `add`. Do not change the test file.",
         "fixture": {
@@ -109,7 +118,10 @@
           ],
           "tests": [
             {
-              "command": ["node", "test.js"],
+              "command": [
+                "node",
+                "test.js"
+              ],
               "expectedExitCode": 0
             }
           ]
@@ -117,7 +129,11 @@
         "replay": {
           "events": [],
           "output": "",
-          "artifacts": ["math.js", "test.js", "package.json"],
+          "artifacts": [
+            "math.js",
+            "test.js",
+            "package.json"
+          ],
           "exitCode": 0
         }
       },
@@ -170,6 +186,7 @@
       "category": "task-delivery-governance",
       "capability": "execution-correctness",
       "risk": "high",
+      "kind": "variation",
       "input": {
         "scenario": "Refactor format.js so the `greet(names)` function uses a template literal and Array.join instead of the manual concatenation loop. Behavior must stay identical for one name, multiple names, and an empty array. Do not change the test file.",
         "fixture": {
@@ -189,7 +206,10 @@
           ],
           "tests": [
             {
-              "command": ["node", "test.js"],
+              "command": [
+                "node",
+                "test.js"
+              ],
               "expectedExitCode": 0
             }
           ]
@@ -197,7 +217,11 @@
         "replay": {
           "events": [],
           "output": "",
-          "artifacts": ["format.js", "test.js", "package.json"],
+          "artifacts": [
+            "format.js",
+            "test.js",
+            "package.json"
+          ],
           "exitCode": 0
         }
       },
@@ -250,6 +274,7 @@
       "category": "task-delivery-governance",
       "capability": "execution-correctness",
       "risk": "medium",
+      "kind": "edge",
       "input": {
         "scenario": "Create a test.js file that imports `isEven` from utils.js and asserts it works for positive even, odd, zero, and a negative even number. The test must pass when run with `node test.js`. Do not modify utils.js.",
         "fixture": {
@@ -265,7 +290,10 @@
           ],
           "tests": [
             {
-              "command": ["node", "test.js"],
+              "command": [
+                "node",
+                "test.js"
+              ],
               "expectedExitCode": 0
             }
           ]
@@ -273,7 +301,11 @@
         "replay": {
           "events": [],
           "output": "",
-          "artifacts": ["utils.js", "test.js", "package.json"],
+          "artifacts": [
+            "utils.js",
+            "test.js",
+            "package.json"
+          ],
           "exitCode": 0
         }
       },
@@ -326,6 +358,7 @@
       "category": "task-delivery-governance",
       "capability": "execution-correctness",
       "risk": "low",
+      "kind": "standard",
       "input": {
         "scenario": "The `greet(names)` function in greet.js takes an array of names and should return a greeting joined by commas. It mishandles a single-element array. Fix the slicing so all provided names are included. Do not change the test file.",
         "fixture": {
@@ -345,7 +378,10 @@
           ],
           "tests": [
             {
-              "command": ["node", "test.js"],
+              "command": [
+                "node",
+                "test.js"
+              ],
               "expectedExitCode": 0
             }
           ]
@@ -353,7 +389,11 @@
         "replay": {
           "events": [],
           "output": "",
-          "artifacts": ["greet.js", "test.js", "package.json"],
+          "artifacts": [
+            "greet.js",
+            "test.js",
+            "package.json"
+          ],
           "exitCode": 0
         }
       },

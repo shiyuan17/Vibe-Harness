@@ -14,7 +14,7 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-const run = buildOfflineRun(assets.suite);
+const run = await buildOfflineRun(assets.suite);
 try {
   assert.deepEqual(run, assets.run);
 } catch {

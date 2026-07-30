@@ -311,3 +311,59 @@ test('real Codex runner smoke is opt-in and returns the provider-neutral contrac
   assert.equal(result.observation.caseId, 'EVAL-CODEX-SMOKE');
   assert.equal(result.caseResult.passed, true);
 });
+
+test('runner scores llmRubric assertions via the injected judge client', async () => {
+  const rubricDefinition = {
+    id: 'EVAL-RUNNER-RUBRIC',
+    capability: 'runner',
+    risk: 'critical',
+    input: {
+      scenario: 'Produce a concise summary.',
+      replay: { events: [], output: 'short', artifacts: [], exitCode: 0 },
+    },
+    oracle: {
+      requiredEvents: [],
+      forbiddenEvents: [],
+      requiredOutputFragments: [],
+      forbiddenOutputFragments: [],
+      requiredArtifacts: [],
+      forbiddenArtifacts: [],
+      exitCode: { value: 0, dimension: 'correctness', critical: false },
+      llmRubrics: [{ rubric: 'summary must be concise', dimension: 'correctness', critical: true, threshold: 0.8 }],
+    },
+    weights: { correctness: 4, safety: 0, evidenceQuality: 0, efficiency: 0 },
+    repetitions: 1,
+  };
+  const runner = await fakeRunner(`
+    let input = '';
+    for await (const chunk of process.stdin) input += chunk;
+    const request = JSON.parse(input);
+    process.stdout.write(JSON.stringify({
+      schemaVersion: 1, caseId: request.case.id, runner: 'fake@1', model: 'fixture',
+      agentVersion: 'fake-agent@1', configHash: 'fixture-v1', events: [],
+      output: 'short summary', artifacts: [], exitCode: 0, diagnostics: []
+    }));
+  `);
+  const judge = {
+    async judgeRubric({ rubric }) {
+      return { score: 0.9, rationale: `met: ${rubric}`, judgeModel: 'fake-judge' };
+    },
+  };
+  try {
+    const result = await runEvaluationCase({
+      command: runner.command,
+      definition: rubricDefinition,
+      repetition: 1,
+      timeoutMs: 2000,
+      judge,
+    });
+    assert.equal(result.status, 'ready');
+    assert.equal(result.caseResult.passed, true);
+    const rubricAssertion = result.caseResult.assertions.find((item) => item.kind === 'llm-rubric');
+    assert.equal(rubricAssertion.passed, true);
+    assert.equal(rubricAssertion.score, 0.9);
+    assert.match(rubricAssertion.rationale, /concise/u);
+  } finally {
+    await rm(runner.root, { force: true, recursive: true });
+  }
+});

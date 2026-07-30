@@ -154,7 +154,7 @@ function terminateChildTree(child) {
   }
 }
 
-export async function runEvaluationCase({ command, definition, configHash = 'fixture-v1', repetition = 1, runId = 'online', timeoutMs = DEFAULT_TIMEOUT_MS }) {
+export async function runEvaluationCase({ command, definition, configHash = 'fixture-v1', repetition = 1, runId = 'online', timeoutMs = DEFAULT_TIMEOUT_MS, judge }) {
   let workspace;
   let report;
   try {
@@ -176,7 +176,7 @@ export async function runEvaluationCase({ command, definition, configHash = 'fix
         workspace,
       };
     } else {
-      const caseResult = scoreCase({ definition, observation: result.observation });
+      const caseResult = await scoreCase({ definition, observation: result.observation, judge });
       report = {
         caseResult,
         diagnostics: sanitizeEvalValue([

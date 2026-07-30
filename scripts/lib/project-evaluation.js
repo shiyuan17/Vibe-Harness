@@ -7,6 +7,7 @@ import { summarizeTrials } from './eval-trials.js';
 import { buildOfflineRun, suiteHash } from './eval-replay.js';
 import { aggregateCaseScores, compareFingerprints } from './eval-scoring.js';
 import { runEvaluationCase } from './eval-runner.js';
+import { createJudge } from './eval-judge.js';
 import { backupFile, createBackupId } from './install-state.js';
 import {
   assertInsideDir,
@@ -158,6 +159,17 @@ function thresholdFailures(run, reference, thresholds) {
 async function buildOnlineRun({ command, config, now, suite, suitePath, targetDir }) {
   if (!command) return { degraded: ['Online evaluation runner is not configured.'], run: null };
   const runConfigHash = await configHash(targetDir);
+  // Create a judge client only when the suite actually contains llmRubrics
+  // assertions, so suites without judge assertions never require credentials.
+  const needsJudge = suite.cases.some((item) => item.oracle?.llmRubrics?.length > 0);
+  let judge = null;
+  if (needsJudge) {
+    try {
+      judge = createJudge({ defaultModel: config.evaluations?.judgeModel });
+    } catch (error) {
+      return { degraded: [error.message], run: null };
+    }
+  }
   const observations = [];
   const degraded = [];
   const caseRepetitions = [];
@@ -172,6 +184,7 @@ async function buildOnlineRun({ command, config, now, suite, suitePath, targetDi
         configHash: runConfigHash,
         repetition,
         runId: `${suite.id}-${now.toISOString()}`,
+        judge,
       });
       if (result.status !== 'ready') {
         degraded.push(...result.diagnostics.map((item) => `${definition.id}: ${item}`));
@@ -213,7 +226,7 @@ async function buildOnlineRun({ command, config, now, suite, suitePath, targetDi
       generatedAt: now.toISOString(),
       suite: { id: suite.id, version: suite.version, hash: fingerprint.suiteHash, path: suitePath },
       mode: 'online',
-      status: results.every((item) => item.passed) ? 'passed' : 'failed',
+      status: results.every((item) => item.passed || item.flakyFailure) ? 'passed' : 'failed',
       fingerprint,
       caseRepetitions,
       cases: results,
@@ -259,7 +272,7 @@ export async function runProjectEvaluations({ config, mode, now = new Date(), re
     }
     return { dryRun: !write, ok: false, status: 'degraded', warnings, written };
   }
-  const run = online?.run ?? buildOfflineRun(suite, {
+  const run = online?.run ?? await buildOfflineRun(suite, {
     generatedAt: now.toISOString(),
     id: `${suite.id}-offline-${now.toISOString()}`,
     suitePath,

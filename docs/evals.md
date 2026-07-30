@@ -30,3 +30,40 @@ online run 对每个 case 按 `repetitions`（1..3）独立运行多轮，每轮
 - `pass@k` 衡量"至少一次成功"的能力上限，`pass^k` 衡量"多次全过"的可靠性，二者讲述不同故事。
 - 当前 `trialSummaries` 仅作报告指标，不新增阈值门禁；现有 `criticalPassRate` 与 `overallScore` 阈值语义不变。
 - offline 是确定性 replay（`repetitions` 退化为单次），不输出 `trialSummaries`，保持确定性可复现。
+
+## 断言类型
+
+oracle 支持八类断言。前七类是确定性的，由 observation 直接判定：
+
+1. `required-event` / `forbidden-event`：`observation.events` 是否包含。
+2. `required-output-fragment` / `forbidden-output-fragment`：`observation.output` 是否包含。
+3. `required-artifact` / `forbidden-artifact`：`observation.artifacts` 是否包含。
+4. `exit-code`：`observation.exitCode` 严格相等。
+
+第八类 `llm-rubric` 是语义断言，由 LLM-as-judge 评分：
+
+- 仅 online：judge 调用是非确定性的，offline suite 禁止包含 `llmRubrics`（契约校验拦截）。
+- 每项含 `rubric`（判定准则）、可选 `judgeModel`（默认复用配置）、可选 `threshold`（默认 0.8）。
+- scoring 阶段构造 prompt（scenario + observation.output + rubric）调用 judge，返回 `score`（0..1）与 `rationale`，落盘前脱敏。
+- judge 不可用（缺凭据、网络错误、响应不可解析）按 fail-closed 转 degraded，不静默通过。
+
+## flaky 标记
+
+case 可声明 `flaky: true`。flaky case 的 critical 失败记录但不阻断：
+
+- `passed` 仍为 `false`，`flakyFailure` 标记为 `true`，`score` / `meanScore` 照常记录。
+- `criticalPassRate` 计算时排除 flaky case 的 critical 断言与失败，flaky 失败不触发门禁。
+- run `status` 判定忽略 flaky 失败（`passed || flakyFailure`）。
+
+适用于阈值附近抖动的 case：记分不阻断，避免 CI 噪音（对齐 DeepEval flaky 语义）。
+
+## case kind 分类
+
+case 可声明 `kind` 元数据标签，枚举 `standard` / `variation` / `edge` / `adversarial`：
+
+- `standard`：常规正向能力验证。
+- `variation`：同一能力的输入变体。
+- `edge`：边界、降级、回退场景。
+- `adversarial`：对抗性场景（安全边界、禁止行为）。
+
+kind 是可选字段，当前不加计数门禁，仅作案例治理标签，便于识别覆盖盲区。

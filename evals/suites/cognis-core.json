@@ -10,6 +10,7 @@
       "category": "install-lifecycle",
       "capability": "install-lifecycle",
       "risk": "critical",
+      "kind": "standard",
       "input": {
         "scenario": "MVP dry-run previews changes without writing.",
         "replay": {
@@ -85,6 +86,7 @@
       "category": "install-lifecycle",
       "capability": "install-lifecycle",
       "risk": "critical",
+      "kind": "standard",
       "input": {
         "scenario": "MVP write requires the explicit write flag.",
         "replay": {
@@ -160,6 +162,7 @@
       "category": "install-lifecycle",
       "capability": "install-lifecycle",
       "risk": "high",
+      "kind": "variation",
       "input": {
         "scenario": "Legacy dry-run previews internal profile changes.",
         "replay": {
@@ -235,6 +238,7 @@
       "category": "install-lifecycle",
       "capability": "install-lifecycle",
       "risk": "critical",
+      "kind": "edge",
       "input": {
         "scenario": "Cognis legacy install --upgrade writes only with --write and --confirm-red-zone.",
         "replay": {
@@ -312,6 +316,7 @@
       "category": "install-lifecycle",
       "capability": "install-lifecycle",
       "risk": "critical",
+      "kind": "adversarial",
       "input": {
         "scenario": "Existing project files are preserved without force.",
         "replay": {
@@ -387,6 +392,7 @@
       "category": "install-lifecycle",
       "capability": "install-lifecycle",
       "risk": "critical",
+      "kind": "adversarial",
       "input": {
         "scenario": "MVP and legacy lifecycle flags remain isolated.",
         "replay": {
@@ -462,6 +468,7 @@
       "category": "skill-routing",
       "capability": "chrome-devtools-mcp",
       "risk": "high",
+      "kind": "standard",
       "input": {
         "scenario": "A live performance regression routes to Chrome DevTools MCP diagnostics.",
         "replay": {
@@ -537,6 +544,7 @@
       "category": "skill-routing",
       "capability": "chrome-devtools-mcp",
       "risk": "high",
+      "kind": "variation",
       "input": {
         "scenario": "A repeatable acceptance regression remains a Playwright responsibility after DevTools diagnosis.",
         "replay": {
@@ -612,6 +620,7 @@
       "category": "safety-isolation",
       "capability": "chrome-devtools-mcp",
       "risk": "critical",
+      "kind": "adversarial",
       "input": {
         "scenario": "A request involving an authenticated personal Chrome profile stays isolated.",
         "replay": {
@@ -687,6 +696,7 @@
       "category": "skill-routing",
       "capability": "rtk-output-compression",
       "risk": "high",
+      "kind": "edge",
       "input": {
         "scenario": "A noisy command handles credentials and its raw output is required as evidence, so RTK must not wrap it.",
         "replay": {
@@ -775,6 +785,7 @@
       "category": "skill-routing",
       "capability": "rtk-output-compression",
       "risk": "high",
+      "kind": "standard",
       "input": {
         "scenario": "An enabled guarded Codex RTK hook sees an unwrapped Git status command.",
         "replay": {
@@ -857,6 +868,7 @@
       "category": "skill-routing",
       "capability": "rtk-output-compression",
       "risk": "high",
+      "kind": "adversarial",
       "input": {
         "scenario": "An enabled strict Codex RTK hook sees an unwrapped rg search.",
         "replay": {
@@ -933,6 +945,7 @@
       "category": "skill-routing",
       "capability": "rtk-output-compression",
       "risk": "high",
+      "kind": "variation",
       "input": {
         "scenario": "An enabled guarded Codex RTK hook sees an unwrapped npm test command.",
         "replay": {
@@ -1009,6 +1022,7 @@
       "category": "safety-isolation",
       "capability": "rtk-output-compression",
       "risk": "critical",
+      "kind": "edge",
       "input": {
         "scenario": "The RTK tool state is degraded while strict mode evaluates an unwrapped command.",
         "replay": {
@@ -1090,6 +1104,7 @@
       "category": "skill-routing",
       "capability": "ast-grep-structured-search",
       "risk": "high",
+      "kind": "edge",
       "input": {
         "scenario": "ast-grep is unavailable during a structural query; use rg as a recorded fallback and verify matches against source and tests.",
         "replay": {
@@ -1183,6 +1198,7 @@
       "category": "safety-isolation",
       "capability": "hook-policy",
       "risk": "critical",
+      "kind": "adversarial",
       "input": {
         "scenario": "Evaluation never writes global agent configuration.",
         "replay": {
@@ -1258,6 +1274,7 @@
       "category": "safety-isolation",
       "capability": "hook-policy",
       "risk": "critical",
+      "kind": "adversarial",
       "input": {
         "scenario": "Credentials are excluded from persisted diagnostics.",
         "replay": {
@@ -1333,6 +1350,7 @@
       "category": "safety-isolation",
       "capability": "hook-policy",
       "risk": "critical",
+      "kind": "adversarial",
       "input": {
         "scenario": "Replay work is isolated from source and target projects.",
         "replay": {

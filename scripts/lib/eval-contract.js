@@ -23,6 +23,7 @@ export function validateEvalSuiteSemantics(suite) {
       ...(item.oracle?.requiredArtifacts ?? []),
       ...(item.oracle?.forbiddenArtifacts ?? []),
       ...(item.oracle?.exitCode ? [item.oracle.exitCode] : []),
+      ...(item.oracle?.llmRubrics ?? []),
     ];
     for (const dimension of DIMENSIONS) {
       const value = item.weights?.[dimension];
@@ -112,6 +113,15 @@ export function validateEvalAssets({ suite, run, reference, schemas }) {
     ...validateJsonAgainstSchema(reference, schemas.reference, 'reference'),
     ...validateEvalSuiteSemantics(suite),
   ];
+  // llmRubrics assertions invoke a non-deterministic judge model and are only
+  // valid for online runs; offline replay must stay deterministic.
+  if (run.mode === 'offline') {
+    for (const [index, item] of (suite.cases ?? []).entries()) {
+      if (item.oracle?.llmRubrics?.length > 0) {
+        errors.push(`cases[${index}].oracle.llmRubrics are not allowed in offline suites`);
+      }
+    }
+  }
   validateRunScores(run, errors);
   validateAggregateScores(reference, 'reference', errors);
   if (run.suite?.id !== suite.id || reference.suite?.id !== suite.id) {

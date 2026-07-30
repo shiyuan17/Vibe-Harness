@@ -8,7 +8,7 @@
   },
   "mode": "offline",
   "fingerprint": {
-    "suiteHash": "ec989dafe61650d8463f1c49ca41c71189acdfae169b159ae2ca1b6dc9deb5fa",
+    "suiteHash": "89da09e021afeb3474eb6e380389b8fd7ef8f2614ebc7740d4c33fcc66e7cdde",
     "runner": "offline-replay@1",
     "model": "fixture",
     "agent": "offline",

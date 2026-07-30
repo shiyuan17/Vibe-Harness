@@ -43,6 +43,29 @@ test('core suite contains exactly 18 generic cases in the required category spli
   }
 });
 
+test('suite schema accepts optional case kind enum and rejects unknown values', async () => {
+  const [suiteSchema, coreSuite] = await Promise.all([
+    readJson(path.join(rootDir, 'schemas/eval-suite.schema.json')),
+    readJson(path.join(rootDir, 'evals/suites/cognis-core.json')),
+  ]);
+  const valid = structuredClone(coreSuite);
+  valid.cases[0].kind = 'standard';
+  assert.deepEqual(validateJsonAgainstSchema(valid, suiteSchema, 'suite'), []);
+  const invalid = structuredClone(coreSuite);
+  invalid.cases[0].kind = 'regression';
+  assert.match(validateJsonAgainstSchema(invalid, suiteSchema, 'suite').join('\n'), /kind/u);
+});
+
+test('all checked-in suite cases carry a valid kind label', async () => {
+  const allowed = new Set(['standard', 'variation', 'edge', 'adversarial']);
+  for (const file of ['cognis-core.json', 'cognis-online-canary.json', 'cognis-online-execution.json']) {
+    const suite = await readJson(path.join(rootDir, `evals/suites/${file}`));
+    for (const item of suite.cases) {
+      assert.equal(allowed.has(item.kind), true, `${item.id} in ${file} has invalid kind ${item.kind}`);
+    }
+  }
+});
+
 test('RTK and ast-grep rules have reference-backed fallback and evidence cases', async () => {
   const suite = await readJson(path.join(rootDir, 'evals/suites/cognis-core.json'));
   const rtk = suite.cases.find((item) => item.id === 'EVAL-TOOL-RTK-001');
@@ -104,6 +127,18 @@ test('eval asset validation rejects scores outside 0..1', async () => {
   assert.match(errors, /reference\.criticalPassRate/u);
 });
 
+test('offline assets reject llmRubrics assertions to keep replay deterministic', async () => {
+  const assets = await loadEvalAssets(rootDir);
+  const invalid = structuredClone(assets);
+  invalid.suite.cases[0].oracle.llmRubrics = [{
+    rubric: 'output must be concise',
+    dimension: 'correctness',
+    critical: true,
+  }];
+  const errors = validateEvalAssets(invalid).join('\n');
+  assert.match(errors, /llmRubrics are not allowed in offline suites/u);
+});
+
 test('eval run schema rejects malformed dimension scores and assertions', async () => {
   const assets = await loadEvalAssets(rootDir);
   const invalid = structuredClone(assets.run);
@@ -116,7 +151,7 @@ test('eval run schema rejects malformed dimension scores and assertions', async 
 
 test('offline replay deterministically reproduces the checked-in run and matches reference fingerprint', async () => {
   const assets = await loadEvalAssets(rootDir);
-  const replayed = buildOfflineRun(assets.suite);
+  const replayed = await buildOfflineRun(assets.suite);
   assert.deepEqual(replayed, assets.run);
   assert.equal(replayed.status, 'passed');
   assert.equal(replayed.overallScore, 1);
@@ -125,7 +160,7 @@ test('offline replay deterministically reproduces the checked-in run and matches
 
 test('offline replay never emits multi-trial summaries', async () => {
   const assets = await loadEvalAssets(rootDir);
-  const replayed = buildOfflineRun(assets.suite);
+  const replayed = await buildOfflineRun(assets.suite);
   assert.equal(Object.hasOwn(replayed, 'trialSummaries'), false);
 });
 
@@ -140,7 +175,7 @@ test('offline replay evaluates forbidden secret text before sanitizing persisted
     value: 'secret=',
   }];
 
-  const run = buildOfflineRun(suite);
+  const run = await buildOfflineRun(suite);
   assert.equal(run.status, 'failed');
   assert.equal(run.cases[0].criticalFailures, 1);
   assert.doesNotMatch(JSON.stringify(run), /should-not-persist/u);
