@@ -382,6 +382,16 @@
       ]
     },
     {
+      "path": "docs/inventory/ai-eval-investigation.md",
+      "kind": "inventory",
+      "status": "reference",
+      "language": "zh-CN",
+      "audiences": [
+        "auditor",
+        "maintainer"
+      ]
+    },
+    {
       "path": "docs/archive/README.md",
       "kind": "index",
       "status": "reference",

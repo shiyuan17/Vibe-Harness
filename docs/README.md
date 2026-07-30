@@ -50,6 +50,7 @@
 - [参考分析](inventory/governance-reference-analysis.md)
 - [工作流与澄清能力审查](inventory/workflow-clarification-review.md)
 - [Pre-existing 测试失败处理方案](inventory/preexisting-test-failures-remediation.md)
+- [AI 专属 Eval 体系调查报告](inventory/ai-eval-investigation.md)
 
 ## 历史
 
