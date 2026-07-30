@@ -108,6 +108,7 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
   const agentMemorySkillRoot = agentMemoryTarget?.slice(0, agentMemoryTarget.indexOf('/agentmemory/SKILL.md'));
   const normalizedMemoryPath = memoryPath.replaceAll('\\', '/').replace(/\/+$/u, '');
   const hasLocalMemory = installedTargets.includes(`${normalizedMemoryPath}/README.md`);
+  const hasGovernanceMemory = hasPrefix('docs/memory/');
   const profileLines = {
     core: '- 当前安装方式：通用安装（不包含扩展 MCP 或 hooks 安装面）。',
     'docs-only': '- 当前安装方式：仅文档安装。',
@@ -130,6 +131,13 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
     memorySkillsLine: hasAgentMemorySkills
       ? `- agentmemory skills 位于 \`${agentMemorySkillRoot}/\`${hasLocalMemory ? `，本地记忆库位于 \`${normalizedMemoryPath}/\`` : ''}。`
       : '',
+    memoryLoadLine: hasGovernanceMemory && hasLocalMemory
+      ? `读取 \`docs/memory/\` 的治理记忆（优先 \`PROJECT_STATE.md\`），按其与本地记忆库的优先级合并；本地记忆库恢复入口为 \`${normalizedMemoryPath}/CURRENT.md\`。`
+      : (hasGovernanceMemory
+        ? `读取 \`docs/memory/\` 的治理记忆（优先 \`PROJECT_STATE.md\`）恢复上下文；记忆仅作辅助，不覆盖当前源码与用户指令。`
+        : (hasLocalMemory
+          ? `读取 \`${normalizedMemoryPath}/README.md\` 与 \`CURRENT.md\` 恢复上下文；记忆仅作辅助，不覆盖当前源码与用户指令。`
+          : '')),
     operationalRulesLine: hasOperationalRules ? '- 发布 / 设计 / 排障规则位于 `docs/rules/`。' : '',
     profileLine: customModules
       ? '- 当前安装方式：自定义能力模块安装。'

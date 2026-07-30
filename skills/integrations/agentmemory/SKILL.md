@@ -13,6 +13,7 @@ description: Use when saving, recalling, resuming, forgetting, summarizing, or l
 - 删除明确的 memory：读取 [references/forget.md](references/forget.md)。
 - 汇总指定时间窗口的 sessions：读取 [references/recap.md](references/recap.md)。
 - 列出可选择的 session 时间线：读取 [references/session-history.md](references/session-history.md)。
+- 审计本地记忆的陈旧、重复或矛盾：读取 [references/audit.md](references/audit.md)。
 
 先检测 agentmemory MCP；不可用时可使用已配置且获授权的 HTTP API。两者均不可用时回退到 `.agents/memory/` 和当前仓库事实，并明确没有访问外部记忆。
 

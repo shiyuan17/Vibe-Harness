@@ -548,6 +548,18 @@
     },
     {
       "group": "skills-memory",
+      "source": "skills/integrations/agentmemory/references/audit.md",
+      "target": ".agents/skills/agentmemory/references/audit.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-memory",
+      "source": "memory/CURRENT.md",
+      "target": ".agents/memory/CURRENT.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-memory",
       "source": "memory/README.md",
       "target": ".agents/memory/README.md",
       "contentStrategy": "replace"
