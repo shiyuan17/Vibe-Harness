@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { evaluateCodexHook } from '../runtime/hooks/codex-hook.mjs';
+import { resolveExecutable, runCommand } from '../runtime/hooks/git-hook.mjs';
 import { DEFAULT_RED_ZONE_PATHS, readHookSettings } from '../runtime/hooks/lib/context.mjs';
 import { analyzeToolRequest, normalizeCodexHookInput, supportedCodexHookEvents } from '../runtime/hooks/lib/policy.mjs';
 
@@ -255,4 +256,73 @@ test('unsupported lifecycle events fail closed instead of creating task context'
       /Unsupported hook event/u,
     );
   });
+});
+
+async function withTempDir(callback) {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-run-command-'));
+  try {
+    return await callback(target);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+}
+
+test('runCommand rejects validation commands containing shell metacharacters', async () => {
+  await withTempDir(async (target) => {
+    for (const command of [
+      'node ok.mjs; rm -rf x',
+      'node ok.mjs && rm -rf x',
+      'node ok.mjs | tee log',
+      'echo `whoami`',
+      'echo $(whoami)',
+      'node ok.mjs\nrm -rf x',
+      'node ok.mjs\r<secret',
+    ]) {
+      await assert.rejects(
+        runCommand(command, target, { stdio: 'ignore' }),
+        /shell metacharacters/u,
+        `expected rejection for: ${command}`,
+      );
+    }
+  });
+});
+
+test('runCommand resolves on exit code 0 and rejects on non-zero exit', async () => {
+  await withTempDir(async (target) => {
+    await writeFile(path.join(target, 'ok.mjs'), "process.exitCode = 0;\n", 'utf8');
+    await writeFile(path.join(target, 'fail.mjs'), "process.exitCode = 7;\n", 'utf8');
+
+    await runCommand('node ok.mjs', target, { stdio: 'ignore' });
+
+    await assert.rejects(
+      runCommand('node fail.mjs', target, { stdio: 'ignore' }),
+      /failed with exit 7/u,
+    );
+  });
+});
+
+test('runCommand times out when a command exceeds the limit', async () => {
+  await withTempDir(async (target) => {
+    await writeFile(path.join(target, 'hang.mjs'), 'setTimeout(() => {}, 99999);\n', 'utf8');
+    await assert.rejects(
+      runCommand('node hang.mjs', target, { timeout: 200, stdio: 'ignore' }),
+      /timed out/u,
+    );
+  });
+});
+
+test('resolveExecutable maps node to the running executable and routes npm shims through cmd.exe on Windows', () => {
+  assert.deepEqual(resolveExecutable('node'), { command: process.execPath, preArgs: [] });
+
+  if (process.platform === 'win32') {
+    assert.deepEqual(resolveExecutable('pnpm'), { command: 'cmd.exe', preArgs: ['/c', 'pnpm.cmd'] });
+    assert.deepEqual(resolveExecutable('npm'), { command: 'cmd.exe', preArgs: ['/c', 'npm.cmd'] });
+    assert.deepEqual(resolveExecutable('yarn'), { command: 'cmd.exe', preArgs: ['/c', 'yarn.cmd'] });
+  } else {
+    assert.deepEqual(resolveExecutable('pnpm'), { command: 'pnpm', preArgs: [] });
+    assert.deepEqual(resolveExecutable('npm'), { command: 'npm', preArgs: [] });
+  }
+
+  // Unknown programs pass through unchanged.
+  assert.deepEqual(resolveExecutable('git'), { command: 'git', preArgs: [] });
 });

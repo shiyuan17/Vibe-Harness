@@ -67,7 +67,20 @@ function splitCommand(command) {
   return tokens;
 }
 
-function runCommand(command, cwd) {
+// Resolve the executable spawn can launch under shell:false. On Windows
+// npm/pnpm/yarn are .cmd shims that cannot be spawned directly (EINVAL), so we
+// route them through cmd.exe; node resolves to the running executable so tests
+// are not coupled to a PATH lookup. Returns the command plus any leading args
+// that must precede the user-supplied arguments.
+function resolveExecutable(program) {
+  if (program === 'node') return { command: process.execPath, preArgs: [] };
+  if (process.platform === 'win32' && ['pnpm', 'npm', 'yarn'].includes(program)) {
+    return { command: 'cmd.exe', preArgs: ['/c', `${program}.cmd`] };
+  }
+  return { command: program, preArgs: [] };
+}
+
+function runCommand(command, cwd, { timeout = 120000, stdio = 'inherit' } = {}) {
   return new Promise((resolve, reject) => {
     if (shellMetacharacters.test(command)) {
       reject(new Error(`Validation command contains shell metacharacters and cannot be run safely: ${command}`));
@@ -75,17 +88,31 @@ function runCommand(command, cwd) {
     }
     const tokens = splitCommand(command);
     const [program, ...args] = tokens;
-    const child = spawn(program, args, { cwd, shell: false, stdio: 'inherit', windowsHide: true });
-    const timer = setTimeout(() => {
-      child.kill();
-      reject(new Error(`Validation command timed out: ${command}`));
-    }, 120000);
-    timer.unref();
-    child.on('error', reject);
-    child.on('exit', (code) => {
+    const { command: exec, preArgs } = resolveExecutable(program);
+    const child = spawn(exec, [...preArgs, ...args], { cwd, shell: false, stdio, windowsHide: true });
+    let settled = false;
+    let timedOut = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
-      if (code === 0) resolve();
-      else reject(new Error(`Validation command failed with exit ${code}: ${command}`));
+      fn(value);
+    };
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill();
+      // On Windows TerminateProcess is async; wait for the streams to close so
+      // file handles in cwd are released before the caller cleans up the dir.
+      child.once('close', () => finish(reject, new Error(`Validation command timed out: ${command}`)));
+    }, timeout);
+    timer.unref();
+    child.on('error', (error) => finish(reject, error));
+    child.on('exit', (code) => {
+      // A kill from the timeout path surfaces here with code null; defer to the
+      // close handler so the caller sees "timed out" rather than "exit null".
+      if (timedOut) return;
+      if (code === 0) finish(resolve);
+      else finish(reject, new Error(`Validation command failed with exit ${code}: ${command}`));
     });
   });
 }
@@ -119,3 +146,5 @@ if (isMain) {
     process.exitCode = 1;
   }
 }
+
+export { resolveExecutable, runCommand };
