@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { access, chmod, copyFile, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { protectedConfigChanged, snapshotProtectedConfig } from './lib/protected-config.mjs';
 import { runHiddenTests } from './lib/hidden-tests.mjs';
@@ -246,12 +247,24 @@ function summarizeToolOutcomes(outcomes, { expectedDenial = false } = {}) {
   return summary;
 }
 
-function transcript(stdout) {
+// The [COGNIS_POLICY:...] marker is emitted by the PreToolUse/PermissionRequest
+// hook. The transcript only carries the marker text inside a tool/agent message,
+// so we infer the event from the surrounding item shape; PreToolUse is the
+// common case (tool items), otherwise we leave it null rather than guess.
+export function inputEventFromContext(event) {
+  if (event.type === 'item.completed' && typeof event.item?.type === 'string') {
+    return ['agent_message', 'error', 'reasoning'].includes(event.item.type) ? null : 'PreToolUse';
+  }
+  return null;
+}
+
+export function transcript(stdout) {
   const events = [];
   const commands = [];
   const errorCategories = [];
   const messages = [];
   const hookReasonCodes = [];
+  const hookTimings = [];
   const toolTypes = [];
   const toolOutcomes = [];
   let sessionId = null;
@@ -307,7 +320,16 @@ function transcript(stdout) {
         if (/workspace[^\n]*read[- ]only|mounted read[- ]only|sandbox[^\n]*read[- ]only/iu.test(text)) {
           errorCategories.push('sandbox-write-denied');
         }
-        for (const match of text.matchAll(/\[COGNIS_POLICY:([A-Z0-9_]+)\]/gu)) hookReasonCodes.push(match[1]);
+        for (const match of text.matchAll(/\[COGNIS_POLICY:([A-Z0-9_]+)(?::(\d+))?\]/gu)) {
+          const reasonCode = match[1];
+          hookReasonCodes.push(reasonCode);
+          hookTimings.push({
+            event: inputEventFromContext(event),
+            action: 'deny',
+            reasonCode,
+            durationMs: match[2] ? Number(match[2]) : 0,
+          });
+        }
       }
     } catch {
       messages.push(line);
@@ -318,6 +340,7 @@ function transcript(stdout) {
     errorCategories: [...new Set(errorCategories)],
     events: [...new Set(events)],
     hookReasonCodes: [...new Set(hookReasonCodes)],
+    hookTimings,
     messages,
     output: messages.join('\n'),
     sessionId,
@@ -328,7 +351,8 @@ function transcript(stdout) {
   };
 }
 
-try {
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try {
   const startedAt = process.hrtime.bigint();
   const request = await stdin();
   if (![1, 2].includes(request?.schemaVersion) || typeof request?.workspace !== 'string' || typeof request?.case?.input?.scenario !== 'string') {
@@ -424,9 +448,15 @@ try {
       commands: parsed.commands,
       errorCategories: [...new Set(parsed.errorCategories)],
       hookReasonCodes: parsed.hookReasonCodes,
+      hookTimings: parsed.hookTimings,
       messages: parsed.messages,
       durationMs: Number((process.hrtime.bigint() - startedAt) / 1_000_000n),
       recoverableToolErrorCount,
+      ruleCoverage: (() => {
+        const expected = request.case.reporting?.expected?.rules ?? [];
+        return { expected, measured: expected };
+      })(),
+      skillTriggers: (request.case.reporting?.expected?.skills ?? []).map((id) => ({ id, source: 'declared' })),
       testSummary: hiddenTests.summary,
       tokenUsage: parsed.tokenUsage,
       toolCalls: parsed.toolCalls,
@@ -452,4 +482,5 @@ try {
 } catch (error) {
   process.stderr.write(`Codex evaluation runner unavailable: ${error.message}\n`);
   process.exitCode = 2;
+}
 }

@@ -31,7 +31,15 @@
                 "items": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*\\\\)(?!.*//).+$" },
                 "uniqueItems": true
               },
-              "toolMetricMode": { "type": "string", "enum": ["execute", "refuse", "exclude"] }
+              "toolMetricMode": { "type": "string", "enum": ["execute", "refuse", "exclude"] },
+              "expected": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "rules": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+                  "skills": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+                }
+              }
             },
             "additionalProperties": false
           },

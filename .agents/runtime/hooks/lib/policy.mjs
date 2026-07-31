@@ -401,10 +401,11 @@ export function analyzeToolRequest(input, {
   return { action: 'deny', reason: risk.reason, reasonCode: risk.reasonCode };
 }
 
-export function createCodexHookResult(event, decision) {
+export function createCodexHookResult(event, decision, { durationMs } = {}) {
   if (!decision || decision.action === 'allow') return {};
+  const durationSuffix = Number.isFinite(durationMs) && durationMs >= 0 ? `:${Math.round(durationMs)}` : '';
   const reason = decision.reasonCode
-    ? `[COGNIS_POLICY:${decision.reasonCode}] ${decision.reason}`
+    ? `[COGNIS_POLICY:${decision.reasonCode}${durationSuffix}] ${decision.reason}`
     : decision.reason;
   if (event === 'PermissionRequest' && decision.action !== 'deny') return {};
   if (decision.action === 'warn') {

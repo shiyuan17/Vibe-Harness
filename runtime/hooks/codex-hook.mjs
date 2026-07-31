@@ -36,6 +36,8 @@ async function readStdin() {
 }
 
 export async function evaluateCodexHook(rawInput, { expectedEvent, rtkRunner } = {}) {
+  const startedAt = process.hrtime.bigint();
+  const elapsedMs = () => Number((process.hrtime.bigint() - startedAt) / 1_000_000n);
   const input = normalizeCodexHookInput(rawInput);
   if (expectedEvent && input.event !== expectedEvent) {
     throw new Error('Hook event does not match the configured event.');
@@ -52,7 +54,7 @@ export async function evaluateCodexHook(rawInput, { expectedEvent, rtkRunner } =
     redZonePaths: settings.redZonePaths,
   });
   if (safetyDecision.action !== 'allow' || input.event === 'PermissionRequest') {
-    return createCodexHookResult(input.event, safetyDecision);
+    return createCodexHookResult(input.event, safetyDecision, { durationMs: elapsedMs() });
   }
 
   const rtk = await inspectRtkHook(rootDir, { enabled: settings.rtkEnabled });
@@ -62,7 +64,7 @@ export async function evaluateCodexHook(rawInput, { expectedEvent, rtkRunner } =
     rtk,
     ...(rtkRunner ? { runner: rtkRunner } : {}),
   });
-  return createCodexHookResult(input.event, rtkDecision);
+  return createCodexHookResult(input.event, rtkDecision, { durationMs: elapsedMs() });
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

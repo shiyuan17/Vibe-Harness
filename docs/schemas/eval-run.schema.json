@@ -83,7 +83,30 @@
                     "durationMs": { "type": "number", "minimum": 0 },
                     "errorCategories": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
                     "hookReasonCodes": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+                    "hookTimings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["action", "durationMs"],
+                        "properties": {
+                          "event": { "anyOf": [ { "type": "string" }, { "type": "null" } ] },
+                          "action": { "type": "string", "enum": ["allow", "warn", "deny"] },
+                          "reasonCode": { "anyOf": [ { "type": "string" }, { "type": "null" } ] },
+                          "durationMs": { "type": "number", "minimum": 0 }
+                        },
+                        "additionalProperties": false
+                      }
+                    },
                     "recoverableToolErrorCount": { "type": "integer", "minimum": 0 },
+                    "ruleCoverage": {
+                      "type": "object",
+                      "required": ["expected", "measured"],
+                      "properties": {
+                        "expected": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+                        "measured": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+                      },
+                      "additionalProperties": false
+                    },
                     "testSummary": {
                       "type": "object",
                       "required": ["apiContractFailures", "failed", "passed", "total"],
@@ -126,6 +149,18 @@
                     "toolOutcomes": { "type": "array", "items": { "type": "object", "required": ["type"], "properties": { "type": { "type": "string", "minLength": 1 }, "status": { "type": "string", "minLength": 1 }, "exitCode": { "type": "integer" }, "classification": { "type": "string", "enum": ["success", "expected-denial", "recoverable-failure", "fatal-failure", "unknown"] } }, "additionalProperties": false } },
                     "toolTypes": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
                     "totalTokens": { "type": "number", "minimum": 0 },
+                    "skillTriggers": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["id", "source"],
+                        "properties": {
+                          "id": { "type": "string", "minLength": 1 },
+                          "source": { "type": "string", "enum": ["declared", "observed"] }
+                        },
+                        "additionalProperties": false
+                      }
+                    },
                     "verificationCommandCount": { "type": "integer", "minimum": 0 },
                     "workspaceSummary": {
                       "type": "object",

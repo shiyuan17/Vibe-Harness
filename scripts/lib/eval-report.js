@@ -78,6 +78,106 @@ function latency(trials) {
   };
 }
 
+// Governance coverage: declarative rule/skill coverage aggregated across trials.
+// Each case may declare `reporting.expected.rules` / `reporting.expected.skills`
+// (ids from manifests/rules.json + manifests/skills.json). We report, per id,
+// how many cases declared it and how many of those passed, plus an overall
+// coverage ratio. Borrowed from NeMo Guardrails `activated_rails` model: the
+// per-rail usage ratio = declared-and-passed / declared.
+function aggregateRuleCoverage(trials) {
+  const rows = trials.filter((item) => item.trial.toolSummary?.ruleCoverage?.expected?.length);
+  const byRule = new Map();
+  for (const item of rows) {
+    for (const id of item.trial.toolSummary.ruleCoverage.expected) {
+      const entry = byRule.get(id) ?? { id, declaredCases: 0, passedCases: 0 };
+      entry.declaredCases += 1;
+      if (item.trial.passed) entry.passedCases += 1;
+      byRule.set(id, entry);
+    }
+  }
+  const list = [...byRule.values()].map((entry) => ({
+    ...entry,
+    passRate: entry.declaredCases ? round(entry.passedCases / entry.declaredCases) : null,
+  }));
+  const totalDeclared = sum(list, (item) => item.declaredCases);
+  const totalPassed = sum(list, (item) => item.passedCases);
+  return {
+    byRule: list,
+    collected: rows.length,
+    eligible: trials.length,
+    state: rows.length ? (rows.length < trials.length ? 'partial' : 'value') : 'unavailable',
+    totalDeclared,
+    totalPassed,
+    uniqueRules: list.length,
+    value: totalDeclared ? round(totalPassed / totalDeclared) : null,
+  };
+}
+
+function aggregateSkillTriggers(trials) {
+  const rows = trials.filter((item) => item.trial.toolSummary?.skillTriggers?.length);
+  const bySkill = new Map();
+  for (const item of rows) {
+    for (const trigger of item.trial.toolSummary.skillTriggers) {
+      const entry = bySkill.get(trigger.id) ?? { id: trigger.id, declaredCases: 0, passedCases: 0 };
+      entry.declaredCases += 1;
+      if (item.trial.passed) entry.passedCases += 1;
+      bySkill.set(trigger.id, entry);
+    }
+  }
+  const list = [...bySkill.values()].map((entry) => ({
+    ...entry,
+    passRate: entry.declaredCases ? round(entry.passedCases / entry.declaredCases) : null,
+  }));
+  const totalDeclared = sum(list, (item) => item.declaredCases);
+  const totalPassed = sum(list, (item) => item.passedCases);
+  return {
+    bySkill: list,
+    collected: rows.length,
+    eligible: trials.length,
+    state: rows.length ? (rows.length < trials.length ? 'partial' : 'value') : 'unavailable',
+    totalDeclared,
+    totalPassed,
+    uniqueSkills: list.length,
+    value: totalDeclared ? round(totalPassed / totalDeclared) : null,
+  };
+}
+
+// Hook timing: aggregates [COGNIS_POLICY:CODE:durationMs] markers harvested
+// from the transcript. Mirrors OTel `gen_ai.execute_tool.duration` p50/p95
+// reporting and Claude Code's duration_ms vs duration_api_ms split (here the
+// hook overhead is isolated from the whole-trial durationMs).
+function aggregateHookTimings(trials) {
+  const rows = trials.flatMap((item) => item.trial.toolSummary?.hookTimings ?? []);
+  if (rows.length === 0) {
+    return { averageMs: null, byReasonCode: [], collected: 0, eligible: trials.length, p50Ms: null, p95Ms: null, slowestMs: null, state: 'unavailable', totalInvocations: 0, total: trials.length };
+  }
+  const durations = rows.map((item) => item.durationMs).filter(Number.isFinite);
+  const byCode = new Map();
+  for (const row of rows) {
+    const code = row.reasonCode ?? 'UNKNOWN';
+    const entry = byCode.get(code) ?? { averageMs: 0, count: 0, reasonCode: code, totalMs: 0 };
+    entry.count += 1;
+    entry.totalMs += Number(row.durationMs ?? 0);
+    byCode.set(code, entry);
+  }
+  return {
+    averageMs: durations.length ? round(sum(durations, (value) => value) / durations.length, 2) : null,
+    byReasonCode: [...byCode.values()].map((entry) => ({
+      averageMs: entry.count ? round(entry.totalMs / entry.count, 2) : null,
+      count: entry.count,
+      reasonCode: entry.reasonCode,
+    })).sort((left, right) => right.count - left.count),
+    collected: rows.length,
+    eligible: trials.length,
+    p50Ms: percentile(durations, 0.5),
+    p95Ms: percentile(durations, 0.95),
+    slowestMs: durations.length ? Math.max(...durations) : null,
+    state: rows.length ? 'value' : 'unavailable',
+    totalInvocations: rows.length,
+    total: trials.length,
+  };
+}
+
 function aggregateSuite(run, suite) {
   const summaries = run.trialSummaries ?? [];
   const trials = trialRows(run, suite);
@@ -191,6 +291,9 @@ export function buildEvalReportModel({
   const changedTotal = sum(writeCollected, (item) => item.trial.toolSummary.workspaceSummary.totalChangedCount);
   const tokenUsage = aggregateTokens(trials);
   const durations = latency(trials);
+  const ruleCoverage = aggregateRuleCoverage(trials);
+  const skillTriggers = aggregateSkillTriggers(trials);
+  const hookTimings = aggregateHookTimings(trials);
   const reworkMinutes = summaries.reduce((total, summary) => {
     if (summary.passAt1 === 1) return total;
     const definition = [executionSuite, canarySuite].flatMap((suite) => suite.cases ?? []).find((item) => item.id === summary.caseId);
@@ -218,9 +321,12 @@ export function buildEvalReportModel({
       trials: (summary.perTrial ?? []).map((trial) => ({
         errorCategories: trial.toolSummary?.errorCategories ?? [],
         failedAssertions: trial.failedAssertions ?? [],
+        hookTimings: trial.toolSummary?.hookTimings ?? [],
         passed: trial.passed,
         repetition: trial.repetition,
+        ruleCoverage: trial.toolSummary?.ruleCoverage ?? null,
         score: trial.score,
+        skillTriggers: trial.toolSummary?.skillTriggers ?? [],
         testSummary: trial.toolSummary?.testSummary ?? null,
         timingMs: trial.toolSummary?.durationMs ?? null,
         tokenUsage: trial.toolSummary?.tokenUsage ?? null,
@@ -256,10 +362,13 @@ export function buildEvalReportModel({
       estimatedReworkMinutes: scalar(reworkMinutes, { collected: summaries.length, eligible: summaries.length, state: 'estimated', total: summaries.length }),
       firstPassRate: measured(firstPassCases, totalCases),
       hallucinatedApis: scalar(apiExistenceFailures, { collected: existenceCollected.length, eligible: existenceEligible.length, state: existenceCollected.length ? (existenceCollected.length < existenceEligible.length ? 'partial' : 'value') : 'unavailable', total: trials.length }),
+      hookTimings,
       infrastructureHealthRate: measured(readyTrials, startedTrials, { collected: startedTrials, eligible: startedTrials, state: startedTrials ? (attemptsHaveHistory ? 'value' : 'partial') : 'unavailable', total: attemptsHaveHistory ? startedTrials : null }),
       latency: durations,
       recoveryRate: measured(recoveredTrials, recoverableTrials.length, { collected: trials.length, eligible: recoverableTrials.length, total: trials.length }),
+      ruleCoverage,
       safetyFalsePositiveRate: measured(safetyFalsePositives, legalWriteEligible, { collected: legalWriteCollected, eligible: legalWriteEligible, state: legalWriteCollected ? (legalWriteEligible ? (attemptsHaveHistory ? 'value' : 'partial') : 'na') : 'unavailable', total: attemptsHaveHistory ? startedTrials : null }),
+      skillTriggers,
       stablePassRate: measured(stableCases, stableEligible.length, { collected: stableEligible.length, eligible: stableEligible.length, state: stableEligible.length ? 'value' : 'na', total: totalCases }),
       taskCompletionRate: measured(completedCases, totalCases),
       testPassRate: measured(testsPassed, testsTotal, { collected: testRows.length, eligible: testEligible.length, state: testRows.length ? (testRows.length < testEligible.length ? 'partial' : (testsTotal ? 'value' : 'na')) : 'unavailable', total: trials.length }),
@@ -343,11 +452,15 @@ function trialDetails(item, maxDuration, maxTokens) {
     const workspace = trial.workspaceSummary;
     const tokens = trial.tokenUsage?.totalTokens ?? 0;
     const duration = trial.timingMs ?? 0;
+    const hookTimings = trial.hookTimings ?? [];
+    const hookMs = hookTimings.length ? hookTimings.reduce((total, item) => total + (item.durationMs ?? 0), 0) : null;
+    const rules = trial.ruleCoverage?.expected ?? [];
+    const skills = (trial.skillTriggers ?? []).map((trigger) => trigger.id);
     return `<details class="trial"><summary><span>Trial ${trial.repetition}</span><b class="${trial.passed ? 'ok-text' : 'bad-text'}">${trial.passed ? '通过' : '失败'}</b><span>${duration ? `${round(duration / 1000, 1)}s` : '耗时未采集'}</span><span>${tokens ? `${new Intl.NumberFormat('zh-CN').format(tokens)} Token` : 'Token 未采集'}</span></summary>
       <div class="trial-grid">
         <div><h4>耗时</h4>${bar(duration, maxDuration, `${duration} ms`)}<p>${duration || '未采集'} ms</p></div>
         <div><h4>Token</h4>${bar(tokens, maxTokens, `${tokens} token`)}<p>${tokens || '未采集'}</p></div>
-        <dl><dt>验证次数</dt><dd>${trial.verificationCount ?? '未采集'}</dd><dt>工具终态</dt><dd>${outcomes ? `成功 ${outcomes.successful ?? 0} / 预期拒绝 ${outcomes.expectedDenied ?? 0} / 意外失败 ${outcomes.unexpectedFailed ?? outcomes.failed ?? 0} / 未知 ${outcomes.unknown ?? 0}` : '未采集'}</dd><dt>隐藏测试</dt><dd>${tests ? `${tests.passed}/${tests.total}；API 存在性失败 ${tests.apiExistenceFailures ?? '未采集'}` : '不适用'}</dd><dt>Workspace</dt><dd>${workspace ? `允许变化 ${workspace.allowedChangedCount} / 未声明变化 ${workspace.undeclaredWriteCount}` : '未采集'}</dd><dt>错误类别</dt><dd>${trial.errorCategories.length ? trial.errorCategories.map(escapeHtml).join('、') : '无'}</dd></dl>
+        <dl><dt>验证次数</dt><dd>${trial.verificationCount ?? '未采集'}</dd><dt>工具终态</dt><dd>${outcomes ? `成功 ${outcomes.successful ?? 0} / 预期拒绝 ${outcomes.expectedDenied ?? 0} / 意外失败 ${outcomes.unexpectedFailed ?? outcomes.failed ?? 0} / 未知 ${outcomes.unknown ?? 0}` : '未采集'}</dd><dt>隐藏测试</dt><dd>${tests ? `${tests.passed}/${tests.total}；API 存在性失败 ${tests.apiExistenceFailures ?? '未采集'}` : '不适用'}</dd><dt>Workspace</dt><dd>${workspace ? `允许变化 ${workspace.allowedChangedCount} / 未声明变化 ${workspace.undeclaredWriteCount}` : '未采集'}</dd><dt>错误类别</dt><dd>${trial.errorCategories.length ? trial.errorCategories.map(escapeHtml).join('、') : '无'}</dd><dt>Hook 耗时</dt><dd>${hookMs === null ? '未采集' : `${round(hookMs, 1)} ms · ${hookTimings.length} 次`}</dd><dt>声明规则</dt><dd>${rules.length ? rules.map(escapeHtml).join('、') : '未声明'}</dd><dt>声明技能</dt><dd>${skills.length ? skills.map(escapeHtml).join('、') : '未声明'}</dd></dl>
       </div></details>`;
   }).join('');
 }
@@ -394,6 +507,11 @@ export function renderEvalReport(model) {
       card('上下文命中率', percent(m.contextHitRate), 'cached input / input', m.contextHitRate, m.contextHitRate.state),
       card('验证执行率', percent(m.verificationRate), 'Execution trial 主动验证', m.verificationRate, m.verificationRate.state),
     ]],
+    ['治理覆盖', [
+      card('规则覆盖通过率', percent(m.ruleCoverage), `声明规则 ${m.ruleCoverage.uniqueRules} 种 · 覆盖 ${m.ruleCoverage.totalDeclared} case 次`, m.ruleCoverage, m.ruleCoverage.state === 'unavailable' ? 'unavailable' : 'neutral'),
+      card('技能覆盖通过率', percent(m.skillTriggers), `声明技能 ${m.skillTriggers.uniqueSkills} 种 · 覆盖 ${m.skillTriggers.totalDeclared} case 次`, m.skillTriggers, m.skillTriggers.state === 'unavailable' ? 'unavailable' : 'neutral'),
+      card('Hook 平均耗时', m.hookTimings.state === 'unavailable' ? '未采集' : `${round(m.hookTimings.averageMs, 1)} ms`, m.hookTimings.state === 'unavailable' ? '策略标记未采集' : `P50 ${m.hookTimings.p50Ms ?? '—'} ms · P95 ${m.hookTimings.p95Ms ?? '—'} ms · ${m.hookTimings.totalInvocations} 次 · 最慢 reasonCode ${m.hookTimings.byReasonCode[0]?.reasonCode ?? '—'}`, m.hookTimings, m.hookTimings.state === 'unavailable' ? 'unavailable' : 'neutral'),
+    ]],
     ['工具与基础设施', [
       card('工具有效结果率', percent(m.toolEffectiveResultRate), `预期拒绝 ${m.toolExpectedDenied} · 意外失败 ${m.toolUnexpectedFailed} · 未知 ${m.toolUnknown}`, m.toolEffectiveResultRate, tone(m.toolEffectiveResultRate, (v) => v === 1)),
       card('错误恢复率', percent(m.recoveryRate), '可恢复工具错误后最终通过', m.recoveryRate, m.recoveryRate.state),
@@ -410,7 +528,7 @@ export function renderEvalReport(model) {
     card('历史对比', model.comparisons.execution.compatible && model.comparisons.canary.compatible ? '可比较' : '未计算趋势', `${model.comparisons.execution.reason}；${model.comparisons.canary.reason}`, null, model.comparisons.execution.compatible && model.comparisons.canary.compatible ? 'good' : 'neutral'),
   ].join('');
   const methods = [
-    ['任务完成率', 'passAtK=1 case / 全部 case；表示至少一次完成'], ['Trial 完成率', '通过的 ready trial / 全部 ready trial'], ['首次通过率', 'passAt1=1 case / 全部 case'], ['稳定通过率', '仅 repetitions>1 case 中 passCaretK=1 / eligible case'], ['工具有效结果率', '(成功 + 符合预期的拒绝) / 已知有效终态'], ['Token 效率', '分别按 ready trial、完成 case 和 suite 归一化'], ['基础设施健康率', '同 campaign 的 ready trial / started trial；缺 attempt 历史时为部分覆盖'], ['虚构 API 数', '仅 diagnosticCategory=api-existence 的失败'], ['安全误拦截率', '合法写入被基础设施阻止 / eligibleLegalWriteTrials'], ['人工返工时间', '模型首轮失败按 low/medium/high/critical = 15/30/45/60 分钟估算，不含基础设施故障'],
+    ['任务完成率', 'passAtK=1 case / 全部 case；表示至少一次完成'], ['Trial 完成率', '通过的 ready trial / 全部 ready trial'], ['首次通过率', 'passAt1=1 case / 全部 case'], ['稳定通过率', '仅 repetitions>1 case 中 passCaretK=1 / eligible case'], ['工具有效结果率', '(成功 + 符合预期的拒绝) / 已知有效终态'], ['Token 效率', '分别按 ready trial、完成 case 和 suite 归一化'], ['基础设施健康率', '同 campaign 的 ready trial / started trial；缺 attempt 历史时为部分覆盖'], ['虚构 API 数', '仅 diagnosticCategory=api-existence 的失败'], ['安全误拦截率', '合法写入被基础设施阻止 / eligibleLegalWriteTrials'], ['人工返工时间', '模型首轮失败按 low/medium/high/critical = 15/30/45/60 分钟估算，不含基础设施故障'], ['规则覆盖通过率', 'case 声明 reporting.expected.rules 的通过 case 次 / 声明 case 次；借鉴 NeMo Guardrails activated_rails 模型'], ['技能覆盖通过率', 'case 声明 reporting.expected.skills 的通过 case 次 / 声明 case 次'], ['Hook 耗时', '[COGNIS_POLICY:CODE:ms] 标记解析的 hook 执行耗时；借鉴 OTel gen_ai.execute_tool.duration 的 p50/p95 报告'],
   ].map(([name, definition]) => `<tr><th scope="row">${name}</th><td>${definition}</td></tr>`).join('');
   const provenance = model.runs.map((run) => `<li><strong>${escapeHtml(run.suiteId)} ${escapeHtml(run.suiteVersion)}</strong><span>${escapeHtml(run.model)} · ${escapeHtml(run.agent)} · ${escapeHtml(run.runtime?.backend ?? 'backend 未采集')} · campaign ${escapeHtml(run.campaignId ?? '未采集')}</span></li>`).join('');
   const data = JSON.stringify({ generatedAt: model.generatedAt, metrics: model.metrics }).replaceAll('<', '\\u003c');

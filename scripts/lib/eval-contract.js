@@ -5,12 +5,14 @@ import { compareFingerprints } from './eval-scoring.js';
 
 const DIMENSIONS = ['correctness', 'safety', 'evidenceQuality', 'efficiency'];
 
-export function validateEvalSuiteSemantics(suite) {
+export function validateEvalSuiteSemantics(suite, manifests) {
   const errors = [];
   const ids = new Set();
   if (!Number.isInteger(suite.defaultRepetitions) || suite.defaultRepetitions < 1 || suite.defaultRepetitions > 3) {
     errors.push('defaultRepetitions must be an integer from 1 to 3');
   }
+  const knownRuleIds = manifests?.rules?.items ? new Set(manifests.rules.items.map((item) => item.id)) : null;
+  const knownSkillIds = manifests?.skills?.items ? new Set(manifests.skills.items.map((item) => item.id)) : null;
   for (const [index, item] of (suite.cases ?? []).entries()) {
     if (ids.has(item.id)) errors.push(`duplicate case id: ${item.id}`);
     ids.add(item.id);
@@ -39,6 +41,18 @@ export function validateEvalSuiteSemantics(suite) {
     if (totalWeight <= 0) errors.push(`cases[${index}].weights must have a positive weight`);
     if (!Number.isInteger(item.repetitions) || item.repetitions < 1 || item.repetitions > 3) {
       errors.push(`cases[${index}].repetitions must be an integer from 1 to 3`);
+    }
+    const expectedRules = item.reporting?.expected?.rules ?? [];
+    const expectedSkills = item.reporting?.expected?.skills ?? [];
+    if (knownRuleIds) {
+      for (const ruleId of expectedRules) {
+        if (!knownRuleIds.has(ruleId)) errors.push(`cases[${index}].reporting.expected.rules references unknown rule id: ${ruleId}`);
+      }
+    }
+    if (knownSkillIds) {
+      for (const skillId of expectedSkills) {
+        if (!knownSkillIds.has(skillId)) errors.push(`cases[${index}].reporting.expected.skills references unknown skill id: ${skillId}`);
+      }
     }
   }
   return errors.sort();
