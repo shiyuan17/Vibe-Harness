@@ -109,6 +109,10 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
   const normalizedMemoryPath = memoryPath.replaceAll('\\', '/').replace(/\/+$/u, '');
   const hasLocalMemory = installedTargets.includes(`${normalizedMemoryPath}/README.md`);
   const hasGovernanceMemory = hasPrefix('docs/memory/');
+  const installedIntegrationSkills = [
+    hasSkill('browser-verification/SKILL.md') ? 'browser-verification' : null,
+    hasSkill('agentmemory/SKILL.md') ? 'agentmemory' : null,
+  ].filter(Boolean);
   const profileLines = {
     core: '- 当前安装方式：通用安装（不包含扩展 MCP 或 hooks 安装面）。',
     'docs-only': '- 当前安装方式：仅文档安装。',
@@ -116,7 +120,7 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
     minimal: '- 当前安装方式：最小安装。',
   };
 
-  return {
+  const installedSurface = {
     clarificationPostureLine: hasSkill('clarify-requirements/SKILL.md')
       ? `- 需求澄清姿态：\`${clarificationPosture}\`（action-leaning 偏向采用最小可逆默认值直接推进；balanced 按规则判断；conservative 对跨模块或公共契约改动也倾向先确认）。`
       : '',
@@ -153,6 +157,12 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
       ? `- 项目内工具位于 \`.agents/runtime/tools/\`；使用 \`cognis doctor --project <path>\` 查看初始化状态。${hasTarget('docs/rules/chrome-devtools-mcp.md') ? ' Chrome DevTools MCP 规则位于 \`docs/rules/chrome-devtools-mcp.md\`。' : ''}${hasRtkTool ? ' RTK 规则位于 \`docs/rules/rtk.md\`。' : ''}${hasAstGrepTool ? ' ast-grep 规则位于 \`docs/rules/ast-grep.md\`。' : ''}`
       : '',
   };
+  if (installedIntegrationSkills.length > 0) {
+    installedSurface.profileLine += ' 当前另安装 integration Skills：'
+      + installedIntegrationSkills.join('、')
+      + '；它们不计入 profile 的原生领域 Skill 数量。';
+  }
+  return installedSurface;
 }
 
 function memoryTargetPath(renderData, relativeTarget) {

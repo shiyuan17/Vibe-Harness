@@ -63,6 +63,8 @@ Cognis 用来打包可复用的 AI coding 项目规则、领域 Skills、安全 
 
 ## 已安装表面
 
+- Skill 分类：下述八个领域 Skills 是 full profile 的八个原生领域 Skills；当前另安装 browser-verification integration Skill，它不计入该数量。
+
 - 当前安装方式：完整能力安装（包含八个领域 Skills、可选 Eval 和 Codex 安全 Hook；memory 与外部工具仅通过 `--plugin` 显式启用）。
 
 - 规则位于 `docs/rules/`。

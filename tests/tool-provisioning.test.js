@@ -41,7 +41,12 @@ const PROFILE_TOOL_MODULES = [
   'open-code-review',
 ];
 
-function successfulToolOutput(request, targetDir) {
+async function successfulToolOutput(request, targetDir, { materializeCodebaseMemoryRuntime = true } = {}) {
+  if (request.component === 'codebaseMemoryMcp'
+    && request.phase === 'binary-install'
+    && materializeCodebaseMemoryRuntime) {
+    await seedCodebaseMemoryRuntime(request.cwd);
+  }
   if (request.component === 'codebaseMemoryMcp' && request.phase === 'index') {
     return {
       stdout: JSON.stringify({
@@ -723,7 +728,7 @@ test('a successful codebase-memory binary install repairs a still-missing runtim
       },
       commandRunner: async (request) => {
         calls.push(request);
-        return successfulToolOutput(request, targetDir);
+        return successfulToolOutput(request, targetDir, { materializeCodebaseMemoryRuntime: false });
       },
       env: {},
       profile: 'full',

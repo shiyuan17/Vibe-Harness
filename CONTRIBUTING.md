@@ -52,6 +52,8 @@ git diff --check
 | runtime tool lockfile/provision | `pnpm runtime:audit` |
 | 浏览器行为 | 真实浏览器关键路径 |
 
+installer 集成验证应覆盖已有文件拒写、红区确认、目标路径逃逸和事务回滚边界。
+
 不要为了满足固定流程运行无关 Review/Test。没有本轮输出时，不得复用历史结果声称通过。
 
 ## Pull Request

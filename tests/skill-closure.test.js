@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
 
-import { createInstallPlan } from '../scripts/lib/install-planner.js';
+import { createInstallPlan, renderActionContent } from '../scripts/lib/install-planner.js';
 import { readJson } from '../scripts/lib/manifest.js';
 import { runSkillsAudit } from '../scripts/lib/skills-audit.js';
 
@@ -74,8 +74,25 @@ test('browser verification and Agentmemory remain explicit integrations', async 
 
   const browser = await createInstallPlan({ dryRun: true, requestedModules: ['playwright'], profile: 'core', rootDir, targetDir: path.join(rootDir, '.tmp-skills-browser') });
   assert.equal(browser.actions.some((entry) => entry.relativeTarget === '.agents/skills/browser-verification/SKILL.md'), true);
+  const agents = browser.actions.find((entry) => entry.relativeTarget === 'AGENTS.md');
+  const agentsContent = await renderActionContent(agents, browser.renderData);
+  assert.match(agentsContent, /integration Skills：browser-verification/u);
+  assert.match(agentsContent, /不计入 profile 的原生领域 Skill 数量/u);
+
   const memory = await createInstallPlan({ dryRun: true, requestedModules: ['memory'], profile: 'full', rootDir, targetDir: path.join(rootDir, '.tmp-skills-memory') });
   assert.equal(memory.actions.some((entry) => entry.relativeTarget === '.agents/skills/agentmemory/SKILL.md'), true);
+  const memoryAgents = memory.actions.find((entry) => entry.relativeTarget === 'AGENTS.md');
+  const memoryAgentsContent = await renderActionContent(memoryAgents, memory.renderData);
+  assert.match(memoryAgentsContent, /integration Skills：agentmemory/u);
+  assert.match(memoryAgentsContent, /不计入 profile 的原生领域 Skill 数量/u);
+
+  const combined = await createInstallPlan({ dryRun: true, requestedModules: ['playwright', 'memory'], profile: 'full', rootDir, targetDir: path.join(rootDir, '.tmp-skills-combined') });
+  assert.equal(combined.actions.some((entry) => entry.relativeTarget === '.agents/skills/browser-verification/SKILL.md'), true);
+  assert.equal(combined.actions.some((entry) => entry.relativeTarget === '.agents/skills/agentmemory/SKILL.md'), true);
+  const combinedAgents = combined.actions.find((entry) => entry.relativeTarget === 'AGENTS.md');
+  const combinedAgentsContent = await renderActionContent(combinedAgents, combined.renderData);
+  assert.match(combinedAgentsContent, /integration Skills：browser-verification、agentmemory/u);
+  assert.match(combinedAgentsContent, /不计入 profile 的原生领域 Skill 数量/u);
 });
 
 test('retirement catalog covers every removed Router and flow Skill', async () => {
