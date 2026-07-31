@@ -244,17 +244,19 @@ async function terminateProcessTree(child) {
     }
     return;
   }
-  await new Promise((resolve) => {
+  const killedTree = await new Promise((resolve) => {
     const killer = spawn('taskkill.exe', ['/pid', String(child.pid), '/t', '/f'], {
       stdio: 'ignore',
       windowsHide: true,
     });
-    killer.once('error', () => {
-      child.kill();
-      resolve();
-    });
-    killer.once('close', resolve);
+    killer.once('error', () => resolve(false));
+    killer.once('close', (code) => resolve(code === 0));
   });
+  if (!killedTree && child.exitCode === null) child.kill('SIGKILL');
+  await Promise.race([
+    new Promise((resolve) => child.once('close', resolve)),
+    new Promise((resolve) => setTimeout(resolve, 500)),
+  ]);
 }
 
 function appendOutputTail(current, chunk) {

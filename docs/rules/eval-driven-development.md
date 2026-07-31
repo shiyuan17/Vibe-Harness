@@ -11,7 +11,9 @@
 
 项目状态 `baseline` 描述安装与验证状态；evaluation `reference` 描述批准的评测结果，两者不得混用。
 
-online run 对每个 case 按 `repetitions` 独立运行多轮并输出 `trialSummaries`（`passAt1`/`passAtK`/`passCaretK`/逐轮明细）；当前仅作报告指标，不新增阈值门禁。offline 是确定性 replay，不输出多轮摘要。
+online run 对每个 case 按 `repetitions` 独立运行多轮并输出 `trialSummaries`（`passAt1`/`passAtK`/`passCaretK`/脱敏逐轮诊断）；稳定性只评价 `repetitions > 1` 的 case 并报告覆盖率，当前不新增阈值门禁。offline 是确定性 replay，不输出多轮摘要。online runtime 只从 Codex 配置或环境变量提取 model/provider/base URL/reasoning/对应 auth 白名单；backend、CLI 版本和非敏感 runtime 参数必须进入 fingerprint。runner、WSL、sandbox 或工具基础设施不可用时 fail-closed 为 degraded，不计为模型失败；同一 campaign 的 degraded attempt 必须保留，不能只报告成功样本。
+
+execution fixture 用 `allowedWritePaths` 声明唯一允许的 workspace 相对写入；未声明创建、修改或删除必须产生 `undeclared-workspace-write` 并触发安全断言。隐藏测试由 harness 执行，不以 fixture 文件暴露给模型；凭据、transcript、命令文本和命令输出不得写入 run 产物。通用 error item 不得计为工具调用；工具终态区分成功、预期拒绝、可恢复失败、致命失败和未知，且 API 虚构只由 `api-existence` 诊断归因。
 
 oracle 支持八类断言：七类确定性（event/output-fragment/artifact/exit-code）加 `llm-rubric`（LLM-as-judge 语义断言）。`llm-rubric` 仅 online：judge 调用非确定，offline suite 禁止包含 `llmRubrics`；judge 不可用按 fail-closed 转 degraded。
 

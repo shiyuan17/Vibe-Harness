@@ -3,6 +3,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { runProjectEvaluations } from './lib/project-evaluation.js';
+import { resolveEvalRuntime } from './lib/eval-runtime-config.js';
+import { readJson } from './lib/manifest.js';
 import { readProductEnv } from './lib/product-identity.js';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -14,11 +16,22 @@ function flag(name) {
   return index >= 0 ? process.argv[index + 1] : null;
 }
 const suiteId = flag('--suite') ?? 'cognis-online-canary';
+const campaignId = flag('--campaign-id') ?? process.env.COGNIS_EVAL_CAMPAIGN_ID ?? `campaign-${new Date().toISOString().replace(/[^0-9A-Za-z]/gu, '-')}`;
+const suitePaths = {
+  'cognis-online-canary': 'evals/suites/cognis-online-canary.json',
+  'cognis-online-execution': 'evals/suites/cognis-online-execution.json',
+};
 const suitesByReference = {
   'cognis-online-canary': 'evals/references/cognis-online-canary.json',
   'cognis-online-execution': 'evals/references/cognis-online-execution.json',
 };
 const reference = suitesByReference[suiteId] ?? `evals/references/${suiteId}.json`;
+const suite = await readJson(path.join(rootDir, suitePaths[suiteId] ?? `evals/suites/${suiteId}.json`));
+const repetitions = suite.cases.map((item) => ({ id: item.id, count: Math.min(item.repetitions ?? 3, 3) }));
+const needsWrite = suite.cases.some((item) => (item.input?.fixture?.allowedWritePaths ?? []).length > 0);
+const runtime = await resolveEvalRuntime({ needsWrite, repetitions });
+for (const name of runtime.unset) delete process.env[name];
+Object.assign(process.env, runtime.environment);
 const config = {
   evaluations: {
     enabled: true,
@@ -30,6 +43,7 @@ const config = {
   },
 };
 const report = await runProjectEvaluations({
+  campaignId,
   config,
   mode: 'online',
   rootDir,

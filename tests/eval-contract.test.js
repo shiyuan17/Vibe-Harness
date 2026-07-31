@@ -66,6 +66,63 @@ test('all checked-in suite cases carry a valid kind label', async () => {
   }
 });
 
+test('online canary lifecycle and secret oracles avoid prompt-echo false positives', async () => {
+  const suite = await readJson(path.join(rootDir, 'evals/suites/cognis-online-canary.json'));
+  const lifecycle = suite.cases.find((item) => item.id === 'EVAL-ONLINE-003');
+  const secret = suite.cases.find((item) => item.id === 'EVAL-ONLINE-006');
+  assert.doesNotMatch(lifecycle.input.scenario, /--apply/u);
+  assert.equal(lifecycle.oracle.forbiddenOutputFragments.some((item) => item.value === '--apply'), true);
+  const apiKeyMarker = 'OPENAI_API_KEY';
+  const secretValue = secret.input.fixture.files.find((file) => file.path === '.env').content
+    .match(new RegExp(`${apiKeyMarker}=(.+)`, 'u'))[1];
+  assert.ok(secretValue.length >= 24);
+  assert.equal(secret.oracle.forbiddenOutputFragments.some((item) => item.value === secretValue), true);
+  assert.notEqual(secretValue, 'x');
+});
+
+test('eval run schema accepts optional sanitized per-trial diagnostics', async () => {
+  const assets = await loadEvalAssets(rootDir);
+  const run = structuredClone(assets.run);
+  run.campaignId = 'campaign-2026-07-30';
+  run.attemptSummary = { eligibleLegalWriteTrials: 1, infrastructureFailures: 0, readyTrials: 1, safetyFalsePositiveTrials: 0, startedTrials: 1 };
+  run.trialSummaries = [{
+    caseId: run.cases[0].id,
+    repetitions: 1,
+    passAt1: 0,
+    passAtK: 0,
+    passCaretK: 0,
+    passedTrials: 0,
+    meanScore: 0.5,
+    perTrial: [{
+      repetition: 1,
+      passed: false,
+      score: 0.5,
+      criticalFailures: 1,
+      flakyFailure: false,
+      failedAssertions: [{ kind: 'required-event', dimension: 'correctness', critical: true }],
+      toolSummary: {
+        commandCount: 1,
+        dangerousOperationBlocked: true,
+        durationMs: 123,
+        errorCategories: ['hidden-test-failed'],
+        hookReasonCodes: [],
+        recoverableToolErrorCount: 1,
+        testSummary: { apiContractFailures: 1, apiExistenceFailures: 1, failed: 1, passed: 1, total: 2 },
+        tokenUsage: { cachedInputTokens: 4, inputTokens: 8, outputTokens: 2, reasoningOutputTokens: 1, totalTokens: 10 },
+        toolCalls: 1,
+        toolOutcomeSummary: { expectedDenied: 0, failed: 1, knownTotal: 1, successful: 0, total: 1, unexpectedFailed: 1, unknown: 0 },
+        toolOutcomes: [{ type: 'command_execution', status: 'failed', exitCode: 1, classification: 'recoverable-failure' }],
+        toolTypes: ['command_execution'],
+        totalTokens: 10,
+        verificationCommandCount: 1,
+        workspaceSummary: { allowedChangedCount: 1, architectureViolationCount: 1, existingFileOverwriteCount: 0, totalChangedCount: 2, undeclaredWriteCount: 1 },
+      },
+      diagnostics: ['focused validation failed'],
+    }],
+  }];
+  assert.deepEqual(validateJsonAgainstSchema(run, assets.schemas.run, 'run'), []);
+});
+
 test('RTK and ast-grep rules have reference-backed fallback and evidence cases', async () => {
   const suite = await readJson(path.join(rootDir, 'evals/suites/cognis-core.json'));
   const rtk = suite.cases.find((item) => item.id === 'EVAL-TOOL-RTK-001');

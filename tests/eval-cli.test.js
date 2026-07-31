@@ -313,7 +313,7 @@ test('online eval uses the runner contract, degrades without reference, then pas
       'eval', 'reference', '--project', target, '--from', first.payload.written[0],
       '--write', '--confirm-reference-update',
     ]);
-    assert.equal(approved.code, 0);
+    assert.equal(approved.code, 0, JSON.stringify(approved.payload));
     const second = await run([
       'eval', 'run', '--project', target, '--suite', 'online-smoke', '--mode', 'online', '--runner', command,
     ]);
@@ -323,6 +323,8 @@ test('online eval uses the runner contract, degrades without reference, then pas
     assert.equal(second.payload.run.trialSummaries.length, suite.cases.length);
     assert.equal(second.payload.run.cases.length, suite.cases.length);
     assert.equal(second.payload.run.trialSummaries[0].passCaretK, 1);
+    assert.match(second.payload.run.campaignId, /^campaign-/u);
+    assert.equal(Number.isInteger(second.payload.run.attemptSummary.eligibleLegalWriteTrials), true);
   } finally {
     await Promise.all([target, runnerRoot].map((root) => rm(root, { force: true, recursive: true })));
   }
@@ -345,6 +347,10 @@ test('online runner degradation writes a diagnostic artifact and stops immediate
     const diagnostic = JSON.parse(await readFile(path.join(target, result.payload.written[0]), 'utf8'));
     assert.equal(diagnostic.status, 'degraded');
     assert.equal(diagnostic.diagnostics.length, 1);
+    assert.match(diagnostic.campaignId, /^campaign-/u);
+    assert.equal(diagnostic.suite.id, 'cognis-core');
+    assert.equal(typeof diagnostic.fingerprint.model, 'string');
+    assert.equal(Number.isInteger(diagnostic.attemptSummary.eligibleLegalWriteTrials), true);
   } finally {
     await Promise.all([target, runnerRoot].map((root) => rm(root, { force: true, recursive: true })));
   }

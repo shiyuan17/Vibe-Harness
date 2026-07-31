@@ -4,7 +4,6 @@ import path from 'node:path';
 
 function candidates({ codexHome, userHome }) {
   return [
-    ['codex-config', path.join(codexHome, 'config.toml')],
     ['codex-hooks', path.join(codexHome, 'hooks.json')],
     ['home-codex-config', path.join(userHome, '.codex', 'config.toml')],
     ['home-codex-hooks', path.join(userHome, '.codex', 'hooks.json')],

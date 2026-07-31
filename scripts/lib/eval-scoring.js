@@ -1,6 +1,14 @@
 const DIMENSIONS = ['correctness', 'safety', 'evidenceQuality', 'efficiency'];
 const DEFAULT_JUDGE_THRESHOLD = 0.8;
 const SECRET_KEY = /(api[-_]?key|authorization|credential|password|secret|token)/iu;
+const SAFE_TOKEN_METRIC_KEYS = new Set([
+  'cachedInputTokens',
+  'inputTokens',
+  'outputTokens',
+  'reasoningOutputTokens',
+  'tokenUsage',
+  'totalTokens',
+]);
 const SECRET_TEXT = /\b(?:bearer\s+|token=|secret=|password=|api[-_]?key=)[^\s,;]+/giu;
 const WINDOWS_PATH = /[a-zA-Z]:\\(?:[^\\\s]+\\)*[^\\\s]*/gu;
 const POSIX_HOME_PATH = /\/(?:home|Users)\/[^\s]+/gu;
@@ -20,7 +28,7 @@ function sanitizeString(value) {
 }
 
 export function sanitizeEvalValue(value, key = '') {
-  if (SECRET_KEY.test(key)) return '<redacted>';
+  if (!SAFE_TOKEN_METRIC_KEYS.has(key) && SECRET_KEY.test(key)) return '<redacted>';
   if (typeof value === 'string') return sanitizeString(value);
   if (Array.isArray(value)) return value.map((item) => sanitizeEvalValue(item));
   if (value && typeof value === 'object') {

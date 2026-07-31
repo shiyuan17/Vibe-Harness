@@ -14,7 +14,9 @@ const evaluationEnvironmentNames = new Set([
   'ALL_PROXY', 'ANTHROPIC_API_KEY', 'APPDATA', 'AZURE_OPENAI_API_KEY', 'CODEX_CLI_VERSION',
   'CODEX_HOME', 'CODEX_MODEL', 'COMSPEC', 'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'HOME',
   'HTTPS_PROXY', 'HTTP_PROXY', 'LANG', 'LC_ALL', 'LC_CTYPE', 'LOCALAPPDATA',
-  'CODEX_REASONING_EFFORT', 'COGNIS_CODEX_COMMAND', 'COGNIS_EVAL_AUTH_FILE', 'COGNIS_EVAL_TRUST_PROJECT_HOOKS',
+  'CODEX_REASONING_EFFORT', 'COGNIS_CODEX_COMMAND', 'COGNIS_EVAL_AUTH_FILE', 'COGNIS_EVAL_CODEX_BACKEND',
+  'COGNIS_EVAL_PROVIDER_NAME', 'COGNIS_EVAL_PROVIDER_REQUIRES_AUTH', 'COGNIS_EVAL_PROVIDER_WIRE_API',
+  'COGNIS_EVAL_RUNTIME_SOURCE', 'COGNIS_EVAL_TRUST_PROJECT_HOOKS', 'COGNIS_WSL_CODEX_COMMAND',
   'NO_PROXY', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'PATH', 'Path',
   'PATHEXT', 'PROGRAMDATA', 'ProgramData', 'SHELL', 'SSL_CERT_DIR', 'SSL_CERT_FILE', 'SystemRoot',
   'TEMP', 'TMP', 'TMPDIR', 'USERPROFILE', 'WINDIR', 'all_proxy', 'https_proxy', 'http_proxy',
@@ -35,6 +37,10 @@ function splitCommand(command) {
 
 async function createWorkspace(definition) {
   const workspace = await mkdtemp(path.join(tmpdir(), 'cognis-eval-case-'));
+  for (const relative of definition.input.fixture?.allowedWritePaths ?? []) {
+    assertPortableRelativePath(relative, 'evaluation allowed write path');
+    assertInsideDir(workspace, path.resolve(workspace, relative), 'evaluation allowed write path');
+  }
   for (const file of definition.input.fixture?.files ?? []) {
     assertPortableRelativePath(file.path, 'evaluation fixture file');
     const target = path.resolve(workspace, file.path);

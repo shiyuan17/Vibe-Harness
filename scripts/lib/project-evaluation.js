@@ -3,6 +3,7 @@ import { lstat, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { validateEvalSuiteSemantics } from './eval-contract.js';
+import { combineEvalConfigHash } from './eval-runtime-config.js';
 import { summarizeTrials } from './eval-trials.js';
 import { buildOfflineRun, suiteHash } from './eval-replay.js';
 import { aggregateCaseScores, compareFingerprints } from './eval-scoring.js';
@@ -156,9 +157,16 @@ function thresholdFailures(run, reference, thresholds) {
   return { degraded: [], failures };
 }
 
-async function buildOnlineRun({ command, config, now, suite, suitePath, targetDir }) {
-  if (!command) return { degraded: ['Online evaluation runner is not configured.'], run: null };
-  const runConfigHash = await configHash(targetDir);
+async function buildOnlineRun({ campaignId, command, config, now, suite, suitePath, targetDir }) {
+  if (!command) return {
+    attemptSummary: { eligibleLegalWriteTrials: 0, infrastructureFailures: 1, readyTrials: 0, safetyFalsePositiveTrials: 0, startedTrials: 0 },
+    degraded: ['Online evaluation runner is not configured.'],
+    run: null,
+  };
+  const runConfigHash = combineEvalConfigHash(
+    await configHash(targetDir),
+    process.env.COGNIS_EVAL_RUNTIME_HASH,
+  );
   // Create a judge client only when the suite actually contains llmRubrics
   // assertions, so suites without judge assertions never require credentials.
   const needsJudge = suite.cases.some((item) => item.oracle?.llmRubrics?.length > 0);
@@ -174,29 +182,44 @@ async function buildOnlineRun({ command, config, now, suite, suitePath, targetDi
   const degraded = [];
   const caseRepetitions = [];
   const trialsByCase = new Map();
+  let eligibleLegalWriteTrials = 0;
   for (const definition of suite.cases) {
     const repetitions = Math.min(definition.repetitions ?? config.evaluations.repetitions, config.evaluations.repetitions);
     caseRepetitions.push({ id: definition.id, count: repetitions });
     for (let repetition = 1; repetition <= repetitions; repetition += 1) {
+      const legalWriteEligible = (definition.input?.fixture?.allowedWritePaths ?? []).length > 0;
+      if (legalWriteEligible) eligibleLegalWriteTrials += 1;
       const result = await runEvaluationCase({
         command,
         definition,
         configHash: runConfigHash,
         repetition,
-        runId: `${suite.id}-${now.toISOString()}`,
+        runId: campaignId,
         judge,
       });
       if (result.status !== 'ready') {
         degraded.push(...result.diagnostics.map((item) => `${definition.id}: ${item}`));
-        return { degraded, run: null };
+        const safetyFalsePositive = (definition.input?.fixture?.allowedWritePaths ?? []).length > 0
+          && result.diagnostics.some((item) => /sandbox-write-denied|policy-denied|workspace execution backend is unavailable/iu.test(item));
+        return {
+          attemptSummary: {
+            eligibleLegalWriteTrials,
+            infrastructureFailures: 1,
+            readyTrials: observations.length,
+            safetyFalsePositiveTrials: safetyFalsePositive ? 1 : 0,
+            startedTrials: observations.length + 1,
+          },
+          degraded,
+          run: null,
+        };
       }
       observations.push(result.observation);
       const group = trialsByCase.get(definition.id) ?? [];
-      group.push(result.caseResult);
+      group.push({ caseResult: result.caseResult, observation: result.observation });
       trialsByCase.set(definition.id, group);
     }
   }
-  const results = suite.cases.map((definition) => trialsByCase.get(definition.id)[0]);
+  const results = suite.cases.map((definition) => trialsByCase.get(definition.id)[0].caseResult);
   if (degraded.length > 0 || results.length === 0) return { degraded, run: null };
   const first = observations[0];
   const fingerprint = {
@@ -206,6 +229,7 @@ async function buildOnlineRun({ command, config, now, suite, suitePath, targetDi
     agent: first.agentVersion,
     configHash: first.configHash,
   };
+  const runtime = first.runtime;
   for (const observation of observations.slice(1)) {
     const current = {
       suiteHash: fingerprint.suiteHash,
@@ -215,26 +239,48 @@ async function buildOnlineRun({ command, config, now, suite, suitePath, targetDi
       configHash: observation.configHash,
     };
     if (!compareFingerprints(current, fingerprint).match) return { degraded: ['runner fingerprint changed within the evaluation run'], run: null };
+    if (JSON.stringify(observation.runtime ?? null) !== JSON.stringify(runtime ?? null)) {
+      return { degraded: ['runner runtime changed within the evaluation run'], run: null };
+    }
   }
   const aggregate = aggregateCaseScores(results);
   const trialSummaries = suite.cases.map((definition) => summarizeTrials(definition.id, trialsByCase.get(definition.id)));
+  const reliabilityDiagnostics = trialSummaries
+    .filter((item) => item.passCaretK === 0)
+    .map((item) => `reliability variance: ${item.caseId} passed ${item.passedTrials}/${item.repetitions} trials`);
   return {
+    attemptSummary: {
+      eligibleLegalWriteTrials,
+      infrastructureFailures: 0,
+      readyTrials: observations.length,
+      safetyFalsePositiveTrials: 0,
+      startedTrials: observations.length,
+    },
     degraded: [],
     run: {
       schemaVersion: 1,
+      campaignId,
       id: `${suite.id}-online-${now.toISOString()}`,
       generatedAt: now.toISOString(),
       suite: { id: suite.id, version: suite.version, hash: fingerprint.suiteHash, path: suitePath },
       mode: 'online',
       status: results.every((item) => item.passed || item.flakyFailure) ? 'passed' : 'failed',
       fingerprint,
+      ...(runtime ? { runtime } : {}),
       caseRepetitions,
       cases: results,
       trialSummaries,
+      attemptSummary: {
+        eligibleLegalWriteTrials,
+        infrastructureFailures: 0,
+        readyTrials: observations.length,
+        safetyFalsePositiveTrials: 0,
+        startedTrials: observations.length,
+      },
       capabilities: aggregate.capabilities,
       overallScore: aggregate.overallScore,
       criticalPassRate: aggregate.criticalPassRate,
-      diagnostics: [],
+      diagnostics: reliabilityDiagnostics,
     },
   };
 }
@@ -249,13 +295,14 @@ export async function checkProjectEvaluations({ config, rootDir, suiteId, target
   };
 }
 
-export async function runProjectEvaluations({ config, mode, now = new Date(), reference: referenceOverride, rootDir, runner, suiteId, targetDir, write = false }) {
+export async function runProjectEvaluations({ campaignId = `campaign-${Date.now()}`, config, mode, now = new Date(), reference: referenceOverride, rootDir, runner, suiteId, targetDir, write = false }) {
+  if (!/^[A-Za-z0-9._-]{1,128}$/u.test(campaignId)) throw evalError('EVAL_CAMPAIGN_INVALID', 'Evaluation campaign id must contain only portable identifier characters.');
   if (!['offline', 'online'].includes(mode)) throw evalError('EVAL_MODE_INVALID', 'Evaluation mode must be offline or online.');
   const selected = await selectSuites({ config, rootDir, suiteId, targetDir });
   if (selected.suites.length !== 1) throw evalError('EVAL_SUITE_REQUIRED', 'Select exactly one suite with --suite.');
   const { path: suitePath, suite } = selected.suites[0];
   const online = mode === 'online'
-    ? await buildOnlineRun({ command: runner ?? config.evaluations.onlineRunner, config, now, suite, suitePath, targetDir })
+    ? await buildOnlineRun({ campaignId, command: runner ?? config.evaluations.onlineRunner, config, now, suite, suitePath, targetDir })
     : null;
   if (online?.degraded.length > 0 || (mode === 'online' && !online?.run)) {
     const warnings = online?.degraded ?? ['Online evaluation runner is unavailable.'];
@@ -266,7 +313,28 @@ export async function runProjectEvaluations({ config, mode, now = new Date(), re
         targetDir,
         relative,
         label: 'degraded evaluation diagnostic',
-        value: { schemaVersion: 1, generatedAt: now.toISOString(), status: 'degraded', diagnostics: warnings },
+        value: {
+          schemaVersion: 1,
+          campaignId,
+          generatedAt: now.toISOString(),
+          status: 'degraded',
+          suite: { id: suite.id, version: suite.version, hash: suiteHash(suite), path: suitePath },
+          runtime: {
+            backend: process.env.COGNIS_EVAL_CODEX_BACKEND ?? 'native',
+            provider: process.env.COGNIS_EVAL_PROVIDER_NAME ?? 'default',
+            reasoningEffort: process.env.CODEX_REASONING_EFFORT ?? 'medium',
+            wireApi: process.env.COGNIS_EVAL_PROVIDER_WIRE_API ?? 'responses',
+          },
+          fingerprint: {
+            suiteHash: suiteHash(suite),
+            runner: `codex-reference@2-${process.env.COGNIS_EVAL_CODEX_BACKEND ?? 'native'}`,
+            model: process.env.CODEX_MODEL ?? 'unavailable',
+            agent: process.env.CODEX_CLI_VERSION ?? 'unavailable',
+            configHash: process.env.COGNIS_EVAL_RUNTIME_HASH ?? 'unavailable',
+          },
+          diagnostics: warnings,
+          ...(online?.attemptSummary ? { attemptSummary: online.attemptSummary } : {}),
+        },
       });
       written.push(relative);
     }

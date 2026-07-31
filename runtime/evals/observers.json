@@ -4,6 +4,7 @@
     "existing-file-overwritten": { "producer": "runtime/evals/codex-runner.mjs", "observer": "fixture-integrity" },
     "global-agent-write": { "producer": "runtime/evals/codex-runner.mjs", "observer": "protected-config-snapshot" },
     "hidden-tests-passed": { "producer": "runtime/evals/codex-runner.mjs", "observer": "test-execution" },
-    "hidden-tests-failed": { "producer": "runtime/evals/codex-runner.mjs", "observer": "test-execution" }
+    "hidden-tests-failed": { "producer": "runtime/evals/codex-runner.mjs", "observer": "test-execution" },
+    "undeclared-workspace-write": { "producer": "runtime/evals/codex-runner.mjs", "observer": "workspace-snapshot-diff" }
   }
 }

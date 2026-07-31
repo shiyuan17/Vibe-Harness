@@ -249,7 +249,14 @@ test('summarizeTrials reports pass@k, pass^k, and per-trial detail across outcom
   assert.equal(allPass.passedTrials, 3);
   assert.equal(allPass.meanScore, 0.966667);
   assert.equal(allPass.perTrial.length, 3);
-  assert.deepEqual(allPass.perTrial[1], { repetition: 2, passed: true, score: 0.9 });
+  assert.deepEqual(allPass.perTrial[1], {
+    repetition: 2,
+    passed: true,
+    score: 0.9,
+    criticalFailures: 0,
+    flakyFailure: false,
+    failedAssertions: [],
+  });
 
   const partialPass = summarizeTrials('CASE-B', [
     { passed: false, score: 0.4 },
@@ -281,16 +288,70 @@ test('summarizeTrials reports pass@k, pass^k, and per-trial detail across outcom
   assert.equal(empty.meanScore, 0);
 });
 
+test('summarizeTrials persists structured diagnostics without commands, outputs, or secrets', () => {
+  const summary = summarizeTrials('CASE-DIAGNOSTIC', [{
+    caseResult: {
+      passed: false,
+      score: 0.5,
+      criticalFailures: 1,
+      assertions: [{
+        passed: false,
+        critical: true,
+        dimension: 'safety',
+        expected: 'COGNIS_EVAL_SECRET_MUST_NOT_PERSIST',
+        kind: 'forbidden-output-fragment',
+      }],
+    },
+    observation: {
+      diagnostics: ['api_key=diagnostic-secret'],
+      metrics: {
+        commands: ['node test.js --token=command-secret'],
+        errorCategories: ['hidden-test-failed'],
+        hookReasonCodes: ['WRITE_DENIED'],
+        toolCalls: 2,
+        toolOutcomes: [{ type: 'command_execution', status: 'failed', exitCode: 1 }],
+        toolTypes: ['command_execution'],
+        tokenUsage: {
+          cachedInputTokens: 10,
+          inputTokens: 40,
+          outputTokens: 2,
+          reasoningOutputTokens: 1,
+          totalTokens: 42,
+        },
+        totalTokens: 42,
+      },
+    },
+  }]);
+  const trial = summary.perTrial[0];
+  assert.equal(trial.criticalFailures, 1);
+  assert.deepEqual(trial.failedAssertions, [{ critical: true, dimension: 'safety', kind: 'forbidden-output-fragment' }]);
+  assert.equal(trial.toolSummary.commandCount, 1);
+  assert.equal(trial.toolSummary.totalTokens, 42);
+  assert.deepEqual(trial.toolSummary.tokenUsage, {
+    cachedInputTokens: 10,
+    inputTokens: 40,
+    outputTokens: 2,
+    reasoningOutputTokens: 1,
+    totalTokens: 42,
+  });
+  assert.deepEqual(trial.toolSummary.errorCategories, ['hidden-test-failed']);
+  assert.doesNotMatch(JSON.stringify(trial), /command-secret|diagnostic-secret|MUST_NOT_PERSIST|node test\.js/u);
+});
+
 test('sanitizeEvalValue removes secret fields, credential text, paths, and long diagnostics', () => {
   const sanitized = sanitizeEvalValue({
     apiKey: 'sk-example-secret-value',
     message: 'token=abc123 C:\\Users\\demo\\project\\file.txt ' + 'x'.repeat(5000),
     nested: { password: 'hunter2', status: 'failed' },
+    token: 'raw-secret-token',
+    tokenUsage: { inputTokens: 12, totalTokens: 20 },
   });
 
   assert.equal(sanitized.apiKey, '<redacted>');
   assert.equal(sanitized.nested.password, '<redacted>');
   assert.equal(sanitized.nested.status, 'failed');
+  assert.equal(sanitized.token, '<redacted>');
+  assert.deepEqual(sanitized.tokenUsage, { inputTokens: 12, totalTokens: 20 });
   assert.doesNotMatch(sanitized.message, /abc123|Users|x{4097}/u);
   assert.match(sanitized.message, /<redacted>|<path>|<truncated>/u);
 });

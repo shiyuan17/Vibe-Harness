@@ -24,6 +24,7 @@ test('execution suite schema accepts the optional fixture.tests block', async ()
   assert.equal(suite.cases.every((item) => Array.isArray(item.input.fixture.tests) && item.input.fixture.tests.length > 0), true);
   // command is a non-empty argv array, expectedExitCode is a non-negative integer.
   for (const item of suite.cases) {
+    assert.equal(item.input.fixture.allowedWritePaths.length, 1);
     for (const entry of item.input.fixture.tests) {
       assert.equal(Array.isArray(entry.command) && entry.command.length > 0, true);
       assert.equal(Number.isInteger(entry.expectedExitCode) && entry.expectedExitCode >= 0, true);
@@ -46,6 +47,11 @@ test('execution suite rejects unknown fixture keys and bad command types', async
   const badCode = structuredClone(suite);
   badCode.cases[0].input.fixture.tests[0].expectedExitCode = 1.5;
   assert.notEqual(validateJsonAgainstSchema(badCode, schema, 'bad').length, 0);
+  for (const invalidPath of ['/absolute.js', 'C:/absolute.js', '../escape.js', 'dir\\file.js', 'dir/../file.js']) {
+    const invalidWrite = structuredClone(suite);
+    invalidWrite.cases[0].input.fixture.allowedWritePaths = [invalidPath];
+    assert.notEqual(validateJsonAgainstSchema(invalidWrite, schema, 'bad').length, 0, invalidPath);
+  }
 });
 
 test('execution suite passes semantic validation (weight-assertion coupling, positive total weight)', async () => {
@@ -61,6 +67,7 @@ test('execution suite hidden-test events are registered observers', async () => 
   assert.deepEqual(validateEvalObserverCoverage([suite], observers), []);
   assert.equal(typeof observers.events['hidden-tests-passed'], 'object');
   assert.equal(typeof observers.events['hidden-tests-failed'], 'object');
+  assert.equal(typeof observers.events['undeclared-workspace-write'], 'object');
   const incomplete = structuredClone(observers);
   delete incomplete.events['hidden-tests-failed'];
   assert.match(validateEvalObserverCoverage([suite], incomplete).join('\n'), /hidden-tests-failed/u);
@@ -74,15 +81,28 @@ test('execution suite contains five task-delivery-governance cases graded by hid
   for (const item of suite.cases) {
     assert.equal(item.oracle.requiredEvents.some((entry) => entry.value === 'hidden-tests-passed' && entry.dimension === 'correctness' && entry.critical), true);
     assert.equal(item.oracle.forbiddenEvents.some((entry) => entry.value === 'hidden-tests-failed' && entry.dimension === 'correctness' && entry.critical), true);
+    assert.equal(item.oracle.forbiddenEvents.some((entry) => entry.value === 'undeclared-workspace-write' && entry.dimension === 'safety' && entry.critical), true);
     assert.ok(item.weights.correctness > 0, 'correctness must carry positive weight');
   }
+  const visibleTests = suite.cases.filter((item) => item.input.fixture.files.some((file) => file.path === 'test.js'));
+  assert.deepEqual(visibleTests, []);
+  for (const item of suite.cases.filter((entry) => entry.id !== 'EVAL-EXEC-004')) {
+    assert.deepEqual(item.input.fixture.tests[1].command.slice(0, 2), ['node', '-e']);
+  }
+  assert.deepEqual(suite.cases.find((item) => item.id === 'EVAL-EXEC-004').input.fixture.tests[1].command, ['node', 'test.js']);
+  assert.equal(suite.cases.every((item) => item.input.fixture.tests.map((testCase) => testCase.kind).join(',') === 'api-contract,behavior'), true);
+  assert.equal(suite.cases.every((item) => item.input.fixture.tests.map((testCase) => testCase.diagnosticCategory).join(',') === 'api-existence,behavior'), true);
+  assert.equal(suite.cases.every((item) => item.reporting.toolMetricMode === 'execute'), true);
+  const refactor = suite.cases.find((item) => item.id === 'EVAL-EXEC-003');
+  assert.match(refactor.input.scenario, /Hello, Ada![\s\S]*Hello, Ada, Alan![\s\S]*Hello, !/u);
 });
 
-test('runHiddenTests returns [] when no tests are declared', async () => {
+test('runHiddenTests returns an empty summary when no tests are declared', async () => {
   const request = { case: { input: { fixture: { tests: [] } } }, workspace: '' };
-  assert.deepEqual(await runHiddenTests(request, {}), []);
+  const empty = { events: [], summary: { apiContractFailures: 0, apiExistenceFailures: 0, failed: 0, passed: 0, total: 0 } };
+  assert.deepEqual(await runHiddenTests(request, {}), empty);
   const noFixture = { case: { input: {} }, workspace: '' };
-  assert.deepEqual(await runHiddenTests(noFixture, {}), []);
+  assert.deepEqual(await runHiddenTests(noFixture, {}), empty);
 });
 
 test('runHiddenTests reports passed when the command exits with the expected code', async () => {
@@ -93,7 +113,10 @@ test('runHiddenTests reports passed when the command exits with the expected cod
       case: { input: { fixture: { tests: [{ command: [process.execPath, 'test.js'], expectedExitCode: 0 }] } } },
       workspace,
     };
-    assert.deepEqual(await runHiddenTests(request, {}), ['hidden-tests-passed']);
+    assert.deepEqual(await runHiddenTests(request, {}), {
+      events: ['hidden-tests-passed'],
+      summary: { apiContractFailures: 0, apiExistenceFailures: 0, failed: 0, passed: 1, total: 1 },
+    });
   } finally {
     await rm(workspace, { recursive: true, force: true });
   }
@@ -107,7 +130,7 @@ test('runHiddenTests reports failed when the command exits with an unexpected co
       case: { input: { fixture: { tests: [{ command: [process.execPath, 'test.js'], expectedExitCode: 0 }] } } },
       workspace,
     };
-    assert.deepEqual(await runHiddenTests(request, {}), ['hidden-tests-failed']);
+    assert.deepEqual((await runHiddenTests(request, {})).events, ['hidden-tests-failed']);
   } finally {
     await rm(workspace, { recursive: true, force: true });
   }
@@ -121,7 +144,7 @@ test('runHiddenTests reports failed on timeout (fail-closed)', async () => {
       case: { input: { fixture: { tests: [{ command: [process.execPath, 'test.js'], expectedExitCode: 0, timeoutMs: 1000 }] } } },
       workspace,
     };
-    assert.deepEqual(await runHiddenTests(request, {}), ['hidden-tests-failed']);
+    assert.deepEqual((await runHiddenTests(request, {})).events, ['hidden-tests-failed']);
   } finally {
     // On Windows the SIGKILLed child can briefly hold file handles; retry removal.
     for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -137,12 +160,15 @@ test('runHiddenTests reports failed when any one of several commands fails (all-
     await writeFile(path.join(workspace, 'fail.js'), "process.exit(1);\n", 'utf8');
     const request = {
       case: { input: { fixture: { tests: [
-        { command: [process.execPath, 'pass.js'], expectedExitCode: 0 },
-        { command: [process.execPath, 'fail.js'], expectedExitCode: 0 },
+        { command: [process.execPath, 'pass.js'], expectedExitCode: 0, kind: 'behavior' },
+        { command: [process.execPath, 'fail.js'], expectedExitCode: 0, kind: 'api-contract', diagnosticCategory: 'api-existence' },
       ] } } },
       workspace,
     };
-    assert.deepEqual(await runHiddenTests(request, {}), ['hidden-tests-failed']);
+    assert.deepEqual(await runHiddenTests(request, {}), {
+      events: ['hidden-tests-failed'],
+      summary: { apiContractFailures: 1, apiExistenceFailures: 1, failed: 1, passed: 1, total: 2 },
+    });
   } finally {
     await rm(workspace, { recursive: true, force: true });
   }
@@ -155,7 +181,7 @@ test('runHiddenTests reports failed when a fixture test command cannot spawn', a
       case: { input: { fixture: { tests: [{ command: ['this-binary-does-not-exist-xyz'], expectedExitCode: 0 }] } } },
       workspace,
     };
-    assert.deepEqual(await runHiddenTests(request, {}), ['hidden-tests-failed']);
+    assert.deepEqual((await runHiddenTests(request, {})).events, ['hidden-tests-failed']);
   } finally {
     await rm(workspace, { recursive: true, force: true });
   }

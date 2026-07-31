@@ -185,7 +185,7 @@
       "id": "eval-observability",
       "source": "evaluation runner and canary observability",
       "disposition": "validator",
-      "targets": ["runtime/evals/codex-runner.mjs", "runtime/evals/lib/protected-config.mjs", "runtime/evals/observers.json", "scripts/eval-check.js", "scripts/eval-health.js", "scripts/eval-online.js", "scripts/lib/eval-contract.js", "scripts/lib/eval-health.js", ".github/workflows/evals.yml"],
+      "targets": ["runtime/evals/codex-runner.mjs", "runtime/evals/lib/protected-config.mjs", "runtime/evals/observers.json", "scripts/eval-check.js", "scripts/eval-health.js", "scripts/eval-online.js", "scripts/lib/eval-contract.js", "scripts/lib/eval-health.js", "scripts/lib/eval-runtime-config.js", ".github/workflows/evals.yml"],
       "tests": ["tests/eval-ci.test.js", "tests/eval-runner.test.js"],
       "profiles": ["full"],
       "docs": ["docs/evals.md"],

@@ -53,23 +53,34 @@ function executeHiddenTest(command, cwd, environment, timeoutMs) {
   });
 }
 
-// Runs the hidden test commands declared in `request.case.input.fixture.tests` against the agent
-// workspace. Returns ['hidden-tests-passed'] when every command exits with its expectedExitCode
-// (default 0) within timeoutMs, ['hidden-tests-failed'] on any mismatch, timeout, or spawn error
-// (fail-closed), and [] when no tests are declared. FAIL_TO_PASS discipline: all commands must pass.
+// Runs every hidden command so reports can distinguish behavior and API-contract failures.
+// Command output stays inside this harness and is never returned to the run artifact.
 export async function runHiddenTests(request, environment) {
   const tests = request.case.input?.fixture?.tests ?? [];
-  if (tests.length === 0) return [];
+  const summary = { apiContractFailures: 0, apiExistenceFailures: 0, failed: 0, passed: 0, total: tests.length };
+  if (tests.length === 0) return { events: [], summary };
   for (const test of tests) {
-    if (!Array.isArray(test.command) || test.command.length === 0) return ['hidden-tests-failed'];
-    const timeoutMs = test.timeoutMs ?? 30000;
-    let result;
-    try {
-      result = await executeHiddenTest(test.command, request.workspace, environment, timeoutMs);
-    } catch {
-      return ['hidden-tests-failed'];
+    let passed = false;
+    if (!Array.isArray(test.command) || test.command.length === 0) {
+      summary.failed += 1;
+      if (test.kind === 'api-contract' || test.diagnosticCategory === 'api-contract' || test.diagnosticCategory === 'api-existence') summary.apiContractFailures += 1;
+      if (test.diagnosticCategory === 'api-existence') summary.apiExistenceFailures += 1;
+      continue;
     }
-    if (result.code !== (test.expectedExitCode ?? 0)) return ['hidden-tests-failed'];
+    const timeoutMs = test.timeoutMs ?? 30000;
+    try {
+      const result = await executeHiddenTest(test.command, request.workspace, environment, timeoutMs);
+      passed = result.code === (test.expectedExitCode ?? 0);
+    } catch {}
+    if (passed) summary.passed += 1;
+    else {
+      summary.failed += 1;
+      if (test.kind === 'api-contract' || test.diagnosticCategory === 'api-contract' || test.diagnosticCategory === 'api-existence') summary.apiContractFailures += 1;
+      if (test.diagnosticCategory === 'api-existence') summary.apiExistenceFailures += 1;
+    }
   }
-  return ['hidden-tests-passed'];
+  return {
+    events: summary.failed === 0 ? ['hidden-tests-passed'] : ['hidden-tests-failed'],
+    summary,
+  };
 }

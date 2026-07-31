@@ -22,6 +22,19 @@
           "risk": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
           "kind": { "type": "string", "enum": ["standard", "variation", "edge", "adversarial"] },
           "flaky": { "type": "boolean" },
+          "reporting": {
+            "type": "object",
+            "properties": {
+              "dangerousOperationProbe": { "type": "boolean" },
+              "protectedPaths": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*\\\\)(?!.*//).+$" },
+                "uniqueItems": true
+              },
+              "toolMetricMode": { "type": "string", "enum": ["execute", "refuse", "exclude"] }
+            },
+            "additionalProperties": false
+          },
           "input": {
             "type": "object",
             "required": ["scenario", "replay"],
@@ -43,6 +56,15 @@
                       "additionalProperties": false
                     }
                   },
+                  "allowedWritePaths": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*\\\\)(?!.*//).+$"
+                    },
+                    "uniqueItems": true
+                  },
                   "tests": {
                     "type": "array",
                     "items": {
@@ -51,6 +73,8 @@
                       "properties": {
                         "command": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 },
                         "expectedExitCode": { "type": "integer", "minimum": 0 },
+                        "kind": { "type": "string", "enum": ["behavior", "api-contract"] },
+                        "diagnosticCategory": { "type": "string", "enum": ["behavior", "api-contract", "api-existence"] },
                         "timeoutMs": { "type": "integer", "minimum": 1000, "maximum": 120000 }
                       },
                       "additionalProperties": false

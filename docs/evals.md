@@ -27,9 +27,23 @@ offline 模式验证 suite、oracle、聚合和 reference 一致性。online run
 
 online run 对每个 case 按 `repetitions`（1..3）独立运行多轮，每轮在独立的一次性工作区与隔离 `CODEX_HOME`/`HOME` 中执行，避免试验间状态泄漏。run 输出新增 `trialSummaries`：每个 case 给出 `passAt1`（首轮是否通过）、`passAtK`（≥1 轮通过）、`passCaretK`（k 轮全过）、`passedTrials`、`meanScore` 与逐轮明细。
 
+逐轮明细可选记录 critical failure 数、失败断言类型、工具类型/状态、命令数量、错误分类和 Token 汇总。明细不保存原始 transcript、命令文本、命令输出或凭据；`pass^k` 波动只进入可靠性诊断，不新增隐式门禁。报告中的稳定通过率只统计 `repetitions > 1` 的 case，并同时显示其占全部 case 的稳定性覆盖率；单轮 Execution case 不再被解释为稳定样本。
+
 - `pass@k` 衡量"至少一次成功"的能力上限，`pass^k` 衡量"多次全过"的可靠性，二者讲述不同故事。
 - 当前 `trialSummaries` 仅作报告指标，不新增阈值门禁；现有 `criticalPassRate` 与 `overallScore` 阈值语义不变。
 - offline 是确定性 replay（`repetitions` 退化为单次），不输出 `trialSummaries`，保持确定性可复现。
+
+## Online runtime
+
+`COGNIS_EVAL_RUNTIME_SOURCE=auto|codex|env` 选择 runtime 来源。`auto` 优先从本机 Codex `config.toml`/`auth.json` 原子读取 model、provider、base URL、wire API、reasoning、CLI 路径和对应 auth；只提取这些白名单字段，不继承 hooks、plugins、MCP、notify 或项目信任状态。显式 `CODEX_MODEL` 可覆盖配置中的 model，但仍复用同一 provider/auth；Codex 配置不存在时回退 `CODEX_MODEL`、`CODEX_REASONING_EFFORT`、`OPENAI_API_KEY` 与可选 `OPENAI_BASE_URL`。
+
+`COGNIS_EVAL_CODEX_BACKEND=auto|native|wsl` 选择执行后端。Windows `auto` 对声明写入的 execution suite 使用 WSL2，对只读 canary 使用 native；Linux/CI 使用 native。实际 provider/base URL/reasoning/backend/repetitions/CLI 版本进入 `configHash`，凭据不进入 fingerprint。WSL/Codex 不可用或 sandbox 拒绝写入时 run 为 degraded，不计为模型失败。
+
+fixture 可声明 `allowedWritePaths`，其成员必须是 workspace 内的可移植相对路径，默认空数组。runner 比较执行前后快照；任何未声明的创建、修改或删除都会产生 `undeclared-workspace-write`，对已有 fixture 的修改同时保留 `existing-file-overwritten` 兼容事件。execution 的测试命令只由 harness 执行，不作为可见 fixture 暴露给模型。
+
+Online run 和 degraded artifact 使用脱敏 `campaignId` 关联同一评测活动。报告生成时可重复传入 `--execution-attempt` / `--canary-attempt` 汇总同 campaign 的 passed、failed 或 degraded 尝试；没有两套 suite 的 attempt 历史时，基础设施健康率和安全误拦截率必须标记为“部分覆盖”。工具指标只统计真实工具 item，通用 `error` item 不计为工具调用或错误分类；`success`、`expected-denial`、`recoverable-failure`、`fatal-failure` 和 `unknown` 分开呈现。安全探针只有在受保护目标未变化时，拒绝终态才算 `expected-denial`。
+
+`pnpm eval:report` 生成自包含 HTML 决策报告。`--comparison-execution-run` / `--comparison-canary-run` 仅接受同 model、provider、reasoning、backend、CLI、repetitions 和 suite hash 的历史 run；普通历史 run 不等同于批准 reference，报告命令不会创建或更新 reference。
 
 ## 断言类型
 
