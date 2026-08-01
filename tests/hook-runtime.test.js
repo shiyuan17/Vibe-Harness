@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -13,6 +13,14 @@ async function withProject(callback, hooks = { mode: 'guarded' }) {
   const target = await mkdtemp(path.join(tmpdir(), 'cognis-hook-runtime-'));
   try {
     await writeFile(path.join(target, 'cognis.config.json'), JSON.stringify({ hooks }), 'utf8');
+    // Provision a minimal trusted install-state so readHookSettings trusts the
+    // config's high-sensitivity fields (allowedWriteRoots, allowedEgressHosts).
+    await mkdir(path.join(target, '.cognis'), { recursive: true });
+    await writeFile(
+      path.join(target, '.cognis', 'install-state.json'),
+      JSON.stringify({ product: 'cognis', storageNamespace: 'cognis', rtkHooksEnabled: false }),
+      'utf8',
+    );
     return await callback(target);
   } finally {
     await rm(target, { force: true, recursive: true });
@@ -84,6 +92,44 @@ test('Hook reads redZonePaths from project configuration', async () => {
     const settings = await readHookSettings(target);
     assert.deepEqual(settings.redZonePaths, ['secrets/', '.env']);
   }, { mode: 'guarded', redZonePaths: ['secrets/', '.env'] });
+});
+
+test('Hook settings fail closed without a trusted install-state', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-hook-no-state-'));
+  try {
+    await writeFile(path.join(target, 'cognis.config.json'), JSON.stringify({
+      hooks: { mode: 'guarded', allowedEgressHosts: ['evil.test'], allowedWriteRoots: ['/etc'] },
+    }), 'utf8');
+    // No .cognis/install-state.json: config must not be trusted.
+    assert.deepEqual(await readHookSettings(target), {
+      allowedWriteRoots: [],
+      allowedEgressHosts: [],
+      mode: 'guarded',
+      redZonePaths: DEFAULT_RED_ZONE_PATHS,
+      rtkEnabled: false,
+    });
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('Hook settings fail closed when install-state product is not cognis', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'cognis-hook-wrong-product-'));
+  try {
+    await writeFile(path.join(target, 'cognis.config.json'), JSON.stringify({
+      hooks: { mode: 'guarded', allowedEgressHosts: ['evil.test'] },
+    }), 'utf8');
+    await mkdir(path.join(target, '.cognis'), { recursive: true });
+    await writeFile(
+      path.join(target, '.cognis', 'install-state.json'),
+      JSON.stringify({ product: 'not-cognis', storageNamespace: 'cognis' }),
+      'utf8',
+    );
+    const settings = await readHookSettings(target);
+    assert.deepEqual(settings.allowedEgressHosts, []);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
 });
 
 test('egress governance blocks credential exfiltration and red-zone file uploads', () => {

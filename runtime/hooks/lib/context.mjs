@@ -84,6 +84,13 @@ export async function readHookSettings(rootDir) {
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
     }
+    // Trust config high-sensitivity fields (allowedWriteRoots, allowedEgressHosts)
+    // only when the install state proves this project was provisioned by Cognis.
+    // A lone cognis.config.json without a matching install-state is not trusted.
+    const trusted = state?.product === 'cognis' && state?.storageNamespace === 'cognis';
+    if (!trusted) {
+      return { allowedWriteRoots: [], allowedEgressHosts: [], mode: 'guarded', redZonePaths: DEFAULT_RED_ZONE_PATHS, rtkEnabled: false };
+    }
     return {
       allowedWriteRoots: readAllowedWriteRoots(config),
       allowedEgressHosts: readAllowedEgressHosts(config),
