@@ -2,7 +2,55 @@
 // markers (e.g. `<!-- COGNIS:START -->` ... `<!-- COGNIS:END -->` or
 // `# COGNIS:MCP:START` ... `# COGNIS:MCP:END`). The block-specific modules
 // keep their own validation and merge semantics; this module centralises the
-// repetitive find/strip/extract/remove structure.
+// repetitive find/strip/extract/remove structure, the contentStrategy
+// classification, and the managed-block hash computation shared by
+// install-planner and install-state.
+//
+// To avoid a circular dependency with `tool-provisioning.js` and
+// `template-renderer.js` (which both import from this module), `managedBlockHash`
+// accepts an already-extracted block string rather than importing the extract
+// functions directly. Callers extract the block via their own imports and pass
+// it in.
+
+import { createHash } from 'node:crypto';
+
+/**
+ * Canonical contentStrategy values accepted by the install-map schema and the
+ * `manifest.js` shape validator. Keep in sync with `schemas/install-map.schema.json`.
+ */
+export const CONTENT_STRATEGIES = [
+  'managed-ignore-block',
+  'managed-instruction-block',
+  'managed-toml-block',
+  'replace',
+];
+
+/** True for instruction-block strategies (AGENTS.md / Cursor rules). */
+export const isManagedInstruction = (strategy) => strategy === 'managed-instruction-block';
+
+/** True for TOML/MCP-block strategies (.codex/config.toml managed section). */
+export const isManagedToml = (strategy) => strategy === 'managed-toml-block';
+
+/** True for ignore-block strategies (.gitignore managed section). */
+export const isManagedIgnore = (strategy) => strategy === 'managed-ignore-block';
+
+/** True for any managed-block strategy (excludes `replace`). */
+export const isManagedBlock = (strategy) =>
+  isManagedInstruction(strategy) || isManagedToml(strategy) || isManagedIgnore(strategy);
+
+/**
+ * Compute the sha256 hash of an already-extracted managed block. The caller is
+ * responsible for extracting the block via the appropriate extractor
+ * (`extractManagedInstructionBlock`, `extractManagedMcpBlock`, or
+ * `extractManagedCbmIgnoreBlock`) based on the contentStrategy. Null or
+ * undefined extracts are normalised to empty string before hashing.
+ *
+ * @param {string|null|undefined} block - The extracted block text.
+ * @returns {string} Hex sha256 digest.
+ */
+export function hashManagedBlock(block) {
+  return createHash('sha256').update(block ?? '').digest('hex');
+}
 
 // Locate a single managed block via literal start/end markers. Returns the
 // `{ start, end, endMarker }` bounds or `null` when no start marker is present.

@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { validateJsonAgainstSchema } from './schema-validation.js';
 import { safeJsonParse } from './safe-json.js';
+import { CONTENT_STRATEGIES } from './managed-block.js';
 
 export { validateJsonAgainstSchema };
 
@@ -240,7 +241,7 @@ export function validateInstallMapShape(installMap, allowedGroups) {
     assertNonEmptyString(entry.group, `install-map.entries[${index}].group`);
     assertNonEmptyString(entry.source, `install-map.entries[${index}].source`);
     assertNonEmptyString(entry.target, `install-map.entries[${index}].target`);
-    if (!['managed-ignore-block', 'managed-instruction-block', 'managed-toml-block', 'replace'].includes(entry.contentStrategy)) {
+    if (!CONTENT_STRATEGIES.includes(entry.contentStrategy)) {
       throw new Error(`install-map.entries[${index}].contentStrategy is invalid`);
     }
     assertPortableRelativePath(entry.source, `install-map.entries[${index}].source`);

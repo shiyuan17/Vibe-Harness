@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { copyFile, mkdir, readFile, readdir, rm, rmdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   assertInsideDir,
@@ -9,6 +10,7 @@ import {
   pathExists,
   readJson,
 } from './manifest.js';
+import { validateJsonAgainstSchema } from './schema-validation.js';
 import { canonicalProfile } from './project-config.js';
 import { extractManagedInstructionBlock, removeManagedInstructionBlock } from './template-renderer.js';
 import {
@@ -19,11 +21,26 @@ import {
 } from './tool-provisioning.js';
 import { beginFileTransaction, renameAtomic } from './file-transaction.js';
 import { productIdentity } from './product-identity.js';
+import {
+  hashManagedBlock,
+  isManagedIgnore,
+  isManagedInstruction,
+  isManagedToml,
+} from './managed-block.js';
 
 const stateFileName = 'install-state.json';
-const isManagedInstruction = (strategy) => ['managed-block', 'managed-instruction-block'].includes(strategy);
-const isManagedToml = (strategy) => ['managed-mcp-block', 'managed-toml-block'].includes(strategy);
-const isManagedIgnore = (strategy) => strategy === 'managed-ignore-block';
+
+const installStateSchemaPath = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../schemas/install-state.schema.json',
+);
+let installStateSchemaPromise = null;
+function loadInstallStateSchema() {
+  if (!installStateSchemaPromise) {
+    installStateSchemaPromise = readJson(installStateSchemaPath);
+  }
+  return installStateSchemaPromise;
+}
 
 export function toTargetPath(targetDir, filePath) {
   const relative = path.relative(targetDir, filePath).replaceAll('\\', '/');
@@ -50,6 +67,11 @@ export async function readInstallState(targetDir) {
     return null;
   }
   const state = await readJson(filePath);
+  const schema = await loadInstallStateSchema();
+  const errors = validateJsonAgainstSchema(state, schema, 'install-state');
+  if (errors.length) {
+    throw new Error(`install-state.json is corrupt: ${errors.join('; ')}`);
+  }
   return { adapter: 'codex', ...state, profile: canonicalProfile(state.profile) };
 }
 
@@ -307,7 +329,7 @@ export async function applyRollbackPlan(plan, hooks = {}) {
     } else if (action.kind === 'remove-managed-ignore-block' && await pathExists(target)) {
       const content = await readFile(target, 'utf8');
       const block = extractManagedCbmIgnoreBlock(content);
-      const blockHash = createHash('sha256').update(block).digest('hex');
+      const blockHash = hashManagedBlock(block);
       if (!block || blockHash !== action.expectedManagedBlockHash) {
         skipped.push({ reason: 'managed-block-modified', target: action.target });
         continue;
@@ -320,7 +342,7 @@ export async function applyRollbackPlan(plan, hooks = {}) {
     } else if (action.kind === 'remove-managed-mcp-block' && await pathExists(target)) {
       const content = await readFile(target, 'utf8');
       const block = extractManagedMcpBlock(content);
-      const blockHash = createHash('sha256').update(block).digest('hex');
+      const blockHash = hashManagedBlock(block);
       if (!block || blockHash !== action.expectedManagedBlockHash) {
         skipped.push({ reason: 'managed-block-modified', target: action.target });
         continue;
@@ -522,7 +544,7 @@ async function applyUninstallAction(plan, action) {
     if (!(await pathExists(target))) return null;
     const content = await readFile(target, 'utf8');
     const block = extractManagedInstructionBlock(content);
-    const blockHash = createHash('sha256').update(block ?? '').digest('hex');
+    const blockHash = hashManagedBlock(block);
     if (!block || (action.expectedManagedBlockHash && blockHash !== action.expectedManagedBlockHash)) {
       return 'managed-block-modified';
     }
@@ -541,7 +563,7 @@ async function applyUninstallAction(plan, action) {
     if (!(await pathExists(target))) return null;
     const content = await readFile(target, 'utf8');
     const block = extractManagedCbmIgnoreBlock(content);
-    const blockHash = createHash('sha256').update(block).digest('hex');
+    const blockHash = hashManagedBlock(block);
     if (!block || blockHash !== action.expectedManagedBlockHash) return 'managed-block-modified';
     const remaining = removeManagedCbmIgnoreBlock(content);
     if (remaining) await writeFile(target, remaining, 'utf8');
@@ -553,7 +575,7 @@ async function applyUninstallAction(plan, action) {
     if (!(await pathExists(target))) return null;
     const content = await readFile(target, 'utf8');
     const block = extractManagedMcpBlock(content);
-    const blockHash = createHash('sha256').update(block).digest('hex');
+    const blockHash = hashManagedBlock(block);
     if (!block || blockHash !== action.expectedManagedBlockHash) return 'managed-block-modified';
     const remaining = removeManagedMcpBlock(content);
     if (remaining) await writeFile(target, remaining, 'utf8');

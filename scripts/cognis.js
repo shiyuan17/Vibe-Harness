@@ -939,7 +939,7 @@ async function uninstall(args) {
     target: adapter.id,
     targetDir: plan.targetDir,
   }, null, 2));
-  if (result.skipped.length > 0) process.exitCode = 1;
+  if (result.skipped.length > 0) process.exitCode = 2;
 }
 
 function selectedToolIds(value) {

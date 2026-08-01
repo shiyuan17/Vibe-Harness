@@ -43,10 +43,12 @@ import { applyBaselinePlan, createBaselinePlan } from './installation-baseline.j
 import { moduleCatalog, resolveModuleSelection } from './module-selection.js';
 import { assertAdapterProfile, resolveAdapter, resolveAdapterEntry } from './adapter.js';
 import { beginFileTransaction, createTransactionId } from './file-transaction.js';
-
-const isManagedInstruction = (strategy) => ['managed-block', 'managed-instruction-block'].includes(strategy);
-const isManagedToml = (strategy) => ['managed-mcp-block', 'managed-toml-block'].includes(strategy);
-const isManagedIgnore = (strategy) => strategy === 'managed-ignore-block';
+import {
+  hashManagedBlock,
+  isManagedIgnore,
+  isManagedInstruction,
+  isManagedToml,
+} from './managed-block.js';
 
 async function loadProfileInstallMap({ adapterId = 'codex', allowPreview = false, profile, rootDir }) {
   const profiles = await readJson(path.join(rootDir, 'manifests/profiles.json'));
@@ -245,7 +247,6 @@ export async function createInstallPlan({
     rtkHooksEnabled,
   });
   const allowedGroups = moduleSelection.allowedGroups;
-  const actions = [];
   const state = await readInstallState(path.resolve(targetDir));
   if (state && state.adapter !== adapter.id) {
     throw new Error(`Installed adapter ${state.adapter} does not match install target ${adapter.id}; uninstall the existing adapter first.`);
@@ -253,6 +254,74 @@ export async function createInstallPlan({
   const managed = new Map((state?.files ?? []).map((file) => [file.target, file]));
   const baselinePlan = await createBaselinePlan({ baseline: state?.baseline, targetDir: path.resolve(targetDir) });
 
+  const ctx = {
+    adapter,
+    allowedGroups,
+    force,
+    installMap,
+    managed,
+    managedAgentsBlock,
+    moduleSelection,
+    renderData,
+    rootDir,
+    state,
+    targetDir,
+    upgrade,
+  };
+
+  const actions = await planEntryActions(ctx);
+
+  actions.push(...await planUpgradeRetirements(ctx, actions));
+
+  const plannedTargets = new Set(actions.map((action) => action.relativeTarget));
+  actions.push(...await planDeselectedModuleRetirements(ctx, plannedTargets));
+
+  actions.push(...await planGeneratedDirectoryRetirements(ctx, actions));
+
+  const generatedDirectories = computeGeneratedDirectories(ctx, actions);
+
+  const installedSurface = createInstalledSurface({
+    clarificationPosture: renderData.clarification?.posture,
+    customModules: moduleSelection.requestedModules !== null,
+    memoryPath: renderData.memory?.path,
+    profile,
+    targets: actions.filter((action) => action.kind === 'write').map((action) => action.relativeTarget),
+  });
+  const stateDirectory = path.basename(path.dirname(stateFilePath(path.resolve(targetDir))));
+
+  return {
+    adapter: adapter.id,
+    adapterCapabilities: adapter.capabilities,
+    baselinePlan,
+    configUpdate,
+    dryRun,
+    force,
+    generatedDirectories,
+    implicitModules: moduleSelection.implicitModules,
+    instructionTarget: adapter.instructionTarget,
+    missingCapabilities: Object.entries(adapter.capabilities).filter(([, status]) => status === 'unsupported').map(([name]) => name),
+    profile,
+    previewCapabilities: Object.entries(adapter.capabilities).filter(([, status]) => status === 'preview').map(([name]) => name),
+    requestedModules: moduleSelection.requestedModules,
+    requestedPlugins: moduleSelection.requestedPlugins,
+    resolvedModules: moduleSelection.resolvedModules,
+    rtkHooksEnabled,
+    renderData: withDefaultTemplateData({
+      ...renderData,
+      codebaseMemoryStateDirectory: stateDirectory,
+      installedSurface,
+    }),
+    redZoneConfirmed: false,
+    targetDir: path.resolve(targetDir),
+    upgrade,
+    version: await packageVersion(rootDir),
+    actions,
+  };
+}
+
+async function planEntryActions(ctx) {
+  const { adapter, allowedGroups, force, installMap, managed, managedAgentsBlock, moduleSelection, renderData, rootDir, targetDir, upgrade } = ctx;
+  const actions = [];
   for (const entry of installMap.entries) {
     if (!allowedGroups.has(entry.group)) {
       continue;
@@ -282,15 +351,14 @@ export async function createInstallPlan({
 
     if (exists && managedFile && !force) {
       let currentHash;
-      if (isManagedInstruction(contentStrategy)) {
+      if (isManagedInstruction(contentStrategy) || isManagedToml(contentStrategy) || isManagedIgnore(contentStrategy)) {
         const content = await readFile(target, 'utf8');
-        currentHash = createHash('sha256').update(extractManagedInstructionBlock(content) ?? '').digest('hex');
-      } else if (isManagedToml(contentStrategy)) {
-        const content = await readFile(target, 'utf8');
-        currentHash = createHash('sha256').update(extractManagedMcpBlock(content) ?? '').digest('hex');
-      } else if (isManagedIgnore(contentStrategy)) {
-        const content = await readFile(target, 'utf8');
-        currentHash = createHash('sha256').update(extractManagedCbmIgnoreBlock(content)).digest('hex');
+        const block = isManagedInstruction(contentStrategy)
+          ? extractManagedInstructionBlock(content)
+          : isManagedToml(contentStrategy)
+            ? extractManagedMcpBlock(content)
+            : extractManagedCbmIgnoreBlock(content);
+        currentHash = hashManagedBlock(block);
       } else {
         currentHash = await hashFile(target);
       }
@@ -328,99 +396,104 @@ export async function createInstallPlan({
       target,
     });
   }
+  return actions;
+}
 
-  if (upgrade) {
-    for (const entry of installMap.retiredEntries ?? []) {
-      if (!allowedGroups.has(entry.group)) {
-        continue;
-      }
-      assertPortableRelativePath(entry.target, 'retired install target');
-      const relativeTarget = entry.target.replaceAll('\\', '/');
-      const managedFile = managed.get(relativeTarget);
-      if (!managedFile) {
-        continue;
-      }
-      const target = path.resolve(targetDir, relativeTarget);
-      assertInsideDir(targetDir, target, 'retired install target');
-      await assertSafePathInside(targetDir, target, 'retired install target');
-      if (!(await pathExists(target))) {
-        continue;
-      }
-      const currentHash = await hashFile(target);
-      actions.push({
-        expectedHash: managedFile.targetHash,
-        group: entry.group,
-        kind: currentHash === managedFile.targetHash ? 'retire' : 'retire-modified',
-        redZone: Boolean(entry.redZone),
-        relativeTarget,
-        target,
-      });
+async function planUpgradeRetirements(ctx, entryActions) {
+  const { allowedGroups, installMap, managed, state, targetDir, upgrade } = ctx;
+  if (!upgrade) return [];
+  const actions = [];
+  for (const entry of installMap.retiredEntries ?? []) {
+    if (!allowedGroups.has(entry.group)) {
+      continue;
     }
-
-    const plannedSkillTargets = new Set(actions.map((action) => action.relativeTarget));
-    for (const managedFile of state?.files ?? []) {
-      const relativeTarget = managedFile.target.replaceAll('\\', '/');
-      if (!/^\.(?:agents|claude|gemini)\/skills\//u.test(relativeTarget)
-        || plannedSkillTargets.has(relativeTarget)) {
-        continue;
-      }
-      assertPortableRelativePath(relativeTarget, 'orphaned skill target');
-      const target = path.resolve(targetDir, relativeTarget);
-      assertInsideDir(targetDir, target, 'orphaned skill target');
-      await assertSafePathInside(targetDir, target, 'orphaned skill target');
-      if (!(await pathExists(target))) continue;
-      const currentHash = await hashFile(target);
-      actions.push({
-        expectedHash: managedFile.targetHash,
-        group: managedFile.group,
-        kind: currentHash === managedFile.targetHash ? 'retire' : 'retire-modified',
-        redZone: Boolean(managedFile.redZone),
-        relativeTarget,
-        target,
-      });
-      plannedSkillTargets.add(relativeTarget);
+    assertPortableRelativePath(entry.target, 'retired install target');
+    const relativeTarget = entry.target.replaceAll('\\', '/');
+    const managedFile = managed.get(relativeTarget);
+    if (!managedFile) {
+      continue;
     }
-
+    const target = path.resolve(targetDir, relativeTarget);
+    assertInsideDir(targetDir, target, 'retired install target');
+    await assertSafePathInside(targetDir, target, 'retired install target');
+    if (!(await pathExists(target))) {
+      continue;
+    }
+    const currentHash = await hashFile(target);
+    actions.push({
+      expectedHash: managedFile.targetHash,
+      group: entry.group,
+      kind: currentHash === managedFile.targetHash ? 'retire' : 'retire-modified',
+      redZone: Boolean(entry.redZone),
+      relativeTarget,
+      target,
+    });
   }
 
-  if (upgrade) {
-    const currentPlanTargets = new Set(actions.map((action) => action.relativeTarget));
-    for (const managedFile of state?.files ?? []) {
-      const relativeTarget = managedFile.target.replaceAll('\\', '/');
-      if (currentPlanTargets.has(relativeTarget)) continue;
-      assertPortableRelativePath(relativeTarget, 'obsolete managed target');
-      const target = path.resolve(targetDir, relativeTarget);
-      assertInsideDir(targetDir, target, 'obsolete managed target');
-      await assertSafePathInside(targetDir, target, 'obsolete managed target');
-      if (!(await pathExists(target))) continue;
-      const currentHash = await hashFile(target);
-      actions.push({
-        created: Boolean(managedFile.originalCreated ?? managedFile.created),
-        discard: true,
-        expectedHash: managedFile.targetHash,
-        group: managedFile.group,
-        kind: currentHash === managedFile.targetHash ? 'retire' : 'retire-modified',
-        redZone: Boolean(managedFile.redZone),
-        relativeTarget,
-        target,
-      });
-      currentPlanTargets.add(relativeTarget);
+  const plannedSkillTargets = new Set([...entryActions, ...actions].map((action) => action.relativeTarget));
+  for (const managedFile of state?.files ?? []) {
+    const relativeTarget = managedFile.target.replaceAll('\\', '/');
+    if (!/^\.(?:agents|claude|gemini)\/skills\//u.test(relativeTarget)
+      || plannedSkillTargets.has(relativeTarget)) {
+      continue;
     }
-    for (const relativeTarget of ['.cognis/session-task-bindings.json', '.cognis/subagents/receipts']) {
-      const target = path.resolve(targetDir, relativeTarget);
-      assertInsideDir(targetDir, target, 'obsolete runtime state');
-      await assertSafePathInside(targetDir, target, 'obsolete runtime state');
-      if (await pathExists(target)) {
-        actions.push({ discard: true, kind: 'retire-runtime-state', redZone: false, relativeTarget, target });
-      }
-    }
+    assertPortableRelativePath(relativeTarget, 'orphaned skill target');
+    const target = path.resolve(targetDir, relativeTarget);
+    assertInsideDir(targetDir, target, 'orphaned skill target');
+    await assertSafePathInside(targetDir, target, 'orphaned skill target');
+    if (!(await pathExists(target))) continue;
+    const currentHash = await hashFile(target);
+    actions.push({
+      expectedHash: managedFile.targetHash,
+      group: managedFile.group,
+      kind: currentHash === managedFile.targetHash ? 'retire' : 'retire-modified',
+      redZone: Boolean(managedFile.redZone),
+      relativeTarget,
+      target,
+    });
+    plannedSkillTargets.add(relativeTarget);
   }
 
+  const currentPlanTargets = new Set([...entryActions, ...actions].map((action) => action.relativeTarget));
+  for (const managedFile of state?.files ?? []) {
+    const relativeTarget = managedFile.target.replaceAll('\\', '/');
+    if (currentPlanTargets.has(relativeTarget)) continue;
+    assertPortableRelativePath(relativeTarget, 'obsolete managed target');
+    const target = path.resolve(targetDir, relativeTarget);
+    assertInsideDir(targetDir, target, 'obsolete managed target');
+    await assertSafePathInside(targetDir, target, 'obsolete managed target');
+    if (!(await pathExists(target))) continue;
+    const currentHash = await hashFile(target);
+    actions.push({
+      created: Boolean(managedFile.originalCreated ?? managedFile.created),
+      discard: true,
+      expectedHash: managedFile.targetHash,
+      group: managedFile.group,
+      kind: currentHash === managedFile.targetHash ? 'retire' : 'retire-modified',
+      redZone: Boolean(managedFile.redZone),
+      relativeTarget,
+      target,
+    });
+    currentPlanTargets.add(relativeTarget);
+  }
+  for (const relativeTarget of ['.cognis/session-task-bindings.json', '.cognis/subagents/receipts']) {
+    const target = path.resolve(targetDir, relativeTarget);
+    assertInsideDir(targetDir, target, 'obsolete runtime state');
+    await assertSafePathInside(targetDir, target, 'obsolete runtime state');
+    if (await pathExists(target)) {
+      actions.push({ discard: true, kind: 'retire-runtime-state', redZone: false, relativeTarget, target });
+    }
+  }
+  return actions;
+}
+
+async function planDeselectedModuleRetirements(ctx, plannedTargets) {
+  const { allowedGroups, moduleSelection, state, targetDir } = ctx;
+  const actions = [];
   const currentModules = new Set(moduleSelection.resolvedModules);
   const removedGroups = new Set((state?.resolvedModules ?? [])
     .filter((id) => !currentModules.has(id) && Object.hasOwn(moduleCatalog, id))
     .flatMap((id) => moduleCatalog[id].groups));
-  const plannedTargets = new Set(actions.map((action) => action.relativeTarget));
   for (const managedFile of state?.files ?? []) {
     const relativeTarget = managedFile.target.replaceAll('\\', '/');
     if (!removedGroups.has(managedFile.group)
@@ -436,16 +509,16 @@ export async function createInstallPlan({
     let currentHash;
     let expectedHash;
     let kind = 'retire';
-    if (isManagedToml(managedFile.contentStrategy)) {
+    if (isManagedToml(managedFile.contentStrategy) || isManagedIgnore(managedFile.contentStrategy)) {
       const content = await readFile(target, 'utf8');
-      currentHash = createHash('sha256').update(extractManagedMcpBlock(content)).digest('hex');
+      const block = isManagedToml(managedFile.contentStrategy)
+        ? extractManagedMcpBlock(content)
+        : extractManagedCbmIgnoreBlock(content);
+      currentHash = hashManagedBlock(block);
       expectedHash = managedFile.managedBlockHash;
-      kind = currentHash === expectedHash ? 'retire-managed-mcp' : 'retire-modified';
-    } else if (isManagedIgnore(managedFile.contentStrategy)) {
-      const content = await readFile(target, 'utf8');
-      currentHash = createHash('sha256').update(extractManagedCbmIgnoreBlock(content)).digest('hex');
-      expectedHash = managedFile.managedBlockHash;
-      kind = currentHash === expectedHash ? 'retire-managed-ignore' : 'retire-modified';
+      kind = currentHash === expectedHash
+        ? (isManagedToml(managedFile.contentStrategy) ? 'retire-managed-mcp' : 'retire-managed-ignore')
+        : 'retire-modified';
     } else {
       currentHash = await hashFile(target);
       expectedHash = managedFile.targetHash;
@@ -463,7 +536,12 @@ export async function createInstallPlan({
     });
     plannedTargets.add(relativeTarget);
   }
+  return actions;
+}
 
+async function planGeneratedDirectoryRetirements(ctx, actions) {
+  const { state, targetDir } = ctx;
+  const result = [];
   const retiringOwners = new Map(actions
     .filter((action) => action.discard && action.kind === 'retire')
     .map((action) => [action.relativeTarget, action.expectedHash]));
@@ -476,7 +554,7 @@ export async function createInstallPlan({
     if (directory.projectScoped) assertInsideDir(targetDir, target, 'deselected generated directory');
     else assertInsideDir(path.dirname(ownerTarget), target, 'deselected generated directory');
     await assertSafePathInside(targetDir, target, 'deselected generated directory');
-    actions.push({
+    result.push({
       discard: true,
       expectedOwnerHash,
       kind: 'retire-generated-directory',
@@ -487,14 +565,11 @@ export async function createInstallPlan({
       target,
     });
   }
+  return result;
+}
 
-  const installedSurface = createInstalledSurface({
-    clarificationPosture: renderData.clarification?.posture,
-    customModules: moduleSelection.requestedModules !== null,
-    memoryPath: renderData.memory?.path,
-    profile,
-    targets: actions.filter((action) => action.kind === 'write').map((action) => action.relativeTarget),
-  });
+function computeGeneratedDirectories(ctx, actions) {
+  const { targetDir } = ctx;
   const generatedDirectories = actions.some((action) => action.kind === 'write' && action.group === 'tools-playwright')
     ? [{
         ownerTarget: `${PLAYWRIGHT_TOOL_RELATIVE_DIR}/package.json`,
@@ -522,35 +597,7 @@ export async function createInstallPlan({
   if (actions.some((action) => action.kind === 'write' && action.relativeTarget === rtkOwnerTarget)) {
     generatedDirectories.push({ ownerTarget: rtkOwnerTarget, target: '.agents/runtime/tools/rtk/bin' });
   }
-
-  return {
-    adapter: adapter.id,
-    adapterCapabilities: adapter.capabilities,
-    baselinePlan,
-    configUpdate,
-    dryRun,
-    force,
-    generatedDirectories,
-    implicitModules: moduleSelection.implicitModules,
-    instructionTarget: adapter.instructionTarget,
-    missingCapabilities: Object.entries(adapter.capabilities).filter(([, status]) => status === 'unsupported').map(([name]) => name),
-    profile,
-    previewCapabilities: Object.entries(adapter.capabilities).filter(([, status]) => status === 'preview').map(([name]) => name),
-    requestedModules: moduleSelection.requestedModules,
-    requestedPlugins: moduleSelection.requestedPlugins,
-    resolvedModules: moduleSelection.resolvedModules,
-    rtkHooksEnabled,
-    renderData: withDefaultTemplateData({
-      ...renderData,
-      codebaseMemoryStateDirectory: stateDirectory,
-      installedSurface,
-    }),
-    redZoneConfirmed: false,
-    targetDir: path.resolve(targetDir),
-    upgrade,
-    version: await packageVersion(rootDir),
-    actions,
-  };
+  return generatedDirectories;
 }
 
 export async function renderSourceContent(action, renderData = {}) {
@@ -726,6 +773,41 @@ export async function applyInstallPlan(plan, hooks = {}) {
     return { mcpConflicts: [], retired: [], skipped: [], written: [] };
   }
 
+  validatePlanGuards(plan);
+  await assertActionPaths(plan);
+
+  const transactionId = createTransactionId();
+  const transaction = await prepareTransaction(plan, transactionId);
+
+  let installStatePersisted = false;
+  try {
+    const ctx = await prepareApplyContext(plan, transactionId);
+    const writeResult = await executeWriteActions(plan, ctx, hooks);
+    const retireResult = await executeRetireActions(plan, ctx);
+    const installState = mergeInstallState(plan, ctx, retireResult);
+    await writeInstallState(plan.targetDir, installState);
+
+    installStatePersisted = true;
+    await finalizeTransaction(transaction);
+    return {
+      baseline: ctx.baseline,
+      mcpConflicts: [...new Set(writeResult.mcpConflicts)],
+      retired: retireResult.retired,
+      skipped: retireResult.skipped,
+      written: writeResult.written,
+    };
+  } catch (error) {
+    if (installStatePersisted) throw error;
+    try {
+      await transaction.rollback();
+    } catch (rollbackError) {
+      throw new AggregateError([error, rollbackError], error.message);
+    }
+    throw error;
+  }
+}
+
+function validatePlanGuards(plan) {
   const userModified = plan.actions.find((action) => action.kind === 'user-modified');
   if (userModified) {
     throw new Error(`Refusing to upgrade user-modified file: ${userModified.target}`);
@@ -741,38 +823,31 @@ export async function applyInstallPlan(plan, hooks = {}) {
   if (!plan.dryRun && !plan.redZoneConfirmed && plan.actions.some((action) => action.redZone)) {
     throw new Error('Refusing to write red-zone files without explicit red-zone confirmation.');
   }
+}
 
-  for (const action of plan.actions.filter((item) => [
-    'write',
-    'retire',
-    'retire-managed-ignore',
-    'retire-managed-mcp',
-    'retire-generated-directory',
-  ].includes(item.kind))) {
+const TRACKED_ACTION_KINDS = ['write', 'retire', 'retire-managed-ignore', 'retire-managed-mcp', 'retire-generated-directory'];
+
+async function assertActionPaths(plan) {
+  for (const action of plan.actions.filter((item) => TRACKED_ACTION_KINDS.includes(item.kind))) {
     assertPortableRelativePath(action.relativeTarget, 'install target');
     assertInsideDir(plan.targetDir, action.target, 'install target outside target directory');
     await assertSafePathInside(plan.targetDir, action.target, 'install target');
   }
+}
 
-  const transactionId = createTransactionId();
+async function prepareTransaction(plan, transactionId) {
   const statePath = stateFilePath(plan.targetDir);
   const backupRoot = path.join(path.dirname(statePath), 'backups', transactionId);
   const trackedPaths = [
     ...plan.actions
-      .filter((action) => [
-        'write',
-        'retire',
-        'retire-managed-ignore',
-        'retire-managed-mcp',
-        'retire-generated-directory',
-      ].includes(action.kind))
+      .filter((action) => TRACKED_ACTION_KINDS.includes(action.kind))
       .map((action) => action.target),
     ...plan.baselinePlan.actions.map((action) => path.join(plan.targetDir, action.target)),
     ...(plan.baselinePlan.manifestTarget ? [path.join(plan.targetDir, plan.baselinePlan.manifestTarget)] : []),
     statePath,
     ...(plan.configUpdate ? [plan.configUpdate.path] : []),
   ];
-  const transaction = await beginFileTransaction({
+  return beginFileTransaction({
     cleanupPaths: [
       backupRoot,
       ...(plan.baselinePlan.root ? [plan.baselinePlan.root] : []),
@@ -782,14 +857,9 @@ export async function applyInstallPlan(plan, hooks = {}) {
     targetDir: plan.targetDir,
     trackedPaths,
   });
+}
 
-  let installStatePersisted = false;
-  try {
-  const written = [];
-  const retired = [];
-  const skipped = [];
-  const files = [];
-  const mcpConflicts = [];
+async function prepareApplyContext(plan, transactionId) {
   const backupId = transactionId;
   const previousState = await readInstallState(plan.targetDir);
   const retiredFiles = [...(previousState?.retiredFiles ?? [])];
@@ -807,7 +877,14 @@ export async function applyInstallPlan(plan, hooks = {}) {
       generatedFiles.push(file);
     }
   }
+  return { backupId, baseline, discardedTargets, generatedFiles, previousState, retiredFiles, transactionId };
+}
 
+async function executeWriteActions(plan, ctx, hooks) {
+  const written = [];
+  const files = [];
+  const mcpConflicts = [];
+  const { backupId } = ctx;
   for (const action of plan.actions) {
     if (action.kind !== 'write') {
       continue;
@@ -843,13 +920,15 @@ export async function applyInstallPlan(plan, hooks = {}) {
       contentStrategy: action.contentStrategy,
       created: !existed,
       group: action.group,
-      managedBlockHash: isManagedToml(action.contentStrategy)
-        ? createHash('sha256').update(extractManagedMcpBlock(targetContent)).digest('hex')
-        : (isManagedIgnore(action.contentStrategy)
-            ? createHash('sha256').update(extractManagedCbmIgnoreBlock(targetContent)).digest('hex')
-        : (isManagedInstruction(action.contentStrategy)
-            ? createHash('sha256').update(extractManagedInstructionBlock(targetContent) ?? '').digest('hex')
-            : undefined)),
+      managedBlockHash: isManagedInstruction(action.contentStrategy) || isManagedToml(action.contentStrategy) || isManagedIgnore(action.contentStrategy)
+        ? hashManagedBlock(
+            isManagedInstruction(action.contentStrategy)
+              ? extractManagedInstructionBlock(targetContent)
+              : isManagedToml(action.contentStrategy)
+                ? extractManagedMcpBlock(targetContent)
+                : extractManagedCbmIgnoreBlock(targetContent),
+          )
+        : undefined,
       previousHash,
       originalBackup: backup,
       originalCreated: !existed,
@@ -859,9 +938,17 @@ export async function applyInstallPlan(plan, hooks = {}) {
       owner: 'cognis',
       target: toTargetPath(plan.targetDir, action.target),
       targetHash: await hashFile(action.target),
-      transactionId,
+      transactionId: ctx.transactionId,
     });
   }
+  ctx.files = files;
+  return { mcpConflicts, written };
+}
+
+async function executeRetireActions(plan, ctx) {
+  const retired = [];
+  const skipped = [];
+  const { backupId, discardedTargets, retiredFiles } = ctx;
 
   for (const action of plan.actions.filter((item) => item.kind === 'retire-runtime-state')) {
     await rm(action.target, { force: true, recursive: true });
@@ -899,7 +986,7 @@ export async function applyInstallPlan(plan, hooks = {}) {
         continue;
       }
       const content = await readFile(action.target, 'utf8');
-      const blockHash = createHash('sha256').update(extractManagedMcpBlock(content)).digest('hex');
+      const blockHash = hashManagedBlock(extractManagedMcpBlock(content));
       if (blockHash !== action.expectedHash) {
         skipped.push({ reason: 'managed-block-modified', target: action.relativeTarget });
         continue;
@@ -917,7 +1004,7 @@ export async function applyInstallPlan(plan, hooks = {}) {
         continue;
       }
       const content = await readFile(action.target, 'utf8');
-      const blockHash = createHash('sha256').update(extractManagedCbmIgnoreBlock(content)).digest('hex');
+      const blockHash = hashManagedBlock(extractManagedCbmIgnoreBlock(content));
       if (blockHash !== action.expectedHash) {
         skipped.push({ reason: 'managed-block-modified', target: action.relativeTarget });
         continue;
@@ -968,6 +1055,12 @@ export async function applyInstallPlan(plan, hooks = {}) {
     }
   }
 
+  return { retired, retiredFiles, skipped };
+}
+
+function mergeInstallState(plan, ctx, retireResult) {
+  const { files = [], previousState, discardedTargets } = ctx;
+  const { retiredFiles } = retireResult;
   const retiredTargets = new Set([...retiredFiles.map((file) => file.target), ...discardedTargets]);
   const mergedFiles = new Map((previousState?.files ?? [])
     .filter((file) => !retiredTargets.has(file.target))
@@ -984,12 +1077,12 @@ export async function applyInstallPlan(plan, hooks = {}) {
     ...(previousState?.generatedDirectories ?? []).filter((item) => !retiredTargets.has(item.ownerTarget)),
     ...plan.generatedDirectories,
   ].map((item) => [item.target, item])).values()];
-  await writeInstallState(plan.targetDir, {
+  return {
     adapter: plan.adapter,
-    baseline,
+    baseline: ctx.baseline,
     files: [...mergedFiles.values()],
     generatedDirectories,
-    generatedFiles,
+    generatedFiles: ctx.generatedFiles,
     installedAt: new Date().toISOString(),
     profile: plan.profile,
     previewCapabilities: plan.previewCapabilities,
@@ -999,15 +1092,12 @@ export async function applyInstallPlan(plan, hooks = {}) {
     rtkHooksEnabled: plan.rtkHooksEnabled,
     retiredFiles,
     stateVersion: 4,
-    transactionId,
+    transactionId: ctx.transactionId,
     version: plan.version,
-  });
+  };
+}
 
-  // The install-state write above is the point of no return: once persisted,
-  // the on-disk install is complete and correct. A subsequent commit() failure
-  // is only a journal-finalisation error, so we must NOT roll back the
-  // preimages (that would revert a successful install). Release the lock only.
-  installStatePersisted = true;
+async function finalizeTransaction(transaction) {
   try {
     await transaction.commit();
   } catch (error) {
@@ -1015,16 +1105,6 @@ export async function applyInstallPlan(plan, hooks = {}) {
       await transaction.release();
     } catch (releaseError) {
       throw new AggregateError([error, releaseError], error.message);
-    }
-    throw error;
-  }
-  return { baseline, mcpConflicts: [...new Set(mcpConflicts)], retired, skipped, written };
-  } catch (error) {
-    if (installStatePersisted) throw error;
-    try {
-      await transaction.rollback();
-    } catch (rollbackError) {
-      throw new AggregateError([error, rollbackError], error.message);
     }
     throw error;
   }

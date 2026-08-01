@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cognis Install State",
+  "description": "Validates the structural integrity of install-state.json. Required fields are limited to those that readInstallState and uninstall/rollback logic depend on. Legacy states produced before stateVersion 4 may lack installedAt/product/storageNamespace or carry older stateVersion values; they are tolerated on read so init/upgrade can migrate them. writeInstallState always normalizes product/stateVersion/storageNamespace to the canonical values.",
+  "type": "object",
+  "required": ["files", "profile", "version"],
+  "properties": {
+    "adapter": { "type": "string", "minLength": 1 },
+    "baseline": {
+      "anyOf": [
+        {
+          "type": "object",
+          "required": ["id", "manifest"],
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "manifest": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
+        { "type": "null" }
+      ]
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["created", "group", "redZone", "source", "sourceHash", "target", "targetHash"],
+        "properties": {
+          "backup": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "contentStrategy": { "enum": ["managed-ignore-block", "managed-instruction-block", "managed-toml-block", "replace"] },
+          "created": { "type": "boolean" },
+          "group": { "type": "string", "minLength": 1 },
+          "managedBlockHash": { "type": "string" },
+          "originalBackup": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "originalCreated": { "type": "boolean" },
+          "owner": { "type": "string", "minLength": 1 },
+          "previousHash": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "redZone": { "type": "boolean" },
+          "source": { "type": "string", "minLength": 1 },
+          "sourceHash": { "type": "string", "minLength": 1 },
+          "target": { "type": "string", "minLength": 1 },
+          "targetHash": { "type": "string", "minLength": 1 },
+          "transactionId": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "generatedDirectories": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["target", "ownerTarget"],
+        "properties": {
+          "target": { "type": "string", "minLength": 1 },
+          "ownerTarget": { "type": "string", "minLength": 1 },
+          "projectScoped": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "generatedFiles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["target", "targetHash"],
+        "properties": {
+          "target": { "type": "string", "minLength": 1 },
+          "targetHash": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "installedAt": { "type": "string", "minLength": 1 },
+    "previewCapabilities": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "profile": { "type": "string", "minLength": 1 },
+    "product": { "type": "string", "minLength": 1 },
+    "requestedModules": {
+      "anyOf": [
+        { "type": "array", "items": { "type": "string" } },
+        { "type": "null" }
+      ]
+    },
+    "requestedPlugins": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "resolvedModules": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "retiredFiles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["backup", "group", "redZone", "target", "targetHash"],
+        "properties": {
+          "backup": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "group": { "type": "string", "minLength": 1 },
+          "redZone": { "type": "boolean" },
+          "target": { "type": "string", "minLength": 1 },
+          "targetHash": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "rtkHooksEnabled": { "type": "boolean" },
+    "stateVersion": { "type": "integer", "minimum": 1 },
+    "storageNamespace": { "type": "string", "minLength": 1 },
+    "transactionId": { "type": "string", "minLength": 1 },
+    "version": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": false
+}
