@@ -5,6 +5,8 @@ import path from 'node:path';
 
 import { assertInsideDir, assertPortableRelativePath } from './manifest.js';
 import { safeJsonParse } from './safe-json.js';
+import { assertSafeCommand } from './shell-command.js';
+import { terminateProcessTree } from './process-tree.js';
 import { sanitizeEvalValue, scoreCase } from './eval-scoring.js';
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
@@ -25,14 +27,6 @@ const evaluationEnvironmentNames = new Set([
 
 function evaluationEnvironment(env) {
   return Object.fromEntries(Object.entries(env).filter(([name]) => evaluationEnvironmentNames.has(name)));
-}
-
-function splitCommand(command) {
-  const tokens = [];
-  const pattern = /"([^"]*)"|'([^']*)'|([^\s]+)/gu;
-  for (const match of command.matchAll(pattern)) tokens.push(match[1] ?? match[2] ?? match[3]);
-  if (tokens.length === 0) throw new Error('Evaluation runner command is empty.');
-  return tokens;
 }
 
 async function createWorkspace(definition) {
@@ -71,7 +65,7 @@ function validateObservation(value, caseId, configHash) {
 function executeRunner({ command, request, timeoutMs }) {
   let tokens;
   try {
-    tokens = splitCommand(command);
+    tokens = assertSafeCommand(command);
   } catch (error) {
     return Promise.resolve({ code: 'EVAL_RUNNER_UNAVAILABLE', diagnostic: error.message });
   }
@@ -100,7 +94,7 @@ function executeRunner({ command, request, timeoutMs }) {
       const next = Buffer.concat([current, chunk]);
       if (next.length > OUTPUT_LIMIT) {
         overflow = true;
-        terminateChildTree(child);
+        void terminateProcessTree(child);
       }
       return next.subarray(0, OUTPUT_LIMIT);
     };
@@ -136,28 +130,10 @@ function executeRunner({ command, request, timeoutMs }) {
     });
     const timer = setTimeout(() => {
       timedOut = true;
-      terminateChildTree(child);
+      void terminateProcessTree(child);
     }, timeoutMs);
     child.stdin.end(JSON.stringify(request));
   });
-}
-
-function terminateChildTree(child) {
-  if (!child.pid) return;
-  if (process.platform === 'win32') {
-    const killer = spawn('taskkill.exe', ['/pid', String(child.pid), '/t', '/f'], {
-      shell: false,
-      stdio: 'ignore',
-      windowsHide: true,
-    });
-    killer.unref();
-    return;
-  }
-  try {
-    process.kill(-child.pid, 'SIGKILL');
-  } catch {
-    child.kill('SIGKILL');
-  }
 }
 
 export async function runEvaluationCase({ command, definition, configHash = 'fixture-v1', repetition = 1, runId = 'online', timeoutMs = DEFAULT_TIMEOUT_MS, judge }) {
@@ -208,9 +184,8 @@ export async function runEvaluationCase({ command, definition, configHash = 'fix
       await rm(workspace, { force: true, maxRetries: 20, recursive: true, retryDelay: 250 });
     } catch (error) {
       return {
-        code: 'EVAL_WORKSPACE_CLEANUP_FAILED',
-        diagnostics: sanitizeEvalValue([error.message]),
-        status: 'degraded',
+        ...report,
+        cleanupWarning: sanitizeEvalValue([error.message]),
         workspace,
       };
     }
