@@ -14,6 +14,7 @@
   "scripts": {
     "cognis": "node ./scripts/cognis.js",
     "lint": "node ./scripts/lint.js",
+    "lint:eslint": "eslint .",
     "validate": "node ./scripts/validate.js",
     "skills:audit": "node ./scripts/skills-audit.js",
     "docs:audit": "node ./scripts/docs-audit.js",
@@ -26,9 +27,9 @@
     "eval:health": "node ./scripts/eval-health.js",
     "runtime:audit": "node ./scripts/runtime-audit.js",
     "test": "node --test --test-concurrency=4 --test-timeout=30000 tests/*.test.js",
-    "test:unit": "node --test --test-concurrency=4 --test-timeout=30000 tests/execution-simplification.test.js tests/hook-runtime.test.js tests/manifest-schema.test.js tests/product-identity.test.js tests/redaction.test.js",
-    "test:eval": "node --test --test-concurrency=4 --test-timeout=30000 tests/eval-contract.test.js tests/eval-report.test.js tests/eval-runner.test.js tests/eval-runtime-config.test.js tests/eval-scoring.test.js tests/eval-health.test.js tests/eval-cli.test.js tests/eval-ci.test.js tests/eval-execution.test.js tests/clarification-metrics.test.js tests/goal-definition-metrics.test.js",
-    "test:integration": "node --test --test-concurrency=1 --test-timeout=120000 tests/installation-baseline.test.js tests/installer-lifecycle.test.js tests/install-dry-run.test.js tests/mvp-spec.test.js tests/cross-platform-adapters.test.js tests/tool-provisioning.test.js tests/uninstall.test.js",
+    "test:unit": "node --test --test-concurrency=4 --test-timeout=30000 tests/execution-simplification.test.js tests/hook-runtime.test.js tests/manifest-schema.test.js tests/product-identity.test.js tests/redaction.test.js tests/codex-adapter.test.js tests/documentation.test.js tests/rules-depth.test.js tests/runtime-audit.test.js tests/safe-json.test.js tests/schema-validation.test.js tests/temp-cleanup.test.js tests/eval-judge.test.js tests/install-state-schema.test.js",
+    "test:eval": "node --test --test-concurrency=4 --test-timeout=30000 tests/eval-contract.test.js tests/eval-report.test.js tests/eval-runner.test.js tests/eval-runtime-config.test.js tests/eval-scoring.test.js tests/eval-health.test.js tests/eval-cli.test.js tests/eval-ci.test.js tests/eval-execution.test.js tests/clarification-metrics.test.js tests/goal-definition-metrics.test.js tests/eval-governance-metrics.test.js",
+    "test:integration": "node --test --test-concurrency=1 --test-timeout=120000 tests/installation-baseline.test.js tests/installer-lifecycle.test.js tests/mvp-spec.test.js tests/cross-platform-adapters.test.js tests/tool-provisioning.test.js tests/uninstall.test.js tests/cli-output.test.js tests/codebase-memory-mcp.test.js tests/cognis-cli.test.js tests/hook-installation.test.js tests/install-dry-run.test.js tests/legacy-unsupported.test.js tests/lint-discovery.test.js tests/module-selection.test.js tests/playwright-cli-integration.test.js tests/project-baseline.test.js tests/project-evaluation.test.js tests/project-profile.test.js tests/project-verification.test.js tests/skill-closure.test.js tests/target-validation.test.js tests/tooling-modules.test.js tests/transaction-recovery.test.js",
     "check": "node ./scripts/lint.js && node ./scripts/validate.js && pnpm test:unit",
     "pack:preview": "node ./scripts/pack-preview.js",
     "smoke:lifecycle": "node ./scripts/smoke-lifecycles.js"
@@ -37,5 +38,10 @@
     "node": "^20.19.0 || ^22.18.0 || ^24.0.0",
     "pnpm": ">=10.0.0"
   },
-  "packageManager": "pnpm@10.33.0"
+  "packageManager": "pnpm@10.33.0",
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.6.0",
+    "globals": "^17.8.0"
+  }
 }
