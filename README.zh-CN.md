@@ -112,7 +112,7 @@ Claude Code 和 Gemini CLI 使用相同的四个 profile；其 preview 能力需
 
 ## 显式工具
 
-可选插件包括 `rtk`、`ast-grep`、`codebase-memory-mcp`、`chrome-devtools-mcp`、`playwright-cli`、`open-code-review` 和 `agentmemory`。
+可选插件包括 `rtk`、`ast-grep`、`codebase-memory-mcp`、`chrome-devtools-mcp`、`playwright-cli` 和 `open-code-review`。Agentmemory runtime 因上游 High 漏洞暂停提供，不作为 `--plugin` 选项；如需记忆能力，请通过 `--modules memory` 安装 memory 模块。
 
 ```bash
 pnpm cognis install --project ../some-project --target codex --profile core --plugin -rtk --dry-run
@@ -132,6 +132,14 @@ pnpm cognis install --project ../some-project --target codex --profile core --wr
 pnpm cognis uninstall --project ../some-project --target codex --dry-run
 pnpm cognis uninstall --project ../some-project --target codex --write
 ```
+
+### 退出码
+
+| 退出码 | 含义 |
+|--------|------|
+| 0 | 成功（或降级但传了 `--allow-degraded`）。 |
+| 1 | 失败：状态无效、安装错误或未处理异常。 |
+| 2 | 部分跳过：卸载或回滚因用户修改保留了部分文件；或健康检查降级且未传 `--allow-degraded`。 |
 
 ## 安全边界
 

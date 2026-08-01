@@ -112,7 +112,7 @@ Legacy `governance.mode`, `governance.workflow`, `hooks.completionGate`, and `va
 
 ## Explicit tools
 
-Optional plugins are `rtk`, `ast-grep`, `codebase-memory-mcp`, `chrome-devtools-mcp`, `playwright-cli`, `open-code-review`, and `agentmemory`.
+Optional plugins are `rtk`, `ast-grep`, `codebase-memory-mcp`, `chrome-devtools-mcp`, `playwright-cli`, and `open-code-review`. Agentmemory runtime is suspended (upstream High vulnerabilities) and is not a `--plugin` choice; install the `memory` module via `--modules memory` when memory support is re-enabled.
 
 ```bash
 pnpm cognis install --project ../some-project --target codex --profile core --plugin -rtk --dry-run
@@ -132,6 +132,14 @@ pnpm cognis install --project ../some-project --target codex --profile core --wr
 pnpm cognis uninstall --project ../some-project --target codex --dry-run
 pnpm cognis uninstall --project ../some-project --target codex --write
 ```
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success (or degraded with `--allow-degraded`). |
+| 1 | Failure: invalid state, install error, or unhandled exception. |
+| 2 | Partial skip: uninstall or rollback retained some files due to user modifications; or health check is degraded without `--allow-degraded`. |
 
 ## Safety boundaries
 

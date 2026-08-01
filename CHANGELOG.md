@@ -9,7 +9,7 @@
 - `full` 重定义为全部领域 Skills、可选 Eval 和 Codex 安全 Hook；Codex Hook 只保留 `PreToolUse` 与 `PermissionRequest`。
 - 升级器会安全退役新计划不再包含的旧受管文件，并精确清理旧运行状态而保留其他 `.cognis` 数据。
 - `pnpm check` 收敛为 lint、pack/catalog 静态校验和快速产品单测；integration、lifecycle 与在线 Eval 保持显式命令。
-- 新增显式 `--plugin` 安装面：`core` 与 `full` 默认均不安装外部工具；`-all`、单选、多选和 `none` 分别管理 RTK、ast-grep、codebase-memory-mcp、Chrome DevTools MCP、Playwright CLI、Open Code Review 与 Agentmemory，并将规范化选择持久化到 install-state。
+- 新增显式 `--plugin` 安装面：`core` 与 `full` 默认均不安装外部工具；`-all`、单选、多选和 `none` 分别管理 RTK、ast-grep、codebase-memory-mcp、Chrome DevTools MCP、Playwright CLI 与 Open Code Review 共 6 个插件，并将规范化选择持久化到 install-state。Agentmemory runtime 因上游 High 漏洞暂停提供，不通过 `--plugin` 安装。
 - 新增项目内 RTK `v0.43.0` 与 `@ast-grep/cli@0.44.1`：提供命令输出压缩、结构化搜索规则、checksum/lockfile 校验、doctor 状态和安全回退。
 
 ## 0.5.0 - 2026-07-18

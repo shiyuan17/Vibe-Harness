@@ -41,16 +41,17 @@ Cognis 用来打包可复用的 AI coding 项目规则、领域 Skills、安全 
 
 ## 启动
 
-1. 阅读 `docs/rules/governance-core.md`、`docs/rules/AGENT_SKILL_ROUTING.md` 和命中场景的专项规则。
-2. 编辑前运行 `git status --short`，保护用户未归属改动。
-3. 使用仓库搜索和已安装规则定位相关代码；需要结构化索引时先确认目标项目已有能力。
-4. 将任务归为快速、轻量或完整，并选择与主张匹配的验证。
-5. 使用“获取事实 → 直接执行 → 聚焦验证 → 简洁交付”的单一路径；宿主按 description 直接选择领域 Skill。
+1. 先读取 `docs/rules/governance-core.md`；只有出现 Skill 或专项领域信号时再读取 `docs/rules/AGENT_SKILL_ROUTING.md` 和一个命中的专项规则。
+2.
+3. 编辑前运行 `git status --short`，保护用户未归属改动。
+4. 使用仓库搜索和已安装规则定位相关代码；需要结构化索引时先确认目标项目已有能力。
+5. 将任务归为快速、轻量或完整，并选择与主张匹配的验证。
+6. 使用“获取事实 → 直接执行 → 聚焦验证 → 简洁交付”的单一路径；宿主按 description 直接选择领域 Skill。
 
-## 硬边界摘要
+## 硬边界
 
 - 只在授权范围内行动；红区、生产、权限、凭据、外部写入和不可逆操作先获人工确认。
-- 不编造事实或证据；没有本轮有效验证时缩小完成主张。
+- 不编造事实或证据；没有本轮有效验证不得声称完成。
 - 任务记录是可选的人读文档，不触发测试、Review、子 Agent 或完成门禁。
 
 ## 默认验证命令
@@ -58,20 +59,23 @@ Cognis 用来打包可复用的 AI coding 项目规则、领域 Skills、安全 
 - Lint: pnpm lint
 - Typecheck: 未配置
 - Test: pnpm test:unit
+- Eval: pnpm eval:offline
 
-`cognis validate --project` 只检查安装一致性；`cognis verify --project <path>` 执行项目已配置的验证命令。
+`cognis validate --project` 只检查安装一致性；`cognis verify --project <path>` 执行项目已配置的验证命令。测试范围细则见 `docs/rules/test-rules.md`。
 
 ## 已安装表面
 
 - Skill 分类：下述八个领域 Skills 是 full profile 的八个原生领域 Skills；当前另安装 browser-verification integration Skill，它不计入该数量。
 
 - 当前安装方式：完整能力安装（包含八个领域 Skills、可选 Eval 和 Codex 安全 Hook；memory 与外部工具仅通过 `--plugin` 显式启用）。
+- 需求澄清姿态：`balanced`（action-leaning 偏向采用最小可逆默认值直接推进；balanced 按规则判断；conservative 对跨模块或公共契约改动也倾向先确认）。
 
 - 规则位于 `docs/rules/`。
 - 工程专项规则位于 `docs/rules/`。
 - 发布 / 设计 / 排障规则位于 `docs/rules/`。
 - 模板位于 `docs/templates/`。
 - Skills 位于 `.agents/skills/`。
+
 - Codex hook 配置位于 `.codex/hooks.json`。
 
 宿主按 Skill description 原生选择一个当前阶段所需能力；不使用 Router 或流程 Skill 链。

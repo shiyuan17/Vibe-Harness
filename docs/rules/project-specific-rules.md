@@ -12,6 +12,7 @@
 
 ## 编码规范
 
+- 遵循现有 ESLint 配置。
 - 遵循 .editorconfig 中的缩进、换行和字符集约定。
 - 优先沿用目标项目已有分层、命名、错误处理和测试写法。
 - 新增依赖前先确认现有栈不能满足，并说明维护状态、许可证、体积和安全风险。
@@ -19,11 +20,11 @@
 
 ## 验证规范
 
-- 默认验证：pnpm lint, pnpm test
+- 默认验证：pnpm lint, pnpm test:unit
 - Lint：`pnpm lint`
 - Typecheck：`未配置`
 - Test：`pnpm test:unit`
-- Eval：`未配置`
+- Eval：`pnpm eval:offline`
 - 无法运行某项验证时，交付必须说明原因、替代证据和剩余风险。
 
 ## Git / VCS 规范
@@ -35,4 +36,5 @@
 
 ## 显式 Review
 
+- 按 package.json scripts、pom.xml 或 solution 配置选择与改动匹配的验证。
 - 仅在用户明确要求 Review 或显式调用 Review 工具时执行；Cognis 不自动创建审查角色或完成门禁。

@@ -49,6 +49,20 @@ function normalize(relativePath) {
   return relativePath.replaceAll('\\', '/');
 }
 
+// The rules/ source tree and docs/rules/ rendered copies live on different
+// filesystems and may carry CR/LF differences; compare after stripping CR.
+function normalizeLineEndings(value) {
+  return value.replace(/\r\n/gu, '\n').replace(/\r/gu, '\n');
+}
+
+// docs/rules/ renders certain source filenames with different casing or
+// separators (e.g. rules/agent-skill-routing.md -> docs/rules/AGENT_SKILL_ROUTING.md).
+// Normalize by lowercasing and treating underscores as hyphens so the two
+// trees can be paired without false drift reports.
+function normalizeRuleName(name) {
+  return name.toLowerCase().replaceAll('_', '-');
+}
+
 function markdownWithoutCode(content) {
   return content
     .replace(/```[\s\S]*?```|~~~[\s\S]*?~~~/gu, '')
@@ -389,6 +403,94 @@ async function validateSourceMapping(rootDir) {
   return errors;
 }
 
+// rules/*.md is the packaging source; docs/rules/*.md is the governed copy
+// catalog consumers read. Except project-specific-rules.md (a render template
+// whose {{placeholders}} are filled at install time), pairs must stay
+// byte-identical modulo line endings. rules-only files (tool rules shipped
+// only in the pack, e.g. ast-grep.md) are warned rather than errored so they
+// can be documented later without blocking the audit.
+const rulesParityExcluded = new Set(['project-specific-rules.md']);
+
+async function listMarkdownFiles(directory) {
+  if (!(await pathExists(directory))) return [];
+  const entries = await readdir(directory, { withFileTypes: true });
+  return entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
+    .map((entry) => entry.name);
+}
+
+export async function validateRulesParity(rootDir) {
+  const errors = [];
+  const warnings = [];
+  const rulesDir = path.join(rootDir, 'rules');
+  const docsRulesDir = path.join(rootDir, 'docs/rules');
+  if (!(await pathExists(rulesDir)) || !(await pathExists(docsRulesDir))) {
+    return { errors, warnings };
+  }
+  const rulesFiles = await listMarkdownFiles(rulesDir);
+  const docsRulesFiles = await listMarkdownFiles(docsRulesDir);
+  const docsByName = new Map();
+  for (const name of docsRulesFiles) docsByName.set(normalizeRuleName(name), name);
+  const rulesByName = new Map();
+  for (const name of rulesFiles) rulesByName.set(normalizeRuleName(name), name);
+
+  for (const name of rulesFiles) {
+    const key = normalizeRuleName(name);
+    if (rulesParityExcluded.has(name)) continue;
+    const docsName = docsByName.get(key);
+    if (!docsName) {
+      warnings.push(`rules/${name} has no docs/rules counterpart; consider documenting it`);
+      continue;
+    }
+    const rulesContent = normalizeLineEndings(await readFile(path.join(rulesDir, name), 'utf8'));
+    const docsContent = normalizeLineEndings(await readFile(path.join(docsRulesDir, docsName), 'utf8'));
+    if (rulesContent !== docsContent) {
+      errors.push(`docs/rules/${docsName} drifted from rules/${name}`);
+    }
+  }
+  for (const name of docsRulesFiles) {
+    if (rulesParityExcluded.has(name)) continue;
+    if (!rulesByName.has(normalizeRuleName(name))) {
+      errors.push(`docs/rules/${name} has no rules/ source counterpart`);
+    }
+  }
+  return { errors, warnings };
+}
+
+async function listJsonFiles(directory) {
+  if (!(await pathExists(directory))) return [];
+  const entries = await readdir(directory, { withFileTypes: true });
+  return entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+    .map((entry) => entry.name);
+}
+
+// docs/schemas/ holds rendered copies of schemas/ for catalog consumers. They
+// must stay byte-identical modulo line endings so the published docs match the
+// validated packaging contracts.
+export async function validateSchemaParity(rootDir) {
+  const errors = [];
+  const schemasDir = path.join(rootDir, 'schemas');
+  const docsSchemasDir = path.join(rootDir, 'docs/schemas');
+  if (!(await pathExists(schemasDir)) || !(await pathExists(docsSchemasDir))) {
+    return errors;
+  }
+  const docsSchemas = await listJsonFiles(docsSchemasDir);
+  for (const name of docsSchemas) {
+    const sourcePath = path.join(schemasDir, name);
+    if (!(await pathExists(sourcePath))) {
+      errors.push(`docs/schemas/${name} has no schemas/ source counterpart`);
+      continue;
+    }
+    const sourceContent = normalizeLineEndings(await readFile(sourcePath, 'utf8'));
+    const docsContent = normalizeLineEndings(await readFile(path.join(docsSchemasDir, name), 'utf8'));
+    if (sourceContent !== docsContent) {
+      errors.push(`docs/schemas/${name} drifted from schemas/${name}`);
+    }
+  }
+  return errors;
+}
+
 function expectedStatusMarker(item) {
   if (item.status === 'implemented') return /状态：Implemented/u;
   if (item.status === 'superseded') return /状态：Superseded/u;
@@ -454,6 +556,11 @@ async function validateDocumentationUnchecked({ catalog, rootDir, today = new Da
     errors.push(...await validateSourceMapping(rootDir));
   }
   errors.push(...await validateLegacyBrandUsage({ rootDir }));
+
+  const rulesParity = await validateRulesParity(rootDir);
+  errors.push(...rulesParity.errors);
+  warnings.push(...rulesParity.warnings);
+  errors.push(...await validateSchemaParity(rootDir));
 
   const [english, chinese, gitignore] = await Promise.all([
     readFile(path.join(rootDir, 'README.md'), 'utf8'),
