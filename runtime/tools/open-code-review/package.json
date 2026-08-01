@@ -4,7 +4,7 @@
   "private": true,
   "description": "Project-local Open Code Review runtime managed by Cognis.",
   "dependencies": {
-    "@alibaba-group/open-code-review": "1.7.7",
+    "@alibaba-group/open-code-review": "1.8.0",
     "@iarna/toml": "2.2.5"
   },
   "engines": {
