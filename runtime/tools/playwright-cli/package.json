@@ -1,8 +1,8 @@
 {
-  "name": "@cognis/playwright-cli-runtime",
+  "name": "@vibe-harness/playwright-cli-runtime",
   "version": "0.0.0",
   "private": true,
-  "description": "Project-local Playwright CLI runtime managed by Cognis.",
+  "description": "Project-local Playwright CLI runtime managed by Vibe-Harness.",
   "devDependencies": {
     "@playwright/cli": "0.1.17"
   },

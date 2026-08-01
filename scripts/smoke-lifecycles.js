@@ -10,13 +10,13 @@ import { removeTemporaryDirectory } from './lib/temp-cleanup.js';
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const cliPath = path.join(rootDir, 'scripts/cognis.js');
+const cliPath = path.join(rootDir, 'scripts/vibe-harness.js');
 
 async function run(step, args) {
   console.error(`smoke: ${step}`);
   await execFileAsync(process.execPath, [cliPath, ...args], {
     cwd: rootDir,
-    env: { ...process.env, COGNIS_TOOL_TIMEOUT_MS: '10000' },
+    env: { ...process.env, VIBE_HARNESS_TOOL_TIMEOUT_MS: '10000' },
     maxBuffer: 1024 * 1024 * 8,
     timeout: 180_000,
     windowsHide: true,
@@ -29,8 +29,8 @@ async function runInstalledEval(step, project) {
   await execFileAsync(process.execPath, [
     path.join(project, '.agents/runtime/evals/run.mjs'),
     '--project', project,
-    '--suite', '.agents/evals/suites/cognis-core.json',
-    '--reference', '.agents/evals/references/cognis-core.offline.json',
+    '--suite', '.agents/evals/suites/vibe-harness-core.json',
+    '--reference', '.agents/evals/references/vibe-harness-core.offline.json',
   ], {
     cwd: project,
     maxBuffer: 1024 * 1024 * 8,
@@ -40,8 +40,8 @@ async function runInstalledEval(step, project) {
   return { exitCode: 0, step };
 }
 
-const core = await mkdtemp(path.join(tmpdir(), 'cognis-smoke-core-'));
-const full = await mkdtemp(path.join(tmpdir(), 'cognis-smoke-full-'));
+const core = await mkdtemp(path.join(tmpdir(), 'vibe-harness-smoke-core-'));
+const full = await mkdtemp(path.join(tmpdir(), 'vibe-harness-smoke-full-'));
 const results = [];
 
 try {

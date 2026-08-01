@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "id": "cognis-core-offline",
+  "id": "vibe-harness-core-offline",
   "generatedAt": "1970-01-01T00:00:00.000Z",
   "suite": {
-    "id": "cognis-core",
+    "id": "vibe-harness-core",
     "version": "2.0.0",
     "hash": "89da09e021afeb3474eb6e380389b8fd7ef8f2614ebc7740d4c33fcc66e7cdde",
-    "path": "evals/suites/cognis-core.json"
+    "path": "evals/suites/vibe-harness-core.json"
   },
   "mode": "offline",
   "status": "passed",
   "fingerprint": {
-    "suiteHash": "89da09e021afeb3474eb6e380389b8fd7ef8f2614ebc7740d4c33fcc66e7cdde",
+    "suiteHash": "c4ade31ca0e07210630420dbba012bb959858dd2dc37b5ea21fe5c21828e6a50",
     "runner": "offline-replay@1",
     "model": "fixture",
     "agent": "offline",
@@ -341,7 +341,7 @@
           "kind": "required-artifact",
           "dimension": "evidenceQuality",
           "critical": true,
-          "expected": "cognis-upgrade-state.json",
+          "expected": "vibe-harness-upgrade-state.json",
           "passed": true
         },
         {

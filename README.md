@@ -1,8 +1,8 @@
-# Cognis
+# Vibe-Harness
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-Cognis installs project-scoped rules, domain Skills, optional Evals, explicit tool plugins, and safety Hooks for Codex, Claude Code, and Gemini CLI. It writes only inside the target project and never changes global Agent configuration.
+Vibe-Harness installs project-scoped rules, domain Skills, optional Evals, explicit tool plugins, and safety Hooks for Codex, Claude Code, and Gemini CLI. It writes only inside the target project and never changes global Agent configuration.
 
 There is one default execution path: `gather facts -> execute -> focused verification -> concise delivery`. Quick, light, and full are risk levels used only to choose safeguards and verification depth.
 
@@ -12,16 +12,16 @@ Requires pnpm 10+ and Node.js 20.19+, 22.18+, or 24+.
 
 ```bash
 pnpm install
-pnpm cognis init --project ../some-project --target codex
-pnpm cognis install --project ../some-project --target codex --profile core --dry-run
-pnpm cognis install --project ../some-project --target codex --profile core --write
-pnpm cognis validate --project ../some-project
+pnpm vibe-harness init --project ../some-project --target codex
+pnpm vibe-harness install --project ../some-project --target codex --profile core --dry-run
+pnpm vibe-harness install --project ../some-project --target codex --profile core --write
+pnpm vibe-harness validate --project ../some-project
 ```
 
 `validate` checks installation consistency only. Run configured project checks with:
 
 ```bash
-pnpm cognis verify --project ../some-project
+pnpm vibe-harness verify --project ../some-project
 ```
 
 `verify` runs configured commands in `lint -> typecheck -> test -> eval` order and skips unconfigured commands.
@@ -46,15 +46,15 @@ A single Agent handles work by default. Explicit `open-code-review`, browser ver
 External tools and memory remain explicit `--plugin` choices. Codex `full` requires `--confirm-red-zone` when writing `.codex/hooks.json`.
 
 ```bash
-pnpm cognis install --project ../some-project --target codex --profile full --dry-run
-pnpm cognis install --project ../some-project --target codex --profile full --write --confirm-red-zone
+pnpm vibe-harness install --project ../some-project --target codex --profile full --dry-run
+pnpm vibe-harness install --project ../some-project --target codex --profile full --write --confirm-red-zone
 ```
 
 Claude Code and Gemini CLI use the same four profiles; preview capabilities require explicit `--allow-preview`.
 
 ## Project configuration
 
-`cognis init` creates this structure:
+`vibe-harness init` creates this structure:
 
 ```json
 {
@@ -108,29 +108,29 @@ Claude Code and Gemini CLI use the same four profiles; preview capabilities requ
 }
 ```
 
-Legacy `governance.mode`, `governance.workflow`, `hooks.completionGate`, and `validationCommands.governance` fields raise `COGNIS_OBSOLETE_GOVERNANCE_CONFIG`. Cognis does not silently accept or rewrite them.
+Legacy `governance.mode`, `governance.workflow`, `hooks.completionGate`, and `validationCommands.governance` fields raise `VIBE_HARNESS_OBSOLETE_GOVERNANCE_CONFIG`. Vibe-Harness does not silently accept or rewrite them.
 
 ## Explicit tools
 
 Optional plugins are `rtk`, `ast-grep`, `codebase-memory-mcp`, `chrome-devtools-mcp`, `playwright-cli`, and `open-code-review`. Agentmemory runtime is suspended (upstream High vulnerabilities) and is not a `--plugin` choice; install the `memory` module via `--modules memory` when memory support is re-enabled.
 
 ```bash
-pnpm cognis install --project ../some-project --target codex --profile core --plugin -rtk --dry-run
-pnpm cognis install --project ../some-project --target codex --profile core --plugin -rtk ast-grep --write
-pnpm cognis install --project ../some-project --target codex --profile core --plugin none --write
+pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin -rtk --dry-run
+pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin -rtk ast-grep --write
+pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin none --write
 ```
 
 Plugin choices persist in project install-state. `--modules` is an advanced replacement for the profile module set, not an incremental plugin interface.
 
 ## Upgrade and removal
 
-Upgrade compares the old install-state with the new plan. Managed files no longer planned are retired by `--upgrade --write` only when unchanged; modified files are reported as conflicts and preserved. Obsolete runtime state is removed precisely without deleting the whole `.cognis` directory.
+Upgrade compares the old install-state with the new plan. Managed files no longer planned are retired by `--upgrade --write` only when unchanged; modified files are reported as conflicts and preserved. Obsolete runtime state is removed precisely without deleting the whole `.vibe-harness` directory.
 
 ```bash
-pnpm cognis install --project ../some-project --target codex --profile core --dry-run --upgrade
-pnpm cognis install --project ../some-project --target codex --profile core --write --upgrade
-pnpm cognis uninstall --project ../some-project --target codex --dry-run
-pnpm cognis uninstall --project ../some-project --target codex --write
+pnpm vibe-harness install --project ../some-project --target codex --profile core --dry-run --upgrade
+pnpm vibe-harness install --project ../some-project --target codex --profile core --write --upgrade
+pnpm vibe-harness uninstall --project ../some-project --target codex --dry-run
+pnpm vibe-harness uninstall --project ../some-project --target codex --write
 ```
 
 ### Exit codes

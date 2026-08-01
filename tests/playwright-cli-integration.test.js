@@ -17,7 +17,7 @@ import {
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '..');
-const cliPath = path.join(rootDir, 'scripts/cognis.js');
+const cliPath = path.join(rootDir, 'scripts/vibe-harness.js');
 
 async function runCli(args) {
   const { stdout } = await execFileAsync(process.execPath, [cliPath, ...args], { cwd: rootDir });
@@ -25,7 +25,7 @@ async function runCli(args) {
 }
 
 test('Playwright tool preparation is lazy, reproducible, and project-local', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-playwright-tool-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-playwright-tool-'));
   const toolDir = path.join(targetDir, '.agents/runtime/tools/playwright-cli');
   const calls = [];
   try {
@@ -46,7 +46,7 @@ test('Playwright tool preparation is lazy, reproducible, and project-local', asy
     const prepared = await preparePlaywrightTool({
       env: {
         HTTPS_PROXY: 'https://proxy.example.test',
-        COGNIS_SECRET_SENTINEL: 'must-not-leak',
+        VIBE_HARNESS_SECRET_SENTINEL: 'must-not-leak',
         PATH: 'playwright-test-path',
       },
       runCommand,
@@ -70,7 +70,7 @@ test('Playwright tool preparation is lazy, reproducible, and project-local', asy
     assert.equal(calls[1].browserPath, '0');
     assert.equal(calls[0].env.PATH, 'playwright-test-path');
     assert.equal(calls[0].env.HTTPS_PROXY, 'https://proxy.example.test');
-    assert.equal(calls[0].env.COGNIS_SECRET_SENTINEL, undefined);
+    assert.equal(calls[0].env.VIBE_HARNESS_SECRET_SENTINEL, undefined);
     assert.equal(calls.every((call) => call.cwd === toolDir), true);
 
     await preparePlaywrightTool({ runCommand, targetDir, toolDir });
@@ -80,17 +80,17 @@ test('Playwright tool preparation is lazy, reproducible, and project-local', asy
     await preparePlaywrightTool({ runCommand, targetDir, toolDir });
     assert.equal(calls.length, 4, 'changed lock hash must prepare the tool again');
 
-    const config = JSON.parse(await readFile(path.join(targetDir, '.cognis/tool-state/playwright-cli.config.json'), 'utf8'));
+    const config = JSON.parse(await readFile(path.join(targetDir, '.vibe-harness/tool-state/playwright-cli.config.json'), 'utf8'));
     assert.equal(config.browser.isolated, true);
     assert.equal(config.allowUnrestrictedFileAccess, false);
-    assert.equal(config.outputDir, path.join(targetDir, '.cognis/artifacts/playwright'));
+    assert.equal(config.outputDir, path.join(targetDir, '.vibe-harness/artifacts/playwright'));
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }
 });
 
 test('failed Playwright preparation records unavailable without leaking command output and can retry', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-playwright-failure-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-playwright-failure-'));
   const toolDir = path.join(targetDir, '.agents/runtime/tools/playwright-cli');
   try {
     await mkdir(toolDir, { recursive: true });
@@ -119,7 +119,7 @@ test('failed Playwright preparation records unavailable without leaking command 
       },
     );
 
-    const stateText = await readFile(path.join(targetDir, '.cognis/tool-state/playwright-cli.json'), 'utf8');
+    const stateText = await readFile(path.join(targetDir, '.vibe-harness/tool-state/playwright-cli.json'), 'utf8');
     const state = JSON.parse(stateText);
     assert.equal(stateText.includes('super-secret'), false);
     assert.equal(state.phase, 'dependency-install');
@@ -144,7 +144,7 @@ test('failed Playwright preparation records unavailable without leaking command 
 });
 
 test('Playwright command forwards output while provisioning remains injectable', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-playwright-command-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-playwright-command-'));
   const toolDir = path.join(targetDir, '.agents/runtime/tools/playwright-cli');
   const invocations = [];
   try {
@@ -162,7 +162,7 @@ test('Playwright command forwards output while provisioning remains injectable',
     const runCliCommand = async (command, args, options) => invocations.push({ args, command, options });
 
     await runPlaywrightCli(['-s=smoke', 'snapshot', '--filename=smoke.yml'], {
-      env: { COGNIS_SECRET_SENTINEL: 'must-not-leak', PATH: 'playwright-test-path' },
+      env: { VIBE_HARNESS_SECRET_SENTINEL: 'must-not-leak', PATH: 'playwright-test-path' },
       runCliCommand,
       runCommand,
       targetDir,
@@ -174,15 +174,15 @@ test('Playwright command forwards output while provisioning remains injectable',
     assert.deepEqual(invocations[0].args.slice(1), [
       '-s=smoke',
       'snapshot',
-      `--filename=${path.join(targetDir, '.cognis/artifacts/playwright/smoke.yml')}`,
+      `--filename=${path.join(targetDir, '.vibe-harness/artifacts/playwright/smoke.yml')}`,
     ]);
     assert.equal(invocations[0].options.cwd, targetDir);
     assert.equal(
       invocations[0].options.env.PLAYWRIGHT_MCP_CONFIG,
-      path.join(targetDir, '.cognis/tool-state/playwright-cli.config.json'),
+      path.join(targetDir, '.vibe-harness/tool-state/playwright-cli.config.json'),
     );
     assert.equal(invocations[0].options.env.PATH, 'playwright-test-path');
-    assert.equal(invocations[0].options.env.COGNIS_SECRET_SENTINEL, undefined);
+    assert.equal(invocations[0].options.env.VIBE_HARNESS_SECRET_SENTINEL, undefined);
     assert.equal(invocations[0].options.stdio, 'inherit');
 
     await assert.rejects(
@@ -199,7 +199,7 @@ test('Playwright command forwards output while provisioning remains injectable',
 });
 
 test('the Playwright plugin installs a lazy project-local tool without changing the project package', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-playwright-install-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-playwright-install-'));
   try {
     const packageText = '{"name":"business-app","private":true}\n';
     await writeFile(path.join(targetDir, 'package.json'), packageText, 'utf8');
@@ -225,7 +225,7 @@ test('the Playwright plugin installs a lazy project-local tool without changing 
 });
 
 test('project validation warns for a pending Playwright tool without failing governance', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-playwright-validate-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-playwright-validate-'));
   try {
     await runCli(['init', '--project', targetDir]);
     await runCli(['install', '--project', targetDir, '--target', 'codex', '--profile', 'core', '--plugin', '-playwright-cli', '--write']);
@@ -238,14 +238,14 @@ test('project validation warns for a pending Playwright tool without failing gov
 });
 
 test('rollback removes generated Playwright dependencies but preserves browser evidence', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-playwright-rollback-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-playwright-rollback-'));
   try {
     await runCli(['init', '--project', targetDir, '--profile', 'core']);
     await runCli(['install', '--project', targetDir, '--target', 'codex', '--profile', 'core', '--plugin', '-playwright-cli', '--write']);
     const validation = await runCli(['validate', '--project', targetDir, '--profile', 'core']);
     assert.ok(validation.warnings.some((warning) => warning.code === 'PLAYWRIGHT_CLI_PENDING'));
     const generated = path.join(targetDir, '.agents/runtime/tools/playwright-cli/node_modules/fake');
-    const evidence = path.join(targetDir, '.cognis/artifacts/playwright/screenshot.png');
+    const evidence = path.join(targetDir, '.vibe-harness/artifacts/playwright/screenshot.png');
     await mkdir(generated, { recursive: true });
     await mkdir(path.dirname(evidence), { recursive: true });
     await writeFile(path.join(generated, 'index.js'), '', 'utf8');

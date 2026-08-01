@@ -33,7 +33,7 @@ test('core reusable pack does not leak source project identifiers or business te
       'manifests',
       'schemas',
       'examples',
-      'cognis.config.json'
+      'vibe-harness.config.json'
     ],
     rootDir,
   });

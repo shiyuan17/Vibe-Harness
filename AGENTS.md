@@ -1,6 +1,6 @@
-# AGENTS.md - Cognis 贡献指南
+# AGENTS.md - Vibe-Harness 贡献指南
 
-Cognis 用来打包可复用的 AI coding 项目规则、领域 Skills、安全 Hook 和安装器。源项目只能作为只读输入；通用内容不得包含项目专有标识。
+Vibe-Harness 用来打包可复用的 AI coding 项目规则、领域 Skills、安全 Hook 和安装器。源项目只能作为只读输入；通用内容不得包含项目专有标识。
 
 ## 深入文档
 
@@ -34,10 +34,10 @@ Cognis 用来打包可复用的 AI coding 项目规则、领域 Skills、安全 
 
 若 `codebase-memory-mcp` MCP 工具可用，理解或定位代码前先检查当前仓库索引状态，并按需使用结构查询。MCP 不可用时明确说明缺少该能力，退回 `rg` 和直接文件阅读；不要修改全局 Agent 或 MCP 配置。
 
-<!-- COGNIS:START -->
+<!-- VIBE_HARNESS:START -->
 # AGENTS.md
 
-项目：Cognis
+项目：Vibe-Harness
 
 ## 启动
 
@@ -61,7 +61,7 @@ Cognis 用来打包可复用的 AI coding 项目规则、领域 Skills、安全 
 - Test: pnpm test:unit
 - Eval: pnpm eval:offline
 
-`cognis validate --project` 只检查安装一致性；`cognis verify --project <path>` 执行项目已配置的验证命令。测试范围细则见 `docs/rules/test-rules.md`。
+`vibe-harness validate --project` 只检查安装一致性；`vibe-harness verify --project <path>` 执行项目已配置的验证命令。测试范围细则见 `docs/rules/test-rules.md`。
 
 ## 已安装表面
 
@@ -80,5 +80,5 @@ Cognis 用来打包可复用的 AI coding 项目规则、领域 Skills、安全 
 
 宿主按 Skill description 原生选择一个当前阶段所需能力；不使用 Router 或流程 Skill 链。
 
-规则优先级：平台系统与用户本轮指令优先；目标项目明确的本地规则优先于 Cognis 默认规则；目录级规则只作用于其子树。同一层级冲突时停止并请求确认。
-<!-- COGNIS:END -->
+规则优先级：平台系统与用户本轮指令优先；目标项目明确的本地规则优先于 Vibe-Harness 默认规则；目录级规则只作用于其子树。同一层级冲突时停止并请求确认。
+<!-- VIBE_HARNESS:END -->

@@ -2,10 +2,10 @@ import { parse as parseToml } from '@iarna/toml';
 
 import { extractManagedBlock, removeManagedBlock, stripManagedBlock } from '../managed-block.js';
 
-const managedMcpStart = '# COGNIS:MCP:START';
-const managedMcpEnd = '# COGNIS:MCP:END';
-const managedCbmIgnoreStart = '# COGNIS:CBM:START';
-const managedCbmIgnoreEnd = '# COGNIS:CBM:END';
+const managedMcpStart = '# VIBE_HARNESS:MCP:START';
+const managedMcpEnd = '# VIBE_HARNESS:MCP:END';
+const managedCbmIgnoreStart = '# VIBE_HARNESS:CBM:START';
+const managedCbmIgnoreEnd = '# VIBE_HARNESS:CBM:END';
 
 function tomlString(value) {
   return JSON.stringify(String(value));
@@ -72,11 +72,11 @@ function findManagedCbmIgnoreBlock(content) {
   const ends = [...content.matchAll(new RegExp(managedCbmIgnoreEnd, 'gu'))];
   if (starts.length === 0 && ends.length === 0) return null;
   if (starts.length !== 1 || ends.length !== 1) {
-    throw new Error('Multiple Cognis codebase-memory ignore blocks are not allowed.');
+    throw new Error('Multiple Vibe-Harness codebase-memory ignore blocks are not allowed.');
   }
   const start = starts[0].index;
   const end = ends[0].index;
-  if (end < start) throw new Error('Malformed Cognis codebase-memory ignore block.');
+  if (end < start) throw new Error('Malformed Vibe-Harness codebase-memory ignore block.');
   return { end, start };
 }
 

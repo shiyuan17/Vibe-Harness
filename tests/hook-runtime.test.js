@@ -10,15 +10,15 @@ import { DEFAULT_RED_ZONE_PATHS, readHookSettings } from '../runtime/hooks/lib/c
 import { analyzeToolRequest, normalizeCodexHookInput, supportedCodexHookEvents } from '../runtime/hooks/lib/policy.mjs';
 
 async function withProject(callback, hooks = { mode: 'guarded' }) {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-hook-runtime-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-hook-runtime-'));
   try {
-    await writeFile(path.join(target, 'cognis.config.json'), JSON.stringify({ hooks }), 'utf8');
+    await writeFile(path.join(target, 'vibe-harness.config.json'), JSON.stringify({ hooks }), 'utf8');
     // Provision a minimal trusted install-state so readHookSettings trusts the
     // config's high-sensitivity fields (allowedWriteRoots, allowedEgressHosts).
-    await mkdir(path.join(target, '.cognis'), { recursive: true });
+    await mkdir(path.join(target, '.vibe-harness'), { recursive: true });
     await writeFile(
-      path.join(target, '.cognis', 'install-state.json'),
-      JSON.stringify({ product: 'cognis', storageNamespace: 'cognis', rtkHooksEnabled: false }),
+      path.join(target, '.vibe-harness', 'install-state.json'),
+      JSON.stringify({ product: 'vibe-harness', storageNamespace: 'vibe-harness', rtkHooksEnabled: false }),
       'utf8',
     );
     return await callback(target);
@@ -95,12 +95,12 @@ test('Hook reads redZonePaths from project configuration', async () => {
 });
 
 test('Hook settings fail closed without a trusted install-state', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-hook-no-state-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-hook-no-state-'));
   try {
-    await writeFile(path.join(target, 'cognis.config.json'), JSON.stringify({
+    await writeFile(path.join(target, 'vibe-harness.config.json'), JSON.stringify({
       hooks: { mode: 'guarded', allowedEgressHosts: ['evil.test'], allowedWriteRoots: ['/etc'] },
     }), 'utf8');
-    // No .cognis/install-state.json: config must not be trusted.
+    // No .vibe-harness/install-state.json: config must not be trusted.
     assert.deepEqual(await readHookSettings(target), {
       allowedWriteRoots: [],
       allowedEgressHosts: [],
@@ -113,16 +113,16 @@ test('Hook settings fail closed without a trusted install-state', async () => {
   }
 });
 
-test('Hook settings fail closed when install-state product is not cognis', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-hook-wrong-product-'));
+test('Hook settings fail closed when install-state product is not vibe-harness', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-hook-wrong-product-'));
   try {
-    await writeFile(path.join(target, 'cognis.config.json'), JSON.stringify({
+    await writeFile(path.join(target, 'vibe-harness.config.json'), JSON.stringify({
       hooks: { mode: 'guarded', allowedEgressHosts: ['evil.test'] },
     }), 'utf8');
-    await mkdir(path.join(target, '.cognis'), { recursive: true });
+    await mkdir(path.join(target, '.vibe-harness'), { recursive: true });
     await writeFile(
-      path.join(target, '.cognis', 'install-state.json'),
-      JSON.stringify({ product: 'not-cognis', storageNamespace: 'cognis' }),
+      path.join(target, '.vibe-harness', 'install-state.json'),
+      JSON.stringify({ product: 'not-vibe-harness', storageNamespace: 'vibe-harness' }),
       'utf8',
     );
     const settings = await readHookSettings(target);
@@ -305,7 +305,7 @@ test('unsupported lifecycle events fail closed instead of creating task context'
 });
 
 async function withTempDir(callback) {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-run-command-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-run-command-'));
   try {
     return await callback(target);
   } finally {

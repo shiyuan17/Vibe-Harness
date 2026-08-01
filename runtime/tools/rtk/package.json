@@ -1,6 +1,6 @@
 {
-  "name": "@cognis/rtk-runtime",
+  "name": "@vibe-harness/rtk-runtime",
   "version": "0.43.0",
   "private": true,
-  "description": "Project-local RTK runtime managed by Cognis."
+  "description": "Project-local RTK runtime managed by Vibe-Harness."
 }

@@ -23,7 +23,7 @@
 
 ### 组 B：eval suite 收敛后契约未同步
 
-`refactor(eval): 收敛评测执行面`（commit `f69a946`）把 `evals/suites/cognis-core.json` 从 47 case 缩到 18，删掉 `task-delivery-governance` 类别（21 case）和部分 skill-routing/safety-isolation case。但契约测试仍断言旧规模。
+`refactor(eval): 收敛评测执行面`（commit `f69a946`）把 `evals/suites/vibe-harness-core.json` 从 47 case 缩到 18，删掉 `task-delivery-governance` 类别（21 case）和部分 skill-routing/safety-isolation case。但契约测试仍断言旧规模。
 
 | 测试 | 文件:行 | 期望 | 实际 |
 |---|---|---|---|

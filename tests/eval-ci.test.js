@@ -23,7 +23,7 @@ test('CI blocks offline eval drift and scheduled workflow runs advisory online c
   assert.match(online, /pnpm eval:online/u);
   assert.match(online, /retention-days:\s*30/u);
   assert.match(online, /pnpm eval:health/u);
-  assert.match(online, /vars\.COGNIS_EVAL_ENFORCE/u);
+  assert.match(online, /vars\.VIBE_HARNESS_EVAL_ENFORCE/u);
   assert.doesNotMatch(online, /LOOPENGINE_EVAL_ENFORCE/u);
   assert.doesNotMatch(online, /pull_request:/u);
 });
@@ -47,7 +47,7 @@ test('GitHub Actions are commit-pinned and receive automated update PRs', async 
 });
 
 test('online canary suite contains critical product scenarios', async () => {
-  const suite = await readJson(path.join(rootDir, 'evals/suites/cognis-online-canary.json'));
+  const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-online-canary.json'));
   assert.equal(suite.cases.every((item) => item.risk === 'critical'), true);
   const scenarios = suite.cases.map((item) => item.input.scenario).join('\n');
   for (const fragment of ['global', 'existing', '--project', 'eval-driven-development', 'Goal Brief', 'secret']) {
@@ -56,7 +56,7 @@ test('online canary suite contains critical product scenarios', async () => {
 });
 
 test('offline routing eval covers browser, rtk, and ast-grep tool routing', async () => {
-  const suite = await readJson(path.join(rootDir, 'evals/suites/cognis-core.json'));
+  const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-core.json'));
   const scenarios = suite.cases.filter((item) => item.category === 'skill-routing')
     .map((item) => item.input.scenario).join('\n');
   assert.match(scenarios, /Chrome DevTools MCP/iu);
@@ -64,12 +64,12 @@ test('offline routing eval covers browser, rtk, and ast-grep tool routing', asyn
   assert.match(scenarios, /ast-grep/iu);
 });
 
-test('offline install lifecycle eval covers Cognis legacy upgrade and red-zone confirmation', async () => {
-  const suite = await readJson(path.join(rootDir, 'evals/suites/cognis-core.json'));
+test('offline install lifecycle eval covers Vibe-Harness legacy upgrade and red-zone confirmation', async () => {
+  const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-core.json'));
   const lifecycle = suite.cases.find((item) => item.id === 'EVAL-INSTALL-004');
-  assert.match(lifecycle.input.scenario, /Cognis.*install --upgrade.*--write.*--confirm-red-zone/iu);
+  assert.match(lifecycle.input.scenario, /Vibe-Harness.*install --upgrade.*--write.*--confirm-red-zone/iu);
   assert.doesNotMatch(JSON.stringify(lifecycle), /Legacy apply|legacy-install-state/u);
-  assert.equal(lifecycle.input.replay.artifacts.includes('cognis-upgrade-state.json'), true);
+  assert.equal(lifecycle.input.replay.artifacts.includes('vibe-harness-upgrade-state.json'), true);
 });
 
 test('EDD documentation documents reference baselines and offline/online lifecycle', async () => {

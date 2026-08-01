@@ -8,7 +8,7 @@ import { promisify } from 'node:util';
 
 export const PLAYWRIGHT_CLI_VERSION = '0.1.17';
 export const PLAYWRIGHT_TOOL_RELATIVE_DIR = '.agents/runtime/tools/playwright-cli';
-export const PLAYWRIGHT_ARTIFACTS_RELATIVE_DIR = '.cognis/artifacts/playwright';
+export const PLAYWRIGHT_ARTIFACTS_RELATIVE_DIR = '.vibe-harness/artifacts/playwright';
 export const PLAYWRIGHT_GENERATED_RELATIVE_DIR = `${PLAYWRIGHT_TOOL_RELATIVE_DIR}/node_modules`;
 
 const execFileAsync = promisify(execFile);
@@ -106,7 +106,7 @@ function runtimePaths({ targetDir, toolDir = path.join(targetDir, PLAYWRIGHT_TOO
   const resolvedTarget = path.resolve(targetDir);
   const resolvedTool = path.resolve(toolDir);
   assertInside(resolvedTarget, resolvedTool, 'Playwright tool directory');
-  const stateDir = path.join(resolvedTarget, '.cognis/tool-state');
+  const stateDir = path.join(resolvedTarget, '.vibe-harness/tool-state');
   return {
     artifactsDir: path.join(resolvedTarget, PLAYWRIGHT_ARTIFACTS_RELATIVE_DIR),
     cliPath: path.join(resolvedTool, cliRelativePath),

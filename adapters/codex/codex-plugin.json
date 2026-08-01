@@ -1,7 +1,7 @@
 {
-  "name": "cognis-codex-adapter",
+  "name": "vibe-harness-codex-adapter",
   "version": "0.5.0",
-  "description": "Codex adapter for Cognis internal reusable governance pack.",
+  "description": "Codex adapter for Vibe-Harness internal reusable governance pack.",
   "entrypoints": {
     "agents": "AGENTS.template.md",
     "installMap": "install-map.json"

@@ -129,7 +129,7 @@ async function releaseTransaction(targetDir, transactionDir, transactionId, lock
 }
 
 // Determine whether the process that holds a stale lock is still alive. A
-// crashed Cognis process would otherwise block all future installs until a
+// crashed Vibe-Harness process would otherwise block all future installs until a
 // manual `recover`. Returns true when the owner PID is gone (safe to break).
 async function lockOwnerIsStale(targetDir, lockPath) {
   const pidPath = path.join(lockPath, 'owner-pid');
@@ -180,12 +180,12 @@ export async function beginFileTransaction({
           await mkdir(lockPath);
         } catch (retryError) {
           if (retryError.code === 'EEXIST') {
-            throw new Error(`Another Cognis write transaction is active; run recover --project ${resolvedTargetDir}.`);
+            throw new Error(`Another Vibe-Harness write transaction is active; run recover --project ${resolvedTargetDir}.`);
           }
           throw retryError;
         }
       } else {
-        throw new Error(`Another Cognis write transaction is active; run recover --project ${resolvedTargetDir}.`);
+        throw new Error(`Another Vibe-Harness write transaction is active; run recover --project ${resolvedTargetDir}.`);
       }
     } else {
       throw error;

@@ -9,4 +9,4 @@ if (!report.ok) {
   process.exit(1);
 }
 
-console.log('Cognis validation passed.');
+console.log('Vibe-Harness validation passed.');

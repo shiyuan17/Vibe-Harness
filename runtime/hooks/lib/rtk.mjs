@@ -32,7 +32,7 @@ async function readJson(filePath) {
 
 export async function inspectRtkHook(rootDir, { enabled = false } = {}) {
   if (!enabled) return { enabled: false, status: 'disabled', reason: 'RTK hooks are disabled.' };
-  const canonical = path.join(rootDir, '.cognis', 'tool-state', 'tools.json');
+  const canonical = path.join(rootDir, '.vibe-harness', 'tool-state', 'tools.json');
   const canonicalState = await readJson(canonical);
   if (canonicalState === INVALID_STATE) {
     return { enabled: true, status: 'degraded', reason: 'RTK tool state is invalid.' };
@@ -48,7 +48,7 @@ export async function inspectRtkHook(rootDir, { enabled = false } = {}) {
   const runner = path.join(rootDir, PROJECT_RUNNER);
   const binary = path.join(
     rootDir,
-    '.agents', 'cognis', 'tools', 'rtk', 'bin',
+    '.agents', 'vibe-harness', 'tools', 'rtk', 'bin',
     process.platform === 'win32' ? 'rtk.exe' : 'rtk',
   );
   if (!(await exists(runner))) return { enabled: true, status: 'degraded', reason: 'Project-local RTK runner is missing.' };

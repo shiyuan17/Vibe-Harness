@@ -10,20 +10,20 @@ import { readProductEnv } from './lib/product-identity.js';
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const runner = `${JSON.stringify(process.execPath)} ${JSON.stringify(path.join(rootDir, 'runtime/evals/codex-runner.mjs'))}`;
 const enforce = readProductEnv(process.env, 'EVAL_ENFORCE');
-if (enforce.deprecated) console.error(`${enforce.name} is deprecated; use COGNIS_EVAL_ENFORCE.`);
+if (enforce.deprecated) console.error(`${enforce.name} is deprecated; use VIBE_HARNESS_EVAL_ENFORCE.`);
 function flag(name) {
   const index = process.argv.indexOf(name);
   return index >= 0 ? process.argv[index + 1] : null;
 }
-const suiteId = flag('--suite') ?? 'cognis-online-canary';
-const campaignId = flag('--campaign-id') ?? process.env.COGNIS_EVAL_CAMPAIGN_ID ?? `campaign-${new Date().toISOString().replace(/[^0-9A-Za-z]/gu, '-')}`;
+const suiteId = flag('--suite') ?? 'vibe-harness-online-canary';
+const campaignId = flag('--campaign-id') ?? process.env.VIBE_HARNESS_EVAL_CAMPAIGN_ID ?? `campaign-${new Date().toISOString().replace(/[^0-9A-Za-z]/gu, '-')}`;
 const suitePaths = {
-  'cognis-online-canary': 'evals/suites/cognis-online-canary.json',
-  'cognis-online-execution': 'evals/suites/cognis-online-execution.json',
+  'vibe-harness-online-canary': 'evals/suites/vibe-harness-online-canary.json',
+  'vibe-harness-online-execution': 'evals/suites/vibe-harness-online-execution.json',
 };
 const suitesByReference = {
-  'cognis-online-canary': 'evals/references/cognis-online-canary.json',
-  'cognis-online-execution': 'evals/references/cognis-online-execution.json',
+  'vibe-harness-online-canary': 'evals/references/vibe-harness-online-canary.json',
+  'vibe-harness-online-execution': 'evals/references/vibe-harness-online-execution.json',
 };
 const reference = suitesByReference[suiteId] ?? `evals/references/${suiteId}.json`;
 const suite = await readJson(path.join(rootDir, suitePaths[suiteId] ?? `evals/suites/${suiteId}.json`));
@@ -35,7 +35,7 @@ Object.assign(process.env, runtime.environment);
 const config = {
   evaluations: {
     enabled: true,
-    suites: ['evals/suites/cognis-online-canary.json', 'evals/suites/cognis-online-execution.json'],
+    suites: ['evals/suites/vibe-harness-online-canary.json', 'evals/suites/vibe-harness-online-execution.json'],
     reference,
     thresholds: { criticalPassRate: 1, overallScore: 0.9, maxCapabilityRegression: 0.05 },
     onlineRunner: runner,

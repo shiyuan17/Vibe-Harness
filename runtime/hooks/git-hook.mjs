@@ -12,7 +12,7 @@ const secretPatterns = [
   /\b(?:OPENAI|ANTHROPIC|GITHUB|GEMINI)_[A-Z0-9_]*(?:KEY|TOKEN|SECRET)\s*=\s*[^\s"']{8,}/iu,
   /\bsk-[A-Za-z0-9_-]{16,}\b/u,
 ];
-const forbiddenPathPattern = /^(?:node_modules|\.cognis\/backups)\//u;
+const forbiddenPathPattern = /^(?:node_modules|\.vibe-harness\/backups)\//u;
 // Residual focused/disabled test markers that silently skew the suite. We match
 // the method-call form only (test.only/skip), so legitimate option objects
 // ({ skip: ... }) and runtime context skips (t.skip/context.skip) pass through.
@@ -54,7 +54,7 @@ async function preCommit(rootDir) {
   scanStagedDiff(stdout, { redZonePaths: settings.redZonePaths });
 }
 
-// Reject shell metacharacters so a compromised cognis.config.json cannot inject
+// Reject shell metacharacters so a compromised vibe-harness.config.json cannot inject
 // commands through validationCommands. We additionally tokenize and spawn with
 // shell:false so even a missed metacharacter cannot reach a shell interpreter.
 const shellMetacharacters = /[;|&`$()<>\\\n\r]/u;
@@ -142,7 +142,7 @@ if (isMain) {
     else if (hook === 'pre-push') await prePush(rootDir);
     else throw new Error(`Unknown Git hook: ${String(hook)}`);
   } catch (error) {
-    process.stderr.write(`Cognis ${hook ?? 'git-hook'}: ${error.message}\n`);
+    process.stderr.write(`Vibe-Harness ${hook ?? 'git-hook'}: ${error.message}\n`);
     process.exitCode = 1;
   }
 }

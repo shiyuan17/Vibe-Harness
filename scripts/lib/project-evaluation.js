@@ -43,7 +43,7 @@ async function resolveProjectPath(targetDir, relative, label) {
 
 function runArtifactPath(now, suffix = '') {
   const timestamp = now.toISOString().replaceAll(':', '-').replaceAll('.', '-');
-  return `.cognis/evals/runs/${timestamp}${suffix}.json`;
+  return `.vibe-harness/evals/runs/${timestamp}${suffix}.json`;
 }
 
 async function writeProjectJson({ targetDir, relative, label, value }) {
@@ -165,7 +165,7 @@ async function buildOnlineRun({ campaignId, command, config, now, suite, suitePa
   };
   const runConfigHash = combineEvalConfigHash(
     await configHash(targetDir),
-    process.env.COGNIS_EVAL_RUNTIME_HASH,
+    process.env.VIBE_HARNESS_EVAL_RUNTIME_HASH,
   );
   // Create a judge client only when the suite actually contains llmRubrics
   // assertions, so suites without judge assertions never require credentials.
@@ -320,17 +320,17 @@ export async function runProjectEvaluations({ campaignId = `campaign-${Date.now(
           status: 'degraded',
           suite: { id: suite.id, version: suite.version, hash: suiteHash(suite), path: suitePath },
           runtime: {
-            backend: process.env.COGNIS_EVAL_CODEX_BACKEND ?? 'native',
-            provider: process.env.COGNIS_EVAL_PROVIDER_NAME ?? 'default',
+            backend: process.env.VIBE_HARNESS_EVAL_CODEX_BACKEND ?? 'native',
+            provider: process.env.VIBE_HARNESS_EVAL_PROVIDER_NAME ?? 'default',
             reasoningEffort: process.env.CODEX_REASONING_EFFORT ?? 'medium',
-            wireApi: process.env.COGNIS_EVAL_PROVIDER_WIRE_API ?? 'responses',
+            wireApi: process.env.VIBE_HARNESS_EVAL_PROVIDER_WIRE_API ?? 'responses',
           },
           fingerprint: {
             suiteHash: suiteHash(suite),
-            runner: `codex-reference@2-${process.env.COGNIS_EVAL_CODEX_BACKEND ?? 'native'}`,
+            runner: `codex-reference@2-${process.env.VIBE_HARNESS_EVAL_CODEX_BACKEND ?? 'native'}`,
             model: process.env.CODEX_MODEL ?? 'unavailable',
             agent: process.env.CODEX_CLI_VERSION ?? 'unavailable',
-            configHash: process.env.COGNIS_EVAL_RUNTIME_HASH ?? 'unavailable',
+            configHash: process.env.VIBE_HARNESS_EVAL_RUNTIME_HASH ?? 'unavailable',
           },
           diagnostics: warnings,
           ...(online?.attemptSummary ? { attemptSummary: online.attemptSummary } : {}),

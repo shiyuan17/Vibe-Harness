@@ -2,7 +2,7 @@ import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 
 const EXTENSIONS = new Set(['.cjs', '.js', '.mjs']);
-const IGNORED_DIRECTORIES = new Set(['.git', '.cognis', 'node_modules']);
+const IGNORED_DIRECTORIES = new Set(['.git', '.vibe-harness', 'node_modules']);
 
 async function collect(directory, files) {
   let entries;

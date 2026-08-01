@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Cognis 项目基线",
+  "title": "Vibe-Harness 项目基线",
   "type": "object",
   "required": ["schemaVersion", "generatedAt", "project", "installation", "verification", "recommendations", "drift"],
   "properties": {

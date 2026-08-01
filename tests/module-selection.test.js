@@ -11,7 +11,7 @@ import { validateProjectConfig } from '../scripts/lib/project-config.js';
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '..');
-const cliPath = path.join(rootDir, 'scripts/cognis.js');
+const cliPath = path.join(rootDir, 'scripts/vibe-harness.js');
 
 async function runCli(args) {
   const { stdout } = await execFileAsync(process.execPath, [cliPath, ...args], { cwd: rootDir });
@@ -49,7 +49,7 @@ test('chrome-devtools module installs its rule, runtime, skills, and managed MCP
   assert.equal(selection.allowedGroups.has('tools-chrome-devtools'), true);
   assert.equal(selection.allowedGroups.has('mcp-config'), true);
 
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-chrome-devtools-module-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-chrome-devtools-module-'));
   try {
     await runCli(['init', '--project', target]);
     const report = await runCli([
@@ -62,8 +62,8 @@ test('chrome-devtools module installs its rule, runtime, skills, and managed MCP
     assert.equal(report.actions.some((item) => item.relativeTarget === '.agents/runtime/tools/chrome-devtools-mcp/run.mjs'), true);
     assert.equal(report.actions.some((item) => item.relativeTarget === '.codex/config.toml'), true);
     const agentsPreview = report.previewFiles.find((item) => item.target === 'AGENTS.md');
-    assert.match(agentsPreview.content, /cognis doctor --project <path>/u);
-    assert.doesNotMatch(agentsPreview.content, /cognis doctor --target <path>/u);
+    assert.match(agentsPreview.content, /vibe-harness doctor --project <path>/u);
+    assert.doesNotMatch(agentsPreview.content, /vibe-harness doctor --target <path>/u);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
@@ -89,10 +89,10 @@ test('project config accepts valid modules and rejects invalid module arrays', (
 });
 
 test('CLI modules override config and provision only the selected tool capability', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-modules-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-modules-'));
   try {
     await runCli(['init', '--project', target]);
-    const configPath = path.join(target, 'cognis.config.json');
+    const configPath = path.join(target, 'vibe-harness.config.json');
     const config = JSON.parse(await readFile(configPath, 'utf8'));
     await writeFile(configPath, `${JSON.stringify({ ...config, modules: ['open-code-review'] }, null, 2)}\n`, 'utf8');
 
@@ -114,7 +114,7 @@ test('CLI modules override config and provision only the selected tool capabilit
 });
 
 test('project validation reuses CLI module selection recorded by the install state', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-modules-validate-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-modules-validate-'));
   try {
     await runCli(['init', '--project', target]);
     await runCli([
@@ -124,7 +124,7 @@ test('project validation reuses CLI module selection recorded by the install sta
 
     const validation = await runCli(['validate', '--project', target]);
     assert.equal(validation.ok, true);
-    const state = JSON.parse(await readFile(path.join(target, '.cognis', 'install-state.json'), 'utf8'));
+    const state = JSON.parse(await readFile(path.join(target, '.vibe-harness', 'install-state.json'), 'utf8'));
     assert.deepEqual(state.requestedModules, ['agents', 'rules']);
     assert.deepEqual(state.resolvedModules, ['agents', 'rules']);
   } finally {
@@ -214,7 +214,7 @@ test('project config accepts valid plugins and rejects invalid plugin arrays', (
 });
 
 test('RTK hook CLI is explicit, Codex-only, and requires the RTK plugin', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-rtk-hook-contract-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-rtk-hook-contract-'));
   try {
     await runCli(['init', '--project', target]);
     const instructionsOnly = await runCli([
@@ -240,7 +240,7 @@ test('RTK hook CLI is explicit, Codex-only, and requires the RTK plugin', async 
     ]);
     assert.match(missingPlugin.error.message, /requires the rtk plugin/u);
 
-    const configPath = path.join(target, 'cognis.config.json');
+    const configPath = path.join(target, 'vibe-harness.config.json');
     const config = JSON.parse(await readFile(configPath, 'utf8'));
     config.hooks.rtk = { enabled: true };
     config.plugins = ['ast-grep'];
@@ -253,7 +253,7 @@ test('RTK hook CLI is explicit, Codex-only, and requires the RTK plugin', async 
     delete config.plugins;
     await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
 
-    const unsupportedTarget = await mkdtemp(path.join(tmpdir(), 'cognis-rtk-hook-claude-'));
+    const unsupportedTarget = await mkdtemp(path.join(tmpdir(), 'vibe-harness-rtk-hook-claude-'));
     try {
       await runCli(['init', '--project', unsupportedTarget, '--target', 'claude']);
       const failure = await runCliFailure([
@@ -276,7 +276,7 @@ test('RTK hook CLI is explicit, Codex-only, and requires the RTK plugin', async 
 });
 
 test('RTK hook precedence persists CLI state and disables inherited hooks when RTK is removed', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-rtk-hook-precedence-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-rtk-hook-precedence-'));
   try {
     await runCli(['init', '--project', target]);
     const installed = await runCli([
@@ -284,7 +284,7 @@ test('RTK hook precedence persists CLI state and disables inherited hooks when R
       '--plugin', '-rtk', '--rtk-hooks', 'on', '--write', '--confirm-red-zone',
     ]);
     assert.equal(installed.rtkHooks.enabled, true);
-    let state = JSON.parse(await readFile(path.join(target, '.cognis/install-state.json'), 'utf8'));
+    let state = JSON.parse(await readFile(path.join(target, '.vibe-harness/install-state.json'), 'utf8'));
     assert.equal(state.rtkHooksEnabled, true);
     assert.equal(await readFile(path.join(target, '.agents/runtime/hooks/lib/rtk.mjs'), 'utf8').then(Boolean), true);
     const validation = await runCli(['validate', '--project', target]);
@@ -300,7 +300,7 @@ test('RTK hook precedence persists CLI state and disables inherited hooks when R
     ]);
     assert.equal(inherited.rtkHooks.enabled, true);
 
-    const configPath = path.join(target, 'cognis.config.json');
+    const configPath = path.join(target, 'vibe-harness.config.json');
     const config = JSON.parse(await readFile(configPath, 'utf8'));
     config.hooks.rtk = { enabled: false };
     await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
@@ -321,7 +321,7 @@ test('RTK hook precedence persists CLI state and disables inherited hooks when R
       '--plugin', 'none', '--write', '--confirm-red-zone',
     ]);
     assert.equal(removed.rtkHooks.enabled, false);
-    state = JSON.parse(await readFile(path.join(target, '.cognis/install-state.json'), 'utf8'));
+    state = JSON.parse(await readFile(path.join(target, '.vibe-harness/install-state.json'), 'utf8'));
     assert.equal(state.rtkHooksEnabled, false);
     assert.equal(state.resolvedModules.includes('hooks'), false);
     await assert.rejects(readFile(path.join(target, '.codex/hooks.json'), 'utf8'), /ENOENT/u);
@@ -332,7 +332,7 @@ test('RTK hook precedence persists CLI state and disables inherited hooks when R
 });
 
 test('core and full install no tool plugins by default', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-no-default-plugins-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-no-default-plugins-'));
   try {
     await runCli(['init', '--project', target]);
     for (const profile of ['core', 'full']) {
@@ -350,7 +350,7 @@ test('core and full install no tool plugins by default', async () => {
 });
 
 test('CLI plugin selection supports one, many, and all public plugins', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-plugin-selection-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-plugin-selection-'));
   try {
     await runCli(['init', '--project', target]);
     const one = await runCli([
@@ -383,7 +383,7 @@ test('CLI plugin selection supports one, many, and all public plugins', async ()
 });
 
 test('retired Agentmemory plugin is rejected', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-agentmemory-plugin-preview-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-agentmemory-plugin-preview-'));
   try {
     await runCli(['init', '--project', target]);
     const failure = await runCliFailure([
@@ -398,7 +398,7 @@ test('retired Agentmemory plugin is rejected', async () => {
 });
 
 test('CLI plugin selection augments full and persists for validation and reinstall', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-plugin-persistence-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-plugin-persistence-'));
   try {
     await runCli(['init', '--project', target, '--profile', 'full']);
     const installed = await runCli([
@@ -410,7 +410,7 @@ test('CLI plugin selection augments full and persists for validation and reinsta
     assert.equal(installed.resolvedModules.includes('memory'), false);
     assert.deepEqual(installed.plannedToolActions.map((item) => item.id), ['rtk']);
 
-    const state = JSON.parse(await readFile(path.join(target, '.cognis/install-state.json'), 'utf8'));
+    const state = JSON.parse(await readFile(path.join(target, '.vibe-harness/install-state.json'), 'utf8'));
     assert.deepEqual(state.requestedPlugins, ['rtk']);
     const validation = await runCli(['validate', '--project', target]);
     assert.equal(validation.ok, true);
@@ -426,14 +426,14 @@ test('CLI plugin selection augments full and persists for validation and reinsta
 });
 
 test('config plugins override saved state while CLI selection can override or clear config', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-plugin-precedence-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-plugin-precedence-'));
   try {
     await runCli(['init', '--project', target]);
     await runCli([
       'install', '--project', target, '--target', 'codex', '--profile', 'core',
       '--plugin', '-rtk', '--write',
     ]);
-    const configPath = path.join(target, 'cognis.config.json');
+    const configPath = path.join(target, 'vibe-harness.config.json');
     const config = JSON.parse(await readFile(configPath, 'utf8'));
     await writeFile(configPath, `${JSON.stringify({ ...config, plugins: ['ast-grep'] }, null, 2)}\n`, 'utf8');
 
@@ -458,7 +458,7 @@ test('config plugins override saved state while CLI selection can override or cl
     ]);
     assert.deepEqual(cleared.requestedPlugins, []);
     assert.deepEqual(cleared.plannedToolActions, []);
-    const state = JSON.parse(await readFile(path.join(target, '.cognis/install-state.json'), 'utf8'));
+    const state = JSON.parse(await readFile(path.join(target, '.vibe-harness/install-state.json'), 'utf8'));
     assert.deepEqual(state.requestedPlugins, []);
   } finally {
     await rm(target, { force: true, recursive: true });

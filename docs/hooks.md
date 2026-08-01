@@ -1,6 +1,6 @@
 # Hook 安全策略
 
-Cognis full 为 Codex 安装项目级安全 Hook。Hook 不创建任务状态、不运行测试、不检查交付文本，也不阻止 Agent 正常完成。
+Vibe-Harness full 为 Codex 安装项目级安全 Hook。Hook 不创建任务状态、不运行测试、不检查交付文本，也不阻止 Agent 正常完成。
 
 ## 事件
 
@@ -52,5 +52,5 @@ Git Hook 可被本地用户绕过，强制策略应放在 CI 和服务端保护�
 ## 安装
 
 ```bash
-pnpm cognis install --project <project> --target codex --profile full --write --confirm-red-zone
+pnpm vibe-harness install --project <project> --target codex --profile full --write --confirm-red-zone
 ```

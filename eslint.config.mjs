@@ -1,4 +1,4 @@
-// ESLint flat config for Cognis.
+// ESLint flat config for Vibe-Harness.
 //
 // Conservative thresholds: this config introduces lint discipline for new code
 // without forcing a large-scale refactor of existing code. Rules that would
@@ -42,7 +42,7 @@ export default [
   {
     ignores: [
       'node_modules/**',
-      '.cognis/**',
+      '.vibe-harness/**',
       'output/**',
       'tmp/**',
     ],

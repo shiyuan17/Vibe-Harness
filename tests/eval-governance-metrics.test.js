@@ -43,12 +43,12 @@ function trialWithGovernance(overrides = {}) {
 
 test('createCodexHookResult embeds durationMs in the policy marker for deny decisions', () => {
   const result = createCodexHookResult('PreToolUse', { action: 'deny', reason: 'blocked', reasonCode: 'DESTRUCTIVE_GIT' }, { durationMs: 12 });
-  assert.match(result.hookSpecificOutput.permissionDecisionReason, /\[COGNIS_POLICY:DESTRUCTIVE_GIT:12\]/u);
+  assert.match(result.hookSpecificOutput.permissionDecisionReason, /\[VIBE_HARNESS_POLICY:DESTRUCTIVE_GIT:12\]/u);
 });
 
 test('createCodexHookResult omits duration suffix when not provided for backward compatibility', () => {
   const result = createCodexHookResult('PreToolUse', { action: 'deny', reason: 'blocked', reasonCode: 'RED_ZONE' });
-  assert.match(result.hookSpecificOutput.permissionDecisionReason, /\[COGNIS_POLICY:RED_ZONE\] blocked/u);
+  assert.match(result.hookSpecificOutput.permissionDecisionReason, /\[VIBE_HARNESS_POLICY:RED_ZONE\] blocked/u);
   assert.doesNotMatch(result.hookSpecificOutput.permissionDecisionReason, /:\d+\]/u);
 });
 
@@ -58,7 +58,7 @@ test('createCodexHookResult returns empty for allow decisions regardless of dura
 });
 
 test('transcript parses policy markers with optional durationMs into hookTimings and hookReasonCodes', () => {
-  const stdout = JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', text: 'denied: [COGNIS_POLICY:DESTRUCTIVE_GIT:12] blocked' } });
+  const stdout = JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', text: 'denied: [VIBE_HARNESS_POLICY:DESTRUCTIVE_GIT:12] blocked' } });
   const parsed = transcript(stdout);
   assert.deepEqual(parsed.hookReasonCodes, ['DESTRUCTIVE_GIT']);
   assert.equal(parsed.hookTimings.length, 1);
@@ -69,14 +69,14 @@ test('transcript parses policy markers with optional durationMs into hookTimings
 });
 
 test('transcript parses legacy markers without durationMs and defaults durationMs to 0', () => {
-  const stdout = JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', text: 'denied: [COGNIS_POLICY:RED_ZONE] warn' } });
+  const stdout = JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', text: 'denied: [VIBE_HARNESS_POLICY:RED_ZONE] warn' } });
   const parsed = transcript(stdout);
   assert.deepEqual(parsed.hookReasonCodes, ['RED_ZONE']);
   assert.equal(parsed.hookTimings[0].durationMs, 0);
 });
 
 test('transcript leaves event null for agent_message items', () => {
-  const stdout = JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: '[COGNIS_POLICY:GLOBAL_AGENT_CONFIG:3]' } });
+  const stdout = JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: '[VIBE_HARNESS_POLICY:GLOBAL_AGENT_CONFIG:3]' } });
   const parsed = transcript(stdout);
   assert.equal(parsed.hookTimings[0].event, null);
 });
@@ -122,8 +122,8 @@ test('buildEvalReportModel aggregates rule coverage, skill triggers, and hook ti
     skillTriggers: [{ id: 'api-and-interface-design', source: 'declared' }],
   });
   trialB.passed = false;
-  const executionRun = runFixture('cognis-online-execution', [trialA]);
-  const canaryRun = runFixture('cognis-online-canary', [trialB]);
+  const executionRun = runFixture('vibe-harness-online-execution', [trialA]);
+  const canaryRun = runFixture('vibe-harness-online-canary', [trialB]);
   const model = buildEvalReportModel({
     canaryRun, canarySuite: { cases: [{ id: 'CANARY-CASE', risk: 'low' }] },
     executionRun, executionSuite: { cases: [{ id: 'EXEC-CASE', risk: 'low' }] },
@@ -149,8 +149,8 @@ test('buildEvalReportModel aggregates rule coverage, skill triggers, and hook ti
 });
 
 test('buildEvalReportModel reports unavailable governance metrics when no trials declare them', () => {
-  const executionRun = runFixture('cognis-online-execution', [trialWithGovernance()]);
-  const canaryRun = runFixture('cognis-online-canary', [trialWithGovernance()]);
+  const executionRun = runFixture('vibe-harness-online-execution', [trialWithGovernance()]);
+  const canaryRun = runFixture('vibe-harness-online-canary', [trialWithGovernance()]);
   const model = buildEvalReportModel({
     canaryRun, canarySuite: { cases: [{ id: 'CANARY-CASE', risk: 'low' }] },
     executionRun, executionSuite: { cases: [{ id: 'EXEC-CASE', risk: 'low' }] },
@@ -168,8 +168,8 @@ test('rendered report includes the governance coverage group and trial-level gov
     ruleCoverage: { expected: ['governance-core'], measured: ['governance-core'] },
     skillTriggers: [{ id: 'eval-driven-development', source: 'declared' }],
   });
-  const executionRun = runFixture('cognis-online-execution', [trial]);
-  const canaryRun = runFixture('cognis-online-canary', [trialWithGovernance()]);
+  const executionRun = runFixture('vibe-harness-online-execution', [trial]);
+  const canaryRun = runFixture('vibe-harness-online-canary', [trialWithGovernance()]);
   const model = buildEvalReportModel({
     canaryRun, canarySuite: { cases: [{ id: 'CANARY-CASE', risk: 'low' }] },
     executionRun, executionSuite: { cases: [{ id: 'EXEC-CASE', risk: 'low' }] },

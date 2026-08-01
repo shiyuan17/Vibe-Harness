@@ -83,9 +83,9 @@ export async function writeInstallState(targetDir, state) {
   try {
     await writeFile(temporaryPath, `${JSON.stringify({
       ...state,
-      product: 'cognis',
+      product: 'vibe-harness',
       stateVersion: 4,
-      storageNamespace: 'cognis',
+      storageNamespace: 'vibe-harness',
     }, null, 2)}\n`, 'utf8');
     await renameAtomic(temporaryPath, filePath);
   } catch (error) {
@@ -170,7 +170,7 @@ async function assertStateActionPathsSafe(targetDir, actions, label) {
 export async function createRollbackPlan({ dryRun = true, redZoneConfirmed = false, targetDir }) {
   const state = await readInstallState(targetDir);
   if (!state) {
-    throw new Error(`No Cognis install state found in ${targetDir}`);
+    throw new Error(`No Vibe-Harness install state found in ${targetDir}`);
   }
 
   const actions = [];
@@ -421,7 +421,7 @@ export async function applyRollbackPlan(plan, hooks = {}) {
 
 export async function createUninstallPlan({ dryRun = true, redZoneConfirmed = false, targetDir }) {
   const state = await readInstallState(targetDir);
-  if (!state) throw new Error(`No Cognis install state found in ${targetDir}`);
+  if (!state) throw new Error(`No Vibe-Harness install state found in ${targetDir}`);
   const actions = [];
   const baselineBackups = new Map();
   if (state.baseline?.manifest) {

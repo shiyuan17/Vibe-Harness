@@ -156,7 +156,7 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
     skillsLine: skillRoots.length > 0 ? `- Skills 位于 ${skillRoots.map((root) => `\`${root}/\``).join('、')}。` : '',
     templatesLine: hasPrefix('docs/templates/') ? '- 模板位于 `docs/templates/`。' : '',
     toolingLine: hasPrefix('.agents/runtime/tools/')
-      ? `- 项目内工具位于 \`.agents/runtime/tools/\`；使用 \`cognis doctor --project <path>\` 查看初始化状态。${hasTarget('docs/rules/chrome-devtools-mcp.md') ? ' Chrome DevTools MCP 规则位于 \`docs/rules/chrome-devtools-mcp.md\`。' : ''}${hasRtkTool ? ' RTK 规则位于 \`docs/rules/rtk.md\`。' : ''}${hasAstGrepTool ? ' ast-grep 规则位于 \`docs/rules/ast-grep.md\`。' : ''}`
+      ? `- 项目内工具位于 \`.agents/runtime/tools/\`；使用 \`vibe-harness doctor --project <path>\` 查看初始化状态。${hasTarget('docs/rules/chrome-devtools-mcp.md') ? ' Chrome DevTools MCP 规则位于 \`docs/rules/chrome-devtools-mcp.md\`。' : ''}${hasRtkTool ? ' RTK 规则位于 \`docs/rules/rtk.md\`。' : ''}${hasAstGrepTool ? ' ast-grep 规则位于 \`docs/rules/ast-grep.md\`。' : ''}`
       : '',
   };
   if (installedIntegrationSkills.length > 0) {
@@ -476,7 +476,7 @@ async function planUpgradeRetirements(ctx, entryActions) {
     });
     currentPlanTargets.add(relativeTarget);
   }
-  for (const relativeTarget of ['.cognis/session-task-bindings.json', '.cognis/subagents/receipts']) {
+  for (const relativeTarget of ['.vibe-harness/session-task-bindings.json', '.vibe-harness/subagents/receipts']) {
     const target = path.resolve(targetDir, relativeTarget);
     assertInsideDir(targetDir, target, 'obsolete runtime state');
     await assertSafePathInside(targetDir, target, 'obsolete runtime state');
@@ -935,7 +935,7 @@ async function executeWriteActions(plan, ctx, hooks) {
       redZone: Boolean(action.redZone),
       source: action.relativeSource,
       sourceHash: await hashFile(action.source),
-      owner: 'cognis',
+      owner: 'vibe-harness',
       target: toTargetPath(plan.targetDir, action.target),
       targetHash: await hashFile(action.target),
       transactionId: ctx.transactionId,

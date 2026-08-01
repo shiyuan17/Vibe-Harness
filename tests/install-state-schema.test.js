@@ -9,11 +9,11 @@ import test from 'node:test';
 import { readInstallState, writeInstallState } from '../scripts/lib/install-state.js';
 
 async function makeTempDir() {
-  return mkdtemp(path.join(tmpdir(), 'cognis-install-state-schema-'));
+  return mkdtemp(path.join(tmpdir(), 'vibe-harness-install-state-schema-'));
 }
 
 async function writeCorruptState(target, state) {
-  const stateDir = path.join(target, '.cognis');
+  const stateDir = path.join(target, '.vibe-harness');
   await mkdir(stateDir, { recursive: true });
   await writeFile(path.join(stateDir, 'install-state.json'), `${JSON.stringify(state, null, 2)}\n`, 'utf8');
 }
@@ -30,7 +30,7 @@ const validState = {
       managedBlockHash: 'abc123',
       originalBackup: null,
       originalCreated: true,
-      owner: 'cognis',
+      owner: 'vibe-harness',
       previousHash: null,
       redZone: false,
       source: 'rules/core.md',
@@ -40,7 +40,7 @@ const validState = {
       transactionId: 'txn-1',
     },
     {
-      backup: '.cognis/backups/bk1/docs/rules/git-rules.md',
+      backup: '.vibe-harness/backups/bk1/docs/rules/git-rules.md',
       contentStrategy: 'replace',
       created: false,
       group: 'rules',
@@ -55,7 +55,7 @@ const validState = {
   ],
   generatedDirectories: [
     { target: '.agents/runtime/tools/playwright/node_modules', ownerTarget: '.agents/runtime/tools/playwright/package.json' },
-    { target: '.cognis/tool-state/chrome-devtools-mcp', ownerTarget: '.agents/runtime/tools/chrome-devtools-mcp/package.json', projectScoped: true },
+    { target: '.vibe-harness/tool-state/chrome-devtools-mcp', ownerTarget: '.agents/runtime/tools/chrome-devtools-mcp/package.json', projectScoped: true },
   ],
   generatedFiles: [
     { target: '.agents/runtime/tools/playwright/package.json', targetHash: 'gen-hash' },
@@ -67,7 +67,7 @@ const validState = {
   requestedPlugins: ['codebase-memory'],
   resolvedModules: ['agents', 'rules', 'codebase-memory'],
   retiredFiles: [
-    { backup: '.cognis/backups/bk2/old.md', group: 'legacy', redZone: false, target: 'old.md', targetHash: 'old-hash' },
+    { backup: '.vibe-harness/backups/bk2/old.md', group: 'legacy', redZone: false, target: 'old.md', targetHash: 'old-hash' },
   ],
   rtkHooksEnabled: false,
   transactionId: 'txn-1',
@@ -79,8 +79,8 @@ test('readInstallState accepts a well-formed state written by writeInstallState'
   try {
     await writeInstallState(target, validState);
     const state = await readInstallState(target);
-    assert.equal(state.product, 'cognis');
-    assert.equal(state.storageNamespace, 'cognis');
+    assert.equal(state.product, 'vibe-harness');
+    assert.equal(state.storageNamespace, 'vibe-harness');
     assert.equal(state.stateVersion, 4);
     assert.equal(state.files.length, 2);
     assert.equal(state.files[0].contentStrategy, 'managed-instruction-block');
@@ -98,9 +98,9 @@ test('readInstallState tolerates a minimal legacy state missing optional fields'
           created: true,
           group: 'skills-core',
           redZone: false,
-          source: 'skills/core/using-cognis/SKILL.md',
+          source: 'skills/core/using-vibe-harness/SKILL.md',
           sourceHash: 'src',
-          target: '.agents/skills/using-cognis/SKILL.md',
+          target: '.agents/skills/using-vibe-harness/SKILL.md',
           targetHash: 'tgt',
         },
       ],

@@ -108,9 +108,9 @@ export async function loadEvalAssets(rootDir) {
     readJson(path.join(rootDir, 'schemas/eval-suite.schema.json')),
     readJson(path.join(rootDir, 'schemas/eval-run.schema.json')),
     readJson(path.join(rootDir, 'schemas/eval-reference.schema.json')),
-    readJson(path.join(rootDir, 'evals/suites/cognis-core.json')),
-    readJson(path.join(rootDir, 'evals/results/cognis-core.offline.json')),
-    readJson(path.join(rootDir, 'evals/references/cognis-core.offline.json')),
+    readJson(path.join(rootDir, 'evals/suites/vibe-harness-core.json')),
+    readJson(path.join(rootDir, 'evals/results/vibe-harness-core.offline.json')),
+    readJson(path.join(rootDir, 'evals/references/vibe-harness-core.offline.json')),
   ]);
   return {
     suite,

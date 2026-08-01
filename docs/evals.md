@@ -13,10 +13,10 @@ core suite 覆盖安装、安全 Hook、浏览器和显式工具能力。
 ## 生命周期
 
 ```bash
-pnpm cognis eval check --project ../some-project
-pnpm cognis eval run --project ../some-project --mode offline
-pnpm cognis eval run --project ../some-project --mode offline --write
-pnpm cognis eval reference --project ../some-project --from .cognis/evals/runs/<run>.json --write --confirm-reference-update
+pnpm vibe-harness eval check --project ../some-project
+pnpm vibe-harness eval run --project ../some-project --mode offline
+pnpm vibe-harness eval run --project ../some-project --mode offline --write
+pnpm vibe-harness eval reference --project ../some-project --from .vibe-harness/evals/runs/<run>.json --write --confirm-reference-update
 ```
 
 offline 模式验证 suite、oracle、聚合和 reference 一致性。online runner 必须在一次性项目中执行，限制输出与超时，并保护全局配置。reference 更新始终显式执行，不能为让变更通过而自动提升。
@@ -35,9 +35,9 @@ online run 对每个 case 按 `repetitions`（1..3）独立运行多轮，每轮
 
 ## Online runtime
 
-`COGNIS_EVAL_RUNTIME_SOURCE=auto|codex|env` 选择 runtime 来源。`auto` 优先从本机 Codex `config.toml`/`auth.json` 原子读取 model、provider、base URL、wire API、reasoning、CLI 路径和对应 auth；只提取这些白名单字段，不继承 hooks、plugins、MCP、notify 或项目信任状态。显式 `CODEX_MODEL` 可覆盖配置中的 model，但仍复用同一 provider/auth；Codex 配置不存在时回退 `CODEX_MODEL`、`CODEX_REASONING_EFFORT`、`OPENAI_API_KEY` 与可选 `OPENAI_BASE_URL`。
+`VIBE_HARNESS_EVAL_RUNTIME_SOURCE=auto|codex|env` 选择 runtime 来源。`auto` 优先从本机 Codex `config.toml`/`auth.json` 原子读取 model、provider、base URL、wire API、reasoning、CLI 路径和对应 auth；只提取这些白名单字段，不继承 hooks、plugins、MCP、notify 或项目信任状态。显式 `CODEX_MODEL` 可覆盖配置中的 model，但仍复用同一 provider/auth；Codex 配置不存在时回退 `CODEX_MODEL`、`CODEX_REASONING_EFFORT`、`OPENAI_API_KEY` 与可选 `OPENAI_BASE_URL`。
 
-`COGNIS_EVAL_CODEX_BACKEND=auto|native|wsl` 选择执行后端。Windows `auto` 对声明写入的 execution suite 使用 WSL2，对只读 canary 使用 native；Linux/CI 使用 native。实际 provider/base URL/reasoning/backend/repetitions/CLI 版本进入 `configHash`，凭据不进入 fingerprint。WSL/Codex 不可用或 sandbox 拒绝写入时 run 为 degraded，不计为模型失败。
+`VIBE_HARNESS_EVAL_CODEX_BACKEND=auto|native|wsl` 选择执行后端。Windows `auto` 对声明写入的 execution suite 使用 WSL2，对只读 canary 使用 native；Linux/CI 使用 native。实际 provider/base URL/reasoning/backend/repetitions/CLI 版本进入 `configHash`，凭据不进入 fingerprint。WSL/Codex 不可用或 sandbox 拒绝写入时 run 为 degraded，不计为模型失败。
 
 fixture 可声明 `allowedWritePaths`，其成员必须是 workspace 内的可移植相对路径，默认空数组。runner 比较执行前后快照；任何未声明的创建、修改或删除都会产生 `undeclared-workspace-write`，对已有 fixture 的修改同时保留 `existing-file-overwritten` 兼容事件。execution 的测试命令只由 harness 执行，不作为可见 fixture 暴露给模型。
 

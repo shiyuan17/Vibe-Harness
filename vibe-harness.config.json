@@ -1,5 +1,5 @@
 {
-  "projectName": "Cognis",
+  "projectName": "Vibe-Harness",
   "language": "zh-CN",
   "packageManager": "pnpm",
   "target": "codex",
@@ -13,9 +13,9 @@
   "evaluations": {
     "enabled": true,
     "suites": [
-      "evals/suites/cognis-core.json"
+      "evals/suites/vibe-harness-core.json"
     ],
-    "reference": "evals/references/cognis-core.offline.json",
+    "reference": "evals/references/vibe-harness-core.offline.json",
     "thresholds": {
       "criticalPassRate": 1,
       "overallScore": 0.9,

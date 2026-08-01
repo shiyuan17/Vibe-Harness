@@ -29,7 +29,7 @@
       "tests": ["tests/goal-definition-metrics.test.js", "tests/cross-platform-adapters.test.js", "tests/skill-closure.test.js"],
       "profiles": ["core", "full"],
       "docs": ["docs/inventory/skills-optimization-zh.md", "docs/inventory/governance-reference-analysis.md"],
-      "evaluation": { "required": true, "suites": ["evals/goal-definition-cases.json", "evals/suites/cognis-online-canary.json"] }
+      "evaluation": { "required": true, "suites": ["evals/goal-definition-cases.json", "evals/suites/vibe-harness-online-canary.json"] }
     },
     {
       "id": "git-and-worktree",
@@ -39,7 +39,7 @@
       "tests": ["tests/rules-depth.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
       "docs": ["CONTRIBUTING.md"],
-      "evaluation": { "required": true, "suites": ["evals/suites/cognis-core.json"] }
+      "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-core.json"] }
     },
     {
       "id": "engineering-rules",
@@ -49,7 +49,7 @@
       "tests": ["tests/rules-depth.test.js"],
       "profiles": ["core", "full", "docs-only"],
       "docs": ["README.zh-CN.md"],
-      "evaluation": { "required": true, "suites": ["evals/suites/cognis-core.json"] }
+      "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-core.json"] }
     },
     {
       "id": "memory-templates",
@@ -69,7 +69,7 @@
       "tests": ["tests/rules-depth.test.js"],
       "profiles": ["full", "docs-only"],
       "docs": ["docs/architecture.md"],
-      "evaluation": { "required": true, "suites": ["evals/suites/cognis-core.json"] }
+      "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-core.json"] }
     },
     {
       "id": "release",
@@ -79,7 +79,7 @@
       "tests": ["tests/rules-depth.test.js"],
       "profiles": ["full", "docs-only"],
       "docs": ["CONTRIBUTING.md"],
-      "evaluation": { "required": true, "suites": ["evals/suites/cognis-core.json"] }
+      "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-core.json"] }
     },
     {
       "id": "eval-driven-development",
@@ -89,17 +89,17 @@
       "tests": ["tests/eval-contract.test.js", "tests/eval-runner.test.js", "tests/eval-scoring.test.js"],
       "profiles": ["core", "full"],
       "docs": ["docs/evals.md"],
-      "evaluation": { "required": true, "suites": ["evals/suites/cognis-core.json", "evals/suites/cognis-online-canary.json", "evals/suites/cognis-online-execution.json"] }
+      "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-core.json", "evals/suites/vibe-harness-online-canary.json", "evals/suites/vibe-harness-online-execution.json"] }
     },
     {
       "id": "installer-lifecycle",
-      "source": "Cognis CLI lifecycle and ownership contract",
+      "source": "Vibe-Harness CLI lifecycle and ownership contract",
       "disposition": "validator",
-      "targets": ["scripts/cognis.js", "scripts/lib/install-planner.js", "scripts/lib/install-state.js", "scripts/lib/file-transaction.js"],
+      "targets": ["scripts/vibe-harness.js", "scripts/lib/install-planner.js", "scripts/lib/install-state.js", "scripts/lib/file-transaction.js"],
       "tests": ["tests/installer-lifecycle.test.js", "tests/uninstall.test.js", "tests/installation-baseline.test.js", "tests/transaction-recovery.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
       "docs": ["docs/migration-guide.md", "docs/architecture.md"],
-      "evaluation": { "required": true, "suites": ["evals/suites/cognis-core.json", "evals/suites/cognis-online-canary.json"] }
+      "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-core.json", "evals/suites/vibe-harness-online-canary.json"] }
     },
     {
       "id": "hook-policy",
@@ -109,7 +109,7 @@
       "tests": ["tests/hook-runtime.test.js"],
       "profiles": ["full"],
       "docs": ["docs/hooks.md"],
-      "evaluation": { "required": true, "suites": ["evals/suites/cognis-core.json", "evals/suites/cognis-online-canary.json"] }
+      "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-core.json", "evals/suites/vibe-harness-online-canary.json"] }
     },
     {
       "id": "docs-governance",
@@ -125,20 +125,20 @@
       "id": "tool-provisioning",
       "source": "project-local tool provisioning",
       "disposition": "validator",
-      "targets": ["scripts/cognis.js", "scripts/lib/module-selection.js", "scripts/lib/tool-provisioning.js", "scripts/lib/runtime-audit.js", "manifests/profiles.json", "runtime/tools/chrome-devtools-mcp/package-lock.json", "runtime/tools/ast-grep/package-lock.json", "runtime/tools/rtk/run.mjs"],
+      "targets": ["scripts/vibe-harness.js", "scripts/lib/module-selection.js", "scripts/lib/tool-provisioning.js", "scripts/lib/runtime-audit.js", "manifests/profiles.json", "runtime/tools/chrome-devtools-mcp/package-lock.json", "runtime/tools/ast-grep/package-lock.json", "runtime/tools/rtk/run.mjs"],
       "tests": ["tests/tool-provisioning.test.js", "tests/runtime-audit.test.js", "tests/tooling-modules.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
-      "docs": ["docs/architecture.md", "docs/specs/cognis-tooling-modules-spec.md"],
+      "docs": ["docs/architecture.md", "docs/specs/vibe-harness-tooling-modules-spec.md"],
       "evaluation": { "required": false, "reason": "Provisioning ownership, command flags, and dependency audits are deterministic lifecycle checks." }
     },
     {
       "id": "explicit-tool-plugin-selection",
       "source": "explicit project-local tool plugin selection",
       "disposition": "validator",
-      "targets": ["scripts/cognis.js", "scripts/lib/module-selection.js", "scripts/lib/install-planner.js", "scripts/lib/tool-provisioning.js", "manifests/profiles.json"],
+      "targets": ["scripts/vibe-harness.js", "scripts/lib/module-selection.js", "scripts/lib/install-planner.js", "scripts/lib/tool-provisioning.js", "manifests/profiles.json"],
       "tests": ["tests/module-selection.test.js", "tests/tool-provisioning.test.js", "tests/tooling-modules.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
-      "docs": ["README.md", "README.zh-CN.md", "docs/architecture.md", "docs/migration-guide.md", "docs/specs/cognis-tooling-modules-spec.md"],
+      "docs": ["README.md", "README.zh-CN.md", "docs/architecture.md", "docs/migration-guide.md", "docs/specs/vibe-harness-tooling-modules-spec.md"],
       "evaluation": { "required": false, "reason": "Plugin aliases, dependency closure, persistence, and zero-tool profile defaults are deterministic installer contracts." }
     },
     {
@@ -149,7 +149,7 @@
       "tests": ["tests/tooling-modules.test.js", "tests/module-selection.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
       "docs": ["README.md", "README.zh-CN.md", "docs/architecture.md"],
-      "evaluation": { "required": true, "suites": ["evals/suites/cognis-core.json"] }
+      "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-core.json"] }
     },
     {
       "id": "ast-grep-structured-search",
@@ -159,7 +159,7 @@
       "tests": ["tests/tooling-modules.test.js", "tests/module-selection.test.js", "tests/runtime-audit.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
       "docs": ["README.md", "README.zh-CN.md", "docs/architecture.md"],
-      "evaluation": { "required": true, "suites": ["evals/suites/cognis-core.json"] }
+      "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-core.json"] }
     },
     {
       "id": "chrome-devtools-mcp",
@@ -169,7 +169,7 @@
       "tests": ["tests/module-selection.test.js", "tests/tool-provisioning.test.js", "tests/runtime-audit.test.js", "tests/skill-closure.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
       "docs": ["README.md", "README.zh-CN.md", "docs/architecture.md"],
-      "evaluation": { "required": true, "suites": ["evals/suites/cognis-core.json"] }
+      "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-core.json"] }
     },
     {
       "id": "skill-quality",
@@ -189,7 +189,7 @@
       "tests": ["tests/eval-ci.test.js", "tests/eval-runner.test.js"],
       "profiles": ["full"],
       "docs": ["docs/evals.md"],
-      "evaluation": { "required": true, "suites": ["evals/suites/cognis-online-canary.json"] }
+      "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-online-canary.json"] }
     },
     {
       "id": "cross-platform-adapters",
@@ -215,11 +215,11 @@
       "id": "runtime-application-code",
       "source": "application source",
       "disposition": "excluded-with-reason",
-      "reason": "Cognis distributes governance assets and does not migrate product runtime code.",
+      "reason": "Vibe-Harness distributes governance assets and does not migrate product runtime code.",
       "tests": ["tests/redaction.test.js"],
       "profiles": [],
       "docs": ["docs/inventory/source-rules-mapping.md"],
-      "evaluation": { "required": false, "reason": "Application runtime code is explicitly excluded from Cognis." }
+      "evaluation": { "required": false, "reason": "Application runtime code is explicitly excluded from Vibe-Harness." }
     }
   ]
 }

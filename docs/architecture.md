@@ -1,10 +1,10 @@
-# Cognis 架构说明
+# Vibe-Harness 架构说明
 
-Cognis 是跨平台的项目级 AI coding 资产包。运行时使用 Node.js ESM、JSON manifests、Markdown 规则和事务性安装器。
+Vibe-Harness 是跨平台的项目级 AI coding 资产包。运行时使用 Node.js ESM、JSON manifests、Markdown 规则和事务性安装器。
 
 ## 组件
 
-- `rules/`：执行内核、安全边界和工程专项规则的模板源（部分含 `{{}}` 占位符）。安装器按 `adapters/install-map.json`（三 adapter 共享）将其渲染为目标项目的 `docs/rules/`；本仓库 `docs/rules/` 即 Cognis 安装到自身时的渲染产物。无占位符的规则两处字节相同；含占位符的 `project-specific-rules.md` 等仅模板在 `rules/`。
+- `rules/`：执行内核、安全边界和工程专项规则的模板源（部分含 `{{}}` 占位符）。安装器按 `adapters/install-map.json`（三 adapter 共享）将其渲染为目标项目的 `docs/rules/`；本仓库 `docs/rules/` 即 Vibe-Harness 安装到自身时的渲染产物。无占位符的规则两处字节相同；含占位符的 `project-specific-rules.md` 等仅模板在 `rules/`。
 - `templates/`：可选的人读任务与交付简表，以及 memory 文档模板。
 - `skills/`：八个由宿主按 description 直接选择的领域 Skills；不包含流程 Router。
 - `runtime/hooks/`：Codex `PreToolUse` 与 `PermissionRequest` 安全策略，以及可选 RTK 路由。
@@ -20,7 +20,7 @@ Cognis 是跨平台的项目级 AI coding 资产包。运行时使用 Node.js ES
 
 Agent 使用 `获取事实 -> 直接执行 -> 聚焦验证 -> 简洁交付`。快速、轻量、完整只影响安全审批和验证范围，不形成机器状态。
 
-`cognis validate --project <path>` 只比较安装计划、受管文件和 install-state。`cognis verify --project <path>` 按 `lint -> typecheck -> test -> eval` 执行已配置命令。`doctor` 只报告安装、工具、Git Hook 和事务健康。
+`vibe-harness validate --project <path>` 只比较安装计划、受管文件和 install-state。`vibe-harness verify --project <path>` 按 `lint -> typecheck -> test -> eval` 执行已配置命令。`doctor` 只报告安装、工具、Git Hook 和事务健康。
 
 ## 安装生命周期
 
@@ -28,7 +28,7 @@ Agent 使用 `获取事实 -> 直接执行 -> 聚焦验证 -> 简洁交付`。�
 2. `install --dry-run` 生成计划；`--write` 才事务性写入。
 3. Codex full 写入 `.codex/hooks.json` 需要 `--confirm-red-zone`。
 4. `--upgrade --write` 退役旧 state 中存在但新计划不再包含的未修改受管文件；已修改文件保留并报告冲突。
-5. 升级精确清理过期运行时状态，不删除整个 `.cognis`。
+5. 升级精确清理过期运行时状态，不删除整个 `.vibe-harness`。
 6. `rollback`、`recover`、`uninstall` 的真实修改同样需要 `--write`。
 
 安装器使用项目内锁、preimage 和原子 state commit；路径通过 realpath 与逐段检查阻止 symlink、junction 或 reparse-point 越界。
@@ -54,6 +54,6 @@ adapter capability 使用 `unsupported/preview/stable` 描述 instructions、ski
 
 - 不写全局 Agent 配置或 `.git/config`。
 - 未使用 `--force` 时不覆盖已有文件。
-- 共享说明文件和 MCP 配置只更新 Cognis 受管块。
+- 共享说明文件和 MCP 配置只更新 Vibe-Harness 受管块。
 - Hook 先执行安全策略；红区、生产、权限、凭据、外部写入和不可逆操作仍由宿主进行人工审批。
 - 项目状态不保存源码、凭据、完整命令输出或用户绝对路径。

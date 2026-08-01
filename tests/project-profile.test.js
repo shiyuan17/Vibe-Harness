@@ -12,7 +12,7 @@ import { detectProjectProfile } from '../scripts/lib/project-profile.js';
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '..');
-const cliPath = path.join(rootDir, 'scripts/cognis.js');
+const cliPath = path.join(rootDir, 'scripts/vibe-harness.js');
 
 async function runCli(args) {
   const effectiveArgs = args[0] === 'install' && args.includes('--dry-run') && !args.includes('--verbose')
@@ -29,7 +29,7 @@ async function writeJson(filePath, value) {
 }
 
 test('detectProjectProfile summarizes Vue Vite pnpm projects', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-profile-node-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-profile-node-'));
   try {
     await mkdir(path.join(target, '.git'));
     await writeJson(path.join(target, 'package.json'), {
@@ -71,7 +71,7 @@ test('detectProjectProfile summarizes Vue Vite pnpm projects', async () => {
 });
 
 test('detectProjectProfile prefers target package manager unless overrides are explicit', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-profile-package-manager-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-profile-package-manager-'));
   try {
     await writeJson(path.join(target, 'package.json'), {
       packageManager: 'npm@10.8.0',
@@ -104,7 +104,7 @@ test('detectProjectProfile prefers target package manager unless overrides are e
 });
 
 test('detectProjectProfile supports manual and off project rule modes', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-profile-mode-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-profile-mode-'));
   try {
     await writeJson(path.join(target, 'package.json'), {
       packageManager: 'npm@10.8.0',
@@ -146,7 +146,7 @@ test('detectProjectProfile supports manual and off project rule modes', async ()
 });
 
 test('detectProjectProfile summarizes Maven and legacy dotnet projects', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-profile-mixed-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-profile-mixed-'));
   try {
     await mkdir(path.join(target, '.svn'));
     await writeFile(
@@ -174,7 +174,7 @@ test('detectProjectProfile summarizes Maven and legacy dotnet projects', async (
 });
 
 test('generated entry uses detected VCS command and plain unconfigured validation labels', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-profile-entry-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-profile-entry-'));
   try {
     await mkdir(path.join(target, '.svn'));
     await runCli(['init', '--project', target]);
@@ -195,7 +195,7 @@ test('generated entry uses detected VCS command and plain unconfigured validatio
 });
 
 test('core project install renders project-specific rules without local memory library', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-project-assets-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-project-assets-'));
   try {
     await runCli(['init', '--project', target]);
     await writeJson(path.join(target, 'package.json'), {
@@ -231,7 +231,7 @@ test('core project install renders project-specific rules without local memory l
 });
 
 test('minimal profile excludes project-specific rules and local memory library', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-project-minimal-assets-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-project-minimal-assets-'));
   try {
     await runCli(['init', '--project', target]);
     const report = await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'minimal', '--dry-run']);
@@ -245,10 +245,10 @@ test('minimal profile excludes project-specific rules and local memory library',
 });
 
 test('explicit memory module can disable or relocate the local memory library', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-memory-config-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-memory-config-'));
   try {
     await runCli(['init', '--project', target]);
-    const configPath = path.join(target, 'cognis.config.json');
+    const configPath = path.join(target, 'vibe-harness.config.json');
     const config = JSON.parse(await readFile(configPath, 'utf8'));
 
     await writeJson(configPath, {
@@ -280,10 +280,10 @@ test('explicit memory module can disable or relocate the local memory library', 
 });
 
 test('doctor summarizes unmanaged files by default and shows full list only when verbose', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-doctor-summary-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-doctor-summary-'));
   try {
     await runCli(['init', '--project', target]);
-    const configPath = path.join(target, 'cognis.config.json');
+    const configPath = path.join(target, 'vibe-harness.config.json');
     const config = JSON.parse(await readFile(configPath, 'utf8'));
     await writeJson(configPath, { ...config, profile: 'minimal' });
     await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'minimal', '--write']);

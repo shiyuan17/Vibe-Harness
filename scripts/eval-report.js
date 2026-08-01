@@ -55,8 +55,8 @@ for (const [label, run] of [['execution', executionRun], ['canary', canaryRun], 
   const errors = validateJsonAgainstSchema(run, runSchema, label);
   if (errors.length > 0) throw new Error(errors.join('\n'));
 }
-if (executionRun.suite.id !== 'cognis-online-execution') throw new Error('--execution-run must reference cognis-online-execution');
-if (canaryRun.suite.id !== 'cognis-online-canary') throw new Error('--canary-run must reference cognis-online-canary');
+if (executionRun.suite.id !== 'vibe-harness-online-execution') throw new Error('--execution-run must reference vibe-harness-online-execution');
+if (canaryRun.suite.id !== 'vibe-harness-online-canary') throw new Error('--canary-run must reference vibe-harness-online-canary');
 if (executionRun.campaignId && canaryRun.campaignId && executionRun.campaignId !== canaryRun.campaignId) throw new Error('run campaign ids do not match');
 if (executionRun.fingerprint.model !== canaryRun.fingerprint.model) throw new Error('run model fingerprints do not match');
 if (executionRun.fingerprint.agent !== canaryRun.fingerprint.agent) throw new Error('run CLI fingerprints do not match');
@@ -87,8 +87,8 @@ function validateAttempt(attempt, suiteId, label) {
     if (attempt.runtime?.[field] && attempt.runtime[field] !== current.runtime?.[field]) throw new Error(`${label} runtime does not match: ${field}`);
   }
 }
-executionAttempts.forEach((item, index) => validateAttempt(item, 'cognis-online-execution', `execution attempt ${index + 1}`));
-canaryAttempts.forEach((item, index) => validateAttempt(item, 'cognis-online-canary', `canary attempt ${index + 1}`));
+executionAttempts.forEach((item, index) => validateAttempt(item, 'vibe-harness-online-execution', `execution attempt ${index + 1}`));
+canaryAttempts.forEach((item, index) => validateAttempt(item, 'vibe-harness-online-canary', `canary attempt ${index + 1}`));
 const model = buildEvalReportModel({ canaryAttempts, canaryComparisonRun, canaryRun, canarySuite, executionAttempts, executionComparisonRun, executionRun, executionSuite });
 const preview = {
   dryRun: !process.argv.includes('--write'),

@@ -14,7 +14,7 @@ const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '..');
 
 test('target inspection reports missing files and red-zone status for an empty target', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-target-empty-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-target-empty-'));
   try {
     const report = await inspectTargetInstall({ profile: 'full', rootDir, targetDir: target });
 
@@ -28,7 +28,7 @@ test('target inspection reports missing files and red-zone status for an empty t
 });
 
 test('target inspection reports conflicts when existing target content differs', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-target-conflict-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-target-conflict-'));
   try {
     await writeFile(path.join(target, 'AGENTS.md'), 'project-owned content\n', 'utf8');
 
@@ -42,9 +42,9 @@ test('target inspection reports conflicts when existing target content differs',
 });
 
 test('CLI validate --project passes after a real install and reports Chinese template content', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-target-installed-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-target-installed-'));
   try {
-    const cliPath = path.join(rootDir, 'scripts/cognis.js');
+    const cliPath = path.join(rootDir, 'scripts/vibe-harness.js');
     await execFileAsync(process.execPath, [cliPath, 'init', '--project', target, '--target', 'codex', '--profile', 'full']);
     await execFileAsync(process.execPath, [
       cliPath,

@@ -1,5 +1,5 @@
 const defaultTemplateData = {
-  codebaseMemoryStateDirectory: '.cognis',
+  codebaseMemoryStateDirectory: '.vibe-harness',
   hookRunnerPath: '.agents/runtime/hooks/codex-hook.mjs',
   installedSurface: {
     clarificationPostureLine: '',
@@ -10,7 +10,7 @@ const defaultTemplateData = {
     memoryLoadLine: '',
     memorySkillsLine: '',
     operationalRulesLine: '',
-    profileLine: '- 当前 profile 使用 Cognis Codex 安装面。',
+    profileLine: '- 当前 profile 使用 Vibe-Harness Codex 安装面。',
     reviewLoopLine: '',
     rulesLine: '- 规则位于 `docs/rules/`。',
     skillRoutingLine: '',
@@ -39,10 +39,10 @@ const defaultTemplateData = {
   },
 };
 
-export const managedInstructionBlockStart = '<!-- COGNIS:START -->';
-export const managedInstructionBlockEnd = '<!-- COGNIS:END -->';
+export const managedInstructionBlockStart = '<!-- VIBE_HARNESS:START -->';
+export const managedInstructionBlockEnd = '<!-- VIBE_HARNESS:END -->';
 
-const managedInstructionBlockPattern = /<!-- COGNIS:START -->[\s\S]*?<!-- COGNIS:END -->\n?/u;
+const managedInstructionBlockPattern = /<!-- VIBE_HARNESS:START -->[\s\S]*?<!-- VIBE_HARNESS:END -->\n?/u;
 
 function lookup(data, expression) {
   return expression.split('.').reduce((value, key) => {
@@ -111,7 +111,7 @@ export function extractManagedInstructionBlock(content = '') {
 
 export function removeManagedInstructionBlock(content = '') {
   if (hasIncompleteManagedInstructionBlock(content)) {
-    throw new Error('Instruction file contains an incomplete Cognis managed block.');
+    throw new Error('Instruction file contains an incomplete Vibe-Harness managed block.');
   }
   const found = managedInstructionMatch(content);
   if (!found) return content;
@@ -123,7 +123,7 @@ export function removeManagedInstructionBlock(content = '') {
 
 export function mergeManagedInstructionBlock(existingContent, managedContent) {
   if (hasIncompleteManagedInstructionBlock(existingContent)) {
-    throw new Error('Instruction file contains an incomplete Cognis managed block.');
+    throw new Error('Instruction file contains an incomplete Vibe-Harness managed block.');
   }
 
   const managedBlock = renderManagedInstructionBlock(managedContent);

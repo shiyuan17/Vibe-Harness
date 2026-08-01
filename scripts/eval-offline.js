@@ -22,7 +22,7 @@ try {
   process.exit(1);
 }
 
-console.log('Cognis offline evaluation passed.');
+console.log('Vibe-Harness offline evaluation passed.');
 console.log(JSON.stringify({
   criticalPassRate: run.criticalPassRate,
   overallScore: run.overallScore,

@@ -31,7 +31,7 @@ export async function findProjectRoot(cwd) {
   const boundary = gitRoot ? path.resolve(gitRoot) : path.parse(start).root;
   let current = start;
   while (true) {
-    if (await access(path.join(current, 'cognis.config.json')).then(() => true, () => false)) return current;
+    if (await access(path.join(current, 'vibe-harness.config.json')).then(() => true, () => false)) return current;
     if (current === boundary) return boundary;
     const parent = path.dirname(current);
     if (parent === current) return boundary;
@@ -41,7 +41,7 @@ export async function findProjectRoot(cwd) {
 
 export async function readProjectConfig(rootDir) {
   try {
-    return JSON.parse(await readFile(path.join(rootDir, 'cognis.config.json'), 'utf8'));
+    return JSON.parse(await readFile(path.join(rootDir, 'vibe-harness.config.json'), 'utf8'));
   } catch (error) {
     if (error.code === 'ENOENT') throw error;
     throw Object.assign(new Error('Project configuration is invalid.'), { cause: error });
@@ -80,14 +80,14 @@ export async function readHookSettings(rootDir) {
     const config = await readProjectConfig(rootDir);
     let state = null;
     try {
-      state = JSON.parse(await readFile(path.join(rootDir, '.cognis/install-state.json'), 'utf8'));
+      state = JSON.parse(await readFile(path.join(rootDir, '.vibe-harness/install-state.json'), 'utf8'));
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
     }
     // Trust config high-sensitivity fields (allowedWriteRoots, allowedEgressHosts)
-    // only when the install state proves this project was provisioned by Cognis.
-    // A lone cognis.config.json without a matching install-state is not trusted.
-    const trusted = state?.product === 'cognis' && state?.storageNamespace === 'cognis';
+    // only when the install state proves this project was provisioned by Vibe-Harness.
+    // A lone vibe-harness.config.json without a matching install-state is not trusted.
+    const trusted = state?.product === 'vibe-harness' && state?.storageNamespace === 'vibe-harness';
     if (!trusted) {
       return { allowedWriteRoots: [], allowedEgressHosts: [], mode: 'guarded', redZonePaths: DEFAULT_RED_ZONE_PATHS, rtkEnabled: false };
     }

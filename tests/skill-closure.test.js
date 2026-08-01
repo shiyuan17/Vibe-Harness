@@ -15,7 +15,7 @@ const coreSkills = ['clarify-requirements', 'define-goal', 'systematic-debugging
 const fullSkills = ['api-and-interface-design', 'frontend-design', 'runtime-cross-repo-rollout'];
 const nativeSkills = [...coreSkills, ...fullSkills];
 const retiredSkills = [
-  'using-cognis', 'brainstorming', 'writing-plans', 'executing-plans', 'test-driven-development',
+  'using-vibe-harness', 'brainstorming', 'writing-plans', 'executing-plans', 'test-driven-development',
   'verification-before-completion', 'code-review-and-quality', 'adversarial-review-packet',
   'loop-planning', 'subagent-driven-development',
 ];

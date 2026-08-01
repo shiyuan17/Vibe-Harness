@@ -304,7 +304,7 @@
       ]
     },
     {
-      "path": "docs/specs/cognis-tooling-modules-spec.md",
+      "path": "docs/specs/vibe-harness-tooling-modules-spec.md",
       "kind": "spec",
       "status": "implemented",
       "language": "zh-CN",

@@ -8,7 +8,7 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '..');
-const cognisCli = path.join(rootDir, 'scripts/cognis.js');
+const vibeHarnessCli = path.join(rootDir, 'scripts/vibe-harness.js');
 
 async function exists(filePath) {
   try {
@@ -19,12 +19,12 @@ async function exists(filePath) {
   }
 }
 
-test('Cognis CLI initializes only the canonical configuration', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-cli-init-'));
+test('Vibe-Harness CLI initializes only the canonical configuration', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-cli-init-'));
   try {
-    const result = await execFileAsync(process.execPath, [cognisCli, 'init', '--project', target]);
+  const result = await execFileAsync(process.execPath, [vibeHarnessCli, 'init', '--project', target]);
     const report = JSON.parse(result.stdout);
-    assert.equal(report.path, path.join(target, 'cognis.config.json'));
+    assert.equal(report.path, path.join(target, 'vibe-harness.config.json'));
     const config = JSON.parse(await readFile(report.path, 'utf8'));
     assert.equal(Object.hasOwn(config, 'governance'), false);
     assert.deepEqual(config.validationCommands, { lint: null, typecheck: null, test: null, eval: null });
@@ -34,8 +34,8 @@ test('Cognis CLI initializes only the canonical configuration', async () => {
   }
 });
 
-test('Cognis CLI rejects legacy projects before dry-run or write', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-cli-legacy-'));
+test('Vibe-Harness CLI rejects legacy projects before dry-run or write', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-cli-legacy-'));
   try {
     await writeFile(path.join(target, 'loopengine.config.json'), '{}\n', 'utf8');
     for (const args of [
@@ -43,12 +43,12 @@ test('Cognis CLI rejects legacy projects before dry-run or write', async () => {
       ['install', '--project', target, '--target', 'codex', '--profile', 'core', '--dry-run'],
     ]) {
       await assert.rejects(
-        execFileAsync(process.execPath, [cognisCli, ...args]),
-        (error) => JSON.parse(error.stderr).error?.code === 'COGNIS_LEGACY_UNSUPPORTED',
+      execFileAsync(process.execPath, [vibeHarnessCli, ...args]),
+        (error) => JSON.parse(error.stderr).error?.code === 'VIBE_HARNESS_LEGACY_UNSUPPORTED',
       );
     }
-    assert.equal(await exists(path.join(target, 'cognis.config.json')), false);
-    assert.equal(await exists(path.join(target, '.cognis')), false);
+    assert.equal(await exists(path.join(target, 'vibe-harness.config.json')), false);
+    assert.equal(await exists(path.join(target, '.vibe-harness')), false);
   } finally {
     await rm(target, { force: true, recursive: true });
   }

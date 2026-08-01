@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Cognis Install State",
+  "title": "Vibe-Harness Install State",
   "description": "Validates the structural integrity of install-state.json. Required fields are limited to those that readInstallState and uninstall/rollback logic depend on. Legacy states produced before stateVersion 4 may lack installedAt/product/storageNamespace or carry older stateVersion values; they are tolerated on read so init/upgrade can migrate them. writeInstallState always normalizes product/stateVersion/storageNamespace to the canonical values.",
   "type": "object",
   "required": ["files", "profile", "version"],

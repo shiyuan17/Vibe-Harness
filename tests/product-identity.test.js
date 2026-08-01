@@ -20,54 +20,54 @@ async function exists(filePath) {
   }
 }
 
-test('Cognis identity exposes only canonical project surfaces', () => {
+test('Vibe-Harness identity exposes only canonical project surfaces', () => {
   assert.deepEqual(productIdentity, {
     agentRuntimeDir: '.agents/runtime',
-    chineseName: '智序',
-    command: 'cognis',
-    configFile: 'cognis.config.json',
-    managedMarker: 'COGNIS',
-    name: 'Cognis',
-    packageName: '@jw/cognis',
-    stateDir: '.cognis',
+    chineseName: 'Vibe-Harness',
+    command: 'vibe-harness',
+    configFile: 'vibe-harness.config.json',
+    managedMarker: 'VIBE_HARNESS',
+    name: 'Vibe-Harness',
+    packageName: '@jw/vibe-harness',
+    stateDir: '.vibe-harness',
   });
-  assert.deepEqual(readProductEnv({ COGNIS_TOOL_TIMEOUT_MS: '3000', LOOPENGINE_TOOL_TIMEOUT_MS: '1000' }, 'TOOL_TIMEOUT_MS'), {
-    name: 'COGNIS_TOOL_TIMEOUT_MS', value: '3000',
+  assert.deepEqual(readProductEnv({ VIBE_HARNESS_TOOL_TIMEOUT_MS: '3000', LOOPENGINE_TOOL_TIMEOUT_MS: '1000' }, 'TOOL_TIMEOUT_MS'), {
+    name: 'VIBE_HARNESS_TOOL_TIMEOUT_MS', value: '3000',
   });
   assert.deepEqual(readProductEnv({ LOOPENGINE_TOOL_TIMEOUT_MS: '1000' }, 'TOOL_TIMEOUT_MS'), {
-    name: 'COGNIS_TOOL_TIMEOUT_MS', value: undefined,
+    name: 'VIBE_HARNESS_TOOL_TIMEOUT_MS', value: undefined,
   });
 });
 
 test('legacy project assets are rejected without migration or namespace fallback', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-legacy-assets-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-legacy-assets-'));
   try {
     await writeFile(path.join(target, 'loopengine.config.json'), '{}\n', 'utf8');
-    await assert.rejects(assertNoUnsupportedLegacyAssets(target), (error) => error.code === 'COGNIS_LEGACY_UNSUPPORTED');
+    await assert.rejects(assertNoUnsupportedLegacyAssets(target), (error) => error.code === 'VIBE_HARNESS_LEGACY_UNSUPPORTED');
     assert.equal(await resolveProjectConfigLocation(target), null);
     assert.equal(await resolveProjectStateLocation(target), null);
-    assert.equal(await exists(path.join(target, '.cognis')), false);
+    assert.equal(await exists(path.join(target, '.vibe-harness')), false);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
 });
 
-test('fresh configuration and state use Cognis paths only', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-canonical-assets-'));
+test('fresh configuration and state use Vibe-Harness paths only', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-canonical-assets-'));
   try {
     const written = await writeDefaultProjectConfig({ projectDir: target });
-    assert.equal(written.path, path.join(target, 'cognis.config.json'));
+    assert.equal(written.path, path.join(target, 'vibe-harness.config.json'));
     assert.equal(await exists(path.join(target, 'loopengine.config.json')), false);
     await writeInstallState(target, { files: [], profile: 'core', version: '0.5.0' });
-    assert.equal(stateFilePath(target), path.join(target, '.cognis', 'install-state.json'));
+    assert.equal(stateFilePath(target), path.join(target, '.vibe-harness', 'install-state.json'));
     const state = JSON.parse(await readFile(stateFilePath(target), 'utf8'));
-    assert.equal(state.storageNamespace, 'cognis');
+    assert.equal(state.storageNamespace, 'vibe-harness');
   } finally {
     await rm(target, { force: true, recursive: true });
   }
 });
 
-test('managed outputs use Cognis markers only', () => {
-  assert.match(renderManagedInstructionBlock('managed'), /<!-- COGNIS:START -->[\s\S]*<!-- COGNIS:END -->/u);
-  assert.match(mergeManagedMcpBlock('', { example: { args: ['server.js'], command: 'node' } }).content, /# COGNIS:MCP:START/u);
+test('managed outputs use Vibe-Harness markers only', () => {
+  assert.match(renderManagedInstructionBlock('managed'), /<!-- VIBE_HARNESS:START -->[\s\S]*<!-- VIBE_HARNESS:END -->/u);
+  assert.match(mergeManagedMcpBlock('', { example: { args: ['server.js'], command: 'node' } }).content, /# VIBE_HARNESS:MCP:START/u);
 });

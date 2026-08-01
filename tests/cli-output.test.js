@@ -10,7 +10,7 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '..');
-const cliPath = path.join(rootDir, 'scripts/cognis.js');
+const cliPath = path.join(rootDir, 'scripts/vibe-harness.js');
 
 async function run(args) {
   return execFileAsync(process.execPath, [cliPath, ...args], {
@@ -29,7 +29,7 @@ async function fail(args) {
 }
 
 test('default dry-run is compact while verbose retains rendered content', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-output-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-output-'));
   try {
     await run(['init', '--project', target]);
     const compact = await run(['install', '--project', target, '--target', 'codex', '--profile', 'core', '--dry-run']);
@@ -61,7 +61,7 @@ test('default dry-run is compact while verbose retains rendered content', async 
 });
 
 test('validate and command errors use the shared health contract', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-output-invalid-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-output-invalid-'));
   try {
     const missingConfig = await fail(['validate', '--project', target]);
     assert.equal(missingConfig.code, 1);
@@ -81,7 +81,7 @@ test('validate and command errors use the shared health contract', async () => {
 });
 
 test('legacy CLI options and profile names are rejected with migration guidance', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-legacy-rejected-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-legacy-rejected-'));
   try {
     await run(['init', '--project', target]);
 
@@ -103,7 +103,7 @@ test('legacy CLI options and profile names are rejected with migration guidance'
 });
 
 test('project commands reject adapter targets that conflict with project state', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-target-mismatch-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-target-mismatch-'));
   try {
     await run(['init', '--project', target, '--target', 'codex']);
 
@@ -121,10 +121,10 @@ test('project commands reject adapter targets that conflict with project state',
 });
 
 test('init and upgrade normalize legacy install state to a canonical profile', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-legacy-state-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-legacy-state-'));
   try {
-    await mkdir(path.join(target, '.cognis'), { recursive: true });
-    await writeFile(path.join(target, '.cognis/install-state.json'), `${JSON.stringify({
+    await mkdir(path.join(target, '.vibe-harness'), { recursive: true });
+    await writeFile(path.join(target, '.vibe-harness/install-state.json'), `${JSON.stringify({
       adapter: 'codex',
       files: [],
       generatedDirectories: [],
@@ -134,14 +134,14 @@ test('init and upgrade normalize legacy install state to a canonical profile', a
     }, null, 2)}\n`, 'utf8');
 
     await run(['init', '--project', target]);
-    const config = JSON.parse(await readFile(path.join(target, 'cognis.config.json'), 'utf8'));
+    const config = JSON.parse(await readFile(path.join(target, 'vibe-harness.config.json'), 'utf8'));
     assert.equal(config.profile, 'full');
 
     await run([
       'install', '--project', target, '--target', 'codex', '--profile', 'full', '--upgrade', '--write',
       '--confirm-red-zone', '--allow-degraded',
     ]);
-    const state = JSON.parse(await readFile(path.join(target, '.cognis/install-state.json'), 'utf8'));
+    const state = JSON.parse(await readFile(path.join(target, '.vibe-harness/install-state.json'), 'utf8'));
     assert.equal(state.profile, 'full');
   } finally {
     await rm(target, { force: true, recursive: true });

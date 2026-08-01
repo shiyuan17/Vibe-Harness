@@ -10,7 +10,7 @@ import { beginFileTransaction, recoverTransaction } from '../scripts/lib/file-tr
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '..');
-const cliPath = path.join(rootDir, 'scripts/cognis.js');
+const cliPath = path.join(rootDir, 'scripts/vibe-harness.js');
 
 async function exists(filePath) {
   try {
@@ -27,7 +27,7 @@ async function runCli(args) {
 }
 
 test('recover previews then restores the active transaction only with --write', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-recover-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-recover-'));
   const managedPath = path.join(target, 'managed.md');
   try {
     await writeFile(managedPath, 'original\n', 'utf8');
@@ -46,14 +46,14 @@ test('recover previews then restores the active transaction only with --write', 
     const recovered = await runCli(['recover', '--project', target, '--write']);
     assert.deepEqual(recovered.recovered, [transaction.id]);
     assert.equal(await readFile(managedPath, 'utf8'), 'original\n');
-    assert.equal(await exists(path.join(target, '.cognis', 'transaction.lock')), false);
+    assert.equal(await exists(path.join(target, '.vibe-harness', 'transaction.lock')), false);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
 });
 
 test('doctor reports active transactions without modifying them', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-doctor-transaction-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-doctor-transaction-'));
   let transaction;
   try {
     await runCli(['init', '--project', target]);
@@ -68,7 +68,7 @@ test('doctor reports active transactions without modifying them', async () => {
     const report = await runCli(['doctor', '--project', target, '--allow-degraded']);
     assert.equal(report.transactionLock, true);
     assert.equal(report.transactions.some((item) => item.id === transaction.id && item.status === 'active'), true);
-    assert.equal(await exists(path.join(target, '.cognis', 'transaction.lock')), true);
+    assert.equal(await exists(path.join(target, '.vibe-harness', 'transaction.lock')), true);
   } finally {
     if (transaction) await transaction.rollback();
     await rm(target, { force: true, recursive: true });
@@ -76,9 +76,9 @@ test('doctor reports active transactions without modifying them', async () => {
 });
 
 test('recover rejects journal ids that do not match their transaction directory', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-recover-id-'));
-  const transactionDir = path.join(target, '.cognis/transactions/safe-id');
-  const victimDir = path.join(target, '.cognis/victim');
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-recover-id-'));
+  const transactionDir = path.join(target, '.vibe-harness/transactions/safe-id');
+  const victimDir = path.join(target, '.vibe-harness/victim');
   try {
     const journal = {
       cleanup: [],
@@ -106,9 +106,9 @@ test('recover rejects journal ids that do not match their transaction directory'
 });
 
 test('recover refuses to release a lock owned by another transaction', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-recover-lock-'));
-  const transactionDir = path.join(target, '.cognis/transactions/older');
-  const lockDir = path.join(target, '.cognis/transaction.lock');
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-recover-lock-'));
+  const transactionDir = path.join(target, '.vibe-harness/transactions/older');
+  const lockDir = path.join(target, '.vibe-harness/transaction.lock');
   try {
     const journal = {
       cleanup: [],

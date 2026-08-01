@@ -1,8 +1,8 @@
-# Cognis
+# Vibe-Harness
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-Cognis 为 Codex、Claude Code 和 Gemini CLI 安装项目级规则、领域 Skills、可选 Eval、显式工具插件和安全 Hook。它只写目标项目，不修改全局 Agent 配置。
+Vibe-Harness 为 Codex、Claude Code 和 Gemini CLI 安装项目级规则、领域 Skills、可选 Eval、显式工具插件和安全 Hook。它只写目标项目，不修改全局 Agent 配置。
 
 默认执行路径只有一条：`获取事实 -> 直接执行 -> 聚焦验证 -> 简洁交付`。快速、轻量、完整三档只用于选择风险控制和验证强度。
 
@@ -12,16 +12,16 @@ Cognis 为 Codex、Claude Code 和 Gemini CLI 安装项目级规则、领域 Ski
 
 ```bash
 pnpm install
-pnpm cognis init --project ../some-project --target codex
-pnpm cognis install --project ../some-project --target codex --profile core --dry-run
-pnpm cognis install --project ../some-project --target codex --profile core --write
-pnpm cognis validate --project ../some-project
+pnpm vibe-harness init --project ../some-project --target codex
+pnpm vibe-harness install --project ../some-project --target codex --profile core --dry-run
+pnpm vibe-harness install --project ../some-project --target codex --profile core --write
+pnpm vibe-harness validate --project ../some-project
 ```
 
 `validate` 只检查安装一致性。执行项目验证使用：
 
 ```bash
-pnpm cognis verify --project ../some-project
+pnpm vibe-harness verify --project ../some-project
 ```
 
 `verify` 依次执行已配置的 `lint -> typecheck -> test -> eval`，未配置的项会跳过。
@@ -46,15 +46,15 @@ pnpm cognis verify --project ../some-project
 外部工具和 memory 仍只通过 `--plugin` 显式启用。Codex `full` 写入 `.codex/hooks.json` 时需要 `--confirm-red-zone`。
 
 ```bash
-pnpm cognis install --project ../some-project --target codex --profile full --dry-run
-pnpm cognis install --project ../some-project --target codex --profile full --write --confirm-red-zone
+pnpm vibe-harness install --project ../some-project --target codex --profile full --dry-run
+pnpm vibe-harness install --project ../some-project --target codex --profile full --write --confirm-red-zone
 ```
 
 Claude Code 和 Gemini CLI 使用相同的四个 profile；其 preview 能力需要显式 `--allow-preview`。
 
 ## 项目配置
 
-`cognis init` 创建以下结构：
+`vibe-harness init` 创建以下结构：
 
 ```json
 {
@@ -108,29 +108,29 @@ Claude Code 和 Gemini CLI 使用相同的四个 profile；其 preview 能力需
 }
 ```
 
-旧字段 `governance.mode`、`governance.workflow`、`hooks.completionGate` 和 `validationCommands.governance` 会触发 `COGNIS_OBSOLETE_GOVERNANCE_CONFIG`。Cognis 不静默兼容或自动修改项目配置。
+旧字段 `governance.mode`、`governance.workflow`、`hooks.completionGate` 和 `validationCommands.governance` 会触发 `VIBE_HARNESS_OBSOLETE_GOVERNANCE_CONFIG`。Vibe-Harness 不静默兼容或自动修改项目配置。
 
 ## 显式工具
 
 可选插件包括 `rtk`、`ast-grep`、`codebase-memory-mcp`、`chrome-devtools-mcp`、`playwright-cli` 和 `open-code-review`。Agentmemory runtime 因上游 High 漏洞暂停提供，不作为 `--plugin` 选项；如需记忆能力，请通过 `--modules memory` 安装 memory 模块。
 
 ```bash
-pnpm cognis install --project ../some-project --target codex --profile core --plugin -rtk --dry-run
-pnpm cognis install --project ../some-project --target codex --profile core --plugin -rtk ast-grep --write
-pnpm cognis install --project ../some-project --target codex --profile core --plugin none --write
+pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin -rtk --dry-run
+pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin -rtk ast-grep --write
+pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin none --write
 ```
 
 插件选择会保存在项目 install-state 中。`--modules` 是替换 profile 模块集合的高级接口，不是插件增量接口。
 
 ## 升级与移除
 
-升级会比较旧 install-state 与新安装计划。计划不再包含且未修改的受管文件会在 `--upgrade --write` 下退役；已修改文件只报告冲突，不会删除。过期运行时状态会精确清理，不会删除整个 `.cognis`。
+升级会比较旧 install-state 与新安装计划。计划不再包含且未修改的受管文件会在 `--upgrade --write` 下退役；已修改文件只报告冲突，不会删除。过期运行时状态会精确清理，不会删除整个 `.vibe-harness`。
 
 ```bash
-pnpm cognis install --project ../some-project --target codex --profile core --dry-run --upgrade
-pnpm cognis install --project ../some-project --target codex --profile core --write --upgrade
-pnpm cognis uninstall --project ../some-project --target codex --dry-run
-pnpm cognis uninstall --project ../some-project --target codex --write
+pnpm vibe-harness install --project ../some-project --target codex --profile core --dry-run --upgrade
+pnpm vibe-harness install --project ../some-project --target codex --profile core --write --upgrade
+pnpm vibe-harness uninstall --project ../some-project --target codex --dry-run
+pnpm vibe-harness uninstall --project ../some-project --target codex --write
 ```
 
 ### 退出码

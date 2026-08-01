@@ -6,7 +6,7 @@
 
 - 新增应用日志优先结构化，推荐 JSON Lines；已有日志格式必须明确字段映射。
 - 每条关键日志应包含时间、级别、服务或组件、操作或事件、关联 ID、环境或版本、错误信息、耗时和安全上下文。
-- 本地开发、调试和临时运行日志写入 `.cognis/log/`，例如 `vite-dev.out/err`；`.cognis/artifacts/` 只用于截图、trace、导出文件等交付证据产物。
+- 本地开发、调试和临时运行日志写入 `.vibe-harness/log/`，例如 `vite-dev.out/err`；`.vibe-harness/artifacts/` 只用于截图、trace、导出文件等交付证据产物。
 - 排障前先定位日志来源和检索方式，再按时间范围、级别、组件、关联 ID 或错误码收敛。
 - 日志只保留定位问题所需上下文，不输出 secret、凭据、token、原始 PII 或业务专有标识。
 - 修复交付必须说明使用了哪些日志证据、如何检索、支持了哪个假设，以及修复后的验证证据。
@@ -41,9 +41,9 @@
 ## 检索示例
 
 ```bash
-rg '"correlationId":"req-123"' .cognis/log/
-rg '"level":"error"' .cognis/log/ | rg '"component":"orders"'
-rg 'ORDER_CREATE_FAILED|req-123' .cognis/log/
+rg '"correlationId":"req-123"' .vibe-harness/log/
+rg '"level":"error"' .vibe-harness/log/ | rg '"component":"orders"'
+rg 'ORDER_CREATE_FAILED|req-123' .vibe-harness/log/
 ```
 
 不同日志平台可以使用等价查询；交付时写清实际命令、查询条件、时间窗口和关键输出。

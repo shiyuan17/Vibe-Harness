@@ -18,7 +18,7 @@ import { createInstallPlan } from '../scripts/lib/install-planner.js';
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '..');
-const cliPath = path.join(rootDir, 'scripts/cognis.js');
+const cliPath = path.join(rootDir, 'scripts/vibe-harness.js');
 
 async function exists(filePath) {
   try { await access(filePath); return true; } catch { return false; }
@@ -39,10 +39,10 @@ for (const adapter of [
   { id: 'gemini', instruction: 'GEMINI.md', skills: '.gemini/skills' },
 ]) {
   test(`${adapter.id} core install preserves local instructions and supports validate/uninstall`, async () => {
-    const target = await mkdtemp(path.join(tmpdir(), `cognis-${adapter.id}-`));
+    const target = await mkdtemp(path.join(tmpdir(), `vibe-harness-${adapter.id}-`));
     try {
       await run(['init', '--project', target, '--target', adapter.id]);
-      const config = JSON.parse(await readFile(path.join(target, 'cognis.config.json'), 'utf8'));
+      const config = JSON.parse(await readFile(path.join(target, 'vibe-harness.config.json'), 'utf8'));
       assert.equal(config.target, adapter.id);
       await writeFile(path.join(target, adapter.instruction), '# Local instructions\n', 'utf8');
 
@@ -54,12 +54,12 @@ for (const adapter of [
       assert.equal(targets.some((item) => item.startsWith('.codex/')), false);
 
       await run(['install', '--project', target, '--target', adapter.id, '--profile', 'core', '--write']);
-      const state = JSON.parse(await readFile(path.join(target, '.cognis/install-state.json'), 'utf8'));
+      const state = JSON.parse(await readFile(path.join(target, '.vibe-harness/install-state.json'), 'utf8'));
       assert.equal(state.adapter, adapter.id);
       assert.equal(state.files.find((file) => file.target === adapter.instruction).contentStrategy, 'managed-instruction-block');
       const installed = await readFile(path.join(target, adapter.instruction), 'utf8');
       assert.match(installed, /# Local instructions/u);
-      assert.match(installed, /<!-- COGNIS:START -->/u);
+      assert.match(installed, /<!-- VIBE_HARNESS:START -->/u);
       const validation = await run(['validate', '--project', target]);
       assert.equal(validation.status, 'ready');
 
@@ -83,10 +83,10 @@ for (const adapter of [
 for (const adapter of ['claude', 'gemini']) {
   for (const profile of ['minimal', 'docs-only']) {
     test(`${adapter} ${profile} supports an empty-project write, validate, and uninstall lifecycle`, async () => {
-      const target = await mkdtemp(path.join(tmpdir(), `cognis-${adapter}-${profile}-`));
+      const target = await mkdtemp(path.join(tmpdir(), `vibe-harness-${adapter}-${profile}-`));
       try {
         await run(['init', '--project', target, '--target', adapter]);
-        const configPath = path.join(target, 'cognis.config.json');
+        const configPath = path.join(target, 'vibe-harness.config.json');
         const config = JSON.parse(await readFile(configPath, 'utf8'));
         config.profile = profile;
         await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
@@ -108,7 +108,7 @@ for (const adapter of [
   { id: 'gemini', skills: '.gemini/skills' },
 ]) {
   test(`${adapter.id} full preview installs eight native Skills without Codex metadata or hooks`, async () => {
-    const target = await mkdtemp(path.join(tmpdir(), `cognis-${adapter.id}-full-`));
+    const target = await mkdtemp(path.join(tmpdir(), `vibe-harness-${adapter.id}-full-`));
     try {
       await run(['init', '--project', target, '--target', adapter.id, '--profile', 'full']);
       await run(['install', '--project', target, '--target', adapter.id, '--profile', 'full', '--allow-preview', '--write']);
@@ -129,7 +129,7 @@ for (const adapter of [
 }
 
 test('adapter catalog gates preview profiles and rejects target mismatch', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-adapter-errors-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-adapter-errors-'));
   try {
     await run(['init', '--project', target, '--target', 'claude']);
     const unsupported = await fail(['install', '--project', target, '--target', 'claude', '--profile', 'full', '--dry-run']);
@@ -163,11 +163,11 @@ test('adapter capability v2 uses explicit support levels for every product surfa
 });
 
 test('install and upgrade reject an adapter that differs from install state', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-adapter-state-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-adapter-state-'));
   try {
     await run(['init', '--project', target, '--target', 'claude']);
     await run(['install', '--project', target, '--target', 'claude', '--profile', 'core', '--write']);
-    const configPath = path.join(target, 'cognis.config.json');
+    const configPath = path.join(target, 'vibe-harness.config.json');
     const config = JSON.parse(await readFile(configPath, 'utf8'));
     await writeFile(configPath, `${JSON.stringify({ ...config, target: 'gemini' }, null, 2)}\n`, 'utf8');
 

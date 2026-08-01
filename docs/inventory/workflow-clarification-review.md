@@ -1,10 +1,10 @@
 # 工作流与需求澄清能力审查
 
-审查日期：2026-07-28。范围：Cognis 规范与工作流，重点为需求澄清能力提升与不必要流程裁剪。本审查结合业界最佳实践（GitHub spec-kit、Anthropic、Cognition、AWS Kiro、MCP Elicitation）给出改进方案并记录已落地变更。
+审查日期：2026-07-28。范围：Vibe-Harness 规范与工作流，重点为需求澄清能力提升与不必要流程裁剪。本审查结合业界最佳实践（GitHub spec-kit、Anthropic、Cognition、AWS Kiro、MCP Elicitation）给出改进方案并记录已落地变更。
 
 ## 前提
 
-本仓库已完成一次去仪式化重构：v0.4–v0.9 治理规格全部归档为 Superseded；强制规划门、Tester/Reviewer/Handoff 角色派发、交付文本门禁、fan-in 集成验证、自适应基准均已破坏性移除并由 `tests/skill-closure.test.js` 守护。`COGNIS_OBSOLETE_GOVERNANCE_CONFIG` 主动拒绝旧配置。因此本审查主线是补强澄清能力 + 清理重构残留，而非再砍流程。
+本仓库已完成一次去仪式化重构：v0.4–v0.9 治理规格全部归档为 Superseded；强制规划门、Tester/Reviewer/Handoff 角色派发、交付文本门禁、fan-in 集成验证、自适应基准均已破坏性移除并由 `tests/skill-closure.test.js` 守护。`VIBE_HARNESS_OBSOLETE_GOVERNANCE_CONFIG` 主动拒绝旧配置。因此本审查主线是补强澄清能力 + 清理重构残留，而非再砍流程。
 
 ## 现状工作流
 
@@ -32,7 +32,7 @@
 - `scripts/lib/install-planner.js`：`createInstalledSurface` 加 `clarificationPostureLine`（仅安装 clarify-requirements 时输出）；两处调用点传入 posture。
 - `scripts/lib/template-renderer.js`：`defaultTemplateData.installedSurface` 加 `clarificationPostureLine` 默认空串。
 - `adapters/codex/AGENTS.template.md`：已安装表面段加 `{{installedSurface.clarificationPostureLine}}`。
-- `cognis.config.json`：加 `clarification.posture: "balanced"`。
+- `vibe-harness.config.json`：加 `clarification.posture: "balanced"`。
 
 ### P1 工作流微调
 

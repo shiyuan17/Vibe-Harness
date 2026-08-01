@@ -19,7 +19,7 @@ import {
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '..');
-const cliPath = path.join(rootDir, 'scripts/cognis.js');
+const cliPath = path.join(rootDir, 'scripts/vibe-harness.js');
 
 async function runCli(args) {
   const { stdout } = await execFileAsync(process.execPath, [cliPath, ...args], { cwd: rootDir });
@@ -39,7 +39,7 @@ test('rtk and ast-grep are independent optional modules', () => {
 });
 
 test('tool plugins appear in install dry-run without changing default profile modules', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-tool-modules-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tool-modules-'));
   try {
     await runCli(['init', '--project', target]);
     const core = await runCli([
@@ -63,7 +63,7 @@ test('tool plugins appear in install dry-run without changing default profile mo
 });
 
 test('tool inspection reports both optional tools as pending before provisioning', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-tool-inspection-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tool-inspection-'));
   try {
     const tools = await inspectProfileTools('core', target, ['agents', 'rules', 'rtk', 'ast-grep']);
     assert.equal(tools.rtk.status, 'pending');
@@ -76,9 +76,9 @@ test('tool inspection reports both optional tools as pending before provisioning
 });
 
 test('tool inspection synthesizes a pending state for a newly selected module', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-tool-new-module-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tool-new-module-'));
   try {
-    const stateDir = path.join(target, '.cognis/tool-state');
+    const stateDir = path.join(target, '.vibe-harness/tool-state');
     await mkdir(stateDir, { recursive: true });
     await writeFile(path.join(stateDir, 'tools.json'), `${JSON.stringify({
       fingerprints: {},
@@ -97,9 +97,9 @@ test('tool inspection synthesizes a pending state for a newly selected module', 
 });
 
 test('tool inspection degrades persisted ready tools when project-local binaries are missing', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-tool-missing-runtime-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tool-missing-runtime-'));
   try {
-    const stateDir = path.join(target, '.cognis/tool-state');
+    const stateDir = path.join(target, '.vibe-harness/tool-state');
     await mkdir(stateDir, { recursive: true });
     await writeFile(path.join(stateDir, 'tools.json'), `${JSON.stringify({
       fingerprints: {},
@@ -122,7 +122,7 @@ test('tool inspection degrades persisted ready tools when project-local binaries
 });
 
 test('tool inspection hashes runtimes without executing project binaries', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-tool-hash-mismatch-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tool-hash-mismatch-'));
   let inspectExecutions = 0;
   try {
     await runCli(['init', '--project', target]);
@@ -188,7 +188,7 @@ test('tool inspection hashes runtimes without executing project binaries', async
 });
 
 test('tool inspection reports RTK as unsupported on an unrecognized current platform', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-tool-unsupported-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tool-unsupported-'));
   try {
     const tools = await inspectProfileTools(
       'core',
@@ -206,18 +206,18 @@ test('tool inspection reports RTK as unsupported on an unrecognized current plat
 });
 
 test('optional tool generated directories are owned by install state', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-tool-ownership-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tool-ownership-'));
   try {
     await runCli(['init', '--project', target]);
     await runCli([
       'install', '--project', target, '--target', 'codex', '--profile', 'core',
       '--plugin', '-rtk', 'ast-grep', '--write',
     ]);
-    const state = JSON.parse(await readFile(path.join(target, '.cognis/install-state.json'), 'utf8'));
+    const state = JSON.parse(await readFile(path.join(target, '.vibe-harness/install-state.json'), 'utf8'));
     const generated = state.generatedDirectories.map((item) => item.target).sort();
     assert.ok(generated.includes('.agents/runtime/tools/rtk/bin'));
     assert.ok(generated.includes('.agents/runtime/tools/ast-grep/node_modules'));
-    assert.ok(generated.includes('.cognis/tool-state/npm-cache/astGrep'));
+    assert.ok(generated.includes('.vibe-harness/tool-state/npm-cache/astGrep'));
     const summary = (await execFileAsync(process.execPath, [
       cliPath, 'doctor', '--project', target, '--output', 'summary',
     ], { cwd: rootDir })).stdout;
@@ -233,12 +233,12 @@ test('optional tool generated directories are owned by install state', async () 
 });
 
 test('optional tool uninstall removes managed runtimes and preserves user files', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-tool-uninstall-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tool-uninstall-'));
   const userFile = path.join(target, 'user-owned.txt');
   const generatedFiles = [
     path.join(target, '.agents/runtime/tools/rtk/bin/runtime.fixture'),
     path.join(target, '.agents/runtime/tools/ast-grep/node_modules/runtime.fixture'),
-    path.join(target, '.cognis/tool-state/npm-cache/astGrep/cache.fixture'),
+    path.join(target, '.vibe-harness/tool-state/npm-cache/astGrep/cache.fixture'),
   ];
   try {
     await writeFile(userFile, 'keep me\n', 'utf8');
@@ -266,7 +266,7 @@ test('optional tool uninstall removes managed runtimes and preserves user files'
 });
 
 test('plugin none retires deselected wrappers, generated directories, and managed MCP servers', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-tool-clear-selection-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tool-clear-selection-'));
   const configPath = path.join(target, '.codex/config.toml');
   const rtkRuntime = path.join(target, '.agents/runtime/tools/rtk/bin/runtime.fixture');
   const chromeRuntime = path.join(target, '.agents/runtime/tools/chrome-devtools-mcp/node_modules/runtime.fixture');
@@ -288,7 +288,7 @@ test('plugin none retires deselected wrappers, generated directories, and manage
       '--plugin', 'none', '--write', '--confirm-red-zone',
     ]);
     const config = await readFile(configPath, 'utf8');
-    const state = JSON.parse(await readFile(path.join(target, '.cognis/install-state.json'), 'utf8'));
+    const state = JSON.parse(await readFile(path.join(target, '.vibe-harness/install-state.json'), 'utf8'));
 
     assert.deepEqual(cleared.requestedPlugins, []);
     assert.deepEqual(state.requestedPlugins, []);
@@ -332,7 +332,7 @@ test('tool provisioning plans expose the expected phases and versions', () => {
 });
 
 test('explicit tool provisioning uses project-local RTK and ast-grep phases', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-tool-provision-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tool-provision-'));
   const calls = [];
   const rtkBinary = path.join(target, '.agents/runtime/tools/rtk/bin', process.platform === 'win32' ? 'rtk.exe' : 'rtk');
   const astGrepBinary = path.join(target, '.agents/runtime/tools/ast-grep/node_modules/@ast-grep/cli', process.platform === 'win32' ? 'ast-grep.exe' : 'ast-grep');
@@ -369,7 +369,7 @@ test('explicit tool provisioning uses project-local RTK and ast-grep phases', as
     ]);
     assert.match(calls[0].args[0], /rtk[\\/]run\.mjs$/u);
     assert.match(calls[2].args[0], /ast-grep[\\/]node_modules[\\/]@ast-grep[\\/]cli[\\/]postinstall\.js$/u);
-    const state = JSON.parse(await readFile(path.join(target, '.cognis/tool-state/tools.json'), 'utf8'));
+    const state = JSON.parse(await readFile(path.join(target, '.vibe-harness/tool-state/tools.json'), 'utf8'));
     assert.equal(state.tools.rtk.status, 'ready');
     assert.equal(state.tools.astGrep.status, 'ready');
     assert.match(state.tools.rtk.binarySha256, /^[a-f0-9]{64}$/u);
@@ -383,7 +383,7 @@ test('explicit tool provisioning uses project-local RTK and ast-grep phases', as
       targetDir: target,
       toolIds: ['rtk'],
     });
-    const retained = JSON.parse(await readFile(path.join(target, '.cognis/tool-state/tools.json'), 'utf8'));
+    const retained = JSON.parse(await readFile(path.join(target, '.vibe-harness/tool-state/tools.json'), 'utf8'));
     assert.deepEqual(Object.keys(retained.tools).sort(), ['astGrep', 'rtk']);
     assert.equal(retained.tools.astGrep.status, 'ready');
   } finally {
@@ -392,7 +392,7 @@ test('explicit tool provisioning uses project-local RTK and ast-grep phases', as
 });
 
 test('optional tool provisioning rejects binaries with unexpected versions', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-tool-provision-version-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tool-provision-version-'));
   const rtkBinary = path.join(target, '.agents/runtime/tools/rtk/bin', process.platform === 'win32' ? 'rtk.exe' : 'rtk');
   const astGrepBinary = path.join(target, '.agents/runtime/tools/ast-grep/node_modules/@ast-grep/cli', process.platform === 'win32' ? 'ast-grep.exe' : 'ast-grep');
   try {
@@ -423,7 +423,7 @@ test('optional tool provisioning rejects binaries with unexpected versions', asy
 });
 
 test('RTK provisioning persists unsupported without invoking the installer', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-tool-provision-unsupported-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tool-provision-unsupported-'));
   const calls = [];
   try {
     const tools = await provisionProfileTools({
@@ -443,7 +443,7 @@ test('RTK provisioning persists unsupported without invoking the installer', asy
     assert.equal(tools.rtk.code, 'RTK_UNSUPPORTED_PLATFORM');
     assert.equal(tools.rtk.platform, 'freebsd-riscv64');
     assert.equal(tools.rtk.source, 'github:rtk-ai/rtk@v0.43.0');
-    const state = JSON.parse(await readFile(path.join(target, '.cognis/tool-state/tools.json'), 'utf8'));
+    const state = JSON.parse(await readFile(path.join(target, '.vibe-harness/tool-state/tools.json'), 'utf8'));
     assert.equal(state.tools.rtk.status, 'unsupported');
     assert.equal(state.tools.rtk.code, 'RTK_UNSUPPORTED_PLATFORM');
     assert.equal(state.tools.rtk.platform, 'freebsd-riscv64');
@@ -453,8 +453,8 @@ test('RTK provisioning persists unsupported without invoking the installer', asy
 });
 
 test('failed optional-tool provisioning degrades health and allow-degraded preserves status', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-tool-degraded-'));
-  const env = { ...process.env, COGNIS_TEST_OFFLINE: '1' };
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tool-degraded-'));
+  const env = { ...process.env, VIBE_HARNESS_TEST_OFFLINE: '1' };
   try {
     await runCli(['init', '--project', target]);
     await runCli([

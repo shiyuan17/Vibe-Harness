@@ -10,17 +10,17 @@ function argument(name) {
   return index >= 0 ? process.argv[index + 1] : null;
 }
 
-const currentDir = path.resolve(argument('--current-dir') ?? '.cognis/evals/runs');
-const historyDir = path.resolve(argument('--history-dir') ?? '.cognis/evals/history');
+const currentDir = path.resolve(argument('--current-dir') ?? '.vibe-harness/evals/runs');
+const historyDir = path.resolve(argument('--history-dir') ?? '.vibe-harness/evals/history');
 const enforce = readProductEnv(process.env, 'EVAL_ENFORCE');
-if (enforce.deprecated) console.error(`${enforce.name} is deprecated; use COGNIS_EVAL_ENFORCE.`);
+if (enforce.deprecated) console.error(`${enforce.name} is deprecated; use VIBE_HARNESS_EVAL_ENFORCE.`);
 const report = assessEvalHealth({
   current: await readEvalStatus(currentDir),
   enforceInvalid: enforce.value === '1',
   history: await readEvalHistory(historyDir),
 });
 const summary = [
-  '## Cognis online evaluation health',
+  '## Vibe-Harness online evaluation health',
   '',
   `- Status: ${report.status}`,
   `- Code: ${report.code}`,

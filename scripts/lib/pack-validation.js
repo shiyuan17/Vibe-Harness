@@ -386,7 +386,7 @@ export async function validateContentQuality(rootDir) {
   if (await pathExists(agentsPath)) {
     const agents = await readFile(agentsPath, 'utf8');
     if (!/--project[^\n]*--write/u.test(agents)) errors.push('AGENTS.md must document the --project/--write lifecycle');
-    if (/pnpm cognis[^\n]*(?:codex-internal|codex-minimal|--apply)/u.test(agents)) errors.push('AGENTS.md must not contain removed legacy lifecycle commands');
+    if (/pnpm vibe-harness[^\n]*(?:codex-internal|codex-minimal|--apply)/u.test(agents)) errors.push('AGENTS.md must not contain removed legacy lifecycle commands');
   }
   const [agentsTemplate, governanceCore] = await Promise.all([
     readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8'),
@@ -508,7 +508,7 @@ export async function validateCapabilityMatrix(rootDir, matrix, { checkFiles = t
   return errors.sort();
 }
 
-// Cognis render placeholders take the form {{name}} or {{name.field}}. Sources
+// Vibe-Harness render placeholders take the form {{name}} or {{name.field}}. Sources
 // containing them are rendered at install time, so the installed artifact is
 // not expected to be byte-identical to the source and is excluded from the
 // self-install drift check.
@@ -518,7 +518,7 @@ function normalizeLineEndings(value) {
   return value.replace(/\r\n/gu, '\n').replace(/\r/gu, '\n');
 }
 
-// Cognis installs into its own repository to dogfood the installer. For
+// Vibe-Harness installs into its own repository to dogfood the installer. For
 // `replace` entries whose source carries no render placeholders, the
 // self-installed artifact must stay byte-identical (modulo line endings) to
 // the source. This catches drift such as a schema gaining a field in `schemas/`

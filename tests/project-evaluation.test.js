@@ -22,8 +22,8 @@ function baseConfig(overrides = {}) {
     validationCommands: { lint: null, typecheck: null, test: null, eval: null },
     evaluations: {
       enabled: true,
-      suites: ['evals/suites/cognis-core.json'],
-      reference: 'evals/references/cognis-core.offline.json',
+      suites: ['evals/suites/vibe-harness-core.json'],
+      reference: 'evals/references/vibe-harness-core.offline.json',
       thresholds: { criticalPassRate: 1, overallScore: 0.9, maxCapabilityRegression: 0.05 },
       onlineRunner: null,
       repetitions: 3,
@@ -33,15 +33,15 @@ function baseConfig(overrides = {}) {
 }
 
 async function createEvalProject() {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-pe-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-pe-'));
   await cp(
-    path.join(rootDir, 'evals/suites/cognis-core.json'),
-    path.join(target, 'evals/suites/cognis-core.json'),
+    path.join(rootDir, 'evals/suites/vibe-harness-core.json'),
+    path.join(target, 'evals/suites/vibe-harness-core.json'),
     { recursive: true },
   );
   await cp(
-    path.join(rootDir, 'evals/references/cognis-core.offline.json'),
-    path.join(target, 'evals/references/cognis-core.offline.json'),
+    path.join(rootDir, 'evals/references/vibe-harness-core.offline.json'),
+    path.join(target, 'evals/references/vibe-harness-core.offline.json'),
     { recursive: true },
   );
   return target;
@@ -80,7 +80,7 @@ test('runProjectEvaluations offline returns a ready run matching the checked-in 
       mode: 'offline',
       rootDir,
       targetDir: target,
-      suiteId: 'cognis-core',
+      suiteId: 'vibe-harness-core',
       write: false,
     });
     assert.equal(result.status, 'ready');
@@ -97,7 +97,7 @@ test('runProjectEvaluations rejects an invalid mode', async () => {
   const target = await createEvalProject();
   try {
     await assert.rejects(
-      runProjectEvaluations({ config: baseConfig(), mode: 'bogus', rootDir, targetDir: target, suiteId: 'cognis-core' }),
+      runProjectEvaluations({ config: baseConfig(), mode: 'bogus', rootDir, targetDir: target, suiteId: 'vibe-harness-core' }),
       /offline or online/u,
     );
   } finally {
@@ -108,13 +108,13 @@ test('runProjectEvaluations rejects an invalid mode', async () => {
 test('runProjectEvaluations flags a degraded status when the reference is missing', async () => {
   const target = await createEvalProject();
   try {
-    await rm(path.join(target, 'evals/references/cognis-core.offline.json'), { force: true });
+    await rm(path.join(target, 'evals/references/vibe-harness-core.offline.json'), { force: true });
     const result = await runProjectEvaluations({
       config: baseConfig(),
       mode: 'offline',
       rootDir,
       targetDir: target,
-      suiteId: 'cognis-core',
+      suiteId: 'vibe-harness-core',
     });
     assert.equal(result.status, 'degraded');
     assert.equal(result.run.reference.status, 'missing');
@@ -126,12 +126,12 @@ test('runProjectEvaluations flags a degraded status when the reference is missin
 
 test('runProjectEvaluations refuses to traverse a symlink that escapes the project', async () => {
   const target = await createEvalProject();
-  const outside = await mkdtemp(path.join(tmpdir(), 'cognis-pe-outside-'));
+  const outside = await mkdtemp(path.join(tmpdir(), 'vibe-harness-pe-outside-'));
   try {
     await writeFile(path.join(outside, 'rogue.json'), '{}\n', 'utf8');
     await symlink(outside, path.join(target, 'evals', 'rogue-suites'), process.platform === 'win32' ? 'junction' : 'dir');
     const config = baseConfig({
-      evaluations: { ...baseConfig().evaluations, suites: ['evals/rogue-suites/rogue.json'], reference: 'evals/references/cognis-core.offline.json' },
+      evaluations: { ...baseConfig().evaluations, suites: ['evals/rogue-suites/rogue.json'], reference: 'evals/references/vibe-harness-core.offline.json' },
     });
     await assert.rejects(
       runProjectEvaluations({ config, mode: 'offline', rootDir, targetDir: target }),

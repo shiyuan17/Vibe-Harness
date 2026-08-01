@@ -2,7 +2,7 @@
 
 > 状态:调查报告(非门禁文档)
 > 日期:2026-07-30
-> 范围:审视 Cognis 当前 AI 专属 Eval 体系,对照 2024–2026 业界最佳实践,给出是否需要调整的结论与建议。
+> 范围:审视 Vibe-Harness 当前 AI 专属 Eval 体系,对照 2024–2026 业界最佳实践,给出是否需要调整的结论与建议。
 > 方法:全仓库勘察(规则/脚本/suite/CI/产物)+ 网络权威来源调研(框架官方文档与论文)。所有项目侧关键事实已用命令亲自核实,标注于 §3。
 
 ---
@@ -11,7 +11,7 @@
 
 > **2026-07-30 更新**:P1a(LLM-as-judge)、P1b(flaky 标记)、P2(golden kind 分类)已实施完成。P0(让 online eval 真正跑起来)与 P2 的 cost/trace 闭环仍待后续。实施细节见 §6 各项的"实施状态"标注。
 
-Cognis 的 AI 专属 Eval 体系在**架构与契约层面已处于业界前列**——它独立实现了业界主流框架(Inspect AI / Promptfoo / DeepEval / LangSmith / Braintrust)的核心概念,且在几个点上做得更严格。无需推倒重来。但存在三类需要调整的问题:
+Vibe-Harness 的 AI 专属 Eval 体系在**架构与契约层面已处于业界前列**——它独立实现了业界主流框架(Inspect AI / Promptfoo / DeepEval / LangSmith / Braintrust)的核心概念,且在几个点上做得更严格。无需推倒重来。但存在三类需要调整的问题:
 
 1. **"能力已建好但从未真正跑起来"**:online eval(多轮、trialSummaries、pass@k/pass^k)的代码、schema、CI 全部就绪,但两个 online reference 文件缺失,历史 canary run 全部因缺 `CODEX_MODEL` 退化为 degraded,导致 trialSummaries **从未产出过任何实际样本**。可靠性报告机制是"纸上能力"。
 2. **指标体系偏单薄,且缺少 LLM-as-judge**:当前 oracle 全部是确定性断言(7 类:required/forbidden events、output fragments、artifacts、exitCode),没有语义/主观质量评判能力。业界共识是 hybrid(deterministic + llm-rubric)。
@@ -26,7 +26,7 @@ Cognis 的 AI 专属 Eval 体系在**架构与契约层面已处于业界前列*
 用户需求:建立维护一套或多套固定案例,每次模型/提示词/Hook/Skill/工作流变化时跑一次回归评测,给出评测指标;结合项目现状与网络最佳实践,判断是否需要调整,产出调查报告。
 
 本报告回答三个问题:
-- Cognis 现在的 Eval 体系是什么样?(§3)
+- Vibe-Harness 现在的 Eval 体系是什么样?(§3)
 - 与业界最佳实践相比,差距和优势在哪?(§4)
 - 是否需要调整?如何调整?(§5–§6)
 
@@ -75,9 +75,9 @@ test:eval          8 个 eval 专项单测
 
 | suite 文件 | 版本 | case 数 | repetitions | 覆盖 |
 |---|---|---|---|---|
-| `evals/suites/cognis-core.json` | v2.0.0 | **18**(已核实:install-lifecycle 6 / skill-routing 7 / safety-isolation 5) | 1(offline) | 安装生命周期、Skill 路由(RTK/ast-grep/browser)、安全隔离(hook/受保护配置) |
-| `evals/suites/cognis-online-canary.json` | v2.0.0 | 6(全部 critical) | 3 | 真实 fixture(AGENTS.md/protected.txt/.env/SKILL.md),在线行为 |
-| `evals/suites/cognis-online-execution.json` | v1.0.0 | 5 | 1 | FAIL_TO_PASS 执行类(含 fixture.files + fixture.tests 隐藏测试) |
+| `evals/suites/vibe-harness-core.json` | v2.0.0 | **18**(已核实:install-lifecycle 6 / skill-routing 7 / safety-isolation 5) | 1(offline) | 安装生命周期、Skill 路由(RTK/ast-grep/browser)、安全隔离(hook/受保护配置) |
+| `evals/suites/vibe-harness-online-canary.json` | v2.0.0 | 6(全部 critical) | 3 | 真实 fixture(AGENTS.md/protected.txt/.env/SKILL.md),在线行为 |
+| `evals/suites/vibe-harness-online-execution.json` | v1.0.0 | 5 | 1 | FAIL_TO_PASS 执行类(含 fixture.files + fixture.tests 隐藏测试) |
 | `evals/clarification-cases.json` | schema v2 | 24 | 3 | 5 类:independent(8)/dependent(4)/mixed(4)/discovery(4)/near-miss(4) |
 | `evals/goal-definition-cases.json` + `trials.json` | schema v1 | 12 | 3 | 4 类:execution(4)/exploration(3)/activation(3)/near-miss(2) |
 
@@ -87,13 +87,13 @@ test:eval          8 个 eval 专项单测
 
 | 资产 | 状态 |
 |---|---|
-| `evals/references/cognis-core.offline.json` | ✅ 存在(approvedAt 2026-07-28,overallScore 1.0,criticalPassRate 1.0) |
-| `evals/references/cognis-online-canary.json` | ❌ **缺失**(被 `eval-online.js:18` 引用) |
-| `evals/references/cognis-online-execution.json` | ❌ **缺失**(被 `eval-online.js:19` 引用) |
-| `.cognis/evals/runs/` 历史产物 | 12 个 offline run + 2 个 degraded run;**0 个 online run** |
+| `evals/references/vibe-harness-core.offline.json` | ✅ 存在(approvedAt 2026-07-28,overallScore 1.0,criticalPassRate 1.0) |
+| `evals/references/vibe-harness-online-canary.json` | ❌ **缺失**(被 `eval-online.js:18` 引用) |
+| `evals/references/vibe-harness-online-execution.json` | ❌ **缺失**(被 `eval-online.js:19` 引用) |
+| `.vibe-harness/evals/runs/` 历史产物 | 12 个 offline run + 2 个 degraded run;**0 个 online run** |
 | 含 `trialSummaries` 的产物 | ❌ **不存在**(online 多轮机制从未产出实际样本) |
 | degraded 诊断(已核实) | `EVAL-ONLINE-007: Codex evaluation runner unavailable: CODEX_MODEL is required` |
-| `.cognis/evals/history/` | ❌ 不存在(eval-health 读取它做连续 degraded 计数) |
+| `.vibe-harness/evals/history/` | ❌ 不存在(eval-health 读取它做连续 degraded 计数) |
 
 ### 3.5 门禁与 CI
 
@@ -106,7 +106,7 @@ offline eval 是硬门禁(阻断)。
 **Online canary CI**(`.github/workflows/evals.yml`):
 - 触发:**仅 schedule(每天 02:17 UTC)+ workflow_dispatch**,不在 PR/push 触发(有测试断言)
 - preflight 检查 `CODEX_CLI_VERSION`/`CODEX_MODEL`/`OPENAI_API_KEY` → 缺失则写 degraded.json 并 ready=false
-- `COGNIS_EVAL_ENFORCE` 控制 invalid 是否真正非零退出(advisory vs enforce)
+- `VIBE_HARNESS_EVAL_ENFORCE` 控制 invalid 是否真正非零退出(advisory vs enforce)
 
 **Git hooks**:`pre-commit`/`pre-push` 调用 `git-hook.mjs`,只做 diff/secret/red-zone/test-marker 拦截,**不触发 eval**。eval 门禁完全由 CI 承担。
 
@@ -114,12 +114,12 @@ offline eval 是硬门禁(阻断)。
 
 ### 3.6 配置
 
-`cognis.config.json`:
+`vibe-harness.config.json`:
 ```json
 "evaluations": {
   "enabled": true,
-  "suites": ["evals/suites/cognis-core.json"],   // 仅 core
-  "reference": "evals/references/cognis-core.offline.json",
+  "suites": ["evals/suites/vibe-harness-core.json"],   // 仅 core
+  "reference": "evals/references/vibe-harness-core.offline.json",
   "thresholds": { "criticalPassRate": 1, "overallScore": 0.9, "maxCapabilityRegression": 0.05 },
   "onlineRunner": null,                          // 项目配置未启用 online runner
   "repetitions": 3
@@ -139,7 +139,7 @@ offline eval 是硬门禁(阻断)。
 
 ### 4.1 框架能力对照表
 
-| 能力维度 | 业界代表 | Cognis 现状 | 评价 |
+| 能力维度 | 业界代表 | Vibe-Harness 现状 | 评价 |
 |---|---|---|---|
 | 框架形态 | Inspect AI(Task=Dataset+Solver+Scorer)、Promptfoo(YAML 声明式)、DeepEval(pytest-native) | 自研 JS runner + JSON suite + schema | ✅ 等价,且与项目语言一致 |
 | pass@k / pass^k | Inspect AI `pass_at_{k}`/`pass_k_{k}`(arXiv:2107.03374, arXiv:2406.12045) | passAt1/passAtK/passCaretK(`eval-trials.js`) | ✅ 概念对齐;但 **passCaretK 命名非业界标准**,疑似内部命名(公开检索无此术语,可能对应 Inspect 的 pass_k_{k}) |
@@ -156,14 +156,14 @@ offline eval 是硬门禁(阻断)。
 | 防过拟合 | DeepEval 四类 golden(standard/variation/edge/adversarial)、Promptfoo 定期重生成红队 | ❌ 无分类标准、无对抗输入再生 | ⚠️ 缺口 |
 | trace 闭环 | OpenAI Agent Improvement Loop(trace→反馈→eval→CI→golden)、Macro Evals | ❌ 无 trace 回流机制 | 🟡 缺口(但有 transcript 数据基础) |
 
-### 4.2 Cognis 相对业界的优势
+### 4.2 Vibe-Harness 相对业界的优势
 
 1. **安全边界更严**:受保护配置快照 + fixture 完整性检测 + 全局配置变更检测 + 脱敏,比多数框架的纯沙箱更贴近"红区保护"场景。
 2. **契约即代码**:规则文档 + Skill + schema + 契约校验脚本四重一致,且有 `eval:check` 强制校验,避免文档与实现漂移。
 3. **FAIL_TO_PASS 已落地**:SWE-bench 黄金标准已在 `online-execution` suite 实现。
 4. **reference 冻结有显式确认**:需 `--confirm-reference-update` + `--force`,防止误覆盖。
 
-### 4.3 Cognis 相对业界的缺口
+### 4.3 Vibe-Harness 相对业界的缺口
 
 见 §4.1 标 ⚠️/🟡 的行,归纳为:
 - **A. LLM-as-judge / hybrid 断言缺失**(Promptfoo/OpenAI/DeepEval 共识项)
@@ -198,14 +198,14 @@ offline eval 是硬门禁(阻断)。
 
 1. **补齐 online reference 文件**(或显式声明为"待首次批准"):
    - 当前 `eval-online.js` 引用的两个 reference 缺失,运行时判 `missing`→degraded。
-   - 方案:在能提供 `CODEX_MODEL`/`OPENAI_API_KEY` 的环境跑一次 `pnpm eval:online --suite cognis-online-canary`,产出 run 后用 `cognis eval reference --from <run> --write --confirm-reference-update` 冻结。
+   - 方案:在能提供 `CODEX_MODEL`/`OPENAI_API_KEY` 的环境跑一次 `pnpm eval:online --suite vibe-harness-online-canary`,产出 run 后用 `vibe-harness eval reference --from <run> --write --confirm-reference-update` 冻结。
    - 若暂时无法跑,应在契约中显式记录"online reference 处于 pending 状态",而非静默 degraded。
 
 2. **修复 canary CI 的凭据供给**:
    - 历史 degraded 诊断均为 `CODEX_MODEL is required`。需在 `evals.yml` 的 schedule 作业配置所需 secret(`CODEX_MODEL`/`OPENAI_API_KEY`/`CODEX_CLI_VERSION`)。
-   - 决定 `COGNIS_EVAL_ENFORCE` 策略:建议 canary 初期保持 advisory(enforce=0),连续 3 次 degraded 后再升级——这与 `eval-health` 的"连续≥3"逻辑天然契合。
+   - 决定 `VIBE_HARNESS_EVAL_ENFORCE` 策略:建议 canary 初期保持 advisory(enforce=0),连续 3 次 degraded 后再升级——这与 `eval-health` 的"连续≥3"逻辑天然契合。
 
-3. **补建 `.cognis/evals/history/`**:eval-health 依赖它做连续 degraded 计数,当前目录不存在会导致健康判断失真。
+3. **补建 `.vibe-harness/evals/history/`**:eval-health 依赖它做连续 degraded 计数,当前目录不存在会导致健康判断失真。
 
 4. **验证 trialSummaries 端到端产出**:跑通后确认 run 产物含 `trialSummaries`(passAt1/passAtK/passCaretK/perTrial),这是"给出评测指标"诉求的直接交付物。
 
@@ -253,8 +253,8 @@ offline eval 是硬门禁(阻断)。
 |---|---|---|---|
 | 确定性代码(脚本/schema/lib) | PR CI | `eval:offline` + `test:eval` | 阻断(已实现) |
 | 规则/提示/Skill/Hook/adapter(非确定性) | 本地按 Skill 流程 + PR CI | 改前冻结 reference → 改后 `eval:offline` 对比 → 必要时 `eval:online` | offline 阻断;online 报告(P0 跑通后) |
-| 模型升级 | canary schedule 或手动 dispatch | `eval:online --suite cognis-online-canary`(repetitions:3) | 报告 passAt1/passAtK/passCaretK;连续 degraded≥3 升级为失败 |
-| 紧急验证 | 手动 | `cognis eval run --project <temp> --mode online --suite <id>` | 报告 |
+| 模型升级 | canary schedule 或手动 dispatch | `eval:online --suite vibe-harness-online-canary`(repetitions:3) | 报告 passAt1/passAtK/passCaretK;连续 degraded≥3 升级为失败 |
+| 紧急验证 | 手动 | `vibe-harness eval run --project <temp> --mode online --suite <id>` | 报告 |
 
 关键:修改非确定性 Agent 行为时,**必须遵循 `eval-driven-development` Skill 的 5 步**(定义失败场景→冻结参考→最小改动→同条件重跑→比较指标),这正是用户诉求的工程化落地。当前缺的是 online 维度的参考结果(P0)。
 
@@ -263,9 +263,9 @@ offline eval 是硬门禁(阻断)。
 ## 8. 来源
 
 ### 项目侧(已核实)
-- `docs/rules/eval-driven-development.md`、`docs/evals.md`、`cognis.config.json`、`package.json`
+- `docs/rules/eval-driven-development.md`、`docs/evals.md`、`vibe-harness.config.json`、`package.json`
 - `scripts/lib/eval-*.js`、`scripts/eval-*.js`、`runtime/evals/codex-runner.mjs`
-- `evals/suites/*.json`、`evals/references/`、`.cognis/evals/runs/`
+- `evals/suites/*.json`、`evals/references/`、`.vibe-harness/evals/runs/`
 - `.github/workflows/ci.yml`、`.github/workflows/evals.yml`
 - 核实命令:`node -e` 读取 suite case 数;`ls evals/references/`;`grep trialSummaries`
 

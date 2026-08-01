@@ -16,9 +16,9 @@ const evaluationEnvironmentNames = new Set([
   'ALL_PROXY', 'ANTHROPIC_API_KEY', 'APPDATA', 'AZURE_OPENAI_API_KEY', 'CODEX_CLI_VERSION',
   'CODEX_HOME', 'CODEX_MODEL', 'COMSPEC', 'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'HOME',
   'HTTPS_PROXY', 'HTTP_PROXY', 'LANG', 'LC_ALL', 'LC_CTYPE', 'LOCALAPPDATA',
-  'CODEX_REASONING_EFFORT', 'COGNIS_CODEX_COMMAND', 'COGNIS_EVAL_AUTH_FILE', 'COGNIS_EVAL_CODEX_BACKEND',
-  'COGNIS_EVAL_PROVIDER_NAME', 'COGNIS_EVAL_PROVIDER_REQUIRES_AUTH', 'COGNIS_EVAL_PROVIDER_WIRE_API',
-  'COGNIS_EVAL_RUNTIME_SOURCE', 'COGNIS_EVAL_TRUST_PROJECT_HOOKS', 'COGNIS_WSL_CODEX_COMMAND',
+  'CODEX_REASONING_EFFORT', 'VIBE_HARNESS_CODEX_COMMAND', 'VIBE_HARNESS_EVAL_AUTH_FILE', 'VIBE_HARNESS_EVAL_CODEX_BACKEND',
+  'VIBE_HARNESS_EVAL_PROVIDER_NAME', 'VIBE_HARNESS_EVAL_PROVIDER_REQUIRES_AUTH', 'VIBE_HARNESS_EVAL_PROVIDER_WIRE_API',
+  'VIBE_HARNESS_EVAL_RUNTIME_SOURCE', 'VIBE_HARNESS_EVAL_TRUST_PROJECT_HOOKS', 'VIBE_HARNESS_WSL_CODEX_COMMAND',
   'NO_PROXY', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'PATH', 'Path',
   'PATHEXT', 'PROGRAMDATA', 'ProgramData', 'SHELL', 'SSL_CERT_DIR', 'SSL_CERT_FILE', 'SystemRoot',
   'TEMP', 'TMP', 'TMPDIR', 'USERPROFILE', 'WINDIR', 'all_proxy', 'https_proxy', 'http_proxy',
@@ -30,7 +30,7 @@ function evaluationEnvironment(env) {
 }
 
 async function createWorkspace(definition) {
-  const workspace = await mkdtemp(path.join(tmpdir(), 'cognis-eval-case-'));
+  const workspace = await mkdtemp(path.join(tmpdir(), 'vibe-harness-eval-case-'));
   for (const relative of definition.input.fixture?.allowedWritePaths ?? []) {
     assertPortableRelativePath(relative, 'evaluation allowed write path');
     assertInsideDir(workspace, path.resolve(workspace, relative), 'evaluation allowed write path');

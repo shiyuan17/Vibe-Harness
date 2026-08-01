@@ -405,7 +405,7 @@ export function createCodexHookResult(event, decision, { durationMs } = {}) {
   if (!decision || decision.action === 'allow') return {};
   const durationSuffix = Number.isFinite(durationMs) && durationMs >= 0 ? `:${Math.round(durationMs)}` : '';
   const reason = decision.reasonCode
-    ? `[COGNIS_POLICY:${decision.reasonCode}${durationSuffix}] ${decision.reason}`
+    ? `[VIBE_HARNESS_POLICY:${decision.reasonCode}${durationSuffix}] ${decision.reason}`
     : decision.reason;
   if (event === 'PermissionRequest' && decision.action !== 'deny') return {};
   if (decision.action === 'warn') {

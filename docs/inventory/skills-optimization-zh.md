@@ -1,6 +1,6 @@
 # Skills 精简记录
 
-当前 Cognis 只保留八个由宿主按 description 原生选择的领域 Skills：
+当前 Vibe-Harness 只保留八个由宿主按 description 原生选择的领域 Skills：
 
 - `clarify-requirements`
 - `define-goal`

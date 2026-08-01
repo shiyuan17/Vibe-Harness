@@ -12,7 +12,7 @@ import { readJson, validateJsonAgainstSchema } from '../scripts/lib/manifest.js'
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '..');
-const cliPath = path.join(rootDir, 'scripts/cognis.js');
+const cliPath = path.join(rootDir, 'scripts/vibe-harness.js');
 
 async function runCli(args) {
   const result = await execFileAsync(process.execPath, [cliPath, ...args], {
@@ -36,7 +36,7 @@ async function runCliFailure(args) {
 
 async function initMinimalProject(target, validationCommands = { lint: null, typecheck: null, test: null, eval: null }) {
   await runCli(['init', '--project', target]);
-  const configPath = path.join(target, 'cognis.config.json');
+  const configPath = path.join(target, 'vibe-harness.config.json');
   const config = JSON.parse(await readFile(configPath, 'utf8'));
   await writeFile(configPath, `${JSON.stringify({
     ...config,
@@ -46,10 +46,10 @@ async function initMinimalProject(target, validationCommands = { lint: null, typ
 }
 
 test('baseline previews then writes a managed project snapshot', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-baseline-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-baseline-'));
   try {
     await initMinimalProject(target);
-    const injectedConfigPath = path.join(target, 'cognis.config.json');
+    const injectedConfigPath = path.join(target, 'vibe-harness.config.json');
     const injectedConfig = JSON.parse(await readFile(injectedConfigPath, 'utf8'));
     injectedConfig.projectName = 'Example\n# injected instruction';
     await writeFile(injectedConfigPath, `${JSON.stringify(injectedConfig, null, 2)}\n`, 'utf8');
@@ -62,15 +62,15 @@ test('baseline previews then writes a managed project snapshot', async () => {
     assert.equal(preview.baseline.project.name, 'Example # injected instruction');
     assert.equal(preview.baseline.drift.status, 'initial');
     assert.deepEqual(preview.artifacts.map((item) => item.target), [
-      '.cognis/baseline.json',
-      'docs/cognis/PROJECT_BASELINE.md',
+      '.vibe-harness/baseline.json',
+      'docs/vibe-harness/PROJECT_BASELINE.md',
     ]);
-    await assert.rejects(readFile(path.join(target, '.cognis/baseline.json'), 'utf8'), /ENOENT/u);
+    await assert.rejects(readFile(path.join(target, '.vibe-harness/baseline.json'), 'utf8'), /ENOENT/u);
 
     const written = await runCli(['baseline', '--project', target, '--write']);
-    const baseline = JSON.parse(await readFile(path.join(target, '.cognis/baseline.json'), 'utf8'));
-    const report = await readFile(path.join(target, 'docs/cognis/PROJECT_BASELINE.md'), 'utf8');
-    const state = JSON.parse(await readFile(path.join(target, '.cognis/install-state.json'), 'utf8'));
+    const baseline = JSON.parse(await readFile(path.join(target, '.vibe-harness/baseline.json'), 'utf8'));
+    const report = await readFile(path.join(target, 'docs/vibe-harness/PROJECT_BASELINE.md'), 'utf8');
+    const state = JSON.parse(await readFile(path.join(target, '.vibe-harness/install-state.json'), 'utf8'));
 
     assert.equal(written.dryRun, false);
     assert.equal(baseline.schemaVersion, 1);
@@ -82,8 +82,8 @@ test('baseline previews then writes a managed project snapshot', async () => {
     assert.match(report, /项目基线/u);
     assert.doesNotMatch(report, /^# injected instruction$/mu);
     assert.deepEqual(state.generatedFiles.map((item) => item.target).sort(), [
-      '.cognis/baseline.json',
-      'docs/cognis/PROJECT_BASELINE.md',
+      '.vibe-harness/baseline.json',
+      'docs/vibe-harness/PROJECT_BASELINE.md',
     ]);
 
     const unchanged = await runCli(['baseline', '--project', target]);
@@ -106,7 +106,7 @@ test('baseline previews then writes a managed project snapshot', async () => {
 });
 
 test('Codex full baseline reports the selected installation surface', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-baseline-full-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-baseline-full-'));
   try {
     await runCli(['init', '--project', target, '--target', 'codex', '--profile', 'full']);
     await runCli([
@@ -116,14 +116,14 @@ test('Codex full baseline reports the selected installation surface', async () =
     assert.equal(preview.baseline.installation.profile, 'full');
     assert.equal(preview.baseline.installation.resolvedModules.includes('hooks'), true);
     await runCli(['baseline', '--project', target, '--write']);
-    assert.match(await readFile(path.join(target, 'docs/cognis/PROJECT_BASELINE.md'), 'utf8'), /full/u);
+    assert.match(await readFile(path.join(target, 'docs/vibe-harness/PROJECT_BASELINE.md'), 'utf8'), /full/u);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
 });
 
 test('baseline schema accepts every selected Chrome DevTools tool state', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-baseline-chrome-plugin-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-baseline-chrome-plugin-'));
   try {
     await runCli(['init', '--project', target]);
     await runCli([
@@ -140,13 +140,13 @@ test('baseline schema accepts every selected Chrome DevTools tool state', async 
 });
 
 test('baseline requires an installed MVP project', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-baseline-invalid-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-baseline-invalid-'));
   try {
     const missingConfig = await runCliFailure(['baseline', '--project', target]);
     assert.equal(missingConfig.payload.error.code, 'BASELINE_INSTALL_INVALID');
 
     await initMinimalProject(target);
-    const configPath = path.join(target, 'cognis.config.json');
+    const configPath = path.join(target, 'vibe-harness.config.json');
     const validConfigText = await readFile(configPath, 'utf8');
     const invalidConfig = JSON.parse(validConfigText);
     invalidConfig.profile = 'unknown';
@@ -159,7 +159,7 @@ test('baseline requires an installed MVP project', async () => {
     assert.equal(missingInstall.payload.error.code, 'BASELINE_INSTALL_INVALID');
 
     await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'minimal', '--write']);
-    const statePath = path.join(target, '.cognis/install-state.json');
+    const statePath = path.join(target, '.vibe-harness/install-state.json');
     const mismatchedState = JSON.parse(await readFile(statePath, 'utf8'));
     mismatchedState.profile = 'full';
     await writeFile(statePath, `${JSON.stringify(mismatchedState, null, 2)}\n`, 'utf8');
@@ -178,11 +178,11 @@ test('baseline requires an installed MVP project', async () => {
 });
 
 test('baseline protects conflicting artifacts, backs up forced writes, and rolls back managed files', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-baseline-conflict-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-baseline-conflict-'));
   try {
     await initMinimalProject(target);
     await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'minimal', '--write']);
-    const reportPath = path.join(target, 'docs/cognis/PROJECT_BASELINE.md');
+    const reportPath = path.join(target, 'docs/vibe-harness/PROJECT_BASELINE.md');
     await mkdir(path.dirname(reportPath), { recursive: true });
     await writeFile(reportPath, 'local baseline\n', 'utf8');
 
@@ -192,10 +192,10 @@ test('baseline protects conflicting artifacts, backs up forced writes, and rolls
 
     const forced = await runCli(['baseline', '--project', target, '--write', '--force']);
     assert.equal(forced.backups.length, 1);
-    assert.match(forced.backups[0].backup, /^\.cognis\/backups\//u);
+    assert.match(forced.backups[0].backup, /^\.vibe-harness\/backups\//u);
     assert.match(await readFile(reportPath, 'utf8'), /项目基线/u);
 
-    const baselinePath = path.join(target, '.cognis/baseline.json');
+    const baselinePath = path.join(target, '.vibe-harness/baseline.json');
     const poisoned = JSON.parse(await readFile(baselinePath, 'utf8'));
     poisoned.project.stackSummary = 'SECRET C:\\private\\source';
     await writeFile(baselinePath, `${JSON.stringify(poisoned, null, 2)}\n`, 'utf8');
@@ -208,9 +208,9 @@ test('baseline protects conflicting artifacts, backs up forced writes, and rolls
     await runCli(['baseline', '--project', target, '--write', '--force']);
 
     const rollback = await runCli(['rollback', '--project', target, '--write']);
-    assert.equal(rollback.applied.includes('.cognis/baseline.json'), true);
-    assert.equal(rollback.applied.includes('docs/cognis/PROJECT_BASELINE.md'), true);
-    await assert.rejects(readFile(path.join(target, '.cognis/baseline.json'), 'utf8'), /ENOENT/u);
+    assert.equal(rollback.applied.includes('.vibe-harness/baseline.json'), true);
+    assert.equal(rollback.applied.includes('docs/vibe-harness/PROJECT_BASELINE.md'), true);
+    await assert.rejects(readFile(path.join(target, '.vibe-harness/baseline.json'), 'utf8'), /ENOENT/u);
     await assert.rejects(readFile(reportPath, 'utf8'), /ENOENT/u);
   } finally {
     await rm(target, { force: true, recursive: true });
@@ -218,7 +218,7 @@ test('baseline protects conflicting artifacts, backs up forced writes, and rolls
 });
 
 test('baseline verify persists sanitized failure diagnostics', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-baseline-verify-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-baseline-verify-'));
   try {
     const failureFile = path.join(target, 'token=top-secret.mjs');
     const absoluteFailureCommand = `node ${failureFile}`;
@@ -232,7 +232,7 @@ test('baseline verify persists sanitized failure diagnostics', async () => {
     await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'minimal', '--write']);
 
     const failure = await runCliFailure(['baseline', '--project', target, '--verify', '--write']);
-    const baselineText = await readFile(path.join(target, '.cognis/baseline.json'), 'utf8');
+    const baselineText = await readFile(path.join(target, '.vibe-harness/baseline.json'), 'utf8');
     const baseline = JSON.parse(baselineText);
 
     assert.equal(failure.payload.ok, false);
@@ -251,7 +251,7 @@ test('baseline verify persists sanitized failure diagnostics', async () => {
 });
 
 test('baseline recommends static missing commands as P1 and verified blockers as P0', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-baseline-priority-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-baseline-priority-'));
   try {
     await initMinimalProject(target, { lint: 'pnpm missing-script', typecheck: null, test: null, eval: null });
     await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'minimal', '--write']);

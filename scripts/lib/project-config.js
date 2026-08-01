@@ -96,9 +96,9 @@ function loadProjectConfigSchema() {
 
 export function validateProjectConfigWithSchema(config) {
   const schema = loadProjectConfigSchema();
-  const schemaErrors = validateJsonAgainstSchema(config, schema, 'cognis.config.json');
+  const schemaErrors = validateJsonAgainstSchema(config, schema, 'vibe-harness.config.json');
   if (schemaErrors.length > 0) {
-    throw new Error(`Invalid cognis.config.json:\n  - ${schemaErrors.join('\n  - ')}`);
+    throw new Error(`Invalid vibe-harness.config.json:\n  - ${schemaErrors.join('\n  - ')}`);
   }
   return validateProjectConfig(config);
 }
@@ -146,7 +146,7 @@ export async function readProjectConfig(projectDir) {
 export async function readRequiredProjectConfig(projectDir) {
   const location = await resolveProjectConfigLocation(projectDir);
   if (!location) {
-    throw new Error(`Missing ${productIdentity.configFile}. Run cognis init --project ${projectDir} first.`);
+    throw new Error(`Missing ${productIdentity.configFile}. Run vibe-harness init --project ${projectDir} first.`);
   }
   return safeJsonParse(await readFile(location.path, 'utf8'));
 }
@@ -181,7 +181,7 @@ function assertOptionalCommand(value, label) {
 }
 
 export function validateProjectConfig(config) {
-  assertObject(config, 'cognis.config.json');
+  assertObject(config, 'vibe-harness.config.json');
   const obsolete = [
     ...(Object.hasOwn(config, 'governance') ? ['governance'] : []),
     ...(Object.hasOwn(config.hooks ?? {}, 'completionGate') ? ['hooks.completionGate'] : []),
@@ -189,7 +189,7 @@ export function validateProjectConfig(config) {
   ];
   if (obsolete.length > 0) {
     throw Object.assign(new Error(`Obsolete governance configuration: ${obsolete.join(', ')}. Remove these fields before continuing.`), {
-      code: 'COGNIS_OBSOLETE_GOVERNANCE_CONFIG',
+      code: 'VIBE_HARNESS_OBSOLETE_GOVERNANCE_CONFIG',
     });
   }
   assertNonEmptyString(config.projectName, 'projectName');
@@ -197,7 +197,7 @@ export function validateProjectConfig(config) {
   if (matchedTerm) {
     throw Object.assign(
       new Error(`projectName must not contain forbidden source-project term: ${matchedTerm}`),
-      { code: 'COGNIS_FORBIDDEN_PROJECT_TERM' },
+      { code: 'VIBE_HARNESS_FORBIDDEN_PROJECT_TERM' },
     );
   }
   assertNonEmptyString(config.packageManager, 'packageManager');

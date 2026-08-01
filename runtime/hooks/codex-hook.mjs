@@ -18,7 +18,7 @@ function expectedEventFromArgs(argv) {
 }
 
 function hookFailureResult(expectedEvent) {
-  const reason = 'HOOK_RUNTIME_ERROR: Cognis could not safely evaluate this hook event.';
+  const reason = 'HOOK_RUNTIME_ERROR: Vibe-Harness could not safely evaluate this hook event.';
   return guardedEvents.has(expectedEvent)
     ? createCodexHookResult(expectedEvent, { action: 'deny', reason })
     : { systemMessage: reason };

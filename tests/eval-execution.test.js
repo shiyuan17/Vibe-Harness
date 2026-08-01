@@ -12,7 +12,7 @@ import {
 import { runHiddenTests } from '../runtime/evals/lib/hidden-tests.mjs';
 
 const rootDir = path.resolve(import.meta.dirname, '..');
-const suitePath = path.join(rootDir, 'evals/suites/cognis-online-execution.json');
+const suitePath = path.join(rootDir, 'evals/suites/vibe-harness-online-execution.json');
 
 test('execution suite schema accepts the optional fixture.tests block', async () => {
   const [schema, suite] = await Promise.all([

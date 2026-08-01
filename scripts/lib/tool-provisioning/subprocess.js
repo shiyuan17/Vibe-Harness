@@ -10,7 +10,7 @@ import { terminateProcessTree } from '../process-tree.js';
 const maxDiagnosticOutput = 8 * 1024;
 const maxToolOutput = 1024 * 1024;
 const execFileAsync = promisify(execFile);
-const cognisVersion = JSON.parse(await readFile(new URL('../../../package.json', import.meta.url), 'utf8')).version;
+const vibeHarnessVersion = JSON.parse(await readFile(new URL('../../../package.json', import.meta.url), 'utf8')).version;
 
 function appendOutputTail(current, chunk) {
   const combined = `${current}${chunk.toString('utf8')}`;
@@ -238,7 +238,7 @@ export async function runMcpHandshake(request, { probeTool } = {}) {
       id: 1,
       jsonrpc: '2.0',
       method: 'initialize',
-      params: { capabilities: {}, clientInfo: { name: productIdentity.command, version: cognisVersion }, protocolVersion: '2025-03-26' },
+      params: { capabilities: {}, clientInfo: { name: productIdentity.command, version: vibeHarnessVersion }, protocolVersion: '2025-03-26' },
     });
   });
 }

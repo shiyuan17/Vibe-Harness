@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Cognis 项目配置",
+  "title": "Vibe-Harness 项目配置",
   "type": "object",
   "required": ["projectName", "language", "packageManager", "target", "profile", "validationCommands"],
   "properties": {

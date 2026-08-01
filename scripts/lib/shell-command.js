@@ -56,10 +56,10 @@ export function splitCommand(command, emptyMessage = 'Command is empty.') {
  * that might specify a dangerous program or exploit a future spawn regression.
  *
  * @param {string} command - The raw command string.
- * @param {string} [code='COGNIS_UNSAFE_COMMAND'] - Error code to attach.
+ * @param {string} [code='VIBE_HARNESS_UNSAFE_COMMAND'] - Error code to attach.
  * @returns {string[]} Tokens, where tokens[0] is the program name.
  */
-export function assertSafeCommand(command, code = 'COGNIS_UNSAFE_COMMAND') {
+export function assertSafeCommand(command, code = 'VIBE_HARNESS_UNSAFE_COMMAND') {
   const tokens = splitCommand(command);
   for (const token of tokens) {
     if (shellControlPattern.test(token)) {

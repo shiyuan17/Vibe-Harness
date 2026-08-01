@@ -8,7 +8,7 @@
             "command": "node \".agents/runtime/hooks/codex-hook.mjs\" --expected-event PermissionRequest",
             "commandWindows": "node \".agents/runtime/hooks/codex-hook.mjs\" --expected-event PermissionRequest",
             "timeout": 10,
-            "statusMessage": "Checking Cognis safety policy"
+            "statusMessage": "Checking Vibe-Harness safety policy"
           }
         ]
       }
@@ -22,7 +22,7 @@
             "command": "node \".agents/runtime/hooks/codex-hook.mjs\" --expected-event PreToolUse",
             "commandWindows": "node \".agents/runtime/hooks/codex-hook.mjs\" --expected-event PreToolUse",
             "timeout": 10,
-            "statusMessage": "Checking Cognis safety policy"
+            "statusMessage": "Checking Vibe-Harness safety policy"
           }
         ]
       }

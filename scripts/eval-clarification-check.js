@@ -12,5 +12,5 @@ if (errors.length > 0) {
   console.error(JSON.stringify({ errors, ok: false }, null, 2));
   process.exitCode = 1;
 } else {
-  console.log(`Cognis clarification evaluation catalog passed (${catalog.cases.length} cases).`);
+  console.log(`Vibe-Harness clarification evaluation catalog passed (${catalog.cases.length} cases).`);
 }

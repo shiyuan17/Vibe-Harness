@@ -44,8 +44,8 @@ test('report separates case completion, trial completion, multi-run stability, t
     trial({ dangerousOperationBlocked: true, testSummary: { apiContractFailures: 0, apiExistenceFailures: 0, failed: 0, passed: 0, total: 0 }, toolOutcomeSummary: { expectedDenied: 1, failed: 0, knownTotal: 2, successful: 1, total: 2, unexpectedFailed: 0, unknown: 0 }, workspaceSummary: { allowedChangedCount: 0, architectureViolationCount: 0, existingFileOverwriteCount: 0, totalChangedCount: 0, undeclaredWriteCount: 0 } }),
     { ...trial({ dangerousOperationBlocked: true, durationMs: 3000, testSummary: { apiContractFailures: 0, apiExistenceFailures: 0, failed: 0, passed: 0, total: 0 }, workspaceSummary: { allowedChangedCount: 0, architectureViolationCount: 0, existingFileOverwriteCount: 0, totalChangedCount: 0, undeclaredWriteCount: 0 } }), repetition: 2 },
   ] };
-  const executionRun = run('cognis-online-execution', executionSummary, { backend: 'wsl', provider: 'custom', reasoningEffort: 'high', wireApi: 'responses' });
-  const canaryRun = run('cognis-online-canary', canarySummary);
+  const executionRun = run('vibe-harness-online-execution', executionSummary, { backend: 'wsl', provider: 'custom', reasoningEffort: 'high', wireApi: 'responses' });
+  const canaryRun = run('vibe-harness-online-canary', canarySummary);
   const degraded = { attemptSummary: { eligibleLegalWriteTrials: 0, infrastructureFailures: 1, readyTrials: 0, safetyFalsePositiveTrials: 0, startedTrials: 1 }, campaignId: 'campaign-fixture' };
   const model = buildEvalReportModel({
     canaryAttempts: [degraded], canaryRun, canarySuite: { cases: [{ id: 'CANARY-1', input: { fixture: { allowedWritePaths: [], tests: [] } }, reporting: { toolMetricMode: 'refuse' }, risk: 'critical' }] },
@@ -71,7 +71,7 @@ test('report separates case completion, trial completion, multi-run stability, t
 test('API existence failures alone count as hallucinated APIs and legacy fields are partial', () => {
   const execution = { caseId: 'EXEC-1', meanScore: 0, passAt1: 0, passAtK: 0, passCaretK: 0, passedTrials: 0, repetitions: 1, perTrial: [trial({ testSummary: { apiContractFailures: 2, apiExistenceFailures: 1, failed: 2, passed: 0, total: 2 } })] };
   const legacy = { caseId: 'CANARY-1', meanScore: 1, passAt1: 1, passAtK: 1, passCaretK: 1, passedTrials: 1, repetitions: 1, perTrial: [{ passed: true, repetition: 1, score: 1 }] };
-  const model = buildEvalReportModel({ canaryRun: run('cognis-online-canary', legacy), canarySuite: { cases: [{ id: 'CANARY-1' }] }, executionRun: run('cognis-online-execution', execution), executionSuite: { cases: [{ id: 'EXEC-1', input: { fixture: { tests: [{ diagnosticCategory: 'api-existence' }] } } }] } });
+  const model = buildEvalReportModel({ canaryRun: run('vibe-harness-online-canary', legacy), canarySuite: { cases: [{ id: 'CANARY-1' }] }, executionRun: run('vibe-harness-online-execution', execution), executionSuite: { cases: [{ id: 'EXEC-1', input: { fixture: { tests: [{ diagnosticCategory: 'api-existence' }] } } }] } });
   assert.equal(model.metrics.hallucinatedApis.value, 1);
   assert.equal(model.metrics.apiContractFailures.value, 2);
   assert.equal(model.metrics.hallucinatedApis.state, 'value');
@@ -80,7 +80,7 @@ test('API existence failures alone count as hallucinated APIs and legacy fields 
 
 test('comparison requires model/runtime/CLI/repetitions and matching suite hash', () => {
   const summary = { caseId: 'CASE', meanScore: 1, passAt1: 1, passAtK: 1, passCaretK: 1, passedTrials: 1, repetitions: 1, perTrial: [trial()] };
-  const current = run('cognis-online-execution', summary);
+  const current = run('vibe-harness-online-execution', summary);
   assert.equal(assessRunComparison(current, structuredClone(current)).compatible, true);
   const changedSuite = structuredClone(current);
   changedSuite.suite.hash = 'other';
@@ -92,14 +92,14 @@ test('comparison requires model/runtime/CLI/repetitions and matching suite hash'
 
 test('report renders decision and diagnostic layers, trial details, partial states, escaping, and redaction', () => {
   const summary = { caseId: 'CASE-1', meanScore: 1, passAt1: 1, passAtK: 1, passCaretK: 1, passedTrials: 1, repetitions: 1, perTrial: [{ passed: true, repetition: 1, score: 1 }] };
-  const model = buildEvalReportModel({ canaryRun: run('cognis-online-canary', { ...summary, caseId: '<CANARY>' }), canarySuite: { cases: [{ id: '<CANARY>', risk: 'high' }] }, executionRun: run('cognis-online-execution', summary), executionSuite: { cases: [{ id: 'CASE-1', risk: 'low' }] } });
+  const model = buildEvalReportModel({ canaryRun: run('vibe-harness-online-canary', { ...summary, caseId: '<CANARY>' }), canarySuite: { cases: [{ id: '<CANARY>', risk: 'high' }] }, executionRun: run('vibe-harness-online-execution', summary), executionSuite: { cases: [{ id: 'CASE-1', risk: 'low' }] } });
   const html = renderEvalReport(model);
-  assert.match(html, /Cognis Online Eval 决策报告|6 个决策 KPI/u);
+  assert.match(html, /Vibe-Harness Online Eval 决策报告|6 个决策 KPI/u);
   assert.match(html, /数据质量：部分可信/u);
   assert.match(html, /Trial 1|稳定性不适用/u);
   assert.match(html, /&lt;CANARY&gt;/u);
   assert.match(html, /metric partial|metric unavailable/u);
   assert.match(html, /0 分钟|部分覆盖/u);
-  assert.doesNotMatch(html, /REPORT_SECRET_MUST_NOT_LEAK|token=|transcript|command text|cognis-eval-case-/u);
+  assert.doesNotMatch(html, /REPORT_SECRET_MUST_NOT_LEAK|token=|transcript|command text|vibe-harness-eval-case-/u);
   assert.doesNotMatch(html, /https?:\/\/[^<]+(?:css|js)/u);
 });

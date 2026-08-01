@@ -2,12 +2,13 @@
 
 ## Unreleased
 
-- **Breaking change**：移除旧产品 CLI、配置、状态、环境变量和受管标记兼容层。检测到旧资产时以 `COGNIS_LEGACY_UNSUPPORTED` 拒绝执行，用户必须先自行备份和清理后重新初始化。
-- **Breaking change**：删除治理链配置、CLI workflow 参数、任务 schema/runtime、审查角色、收据、完成门禁和对应 Hook 事件；旧配置以 `COGNIS_OBSOLETE_GOVERNANCE_CONFIG` 只读拒绝。
+- **Breaking change**：产品更名为 Vibe-Harness。主 CLI、npm 包、配置文件、状态目录、环境变量和受管标记分别改为 `vibe-harness`、`@jw/vibe-harness`、`vibe-harness.config.json`、`.vibe-harness`、`VIBE_HARNESS_*` 和 `VIBE_HARNESS` 。
+- **Breaking change**：旧品牌资产不提供兼容或迁移；检测到旧配置、状态目录或受管标记时以 `VIBE_HARNESS_LEGACY_UNSUPPORTED` 拒绝执行。
+- **Breaking change**：删除治理链配置、CLI workflow 参数、任务 schema/runtime、审查角色、收据、完成门禁和对应 Hook 事件；旧配置以 `VIBE_HARNESS_OBSOLETE_GOVERNANCE_CONFIG` 只读拒绝。
 - 默认执行统一为“获取事实 → 直接执行 → 聚焦验证 → 简洁交付”；风险档位只影响审批和验证范围。
-- `cognis verify` 顺序执行可选 `lint`、`typecheck`、`test`、`eval`；`validate` 只检查安装一致性。
+- `vibe-harness verify` 顺序执行可选 `lint`、`typecheck`、`test`、`eval`；`validate` 只检查安装一致性。
 - `full` 重定义为全部领域 Skills、可选 Eval 和 Codex 安全 Hook；Codex Hook 只保留 `PreToolUse` 与 `PermissionRequest`。
-- 升级器会安全退役新计划不再包含的旧受管文件，并精确清理旧运行状态而保留其他 `.cognis` 数据。
+- 升级器会安全退役新计划不再包含的旧受管文件，并精确清理旧运行状态而保留其他 `.vibe-harness` 数据。
 - `pnpm check` 收敛为 lint、pack/catalog 静态校验和快速产品单测；integration、lifecycle 与在线 Eval 保持显式命令。
 - 新增显式 `--plugin` 安装面：`core` 与 `full` 默认均不安装外部工具；`-all`、单选、多选和 `none` 分别管理 RTK、ast-grep、codebase-memory-mcp、Chrome DevTools MCP、Playwright CLI 与 Open Code Review 共 6 个插件，并将规范化选择持久化到 install-state。Agentmemory runtime 因上游 High 漏洞暂停提供，不通过 `--plugin` 安装。
 - 新增项目内 RTK `v0.43.0` 与 `@ast-grep/cli@0.44.1`：提供命令输出压缩、结构化搜索规则、checksum/lockfile 校验、doctor 状态和安全回退。

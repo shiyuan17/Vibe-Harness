@@ -13,7 +13,7 @@ import { scanStagedDiff } from '../.agents/runtime/hooks/git-hook.mjs';
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '..');
-const cliPath = path.join(rootDir, 'scripts/cognis.js');
+const cliPath = path.join(rootDir, 'scripts/vibe-harness.js');
 
 test('project config exposes guarded safety Hook defaults', () => {
   assert.deepEqual(defaultProjectConfig.hooks, {
@@ -47,7 +47,7 @@ test('project config exposes guarded safety Hook defaults', () => {
 
 test('full installs safety Hook runtime while core does not', async () => {
   const run = async (profile) => {
-    const target = await mkdtemp(path.join(tmpdir(), `cognis-hook-${profile}-`));
+    const target = await mkdtemp(path.join(tmpdir(), `vibe-harness-hook-${profile}-`));
     try {
       await execFileAsync(process.execPath, [cliPath, 'init', '--project', target, '--target', 'codex', '--profile', profile]);
       const { stdout } = await execFileAsync(process.execPath, [cliPath, 'install', '--project', target, '--target', 'codex', '--profile', profile, '--dry-run']);
@@ -71,7 +71,7 @@ test('full installs safety Hook runtime while core does not', async () => {
 });
 
 test('full Codex install writes only PreToolUse and PermissionRequest Hook events', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-hook-events-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-hook-events-'));
   try {
     await execFileAsync(process.execPath, [cliPath, 'init', '--project', target, '--profile', 'full']);
     await execFileAsync(process.execPath, [
@@ -92,7 +92,7 @@ test('full Codex install writes only PreToolUse and PermissionRequest Hook event
 });
 
 test('doctor reports Git Hook activation without modifying local Git config', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-hook-doctor-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-hook-doctor-'));
   try {
     await execFileAsync('git', ['init'], { cwd: target });
     await execFileAsync(process.execPath, [cliPath, 'init', '--project', target, '--target', 'codex']);

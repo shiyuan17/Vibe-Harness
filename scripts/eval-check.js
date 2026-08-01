@@ -40,4 +40,4 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-console.log('Cognis evaluation contracts passed.');
+console.log('Vibe-Harness evaluation contracts passed.');

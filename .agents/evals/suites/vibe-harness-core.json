@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "id": "cognis-core",
+  "id": "vibe-harness-core",
   "version": "2.0.0",
-  "description": "Deterministic product evaluations for Cognis installation, safety hooks, browser support, and explicit tools.",
+  "description": "Deterministic product evaluations for Vibe-Harness installation, safety hooks, browser support, and explicit tools.",
   "defaultRepetitions": 1,
   "cases": [
     {
@@ -240,16 +240,16 @@
       "risk": "critical",
       "kind": "edge",
       "input": {
-        "scenario": "Cognis legacy install --upgrade writes only with --write and --confirm-red-zone.",
+        "scenario": "Vibe-Harness legacy install --upgrade writes only with --write and --confirm-red-zone.",
         "replay": {
           "events": [
             "upgrade-previewed",
             "write-requested",
             "red-zone-confirmed"
           ],
-          "output": "Cognis upgrade transaction committed",
+          "output": "Vibe-Harness upgrade transaction committed",
           "artifacts": [
-            "cognis-upgrade-state.json"
+            "vibe-harness-upgrade-state.json"
           ],
           "exitCode": 0
         }
@@ -285,7 +285,7 @@
         ],
         "requiredArtifacts": [
           {
-            "value": "cognis-upgrade-state.json",
+            "value": "vibe-harness-upgrade-state.json",
             "dimension": "evidenceQuality",
             "critical": true
           }

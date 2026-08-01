@@ -1,6 +1,6 @@
-// Shared primitives for Cognis-managed content blocks delimited by start/end
-// markers (e.g. `<!-- COGNIS:START -->` ... `<!-- COGNIS:END -->` or
-// `# COGNIS:MCP:START` ... `# COGNIS:MCP:END`). The block-specific modules
+// Shared primitives for Vibe-Harness-managed content blocks delimited by start/end
+// markers (e.g. `<!-- VIBE_HARNESS:START -->` ... `<!-- VIBE_HARNESS:END -->` or
+// `# VIBE_HARNESS:MCP:START` ... `# VIBE_HARNESS:MCP:END`). The block-specific modules
 // keep their own validation and merge semantics; this module centralises the
 // repetitive find/strip/extract/remove structure, the contentStrategy
 // classification, and the managed-block hash computation shared by
@@ -59,7 +59,7 @@ export function findManagedBlock(content, startMarker, endMarker) {
   const startIndex = content.indexOf(startMarker);
   if (startIndex === -1) return null;
   const endIndex = content.indexOf(endMarker, startIndex);
-  if (endIndex === -1) throw new Error(`Malformed Cognis managed block: missing ${endMarker}.`);
+  if (endIndex === -1) throw new Error(`Malformed Vibe-Harness managed block: missing ${endMarker}.`);
   return { end: endIndex, endMarker, start: startIndex };
 }
 

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Cognis Adapter Catalog",
+  "title": "Vibe-Harness Adapter Catalog",
   "type": "object",
   "required": ["schemaVersion", "items"],
   "properties": {

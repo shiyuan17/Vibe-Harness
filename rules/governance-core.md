@@ -1,4 +1,4 @@
-# Cognis 执行内核
+# Vibe-Harness 执行内核
 
 ## 默认循环
 

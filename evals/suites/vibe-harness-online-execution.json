@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "id": "cognis-online-execution",
+  "id": "vibe-harness-online-execution",
   "version": "1.3.0",
   "description": "Execution-based scoring suite: the agent must produce code that passes hidden tests run against the workspace after the agent acts (FAIL_TO_PASS discipline).",
   "defaultRepetitions": 1,

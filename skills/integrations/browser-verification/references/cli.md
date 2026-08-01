@@ -6,7 +6,7 @@
 node .agents/runtime/tools/playwright-cli/run.mjs --help
 ```
 
-首次调用会运行锁定依赖的 `npm ci` 并安装项目内 Chromium。准备状态可通过 `cognis doctor --target <project> --profile core` 查看；`pending` 表示尚未首次使用，`unavailable` 表示上次准备失败且下次调用会重试。
+首次调用会运行锁定依赖的 `npm ci` 并安装项目内 Chromium。准备状态可通过 `vibe-harness doctor --target <project> --profile core` 查看；`pending` 表示尚未首次使用，`unavailable` 表示上次准备失败且下次调用会重试。
 
 ## 基本会话
 
@@ -34,7 +34,7 @@ node .agents/runtime/tools/playwright-cli/run.mjs -s=task-ui close
 - video：需要完整交互证据时使用 `video-start` / `video-stop`，避免无边界长时间录制。
 - 多标签：用 `tab-list` 和 `tab-select` 明确当前页面，不假设焦点。
 
-所有自动产物写入 `.cognis/artifacts/playwright/`。不要提交认证状态、cookie 或包含敏感数据的截图。
+所有自动产物写入 `.vibe-harness/artifacts/playwright/`。不要提交认证状态、cookie 或包含敏感数据的截图。
 
 ## 回退
 

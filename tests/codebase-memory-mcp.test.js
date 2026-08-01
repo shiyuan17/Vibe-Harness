@@ -15,7 +15,7 @@ import {
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '..');
-const cliPath = path.join(rootDir, 'scripts/cognis.js');
+const cliPath = path.join(rootDir, 'scripts/vibe-harness.js');
 
 async function exists(filePath) {
   try {
@@ -26,8 +26,8 @@ async function exists(filePath) {
   }
 }
 
-test('Cognis removes the CodeGraph CLI integration and doctor report', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-doctor-'));
+test('Vibe-Harness removes the CodeGraph CLI integration and doctor report', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-doctor-'));
   try {
     const help = await execFileAsync(process.execPath, [cliPath, 'help']);
     assert.equal(help.stdout.toLowerCase().includes('codegraph'), false);
@@ -48,7 +48,7 @@ test('Cognis removes the CodeGraph CLI integration and doctor report', async () 
 });
 
 test('codebase-memory-mcp rule uses MCP tools and a repository-search fallback without global writes', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-codebase-memory-profile-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-codebase-memory-profile-'));
   const rulePath = path.join(rootDir, 'rules/codebase-memory-mcp.md');
   const rule = await readFile(rulePath, 'utf8');
   const agents = await readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8');
@@ -86,12 +86,12 @@ test('codebase-memory uses a stable Windows alias for the same Unicode root', ()
   const second = aliasPathForRoot(root);
 
   assert.equal(first, second);
-  assert.match(path.basename(first), /^cognis-cbm-[a-f0-9]{16}$/u);
+  assert.match(path.basename(first), /^vibe-harness-cbm-[a-f0-9]{16}$/u);
   assert.notEqual(aliasPathForRoot(`${root}-other`), first);
 });
 
 test('codebase-memory preserves valid JSON when replacing a Windows alias in status output', () => {
-  const alias = 'C:\\Users\\test\\AppData\\Local\\Temp\\cognis-cbm-0123456789abcdef';
+  const alias = 'C:\\Users\\test\\AppData\\Local\\Temp\\vibe-harness-cbm-0123456789abcdef';
   const target = 'D:\\projects\\web-ui\\组件\\code\\sample-admin';
   const output = JSON.stringify({ root_path: alias, status: 'ready' });
   const parsed = JSON.parse(replaceAliasInStatusOutput(output, alias, target));

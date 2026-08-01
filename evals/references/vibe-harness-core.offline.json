@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
-  "id": "cognis-core-offline-reference",
+  "id": "vibe-harness-core-offline-reference",
   "approvedAt": "2026-07-28T00:00:00.000Z",
   "suite": {
-    "id": "cognis-core",
+    "id": "vibe-harness-core",
     "version": "2.0.0"
   },
   "mode": "offline",
   "fingerprint": {
-    "suiteHash": "89da09e021afeb3474eb6e380389b8fd7ef8f2614ebc7740d4c33fcc66e7cdde",
+    "suiteHash": "c4ade31ca0e07210630420dbba012bb959858dd2dc37b5ea21fe5c21828e6a50",
     "runner": "offline-replay@1",
     "model": "fixture",
     "agent": "offline",

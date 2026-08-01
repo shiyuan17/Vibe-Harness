@@ -34,7 +34,7 @@ async function stdin() {
 
 async function provisionIsolatedConfig(codexHome) {
   try {
-    await writeFile(path.join(codexHome, 'config.toml'), '# Cognis isolated eval runtime\n', { flag: 'wx', mode: 0o600 });
+    await writeFile(path.join(codexHome, 'config.toml'), '# Vibe-Harness isolated eval runtime\n', { flag: 'wx', mode: 0o600 });
   } catch (error) {
     if (error.code !== 'EEXIST') throw error;
   }
@@ -68,11 +68,11 @@ function providerArgs() {
   if (!baseUrl) return [];
   const parsed = new URL(baseUrl);
   if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('OPENAI_BASE_URL must use http or https');
-  const provider = process.env.COGNIS_EVAL_PROVIDER_NAME ?? 'cognis-env';
-  const wireApi = process.env.COGNIS_EVAL_PROVIDER_WIRE_API ?? 'responses';
-  if (!/^[a-zA-Z0-9_-]+$/u.test(provider)) throw new Error('COGNIS_EVAL_PROVIDER_NAME is invalid');
-  if (!/^[a-zA-Z0-9_-]+$/u.test(wireApi)) throw new Error('COGNIS_EVAL_PROVIDER_WIRE_API is invalid');
-  const requiresAuth = process.env.COGNIS_EVAL_PROVIDER_REQUIRES_AUTH === '1';
+  const provider = process.env.VIBE_HARNESS_EVAL_PROVIDER_NAME ?? 'vibe-harness-env';
+  const wireApi = process.env.VIBE_HARNESS_EVAL_PROVIDER_WIRE_API ?? 'responses';
+  if (!/^[a-zA-Z0-9_-]+$/u.test(provider)) throw new Error('VIBE_HARNESS_EVAL_PROVIDER_NAME is invalid');
+  if (!/^[a-zA-Z0-9_-]+$/u.test(wireApi)) throw new Error('VIBE_HARNESS_EVAL_PROVIDER_WIRE_API is invalid');
+  const requiresAuth = process.env.VIBE_HARNESS_EVAL_PROVIDER_REQUIRES_AUTH === '1';
   return [
     '-c', `model_provider=${JSON.stringify(provider)}`,
     '-c', `model_providers.${provider}.name=${JSON.stringify(provider)}`,
@@ -84,8 +84,8 @@ function providerArgs() {
 }
 
 function resolveBackend(request) {
-  const configured = process.env.COGNIS_EVAL_CODEX_BACKEND ?? 'auto';
-  if (!['auto', 'native', 'wsl'].includes(configured)) throw new Error('COGNIS_EVAL_CODEX_BACKEND is invalid');
+  const configured = process.env.VIBE_HARNESS_EVAL_CODEX_BACKEND ?? 'auto';
+  if (!['auto', 'native', 'wsl'].includes(configured)) throw new Error('VIBE_HARNESS_EVAL_CODEX_BACKEND is invalid');
   if (configured !== 'auto') return configured;
   const needsWrite = (request.case.input?.fixture?.allowedWritePaths ?? []).length > 0;
   return process.platform === 'win32' && needsWrite ? 'wsl' : 'native';
@@ -102,9 +102,9 @@ function wslEnvironment(environment) {
 async function resolveCodexCommand(backend) {
   if (backend === 'wsl') {
     if (process.platform !== 'win32') throw new Error('WSL evaluation backend is only available on Windows');
-    return { args: ['-e', process.env.COGNIS_WSL_CODEX_COMMAND ?? 'codex'], backend, program: 'wsl.exe' };
+    return { args: ['-e', process.env.VIBE_HARNESS_WSL_CODEX_COMMAND ?? 'codex'], backend, program: 'wsl.exe' };
   }
-  const configured = process.env.COGNIS_CODEX_COMMAND;
+  const configured = process.env.VIBE_HARNESS_CODEX_COMMAND;
   if (configured?.toLowerCase().endsWith('.mjs') || configured?.toLowerCase().endsWith('.js')) {
     return { args: [configured], backend, program: process.execPath };
   }
@@ -142,11 +142,11 @@ async function wslPath(value, cwd) {
 }
 
 async function provisionAuthentication(codexHome) {
-  const source = process.env.COGNIS_EVAL_AUTH_FILE;
+  const source = process.env.VIBE_HARNESS_EVAL_AUTH_FILE;
   if (!source) return;
-  if (!path.isAbsolute(source)) throw new Error('COGNIS_EVAL_AUTH_FILE must be absolute');
+  if (!path.isAbsolute(source)) throw new Error('VIBE_HARNESS_EVAL_AUTH_FILE must be absolute');
   const details = await stat(source);
-  if (!details.isFile()) throw new Error('COGNIS_EVAL_AUTH_FILE must reference a file');
+  if (!details.isFile()) throw new Error('VIBE_HARNESS_EVAL_AUTH_FILE must reference a file');
   const target = path.join(codexHome, 'auth.json');
   await copyFile(source, target);
   await chmod(target, 0o600);
@@ -155,7 +155,7 @@ async function provisionAuthentication(codexHome) {
 async function artifacts(root, current = root) {
   const output = [];
   for (const entry of await readdir(current, { withFileTypes: true })) {
-    if (['.codex-eval-home', '.cognis-eval-user-home', '.git', 'node_modules'].includes(entry.name)) continue;
+    if (['.codex-eval-home', '.vibe-harness-eval-user-home', '.git', 'node_modules'].includes(entry.name)) continue;
     const full = path.join(current, entry.name);
     if (entry.isDirectory()) output.push(...await artifacts(root, full));
     else if (entry.isFile()) output.push(path.relative(root, full).replaceAll('\\', '/'));
@@ -166,7 +166,7 @@ async function artifacts(root, current = root) {
 async function workspaceSnapshot(root, current = root) {
   const output = new Map();
   for (const entry of await readdir(current, { withFileTypes: true })) {
-    if (['.codex-eval-home', '.cognis-eval-user-home', '.git', 'node_modules'].includes(entry.name)) continue;
+    if (['.codex-eval-home', '.vibe-harness-eval-user-home', '.git', 'node_modules'].includes(entry.name)) continue;
     const full = path.join(current, entry.name);
     if (entry.isDirectory()) {
       for (const [name, hash] of await workspaceSnapshot(root, full)) output.set(name, hash);
@@ -247,7 +247,7 @@ function summarizeToolOutcomes(outcomes, { expectedDenial = false } = {}) {
   return summary;
 }
 
-// The [COGNIS_POLICY:...] marker is emitted by the PreToolUse/PermissionRequest
+// The [VIBE_HARNESS_POLICY:...] marker is emitted by the PreToolUse/PermissionRequest
 // hook. The transcript only carries the marker text inside a tool/agent message,
 // so we infer the event from the surrounding item shape; PreToolUse is the
 // common case (tool items), otherwise we leave it null rather than guess.
@@ -320,7 +320,7 @@ export function transcript(stdout) {
         if (/workspace[^\n]*read[- ]only|mounted read[- ]only|sandbox[^\n]*read[- ]only/iu.test(text)) {
           errorCategories.push('sandbox-write-denied');
         }
-        for (const match of text.matchAll(/\[COGNIS_POLICY:([A-Z0-9_]+)(?::(\d+))?\]/gu)) {
+        for (const match of text.matchAll(/\[VIBE_HARNESS_POLICY:([A-Z0-9_]+)(?::(\d+))?\]/gu)) {
           const reasonCode = match[1];
           hookReasonCodes.push(reasonCode);
           hookTimings.push({
@@ -363,7 +363,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const model = process.env.CODEX_MODEL;
   if (!model) throw new Error('CODEX_MODEL is required');
   const codexHome = path.join(request.workspace, '.codex-eval-home');
-  const userHome = path.join(request.workspace, '.cognis-eval-user-home');
+  const userHome = path.join(request.workspace, '.vibe-harness-eval-user-home');
   await Promise.all([mkdir(codexHome, { recursive: true }), mkdir(userHome, { recursive: true })]);
   await provisionIsolatedConfig(codexHome);
   await provisionAuthentication(codexHome);
@@ -376,7 +376,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   if (version.code !== 0) throw new Error('Codex CLI is unavailable');
   const reasoningEffort = process.env.CODEX_REASONING_EFFORT ?? 'medium';
   if (!['low', 'medium', 'high', 'xhigh'].includes(reasoningEffort)) throw new Error('CODEX_REASONING_EFFORT is invalid');
-  const trustedHooks = process.env.COGNIS_EVAL_TRUST_PROJECT_HOOKS === '1'
+  const trustedHooks = process.env.VIBE_HARNESS_EVAL_TRUST_PROJECT_HOOKS === '1'
     ? ['--dangerously-bypass-hook-trust']
     : [];
   const sharedArgs = [
@@ -438,9 +438,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     configHash: request.configHash,
     runtime: {
       backend,
-      provider: process.env.COGNIS_EVAL_PROVIDER_NAME ?? 'default',
+      provider: process.env.VIBE_HARNESS_EVAL_PROVIDER_NAME ?? 'default',
       reasoningEffort,
-      wireApi: process.env.COGNIS_EVAL_PROVIDER_WIRE_API ?? 'responses',
+      wireApi: process.env.VIBE_HARNESS_EVAL_PROVIDER_WIRE_API ?? 'responses',
     },
     events: [...new Set([...parsed.events, ...semanticEvents])],
     output: parsed.output,

@@ -1,8 +1,8 @@
 # Source Rules Mapping
 
-本文件记录从源治理体系到 Cognis 通用资产的抽取方式。源项目只作为只读参考；Cognis core 不保存业务状态、具体任务号、端口、仓库名或领域契约。
+本文件记录从源治理体系到 Vibe-Harness 通用资产的抽取方式。源项目只作为只读参考；Vibe-Harness core 不保存业务状态、具体任务号、端口、仓库名或领域契约。
 
-| 源规则 | Cognis 目标 | 处理方式 |
+| 源规则 | Vibe-Harness 目标 | 处理方式 |
 | --- | --- | --- |
 | `AGENTS.md` | `adapters/codex/AGENTS.template.md`、`rules/ai-collab-rules.md` | summarize |
 | `QUICKSTART.md` | `rules/governance-core.md` | consolidate |
@@ -34,5 +34,5 @@
 - `copy-generalize`：保留行为规则、字段模型、门禁和验证要求，删除项目绑定值。
 - `new-general`：新增通用治理规则，不从源项目复制业务日志样例。
 - `summarize`：保留入口结构和红线，不复制目标项目本地状态。
-- `exclude-business`：不进入 Cognis core，只能留在目标项目或脱敏示例。
+- `exclude-business`：不进入 Vibe-Harness core，只能留在目标项目或脱敏示例。
 - `example-only`：仅用于说明迁移方式，不作为可安装治理规则。

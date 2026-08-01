@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Cognis evaluation suite",
+  "title": "Vibe-Harness evaluation suite",
   "type": "object",
   "required": ["schemaVersion", "id", "version", "description", "defaultRepetitions", "cases"],
   "properties": {

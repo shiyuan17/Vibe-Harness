@@ -1,6 +1,6 @@
 {
-  "id": "cognis-codex",
-  "name": "Cognis Codex Adapter",
+  "id": "vibe-harness-codex",
+  "name": "Vibe-Harness Codex Adapter",
   "version": "0.5.0",
   "installMap": "adapters/install-map.json"
 }

@@ -281,17 +281,17 @@ async function install(args) {
   if (
     existingState
     && !args.upgrade
-    && (existingState.stateVersion !== 4 || existingState.product !== 'cognis')
+    && (existingState.stateVersion !== 4 || existingState.product !== 'vibe-harness')
   ) {
-    throw Object.assign(new Error('Pre-v4 install state requires cognis install --upgrade.'), {
-      code: 'COGNIS_STATE_MIGRATION_REQUIRED',
+    throw Object.assign(new Error('Pre-v4 install state requires vibe-harness install --upgrade.'), {
+      code: 'VIBE_HARNESS_STATE_MIGRATION_REQUIRED',
     });
   }
   const sourceConfig = await readRequiredProjectConfig(targetDir);
   const config = sourceConfig;
   const adapterId = args.target ?? config.target;
   if (args.target && args.target !== config.target) {
-    throw new Error(`CLI target ${args.target} does not match cognis.config.json target ${config.target}.`);
+    throw new Error(`CLI target ${args.target} does not match vibe-harness.config.json target ${config.target}.`);
   }
   const adapter = await resolveAdapter(rootDir, adapterId);
   const requestedProfile = args.profile ?? config.profile;
@@ -377,7 +377,7 @@ async function install(args) {
     ? toolWarnings(tools)
     : (plannedToolActions.length > 0 ? [{
         code: 'PROVISIONING_NOT_RUN',
-        message: 'Tool provisioning was not run; use cognis provision --project <project> --write.',
+        message: 'Tool provisioning was not run; use vibe-harness provision --project <project> --write.',
       }] : []);
   emitReport({
     ...health,
@@ -419,7 +419,7 @@ async function validate(args) {
     const config = await readRequiredProjectConfig(targetDir);
     const installState = await readInstallState(targetDir);
     if (args.target && args.target !== config.target) {
-      throw new Error(`CLI target ${args.target} does not match cognis.config.json target ${config.target}.`);
+      throw new Error(`CLI target ${args.target} does not match vibe-harness.config.json target ${config.target}.`);
     }
     const requestedModules = await projectRequestedModules(config, targetDir);
     const requestedPlugins = await projectRequestedPlugins(config, targetDir);
@@ -517,7 +517,7 @@ async function verify(args) {
   const config = await readRequiredProjectConfig(targetDir);
   const installState = await readInstallState(targetDir);
   if (args.target && args.target !== config.target) {
-    throw new Error(`CLI target ${args.target} does not match cognis.config.json target ${config.target}.`);
+    throw new Error(`CLI target ${args.target} does not match vibe-harness.config.json target ${config.target}.`);
   }
   const requestedModules = await projectRequestedModules(config, targetDir);
   const requestedPlugins = await projectRequestedPlugins(config, targetDir);
@@ -544,13 +544,13 @@ async function verify(args) {
     targetDir,
   });
   if (!target.ok) {
-    const error = new Error('Project installation is not consistent; run cognis validate --project first.');
+    const error = new Error('Project installation is not consistent; run vibe-harness validate --project first.');
     error.code = 'PROJECT_VERIFICATION_FAILED';
     throw error;
   }
   const pack = await validatePack(rootDir);
   if (!pack.ok) {
-    const error = new Error('Cognis pack validation failed.');
+    const error = new Error('Vibe-Harness pack validation failed.');
     error.code = 'PROJECT_VERIFICATION_FAILED';
     throw error;
   }
@@ -575,7 +575,7 @@ async function baseline(args) {
   try {
     config = await readRequiredProjectConfig(targetDir);
   } catch (cause) {
-    throw Object.assign(new Error('Project configuration is missing or invalid; run cognis init before baseline.'), {
+    throw Object.assign(new Error('Project configuration is missing or invalid; run vibe-harness init before baseline.'), {
       cause,
       code: 'BASELINE_INSTALL_INVALID',
     });
@@ -583,7 +583,7 @@ async function baseline(args) {
   try {
     validateProjectConfig(config);
   } catch (cause) {
-    throw Object.assign(new Error('Project configuration is invalid; fix cognis.config.json before baseline.'), {
+    throw Object.assign(new Error('Project configuration is invalid; fix vibe-harness.config.json before baseline.'), {
       cause,
       code: 'BASELINE_INSTALL_INVALID',
     });
@@ -696,7 +696,7 @@ async function evaluateProject(args) {
 }
 
 function toolRecommendations(tools, profile, { adapterId = 'codex' } = {}) {
-  const retryCommand = `cognis provision --project <project> --target ${adapterId} --profile ${profile} --write`;
+  const retryCommand = `vibe-harness provision --project <project> --target ${adapterId} --profile ${profile} --write`;
   return Object.entries(tools).flatMap(([tool, state]) => {
     const fallback = optionalToolFallback(tool);
     if (fallback && ['pending', 'degraded', 'unsupported'].includes(state.status)) {
@@ -766,7 +766,7 @@ async function doctor(args) {
   const installState = await readInstallState(targetDir);
   const config = await readRequiredProjectConfig(targetDir);
   if (args.target && args.target !== config.target) {
-    throw new Error(`CLI target ${args.target} does not match cognis.config.json target ${config.target}.`);
+    throw new Error(`CLI target ${args.target} does not match vibe-harness.config.json target ${config.target}.`);
   }
   validateProjectConfig(config);
   const profile = validateProfileName(args.profile ?? config.profile);
@@ -850,7 +850,7 @@ async function diff(args) {
   const config = await readRequiredProjectConfig(targetDir);
   const installState = await readInstallState(targetDir);
   if (args.target && args.target !== config.target) {
-    throw new Error(`CLI target ${args.target} does not match cognis.config.json target ${config.target}.`);
+    throw new Error(`CLI target ${args.target} does not match vibe-harness.config.json target ${config.target}.`);
   }
   validateProjectConfig(config);
   const profile = validateProfileName(args.profile ?? config.profile);
@@ -884,7 +884,7 @@ async function rollback(args) {
   if (!args.project) throw new Error('rollback requires --project <path>.');
   if (args.target) {
     const state = await readInstallState(path.resolve(args.project));
-    if (!state) throw new Error(`No Cognis install state found in ${path.resolve(args.project)}`);
+    if (!state) throw new Error(`No Vibe-Harness install state found in ${path.resolve(args.project)}`);
     if (state.adapter !== args.target) {
       throw new Error(`CLI target ${args.target} does not match installed adapter ${state.adapter}.`);
     }
@@ -913,7 +913,7 @@ async function uninstall(args) {
   const config = await readRequiredProjectConfig(targetDir);
   const adapter = await resolveAdapter(rootDir, args.target ?? config.target);
   if (args.target && args.target !== config.target) {
-    throw new Error(`CLI target ${args.target} does not match cognis.config.json target ${config.target}.`);
+    throw new Error(`CLI target ${args.target} does not match vibe-harness.config.json target ${config.target}.`);
   }
   const state = await readInstallState(targetDir);
   if (state && state.adapter !== adapter.id) {
@@ -971,7 +971,7 @@ async function provision(args) {
   const targetDir = path.resolve(args.project);
   const config = await readRequiredProjectConfig(targetDir);
   const state = await readInstallState(targetDir);
-  if (!state) throw new Error(`No Cognis install state found in ${targetDir}; run install first.`);
+  if (!state) throw new Error(`No Vibe-Harness install state found in ${targetDir}; run install first.`);
   const adapterId = args.target ?? state.adapter ?? config.target;
   if (adapterId !== config.target || adapterId !== state.adapter) {
     throw new Error(`Provision target ${adapterId} does not match installed adapter ${state.adapter}.`);
@@ -1040,7 +1040,7 @@ async function recover(args) {
 }
 
 async function printUsage() {
-  console.log('Usage: cognis <init|install|provision|recover|uninstall|validate|verify|baseline|eval|doctor|diff|rollback> [--project path] [--target codex|claude|gemini] [--profile minimal|core|full|docs-only] [--modules list] [--plugin -all|-rtk ast-grep ...] [--rtk-hooks on|off] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--force] [--upgrade] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded]');
+  console.log('Usage: vibe-harness <init|install|provision|recover|uninstall|validate|verify|baseline|eval|doctor|diff|rollback> [--project path] [--target codex|claude|gemini] [--profile minimal|core|full|docs-only] [--modules list] [--plugin -all|-rtk ast-grep ...] [--rtk-hooks on|off] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--force] [--upgrade] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded]');
   console.log('All project commands use --project <path>; --target selects an adapter and --write performs mutations. Legacy --apply and path-valued --target are removed.');
 }
 
@@ -1048,7 +1048,7 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const command = args._[0] ?? 'help';
   // help/usage is the lowest-friction surface; resolve it before legacy guards so
-  // `cognis` / `cognis help` / `cognis unknown-cmd` never trip obsolete-flag errors.
+  // `vibe-harness` / `vibe-harness help` / `vibe-harness unknown-cmd` never trip obsolete-flag errors.
   const knownCommands = new Set(['init', 'install', 'provision', 'validate', 'verify', 'baseline', 'eval', 'doctor', 'diff', 'rollback', 'uninstall', 'recover']);
   if (command === 'help' || !knownCommands.has(command)) {
     await printUsage();
@@ -1056,8 +1056,8 @@ async function main() {
   }
   if (args.apply) throw new Error('Legacy --apply was removed; use --project <path> with --write.');
   if (args.workflow !== undefined) {
-    throw Object.assign(new Error('Legacy --workflow was removed; Cognis now uses one execution path.'), {
-      code: 'COGNIS_OBSOLETE_GOVERNANCE_CONFIG',
+    throw Object.assign(new Error('Legacy --workflow was removed; Vibe-Harness now uses one execution path.'), {
+      code: 'VIBE_HARNESS_OBSOLETE_GOVERNANCE_CONFIG',
     });
   }
   if (args.profile) validateProfileName(args.profile);
@@ -1104,7 +1104,7 @@ try {
     ok: false,
     status: 'invalid',
     error: {
-      code: error.code ?? 'COGNIS_ERROR',
+      code: error.code ?? 'VIBE_HARNESS_ERROR',
       message: error.message,
     },
   }, args, { error: true });

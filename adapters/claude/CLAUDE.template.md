@@ -23,7 +23,7 @@
 - Test: {{validationCommands.test}}
 - Eval: {{validationCommands.eval}}
 
-`cognis validate --project` 只检查安装一致性；`cognis verify --project <path>` 执行项目已配置的验证命令。测试范围细则见 `docs/rules/test-rules.md`。
+`vibe-harness validate --project` 只检查安装一致性；`vibe-harness verify --project <path>` 执行项目已配置的验证命令。测试范围细则见 `docs/rules/test-rules.md`。
 
 ## 已安装表面
 
@@ -39,4 +39,4 @@
 {{installedSurface.toolingLine}}
 {{installedSurface.skillRoutingLine}}
 
-规则优先级：平台系统与用户本轮指令优先；目标项目明确的本地规则优先于 Cognis 默认规则；目录级规则只作用于其子树。同一层级冲突时停止并请求确认。
+规则优先级：平台系统与用户本轮指令优先；目标项目明确的本地规则优先于 Vibe-Harness 默认规则；目录级规则只作用于其子树。同一层级冲突时停止并请求确认。

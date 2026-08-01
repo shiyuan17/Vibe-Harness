@@ -1,4 +1,4 @@
-# Cognis 文档索引
+# Vibe-Harness 文档索引
 
 本页索引当前文档。机器真值位于 [`catalog.json`](catalog.json)；[`archive/`](archive/) 只用于历史追溯。
 
@@ -9,7 +9,7 @@
 - [Hook 安全策略](hooks.md)
 - [Eval](evals.md)
 - [Agentmemory Skill 规格](specs/agentmemory-skill-consolidation-spec.md)
-- [显式工具插件规格](specs/cognis-tooling-modules-spec.md)
+- [显式工具插件规格](specs/vibe-harness-tooling-modules-spec.md)
 
 ## 规则
 

@@ -6,7 +6,7 @@
 // with downstream merges, pollute `Object.prototype`. The same applies to the
 // `constructor` and `prototype` keys. This helper recursively removes those
 // keys from any parsed object/array structure so untrusted project-supplied
-// JSON (cognis.config.json, eval suites, transaction journals) cannot reach
+// JSON (vibe-harness.config.json, eval suites, transaction journals) cannot reach
 // prototype-polluting merge points.
 
 const POLLUTING_KEYS = new Set(['__proto__', 'constructor', 'prototype']);

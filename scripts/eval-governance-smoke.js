@@ -58,10 +58,10 @@ function enrichRun(run) {
 }
 
 const [executionRun, canaryRun, executionSuite, canarySuite] = await Promise.all([
-  readJson(path.join(rootDir, '.cognis/evals/runs/2026-07-30T15-21-50-110Z.json')),
-  readJson(path.join(rootDir, '.cognis/evals/runs/2026-07-30T15-30-53-187Z.json')),
-  readJson(path.join(rootDir, 'evals/suites/cognis-online-execution.json')),
-  readJson(path.join(rootDir, 'evals/suites/cognis-online-canary.json')),
+  readJson(path.join(rootDir, '.vibe-harness/evals/runs/2026-07-30T15-21-50-110Z.json')),
+  readJson(path.join(rootDir, '.vibe-harness/evals/runs/2026-07-30T15-30-53-187Z.json')),
+  readJson(path.join(rootDir, 'evals/suites/vibe-harness-online-execution.json')),
+  readJson(path.join(rootDir, 'evals/suites/vibe-harness-online-canary.json')),
 ]);
 
 // Patch suite hashes to match the run artifacts (suites may have drifted).

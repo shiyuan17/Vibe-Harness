@@ -1,6 +1,6 @@
 # 项目专属规则
 
-本文件由 Cognis 根据目标项目文件和 `cognis.config.json` 渲染。当前事实优先于历史记忆；目标项目明确的本地规则优先于 Cognis 默认规则，目录级规则只作用于其子树，同一层级冲突时停止并请求确认。
+本文件由 Vibe-Harness 根据目标项目文件和 `vibe-harness.config.json` 渲染。当前事实优先于历史记忆；目标项目明确的本地规则优先于 Vibe-Harness 默认规则，目录级规则只作用于其子树，同一层级冲突时停止并请求确认。
 
 ## 项目画像
 
@@ -37,4 +37,4 @@
 ## 显式 Review
 
 - 按 package.json scripts、pom.xml 或 solution 配置选择与改动匹配的验证。
-- 仅在用户明确要求 Review 或显式调用 Review 工具时执行；Cognis 不自动创建审查角色或完成门禁。
+- 仅在用户明确要求 Review 或显式调用 Review 工具时执行；Vibe-Harness 不自动创建审查角色或完成门禁。

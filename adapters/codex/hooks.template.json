@@ -8,7 +8,7 @@
             "command": "node \"{{hookRunnerPath}}\" --expected-event PermissionRequest",
             "commandWindows": "node \"{{hookRunnerPath}}\" --expected-event PermissionRequest",
             "timeout": 10,
-            "statusMessage": "Checking Cognis safety policy"
+            "statusMessage": "Checking Vibe-Harness safety policy"
           }
         ]
       }
@@ -22,7 +22,7 @@
             "command": "node \"{{hookRunnerPath}}\" --expected-event PreToolUse",
             "commandWindows": "node \"{{hookRunnerPath}}\" --expected-event PreToolUse",
             "timeout": 10,
-            "statusMessage": "Checking Cognis safety policy"
+            "statusMessage": "Checking Vibe-Harness safety policy"
           }
         ]
       }

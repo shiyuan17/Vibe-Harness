@@ -1,4 +1,4 @@
-# Cognis 贡献指南
+# Vibe-Harness 贡献指南
 
 本文件说明仓库贡献流程。README 面向使用者，`docs/architecture.md` 说明当前实现，`docs/archive/` 只保存历史。
 

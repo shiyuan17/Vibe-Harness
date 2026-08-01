@@ -32,7 +32,7 @@ const repositoryScanExcludedDirectories = new Set([
   '.codebase-memory',
   '.codegraph',
   '.codex',
-  '.cognis',
+  '.vibe-harness',
   '.cursor',
   '.git',
   '.githooks',
@@ -211,7 +211,7 @@ function staleOpenItemErrors(content, file, today) {
   return errors;
 }
 
-function logicalCognisCommands(content) {
+function logicalVibeHarnessCommands(content) {
   const lines = content.split(/\r?\n/u);
   const commands = [];
   const hasContinuation = (line) => {
@@ -220,7 +220,7 @@ function logicalCognisCommands(content) {
     return (line.match(/`/gu)?.length ?? 0) % 2 === 1;
   };
   for (let index = 0; index < lines.length; index += 1) {
-    if (!lines[index].includes('pnpm cognis ')) continue;
+    if (!lines[index].includes('pnpm vibe-harness ')) continue;
     let command = lines[index].trim();
     while (hasContinuation(command) && index + 1 < lines.length) {
       command = `${command.replace(/(?:\\|`)\s*$/u, '').trim()} ${lines[index + 1].trim()}`;
@@ -249,7 +249,7 @@ export async function validateCurrentDocumentContent({
 
   if (!enforceCurrent) return errors;
 
-  for (const command of logicalCognisCommands(content)) {
+  for (const command of logicalVibeHarnessCommands(content)) {
     if (command.includes('--project') && command.includes('--apply')) {
       errors.push(`${file} mixes --project with legacy --apply`);
     }
@@ -262,8 +262,8 @@ export async function validateCurrentDocumentContent({
 }
 
 function commandExamples(content) {
-  return logicalCognisCommands(content).map((command) => {
-    const start = command.indexOf('pnpm cognis ');
+  return logicalVibeHarnessCommands(content).map((command) => {
+    const start = command.indexOf('pnpm vibe-harness ');
     return command.slice(start).replace(/\s+/gu, ' ').trim();
   });
 }
@@ -278,7 +278,7 @@ function duplicateReadmeCommandErrors(content, file) {
   }
   return [...duplicates]
     .sort()
-    .map((command) => `${file} contains duplicate Cognis command: ${command}`);
+    .map((command) => `${file} contains duplicate Vibe-Harness command: ${command}`);
 }
 
 function jsonExamples(content, label, errors) {
@@ -568,7 +568,7 @@ async function validateDocumentationUnchecked({ catalog, rootDir, today = new Da
     readFile(path.join(rootDir, '.gitignore'), 'utf8'),
   ]);
   errors.push(...validateReadmeParity(english, chinese));
-  if (!/^\.cognis\/$/mu.test(gitignore)) errors.push('.gitignore must ignore .cognis/');
+  if (!/^\.vibe-harness\/$/mu.test(gitignore)) errors.push('.gitignore must ignore .vibe-harness/');
 
   return {
     counts: { cataloged: catalogPaths.length, governed: governedPaths.length },

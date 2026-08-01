@@ -37,16 +37,16 @@ function validateChoice(value, allowed, label) {
 
 function runtimeHash(environment, repetitions, cliVersion) {
   const value = {
-    backend: environment.COGNIS_EVAL_CODEX_BACKEND,
+    backend: environment.VIBE_HARNESS_EVAL_CODEX_BACKEND,
     baseUrl: environment.OPENAI_BASE_URL ?? null,
     cliVersion,
     model: environment.CODEX_MODEL,
-    provider: environment.COGNIS_EVAL_PROVIDER_NAME ?? null,
+    provider: environment.VIBE_HARNESS_EVAL_PROVIDER_NAME ?? null,
     reasoningEffort: environment.CODEX_REASONING_EFFORT,
     repetitions,
-    requiresAuth: environment.COGNIS_EVAL_PROVIDER_REQUIRES_AUTH === '1',
-    runtimeSource: environment.COGNIS_EVAL_RUNTIME_SOURCE,
-    wireApi: environment.COGNIS_EVAL_PROVIDER_WIRE_API ?? null,
+    requiresAuth: environment.VIBE_HARNESS_EVAL_PROVIDER_REQUIRES_AUTH === '1',
+    runtimeSource: environment.VIBE_HARNESS_EVAL_RUNTIME_SOURCE,
+    wireApi: environment.VIBE_HARNESS_EVAL_PROVIDER_WIRE_API ?? null,
   };
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
@@ -91,8 +91,8 @@ async function windowsCodexScript() {
 
 async function defaultCliVersion({ backend, environment }) {
   if (backend === 'wsl') {
-    if (environment.COGNIS_WSL_CODEX_COMMAND) {
-      return executeVersion('wsl.exe', ['-e', environment.COGNIS_WSL_CODEX_COMMAND, '--version'], process.env);
+    if (environment.VIBE_HARNESS_WSL_CODEX_COMMAND) {
+      return executeVersion('wsl.exe', ['-e', environment.VIBE_HARNESS_WSL_CODEX_COMMAND, '--version'], process.env);
     }
     const discovered = await executeVersion(
       'wsl.exe',
@@ -101,17 +101,17 @@ async function defaultCliVersion({ backend, environment }) {
     );
     const [command, ...version] = discovered.split(/\r?\n/u).filter(Boolean);
     if (!command?.startsWith('/') || version.length === 0) return 'unavailable';
-    environment.COGNIS_WSL_CODEX_COMMAND = command;
+    environment.VIBE_HARNESS_WSL_CODEX_COMMAND = command;
     return version.join('\n');
   }
-  const command = environment.COGNIS_CODEX_COMMAND ?? 'codex';
+  const command = environment.VIBE_HARNESS_CODEX_COMMAND ?? 'codex';
   const version = /\.(?:mjs|js)$/iu.test(command)
     ? await executeVersion(process.execPath, [command, '--version'], process.env)
     : await executeVersion(command, ['--version'], process.env);
   if (version !== 'unavailable' || process.platform !== 'win32') return version;
   const script = await windowsCodexScript();
   if (!script) return 'unavailable';
-  environment.COGNIS_CODEX_COMMAND = script;
+  environment.VIBE_HARNESS_CODEX_COMMAND = script;
   return executeVersion(process.execPath, [script, '--version'], process.env);
 }
 
@@ -141,17 +141,17 @@ async function fromCodexConfig({ backend, env, homeDir }) {
   const environment = {
     CODEX_MODEL: requiredString(env.CODEX_MODEL ?? config.model, 'Codex config model'),
     CODEX_REASONING_EFFORT: reasoning,
-    COGNIS_EVAL_CODEX_BACKEND: backend,
-    COGNIS_EVAL_PROVIDER_NAME: providerName,
-    COGNIS_EVAL_PROVIDER_REQUIRES_AUTH: requiresAuth ? '1' : '0',
-    COGNIS_EVAL_PROVIDER_WIRE_API: provider.wire_api ?? 'responses',
-    COGNIS_EVAL_RUNTIME_SOURCE: 'codex',
+    VIBE_HARNESS_EVAL_CODEX_BACKEND: backend,
+    VIBE_HARNESS_EVAL_PROVIDER_NAME: providerName,
+    VIBE_HARNESS_EVAL_PROVIDER_REQUIRES_AUTH: requiresAuth ? '1' : '0',
+    VIBE_HARNESS_EVAL_PROVIDER_WIRE_API: provider.wire_api ?? 'responses',
+    VIBE_HARNESS_EVAL_RUNTIME_SOURCE: 'codex',
     OPENAI_BASE_URL: validateUrl(provider.base_url, 'Codex config provider base_url'),
-    ...(requiresAuth ? { COGNIS_EVAL_AUTH_FILE: authFile } : {}),
-    ...(env.COGNIS_CODEX_COMMAND
-      ? { COGNIS_CODEX_COMMAND: env.COGNIS_CODEX_COMMAND }
-      : (typeof configuredCommand === 'string' && configuredCommand !== '' ? { COGNIS_CODEX_COMMAND: configuredCommand } : {})),
-    ...(env.COGNIS_WSL_CODEX_COMMAND ? { COGNIS_WSL_CODEX_COMMAND: env.COGNIS_WSL_CODEX_COMMAND } : {}),
+    ...(requiresAuth ? { VIBE_HARNESS_EVAL_AUTH_FILE: authFile } : {}),
+    ...(env.VIBE_HARNESS_CODEX_COMMAND
+      ? { VIBE_HARNESS_CODEX_COMMAND: env.VIBE_HARNESS_CODEX_COMMAND }
+      : (typeof configuredCommand === 'string' && configuredCommand !== '' ? { VIBE_HARNESS_CODEX_COMMAND: configuredCommand } : {})),
+    ...(env.VIBE_HARNESS_WSL_CODEX_COMMAND ? { VIBE_HARNESS_WSL_CODEX_COMMAND: env.VIBE_HARNESS_WSL_CODEX_COMMAND } : {}),
   };
   return { environment, source: 'codex', unset: ['OPENAI_API_KEY'] };
 }
@@ -162,15 +162,15 @@ function fromEnvironment({ backend, env }) {
   const environment = {
     CODEX_MODEL: requiredString(env.CODEX_MODEL, 'CODEX_MODEL'),
     CODEX_REASONING_EFFORT: reasoning,
-    COGNIS_EVAL_CODEX_BACKEND: backend,
-    COGNIS_EVAL_PROVIDER_NAME: env.COGNIS_EVAL_PROVIDER_NAME ?? 'cognis-env',
-    COGNIS_EVAL_PROVIDER_REQUIRES_AUTH: '0',
-    COGNIS_EVAL_PROVIDER_WIRE_API: env.COGNIS_EVAL_PROVIDER_WIRE_API ?? 'responses',
-    COGNIS_EVAL_RUNTIME_SOURCE: 'env',
+    VIBE_HARNESS_EVAL_CODEX_BACKEND: backend,
+    VIBE_HARNESS_EVAL_PROVIDER_NAME: env.VIBE_HARNESS_EVAL_PROVIDER_NAME ?? 'vibe-harness-env',
+    VIBE_HARNESS_EVAL_PROVIDER_REQUIRES_AUTH: '0',
+    VIBE_HARNESS_EVAL_PROVIDER_WIRE_API: env.VIBE_HARNESS_EVAL_PROVIDER_WIRE_API ?? 'responses',
+    VIBE_HARNESS_EVAL_RUNTIME_SOURCE: 'env',
     OPENAI_API_KEY: requiredString(env.OPENAI_API_KEY, 'OPENAI_API_KEY'),
     ...(env.OPENAI_BASE_URL ? { OPENAI_BASE_URL: validateUrl(env.OPENAI_BASE_URL, 'OPENAI_BASE_URL') } : {}),
-    ...(env.COGNIS_CODEX_COMMAND ? { COGNIS_CODEX_COMMAND: env.COGNIS_CODEX_COMMAND } : {}),
-    ...(env.COGNIS_WSL_CODEX_COMMAND ? { COGNIS_WSL_CODEX_COMMAND: env.COGNIS_WSL_CODEX_COMMAND } : {}),
+    ...(env.VIBE_HARNESS_CODEX_COMMAND ? { VIBE_HARNESS_CODEX_COMMAND: env.VIBE_HARNESS_CODEX_COMMAND } : {}),
+    ...(env.VIBE_HARNESS_WSL_CODEX_COMMAND ? { VIBE_HARNESS_WSL_CODEX_COMMAND: env.VIBE_HARNESS_WSL_CODEX_COMMAND } : {}),
   };
   return { environment, source: 'env', unset: [] };
 }
@@ -183,18 +183,18 @@ export async function resolveEvalRuntime({
   repetitions = 3,
   resolveCliVersion = defaultCliVersion,
 } = {}) {
-  const source = validateChoice(env.COGNIS_EVAL_RUNTIME_SOURCE ?? 'auto', SOURCES, 'COGNIS_EVAL_RUNTIME_SOURCE');
-  const configuredBackend = validateChoice(env.COGNIS_EVAL_CODEX_BACKEND ?? 'auto', BACKENDS, 'COGNIS_EVAL_CODEX_BACKEND');
+  const source = validateChoice(env.VIBE_HARNESS_EVAL_RUNTIME_SOURCE ?? 'auto', SOURCES, 'VIBE_HARNESS_EVAL_RUNTIME_SOURCE');
+  const configuredBackend = validateChoice(env.VIBE_HARNESS_EVAL_CODEX_BACKEND ?? 'auto', BACKENDS, 'VIBE_HARNESS_EVAL_CODEX_BACKEND');
   const backend = actualBackend(configuredBackend, needsWrite, platform);
   let resolved;
   if (source !== 'env') {
     resolved = await fromCodexConfig({ backend, env, homeDir });
-    if (!resolved && source === 'codex') throw new Error('Codex config.toml is required for COGNIS_EVAL_RUNTIME_SOURCE=codex');
+    if (!resolved && source === 'codex') throw new Error('Codex config.toml is required for VIBE_HARNESS_EVAL_RUNTIME_SOURCE=codex');
   }
   resolved ??= fromEnvironment({ backend, env });
   const cliVersion = await resolveCliVersion({ backend, environment: resolved.environment });
   resolved.environment.CODEX_CLI_VERSION = cliVersion;
-  resolved.environment.COGNIS_EVAL_RUNTIME_HASH = runtimeHash(resolved.environment, repetitions, cliVersion);
+  resolved.environment.VIBE_HARNESS_EVAL_RUNTIME_HASH = runtimeHash(resolved.environment, repetitions, cliVersion);
   return { ...resolved, backend, cliVersion };
 }
 

@@ -13,4 +13,4 @@ for (const file of files) {
   }
 }
 if (failed) process.exit(1);
-console.log(`Cognis lint passed (${files.length} files checked).`);
+console.log(`Vibe-Harness lint passed (${files.length} files checked).`);
