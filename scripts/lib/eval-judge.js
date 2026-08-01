@@ -21,7 +21,7 @@ const JUDGE_SYSTEM_PROMPT = [
   'Do not include any text outside the JSON object.',
 ].join(' ');
 
-function buildUserPrompt({ scenario, observation, rubric }) {
+export function buildUserPrompt({ scenario, observation, rubric }) {
   return [
     `Scenario: ${scenario}`,
     `Agent output:`,
@@ -31,7 +31,7 @@ function buildUserPrompt({ scenario, observation, rubric }) {
   ].join('\n');
 }
 
-function parseJudgeResponse(text) {
+export function parseJudgeResponse(text) {
   const match = text.match(/\{[^]*\}/u);
   if (!match) throw new Error('judge response did not contain a JSON object');
   const parsed = JSON.parse(match[0]);
@@ -43,7 +43,7 @@ function parseJudgeResponse(text) {
   return { score, rationale };
 }
 
-async function callJudgeModel({ scenario, observation, rubric, judgeModel, apiKey, baseUrl, timeoutMs }) {
+export async function callJudgeModel({ scenario, observation, rubric, judgeModel, apiKey, baseUrl, timeoutMs }) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
