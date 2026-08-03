@@ -331,10 +331,6 @@ export async function validateContentQuality(rootDir) {
       terms: ['单 Agent', '人工确认', '验证与主张匹配', '保护现有工作区'],
     },
     {
-      file: 'rules/pencil-rules.md',
-      terms: ['.pen', '.png', '验证'],
-    },
-    {
       file: 'rules/project-directory.md',
       terms: ['发现顺序', '放置规则', '跨边界变更'],
     },
@@ -489,7 +485,6 @@ export async function validateCapabilityMatrix(rootDir, matrix, { checkFiles = t
     'git-and-worktree',
     'engineering-rules',
     'memory-templates',
-    'pencil-assets',
     'release',
     'eval-driven-development',
     'project-business-contracts',

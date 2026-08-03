@@ -16,7 +16,6 @@
     { "id": "project-directory", "source": "rules/project-directory.md" },
     { "id": "project-specific-rules", "source": "rules/project-specific-rules.md" },
     { "id": "db-rules", "source": "rules/db-rules.md" },
-    { "id": "pencil-rules", "source": "rules/pencil-rules.md" },
     { "id": "release-rules", "source": "rules/release-rules.md" },
     { "id": "troubleshooting", "source": "rules/troubleshooting.md" },
     { "id": "rtk", "source": "rules/rtk.md" },

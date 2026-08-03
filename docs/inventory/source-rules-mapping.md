@@ -19,7 +19,6 @@
 | `API_RULES.md` | `rules/api-rules.md` | copy-generalize |
 | `DB_RULES.md` | `rules/db-rules.md` | copy-generalize |
 | `AI_COLLAB_RULES.md` | `rules/ai-collab-rules.md` | copy-generalize |
-| `PENCIL_RULES.md` | `rules/pencil-rules.md` | copy-generalize |
 | `RELEASE.md` | `rules/release-rules.md` | copy-generalize |
 | `REVIEW_RULES.md` | `rules/governance-core.md`、完整任务 Runtime | consolidate + validator |
 | `LOOP_ENGINEERING_RULES.md` | `rules/governance-core.md` | consolidate |

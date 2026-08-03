@@ -657,16 +657,6 @@
       ]
     },
     {
-      "path": "docs/rules/pencil-rules.md",
-      "kind": "agent-rules",
-      "status": "current",
-      "language": "zh-CN",
-      "audiences": [
-        "agent",
-        "maintainer"
-      ]
-    },
-    {
       "path": "docs/rules/project-directory.md",
       "kind": "agent-rules",
       "status": "current",

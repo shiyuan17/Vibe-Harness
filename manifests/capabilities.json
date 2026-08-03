@@ -62,16 +62,6 @@
       "evaluation": { "required": false, "reason": "Static installer tests cover template installation deterministically." }
     },
     {
-      "id": "pencil-assets",
-      "source": "PENCIL_RULES.md",
-      "disposition": "validator",
-      "targets": ["rules/pencil-rules.md"],
-      "tests": ["tests/rules-depth.test.js"],
-      "profiles": ["full", "docs-only"],
-      "docs": ["docs/architecture.md"],
-      "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-core.json"] }
-    },
-    {
       "id": "release",
       "source": "RELEASE.md",
       "disposition": "generalize",

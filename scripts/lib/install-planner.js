@@ -107,7 +107,6 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
   ].some(hasTarget);
   const hasOperationalRules = [
     'docs/rules/release-rules.md',
-    'docs/rules/pencil-rules.md',
     'docs/rules/troubleshooting.md',
   ].some(hasTarget);
   const hasAgentMemorySkills = hasSkill('agentmemory/SKILL.md');

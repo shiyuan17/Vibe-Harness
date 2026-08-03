@@ -105,12 +105,6 @@
     },
     {
       "group": "rules-full",
-      "source": "rules/pencil-rules.md",
-      "target": "docs/rules/pencil-rules.md",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "rules-full",
       "source": "rules/release-rules.md",
       "target": "docs/rules/release-rules.md",
       "contentStrategy": "replace"

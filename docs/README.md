@@ -23,7 +23,6 @@
 - [前端](rules/frontend-rules.md)
 - [Git](rules/git-rules.md)
 - [日志](rules/log-management.md)
-- [Pencil](rules/pencil-rules.md)
 - [项目目录](rules/project-directory.md)
 - [项目专项](rules/project-specific-rules.md)
 - [发布](rules/release-rules.md)

@@ -407,26 +407,16 @@ test('full profile adds three domain skills and hooks without memory or tool plu
   }
 });
 
-test('installed rules use Chinese user-visible bullet text', async () => {
-  const pencilRules = await readFile(path.join(rootDir, 'rules/pencil-rules.md'), 'utf8');
-  const projectDirectoryRules = await readFile(path.join(rootDir, 'rules/project-directory.md'), 'utf8');
-  const content = `${pencilRules}\n${projectDirectoryRules}`;
+test('installed project directory rules use Chinese user-visible bullet text', async () => {
+  const content = await readFile(path.join(rootDir, 'rules/project-directory.md'), 'utf8');
 
   for (const englishFragment of [
-    'Confirm the `.pen` path',
-    'Inspect existing layouts',
-    'Separate design approval',
-    'Define stable dimensions',
-    'Cover loading, empty',
-    'Keep component names',
-    'Do not encode secrets',
-    'Put domain behavior',
     'Shared directories contain capabilities',
     'Adapters translate between external',
     'Generated, vendored',
     'New top-level directories',
   ]) {
-    assert.equal(content.includes(englishFragment), false, `${englishFragment} should be translated`);
+    assert.equal(content.includes(englishFragment), false, englishFragment + ' should be translated');
   }
 });
 
