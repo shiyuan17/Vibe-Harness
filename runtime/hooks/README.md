@@ -19,8 +19,8 @@ The runtime never changes global Agent configuration or local Git `core.hooksPat
 
 ## Timeout
 
-The `timeout` in `.codex/hooks.json` is set to 10 seconds (Codex defaults to 600 seconds). This is an intentional conservative choice to keep policy evaluation from blocking interaction. On timeout Codex treats the hook as failed, which fail-closes guarded events (`PreToolUse`/`PermissionRequest`) to a deny. Adjust the `timeout` field if policy evaluation genuinely needs longer, but weigh the interaction-latency cost.
+The project Hook configuration uses a 10-second `timeout`. This conservative value prevents policy evaluation from blocking interaction; guarded `PreToolUse` and permission events fail closed on timeout. Cursor uses `.cursor/hooks.json`, Qoder uses `.qoder/settings.json`, ZCode uses `.zcode/config.json`, and Codex uses `.codex/hooks.json`.
 
 ## Hook path
 
-The `command` in `.codex/hooks.json` uses a relative path (`node .agents/runtime/hooks/codex-hook.mjs`) and Codex runs it with the working directory it was started in (`turn_context.cwd`). Launch Codex from the repository root; if you must work from a subdirectory, `cd` to the root or start from there, otherwise the relative path cannot locate the hook entry.
+Each host runs `node .agents/runtime/hooks/codex-hook.mjs --host <host>` with a project-relative command. The runtime resolves `vibe-harness.config.json` from the payload working directory and falls back to the current directory. Start the host from the project root so the relative command can locate the Hook entry.

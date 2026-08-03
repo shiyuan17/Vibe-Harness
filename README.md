@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-Vibe-Harness installs project-scoped rules, domain Skills, optional Evals, explicit tool plugins, and safety Hooks for Codex, Claude Code, and Gemini CLI. It writes only inside the target project and never changes global Agent configuration.
+Vibe-Harness installs project-scoped rules, domain Skills, optional Evals, explicit tool plugins, and safety Hooks for Codex, Claude Code, Gemini CLI, Cursor, Qoder, and ZCode. It writes only inside the target project and never changes global Agent configuration.
 
 There is one default execution path: `gather facts -> execute -> focused verification -> concise delivery`. Quick, light, and full are risk levels used only to choose safeguards and verification depth.
 
@@ -40,10 +40,10 @@ A single Agent handles work by default. Explicit `open-code-review`, browser ver
 | --- | --- |
 | `minimal` | Platform instructions, safety boundaries, Git/Test rules, and optional task/delivery templates |
 | `core` | `minimal` plus common engineering rules, five domain Skills, and offline Eval |
-| `full` | `core` plus three domain Skills, online Eval, and Codex safety Hooks |
+| `full` | `core` plus three domain Skills, online Eval, and supported platform safety Hooks |
 | `docs-only` | Rules, templates, and schemas without runtime, Skills, MCP, or Hooks |
 
-External tools and memory remain explicit `--plugin` choices. Codex `full` requires `--confirm-red-zone` when writing `.codex/hooks.json`.
+External tools and memory remain explicit `--plugin` choices. Every host configuration file is a red-zone write and requires `--confirm-red-zone`.
 
 ```bash
 pnpm vibe-harness install --project ../some-project --target codex --profile full --dry-run
@@ -51,6 +51,19 @@ pnpm vibe-harness install --project ../some-project --target codex --profile ful
 ```
 
 Claude Code and Gemini CLI use the same four profiles; preview capabilities require explicit `--allow-preview`.
+
+## Adapter support
+
+| Target | Project instructions | Skills | Project Hook / MCP configuration |
+| --- | --- | --- | --- |
+| Codex | `AGENTS.md` | `.agents/skills/` | `.codex/` |
+| Claude Code | `CLAUDE.md` | `.claude/skills/` | Preview capabilities |
+| Gemini CLI | `GEMINI.md` | `.gemini/skills/` | Preview capabilities |
+| Cursor | `AGENTS.md` | `.cursor/skills/` | `.cursor/hooks.json`, `.cursor/mcp.json` |
+| Qoder | `AGENTS.md` | `.qoder/skills/` | `.qoder/settings.json`, `.mcp.json` |
+| ZCode | `AGENTS.md` | Not installed automatically | `.zcode/config.json` |
+
+ZCode project Skill storage has no documented project-scoped path, so Vibe-Harness never writes `~/.zcode` or guesses a project Skill directory. Import Skills manually through the ZCode UI when needed. Managed JSON updates only Vibe-Harness MCP servers and Hook groups; user settings remain intact.
 
 ## Project configuration
 
@@ -146,7 +159,7 @@ pnpm vibe-harness uninstall --project ../some-project --target codex --write
 - Existing project files are preserved unless `--force` is explicit.
 - Every mutation requires `--write`; red-zone writes require explicit confirmation.
 - The installer does not modify global Agent configuration or `.git/config`.
-- Codex Hooks listen only to `PreToolUse` and `PermissionRequest` to block dangerous Git, global configuration writes, credential exfiltration, red-zone file uploads, out-of-project writes, and (when an `allowedEgressHosts` allowlist is configured) non-allowlisted network egress.
+- Codex, Cursor, Qoder, and ZCode Hooks normalize their `PreToolUse` and permission events through the same safety policy to block dangerous Git, global configuration writes, credential exfiltration, red-zone file uploads, out-of-project writes, and (when an `allowedEgressHosts` allowlist is configured) non-allowlisted network egress. RTK Hook routing remains Codex-only.
 - Completion claims must match fresh evidence; narrow the claim and report risk when verification is unavailable.
 
 ## Documentation

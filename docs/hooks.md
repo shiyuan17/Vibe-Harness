@@ -1,6 +1,6 @@
 # Hook 安全策略
 
-Vibe-Harness full 为 Codex 安装项目级安全 Hook。Hook 不创建任务状态、不运行测试、不检查交付文本，也不阻止 Agent 正常完成。
+Vibe-Harness full 为 Codex、Cursor、Qoder 和 ZCode 安装项目级安全 Hook。Hook 不创建任务状态、不运行测试、不检查交付文本，也不阻止 Agent 正常完成。RTK 路由仅支持 Codex。
 
 ## 事件
 
@@ -17,7 +17,7 @@ Vibe-Harness full 为 Codex 安装项目级安全 Hook。Hook 不创建任务状
     "allowedWriteRoots": [],
     "allowedEgressHosts": [],
     "mode": "guarded",
-    "redZonePaths": [".env", "auth/", "ci/cd/", ".github/workflows/", ".codex/hooks.json"],
+    "redZonePaths": [".env", "auth/", "ci/cd/", ".github/workflows/", ".codex/hooks.json", ".cursor/hooks.json", ".cursor/mcp.json", ".mcp.json", ".qoder/settings.json", ".zcode/config.json"],
     "rtk": { "enabled": false }
   }
 }
@@ -33,11 +33,11 @@ RTK 集成只在显式选择 RTK 插件并启用 `hooks.rtk.enabled` 或 `--rtk-
 
 ## 超时
 
-`.codex/hooks.json` 的 `timeout` 设为 10 秒（Codex 默认为 600 秒）。该取值是有意的保守选择，避免策略评估长挂阻塞交互；超时后 Codex 将 Hook 视为失败，对 `PreToolUse`/`PermissionRequest` 等 guarded 事件按 fail-closed 拒绝。如策略评估确需更长时间，可调整 `hooks.json` 的 `timeout` 字段，但需评估对交互延迟的影响。
+宿主配置中的 `timeout` 设为 10 秒。该取值是有意的保守选择，避免策略评估长挂阻塞交互；超时按 guarded 事件 fail-closed 处理。Cursor 使用 `.cursor/hooks.json`，Qoder 使用 `.qoder/settings.json`，ZCode 使用 `.zcode/config.json`，Codex 使用 `.codex/hooks.json`。
 
 ## Hook 路径
 
-`.codex/hooks.json` 的 `command` 使用相对路径（`node .agents/runtime/hooks/codex-hook.mjs`），Codex 以启动时的工作目录（`turn_context.cwd`）执行该命令。请在仓库根目录启动 Codex；若需在子目录运行，先 `cd` 到仓库根或从根目录启动，否则相对路径将无法定位 Hook 入口。
+宿主配置的 `command` 使用相对路径（`node .agents/runtime/hooks/codex-hook.mjs --host <host>`）。Hook 从 payload 的项目工作目录解析 `vibe-harness.config.json`；缺失时回退当前工作目录。请从项目根启动宿主，避免相对路径无法定位 Hook 入口。
 
 ## Git Hooks
 
