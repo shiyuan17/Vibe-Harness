@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="zh-CN" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="generator" content="better-harness codex-html">
+  <title>Harness 洞察 · LoopEngine</title>
+  <style>
+    :root { color-scheme: dark; --bg:#111315; --panel:#1a1d20; --panel-2:#21252a; --line:#31363d; --text:#f5f7fa; --muted:#9aa3ad; --blue:#6cb8ff; --blue-2:#1b6ca8; --orange:#ff9a5a; --green:#53d69b; --red:#ff6b6b; }
+    * { box-sizing:border-box; }
+    html { background:var(--bg); scroll-behavior:smooth; }
+    .cjk-phrase { white-space:nowrap; }
+    body { margin:0; min-width:320px; font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:var(--text); background:radial-gradient(circle at 12% -10%,#22364a 0,transparent 34rem),var(--bg); line-height:1.55; }
+    .sr-only { position:absolute!important; width:1px!important; height:1px!important; padding:0!important; margin:-1px!important; overflow:hidden!important; clip:rect(0,0,0,0)!important; white-space:nowrap!important; border:0!important; }
+    body::before { content:""; position:fixed; inset:0; pointer-events:none; opacity:.22; background-image:linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px); background-size:28px 28px; }
+    main { position:relative; width:min(1180px,calc(100% - 40px)); margin:0 auto; padding:52px 0 88px; }
+    h1,h2,h3,p { margin-top:0; }
+    .eyebrow,.label { color:var(--blue); font-size:12px; font-weight:700; letter-spacing:.11em; text-transform:uppercase; }
+    .hero { display:grid; grid-template-columns:minmax(0,1fr) 190px; gap:36px; align-items:end; min-height:270px; padding:42px; border:1px solid var(--line); border-radius:28px; background:linear-gradient(135deg,rgba(36,43,51,.96),rgba(21,24,27,.94)); box-shadow:0 28px 70px rgba(0,0,0,.28); }
+    .hero h1 { margin:12px 0 10px; font-size:clamp(42px,7vw,82px); line-height:.96; letter-spacing:-.055em; }
+    .hero p { max-width:760px; margin-bottom:22px; color:#c9d0d8; font-size:18px; }
+    .hero-tags { display:flex; flex-wrap:wrap; gap:8px; }
+    .score-orbit { width:174px; aspect-ratio:1; display:grid; place-content:center; text-align:center; border:14px solid #343a41; border-top-color:var(--blue); border-right-color:var(--blue-2); border-radius:50%; background:#1a2026; box-shadow:inset 0 0 0 1px var(--line); }
+    .score-orbit strong { font-size:44px; line-height:1; }
+    .score-orbit > span { width:110px; margin-top:7px; color:var(--muted); font-size:12px; }
+    .pill { display:inline-flex; align-items:center; min-height:26px; padding:3px 10px; border-radius:999px; color:#d4dae0; background:#30353b; font-size:12px; font-weight:700; }
+    .pill.accent { color:#c9e8ff; background:#164e75; }.pill.good { color:#c9f9e5; background:#165c43; }.pill.warning { color:#ffe1c8; background:#754322; }.pill.danger { color:#ffd4d4; background:#762e31; }.pill.muted,.pill.neutral { color:#c8cdd3; background:#34383d; }
+    .metrics { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin:18px 0 54px; }
+    .metric { min-height:126px; padding:22px 24px; border:1px solid var(--line); border-radius:20px; background:rgba(30,34,38,.9); }
+    .metric > span,.metric > small { display:block; color:var(--muted); }.metric > strong { display:block; margin:5px 0 2px; font-size:34px; line-height:1.1; }.metric > small { font-size:12px; }
+    .section { margin-top:64px; scroll-margin-top:24px; }.section-heading { display:flex; justify-content:space-between; gap:30px; align-items:end; margin-bottom:20px; }.section-heading h2 { margin:5px 0 0; font-size:30px; letter-spacing:-.025em; }.section-heading > p { max-width:420px; margin:0; color:var(--muted); text-align:right; font-size:14px; }
+    .dimension-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; }.dimension-card { min-height:230px; padding:19px; border:1px solid var(--line); border-radius:19px; background:linear-gradient(180deg,var(--panel-2),var(--panel)); }.dimension-top { display:flex; min-height:52px; justify-content:space-between; gap:8px; align-items:flex-start; font-weight:700; }.score-line { display:flex; align-items:baseline; gap:4px; margin-top:14px; }.score-line strong { font-size:34px; }.score-line span { color:var(--muted); font-size:12px; }.track { height:8px; margin:8px 0 16px; overflow:hidden; border-radius:999px; background:#30353a; }.track i { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,var(--blue-2),var(--blue)); }.dimension-card p { margin:0; color:var(--muted); font-size:13px; }
+    .activity-layout { display:grid; grid-template-columns:minmax(0,1.8fr) minmax(230px,.7fr); gap:14px; }.activity-panel,.subpanel,.finding,.custom-grid article,.evidence-grid,.evidence-note { border:1px solid var(--line); border-radius:19px; background:var(--panel); }.activity-panel { padding:22px; overflow:hidden; }.heatmap { display:grid; grid-template-rows:repeat(7,13px); grid-auto-flow:column; grid-auto-columns:13px; gap:4px; min-height:115px; overflow-x:auto; padding-bottom:8px; }.heat-cell { border-radius:3px; background:#2b3035; }.heat-cell.l1{background:#174d70}.heat-cell.l2{background:#206f9e}.heat-cell.l3{background:#319bd1}.heat-cell.l4{background:#70c9ff}.heat-legend { display:flex; justify-content:space-between; color:var(--muted); font-size:11px; }.stacked-metrics { display:grid; gap:14px; }.stacked-metrics .metric { min-height:0; }
+    .two-column { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:14px; }.subpanel { padding:22px; }.subpanel h3 { font-size:15px; }.usage-list { display:grid; gap:12px; }.usage-row { display:grid; grid-template-columns:minmax(100px,.75fr) 1fr 52px; gap:12px; align-items:center; font-size:12px; }.usage-row > span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }.usage-row i { height:7px; overflow:hidden; border-radius:999px; background:#30353a; }.usage-row b { display:block; height:100%; background:linear-gradient(90deg,var(--blue-2),var(--blue)); }.usage-row strong { text-align:right; }
+    .finding-list { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }.finding-card { min-width:0; min-height:220px; display:flex; flex-direction:column; padding:18px; border:1px solid var(--line); border-radius:19px; background:linear-gradient(180deg,#1c2329,var(--panel)); }.finding-card-main { display:grid; gap:10px; }.finding-meta { display:flex; flex-wrap:wrap; gap:7px; }.finding-card h3 { min-height:2.8em; margin:0; display:-webkit-box; overflow:hidden; font-size:17px; line-height:1.4; -webkit-box-orient:vertical; -webkit-line-clamp:2; }.finding-preview { margin:0; color:#c7ced6; display:-webkit-box; overflow:hidden; font-size:13px; line-height:1.55; -webkit-box-orient:vertical; -webkit-line-clamp:2; }.finding-actions,.dialog-actions { display:flex; flex-wrap:wrap; justify-content:space-between; gap:10px; margin-top:auto; padding-top:16px; }.action-button { min-height:38px; padding:8px 13px; border:1px solid transparent; border-radius:10px; color:var(--text); background:#30363d; font:inherit; font-size:13px; font-weight:700; cursor:pointer; }.action-button:hover { filter:brightness(1.12); }.action-button:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }.action-button.secondary { color:#cceaff; border-color:#286d9b; background:#164e75; }.action-button.ghost { color:#d4dae0; border-color:var(--line); background:transparent; }.finding-dialog,.manual-copy-dialog { width:min(880px,calc(100vw - 32px)); max-height:calc(100vh - 32px); overflow:auto; padding:24px; border:1px solid var(--line); border-radius:20px; color:var(--text); background:var(--panel); box-shadow:0 30px 90px rgba(0,0,0,.55); }.finding-dialog::backdrop,.manual-copy-dialog::backdrop { background:rgba(4,8,12,.72); }.dialog-heading { display:flex; justify-content:space-between; gap:18px; align-items:flex-start; }.dialog-heading h3 { margin:6px 0 0; font-size:24px; }.dialog-section { margin-top:18px; }.dialog-section p { margin:7px 0 0; color:#d1d7de; }.dialog-section ol,.dialog-section ul { margin:8px 0 0; padding-left:22px; color:#d1d7de; }.manual-copy-dialog textarea { width:100%; min-height:260px; margin-top:14px; padding:14px; resize:vertical; border:1px solid var(--line); border-radius:12px; color:var(--text); background:#11161b; font:13px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; }.no-js .finding-actions,.no-js .manual-copy-dialog { display:none!important; }.no-js .finding-dialog:not([open]) { display:block; position:static; width:auto; max-height:none; margin-top:16px; box-shadow:none; }
+    .suggestion-block { margin-top:28px; padding-top:24px; border-top:1px solid var(--line); }.suggestion-heading { display:flex; justify-content:space-between; gap:20px; align-items:end; margin-bottom:14px; }.suggestion-heading h3 { margin:4px 0 0; font-size:20px; }.suggestion-heading p { margin:0; color:var(--muted); font-size:12px; }.suggestion-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:12px; }.suggestion { padding:18px; border:1px solid var(--line); border-radius:17px; background:linear-gradient(180deg,#1b252d,var(--panel)); }.suggestion-top { display:flex; justify-content:space-between; gap:8px; }.suggestion h3 { margin:13px 0 7px; font-size:16px; }.suggestion > p { color:#c7ced6; font-size:13px; }.suggestion dl { display:grid; gap:9px; margin:14px 0 0; }.suggestion dl div { display:grid; gap:2px; }.suggestion dt { color:var(--muted); font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }.suggestion dd { margin:0; color:#d7dde4; font-size:12px; }
+    .custom-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; }.custom-grid article { display:flex; gap:14px; align-items:center; padding:18px; }.custom-grid h3 { margin:0; font-size:15px; }.custom-grid p { margin:3px 0 0; color:var(--muted); font-size:12px; }.custom-mark { display:grid; flex:0 0 38px; aspect-ratio:1; place-content:center; border-radius:12px; color:#d9efff; background:#164e75; font-weight:800; }
+    .evidence-grid { display:grid; grid-template-columns:repeat(3,1fr); overflow:hidden; }.evidence-grid div { padding:20px; border-right:1px solid var(--line); border-bottom:1px solid var(--line); }.evidence-grid > div > span,.evidence-grid > div > strong { display:block; }.evidence-grid > div > span { color:var(--muted); font-size:12px; }.evidence-grid > div > strong { margin-top:4px; }.evidence-note { margin-top:14px; padding:20px; }.method-note,.empty { color:var(--muted); }.method-note { max-width:800px; margin:18px 0 0; font-size:13px; }
+    footer { margin-top:64px; padding-top:20px; border-top:1px solid var(--line); color:var(--muted); font-size:12px; }
+    @media (max-width:1000px) { .finding-list{grid-template-columns:repeat(2,minmax(0,1fr))} }
+    @media (max-width:900px) { .metrics,.dimension-grid{grid-template-columns:repeat(2,1fr)}.activity-layout,.two-column{grid-template-columns:1fr}.evidence-grid{grid-template-columns:repeat(2,1fr)} }
+    @media (max-width:680px) { .finding-list{grid-template-columns:1fr}.finding-card{min-height:0} }
+    @media (max-width:620px) { main{width:min(100% - 24px,1180px);padding-top:18px}.hero{grid-template-columns:1fr;min-height:0;padding:25px;border-radius:22px}.hero h1{font-size:44px}.hero p{font-size:15px}.score-orbit{width:126px}.score-orbit strong{font-size:34px}.metrics{grid-template-columns:1fr;margin-bottom:42px}.metric{min-height:0}.section{margin-top:46px}.section-heading,.suggestion-heading{display:block}.section-heading > p,.suggestion-heading > p{text-align:left;margin-top:8px}.dimension-grid{grid-template-columns:1fr}.dimension-card{min-height:0}.evidence-grid{grid-template-columns:1fr}.usage-row{grid-template-columns:minmax(92px,.7fr) 1fr 44px}.finding-dialog{padding:18px}.dialog-heading{display:grid} }
+    @media print { :root{color-scheme:light;--bg:#fff;--panel:#fff;--panel-2:#f6f8fa;--line:#d8dee4;--text:#111;--muted:#59636e}body{background:#fff}body::before{display:none}.hero{box-shadow:none}.section{break-inside:avoid}.finding-list{display:block}.finding-card{margin-bottom:16px;break-inside:avoid}.finding-actions,.dialog-actions,.manual-copy-dialog{display:none!important}.finding-dialog:not([open]){display:block!important;position:static;width:auto;max-height:none;margin-top:16px;box-shadow:none} }
+  </style>
+</head>
+<body>
+<div id="copy-status" class="sr-only" role="status" aria-live="polite"></div>
+<main id="harness-report" data-report-mode="codex-html">
+<header class="hero" data-section="overview">
+    <div class="hero-copy">
+      <span class="eyebrow">Harness <span class="cjk-phrase">洞察</span> · Codex HTML</span>
+      <h1>Cognis</h1>
+      <p><span class="cjk-phrase">安装</span>器<span class="cjk-phrase">安全</span><span class="cjk-phrase">测试</span>与 browser-verification 路由已接入其<span class="cjk-phrase">既有</span> owner；<span class="cjk-phrase">当前</span><span class="cjk-phrase">仍有</span><span class="cjk-phrase">一条</span> integration Skill <span class="cjk-phrase">指引</span>的<span class="cjk-phrase">渲染</span><span class="cjk-phrase">覆盖</span><span class="cjk-phrase">缺口</span>。<span class="cjk-phrase">冻结</span>的 Session <span class="cjk-phrase">窗口</span>未<span class="cjk-phrase">观察</span>到<span class="cjk-phrase">闭合</span><span class="cjk-phrase">验证</span>或<span class="cjk-phrase">实际</span><span class="cjk-phrase">交付</span>，<span class="cjk-phrase">因此</span> Loop Effectiveness <span class="cjk-phrase">不作</span><span class="cjk-phrase">提升</span><span class="cjk-phrase">主张</span>。</p>
+      <div class="hero-tags"><span class="pill accent">agent-work-loop-v4</span><span class="pill muted"><span class="cjk-phrase">证据</span>有界</span></div>
+    </div>
+    <div class="score-orbit"><strong>5</strong><span><span class="cjk-phrase">独立</span><span class="cjk-phrase">复核</span>维度</span></div>
+  </header>
+  <div class="metrics">
+    <div class="metric">
+    <span>Codex <span class="cjk-phrase">证据</span>分（<span class="cjk-phrase">循环</span><span class="cjk-phrase">有效性</span>）</span>
+    <strong>59 / 100</strong>
+    <small><span class="cjk-phrase">等待</span>后续<span class="cjk-phrase">任务</span><span class="cjk-phrase">结果</span>后<span class="cjk-phrase">更新</span></small>
+  </div>
+    <div class="metric">
+    <span><span class="cjk-phrase">资产</span><span class="cjk-phrase">健康</span> / <span class="cjk-phrase">修复</span><span class="cjk-phrase">进度</span></span>
+    <strong>0 / 100</strong>
+    <small>0 项已<span class="cjk-phrase">验证</span> · 0 项<span class="cjk-phrase">部分</span><span class="cjk-phrase">完成</span> · 1 项待<span class="cjk-phrase">处理</span></small>
+  </div>
+    <div class="metric">
+    <span><span class="cjk-phrase">会话</span><span class="cjk-phrase">样本</span></span>
+    <strong>2 / 2</strong>
+
+  </div>
+    <div class="metric">
+    <span>待<span class="cjk-phrase">处理</span> Finding</span>
+    <strong>1</strong>
+    <small>0 High · 0 Medium</small>
+  </div>
+  </div>
+  <section class="section" data-section="fluency" aria-labelledby="section-fluency">
+    <div class="section-heading">
+      <div><span class="eyebrow">01 · <span class="cjk-phrase">就绪</span>度</span><h2 id="section-fluency">五维<span class="cjk-phrase">流畅</span>度</h2></div>
+      <p><span class="cjk-phrase">分数</span>与<span class="cjk-phrase">状态</span><span class="cjk-phrase">来自</span>已<span class="cjk-phrase">复核</span> source。</p>
+    </div>
+    <div class="dimension-grid">
+    <article class="dimension-card" data-dimension-id="task-understanding">
+        <div class="dimension-top"><span><span class="cjk-phrase">任务</span><span class="cjk-phrase">理解</span></span><span class="pill muted">已<span class="cjk-phrase">复核</span></span></div>
+        <div class="score-line"><strong>74</strong><span>/ 100</span></div>
+        <div class="track" role="progressbar" aria-label="任务理解 74 of 100" aria-valuemin="0" aria-valuemax="100" aria-valuenow="74"><i style="width:74%"></i></div>
+        <p><span class="cjk-phrase">项目</span><span class="cjk-phrase">入口</span>能路由到<span class="cjk-phrase">规则</span>、<span class="cjk-phrase">风险</span>和<span class="cjk-phrase">验证</span> owner；本<span class="cjk-phrase">窗口</span>未<span class="cjk-phrase">观察</span>到<span class="cjk-phrase">任务</span>级<span class="cjk-phrase">使用</span><span class="cjk-phrase">结果</span>。</p>
+      </article>
+<article class="dimension-card" data-dimension-id="controlled-execution">
+        <div class="dimension-top"><span>可控<span class="cjk-phrase">执行</span></span><span class="pill muted">已<span class="cjk-phrase">复核</span></span></div>
+        <div class="score-line"><strong>72</strong><span>/ 100</span></div>
+        <div class="track" role="progressbar" aria-label="可控执行 72 of 100" aria-valuemin="0" aria-valuemax="100" aria-valuenow="72"><i style="width:72%"></i></div>
+        <p><span class="cjk-phrase">项目</span><span class="cjk-phrase">提供</span>受<span class="cjk-phrase">支持</span>的 CLI、dry-run 和 Hook <span class="cjk-phrase">路径</span>；本<span class="cjk-phrase">窗口</span><span class="cjk-phrase">没有</span><span class="cjk-phrase">完整</span><span class="cjk-phrase">运行</span><span class="cjk-phrase">结果</span>。</p>
+      </article>
+<article class="dimension-card" data-dimension-id="change-validation">
+        <div class="dimension-top"><span>改动<span class="cjk-phrase">验证</span></span><span class="pill muted">已<span class="cjk-phrase">复核</span></span></div>
+        <div class="score-line"><strong>58</strong><span>/ 100</span></div>
+        <div class="track" role="progressbar" aria-label="改动验证 58 of 100" aria-valuemin="0" aria-valuemax="100" aria-valuenow="58"><i style="width:58%"></i></div>
+        <p><span class="cjk-phrase">验证</span><span class="cjk-phrase">层次</span>和 installer <span class="cjk-phrase">安全</span><span class="cjk-phrase">断言</span><span class="cjk-phrase">均已</span><span class="cjk-phrase">存在</span>，但 agentmemory 与<span class="cjk-phrase">组合</span> integration <span class="cjk-phrase">指引</span>仍<span class="cjk-phrase">缺少</span><span class="cjk-phrase">渲染</span><span class="cjk-phrase">回归</span><span class="cjk-phrase">覆盖</span>。</p>
+      </article>
+<article class="dimension-card" data-dimension-id="reliable-delivery">
+        <div class="dimension-top"><span><span class="cjk-phrase">可靠</span><span class="cjk-phrase">交付</span></span><span class="pill muted">已<span class="cjk-phrase">复核</span></span></div>
+        <div class="score-line"><strong>57</strong><span>/ 100</span></div>
+        <div class="track" role="progressbar" aria-label="可靠交付 57 of 100" aria-valuemin="0" aria-valuemax="100" aria-valuenow="57"><i style="width:57%"></i></div>
+        <p>CI、回滚与<span class="cjk-phrase">恢复</span><span class="cjk-phrase">机制</span>已<span class="cjk-phrase">配置</span>；<span class="cjk-phrase">冻结</span><span class="cjk-phrase">证据</span>未<span class="cjk-phrase">包含</span><span class="cjk-phrase">当前</span> revision 的<span class="cjk-phrase">接受</span><span class="cjk-phrase">结果</span>。</p>
+      </article>
+<article class="dimension-card" data-dimension-id="learning-capture">
+        <div class="dimension-top"><span><span class="cjk-phrase">经验</span><span class="cjk-phrase">沉淀</span></span><span class="pill muted">已<span class="cjk-phrase">复核</span></span></div>
+        <div class="score-line"><strong>35</strong><span>/ 100</span></div>
+        <div class="track" role="progressbar" aria-label="经验沉淀 35 of 100" aria-valuemin="0" aria-valuemax="100" aria-valuenow="35"><i style="width:35%"></i></div>
+        <p><span class="cjk-phrase">尚未</span><span class="cjk-phrase">形成</span>两个可<span class="cjk-phrase">比较</span>且已<span class="cjk-phrase">闭合</span>的<span class="cjk-phrase">任务</span><span class="cjk-phrase">窗口</span>，<span class="cjk-phrase">不能</span><span class="cjk-phrase">判断</span><span class="cjk-phrase">改进</span><span class="cjk-phrase">是否</span><span class="cjk-phrase">提升</span>后续<span class="cjk-phrase">结果</span>。</p>
+      </article>
+  </div>
+  </section>
+  <section class="section" data-section="activity" aria-labelledby="section-activity">
+    <div class="section-heading">
+      <div><span class="eyebrow">02 · <span class="cjk-phrase">信号</span></span><h2 id="section-activity"><span class="cjk-phrase">项目</span><span class="cjk-phrase">用量</span></h2></div>
+      <p><span class="cjk-phrase">用量</span>是<span class="cjk-phrase">背景</span>，<span class="cjk-phrase">不是</span><span class="cjk-phrase">结果</span><span class="cjk-phrase">结论</span>。</p>
+    </div>
+    <div class="activity-layout">
+    <div class="activity-panel">
+      <div class="heatmap" role="img" aria-label="会话活跃度热力图"><span class="heat-cell l4" title="2026-07-29：27.2 活跃分钟" aria-label="2026-07-29：27.2 活跃分钟"></span></div>
+      <div class="heat-legend"><span>2026-07-29</span><span>2026-07-29</span></div>
+    </div>
+    <div class="stacked-metrics">
+      <div class="metric">
+    <span>已<span class="cjk-phrase">分析</span><span class="cjk-phrase">会话</span></span>
+    <strong>2 / 2</strong>
+    <small><span class="cjk-phrase">全量</span><span class="cjk-phrase">合格</span><span class="cjk-phrase">用量</span><span class="cjk-phrase">普查</span></small>
+  </div>
+      <div class="metric">
+    <span>长<span class="cjk-phrase">会话</span><span class="cjk-phrase">线索</span></span>
+    <strong>0</strong>
+    <small><span class="cjk-phrase">最长</span> 0 <span class="cjk-phrase">分钟</span></small>
+  </div>
+    </div>
+  </div><div class="two-column">
+    <article class="subpanel"><h3><span class="cjk-phrase">模型</span><span class="cjk-phrase">使用</span></h3><p class="empty"><span class="cjk-phrase">没有</span><span class="cjk-phrase">保留</span>已<span class="cjk-phrase">归属</span><span class="cjk-phrase">数据</span>。</p></article>
+    <article class="subpanel"><h3>Skill <span class="cjk-phrase">使用</span></h3><p class="empty"><span class="cjk-phrase">没有</span><span class="cjk-phrase">保留</span>已<span class="cjk-phrase">归属</span><span class="cjk-phrase">数据</span>。</p></article>
+  </div>
+  </section>
+  <section class="section" data-section="findings" aria-labelledby="section-findings">
+    <div class="section-heading">
+      <div><span class="eyebrow">03 · <span class="cjk-phrase">行动</span></span><h2 id="section-findings">Finding 与<span class="cjk-phrase">建议</span></h2></div>
+      <p>1 条 finding · 0 条<span class="cjk-phrase">建议</span></p>
+    </div>
+    <div class="finding-list"><article class="finding-card" data-finding-id="integration-skill-guidance-coverage">
+      <div class="finding-card-main">
+        <div class="finding-meta">
+          <span class="pill neutral">Low</span>
+          <span class="pill neutral">改动<span class="cjk-phrase">验证</span></span>
+        </div>
+        <h3>Integration Skill <span class="cjk-phrase">指引</span><span class="cjk-phrase">缺少</span> agentmemory 与<span class="cjk-phrase">组合</span><span class="cjk-phrase">渲染</span><span class="cjk-phrase">断言</span></h3>
+        <p class="finding-preview"><span class="cjk-phrase">安装</span><span class="cjk-phrase">规划</span>器会<span class="cjk-phrase">根据</span>已<span class="cjk-phrase">安装</span>的 browser-verification 和 agentmemory integration Skills 拼接 AGENTS <span class="cjk-phrase">指引</span>，但<span class="cjk-phrase">当前</span><span class="cjk-phrase">回归</span>只<span class="cjk-phrase">断言</span> browser-verification 的<span class="cjk-phrase">渲染</span><span class="cjk-phrase">文案</span>。agentmemory <span class="cjk-phrase">单独</span><span class="cjk-phrase">启用</span>或<span class="cjk-phrase">两者</span><span class="cjk-phrase">同时</span><span class="cjk-phrase">启用</span>时，<span class="cjk-phrase">名称</span>或<span class="cjk-phrase">原生</span><span class="cjk-phrase">计数</span><span class="cjk-phrase">说明</span><span class="cjk-phrase">发生</span><span class="cjk-phrase">回归</span>将<span class="cjk-phrase">不会</span>被该<span class="cjk-phrase">聚焦</span><span class="cjk-phrase">测试</span><span class="cjk-phrase">捕获</span>。</p>
+      </div>
+      <div class="finding-actions">
+        <button type="button" class="action-button secondary" data-copy-finding="integration-skill-guidance-coverage" aria-label="复制 AI 修复: Integration Skill 指引缺少 agentmemory 与组合渲染断言"><span class="cjk-phrase">复制</span> AI <span class="cjk-phrase">修复</span></button>
+        <button type="button" class="action-button ghost" data-view-finding-dialog="finding-dialog-1" aria-label="查看详情: Integration Skill 指引缺少 agentmemory 与组合渲染断言"><span class="cjk-phrase">查看</span><span class="cjk-phrase">详情</span></button>
+      </div>
+      <dialog class="finding-dialog" id="finding-dialog-1" data-finding-dialog-id="integration-skill-guidance-coverage" aria-labelledby="finding-dialog-1-title">
+        <div class="dialog-heading">
+          <div><span class="label">Finding <span class="cjk-phrase">详情</span></span><h3 id="finding-dialog-1-title">Integration Skill <span class="cjk-phrase">指引</span><span class="cjk-phrase">缺少</span> agentmemory 与<span class="cjk-phrase">组合</span><span class="cjk-phrase">渲染</span><span class="cjk-phrase">断言</span></h3></div>
+          <span class="pill neutral">Low</span>
+        </div>
+        <div class="dialog-section"><span class="label"><span class="cjk-phrase">原因</span></span><p><span class="cjk-phrase">安装</span><span class="cjk-phrase">规划</span>器会<span class="cjk-phrase">根据</span>已<span class="cjk-phrase">安装</span>的 browser-verification 和 agentmemory integration Skills 拼接 AGENTS <span class="cjk-phrase">指引</span>，但<span class="cjk-phrase">当前</span><span class="cjk-phrase">回归</span>只<span class="cjk-phrase">断言</span> browser-verification 的<span class="cjk-phrase">渲染</span><span class="cjk-phrase">文案</span>。agentmemory <span class="cjk-phrase">单独</span><span class="cjk-phrase">启用</span>或<span class="cjk-phrase">两者</span><span class="cjk-phrase">同时</span><span class="cjk-phrase">启用</span>时，<span class="cjk-phrase">名称</span>或<span class="cjk-phrase">原生</span><span class="cjk-phrase">计数</span><span class="cjk-phrase">说明</span><span class="cjk-phrase">发生</span><span class="cjk-phrase">回归</span>将<span class="cjk-phrase">不会</span>被该<span class="cjk-phrase">聚焦</span><span class="cjk-phrase">测试</span><span class="cjk-phrase">捕获</span>。</p></div>
+        <div class="dialog-section"><span class="label"><span class="cjk-phrase">预期</span><span class="cjk-phrase">结果</span></span><ol><li>让 browser-verification、agentmemory <span class="cjk-phrase">及其</span><span class="cjk-phrase">组合</span><span class="cjk-phrase">安装</span>时的 AGENTS <span class="cjk-phrase">指引</span>均<span class="cjk-phrase">受到</span><span class="cjk-phrase">渲染</span><span class="cjk-phrase">回归</span><span class="cjk-phrase">保护</span>。</li></ol></div>
+        <div class="dialog-section"><span class="label"><span class="cjk-phrase">验收</span><span class="cjk-phrase">检查</span></span><ul><li><span class="cjk-phrase">运行</span> node --test --test-concurrency=1 --test-timeout=120000 tests/skill-closure.test.js</li><li><span class="cjk-phrase">运行</span> pnpm test:integration</li><li><span class="cjk-phrase">确认</span><span class="cjk-phrase">单独</span>和<span class="cjk-phrase">组合</span> integration Skills 都<span class="cjk-phrase">不计</span>入<span class="cjk-phrase">原生</span><span class="cjk-phrase">领域</span> Skill <span class="cjk-phrase">数量</span></li></ul></div>
+        <div class="dialog-actions">
+          <button type="button" class="action-button secondary" data-copy-finding="integration-skill-guidance-coverage" aria-label="复制 AI 修复: Integration Skill 指引缺少 agentmemory 与组合渲染断言"><span class="cjk-phrase">复制</span> AI <span class="cjk-phrase">修复</span></button>
+          <button type="button" class="action-button ghost" data-close-finding-dialog="finding-dialog-1"><span class="cjk-phrase">关闭</span></button>
+        </div>
+      </dialog>
+    </article></div>
+  </section>
+  <section class="section" data-section="customize" aria-labelledby="section-customize">
+    <div class="section-heading">
+      <div><span class="eyebrow">04 · <span class="cjk-phrase">能力</span></span><h2 id="section-customize">Agent 自<span class="cjk-phrase">定义</span></h2></div>
+      <p>已<span class="cjk-phrase">检查</span>的<span class="cjk-phrase">项目</span>与<span class="cjk-phrase">授权</span><span class="cjk-phrase">宿主</span><span class="cjk-phrase">能力</span>面。</p>
+    </div>
+    <div class="custom-grid"><article><span class="custom-mark">R</span><div><h3>Rules</h3><p>Project · 1</p></div></article><article><span class="custom-mark">S</span><div><h3>Skills</h3><p>Project · 9</p></div></article><article><span class="custom-mark">H</span><div><h3>Hooks</h3><p>Project · 2</p></div></article><article><span class="custom-mark">W</span><div><h3>Workflows</h3><p>Project · 2</p></div></article></div>
+  </section>
+  <section class="section" data-section="methodology" aria-labelledby="section-methodology">
+    <div class="section-heading">
+      <div><span class="eyebrow">05 · <span class="cjk-phrase">边界</span></span><h2 id="section-methodology"><span class="cjk-phrase">证据</span>与<span class="cjk-phrase">方法</span></h2></div>
+      <p>仅<span class="cjk-phrase">使用</span><span class="cjk-phrase">读者</span><span class="cjk-phrase">安全</span><span class="cjk-phrase">证据</span>。</p>
+    </div>
+    <div class="evidence-grid"><div><span><span class="cjk-phrase">证据</span><span class="cjk-phrase">模式</span></span><strong>session-rich</strong></div><div><span><span class="cjk-phrase">任务</span> Episode</span><strong>1</strong></div><div><span>含<span class="cjk-phrase">编辑</span> Episode</span><strong>1</strong></div><div><span><span class="cjk-phrase">抽样</span></span><strong>2 / 2</strong></div><div><span><span class="cjk-phrase">可信度</span></span><strong>High</strong></div><div><span><span class="cjk-phrase">学习</span><span class="cjk-phrase">状态</span></span><strong>N/A</strong></div></div>
+
+    <p class="method-note"><span class="cjk-phrase">活动</span><span class="cjk-phrase">总量</span>只<span class="cjk-phrase">描述</span><span class="cjk-phrase">用量</span>，不<span class="cjk-phrase">直接</span><span class="cjk-phrase">代表</span><span class="cjk-phrase">质量</span>、<span class="cjk-phrase">效率</span>或<span class="cjk-phrase">节省</span>。<span class="cjk-phrase">流畅</span>度<span class="cjk-phrase">结论</span><span class="cjk-phrase">来自</span>已<span class="cjk-phrase">复核</span><span class="cjk-phrase">任务</span><span class="cjk-phrase">样本</span>，并受已<span class="cjk-phrase">保留</span><span class="cjk-phrase">证据</span><span class="cjk-phrase">边界</span><span class="cjk-phrase">约束</span>。</p>
+  </section>
+<footer>由同<span class="cjk-phrase">一份</span>已<span class="cjk-phrase">复核</span> Harness source <span class="cjk-phrase">生成</span> · 自<span class="cjk-phrase">包含</span> Codex HTML</footer>
+</main>
+<dialog id="manual-copy-dialog" class="manual-copy-dialog" aria-labelledby="manual-copy-title" aria-describedby="manual-copy-description">
+  <div class="dialog-heading">
+    <div>
+      <span class="label">手动<span class="cjk-phrase">复制</span></span>
+      <h3 id="manual-copy-title"><span class="cjk-phrase">复制</span> AI <span class="cjk-phrase">修复</span><span class="cjk-phrase">提示</span>词</h3>
+    </div>
+  </div>
+  <p id="manual-copy-description"><span class="cjk-phrase">自动</span><span class="cjk-phrase">复制</span>被<span class="cjk-phrase">阻止</span>，<span class="cjk-phrase">下面</span>已选中<span class="cjk-phrase">完整</span><span class="cjk-phrase">提示</span>词。</p>
+  <textarea id="manual-copy-text" readonly aria-label="AI 修复提示词"></textarea>
+  <div class="dialog-actions">
+    <button type="button" class="action-button ghost" data-close-finding-dialog="manual-copy-dialog"><span class="cjk-phrase">关闭</span></button>
+  </div>
+</dialog>
+<script id="harness-report-data" type="application/json">{"mode":"html","language":"zh-CN","dataPath":"C:\\Project\\GitHub\\LoopEngine\\.codex\\better-harness\\2026-07-31-codex-normal-post-fix\\findings.json","target":{"name":"LoopEngine","path":"C:\\Project\\GitHub\\LoopEngine"},"summary":{"projectName":"Cognis","locale":"zh-CN","modelId":"agent-work-loop-v4","reportContractVersion":25,"overview":"安装器安全测试与 browser-verification 路由已接入其既有 owner；当前仍有一条 integration Skill 指引的渲染覆盖缺口。冻结的 Session 窗口未观察到闭合验证或实际交付，因此 Loop Effectiveness 不作提升主张。","dimensions":[{"id":"task-understanding","label":"任务理解","score":74,"summary":"项目入口能路由到规则、风险和验证 owner；本窗口未观察到任务级使用结果。","findingRefs":[]},{"id":"controlled-execution","label":"可控执行","score":72,"summary":"项目提供受支持的 CLI、dry-run 和 Hook 路径；本窗口没有完整运行结果。","findingRefs":[]},{"id":"change-validation","label":"改动验证","score":58,"summary":"验证层次和 installer 安全断言均已存在，但 agentmemory 与组合 integration 指引仍缺少渲染回归覆盖。","findingRefs":["integration-skill-guidance-coverage"]},{"id":"reliable-delivery","label":"可靠交付","score":57,"summary":"CI、回滚与恢复机制已配置；冻结证据未包含当前 revision 的接受结果。","findingRefs":[]},{"id":"learning-capture","label":"经验沉淀","score":35,"summary":"尚未形成两个可比较且已闭合的任务窗口，不能判断改进是否提升后续结果。","findingRefs":[]}],"evidenceMode":"session-rich","evidenceBoundary":{"manifest":{"schemaVersion":2,"sourceFingerprint":"3d9e6b4aaa88686d","adapterVersion":"codex-task-loop-source-v2","platform":"codex","selection":{"strategy":"all-eligible","eligibleCount":2,"analyzedCount":2,"confidence":"High"}},"episodeCoverage":{"episodeCount":1,"editedEpisodeCount":1,"closedEpisodeCount":0,"recoveredEpisodeCount":0},"deliveryEvidenceLevels":[],"sourceGaps":[]},"semanticFacets":{"schemaVersion":1,"status":"supplementary","entries":[{"id":"session-insight:source-coverage","kind":"redacted-summary","episodeRef":null,"status":"candidate","labels":["source-coverage","High"],"summary":"Analyzed 2 of 2 sessions; 2/5 enabled source roots exist. Use this as the current workspace evidence boundary for final insight cards.","evidenceRefs":[],"modelVersion":"session-insights-v1"},{"id":"session-insight:validation-behavior","kind":"redacted-summary","episodeRef":null,"status":"candidate","labels":["validation-behavior","Low"],"summary":"Validation was mentioned by the user, but no matching command execution was observed: pnpm test (2). Treat this as a validation execution gap until a matching tool command is found in bounded evidence.","evidenceRefs":[{"kind":"codex-session-jsonl","id":"session-insight-2-1","type":"user","line":6},{"kind":"codex-session-jsonl","id":"session-insight-2-2","type":"user","line":4}],"modelVersion":"session-insights-v1"},{"id":"session-insight:post-edit-validation","kind":"rework-correction","episodeRef":null,"status":"candidate","labels":["post-edit-validation","High"],"summary":"Observed 2 edit event(s), but no later validation command in the analyzed sample. Keep this as bounded sample context only; fewer than five project edit events is too small for a post-edit finding.","evidenceRefs":[{"kind":"codex-session-jsonl","id":"session-insight-3-1","type":"event.patch_apply_end","line":55}],"modelVersion":"session-insights-v1"},{"id":"session-insight:execution-friction","kind":"friction-taxonomy","episodeRef":null,"status":"candidate","labels":["execution-friction","High"],"summary":"Observed friction category: failed-event (12). Open bounded sessions behind this category before turning it into a user-facing recommendation.","evidenceRefs":[{"kind":"codex-session-jsonl","id":"session-insight-4-1","type":"tool.result","line":16},{"kind":"codex-session-jsonl","id":"session-insight-4-2","type":"tool.result","line":28},{"kind":"codex-session-jsonl","id":"session-insight-4-3","type":"tool.result","line":35}],"modelVersion":"session-insights-v1"},{"id":"session-insight:tool-mix","kind":"redacted-summary","episodeRef":null,"status":"candidate","labels":["tool-mix","High"],"summary":"Most observed tool: exec (48). Use this as workflow evidence, then inspect bounded sessions before claiming user intent.","evidenceRefs":[{"kind":"codex-session-jsonl","id":"session-insight-5-1","type":"tool.call","line":15}],"modelVersion":"session-insights-v1"},{"id":"session-insight:planning-workflow","kind":"goal-workflow","episodeRef":null,"status":"candidate","labels":["planning-workflow","Medium"],"summary":"Observed codex plan-mode: plan-mode (2, workspace). Use this as workspace session evidence for Goal/Plan/Spec workflow behavior.","evidenceRefs":[{"kind":"codex-session-jsonl","id":"session-insight-6-1","type":"assistant","line":3},{"kind":"codex-session-jsonl","id":"session-insight-6-2","type":"assistant","line":3}],"modelVersion":"session-insights-v1"},{"id":"session-insight:session-usage-efficiency","kind":"redacted-summary","episodeRef":null,"status":"candidate","labels":["session-usage-efficiency","High"],"summary":"本次分析覆盖 2 个会话，未发现达到阈值的活跃长会话。 这些活动证据只描述投入；当前 token 或 credit 证据不足，不能据此推断模型偏好、质量或节省。","evidenceRefs":[{"kind":"codex-session-jsonl","id":"session-insight-7-1","type":"session_meta","line":1}],"modelVersion":"session-insights-v1"}]},"learningCapture":{"schemaVersion":1,"state":"N/A","summary":"暂不适用——需要两个可比较的观察窗口和一次改进对比。","interventions":[]},"aiAgentPractice":{"inspectedSurfaces":["Rules","Skills","Hooks"],"coverageRows":[{"surface":"Rules","scopes":["Project"],"count":1,"paths":["AGENTS.md"]},{"surface":"Skills","scopes":["Project"],"count":9,"paths":[".agents/skills/api-and-interface-design/SKILL.md",".agents/skills/browser-verification/SKILL.md",".agents/skills/clarify-requirements/SKILL.md",".agents/skills/define-goal/SKILL.md",".agents/skills/eval-driven-development/SKILL.md",".agents/skills/frontend-design/SKILL.md",".agents/skills/runtime-cross-repo-rollout/SKILL.md",".agents/skills/security-and-hardening/SKILL.md",".agents/skills/systematic-debugging/SKILL.md"]},{"surface":"Hooks","scopes":["Project"],"count":2,"paths":[".codex/hooks.json"]},{"surface":"Workflows","scopes":["Project"],"count":2,"paths":[".github/workflows/ci.yml",".github/workflows/evals.yml"]}]},"usageActivity":{"schemaVersion":2,"dateBasis":"UTC","measurementBasis":"session-starts-active-estimate-model-active-session-days-skill-invocations-and-loads","truncated":false,"dates":["2026-07-29"],"sessions":{"total":2,"starts":[2],"activeMinutes":[27.2]},"models":[],"skills":[]},"usageEfficiency":{"schemaVersion":2,"selection":{"strategy":"all-eligible","eligibleSessionCount":2,"analyzedSessionCount":2,"complete":true},"roles":{"userThreadCandidateCount":2,"childAgentCandidateCount":0},"longSessions":{"activeCount":0,"wallOnlyCount":0,"longestActiveMinutes":0,"activeRatio":0,"estimate":{"method":"capped-event-gap","activeThresholdMinutes":45,"gapCapMinutes":5,"idleGapMinutes":30},"samples":[]},"accounting":{"mode":"effort-proxy","responseCount":0,"modelAttributedResponseCount":0,"unattributedResponseCount":0,"usageFieldObservedCount":0,"nonZeroUsageCount":0,"exactCreditsAvailable":false,"pricingVersion":null},"modelUsage":[],"outcomeReview":{"status":"required","reviewedCandidateCount":0,"reviewedActiveLongCount":0,"comparableModelOutcomeEvidence":false,"recommendation":"controlled-a-b-required"}},"assignmentSummaries":[]},"findings":[{"id":"integration-skill-guidance-coverage","title":"Integration Skill 指引缺少 agentmemory 与组合渲染断言","severity":"Low","reason":"安装规划器会根据已安装的 browser-verification 和 agentmemory integration Skills 拼接 AGENTS 指引，但当前回归只断言 browser-verification 的渲染文案。agentmemory 单独启用或两者同时启用时，名称或原生计数说明发生回归将不会被该聚焦测试捕获。","dimensionRefs":["change-validation"],"aiFixPrompt":"/better-harness fix this issue\n\n补齐 integration Skill 指引文案的渲染覆盖：验证 memory 单独启用时的 agentmemory 文案，以及 playwright 与 memory 同时启用时的两个名称和原生计数说明。保持现有 profile 与安装 API 不变。\n\n## Validation\n\n- 运行 node --test --test-concurrency=1 --test-timeout=120000 tests/skill-closure.test.js\n- 运行 pnpm test:integration\n- 确认单独和组合 integration Skills 都不计入原生领域 Skill 数量","expectedArtifact":"Test","expectedOutput":["让 browser-verification、agentmemory 及其组合安装时的 AGENTS 指引均受到渲染回归保护。"]}]}</script>
+<script id="harness-report-interactions">(function installHtmlReportInteractions({
+  document,
+  navigator,
+  labels,
+  schedule = (callback, delay) => globalThis.setTimeout(callback, delay),
+}) {
+  document.documentElement.classList.remove("no-js");
+
+  const reportDataElement = document.getElementById("harness-report-data");
+  const reportData = reportDataElement
+    ? JSON.parse(reportDataElement.textContent || "{}")
+    : {};
+  const findings = new Map(
+    (Array.isArray(reportData.findings) ? reportData.findings : [])
+      .map((finding) => [String(finding?.id ?? ""), finding]),
+  );
+  const status = document.getElementById("copy-status");
+  const manualDialog = document.getElementById("manual-copy-dialog");
+  const manualText = document.getElementById("manual-copy-text");
+  const dialogTriggers = new Map();
+
+  function report(message, state) {
+    if (!status) return;
+    status.textContent = message;
+    status.dataset.state = state;
+  }
+
+  function legacyCopy(prompt) {
+    const textarea = document.createElement("textarea");
+    textarea.value = prompt;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.append(textarea);
+    try {
+      textarea.select();
+      return document.execCommand("copy") === true;
+    } catch {
+      return false;
+    } finally {
+      textarea.remove();
+    }
+  }
+
+  function copied(trigger) {
+    report(labels.copySuccess, "success");
+    if (trigger) {
+      const originalLabel = trigger.textContent;
+      trigger.textContent = labels.copied;
+      schedule(() => {
+        trigger.textContent = originalLabel || labels.copy;
+      }, 1800);
+    }
+    return true;
+  }
+
+  async function copyFinding(findingId, trigger) {
+    const prompt = findings.get(String(findingId))?.aiFixPrompt;
+    if (typeof prompt !== "string" || prompt.length === 0) {
+      report(labels.missingPrompt, "error");
+      return false;
+    }
+
+    try {
+      if (!navigator?.clipboard?.writeText) throw new Error("Clipboard API unavailable");
+      await navigator.clipboard.writeText(prompt);
+      return copied(trigger);
+    } catch {
+      if (legacyCopy(prompt)) return copied(trigger);
+    }
+
+    if (manualDialog && typeof manualDialog.showModal === "function") {
+      dialogTriggers.set(manualDialog.id, trigger);
+      if (!manualDialog.open) manualDialog.showModal();
+    }
+    if (manualText) {
+      manualText.value = prompt;
+      manualText.focus();
+      manualText.select();
+    }
+    report(labels.manualCopy, "error");
+    return false;
+  }
+
+  function openDialog(dialogId, trigger) {
+    const dialog = document.getElementById(dialogId);
+    if (!dialog || typeof dialog.showModal !== "function") return false;
+    dialogTriggers.set(dialogId, trigger);
+    dialog.showModal();
+    return true;
+  }
+
+  function closeDialog(dialogId) {
+    const dialog = document.getElementById(dialogId);
+    if (!dialog || !dialog.open || typeof dialog.close !== "function") return false;
+    dialog.close();
+    return true;
+  }
+
+  for (const trigger of document.querySelectorAll("[data-copy-finding]")) {
+    trigger.addEventListener("click", () => copyFinding(trigger.dataset.copyFinding, trigger));
+  }
+  for (const trigger of document.querySelectorAll("[data-view-finding-dialog]")) {
+    trigger.addEventListener("click", () => openDialog(trigger.dataset.viewFindingDialog, trigger));
+  }
+  for (const trigger of document.querySelectorAll("[data-close-finding-dialog]")) {
+    trigger.addEventListener("click", () => closeDialog(trigger.dataset.closeFindingDialog));
+  }
+  const interactiveDialogs = [
+    ...document.querySelectorAll("dialog[data-finding-dialog-id]"),
+    manualDialog,
+  ].filter(Boolean);
+  for (const dialog of interactiveDialogs) {
+    dialog.addEventListener("close", () => {
+      const trigger = dialogTriggers.get(dialog.id);
+      dialogTriggers.delete(dialog.id);
+      trigger?.focus();
+    });
+    dialog.addEventListener("click", (event) => {
+      if (event.target !== dialog) return;
+      const rect = dialog.getBoundingClientRect();
+      const outside = event.clientX < rect.left
+        || event.clientX > rect.right
+        || event.clientY < rect.top
+        || event.clientY > rect.bottom;
+      if (outside) closeDialog(dialog.id);
+    });
+  }
+
+  return { copyFinding, openDialog, closeDialog };
+})({document,navigator,labels:{"copy":"复制 AI 修复","copied":"已复制","copySuccess":"已复制，请粘贴到 Codex 输入框。","manualCopy":"自动复制被阻止，请手动复制已选中的提示词。","missingPrompt":"这个问题没有可用的 AI 修复提示词。"}});</script>
+</body>
+</html>

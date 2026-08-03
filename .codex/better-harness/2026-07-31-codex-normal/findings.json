@@ -1,0 +1,403 @@
+{
+  "summary": {
+    "projectName": "Cognis",
+    "locale": "zh-CN",
+    "modelId": "agent-work-loop-v4",
+    "reportContractVersion": 25,
+    "overview": "仓库已经具备清晰的 agent 入口、分层验证、CI、dry-run/rollback 和项目 Hook；当前主要缺口是 installer 的关键安全测试未进入要求且 CI 实际执行的验证路径，Skill 能力图与已安装资产轻微漂移，以及重复工作审阅尚缺一段结构化 Session 证据。",
+    "dimensions": [
+      {
+        "id": "task-understanding",
+        "label": "任务理解",
+        "score": 74,
+        "summary": "根规则能把任务路由到架构、风险和验证文档，但浏览器验收 Skill 尚未进入完整能力图。",
+        "findingRefs": [
+          "skill-route-browser-verification-drift"
+        ]
+      },
+      {
+        "id": "controlled-execution",
+        "label": "可控执行",
+        "score": 72,
+        "summary": "运行时版本、包管理器、CLI、dry-run 与安全 Hook 均有明确 owner；本轮没有执行结果证明这些路径已被完整演练。",
+        "findingRefs": []
+      },
+      {
+        "id": "change-validation",
+        "label": "改动验证",
+        "score": 58,
+        "summary": "验证层次丰富，但 installer 的拒写、红区、路径逃逸和回滚测试未进入项目要求及 CI 使用的检查组合。",
+        "findingRefs": [
+          "installer-safety-test-not-gated"
+        ]
+      },
+      {
+        "id": "reliable-delivery",
+        "label": "可靠交付",
+        "score": 57,
+        "summary": "CI 与事务回滚机制存在，真实接受决策、Hook enforcement 和恢复结果在本轮证据中仍未观察。",
+        "findingRefs": []
+      },
+      {
+        "id": "learning-capture",
+        "label": "经验沉淀",
+        "score": 35,
+        "summary": "本轮完成了有界审阅，但缺少 requestRoots 和后续可比窗口，无法判定重复需求或改进效果。",
+        "findingRefs": []
+      }
+    ],
+    "evidenceMode": "session-rich",
+    "evidenceBoundary": {
+      "manifest": {
+        "schemaVersion": 2,
+        "sourceFingerprint": "3d9e6b4aaa88686d",
+        "adapterVersion": "codex-task-loop-source-v2",
+        "platform": "codex",
+        "selection": {
+          "strategy": "all-eligible",
+          "eligibleCount": 2,
+          "analyzedCount": 2,
+          "confidence": "High"
+        }
+      },
+      "episodeCoverage": {
+        "episodeCount": 1,
+        "editedEpisodeCount": 1,
+        "closedEpisodeCount": 0,
+        "recoveredEpisodeCount": 0
+      },
+      "deliveryEvidenceLevels": [],
+      "sourceGaps": []
+    },
+    "semanticFacets": {
+      "schemaVersion": 1,
+      "status": "supplementary",
+      "entries": [
+        {
+          "id": "session-insight:source-coverage",
+          "kind": "redacted-summary",
+          "episodeRef": null,
+          "status": "candidate",
+          "labels": [
+            "source-coverage",
+            "High"
+          ],
+          "summary": "Analyzed 2 of 2 sessions; 2/5 enabled source roots exist. Use this as the current workspace evidence boundary for final insight cards.",
+          "evidenceRefs": [],
+          "modelVersion": "session-insights-v1"
+        },
+        {
+          "id": "session-insight:validation-behavior",
+          "kind": "redacted-summary",
+          "episodeRef": null,
+          "status": "candidate",
+          "labels": [
+            "validation-behavior",
+            "Low"
+          ],
+          "summary": "Validation was mentioned by the user, but no matching command execution was observed: pnpm test (2). Treat this as a validation execution gap until a matching tool command is found in bounded evidence.",
+          "evidenceRefs": [
+            {
+              "kind": "codex-session-jsonl",
+              "id": "session-insight-2-1",
+              "type": "user",
+              "line": 6
+            },
+            {
+              "kind": "codex-session-jsonl",
+              "id": "session-insight-2-2",
+              "type": "user",
+              "line": 4
+            }
+          ],
+          "modelVersion": "session-insights-v1"
+        },
+        {
+          "id": "session-insight:post-edit-validation",
+          "kind": "rework-correction",
+          "episodeRef": null,
+          "status": "candidate",
+          "labels": [
+            "post-edit-validation",
+            "High"
+          ],
+          "summary": "Observed 2 edit event(s), but no later validation command in the analyzed sample. Keep this as bounded sample context only; fewer than five project edit events is too small for a post-edit finding.",
+          "evidenceRefs": [
+            {
+              "kind": "codex-session-jsonl",
+              "id": "session-insight-3-1",
+              "type": "event.patch_apply_end",
+              "line": 55
+            }
+          ],
+          "modelVersion": "session-insights-v1"
+        },
+        {
+          "id": "session-insight:execution-friction",
+          "kind": "friction-taxonomy",
+          "episodeRef": null,
+          "status": "candidate",
+          "labels": [
+            "execution-friction",
+            "High"
+          ],
+          "summary": "Observed friction category: failed-event (12). Open bounded sessions behind this category before turning it into a user-facing recommendation.",
+          "evidenceRefs": [
+            {
+              "kind": "codex-session-jsonl",
+              "id": "session-insight-4-1",
+              "type": "tool.result",
+              "line": 16
+            },
+            {
+              "kind": "codex-session-jsonl",
+              "id": "session-insight-4-2",
+              "type": "tool.result",
+              "line": 28
+            },
+            {
+              "kind": "codex-session-jsonl",
+              "id": "session-insight-4-3",
+              "type": "tool.result",
+              "line": 35
+            }
+          ],
+          "modelVersion": "session-insights-v1"
+        },
+        {
+          "id": "session-insight:tool-mix",
+          "kind": "redacted-summary",
+          "episodeRef": null,
+          "status": "candidate",
+          "labels": [
+            "tool-mix",
+            "High"
+          ],
+          "summary": "Most observed tool: exec (48). Use this as workflow evidence, then inspect bounded sessions before claiming user intent.",
+          "evidenceRefs": [
+            {
+              "kind": "codex-session-jsonl",
+              "id": "session-insight-5-1",
+              "type": "tool.call",
+              "line": 15
+            }
+          ],
+          "modelVersion": "session-insights-v1"
+        },
+        {
+          "id": "session-insight:planning-workflow",
+          "kind": "goal-workflow",
+          "episodeRef": null,
+          "status": "candidate",
+          "labels": [
+            "planning-workflow",
+            "Medium"
+          ],
+          "summary": "Observed codex plan-mode: plan-mode (2, workspace). Use this as workspace session evidence for Goal/Plan/Spec workflow behavior.",
+          "evidenceRefs": [
+            {
+              "kind": "codex-session-jsonl",
+              "id": "session-insight-6-1",
+              "type": "assistant",
+              "line": 3
+            },
+            {
+              "kind": "codex-session-jsonl",
+              "id": "session-insight-6-2",
+              "type": "assistant",
+              "line": 3
+            }
+          ],
+          "modelVersion": "session-insights-v1"
+        },
+        {
+          "id": "session-insight:session-usage-efficiency",
+          "kind": "redacted-summary",
+          "episodeRef": null,
+          "status": "candidate",
+          "labels": [
+            "session-usage-efficiency",
+            "High"
+          ],
+          "summary": "本次分析覆盖 2 个会话，未发现达到阈值的活跃长会话。 这些活动证据只描述投入；当前 token 或 credit 证据不足，不能据此推断模型偏好、质量或节省。",
+          "evidenceRefs": [
+            {
+              "kind": "codex-session-jsonl",
+              "id": "session-insight-7-1",
+              "type": "session_meta",
+              "line": 1
+            }
+          ],
+          "modelVersion": "session-insights-v1"
+        }
+      ]
+    },
+    "learningCapture": {
+      "schemaVersion": 1,
+      "state": "N/A",
+      "summary": "暂不适用——需要两个可比的观察窗口和一次改进对比。",
+      "interventions": []
+    },
+    "aiAgentPractice": {
+      "inspectedSurfaces": [
+        "Rules",
+        "Skills",
+        "Hooks",
+        "Workflows"
+      ],
+      "coverageRows": [
+        {
+          "surface": "Rules",
+          "scopes": [
+            "Project"
+          ],
+          "count": 1,
+          "paths": [
+            "AGENTS.md"
+          ]
+        },
+        {
+          "surface": "Skills",
+          "scopes": [
+            "Project"
+          ],
+          "count": 9,
+          "paths": [
+            ".agents/skills/api-and-interface-design/SKILL.md",
+            ".agents/skills/browser-verification/SKILL.md",
+            ".agents/skills/clarify-requirements/SKILL.md",
+            ".agents/skills/define-goal/SKILL.md",
+            ".agents/skills/eval-driven-development/SKILL.md",
+            ".agents/skills/frontend-design/SKILL.md",
+            ".agents/skills/runtime-cross-repo-rollout/SKILL.md",
+            ".agents/skills/security-and-hardening/SKILL.md",
+            ".agents/skills/systematic-debugging/SKILL.md"
+          ]
+        },
+        {
+          "surface": "Hooks",
+          "scopes": [
+            "Project"
+          ],
+          "count": 2,
+          "paths": [
+            ".codex/hooks.json"
+          ]
+        },
+        {
+          "surface": "Workflows",
+          "scopes": [
+            "Project"
+          ],
+          "count": 2,
+          "paths": [
+            ".github/workflows/ci.yml",
+            ".github/workflows/evals.yml"
+          ]
+        },
+        {
+          "surface": "Custom Agents",
+          "scopes": [
+            "Project"
+          ],
+          "count": 0
+        }
+      ]
+    },
+    "usageActivity": {
+      "schemaVersion": 2,
+      "dateBasis": "UTC",
+      "measurementBasis": "session-starts-active-estimate-model-active-session-days-skill-invocations-and-loads",
+      "truncated": false,
+      "dates": [
+        "2026-07-29"
+      ],
+      "sessions": {
+        "total": 2,
+        "starts": [
+          2
+        ],
+        "activeMinutes": [
+          27.2
+        ]
+      },
+      "models": [],
+      "skills": []
+    },
+    "usageEfficiency": {
+      "schemaVersion": 2,
+      "selection": {
+        "strategy": "all-eligible",
+        "eligibleSessionCount": 2,
+        "analyzedSessionCount": 2,
+        "complete": true
+      },
+      "roles": {
+        "userThreadCandidateCount": 2,
+        "childAgentCandidateCount": 0
+      },
+      "longSessions": {
+        "activeCount": 0,
+        "wallOnlyCount": 0,
+        "longestActiveMinutes": 0,
+        "activeRatio": 0,
+        "estimate": {
+          "method": "capped-event-gap",
+          "activeThresholdMinutes": 45,
+          "gapCapMinutes": 5,
+          "idleGapMinutes": 30
+        },
+        "samples": []
+      },
+      "accounting": {
+        "mode": "effort-proxy",
+        "responseCount": 0,
+        "modelAttributedResponseCount": 0,
+        "unattributedResponseCount": 0,
+        "usageFieldObservedCount": 0,
+        "nonZeroUsageCount": 0,
+        "exactCreditsAvailable": false,
+        "pricingVersion": null
+      },
+      "modelUsage": [],
+      "outcomeReview": {
+        "status": "required",
+        "reviewedCandidateCount": 0,
+        "reviewedActiveLongCount": 0,
+        "comparableModelOutcomeEvidence": false,
+        "recommendation": "controlled-a-b-required"
+      }
+    },
+    "assignmentSummaries": []
+  },
+  "findings": [
+    {
+      "id": "installer-safety-test-not-gated",
+      "title": "Installer 安全边界测试未进入要求的 CI 验证路径",
+      "severity": "Medium",
+      "reason": "tests/install-dry-run.test.js 直接验证拒绝覆盖已有文件、红区确认、目标路径逃逸和事务回滚，但 pnpm check、pnpm test:integration 与 pnpm smoke:lifecycle 都不执行该文件；当前 CI 只组合运行这些路径。因而 installer 变更可以通过项目列出的常规接受检查，而没有执行这组负向与恢复断言。",
+      "dimensionRefs": [
+        "change-validation"
+      ],
+      "aiFixPrompt": "/better-harness fix this issue\n\n把 tests/install-dry-run.test.js 接入现有 installer 验证 owner，优先扩展 package.json 中已由 CI 运行的 test:integration，不要创建平行测试入口；同步必要的验证说明。\n\n## Validation\n\n- 运行 node --test --test-concurrency=1 --test-timeout=120000 tests/install-dry-run.test.js\n- 运行 pnpm test:integration\n- 确认 CI 使用的命令会执行拒写、红区、路径逃逸和回滚断言",
+      "expectedArtifact": "Test",
+      "expectedOutput": [
+        "让 installer 变更进入接受边界前执行覆盖拒写、红区、路径逃逸和事务回滚的项目测试。"
+      ]
+    },
+    {
+      "id": "skill-route-browser-verification-drift",
+      "title": "Skill 能力图漏掉 browser-verification",
+      "severity": "Low",
+      "reason": "项目 inventory 中有 9 个 Skills，但 AGENTS.md 仍称完整安装包含八个领域 Skills，AGENT_SKILL_ROUTING.md 的领域列表也未出现 browser-verification。虽然宿主仍可能依据 description 发现它，依赖能力图导航的 agent 无法从当前路由文档确认浏览器验收的正式 owner。",
+      "dimensionRefs": [
+        "task-understanding"
+      ],
+      "aiFixPrompt": "/better-harness fix this issue\n\n校准完整安装说明与 Skill 路由文档：让领域 Skill 计数、名称和 browser-verification 的触发边界一致；如果它被有意归为非领域 Skill，则在同一 canonical owner 中明确分类，避免继续使用含混计数。\n\n## Validation\n\n- 运行 pnpm skills:audit\n- 运行 pnpm docs:audit\n- 核对 AGENTS.md、AGENT_SKILL_ROUTING.md 与 .agents/skills inventory 的计数和路由一致",
+      "expectedArtifact": "Document",
+      "expectedOutput": [
+        "让根入口与 Skill 路由文档对当前 9 个项目 Skill 的能力边界保持一致。"
+      ]
+    }
+  ]
+}
