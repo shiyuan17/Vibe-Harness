@@ -20,7 +20,7 @@ test('project config exposes guarded safety Hook defaults', () => {
     allowedWriteRoots: [],
     allowedEgressHosts: [],
     mode: 'guarded',
-    redZonePaths: ['.env', 'auth/', 'ci/cd/', '.github/workflows/', '.codex/hooks.json'],
+    redZonePaths: ['.env', 'auth/', 'ci/cd/', '.github/workflows/', '.codex/hooks.json', '.cursor/hooks.json', '.cursor/mcp.json', '.mcp.json', '.qoder/settings.json', '.zcode/config.json'],
   });
   assert.equal(validateProjectConfig(defaultProjectConfig), true);
   assert.throws(

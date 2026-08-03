@@ -1,0 +1,27 @@
+{
+  "PreToolUse": [
+    {
+      "matcher": ".*",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "node \"{{hookRunnerPath}}\" --host zcode --expected-event PreToolUse",
+          "timeout": 10,
+          "statusMessage": "Vibe-Harness safety policy"
+        }
+      ]
+    }
+  ],
+  "PermissionRequest": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "node \"{{hookRunnerPath}}\" --host zcode --expected-event PermissionRequest",
+          "timeout": 10,
+          "statusMessage": "Vibe-Harness safety policy"
+        }
+      ]
+    }
+  ]
+}

@@ -12,7 +12,7 @@ import { productIdentity } from './product-identity.js';
 import { resolveProjectConfigLocation } from './project-layout.js';
 
 export const mvpProfiles = new Set(['minimal', 'core', 'full', 'docs-only']);
-export const mvpTargets = new Set(['codex', 'claude', 'gemini']);
+export const mvpTargets = new Set(['codex', 'claude', 'gemini', 'cursor', 'qoder', 'zcode']);
 
 export function canonicalProfile(profile) {
   if (profile === 'codex-internal') return 'full';
@@ -55,7 +55,7 @@ export const defaultProjectConfig = {
     allowedWriteRoots: [],
     allowedEgressHosts: [],
     mode: 'guarded',
-    redZonePaths: ['.env', 'auth/', 'ci/cd/', '.github/workflows/', '.codex/hooks.json'],
+    redZonePaths: ['.env', 'auth/', 'ci/cd/', '.github/workflows/', '.codex/hooks.json', '.cursor/hooks.json', '.cursor/mcp.json', '.mcp.json', '.qoder/settings.json', '.zcode/config.json'],
   },
   riskZones: {
     red: ['auth', 'secrets', 'ci-cd', 'env'],
@@ -362,9 +362,24 @@ export function validateGeneratedContent(content, { installedTargets } = {}) {
         fragment: '.codex/hooks.json',
         label: '.codex/hooks.json',
       },
+      {
+        exact: '.cursor/hooks.json',
+        fragment: '.cursor/hooks.json',
+        label: '.cursor/hooks.json',
+      },
+      {
+        exact: '.qoder/settings.json',
+        fragment: '.qoder/settings.json',
+        label: '.qoder/settings.json',
+      },
+      {
+        exact: '.zcode/config.json',
+        fragment: '.zcode/config.json',
+        label: '.zcode/config.json',
+      },
     ];
 
-    for (const skillRoot of ['.agents/skills/', '.claude/skills/', '.gemini/skills/']) {
+    for (const skillRoot of ['.agents/skills/', '.claude/skills/', '.cursor/skills/', '.gemini/skills/', '.qoder/skills/']) {
       if (content.includes(skillRoot) && !normalizedTargets.some((target) => target.startsWith(skillRoot))) {
         throw new Error(`Generated AGENTS.md references ${skillRoot} but it is not installed by profile.`);
       }

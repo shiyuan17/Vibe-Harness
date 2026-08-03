@@ -69,6 +69,43 @@ export function normalizeCodexHookInput(value) {
   return normalized;
 }
 
+const supportedHostHookEvents = new Set(['PreToolUse', 'PermissionRequest']);
+const hostEventAliases = new Map([
+  ['pretooluse', 'PreToolUse'],
+  ['permissionrequest', 'PermissionRequest'],
+]);
+
+function hostEvent(value) {
+  if (typeof value !== 'string') return null;
+  return hostEventAliases.get(value.replaceAll(/[_-]/gu, '').toLowerCase()) ?? null;
+}
+
+/**
+ * Normalizes the project-level hook payloads used by Cursor, Qoder, and ZCode
+ * into the policy's host-neutral request shape. These hosts use different key
+ * casing, so validation happens before a request reaches the shared policy.
+ */
+export function normalizeHostHookInput(value, { fallbackCwd, host } = {}) {
+  if (host === 'codex') return normalizeCodexHookInput(value);
+  if (!['cursor', 'qoder', 'zcode'].includes(host)) throw new Error(`Unsupported hook host: ${String(host)}`);
+  assertObject(value, `${host} hook input`);
+  const event = hostEvent(value.hook_event_name ?? value.hookEventName ?? value.event ?? value.event_name);
+  if (!event || !supportedHostHookEvents.has(event)) {
+    throw new Error(`Unsupported ${host} hook event.`);
+  }
+  const cwd = value.cwd ?? value.workspaceRoot ?? value.workspace_root ?? value.projectRoot ?? value.project_root ?? fallbackCwd;
+  if (typeof cwd !== 'string' || cwd.length === 0) throw new Error(`${host} hook input.cwd is required.`);
+  const toolInput = value.tool_input ?? value.toolInput ?? value.tool?.input ?? value.tool?.arguments ?? value.arguments ?? value.input ?? {};
+  return {
+    cwd,
+    event,
+    permissionMode: value.permission_mode ?? value.permissionMode,
+    sessionId: value.session_id ?? value.sessionId ?? value.conversationId ?? value.requestId ?? 'host-hook',
+    toolInput: typeof toolInput === 'string' ? { command: toolInput } : toolInput,
+    toolName: value.tool_name ?? value.toolName ?? value.tool?.name ?? value.name ?? '',
+  };
+}
+
 function isInside(baseDir, candidate) {
   const relative = path.relative(path.resolve(baseDir), path.resolve(candidate));
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
@@ -434,4 +471,37 @@ export function createCodexHookResult(event, decision, { durationMs } = {}) {
     };
   }
   return { decision: 'block', reason };
+}
+
+function policyReason(decision, durationMs) {
+  const durationSuffix = Number.isFinite(durationMs) && durationMs >= 0 ? `:${Math.round(durationMs)}` : '';
+  return decision.reasonCode
+    ? `[VIBE_HARNESS_POLICY:${decision.reasonCode}${durationSuffix}] ${decision.reason}`
+    : decision.reason;
+}
+
+/** Serialize a host-neutral policy decision using the host's hook contract. */
+export function createHostHookResult(host, event, decision, { durationMs } = {}) {
+  if (host === 'codex') return createCodexHookResult(event, decision, { durationMs });
+  if (!decision || decision.action === 'allow') return {};
+  const reason = policyReason(decision, durationMs);
+  if (host === 'cursor') {
+    return decision.action === 'warn'
+      ? { additionalContext: reason, continue: true }
+      : { continue: false, stopReason: reason };
+  }
+  if (host === 'qoder' || host === 'zcode') {
+    if (decision.action === 'warn') return { hookSpecificOutput: { additionalContext: reason, hookEventName: event } };
+    if (event === 'PermissionRequest') {
+      return { hookSpecificOutput: { decision: { behavior: 'deny', message: reason }, hookEventName: event } };
+    }
+    return {
+      hookSpecificOutput: {
+        hookEventName: event,
+        permissionDecision: 'deny',
+        permissionDecisionReason: reason,
+      },
+    };
+  }
+  throw new Error(`Unsupported hook host: ${String(host)}`);
 }

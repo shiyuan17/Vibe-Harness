@@ -2,7 +2,7 @@ import './helpers/offline-tools.js';
 
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -15,6 +15,7 @@ import {
 } from '../scripts/lib/template-renderer.js';
 import { resolveAdapterEntry } from '../scripts/lib/adapter.js';
 import { createInstallPlan } from '../scripts/lib/install-planner.js';
+import { applyUninstallPlan, createUninstallPlan } from '../scripts/lib/install-state.js';
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '..');
@@ -102,6 +103,92 @@ for (const adapter of ['claude', 'gemini']) {
     });
   }
 }
+
+for (const adapter of [
+  { id: 'cursor', config: '.cursor/hooks.json', mcpConfig: '.cursor/mcp.json', skills: '.cursor/skills' },
+  { id: 'qoder', config: '.qoder/settings.json', mcpConfig: '.mcp.json', skills: '.qoder/skills' },
+  { id: 'zcode', config: '.zcode/config.json', mcpConfig: '.zcode/config.json', skills: null },
+]) {
+  for (const profile of ['minimal', 'core', 'full', 'docs-only']) {
+    test(`${adapter.id} ${profile} supports project-scoped install, validate, and uninstall`, async () => {
+      const target = await mkdtemp(path.join(tmpdir(), `vibe-harness-${adapter.id}-${profile}-`));
+      try {
+        await run(['init', '--project', target, '--target', adapter.id]);
+        const configPath = path.join(target, 'vibe-harness.config.json');
+        const config = JSON.parse(await readFile(configPath, 'utf8'));
+        await writeFile(configPath, `${JSON.stringify({ ...config, profile }, null, 2)}\n`, 'utf8');
+        await writeFile(path.join(target, 'AGENTS.md'), '# Local instructions\n', 'utf8');
+
+        const installArgs = ['install', '--project', target, '--target', adapter.id, '--profile', profile];
+        if (profile === 'full') {
+          await mkdir(path.dirname(path.join(target, adapter.config)), { recursive: true });
+          await writeFile(path.join(target, adapter.config), '{\n  "custom": true\n}\n', 'utf8');
+          const preview = await run([...installArgs, '--plugin', 'codebase-memory', '--allow-preview', '--dry-run']);
+          assert.equal(preview.actions.some((action) => action.relativeTarget === adapter.config && action.redZone), true);
+          const blocked = await fail([...installArgs, '--plugin', 'codebase-memory', '--allow-preview', '--write']);
+          assert.match(blocked.error.message, /red-zone confirmation/iu);
+          await run([...installArgs, '--plugin', 'codebase-memory', '--allow-preview', '--write', '--confirm-red-zone']);
+        } else {
+          await run([...installArgs, '--write']);
+        }
+
+        assert.match(await readFile(path.join(target, 'AGENTS.md'), 'utf8'), /# Local instructions/u);
+        assert.equal((await run(['validate', '--project', target])).status, 'ready');
+        if (profile === 'full') {
+          const hostConfig = JSON.parse(await readFile(path.join(target, adapter.config), 'utf8'));
+          assert.equal(hostConfig.custom, true);
+          const mcpConfig = JSON.parse(await readFile(path.join(target, adapter.mcpConfig), 'utf8'));
+          assert.match(JSON.stringify(mcpConfig), /vibe-harness-codebase-memory-mcp/u);
+          assert.equal(
+            adapter.skills
+              ? await exists(path.join(target, adapter.skills, 'clarify-requirements', 'SKILL.md'))
+              : await exists(path.join(target, '.zcode/skills')),
+            Boolean(adapter.skills),
+          );
+          await run([...installArgs, '--plugin', 'codebase-memory', '--allow-preview', '--write', '--upgrade', '--confirm-red-zone']);
+        }
+
+        await run(['uninstall', '--project', target, '--target', adapter.id, '--write', ...(profile === 'full' ? ['--confirm-red-zone'] : [])]);
+        if (profile === 'full') {
+          const remaining = JSON.parse(await readFile(path.join(target, adapter.config), 'utf8'));
+          assert.deepEqual(remaining, { custom: true });
+        }
+      } finally {
+        await rm(target, { force: true, recursive: true });
+      }
+    });
+  }
+}
+
+test('modified Cursor managed JSON is retained during upgrade and uninstall', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-cursor-json-conflict-'));
+  try {
+    await run(['init', '--project', target, '--target', 'cursor']);
+    await run(['install', '--project', target, '--target', 'cursor', '--profile', 'full', '--allow-preview', '--write', '--confirm-red-zone']);
+    const configPath = path.join(target, '.cursor/hooks.json');
+    const modified = (await readFile(configPath, 'utf8')).replace('Vibe-Harness safety policy', 'User-owned safety policy');
+    await writeFile(configPath, modified, 'utf8');
+
+    const upgrade = await createInstallPlan({
+      adapterId: 'cursor',
+      allowPreview: true,
+      profile: 'full',
+      renderData: { projectName: 'cursor-conflict' },
+      rootDir,
+      targetDir: target,
+      upgrade: true,
+    });
+    assert.equal(upgrade.actions.find((action) => action.relativeTarget === '.cursor/hooks.json').kind, 'user-modified');
+
+    const uninstall = await createUninstallPlan({ dryRun: false, redZoneConfirmed: true, targetDir: target });
+    const result = await applyUninstallPlan(uninstall);
+    assert.equal(result.retainedState, true);
+    assert.deepEqual(result.skipped, [{ reason: 'managed-block-modified', target: '.cursor/hooks.json' }]);
+    assert.match(await readFile(configPath, 'utf8'), /User-owned safety policy/u);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
 
 for (const adapter of [
   { id: 'claude', skills: '.claude/skills' },

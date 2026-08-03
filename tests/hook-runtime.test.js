@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { evaluateCodexHook } from '../runtime/hooks/codex-hook.mjs';
+import { evaluateCodexHook, evaluateHook } from '../runtime/hooks/codex-hook.mjs';
 import { resolveExecutable, runCommand } from '../runtime/hooks/git-hook.mjs';
 import { DEFAULT_RED_ZONE_PATHS, readHookSettings } from '../runtime/hooks/lib/context.mjs';
 import { analyzeToolRequest, normalizeCodexHookInput, supportedCodexHookEvents } from '../runtime/hooks/lib/policy.mjs';
@@ -56,6 +56,50 @@ test('Hook denies destructive Git operations and global Agent configuration writ
       tool_input: { command: 'git config --global user.email agent@example.test' },
     }));
     assert.equal(globalConfig.hookSpecificOutput.permissionDecision, 'deny');
+  });
+});
+
+test('Cursor, Qoder, and ZCode normalize host payloads and deny destructive commands', async () => {
+  await withProject(async (target) => {
+    const fixtures = [
+      {
+        host: 'cursor',
+        payload: {
+          cwd: target,
+          event: 'preToolUse',
+          sessionId: 'cursor-session',
+          toolInput: { command: 'git reset --hard HEAD' },
+          toolName: 'Shell',
+        },
+        assertDenied: (result) => assert.equal(result.continue, false),
+      },
+      {
+        host: 'qoder',
+        payload: {
+          cwd: target,
+          hookEventName: 'PreToolUse',
+          sessionId: 'qoder-session',
+          toolInput: { command: 'git reset --hard HEAD' },
+          toolName: 'Shell',
+        },
+        assertDenied: (result) => assert.equal(result.hookSpecificOutput.permissionDecision, 'deny'),
+      },
+      {
+        host: 'zcode',
+        payload: {
+          cwd: target,
+          hook_event_name: 'PreToolUse',
+          session_id: 'zcode-session',
+          tool_input: { command: 'git reset --hard HEAD' },
+          tool_name: 'Shell',
+        },
+        assertDenied: (result) => assert.equal(result.hookSpecificOutput.permissionDecision, 'deny'),
+      },
+    ];
+    for (const fixture of fixtures) {
+      const result = await evaluateHook(fixture.payload, { expectedEvent: 'PreToolUse', host: fixture.host });
+      fixture.assertDenied(result);
+    }
   });
 });
 

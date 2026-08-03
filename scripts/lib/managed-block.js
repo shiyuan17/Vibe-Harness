@@ -21,6 +21,7 @@ import { createHash } from 'node:crypto';
 export const CONTENT_STRATEGIES = [
   'managed-ignore-block',
   'managed-instruction-block',
+  'managed-json-object',
   'managed-toml-block',
   'replace',
 ];
@@ -31,12 +32,15 @@ export const isManagedInstruction = (strategy) => strategy === 'managed-instruct
 /** True for TOML/MCP-block strategies (.codex/config.toml managed section). */
 export const isManagedToml = (strategy) => strategy === 'managed-toml-block';
 
+/** True for JSON object sections owned by the adapter configuration. */
+export const isManagedJson = (strategy) => strategy === 'managed-json-object';
+
 /** True for ignore-block strategies (.gitignore managed section). */
 export const isManagedIgnore = (strategy) => strategy === 'managed-ignore-block';
 
 /** True for any managed-block strategy (excludes `replace`). */
 export const isManagedBlock = (strategy) =>
-  isManagedInstruction(strategy) || isManagedToml(strategy) || isManagedIgnore(strategy);
+  isManagedInstruction(strategy) || isManagedToml(strategy) || isManagedJson(strategy) || isManagedIgnore(strategy);
 
 /**
  * Compute the sha256 hash of an already-extracted managed block. The caller is

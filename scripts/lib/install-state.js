@@ -25,8 +25,10 @@ import {
   hashManagedBlock,
   isManagedIgnore,
   isManagedInstruction,
+  isManagedJson,
   isManagedToml,
 } from './managed-block.js';
+import { managedJsonPayload, removeManagedJsonConfig } from './managed-json-config.js';
 
 const stateFileName = 'install-state.json';
 
@@ -224,6 +226,15 @@ export async function createRollbackPlan({ dryRun = true, redZoneConfirmed = fal
         redZone: Boolean(file.redZone),
         target: file.target,
       });
+    } else if (isManagedJson(file.contentStrategy)) {
+      actions.push({
+        created: Boolean(file.created),
+        expectedManagedBlockHash: file.managedBlockHash,
+        kind: 'remove-managed-json-config',
+        managedJson: file.managedJson,
+        redZone: Boolean(file.redZone),
+        target: file.target,
+      });
     } else if (file.backup) {
       assertPortableRelativePath(file.backup, 'install-state backup');
       const backupPath = path.join(targetDir, file.backup);
@@ -350,6 +361,23 @@ export async function applyRollbackPlan(plan, hooks = {}) {
       const remaining = removeManagedMcpBlock(content);
       if (remaining) await writeFile(target, remaining, 'utf8');
       else await rm(target, { force: true });
+      applied.push(action.target);
+    } else if (action.kind === 'remove-managed-json-config' && await pathExists(target)) {
+      let remaining;
+      try {
+        const content = await readFile(target, 'utf8');
+        const blockHash = hashManagedBlock(managedJsonPayload(content, action.managedJson));
+        if (blockHash !== action.expectedManagedBlockHash) {
+          skipped.push({ reason: 'managed-block-modified', target: action.target });
+          continue;
+        }
+        remaining = removeManagedJsonConfig(content, action.managedJson);
+      } catch {
+        skipped.push({ reason: 'managed-block-modified', target: action.target });
+        continue;
+      }
+      if (remaining.trim() === '{}' && action.created) await rm(target, { force: true });
+      else await writeFile(target, remaining, 'utf8');
       applied.push(action.target);
     } else if (action.kind === 'restore-retired') {
       if (await pathExists(target)) {
@@ -502,6 +530,15 @@ export async function createUninstallPlan({ dryRun = true, redZoneConfirmed = fa
         redZone: Boolean(file.redZone),
         target: file.target,
       });
+    } else if (isManagedJson(file.contentStrategy)) {
+      actions.push({
+        created: Boolean(originalCreated),
+        expectedManagedBlockHash: file.managedBlockHash,
+        kind: 'remove-managed-json-config',
+        managedJson: file.managedJson,
+        redZone: Boolean(file.redZone),
+        target: file.target,
+      });
     } else if (originalBackup) {
       assertPortableRelativePath(originalBackup, 'install-state backup');
       assertInsideDir(path.join(targetDir, stateDirNameFor(targetDir), 'backups'), path.join(targetDir, originalBackup), 'install-state backup');
@@ -581,6 +618,20 @@ async function applyUninstallAction(plan, action) {
     if (remaining) await writeFile(target, remaining, 'utf8');
     else await rm(target, { force: true });
     return null;
+  }
+  if (action.kind === 'remove-managed-json-config') {
+    if (!(await pathExists(target))) return null;
+    try {
+      const content = await readFile(target, 'utf8');
+      const blockHash = hashManagedBlock(managedJsonPayload(content, action.managedJson));
+      if (blockHash !== action.expectedManagedBlockHash) return 'managed-block-modified';
+      const remaining = removeManagedJsonConfig(content, action.managedJson);
+      if (remaining.trim() === '{}' && action.created) await rm(target, { force: true });
+      else await writeFile(target, remaining, 'utf8');
+      return null;
+    } catch {
+      return 'managed-block-modified';
+    }
   }
   if (action.kind === 'restore-backup') {
     if (await pathExists(target) && await hashFile(target) !== action.expectedHash) return 'target-modified';

@@ -27,7 +27,18 @@
         "required": ["created", "group", "redZone", "source", "sourceHash", "target", "targetHash"],
         "properties": {
           "backup": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-          "contentStrategy": { "enum": ["managed-ignore-block", "managed-instruction-block", "managed-toml-block", "replace"] },
+          "contentStrategy": { "enum": ["managed-ignore-block", "managed-instruction-block", "managed-json-object", "managed-toml-block", "replace"] },
+          "managedJson": {
+            "type": "object",
+            "required": ["hookMarker", "serverPrefix"],
+            "properties": {
+              "hookMarker": { "type": "string", "minLength": 1 },
+              "hooksPath": { "anyOf": [{ "type": "array", "items": { "type": "string", "minLength": 1 } }, { "type": "null" }] },
+              "mcpPath": { "anyOf": [{ "type": "array", "items": { "type": "string", "minLength": 1 } }, { "type": "null" }] },
+              "serverPrefix": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+          },
           "created": { "type": "boolean" },
           "group": { "type": "string", "minLength": 1 },
           "managedBlockHash": { "type": "string" },

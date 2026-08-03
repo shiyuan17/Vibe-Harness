@@ -4,7 +4,7 @@ Vibe-Harness 将项目级 AI coding 资产安装到本目录。子目录按职�
 
 ## 子目录
 
-- `skills/`：领域 Skills，宿主按 SKILL.md 的 description 原生选择，不使用 Router。codex 装到这里；claude/gemini 分别装到 `.claude/skills/`、`.gemini/skills/`，见项目根的 `AGENTS.md`/`CLAUDE.md`/`GEMINI.md`。
+- `skills/`：领域 Skills，宿主按 SKILL.md 的 description 原生选择，不使用 Router。Codex 装到这里；Claude/Gemini/Cursor/Qoder 分别装到 `.claude/skills/`、`.gemini/skills/`、`.cursor/skills/`、`.qoder/skills/`，见项目根的指令文件。ZCode 未公开项目级 Skill 路径，因此不自动安装 Skills。
 - `evals/`：评测数据——`suites/` 是用例集，`references/` 是人工批准的基线。安装器写入，升级覆盖。
 - `memory/`：运行态项目记忆（CURRENT、observations、decisions、sessions），可手动读写；路径由 `vibe-harness.config.json` 的 `memory.path` 决定，默认即此处。若 full profile 安装了 `docs/memory/`，该目录保存项目的 durable governance truth（状态、架构、决策、缺陷、债务和失败护栏），`memory/` 不得覆盖。
 - `runtime/`：Vibe-Harness 运行时脚本——`hooks/`（安全策略与 RTK 路由）、`evals/`（离线/在线 eval runner）、`tools/`（仅 `--plugin` 显式启用的项目内工具入口）。安装器写入，升级覆盖。

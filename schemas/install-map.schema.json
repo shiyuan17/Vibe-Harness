@@ -14,7 +14,7 @@
           "group": { "type": "string", "minLength": 1 },
           "source": { "type": "string", "minLength": 1 },
           "target": { "type": "string", "minLength": 1 },
-          "contentStrategy": { "type": "string", "enum": ["managed-ignore-block", "managed-instruction-block", "managed-toml-block", "replace"] },
+          "contentStrategy": { "type": "string", "enum": ["managed-ignore-block", "managed-instruction-block", "managed-json-object", "managed-toml-block", "replace"] },
           "executable": { "type": "boolean" },
           "redZone": { "type": "boolean" }
         },

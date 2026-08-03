@@ -15,6 +15,11 @@ export const DEFAULT_RED_ZONE_PATHS = [
   'ci/cd/',
   '.github/workflows/',
   '.codex/hooks.json',
+  '.cursor/hooks.json',
+  '.cursor/mcp.json',
+  '.mcp.json',
+  '.qoder/settings.json',
+  '.zcode/config.json',
 ];
 
 async function git(rootDir, args) {

@@ -7,7 +7,7 @@
     "projectName": { "type": "string", "minLength": 1 },
     "language": { "type": "string", "enum": ["zh-CN", "en-US"] },
     "packageManager": { "type": "string", "minLength": 1 },
-    "target": { "type": "string", "enum": ["codex", "claude", "gemini"] },
+    "target": { "type": "string", "enum": ["codex", "claude", "gemini", "cursor", "qoder", "zcode"] },
     "profile": { "type": "string", "enum": ["minimal", "core", "full", "docs-only"] },
     "modules": {
       "type": "array",

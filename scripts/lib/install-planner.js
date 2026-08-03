@@ -47,8 +47,15 @@ import {
   hashManagedBlock,
   isManagedIgnore,
   isManagedInstruction,
+  isManagedJson,
   isManagedToml,
 } from './managed-block.js';
+import {
+  hasManagedJsonPayload,
+  managedJsonPayload,
+  mergeManagedJsonConfig,
+  removeManagedJsonConfig,
+} from './managed-json-config.js';
 
 async function loadProfileInstallMap({ adapterId = 'codex', allowPreview = false, profile, rootDir }) {
   const profiles = await readJson(path.join(rootDir, 'manifests/profiles.json'));
@@ -88,7 +95,7 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
   const hasPrefix = (prefix) => installedTargets.some((target) => target.startsWith(prefix));
   const hasSkill = (suffix) => installedTargets.some((target) => target.endsWith(`/skills/${suffix}`));
   const skillRoots = [...new Set(installedTargets
-    .filter((target) => /^\.(?:agents|claude|gemini)\/skills\//u.test(target))
+    .filter((target) => /^\.(?:agents|claude|cursor|gemini|qoder)\/skills\//u.test(target))
     .map((target) => target.split('/skills/')[0] + '/skills'))];
   const hasEngineeringRules = [
     'docs/rules/coding-rules.md',
@@ -133,7 +140,10 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
       ? '若 `codebase-memory-mcp` 可用，先确认索引状态并用于结构化定位；不可用时说明并退回仓库搜索。'
       : '使用仓库搜索和已安装规则定位相关代码；需要结构化索引时先确认目标项目已有能力。',
     engineeringRulesLine: hasEngineeringRules ? '- 工程专项规则位于 `docs/rules/`。' : '',
-    hooksLine: hasTarget('.codex/hooks.json') ? '- Codex hook 配置位于 `.codex/hooks.json`。' : '',
+    hooksLine: hasTarget('.codex/hooks.json') ? '- Codex hook 配置位于 `.codex/hooks.json`。'
+      : (hasTarget('.cursor/hooks.json') ? '- Cursor hook 配置位于 `.cursor/hooks.json`。'
+        : (hasTarget('.qoder/settings.json') ? '- Qoder hook 配置位于 `.qoder/settings.json`。'
+          : (hasTarget('.zcode/config.json') ? '- ZCode hook 配置位于 `.zcode/config.json`。' : ''))),
     memorySkillsLine: hasAgentMemorySkills
       ? `- agentmemory skills 位于 \`${agentMemorySkillRoot}/\`${hasLocalMemory ? `，本地记忆库位于 \`${normalizedMemoryPath}/\`` : ''}。`
       : '',
@@ -222,6 +232,92 @@ function createManagedMcpServers(targetDir, resolvedModules) {
   return servers;
 }
 
+function adapterConfigRedZone(adapter, target) {
+  return adapter.redZonePrefixes.some((prefix) => target.startsWith(prefix.replaceAll('\\', '/')));
+}
+
+async function loadAdapterHookConfig(adapter, renderData, rootDir) {
+  const source = path.join(rootDir, 'adapters', adapter.id, 'hooks.template.json');
+  return JSON.parse(renderTemplate(await readFile(source, 'utf8'), renderData));
+}
+
+function managedJsonHash(content, descriptor) {
+  return hashManagedBlock(managedJsonPayload(content, descriptor));
+}
+
+async function planAdapterConfigActions(ctx) {
+  const { adapter, allowedGroups, force, managed, moduleSelection, renderData, rootDir, targetDir, upgrade } = ctx;
+  if (!adapter.projectConfig) return [];
+
+  const planned = new Map();
+  const ensure = (kind, definition) => {
+    const target = definition.target.replaceAll('\\', '/');
+    let item = planned.get(target);
+    if (!item) {
+      item = {
+        descriptor: { hookMarker: 'Vibe-Harness safety policy', hooksPath: null, mcpPath: null, serverPrefix: 'vibe-harness-' },
+        kinds: [],
+        target,
+      };
+      planned.set(target, item);
+    }
+    item.descriptor[`${kind}Path`] = definition.path;
+    item.kinds.push(kind);
+    return item;
+  };
+
+  const servers = createManagedMcpServers(path.resolve(targetDir), moduleSelection.resolvedModules);
+  if (allowedGroups.has('mcp-config') && Object.keys(servers).length > 0 && adapter.projectConfig.mcp) {
+    const item = ensure('mcp', adapter.projectConfig.mcp);
+    item.servers = servers;
+  }
+  if (allowedGroups.has('hooks') && adapter.projectConfig.hooks) {
+    const item = ensure('hooks', adapter.projectConfig.hooks);
+    item.hooks = await loadAdapterHookConfig(adapter, renderData, rootDir);
+  }
+
+  const actions = [];
+  for (const item of planned.values()) {
+    const relativeTarget = item.target;
+    const target = path.resolve(targetDir, relativeTarget);
+    const kind = item.kinds.includes('hooks') ? 'hooks' : 'mcp';
+    const relativeSource = `adapters/${adapter.id}/${kind}.template.json`;
+    const source = path.resolve(rootDir, relativeSource);
+    const exists = await pathExists(target);
+    const managedFile = managed.get(relativeTarget);
+    let actionKind = 'write';
+    if (exists && !force) {
+      try {
+        if (managedFile) {
+          actionKind = managedJsonHash(await readFile(target, 'utf8'), item.descriptor) === managedFile.managedBlockHash
+            ? 'write'
+            : 'user-modified';
+        } else {
+          actionKind = hasManagedJsonPayload(await readFile(target, 'utf8'), item.descriptor) ? 'conflict' : 'write';
+        }
+      } catch {
+        actionKind = 'conflict';
+      }
+    }
+    if (upgrade && exists && !force && !managedFile && actionKind !== 'write') actionKind = 'conflict';
+    actions.push({
+      contentStrategy: 'managed-json-object',
+      executable: false,
+      group: 'adapter-config',
+      hooks: item.hooks ?? {},
+      kind: actionKind,
+      managedJson: item.descriptor,
+      mcpServers: item.servers ?? {},
+      redZone: adapterConfigRedZone(adapter, relativeTarget),
+      relativeSource,
+      relativeTarget,
+      source,
+      target,
+    });
+  }
+  return actions;
+}
+
 export async function createInstallPlan({
   adapterId = 'codex',
   allowPreview = false,
@@ -270,6 +366,7 @@ export async function createInstallPlan({
   };
 
   const actions = await planEntryActions(ctx);
+  actions.push(...await planAdapterConfigActions(ctx));
 
   actions.push(...await planUpgradeRetirements(ctx, actions));
 
@@ -433,7 +530,7 @@ async function planUpgradeRetirements(ctx, entryActions) {
   const plannedSkillTargets = new Set([...entryActions, ...actions].map((action) => action.relativeTarget));
   for (const managedFile of state?.files ?? []) {
     const relativeTarget = managedFile.target.replaceAll('\\', '/');
-    if (!/^\.(?:agents|claude|gemini)\/skills\//u.test(relativeTarget)
+    if (!/^\.(?:agents|claude|cursor|gemini|qoder)\/skills\//u.test(relativeTarget)
       || plannedSkillTargets.has(relativeTarget)) {
       continue;
     }
@@ -463,13 +560,18 @@ async function planUpgradeRetirements(ctx, entryActions) {
     assertInsideDir(targetDir, target, 'obsolete managed target');
     await assertSafePathInside(targetDir, target, 'obsolete managed target');
     if (!(await pathExists(target))) continue;
-    const currentHash = await hashFile(target);
+    const currentHash = isManagedJson(managedFile.contentStrategy)
+      ? managedJsonHash(await readFile(target, 'utf8'), managedFile.managedJson)
+      : await hashFile(target);
     actions.push({
       created: Boolean(managedFile.originalCreated ?? managedFile.created),
       discard: true,
       expectedHash: managedFile.targetHash,
       group: managedFile.group,
-      kind: currentHash === managedFile.targetHash ? 'retire' : 'retire-modified',
+      kind: currentHash === (isManagedJson(managedFile.contentStrategy) ? managedFile.managedBlockHash : managedFile.targetHash)
+        ? (isManagedJson(managedFile.contentStrategy) ? 'retire-managed-json' : 'retire')
+        : 'retire-modified',
+      ...(isManagedJson(managedFile.contentStrategy) ? { expectedHash: managedFile.managedBlockHash, managedJson: managedFile.managedJson } : {}),
       redZone: Boolean(managedFile.redZone),
       relativeTarget,
       target,
@@ -509,15 +611,21 @@ async function planDeselectedModuleRetirements(ctx, plannedTargets) {
     let currentHash;
     let expectedHash;
     let kind = 'retire';
-    if (isManagedToml(managedFile.contentStrategy) || isManagedIgnore(managedFile.contentStrategy)) {
+    if (isManagedToml(managedFile.contentStrategy) || isManagedIgnore(managedFile.contentStrategy) || isManagedJson(managedFile.contentStrategy)) {
       const content = await readFile(target, 'utf8');
       const block = isManagedToml(managedFile.contentStrategy)
         ? extractManagedMcpBlock(content)
-        : extractManagedCbmIgnoreBlock(content);
+        : isManagedIgnore(managedFile.contentStrategy)
+          ? extractManagedCbmIgnoreBlock(content)
+          : managedJsonPayload(content, managedFile.managedJson);
       currentHash = hashManagedBlock(block);
       expectedHash = managedFile.managedBlockHash;
       kind = currentHash === expectedHash
-        ? (isManagedToml(managedFile.contentStrategy) ? 'retire-managed-mcp' : 'retire-managed-ignore')
+        ? (isManagedToml(managedFile.contentStrategy)
+          ? 'retire-managed-mcp'
+          : isManagedIgnore(managedFile.contentStrategy)
+            ? 'retire-managed-ignore'
+            : 'retire-managed-json')
         : 'retire-modified';
     } else {
       currentHash = await hashFile(target);
@@ -530,6 +638,7 @@ async function planDeselectedModuleRetirements(ctx, plannedTargets) {
       expectedHash,
       group: managedFile.group,
       kind,
+      ...(isManagedJson(managedFile.contentStrategy) ? { managedJson: managedFile.managedJson } : {}),
       redZone: Boolean(managedFile.redZone),
       relativeTarget,
       target,
@@ -606,6 +715,12 @@ export async function renderSourceContent(action, renderData = {}) {
 }
 
 export async function renderActionContent(action, renderData = {}, existingContent = '') {
+  if (isManagedJson(action.contentStrategy)) {
+    return mergeManagedJsonConfig(existingContent, action.managedJson, {
+      hooks: action.hooks,
+      servers: action.mcpServers,
+    });
+  }
   if (isManagedToml(action.contentStrategy)) {
     return mergeManagedMcpBlock(existingContent, action.mcpServers).content;
   }
@@ -626,6 +741,7 @@ export async function previewInstallPlan(plan, { includeContent = true } = {}) {
       continue;
     }
     const existingContent = (isManagedInstruction(action.contentStrategy)
+      || isManagedJson(action.contentStrategy)
       || isManagedToml(action.contentStrategy)
       || isManagedIgnore(action.contentStrategy)) && await pathExists(action.target)
       ? await readFile(action.target, 'utf8')
@@ -667,7 +783,21 @@ export async function diffTargetInstall({
   });
   const allowedGroups = moduleSelection.allowedGroups;
   const selectedEntries = installMap.entries.filter((entry) => allowedGroups.has(entry.group) && shouldInstallEntry(entry, renderData));
-  const installedTargets = selectedEntries.map((entry) => memoryTargetPath(renderData, entry.target));
+  const adapterConfigActions = await planAdapterConfigActions({
+    adapter,
+    allowedGroups,
+    force: false,
+    managed: new Map(),
+    moduleSelection,
+    renderData: withDefaultTemplateData(renderData),
+    rootDir,
+    targetDir,
+    upgrade: false,
+  });
+  const installedTargets = [
+    ...selectedEntries.map((entry) => memoryTargetPath(renderData, entry.target)),
+    ...adapterConfigActions.map((action) => action.relativeTarget),
+  ];
   const renderedData = withDefaultTemplateData({
     ...renderData,
     installedSurface: createInstalledSurface({
@@ -733,6 +863,40 @@ export async function diffTargetInstall({
       }
     } else {
       missing.push(item);
+    }
+  }
+
+  for (const action of adapterConfigActions) {
+    const item = {
+      contentStrategy: action.contentStrategy,
+      group: action.group,
+      managedJson: action.managedJson,
+      mcpServers: action.mcpServers,
+      hooks: action.hooks,
+      redZone: action.redZone,
+      source: action.source,
+      target: action.relativeTarget,
+    };
+    const target = path.resolve(targetDir, item.target);
+    expected.push(item);
+    expectedTargets.add(item.target);
+    if (item.redZone) {
+      redZone.push({ ...item, status: await pathExists(target) ? 'present' : 'missing' });
+    }
+    if (!(await pathExists(target))) {
+      missing.push(item);
+      continue;
+    }
+    try {
+      const targetContent = await readFile(target, 'utf8');
+      const expectedContent = mergeManagedJsonConfig(targetContent, item.managedJson, {
+        hooks: item.hooks,
+        servers: item.mcpServers,
+      });
+      if (expectedContent === targetContent) same.push(item);
+      else changed.push(item);
+    } catch {
+      changed.push(item);
     }
   }
 
@@ -825,7 +989,7 @@ function validatePlanGuards(plan) {
   }
 }
 
-const TRACKED_ACTION_KINDS = ['write', 'retire', 'retire-managed-ignore', 'retire-managed-mcp', 'retire-generated-directory'];
+const TRACKED_ACTION_KINDS = ['write', 'retire', 'retire-managed-ignore', 'retire-managed-json', 'retire-managed-mcp', 'retire-generated-directory'];
 
 async function assertActionPaths(plan) {
   for (const action of plan.actions.filter((item) => TRACKED_ACTION_KINDS.includes(item.kind))) {
@@ -899,6 +1063,7 @@ async function executeWriteActions(plan, ctx, hooks) {
     const existingContent = existed ? await readFile(action.target, 'utf8') : '';
     if (existed
       && !isManagedInstruction(action.contentStrategy)
+      && !isManagedJson(action.contentStrategy)
       && !isManagedToml(action.contentStrategy)
       && !isManagedIgnore(action.contentStrategy)) {
       previousHash = await hashFile(action.target);
@@ -920,10 +1085,13 @@ async function executeWriteActions(plan, ctx, hooks) {
       contentStrategy: action.contentStrategy,
       created: !existed,
       group: action.group,
-      managedBlockHash: isManagedInstruction(action.contentStrategy) || isManagedToml(action.contentStrategy) || isManagedIgnore(action.contentStrategy)
+      ...(isManagedJson(action.contentStrategy) ? { managedJson: action.managedJson } : {}),
+      managedBlockHash: isManagedInstruction(action.contentStrategy) || isManagedJson(action.contentStrategy) || isManagedToml(action.contentStrategy) || isManagedIgnore(action.contentStrategy)
         ? hashManagedBlock(
             isManagedInstruction(action.contentStrategy)
               ? extractManagedInstructionBlock(targetContent)
+              : isManagedJson(action.contentStrategy)
+                ? managedJsonPayload(targetContent, action.managedJson)
               : isManagedToml(action.contentStrategy)
                 ? extractManagedMcpBlock(targetContent)
                 : extractManagedCbmIgnoreBlock(targetContent),
@@ -973,7 +1141,7 @@ async function executeRetireActions(plan, ctx) {
   for (const action of plan.actions) {
     if (action.kind === 'retire-modified') {
       skipped.push({
-        reason: /^\.(?:agents|claude|gemini)\/skills\//u.test(action.relativeTarget)
+        reason: /^\.(?:agents|claude|cursor|gemini|qoder)\/skills\//u.test(action.relativeTarget)
           ? 'retained-user-modified'
           : 'target-modified',
         target: action.relativeTarget,
@@ -994,6 +1162,29 @@ async function executeRetireActions(plan, ctx) {
       const remaining = removeManagedMcpBlock(content);
       if (remaining) await writeFile(action.target, remaining, 'utf8');
       else await rm(action.target, { force: true });
+      retired.push(action.relativeTarget);
+      discardedTargets.add(action.relativeTarget);
+      continue;
+    }
+    if (action.kind === 'retire-managed-json') {
+      if (!(await pathExists(action.target))) {
+        discardedTargets.add(action.relativeTarget);
+        continue;
+      }
+      let remaining;
+      try {
+        const content = await readFile(action.target, 'utf8');
+        if (managedJsonHash(content, action.managedJson) !== action.expectedHash) {
+          skipped.push({ reason: 'managed-block-modified', target: action.relativeTarget });
+          continue;
+        }
+        remaining = removeManagedJsonConfig(content, action.managedJson);
+      } catch {
+        skipped.push({ reason: 'managed-block-modified', target: action.relativeTarget });
+        continue;
+      }
+      if (remaining.trim() === '{}' && action.created) await rm(action.target, { force: true });
+      else await writeFile(action.target, remaining, 'utf8');
       retired.push(action.relativeTarget);
       discardedTargets.add(action.relativeTarget);
       continue;

@@ -176,6 +176,17 @@ export function validateCatalogManifest(name, manifest) {
       assertNonEmptyString(item.installMap, `${name}.items[${index}].installMap`);
       assertPortableRelativePath(item.installMap, `${name}.items[${index}].installMap`);
       assertPortableRelativePath(item.instructionTarget, `${name}.items[${index}].instructionTarget`);
+      assertNonEmptyString(item.instructionTemplate, `${name}.items[${index}].instructionTemplate`);
+      assertPortableRelativePath(item.skillRoot, `${name}.items[${index}].skillRoot`);
+      for (const [kind, config] of Object.entries(item.projectConfig ?? {})) {
+        if (!['hooks', 'mcp'].includes(kind) || !config || typeof config !== 'object') {
+          throw new Error(`${name}.items[${index}].projectConfig is invalid`);
+        }
+        assertPortableRelativePath(config.target, `${name}.items[${index}].projectConfig.${kind}.target`);
+        if (!Array.isArray(config.path) || config.path.some((part) => typeof part !== 'string' || part.length === 0)) {
+          throw new Error(`${name}.items[${index}].projectConfig.${kind}.path must be a string array`);
+        }
+      }
     }
   }
 }
@@ -204,6 +215,10 @@ const RED_ZONE_PATTERNS = [
   /(?:^|\/)\.codex\//u,
   /(?:^|\/)\.claude\//u,
   /(?:^|\/)\.gemini\//u,
+  /(?:^|\/)\.cursor\//u,
+  /(?:^|\/)\.qoder\//u,
+  /(?:^|\/)\.zcode\//u,
+  /(?:^|\/)\.mcp\.json$/u,
   /(?:^|\/)\.github\/workflows\//u,
   /(?:^|\/)\.env(?:\.[^/]+)?$/u,
   /(?:^|\/)auth(?:\/|$)/u,
