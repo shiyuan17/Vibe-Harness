@@ -10,12 +10,31 @@ There is one default execution path: `gather facts -> execute -> focused verific
 
 Requires pnpm 10+ and Node.js 20.19+, 22.18+, or 24+.
 
+From the Vibe-Harness repository, choose and copy one prompt below, replacing TARGET_PROJECT_ABSOLUTE_PATH with the absolute target project path. The Agent should select the codex, claude, or gemini adapter for its current host. These prompts are for first-time installs; use the upgrade flow below for an existing installation.
+
+### minimal
+
+    Install the Vibe-Harness minimal profile into TARGET_PROJECT_ABSOLUTE_PATH. You are working from the Vibe-Harness repository: first check the Node.js and pnpm versions and install this repository's dependencies; select the codex, claude, or gemini adapter for the current Agent host. If the target has no vibe-harness.config.json, initialize it with the selected adapter and minimal profile; if its configuration or existing install state does not match, stop and report the mismatch, and never use --force. Run an install dry-run first, inspect it for conflicts, out-of-project writes, or unexpected overwrites, and only then perform the install with --write. Finish with validate --project. The minimal install must not select optional plugins or create a code index. Write only inside the target project and do not modify global Agent, MCP, or Git configuration. Report actual writes, validation results, and anything incomplete.
+
+### core (recommended)
+
+    Install the Vibe-Harness core profile into TARGET_PROJECT_ABSOLUTE_PATH, then install and enable codebase-memory-mcp and create its initial code index. You are working from the Vibe-Harness repository: first check the Node.js and pnpm versions and install this repository's dependencies; select the codex, claude, or gemini adapter for the current Agent host. If the target has no vibe-harness.config.json, initialize it with the selected adapter and core profile; if its configuration or existing install state does not match, stop and report the mismatch, and never use --force. Both the install dry-run and write must explicitly select --plugin codebase-memory-mcp. Inspect the dry-run for conflicts, out-of-project writes, overwrites, and red-zone actions before using --write. I explicitly authorize this installation to write the project-scoped MCP red-zone configuration planned by that plugin; use --confirm-red-zone for the write. Preview provision, then run provision --write to install and enable the pinned project-local runtime, disable auto_index and auto_watch, build the index, verify that it belongs to the target project and is ready, and complete the MCP handshake. Finish with validate --project and doctor --project. Report complete success only when the installation is consistent and codebaseMemoryMcp is ready; otherwise report the failed phase and recovery command. Do not modify global Agent, MCP, or Git configuration.
+
+### full
+
+    Install the Vibe-Harness full profile into TARGET_PROJECT_ABSOLUTE_PATH, then install and enable codebase-memory-mcp and create its initial code index. You are working from the Vibe-Harness repository: first check the Node.js and pnpm versions and install this repository's dependencies; select the codex, claude, or gemini adapter for the current Agent host. If the target has no vibe-harness.config.json, initialize it with the selected adapter and full profile; if its configuration or existing install state does not match, stop and report the mismatch, and never use --force. Both the install dry-run and write must explicitly select --plugin codebase-memory-mcp. Inspect the dry-run for conflicts, out-of-project writes, overwrites, and red-zone actions before using --write. I explicitly authorize this full installation to write its planned project-scoped Hook and MCP red-zone configuration; use --confirm-red-zone for the write. Preview provision, then run provision --write to install and enable the pinned project-local runtime, disable auto_index and auto_watch, build the index, verify that it belongs to the target project and is ready, and complete the MCP handshake. Finish with validate --project and doctor --project. Report complete success only when the installation is consistent and codebaseMemoryMcp is ready; otherwise report the failed phase and recovery command. Do not modify global Agent, MCP, or Git configuration.
+
+The core and full quick prompts explicitly add codebase-memory-mcp; this does not change the profile contract that external tools must be selected with --plugin. The equivalent manual core install is:
+
 ```bash
 pnpm install
-pnpm vibe-harness init --project ../some-project --target codex
-pnpm vibe-harness install --project ../some-project --target codex --profile core --dry-run
-pnpm vibe-harness install --project ../some-project --target codex --profile core --write
+pnpm vibe-harness init --project ../some-project --target codex --profile core
+pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin codebase-memory-mcp --dry-run
+pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin codebase-memory-mcp --write --confirm-red-zone
+pnpm vibe-harness provision --project ../some-project --target codex --profile core --dry-run
+pnpm vibe-harness provision --project ../some-project --target codex --profile core --write
 pnpm vibe-harness validate --project ../some-project
+pnpm vibe-harness doctor --project ../some-project
 ```
 
 `validate` checks installation consistency only. Run configured project checks with:

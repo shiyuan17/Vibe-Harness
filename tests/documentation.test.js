@@ -25,6 +25,36 @@ test('English and Chinese README expose the same commands and configuration', as
   assert.deepEqual(validateReadmeParity(english, chinese), []);
 });
 
+test('README quick start exposes three profile prompts with the plugin indexing contract', async () => {
+  const readmes = await Promise.all([
+    readFile(path.join(rootDir, 'README.md'), 'utf8'),
+    readFile(path.join(rootDir, 'README.zh-CN.md'), 'utf8'),
+  ]);
+
+  for (const readme of readmes) {
+    const quickStart = readme.match(/## (?:Quick start|\u5feb\u901f\u5f00\u59cb)([\s\S]*?)\n## /u)?.[1] ?? '';
+    const promptHeadings = [...quickStart.matchAll(/^### (minimal|core|full)(?:\s|\uff08|$)/gmu)]
+      .map((match) => match[1]);
+    assert.deepEqual(promptHeadings, ['minimal', 'core', 'full']);
+    assert.doesNotMatch(quickStart, /^### docs-only/gmu);
+
+    const minimal = quickStart.match(/^### minimal\s+ {4}([^\n]+)/mu)?.[1] ?? '';
+    const core = quickStart.match(/^### core[^\n]*\s+ {4}([^\n]+)/mu)?.[1] ?? '';
+    const full = quickStart.match(/^### full\s+ {4}([^\n]+)/mu)?.[1] ?? '';
+    assert.doesNotMatch(minimal, /codebase-memory-mcp/u);
+    for (const prompt of [core, full]) {
+      assert.match(prompt, /--plugin codebase-memory-mcp/u);
+      assert.match(prompt, /--confirm-red-zone/u);
+      assert.match(prompt, /provision --write/u);
+      assert.match(prompt, /auto_index/u);
+      assert.match(prompt, /auto_watch/u);
+      assert.match(prompt, /codebaseMemoryMcp/u);
+      assert.match(prompt, /ready/u);
+      assert.match(prompt, /doctor --project/u);
+    }
+  }
+});
+
 test('rules parity holds for the governed repository', async () => {
   const { errors, warnings } = await validateRulesParity(rootDir);
   // Rules-only tool files are expected (warned, not errored).

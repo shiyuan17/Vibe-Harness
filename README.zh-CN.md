@@ -10,12 +10,31 @@ Vibe-Harness 为 Codex、Claude Code、Gemini CLI、Cursor、Qoder 和 ZCode 安
 
 需要 pnpm 10+，以及 Node.js 20.19+、22.18+ 或 24+。
 
+在 Vibe-Harness 仓库中选择并复制下面一条提示词，将 TARGET_PROJECT_ABSOLUTE_PATH 替换为目标项目绝对路径。Agent 应根据当前宿主选择 codex、claude 或 gemini adapter。三条提示词面向首次安装；已有安装使用后文的升级流程。
+
+### minimal
+
+    将 Vibe-Harness minimal profile 安装到 TARGET_PROJECT_ABSOLUTE_PATH。你正在 Vibe-Harness 仓库中执行：先检查 Node.js 与 pnpm 版本并安装本仓库依赖；根据当前 Agent 宿主选择 codex、claude 或 gemini adapter。若目标项目不存在 vibe-harness.config.json，则用所选 adapter 和 minimal profile 初始化；若配置或已有安装状态不匹配，停止并报告，禁止使用 --force。先执行 install dry-run，确认没有冲突、越界写入或意外覆盖后再使用 --write 正式安装，最后运行 validate --project。minimal 不安装任何可选插件，也不建立代码索引。只允许写入目标项目，不修改全局 Agent、MCP 或 Git 配置。报告实际写入、验证结果和任何未完成项。
+
+### core（推荐）
+
+    将 Vibe-Harness core profile 安装到 TARGET_PROJECT_ABSOLUTE_PATH，并安装、启用 codebase-memory-mcp 后建立初始代码索引。你正在 Vibe-Harness 仓库中执行：先检查 Node.js 与 pnpm 版本并安装本仓库依赖；根据当前 Agent 宿主选择 codex、claude 或 gemini adapter。若目标项目不存在 vibe-harness.config.json，则用所选 adapter 和 core profile 初始化；若配置或已有安装状态不匹配，停止并报告，禁止使用 --force。install 的 dry-run 和正式安装都必须显式选择 --plugin codebase-memory-mcp；先检查 dry-run 的冲突、越界写入、覆盖和红区计划，通过后再使用 --write。我明确授权本次安装写入由该插件规划的项目级 MCP 红区配置，正式安装时使用 --confirm-red-zone。安装后先预览 provision，再使用 provision --write 安装并启用项目内固定版本 runtime、关闭 auto_index 与 auto_watch、建立索引、验证索引属于目标项目且状态 ready，并完成 MCP handshake。最后运行 validate --project 和 doctor --project；只有安装一致且 codebaseMemoryMcp 状态为 ready 时才报告完整成功，否则报告失败阶段和恢复命令。不得修改全局 Agent、MCP 或 Git 配置。
+
+### full
+
+    将 Vibe-Harness full profile 安装到 TARGET_PROJECT_ABSOLUTE_PATH，并安装、启用 codebase-memory-mcp 后建立初始代码索引。你正在 Vibe-Harness 仓库中执行：先检查 Node.js 与 pnpm 版本并安装本仓库依赖；根据当前 Agent 宿主选择 codex、claude 或 gemini adapter。若目标项目不存在 vibe-harness.config.json，则用所选 adapter 和 full profile 初始化；若配置或已有安装状态不匹配，停止并报告，禁止使用 --force。install 的 dry-run 和正式安装都必须显式选择 --plugin codebase-memory-mcp；先检查 dry-run 的冲突、越界写入、覆盖和红区计划，通过后再使用 --write。我明确授权本次 full 安装写入其规划的项目级 Hook 与 MCP 红区配置，正式安装时使用 --confirm-red-zone。安装后先预览 provision，再使用 provision --write 安装并启用项目内固定版本 runtime、关闭 auto_index 与 auto_watch、建立索引、验证索引属于目标项目且状态 ready，并完成 MCP handshake。最后运行 validate --project 和 doctor --project；只有安装一致且 codebaseMemoryMcp 状态为 ready 时才报告完整成功，否则报告失败阶段和恢复命令。不得修改全局 Agent、MCP 或 Git 配置。
+
+core 和 full 的快速提示词显式增加 codebase-memory-mcp；这不会改变 profile 本身“外部工具必须通过 --plugin 选择”的合同。手动执行等价的 core 安装：
+
 ```bash
 pnpm install
-pnpm vibe-harness init --project ../some-project --target codex
-pnpm vibe-harness install --project ../some-project --target codex --profile core --dry-run
-pnpm vibe-harness install --project ../some-project --target codex --profile core --write
+pnpm vibe-harness init --project ../some-project --target codex --profile core
+pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin codebase-memory-mcp --dry-run
+pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin codebase-memory-mcp --write --confirm-red-zone
+pnpm vibe-harness provision --project ../some-project --target codex --profile core --dry-run
+pnpm vibe-harness provision --project ../some-project --target codex --profile core --write
 pnpm vibe-harness validate --project ../some-project
+pnpm vibe-harness doctor --project ../some-project
 ```
 
 `validate` 只检查安装一致性。执行项目验证使用：
