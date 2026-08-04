@@ -488,6 +488,24 @@
     },
     {
       "group": "skills-full",
+      "source": "skills/core/frontend-design/references/design-tokens.md",
+      "target": ".agents/skills/frontend-design/references/design-tokens.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-full",
+      "source": "skills/core/frontend-design/references/design-modes.md",
+      "target": ".agents/skills/frontend-design/references/design-modes.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-full",
+      "source": "skills/core/frontend-design/references/component-states.md",
+      "target": ".agents/skills/frontend-design/references/component-states.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-full",
       "source": "skills/core/runtime-cross-repo-rollout/SKILL.md",
       "target": ".agents/skills/runtime-cross-repo-rollout/SKILL.md",
       "contentStrategy": "replace"
