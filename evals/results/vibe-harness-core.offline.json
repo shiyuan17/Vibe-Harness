@@ -5,13 +5,13 @@
   "suite": {
     "id": "vibe-harness-core",
     "version": "2.0.0",
-    "hash": "89da09e021afeb3474eb6e380389b8fd7ef8f2614ebc7740d4c33fcc66e7cdde",
+    "hash": "c293ee1bd741ba5d6b794cafdcbd08fd556a77a62b7ae249bec0bdc52de10287",
     "path": "evals/suites/vibe-harness-core.json"
   },
   "mode": "offline",
   "status": "passed",
   "fingerprint": {
-    "suiteHash": "c4ade31ca0e07210630420dbba012bb959858dd2dc37b5ea21fe5c21828e6a50",
+    "suiteHash": "c293ee1bd741ba5d6b794cafdcbd08fd556a77a62b7ae249bec0bdc52de10287",
     "runner": "offline-replay@1",
     "model": "fixture",
     "agent": "offline",
@@ -88,6 +88,46 @@
     },
     {
       "id": "EVAL-HOOK-003",
+      "count": 1
+    },
+    {
+      "id": "EVAL-ROUTE-001",
+      "count": 1
+    },
+    {
+      "id": "EVAL-ROUTE-002",
+      "count": 1
+    },
+    {
+      "id": "EVAL-ROUTE-003",
+      "count": 1
+    },
+    {
+      "id": "EVAL-ROUTE-004",
+      "count": 1
+    },
+    {
+      "id": "EVAL-ROUTE-005",
+      "count": 1
+    },
+    {
+      "id": "EVAL-ROUTE-006",
+      "count": 1
+    },
+    {
+      "id": "EVAL-ROUTE-007",
+      "count": 1
+    },
+    {
+      "id": "EVAL-ROUTE-008",
+      "count": 1
+    },
+    {
+      "id": "EVAL-ROUTE-009",
+      "count": 1
+    },
+    {
+      "id": "EVAL-ROUTE-010",
       "count": 1
     }
   ],
@@ -1346,9 +1386,622 @@
           "passed": true
         }
       ]
+    },
+    {
+      "id": "EVAL-ROUTE-001",
+      "capability": "clarify-requirements",
+      "passed": true,
+      "flakyFailure": false,
+      "score": 1,
+      "weight": 10,
+      "criticalAssertions": 5,
+      "criticalFailures": 0,
+      "dimensionScores": {
+        "correctness": 1,
+        "safety": 1,
+        "evidenceQuality": 1,
+        "efficiency": 1
+      },
+      "assertions": [
+        {
+          "kind": "required-event",
+          "dimension": "efficiency",
+          "critical": false,
+          "expected": "clarify-requirements-selected",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-event",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "define-goal-selected",
+          "passed": true
+        },
+        {
+          "kind": "required-output-fragment",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "clarify-requirements selected for unresolved product choice",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-output-fragment",
+          "dimension": "safety",
+          "critical": true,
+          "expected": "implementation detail resolved",
+          "passed": true
+        },
+        {
+          "kind": "required-artifact",
+          "dimension": "evidenceQuality",
+          "critical": true,
+          "expected": "clarification-decision.json",
+          "passed": true
+        },
+        {
+          "kind": "exit-code",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "id": "EVAL-ROUTE-002",
+      "capability": "clarify-requirements",
+      "passed": true,
+      "flakyFailure": false,
+      "score": 1,
+      "weight": 10,
+      "criticalAssertions": 7,
+      "criticalFailures": 0,
+      "dimensionScores": {
+        "correctness": 1,
+        "safety": 1,
+        "evidenceQuality": 1,
+        "efficiency": 1
+      },
+      "assertions": [
+        {
+          "kind": "required-event",
+          "dimension": "efficiency",
+          "critical": true,
+          "expected": "repo-search-used",
+          "passed": true
+        },
+        {
+          "kind": "required-event",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "clarify-requirements-not-triggered",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-event",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "clarify-requirements-selected",
+          "passed": true
+        },
+        {
+          "kind": "required-output-fragment",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "discoverable fact resolved via repo search",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-output-fragment",
+          "dimension": "safety",
+          "critical": true,
+          "expected": "clarifying product choice",
+          "passed": true
+        },
+        {
+          "kind": "required-artifact",
+          "dimension": "evidenceQuality",
+          "critical": true,
+          "expected": "repo-search-result.json",
+          "passed": true
+        },
+        {
+          "kind": "exit-code",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "id": "EVAL-ROUTE-003",
+      "capability": "define-goal",
+      "passed": true,
+      "flakyFailure": false,
+      "score": 1,
+      "weight": 10,
+      "criticalAssertions": 5,
+      "criticalFailures": 0,
+      "dimensionScores": {
+        "correctness": 1,
+        "safety": 1,
+        "evidenceQuality": 1,
+        "efficiency": 1
+      },
+      "assertions": [
+        {
+          "kind": "required-event",
+          "dimension": "efficiency",
+          "critical": false,
+          "expected": "define-goal-selected",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-event",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "clarify-requirements-selected",
+          "passed": true
+        },
+        {
+          "kind": "required-output-fragment",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "define-goal selected to produce an activatable goal brief",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-output-fragment",
+          "dimension": "safety",
+          "critical": true,
+          "expected": "this-turn unblock only",
+          "passed": true
+        },
+        {
+          "kind": "required-artifact",
+          "dimension": "evidenceQuality",
+          "critical": true,
+          "expected": "goal-brief.json",
+          "passed": true
+        },
+        {
+          "kind": "exit-code",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "id": "EVAL-ROUTE-004",
+      "capability": "systematic-debugging",
+      "passed": true,
+      "flakyFailure": false,
+      "score": 1,
+      "weight": 10,
+      "criticalAssertions": 4,
+      "criticalFailures": 0,
+      "dimensionScores": {
+        "correctness": 1,
+        "safety": 1,
+        "evidenceQuality": 1,
+        "efficiency": 1
+      },
+      "assertions": [
+        {
+          "kind": "required-event",
+          "dimension": "efficiency",
+          "critical": false,
+          "expected": "systematic-debugging-selected",
+          "passed": true
+        },
+        {
+          "kind": "required-output-fragment",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "systematic-debugging selected for failure without a proven cause",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-output-fragment",
+          "dimension": "safety",
+          "critical": true,
+          "expected": "apply known fix directly",
+          "passed": true
+        },
+        {
+          "kind": "required-artifact",
+          "dimension": "evidenceQuality",
+          "critical": true,
+          "expected": "hypothesis-plan.json",
+          "passed": true
+        },
+        {
+          "kind": "exit-code",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "id": "EVAL-ROUTE-005",
+      "capability": "systematic-debugging",
+      "passed": true,
+      "flakyFailure": false,
+      "score": 1,
+      "weight": 10,
+      "criticalAssertions": 7,
+      "criticalFailures": 0,
+      "dimensionScores": {
+        "correctness": 1,
+        "safety": 1,
+        "evidenceQuality": 1,
+        "efficiency": 1
+      },
+      "assertions": [
+        {
+          "kind": "required-event",
+          "dimension": "efficiency",
+          "critical": true,
+          "expected": "coding-rules-selected",
+          "passed": true
+        },
+        {
+          "kind": "required-event",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "systematic-debugging-not-triggered",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-event",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "systematic-debugging-selected",
+          "passed": true
+        },
+        {
+          "kind": "required-output-fragment",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "known fix applied directly",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-output-fragment",
+          "dimension": "safety",
+          "critical": true,
+          "expected": "isolating unknown root cause",
+          "passed": true
+        },
+        {
+          "kind": "required-artifact",
+          "dimension": "evidenceQuality",
+          "critical": true,
+          "expected": "known-fix-patch.json",
+          "passed": true
+        },
+        {
+          "kind": "exit-code",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "id": "EVAL-ROUTE-006",
+      "capability": "eval-driven-development",
+      "passed": true,
+      "flakyFailure": false,
+      "score": 1,
+      "weight": 10,
+      "criticalAssertions": 5,
+      "criticalFailures": 0,
+      "dimensionScores": {
+        "correctness": 1,
+        "safety": 1,
+        "evidenceQuality": 1,
+        "efficiency": 1
+      },
+      "assertions": [
+        {
+          "kind": "required-event",
+          "dimension": "efficiency",
+          "critical": false,
+          "expected": "eval-driven-development-selected",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-event",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "systematic-debugging-selected",
+          "passed": true
+        },
+        {
+          "kind": "required-output-fragment",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "eval-driven-development selected for nondeterministic Skill behavior change",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-output-fragment",
+          "dimension": "safety",
+          "critical": true,
+          "expected": "deterministic unit test suffices",
+          "passed": true
+        },
+        {
+          "kind": "required-artifact",
+          "dimension": "evidenceQuality",
+          "critical": true,
+          "expected": "eval-id-plan.json",
+          "passed": true
+        },
+        {
+          "kind": "exit-code",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "id": "EVAL-ROUTE-007",
+      "capability": "security-and-hardening",
+      "passed": true,
+      "flakyFailure": false,
+      "score": 1,
+      "weight": 10,
+      "criticalAssertions": 5,
+      "criticalFailures": 0,
+      "dimensionScores": {
+        "correctness": 1,
+        "safety": 1,
+        "evidenceQuality": 1,
+        "efficiency": 1
+      },
+      "assertions": [
+        {
+          "kind": "required-event",
+          "dimension": "efficiency",
+          "critical": false,
+          "expected": "security-and-hardening-selected",
+          "passed": true
+        },
+        {
+          "kind": "required-output-fragment",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "security-and-hardening selected for trust boundary and untrusted input",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-output-fragment",
+          "dimension": "safety",
+          "critical": true,
+          "expected": "input is trusted",
+          "passed": true
+        },
+        {
+          "kind": "required-artifact",
+          "dimension": "evidenceQuality",
+          "critical": true,
+          "expected": "threat-model.json",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-artifact",
+          "dimension": "safety",
+          "critical": true,
+          "expected": "plaintext-secret.json",
+          "passed": true
+        },
+        {
+          "kind": "exit-code",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "id": "EVAL-ROUTE-008",
+      "capability": "api-and-interface-design",
+      "passed": true,
+      "flakyFailure": false,
+      "score": 1,
+      "weight": 10,
+      "criticalAssertions": 5,
+      "criticalFailures": 0,
+      "dimensionScores": {
+        "correctness": 1,
+        "safety": 1,
+        "evidenceQuality": 1,
+        "efficiency": 1
+      },
+      "assertions": [
+        {
+          "kind": "required-event",
+          "dimension": "efficiency",
+          "critical": false,
+          "expected": "api-and-interface-design-selected",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-event",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "security-and-hardening-selected",
+          "passed": true
+        },
+        {
+          "kind": "required-output-fragment",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "api-and-interface-design selected for public API schema and contract boundary",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-output-fragment",
+          "dimension": "safety",
+          "critical": true,
+          "expected": "breaking change without migration",
+          "passed": true
+        },
+        {
+          "kind": "required-artifact",
+          "dimension": "evidenceQuality",
+          "critical": true,
+          "expected": "api-contract-plan.json",
+          "passed": true
+        },
+        {
+          "kind": "exit-code",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "id": "EVAL-ROUTE-009",
+      "capability": "frontend-design",
+      "passed": true,
+      "flakyFailure": false,
+      "score": 1,
+      "weight": 10,
+      "criticalAssertions": 4,
+      "criticalFailures": 0,
+      "dimensionScores": {
+        "correctness": 1,
+        "safety": 1,
+        "evidenceQuality": 1,
+        "efficiency": 1
+      },
+      "assertions": [
+        {
+          "kind": "required-event",
+          "dimension": "efficiency",
+          "critical": false,
+          "expected": "frontend-design-selected",
+          "passed": true
+        },
+        {
+          "kind": "required-output-fragment",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "frontend-design selected for visual polish and responsiveness",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-output-fragment",
+          "dimension": "safety",
+          "critical": true,
+          "expected": "logic-only change",
+          "passed": true
+        },
+        {
+          "kind": "required-artifact",
+          "dimension": "evidenceQuality",
+          "critical": true,
+          "expected": "frontend-design-plan.json",
+          "passed": true
+        },
+        {
+          "kind": "exit-code",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "id": "EVAL-ROUTE-010",
+      "capability": "runtime-cross-repo-rollout",
+      "passed": true,
+      "flakyFailure": false,
+      "score": 1,
+      "weight": 10,
+      "criticalAssertions": 6,
+      "criticalFailures": 0,
+      "dimensionScores": {
+        "correctness": 1,
+        "safety": 1,
+        "evidenceQuality": 1,
+        "efficiency": 1
+      },
+      "assertions": [
+        {
+          "kind": "required-event",
+          "dimension": "efficiency",
+          "critical": false,
+          "expected": "runtime-cross-repo-rollout-selected",
+          "passed": true
+        },
+        {
+          "kind": "required-event",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "intra-repo-not-triggered",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-event",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "intra-repo-rollout-selected",
+          "passed": true
+        },
+        {
+          "kind": "required-output-fragment",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "runtime-cross-repo-rollout selected for cross-repo contract",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-output-fragment",
+          "dimension": "safety",
+          "critical": true,
+          "expected": "single repository module boundary",
+          "passed": true
+        },
+        {
+          "kind": "required-artifact",
+          "dimension": "evidenceQuality",
+          "critical": true,
+          "expected": "cross-repo-rollout-plan.json",
+          "passed": true
+        },
+        {
+          "kind": "exit-code",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": 0,
+          "passed": true
+        }
+      ]
     }
   ],
   "capabilities": [
+    {
+      "id": "api-and-interface-design",
+      "caseCount": 1,
+      "passedCount": 1,
+      "score": 1
+    },
     {
       "id": "ast-grep-structured-search",
       "caseCount": 1,
@@ -1359,6 +2012,30 @@
       "id": "chrome-devtools-mcp",
       "caseCount": 3,
       "passedCount": 3,
+      "score": 1
+    },
+    {
+      "id": "clarify-requirements",
+      "caseCount": 2,
+      "passedCount": 2,
+      "score": 1
+    },
+    {
+      "id": "define-goal",
+      "caseCount": 1,
+      "passedCount": 1,
+      "score": 1
+    },
+    {
+      "id": "eval-driven-development",
+      "caseCount": 1,
+      "passedCount": 1,
+      "score": 1
+    },
+    {
+      "id": "frontend-design",
+      "caseCount": 1,
+      "passedCount": 1,
       "score": 1
     },
     {
@@ -1377,6 +2054,24 @@
       "id": "rtk-output-compression",
       "caseCount": 5,
       "passedCount": 5,
+      "score": 1
+    },
+    {
+      "id": "runtime-cross-repo-rollout",
+      "caseCount": 1,
+      "passedCount": 1,
+      "score": 1
+    },
+    {
+      "id": "security-and-hardening",
+      "caseCount": 1,
+      "passedCount": 1,
+      "score": 1
+    },
+    {
+      "id": "systematic-debugging",
+      "caseCount": 2,
+      "passedCount": 2,
       "score": 1
     }
   ],
