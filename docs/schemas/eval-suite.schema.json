@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Cognis evaluation suite",
+  "title": "Vibe-Harness evaluation suite",
   "type": "object",
   "required": ["schemaVersion", "id", "version", "description", "defaultRepetitions", "cases"],
   "properties": {
@@ -20,6 +20,29 @@
           "category": { "type": "string", "enum": ["install-lifecycle", "task-delivery-governance", "skill-routing", "safety-isolation"] },
           "capability": { "type": "string", "minLength": 1 },
           "risk": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+          "kind": { "type": "string", "enum": ["standard", "variation", "edge", "adversarial"] },
+          "flaky": { "type": "boolean" },
+          "reporting": {
+            "type": "object",
+            "properties": {
+              "dangerousOperationProbe": { "type": "boolean" },
+              "protectedPaths": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*\\\\)(?!.*//).+$" },
+                "uniqueItems": true
+              },
+              "toolMetricMode": { "type": "string", "enum": ["execute", "refuse", "exclude"] },
+              "expected": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "rules": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+                  "skills": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+                }
+              }
+            },
+            "additionalProperties": false
+          },
           "input": {
             "type": "object",
             "required": ["scenario", "replay"],
@@ -37,6 +60,30 @@
                       "properties": {
                         "path": { "type": "string", "minLength": 1 },
                         "content": { "type": "string" }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "allowedWritePaths": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*\\\\)(?!.*//).+$"
+                    },
+                    "uniqueItems": true
+                  },
+                  "tests": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["command", "expectedExitCode"],
+                      "properties": {
+                        "command": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 },
+                        "expectedExitCode": { "type": "integer", "minimum": 0 },
+                        "kind": { "type": "string", "enum": ["behavior", "api-contract"] },
+                        "diagnosticCategory": { "type": "string", "enum": ["behavior", "api-contract", "api-existence"] },
+                        "timeoutMs": { "type": "integer", "minimum": 1000, "maximum": 120000 }
                       },
                       "additionalProperties": false
                     }
@@ -68,7 +115,8 @@
               "forbiddenOutputFragments": { "type": "array", "items": { "type": "object", "required": ["value", "dimension", "critical"], "properties": { "value": { "type": "string", "minLength": 1 }, "dimension": { "type": "string", "enum": ["correctness", "safety", "evidenceQuality", "efficiency"] }, "critical": { "type": "boolean" } }, "additionalProperties": false } },
               "requiredArtifacts": { "type": "array", "items": { "type": "object", "required": ["value", "dimension", "critical"], "properties": { "value": { "type": "string", "minLength": 1 }, "dimension": { "type": "string", "enum": ["correctness", "safety", "evidenceQuality", "efficiency"] }, "critical": { "type": "boolean" } }, "additionalProperties": false } },
               "forbiddenArtifacts": { "type": "array", "items": { "type": "object", "required": ["value", "dimension", "critical"], "properties": { "value": { "type": "string", "minLength": 1 }, "dimension": { "type": "string", "enum": ["correctness", "safety", "evidenceQuality", "efficiency"] }, "critical": { "type": "boolean" } }, "additionalProperties": false } },
-              "exitCode": { "type": "object", "required": ["value", "dimension", "critical"], "properties": { "value": { "type": "integer", "minimum": 0 }, "dimension": { "type": "string", "enum": ["correctness", "safety", "evidenceQuality", "efficiency"] }, "critical": { "type": "boolean" } }, "additionalProperties": false }
+              "exitCode": { "type": "object", "required": ["value", "dimension", "critical"], "properties": { "value": { "type": "integer", "minimum": 0 }, "dimension": { "type": "string", "enum": ["correctness", "safety", "evidenceQuality", "efficiency"] }, "critical": { "type": "boolean" } }, "additionalProperties": false },
+              "llmRubrics": { "type": "array", "items": { "type": "object", "required": ["rubric", "dimension", "critical"], "properties": { "rubric": { "type": "string", "minLength": 1 }, "judgeModel": { "type": "string" }, "threshold": { "type": "number", "minimum": 0, "maximum": 1 }, "dimension": { "type": "string", "enum": ["correctness", "safety", "evidenceQuality", "efficiency"] }, "critical": { "type": "boolean" } }, "additionalProperties": false } }
             },
             "additionalProperties": false
           },

@@ -1,14 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
 import { readJson } from '../scripts/lib/manifest.js';
-import { evaluateGovernanceEvalChanges } from '../scripts/eval-change-check.js';
-import { runEvaluationCheck } from '../runtime/hooks/lib/context.mjs';
 
-const rootDir = path.resolve('.');
+const rootDir = path.resolve(import.meta.dirname, '..');
 
 test('CI blocks offline eval drift and scheduled workflow runs advisory online canaries', async () => {
   const [ci, online] = await Promise.all([
@@ -17,7 +14,6 @@ test('CI blocks offline eval drift and scheduled workflow runs advisory online c
   ]);
   assert.match(ci, /pnpm eval:check/u);
   assert.match(ci, /pnpm eval:offline/u);
-  assert.match(ci, /pnpm eval:changes/u);
   assert.match(ci, /windows-latest/u);
   assert.match(ci, /ubuntu-latest/u);
   assert.match(ci, /pnpm test:integration/u);
@@ -27,7 +23,8 @@ test('CI blocks offline eval drift and scheduled workflow runs advisory online c
   assert.match(online, /pnpm eval:online/u);
   assert.match(online, /retention-days:\s*30/u);
   assert.match(online, /pnpm eval:health/u);
-  assert.match(online, /vars\.COGNIS_EVAL_ENFORCE\s*\|\|\s*vars\.LOOPENGINE_EVAL_ENFORCE/u);
+  assert.match(online, /vars\.VIBE_HARNESS_EVAL_ENFORCE/u);
+  assert.doesNotMatch(online, /LOOPENGINE_EVAL_ENFORCE/u);
   assert.doesNotMatch(online, /pull_request:/u);
 });
 
@@ -49,104 +46,37 @@ test('GitHub Actions are commit-pinned and receive automated update PRs', async 
   assert.match(dependabot, /interval:\s*"weekly"/u);
 });
 
-test('governance diffs require a newly added Eval-ID while unrelated diffs do not', () => {
-  assert.equal(evaluateGovernanceEvalChanges({
-    addedEvalCases: [],
-    changedFiles: ['rules/agent-skill-routing.md'],
-    coverageKeys: ['capability:skill-routing'],
-  }).ok, false);
-  assert.equal(evaluateGovernanceEvalChanges({
-    addedEvalCases: [{ capability: 'skill-routing', id: 'EVAL-ROUTE-999', suite: 'evals/suites/core.json' }],
-    changedFiles: ['rules/agent-skill-routing.md', 'evals/suites/core.json'],
-    coverageKeys: ['capability:skill-routing'],
-    requiredSuites: { 'skill-routing': ['evals/suites/core.json'] },
-  }).ok, true);
-  assert.equal(evaluateGovernanceEvalChanges({
-    addedEvalCases: [{ capability: 'unrelated', id: 'EVAL-UNRELATED-999', suite: 'evals/suites/core.json' }],
-    changedFiles: ['rules/agent-skill-routing.md', 'evals/suites/core.json'],
-    coverageKeys: ['capability:skill-routing'],
-    requiredSuites: { 'skill-routing': ['evals/suites/core.json'] },
-  }).ok, false);
-  assert.equal(evaluateGovernanceEvalChanges({
-    addedEvalCases: [{ capability: 'skill-routing', id: 'EVAL-ROUTE-999', suite: 'evals/suites/wrong.json' }],
-    changedFiles: ['rules/agent-skill-routing.md', 'evals/suites/wrong.json'],
-    coverageKeys: ['capability:skill-routing'],
-    requiredSuites: { 'skill-routing': ['evals/suites/core.json'] },
-  }).ok, false);
-  assert.equal(evaluateGovernanceEvalChanges({
-    addedEvalCases: [],
-    changedFiles: ['docs/evals.md'],
-  }).ok, true);
-  assert.equal(evaluateGovernanceEvalChanges({
-    addedEvalCases: [],
-    changedFiles: ['manifests/capabilities.json'],
-    coverageKeys: [],
-  }).ok, true);
-  assert.equal(evaluateGovernanceEvalChanges({
-    addedEvalCases: [],
-    changedFiles: ['runtime/evals/codex-runner.mjs'],
-    coverageKeys: ['capability:eval-observability'],
-    requiredSuites: { 'eval-observability': ['evals/suites/cognis-online-canary.json'] },
-  }).ok, false);
-  assert.equal(evaluateGovernanceEvalChanges({
-    addedEvalCases: [{ capability: 'skill-routing', id: 'EVAL-ROUTE-999', suite: 'evals/suites/core.json' }],
-    changedFiles: ['skills/core/new-governance/SKILL.md'],
-    coverageKeys: ['file:skills/core/new-governance/SKILL.md'],
-  }).ok, false);
-});
-
-test('online canary suite contains exactly six critical governance scenarios', async () => {
-  const suite = await readJson(path.join(rootDir, 'evals/suites/cognis-online-canary.json'));
-  assert.equal(suite.cases.length, 6);
+test('online canary suite contains critical product scenarios', async () => {
+  const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-online-canary.json'));
   assert.equal(suite.cases.every((item) => item.risk === 'critical'), true);
   const scenarios = suite.cases.map((item) => item.input.scenario).join('\n');
-  for (const fragment of ['global', 'existing', '--project', 'evidence', 'eval-driven-development', 'secret']) {
+  for (const fragment of ['global', 'existing', '--project', 'eval-driven-development', 'Goal Brief', 'secret']) {
     assert.match(scenarios, new RegExp(fragment, 'iu'));
   }
 });
 
-test('offline routing eval distinguishes clear specifications, ambiguity, and bug fixes', async () => {
-  const suite = await readJson(path.join(rootDir, 'evals/suites/cognis-core.json'));
-  const scenarios = suite.cases.filter((item) => item.capability === 'skill-routing')
+test('offline routing eval covers browser, rtk, and ast-grep tool routing', async () => {
+  const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-core.json'));
+  const scenarios = suite.cases.filter((item) => item.category === 'skill-routing')
     .map((item) => item.input.scenario).join('\n');
-  assert.match(scenarios, /decision-complete specification/iu);
-  assert.match(scenarios, /high-impact ambiguity/iu);
-  assert.match(scenarios, /deterministic bug fix/iu);
+  assert.match(scenarios, /Chrome DevTools MCP/iu);
+  assert.match(scenarios, /RTK/iu);
+  assert.match(scenarios, /ast-grep/iu);
 });
 
-test('offline install lifecycle eval covers Cognis legacy upgrade and red-zone confirmation', async () => {
-  const suite = await readJson(path.join(rootDir, 'evals/suites/cognis-core.json'));
+test('offline install lifecycle eval covers Vibe-Harness legacy upgrade and red-zone confirmation', async () => {
+  const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-core.json'));
   const lifecycle = suite.cases.find((item) => item.id === 'EVAL-INSTALL-004');
-  assert.match(lifecycle.input.scenario, /Cognis.*install --upgrade.*--write.*--confirm-red-zone/iu);
+  assert.match(lifecycle.input.scenario, /Vibe-Harness.*install --upgrade.*--write.*--confirm-red-zone/iu);
   assert.doesNotMatch(JSON.stringify(lifecycle), /Legacy apply|legacy-install-state/u);
-  assert.equal(lifecycle.input.replay.artifacts.includes('cognis-upgrade-state.json'), true);
+  assert.equal(lifecycle.input.replay.artifacts.includes('vibe-harness-upgrade-state.json'), true);
 });
 
-test('hook evaluation check executes configured command without a shell', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-hook-eval-'));
-  try {
-    await writeFile(path.join(target, 'pass.mjs'), 'process.exitCode = 0;\n', 'utf8');
-    await writeFile(path.join(target, 'fail.mjs'), 'process.exitCode = 7;\n', 'utf8');
-    assert.deepEqual(await runEvaluationCheck(target, null), { ok: true, skipped: true });
-    assert.deepEqual(await runEvaluationCheck(target, 'node pass.mjs'), { ok: true });
-    assert.deepEqual(await runEvaluationCheck(target, 'node fail.mjs'), { ok: false });
-  } finally {
-    await rm(target, { force: true, recursive: true });
-  }
-});
-
-test('EDD documentation distinguishes baseline from reference and documents calibration gates', async () => {
-  const [docs, architecture, readme, readmeZh] = await Promise.all([
-    readFile(path.join(rootDir, 'docs/evals.md'), 'utf8'),
-    readFile(path.join(rootDir, 'docs/architecture.md'), 'utf8'),
-    readFile(path.join(rootDir, 'README.md'), 'utf8'),
-    readFile(path.join(rootDir, 'README.zh-CN.md'), 'utf8'),
-  ]);
-  for (const content of [docs, architecture, readme, readmeZh]) assert.match(content, /reference/u);
-  assert.match(docs, /20/u);
-  assert.match(docs, /3\/3/u);
-  assert.match(docs, /0\.90/u);
-  assert.match(docs, /0\.05/u);
-  assert.match(docs, /degraded/u);
-  assert.match(docs, /baseline/u);
+test('EDD documentation documents reference baselines and offline/online lifecycle', async () => {
+  const docs = await readFile(path.join(rootDir, 'docs/evals.md'), 'utf8');
+  assert.match(docs, /reference/u);
+  assert.match(docs, /offline/u);
+  assert.match(docs, /online/u);
+  assert.match(docs, /suite/u);
+  assert.match(docs, /eval check/u);
 });

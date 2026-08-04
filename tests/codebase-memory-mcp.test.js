@@ -14,8 +14,8 @@ import {
 } from '../runtime/tools/codebase-memory-mcp/path-alias.mjs';
 
 const execFileAsync = promisify(execFile);
-const rootDir = path.resolve('.');
-const cliPath = path.join(rootDir, 'scripts/cognis.js');
+const rootDir = path.resolve(import.meta.dirname, '..');
+const cliPath = path.join(rootDir, 'scripts/vibe-harness.js');
 
 async function exists(filePath) {
   try {
@@ -26,8 +26,8 @@ async function exists(filePath) {
   }
 }
 
-test('Cognis removes the CodeGraph CLI integration and doctor report', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-doctor-'));
+test('Vibe-Harness removes the CodeGraph CLI integration and doctor report', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-doctor-'));
   try {
     const help = await execFileAsync(process.execPath, [cliPath, 'help']);
     assert.equal(help.stdout.toLowerCase().includes('codegraph'), false);
@@ -48,7 +48,7 @@ test('Cognis removes the CodeGraph CLI integration and doctor report', async () 
 });
 
 test('codebase-memory-mcp rule uses MCP tools and a repository-search fallback without global writes', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-codebase-memory-profile-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-codebase-memory-profile-'));
   const rulePath = path.join(rootDir, 'rules/codebase-memory-mcp.md');
   const rule = await readFile(rulePath, 'utf8');
   const agents = await readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8');
@@ -67,29 +67,32 @@ test('codebase-memory-mcp rule uses MCP tools and a repository-search fallback w
     await execFileAsync(process.execPath, [cliPath, 'init', '--project', target]);
     const core = await execFileAsync(process.execPath, [cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'core', '--dry-run', '--verbose']);
     const full = await execFileAsync(process.execPath, [cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'full', '--dry-run', '--verbose']);
+    const selected = await execFileAsync(process.execPath, [cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'full', '--plugin', '-codebase-memory-mcp', '--dry-run', '--verbose']);
     const coreAgents = JSON.parse(core.stdout).previewFiles.find((file) => file.target === 'AGENTS.md').content;
     const fullAgents = JSON.parse(full.stdout).previewFiles.find((file) => file.target === 'AGENTS.md').content;
+    const selectedAgents = JSON.parse(selected.stdout).previewFiles.find((file) => file.target === 'AGENTS.md').content;
 
     assert.equal(coreAgents.includes('codebase-memory-mcp'), false);
-    assert.equal(fullAgents.includes('codebase-memory-mcp'), true);
+    assert.equal(fullAgents.includes('codebase-memory-mcp'), false);
+    assert.equal(selectedAgents.includes('codebase-memory-mcp'), true);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
 });
 
 test('codebase-memory uses a stable Windows alias for the same Unicode root', () => {
-  const root = 'D:\\SVN-Project\\H5Web\\H5端\\code\\vue-element-plus-admin';
+  const root = 'D:\\projects\\web-ui\\组件\\code\\sample-admin';
   const first = aliasPathForRoot(root);
   const second = aliasPathForRoot(root);
 
   assert.equal(first, second);
-  assert.match(path.basename(first), /^cognis-cbm-[a-f0-9]{16}$/u);
+  assert.match(path.basename(first), /^vibe-harness-cbm-[a-f0-9]{16}$/u);
   assert.notEqual(aliasPathForRoot(`${root}-other`), first);
 });
 
 test('codebase-memory preserves valid JSON when replacing a Windows alias in status output', () => {
-  const alias = 'C:\\Users\\hexi\\AppData\\Local\\Temp\\cognis-cbm-0123456789abcdef';
-  const target = 'D:\\SVN-Project\\H5Web\\H5端\\code\\vue-element-plus-admin';
+  const alias = 'C:\\Users\\test\\AppData\\Local\\Temp\\vibe-harness-cbm-0123456789abcdef';
+  const target = 'D:\\projects\\web-ui\\组件\\code\\sample-admin';
   const output = JSON.stringify({ root_path: alias, status: 'ready' });
   const parsed = JSON.parse(replaceAliasInStatusOutput(output, alias, target));
 

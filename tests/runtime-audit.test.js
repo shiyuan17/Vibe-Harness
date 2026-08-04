@@ -4,7 +4,7 @@ import test from 'node:test';
 
 import { auditRuntimeTools, resolveNpmAuditInvocation } from '../scripts/lib/runtime-audit.js';
 
-const rootDir = path.resolve('.');
+const rootDir = path.resolve(import.meta.dirname, '..');
 
 function auditPayload({ critical = 0, high = 0, low = 0, moderate = 0 } = {}) {
   return {
@@ -27,14 +27,11 @@ test('runtime audit mirrors the installed dependency surface for every tool', as
 
   assert.equal(report.ok, true);
   assert.equal(report.tools.length, 5);
-  const agentmemory = calls.find((call) => call.id === 'agentmemory' && call.surface === 'installed');
   const chromeDevtools = calls.find((call) => call.id === 'chrome-devtools-mcp' && call.surface === 'installed');
   const playwright = calls.find((call) => call.id === 'playwright-cli' && call.surface === 'installed');
   assert.ok(chromeDevtools, 'Chrome DevTools MCP dependency surface should be audited');
-  assert.equal(agentmemory.args.includes('--omit=optional'), true);
-  assert.equal(agentmemory.args.includes('--omit=dev'), false);
   assert.equal(playwright.args.includes('--omit=dev'), false);
-  assert.equal(calls.some((call) => call.id === 'agentmemory' && call.surface === 'lockfile'), true);
+  assert.equal(calls.every((call) => call.surface === 'installed'), true);
 });
 
 test('runtime audit launches npm through npm-cli.js on Windows', async () => {
@@ -51,10 +48,8 @@ test('runtime audit launches npm through npm-cli.js on Windows', async () => {
 
 test('runtime audit blocks high findings but reports moderate findings', async () => {
   const report = await auditRuntimeTools(rootDir, {
-    runAudit: async ({ id, surface }) => {
-      const findings = id === 'agentmemory' && surface === 'lockfile'
-        ? { critical: 1, high: 4, moderate: 11 }
-        : id === 'open-code-review'
+    runAudit: async ({ id }) => {
+      const findings = id === 'open-code-review'
           ? { moderate: 2 }
           : id === 'codebase-memory-mcp'
             ? { high: 1 }
@@ -66,9 +61,6 @@ test('runtime audit blocks high findings but reports moderate findings', async (
   assert.equal(report.ok, false);
   assert.deepEqual(report.blocking, [{ critical: 0, high: 1, id: 'codebase-memory-mcp' }]);
   assert.deepEqual(report.warnings, [{ id: 'open-code-review', moderate: 2 }]);
-  const agentmemory = report.tools.find((tool) => tool.id === 'agentmemory');
-  assert.deepEqual(agentmemory.installed, { critical: 0, high: 0, info: 0, low: 0, moderate: 0, total: 0 });
-  assert.deepEqual(agentmemory.excludedOptional, { critical: 1, high: 4, info: 0, low: 0, moderate: 11, total: 16 });
 });
 
 test('runtime audit fails closed on command and output errors', async () => {

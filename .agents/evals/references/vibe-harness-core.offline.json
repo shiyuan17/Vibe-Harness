@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "id": "vibe-harness-core-offline-reference",
+  "approvedAt": "2026-07-28T00:00:00.000Z",
+  "suite": {
+    "id": "vibe-harness-core",
+    "version": "2.0.0"
+  },
+  "mode": "offline",
+  "fingerprint": {
+    "suiteHash": "c293ee1bd741ba5d6b794cafdcbd08fd556a77a62b7ae249bec0bdc52de10287",
+    "runner": "offline-replay@1",
+    "model": "fixture",
+    "agent": "offline",
+    "configHash": "fixture-v1"
+  },
+  "capabilities": [
+    {
+      "id": "api-and-interface-design",
+      "caseCount": 1,
+      "passedCount": 1,
+      "score": 1
+    },
+    {
+      "id": "ast-grep-structured-search",
+      "caseCount": 1,
+      "passedCount": 1,
+      "score": 1
+    },
+    {
+      "id": "chrome-devtools-mcp",
+      "caseCount": 3,
+      "passedCount": 3,
+      "score": 1
+    },
+    {
+      "id": "clarify-requirements",
+      "caseCount": 2,
+      "passedCount": 2,
+      "score": 1
+    },
+    {
+      "id": "define-goal",
+      "caseCount": 1,
+      "passedCount": 1,
+      "score": 1
+    },
+    {
+      "id": "eval-driven-development",
+      "caseCount": 1,
+      "passedCount": 1,
+      "score": 1
+    },
+    {
+      "id": "frontend-design",
+      "caseCount": 1,
+      "passedCount": 1,
+      "score": 1
+    },
+    {
+      "id": "hook-policy",
+      "caseCount": 3,
+      "passedCount": 3,
+      "score": 1
+    },
+    {
+      "id": "install-lifecycle",
+      "caseCount": 6,
+      "passedCount": 6,
+      "score": 1
+    },
+    {
+      "id": "rtk-output-compression",
+      "caseCount": 5,
+      "passedCount": 5,
+      "score": 1
+    },
+    {
+      "id": "runtime-cross-repo-rollout",
+      "caseCount": 1,
+      "passedCount": 1,
+      "score": 1
+    },
+    {
+      "id": "security-and-hardening",
+      "caseCount": 1,
+      "passedCount": 1,
+      "score": 1
+    },
+    {
+      "id": "systematic-debugging",
+      "caseCount": 2,
+      "passedCount": 2,
+      "score": 1
+    }
+  ],
+  "overallScore": 1,
+  "criticalPassRate": 1
+}

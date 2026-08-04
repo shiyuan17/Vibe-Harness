@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Cognis evaluation run",
+  "title": "Vibe-Harness evaluation run",
   "type": "object",
   "required": ["schemaVersion", "id", "generatedAt", "suite", "mode", "status", "fingerprint", "caseRepetitions", "cases", "capabilities", "overallScore", "criticalPassRate", "diagnostics"],
   "properties": {
@@ -9,11 +9,184 @@
     "generatedAt": { "type": "string", "minLength": 1 },
     "suite": { "type": "object", "required": ["id", "version", "hash", "path"], "properties": { "id": { "type": "string", "minLength": 1 }, "version": { "type": "string", "minLength": 1 }, "hash": { "type": "string", "minLength": 1 }, "path": { "type": "string", "minLength": 1 } }, "additionalProperties": false },
     "mode": { "type": "string", "enum": ["offline", "online"] },
+    "campaignId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9._-]+$" },
     "status": { "type": "string", "enum": ["passed", "failed", "degraded"] },
-    "fingerprint": { "type": "object", "required": ["suiteHash", "runner", "model", "agent", "governanceHash"], "properties": { "suiteHash": { "type": "string", "minLength": 1 }, "runner": { "type": "string", "minLength": 1 }, "model": { "type": "string", "minLength": 1 }, "agent": { "type": "string", "minLength": 1 }, "governanceHash": { "type": "string", "minLength": 1 } }, "additionalProperties": false },
+    "fingerprint": { "type": "object", "required": ["suiteHash", "runner", "model", "agent", "configHash"], "properties": { "suiteHash": { "type": "string", "minLength": 1 }, "runner": { "type": "string", "minLength": 1 }, "model": { "type": "string", "minLength": 1 }, "agent": { "type": "string", "minLength": 1 }, "configHash": { "type": "string", "minLength": 1 } }, "additionalProperties": false },
+    "runtime": {
+      "type": "object",
+      "required": ["backend", "provider", "reasoningEffort", "wireApi"],
+      "properties": {
+        "backend": { "type": "string", "enum": ["native", "wsl"] },
+        "provider": { "type": "string", "minLength": 1 },
+        "reasoningEffort": { "type": "string", "enum": ["low", "medium", "high", "xhigh"] },
+        "wireApi": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
     "reference": { "type": "object", "required": ["path", "status"], "properties": { "path": { "type": "string", "minLength": 1 }, "status": { "type": "string", "enum": ["matched", "mismatched", "missing"] } }, "additionalProperties": false },
+    "attemptSummary": {
+      "type": "object",
+      "required": ["infrastructureFailures", "readyTrials", "safetyFalsePositiveTrials", "startedTrials"],
+      "properties": {
+        "infrastructureFailures": { "type": "integer", "minimum": 0 },
+        "eligibleLegalWriteTrials": { "type": "integer", "minimum": 0 },
+        "readyTrials": { "type": "integer", "minimum": 0 },
+        "safetyFalsePositiveTrials": { "type": "integer", "minimum": 0 },
+        "startedTrials": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
     "caseRepetitions": { "type": "array", "minItems": 1, "items": { "type": "object", "required": ["id", "count"], "properties": { "id": { "type": "string", "minLength": 1 }, "count": { "type": "integer", "minimum": 1, "maximum": 3 } }, "additionalProperties": false } },
-    "cases": { "type": "array", "minItems": 1, "items": { "type": "object", "required": ["id", "capability", "passed", "score", "weight", "criticalAssertions", "criticalFailures", "dimensionScores", "assertions"], "properties": { "id": { "type": "string", "minLength": 1 }, "capability": { "type": "string", "minLength": 1 }, "passed": { "type": "boolean" }, "score": { "type": "number", "minimum": 0, "maximum": 1 }, "weight": { "type": "number", "exclusiveMinimum": 0 }, "criticalAssertions": { "type": "integer", "minimum": 0 }, "criticalFailures": { "type": "integer", "minimum": 0 }, "dimensionScores": { "type": "object", "required": ["correctness", "safety", "evidenceQuality", "efficiency"], "properties": { "correctness": { "type": "number", "minimum": 0, "maximum": 1 }, "safety": { "type": "number", "minimum": 0, "maximum": 1 }, "evidenceQuality": { "type": "number", "minimum": 0, "maximum": 1 }, "efficiency": { "type": "number", "minimum": 0, "maximum": 1 } }, "additionalProperties": false }, "assertions": { "type": "array", "minItems": 1, "items": { "type": "object", "required": ["kind", "dimension", "critical", "expected", "passed"], "properties": { "kind": { "type": "string", "enum": ["required-event", "forbidden-event", "required-output-fragment", "forbidden-output-fragment", "required-artifact", "forbidden-artifact", "exit-code"] }, "dimension": { "type": "string", "enum": ["correctness", "safety", "evidenceQuality", "efficiency"] }, "critical": { "type": "boolean" }, "expected": {}, "passed": { "type": "boolean" } }, "additionalProperties": false } } }, "additionalProperties": false } },
+    "trialSummaries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["caseId", "repetitions", "passAt1", "passAtK", "passCaretK", "passedTrials", "meanScore", "perTrial"],
+        "properties": {
+          "caseId": { "type": "string", "minLength": 1 },
+          "repetitions": { "type": "integer", "minimum": 1, "maximum": 3 },
+          "passAt1": { "type": "integer", "enum": [0, 1] },
+          "passAtK": { "type": "integer", "enum": [0, 1] },
+          "passCaretK": { "type": "integer", "enum": [0, 1] },
+          "passedTrials": { "type": "integer", "minimum": 0 },
+          "meanScore": { "type": "number", "minimum": 0, "maximum": 1 },
+          "perTrial": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["repetition", "passed", "score"],
+              "properties": {
+                "repetition": { "type": "integer", "minimum": 1, "maximum": 3 },
+                "passed": { "type": "boolean" },
+                "score": { "type": "number", "minimum": 0, "maximum": 1 },
+                "criticalFailures": { "type": "integer", "minimum": 0 },
+                "flakyFailure": { "type": "boolean" },
+                "failedAssertions": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["kind", "dimension", "critical"],
+                    "properties": {
+                      "kind": { "type": "string", "enum": ["required-event", "forbidden-event", "required-output-fragment", "forbidden-output-fragment", "required-artifact", "forbidden-artifact", "exit-code", "llm-rubric"] },
+                      "dimension": { "type": "string", "enum": ["correctness", "safety", "evidenceQuality", "efficiency"] },
+                      "critical": { "type": "boolean" }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "toolSummary": {
+                  "type": "object",
+                  "properties": {
+                    "commandCount": { "type": "integer", "minimum": 0 },
+                    "dangerousOperationBlocked": { "type": "boolean" },
+                    "durationMs": { "type": "number", "minimum": 0 },
+                    "errorCategories": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+                    "hookReasonCodes": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+                    "hookTimings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["action", "durationMs"],
+                        "properties": {
+                          "event": { "anyOf": [ { "type": "string" }, { "type": "null" } ] },
+                          "action": { "type": "string", "enum": ["allow", "warn", "deny"] },
+                          "reasonCode": { "anyOf": [ { "type": "string" }, { "type": "null" } ] },
+                          "durationMs": { "type": "number", "minimum": 0 }
+                        },
+                        "additionalProperties": false
+                      }
+                    },
+                    "recoverableToolErrorCount": { "type": "integer", "minimum": 0 },
+                    "ruleCoverage": {
+                      "type": "object",
+                      "required": ["expected", "measured"],
+                      "properties": {
+                        "expected": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+                        "measured": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+                      },
+                      "additionalProperties": false
+                    },
+                    "testSummary": {
+                      "type": "object",
+                      "required": ["apiContractFailures", "failed", "passed", "total"],
+                      "properties": {
+                        "apiContractFailures": { "type": "integer", "minimum": 0 },
+                        "apiExistenceFailures": { "type": "integer", "minimum": 0 },
+                        "failed": { "type": "integer", "minimum": 0 },
+                        "passed": { "type": "integer", "minimum": 0 },
+                        "total": { "type": "integer", "minimum": 0 }
+                      },
+                      "additionalProperties": false
+                    },
+                    "tokenUsage": {
+                      "type": "object",
+                      "required": ["cachedInputTokens", "inputTokens", "outputTokens", "reasoningOutputTokens", "totalTokens"],
+                      "properties": {
+                        "cachedInputTokens": { "type": "number", "minimum": 0 },
+                        "inputTokens": { "type": "number", "minimum": 0 },
+                        "outputTokens": { "type": "number", "minimum": 0 },
+                        "reasoningOutputTokens": { "type": "number", "minimum": 0 },
+                        "totalTokens": { "type": "number", "minimum": 0 }
+                      },
+                      "additionalProperties": false
+                    },
+                    "toolCalls": { "type": "integer", "minimum": 0 },
+                    "toolOutcomeSummary": {
+                      "type": "object",
+                      "required": ["failed", "successful", "total", "unknown"],
+                      "properties": {
+                        "failed": { "type": "integer", "minimum": 0 },
+                        "successful": { "type": "integer", "minimum": 0 },
+                        "total": { "type": "integer", "minimum": 0 },
+                        "unknown": { "type": "integer", "minimum": 0 }
+                        ,"expectedDenied": { "type": "integer", "minimum": 0 }
+                        ,"unexpectedFailed": { "type": "integer", "minimum": 0 }
+                        ,"knownTotal": { "type": "integer", "minimum": 0 }
+                      },
+                      "additionalProperties": false
+                    },
+                    "toolOutcomes": { "type": "array", "items": { "type": "object", "required": ["type"], "properties": { "type": { "type": "string", "minLength": 1 }, "status": { "type": "string", "minLength": 1 }, "exitCode": { "type": "integer" }, "classification": { "type": "string", "enum": ["success", "expected-denial", "recoverable-failure", "fatal-failure", "unknown"] } }, "additionalProperties": false } },
+                    "toolTypes": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+                    "totalTokens": { "type": "number", "minimum": 0 },
+                    "skillTriggers": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["id", "source"],
+                        "properties": {
+                          "id": { "type": "string", "minLength": 1 },
+                          "source": { "type": "string", "enum": ["declared", "observed"] }
+                        },
+                        "additionalProperties": false
+                      }
+                    },
+                    "verificationCommandCount": { "type": "integer", "minimum": 0 },
+                    "workspaceSummary": {
+                      "type": "object",
+                      "required": ["allowedChangedCount", "architectureViolationCount", "existingFileOverwriteCount", "totalChangedCount", "undeclaredWriteCount"],
+                      "properties": {
+                        "allowedChangedCount": { "type": "integer", "minimum": 0 },
+                        "architectureViolationCount": { "type": "integer", "minimum": 0 },
+                        "existingFileOverwriteCount": { "type": "integer", "minimum": 0 },
+                        "totalChangedCount": { "type": "integer", "minimum": 0 },
+                        "undeclaredWriteCount": { "type": "integer", "minimum": 0 }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "diagnostics": { "type": "array", "items": { "type": "string" } }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "cases": { "type": "array", "minItems": 1, "items": { "type": "object", "required": ["id", "capability", "passed", "score", "weight", "criticalAssertions", "criticalFailures", "dimensionScores", "assertions"], "properties": { "id": { "type": "string", "minLength": 1 }, "capability": { "type": "string", "minLength": 1 }, "passed": { "type": "boolean" }, "score": { "type": "number", "minimum": 0, "maximum": 1 }, "weight": { "type": "number", "exclusiveMinimum": 0 }, "criticalAssertions": { "type": "integer", "minimum": 0 }, "criticalFailures": { "type": "integer", "minimum": 0 }, "flakyFailure": { "type": "boolean" }, "dimensionScores": { "type": "object", "required": ["correctness", "safety", "evidenceQuality", "efficiency"], "properties": { "correctness": { "type": "number", "minimum": 0, "maximum": 1 }, "safety": { "type": "number", "minimum": 0, "maximum": 1 }, "evidenceQuality": { "type": "number", "minimum": 0, "maximum": 1 }, "efficiency": { "type": "number", "minimum": 0, "maximum": 1 } }, "additionalProperties": false }, "assertions": { "type": "array", "minItems": 1, "items": { "type": "object", "required": ["kind", "dimension", "critical", "expected", "passed"], "properties": { "kind": { "type": "string", "enum": ["required-event", "forbidden-event", "required-output-fragment", "forbidden-output-fragment", "required-artifact", "forbidden-artifact", "exit-code", "llm-rubric"] }, "dimension": { "type": "string", "enum": ["correctness", "safety", "evidenceQuality", "efficiency"] }, "critical": { "type": "boolean" }, "expected": {}, "passed": { "type": "boolean" }, "score": { "type": "number", "minimum": 0, "maximum": 1 }, "rationale": { "type": "string" }, "judgeModel": { "type": "string" } }, "additionalProperties": false } } }, "additionalProperties": false } },
     "capabilities": { "type": "array", "minItems": 1, "items": { "type": "object", "required": ["id", "caseCount", "passedCount", "score"], "properties": { "id": { "type": "string", "minLength": 1 }, "caseCount": { "type": "integer", "minimum": 1 }, "passedCount": { "type": "integer", "minimum": 0 }, "score": { "type": "number", "minimum": 0, "maximum": 1 } }, "additionalProperties": false } },
     "overallScore": { "type": "number", "minimum": 0, "maximum": 1 },
     "criticalPassRate": { "type": "number", "minimum": 0, "maximum": 1 },

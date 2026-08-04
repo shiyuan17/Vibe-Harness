@@ -1,32 +1,26 @@
-# AGENTS.md - Cognis 贡献指南
+# AGENTS.md - Vibe-Harness 贡献指南
 
-Cognis 用来打包可复用的 AI coding governance 资产。源项目只能作为只读输入；通用核心内容不得包含项目专有标识；声称完成前必须验证安装器和校验器行为。
+Vibe-Harness 用来打包可复用的 AI coding 项目规则、领域 Skills、安全 Hook 和安装器。源项目只能作为只读输入；通用内容不得包含项目专有标识。
 
 ## 深入文档
 
 - 贡献流程、变更影响矩阵、PR 与发布要求见 `CONTRIBUTING.md`。
 - 当前架构、规格、参考审计与历史归档从 `docs/README.md` 进入。
+- 执行内核与可选交付简表分别见 `rules/governance-core.md` 和 `templates/delivery.md`。
 
 ## 命令面边界
 
 - 所有项目命令使用 `--project <temp-project>`；`--target codex|claude|gemini` 只选择 adapter。
 - 真实写入统一使用 `--write`；`--apply`、`codex-internal` 和 `codex-minimal` 已移除。
+- 项目生命周期使用 `--project <temp-project>`，预览使用 `--dry-run`，真实写入使用 `--write`。
 - Codex `full` 写入红区文件时仍需 `--confirm-red-zone`。
 
-## 必跑检查
+## 验证选择
 
 - `pnpm check`
 - 文档、catalog 或 schema 变更额外运行 `pnpm docs:audit`
 - installer、profile、runtime 或工具变更额外运行 `pnpm test:integration` 和 `pnpm smoke:lifecycle`
-- `pnpm cognis init --project <temp-project>`
-- `pnpm cognis install --project <temp-project> --target codex --profile core --dry-run`
-- `pnpm cognis install --project <temp-project> --target codex --profile core --write`
-- `pnpm cognis validate --project <temp-project>`
-- `pnpm cognis init --project <full-temp-project> --profile full`
-- `pnpm cognis install --project <full-temp-project> --target codex --profile full --dry-run`
-- `pnpm cognis install --project <full-temp-project> --target codex --profile full --write --confirm-red-zone`
-- `pnpm cognis validate --project <full-temp-project>`
-- `pnpm cognis doctor --project <full-temp-project>`
+- 只运行与变更和完成主张匹配的聚焦检查；不要自动派发 Review/Test 角色。
 
 ## 安全规则
 
@@ -40,52 +34,50 @@ Cognis 用来打包可复用的 AI coding governance 资产。源项目只能作
 
 若 `codebase-memory-mcp` MCP 工具可用，理解或定位代码前先检查当前仓库索引状态，并按需使用结构查询。MCP 不可用时明确说明缺少该能力，退回 `rg` 和直接文件阅读；不要修改全局 Agent 或 MCP 配置。
 
-<!-- COGNIS:START -->
+<!-- VIBE_HARNESS:START -->
 # AGENTS.md
 
-项目：Cognis
+项目：Vibe-Harness
 
 ## 启动
 
-1. 阅读 `docs/rules/governance-core.md`、`docs/rules/AGENT_SKILL_ROUTING.md` 和命中场景的专项规则。
-2. 编辑前运行 `git status --short`，保护用户未归属改动。
-3. 使用仓库搜索和已安装规则定位相关代码；需要结构化索引时先确认目标项目已有能力。
-4. 将任务归为快速、轻量或完整，并确定验证方式。
-5. 已安装 Skills 时先使用 `using-cognis` 路由；Skills 未安装时按路由规则和治理内核 fallback 执行。
+1. 先读取 `docs/rules/governance-core.md`；只有出现 Skill 或专项领域信号时再读取 `docs/rules/AGENT_SKILL_ROUTING.md` 和一个命中的专项规则。
+2. 读取 `docs/memory/` 的治理记忆（优先 `PROJECT_STATE.md`），按其与本地记忆库的优先级合并；本地记忆库恢复入口为 `.agents/memory/CURRENT.md`。
+3. 编辑前运行 `git status --short`，保护用户未归属改动。
+4. 使用仓库搜索和已安装规则定位相关代码；需要结构化索引时先确认目标项目已有能力。
+5. 将任务归为快速、轻量或完整，并选择与主张匹配的验证。
+6. 使用“获取事实 → 直接执行 → 聚焦验证 → 简洁交付”的单一路径；宿主按 description 直接选择领域 Skill。
 
-## 五条硬约束
+## 硬边界
 
-1. 只在授权范围内行动，不覆盖无关改动。
-2. 红区、不可逆操作和范围扩大必须先获得人工确认。
-3. 不编造 API、字段、权限、数据、验证证据或发布结果。
-4. 没有本轮新鲜证据，不声称完成、修复或通过。
-5. 完整或高风险任务必须由独立核验者审查。
-
-新任务或范围实质变化时，首次使用工具前按治理内核输出“任务确认”；普通追问不重复输出。轻量反证记录“主张 → 证据 → 反例 → 剩余风险”。红区确认和 `docs/templates/delivery.md` 会话交付字段不得省略；任务需要持久化时使用中文 `docs/templates/task.md`。
+- 只在授权范围内行动；红区、生产、权限、凭据、外部写入和不可逆操作先获人工确认。
+- 不编造事实或证据；没有本轮有效验证不得声称完成。
+- 任务记录是可选的人读文档，不触发测试、Review、子 Agent 或完成门禁。
 
 ## 默认验证命令
 
 - Lint: pnpm lint
 - Typecheck: 未配置
-- Governance: node .agents/cognis/governance/validate.mjs
+- Test: pnpm test:unit
+- Eval: pnpm eval:offline
 
-`cognis validate --project` 只检查安装一致性；实际执行配置命令使用 `cognis verify --project <path>`。manual 命令只有检查内容后才使用 `--allow-manual`。
+`vibe-harness validate --project` 只检查安装一致性；`vibe-harness verify --project <path>` 执行项目已配置的验证命令。测试范围细则见 `docs/rules/test-rules.md`。
 
 ## 已安装表面
 
-- 当前安装方式：自定义能力模块安装。
+- 当前安装方式：自定义能力模块安装。 当前另安装 integration Skills：agentmemory；它们不计入 profile 的原生领域 Skill 数量。
+- 需求澄清姿态：`balanced`（action-leaning 偏向采用最小可逆默认值直接推进；balanced 按规则判断；conservative 对跨模块或公共契约改动也倾向先确认）。
+
+- 规则位于 `docs/rules/`。
+- 工程专项规则位于 `docs/rules/`。
+- 发布 / 设计 / 排障规则位于 `docs/rules/`。
+- 模板位于 `docs/templates/`。
+- Skills 位于 `.agents/skills/`。
+- agentmemory skills 位于 `.agents/skills/`，本地记忆库位于 `.agents/memory/`。
 
 
+宿主按 Skill description 原生选择一个当前阶段所需能力；不使用 Router 或流程 Skill 链。
 
+规则优先级：平台系统与用户本轮指令优先；目标项目明确的本地规则优先于 Vibe-Harness 默认规则；目录级规则只作用于其子树。同一层级冲突时停止并请求确认。
+<!-- VIBE_HARNESS:END -->
 
-
-
-
-
-- Codex hook 配置位于 `.codex/hooks.json`。
-
-
-当前 profile 未安装 Skills；仅按已安装规则和模板执行，不引用未安装的 skill。
-
-规则优先级：平台系统与用户本轮指令优先；目标项目明确的本地规则优先于 Cognis 默认规则；目录级规则只作用于其子树。同一层级冲突时停止并请求确认。
-<!-- COGNIS:END -->

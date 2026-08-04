@@ -1,0 +1,19 @@
+{
+  "projectName": "MinimalProject",
+  "language": "zh-CN",
+  "packageManager": "pnpm",
+  "target": "codex",
+  "profile": "minimal",
+  "validationCommands": {
+    "lint": "pnpm lint",
+    "typecheck": "pnpm check:type"
+  },
+  "riskZones": {
+    "red": ["auth", "secrets", "ci-cd", "env"],
+    "yellow": ["shared-libs", "state", "routing", "io-clients"]
+  },
+  "crossRepo": {
+    "enabled": false,
+    "backendRepo": ""
+  }
+}

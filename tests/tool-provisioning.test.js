@@ -11,15 +11,18 @@ import { createInstallPlan, previewInstallPlan } from '../scripts/lib/install-pl
 import { resolveOcrEndpoint } from '../scripts/lib/ocr-config.js';
 import {
   createToolProvisioningPlan,
+  mergeManagedCbmIgnoreBlock,
   inspectProfileTools,
   mergeManagedMcpBlock,
   provisionProfileTools,
+  repairCodebaseMemoryBinary,
+  removeManagedCbmIgnoreBlock,
   runMcpHandshake,
 } from '../scripts/lib/tool-provisioning.js';
 
-const rootDir = path.resolve('.');
+const rootDir = path.resolve(import.meta.dirname, '..');
 const execFileAsync = promisify(execFile);
-const cliPath = path.join(rootDir, 'scripts/cognis.js');
+const cliPath = path.join(rootDir, 'scripts/vibe-harness.js');
 const offlineEnv = {
   ...process.env,
   ANTHROPIC_API_KEY: '',
@@ -27,18 +30,29 @@ const offlineEnv = {
   OCR_LLM_TOKEN: '',
   OCR_LLM_URL: '',
   OPENAI_API_KEY: '',
-  COGNIS_TEST_OFFLINE: '1',
-  npm_config_cache: path.join(tmpdir(), 'cognis-empty-npm-cache'),
+  VIBE_HARNESS_TEST_OFFLINE: '1',
+  npm_config_cache: path.join(tmpdir(), 'vibe-harness-empty-npm-cache'),
   npm_config_offline: 'true',
 };
+const PROFILE_TOOL_MODULES = [
+  'codebase-memory',
+  'playwright',
+  'chrome-devtools',
+  'open-code-review',
+];
 
-function successfulToolOutput(request, targetDir) {
+async function successfulToolOutput(request, targetDir, { materializeCodebaseMemoryRuntime = true } = {}) {
+  if (request.component === 'codebaseMemoryMcp'
+    && request.phase === 'binary-install'
+    && materializeCodebaseMemoryRuntime) {
+    await seedCodebaseMemoryRuntime(request.cwd);
+  }
   if (request.component === 'codebaseMemoryMcp' && request.phase === 'index') {
     return {
       stdout: JSON.stringify({
         edges: 13,
         nodes: 21,
-        project: 'cognis-target',
+        project: 'vibe-harness-target',
         status: 'indexed',
       }),
     };
@@ -48,7 +62,7 @@ function successfulToolOutput(request, targetDir) {
       stdout: JSON.stringify({
         edges: 13,
         nodes: 21,
-        project: 'cognis-target',
+        project: 'vibe-harness-target',
         root_path: path.resolve(targetDir).replaceAll('\\', '/'),
         status: 'ready',
       }),
@@ -101,27 +115,15 @@ async function runCliSummary(args, options = {}) {
   return stdout;
 }
 
-test('full tool plan pins five project-local components while core keeps Playwright lazy', () => {
+test('tool plans require explicitly resolved plugin modules', () => {
   const targetDir = path.resolve('target-project');
   const stable = createToolProvisioningPlan({ profile: 'full', targetDir });
   const full = createToolProvisioningPlan({ allowPreview: true, profile: 'full', targetDir });
   const core = createToolProvisioningPlan({ profile: 'core', targetDir });
 
-  assert.deepEqual(
-    full.map(({ id, version }) => ({ id, version })),
-    [
-      { id: 'codebaseMemoryMcp', version: '0.9.0' },
-      { id: 'playwrightCli', version: '0.1.17' },
-      { id: 'chromeDevtoolsMcp', version: '1.6.0' },
-      { id: 'openCodeReview', version: '1.7.7' },
-      { id: 'agentmemory', version: '0.9.27' },
-    ],
-  );
-  assert.deepEqual(stable.map(({ id }) => id), ['codebaseMemoryMcp', 'playwrightCli', 'chromeDevtoolsMcp', 'openCodeReview']);
-  assert.equal(full.every((item) => item.toolDir.startsWith(targetDir)), true);
-  assert.deepEqual(full[0].phases, ['dependency-install', 'binary-install', 'index', 'index-verify', 'mcp-handshake']);
-  assert.deepEqual(full[2].phases, ['dependency-install', 'browser-smoke']);
-  assert.deepEqual(core.map(({ id, mode }) => ({ id, mode })), [{ id: 'playwrightCli', mode: 'lazy' }]);
+  assert.deepEqual(stable, []);
+  assert.deepEqual(full, []);
+  assert.deepEqual(core, []);
 });
 
 test('managed MCP block preserves local TOML and refuses duplicate unmanaged server tables', () => {
@@ -145,7 +147,7 @@ test('managed MCP block preserves local TOML and refuses duplicate unmanaged ser
   assert.equal(result.content.includes('model = "gpt-5"'), true);
   assert.equal(result.content.includes('command = "user-memory"'), true);
   assert.equal(result.content.includes('command = "user-chrome"'), true);
-  assert.equal(result.content.includes('# COGNIS:MCP:START'), true);
+  assert.equal(result.content.includes('# VIBE_HARNESS:MCP:START'), true);
   assert.equal(result.content.includes('[mcp_servers.codebase-memory-mcp]'), true);
   assert.equal(result.content.includes('[mcp_servers.chrome-devtools]'), false);
   assert.equal(result.content.includes('[mcp_servers.agentmemory]\ncommand = "node"'), false);
@@ -157,10 +159,11 @@ test('Chrome DevTools runtime pins safe headless isolated defaults without forwa
   const plan = await createInstallPlan({
     dryRun: true,
     profile: 'full',
+    requestedPlugins: ['chrome-devtools'],
     rootDir,
     targetDir: path.resolve('target-project'),
   });
-  const runtime = plan.actions.find((action) => action.relativeTarget === '.agents/cognis/tools/chrome-devtools-mcp/run.mjs');
+  const runtime = plan.actions.find((action) => action.relativeTarget === '.agents/runtime/tools/chrome-devtools-mcp/run.mjs');
   assert.ok(runtime, 'full profile should install the Chrome DevTools runtime');
 
   const source = await readFile(path.join(rootDir, 'runtime/tools/chrome-devtools-mcp/run.mjs'), 'utf8');
@@ -175,7 +178,7 @@ test('Chrome DevTools runtime pins safe headless isolated defaults without forwa
 });
 
 test('Chrome DevTools wrapper strips secrets, credentialed proxies, and caller arguments from its child', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-chrome-wrapper-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-chrome-wrapper-'));
   const runtimeDir = path.join(targetDir, 'runtime');
   const entryDir = path.join(runtimeDir, 'node_modules/chrome-devtools-mcp/build/src/bin');
   try {
@@ -191,7 +194,7 @@ test('Chrome DevTools wrapper strips secrets, credentialed proxies, and caller a
       env: {
         ...process.env,
         AWS_SECRET_ACCESS_KEY: 'cloud-secret',
-        COGNIS_SECRET_SENTINEL: 'must-not-leak',
+        VIBE_HARNESS_SECRET_SENTINEL: 'must-not-leak',
         HTTPS_PROXY: 'http://user:password@proxy.example.test',
         SSL_CERT_DIR: 'C:\\untrusted-ca-dir',
         SSL_CERT_FILE: 'C:\\untrusted-ca.pem',
@@ -203,7 +206,7 @@ test('Chrome DevTools wrapper strips secrets, credentialed proxies, and caller a
       '--headless', '--isolated', '--no-usage-statistics', '--no-performance-crux', '--redact-network-headers',
     ]);
     assert.equal(observation.env.AWS_SECRET_ACCESS_KEY, undefined);
-    assert.equal(observation.env.COGNIS_SECRET_SENTINEL, undefined);
+    assert.equal(observation.env.VIBE_HARNESS_SECRET_SENTINEL, undefined);
     assert.equal(observation.env.HTTPS_PROXY, undefined);
     assert.equal(observation.env.SSL_CERT_DIR, undefined);
     assert.equal(observation.env.SSL_CERT_FILE, undefined);
@@ -216,7 +219,7 @@ test('Chrome DevTools wrapper strips secrets, credentialed proxies, and caller a
 });
 
 test('provisioning continues after one component fails and never persists command secrets', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tools-'));
   const calls = [];
   const env = {
     OCR_LLM_TOKEN: 'super-secret-token',
@@ -250,6 +253,7 @@ test('provisioning continues after one component fails and never persists comman
       },
       env,
       profile: 'full',
+      resolvedModules: PROFILE_TOOL_MODULES,
       targetDir,
     });
 
@@ -275,14 +279,22 @@ test('provisioning continues after one component fails and never persists comman
     });
     assert.equal(report.playwrightCli.status, 'ready');
     assert.equal(report.openCodeReview.status, 'ready');
-    assert.equal(report.agentmemory.status, 'ready');
-    assert.equal(calls.some((call) => call.component === 'agentmemory' && call.phase === 'mcp-handshake'), true);
     assert.equal(calls.some((call) => call.component === 'openCodeReview' && call.phase === 'llm-test'), true);
-    const dependency = calls.find((call) => call.component === 'agentmemory' && call.phase === 'dependency-install');
-    assert.equal(dependency.args.includes('ci'), true);
-    assert.equal(dependency.args.includes('--omit=optional'), true);
-    assert.equal(dependency.cwd.startsWith(targetDir), true);
     const index = calls.find((call) => call.component === 'codebaseMemoryMcp' && call.phase === 'index');
+    assert.deepEqual(calls
+      .filter((call) => call.component === 'codebaseMemoryMcp')
+      .map((call) => call.phase)
+      .slice(0, 5), [
+      'dependency-install',
+      'binary-install',
+      'configure-auto-index',
+      'configure-auto-watch',
+      'index',
+    ]);
+    const configureAutoIndex = calls.find((call) => call.component === 'codebaseMemoryMcp' && call.phase === 'configure-auto-index');
+    const configureAutoWatch = calls.find((call) => call.component === 'codebaseMemoryMcp' && call.phase === 'configure-auto-watch');
+    assert.deepEqual(configureAutoIndex.args.slice(1), ['config', 'set', 'auto_index', 'false']);
+    assert.deepEqual(configureAutoWatch.args.slice(1), ['config', 'set', 'auto_watch', 'false']);
     assert.deepEqual(index.args.slice(1), [
       'cli', 'index_repository',
       '--repo-path', '.',
@@ -291,11 +303,9 @@ test('provisioning continues after one component fails and never persists comman
     ]);
     assert.equal(index.env.CBM_ALLOWED_ROOT, targetDir);
     assert.equal(index.env.CBM_CACHE_DIR.startsWith(targetDir), true);
-    const agentmemory = calls.find((call) => call.component === 'agentmemory' && call.phase === 'mcp-handshake');
-    assert.equal(agentmemory.env.HOME.startsWith(targetDir), true);
-    assert.equal(agentmemory.env.USERPROFILE, agentmemory.env.HOME);
-
-    const state = await readFile(path.join(targetDir, '.cognis/tool-state/tools.json'), 'utf8');
+    assert.equal(index.env.CBM_MEM_BUDGET_MB, '2048');
+    assert.equal(index.env.CBM_WORKERS, '2');
+    const state = await readFile(path.join(targetDir, '.vibe-harness/tool-state/tools.json'), 'utf8');
     assert.equal(state.includes('connect ETIMEDOUT for <project>'), true);
     assert.equal(state.includes('super-secret-token'), false);
     assert.equal(state.includes('json-secret'), false);
@@ -312,7 +322,7 @@ test('provisioning continues after one component fails and never persists comman
 });
 
 test('codebase-memory index verification gates ready status and persists only a sanitized summary', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-index-verify-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-index-verify-'));
   const calls = [];
   try {
     const report = await provisionProfileTools({
@@ -322,11 +332,12 @@ test('codebase-memory index verification gates ready status and persists only a 
       },
       env: { OPENAI_API_KEY: 'configured' },
       profile: 'full',
+      resolvedModules: ['codebase-memory'],
       targetDir,
     });
 
     const verify = calls.find((call) => call.component === 'codebaseMemoryMcp' && call.phase === 'index-verify');
-    assert.deepEqual(verify.args.slice(1), ['cli', 'index_status', '--project', 'cognis-target']);
+    assert.deepEqual(verify.args.slice(1), ['cli', 'index_status', '--project', 'vibe-harness-target']);
     assert.deepEqual(report.codebaseMemoryMcp.index, {
       edges: 13,
       mode: 'moderate',
@@ -334,8 +345,8 @@ test('codebase-memory index verification gates ready status and persists only a 
       status: 'ready',
     });
 
-    const state = await readFile(path.join(targetDir, '.cognis/tool-state/tools.json'), 'utf8');
-    assert.equal(state.includes('cognis-target'), false);
+    const state = await readFile(path.join(targetDir, '.vibe-harness/tool-state/tools.json'), 'utf8');
+    assert.equal(state.includes('vibe-harness-target'), false);
     assert.equal(state.includes(targetDir), false);
   } finally {
     await rm(targetDir, { force: true, recursive: true });
@@ -347,7 +358,7 @@ test('codebase-memory rejects empty verification output and mismatched project r
     ['empty-output', '', 'INDEX_OUTPUT_INVALID'],
     ['wrong-root', JSON.stringify({ root_path: 'C:/other-project', status: 'ready' }), 'INDEX_ROOT_MISMATCH'],
   ]) {
-    const targetDir = await mkdtemp(path.join(tmpdir(), `cognis-index-${name}-`));
+    const targetDir = await mkdtemp(path.join(tmpdir(), `vibe-harness-index-${name}-`));
     try {
       const report = await provisionProfileTools({
         commandRunner: async (request) => {
@@ -358,13 +369,14 @@ test('codebase-memory rejects empty verification output and mismatched project r
         },
         env: { OPENAI_API_KEY: 'configured' },
         profile: 'full',
+        resolvedModules: ['codebase-memory'],
         targetDir,
       });
 
       assert.equal(report.codebaseMemoryMcp.status, 'degraded');
       assert.equal(report.codebaseMemoryMcp.phase, 'index-verify');
       assert.equal(report.codebaseMemoryMcp.code, expectedCode);
-      const state = await readFile(path.join(targetDir, '.cognis/tool-state/tools.json'), 'utf8');
+      const state = await readFile(path.join(targetDir, '.vibe-harness/tool-state/tools.json'), 'utf8');
       assert.equal(state.includes('C:/other-project'), false);
     } finally {
       await rm(targetDir, { force: true, recursive: true });
@@ -376,9 +388,9 @@ test('codebase-memory rejects index output that does not identify an indexed pro
   for (const [indexOutput, expectedCode] of [
     ['', 'INDEX_OUTPUT_INVALID'],
     [JSON.stringify({ status: 'indexed' }), 'INDEX_RESULT_INVALID'],
-    [JSON.stringify({ project: 'cognis-target', status: 'failed' }), 'INDEX_RESULT_INVALID'],
+    [JSON.stringify({ project: 'vibe-harness-target', status: 'failed' }), 'INDEX_RESULT_INVALID'],
   ]) {
-    const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-index-result-'));
+    const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-index-result-'));
     try {
       const report = await provisionProfileTools({
         commandRunner: async (request) => request.component === 'codebaseMemoryMcp' && request.phase === 'index'
@@ -386,6 +398,7 @@ test('codebase-memory rejects index output that does not identify an indexed pro
           : successfulToolOutput(request, targetDir),
         env: { OPENAI_API_KEY: 'configured' },
         profile: 'full',
+        resolvedModules: ['codebase-memory'],
         targetDir,
       });
       assert.equal(report.codebaseMemoryMcp.status, 'degraded');
@@ -398,10 +411,10 @@ test('codebase-memory rejects index output that does not identify an indexed pro
 });
 
 test('real codebase-memory provisioning creates a verified project-local index', {
-  skip: process.env.COGNIS_REAL_TOOL_INTEGRATION !== '1',
+  skip: process.env.VIBE_HARNESS_REAL_TOOL_INTEGRATION !== '1',
 }, async (testContext) => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-index-integration-'));
-  const toolDir = path.join(targetDir, '.agents/cognis/tools/codebase-memory-mcp');
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-index-integration-'));
+  const toolDir = path.join(targetDir, '.agents/runtime/tools/codebase-memory-mcp');
   const runtimeSource = path.join(rootDir, 'runtime/tools/codebase-memory-mcp');
   try {
     const locator = process.platform === 'win32' ? ['where.exe', ['codebase-memory-mcp']] : ['which', ['codebase-memory-mcp']];
@@ -421,7 +434,7 @@ test('real codebase-memory provisioning creates a verified project-local index',
 
     await mkdir(toolDir, { recursive: true });
     await writeFile(path.join(targetDir, 'example.js'), 'export const indexedValue = 42;\n', 'utf8');
-    for (const file of ['package.json', 'package-lock.json', 'run.mjs', 'ocr-config.mjs']) {
+    for (const file of ['package.json', 'package-lock.json', 'run.mjs', 'path-alias.mjs']) {
       await copyFile(path.join(runtimeSource, file), path.join(toolDir, file));
     }
 
@@ -445,7 +458,7 @@ test('real codebase-memory provisioning creates a verified project-local index',
         });
         return { stderr, stdout };
       },
-      env: { ...process.env, COGNIS_TOOL_TIMEOUT_MS: '60000' },
+      env: { ...process.env, VIBE_HARNESS_TOOL_TIMEOUT_MS: '60000' },
       profile: 'full',
       resolvedModules: ['codebase-memory'],
       targetDir,
@@ -453,7 +466,7 @@ test('real codebase-memory provisioning creates a verified project-local index',
     assert.equal(report.codebaseMemoryMcp.status, 'ready', JSON.stringify(report.codebaseMemoryMcp));
     assert.equal(report.codebaseMemoryMcp.index.status, 'ready');
     assert.equal(report.codebaseMemoryMcp.index.nodes > 0, true);
-    const state = await readFile(path.join(targetDir, '.cognis/tool-state/tools.json'), 'utf8');
+    const state = await readFile(path.join(targetDir, '.vibe-harness/tool-state/tools.json'), 'utf8');
     assert.equal(state.includes(targetDir), false);
     await assert.rejects(readFile(path.join(targetDir, '.codebase-memory/graph.db.zst')), /ENOENT/u);
   } finally {
@@ -467,10 +480,9 @@ test('every full-profile tool persists a sanitized diagnostic for its failed pha
     ['codebaseMemoryMcp', 'index-verify'],
     ['playwrightCli', 'browser-install'],
     ['openCodeReview', 'llm-test'],
-    ['agentmemory', 'mcp-handshake'],
   ];
   for (const [toolId, phase] of failures) {
-    const targetDir = await mkdtemp(path.join(tmpdir(), `cognis-diagnostic-${toolId}-`));
+    const targetDir = await mkdtemp(path.join(tmpdir(), `vibe-harness-diagnostic-${toolId}-`));
     try {
       const report = await provisionProfileTools({
         allowPreview: true,
@@ -486,6 +498,7 @@ test('every full-profile tool persists a sanitized diagnostic for its failed pha
         },
         env: { OPENAI_API_KEY: 'configured' },
         profile: 'full',
+        resolvedModules: PROFILE_TOOL_MODULES,
         targetDir,
       });
       const diagnostic = report[toolId].diagnostic;
@@ -502,13 +515,14 @@ test('every full-profile tool persists a sanitized diagnostic for its failed pha
 });
 
 test('tool phase timeouts can be bounded by the lifecycle smoke environment', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-timeout-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tools-timeout-'));
   const calls = [];
   try {
     await provisionProfileTools({
       commandRunner: async (request) => { calls.push(request); return successfulToolOutput(request, targetDir); },
-      env: { COGNIS_TOOL_TIMEOUT_MS: '1500', OPENAI_API_KEY: 'configured' },
+      env: { VIBE_HARNESS_TOOL_TIMEOUT_MS: '1500', OPENAI_API_KEY: 'configured' },
       profile: 'full',
+      resolvedModules: PROFILE_TOOL_MODULES,
       targetDir,
     });
     assert.equal(calls.length > 0, true);
@@ -519,7 +533,7 @@ test('tool phase timeouts can be bounded by the lifecycle smoke environment', as
 });
 
 test('MCP handshake reports a closed stdin without an unhandled EPIPE', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-mcp-stdin-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-mcp-stdin-'));
   const script = path.join(targetDir, 'close-stdin.mjs');
   try {
     await writeFile(script, 'process.stdin.destroy(); setTimeout(() => {}, 1000);\n', 'utf8');
@@ -533,16 +547,17 @@ test('MCP handshake reports a closed stdin without an unhandled EPIPE', async ()
 });
 
 test('OCR without credentials is pending-config and inspect restores persisted statuses', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-pending-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tools-pending-'));
   try {
     const report = await provisionProfileTools({
       commandRunner: async (request) => successfulToolOutput(request, targetDir),
       env: {},
-      ocrHomeDir: path.join(tmpdir(), 'cognis-no-ocr-config'),
+      ocrHomeDir: path.join(tmpdir(), 'vibe-harness-no-ocr-config'),
       profile: 'full',
+      resolvedModules: ['codebase-memory', 'open-code-review'],
       targetDir,
     });
-    const inspected = await inspectProfileTools('full', targetDir);
+    const inspected = await inspectProfileTools('full', targetDir, ['codebase-memory', 'open-code-review']);
 
     assert.equal(report.openCodeReview.status, 'pending-config');
     assert.equal(report.openCodeReview.phase, 'llm-config');
@@ -554,8 +569,8 @@ test('OCR without credentials is pending-config and inspect restores persisted s
 });
 
 test('unchanged OCR pending-config is reused until credentials become available', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-ocr-reuse-'));
-  const ocr = createToolProvisioningPlan({ profile: 'full', targetDir })
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tools-ocr-reuse-'));
+  const ocr = createToolProvisioningPlan({ profile: 'full', resolvedModules: ['open-code-review'], targetDir })
     .find((tool) => tool.id === 'openCodeReview');
   const calls = [];
   const runner = async (request) => {
@@ -566,15 +581,16 @@ test('unchanged OCR pending-config is reused until credentials become available'
     await mkdir(ocr.toolDir, { recursive: true });
     await writeFile(path.join(ocr.toolDir, 'package-lock.json'), 'ocr-lock\n', 'utf8');
 
-    await provisionProfileTools({ commandRunner: runner, env: {}, profile: 'full', targetDir });
+    await provisionProfileTools({ commandRunner: runner, env: {}, profile: 'full', resolvedModules: ['open-code-review'], targetDir });
     const firstOcrCallCount = calls.filter((call) => call.component === 'openCodeReview').length;
-    await provisionProfileTools({ commandRunner: runner, env: {}, profile: 'full', targetDir });
+    await provisionProfileTools({ commandRunner: runner, env: {}, profile: 'full', resolvedModules: ['open-code-review'], targetDir });
     assert.equal(calls.filter((call) => call.component === 'openCodeReview').length, firstOcrCallCount);
 
     const configured = await provisionProfileTools({
       commandRunner: runner,
       env: { OPENAI_API_KEY: 'configured' },
       profile: 'full',
+      resolvedModules: ['open-code-review'],
       targetDir,
     });
     assert.equal(configured.openCodeReview.status, 'ready');
@@ -585,8 +601,8 @@ test('unchanged OCR pending-config is reused until credentials become available'
 });
 
 test('ready tools reuse package phases while codebase-memory reindexes and verifies every install', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-reuse-'));
-  const plan = createToolProvisioningPlan({ allowPreview: true, profile: 'full', targetDir });
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tools-reuse-'));
+  const plan = createToolProvisioningPlan({ allowPreview: true, profile: 'full', resolvedModules: PROFILE_TOOL_MODULES, targetDir });
   const calls = [];
   const runner = async (request) => {
     calls.push(request);
@@ -600,34 +616,36 @@ test('ready tools reuse package phases while codebase-memory reindexes and verif
     }
     await seedCodebaseMemoryRuntime(plan.find((tool) => tool.id === 'codebaseMemoryMcp').toolDir);
     await seedChromeDevtoolsRuntime(plan.find((tool) => tool.id === 'chromeDevtoolsMcp').toolDir);
-    await provisionProfileTools({ allowPreview: true, commandRunner: runner, env, profile: 'full', targetDir });
+    await provisionProfileTools({ allowPreview: true, commandRunner: runner, env, profile: 'full', resolvedModules: PROFILE_TOOL_MODULES, targetDir });
     const firstCallCount = calls.length;
-    await provisionProfileTools({ allowPreview: true, commandRunner: runner, env, profile: 'full', targetDir });
+    await provisionProfileTools({ allowPreview: true, commandRunner: runner, env, profile: 'full', resolvedModules: PROFILE_TOOL_MODULES, targetDir });
     const repeatedCalls = calls.slice(firstCallCount);
     assert.deepEqual(repeatedCalls.map((call) => [call.component, call.phase]), [
+      ['codebaseMemoryMcp', 'configure-auto-index'],
+      ['codebaseMemoryMcp', 'configure-auto-watch'],
       ['codebaseMemoryMcp', 'index'],
       ['codebaseMemoryMcp', 'index-verify'],
       ['codebaseMemoryMcp', 'mcp-handshake'],
       ['chromeDevtoolsMcp', 'browser-smoke'],
     ]);
 
-    const agentmemory = plan.find((tool) => tool.id === 'agentmemory');
-    await writeFile(path.join(agentmemory.toolDir, 'package-lock.json'), 'changed\n', 'utf8');
+    const openCodeReview = plan.find((tool) => tool.id === 'openCodeReview');
+    await writeFile(path.join(openCodeReview.toolDir, 'package-lock.json'), 'changed\n', 'utf8');
     const beforeChangedLock = calls.length;
-    await provisionProfileTools({ allowPreview: true, commandRunner: runner, env, profile: 'full', targetDir });
+    await provisionProfileTools({ allowPreview: true, commandRunner: runner, env, profile: 'full', resolvedModules: PROFILE_TOOL_MODULES, targetDir });
     const newCalls = calls.slice(beforeChangedLock);
     assert.deepEqual(newCalls.filter((call) => call.component === 'codebaseMemoryMcp').map((call) => call.phase), [
-      'index', 'index-verify', 'mcp-handshake',
+      'configure-auto-index', 'configure-auto-watch', 'index', 'index-verify', 'mcp-handshake',
     ]);
-    assert.equal(newCalls.some((call) => call.component === 'agentmemory'), true);
+    assert.equal(newCalls.some((call) => call.component === 'openCodeReview'), true);
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }
 });
 
 test('a missing codebase-memory runtime bypasses package reuse and reinstalls before indexing', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-runtime-repair-'));
-  const plan = createToolProvisioningPlan({ profile: 'full', targetDir });
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tools-runtime-repair-'));
+  const plan = createToolProvisioningPlan({ profile: 'full', resolvedModules: ['codebase-memory'], targetDir });
   const codebaseMemory = plan.find((tool) => tool.id === 'codebaseMemoryMcp');
   const binary = process.platform === 'win32' ? 'codebase-memory-mcp.exe' : 'codebase-memory-mcp';
   const calls = [];
@@ -641,16 +659,17 @@ test('a missing codebase-memory runtime bypasses package reuse and reinstalls be
       await writeFile(path.join(tool.toolDir, 'package-lock.json'), `${tool.id}\n`, 'utf8');
     }
     await seedCodebaseMemoryRuntime(codebaseMemory.toolDir);
-    await provisionProfileTools({ commandRunner: runner, env: { OPENAI_API_KEY: 'configured' }, profile: 'full', targetDir });
+    await provisionProfileTools({ commandRunner: runner, env: { OPENAI_API_KEY: 'configured' }, profile: 'full', resolvedModules: ['codebase-memory'], targetDir });
 
     await rm(path.join(codebaseMemory.toolDir, 'node_modules/codebase-memory-mcp/bin', binary), { force: true });
     const beforeRepair = calls.length;
-    await provisionProfileTools({ commandRunner: runner, env: { OPENAI_API_KEY: 'configured' }, profile: 'full', targetDir });
+    await provisionProfileTools({ commandRunner: runner, env: { OPENAI_API_KEY: 'configured' }, profile: 'full', resolvedModules: ['codebase-memory'], targetDir });
 
     assert.deepEqual(calls.slice(beforeRepair)
       .filter((call) => call.component === 'codebaseMemoryMcp')
       .map((call) => call.phase), [
-      'dependency-install', 'binary-install', 'index', 'index-verify', 'mcp-handshake',
+      'dependency-install', 'binary-install', 'configure-auto-index', 'configure-auto-watch',
+      'index', 'index-verify', 'mcp-handshake',
     ]);
   } finally {
     await rm(targetDir, { force: true, recursive: true });
@@ -658,12 +677,15 @@ test('a missing codebase-memory runtime bypasses package reuse and reinstalls be
 });
 
 test('a missing Chrome DevTools runtime bypasses dependency reuse before browser smoke', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-chrome-runtime-repair-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-chrome-runtime-repair-'));
   const plan = createToolProvisioningPlan({ profile: 'full', resolvedModules: ['chrome-devtools'], targetDir });
   const chromeDevtools = plan.find((tool) => tool.id === 'chromeDevtoolsMcp');
   const calls = [];
   const runner = async (request) => {
     calls.push(request);
+    if (request.component === 'codebaseMemoryMcp' && request.phase === 'binary-install') {
+      await seedCodebaseMemoryRuntime(codebaseMemory.toolDir);
+    }
     return successfulToolOutput(request, targetDir);
   };
   try {
@@ -682,6 +704,99 @@ test('a missing Chrome DevTools runtime bypasses dependency reuse before browser
   }
 });
 
+test('a successful codebase-memory binary install repairs a still-missing runtime before configuration', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tools-runtime-false-success-'));
+  const plan = createToolProvisioningPlan({ profile: 'full', resolvedModules: ['codebase-memory'], targetDir });
+  const codebaseMemory = plan.find((tool) => tool.id === 'codebaseMemoryMcp');
+  const calls = [];
+  let repairCalls = 0;
+  try {
+    await mkdir(codebaseMemory.toolDir, { recursive: true });
+    await writeFile(path.join(codebaseMemory.toolDir, 'package-lock.json'), 'codebaseMemoryMcp\n', 'utf8');
+    await mkdir(path.join(codebaseMemory.toolDir, 'node_modules/codebase-memory-mcp'), { recursive: true });
+    await writeFile(
+      path.join(codebaseMemory.toolDir, 'node_modules/codebase-memory-mcp/bin.js'),
+      'runtime shim\n',
+      'utf8',
+    );
+
+    const report = await provisionProfileTools({
+      codebaseMemoryRepair: async (spec) => {
+        repairCalls += 1;
+        await seedCodebaseMemoryRuntime(spec.toolDir);
+        return true;
+      },
+      commandRunner: async (request) => {
+        calls.push(request);
+        return successfulToolOutput(request, targetDir, { materializeCodebaseMemoryRuntime: false });
+      },
+      env: {},
+      profile: 'full',
+      resolvedModules: ['codebase-memory'],
+      targetDir,
+    });
+
+    assert.equal(report.codebaseMemoryMcp.status, 'ready');
+    assert.equal(repairCalls, 1);
+    assert.deepEqual(calls.map((call) => call.phase), [
+      'dependency-install', 'binary-install', 'configure-auto-index', 'configure-auto-watch',
+      'index', 'index-verify', 'mcp-handshake',
+    ]);
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('codebase-memory provisioning fixes resource limits even when the parent environment overrides them', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tools-resource-defaults-'));
+  const plan = createToolProvisioningPlan({ profile: 'full', resolvedModules: ['codebase-memory'], targetDir });
+  const codebaseMemory = plan.find((tool) => tool.id === 'codebaseMemoryMcp');
+  const calls = [];
+  try {
+    await mkdir(codebaseMemory.toolDir, { recursive: true });
+    await writeFile(path.join(codebaseMemory.toolDir, 'package-lock.json'), 'codebaseMemoryMcp\n', 'utf8');
+    const report = await provisionProfileTools({
+      commandRunner: async (request) => {
+        calls.push(request);
+        if (request.phase === 'binary-install') await seedCodebaseMemoryRuntime(codebaseMemory.toolDir);
+        return successfulToolOutput(request, targetDir);
+      },
+      env: { CBM_MEM_BUDGET_MB: '99999', CBM_WORKERS: '999' },
+      profile: 'full',
+      resolvedModules: ['codebase-memory'],
+      targetDir,
+    });
+
+    assert.equal(report.codebaseMemoryMcp.status, 'ready');
+    for (const request of calls) {
+      assert.equal(request.env.CBM_MEM_BUDGET_MB, '2048');
+      assert.equal(request.env.CBM_WORKERS, '2');
+    }
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('codebase-memory PATH repair rejects an untrusted binary before copying it', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tools-untrusted-runtime-'));
+  const spec = createToolProvisioningPlan({ profile: 'full', resolvedModules: ['codebase-memory'], targetDir })[0];
+  const untrustedBinary = path.join(targetDir, 'codebase-memory-mcp.exe');
+  try {
+    await writeFile(untrustedBinary, 'untrusted binary\n', 'utf8');
+    const repaired = await repairCodebaseMemoryBinary(spec, {
+      locateBinary: async () => untrustedBinary,
+      platform: 'win32',
+    });
+    assert.equal(repaired, false);
+    await assert.rejects(
+      readFile(path.join(spec.toolDir, 'node_modules/codebase-memory-mcp/bin/codebase-memory-mcp.exe')),
+      /ENOENT/u,
+    );
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
 test('managed MCP block is idempotent and replaces only its own previous content', () => {
   const first = mergeManagedMcpBlock('', {
     agentmemory: { args: ['old.mjs'], command: 'node', env: {} },
@@ -690,20 +805,21 @@ test('managed MCP block is idempotent and replaces only its own previous content
     agentmemory: { args: ['new.mjs'], command: 'node', env: {} },
   }).content;
 
-  assert.equal((second.match(/# COGNIS:MCP:START/gu) ?? []).length, 1);
+  assert.equal((second.match(/# VIBE_HARNESS:MCP:START/gu) ?? []).length, 1);
   assert.equal(second.includes('old.mjs'), false);
   assert.equal(second.includes('new.mjs'), true);
   assert.equal(second.includes('# local tail'), true);
 });
 
 test('MCP configuration conflicts retain an actionable diagnostic', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-conflict-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tools-conflict-'));
   try {
     const report = await provisionProfileTools({
       commandRunner: async (request) => successfulToolOutput(request, targetDir),
       mcpConflicts: ['codebase-memory-mcp'],
       env: { OPENAI_API_KEY: 'configured' },
       profile: 'full',
+      resolvedModules: ['codebase-memory'],
       targetDir,
     });
 
@@ -720,7 +836,7 @@ test('MCP configuration conflicts retain an actionable diagnostic', async () => 
 });
 
 test('an unmanaged chrome-devtools server degrades only the Chrome tool', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-chrome-conflict-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-chrome-conflict-'));
   try {
     const report = await provisionProfileTools({
       commandRunner: async (request) => successfulToolOutput(request, targetDir),
@@ -741,18 +857,18 @@ test('an unmanaged chrome-devtools server degrades only the Chrome tool', async 
 });
 
 test('MCP configuration conflicts tell summary users to resolve the duplicate server', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-conflict-summary-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tools-conflict-summary-'));
   try {
     await runCli(['init', '--project', targetDir]);
     const configPath = path.join(targetDir, '.codex/config.toml');
     await mkdir(path.dirname(configPath), { recursive: true });
     await writeFile(configPath, '[mcp_servers.codebase-memory-mcp]\ncommand = "user-managed"\n', 'utf8');
-    const projectConfigPath = path.join(targetDir, 'cognis.config.json');
+    const projectConfigPath = path.join(targetDir, 'vibe-harness.config.json');
     const projectConfig = JSON.parse(await readFile(projectConfigPath, 'utf8'));
     await writeFile(projectConfigPath, `${JSON.stringify({ ...projectConfig, profile: 'full' }, null, 2)}\n`, 'utf8');
 
     const report = await runCli(
-      ['install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--write', '--provision', '--confirm-red-zone', '--allow-degraded'],
+      ['install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--plugin', '-codebase-memory-mcp', '--write', '--provision', '--confirm-red-zone', '--allow-degraded'],
       { env: offlineEnv, timeout: 120_000 },
     );
     const summary = await runCliSummary(
@@ -769,53 +885,54 @@ test('MCP configuration conflicts tell summary users to resolve the duplicate se
 });
 
 test('full install map includes project-local runtimes and managed Codex MCP config', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-plan-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tools-plan-'));
   try {
     await writeFile(path.join(targetDir, '.codex-config-local'), '', 'utf8');
-    const full = await createInstallPlan({ dryRun: true, profile: 'full', rootDir, targetDir });
+    const full = await createInstallPlan({ allowPreview: true, dryRun: true, profile: 'full', requestedPlugins: PROFILE_TOOL_MODULES, rootDir, targetDir });
     const core = await createInstallPlan({ dryRun: true, profile: 'core', rootDir, targetDir });
     const fullTargets = full.actions.map((action) => action.relativeTarget);
     const coreTargets = core.actions.map((action) => action.relativeTarget);
 
-    assert.equal(fullTargets.includes('.agents/cognis/tools/codebase-memory-mcp/package-lock.json'), true);
-    assert.equal(fullTargets.includes('.agents/cognis/tools/chrome-devtools-mcp/package-lock.json'), true);
-    assert.equal(fullTargets.includes('.agents/cognis/tools/open-code-review/package-lock.json'), true);
-    assert.equal(fullTargets.includes('.agents/cognis/tools/agentmemory/package-lock.json'), true);
+    assert.equal(fullTargets.includes('.agents/runtime/tools/codebase-memory-mcp/package-lock.json'), true);
+    assert.equal(fullTargets.includes('.cbmignore'), true);
+    assert.equal(fullTargets.includes('.agents/runtime/tools/chrome-devtools-mcp/package-lock.json'), true);
+    assert.equal(fullTargets.includes('.agents/runtime/tools/open-code-review/package-lock.json'), true);
     assert.equal(fullTargets.includes('.codex/config.toml'), true);
     assert.equal(coreTargets.includes('.codex/config.toml'), false);
     assert.equal(coreTargets.some((target) => target.includes('codebase-memory-mcp/package-lock.json')), false);
     assert.equal(full.generatedDirectories.some((item) => item.target.endsWith('codebase-memory-mcp/node_modules')), true);
     assert.equal(full.generatedDirectories.some((item) => item.target.endsWith('chrome-devtools-mcp/node_modules')), true);
-    assert.equal(full.generatedDirectories.some((item) => item.target.endsWith('agentmemory/node_modules')), true);
-    assert.equal(full.generatedDirectories.some((item) => item.target === '.cognis/tool-state/codebase-memory-mcp'), true);
+    assert.equal(full.generatedDirectories.some((item) => item.target === '.vibe-harness/tool-state/codebase-memory-mcp'), true);
 
     const config = (await previewInstallPlan(full)).find((file) => file.target === '.codex/config.toml');
+    const cbmignore = (await previewInstallPlan(full)).find((file) => file.target === '.cbmignore');
     assert.equal(full.actions.find((action) => action.relativeTarget === '.codex/config.toml').redZone, true);
-    assert.match(config.content, /# COGNIS:MCP:START[\s\S]*mcp_servers\.agentmemory[\s\S]*mcp_servers\.chrome-devtools[\s\S]*mcp_servers\.codebase-memory-mcp/u);
+    assert.match(config.content, /# VIBE_HARNESS:MCP:START[\s\S]*mcp_servers\.chrome-devtools[\s\S]*mcp_servers\.codebase-memory-mcp/u);
+    assert.match(config.content, /CBM_MEM_BUDGET_MB = "2048"/u);
+    assert.match(config.content, /CBM_WORKERS = "2"/u);
+    assert.match(cbmignore.content, /# VIBE_HARNESS:CBM:START[\s\S]*\/\.agents\/[\s\S]*# VIBE_HARNESS:CBM:END/u);
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }
 });
 
-test('full CLI dry-run reports stable tools and defers preview tools', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-cli-plan-'));
+test('full CLI dry-run includes all explicitly selected stable tools', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tools-cli-plan-'));
   try {
     await runCli(['init', '--project', targetDir]);
     const report = await runCli(
-      ['install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--dry-run'],
+      ['install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--plugin', '-codebase-memory-mcp', 'playwright-cli', 'chrome-devtools-mcp', 'open-code-review', '--dry-run'],
       { env: { ...process.env, ANTHROPIC_API_KEY: '', OCR_LLM_MODEL: '', OCR_LLM_TOKEN: '', OCR_LLM_URL: '', OPENAI_API_KEY: '' } },
     );
 
     assert.deepEqual(report.plannedToolActions.map((item) => item.id), [
       'codebaseMemoryMcp', 'playwrightCli', 'chromeDevtoolsMcp', 'openCodeReview',
     ]);
-    assert.deepEqual(report.deferredToolActions.map((item) => item.id), ['agentmemory']);
+    assert.deepEqual(report.deferredToolActions, []);
     assert.equal(report.tools.codebaseMemoryMcp.status, 'pending');
     assert.equal(report.tools.playwrightCli.status, 'pending');
     assert.equal(['pending', 'pending-config'].includes(report.tools.openCodeReview.status), true);
-    assert.equal(report.tools.agentmemory, undefined);
-    await assert.rejects(readFile(path.join(targetDir, '.cognis/tool-state/tools.json'), 'utf8'), /ENOENT/u);
-    await assert.rejects(readFile(path.join(targetDir, '.agents/cognis/tools/agentmemory/node_modules/.package-lock.json'), 'utf8'), /ENOENT/u);
+    await assert.rejects(readFile(path.join(targetDir, '.vibe-harness/tool-state/tools.json'), 'utf8'), /ENOENT/u);
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }
@@ -837,8 +954,49 @@ test('tool command cancellation terminates the child before rejecting', async ()
   await assert.rejects(running, (error) => error.code === 'TOOL_CANCELLED');
 });
 
+test('codebase-memory ignore block preserves user rules and requires force for unmanaged files', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-cbmignore-'));
+  try {
+    const userContent = '# user rules\n/keep-private/\n';
+    await writeFile(path.join(targetDir, '.cbmignore'), userContent, 'utf8');
+
+    const blocked = await createInstallPlan({
+      dryRun: true,
+      force: false,
+      profile: 'full',
+      requestedPlugins: ['codebase-memory'],
+      rootDir,
+      targetDir,
+    });
+    assert.equal(blocked.actions.find((action) => action.relativeTarget === '.cbmignore').kind, 'conflict');
+
+    const forced = await createInstallPlan({
+      dryRun: true,
+      force: true,
+      profile: 'full',
+      requestedPlugins: ['codebase-memory'],
+      rootDir,
+      targetDir,
+    });
+    const preview = (await previewInstallPlan(forced)).find((file) => file.target === '.cbmignore');
+    assert.match(preview.content, /# user rules[\s\S]*\/keep-private\/[\s\S]*# VIBE_HARNESS:CBM:START/u);
+    assert.equal(removeManagedCbmIgnoreBlock(preview.content), userContent);
+
+    const updated = mergeManagedCbmIgnoreBlock(preview.content, '/.agents/\n/.vibe-harness/');
+    assert.equal((updated.match(/# VIBE_HARNESS:CBM:START/gu) ?? []).length, 1);
+    assert.match(updated, /\/keep-private\/[\s\S]*\/\.agents\/[\s\S]*\/\.vibe-harness\//u);
+
+    assert.throws(
+      () => mergeManagedCbmIgnoreBlock(`${preview.content}\n${preview.content}`, '/.agents/'),
+      /multiple Vibe-Harness codebase-memory ignore blocks/iu,
+    );
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
 test('MCP handshake cancellation terminates the process and rejects as TOOL_CANCELLED', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-mcp-cancel-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-mcp-cancel-'));
   const script = path.join(targetDir, 'hanging-mcp.mjs');
   const controller = new AbortController();
   try {
@@ -860,7 +1018,7 @@ test('MCP handshake cancellation terminates the process and rejects as TOOL_CANC
 });
 
 test('tool processes receive only base variables and tool-specific credentials', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-env-policy-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tools-env-policy-'));
   const requests = [];
   try {
     await provisionProfileTools({
@@ -868,19 +1026,16 @@ test('tool processes receive only base variables and tool-specific credentials',
       commandRunner: async (request) => requests.push(request),
       env: {
         ...process.env,
-        COGNIS_SECRET_SENTINEL: 'must-not-leak',
+        VIBE_HARNESS_SECRET_SENTINEL: 'must-not-leak',
         OPENAI_API_KEY: 'ocr-only-secret',
       },
       profile: 'full',
-      resolvedModules: ['agentmemory', 'open-code-review'],
+      resolvedModules: ['open-code-review'],
       targetDir,
     });
 
-    const agentmemory = requests.find((request) => request.component === 'agentmemory');
     const openCodeReview = requests.find((request) => request.component === 'openCodeReview');
-    assert.equal(agentmemory.env.COGNIS_SECRET_SENTINEL, undefined);
-    assert.equal(agentmemory.env.OPENAI_API_KEY, undefined);
-    assert.equal(openCodeReview.env.COGNIS_SECRET_SENTINEL, undefined);
+    assert.equal(openCodeReview.env.VIBE_HARNESS_SECRET_SENTINEL, undefined);
     assert.equal(openCodeReview.env.OPENAI_API_KEY, 'ocr-only-secret');
     assert.equal(openCodeReview.env.PATH ?? openCodeReview.env.Path, process.env.PATH ?? process.env.Path);
   } finally {
@@ -889,7 +1044,7 @@ test('tool processes receive only base variables and tool-specific credentials',
 });
 
 test('codebase-memory maps allowed-root path failures to a stable diagnostic code', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-index-path-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-index-path-'));
   try {
     const report = await provisionProfileTools({
       commandRunner: async (request) => {
@@ -915,7 +1070,7 @@ test('codebase-memory maps allowed-root path failures to a stable diagnostic cod
 });
 
 test('MCP browser probe invokes list_pages after tool discovery', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-mcp-browser-probe-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-mcp-browser-probe-'));
   const script = path.join(targetDir, 'browser-probe.mjs');
   const marker = path.join(targetDir, 'list-pages-called.txt');
   try {
@@ -950,7 +1105,7 @@ test('MCP browser probe invokes list_pages after tool discovery', async () => {
 });
 
 test('MCP browser probe maps list_pages failures without persisting probe response text', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-mcp-browser-failure-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-mcp-browser-failure-'));
   const script = path.join(targetDir, 'browser-probe-failure.mjs');
   try {
     await writeFile(script, [
@@ -989,7 +1144,7 @@ test('MCP browser probe maps list_pages failures without persisting probe respon
 });
 
 test('MCP browser probe reports initialize and tools/list JSON-RPC errors as protocol failures', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-mcp-protocol-failure-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-mcp-protocol-failure-'));
   try {
     for (const failedId of [1, 2]) {
       const script = path.join(targetDir, `browser-protocol-failure-${failedId}.mjs`);
@@ -1030,7 +1185,7 @@ test('MCP browser probe reports initialize and tools/list JSON-RPC errors as pro
 });
 
 test('codebase-memory automatically rebuilds a corrupt cache on the next provision attempt', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-index-corrupt-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-index-corrupt-'));
   const calls = [];
   try {
     await mkdir(path.join(targetDir, '.codebase-memory'), { recursive: true });
@@ -1064,7 +1219,7 @@ test('codebase-memory automatically rebuilds a corrupt cache on the next provisi
 
 test('codebase-memory uses the same relative repo path for ASCII, spaced, and Unicode roots', async () => {
   for (const name of ['ascii', 'space path', '中文路径']) {
-    const targetDir = await mkdtemp(path.join(tmpdir(), `cognis-index-${name}-`));
+    const targetDir = await mkdtemp(path.join(tmpdir(), `vibe-harness-index-${name}-`));
     const calls = [];
     try {
       await provisionProfileTools({
@@ -1107,7 +1262,7 @@ test('OCR endpoint resolver prioritizes complete explicit credentials', async ()
 });
 
 test('OCR endpoint resolver reads the active user config before Codex fallback', async () => {
-  const homeDir = await mkdtemp(path.join(tmpdir(), 'cognis-ocr-home-'));
+  const homeDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-ocr-home-'));
   try {
     await mkdir(path.join(homeDir, '.opencodereview'), { recursive: true });
     await mkdir(path.join(homeDir, '.codex'), { recursive: true });
@@ -1177,7 +1332,7 @@ test('OCR endpoint resolver supports Anthropic and OpenAI compatibility variable
 });
 
 test('OCR endpoint resolver returns pending-config and redacted diagnostics for malformed config', async () => {
-  const homeDir = await mkdtemp(path.join(tmpdir(), 'cognis-ocr-invalid-'));
+  const homeDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-ocr-invalid-'));
   try {
     await mkdir(path.join(homeDir, '.opencodereview'), { recursive: true });
     await writeFile(
@@ -1196,8 +1351,8 @@ test('OCR endpoint resolver returns pending-config and redacted diagnostics for 
 });
 
 test('installed tool wrappers enforce runtime environment allowlists', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-runtime-env-'));
-  const fixtureSource = 'console.log(JSON.stringify({ cbmRoot: process.env.CBM_ALLOWED_ROOT, openai: process.env.OPENAI_API_KEY, sentinel: process.env.COGNIS_SECRET_SENTINEL }));\n';
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-runtime-env-'));
+  const fixtureSource = 'console.log(JSON.stringify({ cbmRoot: process.env.CBM_ALLOWED_ROOT, cbmMemory: process.env.CBM_MEM_BUDGET_MB, cbmWorkers: process.env.CBM_WORKERS, openai: process.env.OPENAI_API_KEY, sentinel: process.env.VIBE_HARNESS_SECRET_SENTINEL }));\n';
   const cases = [
     {
       entry: 'node_modules/@alibaba-group/open-code-review/bin/ocr.js',
@@ -1206,13 +1361,8 @@ test('installed tool wrappers enforce runtime environment allowlists', async () 
     },
     {
       entry: 'node_modules/codebase-memory-mcp/bin.js',
-      expected: { cbmRoot: targetDir },
+      expected: { cbmMemory: '2048', cbmRoot: targetDir, cbmWorkers: '2' },
       runtime: 'codebase-memory-mcp',
-    },
-    {
-      entry: 'node_modules/@agentmemory/mcp/bin.mjs',
-      expected: {},
-      runtime: 'agentmemory',
     },
   ];
   try {
@@ -1239,7 +1389,9 @@ test('installed tool wrappers enforce runtime environment allowlists', async () 
         env: {
           ...process.env,
           CBM_ALLOWED_ROOT: targetDir,
-          COGNIS_SECRET_SENTINEL: 'must-not-leak',
+          CBM_MEM_BUDGET_MB: '2048',
+          CBM_WORKERS: '2',
+          VIBE_HARNESS_SECRET_SENTINEL: 'must-not-leak',
           OPENAI_API_KEY: 'ocr-secret',
         },
       });
@@ -1252,7 +1404,7 @@ test('installed tool wrappers enforce runtime environment allowlists', async () 
 });
 
 test('cancelled provisioning preserves an interrupted process marker for doctor', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-interrupted-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tools-interrupted-'));
   const controller = new AbortController();
   try {
     await runCli(['init', '--project', targetDir, '--profile', 'core']);
@@ -1272,7 +1424,7 @@ test('cancelled provisioning preserves an interrupted process marker for doctor'
       (error) => error.code === 'TOOL_CANCELLED',
     );
 
-    const markerText = await readFile(path.join(targetDir, '.cognis/tool-state/provisioning.json'), 'utf8');
+    const markerText = await readFile(path.join(targetDir, '.vibe-harness/tool-state/provisioning.json'), 'utf8');
     const marker = JSON.parse(markerText);
     assert.equal(marker.status, 'interrupted');
     assert.equal(marker.currentTool, 'codebaseMemoryMcp');
@@ -1288,7 +1440,7 @@ test('cancelled provisioning preserves an interrupted process marker for doctor'
 });
 
 test('full write installs governance assets without provisioning tools by default', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-assets-only-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tools-assets-only-'));
   try {
     await runCli(['init', '--project', targetDir, '--profile', 'full']);
     const report = await runCli([
@@ -1297,75 +1449,69 @@ test('full write installs governance assets without provisioning tools by defaul
 
     assert.equal(report.status, 'ready');
     assert.deepEqual(report.provisioning, { executed: false, requested: false });
-    assert.equal(report.warnings.some((item) => item.code === 'PROVISIONING_NOT_RUN'), true);
-    assert.equal(report.tools.codebaseMemoryMcp.status, 'pending');
-    await assert.rejects(readFile(path.join(targetDir, '.cognis/tool-state/tools.json'), 'utf8'), /ENOENT/u);
+    assert.deepEqual(report.warnings, []);
+    assert.deepEqual(report.tools, {});
+    await assert.rejects(readFile(path.join(targetDir, '.vibe-harness/tool-state/tools.json'), 'utf8'), /ENOENT/u);
 
     const validation = await runCli(['validate', '--project', targetDir], { env: offlineEnv });
     assert.equal(validation.status, 'ready');
-    assert.equal(validation.tools.codebaseMemoryMcp.status, 'pending');
+    assert.deepEqual(validation.tools, {});
 
     const doctor = await runCli(['doctor', '--project', targetDir], { env: offlineEnv });
     assert.equal(doctor.status, 'ready');
-    assert.equal(doctor.tools.codebaseMemoryMcp.status, 'pending');
+    assert.deepEqual(doctor.tools, {});
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }
 });
 
 test('provision previews and writes only explicitly selected tools', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-provision-command-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tools-provision-command-'));
   try {
     await runCli(['init', '--project', targetDir, '--profile', 'full']);
     await runCli([
-      'install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--write', '--confirm-red-zone',
+      'install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--plugin', '-open-code-review', '--write', '--confirm-red-zone',
     ], { env: offlineEnv });
 
-    await assert.rejects(
-      execFileAsync(process.execPath, [
-        cliPath, 'provision', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--tool', 'agentmemory', '--dry-run',
-      ], { cwd: rootDir, env: offlineEnv }),
-      /preview.*allow-preview/iu,
-    );
     const preview = await runCli([
-      'provision', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--tool', 'agentmemory', '--dry-run', '--allow-preview',
+      'provision', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--tool', 'openCodeReview', '--dry-run',
     ], { env: offlineEnv });
-    assert.deepEqual(preview.plannedToolActions.map((item) => item.id), ['agentmemory']);
+    assert.deepEqual(preview.plannedToolActions.map((item) => item.id), ['openCodeReview']);
     assert.equal(preview.dryRun, true);
-    await assert.rejects(readFile(path.join(targetDir, '.cognis/tool-state/tools.json'), 'utf8'), /ENOENT/u);
+    await assert.rejects(readFile(path.join(targetDir, '.vibe-harness/tool-state/tools.json'), 'utf8'), /ENOENT/u);
 
     const result = await runCli([
-      'provision', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--tool', 'agentmemory', '--write', '--allow-preview', '--allow-degraded',
+      'provision', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--tool', 'openCodeReview', '--write', '--allow-degraded',
     ], { env: offlineEnv });
-    assert.deepEqual(Object.keys(result.tools), ['agentmemory']);
-    const state = JSON.parse(await readFile(path.join(targetDir, '.cognis/tool-state/tools.json'), 'utf8'));
-    assert.deepEqual(Object.keys(state.tools), ['agentmemory']);
-    assert.match(state.tools.agentmemory.source, /^npm:@agentmemory\/mcp@/u);
-    assert.equal(Number.isNaN(Date.parse(state.tools.agentmemory.startedAt)), false);
-    assert.equal(Number.isNaN(Date.parse(state.tools.agentmemory.finishedAt)), false);
-    assert.equal(state.tools.agentmemory.result, state.tools.agentmemory.status);
-    assert.equal(typeof state.tools.agentmemory.logSummary, 'string');
-    assert.equal(state.tools.agentmemory.logSummary.includes('secret'), false);
+    assert.deepEqual(Object.keys(result.tools), ['openCodeReview']);
+    const state = JSON.parse(await readFile(path.join(targetDir, '.vibe-harness/tool-state/tools.json'), 'utf8'));
+    assert.deepEqual(Object.keys(state.tools), ['openCodeReview']);
+    assert.match(state.tools.openCodeReview.source, /^npm:@alibaba-group\/open-code-review@/u);
+    assert.equal(Number.isNaN(Date.parse(state.tools.openCodeReview.startedAt)), false);
+    assert.equal(Number.isNaN(Date.parse(state.tools.openCodeReview.finishedAt)), false);
+    assert.equal(state.tools.openCodeReview.result, state.tools.openCodeReview.status);
+    assert.equal(typeof state.tools.openCodeReview.logSummary, 'string');
+    assert.equal(state.tools.openCodeReview.logSummary.includes('secret'), false);
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }
 });
 
 test('provision rejects tool directories redirected outside the project', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-link-project-'));
-  const outside = await mkdtemp(path.join(tmpdir(), 'cognis-tools-link-outside-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tools-link-project-'));
+  const outside = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tools-link-outside-'));
   try {
     await runCli(['init', '--project', targetDir, '--profile', 'full']);
     await runCli([
-      'install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--write', '--confirm-red-zone',
+      'install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--plugin', '-open-code-review', '--write', '--confirm-red-zone',
     ], { env: offlineEnv });
-    const toolDir = path.join(targetDir, '.agents/cognis/tools/agentmemory');
+    const toolDir = path.join(targetDir, '.agents/runtime/tools/open-code-review');
     await rm(toolDir, { force: true, recursive: true });
     await symlink(outside, toolDir, process.platform === 'win32' ? 'junction' : 'dir');
 
     await assert.rejects(
       execFileAsync(process.execPath, [
-        cliPath, 'provision', '--project', targetDir, '--profile', 'full', '--tool', 'agentmemory', '--write', '--allow-degraded',
+        cliPath, 'provision', '--project', targetDir, '--profile', 'full', '--tool', 'openCodeReview', '--write', '--allow-degraded',
       ], { cwd: rootDir, env: offlineEnv }),
       /link|junction|reparse/iu,
     );
@@ -1377,10 +1523,10 @@ test('provision rejects tool directories redirected outside the project', async 
 });
 
 test('full write degrades unavailable tools and rollback removes only the managed MCP block', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'cognis-tools-cli-write-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tools-cli-write-'));
   try {
     await runCli(['init', '--project', targetDir]);
-    const projectConfigPath = path.join(targetDir, 'cognis.config.json');
+    const projectConfigPath = path.join(targetDir, 'vibe-harness.config.json');
     const projectConfig = JSON.parse(await readFile(projectConfigPath, 'utf8'));
     await writeFile(projectConfigPath, `${JSON.stringify({ ...projectConfig, profile: 'full' }, null, 2)}\n`, 'utf8');
     const configPath = path.join(targetDir, '.codex/config.toml');
@@ -1388,15 +1534,15 @@ test('full write degrades unavailable tools and rollback removes only the manage
     await writeFile(configPath, 'model = "gpt-5"\n', 'utf8');
 
     const report = await runCli(
-      ['install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--write', '--provision', '--confirm-red-zone', '--allow-degraded'],
+      ['install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--plugin', '-codebase-memory-mcp', 'playwright-cli', 'chrome-devtools-mcp', 'open-code-review', '--write', '--provision', '--confirm-red-zone', '--allow-degraded'],
       { env: offlineEnv, timeout: 120_000 },
     );
     const config = await readFile(configPath, 'utf8');
 
     assert.equal(config.includes('model = "gpt-5"'), true);
-    assert.equal(config.includes('# COGNIS:MCP:START'), true);
+    assert.equal(config.includes('# VIBE_HARNESS:MCP:START'), true);
     assert.equal(config.includes('[mcp_servers.chrome-devtools]'), true);
-    assert.equal(await readFile(path.join(targetDir, '.agents/cognis/tools/chrome-devtools-mcp/run.mjs'), 'utf8').then(Boolean), true);
+    assert.equal(await readFile(path.join(targetDir, '.agents/runtime/tools/chrome-devtools-mcp/run.mjs'), 'utf8').then(Boolean), true);
     assert.equal(Object.values(report.tools).some((tool) => tool.status === 'degraded'), true);
     assert.equal(report.status, 'degraded');
     assert.equal(report.ok, false);
@@ -1431,14 +1577,36 @@ test('full write degrades unavailable tools and rollback removes only the manage
     assert.match(summary, /tool: codebaseMemoryMcp/u);
     assert.match(summary, /phase: dependency-install/u);
     assert.match(summary, /reason: Offline test fixture\./u);
-    assert.match(summary, /next: cognis provision --project <project> --target codex --profile full --write/u);
+    assert.match(summary, /next: vibe-harness provision --project <project> --target codex --profile full --write/u);
 
     await runCli(['rollback', '--project', targetDir, '--write', '--confirm-red-zone'], { env: offlineEnv });
     const rolledBack = await readFile(configPath, 'utf8');
     assert.equal(rolledBack.includes('model = "gpt-5"'), true);
-    assert.equal(rolledBack.includes('# COGNIS:MCP:START'), false);
-    await assert.rejects(readFile(path.join(targetDir, '.agents/cognis/tools/chrome-devtools-mcp/run.mjs'), 'utf8'), /ENOENT/u);
-    await assert.rejects(readFile(path.join(targetDir, '.cognis/tool-state/tools.json'), 'utf8'), /ENOENT/u);
+    assert.equal(rolledBack.includes('# VIBE_HARNESS:MCP:START'), false);
+    await assert.rejects(readFile(path.join(targetDir, '.agents/runtime/tools/chrome-devtools-mcp/run.mjs'), 'utf8'), /ENOENT/u);
+    await assert.rejects(readFile(path.join(targetDir, '.vibe-harness/tool-state/tools.json'), 'utf8'), /ENOENT/u);
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('core plugin provisioning failures degrade health and exit status', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-core-plugin-degraded-'));
+  try {
+    await runCli(['init', '--project', targetDir]);
+    const report = await runCli([
+      'install', '--project', targetDir, '--target', 'codex', '--profile', 'core',
+      '--plugin', '-chrome-devtools-mcp', '--write', '--provision',
+      '--confirm-red-zone', '--allow-degraded',
+    ], { env: offlineEnv, timeout: 120_000 });
+
+    assert.equal(report.tools.chromeDevtoolsMcp.status, 'degraded');
+    assert.equal(report.status, 'degraded');
+    assert.equal(report.ok, false);
+
+    const failedDoctor = await runCliFailure(['doctor', '--project', targetDir], { env: offlineEnv });
+    assert.equal(failedDoctor.code, 2);
+    assert.equal(failedDoctor.report.status, 'degraded');
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }

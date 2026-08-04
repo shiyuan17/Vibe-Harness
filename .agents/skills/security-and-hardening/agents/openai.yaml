@@ -1,0 +1,6 @@
+interface:
+  display_name: "Security and Hardening"
+  short_description: "Harden code that crosses sensitive trust boundaries"
+  default_prompt: "Use $security-and-hardening to identify trust boundaries and verify the controls for this change."
+policy:
+  allow_implicit_invocation: true

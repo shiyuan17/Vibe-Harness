@@ -3,6 +3,7 @@ import { copyFile, cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile } 
 import path from 'node:path';
 
 import { assertPortableRelativePath, assertSafePathInside, pathExists } from './manifest.js';
+import { safeJsonParse } from './safe-json.js';
 import { projectStateDir } from './project-layout.js';
 
 async function transactionLayout(targetDir) {
@@ -17,10 +18,46 @@ export function createTransactionId(date = new Date()) {
   return `${date.toISOString().replaceAll(':', '-').replaceAll('.', '-')}-${randomUUID()}`;
 }
 
+const renameRetryDelayMs = 50;
+const renameMaxAttempts = 5;
+
+async function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// `rename` is the atomic-commit primitive, but on Windows it fails with
+// EPERM/EACCES when the destination is held open by an editor or antivirus
+// scan. Retry briefly, then fall back to copy+unlink so a transient lock does
+// not abort an otherwise-complete transaction.
+export async function renameAtomic(temporaryPath, filePath) {
+  let lastError;
+  for (let attempt = 0; attempt < renameMaxAttempts; attempt += 1) {
+    try {
+      await rename(temporaryPath, filePath);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (error.code !== 'EPERM' && error.code !== 'EACCES' && error.code !== 'ENOTEMPTY') throw error;
+      await sleep(renameRetryDelayMs * (attempt + 1));
+    }
+  }
+  try {
+    await copyFile(temporaryPath, filePath);
+    await rm(temporaryPath, { force: true });
+  } catch (error) {
+    throw new AggregateError([lastError, error], `Atomic rename failed for ${filePath}: ${lastError.message}`);
+  }
+}
+
 async function writeJsonAtomic(filePath, value) {
   const temporaryPath = `${filePath}.${randomUUID()}.tmp`;
   await writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
-  await rename(temporaryPath, filePath);
+  try {
+    await renameAtomic(temporaryPath, filePath);
+  } catch (error) {
+    await rm(temporaryPath, { force: true });
+    throw error;
+  }
 }
 
 function relativeProjectPath(targetDir, candidatePath, label) {
@@ -91,6 +128,30 @@ async function releaseTransaction(targetDir, transactionDir, transactionId, lock
   }
 }
 
+// Determine whether the process that holds a stale lock is still alive. A
+// crashed Vibe-Harness process would otherwise block all future installs until a
+// manual `recover`. Returns true when the owner PID is gone (safe to break).
+async function lockOwnerIsStale(targetDir, lockPath) {
+  const pidPath = path.join(lockPath, 'owner-pid');
+  await assertSafePathInside(targetDir, pidPath, 'transaction lock');
+  let raw;
+  try {
+    raw = (await readFile(pidPath, 'utf8')).trim();
+  } catch (error) {
+    if (error.code === 'ENOENT') return false;
+    throw error;
+  }
+  const pid = Number.parseInt(raw, 10);
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    // Sending signal 0 tests process existence without affecting it.
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    return error.code === 'ESRCH';
+  }
+}
+
 export async function beginFileTransaction({
   cleanupPaths = [],
   id = createTransactionId(),
@@ -111,9 +172,24 @@ export async function beginFileTransaction({
     await mkdir(lockPath);
   } catch (error) {
     if (error.code === 'EEXIST') {
-      throw new Error(`Another Cognis write transaction is active; run recover --project ${resolvedTargetDir}.`);
+      // A lock left behind by a crashed process blocks every future install.
+      // If the owning PID is no longer alive, break the stale lock and retry.
+      if (await lockOwnerIsStale(resolvedTargetDir, lockPath)) {
+        await rm(lockPath, { force: true, recursive: true });
+        try {
+          await mkdir(lockPath);
+        } catch (retryError) {
+          if (retryError.code === 'EEXIST') {
+            throw new Error(`Another Vibe-Harness write transaction is active; run recover --project ${resolvedTargetDir}.`);
+          }
+          throw retryError;
+        }
+      } else {
+        throw new Error(`Another Vibe-Harness write transaction is active; run recover --project ${resolvedTargetDir}.`);
+      }
+    } else {
+      throw error;
     }
-    throw error;
   }
 
   try {
@@ -142,11 +218,23 @@ export async function beginFileTransaction({
     };
     await writeJsonAtomic(journalPath, journal);
     await writeFile(path.join(lockPath, 'transaction-id'), `${id}\n`, 'utf8');
+    await writeFile(path.join(lockPath, 'owner-pid'), `${process.pid}\n`, 'utf8');
 
     return {
       id,
       async commit() {
         await writeJsonAtomic(journalPath, { ...journal, completedAt: new Date().toISOString(), status: 'committed' });
+        await releaseTransaction(resolvedTargetDir, transactionDir, id, lockPath);
+      },
+      // Release the lock and journal without restoring preimages. Used when the
+      // install data is already persisted but the commit (journal finalisation)
+      // failed: rolling back would wrongly revert a successful install.
+      async release() {
+        try {
+          await writeJsonAtomic(journalPath, { ...journal, completedAt: new Date().toISOString(), status: 'committed' });
+        } catch {
+          // Best-effort journal update; the lock release is what matters.
+        }
         await releaseTransaction(resolvedTargetDir, transactionDir, id, lockPath);
       },
       async rollback() {
@@ -182,7 +270,7 @@ export async function inspectTransactions(targetDir) {
     const journalPath = path.join(transactionRoot, entry.name, 'journal.json');
     await assertSafePathInside(resolvedTargetDir, journalPath, 'transaction journal');
     if (!(await pathExists(journalPath))) continue;
-    const journal = JSON.parse(await readFile(journalPath, 'utf8'));
+    const journal = safeJsonParse(await readFile(journalPath, 'utf8'));
     if (typeof journal.id !== 'string' || journal.id !== entry.name) {
       throw new Error(`Transaction journal id must match its transaction directory: ${entry.name}`);
     }
@@ -210,7 +298,7 @@ export async function recoverTransaction({ id, targetDir, write = false }) {
   }
   const transactionDir = path.join(transactionRoot, selected.id);
   const journalPath = path.join(transactionDir, 'journal.json');
-  const journal = JSON.parse(await readFile(journalPath, 'utf8'));
+  const journal = safeJsonParse(await readFile(journalPath, 'utf8'));
   await restoreJournal(resolvedTargetDir, transactionDir, journal);
   await releaseTransaction(resolvedTargetDir, transactionDir, selected.id, lockPath);
   return { recovered: [selected.id], selected, transactions };

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Cognis Adapter Catalog",
+  "title": "Vibe-Harness Adapter Catalog",
   "type": "object",
   "required": ["schemaVersion", "items"],
   "properties": {
@@ -10,15 +10,41 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["id", "installMap", "instructionTarget", "supportedProfiles", "capabilities", "redZonePrefixes"],
+        "required": ["id", "installMap", "instructionTarget", "instructionTemplate", "skillRoot", "supportedProfiles", "capabilities", "redZonePrefixes"],
         "properties": {
-          "id": { "type": "string", "enum": ["codex", "claude", "gemini"] },
+          "id": { "type": "string", "enum": ["codex", "claude", "gemini", "cursor", "qoder", "zcode"] },
           "installMap": { "type": "string", "minLength": 1 },
           "instructionTarget": { "type": "string", "minLength": 1 },
+          "instructionTemplate": { "type": "string", "minLength": 1 },
+          "skillRoot": { "type": "string", "minLength": 1 },
+          "projectConfig": {
+            "type": "object",
+            "properties": {
+              "hooks": {
+                "type": "object",
+                "required": ["path", "target"],
+                "properties": {
+                  "path": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+                  "target": { "type": "string", "minLength": 1 }
+                },
+                "additionalProperties": false
+              },
+              "mcp": {
+                "type": "object",
+                "required": ["path", "target"],
+                "properties": {
+                  "path": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+                  "target": { "type": "string", "minLength": 1 }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
           "supportedProfiles": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
           "capabilities": {
             "type": "object",
-            "required": ["instructions", "skills", "hooks", "policy", "mcp", "sandbox", "memory", "plugin"],
+            "required": ["instructions", "skills", "hooks", "policy", "mcp", "sandbox", "memory", "plugin", "goals"],
             "properties": {
               "instructions": { "type": "string", "enum": ["unsupported", "preview", "stable"] },
               "skills": { "type": "string", "enum": ["unsupported", "preview", "stable"] },
@@ -27,7 +53,8 @@
               "mcp": { "type": "string", "enum": ["unsupported", "preview", "stable"] },
               "sandbox": { "type": "string", "enum": ["unsupported", "preview", "stable"] },
               "memory": { "type": "string", "enum": ["unsupported", "preview", "stable"] },
-              "plugin": { "type": "string", "enum": ["unsupported", "preview", "stable"] }
+              "plugin": { "type": "string", "enum": ["unsupported", "preview", "stable"] },
+              "goals": { "type": "string", "enum": ["unsupported", "preview", "stable"] }
             },
             "additionalProperties": false
           },

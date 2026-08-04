@@ -14,7 +14,7 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-const run = buildOfflineRun(assets.suite);
+const run = await buildOfflineRun(assets.suite);
 try {
   assert.deepEqual(run, assets.run);
 } catch {
@@ -22,7 +22,7 @@ try {
   process.exit(1);
 }
 
-console.log('Cognis offline evaluation passed.');
+console.log('Vibe-Harness offline evaluation passed.');
 console.log(JSON.stringify({
   criticalPassRate: run.criticalPassRate,
   overallScore: run.overallScore,

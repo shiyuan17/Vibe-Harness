@@ -11,10 +11,10 @@ import { promisify } from 'node:util';
 import { inspectTargetInstall } from '../scripts/lib/install-planner.js';
 
 const execFileAsync = promisify(execFile);
-const rootDir = path.resolve('.');
+const rootDir = path.resolve(import.meta.dirname, '..');
 
 test('target inspection reports missing files and red-zone status for an empty target', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-target-empty-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-target-empty-'));
   try {
     const report = await inspectTargetInstall({ profile: 'full', rootDir, targetDir: target });
 
@@ -28,7 +28,7 @@ test('target inspection reports missing files and red-zone status for an empty t
 });
 
 test('target inspection reports conflicts when existing target content differs', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-target-conflict-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-target-conflict-'));
   try {
     await writeFile(path.join(target, 'AGENTS.md'), 'project-owned content\n', 'utf8');
 
@@ -42,9 +42,9 @@ test('target inspection reports conflicts when existing target content differs',
 });
 
 test('CLI validate --project passes after a real install and reports Chinese template content', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-target-installed-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-target-installed-'));
   try {
-    const cliPath = path.join(rootDir, 'scripts/cognis.js');
+    const cliPath = path.join(rootDir, 'scripts/vibe-harness.js');
     await execFileAsync(process.execPath, [cliPath, 'init', '--project', target, '--target', 'codex', '--profile', 'full']);
     await execFileAsync(process.execPath, [
       cliPath,
@@ -71,15 +71,16 @@ test('CLI validate --project passes after a real install and reports Chinese tem
 
     assert.equal(report.ok, true);
     assert.equal(report.status, 'ready');
-    assert.ok(report.warnings.some((warning) => warning.code === 'CODEBASE_MEMORY_MCP_PENDING'));
+    assert.deepEqual(report.warnings, []);
+    assert.deepEqual(report.tools, {});
     assert.equal(report.scope, 'project');
-    assert.equal(taskTemplate.includes('工作流档位'), true);
-    assert.equal(taskTemplate.includes('当前阶段'), true);
-    assert.equal(taskTemplate.includes('完整流程控制'), true);
-    assert.equal(taskTemplate.includes('父任务'), true);
-    assert.equal(taskTemplate.includes('子任务'), true);
-    assert.equal(taskTemplate.includes('写入范围'), true);
-    assert.equal(taskTemplate.includes('禁止动作'), true);
+    assert.equal(taskTemplate.includes('可选的人读记录'), true);
+    assert.equal(taskTemplate.includes('档位'), true);
+    assert.equal(taskTemplate.includes('状态'), true);
+    assert.equal(taskTemplate.includes('验收'), true);
+    assert.equal(taskTemplate.includes('下一步'), true);
+    assert.equal(taskTemplate.includes('验证'), true);
+    assert.equal(taskTemplate.includes('风险'), true);
     assert.equal(taskTemplate.includes('Write Scope'), false);
   } finally {
     await rm(target, { force: true, recursive: true });

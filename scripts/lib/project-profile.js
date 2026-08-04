@@ -7,7 +7,7 @@ const ignoredDirs = new Set([
   '.git',
   '.svn',
   '.hg',
-  '.cognis',
+  '.vibe-harness',
   '.agents',
   '.codex',
   'node_modules',
@@ -200,16 +200,16 @@ function createGenericProfile(config = {}) {
     codingStandards: '未发现专用 lint/format 配置；沿用仓库现有代码风格并保持最小改动。',
     directoryGuidance: '未发现显式模块清单；按现有目录职责就近修改。',
     packageManager: config.packageManager ?? 'pnpm',
-    reviewGuidance: 'Review 必须核对目标项目事实、风险区、验证证据和未覆盖路径。',
+    reviewGuidance: '按风险与改动范围选择验证方式，并明确未覆盖路径。',
     stackSummary: '未识别到主技术栈；以目标项目现有文件为准。',
     vcsStatusCommand: '检查目标项目 VCS 状态',
     vcsStatusInstruction: '编辑前检查目标目录文件状态；当前未配置 VCS 状态命令。',
     vcsSummary: '未识别 VCS',
-    verificationSummary: '使用 cognis.config.json 中的 validationCommands，并补充聚焦测试或人工核对证据。',
+    verificationSummary: '使用 vibe-harness.config.json 中的 validationCommands，并补充聚焦测试或人工核对证据。',
     validationCommands: {
-      governance: 'node .agents/cognis/governance/validate.mjs',
       lint: null,
       typecheck: null,
+      test: null,
     },
   };
 }
@@ -285,15 +285,15 @@ export async function detectProjectProfile({ config = {}, targetDir }) {
     codingStandards: standards.length > 0 ? standards.join('\n- ') : '未发现专用 lint/format 配置；沿用仓库现有代码风格并保持最小改动。',
     directoryGuidance: directories.length > 0 ? directories.join(', ') : '未发现显式模块清单；按现有目录职责就近修改。',
     packageManager,
-    reviewGuidance: 'Review 必须核对目标项目事实、package.json scripts / pom.xml / solution 配置、风险区、验证证据和未覆盖路径。',
+    reviewGuidance: '按 package.json scripts、pom.xml 或 solution 配置选择与改动匹配的验证。',
     stackSummary: unique(stacks).join(', ') || '未识别到主技术栈；以目标项目现有文件为准。',
     vcsStatusCommand,
     vcsSummary: vcsKinds.join(' + ') || '未识别 VCS',
-    verificationSummary: unique(commands).join(', ') || '使用 cognis.config.json 中的 validationCommands，并补充聚焦测试或人工核对证据。',
+    verificationSummary: unique(commands).join(', ') || '使用 vibe-harness.config.json 中的 validationCommands，并补充聚焦测试或人工核对证据。',
     validationCommands: {
-      governance: 'node .agents/cognis/governance/validate.mjs',
       lint: commands.find((command) => /(?:^|\s)(?:run\s+)?lint(?:\s|$)/u.test(command)) ?? null,
       typecheck: commands.find((command) => /(?:check:type|typecheck|ts:check)/u.test(command)) ?? null,
+      test: commands.find((command) => /(?:^|\s)(?:run\s+)?test(?::[^\s]+)?(?:\s|$)|mvn\s+test/u.test(command)) ?? null,
     },
   };
 

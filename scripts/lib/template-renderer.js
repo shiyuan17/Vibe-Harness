@@ -1,12 +1,16 @@
 const defaultTemplateData = {
+  codebaseMemoryStateDirectory: '.vibe-harness',
+  hookRunnerPath: '.agents/runtime/hooks/codex-hook.mjs',
   installedSurface: {
+    clarificationPostureLine: '',
     codebaseMemoryMcpLine: '',
     discoveryLine: '使用仓库搜索和已安装规则定位相关代码；需要结构化索引时先确认目标项目已有能力。',
     engineeringRulesLine: '',
     hooksLine: '',
+    memoryLoadLine: '',
     memorySkillsLine: '',
     operationalRulesLine: '',
-    profileLine: '- 当前 profile 使用 Cognis Codex 安装面。',
+    profileLine: '- 当前 profile 使用 Vibe-Harness Codex 安装面。',
     reviewLoopLine: '',
     rulesLine: '- 规则位于 `docs/rules/`。',
     skillRoutingLine: '',
@@ -19,7 +23,7 @@ const defaultTemplateData = {
     codingStandards: '未发现专用 lint/format 配置；沿用仓库现有代码风格并保持最小改动。',
     directoryGuidance: '未发现显式模块清单；按现有目录职责就近修改。',
     packageManager: 'pnpm',
-    reviewGuidance: 'Review 必须核对目标项目事实、风险区、验证证据和未覆盖路径。',
+    reviewGuidance: '按风险与改动范围选择验证方式，并明确未覆盖路径。',
     stackSummary: '未识别到主技术栈；以目标项目现有文件为准。',
     vcsStatusCommand: 'git status --short',
     vcsStatusInstruction: '编辑前运行 `git status --short`，保护用户未归属改动。',
@@ -28,29 +32,17 @@ const defaultTemplateData = {
   },
   projectName: 'target project',
   validationCommands: {
-    governance: 'node .agents/cognis/governance/validate.mjs',
     lint: '未配置',
     typecheck: '未配置',
+    test: '未配置',
+    eval: '未配置',
   },
 };
 
-export const managedInstructionBlockStart = '<!-- COGNIS:START -->';
-export const managedInstructionBlockEnd = '<!-- COGNIS:END -->';
-export const legacyManagedInstructionBlockStart = '<!-- LOOPENGINE:START -->';
-export const legacyManagedInstructionBlockEnd = '<!-- LOOPENGINE:END -->';
-export const managedAgentsBlockStart = managedInstructionBlockStart;
-export const managedAgentsBlockEnd = managedInstructionBlockEnd;
+export const managedInstructionBlockStart = '<!-- VIBE_HARNESS:START -->';
+export const managedInstructionBlockEnd = '<!-- VIBE_HARNESS:END -->';
 
-const managedInstructionBlockPattern = /<!-- COGNIS:START -->[\s\S]*?<!-- COGNIS:END -->\n?/u;
-const legacyManagedInstructionBlockPattern = /<!-- LOOPENGINE:START -->[\s\S]*?<!-- LOOPENGINE:END -->\n?/u;
-const legacyAgentsMarkers = [
-  '## 最小启动步骤',
-  '## 五条红线',
-  '## 核心位置',
-  'docs/rules/quickstart.md',
-  'docs/rules/agent-collaboration.md',
-  'docs/workflows/',
-];
+const managedInstructionBlockPattern = /<!-- VIBE_HARNESS:START -->[\s\S]*?<!-- VIBE_HARNESS:END -->\n?/u;
 
 function lookup(data, expression) {
   return expression.split('.').reduce((value, key) => {
@@ -95,24 +87,14 @@ export function renderTemplate(template, data = {}) {
 }
 
 export function hasIncompleteManagedInstructionBlock(content = '') {
-  const canonicalIncomplete = content.includes(managedInstructionBlockStart) !== content.includes(managedInstructionBlockEnd);
-  const legacyIncomplete = content.includes(legacyManagedInstructionBlockStart) !== content.includes(legacyManagedInstructionBlockEnd);
-  return canonicalIncomplete || legacyIncomplete;
+  return content.includes(managedInstructionBlockStart) !== content.includes(managedInstructionBlockEnd);
 }
 
 function managedInstructionMatch(content = '') {
   const canonical = content.match(managedInstructionBlockPattern);
-  const legacy = content.match(legacyManagedInstructionBlockPattern);
-  if (canonical && legacy) {
-    throw Object.assign(new Error('Instruction file contains both Cognis and LoopEngine managed blocks.'), {
-      code: 'COGNIS_MANAGED_BLOCK_CONFLICT',
-    });
-  }
   return canonical
     ? { end: managedInstructionBlockEnd, match: canonical, pattern: managedInstructionBlockPattern, start: managedInstructionBlockStart }
-    : legacy
-      ? { end: legacyManagedInstructionBlockEnd, match: legacy, pattern: legacyManagedInstructionBlockPattern, start: legacyManagedInstructionBlockStart }
-      : null;
+    : null;
 }
 
 export function renderManagedInstructionBlock(content) {
@@ -129,7 +111,7 @@ export function extractManagedInstructionBlock(content = '') {
 
 export function removeManagedInstructionBlock(content = '') {
   if (hasIncompleteManagedInstructionBlock(content)) {
-    throw new Error('Instruction file contains an incomplete Cognis managed block.');
+    throw new Error('Instruction file contains an incomplete Vibe-Harness managed block.');
   }
   const found = managedInstructionMatch(content);
   if (!found) return content;
@@ -139,55 +121,23 @@ export function removeManagedInstructionBlock(content = '') {
   return remaining ? `${remaining}\n` : '';
 }
 
-function isLegacyLoopEngineAgentsContent(content = '') {
-  const normalized = content.trim();
-  if (!normalized || !/^# AGENTS\.md(?:\s|$)/u.test(normalized)) {
-    return false;
-  }
-  const markerCount = legacyAgentsMarkers.filter((marker) => normalized.includes(marker)).length;
-  return markerCount >= 3;
-}
-
-function stripLegacyLoopEngineAgentsContent(content = '') {
-  const found = managedInstructionMatch(content);
-  if (!found) {
-    return isLegacyLoopEngineAgentsContent(content) ? '' : content;
-  }
-  const { match } = found;
-
-  const legacyPrefix = content.slice(0, match.index);
-  if (!isLegacyLoopEngineAgentsContent(legacyPrefix)) {
-    return content;
-  }
-
-  return content.slice(match.index).replace(/^\s+/u, '');
-}
-
 export function mergeManagedInstructionBlock(existingContent, managedContent) {
   if (hasIncompleteManagedInstructionBlock(existingContent)) {
-    throw new Error('Instruction file contains an incomplete Cognis managed block.');
+    throw new Error('Instruction file contains an incomplete Vibe-Harness managed block.');
   }
 
-  const normalizedExistingContent = stripLegacyLoopEngineAgentsContent(existingContent);
   const managedBlock = renderManagedInstructionBlock(managedContent);
-  if (!normalizedExistingContent || normalizedExistingContent.trim().length === 0) {
+  if (!existingContent || existingContent.trim().length === 0) {
     return managedBlock;
   }
 
-  const found = managedInstructionMatch(normalizedExistingContent);
+  const found = managedInstructionMatch(existingContent);
   if (found) {
-    return normalizedExistingContent.replace(found.pattern, managedBlock);
+    return existingContent.replace(found.pattern, managedBlock);
   }
 
-  const separator = normalizedExistingContent.endsWith('\n')
-    ? (normalizedExistingContent.endsWith('\n\n') ? '' : '\n')
+  const separator = existingContent.endsWith('\n')
+    ? (existingContent.endsWith('\n\n') ? '' : '\n')
     : '\n\n';
-  return `${normalizedExistingContent}${separator}${managedBlock}`;
+  return `${existingContent}${separator}${managedBlock}`;
 }
-
-// Legacy names remain exported for schemaVersion 1 Codex integrations.
-export const hasIncompleteManagedAgentsBlock = hasIncompleteManagedInstructionBlock;
-export const renderManagedAgentsBlock = renderManagedInstructionBlock;
-export const extractManagedAgentsBlock = extractManagedInstructionBlock;
-export const removeManagedAgentsBlock = removeManagedInstructionBlock;
-export const mergeManagedAgentsBlock = mergeManagedInstructionBlock;

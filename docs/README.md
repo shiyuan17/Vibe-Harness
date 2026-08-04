@@ -1,34 +1,64 @@
-# Cognis 文档索引
+# Vibe-Harness 文档索引
 
-本页是项目知识导航。文档角色和状态的机器真值位于 [`catalog.json`](catalog.json)；当前行为优先读取现行指南和现行规格，历史文件只用于审计。
+本页索引当前文档。机器真值位于 [`catalog.json`](catalog.json)；[`archive/`](archive/) 只用于历史追溯。
 
-## 现行指南
+## 当前产品
 
-- [架构说明](architecture.md)：组件、安装数据流、profiles 和安全模型。
-- [迁移指南](migration-guide.md)：从旧安装和旧治理资产迁移到当前版本。
-- [Hook 场景与运行边界](hooks.md)：Codex hooks、Git hooks 和安全边界。
-- [评测驱动开发](evals.md)：suite、run、reference、CI 和故障恢复。
+- [架构](architecture.md)
+- [迁移指南](migration-guide.md)
+- [Hook 安全策略](hooks.md)
+- [Eval](evals.md)
+- [Agentmemory Skill 规格](specs/agentmemory-skill-consolidation-spec.md)
+- [显式工具插件规格](specs/vibe-harness-tooling-modules-spec.md)
 
-## 现行规格
+## 规则
 
-- [v0.5 中文精简治理规格](specs/cognis-v0.5-simplified-governance-spec.md)：当前治理合同。
-- [Agentmemory Skill 收敛规格](specs/agentmemory-skill-consolidation-spec.md)：当前 Agentmemory 安装与升级合同。
+- [执行内核](rules/governance-core.md)
+- [领域 Skill 选择](rules/AGENT_SKILL_ROUTING.md)
+- [AI 协作](rules/ai-collab-rules.md)
+- [API](rules/api-rules.md)
+- [编码](rules/coding-rules.md)
+- [数据库](rules/db-rules.md)
+- [Eval](rules/eval-driven-development.md)
+- [前端](rules/frontend-rules.md)
+- [Git](rules/git-rules.md)
+- [日志](rules/log-management.md)
+- [项目目录](rules/project-directory.md)
+- [项目专项](rules/project-specific-rules.md)
+- [发布](rules/release-rules.md)
+- [测试](rules/test-rules.md)
+- [排障](rules/troubleshooting.md)
 
-## 参考审计
+## 模板与记忆
+
+- [可选任务记录](templates/task.md)
+- [简洁交付记录](templates/delivery.md)
+- [项目状态](memory/PROJECT_STATE.md)
+- [架构记忆](memory/ARCHITECTURE.md)
+- [决策](memory/DECISIONS.md)
+- [故障学习](memory/FAILURE_LEARNINGS.md)
+- [已知问题](memory/KNOWN_BUGS.md)
+- [技术债](memory/TECH_DEBT.md)
+
+## 审计参考
 
 - [源规则映射](inventory/source-rules-mapping.md)
-- [源资产盘点](inventory/source-assets.md)
-- [Skills 本地化与精简审计](inventory/skills-optimization-zh.md)
+- [源资产](inventory/source-assets.md)
+- [Skills 精简](inventory/skills-optimization-zh.md)
 - [脱敏映射](inventory/redaction-map.md)
-- [治理参考审计](inventory/governance-reference-analysis.md)
+- [参考分析](inventory/governance-reference-analysis.md)
+- [工作流与澄清能力审查](inventory/workflow-clarification-review.md)
+- [Pre-existing 测试失败处理方案](inventory/preexisting-test-failures-remediation.md)
+- [AI 专属 Eval 体系调查报告](inventory/ai-eval-investigation.md)
 
-## 历史归档
+## 历史
 
-- [归档索引](archive/README.md)：被取代的规格、已完成计划和历史发布清单。
+- [归档索引](archive/README.md)
 
 ## 根级入口
 
-- [中文使用说明](../README.zh-CN.md) / [English README](../README.md)
+- [中文 README](../README.zh-CN.md)
+- [English README](../README.md)
 - [贡献指南](../CONTRIBUTING.md)
 - [Agent 规则](../AGENTS.md)
 - [更新日志](../CHANGELOG.md)

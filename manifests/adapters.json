@@ -3,27 +3,75 @@
   "items": [
     {
       "id": "codex",
-      "installMap": "adapters/codex/install-map.json",
+      "installMap": "adapters/install-map.json",
       "instructionTarget": "AGENTS.md",
+      "instructionTemplate": "AGENTS",
+      "skillRoot": ".agents/skills",
       "supportedProfiles": ["minimal", "core", "full", "docs-only"],
-      "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "stable", "policy": "stable", "mcp": "stable", "sandbox": "stable", "memory": "stable", "plugin": "stable" },
+      "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "stable", "policy": "stable", "mcp": "stable", "sandbox": "stable", "memory": "stable", "plugin": "stable", "goals": "stable" },
       "redZonePrefixes": [".codex/"]
     },
     {
       "id": "claude",
-      "installMap": "adapters/codex/install-map.json",
+      "installMap": "adapters/install-map.json",
       "instructionTarget": "CLAUDE.md",
+      "instructionTemplate": "CLAUDE",
+      "skillRoot": ".claude/skills",
       "supportedProfiles": ["minimal", "core", "full", "docs-only"],
-      "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "preview", "policy": "stable", "mcp": "preview", "sandbox": "preview", "memory": "preview", "plugin": "unsupported" },
+      "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "preview", "policy": "stable", "mcp": "preview", "sandbox": "preview", "memory": "preview", "plugin": "unsupported", "goals": "unsupported" },
       "redZonePrefixes": []
     },
     {
       "id": "gemini",
-      "installMap": "adapters/codex/install-map.json",
+      "installMap": "adapters/install-map.json",
       "instructionTarget": "GEMINI.md",
+      "instructionTemplate": "GEMINI",
+      "skillRoot": ".gemini/skills",
       "supportedProfiles": ["minimal", "core", "full", "docs-only"],
-      "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "preview", "policy": "stable", "mcp": "preview", "sandbox": "preview", "memory": "preview", "plugin": "unsupported" },
+      "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "preview", "policy": "stable", "mcp": "preview", "sandbox": "preview", "memory": "preview", "plugin": "unsupported", "goals": "unsupported" },
       "redZonePrefixes": []
+    },
+    {
+      "id": "cursor",
+      "installMap": "adapters/install-map.json",
+      "instructionTarget": "AGENTS.md",
+      "instructionTemplate": "AGENTS",
+      "skillRoot": ".cursor/skills",
+      "supportedProfiles": ["minimal", "core", "full", "docs-only"],
+      "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "stable", "policy": "stable", "mcp": "stable", "sandbox": "preview", "memory": "preview", "plugin": "stable", "goals": "unsupported" },
+      "projectConfig": {
+        "mcp": { "target": ".cursor/mcp.json", "path": ["mcpServers"] },
+        "hooks": { "target": ".cursor/hooks.json", "path": [] }
+      },
+      "redZonePrefixes": [".cursor/hooks.json", ".cursor/mcp.json"]
+    },
+    {
+      "id": "qoder",
+      "installMap": "adapters/install-map.json",
+      "instructionTarget": "AGENTS.md",
+      "instructionTemplate": "AGENTS",
+      "skillRoot": ".qoder/skills",
+      "supportedProfiles": ["minimal", "core", "full", "docs-only"],
+      "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "stable", "policy": "stable", "mcp": "stable", "sandbox": "preview", "memory": "stable", "plugin": "stable", "goals": "stable" },
+      "projectConfig": {
+        "mcp": { "target": ".mcp.json", "path": ["mcpServers"] },
+        "hooks": { "target": ".qoder/settings.json", "path": ["hooks"] }
+      },
+      "redZonePrefixes": [".mcp.json", ".qoder/settings.json"]
+    },
+    {
+      "id": "zcode",
+      "installMap": "adapters/install-map.json",
+      "instructionTarget": "AGENTS.md",
+      "instructionTemplate": "AGENTS",
+      "skillRoot": ".zcode/skills",
+      "supportedProfiles": ["minimal", "core", "full", "docs-only"],
+      "capabilities": { "instructions": "stable", "skills": "unsupported", "hooks": "stable", "policy": "stable", "mcp": "stable", "sandbox": "preview", "memory": "preview", "plugin": "stable", "goals": "stable" },
+      "projectConfig": {
+        "mcp": { "target": ".zcode/config.json", "path": ["mcp", "servers"] },
+        "hooks": { "target": ".zcode/config.json", "path": ["hooks"] }
+      },
+      "redZonePrefixes": [".zcode/config.json"]
     }
   ]
 }

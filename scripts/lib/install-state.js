@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import { copyFile, mkdir, readFile, readdir, rename, rm, rmdir, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, readdir, rm, rmdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   assertInsideDir,
@@ -10,15 +10,39 @@ import {
   pathExists,
   readJson,
 } from './manifest.js';
+import { validateJsonAgainstSchema } from './schema-validation.js';
 import { canonicalProfile } from './project-config.js';
 import { extractManagedInstructionBlock, removeManagedInstructionBlock } from './template-renderer.js';
-import { extractManagedMcpBlock, removeManagedMcpBlock } from './tool-provisioning.js';
-import { beginFileTransaction } from './file-transaction.js';
+import {
+  extractManagedCbmIgnoreBlock,
+  extractManagedMcpBlock,
+  removeManagedCbmIgnoreBlock,
+  removeManagedMcpBlock,
+} from './tool-provisioning.js';
+import { beginFileTransaction, renameAtomic } from './file-transaction.js';
 import { productIdentity } from './product-identity.js';
+import {
+  hashManagedBlock,
+  isManagedIgnore,
+  isManagedInstruction,
+  isManagedJson,
+  isManagedToml,
+} from './managed-block.js';
+import { managedJsonPayload, removeManagedJsonConfig } from './managed-json-config.js';
 
 const stateFileName = 'install-state.json';
-const isManagedInstruction = (strategy) => ['managed-block', 'managed-instruction-block'].includes(strategy);
-const isManagedToml = (strategy) => ['managed-mcp-block', 'managed-toml-block'].includes(strategy);
+
+const installStateSchemaPath = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../schemas/install-state.schema.json',
+);
+let installStateSchemaPromise = null;
+function loadInstallStateSchema() {
+  if (!installStateSchemaPromise) {
+    installStateSchemaPromise = readJson(installStateSchemaPath);
+  }
+  return installStateSchemaPromise;
+}
 
 export function toTargetPath(targetDir, filePath) {
   const relative = path.relative(targetDir, filePath).replaceAll('\\', '/');
@@ -27,14 +51,7 @@ export function toTargetPath(targetDir, filePath) {
 }
 
 export function stateFilePath(targetDir) {
-  const canonical = path.join(targetDir, productIdentity.stateDir, stateFileName);
-  const legacy = path.join(targetDir, productIdentity.legacy.stateDir, stateFileName);
-  if (existsSync(canonical) && existsSync(legacy)) {
-    throw Object.assign(new Error('Both .cognis and .loopengine contain install state.'), {
-      code: 'COGNIS_STATE_CONFLICT',
-    });
-  }
-  return existsSync(legacy) ? legacy : canonical;
+  return path.join(targetDir, productIdentity.stateDir, stateFileName);
 }
 
 function stateDirNameFor(targetDir) {
@@ -52,6 +69,11 @@ export async function readInstallState(targetDir) {
     return null;
   }
   const state = await readJson(filePath);
+  const schema = await loadInstallStateSchema();
+  const errors = validateJsonAgainstSchema(state, schema, 'install-state');
+  if (errors.length) {
+    throw new Error(`install-state.json is corrupt: ${errors.join('; ')}`);
+  }
   return { adapter: 'codex', ...state, profile: canonicalProfile(state.profile) };
 }
 
@@ -61,16 +83,13 @@ export async function writeInstallState(targetDir, state) {
   await mkdir(path.dirname(filePath), { recursive: true });
   const temporaryPath = `${filePath}.${randomUUID()}.tmp`;
   try {
-    const storageNamespace = stateDirNameFor(targetDir) === productIdentity.legacy.stateDir
-      ? 'loopengine'
-      : 'cognis';
     await writeFile(temporaryPath, `${JSON.stringify({
       ...state,
-      product: 'cognis',
+      product: 'vibe-harness',
       stateVersion: 4,
-      storageNamespace,
+      storageNamespace: 'vibe-harness',
     }, null, 2)}\n`, 'utf8');
-    await rename(temporaryPath, filePath);
+    await renameAtomic(temporaryPath, filePath);
   } catch (error) {
     await rm(temporaryPath, { force: true });
     throw error;
@@ -115,15 +134,19 @@ export async function collectTargetFiles(targetDir, currentDir = targetDir) {
   for (const entry of entries) {
     const fullPath = path.join(currentDir, entry.name);
     const relative = toTargetPath(targetDir, fullPath);
-    if ([productIdentity.stateDir, productIdentity.legacy.stateDir].some(
-      (stateDir) => relative === stateDir || relative.startsWith(`${stateDir}/`),
-    )) {
+    if (relative === productIdentity.stateDir || relative.startsWith(`${productIdentity.stateDir}/`)) {
       continue;
     }
     if (relative === '.agents/backup' || relative.startsWith('.agents/backup/')) {
       continue;
     }
     if (entry.isDirectory() && entry.name === 'node_modules') {
+      continue;
+    }
+    // Skip symlinked directories to avoid traversing outside the project,
+    // mirroring installation-baseline.js. A symlinked directory entry reports
+    // isDirectory() true but would follow the link during recursion.
+    if (entry.isSymbolicLink()) {
       continue;
     }
     if (entry.isDirectory()) {
@@ -149,7 +172,7 @@ async function assertStateActionPathsSafe(targetDir, actions, label) {
 export async function createRollbackPlan({ dryRun = true, redZoneConfirmed = false, targetDir }) {
   const state = await readInstallState(targetDir);
   if (!state) {
-    throw new Error(`No Cognis install state found in ${targetDir}`);
+    throw new Error(`No Vibe-Harness install state found in ${targetDir}`);
   }
 
   const actions = [];
@@ -188,10 +211,27 @@ export async function createRollbackPlan({ dryRun = true, redZoneConfirmed = fal
     assertPortableRelativePath(file.target, 'install-state target');
     const target = path.join(targetDir, file.target);
     assertInsideDir(targetDir, target, 'install-state target');
-    if (isManagedToml(file.contentStrategy)) {
+    if (isManagedIgnore(file.contentStrategy)) {
+      actions.push({
+        created: Boolean(file.created),
+        expectedManagedBlockHash: file.managedBlockHash,
+        kind: 'remove-managed-ignore-block',
+        redZone: Boolean(file.redZone),
+        target: file.target,
+      });
+    } else if (isManagedToml(file.contentStrategy)) {
       actions.push({
         expectedManagedBlockHash: file.managedBlockHash,
         kind: 'remove-managed-mcp-block',
+        redZone: Boolean(file.redZone),
+        target: file.target,
+      });
+    } else if (isManagedJson(file.contentStrategy)) {
+      actions.push({
+        created: Boolean(file.created),
+        expectedManagedBlockHash: file.managedBlockHash,
+        kind: 'remove-managed-json-config',
+        managedJson: file.managedJson,
         redZone: Boolean(file.redZone),
         target: file.target,
       });
@@ -234,26 +274,6 @@ export async function createRollbackPlan({ dryRun = true, redZoneConfirmed = fal
       kind: 'restore-retired',
       redZone: Boolean(file.redZone),
       target: file.target,
-    });
-  }
-  if (state.configMigration) {
-    const migration = state.configMigration;
-    assertPortableRelativePath(migration.from, 'install-state config migration source');
-    assertPortableRelativePath(migration.to, 'install-state config migration target');
-    assertPortableRelativePath(migration.backup, 'install-state config migration backup');
-    const target = path.join(targetDir, migration.to);
-    const restoreTarget = path.join(targetDir, migration.from);
-    const backupPath = path.join(targetDir, migration.backup);
-    assertInsideDir(targetDir, target, 'install-state config migration target');
-    assertInsideDir(targetDir, restoreTarget, 'install-state config migration source');
-    assertInsideDir(path.join(targetDir, stateDirNameFor(targetDir), 'backups'), backupPath, 'install-state config migration backup');
-    actions.push({
-      backup: migration.backup,
-      expectedHash: migration.targetHash,
-      kind: 'restore-config-migration',
-      redZone: false,
-      restoreTarget: migration.from,
-      target: migration.to,
     });
   }
 
@@ -317,10 +337,23 @@ export async function applyRollbackPlan(plan, hooks = {}) {
       }
       await rm(target, { force: true });
       applied.push(action.target);
+    } else if (action.kind === 'remove-managed-ignore-block' && await pathExists(target)) {
+      const content = await readFile(target, 'utf8');
+      const block = extractManagedCbmIgnoreBlock(content);
+      const blockHash = hashManagedBlock(block);
+      if (!block || blockHash !== action.expectedManagedBlockHash) {
+        skipped.push({ reason: 'managed-block-modified', target: action.target });
+        continue;
+      }
+      const remaining = removeManagedCbmIgnoreBlock(content);
+      if (remaining) await writeFile(target, remaining, 'utf8');
+      else if (action.created) await rm(target, { force: true });
+      else await writeFile(target, '', 'utf8');
+      applied.push(action.target);
     } else if (action.kind === 'remove-managed-mcp-block' && await pathExists(target)) {
       const content = await readFile(target, 'utf8');
       const block = extractManagedMcpBlock(content);
-      const blockHash = createHash('sha256').update(block).digest('hex');
+      const blockHash = hashManagedBlock(block);
       if (!block || blockHash !== action.expectedManagedBlockHash) {
         skipped.push({ reason: 'managed-block-modified', target: action.target });
         continue;
@@ -328,6 +361,23 @@ export async function applyRollbackPlan(plan, hooks = {}) {
       const remaining = removeManagedMcpBlock(content);
       if (remaining) await writeFile(target, remaining, 'utf8');
       else await rm(target, { force: true });
+      applied.push(action.target);
+    } else if (action.kind === 'remove-managed-json-config' && await pathExists(target)) {
+      let remaining;
+      try {
+        const content = await readFile(target, 'utf8');
+        const blockHash = hashManagedBlock(managedJsonPayload(content, action.managedJson));
+        if (blockHash !== action.expectedManagedBlockHash) {
+          skipped.push({ reason: 'managed-block-modified', target: action.target });
+          continue;
+        }
+        remaining = removeManagedJsonConfig(content, action.managedJson);
+      } catch {
+        skipped.push({ reason: 'managed-block-modified', target: action.target });
+        continue;
+      }
+      if (remaining.trim() === '{}' && action.created) await rm(target, { force: true });
+      else await writeFile(target, remaining, 'utf8');
       applied.push(action.target);
     } else if (action.kind === 'restore-retired') {
       if (await pathExists(target)) {
@@ -399,7 +449,7 @@ export async function applyRollbackPlan(plan, hooks = {}) {
 
 export async function createUninstallPlan({ dryRun = true, redZoneConfirmed = false, targetDir }) {
   const state = await readInstallState(targetDir);
-  if (!state) throw new Error(`No Cognis install state found in ${targetDir}`);
+  if (!state) throw new Error(`No Vibe-Harness install state found in ${targetDir}`);
   const actions = [];
   const baselineBackups = new Map();
   if (state.baseline?.manifest) {
@@ -465,10 +515,27 @@ export async function createUninstallPlan({ dryRun = true, redZoneConfirmed = fa
         redZone: Boolean(file.redZone),
         target: file.target,
       });
+    } else if (isManagedIgnore(file.contentStrategy)) {
+      actions.push({
+        created: Boolean(originalCreated),
+        expectedManagedBlockHash: file.managedBlockHash,
+        kind: 'remove-managed-ignore-block',
+        redZone: Boolean(file.redZone),
+        target: file.target,
+      });
     } else if (isManagedToml(file.contentStrategy)) {
       actions.push({
         expectedManagedBlockHash: file.managedBlockHash,
         kind: 'remove-managed-mcp-block',
+        redZone: Boolean(file.redZone),
+        target: file.target,
+      });
+    } else if (isManagedJson(file.contentStrategy)) {
+      actions.push({
+        created: Boolean(originalCreated),
+        expectedManagedBlockHash: file.managedBlockHash,
+        kind: 'remove-managed-json-config',
+        managedJson: file.managedJson,
         redZone: Boolean(file.redZone),
         target: file.target,
       });
@@ -514,7 +581,7 @@ async function applyUninstallAction(plan, action) {
     if (!(await pathExists(target))) return null;
     const content = await readFile(target, 'utf8');
     const block = extractManagedInstructionBlock(content);
-    const blockHash = createHash('sha256').update(block ?? '').digest('hex');
+    const blockHash = hashManagedBlock(block);
     if (!block || (action.expectedManagedBlockHash && blockHash !== action.expectedManagedBlockHash)) {
       return 'managed-block-modified';
     }
@@ -529,16 +596,42 @@ async function applyUninstallAction(plan, action) {
     else await writeFile(target, '', 'utf8');
     return null;
   }
+  if (action.kind === 'remove-managed-ignore-block') {
+    if (!(await pathExists(target))) return null;
+    const content = await readFile(target, 'utf8');
+    const block = extractManagedCbmIgnoreBlock(content);
+    const blockHash = hashManagedBlock(block);
+    if (!block || blockHash !== action.expectedManagedBlockHash) return 'managed-block-modified';
+    const remaining = removeManagedCbmIgnoreBlock(content);
+    if (remaining) await writeFile(target, remaining, 'utf8');
+    else if (action.created) await rm(target, { force: true });
+    else await writeFile(target, '', 'utf8');
+    return null;
+  }
   if (action.kind === 'remove-managed-mcp-block') {
     if (!(await pathExists(target))) return null;
     const content = await readFile(target, 'utf8');
     const block = extractManagedMcpBlock(content);
-    const blockHash = createHash('sha256').update(block).digest('hex');
+    const blockHash = hashManagedBlock(block);
     if (!block || blockHash !== action.expectedManagedBlockHash) return 'managed-block-modified';
     const remaining = removeManagedMcpBlock(content);
     if (remaining) await writeFile(target, remaining, 'utf8');
     else await rm(target, { force: true });
     return null;
+  }
+  if (action.kind === 'remove-managed-json-config') {
+    if (!(await pathExists(target))) return null;
+    try {
+      const content = await readFile(target, 'utf8');
+      const blockHash = hashManagedBlock(managedJsonPayload(content, action.managedJson));
+      if (blockHash !== action.expectedManagedBlockHash) return 'managed-block-modified';
+      const remaining = removeManagedJsonConfig(content, action.managedJson);
+      if (remaining.trim() === '{}' && action.created) await rm(target, { force: true });
+      else await writeFile(target, remaining, 'utf8');
+      return null;
+    } catch {
+      return 'managed-block-modified';
+    }
   }
   if (action.kind === 'restore-backup') {
     if (await pathExists(target) && await hashFile(target) !== action.expectedHash) return 'target-modified';

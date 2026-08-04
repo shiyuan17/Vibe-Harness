@@ -7,8 +7,10 @@ node_modules/
 coverage/
 dist/
 .turbo/
+.vibe-harness/
 .cognis/
 .loopengine/
+.zcode/
 /.codebase-memory
 /output
 /.agents/backup

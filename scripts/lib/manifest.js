@@ -1,7 +1,9 @@
 import { access, lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
-import { validateJsonAgainstSchema } from '../../runtime/governance/lib/schema-validation.mjs';
+import { validateJsonAgainstSchema } from './schema-validation.js';
+import { safeJsonParse } from './safe-json.js';
+import { CONTENT_STRATEGIES } from './managed-block.js';
 
 export { validateJsonAgainstSchema };
 
@@ -16,7 +18,7 @@ export async function pathExists(filePath) {
 
 export async function readJson(filePath) {
   const raw = await readFile(filePath, 'utf8');
-  return JSON.parse(raw);
+  return safeJsonParse(raw);
 }
 
 export async function loadAllManifests(rootDir) {
@@ -174,6 +176,17 @@ export function validateCatalogManifest(name, manifest) {
       assertNonEmptyString(item.installMap, `${name}.items[${index}].installMap`);
       assertPortableRelativePath(item.installMap, `${name}.items[${index}].installMap`);
       assertPortableRelativePath(item.instructionTarget, `${name}.items[${index}].instructionTarget`);
+      assertNonEmptyString(item.instructionTemplate, `${name}.items[${index}].instructionTemplate`);
+      assertPortableRelativePath(item.skillRoot, `${name}.items[${index}].skillRoot`);
+      for (const [kind, config] of Object.entries(item.projectConfig ?? {})) {
+        if (!['hooks', 'mcp'].includes(kind) || !config || typeof config !== 'object') {
+          throw new Error(`${name}.items[${index}].projectConfig is invalid`);
+        }
+        assertPortableRelativePath(config.target, `${name}.items[${index}].projectConfig.${kind}.target`);
+        if (!Array.isArray(config.path) || config.path.some((part) => typeof part !== 'string' || part.length === 0)) {
+          throw new Error(`${name}.items[${index}].projectConfig.${kind}.path must be a string array`);
+        }
+      }
     }
   }
 }
@@ -192,9 +205,30 @@ export function validateAllManifestSchemas(manifests, schemas) {
   return errors.sort();
 }
 
-function isRedZoneTarget(target) {
+// Unified red-zone predicate. This must stay aligned with the runtime hook's
+// `projectRedZonePattern` (runtime/hooks/lib/policy.mjs): any install target
+// that the hook treats as a project red-zone must also be flagged red-zone at
+// install time so --confirm-red-zone gates it. Covers global Agent config
+// (.codex/, .claude/, etc.), CI/CD workflows, environment files, and auth/ci
+// directories.
+const RED_ZONE_PATTERNS = [
+  /(?:^|\/)\.codex\//u,
+  /(?:^|\/)\.claude\//u,
+  /(?:^|\/)\.gemini\//u,
+  /(?:^|\/)\.cursor\//u,
+  /(?:^|\/)\.qoder\//u,
+  /(?:^|\/)\.zcode\//u,
+  /(?:^|\/)\.mcp\.json$/u,
+  /(?:^|\/)\.github\/workflows\//u,
+  /(?:^|\/)\.env(?:\.[^/]+)?$/u,
+  /(?:^|\/)auth(?:\/|$)/u,
+  /(?:^|\/)ci\/cd(?:\/|$)/u,
+  /\/hooks\.json$/u,
+];
+
+export function isRedZoneTarget(target) {
   const normalized = target.replaceAll('\\', '/');
-  return normalized.startsWith('.codex/') || normalized.includes('/.codex/') || normalized.endsWith('/hooks.json');
+  return RED_ZONE_PATTERNS.some((pattern) => pattern.test(normalized));
 }
 
 export function validateInstallMapShape(installMap, allowedGroups) {
@@ -222,7 +256,7 @@ export function validateInstallMapShape(installMap, allowedGroups) {
     assertNonEmptyString(entry.group, `install-map.entries[${index}].group`);
     assertNonEmptyString(entry.source, `install-map.entries[${index}].source`);
     assertNonEmptyString(entry.target, `install-map.entries[${index}].target`);
-    if (!['managed-instruction-block', 'managed-toml-block', 'replace'].includes(entry.contentStrategy)) {
+    if (!CONTENT_STRATEGIES.includes(entry.contentStrategy)) {
       throw new Error(`install-map.entries[${index}].contentStrategy is invalid`);
     }
     assertPortableRelativePath(entry.source, `install-map.entries[${index}].source`);

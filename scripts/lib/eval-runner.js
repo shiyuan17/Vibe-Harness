@@ -4,6 +4,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { assertInsideDir, assertPortableRelativePath } from './manifest.js';
+import { safeJsonParse } from './safe-json.js';
+import { assertSafeCommand } from './shell-command.js';
+import { terminateProcessTree } from './process-tree.js';
 import { sanitizeEvalValue, scoreCase } from './eval-scoring.js';
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
@@ -13,7 +16,10 @@ const evaluationEnvironmentNames = new Set([
   'ALL_PROXY', 'ANTHROPIC_API_KEY', 'APPDATA', 'AZURE_OPENAI_API_KEY', 'CODEX_CLI_VERSION',
   'CODEX_HOME', 'CODEX_MODEL', 'COMSPEC', 'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'HOME',
   'HTTPS_PROXY', 'HTTP_PROXY', 'LANG', 'LC_ALL', 'LC_CTYPE', 'LOCALAPPDATA',
-  'COGNIS_CODEX_COMMAND', 'LOOPENGINE_CODEX_COMMAND', 'NO_PROXY', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'PATH', 'Path',
+  'CODEX_REASONING_EFFORT', 'VIBE_HARNESS_CODEX_COMMAND', 'VIBE_HARNESS_EVAL_AUTH_FILE', 'VIBE_HARNESS_EVAL_CODEX_BACKEND',
+  'VIBE_HARNESS_EVAL_PROVIDER_NAME', 'VIBE_HARNESS_EVAL_PROVIDER_REQUIRES_AUTH', 'VIBE_HARNESS_EVAL_PROVIDER_WIRE_API',
+  'VIBE_HARNESS_EVAL_RUNTIME_SOURCE', 'VIBE_HARNESS_EVAL_TRUST_PROJECT_HOOKS', 'VIBE_HARNESS_WSL_CODEX_COMMAND',
+  'NO_PROXY', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'PATH', 'Path',
   'PATHEXT', 'PROGRAMDATA', 'ProgramData', 'SHELL', 'SSL_CERT_DIR', 'SSL_CERT_FILE', 'SystemRoot',
   'TEMP', 'TMP', 'TMPDIR', 'USERPROFILE', 'WINDIR', 'all_proxy', 'https_proxy', 'http_proxy',
   'no_proxy',
@@ -23,16 +29,12 @@ function evaluationEnvironment(env) {
   return Object.fromEntries(Object.entries(env).filter(([name]) => evaluationEnvironmentNames.has(name)));
 }
 
-function splitCommand(command) {
-  const tokens = [];
-  const pattern = /"([^"]*)"|'([^']*)'|([^\s]+)/gu;
-  for (const match of command.matchAll(pattern)) tokens.push(match[1] ?? match[2] ?? match[3]);
-  if (tokens.length === 0) throw new Error('Evaluation runner command is empty.');
-  return tokens;
-}
-
 async function createWorkspace(definition) {
-  const workspace = await mkdtemp(path.join(tmpdir(), 'cognis-eval-case-'));
+  const workspace = await mkdtemp(path.join(tmpdir(), 'vibe-harness-eval-case-'));
+  for (const relative of definition.input.fixture?.allowedWritePaths ?? []) {
+    assertPortableRelativePath(relative, 'evaluation allowed write path');
+    assertInsideDir(workspace, path.resolve(workspace, relative), 'evaluation allowed write path');
+  }
   for (const file of definition.input.fixture?.files ?? []) {
     assertPortableRelativePath(file.path, 'evaluation fixture file');
     const target = path.resolve(workspace, file.path);
@@ -43,12 +45,12 @@ async function createWorkspace(definition) {
   return workspace;
 }
 
-function validateObservation(value, caseId, governanceHash) {
+function validateObservation(value, caseId, configHash) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return 'runner output must be an object';
   if (value.schemaVersion !== 1) return 'runner output schemaVersion must be 1';
   if (value.caseId !== caseId) return 'runner output caseId does not match request';
-  if (value.governanceHash !== governanceHash) return 'runner output governanceHash does not match request';
-  for (const field of ['runner', 'model', 'agentVersion', 'governanceHash', 'output']) {
+  if (value.configHash !== configHash) return 'runner output configHash does not match request';
+  for (const field of ['runner', 'model', 'agentVersion', 'configHash', 'output']) {
     if (typeof value[field] !== 'string') return `runner output ${field} must be a string`;
   }
   for (const field of ['events', 'artifacts', 'diagnostics']) {
@@ -63,7 +65,7 @@ function validateObservation(value, caseId, governanceHash) {
 function executeRunner({ command, request, timeoutMs }) {
   let tokens;
   try {
-    tokens = splitCommand(command);
+    tokens = assertSafeCommand(command);
   } catch (error) {
     return Promise.resolve({ code: 'EVAL_RUNNER_UNAVAILABLE', diagnostic: error.message });
   }
@@ -92,7 +94,7 @@ function executeRunner({ command, request, timeoutMs }) {
       const next = Buffer.concat([current, chunk]);
       if (next.length > OUTPUT_LIMIT) {
         overflow = true;
-        terminateChildTree(child);
+        void terminateProcessTree(child);
       }
       return next.subarray(0, OUTPUT_LIMIT);
     };
@@ -114,11 +116,11 @@ function executeRunner({ command, request, timeoutMs }) {
       }
       let observation;
       try {
-        observation = JSON.parse(text);
+        observation = safeJsonParse(text);
       } catch {
         return finish({ code: 'EVAL_RUNNER_INVALID_OUTPUT', diagnostic: 'runner stdout must contain exactly one JSON object' });
       }
-      const error = validateObservation(observation, request.case.id, request.governanceHash);
+      const error = validateObservation(observation, request.case.id, request.configHash);
       if (error) return finish({ code: 'EVAL_RUNNER_INVALID_OUTPUT', diagnostic: error });
       return finish({
         observation,
@@ -128,31 +130,13 @@ function executeRunner({ command, request, timeoutMs }) {
     });
     const timer = setTimeout(() => {
       timedOut = true;
-      terminateChildTree(child);
+      void terminateProcessTree(child);
     }, timeoutMs);
     child.stdin.end(JSON.stringify(request));
   });
 }
 
-function terminateChildTree(child) {
-  if (!child.pid) return;
-  if (process.platform === 'win32') {
-    const killer = spawn('taskkill.exe', ['/pid', String(child.pid), '/t', '/f'], {
-      shell: false,
-      stdio: 'ignore',
-      windowsHide: true,
-    });
-    killer.unref();
-    return;
-  }
-  try {
-    process.kill(-child.pid, 'SIGKILL');
-  } catch {
-    child.kill('SIGKILL');
-  }
-}
-
-export async function runEvaluationCase({ command, definition, governanceHash = 'fixture-v1', repetition = 1, runId = 'online', timeoutMs = DEFAULT_TIMEOUT_MS }) {
+export async function runEvaluationCase({ command, definition, configHash = 'fixture-v1', repetition = 1, runId = 'online', timeoutMs = DEFAULT_TIMEOUT_MS, judge }) {
   let workspace;
   let report;
   try {
@@ -162,7 +146,7 @@ export async function runEvaluationCase({ command, definition, governanceHash = 
       runId,
       repetition,
       workspace,
-      governanceHash,
+      configHash,
       case: definition,
     };
     const result = await executeRunner({ command, request, timeoutMs });
@@ -174,7 +158,7 @@ export async function runEvaluationCase({ command, definition, governanceHash = 
         workspace,
       };
     } else {
-      const caseResult = scoreCase({ definition, observation: result.observation });
+      const caseResult = await scoreCase({ definition, observation: result.observation, judge });
       report = {
         caseResult,
         diagnostics: sanitizeEvalValue([
@@ -200,9 +184,8 @@ export async function runEvaluationCase({ command, definition, governanceHash = 
       await rm(workspace, { force: true, maxRetries: 20, recursive: true, retryDelay: 250 });
     } catch (error) {
       return {
-        code: 'EVAL_WORKSPACE_CLEANUP_FAILED',
-        diagnostics: sanitizeEvalValue([error.message]),
-        status: 'degraded',
+        ...report,
+        cleanupWarning: sanitizeEvalValue([error.message]),
         workspace,
       };
     }

@@ -10,17 +10,18 @@ import {
   validateJsonAgainstSchema,
   validateManifestSources,
 } from '../scripts/lib/manifest.js';
-import { validateJsonAgainstSchema as validateRuntimeSchema } from '../runtime/governance/lib/schema-validation.mjs';
-import { validateCapabilityMatrix, validatePack } from '../scripts/lib/pack-validation.js';
+import { resolveAdapterEntry } from '../scripts/lib/adapter.js';
+import { validateCapabilityMatrix, validatePack, validateSelfInstalledArtifacts } from '../scripts/lib/pack-validation.js';
 
-const rootDir = path.resolve('.');
+const rootDir = path.resolve(import.meta.dirname, '..');
 
 test('manifests expose adapters, profiles, rules, and skills', async () => {
   const manifests = await loadAllManifests(rootDir);
   assert.deepEqual(Object.keys(manifests).sort(), ['adapters', 'profiles', 'rules', 'skills']);
   assert.equal(manifests.rules.items.some((item) => item.id === 'governance-core'), true);
   assert.equal(manifests.rules.items.some((item) => item.id === 'chrome-devtools-mcp'), true);
-  assert.equal(manifests.skills.items.some((item) => item.id === 'using-cognis'), true);
+  assert.equal(manifests.skills.items.filter((item) => item.kind === 'native').length, 8);
+  assert.equal(manifests.skills.items.some((item) => ['router', 'compatibility'].includes(item.kind)), false);
   assert.deepEqual(manifests.profiles.items.map((item) => item.id), ['minimal', 'core', 'full', 'docs-only']);
 });
 
@@ -28,24 +29,13 @@ test('manifest source files all exist', async () => {
   assert.deepEqual(await validateManifestSources(rootDir, await loadAllManifests(rootDir)), []);
 });
 
-test('full task control schema rejects missing and unknown Chinese fields', async () => {
-  const schema = await readJson(path.join(rootDir, 'schemas/full-task-control.schema.json'));
-  const sample = {
-    任务类型: '单任务', 责任角色: '实现负责人', 写入范围: ['src/a.js'], 禁止动作: ['覆盖无关改动'],
-    依赖任务: [], 并行安全: '独占写入', 停止条件: '验证完成', 回滚方案: '恢复文件', 人工确认: '不需要',
-    核验者: '独立核验者', 合并回主线状态: '不需要',
-  };
-  assert.deepEqual(validateJsonAgainstSchema(sample, schema, '控制'), []);
-  assert.deepEqual(validateJsonAgainstSchema({
-    ...sample,
-    红队审查者: '独立核验者',
-    红队审查包: 'docs/reviews/T-001-red-team.md',
-    红队审查结论: '批准',
-  }, schema, '控制'), []);
-  assert.match(validateJsonAgainstSchema({ ...sample, 红队审查结论: '跳过' }, schema, '控制').join('\n'), /红队审查结论/u);
-  assert.match(validateJsonAgainstSchema({ ...sample, 红队审查者: [] }, schema, '控制').join('\n'), /红队审查者/u);
-  assert.match(validateJsonAgainstSchema({ ...sample, 核验者: undefined }, schema, '控制').join('\n'), /核验者/u);
-  assert.match(validateJsonAgainstSchema({ ...sample, 额外字段: true }, schema, '控制').join('\n'), /额外字段/u);
+test('adapter schema requires an explicit goals support level', async () => {
+  const manifest = await readJson(path.join(rootDir, 'manifests/adapters.json'));
+  const schema = await readJson(path.join(rootDir, 'schemas/adapter-pack.schema.json'));
+  assert.deepEqual(validateJsonAgainstSchema(manifest, schema, 'adapters'), []);
+  const missingGoals = structuredClone(manifest);
+  delete missingGoals.items[0].capabilities.goals;
+  assert.match(validateJsonAgainstSchema(missingGoals, schema, 'adapters').join('\n'), /goals.*required|required.*goals/iu);
 });
 
 test('project baseline schema rejects unknown fields', async () => {
@@ -61,9 +51,10 @@ test('project baseline schema rejects unknown fields', async () => {
       vcs: { kind: 'Git', workingTreeStatus: 'clean' },
     },
     installation: {
-      governanceMode: 'off',
       managedFileCount: 4,
       profile: 'minimal',
+      requestedPlugins: [],
+      resolvedModules: ['agents', 'rules', 'templates'],
       status: 'consistent',
       tools: {},
       version: '0.3.0',
@@ -72,13 +63,12 @@ test('project baseline schema rejects unknown fields', async () => {
       mode: 'static',
       status: 'not_run',
       commands: {
-        governance: { status: 'not_configured' },
         lint: { status: 'not_configured' },
-          typecheck: { status: 'not_configured' },
-          eval: { status: 'not_configured' },
-        },
+        typecheck: { status: 'not_configured' },
+        test: { status: 'not_configured' },
+        eval: { status: 'not_configured' },
+      },
     },
-    workflows: [],
     recommendations: [],
     drift: { changes: [], status: 'initial' },
   };
@@ -102,7 +92,6 @@ test('canonical schema validation enforces numeric and string constraints and re
 
   assert.match(cliErrors.join('\n'), /maximum|<= 3/iu);
   assert.match(cliErrors.join('\n'), /pattern|匹配/iu);
-  assert.deepEqual(cliErrors, validateRuntimeSchema(invalid, schema, 'sample'));
   assert.throws(
     () => validateJsonAgainstSchema({}, { type: 'object', unsupportedConstraint: true }, 'sample'),
     /unsupported schema keyword.*unsupportedConstraint/iu,
@@ -181,6 +170,46 @@ test('capability matrix maps every reusable capability to current assets', async
   const unmanagedDoc = structuredClone(matrix);
   unmanagedDoc.items[0].docs = ['docs/not-cataloged.md'];
   assert.match((await validateCapabilityMatrix(rootDir, unmanagedDoc, { checkFiles: false })).join('\n'), /documentation catalog/u);
+});
+
+test('self-installed artifacts must stay in sync with their sources', async () => {
+  // The real pack validates (covered by the next test), which means every
+  // replace entry whose source has no render placeholder is byte-identical to
+  // its self-installed artifact. Build a synthetic install map that points a
+  // real source at a mismatched target to prove the drift detector fires.
+  const realSource = 'schemas/eval-run.schema.json';
+  const adapters = { items: [{ id: 'codex', installMap: 'synthetic.json', instructionTarget: 'AGENTS.md', capabilities: {}, redZonePrefixes: [] }] };
+  const drifted = {
+    adapter: 'codex',
+    entries: [{
+      contentStrategy: 'replace',
+      group: 'schemas-core',
+      source: realSource,
+      target: 'docs/rules/governance-core.md',
+    }],
+  };
+  const installMaps = new Map([['synthetic.json', drifted]]);
+  const errors = await validateSelfInstalledArtifacts(rootDir, adapters, installMaps);
+  assert.ok(errors.length > 0, 'drifted artifact must be reported');
+  assert.match(errors.join('\n'), /drifted from source/u);
+
+  // A matching source/target pair must report no drift.
+  const matched = { ...drifted, entries: [{ ...drifted.entries[0], target: 'docs/schemas/eval-run.schema.json' }] };
+  const matchedErrors = await validateSelfInstalledArtifacts(rootDir, adapters, new Map([['synthetic.json', matched]]));
+  assert.deepEqual(matchedErrors, []);
+
+  // Sources carrying render placeholders are skipped (source != artifact by design).
+  const placeholder = {
+    adapter: 'codex',
+    entries: [{
+      contentStrategy: 'replace',
+      group: 'rules-core',
+      source: 'rules/project-specific-rules.md',
+      target: 'docs/rules/governance-core.md',
+    }],
+  };
+  const placeholderErrors = await validateSelfInstalledArtifacts(rootDir, adapters, new Map([['synthetic.json', placeholder]]));
+  assert.deepEqual(placeholderErrors, []);
 });
 
 test('complete pack validates', async () => {

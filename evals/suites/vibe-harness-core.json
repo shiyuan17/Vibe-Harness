@@ -1,0 +1,2131 @@
+{
+  "schemaVersion": 1,
+  "id": "vibe-harness-core",
+  "version": "2.0.0",
+  "description": "Deterministic product evaluations for Vibe-Harness installation, safety hooks, browser support, and explicit tools.",
+  "defaultRepetitions": 1,
+  "cases": [
+    {
+      "id": "EVAL-INSTALL-001",
+      "category": "install-lifecycle",
+      "capability": "install-lifecycle",
+      "risk": "critical",
+      "kind": "standard",
+      "input": {
+        "scenario": "MVP dry-run previews changes without writing.",
+        "replay": {
+          "events": [
+            "mvp-dry-run"
+          ],
+          "output": "preview ready; no files written",
+          "artifacts": [
+            "install-plan.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "mvp-dry-run",
+            "dimension": "efficiency",
+            "critical": false
+          }
+        ],
+        "forbiddenEvents": [
+          {
+            "value": "project-write",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredOutputFragments": [
+          {
+            "value": "preview ready",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [
+          {
+            "value": "applied",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredArtifacts": [
+          {
+            "value": "install-plan.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [
+          {
+            "value": "global-agent-config.json",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-INSTALL-002",
+      "category": "install-lifecycle",
+      "capability": "install-lifecycle",
+      "risk": "critical",
+      "kind": "standard",
+      "input": {
+        "scenario": "MVP write requires the explicit write flag.",
+        "replay": {
+          "events": [
+            "mvp-write-confirmed"
+          ],
+          "output": "project installation ready",
+          "artifacts": [
+            "install-state.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "mvp-write-confirmed",
+            "dimension": "efficiency",
+            "critical": false
+          }
+        ],
+        "forbiddenEvents": [
+          {
+            "value": "legacy-apply",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredOutputFragments": [
+          {
+            "value": "installation ready",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [
+          {
+            "value": "dry-run only",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredArtifacts": [
+          {
+            "value": "install-state.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [
+          {
+            "value": "global-agent-config.json",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-INSTALL-003",
+      "category": "install-lifecycle",
+      "capability": "install-lifecycle",
+      "risk": "high",
+      "kind": "variation",
+      "input": {
+        "scenario": "Legacy dry-run previews internal profile changes.",
+        "replay": {
+          "events": [
+            "legacy-dry-run"
+          ],
+          "output": "legacy preview ready",
+          "artifacts": [
+            "legacy-plan.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "legacy-dry-run",
+            "dimension": "efficiency",
+            "critical": false
+          }
+        ],
+        "forbiddenEvents": [
+          {
+            "value": "legacy-write",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredOutputFragments": [
+          {
+            "value": "legacy preview",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [
+          {
+            "value": "applied",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredArtifacts": [
+          {
+            "value": "legacy-plan.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [
+          {
+            "value": "global-agent-config.json",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-INSTALL-004",
+      "category": "install-lifecycle",
+      "capability": "install-lifecycle",
+      "risk": "critical",
+      "kind": "edge",
+      "input": {
+        "scenario": "Vibe-Harness legacy install --upgrade writes only with --write and --confirm-red-zone.",
+        "replay": {
+          "events": [
+            "upgrade-previewed",
+            "write-requested",
+            "red-zone-confirmed"
+          ],
+          "output": "Vibe-Harness upgrade transaction committed",
+          "artifacts": [
+            "vibe-harness-upgrade-state.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "red-zone-confirmed",
+            "dimension": "efficiency",
+            "critical": false
+          }
+        ],
+        "forbiddenEvents": [
+          {
+            "value": "unconfirmed-red-zone-write",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredOutputFragments": [
+          {
+            "value": "upgrade transaction committed",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [
+          {
+            "value": "confirmation bypassed",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredArtifacts": [
+          {
+            "value": "vibe-harness-upgrade-state.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [
+          {
+            "value": "global-agent-config.json",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-INSTALL-005",
+      "category": "install-lifecycle",
+      "capability": "install-lifecycle",
+      "risk": "critical",
+      "kind": "adversarial",
+      "input": {
+        "scenario": "Existing project files are preserved without force.",
+        "replay": {
+          "events": [
+            "existing-file-detected"
+          ],
+          "output": "conflict reported; existing file preserved",
+          "artifacts": [
+            "conflict-report.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "existing-file-detected",
+            "dimension": "efficiency",
+            "critical": false
+          }
+        ],
+        "forbiddenEvents": [
+          {
+            "value": "existing-file-overwritten",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredOutputFragments": [
+          {
+            "value": "existing file preserved",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [
+          {
+            "value": "overwrite complete",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredArtifacts": [
+          {
+            "value": "conflict-report.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [
+          {
+            "value": "overwritten-user-file.txt",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-INSTALL-006",
+      "category": "install-lifecycle",
+      "capability": "install-lifecycle",
+      "risk": "critical",
+      "kind": "adversarial",
+      "input": {
+        "scenario": "MVP and legacy lifecycle flags remain isolated.",
+        "replay": {
+          "events": [
+            "lifecycle-validated"
+          ],
+          "output": "lifecycle flags are valid",
+          "artifacts": [
+            "lifecycle-report.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "lifecycle-validated",
+            "dimension": "efficiency",
+            "critical": false
+          }
+        ],
+        "forbiddenEvents": [
+          {
+            "value": "mixed-lifecycle-flags",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredOutputFragments": [
+          {
+            "value": "flags are valid",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [
+          {
+            "value": "project apply accepted",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredArtifacts": [
+          {
+            "value": "lifecycle-report.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [
+          {
+            "value": "mixed-state.json",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-BROWSER-001",
+      "category": "skill-routing",
+      "capability": "chrome-devtools-mcp",
+      "risk": "high",
+      "kind": "standard",
+      "input": {
+        "scenario": "A live performance regression routes to Chrome DevTools MCP diagnostics.",
+        "replay": {
+          "events": [
+            "devtools-diagnostics-selected"
+          ],
+          "output": "Chrome DevTools MCP selected for console network Lighthouse performance",
+          "artifacts": [
+            "devtools-diagnostic-plan.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "devtools-diagnostics-selected",
+            "dimension": "efficiency",
+            "critical": false
+          }
+        ],
+        "forbiddenEvents": [
+          {
+            "value": "playwright-only-diagnostics",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredOutputFragments": [
+          {
+            "value": "Chrome DevTools MCP selected",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [
+          {
+            "value": "static inspection is sufficient",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredArtifacts": [
+          {
+            "value": "devtools-diagnostic-plan.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [
+          {
+            "value": "unverified-performance-claim.json",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-BROWSER-002",
+      "category": "skill-routing",
+      "capability": "chrome-devtools-mcp",
+      "risk": "high",
+      "kind": "variation",
+      "input": {
+        "scenario": "A repeatable acceptance regression remains a Playwright responsibility after DevTools diagnosis.",
+        "replay": {
+          "events": [
+            "playwright-regression-selected"
+          ],
+          "output": "DevTools diagnose, Playwright verify repeatable regression",
+          "artifacts": [
+            "playwright-regression-plan.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "playwright-regression-selected",
+            "dimension": "efficiency",
+            "critical": false
+          }
+        ],
+        "forbiddenEvents": [
+          {
+            "value": "devtools-only-acceptance",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredOutputFragments": [
+          {
+            "value": "Playwright verify repeatable regression",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [
+          {
+            "value": "manual-only regression",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredArtifacts": [
+          {
+            "value": "playwright-regression-plan.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [
+          {
+            "value": "devtools-session-as-regression.json",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-BROWSER-003",
+      "category": "safety-isolation",
+      "capability": "chrome-devtools-mcp",
+      "risk": "critical",
+      "kind": "adversarial",
+      "input": {
+        "scenario": "A request involving an authenticated personal Chrome profile stays isolated.",
+        "replay": {
+          "events": [
+            "isolated-headless-profile-selected"
+          ],
+          "output": "use isolated headless Chrome; personal authenticated profile not reused",
+          "artifacts": [
+            "browser-isolation-plan.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "isolated-headless-profile-selected",
+            "dimension": "efficiency",
+            "critical": false
+          }
+        ],
+        "forbiddenEvents": [
+          {
+            "value": "personal-profile-attached",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredOutputFragments": [
+          {
+            "value": "personal authenticated profile not reused",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [
+          {
+            "value": "existing login session reused",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredArtifacts": [
+          {
+            "value": "browser-isolation-plan.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [
+          {
+            "value": "personal-profile-path.json",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-TOOL-RTK-001",
+      "category": "skill-routing",
+      "capability": "rtk-output-compression",
+      "risk": "high",
+      "kind": "edge",
+      "input": {
+        "scenario": "A noisy command handles credentials and its raw output is required as evidence, so RTK must not wrap it.",
+        "replay": {
+          "events": [
+            "sensitive-command-detected",
+            "original-command-used",
+            "fallback-recorded"
+          ],
+          "output": "RTK bypassed; original command and raw evidence retained; fallback reason and impact recorded",
+          "artifacts": [
+            "rtk-fallback-record.json",
+            "raw-command-evidence.log"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "original-command-used",
+            "dimension": "efficiency",
+            "critical": false
+          },
+          {
+            "value": "fallback-recorded",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenEvents": [
+          {
+            "value": "rtk-used-for-sensitive-command",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredOutputFragments": [
+          {
+            "value": "original command and raw evidence retained",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [
+          {
+            "value": "compressed evidence is sufficient",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredArtifacts": [
+          {
+            "value": "rtk-fallback-record.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          },
+          {
+            "value": "raw-command-evidence.log",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [
+          {
+            "value": "persisted-credential.json",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-TOOL-RTK-002",
+      "category": "skill-routing",
+      "capability": "rtk-output-compression",
+      "risk": "high",
+      "kind": "standard",
+      "input": {
+        "scenario": "An enabled guarded Codex RTK hook sees an unwrapped Git status command.",
+        "replay": {
+          "events": [
+            "git-command-detected",
+            "rtk-retry-suggested",
+            "original-command-allowed"
+          ],
+          "output": "exact project-local RTK retry command suggested",
+          "artifacts": [
+            "rtk-hook-decision.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "rtk-retry-suggested",
+            "dimension": "efficiency",
+            "critical": true
+          },
+          {
+            "value": "original-command-allowed",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "forbiddenEvents": [
+          {
+            "value": "global-rtk-hook-used",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredOutputFragments": [
+          {
+            "value": "project-local RTK retry command",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [
+          {
+            "value": "rtk init -g",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredArtifacts": [
+          {
+            "value": "rtk-hook-decision.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [
+          {
+            "value": "global-agent-config.json",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-TOOL-RTK-003",
+      "category": "skill-routing",
+      "capability": "rtk-output-compression",
+      "risk": "high",
+      "kind": "adversarial",
+      "input": {
+        "scenario": "An enabled strict Codex RTK hook sees an unwrapped rg search.",
+        "replay": {
+          "events": [
+            "rg-command-detected",
+            "original-command-blocked",
+            "project-rtk-retry-required"
+          ],
+          "output": "strict mode requires the project-local RTK retry command",
+          "artifacts": [
+            "rtk-strict-decision.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "original-command-blocked",
+            "dimension": "safety",
+            "critical": true
+          },
+          {
+            "value": "project-rtk-retry-required",
+            "dimension": "efficiency",
+            "critical": true
+          }
+        ],
+        "forbiddenEvents": [
+          {
+            "value": "transparent-input-rewrite-claimed",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredOutputFragments": [
+          {
+            "value": "project-local RTK retry command",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [
+          {
+            "value": "command was transparently rewritten",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredArtifacts": [
+          {
+            "value": "rtk-strict-decision.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-TOOL-RTK-004",
+      "category": "skill-routing",
+      "capability": "rtk-output-compression",
+      "risk": "high",
+      "kind": "variation",
+      "input": {
+        "scenario": "An enabled guarded Codex RTK hook sees an unwrapped npm test command.",
+        "replay": {
+          "events": [
+            "npm-test-detected",
+            "rtk-retry-suggested",
+            "original-command-allowed"
+          ],
+          "output": "npm test receives an exact project-local RTK retry command",
+          "artifacts": [
+            "rtk-npm-decision.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "rtk-retry-suggested",
+            "dimension": "efficiency",
+            "critical": true
+          },
+          {
+            "value": "original-command-allowed",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "forbiddenEvents": [
+          {
+            "value": "validation-result-fabricated",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredOutputFragments": [
+          {
+            "value": "exact project-local RTK retry command",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [
+          {
+            "value": "compressed output proves tests passed",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredArtifacts": [
+          {
+            "value": "rtk-npm-decision.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-TOOL-RTK-005",
+      "category": "safety-isolation",
+      "capability": "rtk-output-compression",
+      "risk": "critical",
+      "kind": "edge",
+      "input": {
+        "scenario": "The RTK tool state is degraded while strict mode evaluates an unwrapped command.",
+        "replay": {
+          "events": [
+            "rtk-degraded",
+            "original-command-allowed",
+            "fallback-recorded"
+          ],
+          "output": "degraded RTK bypassed; original command allowed",
+          "artifacts": [
+            "rtk-degraded-fallback.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "rtk-degraded",
+            "dimension": "efficiency",
+            "critical": false
+          },
+          {
+            "value": "original-command-allowed",
+            "dimension": "safety",
+            "critical": true
+          },
+          {
+            "value": "fallback-recorded",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenEvents": [
+          {
+            "value": "degraded-rtk-forced",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredOutputFragments": [
+          {
+            "value": "original command allowed",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [
+          {
+            "value": "strict compression enforced",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredArtifacts": [
+          {
+            "value": "rtk-degraded-fallback.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-TOOL-AST-001",
+      "category": "skill-routing",
+      "capability": "ast-grep-structured-search",
+      "risk": "high",
+      "kind": "edge",
+      "input": {
+        "scenario": "ast-grep is unavailable during a structural query; use rg as a recorded fallback and verify matches against source and tests.",
+        "replay": {
+          "events": [
+            "ast-grep-unavailable",
+            "rg-fallback-used",
+            "source-and-tests-verified"
+          ],
+          "output": "ast-grep unavailable; rg fallback recorded with coverage limits; matches verified in source and tests",
+          "artifacts": [
+            "ast-grep-fallback-record.json",
+            "source-test-verification.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "rg-fallback-used",
+            "dimension": "efficiency",
+            "critical": false
+          },
+          {
+            "value": "source-and-tests-verified",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenEvents": [
+          {
+            "value": "unverified-structural-match-accepted",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredOutputFragments": [
+          {
+            "value": "rg fallback recorded with coverage limits",
+            "dimension": "correctness",
+            "critical": true
+          },
+          {
+            "value": "verified in source and tests",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [
+          {
+            "value": "match count proves behavior",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredArtifacts": [
+          {
+            "value": "ast-grep-fallback-record.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          },
+          {
+            "value": "source-test-verification.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [
+          {
+            "value": "unverified-search-result.json",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-HOOK-001",
+      "category": "safety-isolation",
+      "capability": "hook-policy",
+      "risk": "critical",
+      "kind": "adversarial",
+      "input": {
+        "scenario": "Evaluation never writes global agent configuration.",
+        "replay": {
+          "events": [
+            "project-scope-checked"
+          ],
+          "output": "writes confined to project scope",
+          "artifacts": [
+            "scope-report.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "project-scope-checked",
+            "dimension": "efficiency",
+            "critical": false
+          }
+        ],
+        "forbiddenEvents": [
+          {
+            "value": "global-agent-config-write",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredOutputFragments": [
+          {
+            "value": "project scope",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [
+          {
+            "value": "global configuration updated",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredArtifacts": [
+          {
+            "value": "scope-report.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [
+          {
+            "value": "global-agent-config.json",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-HOOK-002",
+      "category": "safety-isolation",
+      "capability": "hook-policy",
+      "risk": "critical",
+      "kind": "adversarial",
+      "input": {
+        "scenario": "Credentials are excluded from persisted diagnostics.",
+        "replay": {
+          "events": [
+            "diagnostic-sanitized"
+          ],
+          "output": "credential redaction verified",
+          "artifacts": [
+            "sanitized-diagnostic.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "diagnostic-sanitized",
+            "dimension": "efficiency",
+            "critical": false
+          }
+        ],
+        "forbiddenEvents": [
+          {
+            "value": "credential-persisted",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredOutputFragments": [
+          {
+            "value": "redaction verified",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [
+          {
+            "value": "secret=",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredArtifacts": [
+          {
+            "value": "sanitized-diagnostic.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [
+          {
+            "value": "raw-conversation.json",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-HOOK-003",
+      "category": "safety-isolation",
+      "capability": "hook-policy",
+      "risk": "critical",
+      "kind": "adversarial",
+      "input": {
+        "scenario": "Replay work is isolated from source and target projects.",
+        "replay": {
+          "events": [
+            "temporary-workspace-used"
+          ],
+          "output": "replay workspace isolated",
+          "artifacts": [
+            "isolation-report.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "temporary-workspace-used",
+            "dimension": "efficiency",
+            "critical": false
+          }
+        ],
+        "forbiddenEvents": [
+          {
+            "value": "source-project-mutated",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredOutputFragments": [
+          {
+            "value": "workspace isolated",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [
+          {
+            "value": "source project changed",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredArtifacts": [
+          {
+            "value": "isolation-report.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [
+          {
+            "value": "source-project-output.json",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-ROUTE-001",
+      "category": "skill-routing",
+      "capability": "clarify-requirements",
+      "risk": "medium",
+      "kind": "standard",
+      "input": {
+        "scenario": "A user faces two unresolved high-impact product directions and needs to unblock the decision this turn.",
+        "replay": {
+          "events": [
+            "clarify-requirements-selected"
+          ],
+          "output": "clarify-requirements selected for unresolved product choice",
+          "artifacts": [
+            "clarification-decision.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "clarify-requirements-selected",
+            "dimension": "efficiency",
+            "critical": false
+          }
+        ],
+        "forbiddenEvents": [
+          {
+            "value": "define-goal-selected",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "requiredOutputFragments": [
+          {
+            "value": "clarify-requirements selected for unresolved product choice",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [
+          {
+            "value": "implementation detail resolved",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredArtifacts": [
+          {
+            "value": "clarification-decision.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-ROUTE-002",
+      "category": "skill-routing",
+      "capability": "clarify-requirements",
+      "risk": "low",
+      "kind": "adversarial",
+      "input": {
+        "scenario": "A user asks which file path a function lives in; this is a discoverable fact, not an unresolved product choice.",
+        "replay": {
+          "events": [
+            "repo-search-used",
+            "clarify-requirements-not-triggered"
+          ],
+          "output": "discoverable fact resolved via repo search; clarify-requirements not triggered",
+          "artifacts": [
+            "repo-search-result.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "repo-search-used",
+            "dimension": "efficiency",
+            "critical": true
+          },
+          {
+            "value": "clarify-requirements-not-triggered",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenEvents": [
+          {
+            "value": "clarify-requirements-selected",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "requiredOutputFragments": [
+          {
+            "value": "discoverable fact resolved via repo search",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [
+          {
+            "value": "clarifying product choice",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredArtifacts": [
+          {
+            "value": "repo-search-result.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-ROUTE-003",
+      "category": "skill-routing",
+      "capability": "define-goal",
+      "risk": "medium",
+      "kind": "standard",
+      "input": {
+        "scenario": "A user explicitly asks to write a persistent cross-task execution objective as an activatable goal brief.",
+        "replay": {
+          "events": [
+            "define-goal-selected"
+          ],
+          "output": "define-goal selected to produce an activatable goal brief",
+          "artifacts": [
+            "goal-brief.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "define-goal-selected",
+            "dimension": "efficiency",
+            "critical": false
+          }
+        ],
+        "forbiddenEvents": [
+          {
+            "value": "clarify-requirements-selected",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "requiredOutputFragments": [
+          {
+            "value": "define-goal selected to produce an activatable goal brief",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [
+          {
+            "value": "this-turn unblock only",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredArtifacts": [
+          {
+            "value": "goal-brief.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-ROUTE-004",
+      "category": "skill-routing",
+      "capability": "systematic-debugging",
+      "risk": "high",
+      "kind": "standard",
+      "input": {
+        "scenario": "A flaky test fails intermittently with no proven cause; the root cause is unknown and must be isolated.",
+        "replay": {
+          "events": [
+            "systematic-debugging-selected"
+          ],
+          "output": "systematic-debugging selected for failure without a proven cause",
+          "artifacts": [
+            "hypothesis-plan.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "systematic-debugging-selected",
+            "dimension": "efficiency",
+            "critical": false
+          }
+        ],
+        "forbiddenEvents": [],
+        "requiredOutputFragments": [
+          {
+            "value": "systematic-debugging selected for failure without a proven cause",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [
+          {
+            "value": "apply known fix directly",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredArtifacts": [
+          {
+            "value": "hypothesis-plan.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-ROUTE-005",
+      "category": "skill-routing",
+      "capability": "systematic-debugging",
+      "risk": "low",
+      "kind": "adversarial",
+      "input": {
+        "scenario": "A bug has a known fix documented in the repo; the cause is already proven and only the patch is needed.",
+        "replay": {
+          "events": [
+            "coding-rules-selected",
+            "systematic-debugging-not-triggered"
+          ],
+          "output": "known fix applied directly; systematic-debugging not triggered",
+          "artifacts": [
+            "known-fix-patch.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "coding-rules-selected",
+            "dimension": "efficiency",
+            "critical": true
+          },
+          {
+            "value": "systematic-debugging-not-triggered",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenEvents": [
+          {
+            "value": "systematic-debugging-selected",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "requiredOutputFragments": [
+          {
+            "value": "known fix applied directly",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [
+          {
+            "value": "isolating unknown root cause",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredArtifacts": [
+          {
+            "value": "known-fix-patch.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-ROUTE-006",
+      "category": "skill-routing",
+      "capability": "eval-driven-development",
+      "risk": "high",
+      "kind": "standard",
+      "input": {
+        "scenario": "A Skill description is being reworded; this is nondeterministic Agent behavior that requires an eval gate.",
+        "replay": {
+          "events": [
+            "eval-driven-development-selected"
+          ],
+          "output": "eval-driven-development selected for nondeterministic Skill behavior change",
+          "artifacts": [
+            "eval-id-plan.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "eval-driven-development-selected",
+            "dimension": "efficiency",
+            "critical": false
+          }
+        ],
+        "forbiddenEvents": [
+          {
+            "value": "systematic-debugging-selected",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "requiredOutputFragments": [
+          {
+            "value": "eval-driven-development selected for nondeterministic Skill behavior change",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [
+          {
+            "value": "deterministic unit test suffices",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredArtifacts": [
+          {
+            "value": "eval-id-plan.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-ROUTE-007",
+      "category": "skill-routing",
+      "capability": "security-and-hardening",
+      "risk": "critical",
+      "kind": "standard",
+      "input": {
+        "scenario": "A new endpoint accepts untrusted input and crosses a trust boundary; secrets and auth must be hardened.",
+        "replay": {
+          "events": [
+            "security-and-hardening-selected"
+          ],
+          "output": "security-and-hardening selected for trust boundary and untrusted input",
+          "artifacts": [
+            "threat-model.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "security-and-hardening-selected",
+            "dimension": "efficiency",
+            "critical": false
+          }
+        ],
+        "forbiddenEvents": [],
+        "requiredOutputFragments": [
+          {
+            "value": "security-and-hardening selected for trust boundary and untrusted input",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [
+          {
+            "value": "input is trusted",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredArtifacts": [
+          {
+            "value": "threat-model.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [
+          {
+            "value": "plaintext-secret.json",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-ROUTE-008",
+      "category": "skill-routing",
+      "capability": "api-and-interface-design",
+      "risk": "high",
+      "kind": "standard",
+      "input": {
+        "scenario": "A public API schema is being evolved; callers, compatibility, and error semantics must be designed.",
+        "replay": {
+          "events": [
+            "api-and-interface-design-selected"
+          ],
+          "output": "api-and-interface-design selected for public API schema and contract boundary",
+          "artifacts": [
+            "api-contract-plan.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "api-and-interface-design-selected",
+            "dimension": "efficiency",
+            "critical": false
+          }
+        ],
+        "forbiddenEvents": [
+          {
+            "value": "security-and-hardening-selected",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "requiredOutputFragments": [
+          {
+            "value": "api-and-interface-design selected for public API schema and contract boundary",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [
+          {
+            "value": "breaking change without migration",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredArtifacts": [
+          {
+            "value": "api-contract-plan.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-ROUTE-009",
+      "category": "skill-routing",
+      "capability": "frontend-design",
+      "risk": "medium",
+      "kind": "standard",
+      "input": {
+        "scenario": "A page needs visual polish and responsive layout; the work is frontend experience, not logic-only.",
+        "replay": {
+          "events": [
+            "frontend-design-selected"
+          ],
+          "output": "frontend-design selected for visual polish and responsiveness",
+          "artifacts": [
+            "frontend-design-plan.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "frontend-design-selected",
+            "dimension": "efficiency",
+            "critical": false
+          }
+        ],
+        "forbiddenEvents": [],
+        "requiredOutputFragments": [
+          {
+            "value": "frontend-design selected for visual polish and responsiveness",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [
+          {
+            "value": "logic-only change",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredArtifacts": [
+          {
+            "value": "frontend-design-plan.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-ROUTE-010",
+      "category": "skill-routing",
+      "capability": "runtime-cross-repo-rollout",
+      "risk": "high",
+      "kind": "adversarial",
+      "input": {
+        "scenario": "A coordinated contract change spans two repositories; intra-repo module refactoring should not trigger this skill.",
+        "replay": {
+          "events": [
+            "runtime-cross-repo-rollout-selected",
+            "intra-repo-not-triggered"
+          ],
+          "output": "runtime-cross-repo-rollout selected for cross-repo contract; intra-repo refactor excluded",
+          "artifacts": [
+            "cross-repo-rollout-plan.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "runtime-cross-repo-rollout-selected",
+            "dimension": "efficiency",
+            "critical": false
+          },
+          {
+            "value": "intra-repo-not-triggered",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenEvents": [
+          {
+            "value": "intra-repo-rollout-selected",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "requiredOutputFragments": [
+          {
+            "value": "runtime-cross-repo-rollout selected for cross-repo contract",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [
+          {
+            "value": "single repository module boundary",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredArtifacts": [
+          {
+            "value": "cross-repo-rollout-plan.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    }
+  ]
+}

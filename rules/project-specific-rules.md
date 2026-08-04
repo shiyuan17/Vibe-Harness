@@ -1,6 +1,6 @@
 # 项目专属规则
 
-本文件由 Cognis 根据目标项目文件和 `cognis.config.json` 渲染。当前事实优先于历史记忆；目标项目明确的本地规则优先于 Cognis 默认规则，目录级规则只作用于其子树，同一层级冲突时停止并请求确认。
+本文件由 Vibe-Harness 根据目标项目文件和 `vibe-harness.config.json` 渲染。当前事实优先于历史记忆；目标项目明确的本地规则优先于 Vibe-Harness 默认规则，目录级规则只作用于其子树，同一层级冲突时停止并请求确认。
 
 ## 项目画像
 
@@ -22,7 +22,8 @@
 - 默认验证：{{projectProfile.verificationSummary}}
 - Lint：`{{validationCommands.lint}}`
 - Typecheck：`{{validationCommands.typecheck}}`
-- Governance：`{{validationCommands.governance}}`
+- Test：`{{validationCommands.test}}`
+- Eval：`{{validationCommands.eval}}`
 - 无法运行某项验证时，交付必须说明原因、替代证据和剩余风险。
 
 ## Git / VCS 规范
@@ -32,9 +33,7 @@
 - SVN 项目不得套用 Git commit / branch 假设；交付时报告 `svn status` 结果和本地修改范围。
 - 混合 Git/SVN 痕迹时，以当前任务实际改动所在工作副本为准，并在交付中说明判断依据。
 
-## Review 规范
+## 显式 Review
 
 - {{projectProfile.reviewGuidance}}
-- Review 先列问题，再写摘要；问题按严重度排序并包含文件/行号。
-- 无 finding 时必须明确说明已核对范围、未覆盖验证和残余风险。
-- 高风险、红区、跨模块或验证缺口任务必须进入独立审查。
+- 仅在用户明确要求 Review 或显式调用 Review 工具时执行；Vibe-Harness 不自动创建审查角色或完成门禁。

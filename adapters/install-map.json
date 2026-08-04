@@ -1,0 +1,841 @@
+{
+  "adapter": "codex",
+  "entries": [
+    {
+      "group": "agents",
+      "source": "adapters/codex/AGENTS.template.md",
+      "target": "AGENTS.md",
+      "contentStrategy": "managed-instruction-block"
+    },
+    {
+      "group": "rules-minimal",
+      "source": "rules/governance-core.md",
+      "target": "docs/rules/governance-core.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-minimal",
+      "source": "rules/agent-skill-routing.md",
+      "target": "docs/rules/AGENT_SKILL_ROUTING.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-minimal",
+      "source": "rules/git-rules.md",
+      "target": "docs/rules/git-rules.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-minimal",
+      "source": "rules/test-rules.md",
+      "target": "docs/rules/test-rules.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-codebase-memory",
+      "source": "rules/codebase-memory-mcp.md",
+      "target": "docs/rules/codebase-memory-mcp.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-chrome-devtools",
+      "source": "rules/chrome-devtools-mcp.md",
+      "target": "docs/rules/chrome-devtools-mcp.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-core",
+      "source": "rules/ai-collab-rules.md",
+      "target": "docs/rules/ai-collab-rules.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-core",
+      "source": "rules/api-rules.md",
+      "target": "docs/rules/api-rules.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-core",
+      "source": "rules/coding-rules.md",
+      "target": "docs/rules/coding-rules.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-core",
+      "source": "rules/frontend-rules.md",
+      "target": "docs/rules/frontend-rules.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-core",
+      "source": "rules/log-management.md",
+      "target": "docs/rules/log-management.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-core",
+      "source": "rules/project-directory.md",
+      "target": "docs/rules/project-directory.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-core",
+      "source": "rules/project-specific-rules.md",
+      "target": "docs/rules/project-specific-rules.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-rtk",
+      "source": "rules/rtk.md",
+      "target": "docs/rules/rtk.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-ast-grep",
+      "source": "rules/ast-grep.md",
+      "target": "docs/rules/ast-grep.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-full",
+      "source": "rules/db-rules.md",
+      "target": "docs/rules/db-rules.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-full",
+      "source": "rules/release-rules.md",
+      "target": "docs/rules/release-rules.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-full",
+      "source": "rules/troubleshooting.md",
+      "target": "docs/rules/troubleshooting.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "templates-minimal",
+      "source": "templates/task.md",
+      "target": "docs/templates/task.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-core",
+      "source": "rules/eval-driven-development.md",
+      "target": "docs/rules/eval-driven-development.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "templates-minimal",
+      "source": "templates/delivery.md",
+      "target": "docs/templates/delivery.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "templates-memory",
+      "source": "templates/memory/PROJECT_STATE.md",
+      "target": "docs/memory/PROJECT_STATE.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "templates-memory",
+      "source": "templates/memory/ARCHITECTURE.md",
+      "target": "docs/memory/ARCHITECTURE.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "templates-memory",
+      "source": "templates/memory/DECISIONS.md",
+      "target": "docs/memory/DECISIONS.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "templates-memory",
+      "source": "templates/memory/KNOWN_BUGS.md",
+      "target": "docs/memory/KNOWN_BUGS.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "templates-memory",
+      "source": "templates/memory/TECH_DEBT.md",
+      "target": "docs/memory/TECH_DEBT.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "templates-memory",
+      "source": "templates/memory/FAILURE_LEARNINGS.md",
+      "target": "docs/memory/FAILURE_LEARNINGS.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "schemas-core",
+      "source": "schemas/eval-suite.schema.json",
+      "target": "docs/schemas/eval-suite.schema.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "schemas-core",
+      "source": "schemas/eval-run.schema.json",
+      "target": "docs/schemas/eval-run.schema.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "schemas-core",
+      "source": "schemas/eval-reference.schema.json",
+      "target": "docs/schemas/eval-reference.schema.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-eval",
+      "source": "runtime/evals/run.mjs",
+      "target": ".agents/runtime/evals/run.mjs",
+      "executable": true,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-eval-online",
+      "source": "runtime/evals/codex-runner.mjs",
+      "target": ".agents/runtime/evals/codex-runner.mjs",
+      "executable": true,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-eval-online",
+      "source": "runtime/evals/lib/protected-config.mjs",
+      "target": ".agents/runtime/evals/lib/protected-config.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-eval-online",
+      "source": "runtime/evals/lib/hidden-tests.mjs",
+      "target": ".agents/runtime/evals/lib/hidden-tests.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "evals-core",
+      "source": "evals/suites/vibe-harness-core.json",
+      "target": ".agents/evals/suites/vibe-harness-core.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "evals-core",
+      "source": "evals/references/vibe-harness-core.offline.json",
+      "target": ".agents/evals/references/vibe-harness-core.offline.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "evals-online",
+      "source": "evals/suites/vibe-harness-online-canary.json",
+      "target": ".agents/evals/suites/vibe-harness-online-canary.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "evals-online",
+      "source": "evals/suites/vibe-harness-online-execution.json",
+      "target": ".agents/evals/suites/vibe-harness-online-execution.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-playwright",
+      "source": "runtime/tools/playwright-cli/package.json",
+      "target": ".agents/runtime/tools/playwright-cli/package.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-playwright",
+      "source": "runtime/tools/playwright-cli/package-lock.json",
+      "target": ".agents/runtime/tools/playwright-cli/package-lock.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-playwright",
+      "source": "runtime/tools/playwright-cli/run.mjs",
+      "target": ".agents/runtime/tools/playwright-cli/run.mjs",
+      "executable": true,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-chrome-devtools",
+      "source": "runtime/tools/chrome-devtools-mcp/package.json",
+      "target": ".agents/runtime/tools/chrome-devtools-mcp/package.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-chrome-devtools",
+      "source": "runtime/tools/chrome-devtools-mcp/package-lock.json",
+      "target": ".agents/runtime/tools/chrome-devtools-mcp/package-lock.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-chrome-devtools",
+      "source": "runtime/tools/chrome-devtools-mcp/run.mjs",
+      "target": ".agents/runtime/tools/chrome-devtools-mcp/run.mjs",
+      "executable": true,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-codebase-memory",
+      "source": "runtime/tools/codebase-memory-mcp/cbmignore.template",
+      "target": ".cbmignore",
+      "contentStrategy": "managed-ignore-block"
+    },
+    {
+      "group": "tools-codebase-memory",
+      "source": "runtime/tools/codebase-memory-mcp/package.json",
+      "target": ".agents/runtime/tools/codebase-memory-mcp/package.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-codebase-memory",
+      "source": "runtime/tools/codebase-memory-mcp/package-lock.json",
+      "target": ".agents/runtime/tools/codebase-memory-mcp/package-lock.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-codebase-memory",
+      "source": "runtime/tools/codebase-memory-mcp/run.mjs",
+      "target": ".agents/runtime/tools/codebase-memory-mcp/run.mjs",
+      "executable": true,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-codebase-memory",
+      "source": "runtime/tools/codebase-memory-mcp/path-alias.mjs",
+      "target": ".agents/runtime/tools/codebase-memory-mcp/path-alias.mjs",
+      "executable": false,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-open-code-review",
+      "source": "runtime/tools/open-code-review/package.json",
+      "target": ".agents/runtime/tools/open-code-review/package.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-open-code-review",
+      "source": "runtime/tools/open-code-review/package-lock.json",
+      "target": ".agents/runtime/tools/open-code-review/package-lock.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-open-code-review",
+      "source": "runtime/tools/open-code-review/ocr-config.mjs",
+      "target": ".agents/runtime/tools/open-code-review/ocr-config.mjs",
+      "executable": false,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-open-code-review",
+      "source": "runtime/tools/open-code-review/run.mjs",
+      "target": ".agents/runtime/tools/open-code-review/run.mjs",
+      "executable": true,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-rtk",
+      "source": "runtime/tools/rtk/package.json",
+      "target": ".agents/runtime/tools/rtk/package.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-rtk",
+      "source": "runtime/tools/rtk/run.mjs",
+      "target": ".agents/runtime/tools/rtk/run.mjs",
+      "executable": true,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-ast-grep",
+      "source": "runtime/tools/ast-grep/package.json",
+      "target": ".agents/runtime/tools/ast-grep/package.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-ast-grep",
+      "source": "runtime/tools/ast-grep/package-lock.json",
+      "target": ".agents/runtime/tools/ast-grep/package-lock.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-ast-grep",
+      "source": "runtime/tools/ast-grep/run.mjs",
+      "target": ".agents/runtime/tools/ast-grep/run.mjs",
+      "executable": true,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "mcp-config",
+      "source": "adapters/codex/mcp.template.toml",
+      "target": ".codex/config.toml",
+      "redZone": true,
+      "contentStrategy": "managed-toml-block"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/clarify-requirements/SKILL.md",
+      "target": ".agents/skills/clarify-requirements/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/clarify-requirements/agents/openai.yaml",
+      "target": ".agents/skills/clarify-requirements/agents/openai.yaml",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/clarify-requirements/references/examples.md",
+      "target": ".agents/skills/clarify-requirements/references/examples.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/define-goal/SKILL.md",
+      "target": ".agents/skills/define-goal/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/define-goal/agents/openai.yaml",
+      "target": ".agents/skills/define-goal/agents/openai.yaml",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/define-goal/references/goal-contract.md",
+      "target": ".agents/skills/define-goal/references/goal-contract.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/eval-driven-development/SKILL.md",
+      "target": ".agents/skills/eval-driven-development/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/eval-driven-development/agents/openai.yaml",
+      "target": ".agents/skills/eval-driven-development/agents/openai.yaml",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/systematic-debugging/SKILL.md",
+      "target": ".agents/skills/systematic-debugging/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/systematic-debugging/agents/openai.yaml",
+      "target": ".agents/skills/systematic-debugging/agents/openai.yaml",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/systematic-debugging/find-polluter.sh",
+      "target": ".agents/skills/systematic-debugging/find-polluter.sh",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-browser",
+      "source": "skills/integrations/browser-verification/SKILL.md",
+      "target": ".agents/skills/browser-verification/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-browser",
+      "source": "skills/integrations/browser-verification/references/cli.md",
+      "target": ".agents/skills/browser-verification/references/cli.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/security-and-hardening/SKILL.md",
+      "target": ".agents/skills/security-and-hardening/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/security-and-hardening/agents/openai.yaml",
+      "target": ".agents/skills/security-and-hardening/agents/openai.yaml",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-full",
+      "source": "skills/core/api-and-interface-design/SKILL.md",
+      "target": ".agents/skills/api-and-interface-design/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-full",
+      "source": "skills/core/api-and-interface-design/agents/openai.yaml",
+      "target": ".agents/skills/api-and-interface-design/agents/openai.yaml",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-full",
+      "source": "skills/core/frontend-design/SKILL.md",
+      "target": ".agents/skills/frontend-design/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-full",
+      "source": "skills/core/frontend-design/agents/openai.yaml",
+      "target": ".agents/skills/frontend-design/agents/openai.yaml",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-full",
+      "source": "skills/core/frontend-design/references/design-tokens.md",
+      "target": ".agents/skills/frontend-design/references/design-tokens.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-full",
+      "source": "skills/core/frontend-design/references/design-modes.md",
+      "target": ".agents/skills/frontend-design/references/design-modes.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-full",
+      "source": "skills/core/frontend-design/references/component-states.md",
+      "target": ".agents/skills/frontend-design/references/component-states.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-full",
+      "source": "skills/core/runtime-cross-repo-rollout/SKILL.md",
+      "target": ".agents/skills/runtime-cross-repo-rollout/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-full",
+      "source": "skills/core/runtime-cross-repo-rollout/agents/openai.yaml",
+      "target": ".agents/skills/runtime-cross-repo-rollout/agents/openai.yaml",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-memory",
+      "source": "skills/integrations/agentmemory/SKILL.md",
+      "target": ".agents/skills/agentmemory/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-memory",
+      "source": "skills/integrations/agentmemory/references/handoff.md",
+      "target": ".agents/skills/agentmemory/references/handoff.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-memory",
+      "source": "skills/integrations/agentmemory/references/recall.md",
+      "target": ".agents/skills/agentmemory/references/recall.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-memory",
+      "source": "skills/integrations/agentmemory/references/remember.md",
+      "target": ".agents/skills/agentmemory/references/remember.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-memory",
+      "source": "skills/integrations/agentmemory/references/forget.md",
+      "target": ".agents/skills/agentmemory/references/forget.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-memory",
+      "source": "skills/integrations/agentmemory/references/recap.md",
+      "target": ".agents/skills/agentmemory/references/recap.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-memory",
+      "source": "skills/integrations/agentmemory/references/session-history.md",
+      "target": ".agents/skills/agentmemory/references/session-history.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-memory",
+      "source": "skills/integrations/agentmemory/references/audit.md",
+      "target": ".agents/skills/agentmemory/references/audit.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-memory",
+      "source": "memory/CURRENT.md",
+      "target": ".agents/memory/CURRENT.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-memory",
+      "source": "memory/README.md",
+      "target": ".agents/memory/README.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-memory",
+      "source": "memory/observations.md",
+      "target": ".agents/memory/observations.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-memory",
+      "source": "memory/decisions.md",
+      "target": ".agents/memory/decisions.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-memory",
+      "source": "memory/sessions/README.md",
+      "target": ".agents/memory/sessions/README.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "hooks",
+      "source": "runtime/hooks/README.md",
+      "target": ".agents/runtime/hooks/README.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "hooks",
+      "source": "runtime/hooks/codex-hook.mjs",
+      "target": ".agents/runtime/hooks/codex-hook.mjs",
+      "executable": true,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "hooks",
+      "source": "runtime/hooks/git-hook.mjs",
+      "target": ".agents/runtime/hooks/git-hook.mjs",
+      "executable": true,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "hooks",
+      "source": "runtime/hooks/lib/context.mjs",
+      "target": ".agents/runtime/hooks/lib/context.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "hooks",
+      "source": "runtime/hooks/lib/policy.mjs",
+      "target": ".agents/runtime/hooks/lib/policy.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "hooks",
+      "source": "runtime/hooks/lib/rtk.mjs",
+      "target": ".agents/runtime/hooks/lib/rtk.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "hooks",
+      "source": "adapters/git/pre-commit",
+      "target": ".githooks/pre-commit",
+      "executable": true,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "hooks",
+      "source": "adapters/git/pre-push",
+      "target": ".githooks/pre-push",
+      "executable": true,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "hooks",
+      "source": "adapters/codex/hooks.template.json",
+      "target": ".codex/hooks.json",
+      "redZone": true,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "agents-index",
+      "source": "templates/agents-index.md",
+      "target": ".agents/README.md",
+      "contentStrategy": "replace"
+    }
+  ],
+  "retiredEntries": [
+    {
+      "group": "skills-memory",
+      "target": ".agents/skills/handoff/SKILL.md"
+    },
+    {
+      "group": "skills-memory",
+      "target": ".agents/skills/recall/SKILL.md"
+    },
+    {
+      "group": "skills-memory",
+      "target": ".agents/skills/remember/SKILL.md"
+    },
+    {
+      "group": "skills-memory",
+      "target": ".agents/skills/forget/SKILL.md"
+    },
+    {
+      "group": "skills-memory",
+      "target": ".agents/skills/recap/SKILL.md"
+    },
+    {
+      "group": "skills-memory",
+      "target": ".agents/skills/session-history/SKILL.md"
+    },
+    {
+      "group": "skills-core",
+      "target": ".agents/skills/using-vibe-harness/SKILL.md"
+    },
+    {
+      "group": "skills-core",
+      "target": ".agents/skills/brainstorming/SKILL.md"
+    },
+    {
+      "group": "skills-core",
+      "target": ".agents/skills/writing-plans/SKILL.md"
+    },
+    {
+      "group": "skills-core",
+      "target": ".agents/skills/executing-plans/SKILL.md"
+    },
+    {
+      "group": "skills-core",
+      "target": ".agents/skills/test-driven-development/SKILL.md"
+    },
+    {
+      "group": "skills-core",
+      "target": ".agents/skills/verification-before-completion/SKILL.md"
+    },
+    {
+      "group": "skills-full",
+      "target": ".agents/skills/code-review-and-quality/SKILL.md"
+    },
+    {
+      "group": "skills-full",
+      "target": ".agents/skills/adversarial-review-packet/SKILL.md"
+    },
+    {
+      "group": "skills-full",
+      "target": ".agents/skills/loop-planning/SKILL.md"
+    },
+    {
+      "group": "skills-full",
+      "target": ".agents/skills/subagent-driven-development/SKILL.md"
+    },
+    {
+      "group": "runtime-eval",
+      "target": ".agents/vibe-harness/evals/run.mjs"
+    },
+    {
+      "group": "runtime-eval-online",
+      "target": ".agents/vibe-harness/evals/codex-runner.mjs"
+    },
+    {
+      "group": "runtime-eval-online",
+      "target": ".agents/vibe-harness/evals/lib/protected-config.mjs"
+    },
+    {
+      "group": "tools-playwright",
+      "target": ".agents/vibe-harness/tools/playwright-cli/package.json"
+    },
+    {
+      "group": "tools-playwright",
+      "target": ".agents/vibe-harness/tools/playwright-cli/package-lock.json"
+    },
+    {
+      "group": "tools-playwright",
+      "target": ".agents/vibe-harness/tools/playwright-cli/run.mjs"
+    },
+    {
+      "group": "tools-chrome-devtools",
+      "target": ".agents/vibe-harness/tools/chrome-devtools-mcp/package.json"
+    },
+    {
+      "group": "tools-chrome-devtools",
+      "target": ".agents/vibe-harness/tools/chrome-devtools-mcp/package-lock.json"
+    },
+    {
+      "group": "tools-chrome-devtools",
+      "target": ".agents/vibe-harness/tools/chrome-devtools-mcp/run.mjs"
+    },
+    {
+      "group": "tools-codebase-memory",
+      "target": ".agents/vibe-harness/tools/codebase-memory-mcp/package.json"
+    },
+    {
+      "group": "tools-codebase-memory",
+      "target": ".agents/vibe-harness/tools/codebase-memory-mcp/package-lock.json"
+    },
+    {
+      "group": "tools-codebase-memory",
+      "target": ".agents/vibe-harness/tools/codebase-memory-mcp/run.mjs"
+    },
+    {
+      "group": "tools-codebase-memory",
+      "target": ".agents/vibe-harness/tools/codebase-memory-mcp/path-alias.mjs"
+    },
+    {
+      "group": "tools-open-code-review",
+      "target": ".agents/vibe-harness/tools/open-code-review/package.json"
+    },
+    {
+      "group": "tools-open-code-review",
+      "target": ".agents/vibe-harness/tools/open-code-review/package-lock.json"
+    },
+    {
+      "group": "tools-open-code-review",
+      "target": ".agents/vibe-harness/tools/open-code-review/ocr-config.mjs"
+    },
+    {
+      "group": "tools-open-code-review",
+      "target": ".agents/vibe-harness/tools/open-code-review/run.mjs"
+    },
+    {
+      "group": "tools-rtk",
+      "target": ".agents/vibe-harness/tools/rtk/package.json"
+    },
+    {
+      "group": "tools-rtk",
+      "target": ".agents/vibe-harness/tools/rtk/run.mjs"
+    },
+    {
+      "group": "tools-ast-grep",
+      "target": ".agents/vibe-harness/tools/ast-grep/package.json"
+    },
+    {
+      "group": "tools-ast-grep",
+      "target": ".agents/vibe-harness/tools/ast-grep/package-lock.json"
+    },
+    {
+      "group": "tools-ast-grep",
+      "target": ".agents/vibe-harness/tools/ast-grep/run.mjs"
+    },
+    {
+      "group": "hooks",
+      "target": ".agents/vibe-harness/hooks/README.md"
+    },
+    {
+      "group": "hooks",
+      "target": ".agents/vibe-harness/hooks/codex-hook.mjs"
+    },
+    {
+      "group": "hooks",
+      "target": ".agents/vibe-harness/hooks/git-hook.mjs"
+    },
+    {
+      "group": "hooks",
+      "target": ".agents/vibe-harness/hooks/lib/context.mjs"
+    },
+    {
+      "group": "hooks",
+      "target": ".agents/vibe-harness/hooks/lib/policy.mjs"
+    },
+    {
+      "group": "hooks",
+      "target": ".agents/vibe-harness/hooks/lib/rtk.mjs"
+    }
+  ]
+}

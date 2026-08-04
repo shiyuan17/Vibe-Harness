@@ -9,12 +9,13 @@ import { promisify } from 'node:util';
 import {
   defaultProjectConfig,
   validateProjectConfig,
+  validateProjectConfigWithSchema,
 } from '../scripts/lib/project-config.js';
 import { executeProjectVerification } from '../scripts/lib/project-verification.js';
 
 const execFileAsync = promisify(execFile);
-const rootDir = path.resolve('.');
-const cliPath = path.join(rootDir, 'scripts/cognis.js');
+const rootDir = path.resolve(import.meta.dirname, '..');
+const cliPath = path.join(rootDir, 'scripts/vibe-harness.js');
 
 async function run(args) {
   try {
@@ -33,20 +34,20 @@ async function run(args) {
 }
 
 async function createEvalProject() {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-eval-cli-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-eval-cli-'));
   await mkdir(path.join(target, 'evals/suites'), { recursive: true });
   await mkdir(path.join(target, 'evals/references'), { recursive: true });
   await cp(
-    path.join(rootDir, 'evals/suites/cognis-core.json'),
+    path.join(rootDir, 'evals/suites/vibe-harness-core.json'),
     path.join(target, 'evals/suites/core.json'),
   );
   await cp(
-    path.join(rootDir, 'evals/references/cognis-core.offline.json'),
+    path.join(rootDir, 'evals/references/vibe-harness-core.offline.json'),
     path.join(target, 'evals/references/core.json'),
   );
   const init = await run(['init', '--project', target]);
   assert.equal(init.code, 0);
-  const configPath = path.join(target, 'cognis.config.json');
+  const configPath = path.join(target, 'vibe-harness.config.json');
   const config = JSON.parse(await readFile(configPath, 'utf8'));
   config.evaluations = {
     enabled: true,
@@ -102,24 +103,56 @@ test('project config exposes disabled evaluation defaults and validates safe pat
   );
 });
 
-test('project verification executes eval after governance, lint, and typecheck', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-eval-order-'));
+test('schema-validated config accepts the default config and rejects unknown fields', () => {
+  assert.equal(validateProjectConfigWithSchema(defaultProjectConfig), true);
+
+  const withUnknownField = { ...defaultProjectConfig, rogueField: 'should-be-rejected' };
+  assert.throws(
+    () => validateProjectConfigWithSchema(withUnknownField),
+    /rogueField is not allowed/u,
+  );
+});
+
+test('schema-validated config rejects an out-of-range repetitions value', () => {
+  assert.throws(
+    () => validateProjectConfigWithSchema({
+      ...defaultProjectConfig,
+      evaluations: { ...defaultProjectConfig.evaluations, repetitions: 5 },
+    }),
+    /repetitions/u,
+  );
+});
+
+test('validateProjectConfig rejects forbidden source-project terms in projectName', () => {
+  assert.throws(
+    () => validateProjectConfig({ ...defaultProjectConfig, projectName: 'SYBaseProjectWeb-clone' }),
+    /forbidden source-project term/u,
+  );
+  assert.throws(
+    () => validateProjectConfig({ ...defaultProjectConfig, projectName: 'contains-病理-data' }),
+    /forbidden source-project term/u,
+  );
+  assert.equal(validateProjectConfig(defaultProjectConfig), true);
+});
+
+test('project verification executes eval after lint, typecheck, and test', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-eval-order-'));
   const orderFile = path.join(target, 'order.txt');
   try {
-    for (const name of ['governance', 'lint', 'typecheck', 'eval']) {
+    for (const name of ['lint', 'typecheck', 'test', 'eval']) {
       await writeFile(
         path.join(target, `${name}.mjs`),
         `import { appendFile } from 'node:fs/promises'; await appendFile(${JSON.stringify(orderFile)}, ${JSON.stringify(`${name}\n`)});\n`,
         'utf8',
       );
     }
-    const commandStatus = Object.fromEntries(['governance', 'lint', 'typecheck', 'eval'].map((name) => [
+    const commandStatus = Object.fromEntries(['lint', 'typecheck', 'test', 'eval'].map((name) => [
       name,
       { command: `node ${name}.mjs`, status: 'available' },
     ]));
     const results = await executeProjectVerification({ commandStatus, targetDir: target });
     assert.equal(results.eval.status, 'passed');
-    assert.equal(await readFile(orderFile, 'utf8'), 'governance\nlint\ntypecheck\neval\n');
+    assert.equal(await readFile(orderFile, 'utf8'), 'lint\ntypecheck\ntest\neval\n');
   } finally {
     await rm(target, { force: true, recursive: true });
   }
@@ -131,18 +164,18 @@ test('eval check and offline run are read-only until write is explicit', async (
     const checked = await run(['eval', 'check', '--project', target]);
     assert.equal(checked.code, 0);
     assert.equal(checked.payload.status, 'ready');
-    assert.equal(checked.payload.suites[0].id, 'cognis-core');
+    assert.equal(checked.payload.suites[0].id, 'vibe-harness-core');
 
     const preview = await run(['eval', 'run', '--project', target, '--mode', 'offline']);
     assert.equal(preview.code, 0);
     assert.equal(preview.payload.dryRun, true);
     assert.equal(preview.payload.run.status, 'passed');
-    await assert.rejects(readFile(path.join(target, '.cognis/evals/runs'), 'utf8'), /ENOENT|EISDIR/u);
+    await assert.rejects(readFile(path.join(target, '.vibe-harness/evals/runs'), 'utf8'), /ENOENT|EISDIR/u);
 
     const written = await run(['eval', 'run', '--project', target, '--mode', 'offline', '--write']);
     assert.equal(written.code, 0);
     assert.equal(written.payload.dryRun, false);
-    assert.match(written.payload.written[0], /^\.cognis\/evals\/runs\/.+\.json$/u);
+    assert.match(written.payload.written[0], /^\.vibe-harness\/evals\/runs\/.+\.json$/u);
     const persisted = JSON.parse(await readFile(path.join(target, written.payload.written[0]), 'utf8'));
     assert.equal(persisted.status, 'passed');
   } finally {
@@ -169,7 +202,7 @@ test('eval rejects removed lifecycle flags and unsafe suite selection', async ()
 
 test('eval paths reject project-internal links that escape the project', async () => {
   const target = await createEvalProject();
-  const outside = await mkdtemp(path.join(tmpdir(), 'cognis-eval-outside-'));
+  const outside = await mkdtemp(path.join(tmpdir(), 'vibe-harness-eval-outside-'));
   try {
     await writeFile(path.join(outside, 'run.json'), '{}\n', 'utf8');
     await symlink(outside, path.join(target, 'linked-runs'), process.platform === 'win32' ? 'junction' : 'dir');
@@ -202,7 +235,7 @@ test('reference update requires confirmation and force protects existing files',
     assert.equal(forced.code, 0);
     assert.equal(forced.payload.backups.length, 1);
     const reference = JSON.parse(await readFile(path.join(target, 'evals/references/core.json'), 'utf8'));
-    assert.equal(reference.suite.id, 'cognis-core');
+    assert.equal(reference.suite.id, 'vibe-harness-core');
     assert.equal(Object.hasOwn(reference, 'cases'), false);
   } finally {
     await rm(target, { force: true, recursive: true });
@@ -222,7 +255,7 @@ test('threshold failures stay invalid without a reference and cannot be promoted
       value: `missing-${index}`,
     })));
     await writeFile(suitePath, `${JSON.stringify(suite, null, 2)}\n`, 'utf8');
-    const configPath = path.join(target, 'cognis.config.json');
+    const configPath = path.join(target, 'vibe-harness.config.json');
     const config = JSON.parse(await readFile(configPath, 'utf8'));
     config.evaluations.reference = 'evals/references/low-score.json';
     await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
@@ -244,14 +277,14 @@ test('threshold failures stay invalid without a reference and cannot be promoted
 
 test('online eval uses the runner contract, degrades without reference, then passes approved reference', async () => {
   const target = await createEvalProject();
-  const runnerRoot = await mkdtemp(path.join(tmpdir(), 'cognis-online-runner-'));
+  const runnerRoot = await mkdtemp(path.join(tmpdir(), 'vibe-harness-online-runner-'));
   try {
     const suitePath = path.join(target, 'evals/suites/core.json');
     const suite = JSON.parse(await readFile(suitePath, 'utf8'));
     suite.id = 'online-smoke';
     suite.cases = suite.cases.slice(0, 2);
     await writeFile(suitePath, `${JSON.stringify(suite, null, 2)}\n`, 'utf8');
-    const configPath = path.join(target, 'cognis.config.json');
+    const configPath = path.join(target, 'vibe-harness.config.json');
     const config = JSON.parse(await readFile(configPath, 'utf8'));
     config.evaluations.reference = 'evals/references/online.json';
     config.evaluations.repetitions = 1;
@@ -264,7 +297,7 @@ test('online eval uses the runner contract, degrades without reference, then pas
       const replay = request.case.input.replay;
       process.stdout.write(JSON.stringify({
         schemaVersion: 1, caseId: request.case.id, runner: 'fake-online@1', model: 'fixture',
-        agentVersion: 'fake-agent@1', governanceHash: request.governanceHash,
+        agentVersion: 'fake-agent@1', configHash: request.configHash,
         events: replay.events, output: replay.output, artifacts: replay.artifacts,
         exitCode: replay.exitCode, diagnostics: []
       }));
@@ -280,12 +313,18 @@ test('online eval uses the runner contract, degrades without reference, then pas
       'eval', 'reference', '--project', target, '--from', first.payload.written[0],
       '--write', '--confirm-reference-update',
     ]);
-    assert.equal(approved.code, 0);
+    assert.equal(approved.code, 0, JSON.stringify(approved.payload));
     const second = await run([
       'eval', 'run', '--project', target, '--suite', 'online-smoke', '--mode', 'online', '--runner', command,
     ]);
     assert.equal(second.code, 0);
     assert.equal(second.payload.status, 'ready');
+    assert.equal(Array.isArray(second.payload.run.trialSummaries), true);
+    assert.equal(second.payload.run.trialSummaries.length, suite.cases.length);
+    assert.equal(second.payload.run.cases.length, suite.cases.length);
+    assert.equal(second.payload.run.trialSummaries[0].passCaretK, 1);
+    assert.match(second.payload.run.campaignId, /^campaign-/u);
+    assert.equal(Number.isInteger(second.payload.run.attemptSummary.eligibleLegalWriteTrials), true);
   } finally {
     await Promise.all([target, runnerRoot].map((root) => rm(root, { force: true, recursive: true })));
   }
@@ -293,7 +332,7 @@ test('online eval uses the runner contract, degrades without reference, then pas
 
 test('online runner degradation writes a diagnostic artifact and stops immediately', async () => {
   const target = await createEvalProject();
-  const runnerRoot = await mkdtemp(path.join(tmpdir(), 'cognis-degraded-runner-'));
+  const runnerRoot = await mkdtemp(path.join(tmpdir(), 'vibe-harness-degraded-runner-'));
   try {
     const runnerPath = path.join(runnerRoot, 'runner.mjs');
     await writeFile(runnerPath, "process.stdout.write('invalid-json')\n", 'utf8');
@@ -308,6 +347,10 @@ test('online runner degradation writes a diagnostic artifact and stops immediate
     const diagnostic = JSON.parse(await readFile(path.join(target, result.payload.written[0]), 'utf8'));
     assert.equal(diagnostic.status, 'degraded');
     assert.equal(diagnostic.diagnostics.length, 1);
+    assert.match(diagnostic.campaignId, /^campaign-/u);
+    assert.equal(diagnostic.suite.id, 'vibe-harness-core');
+    assert.equal(typeof diagnostic.fingerprint.model, 'string');
+    assert.equal(Number.isInteger(diagnostic.attemptSummary.eligibleLegalWriteTrials), true);
   } finally {
     await Promise.all([target, runnerRoot].map((root) => rm(root, { force: true, recursive: true })));
   }

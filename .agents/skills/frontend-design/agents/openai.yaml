@@ -1,0 +1,6 @@
+interface:
+  display_name: "Frontend Design"
+  short_description: "Design polished responsive frontend experiences"
+  default_prompt: "Use $frontend-design to establish one clear visual direction and verify the responsive experience."
+policy:
+  allow_implicit_invocation: true

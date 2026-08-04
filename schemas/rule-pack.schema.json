@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Cognis Rule Pack Manifest",
+  "title": "Vibe-Harness Rule Pack Manifest",
   "type": "object",
   "required": ["schemaVersion", "items"],
   "properties": {

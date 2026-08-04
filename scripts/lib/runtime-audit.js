@@ -10,7 +10,7 @@ const RUNTIMES = [
   { directory: 'chrome-devtools-mcp', id: 'chrome-devtools-mcp' },
   { directory: 'playwright-cli', id: 'playwright-cli' },
   { directory: 'open-code-review', id: 'open-code-review' },
-  { directory: 'agentmemory', id: 'agentmemory', omitOptional: true },
+  { directory: 'ast-grep', id: 'ast-grep' },
 ];
 
 function emptyCounts() {
@@ -39,13 +39,6 @@ function advisoryIds(payload) {
     }
   }
   return [...ids].filter(Boolean).sort();
-}
-
-function subtractCounts(full, installed) {
-  const excluded = emptyCounts();
-  for (const severity of SEVERITIES) excluded[severity] = Math.max(0, full[severity] - installed[severity]);
-  excluded.total = SEVERITIES.reduce((total, severity) => total + excluded[severity], 0);
-  return excluded;
 }
 
 export async function resolveNpmAuditInvocation(args, {
@@ -83,7 +76,6 @@ export async function runNpmAudit({ args, cwd }) {
 
 async function auditSurface(rootDir, runtime, surface, runAudit) {
   const args = ['audit', '--package-lock-only', '--audit-level=high', '--json', `--registry=${REGISTRY}`];
-  if (surface === 'installed' && runtime.omitOptional) args.push('--omit=optional');
   const request = {
     args,
     cwd: path.join(rootDir, 'runtime/tools', runtime.directory),
@@ -114,11 +106,6 @@ export async function auditRuntimeTools(rootDir, { runAudit = runNpmAudit } = {}
     try {
       const installed = await auditSurface(rootDir, runtime, 'installed', runAudit);
       const tool = { advisories: installed.advisories, id: runtime.id, installed: installed.counts };
-      if (runtime.omitOptional) {
-        const lockfile = await auditSurface(rootDir, runtime, 'lockfile', runAudit);
-        tool.excludedOptional = subtractCounts(lockfile.counts, installed.counts);
-        tool.excludedOptionalAdvisories = lockfile.advisories.filter((id) => !installed.advisories.includes(id));
-      }
       tools.push(tool);
       if (installed.counts.critical > 0 || installed.counts.high > 0) {
         blocking.push({ critical: installed.counts.critical, high: installed.counts.high, id: runtime.id });

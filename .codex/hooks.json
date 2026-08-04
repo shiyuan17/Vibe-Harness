@@ -1,27 +1,14 @@
 {
   "hooks": {
-    "SessionStart": [
+    "PermissionRequest": [
       {
-        "matcher": "startup|resume|clear|compact",
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\" --expected-event SessionStart",
-            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs') --expected-event SessionStart\"",
+            "command": "node \".agents/runtime/hooks/codex-hook.mjs\" --expected-event PermissionRequest",
+            "commandWindows": "node \".agents/runtime/hooks/codex-hook.mjs\" --expected-event PermissionRequest",
             "timeout": 10,
-            "statusMessage": "Loading LoopEngine project context"
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\" --expected-event UserPromptSubmit",
-            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs') --expected-event UserPromptSubmit\"",
-            "timeout": 5
+            "statusMessage": "Checking Vibe-Harness safety policy"
           }
         ]
       }
@@ -32,102 +19,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\" --expected-event PreToolUse",
-            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs') --expected-event PreToolUse\"",
+            "command": "node \".agents/runtime/hooks/codex-hook.mjs\" --expected-event PreToolUse",
+            "commandWindows": "node \".agents/runtime/hooks/codex-hook.mjs\" --expected-event PreToolUse",
             "timeout": 10,
-            "statusMessage": "Checking LoopEngine tool policy"
-          }
-        ]
-      }
-    ],
-    "PermissionRequest": [
-      {
-        "matcher": "Bash|Edit|Write|mcp__.*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\" --expected-event PermissionRequest",
-            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs') --expected-event PermissionRequest\"",
-            "timeout": 10,
-            "statusMessage": "Checking LoopEngine approval policy"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Bash|Edit|Write|mcp__.*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\" --expected-event PostToolUse",
-            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs') --expected-event PostToolUse\"",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
-    "PreCompact": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\" --expected-event PreCompact",
-            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs') --expected-event PreCompact\"",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
-    "PostCompact": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\" --expected-event PostCompact",
-            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs') --expected-event PostCompact\"",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
-    "SubagentStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\" --expected-event SubagentStart",
-            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs') --expected-event SubagentStart\"",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\" --expected-event SubagentStop",
-            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs') --expected-event SubagentStop\"",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.agents/loopengine/hooks/codex-hook.mjs\" --expected-event Stop",
-            "commandWindows": "powershell -NoProfile -Command \"$root = (git rev-parse --show-toplevel).Trim(); node ($root + '/.agents/loopengine/hooks/codex-hook.mjs') --expected-event Stop\"",
-            "timeout": 20,
-            "statusMessage": "Checking LoopEngine completion evidence"
+            "statusMessage": "Checking Vibe-Harness safety policy"
           }
         ]
       }
     ]
-  },
-  "notes": "LoopEngine Codex hooks use the official PascalCase lifecycle surface documented on 2026-07-12. Project hooks require Codex trust review and do not intercept every tool implementation."
+  }
 }

@@ -1,5 +1,14 @@
 const DIMENSIONS = ['correctness', 'safety', 'evidenceQuality', 'efficiency'];
+const DEFAULT_JUDGE_THRESHOLD = 0.8;
 const SECRET_KEY = /(api[-_]?key|authorization|credential|password|secret|token)/iu;
+const SAFE_TOKEN_METRIC_KEYS = new Set([
+  'cachedInputTokens',
+  'inputTokens',
+  'outputTokens',
+  'reasoningOutputTokens',
+  'tokenUsage',
+  'totalTokens',
+]);
 const SECRET_TEXT = /\b(?:bearer\s+|token=|secret=|password=|api[-_]?key=)[^\s,;]+/giu;
 const WINDOWS_PATH = /[a-zA-Z]:\\(?:[^\\\s]+\\)*[^\\\s]*/gu;
 const POSIX_HOME_PATH = /\/(?:home|Users)\/[^\s]+/gu;
@@ -19,7 +28,7 @@ function sanitizeString(value) {
 }
 
 export function sanitizeEvalValue(value, key = '') {
-  if (SECRET_KEY.test(key)) return '<redacted>';
+  if (!SAFE_TOKEN_METRIC_KEYS.has(key) && SECRET_KEY.test(key)) return '<redacted>';
   if (typeof value === 'string') return sanitizeString(value);
   if (Array.isArray(value)) return value.map((item) => sanitizeEvalValue(item));
   if (value && typeof value === 'object') {
@@ -41,7 +50,22 @@ function assertionResult(kind, assertion, passed) {
   };
 }
 
-function evaluateOracle(oracle, observation) {
+function llmRubricAssertionResult(assertion, judgeOutput) {
+  const threshold = assertion.threshold ?? DEFAULT_JUDGE_THRESHOLD;
+  const passed = judgeOutput.score >= threshold;
+  return {
+    kind: 'llm-rubric',
+    dimension: assertion.dimension,
+    critical: assertion.critical,
+    expected: sanitizeEvalValue(assertion.rubric),
+    passed,
+    score: judgeOutput.score,
+    rationale: judgeOutput.rationale,
+    judgeModel: judgeOutput.judgeModel,
+  };
+}
+
+async function evaluateOracle(oracle, observation, { scenario, judge } = {}) {
   const assertions = [];
   const events = observation.events ?? [];
   const artifacts = observation.artifacts ?? [];
@@ -65,11 +89,22 @@ function evaluateOracle(oracle, observation) {
     assertions.push(assertionResult('forbidden-artifact', item, !artifacts.includes(item.value)));
   }
   assertions.push(assertionResult('exit-code', oracle.exitCode, observation.exitCode === oracle.exitCode.value));
+  const rubrics = oracle.llmRubrics ?? [];
+  if (rubrics.length > 0) {
+    if (!judge) throw new Error('llmRubrics assertions require a judge client (online-only)');
+    for (const item of rubrics) {
+      const judgeOutput = await judge.judgeRubric({ scenario, observation, rubric: item.rubric, judgeModel: item.judgeModel });
+      assertions.push(llmRubricAssertionResult(item, judgeOutput));
+    }
+  }
   return assertions;
 }
 
-export function scoreCase({ definition, observation }) {
-  const assertions = evaluateOracle(definition.oracle, observation);
+export async function scoreCase({ definition, observation, judge }) {
+  const assertions = await evaluateOracle(definition.oracle, observation, {
+    scenario: definition.input?.scenario ?? '',
+    judge,
+  });
   const dimensionScores = {};
   for (const dimension of DIMENSIONS) {
     const relevant = assertions.filter((item) => item.dimension === dimension);
@@ -84,10 +119,12 @@ export function scoreCase({ definition, observation }) {
   ) / weight);
   const criticalAssertions = assertions.filter((item) => item.critical).length;
   const criticalFailures = assertions.filter((item) => item.critical && !item.passed).length;
+  const flakyFailure = Boolean(definition.flaky) && criticalFailures > 0;
   return {
     id: definition.id,
     capability: definition.capability,
     passed: criticalFailures === 0,
+    flakyFailure,
     score,
     weight,
     criticalAssertions,
@@ -115,8 +152,12 @@ export function aggregateCaseScores(results) {
         score: round(cases.reduce((total, item) => total + item.score * item.weight, 0) / totalWeight),
       };
     });
-  const criticalAssertions = results.reduce((total, item) => total + (item.criticalAssertions ?? 0), 0);
-  const criticalFailures = results.reduce((total, item) => total + (item.criticalFailures ?? 0), 0);
+  // Flaky cases record scores but their critical failures do not gate: exclude
+  // their critical assertions and failures from the critical pass rate so a
+  // flaky failure never blocks the gate (DeepEval flaky semantics).
+  const gatedResults = results.filter((item) => !item.flakyFailure);
+  const criticalAssertions = gatedResults.reduce((total, item) => total + (item.criticalAssertions ?? 0), 0);
+  const criticalFailures = gatedResults.reduce((total, item) => total + (item.criticalFailures ?? 0), 0);
   return {
     capabilities,
     overallScore: capabilities.length === 0
@@ -129,7 +170,7 @@ export function aggregateCaseScores(results) {
 }
 
 export function compareFingerprints(actual, expected) {
-  const fields = ['suiteHash', 'runner', 'model', 'agent', 'governanceHash'];
+  const fields = ['suiteHash', 'runner', 'model', 'agent', 'configHash'];
   const mismatches = fields
     .filter((field) => actual?.[field] !== expected?.[field])
     .map((field) => ({ field, actual: actual?.[field] ?? null, expected: expected?.[field] ?? null }));

@@ -1,15 +1,18 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { pathExists } from './manifest.js';
 import { renderTemplate } from './template-renderer.js';
-import { resolveModuleSelection } from './module-selection.js';
+import { parsePluginsOption, resolveModuleSelection } from './module-selection.js';
 import { assertPortableRelativePath } from './manifest.js';
+import { validateJsonAgainstSchema } from './schema-validation.js';
+import { safeJsonParse } from './safe-json.js';
 import { productIdentity } from './product-identity.js';
 import { resolveProjectConfigLocation } from './project-layout.js';
 
 export const mvpProfiles = new Set(['minimal', 'core', 'full', 'docs-only']);
-export const mvpTargets = new Set(['codex', 'claude', 'gemini']);
+export const mvpTargets = new Set(['codex', 'claude', 'gemini', 'cursor', 'qoder', 'zcode']);
 
 export function canonicalProfile(profile) {
   if (profile === 'codex-internal') return 'full';
@@ -33,7 +36,7 @@ export const defaultProjectConfig = {
   validationCommands: {
     lint: null,
     typecheck: null,
-    governance: 'node .agents/cognis/governance/validate.mjs',
+    test: null,
     eval: null,
   },
   evaluations: {
@@ -48,16 +51,15 @@ export const defaultProjectConfig = {
     onlineRunner: null,
     repetitions: 3,
   },
-  governance: {
-    mode: 'basic',
-  },
   hooks: {
-    completionGate: 'advisory',
+    allowedWriteRoots: [],
+    allowedEgressHosts: [],
     mode: 'guarded',
+    redZonePaths: ['.env', 'auth/', 'ci/cd/', '.github/workflows/', '.codex/hooks.json', '.cursor/hooks.json', '.cursor/mcp.json', '.mcp.json', '.qoder/settings.json', '.zcode/config.json'],
   },
   riskZones: {
-    red: ['auth', 'global request layer', 'ci/cd', 'env'],
-    yellow: ['shared components', 'stores', 'routing', 'request clients'],
+    red: ['auth', 'secrets', 'ci-cd', 'env'],
+    yellow: ['shared-libs', 'state', 'routing', 'io-clients'],
   },
   crossRepo: {
     enabled: false,
@@ -66,6 +68,9 @@ export const defaultProjectConfig = {
   projectRules: {
     mode: 'auto',
     overrides: {},
+  },
+  clarification: {
+    posture: 'balanced',
   },
   memory: {
     enabled: true,
@@ -80,6 +85,24 @@ export const forbiddenProjectTerms = [
   'localhost:5777',
 ];
 
+let cachedProjectConfigSchema;
+
+function loadProjectConfigSchema() {
+  if (cachedProjectConfigSchema) return cachedProjectConfigSchema;
+  const schemaPath = path.join(path.resolve(import.meta.dirname, '..', '..'), 'schemas', 'project-config.schema.json');
+  cachedProjectConfigSchema = JSON.parse(readFileSync(schemaPath, 'utf8'));
+  return cachedProjectConfigSchema;
+}
+
+export function validateProjectConfigWithSchema(config) {
+  const schema = loadProjectConfigSchema();
+  const schemaErrors = validateJsonAgainstSchema(config, schema, 'vibe-harness.config.json');
+  if (schemaErrors.length > 0) {
+    throw new Error(`Invalid vibe-harness.config.json:\n  - ${schemaErrors.join('\n  - ')}`);
+  }
+  return validateProjectConfig(config);
+}
+
 export function profileToCatalogProfile(profile) {
   if (profile === 'minimal') {
     return 'minimal';
@@ -93,10 +116,6 @@ export function profileToCatalogProfile(profile) {
 export function createDefaultProjectConfig(projectDir, target = 'codex', profile = 'core') {
   return {
     ...defaultProjectConfig,
-    governance: {
-      ...defaultProjectConfig.governance,
-      mode: profile === 'minimal' ? 'off' : (profile === 'full' || profile === 'docs-only' ? 'full' : 'basic'),
-    },
     projectName: path.basename(path.resolve(projectDir)),
     profile,
     target,
@@ -104,12 +123,6 @@ export function createDefaultProjectConfig(projectDir, target = 'codex', profile
 }
 
 export async function writeDefaultProjectConfig({ force = false, projectDir, profile = 'core', target = 'codex' }) {
-  const existing = await resolveProjectConfigLocation(projectDir);
-  if (existing?.legacy) {
-    throw Object.assign(new Error(`Legacy ${productIdentity.legacy.configFile} exists; run cognis install --upgrade.`), {
-      code: 'COGNIS_CONFIG_MIGRATION_REQUIRED',
-    });
-  }
   const configPath = path.join(projectDir, productIdentity.configFile);
   if (!force && await pathExists(configPath)) {
     throw new Error(`Refusing to overwrite existing config: ${configPath}`);
@@ -127,41 +140,15 @@ export async function readProjectConfig(projectDir) {
   if (!location) {
   return createDefaultProjectConfig(projectDir);
   }
-  return JSON.parse(await readFile(location.path, 'utf8'));
+  return safeJsonParse(await readFile(location.path, 'utf8'));
 }
 
 export async function readRequiredProjectConfig(projectDir) {
   const location = await resolveProjectConfigLocation(projectDir);
   if (!location) {
-    throw new Error(`Missing ${productIdentity.configFile}. Run cognis init --project ${projectDir} first.`);
+    throw new Error(`Missing ${productIdentity.configFile}. Run vibe-harness init --project ${projectDir} first.`);
   }
-  return JSON.parse(await readFile(location.path, 'utf8'));
-}
-
-export async function createProjectConfigMigration(projectDir, config) {
-  const location = await resolveProjectConfigLocation(projectDir);
-  if (!location?.legacy) return null;
-  const migrated = structuredClone(config);
-  const legacyDefault = 'node .agents/loopengine/governance/validate.mjs';
-  const canonicalDefault = 'node .agents/cognis/governance/validate.mjs';
-  for (const [name, command] of Object.entries(migrated.validationCommands ?? {})) {
-    if (command === legacyDefault && name === 'governance') {
-      migrated.validationCommands[name] = canonicalDefault;
-      continue;
-    }
-    if (typeof command === 'string' && command.includes('.agents/loopengine/')) {
-      throw Object.assign(new Error(`validationCommands.${name} still references the legacy .agents/loopengine runtime.`), {
-        code: 'COGNIS_CONFIG_MIGRATION_REQUIRED',
-      });
-    }
-  }
-  return {
-    config: migrated,
-    from: productIdentity.legacy.configFile,
-    fromPath: location.path,
-    to: productIdentity.configFile,
-    toPath: path.join(projectDir, productIdentity.configFile),
-  };
+  return safeJsonParse(await readFile(location.path, 'utf8'));
 }
 
 function assertObject(value, label) {
@@ -176,32 +163,13 @@ function assertNonEmptyString(value, label) {
   }
 }
 
-export function resolveGovernanceMode(config, profile = config?.profile) {
-  if (profile === config?.profile && config?.governance?.mode) return config.governance.mode;
-  if (profile === 'minimal') return 'off';
-  if (['full', 'docs-only'].includes(profile)) return 'full';
-  return 'basic';
-}
-
-export function validateGovernanceModeForProfile(mode, profile) {
-  const allowed = profile === 'minimal'
-    ? ['off']
-    : (profile === 'core' ? ['basic', 'off'] : ['basic', 'full', 'off']);
-  if (!allowed.includes(mode)) {
-    throw new Error(`governance.mode=${mode} is not supported by profile ${profile}`);
-  }
-}
-
-export function resolveValidationCommands(config, projectProfile, governanceMode) {
+export function resolveValidationCommands(config, projectProfile) {
   const configured = Object.fromEntries(
     Object.entries(config?.validationCommands ?? {}).filter(([, value]) => value),
   );
   return {
     ...(projectProfile?.validationCommands ?? {}),
     ...configured,
-    governance: governanceMode === 'off'
-      ? null
-      : (configured.governance ?? 'node .agents/cognis/governance/validate.mjs'),
     eval: configured.eval ?? null,
   };
 }
@@ -213,8 +181,25 @@ function assertOptionalCommand(value, label) {
 }
 
 export function validateProjectConfig(config) {
-  assertObject(config, 'cognis.config.json');
+  assertObject(config, 'vibe-harness.config.json');
+  const obsolete = [
+    ...(Object.hasOwn(config, 'governance') ? ['governance'] : []),
+    ...(Object.hasOwn(config.hooks ?? {}, 'completionGate') ? ['hooks.completionGate'] : []),
+    ...(Object.hasOwn(config.validationCommands ?? {}, 'governance') ? ['validationCommands.governance'] : []),
+  ];
+  if (obsolete.length > 0) {
+    throw Object.assign(new Error(`Obsolete governance configuration: ${obsolete.join(', ')}. Remove these fields before continuing.`), {
+      code: 'VIBE_HARNESS_OBSOLETE_GOVERNANCE_CONFIG',
+    });
+  }
   assertNonEmptyString(config.projectName, 'projectName');
+  const matchedTerm = forbiddenProjectTerms.find((term) => config.projectName.includes(term));
+  if (matchedTerm) {
+    throw Object.assign(
+      new Error(`projectName must not contain forbidden source-project term: ${matchedTerm}`),
+      { code: 'VIBE_HARNESS_FORBIDDEN_PROJECT_TERM' },
+    );
+  }
   assertNonEmptyString(config.packageManager, 'packageManager');
   assertNonEmptyString(config.target, 'target');
   assertNonEmptyString(config.profile, 'profile');
@@ -228,28 +213,44 @@ export function validateProjectConfig(config) {
   if (Object.hasOwn(config, 'modules')) {
     resolveModuleSelection({ requestedModules: config.modules });
   }
+  if (Object.hasOwn(config, 'plugins')) {
+    parsePluginsOption(config.plugins);
+  }
   assertObject(config.validationCommands, 'validationCommands');
   assertOptionalCommand(config.validationCommands.lint, 'validationCommands.lint');
   assertOptionalCommand(config.validationCommands.typecheck, 'validationCommands.typecheck');
+  assertOptionalCommand(config.validationCommands.test, 'validationCommands.test');
   assertOptionalCommand(config.validationCommands.eval, 'validationCommands.eval');
-  if (config.governance?.mode === 'off') {
-    assertOptionalCommand(config.validationCommands.governance, 'validationCommands.governance');
-  } else {
-    assertNonEmptyString(config.validationCommands.governance, 'validationCommands.governance');
-  }
-  if (Object.hasOwn(config, 'governance')) {
-    assertObject(config.governance, 'governance');
-    if (!['basic', 'full', 'off'].includes(config.governance.mode)) {
-      throw new Error('governance.mode must be basic, full, or off');
-    }
-  }
   if (Object.hasOwn(config, 'hooks')) {
     assertObject(config.hooks, 'hooks');
-    if (Object.hasOwn(config.hooks, 'mode') && !['off', 'observe', 'guarded', 'strict'].includes(config.hooks.mode)) {
-      throw new Error('hooks.mode must be off, observe, guarded, or strict');
+    if (Object.hasOwn(config.hooks, 'mode') && !['off', 'observe', 'guarded'].includes(config.hooks.mode)) {
+      throw new Error('hooks.mode must be off, observe, or guarded');
     }
-    if (Object.hasOwn(config.hooks, 'completionGate') && !['off', 'advisory', 'blocking'].includes(config.hooks.completionGate)) {
-      throw new Error('hooks.completionGate must be off, advisory, or blocking');
+    if (Object.hasOwn(config.hooks, 'allowedWriteRoots')) {
+      if (!Array.isArray(config.hooks.allowedWriteRoots)) {
+        throw new Error('hooks.allowedWriteRoots must be an array');
+      }
+      for (const root of config.hooks.allowedWriteRoots) {
+        if (typeof root !== 'string' || root.trim().length === 0 || !path.isAbsolute(root)) {
+          throw new Error('hooks.allowedWriteRoots must contain non-empty absolute paths');
+        }
+      }
+    }
+    if (Object.hasOwn(config.hooks, 'allowedEgressHosts')) {
+      if (!Array.isArray(config.hooks.allowedEgressHosts)) {
+        throw new Error('hooks.allowedEgressHosts must be an array');
+      }
+      for (const host of config.hooks.allowedEgressHosts) {
+        if (typeof host !== 'string' || host.trim().length === 0) {
+          throw new Error('hooks.allowedEgressHosts must contain non-empty host strings');
+        }
+      }
+    }
+    if (Object.hasOwn(config.hooks, 'rtk')) {
+      assertObject(config.hooks.rtk, 'hooks.rtk');
+      if (typeof config.hooks.rtk.enabled !== 'boolean') {
+        throw new Error('hooks.rtk.enabled must be boolean');
+      }
     }
   }
   if (Object.hasOwn(config, 'projectRules')) {
@@ -259,6 +260,12 @@ export function validateProjectConfig(config) {
     }
     if (Object.hasOwn(config.projectRules, 'overrides')) {
       assertObject(config.projectRules.overrides, 'projectRules.overrides');
+    }
+  }
+  if (Object.hasOwn(config, 'clarification')) {
+    assertObject(config.clarification, 'clarification');
+    if (!['action-leaning', 'balanced', 'conservative'].includes(config.clarification.posture)) {
+      throw new Error('clarification.posture must be action-leaning, balanced, or conservative');
     }
   }
   if (Object.hasOwn(config, 'memory')) {
@@ -312,17 +319,24 @@ function hasInstalledSurface(installedTargets, { exact, prefix, suffix }) {
   return installedTargets.some((target) => target.startsWith(prefix));
 }
 
+// Localized red-line markers. The current adapter templates are zh-CN; the en-US
+// set guards against future localized templates silently dropping the safety surface.
+// Because the rendered template language may differ from config.language (e.g. an
+// en-US project that still renders the zh-CN AGENTS template until a localized
+// adapter template exists), we accept EITHER marker set: the safety surface must be
+// present, but we do not require a specific language's wording.
+const GENERATED_CONTENT_FRAGMENTS = {
+  'zh-CN': ['编辑前', '红区', '人工确认', '验证'],
+  'en-US': ['Edit before', 'red zone', 'manual confirmation', 'verify'],
+};
+
 export function validateGeneratedContent(content, { installedTargets } = {}) {
-  const requiredFragments = [
-    '编辑前',
-    '红区',
-    '人工确认',
-    '验证证据',
-    '轻量反证',
-  ];
-  const missing = requiredFragments.filter((fragment) => !content.includes(fragment));
-  if (missing.length > 0) {
-    throw new Error(`Generated AGENTS.md is missing required red lines: ${missing.join(', ')}`);
+  const passesSomeLanguage = Object.values(GENERATED_CONTENT_FRAGMENTS).some(
+    (fragments) => fragments.every((fragment) => content.includes(fragment)),
+  );
+  if (!passesSomeLanguage) {
+    const allFragments = Object.values(GENERATED_CONTENT_FRAGMENTS).flat();
+    throw new Error(`Generated AGENTS.md is missing required red lines; none of the localized marker sets (${allFragments.join(', ')}) were fully present.`);
   }
 
   if (Array.isArray(installedTargets)) {
@@ -348,9 +362,24 @@ export function validateGeneratedContent(content, { installedTargets } = {}) {
         fragment: '.codex/hooks.json',
         label: '.codex/hooks.json',
       },
+      {
+        exact: '.cursor/hooks.json',
+        fragment: '.cursor/hooks.json',
+        label: '.cursor/hooks.json',
+      },
+      {
+        exact: '.qoder/settings.json',
+        fragment: '.qoder/settings.json',
+        label: '.qoder/settings.json',
+      },
+      {
+        exact: '.zcode/config.json',
+        fragment: '.zcode/config.json',
+        label: '.zcode/config.json',
+      },
     ];
 
-    for (const skillRoot of ['.agents/skills/', '.claude/skills/', '.gemini/skills/']) {
+    for (const skillRoot of ['.agents/skills/', '.claude/skills/', '.cursor/skills/', '.gemini/skills/', '.qoder/skills/']) {
       if (content.includes(skillRoot) && !normalizedTargets.some((target) => target.startsWith(skillRoot))) {
         throw new Error(`Generated AGENTS.md references ${skillRoot} but it is not installed by profile.`);
       }

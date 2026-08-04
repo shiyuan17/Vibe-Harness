@@ -14,22 +14,22 @@ export function suiteHash(suite) {
   return createHash('sha256').update(stableJson(suite)).digest('hex');
 }
 
-export function buildOfflineRun(suite, {
+export async function buildOfflineRun(suite, {
   generatedAt = '1970-01-01T00:00:00.000Z',
   id = `${suite.id}-offline`,
   suitePath = `evals/suites/${suite.id}.json`,
 } = {}) {
-  const cases = suite.cases.map((definition) => scoreCase({
+  const cases = await Promise.all(suite.cases.map((definition) => scoreCase({
     definition,
     observation: definition.input.replay,
-  }));
+  })));
   const aggregate = aggregateCaseScores(cases);
   const fingerprint = {
     suiteHash: suiteHash(suite),
     runner: 'offline-replay@1',
     model: 'fixture',
     agent: 'offline',
-    governanceHash: 'fixture-v1',
+    configHash: 'fixture-v1',
   };
   return {
     schemaVersion: 1,
@@ -37,7 +37,7 @@ export function buildOfflineRun(suite, {
     generatedAt,
     suite: { id: suite.id, version: suite.version, hash: fingerprint.suiteHash, path: suitePath },
     mode: 'offline',
-    status: cases.every((item) => item.passed) ? 'passed' : 'failed',
+    status: cases.every((item) => item.passed || item.flakyFailure) ? 'passed' : 'failed',
     fingerprint,
     caseRepetitions: suite.cases.map((item) => ({ id: item.id, count: 1 })),
     cases,

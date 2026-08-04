@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Cognis capability catalog",
+  "title": "Vibe-Harness capability catalog",
   "type": "object",
   "required": ["schemaVersion", "items"],
   "properties": {

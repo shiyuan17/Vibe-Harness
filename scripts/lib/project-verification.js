@@ -1,15 +1,9 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-const execFileAsync = promisify(execFile);
+import { assertSafeCommand } from './shell-command.js';
 
-function splitCommand(command) {
-  const tokens = [];
-  const pattern = /"([^"]*)"|'([^']*)'|([^\s]+)/gu;
-  for (const match of command.matchAll(pattern)) tokens.push(match[1] ?? match[2] ?? match[3]);
-  if (tokens.length === 0) throw new Error('Validation command is empty.');
-  return tokens;
-}
+const execFileAsync = promisify(execFile);
 
 function executableFor(program) {
   if (program === 'node') return process.execPath;
@@ -24,7 +18,7 @@ function verificationError(message) {
 }
 
 export async function executeProjectVerification({ allowManual = false, commandStatus, failureMode = 'throw', targetDir }) {
-  const order = ['governance', 'lint', 'typecheck', 'eval'];
+  const order = ['lint', 'typecheck', 'test', 'eval'];
   if (failureMode === 'throw') {
     for (const name of order) {
       const item = commandStatus[name];
@@ -47,7 +41,16 @@ export async function executeProjectVerification({ allowManual = false, commandS
       results[name] = { command: item.command, status: 'blocked' };
       continue;
     }
-    const [program, ...args] = splitCommand(item.command);
+    let program, args;
+    try {
+      [program, ...args] = assertSafeCommand(item.command);
+    } catch (error) {
+      if (failureMode === 'report') {
+        results[name] = { command: item.command, status: 'blocked' };
+        continue;
+      }
+      throw verificationError(`${name} command is unsafe: ${error.message}`);
+    }
     try {
       const result = await execFileAsync(executableFor(program), args, {
         cwd: targetDir,

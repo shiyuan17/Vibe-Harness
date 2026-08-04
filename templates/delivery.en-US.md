@@ -1,33 +1,11 @@
 # Delivery record
 
-## Result
+- Result status:
+- Actual changes:
+- Verification performed this run:
 
-- Result status: completed / incomplete / blocked / interrupted
-- Change summary:
-- Impact scope:
-- Workflow tier: fast / lightweight / full
-- Red Team: not applicable, or approved with review packet path
-- Verification evidence: see the table
-- Unverified items: none, or see the section
-- Git status:
-- Worktree / branch / merge-back status:
-- Next steps:
-- Memory: durable updates, or why no update is required
+Add unverified items, risks, or follow-up actions only when they exist.
 
-## Lightweight falsification
+## Cleanup alignment
 
-- Claim:
-- Evidence from this run:
-- Counterexample and check result:
-- Residual risks:
-
-## Verification
-
-| Verification evidence | Exit code | Key result | Coverage |
-| --- | --- | --- | --- |
-
-## Unverified items
-
-- Item, reason, risk, and next action:
-
-Do not mark the result completed while verification, merge-back, red-zone confirmation, or material risk remains open.
+Tests passing or a clean working tree does not mean knowledge is in sync. When a change touches behavior, interfaces, or configuration, check whether related docs, rules, and comments still match the code; fix in place or record as a follow-up. Only files, scripts, or temporary copies produced directly by this change qualify as deletion candidates--list each with a reason for user confirmation, and delete nothing before confirmation.

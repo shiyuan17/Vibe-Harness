@@ -9,8 +9,8 @@ import test from 'node:test';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
-const rootDir = path.resolve('.');
-const cliPath = path.join(rootDir, 'scripts/cognis.js');
+const rootDir = path.resolve(import.meta.dirname, '..');
+const cliPath = path.join(rootDir, 'scripts/vibe-harness.js');
 
 async function exists(filePath) {
   try {
@@ -36,7 +36,7 @@ async function writeJson(filePath, value) {
 }
 
 async function initAndDryRunProfile(profile) {
-  const target = await mkdtemp(path.join(tmpdir(), `cognis-${profile}-profile-`));
+  const target = await mkdtemp(path.join(tmpdir(), `vibe-harness-${profile}-profile-`));
   await runCli(['init', '--project', target]);
   const report = await runCli([
     'install',
@@ -55,21 +55,22 @@ function targetsFrom(report) {
   return report.actions.map((action) => action.relativeTarget).sort();
 }
 
-test('init --project writes the MVP cognis.config.json defaults', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-init-'));
+test('init --project writes the MVP vibe-harness.config.json defaults', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-init-'));
   try {
     await runCli(['init', '--project', target]);
 
-    const config = JSON.parse(await readFile(path.join(target, 'cognis.config.json'), 'utf8'));
+    const config = JSON.parse(await readFile(path.join(target, 'vibe-harness.config.json'), 'utf8'));
     assert.equal(config.projectName, path.basename(target));
     assert.equal(config.language, 'zh-CN');
     assert.equal(config.packageManager, 'pnpm');
     assert.equal(config.target, 'codex');
     assert.equal(config.profile, 'core');
-    assert.equal(config.validationCommands.governance, 'node .agents/cognis/governance/validate.mjs');
     assert.equal(config.validationCommands.lint, null);
     assert.equal(config.validationCommands.typecheck, null);
-    assert.deepEqual(config.governance, { mode: 'basic' });
+    assert.equal(config.validationCommands.test, null);
+    assert.equal(config.validationCommands.eval, null);
+    assert.equal(Object.hasOwn(config, 'governance'), false);
     assert.deepEqual(config.crossRepo, { backendRepo: '', enabled: false });
   } finally {
     await rm(target, { force: true, recursive: true });
@@ -77,7 +78,7 @@ test('init --project writes the MVP cognis.config.json defaults', async () => {
 });
 
 test('MVP dry-run uses --project for path and --target codex for adapter without writing AGENTS.md', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-dryrun-mvp-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-dryrun-mvp-'));
   try {
     await runCli(['init', '--project', target]);
     const report = await runCli([
@@ -98,11 +99,10 @@ test('MVP dry-run uses --project for path and --target codex for adapter without
     assert.equal(report.previewFiles.some((file) => file.target === 'AGENTS.md'), true);
     const agents = report.previewFiles.find((file) => file.target === 'AGENTS.md').content;
     assert.equal(agents.includes(path.basename(target)), true);
-    assert.equal(agents.includes('由 Cognis 安装'), false);
-    assert.equal(agents.includes('本项目使用 Cognis 中文治理合同'), false);
+    assert.equal(agents.includes('由 Vibe-Harness 安装'), false);
+    assert.equal(agents.includes('本项目使用 Vibe-Harness 中文治理合同'), false);
     assert.equal(agents.includes('## 启动'), true);
-    assert.equal(agents.includes('## 五条硬约束'), true);
-    assert.equal(agents.includes('轻量反证'), true);
+    assert.equal(agents.includes('## 硬边界'), true);
     assert.equal(await exists(path.join(target, 'AGENTS.md')), false);
   } finally {
     await rm(target, { force: true, recursive: true });
@@ -110,7 +110,7 @@ test('MVP dry-run uses --project for path and --target codex for adapter without
 });
 
 test('MVP --write appends or updates the managed AGENTS block without overwriting local content', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-write-mvp-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-write-mvp-'));
   try {
     await runCli(['init', '--project', target]);
     await writeFile(path.join(target, 'AGENTS.md'), '# Project AGENTS\n\nlocal agents\n', 'utf8');
@@ -137,12 +137,12 @@ test('MVP --write appends or updates the managed AGENTS block without overwritin
 });
 
 test('MVP repeated --write updates the managed AGENTS block in place', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-write-repeat-mvp-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-write-repeat-mvp-'));
   try {
     await runCli(['init', '--project', target]);
     await writeFile(
       path.join(target, 'AGENTS.md'),
-      '# Project AGENTS\n\nlocal agents\n\n<!-- COGNIS:START -->\nold block\n<!-- COGNIS:END -->\n',
+      '# Project AGENTS\n\nlocal agents\n\n<!-- VIBE_HARNESS:START -->\nold block\n<!-- VIBE_HARNESS:END -->\n',
       'utf8',
     );
 
@@ -159,8 +159,8 @@ test('MVP repeated --write updates the managed AGENTS block in place', async () 
 
     const agents = await readFile(path.join(target, 'AGENTS.md'), 'utf8');
     assert.equal(agents.includes('old block'), false);
-    assert.equal((agents.match(/<!-- COGNIS:START -->/gu) ?? []).length, 1);
-    assert.equal((agents.match(/<!-- COGNIS:END -->/gu) ?? []).length, 1);
+    assert.equal((agents.match(/<!-- VIBE_HARNESS:START -->/gu) ?? []).length, 1);
+    assert.equal((agents.match(/<!-- VIBE_HARNESS:END -->/gu) ?? []).length, 1);
     assert.equal(agents.includes('local agents'), true);
     assert.equal(agents.includes('## 启动'), true);
   } finally {
@@ -168,8 +168,8 @@ test('MVP repeated --write updates the managed AGENTS block in place', async () 
   }
 });
 
-test('MVP install replaces legacy unmarked Cognis AGENTS content with the managed block', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-write-legacy-agents-'));
+test('MVP install preserves unmarked local AGENTS content alongside the managed block', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-write-legacy-agents-'));
   try {
     await runCli(['init', '--project', target]);
     await writeFile(
@@ -192,7 +192,7 @@ test('MVP install replaces legacy unmarked Cognis AGENTS content with the manage
         '',
         '- Workflows 位于 `docs/workflows/`。',
         '',
-        'Cognis 不覆盖本项目本地规则；如果本地规则更严格，遵循更严格的规则。',
+        'Vibe-Harness 不覆盖本项目本地规则；如果本地规则更严格，遵循更严格的规则。',
         '',
       ].join('\n'),
       'utf8',
@@ -210,13 +210,13 @@ test('MVP install replaces legacy unmarked Cognis AGENTS content with the manage
     ]);
 
     const agents = await readFile(path.join(target, 'AGENTS.md'), 'utf8');
-    assert.equal(agents.includes('## 最小启动步骤'), false);
-    assert.equal(agents.includes('## 五条红线'), false);
-    assert.equal(agents.includes('docs/rules/quickstart.md'), false);
-    assert.equal(agents.includes('docs/workflows/'), false);
-    assert.equal((agents.match(/^# AGENTS\.md$/gmu) ?? []).length, 1);
-    assert.equal((agents.match(/<!-- COGNIS:START -->/gu) ?? []).length, 1);
-    assert.equal((agents.match(/<!-- COGNIS:END -->/gu) ?? []).length, 1);
+    assert.equal(agents.includes('## 最小启动步骤'), true);
+    assert.equal(agents.includes('## 五条红线'), true);
+    assert.equal(agents.includes('docs/rules/quickstart.md'), true);
+    assert.equal(agents.includes('docs/workflows/'), true);
+    assert.equal((agents.match(/^# AGENTS\.md$/gmu) ?? []).length, 2);
+    assert.equal((agents.match(/<!-- VIBE_HARNESS:START -->/gu) ?? []).length, 1);
+    assert.equal((agents.match(/<!-- VIBE_HARNESS:END -->/gu) ?? []).length, 1);
     assert.equal(agents.includes('## 启动'), true);
   } finally {
     await rm(target, { force: true, recursive: true });
@@ -224,7 +224,7 @@ test('MVP install replaces legacy unmarked Cognis AGENTS content with the manage
 });
 
 test('MVP --write --force keeps local AGENTS content and does not require a backup for block updates', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-write-force-mvp-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-write-force-mvp-'));
   try {
     await runCli(['init', '--project', target]);
     await writeFile(path.join(target, 'AGENTS.md'), 'local agents\n', 'utf8');
@@ -246,17 +246,17 @@ test('MVP --write --force keeps local AGENTS content and does not require a back
     assert.equal(agents.includes('local agents'), true);
     assert.equal(agents.includes('## 启动'), true);
     assert.equal(agents.includes(path.basename(target)), true);
-    assert.equal(await exists(path.join(target, '.cognis/backups')), false);
+    assert.equal(await exists(path.join(target, '.vibe-harness/backups')), false);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
 });
 
 test('validate --project rejects invalid config', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-invalid-config-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-invalid-config-'));
   try {
     await writeFile(
-      path.join(target, 'cognis.config.json'),
+      path.join(target, 'vibe-harness.config.json'),
       JSON.stringify({ projectName: 'BrokenProject', target: 'codex', profile: 'core' }),
       'utf8',
     );
@@ -271,10 +271,10 @@ test('validate --project rejects invalid config', async () => {
 });
 
 test('project config rejects unsupported languages', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-invalid-language-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-invalid-language-'));
   try {
     await runCli(['init', '--project', target]);
-    const configPath = path.join(target, 'cognis.config.json');
+    const configPath = path.join(target, 'vibe-harness.config.json');
     const config = JSON.parse(await readFile(configPath, 'utf8'));
     await writeJson(configPath, { ...config, language: 'fr-FR' });
 
@@ -288,10 +288,10 @@ test('project config rejects unsupported languages', async () => {
 });
 
 test('en-US projects install localized task and delivery templates', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-english-templates-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-english-templates-'));
   try {
     await runCli(['init', '--project', target]);
-    const configPath = path.join(target, 'cognis.config.json');
+    const configPath = path.join(target, 'vibe-harness.config.json');
     const config = JSON.parse(await readFile(configPath, 'utf8'));
     await writeJson(configPath, { ...config, language: 'en-US' });
 
@@ -309,17 +309,17 @@ test('en-US projects install localized task and delivery templates', async () =>
 });
 
 test('project installs allow target-specific names in generated output', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-project-name-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-project-name-'));
   try {
     await runCli(['init', '--project', target]);
-    const configPath = path.join(target, 'cognis.config.json');
+    const configPath = path.join(target, 'vibe-harness.config.json');
     const config = JSON.parse(await readFile(configPath, 'utf8'));
-    await writeJson(configPath, { ...config, projectName: 'SYBaseProjectWeb' });
+    await writeJson(configPath, { ...config, projectName: 'AcmePlatform' });
 
     const report = await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'core', '--dry-run']);
     const agents = report.previewFiles.find((file) => file.target === 'AGENTS.md').content;
 
-    assert.match(agents, /SYBaseProjectWeb/);
+    assert.match(agents, /AcmePlatform/u);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
@@ -347,7 +347,7 @@ test('minimal profile installs the fallback kernel without skills', async () => 
   }
 });
 
-test('core profile installs common routed skills without mcp, memory, or hooks', async () => {
+test('core profile installs five native skills without mcp, memory, or hooks', async () => {
   const { report, target } = await initAndDryRunProfile('core');
   try {
     const targets = targetsFrom(report);
@@ -355,15 +355,13 @@ test('core profile installs common routed skills without mcp, memory, or hooks',
 
     assert.equal(targets.includes('docs/rules/governance-core.md'), true);
     assert.equal(targets.includes('docs/rules/codebase-memory-mcp.md'), false);
-    assert.equal(targets.includes('.agents/skills/using-cognis/SKILL.md'), true);
+    for (const skill of ['clarify-requirements', 'define-goal', 'systematic-debugging', 'eval-driven-development', 'security-and-hardening']) {
+      assert.equal(targets.includes(`.agents/skills/${skill}/SKILL.md`), true);
+    }
     assert.equal(targets.includes('.agents/skills/agentmemory/SKILL.md'), false);
     assert.equal(targets.some((item) => item.startsWith('.agents/memory/')), false);
     assert.equal(targets.includes('.codex/hooks.json'), false);
-    assert.equal(targets.includes('docs/schemas/full-task-control.schema.json'), true);
-    assert.equal(targets.some((item) => item.startsWith('docs/workflows/')), false);
-    assert.equal(targets.includes('.agents/skills/review-checklist/SKILL.md'), false);
-    assert.equal(targets.includes('.agents/skills/loop-planning/SKILL.md'), false);
-    assert.equal(targets.includes('.agents/skills/subagent-driven-development/SKILL.md'), false);
+    assert.equal(targets.includes('.agents/skills/api-and-interface-design/SKILL.md'), false);
     assert.equal(targets.includes('.agents/skills/skill-authoring-check/SKILL.md'), false);
     assert.equal(agents.includes('通用安装'), true);
     assert.equal(agents.includes('codebase-memory-mcp'), false);
@@ -375,7 +373,7 @@ test('core profile installs common routed skills without mcp, memory, or hooks',
   }
 });
 
-test('full profile adds codebase memory, agentmemory, and hooks beyond core', async () => {
+test('full profile adds three domain skills and hooks without memory or tool plugins', async () => {
   const core = await initAndDryRunProfile('core');
   const full = await initAndDryRunProfile('full');
   try {
@@ -388,23 +386,20 @@ test('full profile adds codebase memory, agentmemory, and hooks beyond core', as
     assert.equal(coreTargets.includes('.agents/skills/agentmemory/SKILL.md'), false);
     assert.equal(coreTargets.some((item) => item.startsWith('.agents/memory/')), false);
     assert.equal(coreTargets.includes('.codex/hooks.json'), false);
-    assert.equal(fullTargets.includes('docs/rules/codebase-memory-mcp.md'), true);
-    assert.equal(fullTargets.includes('.agents/skills/agentmemory/SKILL.md'), true);
-    assert.equal(fullTargets.includes('.agents/skills/agentmemory/references/handoff.md'), true);
-    assert.equal(fullTargets.includes('.agents/skills/agentmemory/references/recall.md'), true);
-    assert.equal(fullTargets.includes('.agents/skills/agentmemory/references/remember.md'), true);
+    assert.equal(fullTargets.includes('docs/rules/codebase-memory-mcp.md'), false);
+    assert.equal(fullTargets.includes('.agents/skills/agentmemory/SKILL.md'), false);
     assert.equal(fullTargets.includes('.agents/skills/handoff/SKILL.md'), false);
-    assert.equal(fullTargets.includes('.agents/memory/README.md'), true);
+    assert.equal(fullTargets.includes('.agents/memory/README.md'), false);
     assert.equal(fullTargets.includes('.codex/hooks.json'), true);
     assert.equal(fullTargets.includes('.agents/skills/review-checklist/SKILL.md'), false);
-    assert.equal(fullTargets.includes('.agents/skills/adversarial-review-packet/SKILL.md'), true);
-    assert.equal(fullTargets.includes('.agents/skills/loop-planning/SKILL.md'), true);
-    assert.equal(fullTargets.includes('.agents/skills/subagent-driven-development/SKILL.md'), true);
+    assert.equal(fullTargets.includes('.agents/skills/api-and-interface-design/SKILL.md'), true);
+    assert.equal(fullTargets.includes('.agents/skills/frontend-design/SKILL.md'), true);
+    assert.equal(fullTargets.includes('.agents/skills/runtime-cross-repo-rollout/SKILL.md'), true);
     assert.equal(fullTargets.some((item) => item.startsWith('docs/workflows/')), false);
-    assert.equal(fullAgents.includes('全安装'), true);
-    assert.equal(fullAgents.includes('codebase-memory-mcp'), true);
-    assert.equal(fullAgents.includes('agentmemory'), true);
-    assert.equal(fullAgents.includes('.agents/memory/'), true);
+    assert.equal(fullAgents.includes('完整能力安装'), true);
+    assert.equal(fullAgents.includes('codebase-memory-mcp'), false);
+    assert.equal(fullAgents.includes('agentmemory'), false);
+    assert.equal(fullAgents.includes('.agents/memory/'), false);
     assert.equal(fullAgents.includes('.codex/hooks.json'), true);
   } finally {
     await rm(core.target, { force: true, recursive: true });
@@ -412,35 +407,25 @@ test('full profile adds codebase memory, agentmemory, and hooks beyond core', as
   }
 });
 
-test('installed rules use Chinese user-visible bullet text', async () => {
-  const pencilRules = await readFile(path.join(rootDir, 'rules/pencil-rules.md'), 'utf8');
-  const projectDirectoryRules = await readFile(path.join(rootDir, 'rules/project-directory.md'), 'utf8');
-  const content = `${pencilRules}\n${projectDirectoryRules}`;
+test('installed project directory rules use Chinese user-visible bullet text', async () => {
+  const content = await readFile(path.join(rootDir, 'rules/project-directory.md'), 'utf8');
 
   for (const englishFragment of [
-    'Confirm the `.pen` path',
-    'Inspect existing layouts',
-    'Separate design approval',
-    'Define stable dimensions',
-    'Cover loading, empty',
-    'Keep component names',
-    'Do not encode secrets',
-    'Put domain behavior',
     'Shared directories contain capabilities',
     'Adapters translate between external',
     'Generated, vendored',
     'New top-level directories',
   ]) {
-    assert.equal(content.includes(englishFragment), false, `${englishFragment} should be translated`);
+    assert.equal(content.includes(englishFragment), false, englishFragment + ' should be translated');
   }
 });
 
-test('validate and install require init-generated cognis.config.json', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-missing-config-'));
+test('validate and install require init-generated vibe-harness.config.json', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-missing-config-'));
   try {
     await assert.rejects(
       execFileAsync(process.execPath, [cliPath, 'validate', '--project', target]),
-      /cognis\.config\.json/,
+      /vibe-harness\.config\.json/,
     );
     await assert.rejects(
       execFileAsync(process.execPath, [
@@ -454,7 +439,7 @@ test('validate and install require init-generated cognis.config.json', async () 
         'core',
         '--dry-run',
       ]),
-      /cognis\.config\.json/,
+      /vibe-harness\.config\.json/,
     );
   } finally {
     await rm(target, { force: true, recursive: true });
@@ -462,7 +447,7 @@ test('validate and install require init-generated cognis.config.json', async () 
 });
 
 test('validate --project requires installed files to match the selected profile', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-project-validate-install-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-project-validate-install-'));
   try {
     await runCli(['init', '--project', target]);
 
@@ -492,7 +477,7 @@ test('validate --project requires installed files to match the selected profile'
 });
 
 test('validate --project allows local AGENTS content outside the managed block', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-project-validate-local-agents-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-project-validate-local-agents-'));
   try {
     await runCli(['init', '--project', target]);
     await writeFile(path.join(target, 'AGENTS.md'), '# Local notes\n\nKeep this.\n', 'utf8');
@@ -510,7 +495,7 @@ test('validate --project allows local AGENTS content outside the managed block',
 });
 
 test('CLI failures return structured errors without Node stack traces', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-cli-error-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-cli-error-'));
   try {
     const cases = [
       ['validate', '--project', target],
@@ -560,12 +545,12 @@ test('rendered AGENTS surface matches minimal, core, and full profile installs',
     assert.equal(coreAgents.includes('.agents/memory/'), false);
     assert.equal(coreAgents.includes('.codex/hooks.json'), false);
     assert.equal(fullAgents.includes('.agents/skills/'), true);
-    assert.equal(fullAgents.includes('全安装'), true);
-    assert.equal(fullAgents.includes('codebase-memory-mcp'), true);
-    assert.equal(fullAgents.includes('agentmemory'), true);
-    assert.equal(fullAgents.includes('.agents/memory/'), true);
+    assert.equal(fullAgents.includes('完整能力安装'), true);
+    assert.equal(fullAgents.includes('codebase-memory-mcp'), false);
+    assert.equal(fullAgents.includes('agentmemory'), false);
+    assert.equal(fullAgents.includes('.agents/memory/'), false);
     assert.equal(fullAgents.includes('.codex/hooks.json'), true);
-    assert.equal(fullAgents.includes('review / loop'), true);
+    assert.equal(fullAgents.includes('review / loop'), false);
   } finally {
     await rm(minimal.target, { force: true, recursive: true });
     await rm(core.target, { force: true, recursive: true });
@@ -574,11 +559,11 @@ test('rendered AGENTS surface matches minimal, core, and full profile installs',
 });
 
 test('validate --project catches generated AGENTS references that are not installed by the profile', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-mismatched-agents-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-mismatched-agents-'));
   try {
     await runCli(['init', '--project', target]);
     await writeFile(
-      path.join(target, 'cognis.config.json'),
+      path.join(target, 'vibe-harness.config.json'),
       JSON.stringify({
         projectName: path.basename(target),
         language: 'zh-CN',
@@ -588,11 +573,12 @@ test('validate --project catches generated AGENTS references that are not instal
         validationCommands: {
           lint: 'pnpm lint',
           typecheck: 'pnpm check:type',
-          governance: 'pnpm run check:governance',
+          test: 'pnpm test',
+          eval: null,
         },
         riskZones: {
           red: ['auth'],
-          yellow: ['shared components'],
+          yellow: ['shared-libs'],
         },
         crossRepo: {
           enabled: false,

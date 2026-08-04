@@ -22,51 +22,22 @@ const legacyBrandFullyAllowedFiles = new Set([
   'docs/catalog.json',
   'docs/migration-guide.md',
   'scripts/lib/docs-validation.js',
-  'scripts/lib/product-identity.js',
-  'scripts/loopengine.js',
-]);
-const legacyBrandCompatibilityFiles = new Set([
-  '.gitignore',
-  '.github/workflows/evals.yml',
-  'CHANGELOG.md',
-  'package.json',
-  'runtime/evals/codex-runner.mjs',
-  'runtime/governance/lib/task-validation.mjs',
-  'runtime/governance/validate.mjs',
-  'runtime/hooks/git-hook.mjs',
-  'runtime/hooks/lib/context.mjs',
-  'runtime/tools/playwright-cli/run.mjs',
-  'scripts/cognis.js',
-  'scripts/lib/eval-runner.js',
-  'scripts/lib/install-planner.js',
-  'scripts/lib/install-state.js',
-  'scripts/lib/project-config.js',
   'scripts/lib/project-layout.js',
-  'scripts/lib/template-renderer.js',
-  'scripts/lib/tool-provisioning.js',
-]);
-const legacyCompatibilityContextPattern = /(?:legacy|deprecated|fallback|migration|compatib|旧|兼容|迁移|弃用|历史)/iu;
-const legacyCompatibilitySurfacePattern = /(?:\.loopengine(?:[\\/]|\b)|\.agents[\\/]loopengine|loopengine\.config\.json|LOOPENGINE[_:]|using-loopengine|loopengine-(?:core|online)|loopengine\[-\.\]|@jw\/loopengine)/u;
-const legacyBrandFileLinePatterns = new Map([
-  ['package.json', [
-    /"loopengine":\s*"\.\/scripts\/loopengine\.js"/u,
-    /"loopengine":\s*"node \.\/scripts\/loopengine\.js"/u,
-  ]],
-  ['runtime/hooks/git-hook.mjs', [/cognis\|loopengine.*backups/u]],
-  ['scripts/lib/install-state.js', [/\?\s*'loopengine'/u]],
-  ['scripts/lib/template-renderer.js', [/both Cognis and LoopEngine managed blocks/iu]],
-  ['scripts/lib/tool-provisioning.js', [/both Cognis and LoopEngine MCP managed blocks/iu]],
+  // .gitignore legitimately ignores leftover legacy state directories; this is
+  // compatibility bookkeeping, not a brand reference.
+  '.gitignore',
 ]);
 const repositoryScanExcludedDirectories = new Set([
   '.agents',
   '.codebase-memory',
   '.codegraph',
   '.codex',
-  '.cognis',
+  '.vibe-harness',
   '.cursor',
   '.git',
   '.githooks',
   '.loopengine',
+  '.zcode',
   'coverage',
   'dist',
   'node_modules',
@@ -76,6 +47,20 @@ const repositoryScanExcludedDirectories = new Set([
 
 function normalize(relativePath) {
   return relativePath.replaceAll('\\', '/');
+}
+
+// The rules/ source tree and docs/rules/ rendered copies live on different
+// filesystems and may carry CR/LF differences; compare after stripping CR.
+function normalizeLineEndings(value) {
+  return value.replace(/\r\n/gu, '\n').replace(/\r/gu, '\n');
+}
+
+// docs/rules/ renders certain source filenames with different casing or
+// separators (e.g. rules/agent-skill-routing.md -> docs/rules/AGENT_SKILL_ROUTING.md).
+// Normalize by lowercasing and treating underscores as hyphens so the two
+// trees can be paired without false drift reports.
+function normalizeRuleName(name) {
+  return name.toLowerCase().replaceAll('_', '-');
 }
 
 function markdownWithoutCode(content) {
@@ -118,14 +103,12 @@ function legacyBrandFullyAllowed(file) {
 }
 
 function legacyLineAllowed(file, line, lineIndex, lines) {
-  if (!legacyBrandCompatibilityFiles.has(file)) return false;
+  if (file !== 'CHANGELOG.md') return false;
   if (file === 'CHANGELOG.md') {
-    const historicalStart = lines.findIndex((candidate) => /^## 0\.[0-4]\./u.test(candidate));
+    const historicalStart = lines.findIndex((candidate) => /^## \d+\.\d+\.\d+/u.test(candidate));
     if (historicalStart >= 0 && lineIndex >= historicalStart) return true;
   }
-  return legacyCompatibilityContextPattern.test(line)
-    || legacyCompatibilitySurfacePattern.test(line)
-    || (legacyBrandFileLinePatterns.get(file) ?? []).some((pattern) => pattern.test(line));
+  return false;
 }
 
 export async function validateLegacyBrandUsage({ rootDir }) {
@@ -137,7 +120,7 @@ export async function validateLegacyBrandUsage({ rootDir }) {
     const invalidContent = lines.some((line, lineIndex) => (
       legacyBrandPattern.test(line) && !legacyLineAllowed(file, line, lineIndex, lines)
     ));
-    if ((legacyBrandPattern.test(file) && !legacyBrandCompatibilityFiles.has(file)) || invalidContent) {
+    if ((legacyBrandPattern.test(file) && !legacyBrandFullyAllowed(file)) || invalidContent) {
       errors.push(`${file} contains legacy product identity outside the compatibility allowlist`);
     }
   }
@@ -228,7 +211,7 @@ function staleOpenItemErrors(content, file, today) {
   return errors;
 }
 
-function logicalCognisCommands(content) {
+function logicalVibeHarnessCommands(content) {
   const lines = content.split(/\r?\n/u);
   const commands = [];
   const hasContinuation = (line) => {
@@ -237,7 +220,7 @@ function logicalCognisCommands(content) {
     return (line.match(/`/gu)?.length ?? 0) % 2 === 1;
   };
   for (let index = 0; index < lines.length; index += 1) {
-    if (!lines[index].includes('pnpm cognis ')) continue;
+    if (!lines[index].includes('pnpm vibe-harness ')) continue;
     let command = lines[index].trim();
     while (hasContinuation(command) && index + 1 < lines.length) {
       command = `${command.replace(/(?:\\|`)\s*$/u, '').trim()} ${lines[index + 1].trim()}`;
@@ -266,22 +249,36 @@ export async function validateCurrentDocumentContent({
 
   if (!enforceCurrent) return errors;
 
-  for (const command of logicalCognisCommands(content)) {
+  for (const command of logicalVibeHarnessCommands(content)) {
     if (command.includes('--project') && command.includes('--apply')) {
       errors.push(`${file} mixes --project with legacy --apply`);
     }
   }
+  errors.push(...duplicateReadmeCommandErrors(content, file));
   if (relativeTimePattern.test(content)) errors.push(`${file} contains relative time wording`);
   if (content.includes('九阶段')) errors.push(`${file} contains superseded nine-stage governance wording`);
-  errors.push(...staleOpenItemErrors(content, file, today));
+  if (!file.startsWith('docs/inventory/')) errors.push(...staleOpenItemErrors(content, file, today));
   return errors;
 }
 
 function commandExamples(content) {
-  return logicalCognisCommands(content).map((command) => {
-    const start = command.indexOf('pnpm cognis ');
+  return logicalVibeHarnessCommands(content).map((command) => {
+    const start = command.indexOf('pnpm vibe-harness ');
     return command.slice(start).replace(/\s+/gu, ' ').trim();
   });
+}
+
+function duplicateReadmeCommandErrors(content, file) {
+  if (!/(?:^|\/)README(?:\.[^/]+)?\.md$/u.test(file)) return [];
+  const seen = new Set();
+  const duplicates = new Set();
+  for (const command of commandExamples(content)) {
+    if (seen.has(command)) duplicates.add(command);
+    else seen.add(command);
+  }
+  return [...duplicates]
+    .sort()
+    .map((command) => `${file} contains duplicate Vibe-Harness command: ${command}`);
 }
 
 function jsonExamples(content, label, errors) {
@@ -406,6 +403,94 @@ async function validateSourceMapping(rootDir) {
   return errors;
 }
 
+// rules/*.md is the packaging source; docs/rules/*.md is the governed copy
+// catalog consumers read. Except project-specific-rules.md (a render template
+// whose {{placeholders}} are filled at install time), pairs must stay
+// byte-identical modulo line endings. rules-only files (tool rules shipped
+// only in the pack, e.g. ast-grep.md) are warned rather than errored so they
+// can be documented later without blocking the audit.
+const rulesParityExcluded = new Set(['project-specific-rules.md']);
+
+async function listMarkdownFiles(directory) {
+  if (!(await pathExists(directory))) return [];
+  const entries = await readdir(directory, { withFileTypes: true });
+  return entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
+    .map((entry) => entry.name);
+}
+
+export async function validateRulesParity(rootDir) {
+  const errors = [];
+  const warnings = [];
+  const rulesDir = path.join(rootDir, 'rules');
+  const docsRulesDir = path.join(rootDir, 'docs/rules');
+  if (!(await pathExists(rulesDir)) || !(await pathExists(docsRulesDir))) {
+    return { errors, warnings };
+  }
+  const rulesFiles = await listMarkdownFiles(rulesDir);
+  const docsRulesFiles = await listMarkdownFiles(docsRulesDir);
+  const docsByName = new Map();
+  for (const name of docsRulesFiles) docsByName.set(normalizeRuleName(name), name);
+  const rulesByName = new Map();
+  for (const name of rulesFiles) rulesByName.set(normalizeRuleName(name), name);
+
+  for (const name of rulesFiles) {
+    const key = normalizeRuleName(name);
+    if (rulesParityExcluded.has(name)) continue;
+    const docsName = docsByName.get(key);
+    if (!docsName) {
+      warnings.push(`rules/${name} has no docs/rules counterpart; consider documenting it`);
+      continue;
+    }
+    const rulesContent = normalizeLineEndings(await readFile(path.join(rulesDir, name), 'utf8'));
+    const docsContent = normalizeLineEndings(await readFile(path.join(docsRulesDir, docsName), 'utf8'));
+    if (rulesContent !== docsContent) {
+      errors.push(`docs/rules/${docsName} drifted from rules/${name}`);
+    }
+  }
+  for (const name of docsRulesFiles) {
+    if (rulesParityExcluded.has(name)) continue;
+    if (!rulesByName.has(normalizeRuleName(name))) {
+      errors.push(`docs/rules/${name} has no rules/ source counterpart`);
+    }
+  }
+  return { errors, warnings };
+}
+
+async function listJsonFiles(directory) {
+  if (!(await pathExists(directory))) return [];
+  const entries = await readdir(directory, { withFileTypes: true });
+  return entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+    .map((entry) => entry.name);
+}
+
+// docs/schemas/ holds rendered copies of schemas/ for catalog consumers. They
+// must stay byte-identical modulo line endings so the published docs match the
+// validated packaging contracts.
+export async function validateSchemaParity(rootDir) {
+  const errors = [];
+  const schemasDir = path.join(rootDir, 'schemas');
+  const docsSchemasDir = path.join(rootDir, 'docs/schemas');
+  if (!(await pathExists(schemasDir)) || !(await pathExists(docsSchemasDir))) {
+    return errors;
+  }
+  const docsSchemas = await listJsonFiles(docsSchemasDir);
+  for (const name of docsSchemas) {
+    const sourcePath = path.join(schemasDir, name);
+    if (!(await pathExists(sourcePath))) {
+      errors.push(`docs/schemas/${name} has no schemas/ source counterpart`);
+      continue;
+    }
+    const sourceContent = normalizeLineEndings(await readFile(sourcePath, 'utf8'));
+    const docsContent = normalizeLineEndings(await readFile(path.join(docsSchemasDir, name), 'utf8'));
+    if (sourceContent !== docsContent) {
+      errors.push(`docs/schemas/${name} drifted from schemas/${name}`);
+    }
+  }
+  return errors;
+}
+
 function expectedStatusMarker(item) {
   if (item.status === 'implemented') return /状态：Implemented/u;
   if (item.status === 'superseded') return /状态：Superseded/u;
@@ -472,14 +557,18 @@ async function validateDocumentationUnchecked({ catalog, rootDir, today = new Da
   }
   errors.push(...await validateLegacyBrandUsage({ rootDir }));
 
+  const rulesParity = await validateRulesParity(rootDir);
+  errors.push(...rulesParity.errors);
+  warnings.push(...rulesParity.warnings);
+  errors.push(...await validateSchemaParity(rootDir));
+
   const [english, chinese, gitignore] = await Promise.all([
     readFile(path.join(rootDir, 'README.md'), 'utf8'),
     readFile(path.join(rootDir, 'README.zh-CN.md'), 'utf8'),
     readFile(path.join(rootDir, '.gitignore'), 'utf8'),
   ]);
   errors.push(...validateReadmeParity(english, chinese));
-  if (!/^\.cognis\/$/mu.test(gitignore)) errors.push('.gitignore must ignore .cognis/');
-  if (!/^\.loopengine\/$/mu.test(gitignore)) errors.push('.gitignore must ignore .loopengine/');
+  if (!/^\.vibe-harness\/$/mu.test(gitignore)) errors.push('.gitignore must ignore .vibe-harness/');
 
   return {
     counts: { cataloged: catalogPaths.length, governed: governedPaths.length },

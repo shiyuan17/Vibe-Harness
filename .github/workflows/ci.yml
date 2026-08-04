@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  governance:
+  product:
     strategy:
       fail-fast: false
       matrix:
@@ -32,14 +32,9 @@ jobs:
       - run: pnpm check
       - run: pnpm eval:check
       - run: pnpm eval:offline
+      - run: pnpm test:eval
       - run: pnpm test:integration
       - if: matrix.os == 'ubuntu-latest'
         run: pnpm runtime:audit
-      - run: pnpm eval:changes --base "$BASE_SHA"
-        shell: bash
-      - name: Show evaluation reference changes
-        run: git diff --name-only "$BASE_SHA" HEAD -- evals/references || true
-        shell: bash
       - run: pnpm smoke:lifecycle
       - run: git diff --check
-

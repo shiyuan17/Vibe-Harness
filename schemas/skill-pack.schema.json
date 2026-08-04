@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Cognis Skill Pack Manifest",
+  "title": "Vibe-Harness Skill Pack Manifest",
   "type": "object",
   "required": ["schemaVersion", "items"],
   "properties": {

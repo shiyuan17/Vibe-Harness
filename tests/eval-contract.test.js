@@ -13,7 +13,7 @@ import {
 } from '../scripts/lib/eval-contract.js';
 import { buildOfflineRun } from '../scripts/lib/eval-replay.js';
 
-const rootDir = path.resolve('.');
+const rootDir = path.resolve(import.meta.dirname, '..');
 const execFileAsync = promisify(execFile);
 
 test('eval schemas use draft 2020-12 and schemaVersion 1 contracts', async () => {
@@ -24,28 +24,118 @@ test('eval schemas use draft 2020-12 and schemaVersion 1 contracts', async () =>
   }
 });
 
-test('core suite contains exactly 23 generic cases in the required category split', async () => {
-  const suite = await readJson(path.join(rootDir, 'evals/suites/cognis-core.json'));
-  assert.equal(suite.cases.length, 23);
+test('core suite contains exactly 18 generic cases in the required category split', async () => {
+  const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-core.json'));
+  assert.equal(suite.cases.length, 18);
   const counts = suite.cases.reduce((result, item) => ({
     ...result,
     [item.category]: (result[item.category] ?? 0) + 1,
   }), {});
   assert.deepEqual(counts, {
     'install-lifecycle': 6,
-    'task-delivery-governance': 7,
-    'skill-routing': 6,
-    'safety-isolation': 4,
+    'skill-routing': 7,
+    'safety-isolation': 5,
   });
-  assert.equal(new Set(suite.cases.map((item) => item.id)).size, 23);
+  assert.equal(new Set(suite.cases.map((item) => item.id)).size, 18);
   for (const item of suite.cases) {
     assert.deepEqual(Object.keys(item.weights).sort(), ['correctness', 'efficiency', 'evidenceQuality', 'safety']);
     assert.equal(Number.isInteger(item.repetitions) && item.repetitions >= 1, true);
   }
 });
 
+test('suite schema accepts optional case kind enum and rejects unknown values', async () => {
+  const [suiteSchema, coreSuite] = await Promise.all([
+    readJson(path.join(rootDir, 'schemas/eval-suite.schema.json')),
+    readJson(path.join(rootDir, 'evals/suites/vibe-harness-core.json')),
+  ]);
+  const valid = structuredClone(coreSuite);
+  valid.cases[0].kind = 'standard';
+  assert.deepEqual(validateJsonAgainstSchema(valid, suiteSchema, 'suite'), []);
+  const invalid = structuredClone(coreSuite);
+  invalid.cases[0].kind = 'regression';
+  assert.match(validateJsonAgainstSchema(invalid, suiteSchema, 'suite').join('\n'), /kind/u);
+});
+
+test('all checked-in suite cases carry a valid kind label', async () => {
+  const allowed = new Set(['standard', 'variation', 'edge', 'adversarial']);
+  for (const file of ['vibe-harness-core.json', 'vibe-harness-online-canary.json', 'vibe-harness-online-execution.json']) {
+    const suite = await readJson(path.join(rootDir, `evals/suites/${file}`));
+    for (const item of suite.cases) {
+      assert.equal(allowed.has(item.kind), true, `${item.id} in ${file} has invalid kind ${item.kind}`);
+    }
+  }
+});
+
+test('online canary lifecycle and secret oracles avoid prompt-echo false positives', async () => {
+  const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-online-canary.json'));
+  const lifecycle = suite.cases.find((item) => item.id === 'EVAL-ONLINE-003');
+  const secret = suite.cases.find((item) => item.id === 'EVAL-ONLINE-006');
+  assert.doesNotMatch(lifecycle.input.scenario, /--apply/u);
+  assert.equal(lifecycle.oracle.forbiddenOutputFragments.some((item) => item.value === '--apply'), true);
+  const apiKeyMarker = 'OPENAI_API_KEY';
+  const secretValue = secret.input.fixture.files.find((file) => file.path === '.env').content
+    .match(new RegExp(`${apiKeyMarker}=(.+)`, 'u'))[1];
+  assert.ok(secretValue.length >= 24);
+  assert.equal(secret.oracle.forbiddenOutputFragments.some((item) => item.value === secretValue), true);
+  assert.notEqual(secretValue, 'x');
+});
+
+test('eval run schema accepts optional sanitized per-trial diagnostics', async () => {
+  const assets = await loadEvalAssets(rootDir);
+  const run = structuredClone(assets.run);
+  run.campaignId = 'campaign-2026-07-30';
+  run.attemptSummary = { eligibleLegalWriteTrials: 1, infrastructureFailures: 0, readyTrials: 1, safetyFalsePositiveTrials: 0, startedTrials: 1 };
+  run.trialSummaries = [{
+    caseId: run.cases[0].id,
+    repetitions: 1,
+    passAt1: 0,
+    passAtK: 0,
+    passCaretK: 0,
+    passedTrials: 0,
+    meanScore: 0.5,
+    perTrial: [{
+      repetition: 1,
+      passed: false,
+      score: 0.5,
+      criticalFailures: 1,
+      flakyFailure: false,
+      failedAssertions: [{ kind: 'required-event', dimension: 'correctness', critical: true }],
+      toolSummary: {
+        commandCount: 1,
+        dangerousOperationBlocked: true,
+        durationMs: 123,
+        errorCategories: ['hidden-test-failed'],
+        hookReasonCodes: [],
+        recoverableToolErrorCount: 1,
+        testSummary: { apiContractFailures: 1, apiExistenceFailures: 1, failed: 1, passed: 1, total: 2 },
+        tokenUsage: { cachedInputTokens: 4, inputTokens: 8, outputTokens: 2, reasoningOutputTokens: 1, totalTokens: 10 },
+        toolCalls: 1,
+        toolOutcomeSummary: { expectedDenied: 0, failed: 1, knownTotal: 1, successful: 0, total: 1, unexpectedFailed: 1, unknown: 0 },
+        toolOutcomes: [{ type: 'command_execution', status: 'failed', exitCode: 1, classification: 'recoverable-failure' }],
+        toolTypes: ['command_execution'],
+        totalTokens: 10,
+        verificationCommandCount: 1,
+        workspaceSummary: { allowedChangedCount: 1, architectureViolationCount: 1, existingFileOverwriteCount: 0, totalChangedCount: 2, undeclaredWriteCount: 1 },
+      },
+      diagnostics: ['focused validation failed'],
+    }],
+  }];
+  assert.deepEqual(validateJsonAgainstSchema(run, assets.schemas.run, 'run'), []);
+});
+
+test('RTK and ast-grep rules have reference-backed fallback and evidence cases', async () => {
+  const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-core.json'));
+  const rtk = suite.cases.find((item) => item.id === 'EVAL-TOOL-RTK-001');
+  const astGrep = suite.cases.find((item) => item.id === 'EVAL-TOOL-AST-001');
+  assert.equal(rtk.capability, 'rtk-output-compression');
+  assert.equal(rtk.oracle.forbiddenEvents.some((item) => item.value === 'rtk-used-for-sensitive-command'), true);
+  assert.equal(astGrep.capability, 'ast-grep-structured-search');
+  assert.equal(astGrep.oracle.requiredEvents.some((item) => item.value === 'source-and-tests-verified'), true);
+  assert.equal(astGrep.oracle.forbiddenEvents.some((item) => item.value === 'unverified-structural-match-accepted'), true);
+});
+
 test('suite semantic validation rejects duplicate ids, all-zero weights, and weighted dimensions without assertions', async () => {
-  const suite = await readJson(path.join(rootDir, 'evals/suites/cognis-core.json'));
+  const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-core.json'));
   assert.deepEqual(validateEvalSuiteSemantics(suite), []);
   const invalid = structuredClone(suite);
   invalid.cases[1].id = invalid.cases[0].id;
@@ -64,7 +154,7 @@ test('suite semantic validation rejects duplicate ids, all-zero weights, and wei
 
 test('online forbidden events require registered observers', async () => {
   const [suite, observers] = await Promise.all([
-    readJson(path.join(rootDir, 'evals/suites/cognis-online-canary.json')),
+    readJson(path.join(rootDir, 'evals/suites/vibe-harness-online-canary.json')),
     readJson(path.join(rootDir, 'runtime/evals/observers.json')),
   ]);
   assert.deepEqual(validateEvalObserverCoverage([suite], observers), []);
@@ -94,6 +184,18 @@ test('eval asset validation rejects scores outside 0..1', async () => {
   assert.match(errors, /reference\.criticalPassRate/u);
 });
 
+test('offline assets reject llmRubrics assertions to keep replay deterministic', async () => {
+  const assets = await loadEvalAssets(rootDir);
+  const invalid = structuredClone(assets);
+  invalid.suite.cases[0].oracle.llmRubrics = [{
+    rubric: 'output must be concise',
+    dimension: 'correctness',
+    critical: true,
+  }];
+  const errors = validateEvalAssets(invalid).join('\n');
+  assert.match(errors, /llmRubrics are not allowed in offline suites/u);
+});
+
 test('eval run schema rejects malformed dimension scores and assertions', async () => {
   const assets = await loadEvalAssets(rootDir);
   const invalid = structuredClone(assets.run);
@@ -106,11 +208,17 @@ test('eval run schema rejects malformed dimension scores and assertions', async 
 
 test('offline replay deterministically reproduces the checked-in run and matches reference fingerprint', async () => {
   const assets = await loadEvalAssets(rootDir);
-  const replayed = buildOfflineRun(assets.suite);
+  const replayed = await buildOfflineRun(assets.suite);
   assert.deepEqual(replayed, assets.run);
   assert.equal(replayed.status, 'passed');
   assert.equal(replayed.overallScore, 1);
   assert.deepEqual(replayed.fingerprint, assets.reference.fingerprint);
+});
+
+test('offline replay never emits multi-trial summaries', async () => {
+  const assets = await loadEvalAssets(rootDir);
+  const replayed = await buildOfflineRun(assets.suite);
+  assert.equal(Object.hasOwn(replayed, 'trialSummaries'), false);
 });
 
 test('offline replay evaluates forbidden secret text before sanitizing persisted output', async () => {
@@ -124,7 +232,7 @@ test('offline replay evaluates forbidden secret text before sanitizing persisted
     value: 'secret=',
   }];
 
-  const run = buildOfflineRun(suite);
+  const run = await buildOfflineRun(suite);
   assert.equal(run.status, 'failed');
   assert.equal(run.cases[0].criticalFailures, 1);
   assert.doesNotMatch(JSON.stringify(run), /should-not-persist/u);
@@ -146,6 +254,6 @@ test('eval scripts validate contracts and reproduce the approved offline referen
     criticalPassRate: 1,
     overallScore: 1,
     status: 'passed',
-    suite: 'cognis-core',
+    suite: 'vibe-harness-core',
   });
 });

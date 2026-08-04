@@ -1,139 +1,92 @@
-# Cognis
+# Vibe-Harness
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-[![CI](https://github.com/shiyuan17/Cognis/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/shiyuan17/Cognis/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/Node.js-20.19%2B-339933?logo=node.js&logoColor=white)](package.json)
-[![pnpm](https://img.shields.io/badge/pnpm-10%2B-F69220?logo=pnpm&logoColor=white)](package.json)
+Vibe-Harness installs project-scoped rules, domain Skills, optional Evals, explicit tool plugins, and safety Hooks for Codex, Claude Code, Gemini CLI, Cursor, Qoder, and ZCode. It writes only inside the target project and never changes global Agent configuration.
 
-**Make AI coding end with evidence, not just a claim.**
+There is one default execution path: `gather facts -> execute -> focused verification -> concise delivery`. Quick, light, and full are risk levels used only to choose safeguards and verification depth.
 
-Cognis gives Codex, Claude Code, and Gemini CLI a shared way to plan, execute, and verify work. It combines project instructions, task validation, status snapshots, and optional tools so an Agent can show what it changed and how the result was checked. Everything stays inside the project; Cognis does not change your global Agent settings.
+## Quick start
 
-> [!IMPORTANT]
-> Cognis shows you what it plans to change before it writes anything. It does not replace existing files unless you use `--force`, and it asks for extra confirmation before changing sensitive Codex configuration.
+Requires pnpm 10+ and Node.js 20.19+, 22.18+, or 24+.
 
-## From Common AI Failures to Verifiable Work
+From the Vibe-Harness repository, choose and copy one prompt below, replacing TARGET_PROJECT_ABSOLUTE_PATH with the absolute target project path. The Agent should select the codex, claude, or gemini adapter for its current host. These prompts are for first-time installs; use the upgrade flow below for an existing installation.
 
-| Common problem | What Cognis adds | What you get |
-| --- | --- | --- |
-| The Agent starts editing before it understands the task. | A five-step workflow and fast, lightweight, or full risk levels. | Small tasks stay quick; risky work starts with a plan and a rollback path. |
-| The Agent says “done” without showing proof. | Task templates connect each acceptance criterion (`AC-ID`) to evidence, and the installed validator (automatic checker) checks completed tasks. | A completion claim can be checked against commands, artifacts, reviews, or manual confirmation. |
-| Important coding context gets buried in prose. | Core, full, and docs-only profiles choose compact Markdown structures for complex requests and replies: checkbox todos, lists, comparison tables, and portable information blocks. | Simple answers stay short while plans, progress, evidence, and decisions remain easy to scan without altering code or command output. |
-| Agent rules or skills change without behavioral regression evidence. | Eval-ID scenarios compare offline and real-Agent runs with an approved evaluation reference. | Prompt and governance changes can be reviewed against critical behavior, not only file snapshots. |
-| A long task loses important context between sessions. | `baseline` records project, installation, tool, and verification status; project memory and handoff templates preserve decisions and known issues. | The next session can recover project facts without reconstructing everything from chat history. |
-| Rules drift between AI coding tools. | Native project files and tested install levels (`profiles`) for Codex, Claude Code, and Gemini CLI. | Each tool gets the same core working rules in the format it actually supports. |
-| Installing or updating shared rules feels risky. | Dry-run previews, clearly marked sections, backups, validation, safe uninstall, and rollback. | You can inspect changes before writing and reverse managed changes without replacing unrelated project content. |
-| Useful coding tools are scattered or configured globally. | Codex `full` prepares codebase indexing, Playwright, Chrome DevTools MCP, and Open Code Review inside the project; Agentmemory remains explicit preview while its dependency advisories are unresolved. | Code understanding, browser checks, diagnostics, and review stay project-local; unavailable tools are reported as `degraded`. |
+### minimal
 
-## Why Not Just Write an AGENTS.md?
+    Install the Vibe-Harness minimal profile into TARGET_PROJECT_ABSOLUTE_PATH. You are working from the Vibe-Harness repository: first check the Node.js and pnpm versions and install this repository's dependencies; select the codex, claude, or gemini adapter for the current Agent host. If the target has no vibe-harness.config.json, initialize it with the selected adapter and minimal profile; if its configuration or existing install state does not match, stop and report the mismatch, and never use --force. Run an install dry-run first, inspect it for conflicts, out-of-project writes, or unexpected overwrites, and only then perform the install with --write. Finish with validate --project. The minimal install must not select optional plugins or create a code index. Write only inside the target project and do not modify global Agent, MCP, or Git configuration. Report actual writes, validation results, and anything incomplete.
 
-An `AGENTS.md` file can tell an Agent how to work, but it does not install versioned rules and skills, validate task evidence, record project status, or safely update and remove its own files. Cognis uses the platform instruction file as the entry point, then adds automatic checks and safe file management around it. Your existing content stays editable because Cognis updates only its clearly marked section.
+### core (recommended)
 
-## Quick Start
+    Install the Vibe-Harness core profile into TARGET_PROJECT_ABSOLUTE_PATH, then install and enable codebase-memory-mcp and create its initial code index. You are working from the Vibe-Harness repository: first check the Node.js and pnpm versions and install this repository's dependencies; select the codex, claude, or gemini adapter for the current Agent host. If the target has no vibe-harness.config.json, initialize it with the selected adapter and core profile; if its configuration or existing install state does not match, stop and report the mismatch, and never use --force. Both the install dry-run and write must explicitly select --plugin codebase-memory-mcp. Inspect the dry-run for conflicts, out-of-project writes, overwrites, and red-zone actions before using --write. I explicitly authorize this installation to write the project-scoped MCP red-zone configuration planned by that plugin; use --confirm-red-zone for the write. Preview provision, then run provision --write to install and enable the pinned project-local runtime, disable auto_index and auto_watch, build the index, verify that it belongs to the target project and is ready, and complete the MCP handshake. Finish with validate --project and doctor --project. Report complete success only when the installation is consistent and codebaseMemoryMcp is ready; otherwise report the failed phase and recovery command. Do not modify global Agent, MCP, or Git configuration.
 
-You need pnpm `10` or later and one of these Node.js versions: `20.19+`, `22.18+`, or `24+`.
+### full
+
+    Install the Vibe-Harness full profile into TARGET_PROJECT_ABSOLUTE_PATH, then install and enable codebase-memory-mcp and create its initial code index. You are working from the Vibe-Harness repository: first check the Node.js and pnpm versions and install this repository's dependencies; select the codex, claude, or gemini adapter for the current Agent host. If the target has no vibe-harness.config.json, initialize it with the selected adapter and full profile; if its configuration or existing install state does not match, stop and report the mismatch, and never use --force. Both the install dry-run and write must explicitly select --plugin codebase-memory-mcp. Inspect the dry-run for conflicts, out-of-project writes, overwrites, and red-zone actions before using --write. I explicitly authorize this full installation to write its planned project-scoped Hook and MCP red-zone configuration; use --confirm-red-zone for the write. Preview provision, then run provision --write to install and enable the pinned project-local runtime, disable auto_index and auto_watch, build the index, verify that it belongs to the target project and is ready, and complete the MCP handshake. Finish with validate --project and doctor --project. Report complete success only when the installation is consistent and codebaseMemoryMcp is ready; otherwise report the failed phase and recovery command. Do not modify global Agent, MCP, or Git configuration.
+
+The core and full quick prompts explicitly add codebase-memory-mcp; this does not change the profile contract that external tools must be selected with --plugin. The equivalent manual core install is:
 
 ```bash
 pnpm install
-pnpm cognis init --project ../some-project --target codex
-pnpm cognis install --project ../some-project --target codex --profile core --dry-run
-pnpm cognis install --project ../some-project --target codex --profile core --write
-pnpm cognis validate --project ../some-project
+pnpm vibe-harness init --project ../some-project --target codex --profile core
+pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin codebase-memory-mcp --dry-run
+pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin codebase-memory-mcp --write --confirm-red-zone
+pnpm vibe-harness provision --project ../some-project --target codex --profile core --dry-run
+pnpm vibe-harness provision --project ../some-project --target codex --profile core --write
+pnpm vibe-harness validate --project ../some-project
+pnpm vibe-harness doctor --project ../some-project
 ```
 
-These commands do four things:
-
-1. Create a Cognis configuration file in the target project.
-2. Preview the files Cognis wants to install.
-3. Install the `core` setup after you review the preview.
-4. Check that the installation is complete and unchanged.
-
-`install` writes governance assets only. Preview and provision project-local tools separately:
+`validate` checks installation consistency only. Run configured project checks with:
 
 ```bash
-pnpm cognis provision --project ../some-project --target codex --profile full --dry-run
-pnpm cognis provision --project ../some-project --target codex --profile full --write
+pnpm vibe-harness verify --project ../some-project
 ```
 
-`install --provision` keeps the one-command compatibility path. If a write is interrupted, `recover --project <project>` previews the active transaction and `recover --project <project> --write` restores its preimages.
+`verify` runs configured commands in `lint -> typecheck -> test -> eval` order and skips unconfigured commands.
 
-## Supported AI Coding Tools
+## Execution model
 
-| Tool | Main project file | Available install levels | What Cognis can add |
+- Quick: read-only work, explanations, documentation, and tiny non-behavioral changes.
+- Light: reversible local behavior changes with checks focused on the affected surface.
+- Full: security, production, releases, data migration, public contracts, red-zone, irreversible, or cross-repository work with broader verification and rollback preparation.
+
+A single Agent handles work by default. Explicit `open-code-review`, browser verification, Eval, and project test tools remain available. Task Markdown is an optional human-readable note and is not part of runtime decisions.
+
+## Profiles
+
+| Profile | Installed surface |
+| --- | --- |
+| `minimal` | Platform instructions, safety boundaries, Git/Test rules, and optional task/delivery templates |
+| `core` | `minimal` plus common engineering rules, five domain Skills, and offline Eval |
+| `full` | `core` plus three domain Skills, online Eval, and supported platform safety Hooks |
+| `docs-only` | Rules, templates, and schemas without runtime, Skills, MCP, or Hooks |
+
+External tools and memory remain explicit `--plugin` choices. Every host configuration file is a red-zone write and requires `--confirm-red-zone`.
+
+```bash
+pnpm vibe-harness install --project ../some-project --target codex --profile full --dry-run
+pnpm vibe-harness install --project ../some-project --target codex --profile full --write --confirm-red-zone
+```
+
+Claude Code and Gemini CLI use the same four profiles; preview capabilities require explicit `--allow-preview`.
+
+## Adapter support
+
+| Target | Project instructions | Skills | Project Hook / MCP configuration |
 | --- | --- | --- | --- |
-| Codex | `AGENTS.md` | `minimal`, `core`, `full`, `docs-only` | Instructions, skills, project tools through MCP, and automatic checks through hooks |
-| Claude Code | `CLAUDE.md` | `minimal`, `core`, `docs-only`; `full` preview | Project instructions and skills; experimental full mappings require `--allow-preview` |
-| Gemini CLI | `GEMINI.md` | `minimal`, `core`, `docs-only`; `full` preview | Project instructions and skills; experimental full mappings require `--allow-preview` |
+| Codex | `AGENTS.md` | `.agents/skills/` | `.codex/` |
+| Claude Code | `CLAUDE.md` | `.claude/skills/` | Preview capabilities |
+| Gemini CLI | `GEMINI.md` | `.gemini/skills/` | Preview capabilities |
+| Cursor | `AGENTS.md` | `.cursor/skills/` | `.cursor/hooks.json`, `.cursor/mcp.json` |
+| Qoder | `AGENTS.md` | `.qoder/skills/` | `.qoder/settings.json`, `.mcp.json` |
+| ZCode | `AGENTS.md` | Not installed automatically | `.zcode/config.json` |
 
-MCP lets an Agent call tools that belong to the current project. Hooks run checks automatically at specific points in an Agent session. Cognis currently installs these features only for Codex.
+ZCode project Skill storage has no documented project-scoped path, so Vibe-Harness never writes `~/.zcode` or guesses a project Skill directory. Import Skills manually through the ZCode UI when needed. Managed JSON updates only Vibe-Harness MCP servers and Hook groups; user settings remain intact.
 
-Claude Code and Gemini CLI keep `full` behind `--allow-preview`. The report lists preview and missing capabilities so incomplete platform mappings are never presented as stable.
+## Project configuration
 
-## How the Workflow Works
-
-```text
-Understand the task -> Choose an approach -> Make the change -> Check the result -> Report what happened
-```
-
-| Workflow | When to use it | What the Agent must do |
-| --- | --- | --- |
-| Fast | Reading, documentation, and other low-risk work | Confirm the facts, then give a clear answer with evidence. |
-| Lightweight | A small change in a clearly defined area | State which files may change and how the result will be checked. |
-| Full | Security, releases, sensitive configuration, public APIs, cross-layer changes, or multi-Agent work | Plan before editing, keep a rollback path, and obtain an approved independent Red Team review packet before completion. |
-
-If the risk is unclear, use the full workflow.
-
-## Choose an Install Level
-
-An install level, called a `profile` in commands and configuration, is a ready-made group of Cognis files and features.
-
-| Profile | What you get | Best for |
-| --- | --- | --- |
-| `minimal` | The main Agent instruction file, basic working rules, Git and test rules, and task templates | Small projects that want basic guidance without extra skills or tools |
-| `core` | Everything in `minimal`, plus common engineering rules, task checks, Red Team completion review, routing skills, and Playwright prepared for on-demand use | Most projects; this is the recommended starting point |
-| `full` | Everything in `core`, plus project memory, advanced workflow skills, four stable project tools, preview Agentmemory assets, Codex MCP setup, and Codex hooks | Long-running or high-risk Codex projects |
-| `docs-only` | Instructions, reusable rules, templates, and schemas, without executable tools, skills, MCP, or hooks | Projects that only want the documentation-based setup |
-The exact files included in each profile are defined in `manifests/profiles.json`.
-
-## More Commands
-
-<details>
-<summary><strong>Standard project installation</strong></summary>
-
-This is the installation method most users should choose. Use `--project` for the project folder, `--target` for the AI coding tool, and `--write` only after you have reviewed the preview.
-
-```bash
-# Create the project configuration
-pnpm cognis init --project ../some-project --target codex
-
-# Preview first, then install
-pnpm cognis install --project ../some-project --target codex --profile core --dry-run
-pnpm cognis install --project ../some-project --target codex --profile core --write
-
-# Check that the installation is still valid
-pnpm cognis validate --project ../some-project
-```
-
-By default, commands return compact JSON that scripts can read. Add `--output summary` for a short report written for people. Add `--verbose` when you need the full file preview and complete diagnostic paths.
-
-Use the same target in both `init` and `install` when installing for Claude Code or Gemini CLI:
-
-```bash
-pnpm cognis init --project ../claude-project --target claude
-pnpm cognis install --project ../claude-project --target claude --profile core --write
-
-pnpm cognis init --project ../gemini-project --target gemini
-pnpm cognis install --project ../gemini-project --target gemini --profile core --write
-```
-
-</details>
-
-<details>
-<summary><strong>Project settings</strong></summary>
-
-Most users only need to review this file after running `init`. Cognis creates `cognis.config.json`, where you can choose the install level, list project checks, and identify sensitive areas.
+`vibe-harness init` creates this structure:
 
 ```json
 {
@@ -145,169 +98,97 @@ Most users only need to review this file after running `init`. Cognis creates `c
   "validationCommands": {
     "lint": null,
     "typecheck": null,
-    "governance": "node .agents/cognis/governance/validate.mjs",
+    "test": null,
     "eval": null
   },
   "evaluations": {
     "enabled": false,
     "suites": [],
     "reference": "evals/references/project.json",
-    "thresholds": { "criticalPassRate": 1, "overallScore": 0.9, "maxCapabilityRegression": 0.05 },
+    "thresholds": {
+      "criticalPassRate": 1,
+      "overallScore": 0.9,
+      "maxCapabilityRegression": 0.05
+    },
     "onlineRunner": null,
     "repetitions": 3
   },
-  "governance": { "mode": "basic" },
   "hooks": {
-    "mode": "guarded",
-    "completionGate": "advisory"
+    "allowedWriteRoots": [],
+    "allowedEgressHosts": [],
+    "mode": "guarded"
   },
   "riskZones": {
-    "red": ["auth", "global request layer", "ci/cd", "env"],
-    "yellow": ["shared components", "stores", "routing", "request clients"]
+    "red": ["auth", "secrets", "ci-cd", "env"],
+    "yellow": ["shared-libs", "state", "routing", "io-clients"]
   },
-  "crossRepo": { "enabled": false, "backendRepo": "" },
-  "projectRules": { "mode": "auto", "overrides": {} },
-  "memory": { "enabled": true, "path": ".agents/memory" }
+  "crossRepo": {
+    "enabled": false,
+    "backendRepo": ""
+  },
+  "projectRules": {
+    "mode": "auto",
+    "overrides": {}
+  },
+  "clarification": {
+    "posture": "balanced"
+  },
+  "memory": {
+    "enabled": true,
+    "path": ".agents/memory"
+  }
 }
 ```
 
-The `target` value must match the `--target` option you use later. Cognis reads the target project but does not change its `package.json`.
+Legacy `governance.mode`, `governance.workflow`, `hooks.completionGate`, and `validationCommands.governance` fields raise `VIBE_HARNESS_OBSOLETE_GOVERNANCE_CONFIG`. Vibe-Harness does not silently accept or rewrite them.
 
-</details>
+## Explicit tools
 
-<details>
-<summary><strong>Run evaluation-driven development checks</strong></summary>
-
-```bash
-pnpm cognis eval check --project ../some-project
-pnpm cognis eval run --project ../some-project --mode offline
-pnpm cognis eval run --project ../some-project --mode offline --write
-```
-
-An evaluation `reference` is separate from the project `baseline`. Updating it requires `eval reference --write --confirm-reference-update`; Cognis never promotes a reference automatically. See [Evaluation-driven development](docs/evals.md).
-
-</details>
-
-<details>
-<summary><strong>Choose individual features</strong></summary>
-
-This is an advanced option for users who do not want one of the ready-made profiles. You can list individual modules in `cognis.config.json` or pass them to a single install command:
+Optional plugins are `rtk`, `ast-grep`, `codebase-memory-mcp`, `chrome-devtools-mcp`, `playwright-cli`, and `open-code-review`. Agentmemory runtime is suspended (upstream High vulnerabilities) and is not a `--plugin` choice; install the `memory` module via `--modules memory` when memory support is re-enabled.
 
 ```bash
-pnpm cognis install --project ../some-project --target codex --profile core --modules agents,rules,skills --dry-run
-pnpm cognis install --project ../some-project --target codex --profile core --modules agents,rules,skills --write
+pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin -rtk --dry-run
+pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin -rtk ast-grep --write
+pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin none --write
 ```
 
-Available modules are `agents`, `rules`, `templates`, `governance`, `skills`, `memory`, `playwright`, `chrome-devtools`, `codebase-memory`, `open-code-review`, `agentmemory`, and `hooks`. Cognis automatically adds any required dependencies. The command report shows what you requested, what will be installed, and which dependencies were added as `requestedModules`, `resolvedModules`, and `implicitModules`.
+Plugin choices persist in project install-state. `--modules` is an advanced replacement for the profile module set, not an incremental plugin interface.
 
-</details>
+## Upgrade and removal
 
-<details>
-<summary><strong>Check a project and create a status snapshot</strong></summary>
-
-Use these commands after installation. `validate` checks the Cognis files, `verify` runs your project's configured checks, and `baseline` creates a snapshot of the current project and installation status.
+Upgrade compares the old install-state with the new plan. Managed files no longer planned are retired by `--upgrade --write` only when unchanged; modified files are reported as conflicts and preserved. Obsolete runtime state is removed precisely without deleting the whole `.vibe-harness` directory.
 
 ```bash
-# Check Cognis configuration and installed files; do not run project commands
-pnpm cognis validate --project ../some-project
-
-# Run the configured governance, lint, and typecheck commands
-pnpm cognis verify --project ../some-project
-
-# Preview or save a project status snapshot
-pnpm cognis baseline --project ../some-project --dry-run
-pnpm cognis baseline --project ../some-project --write
-
-# Run project checks and include a safe summary in the snapshot
-pnpm cognis baseline --project ../some-project --verify --write
+pnpm vibe-harness install --project ../some-project --target codex --profile core --dry-run --upgrade
+pnpm vibe-harness install --project ../some-project --target codex --profile core --write --upgrade
+pnpm vibe-harness uninstall --project ../some-project --target codex --dry-run
+pnpm vibe-harness uninstall --project ../some-project --target codex --write
 ```
 
-If a configured check requires a person to complete it, `verify` stops unless you explicitly add `--allow-manual`. A baseline records useful status information, but it does not save source code, credentials, absolute project paths, or raw command output.
+### Exit codes
 
-</details>
+| Code | Meaning |
+|------|---------|
+| 0 | Success (or degraded with `--allow-degraded`). |
+| 1 | Failure: invalid state, install error, or unhandled exception. |
+| 2 | Partial skip: uninstall or rollback retained some files due to user modifications; or health check is degraded without `--allow-degraded`. |
 
-<details>
-<summary><strong>Remove Cognis safely</strong></summary>
+## Safety boundaries
 
-Use these commands to preview and then remove a standard project installation:
+- Existing project files are preserved unless `--force` is explicit.
+- Every mutation requires `--write`; red-zone writes require explicit confirmation.
+- The installer does not modify global Agent configuration or `.git/config`.
+- Codex, Cursor, Qoder, and ZCode Hooks normalize their `PreToolUse` and permission events through the same safety policy to block dangerous Git, global configuration writes, credential exfiltration, red-zone file uploads, out-of-project writes, and (when an `allowedEgressHosts` allowlist is configured) non-allowlisted network egress. RTK Hook routing remains Codex-only.
+- Completion claims must match fresh evidence; narrow the claim and report risk when verification is unavailable.
 
-```bash
-pnpm cognis uninstall --project ../some-project --target codex --dry-run
-pnpm cognis uninstall --project ../some-project --target codex --write
-```
-
-Cognis removes only files that it installed and that have not been changed. It also removes only its own marked sections from shared instruction and MCP files. Your configuration, status snapshots, backups, unrelated documents, and edited files stay in place.
-
-</details>
-
-<details>
-<summary><strong>Migrate an older Codex installation</strong></summary>
-
-The old profile names and command format have been removed. For a project that still has an older install state, run standard init first. Cognis normalizes the state to `full` or `minimal`, and the standard upgrade writes back the canonical profile.
-
-```bash
-pnpm cognis init --project ../some-project
-pnpm cognis install --project ../some-project --target codex --profile full --dry-run --upgrade
-pnpm cognis install --project ../some-project --target codex --profile full --write --upgrade --confirm-red-zone
-pnpm cognis validate --project ../some-project
-pnpm cognis doctor --project ../some-project
-```
-
-`--target` now selects only the adapter and never accepts a project path. All mutations use `--write`.
-
-</details>
-
-<details>
-<summary><strong>Built-in tools and command status</strong></summary>
-
-This section helps when an install or health check reports a problem. The `core` profile prepares Playwright for browser checks when it is first needed. Codex `full` also prepares `codebase-memory-mcp`, Chrome DevTools MCP, Open Code Review, and Agentmemory preview assets.
-
-Cognis writes MCP settings only to its own marked section in the project's `.codex/config.toml`. It reads credentials from the current terminal session and never saves them in the project.
-
-The `chrome-devtools` module pins `chrome-devtools-mcp@1.6.0` and starts the project-local entry with system Google Chrome in headless isolated mode. It disables usage statistics, update checks, and CrUX enrichment, redacts network headers, does not forward arbitrary command arguments, and never connects to a personal Chrome profile or remote debugging port. Provisioning calls `list_pages` as a real browser smoke check; a missing or failed Chrome launch is reported as `CHROME_LAUNCH_FAILED` without persisting pages, headers, response bodies, credentials, or the raw process environment.
-
-Open Code Review resolves its endpoint in this order: a complete `OCR_LLM_URL` + `OCR_LLM_TOKEN` + `OCR_LLM_MODEL` set, the active provider in the current user's `~/.opencodereview/config.json`, compatible `ANTHROPIC_*` or `OPENAI_*` environment variables, and finally the current Codex provider in `~/.codex/config.toml`. The selected values are passed only to the Open Code Review child process. They are never written to `cognis.config.json`, `.cognis/tool-state`, or MCP configuration. Missing or incomplete settings remain `pending-config` with a redacted diagnostic.
-
-Codebase-memory indexing is project-scoped. Cognis sets `CBM_ALLOWED_ROOT` and the child process working directory to the target project, then sends `--repo-path .` when indexing that root. This keeps ASCII, spaced, and Unicode Windows paths on the same path-validation route. A root-boundary failure is reported as `INDEX_PATH_OUTSIDE_ALLOWED_ROOT`; a corrupt local cache is cleared and rebuilt on the next provision attempt, and a repeated failure is reported as `INDEX_CORRUPT_REINDEX_REQUIRED`. `index_status` must still confirm `ready`, the target root, and non-negative node and edge counts.
-
-Install, validate, and doctor use the same three status values:
-
-| Status | Exit code | What it means |
-| --- | --- | --- |
-| `ready` | `0` | Governance assets are valid and no attempted provisioning has failed; tools not yet provisioned remain visible as `pending` or `pending-config` warnings. |
-| `invalid` | `1` | The configuration or installed files do not match what Cognis expects. |
-| `degraded` | `2` | A required tool, credential, or feature is not currently available. |
-
-`--allow-degraded` changes the exit code to `0` for automation, but it does not hide the problem. The report still contains `ok: false`, `status: "degraded"`, warnings, and recommended next steps. `pending` and `pending-config` do not fail an asset-first install; an attempted provisioning failure or an incomplete provisioning process marker does degrade health.
-
-Cognis records each tool's version, package source, start and finish times, result, and redacted log summary in `.cognis/tool-state/tools.json`, then shows it in install, validate, doctor, and summary output. Failure diagnostics include the failed phase, stable code, exit code when available, and bounded output tails. Project paths and credential-like values are redacted; raw command environments and full output are never stored. Interrupted provisioning leaves `.cognis/tool-state/provisioning.json`; `doctor` reports and degrades on it without modifying the environment.
-
-Maintainers run `pnpm runtime:audit` against the same dependency surface used by provisioning. Critical or High findings and unavailable audits fail the command; Moderate findings remain visible warnings. Agentmemory excludes optional dependencies during both provisioning and the enforced audit.
-
-</details>
-
-## What Cognis Will and Will Not Change
-
-- It writes only inside the target project, never to user-level or global Agent settings.
-- It does not replace an existing file unless you use `--force`. When replacement is necessary, it creates a backup first.
-- In shared instruction and Codex MCP files, it updates only the clearly marked section that belongs to Cognis.
-- It does not change `.git/config`. Packaged Git hooks work only after you explicitly set `core.hooksPath` for that repository.
-- It treats `.codex/` configuration as a sensitive area. A real Codex `full` or internal install must include `--confirm-red-zone` before changing it.
-- It keeps private project names, contracts, personal paths, and task data out of reusable shared files.
-
-## Learn More
+## Documentation
 
 - [Documentation index](docs/README.md)
-- [How Cognis is organized](docs/architecture.md)
-- [How to move from an older version](docs/migration-guide.md)
-- [How automatic hooks work](docs/hooks.md)
-- [What changed between versions](CHANGELOG.md)
-- [Minimal project example](examples/minimal-project/README.md)
+- [Architecture](docs/architecture.md)
+- [Migration guide](docs/migration-guide.md)
+- [Hook safety policy](docs/hooks.md)
+- [Eval](docs/evals.md)
 - [Contributing](CONTRIBUTING.md)
-
-## Checks for Contributors
-
-The Chinese [contribution guide](CONTRIBUTING.md) is the source of truth for change classification, documentation impact, verification, pull requests, and releases. `AGENTS.md` keeps the mandatory Agent command quick reference.
 
 ## License
 

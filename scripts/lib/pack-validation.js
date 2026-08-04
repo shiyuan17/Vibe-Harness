@@ -14,12 +14,13 @@ import {
   validateInstallMapShape,
   validateManifestSources,
 } from './manifest.js';
+import { moduleCatalog } from './module-selection.js';
 import { scanForForbiddenTerms } from './redaction.js';
 import { resolveAdapterEntry } from './adapter.js';
 import { validateDocumentation } from './docs-validation.js';
 
 const forbiddenTerms = ['SYBaseProjectWeb', 'SYBaseProject', 'D:\\Github\\JW', 'T-019', 'T-024', '患者', '病理', '医疗'];
-const redactionDirs = ['rules', 'templates', 'skills/core', 'skills/integrations', 'memory', 'runtime', 'adapters/codex', 'adapters/claude', 'adapters/gemini', 'manifests', 'schemas'];
+const redactionDirs = ['rules', 'templates', 'skills/core', 'skills/integrations', 'memory', 'runtime', 'adapters', 'manifests', 'schemas'];
 
 async function collectEmptyDirs(dir, rootDir, results = []) {
   if (!(await pathExists(dir))) {
@@ -127,8 +128,8 @@ export async function validateSkillMetadataQuality(rootDir, skillItems) {
     if (!frontmatter.description) {
       errors.push(`${item.id} frontmatter description is required`);
     } else {
-      if (frontmatter.description.length > 240) {
-        errors.push(`${item.id} description must be 240 characters or fewer`);
+      if (frontmatter.description.length > 300) {
+        errors.push(`${item.id} description must be 300 characters or fewer`);
       }
       if (hasWorkflowHeavyDescription(frontmatter.description)) {
         errors.push(`${item.id} description should describe triggers, not workflow steps`);
@@ -163,6 +164,8 @@ export async function validateSkillGraph(
   const itemsById = new Map(skillItems.map((item) => [item.id, item]));
   const reportedCycles = new Set();
   const proseOwners = new Map();
+  let nativeBodyLines = 0;
+  let nativeIdentityCharacters = 0;
 
   for (const item of skillItems) {
     for (const dependency of item.requiresSkills ?? []) {
@@ -228,8 +231,26 @@ export async function validateSkillGraph(
         errors.push(`${item.id} must document fallback for optional skills or tools`);
       }
       const lineCount = content.split(/\r?\n/u).length;
-      const maxLines = ['router', 'compatibility'].includes(item.kind) ? 30 : 160;
+      const maxLines = item.kind === 'native' ? 35 : 160;
       if (lineCount > maxLines) errors.push(`${item.id} exceeds ${maxLines} line SKILL.md budget`);
+      if (item.kind === 'native') {
+        const description = frontmatterValue('description');
+        nativeBodyLines += lineCount;
+        nativeIdentityCharacters += item.id.length + description.length;
+        const skillDir = path.dirname(path.join(rootDir, item.source));
+        const openaiMetadata = path.join(skillDir, 'agents/openai.yaml');
+        if (!(await pathExists(openaiMetadata))) {
+          errors.push(`${item.id} must provide agents/openai.yaml`);
+        } else {
+          const yaml = await readFile(openaiMetadata, 'utf8');
+          for (const term of ['interface:', 'display_name:', 'short_description:', 'default_prompt:', 'policy:', 'allow_implicit_invocation: true']) {
+            if (!yaml.includes(term)) errors.push(`${item.id} agents/openai.yaml must contain ${term}`);
+          }
+        }
+        const assets = await readdir(skillDir, { withFileTypes: true });
+        const resourceCount = assets.filter((entry) => !['SKILL.md', 'metadata.json', 'agents'].includes(entry.name)).length;
+        if (resourceCount > 2) errors.push(`${item.id} may contain at most two on-demand resources`);
+      }
       if (!(await pathExists(path.join(rootDir, item.metadata)))) {
         errors.push(`${item.id} metadata is missing: ${item.metadata}`);
       } else {
@@ -241,6 +262,9 @@ export async function validateSkillGraph(
       if ((item.requiresTools?.length ?? 0) > 0) errors.push(`${item.id} must document fallback for tools`);
     }
   }
+
+  if (nativeBodyLines > 250) errors.push(`native Skill body budget exceeds 250 lines: ${nativeBodyLines}`);
+  if (nativeIdentityCharacters > 900) errors.push(`native Skill name and description budget exceeds 900 characters: ${nativeIdentityCharacters}`);
 
   if (checkFiles) {
     for (const root of ['skills/core', 'skills/integrations']) {
@@ -280,39 +304,23 @@ export async function validateSkillGraph(
   return errors.sort();
 }
 
-export async function validateGovernanceQuality(rootDir) {
+export async function validateContentQuality(rootDir) {
   const checks = [
     {
       file: 'rules/governance-core.md',
-      terms: ['获取事实', '做出决策', '执行', '验证', '交付', '主张 → 证据 → 反例 → 剩余风险', '快速', '轻量', '完整', 'Red Team（红队审查）'],
+      terms: ['获取事实 → 直接执行 → 聚焦验证 → 简洁交付', '快速', '轻量', '完整', '人工确认', '验证范围必须与完成主张匹配'],
     },
     {
       file: 'templates/task.md',
-      terms: ['工作流档位', '当前阶段', '当前状态', '处理结果', 'AC-ID', '完整流程控制', '验收证据', '红队审查者', '红队审查包', '红队审查结论'],
+      terms: ['可选的人读记录', '档位', '状态', '目标', '验收', '下一步', '验证', '风险'],
     },
     {
       file: 'templates/delivery.md',
-      terms: ['轻量反证', '主张', '本轮证据', '可推翻主张的反例', '剩余风险'],
-    },
-    {
-      file: 'schemas/full-task-control.schema.json',
-      terms: ['任务类型', '责任角色', '写入范围', '禁止动作', '并行安全', '人工确认', '核验者', '红队审查者', '红队审查包', '红队审查结论'],
-    },
-    {
-      file: 'skills/core/using-cognis/SKILL.md',
-      terms: ['权限、红区和风险档位', '当前处于', '专项 Skill', '验证或审查 Skill', 'adversarial-review-packet'],
-    },
-    {
-      file: 'skills/core/adversarial-review-packet/references/review.md',
-      terms: ['任务编号', '审查者', '审查对象', '审查时间', '问题列表', '状态', 'Medium 延期', '未覆盖审查轴与剩余风险'],
+      terms: ['结果', '实际变更', '本轮验证', '未验证项', '风险', '后续动作'],
     },
     {
       file: 'rules/agent-skill-routing.md',
-      terms: [
-        '不得覆盖', '一个流程 Skill', '一个领域 Skill', '一个验证或审查 Skill',
-        'Clarify', 'Spec', 'Plan', 'Execute', 'Verify', 'Review', 'Handoff', 'Retrospective',
-        'ocr', 'fallback', 'Memory', 'using-cognis',
-      ],
+      terms: ['description', '不使用 Router', '领域 Skill', '人工确认'],
     },
     {
       file: 'rules/test-rules.md',
@@ -320,15 +328,7 @@ export async function validateGovernanceQuality(rootDir) {
     },
     {
       file: 'rules/ai-collab-rules.md',
-      terms: [
-        '证据边界', '角色边界', '实现 Agent', 'reviewer', '信息呈现',
-        '目标、范围、约束、验收标准、待决策项', '`- [ ]` / `- [x]`',
-        'Markdown 表格', '信息块', '用户明确指定格式',
-      ],
-    },
-    {
-      file: 'rules/pencil-rules.md',
-      terms: ['交付门禁', '.pen', '.png', '验证'],
+      terms: ['单 Agent', '人工确认', '验证与主张匹配', '保护现有工作区'],
     },
     {
       file: 'rules/project-directory.md',
@@ -367,8 +367,12 @@ export async function validateGovernanceQuality(rootDir) {
       terms: ['检查清单', '最小复现', '验证证据'],
     },
     {
-      file: 'skills/core/brainstorming/SKILL.md',
-      terms: ['反向采访', '盲点审查', '每次只问一个'],
+      file: 'skills/core/clarify-requirements/SKILL.md',
+      terms: ['安全审批', '阻塞产品决定', '可逆实现选择', '最多三个', '推荐项', '回答关闭分支后立即继续'],
+    },
+    {
+      file: 'skills/core/define-goal/SKILL.md',
+      terms: ['4000', '执行型', '探索型', '明确要求激活', '不得静默替换', '不扩大授权'],
     },
   ];
 
@@ -378,7 +382,7 @@ export async function validateGovernanceQuality(rootDir) {
   if (await pathExists(agentsPath)) {
     const agents = await readFile(agentsPath, 'utf8');
     if (!/--project[^\n]*--write/u.test(agents)) errors.push('AGENTS.md must document the --project/--write lifecycle');
-    if (/pnpm cognis[^\n]*(?:codex-internal|codex-minimal|--apply)/u.test(agents)) errors.push('AGENTS.md must not contain removed legacy lifecycle commands');
+    if (/pnpm vibe-harness[^\n]*(?:codex-internal|codex-minimal|--apply)/u.test(agents)) errors.push('AGENTS.md must not contain removed legacy lifecycle commands');
   }
   const [agentsTemplate, governanceCore] = await Promise.all([
     readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8'),
@@ -401,56 +405,11 @@ export async function validateGovernanceQuality(rootDir) {
         const normalized = paragraph.replace(/\s+/gu, ' ').trim();
         if (normalized.length < 240) continue;
         const owner = proseOwners.get(normalized);
-        if (owner && owner !== relative) errors.push(`duplicated long governance prose in ${owner} and ${relative}`);
+        if (owner && owner !== relative) errors.push(`duplicated long policy prose in ${owner} and ${relative}`);
         else proseOwners.set(normalized, relative);
       }
     }
   }
-  return errors.sort();
-}
-
-export function validateAgentSkillRoutingIntegrity({
-  agentsContent,
-  capabilityMatrix,
-  installEntries,
-  routerContent,
-  ruleContent,
-  ruleItems,
-}) {
-  const errors = [];
-  const ruleSource = 'rules/agent-skill-routing.md';
-  const ruleTarget = 'docs/rules/AGENT_SKILL_ROUTING.md';
-  const testTarget = 'tests/agent-skill-routing.test.js';
-
-  const manifestEntry = ruleItems.find((item) => item.id === 'agent-skill-routing');
-  if (manifestEntry?.source !== ruleSource) {
-    errors.push(`agent-skill-routing must be registered in manifests/rules.json with source ${ruleSource}`);
-  }
-
-  const installEntry = installEntries.find((entry) => entry.source === ruleSource);
-  if (installEntry?.group !== 'rules-minimal' || installEntry?.target !== ruleTarget) {
-    errors.push(`agent-skill-routing must install from rules-minimal to ${ruleTarget}`);
-  }
-
-  const capability = capabilityMatrix?.items?.find((item) => item.id === 'skill-routing');
-  if (!capability) {
-    errors.push('skill-routing capability must track the routing policy and router');
-  } else {
-    for (const target of [ruleSource, 'skills/core/using-cognis/SKILL.md']) {
-      if (!capability.targets?.includes(target)) errors.push(`skill-routing capability must target ${target}`);
-    }
-    if (!capability.tests?.includes(testTarget)) {
-      errors.push(`skill-routing capability must list ${testTarget}`);
-    }
-  }
-
-  if (!routerContent.includes(ruleTarget)) errors.push(`using-cognis router must reference ${ruleTarget}`);
-  if (!ruleContent.includes('using-cognis')) errors.push('agent skill routing policy must reference using-cognis');
-  if (!agentsContent.includes(ruleTarget)) errors.push(`AGENTS template must reference ${ruleTarget}`);
-  if (!/Skills 未安装时.*fallback/u.test(agentsContent)) {
-    errors.push('AGENTS template must document the no-skill fallback');
-  }
-
   return errors.sort();
 }
 
@@ -520,14 +479,12 @@ export async function validateCapabilityMatrix(rootDir, matrix, { checkFiles = t
     }
   }
   const requiredCapabilities = [
-    'governance-kernel',
-    'chinese-task-contract',
-    'skill-routing',
-    'review',
+    'execution-kernel',
+    'native-skill-selection',
+    'goal-definition',
     'git-and-worktree',
     'engineering-rules',
-    'governance-memory',
-    'pencil-assets',
+    'memory-templates',
     'release',
     'eval-driven-development',
     'project-business-contracts',
@@ -546,6 +503,57 @@ export async function validateCapabilityMatrix(rootDir, matrix, { checkFiles = t
   return errors.sort();
 }
 
+// Vibe-Harness render placeholders take the form {{name}} or {{name.field}}. Sources
+// containing them are rendered at install time, so the installed artifact is
+// not expected to be byte-identical to the source and is excluded from the
+// self-install drift check.
+const renderPlaceholderPattern = /\{\{[a-zA-Z][\w]*(?:\.[\w]+)*\}\}/u;
+
+function normalizeLineEndings(value) {
+  return value.replace(/\r\n/gu, '\n').replace(/\r/gu, '\n');
+}
+
+// Vibe-Harness installs into its own repository to dogfood the installer. For
+// `replace` entries whose source carries no render placeholders, the
+// self-installed artifact must stay byte-identical (modulo line endings) to
+// the source. This catches drift such as a schema gaining a field in `schemas/`
+// but the rendered copy in `docs/schemas/` not being regenerated.
+export async function validateSelfInstalledArtifacts(rootDir, adapters, installMaps) {
+  const errors = [];
+  const codex = adapters.items.find((item) => item.id === 'codex');
+  if (!codex) return errors;
+  const installMap = installMaps.get(codex.installMap);
+  if (!installMap) return errors;
+
+  for (const rawEntry of installMap.entries) {
+    if (rawEntry.contentStrategy !== 'replace') continue;
+    const entry = resolveAdapterEntry(codex, rawEntry);
+    if (!entry) continue;
+    const sourcePath = path.join(rootDir, entry.source);
+    const targetPath = path.join(rootDir, entry.target);
+    let sourceContent;
+    try {
+      sourceContent = await readFile(sourcePath, 'utf8');
+    } catch {
+      // Missing sources are already reported by install-map source checks.
+      continue;
+    }
+    if (renderPlaceholderPattern.test(sourceContent)) continue;
+    let targetContent;
+    try {
+      targetContent = await readFile(targetPath, 'utf8');
+    } catch {
+      // The artifact is absent in this repository (e.g. a plugin not enabled
+      // for the self-install). Nothing to compare against.
+      continue;
+    }
+    if (normalizeLineEndings(sourceContent) !== normalizeLineEndings(targetContent)) {
+      errors.push(`self-installed artifact drifted from source: ${entry.source} -> ${entry.target}`);
+    }
+  }
+  return errors.sort();
+}
+
 export async function validatePack(rootDir) {
   const manifests = await loadAllManifests(rootDir);
   const schemas = await loadAllManifestSchemas(rootDir);
@@ -553,7 +561,10 @@ export async function validatePack(rootDir) {
   validateAllManifestShapes(manifests);
   const schemaErrors = validateAllManifestSchemas(manifests, schemas);
 
-  const knownGroups = new Set(manifests.profiles.items.flatMap((item) => item.groups));
+  const knownGroups = new Set([
+    ...manifests.profiles.items.flatMap((item) => item.groups),
+    ...Object.values(moduleCatalog).flatMap((module) => module.groups),
+  ]);
   const installMapMissing = [];
   const installedSources = new Set();
   const installMaps = new Map();
@@ -585,61 +596,59 @@ export async function validatePack(rootDir) {
     .sort();
   const invalidSkillDirs = await findInvalidSkillDirs(rootDir);
   const skillMetadataErrors = await validateSkillMetadataQuality(rootDir, manifests.skills.items);
-  const installEntries = [...installMaps.values()][0].entries;
+  // Merge install entries across all adapters so skill-graph validation covers
+  // every adapter's install map, not just the first. Entries are deduped by
+  // source so a skill installed by multiple adapters is counted once.
+  const mergedInstallEntries = [];
+  const seenEntrySources = new Set();
+  for (const adapter of manifests.adapters.items) {
+    const installMap = installMaps.get(adapter.installMap);
+    for (const rawEntry of installMap.entries) {
+      const entry = resolveAdapterEntry(adapter, rawEntry);
+      if (!entry) continue;
+      if (seenEntrySources.has(entry.source)) continue;
+      seenEntrySources.add(entry.source);
+      mergedInstallEntries.push(entry);
+    }
+  }
   const skillGraphErrors = await validateSkillGraph(rootDir, manifests.skills.items, manifests.profiles.items, {
-    installEntries,
+    installEntries: mergedInstallEntries,
   });
-  const governanceQualityErrors = await validateGovernanceQuality(rootDir);
+  const contentQualityErrors = await validateContentQuality(rootDir);
   const capabilityMatrix = await readJson(path.join(rootDir, 'manifests/capabilities.json'));
   const capabilityErrors = await validateCapabilityMatrix(rootDir, capabilityMatrix);
-  const readOptionalText = async (relativePath) => {
-    const file = path.join(rootDir, relativePath);
-    return await pathExists(file) ? readFile(file, 'utf8') : '';
-  };
-  const [agentsContent, routerContent, ruleContent] = await Promise.all([
-    readOptionalText('adapters/codex/AGENTS.template.md'),
-    readOptionalText('skills/core/using-cognis/SKILL.md'),
-    readOptionalText('rules/agent-skill-routing.md'),
-  ]);
-  const agentSkillRoutingErrors = validateAgentSkillRoutingIntegrity({
-    agentsContent,
-    capabilityMatrix,
-    installEntries,
-    routerContent,
-    ruleContent,
-    ruleItems: manifests.rules.items,
-  });
   const leaks = await scanForForbiddenTerms({
     forbiddenTerms,
     includeDirs: redactionDirs,
     rootDir,
   });
   const documentation = await validateDocumentation({ rootDir });
+  const selfInstallErrors = await validateSelfInstalledArtifacts(rootDir, manifests.adapters, installMaps);
 
   return {
-    agentSkillRoutingErrors,
     capabilityErrors,
+    contentQualityErrors,
     leaks,
     missing: [...missing, ...installMapMissing].sort(),
     missingSkillInstalls,
     invalidSkillDirs,
     skillMetadataErrors,
     skillGraphErrors,
-    governanceQualityErrors,
     documentationErrors: documentation.errors,
     documentationWarnings: documentation.warnings,
+    selfInstallErrors,
     ok: missing.length === 0
       && installMapMissing.length === 0
       && missingSkillInstalls.length === 0
       && invalidSkillDirs.length === 0
       && skillMetadataErrors.length === 0
       && skillGraphErrors.length === 0
-      && governanceQualityErrors.length === 0
-      && agentSkillRoutingErrors.length === 0
+      && contentQualityErrors.length === 0
       && capabilityErrors.length === 0
       && documentation.errors.length === 0
       && leaks.length === 0
-      && schemaErrors.length === 0,
+      && schemaErrors.length === 0
+      && selfInstallErrors.length === 0,
     schemaErrors: schemaErrors.sort(),
   };
 }

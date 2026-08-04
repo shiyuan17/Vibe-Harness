@@ -2,12 +2,6 @@ import path from 'node:path';
 
 import { assertPortableRelativePath, readJson, validateCatalogManifest } from './manifest.js';
 
-const skillRoots = {
-  claude: '.claude/skills',
-  codex: '.agents/skills',
-  gemini: '.gemini/skills',
-};
-
 const fullCapabilities = ['instructions', 'skills', 'hooks', 'policy', 'mcp', 'sandbox', 'memory'];
 
 function supportLevel(value) {
@@ -52,15 +46,16 @@ export function assertAdapterProfile(adapter, profile, { allowPreview = false } 
 export function resolveAdapterEntry(adapter, entry) {
   if (entry.group === 'mcp-config' && supportLevel(adapter.capabilities.mcp) === 'unsupported') return null;
   if (entry.group === 'hooks' && supportLevel(adapter.capabilities.hooks) === 'unsupported') return null;
+  if (entry.target.startsWith('.agents/skills/') && supportLevel(adapter.capabilities.skills) === 'unsupported') return null;
+  if (entry.source?.endsWith('/agents/openai.yaml') && adapter.id !== 'codex') return null;
 
   let source = entry.source;
   let target = entry.target.replaceAll('\\', '/');
   if (entry.group === 'agents') {
-    const name = path.posix.basename(adapter.instructionTarget, '.md');
-    source = `adapters/${adapter.id}/${name}.template.md`;
+    source = `adapters/${adapter.id}/${adapter.instructionTemplate}.template.md`;
     target = adapter.instructionTarget;
   } else if (target.startsWith('.agents/skills/')) {
-    target = `${skillRoots[adapter.id]}/${target.slice('.agents/skills/'.length)}`;
+    target = `${adapter.skillRoot}/${target.slice('.agents/skills/'.length)}`;
   }
   if (target.startsWith('.codex/') && adapter.id !== 'codex') return null;
   if (source) assertPortableRelativePath(source, 'adapter install source');

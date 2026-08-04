@@ -10,7 +10,7 @@ export async function runSkillsAudit(rootDir, options = {}) {
     options.profiles ?? readJson(path.join(rootDir, 'manifests/profiles.json')),
     options.installEntries
       ? Promise.resolve({ entries: options.installEntries })
-      : readJson(path.join(rootDir, 'adapters/codex/install-map.json')),
+      : readJson(path.join(rootDir, 'adapters/install-map.json')),
   ]);
   const counts = new Map();
   const lengths = [];

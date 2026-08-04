@@ -11,10 +11,10 @@ import { promisify } from 'node:util';
 import { applyInstallPlan, createInstallPlan } from '../scripts/lib/install-planner.js';
 
 const execFileAsync = promisify(execFile);
-const rootDir = path.resolve('.');
+const rootDir = path.resolve(import.meta.dirname, '..');
 
 test('dry-run install plans full files without writing them', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-dry-run-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-dry-run-'));
   try {
     const plan = await createInstallPlan({
       dryRun: true,
@@ -39,7 +39,7 @@ test('dry-run install plans full files without writing them', async () => {
 });
 
 test('install refuses to overwrite existing files unless force is used', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-conflict-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-conflict-'));
   try {
     await writeFile(path.join(target, 'AGENTS.md'), 'user-owned content\n', 'utf8');
 
@@ -59,7 +59,7 @@ test('install refuses to overwrite existing files unless force is used', async (
 });
 
 test('dry-run reports conflicts without failing or writing files', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-dry-run-conflict-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-dry-run-conflict-'));
   try {
     await writeFile(path.join(target, 'AGENTS.md'), 'user-owned content\n', 'utf8');
 
@@ -80,7 +80,7 @@ test('dry-run reports conflicts without failing or writing files', async () => {
 });
 
 test('actual install blocks red-zone files without explicit confirmation', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-redzone-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-redzone-'));
   try {
     const plan = await createInstallPlan({
       dryRun: false,
@@ -97,7 +97,7 @@ test('actual install blocks red-zone files without explicit confirmation', async
 });
 
 test('actual install refuses to write outside the target directory', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-escape-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-escape-'));
   try {
     const plan = await createInstallPlan({
       dryRun: false,
@@ -116,7 +116,7 @@ test('actual install refuses to write outside the target directory', async () =>
 });
 
 test('failed install rolls back every file before install state is committed', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-transaction-failure-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-transaction-failure-'));
   try {
     await writeFile(path.join(target, 'AGENTS.md'), 'user-owned content\n', 'utf8');
     const plan = await createInstallPlan({
@@ -138,16 +138,16 @@ test('failed install rolls back every file before install state is committed', a
 
     assert.equal(await readFile(path.join(target, 'AGENTS.md'), 'utf8'), 'user-owned content\n');
     await assert.rejects(readFile(path.join(target, 'docs/rules/governance-core.md'), 'utf8'), /ENOENT/);
-    await assert.rejects(readFile(path.join(target, '.cognis/install-state.json'), 'utf8'), /ENOENT/);
+    await assert.rejects(readFile(path.join(target, '.vibe-harness/install-state.json'), 'utf8'), /ENOENT/);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
 });
 
 test('CLI write mode writes files when red-zone confirmation is explicit', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'cognis-apply-'));
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-apply-'));
   try {
-    const cliPath = path.join(rootDir, 'scripts/cognis.js');
+    const cliPath = path.join(rootDir, 'scripts/vibe-harness.js');
     await execFileAsync(process.execPath, [cliPath, 'init', '--project', target, '--target', 'codex', '--profile', 'full']);
     await execFileAsync(process.execPath, [
       cliPath,
@@ -165,14 +165,49 @@ test('CLI write mode writes files when red-zone confirmation is explicit', async
 
     const taskTemplate = await readFile(path.join(target, 'docs/templates/task.md'), 'utf8');
     const deliveryTemplate = await readFile(path.join(target, 'docs/templates/delivery.md'), 'utf8');
-    const routerSkill = await readFile(path.join(target, '.agents/skills/using-cognis/SKILL.md'), 'utf8');
+    const clarifySkill = await readFile(path.join(target, '.agents/skills/clarify-requirements/SKILL.md'), 'utf8');
 
     assert.equal(await readFile(path.join(target, 'AGENTS.md'), 'utf8').then((content) => content.includes('## 启动')), true);
     assert.equal(await readFile(path.join(target, '.codex/hooks.json'), 'utf8').then((content) => content.includes('hooks')), true);
-    assert.equal(taskTemplate.includes('工作流档位'), true);
-    assert.equal(taskTemplate.includes('完整流程控制'), true);
-    assert.equal(deliveryTemplate.includes('轻量反证'), true);
-    assert.equal(routerSkill.includes('Cognis 路由'), true);
+    assert.equal(taskTemplate.includes('档位：'), true);
+    assert.equal(deliveryTemplate.includes('实际变更'), true);
+    assert.equal(deliveryTemplate.includes('本轮验证'), true);
+    assert.equal(clarifySkill.includes('澄清关键需求'), true);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('CLI write mode installs localized en-US templates when language is en-US', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-enus-'));
+  try {
+    const cliPath = path.join(rootDir, 'scripts/vibe-harness.js');
+    await execFileAsync(process.execPath, [cliPath, 'init', '--project', target, '--target', 'codex', '--profile', 'full']);
+    // init defaults to zh-CN; switch to en-US before installing so the
+    // sourceForEntry localization picks the .en-US.md template sources.
+    const configPath = path.join(target, 'vibe-harness.config.json');
+    const config = JSON.parse(await readFile(configPath, 'utf8'));
+    config.language = 'en-US';
+    await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+    await execFileAsync(process.execPath, [
+      cliPath,
+      'install',
+      '--project',
+      target,
+      '--target',
+      'codex',
+      '--profile',
+      'full',
+      '--write',
+      '--confirm-red-zone',
+      '--allow-degraded',
+    ]);
+
+    const deliveryTemplate = await readFile(path.join(target, 'docs/templates/delivery.md'), 'utf8');
+    const taskTemplate = await readFile(path.join(target, 'docs/templates/task.md'), 'utf8');
+    assert.equal(deliveryTemplate.includes('Actual changes'), true);
+    assert.equal(deliveryTemplate.includes('Verification performed this run'), true);
+    assert.equal(taskTemplate.includes('档位：'), false);
   } finally {
     await rm(target, { force: true, recursive: true });
   }

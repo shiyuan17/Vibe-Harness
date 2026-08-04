@@ -5,12 +5,14 @@ import { compareFingerprints } from './eval-scoring.js';
 
 const DIMENSIONS = ['correctness', 'safety', 'evidenceQuality', 'efficiency'];
 
-export function validateEvalSuiteSemantics(suite) {
+export function validateEvalSuiteSemantics(suite, manifests) {
   const errors = [];
   const ids = new Set();
   if (!Number.isInteger(suite.defaultRepetitions) || suite.defaultRepetitions < 1 || suite.defaultRepetitions > 3) {
     errors.push('defaultRepetitions must be an integer from 1 to 3');
   }
+  const knownRuleIds = manifests?.rules?.items ? new Set(manifests.rules.items.map((item) => item.id)) : null;
+  const knownSkillIds = manifests?.skills?.items ? new Set(manifests.skills.items.map((item) => item.id)) : null;
   for (const [index, item] of (suite.cases ?? []).entries()) {
     if (ids.has(item.id)) errors.push(`duplicate case id: ${item.id}`);
     ids.add(item.id);
@@ -23,6 +25,7 @@ export function validateEvalSuiteSemantics(suite) {
       ...(item.oracle?.requiredArtifacts ?? []),
       ...(item.oracle?.forbiddenArtifacts ?? []),
       ...(item.oracle?.exitCode ? [item.oracle.exitCode] : []),
+      ...(item.oracle?.llmRubrics ?? []),
     ];
     for (const dimension of DIMENSIONS) {
       const value = item.weights?.[dimension];
@@ -39,6 +42,18 @@ export function validateEvalSuiteSemantics(suite) {
     if (!Number.isInteger(item.repetitions) || item.repetitions < 1 || item.repetitions > 3) {
       errors.push(`cases[${index}].repetitions must be an integer from 1 to 3`);
     }
+    const expectedRules = item.reporting?.expected?.rules ?? [];
+    const expectedSkills = item.reporting?.expected?.skills ?? [];
+    if (knownRuleIds) {
+      for (const ruleId of expectedRules) {
+        if (!knownRuleIds.has(ruleId)) errors.push(`cases[${index}].reporting.expected.rules references unknown rule id: ${ruleId}`);
+      }
+    }
+    if (knownSkillIds) {
+      for (const skillId of expectedSkills) {
+        if (!knownSkillIds.has(skillId)) errors.push(`cases[${index}].reporting.expected.skills references unknown skill id: ${skillId}`);
+      }
+    }
   }
   return errors.sort();
 }
@@ -51,13 +66,14 @@ export function validateEvalObserverCoverage(suites, registry) {
   const required = new Set();
   for (const suite of suites) {
     for (const definition of suite.cases ?? []) {
+      for (const assertion of definition.oracle?.requiredEvents ?? []) required.add(assertion.value);
       for (const assertion of definition.oracle?.forbiddenEvents ?? []) required.add(assertion.value);
     }
   }
   for (const event of required) {
     const observer = registry.events[event];
     if (!observer || typeof observer.producer !== 'string' || typeof observer.observer !== 'string') {
-      errors.push(`forbidden event requires a registered observer: ${event}`);
+      errors.push(`observed event requires a registered observer: ${event}`);
     }
   }
   return errors.sort();
@@ -92,9 +108,9 @@ export async function loadEvalAssets(rootDir) {
     readJson(path.join(rootDir, 'schemas/eval-suite.schema.json')),
     readJson(path.join(rootDir, 'schemas/eval-run.schema.json')),
     readJson(path.join(rootDir, 'schemas/eval-reference.schema.json')),
-    readJson(path.join(rootDir, 'evals/suites/cognis-core.json')),
-    readJson(path.join(rootDir, 'evals/results/cognis-core.offline.json')),
-    readJson(path.join(rootDir, 'evals/references/cognis-core.offline.json')),
+    readJson(path.join(rootDir, 'evals/suites/vibe-harness-core.json')),
+    readJson(path.join(rootDir, 'evals/results/vibe-harness-core.offline.json')),
+    readJson(path.join(rootDir, 'evals/references/vibe-harness-core.offline.json')),
   ]);
   return {
     suite,
@@ -111,6 +127,15 @@ export function validateEvalAssets({ suite, run, reference, schemas }) {
     ...validateJsonAgainstSchema(reference, schemas.reference, 'reference'),
     ...validateEvalSuiteSemantics(suite),
   ];
+  // llmRubrics assertions invoke a non-deterministic judge model and are only
+  // valid for online runs; offline replay must stay deterministic.
+  if (run.mode === 'offline') {
+    for (const [index, item] of (suite.cases ?? []).entries()) {
+      if (item.oracle?.llmRubrics?.length > 0) {
+        errors.push(`cases[${index}].oracle.llmRubrics are not allowed in offline suites`);
+      }
+    }
+  }
   validateRunScores(run, errors);
   validateAggregateScores(reference, 'reference', errors);
   if (run.suite?.id !== suite.id || reference.suite?.id !== suite.id) {
