@@ -19,7 +19,7 @@
       "tests": ["tests/manifest-schema.test.js", "tests/skill-closure.test.js"],
       "profiles": ["core", "full"],
       "docs": ["docs/inventory/skills-optimization-zh.md"],
-      "evaluation": { "required": false, "reason": "Skill descriptions are validated directly; routing benchmarks are not a default gate." }
+      "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-core.json"] }
     },
     {
       "id": "goal-definition",
@@ -189,7 +189,7 @@
       "tests": ["tests/cross-platform-adapters.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
       "docs": ["README.md", "README.zh-CN.md"],
-      "evaluation": { "required": false, "reason": "Adapter file sets and lifecycle behavior are deterministic and verified on Linux and Windows." }
+      "evaluation": { "required": false, "reason": "Adapter file sets and lifecycle behavior are deterministic and verified on Linux and Windows. Adapters whose hooks capability is not stable or whose redZonePrefixes is empty run with a degraded runtime safety posture; this is surfaced explicitly by the DEGRADED_SAFETY_POSTURE warning in install, validate, and doctor." }
     },
     {
       "id": "project-business-contracts",
