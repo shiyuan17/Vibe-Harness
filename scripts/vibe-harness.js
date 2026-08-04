@@ -42,6 +42,7 @@ import {
 } from './lib/project-evaluation.js';
 import { parseModulesOption, parsePluginsOption } from './lib/module-selection.js';
 import { resolveAdapter } from './lib/adapter.js';
+import { safetyPostureWarnings } from './lib/safety-posture.js';
 import { readFile } from 'node:fs/promises';
 import {
   createToolProvisioningPlan,
@@ -373,12 +374,15 @@ async function install(args) {
     await registerGeneratedFile(targetDir, toolStateRelativePath(targetDir));
   }
   const health = provisionExecuted ? healthReport({ profile, tools }) : { ok: true, status: 'ready' };
-  const warnings = provisionExecuted
-    ? toolWarnings(tools)
-    : (plannedToolActions.length > 0 ? [{
-        code: 'PROVISIONING_NOT_RUN',
-        message: 'Tool provisioning was not run; use vibe-harness provision --project <project> --write.',
-      }] : []);
+  const warnings = [
+    ...(provisionExecuted
+      ? toolWarnings(tools)
+      : (plannedToolActions.length > 0 ? [{
+          code: 'PROVISIONING_NOT_RUN',
+          message: 'Tool provisioning was not run; use vibe-harness provision --project <project> --write.',
+        }] : [])),
+    ...safetyPostureWarnings(adapter),
+  ];
   emitReport({
     ...health,
     actions: args.verbose ? plan.actions : plan.actions.map(compactAction),
@@ -494,7 +498,7 @@ async function validate(args) {
       scope: 'project',
       ...(args.verbose ? { targetDir } : {}),
       tools,
-      warnings: toolWarnings(tools),
+      warnings: [...toolWarnings(tools), ...safetyPostureWarnings(adapter)],
     }, args);
     applyHealthExit(health.status, args);
     return;
@@ -839,6 +843,7 @@ async function doctor(args) {
         code: 'PROVISIONING_PROCESS_INCOMPLETE',
         message: `Provisioning process state is ${provisioningProcess.status}.`,
       }] : []),
+      ...safetyPostureWarnings(adapter),
     ],
   }, args);
   applyHealthExit(health.status, args);
