@@ -1,6 +1,6 @@
 {
   "name": "vibe-harness-codex-adapter",
-  "version": "0.5.0",
+  "version": "0.3.0",
   "description": "Codex adapter for Vibe-Harness internal reusable governance pack.",
   "entrypoints": {
     "agents": "AGENTS.template.md",
