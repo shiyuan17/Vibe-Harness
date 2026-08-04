@@ -42,7 +42,7 @@ Vibe-Harness 用来打包可复用的 AI coding 项目规则、领域 Skills、�
 ## 启动
 
 1. 先读取 `docs/rules/governance-core.md`；只有出现 Skill 或专项领域信号时再读取 `docs/rules/AGENT_SKILL_ROUTING.md` 和一个命中的专项规则。
-2.
+2. 读取 `docs/memory/` 的治理记忆（优先 `PROJECT_STATE.md`），按其与本地记忆库的优先级合并；本地记忆库恢复入口为 `.agents/memory/CURRENT.md`。
 3. 编辑前运行 `git status --short`，保护用户未归属改动。
 4. 使用仓库搜索和已安装规则定位相关代码；需要结构化索引时先确认目标项目已有能力。
 5. 将任务归为快速、轻量或完整，并选择与主张匹配的验证。
@@ -65,9 +65,7 @@ Vibe-Harness 用来打包可复用的 AI coding 项目规则、领域 Skills、�
 
 ## 已安装表面
 
-- Skill 分类：下述八个领域 Skills 是 full profile 的八个原生领域 Skills；当前另安装 browser-verification integration Skill，它不计入该数量。
-
-- 当前安装方式：完整能力安装（包含八个领域 Skills、可选 Eval 和 Codex 安全 Hook；memory 与外部工具仅通过 `--plugin` 显式启用）。
+- 当前安装方式：自定义能力模块安装。 当前另安装 integration Skills：agentmemory；它们不计入 profile 的原生领域 Skill 数量。
 - 需求澄清姿态：`balanced`（action-leaning 偏向采用最小可逆默认值直接推进；balanced 按规则判断；conservative 对跨模块或公共契约改动也倾向先确认）。
 
 - 规则位于 `docs/rules/`。
@@ -75,10 +73,11 @@ Vibe-Harness 用来打包可复用的 AI coding 项目规则、领域 Skills、�
 - 发布 / 设计 / 排障规则位于 `docs/rules/`。
 - 模板位于 `docs/templates/`。
 - Skills 位于 `.agents/skills/`。
+- agentmemory skills 位于 `.agents/skills/`，本地记忆库位于 `.agents/memory/`。
 
-- Codex hook 配置位于 `.codex/hooks.json`。
 
 宿主按 Skill description 原生选择一个当前阶段所需能力；不使用 Router 或流程 Skill 链。
 
 规则优先级：平台系统与用户本轮指令优先；目标项目明确的本地规则优先于 Vibe-Harness 默认规则；目录级规则只作用于其子树。同一层级冲突时停止并请求确认。
 <!-- VIBE_HARNESS:END -->
+
