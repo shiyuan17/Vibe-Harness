@@ -74,19 +74,36 @@ export async function readInstallState(targetDir) {
   if (errors.length) {
     throw new Error(`install-state.json is corrupt: ${errors.join('; ')}`);
   }
-  return { adapter: 'codex', ...state, profile: canonicalProfile(state.profile) };
+  const legacyAdapter = state.adapter ?? 'codex';
+  const targets = state.targets ?? [legacyAdapter];
+  const normalizeOwners = (items = []) => items.map((item) => ({
+    ...item,
+    owners: item.owners ?? ['adapter:' + legacyAdapter],
+  }));
+  return {
+    ...state,
+    adapter: legacyAdapter,
+    targets,
+    files: normalizeOwners(state.files),
+    generatedDirectories: normalizeOwners(state.generatedDirectories),
+    generatedFiles: normalizeOwners(state.generatedFiles),
+    retiredFiles: normalizeOwners(state.retiredFiles),
+    profile: canonicalProfile(state.profile),
+  };
 }
 
 export async function writeInstallState(targetDir, state) {
   const filePath = stateFilePath(targetDir);
   await assertSafePathInside(targetDir, filePath, 'install state');
   await mkdir(path.dirname(filePath), { recursive: true });
+  const { adapter: _legacyAdapter, ...canonicalState } = state;
+  void _legacyAdapter;
   const temporaryPath = `${filePath}.${randomUUID()}.tmp`;
   try {
     await writeFile(temporaryPath, `${JSON.stringify({
-      ...state,
+      ...canonicalState,
       product: 'vibe-harness',
-      stateVersion: 4,
+      stateVersion: 5,
       storageNamespace: 'vibe-harness',
     }, null, 2)}\n`, 'utf8');
     await renameAtomic(temporaryPath, filePath);
@@ -105,7 +122,7 @@ export async function registerGeneratedFile(targetDir, relativeTarget) {
   const state = await readInstallState(targetDir);
   if (!state) throw new Error('Cannot register generated file without install state.');
   const generatedFiles = (state.generatedFiles ?? []).filter((file) => file.target !== relativeTarget);
-  generatedFiles.push({ target: relativeTarget, targetHash: await hashFile(target) });
+  generatedFiles.push({ owners: ['shared'], target: relativeTarget, targetHash: await hashFile(target) });
   await writeInstallState(targetDir, { ...state, generatedFiles });
 }
 
@@ -447,10 +464,17 @@ export async function applyRollbackPlan(plan, hooks = {}) {
   }
 }
 
-export async function createUninstallPlan({ dryRun = true, redZoneConfirmed = false, targetDir }) {
+export async function createUninstallPlan({ allTargets = false, configUpdate = null, dryRun = true, redZoneConfirmed = false, target, targetDir }) {
   const state = await readInstallState(targetDir);
   if (!state) throw new Error(`No Vibe-Harness install state found in ${targetDir}`);
   const actions = [];
+  const targeted = Boolean(target) && !allTargets;
+  const targetOwner = targeted ? 'adapter:' + target : null;
+  const exclusivelyOwned = (item) => !targeted || item.owners.every((owner) => owner === targetOwner);
+  const selectedRetiredFiles = (state.retiredFiles ?? []).filter(exclusivelyOwned);
+  const selectedDirectories = (state.generatedDirectories ?? []).filter(exclusivelyOwned);
+  const selectedGeneratedFiles = (state.generatedFiles ?? []).filter(exclusivelyOwned);
+  const selectedFiles = (state.files ?? []).filter(exclusivelyOwned);
   const baselineBackups = new Map();
   if (state.baseline?.manifest) {
     assertPortableRelativePath(state.baseline.manifest, 'install baseline manifest');
@@ -464,7 +488,7 @@ export async function createUninstallPlan({ dryRun = true, redZoneConfirmed = fa
       baselineBackups.set(file.source, file.backup);
     }
   }
-  for (const file of state.retiredFiles ?? []) {
+  for (const file of selectedRetiredFiles) {
     assertPortableRelativePath(file.target, 'install-state retired target');
     assertPortableRelativePath(file.backup, 'install-state retired backup');
     assertInsideDir(targetDir, path.join(targetDir, file.target), 'install-state retired target');
@@ -477,7 +501,7 @@ export async function createUninstallPlan({ dryRun = true, redZoneConfirmed = fa
     });
   }
 
-  for (const directory of state.generatedDirectories ?? []) {
+  for (const directory of selectedDirectories) {
     assertPortableRelativePath(directory.target, 'install-state generated directory');
     assertPortableRelativePath(directory.ownerTarget, 'install-state generated directory owner');
     const target = path.join(targetDir, directory.target);
@@ -495,12 +519,12 @@ export async function createUninstallPlan({ dryRun = true, redZoneConfirmed = fa
       target: directory.target,
     });
   }
-  for (const file of state.generatedFiles ?? []) {
+  for (const file of selectedGeneratedFiles) {
     assertPortableRelativePath(file.target, 'install-state generated file');
     assertInsideDir(targetDir, path.join(targetDir, file.target), 'generated file');
     actions.push({ expectedHash: file.targetHash, kind: 'delete-generated-file', redZone: false, target: file.target });
   }
-  for (const file of [...state.files].reverse()) {
+  for (const file of [...selectedFiles].reverse()) {
     assertPortableRelativePath(file.target, 'install-state target');
     assertInsideDir(targetDir, path.join(targetDir, file.target), 'install-state target');
     const originalBackup = Object.hasOwn(file, 'originalBackup') ? file.originalBackup : file.backup;
@@ -552,7 +576,21 @@ export async function createUninstallPlan({ dryRun = true, redZoneConfirmed = fa
 
   await assertStateActionPathsSafe(targetDir, actions, 'uninstall');
 
-  return { actions, dryRun, redZoneConfirmed, state, targetDir, version: state.version };
+  const removeOwner = (items = []) => items.flatMap((item) => {
+    if (!targeted) return [];
+    const owners = item.owners.filter((owner) => owner !== targetOwner);
+    return owners.length > 0 ? [{ ...item, owners }] : [];
+  });
+  const remainingState = targeted ? {
+    ...state,
+    files: removeOwner(state.files),
+    generatedDirectories: removeOwner(state.generatedDirectories),
+    generatedFiles: removeOwner(state.generatedFiles),
+    retiredFiles: removeOwner(state.retiredFiles),
+    targets: state.targets.filter((item) => item !== target),
+  } : null;
+
+  return { actions, allTargets, configUpdate, dryRun, redZoneConfirmed, remainingState, state, target, targetDir, version: state.version };
 }
 
 async function applyUninstallAction(plan, action) {
@@ -692,6 +730,7 @@ export async function applyUninstallPlan(plan, hooks = {}) {
     trackedPaths: [
       ...plan.actions.map((action) => path.join(plan.targetDir, action.target)),
       stateFilePath(plan.targetDir),
+      ...(plan.configUpdate ? [plan.configUpdate.path] : []),
     ],
   });
 
@@ -706,6 +745,15 @@ export async function applyUninstallPlan(plan, hooks = {}) {
       await pruneEmptyAncestors(path.dirname(path.join(plan.targetDir, action.target)), plan.targetDir);
     }
     await hooks.afterAction?.({ action, applied, skipped });
+  }
+
+  if (skipped.length === 0 && plan.remainingState) {
+    if (plan.configUpdate) {
+      await writeFile(plan.configUpdate.path, JSON.stringify(plan.configUpdate.config, null, 2) + '\n', 'utf8');
+    }
+    await writeInstallState(plan.targetDir, plan.remainingState);
+    await transaction.commit();
+    return { applied, retainedState: true, skipped };
   }
 
   if (skipped.length === 0) {

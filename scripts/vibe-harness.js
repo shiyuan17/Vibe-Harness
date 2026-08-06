@@ -17,6 +17,8 @@ import { pathExists, readJson } from './lib/manifest.js';
 import {
   applyInstallPlan,
   createInstallPlan,
+  createMultiTargetInstallPlan,
+  diffMultiTargetInstall,
   diffTargetInstall,
   inspectTargetInstall,
   previewInstallPlan,
@@ -31,6 +33,8 @@ import {
   validateProjectConfig,
   validateProjectConfigWithSchema,
   mvpTargets,
+  migrateLegacyProjectConfig,
+  projectTargets,
   validateProfileName,
   writeDefaultProjectConfig,
 } from './lib/project-config.js';
@@ -53,6 +57,7 @@ import {
 } from './lib/tool-provisioning.js';
 import { inspectTransactions, recoverTransaction } from './lib/file-transaction.js';
 import { assertNoUnsupportedLegacyAssets } from './lib/project-layout.js';
+import { findNestedInstallations, nestedInstallMigrationCommands } from './lib/nested-install.js';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -115,9 +120,18 @@ function normalizeReport(report) {
 function compactTargetReport(report) {
   if (!report) return report;
   return {
+    adapters: Object.fromEntries(Object.entries(report.adapters ?? {}).map(([id, item]) => [id, {
+      missingCapabilities: item.missingCapabilities ?? [],
+      ok: item.ok,
+      previewCapabilities: item.previewCapabilities ?? [],
+      status: item.status,
+    }])),
+    changed: (report.changed ?? []).map(({ target }) => ({ target })),
+    missing: (report.missing ?? []).map(({ target }) => ({ target })),
     ok: report.ok,
     profile: report.profile,
     redZone: (report.redZone ?? []).map(({ status, target }) => ({ status, target })),
+    staleProjections: report.staleProjections ?? [],
     summary: report.summary ? {
       changedCount: report.summary.changedCount,
       missingCount: report.summary.missingCount,
@@ -222,6 +236,18 @@ function parseArgs(argv) {
   return args;
 }
 
+function resolveCommandTargets(config, state, requestedTarget) {
+  const configured = projectTargets(config);
+  const installed = state?.targets ?? [];
+  if (requestedTarget) {
+    if (!configured.includes(requestedTarget) && !installed.includes(requestedTarget)) {
+      throw new Error('CLI target ' + requestedTarget + ' is not configured or installed for this project.');
+    }
+    return { configured, selected: [requestedTarget] };
+  }
+  return { configured, selected: configured };
+}
+
 async function projectRequestedModules(config, targetDir) {
   if (config.modules) return config.modules;
   return (await readInstallState(targetDir))?.requestedModules ?? undefined;
@@ -238,13 +264,13 @@ function parseRtkHooksOption(value) {
   throw new Error('--rtk-hooks must be on or off.');
 }
 
-function resolveRtkHooksEnabled({ adapterId, args = {}, config, installState, requestedPlugins = [] }) {
+function resolveRtkHooksEnabled({ adapterId, args = {}, config, installState, requestedPlugins = [], targets = [adapterId] }) {
   const configured = Object.hasOwn(config.hooks?.rtk ?? {}, 'enabled');
   let enabled;
   if (args['rtk-hooks'] !== undefined) enabled = parseRtkHooksOption(args['rtk-hooks']);
   else if (configured) enabled = config.hooks.rtk.enabled;
   else enabled = Boolean(installState?.rtkHooksEnabled && requestedPlugins.includes('rtk'));
-  if (enabled && adapterId !== 'codex') {
+  if (enabled && !targets.includes('codex')) {
     throw new Error('RTK hooks are only supported for the codex target.');
   }
   if (enabled && !requestedPlugins.includes('rtk')) {
@@ -260,7 +286,7 @@ async function init(args) {
     force: Boolean(args.force),
     profile: args.profile ?? existingState?.profile ?? 'core',
     projectDir,
-    target: args.target ?? existingState?.adapter ?? 'codex',
+    target: args.target ?? existingState?.targets?.[0] ?? 'codex',
   });
   console.log(JSON.stringify({
     config: result.config,
@@ -282,7 +308,7 @@ async function install(args) {
   if (
     existingState
     && !args.upgrade
-    && (existingState.stateVersion !== 4 || existingState.product !== 'vibe-harness')
+    && (existingState.stateVersion !== 5 || existingState.product !== 'vibe-harness')
   ) {
     throw Object.assign(new Error('Pre-v4 install state requires vibe-harness install --upgrade.'), {
       code: 'VIBE_HARNESS_STATE_MIGRATION_REQUIRED',
@@ -290,21 +316,23 @@ async function install(args) {
   }
   const sourceConfig = await readRequiredProjectConfig(targetDir);
   const config = sourceConfig;
-  const adapterId = args.target ?? config.target;
-  if (args.target && args.target !== config.target) {
+  const { configured: targets, selected: selectedTargets } = resolveCommandTargets(config, existingState, args.target);
+  const adapterId = selectedTargets[0];
+  if (args.target && !targets.includes(args.target) && !existingState?.targets?.includes(args.target)) {
     throw new Error(`CLI target ${args.target} does not match vibe-harness.config.json target ${config.target}.`);
   }
   const adapter = await resolveAdapter(rootDir, adapterId);
   const requestedProfile = args.profile ?? config.profile;
   const profile = validateProfileName(requestedProfile);
-  validateProjectConfigWithSchema({ ...config, profile, target: args.target ?? config.target });
+  validateProjectConfigWithSchema({ ...config, profile });
   const projectProfile = await detectProjectProfile({ config, targetDir });
   const validationCommands = resolveValidationCommands(config, projectProfile);
   const renderData = {
     ...config,
     profile,
     projectProfile,
-    target: args.target ?? config.target,
+    target: adapterId,
+    targets,
     validationCommands,
   };
   const requestedModules = args.modules !== undefined
@@ -319,10 +347,15 @@ async function install(args) {
     config,
     installState: existingState,
     requestedPlugins: requestedPlugins ?? [],
+    targets,
   });
 
-  const plan = await createInstallPlan({
-    adapterId,
+  const migratedConfig = migrateLegacyProjectConfig(config);
+  const configUpdate = Object.hasOwn(config, 'target') && args.upgrade
+    ? { config: migratedConfig, path: path.join(targetDir, 'vibe-harness.config.json') }
+    : null;
+  const plan = await createMultiTargetInstallPlan({
+    configUpdate,
     allowPreview: Boolean(args['allow-preview']),
     dryRun: dryRunRequested,
     force: Boolean(args.force),
@@ -333,7 +366,9 @@ async function install(args) {
     rtkHooksEnabled,
     renderData,
     rootDir,
+    selectedTargets,
     targetDir,
+    targets,
     upgrade: Boolean(args.upgrade),
   });
   const agentsTemplate = await readFile(path.join(rootDir, `adapters/${adapter.id}/${adapter.instructionTemplate}.template.md`), 'utf8');
@@ -405,7 +440,8 @@ async function install(args) {
     requiresRedZoneConfirmation: plan.dryRun
       && !args['confirm-red-zone']
       && plan.actions.some((action) => action.redZone && action.kind === 'write'),
-    target: isMvpMode ? adapterId : undefined,
+    target: isMvpMode && selectedTargets.length === 1 ? adapterId : undefined,
+    targets: selectedTargets,
     ...(args.verbose ? { targetDir: plan.targetDir } : {}),
     tools,
     recommendations: toolRecommendations(tools, profile, { adapterId, mvp: isMvpMode }),
@@ -422,23 +458,24 @@ async function validate(args) {
     const targetDir = path.resolve(args.project);
     const config = await readRequiredProjectConfig(targetDir);
     const installState = await readInstallState(targetDir);
-    if (args.target && args.target !== config.target) {
+    const { configured: targets, selected: selectedTargets } = resolveCommandTargets(config, installState, args.target);
+    if (args.target && !targets.includes(args.target) && !installState?.targets?.includes(args.target)) {
       throw new Error(`CLI target ${args.target} does not match vibe-harness.config.json target ${config.target}.`);
     }
     const requestedModules = await projectRequestedModules(config, targetDir);
     const requestedPlugins = await projectRequestedPlugins(config, targetDir);
     validateProjectConfig(config);
-    const adapter = await resolveAdapter(rootDir, config.target);
+    const adapter = await resolveAdapter(rootDir, selectedTargets[0]);
     const rtkHooksEnabled = resolveRtkHooksEnabled({
       adapterId: adapter.id,
       config,
       installState,
       requestedPlugins: requestedPlugins ?? [],
+      targets,
     });
     const projectProfile = await detectProjectProfile({ config, targetDir });
     const validationCommands = resolveValidationCommands(config, projectProfile);
-    const plan = await createInstallPlan({
-      adapterId: adapter.id,
+    const plan = await createMultiTargetInstallPlan({
       allowPreview: true,
       dryRun: true,
       force: true,
@@ -449,14 +486,16 @@ async function validate(args) {
       rtkHooksEnabled,
       renderData: { ...config, projectProfile, validationCommands },
       rootDir,
+      selectedTargets,
       targetDir,
+      targets,
     });
     const agentsTemplate = await readFile(path.join(rootDir, `adapters/${adapter.id}/${adapter.instructionTemplate}.template.md`), 'utf8');
     const installedTargets = plan.actions.map((action) => action.relativeTarget);
     validateConfigAndGeneratedContent({ ...config, projectProfile, validationCommands }, agentsTemplate, { installedTargets });
     validateConfigAndGeneratedContent(plan.renderData, agentsTemplate, { installedTargets });
-    const target = await inspectTargetInstall({
-      adapterId: adapter.id,
+    const target = await diffMultiTargetInstall({
+      allowPreview: true,
       managedAgentsBlock: true,
       profile: config.profile,
       requestedModules,
@@ -464,7 +503,9 @@ async function validate(args) {
       rtkHooksEnabled,
       renderData: { ...config, projectProfile, validationCommands },
       rootDir,
+      selectedTargets,
       targetDir,
+      targets,
     });
     if (!target.ok) {
       emitReport({
@@ -496,6 +537,7 @@ async function validate(args) {
       recommendations: toolRecommendations(tools, config.profile, { adapterId: adapter.id, mvp: true }),
       rtkHooks: rtkHooksReport(rtkHooksEnabled, tools),
       scope: 'project',
+      targets: selectedTargets,
       ...(args.verbose ? { targetDir } : {}),
       tools,
       warnings: [...toolWarnings(tools), ...safetyPostureWarnings(adapter)],
@@ -520,24 +562,26 @@ async function verify(args) {
   const targetDir = path.resolve(args.project);
   const config = await readRequiredProjectConfig(targetDir);
   const installState = await readInstallState(targetDir);
-  if (args.target && args.target !== config.target) {
+  const { configured: targets, selected: selectedTargets } = resolveCommandTargets(config, installState, args.target);
+  if (args.target && !targets.includes(args.target) && !installState?.targets?.includes(args.target)) {
     throw new Error(`CLI target ${args.target} does not match vibe-harness.config.json target ${config.target}.`);
   }
   const requestedModules = await projectRequestedModules(config, targetDir);
   const requestedPlugins = await projectRequestedPlugins(config, targetDir);
   validateProjectConfig(config);
-  const adapter = await resolveAdapter(rootDir, config.target);
+  const adapter = await resolveAdapter(rootDir, selectedTargets[0]);
   const rtkHooksEnabled = resolveRtkHooksEnabled({
     adapterId: adapter.id,
     config,
     installState,
     requestedPlugins: requestedPlugins ?? [],
+    targets,
   });
   const projectProfile = await detectProjectProfile({ config, targetDir });
   const validationCommands = resolveValidationCommands(config, projectProfile);
   const renderData = { ...config, projectProfile, validationCommands };
-  const target = await inspectTargetInstall({
-    adapterId: adapter.id,
+  const target = await diffMultiTargetInstall({
+    allowPreview: true,
     managedAgentsBlock: true,
     profile: config.profile,
     requestedModules,
@@ -545,7 +589,9 @@ async function verify(args) {
     rtkHooksEnabled,
     renderData,
     rootDir,
+    selectedTargets,
     targetDir,
+    targets,
   });
   if (!target.ok) {
     const error = new Error('Project installation is not consistent; run vibe-harness validate --project first.');
@@ -593,7 +639,8 @@ async function baseline(args) {
     });
   }
   const projectProfile = await detectProjectProfile({ config, targetDir });
-  const adapter = await resolveAdapter(rootDir, config.target);
+  const targets = projectTargets(config);
+  const adapter = await resolveAdapter(rootDir, targets[0]);
   let installState;
   let requestedModules;
   let requestedPlugins;
@@ -613,11 +660,12 @@ async function baseline(args) {
     config,
     installState,
     requestedPlugins: requestedPlugins ?? [],
+    targets,
   });
   const validationCommands = resolveValidationCommands(config, projectProfile);
   const renderData = { ...config, projectProfile, validationCommands };
-  const target = await inspectTargetInstall({
-    adapterId: adapter.id,
+  const target = await diffMultiTargetInstall({
+    allowPreview: true,
     managedAgentsBlock: true,
     profile: config.profile,
     requestedModules,
@@ -626,6 +674,7 @@ async function baseline(args) {
     renderData,
     rootDir,
     targetDir,
+    targets,
   });
   const inputs = await collectProjectBaselineInputs({
     config,
@@ -769,7 +818,8 @@ async function doctor(args) {
   const targetDir = path.resolve(args.project);
   const installState = await readInstallState(targetDir);
   const config = await readRequiredProjectConfig(targetDir);
-  if (args.target && args.target !== config.target) {
+  const { configured: targets, selected: selectedTargets } = resolveCommandTargets(config, installState, args.target);
+  if (args.target && !targets.includes(args.target) && !installState?.targets?.includes(args.target)) {
     throw new Error(`CLI target ${args.target} does not match vibe-harness.config.json target ${config.target}.`);
   }
   validateProjectConfig(config);
@@ -778,10 +828,11 @@ async function doctor(args) {
     ? parsePluginsOption(config.plugins)
     : (installState?.requestedPlugins ?? []);
   const rtkHooksEnabled = resolveRtkHooksEnabled({
-    adapterId: args.target ?? installState?.adapter ?? config.target,
+    adapterId: selectedTargets[0],
     config,
     installState,
     requestedPlugins,
+    targets,
   });
   const managedAgentsBlock = installState?.files?.some(
     (file) => ['managed-block', 'managed-instruction-block'].includes(file.contentStrategy),
@@ -792,24 +843,27 @@ async function doctor(args) {
     const validationCommands = resolveValidationCommands(config, projectProfile);
     renderData = { ...config, profile, projectProfile, validationCommands };
   }
-  const adapter = await resolveAdapter(rootDir, args.target ?? installState?.adapter ?? config.target);
-  const [pack, gitHooks, provisioningProcess, transactions, transactionLock] = await Promise.all([
+  const adapter = await resolveAdapter(rootDir, selectedTargets[0]);
+  const [pack, gitHooks, nestedInstallations, provisioningProcess, transactions, transactionLock] = await Promise.all([
     validatePack(rootDir),
     inspectGitHooks(targetDir),
+    findNestedInstallations(targetDir),
     inspectProvisioningMarker(targetDir),
     inspectTransactions(targetDir),
     pathExists(path.join(path.dirname(stateFilePath(targetDir)), 'transaction.lock')),
   ]);
-  let target = await inspectTargetInstall({
+  let target = await diffMultiTargetInstall({
+    allowPreview: true,
     managedAgentsBlock: true,
-    adapterId: args.target ?? installState?.adapter ?? config.target,
     profile,
     requestedModules: installState?.requestedModules,
     requestedPlugins,
     rtkHooksEnabled,
     renderData,
     rootDir,
+    selectedTargets,
     targetDir,
+    targets,
   });
   const tools = await inspectProfileTools(profile, targetDir, installState?.resolvedModules, undefined, {
     allowPreview: true,
@@ -821,6 +875,10 @@ async function doctor(args) {
   emitReport({
     ...health,
     gitHooks,
+    nestedInstallations,
+    nestedInstallMigration: nestedInstallations.length > 0
+      ? nestedInstallMigrationCommands(targetDir, nestedInstallations)
+      : [],
     pack,
     previewCapabilities: installState?.previewCapabilities ?? [],
     requestedPlugins,
@@ -834,7 +892,7 @@ async function doctor(args) {
     transactionLock,
     transactions,
     recommendations: toolRecommendations(tools, profile, {
-      adapterId: installState?.adapter ?? 'codex',
+      adapterId: selectedTargets[0],
       mvp: true,
     }),
     warnings: [
@@ -843,8 +901,13 @@ async function doctor(args) {
         code: 'PROVISIONING_PROCESS_INCOMPLETE',
         message: `Provisioning process state is ${provisioningProcess.status}.`,
       }] : []),
+      ...(nestedInstallations.length > 0 ? [{
+        code: 'NESTED_INSTALLATIONS_FOUND',
+        message: nestedInstallations.length + ' nested Vibe-Harness installation(s) require explicit migration and uninstall.',
+      }] : []),
       ...safetyPostureWarnings(adapter),
     ],
+    targets: selectedTargets,
   }, args);
   applyHealthExit(health.status, args);
 }
@@ -854,7 +917,8 @@ async function diff(args) {
   const targetDir = path.resolve(args.project);
   const config = await readRequiredProjectConfig(targetDir);
   const installState = await readInstallState(targetDir);
-  if (args.target && args.target !== config.target) {
+  const { configured: targets, selected: selectedTargets } = resolveCommandTargets(config, installState, args.target);
+  if (args.target && !targets.includes(args.target) && !installState?.targets?.includes(args.target)) {
     throw new Error(`CLI target ${args.target} does not match vibe-harness.config.json target ${config.target}.`);
   }
   validateProjectConfig(config);
@@ -866,13 +930,14 @@ async function diff(args) {
     ? parsePluginsOption(config.plugins)
     : (installState?.requestedPlugins ?? []);
   const rtkHooksEnabled = resolveRtkHooksEnabled({
-    adapterId: args.target ?? config.target,
+    adapterId: selectedTargets[0],
     config,
     installState,
     requestedPlugins,
+    targets,
   });
-  const report = await diffTargetInstall({
-    adapterId: args.target ?? config.target,
+  const report = await diffMultiTargetInstall({
+    allowPreview: true,
     managedAgentsBlock: true,
     profile,
     requestedModules: config.modules ?? installState?.requestedModules,
@@ -880,7 +945,9 @@ async function diff(args) {
     rtkHooksEnabled,
     renderData,
     rootDir,
+    selectedTargets,
     targetDir,
+    targets,
   });
   console.log(JSON.stringify(report, null, 2));
 }
@@ -890,7 +957,10 @@ async function rollback(args) {
   if (args.target) {
     const state = await readInstallState(path.resolve(args.project));
     if (!state) throw new Error(`No Vibe-Harness install state found in ${path.resolve(args.project)}`);
-    if (state.adapter !== args.target) {
+    if (!state.targets.includes(args.target)) {
+      throw new Error('CLI target ' + args.target + ' is not present in installed targets: ' + state.targets.join(', ') + '.');
+    }
+    if (!state.targets.includes(args.target)) {
       throw new Error(`CLI target ${args.target} does not match installed adapter ${state.adapter}.`);
     }
   }
@@ -916,22 +986,41 @@ async function uninstall(args) {
   if (!args.project) throw new Error('uninstall requires --project <path>.');
   const targetDir = path.resolve(args.project);
   const config = await readRequiredProjectConfig(targetDir);
-  const adapter = await resolveAdapter(rootDir, args.target ?? config.target);
-  if (args.target && args.target !== config.target) {
+  const state = await readInstallState(targetDir);
+  if (!state) throw new Error('No Vibe-Harness install state found in the project.');
+  if (Boolean(args.target) === Boolean(args['all-targets'])) {
+    throw new Error('Use --target <adapter> for one projection or --all-targets for the complete installation.');
+  }
+  const configuredTargets = projectTargets(config);
+  const adapter = await resolveAdapter(rootDir, args.target ?? state.targets[0]);
+  if (args.target && !state.targets.includes(args.target)) {
+    throw new Error('CLI target ' + args.target + ' is not present in installed targets: ' + state.targets.join(', ') + '.');
+  }
+  if (args.target && !state.targets.includes(args.target)) {
     throw new Error(`CLI target ${args.target} does not match vibe-harness.config.json target ${config.target}.`);
   }
-  const state = await readInstallState(targetDir);
-  if (state && state.adapter !== adapter.id) {
+  if (state && !state.targets.includes(adapter.id)) {
     throw new Error(`Installed adapter ${state.adapter} does not match uninstall target ${adapter.id}.`);
   }
   if (args.write && args['dry-run']) throw new Error('Use --write or --dry-run, not both.');
-  const allowedOptions = new Set(['_', 'confirm-red-zone', 'dry-run', 'project', 'target', 'write']);
+  if (args.target && state.targets.length === 1) {
+    throw new Error('The final target must be removed with --all-targets.');
+  }
+  const allowedOptions = new Set(['_', 'all-targets', 'confirm-red-zone', 'dry-run', 'project', 'target', 'write']);
   const unknownOption = Object.keys(args).find((key) => !allowedOptions.has(key));
   if (unknownOption) throw new Error(`Unknown uninstall option: --${unknownOption}`);
 
+  const canonicalConfig = migrateLegacyProjectConfig(config);
+  const configUpdate = args.target ? {
+    config: { ...canonicalConfig, targets: configuredTargets.filter((item) => item !== args.target) },
+    path: path.join(targetDir, 'vibe-harness.config.json'),
+  } : null;
   const plan = await createUninstallPlan({
+    allTargets: Boolean(args['all-targets']),
+    configUpdate,
     dryRun: !args.write,
     redZoneConfirmed: Boolean(args['confirm-red-zone']),
+    target: args.target,
     targetDir,
   });
   const result = await applyUninstallPlan(plan);
@@ -941,7 +1030,8 @@ async function uninstall(args) {
     dryRun: plan.dryRun,
     retainedState: result.retainedState,
     skipped: result.skipped,
-    target: adapter.id,
+    target: args.target,
+    targets: args['all-targets'] ? state.targets : state.targets.filter((item) => item !== args.target),
     targetDir: plan.targetDir,
   }, null, 2));
   if (result.skipped.length > 0) process.exitCode = 2;
@@ -977,8 +1067,12 @@ async function provision(args) {
   const config = await readRequiredProjectConfig(targetDir);
   const state = await readInstallState(targetDir);
   if (!state) throw new Error(`No Vibe-Harness install state found in ${targetDir}; run install first.`);
-  const adapterId = args.target ?? state.adapter ?? config.target;
-  if (adapterId !== config.target || adapterId !== state.adapter) {
+  const configuredTargets = projectTargets(config);
+  const adapterId = args.target ?? state.targets[0];
+  if (!configuredTargets.includes(adapterId) || !state.targets.includes(adapterId)) {
+    throw new Error('Provision target ' + adapterId + ' must be present in both configured and installed targets.');
+  }
+  if (!configuredTargets.includes(adapterId) || !state.targets.includes(adapterId)) {
     throw new Error(`Provision target ${adapterId} does not match installed adapter ${state.adapter}.`);
   }
   const profile = validateProfileName(args.profile ?? state.profile);
@@ -1017,6 +1111,7 @@ async function provision(args) {
     profile,
     recommendations: toolRecommendations(tools, profile, { adapterId }),
     target: adapterId,
+    targets: state.targets,
     tools,
     warnings: dryRun ? [] : toolWarnings(tools),
   }, args);
@@ -1045,7 +1140,7 @@ async function recover(args) {
 }
 
 async function printUsage() {
-  console.log('Usage: vibe-harness <init|install|provision|recover|uninstall|validate|verify|baseline|eval|doctor|diff|rollback> [--project path] [--target codex|claude|gemini|cursor|qoder|zcode] [--profile minimal|core|full|docs-only] [--modules list] [--plugin -all|-rtk ast-grep ...] [--rtk-hooks on|off] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--force] [--upgrade] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded]');
+  console.log('Usage: vibe-harness <init|install|provision|recover|uninstall|validate|verify|baseline|eval|doctor|diff|rollback> [--project path] [--target codex|claude|gemini|cursor|qoder|zcode|antigravity] [--all-targets] [--profile minimal|core|full|docs-only] [--modules list] [--plugin -all|-rtk ast-grep ...] [--rtk-hooks on|off] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--force] [--upgrade] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded]');
   console.log('All project commands use --project <path>; --target selects an adapter and --write performs mutations. Legacy --apply and path-valued --target are removed.');
 }
 
@@ -1067,7 +1162,7 @@ async function main() {
   }
   if (args.profile) validateProfileName(args.profile);
   if (args.target && !mvpTargets.has(args.target)) {
-    const error = new Error('--target only accepts adapter ids codex|claude|gemini|cursor|qoder|zcode; use --project <path> for a project path.');
+    const error = new Error('--target only accepts adapter ids codex|claude|gemini|cursor|qoder|zcode|antigravity; use --project <path> for a project path.');
     if (command === 'baseline') error.code = 'BASELINE_PROJECT_REQUIRED';
     throw error;
   }

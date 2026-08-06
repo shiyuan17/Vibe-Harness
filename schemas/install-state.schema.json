@@ -1,11 +1,17 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Vibe-Harness Install State",
-  "description": "Validates the structural integrity of install-state.json. Required fields are limited to those that readInstallState and uninstall/rollback logic depend on. Legacy states produced before stateVersion 4 may lack installedAt/product/storageNamespace or carry older stateVersion values; they are tolerated on read so init/upgrade can migrate them. writeInstallState always normalizes product/stateVersion/storageNamespace to the canonical values.",
+  "description": "Validates install-state.json. Legacy states remain readable for migration. Canonical stateVersion 5 writes targets instead of adapter and records shared or adapter-scoped owners for managed and generated assets.",
   "type": "object",
   "required": ["files", "profile", "version"],
   "properties": {
     "adapter": { "type": "string", "minLength": 1 },
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
     "baseline": {
       "anyOf": [
         {
@@ -45,6 +51,12 @@
           "originalBackup": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
           "originalCreated": { "type": "boolean" },
           "owner": { "type": "string", "minLength": 1 },
+          "owners": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "string", "pattern": "^(shared|adapter:[a-z0-9-]+)$" }
+          },
           "previousHash": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
           "redZone": { "type": "boolean" },
           "source": { "type": "string", "minLength": 1 },
@@ -64,7 +76,13 @@
         "properties": {
           "target": { "type": "string", "minLength": 1 },
           "ownerTarget": { "type": "string", "minLength": 1 },
-          "projectScoped": { "type": "boolean" }
+          "projectScoped": { "type": "boolean" },
+          "owners": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "string", "pattern": "^(shared|adapter:[a-z0-9-]+)$" }
+          }
         },
         "additionalProperties": false
       }
@@ -76,7 +94,13 @@
         "required": ["target", "targetHash"],
         "properties": {
           "target": { "type": "string", "minLength": 1 },
-          "targetHash": { "type": "string", "minLength": 1 }
+          "targetHash": { "type": "string", "minLength": 1 },
+          "owners": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "string", "pattern": "^(shared|adapter:[a-z0-9-]+)$" }
+          }
         },
         "additionalProperties": false
       }
@@ -112,7 +136,13 @@
           "group": { "type": "string", "minLength": 1 },
           "redZone": { "type": "boolean" },
           "target": { "type": "string", "minLength": 1 },
-          "targetHash": { "type": "string", "minLength": 1 }
+          "targetHash": { "type": "string", "minLength": 1 },
+          "owners": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "string", "pattern": "^(shared|adapter:[a-z0-9-]+)$" }
+          }
         },
         "additionalProperties": false
       }

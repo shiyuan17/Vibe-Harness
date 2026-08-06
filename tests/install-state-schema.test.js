@@ -1,7 +1,7 @@
 import './helpers/offline-tools.js';
 
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -81,7 +81,8 @@ test('readInstallState accepts a well-formed state written by writeInstallState'
     const state = await readInstallState(target);
     assert.equal(state.product, 'vibe-harness');
     assert.equal(state.storageNamespace, 'vibe-harness');
-    assert.equal(state.stateVersion, 4);
+    assert.equal(state.stateVersion, 5);
+    assert.deepEqual(state.targets, ['codex']);
     assert.equal(state.files.length, 2);
     assert.equal(state.files[0].contentStrategy, 'managed-instruction-block');
   } finally {
@@ -161,6 +162,37 @@ test('readInstallState tolerates a legacy pre-v4 state for migration', async () 
     const state = await readInstallState(target);
     assert.equal(state.stateVersion, 2);
     assert.equal(state.profile, 'full');
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('state v4 migrates adapter ownership to canonical state v5 targets and owners', async () => {
+  const target = await makeTempDir();
+  try {
+    const legacy = {
+      adapter: 'codex',
+      files: [{ ...validState.files[0] }],
+      generatedDirectories: [{ ...validState.generatedDirectories[0] }],
+      generatedFiles: [{ ...validState.generatedFiles[0] }],
+      installedAt: validState.installedAt,
+      profile: 'full',
+      retiredFiles: [{ ...validState.retiredFiles[0] }],
+      stateVersion: 4,
+      version: validState.version,
+    };
+    await writeCorruptState(target, legacy);
+    const migrated = await readInstallState(target);
+    assert.deepEqual(migrated.targets, ['codex']);
+    for (const collection of ['files', 'generatedDirectories', 'generatedFiles', 'retiredFiles']) {
+      assert.deepEqual(migrated[collection][0].owners, ['adapter:codex']);
+    }
+
+    await writeInstallState(target, migrated);
+    const persisted = JSON.parse(await readFile(path.join(target, '.vibe-harness/install-state.json'), 'utf8'));
+    assert.equal(persisted.stateVersion, 5);
+    assert.deepEqual(persisted.targets, ['codex']);
+    assert.equal(Object.hasOwn(persisted, 'adapter'), false);
   } finally {
     await rm(target, { force: true, recursive: true });
   }

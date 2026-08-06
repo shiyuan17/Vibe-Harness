@@ -64,7 +64,7 @@ test('init --project writes the MVP vibe-harness.config.json defaults', async ()
     assert.equal(config.projectName, path.basename(target));
     assert.equal(config.language, 'zh-CN');
     assert.equal(config.packageManager, 'pnpm');
-    assert.equal(config.target, 'codex');
+    assert.deepEqual(config.targets, ['codex']);
     assert.equal(config.profile, 'core');
     assert.equal(config.validationCommands.lint, null);
     assert.equal(config.validationCommands.typecheck, null);

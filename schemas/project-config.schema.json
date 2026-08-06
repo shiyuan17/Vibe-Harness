@@ -2,12 +2,18 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Vibe-Harness 项目配置",
   "type": "object",
-  "required": ["projectName", "language", "packageManager", "target", "profile", "validationCommands"],
+  "required": ["projectName", "language", "packageManager", "profile", "validationCommands"],
   "properties": {
     "projectName": { "type": "string", "minLength": 1 },
     "language": { "type": "string", "enum": ["zh-CN", "en-US"] },
     "packageManager": { "type": "string", "minLength": 1 },
-    "target": { "type": "string", "enum": ["codex", "claude", "gemini", "cursor", "qoder", "zcode"] },
+    "target": { "type": "string", "enum": ["codex", "claude", "gemini", "cursor", "qoder", "zcode", "antigravity"] },
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "enum": ["codex", "claude", "gemini", "cursor", "qoder", "zcode", "antigravity"] }
+    },
     "profile": { "type": "string", "enum": ["minimal", "core", "full", "docs-only"] },
     "modules": {
       "type": "array",

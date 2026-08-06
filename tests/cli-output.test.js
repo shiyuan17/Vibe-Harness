@@ -109,12 +109,12 @@ test('project commands reject adapter targets that conflict with project state',
 
     for (const command of ['validate', 'verify', 'doctor', 'diff']) {
       const result = await fail([command, '--project', target, '--target', 'claude']);
-      assert.match(result.report.error.message, /target claude does not match[\s\S]*codex/iu);
+      assert.match(result.report.error.message, /target claude is not configured or installed/iu);
     }
 
     await run(['install', '--project', target, '--target', 'codex', '--profile', 'core', '--write']);
     const rollback = await fail(['rollback', '--project', target, '--target', 'claude']);
-    assert.match(rollback.report.error.message, /target claude does not match installed adapter codex/iu);
+    assert.match(rollback.report.error.message, /target claude is not present in installed targets: codex/iu);
   } finally {
     await rm(target, { force: true, recursive: true });
   }

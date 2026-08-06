@@ -8,7 +8,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
 
-import { applyInstallPlan, createInstallPlan } from '../scripts/lib/install-planner.js';
+import { applyInstallPlan, createInstallPlan, createMultiTargetInstallPlan } from '../scripts/lib/install-planner.js';
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '..');
@@ -139,6 +139,47 @@ test('failed install rolls back every file before install state is committed', a
     assert.equal(await readFile(path.join(target, 'AGENTS.md'), 'utf8'), 'user-owned content\n');
     await assert.rejects(readFile(path.join(target, 'docs/rules/governance-core.md'), 'utf8'), /ENOENT/);
     await assert.rejects(readFile(path.join(target, '.vibe-harness/install-state.json'), 'utf8'), /ENOENT/);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('multi-target install rolls back every projection and config migration as one transaction', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-multi-transaction-failure-'));
+  const configPath = path.join(target, 'vibe-harness.config.json');
+  const legacyConfig = JSON.stringify({ profile: 'core', target: 'codex' }, null, 2) + '\n';
+  try {
+    await writeFile(path.join(target, 'AGENTS.md'), 'local agents\n', 'utf8');
+    await writeFile(path.join(target, 'CLAUDE.md'), 'local claude\n', 'utf8');
+    await writeFile(configPath, legacyConfig, 'utf8');
+    const plan = await createMultiTargetInstallPlan({
+      configUpdate: {
+        config: { profile: 'core', targets: ['codex', 'claude'] },
+        path: configPath,
+      },
+      dryRun: false,
+      force: true,
+      managedAgentsBlock: true,
+      profile: 'core',
+      rootDir,
+      selectedTargets: ['codex', 'claude'],
+      targetDir: target,
+      targets: ['codex', 'claude'],
+    });
+
+    await assert.rejects(
+      applyInstallPlan(plan, {
+        afterFileWrite({ action }) {
+          if (action.relativeTarget === 'CLAUDE.md') throw new Error('injected projection failure');
+        },
+      }),
+      /injected projection failure/u,
+    );
+
+    assert.equal(await readFile(path.join(target, 'AGENTS.md'), 'utf8'), 'local agents\n');
+    assert.equal(await readFile(path.join(target, 'CLAUDE.md'), 'utf8'), 'local claude\n');
+    assert.equal(await readFile(configPath, 'utf8'), legacyConfig);
+    await assert.rejects(readFile(path.join(target, '.vibe-harness/install-state.json'), 'utf8'), /ENOENT/u);
   } finally {
     await rm(target, { force: true, recursive: true });
   }

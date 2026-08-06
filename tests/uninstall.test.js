@@ -50,12 +50,12 @@ test('MVP uninstall previews then removes managed assets while retaining local p
       '--modules', 'agents,rules', '--write',
     ]);
 
-    const preview = await runCli(['uninstall', '--project', target, '--target', 'codex', '--dry-run']);
+    const preview = await runCli(['uninstall', '--project', target, '--all-targets', '--dry-run']);
     assert.equal(preview.dryRun, true);
     assert.equal(preview.actions.some((item) => item.target === 'AGENTS.md' && item.kind === 'remove-managed-instruction-block'), true);
     assert.equal(await exists(path.join(target, 'docs', 'rules', 'git-rules.md')), true);
 
-    const result = await runCli(['uninstall', '--project', target, '--target', 'codex', '--write']);
+    const result = await runCli(['uninstall', '--project', target, '--all-targets', '--write']);
     assert.equal(result.retainedState, false);
     assert.equal(await readFile(path.join(target, 'AGENTS.md'), 'utf8'), '# Local agents\n');
     assert.equal(await readFile(path.join(target, 'docs', 'product.md'), 'utf8'), '# Product\n');
@@ -80,7 +80,7 @@ test('uninstall preserves an existing empty codebase-memory ignore file', async 
     ]);
 
     await runCli([
-      'uninstall', '--project', target, '--target', 'codex', '--write', '--confirm-red-zone',
+      'uninstall', '--project', target, '--all-targets', '--write', '--confirm-red-zone',
     ]);
 
     assert.equal(await exists(path.join(target, '.cbmignore')), true);
@@ -102,14 +102,14 @@ test('MVP uninstall keeps modified ownership state and succeeds after the file i
     const installedContent = await readFile(changedPath, 'utf8');
     await writeFile(changedPath, 'user changed rules\n', 'utf8');
 
-    const failed = await runCliFailure(['uninstall', '--project', target, '--target', 'codex', '--write']);
+    const failed = await runCliFailure(['uninstall', '--project', target, '--all-targets', '--write']);
     assert.equal(failed.report.retainedState, true);
     assert.deepEqual(failed.report.skipped, [{ reason: 'target-modified', target: 'docs/rules/git-rules.md' }]);
     const remaining = JSON.parse(await readFile(path.join(target, '.vibe-harness', 'install-state.json'), 'utf8'));
     assert.deepEqual(remaining.files.map((item) => item.target), ['docs/rules/git-rules.md']);
 
     await writeFile(changedPath, installedContent, 'utf8');
-    const retried = await runCli(['uninstall', '--project', target, '--target', 'codex', '--write']);
+    const retried = await runCli(['uninstall', '--project', target, '--all-targets', '--write']);
     assert.equal(retried.retainedState, false);
     assert.equal(await exists(changedPath), false);
   } finally {
@@ -135,7 +135,7 @@ test('MVP uninstall restores legacy unmarked AGENTS content from the install bas
       'install', '--project', target, '--target', 'codex', '--profile', 'minimal', '--write',
     ]);
 
-    await runCli(['uninstall', '--project', target, '--target', 'codex', '--write']);
+    await runCli(['uninstall', '--project', target, '--all-targets', '--write']);
 
     assert.equal(await readFile(path.join(target, 'AGENTS.md'), 'utf8'), legacy);
   } finally {
@@ -152,12 +152,12 @@ test('MVP uninstall requires explicit confirmation before changing red-zone file
       '--modules', 'hooks', '--write', '--confirm-red-zone',
     ]);
 
-    const failed = await runCliFailure(['uninstall', '--project', target, '--target', 'codex', '--write']);
+    const failed = await runCliFailure(['uninstall', '--project', target, '--all-targets', '--write']);
     assert.match(failed.stderr, /red-zone/u);
     assert.equal(await exists(path.join(target, '.codex', 'hooks.json')), true);
 
     await runCli([
-      'uninstall', '--project', target, '--target', 'codex', '--write', '--confirm-red-zone',
+      'uninstall', '--project', target, '--all-targets', '--write', '--confirm-red-zone',
     ]);
     assert.equal(await exists(path.join(target, '.codex', 'hooks.json')), false);
   } finally {
@@ -179,7 +179,7 @@ test('MVP uninstall rejects install-state targets outside the project', async ()
     await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
     await writeFile(outside, 'outside\n', 'utf8');
 
-    const failed = await runCliFailure(['uninstall', '--project', target, '--target', 'codex', '--write']);
+    const failed = await runCliFailure(['uninstall', '--project', target, '--all-targets', '--write']);
     assert.match(failed.stderr, /must not traverse parent directories|outside/u);
     assert.equal(await readFile(outside, 'utf8'), 'outside\n');
   } finally {

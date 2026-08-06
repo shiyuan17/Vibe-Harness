@@ -12,7 +12,7 @@ import { productIdentity } from './product-identity.js';
 import { resolveProjectConfigLocation } from './project-layout.js';
 
 export const mvpProfiles = new Set(['minimal', 'core', 'full', 'docs-only']);
-export const mvpTargets = new Set(['codex', 'claude', 'gemini', 'cursor', 'qoder', 'zcode']);
+export const mvpTargets = new Set(['codex', 'claude', 'gemini', 'cursor', 'qoder', 'zcode', 'antigravity']);
 
 export function canonicalProfile(profile) {
   if (profile === 'codex-internal') return 'full';
@@ -31,7 +31,7 @@ export const defaultProjectConfig = {
   projectName: 'ExampleProject',
   language: 'zh-CN',
   packageManager: 'pnpm',
-  target: 'codex',
+  targets: ['codex'],
   profile: 'core',
   validationCommands: {
     lint: null,
@@ -55,7 +55,7 @@ export const defaultProjectConfig = {
     allowedWriteRoots: [],
     allowedEgressHosts: [],
     mode: 'guarded',
-    redZonePaths: ['.env', 'auth/', 'ci/cd/', '.github/workflows/', '.codex/hooks.json', '.cursor/hooks.json', '.cursor/mcp.json', '.mcp.json', '.qoder/settings.json', '.zcode/config.json'],
+    redZonePaths: ['.env', 'auth/', 'ci/cd/', '.github/workflows/', '.codex/hooks.json', '.cursor/hooks.json', '.cursor/mcp.json', '.mcp.json', '.qoder/settings.json', '.zcode/config.json', '.agents/hooks.json', '.agents/mcp_config.json'],
   },
   riskZones: {
     red: ['auth', 'secrets', 'ci-cd', 'env'],
@@ -118,7 +118,7 @@ export function createDefaultProjectConfig(projectDir, target = 'codex', profile
     ...defaultProjectConfig,
     projectName: path.basename(path.resolve(projectDir)),
     profile,
-    target,
+    targets: [target],
   };
 }
 
@@ -149,6 +149,18 @@ export async function readRequiredProjectConfig(projectDir) {
     throw new Error(`Missing ${productIdentity.configFile}. Run vibe-harness init --project ${projectDir} first.`);
   }
   return safeJsonParse(await readFile(location.path, 'utf8'));
+}
+
+export function projectTargets(config) {
+  if (Array.isArray(config?.targets)) return [...config.targets];
+  return typeof config?.target === 'string' ? [config.target] : [];
+}
+
+export function migrateLegacyProjectConfig(config) {
+  if (!Object.hasOwn(config, 'target')) return config;
+  const migrated = { ...config, targets: [config.target] };
+  delete migrated.target;
+  return migrated;
 }
 
 function assertObject(value, label) {
@@ -201,12 +213,19 @@ export function validateProjectConfig(config) {
     );
   }
   assertNonEmptyString(config.packageManager, 'packageManager');
-  assertNonEmptyString(config.target, 'target');
+  const hasLegacyTarget = Object.hasOwn(config, 'target');
+  const hasTargets = Object.hasOwn(config, 'targets');
+  if (hasLegacyTarget === hasTargets) {
+    throw new Error('Configure exactly one of target (legacy) or targets.');
+  }
+  const targets = projectTargets(config);
+  if (targets.length === 0) throw new Error('targets must contain at least one adapter');
+  if (new Set(targets).size !== targets.length) throw new Error('targets must not contain duplicate adapters');
   assertNonEmptyString(config.profile, 'profile');
   if (Object.hasOwn(config, 'language') && !['zh-CN', 'en-US'].includes(config.language)) {
     throw new Error('language must be zh-CN or en-US');
   }
-  if (!mvpTargets.has(config.target)) {
+  if (targets.some((target) => !mvpTargets.has(target))) {
     throw new Error(`Unknown target: ${config.target}`);
   }
   validateProfileName(config.profile);
@@ -394,7 +413,9 @@ export function validateGeneratedContent(content, { installedTargets } = {}) {
 }
 
 export function validateConfigAndGeneratedContent(config, agentsTemplate, options = {}) {
-  validateProjectConfig(config);
+  const validationConfig = { ...config };
+  if (Array.isArray(validationConfig.targets)) delete validationConfig.target;
+  validateProjectConfig(validationConfig);
   const rendered = renderTemplate(agentsTemplate, config);
   validateGeneratedContent(rendered, options);
   return rendered;

@@ -343,7 +343,7 @@ export async function createInstallPlan({
   });
   const allowedGroups = moduleSelection.allowedGroups;
   const state = await readInstallState(path.resolve(targetDir));
-  if (state && state.adapter !== adapter.id) {
+  if (state && !state.targets && state.adapter !== adapter.id) {
     throw new Error(`Installed adapter ${state.adapter} does not match install target ${adapter.id}; uninstall the existing adapter first.`);
   }
   const managed = new Map((state?.files ?? []).map((file) => [file.target, file]));
@@ -385,6 +385,18 @@ export async function createInstallPlan({
   });
   const stateDirectory = path.basename(path.dirname(stateFilePath(path.resolve(targetDir))));
 
+  const owner = 'adapter:' + adapter.id;
+  const adapterConfigTargets = new Set(Object.values(adapter.projectConfig ?? {}).map((item) => item.target));
+  const projectionTarget = (target) => target === adapter.instructionTarget
+    || adapterConfigTargets.has(target)
+    || (adapter.skillRoot !== '.agents/skills' && target.startsWith(adapter.skillRoot + '/'))
+    || (adapter.id === 'antigravity' && ['.agents/hooks.json', '.agents/mcp_config.json', '.agents/rules/vibe-harness.md'].includes(target));
+  const ownedActions = actions.map((action) => ({
+    ...action,
+    adapterId: adapter.id,
+    owners: action.owners ?? [projectionTarget(action.relativeTarget) ? owner : 'shared'],
+  }));
+
   return {
     adapter: adapter.id,
     adapterCapabilities: adapter.capabilities,
@@ -392,7 +404,7 @@ export async function createInstallPlan({
     configUpdate,
     dryRun,
     force,
-    generatedDirectories,
+    generatedDirectories: generatedDirectories.map((item) => ({ ...item, owners: item.owners ?? ['shared'] })),
     implicitModules: moduleSelection.implicitModules,
     instructionTarget: adapter.instructionTarget,
     missingCapabilities: Object.entries(adapter.capabilities).filter(([, status]) => status === 'unsupported').map(([name]) => name),
@@ -405,13 +417,111 @@ export async function createInstallPlan({
     renderData: withDefaultTemplateData({
       ...renderData,
       codebaseMemoryStateDirectory: stateDirectory,
-      installedSurface,
+      installedSurface: renderData.installedSurface ?? installedSurface,
     }),
     redZoneConfirmed: false,
     targetDir: path.resolve(targetDir),
     upgrade,
     version: await packageVersion(rootDir),
+    actions: ownedActions,
+  };
+}
+
+function mergeOwners(left = [], right = []) {
+  return [...new Set([...left, ...right])].sort();
+}
+
+function compatibleActions(left, right) {
+  if (left.relativeTarget !== right.relativeTarget || left.contentStrategy !== right.contentStrategy) return false;
+  if (left.relativeTarget === 'AGENTS.md') return true;
+  return left.relativeSource === right.relativeSource
+    && JSON.stringify(left.managedJson ?? null) === JSON.stringify(right.managedJson ?? null)
+    && JSON.stringify(left.mcpServers ?? null) === JSON.stringify(right.mcpServers ?? null)
+    && JSON.stringify(left.hooks ?? null) === JSON.stringify(right.hooks ?? null);
+}
+
+export async function createMultiTargetInstallPlan({ selectedTargets, targets, ...options }) {
+  const configuredTargets = [...new Set(targets)];
+  const installedState = await readInstallState(path.resolve(options.targetDir));
+  const lifecycleTargets = [...new Set([...configuredTargets, ...(installedState?.targets ?? [])])];
+  const activeTargets = selectedTargets?.length ? selectedTargets : configuredTargets;
+  const plans = [];
+  for (const adapterId of activeTargets) {
+    plans.push(await createInstallPlan({
+      ...options,
+      adapterId,
+      rtkHooksEnabled: adapterId === 'codex' && Boolean(options.rtkHooksEnabled),
+      renderData: { ...options.renderData, target: adapterId, targets: configuredTargets },
+    }));
+  }
+  if (plans.length === 0) throw new Error('At least one install target is required.');
+
+  const writes = new Map();
+  const retirements = [];
+  for (const plan of plans) {
+    for (const action of plan.actions) {
+      if (action.kind.startsWith('retire')) {
+        retirements.push(action);
+        continue;
+      }
+      const existing = writes.get(action.relativeTarget);
+      if (!existing) {
+        writes.set(action.relativeTarget, action);
+        continue;
+      }
+      if (!compatibleActions(existing, action)) {
+        writes.set(action.relativeTarget, {
+          ...existing,
+          kind: 'conflict',
+          owners: mergeOwners(existing.owners, action.owners),
+          planningConflict: true,
+        });
+        continue;
+      }
+      writes.set(action.relativeTarget, {
+        ...existing,
+        kind: existing.kind === 'user-modified' || action.kind === 'user-modified'
+          ? 'user-modified'
+          : existing.kind === 'conflict' || action.kind === 'conflict' ? 'conflict' : 'write',
+        owners: mergeOwners(existing.owners, action.owners),
+      });
+    }
+  }
+  const plannedTargets = new Set(writes.keys());
+  const allTargetsSelected = activeTargets.length === lifecycleTargets.length
+    && activeTargets.every((target) => lifecycleTargets.includes(target));
+  const actions = [
+    ...writes.values(),
+    ...(allTargetsSelected ? retirements.filter((action) => !plannedTargets.has(action.relativeTarget)) : []),
+  ];
+  const installedSurface = createInstalledSurface({
+    clarificationPosture: options.renderData?.clarification?.posture,
+    customModules: plans[0].requestedModules !== null,
+    memoryPath: options.renderData?.memory?.path,
+    profile: plans[0].profile,
+    targets: [...writes.keys()],
+  });
+  const generatedDirectories = [...new Map(plans.flatMap((plan) => plan.generatedDirectories)
+    .map((item) => [item.target, item])).values()];
+  return {
+    ...plans[0],
     actions,
+    adapter: activeTargets[0],
+    adapters: Object.fromEntries(plans.map((plan) => [plan.adapter, {
+      capabilities: plan.adapterCapabilities,
+      missingCapabilities: plan.missingCapabilities,
+      previewCapabilities: plan.previewCapabilities,
+    }])),
+    generatedDirectories,
+    missingCapabilities: [...new Set(plans.flatMap((plan) => plan.missingCapabilities))],
+    previewCapabilities: [...new Set(plans.flatMap((plan) => plan.previewCapabilities))],
+    renderData: withDefaultTemplateData({
+      ...plans[0].renderData,
+      installedSurface,
+      targets: configuredTargets,
+    }),
+    selectedTargets: activeTargets,
+    targets: lifecycleTargets,
   };
 }
 
@@ -733,6 +843,10 @@ export async function renderActionContent(action, renderData = {}, existingConte
   return rendered;
 }
 
+function actionRenderData(action, renderData) {
+  return action.adapterId ? { ...renderData, target: action.adapterId } : renderData;
+}
+
 export async function previewInstallPlan(plan, { includeContent = true } = {}) {
   const previewFiles = [];
   for (const action of plan.actions) {
@@ -748,7 +862,7 @@ export async function previewInstallPlan(plan, { includeContent = true } = {}) {
     const mergedMcp = isManagedToml(action.contentStrategy)
       ? mergeManagedMcpBlock(existingContent, action.mcpServers)
       : null;
-    const content = mergedMcp?.content ?? await renderActionContent(action, plan.renderData, existingContent);
+    const content = mergedMcp?.content ?? await renderActionContent(action, actionRenderData(action, plan.renderData), existingContent);
     previewFiles.push({
       byteCount: Buffer.byteLength(content),
       conflicts: mergedMcp?.conflicts ?? [],
@@ -799,7 +913,7 @@ export async function diffTargetInstall({
   ];
   const renderedData = withDefaultTemplateData({
     ...renderData,
-    installedSurface: createInstalledSurface({
+    installedSurface: renderData.installedSurface ?? createInstalledSurface({
       clarificationPosture: renderData.clarification?.posture,
       customModules: moduleSelection.requestedModules !== null,
       memoryPath: renderData.memory?.path,
@@ -905,11 +1019,18 @@ export async function diffTargetInstall({
   const sample = (items) => items.slice(0, 20);
 
   return {
+    capabilities: adapter.capabilities,
     changed,
     conflicts: changed,
     expected,
+    missingCapabilities: Object.entries(adapter.capabilities)
+      .filter(([, status]) => status === 'unsupported')
+      .map(([name]) => name),
     missing,
     ok: missing.length === 0 && changed.length === 0,
+    previewCapabilities: Object.entries(adapter.capabilities)
+      .filter(([, status]) => status === 'preview')
+      .map(([name]) => name),
     profile,
     redZone,
     same,
@@ -930,6 +1051,77 @@ export async function diffTargetInstall({
 }
 
 export const inspectTargetInstall = diffTargetInstall;
+
+export async function diffMultiTargetInstall({ selectedTargets, targets, ...options }) {
+  const sampleItems = (items) => items.slice(0, 20);
+  const uniqueItems = (items) => [...new Map(items.map((item) => [item.target, item])).values()];
+  const activeTargets = selectedTargets?.length ? selectedTargets : targets;
+  const installedState = await readInstallState(path.resolve(options.targetDir));
+  const staleProjections = (installedState?.targets ?? []).filter((target) => !targets.includes(target));
+  const aggregatePlan = await createMultiTargetInstallPlan({
+    ...options,
+    dryRun: true,
+    force: true,
+    selectedTargets: [...new Set([...targets, ...activeTargets])],
+    targets,
+  });
+  const renderData = { ...options.renderData, installedSurface: aggregatePlan.renderData.installedSurface };
+  const entries = await Promise.all(activeTargets.map(async (adapterId) => [
+    adapterId,
+    await diffTargetInstall({
+      ...options,
+      adapterId,
+      rtkHooksEnabled: adapterId === 'codex' && Boolean(options.rtkHooksEnabled),
+      renderData: { ...renderData, target: adapterId, targets },
+    }),
+  ]));
+  const selectedAdapters = Object.fromEntries(entries.map(([adapterId, report]) => {
+    const status = !report.ok
+      ? 'conflict'
+      : report.previewCapabilities.length > 0
+        ? 'preview'
+        : report.missingCapabilities.length > 0
+          ? 'unsupported'
+          : 'stable';
+    return [adapterId, { ...report, status }];
+  }));
+  const adapters = Object.fromEntries(targets.map((adapterId) => [
+    adapterId,
+    selectedAdapters[adapterId] ?? { ok: true, status: 'skipped' },
+  ]));
+  const changed = uniqueItems(entries.flatMap(([, report]) => report.changed));
+  const expected = uniqueItems(entries.flatMap(([, report]) => report.expected));
+  const missing = uniqueItems(entries.flatMap(([, report]) => report.missing));
+  const same = uniqueItems(entries.flatMap(([, report]) => report.same));
+  const unmanaged = uniqueItems(entries.flatMap(([, report]) => report.unmanaged));
+  return {
+    adapters,
+    changed,
+    conflicts: uniqueItems(entries.flatMap(([, report]) => report.conflicts)),
+    expected,
+    missing,
+    ok: entries.every(([, report]) => report.ok) && staleProjections.length === 0,
+    profile: options.profile,
+    redZone: uniqueItems(entries.flatMap(([, report]) => report.redZone)),
+    same,
+    staleProjections,
+    summary: {
+      changedCount: changed.length,
+      missingCount: missing.length,
+      sameCount: same.length,
+      staleProjectionCount: staleProjections.length,
+      unmanagedCount: unmanaged.length,
+      samples: {
+        changed: sampleItems(changed),
+        missing: sampleItems(missing),
+        unmanaged: sampleItems(unmanaged),
+      },
+    },
+    targetDir: path.resolve(options.targetDir),
+    targets: activeTargets,
+    unmanaged,
+  };
+}
 
 export async function applyInstallPlan(plan, hooks = {}) {
   if (plan.dryRun) {
@@ -1074,7 +1266,7 @@ async function executeWriteActions(plan, ctx, hooks) {
       ? mergeManagedMcpBlock(existingContent, action.mcpServers)
       : null;
     if (mergedMcp) mcpConflicts.push(...mergedMcp.conflicts);
-    const targetContent = mergedMcp?.content ?? await renderActionContent(action, plan.renderData, existingContent);
+    const targetContent = mergedMcp?.content ?? await renderActionContent(action, actionRenderData(action, plan.renderData), existingContent);
     await writeFile(action.target, targetContent, 'utf8');
     await hooks.afterFileWrite?.({ action, writtenCount: written.length + 1 });
     if (action.executable) await chmod(action.target, 0o755);
@@ -1103,6 +1295,7 @@ async function executeWriteActions(plan, ctx, hooks) {
       source: action.relativeSource,
       sourceHash: await hashFile(action.source),
       owner: 'vibe-harness',
+      owners: action.owners ?? ['shared'],
       target: toTargetPath(plan.targetDir, action.target),
       targetHash: await hashFile(action.target),
       transactionId: ctx.transactionId,
@@ -1238,6 +1431,7 @@ async function executeRetireActions(plan, ctx) {
       retiredFiles.push({
         backup,
         group: action.group,
+        owners: action.owners ?? ['shared'],
         redZone: Boolean(action.redZone),
         target: action.relativeTarget,
         targetHash: currentHash,
@@ -1259,6 +1453,7 @@ function mergeInstallState(plan, ctx, retireResult) {
     const previous = mergedFiles.get(file.target);
     mergedFiles.set(file.target, previous ? {
       ...file,
+      owners: mergeOwners(previous.owners, file.owners),
       originalBackup: Object.hasOwn(previous, 'originalBackup') ? previous.originalBackup : previous.backup,
       originalCreated: previous.originalCreated ?? previous.created,
     } : file);
@@ -1268,7 +1463,7 @@ function mergeInstallState(plan, ctx, retireResult) {
     ...plan.generatedDirectories,
   ].map((item) => [item.target, item])).values()];
   return {
-    adapter: plan.adapter,
+    targets: plan.targets ?? previousState?.targets ?? [plan.adapter],
     baseline: ctx.baseline,
     files: [...mergedFiles.values()],
     generatedDirectories,
@@ -1281,7 +1476,7 @@ function mergeInstallState(plan, ctx, retireResult) {
     resolvedModules: plan.resolvedModules,
     rtkHooksEnabled: plan.rtkHooksEnabled,
     retiredFiles,
-    stateVersion: 4,
+    stateVersion: 5,
     transactionId: ctx.transactionId,
     version: plan.version,
   };
