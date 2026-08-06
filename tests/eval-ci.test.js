@@ -20,10 +20,16 @@ test('CI blocks offline eval drift and scheduled workflow runs advisory online c
   assert.match(ci, /pnpm runtime:audit/u);
   assert.match(online, /schedule:/u);
   assert.match(online, /workflow_dispatch:/u);
+  assert.match(online, /environment:\s*Production/u);
   assert.match(online, /pnpm eval:online/u);
   assert.match(online, /retention-days:\s*30/u);
   assert.match(online, /pnpm eval:health/u);
   assert.match(online, /vars\.VIBE_HARNESS_EVAL_ENFORCE/u);
+  assert.match(online, /vars\.OPENAI_BASE_URL/u);
+  assert.match(online, /vars\.VIBE_HARNESS_EVAL_PROVIDER_NAME/u);
+  assert.match(online, /vars\.VIBE_HARNESS_EVAL_PROVIDER_WIRE_API/u);
+  assert.match(online, /secrets\.OPENAI_API_KEY/u);
+  assert.match(online, /VIBE_HARNESS_EVAL_RUNTIME_SOURCE:\s*env/u);
   assert.doesNotMatch(online, /LOOPENGINE_EVAL_ENFORCE/u);
   assert.doesNotMatch(online, /pull_request:/u);
 });

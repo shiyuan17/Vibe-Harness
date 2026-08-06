@@ -35,6 +35,23 @@ online run 对每个 case 按 `repetitions`（1..3）独立运行多轮，每轮
 
 ## Online runtime
 
+### GitHub Actions third-party provider
+
+The scheduled canary uses the env runtime source and an OpenAI-compatible third-party provider. Configure it in repository Settings > Secrets and variables > Actions. Variables must not contain credentials.
+
+| Type | Name | Required | Description |
+| --- | --- | --- | --- |
+| Variable | CODEX_CLI_VERSION | Yes | Version of the Codex CLI package to install. |
+| Variable | CODEX_MODEL | Yes | Public model or deployment identifier at the provider. |
+| Variable | OPENAI_BASE_URL | Yes | HTTP or HTTPS root URL of the compatible API. |
+| Secret | OPENAI_API_KEY | Yes | API key dedicated to evaluation use. |
+| Variable | CODEX_REASONING_EFFORT | No | low, medium, high, or xhigh. Default: medium. |
+| Variable | VIBE_HARNESS_EVAL_PROVIDER_NAME | No | Provider identifier using only letters, digits, hyphens, and underscores. Default: vibe-harness-env. |
+| Variable | VIBE_HARNESS_EVAL_PROVIDER_WIRE_API | No | Codex wire API identifier using only letters, digits, hyphens, and underscores. Default: responses. |
+| Variable | VIBE_HARNESS_EVAL_ENFORCE | No | Set to 1 to treat invalid evaluations as failures. Default: advisory. |
+
+When OPENAI_BASE_URL is missing, the scheduled canary fails configuration validation instead of falling back to the official endpoint. The selected wire API must be compatible with both the provider and installed Codex CLI.
+
 `VIBE_HARNESS_EVAL_RUNTIME_SOURCE=auto|codex|env` 选择 runtime 来源。`auto` 优先从本机 Codex `config.toml`/`auth.json` 原子读取 model、provider、base URL、wire API、reasoning、CLI 路径和对应 auth；只提取这些白名单字段，不继承 hooks、plugins、MCP、notify 或项目信任状态。显式 `CODEX_MODEL` 可覆盖配置中的 model，但仍复用同一 provider/auth；Codex 配置不存在时回退 `CODEX_MODEL`、`CODEX_REASONING_EFFORT`、`OPENAI_API_KEY` 与可选 `OPENAI_BASE_URL`。
 
 `VIBE_HARNESS_EVAL_CODEX_BACKEND=auto|native|wsl` 选择执行后端。Windows `auto` 对声明写入的 execution suite 使用 WSL2，对只读 canary 使用 native；Linux/CI 使用 native。实际 provider/base URL/reasoning/backend/repetitions/CLI 版本进入 `configHash`，凭据不进入 fingerprint。WSL/Codex 不可用或 sandbox 拒绝写入时 run 为 degraded，不计为模型失败。

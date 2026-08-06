@@ -35,6 +35,12 @@ function validateChoice(value, allowed, label) {
   return value;
 }
 
+function validateProviderIdentifier(value, label) {
+  const normalized = requiredString(value, label);
+  if (!/^[A-Za-z0-9_-]+$/u.test(normalized)) throw new Error(label + ' must contain only letters, digits, hyphens, or underscores');
+  return normalized;
+}
+
 function runtimeHash(environment, repetitions, cliVersion) {
   const value = {
     backend: environment.VIBE_HARNESS_EVAL_CODEX_BACKEND,
@@ -159,13 +165,16 @@ async function fromCodexConfig({ backend, env, homeDir }) {
 function fromEnvironment({ backend, env }) {
   const reasoning = env.CODEX_REASONING_EFFORT ?? 'medium';
   validateChoice(reasoning, REASONING_EFFORTS, 'CODEX_REASONING_EFFORT');
+  if (env.VIBE_HARNESS_EVAL_REQUIRE_BASE_URL === '1' && !env.OPENAI_BASE_URL) {
+    throw new Error('OPENAI_BASE_URL is required for this evaluation runtime');
+  }
   const environment = {
     CODEX_MODEL: requiredString(env.CODEX_MODEL, 'CODEX_MODEL'),
     CODEX_REASONING_EFFORT: reasoning,
     VIBE_HARNESS_EVAL_CODEX_BACKEND: backend,
-    VIBE_HARNESS_EVAL_PROVIDER_NAME: env.VIBE_HARNESS_EVAL_PROVIDER_NAME ?? 'vibe-harness-env',
+    VIBE_HARNESS_EVAL_PROVIDER_NAME: validateProviderIdentifier(env.VIBE_HARNESS_EVAL_PROVIDER_NAME ?? 'vibe-harness-env', 'VIBE_HARNESS_EVAL_PROVIDER_NAME'),
     VIBE_HARNESS_EVAL_PROVIDER_REQUIRES_AUTH: '0',
-    VIBE_HARNESS_EVAL_PROVIDER_WIRE_API: env.VIBE_HARNESS_EVAL_PROVIDER_WIRE_API ?? 'responses',
+    VIBE_HARNESS_EVAL_PROVIDER_WIRE_API: validateProviderIdentifier(env.VIBE_HARNESS_EVAL_PROVIDER_WIRE_API ?? 'responses', 'VIBE_HARNESS_EVAL_PROVIDER_WIRE_API'),
     VIBE_HARNESS_EVAL_RUNTIME_SOURCE: 'env',
     OPENAI_API_KEY: requiredString(env.OPENAI_API_KEY, 'OPENAI_API_KEY'),
     ...(env.OPENAI_BASE_URL ? { OPENAI_BASE_URL: validateUrl(env.OPENAI_BASE_URL, 'OPENAI_BASE_URL') } : {}),

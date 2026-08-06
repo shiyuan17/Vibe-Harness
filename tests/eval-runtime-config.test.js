@@ -120,6 +120,37 @@ test('auto source falls back to environment when Codex config is absent', async 
   }
 });
 
+test('environment runtime rejects invalid third-party provider identifiers', async () => {
+  const base = {
+    CODEX_MODEL: 'third-party-model',
+    OPENAI_API_KEY: 'ENV_SECRET',
+    OPENAI_BASE_URL: 'https://provider.example/v1',
+    VIBE_HARNESS_EVAL_RUNTIME_SOURCE: 'env',
+  };
+  await assert.rejects(
+    resolveEvalRuntime({ env: { ...base, VIBE_HARNESS_EVAL_PROVIDER_NAME: 'provider.name' } }),
+    /VIBE_HARNESS_EVAL_PROVIDER_NAME must contain only/u,
+  );
+  await assert.rejects(
+    resolveEvalRuntime({ env: { ...base, VIBE_HARNESS_EVAL_PROVIDER_WIRE_API: 'chat/completions' } }),
+    /VIBE_HARNESS_EVAL_PROVIDER_WIRE_API must contain only/u,
+  );
+});
+
+test('environment runtime can require a third-party base URL', async () => {
+  await assert.rejects(
+    resolveEvalRuntime({
+      env: {
+        CODEX_MODEL: 'third-party-model',
+        OPENAI_API_KEY: 'ENV_SECRET',
+        VIBE_HARNESS_EVAL_REQUIRE_BASE_URL: '1',
+        VIBE_HARNESS_EVAL_RUNTIME_SOURCE: 'env',
+      },
+    }),
+    /OPENAI_BASE_URL is required/u,
+  );
+});
+
 test('runtime hash changes with actual backend, CLI version, and repetitions', async () => {
   const env = {
     CODEX_MODEL: 'fixture',
