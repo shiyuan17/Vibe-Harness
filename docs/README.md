@@ -57,8 +57,8 @@
 
 ## 根级入口
 
-- [中文 README](../README.zh-CN.md)
-- [English README](../README.md)
+- [中文 README](../README.md)
+- [English README](../README.en.md)
 - [贡献指南](../CONTRIBUTING.md)
 - [Agent 规则](../AGENTS.md)
 - [更新日志](../CHANGELOG.md)

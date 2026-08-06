@@ -2,34 +2,38 @@
 
 ## 旧产品边界
 
-Vibe-Harness 不接管 Cognis 或 LoopEngine 安装。发现任一旧产品配置、状态目录或受管标记时会以 `VIBE_HARNESS_LEGACY_UNSUPPORTED` 拒绝写入；请先自行备份并移除旧资产，再初始化 Vibe-Harness。
+Vibe-Harness 不接管 Cognis 或 LoopEngine 安装。发现旧产品配置、状态目录或受管标记时会以 VIBE_HARNESS_LEGACY_UNSUPPORTED 拒绝写入；请先备份并移除旧资产，再初始化 Vibe-Harness。
 
-## 删除的治理配置
+已删除的 governance.mode、governance.workflow、hooks.completionGate 和 validationCommands.governance 会触发 VIBE_HARNESS_OBSOLETE_GOVERNANCE_CONFIG。Vibe-Harness 不静默兼容或改写这些配置。
 
-以下字段已删除：
+## target 与 state 迁移
 
-- `governance.mode`
-- `governance.workflow`
-- `hooks.completionGate`
-- `validationCommands.governance`
+旧标量 target 仍可读取，但禁止与 targets 同时存在。只有 install --upgrade --write 会在同一事务中将旧配置持久化为唯一、非空的 targets 数组，并将 state v4 的 adapter 与无 owner 记录迁移为 state v5 的 targets 和 owners。
 
-存在任一字段时命令返回 `VIBE_HARNESS_OBSOLETE_GOVERNANCE_CONFIG`，列出需要删除的字段，并且不写项目。Vibe-Harness 不静默兼容或自动改写配置。验证命令现在是可选的 `lint`、`typecheck`、`test`、`eval`。
+迁移前先执行 install --upgrade --dry-run。若任一宿主投影、同路径内容或结构化 MCP/Hook 节点冲突，事务不会写入配置、投影或 state。红区写入仍要求 --confirm-red-zone。
 
-CLI `--workflow` 也已删除。四个 profile 名称保持不变；`full` 现在表示全部领域 Skills、可选 Eval 和 Codex 安全 Hook。
+## 多宿主生命周期
 
-## 升级
+- 不带 --target 的 install、upgrade、validate、doctor 和 diff 处理全部配置目标。
+- --target 只选择配置或状态中仍存在的宿主，不会隐式添加。
+- 手工从配置删除 target 只报告 stale projection；必须通过 uninstall --target id --write 显式移除。
+- 最后一个目标和共享资产必须通过 uninstall --all-targets --write 移除。
+- 单宿主卸载不得删除 shared runtime、memory、Eval 或项目根索引。
 
-```bash
-pnpm vibe-harness install --project ../target-project --target codex --profile core --dry-run --upgrade
-pnpm vibe-harness install --project ../target-project --target codex --profile core --write --upgrade
-pnpm vibe-harness validate --project ../target-project
-pnpm vibe-harness doctor --project ../target-project
-```
+## 嵌套旧安装
 
-Vibe-Harness 仅支持自身安装的常规升级；旧产品状态不会被迁移、退役或自动清理。请在初始化前手动备份并清理旧资产。
+禁止通过子目录重复安装来模拟多宿主。doctor 发现根安装与子目录旧安装后，只报告问题，不自动删除。
 
-Codex full 的红区写入仍需 `--confirm-red-zone`。
+无损迁移顺序固定为：
+
+1. 在根项目配置全部 targets。
+2. 在根项目执行 dry-run upgrade。
+3. 在根项目执行 upgrade write；涉及红区时显式确认。
+4. 对根项目执行全目标 validate 和 doctor。
+5. 分别在每个嵌套安装根执行显式完整卸载。
+
+嵌套项目目录和用户文件不会自动删除。卸载前确认 doctor 报告的路径和 install-state 版本，并保留已修改受管文件的冲突报告。
 
 ## 命令边界
 
-所有项目命令使用 `--project <path>`；`--target` 只选择 adapter。所有真实修改使用 `--write`，不使用 `--apply`。
+所有项目命令使用 --project path；--target 只选择 adapter。所有真实修改使用 --write，不使用 --apply。完整流程优先 dry-run，并以 validate、doctor 和命令输出作为迁移证据。

@@ -12,7 +12,7 @@
         "type": "object",
         "required": ["id", "installMap", "instructionTarget", "instructionTemplate", "skillRoot", "supportedProfiles", "capabilities", "redZonePrefixes"],
         "properties": {
-          "id": { "type": "string", "enum": ["codex", "claude", "gemini", "cursor", "qoder", "zcode"] },
+          "id": { "type": "string", "enum": ["codex", "claude", "gemini", "cursor", "qoder", "zcode", "antigravity"] },
           "installMap": { "type": "string", "minLength": 1 },
           "instructionTarget": { "type": "string", "minLength": 1 },
           "instructionTemplate": { "type": "string", "minLength": 1 },

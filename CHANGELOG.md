@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Breaking change：项目配置升级为非空 targets 数组，install-state 升级为 stateVersion 5 并记录 shared 与 adapter 所有权；旧 target/state v4 仅在标准 upgrade write 事务中持久化迁移。
+- 新增 Codex、Claude Code、Gemini CLI、Cursor、Qoder、ZCode 和 Antigravity 的单项目多宿主安装；公共 runtime、memory、Eval、工具 provisioning 与项目根索引只维护一份。
+- 新增目标级卸载、all-targets 完整卸载、stale projection 报告、嵌套旧安装 doctor 检测，以及逐宿主 stable、preview、unsupported、skipped 和 conflict 状态。
+- Antigravity rules、Skills 和 MCP 进入 stable；Hooks、sandbox 和 memory 保持 preview，Hook 协议支持 camelCase 输入、四种 decision 和高风险 fail-closed。
+
 - **Breaking change**：产品更名为 Vibe-Harness。主 CLI、npm 包、配置文件、状态目录、环境变量和受管标记分别改为 `vibe-harness`、`@jw/vibe-harness`、`vibe-harness.config.json`、`.vibe-harness`、`VIBE_HARNESS_*` 和 `VIBE_HARNESS` 。
 - **Breaking change**：旧品牌资产不提供兼容或迁移；检测到旧配置、状态目录或受管标记时以 `VIBE_HARNESS_LEGACY_UNSUPPORTED` 拒绝执行。
 - **Breaking change**：删除治理链配置、CLI workflow 参数、任务 schema/runtime、审查角色、收据、完成门禁和对应 Hook 事件；旧配置以 `VIBE_HARNESS_OBSOLETE_GOVERNANCE_CONFIG` 只读拒绝。
@@ -12,6 +17,7 @@
 - `pnpm check` 收敛为 lint、pack/catalog 静态校验和快速产品单测；integration、lifecycle 与在线 Eval 保持显式命令。
 - 新增显式 `--plugin` 安装面：`core` 与 `full` 默认均不安装外部工具；`-all`、单选、多选和 `none` 分别管理 RTK、ast-grep、codebase-memory-mcp、Chrome DevTools MCP、Playwright CLI 与 Open Code Review 共 6 个插件，并将规范化选择持久化到 install-state。Agentmemory runtime 因上游 High 漏洞暂停提供，不通过 `--plugin` 安装。
 - 新增项目内 RTK `v0.43.0` 与 `@ast-grep/cli@0.44.1`：提供命令输出压缩、结构化搜索规则、checksum/lockfile 校验、doctor 状态和安全回退。
+- docs(readme)：默认 README 改为中文（根 `README.md` 渲染中文），英文版移至 `README.en.md`，并删除 `README.zh-CN.md`；同步更新 `validateReadmeParity` 签名与错误标签、`manifests/capabilities.json` 文档清单、`docs/catalog.json` 条目以及 `docs/README.md` 链接。
 
 ## 0.5.0 - 2026-07-18
 

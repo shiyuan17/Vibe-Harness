@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { defaultProjectConfig, validateProjectConfigWithSchema } from '../scripts/lib/project-config.js';
 import { assertSupportedSchemaKeywords, validateJsonAgainstSchema } from '../scripts/lib/schema-validation.js';
 
 test('validateJsonAgainstSchema reports type mismatches with instance and schema paths', () => {
@@ -67,4 +68,19 @@ test('assertSupportedSchemaKeywords accepts the supported keyword set', () => {
     additionalProperties: false,
   };
   assertSupportedSchemaKeywords(schema);
+});
+
+test('project config accepts legacy and canonical targets while enforcing the multi-host contract', () => {
+  const legacy = { ...defaultProjectConfig, target: 'codex' };
+  delete legacy.targets;
+  assert.equal(validateProjectConfigWithSchema(legacy), true);
+  assert.equal(validateProjectConfigWithSchema({ ...defaultProjectConfig, targets: ['antigravity'] }), true);
+  assert.throws(
+    () => validateProjectConfigWithSchema({ ...defaultProjectConfig, target: 'codex' }),
+    /exactly one of target/u,
+  );
+  assert.throws(
+    () => validateProjectConfigWithSchema({ ...defaultProjectConfig, targets: ['codex', 'codex'] }),
+    /unique items|duplicate adapters/u,
+  );
 });

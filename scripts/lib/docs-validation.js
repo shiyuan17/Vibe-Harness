@@ -301,15 +301,15 @@ function stableJson(value) {
   return JSON.stringify(value);
 }
 
-export function validateReadmeParity(english, chinese) {
+export function validateReadmeParity(primary, secondary) {
   const errors = [];
-  if (JSON.stringify(commandExamples(english)) !== JSON.stringify(commandExamples(chinese))) {
-    errors.push('README command examples differ between English and Chinese');
+  if (JSON.stringify(commandExamples(primary)) !== JSON.stringify(commandExamples(secondary))) {
+    errors.push('README command examples differ between primary and secondary README');
   }
-  const englishJson = jsonExamples(english, 'README.md', errors);
-  const chineseJson = jsonExamples(chinese, 'README.zh-CN.md', errors);
-  if (stableJson(englishJson) !== stableJson(chineseJson)) {
-    errors.push('README JSON examples differ between English and Chinese');
+  const primaryJson = jsonExamples(primary, 'README.md', errors);
+  const secondaryJson = jsonExamples(secondary, 'README.en.md', errors);
+  if (stableJson(primaryJson) !== stableJson(secondaryJson)) {
+    errors.push('README JSON examples differ between primary and secondary README');
   }
   return errors;
 }
@@ -562,12 +562,12 @@ async function validateDocumentationUnchecked({ catalog, rootDir, today = new Da
   warnings.push(...rulesParity.warnings);
   errors.push(...await validateSchemaParity(rootDir));
 
-  const [english, chinese, gitignore] = await Promise.all([
+  const [primary, secondary, gitignore] = await Promise.all([
     readFile(path.join(rootDir, 'README.md'), 'utf8'),
-    readFile(path.join(rootDir, 'README.zh-CN.md'), 'utf8'),
+    readFile(path.join(rootDir, 'README.en.md'), 'utf8'),
     readFile(path.join(rootDir, '.gitignore'), 'utf8'),
   ]);
-  errors.push(...validateReadmeParity(english, chinese));
+  errors.push(...validateReadmeParity(primary, secondary));
   if (!/^\.vibe-harness\/$/mu.test(gitignore)) errors.push('.gitignore must ignore .vibe-harness/');
 
   return {

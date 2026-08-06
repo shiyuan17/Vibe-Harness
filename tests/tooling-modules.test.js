@@ -252,7 +252,7 @@ test('optional tool uninstall removes managed runtimes and preserves user files'
       await writeFile(file, 'managed runtime fixture\n', 'utf8');
     }
 
-    await runCli(['uninstall', '--project', target, '--write']);
+    await runCli(['uninstall', '--project', target, '--all-targets', '--write']);
 
     assert.equal(await readFile(userFile, 'utf8'), 'keep me\n');
     for (const file of generatedFiles) {

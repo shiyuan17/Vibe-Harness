@@ -17,18 +17,18 @@ test('documentation catalog covers current and archived Markdown', async () => {
   assert.equal(report.ok, true, JSON.stringify(report, null, 2));
 });
 
-test('English and Chinese README expose the same commands and configuration', async () => {
-  const [english, chinese] = await Promise.all([
+test('Primary and secondary README expose the same commands and configuration', async () => {
+  const [primary, secondary] = await Promise.all([
     readFile(path.join(rootDir, 'README.md'), 'utf8'),
-    readFile(path.join(rootDir, 'README.zh-CN.md'), 'utf8'),
+    readFile(path.join(rootDir, 'README.en.md'), 'utf8'),
   ]);
-  assert.deepEqual(validateReadmeParity(english, chinese), []);
+  assert.deepEqual(validateReadmeParity(primary, secondary), []);
 });
 
 test('README quick start exposes three profile prompts with the plugin indexing contract', async () => {
   const readmes = await Promise.all([
     readFile(path.join(rootDir, 'README.md'), 'utf8'),
-    readFile(path.join(rootDir, 'README.zh-CN.md'), 'utf8'),
+    readFile(path.join(rootDir, 'README.en.md'), 'utf8'),
   ]);
 
   for (const readme of readmes) {

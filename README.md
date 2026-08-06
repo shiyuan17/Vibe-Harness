@@ -1,30 +1,32 @@
 # Vibe-Harness
 
-[English](README.md) | [简体中文](README.zh-CN.md)
+[English](README.en.md) | [简体中文](README.md)
 
-Vibe-Harness installs project-scoped rules, domain Skills, optional Evals, explicit tool plugins, and safety Hooks for Codex, Claude Code, Gemini CLI, Cursor, Qoder, and ZCode. It writes only inside the target project and never changes global Agent configuration.
+Vibe-Harness 为 Codex、Claude Code、Gemini CLI、Cursor、Qoder、ZCode 和 Antigravity 安装项目级规则、领域 Skills、可选 Eval、显式工具插件和安全 Hook。它只写目标项目，不修改全局 Agent 配置。
 
-There is one default execution path: `gather facts -> execute -> focused verification -> concise delivery`. Quick, light, and full are risk levels used only to choose safeguards and verification depth.
+默认执行路径只有一条：`获取事实 -> 直接执行 -> 聚焦验证 -> 简洁交付`。快速、轻量、完整三档只用于选择风险控制和验证强度。
 
-## Quick start
+## 快速开始
 
-Requires pnpm 10+ and Node.js 20.19+, 22.18+, or 24+.
+需要 pnpm 10+，以及 Node.js 20.19+、22.18+ 或 24+。
 
-From the Vibe-Harness repository, choose and copy one prompt below, replacing TARGET_PROJECT_ABSOLUTE_PATH with the absolute target project path. The Agent should select the codex, claude, or gemini adapter for its current host. These prompts are for first-time installs; use the upgrade flow below for an existing installation.
+在 Vibe-Harness 仓库中选择并复制下面一条提示词，将 TARGET_PROJECT_ABSOLUTE_PATH 替换为目标项目绝对路径。先确定项目需要的全部宿主，并将 codex、claude、gemini、cursor、qoder、zcode 或 antigravity 写入唯一、非空的 targets 数组。三条提示词面向首次安装；已有安装使用后文的升级流程。
+
+以下提示词中的宿主选择应覆盖项目实际使用的全部七类 adapter，并写入同一个 targets 数组；不要按编辑器分别安装。
 
 ### minimal
 
-    Install the Vibe-Harness minimal profile into TARGET_PROJECT_ABSOLUTE_PATH. You are working from the Vibe-Harness repository: first check the Node.js and pnpm versions and install this repository's dependencies; select the codex, claude, or gemini adapter for the current Agent host. If the target has no vibe-harness.config.json, initialize it with the selected adapter and minimal profile; if its configuration or existing install state does not match, stop and report the mismatch, and never use --force. Run an install dry-run first, inspect it for conflicts, out-of-project writes, or unexpected overwrites, and only then perform the install with --write. Finish with validate --project. The minimal install must not select optional plugins or create a code index. Write only inside the target project and do not modify global Agent, MCP, or Git configuration. Report actual writes, validation results, and anything incomplete.
+    将 Vibe-Harness minimal profile 安装到 TARGET_PROJECT_ABSOLUTE_PATH。你正在 Vibe-Harness 仓库中执行：先检查 Node.js 与 pnpm 版本并安装本仓库依赖；根据当前 Agent 宿主选择 codex、claude 或 gemini adapter。若目标项目不存在 vibe-harness.config.json，则用所选 adapter 和 minimal profile 初始化；若配置或已有安装状态不匹配，停止并报告，禁止使用 --force。先执行 install dry-run，确认没有冲突、越界写入或意外覆盖后再使用 --write 正式安装，最后运行 validate --project。minimal 不安装任何可选插件，也不建立代码索引。只允许写入目标项目，不修改全局 Agent、MCP 或 Git 配置。报告实际写入、验证结果和任何未完成项。
 
-### core (recommended)
+### core（推荐）
 
-    Install the Vibe-Harness core profile into TARGET_PROJECT_ABSOLUTE_PATH, then install and enable codebase-memory-mcp and create its initial code index. You are working from the Vibe-Harness repository: first check the Node.js and pnpm versions and install this repository's dependencies; select the codex, claude, or gemini adapter for the current Agent host. If the target has no vibe-harness.config.json, initialize it with the selected adapter and core profile; if its configuration or existing install state does not match, stop and report the mismatch, and never use --force. Both the install dry-run and write must explicitly select --plugin codebase-memory-mcp. Inspect the dry-run for conflicts, out-of-project writes, overwrites, and red-zone actions before using --write. I explicitly authorize this installation to write the project-scoped MCP red-zone configuration planned by that plugin; use --confirm-red-zone for the write. Preview provision, then run provision --write to install and enable the pinned project-local runtime, disable auto_index and auto_watch, build the index, verify that it belongs to the target project and is ready, and complete the MCP handshake. Finish with validate --project and doctor --project. Report complete success only when the installation is consistent and codebaseMemoryMcp is ready; otherwise report the failed phase and recovery command. Do not modify global Agent, MCP, or Git configuration.
+    将 Vibe-Harness core profile 安装到 TARGET_PROJECT_ABSOLUTE_PATH，并安装、启用 codebase-memory-mcp 后建立初始代码索引。你正在 Vibe-Harness 仓库中执行：先检查 Node.js 与 pnpm 版本并安装本仓库依赖；根据当前 Agent 宿主选择 codex、claude 或 gemini adapter。若目标项目不存在 vibe-harness.config.json，则用所选 adapter 和 core profile 初始化；若配置或已有安装状态不匹配，停止并报告，禁止使用 --force。install 的 dry-run 和正式安装都必须显式选择 --plugin codebase-memory-mcp；先检查 dry-run 的冲突、越界写入、覆盖和红区计划，通过后再使用 --write。我明确授权本次安装写入由该插件规划的项目级 MCP 红区配置，正式安装时使用 --confirm-red-zone。安装后先预览 provision，再使用 provision --write 安装并启用项目内固定版本 runtime、关闭 auto_index 与 auto_watch、建立索引、验证索引属于目标项目且状态 ready，并完成 MCP handshake。最后运行 validate --project 和 doctor --project；只有安装一致且 codebaseMemoryMcp 状态为 ready 时才报告完整成功，否则报告失败阶段和恢复命令。不得修改全局 Agent、MCP 或 Git 配置。
 
 ### full
 
-    Install the Vibe-Harness full profile into TARGET_PROJECT_ABSOLUTE_PATH, then install and enable codebase-memory-mcp and create its initial code index. You are working from the Vibe-Harness repository: first check the Node.js and pnpm versions and install this repository's dependencies; select the codex, claude, or gemini adapter for the current Agent host. If the target has no vibe-harness.config.json, initialize it with the selected adapter and full profile; if its configuration or existing install state does not match, stop and report the mismatch, and never use --force. Both the install dry-run and write must explicitly select --plugin codebase-memory-mcp. Inspect the dry-run for conflicts, out-of-project writes, overwrites, and red-zone actions before using --write. I explicitly authorize this full installation to write its planned project-scoped Hook and MCP red-zone configuration; use --confirm-red-zone for the write. Preview provision, then run provision --write to install and enable the pinned project-local runtime, disable auto_index and auto_watch, build the index, verify that it belongs to the target project and is ready, and complete the MCP handshake. Finish with validate --project and doctor --project. Report complete success only when the installation is consistent and codebaseMemoryMcp is ready; otherwise report the failed phase and recovery command. Do not modify global Agent, MCP, or Git configuration.
+    将 Vibe-Harness full profile 安装到 TARGET_PROJECT_ABSOLUTE_PATH，并安装、启用 codebase-memory-mcp 后建立初始代码索引。你正在 Vibe-Harness 仓库中执行：先检查 Node.js 与 pnpm 版本并安装本仓库依赖；根据当前 Agent 宿主选择 codex、claude 或 gemini adapter。若目标项目不存在 vibe-harness.config.json，则用所选 adapter 和 full profile 初始化；若配置或已有安装状态不匹配，停止并报告，禁止使用 --force。install 的 dry-run 和正式安装都必须显式选择 --plugin codebase-memory-mcp；先检查 dry-run 的冲突、越界写入、覆盖和红区计划，通过后再使用 --write。我明确授权本次 full 安装写入其规划的项目级 Hook 与 MCP 红区配置，正式安装时使用 --confirm-red-zone。安装后先预览 provision，再使用 provision --write 安装并启用项目内固定版本 runtime、关闭 auto_index 与 auto_watch、建立索引、验证索引属于目标项目且状态 ready，并完成 MCP handshake。最后运行 validate --project 和 doctor --project；只有安装一致且 codebaseMemoryMcp 状态为 ready 时才报告完整成功，否则报告失败阶段和恢复命令。不得修改全局 Agent、MCP 或 Git 配置。
 
-The core and full quick prompts explicitly add codebase-memory-mcp; this does not change the profile contract that external tools must be selected with --plugin. The equivalent manual core install is:
+core 和 full 的快速提示词显式增加 codebase-memory-mcp；这不会改变 profile 本身“外部工具必须通过 --plugin 选择”的合同。手动执行等价的 core 安装：
 
 ```bash
 pnpm install
@@ -37,63 +39,71 @@ pnpm vibe-harness validate --project ../some-project
 pnpm vibe-harness doctor --project ../some-project
 ```
 
-`validate` checks installation consistency only. Run configured project checks with:
+`validate` 只检查安装一致性。执行项目验证使用：
 
 ```bash
 pnpm vibe-harness verify --project ../some-project
 ```
 
-`verify` runs configured commands in `lint -> typecheck -> test -> eval` order and skips unconfigured commands.
+`verify` 依次执行已配置的 `lint -> typecheck -> test -> eval`，未配置的项会跳过。
 
-## Execution model
+## 多宿主安装
 
-- Quick: read-only work, explanations, documentation, and tiny non-behavioral changes.
-- Light: reversible local behavior changes with checks focused on the affected surface.
-- Full: security, production, releases, data migration, public contracts, red-zone, irreversible, or cross-repository work with broader verification and rollback preparation.
+同一个项目只安装一次。配置中的 targets 数组声明全部宿主；不带 --target 的 install、upgrade、validate、doctor 和 diff 处理全部目标，带 --target 时只选择配置或 install-state 中仍存在的一个宿主，绝不隐式追加。
 
-A single Agent handles work by default. Explicit `open-code-review`, browser verification, Eval, and project test tools remain available. Task Markdown is an optional human-readable note and is not part of runtime decisions.
+公共规则、runtime、memory、Eval 和 codebase-memory 索引在项目根以 shared owner 维护一份；宿主入口、原生 Skills、MCP 和 Hook 以 adapter:id owner 维护投影。不要在项目子目录重复安装来模拟多宿主支持。
+
+## 执行模型
+
+- 快速：只读、解释、文档和微小非行为变化，通常只需静态核对。
+- 轻量：可逆的本地行为改动，运行与受影响范围匹配的检查。
+- 完整：安全、生产、发布、数据迁移、公共契约、红区、不可逆或跨仓变更，扩大验证并准备回滚。
+
+单 Agent 默认完成任务。用户显式调用的 `open-code-review`、浏览器验证、Eval 和项目测试仍可正常使用。任务 Markdown 是可选的人读记录，不参与运行时判断。
 
 ## Profiles
 
-| Profile | Installed surface |
+| Profile | 安装内容 |
 | --- | --- |
-| `minimal` | Platform instructions, safety boundaries, Git/Test rules, and optional task/delivery templates |
-| `core` | `minimal` plus common engineering rules, five domain Skills, and offline Eval |
-| `full` | `core` plus three domain Skills, online Eval, and supported platform safety Hooks |
-| `docs-only` | Rules, templates, and schemas without runtime, Skills, MCP, or Hooks |
+| `minimal` | 平台说明、安全边界、Git/Test 规则和可选任务/交付模板 |
+| `core` | `minimal` 加通用工程规则、五个领域 Skills 和离线 Eval |
+| `full` | `core` 加三个领域 Skills、在线 Eval 和已支持宿主的安全 Hook |
+| `docs-only` | 规则、模板和 schemas，不安装 runtime、Skills、MCP 或 Hook |
 
-External tools and memory remain explicit `--plugin` choices. Every host configuration file is a red-zone write and requires `--confirm-red-zone`.
+外部工具和 memory 仍只通过 `--plugin` 显式启用。所有宿主配置文件均属于红区写入，需要 `--confirm-red-zone`。
 
 ```bash
 pnpm vibe-harness install --project ../some-project --target codex --profile full --dry-run
 pnpm vibe-harness install --project ../some-project --target codex --profile full --write --confirm-red-zone
 ```
 
-Claude Code and Gemini CLI use the same four profiles; preview capabilities require explicit `--allow-preview`.
+Claude Code 和 Gemini CLI 使用相同的四个 profile；其 preview 能力需要显式 `--allow-preview`。
 
-## Adapter support
+## Adapter 支持
 
-| Target | Project instructions | Skills | Project Hook / MCP configuration |
+Codex、Cursor、Qoder 和 ZCode 共用 AGENTS.md 中唯一的宿主中立受管块。Antigravity 的 rules、Skills 和 MCP 为 stable；Hooks、sandbox 和 memory 集成为 preview，尚不与 Codex 完全等价。
+
+| Target | 项目指令 | Skills | 项目级 Hook / MCP 配置 |
 | --- | --- | --- | --- |
 | Codex | `AGENTS.md` | `.agents/skills/` | `.codex/` |
-| Claude Code | `CLAUDE.md` | `.claude/skills/` | Preview capabilities |
-| Gemini CLI | `GEMINI.md` | `.gemini/skills/` | Preview capabilities |
-| Cursor | `AGENTS.md` | `.cursor/skills/` | `.cursor/hooks.json`, `.cursor/mcp.json` |
-| Qoder | `AGENTS.md` | `.qoder/skills/` | `.qoder/settings.json`, `.mcp.json` |
-| ZCode | `AGENTS.md` | Not installed automatically | `.zcode/config.json` |
+| Claude Code | `CLAUDE.md` | `.claude/skills/` | preview 能力 |
+| Gemini CLI | `GEMINI.md` | `.gemini/skills/` | preview 能力 |
+| Cursor | `AGENTS.md` | `.cursor/skills/` | `.cursor/hooks.json`、`.cursor/mcp.json` |
+| Qoder | `AGENTS.md` | `.qoder/skills/` | `.qoder/settings.json`、`.mcp.json` |
+| ZCode | `AGENTS.md` | 不自动安装 | `.zcode/config.json` |
 
-ZCode project Skill storage has no documented project-scoped path, so Vibe-Harness never writes `~/.zcode` or guesses a project Skill directory. Import Skills manually through the ZCode UI when needed. Managed JSON updates only Vibe-Harness MCP servers and Hook groups; user settings remain intact.
+ZCode 尚未公开项目级 Skill 的磁盘路径，因此 Vibe-Harness 不会写入 `~/.zcode`，也不会猜测项目 Skill 目录；需要时请通过 ZCode UI 手动导入。受管 JSON 只更新 Vibe-Harness 的 MCP server 和 Hook 组，用户已有配置会保留。
 
-## Project configuration
+## 项目配置
 
-`vibe-harness init` creates this structure:
+`vibe-harness init` 创建以下结构：
 
 ```json
 {
   "projectName": "ExampleProject",
   "language": "zh-CN",
   "packageManager": "pnpm",
-  "target": "codex",
+  "targets": ["codex"],
   "profile": "core",
   "validationCommands": {
     "lint": null,
@@ -140,11 +150,11 @@ ZCode project Skill storage has no documented project-scoped path, so Vibe-Harne
 }
 ```
 
-Legacy `governance.mode`, `governance.workflow`, `hooks.completionGate`, and `validationCommands.governance` fields raise `VIBE_HARNESS_OBSOLETE_GOVERNANCE_CONFIG`. Vibe-Harness does not silently accept or rewrite them.
+旧字段 `governance.mode`、`governance.workflow`、`hooks.completionGate` 和 `validationCommands.governance` 会触发 `VIBE_HARNESS_OBSOLETE_GOVERNANCE_CONFIG`。Vibe-Harness 不静默兼容或自动修改项目配置。
 
-## Explicit tools
+## 显式工具
 
-Optional plugins are `rtk`, `ast-grep`, `codebase-memory-mcp`, `chrome-devtools-mcp`, `playwright-cli`, and `open-code-review`. Agentmemory runtime is suspended (upstream High vulnerabilities) and is not a `--plugin` choice; install the `memory` module via `--modules memory` when memory support is re-enabled.
+可选插件包括 `rtk`、`ast-grep`、`codebase-memory-mcp`、`chrome-devtools-mcp`、`playwright-cli` 和 `open-code-review`。Agentmemory runtime 因上游 High 漏洞暂停提供，不作为 `--plugin` 选项；如需记忆能力，请通过 `--modules memory` 安装 memory 模块。
 
 ```bash
 pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin -rtk --dry-run
@@ -152,43 +162,46 @@ pnpm vibe-harness install --project ../some-project --target codex --profile cor
 pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin none --write
 ```
 
-Plugin choices persist in project install-state. `--modules` is an advanced replacement for the profile module set, not an incremental plugin interface.
+插件选择会保存在项目 install-state 中。`--modules` 是替换 profile 模块集合的高级接口，不是插件增量接口。
 
-## Upgrade and removal
+## 升级与移除
 
-Upgrade compares the old install-state with the new plan. Managed files no longer planned are retired by `--upgrade --write` only when unchanged; modified files are reported as conflicts and preserved. Obsolete runtime state is removed precisely without deleting the whole `.vibe-harness` directory.
+旧 target 配置仍可读取，但只有 install --upgrade --write 会把它和 state v4 原子迁移到 targets 与带 owners 的 state v5。手工从配置删除 target 只报告 stale projection，不会在升级中隐式删除。目标级卸载移除一个投影；最后一个目标和共享资产必须使用 --all-targets 完整卸载。
+
+升级会比较旧 install-state 与新安装计划。计划不再包含且未修改的受管文件会在 `--upgrade --write` 下退役；已修改文件只报告冲突，不会删除。过期运行时状态会精确清理，不会删除整个 `.vibe-harness`。
 
 ```bash
 pnpm vibe-harness install --project ../some-project --target codex --profile core --dry-run --upgrade
 pnpm vibe-harness install --project ../some-project --target codex --profile core --write --upgrade
 pnpm vibe-harness uninstall --project ../some-project --target codex --dry-run
 pnpm vibe-harness uninstall --project ../some-project --target codex --write
+pnpm vibe-harness uninstall --project ../some-project --all-targets --write
 ```
 
-### Exit codes
+### 退出码
 
-| Code | Meaning |
-|------|---------|
-| 0 | Success (or degraded with `--allow-degraded`). |
-| 1 | Failure: invalid state, install error, or unhandled exception. |
-| 2 | Partial skip: uninstall or rollback retained some files due to user modifications; or health check is degraded without `--allow-degraded`. |
+| 退出码 | 含义 |
+|--------|------|
+| 0 | 成功（或降级但传了 `--allow-degraded`）。 |
+| 1 | 失败：状态无效、安装错误或未处理异常。 |
+| 2 | 部分跳过：卸载或回滚因用户修改保留了部分文件；或健康检查降级且未传 `--allow-degraded`。 |
 
-## Safety boundaries
+## 安全边界
 
-- Existing project files are preserved unless `--force` is explicit.
-- Every mutation requires `--write`; red-zone writes require explicit confirmation.
-- The installer does not modify global Agent configuration or `.git/config`.
-- Codex, Cursor, Qoder, and ZCode Hooks normalize their `PreToolUse` and permission events through the same safety policy to block dangerous Git, global configuration writes, credential exfiltration, red-zone file uploads, out-of-project writes, and (when an `allowedEgressHosts` allowlist is configured) non-allowlisted network egress. RTK Hook routing remains Codex-only.
-- Completion claims must match fresh evidence; narrow the claim and report risk when verification is unavailable.
+- 未使用 `--force` 时不覆盖已有项目文件。
+- 所有真实写入使用 `--write`；红区写入需要显式确认。
+- 安装器不修改全局 Agent 配置或 `.git/config`。
+- Codex、Cursor、Qoder 和 ZCode Hook 会把 `PreToolUse` 和权限事件归一到同一安全策略，用于阻止危险 Git、全局配置写入、凭据外传、红区文件上传、越界写入，以及（配置 `allowedEgressHosts` 白名单后）非白名单主机出口。RTK Hook 路由仍只支持 Codex。
+- 完成主张必须由本轮有效证据支持；无法验证时缩小主张并说明风险。
 
-## Documentation
+## 文档
 
-- [Documentation index](docs/README.md)
-- [Architecture](docs/architecture.md)
-- [Migration guide](docs/migration-guide.md)
-- [Hook safety policy](docs/hooks.md)
+- [文档索引](docs/README.md)
+- [架构](docs/architecture.md)
+- [迁移指南](docs/migration-guide.md)
+- [Hook 安全策略](docs/hooks.md)
 - [Eval](docs/evals.md)
-- [Contributing](CONTRIBUTING.md)
+- [贡献指南](CONTRIBUTING.md)
 
 ## License
 

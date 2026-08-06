@@ -1,62 +1,58 @@
 # Vibe-Harness 架构说明
 
-Vibe-Harness 是跨平台的项目级 AI coding 资产包。运行时使用 Node.js ESM、JSON manifests、Markdown 规则和事务性安装器。
+Vibe-Harness 是跨平台、项目级的 AI coding 资产包。它使用 Node.js ESM、JSON manifests、Markdown 规则和事务性安装器，并把一个项目视为唯一的运行时与状态边界。
 
 ## 组件
 
-- `rules/`：执行内核、安全边界和工程专项规则的模板源（部分含 `{{}}` 占位符）。安装器按 `adapters/install-map.json`（六个 adapter 共享）将其渲染为目标项目的 `docs/rules/`；本仓库 `docs/rules/` 即 Vibe-Harness 安装到自身时的渲染产物。无占位符的规则两处字节相同；含占位符的 `project-specific-rules.md` 等仅模板在 `rules/`。
-- `templates/`：可选的人读任务与交付简表，以及 memory 文档模板。
-- `skills/`：八个由宿主按 description 直接选择的领域 Skills；不包含流程 Router。
-- `runtime/hooks/`：Codex、Cursor、Qoder 和 ZCode 的 `PreToolUse` 与权限事件共享安全策略；RTK 路由仅适用于 Codex。
-- `runtime/evals/`：离线 Eval runtime 和 full profile 的在线 runner。
-- `runtime/tools/`：仅由显式 `--plugin` 安装的项目内工具入口。
-- `scripts/`：CLI、安装器、安装一致性校验、项目验证、baseline、Eval 和工具 provisioning。
-- `adapters/`：Codex、Claude Code、Gemini CLI、Cursor、Qoder、ZCode 的项目入口和目标路径转换。
-- `manifests/`、`schemas/`：profiles、能力目录、安装映射和数据合同。
+- rules 和 templates 提供共享规则、模板及 memory 文档源。
+- skills 提供由宿主按 description 直接选择的领域 Skills。
+- runtime 提供 Hooks、Eval 和显式选择的项目内工具。
+- adapters 提供 Codex、Claude Code、Gemini CLI、Cursor、Qoder、ZCode 和 Antigravity 的项目入口与路径投影。
+- scripts 提供 CLI、planner、事务、状态迁移、验证、doctor、diff 和 provisioning。
+- manifests 和 schemas 定义 profiles、adapter capability、项目配置与 install-state 契约。
 
-运行时仅保留安装、项目验证、Eval、显式工具和安全 Hook 能力。
+## 多宿主安装模型
 
-## 执行路径
+项目配置使用唯一、非空的 targets 数组。profile、modules、plugins、runtime、memory、Eval 和索引均为项目级设置，不提供宿主级覆盖。
 
-Agent 使用 `获取事实 -> 直接执行 -> 聚焦验证 -> 简洁交付`。快速、轻量、完整只影响安全审批和验证范围，不形成机器状态。
+安装计划由一份 shared plan 和多份 adapter projection plan 组成：
 
-`vibe-harness validate --project <path>` 只比较安装计划、受管文件和 install-state。`vibe-harness verify --project <path>` 按 `lint -> typecheck -> test -> eval` 执行已配置命令。`doctor` 只报告安装、工具、Git Hook 和事务健康。
+1. shared plan 只生成一次公共规则、runtime、memory、Eval 和工具 provisioning。
+2. 每个 projection plan 只生成该宿主的指令、原生 Skills、MCP 与 Hook 配置。
+3. 相同路径和相同内容合并 owners；不同内容竞争同一路径时在 dry-run 阶段确定性报 conflict。
+4. Codex、Cursor、Qoder 和 ZCode 合并到 AGENTS.md 的唯一宿主中立受管块；Claude、Gemini 和 Antigravity 使用各自入口。
+5. 工具 probe、provisioning 和 codebase-memory 根索引按项目根去重一次。
 
-## 安装生命周期
+install-state stateVersion 5 使用 targets 取代 adapter。files、generatedFiles、generatedDirectories 和 retiredFiles 记录 owners，取值为 shared 或 adapter:id。旧 state v4 可读，并在标准升级事务中迁移。
 
-1. `init --project` 创建配置，不覆盖已有配置。
-2. `install --dry-run` 生成计划；`--write` 才事务性写入。
-3. 所有宿主 Hook/MCP 配置均为 red zone；真实写入需要 `--confirm-red-zone`。
-4. `--upgrade --write` 退役旧 state 中存在但新计划不再包含的未修改受管文件；已修改文件保留并报告冲突。
-5. 升级精确清理过期运行时状态，不删除整个 `.vibe-harness`。
-6. `rollback`、`recover`、`uninstall` 的真实修改同样需要 `--write`。
+## 生命周期与事务
 
-安装器使用项目内锁、preimage 和原子 state commit；路径通过 realpath 与逐段检查阻止 symlink、junction 或 reparse-point 越界。
+- init 创建配置且不覆盖已有配置。
+- install、upgrade、validate、doctor 和 diff 默认处理配置中的全部 targets。
+- --target 只选择配置或状态中仍存在的一个宿主，不追加目标。
+- 目标级 uninstall 删除一个投影并更新配置和状态；最后一个目标与共享资产必须通过 --all-targets 删除。
+- 从配置手工删除 target 只产生 stale projection，upgrade 不隐式卸载。
+- install 和 upgrade 是跨宿主事务；任何投影失败都不提交文件、配置迁移或新 state。
+- rollback 恢复上一次完整事务，不保留半迁移状态。
 
-## Profiles
+安装器使用项目内锁、preimage 和原子 state commit。路径通过 realpath 与逐段检查阻止 symlink、junction 或 reparse-point 越界。
 
-- `minimal`：平台说明、安全边界、Git/Test 规则和可选模板。
-- `core`：增加通用工程规则、五个领域 Skills 和离线 Eval。
-- `full`：增加三个领域 Skills、在线 Eval 和已支持宿主的安全 Hook；ZCode 不自动安装 Skills。
-- `docs-only`：规则、模板和 schemas，不安装可执行 runtime、Skills、MCP 或 Hook。
+## Adapter 投影
 
-工具和 memory 不由 profile 默认安装，只通过显式插件选择。
+- Codex：AGENTS.md、.agents/skills 和 .codex 配置。
+- Claude Code：CLAUDE.md 与 .claude/skills；执行类能力为 preview。
+- Gemini CLI：GEMINI.md 与 .gemini/skills；执行类能力为 preview。
+- Cursor：AGENTS.md、.cursor/skills、.cursor/hooks.json 和 .cursor/mcp.json。
+- Qoder：AGENTS.md、.qoder/skills、.qoder/settings.json 和 .mcp.json。
+- ZCode：AGENTS.md 与 .zcode/config.json；不猜测项目 Skill 路径，也不写全局目录。
+- Antigravity：.agents/rules/vibe-harness.md、.agents/skills 和 .agents/mcp_config.json 为 stable；Hooks、sandbox 和 memory 集成为 preview。
 
-## Adapter
+adapter capability 使用 stable、preview 和 unsupported 描述各产品表面。validate、doctor 和 diff 提供项目汇总及逐宿主结果；未选宿主标为 skipped，内容漂移标为 conflict，配置删除但仍安装的宿主标为 stale projection。
 
-- Codex：`AGENTS.md`、`.agents/skills/` 和项目 `.codex/` 安全面。
-- Claude Code：`CLAUDE.md`、`.claude/skills/`；preview 能力需 `--allow-preview`。
-- Gemini CLI：`GEMINI.md`、`.gemini/skills/`；preview 能力需 `--allow-preview`。
-- Cursor：`AGENTS.md`、`.cursor/skills/`、`.cursor/hooks.json` 和 `.cursor/mcp.json`。
-- Qoder：`AGENTS.md`、`.qoder/skills/`、`.qoder/settings.json` 和 `.mcp.json`。
-- ZCode：`AGENTS.md` 和 `.zcode/config.json`；Skills 不支持项目级自动写入，绝不写入 `~/.zcode`。
+## 结构化配置与安全
 
-adapter capability 使用 `unsupported/preview/stable` 描述 instructions、skills、hooks、policy、MCP、sandbox、memory、plugin 和 goals。
+MCP 和 Hook JSON 通过结构化路径合并。未冲突的用户项原样保留；同名用户项默认阻止写入，只有 --force 可以接管。所有宿主配置仍是 red zone，真实写入额外要求 --confirm-red-zone。
 
-## 安全模型
+Antigravity Hook adapter 解析 toolCall.name、toolCall.args、workspacePaths 等 camelCase 字段，归一为内部 policy context，再映射为 allow、deny、ask 或 force_ask。无效输入、异常和无法判定的高风险操作 fail-closed。达到稳定前，preview 能力不描述为与 Codex 等价。
 
-- 不写全局 Agent 配置或 `.git/config`。
-- 未使用 `--force` 时不覆盖已有文件。
-- 共享说明文件、TOML MCP 配置和 JSON MCP/Hook 配置只更新 Vibe-Harness 受管内容；受管节点被用户修改时升级、回滚和卸载保留该配置并报告冲突。
-- Hook 先执行安全策略；红区、生产、权限、凭据、外部写入和不可逆操作仍由宿主进行人工审批。
-- 项目状态不保存源码、凭据、完整命令输出或用户绝对路径。
+doctor 会搜索项目中的其他 .vibe-harness/install-state.json，并排除依赖、VCS、缓存和生成目录。发现嵌套旧安装时仅报告根路径、版本、重复 runtime 或索引及迁移命令，不自动删除目录或用户文件。

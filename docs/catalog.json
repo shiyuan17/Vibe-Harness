@@ -24,16 +24,16 @@
       "path": "README.md",
       "kind": "user-guide",
       "status": "current",
-      "language": "en",
+      "language": "zh-CN",
       "audiences": [
         "user"
       ]
     },
     {
-      "path": "README.zh-CN.md",
+      "path": "README.en.md",
       "kind": "user-guide",
       "status": "current",
-      "language": "zh-CN",
+      "language": "en",
       "audiences": [
         "user"
       ]
