@@ -48,7 +48,7 @@
       "targets": ["rules/coding-rules.md", "rules/frontend-rules.md", "rules/api-rules.md", "rules/db-rules.md"],
       "tests": ["tests/rules-depth.test.js"],
       "profiles": ["core", "full", "docs-only"],
-      "docs": ["README.zh-CN.md"],
+      "docs": ["README.en.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-core.json"] }
     },
     {
@@ -128,7 +128,7 @@
       "targets": ["scripts/vibe-harness.js", "scripts/lib/module-selection.js", "scripts/lib/install-planner.js", "scripts/lib/tool-provisioning.js", "manifests/profiles.json"],
       "tests": ["tests/module-selection.test.js", "tests/tool-provisioning.test.js", "tests/tooling-modules.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
-      "docs": ["README.md", "README.zh-CN.md", "docs/architecture.md", "docs/migration-guide.md", "docs/specs/vibe-harness-tooling-modules-spec.md"],
+      "docs": ["README.md", "README.en.md", "docs/architecture.md", "docs/migration-guide.md", "docs/specs/vibe-harness-tooling-modules-spec.md"],
       "evaluation": { "required": false, "reason": "Plugin aliases, dependency closure, persistence, and zero-tool profile defaults are deterministic installer contracts." }
     },
     {
@@ -138,7 +138,7 @@
       "targets": ["rules/rtk.md", "runtime/tools/rtk/run.mjs", "scripts/lib/tool-provisioning.js", "scripts/lib/module-selection.js"],
       "tests": ["tests/tooling-modules.test.js", "tests/module-selection.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
-      "docs": ["README.md", "README.zh-CN.md", "docs/architecture.md"],
+      "docs": ["README.md", "README.en.md", "docs/architecture.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-core.json"] }
     },
     {
@@ -148,7 +148,7 @@
       "targets": ["rules/ast-grep.md", "runtime/tools/ast-grep/run.mjs", "runtime/tools/ast-grep/package-lock.json", "scripts/lib/tool-provisioning.js", "scripts/lib/module-selection.js"],
       "tests": ["tests/tooling-modules.test.js", "tests/module-selection.test.js", "tests/runtime-audit.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
-      "docs": ["README.md", "README.zh-CN.md", "docs/architecture.md"],
+      "docs": ["README.md", "README.en.md", "docs/architecture.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-core.json"] }
     },
     {
@@ -158,7 +158,7 @@
       "targets": ["rules/chrome-devtools-mcp.md", "runtime/tools/chrome-devtools-mcp/run.mjs", "runtime/tools/chrome-devtools-mcp/package-lock.json", "skills/integrations/browser-verification/SKILL.md"],
       "tests": ["tests/module-selection.test.js", "tests/tool-provisioning.test.js", "tests/runtime-audit.test.js", "tests/skill-closure.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
-      "docs": ["README.md", "README.zh-CN.md", "docs/architecture.md"],
+      "docs": ["README.md", "README.en.md", "docs/architecture.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-core.json"] }
     },
     {
@@ -183,12 +183,12 @@
     },
     {
       "id": "cross-platform-adapters",
-      "source": "Codex, Claude, and Gemini adapters",
+      "source": "Seven-host shared runtime and adapter projections",
       "disposition": "validator",
-      "targets": ["manifests/adapters.json", "adapters/install-map.json", "adapters/claude/CLAUDE.template.md", "adapters/gemini/GEMINI.template.md"],
+      "targets": ["manifests/adapters.json", "adapters/install-map.json", "adapters/claude/CLAUDE.template.md", "adapters/gemini/GEMINI.template.md", "adapters/antigravity/RULES.template.md", "scripts/lib/install-planner.js", "scripts/lib/install-state.js", "scripts/lib/nested-install.js"],
       "tests": ["tests/cross-platform-adapters.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
-      "docs": ["README.md", "README.zh-CN.md"],
+      "docs": ["README.md", "README.en.md", "docs/architecture.md", "docs/migration-guide.md"],
       "evaluation": { "required": false, "reason": "Adapter file sets and lifecycle behavior are deterministic and verified on Linux and Windows. Adapters whose hooks capability is not stable or whose redZonePrefixes is empty run with a degraded runtime safety posture; this is surfaced explicitly by the DEGRADED_SAFETY_POSTURE warning in install, validate, and doctor." }
     },
     {

@@ -35,6 +35,254 @@ async function fail(args) {
   assert.fail('Expected command to fail');
 }
 
+test('all seven adapters share one project installation and support target-scoped uninstall', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-multi-adapter-'));
+  const targets = ['codex', 'claude', 'gemini', 'cursor', 'qoder', 'zcode', 'antigravity'];
+  try {
+    await run(['init', '--project', target]);
+    const configPath = path.join(target, 'vibe-harness.config.json');
+    const config = JSON.parse(await readFile(configPath, 'utf8'));
+    await writeFile(configPath, JSON.stringify({ ...config, targets }, null, 2) + '\n', 'utf8');
+
+    const preview = await run(['install', '--project', target, '--profile', 'core', '--dry-run']);
+    assert.deepEqual(preview.targets, targets);
+    assert.equal(preview.actions.filter((action) => action.relativeTarget === 'AGENTS.md').length, 1);
+
+    await run(['install', '--project', target, '--profile', 'core', '--write']);
+    const statePath = path.join(target, '.vibe-harness/install-state.json');
+    const state = JSON.parse(await readFile(statePath, 'utf8'));
+    assert.equal(state.stateVersion, 5);
+    assert.deepEqual(state.targets, targets);
+    assert.equal(Object.hasOwn(state, 'adapter'), false);
+    assert.equal(new Set(state.files.map((file) => file.target)).size, state.files.length);
+    assert.deepEqual(
+      state.files.find((file) => file.target === 'AGENTS.md').owners,
+      ['adapter:codex', 'adapter:cursor', 'adapter:qoder', 'adapter:zcode'],
+    );
+    assert.deepEqual(state.files.find((file) => file.target === 'docs/rules/coding-rules.md').owners, ['shared']);
+    assert.deepEqual(state.files.find((file) => file.target === 'CLAUDE.md').owners, ['adapter:claude']);
+    assert.deepEqual(
+      state.files.find((file) => file.target === '.agents/rules/vibe-harness.md').owners,
+      ['adapter:antigravity'],
+    );
+    const agents = await readFile(path.join(target, 'AGENTS.md'), 'utf8');
+    assert.equal((agents.match(/<!-- VIBE_HARNESS:START -->/gu) ?? []).length, 1);
+    assert.equal((await run(['validate', '--project', target])).status, 'ready');
+
+    const selected = await run(['diff', '--project', target, '--target', 'codex']);
+    assert.equal(selected.adapters.codex.status, 'stable');
+    assert.equal(selected.adapters.claude.status, 'skipped');
+    const all = await run(['diff', '--project', target]);
+    assert.equal(all.adapters.cursor.status, 'preview');
+    assert.equal(all.adapters.zcode.capabilities.skills, 'unsupported');
+
+    await run(['uninstall', '--project', target, '--target', 'zcode', '--write']);
+    const remainingState = JSON.parse(await readFile(statePath, 'utf8'));
+    assert.equal(remainingState.targets.includes('zcode'), false);
+    assert.equal(await exists(path.join(target, 'AGENTS.md')), true);
+    const updatedConfig = JSON.parse(await readFile(configPath, 'utf8'));
+    assert.equal(updatedConfig.targets.includes('zcode'), false);
+
+    await run(['uninstall', '--project', target, '--all-targets', '--write']);
+    assert.equal(await exists(statePath), false);
+    assert.equal(await exists(path.join(target, 'docs/rules/coding-rules.md')), false);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('Antigravity structured MCP and Hook config preserves users, conflicts by name, and requires force takeover', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-antigravity-config-'));
+  try {
+    await run(['init', '--project', target, '--target', 'antigravity', '--profile', 'full']);
+    const agentsDir = path.join(target, '.agents');
+    await mkdir(agentsDir, { recursive: true });
+    const mcpPath = path.join(agentsDir, 'mcp_config.json');
+    const hooksPath = path.join(agentsDir, 'hooks.json');
+    await writeFile(mcpPath, JSON.stringify({
+      custom: true,
+      mcpServers: {
+        'custom-server': { command: 'custom' },
+        'vibe-harness-codebase-memory-mcp': { command: 'user-owned' },
+      },
+    }, null, 2) + '\n', 'utf8');
+    await writeFile(hooksPath, JSON.stringify({
+      custom: true,
+      'vibe-harness': {
+        PreToolUse: [{ hooks: [{ command: 'user-owned', statusMessage: 'Vibe-Harness safety policy' }] }],
+        UserEvent: [{ hooks: [{ command: 'custom', statusMessage: 'Custom policy' }] }],
+      },
+    }, null, 2) + '\n', 'utf8');
+    const installArgs = [
+      'install', '--project', target, '--target', 'antigravity', '--profile', 'full',
+      '--modules', 'agents,rules,templates,skills,evals,hooks,memory',
+      '--plugin', 'codebase-memory', '--allow-preview',
+    ];
+
+    const preview = await run([...installArgs, '--dry-run', '--verbose']);
+    assert.equal(preview.actions.some((action) => action.relativeTarget === '.agents/mcp_config.json' && action.kind === 'conflict'), true);
+    assert.equal(preview.actions.some((action) => action.relativeTarget === '.agents/hooks.json' && action.kind === 'conflict'), true);
+    const blockedConflict = await fail([...installArgs, '--write', '--confirm-red-zone']);
+    assert.match(blockedConflict.error.message, /overwrite existing file/iu);
+    const blockedRedZone = await fail([...installArgs, '--write', '--force']);
+    assert.match(blockedRedZone.error.message, /red-zone confirmation/iu);
+    await run([...installArgs, '--write', '--force', '--confirm-red-zone']);
+
+    const mcp = JSON.parse(await readFile(mcpPath, 'utf8'));
+    assert.equal(mcp.custom, true);
+    assert.deepEqual(mcp.mcpServers['custom-server'], { command: 'custom' });
+    assert.notEqual(mcp.mcpServers['vibe-harness-codebase-memory-mcp'].command, 'user-owned');
+    const hooks = JSON.parse(await readFile(hooksPath, 'utf8'));
+    assert.equal(hooks.custom, true);
+    assert.equal(hooks['vibe-harness'].UserEvent[0].hooks[0].command, 'custom');
+    assert.notEqual(hooks['vibe-harness'].PreToolUse[0].hooks[0].command, 'user-owned');
+
+    await run(['uninstall', '--project', target, '--all-targets', '--write', '--confirm-red-zone']);
+    const remainingMcp = JSON.parse(await readFile(mcpPath, 'utf8'));
+    assert.deepEqual(remainingMcp, { custom: true, mcpServers: { 'custom-server': { command: 'custom' } } });
+    const remainingHooks = JSON.parse(await readFile(hooksPath, 'utf8'));
+    assert.equal(remainingHooks.custom, true);
+    assert.equal(remainingHooks['vibe-harness'].UserEvent[0].hooks[0].command, 'custom');
+    assert.equal(Object.hasOwn(remainingHooks['vibe-harness'], 'PreToolUse'), false);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('all seven full adapters share one runtime, memory library, and root-scoped index contract', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-all-full-shared-'));
+  const targets = ['codex', 'claude', 'gemini', 'cursor', 'qoder', 'zcode', 'antigravity'];
+  try {
+    await run(['init', '--project', target, '--profile', 'full']);
+    const configPath = path.join(target, 'vibe-harness.config.json');
+    const config = JSON.parse(await readFile(configPath, 'utf8'));
+    await writeFile(configPath, JSON.stringify({ ...config, targets }, null, 2) + '\n', 'utf8');
+    const installed = await run([
+      'install', '--project', target, '--profile', 'full',
+      '--modules', 'agents,rules,templates,skills,evals,hooks,memory',
+      '--plugin', 'codebase-memory', '--allow-preview', '--write', '--confirm-red-zone',
+    ]);
+    assert.equal(installed.plannedToolActions.filter((action) => action.id === 'codebaseMemoryMcp').length, 1);
+
+    const state = JSON.parse(await readFile(path.join(target, '.vibe-harness/install-state.json'), 'utf8'));
+    assert.equal(new Set(state.files.map((file) => file.target)).size, state.files.length);
+    const runtimeFiles = state.files.filter((file) => file.target.startsWith('.agents/runtime/tools/codebase-memory-mcp/'));
+    assert.equal(runtimeFiles.length > 0, true);
+    assert.equal(runtimeFiles.every((file) => file.owners.length === 1 && file.owners[0] === 'shared'), true);
+    const memoryFiles = state.files.filter((file) => file.target.startsWith('.agents/memory/'));
+    assert.equal(memoryFiles.length > 0, true);
+    assert.equal(memoryFiles.every((file) => file.owners.length === 1 && file.owners[0] === 'shared'), true);
+
+    const mcpPaths = ['.cursor/mcp.json', '.mcp.json', '.zcode/config.json', '.agents/mcp_config.json'];
+    const indexedRoots = [];
+    for (const relativePath of mcpPaths) {
+      const hostConfig = JSON.parse(await readFile(path.join(target, relativePath), 'utf8'));
+      const serialized = JSON.stringify(hostConfig);
+      assert.match(serialized, /vibe-harness-codebase-memory-mcp/u);
+      JSON.stringify(hostConfig, (key, value) => {
+        if (key === 'CBM_ALLOWED_ROOT') indexedRoots.push(value);
+        return value;
+      });
+    }
+    assert.equal(indexedRoots.length, mcpPaths.length);
+    assert.deepEqual([...new Set(indexedRoots)], [target]);
+
+    await run(['uninstall', '--project', target, '--all-targets', '--write', '--confirm-red-zone']);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('doctor reports nested legacy installations without modifying them', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-nested-install-'));
+  try {
+    await run(['init', '--project', target, '--profile', 'minimal']);
+    await run(['install', '--project', target, '--profile', 'minimal', '--write']);
+    const nested = path.join(target, 'packages', 'legacy-app');
+    const nestedStatePath = path.join(nested, '.vibe-harness', 'install-state.json');
+    await mkdir(path.dirname(nestedStatePath), { recursive: true });
+    await mkdir(path.join(nested, '.agents', 'runtime'), { recursive: true });
+    await mkdir(path.join(nested, '.vibe-harness', 'tool-state', 'codebase-memory-mcp'), { recursive: true });
+    await writeFile(nestedStatePath, JSON.stringify({
+      adapter: 'codex',
+      files: [],
+      profile: 'core',
+      stateVersion: 4,
+      version: '0.2.0',
+    }), 'utf8');
+    const ignoredState = path.join(target, 'node_modules', 'fixture', '.vibe-harness', 'install-state.json');
+    await mkdir(path.dirname(ignoredState), { recursive: true });
+    await writeFile(ignoredState, '{}', 'utf8');
+
+    const doctor = await run(['doctor', '--project', target]);
+    assert.equal(doctor.nestedInstallations.length, 1);
+    assert.equal(doctor.nestedInstallations[0].path, nested);
+    assert.equal(doctor.nestedInstallations[0].stateVersion, 4);
+    assert.equal(doctor.nestedInstallations[0].duplicateRuntime, true);
+    assert.equal(doctor.nestedInstallations[0].duplicateIndex, true);
+    assert.equal(doctor.nestedInstallMigration.length, 4);
+    assert.match(doctor.nestedInstallMigration.at(-1), /uninstall.*--all-targets --write/iu);
+    assert.equal(await exists(nestedStatePath), true);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('legacy target config migrates only on an upgrade write', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-legacy-target-'));
+  try {
+    await run(['init', '--project', target]);
+    const configPath = path.join(target, 'vibe-harness.config.json');
+    const current = JSON.parse(await readFile(configPath, 'utf8'));
+    const legacy = { ...current, target: current.targets[0] };
+    delete legacy.targets;
+    await writeFile(configPath, JSON.stringify(legacy, null, 2) + '\n', 'utf8');
+
+    await run(['install', '--project', target, '--profile', 'core', '--upgrade', '--dry-run']);
+    assert.equal(Object.hasOwn(JSON.parse(await readFile(configPath, 'utf8')), 'target'), true);
+
+    await run(['install', '--project', target, '--profile', 'core', '--upgrade', '--write']);
+    const migrated = JSON.parse(await readFile(configPath, 'utf8'));
+    assert.deepEqual(migrated.targets, ['codex']);
+    assert.equal(Object.hasOwn(migrated, 'target'), false);
+    const state = JSON.parse(await readFile(path.join(target, '.vibe-harness/install-state.json'), 'utf8'));
+    assert.equal(state.stateVersion, 5);
+    assert.deepEqual(state.targets, ['codex']);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('removed config targets remain stale until explicitly uninstalled', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-stale-target-'));
+  try {
+    await run(['init', '--project', target, '--profile', 'minimal']);
+    const configPath = path.join(target, 'vibe-harness.config.json');
+    const config = JSON.parse(await readFile(configPath, 'utf8'));
+    await writeFile(configPath, JSON.stringify({ ...config, targets: ['codex', 'claude'] }, null, 2) + '\n', 'utf8');
+    await run(['install', '--project', target, '--write']);
+    const claudePath = path.join(target, 'CLAUDE.md');
+    assert.equal(await exists(claudePath), true);
+
+    await writeFile(configPath, JSON.stringify({ ...config, targets: ['codex'] }, null, 2) + '\n', 'utf8');
+    const drift = await run(['diff', '--project', target]);
+    assert.deepEqual(drift.staleProjections, ['claude']);
+    assert.equal(drift.ok, false);
+
+    await run(['install', '--project', target, '--upgrade', '--write']);
+    const preservedState = JSON.parse(await readFile(path.join(target, '.vibe-harness/install-state.json'), 'utf8'));
+    assert.deepEqual(preservedState.targets, ['codex', 'claude']);
+    assert.equal(await exists(claudePath), true);
+
+    await run(['uninstall', '--project', target, '--target', 'claude', '--write']);
+    const cleanedState = JSON.parse(await readFile(path.join(target, '.vibe-harness/install-state.json'), 'utf8'));
+    assert.deepEqual(cleanedState.targets, ['codex']);
+    assert.equal(await exists(claudePath), false);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
 for (const adapter of [
   { id: 'claude', instruction: 'CLAUDE.md', skills: '.claude/skills' },
   { id: 'gemini', instruction: 'GEMINI.md', skills: '.gemini/skills' },
@@ -44,7 +292,7 @@ for (const adapter of [
     try {
       await run(['init', '--project', target, '--target', adapter.id]);
       const config = JSON.parse(await readFile(path.join(target, 'vibe-harness.config.json'), 'utf8'));
-      assert.equal(config.target, adapter.id);
+      assert.deepEqual(config.targets, [adapter.id]);
       await writeFile(path.join(target, adapter.instruction), '# Local instructions\n', 'utf8');
 
       const preview = await run(['install', '--project', target, '--target', adapter.id, '--profile', 'core', '--dry-run', '--verbose']);
@@ -56,7 +304,7 @@ for (const adapter of [
 
       await run(['install', '--project', target, '--target', adapter.id, '--profile', 'core', '--write']);
       const state = JSON.parse(await readFile(path.join(target, '.vibe-harness/install-state.json'), 'utf8'));
-      assert.equal(state.adapter, adapter.id);
+      assert.deepEqual(state.targets, [adapter.id]);
       assert.equal(state.files.find((file) => file.target === adapter.instruction).contentStrategy, 'managed-instruction-block');
       const installed = await readFile(path.join(target, adapter.instruction), 'utf8');
       assert.match(installed, /# Local instructions/u);
@@ -72,7 +320,7 @@ for (const adapter of [
       assert.match(conflict.error.message, /overwrite existing|user-modified/iu);
       await run(['install', '--project', target, '--target', adapter.id, '--profile', 'core', '--write', '--force']);
 
-      await run(['uninstall', '--project', target, '--target', adapter.id, '--write']);
+      await run(['uninstall', '--project', target, '--all-targets', '--write']);
       assert.equal(await readFile(path.join(target, adapter.instruction), 'utf8'), '# Local instructions\n');
       assert.equal(await exists(path.join(target, adapter.skills)), false);
     } finally {
@@ -96,7 +344,7 @@ for (const adapter of ['claude', 'gemini']) {
         assert.equal(installed.status, 'ready');
         assert.equal(await exists(path.join(target, adapter === 'claude' ? 'CLAUDE.md' : 'GEMINI.md')), true);
         assert.equal((await run(['validate', '--project', target])).status, 'ready');
-        await run(['uninstall', '--project', target, '--target', adapter, '--write']);
+        await run(['uninstall', '--project', target, '--all-targets', '--write']);
       } finally {
         await rm(target, { force: true, recursive: true });
       }
@@ -148,7 +396,7 @@ for (const adapter of [
           await run([...installArgs, '--plugin', 'codebase-memory', '--allow-preview', '--write', '--upgrade', '--confirm-red-zone']);
         }
 
-        await run(['uninstall', '--project', target, '--target', adapter.id, '--write', ...(profile === 'full' ? ['--confirm-red-zone'] : [])]);
+        await run(['uninstall', '--project', target, '--all-targets', '--write', ...(profile === 'full' ? ['--confirm-red-zone'] : [])]);
         if (profile === 'full') {
           const remaining = JSON.parse(await readFile(path.join(target, adapter.config), 'utf8'));
           assert.deepEqual(remaining, { custom: true });
@@ -228,7 +476,7 @@ test('adapter catalog gates preview profiles and rejects target mismatch', async
     assert.equal(preview.previewCapabilities.includes('mcp'), true);
     assert.equal(preview.missingCapabilities.includes('plugin'), true);
     const mismatch = await fail(['install', '--project', target, '--target', 'gemini', '--profile', 'core', '--dry-run']);
-    assert.match(mismatch.error.message, /target.*does not match/iu);
+    assert.match(mismatch.error.message, /target.*not configured or installed/iu);
     const legacy = await fail(['install', '--target', 'claude', '--profile', 'core', '--dry-run']);
     assert.match(legacy.error.message, /--project.*--apply|removed/iu);
   } finally {
@@ -249,7 +497,7 @@ test('adapter capability v2 uses explicit support levels for every product surfa
   }
 });
 
-test('install and upgrade reject an adapter that differs from install state', async () => {
+test('install and upgrade reject a CLI target absent from configured and installed targets', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-adapter-state-'));
   try {
     await run(['init', '--project', target, '--target', 'claude']);
@@ -260,7 +508,7 @@ test('install and upgrade reject an adapter that differs from install state', as
 
     for (const extraArgs of [[], ['--upgrade']]) {
       const report = await fail(['install', '--project', target, '--target', 'gemini', '--profile', 'core', '--write', ...extraArgs]);
-      assert.match(report.error.message, /Installed adapter claude does not match install target gemini/iu);
+      assert.match(report.error.message, /target gemini is not configured or installed/iu);
     }
   } finally {
     await rm(target, { force: true, recursive: true });
@@ -306,12 +554,12 @@ test('README platform support matches the adapter catalog', async () => {
   const [catalog, readme, localizedReadme] = await Promise.all([
     readFile(path.join(rootDir, 'manifests/adapters.json'), 'utf8').then(JSON.parse),
     readFile(path.join(rootDir, 'README.md'), 'utf8'),
-    readFile(path.join(rootDir, 'README.zh-CN.md'), 'utf8'),
+    readFile(path.join(rootDir, 'README.en.md'), 'utf8'),
   ]);
   for (const adapter of catalog.items) {
     for (const profile of adapter.supportedProfiles.filter((item) => ['minimal', 'core', 'full', 'docs-only'].includes(item))) {
       assert.equal(readme.includes(profile), true, `README omits ${adapter.id}:${profile}`);
-      assert.equal(localizedReadme.includes(profile), true, `README.zh-CN omits ${adapter.id}:${profile}`);
+      assert.equal(localizedReadme.includes(profile), true, `README.en omits ${adapter.id}:${profile}`);
     }
   }
   assert.doesNotMatch(readme, /非 Codex adapter.*后续路线/u);

@@ -72,6 +72,20 @@
         "hooks": { "target": ".zcode/config.json", "path": ["hooks"] }
       },
       "redZonePrefixes": [".zcode/config.json"]
+    },
+    {
+      "id": "antigravity",
+      "installMap": "adapters/install-map.json",
+      "instructionTarget": ".agents/rules/vibe-harness.md",
+      "instructionTemplate": "RULES",
+      "skillRoot": ".agents/skills",
+      "supportedProfiles": ["minimal", "core", "full", "docs-only"],
+      "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "preview", "policy": "stable", "mcp": "stable", "sandbox": "preview", "memory": "preview", "plugin": "unsupported", "goals": "unsupported" },
+      "projectConfig": {
+        "mcp": { "target": ".agents/mcp_config.json", "path": ["mcpServers"] },
+        "hooks": { "target": ".agents/hooks.json", "path": ["vibe-harness"] }
+      },
+      "redZonePrefixes": [".agents/hooks.json", ".agents/mcp_config.json"]
     }
   ]
 }

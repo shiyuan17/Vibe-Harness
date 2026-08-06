@@ -85,8 +85,23 @@ function hostEvent(value) {
  * into the policy's host-neutral request shape. These hosts use different key
  * casing, so validation happens before a request reaches the shared policy.
  */
-export function normalizeHostHookInput(value, { fallbackCwd, host } = {}) {
+export function normalizeHostHookInput(value, { expectedEvent, fallbackCwd, host } = {}) {
   if (host === 'codex') return normalizeCodexHookInput(value);
+  if (host === 'antigravity') {
+    assertObject(value, 'antigravity hook input');
+    const event = hostEvent(value.event ?? expectedEvent);
+    if (!event) throw new Error('Unsupported antigravity hook event.');
+    const cwd = value.toolCall?.args?.Cwd ?? value.toolCall?.args?.cwd ?? value.workspacePaths?.[0] ?? fallbackCwd;
+    if (typeof cwd !== 'string' || cwd.length === 0) throw new Error('antigravity hook input workspace path is required.');
+    return {
+      cwd,
+      event,
+      permissionMode: value.permissionMode,
+      sessionId: value.conversationId ?? 'antigravity-hook',
+      toolInput: value.toolCall?.args ?? {},
+      toolName: value.toolCall?.name ?? '',
+    };
+  }
   if (!['cursor', 'qoder', 'zcode'].includes(host)) throw new Error(`Unsupported hook host: ${String(host)}`);
   assertObject(value, `${host} hook input`);
   const event = hostEvent(value.hook_event_name ?? value.hookEventName ?? value.event ?? value.event_name);
@@ -483,6 +498,11 @@ function policyReason(decision, durationMs) {
 /** Serialize a host-neutral policy decision using the host's hook contract. */
 export function createHostHookResult(host, event, decision, { durationMs } = {}) {
   if (host === 'codex') return createCodexHookResult(event, decision, { durationMs });
+  if (host === 'antigravity') {
+    const action = decision?.action ?? 'allow';
+    const mapped = action === 'deny' ? 'deny' : action === 'force_ask' ? 'force_ask' : action === 'warn' ? 'ask' : 'allow';
+    return mapped === 'allow' ? { decision: 'allow' } : { decision: mapped, reason: policyReason(decision, durationMs) };
+  }
   if (!decision || decision.action === 'allow') return {};
   const reason = policyReason(decision, durationMs);
   if (host === 'cursor') {

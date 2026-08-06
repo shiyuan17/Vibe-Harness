@@ -21,7 +21,7 @@ function hostFromArgs(argv) {
   const index = argv.indexOf('--host');
   if (index === -1) return 'codex';
   const host = argv[index + 1];
-  if (!['codex', 'cursor', 'qoder', 'zcode'].includes(host)) throw new Error('Unsupported hook host.');
+  if (!['codex', 'cursor', 'qoder', 'zcode', 'antigravity'].includes(host)) throw new Error('Unsupported hook host.');
   return host;
 }
 
@@ -46,7 +46,7 @@ async function readStdin() {
 export async function evaluateHook(rawInput, { expectedEvent, host = 'codex', rtkRunner } = {}) {
   const startedAt = process.hrtime.bigint();
   const elapsedMs = () => Number((process.hrtime.bigint() - startedAt) / 1_000_000n);
-  const input = normalizeHostHookInput(rawInput, { fallbackCwd: process.cwd(), host });
+  const input = normalizeHostHookInput(rawInput, { expectedEvent, fallbackCwd: process.cwd(), host });
   if (expectedEvent && input.event !== expectedEvent) {
     throw new Error('Hook event does not match the configured event.');
   }
@@ -65,6 +65,9 @@ export async function evaluateHook(rawInput, { expectedEvent, host = 'codex', rt
     return createHostHookResult(host, input.event, safetyDecision, { durationMs: elapsedMs() });
   }
 
+  if (host === 'antigravity') {
+    return createHostHookResult(host, input.event, safetyDecision, { durationMs: elapsedMs() });
+  }
   if (host !== 'codex') return {};
 
   const rtk = await inspectRtkHook(rootDir, { enabled: settings.rtkEnabled });

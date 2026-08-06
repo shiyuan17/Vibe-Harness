@@ -1,0 +1,15 @@
+{
+  "PreToolUse": [
+    {
+      "matcher": ".*",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "node \"{{hookRunnerPath}}\" --host antigravity --expected-event PreToolUse",
+          "timeout": 10,
+          "statusMessage": "Vibe-Harness safety policy"
+        }
+      ]
+    }
+  ]
+}

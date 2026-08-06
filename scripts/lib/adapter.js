@@ -57,6 +57,9 @@ export function resolveAdapterEntry(adapter, entry) {
   } else if (target.startsWith('.agents/skills/')) {
     target = `${adapter.skillRoot}/${target.slice('.agents/skills/'.length)}`;
   }
+  if (entry.group === 'agents' && adapter.instructionTarget === 'AGENTS.md') {
+    source = 'adapters/codex/AGENTS.template.md';
+  }
   if (target.startsWith('.codex/') && adapter.id !== 'codex') return null;
   if (source) assertPortableRelativePath(source, 'adapter install source');
   assertPortableRelativePath(target, 'adapter install target');

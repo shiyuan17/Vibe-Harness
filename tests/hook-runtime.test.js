@@ -7,7 +7,7 @@ import test from 'node:test';
 import { evaluateCodexHook, evaluateHook } from '../runtime/hooks/codex-hook.mjs';
 import { resolveExecutable, runCommand } from '../runtime/hooks/git-hook.mjs';
 import { DEFAULT_RED_ZONE_PATHS, readHookSettings } from '../runtime/hooks/lib/context.mjs';
-import { analyzeToolRequest, normalizeCodexHookInput, supportedCodexHookEvents } from '../runtime/hooks/lib/policy.mjs';
+import { analyzeToolRequest, createHostHookResult, normalizeCodexHookInput, supportedCodexHookEvents } from '../runtime/hooks/lib/policy.mjs';
 
 async function withProject(callback, hooks = { mode: 'guarded' }) {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-hook-runtime-'));
@@ -101,6 +101,32 @@ test('Cursor, Qoder, and ZCode normalize host payloads and deny destructive comm
       fixture.assertDenied(result);
     }
   });
+});
+
+test('Antigravity maps camelCase payloads and all four protocol decisions', async () => {
+  await withProject(async (target) => {
+    const allowed = await evaluateHook({
+      toolCall: { name: 'run_command', args: { command: 'git status --short' } },
+      workspacePaths: [target],
+    }, { expectedEvent: 'PreToolUse', host: 'antigravity' });
+    assert.deepEqual(allowed, { decision: 'allow' });
+
+    const denied = await evaluateHook({
+      toolCall: { name: 'run_command', args: { command: 'git reset --hard HEAD' } },
+      workspacePaths: [target],
+    }, { expectedEvent: 'PreToolUse', host: 'antigravity' });
+    assert.equal(denied.decision, 'deny');
+
+    const asked = await evaluateHook({
+      toolCall: { name: 'write_file', args: { path: '.env' } },
+      workspacePaths: [target],
+    }, { expectedEvent: 'PreToolUse', host: 'antigravity' });
+    assert.equal(asked.decision, 'ask');
+  });
+  assert.equal(createHostHookResult('antigravity', 'PreToolUse', {
+    action: 'force_ask',
+    reason: 'manual approval required',
+  }).decision, 'force_ask');
 });
 
 test('Hook settings contain safety configuration only', async () => {
