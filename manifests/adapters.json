@@ -86,6 +86,25 @@
         "hooks": { "target": ".agents/hooks.json", "path": ["vibe-harness"] }
       },
       "redZonePrefixes": [".agents/hooks.json", ".agents/mcp_config.json"]
+    },
+    {
+      "id": "opencode",
+      "installMap": "adapters/install-map.json",
+      "instructionTarget": "AGENTS.md",
+      "instructionTemplate": "AGENTS",
+      "skillRoot": ".opencode/skills",
+      "supportedProfiles": ["minimal", "core", "full", "docs-only"],
+      "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "unsupported", "policy": "stable", "mcp": "stable", "sandbox": "preview", "memory": "preview", "plugin": "unsupported", "goals": "unsupported" },
+      "projectConfig": {
+        "mcp": {
+          "target": "opencode.json",
+          "alternateTargets": ["opencode.jsonc"],
+          "path": ["mcp"],
+          "syntax": "jsonc",
+          "serverFormat": "opencode-local"
+        }
+      },
+      "redZonePrefixes": ["opencode.json", "opencode.jsonc"]
     }
   ]
 }
