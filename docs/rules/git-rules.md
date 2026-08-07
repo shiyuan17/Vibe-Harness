@@ -46,7 +46,7 @@ AI 准备提交前先给出提交分组：
 
 | 目标分支 | auto-commit | auto-push | 说明 |
 | --- | --- | --- | --- |
-| `vibe-harness/<scope>-<short-topic>` 任务分支 | 可自动 | 可自动 | 私有分支，push 仅为备份与触发 CI |
+| `<type>/<short-topic>` 任务分支 | 可自动 | 可自动 | 私有分支，push 仅为备份与触发 CI |
 | main / 集成分支 | 可自动 | 禁止自动 | 必须走 PR + 人工确认 + CI 门禁 |
 | 涉及红区文件的改动 | 禁止自动 | 禁止自动 | 必须人工确认（沿用现有红区规则） |
 
@@ -54,7 +54,7 @@ AI 准备提交前先给出提交分组：
 
 ### 自动提交的强制约束
 
-- commit message 沿用现有 `<type>(<scope>): <中文描述>` 规范，不得因自动化而降级为 `update`、`fix bug`、`phase 1` 等不可检索描述。
+- commit message 沿用现有 `<type>(<scope>): <描述>` 规范，不得因自动化而降级为 `update`、`fix bug`、`phase 1` 等不可检索描述。
 - 不得带 `--no-verify`、`--force`、`--force-with-lease`、`--delete`；这些标志会被安全 hook 拦截，且属于禁止项。
 - 自动提交前先 `git status --short` 复核 working tree；若存在非本任务的未归属改动，先单独提交或 stash，不混入自动提交，让人与 AI 的改动在历史中可分。
 - 一个自动提交只承载一个逻辑变更，沿用「一个 commit 一个逻辑变更」规则；重构与功能变更默认拆开。
@@ -67,10 +67,10 @@ AI 准备提交前先给出提交分组：
 
 ## 分支 / 提交 / PR
 
-- 分支：默认使用 `vibe-harness/<scope>-<short-topic>`；已有任务分支或用户指定分支优先。
-- 提交主题格式为 `<type>(<scope>): <中文描述>`，其中 scope 可选；类型前缀和可选 scope 保持英文，主题、正文和人工编写的说明使用中文。
+- 分支：默认使用 `<type>/<short-topic>`（如 `feat/`、`fix/`、`docs/`），type 与 Conventional Commits 类型对齐；已有任务分支或用户指定分支优先。
+- 提交主题格式为 `<type>(<scope>): <描述>`，其中 scope 可选；类型前缀和可选 scope 保持英文。描述优先使用中文；若使用英文，正文跟随英文。同一仓库内保持一致。
 - 常用类型包括 `feat`、`fix`、`docs`、`refactor`、`test` 和 `chore`。例如：`feat: 增加项目基线快照`、`fix(installer): 修复强制覆盖前未备份的问题`、`docs: 补充基线与工具配置说明`、`refactor: 简化安装计划生成逻辑`、`test: 覆盖中文提交规范`、`chore: 更新开发依赖`。
-- 中文描述使用祈使句，说明一个可验收改动；`feat: add project baseline snapshots` 不符合本规范，也应避免 `fix bug`、`update`、`phase 1` 这类不可检索描述。
+- 描述使用祈使句，说明一个可验收改动；应避免 `fix bug`、`update`、`phase 1` 这类不可检索描述。
 - Git 自动生成且无需人工编辑的 merge 或 revert 信息不受此限制；人工修改时仍使用中文描述。
 - PR：包含摘要、风险、验证、回滚和审查备注；高风险 PR 必须说明红区确认和独立审查状态。
 - 一个 commit 只承载一个逻辑变更；重构和功能变更默认拆开。
