@@ -63,3 +63,14 @@ PR 说明目标、影响范围、实际验证、未验证项和必要的回滚�
 ## 发布
 
 发布前核对版本、用户可观察变化、兼容影响、回滚方式和监控信号。按发布影响运行 pack、integration、lifecycle 或在线 Eval；本地命令通过不等于发布成功。
+
+### 自动化发布流程
+
+仓库使用 [release-please](https://github.com/googleapis/release-please) 自动化版本同步，防止 `package.json` 版本、`CHANGELOG.md` 和 git tag 漂移：
+
+1. Conventional Commits 合并到 `main` 后，release-please 自动累积变更并开一个 Release PR。
+2. Release PR 包含版本号 bump、`CHANGELOG.md` 更新和 `.release-please-manifest.json` 更新。
+3. 合并 Release PR 后，release-please 自动创建 `vX.Y.Z` tag 和 GitHub Release。
+4. 不得手动编辑 `package.json` 的 `version` 字段或手动创建 `v*` tag；版本变更只能通过 Release PR 完成。
+
+Breaking change（`feat!:` 或 `BREAKING CHANGE:` footer）会触发 major 版本 bump。
