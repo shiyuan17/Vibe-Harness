@@ -12,7 +12,7 @@
         "type": "object",
         "required": ["id", "installMap", "instructionTarget", "instructionTemplate", "skillRoot", "supportedProfiles", "capabilities", "redZonePrefixes"],
         "properties": {
-          "id": { "type": "string", "enum": ["codex", "claude", "gemini", "cursor", "qoder", "zcode", "antigravity"] },
+          "id": { "type": "string", "enum": ["codex", "claude", "gemini", "cursor", "qoder", "zcode", "antigravity", "opencode"] },
           "installMap": { "type": "string", "minLength": 1 },
           "instructionTarget": { "type": "string", "minLength": 1 },
           "instructionTemplate": { "type": "string", "minLength": 1 },
@@ -34,7 +34,10 @@
                 "required": ["path", "target"],
                 "properties": {
                   "path": { "type": "array", "items": { "type": "string", "minLength": 1 } },
-                  "target": { "type": "string", "minLength": 1 }
+                  "target": { "type": "string", "minLength": 1 },
+                  "alternateTargets": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+                  "syntax": { "type": "string", "enum": ["json", "jsonc"] },
+                  "serverFormat": { "type": "string", "enum": ["command-args-env", "opencode-local"] }
                 },
                 "additionalProperties": false
               }

@@ -183,10 +183,10 @@
     },
     {
       "id": "cross-platform-adapters",
-      "source": "Seven-host shared runtime and adapter projections",
+      "source": "Eight-host shared runtime and adapter projections",
       "disposition": "validator",
-      "targets": ["manifests/adapters.json", "adapters/install-map.json", "adapters/claude/CLAUDE.template.md", "adapters/gemini/GEMINI.template.md", "adapters/antigravity/RULES.template.md", "scripts/lib/install-planner.js", "scripts/lib/install-state.js", "scripts/lib/nested-install.js"],
-      "tests": ["tests/cross-platform-adapters.test.js"],
+      "targets": ["manifests/adapters.json", "adapters/install-map.json", "adapters/claude/CLAUDE.template.md", "adapters/gemini/GEMINI.template.md", "adapters/antigravity/RULES.template.md", "adapters/opencode/AGENTS.template.md", "adapters/opencode/mcp.template.json", "scripts/lib/install-planner.js", "scripts/lib/install-state.js", "scripts/lib/managed-json-config.js", "scripts/lib/nested-install.js"],
+      "tests": ["tests/cross-platform-adapters.test.js", "tests/opencode-adapter.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
       "docs": ["README.md", "README.en.md", "docs/architecture.md", "docs/migration-guide.md"],
       "evaluation": { "required": false, "reason": "Adapter file sets and lifecycle behavior are deterministic and verified on Linux and Windows. Adapters whose hooks capability is not stable or whose redZonePrefixes is empty run with a degraded runtime safety posture; this is surfaced explicitly by the DEGRADED_SAFETY_POSTURE warning in install, validate, and doctor." }
