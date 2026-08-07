@@ -2,6 +2,8 @@
 
 The Codex Hook runtime applies project-scoped safety policy only. It does not create task state, run validation commands, inspect delivery records, or block completion.
 
+OpenCode installs no project plugin Hook. Its opencode.json and opencode.jsonc files remain in the default red-zone list so stable Hooks from other installed hosts protect them in multi-host projects; OpenCode itself reports DEGRADED_SAFETY_POSTURE.
+
 ## Events
 
 | Event | Behavior |
