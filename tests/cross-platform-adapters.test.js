@@ -35,9 +35,9 @@ async function fail(args) {
   assert.fail('Expected command to fail');
 }
 
-test('all seven adapters share one project installation and support target-scoped uninstall', async () => {
+test('all eight adapters share one project installation and support target-scoped uninstall', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-multi-adapter-'));
-  const targets = ['codex', 'claude', 'gemini', 'cursor', 'qoder', 'zcode', 'antigravity'];
+  const targets = ['codex', 'claude', 'gemini', 'cursor', 'qoder', 'zcode', 'antigravity', 'opencode'];
   try {
     await run(['init', '--project', target]);
     const configPath = path.join(target, 'vibe-harness.config.json');
@@ -57,7 +57,7 @@ test('all seven adapters share one project installation and support target-scope
     assert.equal(new Set(state.files.map((file) => file.target)).size, state.files.length);
     assert.deepEqual(
       state.files.find((file) => file.target === 'AGENTS.md').owners,
-      ['adapter:codex', 'adapter:cursor', 'adapter:qoder', 'adapter:zcode'],
+      ['adapter:codex', 'adapter:cursor', 'adapter:opencode', 'adapter:qoder', 'adapter:zcode'],
     );
     assert.deepEqual(state.files.find((file) => file.target === 'docs/rules/coding-rules.md').owners, ['shared']);
     assert.deepEqual(state.files.find((file) => file.target === 'CLAUDE.md').owners, ['adapter:claude']);
@@ -149,9 +149,9 @@ test('Antigravity structured MCP and Hook config preserves users, conflicts by n
   }
 });
 
-test('all seven full adapters share one runtime, memory library, and root-scoped index contract', async () => {
+test('all eight full adapters share one runtime, memory library, and root-scoped index contract', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-all-full-shared-'));
-  const targets = ['codex', 'claude', 'gemini', 'cursor', 'qoder', 'zcode', 'antigravity'];
+  const targets = ['codex', 'claude', 'gemini', 'cursor', 'qoder', 'zcode', 'antigravity', 'opencode'];
   try {
     await run(['init', '--project', target, '--profile', 'full']);
     const configPath = path.join(target, 'vibe-harness.config.json');
@@ -173,7 +173,7 @@ test('all seven full adapters share one runtime, memory library, and root-scoped
     assert.equal(memoryFiles.length > 0, true);
     assert.equal(memoryFiles.every((file) => file.owners.length === 1 && file.owners[0] === 'shared'), true);
 
-    const mcpPaths = ['.cursor/mcp.json', '.mcp.json', '.zcode/config.json', '.agents/mcp_config.json'];
+    const mcpPaths = ['.cursor/mcp.json', '.mcp.json', '.zcode/config.json', '.agents/mcp_config.json', 'opencode.json'];
     const indexedRoots = [];
     for (const relativePath of mcpPaths) {
       const hostConfig = JSON.parse(await readFile(path.join(target, relativePath), 'utf8'));
