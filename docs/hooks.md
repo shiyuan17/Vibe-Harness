@@ -2,6 +2,8 @@
 
 Vibe-Harness full 为 Codex、Cursor、Qoder 和 ZCode 安装项目级安全 Hook。Hook 不创建任务状态、不运行测试、不检查交付文本，也不阻止 Agent 正常完成。RTK 路由仅支持 Codex。
 
+OpenCode 不安装 .opencode/plugins。opencode.json 与 opencode.jsonc 仍属于默认红区，其他已安装 stable Hook 会在多宿主项目中保护这些路径；OpenCode 自身报告 DEGRADED_SAFETY_POSTURE，不能视为与 Codex Hook 等价。
+
 ## 事件
 
 | 事件 | 行为 |
@@ -17,7 +19,7 @@ Vibe-Harness full 为 Codex、Cursor、Qoder 和 ZCode 安装项目级安全 Hoo
     "allowedWriteRoots": [],
     "allowedEgressHosts": [],
     "mode": "guarded",
-    "redZonePaths": [".env", "auth/", "ci/cd/", ".github/workflows/", ".codex/hooks.json", ".cursor/hooks.json", ".cursor/mcp.json", ".mcp.json", ".qoder/settings.json", ".zcode/config.json"],
+    "redZonePaths": [".env", "auth/", "ci/cd/", ".github/workflows/", ".codex/hooks.json", ".cursor/hooks.json", ".cursor/mcp.json", ".mcp.json", ".qoder/settings.json", ".zcode/config.json", "opencode.json", "opencode.jsonc"],
     "rtk": { "enabled": false }
   }
 }

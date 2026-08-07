@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- 新增第八个正式 target OpenCode：共享根 AGENTS.md 受管块，安装原生 .opencode/skills，支持完整项目生命周期和项目级 MCP；不安装 OpenCode plugin Hook，并显式报告 DEGRADED_SAFETY_POSTURE。
+- OpenCode 项目配置确定性选择 opencode.json 或 opencode.jsonc，使用固定 jsonc-parser 3.3.1 保留注释、尾逗号、格式和用户键；只管理 mcp.vibe-harness-*，并将两种配置文件纳入安装与运行时红区。
+
 - Breaking change：项目配置升级为非空 targets 数组，install-state 升级为 stateVersion 5 并记录 shared 与 adapter 所有权；旧 target/state v4 仅在标准 upgrade write 事务中持久化迁移。
 - 新增 Codex、Claude Code、Gemini CLI、Cursor、Qoder、ZCode 和 Antigravity 的单项目多宿主安装；公共 runtime、memory、Eval、工具 provisioning 与项目根索引只维护一份。
 - 新增目标级卸载、all-targets 完整卸载、stale projection 报告、嵌套旧安装 doctor 检测，以及逐宿主 stable、preview、unsupported、skipped 和 conflict 状态。
