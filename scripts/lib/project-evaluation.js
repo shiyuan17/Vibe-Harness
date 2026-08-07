@@ -62,6 +62,8 @@ const CONFIG_PATHS = [
   '.mcp.json',
   '.qoder/settings.json',
   '.zcode/config.json',
+  'opencode.json',
+  'opencode.jsonc',
   'adapters',
   'AGENTS.md',
   'CLAUDE.md',

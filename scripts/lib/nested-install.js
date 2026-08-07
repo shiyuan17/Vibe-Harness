@@ -5,6 +5,7 @@ import { pathExists } from './manifest.js';
 
 const excludedDirectories = new Set([
   '.cache', '.git', '.hg', '.next', '.svn', '.turbo',
+  '.agents', '.claude', '.codex', '.cursor', '.gemini', '.opencode', '.qoder', '.zcode',
   'build', 'coverage', 'dist', 'node_modules', 'out', 'target', 'vendor',
 ]);
 

@@ -12,7 +12,7 @@ import { productIdentity } from './product-identity.js';
 import { resolveProjectConfigLocation } from './project-layout.js';
 
 export const mvpProfiles = new Set(['minimal', 'core', 'full', 'docs-only']);
-export const mvpTargets = new Set(['codex', 'claude', 'gemini', 'cursor', 'qoder', 'zcode', 'antigravity']);
+export const mvpTargets = new Set(['codex', 'claude', 'gemini', 'cursor', 'qoder', 'zcode', 'antigravity', 'opencode']);
 
 export function canonicalProfile(profile) {
   if (profile === 'codex-internal') return 'full';
@@ -55,7 +55,7 @@ export const defaultProjectConfig = {
     allowedWriteRoots: [],
     allowedEgressHosts: [],
     mode: 'guarded',
-    redZonePaths: ['.env', 'auth/', 'ci/cd/', '.github/workflows/', '.codex/hooks.json', '.cursor/hooks.json', '.cursor/mcp.json', '.mcp.json', '.qoder/settings.json', '.zcode/config.json', '.agents/hooks.json', '.agents/mcp_config.json'],
+    redZonePaths: ['.env', 'auth/', 'ci/cd/', '.github/workflows/', '.codex/hooks.json', '.cursor/hooks.json', '.cursor/mcp.json', '.mcp.json', '.qoder/settings.json', '.zcode/config.json', 'opencode.json', 'opencode.jsonc', '.agents/hooks.json', '.agents/mcp_config.json'],
   },
   riskZones: {
     red: ['auth', 'secrets', 'ci-cd', 'env'],
@@ -398,7 +398,7 @@ export function validateGeneratedContent(content, { installedTargets } = {}) {
       },
     ];
 
-    for (const skillRoot of ['.agents/skills/', '.claude/skills/', '.cursor/skills/', '.gemini/skills/', '.qoder/skills/']) {
+    for (const skillRoot of ['.agents/skills/', '.claude/skills/', '.cursor/skills/', '.gemini/skills/', '.qoder/skills/', '.opencode/skills/']) {
       if (content.includes(skillRoot) && !normalizedTargets.some((target) => target.startsWith(skillRoot))) {
         throw new Error(`Generated AGENTS.md references ${skillRoot} but it is not installed by profile.`);
       }

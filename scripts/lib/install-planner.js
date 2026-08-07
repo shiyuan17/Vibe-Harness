@@ -95,7 +95,7 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
   const hasPrefix = (prefix) => installedTargets.some((target) => target.startsWith(prefix));
   const hasSkill = (suffix) => installedTargets.some((target) => target.endsWith(`/skills/${suffix}`));
   const skillRoots = [...new Set(installedTargets
-    .filter((target) => /^\.(?:agents|claude|cursor|gemini|qoder)\/skills\//u.test(target))
+    .filter((target) => /^\.(?:agents|claude|cursor|gemini|opencode|qoder)\/skills\//u.test(target))
     .map((target) => target.split('/skills/')[0] + '/skills'))];
   const hasEngineeringRules = [
     'docs/rules/coding-rules.md',
@@ -235,6 +235,30 @@ function adapterConfigRedZone(adapter, target) {
   return adapter.redZonePrefixes.some((prefix) => target.startsWith(prefix.replaceAll('\\', '/')));
 }
 
+function formatMcpServers(servers, format = 'command-args-env') {
+  if (format === 'command-args-env') return servers;
+  if (format !== 'opencode-local') throw new Error('Unsupported MCP server format: ' + format);
+  return Object.fromEntries(Object.entries(servers).map(([name, server]) => [name, {
+    type: 'local',
+    command: [server.command, ...(server.args ?? [])],
+    environment: { ...(server.env ?? {}) },
+    enabled: true,
+  }]));
+}
+
+async function resolveAdapterConfigTarget(definition, targetDir) {
+  const candidates = [definition.target, ...(definition.alternateTargets ?? [])]
+    .map((target) => target.replaceAll('\\', '/'));
+  const existing = [];
+  for (const candidate of candidates) {
+    if (await pathExists(path.resolve(targetDir, candidate))) existing.push(candidate);
+  }
+  if (existing.length > 1) {
+    throw new Error('Conflicting adapter configuration files: ' + existing.join(', ') + '. Keep exactly one.');
+  }
+  return existing[0] ?? candidates[0];
+}
+
 async function loadAdapterHookConfig(adapter, renderData, rootDir) {
   const source = path.join(rootDir, 'adapters', adapter.id, 'hooks.template.json');
   return JSON.parse(renderTemplate(await readFile(source, 'utf8'), renderData));
@@ -249,12 +273,18 @@ async function planAdapterConfigActions(ctx) {
   if (!adapter.projectConfig) return [];
 
   const planned = new Map();
-  const ensure = (kind, definition) => {
-    const target = definition.target.replaceAll('\\', '/');
+  const ensure = async (kind, definition) => {
+    const target = await resolveAdapterConfigTarget(definition, targetDir);
     let item = planned.get(target);
     if (!item) {
       item = {
-        descriptor: { hookMarker: 'Vibe-Harness safety policy', hooksPath: null, mcpPath: null, serverPrefix: 'vibe-harness-' },
+        descriptor: {
+          hookMarker: 'Vibe-Harness safety policy',
+          hooksPath: null,
+          mcpPath: null,
+          serverPrefix: 'vibe-harness-',
+          ...(definition.syntax && definition.syntax !== 'json' ? { syntax: definition.syntax } : {}),
+        },
         kinds: [],
         target,
       };
@@ -267,11 +297,11 @@ async function planAdapterConfigActions(ctx) {
 
   const servers = createManagedMcpServers(path.resolve(targetDir), moduleSelection.resolvedModules);
   if (allowedGroups.has('mcp-config') && Object.keys(servers).length > 0 && adapter.projectConfig.mcp) {
-    const item = ensure('mcp', adapter.projectConfig.mcp);
-    item.servers = servers;
+    const item = await ensure('mcp', adapter.projectConfig.mcp);
+    item.servers = formatMcpServers(servers, adapter.projectConfig.mcp.serverFormat);
   }
   if (allowedGroups.has('hooks') && adapter.projectConfig.hooks) {
-    const item = ensure('hooks', adapter.projectConfig.hooks);
+    const item = await ensure('hooks', adapter.projectConfig.hooks);
     item.hooks = await loadAdapterHookConfig(adapter, renderData, rootDir);
   }
 
@@ -285,17 +315,15 @@ async function planAdapterConfigActions(ctx) {
     const exists = await pathExists(target);
     const managedFile = managed.get(relativeTarget);
     let actionKind = 'write';
-    if (exists && !force) {
-      try {
-        if (managedFile) {
-          actionKind = managedJsonHash(await readFile(target, 'utf8'), item.descriptor) === managedFile.managedBlockHash
-            ? 'write'
-            : 'user-modified';
-        } else {
-          actionKind = hasManagedJsonPayload(await readFile(target, 'utf8'), item.descriptor) ? 'conflict' : 'write';
-        }
-      } catch {
-        actionKind = 'conflict';
+    if (exists) {
+      const content = await readFile(target, 'utf8');
+      managedJsonPayload(content, item.descriptor);
+      if (!force && managedFile) {
+        actionKind = managedJsonHash(content, item.descriptor) === managedFile.managedBlockHash
+          ? 'write'
+          : 'user-modified';
+      } else if (!force) {
+        actionKind = hasManagedJsonPayload(content, item.descriptor) ? 'conflict' : 'write';
       }
     }
     if (upgrade && exists && !force && !managedFile && actionKind !== 'write') actionKind = 'conflict';
@@ -386,7 +414,8 @@ export async function createInstallPlan({
   const stateDirectory = path.basename(path.dirname(stateFilePath(path.resolve(targetDir))));
 
   const owner = 'adapter:' + adapter.id;
-  const adapterConfigTargets = new Set(Object.values(adapter.projectConfig ?? {}).map((item) => item.target));
+  const adapterConfigTargets = new Set(Object.values(adapter.projectConfig ?? {})
+    .flatMap((item) => [item.target, ...(item.alternateTargets ?? [])]));
   const projectionTarget = (target) => target === adapter.instructionTarget
     || adapterConfigTargets.has(target)
     || (adapter.skillRoot !== '.agents/skills' && target.startsWith(adapter.skillRoot + '/'))
@@ -639,7 +668,7 @@ async function planUpgradeRetirements(ctx, entryActions) {
   const plannedSkillTargets = new Set([...entryActions, ...actions].map((action) => action.relativeTarget));
   for (const managedFile of state?.files ?? []) {
     const relativeTarget = managedFile.target.replaceAll('\\', '/');
-    if (!/^\.(?:agents|claude|cursor|gemini|qoder)\/skills\//u.test(relativeTarget)
+    if (!/^\.(?:agents|claude|cursor|gemini|opencode|qoder)\/skills\//u.test(relativeTarget)
       || plannedSkillTargets.has(relativeTarget)) {
       continue;
     }
@@ -1333,7 +1362,7 @@ async function executeRetireActions(plan, ctx) {
   for (const action of plan.actions) {
     if (action.kind === 'retire-modified') {
       skipped.push({
-        reason: /^\.(?:agents|claude|cursor|gemini|qoder)\/skills\//u.test(action.relativeTarget)
+        reason: /^\.(?:agents|claude|cursor|gemini|opencode|qoder)\/skills\//u.test(action.relativeTarget)
           ? 'retained-user-modified'
           : 'target-modified',
         target: action.relativeTarget,

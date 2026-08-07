@@ -14,6 +14,14 @@ function normalizeAdapter(adapter) {
   return {
     ...adapter,
     capabilities: Object.fromEntries(Object.entries(adapter.capabilities).map(([name, value]) => [name, supportLevel(value)])),
+    ...(adapter.projectConfig ? {
+      projectConfig: Object.fromEntries(Object.entries(adapter.projectConfig).map(([kind, definition]) => [kind, {
+        alternateTargets: [],
+        syntax: 'json',
+        serverFormat: 'command-args-env',
+        ...definition,
+      }])),
+    } : {}),
   };
 }
 
