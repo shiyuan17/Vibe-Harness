@@ -45,7 +45,7 @@ import {
   writeProjectEvaluationReference,
 } from './lib/project-evaluation.js';
 import { parseModulesOption, parsePluginsOption } from './lib/module-selection.js';
-import { resolveAdapter } from './lib/adapter.js';
+import { canonicalAgentsTemplate, resolveAdapter } from './lib/adapter.js';
 import { safetyPostureWarnings } from './lib/safety-posture.js';
 import { readFile } from 'node:fs/promises';
 import {
@@ -371,9 +371,12 @@ async function install(args) {
     targets,
     upgrade: Boolean(args.upgrade),
   });
-  const agentsTemplate = await readFile(path.join(rootDir, `adapters/${adapter.id}/${adapter.instructionTemplate}.template.md`), 'utf8');
+  const agentsTemplatePath = adapter.instructionTarget === 'AGENTS.md'
+    ? canonicalAgentsTemplate
+    : `adapters/${adapter.id}/${adapter.instructionTemplate}.template.md`;
+  const agentsTemplate = await readFile(path.join(rootDir, agentsTemplatePath), 'utf8');
   const installedTargets = plan.actions.map((action) => action.relativeTarget);
-  validateConfigAndGeneratedContent(plan.renderData, agentsTemplate, { installedTargets });
+  validateConfigAndGeneratedContent(plan.renderData, agentsTemplate, { installedTargets, skillRoots: plan.skillRoots });
   plan.redZoneConfirmed = Boolean(args['confirm-red-zone']);
   const result = await applyInstallPlan(plan);
   const previewFiles = plan.dryRun ? await previewInstallPlan(plan, { includeContent: Boolean(args.verbose) }) : [];
@@ -490,10 +493,13 @@ async function validate(args) {
       targetDir,
       targets,
     });
-    const agentsTemplate = await readFile(path.join(rootDir, `adapters/${adapter.id}/${adapter.instructionTemplate}.template.md`), 'utf8');
+    const agentsTemplatePath = adapter.instructionTarget === 'AGENTS.md'
+      ? canonicalAgentsTemplate
+      : `adapters/${adapter.id}/${adapter.instructionTemplate}.template.md`;
+    const agentsTemplate = await readFile(path.join(rootDir, agentsTemplatePath), 'utf8');
     const installedTargets = plan.actions.map((action) => action.relativeTarget);
-    validateConfigAndGeneratedContent({ ...config, projectProfile, validationCommands }, agentsTemplate, { installedTargets });
-    validateConfigAndGeneratedContent(plan.renderData, agentsTemplate, { installedTargets });
+    validateConfigAndGeneratedContent({ ...config, projectProfile, validationCommands }, agentsTemplate, { installedTargets, skillRoots: plan.skillRoots });
+    validateConfigAndGeneratedContent(plan.renderData, agentsTemplate, { installedTargets, skillRoots: plan.skillRoots });
     const target = await diffMultiTargetInstall({
       allowPreview: true,
       managedAgentsBlock: true,
@@ -906,6 +912,10 @@ async function doctor(args) {
         message: nestedInstallations.length + ' nested Vibe-Harness installation(s) require explicit migration and uninstall.',
       }] : []),
       ...safetyPostureWarnings(adapter),
+      ...(pack.instructionBudgetWarnings ?? []).map((message) => ({
+        code: 'INSTRUCTION_BUDGET',
+        message,
+      })),
     ],
     targets: selectedTargets,
   }, args);

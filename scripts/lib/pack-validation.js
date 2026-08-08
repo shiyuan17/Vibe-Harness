@@ -16,8 +16,9 @@ import {
 } from './manifest.js';
 import { moduleCatalog } from './module-selection.js';
 import { scanForForbiddenTerms } from './redaction.js';
-import { resolveAdapterEntry } from './adapter.js';
+import { canonicalAgentsTemplate, loadAdapterCatalog, resolveAdapterEntry, skillRootPrefixes } from './adapter.js';
 import { validateDocumentation } from './docs-validation.js';
+import { renderTemplate, withDefaultTemplateData } from './template-renderer.js';
 
 const forbiddenTerms = ['SYBaseProjectWeb', 'SYBaseProject', 'D:\\Github\\JW', 'T-019', 'T-024', '患者', '病理', '医疗'];
 const redactionDirs = ['rules', 'templates', 'skills/core', 'skills/integrations', 'memory', 'runtime', 'adapters', 'manifests', 'schemas'];
@@ -374,6 +375,10 @@ export async function validateContentQuality(rootDir) {
       file: 'skills/core/define-goal/SKILL.md',
       terms: ['4000', '执行型', '探索型', '明确要求激活', '不得静默替换', '不扩大授权'],
     },
+    {
+      file: 'adapters/antigravity/RULES.template.md',
+      terms: ['Edit before', 'red zone', 'manual confirmation', 'verify'],
+    },
   ];
 
   const results = await Promise.all(checks.map((check) => checkRequiredTerms(rootDir, check)));
@@ -554,6 +559,52 @@ export async function validateSelfInstalledArtifacts(rootDir, adapters, installM
   return errors.sort();
 }
 
+// Instruction-content budget gate. Codex silently truncates AGENTS.md at 32 KiB
+// (`project_doc_max_bytes`); frontier models reliably follow ~150-200 instructions.
+// We estimate tokens at 4 bytes/token (matching ai-context-kit's heuristic) and warn
+// before the content approaches the truncation line. This runs at the pack layer over
+// every adapter's instruction template, covering antigravity and opencode which the
+// line-budget test (codex/claude/gemini only) does not reach.
+const TOKEN_WARNING_THRESHOLD = 2000;
+const TOKEN_ERROR_THRESHOLD = 5000;
+const CODEX_TRUNCATION_BYTES = 32 * 1024;
+const CODEX_TRUNCATION_WARN_BYTES = Math.round(CODEX_TRUNCATION_BYTES * 0.87);
+
+export async function validateInstructionBudget(rootDir) {
+  const errors = [];
+  const warnings = [];
+  const catalog = await loadAdapterCatalog(rootDir);
+  const renderData = withDefaultTemplateData({});
+  for (const adapter of catalog.items) {
+    const templateSource = adapter.instructionTarget === 'AGENTS.md'
+      ? canonicalAgentsTemplate
+      : `adapters/${adapter.id}/${adapter.instructionTemplate}.template.md`;
+    let template;
+    try {
+      template = await readFile(path.join(rootDir, templateSource), 'utf8');
+    } catch {
+      // Missing sources are already reported by install-map source checks.
+      continue;
+    }
+    const rendered = renderTemplate(template, renderData);
+    const byteCount = Buffer.byteLength(rendered, 'utf8');
+    const tokenEstimate = Math.ceil(byteCount / 4);
+    const label = `${adapter.id}:${adapter.instructionTarget}`;
+    if (tokenEstimate > TOKEN_ERROR_THRESHOLD) {
+      errors.push(`${label} instruction content exceeds ${TOKEN_ERROR_THRESHOLD} token budget (~${tokenEstimate} tokens, ${byteCount} bytes)`);
+    } else if (tokenEstimate > TOKEN_WARNING_THRESHOLD) {
+      warnings.push(`${label} instruction content exceeds ${TOKEN_WARNING_THRESHOLD} token warning threshold (~${tokenEstimate} tokens, ${byteCount} bytes)`);
+    }
+    if (byteCount > CODEX_TRUNCATION_WARN_BYTES && byteCount <= CODEX_TRUNCATION_BYTES) {
+      warnings.push(`${label} instruction content (${byteCount} bytes) approaches Codex 32 KiB silent truncation`);
+    }
+    if (byteCount > CODEX_TRUNCATION_BYTES) {
+      errors.push(`${label} instruction content (${byteCount} bytes) exceeds Codex 32 KiB truncation limit`);
+    }
+  }
+  return { errors: errors.sort(), warnings: warnings.sort() };
+}
+
 export async function validatePack(rootDir) {
   const manifests = await loadAllManifests(rootDir);
   const schemas = await loadAllManifestSchemas(rootDir);
@@ -624,10 +675,13 @@ export async function validatePack(rootDir) {
   });
   const documentation = await validateDocumentation({ rootDir });
   const selfInstallErrors = await validateSelfInstalledArtifacts(rootDir, manifests.adapters, installMaps);
+  const instructionBudget = await validateInstructionBudget(rootDir);
 
   return {
     capabilityErrors,
     contentQualityErrors,
+    instructionBudgetErrors: instructionBudget.errors,
+    instructionBudgetWarnings: instructionBudget.warnings,
     leaks,
     missing: [...missing, ...installMapMissing].sort(),
     missingSkillInstalls,
@@ -648,7 +702,8 @@ export async function validatePack(rootDir) {
       && documentation.errors.length === 0
       && leaks.length === 0
       && schemaErrors.length === 0
-      && selfInstallErrors.length === 0,
+      && selfInstallErrors.length === 0
+      && instructionBudget.errors.length === 0,
     schemaErrors: schemaErrors.sort(),
   };
 }

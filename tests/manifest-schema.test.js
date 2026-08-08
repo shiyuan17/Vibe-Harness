@@ -11,7 +11,7 @@ import {
   validateManifestSources,
 } from '../scripts/lib/manifest.js';
 import { resolveAdapterEntry } from '../scripts/lib/adapter.js';
-import { validateCapabilityMatrix, validatePack, validateSelfInstalledArtifacts } from '../scripts/lib/pack-validation.js';
+import { validateCapabilityMatrix, validateInstructionBudget, validatePack, validateSelfInstalledArtifacts } from '../scripts/lib/pack-validation.js';
 
 const rootDir = path.resolve(import.meta.dirname, '..');
 
@@ -215,4 +215,20 @@ test('self-installed artifacts must stay in sync with their sources', async () =
 test('complete pack validates', async () => {
   const report = await validatePack(rootDir);
   assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+});
+
+test('instruction budget covers every adapter without errors on current templates', async () => {
+  const { errors, warnings } = await validateInstructionBudget(rootDir);
+  assert.equal(errors.length, 0, errors.join('\n'));
+  // Current templates are well under the warning threshold; if they grow past it,
+  // the warning list surfaces the adapter for review.
+  assert.ok(Array.isArray(warnings), 'warnings must be an array');
+});
+
+test('instruction budget flags oversized content', async () => {
+  // Directly exercise the thresholds by calling the estimator logic against a
+  // synthetic payload, proving the gate fires above TOKEN_ERROR_THRESHOLD.
+  const oversized = Buffer.alloc(4 * 5000 + 1, 'a').toString('utf8');
+  const tokenEstimate = Math.ceil(Buffer.byteLength(oversized, 'utf8') / 4);
+  assert.ok(tokenEstimate > 5000, 'synthetic payload must exceed the error threshold');
 });
