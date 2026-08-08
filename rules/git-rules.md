@@ -27,14 +27,35 @@ AI 准备提交前先给出提交分组：
 
 ## 自动提交与推送触发器
 
-自动提交推送以「逻辑变更完成」为主触发器、以「验证通过」为门禁，不使用与语义无关的时间或行数阈值。可自动提交的改动仍须先满足上方「AI 提交分组」的风险分级：低风险可自动，中风险需说明验证和风险，高风险、红区或用户要求等待时暂停。
+自动提交通过 `Stop` 事件 hook 实现，仅在 ZCode、Claude Code 和 Codex 宿主上可用。Cursor、Qoder 和 Antigravity 不支持 hooks，Agent 需在用户要求或判断逻辑变更完成时手动提交。
+
+自动提交以「逻辑变更完成」为主触发器、以「验证通过」为完整性门禁，不使用与语义无关的时间或行数阈值。可自动提交的改动仍须先满足上方「AI 提交分组」的风险分级：低风险可自动，中风险需说明验证和风险，高风险、红区或用户要求等待时暂停。
+
+### 完整性保证
+
+不完整的内容不提交。每次 `Stop` 事件触发时，hook 按以下顺序执行完整性检查，任一失败则取消暂存并报告，不产生提交：
+
+1. 安全扫描：复用 `scanStagedDiff` 检查密钥泄露、红区路径、禁止路径和聚焦测试标记（`.only`/`.skip`）。
+2. 语法检查：对暂存的 `.js`/`.mjs`/`.cjs`/`.json` 文件执行 `node --check` 或 `JSON.parse`。
+3. 验证门禁：读取 `vibe-harness.config.json` 的 `validationCommands`，运行 `lint` 和 `test`；失败则取消暂存。
+
+### 分批可独立回滚
+
+每次 `Stop` 事件至多产生一个独立 commit（一个 commit = 一个逻辑变更的当前快照）：
+
+- 每个 commit 独立可回滚：未 push 的用 `git reset --soft HEAD~1`（禁止 `--hard`），已 push 的用 `git revert`。
+- commit message 包含变更文件列表和验证状态，便于审计和回滚决策。
+- hook 不 push，不使用 `--no-verify`，不处理红区文件（安全扫描会阻止）。
+- commit 失败时报告错误，不阻塞会话（exit 0 + additionalContext）。
 
 ### 触发条件
 
-自动提交必须同时满足以下两个条件：
+自动提交必须同时满足以下条件：
 
-- 任务完成触发：一个 Todo 项或一个逻辑变更完成、且已通过聚焦验证后，才可自动提交。
-- 验证通过门禁：自动提交前必须通过 pre-commit（密钥、红区、禁止路径、聚焦测试标记）和 pre-push（lint、test）钩子；验证未通过不得提交，也不得用 `--no-verify` 绕过。
+- 任务分支：仅在 `<type>/<short-topic>` 任务分支上自动提交；`main`/`master`/`develop`/`release/*` 分支跳过。
+- 有变更：working tree 为空时跳过，不产生空提交。
+- 防循环：若 `stop_hook_active` 为 true，直接返回，防止 hook 自身输出再次触发 Stop。
+- 验证通过门禁：自动提交前必须通过上述完整性检查和 husky 的 `pre-commit`（`git diff --cached --check`）与 `commit-msg`（commitlint）钩子；验证未通过不得提交，也不得用 `--no-verify` 绕过。
 
 禁止以下触发方式，因为它们会产生与逻辑变更无关的垃圾提交：
 
@@ -46,11 +67,11 @@ AI 准备提交前先给出提交分组：
 
 | 目标分支 | auto-commit | auto-push | 说明 |
 | --- | --- | --- | --- |
-| `<type>/<short-topic>` 任务分支 | 可自动 | 可自动 | 私有分支，push 仅为备份与触发 CI |
-| main / 集成分支 | 可自动 | 禁止自动 | 必须走 PR + 人工确认 + CI 门禁 |
+| `<type>/<short-topic>` 任务分支 | 可自动（Stop hook） | 可自动 | 私有分支，push 仅为备份与触发 CI |
+| main / 集成分支 | 禁止自动 | 禁止自动 | 必须走 PR + 人工确认 + CI 门禁 |
 | 涉及红区文件的改动 | 禁止自动 | 禁止自动 | 必须人工确认（沿用现有红区规则） |
 
-任务分支上的自动 push 是可接受的：它是私有分支，强推只影响自己，主要价值是备份改动与触发 CI。main 及集成分支永远不自动 push，合并回这些分支必须经 PR 与人工确认。
+任务分支上的自动 push 是可接受的：它是私有分支，强推只影响自己，主要价值是备份改动与触发 CI。main 及集成分支永远不自动 push，合并回这些分支必须经 PR 与人工确认。Stop hook 仅负责 commit，不负责 push。
 
 ### 自动提交的强制约束
 
@@ -61,7 +82,7 @@ AI 准备提交前先给出提交分组：
 
 ### 自动提交失败处理
 
-- 若 pre-commit 或 pre-push 钩子失败，不得强行绕过；报告失败原因并保留改动。
+- 若完整性检查或 husky 钩子失败，不得强行绕过；报告失败原因并取消暂存（改动保留在 working tree）。
 - 已自动提交但尚未 push 的，可用 `git reset --soft HEAD~1` 回退（禁止 `--hard`）。
 - 已 push 的回退走 `git revert`，不走 `reset` 加强制推送。
 

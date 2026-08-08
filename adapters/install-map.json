@@ -609,6 +609,13 @@
     },
     {
       "group": "hooks",
+      "source": "runtime/hooks/auto-commit.mjs",
+      "target": ".agents/runtime/hooks/auto-commit.mjs",
+      "executable": true,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "hooks",
       "source": "runtime/hooks/git-hook.mjs",
       "target": ".agents/runtime/hooks/git-hook.mjs",
       "executable": true,

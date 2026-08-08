@@ -20,7 +20,7 @@ test('project config exposes guarded safety Hook defaults', () => {
     allowedWriteRoots: [],
     allowedEgressHosts: [],
     mode: 'guarded',
-    redZonePaths: ['.env', 'auth/', 'ci/cd/', '.github/workflows/', '.codex/hooks.json', '.cursor/hooks.json', '.cursor/mcp.json', '.mcp.json', '.qoder/settings.json', '.zcode/config.json', 'opencode.json', 'opencode.jsonc', '.agents/hooks.json', '.agents/mcp_config.json'],
+    redZonePaths: ['.env', 'auth/', 'ci/cd/', '.github/workflows/', '.codex/hooks.json', '.cursor/hooks.json', '.cursor/mcp.json', '.mcp.json', '.qoder/settings.json', '.zcode/config.json', 'opencode.json', 'opencode.jsonc', '.agents/hooks.json', '.agents/mcp_config.json', '.claude/settings.json'],
   });
   assert.equal(validateProjectConfig(defaultProjectConfig), true);
   assert.throws(
@@ -62,6 +62,7 @@ test('full installs safety Hook runtime while core does not', async () => {
   for (const target of [
     '.codex/hooks.json',
     '.agents/runtime/hooks/codex-hook.mjs',
+    '.agents/runtime/hooks/auto-commit.mjs',
     '.agents/runtime/hooks/lib/context.mjs',
     '.agents/runtime/hooks/lib/policy.mjs',
     '.githooks/pre-commit',
@@ -70,7 +71,7 @@ test('full installs safety Hook runtime while core does not', async () => {
   assert.equal(core.some((target) => target.includes('/hooks/') || target.startsWith('.githooks/')), false);
 });
 
-test('full Codex install writes only PreToolUse and PermissionRequest Hook events', async () => {
+test('full Codex install writes PreToolUse, PermissionRequest, and Stop Hook events', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-hook-events-'));
   try {
     await execFileAsync(process.execPath, [cliPath, 'init', '--project', target, '--profile', 'full']);
@@ -79,11 +80,17 @@ test('full Codex install writes only PreToolUse and PermissionRequest Hook event
       '--write', '--confirm-red-zone',
     ]);
     const hooks = JSON.parse(await readFile(path.join(target, '.codex/hooks.json'), 'utf8')).hooks;
-    assert.deepEqual(Object.keys(hooks).sort(), ['PermissionRequest', 'PreToolUse']);
-    // Hook commands must use relative paths, not machine-specific absolute paths.
-    const commands = Object.values(hooks).flatMap((groups) => groups.flatMap((group) => group.hooks.map((hook) => hook.command)));
-    for (const command of commands) {
+    assert.deepEqual(Object.keys(hooks).sort(), ['PermissionRequest', 'PreToolUse', 'Stop']);
+    // Safety hooks use codex-hook.mjs; the Stop auto-commit hook uses auto-commit.mjs.
+    const safetyCommands = ['PreToolUse', 'PermissionRequest'].flatMap((event) =>
+      hooks[event].flatMap((group) => group.hooks.map((hook) => hook.command)));
+    for (const command of safetyCommands) {
       assert.match(command, /node "\.agents\/runtime\/hooks\/codex-hook\.mjs"/u);
+      assert.doesNotMatch(command, /[A-Za-z]:[\\/]/u);
+    }
+    const stopCommands = hooks.Stop.flatMap((group) => group.hooks.map((hook) => hook.command));
+    for (const command of stopCommands) {
+      assert.match(command, /node "\.agents\/runtime\/hooks\/auto-commit\.mjs"/u);
       assert.doesNotMatch(command, /[A-Za-z]:[\\/]/u);
     }
   } finally {

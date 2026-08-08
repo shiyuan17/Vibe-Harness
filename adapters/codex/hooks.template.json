@@ -26,6 +26,19 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"{{autoCommitRunnerPath}}\" --host codex",
+            "commandWindows": "node \"{{autoCommitRunnerPath}}\" --host codex",
+            "timeout": 30,
+            "statusMessage": "Checking Vibe-Harness safety policy"
+          }
+        ]
+      }
     ]
   }
 }

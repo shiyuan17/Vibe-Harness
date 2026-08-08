@@ -18,8 +18,11 @@
       "instructionTemplate": "CLAUDE",
       "skillRoot": ".claude/skills",
       "supportedProfiles": ["minimal", "core", "full", "docs-only"],
-      "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "preview", "policy": "stable", "mcp": "preview", "sandbox": "preview", "memory": "preview", "plugin": "unsupported", "goals": "unsupported" },
-      "redZonePrefixes": []
+      "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "stable", "policy": "stable", "mcp": "preview", "sandbox": "preview", "memory": "preview", "plugin": "unsupported", "goals": "unsupported" },
+      "projectConfig": {
+        "hooks": { "target": ".claude/settings.json", "path": ["hooks"] }
+      },
+      "redZonePrefixes": [".claude/settings.json"]
     },
     {
       "id": "gemini",

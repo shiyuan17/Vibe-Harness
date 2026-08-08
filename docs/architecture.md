@@ -50,6 +50,19 @@ install-state stateVersion 5 使用 targets 取代 adapter。files、generatedFi
 
 adapter capability 使用 stable、preview 和 unsupported 描述各产品表面。validate、doctor 和 diff 提供项目汇总及逐宿主结果；未选宿主标为 skipped，内容漂移标为 conflict，配置删除但仍安装的宿主标为 stale projection。
 
+## 原生 include 能力对照
+
+各编辑器对指令文件的原生 include / 导入能力不同，Vibe-Harness 当前统一采用纯拷贝模型（规则作为独立文件安装到 `docs/rules/`，指令模板只通过指针行引用），以保证跨宿主可移植性并简化漂移检测（`validateSelfInstalledArtifacts` 逐字节比对源与安装产物）。下表记录各宿主能力，供未来评估是否转向原生 include 时参考：
+
+| 宿主 | 指令文件 | 原生 include 能力 | 截断限制 |
+|---|---|---|---|
+| Codex | AGENTS.md | 无；仅目录层级发现（root → cwd），允许 symlink | 32 KiB 静默截断（`project_doc_max_bytes`） |
+| Claude Code | CLAUDE.md | 文档化 `@import` 递归包含（产生扁平文档 + 边界注释） | 未从可达主源确认 |
+| Gemini CLI | GEMINI.md | `@file.md` 递归导入，默认 5 层，带循环检测 | 受 `allowedDirectories` 约束 |
+| OpenCode | AGENTS.md | `opencode.json` 的 `instructions` 数组支持 glob 与远程 URL | 5s 远程抓取超时 |
+
+> 转向原生 include 需同步修改：v2 capability schema 测试（`cross-platform-adapters.test.js` capability v2 用例固定了 9 个能力名）、模板渲染路径（`template-renderer.js`）、漂移检测排除（`renderPlaceholderPattern`）。当前纯拷贝模型在可移植性与一致性上更稳，暂不实现。
+
 ## 结构化配置与安全
 
 MCP 和 Hook JSON 通过结构化路径合并。未冲突的用户项原样保留；同名用户项默认阻止写入，只有 --force 可以接管。所有宿主配置仍是 red zone，真实写入额外要求 --confirm-red-zone。

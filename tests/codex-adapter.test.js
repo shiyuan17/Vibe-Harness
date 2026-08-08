@@ -29,5 +29,5 @@ test('codex adapter and plugin metadata track the package version', async () => 
   assert.equal(adapter.version, pkg.version);
   assert.equal(plugin.version, pkg.version);
   assert.equal(Object.hasOwn(hooks, 'notes'), false);
-  assert.deepEqual(Object.keys(hooks.hooks).sort(), ['PermissionRequest', 'PreToolUse']);
+  assert.deepEqual(Object.keys(hooks.hooks).sort(), ['PermissionRequest', 'PreToolUse', 'Stop']);
 });

@@ -21,7 +21,7 @@ function hostFromArgs(argv) {
   const index = argv.indexOf('--host');
   if (index === -1) return 'codex';
   const host = argv[index + 1];
-  if (!['codex', 'cursor', 'qoder', 'zcode', 'antigravity'].includes(host)) throw new Error('Unsupported hook host.');
+  if (!['codex', 'cursor', 'qoder', 'zcode', 'antigravity', 'claude'].includes(host)) throw new Error('Unsupported hook host.');
   return host;
 }
 

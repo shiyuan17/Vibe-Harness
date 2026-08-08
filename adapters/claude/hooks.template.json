@@ -5,7 +5,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": "node \"{{hookRunnerPath}}\" --host zcode --expected-event PreToolUse",
+          "command": "node \"{{hookRunnerPath}}\" --host claude --expected-event PreToolUse",
           "timeout": 10,
           "statusMessage": "Vibe-Harness safety policy"
         }
@@ -17,7 +17,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": "node \"{{hookRunnerPath}}\" --host zcode --expected-event PermissionRequest",
+          "command": "node \"{{hookRunnerPath}}\" --host claude --expected-event PermissionRequest",
           "timeout": 10,
           "statusMessage": "Vibe-Harness safety policy"
         }
@@ -29,7 +29,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": "node \"{{autoCommitRunnerPath}}\" --host zcode",
+          "command": "node \"{{autoCommitRunnerPath}}\" --host claude",
           "timeout": 30,
           "statusMessage": "Vibe-Harness safety policy"
         }

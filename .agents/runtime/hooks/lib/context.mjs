@@ -22,6 +22,7 @@ export const DEFAULT_RED_ZONE_PATHS = [
   '.zcode/config.json',
   'opencode.json',
   'opencode.jsonc',
+  '.claude/settings.json',
 ];
 
 async function git(rootDir, args) {

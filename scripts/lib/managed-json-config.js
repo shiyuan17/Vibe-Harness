@@ -163,6 +163,26 @@ export function mergeManagedJsonConfig(existingContent, descriptor, { hooks = {}
       const current = Array.isArray(container[event]) ? container[event] : [];
       container[event] = [...current, ...clone(groups)];
     }
+    // ZCode (and Claude Code, which shares the hook model) disable
+    // configuration-file hooks by default; the runner only activates when
+    // `hooks.enabled: true` is present. When we install managed hooks, set the
+    // flag so they actually run. When uninstalling (no managed hooks to add)
+    // and the container is drained of all events, clear the flag so
+    // deleteAtPathIfEmpty can remove the container entirely.
+    if (Object.keys(hooks).length > 0) {
+      container.enabled = true;
+    } else {
+      const hasHookEvents = Object.values(container).some((value) => Array.isArray(value));
+      if (!hasHookEvents) delete container.enabled;
+    }
+    // Re-order so `enabled` always sorts after hook event keys, keeping the
+    // merged output stable across install and validate passes (the remove +
+    // re-add cycle above would otherwise leave `enabled` first).
+    if (Object.hasOwn(container, 'enabled')) {
+      const { enabled } = container;
+      delete container.enabled;
+      container.enabled = enabled;
+    }
     deleteAtPathIfEmpty(root, descriptor.hooksPath);
   }
   return JSON.stringify(root, null, 2) + '\n';

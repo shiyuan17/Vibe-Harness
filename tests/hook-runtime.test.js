@@ -103,6 +103,28 @@ test('Cursor, Qoder, and ZCode normalize host payloads and deny destructive comm
   });
 });
 
+test('Claude Code shares the ZCode hook I/O format and denies destructive commands', async () => {
+  await withProject(async (target) => {
+    const allowed = await evaluateHook({
+      cwd: target,
+      hook_event_name: 'PreToolUse',
+      session_id: 'claude-session',
+      tool_input: { command: 'git status --short' },
+      tool_name: 'Bash',
+    }, { expectedEvent: 'PreToolUse', host: 'claude' });
+    assert.deepEqual(allowed, {});
+
+    const denied = await evaluateHook({
+      cwd: target,
+      hook_event_name: 'PreToolUse',
+      session_id: 'claude-session',
+      tool_input: { command: 'git reset --hard HEAD' },
+      tool_name: 'Bash',
+    }, { expectedEvent: 'PreToolUse', host: 'claude' });
+    assert.equal(denied.hookSpecificOutput.permissionDecision, 'deny');
+  });
+});
+
 test('Antigravity maps camelCase payloads and all four protocol decisions', async () => {
   await withProject(async (target) => {
     const allowed = await evaluateHook({

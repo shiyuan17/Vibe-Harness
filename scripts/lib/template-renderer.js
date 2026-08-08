@@ -1,6 +1,7 @@
 const defaultTemplateData = {
   codebaseMemoryStateDirectory: '.vibe-harness',
   hookRunnerPath: '.agents/runtime/hooks/codex-hook.mjs',
+  autoCommitRunnerPath: '.agents/runtime/hooks/auto-commit.mjs',
   installedSurface: {
     clarificationPostureLine: '',
     codebaseMemoryMcpLine: '',
