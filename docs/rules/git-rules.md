@@ -35,9 +35,11 @@ AI 准备提交前先给出提交分组：
 
 不完整的内容不提交。每次 `Stop` 事件触发时，hook 按以下顺序执行完整性检查，任一失败则取消暂存并报告，不产生提交：
 
-1. 安全扫描：复用 `scanStagedDiff` 检查密钥泄露、红区路径、禁止路径和聚焦测试标记（`.only`/`.skip`）。
-2. 语法检查：对暂存的 `.js`/`.mjs`/`.cjs`/`.json` 文件执行 `node --check` 或 `JSON.parse`。
-3. 验证门禁：读取 `vibe-harness.config.json` 的 `validationCommands`，运行 `lint` 和 `test`；失败则取消暂存。
+1. 安全扫描：扫描暂存 diff 检查密钥泄露、红区路径、禁止路径和语言惯用的聚焦/跳过测试标记。
+2. 语法检查：对暂存的项目源文件执行语言惯用的语法检查。
+3. 验证门禁：读取 `vibe-harness.config.json` 的 `validationCommands`，运行 `lint` 和 `test`；未配置时在 commit body 标注 `no validation commands configured`，不阻断提交；命令执行失败则取消暂存。
+
+Stop hook 的完整实现细节（函数签名、扫描正则、超时配置等）见 `docs/hooks.md`。
 
 ### 分批可独立回滚
 
@@ -46,6 +48,7 @@ AI 准备提交前先给出提交分组：
 - 每个 commit 独立可回滚：未 push 的用 `git reset --soft HEAD~1`（禁止 `--hard`），已 push 的用 `git revert`。
 - commit message 包含变更文件列表和验证状态，便于审计和回滚决策。
 - hook 不 push，不使用 `--no-verify`，不处理红区文件（安全扫描会阻止）。
+- 若目标项目配置了 git hook（如 pre-commit、commit-msg），它们随 `git commit` 自动触发；不使用 `--no-verify` 绕过。
 - commit 失败时报告错误，不阻塞会话（exit 0 + additionalContext）。
 
 ### 触发条件
@@ -54,8 +57,8 @@ AI 准备提交前先给出提交分组：
 
 - 任务分支：仅在 `<type>/<short-topic>` 任务分支上自动提交；`main`/`master`/`develop`/`release/*` 分支跳过。
 - 有变更：working tree 为空时跳过，不产生空提交。
-- 防循环：若 `stop_hook_active` 为 true，直接返回，防止 hook 自身输出再次触发 Stop。
-- 验证通过门禁：自动提交前必须通过上述完整性检查和 husky 的 `pre-commit`（`git diff --cached --check`）与 `commit-msg`（commitlint）钩子；验证未通过不得提交，也不得用 `--no-verify` 绕过。
+- 防循环：hook 自身的输出不重复触发提交。
+- 验证通过门禁：自动提交前必须通过上述完整性检查；验证未通过不得提交，也不得用 `--no-verify` 绕过。
 
 禁止以下触发方式，因为它们会产生与逻辑变更无关的垃圾提交：
 
@@ -82,9 +85,18 @@ AI 准备提交前先给出提交分组：
 
 ### 自动提交失败处理
 
-- 若完整性检查或 husky 钩子失败，不得强行绕过；报告失败原因并取消暂存（改动保留在 working tree）。
+- 若完整性检查或目标项目的 git hook 失败，不得强行绕过；报告失败原因并取消暂存（改动保留在 working tree）。
 - 已自动提交但尚未 push 的，可用 `git reset --soft HEAD~1` 回退（禁止 `--hard`）。
 - 已 push 的回退走 `git revert`，不走 `reset` 加强制推送。
+
+### 参考实现：Node.js（Vibe-Harness 自身仓库）
+
+Vibe-Harness 自身仓库使用以下工具链约定，作为上述完整性检查的参考示例，非强制目标项目：
+
+- 安全扫描：`scanStagedDiff` 扫描密钥泄露（PEM 私钥头、`sk-` 前缀、`OPENAI_/ANTHROPIC_/GITHUB_/GEMINI_*KEY/TOKEN/SECRET=`）、红区路径、禁止路径（`node_modules`、`.vibe-harness/backups`）和聚焦测试标记（`.only`/`.skip`，仅匹配 `.test.mjs`/`.test.js`）。
+- 语法检查：对 `.js`/`.mjs`/`.cjs` 文件执行 `node --check`，对 `.json` 文件执行 `JSON.parse`。
+- Git hook 工具链：husky pre-commit（`git diff --cached --check` + lint-staged eslint）+ commit-msg（commitlint，conventional commits type-enum 为 `feat`/`fix`/`docs`/`refactor`/`test`/`chore`/`eval`）。
+- 验证命令：`vibe-harness.config.json` 的 `validationCommands`（lint + test），未配置时标注 `no validation commands configured` 并继续提交。
 
 ## 分支 / 提交 / PR
 

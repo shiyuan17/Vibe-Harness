@@ -325,7 +325,7 @@ export async function validateContentQuality(rootDir) {
     },
     {
       file: 'rules/test-rules.md',
-      terms: ['验收矩阵', '退出码', '未验证项'],
+      terms: ['验收矩阵', '退出码', '未验证项', '对抗式', '测试类型', '参考实现'],
     },
     {
       file: 'rules/ai-collab-rules.md',
@@ -337,7 +337,7 @@ export async function validateContentQuality(rootDir) {
     },
     {
       file: 'rules/git-rules.md',
-      terms: ['分支', '提交', 'PR'],
+      terms: ['分支', '提交', 'PR', '参考实现'],
     },
     {
       file: 'rules/api-rules.md',

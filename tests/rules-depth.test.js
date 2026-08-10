@@ -20,15 +20,20 @@ test('canonical governance and eight native Skills are declared without a Router
 });
 
 test('completion evidence and task-scoped testing live in governance rules', async () => {
-  const [kernel, testRules, ...templates] = await Promise.all([
+  const [kernel, testRules, gitRules, ...templates] = await Promise.all([
     readFile(path.join(rootDir, 'rules/governance-core.md'), 'utf8'),
     readFile(path.join(rootDir, 'rules/test-rules.md'), 'utf8'),
+    readFile(path.join(rootDir, 'rules/git-rules.md'), 'utf8'),
     ...['adapters/codex/AGENTS.template.md', 'adapters/claude/CLAUDE.template.md', 'adapters/gemini/GEMINI.template.md']
       .map((file) => readFile(path.join(rootDir, file), 'utf8')),
   ]);
   assert.match(kernel, /没有本轮有效验证不得声称完成/u);
   assert.match(testRules, /普通对话\s*\/\s*只读诊断/u);
   assert.match(testRules, /全量测试不是默认验证/u);
+  assert.match(testRules, /对抗式/u);
+  assert.match(testRules, /测试类型/u);
+  assert.match(testRules, /参考实现/u);
+  assert.match(gitRules, /参考实现/u);
   for (const template of templates) assert.match(template, /测试范围细则/u);
 });
 
