@@ -1,4 +1,4 @@
-import { parse as parseToml } from '@iarna/toml';
+import { parse as parseToml, stringify as stringifyToml } from '@iarna/toml';
 
 import { extractManagedBlock, removeManagedBlock, stripManagedBlock } from '../managed-block.js';
 
@@ -12,6 +12,20 @@ function tomlString(value) {
 }
 
 function renderMcpServer(name, server) {
+  const hasRemoteShape = server.url !== undefined;
+  const hasLocalShape = server.command !== undefined || server.args !== undefined || server.env !== undefined;
+  if (hasRemoteShape && hasLocalShape) {
+    throw new Error('MCP server ' + name + ' must define exactly one of command or url.');
+  }
+  if (hasRemoteShape) {
+    if (typeof server.url !== 'string' || server.url.length === 0) {
+      throw new Error('MCP server ' + name + ' url must be a non-empty string.');
+    }
+    return ['[mcp_servers.' + name + ']', 'url = ' + tomlString(server.url)].join('\n');
+  }
+  if (typeof server.command !== 'string' || server.command.length === 0) {
+    throw new Error('MCP server ' + name + ' must define exactly one of command or url.');
+  }
   const lines = [
     `[mcp_servers.${name}]`,
     `command = ${tomlString(server.command)}`,
@@ -37,11 +51,13 @@ export function removeManagedMcpBlock(content) {
   return removeManagedBlock(content, managedMcpStart, managedMcpEnd);
 }
 
-export function mergeManagedMcpBlock(existingContent, servers) {
-  const unmanaged = stripManagedMcpBlock(existingContent);
+export function mergeManagedMcpBlock(existingContent, servers, { force = false } = {}) {
+  let unmanaged = stripManagedMcpBlock(existingContent);
+  let parsedToml = null;
   let unmanagedServerNames = new Set();
   try {
-    const parsedServers = parseToml(unmanaged).mcp_servers;
+    parsedToml = parseToml(unmanaged);
+    const parsedServers = parsedToml.mcp_servers;
     if (parsedServers && typeof parsedServers === 'object') {
       unmanagedServerNames = new Set(Object.keys(parsedServers));
     }
@@ -50,15 +66,22 @@ export function mergeManagedMcpBlock(existingContent, servers) {
   }
   const conflicts = [];
   const rendered = [];
+  let replacedUnmanagedServer = false;
   for (const [name, server] of Object.entries(servers).sort(([left], [right]) => left.localeCompare(right))) {
     const escaped = name.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
     const duplicate = new RegExp(`^\\s*\\[\\s*mcp_servers\\s*\\.\\s*(?:${escaped}|["']${escaped}["'])\\s*\\]\\s*(?:#.*)?$`, 'mu');
     if (unmanagedServerNames.has(name) || duplicate.test(unmanaged)) {
-      conflicts.push(name);
-      continue;
+      if (!force || !parsedToml?.mcp_servers || !Object.hasOwn(parsedToml.mcp_servers, name)) {
+        conflicts.push(name);
+        continue;
+      }
+      delete parsedToml.mcp_servers[name];
+      if (Object.keys(parsedToml.mcp_servers).length === 0) delete parsedToml.mcp_servers;
+      replacedUnmanagedServer = true;
     }
     rendered.push(renderMcpServer(name, server));
   }
+  if (replacedUnmanagedServer) unmanaged = stringifyToml(parsedToml).trimEnd();
   const block = [managedMcpStart, ...rendered.flatMap((item, index) => index === 0 ? [item] : ['', item]), managedMcpEnd].join('\n');
   const prefix = unmanaged.trimEnd();
   return {

@@ -124,6 +124,7 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
   const installedIntegrationSkills = [
     hasSkill('browser-verification/SKILL.md') ? 'browser-verification' : null,
     hasSkill('agentmemory/SKILL.md') ? 'agentmemory' : null,
+    hasSkill('linear-workflow/SKILL.md') ? 'linear-workflow' : null,
   ].filter(Boolean);
   const profileLines = {
     core: '- 当前安装方式：通用安装（不包含扩展 MCP 或 hooks 安装面）。',
@@ -232,6 +233,12 @@ function createManagedMcpServers(targetDir, resolvedModules) {
         CBM_WORKERS: '2',
       },
     };
+  if (resolvedModules.includes('linear')) servers.linear = {
+    url: 'https://mcp.linear.app/mcp',
+  };
+  if (resolvedModules.includes('linear-readonly')) servers.linear = {
+    url: 'https://mcp.linear.app/mcp/readonly',
+  };
   return servers;
 }
 
@@ -242,7 +249,11 @@ function adapterConfigRedZone(adapter, target) {
 function formatMcpServers(servers, format = 'command-args-env') {
   if (format === 'command-args-env') return servers;
   if (format !== 'opencode-local') throw new Error('Unsupported MCP server format: ' + format);
-  return Object.fromEntries(Object.entries(servers).map(([name, server]) => [name, {
+  return Object.fromEntries(Object.entries(servers).map(([name, server]) => [name, server.url ? {
+    type: 'remote',
+    url: server.url,
+    enabled: true,
+  } : {
     type: 'local',
     command: [server.command, ...(server.args ?? [])],
     environment: { ...(server.env ?? {}) },
@@ -432,6 +443,17 @@ export async function createInstallPlan({
     adapterId: adapter.id,
     owners: action.owners ?? [projectionTarget(action.relativeTarget) ? owner : 'shared'],
   }));
+  const linearAccess = moduleSelection.resolvedModules.includes('linear')
+    ? 'read-write'
+    : (moduleSelection.resolvedModules.includes('linear-readonly') ? 'read-only' : null);
+  const linearEndpoint = linearAccess === 'read-write'
+    ? 'https://mcp.linear.app/mcp'
+    : 'https://mcp.linear.app/mcp/readonly';
+  const linearMcp = linearAccess ? {
+    access: linearAccess,
+    configuration: ownedActions.some((action) => action.mcpServers?.linear) ? 'managed' : 'manual',
+    endpoint: linearEndpoint,
+  } : null;
 
   return {
     adapter: adapter.id,
@@ -443,6 +465,7 @@ export async function createInstallPlan({
     generatedDirectories: generatedDirectories.map((item) => ({ ...item, owners: item.owners ?? ['shared'] })),
     implicitModules: moduleSelection.implicitModules,
     instructionTarget: adapter.instructionTarget,
+    linearMcp,
     missingCapabilities: Object.entries(adapter.capabilities).filter(([, status]) => status === 'unsupported').map(([name]) => name),
     profile,
     previewCapabilities: Object.entries(adapter.capabilities).filter(([, status]) => status === 'preview').map(([name]) => name),
@@ -552,6 +575,9 @@ export async function createMultiTargetInstallPlan({ selectedTargets, targets, .
       missingCapabilities: plan.missingCapabilities,
       previewCapabilities: plan.previewCapabilities,
     }])),
+    linearMcp: Object.fromEntries(plans
+      .filter((plan) => plan.linearMcp)
+      .map((plan) => [plan.adapter, plan.linearMcp])),
     generatedDirectories,
     missingCapabilities: [...new Set(plans.flatMap((plan) => plan.missingCapabilities))],
     previewCapabilities: [...new Set(plans.flatMap((plan) => plan.previewCapabilities))],
@@ -901,7 +927,7 @@ export async function previewInstallPlan(plan, { includeContent = true } = {}) {
       ? await readFile(action.target, 'utf8')
       : '';
     const mergedMcp = isManagedToml(action.contentStrategy)
-      ? mergeManagedMcpBlock(existingContent, action.mcpServers)
+      ? mergeManagedMcpBlock(existingContent, action.mcpServers, { force: plan.force })
       : null;
     const content = mergedMcp?.content ?? await renderActionContent(action, actionRenderData(action, plan.renderData), existingContent);
     previewFiles.push({
@@ -1306,7 +1332,7 @@ async function executeWriteActions(plan, ctx, hooks) {
 
     await mkdir(path.dirname(action.target), { recursive: true });
     const mergedMcp = isManagedToml(action.contentStrategy)
-      ? mergeManagedMcpBlock(existingContent, action.mcpServers)
+      ? mergeManagedMcpBlock(existingContent, action.mcpServers, { force: plan.force })
       : null;
     if (mergedMcp) mcpConflicts.push(...mergedMcp.conflicts);
     const targetContent = mergedMcp?.content ?? await renderActionContent(action, actionRenderData(action, plan.renderData), existingContent);

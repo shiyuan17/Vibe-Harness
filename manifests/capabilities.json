@@ -192,6 +192,16 @@
       "evaluation": { "required": false, "reason": "Adapter file sets and lifecycle behavior are deterministic and verified on Linux and Windows. Adapters whose hooks capability is not stable or whose redZonePrefixes is empty run with a degraded runtime safety posture; this is surfaced explicitly by the DEGRADED_SAFETY_POSTURE warning in install, validate, and doctor." }
     },
     {
+      "id": "linear-multi-agent-workflow",
+      "source": "Linear issue delegation, workflow, GitHub automation, and remote MCP integration",
+      "disposition": "generalize",
+      "targets": ["rules/linear-workflow.md", "skills/integrations/linear-workflow/SKILL.md", "scripts/lib/install-planner.js", "scripts/lib/tool-provisioning/managed-blocks.js"],
+      "tests": ["tests/linear-workflow.test.js", "tests/module-selection.test.js", "tests/skill-closure.test.js"],
+      "profiles": [],
+      "docs": ["docs/specs/linear-multi-agent-workflow-spec.md"],
+      "evaluation": { "required": true, "suites": ["evals/suites/linear-workflow-online.json"] }
+    },
+    {
       "id": "project-business-contracts",
       "source": "project memory contracts",
       "disposition": "project-only",

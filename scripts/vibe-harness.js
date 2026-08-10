@@ -420,6 +420,17 @@ async function install(args) {
           message: 'Tool provisioning was not run; use vibe-harness provision --project <project> --write.',
         }] : [])),
     ...safetyPostureWarnings(adapter),
+    ...Object.entries(plan.linearMcp ?? {})
+      .filter(([, item]) => item.configuration === 'manual')
+      .map(([target, item]) => ({
+        code: 'LINEAR_MCP_MANUAL_SETUP',
+        message: target + ' requires manual project MCP setup for ' + item.endpoint + '.',
+      })),
+    ...Object.entries(plan.linearMcp ?? {})
+      .map(([target]) => ({
+        code: 'LINEAR_MCP_AUTH_REQUIRED',
+        message: 'Complete ' + target + "'s native Linear OAuth flow; no credential was written by Vibe-Harness.",
+      })),
   ];
   emitReport({
     ...health,
@@ -431,6 +442,7 @@ async function install(args) {
     implicitModules: plan.implicitModules,
     plannedToolActions,
     adapterCapabilities: plan.adapterCapabilities,
+    linearMcp: plan.linearMcp,
     missingCapabilities: plan.missingCapabilities,
     provisioning: { executed: provisionExecuted, requested: provisionRequested },
     previewFiles,
@@ -1150,7 +1162,7 @@ async function recover(args) {
 }
 
 async function printUsage() {
-  console.log('Usage: vibe-harness <init|install|provision|recover|uninstall|validate|verify|baseline|eval|doctor|diff|rollback> [--project path] [--target codex|claude|gemini|cursor|qoder|zcode|antigravity|opencode] [--all-targets] [--profile minimal|core|full|docs-only] [--modules list] [--plugin -all|-rtk ast-grep ...] [--rtk-hooks on|off] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--force] [--upgrade] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded]');
+  console.log('Usage: vibe-harness <init|install|provision|recover|uninstall|validate|verify|baseline|eval|doctor|diff|rollback> [--project path] [--target codex|claude|gemini|cursor|qoder|zcode|antigravity|opencode] [--all-targets] [--profile minimal|core|full|docs-only] [--modules list] [--plugin -all|-rtk|linear-mcp|linear-mcp-readonly ...] [--rtk-hooks on|off] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--force] [--upgrade] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded]');
   console.log('All project commands use --project <path>; --target selects an adapter and --write performs mutations. Legacy --apply and path-valued --target are removed.');
 }
 
