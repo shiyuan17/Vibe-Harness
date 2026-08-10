@@ -50,6 +50,12 @@
       "contentStrategy": "replace"
     },
     {
+      "group": "rules-linear",
+      "source": "rules/linear-workflow.md",
+      "target": "docs/rules/linear-workflow.md",
+      "contentStrategy": "replace"
+    },
+    {
       "group": "rules-core",
       "source": "rules/api-rules.md",
       "target": "docs/rules/api-rules.md",
@@ -448,6 +454,36 @@
       "group": "skills-browser",
       "source": "skills/integrations/browser-verification/references/cli.md",
       "target": ".agents/skills/browser-verification/references/cli.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-linear",
+      "source": "skills/integrations/linear-workflow/SKILL.md",
+      "target": ".agents/skills/linear-workflow/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-linear",
+      "source": "skills/integrations/linear-workflow/references/ai-coding-task.md",
+      "target": ".agents/skills/linear-workflow/references/ai-coding-task.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-linear",
+      "source": "skills/integrations/linear-workflow/references/workspace-setup.md",
+      "target": ".agents/skills/linear-workflow/references/workspace-setup.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "templates-linear",
+      "source": "skills/integrations/linear-workflow/references/ai-coding-task.md",
+      "target": "docs/templates/linear/ai-coding-task.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "templates-linear",
+      "source": "skills/integrations/linear-workflow/references/workspace-setup.md",
+      "target": "docs/templates/linear/workspace-setup.md",
       "contentStrategy": "replace"
     },
     {

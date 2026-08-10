@@ -10,12 +10,14 @@
 - [Eval](evals.md)
 - [Agentmemory Skill 规格](specs/agentmemory-skill-consolidation-spec.md)
 - [显式工具插件规格](specs/vibe-harness-tooling-modules-spec.md)
+- [Linear 多 Agent 工作流规格](specs/linear-multi-agent-workflow-spec.md)
 
 ## 规则
 
 - [执行内核](rules/governance-core.md)
 - [领域 Skill 选择](rules/AGENT_SKILL_ROUTING.md)
 - [AI 协作](rules/ai-collab-rules.md)
+- [Linear 工作流](rules/linear-workflow.md)
 - [API](rules/api-rules.md)
 - [编码](rules/coding-rules.md)
 - [数据库](rules/db-rules.md)

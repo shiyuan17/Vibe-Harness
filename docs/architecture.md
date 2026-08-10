@@ -65,6 +65,8 @@ adapter capability 使用 stable、preview 和 unsupported 描述各产品表面
 
 ## 结构化配置与安全
 
+MCP server 描述有互斥的 local 与 remote 形态：local 使用 command、args、env，remote 只使用 url。Codex 将 remote server 渲染为 TOML URL，标准 JSON adapter 渲染 URL server，OpenCode 转换为 remote 类型。Linear 的读写和只读插件共用规则、Skill 与模板，但只能选择一个 endpoint；它们不进入 profile 或 plugin all。Codex、Cursor、Qoder、ZCode、Antigravity、OpenCode 管理项目级配置，Claude 与 Gemini 保留资产并报告手工 MCP 配置；任何 adapter 都不持久化外部认证凭据。
+
 MCP 和 Hook JSON 通过结构化路径合并。未冲突的用户项原样保留；同名用户项默认阻止写入，只有 --force 可以接管。所有宿主配置仍是 red zone，真实写入额外要求 --confirm-red-zone。
 
 OpenCode 配置使用 jsonc-parser 的结构化 edits，只管理 mcp.vibe-harness-*。已有 JSONC 的注释、尾逗号、格式和用户键保持不变；opencode.json 与 opencode.jsonc 同时存在、语法错误或 mcp 非对象时确定性拒绝，--force 不绕过这些错误。OpenCode 本次不安装 .opencode/plugins，因此运行时安全姿态明确降级，不描述为与 Codex Hook 等价。

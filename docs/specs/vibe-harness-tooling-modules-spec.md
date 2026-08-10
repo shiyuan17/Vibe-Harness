@@ -8,6 +8,8 @@
 
 ## 选择合同
 
+Linear 另有两个需要认证的显式外部集成：linear-mcp 配置读写 endpoint，linear-mcp-readonly 配置 readonly endpoint。两者互斥，只写项目级配置，不保存凭据，也不随 plugin all 展开。Claude 与 Gemini 安装工作流资产并报告手工 MCP 配置；其余六个 adapter 管理 remote server。宿主原生认证不属于安装事务。
+
 | 公开插件名 | 内部模块 | 用途 | 支持级别 |
 | --- | --- | --- | --- |
 | `rtk` | `rtk` | 高输出命令压缩 | stable |

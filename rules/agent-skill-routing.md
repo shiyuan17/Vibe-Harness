@@ -8,5 +8,6 @@ Skill 只补充当前任务需要的领域知识，不覆盖项目规则、人�
 - 信任边界使用 `security-and-hardening`；公共契约使用 `api-and-interface-design`；前端体验使用 `frontend-design`；跨仓运行时使用 `runtime-cross-repo-rollout`。
 - 同一阶段默认只加载一个最匹配的领域 Skill；能力不可用时使用项目规则和确定性验证，不模拟工具或结果。
 - 页面交互、console、network、性能、响应式、可访问性或视觉验收使用 browser-verification integration Skill；它仅由 playwright 或 chrome-devtools plugin 显式安装，不计入八个原生领域 Skills。未安装时使用项目已有的浏览器验证入口。
+- 显式引用 Linear Issue、委派、审查、核验或同步工作状态时使用 linear-workflow integration Skill；它仅由 linear-mcp 或 linear-mcp-readonly 显式安装。未安装时只能使用用户提供的 Issue 上下文，不声称已读取或同步 Linear。
 
 计划、测试、Review、任务记录和交付由 Agent 按请求直接完成，不自动创建额外流程、角色或门禁。红区、权限、凭据、生产、外部写入和不可逆操作始终保留人工确认。

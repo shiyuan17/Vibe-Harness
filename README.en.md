@@ -158,11 +158,15 @@ Legacy `governance.mode`, `governance.workflow`, `hooks.completionGate`, and `va
 
 ## Explicit tools
 
+The Linear workflow is a separate external integration: linear-mcp uses the read-write endpoint and linear-mcp-readonly uses the read-only endpoint. They are mutually exclusive and neither is selected by plugin all. Codex, Cursor, Qoder, ZCode, Antigravity, and OpenCode receive project-scoped Remote MCP configuration. Claude and Gemini receive the same rules and Skill but report manual MCP setup as a degraded capability. The installer writes no token or OAuth credential; complete the host's native Linear authentication after configuration.
+
 Optional plugins are `rtk`, `ast-grep`, `codebase-memory-mcp`, `chrome-devtools-mcp`, `playwright-cli`, and `open-code-review`. Agentmemory runtime is suspended (upstream High vulnerabilities) and is not a `--plugin` choice; install the `memory` module via `--modules memory` when memory support is re-enabled.
 
 ```bash
 pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin -rtk --dry-run
 pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin -rtk ast-grep --write
+pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin linear-mcp --write --confirm-red-zone
+pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin linear-mcp-readonly --write --confirm-red-zone
 pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin none --write
 ```
 
