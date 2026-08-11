@@ -27,24 +27,75 @@ export function toolCommandError(message, code, output, extra = {}) {
   });
 }
 
-function redactDiagnosticText(value, targetDir) {
+function sanitizeHttpUrl(value) {
+  try {
+    const url = new URL(value);
+    if (!['http:', 'https:'].includes(url.protocol)) return value;
+    url.username = '';
+    url.password = '';
+    url.search = '';
+    url.hash = '';
+    return url.href;
+  } catch {
+    return value;
+  }
+}
+
+function sanitizeHttpUrls(value) {
+  return String(value).replace(/https?:\/\/[^\s"'<>]+/giu, (url) => sanitizeHttpUrl(url));
+}
+
+function sensitiveDiagnosticKey(key) {
+  return /^[a-z0-9_-]*(?:api[-_]?key|auth(?:orization|token)?|cookie|credential|password|secret|session|token|username)[a-z0-9_-]*$/iu.test(key);
+}
+
+export function redactDiagnosticText(value, targetDir) {
   if (!value) return '';
   const projectPath = path.resolve(targetDir);
   const projectPaths = [projectPath, projectPath.replaceAll('\\', '/')];
-  let redacted = String(value);
+  let redacted = sanitizeHttpUrls(value);
   for (const projectVariant of projectPaths) {
     const projectPattern = new RegExp(projectVariant.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'giu');
     redacted = redacted.replace(projectPattern, '<project>');
   }
   return redacted
-    .replace(/(["'](?:api[-_]?key|password|secret|token)["']\s*:\s*["'])[^"']*(["'])/giu, '$1[REDACTED]$2')
-    .replace(/\b((?:api[-_]?key|password|secret|token)=)[^\s/]+/giu, '$1[REDACTED]')
-    .replace(/(^|\s)(--?(?:api[-_]?key|password|secret|token)(?:=|\s+))[^\s]+/giu, '$1$2[REDACTED]')
-    .replace(/\b((?:api[-_]?key|password|secret|token)\s*:\s*)[^\s,}"']+/giu, '$1[REDACTED]')
+    .replace(/(["'][a-z0-9_-]*(?:api[-_]?key|auth(?:orization|token)?|cookie|credential|password|secret|session|token|username)[a-z0-9_-]*["']\s*:\s*["'])[^"']*(["'])/giu, '$1[REDACTED]$2')
+    .replace(/\b([a-z0-9_-]*(?:api[-_]?key|auth(?:orization|token)?|cookie|credential|password|secret|session|token|username)[a-z0-9_-]*=)(?!https?:\/\/)[^\s/]+/giu, '$1[REDACTED]')
+    .replace(/(^|\s)(--?[a-z0-9_-]*(?:api[-_]?key|auth(?:orization|token)?|cookie|credential|password|secret|session|token|username)[a-z0-9_-]*(?:=|\s+))[^\s]+/giu, '$1$2[REDACTED]')
+    .replace(/\b([a-z0-9_-]*(?:api[-_]?key|auth(?:orization|token)?|cookie|credential|password|secret|session|token|username)[a-z0-9_-]*\s*:\s*)[^\s,}"']+/giu, '$1[REDACTED]')
     .replace(/\bBearer\s+[^\s]+/giu, 'Bearer [REDACTED]')
     .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@]*@/giu, '$1[REDACTED]@')
     .replace(/([?&](?:api[-_]?key|password|secret|token)=)[^&#\s]+/giu, '$1[REDACTED]')
     .trim();
+}
+
+export function sanitizeRegistryUrl(value) {
+  try {
+    const url = new URL(String(value));
+    return ['http:', 'https:'].includes(url.protocol) ? url.origin : '<invalid-registry>';
+  } catch {
+    return '<invalid-registry>';
+  }
+}
+
+export function sanitizeDiagnosticValue(value, targetDir) {
+  if (typeof value === 'string') return redactDiagnosticText(value, targetDir);
+  if (Array.isArray(value)) return value.map((item) => sanitizeDiagnosticValue(item, targetDir));
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+    key,
+    key === 'registry'
+      ? sanitizeRegistryUrl(item)
+      : sensitiveDiagnosticKey(key) ? '[REDACTED]' : sanitizeDiagnosticValue(item, targetDir),
+  ]));
+}
+
+export function sanitizePublicReport(report, targetDir) {
+  const sanitized = { ...report };
+  for (const key of ['error', 'recommendations', 'results', 'tools', 'warnings']) {
+    if (sanitized[key] !== undefined) sanitized[key] = sanitizeDiagnosticValue(sanitized[key], targetDir);
+  }
+  return sanitized;
 }
 
 function lastDiagnosticLine(...values) {

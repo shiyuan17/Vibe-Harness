@@ -8,7 +8,9 @@ const PROJECT_RUNNER = '.agents/runtime/tools/rtk/run.mjs';
 const RETRY_PREFIX = `node "${PROJECT_RUNNER}"`;
 const INVALID_STATE = Symbol('invalid-rtk-state');
 const shellToolPattern = /(?:bash|shell|powershell|terminal)/iu;
-const bypassPattern = /(?:\.agents[\\/]runtime[\\/]tools[\\/]rtk[\\/]run\.mjs|(?:^|[;&|]\s*)rtk(?:\.exe)?\s+proxy\b)/iu;
+const projectToolPattern = /\.agents[\\/]runtime[\\/]tools[\\/](?:rtk|ast-grep|codebase-memory-mcp)[\\/]run\.mjs/iu;
+const bypassPattern = /(?:^|[;&|]\s*)rtk(?:\.exe)?\s+proxy\b/iu;
+const interactivePattern = /(?:^|[;&|]\s*)(?:ssh|sftp|telnet|top|htop|less|more|vim|vi|nano|watch)\b/iu;
 const sensitivePattern = /(?:^|[;&|]\s*)(?:env|printenv|set)\b|(?:\.env(?:\.|\b)|API[_-]?KEY|TOKEN|SECRET|PASSWORD)|Authorization\s*:/iu;
 const rawOutputPattern = /(?:^|[;&|]\s*)(?:cat|type|Get-Content|tail|journalctl)\b|\b(?:docker|kubectl)\s+logs\b/iu;
 
@@ -132,7 +134,13 @@ export async function routeRtkCommand(input, {
   if (!rtk?.enabled || rtk.status !== 'ready' || !command || !shellToolPattern.test(input.toolName ?? input.tool_name ?? '')) {
     return { action: 'allow' };
   }
-  if (bypassPattern.test(command) || sensitivePattern.test(command) || rawOutputPattern.test(command)) {
+  if (
+    projectToolPattern.test(command)
+    || bypassPattern.test(command)
+    || interactivePattern.test(command)
+    || sensitivePattern.test(command)
+    || rawOutputPattern.test(command)
+  ) {
     return { action: 'allow' };
   }
   let result;

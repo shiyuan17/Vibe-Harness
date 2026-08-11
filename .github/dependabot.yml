@@ -10,8 +10,11 @@ updates:
       interval: "weekly"
   - package-ecosystem: "npm"
     directories:
+      - "/runtime/tools/ast-grep"
+      - "/runtime/tools/chrome-devtools-mcp"
       - "/runtime/tools/codebase-memory-mcp"
       - "/runtime/tools/open-code-review"
       - "/runtime/tools/playwright-cli"
+      - "/runtime/tools/rtk"
     schedule:
       interval: "weekly"

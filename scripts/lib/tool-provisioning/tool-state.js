@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { assertInsideDir, assertSafePathInside, pathExists } from '../manifest.js';
 import { projectStateDir } from '../project-layout.js';
+import { sanitizeDiagnosticValue } from './subprocess.js';
 
 export async function readToolState(targetDir) {
   const statePath = path.join(await projectStateDir(targetDir), 'tool-state/tools.json');
@@ -20,6 +21,8 @@ export async function writeToolState(targetDir, tools, fingerprints) {
   const statePath = path.join(await projectStateDir(targetDir), 'tool-state/tools.json');
   assertInsideDir(targetDir, statePath, 'tool state');
   await assertSafePathInside(targetDir, statePath, 'tool state');
+  tools = sanitizeDiagnosticValue(tools, targetDir);
+  fingerprints = sanitizeDiagnosticValue(fingerprints, targetDir);
   await mkdir(path.dirname(statePath), { recursive: true });
   await writeFile(statePath, `${JSON.stringify({ fingerprints, tools, updatedAt: new Date().toISOString() }, null, 2)}\n`, 'utf8');
 }
