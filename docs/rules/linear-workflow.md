@@ -13,7 +13,7 @@ Linear 保存工作状态、责任和依赖；GitHub 保存代码、提交、PR�
 
 团队使用以下状态名和含义：
 
-1. Triage：新输入，尚未确认是否进入计划。
+1. Triage：团队收件箱。新输入默认不进入常规视图，必须经 accept / duplicate / decline / snooze 之一处置后才算进入工作流。
 2. Backlog：确认需要处理，但尚未满足近期执行条件。
 3. Todo：满足 Definition of Ready 且没有未解决的 blocked-by 关系，可以立即执行。
 4. In Progress：实现者已经开始工作，命名分支和 worktree 已创建；Draft PR 仍保持此状态。
@@ -23,6 +23,19 @@ Linear 保存工作状态、责任和依赖；GitHub 保存代码、提交、PR�
 
 Blocked 不是状态。使用 Linear 的 blocked-by / blocks 关系；阻塞解除后关系转为 related。Canceled、Duplicate、Won't Fix 和 Could not reproduce 使用 canceled 类结果状态。
 
+## Triage 处置
+
+Triage Issue 的 accept / duplicate / decline / snooze 决定需要人工确认，V1 Agent 只读解释流程，不自动处置 Triage Issue。
+
+四动作含义：
+
+- accept：确认需要处理，移入团队默认状态。进入 Todo 仍须满足 Definition of Ready；不满足时先放 Backlog。
+- duplicate：合并到已存在的 canonical Issue，本 Issue 置为 canceled 类。
+- decline：不处理，置为 canceled 类并附说明。
+- snooze：暂时隐藏，到指定时间或有新活动时返回 Triage。
+
+建议团队开启 priority-before-exit，使 Issue 离开 Triage 前必须设置 Priority。Triage Rules 自动路由和 Triage Responsibility 轮值属团队可选配置，非本规则强制。
+
 ## Definition of Ready
 
 Todo Issue 必须同时包含 Goal、Context、Scope、Out of Scope、Contract、Acceptance Criteria、Dependencies 和 Verification。Dependencies 必须明确写出无依赖或列出关系，Verification 必须给出可重复命令或可观察检查。
@@ -31,16 +44,16 @@ Todo Issue 必须同时包含 Goal、Context、Scope、Out of Scope、Contract�
 
 ## Git 与状态自动化
 
-- 分支使用 <type>/<ISSUE-ID>-<slug>，例如 feat/ENG-123-user-search；type 与 Conventional Commits 对齐。
+- 分支使用 <type>/<ISSUE-ID>-<slug>，例如 feat/ENG-123-user-search；type 与 Conventional Commits 对齐。Linear 原生生成的 <ISSUE-ID>-<slug> 也能链接，但本仓库默认带 type 前缀。
 - worktree 位于仓库同级的 <repo>-worktrees/<ISSUE-ID>，不放进仓库目录。
-- commit 保持 Conventional Commits；需要关联时使用 Refs ENG-123。PR 标题包含 Issue ID，closing PR 描述使用 Fixes ENG-123。
-- 优先用 Linear GitHub Integration 推进状态：开始分支到 In Progress、进入审查到 In Review、稳定可合并到 Ready to Merge、合并到默认分支到 Done。
+- commit 保持 Conventional Commits；关联用 non-closing 的 Refs ENG-123（或 ref / references / related to）。closing 词 Fixes / fixes / closes 仅用于 closing PR，不在 commit 内使用；需要跳过自动链接时用 skip 或 ignore。PR 标题必须包含 Issue ID，closing PR 描述使用 Fixes ENG-123。
+- 优先用 Linear GitHub Integration 推进状态：开始分支到 In Progress、进入审查到 In Review、稳定可合并到 Ready to Merge、合并到默认分支到 Done。建议开启“复制分支名即移入 Started 状态”，使分支创建自记录为 In Progress。
 - Ready to Merge 依赖 GitHub branch protection、required review 和 required checks。没有这些门禁时不得仅凭 Linear 自动化声称可合并。
 - Agent 只在团队未配置对应 GitHub 自动化且当前任务明确授权 Linear 写入时手工回写状态。
 
 ## Linear 写入边界
 
-读取 Issue、团队 Guidance、状态、依赖、Assignee 和 Delegate 后再行动。已授权 Issue 内可追加事实性的进展、验证、阻塞或决策评论；创建或拆分其他 Issue、改变关系、优先级、Assignee、Delegate、Project、Cycle 或 Contract 需要单独授权。
+读取 Issue、团队 Guidance、状态、依赖、Assignee 和 Delegate 后再行动。已授权 Issue 内可追加事实性的进展、验证、阻塞或决策评论；创建或拆分其他 Issue、改变关系、优先级、Assignee、Delegate、Project、Cycle 或 Contract 需要单独授权。Triage Issue 的 accept / duplicate / decline / snooze 决定同样需要单独授权，Agent 不得自行移动 Triage Issue 出收件箱。
 
 MCP 不可用时可以使用用户提供的 Issue 内容执行本地工作，但必须明确说明未读取或同步 Linear。不得伪造评论、状态、关系、Delegate、PR、review、CI 或 merge 结果。
 

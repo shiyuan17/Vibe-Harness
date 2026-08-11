@@ -22,7 +22,7 @@ Remote MCP server 使用 url，本地 MCP server 使用 command、args 和 env�
 
 ## 行为合同
 
-固定状态为 Triage、Backlog、Todo、In Progress、In Review、Ready to Merge、Done；Blocked 只使用关系。Todo 必须满足 Definition of Ready 且没有未解决依赖。
+固定状态为 Triage、Backlog、Todo、In Progress、In Review、Ready to Merge、Done；Blocked 只使用关系。Todo 必须满足 Definition of Ready 且没有未解决依赖。Triage 是团队收件箱，Issue 必须经 accept / duplicate / decline / snooze 之一处置后才进入工作流；这些决定需要人工确认，V1 Agent 不自动处置 Triage Issue。
 
 V1 只执行用户明确引用或已经委派的 Issue。人类 Assignee 对结果负责，原生 Delegate 负责执行；labels 只作为没有原生 Agent 身份时的回退。叶子 Issue 只有一个 Writer、一个仓库外 worktree、一个分支和一个 closing PR。Reviewer 与 Verifier 只读。
 

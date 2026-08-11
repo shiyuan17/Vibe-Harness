@@ -4,7 +4,18 @@
 
 ## Workflow
 
-为每个参与团队配置固定状态：Triage、Backlog、Todo、In Progress、In Review、Ready to Merge、Done。不要创建 Blocked 状态；使用 blocked-by / blocks 关系。
+为每个参与团队配置固定状态：Triage、Backlog、Todo、In Progress、In Review、Ready to Merge、Done。不要创建 Blocked 状态；使用 blocked-by / blocks 关系。Triage 建议开启 priority-before-exit，使 Issue 离开 Triage 前必须设置 Priority；Triage Rules 自动路由属可选配置。
+
+## Triage
+
+Triage 是团队收件箱，进入的 Issue 默认不进入常规视图，必须经四动作之一处置：
+
+- accept：确认需要处理，移入团队默认状态（Backlog 或 Todo，Todo 仍须满足 Definition of Ready）。
+- duplicate：合并到 canonical Issue，本 Issue 置为 canceled 类。
+- decline：不处理，置为 canceled 类并附说明。
+- snooze：暂时隐藏，到指定时间或有新活动时返回 Triage。
+
+可选配置：Triage Responsibility 轮值（指定成员接收或自动分配新 Issue，可接 PagerDuty/OpsGenie 等外部排班）；Triage Rules 自动路由（按 label/project/team 等条件自动更新状态、assignee、priority）。两者均为团队可选，非本规则强制。
 
 ## Guidance
 
@@ -13,7 +24,8 @@
 - Todo 必须通过 AI Coding Task 的 Definition of Ready。
 - V1 只执行显式引用或已委派 Issue，不自动领取 Ready Queue。
 - Reviewer 和 Verifier 只读。
-- 分支格式为 <type>/<ISSUE-ID>-<slug>，worktree 位于仓库外。
+- 分支格式为 <type>/<ISSUE-ID>-<slug>，worktree 位于仓库外。commit 用 Refs 关联，closing PR 用 Fixes；需要跳过自动链接用 skip/ignore。
+- 建议开启“复制分支名即移入 Started 状态”，使分支创建自记录为 In Progress。
 - Done 只在 closing PR 合并到目标默认分支后成立。
 
 ## GitHub Automation

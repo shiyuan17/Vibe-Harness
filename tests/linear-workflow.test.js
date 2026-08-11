@@ -106,6 +106,7 @@ test('Codex Linear plugins render read-write and read-only project MCP endpoints
       assert.equal(report.actions.some((item) => item.relativeTarget === 'docs/rules/linear-workflow.md'), true);
       assert.equal(report.actions.some((item) => item.relativeTarget === '.agents/skills/linear-workflow/SKILL.md'), true);
       assert.equal(report.actions.some((item) => item.relativeTarget === 'docs/templates/linear/ai-coding-task.md'), true);
+      assert.equal(report.actions.some((item) => item.relativeTarget === 'docs/templates/linear/triage-template.md'), true);
     } finally {
       await rm(target, { recursive: true, force: true });
     }

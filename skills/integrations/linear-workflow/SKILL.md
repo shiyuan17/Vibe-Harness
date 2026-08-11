@@ -17,7 +17,7 @@ description: Use when executing, reviewing, verifying, refining, or synchronizin
 
 通过可用的 Linear connector 读取 Issue 描述、团队 Guidance、状态、Assignee、Delegate、Project、Cycle、labels、relations 和最近相关评论。MCP 不可用时回退到用户提供的内容，并在结果中明确写出未读取或同步 Linear。
 
-不得推断不存在的字段、关系或权限。不要读取无关团队或扩大搜索范围。
+不得推断不存在的字段、关系或权限。不要读取无关团队或扩大搜索范围。Triage Issue 只读解释流程，不自动 accept / duplicate / decline / snooze。
 
 ## 3. 执行 Ready 门禁
 
@@ -56,4 +56,4 @@ Reviewer 和 Verifier 使用只读 Linear MCP endpoint。即使共享配置暴�
 
 交付时报告本地结果、验证证据、PR/merge 的已观察状态，以及 Linear 是否实际同步。不要把工具不可用、请求已发送或推测状态写成成功。
 
-需要创建团队模板或管理员配置时，读取 references/ai-coding-task.md 和 references/workspace-setup.md；这些文件是配置清单，不授权直接写入 Linear Workspace。
+需要创建团队模板或管理员配置时，读取 references/ai-coding-task.md、references/triage-template.md 和 references/workspace-setup.md；这些文件是配置清单，不授权直接写入 Linear Workspace。

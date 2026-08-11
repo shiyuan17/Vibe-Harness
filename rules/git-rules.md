@@ -100,13 +100,13 @@ Vibe-Harness 自身仓库使用以下工具链约定，作为上述完整性检�
 
 ## 分支 / 提交 / PR
 
-- 分支：默认使用 `<type>/<short-topic>`（如 `feat/`、`fix/`、`docs/`），type 与 Conventional Commits 类型对齐；已有任务分支或用户指定分支优先。
+- 分支：默认使用 `<type>/<short-topic>`（如 `feat/`、`fix/`、`docs/`），type 与 Conventional Commits 类型对齐；已有任务分支或用户指定分支优先。Linear 工作流下使用 `<type>/<ISSUE-ID>-<slug>`（如 `feat/ENG-123-user-search`）；Linear 原生生成的 `<ISSUE-ID>-<slug>` 也能链接，但本仓库默认带 type 前缀。
 - 提交主题格式为 `<type>(<scope>): <描述>`，其中 scope 可选；类型前缀和可选 scope 保持英文。描述优先使用中文；若使用英文，正文跟随英文。同一仓库内保持一致。
 - 常用类型包括 `feat`、`fix`、`docs`、`refactor`、`test` 和 `chore`。例如：`feat: 增加项目基线快照`、`fix(installer): 修复强制覆盖前未备份的问题`、`docs: 补充基线与工具配置说明`、`refactor: 简化安装计划生成逻辑`、`test: 覆盖中文提交规范`、`chore: 更新开发依赖`。
 - 描述使用祈使句，说明一个可验收改动；应避免 `fix bug`、`update`、`phase 1` 这类不可检索描述。
 - Git 自动生成且无需人工编辑的 merge 或 revert 信息不受此限制；人工修改时仍使用中文描述。
-- PR：包含摘要、风险、验证、回滚和审查备注；高风险 PR 必须说明红区确认和独立审查状态。
-- 一个 commit 只承载一个逻辑变更；重构和功能变更默认拆开。
+- PR：包含摘要、风险、验证、回滚和审查备注；高风险 PR 必须说明红区确认和独立审查状态。Linear 工作流下 PR 标题必须包含 Issue ID；closing PR 描述用 `Fixes ENG-123` 控制合并后自动关闭，非关闭关联用 `Refs ENG-123`（或 `ref` / `references` / `related to`）；需要跳过自动链接时用 `skip` 或 `ignore`。
+- 一个 commit 只承载一个逻辑变更；重构和功能变更默认拆开。Linear 关联的 commit 保持 Conventional Commits，用 `Refs ENG-123` 关联，不在 commit 内使用 closing 词（`fix`/`fixes`/`closes` 等），closing 词只用于 closing PR。
 - 分批交付前检查 working tree 和 staged diff，明确包含文件、排除文件、验证证据、风险和回滚方式；工具不可用时只给出分组清单和命令建议，不声称已经提交。
 - SVN 项目不输出 Git 分支、commit 或 PR 结论；改为报告 `svn status`、修改文件清单、验证证据和提交建议。
 
