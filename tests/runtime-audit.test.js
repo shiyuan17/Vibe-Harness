@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
+import { createToolProvisioningPlan } from '../scripts/lib/tool-provisioning/environment.js';
 import { auditRuntimeTools, resolveNpmAuditInvocation } from '../scripts/lib/runtime-audit.js';
+import { resolveRtkAsset } from '../runtime/tools/rtk/run.mjs';
 
 const rootDir = path.resolve(import.meta.dirname, '..');
 
@@ -34,6 +37,38 @@ test('runtime audit mirrors the installed dependency surface for every tool', as
   assert.ok(rtk, 'RTK dependency surface should be audited');
   assert.equal(playwright.args.includes('--omit=dev'), false);
   assert.equal(calls.every((call) => call.surface === 'installed'), true);
+});
+
+test('runtime package versions match provisioning contracts', async () => {
+  const directoryById = {
+    astGrep: 'ast-grep',
+    chromeDevtoolsMcp: 'chrome-devtools-mcp',
+    codebaseMemoryMcp: 'codebase-memory-mcp',
+    openCodeReview: 'open-code-review',
+    playwrightCli: 'playwright-cli',
+    rtk: 'rtk',
+  };
+  const plan = createToolProvisioningPlan({
+    allowPreview: true,
+    profile: 'full',
+    resolvedModules: ['ast-grep', 'chrome-devtools', 'codebase-memory', 'open-code-review', 'playwright', 'rtk'],
+    targetDir: rootDir,
+  });
+  assert.equal(plan.length, Object.keys(directoryById).length);
+  for (const spec of plan) {
+    const packageJson = JSON.parse(await readFile(
+      path.join(rootDir, 'runtime/tools', directoryById[spec.id], 'package.json'),
+      'utf8',
+    ));
+    if (spec.id === 'rtk') {
+      assert.equal(packageJson.version, spec.version);
+      assert.equal(resolveRtkAsset().version, spec.version);
+      assert.equal(spec.source, 'github:rtk-ai/rtk@v' + spec.version);
+    } else {
+      const dependencies = { ...packageJson.dependencies, ...packageJson.devDependencies };
+      assert.equal(dependencies[spec.packageName], spec.version, spec.id + ' version drift');
+    }
+  }
 });
 
 test('runtime audit launches npm through npm-cli.js on Windows', async () => {

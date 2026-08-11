@@ -8,7 +8,7 @@ import { evaluateCodexHook, evaluateHook } from '../runtime/hooks/codex-hook.mjs
 import { resolveExecutable, runCommand } from '../runtime/hooks/git-hook.mjs';
 import { DEFAULT_RED_ZONE_PATHS, readHookSettings } from '../runtime/hooks/lib/context.mjs';
 import { analyzeToolRequest, createHostHookResult, normalizeCodexHookInput, supportedCodexHookEvents } from '../runtime/hooks/lib/policy.mjs';
-import { inspectRtkHook } from '../runtime/hooks/lib/rtk.mjs';
+import { inspectRtkHook, routeRtkCommand } from '../runtime/hooks/lib/rtk.mjs';
 
 async function withProject(callback, hooks = { mode: 'guarded' }) {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-hook-runtime-'));
@@ -55,6 +55,35 @@ test('RTK hook resolves the canonical project-local runtime path', async () => {
     assert.equal(state.runner, runner);
     assert.equal(state.binary, binary);
   });
+});
+
+test('RTK routing bypasses project code-intelligence tools, interactive commands, and raw evidence', async () => {
+  const calls = [];
+  const runner = async (binary, command) => {
+    calls.push({ binary, command });
+    return { code: 0, stdout: 'rtk git status', timedOut: false };
+  };
+  const options = {
+    mode: 'guarded',
+    projectRoot: process.cwd(),
+    rtk: { binary: 'rtk', enabled: true, status: 'ready' },
+    runner,
+  };
+  for (const command of [
+    'node .agents/runtime/tools/ast-grep/run.mjs outline src',
+    'node .agents/runtime/tools/codebase-memory-mcp/run.mjs',
+    'Get-Content build.log',
+    'ssh example.test',
+  ]) {
+    const result = await routeRtkCommand({ toolInput: { command }, toolName: 'Bash' }, options);
+    assert.equal(result.action, 'allow', command);
+  }
+  assert.equal(calls.length, 0);
+
+  const routed = await routeRtkCommand({ toolInput: { command: 'git status' }, toolName: 'Bash' }, options);
+  assert.equal(routed.action, 'deny');
+  assert.match(routed.retryCommand, /runtime\/tools\/rtk\/run\.mjs/u);
+  assert.equal(calls.length, 1);
 });
 
 test('Hook supports only safety events and allows ordinary project commands', async () => {

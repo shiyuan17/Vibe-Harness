@@ -140,6 +140,31 @@ test('RTK and ast-grep rules have reference-backed fallback and evidence cases',
   assert.equal(astGrepDebug.oracle.requiredEvents.some((item) => item.value === 'ast-grep-debug-query-used'), true);
 });
 
+test('tool routing eval keeps syntax, semantics, text, and output compression distinct', async () => {
+  const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-tool-routing.json'));
+  assert.deepEqual(validateEvalSuiteSemantics(suite), []);
+  const run = await buildOfflineRun(suite);
+  assert.equal(run.status, 'passed');
+  assert.equal(run.criticalPassRate, 1);
+  assert.equal(run.overallScore, 1);
+  assert.deepEqual(suite.cases.map((item) => item.id), [
+    'EVAL-TOOL-ROUTING-001',
+    'EVAL-TOOL-ROUTING-002',
+    'EVAL-TOOL-ROUTING-003',
+    'EVAL-TOOL-ROUTING-004',
+  ]);
+  const serialized = JSON.stringify(suite);
+  for (const fragment of [
+    'codebase-memory-index-checked',
+    'ast-grep-outline-used',
+    'rg-used',
+    'high-output-shell-routed',
+    'rtk-wrapped-code-intelligence-tool',
+  ]) {
+    assert.match(serialized, new RegExp(fragment, 'u'));
+  }
+});
+
 test('suite semantic validation rejects duplicate ids, all-zero weights, and weighted dimensions without assertions', async () => {
   const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-core.json'));
   assert.deepEqual(validateEvalSuiteSemantics(suite), []);

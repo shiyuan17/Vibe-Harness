@@ -92,6 +92,19 @@ async function packageVersion(rootDir) {
   return pkg.version;
 }
 
+function toolDiscoveryLine({ hasAstGrepTool, hasCodebaseMemoryMcp, hasRtkTool }) {
+  const routes = [];
+  if (hasCodebaseMemoryMcp) {
+    routes.push('跨文件符号关系、调用链、架构和影响分析使用 codebase-memory-mcp，需要语义图时先确认索引状态');
+  }
+  if (hasAstGrepTool) {
+    routes.push('本地 AST 结构、语法模式和规则调试使用项目内 ast-grep');
+  }
+  routes.push('纯文本、配置和日志使用 rg 与直接文件阅读');
+  const rtkBoundary = hasRtkTool ? ' RTK 只压缩符合条件的 Shell 输出，不参与检索工具选择。' : '';
+  return '先按问题类型选工具：' + routes.join('；') + '。' + rtkBoundary;
+}
+
 export function createInstalledSurface({ clarificationPosture = 'balanced', customModules = false, hookConfigTargets = [], memoryPath = '.agents/memory', profile, skillRoots = [], targets }) {
   const installedTargets = targets.map((target) => target.replaceAll('\\', '/'));
   const hasTarget = (expectedTarget) => installedTargets.includes(expectedTarget);
@@ -116,6 +129,7 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
   const hasAgentMemorySkills = hasSkill('agentmemory/SKILL.md');
   const hasRtkTool = hasTarget('.agents/runtime/tools/rtk/run.mjs');
   const hasAstGrepTool = hasTarget('.agents/runtime/tools/ast-grep/run.mjs');
+  const hasCodebaseMemoryMcp = hasTarget('docs/rules/codebase-memory-mcp.md');
   const agentMemoryTarget = installedTargets.find((target) => target.endsWith('/skills/agentmemory/SKILL.md'));
   const agentMemorySkillRoot = agentMemoryTarget?.slice(0, agentMemoryTarget.indexOf('/agentmemory/SKILL.md'));
   const normalizedMemoryPath = memoryPath.replaceAll('\\', '/').replace(/\/+$/u, '');
@@ -137,7 +151,7 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
     clarificationPostureLine: hasSkill('clarify-requirements/SKILL.md')
       ? `- 需求澄清姿态：\`${clarificationPosture}\`（action-leaning 偏向采用最小可逆默认值直接推进；balanced 按规则判断；conservative 对跨模块或公共契约改动也倾向先确认）。`
       : '',
-    codebaseMemoryMcpLine: hasTarget('docs/rules/codebase-memory-mcp.md')
+    codebaseMemoryMcpLine: hasCodebaseMemoryMcp
       ? '- codebase-memory-mcp 规则位于 `docs/rules/codebase-memory-mcp.md`。'
       : '',
     discoveryLine: hasTarget('docs/rules/codebase-memory-mcp.md')
@@ -173,6 +187,7 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
       ? `- 项目内工具位于 \`.agents/runtime/tools/\`；使用 \`vibe-harness doctor --project <path>\` 查看初始化状态。${hasTarget('docs/rules/chrome-devtools-mcp.md') ? ' Chrome DevTools MCP 规则位于 \`docs/rules/chrome-devtools-mcp.md\`。' : ''}${hasRtkTool ? ' RTK 规则位于 \`docs/rules/rtk.md\`。' : ''}${hasAstGrepTool ? ' ast-grep 规则位于 \`docs/rules/ast-grep.md\`。' : ''}`
       : '',
   };
+  installedSurface.discoveryLine = toolDiscoveryLine({ hasAstGrepTool, hasCodebaseMemoryMcp, hasRtkTool });
   if (installedIntegrationSkills.length > 0) {
     installedSurface.profileLine += ' 当前另安装 integration Skills：'
       + installedIntegrationSkills.join('、')

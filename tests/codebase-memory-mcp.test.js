@@ -54,9 +54,11 @@ test('codebase-memory-mcp rule uses MCP tools and a repository-search fallback w
   const agents = await readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8');
 
   try {
-    for (const tool of ['index_repository', 'index_status', 'search_graph', 'trace_call_path', 'detect_changes', 'get_architecture']) {
+    for (const tool of ['index_repository', 'index_status', 'search_graph', 'get_code_snippet', 'trace_call_path', 'detect_changes', 'get_architecture']) {
       assert.equal(rule.includes(`\`${tool}\``), true, `${tool} should be documented`);
     }
+    assert.equal(rule.includes('<code>trace_path</code>'), false);
+    assert.match(rule, /search_graph.*get_code_snippet.*trace_call_path/su);
     assert.match(rule, /MCP.*不可用.*(?:rg|仓库搜索)/su);
     assert.match(rule, /不得.*(?:全局|Agent).*配置/su);
     assert.equal(rule.includes('codebase-memory-mcp install'), false);

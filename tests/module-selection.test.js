@@ -213,26 +213,36 @@ test('project config accepts valid plugins and rejects invalid plugin arrays', (
   assert.equal(validateProjectConfig({ ...base, hooks: { rtk: { enabled: true } }, plugins: ['ast-grep'] }), true);
 });
 
-test('RTK hook CLI is explicit, Codex-only, and requires the RTK plugin', async () => {
+test('RTK hooks default on for a fresh Codex install and explicit options retain precedence', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-rtk-hook-contract-'));
   try {
     await runCli(['init', '--project', target]);
-    const instructionsOnly = await runCli([
+    const defaultEnabled = await runCli([
       'install', '--project', target, '--target', 'codex', '--profile', 'core',
       '--plugin', '-rtk', '--dry-run',
     ]);
-    assert.equal(instructionsOnly.rtkHooks.enabled, false);
-    assert.equal(instructionsOnly.actions.some((item) => item.relativeTarget === '.codex/hooks.json'), false);
+    assert.equal(defaultEnabled.rtkHooks.enabled, true);
+    assert.equal(defaultEnabled.rtkHooks.source, 'fresh-install-default');
+    assert.equal(defaultEnabled.actions.some((item) => item.relativeTarget === '.codex/hooks.json'), true);
 
     const enabled = await runCli([
       'install', '--project', target, '--target', 'codex', '--profile', 'core',
       '--plugin', '-rtk', '--rtk-hooks', 'on', '--dry-run',
     ]);
     assert.equal(enabled.rtkHooks.enabled, true);
+    assert.equal(enabled.rtkHooks.source, 'cli');
     assert.equal(enabled.resolvedModules.includes('hooks'), true);
     assert.equal(enabled.implicitModules.includes('hooks'), true);
     assert.equal(enabled.actions.some((item) => item.relativeTarget === '.codex/hooks.json' && item.redZone), true);
     assert.equal(enabled.requiresRedZoneConfirmation, true);
+
+    const disabled = await runCli([
+      'install', '--project', target, '--target', 'codex', '--profile', 'core',
+      '--plugin', '-rtk', '--rtk-hooks', 'off', '--dry-run',
+    ]);
+    assert.equal(disabled.rtkHooks.enabled, false);
+    assert.equal(disabled.rtkHooks.source, 'cli');
+    assert.equal(disabled.actions.some((item) => item.relativeTarget === '.codex/hooks.json'), false);
 
     const missingPlugin = await runCliFailure([
       'install', '--project', target, '--target', 'codex', '--profile', 'core',
@@ -284,14 +294,17 @@ test('RTK hook precedence persists CLI state and disables inherited hooks when R
       '--plugin', '-rtk', '--rtk-hooks', 'on', '--write', '--confirm-red-zone',
     ]);
     assert.equal(installed.rtkHooks.enabled, true);
+    assert.equal(installed.rtkHooks.source, 'cli');
     let state = JSON.parse(await readFile(path.join(target, '.vibe-harness/install-state.json'), 'utf8'));
     assert.equal(state.rtkHooksEnabled, true);
     assert.equal(await readFile(path.join(target, '.agents/runtime/hooks/lib/rtk.mjs'), 'utf8').then(Boolean), true);
     const validation = await runCli(['validate', '--project', target]);
     const doctor = await runCli(['doctor', '--project', target]);
     assert.equal(validation.rtkHooks.enabled, true);
+    assert.equal(validation.rtkHooks.source, 'install-state');
     assert.equal(validation.rtkHooks.status, 'pending');
     assert.equal(doctor.rtkHooks.enabled, true);
+    assert.equal(doctor.rtkHooks.source, 'install-state');
     assert.equal(doctor.rtkHooks.status, 'pending');
 
     const inherited = await runCli([
@@ -299,6 +312,7 @@ test('RTK hook precedence persists CLI state and disables inherited hooks when R
       '--dry-run',
     ]);
     assert.equal(inherited.rtkHooks.enabled, true);
+    assert.equal(inherited.rtkHooks.source, 'install-state');
 
     const configPath = path.join(target, 'vibe-harness.config.json');
     const config = JSON.parse(await readFile(configPath, 'utf8'));
@@ -308,11 +322,13 @@ test('RTK hook precedence persists CLI state and disables inherited hooks when R
       'install', '--project', target, '--target', 'codex', '--profile', 'core', '--dry-run',
     ]);
     assert.equal(configDisabled.rtkHooks.enabled, false);
+    assert.equal(configDisabled.rtkHooks.source, 'project-config');
     const cliEnabled = await runCli([
       'install', '--project', target, '--target', 'codex', '--profile', 'core',
       '--rtk-hooks', 'on', '--dry-run',
     ]);
     assert.equal(cliEnabled.rtkHooks.enabled, true);
+    assert.equal(cliEnabled.rtkHooks.source, 'cli');
 
     delete config.hooks.rtk;
     await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
@@ -382,6 +398,40 @@ test('CLI plugin selection supports one, many, and all public plugins', async ()
   }
 });
 
+test('generated AGENTS routes only the installed code-intelligence tools', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tool-routing-'));
+  const agentsContent = (report) => report.previewFiles.find((file) => file.target === 'AGENTS.md').content;
+  try {
+    await runCli(['init', '--project', target]);
+    const plain = agentsContent(await runCli([
+      'install', '--project', target, '--target', 'codex', '--profile', 'core', '--dry-run', '--verbose',
+    ]));
+    const astGrep = agentsContent(await runCli([
+      'install', '--project', target, '--target', 'codex', '--profile', 'core',
+      '--plugin', 'ast-grep', '--dry-run', '--verbose',
+    ]));
+    const codebaseMemory = agentsContent(await runCli([
+      'install', '--project', target, '--target', 'codex', '--profile', 'core',
+      '--plugin', 'codebase-memory-mcp', '--dry-run', '--verbose',
+    ]));
+    const combined = agentsContent(await runCli([
+      'install', '--project', target, '--target', 'codex', '--profile', 'core',
+      '--plugin', '-rtk', 'ast-grep', 'codebase-memory-mcp', '--dry-run', '--verbose',
+    ]));
+
+    assert.doesNotMatch(plain, /ast-grep|codebase-memory-mcp|RTK 只压缩/u);
+    assert.match(astGrep, /本地 AST 结构.*ast-grep/u);
+    assert.doesNotMatch(astGrep, /codebase-memory-mcp|RTK 只压缩/u);
+    assert.match(codebaseMemory, /跨文件符号关系.*codebase-memory-mcp/u);
+    assert.doesNotMatch(codebaseMemory, /ast-grep|RTK 只压缩/u);
+    assert.match(combined, /跨文件符号关系.*codebase-memory-mcp/u);
+    assert.match(combined, /本地 AST 结构.*ast-grep/u);
+    assert.match(combined, /RTK 只压缩符合条件的 Shell 输出/u);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
 test('retired Agentmemory plugin is rejected', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-agentmemory-plugin-preview-'));
   try {
@@ -431,7 +481,7 @@ test('config plugins override saved state while CLI selection can override or cl
     await runCli(['init', '--project', target]);
     await runCli([
       'install', '--project', target, '--target', 'codex', '--profile', 'core',
-      '--plugin', '-rtk', '--write',
+      '--plugin', '-rtk', '--rtk-hooks', 'off', '--write',
     ]);
     const configPath = path.join(target, 'vibe-harness.config.json');
     const config = JSON.parse(await readFile(configPath, 'utf8'));

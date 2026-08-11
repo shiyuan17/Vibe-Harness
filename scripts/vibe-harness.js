@@ -24,7 +24,7 @@ import {
   previewInstallPlan,
 } from './lib/install-planner.js';
 import { validatePack } from './lib/pack-validation.js';
-import { executeProjectVerification } from './lib/project-verification.js';
+import { runProjectVerification } from './lib/project-verification.js';
 import { detectProjectProfile } from './lib/project-profile.js';
 import {
   readRequiredProjectConfig,
@@ -58,6 +58,7 @@ import {
 import { inspectTransactions, recoverTransaction } from './lib/file-transaction.js';
 import { assertNoUnsupportedLegacyAssets } from './lib/project-layout.js';
 import { findNestedInstallations, nestedInstallMigrationCommands } from './lib/nested-install.js';
+import { sanitizePublicReport } from './lib/tool-provisioning/subprocess.js';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -76,15 +77,16 @@ function applyHealthExit(status, args) {
   if (status === 'degraded' && !args['allow-degraded']) process.exitCode = 2;
 }
 
-function rtkHooksReport(enabled, tools = {}) {
-  if (!enabled) return { enabled: false, status: 'disabled', reason: 'RTK hooks are disabled.' };
+function rtkHooksReport(enabled, tools = {}, source = 'unknown') {
+  if (!enabled) return { enabled: false, source, status: 'disabled', reason: 'RTK hooks are disabled.' };
   const state = tools.rtk;
   if (state?.status === 'ready') {
-    return { enabled: true, status: 'ready', reason: 'Project-local RTK runtime is ready.' };
+    return { enabled: true, source, status: 'ready', reason: 'Project-local RTK runtime is ready.' };
   }
   const status = state?.status ?? 'degraded';
   return {
     enabled: true,
+    source,
     status,
     reason: state?.diagnostic?.message ?? `Project-local RTK runtime is ${status}. Original commands remain available.`,
   };
@@ -182,11 +184,13 @@ function toolSummaryLines(tools = {}, recommendations = []) {
 }
 
 function emitReport(report, args, { error = false } = {}) {
-  const normalized = normalizeReport(report);
+  const targetDir = path.resolve(args.project ?? process.cwd());
+  const normalized = sanitizePublicReport(normalizeReport(report), targetDir);
   const output = args.output ?? 'json';
   if (!['json', 'summary'].includes(output)) throw new Error(`Unknown output format: ${output}`);
   if (output === 'summary') {
     const lines = [
+      ...(normalized.rtkHooks ? ['rtkHooksSource: ' + normalized.rtkHooks.source] : []),
       `status: ${normalized.status}`,
       ...(normalized.profile ? [`profile: ${normalized.profile}`] : []),
       ...(Array.isArray(normalized.requestedPlugins) ? [`plugins: ${normalized.requestedPlugins.length ? normalized.requestedPlugins.join(',') : 'none'}`] : []),
@@ -264,19 +268,35 @@ function parseRtkHooksOption(value) {
   throw new Error('--rtk-hooks must be on or off.');
 }
 
-function resolveRtkHooksEnabled({ adapterId, args = {}, config, installState, requestedPlugins = [], targets = [adapterId] }) {
+function resolveRtkHooksSetting({ adapterId, args = {}, config, installState, requestedPlugins = [], targets = [adapterId] }) {
   const configured = Object.hasOwn(config.hooks?.rtk ?? {}, 'enabled');
+  const rtkSelected = requestedPlugins.includes('rtk');
   let enabled;
-  if (args['rtk-hooks'] !== undefined) enabled = parseRtkHooksOption(args['rtk-hooks']);
-  else if (configured) enabled = config.hooks.rtk.enabled;
-  else enabled = Boolean(installState?.rtkHooksEnabled && requestedPlugins.includes('rtk'));
+  let source;
+  if (args['rtk-hooks'] !== undefined) {
+    enabled = parseRtkHooksOption(args['rtk-hooks']);
+    source = 'cli';
+  } else if (configured) {
+    enabled = config.hooks.rtk.enabled;
+    source = 'project-config';
+  } else if (installState) {
+    enabled = Boolean(installState.rtkHooksEnabled && rtkSelected);
+    source = 'install-state';
+  } else {
+    enabled = Boolean(rtkSelected && targets.includes('codex'));
+    source = enabled ? 'fresh-install-default' : 'default-disabled';
+  }
   if (enabled && !targets.includes('codex')) {
     throw new Error('RTK hooks are only supported for the codex target.');
   }
-  if (enabled && !requestedPlugins.includes('rtk')) {
+  if (enabled && !rtkSelected) {
     throw new Error('RTK hook integration requires the rtk plugin. Select --plugin -rtk.');
   }
-  return enabled;
+  return { enabled, source };
+}
+
+function resolveRtkHooksEnabled(options) {
+  return resolveRtkHooksSetting(options).enabled;
 }
 
 async function init(args) {
@@ -341,7 +361,7 @@ async function install(args) {
   const requestedPlugins = args.plugin !== undefined
     ? parsePluginsOption(args.plugin)
     : (config.plugins ? parsePluginsOption(config.plugins) : existingState?.requestedPlugins);
-  const rtkHooksEnabled = resolveRtkHooksEnabled({
+  const rtkHooksSetting = resolveRtkHooksSetting({
     adapterId,
     args,
     config,
@@ -349,6 +369,7 @@ async function install(args) {
     requestedPlugins: requestedPlugins ?? [],
     targets,
   });
+  const rtkHooksEnabled = rtkHooksSetting.enabled;
 
   const migratedConfig = migrateLegacyProjectConfig(config);
   const configUpdate = Object.hasOwn(config, 'target') && args.upgrade
@@ -451,7 +472,7 @@ async function install(args) {
     requestedModules: plan.requestedModules,
     requestedPlugins: plan.requestedPlugins,
     resolvedModules: plan.resolvedModules,
-    rtkHooks: rtkHooksReport(plan.rtkHooksEnabled, tools),
+    rtkHooks: rtkHooksReport(plan.rtkHooksEnabled, tools, rtkHooksSetting.source),
     requiresRedZoneConfirmation: plan.dryRun
       && !args['confirm-red-zone']
       && plan.actions.some((action) => action.redZone && action.kind === 'write'),
@@ -481,13 +502,14 @@ async function validate(args) {
     const requestedPlugins = await projectRequestedPlugins(config, targetDir);
     validateProjectConfig(config);
     const adapter = await resolveAdapter(rootDir, selectedTargets[0]);
-    const rtkHooksEnabled = resolveRtkHooksEnabled({
+    const rtkHooksSetting = resolveRtkHooksSetting({
       adapterId: adapter.id,
       config,
       installState,
       requestedPlugins: requestedPlugins ?? [],
       targets,
     });
+    const rtkHooksEnabled = rtkHooksSetting.enabled;
     const projectProfile = await detectProjectProfile({ config, targetDir });
     const validationCommands = resolveValidationCommands(config, projectProfile);
     const plan = await createMultiTargetInstallPlan({
@@ -553,7 +575,7 @@ async function validate(args) {
       ...health,
       commandStatus,
       recommendations: toolRecommendations(tools, config.profile, { adapterId: adapter.id, mvp: true }),
-      rtkHooks: rtkHooksReport(rtkHooksEnabled, tools),
+      rtkHooks: rtkHooksReport(rtkHooksEnabled, tools, rtkHooksSetting.source),
       scope: 'project',
       targets: selectedTargets,
       ...(args.verbose ? { targetDir } : {}),
@@ -623,12 +645,18 @@ async function verify(args) {
     throw error;
   }
   const commandStatus = await inspectValidationCommands({ commands: validationCommands, targetDir });
-  const results = await executeProjectVerification({
+  const verificationReport = await runProjectVerification({
     allowManual: Boolean(args['allow-manual']),
     commandStatus,
     targetDir,
   });
-  console.log(JSON.stringify({ ok: true, results, scope: 'project', targetDir }, null, 2));
+  emitReport({
+    ...verificationReport,
+    scope: 'project',
+    status: verificationReport.ok ? 'ready' : 'invalid',
+    targetDir,
+  }, args, { error: !verificationReport.ok });
+  if (!verificationReport.ok) process.exitCode = 1;
 }
 
 async function baseline(args) {
@@ -769,12 +797,13 @@ async function evaluateProject(args) {
 function toolRecommendations(tools, profile, { adapterId = 'codex' } = {}) {
   const retryCommand = `vibe-harness provision --project <project> --target ${adapterId} --profile ${profile} --write`;
   return Object.entries(tools).flatMap(([tool, state]) => {
+    const toolRetryCommand = retryCommand + ' --tool ' + tool;
     const fallback = optionalToolFallback(tool);
     if (fallback && ['pending', 'degraded', 'unsupported'].includes(state.status)) {
       return [{
         action: 'fallback',
         ...(state.code ? { code: state.code } : {}),
-        ...(state.status === 'degraded' ? { command: retryCommand } : {}),
+        ...(state.status === 'degraded' ? { command: toolRetryCommand } : {}),
         ...(state.diagnostic ? { diagnostic: state.diagnostic } : {}),
         message: `${tool} is ${state.status} during ${state.phase}. ${fallback}`,
         phase: state.phase,
@@ -809,7 +838,7 @@ function toolRecommendations(tools, profile, { adapterId = 'codex' } = {}) {
       return [{
         action: 'retry-provision',
         code: state.code,
-        command: retryCommand,
+        command: toolRetryCommand,
         ...(state.diagnostic ? { diagnostic: state.diagnostic } : {}),
         message: ['rtk', 'astGrep'].includes(tool)
           ? `${tool} is unavailable; retry provisioning after checking the pinned download or package, or use the documented fallback.`
@@ -821,7 +850,7 @@ function toolRecommendations(tools, profile, { adapterId = 'codex' } = {}) {
     if (state.status === 'pending-config') {
       return [{
         action: 'configure-credentials',
-        command: retryCommand,
+        command: toolRetryCommand,
         message: `Configure a supported ${tool} credential in the environment, then retry provisioning.`,
         phase: state.phase,
         tool,
@@ -845,13 +874,14 @@ async function doctor(args) {
   const requestedPlugins = config.plugins
     ? parsePluginsOption(config.plugins)
     : (installState?.requestedPlugins ?? []);
-  const rtkHooksEnabled = resolveRtkHooksEnabled({
+  const rtkHooksSetting = resolveRtkHooksSetting({
     adapterId: selectedTargets[0],
     config,
     installState,
     requestedPlugins,
     targets,
   });
+  const rtkHooksEnabled = rtkHooksSetting.enabled;
   const managedAgentsBlock = installState?.files?.some(
     (file) => ['managed-block', 'managed-instruction-block'].includes(file.contentStrategy),
   );
@@ -901,7 +931,7 @@ async function doctor(args) {
     previewCapabilities: installState?.previewCapabilities ?? [],
     requestedPlugins,
     resolvedModules: installState?.resolvedModules ?? [],
-    rtkHooks: rtkHooksReport(rtkHooksEnabled, tools),
+    rtkHooks: rtkHooksReport(rtkHooksEnabled, tools, rtkHooksSetting.source),
     provisioningProcess,
     ...(args.verbose ? { rootDir } : {}),
     target,

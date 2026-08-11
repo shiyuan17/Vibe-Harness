@@ -28,6 +28,14 @@ test('completion evidence and task-scoped testing live in governance rules', asy
       .map((file) => readFile(path.join(rootDir, file), 'utf8')),
   ]);
   assert.match(kernel, /没有本轮有效验证不得声称完成/u);
+  assert.match(kernel, /每个有实质修改的任务先按变更类型选择项目已定义的聚焦检查/u);
+  assert.match(kernel, /最后一次实质修改后的状态重跑同一检查/u);
+  assert.match(kernel, /覆盖同一受影响行为的等价检查及理由/u);
+  assert.match(kernel, /handoff 只引用晚于最后一次实质修改的结果/u);
+  const taskExample = kernel.match(/10:00[\s\S]*10:05[\s\S]*10:07[\s\S]*交付只能引用 10:07/u)?.[0];
+  assert.ok(taskExample);
+  assert.ok(taskExample.indexOf('10:00') < taskExample.indexOf('10:05'));
+  assert.ok(taskExample.indexOf('10:05') < taskExample.indexOf('10:07'));
   assert.match(testRules, /普通对话\s*\/\s*只读诊断/u);
   assert.match(testRules, /全量测试不是默认验证/u);
   assert.match(testRules, /对抗式/u);

@@ -26,11 +26,21 @@ import {
 } from '../runtime/tools/rtk/run.mjs';
 import { buildRtkRuntimeEnvironment, prepareRtkRuntimeEnvironment } from '../runtime/lib/rtk-environment.mjs';
 import { normalizeAstGrepArgs } from '../runtime/tools/ast-grep/args.mjs';
-import { componentEnvironment } from '../scripts/lib/tool-provisioning/environment.js';
+import { componentEnvironment, phaseRequest, resolveAstGrepPlatformPackage } from '../scripts/lib/tool-provisioning/environment.js';
+import { publicFailure } from '../scripts/lib/tool-provisioning/runtime-probe.js';
+import { writeToolState } from '../scripts/lib/tool-provisioning/tool-state.js';
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '..');
 const cliPath = path.join(rootDir, 'scripts/vibe-harness.js');
+
+async function seedAstGrepNativePackage(toolDir, { arch = process.arch, platform = process.platform, libc } = {}) {
+  const nativePackage = resolveAstGrepPlatformPackage({ arch, libc, platform });
+  if (!nativePackage) return;
+  const packageDir = path.join(toolDir, 'node_modules', nativePackage);
+  await mkdir(packageDir, { recursive: true });
+  await writeFile(path.join(packageDir, 'package.json'), JSON.stringify({ name: nativePackage, version: '0.45.1' }) + '\n', 'utf8');
+}
 
 test('ast-grep wrapper normalizes documented and native command forms', () => {
   assert.deepEqual(normalizeAstGrepArgs(['sg', '--pattern', 'call($A)']), ['--pattern', 'call($A)']);
@@ -39,6 +49,9 @@ test('ast-grep wrapper normalizes documented and native command forms', () => {
   assert.deepEqual(normalizeAstGrepArgs(['--help']), ['--help']);
   assert.deepEqual(normalizeAstGrepArgs([]), []);
   assert.deepEqual(normalizeAstGrepArgs(['scan', '--config', 'sgconfig.yml']), ['scan', '--config', 'sgconfig.yml']);
+  assert.deepEqual(normalizeAstGrepArgs(['outline', 'src']), ['outline', 'src']);
+  assert.deepEqual(normalizeAstGrepArgs(['test']), ['test']);
+  assert.deepEqual(normalizeAstGrepArgs(['run', '--debug-query=ast']), ['run', '--debug-query=ast']);
   assert.deepEqual(normalizeAstGrepArgs(['--', 'future-command']), ['--', 'future-command']);
   assert.deepEqual(normalizeAstGrepArgs(['future-command']), ['future-command']);
 });
@@ -162,12 +175,13 @@ test('tool inspection hashes runtimes without executing project binaries', async
     await runCli(['init', '--project', target]);
     await runCli([
       'install', '--project', target, '--target', 'codex', '--profile', 'core',
-      '--plugin', '-rtk', 'ast-grep', '--write',
+      '--plugin', '-rtk', 'ast-grep', '--rtk-hooks', 'off', '--write',
     ]);
     const rtkBinary = path.join(target, '.agents/runtime/tools/rtk/bin', process.platform === 'win32' ? 'rtk.exe' : 'rtk');
     const astGrepBinary = path.join(target, '.agents/runtime/tools/ast-grep/node_modules/@ast-grep/cli', process.platform === 'win32' ? 'ast-grep.exe' : 'ast-grep');
     await provisionProfileTools({
       commandRunner: async (request) => {
+        if (request.component === 'astGrep') await seedAstGrepNativePackage(path.join(target, '.agents/runtime/tools/ast-grep'));
         if (request.phase === 'binary-install' && request.component === 'rtk') {
           await mkdir(path.dirname(rtkBinary), { recursive: true });
           await writeFile(rtkBinary, 'verified rtk fixture', 'utf8');
@@ -245,7 +259,7 @@ test('optional tool generated directories are owned by install state', async () 
     await runCli(['init', '--project', target]);
     await runCli([
       'install', '--project', target, '--target', 'codex', '--profile', 'core',
-      '--plugin', '-rtk', 'ast-grep', '--write',
+      '--plugin', '-rtk', 'ast-grep', '--rtk-hooks', 'off', '--write',
     ]);
     const state = JSON.parse(await readFile(path.join(target, '.vibe-harness/install-state.json'), 'utf8'));
     const generated = state.generatedDirectories.map((item) => item.target).sort();
@@ -282,7 +296,7 @@ test('optional tool uninstall removes managed runtimes and preserves user files'
     await runCli(['init', '--project', target]);
     await runCli([
       'install', '--project', target, '--target', 'codex', '--profile', 'core',
-      '--plugin', '-rtk', 'ast-grep', '--write',
+      '--plugin', '-rtk', 'ast-grep', '--rtk-hooks', 'off', '--write',
     ]);
     for (const file of generatedFiles) {
       await mkdir(path.dirname(file), { recursive: true });
@@ -354,6 +368,98 @@ test('RTK asset resolution is pinned and rejects unsupported platforms', () => {
 
 test('RTK checksum verification detects tampered archives', async () => {
   assert.equal(await verifyRtkChecksum(Buffer.from('rtk'), '4b5a4f7f8f3c0e6e0f5e2c0e2e3f5e3b5b4f3cb9b8c6e3e7e4a4e6d0f6e2f6c2'), false);
+});
+
+test('ast-grep public failures retain supported diagnostic codes and statuses', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-ast-grep-public-failure-'));
+  const [spec] = createToolProvisioningPlan({
+    profile: 'core',
+    resolvedModules: ['agents', 'rules', 'ast-grep'],
+    targetDir: target,
+  });
+  try {
+    const unsupported = publicFailure(
+      spec,
+      'dependency-install',
+      Object.assign(new Error('unsupported fixture'), { code: 'AST_GREP_UNSUPPORTED_PLATFORM' }),
+      target,
+      { arch: 'riscv64', platform: 'freebsd' },
+    );
+    const missingOptionalPackage = publicFailure(
+      spec,
+      'dependency-install',
+      Object.assign(new Error('optional package fixture'), { code: 'AST_GREP_OPTIONAL_PACKAGE_MISSING' }),
+      target,
+      {
+        env: {
+          npm_config_registry: 'https://alice%40corp:pass%3Aword@registry.example.test/private?signature=registry-secret#fragment',
+        },
+      },
+    );
+
+    assert.equal(unsupported.code, 'AST_GREP_UNSUPPORTED_PLATFORM');
+    assert.equal(unsupported.status, 'unsupported');
+    assert.equal(missingOptionalPackage.code, 'AST_GREP_OPTIONAL_PACKAGE_MISSING');
+    assert.equal(missingOptionalPackage.status, 'degraded');
+    assert.equal(missingOptionalPackage.diagnostic.provisioning.registry, 'https://registry.example.test');
+    assert.doesNotMatch(JSON.stringify(missingOptionalPackage), /alice|pass%3Aword|registry-secret|signature|fragment/u);
+    const invalidRegistry = publicFailure(
+      spec,
+      'dependency-install',
+      Object.assign(new Error('invalid registry fixture'), { code: 'AST_GREP_OPTIONAL_PACKAGE_MISSING' }),
+      target,
+      { env: { npm_config_registry: 'file:///private/registry?token=registry-secret' } },
+    );
+    assert.equal(invalidRegistry.diagnostic.provisioning.registry, '<invalid-registry>');
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('tool state and doctor outputs sanitize structured registry diagnostics', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-registry-diagnostic-'));
+  const secretRegistry = 'https://alice%40corp:pass%3Aword@registry.example.test/private?signature=registry-secret#fragment';
+  try {
+    await runCli(['init', '--project', target]);
+    await runCli([
+      'install', '--project', target, '--target', 'codex', '--profile', 'core',
+      '--plugin', '-rtk', 'ast-grep', '--rtk-hooks', 'off', '--write',
+    ]);
+    await writeToolState(target, {
+      astGrep: {
+        code: 'AST_GREP_OPTIONAL_PACKAGE_MISSING',
+        diagnostic: {
+          code: 'AST_GREP_OPTIONAL_PACKAGE_MISSING',
+          message: 'Bearer registry-secret client_secret=registry-secret failed at ' + secretRegistry,
+          phase: 'dependency-install',
+          provisioning: { registry: secretRegistry },
+          truncated: false,
+        },
+        phase: 'dependency-install',
+        status: 'degraded',
+        version: '0.45.1',
+      },
+    }, {});
+
+    const stateText = await readFile(path.join(target, '.vibe-harness/tool-state/tools.json'), 'utf8');
+    assert.match(stateText, /https:\/\/registry\.example\.test/u);
+    assert.match(stateText, /Bearer \[REDACTED\]/u);
+    assert.doesNotMatch(stateText, /alice|pass%3Aword|registry-secret|signature|fragment/u);
+
+    const doctor = await runCli(['doctor', '--project', target, '--allow-degraded']);
+    const doctorText = JSON.stringify(doctor);
+    assert.equal(doctor.tools.astGrep.diagnostic.provisioning.registry, 'https://registry.example.test');
+    assert.doesNotMatch(doctorText, /alice|pass%3Aword|registry-secret|signature|fragment/u);
+    assert.doesNotMatch(JSON.stringify(doctor.warnings), /alice|pass%3Aword|registry-secret|signature|fragment/u);
+    assert.doesNotMatch(JSON.stringify(doctor.recommendations), /alice|pass%3Aword|registry-secret|signature|fragment/u);
+    const summary = (await execFileAsync(process.execPath, [
+      cliPath, 'doctor', '--project', target, '--allow-degraded', '--output', 'summary',
+    ], { cwd: rootDir })).stdout;
+    assert.match(summary, /https:\/\/registry\.example\.test/u);
+    assert.doesNotMatch(summary, /alice|pass%3Aword|registry-secret|signature|fragment/u);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
 });
 
 test('RTK runtime environment confines state without replacing the user home', async () => {
@@ -588,6 +694,8 @@ test('ast-grep provisioning defaults to the lockfile registry and permits an exp
   try {
     const defaultEnv = await componentEnvironment(spec, target, { HOME: 'C:\\Users\\fixture' });
     assert.equal(defaultEnv.npm_config_registry, 'https://registry.npmjs.org/');
+    assert.equal(defaultEnv.npm_config_include, 'optional');
+    assert.equal(defaultEnv.npm_config_optional, 'true');
     const overriddenEnv = await componentEnvironment(spec, target, {
       HOME: 'C:\\Users\\fixture',
       npm_config_registry: 'https://registry.example.test/',
@@ -606,6 +714,38 @@ test('ast-grep provisioning defaults to the lockfile registry and permits an exp
   } finally {
     await rm(target, { force: true, recursive: true });
   }
+});
+
+test('ast-grep dependency provisioning explicitly includes platform optional packages', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-ast-grep-command-'));
+  const specs = createToolProvisioningPlan({
+    profile: 'core',
+    resolvedModules: ['agents', 'rules', 'ast-grep'],
+    targetDir: target,
+  });
+  const spec = specs.find((item) => item.id === 'astGrep');
+  try {
+    const request = await phaseRequest(spec, 'dependency-install', target, {});
+    assert.ok(request.args.includes('--include=optional'));
+    assert.equal(request.args.includes('--os=win32'), false);
+    assert.equal(request.args.includes('--cpu=x64'), false);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('ast-grep resolves native packages for supported platform and architecture combinations', () => {
+  const cases = [
+    [{ platform: 'win32', arch: 'x64' }, '@ast-grep/cli-win32-x64-msvc'],
+    [{ platform: 'win32', arch: 'arm64' }, '@ast-grep/cli-win32-arm64-msvc'],
+    [{ platform: 'linux', arch: 'x64', libc: 'gnu' }, '@ast-grep/cli-linux-x64-gnu'],
+    [{ platform: 'linux', arch: 'arm64', libc: 'gnu' }, '@ast-grep/cli-linux-arm64-gnu'],
+    [{ platform: 'darwin', arch: 'x64' }, '@ast-grep/cli-darwin-x64'],
+    [{ platform: 'darwin', arch: 'arm64' }, '@ast-grep/cli-darwin-arm64'],
+  ];
+  for (const [input, expected] of cases) assert.equal(resolveAstGrepPlatformPackage(input), expected);
+  assert.equal(resolveAstGrepPlatformPackage({ platform: 'linux', arch: 'x64', libc: 'musl' }), null);
+  assert.equal(resolveAstGrepPlatformPackage({ platform: 'freebsd', arch: 'x64' }), null);
 });
 
 test('tool provisioning plans expose the expected phases and versions', () => {
@@ -633,6 +773,7 @@ test('explicit tool provisioning uses project-local RTK and ast-grep phases', as
   try {
     const tools = await provisionProfileTools({
       commandRunner: async (request) => {
+        if (request.component === 'astGrep') await seedAstGrepNativePackage(path.join(target, '.agents/runtime/tools/ast-grep'));
         calls.push({ args: request.args, component: request.component, phase: request.phase });
         if (request.phase === 'binary-install' && request.component === 'rtk') {
           await mkdir(path.dirname(rtkBinary), { recursive: true });
@@ -690,6 +831,7 @@ test('optional tool provisioning rejects binaries with unexpected versions', asy
     const tools = await provisionProfileTools({
       commandRunner: async (request) => {
         const binary = request.component === 'rtk' ? rtkBinary : astGrepBinary;
+        if (request.component === 'astGrep') await seedAstGrepNativePackage(path.join(target, '.agents/runtime/tools/ast-grep'));
         if (request.phase === 'binary-install') {
           await mkdir(path.dirname(binary), { recursive: true });
           await writeFile(binary, 'unexpected version fixture', 'utf8');
@@ -743,6 +885,62 @@ test('RTK provisioning persists unsupported without invoking the installer', asy
   }
 });
 
+test('ast-grep public failures produce compatible doctor recommendations', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-ast-grep-recommendations-'));
+  const statePath = path.join(target, '.vibe-harness/tool-state/tools.json');
+  try {
+    await runCli(['init', '--project', target]);
+    await runCli([
+      'install', '--project', target, '--target', 'codex', '--profile', 'core',
+      '--plugin', '-rtk', 'ast-grep', '--rtk-hooks', 'off', '--write',
+    ]);
+    await mkdir(path.dirname(statePath), { recursive: true });
+    await writeFile(statePath, JSON.stringify({
+      fingerprints: {},
+      tools: {
+        astGrep: {
+          code: 'AST_GREP_UNSUPPORTED_PLATFORM',
+          phase: 'dependency-install',
+          status: 'unsupported',
+          version: '0.45.1',
+        },
+      },
+    }) + '\n', 'utf8');
+
+    const unsupported = JSON.parse((await execFileAsync(process.execPath, [
+      cliPath, 'doctor', '--project', target, '--allow-degraded',
+    ], { cwd: rootDir })).stdout);
+    const unsupportedRecommendation = unsupported.recommendations.find((item) => item.tool === 'astGrep');
+    assert.equal(unsupportedRecommendation.code, 'AST_GREP_UNSUPPORTED_PLATFORM');
+    assert.equal(unsupportedRecommendation.action, 'fallback');
+    assert.equal('command' in unsupportedRecommendation, false);
+    assert.match(unsupportedRecommendation.message, /rg/u);
+
+    await writeFile(statePath, JSON.stringify({
+      fingerprints: {},
+      tools: {
+        astGrep: {
+          code: 'AST_GREP_OPTIONAL_PACKAGE_MISSING',
+          phase: 'dependency-install',
+          status: 'degraded',
+          version: '0.45.1',
+        },
+      },
+    }) + '\n', 'utf8');
+
+    const missingOptionalPackage = JSON.parse((await execFileAsync(process.execPath, [
+      cliPath, 'doctor', '--project', target, '--allow-degraded',
+    ], { cwd: rootDir })).stdout);
+    const missingPackageRecommendation = missingOptionalPackage.recommendations.find((item) => item.tool === 'astGrep');
+    assert.equal(missingPackageRecommendation.code, 'AST_GREP_OPTIONAL_PACKAGE_MISSING');
+    assert.equal(missingPackageRecommendation.action, 'fallback');
+    assert.match(missingPackageRecommendation.command, /--tool astGrep/u);
+    assert.match(missingPackageRecommendation.message, /rg/u);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
 test('failed optional-tool provisioning degrades health and allow-degraded preserves status', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tool-degraded-'));
   const env = { ...process.env, VIBE_HARNESS_TEST_OFFLINE: '1' };
@@ -750,7 +948,7 @@ test('failed optional-tool provisioning degrades health and allow-degraded prese
     await runCli(['init', '--project', target]);
     await runCli([
       'install', '--project', target, '--target', 'codex', '--profile', 'core',
-      '--plugin', '-rtk', 'ast-grep', '--write',
+      '--plugin', '-rtk', 'ast-grep', '--rtk-hooks', 'off', '--write',
     ]);
     let failure;
     try {

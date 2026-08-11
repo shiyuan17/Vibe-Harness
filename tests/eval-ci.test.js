@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -18,6 +18,8 @@ test('CI blocks offline eval drift and scheduled workflow runs advisory online c
   assert.match(ci, /ubuntu-latest/u);
   assert.match(ci, /pnpm test:integration/u);
   assert.match(ci, /pnpm runtime:audit/u);
+  assert.match(ci, /pnpm pack:contract/u);
+  assert.match(ci, /supply-chain:/u);
   assert.match(online, /schedule:/u);
   assert.match(online, /workflow_dispatch:/u);
   assert.match(online, /environment:\s*Production/u);
@@ -34,22 +36,39 @@ test('CI blocks offline eval drift and scheduled workflow runs advisory online c
   assert.doesNotMatch(online, /pull_request:/u);
 });
 
-test('GitHub Actions are commit-pinned and receive automated update PRs', async () => {
-  const [ci, online, dependabot] = await Promise.all([
-    readFile(path.join(rootDir, '.github/workflows/ci.yml'), 'utf8'),
-    readFile(path.join(rootDir, '.github/workflows/evals.yml'), 'utf8'),
-    readFile(path.join(rootDir, '.github/dependabot.yml'), 'utf8'),
-  ]);
-  for (const workflow of [ci, online]) {
-    assert.doesNotMatch(workflow, /uses:\s+[^\s]+@v\d+/u);
-    assert.match(workflow, /actions\/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5/u);
-    assert.match(workflow, /actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020/u);
-    assert.match(workflow, /pnpm\/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa/u);
+test('GitHub Actions are least-privilege, commit-pinned, and receive automated updates', async () => {
+  const workflowDir = path.join(rootDir, '.github/workflows');
+  const workflowNames = (await readdir(workflowDir)).filter((name) => /\.ya?ml$/u.test(name));
+  const workflows = await Promise.all(workflowNames.map(async (name) => ({
+    content: await readFile(path.join(workflowDir, name), 'utf8'),
+    name,
+  })));
+  for (const workflow of workflows) {
+    assert.match(workflow.content, /^permissions:/mu, workflow.name + ' must declare permissions');
+    assert.doesNotMatch(workflow.content, /pull_request_target:/u, workflow.name + ' must not use pull_request_target');
+    const actionReferences = [...workflow.content.matchAll(/uses:\s*([^\s#]+)/gu)].map((match) => match[1]);
+    for (const reference of actionReferences) {
+      assert.match(reference, /@[a-f0-9]{40}$/u, workflow.name + ' contains an unpinned action: ' + reference);
+    }
   }
-  assert.match(online, /actions\/upload-artifact@[a-f0-9]{40}/u);
+  const release = workflows.find((workflow) => workflow.name === 'release-please.yml').content;
+  assert.doesNotMatch(release, /actions\/checkout@/u);
+  assert.match(release, /release-please:\s*[\s\S]*permissions:\s*[\s\S]*contents:\s*write[\s\S]*pull-requests:\s*write/u);
+
+  const dependabot = await readFile(path.join(rootDir, '.github/dependabot.yml'), 'utf8');
   assert.match(dependabot, /package-ecosystem:\s*"github-actions"/u);
   assert.match(dependabot, /package-ecosystem:\s*"npm"/u);
   assert.match(dependabot, /interval:\s*"weekly"/u);
+  const runtimeDir = path.join(rootDir, 'runtime/tools');
+  const runtimeNames = await readdir(runtimeDir);
+  for (const name of runtimeNames) {
+    try {
+      await readFile(path.join(runtimeDir, name, 'package-lock.json'), 'utf8');
+      assert.match(dependabot, new RegExp('/runtime/tools/' + name.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'));
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+  }
 });
 
 test('online canary suite contains critical product scenarios', async () => {
@@ -68,6 +87,15 @@ test('offline routing eval covers browser, rtk, and ast-grep tool routing', asyn
   assert.match(scenarios, /Chrome DevTools MCP/iu);
   assert.match(scenarios, /RTK/iu);
   assert.match(scenarios, /ast-grep/iu);
+});
+
+test('dedicated tool routing eval covers codebase memory, ast-grep, rg, and RTK boundaries', async () => {
+  const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-tool-routing.json'));
+  const scenarios = suite.cases.map((item) => item.input.scenario).join('\n');
+  assert.match(scenarios, /cross-file callers/iu);
+  assert.match(scenarios, /local AST pattern/iu);
+  assert.match(scenarios, /plain-text matching/iu);
+  assert.match(scenarios, /RTK.*ast-grep.*MCP runtime.*raw-evidence/iu);
 });
 
 test('offline install lifecycle eval covers Vibe-Harness legacy upgrade and red-zone confirmation', async () => {
