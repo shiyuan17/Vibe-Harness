@@ -189,7 +189,7 @@
       "tests": ["tests/cross-platform-adapters.test.js", "tests/opencode-adapter.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
       "docs": ["README.md", "README.en.md", "docs/architecture.md", "docs/migration-guide.md"],
-      "evaluation": { "required": false, "reason": "Adapter file sets and lifecycle behavior are deterministic and verified on Linux and Windows. Adapters whose hooks capability is not stable or whose redZonePrefixes is empty run with a degraded runtime safety posture; this is surfaced explicitly by the DEGRADED_SAFETY_POSTURE warning in install, validate, and doctor." }
+      "evaluation": { "required": false, "reason": "Adapter file sets and lifecycle behavior are deterministic and verified on Linux and Windows. Adapters without stable PreToolUse and PermissionRequest coverage, or with empty redZonePrefixes, run with a degraded runtime safety posture; this is surfaced explicitly by the DEGRADED_SAFETY_POSTURE warning in install, validate, and doctor." }
     },
     {
       "id": "linear-multi-agent-workflow",

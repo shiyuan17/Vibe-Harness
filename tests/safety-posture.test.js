@@ -23,11 +23,13 @@ async function run(args) {
 const codex = {
   id: 'codex',
   capabilities: { hooks: 'stable', mcp: 'stable' },
+  hookEvents: { preToolUse: 'stable', permissionRequest: 'stable', stop: 'unsupported' },
   redZonePrefixes: ['.codex/'],
 };
-const claude = {
-  id: 'claude',
+const antigravity = {
+  id: 'antigravity',
   capabilities: { hooks: 'preview', mcp: 'preview' },
+  hookEvents: { preToolUse: 'preview', permissionRequest: 'unsupported', stop: 'unsupported' },
   redZonePrefixes: [],
 };
 
@@ -37,20 +39,20 @@ test('adapterSafetyPosture marks codex as not degraded', () => {
   assert.deepEqual(posture.reasons, []);
 });
 
-test('adapterSafetyPosture marks claude as degraded with both reasons', () => {
-  const posture = adapterSafetyPosture(claude);
+test('adapterSafetyPosture marks partial event coverage as degraded with both reasons', () => {
+  const posture = adapterSafetyPosture(antigravity);
   assert.equal(posture.degraded, true);
   assert.equal(posture.reasons.length, 2);
-  assert.match(posture.reasons[0], /hooks=preview/u);
+  assert.match(posture.reasons[0], /hookEvents=preview\/unsupported/u);
   assert.match(posture.reasons[1], /redZonePrefixes is empty/u);
 });
 
-test('safetyPostureWarnings returns empty for codex and a warning for claude', () => {
+test('safetyPostureWarnings returns empty for codex and a warning for partial coverage', () => {
   assert.deepEqual(safetyPostureWarnings(codex), []);
-  const warnings = safetyPostureWarnings(claude);
+  const warnings = safetyPostureWarnings(antigravity);
   assert.equal(warnings.length, 1);
   assert.equal(warnings[0].code, 'DEGRADED_SAFETY_POSTURE');
-  assert.match(warnings[0].message, /claude/u);
+  assert.match(warnings[0].message, /antigravity/u);
 });
 
 test('every adapter in the catalog has a consistent safety posture assessment', async () => {
@@ -62,23 +64,23 @@ test('every adapter in the catalog has a consistent safety posture assessment', 
       assert.equal(posture.degraded, false, 'codex should not be degraded');
     }
     // Adapters with stable hooks AND non-empty redZonePrefixes are not degraded.
-    if (adapter.capabilities.hooks === 'stable' && adapter.redZonePrefixes.length > 0) {
+    if (adapter.hookEvents.preToolUse === 'stable' && adapter.hookEvents.permissionRequest === 'stable' && adapter.redZonePrefixes.length > 0) {
       assert.equal(posture.degraded, false, `${adapter.id} should not be degraded`);
     }
     // Adapters without stable hooks or without redZonePrefixes are degraded.
-    if (adapter.capabilities.hooks !== 'stable' || adapter.redZonePrefixes.length === 0) {
+    if (adapter.hookEvents.preToolUse !== 'stable' || adapter.hookEvents.permissionRequest !== 'stable' || adapter.redZonePrefixes.length === 0) {
       assert.equal(posture.degraded, true, `${adapter.id} should be degraded`);
     }
   }
 });
 
-test('install --target claude dry-run emits a DEGRADED_SAFETY_POSTURE warning', async () => {
+test('install --target claude dry-run does not emit a degraded Hook warning', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-safety-claude-'));
   try {
     await run(['init', '--project', target, '--target', 'claude', '--profile', 'core']);
     const preview = await run(['install', '--project', target, '--target', 'claude', '--profile', 'core', '--dry-run']);
     const codes = (preview.warnings ?? []).map((warning) => warning.code);
-    assert.equal(codes.includes('DEGRADED_SAFETY_POSTURE'), true);
+    assert.equal(codes.includes('DEGRADED_SAFETY_POSTURE'), false);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
@@ -96,14 +98,14 @@ test('install --target codex dry-run does not emit a DEGRADED_SAFETY_POSTURE war
   }
 });
 
-test('claude and gemini instruction templates document the degraded posture; codex does not', async () => {
+test('only the unsupported Gemini template documents the degraded Hook posture', async () => {
   const [claude, gemini, codex] = await Promise.all([
     readFile(path.join(rootDir, 'adapters/claude/CLAUDE.template.md'), 'utf8'),
     readFile(path.join(rootDir, 'adapters/gemini/GEMINI.template.md'), 'utf8'),
     readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8'),
   ]);
   const postureNote = /无运行时安全 Hook.*降级/u;
-  assert.match(claude, postureNote);
+  assert.doesNotMatch(claude, postureNote);
   assert.match(gemini, postureNote);
   assert.doesNotMatch(codex, postureNote);
 });

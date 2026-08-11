@@ -44,6 +44,21 @@ test('mergeManagedJsonConfig preserves user hooks and appends managed hooks', ()
   assert.equal(result.hooks.PreToolUse[1].hooks[0].command, 'node test.mjs');
 });
 
+test('mergeManagedJsonConfig retires the managed Stop group and preserves user Stop hooks', () => {
+  const existing = JSON.stringify({
+    hooks: {
+      Stop: [
+        { hooks: [{ type: 'command', command: 'old-auto-commit.mjs', statusMessage: 'Vibe-Harness safety policy' }] },
+        { hooks: [{ type: 'command', command: 'user-stop.mjs', statusMessage: 'User policy' }] },
+      ],
+    },
+  });
+  const result = JSON.parse(mergeManagedJsonConfig(existing, descriptor, { hooks }));
+  assert.equal(result.hooks.Stop.length, 1);
+  assert.equal(result.hooks.Stop[0].hooks[0].command, 'user-stop.mjs');
+  assert.equal(result.hooks.PreToolUse.length, 1);
+});
+
 test('removeManagedJsonConfig clears enabled when no hook events remain', () => {
   const installed = mergeManagedJsonConfig('{}\n', descriptor, { hooks });
   const removed = JSON.parse(removeManagedJsonConfig(installed, descriptor));

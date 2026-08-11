@@ -47,6 +47,7 @@ import {
 import { parseModulesOption, parsePluginsOption } from './lib/module-selection.js';
 import { canonicalAgentsTemplate, resolveAdapter } from './lib/adapter.js';
 import { safetyPostureWarnings } from './lib/safety-posture.js';
+import { inspectMemory, inspectRuntimeHooks, runtimeHookWarnings } from './lib/runtime-diagnostics.js';
 import { readFile } from 'node:fs/promises';
 import {
   createToolProvisioningPlan,
@@ -191,6 +192,8 @@ function emitReport(report, args, { error = false } = {}) {
   if (output === 'summary') {
     const lines = [
       ...(normalized.rtkHooks ? ['rtkHooksSource: ' + normalized.rtkHooks.source] : []),
+      ...(normalized.runtimeHooks ? ['runtimeHooks: ' + normalized.runtimeHooks.activation.status + ' (' + normalized.runtimeHooks.activation.mechanism + ')'] : []),
+      ...(normalized.memory ? ['memory: runtime=' + normalized.memory.runtime.status + ', durable=' + normalized.memory.durable.status] : []),
       `status: ${normalized.status}`,
       ...(normalized.profile ? [`profile: ${normalized.profile}`] : []),
       ...(Array.isArray(normalized.requestedPlugins) ? [`plugins: ${normalized.requestedPlugins.length ? normalized.requestedPlugins.join(',') : 'none'}`] : []),
@@ -433,6 +436,7 @@ async function install(args) {
     await registerGeneratedFile(targetDir, toolStateRelativePath(targetDir));
   }
   const health = provisionExecuted ? healthReport({ profile, tools }) : { ok: true, status: 'ready' };
+  const runtimeHooks = await inspectRuntimeHooks(adapter, targetDir);
   const warnings = [
     ...(provisionExecuted
       ? toolWarnings(tools)
@@ -441,6 +445,7 @@ async function install(args) {
           message: 'Tool provisioning was not run; use vibe-harness provision --project <project> --write.',
         }] : [])),
     ...safetyPostureWarnings(adapter),
+    ...runtimeHookWarnings(runtimeHooks),
     ...Object.entries(plan.linearMcp ?? {})
       .filter(([, item]) => item.configuration === 'manual')
       .map(([target, item]) => ({
@@ -473,6 +478,7 @@ async function install(args) {
     requestedPlugins: plan.requestedPlugins,
     resolvedModules: plan.resolvedModules,
     rtkHooks: rtkHooksReport(plan.rtkHooksEnabled, tools, rtkHooksSetting.source),
+    runtimeHooks,
     requiresRedZoneConfirmation: plan.dryRun
       && !args['confirm-red-zone']
       && plan.actions.some((action) => action.redZone && action.kind === 'write'),
@@ -571,16 +577,18 @@ async function validate(args) {
       allowPreview: true,
     });
     const health = healthReport({ profile: config.profile, tools });
+    const runtimeHooks = await inspectRuntimeHooks(adapter, targetDir);
     emitReport({
       ...health,
       commandStatus,
       recommendations: toolRecommendations(tools, config.profile, { adapterId: adapter.id, mvp: true }),
       rtkHooks: rtkHooksReport(rtkHooksEnabled, tools, rtkHooksSetting.source),
+      runtimeHooks,
       scope: 'project',
       targets: selectedTargets,
       ...(args.verbose ? { targetDir } : {}),
       tools,
-      warnings: [...toolWarnings(tools), ...safetyPostureWarnings(adapter)],
+      warnings: [...toolWarnings(tools), ...safetyPostureWarnings(adapter), ...runtimeHookWarnings(runtimeHooks)],
     }, args);
     applyHealthExit(health.status, args);
     return;
@@ -920,9 +928,12 @@ async function doctor(args) {
   const health = provisioningProcess
     ? { ok: false, status: 'degraded' }
     : healthReport({ baseOk: pack.ok && (!target || target.ok), profile, tools });
+  const runtimeHooks = await inspectRuntimeHooks(adapter, targetDir);
+  const memory = await inspectMemory(config, installState, targetDir);
   emitReport({
     ...health,
     gitHooks,
+    memory,
     nestedInstallations,
     nestedInstallMigration: nestedInstallations.length > 0
       ? nestedInstallMigrationCommands(targetDir, nestedInstallations)
@@ -932,6 +943,7 @@ async function doctor(args) {
     requestedPlugins,
     resolvedModules: installState?.resolvedModules ?? [],
     rtkHooks: rtkHooksReport(rtkHooksEnabled, tools, rtkHooksSetting.source),
+    runtimeHooks,
     provisioningProcess,
     ...(args.verbose ? { rootDir } : {}),
     target,
@@ -954,6 +966,7 @@ async function doctor(args) {
         message: nestedInstallations.length + ' nested Vibe-Harness installation(s) require explicit migration and uninstall.',
       }] : []),
       ...safetyPostureWarnings(adapter),
+      ...runtimeHookWarnings(runtimeHooks),
       ...(pack.instructionBudgetWarnings ?? []).map((message) => ({
         code: 'INSTRUCTION_BUDGET',
         message,

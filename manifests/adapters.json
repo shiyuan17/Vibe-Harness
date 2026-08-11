@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "items": [
     {
       "id": "codex",
@@ -9,6 +9,8 @@
       "skillRoot": ".agents/skills",
       "supportedProfiles": ["minimal", "core", "full", "docs-only"],
       "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "stable", "policy": "stable", "mcp": "stable", "sandbox": "stable", "memory": "stable", "plugin": "stable", "goals": "stable" },
+      "hookEvents": { "preToolUse": "stable", "permissionRequest": "stable", "stop": "unsupported" },
+      "hookActivation": "manual-trust",
       "redZonePrefixes": [".codex/"]
     },
     {
@@ -19,6 +21,8 @@
       "skillRoot": ".claude/skills",
       "supportedProfiles": ["minimal", "core", "full", "docs-only"],
       "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "stable", "policy": "stable", "mcp": "preview", "sandbox": "preview", "memory": "preview", "plugin": "unsupported", "goals": "unsupported" },
+      "hookEvents": { "preToolUse": "stable", "permissionRequest": "stable", "stop": "unsupported" },
+      "hookActivation": "config-file",
       "projectConfig": {
         "hooks": { "target": ".claude/settings.json", "path": ["hooks"] }
       },
@@ -32,6 +36,8 @@
       "skillRoot": ".gemini/skills",
       "supportedProfiles": ["minimal", "core", "full", "docs-only"],
       "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "preview", "policy": "stable", "mcp": "preview", "sandbox": "preview", "memory": "preview", "plugin": "unsupported", "goals": "unsupported" },
+      "hookEvents": { "preToolUse": "unsupported", "permissionRequest": "unsupported", "stop": "unsupported" },
+      "hookActivation": "unsupported",
       "redZonePrefixes": []
     },
     {
@@ -42,6 +48,8 @@
       "skillRoot": ".cursor/skills",
       "supportedProfiles": ["minimal", "core", "full", "docs-only"],
       "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "stable", "policy": "stable", "mcp": "stable", "sandbox": "preview", "memory": "preview", "plugin": "stable", "goals": "unsupported" },
+      "hookEvents": { "preToolUse": "stable", "permissionRequest": "unsupported", "stop": "unsupported" },
+      "hookActivation": "config-file",
       "projectConfig": {
         "mcp": { "target": ".cursor/mcp.json", "path": ["mcpServers"] },
         "hooks": { "target": ".cursor/hooks.json", "path": [] }
@@ -56,6 +64,8 @@
       "skillRoot": ".qoder/skills",
       "supportedProfiles": ["minimal", "core", "full", "docs-only"],
       "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "stable", "policy": "stable", "mcp": "stable", "sandbox": "preview", "memory": "stable", "plugin": "stable", "goals": "stable" },
+      "hookEvents": { "preToolUse": "stable", "permissionRequest": "stable", "stop": "unsupported" },
+      "hookActivation": "config-file",
       "projectConfig": {
         "mcp": { "target": ".mcp.json", "path": ["mcpServers"] },
         "hooks": { "target": ".qoder/settings.json", "path": ["hooks"] }
@@ -70,6 +80,8 @@
       "skillRoot": ".zcode/skills",
       "supportedProfiles": ["minimal", "core", "full", "docs-only"],
       "capabilities": { "instructions": "stable", "skills": "unsupported", "hooks": "stable", "policy": "stable", "mcp": "stable", "sandbox": "preview", "memory": "preview", "plugin": "stable", "goals": "stable" },
+      "hookEvents": { "preToolUse": "stable", "permissionRequest": "stable", "stop": "unsupported" },
+      "hookActivation": "config-file",
       "projectConfig": {
         "mcp": { "target": ".zcode/config.json", "path": ["mcp", "servers"] },
         "hooks": { "target": ".zcode/config.json", "path": ["hooks"] }
@@ -84,6 +96,8 @@
       "skillRoot": ".agents/skills",
       "supportedProfiles": ["minimal", "core", "full", "docs-only"],
       "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "preview", "policy": "stable", "mcp": "stable", "sandbox": "preview", "memory": "preview", "plugin": "unsupported", "goals": "unsupported" },
+      "hookEvents": { "preToolUse": "preview", "permissionRequest": "unsupported", "stop": "unsupported" },
+      "hookActivation": "config-file",
       "projectConfig": {
         "mcp": { "target": ".agents/mcp_config.json", "path": ["mcpServers"] },
         "hooks": { "target": ".agents/hooks.json", "path": ["vibe-harness"] }
@@ -98,6 +112,8 @@
       "skillRoot": ".opencode/skills",
       "supportedProfiles": ["minimal", "core", "full", "docs-only"],
       "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "unsupported", "policy": "stable", "mcp": "stable", "sandbox": "preview", "memory": "preview", "plugin": "unsupported", "goals": "unsupported" },
+      "hookEvents": { "preToolUse": "unsupported", "permissionRequest": "unsupported", "stop": "unsupported" },
+      "hookActivation": "unsupported",
       "projectConfig": {
         "mcp": {
           "target": "opencode.json",

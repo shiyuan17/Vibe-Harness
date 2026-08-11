@@ -468,7 +468,7 @@ for (const adapter of [
       assert.equal(await exists(path.join(target, '.codex/hooks.json')), false);
       if (adapter.hasHooks) {
         const settings = JSON.parse(await readFile(path.join(target, '.claude/settings.json'), 'utf8'));
-        assert.deepEqual(Object.keys(settings.hooks).sort(), ['PermissionRequest', 'PreToolUse', 'Stop', 'enabled']);
+        assert.deepEqual(Object.keys(settings.hooks).sort(), ['PermissionRequest', 'PreToolUse', 'enabled']);
         assert.equal(settings.hooks.enabled, true);
       }
     } finally {
@@ -498,10 +498,10 @@ test('adapter catalog gates preview profiles and rejects target mismatch', async
   }
 });
 
-test('adapter capability v2 uses explicit support levels for every product surface', async () => {
+test('adapter capability v3 uses explicit support levels for every product surface', async () => {
   const catalog = JSON.parse(await readFile(path.join(rootDir, 'manifests/adapters.json'), 'utf8'));
   const capabilityNames = ['instructions', 'skills', 'hooks', 'policy', 'mcp', 'sandbox', 'memory', 'plugin', 'goals'];
-  assert.equal(catalog.schemaVersion, 2);
+  assert.equal(catalog.schemaVersion, 3);
   for (const adapter of catalog.items) {
     assert.deepEqual(Object.keys(adapter.capabilities).sort(), [...capabilityNames].sort());
     assert.equal(

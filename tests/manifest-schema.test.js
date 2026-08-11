@@ -38,6 +38,56 @@ test('adapter schema requires an explicit goals support level', async () => {
   assert.match(validateJsonAgainstSchema(missingGoals, schema, 'adapters').join('\n'), /goals.*required|required.*goals/iu);
 });
 
+test('adapter manifest v3 requires the fixed event-level Hook matrix and activation contract', async () => {
+  const manifest = await readJson(path.join(rootDir, 'manifests/adapters.json'));
+  const schema = await readJson(path.join(rootDir, 'schemas/adapter-pack.schema.json'));
+  const expected = {
+    codex: ['stable', 'stable', 'unsupported', 'manual-trust'],
+    claude: ['stable', 'stable', 'unsupported', 'config-file'],
+    gemini: ['unsupported', 'unsupported', 'unsupported', 'unsupported'],
+    cursor: ['stable', 'unsupported', 'unsupported', 'config-file'],
+    qoder: ['stable', 'stable', 'unsupported', 'config-file'],
+    zcode: ['stable', 'stable', 'unsupported', 'config-file'],
+    antigravity: ['preview', 'unsupported', 'unsupported', 'config-file'],
+    opencode: ['unsupported', 'unsupported', 'unsupported', 'unsupported'],
+  };
+  assert.equal(manifest.schemaVersion, 3);
+  for (const adapter of manifest.items) {
+    assert.deepEqual([
+      adapter.hookEvents.preToolUse,
+      adapter.hookEvents.permissionRequest,
+      adapter.hookEvents.stop,
+      adapter.hookActivation,
+    ], expected[adapter.id], adapter.id);
+  }
+  const missing = structuredClone(manifest);
+  delete missing.items[0].hookEvents;
+  assert.match(validateJsonAgainstSchema(missing, schema, 'adapters').join('\n'), /hookEvents.*required|required.*hookEvents/iu);
+});
+
+test('adapter Hook templates match the event-level manifest exactly', async () => {
+  const manifest = await readJson(path.join(rootDir, 'manifests/adapters.json'));
+  const eventKeys = {
+    PermissionRequest: 'permissionRequest',
+    PreToolUse: 'preToolUse',
+    preToolUse: 'preToolUse',
+    Stop: 'stop',
+  };
+  for (const adapter of manifest.items) {
+    const templatePath = path.join(rootDir, 'adapters', adapter.id, 'hooks.template.json');
+    let template = {};
+    try {
+      template = await readJson(templatePath);
+    } catch {}
+    const hooks = adapter.id === 'codex' ? (template.hooks || {}) : template;
+    const declared = new Set(Object.entries(adapter.hookEvents)
+      .filter(([, support]) => support !== 'unsupported')
+      .map(([event]) => event));
+    const actual = new Set(Object.keys(hooks).map((event) => eventKeys[event]).filter(Boolean));
+    assert.deepEqual([...actual].sort(), [...declared].sort(), adapter.id);
+  }
+});
+
 test('project baseline schema rejects unknown fields', async () => {
   const schema = await readJson(path.join(rootDir, 'schemas/project-baseline.schema.json'));
   const sample = {
