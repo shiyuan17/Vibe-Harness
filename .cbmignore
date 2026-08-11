@@ -1,0 +1,53 @@
+# Vibe-Harness project-wide cbmignore.
+# Keeps the index focused on Vibe-Harness's own source/tests/rules/templates,
+# excluding all the read-only package payload, build outputs, vendored samples,
+# and local state that would otherwise drown the graph.
+
+/.agents/
+/.agents/**
+/.agents/backup/
+/.agents/memory/
+/.agents/skills/
+
+/.audit/
+/.codex/
+/.codex-plugin/
+/.vibe-harness/
+/.zcode/
+
+/.idea/
+/.vscode/
+
+/.git/
+/.git/**
+
+/.github/
+/.githooks/
+/.husky/
+
+# Generated / vendored
+/node_modules/
+/node_modules/**
+/.runtime/
+/runtime/tools/codebase-memory-mcp/node_modules/
+/.cache/
+/coverage/
+/artifacts/
+/_pkg_review/
+
+# Large archive / lockfile noise
+*.log
+*.log.*
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+pnpm-lock.yaml
+package-lock.json
+
+# Heavy generated docs
+/CHANGELOG.md
+/audit-reports/
+
+# Sample content shipped for end users, not part of installer behavior
+/examples/

@@ -862,7 +862,7 @@ function computeGeneratedDirectories(ctx, actions) {
       }]
     : [];
   const stateDirectory = path.basename(path.dirname(stateFilePath(path.resolve(targetDir))));
-  for (const component of ['chrome-devtools-mcp', 'codebase-memory-mcp', 'open-code-review', 'ast-grep']) {
+  for (const component of ['chrome-devtools-mcp', 'codebase-memory-mcp', 'open-code-review', 'rtk', 'ast-grep']) {
     const ownerTarget = `.agents/runtime/tools/${component}/package.json`;
     if (actions.some((action) => action.kind === 'write' && action.relativeTarget === ownerTarget)) {
       generatedDirectories.push({ ownerTarget, target: `.agents/runtime/tools/${component}/node_modules` });

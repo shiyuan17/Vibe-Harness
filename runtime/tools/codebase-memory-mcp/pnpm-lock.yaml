@@ -1,0 +1,26 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      codebase-memory-mcp:
+        specifier: 0.9.0
+        version: 0.9.0
+
+packages:
+
+  codebase-memory-mcp@0.9.0:
+    resolution: {integrity: sha512-Zv1qmX/v2LDOJuc+BKmgx11X7P2GMAZmeFuOKdlXqFxRwi/dUGqismHIPdjv2xjOZpJ6B2g7aD5GOW3+eL+CYA==}
+    engines: {node: '>=18'}
+    cpu: [x64, arm64]
+    os: [linux, darwin, win32]
+    hasBin: true
+
+snapshots:
+
+  codebase-memory-mcp@0.9.0: {}

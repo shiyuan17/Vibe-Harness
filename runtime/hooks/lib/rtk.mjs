@@ -42,13 +42,13 @@ export async function inspectRtkHook(rootDir, { enabled = false } = {}) {
     const status = state?.status ?? 'degraded';
     return { enabled: true, status, reason: `RTK tool state is ${state?.status ?? 'missing'}.` };
   }
-  if (state.version !== '0.43.0') {
-    return { enabled: true, status: 'degraded', reason: `RTK version ${state.version ?? 'missing'} is not the validated 0.43.0 release.` };
+  if (state.version !== '0.45.0') {
+    return { enabled: true, status: 'degraded', reason: `RTK version ${state.version ?? 'missing'} is not the validated 0.45.0 release.` };
   }
   const runner = path.join(rootDir, PROJECT_RUNNER);
   const binary = path.join(
     rootDir,
-    '.agents', 'vibe-harness', 'tools', 'rtk', 'bin',
+    '.agents', 'runtime', 'tools', 'rtk', 'bin',
     process.platform === 'win32' ? 'rtk.exe' : 'rtk',
   );
   if (!(await exists(runner))) return { enabled: true, status: 'degraded', reason: 'Project-local RTK runner is missing.' };
@@ -56,17 +56,19 @@ export async function inspectRtkHook(rootDir, { enabled = false } = {}) {
   return {
     binary,
     enabled: true,
-    reason: 'Project-local RTK 0.43.0 is ready.',
+    reason: 'Project-local RTK 0.45.0 is ready.',
     runner,
     status: 'ready',
   };
 }
 
-export function runRtkRewrite(binary, command, {
+export async function runRtkRewrite(binary, command, {
   cwd = process.cwd(),
   maxOutputBytes = MAX_OUTPUT_BYTES,
   timeoutMs = REWRITE_TIMEOUT_MS,
 } = {}) {
+  const { prepareRtkRuntimeEnvironment } = await import('../../lib/rtk-environment.mjs');
+  const env = await prepareRtkRuntimeEnvironment(cwd, process.env);
   return new Promise((resolve) => {
     let stdout = '';
     let stderr = '';
@@ -74,7 +76,7 @@ export function runRtkRewrite(binary, command, {
     let settled = false;
     const child = spawn(binary, ['rewrite', command], {
       cwd,
-      env: process.env,
+      env,
       shell: false,
       windowsHide: true,
     });

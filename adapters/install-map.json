@@ -8,6 +8,12 @@
       "contentStrategy": "managed-instruction-block"
     },
     {
+      "group": "tools-rtk",
+      "source": "runtime/lib/rtk-environment.mjs",
+      "target": ".agents/runtime/lib/rtk-environment.mjs",
+      "contentStrategy": "replace"
+    },
+    {
       "group": "rules-minimal",
       "source": "rules/governance-core.md",
       "target": "docs/rules/governance-core.md",
@@ -347,6 +353,12 @@
     },
     {
       "group": "tools-rtk",
+      "source": "runtime/tools/rtk/package-lock.json",
+      "target": ".agents/runtime/tools/rtk/package-lock.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-rtk",
       "source": "runtime/tools/rtk/run.mjs",
       "target": ".agents/runtime/tools/rtk/run.mjs",
       "executable": true,
@@ -369,6 +381,12 @@
       "source": "runtime/tools/ast-grep/run.mjs",
       "target": ".agents/runtime/tools/ast-grep/run.mjs",
       "executable": true,
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "tools-ast-grep",
+      "source": "runtime/tools/ast-grep/args.mjs",
+      "target": ".agents/runtime/tools/ast-grep/args.mjs",
       "contentStrategy": "replace"
     },
     {
@@ -475,6 +493,12 @@
       "contentStrategy": "replace"
     },
     {
+      "group": "skills-linear",
+      "source": "skills/integrations/linear-workflow/references/triage-template.md",
+      "target": ".agents/skills/linear-workflow/references/triage-template.md",
+      "contentStrategy": "replace"
+    },
+    {
       "group": "templates-linear",
       "source": "skills/integrations/linear-workflow/references/ai-coding-task.md",
       "target": "docs/templates/linear/ai-coding-task.md",
@@ -484,6 +508,12 @@
       "group": "templates-linear",
       "source": "skills/integrations/linear-workflow/references/workspace-setup.md",
       "target": "docs/templates/linear/workspace-setup.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "templates-linear",
+      "source": "skills/integrations/linear-workflow/references/triage-template.md",
+      "target": "docs/templates/linear/triage-template.md",
       "contentStrategy": "replace"
     },
     {
@@ -538,6 +568,42 @@
       "group": "skills-full",
       "source": "skills/core/frontend-design/references/component-states.md",
       "target": ".agents/skills/frontend-design/references/component-states.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-full",
+      "source": "skills/core/frontend-design/references/interactions.md",
+      "target": ".agents/skills/frontend-design/references/interactions.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-full",
+      "source": "skills/core/frontend-design/references/forms.md",
+      "target": ".agents/skills/frontend-design/references/forms.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-full",
+      "source": "skills/core/frontend-design/references/motion.md",
+      "target": ".agents/skills/frontend-design/references/motion.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-full",
+      "source": "skills/core/frontend-design/references/content-a11y.md",
+      "target": ".agents/skills/frontend-design/references/content-a11y.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-full",
+      "source": "skills/core/frontend-design/references/performance.md",
+      "target": ".agents/skills/frontend-design/references/performance.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-full",
+      "source": "skills/core/frontend-design/references/visual-craft.md",
+      "target": ".agents/skills/frontend-design/references/visual-craft.md",
       "contentStrategy": "replace"
     },
     {
@@ -842,6 +908,10 @@
     },
     {
       "group": "tools-rtk",
+      "target": ".agents/vibe-harness/tools/rtk/package-lock.json"
+    },
+    {
+      "group": "tools-rtk",
       "target": ".agents/vibe-harness/tools/rtk/run.mjs"
     },
     {
@@ -855,6 +925,10 @@
     {
       "group": "tools-ast-grep",
       "target": ".agents/vibe-harness/tools/ast-grep/run.mjs"
+    },
+    {
+      "group": "tools-ast-grep",
+      "target": ".agents/vibe-harness/tools/ast-grep/args.mjs"
     },
     {
       "group": "hooks",

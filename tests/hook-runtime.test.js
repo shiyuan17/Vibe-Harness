@@ -8,6 +8,7 @@ import { evaluateCodexHook, evaluateHook } from '../runtime/hooks/codex-hook.mjs
 import { resolveExecutable, runCommand } from '../runtime/hooks/git-hook.mjs';
 import { DEFAULT_RED_ZONE_PATHS, readHookSettings } from '../runtime/hooks/lib/context.mjs';
 import { analyzeToolRequest, createHostHookResult, normalizeCodexHookInput, supportedCodexHookEvents } from '../runtime/hooks/lib/policy.mjs';
+import { inspectRtkHook } from '../runtime/hooks/lib/rtk.mjs';
 
 async function withProject(callback, hooks = { mode: 'guarded' }) {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-hook-runtime-'));
@@ -37,6 +38,24 @@ function input(cwd, overrides = {}) {
     ...overrides,
   };
 }
+
+test('RTK hook resolves the canonical project-local runtime path', async () => {
+  await withProject(async (target) => {
+    const stateDir = path.join(target, '.vibe-harness', 'tool-state');
+    const runner = path.join(target, '.agents', 'runtime', 'tools', 'rtk', 'run.mjs');
+    const binary = path.join(target, '.agents', 'runtime', 'tools', 'rtk', 'bin', process.platform === 'win32' ? 'rtk.exe' : 'rtk');
+    await mkdir(stateDir, { recursive: true });
+    await mkdir(path.dirname(binary), { recursive: true });
+    await writeFile(path.join(stateDir, 'tools.json'), JSON.stringify({ tools: { rtk: { status: 'ready', version: '0.45.0' } } }), 'utf8');
+    await writeFile(runner, 'fixture\n', 'utf8');
+    await writeFile(binary, 'fixture\n', 'utf8');
+
+    const state = await inspectRtkHook(target, { enabled: true });
+    assert.equal(state.status, 'ready');
+    assert.equal(state.runner, runner);
+    assert.equal(state.binary, binary);
+  });
+});
 
 test('Hook supports only safety events and allows ordinary project commands', async () => {
   assert.deepEqual([...supportedCodexHookEvents].sort(), ['PermissionRequest', 'PreToolUse']);

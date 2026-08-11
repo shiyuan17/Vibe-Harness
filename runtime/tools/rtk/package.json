@@ -1,6 +1,9 @@
 {
   "name": "@vibe-harness/rtk-runtime",
-  "version": "0.43.0",
+  "version": "0.45.0",
   "private": true,
-  "description": "Project-local RTK runtime managed by Vibe-Harness."
+  "description": "Project-local RTK runtime managed by Vibe-Harness.",
+  "dependencies": {
+    "undici": "7.29.0"
+  }
 }

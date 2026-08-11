@@ -1,9 +1,9 @@
 {
   "name": "@vibe-harness/ast-grep-runtime",
-  "version": "0.44.1",
+  "version": "0.45.1",
   "private": true,
   "description": "Project-local ast-grep runtime managed by Vibe-Harness.",
   "dependencies": {
-    "@ast-grep/cli": "0.44.1"
+    "@ast-grep/cli": "0.45.1"
   }
 }

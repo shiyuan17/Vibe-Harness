@@ -45,17 +45,17 @@ const toolSpecs = [
   {
     id: 'rtk',
     packageName: 'rtk-ai/rtk',
-    phases: ['binary-install'],
+    phases: ['dependency-install', 'binary-install'],
     relativeDir: '.agents/runtime/tools/rtk',
-    source: 'github:rtk-ai/rtk@v0.43.0',
-    version: '0.43.0',
+    source: 'github:rtk-ai/rtk@v0.45.0',
+    version: '0.45.0',
   },
   {
     id: 'astGrep',
     packageName: '@ast-grep/cli',
     phases: ['dependency-install', 'binary-install'],
     relativeDir: '.agents/runtime/tools/ast-grep',
-    version: '0.44.1',
+    version: '0.45.1',
   },
 ];
 
@@ -114,7 +114,8 @@ const baseEnvironmentNames = new Set([
 ]);
 
 const packageManagerEnvironmentNames = new Set([
-  'ALL_PROXY', 'HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'SSL_CERT_DIR', 'SSL_CERT_FILE',
+  'ALL_PROXY', 'HTTPS_PROXY', 'HTTP_PROXY', 'NODE_EXTRA_CA_CERTS', 'NODE_USE_ENV_PROXY',
+  'NO_PROXY', 'SSL_CERT_DIR', 'SSL_CERT_FILE',
   'all_proxy', 'https_proxy', 'http_proxy', 'no_proxy', 'npm_config_offline',
   'npm_config_prefer_offline', 'npm_config_registry',
 ]);
@@ -159,6 +160,20 @@ export async function componentEnvironment(spec, targetDir, env, { codebaseMemor
   if (spec.id === 'openCodeReview') {
     const home = path.join(stateRoot, 'open-code-review/home');
     return { ...baseEnv, HOME: home, USERPROFILE: home, npm_config_cache: npmCache };
+  }
+  if (spec.id === 'rtk') {
+    return {
+      ...baseEnv,
+      npm_config_cache: npmCache,
+      npm_config_registry: baseEnv.npm_config_registry ?? 'https://registry.npmjs.org/',
+    };
+  }
+  if (spec.id === 'astGrep') {
+    return {
+      ...baseEnv,
+      npm_config_cache: npmCache,
+      npm_config_registry: baseEnv.npm_config_registry ?? 'https://registry.npmjs.org/',
+    };
   }
   return { ...baseEnv, npm_config_cache: npmCache };
 }
