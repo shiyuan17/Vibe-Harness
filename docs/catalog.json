@@ -598,6 +598,27 @@
       ]
     },
     {
+      "path": "docs/rules/ast-grep.md",
+      "kind": "agent-rules",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": ["agent", "maintainer"]
+    },
+    {
+      "path": "docs/rules/chrome-devtools-mcp.md",
+      "kind": "agent-rules",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": ["agent", "maintainer"]
+    },
+    {
+      "path": "docs/rules/codebase-memory-mcp.md",
+      "kind": "agent-rules",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": ["agent", "maintainer"]
+    },
+    {
       "path": "docs/rules/coding-rules.md",
       "kind": "agent-rules",
       "status": "current",
@@ -716,6 +737,13 @@
         "agent",
         "maintainer"
       ]
+    },
+    {
+      "path": "docs/rules/rtk.md",
+      "kind": "agent-rules",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": ["agent", "maintainer"]
     },
     {
       "path": "docs/rules/troubleshooting.md",

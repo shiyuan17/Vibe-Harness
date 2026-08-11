@@ -59,7 +59,7 @@ Vibe-Harness 用来打包可复用的 AI coding 项目规则、领域 Skills、�
 - Lint: pnpm lint
 - Typecheck: 未配置
 - Test: pnpm test:unit
-- Eval: pnpm eval:offline
+- Eval: pnpm eval:replay
 
 `vibe-harness validate --project` 只检查安装一致性；`vibe-harness verify --project <path>` 执行项目已配置的验证命令。测试范围细则见 `docs/rules/test-rules.md`。
 

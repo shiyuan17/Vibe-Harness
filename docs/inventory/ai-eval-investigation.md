@@ -1,4 +1,4 @@
-# AI 专属 Eval 体系调查报告
+﻿# AI 专属 Eval 体系调查报告
 
 > 状态:调查报告(非门禁文档)
 > 日期:2026-07-30
@@ -49,7 +49,7 @@ Vibe-Harness 的 AI 专属 Eval 体系在**架构与契约层面已处于业界�
 **CLI 命令**(`package.json`):
 ```
 eval:check         契约+schema+observer 覆盖校验
-eval:offline       确定性 replay,与 checked-in reference 深度相等
+eval:replay       确定性 replay,与 checked-in reference 深度相等
 eval:online        online 多轮运行(thresholds + repetitions:3)
 eval:health        健康状态机(连续 degraded≥3 失败)
 eval:clarification / eval:goal   专项 catalog 校验
@@ -99,7 +99,7 @@ test:eval          8 个 eval 专项单测
 
 **CI 硬门禁**(`.github/workflows/ci.yml`,PR/push 到 main):
 ```
-pnpm check → eval:check → eval:offline → test:eval → test:integration → runtime:audit → smoke:lifecycle → git diff --check
+pnpm check → eval:check → eval:replay → test:eval → test:integration → runtime:audit → smoke:lifecycle → git diff --check
 ```
 offline eval 是硬门禁(阻断)。
 
@@ -251,8 +251,8 @@ offline eval 是硬门禁(阻断)。
 
 | 变更类型 | 触发 | 跑什么 | 门禁 |
 |---|---|---|---|
-| 确定性代码(脚本/schema/lib) | PR CI | `eval:offline` + `test:eval` | 阻断(已实现) |
-| 规则/提示/Skill/Hook/adapter(非确定性) | 本地按 Skill 流程 + PR CI | 改前冻结 reference → 改后 `eval:offline` 对比 → 必要时 `eval:online` | offline 阻断;online 报告(P0 跑通后) |
+| 确定性代码(脚本/schema/lib) | PR CI | `eval:replay` + `test:eval` | 阻断(已实现) |
+| 规则/提示/Skill/Hook/adapter(非确定性) | 本地按 Skill 流程 + PR CI | 改前冻结 reference → 改后 `eval:replay` 对比 → 必要时 `eval:online` | offline 阻断;online 报告(P0 跑通后) |
 | 模型升级 | canary schedule 或手动 dispatch | `eval:online --suite vibe-harness-online-canary`(repetitions:3) | 报告 passAt1/passAtK/passCaretK;连续 degraded≥3 升级为失败 |
 | 紧急验证 | 手动 | `vibe-harness eval run --project <temp> --mode online --suite <id>` | 报告 |
 

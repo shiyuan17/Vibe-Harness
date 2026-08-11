@@ -1,4 +1,4 @@
-# 测试规则
+﻿# 测试规则
 
 测试范围与完成主张匹配；不因任务档位自动运行固定矩阵。
 
@@ -79,7 +79,7 @@ Vibe-Harness 自身仓库使用以下约定，作为上述行为契约的参考�
 
 确定性代码走普通产品测试（单元/集成）；Agent 规则/Skill/模板/adapter/Hook 的非确定性行为走 Eval。
 
-- `eval:offline` 必须确定性 stub LLM 与时间，用于回归比对。
+- `eval:replay` 必须确定性 stub LLM 与时间，用于回归比对。
 - `llm-rubric`（LLM-as-judge）仅 online：judge 调用非确定，offline suite 禁止包含；judge 不可用按 fail-closed 转 degraded。
 - reference 更新必须单独审查并显式确认，不得为让变更通过而自动提升；reference 不匹配、缺失或自动更新均不能作为完成证据。
 

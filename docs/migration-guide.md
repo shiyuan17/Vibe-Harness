@@ -37,3 +37,10 @@ Vibe-Harness 不接管 Cognis 或 LoopEngine 安装。发现旧产品配置、�
 ## 命令边界
 
 所有项目命令使用 --project path；--target 只选择 adapter。所有真实修改使用 --write，不使用 --apply。完整流程优先 dry-run，并以 validate、doctor 和命令输出作为迁移证据。
+
+## Breaking workflow migration
+
+- 升级会移除 Vibe-Harness 管理的 Stop Hook 和未修改的 auto-commit runtime。用户自定义 Hook、未标记的 Stop 节点和已修改 runtime 会保留并在结果中报告。
+- Vibe-Harness 不再自动执行 git commit 或 git push。提交与推送只能在用户明确授权后人工执行。
+- 自动化脚本必须将 pnpm eval:offline 改为 pnpm eval:replay；旧命令和脚本不保留兼容入口。
+- Codex Hook 定义变更后，项目文件一致性不代表 runtime 已激活。升级后在 Codex 中运行 /hooks，重新复核并信任当前项目定义。

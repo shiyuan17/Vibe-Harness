@@ -1,4 +1,4 @@
-# 评测驱动开发
+﻿# 评测驱动开发
 
 Eval 用于 Agent 规则、Skill、模板、adapter 和 Hook 的非确定性行为。确定性代码继续使用普通产品测试。
 
@@ -9,6 +9,8 @@ Eval 用于 Agent 规则、Skill、模板、adapter 和 Hook 的非确定性行�
 - reference：人工批准的比较基准，不包含对话、凭据或绝对路径。
 
 core suite 覆盖安装、安全 Hook、浏览器和显式工具能力。
+
+确定性 replay 只验证 suite、oracle、scoring、schema 和签入结果能够重复生成；它不执行当前 Agent 规则、Skill 或 Hook，不能单独作为在线行为修复证据。
 
 ## 生命周期
 
@@ -21,7 +23,7 @@ pnpm vibe-harness eval reference --project ../some-project --from .vibe-harness/
 
 offline 模式验证 suite、oracle、聚合和 reference 一致性。online runner 必须在一次性项目中执行，限制输出与超时，并保护全局配置。reference 更新始终显式执行，不能为让变更通过而自动提升。
 
-`pnpm eval:check`、`pnpm eval:offline` 和在线 canary 都是显式命令，不属于 `pnpm check` 的默认快速路径。
+`pnpm eval:check`、`pnpm eval:replay` 和在线 canary 都是显式命令，不属于 `pnpm check` 的默认快速路径。
 
 ## 多轮与 pass@k / pass^k 报告
 
