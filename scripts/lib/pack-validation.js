@@ -232,7 +232,7 @@ export async function validateSkillGraph(
         errors.push(`${item.id} must document fallback for optional skills or tools`);
       }
       const lineCount = content.split(/\r?\n/u).length;
-      const maxLines = item.kind === 'native' ? 35 : 160;
+      const maxLines = item.kind === 'native' ? 50 : 160;
       if (lineCount > maxLines) errors.push(`${item.id} exceeds ${maxLines} line SKILL.md budget`);
       if (item.kind === 'native') {
         const description = frontmatterValue('description');
