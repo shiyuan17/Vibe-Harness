@@ -36,7 +36,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: pnpm eval:check
-      - run: pnpm eval:offline
+      - run: pnpm eval:replay
       - run: pnpm test:eval
       - run: pnpm test:integration
       - run: pnpm smoke:lifecycle

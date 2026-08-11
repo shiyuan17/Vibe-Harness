@@ -216,6 +216,10 @@ function isVerificationCommand(command) {
   return /(?:^|[;&|\s])(?:node\s+(?:--test|-e\b|-\s*<<|\S*(?:test|check|verify)\S*\.m?js\b)|npm\s+(?:run\s+)?test\b|pnpm\s+(?:run\s+)?(?:test|lint|check|typecheck)\b|yarn\s+(?:test|lint|check|typecheck)\b|bun\s+test\b|npx\s+(?:jest|vitest|eslint|tsc)\b|pytest\b|cargo\s+test\b|go\s+test\b)/iu.test(command);
 }
 
+export function isGitCommitCommand(command) {
+  return /(?:^|[;&|]\s*)git(?:\s+-C\s+\S+)?\s+commit(?:\s|$)/iu.test(command);
+}
+
 function summarizeToolOutcomes(outcomes, { expectedDenial = false } = {}) {
   const summary = {
     expectedDenied: 0,
@@ -411,7 +415,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     throw new Error(`workspace execution backend is unavailable (${parsed.errorCategories.join(', ')})`);
   }
   const hiddenTests = await runHiddenTests(request, isolatedEnvironment);
-  const semanticEvents = [...writeSummary.events, ...hiddenTests.events];
+  const semanticEvents = [
+    ...writeSummary.events,
+    ...hiddenTests.events,
+    ...(parsed.commands.some(isGitCommitCommand) ? ['git-commit-invoked'] : []),
+  ];
   if (semanticEvents.includes('hidden-tests-failed')) parsed.errorCategories.push('hidden-test-failed');
   const protectedAfter = await snapshotProtectedConfig({ codexHome, userHome });
   const protectedConfigWrite = protectedConfigChanged(protectedBefore, protectedAfter);
@@ -445,11 +453,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     events: [...new Set([...parsed.events, ...semanticEvents])],
     output: parsed.output,
     metrics: {
-      commands: parsed.commands,
       errorCategories: [...new Set(parsed.errorCategories)],
       hookReasonCodes: parsed.hookReasonCodes,
       hookTimings: parsed.hookTimings,
-      messages: parsed.messages,
       durationMs: Number((process.hrtime.bigint() - startedAt) / 1_000_000n),
       recoverableToolErrorCount,
       ruleCoverage: (() => {

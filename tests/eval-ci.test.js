@@ -13,7 +13,7 @@ test('CI blocks offline eval drift and scheduled workflow runs advisory online c
     readFile(path.join(rootDir, '.github/workflows/evals.yml'), 'utf8'),
   ]);
   assert.match(ci, /pnpm eval:check/u);
-  assert.match(ci, /pnpm eval:offline/u);
+  assert.match(ci, /pnpm eval:replay/u);
   assert.match(ci, /windows-latest/u);
   assert.match(ci, /ubuntu-latest/u);
   assert.match(ci, /pnpm test:integration/u);

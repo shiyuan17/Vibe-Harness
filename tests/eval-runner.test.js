@@ -283,7 +283,8 @@ test('Codex reference runner detects undeclared writes and records hidden-test/t
     assert.equal(observation.events.includes('hidden-tests-passed'), true);
     assert.equal(observation.events.includes('undeclared-workspace-write'), true);
     assert.deepEqual(observation.metrics.errorCategories, []);
-    assert.equal(observation.metrics.commands.length, 1);
+    assert.equal(Object.hasOwn(observation.metrics, 'commands'), false);
+    assert.equal(Object.hasOwn(observation.metrics, 'messages'), false);
     assert.deepEqual(observation.metrics.toolOutcomes, [{ type: 'command_execution', status: 'completed', exitCode: 0, classification: 'success' }]);
     assert.deepEqual(observation.metrics.testSummary, { apiContractFailures: 0, apiExistenceFailures: 0, failed: 0, passed: 1, total: 1 });
     assert.deepEqual(observation.metrics.tokenUsage, { cachedInputTokens: 40, inputTokens: 100, outputTokens: 20, reasoningOutputTokens: 5, totalTokens: 120 });

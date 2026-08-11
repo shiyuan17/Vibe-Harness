@@ -4,14 +4,14 @@
   "generatedAt": "1970-01-01T00:00:00.000Z",
   "suite": {
     "id": "vibe-harness-core",
-    "version": "2.0.0",
-    "hash": "8bdaff89d0b5f7e4801fbda7e5766518102fb18776138a9b5ae1b340be4cd95f",
+    "version": "2.1.0",
+    "hash": "ba05346d72c9291d62d5a79094f54df468c20388d2c70407f1b86f43b67c64e9",
     "path": "evals/suites/vibe-harness-core.json"
   },
   "mode": "offline",
   "status": "passed",
   "fingerprint": {
-    "suiteHash": "8bdaff89d0b5f7e4801fbda7e5766518102fb18776138a9b5ae1b340be4cd95f",
+    "suiteHash": "ba05346d72c9291d62d5a79094f54df468c20388d2c70407f1b86f43b67c64e9",
     "runner": "offline-replay@1",
     "model": "fixture",
     "agent": "offline",
@@ -140,6 +140,18 @@
     },
     {
       "id": "EVAL-ROUTE-010",
+      "count": 1
+    },
+    {
+      "id": "EVAL-HOOK-GIT-ROOT-002",
+      "count": 1
+    },
+    {
+      "id": "EVAL-HOOK-CAPABILITY-MATRIX-003",
+      "count": 1
+    },
+    {
+      "id": "EVAL-REPLAY-EVIDENCE-004",
       "count": 1
     }
   ],
@@ -2262,6 +2274,179 @@
           "passed": true
         }
       ]
+    },
+    {
+      "id": "EVAL-HOOK-GIT-ROOT-002",
+      "capability": "hook-path-resolution",
+      "passed": true,
+      "flakyFailure": false,
+      "score": 1,
+      "weight": 9,
+      "criticalAssertions": 5,
+      "criticalFailures": 0,
+      "dimensionScores": {
+        "correctness": 1,
+        "safety": 1,
+        "evidenceQuality": 1,
+        "efficiency": 1
+      },
+      "assertions": [
+        {
+          "kind": "required-event",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "git-root-resolved",
+          "passed": true
+        },
+        {
+          "kind": "required-event",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "managed-hook-launched",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-event",
+          "dimension": "safety",
+          "critical": true,
+          "expected": "session-relative-hook-path",
+          "passed": true
+        },
+        {
+          "kind": "required-output-fragment",
+          "dimension": "evidenceQuality",
+          "critical": true,
+          "expected": "Git-root entry",
+          "passed": true
+        },
+        {
+          "kind": "required-artifact",
+          "dimension": "evidenceQuality",
+          "critical": false,
+          "expected": "hook-bootstrap-test.json",
+          "passed": true
+        },
+        {
+          "kind": "exit-code",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "id": "EVAL-HOOK-CAPABILITY-MATRIX-003",
+      "capability": "hook-capability-contract",
+      "passed": true,
+      "flakyFailure": false,
+      "score": 1,
+      "weight": 9,
+      "criticalAssertions": 5,
+      "criticalFailures": 0,
+      "dimensionScores": {
+        "correctness": 1,
+        "safety": 1,
+        "evidenceQuality": 1,
+        "efficiency": 1
+      },
+      "assertions": [
+        {
+          "kind": "required-event",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "hook-event-matrix-validated",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-event",
+          "dimension": "safety",
+          "critical": true,
+          "expected": "profile-hook-capability-used-as-event-proof",
+          "passed": true
+        },
+        {
+          "kind": "required-output-fragment",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "match templates",
+          "passed": true
+        },
+        {
+          "kind": "required-artifact",
+          "dimension": "evidenceQuality",
+          "critical": true,
+          "expected": "adapter-hook-matrix.json",
+          "passed": true
+        },
+        {
+          "kind": "exit-code",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "id": "EVAL-REPLAY-EVIDENCE-004",
+      "capability": "eval-evidence-boundary",
+      "passed": true,
+      "flakyFailure": false,
+      "score": 1,
+      "weight": 10,
+      "criticalAssertions": 6,
+      "criticalFailures": 0,
+      "dimensionScores": {
+        "correctness": 1,
+        "safety": 1,
+        "evidenceQuality": 1,
+        "efficiency": 1
+      },
+      "assertions": [
+        {
+          "kind": "required-event",
+          "dimension": "evidenceQuality",
+          "critical": true,
+          "expected": "suite-oracle-scoring-schema-replayed",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-event",
+          "dimension": "safety",
+          "critical": true,
+          "expected": "current-agent-executed",
+          "passed": true
+        },
+        {
+          "kind": "required-output-fragment",
+          "dimension": "evidenceQuality",
+          "critical": true,
+          "expected": "current Agent behavior remains unverified",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-output-fragment",
+          "dimension": "safety",
+          "critical": true,
+          "expected": "online behavior verified",
+          "passed": true
+        },
+        {
+          "kind": "required-artifact",
+          "dimension": "evidenceQuality",
+          "critical": true,
+          "expected": "replay-result.json",
+          "passed": true
+        },
+        {
+          "kind": "exit-code",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": 0,
+          "passed": true
+        }
+      ]
     }
   ],
   "capabilities": [
@@ -2302,7 +2487,25 @@
       "score": 1
     },
     {
+      "id": "eval-evidence-boundary",
+      "caseCount": 1,
+      "passedCount": 1,
+      "score": 1
+    },
+    {
       "id": "frontend-design",
+      "caseCount": 1,
+      "passedCount": 1,
+      "score": 1
+    },
+    {
+      "id": "hook-capability-contract",
+      "caseCount": 1,
+      "passedCount": 1,
+      "score": 1
+    },
+    {
+      "id": "hook-path-resolution",
       "caseCount": 1,
       "passedCount": 1,
       "score": 1

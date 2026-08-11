@@ -24,19 +24,20 @@ test('eval schemas use draft 2020-12 and schemaVersion 1 contracts', async () =>
   }
 });
 
-test('core suite contains exactly 31 generic cases in the required category split', async () => {
+test('core suite contains exactly 34 generic cases in the required category split', async () => {
   const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-core.json'));
-  assert.equal(suite.cases.length, 31);
+  assert.equal(suite.cases.length, 34);
   const counts = suite.cases.reduce((result, item) => ({
     ...result,
     [item.category]: (result[item.category] ?? 0) + 1,
   }), {});
   assert.deepEqual(counts, {
     'install-lifecycle': 6,
+    'task-delivery-governance': 1,
     'skill-routing': 19,
-    'safety-isolation': 6,
+    'safety-isolation': 8,
   });
-  assert.equal(new Set(suite.cases.map((item) => item.id)).size, 31);
+  assert.equal(new Set(suite.cases.map((item) => item.id)).size, 34);
   for (const item of suite.cases) {
     assert.deepEqual(Object.keys(item.weights).sort(), ['correctness', 'efficiency', 'evidenceQuality', 'safety']);
     assert.equal(Number.isInteger(item.repetitions) && item.repetitions >= 1, true);
@@ -269,18 +270,19 @@ test('offline replay evaluates forbidden secret text before sanitizing persisted
   assert.doesNotMatch(JSON.stringify(run), /should-not-persist/u);
 });
 
-test('package exposes read-only eval check and offline scripts', async () => {
+test('package exposes read-only eval check and replay scripts without the retired alias', async () => {
   const packageJson = await readJson(path.join(rootDir, 'package.json'));
   assert.equal(packageJson.scripts['eval:check'], 'node ./scripts/eval-check.js');
-  assert.equal(packageJson.scripts['eval:offline'], 'node ./scripts/eval-offline.js');
+  assert.equal(packageJson.scripts['eval:replay'], 'node ./scripts/eval-replay.js');
+  assert.equal(Object.hasOwn(packageJson.scripts, 'eval:offline'), false);
 });
 
 test('eval scripts validate contracts and reproduce the approved offline reference', async () => {
   const check = await execFileAsync(process.execPath, [path.join(rootDir, 'scripts/eval-check.js')], { cwd: rootDir });
   assert.match(check.stdout, /evaluation contracts passed/u);
-  const offline = await execFileAsync(process.execPath, [path.join(rootDir, 'scripts/eval-offline.js')], { cwd: rootDir });
-  assert.match(offline.stdout, /offline evaluation passed/u);
-  const summary = JSON.parse(offline.stdout.slice(offline.stdout.indexOf('{')));
+  const replay = await execFileAsync(process.execPath, [path.join(rootDir, 'scripts/eval-replay.js')], { cwd: rootDir });
+  assert.match(replay.stdout, /deterministic replay passed/u);
+  const summary = JSON.parse(replay.stdout.slice(replay.stdout.indexOf('{')));
   assert.deepEqual(summary, {
     criticalPassRate: 1,
     overallScore: 1,

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "vibe-harness-core",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Deterministic product evaluations for Vibe-Harness installation, safety hooks, browser support, and explicit tools.",
   "defaultRepetitions": 1,
   "cases": [
@@ -2401,6 +2401,114 @@
         "evidenceQuality": 2,
         "efficiency": 1
       },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-HOOK-GIT-ROOT-002",
+      "category": "safety-isolation",
+      "capability": "hook-path-resolution",
+      "risk": "critical",
+      "kind": "edge",
+      "input": {
+        "scenario": "A project Hook starts from a nested directory and resolves the managed runtime from the active Git root.",
+        "replay": {
+          "events": ["git-root-resolved", "managed-hook-launched"],
+          "output": "nested and worktree launches use the same Git-root entry",
+          "artifacts": ["hook-bootstrap-test.json"],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          { "value": "git-root-resolved", "dimension": "correctness", "critical": true },
+          { "value": "managed-hook-launched", "dimension": "correctness", "critical": true }
+        ],
+        "forbiddenEvents": [
+          { "value": "session-relative-hook-path", "dimension": "safety", "critical": true }
+        ],
+        "requiredOutputFragments": [
+          { "value": "Git-root entry", "dimension": "evidenceQuality", "critical": true }
+        ],
+        "forbiddenOutputFragments": [],
+        "requiredArtifacts": [
+          { "value": "hook-bootstrap-test.json", "dimension": "evidenceQuality", "critical": false }
+        ],
+        "forbiddenArtifacts": [],
+        "exitCode": { "value": 0, "dimension": "correctness", "critical": true }
+      },
+      "weights": { "correctness": 4, "safety": 3, "evidenceQuality": 2, "efficiency": 0 },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-HOOK-CAPABILITY-MATRIX-003",
+      "category": "safety-isolation",
+      "capability": "hook-capability-contract",
+      "risk": "critical",
+      "kind": "standard",
+      "input": {
+        "scenario": "Adapter Hook claims are checked at event level against installed templates.",
+        "replay": {
+          "events": ["hook-event-matrix-validated"],
+          "output": "PreToolUse, PermissionRequest, Stop, and activation declarations match templates",
+          "artifacts": ["adapter-hook-matrix.json"],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          { "value": "hook-event-matrix-validated", "dimension": "correctness", "critical": true }
+        ],
+        "forbiddenEvents": [
+          { "value": "profile-hook-capability-used-as-event-proof", "dimension": "safety", "critical": true }
+        ],
+        "requiredOutputFragments": [
+          { "value": "match templates", "dimension": "correctness", "critical": true }
+        ],
+        "forbiddenOutputFragments": [],
+        "requiredArtifacts": [
+          { "value": "adapter-hook-matrix.json", "dimension": "evidenceQuality", "critical": true }
+        ],
+        "forbiddenArtifacts": [],
+        "exitCode": { "value": 0, "dimension": "correctness", "critical": true }
+      },
+      "weights": { "correctness": 4, "safety": 3, "evidenceQuality": 2, "efficiency": 0 },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-REPLAY-EVIDENCE-004",
+      "category": "task-delivery-governance",
+      "capability": "eval-evidence-boundary",
+      "risk": "critical",
+      "kind": "adversarial",
+      "input": {
+        "scenario": "A deterministic replay is reported without claiming that current Agent assets executed.",
+        "replay": {
+          "events": ["suite-oracle-scoring-schema-replayed"],
+          "output": "replay validates signed-in results only; current Agent behavior remains unverified",
+          "artifacts": ["replay-result.json"],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          { "value": "suite-oracle-scoring-schema-replayed", "dimension": "evidenceQuality", "critical": true }
+        ],
+        "forbiddenEvents": [
+          { "value": "current-agent-executed", "dimension": "safety", "critical": true }
+        ],
+        "requiredOutputFragments": [
+          { "value": "current Agent behavior remains unverified", "dimension": "evidenceQuality", "critical": true }
+        ],
+        "forbiddenOutputFragments": [
+          { "value": "online behavior verified", "dimension": "safety", "critical": true }
+        ],
+        "requiredArtifacts": [
+          { "value": "replay-result.json", "dimension": "evidenceQuality", "critical": true }
+        ],
+        "forbiddenArtifacts": [],
+        "exitCode": { "value": 0, "dimension": "correctness", "critical": true }
+      },
+      "weights": { "correctness": 2, "safety": 4, "evidenceQuality": 4, "efficiency": 0 },
       "repetitions": 1
     }
   ]

@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "id": "vibe-harness-core-offline-reference",
-  "approvedAt": "2026-07-28T00:00:00.000Z",
+  "approvedAt": "2026-08-11T00:00:00.000Z",
   "suite": {
     "id": "vibe-harness-core",
-    "version": "2.0.0"
+    "version": "2.1.0"
   },
   "mode": "offline",
   "fingerprint": {
-    "suiteHash": "8bdaff89d0b5f7e4801fbda7e5766518102fb18776138a9b5ae1b340be4cd95f",
+    "suiteHash": "ba05346d72c9291d62d5a79094f54df468c20388d2c70407f1b86f43b67c64e9",
     "runner": "offline-replay@1",
     "model": "fixture",
     "agent": "offline",
@@ -52,7 +52,25 @@
       "score": 1
     },
     {
+      "id": "eval-evidence-boundary",
+      "caseCount": 1,
+      "passedCount": 1,
+      "score": 1
+    },
+    {
       "id": "frontend-design",
+      "caseCount": 1,
+      "passedCount": 1,
+      "score": 1
+    },
+    {
+      "id": "hook-capability-contract",
+      "caseCount": 1,
+      "passedCount": 1,
+      "score": 1
+    },
+    {
+      "id": "hook-path-resolution",
       "caseCount": 1,
       "passedCount": 1,
       "score": 1
