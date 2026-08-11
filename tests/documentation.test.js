@@ -57,12 +57,8 @@ test('README quick start exposes three profile prompts with the plugin indexing 
 
 test('rules parity holds for the governed repository', async () => {
   const { errors, warnings } = await validateRulesParity(rootDir);
-  // Rules-only tool files are expected (warned, not errored).
   assert.deepEqual(errors, [], JSON.stringify({ errors, warnings }, null, 2));
-  assert.ok(
-    warnings.length > 0,
-    'rules-only files should be surfaced as warnings in the governed repo',
-  );
+  assert.deepEqual(warnings, []);
 });
 
 test('schema parity holds for the governed repository', async () => {
