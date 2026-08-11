@@ -2,6 +2,13 @@
 
 RTK 是项目内可选的命令输出压缩工具。它不改变目标命令的参数、退出码或验证标准。自身状态只能写入项目的 <code>.vibe-harness/tool-state/rtk/</code>，默认关闭原始输出 tee 和 telemetry。
 
+## 协同边界
+
+- RTK 是输出通道，不参与普通文本、AST 或跨文件语义查询的工具选择。
+- 新安装选择 RTK 插件时，Codex Hook 默认启用；CLI、项目配置和已有安装状态可以显式覆盖该默认值。
+- Git、测试、构建、lint、包管理器和高输出状态命令适合自动路由；交互式命令、敏感命令、原始证据命令、MCP runtime 和项目内 ast-grep 入口必须绕过。
+- RTK 不可用时直接执行原命令；不得自动重复可能有副作用的命令，只提供精确的项目内重试入口。
+
 ## 使用顺序
 
 1. 需要查看高噪声命令结果时，优先使用工具规格登记的项目内 RTK 入口。
@@ -16,3 +23,7 @@ RTK 是项目内可选的命令输出压缩工具。它不改变目标命令的�
 - 回退时记录 <code>tool: rtk</code>、状态、使用的原命令、原因和可能影响；不得把未压缩输出误报为 RTK 输出。
 - 不运行 <code>rtk init -g</code>，不写用户级 Codex 或其他全局 Agent 配置；版本、入口和供应链合同以显式工具插件规格为准。
 - wrapper 不覆盖 <code>HOME</code> 或 <code>USERPROFILE</code>；数据库、tee 目录和 telemetry 开关由项目内运行时强制隔离。
+
+## 规范依据
+
+- https://github.com/rtk-ai/rtk

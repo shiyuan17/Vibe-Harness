@@ -47,6 +47,8 @@ pnpm vibe-harness verify --project ../some-project
 
 `verify` 依次执行已配置的 `lint -> typecheck -> test -> eval`，未配置的项会跳过。
 
+验证 JSON 还包含本轮 ID、时间和非持久化 Git 工作树指纹；检查期间工作树变化时返回 PROJECT_VERIFICATION_STALE。
+
 ## 多宿主安装
 
 同一个项目只安装一次。配置中的 targets 数组声明全部宿主；不带 --target 的 install、upgrade、validate、doctor 和 diff 处理全部目标，带 --target 时只选择配置或 install-state 中仍存在的一个宿主，绝不隐式追加。

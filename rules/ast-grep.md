@@ -2,6 +2,13 @@
 
 ast-grep 是项目内可选的结构化代码搜索工具。它用于按语法树匹配代码，而不是把文本相似误当作语义等价。
 
+## 工具选择
+
+- 阅读大文件或目录前，先用 <code>node .agents/runtime/tools/ast-grep/run.mjs outline &lt;path&gt;</code> 获取本地结构，再读取候选源码范围。<code>outline</code> 只描述局部语法，不解析类型、引用或调用图。
+- 精确语法节点、调用表达式、导入形式和条件结构使用 <code>run --lang ... -p ...</code>；复杂或重复查询使用 YAML rule、<code>scan</code> 和 <code>test</code>。
+- 跨文件符号关系、实际调用链、架构和影响分析交给可用的 codebase-memory-mcp；纯文本、配置、日志和未知语言使用 <code>rg</code>。
+- RTK 仅压缩 Shell 输出，不改变 ast-grep 参数，也不得包装项目内 ast-grep 入口。
+
 ## 使用顺序
 
 项目内入口原样透传 ast-grep 参数；兼容并剥离开头的 <code>sg</code> 或 <code>ast-grep</code> 前缀，但不推断或补写子命令。<code>run</code> 是上游默认命令。
@@ -15,6 +22,11 @@ ast-grep 是项目内可选的结构化代码搜索工具。它用于按语法�
 7. 机器消费使用 <code>--json=stream</code> 或 <code>--json=compact</code>；持久化规则必须包含 valid/invalid case、snapshot，并运行 <code>ast-grep test</code>。
 
 canonical 查询形式为：<code>node .agents/runtime/tools/ast-grep/run.mjs --lang typescript -p PATTERN src</code>。
+
+## 规范依据
+
+- https://ast-grep.github.io/advanced/prompting.html
+- https://ast-grep.github.io/guide/outline-code.html
 
 ## 降级与证据
 

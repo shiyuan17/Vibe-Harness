@@ -33,6 +33,8 @@
 - Codex full 写红区需要 `--confirm-red-zone`。
 - `validate --project` 只检查安装一致性；`verify --project` 执行项目配置的 `lint/typecheck/test/eval`。
 
+verify 输出本轮 ID、时间和可用的 Git 工作树指纹；检查期间工作树变化时收据失效且命令返回非零。
+
 ## 验证选择
 
 普通变更运行：

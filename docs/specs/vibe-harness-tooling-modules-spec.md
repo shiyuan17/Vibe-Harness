@@ -68,6 +68,13 @@ ast-grep 表中的前缀形式仅为兼容入口；canonical CLI 是 <code>node 
 - runtime、下载缓存、索引与工具状态均位于目标项目。未使用 `--force` 时不覆盖用户文件；真实 install、provision、rollback 和 uninstall 使用 `--write`，红区仍需显式确认。
 - `pnpm runtime:audit` 审计 npm runtime 的实际依赖面并对 High/Critical fail-closed；RTK 使用 release checksum 供应链校验。存在未修复 High 风险的 runtime 不进入可安装清单。
 
+## 三工具调用关系
+
+- RTK 属于输出通道，只压缩符合条件的 Shell 输出，不参与代码检索和语义判断。新安装选择 RTK 时 Codex Hook 默认开启；CLI、项目配置、已有安装状态依次覆盖默认值。
+- ast-grep 属于本地语法层：先用 <code>outline</code> 缩小读取范围，再用 <code>run</code> 或 <code>scan</code> 做 AST 查询；持久化规则必须通过 <code>test</code>。
+- codebase-memory-mcp 属于跨文件语义层：需要调用链、架构或影响分析时先检查索引，再定位精确符号并读取源码或追踪调用路径。
+- 普通文本、配置、日志和未知语言使用 <code>rg</code>；各层不可伪装成其他层的等价替代，所有结论回到源码、测试或原始产物核验。
+
 ## 使用与回退规则
 
 - RTK 只用于低风险、可重复且输出量大的命令；敏感、交互式、破坏性或需要原始证据的命令直接使用原命令。

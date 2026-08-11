@@ -34,6 +34,8 @@ OpenCode 不安装 .opencode/plugins。opencode.json 与 opencode.jsonc 仍属�
 
 RTK 集成只在显式选择 RTK 插件并启用 `hooks.rtk.enabled` 或 `--rtk-hooks on` 时生效。安全策略始终先执行。
 
+上句“只在显式启用时生效”描述旧版行为，现已废弃。自本版本起，新安装选择 RTK 插件时 Codex Hook 默认启用；CLI 参数、项目配置和已有安装状态按该顺序覆盖默认值。升级不会把已有关闭状态自动改为开启，未选择 RTK 或非 Codex 目标仍保持关闭。安全策略始终先执行。
+
 ## 超时
 
 宿主配置中的 `timeout` 设为 10 秒（安全策略事件）或 30 秒（`Stop` 自动提交事件）。安全策略的保守取值避免长挂阻塞交互；超时按 guarded 事件 fail-closed 处理。`Stop` 事件的 30 秒为 lint + test 验证预留时间。Cursor 使用 `.cursor/hooks.json`，Qoder 使用 `.qoder/settings.json`，ZCode 使用 `.zcode/config.json`，Claude Code 使用 `.claude/settings.json`，Codex 使用 `.codex/hooks.json`。

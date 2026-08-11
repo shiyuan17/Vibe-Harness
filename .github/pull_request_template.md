@@ -16,6 +16,9 @@
 | --- | ---: | --- |
 |  |  |  |
 
+- verify 收据 ID：
+- 完成时间与 Git 指纹：
+
 ## Breaking change
 
 - 是否含 Breaking change：是 / 否

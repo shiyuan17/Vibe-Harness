@@ -47,6 +47,8 @@ pnpm vibe-harness verify --project ../some-project
 
 `verify` runs configured commands in `lint -> typecheck -> test -> eval` order and skips unconfigured commands.
 
+Verification JSON also includes the run ID, timestamps, and a non-persisted Git worktree fingerprint. A worktree change during checks returns PROJECT_VERIFICATION_STALE.
+
 ## Multi-host installation
 
 Install a project only once. The targets array declares every host. Without --target, install, upgrade, validate, doctor, and diff process all targets. With --target, a command selects one host still present in configuration or install-state and never adds it implicitly.
