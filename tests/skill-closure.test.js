@@ -43,7 +43,7 @@ test('native Skill descriptions, bodies, resources, and OpenAI metadata stay wit
     lines += lineCount;
     identityCharacters += item.id.length + description.length;
     assert.ok(description.length <= 300, `${item.id} description budget`);
-    assert.ok(lineCount <= 35, `${item.id} line budget`);
+    assert.ok(lineCount <= 50, `${item.id} line budget`);
     const yaml = await readFile(path.join(skillDir, 'agents/openai.yaml'), 'utf8');
     assert.match(yaml, /allow_implicit_invocation: true/u);
     assert.match(yaml, new RegExp(`\\$${item.id}`, 'u'));

@@ -8,7 +8,7 @@
   },
   "mode": "offline",
   "fingerprint": {
-    "suiteHash": "c293ee1bd741ba5d6b794cafdcbd08fd556a77a62b7ae249bec0bdc52de10287",
+    "suiteHash": "8bdaff89d0b5f7e4801fbda7e5766518102fb18776138a9b5ae1b340be4cd95f",
     "runner": "offline-replay@1",
     "model": "fixture",
     "agent": "offline",
@@ -23,8 +23,8 @@
     },
     {
       "id": "ast-grep-structured-search",
-      "caseCount": 1,
-      "passedCount": 1,
+      "caseCount": 3,
+      "passedCount": 3,
       "score": 1
     },
     {
@@ -71,8 +71,8 @@
     },
     {
       "id": "rtk-output-compression",
-      "caseCount": 5,
-      "passedCount": 5,
+      "caseCount": 6,
+      "passedCount": 6,
       "score": 1
     },
     {

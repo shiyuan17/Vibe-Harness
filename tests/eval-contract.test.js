@@ -24,19 +24,19 @@ test('eval schemas use draft 2020-12 and schemaVersion 1 contracts', async () =>
   }
 });
 
-test('core suite contains exactly 18 generic cases in the required category split', async () => {
+test('core suite contains exactly 31 generic cases in the required category split', async () => {
   const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-core.json'));
-  assert.equal(suite.cases.length, 18);
+  assert.equal(suite.cases.length, 31);
   const counts = suite.cases.reduce((result, item) => ({
     ...result,
     [item.category]: (result[item.category] ?? 0) + 1,
   }), {});
   assert.deepEqual(counts, {
     'install-lifecycle': 6,
-    'skill-routing': 7,
-    'safety-isolation': 5,
+    'skill-routing': 19,
+    'safety-isolation': 6,
   });
-  assert.equal(new Set(suite.cases.map((item) => item.id)).size, 18);
+  assert.equal(new Set(suite.cases.map((item) => item.id)).size, 31);
   for (const item of suite.cases) {
     assert.deepEqual(Object.keys(item.weights).sort(), ['correctness', 'efficiency', 'evidenceQuality', 'safety']);
     assert.equal(Number.isInteger(item.repetitions) && item.repetitions >= 1, true);
@@ -126,12 +126,18 @@ test('eval run schema accepts optional sanitized per-trial diagnostics', async (
 test('RTK and ast-grep rules have reference-backed fallback and evidence cases', async () => {
   const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-core.json'));
   const rtk = suite.cases.find((item) => item.id === 'EVAL-TOOL-RTK-001');
+  const rtkIsolation = suite.cases.find((item) => item.id === 'EVAL-TOOL-RTK-006');
   const astGrep = suite.cases.find((item) => item.id === 'EVAL-TOOL-AST-001');
+  const astGrepQuery = suite.cases.find((item) => item.id === 'EVAL-TOOL-AST-002');
+  const astGrepDebug = suite.cases.find((item) => item.id === 'EVAL-TOOL-AST-003');
   assert.equal(rtk.capability, 'rtk-output-compression');
   assert.equal(rtk.oracle.forbiddenEvents.some((item) => item.value === 'rtk-used-for-sensitive-command'), true);
+  assert.equal(rtkIsolation.oracle.forbiddenEvents.some((item) => item.value === 'sensitive-output-persisted'), true);
   assert.equal(astGrep.capability, 'ast-grep-structured-search');
   assert.equal(astGrep.oracle.requiredEvents.some((item) => item.value === 'source-and-tests-verified'), true);
   assert.equal(astGrep.oracle.forbiddenEvents.some((item) => item.value === 'unverified-structural-match-accepted'), true);
+  assert.equal(astGrepQuery.oracle.requiredEvents.some((item) => item.value === 'ast-grep-language-selected'), true);
+  assert.equal(astGrepDebug.oracle.requiredEvents.some((item) => item.value === 'ast-grep-debug-query-used'), true);
 });
 
 test('suite semantic validation rejects duplicate ids, all-zero weights, and weighted dimensions without assertions', async () => {
