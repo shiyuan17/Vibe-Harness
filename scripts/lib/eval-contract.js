@@ -44,6 +44,7 @@ export function validateEvalSuiteSemantics(suite, manifests) {
     }
     const expectedRules = item.reporting?.expected?.rules ?? [];
     const expectedSkills = item.reporting?.expected?.skills ?? [];
+    const candidateOwners = item.reporting?.knowledgeCoverage?.candidateOwners ?? [];
     if (knownRuleIds) {
       for (const ruleId of expectedRules) {
         if (!knownRuleIds.has(ruleId)) errors.push(`cases[${index}].reporting.expected.rules references unknown rule id: ${ruleId}`);
@@ -52,6 +53,14 @@ export function validateEvalSuiteSemantics(suite, manifests) {
     if (knownSkillIds) {
       for (const skillId of expectedSkills) {
         if (!knownSkillIds.has(skillId)) errors.push(`cases[${index}].reporting.expected.skills references unknown skill id: ${skillId}`);
+      }
+    }
+    for (const owner of candidateOwners) {
+      if (owner.kind === 'rule' && knownRuleIds && !knownRuleIds.has(owner.id)) {
+        errors.push('cases[' + index + '].reporting.knowledgeCoverage references unknown rule id: ' + owner.id);
+      }
+      if (owner.kind === 'skill' && knownSkillIds && !knownSkillIds.has(owner.id)) {
+        errors.push('cases[' + index + '].reporting.knowledgeCoverage references unknown skill id: ' + owner.id);
       }
     }
   }

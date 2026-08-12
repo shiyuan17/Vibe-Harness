@@ -32,6 +32,29 @@
                 "uniqueItems": true
               },
               "toolMetricMode": { "type": "string", "enum": ["execute", "refuse", "exclude"] },
+              "knowledgeCoverage": {
+                "type": "object",
+                "required": ["requestRoot", "candidateOwners", "inventoryComplete", "stopBoundary"],
+                "properties": {
+                  "requestRoot": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9]*(?:[._/-][a-z0-9]+)*$" },
+                  "candidateOwners": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "object",
+                      "required": ["kind", "id"],
+                      "properties": {
+                        "kind": { "type": "string", "enum": ["rule", "skill"] },
+                        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9]*(?:[._/-][a-z0-9]+)*$" }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "inventoryComplete": { "type": "boolean" },
+                  "stopBoundary": { "type": "string", "enum": ["execution-end", "handoff", "validated-handoff", "blocked"] }
+                },
+                "additionalProperties": false
+              },
               "expected": {
                 "type": "object",
                 "additionalProperties": false,

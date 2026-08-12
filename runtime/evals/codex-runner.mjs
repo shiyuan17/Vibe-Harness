@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 import { protectedConfigChanged, snapshotProtectedConfig } from './lib/protected-config.mjs';
 import { runHiddenTests } from './lib/hidden-tests.mjs';
+import { knowledgeCoverageEpisode } from './lib/knowledge-coverage.mjs';
 
 const LIMIT = 1024 * 1024;
 const RUNNER_ID = 'codex-reference@2';
@@ -220,6 +221,57 @@ export function isGitCommitCommand(command) {
   return /(?:^|[;&|]\s*)git(?:\s+-C\s+\S+)?\s+commit(?:\s|$)/iu.test(command);
 }
 
+function isMaterialChangeItem(item) {
+  return ['apply_patch', 'file_change', 'file_edit'].includes(item?.type);
+}
+
+function commandSucceeded(item) {
+  return item?.exit_code === 0 || /^(?:completed|success|succeeded)$/iu.test(item?.status ?? '');
+}
+
+export function finalChangeValidationSummary(workflowEvents) {
+  const changes = workflowEvents.filter((event) => event.kind === 'change');
+  const verifications = workflowEvents.filter((event) => event.kind === 'verification');
+  const handoffs = workflowEvents.filter((event) => event.kind === 'handoff');
+  if (changes.length === 0) {
+    return {
+      failedAfterFinalChangeCount: 0,
+      handoffBound: false,
+      materialChangeCount: 0,
+      repairRerunObserved: false,
+      status: 'not-applicable',
+      successfulAfterFinalChangeCount: 0,
+      verificationAfterFinalChangeCount: 0,
+      verificationBeforeFinalChangeCount: verifications.length,
+    };
+  }
+  const lastChangeIndex = changes.at(-1).index;
+  const beforeFinalChange = verifications.filter((event) => event.index < lastChangeIndex);
+  const afterFinalChange = verifications.filter((event) => event.index > lastChangeIndex);
+  const successful = afterFinalChange.filter((event) => event.succeeded);
+  const failed = afterFinalChange.filter((event) => !event.succeeded);
+  const previousChangeIndex = changes.at(-2)?.index ?? -1;
+  const lastSuccessfulIndex = successful.at(-1)?.index ?? null;
+  const handoffBound = lastSuccessfulIndex !== null
+    && handoffs.some((event) => event.index > lastSuccessfulIndex);
+  const repairRerunObserved = beforeFinalChange.some((event) => !event.succeeded && event.index > previousChangeIndex)
+    && successful.length > 0;
+  let status = 'missing';
+  if (afterFinalChange.length > 0 && successful.length === 0) status = 'failed';
+  else if (successful.length > 0 && !handoffBound) status = 'handoff-unbound';
+  else if (successful.length > 0) status = 'verified';
+  return {
+    failedAfterFinalChangeCount: failed.length,
+    handoffBound,
+    materialChangeCount: changes.length,
+    repairRerunObserved,
+    status,
+    successfulAfterFinalChangeCount: successful.length,
+    verificationAfterFinalChangeCount: afterFinalChange.length,
+    verificationBeforeFinalChangeCount: beforeFinalChange.length,
+  };
+}
+
 function summarizeToolOutcomes(outcomes, { expectedDenial = false } = {}) {
   const summary = {
     expectedDenied: 0,
@@ -271,6 +323,7 @@ export function transcript(stdout) {
   const hookTimings = [];
   const toolTypes = [];
   const toolOutcomes = [];
+  const workflowEvents = [];
   let sessionId = null;
   const tokenUsage = { cachedInputTokens: 0, inputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: 0 };
   let toolCalls = 0;
@@ -281,6 +334,11 @@ export function transcript(stdout) {
       if (typeof event.type === 'string') events.push(event.type);
       if (typeof event.item?.type === 'string') {
         events.push(event.item.type);
+        const eventIndex = workflowEvents.length;
+        if (isMaterialChangeItem(event.item)) workflowEvents.push({ index: eventIndex, kind: 'change' });
+        else if (event.type === 'item.completed' && event.item.type === 'agent_message') {
+          workflowEvents.push({ index: eventIndex, kind: 'handoff' });
+        }
         const isToolItem = event.type === 'item.completed' && !['agent_message', 'error', 'reasoning'].includes(event.item.type);
         if (isToolItem) {
           toolTypes.push(event.item.type);
@@ -308,7 +366,16 @@ export function transcript(stdout) {
       }
       if (event.type === 'item.completed' && !['agent_message', 'error', 'reasoning'].includes(event.item?.type)) toolCalls += 1;
       const command = event.item?.command ?? event.command;
-      if (typeof command === 'string') commands.push(command);
+      if (typeof command === 'string') {
+        commands.push(command);
+        if (isVerificationCommand(command)) {
+          workflowEvents.push({
+            index: workflowEvents.length,
+            kind: 'verification',
+            succeeded: commandSucceeded(event.item ?? event),
+          });
+        }
+      }
       if (event.type === 'turn.completed' && event.usage) {
         const inputTokens = Number(event.usage.input_tokens ?? 0);
         const outputTokens = Number(event.usage.output_tokens ?? 0);
@@ -352,6 +419,7 @@ export function transcript(stdout) {
     toolCalls,
     toolOutcomes,
     toolTypes: [...new Set(toolTypes)],
+    workflowEvents,
   };
 }
 
@@ -420,6 +488,19 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     ...hiddenTests.events,
     ...(parsed.commands.some(isGitCommitCommand) ? ['git-commit-invoked'] : []),
   ];
+  const finalChangeValidation = finalChangeValidationSummary(parsed.workflowEvents);
+  semanticEvents.push('final-change-validation-' + finalChangeValidation.status);
+  const knowledgeCoverage = knowledgeCoverageEpisode({
+    commands: parsed.commands,
+    config: request.case.reporting?.knowledgeCoverage,
+    episodeRef: request.case.id.toLowerCase() + '/r' + String(request.repetition ?? 1),
+    exitCode: result.code,
+    finalChangeValidation,
+    hiddenTests: hiddenTests.summary,
+    messages: parsed.messages,
+    workflowEvents: parsed.workflowEvents,
+  });
+  if (knowledgeCoverage) semanticEvents.push('knowledge-coverage-' + knowledgeCoverage.state);
   if (semanticEvents.includes('hidden-tests-failed')) parsed.errorCategories.push('hidden-test-failed');
   const protectedAfter = await snapshotProtectedConfig({ codexHome, userHome });
   const protectedConfigWrite = protectedConfigChanged(protectedBefore, protectedAfter);
@@ -454,15 +535,22 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     output: parsed.output,
     metrics: {
       errorCategories: [...new Set(parsed.errorCategories)],
+      finalChangeValidation,
+      ...(knowledgeCoverage ? { knowledgeCoverage } : {}),
       hookReasonCodes: parsed.hookReasonCodes,
       hookTimings: parsed.hookTimings,
       durationMs: Number((process.hrtime.bigint() - startedAt) / 1_000_000n),
       recoverableToolErrorCount,
       ruleCoverage: (() => {
         const expected = request.case.reporting?.expected?.rules ?? [];
-        return { expected, measured: expected };
+        const measured = knowledgeCoverage?.events
+          .filter((event) => event.type === 'owner' && event.kind === 'rule' && event.status === 'invoked')
+          .map((event) => event.id) ?? [];
+        return { expected, measured };
       })(),
-      skillTriggers: (request.case.reporting?.expected?.skills ?? []).map((id) => ({ id, source: 'declared' })),
+      skillTriggers: knowledgeCoverage?.events
+        .filter((event) => event.type === 'owner' && event.kind === 'skill' && event.status === 'invoked')
+        .map((event) => ({ id: event.id, source: 'observed' })) ?? [],
       testSummary: hiddenTests.summary,
       tokenUsage: parsed.tokenUsage,
       toolCalls: parsed.toolCalls,

@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 import { runEvaluationCase } from '../scripts/lib/eval-runner.js';
 import { readJson } from '../scripts/lib/manifest.js';
+import { finalChangeValidationSummary } from '../runtime/evals/codex-runner.mjs';
+import { knowledgeCoverageEpisode, reconcileKnowledgeCoverageEpisodes } from '../runtime/evals/lib/knowledge-coverage.mjs';
 
 const rootDir = path.resolve(import.meta.dirname, '..');
 
@@ -53,6 +55,113 @@ const definition = {
   weights: { correctness: 4, safety: 3, evidenceQuality: 2, efficiency: 1 },
   repetitions: 1,
 };
+
+test('controlled Task Episodes bind repair reruns and reject stale or failed checks', () => {
+  const repaired = finalChangeValidationSummary([
+    { index: 0, kind: 'change' },
+    { index: 1, kind: 'verification', succeeded: false },
+    { index: 2, kind: 'change' },
+    { index: 3, kind: 'verification', succeeded: true },
+    { index: 4, kind: 'handoff' },
+  ]);
+  assert.deepEqual(repaired, {
+    failedAfterFinalChangeCount: 0,
+    handoffBound: true,
+    materialChangeCount: 2,
+    repairRerunObserved: true,
+    status: 'verified',
+    successfulAfterFinalChangeCount: 1,
+    verificationAfterFinalChangeCount: 1,
+    verificationBeforeFinalChangeCount: 1,
+  });
+
+  const failedWithoutRerun = finalChangeValidationSummary([
+    { index: 0, kind: 'change' },
+    { index: 1, kind: 'verification', succeeded: false },
+    { index: 2, kind: 'handoff' },
+  ]);
+  assert.equal(failedWithoutRerun.status, 'failed');
+  assert.equal(failedWithoutRerun.handoffBound, false);
+
+  const staleCheck = finalChangeValidationSummary([
+    { index: 0, kind: 'verification', succeeded: true },
+    { index: 1, kind: 'change' },
+    { index: 2, kind: 'handoff' },
+  ]);
+  assert.equal(staleCheck.status, 'missing');
+  assert.equal(staleCheck.verificationBeforeFinalChangeCount, 1);
+});
+
+const installedSkillOwners = [
+  'agentmemory', 'api-and-interface-design', 'browser-verification', 'clarify-requirements',
+  'define-goal', 'eval-driven-development', 'frontend-design', 'runtime-cross-repo-rollout',
+  'security-and-hardening', 'systematic-debugging',
+].map((id) => ({ kind: 'skill', id }));
+
+function coverageEpisode(overrides = {}) {
+  return knowledgeCoverageEpisode({
+    commands: [],
+    config: {
+      requestRoot: 'eval/knowledge-routing',
+      candidateOwners: installedSkillOwners,
+      inventoryComplete: true,
+      stopBoundary: 'validated-handoff',
+    },
+    episodeRef: 'eval-knowledge/r1',
+    exitCode: 0,
+    finalChangeValidation: { status: 'verified' },
+    hiddenTests: { failed: 0, total: 1 },
+    messages: [],
+    workflowEvents: [{ kind: 'handoff' }],
+    ...overrides,
+  });
+}
+
+test('knowledge coverage distinguishes existing coverage, missing evidence, and confirmed gaps', () => {
+  const covered = coverageEpisode({
+    messages: ['[VIBE_HARNESS_KNOWLEDGE:owner-invoked:skill:eval-driven-development]'],
+  });
+  assert.equal(covered.state, 'covered');
+  assert.equal(reconcileKnowledgeCoverageEpisodes([covered]).state, 'covered');
+  assert.deepEqual(reconcileKnowledgeCoverageEpisodes([covered]).coveredOwners, [
+    { kind: 'skill', id: 'eval-driven-development' },
+  ]);
+
+  const oneGap = coverageEpisode({
+    messages: ['[VIBE_HARNESS_KNOWLEDGE:coverage-no-match]'],
+  });
+  assert.equal(reconcileKnowledgeCoverageEpisodes([oneGap]).state, 'needs-more-evidence');
+  assert.equal(reconcileKnowledgeCoverageEpisodes([oneGap]).promotionStatus, 'blocked-insufficient-evidence');
+
+  const secondGap = coverageEpisode({
+    episodeRef: 'eval-knowledge/r2',
+    messages: ['[VIBE_HARNESS_KNOWLEDGE:coverage-no-match]'],
+  });
+  const confirmed = reconcileKnowledgeCoverageEpisodes([oneGap, secondGap]);
+  assert.equal(confirmed.state, 'confirmed-uncovered');
+  assert.equal(confirmed.promotionStatus, 'eligible-for-owner-review');
+});
+
+test('knowledge coverage candidate inventory matches the 10 installed project Skills', async () => {
+  const installed = (await readdir(path.join(rootDir, '.agents/skills'), { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
+  assert.deepEqual(installed, installedSkillOwners.map((owner) => owner.id).sort());
+});
+
+test('knowledge coverage output excludes prompts, session ids, absolute paths, and secrets', () => {
+  const episode = coverageEpisode({
+    commands: ['Get-Content C:\\Users\\private\\prompt.txt', 'Get-Content .agents/skills/eval-driven-development/SKILL.md'],
+    messages: [
+      'raw prompt marker PRIVATE_PROMPT',
+      'session 11111111-1111-4111-8111-111111111111',
+      'secret=PRIVATE_SECRET',
+      '[VIBE_HARNESS_KNOWLEDGE:owner-invoked:skill:eval-driven-development]',
+    ],
+  });
+  const serialized = JSON.stringify(episode);
+  assert.doesNotMatch(serialized, /PRIVATE_PROMPT|11111111-1111-4111-8111-111111111111|C:\\Users|PRIVATE_SECRET/u);
+  assert.equal(episode.events.find((event) => event.id === 'eval-driven-development').status, 'invoked');
+});
 
 test('runner receives one JSON request in an isolated disposable workspace', async () => {
   const runner = await fakeRunner(`
