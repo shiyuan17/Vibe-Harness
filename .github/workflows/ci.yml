@@ -21,7 +21,7 @@ jobs:
           fetch-depth: 0
       - run: node scripts/risk-evidence.js
 
-  product:
+  product-run:
     name: product (${{ matrix.os }})
     strategy:
       fail-fast: false
@@ -53,6 +53,15 @@ jobs:
       - run: pnpm test:integration
       - run: pnpm smoke:lifecycle
       - run: git diff --check
+
+  product:
+    if: always()
+    needs: product-run
+    runs-on: ubuntu-latest
+    env:
+      PRODUCT_RUN_RESULT: ${{ needs.product-run.result }}
+    steps:
+      - run: test "$PRODUCT_RUN_RESULT" = success
 
   supply-chain:
     runs-on: ubuntu-latest
