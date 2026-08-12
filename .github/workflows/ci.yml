@@ -22,6 +22,7 @@ jobs:
       - run: node scripts/risk-evidence.js
 
   product:
+    name: product (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
