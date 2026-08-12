@@ -24,6 +24,8 @@
 - 变更摘要、验证命令和退出码。
 - 回滚路径和监控链接或人工核对项。
 - 未验证项、延期项和人工批准状态。
+- GitHub Release 必须包含实际生成的 tgz、SHA256、release evidence 与可验证 build provenance；release SHA 必须等于已验证 SHA。
+- 发布自动化不得执行 npm publish；既有 tag 不得移动或覆盖。
 
 ## 停止条件
 

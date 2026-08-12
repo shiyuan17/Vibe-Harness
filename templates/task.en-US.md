@@ -20,6 +20,14 @@
 
 ## Dependency chain (dependencies / contracts / tests / docs)
 
+## Full project analysis (only when explicitly requested or impact cannot be narrowed)
+
+- Technology stack:
+- Directory structure:
+- Business flow:
+- Data flow:
+- Module dependencies:
+
 ## Execution and verification
 
 ## Go/no-go decision

@@ -91,6 +91,16 @@
       ]
     },
     {
+      "path": "docs/github-delivery.md",
+      "kind": "operations",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "maintainer",
+        "contributor"
+      ]
+    },
+    {
       "path": "docs/migration-guide.md",
       "kind": "migration",
       "status": "current",
@@ -295,6 +305,16 @@
     },
     {
       "path": "docs/specs/agentmemory-skill-consolidation-spec.md",
+      "kind": "spec",
+      "status": "implemented",
+      "language": "zh-CN",
+      "audiences": [
+        "maintainer",
+        "auditor"
+      ]
+    },
+    {
+      "path": "docs/specs/hook-runtime-diagnostics-spec.md",
       "kind": "spec",
       "status": "implemented",
       "language": "zh-CN",

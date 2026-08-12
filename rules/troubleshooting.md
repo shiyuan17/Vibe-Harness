@@ -16,12 +16,25 @@
 - 假设：每次只验证一个主要假设，观察结果要能证伪。
 - 修复：修复必须对应回归测试、验证命令或人工核对。
 - 变更：一次只改变能验证当前假设的最小变量；不要同时升级依赖、重构和修改配置。
+- 归因：复现或验证有效执行且结果不符时才能标记产品或行为失败；工具、权限、网络、超时或环境阻断时标记为验证受阻（degraded），不归因为产品通过或失败。
 
 ## 验证证据
 
 - 失败复现命令和退出码。
 - 修复后的通过命令和关键输出。
+- 验证受阻时的失败阶段、替代证据、未验证行为和剩余风险。
 - 未复现、间歇性或环境依赖风险。
+
+## Hook 入口错误
+
+- HOOK_INPUT_INVALID_JSON：检查 Hook 配置是否向 stdin 传入一个完整 JSON 对象。
+- HOOK_INPUT_TOO_LARGE：缩小宿主传入的事件负载；不要提高 1 MiB 安全限制来绕过诊断。
+- HOOK_INPUT_INVALID：核对当前宿主的必填事件字段，不要把原始输入复制到日志或任务记录。
+- HOOK_EVENT_MISMATCH：核对 Hook 注册的 lifecycle event 与 expected-event 参数。
+- HOOK_PROJECT_CONTEXT_UNAVAILABLE：确认宿主提供的项目目录存在、可访问且指向当前项目。
+- HOOK_RUNTIME_ERROR：运行 vibe-harness doctor 并检查 runtimeHooks.selfCheck；若仍为 degraded，保留错误类别与最小复现，不保留原始负载。
+
+doctor 的 Hook 自检只验证包内受审策略引擎能按当前 mode 处理合成越界写请求；它不加载目标项目代码，也不证明宿主已加载或信任 Hook，宿主激活仍按 runtimeHooks.activation.verification 核对。
 
 ## 停止条件
 

@@ -20,9 +20,13 @@ test('canonical governance and eight native Skills are declared without a Router
 });
 
 test('completion evidence and task-scoped testing live in governance rules', async () => {
-  const [kernel, testRules, gitRules, ...templates] = await Promise.all([
+  const [kernel, testRules, troubleshootingRules, projectDirectoryRules, taskTemplate, englishTaskTemplate, gitRules, ...templates] = await Promise.all([
     readFile(path.join(rootDir, 'rules/governance-core.md'), 'utf8'),
     readFile(path.join(rootDir, 'rules/test-rules.md'), 'utf8'),
+    readFile(path.join(rootDir, 'rules/troubleshooting.md'), 'utf8'),
+    readFile(path.join(rootDir, 'rules/project-directory.md'), 'utf8'),
+    readFile(path.join(rootDir, 'templates/task.md'), 'utf8'),
+    readFile(path.join(rootDir, 'templates/task.en-US.md'), 'utf8'),
     readFile(path.join(rootDir, 'rules/git-rules.md'), 'utf8'),
     ...['adapters/codex/AGENTS.template.md', 'adapters/claude/CLAUDE.template.md', 'adapters/gemini/GEMINI.template.md']
       .map((file) => readFile(path.join(rootDir, file), 'utf8')),
@@ -32,12 +36,28 @@ test('completion evidence and task-scoped testing live in governance rules', asy
   assert.match(kernel, /最后一次实质修改后的状态重跑同一检查/u);
   assert.match(kernel, /覆盖同一受影响行为的等价检查及理由/u);
   assert.match(kernel, /handoff 只引用晚于最后一次实质修改的结果/u);
+  for (const label of ['已确认事实', '静态结论', '待验证假设', '验证受阻']) assert.match(kernel, new RegExp(label, 'u'));
+  for (const sensitive of ['密码', 'Secret', 'Token', 'Cookie', '验证码', '认证头', '会话标识', '个人敏感数据']) {
+    assert.match(kernel, new RegExp(sensitive, 'u'));
+  }
+  assert.match(kernel, /不得进入回复、日志、错误、快照、Eval、任务记录或持久记忆/u);
   const taskExample = kernel.match(/10:00[\s\S]*10:05[\s\S]*10:07[\s\S]*交付只能引用 10:07/u)?.[0];
   assert.ok(taskExample);
   assert.ok(taskExample.indexOf('10:00') < taskExample.indexOf('10:05'));
   assert.ok(taskExample.indexOf('10:05') < taskExample.indexOf('10:07'));
   assert.match(testRules, /普通对话\s*\/\s*只读诊断/u);
   assert.match(testRules, /全量测试不是默认验证/u);
+  assert.match(testRules, /验证受阻（degraded）/u);
+  assert.match(testRules, /不得推断产品通过或失败/u);
+  assert.match(troubleshootingRules, /验证受阻（degraded）/u);
+  assert.match(troubleshootingRules, /失败阶段、替代证据、未验证行为和剩余风险/u);
+  assert.match(projectDirectoryRules, /小型 Bug、单文件修改和简单问答不展开该清单/u);
+  for (const item of ['技术栈', '目录结构', '业务流', '数据流', '模块依赖']) {
+    assert.match(projectDirectoryRules, new RegExp(item, 'u'));
+    assert.match(taskTemplate, new RegExp(item, 'u'));
+  }
+  assert.match(taskTemplate, /仅显式要求或影响范围无法缩小时填写/u);
+  assert.match(englishTaskTemplate, /only when explicitly requested or impact cannot be narrowed/u);
   assert.match(testRules, /对抗式/u);
   assert.match(testRules, /测试类型/u);
   assert.match(testRules, /参考实现/u);
