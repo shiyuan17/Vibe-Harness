@@ -78,6 +78,6 @@
     "husky": "^9.1.7",
     "lint-staged": "^17.3.0",
     "typescript": "^7.0.2",
-    "undici": "7.29.0"
+    "undici": "8.10.0"
   }
 }
