@@ -67,7 +67,7 @@ export async function createProjectSnapshot(targetDir) {
   if (relativeTarget.startsWith('..') || path.isAbsolute(relativeTarget)) {
     return { available: false, stable: null, vcs: 'none' };
   }
-  const pathspec = ':(literal)' + relativeTarget.replaceAll('\\', '/');
+  const pathspec = relativeTarget === '.' ? '.' : ':(literal)' + relativeTarget.replaceAll('\\', '/');
   const [headOutput, statusOutput, changedOutput, untrackedOutput] = await Promise.all([
     gitOutput(['rev-parse', '--verify', 'HEAD'], rootDir),
     gitOutput(['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', pathspec], rootDir),
