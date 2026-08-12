@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { exec, execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -47,7 +47,7 @@ test('Hook bootstrap resolves the active Git root from root, nested directories,
     const rootResult = await execAsync(command, { cwd: main, windowsHide: true });
     const nestedResult = await execAsync(command, { cwd: nested, windowsHide: true });
     const linkedResult = await execAsync(command, { cwd: linkedNested, windowsHide: true });
-    assert.equal(path.normalize(rootResult.stdout), path.normalize(mainHook));
+    assert.equal(await realpath(rootResult.stdout), await realpath(mainHook));
     assert.equal(nestedResult.stdout, rootResult.stdout);
     assert.match(path.normalize(linkedResult.stdout), /linked.*codex-hook\.mjs$/u);
   } finally {
