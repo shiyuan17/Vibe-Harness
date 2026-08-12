@@ -16,6 +16,8 @@ test('CI blocks offline eval drift and scheduled workflow runs advisory online c
   assert.match(ci, /pnpm eval:replay/u);
   assert.match(ci, /windows-latest/u);
   assert.match(ci, /ubuntu-latest/u);
+  assert.match(ci, /include:\s*\n\s*- os: ubuntu-latest\s*\n\s*node-version: 22\.x\s*\n\s*- os: windows-latest\s*\n\s*node-version: 22\.x/u);
+  assert.doesNotMatch(ci, /node-version:\s*\[/u);
   assert.match(ci, /pnpm test:integration/u);
   assert.match(ci, /pnpm runtime:audit/u);
   assert.match(ci, /pnpm pack:contract/u);
