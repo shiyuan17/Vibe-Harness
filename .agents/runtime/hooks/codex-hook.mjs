@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -8,6 +9,28 @@ import { inspectRtkHook, routeRtkCommand } from './lib/rtk.mjs';
 
 const MAX_INPUT_BYTES = 1024 * 1024;
 const guardedEvents = new Set(['PermissionRequest', 'PreToolUse']);
+export const HOOK_FAILURE_CODES = Object.freeze({
+  inputInvalid: 'HOOK_INPUT_INVALID',
+  invalidJson: 'HOOK_INPUT_INVALID_JSON',
+  inputTooLarge: 'HOOK_INPUT_TOO_LARGE',
+  eventMismatch: 'HOOK_EVENT_MISMATCH',
+  projectContextUnavailable: 'HOOK_PROJECT_CONTEXT_UNAVAILABLE',
+  runtimeError: 'HOOK_RUNTIME_ERROR',
+});
+const hookFailureMessages = new Map([
+  [HOOK_FAILURE_CODES.inputInvalid, 'Hook input does not match the supported event contract.'],
+  [HOOK_FAILURE_CODES.invalidJson, 'Hook input is not valid JSON.'],
+  [HOOK_FAILURE_CODES.inputTooLarge, 'Hook input exceeds the safe size limit.'],
+  [HOOK_FAILURE_CODES.eventMismatch, 'Hook event does not match the configured lifecycle event.'],
+  [HOOK_FAILURE_CODES.projectContextUnavailable, 'Hook project context is unavailable.'],
+  [HOOK_FAILURE_CODES.runtimeError, 'Hook runtime could not safely evaluate this event.'],
+]);
+let currentFailureCode = HOOK_FAILURE_CODES.runtimeError;
+
+function hookFailure(code) {
+  currentFailureCode = code;
+  return Object.assign(new Error(code), { code });
+}
 
 function expectedEventFromArgs(argv) {
   const index = argv.indexOf('--expected-event');
@@ -26,7 +49,7 @@ function hostFromArgs(argv) {
 }
 
 function hookFailureResult(host, expectedEvent) {
-  const reason = 'HOOK_RUNTIME_ERROR: Vibe-Harness could not safely evaluate this hook event.';
+  const reason = '[VIBE_HARNESS_HOOK:' + currentFailureCode + '] ' + hookFailureMessages.get(currentFailureCode);
   return guardedEvents.has(expectedEvent)
     ? createHostHookResult(host, expectedEvent, { action: 'deny', reason })
     : { systemMessage: reason };
@@ -37,18 +60,34 @@ async function readStdin() {
   let size = 0;
   for await (const chunk of process.stdin) {
     size += chunk.length;
-    if (size > MAX_INPUT_BYTES) throw new Error('Hook input exceeds 1 MiB.');
+    if (size > MAX_INPUT_BYTES) throw hookFailure(HOOK_FAILURE_CODES.inputTooLarge);
     chunks.push(chunk);
   }
-  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    throw hookFailure(HOOK_FAILURE_CODES.invalidJson);
+  }
 }
 
 export async function evaluateHook(rawInput, { expectedEvent, host = 'codex', rtkRunner } = {}) {
   const startedAt = process.hrtime.bigint();
   const elapsedMs = () => Number((process.hrtime.bigint() - startedAt) / 1_000_000n);
-  const input = normalizeHostHookInput(rawInput, { expectedEvent, fallbackCwd: process.cwd(), host });
+  let input;
+  try {
+    input = normalizeHostHookInput(rawInput, { expectedEvent, fallbackCwd: process.cwd(), host });
+  } catch {
+    throw hookFailure(HOOK_FAILURE_CODES.inputInvalid);
+  }
   if (expectedEvent && input.event !== expectedEvent) {
-    throw new Error('Hook event does not match the configured event.');
+    throw hookFailure(HOOK_FAILURE_CODES.eventMismatch);
+  }
+  try {
+    const contextStat = await stat(input.cwd);
+    if (!contextStat.isDirectory()) throw hookFailure(HOOK_FAILURE_CODES.projectContextUnavailable);
+  } catch (error) {
+    if (error?.code === HOOK_FAILURE_CODES.projectContextUnavailable) throw error;
+    throw hookFailure(HOOK_FAILURE_CODES.projectContextUnavailable);
   }
   const rootDir = await findProjectRoot(input.cwd);
   const settings = await readHookSettings(rootDir);

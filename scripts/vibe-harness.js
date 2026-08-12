@@ -925,10 +925,14 @@ async function doctor(args) {
     allowPreview: true,
   });
   if (!args.verbose) target = compactTargetReport(target);
-  const health = provisioningProcess
+  let health = provisioningProcess
     ? { ok: false, status: 'degraded' }
     : healthReport({ baseOk: pack.ok && (!target || target.ok), profile, tools });
-  const runtimeHooks = await inspectRuntimeHooks(adapter, targetDir);
+  const runtimeHooks = await inspectRuntimeHooks(adapter, targetDir, {
+    hookMode: config.hooks?.mode,
+    selfCheck: true,
+  });
+  if (runtimeHooks.selfCheck?.status === 'degraded') health = { ok: false, status: 'degraded' };
   const memory = await inspectMemory(config, installState, targetDir);
   emitReport({
     ...health,

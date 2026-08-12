@@ -122,6 +122,17 @@ test('full Codex install writes only safety Hook events through the Git-root boo
     ])).stdout);
     assert.equal(validation.runtimeHooks.activation.status, 'unknown');
     assert.equal(validation.warnings.some((warning) => warning.code === 'HOOK_ACTIVATION_UNVERIFIED'), true);
+    const doctor = JSON.parse((await execFileAsync(process.execPath, [
+      cliPath, 'doctor', '--project', target,
+    ])).stdout);
+    assert.deepEqual(doctor.runtimeHooks.selfCheck, {
+      code: 'HOOK_SELF_CHECK_PASSED',
+      status: 'pass',
+    });
+    await assert.rejects(
+      () => readFile(path.resolve(target, '..', '.vibe-harness-hook-self-check'), 'utf8'),
+      /ENOENT/u,
+    );
   } finally {
     await rm(target, { force: true, recursive: true });
   }

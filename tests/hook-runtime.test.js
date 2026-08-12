@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -9,6 +10,33 @@ import { resolveExecutable, runCommand } from '../runtime/hooks/git-hook.mjs';
 import { DEFAULT_RED_ZONE_PATHS, readHookSettings } from '../runtime/hooks/lib/context.mjs';
 import { analyzeToolRequest, createHostHookResult, normalizeCodexHookInput, supportedCodexHookEvents } from '../runtime/hooks/lib/policy.mjs';
 import { inspectRtkHook, routeRtkCommand } from '../runtime/hooks/lib/rtk.mjs';
+
+const hookCliPath = path.resolve('runtime/hooks/codex-hook.mjs');
+
+async function runHookCli(stdin, args = ['--host', 'codex', '--expected-event', 'PreToolUse']) {
+  const child = spawn(process.execPath, [hookCliPath, ...args], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    windowsHide: true,
+  });
+  const stdout = [];
+  const stderr = [];
+  child.stdout.on('data', (chunk) => stdout.push(chunk));
+  child.stderr.on('data', (chunk) => stderr.push(chunk));
+  child.stdin.end(stdin);
+  const code = await new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('close', resolve);
+  });
+  return {
+    code,
+    stderr: Buffer.concat(stderr).toString('utf8'),
+    stdout: Buffer.concat(stdout).toString('utf8'),
+  };
+}
+
+function hookCliReason(stdout) {
+  return JSON.parse(stdout).hookSpecificOutput.permissionDecisionReason;
+}
 
 async function withProject(callback, hooks = { mode: 'guarded' }) {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-hook-runtime-'));
@@ -91,6 +119,44 @@ test('Hook supports only safety events and allows ordinary project commands', as
   await withProject(async (target) => {
     assert.deepEqual(await evaluateCodexHook(input(target)), {});
   });
+});
+
+test('Hook CLI classifies malformed, oversized, mismatched, and unavailable-context input without disclosure', async () => {
+  const sensitiveMarker = ['fixture', 'credential', 'value'].join('-');
+  const missingContext = path.join(tmpdir(), 'missing-hook-context-' + sensitiveMarker);
+  const cases = [
+    {
+      code: 'HOOK_INPUT_INVALID_JSON',
+      stdin: '{"invalid":"' + sensitiveMarker,
+    },
+    {
+      code: 'HOOK_INPUT_TOO_LARGE',
+      stdin: 'x'.repeat(1024 * 1024 + 1),
+    },
+    {
+      code: 'HOOK_EVENT_MISMATCH',
+      stdin: JSON.stringify(input(process.cwd(), {
+        hook_event_name: 'PermissionRequest',
+        session_id: sensitiveMarker,
+      })),
+    },
+    {
+      code: 'HOOK_PROJECT_CONTEXT_UNAVAILABLE',
+      stdin: JSON.stringify(input(missingContext, {
+        session_id: sensitiveMarker,
+      })),
+    },
+  ];
+
+  for (const fixture of cases) {
+    const result = await runHookCli(fixture.stdin);
+    assert.equal(result.code, 0);
+    assert.equal(result.stderr, '');
+    assert.match(hookCliReason(result.stdout), new RegExp('VIBE_HARNESS_HOOK:' + fixture.code, 'u'));
+    assert.doesNotMatch(result.stdout, new RegExp(sensitiveMarker, 'u'));
+    assert.doesNotMatch(result.stdout, /Bearer|Authorization|Cookie|password/iu);
+    assert.equal(JSON.parse(result.stdout).hookSpecificOutput.permissionDecision, 'deny');
+  }
 });
 
 test('Hook denies destructive Git operations and global Agent configuration writes', async () => {
@@ -439,7 +505,7 @@ test('unsupported lifecycle events fail closed instead of creating task context'
   await withProject(async (target) => {
     await assert.rejects(
       evaluateCodexHook(input(target, { hook_event_name: 'Stop' })),
-      /Unsupported hook event/u,
+      (error) => error?.code === 'HOOK_INPUT_INVALID',
     );
   });
 });

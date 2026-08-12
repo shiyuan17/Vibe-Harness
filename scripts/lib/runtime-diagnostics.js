@@ -4,6 +4,7 @@ import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 
 import { pathExists } from './manifest.js';
+import { evaluateHook, HOOK_FAILURE_CODES } from '../../runtime/hooks/codex-hook.mjs';
 
 const execFileAsync = promisify(execFile);
 const hookConfigTargets = {
@@ -14,7 +15,55 @@ function hookConfigTarget(adapter) {
   return adapter.projectConfig?.hooks?.target || hookConfigTargets[adapter.id] || null;
 }
 
-export async function inspectRuntimeHooks(adapter, targetDir) {
+function selfCheckPayload(adapterId, targetDir) {
+  const outsidePath = path.resolve(targetDir, '..', '.vibe-harness-hook-self-check');
+  if (adapterId === 'antigravity') {
+    return {
+      toolCall: { name: 'write_file', args: { path: outsidePath } },
+      workspacePaths: [targetDir],
+    };
+  }
+  return {
+    cwd: targetDir,
+    hook_event_name: 'PreToolUse',
+    session_id: 'hook-self-check',
+    tool_input: { file_path: outsidePath },
+    tool_name: 'Write',
+  };
+}
+
+function selfCheckMatchesMode(adapterId, result, hookMode) {
+  if (hookMode === 'observe') {
+    if (adapterId === 'cursor') return result?.continue === true && typeof result?.additionalContext === 'string';
+    if (adapterId === 'antigravity') return result?.decision === 'ask';
+    return typeof result?.hookSpecificOutput?.additionalContext === 'string';
+  }
+  if (adapterId === 'cursor') return result?.continue === false;
+  if (adapterId === 'antigravity') return result?.decision === 'deny';
+  return result?.hookSpecificOutput?.permissionDecision === 'deny';
+}
+
+export async function inspectRuntimeHookSelfCheck(adapter, targetDir, { configured, hookMode } = {}) {
+  if (adapter.hookActivation === 'unsupported') {
+    return { status: 'unsupported', code: 'HOOK_SELF_CHECK_UNSUPPORTED' };
+  }
+  if (!configured) return { status: 'not-installed', code: 'HOOK_SELF_CHECK_NOT_INSTALLED' };
+  if (hookMode === 'off') return { status: 'disabled', code: 'HOOK_SELF_CHECK_DISABLED' };
+  try {
+    const result = await evaluateHook(selfCheckPayload(adapter.id, targetDir), {
+      expectedEvent: 'PreToolUse',
+      host: adapter.id,
+    });
+    return selfCheckMatchesMode(adapter.id, result, hookMode)
+      ? { status: 'pass', code: 'HOOK_SELF_CHECK_PASSED' }
+      : { status: 'degraded', code: 'HOOK_SELF_CHECK_NOT_DENIED' };
+  } catch (error) {
+    const stableCodes = new Set(Object.values(HOOK_FAILURE_CODES));
+    return { status: 'degraded', code: stableCodes.has(error?.code) ? error.code : 'HOOK_SELF_CHECK_FAILED' };
+  }
+}
+
+export async function inspectRuntimeHooks(adapter, targetDir, { selfCheck = false, hookMode } = {}) {
   const configTarget = hookConfigTarget(adapter);
   const configured = Boolean(configTarget && await pathExists(path.join(targetDir, configTarget)));
   const mechanism = adapter.hookActivation;
@@ -31,20 +80,31 @@ export async function inspectRuntimeHooks(adapter, targetDir) {
   } else if (configured) {
     status = 'configured-unverified';
   }
-  return {
+  const report = {
     configured,
     declaredEvents: { ...adapter.hookEvents },
     pathResolution: 'git-root',
     activation: { mechanism, status, verification },
   };
+  if (selfCheck) report.selfCheck = await inspectRuntimeHookSelfCheck(adapter, targetDir, { configured, hookMode });
+  return report;
 }
 
 export function runtimeHookWarnings(runtimeHooks) {
-  if (!runtimeHooks.configured || runtimeHooks.activation.status === 'unsupported') return [];
-  return [{
-    code: 'HOOK_ACTIVATION_UNVERIFIED',
-    message: runtimeHooks.activation.verification,
-  }];
+  const warnings = [];
+  if (runtimeHooks.configured && runtimeHooks.activation.status !== 'unsupported') {
+    warnings.push({
+      code: 'HOOK_ACTIVATION_UNVERIFIED',
+      message: runtimeHooks.activation.verification,
+    });
+  }
+  if (runtimeHooks.selfCheck?.status === 'degraded') {
+    warnings.push({
+      code: 'HOOK_SELF_CHECK_DEGRADED',
+      message: 'The project Hook self-check did not produce the expected fail-closed decision.',
+    });
+  }
+  return warnings;
 }
 
 function extractField(content, labels) {
