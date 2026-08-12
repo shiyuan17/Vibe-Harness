@@ -1,6 +1,6 @@
 {
   "name": "@jw/vibe-harness",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Reusable cross-platform AI coding rules, domain skills, safety hooks, and installer pack.",
   "license": "MIT",

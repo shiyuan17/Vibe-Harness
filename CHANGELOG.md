@@ -22,6 +22,39 @@
 - 新增项目内 RTK `v0.43.0` 与 `@ast-grep/cli@0.44.1`：提供命令输出压缩、结构化搜索规则、checksum/lockfile 校验、doctor 状态和安全回退。
 - docs(readme)：默认 README 改为中文（根 `README.md` 渲染中文），英文版移至 `README.en.md`，并删除 `README.zh-CN.md`；同步更新 `validateReadmeParity` 签名与错误标签、`manifests/capabilities.json` 文档清单、`docs/catalog.json` 条目以及 `docs/README.md` 链接。
 
+## [0.4.0](https://github.com/shiyuan17/Vibe-Harness/compare/v0.3.0...v0.4.0) (2026-08-12)
+
+
+### Features
+
+* **adapter:** add antigravity adapter support ([e46c6d6](https://github.com/shiyuan17/Vibe-Harness/commit/e46c6d637a86be70aae5313e7595f139b826fe0d))
+* **adapter:** add opencode adapter with AGENTS + MCP templates ([ad2acc9](https://github.com/shiyuan17/Vibe-Harness/commit/ad2acc92adfec422381fe1009f30f3450f0d1e40))
+* **ci:** gate releases on verified evidence ([592b3d0](https://github.com/shiyuan17/Vibe-Harness/commit/592b3d0981554f74fc816ecf3582cc16ef97312b))
+* **cli+hooks:** register opencode target and red-zone paths ([0d92c06](https://github.com/shiyuan17/Vibe-Harness/commit/0d92c06401153a8b324de3d4a7b578b87f1947fb))
+* **evals:** capture workflow demand evidence ([e516e53](https://github.com/shiyuan17/Vibe-Harness/commit/e516e53fd28af10d843838f3478031f02c0e9c4e))
+* **evals:** report knowledge coverage evidence ([9b8dbc9](https://github.com/shiyuan17/Vibe-Harness/commit/9b8dbc908229b88c8e974abc591e0872cc6d0738))
+* **frontend:** 扩展设计 Skill 的参考路由与体验门槛 ([764c469](https://github.com/shiyuan17/Vibe-Harness/commit/764c4695d730bb00ac221fa44a8cbd95a65a39d9))
+* **hooks:** add project self-check diagnostics ([70bba23](https://github.com/shiyuan17/Vibe-Harness/commit/70bba2369ddab6b8f3800165f1eb5db083020fc1))
+* **hooks:** add safe stop auto-commit ([a644074](https://github.com/shiyuan17/Vibe-Harness/commit/a644074a310608b3a055378ca184a30e4372ce37))
+* **hooks:** remove automatic commits and add runtime diagnostics ([37f6fa6](https://github.com/shiyuan17/Vibe-Harness/commit/37f6fa6408c047fe29a66a8487b5fdfee4e9c166))
+* **install:** support multi-target project installs ([948c556](https://github.com/shiyuan17/Vibe-Harness/commit/948c556c24d28e30d78b37105a131a0c64ff9144))
+* **install:** support multi-target project installs ([fdf995f](https://github.com/shiyuan17/Vibe-Harness/commit/fdf995f3dbce19d1f6152adc1152e58debcc80c3))
+* **linear-mcp:** 引入互斥的读写 / 只读 Linear MCP 集成 ([37bca21](https://github.com/shiyuan17/Vibe-Harness/commit/37bca211292511bf227d0aad33a1740b8a9b0275))
+* **linear:** 完善 Triage 与提交关联工作流 ([61cdcd7](https://github.com/shiyuan17/Vibe-Harness/commit/61cdcd70157fca46d11660e85fd6a718c57605d8))
+* **runtime:** add stable project verification receipts ([4af21db](https://github.com/shiyuan17/Vibe-Harness/commit/4af21dbb18c072e56890cc8ede434fc01cd61a64))
+* strengthen delivery evidence and runtime diagnostics ([17fb8f3](https://github.com/shiyuan17/Vibe-Harness/commit/17fb8f35fde7115430c6532d1dd1bec9b4754068))
+* **tooling:** harden project tool provisioning contracts ([a757e23](https://github.com/shiyuan17/Vibe-Harness/commit/a757e2380073ab4de9ab3161e02f784b9d0fecae))
+
+
+### Bug Fixes
+
+* **ci:** align product checks with branch rules ([e881773](https://github.com/shiyuan17/Vibe-Harness/commit/e881773e576ffc8d5e0695b253ff07a6596ba451))
+* **ci:** restore product status check ([aab1824](https://github.com/shiyuan17/Vibe-Harness/commit/aab182468b93fe8bfb8c8b853393026c00575993))
+* **eval:** configure third-party canary runtime ([ad6dba3](https://github.com/shiyuan17/Vibe-Harness/commit/ad6dba36f304be2c4265b53ae28dd2e82024810b))
+* **verify:** normalize Git snapshot paths ([43ae70e](https://github.com/shiyuan17/Vibe-Harness/commit/43ae70edbda26b1c764768907e161a4ac514ca4a))
+* **verify:** omit root pathspec on Windows ([4df8fd4](https://github.com/shiyuan17/Vibe-Harness/commit/4df8fd40f8c583b6aab575b1bcc48b1849b798ed))
+* **verify:** snapshot project roots on Windows ([f970f70](https://github.com/shiyuan17/Vibe-Harness/commit/f970f70873ede680e8e4899c1e909b5ec718a575))
+
 ## 0.5.0 - 2026-07-18
 
 - 产品正式命名为 Cognis（智序，旧称 LoopEngine），package、主 CLI、配置、活动 runtime、Skill、评测及产物统一使用 Cognis 命名。
