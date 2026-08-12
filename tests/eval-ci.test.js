@@ -20,11 +20,16 @@ test('CI blocks offline eval drift and scheduled workflow runs advisory online c
   assert.match(ci, /pnpm runtime:audit/u);
   assert.match(ci, /pnpm pack:contract/u);
   assert.match(ci, /supply-chain:/u);
+  assert.match(ci, /risk-evidence:/u);
+  assert.match(ci, /merge-gate:/u);
+  assert.match(ci, /needs:\s*\[product, supply-chain, risk-evidence\]/u);
   assert.match(online, /schedule:/u);
   assert.match(online, /workflow_dispatch:/u);
   assert.match(online, /environment:\s*Production/u);
   assert.match(online, /pnpm eval:online/u);
-  assert.match(online, /retention-days:\s*30/u);
+  assert.match(online, /retention-days:\s*(?:3[0-9]|[4-9][0-9]|[1-9][0-9]{2,})/u);
+  assert.match(online, /--limit\s+(?:1[4-9]|[2-9][0-9])/u);
+  assert.match(online, /pnpm eval:compare/u);
   assert.match(online, /pnpm eval:health/u);
   assert.match(online, /vars\.VIBE_HARNESS_EVAL_ENFORCE/u);
   assert.match(online, /vars\.OPENAI_BASE_URL/u);
@@ -52,7 +57,12 @@ test('GitHub Actions are least-privilege, commit-pinned, and receive automated u
     }
   }
   const release = workflows.find((workflow) => workflow.name === 'release-please.yml').content;
-  assert.doesNotMatch(release, /actions\/checkout@/u);
+  assert.match(release, /release-verify:/u);
+  assert.match(release, /pnpm pack --pack-destination/u);
+  assert.match(release, /attest-build-provenance@/u);
+  assert.match(release, /release-evidence\.json/u);
+  assert.match(release, /secrets\.RELEASE_PLEASE_TOKEN/u);
+  assert.doesNotMatch(release, /npm publish|pnpm publish/u);
   assert.match(release, /release-please:\s*[\s\S]*permissions:\s*[\s\S]*contents:\s*write[\s\S]*pull-requests:\s*write/u);
 
   const dependabot = await readFile(path.join(rootDir, '.github/dependabot.yml'), 'utf8');
@@ -78,6 +88,8 @@ test('online canary suite contains critical product scenarios', async () => {
   for (const fragment of ['global', 'existing', '--project', 'eval-driven-development', 'Goal Brief', 'secret']) {
     assert.match(scenarios, new RegExp(fragment, 'iu'));
   }
+  const demands = suite.cases.map((item) => item.reporting?.workflowDemand).filter(Boolean);
+  assert.deepEqual(demands.map((item) => item.expectedOwner.kind).sort(), ['builtin', 'skill', 'skill']);
 });
 
 test('offline routing eval covers browser, rtk, and ast-grep tool routing', async () => {

@@ -45,6 +45,7 @@ export function validateEvalSuiteSemantics(suite, manifests) {
     const expectedRules = item.reporting?.expected?.rules ?? [];
     const expectedSkills = item.reporting?.expected?.skills ?? [];
     const candidateOwners = item.reporting?.knowledgeCoverage?.candidateOwners ?? [];
+    const expectedOwner = item.reporting?.workflowDemand?.expectedOwner;
     if (knownRuleIds) {
       for (const ruleId of expectedRules) {
         if (!knownRuleIds.has(ruleId)) errors.push(`cases[${index}].reporting.expected.rules references unknown rule id: ${ruleId}`);
@@ -62,6 +63,12 @@ export function validateEvalSuiteSemantics(suite, manifests) {
       if (owner.kind === 'skill' && knownSkillIds && !knownSkillIds.has(owner.id)) {
         errors.push('cases[' + index + '].reporting.knowledgeCoverage references unknown skill id: ' + owner.id);
       }
+    }
+    if (expectedOwner?.kind === 'rule' && knownRuleIds && !knownRuleIds.has(expectedOwner.id)) {
+      errors.push('cases[' + index + '].reporting.workflowDemand references unknown rule id: ' + expectedOwner.id);
+    }
+    if (expectedOwner?.kind === 'skill' && knownSkillIds && !knownSkillIds.has(expectedOwner.id)) {
+      errors.push('cases[' + index + '].reporting.workflowDemand references unknown skill id: ' + expectedOwner.id);
     }
   }
   return errors.sort();

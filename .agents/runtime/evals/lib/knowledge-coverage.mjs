@@ -100,6 +100,41 @@ export function knowledgeCoverageEpisode(input) {
   };
 }
 
+export function taskEpisode(input) {
+  const demand = input.demand;
+  if (!demand) return null;
+  const taskFamily = semanticId(demand.taskFamily, 'taskFamily');
+  const owner = {
+    kind: demand.expectedOwner.kind,
+    id: semanticId(demand.expectedOwner.id, 'owner id'),
+  };
+  const selected = owner.kind === 'rule' || owner.kind === 'skill'
+    ? ownerSelected(input.commands, owner) : owner.kind === 'builtin';
+  const invocation = invocationEvidence(input.messages, [owner]);
+  const observed = invocation.invoked.has(ownerKey(owner))
+    || ((owner.kind === 'rule' || owner.kind === 'skill') && selected);
+  const validationStatus = input.finalChangeValidation.status;
+  const handoff = input.workflowEvents.some((event) => event.kind === 'handoff');
+  const stopBoundary = input.exitCode !== 0 ? 'blocked'
+    : validationStatus === 'verified' ? 'verified-handoff'
+      : validationStatus === 'handoff-unbound' || handoff ? 'handoff-unbound'
+        : validationStatus === 'not-applicable' ? 'not-applicable' : 'failed';
+  const outcome = input.degraded ? 'degraded'
+    : input.exitCode === 0 && input.hiddenTests.failed === 0 && ['verified', 'not-applicable'].includes(validationStatus)
+      ? 'passed' : 'failed';
+  return {
+    taskFamily,
+    owner: {
+      ...owner,
+      evidenceState: observed ? 'observed' : selected ? 'resolved-active'
+        : owner.kind === 'none' ? 'declared' : 'resolved-active',
+    },
+    validationStatus,
+    stopBoundary,
+    outcome,
+  };
+}
+
 export function reconcileKnowledgeCoverageEpisodes(episodes) {
   const available = episodes.filter(Boolean);
   if (available.length === 0) return null;

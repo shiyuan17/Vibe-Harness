@@ -24,20 +24,24 @@ test('eval schemas use draft 2020-12 and schemaVersion 1 contracts', async () =>
   }
 });
 
-test('core suite contains exactly 34 generic cases in the required category split', async () => {
+test('core suite contains exactly 38 generic cases in the required category split', async () => {
   const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-core.json'));
-  assert.equal(suite.cases.length, 34);
+  assert.equal(suite.cases.length, 38);
   const counts = suite.cases.reduce((result, item) => ({
     ...result,
     [item.category]: (result[item.category] ?? 0) + 1,
   }), {});
   assert.deepEqual(counts, {
     'install-lifecycle': 6,
-    'task-delivery-governance': 1,
+    'task-delivery-governance': 4,
     'skill-routing': 19,
-    'safety-isolation': 8,
+    'safety-isolation': 9,
   });
-  assert.equal(new Set(suite.cases.map((item) => item.id)).size, 34);
+  const ids = new Set(suite.cases.map((item) => item.id));
+  assert.equal(ids.size, 38);
+  for (const id of ['EVAL-GOV-EVIDENCE-005', 'EVAL-GOV-DEGRADED-006', 'EVAL-GOV-SENSITIVE-007', 'EVAL-GOV-ANALYSIS-008']) {
+    assert.equal(ids.has(id), true);
+  }
   for (const item of suite.cases) {
     assert.deepEqual(Object.keys(item.weights).sort(), ['correctness', 'efficiency', 'evidenceQuality', 'safety']);
     assert.equal(Number.isInteger(item.repetitions) && item.repetitions >= 1, true);
@@ -149,6 +153,51 @@ test('RTK and ast-grep rules have reference-backed fallback and evidence cases',
   assert.equal(astGrep.oracle.forbiddenEvents.some((item) => item.value === 'unverified-structural-match-accepted'), true);
   assert.equal(astGrepQuery.oracle.requiredEvents.some((item) => item.value === 'ast-grep-language-selected'), true);
   assert.equal(astGrepDebug.oracle.requiredEvents.some((item) => item.value === 'ast-grep-debug-query-used'), true);
+});
+
+test('EVAL-WORKFLOW-DEMAND-001 schemas accept workflow demand and sanitized task episodes', async () => {
+  const [suiteSchema, runSchema, coreSuite] = await Promise.all([
+    readJson(path.join(rootDir, 'schemas/eval-suite.schema.json')),
+    readJson(path.join(rootDir, 'schemas/eval-run.schema.json')),
+    readJson(path.join(rootDir, 'evals/suites/vibe-harness-core.json')),
+  ]);
+  const suite = structuredClone(coreSuite);
+  suite.cases[0].reporting = {
+    ...(suite.cases[0].reporting ?? {}),
+    workflowDemand: {
+      taskFamily: 'installer-lifecycle',
+      expectedOwner: { kind: 'skill', id: 'eval-driven-development' },
+    },
+  };
+  assert.deepEqual(validateJsonAgainstSchema(suite, suiteSchema, 'suite'), []);
+
+  const assets = await loadEvalAssets(rootDir);
+  const run = structuredClone(assets.run);
+  run.trialSummaries = [{
+    caseId: run.cases[0].id,
+    repetitions: 1,
+    passAt1: 1,
+    passAtK: 1,
+    passCaretK: 1,
+    passedTrials: 1,
+    meanScore: 1,
+    perTrial: [{
+      repetition: 1,
+      passed: true,
+      score: 1,
+      toolSummary: {
+        taskEpisode: {
+          taskFamily: 'installer-lifecycle',
+          owner: { kind: 'skill', id: 'eval-driven-development', evidenceState: 'observed' },
+          validationStatus: 'verified',
+          stopBoundary: 'verified-handoff',
+          outcome: 'passed',
+        },
+      },
+    }],
+  }];
+  assert.deepEqual(validateJsonAgainstSchema(run, runSchema, 'run'), []);
+  assert.doesNotMatch(JSON.stringify(run.trialSummaries), /prompt|sessionId|commandText|toolOutput/iu);
 });
 
 test('tool routing eval keeps syntax, semantics, text, and output compression distinct', async () => {

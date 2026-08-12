@@ -32,6 +32,23 @@
                 "uniqueItems": true
               },
               "toolMetricMode": { "type": "string", "enum": ["execute", "refuse", "exclude"] },
+              "workflowDemand": {
+                "type": "object",
+                "required": ["taskFamily", "expectedOwner"],
+                "properties": {
+                  "taskFamily": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9]*(?:[._/-][a-z0-9]+)*$" },
+                  "expectedOwner": {
+                    "type": "object",
+                    "required": ["kind", "id"],
+                    "properties": {
+                      "kind": { "type": "string", "enum": ["rule", "skill", "builtin", "none"] },
+                      "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9]*(?:[._/-][a-z0-9]+)*$" }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              },
               "knowledgeCoverage": {
                 "type": "object",
                 "required": ["requestRoot", "candidateOwners", "inventoryComplete", "stopBoundary"],

@@ -34,6 +34,7 @@ export function summarizeTrials(caseId, trials) {
           errorCategories: observation.metrics?.errorCategories ?? [],
           finalChangeValidation: observation.metrics?.finalChangeValidation,
           knowledgeCoverage: observation.metrics?.knowledgeCoverage,
+          taskEpisode: observation.metrics?.taskEpisode,
           hookReasonCodes: observation.metrics?.hookReasonCodes ?? [],
           hookTimings: observation.metrics?.hookTimings ?? [],
           durationMs: observation.metrics?.durationMs ?? 0,

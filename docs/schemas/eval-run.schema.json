@@ -150,6 +150,27 @@
                         "additionalProperties": false
                       }
                     },
+                    "taskEpisode": {
+                      "type": "object",
+                      "required": ["taskFamily", "owner", "validationStatus", "stopBoundary", "outcome"],
+                      "properties": {
+                        "taskFamily": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:[._/-][a-z0-9]+)*$" },
+                        "owner": {
+                          "type": "object",
+                          "required": ["kind", "id", "evidenceState"],
+                          "properties": {
+                            "kind": { "type": "string", "enum": ["rule", "skill", "builtin", "none"] },
+                            "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:[._/-][a-z0-9]+)*$" },
+                            "evidenceState": { "type": "string", "enum": ["declared", "resolved-active", "observed", "missing"] }
+                          },
+                          "additionalProperties": false
+                        },
+                        "validationStatus": { "type": "string", "enum": ["not-applicable", "missing", "failed", "handoff-unbound", "verified"] },
+                        "stopBoundary": { "type": "string", "enum": ["verified-handoff", "handoff-unbound", "failed", "blocked", "not-applicable"] },
+                        "outcome": { "type": "string", "enum": ["passed", "failed", "degraded"] }
+                      },
+                      "additionalProperties": false
+                    },
                     "recoverableToolErrorCount": { "type": "integer", "minimum": 0 },
                     "ruleCoverage": {
                       "type": "object",

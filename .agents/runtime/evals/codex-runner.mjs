@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 import { protectedConfigChanged, snapshotProtectedConfig } from './lib/protected-config.mjs';
 import { runHiddenTests } from './lib/hidden-tests.mjs';
-import { knowledgeCoverageEpisode } from './lib/knowledge-coverage.mjs';
+import { knowledgeCoverageEpisode, taskEpisode } from './lib/knowledge-coverage.mjs';
 
 const LIMIT = 1024 * 1024;
 const RUNNER_ID = 'codex-reference@2';
@@ -500,6 +500,15 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     messages: parsed.messages,
     workflowEvents: parsed.workflowEvents,
   });
+  const episode = taskEpisode({
+    commands: parsed.commands,
+    demand: request.case.reporting?.workflowDemand,
+    exitCode: result.code,
+    finalChangeValidation,
+    hiddenTests: hiddenTests.summary,
+    messages: parsed.messages,
+    workflowEvents: parsed.workflowEvents,
+  });
   if (knowledgeCoverage) semanticEvents.push('knowledge-coverage-' + knowledgeCoverage.state);
   if (semanticEvents.includes('hidden-tests-failed')) parsed.errorCategories.push('hidden-test-failed');
   const protectedAfter = await snapshotProtectedConfig({ codexHome, userHome });
@@ -537,6 +546,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       errorCategories: [...new Set(parsed.errorCategories)],
       finalChangeValidation,
       ...(knowledgeCoverage ? { knowledgeCoverage } : {}),
+      ...(episode ? { taskEpisode: episode } : {}),
       hookReasonCodes: parsed.hookReasonCodes,
       hookTimings: parsed.hookTimings,
       durationMs: Number((process.hrtime.bigint() - startedAt) / 1_000_000n),

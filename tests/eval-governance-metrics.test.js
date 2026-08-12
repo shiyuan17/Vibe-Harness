@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { createCodexHookResult } from '../runtime/hooks/lib/policy.mjs';
 import { inputEventFromContext, isGitCommitCommand, transcript } from '../runtime/evals/codex-runner.mjs';
+import { taskEpisode } from '../runtime/evals/lib/knowledge-coverage.mjs';
 import { buildEvalReportModel } from '../scripts/lib/eval-report.js';
 import { summarizeTrials } from '../scripts/lib/eval-trials.js';
 import { validateJsonAgainstSchema } from '../scripts/lib/manifest.js';
@@ -114,6 +115,22 @@ test('summarizeTrials supplies empty defaults when observation metrics omit gove
   assert.deepEqual(toolSummary.hookTimings, []);
   assert.deepEqual(toolSummary.ruleCoverage, { expected: [], measured: [] });
   assert.deepEqual(toolSummary.skillTriggers, []);
+});
+
+test('task episodes distinguish resolved owners from observed project skill reads', () => {
+  const base = {
+    demand: { taskFamily: 'skill-routing', expectedOwner: { kind: 'skill', id: 'eval-driven-development' } },
+    exitCode: 0,
+    finalChangeValidation: { status: 'not-applicable' },
+    hiddenTests: { failed: 0 },
+    messages: [],
+    workflowEvents: [],
+  };
+  const resolved = taskEpisode({ ...base, commands: [] });
+  assert.equal(resolved.owner.evidenceState, 'resolved-active');
+  const invoked = taskEpisode({ ...base, commands: ['skill-read:.agents/skills/eval-driven-development/skill.md'] });
+  assert.equal(invoked.owner.evidenceState, 'observed');
+  assert.equal(JSON.stringify(invoked).includes('skill-read:'), false);
 });
 
 test('summarizeTrials reconciles comparable knowledge coverage Episodes without a new gate', () => {
