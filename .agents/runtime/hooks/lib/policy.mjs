@@ -102,7 +102,7 @@ export function normalizeHostHookInput(value, { expectedEvent, fallbackCwd, host
       toolName: value.toolCall?.name ?? '',
     };
   }
-  if (!['cursor', 'qoder', 'zcode'].includes(host)) throw new Error(`Unsupported hook host: ${String(host)}`);
+  if (!['cursor', 'qoder', 'zcode', 'claude'].includes(host)) throw new Error(`Unsupported hook host: ${String(host)}`);
   assertObject(value, `${host} hook input`);
   const event = hostEvent(value.hook_event_name ?? value.hookEventName ?? value.event ?? value.event_name);
   if (!event || !supportedHostHookEvents.has(event)) {
@@ -510,7 +510,7 @@ export function createHostHookResult(host, event, decision, { durationMs } = {})
       ? { additionalContext: reason, continue: true }
       : { continue: false, stopReason: reason };
   }
-  if (host === 'qoder' || host === 'zcode') {
+  if (host === 'qoder' || host === 'zcode' || host === 'claude') {
     if (decision.action === 'warn') return { hookSpecificOutput: { additionalContext: reason, hookEventName: event } };
     if (event === 'PermissionRequest') {
       return { hookSpecificOutput: { decision: { behavior: 'deny', message: reason }, hookEventName: event } };

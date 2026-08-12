@@ -13,7 +13,14 @@ import {
   mergeManagedInstructionBlock,
   removeManagedInstructionBlock,
 } from '../scripts/lib/template-renderer.js';
-import { resolveAdapterEntry } from '../scripts/lib/adapter.js';
+import {
+  canonicalAgentsTemplate,
+  hookConfigTargets,
+  loadAdapterCatalog,
+  resolveAdapterEntry,
+  skillRootMatcher,
+  skillRootPrefixes,
+} from '../scripts/lib/adapter.js';
 import { createInstallPlan } from '../scripts/lib/install-planner.js';
 import { applyUninstallPlan, createUninstallPlan } from '../scripts/lib/install-state.js';
 
@@ -35,9 +42,9 @@ async function fail(args) {
   assert.fail('Expected command to fail');
 }
 
-test('all seven adapters share one project installation and support target-scoped uninstall', async () => {
+test('all eight adapters share one project installation and support target-scoped uninstall', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-multi-adapter-'));
-  const targets = ['codex', 'claude', 'gemini', 'cursor', 'qoder', 'zcode', 'antigravity'];
+  const targets = ['codex', 'claude', 'gemini', 'cursor', 'qoder', 'zcode', 'antigravity', 'opencode'];
   try {
     await run(['init', '--project', target]);
     const configPath = path.join(target, 'vibe-harness.config.json');
@@ -57,7 +64,7 @@ test('all seven adapters share one project installation and support target-scope
     assert.equal(new Set(state.files.map((file) => file.target)).size, state.files.length);
     assert.deepEqual(
       state.files.find((file) => file.target === 'AGENTS.md').owners,
-      ['adapter:codex', 'adapter:cursor', 'adapter:qoder', 'adapter:zcode'],
+      ['adapter:codex', 'adapter:cursor', 'adapter:opencode', 'adapter:qoder', 'adapter:zcode'],
     );
     assert.deepEqual(state.files.find((file) => file.target === 'docs/rules/coding-rules.md').owners, ['shared']);
     assert.deepEqual(state.files.find((file) => file.target === 'CLAUDE.md').owners, ['adapter:claude']);
@@ -149,9 +156,9 @@ test('Antigravity structured MCP and Hook config preserves users, conflicts by n
   }
 });
 
-test('all seven full adapters share one runtime, memory library, and root-scoped index contract', async () => {
+test('all eight full adapters share one runtime, memory library, and root-scoped index contract', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-all-full-shared-'));
-  const targets = ['codex', 'claude', 'gemini', 'cursor', 'qoder', 'zcode', 'antigravity'];
+  const targets = ['codex', 'claude', 'gemini', 'cursor', 'qoder', 'zcode', 'antigravity', 'opencode'];
   try {
     await run(['init', '--project', target, '--profile', 'full']);
     const configPath = path.join(target, 'vibe-harness.config.json');
@@ -173,7 +180,7 @@ test('all seven full adapters share one runtime, memory library, and root-scoped
     assert.equal(memoryFiles.length > 0, true);
     assert.equal(memoryFiles.every((file) => file.owners.length === 1 && file.owners[0] === 'shared'), true);
 
-    const mcpPaths = ['.cursor/mcp.json', '.mcp.json', '.zcode/config.json', '.agents/mcp_config.json'];
+    const mcpPaths = ['.cursor/mcp.json', '.mcp.json', '.zcode/config.json', '.agents/mcp_config.json', 'opencode.json'];
     const indexedRoots = [];
     for (const relativePath of mcpPaths) {
       const hostConfig = JSON.parse(await readFile(path.join(target, relativePath), 'utf8'));
@@ -439,14 +446,16 @@ test('modified Cursor managed JSON is retained during upgrade and uninstall', as
 });
 
 for (const adapter of [
-  { id: 'claude', skills: '.claude/skills' },
-  { id: 'gemini', skills: '.gemini/skills' },
+  { id: 'claude', skills: '.claude/skills', hasHooks: true },
+  { id: 'gemini', skills: '.gemini/skills', hasHooks: false },
 ]) {
-  test(`${adapter.id} full preview installs eight native Skills without Codex metadata or hooks`, async () => {
+  test(`${adapter.id} full preview installs eight native Skills${adapter.hasHooks ? ' with Claude hooks' : ' without Codex metadata or hooks'}`, async () => {
     const target = await mkdtemp(path.join(tmpdir(), `vibe-harness-${adapter.id}-full-`));
     try {
       await run(['init', '--project', target, '--target', adapter.id, '--profile', 'full']);
-      await run(['install', '--project', target, '--target', adapter.id, '--profile', 'full', '--allow-preview', '--write']);
+      const installArgs = ['install', '--project', target, '--target', adapter.id, '--profile', 'full', '--allow-preview', '--write'];
+      if (adapter.hasHooks) installArgs.push('--confirm-red-zone');
+      await run(installArgs);
       const validation = await run(['validate', '--project', target]);
       const doctor = await run(['doctor', '--project', target]);
       assert.equal(validation.status, 'ready');
@@ -457,6 +466,11 @@ for (const adapter of [
         assert.equal(await exists(path.join(target, adapter.skills, skill, 'agents/openai.yaml')), false);
       }
       assert.equal(await exists(path.join(target, '.codex/hooks.json')), false);
+      if (adapter.hasHooks) {
+        const settings = JSON.parse(await readFile(path.join(target, '.claude/settings.json'), 'utf8'));
+        assert.deepEqual(Object.keys(settings.hooks).sort(), ['PermissionRequest', 'PreToolUse', 'enabled']);
+        assert.equal(settings.hooks.enabled, true);
+      }
     } finally {
       await rm(target, { force: true, recursive: true });
     }
@@ -472,7 +486,7 @@ test('adapter catalog gates preview profiles and rejects target mismatch', async
     const preview = await run([
       'install', '--project', target, '--target', 'claude', '--profile', 'full', '--dry-run', '--allow-preview',
     ]);
-    assert.equal(preview.previewCapabilities.includes('hooks'), true);
+    assert.equal(preview.previewCapabilities.includes('hooks'), false);
     assert.equal(preview.previewCapabilities.includes('mcp'), true);
     assert.equal(preview.missingCapabilities.includes('plugin'), true);
     const mismatch = await fail(['install', '--project', target, '--target', 'gemini', '--profile', 'core', '--dry-run']);
@@ -484,10 +498,10 @@ test('adapter catalog gates preview profiles and rejects target mismatch', async
   }
 });
 
-test('adapter capability v2 uses explicit support levels for every product surface', async () => {
+test('adapter capability v3 uses explicit support levels for every product surface', async () => {
   const catalog = JSON.parse(await readFile(path.join(rootDir, 'manifests/adapters.json'), 'utf8'));
   const capabilityNames = ['instructions', 'skills', 'hooks', 'policy', 'mcp', 'sandbox', 'memory', 'plugin', 'goals'];
-  assert.equal(catalog.schemaVersion, 2);
+  assert.equal(catalog.schemaVersion, 3);
   for (const adapter of catalog.items) {
     assert.deepEqual(Object.keys(adapter.capabilities).sort(), [...capabilityNames].sort());
     assert.equal(
@@ -495,6 +509,40 @@ test('adapter capability v2 uses explicit support levels for every product surfa
       true,
     );
   }
+});
+
+test('skill-root prefixes derive from catalog and exclude unsupported adapters', async () => {
+  const catalog = await loadAdapterCatalog(rootDir);
+  const roots = skillRootPrefixes(catalog);
+  // zcode declares `capabilities.skills: "unsupported"` and must be excluded;
+  // every other adapter installs skills under its own skillRoot.
+  assert.deepEqual(roots, ['.agents/skills', '.claude/skills', '.cursor/skills', '.gemini/skills', '.opencode/skills', '.qoder/skills']);
+  assert.equal(roots.includes('.zcode/skills'), false, 'zcode must not appear because skills is unsupported');
+  const isSkillRootTarget = skillRootMatcher(roots);
+  assert.equal(isSkillRootTarget('.agents/skills/agentmemory/SKILL.md'), true);
+  assert.equal(isSkillRootTarget('.claude/skills/browser-verification/SKILL.md'), true);
+  assert.equal(isSkillRootTarget('.zcode/skills/agentmemory/SKILL.md'), false);
+  assert.equal(isSkillRootTarget('docs/rules/governance-core.md'), false);
+});
+
+test('hook config targets derive from catalog and include antigravity', async () => {
+  const catalog = await loadAdapterCatalog(rootDir);
+  const targets = hookConfigTargets(catalog);
+  const ids = targets.map((entry) => entry.id);
+  // Adapters with hooks capability: codex (stable, install-map entry),
+  // claude/cursor/qoder/zcode (projectConfig.hooks), antigravity (preview).
+  // gemini/opencode have hooks unsupported.
+  assert.equal(ids.includes('codex'), true);
+  assert.equal(ids.includes('antigravity'), true);
+  assert.equal(ids.includes('claude'), true);
+  assert.equal(ids.includes('gemini'), false);
+  assert.equal(ids.includes('opencode'), false);
+  const antigravity = targets.find((entry) => entry.id === 'antigravity');
+  assert.equal(antigravity.target, '.agents/hooks.json');
+  const codex = targets.find((entry) => entry.id === 'codex');
+  assert.equal(codex.target, '.codex/hooks.json');
+  const claude = targets.find((entry) => entry.id === 'claude');
+  assert.equal(claude.target, '.claude/settings.json');
 });
 
 test('install and upgrade reject a CLI target absent from configured and installed targets', async () => {
@@ -527,6 +575,13 @@ test('managed instruction helpers are platform-neutral and preserve local conten
   assert.equal(removeManagedInstructionBlock(merged), '# Local\n');
 });
 
+test('antigravity instruction template carries safety red-lines', async () => {
+  const content = await readFile(path.join(rootDir, 'adapters/antigravity/RULES.template.md'), 'utf8');
+  for (const marker of ['Edit before', 'red zone', 'manual confirmation', 'verify']) {
+    assert.equal(content.includes(marker), true, `antigravity RULES.template.md must contain "${marker}"`);
+  }
+});
+
 test('adapter red-zone prefixes classify transformed targets', () => {
   const resolved = resolveAdapterEntry({
     capabilities: { hooks: true, mcp: true },
@@ -541,6 +596,44 @@ test('adapter red-zone prefixes classify transformed targets', () => {
     target: '.secure/policy.md',
   });
   assert.equal(resolved.redZone, true);
+});
+
+test('AGENTS.md targets share one canonical instruction template', async () => {
+  const [catalog, installMap, canonicalContent] = await Promise.all([
+    readFile(path.join(rootDir, 'manifests/adapters.json'), 'utf8').then(JSON.parse),
+    readFile(path.join(rootDir, 'adapters/install-map.json'), 'utf8').then(JSON.parse),
+    readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8'),
+  ]);
+  const agentsEntry = installMap.entries.find((entry) => entry.group === 'agents');
+  assert.ok(agentsEntry, 'install map must declare an agents group');
+  const normalize = (text) => text.replace(/\r\n/gu, '\n').replace(/\r/gu, '\n');
+  for (const adapter of catalog.items) {
+    if (adapter.instructionTarget !== 'AGENTS.md') continue;
+    const resolved = resolveAdapterEntry(adapter, agentsEntry);
+    assert.ok(resolved, `agents entry must resolve for ${adapter.id}`);
+    assert.equal(
+      resolved.source,
+      canonicalAgentsTemplate,
+      `${adapter.id} must resolve agents source to the canonical template`,
+    );
+    // If a per-adapter AGENTS.template.md exists, it must stay byte-identical
+    // (modulo line endings) to the canonical codex template.
+    const adapterTemplatePath = path.join(rootDir, `adapters/${adapter.id}/AGENTS.template.md`);
+    let adapterTemplateExists = true;
+    try {
+      await access(adapterTemplatePath);
+    } catch {
+      adapterTemplateExists = false;
+    }
+    if (adapterTemplateExists) {
+      const adapterContent = await readFile(adapterTemplatePath, 'utf8');
+      assert.equal(
+        normalize(adapterContent),
+        normalize(canonicalContent),
+        `adapters/${adapter.id}/AGENTS.template.md diverges from the canonical codex template`,
+      );
+    }
+  }
 });
 
 test('all platform instruction entrypoints stay below ninety lines', async () => {

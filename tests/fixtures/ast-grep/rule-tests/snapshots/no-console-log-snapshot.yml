@@ -1,0 +1,14 @@
+id: no-console-log
+snapshots:
+  console.log('bad'):
+    labels:
+    - source: console.log('bad')
+      style: primary
+      start: 0
+      end: 18
+  console.log('bad', detail):
+    labels:
+    - source: console.log('bad', detail)
+      style: primary
+      start: 0
+      end: 26

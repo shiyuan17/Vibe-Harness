@@ -73,7 +73,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p .vibe-harness/evals/history
-          gh run list --workflow evals.yml --branch "$GITHUB_REF_NAME" --status completed --limit 2 --json databaseId --jq '.[].databaseId' | while read -r run_id; do
+          gh run list --workflow evals.yml --branch "$GITHUB_REF_NAME" --status completed --limit 21 --json databaseId --jq '.[].databaseId' | while read -r run_id; do
             [ -z "$run_id" ] && continue
             mkdir -p ".vibe-harness/evals/history/$run_id"
             gh run download "$run_id" --pattern 'vibe-harness-online-evals-*' --dir ".vibe-harness/evals/history/$run_id"
@@ -83,6 +83,9 @@ jobs:
         env:
           VIBE_HARNESS_EVAL_ENFORCE: ${{ vars.VIBE_HARNESS_EVAL_ENFORCE }}
         run: pnpm eval:health --current-dir .vibe-harness/evals/runs --history-dir .vibe-harness/evals/history --summary "$GITHUB_STEP_SUMMARY"
+      - name: Compare 7+7 day evidence windows
+        if: always()
+        run: pnpm eval:compare --history-dir .vibe-harness/evals/history --current-dir .vibe-harness/evals/runs
       - if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

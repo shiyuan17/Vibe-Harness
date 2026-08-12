@@ -4,6 +4,7 @@
 // module is only consumed by the online run path.
 
 import { sanitizeEvalValue } from './eval-scoring.js';
+import { reconcileKnowledgeCoverageEpisodes } from '../../runtime/evals/lib/knowledge-coverage.mjs';
 
 function round(value) {
   return Math.round(value * 1_000_000) / 1_000_000;
@@ -31,6 +32,9 @@ export function summarizeTrials(caseId, trials) {
         toolSummary: {
           commandCount: observation.metrics?.commands?.length ?? 0,
           errorCategories: observation.metrics?.errorCategories ?? [],
+          finalChangeValidation: observation.metrics?.finalChangeValidation,
+          knowledgeCoverage: observation.metrics?.knowledgeCoverage,
+          taskEpisode: observation.metrics?.taskEpisode,
           hookReasonCodes: observation.metrics?.hookReasonCodes ?? [],
           hookTimings: observation.metrics?.hookTimings ?? [],
           durationMs: observation.metrics?.durationMs ?? 0,
@@ -57,6 +61,8 @@ export function summarizeTrials(caseId, trials) {
   const meanScore = repetitions === 0
     ? 0
     : round(results.reduce((total, trial) => total + trial.score, 0) / repetitions);
+  const knowledgeCoverageSummary = reconcileKnowledgeCoverageEpisodes(perTrial
+    .map((trial) => trial.toolSummary?.knowledgeCoverage));
   return {
     caseId,
     repetitions,
@@ -66,5 +72,6 @@ export function summarizeTrials(caseId, trials) {
     passedTrials,
     meanScore,
     perTrial,
+    ...(knowledgeCoverageSummary ? { knowledgeCoverageSummary } : {}),
   };
 }

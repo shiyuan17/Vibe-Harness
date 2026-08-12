@@ -1,8 +1,9 @@
 import './helpers/offline-tools.js';
 
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -15,12 +16,36 @@ const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '..');
 const cliPath = path.join(rootDir, 'scripts/vibe-harness.js');
 
+function sha256(content) {
+  return createHash('sha256').update(content).digest('hex');
+}
+
+async function seedTrackedAutoCommitRuntime(target, { modified = false } = {}) {
+  const relative = '.agents/runtime/hooks/auto-commit.mjs';
+  const content = 'legacy managed auto-commit runtime\n';
+  const runtimePath = path.join(target, relative);
+  await mkdir(path.dirname(runtimePath), { recursive: true });
+  await writeFile(runtimePath, modified ? content + 'user modification\n' : content, 'utf8');
+  const statePath = path.join(target, '.vibe-harness/install-state.json');
+  const state = JSON.parse(await readFile(statePath, 'utf8'));
+  const base = state.files.find((file) => file.target === '.agents/runtime/hooks/codex-hook.mjs');
+  state.files.push({
+    ...base,
+    source: 'runtime/hooks/auto-commit.mjs',
+    sourceHash: sha256(content),
+    target: relative,
+    targetHash: sha256(content),
+  });
+  await writeFile(statePath, JSON.stringify(state, null, 2) + '\n', 'utf8');
+  return runtimePath;
+}
+
 test('project config exposes guarded safety Hook defaults', () => {
   assert.deepEqual(defaultProjectConfig.hooks, {
     allowedWriteRoots: [],
     allowedEgressHosts: [],
     mode: 'guarded',
-    redZonePaths: ['.env', 'auth/', 'ci/cd/', '.github/workflows/', '.codex/hooks.json', '.cursor/hooks.json', '.cursor/mcp.json', '.mcp.json', '.qoder/settings.json', '.zcode/config.json', '.agents/hooks.json', '.agents/mcp_config.json'],
+    redZonePaths: ['.env', 'auth/', 'ci/cd/', '.github/workflows/', '.codex/hooks.json', '.cursor/hooks.json', '.cursor/mcp.json', '.mcp.json', '.qoder/settings.json', '.zcode/config.json', 'opencode.json', 'opencode.jsonc', '.agents/hooks.json', '.agents/mcp_config.json', '.claude/settings.json'],
   });
   assert.equal(validateProjectConfig(defaultProjectConfig), true);
   assert.throws(
@@ -70,22 +95,44 @@ test('full installs safety Hook runtime while core does not', async () => {
   assert.equal(core.some((target) => target.includes('/hooks/') || target.startsWith('.githooks/')), false);
 });
 
-test('full Codex install writes only PreToolUse and PermissionRequest Hook events', async () => {
+test('full Codex install writes only safety Hook events through the Git-root bootstrap', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-hook-events-'));
   try {
     await execFileAsync(process.execPath, [cliPath, 'init', '--project', target, '--profile', 'full']);
-    await execFileAsync(process.execPath, [
+    const installed = JSON.parse((await execFileAsync(process.execPath, [
       cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'full',
       '--write', '--confirm-red-zone',
-    ]);
+    ])).stdout);
+    assert.equal(installed.runtimeHooks.configured, true);
+    assert.equal(installed.runtimeHooks.activation.status, 'unknown');
+    assert.equal(installed.warnings.some((warning) => warning.code === 'HOOK_ACTIVATION_UNVERIFIED'), true);
     const hooks = JSON.parse(await readFile(path.join(target, '.codex/hooks.json'), 'utf8')).hooks;
     assert.deepEqual(Object.keys(hooks).sort(), ['PermissionRequest', 'PreToolUse']);
-    // Hook commands must use relative paths, not machine-specific absolute paths.
-    const commands = Object.values(hooks).flatMap((groups) => groups.flatMap((group) => group.hooks.map((hook) => hook.command)));
-    for (const command of commands) {
-      assert.match(command, /node "\.agents\/runtime\/hooks\/codex-hook\.mjs"/u);
+    const safetyCommands = ['PreToolUse', 'PermissionRequest'].flatMap((event) =>
+      hooks[event].flatMap((group) => group.hooks.map((hook) => hook.command)));
+    for (const command of safetyCommands) {
+      assert.match(command, /git.*rev-parse.*--show-toplevel/u);
+      assert.match(command, /process\.execPath/u);
+      assert.match(command, /codex-hook\.mjs/u);
       assert.doesNotMatch(command, /[A-Za-z]:[\\/]/u);
+      assert.doesNotMatch(command, /\$\(|`/u);
     }
+    const validation = JSON.parse((await execFileAsync(process.execPath, [
+      cliPath, 'validate', '--project', target,
+    ])).stdout);
+    assert.equal(validation.runtimeHooks.activation.status, 'unknown');
+    assert.equal(validation.warnings.some((warning) => warning.code === 'HOOK_ACTIVATION_UNVERIFIED'), true);
+    const doctor = JSON.parse((await execFileAsync(process.execPath, [
+      cliPath, 'doctor', '--project', target,
+    ])).stdout);
+    assert.deepEqual(doctor.runtimeHooks.selfCheck, {
+      code: 'HOOK_SELF_CHECK_PASSED',
+      status: 'pass',
+    });
+    await assert.rejects(
+      () => readFile(path.resolve(target, '..', '.vibe-harness-hook-self-check'), 'utf8'),
+      /ENOENT/u,
+    );
   } finally {
     await rm(target, { force: true, recursive: true });
   }
@@ -103,10 +150,40 @@ test('doctor reports Git Hook activation without modifying local Git config', as
 
     const inactive = await doctor();
     assert.deepEqual(inactive.gitHooks, { active: false, configuredPath: null, expectedPath: '.githooks', status: 'inactive' });
+    assert.equal(inactive.runtimeHooks.configured, false);
+    assert.equal(inactive.runtimeHooks.activation.status, 'unknown');
+    assert.match(inactive.runtimeHooks.activation.verification, /\/hooks/u);
     await execFileAsync('git', ['config', '--local', 'core.hooksPath', '.githooks'], { cwd: target });
     assert.equal((await doctor()).gitHooks.status, 'active');
   } finally {
     await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('upgrade retires an unmodified auto-commit runtime and preserves a modified copy', async () => {
+  for (const modified of [false, true]) {
+    const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-auto-commit-retire-'));
+    try {
+      await execFileAsync(process.execPath, [cliPath, 'init', '--project', target, '--profile', 'full']);
+      await execFileAsync(process.execPath, [
+        cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'full',
+        '--write', '--confirm-red-zone',
+      ]);
+      const runtimePath = await seedTrackedAutoCommitRuntime(target, { modified });
+      const result = JSON.parse((await execFileAsync(process.execPath, [
+        cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'full',
+        '--upgrade', '--write', '--confirm-red-zone',
+      ])).stdout);
+      if (modified) {
+        assert.equal(result.skipped.some((item) => item.target === '.agents/runtime/hooks/auto-commit.mjs' && item.reason === 'target-modified'), true);
+        assert.match(await readFile(runtimePath, 'utf8'), /user modification/u);
+      } else {
+        assert.equal(result.retired.includes('.agents/runtime/hooks/auto-commit.mjs'), true);
+        await assert.rejects(() => readFile(runtimePath, 'utf8'), /ENOENT/u);
+      }
+    } finally {
+      await rm(target, { force: true, recursive: true });
+    }
   }
 });
 

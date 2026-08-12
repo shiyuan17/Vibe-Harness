@@ -91,6 +91,16 @@
       ]
     },
     {
+      "path": "docs/github-delivery.md",
+      "kind": "operations",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "maintainer",
+        "contributor"
+      ]
+    },
+    {
       "path": "docs/migration-guide.md",
       "kind": "migration",
       "status": "current",
@@ -304,7 +314,28 @@
       ]
     },
     {
+      "path": "docs/specs/hook-runtime-diagnostics-spec.md",
+      "kind": "spec",
+      "status": "implemented",
+      "language": "zh-CN",
+      "audiences": [
+        "maintainer",
+        "auditor"
+      ]
+    },
+    {
       "path": "docs/specs/vibe-harness-tooling-modules-spec.md",
+      "kind": "spec",
+      "status": "implemented",
+      "language": "zh-CN",
+      "audiences": [
+        "maintainer",
+        "auditor",
+        "user"
+      ]
+    },
+    {
+      "path": "docs/specs/linear-multi-agent-workflow-spec.md",
       "kind": "spec",
       "status": "implemented",
       "language": "zh-CN",
@@ -587,6 +618,27 @@
       ]
     },
     {
+      "path": "docs/rules/ast-grep.md",
+      "kind": "agent-rules",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": ["agent", "maintainer"]
+    },
+    {
+      "path": "docs/rules/chrome-devtools-mcp.md",
+      "kind": "agent-rules",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": ["agent", "maintainer"]
+    },
+    {
+      "path": "docs/rules/codebase-memory-mcp.md",
+      "kind": "agent-rules",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": ["agent", "maintainer"]
+    },
+    {
       "path": "docs/rules/coding-rules.md",
       "kind": "agent-rules",
       "status": "current",
@@ -657,6 +709,16 @@
       ]
     },
     {
+      "path": "docs/rules/linear-workflow.md",
+      "kind": "agent-rules",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "agent",
+        "maintainer"
+      ]
+    },
+    {
       "path": "docs/rules/project-directory.md",
       "kind": "agent-rules",
       "status": "current",
@@ -695,6 +757,13 @@
         "agent",
         "maintainer"
       ]
+    },
+    {
+      "path": "docs/rules/rtk.md",
+      "kind": "agent-rules",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": ["agent", "maintainer"]
     },
     {
       "path": "docs/rules/troubleshooting.md",

@@ -5,7 +5,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": "node \"{{hookRunnerPath}}\" --host cursor --expected-event preToolUse",
+          "command": "{{hookBootstrapCommand}} --host cursor --expected-event preToolUse",
           "timeout": 10,
           "statusMessage": "Vibe-Harness safety policy"
         }

@@ -5,7 +5,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": "node \"{{hookRunnerPath}}\" --host qoder --expected-event PreToolUse",
+          "command": "{{hookBootstrapCommand}} --host qoder --expected-event PreToolUse",
           "timeout": 10,
           "statusMessage": "Vibe-Harness safety policy"
         }
@@ -17,7 +17,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": "node \"{{hookRunnerPath}}\" --host qoder --expected-event PermissionRequest",
+          "command": "{{hookBootstrapCommand}} --host qoder --expected-event PermissionRequest",
           "timeout": 10,
           "statusMessage": "Vibe-Harness safety policy"
         }

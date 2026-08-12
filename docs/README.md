@@ -7,17 +7,24 @@
 - [架构](architecture.md)
 - [迁移指南](migration-guide.md)
 - [Hook 安全策略](hooks.md)
+- [Hook 运行时诊断规格](specs/hook-runtime-diagnostics-spec.md)
 - [Eval](evals.md)
+- [GitHub 可靠交付配置](github-delivery.md)
 - [Agentmemory Skill 规格](specs/agentmemory-skill-consolidation-spec.md)
 - [显式工具插件规格](specs/vibe-harness-tooling-modules-spec.md)
+- [Linear 多 Agent 工作流规格](specs/linear-multi-agent-workflow-spec.md)
 
 ## 规则
 
 - [执行内核](rules/governance-core.md)
 - [领域 Skill 选择](rules/AGENT_SKILL_ROUTING.md)
 - [AI 协作](rules/ai-collab-rules.md)
+- [ast-grep](rules/ast-grep.md)
+- [Linear 工作流](rules/linear-workflow.md)
 - [API](rules/api-rules.md)
 - [编码](rules/coding-rules.md)
+- [Chrome DevTools MCP](rules/chrome-devtools-mcp.md)
+- [codebase-memory-mcp](rules/codebase-memory-mcp.md)
 - [数据库](rules/db-rules.md)
 - [Eval](rules/eval-driven-development.md)
 - [前端](rules/frontend-rules.md)
@@ -26,6 +33,7 @@
 - [项目目录](rules/project-directory.md)
 - [项目专项](rules/project-specific-rules.md)
 - [发布](rules/release-rules.md)
+- [RTK](rules/rtk.md)
 - [测试](rules/test-rules.md)
 - [排障](rules/troubleshooting.md)
 

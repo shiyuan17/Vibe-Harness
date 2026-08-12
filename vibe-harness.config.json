@@ -8,7 +8,7 @@
     "lint": "pnpm lint",
     "typecheck": null,
     "test": "pnpm test:unit",
-    "eval": "pnpm eval:offline"
+    "eval": "pnpm eval:replay"
   },
   "evaluations": {
     "enabled": true,

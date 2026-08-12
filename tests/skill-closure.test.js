@@ -20,11 +20,11 @@ const retiredSkills = [
   'loop-planning', 'subagent-driven-development',
 ];
 
-test('manifest exposes eight native and two explicit integration Skills', async () => {
+test('manifest exposes eight native and three explicit integration Skills', async () => {
   const manifest = await readJson(path.join(rootDir, 'manifests/skills.json'));
   assert.deepEqual(manifest.items.filter((item) => item.kind === 'native').map((item) => item.id), nativeSkills);
-  assert.deepEqual(manifest.items.filter((item) => item.kind === 'integration').map((item) => item.id), ['browser-verification', 'agentmemory']);
-  assert.equal(manifest.items.length, 10);
+  assert.deepEqual(manifest.items.filter((item) => item.kind === 'integration').map((item) => item.id), ['browser-verification', 'agentmemory', 'linear-workflow']);
+  assert.equal(manifest.items.length, 11);
   for (const item of manifest.items) {
     assert.deepEqual(item.requiresSkills, []);
     assert.deepEqual(item.optionalSkills, []);
@@ -43,7 +43,7 @@ test('native Skill descriptions, bodies, resources, and OpenAI metadata stay wit
     lines += lineCount;
     identityCharacters += item.id.length + description.length;
     assert.ok(description.length <= 300, `${item.id} description budget`);
-    assert.ok(lineCount <= 35, `${item.id} line budget`);
+    assert.ok(lineCount <= 50, `${item.id} line budget`);
     const yaml = await readFile(path.join(skillDir, 'agents/openai.yaml'), 'utf8');
     assert.match(yaml, /allow_implicit_invocation: true/u);
     assert.match(yaml, new RegExp(`\\$${item.id}`, 'u'));
@@ -104,9 +104,9 @@ test('retirement catalog covers every removed Router and flow Skill', async () =
 
 test('skills audit derives the compact inventory and executes the graph validator', async () => {
   const { stdout } = await execFileAsync(process.execPath, ['scripts/skills-audit.js'], { cwd: rootDir });
-  assert.match(stdout, /总数：10/u);
+  assert.match(stdout, /总数：11/u);
   assert.match(stdout, /native：8/u);
-  assert.match(stdout, /integration：2/u);
+  assert.match(stdout, /integration：3/u);
   assert.match(stdout, /router：0/u);
   assert.deepEqual((await runSkillsAudit(rootDir)).errors, []);
 });

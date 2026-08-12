@@ -1,0 +1,6 @@
+id: no-console-log
+valid:
+  - console.info('ok')
+invalid:
+  - console.log('bad')
+  - console.log('bad', detail)

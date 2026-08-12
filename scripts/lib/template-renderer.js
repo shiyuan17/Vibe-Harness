@@ -1,6 +1,6 @@
 const defaultTemplateData = {
   codebaseMemoryStateDirectory: '.vibe-harness',
-  hookRunnerPath: '.agents/runtime/hooks/codex-hook.mjs',
+  hookBootstrapCommand: 'node -e \\"const{spawnSync}=require(\'node:child_process\'),path=require(\'node:path\');const root=spawnSync(\'git\',[\'rev-parse\',\'--show-toplevel\'],{encoding:\'utf8\'});if(root.error||root.status!==0||!root.stdout.trim()){process.stderr.write(\'Vibe-Harness Hook requires a Git worktree root.\');process.exit(root.status||1)}const hook=path.join(root.stdout.trim(),\'.agents\',\'runtime\',\'hooks\',\'codex-hook.mjs\');const child=spawnSync(process.execPath,[hook,...process.argv.slice(1)],{stdio:\'inherit\'});if(child.error){process.stderr.write(\'Vibe-Harness Hook bootstrap failed.\');process.exit(1)}process.exit(child.status??1)\\" --',
   installedSurface: {
     clarificationPostureLine: '',
     codebaseMemoryMcpLine: '',

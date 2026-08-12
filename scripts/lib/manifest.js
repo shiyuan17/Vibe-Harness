@@ -218,6 +218,7 @@ const RED_ZONE_PATTERNS = [
   /(?:^|\/)\.cursor\//u,
   /(?:^|\/)\.qoder\//u,
   /(?:^|\/)\.zcode\//u,
+  /(?:^|\/)opencode\.jsonc?$/u,
   /(?:^|\/)\.mcp\.json$/u,
   /(?:^|\/)\.github\/workflows\//u,
   /(?:^|\/)\.env(?:\.[^/]+)?$/u,

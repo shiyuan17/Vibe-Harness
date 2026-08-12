@@ -4,15 +4,34 @@
 
 - Workflow tier: quick / light / full
 - Status: in progress / waiting / blocked / complete / cancelled
+- Risk level: low / medium / high
+
+## Source
 
 ## Goal
+
+## Non-goals
 
 ## Acceptance
 
 - [ ]
 
-## Next action
+## Impact scope
 
-## Verification
+## Dependency chain (dependencies / contracts / tests / docs)
+
+## Full project analysis (only when explicitly requested or impact cannot be narrowed)
+
+- Technology stack:
+- Directory structure:
+- Business flow:
+- Data flow:
+- Module dependencies:
+
+## Execution and verification
+
+## Go/no-go decision
+
+## Next action
 
 ## Risks

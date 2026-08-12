@@ -41,7 +41,8 @@
               "hookMarker": { "type": "string", "minLength": 1 },
               "hooksPath": { "anyOf": [{ "type": "array", "items": { "type": "string", "minLength": 1 } }, { "type": "null" }] },
               "mcpPath": { "anyOf": [{ "type": "array", "items": { "type": "string", "minLength": 1 } }, { "type": "null" }] },
-              "serverPrefix": { "type": "string", "minLength": 1 }
+              "serverPrefix": { "type": "string", "minLength": 1 },
+              "syntax": { "type": "string", "enum": ["json", "jsonc"] }
             },
             "additionalProperties": false
           },

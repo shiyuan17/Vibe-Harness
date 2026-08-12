@@ -1,4 +1,4 @@
-# 项目专属规则
+﻿# 项目专属规则
 
 本文件由 Vibe-Harness 根据目标项目文件和 `vibe-harness.config.json` 渲染。当前事实优先于历史记忆；目标项目明确的本地规则优先于 Vibe-Harness 默认规则，目录级规则只作用于其子树，同一层级冲突时停止并请求确认。
 
@@ -24,7 +24,7 @@
 - Lint：`pnpm lint`
 - Typecheck：`未配置`
 - Test：`pnpm test:unit`
-- Eval：`pnpm eval:offline`
+- Eval：`pnpm eval:replay`
 - 无法运行某项验证时，交付必须说明原因、替代证据和剩余风险。
 
 ## Git / VCS 规范

@@ -18,6 +18,7 @@ function flag(name) {
 const suiteId = flag('--suite') ?? 'vibe-harness-online-canary';
 const campaignId = flag('--campaign-id') ?? process.env.VIBE_HARNESS_EVAL_CAMPAIGN_ID ?? `campaign-${new Date().toISOString().replace(/[^0-9A-Za-z]/gu, '-')}`;
 const suitePaths = {
+  'linear-workflow-online': 'evals/suites/linear-workflow-online.json',
   'vibe-harness-online-canary': 'evals/suites/vibe-harness-online-canary.json',
   'vibe-harness-online-execution': 'evals/suites/vibe-harness-online-execution.json',
 };
@@ -27,6 +28,7 @@ const suitesByReference = {
 };
 const reference = suitesByReference[suiteId] ?? `evals/references/${suiteId}.json`;
 const suite = await readJson(path.join(rootDir, suitePaths[suiteId] ?? `evals/suites/${suiteId}.json`));
+const selectedSuitePath = suitePaths[suiteId] ?? 'evals/suites/' + suiteId + '.json';
 const repetitions = suite.cases.map((item) => ({ id: item.id, count: Math.min(item.repetitions ?? 3, 3) }));
 const needsWrite = suite.cases.some((item) => (item.input?.fixture?.allowedWritePaths ?? []).length > 0);
 const runtime = await resolveEvalRuntime({ needsWrite, repetitions });
@@ -35,7 +37,7 @@ Object.assign(process.env, runtime.environment);
 const config = {
   evaluations: {
     enabled: true,
-    suites: ['evals/suites/vibe-harness-online-canary.json', 'evals/suites/vibe-harness-online-execution.json'],
+    suites: [selectedSuitePath],
     reference,
     thresholds: { criticalPassRate: 1, overallScore: 0.9, maxCapabilityRegression: 0.05 },
     onlineRunner: runner,

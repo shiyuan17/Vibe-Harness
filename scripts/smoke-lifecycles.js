@@ -49,7 +49,7 @@ try {
   results.push(await run('core-dry-run', ['install', '--project', core, '--target', 'codex', '--profile', 'core', '--dry-run']));
   results.push(await run('core-write', ['install', '--project', core, '--target', 'codex', '--profile', 'core', '--write']));
   results.push(await run('core-validate', ['validate', '--project', core]));
-  results.push(await runInstalledEval('core-eval-offline', core));
+  results.push(await runInstalledEval('core-eval-replay', core));
   results.push(await run('full-init', ['init', '--project', full, '--profile', 'full']));
   results.push(await run('full-dry-run', ['install', '--project', full, '--target', 'codex', '--profile', 'full', '--dry-run']));
   results.push(await run('full-write', ['install', '--project', full, '--target', 'codex', '--profile', 'full', '--write', '--confirm-red-zone', '--allow-degraded']));

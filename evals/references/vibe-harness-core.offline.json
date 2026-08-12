@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "id": "vibe-harness-core-offline-reference",
-  "approvedAt": "2026-07-28T00:00:00.000Z",
+  "approvedAt": "2026-08-12T08:01:07.219Z",
   "suite": {
     "id": "vibe-harness-core",
-    "version": "2.0.0"
+    "version": "2.2.0"
   },
   "mode": "offline",
   "fingerprint": {
-    "suiteHash": "c293ee1bd741ba5d6b794cafdcbd08fd556a77a62b7ae249bec0bdc52de10287",
+    "suiteHash": "7bf2e6a2572a3f66fa7b6aa4b84a4854a9c17767a81a335a7b82d4f2bcf79c1c",
     "runner": "offline-replay@1",
     "model": "fixture",
     "agent": "offline",
@@ -23,8 +23,8 @@
     },
     {
       "id": "ast-grep-structured-search",
-      "caseCount": 1,
-      "passedCount": 1,
+      "caseCount": 3,
+      "passedCount": 3,
       "score": 1
     },
     {
@@ -52,7 +52,49 @@
       "score": 1
     },
     {
+      "id": "eval-evidence-boundary",
+      "caseCount": 1,
+      "passedCount": 1,
+      "score": 1
+    },
+    {
       "id": "frontend-design",
+      "caseCount": 1,
+      "passedCount": 1,
+      "score": 1
+    },
+    {
+      "id": "governance-analysis-depth",
+      "caseCount": 1,
+      "passedCount": 1,
+      "score": 1
+    },
+    {
+      "id": "governance-evidence-state",
+      "caseCount": 1,
+      "passedCount": 1,
+      "score": 1
+    },
+    {
+      "id": "governance-sensitive-data",
+      "caseCount": 1,
+      "passedCount": 1,
+      "score": 1
+    },
+    {
+      "id": "governance-verification-attribution",
+      "caseCount": 1,
+      "passedCount": 1,
+      "score": 1
+    },
+    {
+      "id": "hook-capability-contract",
+      "caseCount": 1,
+      "passedCount": 1,
+      "score": 1
+    },
+    {
+      "id": "hook-path-resolution",
       "caseCount": 1,
       "passedCount": 1,
       "score": 1
@@ -71,8 +113,8 @@
     },
     {
       "id": "rtk-output-compression",
-      "caseCount": 5,
-      "passedCount": 5,
+      "caseCount": 6,
+      "passedCount": 6,
       "score": 1
     },
     {

@@ -50,6 +50,19 @@
           "passCaretK": { "type": "integer", "enum": [0, 1] },
           "passedTrials": { "type": "integer", "minimum": 0 },
           "meanScore": { "type": "number", "minimum": 0, "maximum": 1 },
+          "knowledgeCoverageSummary": {
+            "type": "object",
+            "required": ["requestRoot", "distinctEpisodeCount", "minimumComparableEpisodes", "coveredOwners", "state", "promotionStatus"],
+            "properties": {
+              "requestRoot": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:[._/-][a-z0-9]+)*$" },
+              "distinctEpisodeCount": { "type": "integer", "minimum": 1 },
+              "minimumComparableEpisodes": { "type": "integer", "const": 2 },
+              "coveredOwners": { "type": "array", "items": { "type": "object", "required": ["kind", "id"], "properties": { "kind": { "type": "string", "enum": ["rule", "skill"] }, "id": { "type": "string" } }, "additionalProperties": false } },
+              "state": { "type": "string", "enum": ["covered", "needs-more-evidence", "confirmed-uncovered"] },
+              "promotionStatus": { "type": "string", "enum": ["blocked-existing-owner", "blocked-insufficient-evidence", "eligible-for-owner-review"] }
+            },
+            "additionalProperties": false
+          },
           "perTrial": {
             "type": "array",
             "minItems": 1,
@@ -82,7 +95,47 @@
                     "dangerousOperationBlocked": { "type": "boolean" },
                     "durationMs": { "type": "number", "minimum": 0 },
                     "errorCategories": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+                    "finalChangeValidation": {
+                      "type": "object",
+                      "required": ["failedAfterFinalChangeCount", "handoffBound", "materialChangeCount", "repairRerunObserved", "status", "successfulAfterFinalChangeCount", "verificationAfterFinalChangeCount", "verificationBeforeFinalChangeCount"],
+                      "properties": {
+                        "failedAfterFinalChangeCount": { "type": "integer", "minimum": 0 },
+                        "handoffBound": { "type": "boolean" },
+                        "materialChangeCount": { "type": "integer", "minimum": 0 },
+                        "repairRerunObserved": { "type": "boolean" },
+                        "status": { "type": "string", "enum": ["not-applicable", "missing", "failed", "handoff-unbound", "verified"] },
+                        "successfulAfterFinalChangeCount": { "type": "integer", "minimum": 0 },
+                        "verificationAfterFinalChangeCount": { "type": "integer", "minimum": 0 },
+                        "verificationBeforeFinalChangeCount": { "type": "integer", "minimum": 0 }
+                      },
+                      "additionalProperties": false
+                    },
                     "hookReasonCodes": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+                    "knowledgeCoverage": {
+                      "type": "object",
+                      "required": ["schemaVersion", "episodeRef", "requestRoot", "inventoryComplete", "events", "matchStatus", "state", "promotionStatus"],
+                      "properties": {
+                        "schemaVersion": { "type": "integer", "enum": [1] },
+                        "episodeRef": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:[._/-][a-z0-9]+)*$" },
+                        "requestRoot": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:[._/-][a-z0-9]+)*$" },
+                        "inventoryComplete": { "type": "boolean" },
+                        "events": {
+                          "type": "array",
+                          "items": {
+                            "oneOf": [
+                              { "type": "object", "required": ["type", "id"], "properties": { "type": { "const": "request-root" }, "id": { "type": "string" } }, "additionalProperties": false },
+                              { "type": "object", "required": ["type", "kind", "id", "status"], "properties": { "type": { "const": "owner" }, "kind": { "type": "string", "enum": ["rule", "skill"] }, "id": { "type": "string" }, "status": { "type": "string", "enum": ["not-observed", "selected", "invoked"] } }, "additionalProperties": false },
+                              { "type": "object", "required": ["type", "status"], "properties": { "type": { "const": "validation" }, "status": { "type": "string", "enum": ["not-observed", "passed", "failed"] } }, "additionalProperties": false },
+                              { "type": "object", "required": ["type", "expected", "observed", "reached"], "properties": { "type": { "const": "stop-boundary" }, "expected": { "type": "string", "enum": ["execution-end", "handoff", "validated-handoff", "blocked"] }, "observed": { "type": "string", "enum": ["execution-end", "handoff", "validated-handoff", "blocked"] }, "reached": { "type": "boolean" } }, "additionalProperties": false }
+                            ]
+                          }
+                        },
+                        "matchStatus": { "type": "string", "enum": ["covered", "not-observed", "no-match-confirmed"] },
+                        "state": { "type": "string", "enum": ["covered", "needs-more-evidence"] },
+                        "promotionStatus": { "type": "string", "enum": ["blocked-existing-owner", "blocked-insufficient-evidence"] }
+                      },
+                      "additionalProperties": false
+                    },
                     "hookTimings": {
                       "type": "array",
                       "items": {
@@ -96,6 +149,27 @@
                         },
                         "additionalProperties": false
                       }
+                    },
+                    "taskEpisode": {
+                      "type": "object",
+                      "required": ["taskFamily", "owner", "validationStatus", "stopBoundary", "outcome"],
+                      "properties": {
+                        "taskFamily": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:[._/-][a-z0-9]+)*$" },
+                        "owner": {
+                          "type": "object",
+                          "required": ["kind", "id", "evidenceState"],
+                          "properties": {
+                            "kind": { "type": "string", "enum": ["rule", "skill", "builtin", "none"] },
+                            "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:[._/-][a-z0-9]+)*$" },
+                            "evidenceState": { "type": "string", "enum": ["declared", "resolved-active", "observed", "missing"] }
+                          },
+                          "additionalProperties": false
+                        },
+                        "validationStatus": { "type": "string", "enum": ["not-applicable", "missing", "failed", "handoff-unbound", "verified"] },
+                        "stopBoundary": { "type": "string", "enum": ["verified-handoff", "handoff-unbound", "failed", "blocked", "not-applicable"] },
+                        "outcome": { "type": "string", "enum": ["passed", "failed", "degraded"] }
+                      },
+                      "additionalProperties": false
                     },
                     "recoverableToolErrorCount": { "type": "integer", "minimum": 0 },
                     "ruleCoverage": {

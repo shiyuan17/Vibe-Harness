@@ -91,7 +91,7 @@ function aggregateRuleCoverage(trials) {
     for (const id of item.trial.toolSummary.ruleCoverage.expected) {
       const entry = byRule.get(id) ?? { id, declaredCases: 0, passedCases: 0 };
       entry.declaredCases += 1;
-      if (item.trial.passed) entry.passedCases += 1;
+      if (item.trial.passed && item.trial.toolSummary.ruleCoverage.measured.includes(id)) entry.passedCases += 1;
       byRule.set(id, entry);
     }
   }

@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { createCodexHookResult } from '../runtime/hooks/lib/policy.mjs';
-import { inputEventFromContext, transcript } from '../runtime/evals/codex-runner.mjs';
+import { inputEventFromContext, isGitCommitCommand, transcript } from '../runtime/evals/codex-runner.mjs';
+import { taskEpisode } from '../runtime/evals/lib/knowledge-coverage.mjs';
 import { buildEvalReportModel } from '../scripts/lib/eval-report.js';
 import { summarizeTrials } from '../scripts/lib/eval-trials.js';
 import { validateJsonAgainstSchema } from '../scripts/lib/manifest.js';
@@ -87,6 +88,12 @@ test('inputEventFromContext returns PreToolUse for tool items and null for reaso
   assert.equal(inputEventFromContext({ type: 'turn.completed' }), null);
 });
 
+test('git commit observer detects commit invocations without persisting command text', () => {
+  assert.equal(isGitCommitCommand('git commit -m change'), true);
+  assert.equal(isGitCommitCommand('git -C project commit -m change'), true);
+  assert.equal(isGitCommitCommand('git status --short'), false);
+});
+
 test('summarizeTrials passes hookTimings, ruleCoverage, and skillTriggers through to toolSummary', () => {
   const observation = {
     metrics: {
@@ -110,10 +117,49 @@ test('summarizeTrials supplies empty defaults when observation metrics omit gove
   assert.deepEqual(toolSummary.skillTriggers, []);
 });
 
+test('task episodes distinguish resolved owners from observed project skill reads', () => {
+  const base = {
+    demand: { taskFamily: 'skill-routing', expectedOwner: { kind: 'skill', id: 'eval-driven-development' } },
+    exitCode: 0,
+    finalChangeValidation: { status: 'not-applicable' },
+    hiddenTests: { failed: 0 },
+    messages: [],
+    workflowEvents: [],
+  };
+  const resolved = taskEpisode({ ...base, commands: [] });
+  assert.equal(resolved.owner.evidenceState, 'resolved-active');
+  const invoked = taskEpisode({ ...base, commands: ['skill-read:.agents/skills/eval-driven-development/skill.md'] });
+  assert.equal(invoked.owner.evidenceState, 'observed');
+  assert.equal(JSON.stringify(invoked).includes('skill-read:'), false);
+});
+
+test('summarizeTrials reconciles comparable knowledge coverage Episodes without a new gate', () => {
+  const base = {
+    schemaVersion: 1,
+    requestRoot: 'eval/knowledge-routing',
+    inventoryComplete: true,
+    events: [
+      { type: 'request-root', id: 'eval/knowledge-routing' },
+      { type: 'validation', status: 'passed' },
+      { type: 'stop-boundary', expected: 'validated-handoff', observed: 'validated-handoff', reached: true },
+    ],
+    matchStatus: 'no-match-confirmed',
+    state: 'needs-more-evidence',
+    promotionStatus: 'blocked-insufficient-evidence',
+  };
+  const trials = ['case-1/r1', 'case-1/r2'].map((episodeRef) => ({
+    caseResult: { passed: true, score: 1 },
+    observation: { metrics: { knowledgeCoverage: { ...base, episodeRef } } },
+  }));
+  const summary = summarizeTrials('CASE-1', trials);
+  assert.equal(summary.knowledgeCoverageSummary.state, 'confirmed-uncovered');
+  assert.equal(summary.passCaretK, 1);
+});
+
 test('buildEvalReportModel aggregates rule coverage, skill triggers, and hook timings across trials', () => {
   const trialA = trialWithGovernance({
     hookTimings: [{ event: 'PreToolUse', action: 'deny', reasonCode: 'DESTRUCTIVE_GIT', durationMs: 10 }],
-    ruleCoverage: { expected: ['governance-core', 'git-rules'], measured: ['governance-core', 'git-rules'] },
+    ruleCoverage: { expected: ['governance-core', 'git-rules'], measured: ['governance-core'] },
     skillTriggers: [{ id: 'eval-driven-development', source: 'declared' }],
   });
   const trialB = trialWithGovernance({
@@ -128,11 +174,11 @@ test('buildEvalReportModel aggregates rule coverage, skill triggers, and hook ti
     canaryRun, canarySuite: { cases: [{ id: 'CANARY-CASE', risk: 'low' }] },
     executionRun, executionSuite: { cases: [{ id: 'EXEC-CASE', risk: 'low' }] },
   });
-  // rule coverage: governance-core declared in 2 (1 passed), git-rules in 1 (1 passed) => 2/3
+  // rule coverage: only observed invocation counts; declarations remain the denominator.
   assert.equal(model.metrics.ruleCoverage.uniqueRules, 2);
   assert.equal(model.metrics.ruleCoverage.totalDeclared, 3);
-  assert.equal(model.metrics.ruleCoverage.totalPassed, 2);
-  assert.equal(model.metrics.ruleCoverage.value, Math.round((2 / 3) * 1_000_000) / 1_000_000);
+  assert.equal(model.metrics.ruleCoverage.totalPassed, 1);
+  assert.equal(model.metrics.ruleCoverage.value, Math.round((1 / 3) * 1_000_000) / 1_000_000);
   const govRule = model.metrics.ruleCoverage.byRule.find((item) => item.id === 'governance-core');
   assert.equal(govRule.declaredCases, 2);
   assert.equal(govRule.passedCases, 1);
@@ -192,6 +238,21 @@ test('eval-run schema accepts toolSummary with the new governance fields', async
       repetition: 1, passed: true, score: 1,
       toolSummary: {
         hookTimings: [{ event: 'PreToolUse', action: 'deny', reasonCode: 'RED_ZONE', durationMs: 5 }],
+        knowledgeCoverage: {
+          schemaVersion: 1,
+          episodeRef: 'case-1/r1',
+          requestRoot: 'eval/knowledge-routing',
+          inventoryComplete: true,
+          events: [
+            { type: 'request-root', id: 'eval/knowledge-routing' },
+            { type: 'owner', kind: 'skill', id: 'eval-driven-development', status: 'invoked' },
+            { type: 'validation', status: 'passed' },
+            { type: 'stop-boundary', expected: 'validated-handoff', observed: 'validated-handoff', reached: true },
+          ],
+          matchStatus: 'covered',
+          state: 'covered',
+          promotionStatus: 'blocked-existing-owner',
+        },
         ruleCoverage: { expected: ['governance-core'], measured: ['governance-core'] },
         skillTriggers: [{ id: 'eval-driven-development', source: 'declared' }],
       },
@@ -217,7 +278,15 @@ test('eval-suite schema accepts case.reporting.expected with rules and skills', 
     schemaVersion: 1, id: 's', version: '1.0.0', description: 'd', defaultRepetitions: 1,
     cases: [{
       id: 'CASE-1', category: 'safety-isolation', capability: 'cap', risk: 'low', repetitions: 1,
-      reporting: { expected: { rules: ['governance-core'], skills: ['eval-driven-development'] } },
+      reporting: {
+        expected: { rules: ['governance-core'], skills: ['eval-driven-development'] },
+        knowledgeCoverage: {
+          requestRoot: 'eval/knowledge-routing',
+          candidateOwners: [{ kind: 'skill', id: 'eval-driven-development' }],
+          inventoryComplete: true,
+          stopBoundary: 'validated-handoff',
+        },
+      },
       input: { scenario: 's', replay: { events: [], output: '', artifacts: [], exitCode: 0 } },
       oracle: { requiredEvents: [], forbiddenEvents: [], requiredOutputFragments: [], forbiddenOutputFragments: [], requiredArtifacts: [], forbiddenArtifacts: [], exitCode: { value: 0, dimension: 'correctness', critical: false } },
       weights: { correctness: 1, safety: 0, evidenceQuality: 0, efficiency: 0 },
@@ -246,4 +315,28 @@ test('validateEvalSuiteSemantics flags declared rule/skill ids absent from manif
   assert.ok(errors.some((item) => /unknown rule id: nonexistent-rule/u.test(item)));
   assert.ok(errors.some((item) => /unknown skill id: nonexistent-skill/u.test(item)));
   assert.ok(!errors.some((item) => /governance-core/u.test(item)));
+});
+
+test('validateEvalSuiteSemantics rejects unknown knowledge coverage owners', async () => {
+  const { validateEvalSuiteSemantics } = await import('../scripts/lib/eval-contract.js');
+  const suite = {
+    defaultRepetitions: 1,
+    cases: [{
+      id: 'CASE-1', repetitions: 1,
+      reporting: { knowledgeCoverage: {
+        requestRoot: 'eval/knowledge-routing',
+        candidateOwners: [{ kind: 'skill', id: 'nonexistent-skill' }],
+        inventoryComplete: true,
+        stopBoundary: 'validated-handoff',
+      } },
+      weights: { correctness: 1, safety: 0, evidenceQuality: 0, efficiency: 0 },
+      oracle: { requiredEvents: [{ value: 'e', dimension: 'correctness', critical: false }] },
+    }],
+  };
+  const manifests = {
+    rules: { items: [] },
+    skills: { items: [{ id: 'eval-driven-development' }] },
+  };
+  const errors = validateEvalSuiteSemantics(suite, manifests);
+  assert.ok(errors.some((item) => /unknown skill id: nonexistent-skill/u.test(item)));
 });

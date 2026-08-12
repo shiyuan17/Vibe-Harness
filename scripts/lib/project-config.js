@@ -12,7 +12,7 @@ import { productIdentity } from './product-identity.js';
 import { resolveProjectConfigLocation } from './project-layout.js';
 
 export const mvpProfiles = new Set(['minimal', 'core', 'full', 'docs-only']);
-export const mvpTargets = new Set(['codex', 'claude', 'gemini', 'cursor', 'qoder', 'zcode', 'antigravity']);
+export const mvpTargets = new Set(['codex', 'claude', 'gemini', 'cursor', 'qoder', 'zcode', 'antigravity', 'opencode']);
 
 export function canonicalProfile(profile) {
   if (profile === 'codex-internal') return 'full';
@@ -55,7 +55,7 @@ export const defaultProjectConfig = {
     allowedWriteRoots: [],
     allowedEgressHosts: [],
     mode: 'guarded',
-    redZonePaths: ['.env', 'auth/', 'ci/cd/', '.github/workflows/', '.codex/hooks.json', '.cursor/hooks.json', '.cursor/mcp.json', '.mcp.json', '.qoder/settings.json', '.zcode/config.json', '.agents/hooks.json', '.agents/mcp_config.json'],
+    redZonePaths: ['.env', 'auth/', 'ci/cd/', '.github/workflows/', '.codex/hooks.json', '.cursor/hooks.json', '.cursor/mcp.json', '.mcp.json', '.qoder/settings.json', '.zcode/config.json', 'opencode.json', 'opencode.jsonc', '.agents/hooks.json', '.agents/mcp_config.json', '.claude/settings.json'],
   },
   riskZones: {
     red: ['auth', 'secrets', 'ci-cd', 'env'],
@@ -349,7 +349,7 @@ const GENERATED_CONTENT_FRAGMENTS = {
   'en-US': ['Edit before', 'red zone', 'manual confirmation', 'verify'],
 };
 
-export function validateGeneratedContent(content, { installedTargets } = {}) {
+export function validateGeneratedContent(content, { installedTargets, skillRoots } = {}) {
   const passesSomeLanguage = Object.values(GENERATED_CONTENT_FRAGMENTS).some(
     (fragments) => fragments.every((fragment) => content.includes(fragment)),
   );
@@ -396,9 +396,26 @@ export function validateGeneratedContent(content, { installedTargets } = {}) {
         fragment: '.zcode/config.json',
         label: '.zcode/config.json',
       },
+      {
+        exact: '.agents/hooks.json',
+        fragment: '.agents/hooks.json',
+        label: '.agents/hooks.json',
+      },
+      {
+        exact: '.agents/mcp_config.json',
+        fragment: '.agents/mcp_config.json',
+        label: '.agents/mcp_config.json',
+      },
     ];
 
-    for (const skillRoot of ['.agents/skills/', '.claude/skills/', '.cursor/skills/', '.gemini/skills/', '.qoder/skills/']) {
+    // Skill-root prefixes are derived from the adapter catalog (excluding adapters
+    // whose `capabilities.skills` is `unsupported`, e.g. zcode) and passed by the
+    // caller. Fall back to the historical hardcoded set only when the caller did
+    // not supply catalog-derived prefixes, preserving backward compatibility.
+    const knownSkillRoots = Array.isArray(skillRoots) && skillRoots.length > 0
+      ? skillRoots.map((root) => `${root}/`)
+      : ['.agents/skills/', '.claude/skills/', '.cursor/skills/', '.gemini/skills/', '.qoder/skills/', '.opencode/skills/'];
+    for (const skillRoot of knownSkillRoots) {
       if (content.includes(skillRoot) && !normalizedTargets.some((target) => target.startsWith(skillRoot))) {
         throw new Error(`Generated AGENTS.md references ${skillRoot} but it is not installed by profile.`);
       }

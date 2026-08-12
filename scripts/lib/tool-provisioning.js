@@ -133,7 +133,7 @@ async function provisionSingleTool(spec, {
     } catch (error) {
       tools[spec.id] = withProvisioningMetadata(
         spec,
-        publicFailure(spec, 'binary-install', error, targetDir),
+        publicFailure(spec, 'binary-install', error, targetDir, { arch, env: provisionEnv, platform }),
         startedAt,
       );
       return;
@@ -160,6 +160,7 @@ async function provisionSingleTool(spec, {
         signal,
         ocrResolution,
         codebaseMemoryRepair,
+        { arch, platform },
       );
     } else if (spec.id === 'playwrightCli') {
       const runCommand = async (command, args, options) => defaultCommandRunner({
@@ -187,12 +188,13 @@ async function provisionSingleTool(spec, {
         signal,
         ocrResolution,
         codebaseMemoryRepair,
+        { arch, platform },
       );
     }
   } catch (error) {
     if (signal?.aborted || error.code === 'TOOL_CANCELLED') throw error;
     const phase = spec.phases.find((item) => item === error?.phase) ?? 'provision';
-    tools[spec.id] = publicFailure(spec, phase, error, targetDir);
+    tools[spec.id] = publicFailure(spec, phase, error, targetDir, { arch, env: provisionEnv, platform });
   }
   if (tools[spec.id].status === 'ready' && ['rtk', 'astGrep'].includes(spec.id)) {
     try {
@@ -205,7 +207,7 @@ async function provisionSingleTool(spec, {
         ),
       };
     } catch (error) {
-      tools[spec.id] = publicFailure(spec, 'version-check', error, targetDir);
+      tools[spec.id] = publicFailure(spec, 'version-check', error, targetDir, { arch, env: provisionEnv, platform });
     }
   }
   tools[spec.id] = withProvisioningMetadata(spec, tools[spec.id], startedAt);

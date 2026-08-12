@@ -8,12 +8,29 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  product:
+  risk-evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - run: node scripts/risk-evidence.js
+
+  product-run:
+    name: product (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            node-version: 22.x
+          - os: windows-latest
+            node-version: 22.x
     runs-on: ${{ matrix.os }}
     env:
       BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
@@ -26,15 +43,50 @@ jobs:
           version: 10.33.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 20.19.0
+          node-version: ${{ matrix.node-version }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: pnpm eval:check
-      - run: pnpm eval:offline
+      - run: pnpm eval:replay
       - run: pnpm test:eval
       - run: pnpm test:integration
-      - if: matrix.os == 'ubuntu-latest'
-        run: pnpm runtime:audit
       - run: pnpm smoke:lifecycle
       - run: git diff --check
+
+  product:
+    if: always()
+    needs: product-run
+    runs-on: ubuntu-latest
+    env:
+      PRODUCT_RUN_RESULT: ${{ needs.product-run.result }}
+    steps:
+      - run: test "$PRODUCT_RUN_RESULT" = success
+
+  supply-chain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.x
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm runtime:audit
+      - run: pnpm pack:contract
+
+  merge-gate:
+    if: always()
+    needs: [product, supply-chain, risk-evidence]
+    runs-on: ubuntu-latest
+    env:
+      PRODUCT_RESULT: ${{ needs.product.result }}
+      SUPPLY_CHAIN_RESULT: ${{ needs.supply-chain.result }}
+      RISK_EVIDENCE_RESULT: ${{ needs.risk-evidence.result }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - run: node scripts/merge-gate.js

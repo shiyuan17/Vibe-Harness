@@ -268,9 +268,9 @@ test('provisioning continues after one component fails and never persists comman
         'path=<project>',
         'payload={"token":"[REDACTED]","password":"[REDACTED]"}',
         'api_key: [REDACTED]',
-        'request=https://[REDACTED]@example.test/resource',
-        'tokenUri=https://[REDACTED]@example.test/resource',
-        'passwordUri=https://[REDACTED]@example.test/resource',
+        'request=https://example.test/resource',
+        'tokenUri=https://example.test/resource',
+        'passwordUri=https://example.test/resource',
         'You can install manually: https://example.test/install',
         'Try reinstalling: npm install -g codebase-memory-mcp',
       ].join('\n'),
@@ -1449,7 +1449,10 @@ test('full write installs governance assets without provisioning tools by defaul
 
     assert.equal(report.status, 'ready');
     assert.deepEqual(report.provisioning, { executed: false, requested: false });
-    assert.deepEqual(report.warnings, []);
+    assert.deepEqual(report.warnings, [{
+      code: 'HOOK_ACTIVATION_UNVERIFIED',
+      message: 'Run /hooks in Codex and verify the current project Hook definitions are trusted.',
+    }]);
     assert.deepEqual(report.tools, {});
     await assert.rejects(readFile(path.join(targetDir, '.vibe-harness/tool-state/tools.json'), 'utf8'), /ENOENT/u);
 

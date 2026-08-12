@@ -8,33 +8,104 @@ import { inspectPlaywrightTool } from '../../../runtime/tools/playwright-cli/run
 import { resolveRtkAsset } from '../../../runtime/tools/rtk/run.mjs';
 import { projectStateDir } from '../project-layout.js';
 
-import { allowedEnvironment, createToolProvisioningPlan, hasOcrCredentials, phaseRequest } from './environment.js';
+import { allowedEnvironment, createToolProvisioningPlan, detectLinuxLibc, hasOcrCredentials, phaseRequest, resolveToolNativePackage } from './environment.js';
 import { readToolState } from './tool-state.js';
-import { boundedTimeout, createDiagnostic, execFileAsync, maxDiagnosticOutput } from './subprocess.js';
+import {
+  boundedTimeout,
+  createDiagnostic,
+  execFileAsync,
+  maxDiagnosticOutput,
+  sanitizeDiagnosticValue,
+  sanitizeRegistryUrl,
+} from './subprocess.js';
 
 const codebaseMemoryWindowsBinaryHashes = new Map([
   ['0.9.0', '9a205fa5ae759fbc866bfe1554f0c05a303be9ae6e0a00f94d875dc0c25e0680'],
 ]);
 
-function diagnosticCode(error) {
+const publicAstGrepDiagnosticCodes = new Set([
+  'AST_GREP_BINARY_HASH_MISMATCH',
+  'AST_GREP_BINARY_HASH_MISSING',
+  'AST_GREP_FINGERPRINT_MISMATCH',
+  'AST_GREP_OPTIONAL_PACKAGE_MISSING',
+  'AST_GREP_RUNTIME_MISSING',
+  'AST_GREP_STATE_VERSION_MISMATCH',
+  'AST_GREP_UNSUPPORTED_PLATFORM',
+  'AST_GREP_VERSION_MISMATCH',
+]);
+
+const publicRtkDiagnosticCodes = new Set([
+  'RTK_ARCHIVE_UNSAFE_PATH',
+  'RTK_BINARY_HASH_MISMATCH',
+  'RTK_BINARY_MISSING',
+  'RTK_CHECKSUM_MISMATCH',
+  'RTK_DB_PATH',
+  'RTK_DOWNLOAD_FAILED',
+  'RTK_DOWNLOAD_TIMEOUT',
+  'RTK_DOWNLOAD_TOO_LARGE',
+  'RTK_EXTRACT_FAILED',
+  'RTK_INSTALL_LOCK_TIMEOUT',
+  'RTK_PROXY_CONFIG_INVALID',
+  'RTK_RUNTIME_MISSING',
+  'RTK_UNSUPPORTED_PLATFORM',
+  'RTK_VERSION_MISMATCH',
+]);
+
+const publicIndexDiagnosticCodes = new Set([
+  'INDEX_NOT_READY',
+  'INDEX_OUTPUT_INVALID',
+  'INDEX_RESULT_INVALID',
+  'INDEX_ROOT_MISMATCH',
+  'INDEX_STATUS_INVALID',
+]);
+
+const unsupportedPlatformCodes = new Set([
+  'AST_GREP_UNSUPPORTED_PLATFORM',
+  'RTK_UNSUPPORTED_PLATFORM',
+]);
+
+function specializedDiagnosticCode(output, spec, phase) {
+  const lower = String(output).toLowerCase();
+  if (spec?.id === 'openCodeReview' && lower.includes('protocol_not_supported')) return 'OPEN_CODE_REVIEW_PROTOCOL_UNSUPPORTED';
+  if (spec?.id === 'rtk' && phase === 'binary-install' && lower.includes('timeout')) return 'RTK_DOWNLOAD_TIMEOUT';
+  if (phase === 'dependency-install' && ['eai_again', 'econnrefused', 'econnreset', 'etimedout', 'enetunreach', 'enotfound', 'proxy', 'registry'].some((item) => lower.includes(item))) return 'TOOL_DEPENDENCY_NETWORK_ERROR';
+  return null;
+}
+
+function diagnosticCode(error, spec, phase) {
+  const specialized = specializedDiagnosticCode([error?.message, error?.stderr, error?.stdout].filter(Boolean).join('\n'), spec, phase);
+  if (specialized) return specialized;
   const output = `${error?.message ?? ''}\n${error?.stderr ?? ''}\n${error?.stdout ?? ''}`;
   if (/repo_path\s+is\s+outside\s+the\s+allowed\s+root/iu.test(output)) return 'INDEX_PATH_OUTSIDE_ALLOWED_ROOT';
   if (/(?:index|database|graph).*(?:corrupt|invalid)|corrupt.*(?:index|database|graph)|需要重新索引/iu.test(output)) {
     return 'INDEX_CORRUPT_REINDEX_REQUIRED';
   }
-  return typeof error?.code === 'string' && /^[A-Z0-9_]+$/u.test(error.code)
-    ? error.code
-    : 'TOOL_PROVISION_FAILED';
+  if (typeof error?.code === 'string'
+    && (error.code.startsWith('TOOL_')
+      || publicAstGrepDiagnosticCodes.has(error.code)
+      || publicIndexDiagnosticCodes.has(error.code)
+      || publicRtkDiagnosticCodes.has(error.code))) {
+    return error.code;
+  }
+  return 'TOOL_PROVISION_FAILED';
 }
 
-export function publicFailure(spec, phase, error, targetDir) {
-  const code = diagnosticCode(error);
+export function publicFailure(spec, phase, error, targetDir, { arch = process.arch, env = process.env, platform = process.platform } = {}) {
+  const code = diagnosticCode(error, spec, phase);
   const diagnosticError = Object.assign(new Error(error?.message ?? ''), error, { code });
+  const diagnostic = createDiagnostic(diagnosticError, phase, targetDir);
+  if (['rtk', 'astGrep'].includes(spec.id)) diagnostic.provisioning = {
+    arch,
+    libc: platform === 'linux' ? detectLinuxLibc() : null,
+    nativePackage: resolveToolNativePackage(spec, { arch, platform }),
+    npmOptional: spec.id === 'astGrep' ? 'include=optional' : 'not-applicable',
+    registry: sanitizeRegistryUrl(env?.npm_config_registry ?? 'https://registry.npmjs.org/'),
+  };
   return {
     code,
-    diagnostic: createDiagnostic(diagnosticError, phase, targetDir),
+    diagnostic: sanitizeDiagnosticValue(diagnostic, targetDir),
     phase,
-    status: code === 'RTK_UNSUPPORTED_PLATFORM' ? 'unsupported' : 'degraded',
+    status: unsupportedPlatformCodes.has(code) ? 'unsupported' : 'degraded',
     version: spec.version,
   };
 }
@@ -134,6 +205,7 @@ export async function runToolPhases(
   signal,
   ocrResolution,
   codebaseMemoryRepair = repairCodebaseMemoryBinary,
+  { arch = process.arch, platform = process.platform } = {},
 ) {
   const context = {};
   const retriedCorruptIndex = new Set();
@@ -147,10 +219,19 @@ export async function runToolPhases(
       };
     }
     try {
-      const request = await phaseRequest(spec, phase, targetDir, env, context);
+      if (spec.id === 'astGrep' && phase === 'dependency-install') {
+        const nativePackage = resolveToolNativePackage(spec, { arch, platform });
+        if (!nativePackage) throw toolContractError('AST_GREP_UNSUPPORTED_PLATFORM', 'ast-grep has no native package for this platform.');
+      }
+      const request = await phaseRequest(spec, phase, targetDir, env, { ...context, arch, platform });
       request.signal = signal;
       request.timeout = boundedTimeout(env, request.timeout);
       const output = await commandRunner(request);
+      if (spec.id === 'astGrep' && phase === 'dependency-install') {
+        const nativePackage = resolveToolNativePackage(spec, { arch, platform });
+        const packagePath = path.join(spec.toolDir, 'node_modules', nativePackage, 'package.json');
+        if (!(await pathExists(packagePath))) throw toolContractError('AST_GREP_OPTIONAL_PACKAGE_MISSING', 'ast-grep optional native package was not installed.');
+      }
       if (spec.id === 'codebaseMemoryMcp'
         && phase === 'binary-install'
         && !(await codebaseMemoryRuntimeAvailable(spec))
@@ -182,7 +263,7 @@ export async function runToolPhases(
       }
       if (spec.id === 'codebaseMemoryMcp'
         && phase === 'index'
-        && diagnosticCode(error) === 'INDEX_CORRUPT_REINDEX_REQUIRED'
+        && diagnosticCode(error, spec, phase) === 'INDEX_CORRUPT_REINDEX_REQUIRED'
         && !retriedCorruptIndex.has(phase)) {
         retriedCorruptIndex.add(phase);
         const cacheDir = path.join(await projectStateDir(targetDir), 'tool-state/codebase-memory-mcp/cache');
@@ -236,8 +317,11 @@ function astGrepBinaryPath(spec, platform = process.platform) {
   return path.join(spec.toolDir, 'node_modules/@ast-grep/cli', binaryName);
 }
 
-async function astGrepRuntimeAvailable(spec, platform = process.platform) {
-  return pathExists(astGrepBinaryPath(spec, platform));
+async function astGrepRuntimeAvailable(spec, platform = process.platform, arch = process.arch) {
+  const nativePackage = resolveToolNativePackage(spec, { arch, platform });
+  if (!nativePackage) return false;
+  return await pathExists(path.join(spec.toolDir, 'node_modules', nativePackage, 'package.json'))
+    && await pathExists(astGrepBinaryPath(spec, platform));
 }
 
 function rtkBinaryPath(spec, platform = process.platform) {
@@ -264,7 +348,7 @@ async function optionalRuntimeHash(spec, platform = process.platform) {
 export async function reusableOptionalRuntime(spec, previousTool, platform, arch) {
   if (previousTool?.version !== spec.version || !previousTool?.binarySha256) return false;
   if (spec.id === 'rtk' && !(await rtkRuntimeAvailable(spec, platform, arch))) return false;
-  if (spec.id === 'astGrep' && !(await astGrepRuntimeAvailable(spec, platform))) return false;
+  if (spec.id === 'astGrep' && !(await astGrepRuntimeAvailable(spec, platform, arch))) return false;
   return await optionalRuntimeHash(spec, platform) === previousTool.binarySha256;
 }
 
@@ -306,10 +390,10 @@ export async function defaultRuntimeVersionRunner(request) {
   });
 }
 
-function inspectedRuntimeFailure(spec, code, message, targetDir) {
+function inspectedRuntimeFailure(spec, code, message, targetDir, { arch, platform } = {}) {
   const error = toolContractError(code, message);
   return {
-    ...publicFailure(spec, 'runtime-check', error, targetDir),
+    ...publicFailure(spec, 'runtime-check', error, targetDir, { arch, platform }),
     code,
   };
 }
@@ -328,7 +412,7 @@ export async function verifyProvisionedOptionalRuntime(spec, targetDir, {
   const prefix = spec.id === 'rtk' ? 'RTK' : 'AST_GREP';
   const available = spec.id === 'rtk'
     ? await rtkRuntimeAvailable(spec, platform, arch)
-    : await astGrepRuntimeAvailable(spec, platform);
+    : await astGrepRuntimeAvailable(spec, platform, arch);
   if (!available) {
     throw toolContractError(`${prefix}_RUNTIME_MISSING`, `The project-local ${spec.id} binary is missing after installation.`);
   }
@@ -365,12 +449,12 @@ async function inspectReadyRuntime(spec, saved, fingerprint, targetDir, {
       spec,
       `${prefix}_STATE_VERSION_MISMATCH`,
       `The recorded ${spec.id} version does not match the pinned version; provision the tool again.`,
-      targetDir,
+      targetDir, { arch, platform },
     );
   }
   const available = spec.id === 'rtk'
     ? await rtkRuntimeAvailable(spec, platform, arch)
-    : await astGrepRuntimeAvailable(spec, platform);
+    : await astGrepRuntimeAvailable(spec, platform, arch);
   if (!available) {
     return inspectedRuntimeFailure(
       spec,
@@ -378,7 +462,7 @@ async function inspectReadyRuntime(spec, saved, fingerprint, targetDir, {
       spec.id === 'rtk'
         ? 'The project-local RTK binary is missing; provision the tool again or use the original command directly.'
         : 'The project-local ast-grep binary is missing; provision the tool again or use rg/project search and record the fallback.',
-      targetDir,
+      targetDir, { arch, platform },
     );
   }
   const currentFingerprint = await lockFingerprint(spec);
@@ -387,7 +471,7 @@ async function inspectReadyRuntime(spec, saved, fingerprint, targetDir, {
       spec,
       `${prefix}_FINGERPRINT_MISMATCH`,
       `The project-local ${spec.id} package metadata no longer matches the provisioned state; provision the tool again.`,
-      targetDir,
+      targetDir, { arch, platform },
     );
   }
   if (!saved.binarySha256) {
@@ -395,7 +479,7 @@ async function inspectReadyRuntime(spec, saved, fingerprint, targetDir, {
       spec,
       `${prefix}_BINARY_HASH_MISSING`,
       `The recorded ${spec.id} state has no verified binary hash; provision the tool again.`,
-      targetDir,
+      targetDir, { arch, platform },
     );
   }
   const currentHash = await optionalRuntimeHash(spec, platform);
@@ -404,7 +488,7 @@ async function inspectReadyRuntime(spec, saved, fingerprint, targetDir, {
       spec,
       `${prefix}_BINARY_HASH_MISMATCH`,
       `The project-local ${spec.id} binary no longer matches its provisioning hash; provision the tool again.`,
-      targetDir,
+      targetDir, { arch, platform },
     );
   }
   return saved;
@@ -437,7 +521,7 @@ export async function inspectProfileTools(profile, targetDir, resolvedModules, t
           );
         }
       } catch (error) {
-        tools[spec.id] = publicFailure(spec, 'install', error, targetDir);
+        tools[spec.id] = publicFailure(spec, 'install', error, targetDir, { arch, env: process.env, platform });
       }
     } else if (spec.id === 'astGrep') {
       tools[spec.id] = saved ?? { phase: 'install', status: 'pending', version: spec.version };

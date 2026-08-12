@@ -1,56 +1,55 @@
 # Hook 安全策略
 
-Vibe-Harness full 为 Codex、Cursor、Qoder 和 ZCode 安装项目级安全 Hook。Hook 不创建任务状态、不运行测试、不检查交付文本，也不阻止 Agent 正常完成。RTK 路由仅支持 Codex。
+Vibe-Harness Hook 只执行项目级安全策略。它不创建任务状态、不运行测试、不检查交付文本、不在 Stop 时提交，也不执行 git push。
 
-## 事件
+## 事件能力矩阵
 
-| 事件 | 行为 |
-| --- | --- |
-| `PreToolUse` | 阻止危险 Git、全局 Agent 配置写入、凭据外传、红区文件上传和项目边界外写入；红区写入返回审批上下文；配置 `allowedEgressHosts` 后阻止非白名单主机出口。 |
-| `PermissionRequest` | 拒绝违反硬安全边界的请求；其他请求继续由 Codex 正常审批。 |
+事件与激活方式以 manifests/adapters.json 的 hookEvents 和 hookActivation 为单一事实源。
 
-配置只支持：
+| 宿主 | PreToolUse | PermissionRequest | Stop | 激活方式 |
+| --- | --- | --- | --- | --- |
+| Codex | stable | stable | unsupported | manual-trust |
+| Claude Code | stable | stable | unsupported | config-file |
+| Gemini | unsupported | unsupported | unsupported | unsupported |
+| Cursor | stable | unsupported | unsupported | config-file |
+| Qoder | stable | stable | unsupported | config-file |
+| ZCode | stable | stable | unsupported | config-file |
+| Antigravity | preview | unsupported | unsupported | config-file |
+| OpenCode | unsupported | unsupported | unsupported | unsupported |
 
-```json
-{
-  "hooks": {
-    "allowedWriteRoots": [],
-    "allowedEgressHosts": [],
-    "mode": "guarded",
-    "redZonePaths": [".env", "auth/", "ci/cd/", ".github/workflows/", ".codex/hooks.json", ".cursor/hooks.json", ".cursor/mcp.json", ".mcp.json", ".qoder/settings.json", ".zcode/config.json"],
-    "rtk": { "enabled": false }
-  }
-}
-```
+PreToolUse 阻止危险 Git、全局 Agent 配置写入、凭据外传、红区文件上传和项目边界外写入。PermissionRequest 对相同硬边界执行拒绝；其他审批仍由宿主控制。所有宿主的 Stop 都是 unsupported，Vibe-Harness 不自动 commit 或 push。
 
-`mode` 可为 `off`、`observe` 或 `guarded`。跨项目写入必须在目标项目配置中使用绝对路径白名单显式授权；全局 Agent 配置始终拒绝，目录链接逃逸也会被拒绝。
+OpenCode 不安装项目 Hook。其配置文件仍属于默认红区，其他已安装的 stable Hook 可在多宿主项目中保护这些路径；这不代表 OpenCode 自身拥有 Hook 防护。
 
-`redZonePaths` 是 Hook 运行时的红区单一事实源：每个条目是项目相对路径片段，带末尾 `/` 的匹配目录及其后代，裸文件名（如 `.env`）匹配文件本身及以 `.` 延伸的同名文件（如 `.env.production`），含 `/` 的条目匹配该相对路径或其后代。命中红区的写入返回审批上下文（warn），红区文件上传始终拒绝。注意 `riskZones.red` 是项目治理逻辑分类（供人工与工具参考），与 `hooks.redZonePaths` 职责不同、可独立配置。
+## 路径解析
 
-网络出口默认"放行但拦敏感":普通网络命令放行(不影响 `pnpm install`/`git fetch`),网络命令携带密钥引用或上传红区/敏感文件(如 `curl -F data=@.env`)始终拒绝。配置非空 `allowedEgressHosts` 后,出口主机必须在白名单内(支持通配符如 `*.npmjs.org`),非白名单主机在 `guarded` 下拒绝、`observe` 下告警。allowlist 应理解为"能力授予"而非"目的地过滤":白名单内主机仍是攻击面，因此密钥引用与红区上传始终被无条件拦截。
+每条 Hook 命令使用跨平台 Node bootstrap：
 
-RTK 集成只在显式选择 RTK 插件并启用 `hooks.rtk.enabled` 或 `--rtk-hooks on` 时生效。安全策略始终先执行。
+1. 从宿主 session 的当前工作目录运行 <code>git rev-parse --show-toplevel</code>。
+2. 从返回的 Git root 定位 <code>.agents/runtime/hooks/codex-hook.mjs</code>。
+3. 使用 <code>process.execPath</code> 启动受管 Hook，并继承 stdin、stdout、stderr 和 Hook 参数。
+4. 找不到 Git root、受管入口或子进程启动失败时明确返回非零状态。
 
-## 超时
+该入口不使用 shell command substitution。它可从仓库根、多级子目录和 Git worktree 启动，并始终命中当前 worktree 的受管 Hook。
 
-宿主配置中的 `timeout` 设为 10 秒。该取值是有意的保守选择，避免策略评估长挂阻塞交互；超时按 guarded 事件 fail-closed 处理。Cursor 使用 `.cursor/hooks.json`，Qoder 使用 `.qoder/settings.json`，ZCode 使用 `.zcode/config.json`，Codex 使用 `.codex/hooks.json`。
+## 激活与诊断
 
-## Hook 路径
+<code>validate</code> 和 <code>doctor</code> 输出 runtimeHooks，包括配置是否存在、声明事件、git-root 路径策略、激活机制、状态和核验方法。
 
-宿主配置的 `command` 使用相对路径（`node .agents/runtime/hooks/codex-hook.mjs --host <host>`）。Hook 从 payload 的项目工作目录解析 `vibe-harness.config.json`；缺失时回退当前工作目录。请从项目根启动宿主，避免相对路径无法定位 Hook 入口。
+Codex 的 Hook trust 是宿主状态，不能从项目文件推断。即使文件一致，activation.status 也保持 unknown，并输出 HOOK_ACTIVATION_UNVERIFIED；用户必须在 Codex 中运行 <code>/hooks</code> 复核当前定义。配置文件型宿主只报告 configured-unverified，不把文件存在描述为 runtime active。
+
+## 配置与超时
+
+安全事件 timeout 为 10 秒；guarded 模式在无法安全判定时 fail-closed。hooks.mode 支持 off、observe 和 guarded。allowedWriteRoots、allowedEgressHosts 与 redZonePaths 分别控制项目外写入授权、出口能力和运行时红区。
+
+网络出口默认允许普通依赖和 Git 操作，但始终阻止凭据引用与红区文件上传。非空 allowlist 是能力授予，不是内容安全保证。
+
+RTK 路由仅在 Codex、显式选择 RTK 插件并启用对应设置时生效；安全策略始终先执行。
 
 ## Git Hooks
 
-full 会安装 `.githooks/pre-commit` 和 `.githooks/pre-push`，但不会修改 `.git/config`。需要时由用户对当前仓库显式启用：
-
-```bash
-git config --local core.hooksPath .githooks
-```
-
-Git Hook 可被本地用户绕过，强制策略应放在 CI 和服务端保护中。
+full profile 仍可安装项目级 pre-commit 和 pre-push 文件，但不会修改本地或全局 Git 配置。是否启用 <code>core.hooksPath</code> 由用户决定。Vibe-Harness 不会因为安装这些文件而执行提交或推送。
 
 ## 安装
 
-```bash
-pnpm vibe-harness install --project <project> --target codex --profile full --write --confirm-red-zone
-```
+<code>pnpm vibe-harness install --project &lt;project&gt; --target codex --profile full --write --confirm-red-zone</code>

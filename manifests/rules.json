@@ -9,6 +9,7 @@
     { "id": "git-rules", "source": "rules/git-rules.md" },
     { "id": "test-rules", "source": "rules/test-rules.md" },
     { "id": "ai-collab-rules", "source": "rules/ai-collab-rules.md" },
+    { "id": "linear-workflow", "source": "rules/linear-workflow.md" },
     { "id": "api-rules", "source": "rules/api-rules.md" },
     { "id": "coding-rules", "source": "rules/coding-rules.md" },
     { "id": "frontend-rules", "source": "rules/frontend-rules.md" },

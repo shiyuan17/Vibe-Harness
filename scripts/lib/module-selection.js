@@ -12,6 +12,8 @@ export const moduleCatalog = {
   'open-code-review': { dependencies: ['skills'], groups: ['tools-open-code-review'] },
   rtk: { dependencies: ['agents', 'rules'], groups: ['rules-rtk', 'tools-rtk'] },
   'ast-grep': { dependencies: ['agents', 'rules'], groups: ['rules-ast-grep', 'tools-ast-grep'] },
+  linear: { dependencies: ['skills'], groups: ['rules-linear', 'skills-linear', 'templates-linear', 'mcp-config'] },
+  'linear-readonly': { dependencies: ['skills'], groups: ['rules-linear', 'skills-linear', 'templates-linear', 'mcp-config'] },
   hooks: { dependencies: ['agents'], groups: ['hooks'] },
 };
 
@@ -43,6 +45,10 @@ const pluginAliases = new Map([
   ['playwright-cli', 'playwright'],
   ['playwright', 'playwright'],
   ['open-code-review', 'open-code-review'],
+  ['linear-mcp', 'linear'],
+  ['linear', 'linear'],
+  ['linear-mcp-readonly', 'linear-readonly'],
+  ['linear-readonly', 'linear-readonly'],
 ]);
 
 export function parseModulesOption(value) {
@@ -116,6 +122,9 @@ export function resolveModuleSelection({
   const plugins = requestedPlugins === undefined || requestedPlugins === null || requestedPlugins.length === 0
     ? []
     : parsePluginsOption(requestedPlugins);
+  if (plugins.includes('linear') && plugins.includes('linear-readonly')) {
+    throw new Error('linear-mcp and linear-mcp-readonly are mutually exclusive.');
+  }
   if (rtkHooksEnabled && !plugins.includes('rtk')) {
     throw new Error('RTK hook integration requires the rtk plugin. Select --plugin -rtk.');
   }

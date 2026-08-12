@@ -1,5 +1,7 @@
 # 评测驱动开发
 
+受控知识覆盖观察记录 request root、候选 Rule 或 Skill owner、选择和调用状态、验证结果及停止边界。产物只保留语义 ID、枚举状态和计数，不保留原始提示、私有 Session 标识、绝对用户路径、Secrets、命令或消息正文。既有 owner 被调用且验证与停止边界闭合时记为 covered；证据不足时记为 needs-more-evidence；只有两个不同 Episode 在相同 request root、完整既有 owner 清单下都确认无匹配时才记为 confirmed-uncovered。该观察不新增完成门禁；少于两个可比 Episode 时不得据此提出新 Skill 或 Memory。
+
 修改 Agent 规则、Skill、模板、适配器、Hook 或其他非确定性行为前，先用 `Eval-ID` 定义可观察的失败场景。纯确定性代码行为继续使用测试驱动开发；评测不能代替单元测试。
 
 - 先记录输入、必须和禁止行为、风险等级、评分维度及对应 `AC-ID`。

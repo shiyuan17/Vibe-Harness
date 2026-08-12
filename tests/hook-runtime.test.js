@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -8,6 +9,34 @@ import { evaluateCodexHook, evaluateHook } from '../runtime/hooks/codex-hook.mjs
 import { resolveExecutable, runCommand } from '../runtime/hooks/git-hook.mjs';
 import { DEFAULT_RED_ZONE_PATHS, readHookSettings } from '../runtime/hooks/lib/context.mjs';
 import { analyzeToolRequest, createHostHookResult, normalizeCodexHookInput, supportedCodexHookEvents } from '../runtime/hooks/lib/policy.mjs';
+import { inspectRtkHook, routeRtkCommand } from '../runtime/hooks/lib/rtk.mjs';
+
+const hookCliPath = path.resolve('runtime/hooks/codex-hook.mjs');
+
+async function runHookCli(stdin, args = ['--host', 'codex', '--expected-event', 'PreToolUse']) {
+  const child = spawn(process.execPath, [hookCliPath, ...args], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    windowsHide: true,
+  });
+  const stdout = [];
+  const stderr = [];
+  child.stdout.on('data', (chunk) => stdout.push(chunk));
+  child.stderr.on('data', (chunk) => stderr.push(chunk));
+  child.stdin.end(stdin);
+  const code = await new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('close', resolve);
+  });
+  return {
+    code,
+    stderr: Buffer.concat(stderr).toString('utf8'),
+    stdout: Buffer.concat(stdout).toString('utf8'),
+  };
+}
+
+function hookCliReason(stdout) {
+  return JSON.parse(stdout).hookSpecificOutput.permissionDecisionReason;
+}
 
 async function withProject(callback, hooks = { mode: 'guarded' }) {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-hook-runtime-'));
@@ -38,11 +67,96 @@ function input(cwd, overrides = {}) {
   };
 }
 
+test('RTK hook resolves the canonical project-local runtime path', async () => {
+  await withProject(async (target) => {
+    const stateDir = path.join(target, '.vibe-harness', 'tool-state');
+    const runner = path.join(target, '.agents', 'runtime', 'tools', 'rtk', 'run.mjs');
+    const binary = path.join(target, '.agents', 'runtime', 'tools', 'rtk', 'bin', process.platform === 'win32' ? 'rtk.exe' : 'rtk');
+    await mkdir(stateDir, { recursive: true });
+    await mkdir(path.dirname(binary), { recursive: true });
+    await writeFile(path.join(stateDir, 'tools.json'), JSON.stringify({ tools: { rtk: { status: 'ready', version: '0.45.0' } } }), 'utf8');
+    await writeFile(runner, 'fixture\n', 'utf8');
+    await writeFile(binary, 'fixture\n', 'utf8');
+
+    const state = await inspectRtkHook(target, { enabled: true });
+    assert.equal(state.status, 'ready');
+    assert.equal(state.runner, runner);
+    assert.equal(state.binary, binary);
+  });
+});
+
+test('RTK routing bypasses project code-intelligence tools, interactive commands, and raw evidence', async () => {
+  const calls = [];
+  const runner = async (binary, command) => {
+    calls.push({ binary, command });
+    return { code: 0, stdout: 'rtk git status', timedOut: false };
+  };
+  const options = {
+    mode: 'guarded',
+    projectRoot: process.cwd(),
+    rtk: { binary: 'rtk', enabled: true, status: 'ready' },
+    runner,
+  };
+  for (const command of [
+    'node .agents/runtime/tools/ast-grep/run.mjs outline src',
+    'node .agents/runtime/tools/codebase-memory-mcp/run.mjs',
+    'Get-Content build.log',
+    'ssh example.test',
+  ]) {
+    const result = await routeRtkCommand({ toolInput: { command }, toolName: 'Bash' }, options);
+    assert.equal(result.action, 'allow', command);
+  }
+  assert.equal(calls.length, 0);
+
+  const routed = await routeRtkCommand({ toolInput: { command: 'git status' }, toolName: 'Bash' }, options);
+  assert.equal(routed.action, 'deny');
+  assert.match(routed.retryCommand, /runtime\/tools\/rtk\/run\.mjs/u);
+  assert.equal(calls.length, 1);
+});
+
 test('Hook supports only safety events and allows ordinary project commands', async () => {
   assert.deepEqual([...supportedCodexHookEvents].sort(), ['PermissionRequest', 'PreToolUse']);
   await withProject(async (target) => {
     assert.deepEqual(await evaluateCodexHook(input(target)), {});
   });
+});
+
+test('Hook CLI classifies malformed, oversized, mismatched, and unavailable-context input without disclosure', async () => {
+  const sensitiveMarker = ['fixture', 'credential', 'value'].join('-');
+  const missingContext = path.join(tmpdir(), 'missing-hook-context-' + sensitiveMarker);
+  const cases = [
+    {
+      code: 'HOOK_INPUT_INVALID_JSON',
+      stdin: '{"invalid":"' + sensitiveMarker,
+    },
+    {
+      code: 'HOOK_INPUT_TOO_LARGE',
+      stdin: 'x'.repeat(1024 * 1024 + 1),
+    },
+    {
+      code: 'HOOK_EVENT_MISMATCH',
+      stdin: JSON.stringify(input(process.cwd(), {
+        hook_event_name: 'PermissionRequest',
+        session_id: sensitiveMarker,
+      })),
+    },
+    {
+      code: 'HOOK_PROJECT_CONTEXT_UNAVAILABLE',
+      stdin: JSON.stringify(input(missingContext, {
+        session_id: sensitiveMarker,
+      })),
+    },
+  ];
+
+  for (const fixture of cases) {
+    const result = await runHookCli(fixture.stdin);
+    assert.equal(result.code, 0);
+    assert.equal(result.stderr, '');
+    assert.match(hookCliReason(result.stdout), new RegExp('VIBE_HARNESS_HOOK:' + fixture.code, 'u'));
+    assert.doesNotMatch(result.stdout, new RegExp(sensitiveMarker, 'u'));
+    assert.doesNotMatch(result.stdout, /Bearer|Authorization|Cookie|password/iu);
+    assert.equal(JSON.parse(result.stdout).hookSpecificOutput.permissionDecision, 'deny');
+  }
 });
 
 test('Hook denies destructive Git operations and global Agent configuration writes', async () => {
@@ -100,6 +214,28 @@ test('Cursor, Qoder, and ZCode normalize host payloads and deny destructive comm
       const result = await evaluateHook(fixture.payload, { expectedEvent: 'PreToolUse', host: fixture.host });
       fixture.assertDenied(result);
     }
+  });
+});
+
+test('Claude Code shares the ZCode hook I/O format and denies destructive commands', async () => {
+  await withProject(async (target) => {
+    const allowed = await evaluateHook({
+      cwd: target,
+      hook_event_name: 'PreToolUse',
+      session_id: 'claude-session',
+      tool_input: { command: 'git status --short' },
+      tool_name: 'Bash',
+    }, { expectedEvent: 'PreToolUse', host: 'claude' });
+    assert.deepEqual(allowed, {});
+
+    const denied = await evaluateHook({
+      cwd: target,
+      hook_event_name: 'PreToolUse',
+      session_id: 'claude-session',
+      tool_input: { command: 'git reset --hard HEAD' },
+      tool_name: 'Bash',
+    }, { expectedEvent: 'PreToolUse', host: 'claude' });
+    assert.equal(denied.hookSpecificOutput.permissionDecision, 'deny');
   });
 });
 
@@ -369,7 +505,7 @@ test('unsupported lifecycle events fail closed instead of creating task context'
   await withProject(async (target) => {
     await assert.rejects(
       evaluateCodexHook(input(target, { hook_event_name: 'Stop' })),
-      /Unsupported hook event/u,
+      (error) => error?.code === 'HOOK_INPUT_INVALID',
     );
   });
 });

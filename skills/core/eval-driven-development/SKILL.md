@@ -5,6 +5,8 @@ description: Use for nondeterministic Agent rules, Skills, prompts, Hooks, or ro
 
 # 评测驱动修改 Agent 行为
 
+知识覆盖观察先匹配当前安装的 Rule 和 Skill，并分别保留选择、调用、验证和停止边界。单个 Episode 或缺少调用证据只能是 needs-more-evidence；两个不同 Episode 在相同 request root、完整清单下都确认无匹配后，才可形成 confirmed-uncovered 并进入 owner 评审。该观察不新增完成门禁，也不得保存提示、Session、绝对用户路径、Secrets、命令或消息正文。
+
 常驻契约见 `docs/rules/eval-driven-development.md`；本 Skill 是按需展开的执行步骤，两者描述同一门禁，修改须同步。
 
 ## 执行

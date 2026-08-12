@@ -5,8 +5,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"{{hookRunnerPath}}\" --expected-event PermissionRequest",
-            "commandWindows": "node \"{{hookRunnerPath}}\" --expected-event PermissionRequest",
+            "command": "{{hookBootstrapCommand}} --expected-event PermissionRequest",
+            "commandWindows": "{{hookBootstrapCommand}} --expected-event PermissionRequest",
             "timeout": 10,
             "statusMessage": "Checking Vibe-Harness safety policy"
           }
@@ -19,8 +19,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"{{hookRunnerPath}}\" --expected-event PreToolUse",
-            "commandWindows": "node \"{{hookRunnerPath}}\" --expected-event PreToolUse",
+            "command": "{{hookBootstrapCommand}} --expected-event PreToolUse",
+            "commandWindows": "{{hookBootstrapCommand}} --expected-event PreToolUse",
             "timeout": 10,
             "statusMessage": "Checking Vibe-Harness safety policy"
           }

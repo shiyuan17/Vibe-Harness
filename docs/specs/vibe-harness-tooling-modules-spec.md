@@ -1,5 +1,23 @@
 # Vibe-Harness 显式工具插件规格
 
+## RTK 与 ast-grep 加固合同
+
+- RTK 的数据库和 tee 目录固定在项目 <code>.vibe-harness/tool-state/rtk/</code>，wrapper 强制关闭 tee 与 telemetry，并保留真实 HOME 和 USERPROFILE。
+- RTK 使用项目内固定版本 undici dispatcher 读取 HTTP_PROXY、HTTPS_PROXY 和 NO_PROXY，在 Node 20.19、22、24 上采用相同代理语义。
+- RTK 下载仅重试明确的瞬态状态和网络错误，遵守 Retry-After，使用 full-jitter 退避，并限制为 3 次、单次 30 秒和 64 MiB。
+- RTK dependency-install 先安装锁定的网络依赖，binary-install 再使用唯一 staging、项目锁、checksum 和安全归档检查发布二进制。
+- ast-grep canonical 入口不带 sg 或 ast-grep 伪前缀；wrapper 只剥离兼容前缀，其他参数和未来子命令原样透传。
+
+### 工具版本升级检查清单
+
+1. 阅读 release notes，记录兼容性、安全和行为变化。
+2. 核对所有支持平台的发布资产名称、架构和 checksum。
+3. 精确固定依赖版本并提交 lockfile，复核 registry integrity。
+4. 对照上游帮助检查 CLI 命令、参数、退出码和 wrapper 透传合同。
+5. 在 Node 20.19、22、24 及 Windows/Linux 矩阵运行相关验证。
+6. 运行 runtime audit、聚焦测试和真实工具临时项目验收。
+7. 运行 install、upgrade、rollback、uninstall 的 lifecycle dry-run。
+
 ## 状态
 
 状态：Implemented
@@ -7,6 +25,8 @@
 6 个工具插件均为项目内、可选且相互独立的能力。`minimal`、`core`、`full` 和 `docs-only` 的默认安装均不包含外部工具；`full` 表示完整治理能力，不表示自动下载工具。
 
 ## 选择合同
+
+Linear 另有两个需要认证的显式外部集成：linear-mcp 配置读写 endpoint，linear-mcp-readonly 配置 readonly endpoint。两者互斥，只写项目级配置，不保存凭据，也不随 plugin all 展开。Claude 与 Gemini 安装工作流资产并报告手工 MCP 配置；其余六个 adapter 管理 remote server。宿主原生认证不属于安装事务。
 
 | 公开插件名 | 内部模块 | 用途 | 支持级别 |
 | --- | --- | --- | --- |
@@ -27,14 +47,16 @@
 
 | 插件 | 固定版本 | 项目内入口 |
 | --- | --- | --- |
-| RTK | `rtk-ai/rtk v0.43.0` | `node .agents/runtime/tools/rtk/run.mjs <command> ...`；原始输出使用 `node .agents/runtime/tools/rtk/run.mjs proxy <command> ...` |
-| ast-grep | `@ast-grep/cli@0.44.1` | `node .agents/runtime/tools/ast-grep/run.mjs <sg\|ast-grep> ...` |
+| RTK | `rtk-ai/rtk v0.45.0` | `node .agents/runtime/tools/rtk/run.mjs <command> ...`；原始输出使用 `node .agents/runtime/tools/rtk/run.mjs proxy <command> ...` |
+| ast-grep | `@ast-grep/cli@0.45.1` | `node .agents/runtime/tools/ast-grep/run.mjs <sg\|ast-grep> ...` |
 | codebase-memory-mcp | `0.9.0` | `.agents/runtime/tools/codebase-memory-mcp/run.mjs` |
 | Chrome DevTools MCP | `1.6.0` | `.agents/runtime/tools/chrome-devtools-mcp/run.mjs` |
 | Playwright CLI | `0.1.17` | `.agents/runtime/tools/playwright-cli/run.mjs` |
 | Open Code Review | `1.7.7` | `.agents/runtime/tools/open-code-review/run.mjs` |
 
 Wrapper 原样或按各工具安全合同转发参数，只调用已校验的项目内 runtime，不依赖全局安装，不修改 PATH、shell profile、用户级 Agent/MCP 配置或业务依赖。
+
+ast-grep 表中的前缀形式仅为兼容入口；canonical CLI 是 <code>node .agents/runtime/tools/ast-grep/run.mjs [args...]</code>，无需添加伪前缀。
 
 ## Provisioning 与状态
 
@@ -45,6 +67,13 @@ Wrapper 原样或按各工具安全合同转发参数，只调用已校验的项
 - 选择 codebase-memory-mcp 时，安装器在项目根维护 `# VIBE_HARNESS:CBM:START` / `# VIBE_HARNESS:CBM:END` 包围的 `.cbmignore` 块，排除 Vibe-Harness 状态、Agent 配置、构建输出、工具缓存、日志和压缩包。既有用户规则保留；无受管块的既有文件在未使用 `--force` 时报告冲突。
 - runtime、下载缓存、索引与工具状态均位于目标项目。未使用 `--force` 时不覆盖用户文件；真实 install、provision、rollback 和 uninstall 使用 `--write`，红区仍需显式确认。
 - `pnpm runtime:audit` 审计 npm runtime 的实际依赖面并对 High/Critical fail-closed；RTK 使用 release checksum 供应链校验。存在未修复 High 风险的 runtime 不进入可安装清单。
+
+## 三工具调用关系
+
+- RTK 属于输出通道，只压缩符合条件的 Shell 输出，不参与代码检索和语义判断。新安装选择 RTK 时 Codex Hook 默认开启；CLI、项目配置、已有安装状态依次覆盖默认值。
+- ast-grep 属于本地语法层：先用 <code>outline</code> 缩小读取范围，再用 <code>run</code> 或 <code>scan</code> 做 AST 查询；持久化规则必须通过 <code>test</code>。
+- codebase-memory-mcp 属于跨文件语义层：需要调用链、架构或影响分析时先检查索引，再定位精确符号并读取源码或追踪调用路径。
+- 普通文本、配置、日志和未知语言使用 <code>rg</code>；各层不可伪装成其他层的等价替代，所有结论回到源码、测试或原始产物核验。
 
 ## 使用与回退规则
 

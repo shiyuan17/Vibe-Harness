@@ -1,3 +1,5 @@
+import { applyEdits, modify, parse, printParseErrorCode } from 'jsonc-parser';
+
 function isRecord(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -12,9 +14,23 @@ function stableValue(value) {
   return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stableValue(value[key])]));
 }
 
-function readJsonObject(content) {
+function syntaxFor(descriptor) {
+  return descriptor.syntax ?? 'json';
+}
+
+function readJsonObject(content, descriptor = {}) {
   if (!content.trim()) return {};
-  const parsed = JSON.parse(content);
+  let parsed;
+  if (syntaxFor(descriptor) === 'jsonc') {
+    const errors = [];
+    parsed = parse(content, errors, { allowTrailingComma: true, disallowComments: false });
+    if (errors.length > 0) {
+      const details = errors.map((error) => printParseErrorCode(error.error) + ' at offset ' + error.offset).join(', ');
+      throw new Error('Managed JSONC configuration is invalid: ' + details + '.');
+    }
+  } else {
+    parsed = JSON.parse(content);
+  }
   if (!isRecord(parsed)) throw new Error('Managed JSON configuration must contain an object.');
   return parsed;
 }
@@ -22,12 +38,11 @@ function readJsonObject(content) {
 function getAtPath(root, path, { create = false } = {}) {
   let current = root;
   for (const segment of path) {
-    if (!isRecord(current[segment])) {
+    if (!Object.hasOwn(current, segment)) {
       if (!create) return undefined;
-      if (Object.hasOwn(current, segment)) {
-        throw new Error(`Managed JSON configuration path ${path.join('.')} must contain an object.`);
-      }
       current[segment] = {};
+    } else if (!isRecord(current[segment])) {
+      throw new Error('Managed JSON configuration path ' + path.join('.') + ' must contain an object.');
     }
     current = current[segment];
   }
@@ -64,8 +79,46 @@ function managedMcpServers(value, serverPrefix) {
   return Object.fromEntries(Object.entries(value).filter(([name]) => name.startsWith(serverPrefix)));
 }
 
+function formattingOptions(content) {
+  const eol = content.includes('\r\n') ? '\r\n' : '\n';
+  const indent = content.match(/^[ \t]+(?=["}])/mu)?.[0] ?? '  ';
+  return {
+    eol,
+    insertSpaces: !indent.includes('\t'),
+    tabSize: indent.includes('\t') ? 1 : Math.max(1, indent.length),
+  };
+}
+
+function applyJsoncValue(content, path, value) {
+  const base = content.trim() ? content : '{}\n';
+  return applyEdits(base, modify(base, path, value, { formattingOptions: formattingOptions(base) }));
+}
+
+function removeEmptyJsoncPath(content, path) {
+  const parsed = readJsonObject(content, { syntax: 'jsonc' });
+  const value = getAtPath(parsed, path);
+  return isRecord(value) && Object.keys(value).length === 0
+    ? applyJsoncValue(content, path, undefined)
+    : content;
+}
+
+function mergeJsoncMcp(existingContent, descriptor, servers) {
+  const root = readJsonObject(existingContent, descriptor);
+  const container = getAtPath(root, descriptor.mcpPath);
+  let content = existingContent.trim() ? existingContent : '{}\n';
+  for (const name of Object.keys(managedMcpServers(container, descriptor.serverPrefix))) {
+    content = applyJsoncValue(content, [...descriptor.mcpPath, name], undefined);
+  }
+  for (const [name, server] of Object.entries(servers)) {
+    content = applyJsoncValue(content, [...descriptor.mcpPath, descriptor.serverPrefix + name], clone(server));
+  }
+  if (Object.keys(servers).length === 0) content = removeEmptyJsoncPath(content, descriptor.mcpPath);
+  if (Object.keys(readJsonObject(content, descriptor)).length === 0 && !/\/\/|\/\*/u.test(content)) return '{}\n';
+  return content.endsWith('\n') ? content : content + '\n';
+}
+
 export function managedJsonPayload(content, descriptor) {
-  const root = readJsonObject(content);
+  const root = readJsonObject(content, descriptor);
   const payload = {};
   if (descriptor.mcpPath) {
     payload.mcpServers = managedMcpServers(getAtPath(root, descriptor.mcpPath), descriptor.serverPrefix);
@@ -82,19 +135,23 @@ export function hasManagedJsonPayload(content, descriptor) {
 }
 
 export function mergeManagedJsonConfig(existingContent, descriptor, { hooks = {}, servers = {} } = {}) {
-  const root = readJsonObject(existingContent);
+  if (syntaxFor(descriptor) === 'jsonc') {
+    if (descriptor.hooksPath) throw new Error('Managed JSONC Hook configuration is not supported.');
+    return mergeJsoncMcp(existingContent, descriptor, servers);
+  }
+
+  const root = readJsonObject(existingContent, descriptor);
   if (descriptor.mcpPath) {
     const container = getAtPath(root, descriptor.mcpPath, { create: true });
     const existing = managedMcpServers(container, descriptor.serverPrefix);
     for (const name of Object.keys(existing)) delete container[name];
     for (const [name, server] of Object.entries(servers)) {
-      container[`${descriptor.serverPrefix}${name}`] = clone(server);
+      container[descriptor.serverPrefix + name] = clone(server);
     }
     deleteAtPathIfEmpty(root, descriptor.mcpPath);
   }
   if (descriptor.hooksPath) {
     const container = getAtPath(root, descriptor.hooksPath, { create: true });
-    if (!isRecord(container)) throw new Error('Managed Hook configuration path must contain an object.');
     for (const [event, groups] of Object.entries(container)) {
       if (!Array.isArray(groups)) continue;
       const remaining = groups.filter((group) => !Array.isArray(group?.hooks)
@@ -106,9 +163,29 @@ export function mergeManagedJsonConfig(existingContent, descriptor, { hooks = {}
       const current = Array.isArray(container[event]) ? container[event] : [];
       container[event] = [...current, ...clone(groups)];
     }
+    // ZCode (and Claude Code, which shares the hook model) disable
+    // configuration-file hooks by default; the runner only activates when
+    // `hooks.enabled: true` is present. When we install managed hooks, set the
+    // flag so they actually run. When uninstalling (no managed hooks to add)
+    // and the container is drained of all events, clear the flag so
+    // deleteAtPathIfEmpty can remove the container entirely.
+    if (Object.keys(hooks).length > 0) {
+      container.enabled = true;
+    } else {
+      const hasHookEvents = Object.values(container).some((value) => Array.isArray(value));
+      if (!hasHookEvents) delete container.enabled;
+    }
+    // Re-order so `enabled` always sorts after hook event keys, keeping the
+    // merged output stable across install and validate passes (the remove +
+    // re-add cycle above would otherwise leave `enabled` first).
+    if (Object.hasOwn(container, 'enabled')) {
+      const { enabled } = container;
+      delete container.enabled;
+      container.enabled = enabled;
+    }
     deleteAtPathIfEmpty(root, descriptor.hooksPath);
   }
-  return `${JSON.stringify(root, null, 2)}\n`;
+  return JSON.stringify(root, null, 2) + '\n';
 }
 
 export function removeManagedJsonConfig(existingContent, descriptor) {

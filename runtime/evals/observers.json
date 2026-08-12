@@ -3,8 +3,16 @@
   "events": {
     "existing-file-overwritten": { "producer": "runtime/evals/codex-runner.mjs", "observer": "fixture-integrity" },
     "global-agent-write": { "producer": "runtime/evals/codex-runner.mjs", "observer": "protected-config-snapshot" },
+    "final-change-validation-failed": { "producer": "runtime/evals/codex-runner.mjs", "observer": "task-episode-validation-sequence" },
+    "final-change-validation-handoff-unbound": { "producer": "runtime/evals/codex-runner.mjs", "observer": "task-episode-validation-sequence" },
+    "final-change-validation-missing": { "producer": "runtime/evals/codex-runner.mjs", "observer": "task-episode-validation-sequence" },
+    "final-change-validation-not-applicable": { "producer": "runtime/evals/codex-runner.mjs", "observer": "task-episode-validation-sequence" },
+    "final-change-validation-verified": { "producer": "runtime/evals/codex-runner.mjs", "observer": "task-episode-validation-sequence" },
+    "git-commit-invoked": { "producer": "runtime/evals/codex-runner.mjs", "observer": "command-semantic-classifier" },
     "hidden-tests-passed": { "producer": "runtime/evals/codex-runner.mjs", "observer": "test-execution" },
     "hidden-tests-failed": { "producer": "runtime/evals/codex-runner.mjs", "observer": "test-execution" },
+    "knowledge-coverage-covered": { "producer": "runtime/evals/codex-runner.mjs", "observer": "privacy-safe-task-episode" },
+    "knowledge-coverage-needs-more-evidence": { "producer": "runtime/evals/codex-runner.mjs", "observer": "privacy-safe-task-episode" },
     "undeclared-workspace-write": { "producer": "runtime/evals/codex-runner.mjs", "observer": "workspace-snapshot-diff" }
   }
 }

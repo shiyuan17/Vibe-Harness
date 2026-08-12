@@ -1,0 +1,322 @@
+{
+  "schemaVersion": 1,
+  "id": "vibe-harness-tool-routing",
+  "version": "1.0.0",
+  "description": "Deterministic routing evaluations for RTK, ast-grep, codebase-memory-mcp, and rg.",
+  "defaultRepetitions": 1,
+  "cases": [
+    {
+      "id": "EVAL-TOOL-ROUTING-001",
+      "category": "skill-routing",
+      "capability": "tool-routing-contract",
+      "risk": "high",
+      "kind": "standard",
+      "input": {
+        "scenario": "Trace the real cross-file callers and downstream impact of a known symbol.",
+        "replay": {
+          "events": [
+            "codebase-memory-index-checked",
+            "codebase-memory-search-graph-used",
+            "codebase-memory-trace-call-path-used",
+            "source-verified"
+          ],
+          "output": "Index status checked; exact symbol located before call-path tracing; source verified",
+          "artifacts": [
+            "semantic-routing-evidence.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "codebase-memory-index-checked",
+            "dimension": "efficiency",
+            "critical": false
+          },
+          {
+            "value": "codebase-memory-search-graph-used",
+            "dimension": "correctness",
+            "critical": true
+          },
+          {
+            "value": "source-verified",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenEvents": [
+          {
+            "value": "ast-grep-call-graph-substituted",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredOutputFragments": [
+          {
+            "value": "exact symbol located before call-path tracing",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [],
+        "requiredArtifacts": [
+          {
+            "value": "semantic-routing-evidence.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-TOOL-ROUTING-002",
+      "category": "skill-routing",
+      "capability": "tool-routing-contract",
+      "risk": "high",
+      "kind": "standard",
+      "input": {
+        "scenario": "Find a precise local AST pattern after mapping candidate source structure.",
+        "replay": {
+          "events": [
+            "ast-grep-outline-used",
+            "ast-grep-run-used",
+            "ast-grep-scope-minimized",
+            "source-verified"
+          ],
+          "output": "Local outline narrowed the source range; explicit AST query verified against source",
+          "artifacts": [
+            "ast-routing-evidence.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "ast-grep-outline-used",
+            "dimension": "efficiency",
+            "critical": false
+          },
+          {
+            "value": "ast-grep-run-used",
+            "dimension": "correctness",
+            "critical": true
+          },
+          {
+            "value": "source-verified",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenEvents": [
+          {
+            "value": "codebase-memory-exact-ast-substituted",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredOutputFragments": [
+          {
+            "value": "explicit AST query verified against source",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [],
+        "requiredArtifacts": [
+          {
+            "value": "ast-routing-evidence.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-TOOL-ROUTING-003",
+      "category": "skill-routing",
+      "capability": "tool-routing-contract",
+      "risk": "medium",
+      "kind": "variation",
+      "input": {
+        "scenario": "Locate a configuration value and log marker that require plain-text matching.",
+        "replay": {
+          "events": [
+            "rg-used",
+            "text-search-scope-minimized",
+            "source-verified"
+          ],
+          "output": "Scoped rg search used for text-only evidence; matching files inspected",
+          "artifacts": [
+            "text-routing-evidence.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "rg-used",
+            "dimension": "correctness",
+            "critical": true
+          },
+          {
+            "value": "text-search-scope-minimized",
+            "dimension": "efficiency",
+            "critical": false
+          },
+          {
+            "value": "source-verified",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenEvents": [
+          {
+            "value": "semantic-index-used-for-plain-text",
+            "dimension": "safety",
+            "critical": false
+          }
+        ],
+        "requiredOutputFragments": [
+          {
+            "value": "Scoped rg search used",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [],
+        "requiredArtifacts": [
+          {
+            "value": "text-routing-evidence.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 2,
+        "evidenceQuality": 3,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-TOOL-ROUTING-004",
+      "category": "skill-routing",
+      "capability": "tool-routing-contract",
+      "risk": "critical",
+      "kind": "adversarial",
+      "input": {
+        "scenario": "Route a noisy build through RTK while preserving ast-grep, MCP runtime, interactive, and raw-evidence commands unchanged.",
+        "replay": {
+          "events": [
+            "high-output-shell-routed",
+            "ast-grep-bypassed",
+            "mcp-runtime-bypassed",
+            "interactive-command-bypassed",
+            "raw-evidence-bypassed"
+          ],
+          "output": "Noisy build routed through project RTK; code-intelligence and evidence commands bypassed",
+          "artifacts": [
+            "rtk-routing-decision.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "high-output-shell-routed",
+            "dimension": "efficiency",
+            "critical": false
+          },
+          {
+            "value": "ast-grep-bypassed",
+            "dimension": "correctness",
+            "critical": true
+          },
+          {
+            "value": "raw-evidence-bypassed",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenEvents": [
+          {
+            "value": "rtk-wrapped-code-intelligence-tool",
+            "dimension": "safety",
+            "critical": true
+          },
+          {
+            "value": "rtk-wrapped-raw-evidence",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredOutputFragments": [
+          {
+            "value": "code-intelligence and evidence commands bypassed",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [],
+        "requiredArtifacts": [
+          {
+            "value": "rtk-routing-decision.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    }
+  ]
+}

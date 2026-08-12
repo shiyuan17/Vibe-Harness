@@ -2,7 +2,7 @@
 
 [English](README.en.md) | [简体中文](README.md)
 
-Vibe-Harness 为 Codex、Claude Code、Gemini CLI、Cursor、Qoder、ZCode 和 Antigravity 安装项目级规则、领域 Skills、可选 Eval、显式工具插件和安全 Hook。它只写目标项目，不修改全局 Agent 配置。
+Vibe-Harness 为 Codex、Claude Code、Gemini CLI、Cursor、Qoder、ZCode、Antigravity 和 OpenCode 安装项目级规则、领域 Skills、可选 Eval、显式工具插件和安全 Hook。它只写目标项目，不修改全局 Agent 配置。
 
 默认执行路径只有一条：`获取事实 -> 直接执行 -> 聚焦验证 -> 简洁交付`。快速、轻量、完整三档只用于选择风险控制和验证强度。
 
@@ -10,9 +10,9 @@ Vibe-Harness 为 Codex、Claude Code、Gemini CLI、Cursor、Qoder、ZCode 和 A
 
 需要 pnpm 10+，以及 Node.js 20.19+、22.18+ 或 24+。
 
-在 Vibe-Harness 仓库中选择并复制下面一条提示词，将 TARGET_PROJECT_ABSOLUTE_PATH 替换为目标项目绝对路径。先确定项目需要的全部宿主，并将 codex、claude、gemini、cursor、qoder、zcode 或 antigravity 写入唯一、非空的 targets 数组。三条提示词面向首次安装；已有安装使用后文的升级流程。
+在 Vibe-Harness 仓库中选择并复制下面一条提示词，将 TARGET_PROJECT_ABSOLUTE_PATH 替换为目标项目绝对路径。先确定项目需要的全部宿主，并将 codex、claude、gemini、cursor、qoder、zcode、antigravity 或 opencode 写入唯一、非空的 targets 数组。三条提示词面向首次安装；已有安装使用后文的升级流程。
 
-以下提示词中的宿主选择应覆盖项目实际使用的全部七类 adapter，并写入同一个 targets 数组；不要按编辑器分别安装。
+以下提示词中的宿主选择应覆盖项目实际使用的全部八类 adapter，并写入同一个 targets 数组；不要按编辑器分别安装。
 
 ### minimal
 
@@ -46,6 +46,8 @@ pnpm vibe-harness verify --project ../some-project
 ```
 
 `verify` 依次执行已配置的 `lint -> typecheck -> test -> eval`，未配置的项会跳过。
+
+验证 JSON 还包含本轮 ID、时间和非持久化 Git 工作树指纹；检查期间工作树变化时返回 PROJECT_VERIFICATION_STALE。
 
 ## 多宿主安装
 
@@ -81,10 +83,14 @@ Claude Code 和 Gemini CLI 使用相同的四个 profile；其 preview 能力需
 
 ## Adapter 支持
 
-Codex、Cursor、Qoder 和 ZCode 共用 AGENTS.md 中唯一的宿主中立受管块。Antigravity 的 rules、Skills 和 MCP 为 stable；Hooks、sandbox 和 memory 集成为 preview，尚不与 Codex 完全等价。
+Codex、Cursor、Qoder、ZCode 和 OpenCode 共用 AGENTS.md 中唯一的宿主中立受管块。Antigravity 的 rules、Skills 和 MCP 为 stable；Hooks、sandbox 和 memory 集成为 preview，尚不与 Codex 完全等价。OpenCode 的 instructions、Skills、policy 和 MCP 为 stable，sandbox 和 memory 为 preview，Hooks、plugin 和 goals 为 unsupported。
+
+OpenCode 的 full profile 需要显式允许 preview。它使用已有的 opencode.json 或 opencode.jsonc，两者同时存在时报冲突；JSONC 注释、尾逗号、格式和用户配置会保留。OpenCode 不安装项目 plugin Hook，因此始终报告 DEGRADED_SAFETY_POSTURE。
 
 | Target | 项目指令 | Skills | 项目级 Hook / MCP 配置 |
 | --- | --- | --- | --- |
+| OpenCode | AGENTS.md | .opencode/skills/ | opencode.json 或 opencode.jsonc；仅 MCP，不安装 Hook |
+| Antigravity | .agents/rules/vibe-harness.md | .agents/skills/ | .agents/mcp_config.json；Hook 为 preview |
 | Codex | `AGENTS.md` | `.agents/skills/` | `.codex/` |
 | Claude Code | `CLAUDE.md` | `.claude/skills/` | preview 能力 |
 | Gemini CLI | `GEMINI.md` | `.gemini/skills/` | preview 能力 |
@@ -154,11 +160,15 @@ ZCode 尚未公开项目级 Skill 的磁盘路径，因此 Vibe-Harness 不会�
 
 ## 显式工具
 
+Linear 工作流是单独的外部集成：linear-mcp 使用读写端点，linear-mcp-readonly 使用只读端点，两者互斥且都不会被 plugin all 选中。Codex、Cursor、Qoder、ZCode、Antigravity 和 OpenCode 会生成项目级 Remote MCP 配置；Claude 与 Gemini 安装相同规则和 Skill，但报告 MCP 手工配置降级。安装器不写入 Token 或 OAuth 凭据，配置完成后仍需按宿主提示完成 Linear 原生认证。
+
 可选插件包括 `rtk`、`ast-grep`、`codebase-memory-mcp`、`chrome-devtools-mcp`、`playwright-cli` 和 `open-code-review`。Agentmemory runtime 因上游 High 漏洞暂停提供，不作为 `--plugin` 选项；如需记忆能力，请通过 `--modules memory` 安装 memory 模块。
 
 ```bash
 pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin -rtk --dry-run
 pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin -rtk ast-grep --write
+pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin linear-mcp --write --confirm-red-zone
+pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin linear-mcp-readonly --write --confirm-red-zone
 pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin none --write
 ```
 

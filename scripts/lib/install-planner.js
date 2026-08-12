@@ -41,7 +41,7 @@ import {
 } from './tool-provisioning.js';
 import { applyBaselinePlan, createBaselinePlan } from './installation-baseline.js';
 import { moduleCatalog, resolveModuleSelection } from './module-selection.js';
-import { assertAdapterProfile, resolveAdapter, resolveAdapterEntry } from './adapter.js';
+import { assertAdapterProfile, hookConfigTargets, loadAdapterCatalog, resolveAdapter, resolveAdapterEntry, skillRootMatcher, skillRootPrefixes } from './adapter.js';
 import { beginFileTransaction, createTransactionId } from './file-transaction.js';
 import {
   hashManagedBlock,
@@ -68,6 +68,9 @@ async function loadProfileInstallMap({ adapterId = 'codex', allowPreview = false
 
   const adapter = await resolveAdapter(rootDir, adapterId);
   assertAdapterProfile(adapter, profile, { allowPreview });
+  const catalog = await loadAdapterCatalog(rootDir);
+  const skillRoots = skillRootPrefixes(catalog);
+  const hookTargets = hookConfigTargets(catalog);
   const rawInstallMap = await readJson(path.join(rootDir, adapter.installMap));
   const knownGroups = new Set([
     ...profiles.items.flatMap((item) => item.groups),
@@ -81,7 +84,7 @@ async function loadProfileInstallMap({ adapterId = 'codex', allowPreview = false
     retiredEntries: (rawInstallMap.retiredEntries ?? []).map((entry) => resolveAdapterEntry(adapter, entry)).filter(Boolean),
   };
 
-  return { adapter, installMap, selectedProfile };
+  return { adapter, installMap, selectedProfile, skillRoots, hookTargets };
 }
 
 async function packageVersion(rootDir) {
@@ -89,13 +92,27 @@ async function packageVersion(rootDir) {
   return pkg.version;
 }
 
-export function createInstalledSurface({ clarificationPosture = 'balanced', customModules = false, memoryPath = '.agents/memory', profile, targets }) {
+function toolDiscoveryLine({ hasAstGrepTool, hasCodebaseMemoryMcp, hasRtkTool }) {
+  const routes = [];
+  if (hasCodebaseMemoryMcp) {
+    routes.push('跨文件符号关系、调用链、架构和影响分析使用 codebase-memory-mcp，需要语义图时先确认索引状态');
+  }
+  if (hasAstGrepTool) {
+    routes.push('本地 AST 结构、语法模式和规则调试使用项目内 ast-grep');
+  }
+  routes.push('纯文本、配置和日志使用 rg 与直接文件阅读');
+  const rtkBoundary = hasRtkTool ? ' RTK 只压缩符合条件的 Shell 输出，不参与检索工具选择。' : '';
+  return '先按问题类型选工具：' + routes.join('；') + '。' + rtkBoundary;
+}
+
+export function createInstalledSurface({ clarificationPosture = 'balanced', customModules = false, hookConfigTargets = [], memoryPath = '.agents/memory', profile, skillRoots = [], targets }) {
   const installedTargets = targets.map((target) => target.replaceAll('\\', '/'));
   const hasTarget = (expectedTarget) => installedTargets.includes(expectedTarget);
   const hasPrefix = (prefix) => installedTargets.some((target) => target.startsWith(prefix));
   const hasSkill = (suffix) => installedTargets.some((target) => target.endsWith(`/skills/${suffix}`));
-  const skillRoots = [...new Set(installedTargets
-    .filter((target) => /^\.(?:agents|claude|cursor|gemini|qoder)\/skills\//u.test(target))
+  const isSkillRootTarget = skillRootMatcher(skillRoots);
+  const detectedSkillRoots = [...new Set(installedTargets
+    .filter((target) => isSkillRootTarget(target))
     .map((target) => target.split('/skills/')[0] + '/skills'))];
   const hasEngineeringRules = [
     'docs/rules/coding-rules.md',
@@ -112,6 +129,7 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
   const hasAgentMemorySkills = hasSkill('agentmemory/SKILL.md');
   const hasRtkTool = hasTarget('.agents/runtime/tools/rtk/run.mjs');
   const hasAstGrepTool = hasTarget('.agents/runtime/tools/ast-grep/run.mjs');
+  const hasCodebaseMemoryMcp = hasTarget('docs/rules/codebase-memory-mcp.md');
   const agentMemoryTarget = installedTargets.find((target) => target.endsWith('/skills/agentmemory/SKILL.md'));
   const agentMemorySkillRoot = agentMemoryTarget?.slice(0, agentMemoryTarget.indexOf('/agentmemory/SKILL.md'));
   const normalizedMemoryPath = memoryPath.replaceAll('\\', '/').replace(/\/+$/u, '');
@@ -120,6 +138,7 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
   const installedIntegrationSkills = [
     hasSkill('browser-verification/SKILL.md') ? 'browser-verification' : null,
     hasSkill('agentmemory/SKILL.md') ? 'agentmemory' : null,
+    hasSkill('linear-workflow/SKILL.md') ? 'linear-workflow' : null,
   ].filter(Boolean);
   const profileLines = {
     core: '- 当前安装方式：通用安装（不包含扩展 MCP 或 hooks 安装面）。',
@@ -132,17 +151,17 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
     clarificationPostureLine: hasSkill('clarify-requirements/SKILL.md')
       ? `- 需求澄清姿态：\`${clarificationPosture}\`（action-leaning 偏向采用最小可逆默认值直接推进；balanced 按规则判断；conservative 对跨模块或公共契约改动也倾向先确认）。`
       : '',
-    codebaseMemoryMcpLine: hasTarget('docs/rules/codebase-memory-mcp.md')
+    codebaseMemoryMcpLine: hasCodebaseMemoryMcp
       ? '- codebase-memory-mcp 规则位于 `docs/rules/codebase-memory-mcp.md`。'
       : '',
     discoveryLine: hasTarget('docs/rules/codebase-memory-mcp.md')
       ? '若 `codebase-memory-mcp` 可用，先确认索引状态并用于结构化定位；不可用时说明并退回仓库搜索。'
       : '使用仓库搜索和已安装规则定位相关代码；需要结构化索引时先确认目标项目已有能力。',
     engineeringRulesLine: hasEngineeringRules ? '- 工程专项规则位于 `docs/rules/`。' : '',
-    hooksLine: hasTarget('.codex/hooks.json') ? '- Codex hook 配置位于 `.codex/hooks.json`。'
-      : (hasTarget('.cursor/hooks.json') ? '- Cursor hook 配置位于 `.cursor/hooks.json`。'
-        : (hasTarget('.qoder/settings.json') ? '- Qoder hook 配置位于 `.qoder/settings.json`。'
-          : (hasTarget('.zcode/config.json') ? '- ZCode hook 配置位于 `.zcode/config.json`。' : ''))),
+    hooksLine: hookConfigTargets
+      .filter((entry) => hasTarget(entry.target))
+      .map((entry) => `- ${entry.displayName} hook 配置位于 \`${entry.target}\`。`)
+      .join(''),
     memorySkillsLine: hasAgentMemorySkills
       ? `- agentmemory skills 位于 \`${agentMemorySkillRoot}/\`${hasLocalMemory ? `，本地记忆库位于 \`${normalizedMemoryPath}/\`` : ''}。`
       : '',
@@ -159,15 +178,16 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
       : (profileLines[profile] ?? `- 当前 profile: \`${profile}\`。`),
     reviewLoopLine: '',
     rulesLine: hasPrefix('docs/rules/') ? '- 规则位于 `docs/rules/`。' : '',
-    skillRoutingLine: skillRoots.length > 0
+    skillRoutingLine: detectedSkillRoots.length > 0
       ? '宿主按 Skill description 原生选择一个当前阶段所需能力；不使用 Router 或流程 Skill 链。'
       : '当前 profile 未安装 Skills；仅按已安装规则和模板执行，不引用未安装的 skill。',
-    skillsLine: skillRoots.length > 0 ? `- Skills 位于 ${skillRoots.map((root) => `\`${root}/\``).join('、')}。` : '',
+    skillsLine: detectedSkillRoots.length > 0 ? `- Skills 位于 ${detectedSkillRoots.map((root) => `\`${root}/\``).join('、')}。` : '',
     templatesLine: hasPrefix('docs/templates/') ? '- 模板位于 `docs/templates/`。' : '',
     toolingLine: hasPrefix('.agents/runtime/tools/')
       ? `- 项目内工具位于 \`.agents/runtime/tools/\`；使用 \`vibe-harness doctor --project <path>\` 查看初始化状态。${hasTarget('docs/rules/chrome-devtools-mcp.md') ? ' Chrome DevTools MCP 规则位于 \`docs/rules/chrome-devtools-mcp.md\`。' : ''}${hasRtkTool ? ' RTK 规则位于 \`docs/rules/rtk.md\`。' : ''}${hasAstGrepTool ? ' ast-grep 规则位于 \`docs/rules/ast-grep.md\`。' : ''}`
       : '',
   };
+  installedSurface.discoveryLine = toolDiscoveryLine({ hasAstGrepTool, hasCodebaseMemoryMcp, hasRtkTool });
   if (installedIntegrationSkills.length > 0) {
     installedSurface.profileLine += ' 当前另安装 integration Skills：'
       + installedIntegrationSkills.join('、')
@@ -228,11 +248,45 @@ function createManagedMcpServers(targetDir, resolvedModules) {
         CBM_WORKERS: '2',
       },
     };
+  if (resolvedModules.includes('linear')) servers.linear = {
+    url: 'https://mcp.linear.app/mcp',
+  };
+  if (resolvedModules.includes('linear-readonly')) servers.linear = {
+    url: 'https://mcp.linear.app/mcp/readonly',
+  };
   return servers;
 }
 
 function adapterConfigRedZone(adapter, target) {
   return adapter.redZonePrefixes.some((prefix) => target.startsWith(prefix.replaceAll('\\', '/')));
+}
+
+function formatMcpServers(servers, format = 'command-args-env') {
+  if (format === 'command-args-env') return servers;
+  if (format !== 'opencode-local') throw new Error('Unsupported MCP server format: ' + format);
+  return Object.fromEntries(Object.entries(servers).map(([name, server]) => [name, server.url ? {
+    type: 'remote',
+    url: server.url,
+    enabled: true,
+  } : {
+    type: 'local',
+    command: [server.command, ...(server.args ?? [])],
+    environment: { ...(server.env ?? {}) },
+    enabled: true,
+  }]));
+}
+
+async function resolveAdapterConfigTarget(definition, targetDir) {
+  const candidates = [definition.target, ...(definition.alternateTargets ?? [])]
+    .map((target) => target.replaceAll('\\', '/'));
+  const existing = [];
+  for (const candidate of candidates) {
+    if (await pathExists(path.resolve(targetDir, candidate))) existing.push(candidate);
+  }
+  if (existing.length > 1) {
+    throw new Error('Conflicting adapter configuration files: ' + existing.join(', ') + '. Keep exactly one.');
+  }
+  return existing[0] ?? candidates[0];
 }
 
 async function loadAdapterHookConfig(adapter, renderData, rootDir) {
@@ -249,12 +303,18 @@ async function planAdapterConfigActions(ctx) {
   if (!adapter.projectConfig) return [];
 
   const planned = new Map();
-  const ensure = (kind, definition) => {
-    const target = definition.target.replaceAll('\\', '/');
+  const ensure = async (kind, definition) => {
+    const target = await resolveAdapterConfigTarget(definition, targetDir);
     let item = planned.get(target);
     if (!item) {
       item = {
-        descriptor: { hookMarker: 'Vibe-Harness safety policy', hooksPath: null, mcpPath: null, serverPrefix: 'vibe-harness-' },
+        descriptor: {
+          hookMarker: 'Vibe-Harness safety policy',
+          hooksPath: null,
+          mcpPath: null,
+          serverPrefix: 'vibe-harness-',
+          ...(definition.syntax && definition.syntax !== 'json' ? { syntax: definition.syntax } : {}),
+        },
         kinds: [],
         target,
       };
@@ -267,11 +327,11 @@ async function planAdapterConfigActions(ctx) {
 
   const servers = createManagedMcpServers(path.resolve(targetDir), moduleSelection.resolvedModules);
   if (allowedGroups.has('mcp-config') && Object.keys(servers).length > 0 && adapter.projectConfig.mcp) {
-    const item = ensure('mcp', adapter.projectConfig.mcp);
-    item.servers = servers;
+    const item = await ensure('mcp', adapter.projectConfig.mcp);
+    item.servers = formatMcpServers(servers, adapter.projectConfig.mcp.serverFormat);
   }
   if (allowedGroups.has('hooks') && adapter.projectConfig.hooks) {
-    const item = ensure('hooks', adapter.projectConfig.hooks);
+    const item = await ensure('hooks', adapter.projectConfig.hooks);
     item.hooks = await loadAdapterHookConfig(adapter, renderData, rootDir);
   }
 
@@ -285,17 +345,15 @@ async function planAdapterConfigActions(ctx) {
     const exists = await pathExists(target);
     const managedFile = managed.get(relativeTarget);
     let actionKind = 'write';
-    if (exists && !force) {
-      try {
-        if (managedFile) {
-          actionKind = managedJsonHash(await readFile(target, 'utf8'), item.descriptor) === managedFile.managedBlockHash
-            ? 'write'
-            : 'user-modified';
-        } else {
-          actionKind = hasManagedJsonPayload(await readFile(target, 'utf8'), item.descriptor) ? 'conflict' : 'write';
-        }
-      } catch {
-        actionKind = 'conflict';
+    if (exists) {
+      const content = await readFile(target, 'utf8');
+      managedJsonPayload(content, item.descriptor);
+      if (!force && managedFile) {
+        actionKind = managedJsonHash(content, item.descriptor) === managedFile.managedBlockHash
+          ? 'write'
+          : 'user-modified';
+      } else if (!force) {
+        actionKind = hasManagedJsonPayload(content, item.descriptor) ? 'conflict' : 'write';
       }
     }
     if (upgrade && exists && !force && !managedFile && actionKind !== 'write') actionKind = 'conflict';
@@ -333,7 +391,7 @@ export async function createInstallPlan({
   targetDir,
   upgrade = false,
 }) {
-  const { adapter, installMap, selectedProfile } = await loadProfileInstallMap({ adapterId, allowPreview, profile, rootDir });
+  const { adapter, installMap, selectedProfile, skillRoots, hookTargets } = await loadProfileInstallMap({ adapterId, allowPreview, profile, rootDir });
   const moduleSelection = resolveModuleSelection({
     profile,
     profileGroups: selectedProfile.groups,
@@ -359,6 +417,7 @@ export async function createInstallPlan({
     moduleSelection,
     renderData,
     rootDir,
+    skillRoots,
     state,
     targetDir,
     upgrade,
@@ -379,14 +438,17 @@ export async function createInstallPlan({
   const installedSurface = createInstalledSurface({
     clarificationPosture: renderData.clarification?.posture,
     customModules: moduleSelection.requestedModules !== null,
+    hookConfigTargets: hookTargets,
     memoryPath: renderData.memory?.path,
     profile,
+    skillRoots,
     targets: actions.filter((action) => action.kind === 'write').map((action) => action.relativeTarget),
   });
   const stateDirectory = path.basename(path.dirname(stateFilePath(path.resolve(targetDir))));
 
   const owner = 'adapter:' + adapter.id;
-  const adapterConfigTargets = new Set(Object.values(adapter.projectConfig ?? {}).map((item) => item.target));
+  const adapterConfigTargets = new Set(Object.values(adapter.projectConfig ?? {})
+    .flatMap((item) => [item.target, ...(item.alternateTargets ?? [])]));
   const projectionTarget = (target) => target === adapter.instructionTarget
     || adapterConfigTargets.has(target)
     || (adapter.skillRoot !== '.agents/skills' && target.startsWith(adapter.skillRoot + '/'))
@@ -396,6 +458,17 @@ export async function createInstallPlan({
     adapterId: adapter.id,
     owners: action.owners ?? [projectionTarget(action.relativeTarget) ? owner : 'shared'],
   }));
+  const linearAccess = moduleSelection.resolvedModules.includes('linear')
+    ? 'read-write'
+    : (moduleSelection.resolvedModules.includes('linear-readonly') ? 'read-only' : null);
+  const linearEndpoint = linearAccess === 'read-write'
+    ? 'https://mcp.linear.app/mcp'
+    : 'https://mcp.linear.app/mcp/readonly';
+  const linearMcp = linearAccess ? {
+    access: linearAccess,
+    configuration: ownedActions.some((action) => action.mcpServers?.linear) ? 'managed' : 'manual',
+    endpoint: linearEndpoint,
+  } : null;
 
   return {
     adapter: adapter.id,
@@ -407,6 +480,7 @@ export async function createInstallPlan({
     generatedDirectories: generatedDirectories.map((item) => ({ ...item, owners: item.owners ?? ['shared'] })),
     implicitModules: moduleSelection.implicitModules,
     instructionTarget: adapter.instructionTarget,
+    linearMcp,
     missingCapabilities: Object.entries(adapter.capabilities).filter(([, status]) => status === 'unsupported').map(([name]) => name),
     profile,
     previewCapabilities: Object.entries(adapter.capabilities).filter(([, status]) => status === 'preview').map(([name]) => name),
@@ -420,6 +494,8 @@ export async function createInstallPlan({
       installedSurface: renderData.installedSurface ?? installedSurface,
     }),
     redZoneConfirmed: false,
+    skillRoots,
+    hookTargets,
     targetDir: path.resolve(targetDir),
     upgrade,
     version: await packageVersion(rootDir),
@@ -497,8 +573,10 @@ export async function createMultiTargetInstallPlan({ selectedTargets, targets, .
   const installedSurface = createInstalledSurface({
     clarificationPosture: options.renderData?.clarification?.posture,
     customModules: plans[0].requestedModules !== null,
+    hookConfigTargets: plans[0].hookTargets,
     memoryPath: options.renderData?.memory?.path,
     profile: plans[0].profile,
+    skillRoots: plans[0].skillRoots,
     targets: [...writes.keys()],
   });
   const generatedDirectories = [...new Map(plans.flatMap((plan) => plan.generatedDirectories)
@@ -512,6 +590,9 @@ export async function createMultiTargetInstallPlan({ selectedTargets, targets, .
       missingCapabilities: plan.missingCapabilities,
       previewCapabilities: plan.previewCapabilities,
     }])),
+    linearMcp: Object.fromEntries(plans
+      .filter((plan) => plan.linearMcp)
+      .map((plan) => [plan.adapter, plan.linearMcp])),
     generatedDirectories,
     missingCapabilities: [...new Set(plans.flatMap((plan) => plan.missingCapabilities))],
     previewCapabilities: [...new Set(plans.flatMap((plan) => plan.previewCapabilities))],
@@ -606,8 +687,9 @@ async function planEntryActions(ctx) {
 }
 
 async function planUpgradeRetirements(ctx, entryActions) {
-  const { allowedGroups, installMap, managed, state, targetDir, upgrade } = ctx;
+  const { allowedGroups, installMap, managed, skillRoots, state, targetDir, upgrade } = ctx;
   if (!upgrade) return [];
+  const isSkillRootTarget = skillRootMatcher(skillRoots);
   const actions = [];
   for (const entry of installMap.retiredEntries ?? []) {
     if (!allowedGroups.has(entry.group)) {
@@ -639,7 +721,7 @@ async function planUpgradeRetirements(ctx, entryActions) {
   const plannedSkillTargets = new Set([...entryActions, ...actions].map((action) => action.relativeTarget));
   for (const managedFile of state?.files ?? []) {
     const relativeTarget = managedFile.target.replaceAll('\\', '/');
-    if (!/^\.(?:agents|claude|cursor|gemini|qoder)\/skills\//u.test(relativeTarget)
+    if (!isSkillRootTarget(relativeTarget)
       || plannedSkillTargets.has(relativeTarget)) {
       continue;
     }
@@ -795,7 +877,7 @@ function computeGeneratedDirectories(ctx, actions) {
       }]
     : [];
   const stateDirectory = path.basename(path.dirname(stateFilePath(path.resolve(targetDir))));
-  for (const component of ['chrome-devtools-mcp', 'codebase-memory-mcp', 'open-code-review', 'ast-grep']) {
+  for (const component of ['chrome-devtools-mcp', 'codebase-memory-mcp', 'open-code-review', 'rtk', 'ast-grep']) {
     const ownerTarget = `.agents/runtime/tools/${component}/package.json`;
     if (actions.some((action) => action.kind === 'write' && action.relativeTarget === ownerTarget)) {
       generatedDirectories.push({ ownerTarget, target: `.agents/runtime/tools/${component}/node_modules` });
@@ -860,7 +942,7 @@ export async function previewInstallPlan(plan, { includeContent = true } = {}) {
       ? await readFile(action.target, 'utf8')
       : '';
     const mergedMcp = isManagedToml(action.contentStrategy)
-      ? mergeManagedMcpBlock(existingContent, action.mcpServers)
+      ? mergeManagedMcpBlock(existingContent, action.mcpServers, { force: plan.force })
       : null;
     const content = mergedMcp?.content ?? await renderActionContent(action, actionRenderData(action, plan.renderData), existingContent);
     previewFiles.push({
@@ -886,7 +968,7 @@ export async function diffTargetInstall({
   rootDir,
   targetDir,
 }) {
-  const { adapter, installMap, selectedProfile } = await loadProfileInstallMap({ adapterId, allowPreview, profile, rootDir });
+  const { adapter, installMap, selectedProfile, skillRoots, hookTargets } = await loadProfileInstallMap({ adapterId, allowPreview, profile, rootDir });
   const moduleSelection = resolveModuleSelection({
     profile,
     profileGroups: selectedProfile.groups,
@@ -916,8 +998,10 @@ export async function diffTargetInstall({
     installedSurface: renderData.installedSurface ?? createInstalledSurface({
       clarificationPosture: renderData.clarification?.posture,
       customModules: moduleSelection.requestedModules !== null,
+      hookConfigTargets: hookTargets,
       memoryPath: renderData.memory?.path,
       profile,
+      skillRoots,
       targets: installedTargets,
     }),
   });
@@ -1263,7 +1347,7 @@ async function executeWriteActions(plan, ctx, hooks) {
 
     await mkdir(path.dirname(action.target), { recursive: true });
     const mergedMcp = isManagedToml(action.contentStrategy)
-      ? mergeManagedMcpBlock(existingContent, action.mcpServers)
+      ? mergeManagedMcpBlock(existingContent, action.mcpServers, { force: plan.force })
       : null;
     if (mergedMcp) mcpConflicts.push(...mergedMcp.conflicts);
     const targetContent = mergedMcp?.content ?? await renderActionContent(action, actionRenderData(action, plan.renderData), existingContent);
@@ -1309,6 +1393,7 @@ async function executeRetireActions(plan, ctx) {
   const retired = [];
   const skipped = [];
   const { backupId, discardedTargets, retiredFiles } = ctx;
+  const isSkillRootTarget = skillRootMatcher(plan.skillRoots ?? []);
 
   for (const action of plan.actions.filter((item) => item.kind === 'retire-runtime-state')) {
     await rm(action.target, { force: true, recursive: true });
@@ -1333,7 +1418,7 @@ async function executeRetireActions(plan, ctx) {
   for (const action of plan.actions) {
     if (action.kind === 'retire-modified') {
       skipped.push({
-        reason: /^\.(?:agents|claude|cursor|gemini|qoder)\/skills\//u.test(action.relativeTarget)
+        reason: isSkillRootTarget(action.relativeTarget)
           ? 'retained-user-modified'
           : 'target-modified',
         target: action.relativeTarget,

@@ -10,6 +10,7 @@ const RUNTIMES = [
   { directory: 'chrome-devtools-mcp', id: 'chrome-devtools-mcp' },
   { directory: 'playwright-cli', id: 'playwright-cli' },
   { directory: 'open-code-review', id: 'open-code-review' },
+  { directory: 'rtk', id: 'rtk' },
   { directory: 'ast-grep', id: 'ast-grep' },
 ];
 

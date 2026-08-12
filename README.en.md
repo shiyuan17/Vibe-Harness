@@ -2,7 +2,7 @@
 
 [English](README.en.md) | [简体中文](README.md)
 
-Vibe-Harness installs project-scoped rules, domain Skills, optional Evals, explicit tool plugins, and safety Hooks for Codex, Claude Code, Gemini CLI, Cursor, Qoder, ZCode, and Antigravity. It writes only inside the target project and never changes global Agent configuration.
+Vibe-Harness installs project-scoped rules, domain Skills, optional Evals, explicit tool plugins, and safety Hooks for Codex, Claude Code, Gemini CLI, Cursor, Qoder, ZCode, Antigravity, and OpenCode. It writes only inside the target project and never changes global Agent configuration.
 
 There is one default execution path: `gather facts -> execute -> focused verification -> concise delivery`. Quick, light, and full are risk levels used only to choose safeguards and verification depth.
 
@@ -10,7 +10,7 @@ There is one default execution path: `gather facts -> execute -> focused verific
 
 Requires pnpm 10+ and Node.js 20.19+, 22.18+, or 24+.
 
-From the Vibe-Harness repository, choose and copy one prompt below, replacing TARGET_PROJECT_ABSOLUTE_PATH with the absolute target project path. First identify every required host and put codex, claude, gemini, cursor, qoder, zcode, or antigravity in the single non-empty targets array. These prompts are for first-time installs; use the upgrade flow below for an existing installation.
+From the Vibe-Harness repository, choose and copy one prompt below, replacing TARGET_PROJECT_ABSOLUTE_PATH with the absolute target project path. First identify every required host and put codex, claude, gemini, cursor, qoder, zcode, antigravity, or opencode in the single non-empty targets array. These prompts are for first-time installs; use the upgrade flow below for an existing installation.
 
 In the prompts below, select every adapter the project actually uses and store them in one targets array; do not install separately per editor.
 
@@ -47,6 +47,8 @@ pnpm vibe-harness verify --project ../some-project
 
 `verify` runs configured commands in `lint -> typecheck -> test -> eval` order and skips unconfigured commands.
 
+Verification JSON also includes the run ID, timestamps, and a non-persisted Git worktree fingerprint. A worktree change during checks returns PROJECT_VERIFICATION_STALE.
+
 ## Multi-host installation
 
 Install a project only once. The targets array declares every host. Without --target, install, upgrade, validate, doctor, and diff process all targets. With --target, a command selects one host still present in configuration or install-state and never adds it implicitly.
@@ -81,10 +83,14 @@ Claude Code and Gemini CLI use the same four profiles; preview capabilities requ
 
 ## Adapter support
 
-Codex, Cursor, Qoder, and ZCode share one host-neutral managed block in AGENTS.md. Antigravity rules, Skills, and MCP are stable; Hooks, sandbox, and memory integration remain preview and are not Codex-equivalent yet.
+Codex, Cursor, Qoder, ZCode, and OpenCode share one host-neutral managed block in AGENTS.md. Antigravity rules, Skills, and MCP are stable; Hooks, sandbox, and memory integration remain preview and are not Codex-equivalent yet. OpenCode instructions, Skills, policy, and MCP are stable; sandbox and memory are preview; Hooks, plugin, and goals are unsupported.
+
+OpenCode full requires preview to be explicitly allowed. It uses an existing opencode.json or opencode.jsonc and reports a conflict when both exist; JSONC comments, trailing commas, formatting, and user settings are preserved. OpenCode installs no project plugin Hook and always reports DEGRADED_SAFETY_POSTURE.
 
 | Target | Project instructions | Skills | Project Hook / MCP configuration |
 | --- | --- | --- | --- |
+| OpenCode | AGENTS.md | .opencode/skills/ | opencode.json or opencode.jsonc; MCP only, no Hook installed |
+| Antigravity | .agents/rules/vibe-harness.md | .agents/skills/ | .agents/mcp_config.json; Hook is preview |
 | Codex | `AGENTS.md` | `.agents/skills/` | `.codex/` |
 | Claude Code | `CLAUDE.md` | `.claude/skills/` | Preview capabilities |
 | Gemini CLI | `GEMINI.md` | `.gemini/skills/` | Preview capabilities |
@@ -154,11 +160,15 @@ Legacy `governance.mode`, `governance.workflow`, `hooks.completionGate`, and `va
 
 ## Explicit tools
 
+The Linear workflow is a separate external integration: linear-mcp uses the read-write endpoint and linear-mcp-readonly uses the read-only endpoint. They are mutually exclusive and neither is selected by plugin all. Codex, Cursor, Qoder, ZCode, Antigravity, and OpenCode receive project-scoped Remote MCP configuration. Claude and Gemini receive the same rules and Skill but report manual MCP setup as a degraded capability. The installer writes no token or OAuth credential; complete the host's native Linear authentication after configuration.
+
 Optional plugins are `rtk`, `ast-grep`, `codebase-memory-mcp`, `chrome-devtools-mcp`, `playwright-cli`, and `open-code-review`. Agentmemory runtime is suspended (upstream High vulnerabilities) and is not a `--plugin` choice; install the `memory` module via `--modules memory` when memory support is re-enabled.
 
 ```bash
 pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin -rtk --dry-run
 pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin -rtk ast-grep --write
+pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin linear-mcp --write --confirm-red-zone
+pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin linear-mcp-readonly --write --confirm-red-zone
 pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin none --write
 ```
 

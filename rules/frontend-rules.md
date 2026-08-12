@@ -10,6 +10,12 @@
 - 设计令牌系统必须存在；颜色、字体、间距、圆角、高度通过语义命名令牌引用，禁止在组件或样式中硬编码魔法值。
 - 组件必须通过令牌引用定义样式，每个交互组件覆盖 default、hover、pressed、focused、disabled 状态变体。
 - 单一强调色原则：强调色只用于品牌标记、主 CTA、聚焦环和链接，不作为背景填充或装饰用途。
+- 禁止禁用浏览器缩放：不得使用 `user-scalable=no` 或 `maximum-scale=1`。
+- 禁止 `outline: none` 无可见焦点替代；移除默认 outline 时必须提供可见焦点反馈。
+- 移动端输入框 font-size 不小于 16px，防止 iOS Safari 自动缩放页面。
+- 破坏性操作必须要求确认或提供 Undo 安全窗口。
+- 导航必须用 `<a>` 或框架 `<Link>`，禁止用 `<button>` 或 `<div onClick>` 替代链接语义。
+- 动画只动合成器属性（`transform`、`opacity`），禁止 `transition: all` 或动画 layout 属性（`top`/`left`/`width`/`height`）。
 
 ## 检查清单
 
@@ -25,6 +31,11 @@
 - 行为：防止重复提交、过期异步响应覆盖新状态、失败后无恢复入口和权限不足时仍暴露操作。
 - 前端安全：用户输入不直接注入 HTML，防范 XSS；启用 CSP 与可信类型（Trusted Types）；跨源资源用 SRI；`postMessage` 校验来源；`iframe` 用 sandbox。
 - 契约：视图模型通过 mapper 或 boundary adapter 获得，不直接依赖不稳定的 transport DTO。
+- 焦点：`:focus-visible` 可见、焦点陷阱有出口、关闭后焦点归还触发元素。
+- 触控：命中目标桌面不小于 24px、移动端不小于 44px；设置 `touch-action: manipulation`。
+- 表单：Enter 提交单一输入、标签关联控件、提交幂等（含幂等键）、未保存变更导航前警告。
+- 水合：输入水合后不丢焦或丢值；日期/时间渲染防御水合不匹配。
+- 性能细节：图片设显式尺寸防 CLS、字体 preload 加 `font-display`、超过 50 项列表虚拟化。
 
 ## 设计护栏
 
@@ -35,6 +46,8 @@ Do：
 - 强调色只用于品牌标记、主 CTA、聚焦环和链接。
 - 暗色模式通过令牌映射实现，不重写组件结构。
 - 专有字体或图标给出开源替代。
+- 焦点用 `:focus-visible`，移除默认 outline 时提供可见替代。
+- 动效响应 `prefers-reduced-motion`，只动 `transform`/`opacity`。
 
 Don't：
 
@@ -43,6 +56,8 @@ Don't：
 - 不要用纯黑（#000000）或纯白（#ffffff）作为画布，用语义 surface 令牌。
 - 不要发布缺少状态变体的交互组件。
 - 不要为视觉变化改写无关业务逻辑。
+- 不要禁用浏览器缩放或用 `outline: none` 无替代。
+- 不要用 `transition: all` 或动画 layout 属性。
 
 ## 验证证据
 

@@ -5,6 +5,35 @@ import { projectStateDir } from '../project-layout.js';
 
 import { npmInvocation } from './subprocess.js';
 
+export function detectLinuxLibc() {
+  if (process.platform !== 'linux') return null;
+  try {
+    return process.report?.getReport?.().header?.glibcVersionRuntime ? 'gnu' : 'musl';
+  } catch {
+    return null;
+  }
+}
+
+export function resolveAstGrepPlatformPackage({ arch = process.arch, libc = detectLinuxLibc(), platform = process.platform } = {}) {
+  const packages = {
+    darwin: { arm64: '@ast-grep/cli-darwin-arm64', x64: '@ast-grep/cli-darwin-x64' },
+    linux: {
+      arm64: libc === 'gnu' ? '@ast-grep/cli-linux-arm64-gnu' : null,
+      x64: libc === 'gnu' ? '@ast-grep/cli-linux-x64-gnu' : null,
+    },
+    win32: {
+      arm64: '@ast-grep/cli-win32-arm64-msvc',
+      ia32: '@ast-grep/cli-win32-ia32-msvc',
+      x64: '@ast-grep/cli-win32-x64-msvc',
+    },
+  };
+  return packages[platform]?.[arch] ?? null;
+}
+
+export function resolveToolNativePackage(spec, { arch = process.arch, libc = detectLinuxLibc(), platform = process.platform } = {}) {
+  return spec.nativePackageResolver?.({ arch, libc, platform }) ?? null;
+}
+
 const toolSpecs = [
   {
     id: 'codebaseMemoryMcp',
@@ -45,17 +74,19 @@ const toolSpecs = [
   {
     id: 'rtk',
     packageName: 'rtk-ai/rtk',
-    phases: ['binary-install'],
+    phases: ['dependency-install', 'binary-install'],
     relativeDir: '.agents/runtime/tools/rtk',
-    source: 'github:rtk-ai/rtk@v0.43.0',
-    version: '0.43.0',
+    source: 'github:rtk-ai/rtk@v0.45.0',
+    version: '0.45.0',
   },
   {
     id: 'astGrep',
     packageName: '@ast-grep/cli',
+    nativePackageResolver: resolveAstGrepPlatformPackage,
+    npmInstallArgs: ['--include=optional'],
     phases: ['dependency-install', 'binary-install'],
     relativeDir: '.agents/runtime/tools/ast-grep',
-    version: '0.44.1',
+    version: '0.45.1',
   },
 ];
 
@@ -114,7 +145,8 @@ const baseEnvironmentNames = new Set([
 ]);
 
 const packageManagerEnvironmentNames = new Set([
-  'ALL_PROXY', 'HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'SSL_CERT_DIR', 'SSL_CERT_FILE',
+  'ALL_PROXY', 'HTTPS_PROXY', 'HTTP_PROXY', 'NODE_EXTRA_CA_CERTS', 'NODE_USE_ENV_PROXY',
+  'NO_PROXY', 'SSL_CERT_DIR', 'SSL_CERT_FILE',
   'all_proxy', 'https_proxy', 'http_proxy', 'no_proxy', 'npm_config_offline',
   'npm_config_prefer_offline', 'npm_config_registry',
 ]);
@@ -160,13 +192,29 @@ export async function componentEnvironment(spec, targetDir, env, { codebaseMemor
     const home = path.join(stateRoot, 'open-code-review/home');
     return { ...baseEnv, HOME: home, USERPROFILE: home, npm_config_cache: npmCache };
   }
+  if (spec.id === 'rtk') {
+    return {
+      ...baseEnv,
+      npm_config_cache: npmCache,
+      npm_config_registry: baseEnv.npm_config_registry ?? 'https://registry.npmjs.org/',
+    };
+  }
+  if (spec.id === 'astGrep') {
+    return {
+      ...baseEnv,
+      npm_config_cache: npmCache,
+      npm_config_include: 'optional',
+      npm_config_optional: 'true',
+      npm_config_registry: baseEnv.npm_config_registry ?? 'https://registry.npmjs.org/',
+    };
+  }
   return { ...baseEnv, npm_config_cache: npmCache };
 }
 
 export async function phaseRequest(spec, phase, targetDir, env, context = {}) {
   const componentEnv = await componentEnvironment(spec, targetDir, env, context);
   if (phase === 'dependency-install') {
-    const npmArgs = ['ci', '--no-audit', '--no-fund', '--ignore-scripts'];
+    const npmArgs = ['ci', '--no-audit', '--no-fund', '--ignore-scripts', ...(spec.npmInstallArgs ?? [])];
     return { ...await npmInvocation(npmArgs), component: spec.id, cwd: spec.toolDir, env: componentEnv, phase, timeout: 600_000 };
   }
   if (phase === 'binary-install' && spec.id === 'rtk') {

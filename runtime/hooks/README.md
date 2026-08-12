@@ -1,26 +1,19 @@
-# Codex safety hooks
+# Project safety hooks
 
-The Codex Hook runtime applies project-scoped safety policy only. It does not create task state, run validation commands, inspect delivery records, or block completion.
+The Hook runtime applies project-scoped safety policy only. It does not create task state, run validation commands, inspect delivery records, block completion, commit, or push.
 
-## Events
+## Event contract
 
-| Event | Behavior |
-| --- | --- |
-| `PreToolUse` | Rejects destructive Git operations, global Agent configuration writes, credential exfiltration, red-zone file uploads, and writes outside the project boundary. Adds context for project red-zone writes. When `allowedEgressHosts` is configured, blocks egress to non-allowlisted hosts. |
-| `PermissionRequest` | Rejects requests that violate the same hard safety boundaries; ordinary approval requests remain controlled by the host. |
+The single source of truth is manifests/adapters.json. PreToolUse is stable on Codex, Claude, Cursor, Qoder, and ZCode; preview on Antigravity; unsupported on Gemini and OpenCode. PermissionRequest is stable on Codex, Claude, Qoder, and ZCode and unsupported elsewhere. Stop is unsupported on every host.
 
-`hooks.mode` supports `off`, `observe`, and `guarded`. Optional RTK command routing uses the same safety boundary and is enabled only through the explicit RTK plugin setting.
+PreToolUse enforces destructive-Git, global-configuration, credential, egress, red-zone, and project-boundary controls. PermissionRequest enforces the same hard boundaries while leaving ordinary approval to the host.
 
-`hooks.redZonePaths` is the single source of truth for the runtime red-zone: each entry is a project-relative path fragment. A trailing `/` matches the directory and its descendants; a bare filename (e.g. `.env`) matches the file itself and `.`-extended siblings (e.g. `.env.production`); an entry containing `/` matches that relative path or any descendant. Red-zone writes return approval context (warn) and red-zone file uploads are always denied. `riskZones.red` is a project-governance logical classification and is independent from `hooks.redZonePaths`.
+## Path resolution
 
-Network egress defaults to "allow but block sensitive": ordinary network commands are allowed (so `pnpm install`/`git fetch` keep working), while network commands carrying secret references or uploading red-zone/sensitive files (e.g. `curl -F data=@.env`) are always denied. Once a non-empty `allowedEgressHosts` allowlist is configured, egress hosts must be allowlisted (wildcards such as `*.npmjs.org` are supported); non-allowlisted hosts are denied under `guarded` and warned under `observe`. Treat the allowlist as a capability grant rather than a destination filter: allowlisted hosts remain attack surface, so secret references and red-zone uploads are always blocked unconditionally.
+The configured command runs an inline cross-platform Node bootstrap from the session working directory. It obtains the Git root with git rev-parse --show-toplevel, locates .agents/runtime/hooks/codex-hook.mjs from that root, and launches it with process.execPath while inheriting standard streams and arguments. Missing Git roots or runtimes fail with a non-zero exit. No shell command substitution is used.
 
-The runtime never changes global Agent configuration or local Git `core.hooksPath`.
+## Activation
 
-## Timeout
+Codex uses manual trust. Project-file consistency cannot prove runtime activation; validate and doctor keep the status unknown and direct the user to /hooks. Configuration-file hosts report configured-unverified until checked in the host. Unsupported hosts report unsupported.
 
-The project Hook configuration uses a 10-second `timeout`. This conservative value prevents policy evaluation from blocking interaction; guarded `PreToolUse` and permission events fail closed on timeout. Cursor uses `.cursor/hooks.json`, Qoder uses `.qoder/settings.json`, ZCode uses `.zcode/config.json`, and Codex uses `.codex/hooks.json`.
-
-## Hook path
-
-Each host runs `node .agents/runtime/hooks/codex-hook.mjs --host <host>` with a project-relative command. The runtime resolves `vibe-harness.config.json` from the payload working directory and falls back to the current directory. Start the host from the project root so the relative command can locate the Hook entry.
+hooks.mode supports off, observe, and guarded. Optional RTK routing uses the same safety boundary and requires explicit project configuration. The runtime never changes global Agent configuration or local Git core.hooksPath.

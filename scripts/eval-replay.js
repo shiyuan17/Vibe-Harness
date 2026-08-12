@@ -18,11 +18,11 @@ const run = await buildOfflineRun(assets.suite);
 try {
   assert.deepEqual(run, assets.run);
 } catch {
-  console.error(JSON.stringify({ errors: ['offline replay differs from the checked-in result'], ok: false }, null, 2));
+  console.error(JSON.stringify({ errors: ['replay differs from the checked-in result'], ok: false }, null, 2));
   process.exit(1);
 }
 
-console.log('Vibe-Harness offline evaluation passed.');
+console.log('Vibe-Harness deterministic replay passed.');
 console.log(JSON.stringify({
   criticalPassRate: run.criticalPassRate,
   overallScore: run.overallScore,
