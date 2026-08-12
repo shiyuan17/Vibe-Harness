@@ -4,6 +4,6 @@
   "private": true,
   "description": "Project-local RTK runtime managed by Vibe-Harness.",
   "dependencies": {
-    "undici": "7.29.0"
+    "undici": "8.10.0"
   }
 }
