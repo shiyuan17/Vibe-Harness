@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { lstat, readFile, readlink } from 'node:fs/promises';
+import { lstat, readFile, readlink, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
@@ -62,8 +62,11 @@ async function updatePathHash(hash, rootDir, relativePath) {
 export async function createProjectSnapshot(targetDir) {
   const rootOutput = await gitOutput(['rev-parse', '--show-toplevel'], targetDir);
   if (!rootOutput) return { available: false, stable: null, vcs: 'none' };
-  const rootDir = path.resolve(rootOutput.trim());
-  const relativeTarget = path.relative(rootDir, path.resolve(targetDir)) || '.';
+  const [rootDir, resolvedTargetDir] = await Promise.all([
+    realpath(rootOutput.trim()),
+    realpath(targetDir),
+  ]);
+  const relativeTarget = path.relative(rootDir, resolvedTargetDir) || '.';
   if (relativeTarget.startsWith('..') || path.isAbsolute(relativeTarget)) {
     return { available: false, stable: null, vcs: 'none' };
   }
