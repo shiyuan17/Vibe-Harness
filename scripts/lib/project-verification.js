@@ -67,12 +67,14 @@ export async function createProjectSnapshot(targetDir) {
   if (relativeTarget.startsWith('..') || path.isAbsolute(relativeTarget)) {
     return { available: false, stable: null, vcs: 'none' };
   }
-  const pathspec = relativeTarget === '.' ? '.' : ':(literal)' + relativeTarget.replaceAll('\\', '/');
+  const scopeArgs = relativeTarget === '.'
+    ? []
+    : ['--', ':(literal)' + relativeTarget.replaceAll('\\', '/')];
   const [headOutput, statusOutput, changedOutput, untrackedOutput] = await Promise.all([
     gitOutput(['rev-parse', '--verify', 'HEAD'], rootDir),
-    gitOutput(['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', pathspec], rootDir),
-    gitOutput(['diff', '--name-only', '-z', 'HEAD', '--', pathspec], rootDir),
-    gitOutput(['ls-files', '--others', '--exclude-standard', '-z', '--', pathspec], rootDir),
+    gitOutput(['status', '--porcelain=v1', '-z', '--untracked-files=all', ...scopeArgs], rootDir),
+    gitOutput(['diff', '--name-only', '-z', 'HEAD', ...scopeArgs], rootDir),
+    gitOutput(['ls-files', '--others', '--exclude-standard', '-z', ...scopeArgs], rootDir),
   ]);
   if ([headOutput, statusOutput, changedOutput, untrackedOutput].some((value) => value === null)) {
     return { available: false, stable: null, vcs: 'none' };
