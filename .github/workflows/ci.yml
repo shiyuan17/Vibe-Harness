@@ -13,6 +13,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  risk-evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - run: node scripts/risk-evidence.js
+
   product:
     strategy:
       fail-fast: false
@@ -57,3 +65,15 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm runtime:audit
       - run: pnpm pack:contract
+
+  merge-gate:
+    if: always()
+    needs: [product, supply-chain, risk-evidence]
+    runs-on: ubuntu-latest
+    env:
+      PRODUCT_RESULT: ${{ needs.product.result }}
+      SUPPLY_CHAIN_RESULT: ${{ needs.supply-chain.result }}
+      RISK_EVIDENCE_RESULT: ${{ needs.risk-evidence.result }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - run: node scripts/merge-gate.js
