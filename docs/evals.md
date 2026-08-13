@@ -2,6 +2,8 @@
 
 Eval 用于 Agent 规则、Skill、模板、adapter 和 Hook 的非确定性行为。确定性代码继续使用普通产品测试。
 
+Eval run schema v2 保留 offline 和 online 兼容接口，并区分 contract-replay、stub-behavioral、online-canary 三种 proof。第一种只证明 suite、fixture、oracle、scoring 与 reference 一致；第二种加载当前规则、Skill、Hook 和配置并执行变异检查；第三种才证明指定模型、宿主和版本的多轮行为。v1 资产继续可读，写入器只生成 v2。
+
 ## 合同
 
 - suite：版本化场景、oracle、critical 断言和权重。
@@ -21,7 +23,7 @@ pnpm vibe-harness eval run --project ../some-project --mode offline --write
 pnpm vibe-harness eval reference --project ../some-project --from .vibe-harness/evals/runs/<run>.json --write --confirm-reference-update
 ```
 
-offline 模式验证 suite、oracle、聚合和 reference 一致性。online runner 必须在一次性项目中执行，限制输出与超时，并保护全局配置。reference 更新始终显式执行，不能为让变更通过而自动提升。
+offline 模式验证 suite、oracle、聚合和 reference 一致性。online runner 必须在一次性项目中执行，限制输出与超时，并保护全局配置。reference 更新始终显式执行，不能为让变更通过而自动提升。behavioral 命令同时变异规则、Skill、Hook 和配置，变异后必须失败。run fingerprint 分别记录 config、hooks、rules、skills 分类哈希与聚合哈希；资产漂移、缺 reference 或 degraded run 不计为通过。
 
 `pnpm eval:check`、`pnpm eval:replay` 和在线 canary 都是显式命令，不属于 `pnpm check` 的默认快速路径。
 

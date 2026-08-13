@@ -95,7 +95,7 @@ test('controlled Task Episodes bind repair reruns and reject stale or failed che
 const installedSkillOwners = [
   'agentmemory', 'api-and-interface-design', 'browser-verification', 'clarify-requirements',
   'define-goal', 'eval-driven-development', 'frontend-design', 'runtime-cross-repo-rollout',
-  'security-and-hardening', 'systematic-debugging',
+  'security-and-hardening', 'systematic-debugging', 'git-deliver',
 ].map((id) => ({ kind: 'skill', id }));
 
 function coverageEpisode(overrides = {}) {
@@ -142,7 +142,7 @@ test('knowledge coverage distinguishes existing coverage, missing evidence, and 
   assert.equal(confirmed.promotionStatus, 'eligible-for-owner-review');
 });
 
-test('knowledge coverage candidate inventory matches the 10 installed project Skills', async () => {
+test('knowledge coverage candidate inventory matches the 11 installed project Skills', async () => {
   const installed = (await readdir(path.join(rootDir, '.agents/skills'), { withFileTypes: true }))
     .filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
   assert.deepEqual(installed, installedSkillOwners.map((owner) => owner.id).sort());
@@ -669,6 +669,37 @@ test('runner scores llmRubric assertions via the injected judge client', async (
     assert.equal(rubricAssertion.passed, true);
     assert.equal(rubricAssertion.score, 0.9);
     assert.match(rubricAssertion.rationale, /concise/u);
+  } finally {
+    await rm(runner.root, { force: true, recursive: true });
+  }
+});
+
+test('online rule fixtures expand canonical rule sources declared by the case', async () => {
+  const fixtureDefinition = structuredClone(definition);
+  fixtureDefinition.id = 'EVAL-RULE-FIXTURE';
+  fixtureDefinition.reporting = { expected: { rules: ['git-rules'] } };
+  fixtureDefinition.input.fixture = {
+    files: [{ path: 'AGENTS.md', content: 'BEGIN\n{{RULE:git-rules}}\nEND\n' }],
+  };
+  const runnerSource = [
+    "import { readFile } from 'node:fs/promises';",
+    "let input = '';",
+    "for await (const chunk of process.stdin) input += chunk;",
+    'const request = JSON.parse(input);',
+    "const agents = await readFile(request.workspace + '/AGENTS.md', 'utf8');",
+    "process.stdout.write(JSON.stringify({ schemaVersion: 1, caseId: request.case.id, runner: 'fake@1', model: 'fixture', agentVersion: 'fake-agent@1', configHash: request.configHash, events: [], output: agents, artifacts: ['AGENTS.md'], exitCode: 0, diagnostics: [] }));",
+  ].join('\n');
+  const runner = await fakeRunner(runnerSource);
+  try {
+    const result = await runEvaluationCase({
+      command: runner.command,
+      definition: fixtureDefinition,
+      sourceRoot: rootDir,
+      timeoutMs: 2000,
+    });
+    assert.equal(result.status, 'ready');
+    assert.match(result.observation.output, /# Git 规则/u);
+    assert.doesNotMatch(result.observation.output, /\{\{RULE:/u);
   } finally {
     await rm(runner.root, { force: true, recursive: true });
   }

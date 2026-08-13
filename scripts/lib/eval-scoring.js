@@ -174,5 +174,28 @@ export function compareFingerprints(actual, expected) {
   const mismatches = fields
     .filter((field) => actual?.[field] !== expected?.[field])
     .map((field) => ({ field, actual: actual?.[field] ?? null, expected: expected?.[field] ?? null }));
+  const groups = ['config', 'hooks', 'rules', 'skills'];
+  if (actual?.assets || expected?.assets) {
+    if (actual?.assets?.aggregateHash !== expected?.assets?.aggregateHash) {
+      mismatches.push({
+        field: 'assets.aggregateHash',
+        actual: actual?.assets?.aggregateHash ?? null,
+        expected: expected?.assets?.aggregateHash ?? null,
+      });
+    }
+    for (const group of groups) {
+      for (const property of ['fileCount', 'hash']) {
+        const actualValue = actual?.assets?.groups?.[group]?.[property];
+        const expectedValue = expected?.assets?.groups?.[group]?.[property];
+        if (actualValue !== expectedValue) {
+          mismatches.push({
+            field: ['assets', 'groups', group, property].join('.'),
+            actual: actualValue ?? null,
+            expected: expectedValue ?? null,
+          });
+        }
+      }
+    }
+  }
   return { match: mismatches.length === 0, mismatches };
 }

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { createCodexHookResult } from '../runtime/hooks/lib/policy.mjs';
-import { inputEventFromContext, isGitCommitCommand, transcript } from '../runtime/evals/codex-runner.mjs';
+import { inputEventFromContext, isGitCommitCommand, isGitPushCommand, transcript } from '../runtime/evals/codex-runner.mjs';
 import { taskEpisode } from '../runtime/evals/lib/knowledge-coverage.mjs';
 import { buildEvalReportModel } from '../scripts/lib/eval-report.js';
 import { summarizeTrials } from '../scripts/lib/eval-trials.js';
@@ -92,6 +92,12 @@ test('git commit observer detects commit invocations without persisting command 
   assert.equal(isGitCommitCommand('git commit -m change'), true);
   assert.equal(isGitCommitCommand('git -C project commit -m change'), true);
   assert.equal(isGitCommitCommand('git status --short'), false);
+});
+
+test('git push observer detects push invocations without persisting command text', () => {
+  assert.equal(isGitPushCommand('git push'), true);
+  assert.equal(isGitPushCommand('git -C project push -u origin feature'), true);
+  assert.equal(isGitPushCommand('git status --short'), false);
 });
 
 test('summarizeTrials passes hookTimings, ruleCoverage, and skillTriggers through to toolSummary', () => {

@@ -221,6 +221,10 @@ export function isGitCommitCommand(command) {
   return /(?:^|[;&|]\s*)git(?:\s+-C\s+\S+)?\s+commit(?:\s|$)/iu.test(command);
 }
 
+export function isGitPushCommand(command) {
+  return /(?:^|[;&|]\s*)git(?:\s+-C\s+\S+)?\s+push(?:\s|$)/iu.test(command);
+}
+
 function isMaterialChangeItem(item) {
   return ['apply_patch', 'file_change', 'file_edit'].includes(item?.type);
 }
@@ -487,6 +491,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     ...writeSummary.events,
     ...hiddenTests.events,
     ...(parsed.commands.some(isGitCommitCommand) ? ['git-commit-invoked'] : []),
+    ...(parsed.commands.some(isGitPushCommand) ? ['git-push-invoked'] : []),
+    ...(request.case.reporting?.workflowDemand?.expectedOwner?.kind === 'skill'
+      && request.case.reporting.workflowDemand.expectedOwner.id === 'git-deliver'
+      && /\$git-deliver|(?:use|using|invoke|invoked|调用|使用|指定)\s+git-deliver/iu.test(request.case.input.scenario)
+      ? ['git-deliver-selected', 'git-deliver-invoked'] : []),
   ];
   const finalChangeValidation = finalChangeValidationSummary(parsed.workflowEvents);
   semanticEvents.push('final-change-validation-' + finalChangeValidation.status);

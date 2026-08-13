@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -29,7 +29,26 @@ function evaluationEnvironment(env) {
   return Object.fromEntries(Object.entries(env).filter(([name]) => evaluationEnvironmentNames.has(name)));
 }
 
-async function createWorkspace(definition) {
+async function expandRuleFixtures(content, definition, sourceRoot) {
+  if (!sourceRoot || !content.includes('{{RULE:')) return content;
+  const expected = new Set(definition.reporting?.expected?.rules ?? []);
+  const manifest = safeJsonParse(await readFile(path.join(sourceRoot, 'manifests/rules.json'), 'utf8'));
+  const sources = new Map(manifest.items.map((item) => [item.id, item.source]));
+  let expanded = content;
+  for (const match of content.matchAll(/\{\{RULE:([^}]+)\}\}/gu)) {
+    const id = match[1];
+    if (!expected.has(id)) throw new Error('evaluation rule fixture must declare reporting.expected.rules: ' + id);
+    const relative = sources.get(id);
+    if (!relative) throw new Error('evaluation rule fixture references unknown rule: ' + id);
+    assertPortableRelativePath(relative, 'evaluation rule source');
+    const source = path.resolve(sourceRoot, relative);
+    assertInsideDir(sourceRoot, source, 'evaluation rule source');
+    expanded = expanded.replaceAll(match[0], await readFile(source, 'utf8'));
+  }
+  return expanded;
+}
+
+async function createWorkspace(definition, sourceRoot) {
   const workspace = await mkdtemp(path.join(tmpdir(), 'vibe-harness-eval-case-'));
   for (const relative of definition.input.fixture?.allowedWritePaths ?? []) {
     assertPortableRelativePath(relative, 'evaluation allowed write path');
@@ -40,7 +59,7 @@ async function createWorkspace(definition) {
     const target = path.resolve(workspace, file.path);
     assertInsideDir(workspace, target, 'evaluation fixture file');
     await mkdir(path.dirname(target), { recursive: true });
-    await writeFile(target, file.content, 'utf8');
+    await writeFile(target, await expandRuleFixtures(file.content, definition, sourceRoot), 'utf8');
   }
   return workspace;
 }
@@ -136,11 +155,11 @@ function executeRunner({ command, request, timeoutMs }) {
   });
 }
 
-export async function runEvaluationCase({ command, definition, configHash = 'fixture-v1', repetition = 1, runId = 'online', timeoutMs = DEFAULT_TIMEOUT_MS, judge }) {
+export async function runEvaluationCase({ command, definition, configHash = 'fixture-v1', repetition = 1, runId = 'online', timeoutMs = DEFAULT_TIMEOUT_MS, judge, sourceRoot }) {
   let workspace;
   let report;
   try {
-    workspace = await createWorkspace(definition);
+    workspace = await createWorkspace(definition, sourceRoot);
     const request = {
       schemaVersion: 1,
       runId,

@@ -166,13 +166,14 @@ test('eval check and offline run are read-only until write is explicit', async (
     assert.equal(checked.payload.status, 'ready');
     assert.equal(checked.payload.suites[0].id, 'vibe-harness-core');
 
-    const preview = await run(['eval', 'run', '--project', target, '--mode', 'offline']);
+    const preview = await run(['eval', 'run', '--project', target, '--mode', 'offline', '--allow-degraded']);
     assert.equal(preview.code, 0);
     assert.equal(preview.payload.dryRun, true);
     assert.equal(preview.payload.run.status, 'passed');
+    assert.equal(preview.payload.status, 'degraded');
     await assert.rejects(readFile(path.join(target, '.vibe-harness/evals/runs'), 'utf8'), /ENOENT|EISDIR/u);
 
-    const written = await run(['eval', 'run', '--project', target, '--mode', 'offline', '--write']);
+    const written = await run(['eval', 'run', '--project', target, '--mode', 'offline', '--write', '--allow-degraded']);
     assert.equal(written.code, 0);
     assert.equal(written.payload.dryRun, false);
     assert.match(written.payload.written[0], /^\.vibe-harness\/evals\/runs\/.+\.json$/u);

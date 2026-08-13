@@ -152,6 +152,17 @@ export function validateEvalAssets({ suite, run, reference, schemas }) {
       }
     }
   }
+  if (run.schemaVersion === 2) {
+    if (!run.proof) errors.push('schema v2 run must declare proof');
+    if (!run.fingerprint?.assets) errors.push('schema v2 run must declare asset fingerprint');
+  }
+  if (reference.schemaVersion === 2) {
+    if (!reference.proof) errors.push('schema v2 reference must declare proof');
+    if (!reference.fingerprint?.assets) errors.push('schema v2 reference must declare asset fingerprint');
+  }
+  if (run.proof === 'contract-replay' && run.mode !== 'offline') errors.push('contract-replay proof requires offline mode');
+  if (run.proof === 'online-canary' && run.mode !== 'online') errors.push('online-canary proof requires online mode');
+  if (run.proof && reference.proof && run.proof !== reference.proof) errors.push('run proof must match reference proof');
   validateRunScores(run, errors);
   validateAggregateScores(reference, 'reference', errors);
   if (run.suite?.id !== suite.id || reference.suite?.id !== suite.id) {

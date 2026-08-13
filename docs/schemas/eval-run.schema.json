@@ -4,14 +4,15 @@
   "type": "object",
   "required": ["schemaVersion", "id", "generatedAt", "suite", "mode", "status", "fingerprint", "caseRepetitions", "cases", "capabilities", "overallScore", "criticalPassRate", "diagnostics"],
   "properties": {
-    "schemaVersion": { "type": "integer", "enum": [1] },
+    "schemaVersion": { "type": "integer", "enum": [1, 2] },
     "id": { "type": "string", "minLength": 1 },
     "generatedAt": { "type": "string", "minLength": 1 },
     "suite": { "type": "object", "required": ["id", "version", "hash", "path"], "properties": { "id": { "type": "string", "minLength": 1 }, "version": { "type": "string", "minLength": 1 }, "hash": { "type": "string", "minLength": 1 }, "path": { "type": "string", "minLength": 1 } }, "additionalProperties": false },
     "mode": { "type": "string", "enum": ["offline", "online"] },
+    "proof": { "type": "string", "enum": ["contract-replay", "stub-behavioral", "online-canary"] },
     "campaignId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9._-]+$" },
     "status": { "type": "string", "enum": ["passed", "failed", "degraded"] },
-    "fingerprint": { "type": "object", "required": ["suiteHash", "runner", "model", "agent", "configHash"], "properties": { "suiteHash": { "type": "string", "minLength": 1 }, "runner": { "type": "string", "minLength": 1 }, "model": { "type": "string", "minLength": 1 }, "agent": { "type": "string", "minLength": 1 }, "configHash": { "type": "string", "minLength": 1 } }, "additionalProperties": false },
+    "fingerprint": { "type": "object", "required": ["suiteHash", "runner", "model", "agent", "configHash"], "properties": { "suiteHash": { "type": "string", "minLength": 1 }, "runner": { "type": "string", "minLength": 1 }, "model": { "type": "string", "minLength": 1 }, "agent": { "type": "string", "minLength": 1 }, "configHash": { "type": "string", "minLength": 1 }, "assets": { "type": "object", "required": ["aggregateHash", "groups"], "properties": { "aggregateHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "groups": { "type": "object", "required": ["config", "hooks", "rules", "skills"], "properties": { "config": { "type": "object", "required": ["fileCount", "hash"], "properties": { "fileCount": { "type": "integer", "minimum": 0 }, "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" } }, "additionalProperties": false }, "hooks": { "type": "object", "required": ["fileCount", "hash"], "properties": { "fileCount": { "type": "integer", "minimum": 0 }, "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" } }, "additionalProperties": false }, "rules": { "type": "object", "required": ["fileCount", "hash"], "properties": { "fileCount": { "type": "integer", "minimum": 0 }, "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" } }, "additionalProperties": false }, "skills": { "type": "object", "required": ["fileCount", "hash"], "properties": { "fileCount": { "type": "integer", "minimum": 0 }, "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" } }, "additionalProperties": false } }, "additionalProperties": false } }, "additionalProperties": false } }, "additionalProperties": false },
     "runtime": {
       "type": "object",
       "required": ["backend", "provider", "reasoningEffort", "wireApi"],
