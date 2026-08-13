@@ -14,7 +14,31 @@ export const DEFAULT_RED_ZONE_PATHS = [
   'auth/',
   'ci/cd/',
   '.github/workflows/',
+  'vibe-harness.config.json',
+  '.vibe-harness/install-state.json',
+  '.agents/runtime/hooks/',
+  '.agents/hooks.json',
+  '.agents/mcp_config.json',
   '.codex/hooks.json',
+  '.codex/config.toml',
+  '.cursor/hooks.json',
+  '.cursor/mcp.json',
+  '.mcp.json',
+  '.qoder/settings.json',
+  '.zcode/config.json',
+  'opencode.json',
+  'opencode.jsonc',
+  '.claude/settings.json',
+];
+
+export const CONTROL_PLANE_PATHS = [
+  'vibe-harness.config.json',
+  '.vibe-harness/install-state.json',
+  '.agents/runtime/hooks/',
+  '.agents/hooks.json',
+  '.agents/mcp_config.json',
+  '.codex/hooks.json',
+  '.codex/config.toml',
   '.cursor/hooks.json',
   '.cursor/mcp.json',
   '.mcp.json',
@@ -56,15 +80,6 @@ export async function readProjectConfig(rootDir) {
   }
 }
 
-function readAllowedWriteRoots(config) {
-  const roots = config.hooks?.allowedWriteRoots;
-  if (roots === undefined) return [];
-  if (!Array.isArray(roots) || roots.some((root) => typeof root !== 'string' || root.trim().length === 0 || !path.isAbsolute(root))) {
-    throw new Error('hooks.allowedWriteRoots must contain non-empty absolute paths.');
-  }
-  return roots;
-}
-
 function readAllowedEgressHosts(config) {
   const hosts = config.hooks?.allowedEgressHosts;
   if (hosts === undefined) return [];
@@ -80,7 +95,7 @@ function readRedZonePaths(config) {
   if (!Array.isArray(paths) || paths.some((entry) => typeof entry !== 'string' || entry.trim().length === 0)) {
     throw new Error('hooks.redZonePaths must contain non-empty path strings.');
   }
-  return paths;
+  return [...new Set([...DEFAULT_RED_ZONE_PATHS, ...paths])];
 }
 
 export async function readHookSettings(rootDir) {
@@ -92,17 +107,10 @@ export async function readHookSettings(rootDir) {
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
     }
-    // Trust config high-sensitivity fields (allowedWriteRoots, allowedEgressHosts)
-    // only when the install state proves this project was provisioned by Vibe-Harness.
-    // A lone vibe-harness.config.json without a matching install-state is not trusted.
-    const trusted = state?.product === 'vibe-harness' && state?.storageNamespace === 'vibe-harness';
-    if (!trusted) {
-      return { allowedWriteRoots: [], allowedEgressHosts: [], mode: 'guarded', redZonePaths: DEFAULT_RED_ZONE_PATHS, rtkEnabled: false };
-    }
     return {
-      allowedWriteRoots: readAllowedWriteRoots(config),
+      allowedWriteRoots: [],
       allowedEgressHosts: readAllowedEgressHosts(config),
-      mode: ['off', 'observe', 'guarded'].includes(config.hooks?.mode) ? config.hooks.mode : 'guarded',
+      mode: 'guarded',
       redZonePaths: readRedZonePaths(config),
       rtkEnabled: Object.hasOwn(config.hooks?.rtk ?? {}, 'enabled') ? config.hooks.rtk.enabled : Boolean(state?.rtkHooksEnabled),
     };

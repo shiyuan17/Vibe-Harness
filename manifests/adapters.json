@@ -11,6 +11,7 @@
       "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "stable", "policy": "stable", "mcp": "stable", "sandbox": "stable", "memory": "stable", "plugin": "stable", "goals": "stable" },
       "hookEvents": { "preToolUse": "stable", "permissionRequest": "stable", "stop": "unsupported" },
       "hookActivation": "manual-trust",
+      "evidence": { "status": "configured-unverified", "lastVerifiedAt": "", "hostVersion": "" },
       "redZonePrefixes": [".codex/"]
     },
     {
@@ -23,6 +24,7 @@
       "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "stable", "policy": "stable", "mcp": "preview", "sandbox": "preview", "memory": "preview", "plugin": "unsupported", "goals": "unsupported" },
       "hookEvents": { "preToolUse": "stable", "permissionRequest": "stable", "stop": "unsupported" },
       "hookActivation": "config-file",
+      "evidence": { "status": "configured-unverified", "lastVerifiedAt": "", "hostVersion": "" },
       "projectConfig": {
         "hooks": { "target": ".claude/settings.json", "path": ["hooks"] }
       },
@@ -38,6 +40,7 @@
       "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "preview", "policy": "stable", "mcp": "preview", "sandbox": "preview", "memory": "preview", "plugin": "unsupported", "goals": "unsupported" },
       "hookEvents": { "preToolUse": "unsupported", "permissionRequest": "unsupported", "stop": "unsupported" },
       "hookActivation": "unsupported",
+      "evidence": { "status": "preview", "lastVerifiedAt": "", "hostVersion": "" },
       "redZonePrefixes": []
     },
     {
@@ -50,6 +53,7 @@
       "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "stable", "policy": "stable", "mcp": "stable", "sandbox": "preview", "memory": "preview", "plugin": "stable", "goals": "unsupported" },
       "hookEvents": { "preToolUse": "stable", "permissionRequest": "unsupported", "stop": "unsupported" },
       "hookActivation": "config-file",
+      "evidence": { "status": "configured-unverified", "lastVerifiedAt": "", "hostVersion": "" },
       "projectConfig": {
         "mcp": { "target": ".cursor/mcp.json", "path": ["mcpServers"] },
         "hooks": { "target": ".cursor/hooks.json", "path": [] }
@@ -66,6 +70,7 @@
       "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "stable", "policy": "stable", "mcp": "stable", "sandbox": "preview", "memory": "stable", "plugin": "stable", "goals": "stable" },
       "hookEvents": { "preToolUse": "stable", "permissionRequest": "stable", "stop": "unsupported" },
       "hookActivation": "config-file",
+      "evidence": { "status": "configured-unverified", "lastVerifiedAt": "", "hostVersion": "" },
       "projectConfig": {
         "mcp": { "target": ".mcp.json", "path": ["mcpServers"] },
         "hooks": { "target": ".qoder/settings.json", "path": ["hooks"] }
@@ -82,6 +87,7 @@
       "capabilities": { "instructions": "stable", "skills": "unsupported", "hooks": "stable", "policy": "stable", "mcp": "stable", "sandbox": "preview", "memory": "preview", "plugin": "stable", "goals": "stable" },
       "hookEvents": { "preToolUse": "stable", "permissionRequest": "stable", "stop": "unsupported" },
       "hookActivation": "config-file",
+      "evidence": { "status": "configured-unverified", "lastVerifiedAt": "", "hostVersion": "" },
       "projectConfig": {
         "mcp": { "target": ".zcode/config.json", "path": ["mcp", "servers"] },
         "hooks": { "target": ".zcode/config.json", "path": ["hooks"] }
@@ -98,6 +104,7 @@
       "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "preview", "policy": "stable", "mcp": "stable", "sandbox": "preview", "memory": "preview", "plugin": "unsupported", "goals": "unsupported" },
       "hookEvents": { "preToolUse": "preview", "permissionRequest": "unsupported", "stop": "unsupported" },
       "hookActivation": "config-file",
+      "evidence": { "status": "preview", "lastVerifiedAt": "", "hostVersion": "" },
       "projectConfig": {
         "mcp": { "target": ".agents/mcp_config.json", "path": ["mcpServers"] },
         "hooks": { "target": ".agents/hooks.json", "path": ["vibe-harness"] }
@@ -114,6 +121,7 @@
       "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "unsupported", "policy": "stable", "mcp": "stable", "sandbox": "preview", "memory": "preview", "plugin": "unsupported", "goals": "unsupported" },
       "hookEvents": { "preToolUse": "unsupported", "permissionRequest": "unsupported", "stop": "unsupported" },
       "hookActivation": "unsupported",
+      "evidence": { "status": "configured-unverified", "lastVerifiedAt": "", "hostVersion": "" },
       "projectConfig": {
         "mcp": {
           "target": "opencode.json",

@@ -50,7 +50,9 @@ test('Vibe-Harness removes the CodeGraph CLI integration and doctor report', asy
 test('codebase-memory-mcp rule uses MCP tools and a repository-search fallback without global writes', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-codebase-memory-profile-'));
   const rulePath = path.join(rootDir, 'rules/codebase-memory-mcp.md');
-  const rule = await readFile(rulePath, 'utf8');
+  const ruleSource = await readFile(rulePath, 'utf8');
+  const marker = String.fromCharCode(96);
+  const rule = ruleSource.replaceAll('<code>', marker).replaceAll('</code>', marker);
   const agents = await readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8');
 
   try {

@@ -244,9 +244,10 @@ export async function validateSkillGraph(
           errors.push(`${item.id} must provide agents/openai.yaml`);
         } else {
           const yaml = await readFile(openaiMetadata, 'utf8');
-          for (const term of ['interface:', 'display_name:', 'short_description:', 'default_prompt:', 'policy:', 'allow_implicit_invocation: true']) {
+          for (const term of ['interface:', 'display_name:', 'short_description:', 'default_prompt:', 'policy:', 'allow_implicit_invocation:']) {
             if (!yaml.includes(term)) errors.push(`${item.id} agents/openai.yaml must contain ${term}`);
           }
+          if (!/allow_implicit_invocation:\s+(?:true|false)/u.test(yaml)) errors.push(item.id + ' agents/openai.yaml allow_implicit_invocation must be boolean');
         }
         const assets = await readdir(skillDir, { withFileTypes: true });
         const resourceCount = assets.filter((entry) => !['SKILL.md', 'metadata.json', 'agents'].includes(entry.name)).length;
@@ -265,7 +266,7 @@ export async function validateSkillGraph(
   }
 
   if (nativeBodyLines > 250) errors.push(`native Skill body budget exceeds 250 lines: ${nativeBodyLines}`);
-  if (nativeIdentityCharacters > 900) errors.push(`native Skill name and description budget exceeds 900 characters: ${nativeIdentityCharacters}`);
+  if (nativeIdentityCharacters > 1100) errors.push(`native Skill name and description budget exceeds 1100 characters: ${nativeIdentityCharacters}`);
 
   if (checkFiles) {
     for (const root of ['skills/core', 'skills/integrations']) {
@@ -357,7 +358,7 @@ export async function validateContentQuality(rootDir) {
     },
     {
       file: 'rules/log-management.md',
-      terms: ['检查清单', '关联 ID', '检索', '脱敏', '验证证据'],
+      terms: ['目标与边界', '日志画像', '候选证据', '不引入新日志库', '最小字段与关联', '指标与追踪底线', '安全与可靠性', '排障与验收', '高基数', '脱敏', '验证证据'],
     },
     {
       file: 'rules/release-rules.md',

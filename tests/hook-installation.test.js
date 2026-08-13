@@ -9,7 +9,8 @@ import path from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
 
-import { defaultProjectConfig, validateProjectConfig } from '../scripts/lib/project-config.js';
+import { defaultProjectConfig, defaultRedZonePaths, validateProjectConfig } from '../scripts/lib/project-config.js';
+import { DEFAULT_RED_ZONE_PATHS } from '../runtime/hooks/lib/context.mjs';
 import { scanStagedDiff } from '../.agents/runtime/hooks/git-hook.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -45,17 +46,25 @@ test('project config exposes guarded safety Hook defaults', () => {
     allowedWriteRoots: [],
     allowedEgressHosts: [],
     mode: 'guarded',
-    redZonePaths: ['.env', 'auth/', 'ci/cd/', '.github/workflows/', '.codex/hooks.json', '.cursor/hooks.json', '.cursor/mcp.json', '.mcp.json', '.qoder/settings.json', '.zcode/config.json', 'opencode.json', 'opencode.jsonc', '.agents/hooks.json', '.agents/mcp_config.json', '.claude/settings.json'],
+    redZonePaths: defaultRedZonePaths,
   });
+  for (const runtimePath of DEFAULT_RED_ZONE_PATHS) {
+    assert.equal(defaultRedZonePaths.some((configuredPath) => configuredPath.endsWith('/')
+      ? runtimePath.startsWith(configuredPath)
+      : runtimePath === configuredPath), true, runtimePath);
+  }
   assert.equal(validateProjectConfig(defaultProjectConfig), true);
   assert.throws(
     () => validateProjectConfig({ ...defaultProjectConfig, hooks: { mode: 'strict' } }),
     /hooks\.mode/,
   );
-  assert.equal(validateProjectConfig({
-    ...defaultProjectConfig,
-    hooks: { allowedWriteRoots: [path.resolve(rootDir, '..', 'companion-project')] },
-  }), true);
+  assert.throws(
+    () => validateProjectConfig({
+      ...defaultProjectConfig,
+      hooks: { allowedWriteRoots: [path.resolve(rootDir, '..', 'companion-project')] },
+    }),
+    /must be empty/u,
+  );
   assert.throws(
     () => validateProjectConfig({ ...defaultProjectConfig, hooks: { allowedWriteRoots: ['../companion-project'] } }),
     /hooks\.allowedWriteRoots/,
@@ -104,6 +113,10 @@ test('full Codex install writes only safety Hook events through the Git-root boo
       '--write', '--confirm-red-zone',
     ])).stdout);
     assert.equal(installed.runtimeHooks.configured, true);
+    assert.equal(installed.runtimeHooks.supported, true);
+    assert.equal(installed.runtimeHooks.activated, null);
+    assert.equal(installed.runtimeHooks.enforced, false);
+    assert.equal(installed.runtimeHooks.coverageLimitations.length, 3);
     assert.equal(installed.runtimeHooks.activation.status, 'unknown');
     assert.equal(installed.warnings.some((warning) => warning.code === 'HOOK_ACTIVATION_UNVERIFIED'), true);
     const hooks = JSON.parse(await readFile(path.join(target, '.codex/hooks.json'), 'utf8')).hooks;
@@ -129,6 +142,8 @@ test('full Codex install writes only safety Hook events through the Git-root boo
       code: 'HOOK_SELF_CHECK_PASSED',
       status: 'pass',
     });
+    assert.equal(doctor.runtimeHooks.enforced, false);
+    assert.equal(doctor.warnings.some((warning) => warning.code === 'HOOK_ENFORCEMENT_UNVERIFIED'), true);
     await assert.rejects(
       () => readFile(path.resolve(target, '..', '.vibe-harness-hook-self-check'), 'utf8'),
       /ENOENT/u,
@@ -149,12 +164,28 @@ test('doctor reports Git Hook activation without modifying local Git config', as
     ])).stdout);
 
     const inactive = await doctor();
-    assert.deepEqual(inactive.gitHooks, { active: false, configuredPath: null, expectedPath: '.githooks', status: 'inactive' });
+    assert.equal(inactive.gitHooks.active, false);
+    assert.equal(inactive.gitHooks.configuredPath, null);
+    assert.equal(inactive.gitHooks.status, 'inactive');
+    assert.equal(inactive.gitHooks.entries.preCommit.status, 'inactive');
     assert.equal(inactive.runtimeHooks.configured, false);
     assert.equal(inactive.runtimeHooks.activation.status, 'unknown');
     assert.match(inactive.runtimeHooks.activation.verification, /\/hooks/u);
+    await mkdir(path.join(target, '.githooks'), { recursive: true });
+    await writeFile(path.join(target, '.githooks', 'pre-commit'), 'node .agents/runtime/hooks/git-hook.mjs pre-commit\n', 'utf8');
+    await writeFile(path.join(target, '.githooks', 'pre-push'), 'node .agents/runtime/hooks/git-hook.mjs pre-push\n', 'utf8');
     await execFileAsync('git', ['config', '--local', 'core.hooksPath', '.githooks'], { cwd: target });
-    assert.equal((await doctor()).gitHooks.status, 'active');
+    const githooksDoctor = await doctor();
+    assert.equal(githooksDoctor.gitHooks.status, 'active');
+    assert.equal(githooksDoctor.gitHooks.entries.prePush.activated, true);
+
+    await mkdir(path.join(target, '.husky', '_'), { recursive: true });
+    await writeFile(path.join(target, '.husky', 'pre-commit'), 'node .agents/runtime/hooks/git-hook.mjs pre-commit\n', 'utf8');
+    await writeFile(path.join(target, '.husky', 'pre-push'), 'node .agents/runtime/hooks/git-hook.mjs pre-push\n', 'utf8');
+    await execFileAsync('git', ['config', '--local', 'core.hooksPath', '.husky/_'], { cwd: target });
+    const huskyDoctor = await doctor();
+    assert.equal(huskyDoctor.gitHooks.status, 'active');
+    assert.equal(huskyDoctor.gitHooks.entries.preCommit.path, '.husky/pre-commit');
   } finally {
     await rm(target, { force: true, recursive: true });
   }
@@ -216,6 +247,9 @@ test('scanStagedDiff rejects staged red-zone paths even without secret content',
   assert.throws(
     () => scanStagedDiff(stagedDiff('.github/workflows/ci.yml', ['name: ci'])),
     /Red-zone/u,
+  );
+  assert.doesNotThrow(() =>
+    scanStagedDiff(stagedDiff('.github/workflows/ci.yml', ['name: ci']), { redZoneConfirmed: true }),
   );
   // An ordinary file is not a red-zone path.
   assert.doesNotThrow(() =>

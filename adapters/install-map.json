@@ -182,6 +182,12 @@
       "contentStrategy": "replace"
     },
     {
+      "group": "templates-memory",
+      "source": "templates/memory/IMPROVEMENTS.json",
+      "target": "docs/memory/IMPROVEMENTS.json",
+      "contentStrategy": "replace"
+    },
+    {
       "group": "schemas-core",
       "source": "schemas/eval-suite.schema.json",
       "target": "docs/schemas/eval-suite.schema.json",
@@ -197,6 +203,24 @@
       "group": "schemas-core",
       "source": "schemas/eval-reference.schema.json",
       "target": "docs/schemas/eval-reference.schema.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "schemas-core",
+      "source": "schemas/review-receipt.schema.json",
+      "target": "docs/schemas/review-receipt.schema.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "schemas-core",
+      "source": "schemas/audit-report.schema.json",
+      "target": "docs/schemas/audit-report.schema.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "schemas-core",
+      "source": "schemas/improvements-queue.schema.json",
+      "target": "docs/schemas/improvements-queue.schema.json",
       "contentStrategy": "replace"
     },
     {
@@ -430,6 +454,18 @@
       "group": "skills-core",
       "source": "skills/core/define-goal/references/goal-contract.md",
       "target": ".agents/skills/define-goal/references/goal-contract.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/git-deliver/SKILL.md",
+      "target": ".agents/skills/git-deliver/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/git-deliver/agents/openai.yaml",
+      "target": ".agents/skills/git-deliver/agents/openai.yaml",
       "contentStrategy": "replace"
     },
     {

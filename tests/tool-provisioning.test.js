@@ -1449,10 +1449,10 @@ test('full write installs governance assets without provisioning tools by defaul
 
     assert.equal(report.status, 'ready');
     assert.deepEqual(report.provisioning, { executed: false, requested: false });
-    assert.deepEqual(report.warnings, [{
-      code: 'HOOK_ACTIVATION_UNVERIFIED',
-      message: 'Run /hooks in Codex and verify the current project Hook definitions are trusted.',
-    }]);
+    assert.deepEqual(report.warnings.map((warning) => warning.code), [
+      'HOOK_ACTIVATION_UNVERIFIED',
+      'HOOK_ENFORCEMENT_UNVERIFIED',
+    ]);
     assert.deepEqual(report.tools, {});
     await assert.rejects(readFile(path.join(targetDir, '.vibe-harness/tool-state/tools.json'), 'utf8'), /ENOENT/u);
 

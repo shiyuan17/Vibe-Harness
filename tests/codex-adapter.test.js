@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -15,6 +16,8 @@ test('codex adapter declares AGENTS, rules, templates, skills, and hooks mapping
   assert.ok(targets.includes('docs/templates/task.md'));
   assert.ok(targets.includes('.agents/skills/clarify-requirements/SKILL.md'));
   assert.ok(targets.includes('.agents/skills/clarify-requirements/agents/openai.yaml'));
+  assert.ok(targets.includes('.agents/skills/git-deliver/SKILL.md'));
+  assert.ok(targets.includes('.agents/skills/git-deliver/agents/openai.yaml'));
   assert.ok(targets.includes('.codex/hooks.json'));
   assert.ok(installMap.entries.find((entry) => entry.target === '.codex/hooks.json').redZone);
   assert.equal(targets.some((target) => target.startsWith('.codex/agents/')), false);
@@ -30,4 +33,9 @@ test('codex adapter and plugin metadata track the package version', async () => 
   assert.equal(plugin.version, pkg.version);
   assert.equal(Object.hasOwn(hooks, 'notes'), false);
   assert.deepEqual(Object.keys(hooks.hooks).sort(), ['PermissionRequest', 'PreToolUse']);
+});
+
+test('git-deliver Codex metadata disables implicit invocation', async () => {
+  const metadata = await readFile(path.join(rootDir, 'skills/core/git-deliver/agents/openai.yaml'), 'utf8');
+  assert.match(metadata, /allow_implicit_invocation: false/u);
 });

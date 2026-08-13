@@ -2,6 +2,8 @@
 
 ast-grep 是项目内可选的结构化代码搜索工具。它用于按语法树匹配代码，而不是把文本相似误当作语义等价。
 
+本规则仅在 ast-grep 插件或项目内等价工具已存在时生效；工具不存在时使用仓库搜索和直接文件阅读，不为普通定位任务停机。
+
 ## 工具选择
 
 - 阅读大文件或目录前，先用 <code>node .agents/runtime/tools/ast-grep/run.mjs outline &lt;path&gt;</code> 获取本地结构，再读取候选源码范围。<code>outline</code> 只描述局部语法，不解析类型、引用或调用图。

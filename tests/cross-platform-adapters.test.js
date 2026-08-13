@@ -449,7 +449,7 @@ for (const adapter of [
   { id: 'claude', skills: '.claude/skills', hasHooks: true },
   { id: 'gemini', skills: '.gemini/skills', hasHooks: false },
 ]) {
-  test(`${adapter.id} full preview installs eight native Skills${adapter.hasHooks ? ' with Claude hooks' : ' without Codex metadata or hooks'}`, async () => {
+  test(`${adapter.id} full preview installs nine native Skills${adapter.hasHooks ? ' with Claude hooks' : ' without Codex metadata or hooks'}`, async () => {
     const target = await mkdtemp(path.join(tmpdir(), `vibe-harness-${adapter.id}-full-`));
     try {
       await run(['init', '--project', target, '--target', adapter.id, '--profile', 'full']);
@@ -461,7 +461,7 @@ for (const adapter of [
       assert.equal(validation.status, 'ready');
       assert.equal(doctor.status, 'ready');
       assert.equal(Object.hasOwn(doctor, 'subagents'), false);
-      for (const skill of ['clarify-requirements', 'define-goal', 'systematic-debugging', 'eval-driven-development', 'security-and-hardening', 'api-and-interface-design', 'frontend-design', 'runtime-cross-repo-rollout']) {
+      for (const skill of ['clarify-requirements', 'define-goal', 'git-deliver', 'systematic-debugging', 'eval-driven-development', 'security-and-hardening', 'api-and-interface-design', 'frontend-design', 'runtime-cross-repo-rollout']) {
         assert.equal(await exists(path.join(target, adapter.skills, skill, 'SKILL.md')), true);
         assert.equal(await exists(path.join(target, adapter.skills, skill, 'agents/openai.yaml')), false);
       }

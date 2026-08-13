@@ -65,11 +65,13 @@ pnpm vibe-harness verify --project ../some-project
 
 ## Profiles
 
+core 安装六个原生 Skills，full 安装九个原生 Skills。
+
 | Profile | 安装内容 |
 | --- | --- |
 | `minimal` | 平台说明、安全边界、Git/Test 规则和可选任务/交付模板 |
-| `core` | `minimal` 加通用工程规则、五个领域 Skills 和离线 Eval |
-| `full` | `core` 加三个领域 Skills、在线 Eval 和已支持宿主的安全 Hook |
+| `core` | `minimal` 加通用工程规则、六个原生 Skills 和离线 Eval |
+| `full` | `core` 加三个原生 Skills、在线 Eval 和已支持宿主的安全 Hook，共九个原生 Skills |
 | `docs-only` | 规则、模板和 schemas，不安装 runtime、Skills、MCP 或 Hook |
 
 外部工具和 memory 仍只通过 `--plugin` 显式启用。所有宿主配置文件均属于红区写入，需要 `--confirm-red-zone`。

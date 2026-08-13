@@ -9,6 +9,7 @@ import { evaluateCodexHook, evaluateHook } from '../runtime/hooks/codex-hook.mjs
 import { resolveExecutable, runCommand } from '../runtime/hooks/git-hook.mjs';
 import { DEFAULT_RED_ZONE_PATHS, readHookSettings } from '../runtime/hooks/lib/context.mjs';
 import { analyzeToolRequest, createHostHookResult, normalizeCodexHookInput, supportedCodexHookEvents } from '../runtime/hooks/lib/policy.mjs';
+import { HOOK_COVERAGE_LIMITATIONS } from '../scripts/lib/runtime-diagnostics.js';
 import { inspectRtkHook, routeRtkCommand } from '../runtime/hooks/lib/rtk.mjs';
 
 const hookCliPath = path.resolve('runtime/hooks/codex-hook.mjs');
@@ -42,8 +43,8 @@ async function withProject(callback, hooks = { mode: 'guarded' }) {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-hook-runtime-'));
   try {
     await writeFile(path.join(target, 'vibe-harness.config.json'), JSON.stringify({ hooks }), 'utf8');
-    // Provision a minimal trusted install-state so readHookSettings trusts the
-    // config's high-sensitivity fields (allowedWriteRoots, allowedEgressHosts).
+    // Provision install history for RTK compatibility. Security policy does
+    // not treat this repository-local file as an authorization root.
     await mkdir(path.join(target, '.vibe-harness'), { recursive: true });
     await writeFile(
       path.join(target, '.vibe-harness', 'install-state.json'),
@@ -253,11 +254,11 @@ test('Antigravity maps camelCase payloads and all four protocol decisions', asyn
     }, { expectedEvent: 'PreToolUse', host: 'antigravity' });
     assert.equal(denied.decision, 'deny');
 
-    const asked = await evaluateHook({
+    const deniedRedZone = await evaluateHook({
       toolCall: { name: 'write_file', args: { path: '.env' } },
       workspacePaths: [target],
     }, { expectedEvent: 'PreToolUse', host: 'antigravity' });
-    assert.equal(asked.decision, 'ask');
+    assert.equal(deniedRedZone.decision, 'deny');
   });
   assert.equal(createHostHookResult('antigravity', 'PreToolUse', {
     action: 'force_ask',
@@ -296,20 +297,20 @@ test('Hook reads allowedEgressHosts from project configuration', async () => {
 test('Hook reads redZonePaths from project configuration', async () => {
   await withProject(async (target) => {
     const settings = await readHookSettings(target);
-    assert.deepEqual(settings.redZonePaths, ['secrets/', '.env']);
+    assert.deepEqual(settings.redZonePaths, [...DEFAULT_RED_ZONE_PATHS, 'secrets/']);
   }, { mode: 'guarded', redZonePaths: ['secrets/', '.env'] });
 });
 
-test('Hook settings fail closed without a trusted install-state', async () => {
+test('Hook settings apply repository configuration only as a restriction without install-state', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-hook-no-state-'));
   try {
     await writeFile(path.join(target, 'vibe-harness.config.json'), JSON.stringify({
       hooks: { mode: 'guarded', allowedEgressHosts: ['evil.test'], allowedWriteRoots: ['/etc'] },
     }), 'utf8');
-    // No .vibe-harness/install-state.json: config must not be trusted.
+    // Egress allowlists tighten policy, while write-root expansion is ignored.
     assert.deepEqual(await readHookSettings(target), {
       allowedWriteRoots: [],
-      allowedEgressHosts: [],
+      allowedEgressHosts: ['evil.test'],
       mode: 'guarded',
       redZonePaths: DEFAULT_RED_ZONE_PATHS,
       rtkEnabled: false,
@@ -319,20 +320,22 @@ test('Hook settings fail closed without a trusted install-state', async () => {
   }
 });
 
-test('Hook settings fail closed when install-state product is not vibe-harness', async () => {
+test('Forged install-state cannot disable protection or expand write roots', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-hook-wrong-product-'));
   try {
     await writeFile(path.join(target, 'vibe-harness.config.json'), JSON.stringify({
-      hooks: { mode: 'guarded', allowedEgressHosts: ['evil.test'] },
+      hooks: { mode: 'off', allowedEgressHosts: ['approved.test'], allowedWriteRoots: [path.parse(target).root] },
     }), 'utf8');
     await mkdir(path.join(target, '.vibe-harness'), { recursive: true });
     await writeFile(
       path.join(target, '.vibe-harness', 'install-state.json'),
-      JSON.stringify({ product: 'not-vibe-harness', storageNamespace: 'vibe-harness' }),
+      JSON.stringify({ product: 'vibe-harness', storageNamespace: 'vibe-harness', hooksMode: 'off' }),
       'utf8',
     );
     const settings = await readHookSettings(target);
-    assert.deepEqual(settings.allowedEgressHosts, []);
+    assert.equal(settings.mode, 'guarded');
+    assert.deepEqual(settings.allowedWriteRoots, []);
+    assert.deepEqual(settings.allowedEgressHosts, ['approved.test']);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
@@ -474,7 +477,7 @@ test('egress allowlist covers multi-url, userinfo, and unparseable hosts', () =>
   assert.equal(evaluate('curl evil.test/x', []).action, 'allow');
 });
 
-test('red-zone writes warn under guarded and use configured paths', () => {
+test('red-zone writes are denied and configured paths can only add protection', () => {
   const rootDir = path.resolve('.');
   const write = (filePath, redZonePaths = DEFAULT_RED_ZONE_PATHS) => analyzeToolRequest(
     normalizeCodexHookInput(input(rootDir, { tool_name: 'Write', tool_input: { file_path: filePath } })),
@@ -482,23 +485,64 @@ test('red-zone writes warn under guarded and use configured paths', () => {
   );
 
   const envWrite = write('.env');
-  assert.equal(envWrite.action, 'warn');
+  assert.equal(envWrite.action, 'deny');
   assert.equal(envWrite.reasonCode, 'RED_ZONE');
 
   const envProdWrite = write('.env.production');
-  assert.equal(envProdWrite.action, 'warn');
+  assert.equal(envProdWrite.action, 'deny');
   assert.equal(envProdWrite.reasonCode, 'RED_ZONE');
 
   const authWrite = write('auth/token.json');
-  assert.equal(authWrite.action, 'warn');
+  assert.equal(authWrite.action, 'deny');
   assert.equal(authWrite.reasonCode, 'RED_ZONE');
 
   // An ordinary project file is not a red-zone write.
   assert.equal(write('src/app.js').action, 'allow');
 
-  // With an explicit, narrower redZonePaths, only the configured paths apply.
-  assert.equal(write('.env', ['secrets/']).action, 'allow');
-  assert.equal(write('secrets/key.pem', ['secrets/']).action, 'warn');
+  assert.equal(write('.env', [...DEFAULT_RED_ZONE_PATHS, 'secrets/']).action, 'deny');
+  assert.equal(write('secrets/key.pem', [...DEFAULT_RED_ZONE_PATHS, 'secrets/']).action, 'deny');
+});
+
+test('control-plane writes are denied with a dedicated reason code', () => {
+  const rootDir = path.resolve('.');
+  const write = (filePath) => analyzeToolRequest(
+    normalizeCodexHookInput(input(rootDir, { tool_name: 'Write', tool_input: { file_path: filePath } })),
+    { mode: 'guarded', projectRoot: rootDir, redZonePaths: DEFAULT_RED_ZONE_PATHS },
+  );
+
+  for (const filePath of [
+    'vibe-harness.config.json',
+    '.vibe-harness/install-state.json',
+    '.agents/runtime/hooks/lib/policy.mjs',
+    '.codex/config.toml',
+    '.claude/settings.json',
+    'opencode.json',
+  ]) {
+    const result = write(filePath);
+    assert.equal(result.action, 'deny', filePath);
+    assert.equal(result.reasonCode, 'CONTROL_PLANE_WRITE', filePath);
+  }
+});
+
+test('arbitrary interpreters and network clients remain explicit Hook coverage limitations', () => {
+  const rootDir = path.resolve('.');
+  const evaluate = (command) => analyzeToolRequest(
+    normalizeCodexHookInput(input(rootDir, { tool_input: { command } })),
+    { mode: 'guarded', projectRoot: rootDir, redZonePaths: DEFAULT_RED_ZONE_PATHS },
+  );
+  const powershellWrite = ['Set', '-Content C:\\outside-audit.txt test'].join('');
+  const powershellRemove = ['Remove', '-Item C:\\outside-audit.txt'].join('');
+  const pythonWrite = ['python -c "op', 'en(\'C:/outside-audit.txt\', \'w\').write(\'x\')"'].join('');
+  const nodeWrite = ['node -e "require(\'f', 's\').writeFileSync(\'C:/outside-audit.txt\', \'x\')"'].join('');
+  const pythonNetwork = ['python -c "import urllib.request; urllib.request.url', 'open(\'https://example.test\')"'].join('');
+  const nodeNetwork = ['node -e "fe', 'tch(\'https://example.test\')"'].join('');
+  const gitNetwork = ['git cl', 'one https://example.test/repository.git'].join('');
+
+  for (const command of [powershellWrite, powershellRemove, pythonWrite, nodeWrite, pythonNetwork, nodeNetwork, gitNetwork]) {
+    assert.equal(evaluate(command).action, 'allow', command);
+  }
+  assert.equal(HOOK_COVERAGE_LIMITATIONS.some((item) => /PowerShell, Python, Node\.js/iu.test(item)), true);
+  assert.equal(HOOK_COVERAGE_LIMITATIONS.some((item) => /sandbox.*network proxy/iu.test(item)), true);
 });
 
 test('unsupported lifecycle events fail closed instead of creating task context', async () => {

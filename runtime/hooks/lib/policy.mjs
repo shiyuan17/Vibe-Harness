@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { realpathSync } from 'node:fs';
+import { CONTROL_PLANE_PATHS } from './context.mjs';
 
 export const supportedCodexHookEvents = new Set([
   'PreToolUse',
@@ -361,6 +362,7 @@ function isInsideAny(baseDirs, candidate) {
 
 function classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts = [], redZonePaths = []) {
   const redZonePattern = redZoneMatcher(redZonePaths);
+  const controlPlanePattern = redZoneMatcher(CONTROL_PLANE_PATHS);
   const command = commandFrom(input);
   if (unsafeShellConstructPattern.test(command)) {
     return risk('deny', 'UNSAFE_SHELL_CONSTRUCT', 'Shell command substitution or line continuation cannot be safely analysed and is blocked by repository policy.');
@@ -431,8 +433,17 @@ function classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts 
         return redZonePattern.test(path.relative(projectRoot, absolute).replaceAll('\\', '/'));
       })
     : false;
+  const touchesControlPlane = candidates.some((candidate) => {
+    const absolute = path.isAbsolute(candidate)
+      ? candidate
+      : path.resolve(projectRoot, candidate);
+    return controlPlanePattern.test(path.relative(projectRoot, absolute).replaceAll('\\', '/'));
+  });
+  if (touchesControlPlane) {
+    return risk('deny', 'CONTROL_PLANE_WRITE', 'Direct writes to Vibe-Harness control-plane files are blocked; use the transactional installer with explicit confirmation.');
+  }
   if (touchesRedZone) {
-    return risk('warn', 'RED_ZONE', 'The pending write touches a project red-zone; keep explicit approval and verification evidence.');
+    return risk('deny', 'RED_ZONE', 'Direct writes to project red-zone paths are blocked by repository policy.');
   }
   return null;
 }

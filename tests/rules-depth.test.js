@@ -8,10 +8,10 @@ import { loadAllManifests, readJson } from '../scripts/lib/manifest.js';
 import { scanForForbiddenTerms } from '../scripts/lib/redaction.js';
 
 const rootDir = path.resolve(import.meta.dirname, '..');
-const coreSkills = ['clarify-requirements', 'define-goal', 'systematic-debugging', 'eval-driven-development', 'security-and-hardening'];
+const coreSkills = ['clarify-requirements', 'define-goal', 'git-deliver', 'systematic-debugging', 'eval-driven-development', 'security-and-hardening'];
 const fullSkills = [...coreSkills, 'api-and-interface-design', 'frontend-design', 'runtime-cross-repo-rollout'];
 
-test('canonical governance and eight native Skills are declared without a Router', async () => {
+test('canonical governance and nine native Skills are declared without a Router', async () => {
   const manifests = await loadAllManifests(rootDir);
   const rules = new Set(manifests.rules.items.map((item) => item.id));
   for (const id of ['governance-core', 'git-rules', 'test-rules', 'agent-skill-routing']) assert.equal(rules.has(id), true);
@@ -65,7 +65,89 @@ test('completion evidence and task-scoped testing live in governance rules', asy
   for (const template of templates) assert.match(template, /测试范围细则/u);
 });
 
-test('profiles install zero, five, or eight native Skills at intended tiers', async () => {
+test('OBS-RULE-001 observability guidance stays concise and enforces behavior', async () => {
+  const rule = await readFile(path.join(rootDir, 'rules/log-management.md'), 'utf8');
+  const lines = rule.trimEnd().split(/\r?\n/u);
+  const headings = lines.filter((line) => line.startsWith('## '));
+  assert.ok(lines.length <= 60, 'log-management.md exceeds 60 lines: ' + lines.length);
+  assert.deepEqual(headings, [
+    '## 目标与边界',
+    '## 最小字段与关联',
+    '## 指标与追踪底线',
+    '## 安全与可靠性',
+    '## 排障与验收',
+  ]);
+
+  assert.match(rule, /新增日志、指标或追踪前必须说明消费目的/u);
+  assert.match(rule, /公共字段包含时间、级别、service\/component、event\/operation、结果和 environment\/version/u);
+  assert.match(rule, /项目已有 trace context 时同时记录 <code>traceId<\/code> 和 <code>spanId<\/code>/u);
+  assert.match(rule, /<code>correlationId<\/code>.*不能替代 trace context/u);
+  assert.match(rule, /结果指标必须同时提供总量/u);
+  assert.match(rule, /延迟使用分布并区分成功与失败/u);
+  assert.match(rule, /用户 ID、请求 ID、邮箱、完整 URL/u);
+  assert.match(rule, /高基数值/u);
+  assert.match(rule, /校验、限长、编码和脱敏/u);
+  assert.match(rule, /CR\/LF/u);
+  assert.match(rule, /不得阻塞核心业务/u);
+  assert.match(rule, /\.vibe-harness\/log\//u);
+  assert.match(rule, /\.vibe-harness\/artifacts\//u);
+  assert.match(rule, /实际查询条件和验证证据/u);
+  assert.match(rule, /先读取项目专项规则中的日志画像/u);
+  assert.match(rule, /候选证据不能直接当作运行事实/u);
+  assert.match(rule, /不引入新日志库、追踪系统或存储后端/u);
+  assert.match(rule, /不编造生产位置或平台命令/u);
+  assert.match(rule, /不代表目标应用日志目录/u);
+
+  assert.doesNotMatch(rule, /https?:\/\//u);
+  assert.doesNotMatch(rule, /OpenTelemetry|observedTimestamp|instrumentationScope|severityNumber|四个黄金信号|错误预算|多窗口|WAL|尾部采样|Eval 的 durationMs/u);
+  assert.doesNotMatch(rule, /^\s+\{.*\}\s*$/mu);
+  assert.doesNotMatch(rule, /ORDER_CREATE_FAILED|orders|req-123/u);
+});
+
+test('generic rules constrain process while retaining safety boundaries', async () => {
+  const names = [
+    'ai-collab-rules', 'ast-grep', 'chrome-devtools-mcp', 'codebase-memory-mcp',
+    'coding-rules', 'frontend-rules', 'git-rules', 'log-management',
+    'project-directory', 'release-rules', 'rtk', 'test-rules', 'troubleshooting',
+  ];
+  const entries = await Promise.all(names.map(async (name) => [
+    name,
+    await readFile(path.join(rootDir, 'rules', name + '.md'), 'utf8'),
+  ]));
+  const rules = Object.fromEntries(entries);
+
+  assert.match(rules['codebase-memory-mcp'], /只有显式选择.*--plugin codebase-memory-mcp/u);
+  assert.match(rules['codebase-memory-mcp'], /未选择插件时不得假设工具存在/u);
+  assert.doesNotMatch(rules['codebase-memory-mcp'], /full\/internal profile|full profile.*安装/u);
+  for (const name of ['ast-grep', 'chrome-devtools-mcp', 'codebase-memory-mcp', 'rtk']) {
+    assert.match(rules[name], /仅在.*(?:插件|工具).*存在.*时生效/u, name);
+  }
+
+  assert.match(rules['frontend-rules'], /用户输入和其他不可信内容不得直接注入 HTML/u);
+  assert.match(rules['frontend-rules'], /破坏性操作必须要求确认或提供可恢复/u);
+  assert.match(rules['frontend-rules'], /导航使用链接语义，操作使用按钮语义/u);
+  assert.match(rules['frontend-rules'], /令牌体系或完整浏览器矩阵缺失不阻塞/u);
+  assert.doesNotMatch(rules['frontend-rules'], /设计令牌系统必须存在|超过 50 项列表虚拟化|启用 CSP 与可信类型/u);
+
+  assert.match(rules['test-rules'], /项目已配置且对本次文件或语言适用时/u);
+  assert.match(rules['test-rules'], /只有共享.*无法隔离时才串行/u);
+  assert.match(rules['test-rules'], /仅是 Vibe-Harness 参考值，不是目标项目通用门禁/u);
+
+  assert.match(rules['project-directory'], /长期有效、高影响且难以逆转/u);
+  assert.match(rules['project-directory'], /不为普通修复.*新建 ADR 体系/u);
+  assert.doesNotMatch(rules['project-directory'], /跨模块边界变化必须创建 ADR/u);
+  assert.match(rules['git-rules'], /普通单 Agent 局部修复不因任务类型自动创建 worktree/u);
+  assert.doesNotMatch(rules['git-rules'], /一个实现任务对应一个命名分支 worktree/u);
+  assert.doesNotMatch(rules['release-rules'], /tgz|SHA256|npm publish/u);
+
+  assert.match(rules['coding-rules'], /先缩小改动范围/u);
+  assert.match(rules.troubleshooting, /不得把“本地未复现”当作问题不存在或自动停止/u);
+  assert.match(rules.troubleshooting, /需要产品决策、额外权限或生产访问/u);
+  assert.match(rules['ai-collab-rules'], /仅在实际使用两个以上协作单元时生效/u);
+  assert.match(rules['log-management'], /不替代目标项目的日志或遥测契约/u);
+});
+
+test('profiles install zero, six, or nine native Skills at intended tiers', async () => {
   for (const [profile, expected] of [['minimal', []], ['docs-only', []], ['core', coreSkills], ['full', fullSkills]]) {
     const plan = await createInstallPlan({ dryRun: true, profile, rootDir, targetDir: path.join(rootDir, `.tmp-depth-${profile}`) });
     const targets = new Set(plan.actions.map((item) => item.relativeTarget));

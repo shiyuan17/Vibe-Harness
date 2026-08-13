@@ -10,7 +10,7 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["id", "installMap", "instructionTarget", "instructionTemplate", "skillRoot", "supportedProfiles", "capabilities", "hookEvents", "hookActivation", "redZonePrefixes"],
+        "required": ["id", "installMap", "instructionTarget", "instructionTemplate", "skillRoot", "supportedProfiles", "capabilities", "hookEvents", "hookActivation", "evidence", "redZonePrefixes"],
         "properties": {
           "id": { "type": "string", "enum": ["codex", "claude", "gemini", "cursor", "qoder", "zcode", "antigravity", "opencode"] },
           "installMap": { "type": "string", "minLength": 1 },
@@ -72,6 +72,16 @@
             "additionalProperties": false
           },
           "hookActivation": { "type": "string", "enum": ["manual-trust", "config-file", "unsupported"] },
+          "evidence": {
+            "type": "object",
+            "required": ["status", "lastVerifiedAt", "hostVersion"],
+            "properties": {
+              "status": { "type": "string", "enum": ["verified", "configured-unverified", "preview"] },
+              "lastVerifiedAt": { "type": "string", "pattern": "^$|^\\d{4}-\\d{2}-\\d{2}$" },
+              "hostVersion": { "type": "string" }
+            },
+            "additionalProperties": false
+          },
           "redZonePrefixes": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
         },
         "additionalProperties": false

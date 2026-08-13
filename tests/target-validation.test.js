@@ -71,10 +71,10 @@ test('CLI validate --project passes after a real install and reports Chinese tem
 
     assert.equal(report.ok, true);
     assert.equal(report.status, 'ready');
-    assert.deepEqual(report.warnings, [{
-      code: 'HOOK_ACTIVATION_UNVERIFIED',
-      message: 'Run /hooks in Codex and verify the current project Hook definitions are trusted.',
-    }]);
+    assert.deepEqual(report.warnings.map((warning) => warning.code), [
+      'HOOK_ACTIVATION_UNVERIFIED',
+      'HOOK_ENFORCEMENT_UNVERIFIED',
+    ]);
     assert.deepEqual(report.tools, {});
     assert.equal(report.scope, 'project');
     assert.equal(taskTemplate.includes('可选的人读记录'), true);

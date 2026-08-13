@@ -20,6 +20,14 @@
 
 ## 关系链（依赖 / 契约 / 测试 / 文档）
 
+## 协作图（仅使用协作时填写）
+
+> 两个以上协作单元存在顺序依赖、并行写入或共享契约时填写；该表不由 Vibe-Harness 解析或作为完成门禁。
+
+| id | kind（read / write / aggregate） | output | dependsOn | trigger（all_success / all_done） | writeScope | resourceLocks | verification | result |
+|---|---|---|---|---|---|---|---|---|
+|  |  |  |  |  |  |  |  |  |
+
 ## 完整项目分析（仅显式要求或影响范围无法缩小时填写）
 
 - 技术栈：

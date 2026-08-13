@@ -20,7 +20,7 @@ test('manifests expose adapters, profiles, rules, and skills', async () => {
   assert.deepEqual(Object.keys(manifests).sort(), ['adapters', 'profiles', 'rules', 'skills']);
   assert.equal(manifests.rules.items.some((item) => item.id === 'governance-core'), true);
   assert.equal(manifests.rules.items.some((item) => item.id === 'chrome-devtools-mcp'), true);
-  assert.equal(manifests.skills.items.filter((item) => item.kind === 'native').length, 8);
+  assert.equal(manifests.skills.items.filter((item) => item.kind === 'native').length, 9);
   assert.equal(manifests.skills.items.some((item) => ['router', 'compatibility'].includes(item.kind)), false);
   assert.deepEqual(manifests.profiles.items.map((item) => item.id), ['minimal', 'core', 'full', 'docs-only']);
 });
@@ -91,13 +91,18 @@ test('adapter Hook templates match the event-level manifest exactly', async () =
 test('project baseline schema rejects unknown fields', async () => {
   const schema = await readJson(path.join(rootDir, 'schemas/project-baseline.schema.json'));
   const sample = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt: '2026-07-12T00:00:00.000Z',
     project: {
       name: 'example',
       packageManager: 'pnpm',
       stackSummary: 'Node.js',
       directoryGuidance: 'src',
+      logging: {
+        status: 'unknown',
+        evidence: { frameworks: [], configFiles: [], queryCandidates: [], correlationCandidates: [] },
+        contract: { frameworks: [], configFiles: [], sources: [], queries: [], correlationFields: [], verification: [] },
+      },
       vcs: { kind: 'Git', workingTreeStatus: 'clean' },
     },
     installation: {

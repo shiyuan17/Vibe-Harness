@@ -6,12 +6,12 @@ Git 规则的目标是保护用户改动、保持提交可审查，并确保 wor
 
 - 编辑前运行 <code>git status --short</code>；SVN 工作副本运行 <code>svn status</code>。
 - 只处理当前任务路径。归属不清、任务开始前已存在或来自并发工作的改动都视为用户改动，不覆盖、不暂存、不提交。
-- 运行时代码、共享契约、构建、跨仓、多 Agent 或脏工作区无法隔离时使用独立 worktree。
+- 仅在并发工作可能冲突、脏工作区与任务范围重叠、跨仓协作或明确需要独立构建与验证环境时使用独立 worktree；普通单 Agent 局部修复不因任务类型自动创建 worktree。
 - 分批交付前再次检查 working tree 和 staged diff，明确包含、排除、验证、风险和回滚方式。
 
 ## 提交授权
 
-Vibe-Harness 不通过 Stop Hook、运行时脚本或任何默认流程自动执行 <code>git commit</code> 或 <code>git push</code>。提交和推送必须由用户在当前任务中明确授权；没有授权时只报告 working tree 状态和建议命令。
+Vibe-Harness 不通过 Stop Hook、运行时脚本或任何默认流程自动执行 <code>git commit</code> 或 <code>git push</code>。提交和推送必须由用户在当前任务中明确授权；显式调用 `$git-deliver` 或明确指定该 Skill，视为对当前仓库、当前任务相关改动的分组提交和当前分支普通推送授权。没有授权时只报告 working tree 状态和建议命令。
 
 获得授权后仍须先给出或核对提交分组：
 
@@ -27,7 +27,8 @@ Vibe-Harness 不通过 Stop Hook、运行时脚本或任何默认流程自动执
 - 每个 commit 只承载一个逻辑变更；重构与功能变更默认拆开。
 - 提交主题使用 <code>&lt;type&gt;(&lt;scope&gt;): &lt;描述&gt;</code>，常用类型为 feat、fix、docs、refactor、test、chore 和 eval。
 - 不使用 <code>--no-verify</code> 绕过项目 Git Hook。
-- 不自动 push。涉及共享分支、红区、强制推送、删除远端引用或历史重写时必须再次获得人工确认。
+- `$git-deliver` 只在已有 upstream 时普通推送；无 upstream 时，仅在唯一明确远端为 origin 且当前分支非保护或共享分支时建立跟踪并普通推送，否则停止确认。
+- main、master、develop、release、仓库识别出的保护或共享分支不得由 `$git-deliver` 自动推送。强制推送、删除远端引用和历史重写不属于该 Skill 授权范围。
 - 未获提交授权时，不得把未提交状态描述为失败；应交付改动清单和验证证据。
 
 ## 分支与 PR
@@ -47,7 +48,7 @@ Vibe-Harness 自身使用 Conventional Commits、pre-commit、pre-push、lint �
 
 ## Worktree
 
-- 一个实现任务对应一个命名分支 worktree，低风险例外除外。
+- 使用 worktree 时，一个隔离单元对应一个命名分支和明确写入范围；不需要隔离时直接在当前工作区保护用户改动。
 - worktree 放在仓库外部，避免被构建和依赖扫描。
 - 子 Agent 只在分配的 worktree、分支和写入范围内工作；审查任务默认只读。
 - merge-back 完成前不清理 worktree 或删除分支。

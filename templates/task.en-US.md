@@ -20,6 +20,14 @@
 
 ## Dependency chain (dependencies / contracts / tests / docs)
 
+## Collaboration Graph (complete only when collaborating)
+
+> Complete this table when two or more work units have ordering dependencies, parallel writes, or a shared contract. Vibe-Harness does not parse it or use it as a completion gate.
+
+| id | kind (read / write / aggregate) | output | dependsOn | trigger (all_success / all_done) | writeScope | resourceLocks | verification | result |
+|---|---|---|---|---|---|---|---|---|
+|  |  |  |  |  |  |  |  |  |
+
 ## Full project analysis (only when explicitly requested or impact cannot be narrowed)
 
 - Technology stack:

@@ -1,0 +1,1 @@
+exec node .agents/runtime/hooks/git-hook.mjs pre-push

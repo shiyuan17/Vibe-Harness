@@ -143,7 +143,7 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
   const profileLines = {
     core: '- 当前安装方式：通用安装（不包含扩展 MCP 或 hooks 安装面）。',
     'docs-only': '- 当前安装方式：仅文档安装。',
-    full: '- 当前安装方式：完整能力安装（包含八个领域 Skills、可选 Eval 和 Codex 安全 hooks；memory 与外部工具仅通过 `--plugin` 显式启用）。',
+    full: '- 当前安装方式：完整能力安装（包含九个原生 Skills、可选 Eval 和 Codex 安全 hooks；memory 与外部工具仅通过 `--plugin` 显式启用）。',
     minimal: '- 当前安装方式：最小安装。',
   };
 

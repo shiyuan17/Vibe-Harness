@@ -11,6 +11,12 @@ const hookConfigTargets = {
   codex: '.codex/hooks.json',
 };
 
+export const HOOK_COVERAGE_LIMITATIONS = [
+  'Command-string inspection is heuristic and does not cover arbitrary PowerShell, Python, Node.js, package-manager, or Git network behavior.',
+  'Project files cannot prove that the host loaded or trusted the installed Hook configuration.',
+  'Host sandbox, approval policy, process isolation, and network proxy enforcement require independent host-level verification.',
+];
+
 function hookConfigTarget(adapter) {
   return adapter.projectConfig?.hooks?.target || hookConfigTargets[adapter.id] || null;
 }
@@ -32,29 +38,23 @@ function selfCheckPayload(adapterId, targetDir) {
   };
 }
 
-function selfCheckMatchesMode(adapterId, result, hookMode) {
-  if (hookMode === 'observe') {
-    if (adapterId === 'cursor') return result?.continue === true && typeof result?.additionalContext === 'string';
-    if (adapterId === 'antigravity') return result?.decision === 'ask';
-    return typeof result?.hookSpecificOutput?.additionalContext === 'string';
-  }
+function selfCheckDenied(adapterId, result) {
   if (adapterId === 'cursor') return result?.continue === false;
   if (adapterId === 'antigravity') return result?.decision === 'deny';
   return result?.hookSpecificOutput?.permissionDecision === 'deny';
 }
 
-export async function inspectRuntimeHookSelfCheck(adapter, targetDir, { configured, hookMode } = {}) {
+export async function inspectRuntimeHookSelfCheck(adapter, targetDir, { configured } = {}) {
   if (adapter.hookActivation === 'unsupported') {
     return { status: 'unsupported', code: 'HOOK_SELF_CHECK_UNSUPPORTED' };
   }
   if (!configured) return { status: 'not-installed', code: 'HOOK_SELF_CHECK_NOT_INSTALLED' };
-  if (hookMode === 'off') return { status: 'disabled', code: 'HOOK_SELF_CHECK_DISABLED' };
   try {
     const result = await evaluateHook(selfCheckPayload(adapter.id, targetDir), {
       expectedEvent: 'PreToolUse',
       host: adapter.id,
     });
-    return selfCheckMatchesMode(adapter.id, result, hookMode)
+    return selfCheckDenied(adapter.id, result)
       ? { status: 'pass', code: 'HOOK_SELF_CHECK_PASSED' }
       : { status: 'degraded', code: 'HOOK_SELF_CHECK_NOT_DENIED' };
   } catch (error) {
@@ -63,10 +63,11 @@ export async function inspectRuntimeHookSelfCheck(adapter, targetDir, { configur
   }
 }
 
-export async function inspectRuntimeHooks(adapter, targetDir, { selfCheck = false, hookMode } = {}) {
+export async function inspectRuntimeHooks(adapter, targetDir, { selfCheck = false } = {}) {
   const configTarget = hookConfigTarget(adapter);
   const configured = Boolean(configTarget && await pathExists(path.join(targetDir, configTarget)));
   const mechanism = adapter.hookActivation;
+  const supported = mechanism !== 'unsupported';
   let status = 'unknown';
   let verification = configTarget
     ? 'Confirm that the host loaded ' + configTarget + ' for this project.'
@@ -81,12 +82,17 @@ export async function inspectRuntimeHooks(adapter, targetDir, { selfCheck = fals
     status = 'configured-unverified';
   }
   const report = {
+    activated: supported ? null : false,
     configured,
+    coverageLimitations: [...HOOK_COVERAGE_LIMITATIONS],
     declaredEvents: { ...adapter.hookEvents },
+    enforced: false,
     pathResolution: 'git-root',
+    status: !supported ? 'unsupported' : (!configured ? 'not-configured' : 'configured-unverified'),
+    supported,
     activation: { mechanism, status, verification },
   };
-  if (selfCheck) report.selfCheck = await inspectRuntimeHookSelfCheck(adapter, targetDir, { configured, hookMode });
+  if (selfCheck) report.selfCheck = await inspectRuntimeHookSelfCheck(adapter, targetDir, { configured });
   return report;
 }
 
@@ -96,6 +102,12 @@ export function runtimeHookWarnings(runtimeHooks) {
     warnings.push({
       code: 'HOOK_ACTIVATION_UNVERIFIED',
       message: runtimeHooks.activation.verification,
+    });
+  }
+  if (runtimeHooks.configured && !runtimeHooks.enforced) {
+    warnings.push({
+      code: 'HOOK_ENFORCEMENT_UNVERIFIED',
+      message: 'Hook policy is defense in depth only; verify the host sandbox, approval policy, process isolation, and network proxy before treating it as enforced.',
     });
   }
   if (runtimeHooks.selfCheck?.status === 'degraded') {
