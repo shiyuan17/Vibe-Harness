@@ -24,6 +24,68 @@ function unique(values) {
   return [...new Set(values.filter(Boolean))];
 }
 
+function redactSensitiveText(value) {
+  return String(value)
+    .replace(/[\u0000-\u001f\u007f]+/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim()
+    .replace(/\b((?:api[-_]?key|password|secret|token)=)[^\s/]+/giu, '$1[REDACTED]')
+    .replace(/(--?(?:api[-_]?key|password|secret|token)(?:=|\s+))[^\s]+/giu, '$1[REDACTED]')
+    .replace(/\bBearer\s+[^\s]+/giu, 'Bearer [REDACTED]');
+}
+
+const loggingContractFields = ['frameworks', 'configFiles', 'sources', 'queries', 'correlationFields', 'verification'];
+
+function emptyLoggingProfile() {
+  return {
+    status: 'unknown',
+    evidence: {
+      frameworks: [],
+      configFiles: [],
+      queryCandidates: [],
+      correlationCandidates: [],
+    },
+    contract: Object.fromEntries(loggingContractFields.map((field) => [field, []])),
+  };
+}
+
+function normalizedLoggingContract(logging = {}) {
+  return Object.fromEntries(loggingContractFields.map((field) => [field, unique(
+    Array.isArray(logging[field]) ? logging[field].map(redactSensitiveText).filter(Boolean) : [],
+  )]));
+}
+
+function loggingStatus(evidence, contract) {
+  const hasSources = contract.sources.length > 0;
+  const hasQueries = contract.queries.length > 0 || evidence.queryCandidates.length > 0;
+  const hasVerification = contract.verification.length > 0;
+  if (hasSources && hasQueries && hasVerification) return 'complete';
+  if (Object.values(evidence).some((values) => values.length > 0)
+    || Object.values(contract).some((values) => values.length > 0)) return 'partial';
+  return 'unknown';
+}
+
+function withLoggingSummaries(logging) {
+  const summarize = (values) => values.length > 0 ? values.join('、') : '未发现';
+  return {
+    ...logging,
+    evidenceSummary: [
+      '实现：' + summarize(logging.evidence.frameworks),
+      '配置：' + summarize(logging.evidence.configFiles),
+      '查询：' + summarize(logging.evidence.queryCandidates),
+      '关联字段：' + summarize(logging.evidence.correlationCandidates),
+    ].join('；'),
+    contractSummary: [
+      '实现：' + summarize(logging.contract.frameworks),
+      '配置：' + summarize(logging.contract.configFiles),
+      '来源：' + summarize(logging.contract.sources),
+      '查询：' + summarize(logging.contract.queries),
+      '关联字段：' + summarize(logging.contract.correlationFields),
+      '验证：' + summarize(logging.contract.verification),
+    ].join('；'),
+  };
+}
+
 function mergeText(base, override) {
   if (typeof override === 'string' && override.trim()) {
     return override.trim();
@@ -168,6 +230,67 @@ function detectNodeCommands(pkg, packageManager) {
   return commands;
 }
 
+function detectNodeLogQueries(pkg, packageManager) {
+  if (!pkg?.scripts) return [];
+  return Object.keys(pkg.scripts)
+    .filter((name) => /^(?:log|logs|tail)(?::|$)|:(?:log|logs|tail)(?::|$)/iu.test(name))
+    .map((name) => scriptCommand(packageManager, name));
+}
+
+async function detectLoggingProfile({ config, targetDir, pkg, packageManager, pomFiles, csprojFiles }) {
+  const contract = normalizedLoggingContract(config.projectRules?.overrides?.logging);
+  const dependencies = { ...(pkg?.dependencies ?? {}), ...(pkg?.devDependencies ?? {}) };
+  const frameworks = [];
+  if (dependencies.pino) frameworks.push('Pino');
+  if (dependencies.winston) frameworks.push('Winston');
+
+  const pomTexts = await Promise.all(pomFiles.map((file) => readTextIfExists(path.join(targetDir, file))));
+  const hasLog4j = pomTexts.some((text) => /spring-boot-starter-log4j2|log4j-(?:core|api|slf4j)/iu.test(text));
+  if (pomTexts.some((text) => /spring-boot-starter-logging|logback-(?:classic|core)/iu.test(text)
+    || (!hasLog4j && /spring-boot-starter-/iu.test(text)))) frameworks.push('Logback');
+  if (hasLog4j) frameworks.push('Log4j');
+
+  const csprojTexts = await Promise.all(csprojFiles.map((file) => readTextIfExists(path.join(targetDir, file))));
+  if (csprojTexts.some((text) => /Serilog/iu.test(text))) frameworks.push('Serilog');
+  if (csprojTexts.some((text) => /NLog/iu.test(text))) frameworks.push('NLog');
+
+  const knownConfigFiles = await findFiles(targetDir, (name) => {
+    const lower = name.toLowerCase();
+    return /^(?:pino|winston)\.config\.(?:js|cjs|mjs|ts)$/u.test(lower)
+      || /^(?:logback(?:-spring)?\.xml|log4j2\.(?:xml|json|ya?ml|properties)|nlog(?:\.[^.]+)?\.config)$/u.test(lower)
+      || /^appsettings(?:\.[^.]+)?\.json$/u.test(lower);
+  });
+  const configFiles = [];
+  for (const file of knownConfigFiles) {
+    if (/^appsettings(?:\.[^.]+)?\.json$/iu.test(path.basename(file))) {
+      const content = await readTextIfExists(path.join(targetDir, file));
+      if (!/(?:Serilog|NLog)/iu.test(content)) continue;
+    }
+    configFiles.push(file);
+  }
+
+  const searchableFiles = (await findFiles(targetDir, (name) => {
+    const lower = name.toLowerCase();
+    return !['package-lock.json', 'vibe-harness.config.json'].includes(lower)
+      && /\.(?:cjs|cs|java|js|json|jsx|mjs|properties|ts|tsx|xml|ya?ml)$/u.test(lower);
+  })).slice(0, 250);
+  const correlationCandidates = [];
+  const searchableContents = await Promise.all(searchableFiles.map((file) => readTextIfExists(path.join(targetDir, file))));
+  for (const content of searchableContents) {
+    for (const field of ['traceId', 'spanId', 'correlationId', 'requestId']) {
+      if (content.includes(field)) correlationCandidates.push(field);
+    }
+  }
+
+  const evidence = {
+    frameworks: unique(frameworks),
+    configFiles: unique(configFiles),
+    queryCandidates: unique(detectNodeLogQueries(pkg, packageManager)),
+    correlationCandidates: unique(correlationCandidates),
+  };
+  return withLoggingSummaries({ status: loggingStatus(evidence, contract), evidence, contract });
+}
+
 function applyOverrides(profile, overrides = {}) {
   if (!overrides || typeof overrides !== 'object') {
     return profile;
@@ -182,6 +305,13 @@ function applyOverrides(profile, overrides = {}) {
     vcsSummary: mergeText(profile.vcsSummary, overrides.vcsSummary),
     vcsStatusCommand: mergeText(profile.vcsStatusCommand, overrides.vcsStatusCommand),
     packageManager: mergeText(profile.packageManager, overrides.packageManager),
+    logging: overrides.logging
+      ? withLoggingSummaries({
+        status: loggingStatus(profile.logging.evidence, normalizedLoggingContract(overrides.logging)),
+        evidence: profile.logging.evidence,
+        contract: normalizedLoggingContract(overrides.logging),
+      })
+      : profile.logging,
   };
 }
 
@@ -211,6 +341,7 @@ function createGenericProfile(config = {}) {
       typecheck: null,
       test: null,
     },
+    logging: withLoggingSummaries(emptyLoggingProfile()),
   };
 }
 
@@ -295,6 +426,7 @@ export async function detectProjectProfile({ config = {}, targetDir }) {
       typecheck: commands.find((command) => /(?:check:type|typecheck|ts:check)/u.test(command)) ?? null,
       test: commands.find((command) => /(?:^|\s)(?:run\s+)?test(?::[^\s]+)?(?:\s|$)|mvn\s+test/u.test(command)) ?? null,
     },
+    logging: await detectLoggingProfile({ config, targetDir, pkg, packageManager, pomFiles, csprojFiles }),
   };
 
   return withVcsStatusInstruction(applyOverrides(detected, config.projectRules?.overrides));

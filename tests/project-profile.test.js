@@ -118,6 +118,12 @@ test('detectProjectProfile supports manual and off project rule modes', async ()
           overrides: {
             stackSummary: 'Manual stack',
             vcsStatusCommand: 'svn status',
+            logging: {
+              frameworks: ['Pino'],
+              sources: ['application stdout'],
+              queries: ['npm run logs'],
+              verification: ['npm test'],
+            },
           },
         },
       },
@@ -138,8 +144,96 @@ test('detectProjectProfile supports manual and off project rule modes', async ()
     assert.equal(manual.stackSummary, 'Manual stack');
     assert.equal(manual.vcsStatusCommand, 'svn status');
     assert.doesNotMatch(manual.stackSummary, /React/);
+    assert.equal(manual.logging.status, 'complete');
+    assert.deepEqual(manual.logging.evidence.frameworks, []);
+    assert.deepEqual(manual.logging.contract.frameworks, ['Pino']);
     assert.equal(off.stackSummary, '未识别到主技术栈；以目标项目现有文件为准。');
     assert.doesNotMatch(off.stackSummary, /Should not appear/);
+    assert.equal(off.logging.status, 'unknown');
+    assert.deepEqual(off.logging.contract.frameworks, []);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('detectProjectProfile discovers only repository-backed Node logging candidates', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-profile-node-logging-'));
+  try {
+    await writeJson(path.join(target, 'package.json'), {
+      packageManager: 'pnpm@10.33.0',
+      scripts: { 'logs:api': 'node scripts/read-logs.mjs', start: 'node src/server.js' },
+      dependencies: { pino: '^9.0.0', winston: '^3.0.0' },
+    });
+    await mkdir(path.join(target, 'src'));
+    await writeFile(path.join(target, 'src/logger.ts'), 'export const fields = { traceId: true, requestId: true };\n', 'utf8');
+    await writeFile(path.join(target, 'pino.config.js'), 'export default {};\n', 'utf8');
+
+    const profile = await detectProjectProfile({
+      config: { projectRules: { mode: 'auto', overrides: { logging: { sources: ['application stdout'] } } } },
+      targetDir: target,
+    });
+
+    assert.deepEqual(profile.logging.evidence.frameworks, ['Pino', 'Winston']);
+    assert.deepEqual(profile.logging.evidence.configFiles, ['pino.config.js']);
+    assert.deepEqual(profile.logging.evidence.queryCandidates, ['pnpm logs:api']);
+    assert.deepEqual(profile.logging.evidence.correlationCandidates, ['traceId', 'requestId']);
+    assert.deepEqual(profile.logging.contract.sources, ['application stdout']);
+    assert.equal(profile.logging.status, 'partial');
+    assert.doesNotMatch(JSON.stringify(profile.logging), /kubectl|docker|cloud|\.log\b/iu);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('detectProjectProfile redacts secrets from explicit logging guidance', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-profile-logging-redaction-'));
+  try {
+    const profile = await detectProjectProfile({
+      config: {
+        projectRules: {
+          mode: 'manual',
+          overrides: { logging: { queries: ['pnpm logs --token=top-secret'], verification: ['Bearer hidden-value'] } },
+        },
+      },
+      targetDir: target,
+    });
+    assert.deepEqual(profile.logging.contract.queries, ['pnpm logs --token=[REDACTED]']);
+    assert.deepEqual(profile.logging.contract.verification, ['Bearer [REDACTED]']);
+    assert.doesNotMatch(profile.logging.contractSummary, /top-secret|hidden-value/u);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('detectProjectProfile recognizes explicit Spring and dotnet logging dependencies', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-profile-managed-logging-'));
+  try {
+    await writeFile(path.join(target, 'pom.xml'), '<project><dependencies><dependency><artifactId>logback-classic</artifactId></dependency><dependency><artifactId>spring-boot-starter-log4j2</artifactId></dependency></dependencies></project>', 'utf8');
+    await writeFile(path.join(target, 'logback-spring.xml'), '<configuration />', 'utf8');
+    await writeFile(path.join(target, 'log4j2.xml'), '<Configuration />', 'utf8');
+    await mkdir(path.join(target, 'src'));
+    await writeFile(path.join(target, 'src/App.csproj'), '<Project><ItemGroup><PackageReference Include="Serilog" /><PackageReference Include="NLog" /></ItemGroup></Project>', 'utf8');
+    await writeFile(path.join(target, 'src/NLog.config'), '<nlog />', 'utf8');
+
+    const profile = await detectProjectProfile({ targetDir: target });
+
+    assert.deepEqual(profile.logging.evidence.frameworks, ['Logback', 'Log4j', 'Serilog', 'NLog']);
+    assert.deepEqual(profile.logging.evidence.configFiles, ['log4j2.xml', 'logback-spring.xml', 'src/NLog.config']);
+    assert.equal(profile.logging.status, 'partial');
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('detectProjectProfile leaves unsupported projects without invented logging facts', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-profile-unknown-logging-'));
+  try {
+    await writeFile(path.join(target, 'README.md'), '# Plain project\n', 'utf8');
+    const profile = await detectProjectProfile({ targetDir: target });
+    assert.equal(profile.logging.status, 'unknown');
+    assert.deepEqual(profile.logging.evidence, {
+      frameworks: [], configFiles: [], queryCandidates: [], correlationCandidates: [],
+    });
   } finally {
     await rm(target, { force: true, recursive: true });
   }
@@ -203,9 +297,10 @@ test('core project install renders project-specific rules without local memory l
       scripts: {
         'check:type': 'vue-tsc --noEmit',
         lint: 'oxlint . && oxfmt --check .',
+        'logs:api': 'node scripts/read-logs.mjs',
         test: 'vitest run',
       },
-      dependencies: { vue: '^3.5.0' },
+      dependencies: { pino: '^9.0.0', vue: '^3.5.0' },
       devDependencies: { vite: '^5.0.0', vitest: '^2.0.0' },
     });
 
@@ -225,6 +320,12 @@ test('core project install renders project-specific rules without local memory l
     assert.match(projectRules, /Vite/);
     assert.match(projectRules, /oxlint/);
     assert.match(projectRules, /pnpm lint/);
+    assert.match(projectRules, /日志与可观测性/u);
+    assert.match(projectRules, /候选证据/u);
+    assert.match(projectRules, /项目契约/u);
+    assert.match(projectRules, /不自动执行/u);
+    assert.match(projectRules, /Pino/u);
+    assert.match(projectRules, /pnpm logs:api/u);
   } finally {
     await rm(target, { force: true, recursive: true });
   }

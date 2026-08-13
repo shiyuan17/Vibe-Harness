@@ -84,3 +84,28 @@ test('project config accepts legacy and canonical targets while enforcing the mu
     /unique items|duplicate adapters/u,
   );
 });
+
+test('project config validates the structured logging contract', () => {
+  const valid = structuredClone(defaultProjectConfig);
+  valid.projectRules.overrides.logging = {
+    frameworks: ['pino'],
+    configFiles: ['src/logger.ts'],
+    sources: ['application stdout'],
+    queries: ['pnpm logs:api'],
+    correlationFields: ['traceId'],
+    verification: ['pnpm test:logging'],
+  };
+  assert.equal(validateProjectConfigWithSchema(valid), true);
+
+  const invalidType = structuredClone(valid);
+  invalidType.projectRules.overrides.logging.queries = 'pnpm logs:api';
+  assert.throws(() => validateProjectConfigWithSchema(invalidType), /queries.*array/u);
+
+  const duplicate = structuredClone(valid);
+  duplicate.projectRules.overrides.logging.frameworks = ['pino', 'pino'];
+  assert.throws(() => validateProjectConfigWithSchema(duplicate), /unique items|duplicates/u);
+
+  const unknown = structuredClone(valid);
+  unknown.projectRules.overrides.logging.platform = ['production'];
+  assert.throws(() => validateProjectConfigWithSchema(unknown), /platform.*not allowed/u);
+});

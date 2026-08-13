@@ -12,6 +12,16 @@
       "evaluation": { "required": false, "reason": "The execution loop is deterministic and covered by structural tests." }
     },
     {
+      "id": "lightweight-task-dag",
+      "source": "human-readable multi-agent dependency and fan-in contract",
+      "disposition": "generalize",
+      "targets": ["rules/governance-core.md", "rules/ai-collab-rules.md", "templates/task.md", "templates/task.en-US.md"],
+      "tests": ["tests/execution-simplification.test.js", "tests/eval-contract.test.js", "tests/target-validation.test.js"],
+      "profiles": ["minimal", "core", "full", "docs-only"],
+      "docs": ["docs/rules/governance-core.md", "docs/rules/ai-collab-rules.md", "docs/templates/task.md"],
+      "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-online-canary.json"] }
+    },
+    {
       "id": "native-skill-selection",
       "source": "native Skill descriptions and AGENT_SKILL_ROUTING.md",
       "disposition": "generalize",
@@ -43,20 +53,30 @@
     },
     {
       "id": "engineering-rules",
-      "source": "CODING / FRONTEND / API / DB",
+      "source": "CODING / FRONTEND / API / DB / project-linked logging",
       "disposition": "generalize",
-      "targets": ["rules/coding-rules.md", "rules/frontend-rules.md", "rules/api-rules.md", "rules/db-rules.md"],
-      "tests": ["tests/rules-depth.test.js"],
+      "targets": ["rules/coding-rules.md", "rules/frontend-rules.md", "rules/api-rules.md", "rules/db-rules.md", "rules/log-management.md", "rules/project-specific-rules.md", "scripts/lib/project-profile.js", "scripts/lib/project-baseline.js", "schemas/project-config.schema.json", "schemas/project-baseline.schema.json"],
+      "tests": ["tests/rules-depth.test.js", "tests/project-profile.test.js", "tests/project-baseline.test.js", "tests/schema-validation.test.js"],
       "profiles": ["core", "full", "docs-only"],
-      "docs": ["README.en.md"],
-      "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-core.json"] }
+      "docs": ["README.en.md", "docs/rules/log-management.md", "docs/rules/project-specific-rules.md"],
+      "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-core.json", "evals/suites/vibe-harness-online-canary.json"] }
+    },
+    {
+      "id": "git-deliver",
+      "source": "explicit project-local Git delivery Skill",
+      "disposition": "generalize",
+      "targets": ["skills/core/git-deliver/SKILL.md", "rules/git-rules.md", "manifests/skills.json", "adapters/install-map.json"],
+      "tests": ["tests/skill-closure.test.js", "tests/rules-depth.test.js", "tests/cross-platform-adapters.test.js", "tests/mvp-spec.test.js"],
+      "profiles": ["core", "full"],
+      "docs": ["README.md", "README.en.md", "docs/inventory/skills-optimization-zh.md"],
+      "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-online-canary.json"] }
     },
     {
       "id": "memory-templates",
       "source": "docs/memory",
       "disposition": "template",
-      "targets": ["templates/memory/PROJECT_STATE.md", "templates/memory/ARCHITECTURE.md", "templates/memory/DECISIONS.md", "templates/memory/KNOWN_BUGS.md", "templates/memory/TECH_DEBT.md", "templates/memory/FAILURE_LEARNINGS.md"],
-      "tests": ["tests/installation-baseline.test.js", "tests/manifest-schema.test.js"],
+      "targets": ["templates/memory/PROJECT_STATE.md", "templates/memory/ARCHITECTURE.md", "templates/memory/DECISIONS.md", "templates/memory/KNOWN_BUGS.md", "templates/memory/TECH_DEBT.md", "templates/memory/FAILURE_LEARNINGS.md", "templates/memory/IMPROVEMENTS.json"],
+      "tests": ["tests/installation-baseline.test.js", "tests/manifest-schema.test.js", "tests/project-audit.test.js"],
       "profiles": ["full", "docs-only"],
       "docs": ["docs/architecture.md"],
       "evaluation": { "required": false, "reason": "Static installer tests cover template installation deterministically." }

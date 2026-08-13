@@ -8,6 +8,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
 
+import { hashFile } from '../scripts/lib/install-state.js';
 import { readJson, validateJsonAgainstSchema } from '../scripts/lib/manifest.js';
 
 const execFileAsync = promisify(execFile);
@@ -58,7 +59,7 @@ test('baseline previews then writes a managed project snapshot', async () => {
     const preview = await runCli(['baseline', '--project', target]);
 
     assert.equal(preview.dryRun, true);
-    assert.equal(preview.baseline.schemaVersion, 1);
+    assert.equal(preview.baseline.schemaVersion, 2);
     assert.equal(preview.baseline.project.name, 'Example # injected instruction');
     assert.equal(preview.baseline.drift.status, 'initial');
     assert.deepEqual(preview.artifacts.map((item) => item.target), [
@@ -73,7 +74,7 @@ test('baseline previews then writes a managed project snapshot', async () => {
     const state = JSON.parse(await readFile(path.join(target, '.vibe-harness/install-state.json'), 'utf8'));
 
     assert.equal(written.dryRun, false);
-    assert.equal(baseline.schemaVersion, 1);
+    assert.equal(baseline.schemaVersion, 2);
     assert.equal(baseline.installation.profile, 'minimal');
     assert.equal(baseline.verification.commands.eval.status, 'not_configured');
     assert.equal(baseline.verification.commands.test.status, 'not_configured');
@@ -263,6 +264,64 @@ test('baseline recommends static missing commands as P1 and verified blockers as
     const verified = await runCliFailure(['baseline', '--project', target, '--verify']);
     const blockedRecommendation = verified.payload.baseline.recommendations.find((item) => item.code === 'VERIFY_LINT_BLOCKED');
     assert.equal(blockedRecommendation.priority, 'P0');
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('baseline upgrades managed v1 snapshots with missing logging as unknown', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-baseline-v1-logging-'));
+  try {
+    await initMinimalProject(target);
+    await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'minimal', '--write']);
+    await runCli(['baseline', '--project', target, '--write']);
+
+    const baselinePath = path.join(target, '.vibe-harness/baseline.json');
+    const statePath = path.join(target, '.vibe-harness/install-state.json');
+    const legacy = JSON.parse(await readFile(baselinePath, 'utf8'));
+    legacy.schemaVersion = 1;
+    delete legacy.project.logging;
+    await writeFile(baselinePath, JSON.stringify(legacy, null, 2) + '\n', 'utf8');
+    const state = JSON.parse(await readFile(statePath, 'utf8'));
+    state.generatedFiles.find((item) => item.target === '.vibe-harness/baseline.json').targetHash = await hashFile(baselinePath);
+    await writeFile(statePath, JSON.stringify(state, null, 2) + '\n', 'utf8');
+
+    const preview = await runCli(['baseline', '--project', target]);
+    assert.equal(preview.baseline.schemaVersion, 2);
+    assert.equal(preview.baseline.project.logging.status, 'unknown');
+    assert.equal(preview.baseline.drift.status, 'unchanged');
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('baseline reports logging contract drift and redacts sensitive queries', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-baseline-logging-drift-'));
+  try {
+    await initMinimalProject(target);
+    const configPath = path.join(target, 'vibe-harness.config.json');
+    const config = JSON.parse(await readFile(configPath, 'utf8'));
+    config.projectRules = {
+      mode: 'manual',
+      overrides: {
+        logging: {
+          sources: ['application stdout'],
+          queries: ['node ' + path.join(target, 'scripts/read-logs.mjs') + ' --token=top-secret'],
+          verification: ['pnpm test:logging'],
+        },
+      },
+    };
+    await writeFile(configPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
+    await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'minimal', '--write', '--force']);
+    const written = await runCli(['baseline', '--project', target, '--write']);
+    assert.equal(written.baseline.project.logging.status, 'complete');
+    assert.equal(written.baseline.project.logging.contract.queries[0], 'node <project>/scripts/read-logs.mjs --token=[REDACTED]');
+
+    config.projectRules.overrides.logging.queries = ['pnpm logs:api'];
+    await writeFile(configPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
+    const changed = await runCli(['baseline', '--project', target]);
+    assert.equal(changed.baseline.drift.status, 'changed');
+    assert.equal(changed.baseline.drift.changes.some((item) => item.path === 'project.logging.contract.queries'), true);
   } finally {
     await rm(target, { force: true, recursive: true });
   }

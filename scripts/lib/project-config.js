@@ -14,6 +14,19 @@ import { resolveProjectConfigLocation } from './project-layout.js';
 export const mvpProfiles = new Set(['minimal', 'core', 'full', 'docs-only']);
 export const mvpTargets = new Set(['codex', 'claude', 'gemini', 'cursor', 'qoder', 'zcode', 'antigravity', 'opencode']);
 
+const adapterCatalog = JSON.parse(readFileSync(path.join(path.resolve(import.meta.dirname, '..', '..'), 'manifests', 'adapters.json'), 'utf8'));
+export const defaultRedZonePaths = [...new Set([
+  '.env',
+  'auth/',
+  'ci/cd/',
+  '.github/workflows/',
+  'vibe-harness.config.json',
+  '.vibe-harness/install-state.json',
+  '.agents/runtime/hooks/',
+  '.codex/config.toml',
+  ...adapterCatalog.items.flatMap((adapter) => adapter.redZonePrefixes),
+])];
+
 export function canonicalProfile(profile) {
   if (profile === 'codex-internal') return 'full';
   if (profile === 'codex-minimal') return 'minimal';
@@ -55,7 +68,7 @@ export const defaultProjectConfig = {
     allowedWriteRoots: [],
     allowedEgressHosts: [],
     mode: 'guarded',
-    redZonePaths: ['.env', 'auth/', 'ci/cd/', '.github/workflows/', '.codex/hooks.json', '.cursor/hooks.json', '.cursor/mcp.json', '.mcp.json', '.qoder/settings.json', '.zcode/config.json', 'opencode.json', 'opencode.jsonc', '.agents/hooks.json', '.agents/mcp_config.json', '.claude/settings.json'],
+    redZonePaths: defaultRedZonePaths,
   },
   riskZones: {
     red: ['auth', 'secrets', 'ci-cd', 'env'],
@@ -192,6 +205,21 @@ function assertOptionalCommand(value, label) {
   }
 }
 
+const projectRuleOverrideFields = new Set([
+  'codingStandards', 'directoryGuidance', 'reviewGuidance', 'stackSummary',
+  'verificationSummary', 'vcsSummary', 'vcsStatusCommand', 'packageManager', 'logging',
+]);
+
+const loggingOverrideFields = ['frameworks', 'configFiles', 'sources', 'queries', 'correlationFields', 'verification'];
+
+function assertUniqueStringArray(value, label) {
+  if (!Array.isArray(value)) throw new Error(label + ' must be an array');
+  if (value.some((item) => typeof item !== 'string' || item.trim().length === 0)) {
+    throw new Error(label + ' must contain non-empty strings');
+  }
+  if (new Set(value).size !== value.length) throw new Error(label + ' must not contain duplicates');
+}
+
 export function validateProjectConfig(config) {
   assertObject(config, 'vibe-harness.config.json');
   const obsolete = [
@@ -242,12 +270,15 @@ export function validateProjectConfig(config) {
   assertOptionalCommand(config.validationCommands.eval, 'validationCommands.eval');
   if (Object.hasOwn(config, 'hooks')) {
     assertObject(config.hooks, 'hooks');
-    if (Object.hasOwn(config.hooks, 'mode') && !['off', 'observe', 'guarded'].includes(config.hooks.mode)) {
-      throw new Error('hooks.mode must be off, observe, or guarded');
+    if (Object.hasOwn(config.hooks, 'mode') && config.hooks.mode !== 'guarded') {
+      throw new Error('hooks.mode must be guarded; repository configuration cannot disable or weaken Hook policy');
     }
     if (Object.hasOwn(config.hooks, 'allowedWriteRoots')) {
       if (!Array.isArray(config.hooks.allowedWriteRoots)) {
         throw new Error('hooks.allowedWriteRoots must be an array');
+      }
+      if (config.hooks.allowedWriteRoots.length > 0) {
+        throw new Error('hooks.allowedWriteRoots must be empty; repository configuration cannot expand the project write boundary');
       }
       for (const root of config.hooks.allowedWriteRoots) {
         if (typeof root !== 'string' || root.trim().length === 0 || !path.isAbsolute(root)) {
@@ -279,6 +310,25 @@ export function validateProjectConfig(config) {
     }
     if (Object.hasOwn(config.projectRules, 'overrides')) {
       assertObject(config.projectRules.overrides, 'projectRules.overrides');
+      for (const field of Object.keys(config.projectRules.overrides)) {
+        if (!projectRuleOverrideFields.has(field)) throw new Error('projectRules.overrides.' + field + ' is not allowed');
+      }
+      for (const field of projectRuleOverrideFields) {
+        if (field !== 'logging' && Object.hasOwn(config.projectRules.overrides, field)) {
+          assertNonEmptyString(config.projectRules.overrides[field], 'projectRules.overrides.' + field);
+        }
+      }
+      if (Object.hasOwn(config.projectRules.overrides, 'logging')) {
+        assertObject(config.projectRules.overrides.logging, 'projectRules.overrides.logging');
+        for (const field of Object.keys(config.projectRules.overrides.logging)) {
+          if (!loggingOverrideFields.includes(field)) throw new Error('projectRules.overrides.logging.' + field + ' is not allowed');
+        }
+        for (const field of loggingOverrideFields) {
+          if (Object.hasOwn(config.projectRules.overrides.logging, field)) {
+            assertUniqueStringArray(config.projectRules.overrides.logging[field], 'projectRules.overrides.logging.' + field);
+          }
+        }
+      }
     }
   }
   if (Object.hasOwn(config, 'clarification')) {

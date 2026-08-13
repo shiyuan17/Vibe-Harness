@@ -77,6 +77,58 @@ function redactProjectPath(command, targetDir) {
     .replace(/\bBearer\s+[^\s]+/giu, 'Bearer [REDACTED]');
 }
 
+function emptyLoggingBaseline() {
+  return {
+    status: 'unknown',
+    evidence: {
+      frameworks: [],
+      configFiles: [],
+      queryCandidates: [],
+      correlationCandidates: [],
+    },
+    contract: {
+      frameworks: [],
+      configFiles: [],
+      sources: [],
+      queries: [],
+      correlationFields: [],
+      verification: [],
+    },
+  };
+}
+
+function sanitizeLogging(logging, targetDir) {
+  const source = logging ?? emptyLoggingBaseline();
+  const sanitizeValues = (values) => (values ?? []).map((value) => redactProjectPath(value, targetDir));
+  return stableObject({
+    status: source.status ?? 'unknown',
+    evidence: {
+      frameworks: sanitizeValues(source.evidence?.frameworks),
+      configFiles: sanitizeValues(source.evidence?.configFiles),
+      queryCandidates: sanitizeValues(source.evidence?.queryCandidates),
+      correlationCandidates: sanitizeValues(source.evidence?.correlationCandidates),
+    },
+    contract: {
+      frameworks: sanitizeValues(source.contract?.frameworks),
+      configFiles: sanitizeValues(source.contract?.configFiles),
+      sources: sanitizeValues(source.contract?.sources),
+      queries: sanitizeValues(source.contract?.queries),
+      correlationFields: sanitizeValues(source.contract?.correlationFields),
+      verification: sanitizeValues(source.contract?.verification),
+    },
+  });
+}
+
+function normalizeComparableBaseline(baseline) {
+  return {
+    ...baseline,
+    project: {
+      ...baseline.project,
+      logging: baseline.project?.logging ?? emptyLoggingBaseline(),
+    },
+  };
+}
+
 function sanitizeVerification(commandStatus, results, targetDir, verify) {
   const commands = {};
   for (const name of ['lint', 'typecheck', 'test', 'eval']) {
@@ -122,10 +174,11 @@ function createRecommendations({ profile, tools, verification, vcs }) {
 }
 
 function comparableBaseline(baseline) {
+  const normalized = normalizeComparableBaseline(baseline);
   return {
-    installation: baseline.installation,
-    project: baseline.project,
-    verification: baseline.verification,
+    installation: normalized.installation,
+    project: normalized.project,
+    verification: normalized.verification,
   };
 }
 
@@ -172,6 +225,9 @@ function renderReport(baseline) {
 - 目录提示：${baseline.project.directoryGuidance}
 - 版本控制：${baseline.project.vcs.kind}
 - 工作区状态：${baseline.project.vcs.workingTreeStatus}
+- 日志画像：${baseline.project.logging.status}
+- 日志候选证据：${baseline.project.logging.evidence.frameworks.join('、') || '未发现实现'}；${baseline.project.logging.evidence.queryCandidates.join('、') || '未发现查询入口'}
+- 日志项目契约：${baseline.project.logging.contract.sources.join('、') || '未声明来源'}；${baseline.project.logging.contract.queries.join('、') || '未声明查询'}；${baseline.project.logging.contract.verification.join('、') || '未声明验证'}
 
 ## 工具状态
 
@@ -221,13 +277,14 @@ export async function createProjectBaseline({
   const verification = sanitizeVerification(commandStatus, verificationResults, targetDir, verify);
   const publicToolStates = publicTools(tools);
   const baseline = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt: now.toISOString(),
     project: {
       name: singleLine(config.projectName),
       packageManager: singleLine(projectProfile.packageManager),
       stackSummary: singleLine(projectProfile.stackSummary),
       directoryGuidance: singleLine(projectProfile.directoryGuidance),
+      logging: sanitizeLogging(projectProfile.logging, targetDir),
       vcs: {
         kind: singleLine(vcs.kind),
         workingTreeStatus: vcs.workingTreeStatus,
@@ -247,7 +304,7 @@ export async function createProjectBaseline({
     drift: { changes: [], status: 'initial' },
   };
   const previous = await readPreviousBaseline(targetDir, installState, baselineTarget);
-  if (previous?.schemaVersion === 1) {
+  if ([1, 2].includes(previous?.schemaVersion)) {
     const changes = collectChanges(comparableBaseline(previous), comparableBaseline(baseline));
     baseline.drift = { changes, status: changes.length > 0 ? 'changed' : 'unchanged' };
   }

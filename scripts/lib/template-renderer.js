@@ -29,6 +29,11 @@ const defaultTemplateData = {
     vcsStatusInstruction: '编辑前运行 `git status --short`，保护用户未归属改动。',
     vcsSummary: '未识别 VCS',
     verificationSummary: '使用目标项目配置的验证命令，并补充聚焦测试或人工核对证据。',
+    logging: {
+      status: 'unknown',
+      evidenceSummary: '实现：未发现；配置：未发现；查询：未发现；关联字段：未发现',
+      contractSummary: '实现：未发现；配置：未发现；来源：未发现；查询：未发现；关联字段：未发现；验证：未发现',
+    },
   },
   projectName: 'target project',
   validationCommands: {
@@ -64,6 +69,10 @@ export function withDefaultTemplateData(data = {}) {
     projectProfile: {
       ...defaultTemplateData.projectProfile,
       ...(data.projectProfile ?? {}),
+      logging: {
+        ...defaultTemplateData.projectProfile.logging,
+        ...(data.projectProfile?.logging ?? {}),
+      },
     },
     validationCommands: {
       ...defaultTemplateData.validationCommands,

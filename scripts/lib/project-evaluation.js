@@ -5,6 +5,7 @@ import path from 'node:path';
 import { validateEvalSuiteSemantics } from './eval-contract.js';
 import { combineEvalConfigHash } from './eval-runtime-config.js';
 import { summarizeTrials } from './eval-trials.js';
+import { createEvalAssetFingerprint } from './eval-assets.js';
 import { buildOfflineRun, suiteHash } from './eval-replay.js';
 import { aggregateCaseScores, compareFingerprints } from './eval-scoring.js';
 import { runEvaluationCase } from './eval-runner.js';
@@ -203,6 +204,7 @@ async function buildOnlineRun({ campaignId, command, config, now, suite, suitePa
         repetition,
         runId: campaignId,
         judge,
+        sourceRoot: targetDir,
       });
       if (result.status !== 'ready') {
         degraded.push(...result.diagnostics.map((item) => `${definition.id}: ${item}`));
@@ -235,6 +237,7 @@ async function buildOnlineRun({ campaignId, command, config, now, suite, suitePa
     model: first.model,
     agent: first.agentVersion,
     configHash: first.configHash,
+    assets: await createEvalAssetFingerprint(targetDir),
   };
   const runtime = first.runtime;
   for (const observation of observations.slice(1)) {
@@ -244,6 +247,7 @@ async function buildOnlineRun({ campaignId, command, config, now, suite, suitePa
       model: observation.model,
       agent: observation.agentVersion,
       configHash: observation.configHash,
+      assets: fingerprint.assets,
     };
     if (!compareFingerprints(current, fingerprint).match) return { degraded: ['runner fingerprint changed within the evaluation run'], run: null };
     if (JSON.stringify(observation.runtime ?? null) !== JSON.stringify(runtime ?? null)) {
@@ -265,12 +269,13 @@ async function buildOnlineRun({ campaignId, command, config, now, suite, suitePa
     },
     degraded: [],
     run: {
-      schemaVersion: 1,
+      schemaVersion: 2,
       campaignId,
       id: `${suite.id}-online-${now.toISOString()}`,
       generatedAt: now.toISOString(),
       suite: { id: suite.id, version: suite.version, hash: fingerprint.suiteHash, path: suitePath },
       mode: 'online',
+      proof: 'online-canary',
       status: results.every((item) => item.passed || item.flakyFailure) ? 'passed' : 'failed',
       fingerprint,
       ...(runtime ? { runtime } : {}),
@@ -321,10 +326,11 @@ export async function runProjectEvaluations({ campaignId = `campaign-${Date.now(
         relative,
         label: 'degraded evaluation diagnostic',
         value: {
-          schemaVersion: 1,
+          schemaVersion: 2,
           campaignId,
           generatedAt: now.toISOString(),
           status: 'degraded',
+          proof: 'online-canary',
           suite: { id: suite.id, version: suite.version, hash: suiteHash(suite), path: suitePath },
           runtime: {
             backend: process.env.VIBE_HARNESS_EVAL_CODEX_BACKEND ?? 'native',
@@ -338,6 +344,7 @@ export async function runProjectEvaluations({ campaignId = `campaign-${Date.now(
             model: process.env.CODEX_MODEL ?? 'unavailable',
             agent: process.env.CODEX_CLI_VERSION ?? 'unavailable',
             configHash: process.env.VIBE_HARNESS_EVAL_RUNTIME_HASH ?? 'unavailable',
+            assets: await createEvalAssetFingerprint(targetDir),
           },
           diagnostics: warnings,
           ...(online?.attemptSummary ? { attemptSummary: online.attemptSummary } : {}),
@@ -348,6 +355,7 @@ export async function runProjectEvaluations({ campaignId = `campaign-${Date.now(
     return { dryRun: !write, ok: false, status: 'degraded', warnings, written };
   }
   const run = online?.run ?? await buildOfflineRun(suite, {
+    assetRoot: targetDir,
     generatedAt: now.toISOString(),
     id: `${suite.id}-offline-${now.toISOString()}`,
     suitePath,
@@ -390,11 +398,12 @@ export async function runProjectEvaluations({ campaignId = `campaign-${Date.now(
 
 function referenceFromRun(run, approvedAt) {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: `${run.suite.id}-${run.mode}-reference`,
     approvedAt: approvedAt.toISOString(),
     suite: { id: run.suite.id, version: run.suite.version },
     mode: run.mode,
+    proof: run.proof,
     fingerprint: run.fingerprint,
     capabilities: run.capabilities,
     overallScore: run.overallScore,

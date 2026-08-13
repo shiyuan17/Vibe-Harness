@@ -72,7 +72,7 @@ test('checkProjectEvaluations rejects a suite path that escapes the project', as
   }
 });
 
-test('runProjectEvaluations offline returns a ready run matching the checked-in reference', async () => {
+test('runProjectEvaluations degrades when a copied reference has source-project asset hashes', async () => {
   const target = await createEvalProject();
   try {
     const result = await runProjectEvaluations({
@@ -83,10 +83,11 @@ test('runProjectEvaluations offline returns a ready run matching the checked-in 
       suiteId: 'vibe-harness-core',
       write: false,
     });
-    assert.equal(result.status, 'ready');
+    assert.equal(result.status, 'degraded');
     assert.equal(result.dryRun, true);
     assert.equal(result.run.status, 'passed');
-    assert.equal(result.run.reference.status, 'matched');
+    assert.equal(result.run.reference.status, 'mismatched');
+    assert.equal(result.warnings.some((item) => item.includes('assets.')), true);
     assert.equal(result.written.length, 0);
   } finally {
     await rm(target, { force: true, recursive: true });

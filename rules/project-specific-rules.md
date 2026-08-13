@@ -17,6 +17,14 @@
 - 新增依赖前先确认现有栈不能满足，并说明维护状态、许可证、体积和安全风险。
 - 不手改构建产物、依赖缓存、生成目录或 VCS 元数据。
 
+## 日志与可观测性
+
+- 画像完整度：{{projectProfile.logging.status}}。
+- 候选证据（仅表示仓库中实际发现，不能直接当作运行事实）：{{projectProfile.logging.evidenceSummary}}。
+- 项目契约（来自 projectRules.overrides.logging）：{{projectProfile.logging.contractSummary}}。
+- 使用顺序：先读项目契约，再核对候选证据并定位实际 logger、输出与查询入口；未确认项保持未知，不生成平台或文件查询命令。
+- 配置中的查询和验证只用于指导与基线，不自动执行；没有明确需求时不引入新 logger、追踪系统或存储后端。
+
 ## 验证规范
 
 - 默认验证：{{projectProfile.verificationSummary}}

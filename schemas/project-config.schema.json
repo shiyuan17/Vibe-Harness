@@ -38,9 +38,10 @@
     "hooks": {
       "type": "object",
       "properties": {
-        "mode": { "type": "string", "enum": ["off", "observe", "guarded"] },
+        "mode": { "type": "string", "const": "guarded" },
         "allowedWriteRoots": {
           "type": "array",
+          "maxItems": 0,
           "items": { "type": "string", "minLength": 1 }
         },
         "allowedEgressHosts": {
@@ -83,7 +84,32 @@
       "type": "object",
       "properties": {
         "mode": { "type": "string", "enum": ["auto", "manual", "off"] },
-        "overrides": { "type": "object" }
+        "overrides": {
+          "type": "object",
+          "properties": {
+            "codingStandards": { "type": "string", "minLength": 1 },
+            "directoryGuidance": { "type": "string", "minLength": 1 },
+            "reviewGuidance": { "type": "string", "minLength": 1 },
+            "stackSummary": { "type": "string", "minLength": 1 },
+            "verificationSummary": { "type": "string", "minLength": 1 },
+            "vcsSummary": { "type": "string", "minLength": 1 },
+            "vcsStatusCommand": { "type": "string", "minLength": 1 },
+            "packageManager": { "type": "string", "minLength": 1 },
+            "logging": {
+              "type": "object",
+              "properties": {
+                "frameworks": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+                "configFiles": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+                "sources": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+                "queries": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+                "correlationFields": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+                "verification": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
       },
       "additionalProperties": false
     },

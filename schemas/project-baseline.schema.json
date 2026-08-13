@@ -4,16 +4,48 @@
   "type": "object",
   "required": ["schemaVersion", "generatedAt", "project", "installation", "verification", "recommendations", "drift"],
   "properties": {
-    "schemaVersion": { "type": "integer", "enum": [1] },
+    "schemaVersion": { "type": "integer", "enum": [2] },
     "generatedAt": { "type": "string", "minLength": 1 },
     "project": {
       "type": "object",
-      "required": ["name", "packageManager", "stackSummary", "directoryGuidance", "vcs"],
+      "required": ["name", "packageManager", "stackSummary", "directoryGuidance", "logging", "vcs"],
       "properties": {
         "name": { "type": "string", "minLength": 1 },
         "packageManager": { "type": "string", "minLength": 1 },
         "stackSummary": { "type": "string", "minLength": 1 },
         "directoryGuidance": { "type": "string", "minLength": 1 },
+        "logging": {
+          "type": "object",
+          "required": ["status", "evidence", "contract"],
+          "properties": {
+            "status": { "type": "string", "enum": ["complete", "partial", "unknown"] },
+            "evidence": {
+              "type": "object",
+              "required": ["frameworks", "configFiles", "queryCandidates", "correlationCandidates"],
+              "properties": {
+                "frameworks": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+                "configFiles": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+                "queryCandidates": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+                "correlationCandidates": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+              },
+              "additionalProperties": false
+            },
+            "contract": {
+              "type": "object",
+              "required": ["frameworks", "configFiles", "sources", "queries", "correlationFields", "verification"],
+              "properties": {
+                "frameworks": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+                "configFiles": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+                "sources": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+                "queries": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+                "correlationFields": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+                "verification": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
         "vcs": {
           "type": "object",
           "required": ["kind", "workingTreeStatus"],
