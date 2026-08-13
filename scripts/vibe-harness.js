@@ -60,6 +60,7 @@ import { inspectTransactions, recoverTransaction } from './lib/file-transaction.
 import { assertNoUnsupportedLegacyAssets } from './lib/project-layout.js';
 import { findNestedInstallations, nestedInstallMigrationCommands } from './lib/nested-install.js';
 import { sanitizePublicReport } from './lib/tool-provisioning/subprocess.js';
+import { runProjectAudit } from './lib/project-audit.js';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -802,6 +803,25 @@ async function evaluateProject(args) {
   applyHealthExit(report.status, args);
 }
 
+async function auditProject(args) {
+  if (!args.project) throw new Error('audit requires --project <path>.');
+  if (!args.kind) throw new Error('audit requires --kind memory|review|improvements|all.');
+  if (args.target) throw new Error('audit uses --project <path> and does not accept --target.');
+  const allowed = new Set(['_', 'base', 'kind', 'output', 'project', 'receipt', 'verbose', 'write']);
+  const unknownOption = Object.keys(args).find((key) => !allowed.has(key));
+  if (unknownOption) throw new Error('Unknown audit option: --' + unknownOption);
+  const report = await runProjectAudit({
+    baseSha: typeof args.base === 'string' ? args.base : undefined,
+    kind: args.kind,
+    receiptPath: typeof args.receipt === 'string' ? args.receipt : undefined,
+    rootDir,
+    targetDir: path.resolve(args.project),
+    write: Boolean(args.write),
+  });
+  emitReport(report, args, { error: report.status === 'degraded' });
+  if (report.status === 'degraded') process.exitCode = 1;
+}
+
 function toolRecommendations(tools, profile, { adapterId = 'codex' } = {}) {
   const retryCommand = `vibe-harness provision --project <project> --target ${adapterId} --profile ${profile} --write`;
   return Object.entries(tools).flatMap(([tool, state]) => {
@@ -1209,7 +1229,7 @@ async function recover(args) {
 }
 
 async function printUsage() {
-  console.log('Usage: vibe-harness <init|install|provision|recover|uninstall|validate|verify|baseline|eval|doctor|diff|rollback> [--project path] [--target codex|claude|gemini|cursor|qoder|zcode|antigravity|opencode] [--all-targets] [--profile minimal|core|full|docs-only] [--modules list] [--plugin -all|-rtk|linear-mcp|linear-mcp-readonly ...] [--rtk-hooks on|off] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--force] [--upgrade] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded]');
+  console.log('Usage: vibe-harness <init|install|provision|recover|uninstall|validate|verify|baseline|eval|audit|doctor|diff|rollback> [--project path] [--target codex|claude|gemini|cursor|qoder|zcode|antigravity|opencode] [--all-targets] [--profile minimal|core|full|docs-only] [--modules list] [--plugin -all|-rtk|linear-mcp|linear-mcp-readonly ...] [--rtk-hooks on|off] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--force] [--upgrade] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded]');
   console.log('All project commands use --project <path>; --target selects an adapter and --write performs mutations. Legacy --apply and path-valued --target are removed.');
 }
 
@@ -1218,7 +1238,7 @@ async function main() {
   const command = args._[0] ?? 'help';
   // help/usage is the lowest-friction surface; resolve it before legacy guards so
   // `vibe-harness` / `vibe-harness help` / `vibe-harness unknown-cmd` never trip obsolete-flag errors.
-  const knownCommands = new Set(['init', 'install', 'provision', 'validate', 'verify', 'baseline', 'eval', 'doctor', 'diff', 'rollback', 'uninstall', 'recover']);
+  const knownCommands = new Set(['init', 'install', 'provision', 'validate', 'verify', 'baseline', 'eval', 'audit', 'doctor', 'diff', 'rollback', 'uninstall', 'recover']);
   if (command === 'help' || !knownCommands.has(command)) {
     await printUsage();
     return;
@@ -1252,6 +1272,8 @@ async function main() {
     await baseline(args);
   } else if (command === 'eval') {
     await evaluateProject(args);
+  } else if (command === 'audit') {
+    await auditProject(args);
   } else if (command === 'doctor') {
     await doctor(args);
   } else if (command === 'diff') {

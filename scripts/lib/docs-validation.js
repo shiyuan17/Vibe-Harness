@@ -7,6 +7,7 @@ import {
   readJson,
   validateJsonAgainstSchema,
 } from './manifest.js';
+import { validateAdrDirectory } from './adr-validation.js';
 
 const historicalStatuses = new Set(['completed', 'superseded']);
 const relativeTimePattern = /(?:今天|昨天|刚刚|最近|上周|\btoday\b|\byesterday\b|\brecently\b)/iu;
@@ -132,7 +133,13 @@ export async function collectGovernedPaths(rootDir) {
   const rootFiles = (await readdir(rootDir, { withFileTypes: true }))
     .filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
     .map((entry) => entry.name);
-  return [...rootFiles, ...await collectMarkdown(path.join(rootDir, 'docs'), rootDir)].sort();
+  const adrAssets = [
+    'docs/adr/catalog.json',
+    'docs/schemas/adr.schema.json',
+    'schemas/adr.schema.json',
+    'templates/adr/adr-template.md',
+  ];
+  return [...rootFiles, ...await collectMarkdown(path.join(rootDir, 'docs'), rootDir), ...adrAssets].sort();
 }
 
 function extractLocalLinks(content) {
@@ -557,6 +564,7 @@ async function validateDocumentationUnchecked({ catalog, rootDir, today = new Da
     errors.push(...await validateSourceMapping(rootDir));
   }
   errors.push(...await validateLegacyBrandUsage({ rootDir }));
+  errors.push(...await validateAdrDirectory(rootDir));
 
   const rulesParity = await validateRulesParity(rootDir);
   errors.push(...rulesParity.errors);

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Vibe-Harness independent review receipt",
+  "type": "object",
+  "required": ["schemaVersion", "id", "createdAt", "baseSha", "headSha", "changeFingerprint", "highRiskPaths", "reviewer", "implementer", "readOnly", "verification", "findings", "decision"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "enum": [1] },
+    "id": { "type": "string", "minLength": 1 },
+    "createdAt": { "type": "string", "minLength": 1 },
+    "baseSha": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" },
+    "headSha": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" },
+    "changeFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "highRiskPaths": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "reviewer": { "type": "object", "required": ["type", "identity", "contextId"], "properties": { "type": { "type": "string", "enum": ["open-code-review", "host-native", "human"] }, "identity": { "type": "string", "minLength": 1 }, "contextId": { "type": "string", "minLength": 1 } }, "additionalProperties": false },
+    "implementer": { "type": "object", "required": ["identity", "contextId"], "properties": { "identity": { "type": "string", "minLength": 1 }, "contextId": { "type": "string", "minLength": 1 } }, "additionalProperties": false },
+    "readOnly": { "type": "boolean" },
+    "verification": { "type": "object", "required": ["id", "finishedAt", "headSha", "stable", "status"], "properties": { "id": { "type": "string", "minLength": 1 }, "finishedAt": { "type": "string", "minLength": 1 }, "headSha": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" }, "stable": { "type": "boolean" }, "status": { "type": "string", "enum": ["passed", "failed", "degraded"] } }, "additionalProperties": false },
+    "findings": { "type": "array", "items": { "type": "object", "required": ["code", "title", "severity", "status", "targetAsset"], "properties": { "code": { "type": "string", "minLength": 1 }, "title": { "type": "string", "minLength": 1 }, "severity": { "type": "string", "enum": ["low", "medium", "high", "critical"] }, "status": { "type": "string", "enum": ["open", "resolved", "accepted-risk", "false-positive"] }, "targetAsset": { "type": "string", "minLength": 1 }, "type": { "type": "string", "enum": ["bug", "hook", "linter", "rule", "skill", "security", "garbage-collection"] }, "episode": { "type": "string", "minLength": 1 }, "evidenceRefs": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true } }, "additionalProperties": false } },
+    "decision": { "type": "string", "enum": ["approved", "changes-requested", "degraded"] }
+  },
+  "additionalProperties": false
+}

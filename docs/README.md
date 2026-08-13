@@ -5,10 +5,16 @@
 ## 当前产品
 
 - [架构](architecture.md)
+- [ADR 指南](adr/README.md)
+- [ADR 索引](adr/catalog.json)
+- [ADR Schema](schemas/adr.schema.json)
+- [ADR 模板](../templates/adr/adr-template.md)
+- [ADR 源 Schema](../schemas/adr.schema.json)
 - [迁移指南](migration-guide.md)
 - [Hook 安全策略](hooks.md)
 - [Hook 运行时诊断规格](specs/hook-runtime-diagnostics-spec.md)
 - [Eval](evals.md)
+- [项目审计](audits.md)
 - [GitHub 可靠交付配置](github-delivery.md)
 - [Agentmemory Skill 规格](specs/agentmemory-skill-consolidation-spec.md)
 - [显式工具插件规格](specs/vibe-harness-tooling-modules-spec.md)
@@ -29,7 +35,7 @@
 - [Eval](rules/eval-driven-development.md)
 - [前端](rules/frontend-rules.md)
 - [Git](rules/git-rules.md)
-- [日志](rules/log-management.md)
+- [可观测性与日志](rules/log-management.md)
 - [项目目录](rules/project-directory.md)
 - [项目专项](rules/project-specific-rules.md)
 - [发布](rules/release-rules.md)
@@ -47,6 +53,7 @@
 - [故障学习](memory/FAILURE_LEARNINGS.md)
 - [已知问题](memory/KNOWN_BUGS.md)
 - [技术债](memory/TECH_DEBT.md)
+- [改进候选](memory/IMPROVEMENTS.json)
 
 ## 审计参考
 

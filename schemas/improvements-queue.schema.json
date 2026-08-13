@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Vibe-Harness improvement candidate queue",
+  "type": "object",
+  "required": ["schemaVersion", "updatedAt", "candidates"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "enum": [1] },
+    "updatedAt": { "type": "string", "minLength": 1 },
+    "candidates": { "type": "array", "items": { "type": "object", "required": ["id", "type", "title", "status", "targetAsset", "evidenceRefs", "distinctEpisodes", "firstSeenAt", "lastSeenAt", "owner", "reviewBy", "expectedBenefit"], "properties": { "id": { "type": "string", "pattern": "^IMP-[A-F0-9]{16}$" }, "type": { "type": "string", "enum": ["bug", "hook", "linter", "rule", "skill", "security", "garbage-collection"] }, "title": { "type": "string", "minLength": 1 }, "status": { "type": "string", "enum": ["proposed", "eligible-for-owner-review", "accepted", "implemented", "rejected"] }, "targetAsset": { "type": "string", "minLength": 1 }, "evidenceRefs": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }, "distinctEpisodes": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }, "firstSeenAt": { "type": "string", "minLength": 1 }, "lastSeenAt": { "type": "string", "minLength": 1 }, "owner": { "type": "string" }, "reviewBy": { "type": "string", "pattern": "^$|^\\d{4}-\\d{2}-\\d{2}$" }, "expectedBenefit": { "type": "string", "minLength": 1 } }, "additionalProperties": false } }
+  },
+  "additionalProperties": false
+}

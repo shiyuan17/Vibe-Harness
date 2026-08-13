@@ -60,6 +60,10 @@ installer 集成验证应覆盖已有文件拒写、红区确认、目标路径�
 
 ## Pull Request
 
+涉及结构、公共契约、安全与可靠性、关键依赖、迁移回滚或跨模块边界的 PR 必须在 docs/adr/ 中提供正式 ADR，或说明无需 ADR 的原因。同步更新 docs/adr/catalog.json 和 docs/memory/DECISIONS.md；接受或拒绝后的决策通过新 ADR 替代，不改写历史核心内容。
+
+文档、ADR、catalog 和 schema 变更必须报告 pnpm docs:audit 与 ADR 聚焦测试结果。
+
 PR 说明目标、影响范围、实际验证、未验证项和必要的回滚路径。一个 commit 表达一个逻辑目的；不要用格式化或无关重构掩盖行为变化。
 
 ## 发布

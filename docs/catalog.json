@@ -91,6 +91,17 @@
       ]
     },
     {
+      "path": "docs/audits.md",
+      "kind": "operations",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "maintainer",
+        "contributor",
+        "auditor"
+      ]
+    },
+    {
       "path": "docs/github-delivery.md",
       "kind": "operations",
       "status": "current",
@@ -526,6 +537,45 @@
       "audiences": [
         "auditor"
       ]
+    },
+    {
+      "path": "docs/adr/README.md",
+      "kind": "index",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
+    },
+    {
+      "path": "docs/adr/catalog.json",
+      "kind": "index",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer", "auditor"]
+    },
+    {
+      "path": "docs/schemas/adr.schema.json",
+      "kind": "spec",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer", "auditor"]
+    },
+    {
+      "path": "schemas/adr.schema.json",
+      "kind": "spec",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer"]
+    },
+    {
+      "path": "templates/adr/adr-template.md",
+      "kind": "plan",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer"]
     },
     {
       "path": "docs/memory/ARCHITECTURE.md",
