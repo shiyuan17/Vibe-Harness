@@ -4,7 +4,7 @@
   "private": true,
   "description": "Project-local codebase-memory-mcp runtime managed by Vibe-Harness.",
   "dependencies": {
-    "codebase-memory-mcp": "0.9.0"
+    "codebase-memory-mcp": "0.10.2"
   },
   "engines": {
     "node": ">=20"

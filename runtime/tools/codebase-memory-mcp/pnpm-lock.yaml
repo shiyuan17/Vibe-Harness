@@ -9,13 +9,13 @@ importers:
   .:
     dependencies:
       codebase-memory-mcp:
-        specifier: 0.9.0
-        version: 0.9.0
+        specifier: 0.10.2
+        version: 0.10.2
 
 packages:
 
-  codebase-memory-mcp@0.9.0:
-    resolution: {integrity: sha512-Zv1qmX/v2LDOJuc+BKmgx11X7P2GMAZmeFuOKdlXqFxRwi/dUGqismHIPdjv2xjOZpJ6B2g7aD5GOW3+eL+CYA==}
+  codebase-memory-mcp@0.10.2:
+    resolution: {integrity: sha512-662tggBxboxU4SlI2r0munpfyh3drk+vAuGBioonjoXq68uoL7hAMhO5r7Qqq96s6dbx85diwJz14uDx+70L6g==}
     engines: {node: '>=18'}
     cpu: [x64, arm64]
     os: [linux, darwin, win32]
@@ -23,4 +23,4 @@ packages:
 
 snapshots:
 
-  codebase-memory-mcp@0.9.0: {}
+  codebase-memory-mcp@0.10.2: {}
