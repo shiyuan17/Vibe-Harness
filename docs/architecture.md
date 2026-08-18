@@ -11,6 +11,14 @@ Vibe-Harness 是跨平台、项目级的 AI coding 资产包。它使用 Node.js
 - scripts 提供 CLI、planner、事务、状态迁移、验证、doctor、diff 和 provisioning。
 - manifests 和 schemas 定义 profiles、adapter capability、项目配置与 install-state 契约。
 
+## Capability / Provider 边界
+
+<code>manifests/plugin-providers.json</code> 是可选插件身份与能力关系的内部真值：capability 表示消费方需要的稳定能力，provider 表示实现该能力的具体产品，module 表示安装器交付的资产与依赖闭包。安装器、provisioning、MCP 投影和生成指令通过 catalog 解析 provider，不再各自维护插件别名与 tool-to-module 映射。
+
+Provider 只声明 <code>cli</code>、<code>local-mcp</code> 或 <code>remote-mcp</code> transport；不同 transport 的参数、返回值、错误和生命周期保持各自合同，不抽象为统一执行接口。RTK 属于输出压缩能力，不是代码搜索 provider；ast-grep 与 codebase-memory-mcp 分别提供结构搜索和语义图能力，<code>rg</code> 仍是未受管的文本搜索与 fallback。当前不存在自动组合这些工具的 hybrid provider，Agent 继续按安装后的能力和专项规则选择工具。
+
+Catalog 不改变外部项目配置和状态合同。<code>plugins</code>、<code>requestedPlugins</code>、<code>resolvedModules</code>、CLI 别名、输出字段及 install-state schemaVersion 保持不变；Linear 读写与只读 provider 继续互斥且不随 <code>plugin all</code> 展开。
+
 ## 多宿主安装模型
 
 项目配置使用唯一、非空的 targets 数组。profile、modules、plugins、runtime、memory、Eval 和索引均为项目级设置，不提供宿主级覆盖。

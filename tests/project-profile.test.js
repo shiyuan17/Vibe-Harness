@@ -185,6 +185,46 @@ test('detectProjectProfile discovers only repository-backed Node logging candida
   }
 });
 
+test('detectProjectProfile excludes Vibe-Harness managed targets from logging evidence', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-profile-managed-targets-'));
+  try {
+    const managedSchema = 'docs/schemas/execution-envelope.schema.json';
+    const generatedFile = 'generated/request-context.json';
+    const generatedDirectory = 'generated/runtime';
+    await mkdir(path.join(target, '.vibe-harness'), { recursive: true });
+    await mkdir(path.join(target, 'docs/schemas'), { recursive: true });
+    await mkdir(path.join(target, 'generated/runtime/nested'), { recursive: true });
+    await writeFile(path.join(target, managedSchema), '{"requestId":true}\n', 'utf8');
+    await writeFile(path.join(target, generatedFile), '{"traceId":true}\n', 'utf8');
+    await writeFile(path.join(target, generatedDirectory, 'nested/context.json'), '{"spanId":true,"correlationId":true}\n', 'utf8');
+    await writeJson(path.join(target, '.vibe-harness/install-state.json'), {
+      files: [{
+        created: true,
+        group: 'schemas',
+        redZone: false,
+        source: 'schemas/execution-envelope.schema.json',
+        sourceHash: 'source-hash',
+        target: managedSchema,
+        targetHash: 'target-hash',
+      }],
+      generatedDirectories: [{ ownerTarget: managedSchema, projectScoped: true, target: generatedDirectory }],
+      generatedFiles: [{ target: generatedFile, targetHash: 'generated-hash' }],
+      profile: 'core',
+      product: 'vibe-harness',
+      stateVersion: 5,
+      targets: ['codex'],
+      version: '1.0.0',
+    });
+
+    const profile = await detectProjectProfile({ targetDir: target });
+
+    assert.equal(profile.logging.status, 'unknown');
+    assert.deepEqual(profile.logging.evidence.correlationCandidates, []);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
 test('detectProjectProfile redacts secrets from explicit logging guidance', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-profile-logging-redaction-'));
   try {

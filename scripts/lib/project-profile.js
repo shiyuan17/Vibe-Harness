@@ -1,7 +1,8 @@
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { pathExists } from './manifest.js';
+import { readInstallState } from './install-state.js';
+import { assertPortableRelativePath, pathExists } from './manifest.js';
 
 const ignoredDirs = new Set([
   '.git',
@@ -107,7 +108,39 @@ async function readTextIfExists(filePath) {
   return readFile(filePath, 'utf8');
 }
 
-async function findFiles(targetDir, predicate, { currentDir = targetDir, maxDepth = 3 } = {}) {
+function managedPathMatcher(installState) {
+  const pathKey = (value) => {
+    assertPortableRelativePath(value, 'install-state managed target');
+    const normalized = value.replaceAll('\\', '/');
+    return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+  };
+  const exactTargets = new Set([
+    ...(installState?.files ?? []),
+    ...(installState?.generatedFiles ?? []),
+  ].map((item) => pathKey(item.target)));
+  const directoryTargets = (installState?.generatedDirectories ?? [])
+    .map((item) => pathKey(item.target));
+
+  return (relativePath) => {
+    const key = pathKey(relativePath);
+    return exactTargets.has(key)
+      || directoryTargets.some((directory) => key === directory || key.startsWith(directory + '/'));
+  };
+}
+
+async function readManagedInstallState(targetDir) {
+  try {
+    return await readInstallState(targetDir);
+  } catch {
+    return null;
+  }
+}
+
+async function findFiles(targetDir, predicate, {
+  currentDir = targetDir,
+  isManagedPath = () => false,
+  maxDepth = 3,
+} = {}) {
   if (maxDepth < 0 || !(await pathExists(currentDir))) {
     return [];
   }
@@ -116,14 +149,20 @@ async function findFiles(targetDir, predicate, { currentDir = targetDir, maxDept
   const files = [];
   for (const entry of entries) {
     const fullPath = path.join(currentDir, entry.name);
+    const relativePath = path.relative(targetDir, fullPath).replaceAll('\\', '/');
+    if (isManagedPath(relativePath)) continue;
     if (entry.isDirectory()) {
       if (!ignoredDirs.has(entry.name)) {
-        files.push(...await findFiles(targetDir, predicate, { currentDir: fullPath, maxDepth: maxDepth - 1 }));
+        files.push(...await findFiles(targetDir, predicate, {
+          currentDir: fullPath,
+          isManagedPath,
+          maxDepth: maxDepth - 1,
+        }));
       }
       continue;
     }
     if (entry.isFile() && predicate(entry.name, fullPath)) {
-      files.push(path.relative(targetDir, fullPath).replaceAll('\\', '/'));
+      files.push(relativePath);
     }
   }
   return files.sort();
@@ -237,7 +276,7 @@ function detectNodeLogQueries(pkg, packageManager) {
     .map((name) => scriptCommand(packageManager, name));
 }
 
-async function detectLoggingProfile({ config, targetDir, pkg, packageManager, pomFiles, csprojFiles }) {
+async function detectLoggingProfile({ config, targetDir, pkg, packageManager, pomFiles, csprojFiles, isManagedPath }) {
   const contract = normalizedLoggingContract(config.projectRules?.overrides?.logging);
   const dependencies = { ...(pkg?.dependencies ?? {}), ...(pkg?.devDependencies ?? {}) };
   const frameworks = [];
@@ -259,7 +298,7 @@ async function detectLoggingProfile({ config, targetDir, pkg, packageManager, po
     return /^(?:pino|winston)\.config\.(?:js|cjs|mjs|ts)$/u.test(lower)
       || /^(?:logback(?:-spring)?\.xml|log4j2\.(?:xml|json|ya?ml|properties)|nlog(?:\.[^.]+)?\.config)$/u.test(lower)
       || /^appsettings(?:\.[^.]+)?\.json$/u.test(lower);
-  });
+  }, { isManagedPath });
   const configFiles = [];
   for (const file of knownConfigFiles) {
     if (/^appsettings(?:\.[^.]+)?\.json$/iu.test(path.basename(file))) {
@@ -273,7 +312,7 @@ async function detectLoggingProfile({ config, targetDir, pkg, packageManager, po
     const lower = name.toLowerCase();
     return !['package-lock.json', 'vibe-harness.config.json'].includes(lower)
       && /\.(?:cjs|cs|java|js|json|jsx|mjs|properties|ts|tsx|xml|ya?ml)$/u.test(lower);
-  })).slice(0, 250);
+  }, { isManagedPath })).slice(0, 250);
   const correlationCandidates = [];
   const searchableContents = await Promise.all(searchableFiles.map((file) => readTextIfExists(path.join(targetDir, file))));
   for (const content of searchableContents) {
@@ -354,11 +393,12 @@ export async function detectProjectProfile({ config = {}, targetDir }) {
     return withVcsStatusInstruction(applyOverrides(createGenericProfile(config), config.projectRules?.overrides));
   }
 
+  const isManagedPath = managedPathMatcher(await readManagedInstallState(targetDir));
   const pkg = await readJsonIfExists(path.join(targetDir, 'package.json'));
   const hasPnpmWorkspace = await pathExists(path.join(targetDir, 'pnpm-workspace.yaml'));
-  const pomFiles = await findFiles(targetDir, (name) => name === 'pom.xml');
-  const slnFiles = await findFiles(targetDir, (name) => name.endsWith('.sln'));
-  const csprojFiles = await findFiles(targetDir, (name) => name.endsWith('.csproj'));
+  const pomFiles = await findFiles(targetDir, (name) => name === 'pom.xml', { isManagedPath });
+  const slnFiles = await findFiles(targetDir, (name) => name.endsWith('.sln'), { isManagedPath });
+  const csprojFiles = await findFiles(targetDir, (name) => name.endsWith('.csproj'), { isManagedPath });
   const editorconfig = await readTextIfExists(path.join(targetDir, '.editorconfig'));
   const hasGit = await pathExists(path.join(targetDir, '.git'));
   const hasSvn = await pathExists(path.join(targetDir, '.svn'));
@@ -426,7 +466,15 @@ export async function detectProjectProfile({ config = {}, targetDir }) {
       typecheck: commands.find((command) => /(?:check:type|typecheck|ts:check)/u.test(command)) ?? null,
       test: commands.find((command) => /(?:^|\s)(?:run\s+)?test(?::[^\s]+)?(?:\s|$)|mvn\s+test/u.test(command)) ?? null,
     },
-    logging: await detectLoggingProfile({ config, targetDir, pkg, packageManager, pomFiles, csprojFiles }),
+    logging: await detectLoggingProfile({
+      config,
+      targetDir,
+      pkg,
+      packageManager,
+      pomFiles,
+      csprojFiles,
+      isManagedPath,
+    }),
   };
 
   return withVcsStatusInstruction(applyOverrides(detected, config.projectRules?.overrides));

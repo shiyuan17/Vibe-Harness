@@ -1,0 +1,66 @@
+{
+  "\u0024schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Vibe-Harness plugin provider catalog",
+  "type": "object",
+  "required": ["schemaVersion", "capabilities", "providers"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "description"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)+$" },
+          "description": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "providers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "cliName", "aliases", "moduleId", "capabilities", "transport", "selection"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "cliName": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "aliases": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" }
+          },
+          "moduleId": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "capabilities": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "transport": { "type": "string", "enum": ["cli", "local-mcp", "remote-mcp"] },
+          "selection": {
+            "type": "object",
+            "required": ["includeInAll", "allowInProjectConfig"],
+            "properties": {
+              "includeInAll": { "type": "boolean" },
+              "allowInProjectConfig": { "type": "boolean" }
+            },
+            "additionalProperties": false
+          },
+          "provisioningToolId": { "type": "string", "minLength": 1 },
+          "conflicts": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

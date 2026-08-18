@@ -1,6 +1,11 @@
 import path from 'node:path';
 
 import { assertInsideDir } from '../manifest.js';
+import {
+  assertPluginProviderCatalog,
+  pluginProviderCatalog,
+  pluginProviderForTool,
+} from '../plugin-provider-catalog.js';
 import { projectStateDir } from '../project-layout.js';
 
 import { npmInvocation } from './subprocess.js';
@@ -90,6 +95,10 @@ const toolSpecs = [
   },
 ];
 
+assertPluginProviderCatalog(pluginProviderCatalog, {
+  provisioningToolIds: new Set(toolSpecs.map((spec) => spec.id)),
+});
+
 function resolveToolSpec(spec, targetDir, mode = 'eager') {
   const toolDir = path.resolve(targetDir, spec.relativeDir);
   assertInsideDir(targetDir, toolDir, `${spec.id} tool directory`);
@@ -99,16 +108,8 @@ function resolveToolSpec(spec, targetDir, mode = 'eager') {
 export function createToolProvisioningPlan({ allowPreview = false, profile, resolvedModules, targetDir, toolIds }) {
   let plan = [];
   if (Array.isArray(resolvedModules)) {
-    const moduleByTool = new Map([
-      ['codebaseMemoryMcp', 'codebase-memory'],
-      ['playwrightCli', 'playwright'],
-      ['chromeDevtoolsMcp', 'chrome-devtools'],
-      ['openCodeReview', 'open-code-review'],
-      ['rtk', 'rtk'],
-      ['astGrep', 'ast-grep'],
-    ]);
     plan = toolSpecs
-      .filter((spec) => resolvedModules.includes(moduleByTool.get(spec.id)))
+      .filter((spec) => resolvedModules.includes(pluginProviderForTool(spec.id).moduleId))
       .map((spec) => resolveToolSpec(
         spec,
         targetDir,

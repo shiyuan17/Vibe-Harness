@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "capabilities": [
+    { "id": "shell.output-compression", "description": "Compress high-volume shell command output without changing command semantics." },
+    { "id": "code-search.structural", "description": "Locate source structures through syntax-aware queries." },
+    { "id": "code-intelligence.semantic-graph", "description": "Inspect cross-file symbols, relationships, architecture, and impact through a semantic graph." },
+    { "id": "browser.devtools", "description": "Inspect and control a browser through developer-tools capabilities." },
+    { "id": "browser.automation", "description": "Automate browser interactions through a project-local browser runtime." },
+    { "id": "code-review.automated", "description": "Run an automated code-review provider against project changes." },
+    { "id": "work-management.read-write", "description": "Read and modify work-management data through a remote provider." },
+    { "id": "work-management.read-only", "description": "Read work-management data through a restricted remote provider." }
+  ],
+  "providers": [
+    {
+      "id": "rtk",
+      "cliName": "rtk",
+      "aliases": ["rtk"],
+      "moduleId": "rtk",
+      "capabilities": ["shell.output-compression"],
+      "transport": "cli",
+      "selection": { "includeInAll": true, "allowInProjectConfig": true },
+      "provisioningToolId": "rtk"
+    },
+    {
+      "id": "ast-grep",
+      "cliName": "ast-grep",
+      "aliases": ["ast-grep"],
+      "moduleId": "ast-grep",
+      "capabilities": ["code-search.structural"],
+      "transport": "cli",
+      "selection": { "includeInAll": true, "allowInProjectConfig": true },
+      "provisioningToolId": "astGrep"
+    },
+    {
+      "id": "codebase-memory",
+      "cliName": "codebase-memory-mcp",
+      "aliases": ["codebase-memory-mcp", "codebase-memory"],
+      "moduleId": "codebase-memory",
+      "capabilities": ["code-intelligence.semantic-graph"],
+      "transport": "local-mcp",
+      "selection": { "includeInAll": true, "allowInProjectConfig": true },
+      "provisioningToolId": "codebaseMemoryMcp"
+    },
+    {
+      "id": "chrome-devtools",
+      "cliName": "chrome-devtools-mcp",
+      "aliases": ["chrome-devtools-mcp", "chrome-devtools"],
+      "moduleId": "chrome-devtools",
+      "capabilities": ["browser.devtools"],
+      "transport": "local-mcp",
+      "selection": { "includeInAll": true, "allowInProjectConfig": true },
+      "provisioningToolId": "chromeDevtoolsMcp"
+    },
+    {
+      "id": "playwright",
+      "cliName": "playwright-cli",
+      "aliases": ["playwright-cli", "playwright"],
+      "moduleId": "playwright",
+      "capabilities": ["browser.automation"],
+      "transport": "cli",
+      "selection": { "includeInAll": true, "allowInProjectConfig": true },
+      "provisioningToolId": "playwrightCli"
+    },
+    {
+      "id": "open-code-review",
+      "cliName": "open-code-review",
+      "aliases": ["open-code-review"],
+      "moduleId": "open-code-review",
+      "capabilities": ["code-review.automated"],
+      "transport": "cli",
+      "selection": { "includeInAll": true, "allowInProjectConfig": true },
+      "provisioningToolId": "openCodeReview"
+    },
+    {
+      "id": "linear",
+      "cliName": "linear-mcp",
+      "aliases": ["linear-mcp", "linear"],
+      "moduleId": "linear",
+      "capabilities": ["work-management.read-write"],
+      "transport": "remote-mcp",
+      "selection": { "includeInAll": false, "allowInProjectConfig": false },
+      "conflicts": ["linear-readonly"]
+    },
+    {
+      "id": "linear-readonly",
+      "cliName": "linear-mcp-readonly",
+      "aliases": ["linear-mcp-readonly", "linear-readonly"],
+      "moduleId": "linear-readonly",
+      "capabilities": ["work-management.read-only"],
+      "transport": "remote-mcp",
+      "selection": { "includeInAll": false, "allowInProjectConfig": false },
+      "conflicts": ["linear"]
+    }
+  ]
+}

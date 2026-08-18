@@ -11,7 +11,13 @@ import {
   validateManifestSources,
 } from '../scripts/lib/manifest.js';
 import { resolveAdapterEntry } from '../scripts/lib/adapter.js';
+import { moduleCatalog } from '../scripts/lib/module-selection.js';
 import { validateCapabilityMatrix, validateInstructionBudget, validatePack, validateSelfInstalledArtifacts } from '../scripts/lib/pack-validation.js';
+import {
+  pluginProviderCatalog,
+  validatePluginProviderCatalog,
+} from '../scripts/lib/plugin-provider-catalog.js';
+import { toolSpecs } from '../scripts/lib/tool-provisioning/environment.js';
 
 const rootDir = path.resolve(import.meta.dirname, '..');
 
@@ -27,6 +33,58 @@ test('manifests expose adapters, profiles, rules, and skills', async () => {
 
 test('manifest source files all exist', async () => {
   assert.deepEqual(await validateManifestSources(rootDir, await loadAllManifests(rootDir)), []);
+});
+
+test('plugin provider catalog is valid and matches module, provisioning, and config contracts', async () => {
+  const projectConfigSchema = await readJson(path.join(rootDir, 'schemas/project-config.schema.json'));
+  const options = {
+    moduleIds: new Set(Object.keys(moduleCatalog)),
+    provisioningToolIds: new Set(toolSpecs.map((spec) => spec.id)),
+  };
+
+  assert.deepEqual(validatePluginProviderCatalog(pluginProviderCatalog, options), []);
+  assert.deepEqual(
+    pluginProviderCatalog.providers
+      .filter((provider) => provider.selection.allowInProjectConfig)
+      .map((provider) => provider.moduleId),
+    projectConfigSchema.properties.plugins.items.enum,
+  );
+});
+
+test('plugin provider catalog rejects invalid identities and references', () => {
+  const duplicateAlias = structuredClone(pluginProviderCatalog);
+  duplicateAlias.providers[1].aliases.push(duplicateAlias.providers[0].aliases[0]);
+  assert.match(validatePluginProviderCatalog(duplicateAlias).join('\n'), /Duplicate provider alias/u);
+
+  const unknownCapability = structuredClone(pluginProviderCatalog);
+  unknownCapability.providers[0].capabilities = ['missing.capability'];
+  assert.match(validatePluginProviderCatalog(unknownCapability).join('\n'), /unknown capability/u);
+
+  const asymmetricConflict = structuredClone(pluginProviderCatalog);
+  delete asymmetricConflict.providers.at(-1).conflicts;
+  assert.match(validatePluginProviderCatalog(asymmetricConflict).join('\n'), /conflict must be symmetric/u);
+
+  const duplicateTool = structuredClone(pluginProviderCatalog);
+  duplicateTool.providers[1].provisioningToolId = duplicateTool.providers[0].provisioningToolId;
+  assert.match(validatePluginProviderCatalog(duplicateTool).join('\n'), /Duplicate provisioning tool id/u);
+
+  const invalidTransport = structuredClone(pluginProviderCatalog);
+  invalidTransport.providers[0].transport = 'hook';
+  assert.match(validatePluginProviderCatalog(invalidTransport).join('\n'), /transport/u);
+
+  const unknownModule = structuredClone(pluginProviderCatalog);
+  unknownModule.providers[0].moduleId = 'missing-module';
+  assert.match(
+    validatePluginProviderCatalog(unknownModule, { moduleIds: new Set(Object.keys(moduleCatalog)) }).join('\n'),
+    /unknown module/u,
+  );
+
+  const unknownTool = structuredClone(pluginProviderCatalog);
+  unknownTool.providers[0].provisioningToolId = 'missingTool';
+  assert.match(
+    validatePluginProviderCatalog(unknownTool, { provisioningToolIds: new Set(toolSpecs.map((spec) => spec.id)) }).join('\n'),
+    /unknown provisioning tool/u,
+  );
 });
 
 test('adapter schema requires an explicit goals support level', async () => {
@@ -252,6 +310,10 @@ test('self-installed artifacts must stay in sync with their sources', async () =
   const matched = { ...drifted, entries: [{ ...drifted.entries[0], target: 'docs/schemas/eval-run.schema.json' }] };
   const matchedErrors = await validateSelfInstalledArtifacts(rootDir, adapters, new Map([['synthetic.json', matched]]));
   assert.deepEqual(matchedErrors, []);
+
+  const missing = { ...drifted, entries: [{ ...drifted.entries[0], target: 'docs/schemas/does-not-exist.json' }] };
+  const missingErrors = await validateSelfInstalledArtifacts(rootDir, adapters, new Map([['synthetic.json', missing]]));
+  assert.match(missingErrors.join('\n'), /self-installed artifact is missing/u);
 
   // Sources carrying render placeholders are skipped (source != artifact by design).
   const placeholder = {

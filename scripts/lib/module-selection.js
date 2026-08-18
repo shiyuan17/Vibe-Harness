@@ -1,3 +1,12 @@
+import {
+  assertPluginProviderCatalog,
+  pluginProviderCatalog,
+  pluginProviderForAlias,
+  pluginProviderForId,
+  pluginProviderForModule,
+  pluginProviders,
+} from './plugin-provider-catalog.js';
+
 export const moduleCatalog = {
   agents: { dependencies: [], groups: ['agents', 'agents-index'] },
   rules: { dependencies: [], groups: ['rules-minimal', 'rules-core', 'rules-full'] },
@@ -17,6 +26,8 @@ export const moduleCatalog = {
   hooks: { dependencies: ['agents'], groups: ['hooks'] },
 };
 
+assertPluginProviderCatalog(pluginProviderCatalog, { moduleIds: new Set(Object.keys(moduleCatalog)) });
+
 const profileModules = {
   minimal: ['agents', 'rules', 'templates'],
   core: ['agents', 'rules', 'templates', 'skills', 'evals'],
@@ -26,30 +37,9 @@ const profileModules = {
   'docs-only': ['rules', 'templates', 'schemas'],
 };
 
-export const pluginModules = [
-  'rtk',
-  'ast-grep',
-  'codebase-memory',
-  'chrome-devtools',
-  'playwright',
-  'open-code-review',
-];
-
-const pluginAliases = new Map([
-  ['rtk', 'rtk'],
-  ['ast-grep', 'ast-grep'],
-  ['codebase-memory-mcp', 'codebase-memory'],
-  ['codebase-memory', 'codebase-memory'],
-  ['chrome-devtools-mcp', 'chrome-devtools'],
-  ['chrome-devtools', 'chrome-devtools'],
-  ['playwright-cli', 'playwright'],
-  ['playwright', 'playwright'],
-  ['open-code-review', 'open-code-review'],
-  ['linear-mcp', 'linear'],
-  ['linear', 'linear'],
-  ['linear-mcp-readonly', 'linear-readonly'],
-  ['linear-readonly', 'linear-readonly'],
-]);
+export const pluginModules = pluginProviders
+  .filter((provider) => provider.selection.includeInAll)
+  .map((provider) => provider.moduleId);
 
 export function parseModulesOption(value) {
   if (typeof value !== 'string') throw new Error('--modules requires a comma-separated module list.');
@@ -74,12 +64,24 @@ export function parsePluginsOption(value) {
     return [];
   }
   const plugins = tokens.map((token) => {
-    const plugin = pluginAliases.get(token);
+    const plugin = pluginProviderForAlias(token)?.moduleId;
     if (!plugin) throw new Error(`Unknown plugin: ${token}`);
     return plugin;
   });
   if (new Set(plugins).size !== plugins.length) throw new Error('plugins contains a duplicate plugin.');
   return plugins;
+}
+
+function conflictingProviders(moduleIds) {
+  const selectedProviderIds = new Set(moduleIds
+    .map((moduleId) => pluginProviderForModule(moduleId)?.id)
+    .filter(Boolean));
+  for (const provider of pluginProviders) {
+    if (!selectedProviderIds.has(provider.id)) continue;
+    const conflictId = (provider.conflicts ?? []).find((candidate) => selectedProviderIds.has(candidate));
+    if (conflictId) return [provider, pluginProviderForId(conflictId)];
+  }
+  return null;
 }
 
 function validateModules(requestedModules) {
@@ -122,8 +124,9 @@ export function resolveModuleSelection({
   const plugins = requestedPlugins === undefined || requestedPlugins === null || requestedPlugins.length === 0
     ? []
     : parsePluginsOption(requestedPlugins);
-  if (plugins.includes('linear') && plugins.includes('linear-readonly')) {
-    throw new Error('linear-mcp and linear-mcp-readonly are mutually exclusive.');
+  const conflict = conflictingProviders(plugins);
+  if (conflict) {
+    throw new Error(conflict[0].cliName + ' and ' + conflict[1].cliName + ' are mutually exclusive.');
   }
   if (rtkHooksEnabled && !plugins.includes('rtk')) {
     throw new Error('RTK hook integration requires the rtk plugin. Select --plugin -rtk.');

@@ -24,6 +24,12 @@
 
 6 个工具插件均为项目内、可选且相互独立的能力。`minimal`、`core`、`full` 和 `docs-only` 的默认安装均不包含外部工具；`full` 表示完整治理能力，不表示自动下载工具。
 
+## Capability / Provider Catalog
+
+<code>manifests/plugin-providers.json</code> 统一声明八个可选 provider 的稳定 capability、公开别名、内部 module、transport、选择面、provisioning tool 关联和互斥关系。module 仍负责安装资产组及依赖闭包；provider 负责具体实现身份；capability 是 planner、provisioning、MCP 投影和 Agent 指令消费的边界。
+
+Catalog 是内部实现合同，不新增项目配置或 install-state 字段。现有 <code>plugins</code>、<code>requestedPlugins</code>、<code>resolvedModules</code>、CLI 输出和 schemaVersion 保持不变。CLI、local MCP 与 remote MCP 不共享统一调用接口，也不提供 hybrid provider；各 provider 的版本、命令、错误、权限、fallback 和生命周期仍由专项实现与规则定义。
+
 ## 选择合同
 
 Linear 另有两个需要认证的显式外部集成：linear-mcp 配置读写 endpoint，linear-mcp-readonly 配置 readonly endpoint。两者互斥，只写项目级配置，不保存凭据，也不随 plugin all 展开。Claude 与 Gemini 安装工作流资产并报告手工 MCP 配置；其余六个 adapter 管理 remote server。宿主原生认证不属于安装事务。
