@@ -110,6 +110,26 @@ test('browser verification and Agentmemory remain explicit integrations', async 
   assert.match(combinedAgentsContent, /不计入 profile 的原生领域 Skill 数量/u);
 });
 
+test('Linear integration remains explicit and installs its complete reference closure', async () => {
+  const plain = await createInstallPlan({ dryRun: true, profile: 'full', rootDir, targetDir: path.join(rootDir, '.tmp-skills-linear-plain') });
+  assert.equal(plain.actions.some((entry) => entry.relativeTarget === '.agents/skills/linear-workflow/SKILL.md'), false);
+
+  const linear = await createInstallPlan({
+    dryRun: true,
+    requestedPlugins: ['linear-mcp'],
+    profile: 'core',
+    rootDir,
+    targetDir: path.join(rootDir, '.tmp-skills-linear'),
+  });
+  const targets = new Set(linear.actions.map((entry) => entry.relativeTarget.replaceAll('\\', '/')));
+  for (const reference of ['ai-coding-task.md', 'workspace-setup.md', 'triage-template.md', 'dag-parent.md', 'execution-receipt.md', 'release-issue.md']) {
+    assert.equal(targets.has('.agents/skills/linear-workflow/references/' + reference), true, reference);
+  }
+  assert.equal(targets.has('.agents/skills/linear-workflow/SKILL.md'), true);
+  const agents = linear.actions.find((entry) => entry.relativeTarget === 'AGENTS.md');
+  assert.match(await renderActionContent(agents, linear.renderData), /integration Skills：linear-workflow/u);
+});
+
 test('retirement catalog covers every removed Router and flow Skill', async () => {
   const installMap = await readJson(path.join(rootDir, 'adapters/install-map.json'));
   const retired = new Set(installMap.retiredEntries.map((entry) => entry.target));

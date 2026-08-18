@@ -46,6 +46,14 @@ Codex 的 Hook trust 是宿主状态，不能从项目文件推断。即使文�
 
 RTK 路由仅在 Codex、显式选择 RTK 插件并启用对应设置时生效；安全策略始终先执行。
 
+## Execution Envelope
+
+Execution Envelope 将一次用户请求绑定到 <code>requestId</code>、<code>sessionId</code>、<code>mode</code>、目标 Issue、独立 effect 授权和终止条件。公开合同位于 <code>docs/schemas/execution-envelope.schema.json</code>。Hook 接受宿主注入的 <code>execution_envelope</code> / <code>executionEnvelope</code>，或父进程注入的 <code>VIBE_HARNESS_EXECUTION_ENVELOPE</code>；只有父进程设置 <code>VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED=1</code> 时，无 Envelope 的可写或不可分类调用才会 fail-closed。项目文件和 Agent 不能降低或自行开启这个强制开关。
+
+该控制是可观察 Hook 上的纵深防御，不是常驻宿主状态服务。Vibe-Harness 当前安装器不会声称能够从最新用户消息自行生成、持久化或轮换可信 Envelope，也不会把本地状态文件当作授权根。未提供父进程强制开关、持久 checkpoint 和远程工具拦截的宿主，只获得规则、Skill、Schema 与可观察命令的检查，不能宣称完整宿主级强制。
+
+Hook 能直接绑定 Linear 写入、包含 Issue ID 的 Git 分支、提交、推送命令，以及暴露标题、source branch 或 closing 引用的 PR/MR 写入。看不到目标 Issue 时拒绝执行；MR 正文中普通的非 closing 关联不会被误当成目标。任意解释器、包装脚本、远程 MCP/API、宿主外部写入和真实上下文压缩仍需宿主沙箱、凭据代理、会话存储和 provider 审计独立覆盖。
+
 ## Security boundary and diagnostics
 
 Hooks are defense in depth, not a complete machine-security boundary. Command-string inspection cannot reliably interpret arbitrary PowerShell, Python, Node.js, package-manager, Git, subprocess, or network behavior. File-system isolation, process isolation, approval enforcement, and egress control must be provided and independently verified by the host sandbox and network proxy.

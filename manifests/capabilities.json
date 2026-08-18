@@ -16,7 +16,7 @@
       "source": "human-readable multi-agent dependency and fan-in contract",
       "disposition": "generalize",
       "targets": ["rules/governance-core.md", "rules/ai-collab-rules.md", "templates/task.md", "templates/task.en-US.md"],
-      "tests": ["tests/execution-simplification.test.js", "tests/eval-contract.test.js", "tests/target-validation.test.js"],
+      "tests": ["tests/execution-simplification.test.js", "tests/eval-contract.test.js", "tests/linear-workflow.test.js", "tests/target-validation.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
       "docs": ["docs/rules/governance-core.md", "docs/rules/ai-collab-rules.md", "docs/templates/task.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-online-canary.json"] }
@@ -115,11 +115,21 @@
       "id": "hook-policy",
       "source": "Codex and Git hook policy",
       "disposition": "validator",
-      "targets": ["runtime/hooks/codex-hook.mjs", "runtime/hooks/lib/policy.mjs", "runtime/hooks/lib/context.mjs", "runtime/hooks/lib/rtk.mjs"],
+      "targets": ["runtime/hooks/codex-hook.mjs", "runtime/hooks/lib/execution-envelope.mjs", "runtime/hooks/lib/policy.mjs", "runtime/hooks/lib/context.mjs", "runtime/hooks/lib/rtk.mjs"],
       "tests": ["tests/hook-runtime.test.js"],
       "profiles": ["full"],
       "docs": ["docs/hooks.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-core.json", "evals/suites/vibe-harness-online-canary.json"] }
+    },
+    {
+      "id": "execution-envelope-contract",
+      "source": "request-scoped execution authority, recovery checkpoint, and observable Hook enforcement",
+      "disposition": "validator",
+      "targets": ["schemas/execution-envelope.schema.json", "runtime/hooks/lib/execution-envelope.mjs", "runtime/hooks/codex-hook.mjs", "rules/governance-core.md", "rules/linear-workflow.md", "skills/integrations/linear-workflow/SKILL.md", "adapters/install-map.json"],
+      "tests": ["tests/hook-runtime.test.js", "tests/hook-installation.test.js", "tests/execution-simplification.test.js", "tests/linear-workflow.test.js", "tests/eval-governance-metrics.test.js", "tests/eval-runner.test.js"],
+      "profiles": ["minimal", "core", "full", "docs-only"],
+      "docs": ["docs/adr/ADR-0002-linear-execution-envelope-and-recovery.md", "docs/specs/linear-multi-agent-workflow-spec.md", "docs/schemas/execution-envelope.schema.json", "docs/hooks.md"],
+      "evaluation": { "required": true, "suites": ["evals/suites/linear-workflow-online.json"] }
     },
     {
       "id": "docs-governance",
@@ -135,8 +145,8 @@
       "id": "tool-provisioning",
       "source": "project-local tool provisioning",
       "disposition": "validator",
-      "targets": ["scripts/vibe-harness.js", "scripts/lib/module-selection.js", "scripts/lib/tool-provisioning.js", "scripts/lib/runtime-audit.js", "manifests/profiles.json", "runtime/tools/chrome-devtools-mcp/package-lock.json", "runtime/tools/ast-grep/package-lock.json", "runtime/tools/rtk/package-lock.json", "runtime/tools/rtk/run.mjs"],
-      "tests": ["tests/tool-provisioning.test.js", "tests/runtime-audit.test.js", "tests/tooling-modules.test.js"],
+      "targets": ["scripts/vibe-harness.js", "scripts/lib/module-selection.js", "scripts/lib/plugin-provider-catalog.js", "scripts/lib/tool-provisioning.js", "scripts/lib/runtime-audit.js", "manifests/plugin-providers.json", "manifests/profiles.json", "schemas/plugin-provider-catalog.schema.json", "runtime/tools/chrome-devtools-mcp/package-lock.json", "runtime/tools/ast-grep/package-lock.json", "runtime/tools/rtk/package-lock.json", "runtime/tools/rtk/run.mjs"],
+      "tests": ["tests/manifest-schema.test.js", "tests/tool-provisioning.test.js", "tests/runtime-audit.test.js", "tests/tooling-modules.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
       "docs": ["docs/architecture.md", "docs/specs/vibe-harness-tooling-modules-spec.md"],
       "evaluation": { "required": false, "reason": "Provisioning ownership, command flags, and dependency audits are deterministic lifecycle checks." }
@@ -145,8 +155,8 @@
       "id": "explicit-tool-plugin-selection",
       "source": "explicit project-local tool plugin selection",
       "disposition": "validator",
-      "targets": ["scripts/vibe-harness.js", "scripts/lib/module-selection.js", "scripts/lib/install-planner.js", "scripts/lib/tool-provisioning.js", "manifests/profiles.json"],
-      "tests": ["tests/module-selection.test.js", "tests/tool-provisioning.test.js", "tests/tooling-modules.test.js"],
+      "targets": ["scripts/vibe-harness.js", "scripts/lib/module-selection.js", "scripts/lib/plugin-provider-catalog.js", "scripts/lib/install-planner.js", "scripts/lib/tool-provisioning.js", "manifests/plugin-providers.json", "manifests/profiles.json", "schemas/plugin-provider-catalog.schema.json"],
+      "tests": ["tests/manifest-schema.test.js", "tests/module-selection.test.js", "tests/tool-provisioning.test.js", "tests/tooling-modules.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
       "docs": ["README.md", "README.en.md", "docs/architecture.md", "docs/migration-guide.md", "docs/specs/vibe-harness-tooling-modules-spec.md"],
       "evaluation": { "required": false, "reason": "Plugin aliases, dependency closure, persistence, and zero-tool profile defaults are deterministic installer contracts." }
@@ -213,12 +223,12 @@
     },
     {
       "id": "linear-multi-agent-workflow",
-      "source": "Linear issue delegation, workflow, GitHub automation, and remote MCP integration",
+      "source": "Explicit Linear issue delegation, append-only execution receipts, native DAG relations, GitHub/GitLab automation, and remote MCP integration",
       "disposition": "generalize",
-      "targets": ["rules/linear-workflow.md", "skills/integrations/linear-workflow/SKILL.md", "scripts/lib/install-planner.js", "scripts/lib/tool-provisioning/managed-blocks.js"],
-      "tests": ["tests/linear-workflow.test.js", "tests/module-selection.test.js", "tests/skill-closure.test.js"],
+      "targets": ["rules/linear-workflow.md", "rules/ai-collab-rules.md", "skills/integrations/linear-workflow/SKILL.md", "skills/integrations/linear-workflow/references/ai-coding-task.md", "skills/integrations/linear-workflow/references/dag-parent.md", "skills/integrations/linear-workflow/references/execution-receipt.md", "skills/integrations/linear-workflow/references/release-issue.md", "skills/integrations/linear-workflow/references/triage-template.md", "skills/integrations/linear-workflow/references/workspace-setup.md", "adapters/install-map.json"],
+      "tests": ["tests/linear-workflow.test.js", "tests/execution-simplification.test.js", "tests/module-selection.test.js", "tests/skill-closure.test.js", "tests/target-validation.test.js"],
       "profiles": [],
-      "docs": ["docs/specs/linear-multi-agent-workflow-spec.md"],
+      "docs": ["docs/specs/linear-multi-agent-workflow-spec.md", "docs/rules/linear-workflow.md", "docs/rules/ai-collab-rules.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/linear-workflow-online.json"] }
     },
     {

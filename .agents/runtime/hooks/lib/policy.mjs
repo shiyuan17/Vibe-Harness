@@ -67,6 +67,8 @@ export function normalizeCodexHookInput(value) {
     toolInput: value.tool_input,
     toolName: value.tool_name,
   };
+  if (Object.hasOwn(value, 'execution_envelope')) normalized.executionEnvelope = value.execution_envelope;
+  else if (Object.hasOwn(value, 'executionEnvelope')) normalized.executionEnvelope = value.executionEnvelope;
   return normalized;
 }
 
@@ -94,7 +96,7 @@ export function normalizeHostHookInput(value, { expectedEvent, fallbackCwd, host
     if (!event) throw new Error('Unsupported antigravity hook event.');
     const cwd = value.toolCall?.args?.Cwd ?? value.toolCall?.args?.cwd ?? value.workspacePaths?.[0] ?? fallbackCwd;
     if (typeof cwd !== 'string' || cwd.length === 0) throw new Error('antigravity hook input workspace path is required.');
-    return {
+    const normalized = {
       cwd,
       event,
       permissionMode: value.permissionMode,
@@ -102,6 +104,9 @@ export function normalizeHostHookInput(value, { expectedEvent, fallbackCwd, host
       toolInput: value.toolCall?.args ?? {},
       toolName: value.toolCall?.name ?? '',
     };
+    if (Object.hasOwn(value, 'execution_envelope')) normalized.executionEnvelope = value.execution_envelope;
+    else if (Object.hasOwn(value, 'executionEnvelope')) normalized.executionEnvelope = value.executionEnvelope;
+    return normalized;
   }
   if (!['cursor', 'qoder', 'zcode', 'claude'].includes(host)) throw new Error(`Unsupported hook host: ${String(host)}`);
   assertObject(value, `${host} hook input`);
@@ -112,7 +117,7 @@ export function normalizeHostHookInput(value, { expectedEvent, fallbackCwd, host
   const cwd = value.cwd ?? value.workspaceRoot ?? value.workspace_root ?? value.projectRoot ?? value.project_root ?? fallbackCwd;
   if (typeof cwd !== 'string' || cwd.length === 0) throw new Error(`${host} hook input.cwd is required.`);
   const toolInput = value.tool_input ?? value.toolInput ?? value.tool?.input ?? value.tool?.arguments ?? value.arguments ?? value.input ?? {};
-  return {
+  const normalized = {
     cwd,
     event,
     permissionMode: value.permission_mode ?? value.permissionMode,
@@ -120,6 +125,9 @@ export function normalizeHostHookInput(value, { expectedEvent, fallbackCwd, host
     toolInput: typeof toolInput === 'string' ? { command: toolInput } : toolInput,
     toolName: value.tool_name ?? value.toolName ?? value.tool?.name ?? value.name ?? '',
   };
+  if (Object.hasOwn(value, 'execution_envelope')) normalized.executionEnvelope = value.execution_envelope;
+  else if (Object.hasOwn(value, 'executionEnvelope')) normalized.executionEnvelope = value.executionEnvelope;
+  return normalized;
 }
 
 function isInside(baseDir, candidate) {

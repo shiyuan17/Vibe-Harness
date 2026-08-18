@@ -1,18 +1,36 @@
-# GitHub 可靠交付配置
+# GitHub 三层分支与可靠交付配置
 
 仓库 workflow 提供稳定的 merge-gate、发布前验证、真实 tarball、SHA256、release evidence 和 GitHub build provenance。GitHub 仓库设置仍需管理员应用，不能由仓库文件自动生效。
+
+## Develop ruleset
+
+从干净且最新的 <code>origin/main</code> 创建 <code>develop</code> 后，将 GitHub 默认分支切换到 <code>develop</code>：
+
+- 只允许 Pull Request；required status check 选择 <code>merge-gate</code>。
+- 普通 <code>feat/*</code> 与 <code>fix/*</code> 使用 squash merge；合并后删除任务分支。
+- 低/中风险 PR 不强制人工审批，可由作者启用 auto-merge；公共契约、schema、installer、runtime/hook、安全、红区或发布变更要求一个非作者批准。
+- 任务分支目标存活不超过约两个工作日；更大工作使用拆分或 feature flag，而非长期共享 feature 分支。
 
 ## Main ruleset
 
 为 main 创建 active ruleset，并配置：
 
-- 只允许通过 Pull Request 合并，要求分支基于最新 main。
+- 只允许同仓库的 <code>develop</code>、<code>hotfix/*</code> 和 <code>release-please--branches--main*</code> 通过 Pull Request 合并，要求分支基于最新 main。
 - required status check 只选择 merge-gate，启用 strict / require branches to be up to date。
-- 要求解决全部对话并使用线性历史。
+- 要求解决全部对话。普通任务不得直达 main；<code>develop → main</code> 发布提升必须使用 merge commit，保留任务提交。
 - 禁止 force push 和分支删除。
 - 当前不要求 reviewer 或 CODEOWNERS；有非作者写权限协作者后再启用高风险 owner review。
 
 失败 check 会使 merge-gate 失败；PR 新提交会生成新的 check suite，旧 SHA 的结果不能满足最新提交。
+
+## 迁移顺序与回同步
+
+1. 先固定 release-please 的 <code>target-branch: main</code>，部署分支来源检查和 develop/main 两级门禁。
+2. 从干净且最新的 <code>origin/main</code> 创建 <code>develop</code>，应用 ruleset，再切换默认分支；不得使用带未提交改动的工作区创建基线。
+3. 将开放的非发布 PR 改为目标 <code>develop</code>；release-please PR 保持目标 <code>main</code>。
+4. 发布后创建 <code>main → develop</code> PR 并请求 auto-merge；失败时阻止 Release Issue Done 并人工处理冲突。
+
+hotfix 从 <code>main</code> 创建并先合入 <code>main</code>。其合并立即触发同一回同步流程，确保正式线修复不会在下一次 develop 提升时丢失。
 
 ## Release token
 

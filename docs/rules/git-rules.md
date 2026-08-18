@@ -2,6 +2,8 @@
 
 Git 规则的目标是保护用户改动、保持提交可审查，并确保 worktree 任务真正 merge-back。
 
+默认分支模型为 <code>feat/*、fix/* → develop → main</code>，紧急修复为 <code>hotfix/* → main → develop</code>。普通任务 PR 使用 squash merge；<code>develop → main</code> 的发布提升与 <code>main → develop</code> 的回同步使用 merge commit。<code>main</code> 只接受同仓库 <code>develop</code>、<code>hotfix/*</code> 和 release-please 的 PR，不使用长期 <code>release/*</code> 分支。
+
 ## 启动与归属
 
 - 编辑前运行 <code>git status --short</code>；SVN 工作副本运行 <code>svn status</code>。
@@ -10,6 +12,8 @@ Git 规则的目标是保护用户改动、保持提交可审查，并确保 wor
 - 分批交付前再次检查 working tree 和 staged diff，明确包含、排除、验证、风险和回滚方式。
 
 ## 提交授权
+
+当前请求必须按 Execution Envelope 分别授权 <code>workspaceWrite</code>、<code>gitBranch</code>、<code>gitCommit</code>、<code>gitPush</code>、<code>mergeRequestWrite</code> 和 <code>credentialUse</code>。任一 effect 都不隐含其他 effect：实现授权不等于建分支、提交、推送或创建 PR/MR，提交授权也不等于推送或创建 PR/MR；<code>forbiddenEffects</code> 始终优先。
 
 Vibe-Harness 不通过 Stop Hook、运行时脚本或任何默认流程自动执行 <code>git commit</code> 或 <code>git push</code>。提交和推送必须由用户在当前任务中明确授权；显式调用 `$git-deliver` 或明确指定该 Skill，视为对当前仓库、当前任务相关改动的分组提交和当前分支普通推送授权。没有授权时只报告 working tree 状态和建议命令。
 
@@ -31,12 +35,18 @@ Vibe-Harness 不通过 Stop Hook、运行时脚本或任何默认流程自动执
 - main、master、develop、release、仓库识别出的保护或共享分支不得由 `$git-deliver` 自动推送。强制推送、删除远端引用和历史重写不属于该 Skill 授权范围。
 - 未获提交授权时，不得把未提交状态描述为失败；应交付改动清单和验证证据。
 
-## 分支与 PR
+## 分支与 PR/MR
 
 - 默认分支名使用 <code>&lt;type&gt;/&lt;short-topic&gt;</code>；已有任务分支或用户指定分支优先。
 - main、master、develop、release 和其他共享分支上的提交与推送遵循仓库保护和人工审批。
-- PR 包含摘要、风险、验证、回滚和审查备注；高风险 PR 说明红区确认和独立审查状态。
-- Linear 工作流下分支和 PR 保留 Issue ID；closing 词只用于 closing PR。
+- PR/MR 包含摘要、风险、验证、回滚和审查备注；高风险 PR/MR 说明红区确认和独立审查状态。
+- Linear 工作流下必须给出可解析的精确目标远端 ref；只有解析结果确为仓库默认分支时才可写“默认分支”。开始实现前记录目标 ref 和 base SHA，分支与 worktree 必须从该基线创建。
+- Linear 普通任务默认以 <code>origin/develop</code> 为基线；只有 hotfix 以 <code>origin/main</code> 为基线。发布提升和回同步使用 <code>Refs &lt;ISSUE-ID&gt;</code>，不得用 closing magic word 重复关闭已完成开发 Issue。
+- 顺序执行且工作区干净时，任务分支可在当前 clone 创建；并发 Agent、脏工作区、存在无关改动或明确要求隔离时，必须使用仓库外 worktree。该优化不改变“一任务一分支一 closing PR/MR”。
+- 创建 PR/MR 前重新读取远端目标 ref 和 source HEAD，校验提供方所选 base 等于已声明目标 ref，并计算 merge-base。merge-base 必须等于冻结 base SHA，或是该 SHA 在同一目标 ref 历史上的已验证后代；否则停止创建并报告基线不一致。
+- GitHub PR 与 GitLab MR 的标题、source、target、描述和 closing 语义都必须在创建后重读确认。Linear 分支和标题保留 Issue ID；closing 描述使用 <code>Fixes &lt;ISSUE-ID&gt;</code>，只有提供方配置并经重读确认的等价语法才可替代；closing 词不放在 commit 中。
+
+Git credential helper 只可由其已配置的 Git transport 透明调用。仅有 Git transport 授权时不得读取、解析或转用 helper 输出进行网页或 API 登录；此类转换必须另有 <code>credentialUse</code> 与对应外部写入授权。Agent 不得把 helper 输出或原始凭据写入文件，credential query、包装脚本或其他辅助文件也不得写入仓库或 worktree。
 
 ## Git Hooks
 
@@ -57,7 +67,7 @@ Vibe-Harness 自身使用 Conventional Commits、pre-commit、pre-push、lint �
 
 ## 完成定义
 
-- 采纳的 worktree 提交必须合并回声明的目标分支。
+- 采纳的 worktree 提交必须合并回声明的精确目标 ref。
 - 目标分支未包含 merge-back 结果、验证早于最后一次实质修改或存在未解释改动时，不得宣称完成。
 - 工具不可用时只给出分组清单和命令建议，不声称已经提交、推送或合并。
 

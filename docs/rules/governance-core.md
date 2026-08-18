@@ -5,7 +5,7 @@
 所有任务使用同一路径：`获取事实 → 直接执行 → 聚焦验证 → 简洁交付`。
 
 1. 先读取项目规则、工作区状态和相关实现；能从仓库、测试和公开契约得到的事实不询问用户。
-2. 对清晰、已授权、可逆的本地工作直接实施最小改动；不附加固定流程或测试矩阵。一句话能描述的 diff 直接执行，不规划；仅在方向未定、跨多文件或不熟悉代码时先规划。
+2. 对清晰、已授权、可逆的本地工作直接实施最小改动；不附加固定流程或测试矩阵。一句话能描述的 diff 直接执行，不规划；仅在方向未定、跨多文件或不熟悉代码时先规划。任何写入前形成当前请求的逻辑 Execution Envelope，至少含 requestId、sessionId、mode、targetIssueIds、allowedEffects、forbiddenEffects、terminalCondition 和 activeObjective；mode 仅为 inspect、plan、linear-sync、execute、monitor，effect 仅为 linearWrite、workspaceWrite、gitBranch、gitCommit、gitPush、mergeRequestWrite、credentialUse 且分别授权，forbiddenEffects 优先。inspect/plan 只读；linear-sync 只允许明确的 Linear 写入；execute 只执行已授权 effect；monitor 写 effect ceiling 为空且须有终点或时间边界。
 3. 验证范围必须与完成主张匹配。每个有实质修改的任务先按变更类型选择项目已定义的聚焦检查；聚焦测试只证明受影响行为，失败不得通过降低断言绕过。若检查失败后继续修复，必须在最后一次实质修改后的状态重跑同一检查，或在交付中记录覆盖同一受影响行为的等价检查及理由；handoff 只引用晚于最后一次实质修改的结果。
 4. 交付只报告结果、实际变更和本轮验证。需要区分证据强度时使用人读标签：**已确认事实**（当前源码、测试、命令输出或实际产物直接支持）、**静态结论**（由代码、配置或公开契约推导，未证明运行时行为）、**待验证假设**（尚未验证，不能支撑完成声明）、**验证受阻**（工具、权限、网络、超时或环境导致检查未有效执行，不得据此推断产品通过或失败）。标签不形成机器状态、完成门禁或固定交付格式；仅在存在时补充未验证项、风险或后续动作。
 
@@ -31,9 +31,9 @@
 ## 硬边界
 
 - 编辑前检查工作区并保护用户未归属改动。
-- 只在授权范围内行动；生产、权限、凭据、外部写入、红区、破坏性或不可逆操作和范围扩大先获人工确认。密码、Secret、Token、Cookie、验证码、认证头、会话标识和个人敏感数据不得进入回复、日志、错误、快照、Eval、任务记录或持久记忆；任务确需引用时只保留最小脱敏上下文。
-- 不编造事实、命令结果或完成证据；没有本轮有效验证不得声称完成。
-- 同一失败连续三次且没有有效进展时，先换策略或换粒度重试，仍无进展则停止并报告阻塞。
+- 只在授权范围内行动；生产、权限、凭据、外部写入、红区、破坏性或不可逆操作和范围扩大先获人工确认。Ready、Todo、依赖满足或队列可见不是执行授权；达到 terminalCondition 后无新输入或宿主显式启动时不得执行下一节点。密码、Secret、Token、Cookie、验证码、认证头、会话标识和个人敏感数据不得进入回复、日志、错误、快照、Eval、任务记录或持久记忆；任务确需引用时只保留最小脱敏上下文。
+- 不编造事实、命令结果或完成证据；没有本轮有效验证不得声称完成。压缩、恢复、重试或重连不扩大授权；checkpoint 保留 requestId、mode、activeObjective、当前目标、allowedEffects、forbiddenEffects、terminalCondition、completedFacts、noRepeatSet、nextAction、liveStates、blockerFingerprint、dagStructureHash 及提供方支持时的可选 dagChangeCursor。最新用户意图和实时事实优先；恢复后首个写调用前重新核对，无法可靠恢复时仅只读，不把任务 Markdown、记忆或旧摘要当授权。
+- 同一失败连续三次且没有有效进展时，先换策略或换粒度重试，仍无进展则停止并报告阻塞。Vibe-Harness 只交付合同，不假定宿主有常驻状态服务或完整 Hook enforcement；有结构化状态的宿主持久化 envelope/checkpoint，否则由 Agent fail-closed。Hook 只约束可观察调用，不能证明未暴露远程工具安全。
 
 ## 任务与协作
 

@@ -94,3 +94,23 @@ test('capability catalog and online canary register lightweight Task DAG coverag
   ]);
   assert.equal(cases.every((item) => item.risk === 'critical' && item.repetitions === 3), true);
 });
+
+test('Linear projection preserves native DAG dependency and fan-in semantics', async () => {
+  const [collaboration, linear] = await Promise.all([
+    readFile(path.join(rootDir, 'rules/ai-collab-rules.md'), 'utf8'),
+    readFile(path.join(rootDir, 'rules/linear-workflow.md'), 'utf8'),
+  ]);
+  for (const field of ['kind', 'trigger', 'resourceLocks']) {
+    assert.match(linear, new RegExp(field, 'u'));
+  }
+  assert.match(linear, /Parent\/Sub-issue 只表示分解，不隐含顺序/u);
+  assert.match(linear, /blocked-by \/ blocks 是唯一执行依赖/u);
+  assert.match(linear, /all_done.*不能把失败 DAG 或 Root 判为成功/u);
+  assert.match(linear, /Scope 是 writeScope 的 Linear 投影/u);
+  assert.match(linear, /Windows 比较忽略大小写/u);
+  assert.match(linear, /Scope 重叠或 resourceLocks 相同/u);
+  assert.match(linear, /Fan-in Verification/u);
+  assert.match(linear, /Parent.*不得 Done/u);
+  assert.match(collaboration, /all_done.*不得把失败图改判为成功/u);
+  assert.match(collaboration, /相同 resourceLocks.*唯一节点负责写入/u);
+});

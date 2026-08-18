@@ -524,7 +524,7 @@ function normalizeLineEndings(value) {
 // self-installed artifact must stay byte-identical (modulo line endings) to
 // the source. This catches drift such as a schema gaining a field in `schemas/`
 // but the rendered copy in `docs/schemas/` not being regenerated.
-export async function validateSelfInstalledArtifacts(rootDir, adapters, installMaps) {
+export async function validateSelfInstalledArtifacts(rootDir, adapters, installMaps, { requiredGroups = null } = {}) {
   const errors = [];
   const codex = adapters.items.find((item) => item.id === 'codex');
   if (!codex) return errors;
@@ -549,8 +549,9 @@ export async function validateSelfInstalledArtifacts(rootDir, adapters, installM
     try {
       targetContent = await readFile(targetPath, 'utf8');
     } catch {
-      // The artifact is absent in this repository (e.g. a plugin not enabled
-      // for the self-install). Nothing to compare against.
+      if (requiredGroups === null || requiredGroups.has(rawEntry.group)) {
+        errors.push('self-installed artifact is missing: ' + entry.source + ' -> ' + entry.target);
+      }
       continue;
     }
     if (normalizeLineEndings(sourceContent) !== normalizeLineEndings(targetContent)) {
@@ -675,7 +676,10 @@ export async function validatePack(rootDir) {
     rootDir,
   });
   const documentation = await validateDocumentation({ rootDir });
-  const selfInstallErrors = await validateSelfInstalledArtifacts(rootDir, manifests.adapters, installMaps);
+  const fullProfileGroups = new Set(manifests.profiles.items.find((item) => item.id === 'full')?.groups ?? []);
+  const selfInstallErrors = await validateSelfInstalledArtifacts(rootDir, manifests.adapters, installMaps, {
+    requiredGroups: fullProfileGroups,
+  });
   const instructionBudget = await validateInstructionBudget(rootDir);
 
   return {

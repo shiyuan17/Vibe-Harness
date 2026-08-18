@@ -224,6 +224,12 @@
       "contentStrategy": "replace"
     },
     {
+      "group": "schemas-core",
+      "source": "schemas/execution-envelope.schema.json",
+      "target": "docs/schemas/execution-envelope.schema.json",
+      "contentStrategy": "replace"
+    },
+    {
       "group": "runtime-eval",
       "source": "runtime/evals/run.mjs",
       "target": ".agents/runtime/evals/run.mjs",
@@ -524,6 +530,24 @@
     },
     {
       "group": "skills-linear",
+      "source": "skills/integrations/linear-workflow/references/dag-parent.md",
+      "target": ".agents/skills/linear-workflow/references/dag-parent.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-linear",
+      "source": "skills/integrations/linear-workflow/references/execution-receipt.md",
+      "target": ".agents/skills/linear-workflow/references/execution-receipt.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-linear",
+      "source": "skills/integrations/linear-workflow/references/release-issue.md",
+      "target": ".agents/skills/linear-workflow/references/release-issue.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-linear",
       "source": "skills/integrations/linear-workflow/references/workspace-setup.md",
       "target": ".agents/skills/linear-workflow/references/workspace-setup.md",
       "contentStrategy": "replace"
@@ -538,6 +562,24 @@
       "group": "templates-linear",
       "source": "skills/integrations/linear-workflow/references/ai-coding-task.md",
       "target": "docs/templates/linear/ai-coding-task.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "templates-linear",
+      "source": "skills/integrations/linear-workflow/references/dag-parent.md",
+      "target": "docs/templates/linear/dag-parent.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "templates-linear",
+      "source": "skills/integrations/linear-workflow/references/execution-receipt.md",
+      "target": "docs/templates/linear/execution-receipt.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "templates-linear",
+      "source": "skills/integrations/linear-workflow/references/release-issue.md",
+      "target": "docs/templates/linear/release-issue.md",
       "contentStrategy": "replace"
     },
     {
@@ -756,6 +798,12 @@
       "group": "hooks",
       "source": "runtime/hooks/lib/context.mjs",
       "target": ".agents/runtime/hooks/lib/context.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "hooks",
+      "source": "runtime/hooks/lib/execution-envelope.mjs",
+      "target": ".agents/runtime/hooks/lib/execution-envelope.mjs",
       "contentStrategy": "replace"
     },
     {

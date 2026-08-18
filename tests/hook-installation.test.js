@@ -97,6 +97,7 @@ test('full installs safety Hook runtime while core does not', async () => {
     '.codex/hooks.json',
     '.agents/runtime/hooks/codex-hook.mjs',
     '.agents/runtime/hooks/lib/context.mjs',
+    '.agents/runtime/hooks/lib/execution-envelope.mjs',
     '.agents/runtime/hooks/lib/policy.mjs',
     '.githooks/pre-commit',
     '.githooks/pre-push',

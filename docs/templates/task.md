@@ -24,6 +24,8 @@
 
 > 两个以上协作单元存在顺序依赖、并行写入或共享契约时填写；该表不由 Vibe-Harness 解析或作为完成门禁。
 
+> Linear 映射时 dependsOn 只从原生 blocked-by / blocks 关系派生；Parent/Sub-issue 和 related 不产生执行边。writeScope 只接受精确项目相对路径或目录范围；冲突 Scope / resourceLocks 必须已有依赖顺序，all_done 只用于 aggregate，不能把失败 Root 判为成功。
+
 | id | kind（read / write / aggregate） | output | dependsOn | trigger（all_success / all_done） | writeScope | resourceLocks | verification | result |
 |---|---|---|---|---|---|---|---|---|
 |  |  |  |  |  |  |  |  |  |

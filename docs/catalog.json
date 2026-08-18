@@ -550,6 +550,39 @@
       ]
     },
     {
+      "path": "docs/adr/ADR-0001-linear-explicit-execution-and-dag.md",
+      "kind": "architecture",
+      "status": "current",
+      "language": "en",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
+    },
+    {
+      "path": "docs/adr/ADR-0002-linear-execution-envelope-and-recovery.md",
+      "kind": "architecture",
+      "status": "current",
+      "language": "en",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
+    },
+    {
+      "path": "docs/adr/ADR-0003-lightweight-gitflow.md",
+      "kind": "architecture",
+      "status": "current",
+      "language": "en",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
+    },
+    {
       "path": "docs/adr/catalog.json",
       "kind": "index",
       "status": "current",
@@ -565,6 +598,20 @@
     },
     {
       "path": "schemas/adr.schema.json",
+      "kind": "spec",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer"]
+    },
+    {
+      "path": "docs/schemas/execution-envelope.schema.json",
+      "kind": "spec",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer", "auditor"]
+    },
+    {
+      "path": "schemas/execution-envelope.schema.json",
       "kind": "spec",
       "status": "current",
       "language": "en",

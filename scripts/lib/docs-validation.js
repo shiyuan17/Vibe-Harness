@@ -133,13 +133,15 @@ export async function collectGovernedPaths(rootDir) {
   const rootFiles = (await readdir(rootDir, { withFileTypes: true }))
     .filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
     .map((entry) => entry.name);
-  const adrAssets = [
+  const governedAssets = [
     'docs/adr/catalog.json',
     'docs/schemas/adr.schema.json',
+    'docs/schemas/execution-envelope.schema.json',
     'schemas/adr.schema.json',
+    'schemas/execution-envelope.schema.json',
     'templates/adr/adr-template.md',
   ];
-  return [...rootFiles, ...await collectMarkdown(path.join(rootDir, 'docs'), rootDir), ...adrAssets].sort();
+  return [...rootFiles, ...await collectMarkdown(path.join(rootDir, 'docs'), rootDir), ...governedAssets].sort();
 }
 
 function extractLocalLinks(content) {
@@ -529,9 +531,13 @@ async function validateDocumentationUnchecked({ catalog, rootDir, today = new Da
       continue;
     }
     const fullPath = path.join(rootDir, relativePath);
-    if (!(await pathExists(fullPath))) continue;
+    if (!(await pathExists(fullPath))) {
+      errors.push('catalog documentation does not exist: ' + relativePath);
+      continue;
+    }
     const content = await readFile(fullPath, 'utf8');
     const enforceCurrent = !historicalStatuses.has(item.status);
+    if (!relativePath.endsWith('.md')) continue;
     errors.push(...await validateCurrentDocumentContent({ content, enforceCurrent, file: relativePath, rootDir, today }));
 
     const marker = expectedStatusMarker(item);

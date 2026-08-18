@@ -4,6 +4,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
+  collectGovernedPaths,
   validateDocumentation,
   validateReadmeParity,
   validateRulesParity,
@@ -15,6 +16,31 @@ const rootDir = path.resolve(import.meta.dirname, '..');
 test('documentation catalog covers current and archived Markdown', async () => {
   const report = await validateDocumentation({ rootDir });
   assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+});
+
+test('execution envelope schemas are governed without Markdown false positives', async () => {
+  const governedPaths = await collectGovernedPaths(rootDir);
+  assert.ok(governedPaths.includes('docs/schemas/execution-envelope.schema.json'));
+  assert.ok(governedPaths.includes('schemas/execution-envelope.schema.json'));
+
+  const report = await validateDocumentation({ rootDir });
+  const schemaErrors = report.errors.filter((error) => error.includes('execution-envelope.schema.json'));
+  assert.deepEqual(schemaErrors, []);
+});
+
+test('cataloged non-Markdown assets must exist', async () => {
+  const catalog = JSON.parse(await readFile(path.join(rootDir, 'docs/catalog.json'), 'utf8'));
+  const missingPath = 'schemas/does-not-exist.schema.json';
+  catalog.items.push({
+    path: missingPath,
+    kind: 'spec',
+    status: 'current',
+    language: 'en',
+    audiences: ['maintainer'],
+  });
+
+  const report = await validateDocumentation({ catalog, rootDir });
+  assert.ok(report.errors.includes('catalog documentation does not exist: ' + missingPath));
 });
 
 test('Primary and secondary README expose the same commands and configuration', async () => {

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { findProjectRoot, readHookSettings } from './lib/context.mjs';
+import { evaluateExecutionEnvelope } from './lib/execution-envelope.mjs';
 import { analyzeToolRequest, createHostHookResult, normalizeHostHookInput } from './lib/policy.mjs';
 import { inspectRtkHook, routeRtkCommand } from './lib/rtk.mjs';
 
@@ -70,7 +71,13 @@ async function readStdin() {
   }
 }
 
-export async function evaluateHook(rawInput, { expectedEvent, host = 'codex', rtkRunner } = {}) {
+export async function evaluateHook(rawInput, {
+  environment = process.env,
+  expectedEvent,
+  host = 'codex',
+  now,
+  rtkRunner,
+} = {}) {
   const startedAt = process.hrtime.bigint();
   const elapsedMs = () => Number((process.hrtime.bigint() - startedAt) / 1_000_000n);
   let input;
@@ -91,7 +98,10 @@ export async function evaluateHook(rawInput, { expectedEvent, host = 'codex', rt
   }
   const rootDir = await findProjectRoot(input.cwd);
   const settings = await readHookSettings(rootDir);
-  if (settings.mode === 'off') return {};
+  const envelopeConfigured = Object.hasOwn(input, 'executionEnvelope')
+    || Object.hasOwn(environment, 'VIBE_HARNESS_EXECUTION_ENVELOPE')
+    || environment.VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED === '1';
+  if (settings.mode === 'off' && !envelopeConfigured) return {};
 
   const safetyDecision = analyzeToolRequest(input, {
     allowedWriteRoots: settings.allowedWriteRoots,
@@ -100,6 +110,16 @@ export async function evaluateHook(rawInput, { expectedEvent, host = 'codex', rt
     projectRoot: rootDir,
     redZonePaths: settings.redZonePaths,
   });
+  if (safetyDecision.action === 'deny') {
+    return createHostHookResult(host, input.event, safetyDecision, { durationMs: elapsedMs() });
+  }
+  const envelopeDecision = evaluateExecutionEnvelope(input, {
+    environment,
+    ...(now === undefined ? {} : { now }),
+  });
+  if (envelopeDecision.action !== 'allow') {
+    return createHostHookResult(host, input.event, envelopeDecision, { durationMs: elapsedMs() });
+  }
   if (safetyDecision.action !== 'allow' || input.event === 'PermissionRequest') {
     return createHostHookResult(host, input.event, safetyDecision, { durationMs: elapsedMs() });
   }

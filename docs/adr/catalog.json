@@ -1,4 +1,17 @@
 {
   "schemaVersion": 1,
-  "items": []
+  "items": [
+    {
+      "id": "ADR-0001",
+      "path": "docs/adr/ADR-0001-linear-explicit-execution-and-dag.md"
+    },
+    {
+      "id": "ADR-0002",
+      "path": "docs/adr/ADR-0002-linear-execution-envelope-and-recovery.md"
+    },
+    {
+      "id": "ADR-0003",
+      "path": "docs/adr/ADR-0003-lightweight-gitflow.md"
+    }
+  ]
 }

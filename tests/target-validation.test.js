@@ -89,3 +89,37 @@ test('CLI validate --project passes after a real install and reports Chinese tem
     await rm(target, { force: true, recursive: true });
   }
 });
+
+test('Linear plugin install validates the dedicated DAG and execution receipt templates', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-target-linear-'));
+  try {
+    const cliPath = path.join(rootDir, 'scripts/vibe-harness.js');
+    await execFileAsync(process.execPath, [cliPath, 'init', '--project', target, '--target', 'codex', '--profile', 'core']);
+    await execFileAsync(process.execPath, [
+      cliPath,
+      'install',
+      '--project',
+      target,
+      '--target',
+      'codex',
+      '--profile',
+      'core',
+      '--plugin',
+      'linear-mcp',
+      '--write',
+      '--confirm-red-zone',
+    ]);
+    const { stdout } = await execFileAsync(process.execPath, [cliPath, 'validate', '--project', target]);
+    assert.equal(JSON.parse(stdout).ok, true);
+    const [parent, receipt] = await Promise.all([
+      readFile(path.join(target, 'docs/templates/linear/dag-parent.md'), 'utf8'),
+      readFile(path.join(target, 'docs/templates/linear/execution-receipt.md'), 'utf8'),
+    ]);
+    assert.match(parent, /Fan-in Verification/u);
+    assert.match(parent, /Completion Policy/u);
+    assert.match(receipt, /vibe-harness\.linear-execution\/v1/u);
+    assert.match(receipt, /runtimeInstanceId/u);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
