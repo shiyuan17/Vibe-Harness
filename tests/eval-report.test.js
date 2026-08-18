@@ -39,7 +39,7 @@ function trial(overrides = {}) {
 }
 
 test('report separates case completion, trial completion, multi-run stability, tools, attempts, and tokens', () => {
-  const executionSummary = { caseId: 'EXEC-1', meanScore: 1, passAt1: 1, passAtK: 1, passCaretK: 1, passedTrials: 1, repetitions: 1, perTrial: [trial({ recoverableToolErrorCount: 1, toolOutcomeSummary: { expectedDenied: 0, failed: 1, knownTotal: 2, successful: 1, total: 2, unexpectedFailed: 1, unknown: 0 } })] };
+  const executionSummary = { caseId: 'EXEC-1', meanScore: 1, passAt1: 1, passAtK: 1, passCaretK: 1, passedTrials: 1, repetitions: 1, perTrial: [trial({ linearIssueReadCount: 5, recoverableToolErrorCount: 1, toolOutcomeSummary: { expectedDenied: 0, failed: 1, knownTotal: 2, successful: 1, total: 2, unexpectedFailed: 1, unknown: 0 } })] };
   const canarySummary = { caseId: 'CANARY-1', meanScore: 1, passAt1: 1, passAtK: 1, passCaretK: 1, passedTrials: 2, repetitions: 2, perTrial: [
     trial({ dangerousOperationBlocked: true, testSummary: { apiContractFailures: 0, apiExistenceFailures: 0, failed: 0, passed: 0, total: 0 }, toolOutcomeSummary: { expectedDenied: 1, failed: 0, knownTotal: 2, successful: 1, total: 2, unexpectedFailed: 0, unknown: 0 }, workspaceSummary: { allowedChangedCount: 0, architectureViolationCount: 0, existingFileOverwriteCount: 0, totalChangedCount: 0, undeclaredWriteCount: 0 } }),
     { ...trial({ dangerousOperationBlocked: true, durationMs: 3000, testSummary: { apiContractFailures: 0, apiExistenceFailures: 0, failed: 0, passed: 0, total: 0 }, workspaceSummary: { allowedChangedCount: 0, architectureViolationCount: 0, existingFileOverwriteCount: 0, totalChangedCount: 0, undeclaredWriteCount: 0 } }), repetition: 2 },
@@ -66,6 +66,7 @@ test('report separates case completion, trial completion, multi-run stability, t
   assert.equal(model.metrics.tokenEfficiency.perCompletedCase, 180);
   assert.equal(model.metrics.latency.p50Ms, 1000);
   assert.equal(model.metrics.latency.p95Ms, 2800);
+  assert.equal(model.cases.find((item) => item.caseId === 'EXEC-1').trials[0].linearIssueReadCount, 5);
 });
 
 test('API existence failures alone count as hallucinated APIs and legacy fields are partial', () => {
@@ -91,12 +92,13 @@ test('comparison requires model/runtime/CLI/repetitions and matching suite hash'
 });
 
 test('report renders decision and diagnostic layers, trial details, partial states, escaping, and redaction', () => {
-  const summary = { caseId: 'CASE-1', meanScore: 1, passAt1: 1, passAtK: 1, passCaretK: 1, passedTrials: 1, repetitions: 1, perTrial: [{ passed: true, repetition: 1, score: 1 }] };
+  const summary = { caseId: 'CASE-1', meanScore: 1, passAt1: 1, passAtK: 1, passCaretK: 1, passedTrials: 1, repetitions: 1, perTrial: [trial({ linearIssueReadCount: 5 })] };
   const model = buildEvalReportModel({ canaryRun: run('vibe-harness-online-canary', { ...summary, caseId: '<CANARY>' }), canarySuite: { cases: [{ id: '<CANARY>', risk: 'high' }] }, executionRun: run('vibe-harness-online-execution', summary), executionSuite: { cases: [{ id: 'CASE-1', risk: 'low' }] } });
   const html = renderEvalReport(model);
   assert.match(html, /Vibe-Harness Online Eval 决策报告|6 个决策 KPI/u);
   assert.match(html, /数据质量：部分可信/u);
   assert.match(html, /Trial 1|稳定性不适用/u);
+  assert.match(html, /Linear Issue 读取<\/dt><dd>5/u);
   assert.match(html, /&lt;CANARY&gt;/u);
   assert.match(html, /metric partial|metric unavailable/u);
   assert.match(html, /0 分钟|部分覆盖/u);

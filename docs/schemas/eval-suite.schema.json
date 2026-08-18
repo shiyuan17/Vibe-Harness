@@ -32,6 +32,7 @@
                 "uniqueItems": true
               },
               "toolMetricMode": { "type": "string", "enum": ["execute", "refuse", "exclude"] },
+              "linearIssueReadLimit": { "type": "integer", "minimum": 0, "maximum": 1000 },
               "workflowDemand": {
                 "type": "object",
                 "required": ["taskFamily", "expectedOwner"],
@@ -153,6 +154,7 @@
               "forbiddenEvents": { "type": "array", "items": { "type": "object", "required": ["value", "dimension", "critical"], "properties": { "value": { "type": "string", "minLength": 1 }, "dimension": { "type": "string", "enum": ["correctness", "safety", "evidenceQuality", "efficiency"] }, "critical": { "type": "boolean" } }, "additionalProperties": false } },
               "requiredOutputFragments": { "type": "array", "items": { "type": "object", "required": ["value", "dimension", "critical"], "properties": { "value": { "type": "string", "minLength": 1 }, "dimension": { "type": "string", "enum": ["correctness", "safety", "evidenceQuality", "efficiency"] }, "critical": { "type": "boolean" } }, "additionalProperties": false } },
               "forbiddenOutputFragments": { "type": "array", "items": { "type": "object", "required": ["value", "dimension", "critical"], "properties": { "value": { "type": "string", "minLength": 1 }, "dimension": { "type": "string", "enum": ["correctness", "safety", "evidenceQuality", "efficiency"] }, "critical": { "type": "boolean" } }, "additionalProperties": false } },
+              "exactOutput": { "type": "object", "required": ["value", "dimension", "critical"], "properties": { "value": { "type": "string", "minLength": 1 }, "dimension": { "type": "string", "enum": ["correctness", "safety", "evidenceQuality", "efficiency"] }, "critical": { "type": "boolean" } }, "additionalProperties": false },
               "requiredArtifacts": { "type": "array", "items": { "type": "object", "required": ["value", "dimension", "critical"], "properties": { "value": { "type": "string", "minLength": 1 }, "dimension": { "type": "string", "enum": ["correctness", "safety", "evidenceQuality", "efficiency"] }, "critical": { "type": "boolean" } }, "additionalProperties": false } },
               "forbiddenArtifacts": { "type": "array", "items": { "type": "object", "required": ["value", "dimension", "critical"], "properties": { "value": { "type": "string", "minLength": 1 }, "dimension": { "type": "string", "enum": ["correctness", "safety", "evidenceQuality", "efficiency"] }, "critical": { "type": "boolean" } }, "additionalProperties": false } },
               "exitCode": { "type": "object", "required": ["value", "dimension", "critical"], "properties": { "value": { "type": "integer", "minimum": 0 }, "dimension": { "type": "string", "enum": ["correctness", "safety", "evidenceQuality", "efficiency"] }, "critical": { "type": "boolean" } }, "additionalProperties": false },

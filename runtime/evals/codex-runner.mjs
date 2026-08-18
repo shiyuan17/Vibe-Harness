@@ -218,11 +218,341 @@ function isVerificationCommand(command) {
 }
 
 export function isGitCommitCommand(command) {
-  return /(?:^|[;&|]\s*)git(?:\s+-C\s+\S+)?\s+commit(?:\s|$)/iu.test(command);
+  return gitInvocations(command).some(({ subcommand }) => subcommand === 'commit');
 }
 
 export function isGitPushCommand(command) {
-  return /(?:^|[;&|]\s*)git(?:\s+-C\s+\S+)?\s+push(?:\s|$)/iu.test(command);
+  return gitInvocations(command).some(({ subcommand }) => subcommand === 'push');
+}
+
+function shellSegments(command) {
+  const segments = [];
+  let current = '';
+  let quote = null;
+  let escaped = false;
+  for (const character of String(command)) {
+    if (escaped) {
+      current += character;
+      escaped = false;
+      continue;
+    }
+    if (quote) {
+      current += character;
+      if (quote === '"' && character === '\\') escaped = true;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      current += character;
+      continue;
+    }
+    if ([';', '|', '&', '\r', '\n'].includes(character)) {
+      if (current.trim()) segments.push(current.trim());
+      current = '';
+      continue;
+    }
+    current += character;
+  }
+  if (current.trim()) segments.push(current.trim());
+  return segments;
+}
+
+function shellTokens(segment) {
+  return (segment.match(/"(?:\\.|[^"])*"|'[^']*'|[^\s]+/gu) ?? [])
+    .map((token) => token.length >= 2 && ((token.startsWith('"') && token.endsWith('"'))
+      || (token.startsWith("'") && token.endsWith("'"))) ? token.slice(1, -1) : token);
+}
+
+function executableName(token) {
+  return token.split(/[\\/]/u).at(-1)?.toLowerCase() ?? '';
+}
+
+function unwrappedInvocationTokens(tokens) {
+  if (tokens.length === 0) return tokens;
+  const executable = executableName(tokens[0]);
+  if (executable === 'env' || executable === 'env.exe') {
+    let index = 1;
+    while (index < tokens.length && (tokens[index].startsWith('-') || /^[A-Za-z_][A-Za-z0-9_]*=/u.test(tokens[index]))) index += 1;
+    return tokens.slice(index);
+  }
+  if (executable === 'command') {
+    let index = 1;
+    while (index < tokens.length && tokens[index].startsWith('-')) index += 1;
+    return tokens.slice(index);
+  }
+  if (['powershell', 'powershell.exe', 'pwsh', 'pwsh.exe'].includes(executable)) {
+    const commandIndex = tokens.findIndex((token) => /^-(?:c|command)$/iu.test(token));
+    return commandIndex >= 0 ? shellTokens(tokens.slice(commandIndex + 1).join(' ')) : tokens;
+  }
+  if (executable === 'cmd' || executable === 'cmd.exe') {
+    const commandIndex = tokens.findIndex((token) => /^\/(?:c|k)$/iu.test(token));
+    return commandIndex >= 0 ? shellTokens(tokens.slice(commandIndex + 1).join(' ')) : tokens;
+  }
+  return tokens;
+}
+
+function invocations(command, executableNames) {
+  return shellSegments(command)
+    .map((segment) => unwrappedInvocationTokens(shellTokens(segment)))
+    .filter((tokens) => tokens.length > 0 && executableNames.has(executableName(tokens[0])));
+}
+
+const gitExecutables = new Set(['git', 'git.exe']);
+const gitOptionsWithValues = new Set(['-c', '-C', '--exec-path', '--git-dir', '--namespace', '--super-prefix', '--work-tree']);
+
+function gitInvocations(command) {
+  return invocations(command, gitExecutables).map((tokens) => {
+    let index = 1;
+    while (index < tokens.length && tokens[index].startsWith('-')) {
+      const option = tokens[index];
+      const normalized = option.includes('=') ? option.slice(0, option.indexOf('=')) : option;
+      index += gitOptionsWithValues.has(normalized) && !option.includes('=') ? 2 : 1;
+    }
+    return { args: tokens.slice(index + 1), subcommand: tokens[index]?.toLowerCase() ?? '' };
+  });
+}
+
+export function isGitBranchCommand(command) {
+  const branchWriteOptions = new Set([
+    '-c', '-C', '-d', '-D', '-f', '-m', '-M', '--copy', '--delete', '--edit-description', '--force', '--move',
+    '--set-upstream-to', '--track', '--unset-upstream',
+  ]);
+  const branchReadOptions = new Set([
+    '-a', '-r', '-v', '-vv', '--all', '--contains', '--format', '--list', '--merged', '--no-contains',
+    '--no-merged', '--points-at', '--remotes', '--show-current', '--verbose',
+  ]);
+  return gitInvocations(command).some(({ args, subcommand }) => {
+    if (subcommand === 'switch' || subcommand === 'checkout') return args.length > 0;
+    if (subcommand !== 'branch' || args.length === 0) return false;
+    if (args.some((argument) => branchWriteOptions.has(argument.split('=')[0]))) return true;
+    const first = args[0].split('=')[0];
+    if (branchReadOptions.has(first)) return false;
+    return !args[0].startsWith('-');
+  });
+}
+
+export function isGitWorktreeCommand(command) {
+  const writeVerbs = new Set(['add', 'lock', 'move', 'prune', 'remove', 'repair', 'unlock']);
+  return gitInvocations(command).some(({ args, subcommand }) => subcommand === 'worktree' && writeVerbs.has(args[0]?.toLowerCase()));
+}
+
+function cliInvocations(command, executableNames) {
+  const optionsWithValues = new Set(['-R', '-r', '--repo', '--hostname', '--config-dir', '--config']);
+  return invocations(command, executableNames).map((tokens) => {
+    let index = 1;
+    while (index < tokens.length && tokens[index].startsWith('-')) {
+      const option = tokens[index];
+      const normalized = option.includes('=') ? option.slice(0, option.indexOf('=')) : option;
+      index += optionsWithValues.has(normalized) && !option.includes('=') ? 2 : 1;
+    }
+    return tokens.slice(index);
+  });
+}
+
+export function isChangeRequestCommand(command) {
+  const ghWriteVerbs = new Set(['close', 'comment', 'create', 'edit', 'lock', 'merge', 'ready', 'reopen', 'revert', 'review', 'unlock', 'update-branch']);
+  const glabWriteVerbs = new Set(['approve', 'close', 'create', 'delete', 'edit', 'merge', 'note', 'rebase', 'reopen', 'revoke', 'subscribe', 'todo', 'unsubscribe', 'update']);
+  const gh = cliInvocations(command, new Set(['gh', 'gh.exe'])).some((args) => {
+    return args[0]?.toLowerCase() === 'pr' && ghWriteVerbs.has(args[1]?.toLowerCase());
+  });
+  if (gh) return true;
+  return cliInvocations(command, new Set(['glab', 'glab.exe'])).some((args) => {
+    return args[0]?.toLowerCase() === 'mr' && glabWriteVerbs.has(args[1]?.toLowerCase());
+  });
+}
+
+export function isCredentialHelperCommand(command) {
+  const directHelpers = new Set([
+    'git-credential', 'git-credential-manager', 'git-credential-manager-core',
+    'git-credential-manager-core.exe', 'git-credential-manager.exe', 'git-credential.exe',
+  ]);
+  if (invocations(command, directHelpers).length > 0) return true;
+  return gitInvocations(command).some(({ args, subcommand }) => {
+    if (subcommand === 'credential' || subcommand.startsWith('credential-')) return true;
+    return subcommand === 'config' && args.some((argument) => /(?:^|\.)credential(?:\.[^.]+)*\.helper$/iu.test(argument));
+  });
+}
+
+export function isCredentialUseCommand(command) {
+  if (isCredentialHelperCommand(command)) return true;
+  if (cliInvocations(command, new Set(['gh', 'gh.exe', 'glab', 'glab.exe']))
+    .some((args) => args[0]?.toLowerCase() === 'auth')) return true;
+  return /(?:^|[;&|\s])(?:cmdkey(?:\.exe)?|Get-StoredCredential|security\s+find-(?:generic|internet)-password)(?:\s|$)/iu.test(command);
+}
+
+function explicitHttpMethod(args, optionNames) {
+  for (let index = 0; index < args.length; index += 1) {
+    const token = args[index];
+    const lower = token.toLowerCase();
+    for (const option of optionNames) {
+      const normalized = option.toLowerCase();
+      if (lower === normalized) return args[index + 1]?.toUpperCase() ?? '';
+      if (lower.startsWith(normalized + '=')) return token.slice(option.length + 1).toUpperCase();
+      if (option.length === 2 && lower.startsWith(normalized) && token.length > 2) return token.slice(2).toUpperCase();
+    }
+  }
+  return '';
+}
+
+const writeHttpMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+export function isWebApiWriteCommand(command) {
+  const curlWrite = invocations(command, new Set(['curl', 'curl.exe'])).some((tokens) => {
+    const args = tokens.slice(1);
+    const method = explicitHttpMethod(args, ['-X', '--request']);
+    const forceGet = args.some((token) => token === '-G' || token === '--get');
+    if (forceGet || method === 'GET') return false;
+    if (writeHttpMethods.has(method)) return true;
+    return args.some((token) => /^(?:-d(?:.|$)|-F(?:.|$)|-T(?:.|$)|--data(?:-ascii|-binary|-raw|-urlencode)?(?:=|$)|--form(?:=|$)|--upload-file(?:=|$)|--json(?:=|$))/u.test(token));
+  });
+  if (curlWrite) return true;
+  const powershellWrite = invocations(command, new Set([
+    'invoke-restmethod', 'invoke-webrequest', 'irm', 'iwr',
+  ])).some((tokens) => writeHttpMethods.has(explicitHttpMethod(tokens.slice(1), ['-Method'])));
+  if (powershellWrite) return true;
+  const wgetWrite = invocations(command, new Set(['wget', 'wget.exe'])).some((tokens) => {
+    const args = tokens.slice(1);
+    const method = explicitHttpMethod(args, ['--method']);
+    return writeHttpMethods.has(method) || args.some((token) => /^--post-(?:data|file)(?:=|$)/u.test(token));
+  });
+  if (wgetWrite) return true;
+  const httpWrite = invocations(command, new Set(['http', 'http.exe', 'https', 'https.exe']))
+    .some((tokens) => writeHttpMethods.has(tokens[1]?.toUpperCase()));
+  if (httpWrite) return true;
+  return cliInvocations(command, new Set(['gh', 'gh.exe', 'glab', 'glab.exe'])).some((args) => {
+    if (args[0]?.toLowerCase() !== 'api') return false;
+    const apiArgs = args.slice(1);
+    const method = explicitHttpMethod(apiArgs, ['-X', '--method']);
+    if (method === 'GET') return false;
+    if (writeHttpMethods.has(method)) return true;
+    return apiArgs.some((token) => /^(?:-f|-F)(?:.|$)|^--(?:field|raw-field|input)(?:=|$)/u.test(token));
+  });
+}
+
+function hasShellRedirection(command) {
+  let quote = null;
+  for (let index = 0; index < command.length; index += 1) {
+    const character = command[index];
+    if (quote) {
+      if (character === quote && command[index - 1] !== '\\') quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") quote = character;
+    else if (character.charCodeAt(0) === 62 && command.charCodeAt(index - 1) !== 60) return true;
+  }
+  return false;
+}
+
+export function isWorkspaceWriteCommand(command) {
+  const writePattern = /(?:^|\s)(?:apply_patch|Set-Content|Add-Content|Clear-Content|Out-File|New-Item|Remove-Item|Move-Item|Copy-Item|Rename-Item|mkdir|md|rmdir|rd|touch|rm|mv|cp|tee|truncate|install|chmod|chown|ln|dd|rsync|del|erase|copy|move)(?:\s|$)|(?:^|\s)sed\s+-i(?:\s|$)/iu;
+  if (hasShellRedirection(command) || shellSegments(command).some((segment) => writePattern.test(segment))) return true;
+  if (gitInvocations(command).some(({ subcommand }) => ['add', 'rm', 'mv'].includes(subcommand))) return true;
+  if (invocations(command, new Set(['curl', 'curl.exe'])).some((tokens) => tokens.slice(1)
+    .some((token) => /^(?:-o|--output|-O|--remote-name)(?:.|$)/u.test(token)))) return true;
+  return invocations(command, new Set(['wget', 'wget.exe'])).some((tokens) => !tokens.slice(1)
+    .some((token) => token === '-qO-' || token === '--output-document=-'));
+}
+
+export function commandSemanticEvents(commands) {
+  return [
+    ...(commands.some(isWorkspaceWriteCommand) ? ['workspace-write-invoked'] : []),
+    ...(commands.some(isGitBranchCommand) ? ['git-branch-invoked'] : []),
+    ...(commands.some(isGitWorktreeCommand) ? ['git-worktree-invoked'] : []),
+    ...(commands.some(isGitCommitCommand) ? ['git-commit-invoked'] : []),
+    ...(commands.some(isGitPushCommand) ? ['git-push-invoked'] : []),
+    ...(commands.some(isChangeRequestCommand) ? ['change-request-invoked'] : []),
+    ...(commands.some(isCredentialHelperCommand) ? ['credential-helper-invoked'] : []),
+    ...(commands.some(isCredentialUseCommand) ? ['credential-use-invoked'] : []),
+    ...(commands.some(isWebApiWriteCommand) ? ['web-api-write-invoked'] : []),
+  ];
+}
+
+function toolInvocation(item) {
+  const input = item?.arguments ?? item?.input ?? item?.tool_input ?? item?.params ?? {};
+  const name = [item?.server, item?.tool, item?.tool_name, item?.name, item?.type]
+    .filter((value) => typeof value === 'string' && value.length > 0).join('__').toLowerCase();
+  return { input, name };
+}
+
+function serializedToolInput(input) {
+  try {
+    return JSON.stringify(input);
+  } catch {
+    return '';
+  }
+}
+
+function invocationSignature(invocation) {
+  return String(invocation.name ?? '') + '|' + serializedToolInput(invocation.input);
+}
+
+function dedupeToolInvocationRecords(records) {
+  const byId = new Map();
+  const anonymousCompleted = [];
+  const anonymousStarted = [];
+  for (const record of records) {
+    if (record.id) {
+      const current = byId.get(record.id);
+      if (!current || record.phase === 'completed') byId.set(record.id, record.invocation);
+    } else if (record.phase === 'completed') anonymousCompleted.push(record.invocation);
+    else anonymousStarted.push(record.invocation);
+  }
+  const completedCounts = new Map();
+  for (const invocation of anonymousCompleted) {
+    const signature = invocationSignature(invocation);
+    completedCounts.set(signature, (completedCounts.get(signature) ?? 0) + 1);
+  }
+  const unmatchedStarted = anonymousStarted.filter((invocation) => {
+    const signature = invocationSignature(invocation);
+    const remaining = completedCounts.get(signature) ?? 0;
+    if (remaining === 0) return true;
+    completedCounts.set(signature, remaining - 1);
+    return false;
+  });
+  return [...byId.values(), ...anonymousCompleted, ...unmatchedStarted];
+}
+
+function hasTodoStatus(input) {
+  if (!input || typeof input !== 'object') return false;
+  for (const [key, value] of Object.entries(input)) {
+    if (/^(?:state|status|stateName|statusName)$/iu.test(key)) {
+      if (typeof value === 'string' && /^Todo$/iu.test(value)) return true;
+      if (value && typeof value === 'object' && ['name', 'title'].some((field) => /^Todo$/iu.test(value[field] ?? ''))) return true;
+    }
+    if (value && typeof value === 'object' && hasTodoStatus(value)) return true;
+  }
+  return false;
+}
+export function toolSemanticSummary(invocations, { linearIssueReadLimit = null } = {}) {
+  let linearIssueReadCount = 0;
+  const events = [];
+  for (const invocation of invocations) {
+    const name = invocation.name ?? '';
+    if (/(?:^|__)linear(?:__|$)/iu.test(name)) {
+      if (/(?:^|__)(?:get|list|search|read|find|fetch|view|query)(?:_|__)?issues?(?:__|$)/iu.test(name)) linearIssueReadCount += 1;
+      if (/(?:^|__)(?:save|create|update|delete|archive|restore|merge|submit|resolve|cancel|add|remove|set|assign|unassign)(?:_|__|$)/iu.test(name)) {
+        events.push('linear-write-invoked');
+        if (hasTodoStatus(invocation.input)) events.push('linear-status-todo-write-invoked');
+      }
+    }
+    if (/(?:github|gitlab)/iu.test(name)
+      && /(?:pull_?request|merge_?request|(?:^|__)pr(?:__|$)|(?:^|__)mr(?:__|$))/iu.test(name)
+      && /(?:^|__)(?:create|update|edit|merge|close|reopen|ready|comment|review|approve|unapprove|delete|lock|unlock|rebase|revert|todo)(?:_|__|$)/iu.test(name)) {
+      events.push('change-request-invoked');
+    }
+    if (/(?:credential|auth|keychain|secret.?service)/iu.test(name)
+      && /(?:^|__)(?:get|read|find|fill|login|authorize|store|save|update|delete|remove)(?:_|__|$)/iu.test(name)) {
+      events.push('credential-use-invoked');
+    }
+    if (/(?:^|__|\.)(?:apply_?patch|file_?(?:change|edit)|write(?:_file)?|edit(?:_file)?|delete(?:_file)?|remove(?:_file)?|move(?:_file)?|rename(?:_file)?|create(?:_file|_directory)?|mkdir)(?:$|__)/iu.test(name)) {
+      events.push('workspace-write-invoked');
+    }
+  }
+  if (Number.isInteger(linearIssueReadLimit) && linearIssueReadCount > linearIssueReadLimit) {
+    events.push('linear-issue-read-limit-exceeded');
+  }
+  return { events: [...new Set(events)], linearIssueReadCount };
 }
 
 function isMaterialChangeItem(item) {
@@ -327,6 +657,7 @@ export function transcript(stdout) {
   const hookTimings = [];
   const toolTypes = [];
   const toolOutcomes = [];
+  const toolInvocationRecords = [];
   const workflowEvents = [];
   let sessionId = null;
   const tokenUsage = { cachedInputTokens: 0, inputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: 0 };
@@ -339,12 +670,20 @@ export function transcript(stdout) {
       if (typeof event.item?.type === 'string') {
         events.push(event.item.type);
         const eventIndex = workflowEvents.length;
-        if (isMaterialChangeItem(event.item)) workflowEvents.push({ index: eventIndex, kind: 'change' });
+        if (event.type === 'item.completed' && isMaterialChangeItem(event.item)) workflowEvents.push({ index: eventIndex, kind: 'change' });
         else if (event.type === 'item.completed' && event.item.type === 'agent_message') {
           workflowEvents.push({ index: eventIndex, kind: 'handoff' });
         }
-        const isToolItem = event.type === 'item.completed' && !['agent_message', 'error', 'reasoning'].includes(event.item.type);
-        if (isToolItem) {
+        const isToolEvent = ['item.started', 'item.completed'].includes(event.type)
+          && !['agent_message', 'error', 'reasoning'].includes(event.item.type);
+        if (isToolEvent) {
+          toolInvocationRecords.push({
+            id: event.item.id ?? event.item.call_id ?? event.item.tool_call_id ?? null,
+            invocation: toolInvocation(event.item),
+            phase: event.type === 'item.completed' ? 'completed' : 'started',
+          });
+        }
+        if (event.type === 'item.completed' && isToolEvent) {
           toolTypes.push(event.item.type);
           const outcome = {
             type: event.item.type,
@@ -422,6 +761,7 @@ export function transcript(stdout) {
     tokenUsage,
     toolCalls,
     toolOutcomes,
+    toolInvocations: dedupeToolInvocationRecords(toolInvocationRecords),
     toolTypes: [...new Set(toolTypes)],
     workflowEvents,
   };
@@ -490,13 +830,16 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const semanticEvents = [
     ...writeSummary.events,
     ...hiddenTests.events,
-    ...(parsed.commands.some(isGitCommitCommand) ? ['git-commit-invoked'] : []),
-    ...(parsed.commands.some(isGitPushCommand) ? ['git-push-invoked'] : []),
+    ...commandSemanticEvents(parsed.commands),
     ...(request.case.reporting?.workflowDemand?.expectedOwner?.kind === 'skill'
       && request.case.reporting.workflowDemand.expectedOwner.id === 'git-deliver'
       && /\$git-deliver|(?:use|using|invoke|invoked|调用|使用|指定)\s+git-deliver/iu.test(request.case.input.scenario)
       ? ['git-deliver-selected', 'git-deliver-invoked'] : []),
   ];
+  const toolSemantics = toolSemanticSummary(parsed.toolInvocations, {
+    linearIssueReadLimit: request.case.reporting?.linearIssueReadLimit ?? null,
+  });
+  semanticEvents.push(...toolSemantics.events);
   const finalChangeValidation = finalChangeValidationSummary(parsed.workflowEvents);
   semanticEvents.push('final-change-validation-' + finalChangeValidation.status);
   const knowledgeCoverage = knowledgeCoverageEpisode({
@@ -558,6 +901,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       ...(episode ? { taskEpisode: episode } : {}),
       hookReasonCodes: parsed.hookReasonCodes,
       hookTimings: parsed.hookTimings,
+      linearIssueReadCount: toolSemantics.linearIssueReadCount,
       durationMs: Number((process.hrtime.bigint() - startedAt) / 1_000_000n),
       recoverableToolErrorCount,
       ruleCoverage: (() => {

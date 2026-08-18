@@ -29,21 +29,29 @@ function evaluationEnvironment(env) {
   return Object.fromEntries(Object.entries(env).filter(([name]) => evaluationEnvironmentNames.has(name)));
 }
 
-async function expandRuleFixtures(content, definition, sourceRoot) {
-  if (!sourceRoot || !content.includes('{{RULE:')) return content;
-  const expected = new Set(definition.reporting?.expected?.rules ?? []);
-  const manifest = safeJsonParse(await readFile(path.join(sourceRoot, 'manifests/rules.json'), 'utf8'));
-  const sources = new Map(manifest.items.map((item) => [item.id, item.source]));
+async function expandCanonicalFixtures(content, definition, sourceRoot) {
+  if (!sourceRoot || !/\{\{(?:RULE|SKILL):/u.test(content)) return content;
   let expanded = content;
-  for (const match of content.matchAll(/\{\{RULE:([^}]+)\}\}/gu)) {
-    const id = match[1];
-    if (!expected.has(id)) throw new Error('evaluation rule fixture must declare reporting.expected.rules: ' + id);
-    const relative = sources.get(id);
-    if (!relative) throw new Error('evaluation rule fixture references unknown rule: ' + id);
-    assertPortableRelativePath(relative, 'evaluation rule source');
-    const source = path.resolve(sourceRoot, relative);
-    assertInsideDir(sourceRoot, source, 'evaluation rule source');
-    expanded = expanded.replaceAll(match[0], await readFile(source, 'utf8'));
+  for (const kind of ['RULE', 'SKILL']) {
+    if (!expanded.includes('{{' + kind + ':')) continue;
+    const reportingKey = kind === 'RULE' ? 'rules' : 'skills';
+    const label = kind.toLowerCase();
+    const expected = new Set(definition.reporting?.expected?.[reportingKey] ?? []);
+    const manifest = safeJsonParse(await readFile(path.join(sourceRoot, 'manifests/' + reportingKey + '.json'), 'utf8'));
+    const sources = new Map(manifest.items.map((item) => [item.id, item.source]));
+    const pattern = new RegExp('\\{\\{' + kind + ':([^}]+)\\}\\}', 'gu');
+    for (const match of expanded.matchAll(pattern)) {
+      const id = match[1];
+      if (!expected.has(id)) {
+        throw new Error('evaluation ' + label + ' fixture must declare reporting.expected.' + reportingKey + ': ' + id);
+      }
+      const relative = sources.get(id);
+      if (!relative) throw new Error('evaluation ' + label + ' fixture references unknown ' + label + ': ' + id);
+      assertPortableRelativePath(relative, 'evaluation ' + label + ' source');
+      const source = path.resolve(sourceRoot, relative);
+      assertInsideDir(sourceRoot, source, 'evaluation ' + label + ' source');
+      expanded = expanded.replaceAll(match[0], await readFile(source, 'utf8'));
+    }
   }
   return expanded;
 }
@@ -59,7 +67,7 @@ async function createWorkspace(definition, sourceRoot) {
     const target = path.resolve(workspace, file.path);
     assertInsideDir(workspace, target, 'evaluation fixture file');
     await mkdir(path.dirname(target), { recursive: true });
-    await writeFile(target, await expandRuleFixtures(file.content, definition, sourceRoot), 'utf8');
+    await writeFile(target, await expandCanonicalFixtures(file.content, definition, sourceRoot), 'utf8');
   }
   return workspace;
 }

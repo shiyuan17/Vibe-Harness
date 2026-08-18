@@ -137,6 +137,7 @@
                       },
                       "additionalProperties": false
                     },
+                    "linearIssueReadCount": { "type": "integer", "minimum": 0 },
                     "hookTimings": {
                       "type": "array",
                       "items": {

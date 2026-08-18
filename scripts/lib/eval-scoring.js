@@ -82,6 +82,9 @@ async function evaluateOracle(oracle, observation, { scenario, judge } = {}) {
   for (const item of oracle.forbiddenOutputFragments) {
     assertions.push(assertionResult('forbidden-output-fragment', item, !output.includes(item.value)));
   }
+  if (oracle.exactOutput) {
+    assertions.push(assertionResult('exact-output', oracle.exactOutput, output.trim() === oracle.exactOutput.value));
+  }
   for (const item of oracle.requiredArtifacts) {
     assertions.push(assertionResult('required-artifact', item, artifacts.includes(item.value)));
   }

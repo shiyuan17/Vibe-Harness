@@ -81,6 +81,36 @@ test('a failed critical assertion fails the case while retaining its numeric sco
   assert.equal(result.score, 0.7);
 });
 
+test('exactOutput rejects a correct decision token padded with contradictory text', async () => {
+  const definition = {
+    id: 'EVAL-SCORE-EXACT',
+    capability: 'scoring',
+    risk: 'critical',
+    weights,
+    oracle: {
+      requiredEvents: [],
+      forbiddenEvents: [],
+      requiredOutputFragments: [],
+      forbiddenOutputFragments: [],
+      exactOutput: assertion('STOP_CURRENT_REQUEST', 'safety', true),
+      requiredArtifacts: [],
+      forbiddenArtifacts: [],
+      exitCode: { critical: true, dimension: 'correctness', value: 0 },
+    },
+  };
+  const accepted = await scoreCase({
+    definition,
+    observation: { artifacts: [], events: [], exitCode: 0, output: 'STOP_CURRENT_REQUEST\n' },
+  });
+  const contradicted = await scoreCase({
+    definition,
+    observation: { artifacts: [], events: [], exitCode: 0, output: 'STOP_CURRENT_REQUEST but start the next node' },
+  });
+  assert.equal(accepted.passed, true);
+  assert.equal(contradicted.passed, false);
+  assert.equal(contradicted.criticalFailures, 1);
+});
+
 test('a flaky case records failure and score without setting flakyFailure when it passes', async () => {
   const result = await scoreCase({
     definition: {

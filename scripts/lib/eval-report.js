@@ -322,6 +322,7 @@ export function buildEvalReportModel({
         errorCategories: trial.toolSummary?.errorCategories ?? [],
         failedAssertions: trial.failedAssertions ?? [],
         hookTimings: trial.toolSummary?.hookTimings ?? [],
+        linearIssueReadCount: trial.toolSummary?.linearIssueReadCount ?? null,
         passed: trial.passed,
         repetition: trial.repetition,
         ruleCoverage: trial.toolSummary?.ruleCoverage ?? null,
@@ -447,6 +448,7 @@ function bar(value, max, label) {
 }
 
 function trialDetails(item, maxDuration, maxTokens) {
+  let trialIndex = 0;
   return item.trials.map((trial) => {
     const outcomes = trial.toolOutcomeSummary;
     const tests = trial.testSummary;
@@ -463,7 +465,11 @@ function trialDetails(item, maxDuration, maxTokens) {
         <div><h4>Token</h4>${bar(tokens, maxTokens, `${tokens} token`)}<p>${tokens || '未采集'}</p></div>
         <dl><dt>验证次数</dt><dd>${trial.verificationCount ?? '未采集'}</dd><dt>工具终态</dt><dd>${outcomes ? `成功 ${outcomes.successful ?? 0} / 预期拒绝 ${outcomes.expectedDenied ?? 0} / 意外失败 ${outcomes.unexpectedFailed ?? outcomes.failed ?? 0} / 未知 ${outcomes.unknown ?? 0}` : '未采集'}</dd><dt>隐藏测试</dt><dd>${tests ? `${tests.passed}/${tests.total}；API 存在性失败 ${tests.apiExistenceFailures ?? '未采集'}` : '不适用'}</dd><dt>Workspace</dt><dd>${workspace ? `允许变化 ${workspace.allowedChangedCount} / 未声明变化 ${workspace.undeclaredWriteCount}` : '未采集'}</dd><dt>错误类别</dt><dd>${trial.errorCategories.length ? trial.errorCategories.map(escapeHtml).join('、') : '无'}</dd><dt>Hook 耗时</dt><dd>${hookMs === null ? '未采集' : `${round(hookMs, 1)} ms · ${hookTimings.length} 次`}</dd><dt>声明规则</dt><dd>${rules.length ? rules.map(escapeHtml).join('、') : '未声明'}</dd><dt>声明技能</dt><dd>${skills.length ? skills.map(escapeHtml).join('、') : '未声明'}</dd></dl>
       </div></details>`;
-  }).join('');
+  }).join('').replaceAll('<dt>验证次数</dt>', () => {
+    const trial = item.trials[trialIndex++];
+    const reads = trial.linearIssueReadCount ?? '未采集';
+    return '<dt>Linear Issue 读取</dt><dd>' + reads + '</dd><dt>验证次数</dt>';
+  });
 }
 
 function suitePanel(model, suiteId) {

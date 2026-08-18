@@ -2,7 +2,21 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { createCodexHookResult } from '../runtime/hooks/lib/policy.mjs';
-import { inputEventFromContext, isGitCommitCommand, isGitPushCommand, transcript } from '../runtime/evals/codex-runner.mjs';
+import {
+  commandSemanticEvents,
+  inputEventFromContext,
+  isChangeRequestCommand,
+  isCredentialHelperCommand,
+  isCredentialUseCommand,
+  isGitBranchCommand,
+  isGitCommitCommand,
+  isGitPushCommand,
+  isGitWorktreeCommand,
+  isWebApiWriteCommand,
+  isWorkspaceWriteCommand,
+  toolSemanticSummary,
+  transcript,
+} from '../runtime/evals/codex-runner.mjs';
 import { taskEpisode } from '../runtime/evals/lib/knowledge-coverage.mjs';
 import { buildEvalReportModel } from '../scripts/lib/eval-report.js';
 import { summarizeTrials } from '../scripts/lib/eval-trials.js';
@@ -98,6 +112,172 @@ test('git push observer detects push invocations without persisting command text
   assert.equal(isGitPushCommand('git push'), true);
   assert.equal(isGitPushCommand('git -C project push -u origin feature'), true);
   assert.equal(isGitPushCommand('git status --short'), false);
+});
+
+test('git observers normalize executable variants, global options, and shell wrappers', () => {
+  const cases = [
+    [isGitCommitCommand, 'git.exe commit -m change'],
+    [isGitCommitCommand, 'git -c user.name=Eval commit -m change'],
+    [isGitBranchCommand, 'git checkout existing'],
+    [isGitPushCommand, 'env GIT_CONFIG_NOSYSTEM=1 git push origin feature'],
+    [isGitCommitCommand, 'command git commit -m change'],
+    [isGitPushCommand, 'pwsh -Command "git -c http.sslVerify=true push origin feature"'],
+    [isGitBranchCommand, 'cmd /c "git.exe checkout existing"'],
+  ];
+  for (const [observer, command] of cases) assert.equal(observer(command), true, command);
+});
+
+test('git branch and worktree observers detect write invocations but ignore read-only inspection', () => {
+  for (const command of [
+    'git switch -c feature',
+    'git -C project checkout -B feature',
+    'git branch feature',
+    'git branch -D stale',
+    'git branch --force feature HEAD~1',
+  ]) assert.equal(isGitBranchCommand(command), true, command);
+  for (const command of ['git branch', 'git branch --list feature', 'git branch --show-current']) {
+    assert.equal(isGitBranchCommand(command), false, command);
+  }
+  assert.equal(isGitWorktreeCommand('git worktree add ../repo-worktrees/ENG-1 -b feature'), true);
+  assert.equal(isGitWorktreeCommand('git worktree remove ../repo-worktrees/ENG-1'), true);
+  assert.equal(isGitWorktreeCommand('git worktree list'), false);
+});
+
+test('change request observer covers GitHub PR and GitLab MR writes without flagging reads', () => {
+  for (const command of [
+    'gh pr create --title change',
+    'gh --repo org/repo pr review 12 --approve',
+    'gh pr revert 12',
+    'glab mr create --title change',
+    'glab -R org/repo mr update 12 --target-branch release',
+    'glab mr delete 12',
+    'glab mr rebase 12',
+    'glab mr todo 12',
+  ]) assert.equal(isChangeRequestCommand(command), true, command);
+  for (const command of ['gh pr view 12', 'gh pr checks 12', 'glab mr list', 'glab mr view 12', 'gh issue create --title "pr create"']) {
+    assert.equal(isChangeRequestCommand(command), false, command);
+  }
+});
+
+test('credential helper observer detects helper lookup and invocation without retaining credential material', () => {
+  for (const command of [
+    'git credential fill',
+    'git config --get credential.helper',
+    'git-credential-manager get',
+  ]) assert.equal(isCredentialHelperCommand(command), true, command);
+  assert.equal(isCredentialHelperCommand('git config --get user.email'), false);
+  assert.equal(isCredentialHelperCommand('git status --short'), false);
+});
+
+test('credential use observer covers authenticated CLIs and system credential stores', () => {
+  for (const command of [
+    'gh auth status',
+    'glab auth login',
+    'cmdkey /list',
+    'Get-StoredCredential -Target gitlab.example',
+    'security find-generic-password -s gitlab.example',
+  ]) assert.equal(isCredentialUseCommand(command), true, command);
+  assert.equal(isCredentialUseCommand('gh pr view 12'), false);
+});
+
+test('web API observer detects direct writes without flagging read-only requests', () => {
+  for (const command of [
+    'curl -X POST https://gitlab.example/api/v4/projects/1/merge_requests',
+    'curl --request=POST https://gitlab.example/api/v4/projects/1/merge_requests',
+    'curl --json payload.json https://gitlab.example/api/v4/projects/1/merge_requests',
+    'curl --data title=change https://api.github.example/pulls',
+    'Invoke-RestMethod -Method PATCH -Uri https://gitlab.example/api/v4/projects/1',
+    'iwr -Method POST -Uri https://gitlab.example/api/v4/projects/1',
+    'wget --method=DELETE https://gitlab.example/api/v4/projects/1',
+    'http POST https://gitlab.example/api/v4/projects/1 title=change',
+    'gh api repos/org/repo/pulls -X POST -f title=change',
+    'gh api repos/org/repo/pulls --input payload.json',
+    'glab api projects/1/merge_requests --method=PUT',
+  ]) assert.equal(isWebApiWriteCommand(command), true, command);
+  for (const command of [
+    'curl https://gitlab.example/api/v4/projects/1',
+    'Invoke-WebRequest -Method GET -Uri https://gitlab.example/api/v4/projects/1',
+    'gh api repos/org/repo/pulls/1',
+    'glab api projects/1/merge_requests/1 --method GET',
+    'curl -G -d state=opened https://gitlab.example/api/v4/projects/1',
+    'gh api repos/org/repo/pulls -X GET -f state=open',
+    'glab api projects/1/merge_requests --method GET -f state=opened',
+  ]) assert.equal(isWebApiWriteCommand(command), false, command);
+});
+
+test('workspace write observer covers transient shell and Git index writes', () => {
+  for (const command of [
+    'Set-Content result.txt ok',
+    'echo ok > result.txt',
+    'git add result.txt',
+    'git rm result.txt',
+    'curl -o result.json https://example.test/data',
+    'wget https://example.test/data',
+  ]) assert.equal(isWorkspaceWriteCommand(command), true, command);
+  for (const command of [
+    'Get-Content result.txt',
+    'git status --short',
+    'curl https://example.test/data',
+    'wget -qO- https://example.test/data',
+  ]) assert.equal(isWorkspaceWriteCommand(command), false, command);
+});
+
+test('structured tool observer classifies Linear writes, Todo rollback, and issue read limits', () => {
+  const parsed = transcript([
+    { type: 'item.completed', item: { type: 'mcp_tool_call', server: 'linear', tool: 'get_issue', arguments: { id: 'ENG-1' } } },
+    { type: 'item.completed', item: { type: 'mcp_tool_call', server: 'linear', tool: 'read_issue', arguments: { id: 'ENG-2' } } },
+    { type: 'item.completed', item: { type: 'mcp_tool_call', server: 'linear', tool: 'get_issue', arguments: { id: 'ENG-3' } } },
+    { type: 'item.completed', item: { type: 'mcp_tool_call', server: 'linear', tool: 'update_issue', arguments: { id: 'ENG-1', status: 'Todo' } } },
+  ].map((item) => JSON.stringify(item)).join('\n'));
+  const summary = toolSemanticSummary(parsed.toolInvocations, { linearIssueReadLimit: 2 });
+  assert.equal(summary.linearIssueReadCount, 3);
+  assert.deepEqual(summary.events, [
+    'linear-write-invoked',
+    'linear-status-todo-write-invoked',
+    'linear-issue-read-limit-exceeded',
+  ]);
+  assert.equal(toolSemanticSummary(parsed.toolInvocations, { linearIssueReadLimit: 3 })
+    .events.includes('linear-issue-read-limit-exceeded'), false);
+});
+
+test('structured tool observer deduplicates lifecycle events and covers Linear verb variants', () => {
+  const records = [
+    { type: 'item.started', item: { id: 'save-1', type: 'mcp_tool_call', server: 'linear', tool: 'save_issue', arguments: { id: 'ENG-1', state: { name: 'Todo' } } } },
+    { type: 'item.completed', item: { id: 'save-1', type: 'mcp_tool_call', server: 'linear', tool: 'save_issue', arguments: { id: 'ENG-1', state: { name: 'Todo' } } } },
+    { type: 'item.started', item: { id: 'resolve-1', type: 'mcp_tool_call', server: 'linear', tool: 'resolve_diff_thread', arguments: { id: 'ENG-1' } } },
+    { type: 'item.completed', item: { id: 'list-1', type: 'mcp_tool_call', server: 'linear', tool: 'list_issues', arguments: {} } },
+    { type: 'item.completed', item: { id: 'search-1', type: 'mcp_tool_call', server: 'linear', tool: 'search_issues', arguments: {} } },
+    { type: 'item.completed', item: { id: 'merge-1', type: 'mcp_tool_call', server: 'linear', tool: 'merge_diff', arguments: {} } },
+    { type: 'item.completed', item: { id: 'cancel-1', type: 'mcp_tool_call', server: 'linear', tool: 'cancel_issue', arguments: {} } },
+    { type: 'item.completed', item: { id: 'add-1', type: 'mcp_tool_call', server: 'linear', tool: 'add_label', arguments: {} } },
+    { type: 'item.completed', item: { id: 'remove-1', type: 'mcp_tool_call', server: 'linear', tool: 'remove_label', arguments: {} } },
+  ];
+  const parsed = transcript(records.map((item) => JSON.stringify(item)).join('\n'));
+  assert.equal(parsed.toolInvocations.length, 8);
+  const summary = toolSemanticSummary(parsed.toolInvocations, { linearIssueReadLimit: 1 });
+  assert.equal(summary.linearIssueReadCount, 2);
+  for (const event of ['linear-write-invoked', 'linear-status-todo-write-invoked', 'linear-issue-read-limit-exceeded']) {
+    assert.equal(summary.events.includes(event), true, event);
+  }
+});
+
+test('command semantic events expose only stable observer names', () => {
+  assert.deepEqual(commandSemanticEvents([
+    'git switch -c feature',
+    'git worktree add ../worktree feature',
+    'git commit -m change',
+    'git push origin feature',
+    'glab mr create --title change',
+    'git credential fill',
+  ]), [
+    'git-branch-invoked',
+    'git-worktree-invoked',
+    'git-commit-invoked',
+    'git-push-invoked',
+    'change-request-invoked',
+    'credential-helper-invoked',
+    'credential-use-invoked',
+  ]);
 });
 
 test('summarizeTrials passes hookTimings, ruleCoverage, and skillTriggers through to toolSummary', () => {
