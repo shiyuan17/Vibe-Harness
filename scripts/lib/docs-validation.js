@@ -46,6 +46,16 @@ const repositoryScanExcludedDirectories = new Set([
   'output',
   'tmp',
 ]);
+const repositoryScanExcludedExtensions = new Set([
+  '.7z',
+  '.bz2',
+  '.gz',
+  '.rar',
+  '.tar',
+  '.tgz',
+  '.xz',
+  '.zip',
+]);
 
 function normalize(relativePath) {
   return relativePath.replaceAll('\\', '/');
@@ -94,7 +104,9 @@ async function collectRepositoryFiles(directory, rootDir, results = []) {
     if (entry.isDirectory() && repositoryScanExcludedDirectories.has(entry.name)) continue;
     const fullPath = path.join(directory, entry.name);
     if (entry.isDirectory()) await collectRepositoryFiles(fullPath, rootDir, results);
-    else if (entry.isFile()) results.push(normalize(path.relative(rootDir, fullPath)));
+    else if (entry.isFile() && !repositoryScanExcludedExtensions.has(path.extname(entry.name).toLowerCase())) {
+      results.push(normalize(path.relative(rootDir, fullPath)));
+    }
   }
   return results;
 }
@@ -117,7 +129,7 @@ export async function validateLegacyBrandUsage({ rootDir }) {
   const errors = [];
   for (const file of await collectRepositoryFiles(rootDir, rootDir)) {
     if (legacyBrandFullyAllowed(file)) continue;
-    const content = (await readFile(path.join(rootDir, file))).toString('utf8');
+    const content = await readFile(path.join(rootDir, file), 'utf8');
     const lines = content.split(/\r?\n/u);
     const invalidContent = lines.some((line, lineIndex) => (
       legacyBrandPattern.test(line) && !legacyLineAllowed(file, line, lineIndex, lines)

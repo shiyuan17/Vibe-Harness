@@ -6,6 +6,7 @@ import test from 'node:test';
 import {
   collectGovernedPaths,
   validateDocumentation,
+  validateLegacyBrandUsage,
   validateReadmeParity,
   validateRulesParity,
   validateSchemaParity,
@@ -16,6 +17,16 @@ const rootDir = path.resolve(import.meta.dirname, '..');
 test('documentation catalog covers current and archived Markdown', async () => {
   const report = await validateDocumentation({ rootDir });
   assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+});
+
+test('legacy brand audit ignores archive assets', async () => {
+  const tmp = await mkdtemp(path.join(import.meta.dirname, 'tmp-legacy-archive-'));
+  try {
+    await writeFile(path.join(tmp, 'release.zip'), 'LoopEngine', 'utf8');
+    assert.deepEqual(await validateLegacyBrandUsage({ rootDir: tmp }), []);
+  } finally {
+    await rm(tmp, { recursive: true, force: true });
+  }
 });
 
 test('execution envelope schemas are governed without Markdown false positives', async () => {
