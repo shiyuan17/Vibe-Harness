@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- 执行内核默认循环新增计划拆分判定：计划完成后不默认直接执行也不默认拆分，先按硬触发（契约/schema/数据模型迁移、混合重构与行为修改、单次上下文装不下或单 Agent 无法稳定完成）加软信号计数（多模块、前后依赖、可并行、多验收阶段、多层测试）两级判定，0–1 项直接执行、2–3 项拆分、4 项及以上必须拆分并声明依赖；实施任务须可独立执行、独立验证、独立提交，操作步骤不得作为任务。
+- 任务模板（中英文）新增可选「实施任务拆分」表；canary 套件升级至 2.8.0，新增 EVAL-SPLIT-001..003 覆盖直接执行、硬触发拆分与必须拆分带依赖三档判定；capability 目录注册 plan-task-split。
 - 新增第八个正式 target OpenCode：共享根 AGENTS.md 受管块，安装原生 .opencode/skills，支持完整项目生命周期和项目级 MCP；不安装 OpenCode plugin Hook，并显式报告 DEGRADED_SAFETY_POSTURE。
 - OpenCode 项目配置确定性选择 opencode.json 或 opencode.jsonc，使用固定 jsonc-parser 3.3.1 保留注释、尾逗号、格式和用户键；只管理 mcp.vibe-harness-*，并将两种配置文件纳入安装与运行时红区。
 

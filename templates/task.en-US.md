@@ -20,6 +20,14 @@
 
 ## Dependency chain (dependencies / contracts / tests / docs)
 
+## Implementation task split (complete only when the plan is split)
+
+> Complete this table when the plan split judgment selects splitting; each task must be independently executable, verifiable, and committable. Vibe-Harness does not parse it or use it as a completion gate.
+
+| Task | Goal | Depends on | Change scope | Constraints | Acceptance criteria | Verification | Output |
+|---|---|---|---|---|---|---|---|
+|  |  |  |  |  |  |  |  |
+
 ## Collaboration Graph (complete only when collaborating)
 
 > Complete this table when two or more work units have ordering dependencies, parallel writes, or a shared contract. Vibe-Harness does not parse it or use it as a completion gate.
