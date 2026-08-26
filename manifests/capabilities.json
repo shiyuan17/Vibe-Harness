@@ -12,6 +12,16 @@
       "evaluation": { "required": false, "reason": "The execution loop is deterministic and covered by structural tests." }
     },
     {
+      "id": "plan-task-split",
+      "source": "post-plan task split judgment in the execution kernel",
+      "disposition": "generalize",
+      "targets": ["rules/governance-core.md", "templates/task.md", "templates/task.en-US.md"],
+      "tests": ["tests/execution-simplification.test.js"],
+      "profiles": ["minimal", "core", "full", "docs-only"],
+      "docs": ["docs/rules/governance-core.md", "docs/templates/task.md"],
+      "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-online-canary.json"] }
+    },
+    {
       "id": "lightweight-task-dag",
       "source": "human-readable multi-agent dependency and fan-in contract",
       "disposition": "generalize",

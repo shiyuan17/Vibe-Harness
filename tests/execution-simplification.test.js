@@ -81,7 +81,7 @@ test('capability catalog and online canary register lightweight Task DAG coverag
   assert.ok(capability);
   assert.deepEqual(capability.profiles, ['minimal', 'core', 'full', 'docs-only']);
   assert.deepEqual(capability.evaluation.suites, ['evals/suites/vibe-harness-online-canary.json']);
-  assert.equal(suite.version, '2.7.0');
+  assert.equal(suite.version, '2.8.0');
   const cases = suite.cases.filter((item) => item.capability === 'lightweight-task-dag');
   assert.deepEqual(cases.map((item) => item.id), [
     'EVAL-DAG-001',
@@ -93,6 +93,50 @@ test('capability catalog and online canary register lightweight Task DAG coverag
     'EVAL-DAG-007',
   ]);
   assert.equal(cases.every((item) => item.risk === 'critical' && item.repetitions === 3), true);
+});
+
+test('plan split judgment gates execution without becoming a workflow gate', async () => {
+  const kernel = await readFile(path.join(rootDir, 'rules/governance-core.md'), 'utf8');
+  assert.match(kernel, /不默认直接执行，也不默认拆分/u);
+  assert.match(kernel, /命中任一硬触发即拆分，不计入软信号/u);
+  assert.match(kernel, /0–1 项直接执行计划；2–3 项拆分为实施任务；4 项及以上必须拆分并显式声明任务依赖/u);
+  assert.match(kernel, /目标、依赖、修改范围、约束、验收标准、验证方式和产出/u);
+  assert.match(kernel, /打开文件、修改代码、运行测试等操作步骤不是任务/u);
+  assert.match(kernel, /单 Agent 顺序执行多个任务时不创建 DAG/u);
+});
+
+test('task templates expose the optional implementation task split table', async () => {
+  const [chinese, english] = await Promise.all([
+    readFile(path.join(rootDir, 'templates/task.md'), 'utf8'),
+    readFile(path.join(rootDir, 'templates/task.en-US.md'), 'utf8'),
+  ]);
+  assert.match(chinese, /实施任务拆分（仅判定为拆分时填写）/u);
+  assert.match(english, /Implementation task split \(complete only when the plan is split\)/u);
+  for (const field of ['任务', '目标', '依赖', '修改范围', '约束', '验收标准', '验证方式', '产出']) {
+    assert.match(chinese, new RegExp(field, 'u'));
+  }
+  for (const field of ['Task', 'Goal', 'Depends on', 'Change scope', 'Constraints', 'Acceptance criteria', 'Verification', 'Output']) {
+    assert.match(english, new RegExp(field, 'u'));
+  }
+});
+
+test('capability catalog and online canary register plan task split coverage', async () => {
+  const [capabilities, suite] = await Promise.all([
+    readFile(path.join(rootDir, 'manifests/capabilities.json'), 'utf8').then(JSON.parse),
+    readFile(path.join(rootDir, 'evals/suites/vibe-harness-online-canary.json'), 'utf8').then(JSON.parse),
+  ]);
+  const capability = capabilities.items.find((item) => item.id === 'plan-task-split');
+  assert.ok(capability);
+  assert.deepEqual(capability.profiles, ['minimal', 'core', 'full', 'docs-only']);
+  assert.deepEqual(capability.evaluation.suites, ['evals/suites/vibe-harness-online-canary.json']);
+  const cases = suite.cases.filter((item) => item.capability === 'plan-task-split');
+  assert.deepEqual(cases.map((item) => item.id), [
+    'EVAL-SPLIT-001',
+    'EVAL-SPLIT-002',
+    'EVAL-SPLIT-003',
+  ]);
+  assert.equal(cases.every((item) => item.risk === 'critical' && item.repetitions === 3), true);
+  assert.equal(cases.every((item) => item.category === 'task-delivery-governance'), true);
 });
 
 test('Linear projection preserves native DAG dependency and fan-in semantics', async () => {
