@@ -47,6 +47,11 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+      - run: pnpm lint:eslint
+      - run: pnpm typecheck
+        # Non-blocking until the historical type-annotation debt is cleared
+        # (TD-2026-09-02-2); flip to blocking as part of its closing condition.
+        continue-on-error: true
       - run: pnpm eval:check
       - run: pnpm eval:replay
       - run: pnpm test:eval
@@ -77,6 +82,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm runtime:audit
+      - run: pnpm skills:audit
+      - run: pnpm eval:behavioral
       - run: pnpm pack:contract
 
   merge-gate:
