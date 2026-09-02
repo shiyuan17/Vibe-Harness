@@ -195,6 +195,11 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
       ? `- 项目内工具位于 \`.agents/runtime/tools/\`；使用 \`vibe-harness doctor --project <path>\` 查看初始化状态。${hasTarget('docs/rules/chrome-devtools-mcp.md') ? ' Chrome DevTools MCP 规则位于 \`docs/rules/chrome-devtools-mcp.md\`。' : ''}${hasRtkTool ? ' RTK 规则位于 \`docs/rules/rtk.md\`。' : ''}${hasAstGrepTool ? ' ast-grep 规则位于 \`docs/rules/ast-grep.md\`。' : ''}`
       : '',
   };
+  if (installedSurface.memoryLoadLine) {
+    installedSurface.memoryLoadLine = '仅当任务需要恢复项目状态且当前授权允许读取 Memory body 时，'
+      + installedSurface.memoryLoadLine
+      + ' 当专项 Skill 给出更窄证据边界时，仅检查相关路径是否存在及必要元数据，不读取正文。';
+  }
   installedSurface.discoveryLine = toolDiscoveryLine(installedProviderModules);
   if (installedIntegrationSkills.length > 0) {
     installedSurface.profileLine += ' 当前另安装 integration Skills：'

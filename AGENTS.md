@@ -32,6 +32,8 @@ Vibe-Harness 用来打包可复用的 AI coding 项目规则、领域 Skills、�
 | runtime tool lockfile/provision | `pnpm runtime:audit` |
 | 浏览器行为 | 真实浏览器关键路径 |
 
+TypeScript 配置、类型声明、JSDoc 类型契约，或完成主张涉及类型安全的 JS/TS 改动，追加运行 pnpm typecheck；该仓库脚本已存在，但当前未接入项目 verify 默认命令。
+
 - 可用 `pnpm verify:focused` 把本轮变更路径机械映射为建议命令清单（建议非门禁，`--run` 依序执行）。
 - 只运行与变更和完成主张匹配的聚焦检查；不要自动派发 Review/Test 角色。
 
@@ -54,6 +56,8 @@ Vibe-Harness 用来打包可复用的 AI coding 项目规则、领域 Skills、�
 
 ## 启动
 
+Memory body 加载受任务相关性和当前授权约束：仅当任务需要恢复项目状态且当前授权允许时，才执行下方治理记忆读取；专项 Skill 给出更窄证据边界时，只检查相关路径是否存在及必要元数据，不读取正文。
+
 1. 先读取 `docs/rules/governance-core.md`；只有出现 Skill 或专项领域信号时再读取 `docs/rules/AGENT_SKILL_ROUTING.md` 和一个命中的专项规则。
 2. 读取 `docs/memory/` 的治理记忆（优先 `PROJECT_STATE.md`），按其与本地记忆库的优先级合并；本地记忆库恢复入口为 `.agents/memory/CURRENT.md`。
 3. 编辑前运行 `git status --short`，保护用户未归属改动。
@@ -67,7 +71,7 @@ Vibe-Harness 用来打包可复用的 AI coding 项目规则、领域 Skills、�
 - 不编造事实或证据；没有本轮有效验证不得声称完成。
 - 任务记录是可选的人读文档，不触发测试、Review、子 Agent 或完成门禁。
 
-## 默认验证命令
+## 项目 verify 配置
 
 - Lint: pnpm lint
 - Typecheck: 未配置
@@ -93,4 +97,3 @@ Vibe-Harness 用来打包可复用的 AI coding 项目规则、领域 Skills、�
 
 规则优先级：平台系统与用户本轮指令优先；目标项目明确的本地规则优先于 Vibe-Harness 默认规则；目录级规则只作用于其子树。同一层级冲突时停止并请求确认。
 <!-- VIBE_HARNESS:END -->
-

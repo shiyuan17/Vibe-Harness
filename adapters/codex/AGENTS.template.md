@@ -17,7 +17,7 @@
 - 不编造事实或证据；没有本轮有效验证不得声称完成。
 - 任务记录是可选的人读文档，不触发测试、Review、子 Agent 或完成门禁。
 
-## 默认验证命令
+## 项目 verify 配置
 
 - Lint: {{validationCommands.lint}}
 - Typecheck: {{validationCommands.typecheck}}

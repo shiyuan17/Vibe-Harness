@@ -568,6 +568,13 @@ async function validateDocumentationUnchecked({ catalog, rootDir, today = new Da
   }
 
   const agents = await readFile(path.join(rootDir, 'AGENTS.md'), 'utf8');
+  const packageJson = await readJson(path.join(rootDir, 'package.json'));
+  if (packageJson.scripts?.typecheck) {
+    if (!agents.includes('pnpm typecheck')) errors.push('AGENTS.md must expose the package.json typecheck script');
+    if (!/TypeScript 配置、类型声明、JSDoc 类型契约/u.test(agents)) {
+      errors.push('AGENTS.md must define when typecheck is required');
+    }
+  }
   const agentLines = agents.split(/\r?\n/u).length;
   const agentBytes = Buffer.byteLength(agents);
   if (agentLines > 300) errors.push(`AGENTS.md exceeds 300 line budget: ${agentLines}`);

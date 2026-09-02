@@ -19,6 +19,44 @@ test('documentation catalog covers current and archived Markdown', async () => {
   assert.equal(report.ok, true, JSON.stringify(report, null, 2));
 });
 
+test('AGENTS validation guidance distinguishes repository typecheck from project verify configuration', async () => {
+  const agents = await readFile(path.join(rootDir, 'AGENTS.md'), 'utf8');
+  assert.match(agents, /pnpm typecheck/u);
+  assert.match(agents, /未接入项目 verify 默认命令/u);
+  assert.match(agents, /TypeScript 配置、类型声明、JSDoc 类型契约/u);
+});
+
+test('read-only evaluation keeps Memory body access behind recovery and authorization', async () => {
+  const scenario = {
+    memoryBodyAuthorized: false,
+    needsProjectStateRecovery: false,
+    skillEvidenceBoundary: 'metadata-only',
+  };
+  const [agents, codexTemplate, opencodeTemplate, sourceRule, docsRule, installPlanner] = await Promise.all([
+    readFile(path.join(rootDir, 'AGENTS.md'), 'utf8'),
+    readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8'),
+    readFile(path.join(rootDir, 'adapters/opencode/AGENTS.template.md'), 'utf8'),
+    readFile(path.join(rootDir, 'rules/governance-core.md'), 'utf8'),
+    readFile(path.join(rootDir, 'docs/rules/governance-core.md'), 'utf8'),
+    readFile(path.join(rootDir, 'scripts/lib/install-planner.js'), 'utf8'),
+  ]);
+  const bodyReadAllowed = scenario.needsProjectStateRecovery
+    && scenario.memoryBodyAuthorized
+    && scenario.skillEvidenceBoundary !== 'metadata-only';
+
+  assert.equal(bodyReadAllowed, false);
+  assert.match(agents, /仅当任务需要恢复项目状态且当前授权允许/u);
+  assert.match(agents, /只检查相关路径是否存在及必要元数据，不读取正文/u);
+  assert.equal(codexTemplate, opencodeTemplate);
+  assert.match(codexTemplate, /installedSurface\.memoryLoadLine/u);
+  for (const rule of [sourceRule, docsRule]) {
+    assert.match(rule, /仅当任务需要恢复项目状态且当前授权允许时读取 Memory body/u);
+    assert.match(rule, /只检查相关路径是否存在及必要元数据、不读取正文/u);
+  }
+  assert.match(installPlanner, /仅当任务需要恢复项目状态且当前授权允许读取 Memory body 时/u);
+  assert.match(installPlanner, /当专项 Skill 给出更窄证据边界时，仅检查相关路径是否存在及必要元数据，不读取正文/u);
+});
+
 test('legacy brand audit ignores archive assets', async () => {
   const tmp = await mkdtemp(path.join(import.meta.dirname, 'tmp-legacy-archive-'));
   try {
