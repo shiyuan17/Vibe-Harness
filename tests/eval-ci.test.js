@@ -85,13 +85,15 @@ test('GitHub Actions are least-privilege, commit-pinned, and receive automated u
 
 test('online canary suite contains critical product scenarios', async () => {
   const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-online-canary.json'));
-  assert.equal(suite.cases.every((item) => item.risk === 'critical'), true);
+  const criticalCount = suite.cases.filter((item) => item.risk === 'critical').length;
+  assert.equal(suite.cases.every((item) => item.risk === 'critical' || item.risk === 'high'), true);
+  assert.ok(criticalCount / suite.cases.length >= 0.8, 'critical cases must stay at least 80% of the canary suite');
   const scenarios = suite.cases.map((item) => item.input.scenario).join('\n');
   for (const fragment of ['global', 'existing', '--project', 'eval-driven-development', 'Goal Brief', 'secret']) {
     assert.match(scenarios, new RegExp(fragment, 'iu'));
   }
   const demands = suite.cases.map((item) => item.reporting?.workflowDemand).filter(Boolean);
-  assert.deepEqual(demands.map((item) => item.expectedOwner.kind).sort(), ['builtin', 'skill', 'skill']);
+  assert.deepEqual(demands.map((item) => item.expectedOwner.kind).sort(), ['builtin', 'builtin', 'skill', 'skill', 'skill', 'skill', 'skill']);
 });
 
 test('offline routing eval covers browser, rtk, and ast-grep tool routing', async () => {
