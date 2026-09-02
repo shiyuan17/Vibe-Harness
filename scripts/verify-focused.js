@@ -8,6 +8,8 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 import { assertSafeCommand } from './lib/shell-command.js';
+import { readProjectConfig } from './lib/project-config.js';
+import { runFocusedProjectVerification } from './lib/project-verification.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -108,6 +110,28 @@ export function selectFocusedChecks(paths) {
   return { commands, notes };
 }
 
+function normalizeGitPath(entry) {
+  return entry.replaceAll('\\', '/');
+}
+
+export function parseNulPathList(output) {
+  return output.split('\0').filter(Boolean).map(normalizeGitPath);
+}
+
+export function parseNulPorcelainPaths(output) {
+  const entries = output.split('\0');
+  const paths = [];
+  for (let index = 0; index < entries.length; index++) {
+    const record = entries[index];
+    if (record.length < 4) continue;
+    const status = record.slice(0, 2);
+    const entry = record.slice(3);
+    if (entry) paths.push(normalizeGitPath(entry));
+    if (/[RC]/u.test(status)) index++;
+  }
+  return paths;
+}
+
 /**
  * Collect changed paths from git: committed and working-tree changes relative
  * to HEAD (or the given base ref), plus untracked paths from status.
@@ -118,27 +142,15 @@ export function selectFocusedChecks(paths) {
 export async function collectChangedPaths({ base = null, cwd = process.cwd() } = {}) {
   const gitEnv = { ...process.env, GIT_OPTIONAL_LOCKS: '0' };
   const diffArgs = base
-    ? ['diff', '--name-only', base]
-    : ['diff', '--name-only', 'HEAD'];
+    ? ['diff', '--name-only', '-z', '--find-renames', base]
+    : ['diff', '--name-only', '-z', '--find-renames', 'HEAD'];
   const paths = new Set();
   const [diff, status] = await Promise.all([
     execFileAsync('git', diffArgs, { env: gitEnv, cwd }),
-    execFileAsync('git', ['status', '--porcelain'], { env: gitEnv, cwd }),
+    execFileAsync('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all'], { env: gitEnv, cwd }),
   ]);
-  // Diff output is bare paths; porcelain output prefixes three status columns.
-  for (const line of diff.stdout.split('\n')) {
-    const entry = line.trim();
-    if (entry) paths.add(entry.replaceAll('\\', '/'));
-  }
-  for (const line of status.stdout.split('\n')) {
-    if (line.length < 4) continue;
-    // Porcelain lines are "XY <path>" (or "XY <orig> -> <path>" for renames);
-    // the status columns occupy exactly three characters.
-    let entry = line.slice(3);
-    const arrow = entry.indexOf(' -> ');
-    if (arrow >= 0) entry = entry.slice(arrow + 4);
-    if (entry) paths.add(entry.replaceAll('\\', '/'));
-  }
+  for (const entry of parseNulPathList(diff.stdout)) paths.add(entry);
+  for (const entry of parseNulPorcelainPaths(status.stdout)) paths.add(entry);
   return [...paths];
 }
 
@@ -154,17 +166,13 @@ function executableFor(command) {
   return { file: program, args: rest };
 }
 
-async function runCommand(command) {
-  const { file, args } = executableFor(command);
-  await execFileAsync(file, args, { stdio: 'inherit', env: process.env });
-}
-
 function printUsage() {
-  console.log('Usage: node scripts/verify-focused.js [--base <ref>] [--run]');
+  console.log('Usage: node scripts/verify-focused.js [--base <ref>] [--run] [--json]');
   console.log();
   console.log('Prints suggested focused verification commands for the current changes.');
   console.log('  --base <ref>  Diff against <ref> instead of HEAD (covers committed changes).');
   console.log('  --run         Execute the suggested commands in order, stopping on first failure.');
+  console.log('  --json        Emit suggestions or the complete focused-verification receipt as JSON.');
 }
 
 function usageError(message) {
@@ -176,10 +184,13 @@ function usageError(message) {
 async function main() {
   const args = process.argv.slice(2);
   let run = false;
+  let json = false;
   let base = null;
   for (let index = 0; index < args.length; index++) {
     if (args[index] === '--run') {
       run = true;
+    } else if (args[index] === '--json') {
+      json = true;
     } else if (args[index] === '--base') {
       base = args[++index];
       if (!base) usageError('--base requires a git ref argument.');
@@ -192,12 +203,27 @@ async function main() {
   }
 
   const paths = await collectChangedPaths({ base });
+  const { commands, notes } = selectFocusedChecks(paths);
+  if (!run && json) {
+    console.log(JSON.stringify({ changedPaths: paths, commands, notes }, null, 2));
+    return;
+  }
+  let report = null;
+  if (run) {
+    const config = await readProjectConfig(process.cwd());
+    report = await runFocusedProjectVerification({
+      focused: { changedPaths: paths, commands, notes },
+      targetDir: process.cwd(),
+      timeoutMs: config.verification?.timeoutMs,
+    });
+    if (json) console.log(JSON.stringify(report, null, 2));
+    if (!report.ok) process.exitCode = 1;
+    if (json) return;
+  }
   if (paths.length === 0) {
     console.log('No changed paths detected; no focused verification needed.');
     return;
   }
-
-  const { commands, notes } = selectFocusedChecks(paths);
   console.log(`Focused verification suggestions (${paths.length} changed path(s), ${commands.length} command(s)):`);
   for (const item of commands) console.log(`  ${item.command.padEnd(24)}# ${item.reason}`);
   for (const note of notes) console.log(`Note: ${note}`);
@@ -209,10 +235,14 @@ async function main() {
   for (const item of commands) {
     console.log(`\n$ ${item.command}`);
     try {
-      await runCommand(item.command);
+      const result = report.results.find((entry) => entry.command === item.command);
+      if (result.stdout) process.stdout.write(result.stdout + (result.stdout.endsWith('\n') ? '' : '\n'));
+      if (result.stderr) process.stderr.write(result.stderr + (result.stderr.endsWith('\n') ? '' : '\n'));
+      if (result.status !== 'passed') throw result;
     } catch (error) {
       console.error(`\nFocused verification failed at: ${item.command}`);
-      process.exit(typeof error.code === 'number' ? error.code : 1);
+      console.error('Recovery: ' + (error.next?.command ?? 'pnpm verify:focused --run'));
+      process.exit(typeof error.exitCode === 'number' ? error.exitCode : 1);
     }
   }
   console.log('\nFocused verification passed.');

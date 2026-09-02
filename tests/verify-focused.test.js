@@ -6,7 +6,12 @@ import path from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
 
-import { collectChangedPaths, selectFocusedChecks } from '../scripts/verify-focused.js';
+import {
+  collectChangedPaths,
+  parseNulPathList,
+  parseNulPorcelainPaths,
+  selectFocusedChecks,
+} from '../scripts/verify-focused.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -56,7 +61,34 @@ test('selectFocusedChecks falls back to pnpm check for unrecognized paths', () =
   assert.deepEqual(commands(selectFocusedChecks([])), []);
 });
 
-test('collectChangedPaths reports committed, working-tree, and untracked changes', async () => {
+test('NUL-delimited path parsers preserve spaces, quotes, newlines, and rename destinations', () => {
+  const diffOutput = [
+    'docs/space name.md',
+    'scripts/"quoted".js',
+    'tests/line\nbreak.js',
+    '',
+  ].join('\0');
+  assert.deepEqual(parseNulPathList(diffOutput), [
+    'docs/space name.md',
+    'scripts/"quoted".js',
+    'tests/line\nbreak.js',
+  ]);
+
+  const statusOutput = [
+    ' M docs/space name.md',
+    'R  scripts/new name.js',
+    'rules/old\nname.js',
+    '?? tests/"quoted".test.js',
+    '',
+  ].join('\0');
+  assert.deepEqual(parseNulPorcelainPaths(statusOutput), [
+    'docs/space name.md',
+    'scripts/new name.js',
+    'tests/"quoted".test.js',
+  ]);
+});
+
+test('collectChangedPaths reports committed, staged, unstaged, untracked, and renamed paths', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'verify-focused-'));
   const git = (...args) => execFileAsync('git', ['-C', dir, ...args]);
   try {
@@ -64,7 +96,11 @@ test('collectChangedPaths reports committed, working-tree, and untracked changes
     await git('config', 'user.email', 'test@example.com');
     await git('config', 'user.name', 'Vibe-Harness Test');
     await mkdir(path.join(dir, 'rules'), { recursive: true });
-    await writeFile(path.join(dir, 'rules', 'a.md'), 'base\n');
+    await mkdir(path.join(dir, 'scripts'), { recursive: true });
+    await mkdir(path.join(dir, 'docs'), { recursive: true });
+    await writeFile(path.join(dir, 'rules', 'staged.md'), 'base\n');
+    await writeFile(path.join(dir, 'scripts', 'unstaged.js'), 'base\n');
+    await writeFile(path.join(dir, 'docs', 'rename old.md'), 'base\n');
     await git('add', '.');
     await git('commit', '-m', 'base');
 
@@ -73,14 +109,22 @@ test('collectChangedPaths reports committed, working-tree, and untracked changes
     await git('add', '.');
     await git('commit', '-m', 'second');
 
-    // Working-tree modification plus an untracked directory.
-    await writeFile(path.join(dir, 'rules', 'a.md'), 'changed\n');
-    await mkdir(path.join(dir, 'docs'), { recursive: true });
-    await writeFile(path.join(dir, 'docs', 'new.md'), 'untracked\n');
+    await writeFile(path.join(dir, 'rules', 'staged.md'), 'staged\n');
+    await git('add', 'rules/staged.md');
+    await writeFile(path.join(dir, 'scripts', 'unstaged.js'), 'unstaged\n');
+    await mkdir(path.join(dir, 'tests'), { recursive: true });
+    await writeFile(path.join(dir, 'tests', 'untracked space.test.js'), 'untracked\n');
+    await mkdir(path.join(dir, 'adapters'), { recursive: true });
+    await git('mv', 'docs/rename old.md', 'adapters/renamed file.md');
 
     const paths = await collectChangedPaths({ base: 'HEAD~1', cwd: dir });
-    // Untracked directories are reported by status as collapsed "dir/" entries.
-    assert.deepEqual([...paths].sort(), ['docs/', 'evals/x.json', 'rules/a.md']);
+    assert.deepEqual([...paths].sort(), [
+      'adapters/renamed file.md',
+      'evals/x.json',
+      'rules/staged.md',
+      'scripts/unstaged.js',
+      'tests/untracked space.test.js',
+    ]);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -98,6 +142,86 @@ test('collectChangedPaths returns an empty list for a clean worktree', async () 
     await git('commit', '-m', 'base');
     const paths = await collectChangedPaths({ cwd: dir });
     assert.deepEqual(paths, []);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('verify-focused --run --json emits one reviewable receipt', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'verify-focused-receipt-'));
+  const git = (...args) => execFileAsync('git', ['-C', dir, ...args]);
+  try {
+    await git('init');
+    await git('config', 'user.email', 'test@example.com');
+    await git('config', 'user.name', 'Vibe-Harness Test');
+    await mkdir(path.join(dir, 'tests'), { recursive: true });
+    await writeFile(path.join(dir, 'package.json'), JSON.stringify({
+      name: 'verify-focused-fixture',
+      private: true,
+      scripts: { 'test:unit': 'node -e "console.log(42)"' },
+    }));
+    await writeFile(path.join(dir, '.gitignore'), 'node_modules/\n');
+    await writeFile(path.join(dir, 'tests', 'check.txt'), 'base\n');
+    const installCommand = process.platform === 'win32'
+      ? ['cmd.exe', ['/c', 'pnpm.cmd', 'install', '--ignore-scripts']]
+      : ['pnpm', ['install', '--ignore-scripts']];
+    await execFileAsync(installCommand[0], installCommand[1], { cwd: dir });
+    await git('add', '.');
+    await git('commit', '-m', 'base');
+    await writeFile(path.join(dir, 'tests', 'check.txt'), 'changed\n');
+
+    const scriptPath = path.resolve(import.meta.dirname, '../scripts/verify-focused.js');
+    const result = await execFileAsync(process.execPath, [scriptPath, '--run', '--json'], {
+      cwd: dir,
+      maxBuffer: 1024 * 1024 * 8,
+    });
+    const report = JSON.parse(result.stdout);
+
+    assert.equal(report.ok, true);
+    assert.deepEqual(report.verification.focused.changedPaths, ['tests/check.txt']);
+    assert.deepEqual(report.verification.focused.commands.map((item) => item.command), ['pnpm test:unit']);
+    assert.equal(report.results[0].status, 'passed');
+    assert.equal(report.verification.stable, true);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('verify-focused --run terminates a hanging command with project timeout recovery', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'verify-focused-timeout-'));
+  const git = (...args) => execFileAsync('git', ['-C', dir, ...args]);
+  try {
+    await git('init');
+    await git('config', 'user.email', 'test@example.com');
+    await git('config', 'user.name', 'Vibe-Harness Test');
+    await mkdir(path.join(dir, 'tests'), { recursive: true });
+    await writeFile(path.join(dir, 'package.json'), JSON.stringify({
+      name: 'verify-focused-timeout-fixture',
+      private: true,
+      scripts: { 'test:unit': 'node -e "setInterval(() => {}, 1000)"' },
+    }));
+    await writeFile(path.join(dir, 'vibe-harness.config.json'), JSON.stringify({
+      verification: { timeoutMs: 1000 },
+    }));
+    await writeFile(path.join(dir, 'tests', 'check.txt'), 'base\n');
+    await git('add', '.');
+    await git('commit', '-m', 'base');
+    await writeFile(path.join(dir, 'tests', 'check.txt'), 'changed\n');
+
+    const scriptPath = path.resolve(import.meta.dirname, '../scripts/verify-focused.js');
+    const startedAt = Date.now();
+    await assert.rejects(
+      execFileAsync(process.execPath, [scriptPath, '--run'], {
+        cwd: dir,
+        maxBuffer: 1024 * 1024 * 8,
+      }),
+      (error) => {
+        assert.match(error.stderr, /Focused verification failed at: pnpm test:unit/u);
+        assert.match(error.stderr, /Recovery: pnpm verify:focused --run/u);
+        return true;
+      },
+    );
+    assert.equal(Date.now() - startedAt < 5000, true);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
