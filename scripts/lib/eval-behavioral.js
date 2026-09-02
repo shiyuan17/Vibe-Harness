@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-const CONTROLS = [
+export const CONTROLS = [
   {
     id: 'BEHAVIOR-RULE-001',
     relative: 'rules/governance-core.md',
@@ -39,14 +39,25 @@ export async function runBehavioralEvaluation(rootDir) {
   }
   const contents = Object.fromEntries(entries);
   const cases = evaluateBehavioralControls(contents);
-  const mutations = CONTROLS.map((control) => {
-    const mutated = {
-      ...contents,
-      [control.relative]: contents[control.relative].replaceAll(control.required[0], ''),
-    };
-    const detected = !evaluateBehavioralControls(mutated).find((item) => item.id === control.id).passed;
-    return { id: control.id + '-MUTATION', detected };
-  });
+  const baseline = new Map(cases.map((item) => [item.id, item.passed]));
+  // Each required fragment gets its own mutation case: mutating only the first
+  // fragment of a control would leave the remaining fragments unverified.
+  const mutations = CONTROLS.flatMap((control) =>
+    control.required.map((fragment, index) => {
+      const mutated = {
+        ...contents,
+        [control.relative]: contents[control.relative].replaceAll(fragment, ''),
+      };
+      const passedAfter = evaluateBehavioralControls(mutated).find((item) => item.id === control.id).passed;
+      // An already-failing control cannot demonstrate that its mutation was
+      // detected, so detection is claimed only for an observed pass-to-fail flip.
+      return {
+        id: `${control.id}-MUTATION-${index + 1}`,
+        fragment,
+        detected: baseline.get(control.id) === true && passedAfter === false,
+      };
+    }),
+  );
   return {
     schemaVersion: 2,
     proof: 'stub-behavioral',

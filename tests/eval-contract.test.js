@@ -150,6 +150,18 @@ test('git-deliver canaries pin explicit authorization and safe push boundaries',
   );
 });
 
+test('EVAL-SPLIT cases share one verbatim AGENTS.md fixture text', async () => {
+  const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-online-canary.json'));
+  const cases = suite.cases.filter((item) => item.id.startsWith('EVAL-SPLIT-'));
+  assert.deepEqual(cases.map((item) => item.id), ['EVAL-SPLIT-001', 'EVAL-SPLIT-002', 'EVAL-SPLIT-003']);
+  const fixtureTexts = cases.map(
+    (item) => item.input.fixture.files.find((file) => file.path === 'AGENTS.md').content,
+  );
+  assert.equal(new Set(fixtureTexts).size, 1);
+  assert.match(fixtureTexts[0], /hard trigger forces splitting/u);
+  assert.match(fixtureTexts[0], /4 or more: must split and declare task dependencies/u);
+});
+
 test('eval run schema accepts optional sanitized per-trial diagnostics', async () => {
   const assets = await loadEvalAssets(rootDir);
   const run = structuredClone(assets.run);
