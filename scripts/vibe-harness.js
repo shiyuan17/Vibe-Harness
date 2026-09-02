@@ -24,7 +24,7 @@ import {
   previewInstallPlan,
 } from './lib/install-planner.js';
 import { validatePack } from './lib/pack-validation.js';
-import { runProjectVerification } from './lib/project-verification.js';
+import { createVerificationPreflightError, runProjectVerification } from './lib/project-verification.js';
 import { detectProjectProfile } from './lib/project-profile.js';
 import {
   readRequiredProjectConfig,
@@ -663,21 +663,28 @@ async function verify(args) {
     targets,
   });
   if (!target.ok) {
-    const error = new Error('Project installation is not consistent; run vibe-harness validate --project first.');
-    error.code = 'PROJECT_VERIFICATION_FAILED';
-    throw error;
+    throw createVerificationPreflightError({
+      kind: 'installation',
+      message: 'Project installation is not consistent; run vibe-harness validate --project first.',
+      report: target,
+      targetDir,
+    });
   }
   const pack = await validatePack(rootDir);
   if (!pack.ok) {
-    const error = new Error('Vibe-Harness pack validation failed.');
-    error.code = 'PROJECT_VERIFICATION_FAILED';
-    throw error;
+    throw createVerificationPreflightError({
+      kind: 'pack',
+      message: 'Vibe-Harness pack validation failed.',
+      report: pack,
+      targetDir,
+    });
   }
   const commandStatus = await inspectValidationCommands({ commands: validationCommands, targetDir });
   const verificationReport = await runProjectVerification({
     allowManual: Boolean(args['allow-manual']),
     commandStatus,
     targetDir,
+    timeoutMs: config.verification?.timeoutMs,
   });
   emitReport({
     ...verificationReport,
@@ -1307,6 +1314,7 @@ try {
     status: 'invalid',
     error: {
       code: error.code ?? 'VIBE_HARNESS_ERROR',
+      ...(error.details ? { details: error.details } : {}),
       message: error.message,
     },
   }, args, { error: true });
