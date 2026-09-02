@@ -1,6 +1,6 @@
 ---
 name: git-deliver
-description: 仅当用户显式调用 $git-deliver 或明确要求使用该 Skill 时使用；用于整理当前任务相关改动、按逻辑分组提交并普通推送当前分支。
+description: Use only when the user explicitly invokes $git-deliver or explicitly requests this Skill: organize task-related changes, commit them in logical groups, and push the current branch.
 ---
 
 # 分批提交并推送

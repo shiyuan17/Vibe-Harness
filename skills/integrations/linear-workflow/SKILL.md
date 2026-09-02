@@ -87,7 +87,7 @@ Linear 只读、MCP 不可用或写入验证失败时，不得声称已登记、
 
 释放、中止、交接和本地工作完成都追加 terminal event，不编辑原 Receipt。没有自动超时或自动回收；失联实例必须由人工核对 worktree、分支和 PR 后显式释放或交接。
 
-Git credential helper 只能由已配置的 Git transport 透明使用。仅有 Git transport 授权时不得读取、解析或转用其输出登录网页/API；此类用途需要单独的 credentialUse 与对应外部写入授权。Agent 不得把 helper 输出或原始凭据写入文件，query、包装脚本或辅助文件不得写入仓库或 worktree。
+Git credential helper 按 git-rules.md credential helper 条款执行：只能由已配置的 Git transport 透明使用，读取、解析或转用其输出登录网页/API 需要单独的 credentialUse 与对应外部写入授权；Agent 不得把 helper 输出或原始凭据写入文件，query、包装脚本或辅助文件不得写入仓库或 worktree。
 
 默认在当前 Issue 的已授权 effects 完成时终止：若授权到 mergeRequestWrite，则 PR/MR ready for review、创建后重读确认并完成已授权证据同步时结束。Linear 未进入 In Review 且状态同步不可用或未授权时，报告差异后结束。除非 envelope 明确为 monitor 且带观察终点或时间边界，不等待人工合并、不持续轮询，也不续跑下一节点；终止不等于 Linear Done。
 

@@ -1,6 +1,6 @@
 ---
 name: browser-verification
-description: 使用项目内 Playwright CLI、Chrome DevTools MCP 或真实浏览器验证页面交互、console、network、性能、响应式、可访问性和视觉输出。适用于浏览器功能实现、调试和自动化验收。
+description: Use to verify page interactions, console output, network activity, performance, responsiveness, accessibility, and visual output with the in-project Playwright CLI, Chrome DevTools MCP, or a real browser; applies to browser feature implementation, debugging, and automated acceptance.
 ---
 
 # 浏览器验证

@@ -66,7 +66,10 @@ test('native Skill descriptions, bodies, resources, and OpenAI metadata stay wit
     assert.ok(resources.length <= 2, `${item.id} resource budget`);
   }
   assert.ok(lines <= 250);
-  assert.ok(identityCharacters <= 1100);
+  // Mirrors the pack-validation identity budget: 1300 characters is calibrated
+  // for English descriptions and stays well under the Chinese-era surface in
+  // token terms (CJK characters carry ~3 bytes and ~1 token each).
+  assert.ok(identityCharacters <= 1300);
 });
 
 test('core and full install exactly six and nine native Skills', async () => {

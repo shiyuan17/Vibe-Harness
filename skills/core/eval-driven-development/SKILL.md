@@ -1,6 +1,6 @@
 ---
 name: eval-driven-development
-description: Use for nondeterministic Agent rules, Skills, prompts, Hooks, or routing.
+description: Use for nondeterministic Agent rules, Skills, prompts, Hooks, or routing—not deterministic logic, bug fixes with known causes, or deterministic refactors.
 ---
 
 # 评测驱动修改 Agent 行为

@@ -83,6 +83,6 @@ GitHub/GitLab automation 只推进代码状态，不创建或终结 Execution Re
 
 认证由各宿主原生 OAuth 流程完成。不要把 Token、API key 或 OAuth 凭据写进项目文件。
 
-Git credential helper 只用于其配置的 Git transport。不得提取或转用 helper 输出登录网页/API；该用途需要独立凭据与外部写入授权。credential query、包装脚本或其他辅助文件不得写入仓库或 worktree。
+Git credential helper 按 git-rules.md credential helper 条款执行：只用于其配置的 Git transport，提取或转用 helper 输出登录网页/API 需要独立凭据与外部写入授权。credential query、包装脚本或其他辅助文件不得写入仓库或 worktree。
 
 Codex、Cursor、Qoder、ZCode、Antigravity 和 OpenCode 由安装器生成项目配置，随后在宿主内触发 Linear OAuth。Claude 可在项目目录运行 claude mcp add --transport http --scope project linear-server ENDPOINT，其中 ENDPOINT 使用上方与角色匹配的 URL。Gemini 按当前官方宿主文档在项目级 MCP 设置中加入对应 endpoint；不要退回用户级或全局配置。
