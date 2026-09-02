@@ -10,9 +10,13 @@ import { maxDiagnosticOutput, redactDiagnosticText } from './tool-provisioning/s
 const execFileAsync = promisify(execFile);
 
 function executableFor(program) {
-  if (program === 'node') return process.execPath;
-  if (process.platform === 'win32' && ['pnpm', 'npm', 'yarn'].includes(program)) return `${program}.cmd`;
-  return program;
+  if (program === 'node') return { command: process.execPath, preArgs: [] };
+  // Windows npm/pnpm/yarn are .cmd shims that cannot be spawned directly (EINVAL
+  // on Node >= 18.20/20.12), so route them through cmd.exe like git-hook.mjs.
+  if (process.platform === 'win32' && ['pnpm', 'npm', 'yarn'].includes(program)) {
+    return { command: 'cmd.exe', preArgs: ['/c', `${program}.cmd`] };
+  }
+  return { command: program, preArgs: [] };
 }
 
 function verificationError(message) {
@@ -196,7 +200,8 @@ export async function executeProjectVerification({ allowManual = false, commandS
       throw verificationError(`${name} command is unsafe: ${error.message}`);
     }
     try {
-      const result = await execFileAsync(executableFor(program), args, {
+      const { command: exec, preArgs } = executableFor(program);
+      const result = await execFileAsync(exec, [...preArgs, ...args], {
         cwd: targetDir,
         maxBuffer: 1024 * 1024 * 8,
         windowsHide: true,

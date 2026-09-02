@@ -16,7 +16,7 @@ import {
   assertPortableRelativePath,
   assertSafePathInside,
   pathExists,
-  readJson,
+  readPackJson,
   validateCatalogManifest,
   validateInstallMapShape,
 } from './manifest.js';
@@ -59,7 +59,7 @@ import {
 } from './managed-json-config.js';
 
 async function loadProfileInstallMap({ adapterId = 'codex', allowPreview = false, profile, rootDir }) {
-  const profiles = await readJson(path.join(rootDir, 'manifests/profiles.json'));
+  const profiles = await readPackJson(path.join(rootDir, 'manifests/profiles.json'));
   validateCatalogManifest('profiles', profiles);
 
   const selectedProfile = profiles.items.find((item) => item.id === profile);
@@ -72,7 +72,7 @@ async function loadProfileInstallMap({ adapterId = 'codex', allowPreview = false
   const catalog = await loadAdapterCatalog(rootDir);
   const skillRoots = skillRootPrefixes(catalog);
   const hookTargets = hookConfigTargets(catalog);
-  const rawInstallMap = await readJson(path.join(rootDir, adapter.installMap));
+  const rawInstallMap = await readPackJson(path.join(rootDir, adapter.installMap));
   const knownGroups = new Set([
     ...profiles.items.flatMap((item) => item.groups),
     ...Object.values(moduleCatalog).flatMap((module) => module.groups),
@@ -89,7 +89,7 @@ async function loadProfileInstallMap({ adapterId = 'codex', allowPreview = false
 }
 
 async function packageVersion(rootDir) {
-  const pkg = await readJson(path.join(rootDir, 'package.json'));
+  const pkg = await readPackJson(path.join(rootDir, 'package.json'));
   return pkg.version;
 }
 
@@ -529,15 +529,15 @@ export async function createMultiTargetInstallPlan({ selectedTargets, targets, .
   const installedState = await readInstallState(path.resolve(options.targetDir));
   const lifecycleTargets = [...new Set([...configuredTargets, ...(installedState?.targets ?? [])])];
   const activeTargets = selectedTargets?.length ? selectedTargets : configuredTargets;
-  const plans = [];
-  for (const adapterId of activeTargets) {
-    plans.push(await createInstallPlan({
-      ...options,
-      adapterId,
-      rtkHooksEnabled: adapterId === 'codex' && Boolean(options.rtkHooksEnabled),
-      renderData: { ...options.renderData, target: adapterId, targets: configuredTargets },
-    }));
-  }
+  // Planning is read-only against the target project, so per-adapter plans can
+  // build concurrently; conflict detection below still merges deterministically
+  // in configured-target order.
+  const plans = await Promise.all(activeTargets.map((adapterId) => createInstallPlan({
+    ...options,
+    adapterId,
+    rtkHooksEnabled: adapterId === 'codex' && Boolean(options.rtkHooksEnabled),
+    renderData: { ...options.renderData, target: adapterId, targets: configuredTargets },
+  })));
   if (plans.length === 0) throw new Error('At least one install target is required.');
 
   const writes = new Map();
@@ -1144,20 +1144,23 @@ export async function diffTargetInstall({
 
 export const inspectTargetInstall = diffTargetInstall;
 
-export async function diffMultiTargetInstall({ selectedTargets, targets, ...options }) {
+export async function diffMultiTargetInstall({ aggregatePlan, selectedTargets, targets, ...options }) {
   const sampleItems = (items) => items.slice(0, 20);
   const uniqueItems = (items) => [...new Map(items.map((item) => [item.target, item])).values()];
   const activeTargets = selectedTargets?.length ? selectedTargets : targets;
   const installedState = await readInstallState(path.resolve(options.targetDir));
   const staleProjections = (installedState?.targets ?? []).filter((target) => !targets.includes(target));
-  const aggregatePlan = await createMultiTargetInstallPlan({
+  // Callers that already built the plan (validate/install flows) pass it in to
+  // avoid a second full multi-target planning pass; the fallback rebuild is only
+  // for direct callers without a plan.
+  const plan = aggregatePlan ?? await createMultiTargetInstallPlan({
     ...options,
     dryRun: true,
     force: true,
     selectedTargets: [...new Set([...targets, ...activeTargets])],
     targets,
   });
-  const renderData = { ...options.renderData, installedSurface: aggregatePlan.renderData.installedSurface };
+  const renderData = { ...options.renderData, installedSurface: plan.renderData.installedSurface };
   const entries = await Promise.all(activeTargets.map(async (adapterId) => [
     adapterId,
     await diffTargetInstall({

@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { access, readFile } from 'node:fs/promises';
+import { access, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
@@ -57,10 +57,15 @@ async function git(rootDir, args) {
   }
 }
 
-export async function findProjectRoot(cwd) {
+export async function findProjectRoot(cwd, { gitRoot } = {}) {
   const start = path.resolve(cwd);
-  const gitRoot = await git(start, ['rev-parse', '--show-toplevel']);
-  const boundary = gitRoot ? path.resolve(gitRoot) : path.parse(start).root;
+  // The bootstrap shim already resolved the git root (one git subprocess ago);
+  // reuse it when provided so the common hook invocation avoids a second spawn.
+  const gitRootFromEnv = typeof gitRoot === 'string' && gitRoot.trim().length > 0
+    ? gitRoot
+    : process.env.VIBE_HARNESS_GIT_ROOT;
+  const gitRootResolved = gitRootFromEnv ? await safeRealpath(gitRootFromEnv) : '';
+  const boundary = gitRootResolved ? path.resolve(gitRootResolved) : await gitRootFor(start);
   let current = start;
   while (true) {
     if (await access(path.join(current, 'vibe-harness.config.json')).then(() => true, () => false)) return current;
@@ -69,6 +74,19 @@ export async function findProjectRoot(cwd) {
     if (parent === current) return boundary;
     current = parent;
   }
+}
+
+async function safeRealpath(candidate) {
+  try {
+    return await realpath(candidate);
+  } catch {
+    return '';
+  }
+}
+
+async function gitRootFor(start) {
+  const output = await git(start, ['rev-parse', '--show-toplevel']);
+  return output;
 }
 
 export async function readProjectConfig(rootDir) {

@@ -16,26 +16,42 @@ export async function pathExists(filePath) {
   }
 }
 
+// Pack-static files (manifests, schemas, install maps, the pack's own
+// package.json) are immutable within a single CLI run, yet per-adapter planning
+// re-reads them for every target. Memoize those reads per absolute path.
+// Anything under the target project (install state, configs, eval results) must
+// keep using readJson: those files are written and re-read within one run, so a
+// cache would resurrect stale state.
+const packJsonCache = new Map();
+
+export async function readPackJson(filePath) {
+  const cacheKey = path.resolve(filePath);
+  const cached = packJsonCache.get(cacheKey);
+  if (cached) return cached;
+  const value = safeJsonParse(await readFile(filePath, 'utf8'));
+  packJsonCache.set(cacheKey, value);
+  return value;
+}
+
 export async function readJson(filePath) {
-  const raw = await readFile(filePath, 'utf8');
-  return safeJsonParse(raw);
+  return safeJsonParse(await readFile(filePath, 'utf8'));
 }
 
 export async function loadAllManifests(rootDir) {
   return {
-    adapters: await readJson(`${rootDir}/manifests/adapters.json`),
-    profiles: await readJson(`${rootDir}/manifests/profiles.json`),
-    rules: await readJson(`${rootDir}/manifests/rules.json`),
-    skills: await readJson(`${rootDir}/manifests/skills.json`),
+    adapters: await readPackJson(`${rootDir}/manifests/adapters.json`),
+    profiles: await readPackJson(`${rootDir}/manifests/profiles.json`),
+    rules: await readPackJson(`${rootDir}/manifests/rules.json`),
+    skills: await readPackJson(`${rootDir}/manifests/skills.json`),
   };
 }
 
 export async function loadAllManifestSchemas(rootDir) {
   return {
-    adapters: await readJson(`${rootDir}/schemas/adapter-pack.schema.json`),
-    profiles: await readJson(`${rootDir}/schemas/profile-pack.schema.json`),
-    rules: await readJson(`${rootDir}/schemas/rule-pack.schema.json`),
-    skills: await readJson(`${rootDir}/schemas/skill-pack.schema.json`),
+    adapters: await readPackJson(`${rootDir}/schemas/adapter-pack.schema.json`),
+    profiles: await readPackJson(`${rootDir}/schemas/profile-pack.schema.json`),
+    rules: await readPackJson(`${rootDir}/schemas/rule-pack.schema.json`),
+    skills: await readPackJson(`${rootDir}/schemas/skill-pack.schema.json`),
   };
 }
 
@@ -206,18 +222,25 @@ export function validateAllManifestSchemas(manifests, schemas) {
 }
 
 // Unified red-zone predicate. This must stay aligned with the runtime hook's
-// `projectRedZonePattern` (runtime/hooks/lib/policy.mjs): any install target
-// that the hook treats as a project red-zone must also be flagged red-zone at
-// install time so --confirm-red-zone gates it. Covers global Agent config
-// (.codex/, .claude/, etc.), CI/CD workflows, environment files, and auth/ci
-// directories.
-const RED_ZONE_PATTERNS = [
+// red-zone paths (runtime/hooks/lib/context.mjs DEFAULT_RED_ZONE_PATHS): any
+// install target the hook treats as a project red-zone must also be flagged
+// red-zone at install time so --confirm-red-zone gates it. Covers agent config
+// (.codex/, .claude/, etc.), runtime hook scripts, pack control-plane state
+// (vibe-harness.config.json, .vibe-harness/install-state.json), CI/CD
+// workflows, environment files, and auth/ci directories. Skill content roots
+// (e.g. .gemini/skills/) are intentionally NOT here: adapters gate only the
+// config files they own via manifests/adapters.json redZonePrefixes.
+// Bidirectional consistency with the runtime list and adapter prefixes is
+// enforced by validateRedZoneConsistency in pack-validation.js.
+export const RED_ZONE_PATTERNS = [
   /(?:^|\/)\.codex\//u,
   /(?:^|\/)\.claude\//u,
-  /(?:^|\/)\.gemini\//u,
   /(?:^|\/)\.cursor\//u,
   /(?:^|\/)\.qoder\//u,
   /(?:^|\/)\.zcode\//u,
+  /(?:^|\/)\.agents\/runtime\/hooks\//u,
+  /(?:^|\/)vibe-harness\.config\.json$/u,
+  /(?:^|\/)\.vibe-harness\/install-state\.json$/u,
   /(?:^|\/)opencode\.jsonc?$/u,
   /(?:^|\/)\.mcp\.json$/u,
   /(?:^|\/)\.github\/workflows\//u,

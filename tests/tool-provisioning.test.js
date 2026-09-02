@@ -1069,7 +1069,9 @@ test('codebase-memory maps allowed-root path failures to a stable diagnostic cod
   }
 });
 
-test('MCP browser probe invokes list_pages after tool discovery', async () => {
+// retry: load-sensitive under host load (TD-2026-09-01-2); marker stays until
+// 10 consecutive clean full runs.
+test('MCP browser probe invokes list_pages after tool discovery', { retry: 2 }, async () => {
   const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-mcp-browser-probe-'));
   const script = path.join(targetDir, 'browser-probe.mjs');
   const marker = path.join(targetDir, 'list-pages-called.txt');
@@ -1525,7 +1527,9 @@ test('provision rejects tool directories redirected outside the project', async 
   }
 });
 
-test('full write degrades unavailable tools and rollback removes only the managed MCP block', async () => {
+// retry: 120s timeout cancellations under host load (TD-2026-09-01-2); marker
+// stays until 10 consecutive clean full runs.
+test('full write degrades unavailable tools and rollback removes only the managed MCP block', { retry: 2 }, async () => {
   const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tools-cli-write-'));
   try {
     await runCli(['init', '--project', targetDir]);

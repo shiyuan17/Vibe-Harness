@@ -453,9 +453,9 @@ for (const adapter of [
     const target = await mkdtemp(path.join(tmpdir(), `vibe-harness-${adapter.id}-full-`));
     try {
       await run(['init', '--project', target, '--target', adapter.id, '--profile', 'full']);
-      const installArgs = ['install', '--project', target, '--target', adapter.id, '--profile', 'full', '--allow-preview', '--write'];
-      if (adapter.hasHooks) installArgs.push('--confirm-red-zone');
-      await run(installArgs);
+      // Both adapters install the shared .agents/runtime/hooks/ scripts, which
+      // are red-zone targets regardless of the adapter's own hooks capability.
+      await run(['install', '--project', target, '--target', adapter.id, '--profile', 'full', '--allow-preview', '--write', '--confirm-red-zone']);
       const validation = await run(['validate', '--project', target]);
       const doctor = await run(['doctor', '--project', target]);
       assert.equal(validation.status, 'ready');

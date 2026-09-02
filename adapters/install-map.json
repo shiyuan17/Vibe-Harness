@@ -778,45 +778,52 @@
       "group": "hooks",
       "source": "runtime/hooks/README.md",
       "target": ".agents/runtime/hooks/README.md",
-      "contentStrategy": "replace"
+      "contentStrategy": "replace",
+      "redZone": true
     },
     {
       "group": "hooks",
       "source": "runtime/hooks/codex-hook.mjs",
       "target": ".agents/runtime/hooks/codex-hook.mjs",
       "executable": true,
-      "contentStrategy": "replace"
+      "contentStrategy": "replace",
+      "redZone": true
     },
     {
       "group": "hooks",
       "source": "runtime/hooks/git-hook.mjs",
       "target": ".agents/runtime/hooks/git-hook.mjs",
       "executable": true,
-      "contentStrategy": "replace"
+      "contentStrategy": "replace",
+      "redZone": true
     },
     {
       "group": "hooks",
       "source": "runtime/hooks/lib/context.mjs",
       "target": ".agents/runtime/hooks/lib/context.mjs",
-      "contentStrategy": "replace"
+      "contentStrategy": "replace",
+      "redZone": true
     },
     {
       "group": "hooks",
       "source": "runtime/hooks/lib/execution-envelope.mjs",
       "target": ".agents/runtime/hooks/lib/execution-envelope.mjs",
-      "contentStrategy": "replace"
+      "contentStrategy": "replace",
+      "redZone": true
     },
     {
       "group": "hooks",
       "source": "runtime/hooks/lib/policy.mjs",
       "target": ".agents/runtime/hooks/lib/policy.mjs",
-      "contentStrategy": "replace"
+      "contentStrategy": "replace",
+      "redZone": true
     },
     {
       "group": "hooks",
       "source": "runtime/hooks/lib/rtk.mjs",
       "target": ".agents/runtime/hooks/lib/rtk.mjs",
-      "contentStrategy": "replace"
+      "contentStrategy": "replace",
+      "redZone": true
     },
     {
       "group": "hooks",
@@ -849,7 +856,8 @@
   "retiredEntries": [
     {
       "group": "hooks",
-      "target": ".agents/runtime/hooks/auto-commit.mjs"
+      "target": ".agents/runtime/hooks/auto-commit.mjs",
+      "redZone": true
     },
     {
       "group": "skills-memory",

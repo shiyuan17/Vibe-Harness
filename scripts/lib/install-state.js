@@ -762,17 +762,26 @@ export async function applyUninstallPlan(plan, hooks = {}) {
     return { applied, retainedState: false, skipped };
   }
 
+  // Partial failure: keep only the skipped targets under management. For a
+  // single-target uninstall the successfully removed target must leave the
+  // state (targets, baseline, requested plugins) and the project config in
+  // sync, mirroring the all-success branch below.
   const remainingTargets = new Set(skipped.map((item) => item.target));
   for (const action of plan.actions) {
     if (remainingTargets.has(action.target) && action.ownerTarget) remainingTargets.add(action.ownerTarget);
   }
+  const partialTargetRemoved = Boolean(plan.target) && !remainingTargets.has(plan.target);
   const remainingState = {
     ...plan.state,
-    files: (plan.state.files ?? []).filter((file) => remainingTargets.has(file.target)),
+    files: (plan.state.files ?? []).filter((item) => remainingTargets.has(item.target)),
     generatedDirectories: (plan.state.generatedDirectories ?? []).filter((item) => remainingTargets.has(item.target)),
     generatedFiles: (plan.state.generatedFiles ?? []).filter((item) => remainingTargets.has(item.target)),
     retiredFiles: (plan.state.retiredFiles ?? []).filter((item) => remainingTargets.has(item.target)),
+    ...(partialTargetRemoved ? { targets: (plan.state.targets ?? []).filter((item) => item !== plan.target) } : {}),
   };
+  if (partialTargetRemoved && plan.configUpdate) {
+    await writeFile(plan.configUpdate.path, JSON.stringify(plan.configUpdate.config, null, 2) + '\n', 'utf8');
+  }
   await writeInstallState(plan.targetDir, remainingState);
   await transaction.commit();
   return { applied, retainedState: true, skipped };

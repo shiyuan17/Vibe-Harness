@@ -174,6 +174,30 @@ test('project verification report mode preserves failed and blocked diagnostics'
   }
 });
 
+test('verification commands run through package-manager shims on Windows', { skip: process.platform !== 'win32' }, async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-verify-shim-'));
+  try {
+    // pnpm is guaranteed on the path for this repository's toolchain; exercising
+    // the shim path proves .cmd executables spawn without EINVAL.
+    const results = await executeProjectVerification({
+      commandStatus: {
+        lint: { command: 'pnpm --version', status: 'manual' },
+        typecheck: { command: null, status: 'not_configured' },
+        test: { command: null, status: 'not_configured' },
+        eval: { command: null, status: 'not_configured' },
+      },
+      allowManual: true,
+      failureMode: 'report',
+      targetDir: target,
+    });
+    assert.equal(results.lint.status, 'passed');
+    assert.equal(results.lint.exitCode, 0);
+    assert.match(results.lint.stdout, /\d/u);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
 test('Git verification snapshots change when project content changes', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-verify-snapshot-'));
   try {

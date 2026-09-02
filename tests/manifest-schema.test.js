@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 
 import {
   loadAllManifests,
@@ -12,7 +14,7 @@ import {
 } from '../scripts/lib/manifest.js';
 import { resolveAdapterEntry } from '../scripts/lib/adapter.js';
 import { moduleCatalog } from '../scripts/lib/module-selection.js';
-import { validateCapabilityMatrix, validateInstructionBudget, validatePack, validateSelfInstalledArtifacts } from '../scripts/lib/pack-validation.js';
+import { validateCapabilityMatrix, validateInstructionBudget, validatePack, validateSelfInstalledArtifacts, validateSkillMetadataQuality } from '../scripts/lib/pack-validation.js';
 import {
   pluginProviderCatalog,
   validatePluginProviderCatalog,
@@ -332,6 +334,47 @@ test('self-installed artifacts must stay in sync with their sources', async () =
 test('complete pack validates', async () => {
   const report = await validatePack(rootDir);
   assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+});
+
+test('skill descriptions stay English and single-script across the pack', async () => {
+  // Host routing matches skills by description text, so the pack unifies on
+  // English descriptions; Chinese prose inside some descriptions would give
+  // Chinese-language requests an inconsistent routing surface.
+  const manifests = await loadAllManifests(rootDir);
+  assert.deepEqual(await validateSkillMetadataQuality(rootDir, manifests.skills.items), []);
+  for (const item of manifests.skills.items) {
+    const content = await readFile(path.join(rootDir, item.source), 'utf8');
+    const description = content.match(/^description: (.+)$/mu)?.[1];
+    assert.ok(description, `${item.id} SKILL.md must have a single-line description`);
+    assert.equal(/[\u3400-\u9fff\uf900-\ufaff]/u.test(description), false, `${item.id} description must stay English`);
+  }
+});
+
+test('skill metadata quality rejects mixed-script and pack-split descriptions', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-skill-lang-'));
+  const writeSkill = async (id, description) => {
+    const dir = path.join(target, id);
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, 'SKILL.md'), `---\nname: ${id}\ndescription: ${description}\n---\n\n# ${id}\n`);
+    return { id, source: `${id}/SKILL.md` };
+  };
+  try {
+    const english = await writeSkill('english-skill', 'Use for reviewing delivery evidence before push.');
+    const chinese = await writeSkill('chinese-skill', '仅当用户显式调用该命令或明确要求使用此技能时才使用；用于整理当前任务相关改动并按逻辑分组提交。');
+    const mixed = await writeSkill('mixed-skill', 'Use for reviewing 仓库策略、交付证据和验收门禁与红线边界。');
+
+    const split = await validateSkillMetadataQuality(target, [english, chinese]);
+    assert.match(split.join('\n'), /skill descriptions must share one script across the pack; Chinese: chinese-skill; English: english-skill/u);
+
+    const mixedOnly = await validateSkillMetadataQuality(target, [mixed]);
+    assert.match(mixedOnly.join('\n'), /mixed-skill description must use a single script/u);
+
+    // An all-Chinese pack is a valid single-script state.
+    const chineseTwo = await writeSkill('chinese-two', '用于在浏览器功能实现与调试时做自动化验收和页面验证。');
+    assert.deepEqual(await validateSkillMetadataQuality(target, [chinese, chineseTwo]), []);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
 });
 
 test('instruction budget covers every adapter without errors on current templates', async () => {

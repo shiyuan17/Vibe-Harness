@@ -45,7 +45,7 @@ import {
   writeProjectEvaluationReference,
 } from './lib/project-evaluation.js';
 import { parseModulesOption, parsePluginsOption } from './lib/module-selection.js';
-import { canonicalAgentsTemplate, resolveAdapter } from './lib/adapter.js';
+import { canonicalAgentsTemplate, loadAdapterCatalog, resolveAdapter } from './lib/adapter.js';
 import { safetyPostureWarnings } from './lib/safety-posture.js';
 import { inspectMemory, inspectRuntimeHooks, runtimeHookWarnings } from './lib/runtime-diagnostics.js';
 import { readFile } from 'node:fs/promises';
@@ -211,6 +211,13 @@ function emitReport(report, args, { error = false } = {}) {
   (error ? console.error : console.log)(JSON.stringify(normalized, null, args.verbose ? 2 : 0));
 }
 
+// diff/rollback/uninstall/baseline print raw plan reports; redact them through the
+// same public-report sanitizer so absolute project paths never reach stdout.
+function printRawReport(report, args) {
+  const targetDir = path.resolve(args.project ?? process.cwd());
+  console.log(JSON.stringify(sanitizePublicReport(report, targetDir), null, args?.verbose ? 2 : 0));
+}
+
 function parseArgs(argv) {
   const args = { _: [] };
   for (let index = 0; index < argv.length; index += 1) {
@@ -321,6 +328,12 @@ async function init(args) {
 
 async function install(args) {
   if (!args.project) throw new Error('install requires --project <path>; legacy --target path and --apply were removed.');
+  const allowedOptions = new Set([
+    '_', 'allow-degraded', 'allow-preview', 'confirm-red-zone', 'dry-run', 'force', 'modules', 'output',
+    'plugin', 'profile', 'project', 'provision', 'rtk-hooks', 'target', 'upgrade', 'verbose', 'write',
+  ]);
+  const unknownOption = Object.keys(args).find((key) => !allowedOptions.has(key));
+  if (unknownOption) throw new Error(`Unknown install option: --${unknownOption}`);
   const isMvpMode = true;
   const writeRequested = Boolean(args.write);
   const dryRunRequested = Boolean(args['dry-run']) || !writeRequested;
@@ -396,12 +409,18 @@ async function install(args) {
     targets,
     upgrade: Boolean(args.upgrade),
   });
-  const agentsTemplatePath = adapter.instructionTarget === 'AGENTS.md'
-    ? canonicalAgentsTemplate
-    : `adapters/${adapter.id}/${adapter.instructionTemplate}.template.md`;
-  const agentsTemplate = await readFile(path.join(rootDir, agentsTemplatePath), 'utf8');
   const installedTargets = plan.actions.map((action) => action.relativeTarget);
-  validateConfigAndGeneratedContent(plan.renderData, agentsTemplate, { installedTargets, skillRoots: plan.skillRoots });
+  // Validate every selected adapter's instruction template render, not just the
+  // first; a broken template for a later target must fail the install itself.
+  const adapterCatalog = await loadAdapterCatalog(rootDir);
+  for (const adapterEntry of adapterCatalog.items) {
+    if (!selectedTargets.includes(adapterEntry.id)) continue;
+    const templatePath = adapterEntry.instructionTarget === 'AGENTS.md'
+      ? canonicalAgentsTemplate
+      : `adapters/${adapterEntry.id}/${adapterEntry.instructionTemplate}.template.md`;
+    const template = await readFile(path.join(rootDir, templatePath), 'utf8');
+    validateConfigAndGeneratedContent(plan.renderData, template, { installedTargets, skillRoots: plan.skillRoots });
+  }
   plan.redZoneConfirmed = Boolean(args['confirm-red-zone']);
   const result = await applyInstallPlan(plan);
   const previewFiles = plan.dryRun ? await previewInstallPlan(plan, { includeContent: Boolean(args.verbose) }) : [];
@@ -542,6 +561,7 @@ async function validate(args) {
     validateConfigAndGeneratedContent({ ...config, projectProfile, validationCommands }, agentsTemplate, { installedTargets, skillRoots: plan.skillRoots });
     validateConfigAndGeneratedContent(plan.renderData, agentsTemplate, { installedTargets, skillRoots: plan.skillRoots });
     const target = await diffMultiTargetInstall({
+      aggregatePlan: plan,
       allowPreview: true,
       managedAgentsBlock: true,
       profile: config.profile,
@@ -749,7 +769,7 @@ async function baseline(args) {
     verify: Boolean(args.verify),
     write: Boolean(args.write),
   });
-  console.log(JSON.stringify(result, null, 2));
+  printRawReport(result, args);
   if (!result.ok) process.exitCode = 1;
 }
 
@@ -1038,7 +1058,7 @@ async function diff(args) {
     targetDir,
     targets,
   });
-  console.log(JSON.stringify(report, null, 2));
+  printRawReport(report, args);
 }
 
 async function rollback(args) {
@@ -1048,9 +1068,6 @@ async function rollback(args) {
     if (!state) throw new Error(`No Vibe-Harness install state found in ${path.resolve(args.project)}`);
     if (!state.targets.includes(args.target)) {
       throw new Error('CLI target ' + args.target + ' is not present in installed targets: ' + state.targets.join(', ') + '.');
-    }
-    if (!state.targets.includes(args.target)) {
-      throw new Error(`CLI target ${args.target} does not match installed adapter ${state.adapter}.`);
     }
   }
   if (args.write && args['dry-run']) {
@@ -1062,13 +1079,13 @@ async function rollback(args) {
     targetDir: path.resolve(args.project),
   });
   const result = await applyRollbackPlan(plan);
-  console.log(JSON.stringify({
+  printRawReport({
     actions: plan.actions,
     applied: result.applied,
     dryRun: plan.dryRun,
     retainedState: result.retainedState,
     skipped: result.skipped,
-  }, null, 2));
+  }, args);
 }
 
 async function uninstall(args) {
@@ -1084,9 +1101,6 @@ async function uninstall(args) {
   const adapter = await resolveAdapter(rootDir, args.target ?? state.targets[0]);
   if (args.target && !state.targets.includes(args.target)) {
     throw new Error('CLI target ' + args.target + ' is not present in installed targets: ' + state.targets.join(', ') + '.');
-  }
-  if (args.target && !state.targets.includes(args.target)) {
-    throw new Error(`CLI target ${args.target} does not match vibe-harness.config.json target ${config.target}.`);
   }
   if (state && !state.targets.includes(adapter.id)) {
     throw new Error(`Installed adapter ${state.adapter} does not match uninstall target ${adapter.id}.`);
@@ -1113,7 +1127,7 @@ async function uninstall(args) {
     targetDir,
   });
   const result = await applyUninstallPlan(plan);
-  console.log(JSON.stringify({
+  printRawReport({
     actions: plan.actions,
     applied: result.applied,
     dryRun: plan.dryRun,
@@ -1122,7 +1136,7 @@ async function uninstall(args) {
     target: args.target,
     targets: args['all-targets'] ? state.targets : state.targets.filter((item) => item !== args.target),
     targetDir: plan.targetDir,
-  }, null, 2));
+  }, args);
   if (result.skipped.length > 0) process.exitCode = 2;
 }
 
@@ -1160,9 +1174,6 @@ async function provision(args) {
   const adapterId = args.target ?? state.targets[0];
   if (!configuredTargets.includes(adapterId) || !state.targets.includes(adapterId)) {
     throw new Error('Provision target ' + adapterId + ' must be present in both configured and installed targets.');
-  }
-  if (!configuredTargets.includes(adapterId) || !state.targets.includes(adapterId)) {
-    throw new Error(`Provision target ${adapterId} does not match installed adapter ${state.adapter}.`);
   }
   const profile = validateProfileName(args.profile ?? state.profile);
   if (profile !== state.profile) {
@@ -1229,7 +1240,7 @@ async function recover(args) {
 }
 
 async function printUsage() {
-  console.log('Usage: vibe-harness <init|install|provision|recover|uninstall|validate|verify|baseline|eval|audit|doctor|diff|rollback> [--project path] [--target codex|claude|gemini|cursor|qoder|zcode|antigravity|opencode] [--all-targets] [--profile minimal|core|full|docs-only] [--modules list] [--plugin -all|-rtk|linear-mcp|linear-mcp-readonly ...] [--rtk-hooks on|off] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--force] [--upgrade] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded]');
+  console.log('Usage: vibe-harness <init|install|provision|recover|uninstall|validate|verify|baseline|eval|audit|doctor|diff|rollback> [--project path] [--target codex|claude|gemini|cursor|qoder|zcode|antigravity|opencode] [--all-targets] [--profile minimal|core|full|docs-only] [--modules list] [--plugin -all|-rtk|linear-mcp|linear-mcp-readonly ...] [--rtk-hooks on|off] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--force] [--upgrade] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded] [--provision]');
   console.log('All project commands use --project <path>; --target selects an adapter and --write performs mutations. Legacy --apply and path-valued --target are removed.');
 }
 
