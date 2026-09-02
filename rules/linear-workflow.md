@@ -12,7 +12,7 @@ Linear 保存工作状态、责任、委派与依赖；GitHub 或 GitLab 保存�
 - 显式执行指令只授权当前 Issue 的最小身份登记，不授权修改 Assignee、Priority、Contract、Project、Cycle、Parent 或 relations。已有其他 Delegate、fallback Agent 标签或活动运行时，必须停止并请求显式 release 或 handoff。
 - Reviewer 和 Verifier 只读，不写 Receipt、不修改 Delegate 或 fallback 标签，也不取得实现所有权。
 
-每个请求在任何写入前都必须建立 Execution Envelope，mode 只允许 inspect、plan、linear-sync、execute、monitor；effect 只允许 linearWrite、workspaceWrite、gitBranch、gitCommit、gitPush、mergeRequestWrite、credentialUse，并分别列入 allowedEffects 或 forbiddenEffects。linear-sync 只允许本轮明确要求的 Linear 写入，必须禁止代码、worktree/分支、提交、推送、PR/MR 和凭据 effect。Ready、Todo、依赖满足或队列可见只表示执行条件满足，不构成 execute 授权；当前 terminalCondition 达成后不得自动选取下一个 Ready 节点。
+每个请求在任何写入前都必须按 `governance-core.md` 建立 Execution Envelope，mode 只允许 inspect、plan、linear-sync、execute、monitor；effect 只允许 linearWrite、workspaceWrite、gitBranch、gitCommit、gitPush、mergeRequestWrite、credentialUse，并分别列入 allowedEffects 或 forbiddenEffects。linear-sync 只允许本轮明确要求的 Linear 写入，必须禁止代码、worktree/分支、提交、推送、PR/MR 和凭据 effect。Ready、Todo、依赖满足或队列可见只表示执行条件满足，不构成 execute 授权；当前 terminalCondition 达成后不得自动选取下一个 Ready 节点。
 
 ## 固定状态与责任
 
@@ -34,7 +34,7 @@ Todo Issue 必须包含 Goal、Context、Repository、精确 Target branch ref�
 
 DAG 节点可声明 kind（read / write / aggregate）、trigger（all_success / all_done）和 resourceLocks。无 Parent 的旧 Issue 使用上述默认值；有子 Issue 的 Parent 必须是 aggregate。all_success 要求全部直接前驱 succeeded，Canceled、Duplicate、Won't Fix、failed、skipped 或 cancelled 都不算成功。all_done 只允许 aggregate、清理或失败报告节点在全部直接前驱终结后运行，且不能把失败 DAG 或 Root 判为成功。
 
-自依赖、任意依赖环、不可见前驱、关系读取不完整、未解决的 blocked-by 或未满足 trigger 都阻止开始。Scope 是 writeScope 的 Linear 投影，只接受精确项目相对路径或末尾为 /** 的目录；统一使用 / 并移除前导 ./，拒绝绝对路径、UNC、空路径、.. 和其他复杂 glob，Windows 比较忽略大小写。write 节点的 Scope 重叠或 resourceLocks 相同，只有存在从一方到另一方的原生依赖路径时才已串行；否则冲突节点都不 Ready。Agent 只报告冲突、边或环，不自行拆 Issue、改变 Parent、创建或删除关系、调整优先级或创建额外节点。
+自依赖、任意依赖环、不可见前驱、关系读取不完整、未解决的 blocked-by 或未满足 trigger 都阻止开始。Scope 是 writeScope 的 Linear 投影，按 `ai-collab-rules.md` writeScope 条款执行路径验证：只接受精确项目相对路径或末尾为 /** 的目录，统一使用 / 并移除前导 ./，拒绝绝对路径、UNC、空路径、.. 和其他复杂 glob，Windows 比较忽略大小写。write 节点的 Scope 重叠或 resourceLocks 相同，只有存在从一方到另一方的原生依赖路径时才已串行；否则冲突节点都不 Ready。Agent 只报告冲突、边或环，不自行拆 Issue、改变 Parent、创建或删除关系、调整优先级或创建额外节点。
 
 DAG Parent 模板包含 Goal、整体 Acceptance Criteria、Shared Contract、Out of Scope、Fan-in Verification 和 Completion Policy。所有 descendant 默认必需；任一必需节点非 succeeded 时 Parent 不得 Done。关闭 Linear 的 Parent/Sub-issue 自动关闭，避免绕过 closing PR/MR 与 fan-in 验证。
 
@@ -60,7 +60,7 @@ Receipt schema 为 vibe-harness.linear-execution/v1，字段固定为 executionI
 
 Receipt 与事件禁止包含用户名、主机名、本地路径、Token、Cookie、会话凭据或个人敏感数据。只读、MCP 不可用、写入或重读验证失败时不得声称已登记领取；有明确执行指令时可以按用户上下文以 unregistered / Linear 未同步模式做本地工作，但不得回填成先前已经登记，写能力恢复后继续执行需从恢复时刻创建新的 registered execution。
 
-上下文压缩、重试或工具重连前后的 checkpoint 必须保留 envelope 的 requestId、mode、activeObjective、唯一当前 Issue、allowedEffects、forbiddenEffects 和 terminalCondition，以及 completedFacts、noRepeatSet、nextAction、liveStates、blockerFingerprint 和 dagStructureHash；提供方支持时另存可选 dagChangeCursor。恢复后的第一个写调用前重新读取当前 Issue 与相关 Git/PR/MR 状态，确认 mode、目标、effect 和下一动作仍一致；最新用户意图高于 checkpoint，实时状态高于旧摘要。任何字段无法可靠恢复时只允许只读核对和重新规划。
+上下文压缩、重试或工具重连前后的 checkpoint 必须保留 `governance-core.md` 硬边界所列的全部 envelope 与执行字段（requestId、mode、activeObjective、allowedEffects、forbiddenEffects、terminalCondition、completedFacts、noRepeatSet、nextAction、liveStates、blockerFingerprint、dagStructureHash），并把当前唯一 Issue 加入保留字段；提供方支持时另存可选 dagChangeCursor。恢复后的第一个写调用前重新读取当前 Issue 与相关 Git/PR/MR 状态，确认 mode、目标、effect 和下一动作仍一致；最新用户意图高于 checkpoint，实时状态高于旧摘要。任何字段无法可靠恢复时只允许只读核对和重新规划。
 
 ## Git、状态同步与安全
 
@@ -74,7 +74,7 @@ Receipt 与事件禁止包含用户名、主机名、本地路径、Token、Cook
 - 已授权 Issue 内可追加事实性的进展、验证、阻塞或决策评论。除本节定义的最小身份登记外，创建其他 Issue、改变关系、优先级、Assignee、Delegate、Project、Cycle、Parent 或 Contract 都需要单独授权。
 - MCP 不可用时可以使用用户提供的 Issue 内容，但必须明确未读取或同步 Linear；不得伪造评论、状态、关系、Delegate、Receipt、PR、review、CI 或 merge 结果。
 
-Git credential helper 仅可由其配置的 Git transport 透明使用。仅有 Git transport 授权时不得读取、解析或转换 helper 输出用于网页/API 会话；这种用途必须另有 credentialUse 与对应外部写入授权。Agent 不得把 helper 输出或原始凭据写入文件，credential query、包装脚本或辅助文件也不得写入仓库或 worktree。
+Git credential helper 按 `git-rules.md` credential helper 条款执行：helper 仅可由其配置的 Git transport 透明使用，网页/API 会话用途必须另有 <code>credentialUse</code> 与对应外部写入授权；Agent 不得把 helper 输出或原始凭据写入文件，credential query、包装脚本或辅助文件也不得写入仓库或 worktree。
 
 默认 terminalCondition 是当前 Issue 的已授权 effects 完成：本地实现只交付到本地验证；若授权到 mergeRequestWrite，则在 PR/MR ready for review、创建后重读确认并完成所有已授权证据同步时结束。Linear 自动化或已授权回写应使 Issue 进入 In Review；若状态同步不可用或未授权，报告差异后结束，不得因此续跑。除非用户明确授权 mode=monitor 并给出观察终点或时间边界，否则不得等待人工合并、持续轮询、自动续跑或执行下一个 Ready 节点；达到终止条件也不等于 Done。
 

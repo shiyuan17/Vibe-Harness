@@ -13,7 +13,7 @@ Git 规则的目标是保护用户改动、保持提交可审查，并确保 wor
 
 ## 提交授权
 
-当前请求必须按 Execution Envelope 分别授权 <code>workspaceWrite</code>、<code>gitBranch</code>、<code>gitCommit</code>、<code>gitPush</code>、<code>mergeRequestWrite</code> 和 <code>credentialUse</code>。任一 effect 都不隐含其他 effect：实现授权不等于建分支、提交、推送或创建 PR/MR，提交授权也不等于推送或创建 PR/MR；<code>forbiddenEffects</code> 始终优先。
+当前请求必须按 Execution Envelope 分别授权 <code>workspaceWrite</code>、<code>gitBranch</code>、<code>gitCommit</code>、<code>gitPush</code>、<code>mergeRequestWrite</code> 和 <code>credentialUse</code>。任一 effect 都不隐含其他 effect：实现授权不等于建分支、提交、推送或创建 PR/MR，提交授权也不等于推送或创建 PR/MR；<code>forbiddenEffects</code> 始终优先。完整 mode 与 effect 枚举以 `governance-core.md` Execution Envelope 条款为准；本清单是 Git 域不含 <code>linearWrite</code> 的子集。
 
 Vibe-Harness 不通过 Stop Hook、运行时脚本或任何默认流程自动执行 <code>git commit</code> 或 <code>git push</code>。提交和推送必须由用户在当前任务中明确授权；显式调用 `$git-deliver` 或明确指定该 Skill，视为对当前仓库、当前任务相关改动的分组提交和当前分支普通推送授权。没有授权时只报告 working tree 状态和建议命令。
 

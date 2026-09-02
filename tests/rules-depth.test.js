@@ -49,6 +49,12 @@ test('completion evidence and task-scoped testing live in governance rules', asy
   assert.match(testRules, /全量测试不是默认验证/u);
   assert.match(testRules, /验证受阻（degraded）/u);
   assert.match(testRules, /不得推断产品通过或失败/u);
+  assert.match(testRules, /降低断言、删除断言或无理由跳过相关测试绕过/u);
+  assert.match(testRules, /覆盖率是诊断信号不是目标/u);
+  assert.match(testRules, /先写暴露该缺陷的复现测试/u);
+  assert.match(testRules, /flaky 测试须隔离并限期修复，不以重跑掩盖/u);
+  assert.match(testRules, /断言行为而非实现细节/u);
+  assert.match(testRules, /仅测试使用的辅助路径/u);
   assert.match(troubleshootingRules, /验证受阻（degraded）/u);
   assert.match(troubleshootingRules, /失败阶段、替代证据、未验证行为和剩余风险/u);
   assert.match(projectDirectoryRules, /小型 Bug、单文件修改和简单问答不展开该清单/u);
@@ -61,6 +67,9 @@ test('completion evidence and task-scoped testing live in governance rules', asy
   assert.match(testRules, /对抗式/u);
   assert.match(testRules, /测试类型/u);
   assert.match(testRules, /参考实现/u);
+  assert.match(testRules, /契约重放（contract-replay）/u);
+  assert.match(testRules, /eval:behavioral/u);
+  assert.match(testRules, /更新须单独审查显式确认/u);
   assert.match(gitRules, /参考实现/u);
   for (const template of templates) assert.match(template, /测试范围细则/u);
 });

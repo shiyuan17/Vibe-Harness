@@ -26,6 +26,8 @@
 
 新增、移动或退役文档时同步 catalog 与 `docs/README.md` / `docs/archive/README.md`。
 
+修改 `rules/*.md` 后运行 `pnpm docs:sync` 把镜像同步到 `docs/rules/`（渲染模板 `project-specific-rules.md` 除外）；`pnpm docs:audit` 校验双份一致。
+
 ## 命令边界
 
 - 项目路径只通过 `--project <path>` 传入，`--target` 只选择 adapter。
@@ -37,6 +39,8 @@ verify 输出本轮 ID、时间和可用的 Git 工作树指纹；检查期间�
 
 ## 验证选择
 
+验证矩阵的唯一规范来源是 `AGENTS.md` 的「验证选择」一节（含按影响追加的显式验证表和 `pnpm verify:focused` 用法）；本节只说明与贡献流程相关的边界。
+
 普通变更运行：
 
 ```bash
@@ -44,19 +48,18 @@ pnpm check
 git diff --check
 ```
 
-按影响追加：
-
-| 变更 | 显式验证 |
-| --- | --- |
-| 文档、catalog、schema | `pnpm docs:audit` |
-| Skill 或 Eval 资产 | `pnpm skills:audit`、`pnpm eval:check` 或对应 Eval 命令 |
-| installer、profile、runtime、adapter、工具 | `pnpm test:integration`、`pnpm smoke:lifecycle` 或受影响的聚焦测试 |
-| runtime tool lockfile/provision | `pnpm runtime:audit` |
-| 浏览器行为 | 真实浏览器关键路径 |
-
 installer 集成验证应覆盖已有文件拒写、红区确认、目标路径逃逸和事务回滚边界。
 
 不要为了满足固定流程运行无关 Review/Test。没有本轮输出时，不得复用历史结果声称通过。
+
+## Eval reference 更新清单
+
+rules、runtime hooks 或 config 内容变更会使 `evals/references/` 的 asset fingerprint（config、hooks、rules、skills 分组哈希）按设计漂移，`pnpm eval:check` 与 `pnpm eval:replay` 相应失败。reference 更新必须单独审查并显式确认，不得为让变更通过而自动提升：
+
+1. 确认指纹漂移分组与本轮预期变更一致（本轮只改 rules 时，漂移就应只有 rules 组）。
+2. 出现非预期分组漂移时先回到代码查因，不盲目再生成。
+3. 使用正规入口再生成：先 `pnpm vibe-harness eval run --project . --write` 得到 run 文件（`.vibe-harness/evals/runs/<timestamp>.json`），再 `pnpm vibe-harness eval reference --project . --from <run 文件> --write --confirm-reference-update`；命令细节见 `docs/evals.md`。同步 `evals/results/` 与 `.agents/evals/` 镜像。
+4. 重跑 `pnpm eval:check` 与 `pnpm eval:replay` 确认通过，并在 PR 说明中记录漂移分组与确认依据。
 
 ## Pull Request
 

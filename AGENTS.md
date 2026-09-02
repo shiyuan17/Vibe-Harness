@@ -17,9 +17,22 @@ Vibe-Harness 用来打包可复用的 AI coding 项目规则、领域 Skills、�
 
 ## 验证选择
 
-- `pnpm check`
-- 文档、catalog 或 schema 变更额外运行 `pnpm docs:audit`
-- installer、profile、runtime 或工具变更额外运行 `pnpm test:integration` 和 `pnpm smoke:lifecycle`
+本节是验证矩阵的唯一规范来源；CONTRIBUTING.md 引用本节，不再重复维护表格。
+
+- 普通变更运行 `pnpm check` 和 `git diff --check`。
+- 按影响追加：
+
+| 变更 | 显式验证 |
+| --- | --- |
+| 文档、catalog、schema | `pnpm check` 已内含文档校验；仅未运行 check 时显式运行 `pnpm docs:audit` |
+| Skill 或 Eval 资产 | `pnpm skills:audit`、`pnpm eval:check`、`pnpm test:eval` 或对应 Eval 命令 |
+| installer、profile、runtime、adapter、工具 | `pnpm test:integration`、`pnpm smoke:lifecycle` 或受影响的聚焦测试 |
+| rules、runtime、docs/rules 内容 | `pnpm test:unit`、`pnpm eval:check`；eval reference 指纹漂移按 CONTRIBUTING 清单单独确认 |
+| CI workflow | `pnpm test:eval`（eval-ci 测试断言 workflow 内容） |
+| runtime tool lockfile/provision | `pnpm runtime:audit` |
+| 浏览器行为 | 真实浏览器关键路径 |
+
+- 可用 `pnpm verify:focused` 把本轮变更路径机械映射为建议命令清单（建议非门禁，`--run` 依序执行）。
 - 只运行与变更和完成主张匹配的聚焦检查；不要自动派发 Review/Test 角色。
 
 ## 安全规则
@@ -65,7 +78,7 @@ Vibe-Harness 用来打包可复用的 AI coding 项目规则、领域 Skills、�
 
 ## 已安装表面
 
-- 当前安装方式：自定义能力模块安装。 当前另安装 integration Skills：agentmemory；它们不计入 profile 的原生领域 Skill 数量。
+- 当前安装方式：自定义能力模块安装。 当前另安装 integration Skills：agentmemory、browser-verification；它们不计入 profile 的原生领域 Skill 数量。
 - 需求澄清姿态：`balanced`（action-leaning 偏向采用最小可逆默认值直接推进；balanced 按规则判断；conservative 对跨模块或公共契约改动也倾向先确认）。
 
 - 规则位于 `docs/rules/`。

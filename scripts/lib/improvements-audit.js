@@ -51,6 +51,7 @@ export function mergeImprovementCandidates(queue, observations, now = new Date()
   }
   return {
     schemaVersion: 1,
+    ...(queue?.project ? { project: queue.project } : {}),
     updatedAt: now.toISOString(),
     candidates: [...byId.values()].sort((left, right) => left.id.localeCompare(right.id)),
   };

@@ -204,27 +204,6 @@ test('Linear fast path avoids project DAG traversal and isolates only when neede
   }
 });
 
-test('GitHub workflows split develop and main gates and enforce promotion sources', async () => {
-  const [ci, release, backSync, branchPolicy] = await Promise.all([
-    readFile(path.join(rootDir, '.github/workflows/ci.yml'), 'utf8'),
-    readFile(path.join(rootDir, '.github/workflows/release-please.yml'), 'utf8'),
-    readFile(path.join(rootDir, '.github/workflows/hotfix-back-sync.yml'), 'utf8'),
-    readFile(path.join(rootDir, 'scripts/branch-policy.js'), 'utf8'),
-  ]);
-  assert.match(ci, /branches:\s*\[develop, main\]/u);
-  assert.match(ci, /develop-gate/u);
-  assert.match(ci, /main-release-gate/u);
-  assert.match(ci, /github\.event\.pull_request\.draft/u);
-  assert.match(branchPolicy, /hotfix\//u);
-  assert.match(branchPolicy, /release-please--branches--main/u);
-  assert.match(branchPolicy, /develop/u);
-  assert.match(release, /target-branch:\s*main/u);
-  assert.match(release, /sync-main-to-develop/u);
-  assert.match(release, /gh pr merge.*--auto.*--merge/u);
-  assert.match(backSync, /startsWith\(github\.event\.pull_request\.head\.ref, 'hotfix\/'\)/u);
-  assert.match(backSync, /sync-main-to-develop/u);
-});
-
 async function runCli(args) {
   const { stdout } = await execFileAsync(process.execPath, [cliPath, ...args], {
     cwd: rootDir,

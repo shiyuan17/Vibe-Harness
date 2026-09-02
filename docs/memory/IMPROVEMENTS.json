@@ -1,5 +1,208 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "1970-01-01T00:00:00.000Z",
-  "candidates": []
+  "updatedAt": "2026-09-02T00:00:00.000Z",
+  "candidates": [
+    {
+      "id": "IMP-00210F7D442A9BD3",
+      "type": "skill",
+      "title": "Skill description 语言统一与机器护栏",
+      "status": "implemented",
+      "targetAsset": "skills/",
+      "evidenceRefs": [
+        "CHANGELOG.md",
+        "audit-reports/2026-09-01-governance-workflow-review.md"
+      ],
+      "distinctEpisodes": [
+        "audit-2026-09-01",
+        "p2-execution-2026-09-02"
+      ],
+      "firstSeenAt": "2026-09-01",
+      "lastSeenAt": "2026-09-02",
+      "owner": "maintainer",
+      "reviewBy": "",
+      "expectedBenefit": "宿主按 description 路由 Skill，语言一致与护栏校验提升触发稳定性"
+    },
+    {
+      "id": "IMP-2926F5B6B6DC8B6E",
+      "type": "rule",
+      "title": "governance-core 默认循环巨型单段拆为编号子项",
+      "status": "implemented",
+      "targetAsset": "rules/governance-core.md",
+      "evidenceRefs": [
+        "CHANGELOG.md",
+        "audit-reports/2026-09-01-governance-workflow-review.md"
+      ],
+      "distinctEpisodes": [
+        "audit-2026-09-01",
+        "p2-execution-2026-09-02"
+      ],
+      "firstSeenAt": "2026-09-01",
+      "lastSeenAt": "2026-09-02",
+      "owner": "maintainer",
+      "reviewBy": "",
+      "expectedBenefit": "常驻内核可读性直接影响遵循度，拆段降低误读与漏读"
+    },
+    {
+      "id": "IMP-31DBCC2DC31E6483",
+      "type": "security",
+      "title": "红区三清单修齐并新增交叉校验",
+      "status": "implemented",
+      "targetAsset": "runtime/hooks/lib/context.mjs",
+      "evidenceRefs": [
+        "CHANGELOG.md",
+        "audit-reports/2026-09-01-governance-workflow-review.md",
+        "tests/red-zone-consistency.test.js"
+      ],
+      "distinctEpisodes": [
+        "audit-2026-09-01",
+        "p2-execution-2026-09-02"
+      ],
+      "firstSeenAt": "2026-09-01",
+      "lastSeenAt": "2026-09-02",
+      "owner": "maintainer",
+      "reviewBy": "",
+      "expectedBenefit": "消除死正则与未门禁安装面，红区清单漂移在 check 即失败"
+    },
+    {
+      "id": "IMP-71C8A3E0263DA583",
+      "type": "linter",
+      "title": "rules/ ↔ docs/rules/ 双写改为镜像生成器",
+      "status": "implemented",
+      "targetAsset": "scripts/sync-rules.js",
+      "evidenceRefs": [
+        "CHANGELOG.md",
+        "audit-reports/2026-09-01-governance-workflow-review.md",
+        "tests/docs-sync.test.js"
+      ],
+      "distinctEpisodes": [
+        "audit-2026-09-01",
+        "p2-execution-2026-09-02"
+      ],
+      "firstSeenAt": "2026-09-01",
+      "lastSeenAt": "2026-09-02",
+      "owner": "maintainer",
+      "reviewBy": "",
+      "expectedBenefit": "一键再生镜像并报告孤儿文件，消除 20 个文件手工双写漂移"
+    },
+    {
+      "id": "IMP-71EF5DA1C036E409",
+      "type": "security",
+      "title": "Claude adapter 安装写入项目级 permissions.deny，兜底宿主 hook 超时 fail-open 窗口",
+      "status": "eligible-for-owner-review",
+      "targetAsset": "manifests/adapters.json",
+      "evidenceRefs": [
+        "audit-reports/2026-09-01-governance-workflow-review.md"
+      ],
+      "distinctEpisodes": [
+        "audit-2026-09-01"
+      ],
+      "firstSeenAt": "2026-09-01",
+      "lastSeenAt": "2026-09-02",
+      "owner": "maintainer",
+      "reviewBy": "",
+      "expectedBenefit": "纵深防御：hook 超时 fail-open 时保留静态第二道拦截，与 hook fail-closed 纵深"
+    },
+    {
+      "id": "IMP-B096D37ABB1EBF12",
+      "type": "rule",
+      "title": "跨文件重复规则收敛（git credential helper、Envelope 枚举、checkpoint 清单、writeScope）",
+      "status": "implemented",
+      "targetAsset": "rules/linear-workflow.md",
+      "evidenceRefs": [
+        "CHANGELOG.md",
+        "audit-reports/2026-09-01-governance-workflow-review.md"
+      ],
+      "distinctEpisodes": [
+        "audit-2026-09-01",
+        "p2-execution-2026-09-02"
+      ],
+      "firstSeenAt": "2026-09-01",
+      "lastSeenAt": "2026-09-02",
+      "owner": "maintainer",
+      "reviewBy": "",
+      "expectedBenefit": "单一权威定义消除规则措辞漂移，降低多文件联动维护成本"
+    },
+    {
+      "id": "IMP-C5DDE702C5FC9133",
+      "type": "linter",
+      "title": "eval:behavioral 变异覆盖补齐为每控件每片段独立变异",
+      "status": "implemented",
+      "targetAsset": "scripts/lib/eval-behavioral.js",
+      "evidenceRefs": [
+        "CHANGELOG.md",
+        "audit-reports/2026-09-01-governance-workflow-review.md",
+        "tests/eval-behavioral.test.js"
+      ],
+      "distinctEpisodes": [
+        "audit-2026-09-01",
+        "p2-execution-2026-09-02"
+      ],
+      "firstSeenAt": "2026-09-01",
+      "lastSeenAt": "2026-09-02",
+      "owner": "maintainer",
+      "reviewBy": "",
+      "expectedBenefit": "变异验证边界与 test-rules 宣称一致（10 个变异），检出语义不再空真"
+    },
+    {
+      "id": "IMP-DB31A26AD584EB92",
+      "type": "rule",
+      "title": "测试措辞锁定降耦为单一权威层",
+      "status": "implemented",
+      "targetAsset": "tests/rules-depth.test.js",
+      "evidenceRefs": [
+        "CHANGELOG.md",
+        "audit-reports/2026-09-01-governance-workflow-review.md"
+      ],
+      "distinctEpisodes": [
+        "audit-2026-09-01",
+        "p2-execution-2026-09-02"
+      ],
+      "firstSeenAt": "2026-09-01",
+      "lastSeenAt": "2026-09-02",
+      "owner": "maintainer",
+      "reviewBy": "",
+      "expectedBenefit": "同一句规则文本只被一个测试文件锁定，改规则不再联动最多 7 个测试文件"
+    },
+    {
+      "id": "IMP-DDC88428AAA002D6",
+      "type": "linter",
+      "title": "EVAL-SPLIT fixture 一致性护栏",
+      "status": "implemented",
+      "targetAsset": "tests/eval-contract.test.js",
+      "evidenceRefs": [
+        "CHANGELOG.md",
+        "audit-reports/2026-09-01-governance-workflow-review.md",
+        "docs/evals.md"
+      ],
+      "distinctEpisodes": [
+        "audit-2026-09-01",
+        "p2-execution-2026-09-02"
+      ],
+      "firstSeenAt": "2026-09-01",
+      "lastSeenAt": "2026-09-02",
+      "owner": "maintainer",
+      "reviewBy": "",
+      "expectedBenefit": "三个 EVAL-SPLIT 用例 fixture 副本漂移在契约测试即被拦截"
+    },
+    {
+      "id": "IMP-FB12CA4D69FAB9B3",
+      "type": "garbage-collection",
+      "title": "治理记忆种子化，消除启动必读空模板",
+      "status": "implemented",
+      "targetAsset": "docs/memory/PROJECT_STATE.md",
+      "evidenceRefs": [
+        "CHANGELOG.md",
+        "audit-reports/2026-09-01-governance-workflow-review.md"
+      ],
+      "distinctEpisodes": [
+        "audit-2026-09-01",
+        "p2-execution-2026-09-02"
+      ],
+      "firstSeenAt": "2026-09-01",
+      "lastSeenAt": "2026-09-02",
+      "owner": "maintainer",
+      "reviewBy": "",
+      "expectedBenefit": "启动恢复读到真实状态而非占位模板，治理记忆不再空转"
+    }
+  ]
 }
