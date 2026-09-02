@@ -70,6 +70,7 @@ test('init --project writes the MVP vibe-harness.config.json defaults', async ()
     assert.equal(config.validationCommands.typecheck, null);
     assert.equal(config.validationCommands.test, null);
     assert.equal(config.validationCommands.eval, null);
+    assert.deepEqual(config.verification, { timeoutMs: 120000 });
     assert.equal(Object.hasOwn(config, 'governance'), false);
     assert.deepEqual(config.crossRepo, { backendRepo: '', enabled: false });
   } finally {

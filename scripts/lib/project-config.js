@@ -10,6 +10,11 @@ import { validateJsonAgainstSchema } from './schema-validation.js';
 import { safeJsonParse } from './safe-json.js';
 import { productIdentity } from './product-identity.js';
 import { resolveProjectConfigLocation } from './project-layout.js';
+import {
+  DEFAULT_PROJECT_VERIFICATION_TIMEOUT_MS,
+  MAX_PROJECT_VERIFICATION_TIMEOUT_MS,
+  MIN_PROJECT_VERIFICATION_TIMEOUT_MS,
+} from './project-verification.js';
 
 export const mvpProfiles = new Set(['minimal', 'core', 'full', 'docs-only']);
 export const mvpTargets = new Set(['codex', 'claude', 'gemini', 'cursor', 'qoder', 'zcode', 'antigravity', 'opencode']);
@@ -51,6 +56,9 @@ export const defaultProjectConfig = {
     typecheck: null,
     test: null,
     eval: null,
+  },
+  verification: {
+    timeoutMs: DEFAULT_PROJECT_VERIFICATION_TIMEOUT_MS,
   },
   evaluations: {
     enabled: false,
@@ -268,6 +276,20 @@ export function validateProjectConfig(config) {
   assertOptionalCommand(config.validationCommands.typecheck, 'validationCommands.typecheck');
   assertOptionalCommand(config.validationCommands.test, 'validationCommands.test');
   assertOptionalCommand(config.validationCommands.eval, 'validationCommands.eval');
+  if (Object.hasOwn(config, 'verification')) {
+    assertObject(config.verification, 'verification');
+    const timeoutMs = config.verification.timeoutMs;
+    if (!Number.isInteger(timeoutMs)
+      || timeoutMs < MIN_PROJECT_VERIFICATION_TIMEOUT_MS
+      || timeoutMs > MAX_PROJECT_VERIFICATION_TIMEOUT_MS) {
+      throw new Error(
+        'verification.timeoutMs must be an integer from '
+        + MIN_PROJECT_VERIFICATION_TIMEOUT_MS
+        + ' to '
+        + MAX_PROJECT_VERIFICATION_TIMEOUT_MS,
+      );
+    }
+  }
   if (Object.hasOwn(config, 'hooks')) {
     assertObject(config.hooks, 'hooks');
     if (Object.hasOwn(config.hooks, 'mode') && config.hooks.mode !== 'guarded') {

@@ -28,6 +28,7 @@ test('Vibe-Harness CLI initializes only the canonical configuration', async () =
     const config = JSON.parse(await readFile(report.path, 'utf8'));
     assert.equal(Object.hasOwn(config, 'governance'), false);
     assert.deepEqual(config.validationCommands, { lint: null, typecheck: null, test: null, eval: null });
+    assert.deepEqual(config.verification, { timeoutMs: 120000 });
     assert.equal(await exists(path.join(target, '.loopengine')), false);
   } finally {
     await rm(target, { force: true, recursive: true });

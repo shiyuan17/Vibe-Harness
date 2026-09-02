@@ -35,6 +35,14 @@
       },
       "additionalProperties": false
     },
+    "verification": {
+      "type": "object",
+      "required": ["timeoutMs"],
+      "properties": {
+        "timeoutMs": { "type": "integer", "minimum": 1000, "maximum": 3600000 }
+      },
+      "additionalProperties": false
+    },
     "hooks": {
       "type": "object",
       "properties": {
