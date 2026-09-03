@@ -567,6 +567,8 @@ export function finalChangeValidationSummary(workflowEvents) {
   const changes = workflowEvents.filter((event) => event.kind === 'change');
   const verifications = workflowEvents.filter((event) => event.kind === 'verification');
   const handoffs = workflowEvents.filter((event) => event.kind === 'handoff');
+  const relevanceReviews = workflowEvents.filter((event) => event.kind === 'relevance-review' && event.reviewed === true);
+  const closureAcceptances = workflowEvents.filter((event) => event.kind === 'closure' && event.accepted === true);
   if (changes.length === 0) {
     return {
       failedAfterFinalChangeCount: 0,
@@ -588,13 +590,19 @@ export function finalChangeValidationSummary(workflowEvents) {
   const lastSuccessfulIndex = successful.at(-1)?.index ?? null;
   const handoffBound = lastSuccessfulIndex !== null
     && handoffs.some((event) => event.index > lastSuccessfulIndex);
+  const handoffIndex = handoffs.at(-1)?.index ?? null;
+  const relevanceReviewed = relevanceReviews.some((event) => event.index > lastChangeIndex
+    && (handoffIndex === null || event.index < handoffIndex));
+  const closureAccepted = closureAcceptances.some((event) => event.index > (lastSuccessfulIndex ?? lastChangeIndex)
+    && (handoffIndex === null || event.index < handoffIndex));
+  const changeSetBound = relevanceReviewed && successful.length > 0;
   const repairRerunObserved = beforeFinalChange.some((event) => !event.succeeded && event.index > previousChangeIndex)
     && successful.length > 0;
   let status = 'missing';
   if (afterFinalChange.length > 0 && successful.length === 0) status = 'failed';
   else if (successful.length > 0 && !handoffBound) status = 'handoff-unbound';
   else if (successful.length > 0) status = 'verified';
-  return {
+  const summary = {
     failedAfterFinalChangeCount: failed.length,
     handoffBound,
     materialChangeCount: changes.length,
@@ -603,6 +611,64 @@ export function finalChangeValidationSummary(workflowEvents) {
     successfulAfterFinalChangeCount: successful.length,
     verificationAfterFinalChangeCount: afterFinalChange.length,
     verificationBeforeFinalChangeCount: beforeFinalChange.length,
+  };
+  if (relevanceReviews.length > 0 || closureAcceptances.length > 0) {
+    summary.changeSetBound = changeSetBound;
+    summary.relevanceReviewed = relevanceReviewed;
+    summary.closureAccepted = closureAccepted;
+  }
+  return summary;
+}
+
+function workflowReviewEvents(text, index, item = {}) {
+  const reviewMarker = item.relevanceReviewed === true || item.reviewedRelevantCheck === true;
+  const closureMarker = item.closureAccepted === true || item.acceptedClosure === true;
+  if (typeof text !== 'string' && !reviewMarker && !closureMarker) return [];
+  text = typeof text === 'string' ? text : '';
+  const events = [];
+  if (reviewMarker
+    || /\[VIBE_HARNESS_REVIEWED_RELEVANT_CHECK\]|review(?:ed|ing)?\s+(?:the\s+)?relevant\s+check|相关检查.{0,12}(?:relevance|审阅)|审阅.{0,12}相关检查/iu.test(text)) {
+    events.push({ index, kind: 'relevance-review', reviewed: true });
+  }
+  if (closureMarker
+    || /\[VIBE_HARNESS_ACCEPTED_CLOSURE\]|accepted\s+closure|closure\s+(?:was\s+)?accepted|(?:完成|闭环).{0,12}(?:accepted|接受)/iu.test(text)) {
+    events.push({ index, kind: 'closure', accepted: true });
+  }
+  return events;
+}
+
+function handoffContract(text, item = {}) {
+  let payload = item.handoff ?? item.handoffContract ?? null;
+  if (!payload && typeof text === 'string') {
+    const candidate = text.match(/\{[\s\S]*\}/u)?.[0];
+    if (candidate) {
+      try {
+        const parsed = JSON.parse(candidate);
+        if (parsed?.schema === 'vibe-harness.handoff/v1' || parsed?.handoff) payload = parsed.handoff ?? parsed;
+      } catch {}
+    }
+  }
+  if (!payload || typeof payload !== 'object') return null;
+  const completion = payload.completion ?? {};
+  const finalCheck = payload.finalCheck ?? payload.reviewedCheck ?? {};
+  const unresolved = payload.unresolvedItems ?? payload.unresolved ?? [];
+  const unresolvedOwners = Array.isArray(unresolved)
+    ? unresolved.filter((entry) => entry && typeof entry.owner === 'string' && entry.owner.trim() !== '').length
+    : 0;
+  const unresolvedCount = Array.isArray(unresolved) ? unresolved.length : 0;
+  const completionStatus = typeof completion.status === 'string' ? completion.status : null;
+  const completionAccepted = completion.accepted === true;
+  const reviewedCheck = finalCheck.reviewed === true || finalCheck.status === 'passed'
+    || finalCheck.relevance === 'reviewed';
+  const structuredCompletion = ['complete', 'in-progress', 'blocked'].includes(completionStatus);
+  return {
+    structuredCompletion,
+    completionStatus,
+    completionAccepted,
+    reviewedCheck,
+    unresolvedDeclared: Array.isArray(unresolved),
+    unresolvedCount,
+    unresolvedOwners,
   };
 }
 
@@ -672,7 +738,9 @@ export function transcript(stdout) {
         const eventIndex = workflowEvents.length;
         if (event.type === 'item.completed' && isMaterialChangeItem(event.item)) workflowEvents.push({ index: eventIndex, kind: 'change' });
         else if (event.type === 'item.completed' && event.item.type === 'agent_message') {
-          workflowEvents.push({ index: eventIndex, kind: 'handoff' });
+          const messageText = event.item.text ?? event.message?.content ?? event.text;
+          workflowEvents.push(...workflowReviewEvents(messageText, eventIndex, event.item));
+          workflowEvents.push({ index: workflowEvents.length, kind: 'handoff', ...handoffContract(messageText, event.item) });
         }
         const isToolEvent = ['item.started', 'item.completed'].includes(event.type)
           && !['agent_message', 'error', 'reasoning'].includes(event.item.type);
@@ -842,6 +910,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   semanticEvents.push(...toolSemantics.events);
   const finalChangeValidation = finalChangeValidationSummary(parsed.workflowEvents);
   semanticEvents.push('final-change-validation-' + finalChangeValidation.status);
+  if (finalChangeValidation.relevanceReviewed === true) semanticEvents.push('reviewed-relevant-check');
+  if (finalChangeValidation.closureAccepted === true) semanticEvents.push('accepted-closure');
+  if (finalChangeValidation.changeSetBound === true) semanticEvents.push('final-change-set-bound');
   const knowledgeCoverage = knowledgeCoverageEpisode({
     commands: parsed.commands,
     config: request.case.reporting?.knowledgeCoverage,

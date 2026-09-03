@@ -5,7 +5,13 @@ export const CONTROLS = [
   {
     id: 'BEHAVIOR-RULE-001',
     relative: 'rules/governance-core.md',
-    required: ['获取事实 → 直接执行 → 聚焦验证 → 简洁交付', 'handoff 只引用晚于最后一次实质修改的结果'],
+    required: [
+      '获取可信事实 → 判定并执行 → 聚焦验证 → 简洁交付',
+      '证据强度匹配行动风险',
+      '可发现事实继续只读探索',
+      '执行判定：直接实施（0–1 个软信号）',
+      'handoff 只引用晚于最后一次实质修改的结果',
+    ],
   },
   {
     id: 'BEHAVIOR-SKILL-001',

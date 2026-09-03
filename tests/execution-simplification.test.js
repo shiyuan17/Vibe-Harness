@@ -9,9 +9,22 @@ const rootDir = path.resolve(import.meta.dirname, '..');
 
 test('execution kernel keeps direct execution and optional task records', async () => {
   const kernel = await readFile(path.join(rootDir, 'rules/governance-core.md'), 'utf8');
-  assert.match(kernel, /获取事实.*直接执行.*聚焦验证.*简洁交付/u);
+  assert.match(kernel, /获取可信事实.*判定并执行.*聚焦验证.*简洁交付/u);
+  assert.match(kernel, /清晰、已授权、证据充分.*直接实施/u);
   assert.match(kernel, /任务 Markdown 是可选的人读记录/u);
   assert.doesNotMatch(kernel, /固定.*完成门禁/u);
+});
+
+test('fact sufficiency is risk-proportionate and routes remaining ambiguity', async () => {
+  const kernel = await readFile(path.join(rootDir, 'rules/governance-core.md'), 'utf8');
+  for (const tier of ['快速', '轻量', '完整']) assert.match(kernel, new RegExp(tier, 'u'));
+  assert.match(kernel, /证据强度.*行动风险/u);
+  assert.match(kernel, /不要求.*机械.*双来源/u);
+  assert.match(kernel, /来源冲突.*不得任意择一/u);
+  assert.match(kernel, /可发现事实.*继续只读探索/u);
+  assert.match(kernel, /阻塞产品决定.*最多三个/u);
+  assert.match(kernel, /安全审批.*明确授权/u);
+  assert.match(kernel, /可逆实现选择.*最小可逆默认值/u);
 });
 
 test('evidence labels stay human-readable and do not become workflow gates', async () => {
@@ -78,7 +91,7 @@ test('capability catalog and online canary register lightweight Task DAG coverag
   assert.ok(capability);
   assert.deepEqual(capability.profiles, ['minimal', 'core', 'full', 'docs-only']);
   assert.deepEqual(capability.evaluation.suites, ['evals/suites/vibe-harness-online-canary.json']);
-  assert.equal(suite.version, '2.8.0');
+  assert.equal(suite.version, '2.9.0');
   const cases = suite.cases.filter((item) => item.capability === 'lightweight-task-dag');
   assert.deepEqual(cases.map((item) => item.id), [
     'EVAL-DAG-001',
@@ -100,6 +113,10 @@ test('plan split judgment gates execution without becoming a workflow gate', asy
   assert.match(kernel, /目标、依赖、修改范围、约束、验收标准、验证方式和产出/u);
   assert.match(kernel, /打开文件、修改代码、运行测试等操作步骤不是任务/u);
   assert.match(kernel, /单 Agent 顺序执行多个任务时不创建 DAG/u);
+  assert.match(kernel, /执行判定：直接实施（0–1 个软信号）/u);
+  assert.match(kernel, /执行判定：拆分实施/u);
+  assert.match(kernel, /执行判定：拆分并声明依赖（4\+ 个软信号/u);
+  assert.match(kernel, /Plan.*不构成.*写入.*提交.*推送.*授权/u);
 });
 
 test('task templates expose the optional implementation task split table', async () => {
@@ -109,6 +126,8 @@ test('task templates expose the optional implementation task split table', async
   ]);
   assert.match(chinese, /实施任务拆分（仅判定为拆分时填写）/u);
   assert.match(english, /Implementation task split \(complete only when the plan is split\)/u);
+  assert.match(chinese, /执行判定/u);
+  assert.match(english, /Execution disposition/u);
   for (const field of ['任务', '目标', '依赖', '修改范围', '约束', '验收标准', '验证方式', '产出']) {
     assert.match(chinese, new RegExp(field, 'u'));
   }

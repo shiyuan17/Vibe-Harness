@@ -30,7 +30,15 @@ const FIXTURE_CONCEPT_ANCHORS = [
   /parallelizable work units/u,
   /independently acceptable stages/u,
   /multiple test layers/u,
+  /execution disposition/u,
+  /does not authorize workspace writes, commits, pushes, or external effects/u,
 ];
+
+const DISPOSITION_FRAGMENTS = {
+  'EVAL-SPLIT-001': 'EXECUTION_DISPOSITION: DIRECT_IMPLEMENTATION',
+  'EVAL-SPLIT-002': 'EXECUTION_DISPOSITION: SPLIT_IMPLEMENTATION',
+  'EVAL-SPLIT-003': 'EXECUTION_DISPOSITION: SPLIT_WITH_DEPENDENCIES',
+};
 
 // Decision table mirrored from the rule thresholds: any hard trigger forces a
 // split regardless of soft signals; otherwise 0-1 soft signals execute the
@@ -108,5 +116,7 @@ test('EVAL-SPLIT expected verdicts match the rule decision table for the declare
     const requiredValues = required.map((fragment) => fragment.value);
     assert.ok(requiredValues.includes(expected),
       item.id + ' expects ' + expected + ' from the decision table but requires: ' + JSON.stringify(requiredValues));
+    assert.ok(requiredValues.includes(DISPOSITION_FRAGMENTS[item.id]),
+      item.id + ' must expose its implementation disposition');
   }
 });

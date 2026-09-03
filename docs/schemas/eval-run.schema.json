@@ -107,7 +107,10 @@
                         "status": { "type": "string", "enum": ["not-applicable", "missing", "failed", "handoff-unbound", "verified"] },
                         "successfulAfterFinalChangeCount": { "type": "integer", "minimum": 0 },
                         "verificationAfterFinalChangeCount": { "type": "integer", "minimum": 0 },
-                        "verificationBeforeFinalChangeCount": { "type": "integer", "minimum": 0 }
+                        "verificationBeforeFinalChangeCount": { "type": "integer", "minimum": 0 },
+                        "changeSetBound": { "type": "boolean" },
+                        "relevanceReviewed": { "type": "boolean" },
+                        "closureAccepted": { "type": "boolean" }
                       },
                       "additionalProperties": false
                     },
@@ -169,7 +172,10 @@
                         },
                         "validationStatus": { "type": "string", "enum": ["not-applicable", "missing", "failed", "handoff-unbound", "verified"] },
                         "stopBoundary": { "type": "string", "enum": ["verified-handoff", "handoff-unbound", "failed", "blocked", "not-applicable"] },
-                        "outcome": { "type": "string", "enum": ["passed", "failed", "degraded"] }
+                        "outcome": { "type": "string", "enum": ["passed", "failed", "degraded"] },
+                        "structuredCompletion": { "type": "boolean" },
+                        "reviewedCheck": { "type": "boolean" },
+                        "unresolvedOwners": { "type": "boolean" }
                       },
                       "additionalProperties": false
                     },

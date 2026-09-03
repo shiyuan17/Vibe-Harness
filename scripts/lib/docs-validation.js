@@ -149,8 +149,10 @@ export async function collectGovernedPaths(rootDir) {
     'docs/adr/catalog.json',
     'docs/schemas/adr.schema.json',
     'docs/schemas/execution-envelope.schema.json',
+    'docs/schemas/role-pack.schema.json',
     'schemas/adr.schema.json',
     'schemas/execution-envelope.schema.json',
+    'schemas/role-pack.schema.json',
     'templates/adr/adr-template.md',
   ];
   return [...rootFiles, ...await collectMarkdown(path.join(rootDir, 'docs'), rootDir), ...governedAssets].sort();

@@ -71,7 +71,7 @@
         },
         "resolvedModules": {
           "type": "array",
-          "items": { "type": "string", "enum": ["agents", "rules", "templates", "skills", "schemas", "evals", "memory", "playwright", "chrome-devtools", "codebase-memory", "open-code-review", "rtk", "ast-grep", "hooks"] },
+          "items": { "type": "string", "enum": ["agents", "rules", "templates", "skills", "schemas", "evals", "memory", "playwright", "chrome-devtools", "codebase-memory", "open-code-review", "rtk", "ast-grep", "hooks", "roles"] },
           "uniqueItems": true
         },
         "status": { "type": "string", "enum": ["consistent"] },

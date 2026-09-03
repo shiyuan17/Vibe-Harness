@@ -9,7 +9,7 @@ import { CONTROLS, runBehavioralEvaluation } from '../scripts/lib/eval-behaviora
 const rootDir = path.resolve(import.meta.dirname, '..');
 
 const EXPECTED_MUTATIONS_PER_CONTROL = {
-  'BEHAVIOR-RULE-001': 2,
+  'BEHAVIOR-RULE-001': 5,
   'BEHAVIOR-SKILL-001': 2,
   'BEHAVIOR-HOOK-001': 3,
   'BEHAVIOR-CONFIG-001': 3,
@@ -64,9 +64,9 @@ test('missing non-first fragment fails the case and voids that control mutation 
     assert.equal(report.status, 'failed');
     const ruleCase = report.cases.find((item) => item.id === 'BEHAVIOR-RULE-001');
     assert.equal(ruleCase.passed, false);
-    assert.deepEqual(ruleCase.missing, [ruleControl.required[1]]);
+    assert.deepEqual(ruleCase.missing, ruleControl.required.slice(1));
     const ruleMutations = report.mutations.filter((item) => item.id.startsWith('BEHAVIOR-RULE-001-MUTATION-'));
-    assert.equal(ruleMutations.length, 2);
+    assert.equal(ruleMutations.length, ruleControl.required.length);
     assert.equal(ruleMutations.every((item) => item.detected), false);
     const otherMutations = report.mutations.filter((item) => !item.id.startsWith('BEHAVIOR-RULE-001-MUTATION-'));
     assert.equal(otherMutations.every((item) => item.detected), true);

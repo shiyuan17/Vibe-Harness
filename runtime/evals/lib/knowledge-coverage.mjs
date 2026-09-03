@@ -115,14 +115,23 @@ export function taskEpisode(input) {
     || ((owner.kind === 'rule' || owner.kind === 'skill') && selected);
   const validationStatus = input.finalChangeValidation.status;
   const handoff = input.workflowEvents.some((event) => event.kind === 'handoff');
+  const handoffContract = input.workflowEvents.find((event) => event.kind === 'handoff' && event.structuredCompletion !== undefined);
+  const structuredHandoffComplete = !handoffContract || (
+    handoffContract.structuredCompletion
+    && handoffContract.completionStatus === 'complete'
+    && handoffContract.completionAccepted
+    && handoffContract.reviewedCheck
+    && handoffContract.unresolvedDeclared
+    && handoffContract.unresolvedOwners === handoffContract.unresolvedCount
+  );
   const stopBoundary = input.exitCode !== 0 ? 'blocked'
-    : validationStatus === 'verified' ? 'verified-handoff'
+    : validationStatus === 'verified' && structuredHandoffComplete ? 'verified-handoff'
       : validationStatus === 'handoff-unbound' || handoff ? 'handoff-unbound'
         : validationStatus === 'not-applicable' ? 'not-applicable' : 'failed';
   const outcome = input.degraded ? 'degraded'
     : input.exitCode === 0 && input.hiddenTests.failed === 0 && ['verified', 'not-applicable'].includes(validationStatus)
       ? 'passed' : 'failed';
-  return {
+  const episode = {
     taskFamily,
     owner: {
       ...owner,
@@ -133,6 +142,13 @@ export function taskEpisode(input) {
     stopBoundary,
     outcome,
   };
+  if (handoffContract) {
+    episode.structuredCompletion = handoffContract.structuredCompletion
+      && handoffContract.completionStatus === 'complete' && handoffContract.completionAccepted;
+    episode.reviewedCheck = handoffContract.reviewedCheck;
+    episode.unresolvedOwners = handoffContract.unresolvedOwners === handoffContract.unresolvedCount;
+  }
+  return episode;
 }
 
 export function reconcileKnowledgeCoverageEpisodes(episodes) {

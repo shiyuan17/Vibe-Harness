@@ -160,6 +160,29 @@ test('EVAL-SPLIT cases share one verbatim AGENTS.md fixture text', async () => {
   assert.equal(new Set(fixtureTexts).size, 1);
   assert.match(fixtureTexts[0], /hard trigger forces splitting/u);
   assert.match(fixtureTexts[0], /4 or more: must split and declare task dependencies/u);
+  assert.match(fixtureTexts[0], /execution disposition/u);
+});
+
+test('EVAL-FACT cases cover risk-proportionate evidence sufficiency', async () => {
+  const [suite, capabilities] = await Promise.all([
+    readJson(path.join(rootDir, 'evals/suites/vibe-harness-online-canary.json')),
+    readJson(path.join(rootDir, 'manifests/capabilities.json')),
+  ]);
+  assert.equal(suite.version, '2.9.0');
+  const capability = capabilities.items.find((item) => item.id === 'execution-kernel');
+  assert.deepEqual(capability.evaluation, {
+    required: true,
+    suites: ['evals/suites/vibe-harness-online-canary.json'],
+  });
+  const cases = suite.cases.filter((item) => item.id.startsWith('EVAL-FACT-'));
+  assert.deepEqual(cases.map((item) => item.id), [
+    'EVAL-FACT-001',
+    'EVAL-FACT-002',
+    'EVAL-FACT-003',
+    'EVAL-FACT-004',
+  ]);
+  assert.equal(cases.every((item) => item.capability === 'execution-kernel'), true);
+  assert.equal(cases.every((item) => item.risk === 'critical' && item.repetitions === 3), true);
 });
 
 test('eval run schema accepts optional sanitized per-trial diagnostics', async () => {

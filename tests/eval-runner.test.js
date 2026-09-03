@@ -8,8 +8,8 @@ import test from 'node:test';
 import { runEvaluationCase } from '../scripts/lib/eval-runner.js';
 import { summarizeTrials } from '../scripts/lib/eval-trials.js';
 import { readJson } from '../scripts/lib/manifest.js';
-import { finalChangeValidationSummary } from '../runtime/evals/codex-runner.mjs';
-import { knowledgeCoverageEpisode, reconcileKnowledgeCoverageEpisodes } from '../runtime/evals/lib/knowledge-coverage.mjs';
+import { finalChangeValidationSummary, transcript } from '../runtime/evals/codex-runner.mjs';
+import { knowledgeCoverageEpisode, reconcileKnowledgeCoverageEpisodes, taskEpisode } from '../runtime/evals/lib/knowledge-coverage.mjs';
 
 const rootDir = path.resolve(import.meta.dirname, '..');
 
@@ -91,6 +91,46 @@ test('controlled Task Episodes bind repair reruns and reject stale or failed che
   ]);
   assert.equal(staleCheck.status, 'missing');
   assert.equal(staleCheck.verificationBeforeFinalChangeCount, 1);
+});
+
+test('handoff fixture requires structured completion, reviewed check, and unresolved owners', () => {
+  const handoff = {
+    type: 'item.completed',
+    item: {
+      type: 'agent_message',
+      handoff: {
+        completion: { status: 'complete', accepted: true },
+        finalCheck: { receiptId: 'verification-1', relevance: 'reviewed', status: 'passed' },
+        unresolvedItems: [{ id: 'follow-up-1', owner: 'team-or-role' }],
+      },
+    },
+  };
+  const parsed = transcript(JSON.stringify(handoff));
+  const base = {
+    commands: [],
+    demand: { taskFamily: 'handoff', expectedOwner: { kind: 'builtin', id: 'handoff' } },
+    exitCode: 0,
+    finalChangeValidation: { status: 'verified' },
+    hiddenTests: { failed: 0 },
+    messages: [],
+    workflowEvents: parsed.workflowEvents,
+  };
+  const complete = taskEpisode(base);
+  assert.deepEqual({
+    structuredCompletion: complete.structuredCompletion,
+    reviewedCheck: complete.reviewedCheck,
+    unresolvedOwners: complete.unresolvedOwners,
+    stopBoundary: complete.stopBoundary,
+  }, { structuredCompletion: true, reviewedCheck: true, unresolvedOwners: true, stopBoundary: 'verified-handoff' });
+
+  const incomplete = taskEpisode({
+    ...base,
+    workflowEvents: transcript(JSON.stringify({
+      ...handoff,
+      item: { ...handoff.item, handoff: { ...handoff.item.handoff, unresolvedItems: [{ id: 'follow-up-1' }] } },
+    })).workflowEvents,
+  });
+  assert.equal(incomplete.stopBoundary, 'handoff-unbound');
 });
 
 const installedSkillOwners = [

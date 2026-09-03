@@ -10,8 +10,11 @@ const rootDir = path.resolve(import.meta.dirname, '..');
 test('clarification catalog contains blocker and explicit-discovery cases', async () => {
   const catalog = JSON.parse(await readFile(path.join(rootDir, 'evals/clarification-cases.json'), 'utf8'));
   assert.deepEqual(validateClarificationCatalog(catalog), []);
-  assert.equal(catalog.cases.length, 24);
+  assert.equal(catalog.cases.length, 26);
   assert.equal(catalog.cases.filter((item) => item.kind === 'discovery').length, 4);
+  assert.equal(catalog.cases.filter((item) => item.kind === 'near-miss').length, 6);
+  assert.ok(catalog.cases.some((item) => item.id === 'near-runtime-evidence'));
+  assert.ok(catalog.cases.some((item) => item.id === 'near-source-conflict'));
 });
 
 test('discovery metrics require complete dimensions without fact questions or silent high-impact defaults', () => {

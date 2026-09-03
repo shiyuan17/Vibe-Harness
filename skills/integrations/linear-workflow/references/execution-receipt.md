@@ -50,6 +50,24 @@ Execution Receipt 是 Linear Issue 上不可变、追加式的结构化评论，
 - released 表示显式释放；该指令可同时授权清除当前 Delegate 或 fallback Agent label，但必须保留人类 Assignee。
 - aborted 和 local-work-completed 默认保留 Delegate；任何身份变更仍需明确授权。
 
+## Handoff Completion Payload
+
+handed-off 事件可携带一个 vibe-harness.handoff/v1 payload。它是完成状态的唯一可接受摘要，不复制原始会话：
+
+    {
+      "schema": "vibe-harness.handoff/v1",
+      "completion": { "status": "complete", "accepted": true },
+      "finalCheck": { "receiptId": "verification-uuid", "relevance": "reviewed", "status": "passed" },
+      "unresolvedItems": [
+        { "id": "follow-up-1", "summary": "待人工确认", "owner": "team-or-role" }
+      ]
+    }
+
+- completion.status 只允许 complete、in-progress 或 blocked；只有 complete 且 accepted: true 才能表示已完成。
+- finalCheck 必须引用最终检查收据，并同时声明 relevance: reviewed 与 status: passed；缺失或不匹配时 handoff 保持未完成。
+- unresolvedItems 必须是数组；每个未决项都必须有非空 owner。没有未决项也必须明确写入空数组，不能省略责任边界。
+- 任一字段未满足时只能作为进度交接，不能静默交付或推进完成状态。
+
 ## 活动实例与冲突
 
 一个 Start Receipt 在其后没有有效 terminal event 时是 active。同一 Issue 同时最多一个 active execution；两个以上 active Receipt、一个 execution 的多个矛盾终结事件、同一 ID 的不同内容或无法完整读取评论历史都属于冲突，必须停止并由人工处理。

@@ -338,6 +338,7 @@ export async function runProjectVerification({
   const commandsPassed = !verificationFailed(results);
   const evidence = verificationEvidence({ commandsPassed, requireStable, stable });
   const finishedAt = new Date();
+  const hasFinalChange = (before.changedFiles ?? 0) > 0 || (after.changedFiles ?? 0) > 0;
   let error;
   if (stable === false) {
     error = {
@@ -362,10 +363,21 @@ export async function runProjectVerification({
     verification: {
       after,
       before,
+      changeBoundary: {
+        resultsAfterFinalChange: hasFinalChange,
+        status: hasFinalChange && stable === true && commandsPassed ? 'verified' : 'unverified',
+      },
+      deliveryBoundaries: {
+        ci: 'unverified',
+        rollback: 'unverified',
+      },
       durationMs: finishedAt.getTime() - startedAt.getTime(),
       evidence,
       finishedAt: finishedAt.toISOString(),
       id,
+      recovery: error
+        ? { status: 'available', hint: 'pnpm verify --project <path>' }
+        : { status: 'not-needed', hint: 'pnpm verify --project <path>' },
       stable,
       startedAt: startedAt.toISOString(),
     },
@@ -434,6 +446,7 @@ export async function runFocusedProjectVerification({
     ? before.fingerprint === after.fingerprint
     : before.available === after.available ? null : false;
   const finishedAt = new Date();
+  const hasFinalChange = (before.changedFiles ?? 0) > 0 || (after.changedFiles ?? 0) > 0;
   const failedResult = results.find((result) => ['blocked', 'failed'].includes(result.status));
   const evidence = verificationEvidence({ commandsPassed: !failedResult, requireStable, stable });
   let error;
@@ -469,8 +482,25 @@ export async function runFocusedProjectVerification({
       focused: {
         changedPaths: [...focused.changedPaths],
         commands: focused.commands.map((item) => ({ ...item })),
+        ...(focused.impactMapping ? { impactMapping: focused.impactMapping.map((item) => ({
+          source: item.source,
+          focused: [...item.focused],
+          integration: [...item.integration],
+          smoke: [...item.smoke],
+        })) } : {}),
         notes: [...focused.notes],
       },
+      changeBoundary: {
+        resultsAfterFinalChange: hasFinalChange,
+        status: hasFinalChange && stable === true && !failedResult ? 'verified' : 'unverified',
+      },
+      deliveryBoundaries: {
+        ci: 'unverified',
+        rollback: 'unverified',
+      },
+      recovery: failedResult
+        ? { status: 'available', hint: failedResult.next?.command ?? 'pnpm verify:focused --run' }
+        : { status: 'not-needed', hint: 'pnpm verify:focused --run' },
       id,
       stable,
       startedAt: startedAt.toISOString(),

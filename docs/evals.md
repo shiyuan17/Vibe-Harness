@@ -68,6 +68,8 @@ Online run 和 degraded artifact 使用脱敏 `campaignId` 关联同一评测活
 
 `pnpm eval:report` 生成自包含 HTML 决策报告。`--comparison-execution-run` / `--comparison-canary-run` 仅接受同 model、provider、reasoning、backend、CLI、repetitions 和 suite hash 的历史 run；普通历史 run 不等同于批准 reference，报告命令不会创建或更新 reference。
 
+EVAL-SPLIT 同时断言完成的 Plan 输出人读 execution disposition，并声明该判定不授权 workspace 写入、提交、推送或外部副作用。EVAL-FACT-001..004 分别覆盖权威当前事实可直接行动、静态结论不能替代运行时证据、冲突来源必须解析，以及高风险证据不足时停止或标记未验证。
+
 ## 断言类型
 
 oracle 支持八类断言。前七类是确定性的，由 observation 直接判定：

@@ -110,6 +110,27 @@ export function selectFocusedChecks(paths) {
   return { commands, notes };
 }
 
+function checkStage(command) {
+  if (/test:integration/iu.test(command)) return 'integration';
+  if (/smoke:lifecycle/iu.test(command)) return 'smoke';
+  return 'focused';
+}
+
+export function buildImpactMapping(paths, commands) {
+  return paths.map((source) => ({
+    source,
+    focused: commands.filter((item) => checkStage(item.command) === 'focused').map((item) => item.command),
+    integration: [...new Set([
+      ...commands.filter((item) => checkStage(item.command) === 'integration').map((item) => item.command),
+      ...( /^(?:scripts|runtime|adapters)\//u.test(source) ? ['pnpm test:integration'] : []),
+    ])],
+    smoke: [...new Set([
+      ...commands.filter((item) => checkStage(item.command) === 'smoke').map((item) => item.command),
+      ...( /^(?:scripts|runtime|adapters|\.github\/workflows)\//u.test(source) ? ['pnpm smoke:lifecycle'] : []),
+    ])],
+  }));
+}
+
 function normalizeGitPath(entry) {
   return entry.replaceAll('\\', '/');
 }
@@ -204,15 +225,16 @@ async function main() {
 
   const paths = await collectChangedPaths({ base });
   const { commands, notes } = selectFocusedChecks(paths);
+  const impactMapping = buildImpactMapping(paths, commands);
   if (!run && json) {
-    console.log(JSON.stringify({ changedPaths: paths, commands, notes }, null, 2));
+    console.log(JSON.stringify({ changedPaths: paths, commands, impactMapping, notes }, null, 2));
     return;
   }
   let report = null;
   if (run) {
     const config = await readProjectConfig(process.cwd());
     report = await runFocusedProjectVerification({
-      focused: { changedPaths: paths, commands, notes },
+      focused: { changedPaths: paths, commands, notes, impactMapping },
       targetDir: process.cwd(),
       timeoutMs: config.verification?.timeoutMs,
     });
