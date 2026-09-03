@@ -1,0 +1,27 @@
+{
+  "actualOutput": [
+    {"action":"created","artifact":"Tool","name":"Workflow asset scanner","scope":"Project","path":"scripts/lib/workflow-assets.js","summary":"Scans workflow YAML assets and reports clean, findings, or out-of-scope with explicit counts."},
+    {"action":"updated","artifact":"Lint","name":"Workflow-aware lint","scope":"Project","path":"scripts/lint.js","summary":"Fails on workflow findings and prints workflow scan status and counts."},
+    {"action":"updated","artifact":"Integrity Report","name":"Workflow integrity result","scope":"Project","path":"scripts/lib/pack-validation.js","summary":"Adds workflowScan to pack integrity and includes workflow findings in the pack result."},
+    {"action":"updated","artifact":"CLI Report","name":"Workflow integrity CLI output","scope":"Project","path":"scripts/validate.js","summary":"Displays workflow integrity status, inventory count, and scanned count."},
+    {"action":"updated","artifact":"Test","name":"Workflow scan behavior tests","scope":"Project","path":"tests/lint-discovery.test.js","summary":"Covers 3/3 clean inventory, out-of-scope, and malformed workflow findings."},
+    {"action":"updated","artifact":"Test","name":"Pack workflow inventory assertion","scope":"Project","path":"tests/manifest-schema.test.js","summary":"Locks integrity to the three-workflow inventory and clean scan result."}
+  ],
+  "assignmentSummary": {
+    "locale": "zh-CN",
+    "title": "工作流资产扫描已纳入 lint 与 integrity",
+    "body": "lint 和完整性报告现在明确展示工作流台账与扫描计数，并在未覆盖时返回 out-of-scope；本轮检查确认项目 3 个工作流均已扫描且结果为 clean，Better Harness 元数据刷新因插件缺少 yaml 依赖仍不可用。"
+  },
+  "postFixRepairReview": {
+    "modelId": "agent-work-loop-v4",
+    "findingId": "workflow-asset-scan-blindspot",
+    "status": "verified",
+    "summary": "工作流资产现已在 lint 与 integrity 中显式扫描，并以 3/3 clean 或 out-of-scope 结构化呈现。",
+    "reason": "最后一次实质修改后的聚焦测试与项目检查均通过且覆盖异常工作流失败路径，刷新资产完整性因插件缺少 yaml 包不可用不否定目标范围内的修复。",
+    "confidence": "medium",
+    "evidenceRefs": [
+      {"kind":"fix-validation","id":"workflow-scan-final-validation"},
+      {"kind":"asset-integrity","id":"asset-integrity-unavailable-yaml-module"}
+    ]
+  }
+}

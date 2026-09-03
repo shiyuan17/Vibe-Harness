@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { discoverExecutables } from '../scripts/lib/executable-discovery.js';
+import { scanWorkflowAssets } from '../scripts/lib/workflow-assets.js';
 
 const rootDir = path.resolve(import.meta.dirname, '..');
 
@@ -25,6 +26,44 @@ test('executable discovery includes cjs and skips dependency directories', async
     await writeFile(path.join(target, 'node_modules', 'package', 'ignored.js'), 'broken(', 'utf8');
     const files = await discoverExecutables(target);
     assert.deepEqual(files.map((file) => path.basename(file)), ['tool.cjs']);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('workflow scan distinguishes clean from out-of-scope', async () => {
+  const current = await scanWorkflowAssets(rootDir);
+  assert.deepEqual(current, {
+    findings: [],
+    inventoryCount: 3,
+    scannedCount: 3,
+    status: 'clean',
+  });
+
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-workflow-scan-'));
+  try {
+    assert.deepEqual(await scanWorkflowAssets(target), {
+      findings: [],
+      inventoryCount: 0,
+      scannedCount: 0,
+      status: 'out-of-scope',
+    });
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('workflow scan reports malformed inventoried assets as findings', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-workflow-findings-'));
+  try {
+    const workflowDir = path.join(target, '.github', 'workflows');
+    await mkdir(workflowDir, { recursive: true });
+    await writeFile(path.join(workflowDir, 'broken.yml'), 'name: Broken\n', 'utf8');
+    const report = await scanWorkflowAssets(target);
+    assert.equal(report.status, 'findings');
+    assert.equal(report.inventoryCount, 1);
+    assert.equal(report.scannedCount, 1);
+    assert.equal(report.findings.length, 1);
   } finally {
     await rm(target, { force: true, recursive: true });
   }

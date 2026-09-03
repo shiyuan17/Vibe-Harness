@@ -9,4 +9,5 @@ if (!report.ok) {
   process.exit(1);
 }
 
+console.log('Workflow asset integrity', JSON.stringify(report.workflowScan));
 console.log('Vibe-Harness validation passed.');
