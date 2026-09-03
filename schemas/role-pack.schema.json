@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Vibe-Harness Role Pack",
+  "type": "object",
+  "required": ["schemaVersion", "basePrompt", "routingOrder", "permissionPresets", "items"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "basePrompt": { "type": "string", "minLength": 1 },
+    "routingOrder": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]{2,63}$" } },
+    "permissionPresets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "capabilities"],
+        "properties": {
+          "id": { "type": "string", "enum": ["analysis", "implementation", "verification", "security-review", "release-readiness"] },
+          "capabilities": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "enum": ["read", "search", "reason", "workspace-write", "validation-command", "browser-verification", "safe-security-check", "package-dry-run"] } }
+        },
+        "additionalProperties": false
+      }
+    },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "description", "permissionPreset", "promptSource", "routing"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{2,63}$" },
+          "name": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "description": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "permissionPreset": { "type": "string", "enum": ["analysis", "implementation", "verification", "security-review", "release-readiness"] },
+          "promptSource": { "type": "string", "pattern": "^roles/prompts/[a-z][a-z0-9-]{2,63}\\.md$" },
+          "routing": {
+            "type": "object",
+            "required": ["when", "avoid"],
+            "properties": {
+              "when": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 160 } },
+              "avoid": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 160 } }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

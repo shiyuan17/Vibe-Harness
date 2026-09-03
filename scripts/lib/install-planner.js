@@ -44,6 +44,7 @@ import { moduleCatalog, resolveModuleSelection } from './module-selection.js';
 import { hasPluginCapability } from './plugin-provider-catalog.js';
 import { assertAdapterProfile, hookConfigTargets, loadAdapterCatalog, resolveAdapter, resolveAdapterEntry, skillRootMatcher, skillRootPrefixes } from './adapter.js';
 import { beginFileTransaction, createTransactionId } from './file-transaction.js';
+import { resolveRoleInstallEntries } from './role-projection.js';
 import {
   hashManagedBlock,
   isManagedIgnore,
@@ -133,6 +134,7 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
   const hasRtkTool = hasTarget('.agents/runtime/tools/rtk/run.mjs');
   const hasAstGrepTool = hasTarget('.agents/runtime/tools/ast-grep/run.mjs');
   const hasCodebaseMemoryMcp = hasTarget('docs/rules/codebase-memory-mcp.md');
+  const hasRoles = hasTarget('.agents/roles/index.md');
   const installedProviderModules = [
     hasRtkTool ? 'rtk' : null,
     hasAstGrepTool ? 'ast-grep' : null,
@@ -201,6 +203,10 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
       + ' 当专项 Skill 给出更窄证据边界时，仅检查相关路径是否存在及必要元数据，不读取正文。';
   }
   installedSurface.discoveryLine = toolDiscoveryLine(installedProviderModules);
+  if (hasRoles) {
+    installedSurface.discoveryLine += ' 按 docs/rules/role-routing.md 为当前原子动作选择一个角色，并只读取 .agents/roles/ 中对应角色文件；阶段变化时重新选择。';
+    installedSurface.rulesLine += ' 多角色索引位于 .agents/roles/index.md。';
+  }
   if (installedIntegrationSkills.length > 0) {
     installedSurface.profileLine += ' 当前另安装 integration Skills：'
       + installedIntegrationSkills.join('、')
@@ -410,6 +416,7 @@ export async function createInstallPlan({
     profileGroups: selectedProfile.groups,
     requestedModules,
     requestedPlugins,
+    rolesEnabled: renderData.roles?.enabled,
     rtkHooksEnabled,
   });
   const allowedGroups = moduleSelection.allowedGroups;
@@ -420,6 +427,7 @@ export async function createInstallPlan({
   const managed = new Map((state?.files ?? []).map((file) => [file.target, file]));
   const baselinePlan = await createBaselinePlan({ baseline: state?.baseline, targetDir: path.resolve(targetDir) });
 
+  const currentPackageVersion = await packageVersion(rootDir);
   const ctx = {
     adapter,
     allowedGroups,
@@ -435,6 +443,22 @@ export async function createInstallPlan({
     targetDir,
     upgrade,
   };
+
+  const roleProjection = moduleSelection.resolvedModules.includes('roles')
+    ? await resolveRoleInstallEntries({
+        adapter,
+        packageVersion: currentPackageVersion,
+        rolesConfig: renderData.roles,
+        rootDir,
+        targetDir,
+      })
+    : null;
+  if (roleProjection) {
+    ctx.installMap = {
+      ...ctx.installMap,
+      entries: [...ctx.installMap.entries, ...roleProjection.entries],
+    };
+  }
 
   const actions = await planEntryActions(ctx);
   actions.push(...await planAdapterConfigActions(ctx));
@@ -465,6 +489,8 @@ export async function createInstallPlan({
   const projectionTarget = (target) => target === adapter.instructionTarget
     || adapterConfigTargets.has(target)
     || (adapter.skillRoot !== '.agents/skills' && target.startsWith(adapter.skillRoot + '/'))
+    || target.startsWith(adapter.roleProjection.targetRoot + '/')
+    || (adapter.id === 'zcode' && target.startsWith('.zcode/plugins/vibe-harness-roles/'))
     || (adapter.id === 'antigravity' && ['.agents/hooks.json', '.agents/mcp_config.json', '.agents/rules/vibe-harness.md'].includes(target));
   const ownedActions = actions.map((action) => ({
     ...action,
@@ -500,6 +526,10 @@ export async function createInstallPlan({
     requestedModules: moduleSelection.requestedModules,
     requestedPlugins: moduleSelection.requestedPlugins,
     resolvedModules: moduleSelection.resolvedModules,
+    roleProjection: roleProjection ? {
+      ...roleProjection.diagnostics,
+      roles: roleProjection.roles,
+    } : null,
     rtkHooksEnabled,
     renderData: withDefaultTemplateData({
       ...renderData,
@@ -511,7 +541,7 @@ export async function createInstallPlan({
     hookTargets,
     targetDir: path.resolve(targetDir),
     upgrade,
-    version: await packageVersion(rootDir),
+    version: currentPackageVersion,
     actions: ownedActions,
   };
 }
@@ -524,6 +554,7 @@ function compatibleActions(left, right) {
   if (left.relativeTarget !== right.relativeTarget || left.contentStrategy !== right.contentStrategy) return false;
   if (left.relativeTarget === 'AGENTS.md') return true;
   return left.relativeSource === right.relativeSource
+    && left.inlineContent === right.inlineContent
     && JSON.stringify(left.managedJson ?? null) === JSON.stringify(right.managedJson ?? null)
     && JSON.stringify(left.mcpServers ?? null) === JSON.stringify(right.mcpServers ?? null)
     && JSON.stringify(left.hooks ?? null) === JSON.stringify(right.hooks ?? null);
@@ -602,6 +633,7 @@ export async function createMultiTargetInstallPlan({ selectedTargets, targets, .
       capabilities: plan.adapterCapabilities,
       missingCapabilities: plan.missingCapabilities,
       previewCapabilities: plan.previewCapabilities,
+      roleProjection: plan.roleProjection,
     }])),
     linearMcp: Object.fromEntries(plans
       .filter((plan) => plan.linearMcp)
@@ -609,6 +641,9 @@ export async function createMultiTargetInstallPlan({ selectedTargets, targets, .
     generatedDirectories,
     missingCapabilities: [...new Set(plans.flatMap((plan) => plan.missingCapabilities))],
     previewCapabilities: [...new Set(plans.flatMap((plan) => plan.previewCapabilities))],
+    roleProjections: Object.fromEntries(plans
+      .filter((plan) => plan.roleProjection)
+      .map((plan) => [plan.adapter, plan.roleProjection])),
     renderData: withDefaultTemplateData({
       ...plans[0].renderData,
       installedSurface,
@@ -630,15 +665,18 @@ async function planEntryActions(ctx) {
       continue;
     }
     assertPortableRelativePath(entry.source, 'install source');
-    const localizedSource = sourceForEntry(entry.source, renderData);
+    const localizedSource = entry.sourceRoot === 'project'
+      ? entry.source
+      : sourceForEntry(entry.source, renderData);
     assertPortableRelativePath(localizedSource, 'localized install source');
     const mappedTarget = memoryTargetPath(renderData, entry.target);
     assertPortableRelativePath(mappedTarget, 'install target');
-    const source = path.resolve(rootDir, localizedSource);
+    const sourceBase = entry.sourceRoot === 'project' ? targetDir : rootDir;
+    const source = path.resolve(sourceBase, localizedSource);
     const target = path.resolve(targetDir, mappedTarget);
-    assertInsideDir(rootDir, source, 'install source');
+    assertInsideDir(sourceBase, source, 'install source');
     assertInsideDir(targetDir, target, 'install target');
-    await assertSafePathInside(rootDir, source, 'install source');
+    await assertSafePathInside(sourceBase, source, 'install source');
     await assertSafePathInside(targetDir, target, 'install target');
     const relativeSource = localizedSource.replaceAll('\\', '/');
     const relativeTarget = mappedTarget;
@@ -689,6 +727,7 @@ async function planEntryActions(ctx) {
       mcpServers: isManagedToml(contentStrategy)
         ? createManagedMcpServers(path.resolve(targetDir), moduleSelection.resolvedModules)
         : undefined,
+      inlineContent: entry.inlineContent,
       redZone: Boolean(entry.redZone),
       relativeSource,
       relativeTarget,
@@ -914,6 +953,7 @@ function computeGeneratedDirectories(ctx, actions) {
 }
 
 export async function renderSourceContent(action, renderData = {}) {
+  if (typeof action.inlineContent === 'string') return action.inlineContent;
   const content = await readFile(action.source, 'utf8');
   return renderTemplate(content, renderData);
 }
@@ -987,10 +1027,23 @@ export async function diffTargetInstall({
     profileGroups: selectedProfile.groups,
     requestedModules,
     requestedPlugins,
+    rolesEnabled: renderData.roles?.enabled,
     rtkHooksEnabled,
   });
   const allowedGroups = moduleSelection.allowedGroups;
-  const selectedEntries = installMap.entries.filter((entry) => allowedGroups.has(entry.group) && shouldInstallEntry(entry, renderData));
+  const roleProjection = moduleSelection.resolvedModules.includes('roles')
+    ? await resolveRoleInstallEntries({
+        adapter,
+        packageVersion: await packageVersion(rootDir),
+        rolesConfig: renderData.roles,
+        rootDir,
+        targetDir,
+      })
+    : null;
+  const effectiveEntries = roleProjection
+    ? [...installMap.entries, ...roleProjection.entries]
+    : installMap.entries;
+  const selectedEntries = effectiveEntries.filter((entry) => allowedGroups.has(entry.group) && shouldInstallEntry(entry, renderData));
   const adapterConfigActions = await planAdapterConfigActions({
     adapter,
     allowedGroups,
@@ -1030,14 +1083,17 @@ export async function diffTargetInstall({
     const mappedTarget = memoryTargetPath(renderData, entry.target);
     assertPortableRelativePath(mappedTarget, 'install target');
     const target = path.resolve(targetDir, mappedTarget);
-    const source = path.resolve(rootDir, sourceForEntry(entry.source, renderData));
-    assertInsideDir(rootDir, source, 'install source');
+    const sourceBase = entry.sourceRoot === 'project' ? targetDir : rootDir;
+    const relativeSource = entry.sourceRoot === 'project' ? entry.source : sourceForEntry(entry.source, renderData);
+    const source = path.resolve(sourceBase, relativeSource);
+    assertInsideDir(sourceBase, source, 'install source');
     assertInsideDir(targetDir, target, 'install target');
     const item = {
       contentStrategy: entry.contentStrategy === 'managed-instruction-block'
         ? (managedAgentsBlock && mappedTarget === adapter.instructionTarget ? entry.contentStrategy : 'replace')
         : entry.contentStrategy,
       group: entry.group,
+      inlineContent: entry.inlineContent,
       mcpServers: mappedTarget === '.codex/config.toml'
         ? createManagedMcpServers(path.resolve(targetDir), moduleSelection.resolvedModules)
         : undefined,
@@ -1129,6 +1185,10 @@ export async function diffTargetInstall({
       .filter(([, status]) => status === 'preview')
       .map(([name]) => name),
     profile,
+    roleProjection: roleProjection ? {
+      ...roleProjection.diagnostics,
+      roles: roleProjection.roles,
+    } : null,
     redZone,
     same,
     summary: {

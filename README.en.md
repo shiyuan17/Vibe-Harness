@@ -4,7 +4,7 @@
 
 Vibe-Harness installs project-scoped rules, domain Skills, optional Evals, explicit tool plugins, and safety Hooks for Codex, Claude Code, Gemini CLI, Cursor, Qoder, ZCode, Antigravity, and OpenCode. It writes only inside the target project and never changes global Agent configuration.
 
-There is one default execution path: `gather facts -> execute -> focused verification -> concise delivery`. Quick, light, and full are risk levels used only to choose safeguards and verification depth.
+There is one default execution path: `gather trustworthy facts -> decide and execute -> focused verification -> concise delivery`. The decision selects direct implementation, further investigation, clarification, authorization, planning, or task splitting according to evidence, ambiguity, and complexity. Quick, light, and full are risk levels used only to choose safeguards and verification depth.
 
 ## Quick start
 
@@ -205,6 +205,10 @@ pnpm vibe-harness uninstall --project ../some-project --all-targets --write
 - The installer does not modify global Agent configuration or `.git/config`.
 - Codex, Cursor, Qoder, and ZCode Hooks normalize their `PreToolUse` and permission events through the same safety policy to block dangerous Git, global configuration writes, credential exfiltration, red-zone file uploads, out-of-project writes, and (when an `allowedEgressHosts` allowlist is configured) non-allowlisted network egress. RTK Hook routing remains Codex-only.
 - Completion claims must match fresh evidence; narrow the claim and report risk when verification is unavailable.
+
+## Roles
+
+Full enables seven role personas by default; other profiles can opt in with roles.enabled. Each atomic action activates one role and may add at most one matching domain Skill, with rerouting only when the goal or action type changes. The ZCode role plugin stays project-local and doctor reports manual-activation-required; hosts with weaker permission expression report degraded mapping. See the [role documentation](docs/roles.md) for configuration, permissions, and routing.
 
 ## Documentation
 

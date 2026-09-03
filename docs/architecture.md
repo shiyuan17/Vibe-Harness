@@ -58,6 +58,12 @@ install-state stateVersion 5 使用 targets 取代 adapter。files、generatedFi
 
 adapter capability 使用 stable、preview 和 unsupported 描述各产品表面。validate、doctor 和 diff 提供项目汇总及逐宿主结果；未选宿主标为 skipped，内容漂移标为 conflict，配置删除但仍安装的宿主标为 stale projection。
 
+## 多角色路由
+
+full profile 默认安装七个角色；其他 profile 保持关闭，或通过 roles.enabled 显式启用。路由优先级固定为显式角色、安全审查、发布就绪、产品澄清、架构权衡、项目拆分、独立测试，最后才是高级工程师。当前动作保持角色稳定，只有目标或动作类型改变时重新推导。真实子 Agent 只在独立并行、高风险二次复审或既有拆分规则命中时创建。
+
+角色 Prompt 按宿主及用户指令、不可覆盖治理与安全前缀、通用角色契约、角色 Prompt、项目追加 Prompt、一个领域 Skill 和当前任务组合。项目覆盖不能删除安全、授权、sandbox 或验证约束；能力预设只能收紧内置默认集合。角色文件和 ZCode 项目插件与普通安装资产共享 state v5、owner、冲突、事务、rollback 和 uninstall 生命周期。
+
 ## 原生 include 能力对照
 
 各编辑器对指令文件的原生 include / 导入能力不同，Vibe-Harness 当前统一采用纯拷贝模型（规则作为独立文件安装到 `docs/rules/`，指令模板只通过指针行引用），以保证跨宿主可移植性并简化漂移检测（`validateSelfInstalledArtifacts` 逐字节比对源与安装产物）。下表记录各宿主能力，供未来评估是否转向原生 include 时参考：

@@ -140,6 +140,12 @@
       "contentStrategy": "replace"
     },
     {
+      "group": "roles",
+      "source": "rules/role-routing.md",
+      "target": "docs/rules/role-routing.md",
+      "contentStrategy": "replace"
+    },
+    {
       "group": "templates-minimal",
       "source": "templates/delivery.md",
       "target": "docs/templates/delivery.md",
@@ -230,6 +236,12 @@
       "contentStrategy": "replace"
     },
     {
+      "group": "schemas-core",
+      "source": "schemas/role-pack.schema.json",
+      "target": "docs/schemas/role-pack.schema.json",
+      "contentStrategy": "replace"
+    },
+    {
       "group": "runtime-eval",
       "source": "runtime/evals/run.mjs",
       "target": ".agents/runtime/evals/run.mjs",
@@ -277,6 +289,12 @@
       "group": "evals-online",
       "source": "evals/suites/vibe-harness-online-execution.json",
       "target": ".agents/evals/suites/vibe-harness-online-execution.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "evals-online",
+      "source": "evals/suites/vibe-harness-role-routing.json",
+      "target": ".agents/evals/suites/vibe-harness-role-routing.json",
       "contentStrategy": "replace"
     },
     {

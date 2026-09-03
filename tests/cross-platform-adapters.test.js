@@ -460,7 +460,9 @@ for (const adapter of [
       const doctor = await run(['doctor', '--project', target]);
       assert.equal(validation.status, 'ready');
       assert.equal(doctor.status, 'ready');
-      assert.equal(Object.hasOwn(doctor, 'subagents'), false);
+      assert.equal(doctor.roles[adapter.id].roleCount, 7);
+      assert.equal(doctor.roles[adapter.id].status, 'ready');
+      assert.equal(await exists(path.join(target, adapter.id === 'claude' ? '.claude/agents/chief-architect.md' : '.gemini/agents/chief-architect.md')), true);
       for (const skill of ['clarify-requirements', 'define-goal', 'git-deliver', 'systematic-debugging', 'eval-driven-development', 'security-and-hardening', 'api-and-interface-design', 'frontend-design', 'runtime-cross-repo-rollout']) {
         assert.equal(await exists(path.join(target, adapter.skills, skill, 'SKILL.md')), true);
         assert.equal(await exists(path.join(target, adapter.skills, skill, 'agents/openai.yaml')), false);
@@ -498,10 +500,10 @@ test('adapter catalog gates preview profiles and rejects target mismatch', async
   }
 });
 
-test('adapter capability v3 uses explicit support levels for every product surface', async () => {
+test('adapter capability v4 uses explicit support levels for every product surface', async () => {
   const catalog = JSON.parse(await readFile(path.join(rootDir, 'manifests/adapters.json'), 'utf8'));
-  const capabilityNames = ['instructions', 'skills', 'hooks', 'policy', 'mcp', 'sandbox', 'memory', 'plugin', 'goals'];
-  assert.equal(catalog.schemaVersion, 3);
+  const capabilityNames = ['instructions', 'skills', 'hooks', 'policy', 'mcp', 'sandbox', 'memory', 'plugin', 'goals', 'subagents'];
+  assert.equal(catalog.schemaVersion, 4);
   for (const adapter of catalog.items) {
     assert.deepEqual(Object.keys(adapter.capabilities).sort(), [...capabilityNames].sort());
     assert.equal(

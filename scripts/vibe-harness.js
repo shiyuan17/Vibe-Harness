@@ -128,6 +128,7 @@ function compactTargetReport(report) {
       missingCapabilities: item.missingCapabilities ?? [],
       ok: item.ok,
       previewCapabilities: item.previewCapabilities ?? [],
+      roleProjection: item.roleProjection ?? null,
       status: item.status,
     }])),
     changed: (report.changed ?? []).map(({ target }) => ({ target })),
@@ -146,6 +147,34 @@ function compactTargetReport(report) {
       )),
     } : undefined,
   };
+}
+
+function roleRuntimeReport(adapters = {}) {
+  return Object.fromEntries(Object.entries(adapters)
+    .filter(([, item]) => item.roleProjection)
+    .map(([id, item]) => [id, {
+      permissionMapping: item.roleProjection.permissionMapping,
+      roleCount: item.roleProjection.roles.length,
+      status: item.roleProjection.activation === 'manual' ? 'manual-activation-required' : 'ready',
+      activationPath: item.roleProjection.activationPath,
+    }]));
+}
+
+function roleRuntimeWarnings(adapters = {}) {
+  return Object.entries(adapters).flatMap(([id, item]) => {
+    const projection = item.roleProjection;
+    if (!projection) return [];
+    return [
+      ...(projection.activation === 'manual' ? [{
+        code: 'ROLE_ACTIVATION_MANUAL',
+        message: id + ' role plugin requires manual activation from ' + (projection.activationPath ?? 'the generated project-local directory') + '; enable the project plugin in ' + id + '.',
+      }] : []),
+      ...(projection.permissionMapping === 'degraded-permission-mapping' ? [{
+        code: 'ROLE_PERMISSION_MAPPING_DEGRADED',
+        message: id + ' cannot enforce every role permission natively; the strict parent sandbox and Prompt guard remain authoritative.',
+      }] : []),
+    ];
+  });
 }
 
 function summaryText(value, maxLength = 480) {
@@ -477,6 +506,17 @@ async function install(args) {
         code: 'LINEAR_MCP_AUTH_REQUIRED',
         message: 'Complete ' + target + "'s native Linear OAuth flow; no credential was written by Vibe-Harness.",
       })),
+    ...Object.entries(plan.roleProjections ?? {})
+      .flatMap(([target, projection]) => [
+        ...(projection.activation === 'manual' ? [{
+          code: 'ROLE_ACTIVATION_MANUAL',
+          message: target + ' role plugin requires manual activation from the generated project-local directory.',
+        }] : []),
+        ...(projection.permissionMapping === 'degraded-permission-mapping' ? [{
+          code: 'ROLE_PERMISSION_MAPPING_DEGRADED',
+          message: target + ' cannot enforce every role permission natively; the strict parent sandbox and Prompt guard remain authoritative.',
+        }] : []),
+      ]),
   ];
   emitReport({
     ...health,
@@ -497,6 +537,7 @@ async function install(args) {
     requestedModules: plan.requestedModules,
     requestedPlugins: plan.requestedPlugins,
     resolvedModules: plan.resolvedModules,
+    roleProjections: plan.roleProjections ?? {},
     rtkHooks: rtkHooksReport(plan.rtkHooksEnabled, tools, rtkHooksSetting.source),
     runtimeHooks,
     requiresRedZoneConfirmation: plan.dryRun
@@ -605,11 +646,17 @@ async function validate(args) {
       recommendations: toolRecommendations(tools, config.profile, { adapterId: adapter.id, mvp: true }),
       rtkHooks: rtkHooksReport(rtkHooksEnabled, tools, rtkHooksSetting.source),
       runtimeHooks,
+      roles: roleRuntimeReport(target.adapters),
       scope: 'project',
       targets: selectedTargets,
       ...(args.verbose ? { targetDir } : {}),
       tools,
-      warnings: [...toolWarnings(tools), ...safetyPostureWarnings(adapter), ...runtimeHookWarnings(runtimeHooks)],
+      warnings: [
+        ...toolWarnings(tools),
+        ...safetyPostureWarnings(adapter),
+        ...runtimeHookWarnings(runtimeHooks),
+        ...roleRuntimeWarnings(target.adapters),
+      ],
     }, args);
     applyHealthExit(health.status, args);
     return;
@@ -940,7 +987,7 @@ async function doctor(args) {
   const managedAgentsBlock = installState?.files?.some(
     (file) => ['managed-block', 'managed-instruction-block'].includes(file.contentStrategy),
   );
-  let renderData = {};
+  let renderData = { ...config, profile };
   if (managedAgentsBlock) {
     const projectProfile = await detectProjectProfile({ config, targetDir });
     const validationCommands = resolveValidationCommands(config, projectProfile);
@@ -995,6 +1042,7 @@ async function doctor(args) {
     resolvedModules: installState?.resolvedModules ?? [],
     rtkHooks: rtkHooksReport(rtkHooksEnabled, tools, rtkHooksSetting.source),
     runtimeHooks,
+    roles: roleRuntimeReport(target?.adapters),
     provisioningProcess,
     ...(args.verbose ? { rootDir } : {}),
     target,
@@ -1018,6 +1066,7 @@ async function doctor(args) {
       }] : []),
       ...safetyPostureWarnings(adapter),
       ...runtimeHookWarnings(runtimeHooks),
+      ...roleRuntimeWarnings(target?.adapters),
       ...(pack.instructionBudgetWarnings ?? []).map((message) => ({
         code: 'INSTRUCTION_BUDGET',
         message,

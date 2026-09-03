@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "basePrompt": "roles/base.md",
+  "routingOrder": [
+    "adversarial-security-reviewer",
+    "technical-release-manager",
+    "product-manager",
+    "chief-architect",
+    "technical-project-manager",
+    "test-lead",
+    "senior-engineer"
+  ],
+  "permissionPresets": [
+    { "id": "analysis", "capabilities": ["read", "search", "reason"] },
+    { "id": "implementation", "capabilities": ["read", "search", "reason", "workspace-write", "validation-command"] },
+    { "id": "verification", "capabilities": ["read", "search", "reason", "validation-command", "browser-verification"] },
+    { "id": "security-review", "capabilities": ["read", "search", "reason", "safe-security-check"] },
+    { "id": "release-readiness", "capabilities": ["read", "search", "reason", "validation-command", "package-dry-run"] }
+  ],
+  "items": [
+    {
+      "id": "chief-architect",
+      "name": "首席架构师",
+      "description": "用于公共契约、跨模块结构、架构权衡、迁移与回滚设计。",
+      "permissionPreset": "analysis",
+      "promptSource": "roles/prompts/chief-architect.md",
+      "routing": { "when": ["公共 API 或 schema 变化", "跨模块结构和长期权衡", "迁移、兼容或回滚设计"], "avoid": ["局部实现已经明确", "仅执行既定测试"] }
+    },
+    {
+      "id": "product-manager",
+      "name": "产品经理",
+      "description": "用于澄清用户问题、业务结果、范围、指标与验收标准。",
+      "permissionPreset": "analysis",
+      "promptSource": "roles/prompts/product-manager.md",
+      "routing": { "when": ["用户价值或目标不明确", "范围与非目标需要锁定", "需要定义指标或验收标准"], "avoid": ["需求已经决策完备", "纯技术实现或验证"] }
+    },
+    {
+      "id": "technical-project-manager",
+      "name": "技术项目经理",
+      "description": "用于多工作流依赖、关键路径、里程碑与可执行任务拆分。",
+      "permissionPreset": "analysis",
+      "promptSource": "roles/prompts/technical-project-manager.md",
+      "routing": { "when": ["存在多个有依赖的工作单元", "需要关键路径或阶段计划", "现有拆分规则要求 Task DAG"], "avoid": ["单一局部任务", "为了形式而创建固定流程"] }
+    },
+    {
+      "id": "senior-engineer",
+      "name": "高级工程师",
+      "description": "用于实现、修复、重构与聚焦验证，是默认执行角色。",
+      "permissionPreset": "implementation",
+      "promptSource": "roles/prompts/senior-engineer.md",
+      "routing": { "when": ["实现行为已经明确", "修复已定位根因", "执行局部重构和验证"], "avoid": ["产品目标尚未确定", "独立安全或发布审查"] }
+    },
+    {
+      "id": "test-lead",
+      "name": "测试负责人",
+      "description": "用于独立测试、回归设计、风险覆盖与质量判定。",
+      "permissionPreset": "verification",
+      "promptSource": "roles/prompts/test-lead.md",
+      "routing": { "when": ["需要独立验证或回归判定", "需要风险驱动测试计划", "需要评估测试证据强度"], "avoid": ["默认修复被测实现", "通过弱化断言获得通过"] }
+    },
+    {
+      "id": "adversarial-security-reviewer",
+      "name": "黑客审查者",
+      "description": "用于授权范围内的攻击者视角、安全边界和敏感数据审查。",
+      "permissionPreset": "security-review",
+      "promptSource": "roles/prompts/adversarial-security-reviewer.md",
+      "routing": { "when": ["存在信任边界或不可信输入", "请求安全审查或威胁建模", "涉及权限、凭据或数据暴露"], "avoid": ["未经授权的攻击行为", "自动部署利用或泄露敏感信息"] }
+    },
+    {
+      "id": "technical-release-manager",
+      "name": "技术发布经理",
+      "description": "用于版本、变更说明、迁移、监控、回滚与发布 go/no-go。",
+      "permissionPreset": "release-readiness",
+      "promptSource": "roles/prompts/technical-release-manager.md",
+      "routing": { "when": ["准备版本或上线", "评估迁移和回滚就绪度", "形成发布 go/no-go 结论"], "avoid": ["自动 tag、push 或 publish", "用计划代替发布证据"] }
+    }
+  ]
+}

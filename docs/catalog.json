@@ -71,6 +71,28 @@
       ]
     },
     {
+      "path": "docs/roles.md",
+      "kind": "user-guide",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "user",
+        "contributor",
+        "maintainer"
+      ]
+    },
+    {
+      "path": "docs/rules/role-routing.md",
+      "kind": "agent-rules",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "agent",
+        "contributor",
+        "maintainer"
+      ]
+    },
+    {
       "path": "docs/hooks.md",
       "kind": "operations",
       "status": "current",
@@ -612,6 +634,20 @@
     },
     {
       "path": "schemas/execution-envelope.schema.json",
+      "kind": "spec",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer"]
+    },
+    {
+      "path": "docs/schemas/role-pack.schema.json",
+      "kind": "spec",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer", "auditor"]
+    },
+    {
+      "path": "schemas/role-pack.schema.json",
       "kind": "spec",
       "status": "current",
       "language": "en",

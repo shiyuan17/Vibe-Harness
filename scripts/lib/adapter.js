@@ -8,7 +8,7 @@ import { assertPortableRelativePath, readPackJson, validateCatalogManifest } fro
 // the source of truth; the others were removed to prevent silent drift.
 export const canonicalAgentsTemplate = 'adapters/codex/AGENTS.template.md';
 
-const fullCapabilities = ['instructions', 'skills', 'hooks', 'policy', 'mcp', 'sandbox', 'memory'];
+const fullCapabilities = ['instructions', 'skills', 'hooks', 'policy', 'mcp', 'sandbox', 'memory', 'subagents'];
 
 function supportLevel(value) {
   if (value === true) return 'stable';

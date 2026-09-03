@@ -39,6 +39,7 @@ export async function readJson(filePath) {
 
 export async function loadAllManifests(rootDir) {
   return {
+    roles: await readPackJson(path.join(rootDir, 'manifests', 'roles.json')),
     adapters: await readPackJson(`${rootDir}/manifests/adapters.json`),
     profiles: await readPackJson(`${rootDir}/manifests/profiles.json`),
     rules: await readPackJson(`${rootDir}/manifests/rules.json`),
@@ -48,6 +49,7 @@ export async function loadAllManifests(rootDir) {
 
 export async function loadAllManifestSchemas(rootDir) {
   return {
+    roles: await readPackJson(path.join(rootDir, 'schemas', 'role-pack.schema.json')),
     adapters: await readPackJson(`${rootDir}/schemas/adapter-pack.schema.json`),
     profiles: await readPackJson(`${rootDir}/schemas/profile-pack.schema.json`),
     rules: await readPackJson(`${rootDir}/schemas/rule-pack.schema.json`),
@@ -189,6 +191,10 @@ export function validateCatalogManifest(name, manifest) {
       }
     }
     if (name === 'adapters') {
+      if (!item.roleProjection || typeof item.roleProjection !== 'object' || Array.isArray(item.roleProjection)) {
+        throw new Error('adapters.items[' + index + '].roleProjection is invalid');
+      }
+      assertPortableRelativePath(item.roleProjection.targetRoot, 'adapters.items[' + index + '].roleProjection.targetRoot');
       assertNonEmptyString(item.installMap, `${name}.items[${index}].installMap`);
       assertPortableRelativePath(item.installMap, `${name}.items[${index}].installMap`);
       assertPortableRelativePath(item.instructionTarget, `${name}.items[${index}].instructionTarget`);

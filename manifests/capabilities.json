@@ -9,7 +9,7 @@
       "tests": ["tests/execution-simplification.test.js", "tests/rules-depth.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
       "docs": ["docs/architecture.md"],
-      "evaluation": { "required": false, "reason": "The execution loop is deterministic and covered by structural tests." }
+      "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-online-canary.json"] }
     },
     {
       "id": "plan-task-split",
@@ -220,6 +220,16 @@
       "profiles": ["full"],
       "docs": ["docs/evals.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-online-canary.json"] }
+    },
+    {
+      "id": "role-based-agent-routing",
+      "source": "single-role dynamic routing and native host projections",
+      "disposition": "generalize",
+      "targets": ["manifests/roles.json", "schemas/role-pack.schema.json", "roles/base.md", "roles/prompts/chief-architect.md", "roles/prompts/product-manager.md", "roles/prompts/technical-project-manager.md", "roles/prompts/senior-engineer.md", "roles/prompts/test-lead.md", "roles/prompts/adversarial-security-reviewer.md", "roles/prompts/technical-release-manager.md", "rules/role-routing.md", "scripts/lib/role-projection.js", "scripts/roles-audit.js"],
+      "tests": ["tests/role-projection.test.js", "tests/module-selection.test.js", "tests/cross-platform-adapters.test.js"],
+      "profiles": ["full"],
+      "docs": ["README.md", "README.en.md", "docs/architecture.md", "docs/roles.md", "docs/rules/role-routing.md"],
+      "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-role-routing.json"] }
     },
     {
       "id": "cross-platform-adapters",

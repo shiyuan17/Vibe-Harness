@@ -38,6 +38,12 @@ Vibe-Harness 不接管 Cognis 或 LoopEngine 安装。发现旧产品配置、�
 
 所有项目命令使用 --project path；--target 只选择 adapter。所有真实修改使用 --write，不使用 --apply。完整流程优先 dry-run，并以 validate、doctor 和命令输出作为迁移证据。
 
+## Role migration
+
+升级到包含角色模块的 full profile 会生成宿主中立的 .agents/roles/ 和对应的原生 Agent 投影。旧安装不会被强制替换：非受管同名文件直接冲突，用户修改过的受管角色在 upgrade、rollback 和 uninstall 时保留并报告。禁用角色会在下一次升级中按 hash 安全退役。
+
+ZCode 只生成项目内插件目录，不写全局 agents；完成安装后须在 ZCode 中手动启用，doctor 状态为 manual-activation-required。Gemini 与 ZCode 的角色能力保持 preview，未完成 canary 前不得宣称 stable。
+
 ## Breaking workflow migration
 
 - 升级会移除 Vibe-Harness 管理的 Stop Hook 和未修改的 auto-commit runtime。用户自定义 Hook、未标记的 Stop 节点和已修改 runtime 会保留并在结果中报告。

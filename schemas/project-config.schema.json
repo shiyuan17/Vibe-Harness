@@ -138,6 +138,54 @@
       },
       "additionalProperties": false
     },
+    "roles": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "disabled": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]{2,63}$" }
+        },
+        "overrides": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "minProperties": 1,
+            "properties": {
+              "promptPath": { "type": "string", "pattern": "^docs/agent-roles/[a-zA-Z0-9][a-zA-Z0-9._-]*\\.md$" },
+              "permissionPreset": { "type": "string", "enum": ["analysis", "implementation", "verification", "security-review", "release-readiness"] }
+            },
+            "additionalProperties": false
+          }
+        },
+        "custom": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "name", "description", "promptPath", "permissionPreset", "routing"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{2,63}$" },
+              "name": { "type": "string", "minLength": 1, "maxLength": 64 },
+              "description": { "type": "string", "minLength": 1, "maxLength": 256 },
+              "promptPath": { "type": "string", "pattern": "^docs/agent-roles/[a-zA-Z0-9][a-zA-Z0-9._-]*\\.md$" },
+              "permissionPreset": { "type": "string", "enum": ["analysis", "implementation", "verification", "security-review", "release-readiness"] },
+              "routing": {
+                "type": "object",
+                "required": ["when", "avoid"],
+                "properties": {
+                  "when": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 160 } },
+                  "avoid": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 160 } }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "evaluations": {
       "type": "object",
       "required": ["enabled", "suites", "reference", "thresholds", "onlineRunner", "repetitions"],

@@ -25,7 +25,7 @@ const rootDir = path.resolve(import.meta.dirname, '..');
 
 test('manifests expose adapters, profiles, rules, and skills', async () => {
   const manifests = await loadAllManifests(rootDir);
-  assert.deepEqual(Object.keys(manifests).sort(), ['adapters', 'profiles', 'rules', 'skills']);
+  assert.deepEqual(Object.keys(manifests).sort(), ['adapters', 'profiles', 'roles', 'rules', 'skills']);
   assert.equal(manifests.rules.items.some((item) => item.id === 'governance-core'), true);
   assert.equal(manifests.rules.items.some((item) => item.id === 'chrome-devtools-mcp'), true);
   assert.equal(manifests.skills.items.filter((item) => item.kind === 'native').length, 9);
@@ -96,9 +96,12 @@ test('adapter schema requires an explicit goals support level', async () => {
   const missingGoals = structuredClone(manifest);
   delete missingGoals.items[0].capabilities.goals;
   assert.match(validateJsonAgainstSchema(missingGoals, schema, 'adapters').join('\n'), /goals.*required|required.*goals/iu);
+  const missingSubagents = structuredClone(manifest);
+  delete missingSubagents.items[0].capabilities.subagents;
+  assert.match(validateJsonAgainstSchema(missingSubagents, schema, 'adapters').join('\n'), /subagents.*required|required.*subagents/iu);
 });
 
-test('adapter manifest v3 requires the fixed event-level Hook matrix and activation contract', async () => {
+test('adapter manifest v4 requires role projection and the fixed Hook contract', async () => {
   const manifest = await readJson(path.join(rootDir, 'manifests/adapters.json'));
   const schema = await readJson(path.join(rootDir, 'schemas/adapter-pack.schema.json'));
   const expected = {
@@ -111,7 +114,7 @@ test('adapter manifest v3 requires the fixed event-level Hook matrix and activat
     antigravity: ['preview', 'unsupported', 'unsupported', 'config-file'],
     opencode: ['unsupported', 'unsupported', 'unsupported', 'unsupported'],
   };
-  assert.equal(manifest.schemaVersion, 3);
+  assert.equal(manifest.schemaVersion, 4);
   for (const adapter of manifest.items) {
     assert.deepEqual([
       adapter.hookEvents.preToolUse,
@@ -119,6 +122,7 @@ test('adapter manifest v3 requires the fixed event-level Hook matrix and activat
       adapter.hookEvents.stop,
       adapter.hookActivation,
     ], expected[adapter.id], adapter.id);
+    assert.equal(typeof adapter.roleProjection.targetRoot, 'string', adapter.id);
   }
   const missing = structuredClone(manifest);
   delete missing.items[0].hookEvents;
@@ -334,6 +338,12 @@ test('self-installed artifacts must stay in sync with their sources', async () =
 test('complete pack validates', async () => {
   const report = await validatePack(rootDir);
   assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+  assert.deepEqual(report.workflowScan, {
+    findings: [],
+    inventoryCount: 3,
+    scannedCount: 3,
+    status: 'clean',
+  });
 });
 
 test('skill descriptions stay English and single-script across the pack', async () => {

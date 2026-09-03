@@ -4,13 +4,13 @@
   "type": "object",
   "required": ["schemaVersion", "items"],
   "properties": {
-    "schemaVersion": { "type": "integer", "const": 3 },
+    "schemaVersion": { "type": "integer", "const": 4 },
     "items": {
       "type": "array",
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["id", "installMap", "instructionTarget", "instructionTemplate", "skillRoot", "supportedProfiles", "capabilities", "hookEvents", "hookActivation", "evidence", "redZonePrefixes"],
+        "required": ["id", "installMap", "instructionTarget", "instructionTemplate", "skillRoot", "supportedProfiles", "capabilities", "roleProjection", "hookEvents", "hookActivation", "evidence", "redZonePrefixes"],
         "properties": {
           "id": { "type": "string", "enum": ["codex", "claude", "gemini", "cursor", "qoder", "zcode", "antigravity", "opencode"] },
           "installMap": { "type": "string", "minLength": 1 },
@@ -47,7 +47,7 @@
           "supportedProfiles": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
           "capabilities": {
             "type": "object",
-            "required": ["instructions", "skills", "hooks", "policy", "mcp", "sandbox", "memory", "plugin", "goals"],
+            "required": ["instructions", "skills", "hooks", "policy", "mcp", "sandbox", "memory", "plugin", "goals", "subagents"],
             "properties": {
               "instructions": { "type": "string", "enum": ["unsupported", "preview", "stable"] },
               "skills": { "type": "string", "enum": ["unsupported", "preview", "stable"] },
@@ -57,7 +57,20 @@
               "sandbox": { "type": "string", "enum": ["unsupported", "preview", "stable"] },
               "memory": { "type": "string", "enum": ["unsupported", "preview", "stable"] },
               "plugin": { "type": "string", "enum": ["unsupported", "preview", "stable"] },
-              "goals": { "type": "string", "enum": ["unsupported", "preview", "stable"] }
+              "goals": { "type": "string", "enum": ["unsupported", "preview", "stable"] },
+              "subagents": { "type": "string", "enum": ["unsupported", "preview", "stable"] }
+            },
+            "additionalProperties": false
+          },
+          "roleProjection": {
+            "type": "object",
+            "required": ["format", "targetRoot", "extension", "activation", "permissionEnforcement"],
+            "properties": {
+              "format": { "type": "string", "enum": ["codex-toml", "claude-markdown", "gemini-markdown", "cursor-markdown", "qoder-markdown", "zcode-plugin-markdown", "antigravity-markdown", "opencode-markdown"] },
+              "targetRoot": { "type": "string", "minLength": 1 },
+              "extension": { "type": "string", "enum": [".md", ".toml"] },
+              "activation": { "type": "string", "enum": ["automatic", "manual"] },
+              "permissionEnforcement": { "type": "string", "enum": ["native", "prompt-guarded"] }
             },
             "additionalProperties": false
           },

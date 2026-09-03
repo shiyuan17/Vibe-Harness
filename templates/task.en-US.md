@@ -20,6 +20,10 @@
 
 ## Dependency chain (dependencies / contracts / tests / docs)
 
+## Execution disposition
+
+> When a Plan is complete, record one line: direct implementation (0-1 soft signals) / split implementation (a hard trigger or 2-3 soft signals with rationale) / split and declare dependencies (4+ soft signals with a dependency summary). This disposition does not authorize workspace writes, commits, pushes, or external effects.
+
 ## Implementation task split (complete only when the plan is split)
 
 > Complete this table when the plan split judgment selects splitting; each task must be independently executable, verifiable, and committable. Vibe-Harness does not parse it or use it as a completion gate.

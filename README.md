@@ -4,7 +4,7 @@
 
 Vibe-Harness 为 Codex、Claude Code、Gemini CLI、Cursor、Qoder、ZCode、Antigravity 和 OpenCode 安装项目级规则、领域 Skills、可选 Eval、显式工具插件和安全 Hook。它只写目标项目，不修改全局 Agent 配置。
 
-默认执行路径只有一条：`获取事实 -> 直接执行 -> 聚焦验证 -> 简洁交付`。快速、轻量、完整三档只用于选择风险控制和验证强度。
+默认执行路径只有一条：`获取可信事实 -> 判定并执行 -> 聚焦验证 -> 简洁交付`。判定只用于按证据、歧义和复杂度选择直接实施、继续查证、澄清、请求授权、规划或拆分；快速、轻量、完整三档只用于选择风险控制和验证强度。
 
 ## 快速开始
 
@@ -63,9 +63,9 @@ pnpm vibe-harness verify --project ../some-project
 
 单 Agent 默认完成任务。用户显式调用的 `open-code-review`、浏览器验证、Eval 和项目测试仍可正常使用。任务 Markdown 是可选的人读记录，不参与运行时判断。
 
-## Profiles
+## Profiles and roles
 
-core 安装六个原生 Skills，full 安装九个原生 Skills。
+core 安装六个原生 Skills，full 安装九个原生 Skills，并默认启用七个角色人格。角色系统采用“单主角色动态切换”：每个原子动作只激活一个角色，可叠加至多一个领域 Skill；它不是固定七阶段流水线。
 
 | Profile | 安装内容 |
 | --- | --- |
@@ -205,6 +205,10 @@ pnpm vibe-harness uninstall --project ../some-project --all-targets --write
 - 安装器不修改全局 Agent 配置或 `.git/config`。
 - Codex、Cursor、Qoder 和 ZCode Hook 会把 `PreToolUse` 和权限事件归一到同一安全策略，用于阻止危险 Git、全局配置写入、凭据外传、红区文件上传、越界写入，以及（配置 `allowedEgressHosts` 白名单后）非白名单主机出口。RTK Hook 路由仍只支持 Codex。
 - 完成主张必须由本轮有效证据支持；无法验证时缩小主张并说明风险。
+
+## Roles
+
+full 默认启用七个角色人格，其他 profile 可用 roles.enabled 显式启用。每个原子动作只激活一个角色，并可叠加至多一个领域 Skill；目标或动作类型改变时才重新路由。ZCode 角色插件只写项目目录，doctor 报告 manual-activation-required；宿主权限表达不足时报告降级映射。角色配置、权限和路由详见 [角色文档](docs/roles.md)。
 
 ## 文档
 

@@ -220,6 +220,28 @@ const projectRuleOverrideFields = new Set([
 
 const loggingOverrideFields = ['frameworks', 'configFiles', 'sources', 'queries', 'correlationFields', 'verification'];
 
+const rolePermissionPresets = new Set(['analysis', 'implementation', 'verification', 'security-review', 'release-readiness']);
+const rolePromptPattern = /^docs\/agent-roles\/[a-z0-9][a-z0-9._-]*\.md$/iu;
+const builtInRoleIds = new Set(JSON.parse(readFileSync(
+  path.join(path.resolve(import.meta.dirname, '..', '..'), 'manifests', 'roles.json'),
+  'utf8',
+)).items.map((role) => role.id));
+
+function validatePermissionPreset(value, label) {
+  if (!rolePermissionPresets.has(value)) throw new Error(label + ' is not a supported permission preset');
+}
+
+function validateRolePromptPath(value, label) {
+  try {
+    assertPortableRelativePath(value, label);
+  } catch {
+    throw new Error(label + ' must be a project-relative Markdown path under docs/agent-roles');
+  }
+  if (!rolePromptPattern.test(value.replaceAll('\\', '/'))) {
+    throw new Error(label + ' must be a direct Markdown file under docs/agent-roles');
+  }
+}
+
 function assertUniqueStringArray(value, label) {
   if (!Array.isArray(value)) throw new Error(label + ' must be an array');
   if (value.some((item) => typeof item !== 'string' || item.trim().length === 0)) {
@@ -266,7 +288,7 @@ export function validateProjectConfig(config) {
   }
   validateProfileName(config.profile);
   if (Object.hasOwn(config, 'modules')) {
-    resolveModuleSelection({ requestedModules: config.modules });
+    resolveModuleSelection({ requestedModules: config.modules, rolesEnabled: config.roles?.enabled });
   }
   if (Object.hasOwn(config, 'plugins')) {
     parsePluginsOption(config.plugins);
@@ -365,6 +387,49 @@ export function validateProjectConfig(config) {
       throw new Error('memory.enabled must be boolean');
     }
     assertNonEmptyString(config.memory.path, 'memory.path');
+  }
+  if (Object.hasOwn(config, 'roles')) {
+    assertObject(config.roles, 'roles');
+    const customIds = new Set();
+    if (Object.hasOwn(config.roles, 'enabled') && typeof config.roles.enabled !== 'boolean') {
+      throw new Error('roles.enabled must be boolean');
+    }
+    if (Object.hasOwn(config.roles, 'disabled')) {
+      assertUniqueStringArray(config.roles.disabled, 'roles.disabled');
+    }
+    if (Object.hasOwn(config.roles, 'overrides')) {
+      assertObject(config.roles.overrides, 'roles.overrides');
+      for (const [id, override] of Object.entries(config.roles.overrides)) {
+        if (!/^[a-z][a-z0-9-]{2,63}$/u.test(id)) throw new Error('roles.overrides contains an invalid role id');
+        if (!builtInRoleIds.has(id)) throw new Error('roles.overrides references unknown built-in role: ' + id);
+        assertObject(override, 'roles.overrides.' + id);
+        if (Object.keys(override).length === 0) throw new Error('roles.overrides.' + id + ' must contain a promptPath or permissionPreset');
+        if (Object.hasOwn(override, 'promptPath')) validateRolePromptPath(override.promptPath, 'roles.overrides.' + id + '.promptPath');
+        if (Object.hasOwn(override, 'permissionPreset')) validatePermissionPreset(override.permissionPreset, 'roles.overrides.' + id + '.permissionPreset');
+      }
+    }
+    if (Object.hasOwn(config.roles, 'custom')) {
+      if (!Array.isArray(config.roles.custom)) throw new Error('roles.custom must be an array');
+      for (const [index, role] of config.roles.custom.entries()) {
+        assertObject(role, 'roles.custom[' + index + ']');
+        if (!/^[a-z][a-z0-9-]{2,63}$/u.test(role.id)) throw new Error('roles.custom[' + index + '].id is invalid');
+        if (builtInRoleIds.has(role.id)) throw new Error('roles.custom role id conflicts with built-in role: ' + role.id);
+        if (customIds.has(role.id)) throw new Error('roles.custom contains a duplicate role id: ' + role.id);
+        customIds.add(role.id);
+        assertNonEmptyString(role.name, 'roles.custom[' + index + '].name');
+        assertNonEmptyString(role.description, 'roles.custom[' + index + '].description');
+        validateRolePromptPath(role.promptPath, 'roles.custom[' + index + '].promptPath');
+        validatePermissionPreset(role.permissionPreset, 'roles.custom[' + index + '].permissionPreset');
+        assertObject(role.routing, 'roles.custom[' + index + '].routing');
+        assertUniqueStringArray(role.routing.when, 'roles.custom[' + index + '].routing.when');
+        assertUniqueStringArray(role.routing.avoid, 'roles.custom[' + index + '].routing.avoid');
+      }
+    }
+    for (const id of config.roles.disabled ?? []) {
+      if (!builtInRoleIds.has(id) && !customIds.has(id)) {
+        throw new Error('roles.disabled references unknown role: ' + id);
+      }
+    }
   }
   if (Object.hasOwn(config, 'evaluations')) {
     assertObject(config.evaluations, 'evaluations');

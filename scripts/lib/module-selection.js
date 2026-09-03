@@ -24,6 +24,7 @@ export const moduleCatalog = {
   linear: { dependencies: ['skills'], groups: ['rules-linear', 'skills-linear', 'templates-linear', 'mcp-config'] },
   'linear-readonly': { dependencies: ['skills'], groups: ['rules-linear', 'skills-linear', 'templates-linear', 'mcp-config'] },
   hooks: { dependencies: ['agents'], groups: ['hooks'] },
+  roles: { dependencies: ['agents', 'rules'], groups: ['roles'] },
 };
 
 assertPluginProviderCatalog(pluginProviderCatalog, { moduleIds: new Set(Object.keys(moduleCatalog)) });
@@ -32,7 +33,7 @@ const profileModules = {
   minimal: ['agents', 'rules', 'templates'],
   core: ['agents', 'rules', 'templates', 'skills', 'evals'],
   full: [
-    'agents', 'rules', 'templates', 'skills', 'evals', 'hooks',
+    'agents', 'rules', 'templates', 'skills', 'evals', 'hooks', 'roles',
   ],
   'docs-only': ['rules', 'templates', 'schemas'],
 };
@@ -115,11 +116,22 @@ export function resolveModuleSelection({
   profileGroups = [],
   requestedModules,
   requestedPlugins,
+  rolesEnabled,
   rtkHooksEnabled = false,
 }) {
   const customModules = requestedModules !== undefined && requestedModules !== null;
   if (customModules) validateModules(requestedModules);
-  const baseModules = customModules ? requestedModules : (profileModules[profile] ?? []);
+  let baseModules = customModules ? [...requestedModules] : [...(profileModules[profile] ?? [])];
+  if (customModules && typeof rolesEnabled === 'boolean') {
+    const moduleEnablesRoles = baseModules.includes('roles');
+    if (moduleEnablesRoles !== rolesEnabled) {
+      throw new Error('roles.enabled conflicts with the explicit modules selection; include roles or make the values agree.');
+    }
+  } else if (!customModules && rolesEnabled === true && !baseModules.includes('roles')) {
+    baseModules.push('roles');
+  } else if (!customModules && rolesEnabled === false) {
+    baseModules = baseModules.filter((id) => id !== 'roles');
+  }
   const baseSelection = resolveDependencies(baseModules);
   const plugins = requestedPlugins === undefined || requestedPlugins === null || requestedPlugins.length === 0
     ? []
@@ -139,6 +151,8 @@ export function resolveModuleSelection({
   const allowedGroups = customModules || profileGroups.length === 0
     ? new Set([...baseSelection].flatMap((id) => moduleCatalog[id].groups))
     : new Set(profileGroups);
+  if (baseSelection.has('roles')) allowedGroups.add('roles');
+  else allowedGroups.delete('roles');
   for (const group of [...pluginSelection].flatMap((id) => moduleCatalog[id].groups)) allowedGroups.add(group);
   for (const group of [...integrationSelection].flatMap((id) => moduleCatalog[id].groups)) allowedGroups.add(group);
   return {

@@ -5,6 +5,7 @@
 ## 当前产品
 
 - [架构](architecture.md)
+- [角色系统](roles.md)
 - [ADR 指南](adr/README.md)
 - [ADR 索引](adr/catalog.json)
 - [ADR-0001：Linear 显式执行身份与原生 DAG 契约](adr/ADR-0001-linear-explicit-execution-and-dag.md)
@@ -44,9 +45,14 @@
 - [项目目录](rules/project-directory.md)
 - [项目专项](rules/project-specific-rules.md)
 - [发布](rules/release-rules.md)
+- [角色路由](rules/role-routing.md)
 - [RTK](rules/rtk.md)
 - [测试](rules/test-rules.md)
 - [排障](rules/troubleshooting.md)
+
+## Schema
+
+- [角色包 Schema](schemas/role-pack.schema.json)
 
 ## 模板与记忆
 

@@ -22,6 +22,7 @@ import { validateDocumentation } from './docs-validation.js';
 import { renderTemplate, withDefaultTemplateData } from './template-renderer.js';
 import { DEFAULT_RED_ZONE_PATHS } from '../../runtime/hooks/lib/context.mjs';
 import { redZoneMatcher } from '../../runtime/hooks/lib/policy.mjs';
+import { scanWorkflowAssets } from './workflow-assets.js';
 
 const forbiddenTerms = ['SYBaseProjectWeb', 'SYBaseProject', 'D:\\Github\\JW', 'T-019', 'T-024', '患者', '病理', '医疗'];
 const redactionDirs = ['rules', 'templates', 'skills/core', 'skills/integrations', 'memory', 'runtime', 'adapters', 'manifests', 'schemas'];
@@ -356,7 +357,7 @@ export async function validateContentQuality(rootDir) {
   const checks = [
     {
       file: 'rules/governance-core.md',
-      terms: ['获取事实 → 直接执行 → 聚焦验证 → 简洁交付', '快速', '轻量', '完整', '人工确认', '验证范围必须与完成主张匹配'],
+      terms: ['获取可信事实 → 判定并执行 → 聚焦验证 → 简洁交付', '事实充分性与歧义路由', '执行判定：直接实施', '快速', '轻量', '完整', '人工确认', '验证范围必须与完成主张匹配'],
     },
     {
       file: 'templates/task.md',
@@ -799,6 +800,7 @@ export async function validatePack(rootDir) {
   const redZoneConsistencyErrors = [...new Set(
     [...installMaps.values()].flatMap((installMap) => validateRedZoneConsistency(manifests.adapters.items, installMap)),
   )].sort();
+  const workflowScan = await scanWorkflowAssets(rootDir);
 
   return {
     capabilityErrors,
@@ -815,6 +817,7 @@ export async function validatePack(rootDir) {
     documentationErrors: documentation.errors,
     documentationWarnings: documentation.warnings,
     selfInstallErrors,
+    workflowScan,
     ok: missing.length === 0
       && installMapMissing.length === 0
       && missingSkillInstalls.length === 0
@@ -828,6 +831,7 @@ export async function validatePack(rootDir) {
       && schemaErrors.length === 0
       && selfInstallErrors.length === 0
       && instructionBudget.errors.length === 0
+      && workflowScan.findings.length === 0
       && redZoneConsistencyErrors.length === 0,
     schemaErrors: schemaErrors.sort(),
   };
