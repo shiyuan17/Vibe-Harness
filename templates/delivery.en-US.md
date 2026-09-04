@@ -4,6 +4,8 @@
 - Actual changes:
 - Verification performed this run:
 
+Record each required acceptance item as passed, failed, blocked, or unverified and attach the actual command or manual criterion. Claim complete delivery only when every required item passed; builds, lint, file hashes, or skipped relevant tests do not substitute for target-behavior evidence.
+
 Add unverified items, risks, or follow-up actions only when they exist.
 
 ## Cleanup alignment

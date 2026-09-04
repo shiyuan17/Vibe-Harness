@@ -4,6 +4,9 @@ on:
   pull_request:
   push:
     branches: [main]
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,6 +16,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  change-plan:
+    name: change plan
+    runs-on: ubuntu-latest
+    outputs:
+      riskLevel: ${{ steps.plan.outputs.riskLevel }}
+      integration: ${{ steps.plan.outputs.integration }}
+      smoke: ${{ steps.plan.outputs.smoke }}
+      supplyChain: ${{ steps.plan.outputs.supplyChain }}
+      full: ${{ steps.plan.outputs.full }}
+      lint: ${{ steps.plan.outputs.lint }}
+      validate: ${{ steps.plan.outputs.validate }}
+      unit: ${{ steps.plan.outputs.unit }}
+      eval: ${{ steps.plan.outputs.eval }}
+      evalCheck: ${{ steps.plan.outputs.evalCheck }}
+      docs: ${{ steps.plan.outputs.docs }}
+      skills: ${{ steps.plan.outputs.skills }}
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
+      FORCE_FULL: ${{ github.ref == 'refs/heads/main' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.x
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - id: plan
+        run: pnpm verify:plan
+
   risk-evidence:
     runs-on: ubuntu-latest
     steps:
@@ -21,8 +58,10 @@ jobs:
           fetch-depth: 0
       - run: node scripts/risk-evidence.js
 
-  product-run:
-    name: product (${{ matrix.os }})
+  fast-gate:
+    name: fast gate (${{ matrix.os }})
+    if: needs.change-plan.result == 'success' && needs.change-plan.outputs.full != 'true'
+    needs: change-plan
     strategy:
       fail-fast: false
       matrix:
@@ -32,8 +71,115 @@ jobs:
           - os: windows-latest
             node-version: 22.x
     runs-on: ${{ matrix.os }}
-    env:
-      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - if: needs.change-plan.outputs.lint == 'true'
+        run: pnpm lint
+      - if: needs.change-plan.outputs.validate == 'true'
+        run: pnpm validate
+      - if: needs.change-plan.outputs.unit == 'true'
+        run: pnpm test:unit
+      - if: needs.change-plan.outputs.evalCheck == 'true'
+        run: pnpm eval:check
+      - if: needs.change-plan.outputs.eval == 'true'
+        run: pnpm eval:replay
+      - if: needs.change-plan.outputs.docs == 'true'
+        run: pnpm docs:audit
+      - if: needs.change-plan.outputs.skills == 'true'
+        run: pnpm skills:audit
+      - run: git diff --check
+
+  integration-gate:
+    name: integration gate (${{ matrix.os }})
+    if: needs.change-plan.result == 'success' && needs.change-plan.outputs.integration == 'true' && needs.change-plan.outputs.full != 'true'
+    needs: change-plan
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            node-version: 22.x
+          - os: windows-latest
+            node-version: 22.x
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:integration
+
+  smoke-gate:
+    name: smoke gate
+    if: needs.change-plan.result == 'success' && needs.change-plan.outputs.smoke == 'true' && needs.change-plan.outputs.full != 'true'
+    needs: change-plan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.x
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm smoke:lifecycle
+
+  supply-chain:
+    if: needs.change-plan.result == 'success' && (needs.change-plan.outputs.supplyChain == 'true' || github.ref == 'refs/heads/main' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    needs: change-plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.x
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm runtime:audit
+      - run: pnpm skills:audit
+      - run: pnpm eval:behavioral
+      - run: pnpm pack:contract
+
+  full-gate:
+    name: full gate (${{ matrix.os }})
+    if: needs.change-plan.result == 'success' && needs.change-plan.outputs.full == 'true'
+    needs: change-plan
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            node-version: 22.x
+          - os: windows-latest
+            node-version: 22.x
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -49,8 +195,6 @@ jobs:
       - run: pnpm check
       - run: pnpm lint:eslint
       - run: pnpm typecheck
-        # Non-blocking until the historical type-annotation debt is cleared
-        # (TD-2026-09-02-2); flip to blocking as part of its closing condition.
         continue-on-error: true
       - run: pnpm eval:check
       - run: pnpm eval:replay
@@ -61,39 +205,32 @@ jobs:
 
   product:
     if: always()
-    needs: product-run
+    needs: [change-plan, fast-gate, integration-gate, smoke-gate, full-gate]
     runs-on: ubuntu-latest
     env:
-      PRODUCT_RUN_RESULT: ${{ needs.product-run.result }}
-    steps:
-      - run: test "$PRODUCT_RUN_RESULT" = success
-
-  supply-chain:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+      CHANGE_PLAN_RESULT: ${{ needs.change-plan.result }}
+      FAST_GATE_RESULT: ${{ needs.fast-gate.result }}
+      REQUIRED_FAST_GATE_RESULT: ${{ needs.change-plan.outputs.full != 'true' }}
+      INTEGRATION_GATE_RESULT: ${{ needs.integration-gate.result }}
+      REQUIRED_INTEGRATION_GATE_RESULT: ${{ needs.change-plan.outputs.integration == 'true' && needs.change-plan.outputs.full != 'true' }}
+      SMOKE_GATE_RESULT: ${{ needs.smoke-gate.result }}
+      REQUIRED_SMOKE_GATE_RESULT: ${{ needs.change-plan.outputs.smoke == 'true' && needs.change-plan.outputs.full != 'true' }}
+      FULL_GATE_RESULT: ${{ needs.full-gate.result }}
+      REQUIRED_FULL_GATE_RESULT: ${{ needs.change-plan.outputs.full == 'true' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
-        with:
-          version: 10.33.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: 22.x
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm runtime:audit
-      - run: pnpm skills:audit
-      - run: pnpm eval:behavioral
-      - run: pnpm pack:contract
+      - run: node scripts/merge-gate.js
 
   merge-gate:
     if: always()
-    needs: [product, supply-chain, risk-evidence]
+    needs: [change-plan, product, supply-chain, risk-evidence]
     runs-on: ubuntu-latest
     env:
       PRODUCT_RESULT: ${{ needs.product.result }}
       SUPPLY_CHAIN_RESULT: ${{ needs.supply-chain.result }}
+      REQUIRED_SUPPLY_CHAIN_RESULT: ${{ needs.change-plan.outputs.supplyChain == 'true' || github.ref == 'refs/heads/main' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
       RISK_EVIDENCE_RESULT: ${{ needs.risk-evidence.result }}
+      CHANGE_PLAN_RESULT: ${{ needs.change-plan.result }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - run: node scripts/merge-gate.js

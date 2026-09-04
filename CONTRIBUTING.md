@@ -26,14 +26,14 @@
 
 新增、移动或退役文档时同步 catalog 与 `docs/README.md` / `docs/archive/README.md`。
 
-修改 `rules/*.md` 后运行 `pnpm docs:sync` 把镜像同步到 `docs/rules/`（渲染模板 `project-specific-rules.md` 除外）；`pnpm docs:audit` 校验双份一致。
+修改 docs/rules/*.md 后运行 pnpm docs:audit 校验单一规则目录及其文档关系。
 
 ## 命令边界
 
 - 项目路径只通过 `--project <path>` 传入，`--target` 只选择 adapter。
 - dry-run 不写入；真实修改必须使用 `--write`。
 - Codex full 写红区需要 `--confirm-red-zone`。
-- `validate --project` 只检查安装一致性；`verify --project` 执行项目配置的 `lint/typecheck/test/eval`。
+- `validate --project` 只检查安装一致性；`verify --project` 默认按变更风险生成唯一验证计划并执行，`--plan` 只预览计划，`--full` 显式执行完整验证矩阵。`minimal/core/full/docs-only` 仍表示安装能力范围，不表示验证风险等级。
 
 verify 输出本轮 ID、时间和可用的 Git 工作树指纹；检查期间工作树变化时收据失效且命令返回非零。
 
@@ -51,6 +51,8 @@ git diff --check
 installer 集成验证应覆盖已有文件拒写、红区确认、目标路径逃逸和事务回滚边界。
 
 不要为了满足固定流程运行无关 Review/Test。没有本轮输出时，不得复用历史结果声称通过。角色包、角色路由或宿主投影变更还必须运行 pnpm roles:audit，并按影响范围补充宿主生命周期测试。
+
+风险计划的 `unknown` 分支必须 fail-safe 回退到 high；普通文档、单个测试文件和纯函数脚本不得仅因目录名自动触发 integration/smoke。验证收据保留 `riskLevel`、`planMode`、`impactGroups`、`selectedChecks`、`skippedChecks`、`fallbackUsed` 和 `selectionReasons`。
 
 ## Eval reference 更新清单
 

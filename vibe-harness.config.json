@@ -2,7 +2,6 @@
   "projectName": "Vibe-Harness",
   "language": "zh-CN",
   "packageManager": "pnpm",
-  "target": "codex",
   "profile": "full",
   "validationCommands": {
     "lint": "pnpm lint",
@@ -27,7 +26,18 @@
   "hooks": {
     "mode": "guarded",
     "allowedWriteRoots": [],
-    "redZonePaths": [".env", "auth/", "ci/cd/", ".github/workflows/", ".codex/hooks.json", ".cursor/hooks.json", ".cursor/mcp.json", ".mcp.json", ".qoder/settings.json", ".zcode/config.json"]
+    "redZonePaths": [
+      ".env",
+      "auth/",
+      "ci/cd/",
+      ".github/workflows/",
+      ".codex/hooks.json",
+      ".cursor/hooks.json",
+      ".cursor/mcp.json",
+      ".mcp.json",
+      ".qoder/settings.json",
+      ".zcode/config.json"
+    ]
   },
   "riskZones": {
     "red": [
@@ -57,5 +67,8 @@
   "memory": {
     "enabled": true,
     "path": ".agents/memory"
-  }
+  },
+  "targets": [
+    "codex"
+  ]
 }

@@ -1,20 +1,20 @@
 #!/usr/bin/env node
-// Focused-verification selector: maps the current change paths to the project's
-// suggested verification commands. This is a suggestion generator, not a gate:
-// it is not wired into hooks or completion judgment; whether and how to scale
-// verification stays governed by rules/governance-core.md (scope must match the
-// completion claim).
+// Focused-verification selector: maps current change paths to project-owned
+// verification commands. The CLI can run this route as an additional gate;
+// scope must still match the completion claim in docs/rules/governance-core.md.
 import { execFile } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
 import { assertSafeCommand } from './lib/shell-command.js';
 import { readProjectConfig } from './lib/project-config.js';
 import { runFocusedProjectVerification } from './lib/project-verification.js';
+import { buildVerificationPlan } from './lib/verification-plan.js';
 
 const execFileAsync = promisify(execFile);
 
 const referenceDriftNote =
-  'rules/runtime content changes drift the evals/references asset fingerprints by design; '
+  'docs/rules or runtime content changes drift the evals/references asset fingerprints by design; '
   + 'if eval:replay fails, follow the reference update checklist in CONTRIBUTING.md and '
   + 'confirm the update explicitly instead of treating it as a regression.';
 
@@ -41,8 +41,7 @@ const FOCUSED_CHECK_RULES = [
     ],
   },
   {
-    match: (p) => p.startsWith('rules/')
-      || p.startsWith('docs/rules/')
+    match: (p) => p.startsWith('docs/rules/')
       || p.startsWith('runtime/')
       || p.startsWith('.agents/runtime/'),
     commands: [
@@ -54,8 +53,10 @@ const FOCUSED_CHECK_RULES = [
   {
     match: (p) => p.startsWith('scripts/'),
     commands: [
+      { command: 'pnpm check', reason: 'pack self-validation (includes lint, docs, and schema gates)' },
       { command: 'pnpm test:unit', reason: 'unit tests' },
       { command: 'pnpm test:integration', reason: 'installer and CLI integration tests' },
+      { command: 'pnpm smoke:lifecycle', reason: 'lifecycle smoke coverage for runtime-affecting scripts' },
     ],
   },
   {
@@ -175,6 +176,62 @@ export async function collectChangedPaths({ base = null, cwd = process.cwd() } =
   return [...paths];
 }
 
+function changedLineIsComment(line) {
+  const value = line.trim();
+  return value.length === 0
+    || /^\/\//u.test(value)
+    || /^#/u.test(value)
+    || /^\/\*/u.test(value)
+    || /^\*/u.test(value)
+    || /^\*\//u.test(value)
+    || /^<!--/u.test(value)
+    || /^-->/u.test(value);
+}
+
+function changedLineIsFormatting(line) {
+  return changedLineIsComment(line) || /^[{}()[\];,.:]+$/u.test(line.trim());
+}
+
+function changedLinesContainPublicContract(lines) {
+  return lines.some((line) => /\b(?:export\s+(?:default\s+)?(?:function|class|const|let|var|type|interface)|module\.exports|exports\.|public\s+(?:class|interface|function)|openapi|graphql|router\.(?:get|post|put|patch|delete))\b/iu.test(line));
+}
+
+function changedLinesContainDynamicDependency(lines) {
+  return lines.some((line) => /\b(?:dynamic\s+import|require\(|child_process|process\.env|fetch\(|axios\.)/iu.test(line));
+}
+
+/**
+ * Collect conservative content signals used by the risk classifier. A missing
+ * diff (for example an untracked binary) intentionally yields no signal and
+ * therefore remains fail-safe at the path-based risk level.
+ */
+export async function collectChangedDetails({ base = null, cwd = process.cwd() } = {}) {
+  const gitEnv = { ...process.env, GIT_OPTIONAL_LOCKS: '0' };
+  const diffArgs = base
+    ? ['diff', '--no-ext-diff', '--unified=0', '--find-renames', base]
+    : ['diff', '--no-ext-diff', '--unified=0', '--find-renames', 'HEAD'];
+  const { stdout } = await execFileAsync('git', diffArgs, { env: gitEnv, cwd });
+  const details = new Map();
+  let currentPath = null;
+  for (const line of stdout.split(/\r?\n/u)) {
+    const header = line.match(/^\+\+\+ b\/(.+)$/u);
+    if (header) {
+      currentPath = header[1];
+      details.set(currentPath, []);
+      continue;
+    }
+    if (!currentPath || line.startsWith('+++') || line.startsWith('---') || line.startsWith('@@')) continue;
+    if (line.startsWith('+') || line.startsWith('-')) details.get(currentPath).push(line.slice(1));
+  }
+  return [...details.entries()].map(([changedPath, lines]) => ({
+    changedPath,
+    commentsOnly: lines.length > 0 && lines.every(changedLineIsComment),
+    formatOnly: lines.length > 0 && lines.every(changedLineIsFormatting),
+    publicContract: changedLinesContainPublicContract(lines),
+    dynamicDependency: changedLinesContainDynamicDependency(lines),
+  }));
+}
+
 function executableFor(command) {
   const tokens = assertSafeCommand(command);
   const [program, ...rest] = tokens;
@@ -224,20 +281,45 @@ async function main() {
   }
 
   const paths = await collectChangedPaths({ base });
-  const { commands, notes } = selectFocusedChecks(paths);
+  let changedDetails = [];
+  try {
+    changedDetails = await collectChangedDetails({ base });
+  } catch {
+    // collectChangedPaths already provides the actionable failure for a bad
+    // repository; the selector can still produce a path-only safe plan.
+  }
+  const config = await readProjectConfig(process.cwd());
+  const plan = await buildVerificationPlan({
+    changedPaths: paths,
+    commandStatus: {},
+    config,
+    changedDetails,
+    targetDir: process.cwd(),
+  });
+  const commands = plan.selectedChecks;
+  const notes = plan.selectionReasons;
   const impactMapping = buildImpactMapping(paths, commands);
   if (!run && json) {
-    console.log(JSON.stringify({ changedPaths: paths, commands, impactMapping, notes }, null, 2));
+    console.log(JSON.stringify({ ...plan, impactMapping, notes }, null, 2));
     return;
   }
   let report = null;
   if (run) {
-    const config = await readProjectConfig(process.cwd());
     report = await runFocusedProjectVerification({
       focused: { changedPaths: paths, commands, notes, impactMapping },
       targetDir: process.cwd(),
       timeoutMs: config.verification?.timeoutMs,
     });
+    report.verification = {
+      ...report.verification,
+      riskLevel: plan.riskLevel,
+      planMode: plan.planMode,
+      impactGroups: [...plan.impactGroups],
+      selectedChecks: plan.selectedChecks.map((item) => ({ ...item })),
+      skippedChecks: plan.skippedChecks.map((item) => ({ ...item })),
+      fallbackUsed: plan.fallbackUsed,
+      selectionReasons: [...plan.selectionReasons],
+    };
     if (json) console.log(JSON.stringify(report, null, 2));
     if (!report.ok) process.exitCode = 1;
     if (json) return;
@@ -249,8 +331,7 @@ async function main() {
   console.log(`Focused verification suggestions (${paths.length} changed path(s), ${commands.length} command(s)):`);
   for (const item of commands) console.log(`  ${item.command.padEnd(24)}# ${item.reason}`);
   for (const note of notes) console.log(`Note: ${note}`);
-  console.log('These are suggestions, not a gate; scope must still match the completion claim (governance-core).');
-  console.log('Use --run to execute the commands in order.');
+  console.log('Use --run to execute the commands in order and emit a receipt.');
 
   if (!run) return;
 
@@ -270,4 +351,4 @@ async function main() {
   console.log('\nFocused verification passed.');
 }
 
-await main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();

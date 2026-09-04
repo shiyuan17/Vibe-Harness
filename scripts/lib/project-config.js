@@ -298,6 +298,20 @@ export function validateProjectConfig(config) {
   assertOptionalCommand(config.validationCommands.typecheck, 'validationCommands.typecheck');
   assertOptionalCommand(config.validationCommands.test, 'validationCommands.test');
   assertOptionalCommand(config.validationCommands.eval, 'validationCommands.eval');
+  if (Object.hasOwn(config, 'riskZones')) {
+    assertObject(config.riskZones, 'riskZones');
+    for (const field of ['red', 'yellow']) {
+      if (Object.hasOwn(config.riskZones, field)) assertUniqueStringArray(config.riskZones[field], `riskZones.${field}`);
+    }
+    if (Object.hasOwn(config.riskZones, 'pathPatterns')) {
+      assertObject(config.riskZones.pathPatterns, 'riskZones.pathPatterns');
+      for (const field of ['red', 'yellow']) {
+        if (Object.hasOwn(config.riskZones.pathPatterns, field)) {
+          assertUniqueStringArray(config.riskZones.pathPatterns[field], `riskZones.pathPatterns.${field}`);
+        }
+      }
+    }
+  }
   if (Object.hasOwn(config, 'verification')) {
     assertObject(config.verification, 'verification');
     const timeoutMs = config.verification.timeoutMs;

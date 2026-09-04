@@ -36,6 +36,8 @@ pnpm vibe-harness install --project ../some-project --target codex --profile cor
 pnpm vibe-harness provision --project ../some-project --target codex --profile core --dry-run
 pnpm vibe-harness provision --project ../some-project --target codex --profile core --write
 pnpm vibe-harness validate --project ../some-project
+pnpm vibe-harness verify --project ../some-project --plan
+pnpm vibe-harness verify --project ../some-project --full
 pnpm vibe-harness doctor --project ../some-project
 ```
 
@@ -45,7 +47,7 @@ pnpm vibe-harness doctor --project ../some-project
 pnpm vibe-harness verify --project ../some-project
 ```
 
-`verify` 依次执行已配置的 `lint -> typecheck -> test -> eval`，未配置的项会跳过。
+`verify` 默认按 changed paths 生成唯一的 `auto` 风险计划：文档、单测试和纯函数改动只运行受影响检查；公共契约、安装器、runtime、Hook、CI、锁文件或无法分类的改动回退到完整验证。`--plan` 只输出风险等级、影响分组、选中/跳过检查和回退原因；`--full` 显式运行完整矩阵。未选中的检查在收据中标记为 `not_selected`，未配置项保持 `not_configured`。
 
 验证 JSON 还包含本轮 ID、时间和非持久化 Git 工作树指纹；检查期间工作树变化时返回 PROJECT_VERIFICATION_STALE。
 
@@ -138,7 +140,8 @@ ZCode 尚未公开项目级 Skill 的磁盘路径，因此 Vibe-Harness 不会�
   },
   "riskZones": {
     "red": ["auth", "secrets", "ci-cd", "env"],
-    "yellow": ["shared-libs", "state", "routing", "io-clients"]
+    "yellow": ["shared-libs", "state", "routing", "io-clients"],
+    "pathPatterns": { "red": [], "yellow": [] }
   },
   "crossRepo": {
     "enabled": false,
@@ -189,6 +192,8 @@ pnpm vibe-harness uninstall --project ../some-project --target codex --dry-run
 pnpm vibe-harness uninstall --project ../some-project --target codex --write
 pnpm vibe-harness uninstall --project ../some-project --all-targets --write
 ```
+
+preserve-retired 选项会保留升级计划中本应退休的资产，并在结果中报告 retained；不使用该选项时，升级退休行为保持不变。
 
 ### 退出码
 

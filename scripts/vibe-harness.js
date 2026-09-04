@@ -24,7 +24,7 @@ import {
   previewInstallPlan,
 } from './lib/install-planner.js';
 import { validatePack } from './lib/pack-validation.js';
-import { createVerificationPreflightError, runProjectVerification } from './lib/project-verification.js';
+import { createVerificationPreflightError, runVerificationPlan } from './lib/project-verification.js';
 import { detectProjectProfile } from './lib/project-profile.js';
 import {
   readRequiredProjectConfig,
@@ -61,6 +61,8 @@ import { assertNoUnsupportedLegacyAssets } from './lib/project-layout.js';
 import { findNestedInstallations, nestedInstallMigrationCommands } from './lib/nested-install.js';
 import { sanitizePublicReport } from './lib/tool-provisioning/subprocess.js';
 import { runProjectAudit } from './lib/project-audit.js';
+import { buildImpactMapping, collectChangedDetails, collectChangedPaths } from './verify-focused.js';
+import { buildVerificationPlan } from './lib/verification-plan.js';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -359,7 +361,7 @@ async function install(args) {
   if (!args.project) throw new Error('install requires --project <path>; legacy --target path and --apply were removed.');
   const allowedOptions = new Set([
     '_', 'allow-degraded', 'allow-preview', 'confirm-red-zone', 'dry-run', 'force', 'modules', 'output',
-    'plugin', 'profile', 'project', 'provision', 'rtk-hooks', 'target', 'upgrade', 'verbose', 'write',
+    'plugin', 'preserve-retired', 'profile', 'project', 'provision', 'rtk-hooks', 'target', 'upgrade', 'verbose', 'write',
   ]);
   const unknownOption = Object.keys(args).find((key) => !allowedOptions.has(key));
   if (unknownOption) throw new Error(`Unknown install option: --${unknownOption}`);
@@ -430,6 +432,7 @@ async function install(args) {
     profile,
     requestedModules,
     requestedPlugins,
+    preserveRetired: Boolean(args['preserve-retired']),
     rtkHooksEnabled,
     renderData,
     rootDir,
@@ -536,6 +539,7 @@ async function install(args) {
     previewCapabilities: plan.previewCapabilities,
     requestedModules: plan.requestedModules,
     requestedPlugins: plan.requestedPlugins,
+    preserveRetired: plan.preserveRetired,
     resolvedModules: plan.resolvedModules,
     roleProjections: plan.roleProjections ?? {},
     rtkHooks: rtkHooksReport(plan.rtkHooksEnabled, tools, rtkHooksSetting.source),
@@ -550,6 +554,7 @@ async function install(args) {
     recommendations: toolRecommendations(tools, profile, { adapterId, mvp: isMvpMode }),
     warnings,
     retired: result.retired,
+    retained: result.retained,
     skipped: result.skipped,
     written: result.written,
   }, args);
@@ -727,9 +732,38 @@ async function verify(args) {
     });
   }
   const commandStatus = await inspectValidationCommands({ commands: validationCommands, targetDir });
-  const verificationReport = await runProjectVerification({
+  let changedPaths = [];
+  let changedDetails = [];
+  try {
+    changedPaths = await collectChangedPaths({ cwd: targetDir });
+    changedDetails = await collectChangedDetails({ cwd: targetDir });
+  } catch (error) {
+    const detail = String(error?.stderr ?? '') + ' ' + String(error?.message ?? '');
+    if (!/not a git repository|不是 git 仓库/iu.test(detail)) throw error;
+  }
+  const plan = await buildVerificationPlan({
+    changedPaths,
+    commandStatus,
+    config,
+    changedDetails,
+    targetDir,
+    full: Boolean(args.full),
+  });
+  const planned = { ...plan, impactMapping: buildImpactMapping(changedPaths, plan.selectedChecks) };
+  if (args.plan) {
+    emitReport({
+      ok: true,
+      scope: 'project',
+      status: 'ready',
+      targetDir,
+      plan: planned,
+    }, args);
+    return;
+  }
+  const verificationReport = await runVerificationPlan({
     allowManual: Boolean(args['allow-manual']),
     commandStatus,
+    plan: planned,
     targetDir,
     timeoutMs: config.verification?.timeoutMs,
   });
@@ -1296,7 +1330,7 @@ async function recover(args) {
 }
 
 async function printUsage() {
-  console.log('Usage: vibe-harness <init|install|provision|recover|uninstall|validate|verify|baseline|eval|audit|doctor|diff|rollback> [--project path] [--target codex|claude|gemini|cursor|qoder|zcode|antigravity|opencode] [--all-targets] [--profile minimal|core|full|docs-only] [--modules list] [--plugin -all|-rtk|linear-mcp|linear-mcp-readonly ...] [--rtk-hooks on|off] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--force] [--upgrade] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded] [--provision]');
+  console.log('Usage: vibe-harness <init|install|provision|recover|uninstall|validate|verify|baseline|eval|audit|doctor|diff|rollback> [--project path] [--target codex|claude|gemini|cursor|qoder|zcode|antigravity|opencode] [--all-targets] [--profile minimal|core|full|docs-only] [--modules list] [--plugin -all|-rtk|linear-mcp|linear-mcp-readonly ...] [--rtk-hooks on|off] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--full] [--plan] [--force] [--upgrade] [--preserve-retired] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded] [--provision]');
   console.log('All project commands use --project <path>; --target selects an adapter and --write performs mutations. Legacy --apply and path-valued --target are removed.');
 }
 

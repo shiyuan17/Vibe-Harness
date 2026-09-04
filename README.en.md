@@ -36,6 +36,8 @@ pnpm vibe-harness install --project ../some-project --target codex --profile cor
 pnpm vibe-harness provision --project ../some-project --target codex --profile core --dry-run
 pnpm vibe-harness provision --project ../some-project --target codex --profile core --write
 pnpm vibe-harness validate --project ../some-project
+pnpm vibe-harness verify --project ../some-project --plan
+pnpm vibe-harness verify --project ../some-project --full
 pnpm vibe-harness doctor --project ../some-project
 ```
 
@@ -45,7 +47,7 @@ pnpm vibe-harness doctor --project ../some-project
 pnpm vibe-harness verify --project ../some-project
 ```
 
-`verify` runs configured commands in `lint -> typecheck -> test -> eval` order and skips unconfigured commands.
+`verify` builds one `auto` risk plan from changed paths: documentation, single-test, and pure-function changes run only affected checks; public contracts, installers, runtime, Hooks, CI, lockfiles, or unclassified changes fall back to full verification. `--plan` only prints risk, impact groups, selected/skipped checks, and fallback reasons; `--full` explicitly runs the complete matrix. Unselected checks are recorded as `not_selected`, while unconfigured checks remain `not_configured`.
 
 Verification JSON also includes the run ID, timestamps, and a non-persisted Git worktree fingerprint. A worktree change during checks returns PROJECT_VERIFICATION_STALE.
 
@@ -138,7 +140,8 @@ ZCode project Skill storage has no documented project-scoped path, so Vibe-Harne
   },
   "riskZones": {
     "red": ["auth", "secrets", "ci-cd", "env"],
-    "yellow": ["shared-libs", "state", "routing", "io-clients"]
+    "yellow": ["shared-libs", "state", "routing", "io-clients"],
+    "pathPatterns": { "red": [], "yellow": [] }
   },
   "crossRepo": {
     "enabled": false,
@@ -189,6 +192,8 @@ pnpm vibe-harness uninstall --project ../some-project --target codex --dry-run
 pnpm vibe-harness uninstall --project ../some-project --target codex --write
 pnpm vibe-harness uninstall --project ../some-project --all-targets --write
 ```
+
+The preserve-retired option keeps assets that an upgrade would retire and reports them as retained. Without it, upgrade retirement remains unchanged.
 
 ### Exit codes
 

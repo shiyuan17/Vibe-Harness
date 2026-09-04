@@ -11,6 +11,7 @@ const execFileAsync = promisify(execFile);
 export const DEFAULT_PROJECT_VERIFICATION_TIMEOUT_MS = 120_000;
 export const MIN_PROJECT_VERIFICATION_TIMEOUT_MS = 1_000;
 export const MAX_PROJECT_VERIFICATION_TIMEOUT_MS = 3_600_000;
+const FOCUSED_LONG_RUNNING_TIMEOUT_MS = 300_000;
 export const PROJECT_VERIFICATION_ID_ENV = 'VIBE_HARNESS_VERIFICATION_ID';
 const packFailureCategories = [
   'capabilityErrors',
@@ -60,6 +61,14 @@ function normalizedTimeoutMs(timeoutMs) {
     && timeoutMs <= MAX_PROJECT_VERIFICATION_TIMEOUT_MS
     ? timeoutMs
     : DEFAULT_PROJECT_VERIFICATION_TIMEOUT_MS;
+}
+
+function focusedCommandTimeoutMs(command, timeoutMs) {
+  const configured = normalizedTimeoutMs(timeoutMs);
+  if (configured !== DEFAULT_PROJECT_VERIFICATION_TIMEOUT_MS) return configured;
+  return /^(?:pnpm|npm|yarn)\s+(?:test:integration|smoke:lifecycle)(?:\s|$)/u.test(command)
+    ? FOCUSED_LONG_RUNNING_TIMEOUT_MS
+    : configured;
 }
 
 function terminateVerificationProcess(child) {
@@ -211,6 +220,14 @@ function nullSeparatedPaths(value) {
   return String(value ?? '').split('\0').filter(Boolean);
 }
 
+function ignoredPathsFromStatus(value) {
+  return String(value ?? '').split('\0')
+    .filter((entry) => entry.startsWith('!! '))
+    .map((entry) => entry.slice(3).replaceAll('\\', '/'))
+    .filter(Boolean)
+    .sort();
+}
+
 async function updatePathHash(hash, rootDir, relativePath) {
   const absolutePath = path.resolve(rootDir, relativePath);
   const relativeCheck = path.relative(rootDir, absolutePath);
@@ -240,13 +257,14 @@ export async function createProjectSnapshot(targetDir) {
   const scopeArgs = relativeTarget === '.'
     ? []
     : ['--', ':(literal)' + relativeTarget.replaceAll('\\', '/')];
-  const [headOutput, statusOutput, changedOutput, untrackedOutput] = await Promise.all([
+  const [headOutput, statusOutput, ignoredStatusOutput, changedOutput, untrackedOutput] = await Promise.all([
     gitOutput(['rev-parse', '--verify', 'HEAD'], rootDir),
     gitOutput(['status', '--porcelain=v1', '-z', '--untracked-files=all', ...scopeArgs], rootDir),
+    gitOutput(['status', '--porcelain=v1', '-z', '--ignored=matching', ...scopeArgs], rootDir),
     gitOutput(['diff', '--name-only', '-z', 'HEAD', ...scopeArgs], rootDir),
     gitOutput(['ls-files', '--others', '--exclude-standard', '-z', ...scopeArgs], rootDir),
   ]);
-  if ([headOutput, statusOutput, changedOutput, untrackedOutput].some((value) => value === null)) {
+  if ([headOutput, statusOutput, ignoredStatusOutput, changedOutput, untrackedOutput].some((value) => value === null)) {
     return { available: false, stable: null, vcs: 'none' };
   }
   const changedPaths = [...new Set([
@@ -263,12 +281,18 @@ export async function createProjectSnapshot(targetDir) {
     changedFiles: changedPaths.length,
     fingerprint: hash.digest('hex'),
     head,
+    ignoredPaths: ignoredPathsFromStatus(ignoredStatusOutput),
+    ignoredContentHashed: false,
     vcs: 'git',
   };
 }
 
 function verificationFailed(results) {
   return Object.values(results).some((result) => ['blocked', 'failed'].includes(result.status));
+}
+
+function hasConfiguredChecks(commandStatus) {
+  return Object.values(commandStatus ?? {}).some((item) => item && item.status !== 'not_configured');
 }
 
 function verificationEvidence({ commandsPassed, requireStable, stable }) {
@@ -335,7 +359,8 @@ export async function runProjectVerification({
   const stable = before.available && after.available
     ? before.fingerprint === after.fingerprint
     : before.available === after.available ? null : false;
-  const commandsPassed = !verificationFailed(results);
+  const checksConfigured = hasConfiguredChecks(commandStatus);
+  const commandsPassed = checksConfigured && !verificationFailed(results);
   const evidence = verificationEvidence({ commandsPassed, requireStable, stable });
   const finishedAt = new Date();
   const hasFinalChange = (before.changedFiles ?? 0) > 0 || (after.changedFiles ?? 0) > 0;
@@ -344,6 +369,11 @@ export async function runProjectVerification({
     error = {
       code: 'PROJECT_VERIFICATION_STALE',
       message: 'The project changed while verification was running; run verify again on the final state.',
+    };
+  } else if (!checksConfigured) {
+    error = {
+      code: 'PROJECT_VERIFICATION_NO_CHECKS',
+      message: 'No project validation commands are configured; configure at least one check before claiming verification.',
     };
   } else if (!commandsPassed) {
     error = {
@@ -385,9 +415,10 @@ export async function runProjectVerification({
 }
 
 export async function runFocusedProjectVerification({
+  allowManual = false,
   focused,
   requireStable = false,
-  signal,
+  signal = undefined,
   targetDir,
   timeoutMs = DEFAULT_PROJECT_VERIFICATION_TIMEOUT_MS,
 }) {
@@ -402,6 +433,16 @@ export async function runFocusedProjectVerification({
       continue;
     }
     let program, args;
+    if (item.status === 'missing' || (item.status === 'manual' && !allowManual)) {
+      results.push({
+        ...item,
+        status: 'blocked',
+        verificationId: id,
+        next: { command: 'pnpm verify --project .' },
+      });
+      stopped = true;
+      continue;
+    }
     try {
       [program, ...args] = assertSafeCommand(item.command);
     } catch {
@@ -414,7 +455,7 @@ export async function runFocusedProjectVerification({
       const result = await executeVerificationCommand(exec, [...preArgs, ...args], {
         cwd: targetDir,
         signal,
-        timeoutMs,
+        timeoutMs: focusedCommandTimeoutMs(item.command, timeoutMs),
         verificationId: id,
       });
       results.push({
@@ -434,7 +475,7 @@ export async function runFocusedProjectVerification({
           command: item.command,
           nextCommand: 'pnpm verify:focused --run',
           targetDir,
-          timeoutMs,
+          timeoutMs: focusedCommandTimeoutMs(item.command, timeoutMs),
           verificationId: id,
         }),
       });
@@ -504,6 +545,92 @@ export async function runFocusedProjectVerification({
       id,
       stable,
       startedAt: startedAt.toISOString(),
+    },
+  };
+}
+
+export async function runVerificationPlan({
+  allowManual = false,
+  commandStatus = {},
+  plan,
+  signal = undefined,
+  targetDir,
+  timeoutMs = DEFAULT_PROJECT_VERIFICATION_TIMEOUT_MS,
+}) {
+  const focused = await runFocusedProjectVerification({
+    allowManual,
+    focused: {
+      changedPaths: plan.changedPaths ?? [],
+      commands: plan.selectedChecks ?? [],
+      notes: plan.selectionReasons ?? [],
+      impactMapping: plan.impactMapping,
+    },
+    requireStable: false,
+    signal,
+    targetDir,
+    timeoutMs,
+  });
+  focused.results = (focused.results ?? []).map((item) => ({
+    ...item,
+    ...(item.category === 'focused-check' ? { category: item.id ?? item.command } : {}),
+    ...(item.next?.command === 'pnpm verify:focused --run'
+      ? { next: { ...item.next, command: 'vibe-harness verify --project .' } }
+      : {}),
+  }));
+  const results = Object.fromEntries((focused.results ?? []).map((item) => [item.id ?? item.command, item]));
+  const selectedIds = new Set((plan.selectedChecks ?? []).map((item) => item.id ?? item.command));
+  for (const [name, item] of Object.entries(commandStatus ?? {})) {
+    if (selectedIds.has(name) || Object.hasOwn(results, name)) continue;
+    results[name] = {
+      ...item,
+      status: item.status === 'not_configured' ? 'not_configured' : 'not_selected',
+      verificationId: focused.verification.id,
+    };
+  }
+  if ((plan.selectedChecks ?? []).length === 0) {
+    focused.ok = false;
+    focused.error = {
+      code: 'PROJECT_VERIFICATION_NO_CHECKS',
+      message: 'No applicable verification checks were selected; configure a matching check or run with --full.',
+    };
+    focused.verification.evidence.commandExecution = { status: 'blocked' };
+    focused.verification.recovery = { status: 'available', hint: 'pnpm verify --project <path> --full' };
+  } else if (!focused.ok) {
+    const failed = focused.results.find((item) => ['blocked', 'failed'].includes(item.status));
+    if (failed) {
+      const name = failed.id ?? failed.command;
+      const retryCommand = failed.next?.command === 'pnpm verify:focused --run'
+        ? 'vibe-harness verify --project .'
+        : (failed.next?.command ?? 'pnpm verify --project .');
+      let message = `Focused verification ${failed.status}: ${failed.command}`;
+      if (failed.status === 'failed') {
+        if (failed.code === 'PROJECT_VERIFICATION_TIMEOUT') {
+          message = `${name} timed out after ${failed.timeoutMs}ms; retry with: ${retryCommand}`;
+        } else if (failed.code === 'PROJECT_VERIFICATION_CANCELLED') {
+          message = `${name} was cancelled; retry with: ${retryCommand}`;
+        } else {
+          message = `${name} failed with exit ${failed.exitCode}: ${failed.stderr || failed.stdout || 'Verification command failed.'}`;
+        }
+      } else if (commandStatus[name]?.status === 'missing') {
+        message = `${name} is missing: ${failed.command}`;
+      } else if (commandStatus[name]?.status === 'manual') {
+        message = `${name} is manual; pass --allow-manual to execute it explicitly: ${failed.command}`;
+      }
+      focused.error = { code: 'PROJECT_VERIFICATION_FAILED', message: verificationOutput(message, targetDir) };
+    }
+  }
+  return {
+    ...focused,
+    results,
+    verification: {
+      ...focused.verification,
+      riskLevel: plan.riskLevel,
+      planMode: plan.planMode,
+      impactGroups: [...(plan.impactGroups ?? [])],
+      selectedChecks: (plan.selectedChecks ?? []).map((item) => ({ ...item })),
+      skippedChecks: (plan.skippedChecks ?? []).map((item) => ({ ...item })),
+      fallbackUsed: plan.fallbackUsed === true,
+      selectionReasons: [...(plan.selectionReasons ?? [])],
     },
   };
 }

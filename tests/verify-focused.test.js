@@ -19,22 +19,28 @@ function commands(result) {
   return result.commands.map((item) => item.command);
 }
 
-test('selectFocusedChecks maps rules changes to unit tests and eval:check with a fingerprint note', () => {
-  const result = selectFocusedChecks(['rules/governance-core.md']);
+test('selectFocusedChecks maps canonical rules changes to unit tests and eval:check with a fingerprint note', () => {
+  const result = selectFocusedChecks(['docs/rules/governance-core.md']);
   assert.deepEqual(commands(result), ['pnpm test:unit', 'pnpm eval:check']);
   assert.equal(result.notes.length, 1);
   assert.match(result.notes[0], /fingerprint/u);
   assert.match(result.notes[0], /reference update checklist/u);
 });
 
-test('selectFocusedChecks prefers the rules bucket over the docs bucket for docs/rules paths', () => {
+test('selectFocusedChecks maps docs/rules paths to the canonical rules bucket', () => {
   const result = selectFocusedChecks(['docs/rules/test-rules.md']);
   assert.deepEqual(commands(result), ['pnpm test:unit', 'pnpm eval:check']);
 });
 
 test('selectFocusedChecks merges buckets, de-duplicates, and preserves first-seen order', () => {
-  const result = selectFocusedChecks(['rules/x.md', 'scripts/tool.js', 'runtime/hooks/lib/policy.mjs']);
-  assert.deepEqual(commands(result), ['pnpm test:unit', 'pnpm eval:check', 'pnpm test:integration']);
+  const result = selectFocusedChecks(['docs/rules/x.md', 'scripts/tool.js', 'runtime/hooks/lib/policy.mjs']);
+  assert.deepEqual(commands(result), [
+    'pnpm test:unit',
+    'pnpm eval:check',
+    'pnpm check',
+    'pnpm test:integration',
+    'pnpm smoke:lifecycle',
+  ]);
 });
 
 test('selectFocusedChecks maps eval suites, skills, workflows, and adapters to their checks', () => {
@@ -52,6 +58,15 @@ test('selectFocusedChecks maps eval suites, skills, workflows, and adapters to t
   assert.deepEqual(commands(selectFocusedChecks(['.agents/runtime/hooks/lib/context.mjs'])), [
     'pnpm test:unit',
     'pnpm eval:check',
+  ]);
+});
+
+test('selectFocusedChecks includes pack and lifecycle gates for scripts', () => {
+  assert.deepEqual(commands(selectFocusedChecks(['scripts/lib/project-verification.js'])), [
+    'pnpm check',
+    'pnpm test:unit',
+    'pnpm test:integration',
+    'pnpm smoke:lifecycle',
   ]);
 });
 
@@ -77,7 +92,7 @@ test('NUL-delimited path parsers preserve spaces, quotes, newlines, and rename d
   const statusOutput = [
     ' M docs/space name.md',
     'R  scripts/new name.js',
-    'rules/old\nname.js',
+    'docs/rules/old\nname.js',
     '?? tests/"quoted".test.js',
     '',
   ].join('\0');
@@ -95,10 +110,10 @@ test('collectChangedPaths reports committed, staged, unstaged, untracked, and re
     await git('init');
     await git('config', 'user.email', 'test@example.com');
     await git('config', 'user.name', 'Vibe-Harness Test');
-    await mkdir(path.join(dir, 'rules'), { recursive: true });
+    await mkdir(path.join(dir, 'docs/rules'), { recursive: true });
     await mkdir(path.join(dir, 'scripts'), { recursive: true });
     await mkdir(path.join(dir, 'docs'), { recursive: true });
-    await writeFile(path.join(dir, 'rules', 'staged.md'), 'base\n');
+    await writeFile(path.join(dir, 'docs/rules', 'staged.md'), 'base\n');
     await writeFile(path.join(dir, 'scripts', 'unstaged.js'), 'base\n');
     await writeFile(path.join(dir, 'docs', 'rename old.md'), 'base\n');
     await git('add', '.');
@@ -109,8 +124,8 @@ test('collectChangedPaths reports committed, staged, unstaged, untracked, and re
     await git('add', '.');
     await git('commit', '-m', 'second');
 
-    await writeFile(path.join(dir, 'rules', 'staged.md'), 'staged\n');
-    await git('add', 'rules/staged.md');
+    await writeFile(path.join(dir, 'docs/rules', 'staged.md'), 'staged\n');
+    await git('add', 'docs/rules/staged.md');
     await writeFile(path.join(dir, 'scripts', 'unstaged.js'), 'unstaged\n');
     await mkdir(path.join(dir, 'tests'), { recursive: true });
     await writeFile(path.join(dir, 'tests', 'untracked space.test.js'), 'untracked\n');
@@ -120,8 +135,8 @@ test('collectChangedPaths reports committed, staged, unstaged, untracked, and re
     const paths = await collectChangedPaths({ base: 'HEAD~1', cwd: dir });
     assert.deepEqual([...paths].sort(), [
       'adapters/renamed file.md',
+      'docs/rules/staged.md',
       'evals/x.json',
-      'rules/staged.md',
       'scripts/unstaged.js',
       'tests/untracked space.test.js',
     ]);

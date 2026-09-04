@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Vibe-Harness project verification receipt",
+  "type": "object",
+  "required": ["scope", "status", "verification"],
+  "properties": {
+    "scope": { "const": "project" },
+    "status": { "enum": ["ready", "invalid"] },
+    "verification": {
+      "type": "object",
+      "required": ["id", "startedAt", "finishedAt", "riskLevel", "planMode", "selectedChecks", "skippedChecks", "fallbackUsed", "selectionReasons"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "startedAt": { "type": "string", "minLength": 1 },
+        "finishedAt": { "type": "string", "minLength": 1 },
+        "riskLevel": { "enum": ["quick", "standard", "high", "unknown"] },
+        "planMode": { "enum": ["auto", "full"] },
+        "impactGroups": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "selectedChecks": { "type": "array", "items": { "type": "object" } },
+        "skippedChecks": { "type": "array", "items": { "type": "object" } },
+        "fallbackUsed": { "type": "boolean" },
+        "selectionReasons": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      }
+    }
+  }
+}

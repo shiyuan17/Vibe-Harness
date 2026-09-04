@@ -6,7 +6,7 @@ Vibe-Harness 用来打包可复用的 AI coding 项目规则、领域 Skills、�
 
 - 贡献流程、变更影响矩阵、PR 与发布要求见 `CONTRIBUTING.md`。
 - 当前架构、规格、参考审计与历史归档从 `docs/README.md` 进入。
-- 执行内核与可选交付简表分别见 `rules/governance-core.md` 和 `templates/delivery.md`。
+- 执行内核与可选交付简表分别见 `docs/rules/governance-core.md` 和 `templates/delivery.md`。
 
 ## 命令面边界
 
@@ -19,7 +19,7 @@ Vibe-Harness 用来打包可复用的 AI coding 项目规则、领域 Skills、�
 
 本节是验证矩阵的唯一规范来源；CONTRIBUTING.md 引用本节，不再重复维护表格。
 
-- 普通变更运行 `pnpm check` 和 `git diff --check`。
+- 普通变更运行 `pnpm check` 和 `git diff --check`；项目 `vibe-harness verify --project <path>` 默认按 `auto` 风险计划执行，`--plan` 只预览，`--full` 显式执行完整矩阵。
 - 按影响追加：
 
 | 变更 | 显式验证 |
@@ -34,7 +34,7 @@ Vibe-Harness 用来打包可复用的 AI coding 项目规则、领域 Skills、�
 
 TypeScript 配置、类型声明、JSDoc 类型契约，或完成主张涉及类型安全的 JS/TS 改动，追加运行 pnpm typecheck；该仓库脚本已存在，但当前未接入项目 verify 默认命令。
 
-- 可用 `pnpm verify:focused` 把本轮变更路径机械映射为建议命令清单（建议非门禁，`--run` 依序执行）。
+- 可用 `pnpm verify:focused` 把本轮变更路径映射为同一风险计划（JSON 收据包含 `riskLevel`、`impactGroups`、`selectedChecks`、`skippedChecks` 和 `fallbackUsed`）；`--run` 依序执行。`unknown` 必须回退到 high，未选检查标记为 `not_selected`。
 - 只运行与变更和完成主张匹配的聚焦检查；不要自动派发 Review/Test 角色。
 
 ## 安全规则
@@ -55,17 +55,15 @@ TypeScript 配置、类型声明、JSDoc 类型契约，或完成主张涉及类
 项目：Vibe-Harness
 
 ## 启动
-
-Memory body 加载受任务相关性和当前授权约束：仅当任务需要恢复项目状态且当前授权允许时，才执行下方治理记忆读取；专项 Skill 给出更窄证据边界时，只检查相关路径是否存在及必要元数据，不读取正文。
-
 1. 先读取 `docs/rules/governance-core.md`；只有出现 Skill 或专项领域信号时再读取 `docs/rules/AGENT_SKILL_ROUTING.md` 和一个命中的专项规则。
-2. 读取 `docs/memory/` 的治理记忆（优先 `PROJECT_STATE.md`），按其与本地记忆库的优先级合并；本地记忆库恢复入口为 `.agents/memory/CURRENT.md`。
+2. 仅当任务需要恢复项目状态且当前授权允许读取 Memory body 时，读取 `docs/memory/` 的治理记忆（优先 `PROJECT_STATE.md`），按其与本地记忆库的优先级合并；本地记忆库恢复入口为 `.agents/memory/CURRENT.md`。 当专项 Skill 给出更窄证据边界时，仅检查相关路径是否存在及必要元数据，不读取正文。
 3. 编辑前运行 `git status --short`，保护用户未归属改动。
-4. 使用仓库搜索和已安装规则定位相关代码；需要结构化索引时先确认目标项目已有能力。
+4. 先按问题类型选工具：纯文本、配置和日志使用 rg 与直接文件阅读。
 5. 将任务归为快速、轻量或完整，并选择与主张匹配的验证。
 6. 使用“获取可信事实 → 判定并执行 → 聚焦验证 → 简洁交付”的单一路径；宿主按 description 直接选择领域 Skill。
-
 ## 硬边界
+
+- 只检查相关路径是否存在及必要元数据，不读取正文。
 
 - 只在授权范围内行动；红区、生产、权限、凭据、外部写入和不可逆操作先获人工确认。
 - 不编造事实或证据；没有本轮有效验证不得声称完成。
@@ -74,7 +72,7 @@ Memory body 加载受任务相关性和当前授权约束：仅当任务需要�
 ## 项目 verify 配置
 
 - Lint: pnpm lint
-- Typecheck: 未配置
+- Typecheck: pnpm typecheck
 - Test: pnpm test:unit
 - Eval: pnpm eval:replay
 
@@ -82,7 +80,7 @@ Memory body 加载受任务相关性和当前授权约束：仅当任务需要�
 
 ## 已安装表面
 
-- 当前安装方式：自定义能力模块安装。 当前另安装 integration Skills：agentmemory、browser-verification；它们不计入 profile 的原生领域 Skill 数量。
+- 当前安装方式：自定义能力模块安装。 当前另安装 integration Skills：agentmemory；它们不计入 profile 的原生领域 Skill 数量。
 - 需求澄清姿态：`balanced`（action-leaning 偏向采用最小可逆默认值直接推进；balanced 按规则判断；conservative 对跨模块或公共契约改动也倾向先确认）。
 
 - 规则位于 `docs/rules/`。
@@ -91,7 +89,7 @@ Memory body 加载受任务相关性和当前授权约束：仅当任务需要�
 - 模板位于 `docs/templates/`。
 - Skills 位于 `.agents/skills/`。
 - agentmemory skills 位于 `.agents/skills/`，本地记忆库位于 `.agents/memory/`。
-
+- Codex hook 配置位于 `.codex/hooks.json`。
 
 宿主按 Skill description 原生选择一个当前阶段所需能力；不使用 Router 或流程 Skill 链。
 

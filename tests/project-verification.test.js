@@ -70,6 +70,11 @@ test('verify --project executes configured available commands', async () => {
     assert.doesNotMatch(JSON.stringify(report), /success-secret|alice%40corp|pass%3Aword|signature=|fragment/u);
     assert.equal(report.results.typecheck.status, 'not_configured');
     assert.equal(report.results.typecheck.verificationId, report.verification.id);
+    assert.equal(report.verification.planMode, 'auto');
+    assert.equal(report.verification.riskLevel, 'standard');
+    assert.ok(Array.isArray(report.verification.selectedChecks));
+    assert.ok(Array.isArray(report.verification.skippedChecks));
+    assert.equal(report.verification.fallbackUsed, false);
     assert.equal(report.verification.before.available, false);
     assert.equal(report.verification.stable, null);
     assert.deepEqual(report.verification.evidence.commandExecution, { status: 'passed' });
@@ -99,6 +104,44 @@ test('verify --project executes configured available commands', async () => {
     assert.equal(stabilityRequired.verification.evidence.commandExecution.status, 'passed');
     assert.equal(stabilityRequired.verification.evidence.workspaceStability.required, true);
     assert.equal(stabilityRequired.verification.evidence.workspaceStability.proven, false);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('verify --project --plan previews without executing checks and --full preserves the complete matrix', async () => {
+  const target = await createProject({
+    lint: 'node verify-marker.mjs',
+    typecheck: null,
+    test: 'node verify-marker-test.mjs',
+    eval: null,
+  });
+  try {
+    await writeFile(
+      path.join(target, 'verify-marker.mjs'),
+      "import { appendFile } from 'node:fs/promises'; await appendFile('marker.txt', 'ran\\n');\n",
+      'utf8',
+    );
+    await writeFile(
+      path.join(target, 'verify-marker-test.mjs'),
+      "import { appendFile } from 'node:fs/promises'; await appendFile('marker.txt', 'test-ran\\n');\n",
+      'utf8',
+    );
+    const preview = await runCli(['verify', '--project', target, '--plan']);
+    assert.equal(preview.ok, true);
+    assert.equal(preview.status, 'ready');
+    assert.equal(preview.plan.planMode, 'auto');
+    assert.ok(Array.isArray(preview.plan.selectedChecks));
+    await assert.rejects(readFile(path.join(target, 'marker.txt'), 'utf8'), /ENOENT/u);
+
+    const full = await runCli(['verify', '--project', target, '--full']);
+    assert.equal(full.ok, true);
+    assert.equal(full.verification.planMode, 'full');
+    assert.ok(full.verification.selectedChecks.length >= 2);
+    const marker = await readFile(path.join(target, 'marker.txt'), 'utf8');
+    assert.equal(marker.split(/\r?\n/u).filter(Boolean).length, 2);
+    assert.match(marker, /ran/u);
+    assert.match(marker, /test-ran/u);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
@@ -267,6 +310,24 @@ test('verify --project returns bounded installation drift diagnostics', async ()
         return true;
       },
     );
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('project verification rejects a project with no configured checks', async () => {
+  const target = await createProject({ lint: null, typecheck: null, test: null, eval: null });
+  try {
+    const commandStatus = {
+      lint: { command: null, status: 'not_configured' },
+      typecheck: { command: null, status: 'not_configured' },
+      test: { command: null, status: 'not_configured' },
+      eval: { command: null, status: 'not_configured' },
+    };
+    const report = await runProjectVerification({ commandStatus, targetDir: target });
+    assert.equal(report.ok, false);
+    assert.equal(report.error.code, 'PROJECT_VERIFICATION_NO_CHECKS');
+    assert.equal(report.verification.evidence.commandExecution.status, 'failed');
   } finally {
     await rm(target, { force: true, recursive: true });
   }
@@ -530,6 +591,8 @@ test('focused verification receipt binds changed paths, suggestions, results, an
     assert.equal(report.verification.evidence.commandExecution.status, 'passed');
     assert.equal(report.verification.evidence.workspaceStability.status, 'verified');
     assert.equal(report.verification.evidence.workspaceStability.required, true);
+    assert.equal(report.verification.before.ignoredContentHashed, false);
+    assert.ok(Array.isArray(report.verification.before.ignoredPaths));
     assert.match(report.verification.id, /^[0-9a-f-]{36}$/u);
   } finally {
     await rm(target, { force: true, recursive: true });
