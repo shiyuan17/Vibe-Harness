@@ -37,9 +37,9 @@ function parsePackOutput(value) {
 let result;
 try {
   try {
-    result = await runPack(['pack', '--dry-run', '--json', '--ignore-scripts']);
-  } catch {
     result = await runPnpmPack();
+  } catch {
+    result = await runPack(['pack', '--dry-run', '--json', '--ignore-scripts']);
   }
   const payload = parsePackOutput(result.stdout);
   const pack = Array.isArray(payload) ? payload[0] : payload;
