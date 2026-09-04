@@ -1,5 +1,12 @@
 # 原生 Skill 选择规则
 
+## Skill 编写规范
+
+- 每个 Skill 必须以 YAML frontmatter 开始，并提供唯一的 name 与 description；name 必须使用小写字母、数字和连字符，且与 manifests/skills.json 的 id 及目录名完全一致。
+- description 是宿主的直接路由真值：只描述能力和触发边界，使用单一语言，保持单行且不超过 300 个字符；不要把执行步骤、测试流程或交付格式写进 description。
+- metadata.json 只承载 triggers、outputs 等辅助信息；不得重复定义 name 或 description。其 id 必须与 manifest 和 frontmatter 的 name 一致。
+- name 必须唯一；description 完全相同也视为冲突并阻断审计。语义相近但文本不同的描述由审计提示人工复核，不以相似度自动阻断。
+
 显式调用 `$git-deliver` 或明确指定该 Skill，才授权分组、提交并普通推送当前任务改动；普通完成请求不构成 Git 写入授权。
 
 Skill 只补充当前任务需要的领域知识，不覆盖项目规则、人工确认或安全边界。宿主依据每个 `SKILL.md` 的 description 直接选择能力，不使用 Router 或流程 Skill 链。

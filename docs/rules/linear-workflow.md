@@ -6,6 +6,8 @@ Linear 保存工作状态、责任、委派与依赖；GitHub 或 GitLab 保存�
 
 ## 授权与长期边界
 
+后续 v1 字段列表仅是兼容基线。高风险 Linear 执行必须使用 Execution Envelope v2，冻结 riskClass、workspace identity、允许写入根、无凭据 external targets 和宿主 enforcement 证明；v1 不授权凭据、hostWrite、externalWrite、高风险间接写入或 worktree 拓扑变化。每次自动续跑先重读原生 Goal、thread status、最新用户输入、当前 Issue、cwd、worktree、branch、HEAD 和 blocker；达到 terminalCondition、等待审批、workspace 漂移、未归属 HEAD 或同一 blocker 连续三次时停止。Goal 完成后不得自动审计或选取下一 Ready 节点。
+
 - 禁止自动领取：不得扫描、轮询、订阅或从 Ready Queue 选择 Issue，不增加 Webhook 调度器、Linear Loop、leader lease、自动超时回收或自动重派。
 - Writer 只在两种情况下启动：用户在本轮明确要求实现、处理、继续或领取某个具体 Issue；或 Issue 已委派给当前 Agent，且宿主以该 Issue 为目标显式启动本次运行。普通提及、查看、总结、解释、Review、Verify 或列出队列都不授权登记或执行。
 - 人类 Assignee 是结果责任人；Linear Delegate/App User 是 Agent 产品身份；Execution Receipt 记录具体运行实例；Activity Feed 记录委派与身份变化。

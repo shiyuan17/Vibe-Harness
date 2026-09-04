@@ -18,7 +18,7 @@ const execFileAsync = promisify(execFile);
 
 test('Linear workflow keeps explicit execution registration and forbids automatic claiming', async () => {
   const [rule, skill] = await Promise.all([
-    readFile(path.join(rootDir, 'rules/linear-workflow.md'), 'utf8'),
+    readFile(path.join(rootDir, 'docs/rules/linear-workflow.md'), 'utf8'),
     readFile(path.join(rootDir, 'skills/integrations/linear-workflow/SKILL.md'), 'utf8'),
   ]);
   assert.match(rule, /禁止自动领取/u);
@@ -33,7 +33,7 @@ test('Linear workflow keeps explicit execution registration and forbids automati
 });
 
 test('Linear execution receipt separates accountability, product identity, and runtime identity', async () => {
-  const rule = await readFile(path.join(rootDir, 'rules/linear-workflow.md'), 'utf8');
+  const rule = await readFile(path.join(rootDir, 'docs/rules/linear-workflow.md'), 'utf8');
   for (const layer of ['人类 Assignee', 'Linear Delegate/App User', 'Execution Receipt', 'Activity Feed']) {
     assert.match(rule, new RegExp(layer.replace('/', '\\/'), 'u'));
   }
@@ -144,7 +144,7 @@ test('Linear regression Evals bind decisions to observable safety events', async
 });
 
 test('Linear DAG uses native relations and fails closed on invalid dependency or write conflicts', async () => {
-  const rule = await readFile(path.join(rootDir, 'rules/linear-workflow.md'), 'utf8');
+  const rule = await readFile(path.join(rootDir, 'docs/rules/linear-workflow.md'), 'utf8');
   assert.match(rule, /Parent\/Sub-issue 只表示分解，不隐含顺序/u);
   assert.match(rule, /blocked-by \/ blocks 是唯一执行依赖/u);
   assert.match(rule, /related.*不进入 DAG/u);
@@ -168,7 +168,7 @@ test('Linear DAG uses native relations and fails closed on invalid dependency or
 
 test('Linear lightweight GitFlow defaults delivery to develop and separates release completion', async () => {
   const [rule, skill, taskTemplate, releaseTemplate, workspaceSetup] = await Promise.all([
-    readFile(path.join(rootDir, 'rules/linear-workflow.md'), 'utf8'),
+    readFile(path.join(rootDir, 'docs/rules/linear-workflow.md'), 'utf8'),
     readFile(path.join(rootDir, 'skills/integrations/linear-workflow/SKILL.md'), 'utf8'),
     readFile(path.join(rootDir, 'skills/integrations/linear-workflow/references/ai-coding-task.md'), 'utf8'),
     readFile(path.join(rootDir, 'skills/integrations/linear-workflow/references/release-issue.md'), 'utf8'),
@@ -192,7 +192,7 @@ test('Linear lightweight GitFlow defaults delivery to develop and separates rele
 
 test('Linear fast path avoids project DAG traversal and isolates only when needed', async () => {
   const [rule, skill] = await Promise.all([
-    readFile(path.join(rootDir, 'rules/linear-workflow.md'), 'utf8'),
+    readFile(path.join(rootDir, 'docs/rules/linear-workflow.md'), 'utf8'),
     readFile(path.join(rootDir, 'skills/integrations/linear-workflow/SKILL.md'), 'utf8'),
   ]);
   for (const content of [rule, skill]) {

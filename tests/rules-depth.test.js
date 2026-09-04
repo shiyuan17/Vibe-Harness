@@ -21,13 +21,13 @@ test('canonical governance and nine native Skills are declared without a Router'
 
 test('completion evidence and task-scoped testing live in governance rules', async () => {
   const [kernel, testRules, troubleshootingRules, projectDirectoryRules, taskTemplate, englishTaskTemplate, gitRules, ...templates] = await Promise.all([
-    readFile(path.join(rootDir, 'rules/governance-core.md'), 'utf8'),
-    readFile(path.join(rootDir, 'rules/test-rules.md'), 'utf8'),
-    readFile(path.join(rootDir, 'rules/troubleshooting.md'), 'utf8'),
-    readFile(path.join(rootDir, 'rules/project-directory.md'), 'utf8'),
+    readFile(path.join(rootDir, 'docs/rules/governance-core.md'), 'utf8'),
+    readFile(path.join(rootDir, 'docs/rules/test-rules.md'), 'utf8'),
+    readFile(path.join(rootDir, 'docs/rules/troubleshooting.md'), 'utf8'),
+    readFile(path.join(rootDir, 'docs/rules/project-directory.md'), 'utf8'),
     readFile(path.join(rootDir, 'templates/task.md'), 'utf8'),
     readFile(path.join(rootDir, 'templates/task.en-US.md'), 'utf8'),
-    readFile(path.join(rootDir, 'rules/git-rules.md'), 'utf8'),
+    readFile(path.join(rootDir, 'docs/rules/git-rules.md'), 'utf8'),
     ...['adapters/codex/AGENTS.template.md', 'adapters/claude/CLAUDE.template.md', 'adapters/gemini/GEMINI.template.md']
       .map((file) => readFile(path.join(rootDir, file), 'utf8')),
   ]);
@@ -75,7 +75,7 @@ test('completion evidence and task-scoped testing live in governance rules', asy
 });
 
 test('OBS-RULE-001 observability guidance stays concise and enforces behavior', async () => {
-  const rule = await readFile(path.join(rootDir, 'rules/log-management.md'), 'utf8');
+  const rule = await readFile(path.join(rootDir, 'docs/rules/log-management.md'), 'utf8');
   const lines = rule.trimEnd().split(/\r?\n/u);
   const headings = lines.filter((line) => line.startsWith('## '));
   assert.ok(lines.length <= 60, 'log-management.md exceeds 60 lines: ' + lines.length);
@@ -121,7 +121,7 @@ test('generic rules constrain process while retaining safety boundaries', async 
   ];
   const entries = await Promise.all(names.map(async (name) => [
     name,
-    await readFile(path.join(rootDir, 'rules', name + '.md'), 'utf8'),
+    await readFile(path.join(rootDir, 'docs/rules', name + '.md'), 'utf8'),
   ]));
   const rules = Object.fromEntries(entries);
 

@@ -15,115 +15,115 @@
     },
     {
       "group": "rules-minimal",
-      "source": "rules/governance-core.md",
+      "source": "docs/rules/governance-core.md",
       "target": "docs/rules/governance-core.md",
       "contentStrategy": "replace"
     },
     {
       "group": "rules-minimal",
-      "source": "rules/agent-skill-routing.md",
+      "source": "docs/rules/AGENT_SKILL_ROUTING.md",
       "target": "docs/rules/AGENT_SKILL_ROUTING.md",
       "contentStrategy": "replace"
     },
     {
       "group": "rules-minimal",
-      "source": "rules/git-rules.md",
+      "source": "docs/rules/git-rules.md",
       "target": "docs/rules/git-rules.md",
       "contentStrategy": "replace"
     },
     {
       "group": "rules-minimal",
-      "source": "rules/test-rules.md",
+      "source": "docs/rules/test-rules.md",
       "target": "docs/rules/test-rules.md",
       "contentStrategy": "replace"
     },
     {
       "group": "rules-codebase-memory",
-      "source": "rules/codebase-memory-mcp.md",
+      "source": "docs/rules/codebase-memory-mcp.md",
       "target": "docs/rules/codebase-memory-mcp.md",
       "contentStrategy": "replace"
     },
     {
       "group": "rules-chrome-devtools",
-      "source": "rules/chrome-devtools-mcp.md",
+      "source": "docs/rules/chrome-devtools-mcp.md",
       "target": "docs/rules/chrome-devtools-mcp.md",
       "contentStrategy": "replace"
     },
     {
       "group": "rules-core",
-      "source": "rules/ai-collab-rules.md",
+      "source": "docs/rules/ai-collab-rules.md",
       "target": "docs/rules/ai-collab-rules.md",
       "contentStrategy": "replace"
     },
     {
       "group": "rules-linear",
-      "source": "rules/linear-workflow.md",
+      "source": "docs/rules/linear-workflow.md",
       "target": "docs/rules/linear-workflow.md",
       "contentStrategy": "replace"
     },
     {
       "group": "rules-core",
-      "source": "rules/api-rules.md",
+      "source": "docs/rules/api-rules.md",
       "target": "docs/rules/api-rules.md",
       "contentStrategy": "replace"
     },
     {
       "group": "rules-core",
-      "source": "rules/coding-rules.md",
+      "source": "docs/rules/coding-rules.md",
       "target": "docs/rules/coding-rules.md",
       "contentStrategy": "replace"
     },
     {
       "group": "rules-core",
-      "source": "rules/frontend-rules.md",
+      "source": "docs/rules/frontend-rules.md",
       "target": "docs/rules/frontend-rules.md",
       "contentStrategy": "replace"
     },
     {
       "group": "rules-core",
-      "source": "rules/log-management.md",
+      "source": "docs/rules/log-management.md",
       "target": "docs/rules/log-management.md",
       "contentStrategy": "replace"
     },
     {
       "group": "rules-core",
-      "source": "rules/project-directory.md",
+      "source": "docs/rules/project-directory.md",
       "target": "docs/rules/project-directory.md",
       "contentStrategy": "replace"
     },
     {
       "group": "rules-core",
-      "source": "rules/project-specific-rules.md",
+      "source": "docs/rules/project-specific-rules.md",
       "target": "docs/rules/project-specific-rules.md",
       "contentStrategy": "replace"
     },
     {
       "group": "rules-rtk",
-      "source": "rules/rtk.md",
+      "source": "docs/rules/rtk.md",
       "target": "docs/rules/rtk.md",
       "contentStrategy": "replace"
     },
     {
       "group": "rules-ast-grep",
-      "source": "rules/ast-grep.md",
+      "source": "docs/rules/ast-grep.md",
       "target": "docs/rules/ast-grep.md",
       "contentStrategy": "replace"
     },
     {
       "group": "rules-full",
-      "source": "rules/db-rules.md",
+      "source": "docs/rules/db-rules.md",
       "target": "docs/rules/db-rules.md",
       "contentStrategy": "replace"
     },
     {
       "group": "rules-full",
-      "source": "rules/release-rules.md",
+      "source": "docs/rules/release-rules.md",
       "target": "docs/rules/release-rules.md",
       "contentStrategy": "replace"
     },
     {
       "group": "rules-full",
-      "source": "rules/troubleshooting.md",
+      "source": "docs/rules/troubleshooting.md",
       "target": "docs/rules/troubleshooting.md",
       "contentStrategy": "replace"
     },
@@ -135,13 +135,13 @@
     },
     {
       "group": "rules-core",
-      "source": "rules/eval-driven-development.md",
+      "source": "docs/rules/eval-driven-development.md",
       "target": "docs/rules/eval-driven-development.md",
       "contentStrategy": "replace"
     },
     {
       "group": "roles",
-      "source": "rules/role-routing.md",
+      "source": "docs/rules/role-routing.md",
       "target": "docs/rules/role-routing.md",
       "contentStrategy": "replace"
     },
@@ -233,6 +233,12 @@
       "group": "schemas-core",
       "source": "schemas/execution-envelope.schema.json",
       "target": "docs/schemas/execution-envelope.schema.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "schemas-core",
+      "source": "schemas/execution-envelope-v2.schema.json",
+      "target": "docs/schemas/execution-envelope-v2.schema.json",
       "contentStrategy": "replace"
     },
     {

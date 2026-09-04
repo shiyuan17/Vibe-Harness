@@ -66,7 +66,7 @@ full profile 默认安装七个角色；其他 profile 保持关闭，或通过 
 
 ## 原生 include 能力对照
 
-各编辑器对指令文件的原生 include / 导入能力不同，Vibe-Harness 当前统一采用纯拷贝模型（规则作为独立文件安装到 `docs/rules/`，指令模板只通过指针行引用），以保证跨宿主可移植性并简化漂移检测（`validateSelfInstalledArtifacts` 逐字节比对源与安装产物）。下表记录各宿主能力，供未来评估是否转向原生 include 时参考：
+各编辑器对指令文件的原生 include / 导入能力不同，Vibe-Harness 当前统一采用纯拷贝模型（唯一规则资产位于 docs/rules/，规则作为独立文件安装，指令模板只通过指针行引用），以保证跨宿主可移植性并简化漂移检测（validateSelfInstalledArtifacts 逐字节比对规则资产与安装产物）。下表记录各宿主能力，供未来评估是否转向原生 include 时参考：
 
 | 宿主 | 指令文件 | 原生 include 能力 | 截断限制 |
 |---|---|---|---|

@@ -1,10 +1,10 @@
-﻿# 项目专属规则
+# 项目专属规则
 
 本文件由 Vibe-Harness 根据目标项目文件和 `vibe-harness.config.json` 渲染。当前事实优先于历史记忆；目标项目明确的本地规则优先于 Vibe-Harness 默认规则，目录级规则只作用于其子树，同一层级冲突时停止并请求确认。
 
 ## 项目画像
 
-- 技术栈：Node.js
+- 技术栈：{{projectProfile.stackSummary}}
 - 包管理器：`pnpm`
 - 版本控制：Git
 - 状态命令：`git status --short`
@@ -12,7 +12,8 @@
 
 ## 编码规范
 
-- 遵循现有 ESLint 配置。
+- {{projectProfile.codingStandards}}
+- TypeScript 改动必须通过项目 typecheck。
 - 遵循 .editorconfig 中的缩进、换行和字符集约定。
 - 优先沿用目标项目已有分层、命名、错误处理和测试写法。
 - 新增依赖前先确认现有栈不能满足，并说明维护状态、许可证、体积和安全风险。
@@ -20,17 +21,17 @@
 
 ## 日志与可观测性
 
-- 画像完整度：unknown。
-- 候选证据（仅表示仓库中实际发现，不能直接当作运行事实）：实现：未发现；配置：未发现；查询：未发现；关联字段：未发现。
-- 项目契约（来自 projectRules.overrides.logging）：实现：未发现；配置：未发现；来源：未发现；查询：未发现；关联字段：未发现；验证：未发现。
+- 画像完整度：{{projectProfile.logging.status}}。
+- 候选证据（仅表示仓库中实际发现，不能直接当作运行事实）：{{projectProfile.logging.evidenceSummary}}。
+- 项目契约（来自 projectRules.overrides.logging）：{{projectProfile.logging.contractSummary}}。
 - 使用顺序：先读项目契约，再核对候选证据并定位实际 logger、输出与查询入口；未确认项保持未知，不生成平台或文件查询命令。
 - 配置中的查询和验证只用于指导与基线，不自动执行；没有明确需求时不引入新 logger、追踪系统或存储后端。
 
 ## 验证规范
 
-- 默认验证：pnpm lint, pnpm test:unit
+- 默认验证：{{projectProfile.verificationSummary}}
 - Lint：`pnpm lint`
-- Typecheck：`未配置`
+- Typecheck：`pnpm typecheck`
 - Test：`pnpm test:unit`
 - Eval：`pnpm eval:replay`
 - 无法运行某项验证时，交付必须说明原因、替代证据和剩余风险。

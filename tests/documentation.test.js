@@ -8,7 +8,7 @@ import {
   validateDocumentation,
   validateLegacyBrandUsage,
   validateReadmeParity,
-  validateRulesParity,
+  validateCanonicalRuleLayout,
   validateSchemaParity,
 } from '../scripts/lib/docs-validation.js';
 
@@ -32,11 +32,10 @@ test('read-only evaluation keeps Memory body access behind recovery and authoriz
     needsProjectStateRecovery: false,
     skillEvidenceBoundary: 'metadata-only',
   };
-  const [agents, codexTemplate, opencodeTemplate, sourceRule, docsRule, installPlanner] = await Promise.all([
+  const [agents, codexTemplate, opencodeTemplate, rule, installPlanner] = await Promise.all([
     readFile(path.join(rootDir, 'AGENTS.md'), 'utf8'),
     readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8'),
     readFile(path.join(rootDir, 'adapters/opencode/AGENTS.template.md'), 'utf8'),
-    readFile(path.join(rootDir, 'rules/governance-core.md'), 'utf8'),
     readFile(path.join(rootDir, 'docs/rules/governance-core.md'), 'utf8'),
     readFile(path.join(rootDir, 'scripts/lib/install-planner.js'), 'utf8'),
   ]);
@@ -49,10 +48,8 @@ test('read-only evaluation keeps Memory body access behind recovery and authoriz
   assert.match(agents, /只检查相关路径是否存在及必要元数据，不读取正文/u);
   assert.equal(codexTemplate, opencodeTemplate);
   assert.match(codexTemplate, /installedSurface\.memoryLoadLine/u);
-  for (const rule of [sourceRule, docsRule]) {
-    assert.match(rule, /仅当任务需要恢复项目状态且当前授权允许时读取 Memory body/u);
-    assert.match(rule, /只检查相关路径是否存在及必要元数据、不读取正文/u);
-  }
+  assert.match(rule, /仅当任务需要恢复项目状态且当前授权允许时读取 Memory body/u);
+  assert.match(rule, /只检查相关路径是否存在及必要元数据、不读取正文/u);
   assert.match(installPlanner, /仅当任务需要恢复项目状态且当前授权允许读取 Memory body 时/u);
   assert.match(installPlanner, /当专项 Skill 给出更窄证据边界时，仅检查相关路径是否存在及必要元数据，不读取正文/u);
 });
@@ -130,10 +127,9 @@ test('README quick start exposes three profile prompts with the plugin indexing 
   }
 });
 
-test('rules parity holds for the governed repository', async () => {
-  const { errors, warnings } = await validateRulesParity(rootDir);
-  assert.deepEqual(errors, [], JSON.stringify({ errors, warnings }, null, 2));
-  assert.deepEqual(warnings, []);
+test('canonical rules live only under docs/rules', async () => {
+  assert.deepEqual(await validateCanonicalRuleLayout(rootDir), []);
+  assert.equal((await readFile(path.join(rootDir, 'docs/rules/project-specific-rules.md'), 'utf8')).includes('{{projectProfile.stackSummary}}'), true);
 });
 
 test('schema parity holds for the governed repository', async () => {
@@ -141,62 +137,12 @@ test('schema parity holds for the governed repository', async () => {
   assert.deepEqual(errors, [], JSON.stringify(errors, null, 2));
 });
 
-test('rules parity reports drift between paired rule files', async () => {
-  const tmp = await mkdtemp(path.join(import.meta.dirname, 'tmp-rules-parity-'));
+test('canonical rules layout rejects a legacy root rules directory', async () => {
+  const tmp = await mkdtemp(path.join(import.meta.dirname, 'tmp-rules-layout-'));
   try {
     await mkdir(path.join(tmp, 'rules'), { recursive: true });
     await mkdir(path.join(tmp, 'docs/rules'), { recursive: true });
-    await writeFile(path.join(tmp, 'rules', 'git-rules.md'), '# Git rules\n', 'utf8');
-    await writeFile(path.join(tmp, 'docs/rules', 'git-rules.md'), '# Git rules (drifted)\n', 'utf8');
-    const { errors, warnings } = await validateRulesParity(tmp);
-    assert.deepEqual(warnings, []);
-    assert.deepEqual(errors, ['docs/rules/git-rules.md drifted from rules/git-rules.md']);
-  } finally {
-    await rm(tmp, { recursive: true, force: true });
-  }
-});
-
-test('rules parity pairs files with different casing and separators', async () => {
-  const tmp = await mkdtemp(path.join(import.meta.dirname, 'tmp-rules-case-'));
-  try {
-    await mkdir(path.join(tmp, 'rules'), { recursive: true });
-    await mkdir(path.join(tmp, 'docs/rules'), { recursive: true });
-    const body = '# Agent skill routing\n';
-    await writeFile(path.join(tmp, 'rules', 'agent-skill-routing.md'), body, 'utf8');
-    await writeFile(path.join(tmp, 'docs/rules', 'AGENT_SKILL_ROUTING.md'), body, 'utf8');
-    const { errors, warnings } = await validateRulesParity(tmp);
-    assert.deepEqual(errors, [], JSON.stringify({ errors, warnings }, null, 2));
-    assert.deepEqual(warnings, []);
-  } finally {
-    await rm(tmp, { recursive: true, force: true });
-  }
-});
-
-test('rules parity warns for rules-only files and errors for docs-only files', async () => {
-  const tmp = await mkdtemp(path.join(import.meta.dirname, 'tmp-rules-only-'));
-  try {
-    await mkdir(path.join(tmp, 'rules'), { recursive: true });
-    await mkdir(path.join(tmp, 'docs/rules'), { recursive: true });
-    await writeFile(path.join(tmp, 'rules', 'ast-grep.md'), '# ast-grep\n', 'utf8');
-    await writeFile(path.join(tmp, 'docs/rules', 'orphan-rules.md'), '# orphan\n', 'utf8');
-    const { errors, warnings } = await validateRulesParity(tmp);
-    assert.deepEqual(warnings, ['rules/ast-grep.md has no docs/rules counterpart; consider documenting it']);
-    assert.deepEqual(errors, ['docs/rules/orphan-rules.md has no rules/ source counterpart']);
-  } finally {
-    await rm(tmp, { recursive: true, force: true });
-  }
-});
-
-test('rules parity excludes project-specific-rules.md from comparison', async () => {
-  const tmp = await mkdtemp(path.join(import.meta.dirname, 'tmp-rules-exclude-'));
-  try {
-    await mkdir(path.join(tmp, 'rules'), { recursive: true });
-    await mkdir(path.join(tmp, 'docs/rules'), { recursive: true });
-    await writeFile(path.join(tmp, 'rules', 'project-specific-rules.md'), '{{placeholder}}\n', 'utf8');
-    await writeFile(path.join(tmp, 'docs/rules', 'project-specific-rules.md'), 'rendered\n', 'utf8');
-    const { errors, warnings } = await validateRulesParity(tmp);
-    assert.deepEqual(errors, [], JSON.stringify({ errors, warnings }, null, 2));
-    assert.deepEqual(warnings, []);
+    assert.deepEqual(await validateCanonicalRuleLayout(tmp), ['legacy rules/ directory must be removed; use docs/rules/']);
   } finally {
     await rm(tmp, { recursive: true, force: true });
   }

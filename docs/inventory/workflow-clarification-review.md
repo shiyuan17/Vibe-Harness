@@ -36,16 +36,16 @@
 
 ### P1 工作流微调
 
-- `rules/agent-skill-routing.md` + `docs/rules/AGENT_SKILL_ROUTING.md`：明确 clarify（当轮解阻）↔ define-goal（跨任务持久目标）触发边界。
-- `rules/governance-core.md` + `docs/rules/governance-core.md`：加显式规划阈值——一句话能描述的 diff 直接执行，仅在方向未定/跨多文件/不熟悉代码时先规划。
+- docs/rules/AGENT_SKILL_ROUTING.md：明确 clarify（当轮解阻）↔ define-goal（跨任务持久目标）触发边界。
+- docs/rules/governance-core.md：加显式规划阈值——一句话能描述的 diff 直接执行，仅在方向未定/跨多文件/不熟悉代码时先规划。
 
 ### P2 重构残留清理
 
-- `rules/test-rules.md` → `docs/rules/test-rules.md`：同步 2 行验证记录说明的模板→渲染漂移。
+- docs/rules/test-rules.md：补充 2 行验证记录说明。
 - `adapters/codex/install-map.json`：补全 10 个 retired 流程 skill 的 retiredEntries（修复 pre-existing 的 skill-closure 测试失败）。
 - `.agents/skills/systematic-debugging/`：删除孤儿引用文件（root-cause-tracing.md、condition-based-waiting.md、defense-in-depth.md、condition-based-waiting-example.ts），与源一致。
-- `rules/eval-driven-development.md` + `docs/rules/eval-driven-development.md` + `skills/core/eval-driven-development/SKILL.md` + 安装副本：规则↔Skill 加交叉引用防漂移。
-- `docs/architecture.md`：标注 `rules/`（模板源）与 `docs/rules/`（渲染产物）关系。
+- docs/rules/eval-driven-development.md + skills/core/eval-driven-development/SKILL.md + 安装副本：规则↔Skill 加交叉引用防漂移。
+- docs/architecture.md：标注 docs/rules/ 为唯一规则资产目录。
 
 ## 未引入（避免重新仪式化）
 
