@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "items": [
     {
       "id": "codex",
@@ -12,6 +12,7 @@
       "roleProjection": { "format": "codex-toml", "targetRoot": ".codex/agents", "extension": ".toml", "activation": "automatic", "permissionEnforcement": "native" },
       "hookEvents": { "preToolUse": "stable", "permissionRequest": "stable", "stop": "unsupported" },
       "hookActivation": "manual-trust",
+      "executionAuthority": { "envelopeVersions": ["v1", "v2"], "trustedSource": "host-injected", "projectConfigMayAuthorize": false, "highRiskEnforcement": "host-required", "goalLifecycle": "host-native-required" },
       "evidence": { "status": "configured-unverified", "lastVerifiedAt": "", "hostVersion": "" },
       "redZonePrefixes": [".codex/"]
     },
@@ -26,6 +27,7 @@
       "roleProjection": { "format": "claude-markdown", "targetRoot": ".claude/agents", "extension": ".md", "activation": "automatic", "permissionEnforcement": "prompt-guarded" },
       "hookEvents": { "preToolUse": "stable", "permissionRequest": "stable", "stop": "unsupported" },
       "hookActivation": "config-file",
+      "executionAuthority": { "envelopeVersions": ["v1", "v2"], "trustedSource": "host-injected", "projectConfigMayAuthorize": false, "highRiskEnforcement": "host-required", "goalLifecycle": "prompt-only" },
       "evidence": { "status": "configured-unverified", "lastVerifiedAt": "", "hostVersion": "" },
       "projectConfig": {
         "hooks": { "target": ".claude/settings.json", "path": ["hooks"] }
@@ -43,6 +45,7 @@
       "roleProjection": { "format": "gemini-markdown", "targetRoot": ".gemini/agents", "extension": ".md", "activation": "automatic", "permissionEnforcement": "prompt-guarded" },
       "hookEvents": { "preToolUse": "unsupported", "permissionRequest": "unsupported", "stop": "unsupported" },
       "hookActivation": "unsupported",
+      "executionAuthority": { "envelopeVersions": [], "trustedSource": "none", "projectConfigMayAuthorize": false, "highRiskEnforcement": "unsupported", "goalLifecycle": "unsupported" },
       "evidence": { "status": "preview", "lastVerifiedAt": "", "hostVersion": "" },
       "redZonePrefixes": []
     },
@@ -57,6 +60,7 @@
       "roleProjection": { "format": "cursor-markdown", "targetRoot": ".cursor/agents", "extension": ".md", "activation": "automatic", "permissionEnforcement": "prompt-guarded" },
       "hookEvents": { "preToolUse": "stable", "permissionRequest": "unsupported", "stop": "unsupported" },
       "hookActivation": "config-file",
+      "executionAuthority": { "envelopeVersions": ["v1", "v2"], "trustedSource": "host-injected", "projectConfigMayAuthorize": false, "highRiskEnforcement": "host-required", "goalLifecycle": "prompt-only" },
       "evidence": { "status": "configured-unverified", "lastVerifiedAt": "", "hostVersion": "" },
       "projectConfig": {
         "mcp": { "target": ".cursor/mcp.json", "path": ["mcpServers"] },
@@ -75,6 +79,7 @@
       "roleProjection": { "format": "qoder-markdown", "targetRoot": ".qoder/agents", "extension": ".md", "activation": "automatic", "permissionEnforcement": "prompt-guarded" },
       "hookEvents": { "preToolUse": "stable", "permissionRequest": "stable", "stop": "unsupported" },
       "hookActivation": "config-file",
+      "executionAuthority": { "envelopeVersions": ["v1", "v2"], "trustedSource": "host-injected", "projectConfigMayAuthorize": false, "highRiskEnforcement": "host-required", "goalLifecycle": "prompt-only" },
       "evidence": { "status": "configured-unverified", "lastVerifiedAt": "", "hostVersion": "" },
       "projectConfig": {
         "mcp": { "target": ".mcp.json", "path": ["mcpServers"] },
@@ -93,6 +98,7 @@
       "roleProjection": { "format": "zcode-plugin-markdown", "targetRoot": ".zcode/plugins/vibe-harness-roles/agents", "extension": ".md", "activation": "manual", "permissionEnforcement": "prompt-guarded" },
       "hookEvents": { "preToolUse": "stable", "permissionRequest": "stable", "stop": "unsupported" },
       "hookActivation": "config-file",
+      "executionAuthority": { "envelopeVersions": ["v1", "v2"], "trustedSource": "host-injected", "projectConfigMayAuthorize": false, "highRiskEnforcement": "host-required", "goalLifecycle": "prompt-only" },
       "evidence": { "status": "configured-unverified", "lastVerifiedAt": "", "hostVersion": "" },
       "projectConfig": {
         "mcp": { "target": ".zcode/config.json", "path": ["mcp", "servers"] },
@@ -111,6 +117,7 @@
       "roleProjection": { "format": "antigravity-markdown", "targetRoot": ".agents/agents", "extension": ".md", "activation": "automatic", "permissionEnforcement": "prompt-guarded" },
       "hookEvents": { "preToolUse": "preview", "permissionRequest": "unsupported", "stop": "unsupported" },
       "hookActivation": "config-file",
+      "executionAuthority": { "envelopeVersions": ["v1", "v2"], "trustedSource": "host-injected", "projectConfigMayAuthorize": false, "highRiskEnforcement": "host-required", "goalLifecycle": "prompt-only" },
       "evidence": { "status": "preview", "lastVerifiedAt": "", "hostVersion": "" },
       "projectConfig": {
         "mcp": { "target": ".agents/mcp_config.json", "path": ["mcpServers"] },
@@ -129,6 +136,7 @@
       "roleProjection": { "format": "opencode-markdown", "targetRoot": ".opencode/agents", "extension": ".md", "activation": "automatic", "permissionEnforcement": "native" },
       "hookEvents": { "preToolUse": "unsupported", "permissionRequest": "unsupported", "stop": "unsupported" },
       "hookActivation": "unsupported",
+      "executionAuthority": { "envelopeVersions": [], "trustedSource": "none", "projectConfigMayAuthorize": false, "highRiskEnforcement": "unsupported", "goalLifecycle": "unsupported" },
       "evidence": { "status": "configured-unverified", "lastVerifiedAt": "", "hostVersion": "" },
       "projectConfig": {
         "mcp": {

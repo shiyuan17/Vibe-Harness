@@ -31,6 +31,10 @@ Remote MCP server 使用 url，本地 MCP server 使用 command、args 和 env�
 
 ## Execution Envelope 与宿主边界
 
+本节后续 v1 字段保留为兼容基线；高风险执行以 v2 追加合同为准。v1 只能用于历史、只读和项目内低风险兼容路径，不能授权 hostWrite、externalWrite、凭据、高风险间接写入、红区或 worktree 拓扑变化。v2 额外冻结 riskClass、canonical cwd、worktree root、Git common dir、git dir、branch、base ref/SHA、initial HEAD、allowed write roots、无凭据 external targets，以及仅由宿主注入的 filesystem、approval、process、network 证明。
+
+高风险或不可分类调用缺少 high-risk v2、精确目标或新鲜宿主证明时 fail-closed。活动执行的 workspace identity 不可移动；worktree move 无法由 effect allowlist 授权。checkpoint 另保存 headSha、continuationCount 和 blockerCount；每次自动续跑前重读原生 Goal、thread status、最新用户输入、cwd、worktree、branch、HEAD 和 blocker。达到终点、等待审批、workspace 漂移、未归属 HEAD 或相同 blocker 连续三次时停止；没有原生 Goal bridge 时只输出可恢复 checkpoint，不跨 turn 自主续跑。
+
 任何写入前必须为当前请求建立逻辑 Execution Envelope，至少包含 schema、requestId、sessionId、mode、targetIssueIds、allowedEffects、forbiddenEffects、terminalCondition 和 activeObjective。mode 只允许 inspect、plan、linear-sync、execute、monitor；effect 只允许 linearWrite、workspaceWrite、gitBranch、gitCommit、gitPush、mergeRequestWrite、credentialUse。各 effect 独立授权且 forbiddenEffects 优先；实现授权不自动包含分支、提交、推送、PR/MR 或凭据使用。
 
 inspect 与 plan 默认只读。linear-sync 仅允许本轮明确要求的 Linear 写入，必须禁止其他六种 effect。execute 只能实施授权的最小 effects。monitor 默认只读且写 effect ceiling 为空，并必须包含观察对象、终止事件或时间边界。Ready、Todo、依赖满足或队列可见只表示条件满足，不构成 execute 授权。

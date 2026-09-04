@@ -5,8 +5,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \".agents/runtime/hooks/codex-hook.mjs\" --expected-event PermissionRequest",
-            "commandWindows": "node \".agents/runtime/hooks/codex-hook.mjs\" --expected-event PermissionRequest",
+            "command": "node -e \"const{spawnSync}=require('node:child_process'),path=require('node:path');const root=spawnSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8'});if(root.error||root.status!==0||!root.stdout.trim()){process.stderr.write('Vibe-Harness Hook requires a Git worktree root.');process.exit(root.status||1)}const hook=path.join(root.stdout.trim(),'.agents','runtime','hooks','codex-hook.mjs');const env={...process.env,VIBE_HARNESS_GIT_ROOT:root.stdout.trim()};const child=spawnSync(process.execPath,[hook,...process.argv.slice(1)],{stdio:'inherit',env});if(child.error){process.stderr.write('Vibe-Harness Hook bootstrap failed.');process.exit(1)}process.exit(child.status??1)\" -- --expected-event PermissionRequest",
+            "commandWindows": "node -e \"const{spawnSync}=require('node:child_process'),path=require('node:path');const root=spawnSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8'});if(root.error||root.status!==0||!root.stdout.trim()){process.stderr.write('Vibe-Harness Hook requires a Git worktree root.');process.exit(root.status||1)}const hook=path.join(root.stdout.trim(),'.agents','runtime','hooks','codex-hook.mjs');const env={...process.env,VIBE_HARNESS_GIT_ROOT:root.stdout.trim()};const child=spawnSync(process.execPath,[hook,...process.argv.slice(1)],{stdio:'inherit',env});if(child.error){process.stderr.write('Vibe-Harness Hook bootstrap failed.');process.exit(1)}process.exit(child.status??1)\" -- --expected-event PermissionRequest",
             "timeout": 10,
             "statusMessage": "Checking Vibe-Harness safety policy"
           }
@@ -15,12 +15,12 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash|Edit|Write|mcp__.*",
+        "matcher": "Bash|Edit|Write|ApplyPatch|apply_patch|mcp__.*",
         "hooks": [
           {
             "type": "command",
-            "command": "node \".agents/runtime/hooks/codex-hook.mjs\" --expected-event PreToolUse",
-            "commandWindows": "node \".agents/runtime/hooks/codex-hook.mjs\" --expected-event PreToolUse",
+            "command": "node -e \"const{spawnSync}=require('node:child_process'),path=require('node:path');const root=spawnSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8'});if(root.error||root.status!==0||!root.stdout.trim()){process.stderr.write('Vibe-Harness Hook requires a Git worktree root.');process.exit(root.status||1)}const hook=path.join(root.stdout.trim(),'.agents','runtime','hooks','codex-hook.mjs');const env={...process.env,VIBE_HARNESS_GIT_ROOT:root.stdout.trim()};const child=spawnSync(process.execPath,[hook,...process.argv.slice(1)],{stdio:'inherit',env});if(child.error){process.stderr.write('Vibe-Harness Hook bootstrap failed.');process.exit(1)}process.exit(child.status??1)\" -- --expected-event PreToolUse",
+            "commandWindows": "node -e \"const{spawnSync}=require('node:child_process'),path=require('node:path');const root=spawnSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8'});if(root.error||root.status!==0||!root.stdout.trim()){process.stderr.write('Vibe-Harness Hook requires a Git worktree root.');process.exit(root.status||1)}const hook=path.join(root.stdout.trim(),'.agents','runtime','hooks','codex-hook.mjs');const env={...process.env,VIBE_HARNESS_GIT_ROOT:root.stdout.trim()};const child=spawnSync(process.execPath,[hook,...process.argv.slice(1)],{stdio:'inherit',env});if(child.error){process.stderr.write('Vibe-Harness Hook bootstrap failed.');process.exit(1)}process.exit(child.status??1)\" -- --expected-event PreToolUse",
             "timeout": 10,
             "statusMessage": "Checking Vibe-Harness safety policy"
           }

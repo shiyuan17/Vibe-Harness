@@ -63,7 +63,7 @@ export async function inspectRuntimeHookSelfCheck(adapter, targetDir, { configur
   }
 }
 
-export async function inspectRuntimeHooks(adapter, targetDir, { selfCheck = false } = {}) {
+export async function inspectRuntimeHooks(adapter, targetDir, { hostEvidence = {}, selfCheck = false } = {}) {
   const configTarget = hookConfigTarget(adapter);
   const configured = Boolean(configTarget && await pathExists(path.join(targetDir, configTarget)));
   const mechanism = adapter.hookActivation;
@@ -81,14 +81,36 @@ export async function inspectRuntimeHooks(adapter, targetDir, { selfCheck = fals
   } else if (configured) {
     status = 'configured-unverified';
   }
+  const authority = adapter.executionAuthority || {
+    envelopeVersions: [],
+    goalLifecycle: 'unsupported',
+    highRiskEnforcement: 'unsupported',
+    projectConfigMayAuthorize: false,
+    trustedSource: 'none',
+  };
+  const activated = supported && hostEvidence.activated === true ? true : (supported ? null : false);
+  const hostContextVerified = ['sandbox', 'approval', 'process', 'network']
+    .every((field) => hostEvidence[field] === true);
+  const envelopeRequired = hostEvidence.envelopeRequired === true;
+  const enforced = configured
+    && activated === true
+    && envelopeRequired
+    && hostContextVerified
+    && authority.highRiskEnforcement === 'host-required';
+  if (activated === true) status = 'verified';
   const report = {
-    activated: supported ? null : false,
+    activated,
     configured,
     coverageLimitations: [...HOOK_COVERAGE_LIMITATIONS],
     declaredEvents: { ...adapter.hookEvents },
-    enforced: false,
+    enforced,
+    executionAuthority: {
+      ...authority,
+      envelopeRequired,
+      hostContextVerified,
+    },
     pathResolution: 'git-root',
-    status: !supported ? 'unsupported' : (!configured ? 'not-configured' : 'configured-unverified'),
+    status: enforced ? 'enforced' : (!supported ? 'unsupported' : (!configured ? 'not-configured' : 'configured-unverified')),
     supported,
     activation: { mechanism, status, verification },
   };
@@ -98,7 +120,7 @@ export async function inspectRuntimeHooks(adapter, targetDir, { selfCheck = fals
 
 export function runtimeHookWarnings(runtimeHooks) {
   const warnings = [];
-  if (runtimeHooks.configured && runtimeHooks.activation.status !== 'unsupported') {
+  if (runtimeHooks.configured && !['unsupported', 'verified'].includes(runtimeHooks.activation.status)) {
     warnings.push({
       code: 'HOOK_ACTIVATION_UNVERIFIED',
       message: runtimeHooks.activation.verification,

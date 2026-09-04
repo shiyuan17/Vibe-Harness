@@ -43,11 +43,15 @@ The workflow needs one request-scoped authority boundary that survives recovery 
 
 Chosen option: a request-scoped Execution Envelope with fail-closed recovery and provider-aware delivery checks.
 
-Before any write, the current request has a logical vibe-harness.execution-envelope/v1 object. Its modes are inspect, plan, linear-sync, execute, and monitor. Its independently authorized effects are linearWrite, workspaceWrite, gitBranch, gitCommit, gitPush, mergeRequestWrite, and credentialUse; forbidden effects take precedence. linear-sync permits only explicitly requested Linear mutations. Ready, Todo, satisfied dependencies, and queue membership remain conditions, not authority.
+Before any write, the current request has a supported Execution Envelope. The v1 contract remains unchanged for historical records, read-only work, and low-risk project-local compatibility, but is explicitly contract-only/degraded. High-risk work uses vibe-harness.execution-envelope/v2. Its modes remain inspect, plan, linear-sync, execute, and monitor; v2 adds hostWrite and externalWrite to the independently authorized effects. Forbidden effects take precedence. linear-sync permits only explicitly requested Linear mutations. Ready, Todo, satisfied dependencies, and queue membership remain conditions, not authority.
+
+The v2 envelope freezes a risk class, canonical cwd, worktree root, Git common directory, worktree Git directory, branch, base ref and SHA, initial HEAD, allowed write roots, and credential-free external target identifiers. Host-injected context records the effective filesystem, approval, process, and network boundaries. Repository files, install-state, task records, summaries, and Agent-authored environment cannot create or expand this authority. hostWrite, externalWrite, credential use, red-zone operations, worktree topology changes, indirect runtime writes, and unclassified possible side effects require a high-risk v2 envelope with current host evidence. An active task cannot authorize git worktree move.
 
 The envelope identifies the request, session, target Issue IDs, active objective, allowed and forbidden effects, and terminal condition. Completion of the current terminal condition ends execution. A normal write Issue ends after its authorized local delivery or, when change-request creation is authorized, after the PR/MR is created, re-read, synchronized to In Review, and handed off. Monitoring a human merge or starting another Ready node requires separate explicit initiation.
 
-A recovery checkpoint retains the active objective, unique current Issue, completed facts, no-repeat set, next action, live states, blocker fingerprint, and dagStructureHash in addition to the envelope. When the provider supports a change cursor it also retains the optional dagChangeCursor. The first post-recovery write re-reads current Linear and Git/provider facts and validates the mode, target, and effect. Latest user intent overrides the checkpoint; live state overrides old plans and summaries. Missing or contradictory recovery facts permit read-only inspection only.
+A recovery checkpoint retains the active objective, unique current Issue, completed facts, no-repeat set, next action, live states, blocker fingerprint, dagStructureHash, current HEAD, continuation count, and repeated-blocker count in addition to the envelope. When the provider supports a change cursor it also retains the optional dagChangeCursor. The first post-recovery write re-reads the native Goal and thread status, latest user input, current Linear and Git/provider facts, cwd, branch, worktree identity, and HEAD. Latest user intent overrides the checkpoint; live state overrides old plans and summaries. Missing or contradictory recovery facts permit read-only inspection only.
+
+Native host Goal state is the lifecycle authority when available. Reaching terminalCondition, waiting for human approval, workspace drift, an unowned HEAD change, or the same blocker on three consecutive continuations stops dispatch. Completion prohibits follow-up audit turns unless the user explicitly starts a new request. A host without a native Goal bridge may return a resumable checkpoint but may not autonomously continue across turns.
 
 Context compaction inside the same runtime retains the existing execution and runtime IDs. A different runtime may not silently adopt an active Receipt; it uses the explicit handoff or release protocol from ADR-0001.
 
@@ -83,7 +87,7 @@ Review this decision if hosts provide a standard durable execution-envelope serv
 
 - ADR-0001: docs/adr/ADR-0001-linear-explicit-execution-and-dag.md
 - Linear workflow specification: docs/specs/linear-multi-agent-workflow-spec.md
-- Governance rule: rules/governance-core.md
-- Linear rule: rules/linear-workflow.md
-- Git rule: rules/git-rules.md
+- Governance rule: docs/rules/governance-core.md
+- Linear rule: docs/rules/linear-workflow.md
+- Git rule: docs/rules/git-rules.md
 - Integration Skill: skills/integrations/linear-workflow/SKILL.md

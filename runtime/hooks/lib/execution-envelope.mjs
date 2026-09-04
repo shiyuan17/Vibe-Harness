@@ -1,4 +1,10 @@
+import { execFileSync } from 'node:child_process';
+import { realpathSync } from 'node:fs';
+import path from 'node:path';
+
 export const EXECUTION_ENVELOPE_SCHEMA = 'vibe-harness.execution-envelope/v1';
+export const EXECUTION_ENVELOPE_SCHEMA_V1 = EXECUTION_ENVELOPE_SCHEMA;
+export const EXECUTION_ENVELOPE_SCHEMA_V2 = 'vibe-harness.execution-envelope/v2';
 
 export const EXECUTION_ENVELOPE_MODES = Object.freeze([
   'inspect', 'plan', 'linear-sync', 'execute', 'monitor',
@@ -7,34 +13,65 @@ export const EXECUTION_EFFECTS = Object.freeze([
   'linearWrite', 'workspaceWrite', 'gitBranch', 'gitCommit', 'gitPush',
   'mergeRequestWrite', 'credentialUse',
 ]);
+export const EXECUTION_EFFECTS_V2 = Object.freeze([
+  'linearWrite', 'workspaceWrite', 'hostWrite', 'externalWrite', 'gitBranch',
+  'gitCommit', 'gitPush', 'mergeRequestWrite', 'credentialUse',
+]);
 
 const modeSet = new Set(EXECUTION_ENVELOPE_MODES);
 const effectSet = new Set(EXECUTION_EFFECTS);
-const modeCeilings = new Map([
+const effectSetV2 = new Set(EXECUTION_EFFECTS_V2);
+const modeCeilingsV1 = new Map([
   ['inspect', new Set()],
   ['plan', new Set()],
   ['linear-sync', new Set(['linearWrite'])],
   ['execute', new Set(EXECUTION_EFFECTS)],
   ['monitor', new Set()],
 ]);
-const rootKeys = new Set([
+const modeCeilingsV2 = new Map([
+  ['inspect', new Set()],
+  ['plan', new Set()],
+  ['linear-sync', new Set(['linearWrite'])],
+  ['execute', new Set(EXECUTION_EFFECTS_V2)],
+  ['monitor', new Set()],
+]);
+const rootKeysV1 = new Set([
   'schema', 'requestId', 'sessionId', 'mode', 'targetIssueIds',
   'allowedEffects', 'forbiddenEffects', 'terminalCondition', 'activeObjective',
   'expiresAt', 'checkpoint',
 ]);
-const requiredRootKeys = [
+const requiredRootKeysV1 = [
   'schema', 'requestId', 'sessionId', 'mode', 'targetIssueIds',
   'allowedEffects', 'forbiddenEffects', 'terminalCondition', 'activeObjective',
 ];
-const checkpointKeys = new Set([
+const rootKeysV2 = new Set([
+  ...rootKeysV1, 'riskClass', 'scope', 'hostContext',
+]);
+const requiredRootKeysV2 = [
+  ...requiredRootKeysV1, 'riskClass', 'scope', 'hostContext',
+];
+const checkpointKeysV1 = new Set([
   'activeObjective', 'targetIssueId', 'completedFacts', 'noRepeatSet',
   'nextAction', 'liveStates', 'blockerFingerprint', 'dagStructureHash',
   'dagChangeCursor', 'observedAt',
 ]);
-const requiredCheckpointKeys = [
+const requiredCheckpointKeysV1 = [
   'activeObjective', 'targetIssueId', 'completedFacts', 'noRepeatSet',
   'nextAction', 'liveStates', 'blockerFingerprint', 'dagStructureHash',
 ];
+const checkpointKeysV2 = new Set([
+  ...checkpointKeysV1, 'headSha', 'continuationCount', 'blockerCount',
+]);
+const requiredCheckpointKeysV2 = [
+  ...requiredCheckpointKeysV1, 'headSha', 'continuationCount', 'blockerCount',
+];
+const workspaceScopeKeys = new Set([
+  'canonicalCwd', 'worktreeRoot', 'gitCommonDir', 'gitDir', 'branch', 'baseRef',
+  'baseSha', 'initialHeadSha', 'allowedWriteRoots',
+]);
+const hostContextKeys = new Set(['source', 'filesystem', 'approval', 'process', 'network', 'observedAt']);
+const externalTargetKeys = new Set(['kind', 'id', 'environment']);
+const shaPattern = /^[0-9a-fA-F]{40,64}$/u;
 const utcTimestampPattern = /^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\.[0-9]+)?Z$/u;
 
 const readOnlyToolPattern = /^(?:read|glob|grep|search|view|inspect|list|websearch|webfetch)$/iu;
@@ -55,6 +92,7 @@ const webApiCommandPattern = /(?:\bcurl(?:\.exe)?\b|\bwget(?:\.exe)?\b|\bInvoke-
 const shellReadOnlyPattern = /^\s*(?:(?:Get-Content|Test-Path|Get-Item|Get-ChildItem|Resolve-Path|Get-Location|Select-String|Measure-Object|cat|type|ls|dir|pwd|rg|grep|find|where|which|head|tail|wc|stat|file|tree|echo|Write-Output)\b|(?:node|npm|pnpm|yarn|git|gh|glab)(?:\.exe|\.cmd)?\s+(?:--version|-v)\b)/iu;
 const arbitraryRuntimePattern = /(?:^|[\\/])(?:node|npm|npx|pnpm|yarn|python|python3|py|ruby|perl|deno|bun)(?:\.exe|\.cmd)?$/iu;
 const issueIdentifierPattern = /\b[A-Z][A-Z0-9]{0,15}-[0-9]{1,10}\b/giu;
+const indirectWritePattern = /(?:WriteAllBytes|WriteAllText|writeFileSync|writeFile|appendFileSync|appendFile|createWriteStream|--codex-run-as-apply-patch)/iu;
 
 function isObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -85,9 +123,9 @@ function isUtcTimestamp(value) {
   return typeof value === 'string' && utcTimestampPattern.test(value) && Number.isFinite(Date.parse(value));
 }
 
-function validCheckpoint(value) {
-  if (!isObject(value) || !hasOnlyKeys(value, checkpointKeys)) return false;
-  if (requiredCheckpointKeys.some((key) => !Object.hasOwn(value, key))) return false;
+function validCheckpointBase(value, keys, requiredKeys) {
+  if (!isObject(value) || !hasOnlyKeys(value, keys)) return false;
+  if (requiredKeys.some((key) => !Object.hasOwn(value, key))) return false;
   if (!isString(value.activeObjective, { minLength: 1 })) return false;
   if (!isString(value.targetIssueId, { minLength: 1 })) return false;
   if (!isUniqueStringArray(value.completedFacts, { minLength: 1 })) return false;
@@ -101,8 +139,8 @@ function validCheckpoint(value) {
 }
 
 export function validateExecutionEnvelope(value) {
-  if (!isObject(value) || !hasOnlyKeys(value, rootKeys)) return false;
-  if (requiredRootKeys.some((key) => !Object.hasOwn(value, key))) return false;
+  if (!isObject(value) || !hasOnlyKeys(value, rootKeysV1)) return false;
+  if (requiredRootKeysV1.some((key) => !Object.hasOwn(value, key))) return false;
   if (value.schema !== EXECUTION_ENVELOPE_SCHEMA) return false;
   if (!isString(value.requestId, { minLength: 1, maxLength: 128 })) return false;
   if (!isString(value.sessionId, { minLength: 1, maxLength: 256 })) return false;
@@ -113,7 +151,96 @@ export function validateExecutionEnvelope(value) {
   if (!isString(value.terminalCondition, { minLength: 1, maxLength: 512 })) return false;
   if (!isString(value.activeObjective, { minLength: 1, maxLength: 1024 })) return false;
   if (Object.hasOwn(value, 'expiresAt') && !isUtcTimestamp(value.expiresAt)) return false;
-  return !Object.hasOwn(value, 'checkpoint') || validCheckpoint(value.checkpoint);
+  return !Object.hasOwn(value, 'checkpoint')
+    || validCheckpointBase(value.checkpoint, checkpointKeysV1, requiredCheckpointKeysV1);
+}
+
+function validExternalTarget(value) {
+  return isObject(value)
+    && hasOnlyKeys(value, externalTargetKeys)
+    && isString(value.kind, { minLength: 1, maxLength: 64 })
+    && isString(value.id, { minLength: 1, maxLength: 256 })
+    && ['local', 'test', 'staging', 'production', 'remote'].includes(value.environment);
+}
+
+function validWorkspaceScope(value) {
+  if (!isObject(value) || !hasOnlyKeys(value, workspaceScopeKeys)) return false;
+  if ([...workspaceScopeKeys].some((key) => !Object.hasOwn(value, key))) return false;
+  for (const key of ['canonicalCwd', 'worktreeRoot', 'gitCommonDir', 'gitDir', 'branch', 'baseRef']) {
+    if (!isString(value[key], { minLength: 1 })) return false;
+  }
+  if (!shaPattern.test(value.baseSha) || !shaPattern.test(value.initialHeadSha)) return false;
+  return isUniqueStringArray(value.allowedWriteRoots, { minLength: 1 }) && value.allowedWriteRoots.length > 0;
+}
+
+function validScope(value) {
+  const targetKeys = new Set();
+  if (!isObject(value) || !hasOnlyKeys(value, new Set(['workspace', 'externalTargets']))) return false;
+  if (!validWorkspaceScope(value.workspace) || !Array.isArray(value.externalTargets)) return false;
+  for (const target of value.externalTargets) {
+    if (!validExternalTarget(target)) return false;
+    const key = target.kind + '\u0000' + target.id + '\u0000' + target.environment;
+    if (targetKeys.has(key)) return false;
+    targetKeys.add(key);
+  }
+  return true;
+}
+
+function validHostContext(value) {
+  return isObject(value)
+    && hasOnlyKeys(value, hostContextKeys)
+    && [...hostContextKeys].every((key) => Object.hasOwn(value, key))
+    && value.source === 'host'
+    && ['read-only', 'workspace-write', 'unrestricted'].includes(value.filesystem)
+    && ['interactive', 'unavailable'].includes(value.approval)
+    && ['isolated', 'unrestricted'].includes(value.process)
+    && ['offline', 'allowlisted', 'unrestricted'].includes(value.network)
+    && isUtcTimestamp(value.observedAt);
+}
+
+function validCheckpointV2(value) {
+  return validCheckpointBase(value, checkpointKeysV2, requiredCheckpointKeysV2)
+    && shaPattern.test(value.headSha)
+    && Number.isInteger(value.continuationCount)
+    && value.continuationCount >= 0
+    && Number.isInteger(value.blockerCount)
+    && value.blockerCount >= 0;
+}
+
+export function validateExecutionEnvelopeV2(value) {
+  if (!isObject(value) || !hasOnlyKeys(value, rootKeysV2)) return false;
+  if (requiredRootKeysV2.some((key) => !Object.hasOwn(value, key))) return false;
+  if (value.schema !== EXECUTION_ENVELOPE_SCHEMA_V2) return false;
+  if (!isString(value.requestId, { minLength: 1, maxLength: 128 })) return false;
+  if (!isString(value.sessionId, { minLength: 1, maxLength: 256 })) return false;
+  if (!modeSet.has(value.mode)) return false;
+  if (!isUniqueStringArray(value.targetIssueIds, { minLength: 1, maxLength: 128 })) return false;
+  if (!isUniqueStringArray(value.allowedEffects, { allowedValues: effectSetV2 })) return false;
+  if (!isUniqueStringArray(value.forbiddenEffects, { allowedValues: effectSetV2 })) return false;
+  if (!isString(value.terminalCondition, { minLength: 1, maxLength: 512 })) return false;
+  if (!isString(value.activeObjective, { minLength: 1, maxLength: 1024 })) return false;
+  if (!['standard', 'high'].includes(value.riskClass)) return false;
+  if (!validScope(value.scope) || !validHostContext(value.hostContext)) return false;
+  if (Object.hasOwn(value, 'expiresAt') && !isUtcTimestamp(value.expiresAt)) return false;
+  return !Object.hasOwn(value, 'checkpoint') || validCheckpointV2(value.checkpoint);
+}
+
+export function parseExecutionEnvelope(value) {
+  if (validateExecutionEnvelope(value)) {
+    return { enforcementGrade: 'contract-only/degraded', envelope: value, riskClass: 'standard', version: 1 };
+  }
+  if (validateExecutionEnvelopeV2(value)) {
+    const enforced = value.riskClass === 'high'
+      && value.hostContext.source === 'host'
+      && value.hostContext.process === 'isolated';
+    return {
+      enforcementGrade: enforced ? 'host-verified/high-risk' : 'scoped/standard',
+      envelope: value,
+      riskClass: value.riskClass,
+      version: 2,
+    };
+  }
+  return null;
 }
 
 function commandFrom(input) {
@@ -121,6 +248,37 @@ function commandFrom(input) {
     if (typeof input.toolInput?.[key] === 'string') return input.toolInput[key];
   }
   return '';
+}
+
+function isInside(baseDir, candidate) {
+  const relative = path.relative(path.resolve(baseDir), path.resolve(candidate));
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+function collectStructuredPaths(value, paths = [], key = '') {
+  if (typeof value === 'string') {
+    if (/^(?:file_?path|path|target|destination|directory(?:_?path)?|dir)$/iu.test(key)) paths.push(value);
+    return paths;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectStructuredPaths(item, paths, key);
+    return paths;
+  }
+  if (!isObject(value)) return paths;
+  for (const [nestedKey, nestedValue] of Object.entries(value)) {
+    collectStructuredPaths(nestedValue, paths, nestedKey);
+  }
+  return paths;
+}
+
+function externalTarget(kind, id, environment = 'remote') {
+  return { environment, id, kind };
+}
+
+function addUrlTargets(command, targets) {
+  for (const match of command.matchAll(/https?:\/\/\[?(?:[^\s:@/]+@)?([^\]/:@\s]+)/giu)) {
+    targets.push(externalTarget('url-host', match[1].toLowerCase()));
+  }
 }
 
 function shellSegments(command) {
@@ -310,18 +468,46 @@ function classifyMergeRequestCli(segment, effects) {
 function classifyWebCommand(segment, effects) {
   if (/\bcurl(?:\.exe)?\b/iu.test(segment)) {
     if (/(?:\s|^)(?:-o|--output|-O|--remote-name)(?:\s|=)/u.test(segment)) effects.add('workspaceWrite');
-    if (/(?:\s|^)(?:-d|--data(?:-ascii|-binary|-raw|-urlencode)?|-F|--form|-T|--upload-file)(?:\s|=)|(?:-X|--request)\s*(?:POST|PUT|PATCH|DELETE)\b/iu.test(segment)) return false;
+    if (/(?:\s|^)(?:-d|--data(?:-ascii|-binary|-raw|-urlencode)?|-F|--form|-T|--upload-file)(?:\s|=)|(?:-X|--request)\s*(?:POST|PUT|PATCH|DELETE)\b/iu.test(segment)) effects.add('externalWrite');
     return true;
   }
   if (/\b(?:Invoke-WebRequest|Invoke-RestMethod)\b/iu.test(segment)) {
     if (/\s-OutFile\b/iu.test(segment)) effects.add('workspaceWrite');
-    return !/\s-Method\s+(?:POST|PUT|PATCH|DELETE)\b/iu.test(segment);
+    if (/\s-Method\s+(?:POST|PUT|PATCH|DELETE)\b/iu.test(segment)) effects.add('externalWrite');
+    return true;
   }
   if (/\bwget(?:\.exe)?\b/iu.test(segment)) {
     if (!/(?:\s-qO-\b|\s--output-document=-\b)/u.test(segment)) effects.add('workspaceWrite');
     return true;
   }
   return null;
+}
+
+function classifySupabase(segment, effects, targets) {
+  const tokens = commandTokens(segment);
+  const executableIndex = tokens.findIndex((token) => /(?:^|[\\/])supabase(?:\.exe|\.cmd)?$/iu.test(token));
+  if (executableIndex < 0) return null;
+  const args = tokens.slice(executableIndex + 1);
+  const lowerArgs = args.map((item) => item.toLowerCase());
+  const projectRefIndex = lowerArgs.findIndex((item) => item === '--project-ref' || item === '--project-id');
+  const inlineProjectRef = args.find((item) => /^--project-(?:ref|id)=/iu.test(item));
+  const projectRef = projectRefIndex >= 0 ? args[projectRefIndex + 1] : inlineProjectRef?.split('=', 2)[1];
+  if (projectRef) targets.push(externalTarget('supabase-project', projectRef));
+  if (lowerArgs[0] === 'projects' && lowerArgs[1] === 'list') {
+    effects.add('credentialUse');
+    return true;
+  }
+  if (lowerArgs[0] === 'link') {
+    effects.add('credentialUse');
+    effects.add('workspaceWrite');
+    return true;
+  }
+  if (lowerArgs[0] === 'db' && lowerArgs[1] === 'push') {
+    effects.add('credentialUse');
+    effects.add('externalWrite');
+    return true;
+  }
+  return false;
 }
 
 function classifyMcpTool(toolName, effects) {
@@ -353,8 +539,15 @@ function classifyMcpTool(toolName, effects) {
 
 export function classifyExecutionEffects(input) {
   const effects = new Set();
+  const externalTargets = [];
+  const highRiskReasons = new Set();
   const toolName = String(input.toolName ?? '');
   const command = commandFrom(input);
+  const structuredPaths = collectStructuredPaths(input.toolInput);
+  const workspaceTargets = structuredPaths.map((candidate) => path.isAbsolute(candidate)
+    ? path.resolve(candidate)
+    : path.resolve(input.cwd, candidate));
+  const hostTargets = workspaceTargets.filter((candidate) => !isInside(input.cwd, candidate));
   let unknown = false;
   const mcpClassification = classifyMcpTool(toolName, effects);
   if (mcpClassification !== null) unknown = !mcpClassification;
@@ -365,8 +558,19 @@ export function classifyExecutionEffects(input) {
   if (command.length > 0 && !workspaceToolPattern.test(toolName)) {
     if (shellWorkspaceWritePattern.test(command) || hasShellRedirection(command)) effects.add('workspaceWrite');
     if (credentialCommandPattern.test(command)) effects.add('credentialUse');
+    if (indirectWritePattern.test(command)) {
+      effects.add('workspaceWrite');
+      highRiskReasons.add('indirect-runtime-write');
+    }
+    addUrlTargets(command, externalTargets);
     for (const segment of shellSegments(command)) {
       if (classifyGit(segment, effects) === true) continue;
+      const supabase = classifySupabase(segment, effects, externalTargets);
+      if (supabase !== null) {
+        highRiskReasons.add('credentialed-external-cli');
+        if (!supabase) unknown = true;
+        continue;
+      }
       const mergeRequest = classifyMergeRequestCli(segment, effects);
       if (mergeRequest !== null) {
         if (!mergeRequest) unknown = true;
@@ -386,11 +590,27 @@ export function classifyExecutionEffects(input) {
     // session under the generic credentialUse capability.
     if (credentialCommandPattern.test(command) && webApiCommandPattern.test(command)) unknown = true;
   }
+  if (/\bgit(?:\.exe)?\s+worktree\s+move\b/iu.test(command)) highRiskReasons.add('worktree-move');
+  if (/--codex-run-as-apply-patch\b/iu.test(command)) highRiskReasons.add('internal-patch-entrypoint');
+  if (hostTargets.length > 0) {
+    effects.add('hostWrite');
+    highRiskReasons.add('host-write');
+    if (workspaceTargets.length === hostTargets.length) effects.delete('workspaceWrite');
+  }
+  if (effects.has('externalWrite')) highRiskReasons.add('external-write');
+  if (effects.has('credentialUse')) highRiskReasons.add('credential-use');
+  if (unknown) highRiskReasons.add('unclassified-effect');
   return {
     credentialPersistence: credentialCommandPattern.test(command) && effects.has('workspaceWrite'),
-    effects: EXECUTION_EFFECTS.filter((effect) => effects.has(effect)),
+    effects: EXECUTION_EFFECTS_V2.filter((effect) => effects.has(effect)),
+    externalTargets,
+    highRiskReasons: [...highRiskReasons],
+    hostTargets,
+    immutableWorkspaceOperation: highRiskReasons.has('worktree-move'),
     readOnly: effects.size === 0 && !unknown,
+    risk: highRiskReasons.size > 0 ? 'high' : 'standard',
     unknown,
+    workspaceTargets,
   };
 }
 
@@ -486,6 +706,153 @@ function targetDecision(input, classification, envelope) {
   return null;
 }
 
+function canonicalPath(candidate) {
+  const suffix = [];
+  let current = path.resolve(candidate);
+  while (true) {
+    try {
+      return path.join(realpathSync.native(current), ...suffix);
+    } catch (error) {
+      if (error.code !== 'ENOENT') return null;
+      const parent = path.dirname(current);
+      if (parent === current) return null;
+      suffix.unshift(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
+function samePath(left, right) {
+  const canonicalLeft = canonicalPath(left);
+  const canonicalRight = canonicalPath(right);
+  if (!canonicalLeft || !canonicalRight) return false;
+  return process.platform === 'win32'
+    ? canonicalLeft.toLowerCase() === canonicalRight.toLowerCase()
+    : canonicalLeft === canonicalRight;
+}
+
+function gitOutput(cwd, args) {
+  try {
+    return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true }).trim();
+  } catch {
+    return '';
+  }
+}
+
+function gitPath(cwd, value) {
+  return path.isAbsolute(value) ? path.resolve(value) : path.resolve(cwd, value);
+}
+
+export function inspectWorkspaceIdentity(cwd) {
+  const worktreeRoot = gitOutput(cwd, ['rev-parse', '--show-toplevel']);
+  const gitCommonDir = gitOutput(cwd, ['rev-parse', '--git-common-dir']);
+  const gitDir = gitOutput(cwd, ['rev-parse', '--git-dir']);
+  const branch = gitOutput(cwd, ['branch', '--show-current']);
+  const headSha = gitOutput(cwd, ['rev-parse', 'HEAD']);
+  if (!worktreeRoot || !gitCommonDir || !gitDir || !branch || !headSha) return null;
+  return {
+    branch,
+    canonicalCwd: canonicalPath(cwd),
+    gitCommonDir: canonicalPath(gitPath(cwd, gitCommonDir)),
+    gitDir: canonicalPath(gitPath(cwd, gitDir)),
+    headSha,
+    worktreeRoot: canonicalPath(worktreeRoot),
+  };
+}
+
+function isAncestor(cwd, ancestor, descendant) {
+  try {
+    execFileSync('git', ['merge-base', '--is-ancestor', ancestor, descendant], {
+      cwd,
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function workspaceDecision(input, classification, envelope) {
+  const expected = envelope.scope.workspace;
+  const actual = inspectWorkspaceIdentity(input.cwd);
+  if (!actual) return deny('EXECUTION_ENVELOPE_WORKSPACE_UNAVAILABLE', 'The active Git workspace identity cannot be verified.');
+  if (!samePath(actual.canonicalCwd, expected.canonicalCwd)
+    || !samePath(actual.worktreeRoot, expected.worktreeRoot)
+    || !samePath(actual.gitCommonDir, expected.gitCommonDir)
+    || !samePath(actual.gitDir, expected.gitDir)
+    || actual.branch !== expected.branch) {
+    return deny('EXECUTION_ENVELOPE_WORKSPACE_MISMATCH', 'The current cwd, worktree, Git directory, or branch differs from the active envelope.');
+  }
+  if (!isAncestor(input.cwd, expected.baseSha, actual.headSha)
+    || !isAncestor(input.cwd, expected.initialHeadSha, actual.headSha)) {
+    return deny('EXECUTION_ENVELOPE_HEAD_DIVERGED', 'The current HEAD is not a descendant of the frozen base and initial HEAD.');
+  }
+  const baseRefSha = gitOutput(input.cwd, ['rev-parse', expected.baseRef]);
+  if (!baseRefSha || !isAncestor(input.cwd, expected.baseSha, baseRefSha)) {
+    return deny('EXECUTION_ENVELOPE_BASE_REF_MISMATCH', 'The frozen base SHA is not on the current base ref history.');
+  }
+  if (envelope.checkpoint && envelope.checkpoint.headSha !== actual.headSha) {
+    return deny('EXECUTION_ENVELOPE_CHECKPOINT_STALE', 'The current HEAD differs from the last host checkpoint.');
+  }
+  const allowedRoots = expected.allowedWriteRoots.map(canonicalPath);
+  if (allowedRoots.some((root) => !root)) {
+    return deny('EXECUTION_ENVELOPE_WRITE_SCOPE_INVALID', 'An allowed write root cannot be resolved safely.');
+  }
+  const outside = [...classification.workspaceTargets, ...classification.hostTargets]
+    .find((target) => !allowedRoots.some((root) => isInside(root, target)));
+  if (outside) return deny('EXECUTION_ENVELOPE_WRITE_SCOPE_MISMATCH', 'The tool request targets a path outside the active write roots.');
+  return null;
+}
+
+function externalTargetDecision(classification, envelope) {
+  if (classification.externalTargets.length === 0) {
+    return classification.effects.includes('externalWrite')
+      ? deny('EXECUTION_ENVELOPE_EXTERNAL_TARGET_UNVERIFIED', 'The external write does not expose a verifiable target.')
+      : null;
+  }
+  const allowed = new Set(envelope.scope.externalTargets.map((target) => (
+    target.kind + '\u0000' + target.id + '\u0000' + target.environment
+  )));
+  const mismatch = classification.externalTargets.find((target) => !allowed.has(
+    target.kind + '\u0000' + target.id + '\u0000' + target.environment,
+  ));
+  return mismatch
+    ? deny('EXECUTION_ENVELOPE_EXTERNAL_TARGET_MISMATCH', 'The tool request targets an external resource outside the active envelope.')
+    : null;
+}
+
+function highRiskDecision(classification, envelope, nowMs) {
+  if (classification.immutableWorkspaceOperation) {
+    return deny('EXECUTION_ENVELOPE_WORKTREE_MOVE_FORBIDDEN', 'An active task cannot move its bound worktree. Use a new task or host handoff.');
+  }
+  if (envelope.riskClass !== 'high') {
+    return deny('EXECUTION_ENVELOPE_RISK_CLASS_REQUIRED', 'This request requires a high-risk v2 envelope.');
+  }
+  const host = envelope.hostContext;
+  if (host.source !== 'host' || host.process !== 'isolated') {
+    return deny('EXECUTION_ENVELOPE_HOST_CONTEXT_INSUFFICIENT', 'High-risk execution requires host-provided process isolation.');
+  }
+  const observedAt = Date.parse(host.observedAt);
+  if (observedAt > nowMs || nowMs - observedAt > 5 * 60 * 1000) {
+    return deny('EXECUTION_ENVELOPE_HOST_CONTEXT_STALE', 'The host enforcement evidence is stale.');
+  }
+  if (classification.effects.includes('workspaceWrite') && host.filesystem === 'read-only') {
+    return deny('EXECUTION_ENVELOPE_FILESYSTEM_INSUFFICIENT', 'The host filesystem boundary does not permit workspace writes.');
+  }
+  if (classification.effects.includes('hostWrite') && host.filesystem !== 'unrestricted') {
+    return deny('EXECUTION_ENVELOPE_FILESYSTEM_INSUFFICIENT', 'Host writes require an explicit unrestricted filesystem boundary.');
+  }
+  if (classification.effects.includes('externalWrite') && host.network === 'offline') {
+    return deny('EXECUTION_ENVELOPE_NETWORK_INSUFFICIENT', 'External writes require an enabled host network boundary.');
+  }
+  const approvalEffects = new Set(['hostWrite', 'externalWrite', 'credentialUse']);
+  if (classification.effects.some((effect) => approvalEffects.has(effect)) && host.approval !== 'interactive') {
+    return deny('EXECUTION_ENVELOPE_APPROVAL_REQUIRED', 'Host writes, external writes, and credential use require interactive approval.');
+  }
+  return null;
+}
+
 function deny(reasonCode, reason) {
   return { action: 'deny', reason, reasonCode };
 }
@@ -514,13 +881,15 @@ export function evaluateExecutionEnvelope(input, { environment = process.env, no
   const required = environment.VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED === '1';
   const candidate = envelopeInput(input, environment);
   if (!candidate.present) {
-    if (!required || classification.readOnly) return { action: 'allow' };
+    if (classification.readOnly) return { action: 'allow' };
+    if (!required && classification.risk !== 'high') return { action: 'allow' };
     return invalidEnvelopeDecision('missing');
   }
-  if (!validateExecutionEnvelope(candidate.value)) {
+  const parsed = parseExecutionEnvelope(candidate.value);
+  if (!parsed) {
     return classification.readOnly ? { action: 'allow' } : invalidEnvelopeDecision('invalid');
   }
-  const envelope = candidate.value;
+  const { envelope, version } = parsed;
   if (envelope.sessionId !== input.sessionId) {
     return classification.readOnly ? { action: 'allow' } : invalidEnvelopeDecision('session-mismatch');
   }
@@ -532,7 +901,7 @@ export function evaluateExecutionEnvelope(input, { environment = process.env, no
   if (forbidden) {
     return deny('EXECUTION_ENVELOPE_EFFECT_FORBIDDEN', 'Execution effect ' + forbidden + ' is explicitly forbidden by the active envelope.');
   }
-  const ceiling = modeCeilings.get(envelope.mode);
+  const ceiling = (version === 1 ? modeCeilingsV1 : modeCeilingsV2).get(envelope.mode);
   const modeViolation = classification.effects.find((effect) => !ceiling.has(effect));
   if (modeViolation) {
     return deny('EXECUTION_ENVELOPE_MODE_VIOLATION', 'Execution mode ' + envelope.mode + ' does not permit effect ' + modeViolation + '.');
@@ -540,7 +909,13 @@ export function evaluateExecutionEnvelope(input, { environment = process.env, no
   if (classification.credentialPersistence) {
     return deny('EXECUTION_ENVELOPE_CREDENTIAL_PERSISTENCE', 'Direct credential-helper output must not be written to files.');
   }
-  if (classification.unknown) {
+  if (version === 1 && classification.risk === 'high') {
+    return deny('EXECUTION_ENVELOPE_V1_INSUFFICIENT', 'Execution Envelope v1 cannot authorize high-risk, host, external, credential, or worktree-topology effects.');
+  }
+  if (version === 2 && classification.risk === 'high') {
+    const riskDecision = highRiskDecision(classification, envelope, nowMs);
+    if (riskDecision) return riskDecision;
+  } else if (classification.unknown) {
     return deny('EXECUTION_ENVELOPE_UNKNOWN_EFFECT', 'The tool request has effects that cannot be classified safely.');
   }
   const missing = classification.effects.find((effect) => !envelope.allowedEffects.includes(effect));
@@ -549,5 +924,11 @@ export function evaluateExecutionEnvelope(input, { environment = process.env, no
   }
   const targetMismatch = targetDecision(input, classification, envelope);
   if (targetMismatch) return targetMismatch;
+  if (version === 2 && !classification.readOnly) {
+    const workspaceMismatch = workspaceDecision(input, classification, envelope);
+    if (workspaceMismatch) return workspaceMismatch;
+    const externalMismatch = externalTargetDecision(classification, envelope);
+    if (externalMismatch) return externalMismatch;
+  }
   return { action: 'allow' };
 }

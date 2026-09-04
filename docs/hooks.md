@@ -48,7 +48,11 @@ RTK 路由仅在 Codex、显式选择 RTK 插件并启用对应设置时生效�
 
 ## Execution Envelope
 
-Execution Envelope 将一次用户请求绑定到 <code>requestId</code>、<code>sessionId</code>、<code>mode</code>、目标 Issue、独立 effect 授权和终止条件。公开合同位于 <code>docs/schemas/execution-envelope.schema.json</code>。Hook 接受宿主注入的 <code>execution_envelope</code> / <code>executionEnvelope</code>，或父进程注入的 <code>VIBE_HARNESS_EXECUTION_ENVELOPE</code>；只有父进程设置 <code>VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED=1</code> 时，无 Envelope 的可写或不可分类调用才会 fail-closed。项目文件和 Agent 不能降低或自行开启这个强制开关。
+Execution Envelope 将一次用户请求绑定到 <code>requestId</code>、<code>sessionId</code>、<code>mode</code>、目标 Issue、独立 effect 授权和终止条件。v1 公开合同位于 <code>docs/schemas/execution-envelope.schema.json</code>，新增的 v2 位于 <code>docs/schemas/execution-envelope-v2.schema.json</code>。Hook 接受宿主注入的 <code>execution_envelope</code> / <code>executionEnvelope</code>，或父进程注入的 <code>VIBE_HARNESS_EXECUTION_ENVELOPE</code>；项目文件、install-state 和 Agent 命令都不是授权根。
+
+v1 保持原 schema 与 validator，仅作为 contract-only/degraded 兼容路径；它不能授权 hostWrite、externalWrite、凭据、高风险间接写入或 worktree 拓扑变化。v2 增加 riskClass、精确 workspace identity、允许写入根、外部目标、宿主 enforcement 证明和带 HEAD/续跑计数的 checkpoint。普通项目内低风险写入仍可使用兼容路径；高风险或不可分类调用即使未设置 <code>VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED</code> 也必须提供 high-risk v2 Envelope，否则 fail-closed。
+
+v2 的 hostContext 只能由宿主注入。高风险执行要求新鲜的宿主证明、进程隔离和与 effect 匹配的 filesystem、approval、network 边界；项目配置不得生成、持久化或扩大这些字段。活动任务的 worktree root、git common dir、git dir、branch 和 base SHA 不可变；<code>git worktree move</code> 始终拒绝，合法提交只允许把 checkpoint HEAD 前移到已验证后代。
 
 该控制是可观察 Hook 上的纵深防御，不是常驻宿主状态服务。Vibe-Harness 当前安装器不会声称能够从最新用户消息自行生成、持久化或轮换可信 Envelope，也不会把本地状态文件当作授权根。未提供父进程强制开关、持久 checkpoint 和远程工具拦截的宿主，只获得规则、Skill、Schema 与可观察命令的检查，不能宣称完整宿主级强制。
 
@@ -58,7 +62,7 @@ Hook 能直接绑定 Linear 写入、包含 Issue ID 的 Git 分支、提交、�
 
 Hooks are defense in depth, not a complete machine-security boundary. Command-string inspection cannot reliably interpret arbitrary PowerShell, Python, Node.js, package-manager, Git, subprocess, or network behavior. File-system isolation, process isolation, approval enforcement, and egress control must be provided and independently verified by the host sandbox and network proxy.
 
-<code>doctor</code> and project <code>validate</code> report <code>supported</code>, <code>configured</code>, <code>activated</code>, <code>enforced</code>, and <code>coverageLimitations</code>. <code>activated</code> remains null when project files cannot prove host runtime state. <code>enforced</code> remains false unless host sandbox, approval, process, and network boundaries have independent evidence. Legacy activation, declaredEvents, pathResolution, and selfCheck fields remain available for compatibility.
+<code>doctor</code> and project <code>validate</code> report <code>supported</code>, <code>configured</code>, <code>activated</code>, <code>enforced</code>, <code>executionAuthority</code>, and <code>coverageLimitations</code>. <code>activated</code> remains null when project files cannot prove host runtime state. <code>enforced</code> becomes true only when the host independently proves Hook activation, required Envelope enforcement, sandbox, approval, process isolation, and network control. Adapter capability support never substitutes for this per-task evidence. Legacy activation, declaredEvents, pathResolution, and selfCheck fields remain available for compatibility.
 
 Repository configuration can only tighten policy. Runtime mode is always guarded, allowedWriteRoots cannot expand beyond the project, configured red-zone paths are added to the built-in control-plane list, and an egress allowlist narrows permitted hosts. Repository-local install state records installation history but is not an authorization root.
 

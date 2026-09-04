@@ -7,7 +7,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
 
-import { inspectMemory } from '../scripts/lib/runtime-diagnostics.js';
+import { inspectMemory, inspectRuntimeHooks, runtimeHookWarnings } from '../scripts/lib/runtime-diagnostics.js';
 
 const execFileAsync = promisify(execFile);
 const runtimeTarget = '.agents/memory/CURRENT.md';
@@ -108,6 +108,39 @@ test('runtime memory becomes stale when its verification date predates HEAD', as
     const report = await inspectMemory(config(), state(runtimeTarget, durableTarget), target);
     assert.equal(report.runtime.status, 'stale');
     assert.equal(report.durable.status, 'current');
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('runtime Hook enforcement requires independent host evidence', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-hook-evidence-'));
+  try {
+    const adapters = JSON.parse(await readFile(path.resolve('manifests/adapters.json'), 'utf8'));
+    const adapter = adapters.items.find((item) => item.id === 'codex');
+    await mkdir(path.join(target, '.codex'), { recursive: true });
+    await writeFile(path.join(target, '.codex', 'hooks.json'), '{}\n', 'utf8');
+
+    const unverified = await inspectRuntimeHooks(adapter, target);
+    assert.equal(unverified.enforced, false);
+    assert.equal(unverified.executionAuthority.envelopeRequired, false);
+    assert.equal(unverified.executionAuthority.hostContextVerified, false);
+    assert.equal(runtimeHookWarnings(unverified).some((warning) => warning.code === 'HOOK_ENFORCEMENT_UNVERIFIED'), true);
+
+    const enforced = await inspectRuntimeHooks(adapter, target, {
+      hostEvidence: {
+        activated: true,
+        approval: true,
+        envelopeRequired: true,
+        network: true,
+        process: true,
+        sandbox: true,
+      },
+    });
+    assert.equal(enforced.enforced, true);
+    assert.equal(enforced.status, 'enforced');
+    assert.equal(enforced.activation.status, 'verified');
+    assert.deepEqual(runtimeHookWarnings(enforced), []);
   } finally {
     await rm(target, { force: true, recursive: true });
   }

@@ -4,13 +4,13 @@
   "type": "object",
   "required": ["schemaVersion", "items"],
   "properties": {
-    "schemaVersion": { "type": "integer", "const": 4 },
+    "schemaVersion": { "type": "integer", "const": 5 },
     "items": {
       "type": "array",
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["id", "installMap", "instructionTarget", "instructionTemplate", "skillRoot", "supportedProfiles", "capabilities", "roleProjection", "hookEvents", "hookActivation", "evidence", "redZonePrefixes"],
+        "required": ["id", "installMap", "instructionTarget", "instructionTemplate", "skillRoot", "supportedProfiles", "capabilities", "roleProjection", "hookEvents", "hookActivation", "executionAuthority", "evidence", "redZonePrefixes"],
         "properties": {
           "id": { "type": "string", "enum": ["codex", "claude", "gemini", "cursor", "qoder", "zcode", "antigravity", "opencode"] },
           "installMap": { "type": "string", "minLength": 1 },
@@ -85,6 +85,22 @@
             "additionalProperties": false
           },
           "hookActivation": { "type": "string", "enum": ["manual-trust", "config-file", "unsupported"] },
+          "executionAuthority": {
+            "type": "object",
+            "required": ["envelopeVersions", "trustedSource", "projectConfigMayAuthorize", "highRiskEnforcement", "goalLifecycle"],
+            "properties": {
+              "envelopeVersions": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": { "type": "string", "enum": ["v1", "v2"] }
+              },
+              "trustedSource": { "type": "string", "enum": ["host-injected", "none"] },
+              "projectConfigMayAuthorize": { "type": "boolean", "const": false },
+              "highRiskEnforcement": { "type": "string", "enum": ["host-required", "unsupported"] },
+              "goalLifecycle": { "type": "string", "enum": ["host-native-required", "prompt-only", "unsupported"] }
+            },
+            "additionalProperties": false
+          },
           "evidence": {
             "type": "object",
             "required": ["status", "lastVerifiedAt", "hostVersion"],
