@@ -19,6 +19,8 @@ test('codex adapter declares AGENTS, rules, templates, skills, and hooks mapping
   assert.ok(targets.includes('.agents/skills/git-deliver/SKILL.md'));
   assert.ok(targets.includes('.agents/skills/git-deliver/agents/openai.yaml'));
   assert.ok(targets.includes('.codex/hooks.json'));
+  assert.ok(targets.includes('docs/schemas/execution-envelope.schema.json'));
+  assert.ok(targets.includes('docs/schemas/execution-envelope-v2.schema.json'));
   assert.ok(installMap.entries.find((entry) => entry.target === '.codex/hooks.json').redZone);
   assert.equal(targets.some((target) => target.startsWith('.codex/agents/')), false);
 });
