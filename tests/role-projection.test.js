@@ -11,6 +11,7 @@ import { createInstallPlan } from '../scripts/lib/install-planner.js';
 import { resolveModuleSelection } from '../scripts/lib/module-selection.js';
 import { validateProjectConfigWithSchema } from '../scripts/lib/project-config.js';
 import { loadRolePack, resolveRoleInstallEntries } from '../scripts/lib/role-projection.js';
+import { findDuplicateRoleContents } from '../scripts/lib/roles-audit.js';
 
 const rootDir = path.resolve(import.meta.dirname, '..');
 const cliPath = path.join(rootDir, 'scripts', 'vibe-harness.js');
@@ -52,6 +53,18 @@ test('role pack exposes seven ordered roles and five bounded permission presets'
   assert.equal(rolePack.items.length, 7);
   assert.equal(rolePack.permissionPresets.length, 5);
   assert.deepEqual(new Set(rolePack.routingOrder), new Set(rolePack.items.map((role) => role.id)));
+});
+
+test('role duplicate audit ignores shared prefixes but rejects complete duplicates', () => {
+  const base = 'shared contract';
+  assert.deepEqual(findDuplicateRoleContents([
+    { id: 'one', content: base + '\nunique one' },
+    { id: 'two', content: base + '\nunique two' },
+  ]), []);
+  assert.deepEqual(findDuplicateRoleContents([
+    { id: 'one', content: base + '\nunique one' },
+    { id: 'two', content: base + '\nunique one' },
+  ]), [['one', 'two']]);
 });
 
 test('roles module follows profile defaults, explicit enablement, and custom-module precedence', () => {

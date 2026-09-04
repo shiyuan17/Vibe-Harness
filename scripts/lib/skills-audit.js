@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { readJson } from './manifest.js';
-import { validateSkillGraph } from './pack-validation.js';
+import { validateSkillGraph, validateSkillMetadataQuality } from './pack-validation.js';
 
 export async function runSkillsAudit(rootDir, options = {}) {
   const [manifest, profiles, installMap] = await Promise.all([
@@ -20,8 +20,25 @@ export async function runSkillsAudit(rootDir, options = {}) {
     lengths.push({ id: item.id, lines: content.split(/\r?\n/u).length });
   }
   lengths.sort((left, right) => right.lines - left.lines || left.id.localeCompare(right.id));
-  const errors = await validateSkillGraph(rootDir, manifest.items, profiles.items, { installEntries: installMap.entries });
+  const errors = [
+    ...await validateSkillMetadataQuality(rootDir, manifest.items),
+    ...await validateSkillGraph(rootDir, manifest.items, profiles.items, { installEntries: installMap.entries }),
+  ];
   return { counts, errors, items: manifest.items, lengths };
+}
+
+export function skillScanSummary(report) {
+  const byKind = {};
+  for (const kind of ['native', 'integration', 'router', 'compatibility']) {
+    byKind[kind] = report.counts.get(kind) ?? 0;
+  }
+  return {
+    byKind,
+    findings: report.errors.map((error) => String(error)),
+    inventoryCount: report.items.length,
+    scannedCount: report.lengths.length,
+    status: report.errors.length === 0 ? 'clean' : 'findings',
+  };
 }
 
 export function renderSkillsAudit(report) {

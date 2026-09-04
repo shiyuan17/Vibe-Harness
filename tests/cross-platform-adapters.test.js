@@ -21,7 +21,7 @@ import {
   skillRootMatcher,
   skillRootPrefixes,
 } from '../scripts/lib/adapter.js';
-import { createInstallPlan } from '../scripts/lib/install-planner.js';
+import { createInstalledSurface, createInstallPlan } from '../scripts/lib/install-planner.js';
 import { applyUninstallPlan, createUninstallPlan } from '../scripts/lib/install-state.js';
 
 const execFileAsync = promisify(execFile);
@@ -41,6 +41,37 @@ async function fail(args) {
   try { await run(args); } catch (error) { return JSON.parse(error.stderr); }
   assert.fail('Expected command to fail');
 }
+
+test('installed surface joins Hook lines with newlines', () => {
+  const surface = createInstalledSurface({
+    hookConfigTargets: [
+      { target: '.codex/hooks.json', displayName: 'Codex' },
+      { target: '.cursor/hooks.json', displayName: 'Cursor' },
+    ],
+    profile: 'full',
+    targets: ['.codex/hooks.json', '.cursor/hooks.json'],
+  });
+  assert.match(surface.hooksLine, /Codex hook 配置位于.*\n- Cursor hook 配置位于/u);
+  assert.doesNotMatch(surface.hooksLine, /。- /u);
+});
+
+test('AGENTS startup rendering contains no empty numbered entries', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-agents-startup-'));
+  try {
+    const plan = await createInstallPlan({
+      adapterId: 'codex',
+      dryRun: true,
+      profile: 'minimal',
+      rootDir,
+      targetDir: target,
+    });
+    const content = plan.renderData.installedSurface.startupLines;
+    assert.doesNotMatch(content, /^\d+\.\s*$/mu);
+    assert.match(content, /^1\. /u);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
 
 test('all eight adapters share one project installation and support target-scoped uninstall', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-multi-adapter-'));
@@ -503,7 +534,7 @@ test('adapter catalog gates preview profiles and rejects target mismatch', async
 test('adapter capability v4 uses explicit support levels for every product surface', async () => {
   const catalog = JSON.parse(await readFile(path.join(rootDir, 'manifests/adapters.json'), 'utf8'));
   const capabilityNames = ['instructions', 'skills', 'hooks', 'policy', 'mcp', 'sandbox', 'memory', 'plugin', 'goals', 'subagents'];
-  assert.equal(catalog.schemaVersion, 4);
+  assert.equal(catalog.schemaVersion, 5);
   for (const adapter of catalog.items) {
     assert.deepEqual(Object.keys(adapter.capabilities).sort(), [...capabilityNames].sort());
     assert.equal(
@@ -594,7 +625,7 @@ test('adapter red-zone prefixes classify transformed targets', () => {
     contentStrategy: 'replace',
     group: 'rules-minimal',
     redZone: false,
-    source: 'rules/git-rules.md',
+    source: 'docs/rules/git-rules.md',
     target: '.secure/policy.md',
   });
   assert.equal(resolved.redZone, true);

@@ -135,6 +135,8 @@ export async function validateSkillMetadataQuality(rootDir, skillItems) {
   const errors = [];
   const chineseScriptIds = [];
   const englishScriptIds = [];
+  const names = new Map();
+  const descriptions = new Map();
   for (const item of skillItems) {
     const sourcePath = path.join(rootDir, item.source);
     assertInsideDir(rootDir, sourcePath, 'skill source');
@@ -153,9 +155,29 @@ export async function validateSkillMetadataQuality(rootDir, skillItems) {
     if (frontmatter.name !== item.id) {
       errors.push(`${item.id} frontmatter name must match manifest id`);
     }
+    if (frontmatter.name && !/^[a-z][a-z0-9-]{0,63}$/u.test(frontmatter.name)) {
+      errors.push(item.id + ' frontmatter name must use lowercase letters, digits, and hyphens');
+    }
+    if (frontmatter.name && frontmatter.name !== path.basename(path.dirname(sourcePath))) {
+      errors.push(item.id + ' frontmatter name must match skill directory name');
+    }
+    if (frontmatter.name) {
+      const owner = names.get(frontmatter.name);
+      if (owner && owner !== item.id) {
+        errors.push('duplicate Skill name ' + frontmatter.name + ' in ' + owner + ' and ' + item.id);
+      } else {
+        names.set(frontmatter.name, item.id);
+      }
+    }
     if (!frontmatter.description) {
       errors.push(`${item.id} frontmatter description is required`);
     } else {
+      const owner = descriptions.get(frontmatter.description);
+      if (owner && owner !== item.id) {
+        errors.push('duplicate Skill description in ' + owner + ' and ' + item.id);
+      } else {
+        descriptions.set(frontmatter.description, item.id);
+      }
       if (frontmatter.description.length > 300) {
         errors.push(`${item.id} description must be 300 characters or fewer`);
       }
@@ -299,6 +321,14 @@ export async function validateSkillGraph(
         errors.push(`${item.id} metadata is missing: ${item.metadata}`);
       } else {
         const metadata = await readPackJson(path.join(rootDir, item.metadata));
+        for (const forbidden of ['name', 'description']) {
+          if (Object.hasOwn(metadata, forbidden)) {
+            errors.push(item.id + ' metadata must not define ' + forbidden + '; use SKILL.md frontmatter');
+          }
+        }
+        if (Object.hasOwn(metadata, 'entry') && metadata.entry !== 'SKILL.md') {
+          errors.push(item.id + ' metadata entry must be SKILL.md when provided');
+        }
         if (metadata.id !== item.id) errors.push(`${item.id} metadata id must match manifest id`);
       }
     } else if (!checkFiles) {
@@ -356,7 +386,7 @@ export async function validateSkillGraph(
 export async function validateContentQuality(rootDir) {
   const checks = [
     {
-      file: 'rules/governance-core.md',
+      file: 'docs/rules/governance-core.md',
       terms: ['获取可信事实 → 判定并执行 → 聚焦验证 → 简洁交付', '事实充分性与歧义路由', '执行判定：直接实施', '快速', '轻量', '完整', '人工确认', '验证范围必须与完成主张匹配'],
     },
     {
@@ -368,51 +398,51 @@ export async function validateContentQuality(rootDir) {
       terms: ['结果', '实际变更', '本轮验证', '未验证项', '风险', '后续动作'],
     },
     {
-      file: 'rules/agent-skill-routing.md',
+      file: 'docs/rules/AGENT_SKILL_ROUTING.md',
       terms: ['description', '不使用 Router', '领域 Skill', '人工确认'],
     },
     {
-      file: 'rules/test-rules.md',
+      file: 'docs/rules/test-rules.md',
       terms: ['验收矩阵', '退出码', '未验证项', '对抗式', '测试类型', '参考实现'],
     },
     {
-      file: 'rules/ai-collab-rules.md',
+      file: 'docs/rules/ai-collab-rules.md',
       terms: ['单 Agent', '人工确认', '验证与主张匹配', '保护现有工作区'],
     },
     {
-      file: 'rules/project-directory.md',
+      file: 'docs/rules/project-directory.md',
       terms: ['发现顺序', '放置规则', '跨边界变更'],
     },
     {
-      file: 'rules/git-rules.md',
+      file: 'docs/rules/git-rules.md',
       terms: ['分支', '提交', 'PR', '参考实现'],
     },
     {
-      file: 'rules/api-rules.md',
+      file: 'docs/rules/api-rules.md',
       terms: ['检查清单', '兼容策略', '验证证据'],
     },
     {
-      file: 'rules/db-rules.md',
+      file: 'docs/rules/db-rules.md',
       terms: ['检查清单', '回滚路径', '验证证据'],
     },
     {
-      file: 'rules/coding-rules.md',
+      file: 'docs/rules/coding-rules.md',
       terms: ['检查清单', '依赖', '验证证据'],
     },
     {
-      file: 'rules/frontend-rules.md',
+      file: 'docs/rules/frontend-rules.md',
       terms: ['检查清单', '浏览器', '验证证据'],
     },
     {
-      file: 'rules/log-management.md',
+      file: 'docs/rules/log-management.md',
       terms: ['目标与边界', '日志画像', '候选证据', '不引入新日志库', '最小字段与关联', '指标与追踪底线', '安全与可靠性', '排障与验收', '高基数', '脱敏', '验证证据'],
     },
     {
-      file: 'rules/release-rules.md',
+      file: 'docs/rules/release-rules.md',
       terms: ['检查清单', '回滚', '监控'],
     },
     {
-      file: 'rules/troubleshooting.md',
+      file: 'docs/rules/troubleshooting.md',
       terms: ['检查清单', '最小复现', '验证证据'],
     },
     {
@@ -439,7 +469,7 @@ export async function validateContentQuality(rootDir) {
   }
   const [agentsTemplate, governanceCore] = await Promise.all([
     readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8'),
-    readFile(path.join(rootDir, 'rules/governance-core.md'), 'utf8'),
+    readFile(path.join(rootDir, 'docs/rules/governance-core.md'), 'utf8'),
   ]);
   const residentLines = `${agentsTemplate}\n${governanceCore}`.split(/\r?\n/u).length;
   // Budget history: 89-90 lines across all prior revisions; the 2026-09 split of the
@@ -450,7 +480,7 @@ export async function validateContentQuality(rootDir) {
   if (residentLines > 92) errors.push(`resident governance surface exceeds 92 lines: ${residentLines}`);
 
   const proseOwners = new Map();
-  for (const directory of ['rules', 'templates']) {
+  for (const directory of ['docs/rules', 'templates']) {
     for (const entry of await readdir(path.join(rootDir, directory), { recursive: true, withFileTypes: true })) {
       if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
       const file = path.join(entry.parentPath ?? entry.path, entry.name);

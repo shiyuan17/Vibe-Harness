@@ -4,3 +4,5 @@ runtime/hooks/** @shiyuan17
 adapters/** @shiyuan17
 manifests/** @shiyuan17
 schemas/** @shiyuan17
+scripts/** @shiyuan17
+tests/** @shiyuan17

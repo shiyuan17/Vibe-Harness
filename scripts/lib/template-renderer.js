@@ -47,6 +47,21 @@ const defaultTemplateData = {
 export const managedInstructionBlockStart = '<!-- VIBE_HARNESS:START -->';
 export const managedInstructionBlockEnd = '<!-- VIBE_HARNESS:END -->';
 
+function buildStartupLines(surface, projectProfile) {
+  const tick = String.fromCharCode(96);
+  const lines = [
+    '先读取 ' + tick + 'docs/rules/governance-core.md' + tick + '；只有出现 Skill 或专项领域信号时再读取 ' + tick + 'docs/rules/AGENT_SKILL_ROUTING.md' + tick + ' 和一个命中的专项规则。',
+  ];
+  if (surface.memoryLoadLine) lines.push(surface.memoryLoadLine);
+  if (projectProfile.vcsStatusInstruction) lines.push(projectProfile.vcsStatusInstruction);
+  if (surface.discoveryLine) lines.push(surface.discoveryLine);
+  lines.push(
+    '将任务归为快速、轻量或完整，并选择与主张匹配的验证。',
+    '使用“获取可信事实 → 判定并执行 → 聚焦验证 → 简洁交付”的单一路径；宿主按 description 直接选择领域 Skill。',
+  );
+  return lines.map((line, index) => String(index + 1) + '. ' + line).join('\n');
+}
+
 const managedInstructionBlockPattern = /<!-- VIBE_HARNESS:START -->[\s\S]*?<!-- VIBE_HARNESS:END -->\n?/u;
 
 function lookup(data, expression) {
@@ -59,13 +74,20 @@ function lookup(data, expression) {
 }
 
 export function withDefaultTemplateData(data = {}) {
+  const installedSurface = {
+    ...defaultTemplateData.installedSurface,
+    ...(data.installedSurface ?? {}),
+  };
+  if (!installedSurface.startupLines) {
+    installedSurface.startupLines = buildStartupLines(installedSurface, {
+      ...defaultTemplateData.projectProfile,
+      ...(data.projectProfile ?? {}),
+    });
+  }
   return {
     ...defaultTemplateData,
     ...data,
-    installedSurface: {
-      ...defaultTemplateData.installedSurface,
-      ...(data.installedSurface ?? {}),
-    },
+    installedSurface,
     projectProfile: {
       ...defaultTemplateData.projectProfile,
       ...(data.projectProfile ?? {}),
@@ -83,7 +105,7 @@ export function withDefaultTemplateData(data = {}) {
 
 export function renderTemplate(template, data = {}) {
   const resolvedData = withDefaultTemplateData(data);
-  return template.replaceAll(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/gu, (match, expression) => {
+  const rendered = template.replaceAll(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/gu, (match, expression) => {
     const value = lookup(resolvedData, expression);
     if (value === undefined) {
       throw new Error(`Missing template variable: ${expression}`);
@@ -93,6 +115,10 @@ export function renderTemplate(template, data = {}) {
     }
     return String(value);
   });
+  if (template.includes('installedSurface.startupLines')) {
+    return rendered.replace(/\n## 启动\n[\s\S]*?\n## 硬边界\n/u, '\n## 启动\n' + resolvedData.installedSurface.startupLines + '\n## 硬边界\n');
+  }
+  return rendered;
 }
 
 export function hasIncompleteManagedInstructionBlock(content = '') {

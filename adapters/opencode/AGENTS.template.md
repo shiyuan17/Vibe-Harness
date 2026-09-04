@@ -4,12 +4,12 @@
 
 ## 启动
 
-1. 先读取 `docs/rules/governance-core.md`；只有出现 Skill 或专项领域信号时再读取 `docs/rules/AGENT_SKILL_ROUTING.md` 和一个命中的专项规则。
+{{installedSurface.startupLines}}
 2. {{installedSurface.memoryLoadLine}}
+
+1. 先读取 `docs/rules/governance-core.md`；只有出现 Skill 或专项领域信号时再读取 `docs/rules/AGENT_SKILL_ROUTING.md` 和一个命中的专项规则。
 3. {{projectProfile.vcsStatusInstruction}}
 4. {{installedSurface.discoveryLine}}
-5. 将任务归为快速、轻量或完整，并选择与主张匹配的验证。
-6. 使用“获取可信事实 → 判定并执行 → 聚焦验证 → 简洁交付”的单一路径；宿主按 description 直接选择领域 Skill。
 
 ## 硬边界
 

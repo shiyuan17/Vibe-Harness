@@ -171,7 +171,7 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
     hooksLine: hookConfigTargets
       .filter((entry) => hasTarget(entry.target))
       .map((entry) => `- ${entry.displayName} hook 配置位于 \`${entry.target}\`。`)
-      .join(''),
+      .join(String.fromCharCode(10)),
     memorySkillsLine: hasAgentMemorySkills
       ? `- agentmemory skills 位于 \`${agentMemorySkillRoot}/\`${hasLocalMemory ? `，本地记忆库位于 \`${normalizedMemoryPath}/\`` : ''}。`
       : '',
@@ -401,6 +401,7 @@ export async function createInstallPlan({
   dryRun = true,
   force = false,
   managedAgentsBlock = false,
+  preserveRetired = false,
   profile = 'core',
   requestedModules,
   requestedPlugins,
@@ -436,6 +437,7 @@ export async function createInstallPlan({
     managed,
     managedAgentsBlock,
     moduleSelection,
+    preserveRetired,
     renderData,
     rootDir,
     skillRoots,
@@ -522,6 +524,7 @@ export async function createInstallPlan({
     linearMcp,
     missingCapabilities: Object.entries(adapter.capabilities).filter(([, status]) => status === 'unsupported').map(([name]) => name),
     profile,
+    preserveRetired,
     previewCapabilities: Object.entries(adapter.capabilities).filter(([, status]) => status === 'preview').map(([name]) => name),
     requestedModules: moduleSelection.requestedModules,
     requestedPlugins: moduleSelection.requestedPlugins,
@@ -1285,7 +1288,13 @@ export async function diffMultiTargetInstall({ aggregatePlan, selectedTargets, t
 
 export async function applyInstallPlan(plan, hooks = {}) {
   if (plan.dryRun) {
-    return { mcpConflicts: [], retired: [], skipped: [], written: [] };
+    return {
+      mcpConflicts: [],
+      retired: [],
+      retained: plan.preserveRetired ? retirementTargets(plan.actions) : [],
+      skipped: [],
+      written: [],
+    };
   }
 
   validatePlanGuards(plan);
@@ -1308,6 +1317,7 @@ export async function applyInstallPlan(plan, hooks = {}) {
       baseline: ctx.baseline,
       mcpConflicts: [...new Set(writeResult.mcpConflicts)],
       retired: retireResult.retired,
+      retained: retireResult.retained,
       skipped: retireResult.skipped,
       written: writeResult.written,
     };
@@ -1320,6 +1330,12 @@ export async function applyInstallPlan(plan, hooks = {}) {
     }
     throw error;
   }
+}
+
+function retirementTargets(actions = []) {
+  return [...new Set(actions
+    .filter((action) => action.kind?.startsWith('retire'))
+    .map((action) => action.relativeTarget))];
 }
 
 function validatePlanGuards(plan) {
@@ -1468,6 +1484,9 @@ async function executeWriteActions(plan, ctx, hooks) {
 async function executeRetireActions(plan, ctx) {
   const retired = [];
   const skipped = [];
+  if (plan.preserveRetired) {
+    return { retired, retiredFiles: ctx.retiredFiles, retained: retirementTargets(plan.actions), skipped };
+  }
   const { backupId, discardedTargets, retiredFiles } = ctx;
   const isSkillRootTarget = skillRootMatcher(plan.skillRoots ?? []);
 
@@ -1600,7 +1619,7 @@ async function executeRetireActions(plan, ctx) {
     }
   }
 
-  return { retired, retiredFiles, skipped };
+  return { retired, retiredFiles, retained: [], skipped };
 }
 
 function mergeInstallState(plan, ctx, retireResult) {

@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { discoverExecutables } from '../scripts/lib/executable-discovery.js';
+import { runSkillsAudit, skillScanSummary } from '../scripts/lib/skills-audit.js';
 import { scanWorkflowAssets } from '../scripts/lib/workflow-assets.js';
 
 const rootDir = path.resolve(import.meta.dirname, '..');
@@ -67,4 +68,13 @@ test('workflow scan reports malformed inventoried assets as findings', async () 
   } finally {
     await rm(target, { force: true, recursive: true });
   }
+});
+
+test('skill scan reports inventory and kind coverage separately from workflow assets', async () => {
+  const report = skillScanSummary(await runSkillsAudit(rootDir));
+  assert.equal(report.inventoryCount, 12);
+  assert.equal(report.scannedCount, 12);
+  assert.deepEqual(report.byKind, { native: 9, integration: 3, router: 0, compatibility: 0 });
+  assert.equal(report.status, 'clean');
+  assert.deepEqual(report.findings, []);
 });

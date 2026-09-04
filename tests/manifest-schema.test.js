@@ -14,7 +14,7 @@ import {
 } from '../scripts/lib/manifest.js';
 import { resolveAdapterEntry } from '../scripts/lib/adapter.js';
 import { moduleCatalog } from '../scripts/lib/module-selection.js';
-import { validateCapabilityMatrix, validateInstructionBudget, validatePack, validateSelfInstalledArtifacts, validateSkillMetadataQuality } from '../scripts/lib/pack-validation.js';
+import { validateCapabilityMatrix, validateInstructionBudget, validatePack, validateSelfInstalledArtifacts, validateSkillGraph, validateSkillMetadataQuality } from '../scripts/lib/pack-validation.js';
 import {
   pluginProviderCatalog,
   validatePluginProviderCatalog,
@@ -101,7 +101,7 @@ test('adapter schema requires an explicit goals support level', async () => {
   assert.match(validateJsonAgainstSchema(missingSubagents, schema, 'adapters').join('\n'), /subagents.*required|required.*subagents/iu);
 });
 
-test('adapter manifest v4 requires role projection and the fixed Hook contract', async () => {
+test('adapter manifest v5 requires execution authority and the fixed Hook contract', async () => {
   const manifest = await readJson(path.join(rootDir, 'manifests/adapters.json'));
   const schema = await readJson(path.join(rootDir, 'schemas/adapter-pack.schema.json'));
   const expected = {
@@ -114,7 +114,7 @@ test('adapter manifest v4 requires role projection and the fixed Hook contract',
     antigravity: ['preview', 'unsupported', 'unsupported', 'config-file'],
     opencode: ['unsupported', 'unsupported', 'unsupported', 'unsupported'],
   };
-  assert.equal(manifest.schemaVersion, 4);
+  assert.equal(manifest.schemaVersion, 5);
   for (const adapter of manifest.items) {
     assert.deepEqual([
       adapter.hookEvents.preToolUse,
@@ -123,10 +123,19 @@ test('adapter manifest v4 requires role projection and the fixed Hook contract',
       adapter.hookActivation,
     ], expected[adapter.id], adapter.id);
     assert.equal(typeof adapter.roleProjection.targetRoot, 'string', adapter.id);
+    assert.equal(adapter.executionAuthority.projectConfigMayAuthorize, false, adapter.id);
+    assert.equal(
+      adapter.executionAuthority.highRiskEnforcement === 'host-required',
+      adapter.hookActivation !== 'unsupported',
+      adapter.id,
+    );
   }
   const missing = structuredClone(manifest);
   delete missing.items[0].hookEvents;
   assert.match(validateJsonAgainstSchema(missing, schema, 'adapters').join('\n'), /hookEvents.*required|required.*hookEvents/iu);
+  const missingAuthority = structuredClone(manifest);
+  delete missingAuthority.items[0].executionAuthority;
+  assert.match(validateJsonAgainstSchema(missingAuthority, schema, 'adapters').join('\n'), /executionAuthority.*required|required.*executionAuthority/iu);
 });
 
 test('adapter Hook templates match the event-level manifest exactly', async () => {
@@ -220,17 +229,17 @@ test('canonical schema validation enforces numeric and string constraints and re
 test('manifest validation rejects missing sources and duplicate ids', () => {
   assert.throws(() => validateCatalogManifest('rules', { schemaVersion: 1, items: [{ id: 'core' }] }), /source is required/u);
   assert.throws(() => validateCatalogManifest('rules', { schemaVersion: 1, items: [
-    { id: 'core', source: 'rules/governance-core.md' },
-    { id: 'core', source: 'rules/codebase-memory-mcp.md' },
+    { id: 'core', source: 'docs/rules/governance-core.md' },
+    { id: 'core', source: 'docs/rules/codebase-memory-mcp.md' },
   ] }), /Duplicate manifest id/u);
 });
 
 test('install map validation rejects unknown groups and unsafe red-zone mappings', () => {
   assert.throws(() => validateInstallMapShape({ adapter: 'codex', entries: [
-    { contentStrategy: 'replace', group: 'unknown', source: 'rules/governance-core.md', target: 'docs/rules/governance-core.md' },
+    { contentStrategy: 'replace', group: 'unknown', source: 'docs/rules/governance-core.md', target: 'docs/rules/governance-core.md' },
   ] }, new Set(['rules-minimal'])), /Unknown install-map group/u);
   assert.throws(() => validateInstallMapShape({ adapter: 'codex', entries: [
-    { contentStrategy: 'replace', group: 'rules-minimal', source: 'rules/governance-core.md', target: '.codex/hooks.json' },
+    { contentStrategy: 'replace', group: 'rules-minimal', source: 'docs/rules/governance-core.md', target: '.codex/hooks.json' },
   ] }, new Set(['rules-minimal'])), /redZone/u);
 });
 
@@ -327,7 +336,7 @@ test('self-installed artifacts must stay in sync with their sources', async () =
     entries: [{
       contentStrategy: 'replace',
       group: 'rules-core',
-      source: 'rules/project-specific-rules.md',
+      source: 'docs/rules/project-specific-rules.md',
       target: 'docs/rules/governance-core.md',
     }],
   };
@@ -382,6 +391,45 @@ test('skill metadata quality rejects mixed-script and pack-split descriptions', 
     // An all-Chinese pack is a valid single-script state.
     const chineseTwo = await writeSkill('chinese-two', '用于在浏览器功能实现与调试时做自动化验收和页面验证。');
     assert.deepEqual(await validateSkillMetadataQuality(target, [chinese, chineseTwo]), []);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('skill metadata quality rejects duplicate descriptions', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-skill-duplicates-'));
+  try {
+    const items = [];
+    for (const id of ['first-skill', 'second-skill']) {
+      const dir = path.join(target, id);
+      await mkdir(dir, { recursive: true });
+      await writeFile(path.join(dir, 'SKILL.md'), '---\nname: ' + id + '\ndescription: Use this skill for reviewing delivery evidence.\n---\n\n# Skill\n');
+      items.push({ id, source: id + '/SKILL.md' });
+    }
+    const errors = await validateSkillMetadataQuality(target, items);
+    assert.match(errors.join('\n'), /duplicate Skill description/u);
+    const duplicateDir = path.join(target, 'third-skill');
+    await mkdir(duplicateDir, { recursive: true });
+    await writeFile(path.join(duplicateDir, 'SKILL.md'), '---\nname: first-skill\ndescription: A distinct description for this skill.\n---\n\n# Skill\n');
+    const nameErrors = await validateSkillMetadataQuality(target, [items[0], { id: 'third-skill', source: 'third-skill/SKILL.md' }]);
+    assert.match(nameErrors.join('\n'), /duplicate Skill name/u);
+    const mismatchErrors = await validateSkillMetadataQuality(target, [items[0], { id: 'other-skill', source: 'third-skill/SKILL.md' }]);
+    assert.match(mismatchErrors.join('\n'), /frontmatter name must match manifest id/u);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('skill graph rejects identity fields duplicated in metadata', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-skill-metadata-identity-'));
+  try {
+    const skillDir = path.join(target, 'example-skill');
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(path.join(skillDir, 'SKILL.md'), '---\nname: example-skill\ndescription: Use this skill for reviewing delivery evidence.\n---\n\n# Example\n');
+    await writeFile(path.join(skillDir, 'metadata.json'), JSON.stringify({ id: 'example-skill', name: 'wrong', description: 'wrong' }));
+    const errors = await validateSkillGraph(target, [{ id: 'example-skill', source: 'example-skill/SKILL.md', metadata: 'example-skill/metadata.json', kind: 'integration', requiresSkills: [], optionalSkills: [], requiresTools: [] }], [], { installEntries: [] });
+    assert.match(errors.join('\n'), /metadata must not define name/u);
+    assert.match(errors.join('\n'), /metadata must not define description/u);
   } finally {
     await rm(target, { force: true, recursive: true });
   }

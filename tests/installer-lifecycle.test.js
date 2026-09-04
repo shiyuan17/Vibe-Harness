@@ -207,6 +207,22 @@ test('upgrade retires unchanged flow Skills and reports user-modified copies as 
   }
 });
 
+test('upgrade with preserve-retired keeps unchanged retired assets', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-preserve-retired-'));
+  try {
+    await seedRetiredFlowSkills(target);
+    await runCli(['init', '--project', target]);
+    const result = await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'core', '--write', '--upgrade', '--force', '--preserve-retired']);
+    assert.equal(result.retired.length, 0);
+    assert.deepEqual(result.retained.sort(), ['.agents/skills/brainstorming/SKILL.md', '.agents/skills/using-vibe-harness/SKILL.md', '.agents/skills/writing-plans/SKILL.md']);
+    assert.equal(await exists(path.join(target, '.agents/skills/using-vibe-harness/SKILL.md')), true);
+    assert.equal(await exists(path.join(target, '.agents/skills/brainstorming/SKILL.md')), true);
+    assert.equal(await exists(path.join(target, '.agents/skills/writing-plans/SKILL.md')), true);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
 test('agentmemory upgrade dry-run retires only legacy entries tracked by install state', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-agentmemory-retire-preview-'));
   try {

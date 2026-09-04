@@ -9,6 +9,24 @@ import { loadRolePack, projectRole } from './role-projection.js';
 
 const REQUIRED_ROLE_SECTIONS = ['## 决策方式', '## 质疑重点', '## 交付物', '## 禁止事项'];
 
+function normalizeRoleContent(content) {
+  return content.replace(/\r\n?/gu, '\n').trim();
+}
+
+export function findDuplicateRoleContents(entries = []) {
+  const owners = new Map();
+  const duplicates = [];
+  for (const entry of entries) {
+    const raw = typeof entry === 'string' ? entry : entry.content ?? '';
+    const normalized = normalizeRoleContent(raw);
+    const id = typeof entry === 'string' ? entry : entry.id ?? normalized;
+    const owner = owners.get(normalized);
+    if (owner && owner !== id) duplicates.push([owner, id]);
+    else owners.set(normalized, id);
+  }
+  return duplicates;
+}
+
 function parseFrontmatter(content, label) {
   if (!content.startsWith('---\n')) throw new Error(label + ' must start with YAML frontmatter.');
   const end = content.indexOf('\n---\n', 4);
@@ -72,6 +90,8 @@ export async function runRolesAudit(rootDir) {
   }
 
   const adapters = await loadAdapterCatalog(rootDir);
+  const rolePromptOwners = new Map();
+  const projectionOwners = new Map();
   for (const role of rolePack.items) {
     try {
       assertPortableRelativePath(role.promptSource, 'role prompt source');
@@ -79,6 +99,13 @@ export async function runRolesAudit(rootDir) {
       assertInsideDir(rootDir, source, 'role prompt source');
       await assertSafePathInside(rootDir, source, 'role prompt source');
       const rolePrompt = await readFile(source, 'utf8');
+      const normalizedPrompt = normalizeRoleContent(rolePrompt);
+      const promptOwner = rolePromptOwners.get(normalizedPrompt);
+      if (promptOwner && promptOwner !== role.id) {
+        errors.push('Roles ' + promptOwner + ' and ' + role.id + ' have duplicate complete role prompt content.');
+      } else {
+        rolePromptOwners.set(normalizedPrompt, role.id);
+      }
       for (const section of REQUIRED_ROLE_SECTIONS) {
         if (!rolePrompt.includes(section)) errors.push('Role ' + role.id + ' is missing ' + section + '.');
       }
@@ -90,6 +117,13 @@ export async function runRolesAudit(rootDir) {
       for (const adapter of adapters.items) {
         const first = projectRole(compiled, adapter);
         const second = projectRole(compiled, adapter);
+        const projectionKey = adapter.id + '\u0000' + normalizeRoleContent(first);
+        const projectionOwner = projectionOwners.get(projectionKey);
+        if (projectionOwner && projectionOwner !== role.id) {
+          errors.push(adapter.id + ' roles ' + projectionOwner + ' and ' + role.id + ' have duplicate complete role projections.');
+        } else {
+          projectionOwners.set(projectionKey, role.id);
+        }
         if (first !== second) errors.push(adapter.id + ' projection for ' + role.id + ' is not deterministic.');
         if (adapter.roleProjection.format === 'codex-toml') {
           const parsed = parseToml(first);
