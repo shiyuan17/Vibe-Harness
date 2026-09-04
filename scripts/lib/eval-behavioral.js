@@ -4,7 +4,7 @@ import path from 'node:path';
 export const CONTROLS = [
   {
     id: 'BEHAVIOR-RULE-001',
-    relative: 'rules/governance-core.md',
+    relative: 'docs/rules/governance-core.md',
     required: [
       '获取可信事实 → 判定并执行 → 聚焦验证 → 简洁交付',
       '证据强度匹配行动风险',

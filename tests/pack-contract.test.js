@@ -12,7 +12,7 @@ const validFiles = [
   'scripts/vibe-harness.js',
   'adapters/codex/AGENTS.template.md',
   'manifests/profiles.json',
-  'rules/governance-core.md',
+  'docs/rules/governance-core.md',
   'runtime/hooks/codex-hook.mjs',
   'schemas/project-config.schema.json',
   'skills/core/example/SKILL.md',

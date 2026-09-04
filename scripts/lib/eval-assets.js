@@ -5,7 +5,7 @@ import path from 'node:path';
 const ASSET_GROUPS = {
   config: ['vibe-harness.config.json', 'manifests', 'schemas'],
   hooks: ['runtime/hooks', '.agents/runtime/hooks'],
-  rules: ['rules', 'docs/rules'],
+  rules: ['docs/rules'],
   skills: ['skills', '.agents/skills'],
 };
 

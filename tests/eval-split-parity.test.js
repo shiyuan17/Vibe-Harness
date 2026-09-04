@@ -86,7 +86,7 @@ const SPLIT_CASE_SPECS = {
 
 test('EVAL-SPLIT fixture keeps threshold parity with the governance-core rule source', async () => {
   const [rule, suite] = await Promise.all([
-    readFile(path.join(rootDir, 'rules/governance-core.md'), 'utf8'),
+    readFile(path.join(rootDir, 'docs/rules/governance-core.md'), 'utf8'),
     readJson(path.join(rootDir, 'evals/suites/vibe-harness-online-canary.json')),
   ]);
   const cases = suite.cases.filter((item) => item.id.startsWith('EVAL-SPLIT-'));

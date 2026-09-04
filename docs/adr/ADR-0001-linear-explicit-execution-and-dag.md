@@ -69,6 +69,6 @@ Review this decision if Linear introduces a native execution-instance primitive 
 ## More Information
 
 - Linear workflow specification: docs/specs/linear-multi-agent-workflow-spec.md
-- Packaged rule: rules/linear-workflow.md
+- Packaged rule: docs/rules/linear-workflow.md
 - Integration Skill: skills/integrations/linear-workflow/SKILL.md
 - Public references: Linear Assign and delegate issues, AI Agents, Parent and sub-issues, Issue relations, Issue statuses, and Linear MCP documentation.

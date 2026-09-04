@@ -8,7 +8,7 @@ import { createInstallPlan, renderActionContent } from '../scripts/lib/install-p
 const rootDir = path.resolve(import.meta.dirname, '..');
 
 test('execution kernel keeps direct execution and optional task records', async () => {
-  const kernel = await readFile(path.join(rootDir, 'rules/governance-core.md'), 'utf8');
+  const kernel = await readFile(path.join(rootDir, 'docs/rules/governance-core.md'), 'utf8');
   assert.match(kernel, /获取可信事实.*判定并执行.*聚焦验证.*简洁交付/u);
   assert.match(kernel, /清晰、已授权、证据充分.*直接实施/u);
   assert.match(kernel, /任务 Markdown 是可选的人读记录/u);
@@ -16,7 +16,7 @@ test('execution kernel keeps direct execution and optional task records', async 
 });
 
 test('fact sufficiency is risk-proportionate and routes remaining ambiguity', async () => {
-  const kernel = await readFile(path.join(rootDir, 'rules/governance-core.md'), 'utf8');
+  const kernel = await readFile(path.join(rootDir, 'docs/rules/governance-core.md'), 'utf8');
   for (const tier of ['快速', '轻量', '完整']) assert.match(kernel, new RegExp(tier, 'u'));
   assert.match(kernel, /证据强度.*行动风险/u);
   assert.match(kernel, /不要求.*机械.*双来源/u);
@@ -28,15 +28,15 @@ test('fact sufficiency is risk-proportionate and routes remaining ambiguity', as
 });
 
 test('evidence labels stay human-readable and do not become workflow gates', async () => {
-  const kernel = await readFile(path.join(rootDir, 'rules/governance-core.md'), 'utf8');
+  const kernel = await readFile(path.join(rootDir, 'docs/rules/governance-core.md'), 'utf8');
   assert.match(kernel, /不形成机器状态、完成门禁或固定交付格式/u);
   assert.match(kernel, /不得据此推断产品通过或失败/u);
 });
 
 test('lightweight Task DAG is optional and defines deterministic collaboration semantics', async () => {
   const [kernel, collaboration] = await Promise.all([
-    readFile(path.join(rootDir, 'rules/governance-core.md'), 'utf8'),
-    readFile(path.join(rootDir, 'rules/ai-collab-rules.md'), 'utf8'),
+    readFile(path.join(rootDir, 'docs/rules/governance-core.md'), 'utf8'),
+    readFile(path.join(rootDir, 'docs/rules/ai-collab-rules.md'), 'utf8'),
   ]);
   assert.match(kernel, /两个以上协作单元.*轻量 Task DAG/u);
   assert.match(kernel, /简单任务不创建 DAG/u);
@@ -106,7 +106,7 @@ test('capability catalog and online canary register lightweight Task DAG coverag
 });
 
 test('plan split judgment gates execution without becoming a workflow gate', async () => {
-  const kernel = await readFile(path.join(rootDir, 'rules/governance-core.md'), 'utf8');
+  const kernel = await readFile(path.join(rootDir, 'docs/rules/governance-core.md'), 'utf8');
   assert.match(kernel, /不默认直接执行，也不默认拆分/u);
   assert.match(kernel, /命中任一硬触发即拆分，不计入软信号/u);
   assert.match(kernel, /0–1 项直接执行计划；2–3 项拆分为实施任务；4 项及以上必须拆分并显式声明任务依赖/u);
@@ -157,8 +157,8 @@ test('capability catalog and online canary register plan task split coverage', a
 
 test('Linear projection preserves native DAG dependency and fan-in semantics', async () => {
   const [collaboration, linear] = await Promise.all([
-    readFile(path.join(rootDir, 'rules/ai-collab-rules.md'), 'utf8'),
-    readFile(path.join(rootDir, 'rules/linear-workflow.md'), 'utf8'),
+    readFile(path.join(rootDir, 'docs/rules/ai-collab-rules.md'), 'utf8'),
+    readFile(path.join(rootDir, 'docs/rules/linear-workflow.md'), 'utf8'),
   ]);
   assert.match(linear, /Scope 是 writeScope 的 Linear 投影/u);
   assert.match(linear, /all_done.*不能把失败 DAG 或 Root 判为成功/u);

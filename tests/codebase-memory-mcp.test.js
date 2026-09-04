@@ -49,7 +49,7 @@ test('Vibe-Harness removes the CodeGraph CLI integration and doctor report', asy
 
 test('codebase-memory-mcp rule uses MCP tools and a repository-search fallback without global writes', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-codebase-memory-profile-'));
-  const rulePath = path.join(rootDir, 'rules/codebase-memory-mcp.md');
+  const rulePath = path.join(rootDir, 'docs/rules/codebase-memory-mcp.md');
   const ruleSource = await readFile(rulePath, 'utf8');
   const marker = String.fromCharCode(96);
   const rule = ruleSource.replaceAll('<code>', marker).replaceAll('</code>', marker);
@@ -66,7 +66,7 @@ test('codebase-memory-mcp rule uses MCP tools and a repository-search fallback w
     assert.equal(rule.includes('codebase-memory-mcp install'), false);
     assert.equal(agents.includes('codebase-memory-mcp'), false);
     assert.equal(agents.toLowerCase().includes('codegraph'), false);
-    assert.equal(await exists(path.join(rootDir, 'rules/codegraph.md')), false);
+    assert.equal(await exists(path.join(rootDir, 'docs/rules/codegraph.md')), false);
 
     await execFileAsync(process.execPath, [cliPath, 'init', '--project', target]);
     const core = await execFileAsync(process.execPath, [cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'core', '--dry-run', '--verbose']);

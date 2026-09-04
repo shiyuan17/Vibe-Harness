@@ -46,7 +46,7 @@ const validState = {
       group: 'rules',
       previousHash: 'prev-hash',
       redZone: true,
-      source: 'rules/git-rules.md',
+      source: 'docs/rules/git-rules.md',
       sourceHash: 'src-hash',
       target: 'docs/rules/git-rules.md',
       targetHash: 'tgt-hash',

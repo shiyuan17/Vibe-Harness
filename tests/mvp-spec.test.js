@@ -409,7 +409,7 @@ test('full profile adds three domain skills and hooks without memory or tool plu
 });
 
 test('installed project directory rules use Chinese user-visible bullet text', async () => {
-  const content = await readFile(path.join(rootDir, 'rules/project-directory.md'), 'utf8');
+  const content = await readFile(path.join(rootDir, 'docs/rules/project-directory.md'), 'utf8');
 
   for (const englishFragment of [
     'Shared directories contain capabilities',

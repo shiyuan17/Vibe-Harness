@@ -67,8 +67,8 @@ Review this decision after the four-week observation window, when continuous dep
 
 ## More Information
 
-- Linear workflow rule: rules/linear-workflow.md
-- Git rule: rules/git-rules.md
+- Linear workflow rule: docs/rules/linear-workflow.md
+- Git rule: docs/rules/git-rules.md
 - GitHub delivery guide: docs/github-delivery.md
 - Linear workflow specification: docs/specs/linear-multi-agent-workflow-spec.md
 - Release Issue template: skills/integrations/linear-workflow/references/release-issue.md
