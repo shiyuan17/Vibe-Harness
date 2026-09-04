@@ -571,10 +571,12 @@ export function finalChangeValidationSummary(workflowEvents) {
   const closureAcceptances = workflowEvents.filter((event) => event.kind === 'closure' && event.accepted === true);
   if (changes.length === 0) {
     return {
+      changeSetBound: false,
       failedAfterFinalChangeCount: 0,
       handoffBound: false,
       materialChangeCount: 0,
       repairRerunObserved: false,
+      relevanceReviewed: false,
       status: 'not-applicable',
       successfulAfterFinalChangeCount: 0,
       verificationAfterFinalChangeCount: 0,
@@ -591,32 +593,32 @@ export function finalChangeValidationSummary(workflowEvents) {
   const handoffBound = lastSuccessfulIndex !== null
     && handoffs.some((event) => event.index > lastSuccessfulIndex);
   const handoffIndex = handoffs.at(-1)?.index ?? null;
-  const relevanceReviewed = relevanceReviews.some((event) => event.index > lastChangeIndex
-    && (handoffIndex === null || event.index < handoffIndex));
+  const relevanceReviewed = lastSuccessfulIndex !== null
+    && relevanceReviews.some((event) => event.index > lastSuccessfulIndex
+      && (handoffIndex === null || event.index < handoffIndex));
   const closureAccepted = closureAcceptances.some((event) => event.index > (lastSuccessfulIndex ?? lastChangeIndex)
     && (handoffIndex === null || event.index < handoffIndex));
-  const changeSetBound = relevanceReviewed && successful.length > 0;
+  const changeSetBound = relevanceReviewed;
   const repairRerunObserved = beforeFinalChange.some((event) => !event.succeeded && event.index > previousChangeIndex)
     && successful.length > 0;
   let status = 'missing';
   if (afterFinalChange.length > 0 && successful.length === 0) status = 'failed';
+  else if (successful.length > 0 && !changeSetBound) status = 'missing';
   else if (successful.length > 0 && !handoffBound) status = 'handoff-unbound';
   else if (successful.length > 0) status = 'verified';
   const summary = {
+    changeSetBound,
     failedAfterFinalChangeCount: failed.length,
     handoffBound,
     materialChangeCount: changes.length,
     repairRerunObserved,
+    relevanceReviewed,
     status,
     successfulAfterFinalChangeCount: successful.length,
     verificationAfterFinalChangeCount: afterFinalChange.length,
     verificationBeforeFinalChangeCount: beforeFinalChange.length,
   };
-  if (relevanceReviews.length > 0 || closureAcceptances.length > 0) {
-    summary.changeSetBound = changeSetBound;
-    summary.relevanceReviewed = relevanceReviewed;
-    summary.closureAccepted = closureAccepted;
-  }
+  if (closureAcceptances.length > 0) summary.closureAccepted = closureAccepted;
   return summary;
 }
 
@@ -739,8 +741,10 @@ export function transcript(stdout) {
         if (event.type === 'item.completed' && isMaterialChangeItem(event.item)) workflowEvents.push({ index: eventIndex, kind: 'change' });
         else if (event.type === 'item.completed' && event.item.type === 'agent_message') {
           const messageText = event.item.text ?? event.message?.content ?? event.text;
-          workflowEvents.push(...workflowReviewEvents(messageText, eventIndex, event.item));
-          workflowEvents.push({ index: workflowEvents.length, kind: 'handoff', ...handoffContract(messageText, event.item) });
+          const reviewEvents = workflowReviewEvents(messageText, eventIndex, event.item);
+          const handoff = handoffContract(messageText, event.item);
+          workflowEvents.push(...reviewEvents);
+          if (handoff) workflowEvents.push({ index: eventIndex, kind: 'handoff', ...handoff });
         }
         const isToolEvent = ['item.started', 'item.completed'].includes(event.type)
           && !['agent_message', 'error', 'reasoning'].includes(event.item.type);

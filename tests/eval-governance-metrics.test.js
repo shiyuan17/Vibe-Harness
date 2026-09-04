@@ -17,7 +17,23 @@ import {
   toolSemanticSummary,
   transcript,
 } from '../runtime/evals/codex-runner.mjs';
-import { taskEpisode } from '../runtime/evals/lib/knowledge-coverage.mjs';
+import { completionClaimStatus, lifecycleDecision, taskEpisode } from '../runtime/evals/lib/knowledge-coverage.mjs';
+
+test('lifecycle decisions stop terminal and unsafe continuation states', () => {
+  assert.deepEqual(lifecycleDecision({ goalStatus: 'complete', hasNewInput: true }), { action: 'stop', reason: 'terminal-condition' });
+  assert.deepEqual(lifecycleDecision({ continuationRequested: true }), { action: 'stop', reason: 'no-new-input' });
+  assert.deepEqual(lifecycleDecision({ continuationRequested: true, approvalPending: true }), { action: 'stop', reason: 'approval-pending' });
+  assert.deepEqual(lifecycleDecision({ continuationRequested: true, blockerCount: 3 }), { action: 'stop', reason: 'repeated-blocker' });
+  assert.deepEqual(lifecycleDecision({ continuationRequested: true, workspaceDrift: true }), { action: 'stop', reason: 'workspace-drift' });
+  assert.deepEqual(lifecycleDecision({ continuationRequested: true, unownedHead: true }), { action: 'stop', reason: 'unowned-head' });
+  assert.deepEqual(lifecycleDecision({ continuationRequested: true, hasNewInput: true }), { action: 'continue', reason: 'explicit-continuation' });
+});
+
+test('completion claims require every acceptance item to pass', () => {
+  assert.equal(completionClaimStatus([{ id: 'compile', status: 'passed' }, { id: 'remote-migration', status: 'unverified' }]).complete, false);
+  assert.equal(completionClaimStatus([{ id: 'compile', status: 'passed' }, { id: 'remote-migration', status: 'passed' }]).complete, true);
+  assert.equal(completionClaimStatus([{ id: 'compile', status: 'unexpected' }]).items[0].status, 'unverified');
+});
 import { buildEvalReportModel } from '../scripts/lib/eval-report.js';
 import { summarizeTrials } from '../scripts/lib/eval-trials.js';
 import { validateJsonAgainstSchema } from '../scripts/lib/manifest.js';
@@ -494,7 +510,7 @@ test('validateEvalSuiteSemantics flags declared rule/skill ids absent from manif
     }],
   };
   const manifests = {
-    rules: { items: [{ id: 'governance-core', source: 'rules/governance-core.md' }] },
+    rules: { items: [{ id: 'governance-core', source: 'docs/rules/governance-core.md' }] },
     skills: { items: [{ id: 'eval-driven-development', source: 'skills/core/eval-driven-development/SKILL.md', metadata: 'm', kind: 'native' }] },
   };
   const errors = validateEvalSuiteSemantics(suite, manifests);

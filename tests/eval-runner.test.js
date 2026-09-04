@@ -63,13 +63,16 @@ test('controlled Task Episodes bind repair reruns and reject stale or failed che
     { index: 1, kind: 'verification', succeeded: false },
     { index: 2, kind: 'change' },
     { index: 3, kind: 'verification', succeeded: true },
-    { index: 4, kind: 'handoff' },
+    { index: 4, kind: 'relevance-review', reviewed: true },
+    { index: 5, kind: 'handoff' },
   ]);
   assert.deepEqual(repaired, {
+    changeSetBound: true,
     failedAfterFinalChangeCount: 0,
     handoffBound: true,
     materialChangeCount: 2,
     repairRerunObserved: true,
+    relevanceReviewed: true,
     status: 'verified',
     successfulAfterFinalChangeCount: 1,
     verificationAfterFinalChangeCount: 1,
@@ -83,6 +86,24 @@ test('controlled Task Episodes bind repair reruns and reject stale or failed che
   ]);
   assert.equal(failedWithoutRerun.status, 'failed');
   assert.equal(failedWithoutRerun.handoffBound, false);
+
+  const unreviewed = finalChangeValidationSummary([
+    { index: 0, kind: 'change' },
+    { index: 1, kind: 'verification', succeeded: true },
+    { index: 2, kind: 'handoff' },
+  ]);
+  assert.equal(unreviewed.status, 'missing');
+  assert.equal(unreviewed.changeSetBound, false);
+  assert.equal(unreviewed.relevanceReviewed, false);
+
+  const reviewBeforeFinalCheck = finalChangeValidationSummary([
+    { index: 0, kind: 'change' },
+    { index: 1, kind: 'relevance-review', reviewed: true },
+    { index: 2, kind: 'verification', succeeded: true },
+    { index: 3, kind: 'handoff' },
+  ]);
+  assert.equal(reviewBeforeFinalCheck.status, 'missing');
+  assert.equal(reviewBeforeFinalCheck.changeSetBound, false);
 
   const staleCheck = finalChangeValidationSummary([
     { index: 0, kind: 'verification', succeeded: true },
@@ -106,11 +127,17 @@ test('handoff fixture requires structured completion, reviewed check, and unreso
     },
   };
   const parsed = transcript(JSON.stringify(handoff));
+  assert.equal(parsed.workflowEvents.some((event) => event.kind === 'relevance-review'), false);
+  const reviewed = transcript(JSON.stringify({
+    type: 'item.completed',
+    item: { type: 'agent_message', text: '[VIBE_HARNESS_REVIEWED_RELEVANT_CHECK]' },
+  }));
+  assert.equal(reviewed.workflowEvents.some((event) => event.kind === 'relevance-review'), true);
   const base = {
     commands: [],
     demand: { taskFamily: 'handoff', expectedOwner: { kind: 'builtin', id: 'handoff' } },
     exitCode: 0,
-    finalChangeValidation: { status: 'verified' },
+    finalChangeValidation: { status: 'verified', relevanceReviewed: true },
     hiddenTests: { failed: 0 },
     messages: [],
     workflowEvents: parsed.workflowEvents,
@@ -131,6 +158,29 @@ test('handoff fixture requires structured completion, reviewed check, and unreso
     })).workflowEvents,
   });
   assert.equal(incomplete.stopBoundary, 'handoff-unbound');
+  assert.equal(incomplete.outcome, 'failed');
+
+  const unstructured = taskEpisode({
+    ...base,
+    workflowEvents: [{ index: 0, kind: 'handoff' }],
+  });
+  assert.equal(unstructured.stopBoundary, 'handoff-unbound');
+  assert.equal(unstructured.outcome, 'failed');
+
+  const latestUnstructured = taskEpisode({
+    ...base,
+    workflowEvents: [...parsed.workflowEvents, { index: 9, kind: 'handoff' }],
+  });
+  assert.equal(latestUnstructured.stopBoundary, 'handoff-unbound');
+  assert.equal(latestUnstructured.outcome, 'failed');
+});
+
+test('transcript records only explicit structured handoffs', () => {
+  const parsed = transcript(JSON.stringify({
+    type: 'item.completed',
+    item: { type: 'agent_message', text: 'ordinary progress update' },
+  }));
+  assert.equal(parsed.workflowEvents.some((event) => event.kind === 'handoff'), false);
 });
 
 const installedSkillOwners = [

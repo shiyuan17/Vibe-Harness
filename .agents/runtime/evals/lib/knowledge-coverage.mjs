@@ -115,21 +115,23 @@ export function taskEpisode(input) {
     || ((owner.kind === 'rule' || owner.kind === 'skill') && selected);
   const validationStatus = input.finalChangeValidation.status;
   const handoff = input.workflowEvents.some((event) => event.kind === 'handoff');
-  const handoffContract = input.workflowEvents.find((event) => event.kind === 'handoff' && event.structuredCompletion !== undefined);
-  const structuredHandoffComplete = !handoffContract || (
+  const lastHandoff = [...input.workflowEvents].reverse().find((event) => event.kind === 'handoff');
+  const handoffContract = lastHandoff?.structuredCompletion !== undefined ? lastHandoff : null;
+  const structuredHandoffComplete = !handoff || Boolean(handoffContract && (
     handoffContract.structuredCompletion
     && handoffContract.completionStatus === 'complete'
     && handoffContract.completionAccepted
-    && handoffContract.reviewedCheck
+    && (validationStatus === 'not-applicable' || input.finalChangeValidation.relevanceReviewed === true)
     && handoffContract.unresolvedDeclared
     && handoffContract.unresolvedOwners === handoffContract.unresolvedCount
-  );
+  ));
   const stopBoundary = input.exitCode !== 0 ? 'blocked'
     : validationStatus === 'verified' && structuredHandoffComplete ? 'verified-handoff'
       : validationStatus === 'handoff-unbound' || handoff ? 'handoff-unbound'
         : validationStatus === 'not-applicable' ? 'not-applicable' : 'failed';
   const outcome = input.degraded ? 'degraded'
-    : input.exitCode === 0 && input.hiddenTests.failed === 0 && ['verified', 'not-applicable'].includes(validationStatus)
+    : input.exitCode === 0 && input.hiddenTests.failed === 0 && structuredHandoffComplete
+      && ['verified', 'not-applicable'].includes(validationStatus)
       ? 'passed' : 'failed';
   const episode = {
     taskFamily,

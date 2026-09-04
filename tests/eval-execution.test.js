@@ -21,9 +21,9 @@ test('execution suite schema accepts the optional fixture.tests block', async ()
   ]);
   assert.deepEqual(validateJsonAgainstSchema(suite, schema, 'execution suite'), []);
   // tests is optional and present on every case.
-  assert.equal(suite.cases.every((item) => Array.isArray(item.input.fixture.tests) && item.input.fixture.tests.length > 0), true);
+  assert.equal(suite.cases.filter((item) => item.input.fixture).every((item) => Array.isArray(item.input.fixture.tests) && item.input.fixture.tests.length > 0), true);
   // command is a non-empty argv array, expectedExitCode is a non-negative integer.
-  for (const item of suite.cases) {
+  for (const item of suite.cases.filter((item) => item.input.fixture)) {
     assert.equal(item.input.fixture.allowedWritePaths.length, 1);
     for (const entry of item.input.fixture.tests) {
       assert.equal(Array.isArray(entry.command) && entry.command.length > 0, true);
@@ -75,25 +75,26 @@ test('execution suite hidden-test events are registered observers', async () => 
 
 test('execution suite contains five task-delivery-governance cases graded by hidden tests', async () => {
   const suite = await readJson(suitePath);
-  assert.equal(suite.cases.length, 5);
-  assert.equal(new Set(suite.cases.map((item) => item.id)).size, 5);
-  assert.equal(suite.cases.every((item) => item.category === 'task-delivery-governance'), true);
-  for (const item of suite.cases) {
+  const executionCases = suite.cases.filter((item) => item.capability === 'execution-correctness');
+  assert.equal(executionCases.length, 5);
+  assert.equal(new Set(executionCases.map((item) => item.id)).size, 5);
+  assert.equal(executionCases.every((item) => item.category === 'task-delivery-governance'), true);
+  for (const item of executionCases) {
     assert.equal(item.oracle.requiredEvents.some((entry) => entry.value === 'hidden-tests-passed' && entry.dimension === 'correctness' && entry.critical), true);
     assert.equal(item.oracle.forbiddenEvents.some((entry) => entry.value === 'hidden-tests-failed' && entry.dimension === 'correctness' && entry.critical), true);
     assert.equal(item.oracle.forbiddenEvents.some((entry) => entry.value === 'undeclared-workspace-write' && entry.dimension === 'safety' && entry.critical), true);
     assert.ok(item.weights.correctness > 0, 'correctness must carry positive weight');
   }
-  const visibleTests = suite.cases.filter((item) => item.input.fixture.files.some((file) => file.path === 'test.js'));
+  const visibleTests = executionCases.filter((item) => item.input.fixture.files.some((file) => file.path === 'test.js'));
   assert.deepEqual(visibleTests, []);
-  for (const item of suite.cases.filter((entry) => entry.id !== 'EVAL-EXEC-004')) {
+  for (const item of executionCases.filter((entry) => entry.id !== 'EVAL-EXEC-004')) {
     assert.deepEqual(item.input.fixture.tests[1].command.slice(0, 2), ['node', '-e']);
   }
   assert.deepEqual(suite.cases.find((item) => item.id === 'EVAL-EXEC-004').input.fixture.tests[1].command, ['node', 'test.js']);
-  assert.equal(suite.cases.every((item) => item.input.fixture.tests.map((testCase) => testCase.kind).join(',') === 'api-contract,behavior'), true);
-  assert.equal(suite.cases.every((item) => item.input.fixture.tests.map((testCase) => testCase.diagnosticCategory).join(',') === 'api-existence,behavior'), true);
-  assert.equal(suite.cases.every((item) => item.reporting.toolMetricMode === 'execute'), true);
-  const refactor = suite.cases.find((item) => item.id === 'EVAL-EXEC-003');
+  assert.equal(executionCases.every((item) => item.input.fixture.tests.map((testCase) => testCase.kind).join(',') === 'api-contract,behavior'), true);
+  assert.equal(executionCases.every((item) => item.input.fixture.tests.map((testCase) => testCase.diagnosticCategory).join(',') === 'api-existence,behavior'), true);
+  assert.equal(executionCases.every((item) => item.reporting.toolMetricMode === 'execute'), true);
+  const refactor = executionCases.find((item) => item.id === 'EVAL-EXEC-003');
   assert.match(refactor.input.scenario, /Hello, Ada![\s\S]*Hello, Ada, Alan![\s\S]*Hello, !/u);
 });
 

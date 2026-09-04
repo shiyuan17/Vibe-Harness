@@ -24,7 +24,7 @@ test('CI blocks offline eval drift and scheduled workflow runs advisory online c
   assert.match(ci, /supply-chain:/u);
   assert.match(ci, /risk-evidence:/u);
   assert.match(ci, /merge-gate:/u);
-  assert.match(ci, /needs:\s*\[product, supply-chain, risk-evidence\]/u);
+  assert.match(ci, /needs:\s*\[change-plan, product, supply-chain, risk-evidence\]/u);
   assert.match(online, /schedule:/u);
   assert.match(online, /workflow_dispatch:/u);
   assert.match(online, /environment:\s*Production/u);

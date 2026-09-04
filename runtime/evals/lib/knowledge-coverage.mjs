@@ -115,21 +115,23 @@ export function taskEpisode(input) {
     || ((owner.kind === 'rule' || owner.kind === 'skill') && selected);
   const validationStatus = input.finalChangeValidation.status;
   const handoff = input.workflowEvents.some((event) => event.kind === 'handoff');
-  const handoffContract = input.workflowEvents.find((event) => event.kind === 'handoff' && event.structuredCompletion !== undefined);
-  const structuredHandoffComplete = !handoffContract || (
+  const lastHandoff = [...input.workflowEvents].reverse().find((event) => event.kind === 'handoff');
+  const handoffContract = lastHandoff?.structuredCompletion !== undefined ? lastHandoff : null;
+  const structuredHandoffComplete = !handoff || Boolean(handoffContract && (
     handoffContract.structuredCompletion
     && handoffContract.completionStatus === 'complete'
     && handoffContract.completionAccepted
-    && handoffContract.reviewedCheck
+    && (validationStatus === 'not-applicable' || input.finalChangeValidation.relevanceReviewed === true)
     && handoffContract.unresolvedDeclared
     && handoffContract.unresolvedOwners === handoffContract.unresolvedCount
-  );
+  ));
   const stopBoundary = input.exitCode !== 0 ? 'blocked'
     : validationStatus === 'verified' && structuredHandoffComplete ? 'verified-handoff'
       : validationStatus === 'handoff-unbound' || handoff ? 'handoff-unbound'
         : validationStatus === 'not-applicable' ? 'not-applicable' : 'failed';
   const outcome = input.degraded ? 'degraded'
-    : input.exitCode === 0 && input.hiddenTests.failed === 0 && ['verified', 'not-applicable'].includes(validationStatus)
+    : input.exitCode === 0 && input.hiddenTests.failed === 0 && structuredHandoffComplete
+      && ['verified', 'not-applicable'].includes(validationStatus)
       ? 'passed' : 'failed';
   const episode = {
     taskFamily,
@@ -149,6 +151,24 @@ export function taskEpisode(input) {
     episode.unresolvedOwners = handoffContract.unresolvedOwners === handoffContract.unresolvedCount;
   }
   return episode;
+}
+
+export function lifecycleDecision({ goalStatus = 'active', hasNewInput = false, continuationRequested = false, terminalConditionReached = false, approvalPending = false, workspaceDrift = false, unownedHead = false, blockerCount = 0 }) {
+  if (goalStatus === 'complete' || terminalConditionReached) return { action: 'stop', reason: 'terminal-condition' };
+  if (approvalPending) return { action: 'stop', reason: 'approval-pending' };
+  if (workspaceDrift || unownedHead) return { action: 'stop', reason: workspaceDrift ? 'workspace-drift' : 'unowned-head' };
+  if (blockerCount >= 3) return { action: 'stop', reason: 'repeated-blocker' };
+  if (!hasNewInput) return { action: 'stop', reason: 'no-new-input' };
+  return { action: 'continue', reason: continuationRequested ? 'explicit-continuation' : 'new-input' };
+}
+
+export function completionClaimStatus(acceptance = []) {
+  const items = acceptance.map((item) => ({
+    id: item.id,
+    status: ['passed', 'failed', 'blocked', 'unverified'].includes(item.status) ? item.status : 'unverified',
+  }));
+  const complete = items.length > 0 && items.every((item) => item.status === 'passed');
+  return { complete, items };
 }
 
 export function reconcileKnowledgeCoverageEpisodes(episodes) {
