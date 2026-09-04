@@ -1,5 +1,9 @@
 # Skills 精简记录
 
+## 编写规范
+
+Skill 以 SKILL.md YAML frontmatter 的 name 和 description 作为唯一路由身份；metadata.json 仅保存 triggers、outputs 等辅助信息，不得重复定义身份字段。审计会阻断重复 name 或完全相同的 description，并检查 manifest、frontmatter 与 metadata 的 id 一致性；语义相近但文本不同的 description 只提示人工复核。
+
 当前 Vibe-Harness 只保留九个原生 Skills。`git-deliver` 仅允许显式调用，其他 Skill 由宿主按 description 原生选择：
 
 - `clarify-requirements`

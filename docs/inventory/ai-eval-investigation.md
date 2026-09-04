@@ -1,4 +1,4 @@
-﻿# AI 专属 Eval 体系调查报告
+# AI 专属 Eval 体系调查报告
 
 > 状态:调查报告(非门禁文档)
 > 日期:2026-07-30
@@ -38,7 +38,7 @@ Vibe-Harness 的 AI 专属 Eval 体系在**架构与契约层面已处于业界�
 
 | 文件 | 作用 |
 |---|---|
-| `docs/rules/eval-driven-development.md` + `rules/eval-driven-development.md` | 常驻契约(两份镜像)。8 条核心条款:修改非确定性 Agent 行为前须定义可观察失败场景;改前冻结同模型/runner/预算/指纹的参考结果;改后同条件重跑对比;critical 必须全过;reference 更新须单独审查;真实评测只在一次性项目跑;baseline ≠ evaluation reference;online 按 repetitions 多轮产出 trialSummaries(仅报告,不加阈值门禁) |
+| docs/rules/eval-driven-development.md | 唯一常驻契约。8 条核心条款:修改非确定性 Agent 行为前须定义可观察失败场景;改前冻结同模型/runner/预算/指纹的参考结果;改后同条件重跑对比;critical 必须全过;reference 更新须单独审查;真实评测只在一次性项目跑;baseline ≠ evaluation reference;online 按 repetitions 多轮产出 trialSummaries(仅报告,不加阈值门禁) |
 | `.agents/skills/eval-driven-development/SKILL.md` | 按需展开的 5 步执行流程,描述同一门禁。含 degraded 上报规则、禁自动更新 reference |
 | `docs/evals.md` | 评测总览:suite/run/reference 三合同、生命周期命令、pass@k(至少一次成功,能力上限)vs pass^k(多次全过,可靠性)定义 |
 
