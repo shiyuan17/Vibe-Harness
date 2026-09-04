@@ -13,7 +13,7 @@ description: Use to write, refine, or activate `/goal` or execution/exploration 
 2. 区分执行型与探索型；将指定技术手段视为待验证假设，优先表达用户结果。
 3. 只询问无法发现且会改变目标的决定；每轮最多三个，提供推荐项、互斥选择和结果影响。
 4. 高影响决定未关闭时返回阻塞草稿；低风险可逆选择可采用显式默认值并说明猜错代价。
-5. 生成不超过 4000 字符的 Goal Brief；已有可选任务记录时只引用路径，不复制状态。
+5. 生成不超过 4000 字符的 Goal Brief；高风险目标冻结风险、effects、workspace identity、外部目标、人工门、预算和终点，已有可选任务记录时只引用路径，不复制状态。
 
 ## 原生目标
 
@@ -21,6 +21,7 @@ description: Use to write, refine, or activate `/goal` or execution/exploration 
 - 只有用户明确要求激活且宿主暴露目标操作时才先检查当前目标并调用；成功后才声称已激活。
 - 未完成目标不得静默替换；缺少原生能力时返回可复制的 `/goal <内容>`，其他宿主返回普通提示词。
 - 目标不扩大授权、写入范围、审批、凭据或完成证据边界。
+- 每次自动续跑先重读原生 Goal、thread status、最新用户输入和 workspace identity；达到终点、等待审批、workspace 漂移或相同 blocker 连续三次时停止。没有原生 Goal bridge 时只返回可恢复 checkpoint，不跨 turn 自主续跑。
 
 ## 禁止
 
