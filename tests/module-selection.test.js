@@ -40,6 +40,19 @@ test('public modules resolve dependencies without exposing install-map groups', 
   assert.equal(selection.allowedGroups.has('mcp-config'), false);
 });
 
+test('project-scripts is a standalone deterministic runtime module and is included by core/full', () => {
+  const standalone = resolveModuleSelection({ requestedModules: ['project-scripts'] });
+  assert.deepEqual(standalone.resolvedModules, ['project-scripts']);
+  assert.deepEqual(standalone.implicitModules, []);
+  assert.equal(standalone.allowedGroups.has('runtime-project-scripts'), true);
+
+  for (const profile of ['core', 'full']) {
+    const selection = resolveModuleSelection({ profile });
+    assert.equal(selection.resolvedModules.includes('project-scripts'), true);
+    assert.equal(selection.allowedGroups.has('runtime-project-scripts'), true);
+  }
+});
+
 test('chrome-devtools module installs its rule, runtime, skills, and managed MCP surface', async () => {
   const selection = resolveModuleSelection({ requestedModules: ['chrome-devtools'] });
 
@@ -358,6 +371,7 @@ test('core and full install no tool plugins by default', async () => {
       assert.deepEqual(report.plannedToolActions, []);
       assert.deepEqual(report.requestedPlugins, []);
       assert.equal(report.actions.some((item) => item.relativeTarget.startsWith('.agents/runtime/tools/')), false);
+      assert.equal(report.actions.some((item) => item.relativeTarget === '.agents/runtime/commands/run.mjs'), true);
       assert.equal(report.actions.some((item) => item.relativeTarget === '.codex/config.toml'), false);
     }
   } finally {
