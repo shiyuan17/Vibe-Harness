@@ -51,13 +51,28 @@ test('validateJsonAgainstSchema enforces array uniqueItems and minItems', () => 
 
 test('assertSupportedSchemaKeywords rejects unsupported keywords', () => {
   assert.throws(
-    () => assertSupportedSchemaKeywords({ type: 'string', $defs: {} }),
+    () => assertSupportedSchemaKeywords({ type: 'string', unsupportedConstraint: true }),
     /Unsupported schema keyword/u,
   );
   assert.throws(
     () => assertSupportedSchemaKeywords({ properties: { a: { type: 'string', format: 'uri' } } }),
-    /Unsupported schema keyword/u,
+    /Unsupported schema format/u,
   );
+});
+
+test('validateJsonAgainstSchema resolves local definitions, union types, and date-time strings', () => {
+  const schema = {
+    type: 'object',
+    required: ['generatedAt', 'value'],
+    properties: {
+      generatedAt: { type: 'string', format: 'date-time' },
+      value: { $ref: '#/$defs/nullableValue' },
+    },
+    $defs: { nullableValue: { type: ['string', 'null'] } },
+    additionalProperties: false,
+  };
+  assert.deepEqual(validateJsonAgainstSchema({ generatedAt: '2026-09-05T00:00:00Z', value: null }, schema), []);
+  assert.ok(validateJsonAgainstSchema({ generatedAt: 'yesterday', value: 3 }, schema).length >= 2);
 });
 
 test('assertSupportedSchemaKeywords accepts the supported keyword set', () => {

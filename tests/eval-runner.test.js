@@ -114,6 +114,18 @@ test('controlled Task Episodes bind repair reruns and reject stale or failed che
   assert.equal(staleCheck.verificationBeforeFinalChangeCount, 1);
 });
 
+test('Codex transcript recognizes verification commands wrapped by a login shell', () => {
+  const parsed = transcript([
+    JSON.stringify({ type: 'item.completed', item: { type: 'file_change', status: 'completed' } }),
+    JSON.stringify({
+      type: 'item.completed',
+      item: { type: 'command_execution', command: "/bin/zsh -lc 'node --input-type=module - <<\"NODE\"'", status: 'completed', exit_code: 0 },
+    }),
+  ].join('\n'));
+  assert.equal(parsed.workflowEvents.some((event) => event.kind === 'verification' && event.succeeded), true);
+  assert.equal(parsed.traceEvents.some((event) => event.type === 'verification' && event.succeeded), true);
+});
+
 test('handoff fixture requires structured completion, reviewed check, and unresolved owners', () => {
   const handoff = {
     type: 'item.completed',

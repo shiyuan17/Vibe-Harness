@@ -135,13 +135,17 @@ async function fromCodexConfig({ backend, env, homeDir }) {
   const configPath = path.join(home, 'config.toml');
   if (!await isFile(configPath)) return null;
   const config = parseToml(await readFile(configPath, 'utf8'));
-  const providerName = requiredString(config.model_provider, 'Codex config model_provider');
-  const provider = config.model_providers?.[providerName];
-  if (!provider || typeof provider !== 'object') throw new Error(`Codex config provider is missing: ${providerName}`);
+  const providerName = config.model_provider === undefined
+    ? 'openai'
+    : requiredString(config.model_provider, 'Codex config model_provider');
+  const provider = config.model_provider === undefined ? null : config.model_providers?.[providerName];
+  if (config.model_provider !== undefined && (!provider || typeof provider !== 'object')) {
+    throw new Error(`Codex config provider is missing: ${providerName}`);
+  }
   const reasoning = config.model_reasoning_effort ?? 'medium';
   validateChoice(reasoning, REASONING_EFFORTS, 'Codex config model_reasoning_effort');
   const authFile = path.join(home, 'auth.json');
-  const requiresAuth = provider.requires_openai_auth !== false;
+  const requiresAuth = provider?.requires_openai_auth !== false;
   if (requiresAuth && !await isFile(authFile)) throw new Error('Codex auth.json is required by the configured provider');
   const configuredCommand = config.shell_environment_policy?.set?.CODEX_CLI_PATH;
   const environment = {
@@ -150,9 +154,9 @@ async function fromCodexConfig({ backend, env, homeDir }) {
     VIBE_HARNESS_EVAL_CODEX_BACKEND: backend,
     VIBE_HARNESS_EVAL_PROVIDER_NAME: providerName,
     VIBE_HARNESS_EVAL_PROVIDER_REQUIRES_AUTH: requiresAuth ? '1' : '0',
-    VIBE_HARNESS_EVAL_PROVIDER_WIRE_API: provider.wire_api ?? 'responses',
+    VIBE_HARNESS_EVAL_PROVIDER_WIRE_API: provider?.wire_api ?? 'responses',
     VIBE_HARNESS_EVAL_RUNTIME_SOURCE: 'codex',
-    OPENAI_BASE_URL: validateUrl(provider.base_url, 'Codex config provider base_url'),
+    ...(provider ? { OPENAI_BASE_URL: validateUrl(provider.base_url, 'Codex config provider base_url') } : {}),
     ...(requiresAuth ? { VIBE_HARNESS_EVAL_AUTH_FILE: authFile } : {}),
     ...(env.VIBE_HARNESS_CODEX_COMMAND
       ? { VIBE_HARNESS_CODEX_COMMAND: env.VIBE_HARNESS_CODEX_COMMAND }

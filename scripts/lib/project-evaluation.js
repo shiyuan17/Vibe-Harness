@@ -188,6 +188,7 @@ async function buildOnlineRun({ campaignId, command, config, now, suite, suitePa
   }
   const observations = [];
   const degraded = [];
+  const attempts = [];
   const caseRepetitions = [];
   const trialsByCase = new Map();
   let eligibleLegalWriteTrials = 0;
@@ -208,28 +209,63 @@ async function buildOnlineRun({ campaignId, command, config, now, suite, suitePa
       });
       if (result.status !== 'ready') {
         degraded.push(...result.diagnostics.map((item) => `${definition.id}: ${item}`));
+        attempts.push({
+          caseId: definition.id,
+          repetition,
+          status: 'degraded',
+          diagnostics: result.diagnostics,
+          code: result.code ?? 'EVAL_RUNNER_UNAVAILABLE',
+        });
         const safetyFalsePositive = (definition.input?.fixture?.allowedWritePaths ?? []).length > 0
           && result.diagnostics.some((item) => /sandbox-write-denied|policy-denied|workspace execution backend is unavailable/iu.test(item));
-        return {
-          attemptSummary: {
-            eligibleLegalWriteTrials,
-            infrastructureFailures: 1,
-            readyTrials: observations.length,
-            safetyFalsePositiveTrials: safetyFalsePositive ? 1 : 0,
-            startedTrials: observations.length + 1,
-          },
-          degraded,
-          run: null,
-        };
+        if (safetyFalsePositive) attempts.at(-1).safetyFalsePositive = true;
+        continue;
       }
       observations.push(result.observation);
+      attempts.push({
+        caseId: definition.id,
+        repetition,
+        status: 'ready',
+        passed: result.caseResult.passed,
+        score: result.caseResult.score,
+        criticalFailures: result.caseResult.criticalFailures,
+      });
       const group = trialsByCase.get(definition.id) ?? [];
       group.push({ caseResult: result.caseResult, observation: result.observation });
       trialsByCase.set(definition.id, group);
     }
   }
-  const results = suite.cases.map((definition) => trialsByCase.get(definition.id)[0].caseResult);
-  if (degraded.length > 0 || results.length === 0) return { degraded, run: null };
+  const completedDefinitions = suite.cases.filter((definition) => (trialsByCase.get(definition.id) ?? []).length > 0);
+  const results = completedDefinitions.map((definition) => {
+    const trials = trialsByCase.get(definition.id).map((item) => item.caseResult);
+    const first = trials[0];
+    const mean = (values) => values.reduce((total, value) => total + value, 0) / values.length;
+    return {
+      ...first,
+      passed: trials.every((item) => item.passed),
+      flakyFailure: trials.some((item) => item.flakyFailure),
+      score: mean(trials.map((item) => item.score)),
+      criticalAssertions: trials.reduce((total, item) => total + item.criticalAssertions, 0),
+      criticalFailures: trials.reduce((total, item) => total + item.criticalFailures, 0),
+      dimensionScores: Object.fromEntries(Object.keys(first.dimensionScores).map((dimension) => [
+        dimension,
+        mean(trials.map((item) => item.dimensionScores[dimension])),
+      ])),
+      assertions: trials.flatMap((item) => item.assertions),
+    };
+  });
+  if (results.length === 0) return {
+    attemptSummary: {
+      eligibleLegalWriteTrials,
+      infrastructureFailures: attempts.filter((item) => item.status === 'degraded').length,
+      readyTrials: 0,
+      safetyFalsePositiveTrials: attempts.filter((item) => item.safetyFalsePositive).length,
+      startedTrials: attempts.length,
+    },
+    attempts,
+    degraded,
+    run: null,
+  };
   const first = observations[0];
   const fingerprint = {
     suiteHash: suiteHash(suite),
@@ -255,19 +291,21 @@ async function buildOnlineRun({ campaignId, command, config, now, suite, suitePa
     }
   }
   const aggregate = aggregateCaseScores(results);
-  const trialSummaries = suite.cases.map((definition) => summarizeTrials(definition.id, trialsByCase.get(definition.id)));
+  const trialSummaries = completedDefinitions.map((definition) => summarizeTrials(definition.id, trialsByCase.get(definition.id)));
   const reliabilityDiagnostics = trialSummaries
     .filter((item) => item.passCaretK === 0)
     .map((item) => `reliability variance: ${item.caseId} passed ${item.passedTrials}/${item.repetitions} trials`);
+  const attemptSummary = {
+    eligibleLegalWriteTrials,
+    infrastructureFailures: attempts.filter((item) => item.status === 'degraded').length,
+    readyTrials: observations.length,
+    safetyFalsePositiveTrials: attempts.filter((item) => item.safetyFalsePositive).length,
+    startedTrials: attempts.length,
+  };
   return {
-    attemptSummary: {
-      eligibleLegalWriteTrials,
-      infrastructureFailures: 0,
-      readyTrials: observations.length,
-      safetyFalsePositiveTrials: 0,
-      startedTrials: observations.length,
-    },
-    degraded: [],
+    attemptSummary,
+    attempts,
+    degraded,
     run: {
       schemaVersion: 2,
       campaignId,
@@ -276,23 +314,18 @@ async function buildOnlineRun({ campaignId, command, config, now, suite, suitePa
       suite: { id: suite.id, version: suite.version, hash: fingerprint.suiteHash, path: suitePath },
       mode: 'online',
       proof: 'online-canary',
-      status: results.every((item) => item.passed) ? 'passed' : 'failed',
+      status: degraded.length > 0 ? 'degraded' : results.every((item) => item.passed) ? 'passed' : 'failed',
       fingerprint,
       ...(runtime ? { runtime } : {}),
       caseRepetitions,
       cases: results,
       trialSummaries,
-      attemptSummary: {
-        eligibleLegalWriteTrials,
-        infrastructureFailures: 0,
-        readyTrials: observations.length,
-        safetyFalsePositiveTrials: 0,
-        startedTrials: observations.length,
-      },
+      attemptSummary,
+      attempts,
       capabilities: aggregate.capabilities,
       overallScore: aggregate.overallScore,
       criticalPassRate: aggregate.criticalPassRate,
-      diagnostics: reliabilityDiagnostics,
+      diagnostics: [...reliabilityDiagnostics, ...degraded],
     },
   };
 }
@@ -325,7 +358,7 @@ export async function runProjectEvaluations({ campaignId = `campaign-${Date.now(
         targetDir,
         relative,
         label: 'degraded evaluation diagnostic',
-        value: {
+        value: online?.run ?? {
           schemaVersion: 2,
           campaignId,
           generatedAt: now.toISOString(),
@@ -348,11 +381,12 @@ export async function runProjectEvaluations({ campaignId = `campaign-${Date.now(
           },
           diagnostics: warnings,
           ...(online?.attemptSummary ? { attemptSummary: online.attemptSummary } : {}),
+          ...(online?.attempts ? { attempts: online.attempts } : {}),
         },
       });
       written.push(relative);
     }
-    return { dryRun: !write, ok: false, status: 'degraded', warnings, written };
+    return { dryRun: !write, ok: false, run: online?.run ?? null, status: 'degraded', warnings, written };
   }
   const run = online?.run ?? await buildOfflineRun(suite, {
     assetRoot: targetDir,

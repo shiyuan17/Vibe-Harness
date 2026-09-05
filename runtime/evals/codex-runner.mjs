@@ -214,7 +214,7 @@ function workspaceWriteSummary(request, before, after) {
 }
 
 function isVerificationCommand(command) {
-  return /(?:^|[;&|\s])(?:node\s+(?:--test|-e\b|-\s*<<|\S*(?:test|check|verify)\S*\.m?js\b)|npm\s+(?:run\s+)?test\b|pnpm\s+(?:run\s+)?(?:test|lint|check|typecheck)\b|yarn\s+(?:test|lint|check|typecheck)\b|bun\s+test\b|npx\s+(?:jest|vitest|eslint|tsc)\b|pytest\b|cargo\s+test\b|go\s+test\b)/iu.test(command);
+  return /(?:^|[;&|\s'"])(?:node\s+(?:(?:--[A-Za-z0-9_-]+(?:=[^\s]+)?\s+)*)(?:--test|-e\b|-\s*<<|\S*(?:test|check|verify)\S*\.m?js\b)|npm\s+(?:run\s+)?test\b|pnpm\s+(?:run\s+)?(?:test|lint|check|typecheck)\b|yarn\s+(?:test|lint|check|typecheck)\b|bun\s+test\b|npx\s+(?:jest|vitest|eslint|tsc)\b|pytest\b|cargo\s+test\b|go\s+test\b)/iu.test(command);
 }
 
 export function isGitCommitCommand(command) {
@@ -726,6 +726,7 @@ export function transcript(stdout) {
   const toolTypes = [];
   const toolOutcomes = [];
   const toolInvocationRecords = [];
+  const traceEvents = [];
   const workflowEvents = [];
   let sessionId = null;
   const tokenUsage = { cachedInputTokens: 0, inputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: 0 };
@@ -738,7 +739,13 @@ export function transcript(stdout) {
       if (typeof event.item?.type === 'string') {
         events.push(event.item.type);
         const eventIndex = workflowEvents.length;
-        if (event.type === 'item.completed' && isMaterialChangeItem(event.item)) workflowEvents.push({ index: eventIndex, kind: 'change' });
+        if (event.type === 'item.completed' && isMaterialChangeItem(event.item)) {
+          workflowEvents.push({ index: eventIndex, kind: 'change' });
+          traceEvents.push({
+            type: 'change', source: 'agent',
+            timestamp: event.timestamp ?? new Date(traceEvents.length).toISOString(),
+          });
+        }
         else if (event.type === 'item.completed' && event.item.type === 'agent_message') {
           const messageText = event.item.text ?? event.message?.content ?? event.text;
           const reviewEvents = workflowReviewEvents(messageText, eventIndex, event.item);
@@ -777,17 +784,42 @@ export function transcript(stdout) {
             outcome.fatal = ['sandbox-write-denied', 'policy-denied', 'tool-unavailable'].includes(category);
           }
           toolOutcomes.push(outcome);
+          traceEvents.push({
+            type: 'tool-result',
+            source: 'system',
+            callId: event.item.id ?? event.item.call_id ?? event.item.tool_call_id ?? `tool-${traceEvents.length + 1}`,
+            content: JSON.stringify(outcome),
+            timestamp: event.timestamp ?? new Date(traceEvents.length).toISOString(),
+          });
+        } else if (event.type === 'item.started' && isToolEvent) {
+          traceEvents.push({
+            type: 'tool-call',
+            source: 'agent',
+            callId: event.item.id ?? event.item.call_id ?? event.item.tool_call_id ?? `tool-${traceEvents.length + 1}`,
+            name: event.item.type,
+            arguments: typeof event.item.command === 'string'
+              ? { command: event.item.command }
+              : { invocation: toolInvocation(event.item) },
+            timestamp: event.timestamp ?? new Date(traceEvents.length).toISOString(),
+          });
         }
       }
       if (event.type === 'item.completed' && !['agent_message', 'error', 'reasoning'].includes(event.item?.type)) toolCalls += 1;
       const command = event.item?.command ?? event.command;
       if (typeof command === 'string') {
         commands.push(command);
-        if (isVerificationCommand(command)) {
+        if (event.type === 'item.completed' && isVerificationCommand(command)) {
           workflowEvents.push({
             index: workflowEvents.length,
             kind: 'verification',
             succeeded: commandSucceeded(event.item ?? event),
+          });
+          traceEvents.push({
+            type: 'verification',
+            source: 'agent',
+            command,
+            succeeded: commandSucceeded(event.item ?? event),
+            timestamp: event.timestamp ?? new Date(traceEvents.length).toISOString(),
           });
         }
       }
@@ -803,6 +835,12 @@ export function transcript(stdout) {
       const text = event.item?.text ?? event.message?.content ?? event.text;
       if (typeof text === 'string') {
         messages.push(text);
+        if (event.type === 'item.completed' && event.item?.type === 'agent_message') {
+          traceEvents.push({
+            type: 'message', source: 'agent', message: text,
+            timestamp: event.timestamp ?? new Date(traceEvents.length).toISOString(),
+          });
+        }
         if (/workspace[^\n]*read[- ]only|mounted read[- ]only|sandbox[^\n]*read[- ]only/iu.test(text)) {
           errorCategories.push('sandbox-write-denied');
         }
@@ -834,9 +872,20 @@ export function transcript(stdout) {
     toolCalls,
     toolOutcomes,
     toolInvocations: dedupeToolInvocationRecords(toolInvocationRecords),
+    traceEvents,
     toolTypes: [...new Set(toolTypes)],
     workflowEvents,
   };
+}
+
+function capturedTraceEvents(parsed) {
+  const events = [...parsed.traceEvents];
+  const existingKinds = new Set(events.map((event) => event.type));
+  for (const event of parsed.workflowEvents) {
+    if (existingKinds.has(event.kind)) continue;
+    events.push({ type: event.kind, source: 'agent', ...event, timestamp: new Date(events.length).toISOString() });
+  }
+  return events;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -1009,6 +1058,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     artifacts: await artifacts(request.workspace),
     exitCode: result.code,
     diagnostics: result.stderr ? ['Codex CLI returned diagnostics.'] : [],
+    ...(request.captureTrace === true ? { traceEvents: capturedTraceEvents(parsed) } : {}),
   };
   process.stdout.write(JSON.stringify(observation));
 } catch (error) {

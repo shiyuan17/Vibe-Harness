@@ -37,6 +37,25 @@
       },
       "additionalProperties": false
     },
+    "attempts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["caseId", "repetition", "status"],
+        "properties": {
+          "caseId": { "type": "string", "minLength": 1 },
+          "repetition": { "type": "integer", "minimum": 1 },
+          "status": { "type": "string", "enum": ["ready", "degraded"] },
+          "passed": { "type": "boolean" },
+          "score": { "type": "number", "minimum": 0, "maximum": 1 },
+          "criticalFailures": { "type": "integer", "minimum": 0 },
+          "code": { "type": "string", "minLength": 1 },
+          "diagnostics": { "type": "array", "items": { "type": "string" } },
+          "safetyFalsePositive": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    },
     "caseRepetitions": { "type": "array", "minItems": 1, "items": { "type": "object", "required": ["id", "count"], "properties": { "id": { "type": "string", "minLength": 1 }, "count": { "type": "integer", "minimum": 1, "maximum": 3 } }, "additionalProperties": false } },
     "trialSummaries": {
       "type": "array",

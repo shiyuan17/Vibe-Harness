@@ -77,6 +77,27 @@ test('explicit CODEX_MODEL overrides the configured model without changing provi
   }
 });
 
+test('Codex config without model_provider uses the built-in OpenAI provider', async () => {
+  const homeDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-runtime-first-party-'));
+  const codexHome = path.join(homeDir, '.codex');
+  try {
+    await mkdir(codexHome, { recursive: true });
+    await writeFile(path.join(codexHome, 'config.toml'), 'model = "gpt-5.6-sol"\nmodel_reasoning_effort = "medium"\n', 'utf8');
+    await writeFile(path.join(codexHome, 'auth.json'), '{}\n', 'utf8');
+    const resolved = await resolveEvalRuntime({
+      env: { VIBE_HARNESS_EVAL_RUNTIME_SOURCE: 'codex' },
+      homeDir,
+      resolveCliVersion: async () => 'codex-cli@first-party',
+    });
+    assert.equal(resolved.environment.VIBE_HARNESS_EVAL_PROVIDER_NAME, 'openai');
+    assert.equal(resolved.environment.VIBE_HARNESS_EVAL_PROVIDER_REQUIRES_AUTH, '1');
+    assert.equal(Object.hasOwn(resolved.environment, 'OPENAI_BASE_URL'), false);
+    assert.equal(resolved.environment.VIBE_HARNESS_EVAL_AUTH_FILE, path.join(codexHome, 'auth.json'));
+  } finally {
+    await rm(homeDir, { force: true, recursive: true });
+  }
+});
+
 test('explicit env source wins over Codex config and auto selects native for read-only cases', async () => {
   const fixture = await codexFixture();
   try {
