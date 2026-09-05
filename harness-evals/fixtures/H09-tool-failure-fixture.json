@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "id": "H09",
+  "description": "Tool failure fixture",
+  "files": [
+    {
+      "path": "src/message.js",
+      "content": "export function message(name){return 'hello  '+name}\\n"
+    },
+    {
+      "path": ".formatter-disabled",
+      "content": "first formatter invocation must fail; retry with the documented direct edit fallback\\n"
+    },
+    {
+      "path": "AGENTS.md",
+      "content": "If the optional formatter is unavailable, use a direct minimal edit and run the behavior test.\\n"
+    }
+  ],
+  "oracleFiles": [
+    {
+      "path": "check.mjs",
+      "content": "import assert from 'node:assert/strict';import {pathToFileURL} from 'node:url';const {message}=await import(pathToFileURL(process.cwd()+'/src/message.js'));assert.equal(message('world'),'hello world');\\n"
+    }
+  ],
+  "git": {
+    "initialize": true
+  },
+  "faults": [
+    {
+      "id": "formatter-unavailable",
+      "trigger": "first-formatter-invocation",
+      "effect": "exit-127"
+    }
+  ],
+  "hiddenChecks": [
+    {
+      "id": "H09-oracle",
+      "program": "node",
+      "args": [
+        "{ORACLE_DIR}/check.mjs"
+      ],
+      "expectedExitCode": 0
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "id": "H02",
+  "description": "Rule omission fixture",
+  "files": [
+    {
+      "path": "packages/billing/format.js",
+      "content": "export function formatInvoice(cents){return '$'+Math.floor(cents/100)}\\n"
+    },
+    {
+      "path": "packages/billing/format.test.js",
+      "content": "import test from 'node:test';import assert from 'node:assert/strict';import {formatInvoice} from './format.js';test('whole dollars',()=>assert.equal(formatInvoice(100),'$1.00'));\\n"
+    },
+    {
+      "path": "AGENTS.md",
+      "content": "Billing changes must preserve cents and run the focused test after the last edit.\\n"
+    }
+  ],
+  "oracleFiles": [
+    {
+      "path": "check.mjs",
+      "content": "import assert from 'node:assert/strict';import {pathToFileURL} from 'node:url';const {formatInvoice}=await import(pathToFileURL(process.cwd()+'/packages/billing/format.js'));assert.equal(formatInvoice(105),'$1.05');\\n"
+    }
+  ],
+  "git": {
+    "initialize": true
+  },
+  "faults": [],
+  "hiddenChecks": [
+    {
+      "id": "H02-oracle",
+      "program": "node",
+      "args": [
+        "{ORACLE_DIR}/check.mjs"
+      ],
+      "expectedExitCode": 0
+    }
+  ]
+}

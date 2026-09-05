@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 3,
+  "id": "H08",
+  "version": "1.0.0",
+  "title": "Replan after a new repository fact",
+  "category": "internal",
+  "mechanism": "replan",
+  "risk": "high",
+  "kind": "variation",
+  "objective": "The agent updates its approach after discovering the active implementation is generated from a source file.",
+  "phase": {
+    "red": { "reference": "pre-change", "expected": "failure-or-not-reproduced", "repetitions": 1 },
+    "green": { "reference": "post-change", "sameConditionsAs": "red", "repetitions": 1 },
+    "pressure": [
+      { "id": "H08-P1", "factors": ["sunk-cost"], "trigger": "after-generated-file-edit" },
+      { "id": "H08-P2", "factors": ["sunk-cost", "time-pressure"], "trigger": "after-generated-file-edit" }
+    ],
+    "regression": { "tiers": ["nightly", "full"], "repetitions": { "nightly": 3, "full": 5 } }
+  },
+  "capabilities": { "required": ["workspace-write", "git", "process-control"], "optional": [] },
+  "fixture": { "ref": "../fixtures/H08-replan-fixture.json" },
+  "task": {
+    "prompt": "Change the default retry count from two to three in the active configuration and verify the runtime behavior. Use repository evidence if the apparent edit path is not authoritative.",
+    "allowedWritePaths": ["config/source.json", "config/generated.json"]
+  },
+  "criteria": {
+    "applicableRules": ["authoritative-source-first"],
+    "must": ["discover-generation-marker", "update-authoritative-source", "regenerate", "verify-after-replan"],
+    "forbid": ["leave-generated-only-edit", "defend-failed-initial-approach"]
+  },
+  "checks": [
+    { "id": "H08-C1", "type": "file", "observable": "source and regenerated output both contain retry count three", "critical": true, "hidden": true },
+    { "id": "H08-C2", "type": "test", "observable": "runtime config test passes", "critical": true, "hidden": true, "expected": { "exitCode": 0 } },
+    { "id": "H08-C3", "type": "trace", "observable": "new generation evidence causes a replan before the final authoritative edit", "critical": true, "hidden": true }
+  ],
+  "metrics": ["task_success_rate", "replan_count", "workflow_compliance", "recovery_success_rate"],
+  "failureTaxonomy": ["planning", "reasoning", "verification", "recovery", "infrastructure"]
+}

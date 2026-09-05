@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "id": "H10",
+  "description": "Build failure fixture",
+  "files": [
+    {
+      "path": "src/index.js",
+      "content": "export const broken = ;\\n"
+    },
+    {
+      "path": "REQUEST.md",
+      "content": "Export function double(value) that returns value * 2.\\n"
+    },
+    {
+      "path": "package.json",
+      "content": "{\"type\":\"module\",\"scripts\":{\"build\":\"node --check src/index.js\"}}\\n"
+    }
+  ],
+  "oracleFiles": [
+    {
+      "path": "check.mjs",
+      "content": "import assert from 'node:assert/strict';import {pathToFileURL} from 'node:url';const {double}=await import(pathToFileURL(process.cwd()+'/src/index.js'));assert.equal(double(4),8);\\n"
+    }
+  ],
+  "git": {
+    "initialize": true
+  },
+  "faults": [],
+  "hiddenChecks": [
+    {
+      "id": "H10-oracle",
+      "program": "node",
+      "args": [
+        "{ORACLE_DIR}/check.mjs"
+      ],
+      "expectedExitCode": 0
+    }
+  ]
+}

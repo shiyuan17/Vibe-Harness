@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Harness Eval scenario v3",
+  "type": "object",
+  "required": ["schemaVersion", "id", "version", "title", "category", "mechanism", "risk", "kind", "objective", "phase", "capabilities", "fixture", "task", "criteria", "checks", "metrics", "failureTaxonomy"],
+  "properties": {
+    "schemaVersion": { "const": 3 },
+    "id": { "type": "string", "pattern": "^H(?:0[1-9]|1[0-9]|20)$" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "title": { "type": "string", "minLength": 1 },
+    "category": { "const": "internal" },
+    "mechanism": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "risk": { "type": "string", "enum": ["high", "critical"] },
+    "kind": { "type": "string", "enum": ["standard", "variation", "edge", "adversarial"] },
+    "objective": { "type": "string", "minLength": 1 },
+    "phase": {
+      "type": "object",
+      "required": ["red", "green", "pressure", "regression"],
+      "properties": {
+        "red": { "type": "object", "required": ["reference", "expected", "repetitions"], "properties": { "reference": { "type": "string", "minLength": 1 }, "expected": { "const": "failure-or-not-reproduced" }, "repetitions": { "type": "integer", "minimum": 1 } }, "additionalProperties": false },
+        "green": { "type": "object", "required": ["reference", "sameConditionsAs", "repetitions"], "properties": { "reference": { "type": "string", "minLength": 1 }, "sameConditionsAs": { "const": "red" }, "repetitions": { "type": "integer", "minimum": 1 } }, "additionalProperties": false },
+        "pressure": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/pressure" } },
+        "regression": { "type": "object", "required": ["tiers", "repetitions"], "properties": { "tiers": { "type": "array", "minItems": 1, "items": { "enum": ["fast", "nightly", "full"] }, "uniqueItems": true }, "repetitions": { "type": "object", "minProperties": 1, "additionalProperties": { "type": "integer", "minimum": 1 } } }, "additionalProperties": false }
+      },
+      "additionalProperties": false
+    },
+    "capabilities": { "type": "object", "required": ["required", "optional"], "properties": { "required": { "type": "array", "items": { "$ref": "#/$defs/capability" }, "uniqueItems": true }, "optional": { "type": "array", "items": { "$ref": "#/$defs/capability" }, "uniqueItems": true } }, "additionalProperties": false },
+    "fixture": { "type": "object", "required": ["ref"], "properties": { "ref": { "$ref": "#/$defs/fixtureRef" } }, "additionalProperties": false },
+    "task": { "type": "object", "required": ["prompt", "allowedWritePaths"], "properties": { "prompt": { "type": "string", "minLength": 1 }, "allowedWritePaths": { "type": "array", "items": { "$ref": "#/$defs/relativePath" }, "uniqueItems": true } }, "additionalProperties": false },
+    "criteria": { "type": "object", "required": ["applicableRules", "must", "forbid"], "properties": { "applicableRules": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }, "must": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }, "forbid": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 }, "uniqueItems": true } }, "additionalProperties": false },
+    "checks": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/check" } },
+    "metrics": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }, "uniqueItems": true },
+    "failureTaxonomy": { "type": "array", "minItems": 1, "items": { "enum": ["rule", "planning", "reasoning", "tool", "context", "coordination", "verification", "recovery", "infrastructure"] }, "uniqueItems": true }
+  },
+  "$defs": {
+    "fixtureRef": { "type": "string", "pattern": "^\\.\\./fixtures/[A-Za-z0-9._-]+\\.json$" },
+    "relativePath": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*\\\\)(?!.*//).+$" },
+    "capability": { "enum": ["workspace-write", "git", "process-control", "fault-injection", "resume", "context-compaction", "native-subagents", "worktree", "merge", "token-telemetry"] },
+    "pressure": { "type": "object", "required": ["id", "factors", "trigger"], "properties": { "id": { "type": "string", "pattern": "^H(?:0[1-9]|1[0-9]|20)-P[0-9]+$" }, "factors": { "type": "array", "minItems": 1, "items": { "enum": ["time-pressure", "immediate-completion", "sunk-cost", "expensive-tests", "tool-failure", "ambiguous-requirement", "stale-context", "rule-conflict", "agent-output-conflict", "context-pressure"] }, "uniqueItems": true }, "trigger": { "type": "string", "minLength": 1 } }, "additionalProperties": false },
+    "check": { "type": "object", "required": ["id", "type", "observable", "critical", "hidden"], "properties": { "id": { "type": "string", "pattern": "^H(?:0[1-9]|1[0-9]|20)-C[0-9]+$" }, "type": { "enum": ["file", "git", "test", "process", "trace"] }, "observable": { "type": "string", "minLength": 1 }, "critical": { "type": "boolean" }, "hidden": { "type": "boolean" }, "expected": {} }, "additionalProperties": false }
+  },
+  "additionalProperties": false
+}

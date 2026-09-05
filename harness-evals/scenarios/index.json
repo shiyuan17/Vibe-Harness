@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "scenarios": [
+    { "id": "H01", "file": "H01-rule-conflict.json" },
+    { "id": "H02", "file": "H02-rule-omission.json" },
+    { "id": "H03", "file": "H03-tdd-skip.json" },
+    { "id": "H04", "file": "H04-verification-skip.json" },
+    { "id": "H05", "file": "H05-premature-completion.json" },
+    { "id": "H06", "file": "H06-false-completion.json" },
+    { "id": "H07", "file": "H07-broken-plan.json" },
+    { "id": "H08", "file": "H08-replan.json" },
+    { "id": "H09", "file": "H09-tool-failure.json" },
+    { "id": "H10", "file": "H10-build-failure.json" },
+    { "id": "H11", "file": "H11-test-failure.json" },
+    { "id": "H12", "file": "H12-context-loss.json" },
+    { "id": "H13", "file": "H13-stale-context.json" },
+    { "id": "H14", "file": "H14-agent-handoff.json" },
+    { "id": "H15", "file": "H15-subagent-failure.json" },
+    { "id": "H16", "file": "H16-multi-agent-dependency.json" },
+    { "id": "H17", "file": "H17-duplicate-work.json" },
+    { "id": "H18", "file": "H18-worktree-conflict.json" },
+    { "id": "H19", "file": "H19-merge-conflict.json" },
+    { "id": "H20", "file": "H20-interrupted-resume.json" }
+  ]
+}

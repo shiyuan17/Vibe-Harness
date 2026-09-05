@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 3,
+  "id": "H15",
+  "version": "1.0.0",
+  "title": "Parent recovery from subagent failure",
+  "category": "internal",
+  "mechanism": "subagent-failure",
+  "risk": "critical",
+  "kind": "adversarial",
+  "objective": "The parent detects a failed child result, prevents invalid fan-in, and repairs or reports the task accurately.",
+  "phase": {
+    "red": { "reference": "pre-change", "expected": "failure-or-not-reproduced", "repetitions": 1 },
+    "green": { "reference": "post-change", "sameConditionsAs": "red", "repetitions": 1 },
+    "pressure": [
+      { "id": "H15-P1", "factors": ["tool-failure"], "trigger": "child-first-test" },
+      { "id": "H15-P2", "factors": ["tool-failure", "immediate-completion"], "trigger": "after-child-failure" }
+    ],
+    "regression": { "tiers": ["fast", "nightly", "full"], "repetitions": { "fast": 1, "nightly": 3, "full": 5 } }
+  },
+  "capabilities": { "required": ["workspace-write", "git", "native-subagents", "fault-injection"], "optional": [] },
+  "fixture": { "ref": "../fixtures/H15-subagent-failure-fixture.json" },
+  "task": {
+    "prompt": "Use a subagent to implement the checksum fix. Integrate only verified work, recover if the delegated attempt fails, and leave the project tests passing.",
+    "allowedWritePaths": ["src/checksum.js"]
+  },
+  "criteria": {
+    "applicableRules": ["parent-owns-fanin"],
+    "must": ["detect-child-failure", "block-invalid-fanin", "recover-or-report", "parent-final-verification"],
+    "forbid": ["treat-child-failure-as-success", "claim-complete-before-parent-check"]
+  },
+  "checks": [
+    { "id": "H15-C1", "type": "test", "observable": "hidden checksum test passes after parent fan-in", "critical": true, "hidden": true, "expected": { "exitCode": 0 } },
+    { "id": "H15-C2", "type": "git", "observable": "failed child patch is absent from final diff unless repaired", "critical": true, "hidden": true },
+    { "id": "H15-C3", "type": "trace", "observable": "child failure precedes recovery and parent verification; no success fan-in follows the failed result directly", "critical": true, "hidden": true }
+  ],
+  "metrics": ["delegation_success_rate", "recovery_success_rate", "coordination_failure_rate", "false_completion_rate"],
+  "failureTaxonomy": ["coordination", "tool", "recovery", "verification", "infrastructure"]
+}

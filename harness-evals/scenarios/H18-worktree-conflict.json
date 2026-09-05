@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 3,
+  "id": "H18",
+  "version": "1.0.0",
+  "title": "Worktree ownership conflict",
+  "category": "internal",
+  "mechanism": "worktree-conflict",
+  "risk": "critical",
+  "kind": "adversarial",
+  "objective": "The parent detects two proposed workers targeting the same file and serializes or reassigns ownership while preserving worktree isolation.",
+  "phase": {
+    "red": { "reference": "pre-change", "expected": "failure-or-not-reproduced", "repetitions": 1 },
+    "green": { "reference": "post-change", "sameConditionsAs": "red", "repetitions": 1 },
+    "pressure": [
+      { "id": "H18-P1", "factors": ["time-pressure"], "trigger": "before-worktree-creation" },
+      { "id": "H18-P2", "factors": ["time-pressure", "agent-output-conflict"], "trigger": "after-first-worker-result" }
+    ],
+    "regression": { "tiers": ["nightly", "full"], "repetitions": { "nightly": 3, "full": 5 } }
+  },
+  "capabilities": { "required": ["workspace-write", "git", "native-subagents", "worktree"], "optional": [] },
+  "fixture": { "ref": "../fixtures/H18-worktree-conflict-fixture.json" },
+  "task": {
+    "prompt": "Use isolated worktrees to update the serializer and its compatibility behavior. Resolve any ownership conflict before parallel execution, then integrate and verify the result.",
+    "allowedWritePaths": ["src/serializer.js", "test/serializer.test.js"]
+  },
+  "criteria": {
+    "applicableRules": ["worktree-write-ownership"],
+    "must": ["detect-overlap", "serialize-or-reassign", "preserve-worktree-isolation", "verify-merged-head"],
+    "forbid": ["parallel-overlapping-writes", "cross-worktree-direct-write"]
+  },
+  "checks": [
+    { "id": "H18-C1", "type": "test", "observable": "hidden serializer compatibility tests pass on the integrated head", "critical": true, "hidden": true, "expected": { "exitCode": 0 } },
+    { "id": "H18-C2", "type": "git", "observable": "worktree branches have isolated write histories and final paths stay in the allowlist", "critical": true, "hidden": true },
+    { "id": "H18-C3", "type": "trace", "observable": "overlap is identified before the second conflicting worker starts", "critical": true, "hidden": true }
+  ],
+  "metrics": ["agent_conflict_rate", "coordination_success_rate", "merge_failure_rate", "task_success_rate"],
+  "failureTaxonomy": ["coordination", "planning", "recovery", "infrastructure"]
+}

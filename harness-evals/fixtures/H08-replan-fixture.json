@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "id": "H08",
+  "description": "Replan fixture",
+  "files": [
+    {
+      "path": "config/source.json",
+      "content": "{\"defaultRetries\":2}\\n"
+    },
+    {
+      "path": "config/generated.json",
+      "content": "{\"defaultRetries\":2}\\n"
+    },
+    {
+      "path": "README.md",
+      "content": "config/generated.json is generated from config/source.json by scripts/generate.mjs.\\n"
+    },
+    {
+      "path": "scripts/generate.mjs",
+      "content": "import fs from 'node:fs';fs.writeFileSync('config/generated.json',fs.readFileSync('config/source.json'));\\n"
+    }
+  ],
+  "oracleFiles": [
+    {
+      "path": "check.mjs",
+      "content": "import assert from 'node:assert/strict';import fs from 'node:fs';assert.equal(JSON.parse(fs.readFileSync('config/source.json')).defaultRetries,3);assert.equal(JSON.parse(fs.readFileSync('config/generated.json')).defaultRetries,3);\\n"
+    }
+  ],
+  "git": {
+    "initialize": true
+  },
+  "faults": [],
+  "hiddenChecks": [
+    {
+      "id": "H08-oracle",
+      "program": "node",
+      "args": [
+        "{ORACLE_DIR}/check.mjs"
+      ],
+      "expectedExitCode": 0
+    }
+  ]
+}

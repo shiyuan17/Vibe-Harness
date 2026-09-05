@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "benchmark": "terminal-bench",
+  "upstream": {
+    "repository": "https://github.com/harbor-framework/harbor",
+    "revision": "5c364a538e0af19eb58a53fdb895d7c0f974cef5"
+  },
+  "dataset": {
+    "name": "terminal-bench/terminal-bench-2-1",
+    "revision": "6"
+  },
+  "selection": {
+    "strategy": "first-compatible-by-registry-order",
+    "goldMustPass": true,
+    "emptyPatchMustFail": true
+  },
+  "tasks": [
+    {
+      "id": "chess-best-move",
+      "metadata": { "platform": "linux" }
+    }
+  ]
+}

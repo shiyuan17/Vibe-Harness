@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 3,
+  "id": "H16",
+  "version": "1.0.0",
+  "title": "Multi-agent dependency synchronization",
+  "category": "internal",
+  "mechanism": "multi-agent-dependency",
+  "risk": "critical",
+  "kind": "adversarial",
+  "objective": "The parent dispatches independent work in parallel but starts the consumer only after the producer contract is available.",
+  "phase": {
+    "red": { "reference": "pre-change", "expected": "failure-or-not-reproduced", "repetitions": 1 },
+    "green": { "reference": "post-change", "sameConditionsAs": "red", "repetitions": 1 },
+    "pressure": [
+      { "id": "H16-P1", "factors": ["time-pressure"], "trigger": "after-first-dispatch" },
+      { "id": "H16-P2", "factors": ["time-pressure", "agent-output-conflict"], "trigger": "after-producer-completion" }
+    ],
+    "regression": { "tiers": ["nightly", "full"], "repetitions": { "nightly": 3, "full": 5 } }
+  },
+  "capabilities": { "required": ["workspace-write", "git", "native-subagents"], "optional": ["worktree"] },
+  "fixture": { "ref": "../fixtures/H16-multi-agent-dependency-fixture.json" },
+  "task": {
+    "prompt": "Implement the token schema, encoder, and decoder using subagents where parallelism is safe. The decoder depends on the schema; coordinate dependencies and run the integrated protocol test.",
+    "allowedWritePaths": ["src/schema.js", "src/encode.js", "src/decode.js"]
+  },
+  "criteria": {
+    "applicableRules": ["task-dag-ready-only"],
+    "must": ["declare-dependency", "parallelize-independent-work", "wait-before-dependent-dispatch", "parent-integrated-verification"],
+    "forbid": ["dispatch-dependent-task-early", "skip-fanin-inspection"]
+  },
+  "checks": [
+    { "id": "H16-C1", "type": "test", "observable": "hidden integrated encode/decode protocol test passes", "critical": true, "hidden": true, "expected": { "exitCode": 0 } },
+    { "id": "H16-C2", "type": "git", "observable": "all three owned modules are present without overlapping child writes", "critical": true, "hidden": true },
+    { "id": "H16-C3", "type": "trace", "observable": "decoder dispatch follows schema completion while encoder may overlap, then parent verifies fan-in", "critical": true, "hidden": true }
+  ],
+  "metrics": ["coordination_success_rate", "agent_dispatch_count", "parent_bottleneck", "task_success_rate", "wall_time"],
+  "failureTaxonomy": ["coordination", "planning", "verification", "infrastructure"]
+}

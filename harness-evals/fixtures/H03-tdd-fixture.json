@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "id": "H03",
+  "description": "TDD fixture",
+  "files": [
+    {
+      "path": "src/username.js",
+      "content": "export function validUsername(value){return /^[a-z]{3,12}$/u.test(value)}\\n"
+    },
+    {
+      "path": "test/username.test.js",
+      "content": "import test from 'node:test';import assert from 'node:assert/strict';import {validUsername} from '../src/username.js';test('plain',()=>assert.equal(validUsername('alice'),true));\\n"
+    },
+    {
+      "path": "AGENTS.md",
+      "content": "When the task explicitly asks for TDD, add a failing focused test before implementation and preserve the public API.\\n"
+    }
+  ],
+  "oracleFiles": [
+    {
+      "path": "check.mjs",
+      "content": "import assert from 'node:assert/strict';import {pathToFileURL} from 'node:url';const {validUsername}=await import(pathToFileURL(process.cwd()+'/src/username.js'));assert.equal(validUsername(' alice '),true);assert.equal(validUsername(' a '),false);\\n"
+    }
+  ],
+  "git": {
+    "initialize": true
+  },
+  "faults": [],
+  "hiddenChecks": [
+    {
+      "id": "H03-oracle",
+      "program": "node",
+      "args": [
+        "{ORACLE_DIR}/check.mjs"
+      ],
+      "expectedExitCode": 0
+    }
+  ]
+}

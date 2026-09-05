@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "benchmark": "cooperbench",
+  "upstream": {
+    "repository": "https://github.com/cooperbench/CooperBench",
+    "revision": "4913c4ebb84d2606cdb5628936b88529f3e181df"
+  },
+  "dataset": {
+    "name": "cooperbench/core",
+    "revision": "4913c4ebb84d2606cdb5628936b88529f3e181df"
+  },
+  "selection": {
+    "strategy": "same-feature-pair-across-settings",
+    "settings": ["solo", "coop", "team"]
+  },
+  "tasks": [
+    {
+      "id": "llama_index_task",
+      "metadata": { "platform": "linux" }
+    }
+  ]
+}

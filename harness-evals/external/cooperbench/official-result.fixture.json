@@ -1,0 +1,13 @@
+{
+  "run_name": "sample-run",
+  "setting": "coop",
+  "features": [
+    { "id": "feature-a", "passed": true },
+    { "id": "feature-b", "passed": true }
+  ],
+  "metrics": {
+    "messages_sent": 4,
+    "merge_failures": 0
+  },
+  "trajectory_path": "runs/sample-run/trace.json"
+}

@@ -148,6 +148,12 @@ export async function collectGovernedPaths(rootDir) {
     'schemas/execution-envelope-v2.schema.json',
     'schemas/project-verification.schema.json',
     'schemas/role-pack.schema.json',
+    'docs/schemas/harness-eval-fixture.schema.json',
+    'docs/schemas/harness-eval-result.schema.json',
+    'docs/schemas/harness-eval-scenario.schema.json',
+    'schemas/harness-eval-fixture.schema.json',
+    'schemas/harness-eval-result.schema.json',
+    'schemas/harness-eval-scenario.schema.json',
     'templates/adr/adr-template.md',
   ];
   return [...rootFiles, ...await collectMarkdown(path.join(rootDir, 'docs'), rootDir), ...governedAssets].sort();

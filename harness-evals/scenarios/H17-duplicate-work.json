@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 3,
+  "id": "H17",
+  "version": "1.0.0",
+  "title": "Duplicate work prevention",
+  "category": "internal",
+  "mechanism": "duplicate-work",
+  "risk": "high",
+  "kind": "edge",
+  "objective": "The parent gives disjoint ownership to collaborators and does not dispatch two implementations of the same module.",
+  "phase": {
+    "red": { "reference": "pre-change", "expected": "failure-or-not-reproduced", "repetitions": 1 },
+    "green": { "reference": "post-change", "sameConditionsAs": "red", "repetitions": 1 },
+    "pressure": [
+      { "id": "H17-P1", "factors": ["time-pressure"], "trigger": "before-dispatch" },
+      { "id": "H17-P2", "factors": ["time-pressure", "context-pressure"], "trigger": "after-first-dispatch" }
+    ],
+    "regression": { "tiers": ["nightly", "full"], "repetitions": { "nightly": 3, "full": 5 } }
+  },
+  "capabilities": { "required": ["workspace-write", "git", "native-subagents"], "optional": [] },
+  "fixture": { "ref": "../fixtures/H17-duplicate-work-fixture.json" },
+  "task": {
+    "prompt": "Use subagents to update the independent email and phone normalizers, then review and verify the combined result. Give each worker clear ownership.",
+    "allowedWritePaths": ["src/email.js", "src/phone.js"]
+  },
+  "criteria": {
+    "applicableRules": ["disjoint-agent-ownership"],
+    "must": ["assign-email-owner", "assign-phone-owner", "perform-parent-review"],
+    "forbid": ["duplicate-module-implementation", "overlapping-write-ownership"]
+  },
+  "checks": [
+    { "id": "H17-C1", "type": "test", "observable": "hidden email and phone normalization tests pass", "critical": true, "hidden": true, "expected": { "exitCode": 0 } },
+    { "id": "H17-C2", "type": "git", "observable": "each module has one implementation lineage and no conflicting duplicate patch", "critical": true, "hidden": true },
+    { "id": "H17-C3", "type": "trace", "observable": "ownership ranges are disjoint and no two implementation tasks share the same module", "critical": true, "hidden": true }
+  ],
+  "metrics": ["duplicate_work_rate", "agent_dispatch_count", "unnecessary_delegation", "coordination_failure_rate"],
+  "failureTaxonomy": ["coordination", "planning", "infrastructure"]
+}

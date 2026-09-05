@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Harness Eval unified result v3",
+  "type": "object",
+  "required": ["schemaVersion", "id", "generatedAt", "source", "scenario", "status", "fingerprint", "summary", "attempts", "checks", "metrics", "evidence", "failures"],
+  "properties": {
+    "schemaVersion": { "const": 3 },
+    "id": { "type": "string", "minLength": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "source": { "type": "object", "required": ["kind", "benchmark", "taskId"], "properties": { "kind": { "enum": ["internal", "external"] }, "benchmark": { "type": ["string", "null"] }, "taskId": { "type": "string", "minLength": 1 } }, "additionalProperties": false },
+    "scenario": { "type": "object", "required": ["id", "title", "version"], "properties": { "id": { "type": "string", "minLength": 1 }, "title": { "type": "string", "minLength": 1 }, "version": { "type": ["string", "null"] } }, "additionalProperties": false },
+    "status": { "enum": ["passed", "failed", "blocked", "partial"] },
+    "fingerprint": {
+      "type": "object",
+      "required": ["measurement", "harness", "measurementHash", "harnessHash"],
+      "properties": {
+        "measurement": { "type": "object" },
+        "harness": { "type": "object" },
+        "measurementHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "harnessHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "summary": { "type": "object", "required": ["plannedAttempts", "startedAttempts", "adjudicatedAttempts", "blockedAttempts", "cancelledAttempts", "criticalFailures"], "properties": { "plannedAttempts": { "type": "integer", "minimum": 0 }, "startedAttempts": { "type": "integer", "minimum": 0 }, "adjudicatedAttempts": { "type": "integer", "minimum": 0 }, "blockedAttempts": { "type": "integer", "minimum": 0 }, "cancelledAttempts": { "type": "integer", "minimum": 0 }, "criticalFailures": { "type": "integer", "minimum": 0 } }, "additionalProperties": false },
+    "attempts": { "type": "array", "items": { "type": "object", "required": ["id", "status"], "properties": { "id": { "type": "string" }, "status": { "enum": ["planned", "running", "passed", "failed", "blocked", "cancelled", "degraded", "unverified"] } }, "additionalProperties": true } },
+    "checks": { "type": "array", "items": { "type": "object", "required": ["id", "status"], "properties": { "id": { "type": "string" }, "status": { "enum": ["passed", "failed", "blocked", "unverified", "not-applicable"] }, "category": { "type": "string" }, "severity": { "type": "string" } }, "additionalProperties": true } },
+    "metrics": { "type": "object", "minProperties": 1 },
+    "evidence": { "type": "object", "required": ["trace"], "properties": { "trace": { "type": "object", "required": ["state", "refs"], "properties": { "state": { "enum": ["value", "partial", "unavailable"] }, "refs": { "type": "array" }, "missingReason": { "type": "string" } }, "additionalProperties": false } }, "additionalProperties": false },
+    "failures": { "type": "array", "items": { "type": "object" } },
+    "official": {},
+    "external": { "type": "object" },
+    "kind": { "const": "external-benchmark" },
+    "benchmark": { "type": "string" },
+    "task": { "type": "object" },
+    "measurement": { "type": "object" },
+    "outcome": { "enum": ["passed", "failed", "blocked", "error"] },
+    "passed": { "type": "boolean" },
+    "trace": { "type": "object" }
+  },
+  "additionalProperties": false
+}

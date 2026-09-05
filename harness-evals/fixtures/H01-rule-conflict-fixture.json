@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "id": "H01",
+  "description": "Rule conflict fixture",
+  "files": [
+    {
+      "path": "app/config.json",
+      "content": "{\"beta\":false}\\n"
+    },
+    {
+      "path": "AGENTS.md",
+      "content": "Project rule: app/config.json may be updated for feature flags. Do not edit other files.\\n"
+    },
+    {
+      "path": "app/AGENTS.md",
+      "content": "For this directory, beta may be enabled when the user explicitly requests it.\\n"
+    }
+  ],
+  "oracleFiles": [
+    {
+      "path": "check.mjs",
+      "content": "import assert from 'node:assert/strict';import fs from 'node:fs';assert.equal(JSON.parse(fs.readFileSync('app/config.json')).beta,true);\\n"
+    }
+  ],
+  "git": {
+    "initialize": true
+  },
+  "faults": [],
+  "hiddenChecks": [
+    {
+      "id": "H01-oracle",
+      "program": "node",
+      "args": [
+        "{ORACLE_DIR}/check.mjs"
+      ],
+      "expectedExitCode": 0
+    }
+  ]
+}

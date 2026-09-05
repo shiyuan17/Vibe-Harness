@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "id": "H15",
+  "description": "Subagent failure fixture",
+  "files": [
+    {
+      "path": "src/checksum.js",
+      "content": "export function checksum(bytes){throw new Error('delegated implementation failed')}\\n"
+    },
+    {
+      "path": "package.json",
+      "content": "{\"type\":\"module\"}\\n"
+    }
+  ],
+  "oracleFiles": [
+    {
+      "path": "check.mjs",
+      "content": "import assert from 'node:assert/strict';import {pathToFileURL} from 'node:url';const {checksum}=await import(pathToFileURL(process.cwd()+'/src/checksum.js'));assert.equal(checksum([255,2]),1);\\n"
+    }
+  ],
+  "git": {
+    "initialize": true
+  },
+  "faults": [
+    {
+      "id": "subagent-failure",
+      "trigger": "first-subagent-result",
+      "effect": "failed-result"
+    }
+  ],
+  "hiddenChecks": [
+    {
+      "id": "H15-oracle",
+      "program": "node",
+      "args": [
+        "{ORACLE_DIR}/check.mjs"
+      ],
+      "expectedExitCode": 0
+    }
+  ]
+}

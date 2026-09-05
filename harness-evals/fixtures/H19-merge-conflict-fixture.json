@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "id": "H19",
+  "description": "Merge conflict fixture",
+  "files": [
+    {
+      "path": "src/format.js",
+      "content": "export function format(value){return value.trim()}\\n"
+    },
+    {
+      "path": "package.json",
+      "content": "{\"type\":\"module\"}\\n"
+    },
+    {
+      "path": "README.md",
+      "content": "feature-a requires uppercase output; feature-b requires a trailing exclamation mark.\\n"
+    }
+  ],
+  "oracleFiles": [
+    {
+      "path": "check.mjs",
+      "content": "import assert from 'node:assert/strict';import {pathToFileURL} from 'node:url';const {format}=await import(pathToFileURL(process.cwd()+'/src/format.js'));assert.equal(format(' hello '),'HELLO!');\\n"
+    }
+  ],
+  "git": {
+    "initialize": true,
+    "branches": [
+      "feature-a",
+      "feature-b"
+    ],
+    "branchChanges": [
+      {
+        "branch": "feature-a",
+        "files": [
+          {
+            "path": "src/format.js",
+            "content": "export function format(value){return value.trim().toUpperCase()}\\n"
+          }
+        ],
+        "message": "feature: uppercase formatting"
+      },
+      {
+        "branch": "feature-b",
+        "files": [
+          {
+            "path": "src/format.js",
+            "content": "export function format(value){return `${value.trim()}!`}\\n"
+          }
+        ],
+        "message": "feature: append punctuation"
+      }
+    ],
+    "conflict": "src/format.js"
+  },
+  "faults": [],
+  "hiddenChecks": [
+    {
+      "id": "H19-oracle",
+      "program": "node",
+      "args": [
+        "{ORACLE_DIR}/check.mjs"
+      ],
+      "expectedExitCode": 0
+    }
+  ]
+}

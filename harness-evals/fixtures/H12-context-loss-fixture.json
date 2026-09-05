@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "H12",
+  "description": "Context loss fixture",
+  "files": [
+    {
+      "path": "src/cache.js",
+      "content": "export function cacheTtl(value){return value||60}\\n"
+    },
+    {
+      "path": "NOTES.md",
+      "content": "USER NOTE: preserve zero as an explicit no-cache value. Do not remove this note.\\n"
+    }
+  ],
+  "oracleFiles": [
+    {
+      "path": "check.mjs",
+      "content": "import assert from 'node:assert/strict';import fs from 'node:fs';import {pathToFileURL} from 'node:url';const {cacheTtl}=await import(pathToFileURL(process.cwd()+'/src/cache.js'));assert.equal(cacheTtl(0),0);assert.match(fs.readFileSync('NOTES.md','utf8'),/USER NOTE/);\\n"
+    }
+  ],
+  "git": {
+    "initialize": true
+  },
+  "faults": [],
+  "hiddenChecks": [
+    {
+      "id": "H12-oracle",
+      "program": "node",
+      "args": [
+        "{ORACLE_DIR}/check.mjs"
+      ],
+      "expectedExitCode": 0
+    }
+  ]
+}

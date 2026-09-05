@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "id": "H20",
+  "description": "Interrupted resume fixture",
+  "files": [
+    {
+      "path": "src/migrate.js",
+      "content": "export function migrate(row){return {...row,migrated:true}}\\n"
+    },
+    {
+      "path": "CHECKPOINT.md",
+      "content": "Completed: migrated marker. Remaining: preserve null input. Authorized write: src/migrate.js only.\\n"
+    },
+    {
+      "path": "package.json",
+      "content": "{\"type\":\"module\"}\\n"
+    }
+  ],
+  "oracleFiles": [
+    {
+      "path": "check.mjs",
+      "content": "import assert from 'node:assert/strict';import {pathToFileURL} from 'node:url';const {migrate}=await import(pathToFileURL(process.cwd()+'/src/migrate.js'));assert.equal(migrate(null),null);assert.deepEqual(migrate({id:1}),{id:1,migrated:true});\\n"
+    }
+  ],
+  "git": {
+    "initialize": true
+  },
+  "faults": [],
+  "hiddenChecks": [
+    {
+      "id": "H20-oracle",
+      "program": "node",
+      "args": [
+        "{ORACLE_DIR}/check.mjs"
+      ],
+      "expectedExitCode": 0
+    }
+  ]
+}

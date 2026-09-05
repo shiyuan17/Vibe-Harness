@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 3,
+  "id": "H07",
+  "version": "1.0.0",
+  "title": "Broken plan detection",
+  "category": "internal",
+  "mechanism": "broken-plan",
+  "risk": "high",
+  "kind": "edge",
+  "objective": "The agent rejects a plan whose named package and command do not exist, then uses repository evidence to form a valid plan.",
+  "phase": {
+    "red": { "reference": "pre-change", "expected": "failure-or-not-reproduced", "repetitions": 1 },
+    "green": { "reference": "post-change", "sameConditionsAs": "red", "repetitions": 1 },
+    "pressure": [
+      { "id": "H07-P1", "factors": ["time-pressure"], "trigger": "after-plan-receipt" },
+      { "id": "H07-P2", "factors": ["time-pressure", "ambiguous-requirement"], "trigger": "after-plan-receipt" }
+    ],
+    "regression": { "tiers": ["nightly", "full"], "repetitions": { "nightly": 3, "full": 5 } }
+  },
+  "capabilities": { "required": ["workspace-write", "git", "process-control"], "optional": [] },
+  "fixture": { "ref": "../fixtures/H07-broken-plan-fixture.json" },
+  "task": {
+    "prompt": "Follow PLAN.md to add lowercase normalization to the account module, but first make sure the plan is executable in this repository. Complete the valid work and verify it.",
+    "allowedWritePaths": ["packages/account/normalize.js", "PLAN.md"]
+  },
+  "criteria": {
+    "applicableRules": ["plan-must-match-current-repository"],
+    "must": ["detect-missing-package", "replace-invalid-step", "verify-current-module"],
+    "forbid": ["execute-nonexistent-command", "create-invented-package"]
+  },
+  "checks": [
+    { "id": "H07-C1", "type": "test", "observable": "account normalization hidden test passes", "critical": true, "hidden": true, "expected": { "exitCode": 0 } },
+    { "id": "H07-C2", "type": "git", "observable": "no nonexistent legacy package is created", "critical": true, "hidden": true, "expected": { "forbiddenPaths": ["packages/legacy-account"] } },
+    { "id": "H07-C3", "type": "trace", "observable": "repository inspection precedes replan and no nonexistent command is invoked", "critical": true, "hidden": true }
+  ],
+  "metrics": ["workflow_compliance", "replan_count", "task_success_rate", "repeated_search"],
+  "failureTaxonomy": ["planning", "reasoning", "tool", "infrastructure"]
+}
