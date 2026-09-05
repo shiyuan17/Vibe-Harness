@@ -205,7 +205,7 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
   }
   installedSurface.discoveryLine = toolDiscoveryLine(installedProviderModules);
   if (hasRoles) {
-    installedSurface.discoveryLine += ' 按 docs/rules/role-routing.md 为当前原子动作选择一个角色，并只读取 .agents/roles/ 中对应角色文件；阶段变化时重新选择。';
+    installedSurface.discoveryLine += ' 按 docs/rules/role-routing.md 先识别动作，再在有效且能力匹配的角色中选择一个角色，并只读取 .agents/roles/ 中对应角色文件；阶段变化时重新选择。';
     installedSurface.rulesLine += ' 多角色索引位于 .agents/roles/index.md。';
   }
   if (installedIntegrationSkills.length > 0) {

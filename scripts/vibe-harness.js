@@ -157,8 +157,9 @@ function roleRuntimeReport(adapters = {}) {
     .map(([id, item]) => [id, {
       permissionMapping: item.roleProjection.permissionMapping,
       roleCount: item.roleProjection.roles.length,
-      status: item.roleProjection.activation === 'manual' ? 'manual-activation-required' : 'ready',
+      status: item.roleProjection.activation === 'manual' ? 'manual-activation-required' : 'configured-unverified',
       activationPath: item.roleProjection.activationPath,
+      missingCapabilities: item.roleProjection.missingCapabilities ?? {},
     }]));
 }
 

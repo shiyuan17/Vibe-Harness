@@ -79,8 +79,18 @@ export async function runRolesAudit(rootDir) {
     return { errors: [error.message], ok: false, roleCount: 0, warnings };
   }
 
-  const routerPath = path.join(rootDir, 'rules', 'role-routing.md');
-  const router = await readFile(routerPath, 'utf8');
+  const routerPath = path.join(rootDir, 'docs', 'rules', 'role-routing.md');
+  let router;
+  try {
+    router = await readFile(routerPath, 'utf8');
+  } catch (error) {
+    return {
+      errors: ['Role routing rule is unavailable at docs/rules/role-routing.md: ' + error.message],
+      ok: false,
+      roleCount: rolePack.items.length,
+      warnings,
+    };
+  }
   const basePath = path.resolve(rootDir, rolePack.basePrompt);
   assertInsideDir(rootDir, basePath, 'role base prompt');
   await assertSafePathInside(rootDir, basePath, 'role base prompt');
@@ -108,6 +118,9 @@ export async function runRolesAudit(rootDir) {
       }
       for (const section of REQUIRED_ROLE_SECTIONS) {
         if (!rolePrompt.includes(section)) errors.push('Role ' + role.id + ' is missing ' + section + '.');
+      }
+      if (role.routing.mode && !['auto', 'explicit'].includes(role.routing.mode)) {
+        errors.push('Role ' + role.id + ' has an invalid routing mode.');
       }
       if (!router.includes(role.id)) errors.push('Role router does not mention ' + role.id + '.');
       const compiled = {

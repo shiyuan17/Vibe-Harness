@@ -5,14 +5,14 @@ Vibe-Harness 的角色系统为同一个主 Agent 提供阶段化决策人格，
 ## 默认行为
 
 - full profile 默认启用七个内置角色；minimal、core 和 docs-only 默认不启用。
-- 每个原子动作只选择一个角色，目标或动作类型变化时重新选择。
+- 每个原子动作只选择一个角色，先按动作、有效角色和能力，再按领域选择；目标或动作类型变化时重新选择。
 - 当前角色可以叠加一个 description 精确命中的领域 Skill；角色与 Skill 互不替代。
 - 只有独立并行、高风险二次复审或治理拆分规则命中时才创建真实子 Agent。
 - 所有角色都受父 Agent sandbox、用户授权和 Execution Envelope 约束。
 
 ## 内置角色
 
-内置角色包括 chief-architect、product-manager、technical-project-manager、senior-engineer、test-lead、adversarial-security-reviewer 和 technical-release-manager。完整路由优先级见 docs/rules/role-routing.md，可用角色索引安装到 .agents/roles/index.md。
+内置角色包括 chief-architect、product-manager、technical-project-manager、senior-engineer、test-lead、adversarial-security-reviewer 和 technical-release-manager（显示为“发布就绪审查者”）。product-manager 与 technical-project-manager 仅在显式咨询时选择，保留原 ID 以兼容既有配置。完整路由规则见 docs/rules/role-routing.md，可用角色索引安装到 .agents/roles/index.md。
 
 ## 项目配置
 
@@ -30,7 +30,7 @@ roles.enabled 可以覆盖 profile 默认值；roles.disabled 按 ID 禁用已�
 - security-review：只读安全审查和授权范围内的安全检查。
 - release-readiness：只读发布审查、验证与包 dry-run，禁止自动 tag、push 或 publish。
 
-宿主不能精确表达权限时，安装器使用最严格可用映射，并在安装或 doctor 以 degraded-permission-mapping 状态和 ROLE_PERMISSION_MAPPING_DEGRADED 告警报告。Prompt 防线不能替代父 Agent 的真实 sandbox。
+宿主不能精确表达权限时，安装器使用最严格可用映射，并在安装或 doctor 以 degraded-permission-mapping 状态和 ROLE_PERMISSION_MAPPING_DEGRADED 告警报告。doctor 的 configured-unverified 仅说明文件已生成，另列出角色所需但未绑定的能力；它不表示宿主已激活或真实任务已验证。Prompt 防线不能替代父 Agent 的真实 sandbox。
 
 ## 宿主输出
 

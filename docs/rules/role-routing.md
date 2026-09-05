@@ -4,19 +4,19 @@
 
 ## 选择顺序
 
-1. 用户显式指定且角色已启用时优先采用。
-2. 安全审查、信任边界或敏感数据任务使用 adversarial-security-reviewer。
-3. 发布、版本、上线或迁移就绪任务使用 technical-release-manager。
-4. 用户价值、范围或验收尚未确定时使用 product-manager。
-5. 公共契约、跨模块结构或重大权衡使用 chief-architect。
-6. 多工作流依赖、里程碑或拆分使用 technical-project-manager。
-7. 独立测试、回归或质量判定使用 test-lead。
-8. 其他实现、修复和重构使用 senior-engineer；若它未启用，则使用中性主 Agent。
+1. 先判断当前原子动作：澄清、设计、实现、独立验证、审查或已授权的外部执行。主题不是动作的替代品。
+2. 从有效角色集合排除禁用、未安装和无法满足当前必要能力的角色；显式选择也必须通过此检查。
+3. 用户或父 Agent 显式指定的可用角色优先采用。`routing.mode: explicit` 的角色不会被自动选择。
+4. 已明确的实现、修复、重构和测试编写使用 senior-engineer；即使主题涉及安全、API 或版本，也不改派给只读咨询角色。
+5. 独立测试、回归或质量判定使用 test-lead；独立安全审查使用 adversarial-security-reviewer；候选版本的 go/no-go 使用 technical-release-manager。
+6. 未决公共契约、跨模块结构或重大权衡使用 chief-architect。`product-manager` 与 `technical-project-manager` 仅作为显式咨询：前者输出范围和验收建议，后者输出依赖与关键路径建议；主 Agent 保留用户澄清、DAG 和最终验收。
+7. 无适配角色时由主 Agent 完成其授权范围内的工作，或报告具体能力缺口；不得通过角色名称绕过拒绝或权限限制。
 
 ## 切换与协作
 
 - 在一个原子动作内保持角色稳定；仅在目标或动作类型改变时重新路由。
 - 从 .agents/roles/<role-id>.md 读取当前角色 Prompt，不预加载全部角色正文。
+- 固定权限子 Agent 在职责变化、缺少输入、工具或权限时回传父 Agent；它不得靠切换角色扩大权限，也不得擅自再派子 Agent。
 - 只有独立并行、高风险二次复审或 docs/rules/governance-core.md 的拆分规则命中时才创建真实子 Agent。
 - 不固定串行运行七个角色，不创建强制交接收据、Reviewer/Tester 门禁或自建 scheduler。
 

@@ -30,6 +30,16 @@ const EXPECTED_PERMISSION_CAPABILITIES = {
   'security-review': ['read', 'search', 'reason', 'safe-security-check'],
   'release-readiness': ['read', 'search', 'reason', 'validation-command', 'package-dry-run'],
 };
+const PROJECTED_CAPABILITIES = {
+  codex: ['read', 'search', 'reason', 'workspace-write', 'validation-command'],
+  claude: ['read', 'search', 'reason', 'workspace-write', 'validation-command'],
+  gemini: ['read', 'search', 'reason'],
+  cursor: ['read', 'search', 'reason'],
+  qoder: ['read', 'search', 'reason'],
+  zcode: ['read', 'search', 'reason'],
+  antigravity: ['read', 'search', 'reason'],
+  opencode: ['read', 'search', 'reason', 'workspace-write'],
+};
 
 /**
  * @typedef {{
@@ -141,11 +151,11 @@ function roleIndex(roles) {
   const lines = [
     '# 可用角色',
     '',
-    '每个原子动作只选择一个角色。先按 docs/rules/role-routing.md 的优先级选择，再读取对应角色文件。',
+    '每个原子动作只选择一个角色：先识别动作，再在可用且能力匹配的角色中选择领域视角。`explicit` 角色只在用户明确指定或父 Agent 明确咨询时使用。',
     '',
   ];
   for (const role of roles) {
-    lines.push('## ' + role.id, '', role.description, '', '权限预设：' + role.permissionPreset + '。', '');
+    lines.push('## ' + role.id, '', role.description, '', '路由模式：' + (role.routing.mode ?? 'auto') + '。', '', '权限预设：' + role.permissionPreset + '。', '');
     lines.push('适用：' + role.routing.when.join('；') + '。', '');
     lines.push('避免：' + role.routing.avoid.join('；') + '。', '');
   }
@@ -201,6 +211,12 @@ function opencodeMarkdown(role, prompt) {
     prompt,
   ];
   return lines.join('\n');
+}
+
+function missingCapabilities(adapter, rolePack, role) {
+  const required = permissionPreset(rolePack, role.permissionPreset, 'role ' + role.id).capabilities;
+  const available = new Set(PROJECTED_CAPABILITIES[adapter.id] ?? []);
+  return required.filter((capability) => !available.has(capability));
 }
 
 export function projectRole(role, adapter) {
@@ -262,7 +278,6 @@ export async function resolveRoleInstallEntries({ adapter, packageVersion, roles
   assertInsideDir(rootDir, baseSource, 'role base prompt');
   await assertSafePathInside(rootDir, baseSource, 'role base prompt');
   const basePrompt = await readFile(baseSource, 'utf8');
-  const presets = presetMap(rolePack);
   const roles = [];
   const builtInIds = new Set(rolePack.items.map((role) => role.id));
   const overrides = rolesConfig.overrides ?? {};
@@ -363,6 +378,10 @@ export async function resolveRoleInstallEntries({ adapter, packageVersion, roles
         ? '.zcode/plugins/vibe-harness-roles/'
         : adapter.roleProjection.targetRoot,
       permissionMapping: adapter.roleProjection.permissionEnforcement === 'native' ? 'native' : 'degraded-permission-mapping',
+      missingCapabilities: Object.fromEntries(enabledRoles.map((role) => [
+        role.id,
+        missingCapabilities(adapter, rolePack, role),
+      ])),
     },
   };
 }

@@ -32,7 +32,7 @@
       "description": "用于澄清用户问题、业务结果、范围、指标与验收标准。",
       "permissionPreset": "analysis",
       "promptSource": "roles/prompts/product-manager.md",
-      "routing": { "when": ["用户价值或目标不明确", "范围与非目标需要锁定", "需要定义指标或验收标准"], "avoid": ["需求已经决策完备", "纯技术实现或验证"] }
+      "routing": { "when": ["用户价值或目标不明确", "范围与非目标需要锁定", "需要定义指标或验收标准"], "avoid": ["需求已经决策完备", "纯技术实现或验证"], "mode": "explicit" }
     },
     {
       "id": "technical-project-manager",
@@ -40,7 +40,7 @@
       "description": "用于多工作流依赖、关键路径、里程碑与可执行任务拆分。",
       "permissionPreset": "analysis",
       "promptSource": "roles/prompts/technical-project-manager.md",
-      "routing": { "when": ["存在多个有依赖的工作单元", "需要关键路径或阶段计划", "现有拆分规则要求 Task DAG"], "avoid": ["单一局部任务", "为了形式而创建固定流程"] }
+      "routing": { "when": ["存在多个有依赖的工作单元", "需要关键路径或阶段计划", "现有拆分规则要求 Task DAG"], "avoid": ["单一局部任务", "为了形式而创建固定流程"], "mode": "explicit" }
     },
     {
       "id": "senior-engineer",
@@ -68,7 +68,7 @@
     },
     {
       "id": "technical-release-manager",
-      "name": "技术发布经理",
+      "name": "发布就绪审查者",
       "description": "用于版本、变更说明、迁移、监控、回滚与发布 go/no-go。",
       "permissionPreset": "release-readiness",
       "promptSource": "roles/prompts/technical-release-manager.md",
