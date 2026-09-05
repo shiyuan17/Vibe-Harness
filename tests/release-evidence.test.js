@@ -18,7 +18,7 @@ test('release evidence binds verified SHA, tarball digest, checks, provenance, a
       releaseTag: 'v1.2.3', version: '1.2.3',
       releaseSha: 'a'.repeat(40), verifiedSha: 'a'.repeat(40),
       verificationId: 'github-actions:123:1', verificationFinishedAt: '2026-08-12T03:00:00.000Z',
-      verificationStable: true, checks: ['pnpm check', 'pnpm docs:audit'],
+      verificationSnapshotComparison: 'match', checks: ['pnpm check', 'pnpm docs:audit'],
       tarballPath: tarball, attestationStatus: 'generated',
     });
     const schema = await readJson(path.join(rootDir, 'schemas/release-evidence.schema.json'));
@@ -36,6 +36,6 @@ test('release evidence rejects a release SHA that was not verified', async () =>
   await assert.rejects(() => createReleaseEvidence({
     releaseTag: 'v1.2.3', version: '1.2.3', releaseSha: 'a'.repeat(40), verifiedSha: 'b'.repeat(40),
     verificationId: 'github-actions:123:1', verificationFinishedAt: '2026-08-12T03:00:00.000Z',
-    verificationStable: true, checks: ['pnpm check'], tarballPath: 'unused.tgz', attestationStatus: 'generated',
+    verificationSnapshotComparison: 'match', checks: ['pnpm check'], tarballPath: 'unused.tgz', attestationStatus: 'generated',
   }), /does not match verified SHA/u);
 });

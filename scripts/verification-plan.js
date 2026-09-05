@@ -37,7 +37,7 @@ const report = {
       || plan.impactGroups.some((item) => ['adapters', 'manifests', 'schemas', 'runtime'].includes(item)),
     smoke: plan.riskLevel === 'high' || plan.lifecycle,
     supplyChain: plan.riskLevel === 'high' || plan.impactGroups.some((item) => ['runtime', 'manifests', 'config', 'schemas'].includes(item)),
-    full: forceFull || plan.riskLevel === 'high' || plan.riskLevel === 'unknown',
+    full: forceFull || plan.riskLevel === 'high',
   },
 };
 console.log(JSON.stringify(report, null, 2));

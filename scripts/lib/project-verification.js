@@ -1,10 +1,11 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { lstat, readFile, readlink, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
 import { assertSafeCommand } from './shell-command.js';
+import { terminateProcessTree } from './process-tree.js';
 import { maxDiagnosticOutput, redactDiagnosticText } from './tool-provisioning/subprocess.js';
 
 const execFileAsync = promisify(execFile);
@@ -12,6 +13,7 @@ export const DEFAULT_PROJECT_VERIFICATION_TIMEOUT_MS = 120_000;
 export const MIN_PROJECT_VERIFICATION_TIMEOUT_MS = 1_000;
 export const MAX_PROJECT_VERIFICATION_TIMEOUT_MS = 3_600_000;
 const FOCUSED_LONG_RUNNING_TIMEOUT_MS = 300_000;
+const MAX_VERIFICATION_OUTPUT_BYTES = 1024 * 1024 * 8;
 export const PROJECT_VERIFICATION_ID_ENV = 'VIBE_HARNESS_VERIFICATION_ID';
 const packFailureCategories = [
   'capabilityErrors',
@@ -72,24 +74,7 @@ function focusedCommandTimeoutMs(command, timeoutMs) {
 }
 
 function terminateVerificationProcess(child) {
-  if (!child.pid) {
-    child.kill('SIGKILL');
-    return Promise.resolve();
-  }
-  if (process.platform !== 'win32') {
-    try {
-      process.kill(-child.pid, 'SIGKILL');
-    } catch {
-      child.kill('SIGKILL');
-    }
-    return Promise.resolve();
-  }
-  return new Promise((resolve) => {
-    execFile('taskkill.exe', ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true }, () => {
-      if (!child.killed) child.kill('SIGKILL');
-      resolve();
-    });
-  });
+  return terminateProcessTree(child);
 }
 
 function verificationEnvironment(verificationId) {
@@ -103,16 +88,23 @@ function executeVerificationCommand(file, args, { cwd, signal, timeoutMs, verifi
   return new Promise((resolve, reject) => {
     let timedOut = false;
     let cancelled = false;
+    let outputLimitExceeded = false;
     let terminationRequested = false;
-    const child = execFile(file, args, {
-      cwd,
-      detached: process.platform !== 'win32',
-      env: verificationEnvironment(verificationId),
-      maxBuffer: 1024 * 1024 * 8,
-      windowsHide: true,
-    }, (cause, stdout, stderr) => {
+    let settled = false;
+    let outputBytes = 0;
+    let stdout = '';
+    let stderr = '';
+    let child;
+    let timer;
+
+    const cleanup = () => {
       clearTimeout(timer);
       signal?.removeEventListener('abort', cancel);
+    };
+    const settle = (cause = null) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
       if (!cause) {
         resolve({ stderr, stdout });
         return;
@@ -121,17 +113,60 @@ function executeVerificationCommand(file, args, { cwd, signal, timeoutMs, verifi
       cause.stdout = stdout;
       cause.verificationTimedOut = timedOut;
       cause.verificationCancelled = cancelled;
+      cause.verificationOutputLimitExceeded = outputLimitExceeded;
       reject(cause);
-    });
+    };
+    const appendOutput = (stream, chunk) => {
+      if (settled || terminationRequested) return;
+      outputBytes += chunk.length;
+      const text = chunk.toString();
+      if (stream === 'stdout') stdout = (stdout + text).slice(-maxDiagnosticOutput);
+      else stderr = (stderr + text).slice(-maxDiagnosticOutput);
+      if (outputBytes > MAX_VERIFICATION_OUTPUT_BYTES) requestTermination('output');
+    };
     const requestTermination = (kind) => {
-      if (terminationRequested) return;
+      if (terminationRequested || settled) return;
       terminationRequested = true;
       timedOut = kind === 'timeout';
       cancelled = kind === 'cancel';
-      void terminateVerificationProcess(child);
+      outputLimitExceeded = kind === 'output';
+      void terminateVerificationProcess(child).then(() => {
+        if (!settled) {
+          const cause = new Error('Verification process did not close after termination.');
+          cause.code = 'PROJECT_VERIFICATION_TERMINATION_TIMEOUT';
+          settle(cause);
+        }
+      });
     };
     const cancel = () => requestTermination('cancel');
-    const timer = setTimeout(() => requestTermination('timeout'), normalizedTimeoutMs(timeoutMs));
+
+    child = spawn(file, args, {
+      cwd,
+      detached: process.platform !== 'win32',
+      env: verificationEnvironment(verificationId),
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+    child.stdout.on('data', (chunk) => appendOutput('stdout', chunk));
+    child.stderr.on('data', (chunk) => appendOutput('stderr', chunk));
+    child.once('error', (cause) => settle(cause));
+    child.once('close', (code, signalName) => {
+      if (settled) return;
+      if (terminationRequested) {
+        const cause = new Error('Verification process terminated.');
+        cause.code = typeof code === 'number' ? code : 1;
+        settle(cause);
+        return;
+      }
+      if (code === 0) {
+        settle();
+        return;
+      }
+      const cause = new Error(`Verification process exited with ${signalName ?? code}.`);
+      cause.code = typeof code === 'number' ? code : 1;
+      settle(cause);
+    });
+    timer = setTimeout(() => requestTermination('timeout'), normalizedTimeoutMs(timeoutMs));
     timer.unref();
     if (signal?.aborted) cancel();
     else signal?.addEventListener('abort', cancel, { once: true });
@@ -146,7 +181,11 @@ function commandFailureResult({ category, cause, command, nextCommand, targetDir
     category,
     code: timedOut
       ? 'PROJECT_VERIFICATION_TIMEOUT'
-      : cancelled ? 'PROJECT_VERIFICATION_CANCELLED' : 'PROJECT_VERIFICATION_COMMAND_FAILED',
+      : cancelled
+        ? 'PROJECT_VERIFICATION_CANCELLED'
+        : cause.verificationOutputLimitExceeded
+          ? 'PROJECT_VERIFICATION_OUTPUT_LIMIT'
+          : 'PROJECT_VERIFICATION_COMMAND_FAILED',
     exitCode: typeof cause.code === 'number' ? cause.code : 1,
     status: 'failed',
     ...(cancelled ? { cancelled: true } : {}),
@@ -245,14 +284,14 @@ async function updatePathHash(hash, rootDir, relativePath) {
 
 export async function createProjectSnapshot(targetDir) {
   const rootOutput = await gitOutput(['rev-parse', '--show-toplevel'], targetDir);
-  if (!rootOutput) return { available: false, stable: null, vcs: 'none' };
+  if (!rootOutput) return { available: false, vcs: 'none' };
   const [rootDir, resolvedTargetDir] = await Promise.all([
     realpath(rootOutput.trim()),
     realpath(targetDir),
   ]);
   const relativeTarget = path.relative(rootDir, resolvedTargetDir) || '.';
   if (relativeTarget.startsWith('..') || path.isAbsolute(relativeTarget)) {
-    return { available: false, stable: null, vcs: 'none' };
+    return { available: false, vcs: 'none' };
   }
   const scopeArgs = relativeTarget === '.'
     ? []
@@ -265,7 +304,7 @@ export async function createProjectSnapshot(targetDir) {
     gitOutput(['ls-files', '--others', '--exclude-standard', '-z', ...scopeArgs], rootDir),
   ]);
   if ([headOutput, statusOutput, ignoredStatusOutput, changedOutput, untrackedOutput].some((value) => value === null)) {
-    return { available: false, stable: null, vcs: 'none' };
+    return { available: false, vcs: 'none' };
   }
   const changedPaths = [...new Set([
     ...nullSeparatedPaths(changedOutput),
@@ -295,22 +334,20 @@ function hasConfiguredChecks(commandStatus) {
   return Object.values(commandStatus ?? {}).some((item) => item && item.status !== 'not_configured');
 }
 
-function verificationEvidence({ commandsPassed, requireStable, stable }) {
-  const workspaceStatus = stable === true ? 'verified' : stable === false ? 'changed' : 'unverified';
-  const workspaceReason = stable === true
+function verificationEvidence({ commandsPassed, requireStable, snapshotComparison }) {
+  const workspaceReason = snapshotComparison === 'match'
     ? 'Git snapshots match before and after verification.'
-    : stable === false
+    : snapshotComparison === 'changed'
       ? 'Git snapshot evidence changed while verification was running.'
       : 'Git snapshot evidence is unavailable; command success does not prove workspace stability.';
   return {
     commandExecution: {
       status: commandsPassed ? 'passed' : 'failed',
     },
-    workspaceStability: {
-      proven: stable === true,
+    snapshotComparison: {
+      value: snapshotComparison,
       reason: workspaceReason,
       required: requireStable,
-      status: workspaceStatus,
     },
   };
 }
@@ -356,16 +393,17 @@ export async function runProjectVerification({
     timeoutMs,
   });
   const after = await createProjectSnapshot(targetDir);
-  const stable = before.available && after.available
+  const snapshotComparison = before.available && after.available
     ? before.fingerprint === after.fingerprint
-    : before.available === after.available ? null : false;
+      ? 'match' : 'changed'
+    : before.available === after.available ? 'unavailable' : 'changed';
   const checksConfigured = hasConfiguredChecks(commandStatus);
   const commandsPassed = checksConfigured && !verificationFailed(results);
-  const evidence = verificationEvidence({ commandsPassed, requireStable, stable });
+  const evidence = verificationEvidence({ commandsPassed, requireStable, snapshotComparison });
   const finishedAt = new Date();
   const hasFinalChange = (before.changedFiles ?? 0) > 0 || (after.changedFiles ?? 0) > 0;
   let error;
-  if (stable === false) {
+  if (snapshotComparison === 'changed') {
     error = {
       code: 'PROJECT_VERIFICATION_STALE',
       message: 'The project changed while verification was running; run verify again on the final state.',
@@ -380,7 +418,7 @@ export async function runProjectVerification({
       code: 'PROJECT_VERIFICATION_FAILED',
       message: verificationOutput(verificationFailure(results, commandStatus), targetDir),
     };
-  } else if (requireStable && !evidence.workspaceStability.proven) {
+  } else if (requireStable && snapshotComparison !== 'match') {
     error = {
       code: 'PROJECT_VERIFICATION_STABILITY_UNVERIFIED',
       message: 'Git snapshot evidence is unavailable; command checks passed, but this receipt cannot satisfy a stability-required completion.',
@@ -391,11 +429,12 @@ export async function runProjectVerification({
     ok: !error,
     results,
     verification: {
+      schemaVersion: 2,
       after,
       before,
       changeBoundary: {
         resultsAfterFinalChange: hasFinalChange,
-        status: hasFinalChange && stable === true && commandsPassed ? 'verified' : 'unverified',
+        status: hasFinalChange && snapshotComparison === 'match' && commandsPassed ? 'verified' : 'unverified',
       },
       deliveryBoundaries: {
         ci: 'unverified',
@@ -408,7 +447,7 @@ export async function runProjectVerification({
       recovery: error
         ? { status: 'available', hint: 'pnpm verify --project <path>' }
         : { status: 'not-needed', hint: 'pnpm verify --project <path>' },
-      stable,
+      snapshotComparison,
       startedAt: startedAt.toISOString(),
     },
   };
@@ -483,15 +522,16 @@ export async function runFocusedProjectVerification({
     }
   }
   const after = await createProjectSnapshot(targetDir);
-  const stable = before.available && after.available
+  const snapshotComparison = before.available && after.available
     ? before.fingerprint === after.fingerprint
-    : before.available === after.available ? null : false;
+      ? 'match' : 'changed'
+    : before.available === after.available ? 'unavailable' : 'changed';
   const finishedAt = new Date();
   const hasFinalChange = (before.changedFiles ?? 0) > 0 || (after.changedFiles ?? 0) > 0;
   const failedResult = results.find((result) => ['blocked', 'failed'].includes(result.status));
-  const evidence = verificationEvidence({ commandsPassed: !failedResult, requireStable, stable });
+  const evidence = verificationEvidence({ commandsPassed: !failedResult, requireStable, snapshotComparison });
   let error;
-  if (stable === false) {
+  if (snapshotComparison === 'changed') {
     error = {
       code: 'PROJECT_VERIFICATION_STALE',
       message: 'The project changed while focused verification was running; run verify:focused again on the final state.',
@@ -504,7 +544,13 @@ export async function runFocusedProjectVerification({
         targetDir,
       ),
     };
-  } else if (requireStable && !evidence.workspaceStability.proven) {
+  } else if (focused.commands.length === 0) {
+    error = {
+      code: 'PROJECT_VERIFICATION_NO_CHECKS',
+      message: 'No applicable verification checks were selected; configure a matching check or run with --full.',
+    };
+    evidence.commandExecution.status = 'blocked';
+  } else if (requireStable && snapshotComparison !== 'match') {
     error = {
       code: 'PROJECT_VERIFICATION_STABILITY_UNVERIFIED',
       message: 'Git snapshot evidence is unavailable; focused checks passed, but this receipt cannot satisfy a stability-required completion.',
@@ -515,6 +561,7 @@ export async function runFocusedProjectVerification({
     ok: !error,
     results,
     verification: {
+      schemaVersion: 2,
       after,
       before,
       durationMs: finishedAt.getTime() - startedAt.getTime(),
@@ -533,7 +580,7 @@ export async function runFocusedProjectVerification({
       },
       changeBoundary: {
         resultsAfterFinalChange: hasFinalChange,
-        status: hasFinalChange && stable === true && !failedResult ? 'verified' : 'unverified',
+        status: hasFinalChange && snapshotComparison === 'match' && !failedResult ? 'verified' : 'unverified',
       },
       deliveryBoundaries: {
         ci: 'unverified',
@@ -543,7 +590,7 @@ export async function runFocusedProjectVerification({
         ? { status: 'available', hint: failedResult.next?.command ?? 'pnpm verify:focused --run' }
         : { status: 'not-needed', hint: 'pnpm verify:focused --run' },
       id,
-      stable,
+      snapshotComparison,
       startedAt: startedAt.toISOString(),
     },
   };

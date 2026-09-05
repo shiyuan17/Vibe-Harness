@@ -26,14 +26,20 @@ async function targetWithScripts() {
   return target;
 }
 
-test('verification risk classifier selects quick, standard, high, and unknown safely', () => {
+test('verification risk classifier selects quick, standard, and high safely', () => {
   assert.equal(classifyVerificationRisk(['README.md']).riskLevel, 'quick');
   assert.equal(classifyVerificationRisk(['tests/example.test.js']).riskLevel, 'quick');
   assert.equal(classifyVerificationRisk(['src/example.js']).riskLevel, 'standard');
   assert.equal(classifyVerificationRisk(['schemas/example.json']).riskLevel, 'high');
   const unknown = classifyVerificationRisk(['misc/example.bin']);
-  assert.equal(unknown.riskLevel, 'unknown');
+  assert.equal(unknown.riskLevel, 'high');
   assert.equal(unknown.fallbackUsed, true);
+});
+
+test('an unknown path cannot lower the risk selected for a mixed change', () => {
+  const plan = classifyVerificationRisk(['scripts/example.js', 'misc/example.bin']);
+  assert.equal(plan.riskLevel, 'high');
+  assert.equal(plan.fallbackUsed, true);
 });
 
 test('riskZones and pathPatterns raise risk and preserve the reason in the plan', async () => {
@@ -94,7 +100,7 @@ test('high risk and unknown plans select lifecycle checks, while aggregate check
     assert.equal(new Set(high.selectedChecks.map((item) => item.command)).size, high.selectedChecks.length);
 
     const unknown = await buildVerificationPlan({ changedPaths: ['misc/example.bin'], targetDir: target });
-    assert.equal(unknown.riskLevel, 'unknown');
+    assert.equal(unknown.riskLevel, 'high');
     assert.equal(unknown.fallbackUsed, true);
     assert.ok(unknown.selectedChecks.some((item) => item.id === 'integration'));
     assert.ok(unknown.selectedChecks.some((item) => item.id === 'smoke'));

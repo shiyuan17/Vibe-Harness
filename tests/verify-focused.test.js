@@ -10,71 +10,9 @@ import {
   collectChangedPaths,
   parseNulPathList,
   parseNulPorcelainPaths,
-  selectFocusedChecks,
 } from '../scripts/verify-focused.js';
 
 const execFileAsync = promisify(execFile);
-
-function commands(result) {
-  return result.commands.map((item) => item.command);
-}
-
-test('selectFocusedChecks maps canonical rules changes to unit tests and eval:check with a fingerprint note', () => {
-  const result = selectFocusedChecks(['docs/rules/governance-core.md']);
-  assert.deepEqual(commands(result), ['pnpm test:unit', 'pnpm eval:check']);
-  assert.equal(result.notes.length, 1);
-  assert.match(result.notes[0], /fingerprint/u);
-  assert.match(result.notes[0], /reference update checklist/u);
-});
-
-test('selectFocusedChecks maps docs/rules paths to the canonical rules bucket', () => {
-  const result = selectFocusedChecks(['docs/rules/test-rules.md']);
-  assert.deepEqual(commands(result), ['pnpm test:unit', 'pnpm eval:check']);
-});
-
-test('selectFocusedChecks merges buckets, de-duplicates, and preserves first-seen order', () => {
-  const result = selectFocusedChecks(['docs/rules/x.md', 'scripts/tool.js', 'runtime/hooks/lib/policy.mjs']);
-  assert.deepEqual(commands(result), [
-    'pnpm test:unit',
-    'pnpm eval:check',
-    'pnpm check',
-    'pnpm test:integration',
-    'pnpm smoke:lifecycle',
-  ]);
-});
-
-test('selectFocusedChecks maps eval suites, skills, workflows, and adapters to their checks', () => {
-  assert.deepEqual(commands(selectFocusedChecks(['evals/suites/a.json'])), ['pnpm eval:check', 'pnpm test:eval']);
-  assert.deepEqual(commands(selectFocusedChecks(['skills/core/x/SKILL.md'])), [
-    'pnpm skills:audit',
-    'pnpm eval:check',
-    'pnpm test:eval',
-  ]);
-  assert.deepEqual(commands(selectFocusedChecks(['.github/workflows/ci.yml'])), ['pnpm test:eval']);
-  assert.deepEqual(commands(selectFocusedChecks(['adapters/codex/AGENTS.template.md'])), [
-    'pnpm check',
-    'pnpm test:integration',
-  ]);
-  assert.deepEqual(commands(selectFocusedChecks(['.agents/runtime/hooks/lib/context.mjs'])), [
-    'pnpm test:unit',
-    'pnpm eval:check',
-  ]);
-});
-
-test('selectFocusedChecks includes pack and lifecycle gates for scripts', () => {
-  assert.deepEqual(commands(selectFocusedChecks(['scripts/lib/project-verification.js'])), [
-    'pnpm check',
-    'pnpm test:unit',
-    'pnpm test:integration',
-    'pnpm smoke:lifecycle',
-  ]);
-});
-
-test('selectFocusedChecks falls back to pnpm check for unrecognized paths', () => {
-  assert.deepEqual(commands(selectFocusedChecks(['package.json'])), ['pnpm check']);
-  assert.deepEqual(commands(selectFocusedChecks(['docs/README.md', 'AGENTS.md'])), ['pnpm check']);
-  assert.deepEqual(commands(selectFocusedChecks([])), []);
-});
 
 test('NUL-delimited path parsers preserve spaces, quotes, newlines, and rename destinations', () => {
   const diffOutput = [
@@ -196,7 +134,7 @@ test('verify-focused --run --json emits one reviewable receipt', async () => {
     assert.deepEqual(report.verification.focused.changedPaths, ['tests/check.txt']);
     assert.deepEqual(report.verification.focused.commands.map((item) => item.command), ['pnpm test:unit']);
     assert.equal(report.results[0].status, 'passed');
-    assert.equal(report.verification.stable, true);
+    assert.equal(report.verification.snapshotComparison, 'match');
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

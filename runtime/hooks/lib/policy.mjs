@@ -415,6 +415,15 @@ function classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts 
     ...(input.toolName === 'apply_patch' ? patchPaths(command) : []),
     ...shellTargets,
   ];
+  const touchesControlPlane = candidates.some((candidate) => {
+    const absolute = path.isAbsolute(candidate)
+      ? candidate
+      : path.resolve(projectRoot, candidate);
+    return controlPlanePattern.test(path.relative(projectRoot, absolute).replaceAll('\\', '/'));
+  });
+  if (touchesControlPlane) {
+    return risk('deny', 'CONTROL_PLANE_WRITE', 'Direct writes to Vibe-Harness control-plane files are blocked; use the transactional installer with explicit confirmation.');
+  }
   for (const candidate of candidates) {
     if (referencesGlobalAgentConfig(candidate)) {
       return risk('deny', 'GLOBAL_AGENT_CONFIG', 'Writes to global Agent configuration are blocked by repository policy.');
@@ -441,15 +450,6 @@ function classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts 
         return redZonePattern.test(path.relative(projectRoot, absolute).replaceAll('\\', '/'));
       })
     : false;
-  const touchesControlPlane = candidates.some((candidate) => {
-    const absolute = path.isAbsolute(candidate)
-      ? candidate
-      : path.resolve(projectRoot, candidate);
-    return controlPlanePattern.test(path.relative(projectRoot, absolute).replaceAll('\\', '/'));
-  });
-  if (touchesControlPlane) {
-    return risk('deny', 'CONTROL_PLANE_WRITE', 'Direct writes to Vibe-Harness control-plane files are blocked; use the transactional installer with explicit confirmation.');
-  }
   if (touchesRedZone) {
     return risk('deny', 'RED_ZONE', 'Direct writes to project red-zone paths are blocked by repository policy.');
   }

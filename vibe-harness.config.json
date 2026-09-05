@@ -24,8 +24,6 @@
     "repetitions": 3
   },
   "hooks": {
-    "mode": "guarded",
-    "allowedWriteRoots": [],
     "redZonePaths": [
       ".env",
       "auth/",

@@ -51,7 +51,7 @@ function hookCliReason(stdout) {
   return JSON.parse(stdout).hookSpecificOutput.permissionDecisionReason;
 }
 
-async function withProject(callback, hooks = { mode: 'guarded' }) {
+async function withProject(callback, hooks = {}) {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-hook-runtime-'));
   try {
     await writeFile(path.join(target, 'vibe-harness.config.json'), JSON.stringify({ hooks }), 'utf8');
@@ -385,7 +385,8 @@ test('high-risk commands require a scoped v2 envelope and host enforcement', asy
         execution_envelope: executionEnvelopeV2(target, { allowedEffects: ['workspaceWrite'] }),
         tool_input: { command },
       }));
-      assert.deepEqual(allowed, {}, command);
+      if (command.startsWith('node ')) assert.deepEqual(allowed, {}, command);
+      else assert.match(allowed.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_UNKNOWN_EFFECT/u, command);
     }
 
     const weakHost = executionEnvelopeV2(target, { allowedEffects: ['workspaceWrite'] });
@@ -505,6 +506,28 @@ test('Execution Envelope classifies ordinary Git, Linear, and credential operati
       }));
       assert.deepEqual(allowed, {}, command);
     }
+
+    for (const command of ['git merge feature/ENG-123', 'git rebase main', 'git cherry-pick abc123']) {
+      const denied = await evaluateCodexHook(input(target, {
+        execution_envelope: executionEnvelope(),
+        tool_input: { command },
+      }));
+      assert.match(denied.hookSpecificOutput.permissionDecisionReason, /workspaceWrite/u, command);
+    }
+
+    initializeGitProject(target);
+
+    const unknownWithV2 = await evaluateCodexHook(input(target, {
+      execution_envelope: executionEnvelopeV2(target, { allowedEffects: [] }),
+      tool_input: { command: 'git merge feature/ENG-123' },
+    }));
+    assert.match(unknownWithV2.hookSpecificOutput.permissionDecisionReason, /workspaceWrite|EXECUTION_ENVELOPE_EFFECT_NOT_ALLOWED/u);
+
+    const unclassifiedWithV2 = await evaluateCodexHook(input(target, {
+      execution_envelope: executionEnvelopeV2(target, { allowedEffects: ['workspaceWrite'] }),
+      tool_input: { command: 'ssh example.test' },
+    }));
+    assert.match(unclassifiedWithV2.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_UNKNOWN_EFFECT/u);
 
     const linearRead = await evaluateCodexHook(input(target, {
       tool_input: { id: 'ENG-123' },
@@ -826,25 +849,25 @@ test('Hook reads allowedEgressHosts from project configuration', async () => {
       redZonePaths: DEFAULT_RED_ZONE_PATHS,
       rtkEnabled: false,
     });
-  }, { mode: 'guarded' });
+  }, {});
   await withProject(async (target) => {
     const settings = await readHookSettings(target);
     assert.deepEqual(settings.allowedEgressHosts, ['registry.npmjs.org', '*.github.com']);
-  }, { mode: 'guarded', allowedEgressHosts: ['registry.npmjs.org', '*.github.com'] });
+  }, { allowedEgressHosts: ['registry.npmjs.org', '*.github.com'] });
 });
 
 test('Hook reads redZonePaths from project configuration', async () => {
   await withProject(async (target) => {
     const settings = await readHookSettings(target);
     assert.deepEqual(settings.redZonePaths, [...DEFAULT_RED_ZONE_PATHS, 'secrets/']);
-  }, { mode: 'guarded', redZonePaths: ['secrets/', '.env'] });
+  }, { redZonePaths: ['secrets/', '.env'] });
 });
 
 test('Hook settings apply repository configuration only as a restriction without install-state', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-hook-no-state-'));
   try {
     await writeFile(path.join(target, 'vibe-harness.config.json'), JSON.stringify({
-      hooks: { mode: 'guarded', allowedEgressHosts: ['evil.test'], allowedWriteRoots: ['/etc'] },
+      hooks: { allowedEgressHosts: ['evil.test'] },
     }), 'utf8');
     // Egress allowlists tighten policy, while write-root expansion is ignored.
     assert.deepEqual(await readHookSettings(target), {
@@ -863,7 +886,7 @@ test('Forged install-state cannot disable protection or expand write roots', asy
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-hook-wrong-product-'));
   try {
     await writeFile(path.join(target, 'vibe-harness.config.json'), JSON.stringify({
-      hooks: { mode: 'off', allowedEgressHosts: ['approved.test'], allowedWriteRoots: [path.parse(target).root] },
+      hooks: { allowedEgressHosts: ['approved.test'] },
     }), 'utf8');
     await mkdir(path.join(target, '.vibe-harness'), { recursive: true });
     await writeFile(

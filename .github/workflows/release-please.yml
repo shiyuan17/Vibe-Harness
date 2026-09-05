@@ -16,7 +16,7 @@ jobs:
       verification-id: ${{ steps.metadata.outputs.id }}
       verification-finished-at: ${{ steps.metadata.outputs.finished_at }}
       verified-sha: ${{ steps.metadata.outputs.sha }}
-      verification-stable: ${{ steps.metadata.outputs.stable }}
+      verification-snapshot-comparison: ${{ steps.metadata.outputs.snapshot_comparison }}
       verification-checks: ${{ steps.metadata.outputs.checks }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -114,7 +114,7 @@ jobs:
           VERIFIED_SHA: ${{ needs.release-verify.outputs.verified-sha }}
           VERIFICATION_ID: ${{ needs.release-verify.outputs.verification-id }}
           VERIFICATION_FINISHED_AT: ${{ needs.release-verify.outputs.verification-finished-at }}
-          VERIFICATION_STABLE: ${{ needs.release-verify.outputs.verification-stable }}
+          VERIFICATION_SNAPSHOT_COMPARISON: ${{ needs.release-verify.outputs.verification-snapshot-comparison }}
           VERIFICATION_CHECKS: ${{ needs.release-verify.outputs.verification-checks }}
           TARBALL_DIR: release-artifacts
           ATTESTATION_STATUS: generated

@@ -43,9 +43,7 @@ async function seedTrackedAutoCommitRuntime(target, { modified = false } = {}) {
 
 test('project config exposes guarded safety Hook defaults', () => {
   assert.deepEqual(defaultProjectConfig.hooks, {
-    allowedWriteRoots: [],
     allowedEgressHosts: [],
-    mode: 'guarded',
     redZonePaths: defaultRedZonePaths,
   });
   for (const runtimePath of DEFAULT_RED_ZONE_PATHS) {
@@ -54,21 +52,6 @@ test('project config exposes guarded safety Hook defaults', () => {
       : runtimePath === configuredPath), true, runtimePath);
   }
   assert.equal(validateProjectConfig(defaultProjectConfig), true);
-  assert.throws(
-    () => validateProjectConfig({ ...defaultProjectConfig, hooks: { mode: 'strict' } }),
-    /hooks\.mode/,
-  );
-  assert.throws(
-    () => validateProjectConfig({
-      ...defaultProjectConfig,
-      hooks: { allowedWriteRoots: [path.resolve(rootDir, '..', 'companion-project')] },
-    }),
-    /must be empty/u,
-  );
-  assert.throws(
-    () => validateProjectConfig({ ...defaultProjectConfig, hooks: { allowedWriteRoots: ['../companion-project'] } }),
-    /hooks\.allowedWriteRoots/,
-  );
   assert.equal(validateProjectConfig({
     ...defaultProjectConfig,
     hooks: { allowedEgressHosts: ['registry.npmjs.org', '*.github.com'] },

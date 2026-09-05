@@ -73,9 +73,7 @@ export const defaultProjectConfig = {
     repetitions: 3,
   },
   hooks: {
-    allowedWriteRoots: [],
     allowedEgressHosts: [],
-    mode: 'guarded',
     redZonePaths: defaultRedZonePaths,
   },
   riskZones: {
@@ -328,22 +326,6 @@ export function validateProjectConfig(config) {
   }
   if (Object.hasOwn(config, 'hooks')) {
     assertObject(config.hooks, 'hooks');
-    if (Object.hasOwn(config.hooks, 'mode') && config.hooks.mode !== 'guarded') {
-      throw new Error('hooks.mode must be guarded; repository configuration cannot disable or weaken Hook policy');
-    }
-    if (Object.hasOwn(config.hooks, 'allowedWriteRoots')) {
-      if (!Array.isArray(config.hooks.allowedWriteRoots)) {
-        throw new Error('hooks.allowedWriteRoots must be an array');
-      }
-      if (config.hooks.allowedWriteRoots.length > 0) {
-        throw new Error('hooks.allowedWriteRoots must be empty; repository configuration cannot expand the project write boundary');
-      }
-      for (const root of config.hooks.allowedWriteRoots) {
-        if (typeof root !== 'string' || root.trim().length === 0 || !path.isAbsolute(root)) {
-          throw new Error('hooks.allowedWriteRoots must contain non-empty absolute paths');
-        }
-      }
-    }
     if (Object.hasOwn(config.hooks, 'allowedEgressHosts')) {
       if (!Array.isArray(config.hooks.allowedEgressHosts)) {
         throw new Error('hooks.allowedEgressHosts must be an array');

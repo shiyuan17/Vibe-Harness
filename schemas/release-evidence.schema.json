@@ -4,17 +4,17 @@
   "type": "object",
   "required": ["schemaVersion", "releaseTag", "version", "releaseSha", "verification", "checks", "tarball", "attestationStatus", "rollbackStrategy"],
   "properties": {
-    "schemaVersion": { "type": "integer", "const": 1 },
+    "schemaVersion": { "type": "integer", "const": 2 },
     "releaseTag": { "type": "string", "pattern": "^v?[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$" },
     "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$" },
     "releaseSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
     "verification": {
       "type": "object",
-      "required": ["id", "finishedAt", "stable", "sha"],
+      "required": ["id", "finishedAt", "snapshotComparison", "sha"],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "finishedAt": { "type": "string", "minLength": 1 },
-        "stable": { "type": "boolean" },
+        "snapshotComparison": { "enum": ["match"] },
         "sha": { "type": "string", "pattern": "^[a-f0-9]{40}$" }
       },
       "additionalProperties": false

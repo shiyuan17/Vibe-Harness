@@ -95,19 +95,32 @@ export function classifyVerificationRisk(changedPaths = [], { riskZones = {}, ch
   const yellowPatterns = [...(riskZones.yellow ?? []), ...(riskZones.pathPatterns?.yellow ?? [])];
   const red = paths.some((item) => matchesConfiguredZone(item, redPatterns));
   const yellow = paths.some((item) => matchesConfiguredZone(item, yellowPatterns));
-  const high = paths.some((item) => HIGH_PATHS.some((pattern) => pattern.test(item))) || red;
   const lifecycle = paths.some((item) => LIFECYCLE_PATHS.some((pattern) => pattern.test(item)));
   const details = Array.isArray(changedDetails) ? changedDetails : [];
+  const detailFor = (pathname, index) => details.find((item) => normalize(item?.changedPath ?? '') === pathname) ?? details[index] ?? {};
+  const pathRisk = paths.map((pathname, index) => {
+    const detail = detailFor(pathname, index);
+    const pathGroup = classifyGroup(pathname);
+    const pathRed = matchesConfiguredZone(pathname, redPatterns);
+    const pathYellow = matchesConfiguredZone(pathname, yellowPatterns);
+    const pathHigh = HIGH_PATHS.some((pattern) => pattern.test(pathname)) || pathRed;
+    const pathPublicContract = detail.publicContract || detail.api || detail.schema || detail.dynamicDependency;
+    const pathCommentsOnly = detail.commentsOnly || detail.docsOnly || detail.formatOnly;
+    if (pathHigh || pathPublicContract) return 'high';
+    if (pathGroup === 'unknown') return 'high';
+    if (pathCommentsOnly && !pathYellow) return 'quick';
+    if (pathGroup === 'docs' && !pathYellow) return 'quick';
+    if (pathGroup === 'tests' && !pathYellow) return 'quick';
+    if (LOW_IMPACT_CONFIG.test(pathname) && !pathYellow) return 'quick';
+    if (pathYellow || ['rules', 'tests', 'eval', 'skills', 'scripts', 'config'].includes(pathGroup)) return 'standard';
+    return 'standard';
+  });
+  const riskOrder = ['quick', 'standard', 'high'];
+  const riskLevel = paths.length === 0
+    ? 'standard'
+    : riskOrder[Math.max(...pathRisk.map((value) => riskOrder.indexOf(value)))];
   const publicContract = details.some((item) => item?.publicContract || item?.api || item?.schema || item?.dynamicDependency);
   const commentsOnly = details.length > 0 && details.every((item) => item?.commentsOnly || item?.docsOnly || item?.formatOnly);
-  let riskLevel = 'quick';
-  if (paths.length === 0) riskLevel = 'standard';
-  else if (high || publicContract) riskLevel = 'high';
-  else if (commentsOnly && !yellow) riskLevel = 'quick';
-  else if (groups.includes('tests') && paths.length === 1 && !yellow) riskLevel = 'quick';
-  else if (paths.length === 1 && LOW_IMPACT_CONFIG.test(paths[0]) && !yellow) riskLevel = 'quick';
-  else if (yellow || groups.some((group) => ['rules', 'tests', 'eval', 'skills', 'scripts', 'config'].includes(group))) riskLevel = 'standard';
-  else if (groups.includes('unknown')) riskLevel = 'unknown';
   return {
     changedPaths: paths,
     impactGroups: groups,
@@ -116,7 +129,7 @@ export function classifyVerificationRisk(changedPaths = [], { riskZones = {}, ch
     lifecycle,
     publicContract,
     commentsOnly,
-    fallbackUsed: riskLevel === 'unknown',
+    fallbackUsed: groups.includes('unknown'),
   };
 }
 
@@ -242,6 +255,6 @@ export async function buildVerificationPlan({ changedPaths = [], changedDetails 
     selectedChecks,
     skippedChecks: known.filter((id) => !selectedIds.has(id)).map((id) => ({ id, status: 'not_selected' })),
     selectionReasons: [...new Set(reasons)],
-    fallbackUsed: risk.fallbackUsed || (!full && risk.riskLevel === 'unknown'),
+    fallbackUsed: risk.fallbackUsed,
   };
 }

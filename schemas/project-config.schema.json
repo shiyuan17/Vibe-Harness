@@ -46,12 +46,6 @@
     "hooks": {
       "type": "object",
       "properties": {
-        "mode": { "type": "string", "const": "guarded" },
-        "allowedWriteRoots": {
-          "type": "array",
-          "maxItems": 0,
-          "items": { "type": "string", "minLength": 1 }
-        },
         "allowedEgressHosts": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 }

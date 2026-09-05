@@ -76,13 +76,12 @@ test('verify --project executes configured available commands', async () => {
     assert.ok(Array.isArray(report.verification.skippedChecks));
     assert.equal(report.verification.fallbackUsed, false);
     assert.equal(report.verification.before.available, false);
-    assert.equal(report.verification.stable, null);
+    assert.equal(report.verification.snapshotComparison, 'unavailable');
     assert.deepEqual(report.verification.evidence.commandExecution, { status: 'passed' });
-    assert.deepEqual(report.verification.evidence.workspaceStability, {
-      proven: false,
+    assert.deepEqual(report.verification.evidence.snapshotComparison, {
+      value: 'unavailable',
       reason: 'Git snapshot evidence is unavailable; command success does not prove workspace stability.',
       required: false,
-      status: 'unverified',
     });
     assert.match(report.verification.id, /^[0-9a-f-]{36}$/u);
     assert.equal(Date.parse(report.verification.finishedAt) >= Date.parse(report.verification.startedAt), true);
@@ -102,8 +101,8 @@ test('verify --project executes configured available commands', async () => {
     assert.equal(stabilityRequired.error.code, 'PROJECT_VERIFICATION_STABILITY_UNVERIFIED');
     assert.equal(stabilityRequired.results.lint.status, 'passed');
     assert.equal(stabilityRequired.verification.evidence.commandExecution.status, 'passed');
-    assert.equal(stabilityRequired.verification.evidence.workspaceStability.required, true);
-    assert.equal(stabilityRequired.verification.evidence.workspaceStability.proven, false);
+    assert.equal(stabilityRequired.verification.evidence.snapshotComparison.required, true);
+    assert.equal(stabilityRequired.verification.evidence.snapshotComparison.value, 'unavailable');
   } finally {
     await rm(target, { force: true, recursive: true });
   }
@@ -521,13 +520,12 @@ test('Git verification receipt proves command success and workspace stability se
     });
 
     assert.equal(report.ok, true);
-    assert.equal(report.verification.stable, true);
+    assert.equal(report.verification.snapshotComparison, 'match');
     assert.deepEqual(report.verification.evidence.commandExecution, { status: 'passed' });
-    assert.deepEqual(report.verification.evidence.workspaceStability, {
-      proven: true,
+    assert.deepEqual(report.verification.evidence.snapshotComparison, {
+      value: 'match',
       reason: 'Git snapshots match before and after verification.',
       required: true,
-      status: 'verified',
     });
   } finally {
     await rm(target, { force: true, recursive: true });
@@ -556,13 +554,12 @@ test('verification receipts reject a project that changes during checks', async 
     assert.equal(report.ok, false);
     assert.equal(report.error.code, 'PROJECT_VERIFICATION_STALE');
     assert.equal(report.results.lint.status, 'passed');
-    assert.equal(report.verification.stable, false);
+    assert.equal(report.verification.snapshotComparison, 'changed');
     assert.deepEqual(report.verification.evidence.commandExecution, { status: 'passed' });
-    assert.deepEqual(report.verification.evidence.workspaceStability, {
-      proven: false,
+    assert.deepEqual(report.verification.evidence.snapshotComparison, {
+      value: 'changed',
       reason: 'Git snapshot evidence changed while verification was running.',
       required: false,
-      status: 'changed',
     });
     assert.notEqual(report.verification.before.fingerprint, report.verification.after.fingerprint);
   } finally {
@@ -587,10 +584,10 @@ test('focused verification receipt binds changed paths, suggestions, results, an
     assert.equal(report.results[0].verificationId, report.verification.id);
     assert.match(report.results[0].stdout, /42/u);
     assert.deepEqual(report.verification.focused, focused);
-    assert.equal(report.verification.stable, true);
+    assert.equal(report.verification.snapshotComparison, 'match');
     assert.equal(report.verification.evidence.commandExecution.status, 'passed');
-    assert.equal(report.verification.evidence.workspaceStability.status, 'verified');
-    assert.equal(report.verification.evidence.workspaceStability.required, true);
+    assert.equal(report.verification.evidence.snapshotComparison.value, 'match');
+    assert.equal(report.verification.evidence.snapshotComparison.required, true);
     assert.equal(report.verification.before.ignoredContentHashed, false);
     assert.ok(Array.isArray(report.verification.before.ignoredPaths));
     assert.match(report.verification.id, /^[0-9a-f-]{36}$/u);

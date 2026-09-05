@@ -107,16 +107,12 @@ test('capability catalog and online canary register lightweight Task DAG coverag
 
 test('plan split judgment gates execution without becoming a workflow gate', async () => {
   const kernel = await readFile(path.join(rootDir, 'docs/rules/governance-core.md'), 'utf8');
-  assert.match(kernel, /不默认直接执行，也不默认拆分/u);
-  assert.match(kernel, /命中任一硬触发即拆分，不计入软信号/u);
-  assert.match(kernel, /0–1 项直接执行计划；2–3 项拆分为实施任务；4 项及以上必须拆分并显式声明任务依赖/u);
-  assert.match(kernel, /目标、依赖、修改范围、约束、验收标准、验证方式和产出/u);
-  assert.match(kernel, /打开文件、修改代码、运行测试等操作步骤不是任务/u);
-  assert.match(kernel, /单 Agent 顺序执行多个任务时不创建 DAG/u);
-  assert.match(kernel, /执行判定：直接实施（0–1 个软信号）/u);
+  assert.match(kernel, /命中公共契约\/迁移兼容、混合重构与行为修改/u);
+  assert.match(kernel, /按模块边界、依赖关系、独立验收和验证层级判断/u);
+  assert.doesNotMatch(kernel, /0–1 项直接执行计划；2–3 项拆分为实施任务/u);
+  assert.match(kernel, /Plan 只描述实施方式，不构成写入、提交、推送或外部操作授权/u);
+  assert.match(kernel, /执行判定：直接实施/u);
   assert.match(kernel, /执行判定：拆分实施/u);
-  assert.match(kernel, /执行判定：拆分并声明依赖（4\+ 个软信号/u);
-  assert.match(kernel, /Plan.*不构成.*写入.*提交.*推送.*授权/u);
 });
 
 test('task templates expose the optional implementation task split table', async () => {

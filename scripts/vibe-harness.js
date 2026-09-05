@@ -1057,7 +1057,6 @@ async function doctor(args) {
     ? { ok: false, status: 'degraded' }
     : healthReport({ baseOk: pack.ok && (!target || target.ok), profile, tools });
   const runtimeHooks = await inspectRuntimeHooks(adapter, targetDir, {
-    hookMode: config.hooks?.mode,
     selfCheck: true,
   });
   if (runtimeHooks.selfCheck?.status === 'degraded') health = { ok: false, status: 'degraded' };

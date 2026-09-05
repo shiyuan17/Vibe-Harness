@@ -6,17 +6,17 @@ export async function createReleaseEvidence(input) {
   if (input.releaseSha !== input.verifiedSha) {
     throw new Error('release SHA does not match verified SHA');
   }
-  if (!input.verificationStable) throw new Error('release verification is not stable');
+  if (input.verificationSnapshotComparison !== 'match') throw new Error('release verification snapshots do not match');
   const tarball = await readFile(input.tarballPath);
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     releaseTag: input.releaseTag,
     version: input.version,
     releaseSha: input.releaseSha,
     verification: {
       id: input.verificationId,
       finishedAt: input.verificationFinishedAt,
-      stable: true,
+      snapshotComparison: 'match',
       sha: input.verifiedSha,
     },
     checks: [...new Set(input.checks)].map((name) => ({ name, status: 'passed' })),

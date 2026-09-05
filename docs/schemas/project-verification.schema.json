@@ -8,12 +8,13 @@
     "status": { "enum": ["ready", "invalid"] },
     "verification": {
       "type": "object",
-      "required": ["id", "startedAt", "finishedAt", "riskLevel", "planMode", "selectedChecks", "skippedChecks", "fallbackUsed", "selectionReasons"],
+      "required": ["schemaVersion", "id", "startedAt", "finishedAt", "riskLevel", "planMode", "selectedChecks", "skippedChecks", "fallbackUsed", "selectionReasons"],
       "properties": {
+        "schemaVersion": { "type": "integer", "const": 2 },
         "id": { "type": "string", "minLength": 1 },
         "startedAt": { "type": "string", "minLength": 1 },
         "finishedAt": { "type": "string", "minLength": 1 },
-        "riskLevel": { "enum": ["quick", "standard", "high", "unknown"] },
+        "riskLevel": { "enum": ["quick", "standard", "high"] },
         "planMode": { "enum": ["auto", "full"] },
         "impactGroups": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
         "selectedChecks": { "type": "array", "items": { "type": "object" } },

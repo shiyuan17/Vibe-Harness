@@ -400,6 +400,10 @@ function classifyGit(segment, effects) {
     effects.add('gitBranch');
     return true;
   }
+  if (['merge', 'rebase', 'cherry-pick'].includes(command)) {
+    effects.add('workspaceWrite');
+    return true;
+  }
   if (command === 'worktree') {
     const operation = lowerArgs.find((item) => !item.startsWith('-')) ?? '';
     if (['add', 'remove', 'move', 'prune', 'repair', 'lock', 'unlock'].includes(operation)) effects.add('gitBranch');
@@ -912,11 +916,12 @@ export function evaluateExecutionEnvelope(input, { environment = process.env, no
   if (version === 1 && classification.risk === 'high') {
     return deny('EXECUTION_ENVELOPE_V1_INSUFFICIENT', 'Execution Envelope v1 cannot authorize high-risk, host, external, credential, or worktree-topology effects.');
   }
+  if (classification.unknown) {
+    return deny('EXECUTION_ENVELOPE_UNKNOWN_EFFECT', 'The tool request has effects that cannot be classified safely.');
+  }
   if (version === 2 && classification.risk === 'high') {
     const riskDecision = highRiskDecision(classification, envelope, nowMs);
     if (riskDecision) return riskDecision;
-  } else if (classification.unknown) {
-    return deny('EXECUTION_ENVELOPE_UNKNOWN_EFFECT', 'The tool request has effects that cannot be classified safely.');
   }
   const missing = classification.effects.find((effect) => !envelope.allowedEffects.includes(effect));
   if (missing) {
