@@ -78,10 +78,8 @@ function aggregate(cases) {
     const weight = items.reduce((total, item) => total + item.weight, 0);
     return { id, caseCount: items.length, passedCount: items.filter((item) => item.passed).length, score: round(items.reduce((total, item) => total + item.score * item.weight, 0) / weight) };
   });
-  // Flaky failures record scores but do not gate the critical pass rate.
-  const gated = cases.filter((item) => !item.flakyFailure);
-  const critical = gated.reduce((total, item) => total + item.criticalAssertions, 0);
-  const failures = gated.reduce((total, item) => total + item.criticalFailures, 0);
+  const critical = cases.reduce((total, item) => total + item.criticalAssertions, 0);
+  const failures = cases.reduce((total, item) => total + item.criticalFailures, 0);
   return {
     capabilities,
     overallScore: round(capabilities.reduce((total, item) => total + item.score, 0) / capabilities.length),
@@ -109,7 +107,7 @@ const run = {
   generatedAt,
   suite: { id: suite.id, version: suite.version, hash, path: args.suite },
   mode: 'offline',
-  status: cases.every((item) => item.passed || item.flakyFailure) ? 'passed' : 'failed',
+  status: cases.every((item) => item.passed) ? 'passed' : 'failed',
   fingerprint,
   reference: { path: args.reference, status: fingerprintMatches ? 'matched' : 'mismatched' },
   caseRepetitions: suite.cases.map((item) => ({ id: item.id, count: 1 })),

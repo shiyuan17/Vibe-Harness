@@ -150,7 +150,7 @@ offline eval 是硬门禁(阻断)。
 | 沙箱隔离 | Inspect Docker/K8s、Codex `--sandbox workspace-write` | ✅ 临时 workspace + `--ephemeral` + CODEX_HOME 隔离 + 受保护配置快照 | ✅ 做得更严(含全局配置变更检测) |
 | reference 冻结 | LangSmith dataset tag+版本只读、DeepEval `--official`、Braintrust experiment 不可变 | ✅ `writeProjectEvaluationReference` + `--force` + `--confirm-reference-update` + 三方 hash 一致 | ✅ 等价 |
 | 分层门禁 | LangSmith(离线阻断/在线报告)、Promptfoo `--fail-on-error`、Braintrust PR smoke→全量 | ✅ CI offline 阻断 + canary 仅 schedule 报告 | ✅ 对齐业界共识 |
-| flaky 标记 | DeepEval `flaky=True`(记分不阻断) | ❌ 无 | ⚠️ 缺口 |
+| flaky 标记 | DeepEval `flaky=True`(保留诊断) | ✅ 有标记但仍参与 critical 门禁 | ✅ 已落地 |
 | 预算护栏 | Inspect cost_limit、LangSmith spend limit、Promptfoo maxEvalTimeMs | 部分:case 级 10min 超时、1MiB 输出上限;**无 cost_limit / token 预算** | 🟡 有超时无成本预算 |
 | 缓存 | Promptfoo(14 天 TTL, success-only)、Langsmith pytest cache | ❌ 无 | 🟡 缺口(但 offline 是 replay 不需要) |
 | 防过拟合 | DeepEval 四类 golden(standard/variation/edge/adversarial)、Promptfoo 定期重生成红队 | ❌ 无分类标准、无对抗输入再生 | ⚠️ 缺口 |
@@ -223,11 +223,11 @@ offline eval 是硬门禁(阻断)。
 
 ### P1b:引入 flaky 标记
 
-> **实施状态:已实施(2026-07-30)**。case 级新增可选 `flaky` 布尔;`scoreCase` 返回 `flakyFailure`(`definition.flaky && criticalFailures > 0`);`aggregateCaseScores` 的 `criticalPassRate` 与 `buildOfflineRun`/`buildOnlineRun` 的 status 判定均排除 flaky 失败,实现"记分不阻断"语义。`.agents/runtime/evals/run.mjs` 同步该逻辑。
+> **实施状态:已调整**。case 级保留可选 `flaky` 布尔与 `flakyFailure` 诊断字段；`aggregateCaseScores`、offline replay 和 online run 都继续把 critical 失败纳入门禁，run status 不再因 flaky 标记而放行。
 
 - schema 的 case 级增加 `flaky: boolean`(可选,默认 false)。
-- scoring:`flaky=true` 的 case 失败时,`passed` 仍为 false 但标记 `flakyFailure:true`,**不触发 criticalPassRate 失败**(记分不阻断)。
-- health:flaky 失败计入 `meanScore` 但不计入门禁失败计数。
+- scoring:`flaky=true` 的 case 失败时,`passed` 仍为 false 但标记 `flakyFailure:true`;该字段只提供诊断，不绕过 `criticalPassRate` 或 run status。
+- health:flaky 失败计入 `meanScore` 与门禁失败计数。
 - 借鉴:DeepEval `LLMTestCase(flaky=True)`——"score and verdict are still reported, but its failure never fails the test case"。
 
 ### P2:完善 golden 治理

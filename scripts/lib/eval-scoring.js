@@ -155,12 +155,8 @@ export function aggregateCaseScores(results) {
         score: round(cases.reduce((total, item) => total + item.score * item.weight, 0) / totalWeight),
       };
     });
-  // Flaky cases record scores but their critical failures do not gate: exclude
-  // their critical assertions and failures from the critical pass rate so a
-  // flaky failure never blocks the gate (DeepEval flaky semantics).
-  const gatedResults = results.filter((item) => !item.flakyFailure);
-  const criticalAssertions = gatedResults.reduce((total, item) => total + (item.criticalAssertions ?? 0), 0);
-  const criticalFailures = gatedResults.reduce((total, item) => total + (item.criticalFailures ?? 0), 0);
+  const criticalAssertions = results.reduce((total, item) => total + (item.criticalAssertions ?? 0), 0);
+  const criticalFailures = results.reduce((total, item) => total + (item.criticalFailures ?? 0), 0);
   return {
     capabilities,
     overallScore: capabilities.length === 0

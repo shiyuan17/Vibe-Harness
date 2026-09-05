@@ -276,7 +276,7 @@ async function buildOnlineRun({ campaignId, command, config, now, suite, suitePa
       suite: { id: suite.id, version: suite.version, hash: fingerprint.suiteHash, path: suitePath },
       mode: 'online',
       proof: 'online-canary',
-      status: results.every((item) => item.passed || item.flakyFailure) ? 'passed' : 'failed',
+      status: results.every((item) => item.passed) ? 'passed' : 'failed',
       fingerprint,
       ...(runtime ? { runtime } : {}),
       caseRepetitions,

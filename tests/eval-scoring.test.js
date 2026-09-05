@@ -137,7 +137,7 @@ test('a flaky case records failure and score without setting flakyFailure when i
   assert.equal(result.criticalFailures, 0);
 });
 
-test('a flaky case with a critical failure records the failure but does not gate', async () => {
+test('a flaky case with a critical failure records the failure and still gates', async () => {
   const result = await scoreCase({
     definition: {
       id: 'EVAL-SCORE-FLAKY-FAIL',
@@ -163,9 +163,9 @@ test('a flaky case with a critical failure records the failure but does not gate
   assert.equal(result.flakyFailure, true);
   assert.equal(result.criticalFailures, 1);
   assert.equal(result.score, 0.7);
-  // ...but a flaky failure must not pull down the aggregate critical pass rate.
+  // ...and the critical failure remains part of the aggregate gate.
   const aggregate = aggregateCaseScores([result]);
-  assert.equal(aggregate.criticalPassRate, 1);
+  assert.equal(aggregate.criticalPassRate, 0);
 });
 
 function fakeJudge(score, { rationale = 'fake rationale', judgeModel = 'fake-judge' } = {}) {
@@ -234,7 +234,7 @@ test('scoreCase throws when llmRubrics are present without a judge client', asyn
   );
 });
 
-test('aggregateCaseScores keeps the critical pass rate gated by non-flaky failures only', () => {
+test('aggregateCaseScores includes flaky critical failures in the gate', () => {
   const flakyFailed = {
     capability: 'safety', passed: false, flakyFailure: true,
     criticalAssertions: 2, criticalFailures: 2, score: 0.3, weight: 1,
@@ -245,8 +245,8 @@ test('aggregateCaseScores keeps the critical pass rate gated by non-flaky failur
   };
   const aggregate = aggregateCaseScores([flakyFailed, gatedFailed]);
 
-  // 2 gated critical assertions, 1 gated failure -> 0.5; flaky failures excluded.
-  assert.equal(aggregate.criticalPassRate, 0.5);
+  // 4 critical assertions, 3 failures -> 0.25; flaky failures remain visible.
+  assert.equal(aggregate.criticalPassRate, 0.25);
   // Overall score still weights the flaky case so it is reported, not erased.
   assert.equal(aggregate.overallScore, 0.4);
 });

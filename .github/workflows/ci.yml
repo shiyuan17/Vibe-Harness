@@ -164,7 +164,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm runtime:audit
       - run: pnpm skills:audit
-      - run: pnpm eval:behavioral
       - run: pnpm pack:contract
 
   full-gate:

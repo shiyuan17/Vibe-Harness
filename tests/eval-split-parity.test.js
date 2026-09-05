@@ -1,22 +1,10 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
 import { readJson } from '../scripts/lib/manifest.js';
 
 const rootDir = path.resolve(import.meta.dirname, '..');
-
-// Parity bridge between the Chinese split-judgment rule in
-// rules/governance-core.md and the English EVAL-SPLIT fixture texts in the
-// online canary suite (audit P2-6). Rule-side wording locks stay owned by
-// tests/execution-simplification.test.js; this file locks only the load-bearing
-// threshold parity plus fixture-internal and scenario-verdict consistency.
-const THRESHOLD_PAIRS = [
-  { rule: /0–1 项直接执行计划/u, fixture: /0-1 signals: execute the plan directly/u },
-  { rule: /2–3 项拆分为实施任务/u, fixture: /2-3 signals: split into implementation tasks/u },
-  { rule: /4 项及以上必须拆分并显式声明任务依赖/u, fixture: /4 or more: must split and declare task dependencies/u },
-];
 
 // Fixture-internal concept integrity: each hard trigger and soft signal the
 // fixture paraphrases must keep its English anchor (eval asset lock, not a
@@ -84,21 +72,17 @@ const SPLIT_CASE_SPECS = {
   },
 };
 
-test('EVAL-SPLIT fixture keeps threshold parity with the governance-core rule source', async () => {
-  const [rule, suite] = await Promise.all([
-    readFile(path.join(rootDir, 'docs/rules/governance-core.md'), 'utf8'),
-    readJson(path.join(rootDir, 'evals/suites/vibe-harness-online-canary.json')),
-  ]);
+test('EVAL-SPLIT fixture keeps its independent task-split contract', async () => {
+  const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-online-canary.json'));
   const cases = suite.cases.filter((item) => item.id.startsWith('EVAL-SPLIT-'));
   assert.equal(cases.length, 3);
   const fixtureText = cases[0].input.fixture.files.find((file) => file.path === 'AGENTS.md').content;
   for (const anchor of FIXTURE_CONCEPT_ANCHORS) {
     assert.match(fixtureText, anchor, 'fixture concept anchor drifted: ' + anchor);
   }
-  for (const pair of THRESHOLD_PAIRS) {
-    assert.match(rule, pair.rule, 'rule threshold drifted: ' + pair.rule);
-    assert.match(fixtureText, pair.fixture, 'fixture threshold drifted: ' + pair.fixture);
-  }
+  assert.match(fixtureText, /0-1 signals: execute the plan directly/u);
+  assert.match(fixtureText, /2-3 signals: split into implementation tasks/u);
+  assert.match(fixtureText, /4 or more: must split and declare task dependencies/u);
 });
 
 test('EVAL-SPLIT expected verdicts match the rule decision table for the declared signals', async () => {

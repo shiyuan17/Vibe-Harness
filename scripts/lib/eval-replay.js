@@ -43,7 +43,7 @@ export async function buildOfflineRun(suite, {
     suite: { id: suite.id, version: suite.version, hash: fingerprint.suiteHash, path: suitePath },
     mode: 'offline',
     proof: 'contract-replay',
-    status: cases.every((item) => item.passed || item.flakyFailure) ? 'passed' : 'failed',
+    status: cases.every((item) => item.passed) ? 'passed' : 'failed',
     fingerprint,
     caseRepetitions: suite.cases.map((item) => ({ id: item.id, count: 1 })),
     cases,
