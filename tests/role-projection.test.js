@@ -11,7 +11,7 @@ import { createInstallPlan } from '../scripts/lib/install-planner.js';
 import { resolveModuleSelection } from '../scripts/lib/module-selection.js';
 import { validateProjectConfigWithSchema } from '../scripts/lib/project-config.js';
 import { loadRolePack, resolveRoleInstallEntries } from '../scripts/lib/role-projection.js';
-import { findDuplicateRoleContents } from '../scripts/lib/roles-audit.js';
+import { findDuplicateRoleContents, runRolesAudit } from '../scripts/lib/roles-audit.js';
 
 const rootDir = path.resolve(import.meta.dirname, '..');
 const cliPath = path.join(rootDir, 'scripts', 'vibe-harness.js');
@@ -53,6 +53,34 @@ test('role pack exposes seven ordered roles and five bounded permission presets'
   assert.equal(rolePack.items.length, 7);
   assert.equal(rolePack.permissionPresets.length, 5);
   assert.deepEqual(new Set(rolePack.routingOrder), new Set(rolePack.items.map((role) => role.id)));
+  assert.deepEqual(
+    rolePack.items.filter((role) => role.routing.mode === 'explicit').map((role) => role.id),
+    ['product-manager', 'technical-project-manager'],
+  );
+});
+
+test('roles audit uses the governed routing path and role indexes expose explicit-only roles', async () => {
+  const [rolePack, catalog, report] = await Promise.all([
+    loadRolePack(rootDir),
+    loadAdapterCatalog(rootDir),
+    runRolesAudit(rootDir),
+  ]);
+  assert.equal(report.ok, true, report.errors.join('\n'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-role-routing-'));
+  try {
+    const result = await resolveRoleInstallEntries({
+      adapter: catalog.items.find((adapter) => adapter.id === 'codex'),
+      packageVersion: '0.3.0',
+      rootDir,
+      targetDir,
+    });
+    const index = result.entries.find((entry) => entry.target === '.agents/roles/index.md').inlineContent;
+    assert.match(index, /路由模式：explicit/u);
+    assert.deepEqual(result.diagnostics.missingCapabilities['test-lead'], ['browser-verification']);
+    assert.equal(rolePack.items.length, result.roles.length);
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
 });
 
 test('role duplicate audit ignores shared prefixes but rejects complete duplicates', () => {
@@ -288,6 +316,8 @@ test('role projections participate in upgrade retirement and doctor diagnostics'
     assert.equal(await exists(path.join(targetDir, '.codex/agents/senior-engineer.toml')), false);
     const doctor = await runReport(['doctor', '--project', targetDir]);
     assert.equal(doctor.roles.codex.roleCount, 6);
+    assert.equal(doctor.roles.codex.status, 'configured-unverified');
+    assert.deepEqual(doctor.roles.codex.missingCapabilities['test-lead'], ['browser-verification']);
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }

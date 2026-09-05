@@ -492,7 +492,7 @@ for (const adapter of [
       assert.equal(validation.status, 'ready');
       assert.equal(doctor.status, 'ready');
       assert.equal(doctor.roles[adapter.id].roleCount, 7);
-      assert.equal(doctor.roles[adapter.id].status, 'ready');
+      assert.equal(doctor.roles[adapter.id].status, 'configured-unverified');
       assert.equal(await exists(path.join(target, adapter.id === 'claude' ? '.claude/agents/chief-architect.md' : '.gemini/agents/chief-architect.md')), true);
       for (const skill of ['clarify-requirements', 'define-goal', 'git-deliver', 'systematic-debugging', 'eval-driven-development', 'security-and-hardening', 'api-and-interface-design', 'frontend-design', 'runtime-cross-repo-rollout']) {
         assert.equal(await exists(path.join(target, adapter.skills, skill, 'SKILL.md')), true);

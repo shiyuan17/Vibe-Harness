@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
@@ -12,6 +14,8 @@ import {
   validateEvalSuiteSemantics,
 } from '../scripts/lib/eval-contract.js';
 import { buildOfflineRun } from '../scripts/lib/eval-replay.js';
+import { createEvalAssetFingerprint } from '../scripts/lib/eval-assets.js';
+import { scoreCase } from '../scripts/lib/eval-scoring.js';
 
 const rootDir = path.resolve(import.meta.dirname, '..');
 const execFileAsync = promisify(execFile);
@@ -37,6 +41,39 @@ test('eval run schema keeps v1 readable while writers emit v2 proof and asset fi
   assert.equal(replayed.proof, 'contract-replay');
   assert.match(replayed.fingerprint.assets.aggregateHash, /^[a-f0-9]{64}$/u);
   assert.deepEqual(Object.keys(replayed.fingerprint.assets.groups).sort(), ['config', 'hooks', 'rules', 'skills']);
+});
+
+test('role source changes invalidate the rules asset fingerprint without hashing reports', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-eval-role-assets-'));
+  try {
+    await mkdir(path.join(targetDir, 'docs/rules'), { recursive: true });
+    await mkdir(path.join(targetDir, 'roles/prompts'), { recursive: true });
+    await writeFile(path.join(targetDir, 'docs/rules/role-routing.md'), 'routing v1\n', 'utf8');
+    await writeFile(path.join(targetDir, 'roles/prompts/test-lead.md'), 'role v1\n', 'utf8');
+    const before = await createEvalAssetFingerprint(targetDir);
+    await writeFile(path.join(targetDir, 'roles/prompts/test-lead.md'), 'role v2\n', 'utf8');
+    const changedRole = await createEvalAssetFingerprint(targetDir);
+    await mkdir(path.join(targetDir, 'audit-reports'), { recursive: true });
+    await writeFile(path.join(targetDir, 'audit-reports/role-review.md'), 'report v1\n', 'utf8');
+    const changedReport = await createEvalAssetFingerprint(targetDir);
+    assert.notEqual(before.groups.rules.hash, changedRole.groups.rules.hash);
+    assert.equal(changedRole.aggregateHash, changedReport.aggregateHash);
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('role-routing contract cases reject an executor that only repeats the expected role name', async () => {
+  const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-role-routing.json'));
+  const definition = suite.cases.find((item) => item.id === 'EVAL-ROLE-ENGINEER-001');
+  const emptyExecutor = await scoreCase({
+    definition,
+    observation: { ...definition.input.replay, events: [] },
+  });
+  const contractReplay = await scoreCase({ definition, observation: definition.input.replay });
+  assert.equal(emptyExecutor.passed, false);
+  assert.equal(emptyExecutor.assertions.some((item) => item.kind === 'required-event' && !item.passed), true);
+  assert.equal(contractReplay.passed, true);
 });
 
 test('core suite contains exactly 38 generic cases in the required category split', async () => {
