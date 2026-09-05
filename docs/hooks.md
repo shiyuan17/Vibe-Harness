@@ -40,7 +40,7 @@ Codex 的 Hook trust 是宿主状态，不能从项目文件推断。即使文�
 
 ## 配置与超时
 
-安全事件 timeout 为 10 秒；guarded 模式在无法安全判定时 fail-closed。hooks.mode 支持 off、observe 和 guarded。allowedWriteRoots、allowedEgressHosts 与 redZonePaths 分别控制项目外写入授权、出口能力和运行时红区。
+安全事件 timeout 为 10 秒；运行时固定为 guarded，并在无法安全判定时 fail-closed。项目配置只允许收紧出口 allowlist 和额外 red-zone，不提供运行模式或写入根配置。
 
 网络出口默认允许普通依赖和 Git 操作，但始终阻止凭据引用与红区文件上传。非空 allowlist 是能力授予，不是内容安全保证。
 
@@ -64,7 +64,7 @@ Hooks are defense in depth, not a complete machine-security boundary. Command-st
 
 <code>doctor</code> and project <code>validate</code> report <code>supported</code>, <code>configured</code>, <code>activated</code>, <code>enforced</code>, <code>executionAuthority</code>, and <code>coverageLimitations</code>. <code>activated</code> remains null when project files cannot prove host runtime state. <code>enforced</code> becomes true only when the host independently proves Hook activation, required Envelope enforcement, sandbox, approval, process isolation, and network control. Adapter capability support never substitutes for this per-task evidence. Legacy activation, declaredEvents, pathResolution, and selfCheck fields remain available for compatibility.
 
-Repository configuration can only tighten policy. Runtime mode is always guarded, allowedWriteRoots cannot expand beyond the project, configured red-zone paths are added to the built-in control-plane list, and an egress allowlist narrows permitted hosts. Repository-local install state records installation history but is not an authorization root.
+Repository configuration can only tighten policy. Runtime mode is always guarded, write roots are not expanded by project configuration, configured red-zone paths are added to the built-in control-plane list, and an egress allowlist narrows permitted hosts. Repository-local install state records installation history but is not an authorization root.
 
 Direct writes to vibe-harness.config.json, .vibe-harness/install-state.json, managed Hook runtime files, or adapter Hook/MCP configuration are denied. Update these files only through a transactional Vibe-Harness installer operation with the required write and red-zone confirmation flags.
 

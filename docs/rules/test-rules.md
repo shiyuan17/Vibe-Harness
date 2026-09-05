@@ -73,7 +73,7 @@ Agent 测试终态优先于固定过程：合法替代路径不应判为失败�
 确定性代码走普通产品测试；Agent 规则、Skill、模板、adapter 和 Hook 的非确定性行为走 Eval。
 
 - eval:replay 用契约重放（contract-replay）做确定性回归比对，不执行当前 Agent 规则、Skill 或 Hook。
-- eval:behavioral 通过变异规则、Skill、Hook 或配置验证约束真实有效：变异后相关检查必须失败。
+- Skill、规则、Hook 或配置的行为约束由对应的审计与运行时测试验证；安全边界变更必须让负向场景保持拒绝，不能用删除断言替代行为验证。
 - LLM-as-judge 仅用于 online；judge 不可用时 fail-closed 为 degraded。
 - reference 更新必须单独审查并显式确认，不得为让变更通过而自动提升。
 

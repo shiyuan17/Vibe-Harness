@@ -51,6 +51,20 @@ pnpm vibe-harness verify --project ../some-project
 
 Verification JSON also includes the run ID, timestamps, and a non-persisted Git worktree fingerprint. A worktree change during checks returns PROJECT_VERIFICATION_STALE.
 
+### Project-local deterministic scripts
+
+The `core` and `full` profiles install a project-local command surface by default; `minimal` and `docs-only` do not. Mechanical fact collection and configured checks stay in the script, while the Agent chooses scope and explains results:
+
+```bash
+node .agents/runtime/commands/run.mjs env --project . --json
+node .agents/runtime/commands/run.mjs context --project . --json
+node .agents/runtime/commands/run.mjs changes --project . --json
+node .agents/runtime/commands/run.mjs verify --project . --plan --json
+node .agents/runtime/commands/run.mjs verify --project . --json
+```
+
+`verify --plan` previews configured checks without executing them. The script has no arbitrary command option, does not edit configuration, and does not use the network. Commands come from `validationCommands` in `vibe-harness.config.json`; failures, timeouts, unsafe commands, and worktree changes during verification are reported explicitly.
+
 ## Multi-host installation
 
 Install a project only once. The targets array declares every host. Without --target, install, upgrade, validate, doctor, and diff process all targets. With --target, a command selects one host still present in configuration or install-state and never adds it implicitly.
@@ -72,7 +86,7 @@ The core profile installs six native Skills; full installs nine.
 | Profile | Installed surface |
 | --- | --- |
 | `minimal` | Platform instructions, safety boundaries, Git/Test rules, and optional task/delivery templates |
-| `core` | `minimal` plus common engineering rules, six native Skills, and offline Eval |
+| `core` | `minimal` plus common engineering rules, six native Skills, project-local deterministic scripts, and offline Eval |
 | `full` | `core` plus three native Skills, online Eval, and supported platform safety Hooks, for nine native Skills total |
 | `docs-only` | Rules, templates, and schemas without runtime, Skills, MCP, or Hooks |
 

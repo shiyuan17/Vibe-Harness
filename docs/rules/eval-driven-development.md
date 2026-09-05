@@ -19,6 +19,6 @@ execution fixture 用 `allowedWritePaths` 声明唯一允许的 workspace 相对
 
 oracle 支持八类断言：七类确定性（event/output-fragment/artifact/exit-code）加 `llm-rubric`（LLM-as-judge 语义断言）。`llm-rubric` 仅 online：judge 调用非确定，offline suite 禁止包含 `llmRubrics`；judge 不可用按 fail-closed 转 degraded。
 
-case 可声明 `flaky: true`：critical 失败记录但不阻断（从 `criticalPassRate` 排除，`status` 判定忽略）。case 可声明 `kind`（`standard`/`variation`/`edge`/`adversarial`）：可选元数据标签，当前不加计数门禁。
+case 可声明 `flaky: true` 以保留抖动诊断信息，但 critical 失败仍计入 `criticalPassRate`，`status` 仍要求所有 case `passed`。case 可声明 `kind`（`standard`/`variation`/`edge`/`adversarial`）：可选元数据标签，当前不加计数门禁。
 
 本规则是常驻契约；按需展开的执行步骤见 `eval-driven-development` Skill（`.agents/skills/eval-driven-development/SKILL.md`），两者描述同一门禁，修改须同步。

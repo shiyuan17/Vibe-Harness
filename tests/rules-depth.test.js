@@ -68,7 +68,7 @@ test('completion evidence and task-scoped testing live in governance rules', asy
   assert.match(testRules, /测试类型/u);
   assert.match(testRules, /参考实现/u);
   assert.match(testRules, /契约重放（contract-replay）/u);
-  assert.match(testRules, /eval:behavioral/u);
+  assert.match(testRules, /审计与运行时测试/u);
   assert.match(testRules, /更新须单独审查显式确认/u);
   assert.match(gitRules, /参考实现/u);
   for (const template of templates) assert.match(template, /测试范围细则/u);

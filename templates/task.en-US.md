@@ -22,7 +22,7 @@
 
 ## Execution disposition
 
-> When a Plan is complete, record one line: direct implementation (0-1 soft signals) / split implementation (a hard trigger or 2-3 soft signals with rationale) / split and declare dependencies (4+ soft signals with a dependency summary). This disposition does not authorize workspace writes, commits, pushes, or external effects.
+> When a Plan is complete, record one line: direct implementation / split implementation, with the triggering rationale; when implementation tasks depend on one another, declare those dependencies. This disposition does not authorize workspace writes, commits, pushes, or external effects.
 
 ## Implementation task split (complete only when the plan is split)
 

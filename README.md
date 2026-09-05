@@ -51,6 +51,20 @@ pnpm vibe-harness verify --project ../some-project
 
 验证 JSON 还包含本轮 ID、时间和非持久化 Git 工作树指纹；检查期间工作树变化时返回 PROJECT_VERIFICATION_STALE。
 
+### 项目内确定性脚本
+
+`core` 和 `full` 默认安装项目级脚本入口；`minimal` 与 `docs-only` 不安装。它们把可机械核验的工作交给脚本，把范围选择和结果解释留给 Agent：
+
+```bash
+node .agents/runtime/commands/run.mjs env --project . --json
+node .agents/runtime/commands/run.mjs context --project . --json
+node .agents/runtime/commands/run.mjs changes --project . --json
+node .agents/runtime/commands/run.mjs verify --project . --plan --json
+node .agents/runtime/commands/run.mjs verify --project . --json
+```
+
+`verify --plan` 只预览已配置检查，不执行命令；脚本不提供任意命令执行接口，不自动修改配置或联网。验证命令来自 `vibe-harness.config.json` 的 `validationCommands`，失败、超时、危险命令和验证期间工作树变化都会明确报告。
+
 ## 多宿主安装
 
 同一个项目只安装一次。配置中的 targets 数组声明全部宿主；不带 --target 的 install、upgrade、validate、doctor 和 diff 处理全部目标，带 --target 时只选择配置或 install-state 中仍存在的一个宿主，绝不隐式追加。
@@ -72,7 +86,7 @@ core 安装六个原生 Skills，full 安装九个原生 Skills，并默认启�
 | Profile | 安装内容 |
 | --- | --- |
 | `minimal` | 平台说明、安全边界、Git/Test 规则和可选任务/交付模板 |
-| `core` | `minimal` 加通用工程规则、六个原生 Skills 和离线 Eval |
+| `core` | `minimal` 加通用工程规则、六个原生 Skills、项目内确定性脚本和离线 Eval |
 | `full` | `core` 加三个原生 Skills、在线 Eval 和已支持宿主的安全 Hook，共九个原生 Skills |
 | `docs-only` | 规则、模板和 schemas，不安装 runtime、Skills、MCP 或 Hook |
 

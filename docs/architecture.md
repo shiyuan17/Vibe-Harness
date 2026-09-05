@@ -6,7 +6,7 @@ Vibe-Harness 是跨平台、项目级的 AI coding 资产包。它使用 Node.js
 
 - rules 和 templates 提供共享规则、模板及 memory 文档源。
 - skills 提供由宿主按 description 直接选择的领域 Skills。
-- runtime 提供 Hooks、Eval 和显式选择的项目内工具。
+- runtime 提供 Hooks、Eval、确定性项目脚本和显式选择的项目内工具。
 - adapters 提供 Codex、Claude Code、Gemini CLI、Cursor、Qoder、ZCode、Antigravity 和 OpenCode 的项目入口与路径投影。
 - scripts 提供 CLI、planner、事务、状态迁移、验证、doctor、diff 和 provisioning。
 - manifests 和 schemas 定义 profiles、adapter capability、项目配置与 install-state 契约。
