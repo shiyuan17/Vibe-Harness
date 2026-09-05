@@ -133,6 +133,7 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
   const hasAgentMemorySkills = hasSkill('agentmemory/SKILL.md');
   const hasRtkTool = hasTarget('.agents/runtime/tools/rtk/run.mjs');
   const hasAstGrepTool = hasTarget('.agents/runtime/tools/ast-grep/run.mjs');
+  const hasProjectScripts = hasTarget('.agents/runtime/commands/run.mjs');
   const hasCodebaseMemoryMcp = hasTarget('docs/rules/codebase-memory-mcp.md');
   const hasRoles = hasTarget('.agents/roles/index.md');
   const installedProviderModules = [
@@ -194,8 +195,8 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
     skillsLine: detectedSkillRoots.length > 0 ? `- Skills 位于 ${detectedSkillRoots.map((root) => `\`${root}/\``).join('、')}。` : '',
     templatesLine: hasPrefix('docs/templates/') ? '- 模板位于 `docs/templates/`。' : '',
     toolingLine: hasPrefix('.agents/runtime/tools/')
-      ? `- 项目内工具位于 \`.agents/runtime/tools/\`；使用 \`vibe-harness doctor --project <path>\` 查看初始化状态。${hasTarget('docs/rules/chrome-devtools-mcp.md') ? ' Chrome DevTools MCP 规则位于 \`docs/rules/chrome-devtools-mcp.md\`。' : ''}${hasRtkTool ? ' RTK 规则位于 \`docs/rules/rtk.md\`。' : ''}${hasAstGrepTool ? ' ast-grep 规则位于 \`docs/rules/ast-grep.md\`。' : ''}`
-      : '',
+      ? `- 项目内工具位于 \`.agents/runtime/tools/\`；使用 \`vibe-harness doctor --project <path>\` 查看初始化状态。${hasTarget('docs/rules/chrome-devtools-mcp.md') ? ' Chrome DevTools MCP 规则位于 \`docs/rules/chrome-devtools-mcp.md\`。' : ''}${hasRtkTool ? ' RTK 规则位于 \`docs/rules/rtk.md\`。' : ''}${hasAstGrepTool ? ' ast-grep 规则位于 \`docs/rules/ast-grep.md\`。' : ''}${hasProjectScripts ? ' 项目级确定性脚本：\`node .agents/runtime/commands/run.mjs <env|context|changes|verify> --project . --json\`。' : ''}`
+      : (hasProjectScripts ? '- 项目级确定性脚本：`node .agents/runtime/commands/run.mjs <env|context|changes|verify> --project . --json`。' : ''),
   };
   if (installedSurface.memoryLoadLine) {
     installedSurface.memoryLoadLine = '仅当任务需要恢复项目状态且当前授权允许读取 Memory body 时，'

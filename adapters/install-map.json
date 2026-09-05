@@ -255,6 +255,13 @@
       "contentStrategy": "replace"
     },
     {
+      "group": "runtime-project-scripts",
+      "source": "runtime/commands/run.mjs",
+      "target": ".agents/runtime/commands/run.mjs",
+      "executable": true,
+      "contentStrategy": "replace"
+    },
+    {
       "group": "runtime-eval-online",
       "source": "runtime/evals/codex-runner.mjs",
       "target": ".agents/runtime/evals/codex-runner.mjs",

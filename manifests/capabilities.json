@@ -122,6 +122,16 @@
       "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-core.json", "evals/suites/vibe-harness-online-canary.json"] }
     },
     {
+      "id": "project-deterministic-scripts",
+      "source": "project-local deterministic fact collection and configured verification commands",
+      "disposition": "generalize",
+      "targets": ["runtime/commands/run.mjs", "scripts/lib/project-verification.js", "scripts/lib/module-selection.js", "scripts/lib/install-planner.js", "adapters/install-map.json", "manifests/profiles.json"],
+      "tests": ["tests/project-commands.test.js", "tests/module-selection.test.js", "tests/installer-lifecycle.test.js", "tests/uninstall.test.js"],
+      "profiles": ["core", "full"],
+      "docs": ["README.md", "README.en.md", "docs/architecture.md"],
+      "evaluation": { "required": false, "reason": "Command parsing, safety boundaries, configured verification, and installation lifecycle are deterministic and covered by unit/integration tests." }
+    },
+    {
       "id": "hook-policy",
       "source": "Codex and Git hook policy",
       "disposition": "validator",

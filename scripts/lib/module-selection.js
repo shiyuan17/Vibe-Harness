@@ -13,6 +13,7 @@ export const moduleCatalog = {
   templates: { dependencies: [], groups: ['templates-minimal'] },
   skills: { dependencies: ['agents', 'rules', 'templates'], groups: ['skills-core', 'skills-full'] },
   schemas: { dependencies: [], groups: ['schemas-core'] },
+  'project-scripts': { dependencies: [], groups: ['runtime-project-scripts'] },
   evals: { dependencies: ['schemas'], groups: ['runtime-eval', 'runtime-eval-online', 'evals-core', 'evals-online'] },
   memory: { dependencies: ['skills'], groups: ['templates-memory', 'skills-memory'] },
   playwright: { dependencies: ['skills'], groups: ['skills-browser', 'tools-playwright'] },
@@ -31,9 +32,9 @@ assertPluginProviderCatalog(pluginProviderCatalog, { moduleIds: new Set(Object.k
 
 const profileModules = {
   minimal: ['agents', 'rules', 'templates'],
-  core: ['agents', 'rules', 'templates', 'skills', 'evals'],
+  core: ['agents', 'rules', 'templates', 'skills', 'evals', 'project-scripts'],
   full: [
-    'agents', 'rules', 'templates', 'skills', 'evals', 'hooks', 'roles',
+    'agents', 'rules', 'templates', 'skills', 'evals', 'project-scripts', 'hooks', 'roles',
   ],
   'docs-only': ['rules', 'templates', 'schemas'],
 };

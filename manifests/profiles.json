@@ -8,13 +8,13 @@
     },
     {
       "id": "core",
-      "description": "通用安装：常规规则、模板、六个聚焦原生 Skills 和可选离线 Eval；外部工具通过 --plugin 显式启用。",
-      "groups": ["agents", "agents-index", "rules-minimal", "rules-core", "templates-minimal", "schemas-core", "runtime-eval", "skills-core", "evals-core"]
+      "description": "通用安装：常规规则、模板、六个聚焦原生 Skills、项目级确定性脚本和可选离线 Eval；外部工具通过 --plugin 显式启用。",
+      "groups": ["agents", "agents-index", "rules-minimal", "rules-core", "templates-minimal", "schemas-core", "runtime-eval", "runtime-project-scripts", "skills-core", "evals-core"]
     },
     {
       "id": "full",
-      "description": "完整能力安装：通用安装加三个领域 Skills、七个角色 Agent、完整规则、在线 Eval 和 Codex 安全 Hook；memory 与外部工具通过 --plugin 显式启用。",
-      "groups": ["agents", "agents-index", "rules-minimal", "rules-core", "rules-full", "roles", "templates-minimal", "schemas-core", "runtime-eval", "runtime-eval-online", "skills-core", "skills-full", "evals-core", "evals-online", "hooks"]
+      "description": "完整能力安装：通用安装加三个领域 Skills、七个角色 Agent、完整规则、项目级确定性脚本、在线 Eval 和 Codex 安全 Hook；memory 与外部工具通过 --plugin 显式启用。",
+      "groups": ["agents", "agents-index", "rules-minimal", "rules-core", "rules-full", "roles", "templates-minimal", "schemas-core", "runtime-eval", "runtime-eval-online", "runtime-project-scripts", "skills-core", "skills-full", "evals-core", "evals-online", "hooks"]
     },
     {
       "id": "docs-only",
