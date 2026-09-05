@@ -15,23 +15,23 @@
     "agent": "offline",
     "configHash": "fixture-v1",
     "assets": {
-      "aggregateHash": "05782d2899b9d8edbad4fd250c1ece7397ac9fa826a67bfd039bfc52828e7e2e",
+      "aggregateHash": "08bd428d2155041cdc8dba89574e16453fe5767dd2fd164a3b10bb9a56e9a5b1",
       "groups": {
         "config": {
           "fileCount": 31,
-          "hash": "1e3d4bf85bfdcdb650bf5c4008e78048df3183cca0ec63d8f5cc7b821b50bc97"
+          "hash": "8f82658da4fcf3e43b5bb8714db110cb5e41ea9a8448adefb090ff6a875394a2"
         },
         "hooks": {
           "fileCount": 14,
-          "hash": "d032cb13a26993cca382dc7e7839859848f259129fc258af1f00351b794020c9"
+          "hash": "3cf1bacf35800222c3d01479cd61b64395831ce2fb4b58dbd1fd9ab963a1a66b"
         },
         "rules": {
-          "fileCount": 21,
-          "hash": "dae3adc5f126f51448a538c8534cbcf02a2a0faeb076d17f3c0acf1aa5392f07"
+          "fileCount": 29,
+          "hash": "d52e3b6b2d1c08e2c13fc798af56b67f431661c15b184032840cc8ddd69ba340"
         },
         "skills": {
           "fileCount": 100,
-          "hash": "401b29082e40fcd314f7219001e1e1f3ce35d3b784655f5cd8f571640028cb41"
+          "hash": "2ac2f93538d734683d0ade0cd0b59302ed9582c9f9c5b4893340825496373fb4"
         }
       }
     }
