@@ -14,6 +14,8 @@ test('CI blocks offline eval drift and scheduled workflow runs advisory online c
   ]);
   assert.match(ci, /pnpm eval:check/u);
   assert.match(ci, /pnpm eval:replay/u);
+  assert.match(ci, /pnpm eval:harness check/u);
+  assert.match(ci, /pnpm eval:harness plan --tier fast/u);
   assert.match(ci, /windows-latest/u);
   assert.match(ci, /ubuntu-latest/u);
   assert.match(ci, /include:\s*\n\s*- os: ubuntu-latest\s*\n\s*node-version: 22\.x\s*\n\s*- os: windows-latest\s*\n\s*node-version: 22\.x/u);
@@ -29,6 +31,8 @@ test('CI blocks offline eval drift and scheduled workflow runs advisory online c
   assert.match(online, /workflow_dispatch:/u);
   assert.match(online, /environment:\s*Production/u);
   assert.match(online, /pnpm eval:online/u);
+  assert.match(online, /pnpm eval:harness run --tier/u);
+  assert.match(online, /Harness Eval tier/u);
   assert.match(online, /retention-days:\s*(?:3[0-9]|[4-9][0-9]|[1-9][0-9]{2,})/u);
   assert.match(online, /--limit\s+(?:1[4-9]|[2-9][0-9])/u);
   assert.match(online, /pnpm eval:compare/u);

@@ -24,6 +24,7 @@
 - [Hook 安全策略](hooks.md)
 - [Hook 运行时诊断规格](specs/hook-runtime-diagnostics-spec.md)
 - [Eval](evals.md)
+- [Harness Evals 统一架构](specs/harness-evals-framework.md)
 - [项目审计](audits.md)
 - [GitHub 可靠交付配置](github-delivery.md)
 - [Agentmemory Skill 规格](specs/agentmemory-skill-consolidation-spec.md)
@@ -57,6 +58,9 @@
 ## Schema
 
 - [角色包 Schema](schemas/role-pack.schema.json)
+- [Harness Eval Scenario v3](schemas/harness-eval-scenario.schema.json)
+- [Harness Eval Fixture](schemas/harness-eval-fixture.schema.json)
+- [Harness Eval Result v3](schemas/harness-eval-result.schema.json)
 
 ## 模板与记忆
 

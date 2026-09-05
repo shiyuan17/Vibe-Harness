@@ -15,3 +15,7 @@ dist/
 /output
 /.agents/backup
 /.codex/better-harness/
+/harness-evals/traces/runs/
+/harness-evals/reports/generated/
+/harness-evals/baselines/candidates/
+/harness-evals/regressions/generated/

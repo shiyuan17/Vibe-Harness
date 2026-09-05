@@ -100,3 +100,24 @@ case 可声明 `kind` 元数据标签，枚举 `standard` / `variation` / `edge`
 - `adversarial`：对抗性场景（安全边界、禁止行为）。
 
 kind 是可选字段，当前不加计数门禁，仅作案例治理标签，便于识别覆盖盲区。
+
+## Harness Evals 统一入口
+
+新体系位于 `harness-evals/`，架构契约见 [Harness Evals Framework](specs/harness-evals-framework.md)，场景规范见 [`harness-evals/docs/scenario-authoring.md`](../harness-evals/docs/scenario-authoring.md)。旧 `evals/` 继续作为兼容资产来源，不复制到新目录。
+
+```bash
+pnpm eval:harness check
+pnpm eval:harness plan --tier fast
+pnpm eval:harness plan --tier fast --changed docs/rules/test-rules.md
+pnpm eval:harness run --tier fast --scenario H04 --attempts 1
+pnpm eval:harness analyze --trace <bundle-dir> --result <results.json>
+pnpm eval:harness baseline --input <results.json> --id <candidate-id> --output <baseline.json>
+pnpm eval:harness compare --baseline <baseline.json> --current <results.json>
+pnpm eval:harness report --input <results.json> --format html --output <report.html>
+```
+
+`check` 验证 20 个 Internal Scenario、Fixture、统一 Schema 与锁定的 External 样例清单。`plan` 根据后端真实能力和预算输出 ready、partial、not-scheduled、blocked；不支持的原生子 Agent、故障注入、compaction、恢复、Worktree 或合并能力不能用合成事件代替。未知变更影响回退完整核心集。
+
+`run` 在隔离临时项目中投影当前 Harness，隐藏 oracle 与证据目录位于 Agent 写入范围之外。每次 attempt 使用独立 Fixture，结果保存为 Result v3，并生成 JSON、Markdown、HTML 与脱敏 ATIF。生成物默认位于 `harness-evals/reports/generated/` 和 `harness-evals/traces/runs/`，不提交；批准 reference 仍需独立显式流程。
+
+External Adapter 只规划并归一化官方 SWE-bench、SWE-bench Live、Harbor/Terminal-Bench 与 CooperBench 命令。官方依赖留在 `harness-evals/external/` 的运行环境中；缺少官方 CLI、锁定数据集或 Docker 资源时结果为 blocked，不以样例 fixture 冒充真实基准运行。

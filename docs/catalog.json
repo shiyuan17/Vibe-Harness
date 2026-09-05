@@ -357,6 +357,13 @@
       ]
     },
     {
+      "path": "docs/specs/harness-evals-framework.md",
+      "kind": "spec",
+      "status": "implemented",
+      "language": "en",
+      "audiences": ["maintainer", "contributor", "auditor"]
+    },
+    {
       "path": "docs/specs/vibe-harness-tooling-modules-spec.md",
       "kind": "spec",
       "status": "implemented",
@@ -676,6 +683,48 @@
     },
     {
       "path": "schemas/role-pack.schema.json",
+      "kind": "spec",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer"]
+    },
+    {
+      "path": "docs/schemas/harness-eval-scenario.schema.json",
+      "kind": "spec",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer", "auditor"]
+    },
+    {
+      "path": "schemas/harness-eval-scenario.schema.json",
+      "kind": "spec",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer"]
+    },
+    {
+      "path": "docs/schemas/harness-eval-fixture.schema.json",
+      "kind": "spec",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer", "auditor"]
+    },
+    {
+      "path": "schemas/harness-eval-fixture.schema.json",
+      "kind": "spec",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer"]
+    },
+    {
+      "path": "docs/schemas/harness-eval-result.schema.json",
+      "kind": "spec",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer", "auditor"]
+    },
+    {
+      "path": "schemas/harness-eval-result.schema.json",
       "kind": "spec",
       "status": "current",
       "language": "en",

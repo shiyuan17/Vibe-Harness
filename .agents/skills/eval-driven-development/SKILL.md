@@ -19,6 +19,6 @@ description: Use for nondeterministic Agent rules, Skills, prompts, Hooks, or ro
 
 online run 按 `repetitions` 独立运行多轮，输出 `trialSummaries`（`passAt1`/`passAtK`/`passCaretK`/逐轮明细）作为可靠性报告；稳定性只统计多轮 case 并同时报告覆盖率，当前不新增阈值门禁。offline 为确定性 replay，不输出多轮摘要。
 
-online runner 只传入 model/provider/base URL/reasoning/对应 auth 白名单，并把实际 backend、CLI 版本与 repetitions 纳入 fingerprint。execution case 必须用 `allowedWritePaths` 限定写入；未声明写入或 sandbox/runner 基础设施故障按 fail-closed 处理，逐轮诊断不得保存 transcript、命令输出或凭据。
+online runner 只传入 model/provider/base URL/reasoning/对应 auth 白名单，并把实际 backend、CLI 版本与 repetitions 纳入 fingerprint。execution case 必须用 `allowedWritePaths` 限定写入；未声明写入或 sandbox/runner 基础设施故障按 fail-closed 处理。普通逐轮诊断不得保存 transcript、命令输出或凭据；一次性合成或公开 Fixture 可在工作区外保存持久化前已脱敏的 ATIF 完整可观察 Trace，原始 Trace 不进 Git且任何凭据不得落盘。
 
 runner 不可用时报告 degraded，同一 campaign 的 degraded attempt 必须随报告汇总。通用 error item 不计入工具调用，预期安全拒绝与意外失败分开统计。不得自动更新 reference、把缺失运行解释为通过，或只报告双方成功的样本。
