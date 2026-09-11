@@ -633,6 +633,17 @@
       ]
     },
     {
+      "path": "docs/adr/ADR-0005-rules-governance.md",
+      "kind": "architecture",
+      "status": "current",
+      "language": "bilingual",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
+    },
+    {
       "path": "docs/adr/catalog.json",
       "kind": "index",
       "status": "current",

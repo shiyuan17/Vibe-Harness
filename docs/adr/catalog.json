@@ -16,6 +16,10 @@
     {
       "id": "ADR-0004",
       "path": "docs/adr/ADR-0004-task-decomposition-governance.md"
+    },
+    {
+      "id": "ADR-0005",
+      "path": "docs/adr/ADR-0005-rules-governance.md"
     }
   ]
 }
