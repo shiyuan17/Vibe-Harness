@@ -89,8 +89,8 @@ test('OBS-RULE-001 observability guidance stays concise and enforces behavior', 
 
   assert.match(rule, /新增日志、指标或追踪前必须说明消费目的/u);
   assert.match(rule, /公共字段包含时间、级别、service\/component、event\/operation、结果和 environment\/version/u);
-  assert.match(rule, /项目已有 trace context 时同时记录 <code>traceId<\/code> 和 <code>spanId<\/code>/u);
-  assert.match(rule, /<code>correlationId<\/code>.*不能替代 trace context/u);
+  assert.match(rule, /项目已有 trace context 时同时记录 `traceId` 和 `spanId`/u);
+  assert.match(rule, /`correlationId`.*不能替代 trace context/u);
   assert.match(rule, /结果指标必须同时提供总量/u);
   assert.match(rule, /延迟使用分布并区分成功与失败/u);
   assert.match(rule, /用户 ID、请求 ID、邮箱、完整 URL/u);

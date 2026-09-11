@@ -15,7 +15,7 @@
 
 - 新增应用日志优先使用结构化格式，推荐 JSON Lines；公共字段包含时间、级别、service/component、event/operation、结果和 environment/version。
 - error code、安全错误消息、耗时、任务类型、attempt、协议状态和安全上下文仅在事件适用时记录，普通事件不强制携带错误字段。
-- 项目已有 trace context 时同时记录 <code>traceId</code> 和 <code>spanId</code>；<code>correlationId</code> 不能替代 trace context；不得仅为日志关联引入 tracing。
+- 项目已有 trace context 时同时记录 `traceId` 和 `spanId`；`correlationId` 不能替代 trace context；不得仅为日志关联引入 tracing。
 - 日志级别和字段语义必须在系统内一致；已有实现可以使用等价字段映射。
 
 ## 指标与追踪底线
@@ -31,12 +31,12 @@
 - 清理或安全编码 CR/LF、分隔符和控制字符，防止日志注入、伪造记录和解析器逃逸；展示端仍将日志视为不可信输入。
 - 运维日志、安全事件、审计轨迹和业务分析数据按目的分离，并分别定义访问权限、完整性保护、留存期限和到期删除。
 - 日志或遥测后端故障不得阻塞核心业务，也不得以无限内存、磁盘或同步重试拖垮应用；强一致审计由目标项目单独定义 fail-closed 边界。
-- <code>.vibe-harness/log/</code> 只保存 Harness 或临时捕获输出，不代表目标应用日志目录；截图、trace 导出和报告等证据写入 <code>.vibe-harness/artifacts/</code>。
+- `.vibe-harness/log/` 只保存 Harness 或临时捕获输出，不代表目标应用日志目录；截图、trace 导出和报告等证据写入 `.vibe-harness/artifacts/`。
 
 ## 排障与验收
 
 1. 记录症状、绝对时间窗口、环境和近期变更，先用用户结果或关键状态确定影响。
-2. 按时间、环境、组件、事件、结果、<code>traceId</code> 或错误码收敛证据，并将证据连接到可验证假设；证据冲突时更新假设。
+2. 按时间、环境、组件、事件、结果、`traceId` 或错误码收敛证据，并将证据连接到可验证假设；证据冲突时更新假设。
 3. 修复后运行对应验证，确认受影响信号恢复，并记录实际查询条件和验证证据。
 
 验收检查不超过以下六项：

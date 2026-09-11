@@ -14,11 +14,38 @@
 
 单 Agent、简单顺序任务和纯对话不创建 DAG。只有两个以上协作单元存在顺序依赖、并行写入或共享契约时，父 Agent 才在任务简报或可选任务记录中声明轻量 Task DAG；该记录只帮助当轮编排，不由 Vibe-Harness 解析，也不形成固定完成门禁。
 
-每个节点固定声明：id（图内唯一标识）、kind（read、write 或 aggregate）、output（可验收交付物或结论）、dependsOn（直接上游，根节点为空）、trigger（默认 all_success）、writeScope（只读节点为空）、resourceLocks（API、schema、manifest、迁移、版本或发布状态等逻辑共享资源）、verification（聚焦验证）和 result。result 使用统一状态：pending、ready、running、succeeded、failed、blocked、skipped 或 cancelled；未开始节点不得省略 pending，ready 和 running 都不满足后继的 all_success。Linear 的 Canceled、Duplicate、Won't Fix 只作为外部终态，统一按非 succeeded 处理，不混入本地 result 枚举。all_success 要求全部直接前驱 succeeded，failed、blocked、skipped、cancelled、Canceled、Duplicate 和 Won't Fix 都不算成功。只有 aggregate、清理或失败报告节点可使用 all_done；它只能在全部直接前驱终结后汇总状态和报告部分失败，不得把失败图改判为成功，也不得把失败 Root 改判为成功。
+每个节点固定声明以下字段：
 
-只有全部直接依赖满足 trigger，且不存在路径或逻辑资源冲突的节点才是 ready。自依赖、任意有向环、不可见前驱或依赖清单无法完整读取时 fail-closed，父 Agent 报告 offending edge 或 path；对自己生成的本地计划可在原授权内修正依赖，外部维护的依赖关系须有相应写入授权。writeScope 只接受项目相对精确路径或末尾为 /** 的目录范围；比较前统一使用 / 并移除前导 ./，拒绝绝对路径、UNC、空路径、..、其他复杂 glob 和无法安全解析的符号链接。Windows 路径比较忽略大小写；范围相同、存在按 path segment 判断的祖先关系或无法可靠判定时按冲突处理。Scope 重叠或 resourceLocks 相同的 write 节点只有存在传递依赖顺序时才可串行执行，否则冲突节点都不 ready；相同 resourceLocks 代表的共享契约由唯一节点负责写入，其他节点只消费其稳定输出。路径不重叠但存在接口、Schema、迁移或行为契约耦合的 write 节点，必须由唯一节点写入共享契约并建立显式依赖；无法证明隔离时按冲突处理，不得仅凭路径不重叠并行。
+| 字段 | 含义 |
+| --- | --- |
+| `id` | 图内唯一标识 |
+| `kind` | `read`、`write` 或 `aggregate` |
+| `output` | 可验收交付物或结论 |
+| `dependsOn` | 直接上游，根节点为空 |
+| `trigger` | 默认 `all_success` |
+| `writeScope` | 只读节点为空 |
+| `resourceLocks` | API、schema、manifest、迁移、版本或发布状态等逻辑共享资源 |
+| `verification` | 聚焦验证 |
+| `result` | 统一状态，见下 |
 
-节点失败只阻塞依赖它且使用 all_success 的后继；已隔离且无失败依赖的独立节点可以继续。失败仅暂停受影响写节点及其依赖，已隔离的独立写节点仍可派发。共享契约冲突或工作区完整性受损时才停止全部写节点。瞬时网络、限流或无副作用工具故障最多尝试三次，并遵守可用的 Retry-After；权限和安全拒绝不得重试绕过；契约歧义先查明，确定性测试失败先修复再验证，非幂等外部写入结果不明时先重读状态。长任务可选声明节点超时、最大尝试次数、取消、退避和资源预算，普通单 Agent 任务不要求填写。每次派发 write 节点前重新确认 DAG 版本或 hash、依赖、Scope、Resource Lock、HEAD 和工作区身份未变化；发生变化时暂停后继并重新计算 ready 集合。子 Agent 交接至少报告节点结果、实际修改文件、base/head、验证命令与退出码、未决风险和阻塞原因；这些信息只是人读证据，不构成授权根。父 Agent 在 fan-in 后重新读取工作区状态和实际 diff，核对写入归属、共享契约与冲突，并在最后一次实质写入后运行集成验证；child 自报只证明其局部范围。
+- `result` 使用统一状态：`pending`、`ready`、`running`、`succeeded`、`failed`、`blocked`、`skipped` 或 `cancelled`；未开始节点不得省略 `pending`，`ready` 和 `running` 都不满足后继的 all_success。
+- Linear 的 Canceled、Duplicate、Won't Fix 只作为外部终态，统一按非 `succeeded` 处理，不混入本地 result 枚举。
+- all_success 要求全部直接前驱 `succeeded`；failed、blocked、skipped、cancelled、Canceled、Duplicate 和 Won't Fix 都不算成功。
+- 只有 aggregate、清理或失败报告节点可使用 `all_done`；它只能在全部直接前驱终结后汇总状态和报告部分失败，不得把失败图改判为成功，也不得把失败 Root 改判为成功。
+
+- 只有全部直接依赖满足 trigger，且不存在路径或逻辑资源冲突的节点才是 `ready`。
+- 自依赖、任意有向环、不可见前驱或依赖清单无法完整读取时 fail-closed，父 Agent 报告 offending edge 或 path；对自己生成的本地计划可在原授权内修正依赖，外部维护的依赖关系须有相应写入授权。
+- `writeScope` 只接受项目相对精确路径或末尾为 `/**` 的目录范围；比较前统一使用 `/` 并移除前导 `./`，拒绝绝对路径、UNC、空路径、`..`、其他复杂 glob 和无法安全解析的符号链接。
+- Windows 路径比较忽略大小写；范围相同、存在按 path segment 判断的祖先关系或无法可靠判定时按冲突处理。
+- Scope 重叠或 resourceLocks 相同的 write 节点只有存在传递依赖顺序时才可串行执行，否则冲突节点都不 ready；相同 resourceLocks 代表的共享契约由唯一节点负责写入，其他节点只消费其稳定输出。
+- 路径不重叠但存在接口、Schema、迁移或行为契约耦合的 write 节点，必须由唯一节点写入共享契约并建立显式依赖；无法证明隔离时按冲突处理，不得仅凭路径不重叠并行。
+
+- 节点失败只阻塞依赖它且使用 all_success 的后继；已隔离且无失败依赖的独立节点可以继续。失败仅暂停受影响写节点及其依赖，已隔离的独立写节点仍可派发。共享契约冲突或工作区完整性受损时才停止全部写节点。
+- 瞬时网络、限流或无副作用工具故障最多尝试三次，并遵守可用的 Retry-After；权限和安全拒绝不得重试绕过；契约歧义先查明，确定性测试失败先修复再验证，非幂等外部写入结果不明时先重读状态。
+- 长任务可选声明节点超时、最大尝试次数、取消、退避和资源预算，普通单 Agent 任务不要求填写。
+- 每次派发 write 节点前重新确认 DAG 版本或 hash、依赖、Scope、Resource Lock、HEAD 和工作区身份未变化；发生变化时暂停后继并重新计算 ready 集合。
+- 子 Agent 交接至少报告节点结果、实际修改文件、base/head、验证命令与退出码、未决风险和阻塞原因；这些信息只是人读证据，不构成授权根。
+- 父 Agent 在 fan-in 后重新读取工作区状态和实际 diff，核对写入归属、共享契约与冲突，并在最后一次实质写入后运行集成验证；child 自报只证明其局部范围。
 
 ## Linear 投影
 

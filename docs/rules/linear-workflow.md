@@ -2,7 +2,7 @@
 
 Linear 保存工作状态、责任、委派与依赖；GitHub 或 GitLab 保存代码、提交、PR/MR、检查与合并状态。Agent 自报、Execution Receipt 或本地工作完成都不能替代代码与合并证据。
 
-默认采用轻量三层工作流：<code>feat/*、fix/* → develop → main</code>；紧急修复使用 <code>hotfix/* → main → develop</code>。<code>develop</code> 是日常集成分支，<code>main</code> 是正式发布分支；不创建长期 <code>release/*</code> 分支。任务分支应在约两个工作日内合并和删除，超出时优先拆小或用 feature flag 隔离未完成功能。
+默认采用轻量三层工作流：`feat/*、fix/* → develop → main`；紧急修复使用 `hotfix/* → main → develop`。`develop` 是日常集成分支，`main` 是正式发布分支；不创建长期 `release/*` 分支。任务分支应在约两个工作日内合并和删除，超出时优先拆小或用 feature flag 隔离未完成功能。
 
 ## 授权与长期边界
 
@@ -26,7 +26,7 @@ Linear 保存工作状态、责任、委派与依赖；GitHub 或 GitLab 保存�
 - Ready to Merge：受保护分支要求的 review、CI、契约检查和必要 E2E 均通过。
 - Done：write 叶子由 closing PR/MR 合并到声明的精确目标 ref 证明；read 叶子由约定输出和 Verification 证据证明；aggregate Parent 由全部必需后代成功和 Fan-in Verification 证明。
 
-Agent 手工写状态必须执行“读取当前值 -> 校验允许转换 -> 写入 -> 重读确认”。实时状态和提供方事实优先于旧计划、任务模板、DAG 快照或压缩摘要；常规代码流只前进 Todo -> In Progress -> In Review -> Ready to Merge -> Done。任何后退、重开或纠错转换都需要单独的状态纠错授权并记录事实原因，尤其不得为恢复 Ready 清单或旧规划统计把 In Progress、In Review 或 Ready to Merge 退回 Todo。
+Agent 手工写状态必须执行“读取当前值 → 校验允许转换 → 写入 → 重读确认”。实时状态和提供方事实优先于旧计划、任务模板、DAG 快照或压缩摘要；常规代码流只前进 Todo → In Progress → In Review → Ready to Merge → Done。任何后退、重开或纠错转换都需要单独的状态纠错授权并记录事实原因，尤其不得为恢复 Ready 清单或旧规划统计把 In Progress、In Review 或 Ready to Merge 退回 Todo。
 
 一个 write 叶子 Issue 对应一个 Writer；按隔离条件使用当前 clone 或仓库外 worktree，并且只绑定一个命名分支和一个 closing PR/MR。顺序执行且工作区干净时允许在当前 clone 创建任务分支；存在并发 Agent、脏工作区、当前分支含无关改动或任务明确要求隔离时，必须使用仓库外 worktree。read 叶子只绑定一个执行 Agent、约定输出与 Verification 证据，不要求实现 worktree、分支或 PR/MR。存在子 Issue 的 Parent 是 aggregate，不直接实现。独立旧 Issue 可无 Parent，并按 kind=write、trigger=all_success、resourceLocks=None 处理，无需迁移。
 
@@ -72,17 +72,17 @@ Receipt 与事件禁止包含用户名、主机名、本地路径、Token、Cook
 
 ## Git、状态同步与安全
 
-- 普通功能和修复的精确目标 ref 默认为 <code>origin/develop</code>，分支分别使用 <code>feat/&lt;ISSUE-ID&gt;-&lt;slug&gt;</code> 与 <code>fix/&lt;ISSUE-ID&gt;-&lt;slug&gt;</code>；closing PR 合并到 <code>develop</code> 后开发 Issue 即 Done，发布等待不得阻塞或重开它。
-- 紧急修复从 <code>origin/main</code> 创建 <code>hotfix/&lt;ISSUE-ID&gt;-&lt;slug&gt;</code> 并先合入 <code>main</code>；正式发布或恢复后必须立即以非 closing PR 将 <code>main</code> 回同步到 <code>develop</code>。回同步失败是发布阻塞，不得静默 cherry-pick 成两套历史。
-- 正式发布使用独立 kind=aggregate Release Issue 和 <code>develop → main</code> merge-commit PR；随后保留 release-please 版本 PR。提升与回同步 PR 使用 <code>Refs &lt;ISSUE-ID&gt;</code>，不得再次 closing 已 Done 的开发 Issue。Release Issue 只有在 GitHub Release、制品、发布 smoke 和 <code>main → develop</code> 回同步全部有证据后才能 Done。
-- write 节点分支使用 <type>/<ISSUE-ID>-<slug>；worktree 位于仓库同级的 <repo>-worktrees/<ISSUE-ID>。commit 使用 <code>Refs &lt;ISSUE-ID&gt;</code> 关联；GitHub PR 或 GitLab MR 的 closing 描述使用 <code>Fixes &lt;ISSUE-ID&gt;</code>，只有提供方配置且创建后重读确认有效的等价 closing 语法才可替代，closing 词不放在 commit 中。
+- 普通功能和修复的精确目标 ref 默认为 `origin/develop`，分支分别使用 `feat/<ISSUE-ID>-<slug>` 与 `fix/<ISSUE-ID>-<slug>`；closing PR 合并到 `develop` 后开发 Issue 即 Done，发布等待不得阻塞或重开它。
+- 紧急修复从 `origin/main` 创建 `hotfix/<ISSUE-ID>-<slug>` 并先合入 `main`；正式发布或恢复后必须立即以非 closing PR 将 `main` 回同步到 `develop`。回同步失败是发布阻塞，不得静默 cherry-pick 成两套历史。
+- 正式发布使用独立 kind=aggregate Release Issue 和 `develop → main` merge-commit PR；随后保留 release-please 版本 PR。提升与回同步 PR 使用 `Refs <ISSUE-ID>`，不得再次 closing 已 Done 的开发 Issue。Release Issue 只有在 GitHub Release、制品、发布 smoke 和 `main → develop` 回同步全部有证据后才能 Done。
+- write 节点分支使用 `<type>/<ISSUE-ID>-<slug>`；worktree 位于仓库同级的 `<repo>-worktrees/<ISSUE-ID>`。commit 使用 `Refs <ISSUE-ID>` 关联；GitHub PR 或 GitLab MR 的 closing 描述使用 `Fixes <ISSUE-ID>`，只有提供方配置且创建后重读确认有效的等价 closing 语法才可替代，closing 词不放在 commit 中。
 - 开始实现前记录精确目标远端 ref 和 base SHA，并从该基线创建分支。创建 PR/MR 前重新读取目标 ref 与 source HEAD，确认提供方所选 target 与声明 ref 相同，并验证 merge-base 等于冻结 base SHA 或是该 SHA 在同一目标 ref 历史上的已验证后代；不一致时阻断创建。创建后重读确认标题、source、target、描述、Issue 链接和 closing 语义。
 - 优先由 Linear 的 GitHub/GitLab 集成或团队已配置自动化推进 In Progress、In Review、Ready to Merge 和 Done。只有缺少对应自动化且 Execution Envelope 明确允许 linearWrite 时才按状态写入协议手工回写。
 - Ready to Merge 依赖 branch protection、required review 和 required checks；没有这些门禁时不得仅凭 Linear 自动化声称可合并。
 - 已授权 Issue 内可追加事实性的进展、验证、阻塞或决策评论。除本节定义的最小身份登记外，创建其他 Issue、改变关系、优先级、Assignee、Delegate、Project、Cycle、Parent 或 Contract 都需要单独授权。
 - MCP 不可用时可以使用用户提供的 Issue 内容，但必须明确未读取或同步 Linear；不得伪造评论、状态、关系、Delegate、Receipt、PR、review、CI 或 merge 结果。
 
-Git credential helper 按 `git-rules.md` credential helper 条款执行：helper 仅可由其配置的 Git transport 透明使用，网页/API 会话用途必须另有 <code>credentialUse</code> 与对应外部写入授权；Agent 不得把 helper 输出或原始凭据写入文件，credential query、包装脚本或辅助文件也不得写入仓库或 worktree。
+Git credential helper 按 `git-rules.md` credential helper 条款执行：helper 仅可由其配置的 Git transport 透明使用，网页/API 会话用途必须另有 `credentialUse` 与对应外部写入授权；Agent 不得把 helper 输出或原始凭据写入文件，credential query、包装脚本或辅助文件也不得写入仓库或 worktree。
 
 默认 terminalCondition 是当前 Issue 的已授权 effects 完成：本地实现只交付到本地验证；若授权到 mergeRequestWrite，则在 PR/MR ready for review、创建后重读确认并完成所有已授权证据同步时结束。Linear 自动化或已授权回写应使 Issue 进入 In Review；若状态同步不可用或未授权，报告差异后结束，不得因此续跑。除非用户明确授权 mode=monitor 并给出观察终点或时间边界，否则不得等待人工合并、持续轮询、自动续跑或执行下一个 Ready 节点；达到终止条件也不等于 Done。
 
