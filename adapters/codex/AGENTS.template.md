@@ -5,11 +5,6 @@
 ## 启动
 
 {{installedSurface.startupLines}}
-2. {{installedSurface.memoryLoadLine}}
-
-1. 先读取 `docs/rules/governance-core.md`；只有出现 Skill 或专项领域信号时再读取 `docs/rules/AGENT_SKILL_ROUTING.md` 和当前需要的专项规则。
-3. {{projectProfile.vcsStatusInstruction}}
-4. {{installedSurface.discoveryLine}}
 
 ## 硬边界
 

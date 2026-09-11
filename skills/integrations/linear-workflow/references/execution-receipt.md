@@ -25,7 +25,7 @@ Execution Receipt 是 Linear Issue 上不可变、追加式的结构化评论，
 - schema 固定为 vibe-harness.linear-execution/v1。
 - executionId 和 runtimeInstanceId 是新生成的 UUID v4。runtimeInstanceId 只用于 Receipt 关联，不得复制宿主 thread、session、OAuth session、用户名、主机名或其他真实会话标识。
 - source 只允许 explicit-user-request、existing-delegate、authorized-handoff。
-- agentKey 和 hostKind 使用稳定、低基数的产品标识；role 在 V1.1 只允许 writer。
+- agentKey 和 hostKind 使用稳定、低基数的产品标识；role 只允许 writer。
 - delegateId 是当前原生 Delegate/App User ID；fallback label 模式填写 null。
 - dagRootIssue 为顶层 Parent 标识；独立 Issue 填 null。dagNodeIssue 必须是当前 Issue。
 - startedAt 使用 UTC RFC3339 时间，不得倒签或回填。

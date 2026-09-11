@@ -10,7 +10,7 @@ codebase-memory-mcp 是可选的代码结构与影响分析能力。只有显式
 
 - 仅在任务需要跨文件符号关系、实际调用链、架构、数据流或改动影响时使用语义图；单文件语法模式使用项目内 ast-grep，纯文本、配置和日志使用 <code>rg</code>。
 - 需要语义图时先调用 <code>list_projects</code> 与 <code>index_status</code>；索引缺失或过期且当前任务确实需要时才调用 <code>index_repository</code>。
-- 使用 <code>search_graph</code> 定位精确符号，再调用 <code>get_code_snippet</code> 或固定版本 0.9.0 的 <code>trace_call_path</code>。不得引用新版本独有工具名替代锁定接口。
+- 使用 <code>search_graph</code> 定位精确符号，再调用 <code>get_code_snippet</code> 或 runtime 锁定版本的 <code>trace_call_path</code>。不得引用新版本独有工具名替代锁定接口。
 - 不自动删除其他项目索引，不执行未授权的跨项目索引或 ADR 写入。RTK 不得包装 MCP runtime 或协议流量。
 
 ## 使用顺序

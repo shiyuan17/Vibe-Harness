@@ -32,12 +32,13 @@ test('read-only evaluation keeps Memory body access behind recovery and authoriz
     needsProjectStateRecovery: false,
     skillEvidenceBoundary: 'metadata-only',
   };
-  const [agents, codexTemplate, opencodeTemplate, rule, installPlanner] = await Promise.all([
+  const [agents, codexTemplate, opencodeTemplate, rule, installPlanner, renderer] = await Promise.all([
     readFile(path.join(rootDir, 'AGENTS.md'), 'utf8'),
     readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8'),
     readFile(path.join(rootDir, 'adapters/opencode/AGENTS.template.md'), 'utf8'),
     readFile(path.join(rootDir, 'docs/rules/governance-core.md'), 'utf8'),
     readFile(path.join(rootDir, 'scripts/lib/install-planner.js'), 'utf8'),
+    readFile(path.join(rootDir, 'scripts/lib/template-renderer.js'), 'utf8'),
   ]);
   const bodyReadAllowed = scenario.needsProjectStateRecovery
     && scenario.memoryBodyAuthorized
@@ -47,7 +48,7 @@ test('read-only evaluation keeps Memory body access behind recovery and authoriz
   assert.match(agents, /仅当任务需要恢复项目状态且当前授权允许/u);
   assert.match(agents, /仅对受限 Memory 路径检查存在性及必要元数据、不读取其正文/u);
   assert.equal(codexTemplate, opencodeTemplate);
-  assert.match(codexTemplate, /installedSurface\.memoryLoadLine/u);
+  assert.match(renderer, /surface\.memoryLoadLine/u);
   assert.match(rule, /仅当任务需要恢复项目状态且当前授权允许时读取 Memory body/u);
   assert.match(rule, /只检查相关 Memory 路径是否存在及必要元数据、不读取其正文/u);
   assert.match(installPlanner, /仅当任务需要恢复项目状态且当前授权允许读取 Memory body 时/u);

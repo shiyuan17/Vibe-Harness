@@ -2,7 +2,7 @@
 
 ## 状态
 
-状态：Implemented（V1.1 资产合同；宿主执行强制能力按集成条件生效）
+状态：Implemented（资产合同；宿主执行强制能力按集成条件生效）
 
 ## 目标
 
@@ -10,7 +10,7 @@ Vibe-Harness 通过显式 integration plugin 提供 Linear 工作流规则、操
 
 默认交付分支模型是轻量 GitFlow：<code>feat/*、fix/* → develop → main</code>，hotfix 使用 <code>hotfix/* → main → develop</code>。开发 Issue 在 closing PR 合入 <code>develop</code> 后 Done；正式发布由独立 aggregate Release Issue、<code>develop → main</code> 提升 PR、release-please 版本 PR 和 <code>main → develop</code> 回同步共同证明。
 
-V1.1 增加显式执行登记、具体运行实例审计和原生 DAG 完成语义，同时长期保留禁止自动领取。交付范围是规则、Skill、模板、安装投影、ADR、测试和 Eval，不包含常驻运行服务。
+本规格定义显式执行登记、具体运行实例审计和原生 DAG 完成语义，同时长期保留禁止自动领取。交付范围是规则、Skill、模板、安装投影、ADR、测试和 Eval，不包含常驻运行服务。
 
 ## 非目标
 
@@ -93,7 +93,7 @@ checkpoint 必须保留 envelope 的 requestId、mode、activeObjective、唯一
 
 Parent/Sub-issue 只表示分解，不隐含执行顺序；related 也不表示依赖。Dependencies 只允许 None 或 Managed by Linear relations，不维护重复 Issue 清单。描述明确声明依赖但缺少对应原生关系时，任务不 Ready。
 
-独立旧 Issue 默认 Root=None、kind=write、trigger=all_success、resourceLocks=None，无需迁移。节点可声明 kind=read|write|aggregate、trigger=all_success|all_done 和稳定低基数 Resource Locks。Parent 必须 aggregate；V1.1 不定义 optional node，Parent 的全部 descendant 都是 required。
+独立旧 Issue 默认 Root=None、kind=write、trigger=all_success、resourceLocks=None，无需迁移。节点可声明 kind=read|write|aggregate、trigger=all_success|all_done 和稳定低基数 Resource Locks。Parent 必须 aggregate；本规格不定义 optional node，Parent 的全部 descendant 都是 required。
 
 all_success 要求全部直接前驱成功；Canceled、Duplicate、Won't Fix、failed、skipped 和 cancelled 均不算成功。all_done 仅允许 kind=aggregate，且仅用于汇总、清理或失败报告；它只要求全部直接前驱进入终态，可以产出报告，但不能把失败 DAG 判为成功。
 
@@ -139,10 +139,10 @@ Receipt、event、评论、Eval 和日志不得包含用户名、主机名、本
 
 ## 兼容与演进
 
-V1.1 对旧 Issue 采用无需迁移策略。Receipt 和 event 通过 schema 版本区分，采用追加式演进：消费者可以忽略不改变现有语义的新增字段；字段删除、改名、类型变化、枚举语义变化或完成条件变化必须使用新的 schema major。未知 major 或矛盾记录必须 fail-closed。
+本规格对旧 Issue 采用无需迁移策略。Receipt 和 event 通过 schema 版本区分，采用追加式演进：消费者可以忽略不改变现有语义的新增字段；字段删除、改名、类型变化、枚举语义变化或完成条件变化必须使用新的 schema major。未知 major 或矛盾记录必须 fail-closed。
 
 ## 交付资产与验证
 
 Integration 交付 Linear 规则、Skill、AI Coding Task、DAG Parent、Execution Receipt、Triage、Workspace Setup 模板和项目级 MCP 安装投影。确定性测试覆盖插件互斥、默认 profile 不变、安装投影、Receipt 契约和 DAG 规则；Online Eval 保留 NO_AUTO_CLAIM，并覆盖显式登记、身份冲突、授权交接、fallback 标签基数、只读降级、Reviewer/Verifier、依赖环、Scope/Lock 冲突、trigger、closing PR/MR 和 fan-in 完成语义。
 
-V1.1 关键恢复 Eval 还必须覆盖：linear-sync 遇 Ready 节点不执行代码；无新输入不续跑下一节点；压缩后恢复同一目标；实时 In Review 不被旧 Todo 快照覆盖；不精确目标 ref 返回 NOT_READY_TARGET_BRANCH；credential helper 不转作网页/API 登录；PR/MR base 与实现 merge-base 不一致时创建前阻断；DAG 摘要未变时不重复全量读取。
+关键恢复 Eval 还必须覆盖：linear-sync 遇 Ready 节点不执行代码；无新输入不续跑下一节点；压缩后恢复同一目标；实时 In Review 不被旧 Todo 快照覆盖；不精确目标 ref 返回 NOT_READY_TARGET_BRANCH；credential helper 不转作网页/API 登录；PR/MR base 与实现 merge-base 不一致时创建前阻断；DAG 摘要未变时不重复全量读取。

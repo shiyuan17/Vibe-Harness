@@ -19,7 +19,7 @@ Skill 只补充当前任务需要的领域知识，不覆盖项目规则、人�
 - 只读排查现有项目的逻辑、流程、状态、一致性与接口缺陷时使用 `bug-finding`：产出证据化审查报告，不修改源码、配置、依赖或数据。
 - 信任边界使用 `security-and-hardening`；公共契约使用 `api-and-interface-design`；前端体验使用 `frontend-design`；跨仓运行时使用 `runtime-cross-repo-rollout`。
 - 按需加载最匹配的领域 Skill，确需互补领域知识时补充加载，不建立固定流程链；能力不可用时使用项目规则和确定性验证，不模拟工具或结果。
-- 页面交互、console、network、性能、响应式、可访问性或视觉验收使用 browser-verification integration Skill；它仅由 playwright 或 chrome-devtools plugin 显式安装，不计入十一个原生 Skills。未安装时使用项目已有的浏览器验证入口。
+- 页面交互、console、network、性能、响应式、可访问性或视觉验收使用 browser-verification integration Skill；它仅由 playwright 或 chrome-devtools plugin 显式安装，不计入 profile 的原生领域 Skill 数量。未安装时使用项目已有的浏览器验证入口。
 - 提及 Linear Issue，或请求委派、执行、审查、核验、解释与状态同步时使用 linear-workflow integration Skill；它仅由 linear-mcp 或 linear-mcp-readonly 显式安装。普通提及、查询、Review 或 Verify 只触发规则选择，不授权登记领取；只有明确执行指令，或已有当前 Delegate 且宿主显式启动，才授权 Writer 的最小身份登记。未安装时只能使用用户提供的 Issue 上下文，不声称已读取或同步 Linear。
 
 计划、测试、Review、任务记录和普通交付由 Agent 按请求直接完成，不自动创建额外流程、角色或门禁；普通完成请求不得隐式选择 `$git-deliver`、提交或推送。红区、权限、凭据、生产、外部写入和不可逆操作遵循 governance-core 的授权与批准规则；已有覆盖授权不重复确认。

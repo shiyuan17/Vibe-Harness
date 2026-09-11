@@ -38,7 +38,7 @@
 
 all_success 要求全部直接前驱成功。all_done 只允许聚合终态、清理或失败报告；它可以成功地产出报告，但不能把有失败必需节点的 DAG Root 判为成功。
 
-V1.1 不定义 optional node：Parent 下所有 descendant node 都是 required。多层 Parent 也必须是 aggregate。
+不定义 optional node：Parent 下所有 descendant node 都是 required。多层 Parent 也必须是 aggregate。
 
 ## Fan-in Verification
 
