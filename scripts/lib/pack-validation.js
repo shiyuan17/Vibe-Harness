@@ -477,7 +477,10 @@ export async function validateContentQuality(rootDir) {
   // lines with zero content growth. The gate measures resident context size, and
   // blank/structural lines split prose into the same readable units the budget exists
   // to protect, so the allowance rises with them instead of forcing prose re-merging.
-  if (residentLines > 92) errors.push(`resident governance surface exceeds 92 lines: ${residentLines}`);
+  // 2026-09-11: raised 92 -> 150 so rule typography (sections, lists, tables) is not
+  // forced back into dense prose; the budget is a ceiling, not a target, and the
+  // resident files are expected to stay well below it.
+  if (residentLines > 150) errors.push(`resident governance surface exceeds 150 lines: ${residentLines}`);
 
   const proseOwners = new Map();
   for (const directory of ['docs/rules', 'templates']) {
