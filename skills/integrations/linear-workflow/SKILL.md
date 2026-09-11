@@ -5,26 +5,19 @@ description: Use when executing, reviewing, verifying, refining, or synchronizin
 
 # Linear 工作流
 
-高风险执行只接受 v2 Execution Envelope：它冻结 riskClass、workspace identity、允许写入根、无凭据 external targets 和宿主 enforcement 证明。v1 仅作 contract-only/degraded 兼容，不能授权凭据、hostWrite、externalWrite、高风险间接写入或 worktree 拓扑变化。每次自动续跑核对宿主实际提供的 Goal/thread 状态、最新用户输入、当前 Issue、cwd、worktree、branch、HEAD 和 blocker；授权沿用、局部暂停和无进展时的诊断遵循 governance-core，Goal 状态使用宿主工具合同。无原生 Goal bridge 时不声称后台持续执行，不阻止用户继续请求或宿主显式续跑恢复原范围工作。
+本 Skill 是 linear-workflow 规则的操作入口：规则定义授权模型、状态门禁、原生 DAG 语义、Execution Receipt 和 Git 流的完整合同，本 Skill 只保留触发条件、操作顺序和回退。规范条文以 docs/rules/linear-workflow.md 为准，本文件不重复。
 
-本 Skill 操作 Linear 工作项，不替代项目治理、Git 规则、测试或人工权限门禁。禁止自动领取，也就是不自动从队列领单：不扫描或轮询 Ready Queue，不创建 Webhook 调度器、Linear Loop、leader lease、自动超时回收或自动重派。
+触发与边界：
 
-默认采用轻量三层工作流：<code>feat/*、fix/* → develop → main</code>；紧急修复使用 <code>hotfix/* → main → develop</code>。<code>develop</code> 是日常集成分支，<code>main</code> 是正式发布分支，不创建长期 <code>release/*</code> 分支。
-
-调用写工具前建立当前请求的 Execution Envelope。mode 只允许 inspect、plan、linear-sync、execute、monitor；effect 只允许 linearWrite、workspaceWrite、gitBranch、gitCommit、gitPush、mergeRequestWrite、credentialUse，并分别授权，forbiddenEffects 优先。linear-sync 只执行用户明确列出的 Linear 变更，禁止代码、分支、提交、推送、PR/MR 和凭据 effect；monitor 默认只读且写 effect ceiling 为空，并必须有终点或时间边界。
+- 只有用户在本轮明确要求实现、处理、继续或领取某个具体 Issue，或 Issue 已委派给当前 Agent 且宿主以该 Issue 为目标显式启动，才进入 Writer 执行。
+- 禁止自动领取，也就是不自动从队列领单：不扫描或轮询 Ready Queue，不创建 Webhook 调度器、Linear Loop、leader lease、自动超时回收或自动重派。
+- 未指定 Issue 时不得选择、认领或更新任务，也不得主动列出或搜索 Ready Queue。
+- 高风险执行只接受 v2 Execution Envelope，v1 仅作 contract-only/degraded 兼容；mode 与 effect 枚举按规则第 1 节。调用写工具前建立当前请求的 Execution Envelope。无原生 Goal bridge 时不声称后台持续执行，不阻止用户继续请求或宿主显式续跑恢复原范围工作。
+- 分支约定：`feat/*、fix/* → develop → main`；紧急修复 `hotfix/* → main → develop`。`develop` 是日常集成分支，`main` 是正式发布分支，不创建长期 `release/*` 分支；closing PR 合并后开发 Issue 立即 Done。
 
 ## 1. 判断执行授权与角色
 
-只有以下情况授权 Writer 启动：
-
-- 用户在本轮明确要求实现、处理、继续或领取某个具体 Issue。
-- Issue 已委派给当前 Agent，且宿主以该 Issue 为目标显式启动本次运行。
-
-提及、查看、总结、解释、Review、Verify 或列出队列都不构成领取授权。未指定 Issue 时不得选择、认领或更新任务，也不得主动列出或搜索 Ready Queue。Reviewer 和 Verifier 始终只读，不登记执行身份、不写 Receipt、不取得实现所有权。
-
-Ready、Todo、依赖满足或队列可见不是 execute 授权。当前请求达到 terminalCondition 后，没有新用户输入或宿主对已委派具体 Issue 的显式启动时，不得自动选择下一个 Ready 节点。
-
-显式执行授权只允许对当前 Issue 做最小身份登记；不允许改变人类 Assignee、Priority、Contract、Project、Cycle、Parent 或依赖关系，也不允许创建额外 Issue。
+按规则第 1 节判定授权后开始。提及、查看、总结、解释、Review、Verify 或列出队列都不构成领取授权；Ready、Todo、依赖满足或队列可见不是 execute 授权。Reviewer 和 Verifier 始终只读，不登记执行身份、不写 Receipt、不取得实现所有权。当前请求达到 terminalCondition 后，没有新用户输入或宿主对已委派具体 Issue 的显式启动时，不得自动选择下一个 Ready 节点。
 
 ## 2. 读取 Linear 真值
 
@@ -34,44 +27,21 @@ Ready、Todo、依赖满足或队列可见不是 execute 授权。当前请求�
 
 分页不完整、关系不可见、Receipt 无法解析或记录互相矛盾时 fail-closed。不得推断不存在的字段、关系、权限或评论。不要读取无关团队或扩大搜索范围。Triage Issue 只读解释，不自动 accept、duplicate、decline 或 snooze。
 
-同一用户请求优先读取当前 Issue 及其必要依赖和冲突范围，保存 dagStructureHash，覆盖节点 ID、Parent/依赖边、kind、trigger、Scope、Resource Locks、Repository 和 Target branch；提供方支持时另存 dagChangeCursor。只有摘要与可靠游标共同证明结构未变，恢复才采用当前 Issue、PR/MR、HEAD 和变化节点的增量读取。无可靠游标时允许一次有界重读相关完整范围，仍不完整则暂停受影响执行；旧哈希本身不是未变证据，不扫描 Ready Queue 或反复遍历全项目。
+同一用户请求保存 dagStructureHash，覆盖节点 ID、Parent/依赖边、kind、trigger、Scope、Resource Locks、Repository 和 Target branch；提供方支持时另存 dagChangeCursor。只有摘要与可靠游标共同证明结构未变，恢复才采用当前 Issue、PR/MR、HEAD 和变化节点的增量读取；旧哈希本身不是未变证据。无可靠游标时允许一次有界重读相关完整范围，仍不完整则暂停受影响执行。
 
 ## 3. 执行 Ready 与 DAG 门禁
 
-本地 `result` 使用 `pending`、`ready`、`running`、`succeeded`、`failed`、`blocked`、`skipped`、`cancelled`；Linear 的 `Canceled`、`Duplicate`、`Won't Fix` 只作为外部终态并按非 `succeeded` 处理。
-
-具体映射与终态以 ai-collab-rules.md「状态与交接解释」为准：Canceled / Won't Fix 映射 cancelled，Duplicate 映射 skipped，blocked 非终态，Done 必须具有对应 kind 的证据。本地解释不新增 Linear 字段，也不回写状态。
-
-只有 Todo Issue 才能开始，并且必须满足：
-
-- 执行授权成立，角色为 Writer。
-- Goal、Context、Scope、Out of Scope、Contract、Acceptance Criteria、Dependencies 和 Verification 均存在。
-- Dependencies 只能是 None 或 Managed by Linear relations；依赖真值只来自原生 blocked-by / blocks。
-- 没有未解决的 blocked-by，仓库、精确目标远端 ref、写入范围和验证方式可确定。“默认分支”只有解析后确为实现基线时才有效，否则返回 NOT_READY_TARGET_BRANCH。
-- 没有自依赖、依赖环、不可见前驱，且所有直接前驱满足 trigger。
-- 并行 write 节点没有无序的 Scope 重叠或相同 Resource Lock。
-
-Parent/Sub-issue 只表示分解，related 不表示依赖。文本声明依赖但缺少对应原生关系时任务不 Ready。发现缺口或冲突时只报告事实，不自动拆 Issue、补关系、改变 Parent 或调整优先级。
-
-all_success 要求全部直接前驱成功；Canceled、Duplicate、Won't Fix、failed、skipped 和 cancelled 均不算成功。all_done 只允许 kind=aggregate，且仅用于汇总、清理或失败报告；它可以产出终态报告，但不能把失败 DAG 判为成功。
-
-Ready 门禁通过后解析目标远端 ref 并冻结 base SHA；后续分支和 worktree 必须从该基线创建。Ready 仍不授权执行任何未列入 allowedEffects 的动作。
-
-路径不重叠但存在 API、Schema、迁移或行为契约耦合时，必须指定唯一写入 owner 并建立原生依赖；无法证明隔离时按冲突处理。每次派发 write 节点前重新读取并确认 DAG 版本或 hash、依赖、Scope、Resource Lock、HEAD 和工作区身份未变化；变化时暂停后继并重新计算 ready 集合。
+按规则第 3、4 节逐项核对 Definition of Ready、依赖真值、Scope 投影与冲突串行；发现缺口或冲突时只报告事实，不自动拆 Issue、补关系、改变 Parent 或调整优先级。门禁通过后解析目标远端 ref 并冻结 base SHA，后续分支和 worktree 从该基线创建。契约耦合节点的派发前重验证按规则第 4 节执行。
 
 ## 4. 登记 Agent 与 Execution Receipt
 
-正常写通道下，在创建 worktree、分支或开始实现前按以下顺序登记：
+正常写通道下，在创建 worktree、分支或开始实现前按固定顺序登记；完整 schema、幂等与恢复语义见规则第 5 节：
 
 1. 检查是否已有其他 Delegate、其他 fallback Agent label 或未终结的活动实例；存在时停止并请求显式交接。
 2. 保留人类 Assignee，优先登记原生 Delegate/App User。
 3. 不支持 Delegate 时，只使用管理员预配置的低基数 agent:<agent-key> 与 role:writer 标签；不得创建带实例 ID 的标签。
 4. 按 references/execution-receipt.md 追加不可变 start Receipt。
 5. 重新读取并逐字段确认身份与 Receipt 一致；任何部分写入、结果不确定或验证失败都报告 registration-incomplete，不开始实现，也不声称已领取。
-
-同一 Issue 同时最多一个活动实例。一次登记尝试中的传输重试复用相同 executionId 和 runtimeInstanceId；写入结果不确定时先重读，完全相同的已有 Receipt 视为幂等成功，不得追加第二条。恢复或授权交接后的新运行才生成新 ID。
-
-同一运行时的上下文压缩或恢复沿用原 ID；新运行时不得静默接管 active Receipt，必须先显式 handoff 或 release。checkpoint 保留 requestId、mode、activeObjective、唯一当前 Issue、allowedEffects、forbiddenEffects、terminalCondition、completedFacts、noRepeatSet、nextAction、liveStates、blockerFingerprint 和 dagStructureHash；提供方支持时另存可选 dagChangeCursor。恢复后的第一个写调用前重读当前 Issue 与相关 Git/PR/MR 状态，并核对 mode、目标和 effect；无法可靠恢复时只读核对并重新规划。
 
 source 依次判定为：有效交接使用 authorized-handoff；本轮明确执行指令使用 explicit-user-request；否则只有当前 Agent 已是 Delegate 且宿主显式启动时使用 existing-delegate。
 
@@ -83,29 +53,19 @@ Linear 只读、MCP 不可用或写入验证失败时，不得声称已登记、
 
 ## 6. 隔离执行与状态同步
 
-正常登记确认后，write 叶子 Issue 使用一个 Writer、一个命名分支和一个 closing PR/MR。顺序执行且工作区干净时允许使用当前 clone；并发 Agent、脏工作区、存在无关改动或明确需要隔离时，必须创建仓库外 worktree。分支使用 <type>/<ISSUE-ID>-<slug>，worktree 使用同级 <repo>-worktrees/<ISSUE-ID>。commit 使用 <code>Refs &lt;ISSUE-ID&gt;</code>；GitHub PR 或 GitLab MR 描述使用 <code>Fixes &lt;ISSUE-ID&gt;</code>，只有提供方配置且创建后重读确认的等价 closing 语法才可替代。read 节点只产出约定输出和 Verification 证据；aggregate Parent 不创建实现 worktree。
+正常登记确认后，write 叶子 Issue 使用一个 Writer、一个命名分支和一个 closing PR/MR。顺序执行且工作区干净时允许使用当前 clone；并发 Agent、脏工作区、存在无关改动或明确需要隔离时，必须创建仓库外 worktree。分支使用 <type>/<ISSUE-ID>-<slug>，worktree 使用同级 <repo>-worktrees/<ISSUE-ID>。commit 使用 `Refs <ISSUE-ID>`；GitHub PR 或 GitLab MR 描述使用 `Fixes <ISSUE-ID>`，只有提供方配置且创建后重读确认的等价 closing 语法才可替代。read 节点只产出约定输出和 Verification 证据；aggregate Parent 不创建实现 worktree。
 
-普通 <code>feat/*</code>、<code>fix/*</code> 以 <code>origin/develop</code> 为目标；closing PR 合并后开发 Issue 立即 Done。<code>hotfix/*</code> 从 <code>origin/main</code> 创建并先合入 <code>main</code>，随后用非 closing PR 回同步 <code>develop</code>。正式发布使用独立 kind=aggregate Release Issue，以 merge commit 提升 <code>develop → main</code>，再保留 release-please 版本 PR；提升和回同步使用 <code>Refs &lt;ISSUE-ID&gt;</code>，不重新关闭开发 Issue。Release Issue 只有 GitHub Release、制品、发布 smoke 和回同步均有证据后才 Done。
+普通 `feat/*`、`fix/*` 以 `origin/develop` 为目标；closing PR 合并后开发 Issue 立即 Done。`hotfix/*` 从 `origin/main` 创建并先合入 `main`，随后用非 closing PR 回同步 `develop`。Release 流程与 credential helper 边界按规则第 6 节执行。
 
 创建 PR/MR 前重新读取目标 ref 与 source HEAD，确认提供方 target 等于声明 ref；计算 merge-base，并确认它等于冻结 base SHA，或是该 SHA 在同一目标 ref 历史上的已验证后代。不一致时阻断创建。创建后重读标题、source、target、描述、Issue 链接和 closing 语义。
 
-优先让 Linear 的 GitHub/GitLab 集成或团队自动化推进状态：开始分支到 In Progress，PR/MR 进入审查到 In Review，required review 和 checks 通过到 Ready to Merge，closing PR/MR 合并到精确目标 ref 后 write 节点才 Done。只有缺少对应自动化且 envelope 允许 linearWrite 时才手工更新；每次手工状态写入执行“读取当前值 -> 校验转换 -> 写入 -> 重读确认”。实时状态优先于旧计划或摘要，后退、重开或纠错需要单独授权和事实原因，不得把 In Progress、In Review 或 Ready to Merge 退回 Todo 来恢复 Ready 统计。
-
-本地工作完成、测试通过或 PR/MR 创建都不等于 Done。read 节点以输出和验证证据为完成条件；aggregate Parent 只有所有必需后代成功且 Fan-in Verification 通过才 Done。all_done 报告节点成功不能覆盖后代失败。
+优先让 Linear 的 GitHub/GitLab 集成或团队自动化推进状态；只有缺少对应自动化且 envelope 允许 linearWrite 时才手工更新，并执行“读取当前值 → 校验允许转换 → 写入 → 重读确认”。本地工作完成、测试通过或 PR/MR 创建都不等于 Done；Done 的完成证据按规则第 2 节状态表执行。
 
 释放、中止、交接和本地工作完成都追加 terminal event，不编辑原 Receipt。没有自动超时或自动回收；失联实例必须由人工核对 worktree、分支和 PR 后显式释放或交接。
 
-Git credential helper 按 git-rules.md credential helper 条款执行：只能由已配置的 Git transport 透明使用，读取、解析或转用其输出登录网页/API 需要单独的 credentialUse 与对应外部写入授权；Agent 不得把 helper 输出或原始凭据写入文件，query、包装脚本或辅助文件不得写入仓库或 worktree。
-
-默认在当前 Issue 的已授权 effects 完成时终止：若授权到 mergeRequestWrite，则 PR/MR ready for review、创建后重读确认并完成已授权证据同步时结束。Linear 未进入 In Review 且状态同步不可用或未授权时，报告差异后结束。除非 envelope 明确为 monitor 且带观察终点或时间边界，不等待人工合并、不持续轮询，也不续跑下一节点；终止不等于 Linear Done。
-
-子节点交接至少记录节点结果、实际修改文件、base/head、验证命令与退出码、未决风险和阻塞原因；这些记录仅用于人读交接，不构成执行授权。长任务可选声明节点超时、最大尝试次数、取消、退避和资源预算，普通单 Agent 任务不要求填写。
-
-交接缺证先补证，不按自报判成功；非 Git、只读或人工验证按 ai-collab-rules.md 说明不适用项，不伪造 SHA 或退出码。正常上游 HEAD 前进需核对实际 diff 和依赖证据后更新观察基准，不修改授权基线；超时、取消和预算耗尽均不算成功，不自动回收原执行。并发软上限依 ai-collab-rules.md 区分本地 running 节点和 Linear 活跃 Issue，不能覆盖宿主硬限制。
-
 ## 7. 交付与参考
 
-交付时报告本地结果、验证证据、PR/MR/merge 的已观察状态、登记状态及 Linear 是否实际同步。不要把请求已发送、工具不可用或推测状态写成成功。
+交付时报告本地结果、验证证据、PR/MR/merge 的已观察状态、登记状态及 Linear 是否实际同步。不要把请求已发送、工具不可用或推测状态写成成功。终止条件、monitor 观察边界与并发软上限按规则第 7 节执行。
 
 创建团队模板或管理员配置时，按需读取：
 

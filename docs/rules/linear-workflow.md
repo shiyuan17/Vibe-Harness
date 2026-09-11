@@ -4,7 +4,7 @@ Linear 保存工作状态、责任、委派与依赖；GitHub 或 GitLab 保存�
 
 默认采用轻量三层工作流：`feat/*、fix/* → develop → main`；紧急修复使用 `hotfix/* → main → develop`。`develop` 是日常集成分支，`main` 是正式发布分支；不创建长期 `release/*` 分支。任务分支应在约两个工作日内合并和删除，超出时优先拆小或用 feature flag 隔离未完成功能。
 
-## 授权与长期边界
+## 1 授权模型
 
 后续 v1 字段列表仅是兼容基线。高风险 Linear 执行必须使用 Execution Envelope v2，冻结 riskClass、workspace identity、允许写入根、无凭据 external targets 和宿主 enforcement 证明；v1 不授权凭据、hostWrite、externalWrite、高风险间接写入或 worktree 拓扑变化。每次自动续跑核对宿主实际提供的 Goal/thread 状态、最新用户输入、当前 Issue、cwd、worktree、branch、HEAD 和 blocker；授权沿用、局部暂停和无进展时的诊断按 governance-core 执行，Goal 状态变更使用宿主合同。Goal 完成后不得自动审计或选取下一 Ready 节点。
 
@@ -16,31 +16,43 @@ Linear 保存工作状态、责任、委派与依赖；GitHub 或 GitLab 保存�
 
 每个请求在任何写入前都必须按 `governance-core.md` 建立 Execution Envelope，mode 只允许 inspect、plan、linear-sync、execute、monitor；effect 只允许 linearWrite、workspaceWrite、gitBranch、gitCommit、gitPush、mergeRequestWrite、credentialUse，并分别列入 allowedEffects 或 forbiddenEffects。linear-sync 只允许本轮明确要求的 Linear 写入，必须禁止代码、worktree/分支、提交、推送、PR/MR 和凭据 effect。Ready、Todo、依赖满足或队列可见只表示执行条件满足，不构成 execute 授权；当前 terminalCondition 达成后不得自动选取下一个 Ready 节点。
 
-## 固定状态与责任
+## 2 状态模型与责任
 
 团队使用 Triage、Backlog、Todo、In Progress、In Review、Ready to Merge、Done。Triage 四动作 accept / duplicate / decline / snooze 需要人工确认；Agent 不自动处置。Blocked 不是状态，只使用原生 blocked-by / blocks 关系；related 永不表示依赖，关系解除或调整也需要授权。
 
-- Todo：Definition of Ready 完整，所有直接前驱满足 trigger，且没有 Scope 或 Resource Lock 冲突。
-- In Progress：身份登记与 Receipt 已确认且节点工作已经开始；write 节点还必须已创建 worktree 和分支，Draft PR 仍保持此状态。
-- In Review：PR/MR 已退出 Draft 并进入审查。
-- Ready to Merge：受保护分支要求的 review、CI、契约检查和必要 E2E 均通过。
-- Done：write 叶子由 closing PR/MR 合并到声明的精确目标 ref 证明；read 叶子由约定输出和 Verification 证据证明；aggregate Parent 由全部必需后代成功和 Fan-in Verification 证明。
+| 状态 | 进入条件 | 完成证据 | 允许写入者 |
+| --- | --- | --- | --- |
+| Todo | Definition of Ready 完整，所有直接前驱满足 trigger，且没有 Scope 或 Resource Lock 冲突 | Definition of Ready 通过且无冲突 | 人工（规划与 Ready 审定） |
+| In Progress | 身份登记与 Receipt 已确认且节点工作已经开始 | Receipt 确认与开工事实；write 节点还必须已创建 worktree 和分支，Draft PR 仍保持此状态 | 自动化优先；缺少自动化且 envelope 允许 linearWrite 时 Writer 按协议手工回写 |
+| In Review | PR/MR 已退出 Draft 并进入审查 | 审查请求与提供方事实 | 自动化优先；同 In Progress 的手工回写条件 |
+| Ready to Merge | 受保护分支要求的 review、CI、契约检查和必要 E2E 均通过 | branch protection 与 required checks 记录 | 自动化（基于门禁事实） |
+| Done | 完成证据全部成立 | write 叶子由 closing PR/MR 合并到声明的精确目标 ref 证明；read 叶子由约定输出和 Verification 证据证明；aggregate Parent 由全部必需后代成功和 Fan-in Verification 证明 | closing 合并与 fan-in 验证触发的自动化 |
 
 Agent 手工写状态必须执行“读取当前值 → 校验允许转换 → 写入 → 重读确认”。实时状态和提供方事实优先于旧计划、任务模板、DAG 快照或压缩摘要；常规代码流只前进 Todo → In Progress → In Review → Ready to Merge → Done。任何后退、重开或纠错转换都需要单独的状态纠错授权并记录事实原因，尤其不得为恢复 Ready 清单或旧规划统计把 In Progress、In Review 或 Ready to Merge 退回 Todo。
 
 一个 write 叶子 Issue 对应一个 Writer；按隔离条件使用当前 clone 或仓库外 worktree，并且只绑定一个命名分支和一个 closing PR/MR。顺序执行且工作区干净时允许在当前 clone 创建任务分支；存在并发 Agent、脏工作区、当前分支含无关改动或任务明确要求隔离时，必须使用仓库外 worktree。read 叶子只绑定一个执行 Agent、约定输出与 Verification 证据，不要求实现 worktree、分支或 PR/MR。存在子 Issue 的 Parent 是 aggregate，不直接实现。独立旧 Issue 可无 Parent，并按 kind=write、trigger=all_success、resourceLocks=None 处理，无需迁移。
 
-## Definition of Ready 与原生 DAG
+## 3 Definition of Ready
 
 本地 `result` 使用 `pending`、`ready`、`running`、`succeeded`、`failed`、`blocked`、`skipped`、`cancelled`；Linear 的 `Canceled`、`Duplicate`、`Won't Fix` 只保留为外部终态，并统一按非 `succeeded` 处理。
 
 状态映射与终态、交接缺失和正常 HEAD 前进的处理统一遵循 `ai-collab-rules.md` 的「状态与交接解释」：Canceled / Won't Fix 映射 cancelled，Duplicate 映射 skipped；blocked 非终态，Done 无对应 kind 的证据不得映射 succeeded。本地 result 不增加 Linear 描述字段或第二状态真值。派发重验证只读取当前节点及足够的依赖/冲突范围，不能因此扫描 Ready Queue。
 
-Todo Issue 必须包含 Goal、Context、Repository、精确 Target branch ref、Scope、Out of Scope、Contract、Acceptance Criteria、Dependencies 和 Verification。Target branch 必须能解析到准确远端 ref；“默认分支”只有经仓库事实解析为实际实现基线时才有效，否则返回 NOT_READY_TARGET_BRANCH。Dependencies 只能是 None 或 Managed by Linear relations；描述中的明确依赖陈述必须与原生关系一致，否则不 Ready。Parent/Sub-issue 只表示分解，不隐含顺序；blocked-by / blocks 是唯一执行依赖，related 不进入 DAG。
+Todo Issue 必须包含 Goal、Context、Repository、精确 Target branch ref、Scope、Out of Scope、Contract、Acceptance Criteria、Dependencies 和 Verification。Target branch 必须能解析到准确远端 ref；“默认分支”只有经仓库事实解析为实际实现基线时才有效，否则返回 NOT_READY_TARGET_BRANCH。Dependencies 只能是 None 或 Managed by Linear relations；描述中的明确依赖陈述必须与原生关系一致，否则不 Ready。自依赖、任意依赖环、不可见前驱、关系读取不完整、未解决的 blocked-by 或未满足 trigger 都阻止开始。
+
+Ready 门禁通过后解析目标远端 ref 并冻结 base SHA；后续分支和 worktree 必须从该基线创建。Ready 仍不授权执行任何未列入 allowedEffects 的动作。
+
+## 4 原生 DAG（Linear 投影）
 
 DAG 节点可声明 kind（read / write / aggregate）、trigger（all_success / all_done）和 resourceLocks。无 Parent 的旧 Issue 使用上述默认值；有子 Issue 的 Parent 必须是 aggregate。all_success 要求全部直接前驱 succeeded，Canceled、Duplicate、Won't Fix、failed、skipped 或 cancelled 都不算成功。all_done 只允许 aggregate、清理或失败报告节点在全部直接前驱终结后运行，且不能把失败 DAG 或 Root 判为成功。
 
-自依赖、任意依赖环、不可见前驱、关系读取不完整、未解决的 blocked-by 或未满足 trigger 都阻止开始。Scope 是 writeScope 的 Linear 投影，按 `ai-collab-rules.md` writeScope 条款执行路径验证：只接受精确项目相对路径或末尾为 /** 的目录，统一使用 / 并移除前导 ./，拒绝绝对路径、UNC、空路径、.. 和其他复杂 glob，Windows 比较忽略大小写。write 节点的 Scope 重叠或 resourceLocks 相同，只有存在从一方到另一方的原生依赖路径时才已串行；否则冲突节点都不 Ready。Agent 只报告冲突、边或环，不自行拆 Issue、改变 Parent、创建或删除关系、调整优先级或创建额外节点。
+依赖真值只来自 Linear 原生关系：
+
+- Parent/Sub-issue 只表示分解，不隐含顺序。
+- blocked-by / blocks 是唯一执行依赖，related 不进入 DAG。
+- 文本声明依赖但缺少对应原生关系时任务不 Ready。
+
+Scope 是 writeScope 的 Linear 投影，按 `ai-collab-rules.md` writeScope 条款执行路径验证：只接受精确项目相对路径或末尾为 /** 的目录，统一使用 / 并移除前导 ./，拒绝绝对路径、UNC、空路径、.. 和其他复杂 glob，Windows 比较忽略大小写。write 节点的 Scope 重叠或 resourceLocks 相同，只有存在从一方到另一方的原生依赖路径时才已串行；否则冲突节点都不 Ready。Agent 只报告冲突、边或环，不自行拆 Issue、改变 Parent、创建或删除关系、调整优先级或创建额外节点。
 
 DAG Parent 模板包含 Goal、整体 Acceptance Criteria、Shared Contract、Out of Scope、Fan-in Verification 和 Completion Policy。所有 descendant 默认必需；任一必需节点非 succeeded 时 Parent 不得 Done。关闭 Linear 的 Parent/Sub-issue 自动关闭，避免绕过 closing PR/MR 与 fan-in 验证。
 
@@ -50,7 +62,7 @@ DAG Parent 模板包含 Goal、整体 Acceptance Criteria、Shared Contract、Ou
 
 路径不重叠但存在 API、Schema、迁移或行为契约耦合时，必须指定唯一写入 owner 并建立原生依赖；无法证明隔离时按冲突处理。每次派发 write 节点前重新读取并确认 DAG 版本或 hash、依赖、Scope、Resource Lock、HEAD 和工作区身份未变化；变化时暂停后继并重新计算 ready 集合。子节点交接至少记录节点结果、实际修改文件、base/head、验证命令与退出码、未决风险和阻塞原因；这些记录仅用于人读交接，不构成执行授权。
 
-## 显式执行登记
+## 5 显式执行登记
 
 Linear 正常可写通道下，在开始节点工作前按固定顺序执行：
 
@@ -70,7 +82,7 @@ Receipt 与事件禁止包含用户名、主机名、本地路径、Token、Cook
 
 上下文压缩、重试或工具重连前后的 checkpoint 必须保留 Execution Envelope 合同要求的身份、授权与进度字段（requestId、mode、activeObjective、allowedEffects、forbiddenEffects、terminalCondition、completedFacts、noRepeatSet、nextAction、liveStates、blockerFingerprint、dagStructureHash），并把当前唯一 Issue 加入保留字段；提供方支持时另存可选 dagChangeCursor。恢复后的第一个写调用前重新读取当前 Issue 与相关 Git/PR/MR 状态，确认 mode、目标、effect 和下一动作仍一致；最新用户意图高于 checkpoint，实时状态高于旧摘要。任何字段无法可靠恢复时只允许只读核对和重新规划。
 
-## Git、状态同步与安全
+## 6 Git、状态同步与安全
 
 - 普通功能和修复的精确目标 ref 默认为 `origin/develop`，分支分别使用 `feat/<ISSUE-ID>-<slug>` 与 `fix/<ISSUE-ID>-<slug>`；closing PR 合并到 `develop` 后开发 Issue 即 Done，发布等待不得阻塞或重开它。
 - 紧急修复从 `origin/main` 创建 `hotfix/<ISSUE-ID>-<slug>` 并先合入 `main`；正式发布或恢复后必须立即以非 closing PR 将 `main` 回同步到 `develop`。回同步失败是发布阻塞，不得静默 cherry-pick 成两套历史。
@@ -83,6 +95,8 @@ Receipt 与事件禁止包含用户名、主机名、本地路径、Token、Cook
 - MCP 不可用时可以使用用户提供的 Issue 内容，但必须明确未读取或同步 Linear；不得伪造评论、状态、关系、Delegate、Receipt、PR、review、CI 或 merge 结果。
 
 Git credential helper 按 `git-rules.md` credential helper 条款执行：helper 仅可由其配置的 Git transport 透明使用，网页/API 会话用途必须另有 `credentialUse` 与对应外部写入授权；Agent 不得把 helper 输出或原始凭据写入文件，credential query、包装脚本或辅助文件也不得写入仓库或 worktree。
+
+## 7 终止与交付
 
 默认 terminalCondition 是当前 Issue 的已授权 effects 完成：本地实现只交付到本地验证；若授权到 mergeRequestWrite，则在 PR/MR ready for review、创建后重读确认并完成所有已授权证据同步时结束。Linear 自动化或已授权回写应使 Issue 进入 In Review；若状态同步不可用或未授权，报告差异后结束，不得因此续跑。除非用户明确授权 mode=monitor 并给出观察终点或时间边界，否则不得等待人工合并、持续轮询、自动续跑或执行下一个 Ready 节点；达到终止条件也不等于 Done。
 
