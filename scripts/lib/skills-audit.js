@@ -29,7 +29,7 @@ export async function runSkillsAudit(rootDir, options = {}) {
 
 export function skillScanSummary(report) {
   const byKind = {};
-  for (const kind of ['native', 'integration', 'router', 'compatibility']) {
+  for (const kind of ['native', 'integration']) {
     byKind[kind] = report.counts.get(kind) ?? 0;
   }
   return {
@@ -43,7 +43,7 @@ export function skillScanSummary(report) {
 
 export function renderSkillsAudit(report) {
   const lines = ['# Skills 实时审计', '', `- 总数：${report.items.length}`];
-  for (const kind of ['native', 'integration', 'router', 'compatibility']) {
+  for (const kind of ['native', 'integration']) {
     lines.push(`- ${kind}：${report.counts.get(kind) ?? 0}`);
   }
   if (report.lengths[0]) lines.push(`- 最长入口：\`${report.lengths[0].id}\`（${report.lengths[0].lines} 行）`);

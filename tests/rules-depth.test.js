@@ -11,12 +11,11 @@ const rootDir = path.resolve(import.meta.dirname, '..');
 const coreSkills = ['clarify-requirements', 'define-goal', 'task-decomposition', 'git-deliver', 'systematic-debugging', 'bug-finding', 'eval-driven-development', 'security-and-hardening'];
 const fullSkills = [...coreSkills, 'api-and-interface-design', 'frontend-design', 'runtime-cross-repo-rollout'];
 
-test('canonical governance and eleven native Skills are declared without a Router', async () => {
+test('canonical governance and eleven native Skills are declared', async () => {
   const manifests = await loadAllManifests(rootDir);
   const rules = new Set(manifests.rules.items.map((item) => item.id));
   for (const id of ['governance-core', 'git-rules', 'test-rules', 'agent-skill-routing']) assert.equal(rules.has(id), true);
   assert.deepEqual(manifests.skills.items.filter((item) => item.kind === 'native').map((item) => item.id), fullSkills);
-  assert.equal(manifests.skills.items.some((item) => ['router', 'compatibility'].includes(item.kind)), false);
 });
 
 test('completion evidence and task-scoped testing live in governance rules', async () => {

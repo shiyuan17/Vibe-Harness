@@ -204,21 +204,6 @@ export async function validateSkillMetadataQuality(rootDir, skillItems) {
   return errors.sort();
 }
 
-function findCanonicalCycle(itemsById, startId) {
-  const pathIds = [];
-  const positions = new Map();
-  let currentId = startId;
-  while (currentId) {
-    if (positions.has(currentId)) {
-      return [...pathIds.slice(positions.get(currentId)), currentId];
-    }
-    positions.set(currentId, pathIds.length);
-    pathIds.push(currentId);
-    currentId = itemsById.get(currentId)?.canonicalId;
-  }
-  return null;
-}
-
 export async function validateSkillGraph(
   rootDir,
   skillItems,
@@ -227,7 +212,6 @@ export async function validateSkillGraph(
 ) {
   const errors = [];
   const itemsById = new Map(skillItems.map((item) => [item.id, item]));
-  const reportedCycles = new Set();
   const proseOwners = new Map();
   let nativeBodyLines = 0;
   let nativeIdentityCharacters = 0;
@@ -239,22 +223,8 @@ export async function validateSkillGraph(
     for (const dependency of item.optionalSkills ?? []) {
       if (!itemsById.has(dependency)) errors.push(`${item.id} optional skill is unknown: ${dependency}`);
     }
-    if (item.kind === 'compatibility') {
-      if (!item.canonicalId) errors.push(`${item.id} requires canonicalId`);
-      else if (!itemsById.has(item.canonicalId)) errors.push(`${item.id} canonical skill is unknown: ${item.canonicalId}`);
-    } else if (item.kind === 'router' && item.canonicalId && !itemsById.has(item.canonicalId)) {
-      errors.push(`${item.id} canonical skill is unknown: ${item.canonicalId}`);
-    } else if (item.kind !== 'router' && item.canonicalId) {
+    if (item.canonicalId) {
       errors.push(`${item.id} may not declare canonicalId for kind ${item.kind}`);
-    }
-
-    const cycle = findCanonicalCycle(itemsById, item.id);
-    if (cycle) {
-      const normalized = [...cycle.slice(0, -1)].sort().join('|');
-      if (!reportedCycles.has(normalized)) {
-        errors.push(`canonical skill cycle: ${cycle.join(' -> ')}`);
-        reportedCycles.add(normalized);
-      }
     }
 
     if (checkFiles && await pathExists(path.join(rootDir, item.source))) {
@@ -280,7 +250,6 @@ export async function validateSkillGraph(
       const declaredSkills = new Set([
         ...(item.requiresSkills ?? []),
         ...(item.optionalSkills ?? []),
-        ...(item.canonicalId ? [item.canonicalId] : []),
       ]);
       const backtickIds = [...content.matchAll(/`([a-z][a-z0-9-]+)`/gu)].map((match) => match[1]);
       for (const reference of new Set(backtickIds.filter((id) => id.includes('-') && !itemsById.has(id)))) {

@@ -145,7 +145,6 @@ test('skills audit derives the compact inventory and executes the graph validato
   assert.match(stdout, /总数：14/u);
   assert.match(stdout, /native：11/u);
   assert.match(stdout, /integration：3/u);
-  assert.match(stdout, /router：0/u);
   assert.deepEqual((await runSkillsAudit(rootDir)).errors, []);
 });
 

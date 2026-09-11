@@ -14,11 +14,10 @@
           "id": { "type": "string", "minLength": 1 },
           "source": { "type": "string", "minLength": 1 },
           "metadata": { "type": "string", "minLength": 1 },
-          "kind": { "enum": ["native", "router", "integration", "compatibility"] },
+          "kind": { "enum": ["native", "integration"] },
           "requiresSkills": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
           "optionalSkills": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
-          "requiresTools": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
-          "canonicalId": { "type": "string", "minLength": 1 }
+          "requiresTools": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
         },
         "additionalProperties": false
       }
