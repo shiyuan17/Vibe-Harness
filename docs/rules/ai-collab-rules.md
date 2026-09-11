@@ -52,7 +52,18 @@
 ### 状态与交接解释
 
 - `pending` 是尚未派发，`ready` 是依赖与资源条件已满足，`running` 是已开始但尚未验证完成，`blocked` 是等待可恢复依赖或必要能力；这四种状态不是终态。`succeeded`、`failed`、`skipped`、`cancelled` 是终态；all_done 不得把仍 blocked 的节点视为已终结。无法继续时可以报告阻塞现状，但不能声称 all_done 已满足。
-- Linear Triage / Backlog 映射 pending；Todo 只有经过 Ready 检查才映射 ready，否则按事实为 pending 或 blocked；In Progress / In Review / Ready to Merge 映射 running。Done 只有满足对应 kind 的 closing PR/MR、输出或 fan-in 证据才映射 succeeded，缺少证据时按 blocked 报告而不回写平台状态。Canceled 和 Won't Fix 映射 cancelled，Duplicate 映射 skipped；重复节点的替代 Issue 成功不会自动使原节点 succeeded。以上只作本地解释，不新增或回写 Linear 字段。
+Linear 状态到本地 `result` 的映射固定如下，只作本地解释，不新增或回写 Linear 字段：
+
+| Linear 状态 | 本地 `result` | 判定依据 |
+| --- | --- | --- |
+| Triage / Backlog | `pending` | 尚未审定派发 |
+| Todo（已通过 Definition of Ready） | `ready` | Ready 门禁、依赖与资源条件满足 |
+| Todo（未通过 Ready） | `pending` 或 `blocked` | 按依赖与冲突事实判定 |
+| In Progress / In Review / Ready to Merge | `running` | 已开始但未完成验证 |
+| Done（有对应 kind 的 closing PR/MR、输出或 fan-in 证据） | `succeeded` | 合并、输出或 fan-in 证据 |
+| Done（缺证据） | `blocked` | 只按事实报告，不回写平台状态 |
+| Canceled / Won't Fix | `cancelled` | 外部终态 |
+| Duplicate | `skipped` | 外部终态；替代 Issue 成功不自动使原节点 `succeeded` |
 - 派发前以首次已核对的相关 DAG 版本/hash、工作区身份、HEAD、实际 diff 和共享契约内容为比较基准；不能仅比较 HEAD，因为未提交写入也会改变输入。正常的已归属上游提交或合并也须先核对影响、消费方基线和验证证据，再更新本地观察基准并计算 ready 集合；不要求 HEAD 永远等于 initial HEAD，不自动修改冻结的授权或外部关系。无变化证据不足时暂停受影响写节点，独立且已隔离工作继续。本地人读 DAG 可逐项核对完整相关事实，无需新增 hash 算法或持久化 schema。
 - 交接缺少适用的 base/head、修改范围或验证证据时，父 Agent 先只读补证或请原节点补充，不能仅凭自报判为 succeeded。非 Git 或纯只读任务明确记录 base/head 不适用及原因、无修改文件，并提供可复核来源和人工判据；没有运行命令不得伪造退出码。没有风险或阻塞也要明确说明。完整文本不替代最终实际 diff 和集成验证，亦不改变 Execution Receipt 合同。
 - 超时、预算耗尽或瞬时失败重试耗尽且工作未完成时记为 blocked 并报告原因，不自动续派；确认的行为失败记为 failed，明确取消记为 cancelled，均非成功。取消和超时后先确认原调用是否仍在运行及副作用状态，不释放未知状态的写入归属或重复非幂等写入。长任务可设更小的尝试上限；宿主预算和权限仍是硬边界，默认瞬时尝试上限为三次。退避遵守 Retry-After，未提供时使用有界退避；不新增后台重试或自动回收服务。

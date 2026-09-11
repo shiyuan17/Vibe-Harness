@@ -34,9 +34,9 @@ Agent 手工写状态必须执行“读取当前值 → 校验允许转换 → �
 
 ## 3 Definition of Ready
 
-本地 `result` 使用 `pending`、`ready`、`running`、`succeeded`、`failed`、`blocked`、`skipped`、`cancelled`；Linear 的 `Canceled`、`Duplicate`、`Won't Fix` 只保留为外部终态，并统一按非 `succeeded` 处理。
+节点模型、`result` 枚举、all_success / all_done、ready 与 fail-closed、Scope 和 Resource Lock 语义以 `ai-collab-rules.md` 为唯一规范来源；本规则只定义这些字段在 Linear 上的载体与真值来源（见第 4 节映射表），不重复枚举语义。Linear 的 `Canceled`、`Duplicate`、`Won't Fix` 是外部终态，按该文件的 Linear↔result 映射表统一处理为非 `succeeded`。
 
-状态映射与终态、交接缺失和正常 HEAD 前进的处理统一遵循 `ai-collab-rules.md` 的「状态与交接解释」：Canceled / Won't Fix 映射 cancelled，Duplicate 映射 skipped；blocked 非终态，Done 无对应 kind 的证据不得映射 succeeded。本地 result 不增加 Linear 描述字段或第二状态真值。派发重验证只读取当前节点及足够的依赖/冲突范围，不能因此扫描 Ready Queue。
+状态映射、终态解释、交接缺失和正常 HEAD 前进的处理同样遵循 `ai-collab-rules.md` 的「状态与交接解释」；本地 result 不增加 Linear 描述字段或第二状态真值。派发重验证只读取当前节点及足够的依赖/冲突范围，不能因此扫描 Ready Queue。
 
 Todo Issue 必须包含 Goal、Context、Repository、精确 Target branch ref、Scope、Out of Scope、Contract、Acceptance Criteria、Dependencies 和 Verification。Target branch 必须能解析到准确远端 ref；“默认分支”只有经仓库事实解析为实际实现基线时才有效，否则返回 NOT_READY_TARGET_BRANCH。Dependencies 只能是 None 或 Managed by Linear relations；描述中的明确依赖陈述必须与原生关系一致，否则不 Ready。自依赖、任意依赖环、不可见前驱、关系读取不完整、未解决的 blocked-by 或未满足 trigger 都阻止开始。
 
@@ -46,13 +46,27 @@ Ready 门禁通过后解析目标远端 ref 并冻结 base SHA；后续分支和
 
 DAG 节点可声明 kind（read / write / aggregate）、trigger（all_success / all_done）和 resourceLocks。无 Parent 的旧 Issue 使用上述默认值；有子 Issue 的 Parent 必须是 aggregate。all_success 要求全部直接前驱 succeeded，Canceled、Duplicate、Won't Fix、failed、skipped 或 cancelled 都不算成功。all_done 只允许 aggregate、清理或失败报告节点在全部直接前驱终结后运行，且不能把失败 DAG 或 Root 判为成功。
 
-依赖真值只来自 Linear 原生关系：
+DAG 字段在 Linear 上的载体与真值来源固定如下，字段语义本身以 `ai-collab-rules.md` 节点模型为准：
+
+| DAG 字段 | Linear 载体 | 真值来源 |
+| --- | --- | --- |
+| `id` | Issue 编号与 URL | Linear Issue 本体 |
+| `kind` | DAG Metadata 或标签 | Issue 声明（read / write / aggregate） |
+| `output` | Goal 与 Acceptance Criteria | Issue 描述 |
+| `dependsOn` | blocked-by / blocks 原生关系 | Linear relations |
+| `trigger` | DAG Metadata | Issue 声明（all_success / all_done） |
+| `writeScope` | Scope 字段 | Issue 描述 |
+| `resourceLocks` | DAG Metadata | Issue 声明 |
+| `verification` | Verification 字段 | Issue 描述 |
+| `result` | 状态与完成证据推导 | `ai-collab-rules.md` 的 Linear↔result 映射表 |
+
+依赖真值只来自 Linear 原生关系，以下三条是非边：
 
 - Parent/Sub-issue 只表示分解，不隐含顺序。
 - blocked-by / blocks 是唯一执行依赖，related 不进入 DAG。
-- 文本声明依赖但缺少对应原生关系时任务不 Ready。
+- 描述中的依赖清单不是真值；文本声明依赖但缺少对应原生关系时任务不 Ready。
 
-Scope 是 writeScope 的 Linear 投影，按 `ai-collab-rules.md` writeScope 条款执行路径验证：只接受精确项目相对路径或末尾为 /** 的目录，统一使用 / 并移除前导 ./，拒绝绝对路径、UNC、空路径、.. 和其他复杂 glob，Windows 比较忽略大小写。write 节点的 Scope 重叠或 resourceLocks 相同，只有存在从一方到另一方的原生依赖路径时才已串行；否则冲突节点都不 Ready。Agent 只报告冲突、边或环，不自行拆 Issue、改变 Parent、创建或删除关系、调整优先级或创建额外节点。
+Scope 是 writeScope 的 Linear 投影，路径验证按 `ai-collab-rules.md` writeScope 条款执行：只接受精确项目相对路径或末尾为 /** 的目录，统一使用 / 并移除前导 ./，拒绝绝对路径、UNC、空路径、.. 和其他复杂 glob，Windows 比较忽略大小写。Scope 重叠或 resourceLocks 相同的串行判定与冲突处理也以 `ai-collab-rules.md` 为准。Agent 只报告冲突、边或环，不自行拆 Issue、改变 Parent、创建或删除关系、调整优先级或创建额外节点。
 
 DAG Parent 模板包含 Goal、整体 Acceptance Criteria、Shared Contract、Out of Scope、Fan-in Verification 和 Completion Policy。所有 descendant 默认必需；任一必需节点非 succeeded 时 Parent 不得 Done。关闭 Linear 的 Parent/Sub-issue 自动关闭，避免绕过 closing PR/MR 与 fan-in 验证。
 
@@ -60,7 +74,7 @@ DAG Parent 模板包含 Goal、整体 Acceptance Criteria、Shared Contract、Ou
 
 无 Parent、Dependencies=None 且 resourceLocks=None 的独立 Issue 使用单任务快车道：只读取当前 Issue、完整 Receipt 生命周期和直接关系，不得为此执行全项目 DAG 遍历。发现 Parent、直接依赖、非空 Resource Locks、Scope 冲突线索或关系读取不完整时退出快车道，再按上述 DAG 门禁读取足够范围。
 
-路径不重叠但存在 API、Schema、迁移或行为契约耦合时，必须指定唯一写入 owner 并建立原生依赖；无法证明隔离时按冲突处理。每次派发 write 节点前重新读取并确认 DAG 版本或 hash、依赖、Scope、Resource Lock、HEAD 和工作区身份未变化；变化时暂停后继并重新计算 ready 集合。子节点交接至少记录节点结果、实际修改文件、base/head、验证命令与退出码、未决风险和阻塞原因；这些记录仅用于人读交接，不构成执行授权。
+路径不重叠但存在 API、Schema、迁移或行为契约耦合时，必须指定唯一写入 owner 并建立原生依赖；无法证明隔离时按冲突处理。每次派发 write 节点前的重验证（DAG 版本或 hash、依赖、Scope、Resource Lock、HEAD 和工作区身份）与子节点交接证据的记录范围，统一遵循 `ai-collab-rules.md` 的对应条款；这些记录仅用于人读交接，不构成执行授权。
 
 ## 5 显式执行登记
 
