@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Harness Eval fixture manifest",
+  "title": "Harness Eval fixture 清单",
   "type": "object",
   "required": ["schemaVersion", "id", "description", "files", "git", "faults", "hiddenChecks"],
   "properties": {

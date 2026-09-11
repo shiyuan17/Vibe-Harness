@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Harness Eval scenario v3",
+  "title": "Harness Eval 场景 v3",
   "type": "object",
   "required": ["schemaVersion", "id", "version", "title", "category", "mechanism", "risk", "kind", "objective", "phase", "capabilities", "fixture", "task", "criteria", "checks", "metrics", "failureTaxonomy"],
   "properties": {

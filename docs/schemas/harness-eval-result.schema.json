@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Harness Eval unified result v3",
+  "title": "Harness Eval 统一结果 v3",
   "type": "object",
   "required": ["schemaVersion", "id", "generatedAt", "source", "scenario", "status", "fingerprint", "summary", "attempts", "checks", "metrics", "evidence", "failures", "analysis"],
   "properties": {

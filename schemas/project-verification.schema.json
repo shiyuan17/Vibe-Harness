@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Vibe-Harness project verification receipt",
+  "title": "Vibe-Harness 项目验证回执",
   "type": "object",
   "required": ["scope", "status", "verification"],
   "properties": {

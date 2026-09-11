@@ -170,11 +170,11 @@ function roleRuntimeWarnings(adapters = {}) {
     return [
       ...(projection.activation === 'manual' ? [{
         code: 'ROLE_ACTIVATION_MANUAL',
-        message: id + ' role plugin requires manual activation from ' + (projection.activationPath ?? 'the generated project-local directory') + '; enable the project plugin in ' + id + '.',
+        message: id + ' 的 role plugin 需要手动激活，位置：' + (projection.activationPath ?? '生成的项目本地目录') + '；请在 ' + id + ' 中启用该项目插件。'
       }] : []),
       ...(projection.permissionMapping === 'degraded-permission-mapping' ? [{
         code: 'ROLE_PERMISSION_MAPPING_DEGRADED',
-        message: id + ' cannot enforce every role permission natively; the strict parent sandbox and Prompt guard remain authoritative.',
+        message: id + ' 无法原生强制所有角色权限；严格的父级 sandbox 和 Prompt guard 仍然有效。',
       }] : []),
     ];
   });
@@ -186,8 +186,8 @@ function summaryText(value, maxLength = 480) {
 }
 
 function optionalToolFallback(tool) {
-  if (tool === 'rtk') return 'Use the original command directly and record the fallback.';
-  if (tool === 'astGrep') return 'Use rg or the project search command and record the fallback.';
+  if (tool === 'rtk') return '直接使用原命令并记录该回退。';
+  if (tool === 'astGrep') return '改用 rg 或项目搜索命令并记录该回退。';
   return null;
 }
 
@@ -1331,8 +1331,8 @@ async function recover(args) {
 }
 
 async function printUsage() {
-  console.log('Usage: vibe-harness <init|install|provision|recover|uninstall|validate|verify|baseline|eval|audit|doctor|diff|rollback> [--project path] [--target codex|claude|gemini|cursor|qoder|zcode|antigravity|opencode] [--all-targets] [--profile minimal|core|full|docs-only] [--modules list] [--plugin -all|-rtk|linear-mcp|linear-mcp-readonly ...] [--rtk-hooks on|off] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--full] [--plan] [--force] [--upgrade] [--preserve-retired] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded] [--provision]');
-  console.log('All project commands use --project <path>; --target selects an adapter and --write performs mutations. Legacy --apply and path-valued --target are removed.');
+  console.log('用法：vibe-harness <init|install|provision|recover|uninstall|validate|verify|baseline|eval|audit|doctor|diff|rollback> [--project path] [--target codex|claude|gemini|cursor|qoder|zcode|antigravity|opencode] [--all-targets] [--profile minimal|core|full|docs-only] [--modules list] [--plugin -all|-rtk|linear-mcp|linear-mcp-readonly ...] [--rtk-hooks on|off] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--full] [--plan] [--force] [--upgrade] [--preserve-retired] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded] [--provision]');
+  console.log('所有项目命令使用 --project <path>；--target 只选择 adapter，--write 执行真实写入。旧版 --apply 和取路径值的 --target 已移除。');
 }
 
 async function main() {

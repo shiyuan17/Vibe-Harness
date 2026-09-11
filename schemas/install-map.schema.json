@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Vibe-Harness Adapter Install Map",
+  "title": "Vibe-Harness adapter 安装映射",
   "type": "object",
   "required": ["adapter", "entries"],
   "properties": {

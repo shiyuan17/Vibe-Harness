@@ -1,6 +1,6 @@
 {
   "\u0024schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Vibe-Harness plugin provider catalog",
+  "title": "Vibe-Harness 插件提供方目录",
   "type": "object",
   "required": ["schemaVersion", "capabilities", "providers"],
   "properties": {

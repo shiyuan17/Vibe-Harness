@@ -755,7 +755,7 @@
       "path": "templates/adr/adr-template.md",
       "kind": "plan",
       "status": "current",
-      "language": "en",
+      "language": "bilingual",
       "audiences": ["contributor", "maintainer"]
     },
     {

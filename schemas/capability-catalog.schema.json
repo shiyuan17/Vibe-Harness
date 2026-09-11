@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Vibe-Harness capability catalog",
+  "title": "Vibe-Harness 能力目录",
   "type": "object",
   "required": ["schemaVersion", "items"],
   "properties": {

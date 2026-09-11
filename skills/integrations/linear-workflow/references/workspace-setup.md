@@ -2,7 +2,7 @@
 
 本清单供 Workspace/Team 管理员手工配置，不授权 Agent 直接创建或修改外部配置。
 
-## Workflow
+## 工作流（Workflow）
 
 为每个参与团队配置固定状态：Triage、Backlog、Todo、In Progress、In Review、Ready to Merge、Done。不要创建 Blocked 状态；使用 blocked-by / blocks 关系。
 
@@ -12,7 +12,7 @@
 
 Triage 建议开启 priority-before-exit，使 Issue 离开 Triage 前必须设置 Priority；Triage Rules 自动路由属可选配置。
 
-## Triage
+## Triage 分诊
 
 Triage 是团队收件箱，进入的 Issue 默认不进入常规视图，必须经四动作之一处置：
 
@@ -23,7 +23,7 @@ Triage 是团队收件箱，进入的 Issue 默认不进入常规视图，必须
 
 可选的 Triage Responsibility 和 Triage Rules 只能做团队定义的收件与路由，不得自动选择 Ready Queue、设置 Agent Delegate、写 Execution Receipt 或启动执行。四种处置仍需人工决定。
 
-## Guidance
+## 指引（Guidance）
 
 - Linear 保存工作状态、责任和原生依赖；GitHub 或 GitLab 保存代码、PR/MR、检查与合并状态。
 - 人类 Assignee 保持结果责任；Delegate/App User 表示 Agent 产品身份；Execution Receipt 表示具体运行实例；Activity Feed 保存委派历史。
@@ -44,7 +44,7 @@ Triage 是团队收件箱，进入的 Issue 默认不进入常规视图，必须
 
 已有其他 Delegate、其他 agent label 或未终结活动 Receipt 时，Agent 不得覆盖；必须由人工核对工作状态后显式释放或交接。不要配置自动超时、自动回收或自动重派。
 
-## GitHub / GitLab Automation
+## GitHub / GitLab 自动化
 
 每个团队分别配置：
 
@@ -58,7 +58,7 @@ Triage 是团队收件箱，进入的 Issue 默认不进入常规视图，必须
 
 GitHub/GitLab automation 只推进代码状态，不创建或终结 Execution Receipt，也不自动关闭 aggregate Parent。创建 PR/MR 前必须校验 target 与声明 ref 相同，且 source HEAD 对目标 ref 的 merge-base 与冻结 base SHA 一致或为其在同一目标历史上的已验证后代；创建后重读确认 source、target、描述和 closing 关联。
 
-## Custom Views
+## 自定义视图（Custom Views）
 
 1. AI Ready Queue：Status = Todo 且没有 blocked-by；仅供人类查看或显式选择，Agent 不自动扫描或领取。
 2. AI Working：Status = In Progress，并按 Delegate 或 agent:* 分组。
@@ -76,7 +76,7 @@ GitHub/GitLab automation 只推进代码状态，不创建或终结 Execution Re
 - GitHub Release 成功后创建 <code>main → develop</code> 回同步 PR；检查通过后 auto-merge。失败时 Release Issue 保持未完成并报告分支漂移。
 - 保留按需发布并设置每周或双周兜底窗口；发布等待不阻塞开发 Issue。
 
-## MCP
+## MCP 接入
 
 - Writer/Orchestrator：https://mcp.linear.app/mcp
 - Reviewer/Verifier：https://mcp.linear.app/mcp/readonly

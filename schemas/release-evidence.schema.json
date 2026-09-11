@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Vibe-Harness release evidence",
+  "title": "Vibe-Harness 发布证据",
   "type": "object",
   "required": ["schemaVersion", "releaseTag", "version", "releaseSha", "verification", "checks", "tarball", "attestationStatus", "rollbackStrategy"],
   "properties": {

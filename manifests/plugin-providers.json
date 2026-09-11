@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "capabilities": [
-    { "id": "shell.output-compression", "description": "Compress high-volume shell command output without changing command semantics." },
-    { "id": "code-search.structural", "description": "Locate source structures through syntax-aware queries." },
-    { "id": "code-intelligence.semantic-graph", "description": "Inspect cross-file symbols, relationships, architecture, and impact through a semantic graph." },
-    { "id": "browser.devtools", "description": "Inspect and control a browser through developer-tools capabilities." },
-    { "id": "browser.automation", "description": "Automate browser interactions through a project-local browser runtime." },
-    { "id": "code-review.automated", "description": "Run an automated code-review provider against project changes." },
-    { "id": "work-management.read-write", "description": "Read and modify work-management data through a remote provider." },
-    { "id": "work-management.read-only", "description": "Read work-management data through a restricted remote provider." }
+    { "id": "shell.output-compression", "description": "在不改变命令语义的前提下压缩大量 shell 命令输出。" },
+    { "id": "code-search.structural", "description": "通过语法感知查询定位源码结构。" },
+    { "id": "code-intelligence.semantic-graph", "description": "通过语义图检查跨文件符号、关系、架构与影响面。" },
+    { "id": "browser.devtools", "description": "通过开发者工具能力检查和控制浏览器。" },
+    { "id": "browser.automation", "description": "通过项目本地浏览器运行时自动化浏览器交互。" },
+    { "id": "code-review.automated", "description": "对项目变更运行自动化代码评审提供方。" },
+    { "id": "work-management.read-write", "description": "通过远端提供方读取和修改工作管理数据。" },
+    { "id": "work-management.read-only", "description": "通过受限的远端提供方只读工作管理数据。" }
   ],
   "providers": [
     {

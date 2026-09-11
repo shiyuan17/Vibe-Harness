@@ -610,7 +610,7 @@ test('managed instruction helpers are platform-neutral and preserve local conten
 
 test('antigravity instruction template carries safety red-lines', async () => {
   const content = await readFile(path.join(rootDir, 'adapters/antigravity/RULES.template.md'), 'utf8');
-  for (const marker of ['Edit before', 'red zone', 'manual confirmation', 'verify']) {
+  for (const marker of ['编辑前先检查项目状态', '红区', '人工确认', '验证结果']) {
     assert.equal(content.includes(marker), true, `antigravity RULES.template.md must contain "${marker}"`);
   }
 });

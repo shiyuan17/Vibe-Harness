@@ -1,34 +1,34 @@
-# Linear DAG Parent
+# Linear DAG 聚合根（DAG Parent）
 
 建议把 DAG Root 建为顶层 Parent Issue，并使用本模板。Parent 只负责聚合，不是实现节点；其子 Issue 使用 ai-coding-task.md。Linear 的 Parent/Sub-issue 和原生 blocked-by / blocks 关系是真值，不在描述中维护重复节点或依赖清单。
 
-## Goal
+## 目标（Goal）
 
 描述整个 DAG 完成后的可观察业务或工程结果。
 
-## Context
+## 背景（Context）
 
 列出共享背景、目标仓库、可解析的精确目标远端 ref、架构约束和必要参考。“默认分支”只有经仓库事实解析后确为实现基线时才有效。
 
-## Overall Acceptance Criteria
+## 整体验收标准（Overall Acceptance Criteria）
 
 - [ ] DAG 整体可观察验收点
 - [ ] 所有必需后代节点按自身 kind 成功
 - [ ] Fan-in Verification 通过并记录证据
 
-## Shared Contract
+## 共享合同（Shared Contract）
 
 描述所有节点共同消费的 API、schema、事件、配置或行为合同。没有共享合同变化时写 None。共享合同只能有一个明确写入 owner；其他节点消费其稳定输出。
 
-## Out of Scope
+## 范围外（Out of Scope）
 
 - 不属于本 DAG 的路径、合同或产品决定
 
-## Dependencies
+## 依赖（Dependencies）
 
 只填写 None 或 Managed by Linear relations。Parent/Sub-issue 只表示分解，related 不表示依赖；执行顺序仅由 blocked-by / blocks 决定。
 
-## DAG Metadata
+## DAG 元数据（DAG Metadata）
 
 - kind: aggregate
 - trigger: all_success | all_done，默认 all_success
@@ -40,14 +40,14 @@ all_success 要求全部直接前驱成功。all_done 只允许聚合终态、�
 
 不定义 optional node：Parent 下所有 descendant node 都是 required。多层 Parent 也必须是 aggregate。
 
-## Fan-in Verification
+## Fan-in 验证（Fan-in Verification）
 
 - command or observable end-to-end check
 - evidence location or expected observation
 
 Fan-in 必须在所有必需后代进入终态后，从实际合并结果重新验证，不能只汇总子 Agent 自报。验证失败时 Parent 不得 Done。
 
-## Completion Policy
+## 完成策略（Completion Policy）
 
 Parent 只有同时满足以下条件才可 Done：
 
@@ -58,7 +58,7 @@ Parent 只有同时满足以下条件才可 Done：
 
 任一 required descendant 为 failed、blocked、skipped、cancelled、Canceled、Duplicate 或 Won't Fix 时，Parent 不得判为成功或 Done。成功的 all_done 报告节点不能覆盖该失败。必须关闭 Workspace 的 Parent/Sub-issue 自动关闭，避免绕过本策略。
 
-## AI Rules
+## AI 规则（AI Rules）
 
 - 不因 Parent/Sub-issue 关系推断执行顺序。
 - Ready、Todo、依赖满足或 DAG Parent 内容不构成执行授权；完成当前请求后不自动选择下一个节点。

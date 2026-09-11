@@ -1,10 +1,10 @@
-# Linear Execution Receipt
+# Linear 执行回执（Execution Receipt）
 
 Execution Receipt 是 Linear Issue 上不可变、追加式的结构化评论，用来记录具体 Agent 运行实例。人类 Assignee 表示结果责任人，Delegate/App User 表示 Agent 产品身份，Receipt 表示运行实例，Linear Activity Feed 表示委派或身份变更历史。
 
 每条结构化评论只包含一个独立 JSON 对象，不混入自由文本。Receipt 和 terminal event 一经写入不得编辑或删除；解释或修正只能追加新评论。
 
-## Start Receipt
+## 启动回执（Start Receipt）
 
     {
       "schema": "vibe-harness.linear-execution/v1",
@@ -30,7 +30,7 @@ Execution Receipt 是 Linear Issue 上不可变、追加式的结构化评论，
 - dagRootIssue 为顶层 Parent 标识；独立 Issue 填 null。dagNodeIssue 必须是当前 Issue。
 - startedAt 使用 UTC RFC3339 时间，不得倒签或回填。
 
-## Terminal Event
+## 终结事件（Terminal Event）
 
     {
       "schema": "vibe-harness.linear-execution-event/v1",
@@ -50,7 +50,7 @@ Execution Receipt 是 Linear Issue 上不可变、追加式的结构化评论，
 - released 表示显式释放；该指令可同时授权清除当前 Delegate 或 fallback Agent label，但必须保留人类 Assignee。
 - aborted 和 local-work-completed 默认保留 Delegate；任何身份变更仍需明确授权。
 
-## Handoff Completion Payload
+## 交接完成载荷（Handoff Completion Payload）
 
 handed-off 事件可携带一个 vibe-harness.handoff/v1 payload。它是完成状态的唯一可接受摘要，不复制原始会话：
 

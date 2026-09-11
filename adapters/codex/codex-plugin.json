@@ -1,7 +1,7 @@
 {
   "name": "vibe-harness-codex-adapter",
   "version": "0.3.0",
-  "description": "Codex adapter for Vibe-Harness internal reusable governance pack.",
+  "description": "Vibe-Harness 可复用治理包的 Codex 适配器。",
   "entrypoints": {
     "agents": "AGENTS.template.md",
     "installMap": "install-map.json"

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Vibe-Harness Role Pack",
+  "title": "Vibe-Harness Role Pack 清单",
   "type": "object",
   "required": ["schemaVersion", "basePrompt", "routingOrder", "permissionPresets", "items"],
   "properties": {

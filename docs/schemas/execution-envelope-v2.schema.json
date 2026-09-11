@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://vibe-harness.invalid/schemas/execution-envelope-v2.schema.json",
-  "title": "Vibe-Harness Execution Envelope v2",
+  "title": "Vibe-Harness 执行信封（Execution Envelope）v2",
   "type": "object",
   "required": ["schema", "requestId", "sessionId", "mode", "targetIssueIds", "allowedEffects", "forbiddenEffects", "terminalCondition", "activeObjective", "riskClass", "scope", "hostContext"],
   "properties": {

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Vibe-Harness evaluation suite",
+  "title": "Vibe-Harness 评估套件",
   "type": "object",
   "required": ["schemaVersion", "id", "version", "description", "defaultRepetitions", "cases"],
   "properties": {

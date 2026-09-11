@@ -455,7 +455,7 @@ export async function validateContentQuality(rootDir) {
     },
     {
       file: 'adapters/antigravity/RULES.template.md',
-      terms: ['Edit before', 'red zone', 'manual confirmation', 'verify'],
+      terms: ['编辑前先检查项目状态', '红区', '人工确认', '验证结果'],
     },
   ];
 

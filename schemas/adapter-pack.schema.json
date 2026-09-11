@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Vibe-Harness Adapter Catalog",
+  "title": "Vibe-Harness adapter 目录",
   "type": "object",
   "required": ["schemaVersion", "items"],
   "properties": {

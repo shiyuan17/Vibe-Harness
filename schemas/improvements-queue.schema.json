@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Vibe-Harness improvement candidate queue",
+  "title": "Vibe-Harness 改进候选队列",
   "type": "object",
   "required": ["schemaVersion", "updatedAt", "candidates"],
   "properties": {
