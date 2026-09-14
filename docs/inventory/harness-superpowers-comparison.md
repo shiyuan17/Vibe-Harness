@@ -1,6 +1,18 @@
 # Vibe-Harness 与 Superpowers 系统审查
 
-审查日期：2026-09-05。受众：Vibe-Harness 维护者。
+审查日期：2026-09-05，处置状态更新：2026-09-14。受众：Vibe-Harness 维护者。
+
+## 处置状态（2026-09-14）
+
+审查结论中的证据基础设施缺陷已在后续批次处理，本节是唯一的处置台账；下方 Finding 正文保留 2026-09-05 的原始判定，不回溯改写。
+
+| 条目 | 状态 | 处置证据 |
+| --- | --- | --- |
+| F-01 独立项目命令稳定性收据假阳性 | 已修复 | `runtime/commands/run.mjs` 的 `gitFingerprint()` 除 HEAD 与 porcelain 状态外还哈希每个变化路径的内容；`tests/project-commands.test.js` 的「verify detects a content change to an already-dirty file」锁定回归。 |
+| F-02 Windows 上误判 Node 缺失 | 已修复 | `runtime/commands/run.mjs` 的 `probeExecutable()` 对绝对路径改用 `access()`，只对裸程序名调用平台 locator（`where.exe`/`which`）。 |
+| F-03 Eval 指纹随结账换行形式漂移 | 已修复 | `scripts/lib/eval-assets.js` 新增 `canonicalAssetBytes()`（文本按 Git 语义 CRLF→LF，含 NUL 或非合法 UTF-8 的内容保持原字节），`scripts/harness-evals.js` 的 harness 资产哈希复用同一规则；`tests/eval-assets.test.js` 锁定「LF/CRLF 同指纹、真实文本变更仍漂移、二进制字节变更仍漂移」；reference 经 `eval reference --write --confirm-reference-update` 再生后 `eval run` 的资产诊断清零、`reference.status` 为 matched。 |
+| F-04 `stub-behavioral` 是文档化 proof 但无生产者 | 已处置（文档降级 + 记账） | `docs/evals.md` 改为逐条标注生产者与边界，`stub-behavioral` 标为「无生产者、保留的合同位、属未实现计划」，资产敏感度由 Harness Evals RED 阶段承担；实现决策转为 R-03（deferred，见 R-03 行）。 |
+| F-05 checkpoint 真实压缩恢复证据薄 | 未处置 | 由 R-04 承接（宿主无法稳定触发压缩时保持 capability-gated）。 |
 
 ## 结论先行
 
@@ -141,13 +153,13 @@ Superpowers 主仓库当前不固定评测仓库为受管子模块，而是在 R
 | 建议 | 现有能力重叠与最小落点 | 触发条件与成本 | 验收 | 撤回条件 |
 | --- | --- | --- | --- | --- |
 | R-01 合并验证快照与可执行探测 | 以 `scripts/lib/project-verification.js` 的内容哈希和 Windows shim 处理为真值，供 `runtime/commands/run.mjs` 复用；不改公开 CLI/schema | 所有项目 `verify`；中等实现成本，降低重复维护 | 已脏文件在检查中再次变化必须失败；Windows `node --version` 计划与执行通过；现有收据字段保持兼容 | 若共享模块显著扩大安装闭包，则提取更小的 portable snapshot/probe 模块，不恢复两套逻辑 |
-| R-02 规范化 Eval 文本指纹 | 修改 `scripts/lib/eval-assets.js` 的资产读取层，服从 Git 文本规范；保留分组与 aggregate 合同 | 所有 offline/online run；低到中成本 | LF/CRLF/mixed 夹具哈希一致，二进制字节变化仍触发漂移；Windows/Linux replay 同一提交一致 | 若规范化掩盖有意义的字节合同，只对 `.gitattributes` 标为 text 的资产启用，并将其余路径列入 raw-byte 组 |
+| R-02 规范化 Eval 文本指纹（已实施 2026-09-14） | 修改 `scripts/lib/eval-assets.js` 的资产读取层，服从 Git 文本规范；保留分组与 aggregate 合同 | 所有 offline/online run；低到中成本 | LF/CRLF/mixed 夹具哈希一致，二进制字节变化仍触发漂移；Windows/Linux replay 同一提交一致 | 若规范化掩盖有意义的字节合同，只对 `.gitattributes` 标为 text 的资产启用，并将其余路径列入 raw-byte 组 |
 
 ### P1：增强现有 Eval，不新建方法论栈
 
 | 建议 | 现有能力重叠与最小落点 | 触发条件与成本 | 验收 | 撤回条件 |
 | --- | --- | --- | --- | --- |
-| R-03 实现最小 `stub-behavioral` | 复用当前 eval runner、fixture、observer、allowedWritePaths 和 scoring；先覆盖 `clarify-requirements`、`systematic-debugging` 和 task split | 仅规则/Skill/Hook 行为变更；中等成本，无真实模型费用 | 同一压力场景能记录无资产基线失败、有资产通过；非法写入仍 fail-closed；proof 确实产出为 `stub-behavioral` | 若 stub 与真实 Agent 的方向性一致率不足，降为开发诊断并从正式成熟度证据中移除 |
+| R-03 实现最小 `stub-behavioral`（deferred 2026-09-14：暂由 Harness Evals RED 阶段承担资产敏感度，实现决策待定） | 复用当前 eval runner、fixture、observer、allowedWritePaths 和 scoring；先覆盖 `clarify-requirements`、`systematic-debugging` 和 task split | 仅规则/Skill/Hook 行为变更；中等成本，无真实模型费用 | 同一压力场景能记录无资产基线失败、有资产通过；非法写入仍 fail-closed；proof 确实产出为 `stub-behavioral` | 若 stub 与真实 Agent 的方向性一致率不足，降为开发诊断并从正式成熟度证据中移除 |
 | R-04 增加真实压缩恢复 case | 在现有 online execution suite 增加宿主可控压缩场景，使用 Execution Envelope v2 checkpoint 和 Git 事实 | 长计划、跨上下文恢复；中等运行成本 | 已完成任务恰好一次，未完成任务继续；effect、write roots、目标与 HEAD 不扩大；旧摘要不能覆盖实时状态 | 宿主无法稳定触发压缩时保留为 capability-gated，不用人为摘要冒充真实压缩 |
 | R-05 增加 review-feedback 压力 case | 将“验证反馈、修正确问题、拒绝错误建议、拒绝无需求抽象”作为 online case；规则可放入现有 coding/review 约束，不新增流程 Skill | 用户明确要求 address review 时；低规则成本、中等 Eval 成本 | 混合三条反馈场景中只落实正确项，并给出可核实的拒绝理由 | 若误拒率高，先只作为诊断，不设置 critical gate |
 
@@ -186,6 +198,19 @@ Superpowers 主仓库当前不固定评测仓库为受管子模块，而是在 R
 
 `pnpm check` 的两个失败在报告写入前后均可复现；`pnpm test:eval` 的两个失败在报告写入前取得。报告完成后的文档审计不能替代这两项失败。未更新 Eval reference，也未弱化或删除断言。
 
+### 复审更新（2026-09-14）
+
+| 命令 | 状态 | 结果 |
+| --- | --- | --- |
+| `pnpm check` | passed | 298/298：语法/资产扫描、ESLint、typecheck、结构校验与 unit 全绿，含 F-01/F-02 的 Windows 回归用例 |
+| `pnpm eval:check` | passed | Eval schema、引用与合同检查通过 |
+| `pnpm eval:replay` | passed | 确定性重放通过（`criticalPassRate` 1、`overallScore` 1） |
+| `pnpm test:eval` | passed | 206 pass / 0 fail / 1 既有跳过；F-03 消除后原先失败的 2 项指纹断言恢复 |
+| `vibe-harness eval run --project . --mode offline --dry-run` | passed | 资产诊断为空、`reference.status` 为 matched，是 F-03 的关闭证据 |
+| `node --test tests/tooling-modules.test.js` | passed | 全文件通过；i18n 提交（9a33ee1）后残留的两处英文文案断言改为断言 `action`/`phase` 与 summary 结构后转绿 |
+
+F-03 关闭时已按 test-rules「reference 更新必须单独审查并显式确认」再生成 reference（`eval reference --from <run> --write --confirm-reference-update`，旧文件存 .vibe-harness/backups/），diff 仅含 `approvedAt` 与 hash 行，交维护者在提交前复核。F-01/F-02 的修复证据见上节处置台账，本报告不重复执行 2026-09-05 的对照实验。
+
 ### Superpowers 与 Superpowers Evals
 
 | 命令 | 状态 | 结果 |
@@ -201,8 +226,8 @@ Superpowers 主仓库当前不固定评测仓库为受管子模块，而是在 R
 
 ## 最终成熟度判断
 
-Vibe-Harness 的整体工程成熟度是“已验证”，但当前分支的完成证据基础设施因 F-01 至 F-03 应暂按“实现化”处理，直到 Windows 验证与跨平台 replay 恢复。它在安全、授权、安装事务、验证收据和跨宿主降级方面比 Superpowers 更成熟；在真实长任务行为、Skill 压力测试和多 Agent 执行闭环方面落后一个层级。
+Vibe-Harness 的整体工程成熟度是“已验证”。2026-09-05 判定完成证据基础设施因 F-01 至 F-03 应暂按“实现化”处理，这三项已于 2026-09-14 修复并有复审记录，F-04 转为文档降级记账，因此完成证据基础设施恢复为“已验证”；行为层证据（F-05 真实压缩恢复、R-03 stub-behavioral、R-04）仍属“实现化”。它在安全、授权、安装事务、验证收据和跨宿主降级方面比 Superpowers 更成熟；在真实长任务行为、Skill 压力测试和多 Agent 执行闭环方面落后一个层级。
 
 Superpowers 6.3.0 的方法论与主流开发循环达到“已验证”，其独立 Evals 体系在 Linux 主运行环境中呈现“持续改进”特征。它不能替代 Vibe-Harness 的治理内核：提示 hard gate、流程批准和 TDD 纪律不是 effect enforcement、事务回滚或跨宿主安全合同。本轮 Windows 检查也说明，其脚本与实验室能力需要按 Vibe-Harness 的跨平台标准重新实现，不能直接复制。
 
-建议的顺序是：先修 R-01/R-02，使证据可靠；再实现 R-03/R-04，让现有 Eval 真正测到规则行为与恢复行为；最后只在已经拆分或协作的任务中试点 R-06/R-07。这样可以吸收 Superpowers 最成熟的学习闭环，同时保留 Vibe-Harness 已证明有效的低仪式执行路径。
+建议的顺序是：先修 R-01/R-02，使证据可靠；再实现 R-03/R-04，让现有 Eval 真正测到规则行为与恢复行为；最后只在已经拆分或协作的任务中试点 R-06/R-07。R-01 与 R-02 已于 2026-09-14 完成（见处置台账），R-03 转为 deferred、其资产敏感度暂由 Harness Evals RED 阶段承担，因此下一步是 R-04。这样可以吸收 Superpowers 最成熟的学习闭环，同时保留 Vibe-Harness 已证明有效的低仪式执行路径。
