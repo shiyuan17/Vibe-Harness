@@ -8,6 +8,24 @@ import { assertInsideDir, assertPortableRelativePath, assertSafePathInside } fro
 import { loadRolePack, projectRole } from './role-projection.js';
 
 const REQUIRED_ROLE_SECTIONS = ['## 决策方式', '## 质疑重点', '## 交付物', '## 禁止事项'];
+// Audit-side expectations, kept independent of the projection helpers so a
+// mapping regression in role-projection.js is still caught here.
+const AUDIT_WRITE_PRESETS = new Set(['implementation']);
+const AUDIT_EXECUTE_PRESETS = new Set(['implementation', 'verification', 'release-readiness']);
+const AUDIT_WRITE_TOOL = {
+  'claude-markdown': '"Write"',
+  'qoder-markdown': '"Write"',
+  'zcode-plugin-markdown': '"Write"',
+  'gemini-markdown': '"write_file"',
+  'antigravity-markdown': '"replace_file_content"',
+};
+const AUDIT_RUN_TOOL = {
+  'claude-markdown': '"Bash"',
+  'qoder-markdown': '"Bash"',
+  'zcode-plugin-markdown': '"Bash"',
+  'gemini-markdown': '"run_shell_command"',
+  'antigravity-markdown': '"run_command"',
+};
 
 function normalizeRoleContent(content) {
   return content.replace(/\r\n?/gu, '\n').trim();
@@ -39,24 +57,30 @@ function parseFrontmatter(content, label) {
 }
 
 function auditPermissionProjection(role, adapter, projected) {
-  const writable = role.permissionPreset === 'implementation';
-  if (adapter.roleProjection.format === 'codex-toml') {
+  const format = adapter.roleProjection.format;
+  const writable = AUDIT_WRITE_PRESETS.has(role.permissionPreset);
+  const executable = AUDIT_EXECUTE_PRESETS.has(role.permissionPreset);
+  if (format === 'codex-toml') {
     const parsed = parseToml(projected);
-    const expectedSandbox = writable ? 'workspace-write' : 'read-only';
+    const expectedSandbox = executable ? 'workspace-write' : 'read-only';
     if (parsed.sandbox_mode !== expectedSandbox) {
       return adapter.id + ' permission mapping for ' + role.id + ' is not restrictive.';
     }
     return null;
   }
-  if (adapter.roleProjection.format === 'opencode-markdown') {
+  if (format === 'opencode-markdown') {
     const expectedEdit = writable ? 'allow' : 'deny';
     if (!new RegExp('^  edit: ' + expectedEdit + '$', 'mu').test(projected)) {
       return adapter.id + ' permission mapping for ' + role.id + ' is not restrictive.';
     }
+    const expectedBash = executable ? 'ask' : 'deny';
+    if (!new RegExp('^    "\\*": ' + expectedBash + '$', 'mu').test(projected)) {
+      return adapter.id + ' command mapping for ' + role.id + ' is not restrictive.';
+    }
     return null;
   }
-  if (adapter.roleProjection.format === 'cursor-markdown') {
-    const expectedReadonly = writable ? 'false' : 'true';
+  if (format === 'cursor-markdown') {
+    const expectedReadonly = executable ? 'false' : 'true';
     if (!new RegExp('^readonly: ' + expectedReadonly + '$', 'mu').test(projected)) {
       return adapter.id + ' permission mapping for ' + role.id + ' is not restrictive.';
     }
@@ -64,8 +88,17 @@ function auditPermissionProjection(role, adapter, projected) {
   }
   const toolsLine = projected.match(/^tools: (.+)$/mu)?.[1];
   if (!toolsLine) return adapter.id + ' permission mapping for ' + role.id + ' is missing tools.';
-  const hasWrite = toolsLine.includes('"Write"');
-  if (hasWrite !== writable) return adapter.id + ' permission mapping for ' + role.id + ' is not restrictive.';
+  const writeTool = AUDIT_WRITE_TOOL[format];
+  const runTool = AUDIT_RUN_TOOL[format];
+  if (!writeTool || !runTool) {
+    return adapter.id + ' role projection format is not audited: ' + format;
+  }
+  if (toolsLine.includes(writeTool) !== writable) {
+    return adapter.id + ' write grant for ' + role.id + ' does not match its preset.';
+  }
+  if (toolsLine.includes(runTool) !== executable) {
+    return adapter.id + ' command grant for ' + role.id + ' does not match its preset.';
+  }
   return null;
 }
 

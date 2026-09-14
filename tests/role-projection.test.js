@@ -345,3 +345,70 @@ test('role projection conflicts with an unmanaged native agent and ZCode reports
     ]);
   }
 });
+
+function frontmatterTools(content) {
+  const line = content.match(/^tools: (.+)$/mu)?.[1];
+  return line ? JSON.parse(line) : null;
+}
+
+function projectionFor(result, adapter, roleId) {
+  return result.entries.find(
+    (entry) => entry.target === adapter.roleProjection.targetRoot + '/' + roleId + adapter.roleProjection.extension,
+  ).inlineContent;
+}
+
+test('host tool-list projections bind native tool names and grant verification commands without write', async () => {
+  const catalog = await loadAdapterCatalog(rootDir);
+  const expected = {
+    claude: { read: 'Read', search: 'Grep', run: 'Bash', write: 'Write' },
+    qoder: { read: 'Read', search: 'Grep', run: 'Bash', write: 'Write' },
+    zcode: { read: 'Read', search: 'Grep', run: 'Bash', write: 'Write' },
+    gemini: { read: 'read_file', search: 'grep_search', run: 'run_shell_command', write: 'write_file' },
+    antigravity: { read: 'view_file', search: 'grep_search', run: 'run_command', write: 'replace_file_content' },
+  };
+  for (const adapter of catalog.items) {
+    const host = expected[adapter.id];
+    if (!host) continue;
+    const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-role-tools-' + adapter.id + '-'));
+    try {
+      const result = await resolveRoleInstallEntries({ adapter, packageVersion: '0.3.0', rootDir, targetDir });
+      const verifier = frontmatterTools(projectionFor(result, adapter, 'test-lead'));
+      assert.ok(verifier.includes(host.read), adapter.id + ' verifier must read');
+      assert.ok(verifier.includes(host.run), adapter.id + ' verifier must execute validation');
+      assert.equal(verifier.includes(host.write), false, adapter.id + ' verifier must not write');
+      const architect = frontmatterTools(projectionFor(result, adapter, 'chief-architect'));
+      assert.ok(architect.includes(host.read) && architect.includes(host.search), adapter.id + ' architect must read and search');
+      assert.equal(architect.includes(host.run), false, adapter.id + ' architect must not execute');
+      assert.equal(architect.includes(host.write), false, adapter.id + ' architect must not write');
+      const engineer = frontmatterTools(projectionFor(result, adapter, 'senior-engineer'));
+      assert.ok(engineer.includes(host.write) && engineer.includes(host.run), adapter.id + ' engineer must write and execute');
+    } finally {
+      await rm(targetDir, { force: true, recursive: true });
+    }
+  }
+});
+
+test('sandbox and permission projections align verification execution with its capability', async () => {
+  const catalog = await loadAdapterCatalog(rootDir);
+  for (const adapter of catalog.items) {
+    const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-role-perms-' + adapter.id + '-'));
+    try {
+      const result = await resolveRoleInstallEntries({ adapter, packageVersion: '0.3.0', rootDir, targetDir });
+      const verifier = projectionFor(result, adapter, 'test-lead');
+      const architect = projectionFor(result, adapter, 'chief-architect');
+      if (adapter.id === 'codex') {
+        assert.match(verifier, /sandbox_mode = "workspace-write"/u, 'codex verifier needs workspace-write');
+        assert.match(architect, /sandbox_mode = "read-only"/u, 'codex architect stays read-only');
+      } else if (adapter.id === 'opencode') {
+        assert.match(verifier, /^ {2}edit: deny$/mu, 'opencode verifier must not edit');
+        assert.match(verifier, /^ {4}"\*": ask$/mu, 'opencode verifier may run approved commands');
+        assert.match(architect, /^ {4}"\*": deny$/mu, 'opencode architect must not run commands');
+      } else if (adapter.id === 'cursor') {
+        assert.match(verifier, /^readonly: false$/mu, 'cursor verifier may execute');
+        assert.match(architect, /^readonly: true$/mu, 'cursor architect stays read-only');
+      }
+    } finally {
+      await rm(targetDir, { force: true, recursive: true });
+    }
+  }
+});

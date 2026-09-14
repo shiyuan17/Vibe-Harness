@@ -33,13 +33,37 @@ const EXPECTED_PERMISSION_CAPABILITIES = {
 const PROJECTED_CAPABILITIES = {
   codex: ['read', 'search', 'reason', 'workspace-write', 'validation-command'],
   claude: ['read', 'search', 'reason', 'workspace-write', 'validation-command'],
-  gemini: ['read', 'search', 'reason'],
-  cursor: ['read', 'search', 'reason'],
-  qoder: ['read', 'search', 'reason'],
-  zcode: ['read', 'search', 'reason'],
-  antigravity: ['read', 'search', 'reason'],
-  opencode: ['read', 'search', 'reason', 'workspace-write'],
+  gemini: ['read', 'search', 'reason', 'workspace-write', 'validation-command'],
+  cursor: ['read', 'search', 'reason', 'workspace-write', 'validation-command'],
+  qoder: ['read', 'search', 'reason', 'workspace-write', 'validation-command'],
+  zcode: ['read', 'search', 'reason', 'workspace-write', 'validation-command'],
+  antigravity: ['read', 'search', 'reason', 'workspace-write', 'validation-command'],
+  opencode: ['read', 'search', 'reason', 'workspace-write', 'validation-command'],
 };
+
+// Permission presets that may modify the workspace versus those that may only
+// execute approved validation commands and write isolated evidence.
+const WRITE_PRESETS = new Set(['implementation']);
+const EXECUTE_PRESETS = new Set(['implementation', 'verification', 'release-readiness']);
+
+// Host-native tool names per adapter. Gemini and Antigravity use their own
+// built-in tool identifiers; emitting another host's names can make a projected
+// subagent unable to bind its tools.
+const NATIVE_TOOLS = {
+  claude: { read: 'Read', search: 'Grep', glob: 'Glob', edit: 'Edit', write: 'Write', run: 'Bash' },
+  qoder: { read: 'Read', search: 'Grep', glob: 'Glob', edit: 'Edit', write: 'Write', run: 'Bash' },
+  zcode: { read: 'Read', search: 'Grep', glob: 'Glob', edit: 'Edit', write: 'Write', run: 'Bash' },
+  gemini: { read: 'read_file', search: 'grep_search', glob: 'glob', edit: 'replace', write: 'write_file', run: 'run_shell_command' },
+  antigravity: { read: 'view_file', search: 'grep_search', glob: null, edit: 'replace_file_content', write: 'replace_file_content', run: 'run_command' },
+};
+
+function isWritablePreset(permissionPresetId) {
+  return WRITE_PRESETS.has(permissionPresetId);
+}
+
+function isExecutablePreset(permissionPresetId) {
+  return EXECUTE_PRESETS.has(permissionPresetId);
+}
 
 /**
  * @typedef {{
@@ -162,42 +186,47 @@ function roleIndex(roles) {
   return lines.join('\n').trim() + '\n';
 }
 
-function toolSet(permissionPresetId) {
-  if (permissionPresetId === 'implementation') {
-    return ['Read', 'Grep', 'Glob', 'Edit', 'Write', 'Bash'];
-  }
-  if (['verification', 'security-review', 'release-readiness'].includes(permissionPresetId)) {
-    return ['Read', 'Grep', 'Glob', 'Bash'];
-  }
-  return ['Read', 'Grep', 'Glob'];
+// Read/search are always granted; glob is host-specific; write tools only for
+// implementation; a validation command tool for implement/verify/release roles
+// so independent verification can actually execute and record evidence.
+export function projectedToolNames(host, permissionPresetId) {
+  const tools = NATIVE_TOOLS[host];
+  if (!tools) throw new Error('Unknown role projection host: ' + host);
+  const names = [tools.read, tools.search];
+  if (tools.glob) names.push(tools.glob);
+  if (isWritablePreset(permissionPresetId)) names.push(tools.edit, tools.write);
+  if (isExecutablePreset(permissionPresetId)) names.push(tools.run);
+  return [...new Set(names)];
 }
 
-function genericMarkdown(role, prompt, format) {
+function genericMarkdown(role, prompt, adapter) {
+  const format = adapter.roleProjection.format;
   const fields = {
     name: role.id,
     description: role.description,
   };
   if (format === 'claude-markdown') {
-    fields.tools = toolSet(role.permissionPreset);
+    fields.tools = projectedToolNames('claude', role.permissionPreset);
     fields.model = 'inherit';
   } else if (format === 'gemini-markdown') {
     fields.kind = 'local';
-    fields.tools = toolSet(role.permissionPreset);
+    fields.tools = projectedToolNames('gemini', role.permissionPreset);
   } else if (format === 'cursor-markdown') {
     fields.model = 'inherit';
-    fields.readonly = role.permissionPreset !== 'implementation';
+    fields.readonly = !isExecutablePreset(role.permissionPreset);
   } else if (format === 'qoder-markdown') {
-    fields.tools = toolSet(role.permissionPreset);
+    fields.tools = projectedToolNames('qoder', role.permissionPreset);
   } else if (format === 'antigravity-markdown') {
-    fields.tools = toolSet(role.permissionPreset);
+    fields.tools = projectedToolNames('antigravity', role.permissionPreset);
   } else if (format === 'zcode-plugin-markdown') {
-    fields.tools = toolSet(role.permissionPreset);
+    fields.tools = projectedToolNames('zcode', role.permissionPreset);
   }
   return frontmatter(fields) + prompt;
 }
 
 function opencodeMarkdown(role, prompt) {
-  const writable = role.permissionPreset === 'implementation';
+  const writable = isWritablePreset(role.permissionPreset);
+  const executable = isExecutablePreset(role.permissionPreset);
   const lines = [
     '---',
     'description: ' + yamlScalar(role.description),
@@ -205,7 +234,7 @@ function opencodeMarkdown(role, prompt) {
     'permission:',
     '  edit: ' + (writable ? 'allow' : 'deny'),
     '  bash:',
-    '    "*": ' + (writable ? 'ask' : 'deny'),
+    '    "*": ' + (executable ? 'ask' : 'deny'),
     '---',
     '',
     prompt,
@@ -225,12 +254,12 @@ export function projectRole(role, adapter) {
     return stringifyToml({
       name: role.id,
       description: role.description,
-      sandbox_mode: role.permissionPreset === 'implementation' ? 'workspace-write' : 'read-only',
+      sandbox_mode: isExecutablePreset(role.permissionPreset) ? 'workspace-write' : 'read-only',
       developer_instructions: role.prompt,
     });
   }
   if (format === 'opencode-markdown') return opencodeMarkdown(role, role.prompt);
-  return genericMarkdown(role, role.prompt, format);
+  return genericMarkdown(role, role.prompt, adapter);
 }
 
 function roleTarget(adapter, roleId) {
