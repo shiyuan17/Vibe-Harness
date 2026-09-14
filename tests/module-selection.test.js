@@ -145,6 +145,42 @@ test('project validation reuses CLI module selection recorded by the install sta
   }
 });
 
+test('replaying an install keeps the recorded module selection instead of retiring it', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-modules-replay-'));
+  try {
+    await runCli(['init', '--project', target]);
+    await runCli([
+      'install', '--project', target, '--target', 'codex', '--profile', 'full',
+      '--modules', 'evals,memory', '--write',
+    ]);
+    const state = JSON.parse(await readFile(path.join(target, '.vibe-harness', 'install-state.json'), 'utf8'));
+    assert.deepEqual(state.requestedModules, ['evals', 'memory']);
+
+    // A replay that only names a profile must not recompute the surface from
+    // that profile: doing so drops the recorded modules and retires their
+    // files, which previously deleted installed memory artifacts.
+    const replay = await runCli([
+      'install', '--project', target, '--target', 'codex', '--profile', 'full', '--dry-run',
+    ]);
+    assert.deepEqual(replay.requestedModules, ['evals', 'memory']);
+    assert.equal(replay.resolvedModules.includes('memory'), true);
+    assert.deepEqual(replay.actions.filter((action) => action.kind?.startsWith('retire')), []);
+    assert.equal(replay.actions.some((action) => action.relativeTarget === 'docs/memory/PROJECT_STATE.md'), true);
+    assert.equal(replay.actions.some((action) => action.relativeTarget === '.agents/memory/CURRENT.md'), true);
+
+    // Explicitly narrowing the selection still retires what was deselected.
+    const narrowed = await runCli([
+      'install', '--project', target, '--target', 'codex', '--profile', 'full',
+      '--modules', 'agents,rules', '--dry-run',
+    ]);
+    assert.ok(narrowed.actions.some(
+      (action) => action.kind === 'retire' && action.relativeTarget === 'docs/memory/PROJECT_STATE.md',
+    ));
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
 test('plugin option accepts public aliases and normalizes a single leading dash', () => {
   assert.deepEqual(parsePluginsOption(['-rtk', 'ast-grep']), ['rtk', 'ast-grep']);
   assert.deepEqual(

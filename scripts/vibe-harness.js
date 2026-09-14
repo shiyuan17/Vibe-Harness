@@ -295,6 +295,13 @@ function resolveCommandTargets(config, state, requestedTarget) {
   return { configured, selected: configured };
 }
 
+// The module selection is a project property, not a per-command argument:
+// vibe-harness.config.json wins when it declares one, otherwise the selection
+// recorded by the last install is authoritative. Every lifecycle command
+// (install, diff, validate, doctor) resolves it through here so a replay plans
+// the same surface the project was installed with instead of recomputing it
+// from the current profile, which would silently retire modules the project
+// still asks for.
 async function projectRequestedModules(config, targetDir) {
   if (config.modules) return config.modules;
   return (await readInstallState(targetDir))?.requestedModules ?? undefined;
@@ -406,7 +413,7 @@ async function install(args) {
   };
   const requestedModules = args.modules !== undefined
     ? parseModulesOption(args.modules)
-    : config.modules;
+    : await projectRequestedModules(config, targetDir);
   const requestedPlugins = args.plugin !== undefined
     ? parsePluginsOption(args.plugin)
     : (config.plugins ? parsePluginsOption(config.plugins) : existingState?.requestedPlugins);
