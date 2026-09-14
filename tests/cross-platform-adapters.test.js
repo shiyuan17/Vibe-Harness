@@ -12,6 +12,7 @@ import {
   extractManagedInstructionBlock,
   mergeManagedInstructionBlock,
   removeManagedInstructionBlock,
+  renderTemplate,
 } from '../scripts/lib/template-renderer.js';
 import {
   canonicalAgentsTemplate,
@@ -70,6 +71,31 @@ test('AGENTS startup rendering contains no empty numbered entries', async () => 
     assert.match(content, /^1\. /u);
   } finally {
     await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('every instruction adapter renders the same generated startup sequence', async () => {
+  const files = ['codex/AGENTS.template.md', 'claude/CLAUDE.template.md', 'gemini/GEMINI.template.md', 'opencode/AGENTS.template.md'];
+  const templates = await Promise.all(files.map((file) => readFile(path.join(rootDir, 'adapters', file), 'utf8')));
+  const renderData = {
+    installedSurface: {
+      discoveryLine: '使用仓库搜索和已安装规则定位相关代码。',
+      memoryLoadLine: '读取 `docs/memory/` 的治理记忆恢复上下文。',
+    },
+    projectName: 'startup-parity',
+    projectProfile: { vcsStatusInstruction: '编辑前运行 `git status --short`，保护用户未归属改动。' },
+    validationCommands: { eval: 'pnpm eval:replay', lint: 'pnpm lint', test: 'pnpm test:unit', typecheck: 'pnpm typecheck' },
+  };
+  // A hardcoded startup list silently diverges from the generated one as soon
+  // as the sequence changes, so every adapter must render the single source.
+  const sections = templates.map((template, index) => {
+    assert.match(template, /^\{\{installedSurface\.startupLines\}\}$/mu, files[index] + ' must use the generated startup sequence');
+    const section = renderTemplate(template, renderData).match(/\n## 启动\n([\s\S]*?)\n## 硬边界\n/u);
+    assert.ok(section, files[index] + ' has no rendered startup section');
+    return section[1];
+  });
+  for (const [index, section] of sections.entries()) {
+    assert.equal(section, sections[0], files[index] + ' startup differs from ' + files[0]);
   }
 });
 
