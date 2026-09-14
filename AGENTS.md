@@ -55,7 +55,7 @@ TypeScript 配置、类型声明、JSDoc 类型契约，或完成主张涉及类
 项目：Vibe-Harness
 
 ## 启动
-1. 先读取 `docs/rules/governance-core.md`；只有出现 Skill 或专项领域信号时再读取 `docs/rules/AGENT_SKILL_ROUTING.md` 和一个命中的专项规则。
+1. 先读取 `docs/rules/governance-core.md`；只有出现 Skill 或专项领域信号时再读取 `docs/rules/agent-skill-routing.md` 和一个命中的专项规则。
 2. 仅当任务需要恢复项目状态且当前授权允许读取 Memory body 时，读取 `docs/memory/` 的治理记忆（优先 `PROJECT_STATE.md`），按其与本地记忆库的优先级合并；本地记忆库恢复入口为 `.agents/memory/CURRENT.md`。 当专项 Skill 限制 Memory 证据边界时，仅检查相关 Memory 路径是否存在及必要元数据、不读取其正文；不限制任务相关源码阅读。
 3. 编辑前运行 `git status --short`，保护用户未归属改动。
 4. 先按问题类型选工具：纯文本、配置和日志使用 rg 与直接文件阅读。
@@ -81,7 +81,7 @@ TypeScript 配置、类型声明、JSDoc 类型契约，或完成主张涉及类
 - 当前安装方式：自定义能力模块安装。 当前另安装 integration Skills：agentmemory；它们不计入 profile 的原生领域 Skill 数量。
 - 需求澄清姿态：`balanced`（action-leaning 偏向采用最小可逆默认值直接推进；balanced 按规则判断；conservative 对尚未解决的高影响分歧更谨慎）。
 
-- 规则位于 `docs/rules/`。命中索引：governance-core（Vibe-Harness 执行内核）、agent-skill-routing（原生 Skill 选择规则）、eval-driven-development（评测驱动开发）、role-routing（多角色路由规则）、codebase-memory-mcp（codebase-memory-mcp）、chrome-devtools-mcp（Chrome DevTools MCP）、git-rules（Git 规则）、test-rules（测试规则）、ai-collab-rules（AI 协作规则）、linear-workflow（Linear 多 Agent 工作流）、api-rules（API 规则）、coding-rules（编码规则）、frontend-rules（前端规则）、log-management（可观测性与日志管理规则）、project-directory（项目目录规则）、project-specific-rules（项目专属规则）、db-rules（DB 规则）、release-rules（发布规则）、troubleshooting（排障规则）、rtk（RTK 命令输出压缩规则）、ast-grep（ast-grep 结构化搜索规则）。
+- 规则位于 `docs/rules/`。命中索引：governance-core（Vibe-Harness 执行内核）、agent-skill-routing（Skill 编写与路由规则）、eval-driven-development（评测驱动开发）、role-routing（多角色路由规则）、codebase-memory-mcp（codebase-memory-mcp）、chrome-devtools-mcp（Chrome DevTools MCP）、git-rules（Git 规则）、test-rules（测试规则）、ai-collab-rules（AI 协作规则）、linear-workflow（Linear 多 Agent 工作流）、api-rules（API 规则）、coding-rules（编码规则）、frontend-rules（前端规则）、log-management（可观测性与日志管理规则）、project-directory（项目目录规则）、project-specific-rules（项目专属规则）、db-rules（DB 规则）、release-rules（发布规则）、troubleshooting（排障规则）、rtk（RTK 命令输出压缩规则）、ast-grep（ast-grep 结构化搜索规则）。
 - 工程专项规则位于 `docs/rules/`。
 - 发布 / 设计 / 排障规则位于 `docs/rules/`。
 - 模板位于 `docs/templates/`。

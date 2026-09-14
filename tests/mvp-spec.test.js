@@ -537,7 +537,7 @@ test('rendered AGENTS surface matches minimal, core, and full profile installs',
     assert.equal(minimalAgents.includes('codebase-memory-mcp'), false);
     assert.equal(minimalAgents.includes('agentmemory'), false);
     assert.equal(minimalAgents.includes('docs/rules/skill-routing.md'), false);
-    assert.equal(minimalAgents.includes('docs/rules/AGENT_SKILL_ROUTING.md'), true);
+    assert.equal(minimalAgents.includes('docs/rules/agent-skill-routing.md'), true);
     assert.equal(minimalAgents.includes('.codex/hooks.json'), false);
     assert.equal(coreAgents.includes('.agents/skills/'), true);
     assert.equal(coreAgents.includes('通用安装'), true);

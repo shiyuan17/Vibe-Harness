@@ -841,7 +841,7 @@
       ]
     },
     {
-      "path": "docs/rules/AGENT_SKILL_ROUTING.md",
+      "path": "docs/rules/agent-skill-routing.md",
       "kind": "agent-rules",
       "status": "current",
       "language": "zh-CN",

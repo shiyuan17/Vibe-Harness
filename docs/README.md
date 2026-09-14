@@ -37,7 +37,7 @@
 ## 规则
 
 - [执行内核](rules/governance-core.md)
-- [领域 Skill 选择](rules/AGENT_SKILL_ROUTING.md)
+- [Skill 编写与路由](rules/agent-skill-routing.md)
 - [AI 协作](rules/ai-collab-rules.md)
 - [ast-grep](rules/ast-grep.md)
 - [Linear 工作流](rules/linear-workflow.md)

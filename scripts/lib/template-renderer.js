@@ -50,7 +50,7 @@ export const managedInstructionBlockEnd = '<!-- VIBE_HARNESS:END -->';
 function buildStartupLines(surface, projectProfile) {
   const tick = String.fromCharCode(96);
   const lines = [
-    '先读取 ' + tick + 'docs/rules/governance-core.md' + tick + '；只有出现 Skill 或专项领域信号时再读取 ' + tick + 'docs/rules/AGENT_SKILL_ROUTING.md' + tick + ' 和一个命中的专项规则。',
+    '先读取 ' + tick + 'docs/rules/governance-core.md' + tick + '；只有出现 Skill 或专项领域信号时再读取 ' + tick + 'docs/rules/agent-skill-routing.md' + tick + ' 和一个命中的专项规则。',
   ];
   if (surface.memoryLoadLine) lines.push(surface.memoryLoadLine);
   if (projectProfile.vcsStatusInstruction) lines.push(projectProfile.vcsStatusInstruction);

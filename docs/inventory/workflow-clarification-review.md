@@ -36,7 +36,7 @@
 
 ### P1 工作流微调
 
-- docs/rules/AGENT_SKILL_ROUTING.md：明确 clarify（当轮解阻）↔ define-goal（跨任务持久目标）触发边界。
+- docs/rules/agent-skill-routing.md：明确 clarify（当轮解阻）↔ define-goal（跨任务持久目标）触发边界。
 - docs/rules/governance-core.md：加显式规划阈值——一句话能描述的 diff 直接执行，仅在方向未定/跨多文件/不熟悉代码时先规划。
 
 ### P2 重构残留清理

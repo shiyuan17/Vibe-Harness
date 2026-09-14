@@ -21,8 +21,8 @@
     },
     {
       "group": "rules-minimal",
-      "source": "docs/rules/AGENT_SKILL_ROUTING.md",
-      "target": "docs/rules/AGENT_SKILL_ROUTING.md",
+      "source": "docs/rules/agent-skill-routing.md",
+      "target": "docs/rules/agent-skill-routing.md",
       "contentStrategy": "replace"
     },
     {
@@ -939,6 +939,10 @@
     }
   ],
   "retiredEntries": [
+    {
+      "group": "rules-minimal",
+      "target": "docs/rules/AGENT_SKILL_ROUTING.md"
+    },
     {
       "group": "hooks",
       "target": ".agents/runtime/hooks/auto-commit.mjs",

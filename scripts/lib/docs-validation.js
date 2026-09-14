@@ -430,14 +430,45 @@ async function validateSourceMapping(rootDir) {
 
 // docs/rules/ is the canonical rule asset directory consumed by packaging,
 // catalog validation, and installation. The root-level rules/ directory is
-// prohibited so a second source tree cannot be reintroduced accidentally.
+// prohibited so a second source tree cannot be reintroduced accidentally. Rule
+// files stay lowercase kebab-case and match their manifest id, so the file
+// name, the routing id and the installed path cannot drift apart.
 export async function validateCanonicalRuleLayout(rootDir) {
   const errors = [];
   if (await pathExists(path.join(rootDir, 'rules'))) {
     errors.push('legacy rules/ directory must be removed; use docs/rules/');
   }
-  if (!(await pathExists(path.join(rootDir, 'docs/rules')))) {
+  const rulesDir = path.join(rootDir, 'docs/rules');
+  if (!(await pathExists(rulesDir))) {
     errors.push('canonical docs/rules directory is missing');
+    return errors;
+  }
+  const ruleFiles = (await readdir(rulesDir, { withFileTypes: true }))
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
+    .map((entry) => entry.name)
+    .sort();
+  for (const name of ruleFiles) {
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*\.md$/u.test(name)) {
+      errors.push('docs/rules/' + name + ' must use lowercase kebab-case');
+    }
+  }
+  const manifestPath = path.join(rootDir, 'manifests/rules.json');
+  if (await pathExists(manifestPath)) {
+    const manifest = await readJson(manifestPath);
+    const items = Array.isArray(manifest?.items) ? manifest.items : [];
+    for (const item of items) {
+      if (typeof item?.id !== 'string' || typeof item?.source !== 'string') continue;
+      if (path.basename(item.source) !== `${item.id}.md`) {
+        errors.push(`${item.id} rule id must match its file name: ${item.source}`);
+      }
+    }
+    const knownIds = new Set(items.map((item) => item?.id));
+    for (const name of ruleFiles) {
+      const id = name.slice(0, -3);
+      if (!knownIds.has(id)) {
+        errors.push(`docs/rules/${name} is missing from manifests/rules.json`);
+      }
+    }
   }
   return errors;
 }

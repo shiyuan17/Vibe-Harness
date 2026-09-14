@@ -151,6 +151,28 @@ test('canonical rules layout rejects a legacy root rules directory', async () =>
   }
 });
 
+test('canonical rules keep lowercase file names aligned with rule ids', async () => {
+  const tmp = await mkdtemp(path.join(import.meta.dirname, 'tmp-rules-naming-'));
+  try {
+    await mkdir(path.join(tmp, 'docs/rules'), { recursive: true });
+    await mkdir(path.join(tmp, 'manifests'), { recursive: true });
+    await writeFile(path.join(tmp, 'docs/rules/AGENT_SKILL_ROUTING.md'), '# Legacy name\n', 'utf8');
+    await writeFile(path.join(tmp, 'docs/rules/legacy-name.md'), '# Rule\n', 'utf8');
+    await writeFile(
+      path.join(tmp, 'manifests/rules.json'),
+      JSON.stringify({ schemaVersion: 1, items: [{ id: 'renamed', source: 'docs/rules/legacy-name.md' }] }),
+      'utf8',
+    );
+
+    const errors = await validateCanonicalRuleLayout(tmp);
+    assert.ok(errors.includes('docs/rules/AGENT_SKILL_ROUTING.md must use lowercase kebab-case'));
+    assert.ok(errors.includes('renamed rule id must match its file name: docs/rules/legacy-name.md'));
+    assert.ok(errors.includes('docs/rules/AGENT_SKILL_ROUTING.md is missing from manifests/rules.json'));
+  } finally {
+    await rm(tmp, { recursive: true, force: true });
+  }
+});
+
 test('schema parity reports drift between paired schema files', async () => {
   const tmp = await mkdtemp(path.join(import.meta.dirname, 'tmp-schema-parity-'));
   try {

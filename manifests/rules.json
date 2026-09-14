@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "items": [
     { "id": "governance-core", "source": "docs/rules/governance-core.md" },
-    { "id": "agent-skill-routing", "source": "docs/rules/AGENT_SKILL_ROUTING.md" },
+    { "id": "agent-skill-routing", "source": "docs/rules/agent-skill-routing.md" },
     { "id": "eval-driven-development", "source": "docs/rules/eval-driven-development.md" },
     { "id": "role-routing", "source": "docs/rules/role-routing.md" },
     { "id": "codebase-memory-mcp", "source": "docs/rules/codebase-memory-mcp.md" },

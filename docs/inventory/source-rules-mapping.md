@@ -22,7 +22,7 @@
 | `RELEASE.md` | `docs/rules/release-rules.md` | copy-generalize |
 | `REVIEW_RULES.md` | `docs/rules/governance-core.md`、完整任务 Runtime | consolidate + validator |
 | `LOOP_ENGINEERING_RULES.md` | `docs/rules/governance-core.md` | consolidate |
-| `AGENT_SKILL_ROUTING.md` | `docs/rules/AGENT_SKILL_ROUTING.md`、Skill descriptions | copy-generalize + native routing |
+| `AGENT_SKILL_ROUTING.md` | `docs/rules/agent-skill-routing.md`、Skill descriptions | copy-generalize + native routing |
 | `TROUBLESHOOTING.md` | `docs/rules/troubleshooting.md` | copy-generalize |
 | project memory/current tasks/contracts | examples or target project only | exclude-business |
 | durable memory categories | `templates/memory/*` | template |
