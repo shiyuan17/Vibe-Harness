@@ -21,7 +21,7 @@ const LIFECYCLE_PATHS = [
 const GROUP_RULES = [
   ['rules', /^(?:docs\/rules\/|rules\/|AGENTS\.md$|CONTRIBUTING\.md$)/u],
   ['tests', /^tests\//u],
-  ['eval', /^(?:evals\/|runtime\/evals\/|scripts\/lib\/eval-|schemas\/eval-)/u],
+  ['eval', /^(?:evals\/|\.agents\/evals\/|runtime\/evals\/|scripts\/lib\/eval-|schemas\/eval-)/u],
   ['schemas', /^(?:schemas\/|docs\/schemas\/)/u],
   ['skills', /^(?:skills\/|\.agents\/skills\/|manifests\/skills\.json$)/u],
   ['manifests', /^manifests\//u],
@@ -29,6 +29,10 @@ const GROUP_RULES = [
   ['runtime', /^(?:runtime\/|\.agents\/runtime\/)/u],
   ['scripts', /^scripts\//u],
   ['workflows', /^\.github\/workflows\//u],
+  // Governance notes and delivery audits are reviewed documents, not runtime
+  // code. Without an explicit group they fall through to `unknown`, which
+  // escalates a documentation-only change to the full verification matrix.
+  ['docs', /^(?:audit-reports\/|\.github\/|\.agents\/memory\/)/u],
   ['docs', /^(?:docs\/|README(?:\.en)?\.md$|CHANGELOG\.md$)/u],
   ['config', /^(?:vibe-harness\.config\.json|package(?:-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|(?:tsconfig(?:\.[^/]+)?|jsconfig\.json|\.editorconfig|\.npmrc|\.nvmrc|\.prettierrc(?:\.[^/]+)?))$/iu],
 ];
@@ -64,19 +68,36 @@ function globRegex(pattern) {
 function matchesConfiguredZone(pathname, patterns = []) {
   return patterns.some((pattern) => {
     if (typeof pattern !== 'string' || !pattern.trim()) return false;
-    const normalizedPattern = normalize(pattern).toLowerCase();
+    const normalizedPattern = normalize(pattern).toLowerCase().replace(/\/+$/u, '');
+    if (!normalizedPattern) return false;
     if (!/[?*]/u.test(normalizedPattern)) {
       const normalizedPath = pathname.toLowerCase();
-      const compactPattern = normalizedPattern.replace(/[^a-z0-9]/gu, '');
-      const compactPath = normalizedPath.replace(/[^a-z0-9]/gu, '');
-      return normalizedPath.split(/[/.\\_-]+/u).includes(normalizedPattern)
+      return matchesZoneName(normalizedPath, normalizedPattern)
         || normalizedPath.includes(`/${normalizedPattern}/`)
+        || normalizedPath.startsWith(`${normalizedPattern}/`)
         || normalizedPath.endsWith(`/${normalizedPattern}`)
-        || normalizedPath.endsWith(`.${normalizedPattern}`)
-        || (compactPattern.length > 1 && compactPath.includes(compactPattern));
+        || normalizedPath.endsWith(`.${normalizedPattern}`);
     }
     try { return globRegex(pattern).test(pathname); } catch { return false; }
   });
+}
+
+/**
+ * Match a non-glob zone name against whole path parts.
+ *
+ * The previous implementation compared compacted alphanumeric strings, so a
+ * red-zone entry like `env` also matched `scripts/envelope.js`. Matching whole
+ * segments (`shared-libs/`) and whole hyphen-separated parts
+ * (`secrets` in `secrets-manager.js`) keeps multi-word zone names working
+ * without substring false positives.
+ *
+ * @param {string} normalizedPath lower-case, forward-slash path
+ * @param {string} normalizedPattern lower-case zone name without trailing slash
+ */
+function matchesZoneName(normalizedPath, normalizedPattern) {
+  const segments = normalizedPath.split(/[/.\\_]+/u).filter(Boolean);
+  if (segments.includes(normalizedPattern)) return true;
+  return segments.some((segment) => segment.split('-').includes(normalizedPattern));
 }
 
 function classifyGroup(pathname) {

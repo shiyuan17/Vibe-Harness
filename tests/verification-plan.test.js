@@ -116,3 +116,42 @@ test('comment-only source changes remain quick when the diff supplies content ev
   assert.equal(risk.riskLevel, 'quick');
   assert.equal(risk.commentsOnly, true);
 });
+
+test('governance notes and delivery audits stay out of the full verification matrix', () => {
+  for (const changedPath of [
+    '.agents/memory/CURRENT.md',
+    'audit-reports/2026-09-14-review.md',
+    '.github/SECURITY.md',
+    '.github/ISSUE_TEMPLATE/bug_report.yml',
+  ]) {
+    const risk = classifyVerificationRisk([changedPath]);
+    assert.equal(risk.riskLevel, 'quick', `${changedPath} must not escalate to the full matrix`);
+    assert.equal(risk.fallbackUsed, false, `${changedPath} must not fall back to unknown`);
+    assert.equal(risk.impactGroups.includes('docs'), true);
+  }
+  const workflows = classifyVerificationRisk(['.github/workflows/ci.yml']);
+  assert.equal(workflows.riskLevel, 'high');
+  assert.equal(workflows.impactGroups.includes('workflows'), true);
+  const installedEvalMirror = classifyVerificationRisk(['.agents/evals/references/vibe-harness-core.offline.json']);
+  assert.equal(installedEvalMirror.impactGroups.includes('eval'), true);
+  assert.equal(installedEvalMirror.fallbackUsed, false);
+});
+
+test('configured zone names match whole path parts instead of substrings', () => {
+  const riskZones = { red: ['env', 'secrets'], yellow: ['shared-libs'] };
+  // `env` must not match `envelope.js`: the previous compact-substring match
+  // raised the risk of the repository's own governance tooling to red.
+  for (const changedPath of ['scripts/envelope.js', 'scripts/lib/envelope-records.js']) {
+    const risk = classifyVerificationRisk([changedPath], { riskZones });
+    assert.equal(risk.configuredZones.red, false, `${changedPath} must not be treated as red zone`);
+    assert.equal(risk.riskLevel, 'standard');
+  }
+  for (const changedPath of ['.env', 'secrets-manager.js', 'config/secrets/client.js', 'shared-libs/index.js']) {
+    const risk = classifyVerificationRisk([changedPath], { riskZones });
+    assert.equal(
+      risk.configuredZones.red || risk.configuredZones.yellow,
+      true,
+      `${changedPath} must still match its configured zone`,
+    );
+  }
+});
