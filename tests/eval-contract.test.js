@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -13,7 +13,7 @@ import {
   validateEvalObserverCoverage,
   validateEvalSuiteSemantics,
 } from '../scripts/lib/eval-contract.js';
-import { buildOfflineRun } from '../scripts/lib/eval-replay.js';
+import { OFFLINE_RESULT_PATH, buildOfflineRun, syncOfflineRunArtifact } from '../scripts/lib/eval-replay.js';
 import { createEvalAssetFingerprint } from '../scripts/lib/eval-assets.js';
 import { scoreCase } from '../scripts/lib/eval-scoring.js';
 
@@ -518,6 +518,84 @@ test('offline replay never emits multi-trial summaries', async () => {
   const assets = await loadEvalAssets(rootDir);
   const replayed = await buildOfflineRun(assets.suite);
   assert.equal(Object.hasOwn(replayed, 'trialSummaries'), false);
+});
+
+test('offline replay artifact regeneration is explicit, backed up, and reports the drifted fingerprint fields', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-eval-replay-artifact-'));
+  try {
+    const assets = await loadEvalAssets(rootDir);
+    const artifactPath = path.join(targetDir, OFFLINE_RESULT_PATH);
+    await mkdir(path.dirname(artifactPath), { recursive: true });
+    const stale = structuredClone(await buildOfflineRun(assets.suite, { assetRoot: targetDir }));
+    stale.fingerprint.assets.aggregateHash = '0'.repeat(64);
+    stale.fingerprint.assets.groups.rules.hash = '1'.repeat(64);
+    await writeFile(artifactPath, `${JSON.stringify(stale, null, 2)}\n`, 'utf8');
+
+    const dryRun = await syncOfflineRunArtifact({ rootDir: targetDir, suite: assets.suite });
+    assert.equal(dryRun.status, 'drifted');
+    assert.equal(dryRun.changed, true);
+    assert.deepEqual(dryRun.written, []);
+    assert.deepEqual(dryRun.backups, []);
+    assert.deepEqual(dryRun.changes.map((item) => item.field), [
+      'fingerprint.assets.aggregateHash',
+      'fingerprint.assets.groups.rules.hash',
+    ]);
+    assert.equal(JSON.parse(await readFile(artifactPath, 'utf8')).fingerprint.assets.aggregateHash, '0'.repeat(64));
+
+    const written = await syncOfflineRunArtifact({
+      now: new Date('2026-09-14T00:00:00.000Z'),
+      rootDir: targetDir,
+      suite: assets.suite,
+      write: true,
+    });
+    assert.equal(written.status, 'updated');
+    assert.deepEqual(written.written, [OFFLINE_RESULT_PATH]);
+    assert.equal(written.backups.length, 1);
+    assert.equal(written.backups[0].target, OFFLINE_RESULT_PATH);
+    const backup = JSON.parse(await readFile(path.join(targetDir, written.backups[0].backup), 'utf8'));
+    assert.equal(backup.fingerprint.assets.aggregateHash, '0'.repeat(64));
+    assert.deepEqual(JSON.parse(await readFile(artifactPath, 'utf8')), written.run);
+
+    const current = await syncOfflineRunArtifact({ rootDir: targetDir, suite: assets.suite });
+    assert.equal(current.status, 'current');
+    assert.equal(current.changed, false);
+    assert.deepEqual(current.changes, []);
+  } finally {
+    await rm(targetDir, { recursive: true, force: true });
+  }
+});
+
+test('offline replay artifact regeneration creates a missing artifact without a backup', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-eval-replay-missing-'));
+  try {
+    const assets = await loadEvalAssets(rootDir);
+    const report = await syncOfflineRunArtifact({ rootDir: targetDir, suite: assets.suite, write: true });
+    assert.equal(report.status, 'updated');
+    assert.deepEqual(report.written, [OFFLINE_RESULT_PATH]);
+    assert.deepEqual(report.backups, []);
+    assert.deepEqual(report.changes.map((item) => item.field), ['fingerprint']);
+    const written = JSON.parse(await readFile(path.join(targetDir, OFFLINE_RESULT_PATH), 'utf8'));
+    assert.deepEqual(written.fingerprint, report.run.fingerprint);
+    assert.equal(written.mode, 'offline');
+  } finally {
+    await rm(targetDir, { recursive: true, force: true });
+  }
+});
+
+test('eval replay CLI regenerates the artifact only with --write and rejects unknown arguments', async () => {
+  const scriptPath = path.join(rootDir, 'scripts/eval-replay.js');
+  const write = await execFileAsync(process.execPath, [scriptPath, '--write', '--json'], { cwd: rootDir });
+  const report = JSON.parse(write.stdout);
+  assert.equal(report.ok, true);
+  assert.equal(report.reference, 'matched');
+  assert.equal(report.status, 'current');
+  assert.equal(report.path, OFFLINE_RESULT_PATH);
+  assert.deepEqual(report.written, []);
+
+  await assert.rejects(
+    execFileAsync(process.execPath, [scriptPath, '--bogus'], { cwd: rootDir }),
+    (error) => error.code === 1 && /unknown argument/u.test(error.stderr),
+  );
 });
 
 test('offline replay evaluates forbidden secret text before sanitizing persisted output', async () => {
