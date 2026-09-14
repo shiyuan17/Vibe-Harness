@@ -26,7 +26,15 @@ test('CI blocks offline eval drift and scheduled workflow runs advisory online c
   assert.match(ci, /supply-chain:/u);
   assert.match(ci, /risk-evidence:/u);
   assert.match(ci, /merge-gate:/u);
-  assert.match(ci, /needs:\s*\[change-plan, product, supply-chain, risk-evidence\]/u);
+  assert.match(ci, /needs:\s*\[change-plan, product, supply-chain, risk-evidence, branch-policy, independent-review, high-risk-approval\]/u);
+  assert.match(ci, /branch-policy:\n\s+name: branch policy\n\s+if: github\.event_name == 'pull_request'/u);
+  assert.match(ci, /node scripts\/branch-policy\.js/u);
+  assert.match(ci, /node scripts\/independent-review\.js/u);
+  assert.match(ci, /node scripts\/check-pull-request-approval\.js/u);
+  assert.match(ci, /BRANCH_POLICY_RESULT: \$\{\{ needs\.branch-policy\.result \}\}/u);
+  assert.match(ci, /REQUIRED_BRANCH_POLICY_RESULT: \$\{\{ github\.event_name == 'pull_request' \}\}/u);
+  assert.match(ci, /HIGH_RISK_REVIEW_RESULT: \$\{\{ needs\.independent-review\.result \}\}/u);
+  assert.match(ci, /HIGH_RISK_APPROVAL_RESULT: \$\{\{ needs\.high-risk-approval\.result \}\}/u);
   assert.match(online, /schedule:/u);
   assert.match(online, /workflow_dispatch:/u);
   assert.match(online, /environment:\s*Production/u);
@@ -64,6 +72,7 @@ test('GitHub Actions are least-privilege, commit-pinned, and receive automated u
   }
   const release = workflows.find((workflow) => workflow.name === 'release-please.yml').content;
   assert.match(release, /release-verify:/u);
+  assert.match(release, /node scripts\/release-readiness\.js --sha "\$GITHUB_SHA" --require-clean --receipt release-artifacts\/release-readiness\.json/u);
   assert.match(release, /pnpm pack --pack-destination/u);
   assert.match(release, /attest-build-provenance@/u);
   assert.match(release, /release-evidence\.json/u);
@@ -85,6 +94,15 @@ test('GitHub Actions are least-privilege, commit-pinned, and receive automated u
       if (error.code !== 'ENOENT') throw error;
     }
   }
+});
+
+test('CI runs pinned dependency and secret scanning with least privilege', async () => {
+  const ci = await readFile(path.join(rootDir, '.github/workflows/ci.yml'), 'utf8');
+  assert.match(ci, /^ {2}security:$/mu);
+  assert.match(ci, /actions\/dependency-review-action@[a-f0-9]{40}/u);
+  assert.match(ci, /gitleaks\/gitleaks-action@[a-f0-9]{40}/u);
+  assert.match(ci, /fail-on-severity:\s*high/u);
+  assert.doesNotMatch(ci, /actions\/dependency-review-action@(?:v\d+|main|master)\b/u);
 });
 
 test('online canary suite contains critical product scenarios', async () => {

@@ -58,6 +58,41 @@ jobs:
           fetch-depth: 0
       - run: node scripts/risk-evidence.js
 
+  # The three conformance gates below only make sense for a pull request. They
+  # run on every pull_request event, but merge-gate is the only required check
+  # and it is configured on main, so a develop pull request is never blocked by
+  # them (ADR-0006: develop merges need neither remote CI nor approval).
+  branch-policy:
+    name: branch policy
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - run: node scripts/branch-policy.js
+
+  independent-review:
+    name: independent review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - run: node scripts/independent-review.js
+
+  high-risk-approval:
+    name: high-risk approval
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/check-pull-request-approval.js
+
   fast-gate:
     name: fast gate (${{ matrix.os }})
     if: needs.change-plan.result == 'success' && needs.change-plan.outputs.full != 'true'
@@ -83,6 +118,8 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm lint:eslint
+      - run: pnpm typecheck
       - if: needs.change-plan.outputs.lint == 'true'
         run: pnpm lint
       - if: needs.change-plan.outputs.validate == 'true'
@@ -170,6 +207,25 @@ jobs:
       - run: pnpm skills:audit
       - run: pnpm pack:contract
 
+  security:
+    name: security scan
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - if: github.event_name == 'pull_request'
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4
+        with:
+          fail-on-severity: high
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
   full-gate:
     name: full gate (${{ matrix.os }})
     if: needs.change-plan.result == 'success' && needs.change-plan.outputs.full == 'true'
@@ -196,9 +252,6 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
-      - run: pnpm lint:eslint
-      - run: pnpm typecheck
-        continue-on-error: true
       - run: pnpm eval:check
       - run: pnpm eval:harness check
       - run: pnpm eval:harness plan --tier fast
@@ -228,7 +281,7 @@ jobs:
 
   merge-gate:
     if: always()
-    needs: [change-plan, product, supply-chain, risk-evidence]
+    needs: [change-plan, product, supply-chain, risk-evidence, branch-policy, independent-review, high-risk-approval]
     runs-on: ubuntu-latest
     env:
       PRODUCT_RESULT: ${{ needs.product.result }}
@@ -236,6 +289,12 @@ jobs:
       REQUIRED_SUPPLY_CHAIN_RESULT: ${{ needs.change-plan.outputs.supplyChain == 'true' || github.ref == 'refs/heads/main' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
       RISK_EVIDENCE_RESULT: ${{ needs.risk-evidence.result }}
       CHANGE_PLAN_RESULT: ${{ needs.change-plan.result }}
+      BRANCH_POLICY_RESULT: ${{ needs.branch-policy.result }}
+      REQUIRED_BRANCH_POLICY_RESULT: ${{ github.event_name == 'pull_request' }}
+      HIGH_RISK_REVIEW_RESULT: ${{ needs.independent-review.result }}
+      REQUIRED_HIGH_RISK_REVIEW_RESULT: ${{ github.event_name == 'pull_request' }}
+      HIGH_RISK_APPROVAL_RESULT: ${{ needs.high-risk-approval.result }}
+      REQUIRED_HIGH_RISK_APPROVAL_RESULT: ${{ github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - run: node scripts/merge-gate.js

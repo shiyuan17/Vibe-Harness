@@ -1,9 +1,15 @@
 #!/usr/bin/env node
+// Aggregate result reader for the required merge-gate check.
+//
+// The workflow exports one <NAME>_RESULT variable per gate job, plus a
+// REQUIRED_<NAME>_RESULT flag that is `false` when the job is not applicable to
+// the event. Only variables the workflows actually set are read here: a name
+// that no job exports is indistinguishable from a passing gate, so dead names
+// are removed instead of being left to look satisfied.
 const names = [
   'BRANCH_POLICY_RESULT',
-  'DEVELOP_GATE_RESULT',
   'HIGH_RISK_REVIEW_RESULT',
-  'MAIN_RELEASE_GATE_RESULT',
+  'HIGH_RISK_APPROVAL_RESULT',
   'RISK_EVIDENCE_RESULT',
   'CHANGE_PLAN_RESULT',
   'PRODUCT_RESULT',

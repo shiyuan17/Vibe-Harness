@@ -29,6 +29,7 @@ jobs:
         with:
           node-version: 22.x
           cache: pnpm
+      - run: node scripts/release-readiness.js --sha "$GITHUB_SHA" --require-clean --receipt release-artifacts/release-readiness.json
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: pnpm docs:audit

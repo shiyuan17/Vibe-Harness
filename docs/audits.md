@@ -14,6 +14,8 @@ approved 要求 Reviewer 与实现者身份、context ID 均不同，readOnly �
 
 高风险 PR 的 body 只允许一个 Independent Review Receipt JSON 区块。scripts/independent-review.js 默认以 shadow 模式运行；设置 VIBE_HARNESS_INDEPENDENT_REVIEW_MODE=required 后才会让 degraded 结果返回失败。
 
+scripts/check-pull-request-approval.js 默认同为 shadow 模式，只记录是否存在当前的非作者批准；设置 VIBE_HARNESS_PR_APPROVAL_MODE=required 后才会在缺少批准时失败。
+
 ## Improvement candidates
 
 improvements kind 从 review findings 和垃圾回收观察中生成幂等候选。自动过程只能写入 proposed 或 eligible-for-owner-review，不会修改规则、自动接受候选或删除文件。可复现 Bug 和 Critical 安全 finding 一次即可进入 owner review；Hook、linter 和 Rule 需要两个独立 episode，Skill 需要三个。垃圾回收只报告至少九十天未变更且未被 manifest、catalog、测试或文档引用的治理资产。

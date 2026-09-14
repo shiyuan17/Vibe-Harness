@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { readFile } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
 
 const DEVELOP_SOURCE_PREFIXES = [
   'feat/', 'fix/', 'hotfix/', 'chore/', 'docs/', 'refactor/', 'test/',
@@ -38,4 +39,6 @@ async function main() {
   if (!result.ok) process.exitCode = 1;
 }
 
-if (process.argv[1] && import.meta.url === new URL(process.argv[1], 'file:').href) await main();
+// pathToFileURL keeps this guard correct on Windows, where a bare `new URL()`
+// would read the drive letter as a URL scheme.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();
