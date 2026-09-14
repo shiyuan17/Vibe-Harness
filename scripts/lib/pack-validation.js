@@ -353,83 +353,483 @@ export async function validateSkillGraph(
   return errors.sort();
 }
 
-export async function validateContentQuality(rootDir) {
-  const checks = [
-    {
-      file: 'docs/rules/governance-core.md',
-      terms: ['获取可信事实 → 判定并执行 → 聚焦验证 → 简洁交付', '事实充分性与歧义路由', '授权持续有效', '快速', '轻量', '完整', '明确授权', '验证范围必须与完成主张匹配'],
-    },
-    {
-      file: 'templates/task.md',
-      terms: ['可选的人读记录', '档位', '状态', '目标', '验收', '下一步', '验证', '风险'],
-    },
-    {
-      file: 'templates/delivery.md',
-      terms: ['结果', '实际变更', '本轮验证', '未验证项', '风险', '后续动作'],
-    },
-    {
-      file: 'docs/rules/AGENT_SKILL_ROUTING.md',
-      terms: ['description', '不使用 Router', '领域 Skill', '人工确认'],
-    },
-    {
-      file: 'docs/rules/test-rules.md',
-      terms: ['验收矩阵', '退出码', '未验证项', '对抗式', '测试类型', '参考实现'],
-    },
-    {
-      file: 'docs/rules/ai-collab-rules.md',
-      terms: ['单 Agent', '授权与批准', '验证与主张匹配', '保护现有工作区'],
-    },
-    {
-      file: 'docs/rules/project-directory.md',
-      terms: ['发现顺序', '放置规则', '跨边界变更'],
-    },
-    {
-      file: 'docs/rules/git-rules.md',
-      terms: ['分支', '提交', 'PR', '参考实现'],
-    },
-    {
-      file: 'docs/rules/api-rules.md',
-      terms: ['检查清单', '兼容策略', '验证证据'],
-    },
-    {
-      file: 'docs/rules/db-rules.md',
-      terms: ['检查清单', '回滚路径', '验证证据'],
-    },
-    {
-      file: 'docs/rules/coding-rules.md',
-      terms: ['检查清单', '依赖', '验证证据'],
-    },
-    {
-      file: 'docs/rules/frontend-rules.md',
-      terms: ['检查清单', '浏览器', '验证证据'],
-    },
-    {
-      file: 'docs/rules/log-management.md',
-      terms: ['目标与边界', '日志画像', '候选证据', '不引入新日志库', '最小字段与关联', '指标与追踪底线', '安全与可靠性', '排障与验收', '高基数', '脱敏', '验证证据'],
-    },
-    {
-      file: 'docs/rules/release-rules.md',
-      terms: ['检查清单', '回滚', '监控'],
-    },
-    {
-      file: 'docs/rules/troubleshooting.md',
-      terms: ['检查清单', '最小复现', '验证证据'],
-    },
-    {
-      file: 'skills/core/clarify-requirements/SKILL.md',
-      terms: ['安全审批', '阻塞产品决定', '可逆实现选择', '最多三个', '推荐项', '回答关闭分支后立即继续'],
-    },
-    {
-      file: 'skills/core/define-goal/SKILL.md',
-      terms: ['4000', '执行型', '探索型', '明确要求激活', '不得静默替换', '不扩大授权'],
-    },
-    {
-      file: 'adapters/antigravity/RULES.template.md',
-      terms: ['编辑前先检查项目状态', '红区', '人工确认', '验证结果'],
-    },
-  ];
+/**
+ * Wording anchors shared by more than one governed document.
+ *
+ * Several rule files, templates, or adapter instruction files must state the
+ * same convention in the same words. Defining the phrase once here keeps that
+ * convention a single edit instead of one edit per file; every consuming entry
+ * below references the constant rather than repeating the text.
+ */
+export const SHARED_RULE_PHRASES = Object.freeze({
+  optionalToolActivation: '本规则仅在',
+  degradedEvidence: '验证受阻（degraded）',
+  evidenceVerdictBoundary: '推断产品通过或失败',
+  referenceImplementation: '参考实现',
+  taskDagNotParsed: '不由 Vibe-Harness 解析',
+  testScopeReference: '测试范围细则',
+  gitFlowDefault: 'feat/*、fix/* → develop → main',
+  gitFlowHotfix: 'hotfix/* → main → develop',
+  developNoRemoteCi: '不要求远端 CI',
+  releaseOnlyCiBoundary: '只在发布边界',
+  releaseGateBranches: '`main`、`release/*`',
+  prohibitedAutoClaimMechanisms: 'Webhook 调度器、Linear Loop、leader lease、自动超时回收或自动重派',
+  noAssertionWeakening: '降低断言、删除断言或无理由跳过相关测试绕过',
+});
 
-  const results = await Promise.all(checks.map((check) => checkRequiredTerms(rootDir, check)));
+/**
+ * The declared wording contract for rule, template, and adapter prose.
+ *
+ * These files are prose, so "this clause is still stated" can only be checked
+ * by matching text. Declaring the matches here keeps that contract in one owned
+ * table: rewording a rule is one edit, and `pnpm validate` reports the missing
+ * anchor by file and phrase instead of an anonymous regex diff somewhere in a
+ * test file. A previous revision spread roughly 210 sentence-level regexes
+ * across three test files, so a single rewording had to be located and repeated
+ * per assertion, and a legitimate editorial change looked like a rule
+ * regression.
+ *
+ * Each anchor is the shortest phrase that still carries the normative meaning —
+ * a modal verb, an enumeration, a field set, or a distinctive label — rather
+ * than a whole sentence, so ordinary paraphrase does not break it. Contracts
+ * that are genuinely structural (section order, enum membership, absence of
+ * forbidden content) stay in tests and read the shared enums exported by the
+ * modules that already own them.
+ */
+export const CONTENT_QUALITY_CHECKS = [
+  {
+    file: 'docs/rules/governance-core.md',
+    terms: [
+      // 默认循环与事实充分性
+      '获取可信事实 → 判定并执行 → 聚焦验证 → 简洁交付',
+      '事实充分性与歧义路由',
+      '证据强度匹配行动风险',
+      '不要求机械双来源',
+      '不得任意择一',
+      '可发现事实继续只读探索',
+      '阻塞产品决定',
+      '每轮最多三个',
+      '明确授权',
+      '最小可逆默认值',
+      '清晰、已授权、证据充分',
+      '任务 Markdown 是可选的人读记录',
+      '按实际依赖、写入隔离和独立并行收益',
+      '不按信号数量或公共契约变化强制拆分',
+      '宿主 Plan 模式保持只读',
+      // 风险档位
+      '快速',
+      '轻量',
+      '完整',
+      // 验证范围与证据标签
+        '验证范围必须与完成主张匹配',
+        '先按变更类型选择项目已定义的聚焦检查',
+        SHARED_RULE_PHRASES.noAssertionWeakening,
+        '最后一次实质修改后的状态重跑同一检查',
+      '覆盖同一受影响行为的等价检查及理由',
+      'handoff 只引用晚于最后一次实质修改的结果',
+      '已确认事实',
+      '静态结论',
+      '待验证假设',
+      '验证受阻',
+      SHARED_RULE_PHRASES.evidenceVerdictBoundary,
+      '不形成机器状态、完成门禁或固定交付格式',
+      // 硬边界与批准恢复
+        '不得声称完成',
+        '同一目标、对象、操作和风险范围',
+        '密码、Secret、Token、Cookie、验证码、认证头、会话标识和个人敏感数据',
+      '不得进入回复、日志、错误、快照、Eval、任务记录或持久记忆',
+      '授权持续有效，不重复确认',
+      '不得以准备为名执行待批准动作',
+      '必要验证受阻时报告具体缺口',
+      '一个内部步骤完成不等于整个请求完成',
+      // 任务与协作
+      '两个以上协作单元',
+      '轻量 Task DAG',
+      '简单任务不创建 DAG',
+      'ready 节点',
+      'fan-in 后重新读取实际工作区与 diff',
+    ],
+  },
+  {
+    file: 'templates/task.md',
+    terms: [
+      '可选的人读记录',
+      '档位',
+      '状态',
+      '目标',
+      '验收',
+      '下一步',
+      '验证',
+      '风险',
+      '技术栈',
+      '目录结构',
+      '业务流',
+      '数据流',
+      '模块依赖',
+      '仅显式要求或影响范围无法缩小时填写',
+      '实施任务拆分（仅判定为拆分时填写）',
+      '协作图（仅使用协作时填写）',
+      '执行判定',
+      '不由 Vibe-Harness 解析或作为完成门禁',
+    ],
+  },
+  {
+    file: 'templates/task.en-US.md',
+    terms: [
+      'only when explicitly requested or impact cannot be narrowed',
+      'Implementation task split (complete only when the plan is split)',
+      'Collaboration Graph (complete only when collaborating)',
+      'Execution disposition',
+      'does not parse it or use it as a completion gate',
+    ],
+  },
+  {
+    file: 'templates/delivery.md',
+    terms: ['结果', '实际变更', '本轮验证', '未验证项', '风险', '后续动作'],
+  },
+  {
+    file: 'docs/rules/agent-skill-routing.md',
+    terms: [
+      'description',
+      '不使用 Router',
+      '领域 Skill',
+      '人工确认',
+      // Routing surface: only name and description are preloaded, so both the
+      // third-person trigger wording and the negative boundary stay normative.
+      '第三人称',
+      '不适用边界',
+      // Progressive disclosure keeps SKILL.md an entry point, not a transcript.
+      '渐进披露',
+      '按需读取',
+    ],
+  },
+  {
+    file: 'docs/rules/test-rules.md',
+    terms: [
+      '验收矩阵',
+      '退出码',
+      '未验证项',
+      '对抗式',
+      '测试类型',
+      SHARED_RULE_PHRASES.referenceImplementation,
+      // 验证范围与 degraded 判定
+      '普通对话 / 只读诊断',
+      '全量测试不是默认验证',
+      SHARED_RULE_PHRASES.degradedEvidence,
+      SHARED_RULE_PHRASES.evidenceVerdictBoundary,
+        SHARED_RULE_PHRASES.noAssertionWeakening,
+        '覆盖率是诊断信号不是目标',
+        // 工程约定
+        '先写暴露该缺陷的复现测试',
+        'flaky 测试须隔离并限期修复，不以重跑掩盖',
+      '断言行为而非实现细节',
+      '仅测试使用的辅助路径',
+      '项目已配置且对本次文件或语言适用时',
+      '无法隔离时才串行',
+      '不是目标项目通用门禁',
+      // 测试与 Eval 边界
+      '契约重放（contract-replay）',
+      '审计与运行时测试',
+      '更新须单独审查显式确认',
+    ],
+  },
+  {
+    file: 'docs/rules/ai-collab-rules.md',
+    terms: [
+      '单 Agent',
+      '授权与批准',
+      '验证与主张匹配',
+      '保护现有工作区',
+      // 默认方式
+      '仅在实际使用两个以上协作单元时生效',
+      '单 Agent、简单顺序任务和纯对话不创建 DAG',
+      SHARED_RULE_PHRASES.taskDagNotParsed,
+      '也不形成固定完成门禁',
+      // 轻量 Task DAG 与状态解释
+      'all_success',
+      'all_done',
+      '不得把失败图改判为成功',
+      '这四种状态不是终态',
+      'all_done 不得把仍 blocked 的节点视为已终结',
+      '唯一节点负责写入',
+      '已隔离的独立写节点仍可派发',
+      'Windows 路径比较忽略大小写',
+      '路径不重叠但存在接口、Schema、迁移或行为契约耦合',
+      '两个消费方读取同一已稳定契约并不等于两个共享契约写入者',
+      // 重验证、重试与交接
+      '每次派发 write 节点前重新确认 DAG 版本或 hash',
+      '子 Agent 交接至少报告节点结果',
+      '最后一次实质写入后运行集成验证',
+      '最多尝试三次',
+      'Retry-After',
+      '权限和安全拒绝不得重试绕过',
+      '确定性测试失败先修复再验证',
+      '未提交写入也会改变输入',
+      '不要求 HEAD 永远等于 initial HEAD',
+      '先只读补证或请原节点补充',
+      '不得伪造退出码',
+      '记为 blocked',
+      '实际 running 的读写节点',
+    ],
+  },
+  {
+    file: 'docs/rules/linear-workflow.md',
+    terms: [
+      // 1 授权模型
+      '禁止自动领取',
+      '不得扫描、轮询、订阅或从 Ready Queue 选择 Issue',
+      SHARED_RULE_PHRASES.prohibitedAutoClaimMechanisms,
+      '用户在本轮明确要求',
+      '显式启动',
+      '不授权登记或执行',
+      '人类 Assignee',
+      'Linear Delegate/App User',
+      'Execution Receipt',
+      'Activity Feed',
+      '保留人类 Assignee',
+      'agent:<agent-key> 与 role:writer',
+      'Reviewer 和 Verifier 只读，不写 Receipt',
+      // 2 状态与 GitFlow
+      'Ready to Merge',
+      '仅对带门禁',
+      SHARED_RULE_PHRASES.gitFlowDefault,
+      SHARED_RULE_PHRASES.gitFlowHotfix,
+      SHARED_RULE_PHRASES.developNoRemoteCi,
+      '只对发布边界运行',
+      SHARED_RULE_PHRASES.releaseGateBranches,
+      'main-release-gate',
+      '自行落地 squash merge',
+      // 3 Definition of Ready
+      '以 `ai-collab-rules.md` 为唯一规范来源',
+      '统一遵循 `ai-collab-rules.md`',
+      'Dependencies 只能是 None 或 Managed by Linear relations',
+      '描述中的明确依赖陈述必须与原生关系一致',
+      '不 Ready',
+      '自依赖、任意依赖环、不可见前驱、关系读取不完整',
+      // 4 原生 DAG 投影
+      'Parent/Sub-issue 只表示分解，不隐含顺序',
+      'blocked-by / blocks 是唯一执行依赖',
+      'related 不进入 DAG',
+      'Canceled、Duplicate、Won\'t Fix',
+      '不能把失败 DAG 或 Root 判为成功',
+      'Scope 是 writeScope 的 Linear 投影',
+      '拒绝绝对路径、UNC、空路径、..',
+      'Windows 比较忽略大小写',
+      'Scope 重叠或 resourceLocks 相同',
+      '不自行拆 Issue、改变 Parent、创建或删除关系',
+      '关闭 Linear 的 Parent/Sub-issue 自动关闭',
+      'Fan-in Verification',
+      'Parent 不得 Done',
+      'write 叶子由 closing PR/MR 合并',
+      'read 叶子由约定输出和 Verification 证据',
+      'aggregate Parent',
+      // 5 显式执行登记（Receipt 生命周期）
+      'vibe-harness.linear-execution/v1',
+      '原 Receipt 不得编辑',
+      'released、aborted、handed-off、local-work-completed',
+      '同一 Issue 最多一个 active execution',
+      '结果不确定时先重读',
+      '幂等成功',
+      '用户名、主机名、本地路径、Token、Cookie、会话凭据或个人敏感数据',
+      '不得声称已登记领取',
+      'write 叶子 Issue 对应一个 Writer',
+      '不要求实现 worktree、分支或 PR/MR',
+      // 6 Git、状态同步与安全（含快车道）
+      '无 Parent、Dependencies=None 且 resourceLocks=None',
+      '不得为此执行全项目 DAG 遍历',
+      '当前 Issue 及其必要依赖范围',
+      '顺序执行且工作区干净时允许在当前 clone 创建任务分支',
+      '必须使用仓库外 worktree',
+    ],
+  },
+  {
+    file: 'docs/rules/project-directory.md',
+    terms: [
+      '发现顺序',
+      '放置规则',
+      '跨边界变更',
+      '小型 Bug、单文件修改和简单问答不展开该清单',
+      '长期有效、高影响且难以逆转',
+      '不为普通修复、局部重命名、可逆实现选择或短期实验新建 ADR 体系',
+    ],
+  },
+  {
+    file: 'docs/rules/git-rules.md',
+    terms: [
+      '分支',
+      '提交',
+      'PR',
+      SHARED_RULE_PHRASES.referenceImplementation,
+      '普通单 Agent 局部修复不因任务类型自动创建 worktree',
+    ],
+  },
+  {
+    file: 'docs/rules/ast-grep.md',
+    terms: [SHARED_RULE_PHRASES.optionalToolActivation, '插件或项目内等价工具已存在时生效'],
+  },
+  {
+    file: 'docs/rules/chrome-devtools-mcp.md',
+    terms: [SHARED_RULE_PHRASES.optionalToolActivation, '插件或工具已存在时生效'],
+  },
+  {
+    file: 'docs/rules/codebase-memory-mcp.md',
+    terms: [
+      SHARED_RULE_PHRASES.optionalToolActivation,
+      '已存在且当前任务需要其结构化能力时生效',
+      '只有显式选择 `--plugin codebase-memory-mcp`',
+      '未选择插件时不得假设工具存在',
+    ],
+  },
+  {
+    file: 'docs/rules/rtk.md',
+    terms: [SHARED_RULE_PHRASES.optionalToolActivation, 'RTK 插件或工具已存在时生效'],
+  },
+  {
+    file: 'docs/rules/api-rules.md',
+    terms: ['检查清单', '兼容策略', '验证证据'],
+  },
+  {
+    file: 'docs/rules/db-rules.md',
+    terms: ['检查清单', '回滚路径', '验证证据'],
+  },
+  {
+    file: 'docs/rules/coding-rules.md',
+    terms: ['检查清单', '依赖', '验证证据', '先缩小改动范围'],
+  },
+  {
+    file: 'docs/rules/frontend-rules.md',
+    terms: [
+      '检查清单',
+      '浏览器',
+      '验证证据',
+      '用户输入和其他不可信内容不得直接注入 HTML',
+      '破坏性操作必须要求确认或提供可恢复',
+      '导航使用链接语义，操作使用按钮语义',
+      '令牌体系或完整浏览器矩阵缺失不阻塞',
+    ],
+  },
+  {
+    file: 'docs/rules/log-management.md',
+    terms: [
+      '目标与边界',
+      '最小字段与关联',
+      '指标与追踪底线',
+      '安全与可靠性',
+      '排障与验收',
+      '日志画像',
+      '候选证据',
+      '不引入新日志库',
+      '高基数',
+      '脱敏',
+      '验证证据',
+      '必须说明消费目的',
+      '公共字段包含时间、级别',
+      '`traceId` 和 `spanId`',
+      '不能替代 trace context',
+      '结果指标必须同时提供总量',
+      '延迟使用分布并区分成功与失败',
+      '用户 ID、请求 ID、邮箱、完整 URL',
+      '校验、限长、编码和脱敏',
+      'CR/LF',
+      '不得阻塞核心业务',
+      '.vibe-harness/log/',
+      '.vibe-harness/artifacts/',
+      '实际查询条件和验证证据',
+      '候选证据不能直接当作运行事实',
+      '不编造生产位置',
+      '不代表目标应用日志目录',
+      '不替代目标项目的日志或遥测契约',
+    ],
+  },
+  {
+    file: 'docs/rules/release-rules.md',
+    terms: ['检查清单', '回滚', '监控'],
+  },
+  {
+    file: 'docs/rules/troubleshooting.md',
+    terms: [
+      '检查清单',
+      '最小复现',
+      '验证证据',
+      SHARED_RULE_PHRASES.degradedEvidence,
+      '失败阶段、替代证据、未验证行为和剩余风险',
+      '不得把“本地未复现”当作问题不存在或自动停止',
+      '需要产品决策、额外权限或生产访问',
+    ],
+  },
+  {
+    file: 'skills/core/clarify-requirements/SKILL.md',
+    terms: ['安全审批', '阻塞产品决定', '可逆实现选择', '最多三个', '推荐项', '回答关闭分支后立即继续'],
+  },
+  {
+    file: 'skills/core/define-goal/SKILL.md',
+    terms: ['4000', '执行型', '探索型', '明确要求激活', '不得静默替换', '不扩大授权'],
+  },
+  {
+    file: 'adapters/antigravity/RULES.template.md',
+    terms: ['编辑前先检查项目状态', '红区', '人工确认', '验证结果'],
+  },
+  {
+    file: 'adapters/codex/AGENTS.template.md',
+    terms: [SHARED_RULE_PHRASES.testScopeReference],
+  },
+  {
+    file: 'adapters/claude/CLAUDE.template.md',
+    terms: [SHARED_RULE_PHRASES.testScopeReference],
+  },
+  {
+    file: 'adapters/gemini/GEMINI.template.md',
+    terms: [SHARED_RULE_PHRASES.testScopeReference],
+  },
+    {
+      file: 'skills/integrations/linear-workflow/SKILL.md',
+      terms: [
+        '不自动从队列领单',
+        '未指定 Issue 时不得选择、认领或更新任务',
+        SHARED_RULE_PHRASES.prohibitedAutoClaimMechanisms,
+        '远端 CI 只在发布边界',
+        SHARED_RULE_PHRASES.gitFlowDefault,
+        SHARED_RULE_PHRASES.gitFlowHotfix,
+        SHARED_RULE_PHRASES.developNoRemoteCi,
+      ],
+    },
+    {
+      file: 'skills/integrations/linear-workflow/references/ai-coding-task.md',
+      terms: [
+        'Target branch (exact remote ref): origin/develop',
+        'Contract: None',
+        'Dependencies: None',
+        'resourceLocks: None',
+      ],
+    },
+    {
+      file: 'skills/integrations/linear-workflow/references/release-issue.md',
+      terms: ['kind: aggregate', 'GitHub Release', 'Refs &lt;ISSUE-ID&gt;'],
+    },
+  {
+    file: 'skills/integrations/linear-workflow/references/workspace-setup.md',
+    terms: [
+      SHARED_RULE_PHRASES.gitFlowDefault,
+      SHARED_RULE_PHRASES.gitFlowHotfix,
+      SHARED_RULE_PHRASES.developNoRemoteCi,
+      SHARED_RULE_PHRASES.releaseOnlyCiBoundary,
+    ],
+  },
+];
+
+/**
+ * Return the declared wording anchors for one governed file.
+ *
+ * @param {string} file repository-relative path
+ */
+export function contentQualityCheck(file) {
+  const check = CONTENT_QUALITY_CHECKS.find((item) => item.file === file);
+  if (!check) throw new Error(`no content-quality contract declared for ${file}`);
+  return check;
+}
+
+export async function validateContentQuality(rootDir) {
+  const results = await Promise.all(CONTENT_QUALITY_CHECKS.map((check) => checkRequiredTerms(rootDir, check)));
   const errors = results.flat();
   const agentsPath = path.join(rootDir, 'AGENTS.md');
   if (await pathExists(agentsPath)) {

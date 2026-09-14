@@ -11,50 +11,35 @@ import { parse as parseJsonc } from 'jsonc-parser';
 import { parsePluginsOption, pluginModules, resolveModuleSelection } from '../scripts/lib/module-selection.js';
 import { scoreCase } from '../scripts/lib/eval-scoring.js';
 import { mergeManagedMcpBlock } from '../scripts/lib/tool-provisioning.js';
+import {
+  RECEIPT_SOURCES,
+  START_RECEIPT_KEYS,
+  TERMINAL_EVENT_KEYS,
+  TERMINAL_EVENT_TYPES,
+} from '../scripts/lib/receipt-records.js';
+import { assertRuleAnchors } from './helpers/governed-docs.js';
 
 const rootDir = path.resolve(import.meta.dirname, '..');
 const cliPath = path.join(rootDir, 'scripts/vibe-harness.js');
 const execFileAsync = promisify(execFile);
+const LINEAR_RULE = 'docs/rules/linear-workflow.md';
+const LINEAR_SKILL = 'skills/integrations/linear-workflow/SKILL.md';
 
 test('Linear workflow keeps explicit execution registration and forbids automatic claiming', async () => {
-  const [rule, skill] = await Promise.all([
-    readFile(path.join(rootDir, 'docs/rules/linear-workflow.md'), 'utf8'),
-    readFile(path.join(rootDir, 'skills/integrations/linear-workflow/SKILL.md'), 'utf8'),
-  ]);
-  assert.match(rule, /禁止自动领取/u);
-  for (const forbidden of ['扫描', '轮询', 'Webhook', 'Linear Loop', 'leader lease', '自动超时回收', '自动重派']) {
-    assert.match(rule, new RegExp(forbidden, 'iu'));
-  }
-  assert.match(rule, /用户在本轮明确要求.*具体 Issue/u);
-  assert.match(rule, /已委派给当前 Agent.*宿主.*显式启动/u);
-  assert.match(rule, /普通提及.*Review.*Verify.*不授权登记或执行/u);
-  assert.match(skill, /不自动从队列领单/u);
-  assert.match(skill, /未指定 Issue.*不得选择、认领或更新任务/u);
+  await assertRuleAnchors(rootDir, [LINEAR_RULE, LINEAR_SKILL]);
 });
 
 test('Linear execution receipt separates accountability, product identity, and runtime identity', async () => {
-  const rule = await readFile(path.join(rootDir, 'docs/rules/linear-workflow.md'), 'utf8');
-  for (const layer of ['人类 Assignee', 'Linear Delegate/App User', 'Execution Receipt', 'Activity Feed']) {
-    assert.match(rule, new RegExp(layer.replace('/', '\\/'), 'u'));
+  await assertRuleAnchors(rootDir, [LINEAR_RULE]);
+
+  // The prose contract must cover every receipt key and closed vocabulary the
+  // validator accepts, so a documented field cannot drift from a validated one.
+  const rule = await readFile(path.join(rootDir, LINEAR_RULE), 'utf8');
+  for (const key of new Set([...START_RECEIPT_KEYS, ...TERMINAL_EVENT_KEYS])) {
+    assert.ok(rule.includes(key), `linear-workflow must document receipt key ${key}`);
   }
-  assert.match(rule, /保留人类 Assignee/u);
-  assert.match(rule, /agent:<agent-key>.*role:writer/u);
-  assert.match(rule, /vibe-harness\.linear-execution\/v1/u);
-  for (const field of ['executionId', 'source', 'agentKey', 'hostKind', 'delegateId', 'runtimeInstanceId', 'role', 'dagRootIssue', 'dagNodeIssue', 'startedAt']) {
-    assert.match(rule, new RegExp(field, 'u'));
-  }
-  for (const source of ['explicit-user-request', 'existing-delegate', 'authorized-handoff']) {
-    assert.match(rule, new RegExp(source, 'u'));
-  }
-  assert.match(rule, /原 Receipt 不得编辑/u);
-  assert.match(rule, /released、aborted、handed-off、local-work-completed/u);
-  assert.match(rule, /同一 Issue 最多一个 active execution/u);
-  assert.match(rule, /结果不确定时先重读.*幂等成功/u);
-  assert.match(rule, /用户名、主机名、本地路径、Token、Cookie、会话凭据或个人敏感数据/u);
-  assert.match(rule, /只读、MCP 不可用、写入或重读验证失败时不得声称已登记领取/u);
-  assert.match(rule, /Reviewer 和 Verifier 只读，不写 Receipt/u);
-  assert.match(rule, /write 叶子 Issue 对应一个 Writer.*worktree.*分支.*closing PR\/MR/u);
-  assert.match(rule, /read 叶子.*不要求实现 worktree、分支或 PR\/MR/u);
+  for (const source of RECEIPT_SOURCES) assert.ok(rule.includes(source), source);
+  for (const type of TERMINAL_EVENT_TYPES) assert.ok(rule.includes(type), type);
 });
 
 test('Linear online Eval covers authorized handoff and stable fallback labels', async () => {
@@ -144,73 +129,30 @@ test('Linear regression Evals bind decisions to observable safety events', async
 });
 
 test('Linear DAG uses native relations and fails closed on invalid dependency or write conflicts', async () => {
-  const rule = await readFile(path.join(rootDir, 'docs/rules/linear-workflow.md'), 'utf8');
-  assert.match(rule, /Parent\/Sub-issue 只表示分解，不隐含顺序/u);
-  assert.match(rule, /blocked-by \/ blocks 是唯一执行依赖/u);
-  assert.match(rule, /related.*不进入 DAG/u);
-  assert.match(rule, /Dependencies 只能是 None 或 Managed by Linear relations/u);
-  assert.match(rule, /描述中的明确依赖陈述必须与原生关系一致，否则不 Ready/u);
-  assert.match(rule, /kind（read \/ write \/ aggregate）/u);
-  assert.match(rule, /trigger（all_success \/ all_done）/u);
-  assert.match(rule, /Canceled、Duplicate、Won't Fix.*都不算成功/u);
-  assert.match(rule, /自依赖、任意依赖环、不可见前驱、关系读取不完整/u);
-  assert.match(rule, /精确项目相对路径或末尾为 \/\*\* 的目录/u);
-  assert.match(rule, /拒绝绝对路径、UNC、空路径、\.\./u);
-  assert.match(rule, /Windows 比较忽略大小写/u);
-  assert.match(rule, /Scope 重叠或 resourceLocks 相同/u);
-  assert.match(rule, /不自行拆 Issue、改变 Parent、创建或删除关系/u);
-  assert.match(rule, /关闭 Linear 的 Parent\/Sub-issue 自动关闭/u);
-  assert.match(rule, /Fan-in Verification/u);
-  assert.match(rule, /write 叶子由 closing PR\/MR 合并/u);
-  assert.match(rule, /read 叶子由约定输出和 Verification 证据/u);
-  assert.match(rule, /aggregate Parent.*Fan-in Verification/u);
-  assert.match(rule, /节点模型、`result` 枚举、all_success \/ all_done、ready 与 fail-closed、Scope 和 Resource Lock 语义以 `ai-collab-rules\.md` 为唯一规范来源/u);
-  assert.match(rule, /每次派发 write 节点前的重验证.*统一遵循 `ai-collab-rules\.md`/u);
-  assert.match(rule, /子节点交接证据的记录范围.*统一遵循 `ai-collab-rules\.md`/u);
+  await assertRuleAnchors(rootDir, [LINEAR_RULE]);
 });
 
 test('Linear lightweight GitFlow defaults delivery to develop and separates release completion', async () => {
-  const [rule, skill, taskTemplate, releaseTemplate, workspaceSetup] = await Promise.all([
-    readFile(path.join(rootDir, 'docs/rules/linear-workflow.md'), 'utf8'),
-    readFile(path.join(rootDir, 'skills/integrations/linear-workflow/SKILL.md'), 'utf8'),
-    readFile(path.join(rootDir, 'skills/integrations/linear-workflow/references/ai-coding-task.md'), 'utf8'),
-    readFile(path.join(rootDir, 'skills/integrations/linear-workflow/references/release-issue.md'), 'utf8'),
-    readFile(path.join(rootDir, 'skills/integrations/linear-workflow/references/workspace-setup.md'), 'utf8'),
+  await assertRuleAnchors(rootDir, [
+    LINEAR_RULE,
+    LINEAR_SKILL,
+    'skills/integrations/linear-workflow/references/ai-coding-task.md',
+    'skills/integrations/linear-workflow/references/release-issue.md',
+    'skills/integrations/linear-workflow/references/workspace-setup.md',
   ]);
 
-  for (const content of [rule, skill, workspaceSetup]) {
-    assert.match(content, /feat\/\*、fix\/\*.*develop.*main/su);
-    assert.match(content, /hotfix\/\*.*main.*develop/su);
-    assert.match(content, /develop.*合并.*开发 Issue.*Done/su);
-    assert.match(content, /develop[^。\n]*不要求远端 CI|合入[^。\n]*develop[^。\n]*不要求远端 CI|不要求远端 CI/u);
-  }
-  assert.match(rule, /Writer[^。]*自行[^。]*squash/u);
-  assert.match(rule, /mergeRequestWrite[^。]*落地[^。]*合并|落地[^。]*merge/u);
-  assert.match(rule, /Ready to Merge[^。]*仅对带门禁/u);
-  assert.match(rule, /main-release-gate/u);
-  assert.match(skill, /远端 CI 只在发布边界/u);
-  assert.match(taskTemplate, /Target branch.*origin\/develop/su);
-  assert.match(taskTemplate, /Contract:\s*None/u);
-  assert.match(taskTemplate, /Dependencies[\s\S]*None/u);
-  assert.match(taskTemplate, /resourceLocks:\s*None/u);
-  assert.match(releaseTemplate, /kind:\s*aggregate/u);
-  assert.match(releaseTemplate, /GitHub Release/u);
-  assert.match(releaseTemplate, /main.*develop/u);
-  assert.match(releaseTemplate, /Refs (?:<ISSUE-ID>|&lt;ISSUE-ID&gt;)/u);
+  // Promotion and back-sync are opposite directions; the release template must
+  // keep both, or a release can look complete after only one of them.
+  const releaseTemplate = await readFile(
+    path.join(rootDir, 'skills/integrations/linear-workflow/references/release-issue.md'),
+    'utf8',
+  );
+  assert.match(releaseTemplate, /<code>develop<\/code> → <code>main<\/code>/u);
+  assert.match(releaseTemplate, /<code>main<\/code> → <code>develop<\/code>/u);
 });
 
 test('Linear fast path avoids project DAG traversal and isolates only when needed', async () => {
-  const [rule, skill] = await Promise.all([
-    readFile(path.join(rootDir, 'docs/rules/linear-workflow.md'), 'utf8'),
-    readFile(path.join(rootDir, 'skills/integrations/linear-workflow/SKILL.md'), 'utf8'),
-  ]);
-  for (const content of [rule, skill]) {
-    assert.match(content, /无 Parent.*Dependencies=None.*resourceLocks=None.*独立 Issue/su);
-    assert.match(content, /当前 Issue.*直接关系/u);
-    assert.match(content, /不得.*全项目 DAG.*遍历/u);
-    assert.match(content, /顺序执行.*工作区干净.*当前 clone/u);
-    assert.match(content, /并发.*脏工作区.*隔离.*worktree/u);
-  }
+  await assertRuleAnchors(rootDir, [LINEAR_RULE, LINEAR_SKILL]);
 });
 
 async function runCli(args) {
