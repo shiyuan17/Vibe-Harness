@@ -1,7 +1,7 @@
 ---
 id: ADR-0003
 title: Lightweight GitFlow for development integration and release promotion
-status: accepted
+status: superseded
 date: 2026-08-17
 review-date: 2026-09-14
 owner: vibe-harness-maintainers
@@ -9,7 +9,7 @@ decision-makers: [vibe-harness-maintainers]
 consulted: [linear-workflow-users]
 informed: [vibe-harness-contributors]
 supersedes: []
-superseded-by: null
+superseded-by: ADR-0006
 ---
 
 # Lightweight GitFlow for development integration and release promotion

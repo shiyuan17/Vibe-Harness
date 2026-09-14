@@ -10,9 +10,10 @@
 
 - **ADR-0001** Linear 显式执行身份与原生 DAG 契约 - accepted - 禁止自动领单，分离 Assignee、Delegate 与运行实例，并使用原生关系和追加式 Receipt - [ADR](../adr/ADR-0001-linear-explicit-execution-and-dag.md)
 - **ADR-0002** Linear Execution Envelope、恢复与交付边界 - accepted - 将授权、副作用、恢复检查点和终止条件固化为宿主可持久化契约 - [ADR](../adr/ADR-0002-linear-execution-envelope-and-recovery.md)
-- **ADR-0003** 开发集成与发布提升的轻量 GitFlow - accepted - 使用短期任务分支、develop 集成、main 发布和自动回同步分离开发完成与正式发布 - [ADR](../adr/ADR-0003-lightweight-gitflow.md)
+- **ADR-0003** 开发集成与发布提升的轻量 GitFlow - superseded - 使用短期任务分支、develop 集成、main 发布和自动回同步分离开发完成与正式发布 - [ADR](../adr/ADR-0003-lightweight-gitflow.md)
 - **ADR-0004** 任务拆分治理与 DAG 状态一致性 - accepted - 保持单 Agent 快车道，统一本地与 Linear DAG 状态，要求共享契约唯一写入者和 write 派发前重验证 - [ADR](../adr/ADR-0004-task-decomposition-governance.md)
 - **ADR-0005** 规则治理：SSOT、排版与本地化 - accepted - ai-collab-rules 独占通用 DAG 语义、linear-workflow 只留 Linear 投影，统一排版与中文本地化约定，并禁止硬编码版本与计数 - [ADR](../adr/ADR-0005-rules-governance.md)
+- **ADR-0006** 发布边界门禁与 Writer 落地 develop 合并 - accepted - 把 CI 从 develop 逐任务合并移到发布边界，并授权 Writer 自行 squash 合并自己的 PR；合并到 develop 即为 Done - [ADR](../adr/ADR-0006-release-gated-ci-writer-landed-merges.md)
 
 ## 纪律
 

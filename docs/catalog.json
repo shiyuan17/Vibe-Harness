@@ -644,6 +644,17 @@
       ]
     },
     {
+      "path": "docs/adr/ADR-0006-release-gated-ci-writer-landed-merges.md",
+      "kind": "architecture",
+      "status": "current",
+      "language": "en",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
+    },
+    {
       "path": "docs/adr/catalog.json",
       "kind": "index",
       "status": "current",

@@ -6,9 +6,9 @@
 
 从干净且最新的 <code>origin/main</code> 创建 <code>develop</code> 后，将 GitHub 默认分支切换到 <code>develop</code>：
 
-- 只允许 Pull Request；required status check 选择 <code>merge-gate</code>。
+- 只允许 Pull Request；<b>不设置 required status check</b>（合入 <code>develop</code> 不运行 CI）。
 - 普通 <code>feat/*</code> 与 <code>fix/*</code> 使用 squash merge；合并后删除任务分支。
-- 低/中风险 PR 不强制人工审批，可由作者启用 auto-merge；公共契约、schema、installer、runtime/hook、安全、红区或发布变更要求一个非作者批准。
+- 所有风险等级的 PR 都不强制人工审批、不要求远端 CI；持有 Issue 登记的 Writer 可在 Execution Envelope 授权 <code>mergeRequestWrite</code> 后自行 squash 合并，或由作者启用 auto-merge。合入 <code>develop</code> 视为完成，唯一前置是本地验证通过。
 - 任务分支目标存活不超过约两个工作日；更大工作使用拆分或 feature flag，而非长期共享 feature 分支。
 
 ## Main ruleset
@@ -16,12 +16,25 @@
 为 main 创建 active ruleset，并配置：
 
 - 只允许同仓库的 <code>develop</code>、<code>hotfix/*</code> 和 <code>release-please--branches--main*</code> 通过 Pull Request 合并，要求分支基于最新 main。
-- required status check 只选择 merge-gate，启用 strict / require branches to be up to date。
+- required status check 只选择 merge-gate，启用 strict / require branches to be up to date。完整发布门禁只在发布边界运行：<code>develop → main</code> 提升、<code>hotfix/* → main</code> 以及 <code>release/*</code>；workflow 里的聚合 job 名是 <code>merge-gate</code>，文档中的历史名 <code>main-release-gate</code> 指同一发布边界。
 - 要求解决全部对话。普通任务不得直达 main；<code>develop → main</code> 发布提升必须使用 merge commit，保留任务提交。
 - 禁止 force push 和分支删除。
 - 当前不要求 reviewer 或 CODEOWNERS；有非作者写权限协作者后再启用高风险 owner review。
 
 失败 check 会使 merge-gate 失败；PR 新提交会生成新的 check suite，旧 SHA 的结果不能满足最新提交。
+
+## CI 门禁接线
+
+workflow 在同一个 <code>pull_request</code> 事件上运行三个一致性 job，再统一聚合到 merge-gate：
+
+- <code>branch-policy</code>：校验 PR 来源分支，main 只接受同仓库的 <code>develop</code>、<code>hotfix/*</code>、<code>release-please--branches--main*</code>，develop 接受任务分支前缀。
+- <code>independent-review</code>：校验高风险 PR body 中的独立审查收据区块。
+- <code>high-risk-approval</code>：校验是否存在当前的非作者批准。
+- <code>merge-gate</code> 聚合 <code>product</code>、<code>supply-chain</code>、<code>risk-evidence</code> 与以上三个门禁。它同时是 main ruleset 的唯一 required check，因此 develop PR 上的失败不会阻塞合并。
+
+<code>independent-review</code> 与 <code>high-risk-approval</code> 默认 shadow 模式：只记录结论，不因缺少收据或批准而失败；设置 <code>VIBE_HARNESS_INDEPENDENT_REVIEW_MODE=required</code> 或 <code>VIBE_HARNESS_PR_APPROVAL_MODE=required</code> 后才转为强制。
+
+发布边界另有一道准备度检查：<code>release-verify</code> 在安装依赖前运行 <code>pnpm release:readiness --sha "$GITHUB_SHA" --require-clean</code>，核对 <code>package.json</code>、<code>.release-please-manifest.json</code> 与 <code>CHANGELOG.md</code> 是否一致，并把收据写入 release-artifacts。
 
 ## 迁移顺序与回同步
 

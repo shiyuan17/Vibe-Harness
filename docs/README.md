@@ -13,6 +13,7 @@
 - [ADR-0003：开发集成与发布提升的轻量 GitFlow](adr/ADR-0003-lightweight-gitflow.md)
 - [ADR-0004：任务拆分治理与 DAG 状态一致性](adr/ADR-0004-task-decomposition-governance.md)
 - [ADR-0005：规则治理：SSOT、排版与本地化](adr/ADR-0005-rules-governance.md)
+- [ADR-0006：发布边界门禁与 Writer 落地 develop 合并](adr/ADR-0006-release-gated-ci-writer-landed-merges.md)
 - [ADR Schema](schemas/adr.schema.json)
 - [Execution Envelope v1 Schema](schemas/execution-envelope.schema.json)
 - [Execution Envelope v2 Schema](schemas/execution-envelope-v2.schema.json)
