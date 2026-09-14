@@ -26,11 +26,11 @@ core suite 覆盖安装、安全 Hook、浏览器和显式工具能力。
 pnpm vibe-harness eval check --project ../some-project
 pnpm vibe-harness eval run --project ../some-project --mode offline
 pnpm vibe-harness eval run --project ../some-project --mode offline --write
-pnpm vibe-harness eval reference --project ../some-project --from .vibe-harness/evals/runs/<run>.json --write --confirm-reference-update
+pnpm vibe-harness eval reference --project ../some-project --from .vibe-harness/evals/runs/<run>.json --write --confirm-reference-update --force
 pnpm eval:replay --write
 ```
 
-offline 模式验证 suite、oracle、聚合和 reference 一致性。online runner 必须在一次性项目中执行，限制输出与超时，并保护全局配置。reference 更新始终显式执行，不能为让变更通过而自动提升。资产敏感度（改动规则、Skill、Hook 或配置后必须失败）由 Harness Evals 的 RED 阶段验证；旧 behavioral 变异命令已移除，见上文 proof 说明。run fingerprint 分别记录 config、hooks、rules、skills 分类哈希与聚合哈希；资产漂移、缺 reference 或 degraded run 不计为通过。
+offline 模式验证 suite、oracle、聚合和 reference 一致性。online runner 必须在一次性项目中执行，限制输出与超时，并保护全局配置。reference 更新始终显式执行，不能为让变更通过而自动提升；既有 reference 存在时还需 `--force`，由它先备份旧文件再替换，因此 `eval run --write` 与 `eval reference --write --confirm-reference-update --force` 是一组固定顺序。资产敏感度（改动规则、Skill、Hook 或配置后必须失败）由 Harness Evals 的 RED 阶段验证；旧 behavioral 变异命令已移除，见上文 proof 说明。run fingerprint 分别记录 config、hooks、rules、skills 分类哈希与聚合哈希；资产漂移、缺 reference 或 degraded run 不计为通过。
 
 签入的 offline run（`evals/results/vibe-harness-core.offline.json`）与 reference 内嵌同一份资产指纹：`pnpm eval:replay` 只读比对签名入产物，`pnpm eval:check` 交叉校验 run 与 reference，因此两者必须同时更新，顺序是先再生成 reference，再用 `pnpm eval:replay --write` 重生成 run（旧文件备份到 `.vibe-harness/backups/`）。`--write` 先只校验 suite 契约，写完后交叉比对 reference 指纹，仍不一致就以非零退出并给出再生成命令；未漂移时不写文件、不产生备份。
 
