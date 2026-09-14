@@ -1047,6 +1047,17 @@
         "agent",
         "maintainer"
       ]
+    },
+    {
+      "path": "docs/adr/ADR-0007-dag-result-unverified.md",
+      "kind": "architecture",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
     }
   ]
 }

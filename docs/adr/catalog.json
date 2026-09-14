@@ -24,6 +24,10 @@
     {
       "id": "ADR-0006",
       "path": "docs/adr/ADR-0006-release-gated-ci-writer-landed-merges.md"
+    },
+    {
+      "id": "ADR-0007",
+      "path": "docs/adr/ADR-0007-dag-result-unverified.md"
     }
   ]
 }
