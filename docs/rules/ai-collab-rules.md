@@ -55,7 +55,7 @@
 - 节点失败只阻塞依赖它且使用 all_success 的后继；已隔离且无失败依赖的独立节点可以继续。失败仅暂停受影响写节点及其依赖，已隔离的独立写节点仍可派发。共享契约冲突或工作区完整性受损时才停止全部写节点。
 - 瞬时网络、限流或无副作用工具故障最多尝试三次，并遵守可用的 Retry-After；权限和安全拒绝不得重试绕过；契约歧义先查明，确定性测试失败先修复再验证，非幂等外部写入结果不明时先重读状态。
 - 长任务可选声明节点超时、最大尝试次数、取消、退避和资源与 token 预算，普通单 Agent 任务不要求填写。
-- 每次派发 write 节点前重新确认 DAG 版本或 hash、依赖、Scope、Resource Lock、HEAD 和工作区身份未变化；发生变化时暂停后继并重新计算 ready 集合。
+- 每次派发 write 节点前重新确认 DAG 版本或 hash、依赖、writeScope、Resource Lock、HEAD 和工作区身份未变化；发生变化时暂停后继并重新计算 ready 集合。
 - 子 Agent 交接至少报告节点结果、实际修改文件、base/head、验证命令与退出码、未决风险和阻塞原因；节点标识、DAG hash、尝试次数与起止时间随交接与交付报告记录。这些信息只是人读证据，不构成授权根。
 - 父 Agent 在 fan-in 后重新读取工作区状态和实际 diff，核对写入归属、共享契约与冲突，并在最后一次实质写入后运行集成验证；child 自报只证明其局部范围。
 - 子 Agent 回传偏离目标、重复他人工作或缺少证据时，父 Agent 拒绝采纳并重派或回收该工作，不因单个无效回传把整张图升级为阻塞。
@@ -86,7 +86,7 @@ Linear 状态到本地 `result` 的映射固定如下，只作本地解释，不
 
 已有 Linear DAG 是外部工作真值，不受“仅在本地协作时创建轻量 DAG”的限制。映射时，顶层 Parent 是 DAG Root，Sub-issue 是节点，Parent/Sub-issue 只表示分解；dependsOn 只能从原生 blocked-by / blocks 关系派生，related 不是执行边，描述中的依赖清单也不是第二真值。执行者由 Delegate + Execution Receipt 表示，Scope 投影为 writeScope，DAG Metadata 可提供 kind、trigger 和 resourceLocks。
 
-Agent 必须检测环、不可见或未解决依赖，以及 Scope / Resource Lock 冲突，但不得在没有授权时创建、删除或修改 Linear relations。存在子 Issue 的 Parent 是 aggregate；write 叶子由 closing PR 合并证明成功，read 叶子由输出与 Verification 证据证明成功。Parent 只有在全部必需后代成功且 Fan-in Verification 通过后才 Done；Linear 的 Parent/Sub-issue 自动关闭必须禁用，all_done 报告节点成功也不能掩盖必需后代失败。
+Agent 必须检测环、不可见或未解决依赖，以及 writeScope（Linear 的 Scope）与 Resource Lock 冲突，但不得在没有授权时创建、删除或修改 Linear relations。存在子 Issue 的 Parent 是 aggregate；write 叶子由 closing PR 合并证明成功，read 叶子由输出与 Verification 证据证明成功。Parent 只有在全部必需后代成功且 Fan-in Verification 通过后才 Done；Linear 的 Parent/Sub-issue 自动关闭必须禁用，all_done 报告节点成功也不能掩盖必需后代失败。
 
 轻量 Task DAG 默认建议同一时刻 ready 写节点并发不超过 5、只读探查不超过 8；这是可由宿主并发能力、API 限流、项目资源和任务预算覆盖的软上限，不等同于 Linear 活跃 Issue 上限；并行度实际上限由可复核的 diff 规模、人类复核带宽与 token 预算决定，默认值是上限而不是目标，多 Agent 的 token 成本显著高于单 Agent。Linear 工作流另建议 Writer In Progress 不超过 3、In Review 不超过 2。子 Agent 默认不再派生子 Agent（最大派生深度 1），确需进一步拆分时回传 blocked 与拆分请求，由父 Agent 决定是否创建兄弟节点。fan-in 多个子 Agent 后若父 Agent 上下文接近压缩边界，先压缩已采纳子 Agent 的原始证据指针，保留结论、已定决策及其理由与未决项再继续派发，压缩不得丢弃未完成依赖或未验证假设。
 
