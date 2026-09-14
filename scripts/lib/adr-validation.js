@@ -5,7 +5,7 @@ import { promisify } from 'node:util';
 
 import { pathExists, readJson, validateJsonAgainstSchema } from './manifest.js';
 
-const ADR_FILE_PATTERN = /^ADR-(\d{4})-([a-z0-9]+(?:-[a-z0-9]+)*)\.md$/u;
+export const ADR_FILE_PATTERN = /^ADR-(\d{4})-([a-z0-9]+(?:-[a-z0-9]+)*)\.md$/u;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;
 const ID_PATTERN = /^ADR-\d{4}$/u;
 const STATUSES = new Set(['proposed', 'accepted', 'rejected', 'deprecated', 'superseded']);

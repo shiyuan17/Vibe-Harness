@@ -159,7 +159,7 @@ export async function collectGovernedPaths(rootDir) {
   return [...rootFiles, ...await collectMarkdown(path.join(rootDir, 'docs'), rootDir), ...governedAssets].sort();
 }
 
-function extractLocalLinks(content) {
+export function extractLocalLinks(content) {
   const links = [];
   const markdown = markdownWithoutCode(content);
   const patterns = [
