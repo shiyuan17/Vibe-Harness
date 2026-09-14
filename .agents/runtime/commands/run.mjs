@@ -195,8 +195,48 @@ async function gitFingerprint(projectDir) {
   if (!snapshot.available) return { snapshot, fingerprint: null };
   const hash = createHash('sha256');
   hash.update(snapshot.head ?? '');
-  hash.update(JSON.stringify(snapshot.changes));
+  // HEAD plus porcelain status cannot see a file that is already dirty before
+  // verification and is rewritten again while the checks run: the status line
+  // stays ` M path` and the fingerprint would still claim a stable workspace.
+  // Hash the content of every changed path so the receipt matches the claim
+  // that the result belongs to the delivered bytes.
+  const changes = [...snapshot.changes].sort((left, right) => left.path.localeCompare(right.path));
+  for (const change of changes) {
+    hash.update(change.status);
+    hash.update('\0');
+    hash.update(change.path);
+    hash.update('\0');
+    if (change.newPath) {
+      hash.update(change.newPath);
+      hash.update('\0');
+    }
+  }
+  for (const relativePath of changedPathList(changes)) {
+    hash.update(relativePath);
+    hash.update('\0');
+    hash.update(await changedPathContent(snapshot.root ?? projectDir, relativePath));
+    hash.update('\0');
+  }
   return { snapshot, fingerprint: hash.digest('hex') };
+}
+
+function changedPathList(changes) {
+  const paths = new Set();
+  for (const change of changes) {
+    if (change.path) paths.add(change.path);
+    if (change.newPath) paths.add(change.newPath);
+  }
+  return [...paths].sort();
+}
+
+async function changedPathContent(rootDir, relativePath) {
+  try {
+    return await readFile(path.join(rootDir, relativePath));
+  } catch {
+    // Deleted, unreadable, or otherwise absent paths still contribute a marker
+    // so a delete/re-add pair cannot produce the same fingerprint.
+    return Buffer.from('<unreadable>', 'utf8');
+  }
 }
 
 function packageManager(packageJson, projectDir) {

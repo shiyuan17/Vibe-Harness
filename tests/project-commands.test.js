@@ -125,3 +125,33 @@ test('core installation provides a standalone project command runner', async () 
     await rm(project, { recursive: true, force: true });
   }
 });
+
+test('verify detects a content change to an already-dirty file', async () => {
+  const project = await tempProject();
+  try {
+    await execFileAsync('git', ['init', '--quiet'], { cwd: project });
+    await execFileAsync('git', ['config', 'user.email', 'fixture@example.com'], { cwd: project });
+    await execFileAsync('git', ['config', 'user.name', 'Fixture'], { cwd: project });
+    await writeFile(path.join(project, 'data.txt'), 'one\n', 'utf8');
+    await execFileAsync('git', ['add', '.'], { cwd: project });
+    await execFileAsync('git', ['commit', '--quiet', '-m', 'init'], { cwd: project });
+    // The file is already dirty before verification starts, so the porcelain
+    // status line is identical before and after the check rewrites it.
+    await writeFile(path.join(project, 'data.txt'), 'two\n', 'utf8');
+    await writeFile(
+      path.join(project, 'mutate.cjs'),
+      'require("node:fs").appendFileSync("data.txt", "three\\n");\n',
+      'utf8',
+    );
+    await writeConfig(project, { test: 'node mutate.cjs' });
+
+    const result = await runCommand(['verify', '--project', '.', '--json'], { cwd: project });
+
+    assert.equal(result.report.checks.test.status, 'passed');
+    assert.equal(result.report.verification.stable, false);
+    assert.equal(result.report.verification.status, 'workspace_changed');
+    assert.equal(result.exitCode, 1);
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
