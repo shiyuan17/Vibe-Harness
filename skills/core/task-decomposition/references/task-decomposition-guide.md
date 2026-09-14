@@ -4,7 +4,7 @@
 
 只输出当前请求需要的判断和实施安排，不强制 Goal Brief、节点表、并行批次、关键路径或里程碑全套格式。用户要求单节点执行提示词时提供自包含目标、输入、允许修改范围和验收；简单顺序步骤不包装成独立任务或提交。
 
-实际协作节点声明必要依赖、输入、写入归属、共享资源、验收和验证。节点结果使用 pending、ready、running、succeeded、failed、blocked、skipped 或 cancelled；Linear 的 Canceled、Duplicate、Won't Fix 只作外部终态并按非 succeeded 处理。检查环、范围冲突、共享契约多方写入、缺失 fan-in、过期 DAG/HEAD 和未覆盖验收；共享 API、Schema、迁移或行为契约必须指定唯一写入 owner 并建立显式依赖，无法证明隔离时按冲突处理。自行生成的本地计划可在原授权内修订，外部依赖写入仍需授权。
+实际协作节点声明必要依赖、输入、写入归属、共享资源、验收和验证。节点结果使用 pending、ready、running、unverified、succeeded、failed、blocked、skipped 或 cancelled；unverified 与 blocked 是非终态；Linear 的 Canceled、Duplicate、Won't Fix 只作外部终态并按非 succeeded 处理。检查环、范围冲突、共享契约多方写入、缺失 fan-in、过期 DAG/HEAD 和未覆盖验收；共享 API、Schema、迁移或行为契约必须指定唯一写入 owner 并建立显式依赖，无法证明隔离时按冲突处理。自行生成的本地计划可在原授权内修订，外部依赖写入仍需授权。
 
 节点提示词限定当前节点及授权范围，要求先核对工作区和依赖证据，并在 write 派发前重验证 DAG 版本/hash、依赖、Scope、锁、HEAD 和工作区身份。测试失败时在范围内查因、修复并重跑；真正缺少权限、依赖或必要产品决定时回报父 Agent，独立工作可以继续。子节点结束时报告结果、实际修改文件、base/head、验证命令与退出码、未决风险和阻塞原因；该交接信息不构成授权。父 Agent 按整个请求的授权和验收继续编排，不因节点完成要求用户重复说“继续”。
 

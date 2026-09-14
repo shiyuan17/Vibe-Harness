@@ -12,7 +12,7 @@ export const TASK_DAG_SCHEMA = 'vibe-harness.task-dag/v1';
 
 export const NODE_KINDS = Object.freeze(['read', 'write', 'aggregate']);
 export const NODE_TRIGGERS = Object.freeze(['all_success', 'all_done']);
-export const NODE_RESULTS = Object.freeze(['pending', 'ready', 'running', 'succeeded', 'failed', 'blocked', 'skipped', 'cancelled']);
+export const NODE_RESULTS = Object.freeze(['pending', 'ready', 'running', 'unverified', 'succeeded', 'failed', 'blocked', 'skipped', 'cancelled']);
 // `blocked` is deliberately not terminal: an all_done predecessor may not be
 // blocked, because that would report a failure as a settled input.
 export const TERMINAL_RESULTS = Object.freeze(['succeeded', 'failed', 'skipped', 'cancelled']);
@@ -317,9 +317,9 @@ function scheduleNodes(byId, conflicts) {
       const result = byId.get(dependency).result;
       const satisfied = node.trigger === 'all_success' ? SUCCESSFUL_RESULTS.includes(result) : TERMINAL_RESULTS.includes(result);
       if (satisfied) continue;
-      // `blocked` is non-terminal, so a blocked predecessor is still pending
-      // resolution: the node waits instead of being reported as failed.
-      if (['pending', 'ready', 'running', 'blocked'].includes(result)) waiting.push(`${dependency}=${result}`);
+      // `blocked` and `unverified` are non-terminal, so those predecessors are
+      // still pending resolution: the node waits instead of failing.
+      if (['pending', 'ready', 'running', 'unverified', 'blocked'].includes(result)) waiting.push(`${dependency}=${result}`);
       else failed.push(`${dependency}=${result}`);
     }
     if (failed.length > 0) blocked.push({ code: 'TASK_DAG_PREDECESSOR_FAILED', id: node.id, reason: failed.join(', ') });

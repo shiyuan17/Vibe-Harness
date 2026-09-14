@@ -63,7 +63,7 @@ Dependencies: None
 
 all_done 只允许清理或失败报告节点使用，且这类节点应按 aggregate 语义建模；普通 read/write 节点使用 all_success。Resource Locks 不得包含实例 ID、凭据、本地路径或个人信息。
 
-本地 result 使用 pending / ready / running / succeeded / failed / blocked / skipped / cancelled，仅作人读解释，不作为本模板的新增字段。Linear 的 Canceled / Won't Fix 映射 cancelled，Duplicate 映射 skipped，都不是 succeeded；blocked 非终态。路径不重叠但存在 API、Schema、迁移或行为契约耦合时，必须指定唯一写入 owner 并建立原生依赖；无法证明隔离时按冲突处理。
+本地 result 使用 pending / ready / running / unverified / succeeded / failed / blocked / skipped / cancelled，仅作人读解释，不作为本模板的新增字段。Linear 的 Canceled / Won't Fix 映射 cancelled，Duplicate 映射 skipped，都不是 succeeded；unverified 与 blocked 非终态。路径不重叠但存在 API、Schema、迁移或行为契约耦合时，必须指定唯一写入 owner 并建立原生依赖；无法证明隔离时按冲突处理。
 
 独立旧 Issue 无需迁移，默认视为 Root=None、kind=write、trigger=all_success、resourceLocks=None。
 

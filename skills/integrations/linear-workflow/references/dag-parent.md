@@ -34,7 +34,7 @@
 - trigger: all_success | all_done，默认 all_success
 - resourceLocks: 稳定逻辑资源名列表，或 None
 
-本地 result 使用 pending / ready / running / succeeded / failed / blocked / skipped / cancelled，仅作人读解释，不新增平台字段。Canceled / Won't Fix 映射 cancelled，Duplicate 映射 skipped；blocked 非终态，不满足 all_done。
+本地 result 使用 pending / ready / running / unverified / succeeded / failed / blocked / skipped / cancelled，仅作人读解释，不新增平台字段。Canceled / Won't Fix 映射 cancelled，Duplicate 映射 skipped；unverified 与 blocked 非终态，不满足 all_done。
 
 all_success 要求全部直接前驱成功。all_done 只允许聚合终态、清理或失败报告；它可以成功地产出报告，但不能把有失败必需节点的 DAG Root 判为成功。
 
@@ -56,7 +56,7 @@ Parent 只有同时满足以下条件才可 Done：
 3. 每个 required aggregate descendant 满足自身 trigger，并通过自身 Fan-in Verification。
 4. Root 的 Fan-in Verification 通过并留下事实证据。
 
-任一 required descendant 为 failed、blocked、skipped、cancelled、Canceled、Duplicate 或 Won't Fix 时，Parent 不得判为成功或 Done。成功的 all_done 报告节点不能覆盖该失败。必须关闭 Workspace 的 Parent/Sub-issue 自动关闭，避免绕过本策略。
+任一 required descendant 为 failed、unverified、blocked、skipped、cancelled、Canceled、Duplicate 或 Won't Fix 时，Parent 不得判为成功或 Done。成功的 all_done 报告节点不能覆盖该失败。必须关闭 Workspace 的 Parent/Sub-issue 自动关闭，避免绕过本策略。
 
 ## AI 规则（AI Rules）
 

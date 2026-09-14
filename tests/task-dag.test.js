@@ -196,6 +196,28 @@ test('ready computation honors all_success, all_done and non-terminal blocked', 
   assert.deepEqual(blockedPredecessor.blocked.map((entry) => entry.code), ['TASK_DAG_WAIT']);
 });
 
+test('an unverified node stays non-terminal and never satisfies a successor', () => {
+  const allSuccess = validateTaskDag({
+    nodes: [node({ id: 'build', result: 'unverified' }), node({ id: 'after', dependsOn: ['build'] })],
+    schema: TASK_DAG_SCHEMA,
+  });
+  assert.equal(allSuccess.ok, true);
+  assert.deepEqual(allSuccess.ready, []);
+  assert.deepEqual(allSuccess.blocked.map((entry) => entry.code), ['TASK_DAG_WAIT']);
+  assert.deepEqual(allSuccess.blocked.map((entry) => entry.reason), ['build=unverified']);
+
+  const allDone = validateTaskDag({
+    nodes: [
+      node({ id: 'build', result: 'unverified' }),
+      node({ id: 'cleanup', kind: 'aggregate', dependsOn: ['build'], trigger: 'all_done', output: 'cleanup', verification: ['human'] }),
+    ],
+    schema: TASK_DAG_SCHEMA,
+  });
+  assert.equal(allDone.ok, true);
+  assert.deepEqual(allDone.ready, []);
+  assert.deepEqual(allDone.blocked.map((entry) => entry.code), ['TASK_DAG_WAIT']);
+});
+
 test('a non-list DAG fails closed', () => {
   const analysis = validateTaskDag({ nodes: 'nope' });
   assert.equal(analysis.ok, false);

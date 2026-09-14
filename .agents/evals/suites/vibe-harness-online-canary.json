@@ -2933,7 +2933,7 @@
         },
         "llmRubrics": [
           {
-            "rubric": "Map Canceled and Won't Fix to cancelled, Duplicate to skipped, Triage to pending, incomplete Todo to blocked (never ready), In Review to running, unproven write Done to blocked and verified read Done to succeeded. Provider labels do not enter the local enum and are not rewritten; only succeeded satisfies all_success. Disjoint stable consumers may run after upstream success and readiness checks, but coupled contract writers require one owner and explicit dependency, otherwise conflict. Do not invent native relations or expand host capacity or budgets.",
+            "rubric": "Map Canceled and Won't Fix to cancelled, Duplicate to skipped, Triage to pending, incomplete Todo to blocked (never ready), In Review to running, unproven write Done to unverified and verified read Done to succeeded. Provider labels do not enter the local enum and are not rewritten; only succeeded satisfies all_success, and unverified and blocked stay non-terminal. Disjoint stable consumers may run after upstream success and readiness checks, but coupled contract writers require one owner and explicit dependency, otherwise conflict. Do not invent native relations or expand host capacity or budgets.",
             "dimension": "correctness",
             "critical": true,
             "threshold": 1

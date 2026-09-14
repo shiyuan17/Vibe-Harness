@@ -40,7 +40,7 @@
 
 > Linear 映射时 dependsOn 只从原生 blocked-by / blocks 关系派生；Parent/Sub-issue 和 related 不产生执行边。writeScope 只接受精确项目相对路径或目录范围；冲突 Scope / resourceLocks 必须已有依赖顺序，all_done 只用于 aggregate，不能把失败 Root 判为成功。
 
-> DAG result 使用 pending / ready / running / succeeded / failed / blocked / skipped / cancelled；Linear 的 Canceled、Duplicate、Won't Fix 只作为外部终态并按非 succeeded 处理。write 节点派发前须重验证 DAG、依赖、Scope、锁、HEAD 和工作区身份；节点交接至少报告结果、修改文件、base/head、验证命令与退出码、风险和阻塞。
+> DAG result 使用 pending / ready / running / unverified / succeeded / failed / blocked / skipped / cancelled；unverified 与 blocked 都是非终态。Linear 的 Canceled、Duplicate、Won't Fix 只作为外部终态并按非 succeeded 处理。write 节点派发前须重验证 DAG、依赖、Scope、锁、HEAD 和工作区身份；节点交接至少报告结果、修改文件、base/head、验证命令与退出码、风险和阻塞。
 
 | id | kind（read / write / aggregate） | output | dependsOn | trigger（all_success / all_done） | writeScope | resourceLocks | verification | result |
 |---|---|---|---|---|---|---|---|---|

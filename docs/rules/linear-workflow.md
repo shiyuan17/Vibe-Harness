@@ -46,7 +46,7 @@ Ready 门禁通过后解析目标远端 ref 并冻结 base SHA；后续分支和
 
 ## 4 原生 DAG（Linear 投影）
 
-DAG 节点可声明 kind（read / write / aggregate）、trigger（all_success / all_done）和 resourceLocks。无 Parent 的旧 Issue 使用上述默认值；有子 Issue 的 Parent 必须是 aggregate。all_success 要求全部直接前驱 succeeded，Canceled、Duplicate、Won't Fix、failed、skipped 或 cancelled 都不算成功。all_done 只允许 aggregate、清理或失败报告节点在全部直接前驱终结后运行，且不能把失败 DAG 或 Root 判为成功。
+DAG 节点可声明 kind（read / write / aggregate）、trigger（all_success / all_done）和 resourceLocks。无 Parent 的旧 Issue 使用上述默认值；有子 Issue 的 Parent 必须是 aggregate。all_success 要求全部直接前驱 succeeded，Canceled、Duplicate、Won't Fix、failed、unverified、blocked、skipped 或 cancelled 都不算成功；unverified 与 blocked 都不是终态。all_done 只允许 aggregate、清理或失败报告节点在全部直接前驱终结后运行，且不能把失败 DAG 或 Root 判为成功。
 
 DAG 字段在 Linear 上的载体与真值来源固定如下，字段语义本身以 `ai-collab-rules.md` 节点模型为准：
 

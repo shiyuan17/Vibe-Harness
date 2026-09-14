@@ -34,9 +34,9 @@
 
 ### 节点状态与触发
 
-- `result` 使用统一状态：`pending`、`ready`、`running`、`succeeded`、`failed`、`blocked`、`skipped` 或 `cancelled`；未开始节点不得省略 `pending`，`ready` 和 `running` 都不满足后继的 all_success。
+- `result` 使用统一状态：`pending`、`ready`、`running`、`unverified`、`succeeded`、`failed`、`blocked`、`skipped` 或 `cancelled`；未开始节点不得省略 `pending`，`ready`、`running` 和 `unverified` 都不满足后继的 all_success。
 - Linear 的 Canceled、Duplicate、Won't Fix 只作为外部终态，统一按非 `succeeded` 处理，不混入本地 result 枚举。
-- all_success 要求全部直接前驱 `succeeded`；failed、blocked、skipped、cancelled、Canceled、Duplicate 和 Won't Fix 都不算成功。
+- all_success 要求全部直接前驱 `succeeded`；unverified、failed、blocked、skipped、cancelled、Canceled、Duplicate 和 Won't Fix 都不算成功。
 - 只有 aggregate、清理或失败报告节点可使用 `all_done`；它只能在全部直接前驱终结后汇总状态和报告部分失败，不得把失败图改判为成功，也不得把失败 Root 改判为成功。
 - `skipped` 只用于没有任何后继依赖其成功的节点；会阻塞后继的节点不得写入 DAG 或标记为 `skipped`，否则一次合法跳过会让下游永久不 `ready`。
 
@@ -66,7 +66,7 @@
 
 ### 状态与交接解释
 
-- `pending` 是尚未派发，`ready` 是依赖与资源条件已满足，`running` 是已开始但尚未验证完成，`blocked` 是等待可恢复依赖或必要能力；这四种状态不是终态。`succeeded`、`failed`、`skipped`、`cancelled` 是终态；all_done 不得把仍 blocked 的节点视为已终结。无法继续时可以报告阻塞现状，但不能声称 all_done 已满足。
+- `pending` 是尚未派发，`ready` 是依赖与资源条件已满足，`running` 是已开始但尚未验证完成，`blocked` 是等待可恢复依赖或必要能力；这四种状态不是终态。`unverified` 是已有结论或产出但缺少完成证据、需要补证或改判，同样不是终态。`succeeded`、`failed`、`skipped`、`cancelled` 是终态；all_done 不得把仍 blocked 的节点视为已终结，也不得把仍 unverified 的节点视为已终结。无法继续时可以报告阻塞现状，但不能声称 all_done 已满足。
 Linear 状态到本地 `result` 的映射固定如下，只作本地解释，不新增或回写 Linear 字段：
 
 | Linear 状态 | 本地 `result` | 判定依据 |
@@ -76,7 +76,7 @@ Linear 状态到本地 `result` 的映射固定如下，只作本地解释，不
 | Todo（未通过 Ready） | `pending` 或 `blocked` | 按依赖与冲突事实判定 |
 | In Progress / In Review / Ready to Merge | `running` | 已开始但未完成验证 |
 | Done（有对应 kind 的 closing PR/MR、输出或 fan-in 证据） | `succeeded` | 合并、输出或 fan-in 证据 |
-| Done（缺证据） | `blocked` | 只按事实报告，不回写平台状态 |
+| Done（缺证据） | `unverified` | 结论存在但缺完成证据，需要补证或改判；只按事实报告，不回写平台状态 |
 | Canceled / Won't Fix | `cancelled` | 外部终态 |
 | Duplicate | `skipped` | 外部终态；替代 Issue 成功不自动使原节点 `succeeded` |
 - 派发前以首次已核对的相关 DAG 版本/hash、工作区身份、HEAD、实际 diff 和共享契约内容为比较基准；不能仅比较 HEAD，因为未提交写入也会改变输入。正常的已归属上游提交或合并也须先核对影响、消费方基线和验证证据，再更新本地观察基准并计算 ready 集合；不要求 HEAD 永远等于 initial HEAD，不自动修改冻结的授权或外部关系。无变化证据不足时暂停受影响写节点，独立且已隔离工作继续。本地人读 DAG 可逐项核对完整相关事实，无需新增 hash 算法或持久化 schema。
