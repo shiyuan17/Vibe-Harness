@@ -27,9 +27,12 @@ pnpm vibe-harness eval check --project ../some-project
 pnpm vibe-harness eval run --project ../some-project --mode offline
 pnpm vibe-harness eval run --project ../some-project --mode offline --write
 pnpm vibe-harness eval reference --project ../some-project --from .vibe-harness/evals/runs/<run>.json --write --confirm-reference-update
+pnpm eval:replay --write
 ```
 
 offline 模式验证 suite、oracle、聚合和 reference 一致性。online runner 必须在一次性项目中执行，限制输出与超时，并保护全局配置。reference 更新始终显式执行，不能为让变更通过而自动提升。资产敏感度（改动规则、Skill、Hook 或配置后必须失败）由 Harness Evals 的 RED 阶段验证；旧 behavioral 变异命令已移除，见上文 proof 说明。run fingerprint 分别记录 config、hooks、rules、skills 分类哈希与聚合哈希；资产漂移、缺 reference 或 degraded run 不计为通过。
+
+签入的 offline run（`evals/results/vibe-harness-core.offline.json`）与 reference 内嵌同一份资产指纹：`pnpm eval:replay` 只读比对签名入产物，`pnpm eval:check` 交叉校验 run 与 reference，因此两者必须同时更新，顺序是先再生成 reference，再用 `pnpm eval:replay --write` 重生成 run（旧文件备份到 `.vibe-harness/backups/`）。`--write` 先只校验 suite 契约，写完后交叉比对 reference 指纹，仍不一致就以非零退出并给出再生成命令；未漂移时不写文件、不产生备份。
 
 `pnpm eval:check`、`pnpm eval:replay` 和在线 canary 都是显式命令，不属于 `pnpm check` 的默认快速路径。
 
@@ -69,6 +72,10 @@ Windows 写入型 Eval 的 `auto` backend 仅接受可在 WSL 内原生执行的
 `VIBE_HARNESS_EVAL_CODEX_BACKEND=auto|native|wsl` 选择执行后端。Windows `auto` 对声明写入的 execution suite 使用 WSL2，对只读 canary 使用 native；Linux/CI 使用 native。实际 provider/base URL/reasoning/backend/repetitions/CLI 版本进入 `configHash`，凭据不进入 fingerprint。WSL/Codex 不可用或 sandbox 拒绝写入时 run 为 degraded，不计为模型失败。
 
 fixture 可声明 `allowedWritePaths`，其成员必须是 workspace 内的可移植相对路径，默认空数组。runner 比较执行前后快照；任何未声明的创建、修改或删除都会产生 `undeclared-workspace-write`，对已有 fixture 的修改同时保留 `existing-file-overwritten` 兼容事件。execution 的测试命令只由 harness 执行，不作为可见 fixture 暴露给模型。
+
+execution suite 支持宿主受控压缩用例（样例 `EVAL-EXEC-COMPACT-001`）：case 在 `input.compaction` 声明 `resumePrompt`、`contextWindow` 与 `autoCompactTokenLimit`，driver 先把 fixture 初始化为确定性 Git 仓库（固定作者与提交时间），再向 runner 注入宿主 Execution Envelope v2 —— 它冻结真实 worktree、branch 与 HEAD，并刻意携带与实时状态不一致的过期 checkpoint，用于检查「旧摘能不能覆盖实时事实」。runner 跑完第一轮后从隔离 `CODEX_HOME` 的 session store 读取宿主自己的客户端 token 记账（`token_count`），把 `-c model_auto_compact_token_limit` 收敛到「低于续跑携带量、高于压实后常驻量」的窄区间，再用 `codex exec resume <sessionId>` 执行第二轮；因此声明的预算只是上界，实际值由本机实测决定。
+
+`compaction-observed` 只接受 session store 中真实的 `compacted` / `context_compacted` 记录：模型自述、fixture 里手写的摘要、或把摘要塞进首轮提示都不算证据。压缩用例在缺少宿主 Envelope 时 fail-closed，不会退化为普通 case；宿主确实无法在不连续压缩的前提下完成一轮恢复时，runner 写入 capability 诊断而不是伪造成功。给压缩用例的 fixture 需要足够的首轮上下文（例如一份需要通读的完整 runbook），否则压实后的常驻量会立刻再次触顶，模型会在「重读 → 被压实 → 遗忘 → 重读」之间空转。
 
 EVAL-SPLIT 用例通过 canonical RULE/SKILL fixture 引用当前治理规则，覆盖小型兼容改动无需拆分，以及实际并行协作需要依赖、唯一契约归属和集成验证。提示不提供预定决策答案；隐藏语义 rubric 评判结果。
 

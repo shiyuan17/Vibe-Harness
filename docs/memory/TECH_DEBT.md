@@ -13,13 +13,6 @@
 - Owner：Vibe-Harness 维护者。
 - 关闭条件：确认 `.githooks/` 是否属于受管控制面；若是，加入运行时红区清单并纳入 `validateRedZoneConsistency`；若否，在规则文档记录不纳入的理由。
 
-## TD-2026-09-11-1 三份测试以措辞断言锁定规范文本
-
-- 证据：`tests/rules-depth.test.js`、`tests/linear-workflow.test.js`、`tests/execution-simplification.test.js` 合计约 231 处 `assert.match` 直接匹配中文规则句子（分配 81/80/70）。
-- 影响：改一句规则措辞要同步改多处断言，改漏即红；断言的是措辞而非行为，容易把文案调整误判为规则回归。
-- Owner：Vibe-Harness 维护者。
-- 关闭条件：抽出共享措辞常量表（改一处常量加一处断言），其余转为结构性断言；保留一条权威存在性断言，不整体删除锁定。
-
 ## TD-2026-09-11-2 Eval 资产指纹分组不覆盖 adapters
 
 - 证据：`scripts/lib/eval-assets.js` 的 `ASSET_GROUPS` 只含 config、hooks、rules、skills；`adapters/claude/CLAUDE.template.md` 与 `adapters/gemini/GEMINI.template.md` 的启动序列漂移（审查项 4f）不会触发 reference 审查，只有 Harness Evals 的 harness 哈希覆盖 `adapters/`。
@@ -47,3 +40,10 @@
 - 影响：AGENTS.md 启动第 2 步的记忆恢复此前只能读到空模板，等于没有可恢复状态；同时说明「已落地」类完成主张缺少资产可核对环节。
 - Owner：Vibe-Harness 维护者。
 - 关闭条件：由真实 review 或 verification receipt 经 mergeImprovementCandidates 生成候选并写入 docs/memory/IMPROVEMENTS.json（候选 ID 由 type:code:targetAsset 摘要派生，不得手工伪造）；并在 CONTRIBUTING 的完成清单加入「CHANGELOG 主张的资产必须在本仓库可核对」。
+
+## TD-2026-09-14-2 真实压缩用例依赖首轮上下文规模，宿主压缩不可控时会空转
+
+- 证据：宿主压缩阈值比对 Codex 客户端自己的 `token_count` 常驻量（本机约 9–10 K），不是 provider 回报的 `input_tokens`（同轮约 34–38 K）；压实后常驻量回落到约 6–7 K，而模型每轮读取会再增长约 2–3 K。因此当 fixture 首轮上下文偏小时，「低于续跑携带量」与「高于压实后常驻量」的区间会收窄到几百 token，压缩会在每一两轮重复触发。实测记录：`EVAL-EXEC-COMPACT-001` 在首轮只读一份短计划文件时，出现过 56 条真实压缩记录、>15 分钟仍无写入的活锁（`EVAL_RUNNER_TIMEOUT`）；把 plan of record 扩写为需要通读的完整 runbook（约 5 KB）后，同一宿主稳定得到 `records=1`、隐藏测试通过、HEAD 不变。
+- 影响：该用例的正确性建立在「宿主能把压缩限制在恢复边界附近」这一前提上；模型若只读计划文件的一部分、或 provider 的 token 记账口径变化，用例可能退化为长时间空转，占用 case 预算并从 degraded 路径污染同批 suite（execution suite 并发为 1，degraded 会停止调度后续 case）。
+- Owner：Vibe-Harness 维护者。
+- 关闭条件：把压缩阶段改为受显式预算约束（例如给压缩续跑单独设置轮次或墙钟上限、超出即判定为 capability-gated 而不是等待 case 超时），或把该 case 迁出默认 execution suite 进入需显式选择运行的压缩专用 suite。

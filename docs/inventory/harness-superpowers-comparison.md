@@ -12,7 +12,7 @@
 | F-02 Windows 上误判 Node 缺失 | 已修复 | `runtime/commands/run.mjs` 的 `probeExecutable()` 对绝对路径改用 `access()`，只对裸程序名调用平台 locator（`where.exe`/`which`）。 |
 | F-03 Eval 指纹随结账换行形式漂移 | 已修复 | `scripts/lib/eval-assets.js` 新增 `canonicalAssetBytes()`（文本按 Git 语义 CRLF→LF，含 NUL 或非合法 UTF-8 的内容保持原字节），`scripts/harness-evals.js` 的 harness 资产哈希复用同一规则；`tests/eval-assets.test.js` 锁定「LF/CRLF 同指纹、真实文本变更仍漂移、二进制字节变更仍漂移」；reference 经 `eval reference --write --confirm-reference-update` 再生后 `eval run` 的资产诊断清零、`reference.status` 为 matched。 |
 | F-04 `stub-behavioral` 是文档化 proof 但无生产者 | 已处置（文档降级 + 记账） | `docs/evals.md` 改为逐条标注生产者与边界，`stub-behavioral` 标为「无生产者、保留的合同位、属未实现计划」，资产敏感度由 Harness Evals RED 阶段承担；实现决策转为 R-03（deferred，见 R-03 行）。 |
-| F-05 checkpoint 真实压缩恢复证据薄 | 未处置 | 由 R-04 承接（宿主无法稳定触发压缩时保持 capability-gated）。 |
+| F-05 checkpoint 真实压缩恢复证据薄 | 已修复（2026-09-14） | 新增宿主受控压缩用例 `EVAL-EXEC-COMPACT-001`：driver 把 fixture 初始化为确定性 Git 仓库并注入携带过期 checkpoint 的 Execution Envelope v2，runner 从隔离 session store 实测宿主客户端 token 记账后把 `model_auto_compact_token_limit` 收敛到窄区间，再用 `codex exec resume` 执行第二轮；`compaction-observed` 只接受真实的 `compacted`/`context_compacted` 记录。本机实测（WSL + codex-cli 0.153.4 + deepseek-flash）：1 条真实压缩记录、隐藏测试通过、HEAD 不变、score 1；`tests/eval-runner.test.js` 与 `tests/eval-execution.test.js` 锁定 fail-closed 与「摘要不得进提示」合同。 |
 
 ## 结论先行
 
@@ -160,7 +160,7 @@ Superpowers 主仓库当前不固定评测仓库为受管子模块，而是在 R
 | 建议 | 现有能力重叠与最小落点 | 触发条件与成本 | 验收 | 撤回条件 |
 | --- | --- | --- | --- | --- |
 | R-03 实现最小 `stub-behavioral`（deferred 2026-09-14：暂由 Harness Evals RED 阶段承担资产敏感度，实现决策待定） | 复用当前 eval runner、fixture、observer、allowedWritePaths 和 scoring；先覆盖 `clarify-requirements`、`systematic-debugging` 和 task split | 仅规则/Skill/Hook 行为变更；中等成本，无真实模型费用 | 同一压力场景能记录无资产基线失败、有资产通过；非法写入仍 fail-closed；proof 确实产出为 `stub-behavioral` | 若 stub 与真实 Agent 的方向性一致率不足，降为开发诊断并从正式成熟度证据中移除 |
-| R-04 增加真实压缩恢复 case | 在现有 online execution suite 增加宿主可控压缩场景，使用 Execution Envelope v2 checkpoint 和 Git 事实 | 长计划、跨上下文恢复；中等运行成本 | 已完成任务恰好一次，未完成任务继续；effect、write roots、目标与 HEAD 不扩大；旧摘要不能覆盖实时状态 | 宿主无法稳定触发压缩时保留为 capability-gated，不用人为摘要冒充真实压缩 |
+| R-04 增加真实压缩恢复 case（已实施 2026-09-14） | 在现有 online execution suite 增加宿主可控压缩场景，使用 Execution Envelope v2 checkpoint 和 Git 事实 | 长计划、跨上下文恢复；中等运行成本（本机实测单轮约 2.5 分钟） | 已完成任务恰好一次，未完成任务继续；effect、write roots、目标与 HEAD 不扩大；旧摘要不能覆盖实时状态。本机实测：`records=1`、HEAD 不变、score 1 | 宿主无法在「低于续跑携带量、高于压实后常驻量」区间内压缩时保留为 capability-gated，不用人为摘要冒充真实压缩。实测补充：fixture 首轮上下文过小时压实后立即再次触顶，模型会在重读/遗忘之间空转（曾观测到 56 条压缩记录仍无写入），因此用例必须让首轮真实读完一份足够大的计划文件 |
 | R-05 增加 review-feedback 压力 case | 将“验证反馈、修正确问题、拒绝错误建议、拒绝无需求抽象”作为 online case；规则可放入现有 coding/review 约束，不新增流程 Skill | 用户明确要求 address review 时；低规则成本、中等 Eval 成本 | 混合三条反馈场景中只落实正确项，并给出可核实的拒绝理由 | 若误拒率高，先只作为诊断，不设置 critical gate |
 
 ### P2：在已拆分任务中试点，不影响直接实施
@@ -226,8 +226,8 @@ F-03 关闭时已按 test-rules「reference 更新必须单独审查并显式确
 
 ## 最终成熟度判断
 
-Vibe-Harness 的整体工程成熟度是“已验证”。2026-09-05 判定完成证据基础设施因 F-01 至 F-03 应暂按“实现化”处理，这三项已于 2026-09-14 修复并有复审记录，F-04 转为文档降级记账，因此完成证据基础设施恢复为“已验证”；行为层证据（F-05 真实压缩恢复、R-03 stub-behavioral、R-04）仍属“实现化”。它在安全、授权、安装事务、验证收据和跨宿主降级方面比 Superpowers 更成熟；在真实长任务行为、Skill 压力测试和多 Agent 执行闭环方面落后一个层级。
+Vibe-Harness 的整体工程成熟度是“已验证”。2026-09-05 判定完成证据基础设施因 F-01 至 F-03 应暂按“实现化”处理，这三项已于 2026-09-14 修复并有复审记录，F-04 转为文档降级记账，因此完成证据基础设施恢复为“已验证”；行为层证据中 F-05/R-04 也已于 2026-09-14 落地为真实宿主压缩用例并取得本机实测证据，仅 R-03 stub-behavioral 仍属“实现化”。它在安全、授权、安装事务、验证收据和跨宿主降级方面比 Superpowers 更成熟；在真实长任务行为、Skill 压力测试和多 Agent 执行闭环方面落后一个层级。
 
 Superpowers 6.3.0 的方法论与主流开发循环达到“已验证”，其独立 Evals 体系在 Linux 主运行环境中呈现“持续改进”特征。它不能替代 Vibe-Harness 的治理内核：提示 hard gate、流程批准和 TDD 纪律不是 effect enforcement、事务回滚或跨宿主安全合同。本轮 Windows 检查也说明，其脚本与实验室能力需要按 Vibe-Harness 的跨平台标准重新实现，不能直接复制。
 
-建议的顺序是：先修 R-01/R-02，使证据可靠；再实现 R-03/R-04，让现有 Eval 真正测到规则行为与恢复行为；最后只在已经拆分或协作的任务中试点 R-06/R-07。R-01 与 R-02 已于 2026-09-14 完成（见处置台账），R-03 转为 deferred、其资产敏感度暂由 Harness Evals RED 阶段承担，因此下一步是 R-04。这样可以吸收 Superpowers 最成熟的学习闭环，同时保留 Vibe-Harness 已证明有效的低仪式执行路径。
+建议的顺序是：先修 R-01/R-02，使证据可靠；再实现 R-03/R-04，让现有 Eval 真正测到规则行为与恢复行为；最后只在已经拆分或协作的任务中试点 R-06/R-07。R-01、R-02、R-04 已于 2026-09-14 完成（见处置台账），R-03 转为 deferred、其资产敏感度暂由 Harness Evals RED 阶段承担，因此下一步是 R-05（review-feedback 压力 case）。这样可以吸收 Superpowers 最成熟的学习闭环，同时保留 Vibe-Harness 已证明有效的低仪式执行路径。
