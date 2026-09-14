@@ -273,8 +273,11 @@ test('optional tool generated directories are owned by install state', async () 
       cliPath, 'doctor', '--project', target, '--output', 'summary',
     ], { cwd: rootDir })).stdout;
     assert.match(summary, /plugins: rtk,ast-grep/u);
-    assert.match(summary, /tool: rtk[\s\S]*original command/u);
-    assert.match(summary, /tool: astGrep[\s\S]*rg/u);
+    // The fallback sentence is localized CLI copy, so assert the stable summary
+    // structure (each tool block renders its own `next:` line) instead of one
+    // language's wording.
+    assert.match(summary, /tool: rtk\n[\s\S]*?\nnext: [^\n]+/u);
+    assert.match(summary, /tool: astGrep\n[\s\S]*?\nnext: [^\n]+/u);
     assert.match(summary, /version: 0\.45\.0/u);
     assert.match(summary, new RegExp(`platform: ${process.platform}-${process.arch}`, 'u'));
     assert.match(summary, /source: github:rtk-ai\/rtk@v0\.45\.0/u);
@@ -978,8 +981,14 @@ test('failed optional-tool provisioning degrades health and allow-degraded prese
     assert.equal(doctor.status, 'degraded');
     assert.equal(doctor.tools.rtk.status, 'degraded');
     assert.equal(doctor.tools.astGrep.status, 'degraded');
-    assert.match(doctor.recommendations.find((item) => item.tool === 'rtk').message, /original command/u);
-    assert.match(doctor.recommendations.find((item) => item.tool === 'astGrep').message, /rg/u);
+    // Stable recommendation contract: `action`/`phase` are machine-readable, the
+    // human-readable `message` is localized CLI copy and must not be asserted.
+    const fallbacks = Object.fromEntries(doctor.recommendations.map((item) => [item.tool, item]));
+    for (const tool of ['rtk', 'astGrep']) {
+      assert.equal(fallbacks[tool].action, 'fallback');
+      assert.equal(fallbacks[tool].phase, 'dependency-install');
+      assert.ok(fallbacks[tool].message.length > 0);
+    }
 
     const baseline = await runCli(['baseline', '--project', target]);
     assert.equal(baseline.baseline.installation.tools.rtk.status, 'degraded');
