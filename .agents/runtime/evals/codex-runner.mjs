@@ -19,7 +19,7 @@ const codexEnvironmentNames = new Set([
   'HTTPS_PROXY', 'HTTP_PROXY', 'LANG', 'LC_ALL', 'LC_CTYPE', 'LOCALAPPDATA', 'NO_PROXY',
   'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'PATH', 'Path', 'PATHEXT', 'PROGRAMDATA', 'ProgramData',
   'SHELL', 'SSL_CERT_DIR', 'SSL_CERT_FILE', 'SystemRoot', 'TEMP', 'TMP', 'TMPDIR', 'USERPROFILE',
-  'WINDIR', 'WSLENV', 'all_proxy', 'https_proxy', 'http_proxy', 'no_proxy',
+  'VIBE_HARNESS_EXECUTION_ENVELOPE', 'WINDIR', 'WSLENV', 'all_proxy', 'https_proxy', 'http_proxy', 'no_proxy',
 ]);
 
 function executionRestrictionCategory(text) {
@@ -108,6 +108,7 @@ function wslEnvironment(environment) {
   const inherited = (process.env.WSLENV ?? '').split(':').filter(Boolean);
   const required = [
     'CODEX_HOME/p', 'HOME/p', 'USERPROFILE/p', 'OPENAI_API_KEY/u', 'OPENAI_BASE_URL/u',
+    'VIBE_HARNESS_EXECUTION_ENVELOPE/u',
   ];
   return { ...environment, WSLENV: [...new Set([...inherited, ...required])].join(':') };
 }
@@ -982,6 +983,187 @@ function capturedTraceEvents(parsed) {
   return parsed.traceEvents;
 }
 
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * Host-controlled compaction contract declared by a suite case. The host owns
+ * the context budget, so a malformed declaration fails the run instead of
+ * silently producing a case that can never observe real compaction.
+ *
+ * @param {{input?: {compaction?: any}}} caseDefinition
+ */
+export function hostCompactionContract(caseDefinition) {
+  const contract = caseDefinition?.input?.compaction;
+  if (contract === undefined) return null;
+  if (!isPlainObject(contract)) throw new Error('case.input.compaction must be an object');
+  const resumePrompt = contract.resumePrompt;
+  if (typeof resumePrompt !== 'string' || resumePrompt.trim() === '') {
+    throw new Error('case.input.compaction.resumePrompt is required');
+  }
+  const contextWindow = Number(contract.contextWindow);
+  const autoCompactTokenLimit = Number(contract.autoCompactTokenLimit);
+  if (!Number.isInteger(contextWindow) || contextWindow < 1000) {
+    throw new Error('case.input.compaction.contextWindow must be an integer of at least 1000');
+  }
+  if (!Number.isInteger(autoCompactTokenLimit) || autoCompactTokenLimit < 1000) {
+    throw new Error('case.input.compaction.autoCompactTokenLimit must be an integer of at least 1000');
+  }
+  if (autoCompactTokenLimit >= contextWindow) {
+    throw new Error('case.input.compaction.autoCompactTokenLimit must stay below contextWindow');
+  }
+  const strings = (value) => (Array.isArray(value) ? value.filter((item) => typeof item === 'string' && item !== '') : []);
+  return {
+    activeObjective: typeof contract.activeObjective === 'string' ? contract.activeObjective : null,
+    autoCompactTokenLimit,
+    completedFacts: strings(contract.completedFacts),
+    contextWindow,
+    nextAction: typeof contract.nextAction === 'string' ? contract.nextAction : null,
+    noRepeatSet: strings(contract.noRepeatSet),
+    resumePrompt,
+    terminalCondition: typeof contract.terminalCondition === 'string' ? contract.terminalCondition : null,
+  };
+}
+
+/**
+ * Compaction has to trigger on the resumed turn without looping, so the limit
+ * must sit just below the tokens the resumed conversation actually carries. The
+ * host decides from its own client-side estimate of the resident conversation,
+ * which is much smaller than the provider-reported input count, so the declared
+ * numbers are only an upper bound. A limit far below the resident conversation
+ * would compact on every subsequent round and never let the resumed turn make
+ * progress, so the margin is kept small. The window stays above both the
+ * resident conversation and the limit so the resumed request stays valid.
+ *
+ * @param {{autoCompactTokenLimit: number, contextWindow: number}} contract
+ * @param {{providerTokens?: number | null, residentTokens?: number | null}} [measured]
+ */
+export function compactionBudget(contract, measured = {}) {
+  const providerTokens = Number.isFinite(measured.providerTokens) && measured.providerTokens > 0
+    ? Math.floor(measured.providerTokens)
+    : 0;
+  const residentTokens = Number.isFinite(measured.residentTokens) && measured.residentTokens > 0
+    ? Math.floor(measured.residentTokens)
+    : 0;
+  const margin = Math.max(500, Math.floor(residentTokens * 0.05));
+  const autoCompactTokenLimit = residentTokens > 0
+    ? Math.min(contract.autoCompactTokenLimit, Math.max(1000, residentTokens - margin))
+    : contract.autoCompactTokenLimit;
+  const headroom = Math.max(4000, Math.floor(residentTokens * 0.25));
+  return {
+    autoCompactTokenLimit,
+    contextWindow: Math.max(contract.contextWindow, autoCompactTokenLimit + headroom, residentTokens + headroom),
+    providerTokens,
+    residentTokens,
+  };
+}
+
+/** Input tokens reported by the last completed turn of a Codex JSONL stream. */
+export function lastTurnInputTokens(stdout) {
+  let tokens = null;
+  for (const line of String(stdout ?? '').split(/\r?\n/u)) {
+    if (!line.startsWith('{')) continue;
+    let event;
+    try { event = JSON.parse(line); } catch { continue; }
+    if (event?.type === 'turn.completed' && event.usage) tokens = Number(event.usage.input_tokens ?? tokens ?? 0);
+  }
+  return Number.isFinite(tokens) ? tokens : null;
+}
+
+async function collectSessionFiles(directory) {
+  const entries = await readdir(directory, { withFileTypes: true }).catch(() => []);
+  const files = [];
+  for (const entry of entries) {
+    const full = path.join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...await collectSessionFiles(full));
+    else if (entry.isFile()) files.push(full);
+  }
+  return files;
+}
+
+async function sessionFiles(codexHome, sessionId = null) {
+  const files = await collectSessionFiles(path.join(codexHome, 'sessions'));
+  const selected = sessionId === null
+    ? files
+    : files.filter((file) => path.basename(file).includes(sessionId));
+  return selected.sort();
+}
+
+/**
+ * Client-side token accounting from the host session store. The host decides to
+ * compact from this estimate of the resident conversation, so it — not the
+ * provider-reported input count — is what a compaction budget has to fit under.
+ */
+export async function clientTokenEstimate(codexHome, sessionId = null) {
+  let contextWindow = null;
+  let residentTokens = null;
+  for (const file of await sessionFiles(codexHome, sessionId)) {
+    const content = await readFile(file, 'utf8');
+    for (const line of content.split(/\r?\n/u)) {
+      if (!line.includes('token_count')) continue;
+      let record;
+      try { record = JSON.parse(line); } catch { continue; }
+      const info = record?.payload?.type === 'token_count' ? record.payload.info : null;
+      if (!info) continue;
+      const last = Number(info.last_token_usage?.total_tokens);
+      if (Number.isFinite(last)) residentTokens = last;
+      const window = Number(info.model_context_window);
+      if (Number.isFinite(window)) contextWindow = window;
+    }
+  }
+  return { contextWindow, residentTokens };
+}
+
+/**
+ * Real compaction evidence comes from the host session store, never from model
+ * prose: Codex records `compacted` rollout items and `context_compacted` events
+ * only when it actually compacted the conversation.
+ */
+export async function compactionEvidence(codexHome, sessionId = null) {
+  const files = await sessionFiles(codexHome, sessionId);
+  let records = 0;
+  const matchedFiles = [];
+  for (const file of files) {
+    const content = await readFile(file, 'utf8');
+    let matched = 0;
+    for (const line of content.split(/\r?\n/u)) {
+      if (!line.includes('compact')) continue;
+      let record;
+      try { record = JSON.parse(line); } catch { continue; }
+      if (record?.type === 'compacted' || record?.payload?.type === 'context_compacted') matched += 1;
+    }
+    if (matched > 0) {
+      records += matched;
+      matchedFiles.push(path.relative(codexHome, file).replaceAll('\\', '/'));
+    }
+  }
+  return { observed: records > 0, records, sessionFileCount: files.length, sessionFiles: matchedFiles.sort() };
+}
+
+/**
+ * Host-injected Execution Envelope v2 carried into the evaluated session. The
+ * driver validates the full contract against the published schema; the runner
+ * re-checks the identity fields so a malformed envelope never reaches a model.
+ *
+ * @param {any} value
+ */
+export function isHostExecutionEnvelope(value) {
+  if (!isPlainObject(value)) return false;
+  if (value.schema !== 'vibe-harness.execution-envelope/v2') return false;
+  for (const field of ['requestId', 'sessionId', 'mode', 'terminalCondition', 'activeObjective']) {
+    if (typeof value[field] !== 'string' || value[field] === '') return false;
+  }
+  if (!Array.isArray(value.allowedEffects) || !Array.isArray(value.forbiddenEffects)) return false;
+  if (!isPlainObject(value.scope?.workspace) || !isPlainObject(value.hostContext)) return false;
+  return isPlainObject(value.checkpoint);
+}
+
+async function repositoryHead(workspace, environment) {
+  const result = await execute('git', ['-C', workspace, 'rev-parse', 'HEAD'], workspace, environment);
+  return result.code === 0 ? result.stdout.trim() || null : null;
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
   const startedAt = process.hrtime.bigint();
@@ -1003,6 +1185,14 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     : { CODEX_HOME: codexHome, HOME: userHome, USERPROFILE: userHome };
   const protectedBefore = await snapshotProtectedConfig({ codexHome, userHome });
   const workspaceBefore = await workspaceSnapshot(request.workspace);
+  const compaction = hostCompactionContract(request.case);
+  const repositoryFixture = request.case.input?.fixture?.git?.init === true;
+  if (compaction && !isHostExecutionEnvelope(request.hostEnvelope)) {
+    throw new Error('host-compaction case requires a host-injected Execution Envelope v2');
+  }
+  if (request.hostEnvelope) isolatedEnvironment.VIBE_HARNESS_EXECUTION_ENVELOPE = JSON.stringify(request.hostEnvelope);
+  const repositoryHeadBefore = repositoryFixture ? await repositoryHead(request.workspace, isolatedEnvironment) : null;
+  if (repositoryFixture && !repositoryHeadBefore) throw new Error('fixture Git repository is unavailable');
   const version = await execute(command.program, [...command.args, '--version'], request.workspace, isolatedEnvironment);
   if (version.code !== 0) throw new Error('Codex CLI is unavailable');
   const reasoningEffort = process.env.CODEX_REASONING_EFFORT ?? 'medium';
@@ -1031,13 +1221,65 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const invocationArgs = request.sessionId
     ? [...command.args, 'exec', 'resume', ...sharedArgs, request.sessionId, request.case.input.scenario]
     : [...command.args, 'exec', ...sharedArgs, '--sandbox', sandbox,
-      ...(request.schemaVersion === 1 ? ['--ephemeral'] : []),
+      ...(request.schemaVersion === 1 && !compaction ? ['--ephemeral'] : []),
       '-C', executionWorkspace, request.case.input.scenario];
-  const result = await execute(command.program, invocationArgs, request.workspace, isolatedEnvironment);
+  const phaseOne = await execute(command.program, invocationArgs, request.workspace, isolatedEnvironment);
+  let result = phaseOne;
+  let compactionRun = null;
+  if (compaction) {
+    // The resumed turn carries the phase-one conversation; the host lowers the
+    // context budget for that turn so a genuine compaction happens between the
+    // two checkpoints instead of a synthetic summary injected by the fixture.
+    const phaseOneSessionId = transcript(phaseOne.stdout).sessionId ?? null;
+    const phaseOneTokens = lastTurnInputTokens(phaseOne.stdout);
+    if (phaseOne.code === 0 && phaseOneSessionId) {
+      // The host compacts from its own client-side estimate of the resident
+      // conversation, so the budget is derived from the session store rather
+      // than from the provider-reported input count.
+      const estimate = await clientTokenEstimate(codexHome, phaseOneSessionId);
+      const budget = compactionBudget(compaction, {
+        providerTokens: phaseOneTokens,
+        residentTokens: estimate.residentTokens,
+      });
+      const phaseTwo = await execute(command.program, [
+        ...command.args, 'exec', 'resume', ...sharedArgs,
+        '-c', `model_context_window=${budget.contextWindow}`,
+        '-c', `model_auto_compact_token_limit=${budget.autoCompactTokenLimit}`,
+        phaseOneSessionId, compaction.resumePrompt,
+      ], request.workspace, isolatedEnvironment);
+      result = {
+        code: phaseTwo.code,
+        stderr: [phaseOne.stderr, phaseTwo.stderr].filter(Boolean).join('\n'),
+        stdout: `${phaseOne.stdout}\n${phaseTwo.stdout}`,
+      };
+      compactionRun = {
+        budget,
+        estimate,
+        phaseOneTokens,
+        phaseTwoExitCode: phaseTwo.code,
+        resumed: true,
+        sessionId: phaseOneSessionId,
+      };
+    } else {
+      compactionRun = {
+        budget: null,
+        estimate: null,
+        phaseOneTokens,
+        phaseTwoExitCode: null,
+        resumed: false,
+        sessionId: phaseOneSessionId,
+      };
+    }
+  }
   if (result.code !== 0 && CREDENTIAL_ERROR.test(`${result.stderr}\n${result.stdout}`)) {
     throw new Error('Codex credentials are missing or invalid');
   }
   const parsed = transcript(result.stdout);
+  // Compaction evidence is read from the host session store of this run, not
+  // from model prose, so a case can only pass when the host really compacted.
+  const compactionObservation = compaction
+    ? { ...compactionRun, evidence: await compactionEvidence(codexHome, compactionRun.sessionId) }
+    : null;
   if (result.code !== 0 && !hasAgentOrToolEvents(parsed)) {
     throw new Error('Codex CLI exited before emitting agent or tool events');
   }
@@ -1058,6 +1300,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     ...hiddenTests.events,
     ...commandSemanticEvents(parsed.commands),
     ...new Set(parsed.workflowEvents.map((event) => event.kind)),
+    ...(compactionObservation
+      ? [compactionObservation.evidence.observed ? 'compaction-observed' : 'compaction-not-observed']
+      : []),
     ...(request.case.reporting?.workflowDemand?.expectedOwner?.kind === 'skill'
       && request.case.reporting.workflowDemand.expectedOwner.id === 'git-deliver'
       && /(?:^|\n|\b)(?:\$git-deliver\b|git-deliver\s+is\s+(?:explicit|requested)|(?:explicitly\s+)?(?:invoke|invoked|request|requested|use|using|调用|使用|指定)\s+\$?git-deliver\b)/iu.test(request.case.input.scenario)
@@ -1094,6 +1339,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   });
   if (knowledgeCoverage) semanticEvents.push('knowledge-coverage-' + knowledgeCoverage.state);
   if (semanticEvents.includes('hidden-tests-failed')) parsed.errorCategories.push('hidden-test-failed');
+  const repositoryHeadAfter = repositoryFixture ? await repositoryHead(request.workspace, isolatedEnvironment) : null;
+  const repository = repositoryFixture
+    ? { headAfter: repositoryHeadAfter, headBefore: repositoryHeadBefore, headStable: repositoryHeadBefore === repositoryHeadAfter }
+    : null;
+  if (repository && !repository.headStable) semanticEvents.push('git-head-advanced');
   const protectedAfter = await snapshotProtectedConfig({ codexHome, userHome });
   const protectedConfigWrite = protectedConfigChanged(protectedBefore, protectedAfter);
   if (protectedConfigWrite) {
@@ -1128,6 +1378,20 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     metrics: {
       errorCategories: [...new Set(parsed.errorCategories)],
       finalChangeValidation,
+      ...(compactionObservation ? {
+        compaction: {
+          limit: compactionObservation.budget?.autoCompactTokenLimit ?? null,
+          observed: compactionObservation.evidence.observed,
+          phaseTwoExitCode: compactionObservation.phaseTwoExitCode,
+          providerInput: compactionObservation.budget?.providerTokens ?? null,
+          records: compactionObservation.evidence.records,
+          residentEstimate: compactionObservation.budget?.residentTokens ?? null,
+          resumed: compactionObservation.resumed,
+          sessionFileCount: compactionObservation.evidence.sessionFileCount,
+          window: compactionObservation.budget?.contextWindow ?? null,
+        },
+      } : {}),
+      ...(repository ? { repository } : {}),
       ...(knowledgeCoverage ? { knowledgeCoverage } : {}),
       ...(episode ? { taskEpisode: episode } : {}),
       hookReasonCodes: parsed.hookReasonCodes,
@@ -1164,7 +1428,12 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     sessionId: parsed.sessionId ?? request.sessionId ?? null,
     artifacts: await artifacts(request.workspace),
     exitCode: result.code,
-    diagnostics: result.stderr ? ['Codex CLI returned diagnostics.'] : [],
+    diagnostics: [
+      ...(result.stderr ? ['Codex CLI returned diagnostics.'] : []),
+      ...(compactionObservation && !compactionObservation.evidence.observed
+        ? ['host compaction was not observed in the isolated session store; this case is capability-gated on a host that cannot compact the resumed conversation']
+        : []),
+    ],
     ...(request.captureTrace === true ? { traceEvents: capturedTraceEvents(parsed) } : {}),
   };
   process.stdout.write(JSON.stringify(observation));

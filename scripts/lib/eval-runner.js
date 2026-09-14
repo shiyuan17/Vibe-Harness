@@ -1,8 +1,10 @@
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 
+import { buildEnvelopeDraft } from './envelope-records.js';
 import { assertInsideDir, assertPortableRelativePath } from './manifest.js';
 import { safeJsonParse } from './safe-json.js';
 import { assertSafeCommand } from './shell-command.js';
@@ -11,6 +13,9 @@ import { sanitizeEvalValue, scoreCase } from './eval-scoring.js';
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const OUTPUT_LIMIT = 1024 * 1024;
+const FIXTURE_COMMIT_MESSAGE = 'vibe-harness eval fixture';
+const FIXTURE_COMMIT_DATE = '2000-01-01T00:00:00Z';
+const runFile = promisify(execFile);
 const CREDENTIAL_ERROR = /(?:\b(?:401|403)\b|(?:(?:invalid|missing|expired|revoked)\s+(?:api[-_ ]?key|credentials?)|(?:api[-_ ]?key|credentials?)\s+(?:is|are)?\s*(?:missing|invalid|expired|revoked))|authentication\s+(?:failed|required)|unauthorized|login\s+required)/iu;
 const evaluationEnvironmentNames = new Set([
   'ALL_PROXY', 'ANTHROPIC_API_KEY', 'APPDATA', 'AZURE_OPENAI_API_KEY', 'CODEX_CLI_VERSION',
@@ -138,6 +143,88 @@ async function createWorkspace(definition, sourceRoot) {
   return workspace;
 }
 
+/**
+ * Initialize the fixture as a Git worktree so a case can freeze and re-check
+ * real HEAD facts. Dates are fixed so the fixture commit is reproducible.
+ *
+ * @param {string} workspace
+ * @param {{commitMessage?: string}} [options]
+ */
+async function initializeFixtureRepository(workspace, { commitMessage = FIXTURE_COMMIT_MESSAGE } = {}) {
+  const git = async (args, env = {}) => runFile('git', ['-C', workspace, ...args], {
+    env: { ...process.env, ...env },
+    windowsHide: true,
+  });
+  try {
+    await git(['init', '-q', '-b', 'main']);
+  } catch {
+    await git(['init', '-q']);
+  }
+  await git(['config', 'core.autocrlf', 'false']);
+  await git(['add', '-A']);
+  await git([
+    '-c', 'user.name=Vibe-Harness Eval',
+    '-c', 'user.email=eval@vibe-harness.invalid',
+    'commit', '-q', '-m', commitMessage,
+  ], { GIT_AUTHOR_DATE: FIXTURE_COMMIT_DATE, GIT_COMMITTER_DATE: FIXTURE_COMMIT_DATE });
+  const head = await git(['rev-parse', 'HEAD']);
+  return head.stdout.trim();
+}
+
+/**
+ * Host injection for a case that declares host-controlled compaction: the
+ * envelope carries the frozen workspace identity, the real fixture HEAD and a
+ * deliberately stale checkpoint, so the resumed turn has to reconcile a stale
+ * summary against live workspace and Git facts.
+ *
+ * @param {{allowedWritePaths: string[], compaction: Record<string, any>, definition: Record<string, any>, headSha: string, now: Date, repetition: number, workspace: string}} options
+ */
+function hostCheckpointEnvelope({ allowedWritePaths, compaction, definition, headSha, now, repetition, workspace }) {
+  const caseId = String(definition.id ?? 'case').toLowerCase();
+  const identity = `eval-${caseId}-r${repetition}`;
+  const plan = buildEnvelopeDraft({
+    activeObjective: compaction.activeObjective ?? 'Finish the recorded plan steps exactly once.',
+    allowedEffects: ['workspaceWrite'],
+    allowedWriteRoots: allowedWritePaths.map((relative) => path.resolve(workspace, relative)),
+    baseRef: 'HEAD',
+    checkpoint: {
+      activeObjective: compaction.activeObjective ?? 'Finish the recorded plan steps exactly once.',
+      blockerCount: 0,
+      blockerFingerprint: 'none',
+      completedFacts: compaction.completedFacts ?? [],
+      continuationCount: 1,
+      dagStructureHash: 'none',
+      headSha,
+      liveStates: { 'BRIEF.md': 'read', 'progress.log': 'unverified-at-checkpoint-time' },
+      nextAction: compaction.nextAction ?? 'continue the remaining plan steps',
+      noRepeatSet: compaction.noRepeatSet ?? [],
+      observedAt: now.toISOString(),
+      targetIssueId: 'eval-fixture',
+    },
+    cwd: workspace,
+    expiresAt: new Date(now.getTime() + 30 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/u, 'Z'),
+    forbiddenEffects: ['linearWrite', 'hostWrite', 'externalWrite', 'gitBranch', 'gitCommit', 'gitPush', 'mergeRequestWrite', 'credentialUse'],
+    hostContext: {
+      approval: 'unavailable',
+      filesystem: 'workspace-write',
+      network: 'offline',
+      observedAt: now.toISOString(),
+      process: 'isolated',
+      source: 'host',
+    },
+    mode: 'execute',
+    requestId: identity,
+    riskClass: 'standard',
+    sessionId: identity,
+    targetIssueIds: [],
+    terminalCondition: compaction.terminalCondition ?? 'The recorded plan steps are each completed exactly once.',
+  });
+  if (!plan.valid) {
+    throw new Error(`host compaction envelope is invalid: ${plan.problems.map((problem) => problem.code).join(', ') || 'unknown problem'}`);
+  }
+  return plan.envelope;
+}
+
 function validateObservation(value, caseId, configHash) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return 'runner output must be an object';
   if (value.schemaVersion !== 1) return 'runner output schemaVersion must be 1';
@@ -246,12 +333,29 @@ export async function runEvaluationCase({ command, definition, configHash = 'fix
   let report;
   try {
     workspace = await createWorkspace(definition, sourceRoot);
+    const fixtureGit = definition.input?.fixture?.git;
+    const headSha = fixtureGit?.init === true
+      ? await initializeFixtureRepository(workspace, { commitMessage: fixtureGit.commitMessage ?? FIXTURE_COMMIT_MESSAGE })
+      : null;
+    const compaction = definition.input?.compaction ?? null;
+    const hostEnvelope = compaction
+      ? hostCheckpointEnvelope({
+        allowedWritePaths: definition.input.fixture?.allowedWritePaths ?? [],
+        compaction,
+        definition,
+        headSha: headSha ?? '0'.repeat(40),
+        now: new Date(),
+        repetition,
+        workspace,
+      })
+      : null;
     const request = {
       schemaVersion: 1,
       runId,
       repetition,
       workspace,
       configHash,
+      ...(hostEnvelope ? { hostEnvelope } : {}),
       case: {
         ...definition,
         input: { ...definition.input, scenario: evaluationPrompt(definition) },

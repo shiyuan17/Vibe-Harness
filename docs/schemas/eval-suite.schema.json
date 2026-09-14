@@ -128,7 +128,31 @@
                       },
                       "additionalProperties": false
                     }
+                  },
+                  "git": {
+                    "type": "object",
+                    "required": ["init"],
+                    "properties": {
+                      "init": { "type": "boolean" },
+                      "commitMessage": { "type": "string", "minLength": 1, "maxLength": 128 }
+                    },
+                    "additionalProperties": false
                   }
+                },
+                "additionalProperties": false
+              },
+              "compaction": {
+                "type": "object",
+                "required": ["resumePrompt", "contextWindow", "autoCompactTokenLimit"],
+                "properties": {
+                  "resumePrompt": { "type": "string", "minLength": 1 },
+                  "contextWindow": { "type": "integer", "minimum": 1000 },
+                  "autoCompactTokenLimit": { "type": "integer", "minimum": 1000 },
+                  "activeObjective": { "type": "string", "minLength": 1, "maxLength": 1024 },
+                  "terminalCondition": { "type": "string", "minLength": 1, "maxLength": 512 },
+                  "completedFacts": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+                  "noRepeatSet": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+                  "nextAction": { "type": "string", "minLength": 1, "maxLength": 512 }
                 },
                 "additionalProperties": false
               },

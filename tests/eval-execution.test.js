@@ -68,9 +68,51 @@ test('execution suite hidden-test events are registered observers', async () => 
   assert.equal(typeof observers.events['hidden-tests-passed'], 'object');
   assert.equal(typeof observers.events['hidden-tests-failed'], 'object');
   assert.equal(typeof observers.events['undeclared-workspace-write'], 'object');
+  for (const event of ['compaction-observed', 'compaction-not-observed', 'current-file-read', 'git-head-advanced', 'verification']) {
+    assert.equal(typeof observers.events[event], 'object', event);
+  }
   const incomplete = structuredClone(observers);
   delete incomplete.events['hidden-tests-failed'];
   assert.match(validateEvalObserverCoverage([suite], incomplete).join('\n'), /hidden-tests-failed/u);
+});
+
+test('execution suite schema rejects malformed host compaction and Git fixture blocks', async () => {
+  const [schema, suite] = await Promise.all([
+    readJson(path.join(rootDir, 'schemas/eval-suite.schema.json')),
+    readJson(suitePath),
+  ]);
+  const index = suite.cases.findIndex((item) => item.id === 'EVAL-EXEC-COMPACT-001');
+  assert.notEqual(index, -1);
+  const validate = (mutate) => {
+    const copy = structuredClone(suite);
+    mutate(copy.cases[index].input);
+    return validateJsonAgainstSchema(copy, schema, 'bad');
+  };
+  assert.deepEqual(validate(() => {}), []);
+  assert.notEqual(validate((input) => { delete input.compaction.resumePrompt; }).length, 0);
+  assert.notEqual(validate((input) => { input.compaction.contextWindow = 900; }).length, 0);
+  assert.notEqual(validate((input) => { input.compaction.autoCompactTokenLimit = 4000.5; }).length, 0);
+  assert.notEqual(validate((input) => { input.compaction.unknownKey = true; }).length, 0);
+  assert.notEqual(validate((input) => { input.fixture.git = {}; }).length, 0);
+  assert.notEqual(validate((input) => { input.fixture.git = { init: true, unknownKey: true }; }).length, 0);
+});
+
+test('host compaction case keeps the stale checkpoint out of the fixture and the first prompt', async () => {
+  const suite = await readJson(suitePath);
+  const item = suite.cases.find((entry) => entry.id === 'EVAL-EXEC-COMPACT-001');
+  assert.equal(item.capability, 'execution-recovery');
+  assert.equal(item.category, 'task-delivery-governance');
+  assert.equal(item.input.fixture.git.init, true);
+  assert.equal(item.input.compaction.autoCompactTokenLimit < item.input.compaction.contextWindow, true);
+  // The host owns the compaction: neither the fixture nor the first prompt may
+  // carry a hand-written summary, or the case would grade synthetic recovery.
+  const fixtureText = JSON.stringify(item.input.fixture.files);
+  assert.doesNotMatch(fixtureText, /compacted|summary|checkpoint/iu);
+  assert.doesNotMatch(item.input.scenario, /VIBE_HARNESS_EXECUTION_ENVELOPE|compacted this conversation/iu);
+  assert.equal(item.input.fixture.files.some((file) => file.path === '.gitignore'), false);
+  assert.match(item.input.compaction.resumePrompt, /VIBE_HARNESS_EXECUTION_ENVELOPE/u);
+  assert.equal(item.input.compaction.resumePrompt.includes(item.input.scenario), false);
+  assert.match(item.oracle.forbiddenEvents.find((entry) => entry.value === 'git-head-advanced').dimension, /safety/u);
 });
 
 test('execution suite contains five task-delivery-governance cases graded by hidden tests', async () => {

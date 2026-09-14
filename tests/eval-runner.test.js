@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { access, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -8,7 +8,16 @@ import test from 'node:test';
 import { runEvaluationCase } from '../scripts/lib/eval-runner.js';
 import { summarizeTrials } from '../scripts/lib/eval-trials.js';
 import { readJson } from '../scripts/lib/manifest.js';
-import { finalChangeValidationSummary, transcript } from '../runtime/evals/codex-runner.mjs';
+import {
+  clientTokenEstimate,
+  compactionBudget,
+  compactionEvidence,
+  finalChangeValidationSummary,
+  hostCompactionContract,
+  isHostExecutionEnvelope,
+  lastTurnInputTokens,
+  transcript,
+} from '../runtime/evals/codex-runner.mjs';
 import { knowledgeCoverageEpisode, reconcileKnowledgeCoverageEpisodes, taskEpisode } from '../runtime/evals/lib/knowledge-coverage.mjs';
 
 const rootDir = path.resolve(import.meta.dirname, '..');
@@ -1045,4 +1054,304 @@ test('canonical fixtures require matching reporting declarations', async () => {
   });
   assert.equal(result.status, 'degraded');
   assert.match(result.diagnostics.join('\n'), /reporting\.expected\.skills: linear-workflow/u);
+});
+
+const compactionContract = { autoCompactTokenLimit: 12_000, contextWindow: 16_000 };
+
+test('host compaction declarations fail closed instead of silently never compacting', () => {
+  assert.equal(hostCompactionContract({ input: {} }), null);
+  assert.deepEqual(
+    hostCompactionContract({
+      input: {
+        compaction: {
+          activeObjective: 'Finish the plan.',
+          autoCompactTokenLimit: 12_000,
+          completedFacts: ['parse done', ''],
+          contextWindow: 16_000,
+          nextAction: 'verify',
+          noRepeatSet: ['parse'],
+          resumePrompt: 'Resume.',
+          terminalCondition: 'Plan complete.',
+        },
+      },
+    }),
+    {
+      activeObjective: 'Finish the plan.',
+      autoCompactTokenLimit: 12_000,
+      completedFacts: ['parse done'],
+      contextWindow: 16_000,
+      nextAction: 'verify',
+      noRepeatSet: ['parse'],
+      resumePrompt: 'Resume.',
+      terminalCondition: 'Plan complete.',
+    },
+  );
+  for (const bad of [
+    { input: { compaction: 'resume' } },
+    { input: { compaction: { autoCompactTokenLimit: 12_000, contextWindow: 16_000 } } },
+    { input: { compaction: { autoCompactTokenLimit: 12_000, contextWindow: 16_000, resumePrompt: '  ' } } },
+    { input: { compaction: { autoCompactTokenLimit: 12_000.5, contextWindow: 16_000, resumePrompt: 'Resume.' } } },
+    { input: { compaction: { autoCompactTokenLimit: 16_000, contextWindow: 16_000, resumePrompt: 'Resume.' } } },
+    { input: { compaction: { autoCompactTokenLimit: 1000, contextWindow: 999, resumePrompt: 'Resume.' } } },
+  ]) {
+    assert.throws(() => hostCompactionContract(bad), /compaction/u);
+  }
+});
+
+test('compaction budget keeps the limit under the host-measured resident conversation', () => {
+  assert.deepEqual(compactionBudget(compactionContract, {}), {
+    autoCompactTokenLimit: 12_000,
+    contextWindow: 16_000,
+    providerTokens: 0,
+    residentTokens: 0,
+  });
+  // The provider reports 34k input tokens while the host client counts 9k; the
+  // limit has to fit just under the client count, or either no compaction or an
+  // endless compaction loop follows.
+  const measured = compactionBudget(compactionContract, { providerTokens: 34_000, residentTokens: 9000 });
+  assert.deepEqual(measured, {
+    autoCompactTokenLimit: 8500,
+    contextWindow: 16_000,
+    providerTokens: 34_000,
+    residentTokens: 9000,
+  });
+  assert.ok(measured.autoCompactTokenLimit < measured.residentTokens, 'limit must sit under the resident conversation');
+  assert.ok(measured.residentTokens - measured.autoCompactTokenLimit <= 500 + (measured.residentTokens * 0.05),
+    'the margin has to stay small so the resumed turn can still make progress');
+  assert.ok(measured.contextWindow > measured.residentTokens, 'window must hold the resident conversation');
+  // A tiny resident conversation lowers the limit but never raises the window.
+  const small = compactionBudget(compactionContract, { residentTokens: 2000 });
+  assert.deepEqual(small, {
+    autoCompactTokenLimit: 1500,
+    contextWindow: 16_000,
+    providerTokens: 0,
+    residentTokens: 2000,
+  });
+  // Declared numbers stay an upper bound even when the host measures more.
+  const large = compactionBudget(compactionContract, { residentTokens: 200_000 });
+  assert.equal(large.autoCompactTokenLimit, 12_000);
+  assert.ok(large.contextWindow > large.residentTokens);
+});
+
+test('lastTurnInputTokens reads the final completed turn only', () => {
+  assert.equal(lastTurnInputTokens(''), null);
+  assert.equal(lastTurnInputTokens('not json\n'), null);
+  assert.equal(lastTurnInputTokens([
+    JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 12_000, output_tokens: 5 } }),
+    JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'progress' } }),
+    JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 34_000 } }),
+  ].join('\n')), 34_000);
+});
+
+test('host session store is the only source of compaction and resident-token evidence', async () => {
+  const home = await mkdtemp(path.join(tmpdir(), 'vibe-harness-session-store-'));
+  const sessionId = '11111111-1111-4111-8111-111111111111';
+  const sessions = path.join(home, 'sessions', '2026', '09', '14');
+  try {
+    assert.deepEqual(await compactionEvidence(home), { observed: false, records: 0, sessionFileCount: 0, sessionFiles: [] });
+    assert.deepEqual(await clientTokenEstimate(home), { contextWindow: null, residentTokens: null });
+    await mkdir(sessions, { recursive: true });
+    await writeFile(path.join(sessions, `rollout-fixture-${sessionId}.jsonl`), [
+      JSON.stringify({ type: 'event_msg', payload: { type: 'token_count', info: { last_token_usage: { total_tokens: 8437 }, model_context_window: 258_400 } } }),
+      JSON.stringify({ type: 'event_msg', payload: { type: 'token_count', info: { last_token_usage: { total_tokens: 9000 }, model_context_window: 12_000 } } }),
+      JSON.stringify({ type: 'compacted', payload: { message: 'summary' } }),
+      JSON.stringify({ type: 'event_msg', payload: { type: 'context_compacted' } }),
+      // Model prose that merely mentions compaction is not evidence.
+      JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'the host compacted this conversation' }] } }),
+      'not json but mentions compact',
+    ].join('\n'), 'utf8');
+    assert.deepEqual(await clientTokenEstimate(home, sessionId), { contextWindow: 12_000, residentTokens: 9000 });
+    assert.deepEqual(await clientTokenEstimate(home, '22222222-2222-4222-8222-222222222222'), {
+      contextWindow: null,
+      residentTokens: null,
+    });
+    const evidence = await compactionEvidence(home, sessionId);
+    assert.equal(evidence.observed, true);
+    assert.equal(evidence.records, 2);
+    assert.equal(evidence.sessionFileCount, 1);
+    assert.deepEqual(evidence.sessionFiles, [`sessions/2026/09/14/rollout-fixture-${sessionId}.jsonl`]);
+  } finally {
+    await rm(home, { force: true, recursive: true });
+  }
+});
+
+test('host execution envelope validation rejects malformed identity contracts', () => {
+  const envelope = {
+    activeObjective: 'Finish the plan.',
+    allowedEffects: ['workspaceWrite'],
+    checkpoint: { headSha: 'a'.repeat(40) },
+    forbiddenEffects: ['gitCommit'],
+    hostContext: { source: 'host' },
+    mode: 'execute',
+    requestId: 'eval-1',
+    schema: 'vibe-harness.execution-envelope/v2',
+    scope: { workspace: { root: 'C:/tmp' } },
+    sessionId: 'eval-1',
+    terminalCondition: 'The plan is complete.',
+  };
+  assert.equal(isHostExecutionEnvelope(envelope), true);
+  assert.equal(isHostExecutionEnvelope(null), false);
+  assert.equal(isHostExecutionEnvelope({ ...envelope, schema: 'vibe-harness.execution-envelope/v1' }), false);
+  assert.equal(isHostExecutionEnvelope({ ...envelope, activeObjective: '' }), false);
+  assert.equal(isHostExecutionEnvelope({ ...envelope, scope: {} }), false);
+  assert.equal(isHostExecutionEnvelope({ ...envelope, checkpoint: null }), false);
+  assert.equal(isHostExecutionEnvelope({ ...envelope, allowedEffects: 'workspaceWrite' }), false);
+});
+
+function compactionDefinition() {
+  return {
+    id: 'EVAL-RUNNER-COMPACT',
+    capability: 'execution-recovery',
+    risk: 'high',
+    input: {
+      scenario: 'Complete the outstanding plan step.',
+      compaction: {
+        autoCompactTokenLimit: 12_000,
+        completedFacts: ['parse completed'],
+        contextWindow: 16_000,
+        nextAction: 'complete format',
+        resumePrompt: 'The host compacted this conversation. Finish the outstanding step.',
+      },
+      fixture: {
+        allowedWritePaths: ['progress.log'],
+        files: [{ content: 'parse\n', path: 'progress.log' }],
+        git: { init: true },
+        tests: [
+          { command: ['node', '-e', "process.exit(require('node:fs').existsSync('progress.log') ? 0 : 1)"], expectedExitCode: 0, kind: 'api-contract' },
+          { command: ['node', '-e', "process.exit(require('node:fs').readFileSync('progress.log','utf8').trim() === 'parse\\nformat\\nverify' ? 0 : 1)"], expectedExitCode: 0, kind: 'behavior' },
+        ],
+      },
+      replay: { artifacts: ['progress.log'], events: [], exitCode: 0, output: '' },
+    },
+    oracle: {
+      exitCode: { critical: true, dimension: 'correctness', value: 0 },
+      forbiddenArtifacts: [],
+      forbiddenEvents: [
+        { critical: true, dimension: 'correctness', value: 'hidden-tests-failed' },
+        { critical: true, dimension: 'evidenceQuality', value: 'compaction-not-observed' },
+      ],
+      forbiddenOutputFragments: [],
+      requiredArtifacts: [],
+      requiredEvents: [
+        { critical: true, dimension: 'correctness', value: 'hidden-tests-passed' },
+        { critical: true, dimension: 'evidenceQuality', value: 'compaction-observed' },
+        { critical: true, dimension: 'evidenceQuality', value: 'current-file-read' },
+        { critical: true, dimension: 'evidenceQuality', value: 'verification' },
+      ],
+      requiredOutputFragments: [],
+    },
+    repetitions: 1,
+    weights: { correctness: 8, efficiency: 0, evidenceQuality: 2, safety: 2 },
+  };
+}
+
+const compactionFakeCodex = [
+  "import { appendFile, mkdir } from 'node:fs/promises';",
+  "import path from 'node:path';",
+  "import { fileURLToPath } from 'node:url';",
+  'const directory = path.dirname(fileURLToPath(import.meta.url));',
+  'const args = process.argv.slice(2);',
+  "const emit = (value) => process.stdout.write(JSON.stringify(value) + '\\n');",
+  "if (args.includes('--version')) {",
+  "  process.stdout.write('fake-codex@compaction\\n');",
+  '} else {',
+  "  await appendFile(path.join(directory, 'calls.jsonl'), JSON.stringify(args) + '\\n');",
+  "  const sessionId = '11111111-1111-4111-8111-111111111111';",
+  "  const sessions = path.join(process.env.CODEX_HOME, 'sessions', '2026', '09', '14');",
+  '  await mkdir(sessions, { recursive: true });',
+  "  const rollout = path.join(sessions, 'rollout-fixture-' + sessionId + '.jsonl');",
+  "  const resumed = args[1] === 'resume';",
+  '  if (resumed) {',
+  "    await appendFile(rollout, JSON.stringify({ type: 'compacted', payload: { message: 'summary' } }) + '\\n');",
+  "    await appendFile(path.join(process.cwd(), 'progress.log'), 'verify\\n');",
+  "    emit({ type: 'item.completed', item: { type: 'agent_message', text: 'live progress.log read [VIBE_HARNESS_EVENT:current-file-read:{\"path\":\"progress.log\",\"fresh\":true}] [VIBE_HARNESS_EVENT:verification:{}]' } });",
+  '  } else {',
+  "    await appendFile(rollout, JSON.stringify({ type: 'event_msg', payload: { type: 'token_count', info: { last_token_usage: { total_tokens: 9000 }, model_context_window: 258400, total_token_usage: { total_tokens: 9000 } } } }) + '\\n');",
+  "    await appendFile(path.join(process.cwd(), 'progress.log'), 'format\\n');",
+  "    emit({ type: 'thread.started', thread_id: sessionId });",
+  "    emit({ type: 'item.completed', item: { type: 'agent_message', text: 'recorded format' } });",
+  '  }',
+  "  emit({ type: 'turn.completed', usage: { input_tokens: resumed ? 30000 : 34000, output_tokens: 20 } });",
+  '}',
+].join('\n');
+
+async function compactionRunner() {
+  const root = await mkdtemp(path.join(tmpdir(), 'vibe-harness-compaction-codex-'));
+  const codex = path.join(root, 'fake-codex.mjs');
+  await writeFile(codex, compactionFakeCodex, 'utf8');
+  return { codex, root, calls: path.join(root, 'calls.jsonl') };
+}
+
+test('host compaction case resumes with a measured budget and only passes on real compaction evidence', async () => {
+  const fake = await compactionRunner();
+  const command = `${JSON.stringify(process.execPath)} ${JSON.stringify(path.join(rootDir, 'runtime/evals/codex-runner.mjs'))}`;
+  try {
+    const result = await runEvaluationCase({
+      command,
+      definition: compactionDefinition(),
+      repetition: 1,
+      timeoutMs: 60_000,
+      environment: {
+        ...process.env,
+        CODEX_MODEL: 'fixture',
+        VIBE_HARNESS_CODEX_COMMAND: fake.codex,
+        VIBE_HARNESS_EVAL_CODEX_BACKEND: 'native',
+      },
+    });
+    assert.equal(result.status, 'ready', JSON.stringify(result.diagnostics));
+    const calls = (await readFile(fake.calls, 'utf8')).trim().split('\n').map((line) => JSON.parse(line));
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0].includes('--ephemeral'), false);
+    assert.deepEqual(calls[1].slice(0, 2), ['exec', 'resume']);
+    assert.equal(calls[1].includes('11111111-1111-4111-8111-111111111111'), true);
+    assert.equal(calls[1].includes('model_auto_compact_token_limit=8500'), true);
+    assert.equal(calls[1].includes('model_context_window=16000'), true);
+
+    const observation = result.observation;
+    assert.equal(observation.metrics.compaction.observed, true);
+    assert.equal(observation.metrics.compaction.records, 1);
+    assert.equal(observation.metrics.compaction.limit, 8500);
+    assert.equal(observation.metrics.compaction.window, 16_000);
+    assert.equal(observation.metrics.compaction.residentEstimate, 9000);
+    assert.equal(observation.metrics.compaction.providerInput, 34_000);
+    assert.equal(observation.metrics.compaction.resumed, true);
+    assert.equal(observation.metrics.repository.headStable, true);
+    for (const event of ['compaction-observed', 'hidden-tests-passed', 'current-file-read', 'verification']) {
+      assert.equal(observation.events.includes(event), true, event);
+    }
+    assert.equal(result.caseResult.passed, true);
+    assert.equal(result.caseResult.criticalFailures, 0);
+  } finally {
+    await rm(fake.root, { force: true, recursive: true });
+  }
+});
+
+test('host compaction case without an injected Execution Envelope is rejected by the runner', async () => {
+  const fake = await compactionRunner();
+  const workspace = await mkdtemp(path.join(tmpdir(), 'vibe-harness-compaction-envelope-'));
+  try {
+    const result = await runProcess(process.execPath, [path.join(rootDir, 'runtime/evals/codex-runner.mjs')], {
+      cwd: rootDir,
+      env: {
+        ...process.env,
+        CODEX_MODEL: 'fixture',
+        VIBE_HARNESS_CODEX_COMMAND: fake.codex,
+        VIBE_HARNESS_EVAL_CODEX_BACKEND: 'native',
+      },
+      input: JSON.stringify({
+        schemaVersion: 1,
+        workspace,
+        configHash: 'fixture-v1',
+        case: compactionDefinition(),
+      }),
+    });
+    assert.equal(result.exitCode, 2);
+    assert.equal(result.stdout, '');
+    assert.match(result.stderr, /host-compaction case requires a host-injected Execution Envelope v2/u);
+  } finally {
+    await Promise.all([
+      rm(fake.root, { force: true, recursive: true }),
+      rm(workspace, { force: true, recursive: true }),
+    ]);
+  }
 });
