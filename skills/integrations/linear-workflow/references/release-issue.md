@@ -1,6 +1,6 @@
 # Linear 发布 Issue（Release Issue）
 
-Release Issue 是发布窗口的 aggregate 记录，不创建实现 worktree 或任务分支。开发 Issue 在合入 <code>develop</code> 后立即 Done；Release Issue 只证明一次提升、正式发布和回同步完整结束。
+Release Issue 是发布窗口的 aggregate 记录，不创建实现 worktree 或任务分支。开发 Issue 在合入 <code>develop</code> 后立即 Done（该合入不要求远端 CI）；Release Issue 只证明一次提升、正式发布和回同步完整结束，完整发布门禁在发布边界运行。
 
 ## 目标（Goal）
 

@@ -8,7 +8,7 @@
 
 Vibe-Harness 通过显式 integration plugin 提供 Linear 工作流规则、操作 Skill、团队模板和项目级 Remote MCP 配置。Linear 是工作状态、责任和原生依赖真值，GitHub 或 GitLab 是代码、PR/MR、检查和合并真值。
 
-默认交付分支模型是轻量 GitFlow：<code>feat/*、fix/* → develop → main</code>，hotfix 使用 <code>hotfix/* → main → develop</code>。开发 Issue 在 closing PR 合入 <code>develop</code> 后 Done；正式发布由独立 aggregate Release Issue、<code>develop → main</code> 提升 PR、release-please 版本 PR 和 <code>main → develop</code> 回同步共同证明。
+默认交付分支模型是轻量 GitFlow：<code>feat/*、fix/* → develop → main</code>，hotfix 使用 <code>hotfix/* → main → develop</code>。开发 Issue 在 closing PR 合入 <code>develop</code> 后 Done；正式发布由独立 aggregate Release Issue、<code>develop → main</code> 提升 PR、release-please 版本 PR 和 <code>main → develop</code> 回同步共同证明。CI 只在发布边界运行（<code>develop → main</code>、<code>hotfix/* → main</code> 和 <code>release/*</code>）；合入 <code>develop</code> 不要求远端 CI 或强制人工审批，Writer 可在授权后自行落地 squash merge。
 
 本规格定义显式执行登记、具体运行实例审计和原生 DAG 完成语义，同时长期保留禁止自动领取。交付范围是规则、Skill、模板、安装投影、ADR、测试和 Eval，不包含常驻运行服务。
 
@@ -35,11 +35,11 @@ Remote MCP server 使用 url，本地 MCP server 使用 command、args 和 env�
 
 高风险或不可分类调用缺少 high-risk v2、精确目标或新鲜宿主证明时 fail-closed。活动执行的 workspace identity 不可移动；worktree move 无法由 effect allowlist 授权。checkpoint 另保存 headSha、continuationCount 和 blockerCount；每次自动续跑前重读原生 Goal、thread status、最新用户输入、cwd、worktree、branch、HEAD 和 blocker。达到终点、等待审批、workspace 漂移、未归属 HEAD 或相同 blocker 连续三次时停止；没有原生 Goal bridge 时只输出可恢复 checkpoint，不跨 turn 自主续跑。
 
-任何写入前必须为当前请求建立逻辑 Execution Envelope，至少包含 schema、requestId、sessionId、mode、targetIssueIds、allowedEffects、forbiddenEffects、terminalCondition 和 activeObjective。mode 只允许 inspect、plan、linear-sync、execute、monitor；effect 只允许 linearWrite、workspaceWrite、gitBranch、gitCommit、gitPush、mergeRequestWrite、credentialUse。各 effect 独立授权且 forbiddenEffects 优先；实现授权不自动包含分支、提交、推送、PR/MR 或凭据使用。
+任何写入前必须为当前请求建立逻辑 Execution Envelope，至少包含 schema、requestId、sessionId、mode、targetIssueIds、allowedEffects、forbiddenEffects、terminalCondition 和 activeObjective。mode 只允许 inspect、plan、linear-sync、execute、monitor；effect 只允许 linearWrite、workspaceWrite、gitBranch、gitCommit、gitPush、mergeRequestWrite、credentialUse。各 effect 独立授权且 forbiddenEffects 优先；实现授权不自动包含分支、提交、推送、PR/MR 或凭据使用。<code>mergeRequestWrite</code> 覆盖创建或更新 PR/MR 与落地该 PR/MR 的合并（squash merge 或 auto-merge）。
 
 inspect 与 plan 默认只读。linear-sync 仅允许本轮明确要求的 Linear 写入，必须禁止其他六种 effect。execute 只能实施授权的最小 effects。monitor 默认只读且写 effect ceiling 为空，并必须包含观察对象、终止事件或时间边界。Ready、Todo、依赖满足或队列可见只表示条件满足，不构成 execute 授权。
 
-默认 terminalCondition 是当前 Issue 的已授权 effects 完成；若授权到 mergeRequestWrite，则 PR/MR ready for review、创建后重读确认并完成已授权证据同步时结束。Linear 自动化或已授权回写应进入 In Review；同步不可用或未授权时报告差异后结束。人工合并不是默认持续目标；没有显式 monitor 授权时不得持续轮询、自动续跑或选择下一个 Ready 节点。
+默认 terminalCondition 是当前 Issue 的已授权 effects 完成；若授权到 mergeRequestWrite 且目标为 <code>develop</code>，则在 closing PR/MR 已 squash 合并到声明的精确目标 ref、创建后重读确认并完成已授权证据同步时结束，写叶子 Issue 同时进入 Done；若未授权落地 merge，则在 PR/MR ready for review、创建后重读确认后结束并报告等待人工合并。Linear 自动化或已授权回写应进入 In Review 或 Done；同步不可用或未授权时报告差异后结束。人工合并不是默认持续目标；没有显式 monitor 授权时不得持续轮询、自动续跑或选择下一个 Ready 节点。
 
 本规格的 Implemented 表示规则、Skill、模板、schema、测试和 Eval 资产合同已经交付，不代表每个宿主都存在常驻状态服务或完整 Hook enforcement。支持结构化会话状态的宿主应持久化 envelope/checkpoint；不支持时由 Agent 在当前上下文执行门禁，恢复后不能证明一致性则 fail-closed。Hook 只能约束其可观察的调用，不能证明未暴露远程工具的安全性。
 
@@ -117,9 +117,9 @@ Git credential helper 只能由其配置的 Git transport 透明调用。提取�
 
 ## 状态与完成语义
 
-固定状态为 Triage、Backlog、Todo、In Progress、In Review、Ready to Merge、Done；Blocked 只使用关系。Linear 的 GitHub/GitLab 集成或团队自动化优先推进代码状态，缺少自动化时只有 Execution Envelope 允许 linearWrite 的 Writer 才能回写当前 Issue。
+固定状态为 Triage、Backlog、Todo、In Progress、In Review、Ready to Merge、Done；Blocked 只使用关系。Ready to Merge 只用于带门禁目标（<code>main</code>、<code>release/*</code>）；<code>develop</code> 快车道下 closing PR 合入后由 In Review 直接 Done。Linear 的 GitHub/GitLab 集成或团队自动化优先推进代码状态，缺少自动化时只有 Execution Envelope 允许 linearWrite 的 Writer 才能回写当前 Issue。
 
-Agent 手工状态写入必须按“读取当前值 -> 校验允许转换 -> 写入 -> 重读确认”执行。实时状态与代码提供方事实优先于旧计划、DAG 快照或压缩摘要；常规代码流只前进 Todo -> In Progress -> In Review -> Ready to Merge -> Done。任何后退、重开或纠错转换都需要单独状态纠错授权和事实原因，不得为了 Ready 清单或旧规划统计把 In Progress、In Review 或 Ready to Merge 退回 Todo。
+Agent 手工状态写入必须按“读取当前值 -> 校验允许转换 -> 写入 -> 重读确认”执行。实时状态与代码提供方事实优先于旧计划、DAG 快照或压缩摘要；常规代码流在 <code>develop</code> 路径上只前进 Todo -> In Progress -> In Review -> Done，只有带门禁目标才经过 Ready to Merge。任何后退、重开或纠错转换都需要单独状态纠错授权和事实原因，不得为了 Ready 清单或旧规划统计把 In Progress、In Review 或 Ready to Merge 退回 Todo。
 
 - write 叶子 Done：closing PR/MR 已合并到声明的精确目标 ref。
 - read 节点 Done：约定输出和 Verification 证据已记录。

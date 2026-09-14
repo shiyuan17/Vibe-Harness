@@ -5,6 +5,7 @@ Git 规则的目标是保护用户改动、保持提交可审查，并确保 wor
 - 默认分支模型：`feat/*、fix/* → develop → main`；紧急修复：`hotfix/* → main → develop`。
 - 普通任务 PR 使用 squash merge；`develop → main` 的发布提升与 `main → develop` 的回同步使用 merge commit。
 - `main` 只接受同仓库 `develop`、`hotfix/*` 和 release-please 的 PR，不使用长期 `release/*` 分支。
+- 必须有门禁效果的 required CI 只在发布边界运行：`develop → main` 提升、`hotfix/* → main` 和 `release/*`（`main-release-gate`，main ruleset 的唯一 required check）。普通任务 PR 仍会跑不阻断合并的 advisory CI job；`develop` ruleset 不设 required status check，合入 `develop` 不要求远端 CI 或强制审批，Writer 可在 envelope 授权 `mergeRequestWrite` 后自行落地 squash merge；`Ready to Merge` 只用于带门禁目标。
 
 ## 启动与归属
 
@@ -46,7 +47,7 @@ Vibe-Harness 不通过 Stop Hook、运行时脚本或任何默认流程自动执
 - main、master、develop、release 和其他共享分支上的提交与推送遵循仓库保护和人工审批。
 - PR/MR 包含摘要、风险、验证、回滚和审查备注；高风险 PR/MR 说明红区确认和独立审查状态。
 - Linear 工作流下必须给出可解析的精确目标远端 ref；只有解析结果确为仓库默认分支时才可写“默认分支”。开始实现前记录目标 ref 和 base SHA，分支与 worktree 必须从该基线创建。
-- Linear 普通任务默认以 `origin/develop` 为基线；只有 hotfix 以 `origin/main` 为基线。发布提升和回同步使用 `Refs <ISSUE-ID>`，不得用 closing magic word 重复关闭已完成开发 Issue。
+- Linear 普通任务默认以 `origin/develop` 为基线；只有 hotfix 以 `origin/main` 为基线。发布提升和回同步使用 `Refs <ISSUE-ID>`，不得用 closing magic word 重复关闭已完成开发 Issue。普通任务 closing PR 合入 `develop` 即为 Done，该合入不要求远端 CI。
 - 顺序执行且工作区干净时，任务分支可在当前 clone 创建；并发 Agent、脏工作区、存在无关改动或明确要求隔离时，必须使用仓库外 worktree。该优化不改变“一任务一分支一 closing PR/MR”。
 - 创建 PR/MR 前重新读取远端目标 ref 和 source HEAD，校验提供方所选 base 等于已声明目标 ref，并计算 merge-base。merge-base 必须等于冻结 base SHA，或是该 SHA 在同一目标 ref 历史上的已验证后代；否则停止创建并报告基线不一致。
 - GitHub PR 与 GitLab MR 的标题、source、target、描述和 closing 语义都必须在创建后重读确认。Linear 分支和标题保留 Issue ID；closing 描述使用 `Fixes <ISSUE-ID>`，只有提供方配置并经重读确认的等价语法才可替代；closing 词不放在 commit 中。

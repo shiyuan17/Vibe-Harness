@@ -182,7 +182,13 @@ test('Linear lightweight GitFlow defaults delivery to develop and separates rele
     assert.match(content, /feat\/\*、fix\/\*.*develop.*main/su);
     assert.match(content, /hotfix\/\*.*main.*develop/su);
     assert.match(content, /develop.*合并.*开发 Issue.*Done/su);
+    assert.match(content, /develop[^。\n]*不要求远端 CI|合入[^。\n]*develop[^。\n]*不要求远端 CI|不要求远端 CI/u);
   }
+  assert.match(rule, /Writer[^。]*自行[^。]*squash/u);
+  assert.match(rule, /mergeRequestWrite[^。]*落地[^。]*合并|落地[^。]*merge/u);
+  assert.match(rule, /Ready to Merge[^。]*仅对带门禁/u);
+  assert.match(rule, /main-release-gate/u);
+  assert.match(skill, /远端 CI 只在发布边界/u);
   assert.match(taskTemplate, /Target branch.*origin\/develop/su);
   assert.match(taskTemplate, /Contract:\s*None/u);
   assert.match(taskTemplate, /Dependencies[\s\S]*None/u);

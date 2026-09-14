@@ -14,7 +14,7 @@ Linear 保存工作状态、责任、委派与依赖；GitHub 或 GitLab 保存�
 - 显式执行指令只授权当前 Issue 的最小身份登记，不授权修改 Assignee、Priority、Contract、Project、Cycle、Parent 或 relations。已有其他 Delegate、fallback Agent 标签或活动运行时，必须停止并请求显式 release 或 handoff。
 - Reviewer 和 Verifier 只读，不写 Receipt、不修改 Delegate 或 fallback 标签，也不取得实现所有权。
 
-每个请求在任何写入前都必须按 `governance-core.md` 建立 Execution Envelope，mode 只允许 inspect、plan、linear-sync、execute、monitor；effect 只允许 linearWrite、workspaceWrite、gitBranch、gitCommit、gitPush、mergeRequestWrite、credentialUse，并分别列入 allowedEffects 或 forbiddenEffects。linear-sync 只允许本轮明确要求的 Linear 写入，必须禁止代码、worktree/分支、提交、推送、PR/MR 和凭据 effect。Ready、Todo、依赖满足或队列可见只表示执行条件满足，不构成 execute 授权；当前 terminalCondition 达成后不得自动选取下一个 Ready 节点。
+每个请求在任何写入前都必须按 `governance-core.md` 建立 Execution Envelope，mode 只允许 inspect、plan、linear-sync、execute、monitor；effect 只允许 linearWrite、workspaceWrite、gitBranch、gitCommit、gitPush、mergeRequestWrite、credentialUse，并分别列入 allowedEffects 或 forbiddenEffects。`mergeRequestWrite` 显式覆盖创建或更新 PR/MR 与落地该 PR/MR 的合并（squash merge 或 auto-merge）；合并到声明目标 ref 是独立于实现、分支、提交和推送的动作。linear-sync 只允许本轮明确要求的 Linear 写入，必须禁止代码、worktree/分支、提交、推送、PR/MR 和凭据 effect。Ready、Todo、依赖满足或队列可见只表示执行条件满足，不构成 execute 授权；当前 terminalCondition 达成后不得自动选取下一个 Ready 节点。
 
 ## 2 状态模型与责任
 
@@ -25,10 +25,12 @@ Linear 保存工作状态、责任、委派与依赖；GitHub 或 GitLab 保存�
 | Todo | Definition of Ready 完整，所有直接前驱满足 trigger，且没有 Scope 或 Resource Lock 冲突 | Definition of Ready 通过且无冲突 | 人工（规划与 Ready 审定） |
 | In Progress | 身份登记与 Receipt 已确认且节点工作已经开始 | Receipt 确认与开工事实；write 节点还必须已创建 worktree 和分支，Draft PR 仍保持此状态 | 自动化优先；缺少自动化且 envelope 允许 linearWrite 时 Writer 按协议手工回写 |
 | In Review | PR/MR 已退出 Draft 并进入审查 | 审查请求与提供方事实 | 自动化优先；同 In Progress 的手工回写条件 |
-| Ready to Merge | 受保护分支要求的 review、CI、契约检查和必要 E2E 均通过 | branch protection 与 required checks 记录 | 自动化（基于门禁事实） |
+| Ready to Merge | 仅用于带门禁的目标分支（`main`、`release/*`）：受保护分支要求的 review、CI、契约检查和必要 E2E 均通过；`develop` 路径不经过此状态 | branch protection 与 required checks 记录 | 自动化（基于门禁事实） |
 | Done | 完成证据全部成立 | write 叶子由 closing PR/MR 合并到声明的精确目标 ref 证明；read 叶子由约定输出和 Verification 证据证明；aggregate Parent 由全部必需后代成功和 Fan-in Verification 证明 | closing 合并与 fan-in 验证触发的自动化 |
 
-Agent 手工写状态必须执行“读取当前值 → 校验允许转换 → 写入 → 重读确认”。实时状态和提供方事实优先于旧计划、任务模板、DAG 快照或压缩摘要；常规代码流只前进 Todo → In Progress → In Review → Ready to Merge → Done。任何后退、重开或纠错转换都需要单独的状态纠错授权并记录事实原因，尤其不得为恢复 Ready 清单或旧规划统计把 In Progress、In Review 或 Ready to Merge 退回 Todo。
+Agent 手工写状态必须执行“读取当前值 → 校验允许转换 → 写入 → 重读确认”。实时状态和提供方事实优先于旧计划、任务模板、DAG 快照或压缩摘要；常规代码流在 `develop` 路径上只前进 Todo → In Progress → In Review → Done（closing PR 合入 `develop`），只有带门禁目标（`main`、`release/*`）才经过 Ready to Merge。任何后退、重开或纠错转换都需要单独的状态纠错授权并记录事实原因，尤其不得为恢复 Ready 清单或旧规划统计把 In Progress、In Review 或 Ready to Merge 退回 Todo。
+
+`develop` 是日常快车道：其 ruleset 不设 required status check，合入 `develop` 不要求远端 CI，也不要求强制人工审批（高风险同样如此）；合并前只要求本轮本地验证证据。Writer 在 envelope 授权 `mergeRequestWrite` 时可自行 squash 合并自己创建的 closing PR，或在提供方上请求 auto-merge。远端 CI 门禁（`main-release-gate`）只对发布边界运行：`develop → main` 提升、`hotfix/* → main` 以及 `release/*`。
 
 一个 write 叶子 Issue 对应一个 Writer；按隔离条件使用当前 clone 或仓库外 worktree，并且只绑定一个命名分支和一个 closing PR/MR。顺序执行且工作区干净时允许在当前 clone 创建任务分支；存在并发 Agent、脏工作区、当前分支含无关改动或任务明确要求隔离时，必须使用仓库外 worktree。read 叶子只绑定一个执行 Agent、约定输出与 Verification 证据，不要求实现 worktree、分支或 PR/MR。存在子 Issue 的 Parent 是 aggregate，不直接实现。独立旧 Issue 可无 Parent，并按 kind=write、trigger=all_success、resourceLocks=None 处理，无需迁移。
 
@@ -98,13 +100,13 @@ Receipt 与事件禁止包含用户名、主机名、本地路径、Token、Cook
 
 ## 6 Git、状态同步与安全
 
-- 普通功能和修复的精确目标 ref 默认为 `origin/develop`，分支分别使用 `feat/<ISSUE-ID>-<slug>` 与 `fix/<ISSUE-ID>-<slug>`；closing PR 合并到 `develop` 后开发 Issue 即 Done，发布等待不得阻塞或重开它。
+- 普通功能和修复的精确目标 ref 默认为 `origin/develop`，分支分别使用 `feat/<ISSUE-ID>-<slug>` 与 `fix/<ISSUE-ID>-<slug>`；closing PR 合并到 `develop` 后开发 Issue 即 Done，发布等待不得阻塞或重开它。合入 `develop` 不要求远端 CI 或强制审批，Writer 可在 envelope 授权 `mergeRequestWrite` 后自行落地 squash merge，或在提供方请求 auto-merge。
 - 紧急修复从 `origin/main` 创建 `hotfix/<ISSUE-ID>-<slug>` 并先合入 `main`；正式发布或恢复后必须立即以非 closing PR 将 `main` 回同步到 `develop`。回同步失败是发布阻塞，不得静默 cherry-pick 成两套历史。
 - 正式发布使用独立 kind=aggregate Release Issue 和 `develop → main` merge-commit PR；随后保留 release-please 版本 PR。提升与回同步 PR 使用 `Refs <ISSUE-ID>`，不得再次 closing 已 Done 的开发 Issue。Release Issue 只有在 GitHub Release、制品、发布 smoke 和 `main → develop` 回同步全部有证据后才能 Done。
 - write 节点分支使用 `<type>/<ISSUE-ID>-<slug>`；worktree 位于仓库同级的 `<repo>-worktrees/<ISSUE-ID>`。commit 使用 `Refs <ISSUE-ID>` 关联；GitHub PR 或 GitLab MR 的 closing 描述使用 `Fixes <ISSUE-ID>`，只有提供方配置且创建后重读确认有效的等价 closing 语法才可替代，closing 词不放在 commit 中。
 - 开始实现前记录精确目标远端 ref 和 base SHA，并从该基线创建分支。创建 PR/MR 前重新读取目标 ref 与 source HEAD，确认提供方所选 target 与声明 ref 相同，并验证 merge-base 等于冻结 base SHA 或是该 SHA 在同一目标 ref 历史上的已验证后代；不一致时阻断创建。创建后重读确认标题、source、target、描述、Issue 链接和 closing 语义。
 - 优先由 Linear 的 GitHub/GitLab 集成或团队已配置自动化推进 In Progress、In Review、Ready to Merge 和 Done。只有缺少对应自动化且 Execution Envelope 明确允许 linearWrite 时才按状态写入协议手工回写。
-- Ready to Merge 依赖 branch protection、required review 和 required checks；没有这些门禁时不得仅凭 Linear 自动化声称可合并。
+- Ready to Merge 仅对带门禁的目标分支（`main`、`release/*`）适用，并依赖 branch protection、required review 和 required checks；没有这些门禁时不得仅凭 Linear 自动化声称可合并。`develop` 路径不设置该状态。
 - 已授权 Issue 内可追加事实性的进展、验证、阻塞或决策评论。除本节定义的最小身份登记外，创建其他 Issue、改变关系、优先级、Assignee、Delegate、Project、Cycle、Parent 或 Contract 都需要单独授权。
 - MCP 不可用时可以使用用户提供的 Issue 内容，但必须明确未读取或同步 Linear；不得伪造评论、状态、关系、Delegate、Receipt、PR、review、CI 或 merge 结果。
 
@@ -112,6 +114,6 @@ Git credential helper 按 `git-rules.md` credential helper 条款执行：helper
 
 ## 7 终止与交付
 
-默认 terminalCondition 是当前 Issue 的已授权 effects 完成：本地实现只交付到本地验证；若授权到 mergeRequestWrite，则在 PR/MR ready for review、创建后重读确认并完成所有已授权证据同步时结束。Linear 自动化或已授权回写应使 Issue 进入 In Review；若状态同步不可用或未授权，报告差异后结束，不得因此续跑。除非用户明确授权 mode=monitor 并给出观察终点或时间边界，否则不得等待人工合并、持续轮询、自动续跑或执行下一个 Ready 节点；达到终止条件也不等于 Done。
+默认 terminalCondition 是当前 Issue 的已授权 effects 完成。若授权到 `mergeRequestWrite` 且目标为 `develop`，则在 closing PR/MR 已 squash 合并到声明的精确目标 ref、创建后重读确认并完成所有已授权证据同步时结束，该写叶子 Issue 同时进入 Done；若 envelope 未授权落地 merge（例如只授权创建 PR/MR），则在 PR/MR ready for review、创建后重读确认后结束并报告等待人工合并。本地实现只交付到本地验证。Linear 自动化或已授权回写应使 Issue 进入 In Review 或 Done；若状态同步不可用或未授权，报告差异后结束，不得因此续跑。除非用户明确授权 mode=monitor 并给出观察终点或时间边界，否则不得持续轮询、自动续跑或执行下一个 Ready 节点。完成本地实现或未落地的 PR/MR 不等于 Done；只有提供方合并证据成立才是 Done。
 
 推荐 Writer In Progress 不超过 3、In Review 不超过 2，作为 Linear 工作流软上限；它与本地 Task DAG 的默认并发建议分开计算，并可由宿主、API 限流和项目资源覆盖。长任务可选声明超时、最大尝试次数、取消、退避和资源预算；AI Ready Queue 只供人查看和显式选择，Agent 不读取它来挑选工作。

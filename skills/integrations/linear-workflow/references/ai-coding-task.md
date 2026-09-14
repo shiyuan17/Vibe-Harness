@@ -83,4 +83,4 @@ read 节点必须写明输出记录位置或可观察证据。普通 write 节�
 - 不做无关重构，不修改 Scope 外文件。
 - 不自动拆 Issue、改变 Parent、补依赖、调整优先级或创建额外节点。
 - 需要改变 Contract，或发现 Scope / Resource Lock 冲突时停止并请求决定。
-- 完成前检查实际 diff、精确目标 ref、PR/MR base 与 Verification；本地工作完成不等于 Linear Done。进入 In Review 后默认结束当前执行，不等待人工合并或续跑下一节点。
+- 完成前检查实际 diff、精确目标 ref、PR/MR base 与 Verification；本地工作完成不等于 Linear Done。进入 In Review 后，若 envelope 授权 <code>mergeRequestWrite</code> 且目标为 <code>develop</code>，Writer 可自行 squash 合并使其 Done；未授权落地 merge 时才结束当前执行并报告等待人工合并。两种情况都不续跑下一节点。合入 <code>develop</code> 不要求远端 CI。

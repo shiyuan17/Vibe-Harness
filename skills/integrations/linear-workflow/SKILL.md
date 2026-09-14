@@ -13,7 +13,7 @@ description: Use when executing, reviewing, verifying, refining, or synchronizin
 - 禁止自动领取，也就是不自动从队列领单：不扫描或轮询 Ready Queue，不创建 Webhook 调度器、Linear Loop、leader lease、自动超时回收或自动重派。
 - 未指定 Issue 时不得选择、认领或更新任务，也不得主动列出或搜索 Ready Queue。
 - 高风险执行只接受 v2 Execution Envelope，v1 仅作 contract-only/degraded 兼容；mode 与 effect 枚举按规则第 1 节。调用写工具前建立当前请求的 Execution Envelope。无原生 Goal bridge 时不声称后台持续执行，不阻止用户继续请求或宿主显式续跑恢复原范围工作。
-- 分支约定：`feat/*、fix/* → develop → main`；紧急修复 `hotfix/* → main → develop`。`develop` 是日常集成分支，`main` 是正式发布分支，不创建长期 `release/*` 分支；closing PR 合并后开发 Issue 立即 Done。
+- 分支约定：`feat/*、fix/* → develop → main`；紧急修复 `hotfix/* → main → develop`。`develop` 是日常集成分支，`main` 是正式发布分支，不创建长期 `release/*` 分支；closing PR 合并后开发 Issue 立即 Done。合入 `develop` 不要求远端 CI 或强制审批；远端 CI 只在发布边界（`develop → main`、`hotfix/* → main`、`release/*`）运行。
 
 ## 1. 判断执行授权与角色
 
@@ -55,11 +55,11 @@ Linear 只读、MCP 不可用或写入验证失败时，不得声称已登记、
 
 正常登记确认后，write 叶子 Issue 使用一个 Writer、一个命名分支和一个 closing PR/MR。顺序执行且工作区干净时允许使用当前 clone；并发 Agent、脏工作区、存在无关改动或明确需要隔离时，必须创建仓库外 worktree。分支使用 <type>/<ISSUE-ID>-<slug>，worktree 使用同级 <repo>-worktrees/<ISSUE-ID>。commit 使用 `Refs <ISSUE-ID>`；GitHub PR 或 GitLab MR 描述使用 `Fixes <ISSUE-ID>`，只有提供方配置且创建后重读确认的等价 closing 语法才可替代。read 节点只产出约定输出和 Verification 证据；aggregate Parent 不创建实现 worktree。
 
-普通 `feat/*`、`fix/*` 以 `origin/develop` 为目标；closing PR 合并后开发 Issue 立即 Done。`hotfix/*` 从 `origin/main` 创建并先合入 `main`，随后用非 closing PR 回同步 `develop`。Release 流程与 credential helper 边界按规则第 6 节执行。
+普通 `feat/*`、`fix/*` 以 `origin/develop` 为目标；合入 `develop` 不要求远端 CI 或强制审批，Writer 在 envelope 授权 `mergeRequestWrite` 后可自行 squash 合并（或在提供方请求 auto-merge），closing PR 合并后开发 Issue 立即 Done。`hotfix/*` 从 `origin/main` 创建并先合入 `main`（此处运行发布门禁），随后用非 closing PR 回同步 `develop`。Release 流程与 credential helper 边界按规则第 6 节执行。
 
 创建 PR/MR 前重新读取目标 ref 与 source HEAD，确认提供方 target 等于声明 ref；计算 merge-base，并确认它等于冻结 base SHA，或是该 SHA 在同一目标 ref 历史上的已验证后代。不一致时阻断创建。创建后重读标题、source、target、描述、Issue 链接和 closing 语义。
 
-优先让 Linear 的 GitHub/GitLab 集成或团队自动化推进状态；只有缺少对应自动化且 envelope 允许 linearWrite 时才手工更新，并执行“读取当前值 → 校验允许转换 → 写入 → 重读确认”。本地工作完成、测试通过或 PR/MR 创建都不等于 Done；Done 的完成证据按规则第 2 节状态表执行。
+优先让 Linear 的 GitHub/GitLab 集成或团队自动化推进状态；只有缺少对应自动化且 envelope 允许 linearWrite 时才手工更新，并执行“读取当前值 → 校验允许转换 → 写入 → 重读确认”。本地工作完成、测试通过或 PR/MR 创建都不等于 Done；当 envelope 授权 `mergeRequestWrite` 且目标为 `develop` 时，Writer 自行落地 squash merge 后该写叶子即 Done，否则在 PR ready for review 后报告等待人工合并。`Ready to Merge` 只对带门禁目标（`main`、`release/*`）适用，Done 的完成证据按规则第 2 节状态表执行。
 
 释放、中止、交接和本地工作完成都追加 terminal event，不编辑原 Receipt。没有自动超时或自动回收；失联实例必须由人工核对 worktree、分支和 PR 后显式释放或交接。
 
