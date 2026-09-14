@@ -20,6 +20,7 @@ import { scanForForbiddenTerms } from './redaction.js';
 import { canonicalAgentsTemplate, loadAdapterCatalog, resolveAdapterEntry, skillRootPrefixes } from './adapter.js';
 import { validateDocumentation } from './docs-validation.js';
 import { renderTemplate, withDefaultTemplateData } from './template-renderer.js';
+import { loadRuleIndex, renderRulesLine } from './rules-index.js';
 import { DEFAULT_RED_ZONE_PATHS } from '../../runtime/hooks/lib/context.mjs';
 import { redZoneMatcher } from '../../runtime/hooks/lib/policy.mjs';
 import { scanWorkflowAssets } from './workflow-assets.js';
@@ -578,6 +579,10 @@ function normalizeLineEndings(value) {
 // self-installed artifact must stay byte-identical (modulo line endings) to
 // the source. This catches drift such as a schema gaining a field in `schemas/`
 // but the rendered copy in `docs/schemas/` not being regenerated.
+//
+// Project-owned seeds are excluded by design because no content comparison
+// against their template can hold: they are written once and then edited inside
+// the project. Their existence is still checked.
 export async function validateSelfInstalledArtifacts(rootDir, adapters, installMaps, { requiredGroups = null } = {}) {
   const errors = [];
   const codex = adapters.items.find((item) => item.id === 'codex');
@@ -598,7 +603,6 @@ export async function validateSelfInstalledArtifacts(rootDir, adapters, installM
       // Missing sources are already reported by install-map source checks.
       continue;
     }
-    if (renderPlaceholderPattern.test(sourceContent)) continue;
     let targetContent;
     try {
       targetContent = await readFile(targetPath, 'utf8');
@@ -608,6 +612,8 @@ export async function validateSelfInstalledArtifacts(rootDir, adapters, installM
       }
       continue;
     }
+    if (rawEntry.projectOwned) continue;
+    if (renderPlaceholderPattern.test(sourceContent)) continue;
     if (normalizeLineEndings(sourceContent) !== normalizeLineEndings(targetContent)) {
       errors.push(`self-installed artifact drifted from source: ${entry.source} -> ${entry.target}`);
     }
@@ -630,7 +636,9 @@ export async function validateInstructionBudget(rootDir) {
   const errors = [];
   const warnings = [];
   const catalog = await loadAdapterCatalog(rootDir);
-  const renderData = withDefaultTemplateData({});
+  // Measure the resident instructions the hosts actually receive: the installed
+  // surface carries the rule index, so the budget must include it.
+  const renderData = withDefaultTemplateData({ installedSurface: { rulesLine: renderRulesLine(await loadRuleIndex(rootDir)) } });
   for (const adapter of catalog.items) {
     const templateSource = adapter.instructionTarget === 'AGENTS.md'
       ? canonicalAgentsTemplate

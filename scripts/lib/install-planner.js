@@ -17,6 +17,7 @@ import {
   assertSafePathInside,
   pathExists,
   readPackJson,
+  sameResolvedPath,
   validateCatalogManifest,
   validateInstallMapShape,
 } from './manifest.js';
@@ -45,6 +46,7 @@ import { hasPluginCapability } from './plugin-provider-catalog.js';
 import { assertAdapterProfile, hookConfigTargets, loadAdapterCatalog, resolveAdapter, resolveAdapterEntry, skillRootMatcher, skillRootPrefixes } from './adapter.js';
 import { beginFileTransaction, createTransactionId } from './file-transaction.js';
 import { resolveRoleInstallEntries } from './role-projection.js';
+import { loadRuleIndex, renderRulesLine } from './rules-index.js';
 import {
   hashManagedBlock,
   isManagedIgnore,
@@ -109,7 +111,7 @@ function toolDiscoveryLine(installedProviderModules) {
   return '先按问题类型选工具：' + routes.join('；') + '。' + rtkBoundary;
 }
 
-export function createInstalledSurface({ clarificationPosture = 'balanced', customModules = false, hookConfigTargets = [], memoryPath = '.agents/memory', profile, skillRoots = [], targets }) {
+export function createInstalledSurface({ clarificationPosture = 'balanced', customModules = false, hookConfigTargets = [], memoryPath = '.agents/memory', profile, ruleIndex = [], skillRoots = [], targets }) {
   const installedTargets = targets.map((target) => target.replaceAll('\\', '/'));
   const hasTarget = (expectedTarget) => installedTargets.includes(expectedTarget);
   const hasPrefix = (prefix) => installedTargets.some((target) => target.startsWith(prefix));
@@ -188,7 +190,7 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
       ? '- 当前安装方式：自定义能力模块安装。'
       : (profileLines[profile] ?? `- 当前 profile: \`${profile}\`。`),
     reviewLoopLine: '',
-    rulesLine: hasPrefix('docs/rules/') ? '- 规则位于 `docs/rules/`。' : '',
+    rulesLine: hasPrefix('docs/rules/') ? renderRulesLine(ruleIndex) : '',
     skillRoutingLine: detectedSkillRoots.length > 0
       ? '宿主按 Skill description 选择当前所需能力，按需补充互补 Skill；不使用 Router 或流程 Skill 链。'
       : '当前 profile 未安装 Skills；仅按已安装规则和模板执行，不引用未安装的 skill。',
@@ -395,7 +397,7 @@ async function planAdapterConfigActions(ctx) {
   return actions;
 }
 
-/** @param {{adapterId?: string, allowPreview?: boolean, configUpdate?: any, dryRun?: boolean, force?: boolean, managedAgentsBlock?: boolean, preserveRetired?: boolean, profile?: string, requestedModules?: string[], requestedPlugins?: any, rtkHooksEnabled?: boolean, renderData?: Record<string, any>, rootDir: string, targetDir: string, upgrade?: boolean}} options */
+/** @param {{adapterId?: string, allowPreview?: boolean, configUpdate?: any, dryRun?: boolean, force?: boolean, managedAgentsBlock?: boolean, preserveRetired?: boolean, profile?: string, requestedModules?: string[], requestedPlugins?: any, rtkHooksEnabled?: boolean, renderData?: Record<string, any>, rootDir: string, ruleIndex?: Array<{ id: string, source: string, title: string }>, targetDir: string, upgrade?: boolean}} options */
 export async function createInstallPlan({
   adapterId = 'codex',
   allowPreview = false,
@@ -407,6 +409,7 @@ export async function createInstallPlan({
   profile = 'core',
   requestedModules,
   requestedPlugins,
+  ruleIndex,
   rtkHooksEnabled = false,
   renderData = {},
   rootDir,
@@ -482,6 +485,7 @@ export async function createInstallPlan({
     hookConfigTargets: hookTargets,
     memoryPath: renderData.memory?.path,
     profile,
+    ruleIndex: ruleIndex ?? await loadRuleIndex(rootDir),
     skillRoots,
     targets: actions.filter((action) => action.kind === 'write').map((action) => action.relativeTarget),
   });
@@ -571,12 +575,16 @@ export async function createMultiTargetInstallPlan({ selectedTargets, targets, .
   const installedState = await readInstallState(path.resolve(options.targetDir));
   const lifecycleTargets = [...new Set([...configuredTargets, ...(installedState?.targets ?? [])])];
   const activeTargets = selectedTargets?.length ? selectedTargets : configuredTargets;
+  // The rule index is pack-owned and adapter-independent: build it once for the
+  // whole multi-target plan instead of re-reading every rule file per adapter.
+  const resolvedRuleIndex = options.ruleIndex ?? await loadRuleIndex(options.rootDir);
   // Planning is read-only against the target project, so per-adapter plans can
   // build concurrently; conflict detection below still merges deterministically
   // in configured-target order.
   const plans = await Promise.all(activeTargets.map((adapterId) => createInstallPlan({
     ...options,
     adapterId,
+    ruleIndex: resolvedRuleIndex,
     rtkHooksEnabled: adapterId === 'codex' && Boolean(options.rtkHooksEnabled),
     renderData: { ...options.renderData, target: adapterId, targets: configuredTargets },
   })));
@@ -626,6 +634,7 @@ export async function createMultiTargetInstallPlan({ selectedTargets, targets, .
     hookConfigTargets: plans[0].hookTargets,
     memoryPath: options.renderData?.memory?.path,
     profile: plans[0].profile,
+    ruleIndex: resolvedRuleIndex,
     skillRoots: plans[0].skillRoots,
     targets: [...writes.keys()],
   });
@@ -730,6 +739,7 @@ async function planEntryActions(ctx) {
       kind,
       contentStrategy,
       executable: Boolean(entry.executable),
+      projectOwned: Boolean(entry.projectOwned),
       mcpServers: isManagedToml(contentStrategy)
         ? createManagedMcpServers(path.resolve(targetDir), moduleSelection.resolvedModules)
         : undefined,
@@ -974,6 +984,10 @@ export async function renderActionContent(action, renderData = {}, existingConte
   if (isManagedToml(action.contentStrategy)) {
     return mergeManagedMcpBlock(existingContent, action.mcpServers).content;
   }
+  // Project-owned entries are seeded once and then belong to the project. The
+  // installer must never overwrite what the project wrote into its own
+  // governance or runtime memory files.
+  if (action.projectOwned && existingContent !== '') return existingContent;
   const rendered = await renderSourceContent(action, renderData);
   if (isManagedIgnore(action.contentStrategy)) {
     return mergeManagedCbmIgnoreBlock(existingContent, rendered);
@@ -997,7 +1011,8 @@ export async function previewInstallPlan(plan, { includeContent = true } = {}) {
     const existingContent = (isManagedInstruction(action.contentStrategy)
       || isManagedJson(action.contentStrategy)
       || isManagedToml(action.contentStrategy)
-      || isManagedIgnore(action.contentStrategy)) && await pathExists(action.target)
+      || isManagedIgnore(action.contentStrategy)
+      || action.projectOwned) && await pathExists(action.target)
       ? await readFile(action.target, 'utf8')
       : '';
     const mergedMcp = isManagedToml(action.contentStrategy)
@@ -1074,6 +1089,7 @@ export async function diffTargetInstall({
       hookConfigTargets: hookTargets,
       memoryPath: renderData.memory?.path,
       profile,
+      ruleIndex: await loadRuleIndex(rootDir),
       skillRoots,
       targets: installedTargets,
     }),
@@ -1104,6 +1120,7 @@ export async function diffTargetInstall({
       mcpServers: mappedTarget === '.codex/config.toml'
         ? createManagedMcpServers(path.resolve(targetDir), moduleSelection.resolvedModules)
         : undefined,
+      projectOwned: Boolean(entry.projectOwned),
       redZone: Boolean(entry.redZone),
       source,
       target: mappedTarget,
@@ -1119,16 +1136,22 @@ export async function diffTargetInstall({
         renderSourceContent(item, renderedData),
         readFile(target, 'utf8'),
       ]);
-      const matches = isManagedInstruction(item.contentStrategy)
-        ? extractManagedInstructionBlock(targetContent) === renderManagedInstructionBlock(sourceContent)
-        : isManagedToml(item.contentStrategy)
-          ? mergeManagedMcpBlock(
-              targetContent,
-              createManagedMcpServers(path.resolve(targetDir), moduleSelection.resolvedModules),
-            ).content === targetContent
-          : isManagedIgnore(item.contentStrategy)
-            ? mergeManagedCbmIgnoreBlock(targetContent, sourceContent) === targetContent
-        : sourceContent === targetContent;
+      // Two targets cannot drift from their source by construction:
+      // project-owned seeds are written once and then edited by the project,
+      // and entries whose source path is the target itself (self-installed
+      // pack assets such as docs/rules/*.md) are their own source of truth.
+      const matches = item.projectOwned || sameResolvedPath(item.source, target)
+        ? true
+        : isManagedInstruction(item.contentStrategy)
+          ? extractManagedInstructionBlock(targetContent) === renderManagedInstructionBlock(sourceContent)
+          : isManagedToml(item.contentStrategy)
+            ? mergeManagedMcpBlock(
+                targetContent,
+                createManagedMcpServers(path.resolve(targetDir), moduleSelection.resolvedModules),
+              ).content === targetContent
+            : isManagedIgnore(item.contentStrategy)
+              ? mergeManagedCbmIgnoreBlock(targetContent, sourceContent) === targetContent
+              : sourceContent === targetContent;
       if (!matches) {
         changed.push(item);
       } else {

@@ -99,6 +99,13 @@ function normalizePathForComparison(value) {
   return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
 }
 
+// True when both paths resolve to the same file. Self-installed pack assets
+// (source and target are the same path in the pack repository) are their own
+// source of truth, so any content comparison against them is vacuous.
+export function sameResolvedPath(left, right) {
+  return normalizePathForComparison(left) === normalizePathForComparison(right);
+}
+
 function isInsideResolvedDir(baseDir, candidatePath) {
   const relative = path.relative(baseDir, candidatePath);
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
@@ -261,6 +268,12 @@ export function isRedZoneTarget(target) {
   return RED_ZONE_PATTERNS.some((pattern) => pattern.test(normalized));
 }
 
+function assertOptionalBooleanField(entry, key, label) {
+  if (Object.hasOwn(entry, key) && typeof entry[key] !== 'boolean') {
+    throw new Error(`${label} must be boolean`);
+  }
+}
+
 export function validateInstallMapShape(installMap, allowedGroups) {
   assertObject(installMap, 'install-map');
   const allowedTopLevelKeys = new Set(['adapter', 'entries', 'retiredEntries']);
@@ -277,7 +290,7 @@ export function validateInstallMapShape(installMap, allowedGroups) {
   const targets = new Set();
   for (const [index, entry] of installMap.entries.entries()) {
     assertObject(entry, `install-map.entries[${index}]`);
-    const allowedEntryKeys = new Set(['contentStrategy', 'executable', 'group', 'redZone', 'source', 'target']);
+    const allowedEntryKeys = new Set(['contentStrategy', 'executable', 'group', 'projectOwned', 'redZone', 'source', 'target']);
     for (const key of Object.keys(entry)) {
       if (!allowedEntryKeys.has(key)) {
         throw new Error(`install-map.entries[${index}].${key} is not allowed`);
@@ -301,8 +314,10 @@ export function validateInstallMapShape(installMap, allowedGroups) {
     if (isRedZoneTarget(entry.target) && entry.redZone !== true) {
       throw new Error(`Red-zone target must be marked redZone: ${entry.target}`);
     }
-    if (Object.hasOwn(entry, 'executable') && typeof entry.executable !== 'boolean') {
-      throw new Error(`install-map.entries[${index}].executable must be boolean`);
+    assertOptionalBooleanField(entry, 'executable', `install-map.entries[${index}].executable`);
+    assertOptionalBooleanField(entry, 'projectOwned', `install-map.entries[${index}].projectOwned`);
+    if (entry.projectOwned === true && entry.contentStrategy !== 'replace') {
+      throw new Error(`install-map.entries[${index}].projectOwned requires the replace content strategy`);
     }
   }
 

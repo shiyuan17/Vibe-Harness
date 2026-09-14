@@ -155,43 +155,50 @@
       "group": "templates-memory",
       "source": "templates/memory/PROJECT_STATE.md",
       "target": "docs/memory/PROJECT_STATE.md",
-      "contentStrategy": "replace"
+      "contentStrategy": "replace",
+      "projectOwned": true
     },
     {
       "group": "templates-memory",
       "source": "templates/memory/ARCHITECTURE.md",
       "target": "docs/memory/ARCHITECTURE.md",
-      "contentStrategy": "replace"
+      "contentStrategy": "replace",
+      "projectOwned": true
     },
     {
       "group": "templates-memory",
       "source": "templates/memory/DECISIONS.md",
       "target": "docs/memory/DECISIONS.md",
-      "contentStrategy": "replace"
+      "contentStrategy": "replace",
+      "projectOwned": true
     },
     {
       "group": "templates-memory",
       "source": "templates/memory/KNOWN_BUGS.md",
       "target": "docs/memory/KNOWN_BUGS.md",
-      "contentStrategy": "replace"
+      "contentStrategy": "replace",
+      "projectOwned": true
     },
     {
       "group": "templates-memory",
       "source": "templates/memory/TECH_DEBT.md",
       "target": "docs/memory/TECH_DEBT.md",
-      "contentStrategy": "replace"
+      "contentStrategy": "replace",
+      "projectOwned": true
     },
     {
       "group": "templates-memory",
       "source": "templates/memory/FAILURE_LEARNINGS.md",
       "target": "docs/memory/FAILURE_LEARNINGS.md",
-      "contentStrategy": "replace"
+      "contentStrategy": "replace",
+      "projectOwned": true
     },
     {
       "group": "templates-memory",
       "source": "templates/memory/IMPROVEMENTS.json",
       "target": "docs/memory/IMPROVEMENTS.json",
-      "contentStrategy": "replace"
+      "contentStrategy": "replace",
+      "projectOwned": true
     },
     {
       "group": "schemas-core",
@@ -821,31 +828,36 @@
       "group": "skills-memory",
       "source": "memory/CURRENT.md",
       "target": ".agents/memory/CURRENT.md",
-      "contentStrategy": "replace"
+      "contentStrategy": "replace",
+      "projectOwned": true
     },
     {
       "group": "skills-memory",
       "source": "memory/README.md",
       "target": ".agents/memory/README.md",
-      "contentStrategy": "replace"
+      "contentStrategy": "replace",
+      "projectOwned": true
     },
     {
       "group": "skills-memory",
       "source": "memory/observations.md",
       "target": ".agents/memory/observations.md",
-      "contentStrategy": "replace"
+      "contentStrategy": "replace",
+      "projectOwned": true
     },
     {
       "group": "skills-memory",
       "source": "memory/decisions.md",
       "target": ".agents/memory/decisions.md",
-      "contentStrategy": "replace"
+      "contentStrategy": "replace",
+      "projectOwned": true
     },
     {
       "group": "skills-memory",
       "source": "memory/sessions/README.md",
       "target": ".agents/memory/sessions/README.md",
-      "contentStrategy": "replace"
+      "contentStrategy": "replace",
+      "projectOwned": true
     },
     {
       "group": "hooks",

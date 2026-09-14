@@ -242,6 +242,28 @@ test('install map validation rejects unknown groups and unsafe red-zone mappings
   ] }, new Set(['rules-minimal'])), /redZone/u);
 });
 
+test('install map validation gates the project-owned seed declaration', () => {
+  const seedEntry = {
+    contentStrategy: 'replace',
+    group: 'templates-memory',
+    projectOwned: true,
+    source: 'templates/memory/PROJECT_STATE.md',
+    target: 'docs/memory/PROJECT_STATE.md',
+  };
+  assert.doesNotThrow(() => validateInstallMapShape(
+    { adapter: 'codex', entries: [seedEntry] },
+    new Set(['templates-memory']),
+  ));
+  assert.throws(() => validateInstallMapShape({
+    adapter: 'codex',
+    entries: [{ ...seedEntry, projectOwned: 'yes' }],
+  }, new Set(['templates-memory'])), /projectOwned must be boolean/u);
+  assert.throws(() => validateInstallMapShape({
+    adapter: 'codex',
+    entries: [{ ...seedEntry, contentStrategy: 'managed-json-object' }],
+  }, new Set(['templates-memory'])), /projectOwned requires the replace content strategy/u);
+});
+
 test('install map validation accepts explicit retired entries and rejects unsafe retirement declarations', () => {
   const valid = {
     adapter: 'codex',
@@ -341,6 +363,31 @@ test('self-installed artifacts must stay in sync with their sources', async () =
   };
   const placeholderErrors = await validateSelfInstalledArtifacts(rootDir, adapters, new Map([['synthetic.json', placeholder]]));
   assert.deepEqual(placeholderErrors, []);
+
+  // Project-owned seeds are seeded once and then edited inside the project, so
+  // their content is expected to differ from the template. The exclusion must
+  // still require the artifact to exist.
+  const seed = {
+    adapter: 'codex',
+    entries: [{
+      contentStrategy: 'replace',
+      group: 'templates-memory',
+      projectOwned: true,
+      source: 'templates/memory/ARCHITECTURE.md',
+      target: 'docs/rules/governance-core.md',
+    }],
+  };
+  const seedErrors = await validateSelfInstalledArtifacts(rootDir, adapters, new Map([['synthetic.json', seed]]));
+  assert.deepEqual(seedErrors, []);
+
+  const missingSeed = { ...seed, entries: [{ ...seed.entries[0], target: 'docs/memory/absent-seed.md' }] };
+  const missingSeedErrors = await validateSelfInstalledArtifacts(
+    rootDir,
+    adapters,
+    new Map([['synthetic.json', missingSeed]]),
+    { requiredGroups: new Set(['templates-memory']) },
+  );
+  assert.match(missingSeedErrors.join('\n'), /self-installed artifact is missing/u);
 });
 
 test('complete pack validates', async () => {

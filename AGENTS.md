@@ -19,7 +19,7 @@ Vibe-Harness 用来打包可复用的 AI coding 项目规则、领域 Skills、�
 
 本节是验证矩阵的唯一规范来源；CONTRIBUTING.md 引用本节，不再重复维护表格。
 
-- 普通变更运行 `pnpm check` 和 `git diff --check`；项目 `vibe-harness verify --project <path>` 默认按 `auto` 风险计划执行，`--plan` 只预览，`--full` 显式执行完整矩阵。
+- 普通变更运行 `pnpm check` 和 `git diff --check`；`pnpm check` 依序执行语法/资产扫描、ESLint、typecheck、结构校验和单元测试。项目 `vibe-harness verify --project <path>` 默认按 `auto` 风险计划执行，`--plan` 只预览，`--full` 显式执行完整矩阵。
 - 按影响追加：
 
 | 变更 | 显式验证 |
@@ -32,7 +32,7 @@ Vibe-Harness 用来打包可复用的 AI coding 项目规则、领域 Skills、�
 | runtime tool lockfile/provision | `pnpm runtime:audit` |
 | 浏览器行为 | 真实浏览器关键路径 |
 
-TypeScript 配置、类型声明、JSDoc 类型契约，或完成主张涉及类型安全的 JS/TS 改动，追加运行 pnpm typecheck；该仓库脚本已存在，但当前未接入项目 verify 默认命令。
+TypeScript 配置、类型声明、JSDoc 类型契约，或完成主张涉及类型安全的 JS/TS 改动，追加运行 pnpm typecheck（已并入 `pnpm check`，`pnpm check` 通过即已执行）；该仓库脚本已存在，但当前未接入项目 verify 默认命令。
 
 - 可用 `pnpm verify:focused` 把本轮变更路径映射为同一风险计划（JSON 收据包含 `riskLevel`、`impactGroups`、`selectedChecks`、`skippedChecks` 和 `fallbackUsed`）；`--run` 依序执行。`unknown` 必须回退到 high，未选检查标记为 `not_selected`。
 - 只运行与变更和完成主张匹配的聚焦检查；不要自动派发 Review/Test 角色。
@@ -55,15 +55,13 @@ TypeScript 配置、类型声明、JSDoc 类型契约，或完成主张涉及类
 项目：Vibe-Harness
 
 ## 启动
-1. 先读取 `docs/rules/governance-core.md`；只有出现 Skill 或专项领域信号时再读取 `docs/rules/AGENT_SKILL_ROUTING.md` 和当前需要的专项规则。
+1. 先读取 `docs/rules/governance-core.md`；只有出现 Skill 或专项领域信号时再读取 `docs/rules/AGENT_SKILL_ROUTING.md` 和一个命中的专项规则。
 2. 仅当任务需要恢复项目状态且当前授权允许读取 Memory body 时，读取 `docs/memory/` 的治理记忆（优先 `PROJECT_STATE.md`），按其与本地记忆库的优先级合并；本地记忆库恢复入口为 `.agents/memory/CURRENT.md`。 当专项 Skill 限制 Memory 证据边界时，仅检查相关 Memory 路径是否存在及必要元数据、不读取其正文；不限制任务相关源码阅读。
 3. 编辑前运行 `git status --short`，保护用户未归属改动。
 4. 先按问题类型选工具：纯文本、配置和日志使用 rg 与直接文件阅读。
 5. 将任务归为快速、轻量或完整，并选择与主张匹配的验证。
 6. 使用“获取可信事实 → 判定并执行 → 聚焦验证 → 简洁交付”的单一路径；宿主按 description 直接选择领域 Skill。
 ## 硬边界
-
-- 仅对受限 Memory 路径检查存在性及必要元数据、不读取其正文；不限制读取任务相关源码、配置、规则和测试。
 
 - 只在授权范围内行动；红区、生产、权限、凭据、外部写入和不可逆操作按 governance-core 的授权与批准规则执行；缺少覆盖授权时人工确认，已有覆盖授权不重复确认。
 - 不编造事实或证据；没有本轮有效验证不得声称完成。
@@ -83,7 +81,7 @@ TypeScript 配置、类型声明、JSDoc 类型契约，或完成主张涉及类
 - 当前安装方式：自定义能力模块安装。 当前另安装 integration Skills：agentmemory；它们不计入 profile 的原生领域 Skill 数量。
 - 需求澄清姿态：`balanced`（action-leaning 偏向采用最小可逆默认值直接推进；balanced 按规则判断；conservative 对尚未解决的高影响分歧更谨慎）。
 
-- 规则位于 `docs/rules/`。
+- 规则位于 `docs/rules/`。命中索引：governance-core（Vibe-Harness 执行内核）、agent-skill-routing（原生 Skill 选择规则）、eval-driven-development（评测驱动开发）、role-routing（多角色路由规则）、codebase-memory-mcp（codebase-memory-mcp）、chrome-devtools-mcp（Chrome DevTools MCP）、git-rules（Git 规则）、test-rules（测试规则）、ai-collab-rules（AI 协作规则）、linear-workflow（Linear 多 Agent 工作流）、api-rules（API 规则）、coding-rules（编码规则）、frontend-rules（前端规则）、log-management（可观测性与日志管理规则）、project-directory（项目目录规则）、project-specific-rules（项目专属规则）、db-rules（DB 规则）、release-rules（发布规则）、troubleshooting（排障规则）、rtk（RTK 命令输出压缩规则）、ast-grep（ast-grep 结构化搜索规则）。
 - 工程专项规则位于 `docs/rules/`。
 - 发布 / 设计 / 排障规则位于 `docs/rules/`。
 - 模板位于 `docs/templates/`。
