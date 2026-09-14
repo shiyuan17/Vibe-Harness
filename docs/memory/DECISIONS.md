@@ -14,7 +14,7 @@
 - **ADR-0004** 任务拆分治理与 DAG 状态一致性 - accepted - 保持单 Agent 快车道，统一本地与 Linear DAG 状态，要求共享契约唯一写入者和 write 派发前重验证 - [ADR](../adr/ADR-0004-task-decomposition-governance.md)
 - **ADR-0005** 规则治理：SSOT、排版与本地化 - accepted - ai-collab-rules 独占通用 DAG 语义、linear-workflow 只留 Linear 投影，统一排版与中文本地化约定，并禁止硬编码版本与计数 - [ADR](../adr/ADR-0005-rules-governance.md)
 - **ADR-0006** 发布边界门禁与 Writer 落地 develop 合并 - accepted - 把 CI 从 develop 逐任务合并移到发布边界，并授权 Writer 自行 squash 合并自己的 PR；合并到 develop 即为 Done - [ADR](../adr/ADR-0006-release-gated-ci-writer-landed-merges.md)
-- **ADR-0007** DAG result 引入 unverified - proposed - DAG result 引入 unverified - [ADR](../adr/ADR-0007-dag-result-unverified.md)
+- **ADR-0007** DAG result 引入 unverified - accepted - 本地 result 新增非终态 unverified，把 Linear「Done 缺证据」从 blocked 改判过去，使缺证据与等依赖不再共用一个枚举 - [ADR](../adr/ADR-0007-dag-result-unverified.md)
 
 ## 纪律
 
