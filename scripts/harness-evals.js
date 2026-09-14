@@ -27,6 +27,7 @@ import {
   selectScenariosForChanges,
 } from '../harness-evals/lib/index.js';
 import { cooperBenchAdapter, sweBenchAdapter, sweBenchLiveAdapter, terminalBenchAdapter } from '../harness-evals/external/index.js';
+import { canonicalAssetBytes } from './lib/eval-assets.js';
 import { resolveEvalRuntime } from './lib/eval-runtime-config.js';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -101,7 +102,7 @@ async function hashPaths(baseDir, relativePaths) {
       else if (entry.isFile()) {
         hash.update(child.replaceAll('\\', '/'));
         hash.update('\0');
-        hash.update(await readFile(path.join(baseDir, child)));
+        hash.update(canonicalAssetBytes(await readFile(path.join(baseDir, child))));
         hash.update('\0');
       }
     }

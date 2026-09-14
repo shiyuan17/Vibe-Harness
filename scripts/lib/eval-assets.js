@@ -30,6 +30,24 @@ async function collect(rootDir, relative) {
   return files;
 }
 
+/**
+ * Git normalizes text to LF on commit, so the same content is stored as CRLF in
+ * a Windows worktree and as LF in a Linux checkout. Hashing raw worktree bytes
+ * therefore made the fingerprint depend on the checkout form instead of the
+ * content. Normalize text to LF; keep byte-exact content for anything Git
+ * treats as binary (embedded NUL) or that is not valid UTF-8.
+ *
+ * @param {Buffer} buffer
+ * @returns {Buffer}
+ */
+export function canonicalAssetBytes(buffer) {
+  if (buffer.includes(0)) return buffer;
+  const text = buffer.toString('utf8');
+  if (!Buffer.from(text, 'utf8').equals(buffer)) return buffer;
+  const normalized = text.replaceAll('\r\n', '\n');
+  return normalized === text ? buffer : Buffer.from(normalized, 'utf8');
+}
+
 async function hashGroup(rootDir, paths) {
   const groups = await Promise.all(paths.map((relative) => collect(rootDir, relative)));
   const files = groups.flat().sort((left, right) => left.relative.localeCompare(right.relative));
@@ -37,7 +55,7 @@ async function hashGroup(rootDir, paths) {
   for (const file of files) {
     hash.update(file.relative);
     hash.update('\0');
-    hash.update(await readFile(file.absolute));
+    hash.update(canonicalAssetBytes(await readFile(file.absolute)));
     hash.update('\0');
   }
   return { fileCount: files.length, hash: hash.digest('hex') };
