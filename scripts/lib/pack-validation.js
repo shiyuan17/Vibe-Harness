@@ -400,6 +400,51 @@ export const EVAL_CONTRACT_PARITY_TERMS = Object.freeze([
 ]);
 
 /**
+ * References that make a portable rule file stop being portable.
+ *
+ * `docs/rules/*.md` is installed into every target project, so a rule that
+ * names *this* repository's contribution guide, eval docs, ADR directory,
+ * adapter skill root, CI job name or npm script sends the host of another
+ * project to a file or command that does not exist there. The portability goal
+ * was previously only a review convention: the same rule could drift back to a
+ * repository-private path with every gate still green, because no check read
+ * the rule bodies for private references. `.agents/memory/` and
+ * `.agents/roles/` stay allowed — they are adapter-independent fixed paths that
+ * exist in every installation shape, not repository-private assets.
+ *
+ * `project-specific-rules.md` is the rendered project-only output and is
+ * deliberately excluded: carrying the target project's own commands and paths
+ * is its entire job.
+ */
+export const RULE_PORTABILITY_CHECKS = Object.freeze([
+  { label: 'adapter skill root', pattern: /\.agents\/skills\/|\.(?:claude|gemini|opencode|qoder|cursor)\/skills\//u },
+  { label: 'CONTRIBUTING.md', pattern: /CONTRIBUTING\.md/u },
+  { label: 'docs/evals.md', pattern: /docs\/evals\.md/u },
+  { label: 'docs/specs/', pattern: /docs\/specs\//u },
+  { label: 'docs/adr/', pattern: /docs\/adr\//u },
+  { label: 'docs/inventory/', pattern: /docs\/inventory\//u },
+  { label: 'github-delivery.md', pattern: /github-delivery\.md/u },
+  { label: 'ADR number', pattern: /ADR-000\d/u },
+  { label: '.github/workflows/', pattern: /\.github\/workflows\//u },
+  { label: 'CI job name', pattern: /main-release-gate|develop-gate|merge-gate/u },
+  { label: 'repository script', pattern: /pnpm /u },
+]);
+
+/**
+ * The rule files that must stay portable, and the one rendered exception.
+ */
+export const RULE_PORTABILITY_EXCLUSIONS = Object.freeze(['project-specific-rules.md']);
+
+/**
+ * A bare backticked `<id>.md` in a rule body is read by the host as a sibling
+ * rule file, so it has to resolve inside `docs/rules/`. Path-qualified
+ * references (`.agents/memory/decisions.md`, `docs/rules/git-rules.md`) and
+ * placeholder paths (`roles/prompts/<role-id>.md`) are not sibling references
+ * and stay out of this contract.
+ */
+const RULE_CROSS_REFERENCE_PATTERN = /`([a-z0-9]+(?:-[a-z0-9]+)*\.md)`/gu;
+
+/**
  * The declared wording contract for rule, template, and adapter prose.
  *
  * These files are prose, so "this clause is still stated" can only be checked
@@ -456,6 +501,9 @@ export const CONTENT_QUALITY_CHECKS = [
         '最后一次实质修改后的状态重跑同一检查',
       '覆盖同一受影响行为的等价检查及理由',
       'handoff 只引用晚于最后一次实质修改的结果',
+      // 验收状态、协作节点 result 与评测 case 状态是三层枚举，不得互相替代。
+      '三层不同枚举，不得互相替代',
+      'degraded 是 blocked 的同义限定，不是第五种验收状态',
       'verification.snapshotComparison',
       '已确认事实',
       '静态结论',
@@ -564,9 +612,9 @@ export const CONTENT_QUALITY_CHECKS = [
       SHARED_RULE_PHRASES.evidenceVerdictBoundary,
       SHARED_RULE_PHRASES.noAssertionWeakening,
       '覆盖率是诊断信号不是目标',
-      // 选择维度：路径到命令的唯一矩阵在 AGENTS.md，本规则只补充行为风险维度。
-      '不替代 AGENTS.md 的「验证选择」',
-      'pnpm verify:focused',
+      // 选择维度：路径到命令的矩阵由项目常驻指令文件声明，本规则只补充行为风险维度。
+      '不替代项目常驻指令文件中声明的「验证选择」',
+      '项目提供的聚焦验证入口',
       '分层运行',
       // 工程约定
       '先写暴露该缺陷的复现测试',
@@ -577,6 +625,10 @@ export const CONTENT_QUALITY_CHECKS = [
       '项目已配置且对本次文件或语言适用时',
       '无法隔离时才串行',
       '不是目标项目通用门禁',
+      '以项目自己的贡献指南和测试配置为准',
+      // 参考实现边界：只声明可移植的分档方式，不绑定本仓库脚本名与超时值。
+      '脚本入口按测试层级分类',
+      '不构成对目标项目运行器、依赖或超时的要求',
       // 测试数据与确定性
       '生产 PII',
       '固定时钟、随机种子、时区和 locale',
@@ -653,7 +705,9 @@ export const CONTENT_QUALITY_CHECKS = [
       SHARED_RULE_PHRASES.developNoRemoteCi,
       '只对发布边界运行',
       SHARED_RULE_PHRASES.releaseGateBranches,
-      'main-release-gate',
+      // 发布边界检查的名称与聚合方式属于项目 CI 事实，规则只声明边界语义。
+      '项目在发布边界配置的 required check',
+      '该检查的名称与聚合方式以项目 CI 配置为准',
       '自行落地 squash merge',
       // 3 Definition of Ready
       '以 `ai-collab-rules.md` 为唯一规范来源',
@@ -696,6 +750,10 @@ export const CONTENT_QUALITY_CHECKS = [
       '当前 Issue 及其必要依赖范围',
       '顺序执行且工作区干净时允许在当前 clone 创建任务分支',
       '必须使用仓库外 worktree',
+      // 高风险路径清单：本仓库的仓库内规则目录名，不是项目私有引用。
+      'CI workflow 定义',
+      '项目自己的发布交付文档',
+      '项目记录该门禁决策的决策记录',
     ],
   },
   {
@@ -715,7 +773,7 @@ export const CONTENT_QUALITY_CHECKS = [
       // ADR 判据按影响与可逆性，不按跨了几层目录；触发清单与字段指向单一来源。
       '不以文件数量或是否跨模块边界判断',
       'ADR 是决策记录而不是设计文档',
-      '触发清单与流程以 docs/adr/README.md 为准',
+      '以其 ADR 索引作为触发清单与流程来源',
       '默认 `.agents/memory/decisions.md`',
       '小型 Bug、单文件修改和简单问答不展开该清单',
       '长期有效、高影响且难以逆转',
@@ -731,6 +789,28 @@ export const CONTENT_QUALITY_CHECKS = [
       'PR',
       SHARED_RULE_PHRASES.referenceImplementation,
       '普通单 Agent 局部修复不因任务类型自动创建 worktree',
+      // 提交内容与信息：一个逻辑变更一个 commit，标题语法与 trailer 边界。
+      '每个 commit 只承载一个逻辑变更',
+      '提交主题使用 `<type>(<scope>): <描述>`',
+      '不使用 `--no-verify` 绕过项目 Git Hook',
+      // 分支模型与合并：默认模型、squash/merge 分工与门禁边界。
+      SHARED_RULE_PHRASES.gitFlowDefault,
+      SHARED_RULE_PHRASES.gitFlowHotfix,
+      '边界检查的名称、聚合方式与是否为唯一 required check 以项目 CI 配置为准',
+      '普通任务 PR 仍会跑不阻断合并的 advisory CI job',
+      '无门禁合入以本地验证为唯一前置',
+      // 协作工作流引用必须带条件语气：未安装 linear-workflow 的项目同样成立。
+      '若项目已安装该规则',
+      '项目交付文档',
+      // 同步与历史：只改写未推送提交，revert 而非历史改写。
+      '只改写自己尚未推送的提交',
+      '优先用 `--force-with-lease`',
+      '已推到共享分支的错误变更用 revert 加修复提交处理',
+      // 安全与敏感数据：凭据不入历史，helper 只经 transport 调用。
+      '密码、Secret、Token、Cookie、私钥和个人敏感数据不得进入提交',
+      'Git credential helper 只可由其已配置的 Git transport 透明调用',
+      // 分支命名由项目 worktree 校验入口判定。
+      '项目 worktree 校验入口',
     ],
   },
   {
@@ -756,7 +836,19 @@ export const CONTENT_QUALITY_CHECKS = [
   },
   {
     file: 'docs/rules/api-rules.md',
-    terms: ['检查清单', '兼容策略', '验证证据'],
+    terms: [
+      // 适用边界：规则只补底线，不新建第二套体系。
+      '适用边界',
+      '沿用目标项目已有的接口风格、版本策略和契约工具',
+      '检查清单',
+      '兼容策略',
+      '幂等',
+      '验证证据',
+      '停止条件',
+      '不臆造 API、字段、错误码或权限码',
+      // 展开的执行步骤位于宿主 Skill，措辞必须保持适配器中立。
+      '宿主 Skill 根目录下已安装的',
+    ],
   },
   {
     file: 'docs/rules/db-rules.md',
@@ -877,7 +969,19 @@ export const CONTENT_QUALITY_CHECKS = [
   },
   {
     file: 'docs/rules/release-rules.md',
-    terms: ['检查清单', '回滚', '监控'],
+    terms: [
+      // 发布闭环：证据绑定同一版本标识，失败按已记录路径处置。
+      '检查清单',
+      '发布证据绑定同一版本标识',
+      '不可移动、覆盖或复用',
+      '回滚',
+      '前滚路径',
+      '监控',
+      '停止',
+      '不得把本地构建通过当作发布成功',
+      // 制品、签名与分发方式属于项目事实。
+      '具体制品、签名、证明和分发方式由目标项目的贡献与交付文档管理',
+    ],
   },
   {
     file: 'docs/rules/troubleshooting.md',
@@ -889,6 +993,33 @@ export const CONTENT_QUALITY_CHECKS = [
       '失败阶段、替代证据、未验证行为和剩余风险',
       '不得把“本地未复现”当作问题不存在或自动停止',
       '需要产品决策、额外权限或生产访问',
+      // 排障顺序：固化现场、先缓解后定根因、用差异与二分收敛。
+      '先固化现场',
+      '先缓解后定根因',
+      '用差异与二分收敛',
+      '因果证据',
+      '收敛根因与贡献因素',
+      // Hook 入口错误码是可核对的人工判据。
+      'HOOK_INPUT_INVALID_JSON',
+      'HOOK_RUNTIME_ERROR',
+    ],
+  },
+  {
+    file: 'docs/rules/role-routing.md',
+    terms: [
+      // 路由只改变决策视角，不改变授权、安全边界与证据要求。
+      '角色改变决策视角，不改变授权、安全边界或证据要求',
+      '先判断当前原子动作',
+      // 收敛顺序：显式指定优先，routingOrder 只是展示顺序。
+      '显式指定 > 第 4 条的动作能力匹配 > 职责最窄的匹配角色',
+      '不构成第二真值',
+      // custom 角色与内置角色适用同一过滤。
+      'custom 角色与内置角色适用同一过滤',
+      // 宿主降级与能力缺口处理。
+      '宿主无法精确表达预设时按最严格可用映射执行并报告降级',
+      '不得通过角色名称绕过拒绝或权限限制',
+      // 默认单角色，不固定串行七个角色。
+      '不固定串行运行七个角色',
     ],
   },
   {
@@ -962,6 +1093,8 @@ export const CONTENT_QUALITY_CHECKS = [
       'api-existence',
       'confirmed-uncovered',
       'Harness Evals',
+      // 基础设施受阻的验收措辞与 governance-core 的三层枚举一致。
+      'blocked（degraded）',
     ],
   },
   {
@@ -985,9 +1118,59 @@ export function contentQualityCheck(file) {
   return check;
 }
 
+/**
+ * Reject repository-private references in the portable rule bodies.
+ *
+ * @param {string} rootDir repository root
+ */
+export async function validateRulePortability(rootDir) {
+  const rulesDir = path.join(rootDir, 'docs/rules');
+  if (!(await pathExists(rulesDir))) return [];
+  const errors = [];
+  const entries = await readdir(rulesDir, { withFileTypes: true });
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
+    if (RULE_PORTABILITY_EXCLUSIONS.includes(entry.name)) continue;
+    const relative = `docs/rules/${entry.name}`;
+    const content = await readFile(path.join(rulesDir, entry.name), 'utf8');
+    for (const { label, pattern } of RULE_PORTABILITY_CHECKS) {
+      const match = content.match(pattern);
+      if (match) errors.push(`${relative} must not reference ${label}: ${match[0]}`);
+    }
+  }
+  return errors;
+}
+
+/**
+ * Every sibling rule reference in a rule body must resolve to a rule file.
+ *
+ * @param {string} rootDir repository root
+ */
+export async function validateRuleCrossReferences(rootDir) {
+  const rulesDir = path.join(rootDir, 'docs/rules');
+  if (!(await pathExists(rulesDir))) return [];
+  const errors = [];
+  const entries = await readdir(rulesDir, { withFileTypes: true });
+  const ruleFiles = new Set(entries.filter((entry) => entry.isFile()).map((entry) => entry.name));
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
+    const relative = `docs/rules/${entry.name}`;
+    const content = await readFile(path.join(rulesDir, entry.name), 'utf8');
+    for (const match of content.matchAll(RULE_CROSS_REFERENCE_PATTERN)) {
+      if (ruleFiles.has(match[1])) continue;
+      errors.push(`${relative} references missing rule ${match[1]}`);
+    }
+  }
+  return errors;
+}
+
 export async function validateContentQuality(rootDir) {
   const results = await Promise.all(CONTENT_QUALITY_CHECKS.map((check) => checkRequiredTerms(rootDir, check)));
-  const errors = results.flat();
+  const errors = [
+    ...results.flat(),
+    ...await validateRulePortability(rootDir),
+    ...await validateRuleCrossReferences(rootDir),
+  ];
   const agentsPath = path.join(rootDir, 'AGENTS.md');
   if (await pathExists(agentsPath)) {
     const agents = await readFile(agentsPath, 'utf8');

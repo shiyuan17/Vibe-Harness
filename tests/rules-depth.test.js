@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 import { createInstallPlan, renderActionContent } from '../scripts/lib/install-planner.js';
 import { loadAllManifests, readJson } from '../scripts/lib/manifest.js';
+import { validateRuleCrossReferences, validateRulePortability } from '../scripts/lib/pack-validation.js';
 import { scanForForbiddenTerms } from '../scripts/lib/redaction.js';
 import { assertRuleAnchors } from './helpers/governed-docs.js';
 
@@ -67,7 +69,7 @@ test('generic rules constrain process while retaining safety boundaries', async 
   const names = [
     'ai-collab-rules', 'ast-grep', 'chrome-devtools-mcp', 'codebase-memory-mcp',
     'coding-rules', 'frontend-rules', 'git-rules', 'log-management',
-    'project-directory', 'release-rules', 'rtk', 'test-rules', 'troubleshooting',
+    'project-directory', 'release-rules', 'role-routing', 'rtk', 'test-rules', 'troubleshooting',
   ];
   await assertRuleAnchors(rootDir, names.map((name) => `docs/rules/${name}.md`));
 
@@ -83,6 +85,60 @@ test('generic rules constrain process while retaining safety boundaries', async 
   for (const [name, pattern] of rejected) {
     const content = await readFile(path.join(rootDir, 'docs/rules', name + '.md'), 'utf8');
     assert.doesNotMatch(content, pattern, name);
+  }
+
+  // A rule that cites another rule must stay honest about what the target
+  // project has: `linear-workflow` is an integration rule, so git-rules may
+  // only defer to it conditionally instead of assuming it is installed.
+  const gitRules = await readFile(path.join(rootDir, 'docs/rules/git-rules.md'), 'utf8');
+  const linearReferences = gitRules.split(/\r?\n/u).filter((line) => line.includes('`linear-workflow.md`'));
+  assert.ok(linearReferences.length > 0, 'git-rules must cite linear-workflow.md for the branch model');
+  for (const line of linearReferences) {
+    assert.match(line, /若项目已安装该规则/u);
+  }
+});
+
+test('portable rules stay free of repository-private references', async () => {
+  assert.deepEqual(await validateRulePortability(rootDir), []);
+
+  const pack = await mkdtemp(path.join(tmpdir(), 'vibe-rules-portability-'));
+  try {
+    await mkdir(path.join(pack, 'docs/rules'), { recursive: true });
+    await writeFile(path.join(pack, 'docs/rules/portable.md'), '# Portable\n\n见 CONTRIBUTING.md 与 pnpm verify:focused。\n', 'utf8');
+    const errors = await validateRulePortability(pack);
+    assert.ok(errors.some((error) => error.includes('CONTRIBUTING.md')), JSON.stringify(errors));
+    assert.ok(errors.some((error) => error.includes('repository script')), JSON.stringify(errors));
+  } finally {
+    await rm(pack, { force: true, recursive: true });
+  }
+});
+
+test('the rendered project-specific rule file is exempt from the portability gate', async () => {
+  const pack = await mkdtemp(path.join(tmpdir(), 'vibe-rules-portability-exempt-'));
+  try {
+    await mkdir(path.join(pack, 'docs/rules'), { recursive: true });
+    // Carrying the target project's own commands and docs is the whole job of
+    // this rendered file, so the private-reference gate must skip it.
+    await writeFile(path.join(pack, 'docs/rules/project-specific-rules.md'), '# 项目规则\n\n- Lint：`pnpm lint`，见 CONTRIBUTING.md\n', 'utf8');
+    assert.deepEqual(await validateRulePortability(pack), []);
+  } finally {
+    await rm(pack, { force: true, recursive: true });
+  }
+});
+
+test('sibling rule references must resolve inside docs/rules', async () => {
+  assert.deepEqual(await validateRuleCrossReferences(rootDir), []);
+
+  const pack = await mkdtemp(path.join(tmpdir(), 'vibe-rules-cross-reference-'));
+  try {
+    await mkdir(path.join(pack, 'docs/rules'), { recursive: true });
+    await writeFile(path.join(pack, 'docs/rules/alpha.md'), '# Alpha\n\n完整规范见 `beta.md` 与 `gamma.md`。\n', 'utf8');
+    // Path-qualified references are not sibling references, so they stay out of
+    // this contract even though they are also written in backticks.
+    await writeFile(path.join(pack, 'docs/rules/beta.md'), '# Beta\n\n见 `.agents/memory/decisions.md`、`docs/rules/alpha.md` 与 `roles/prompts/<role-id>.md`。\n', 'utf8');
+    assert.deepEqual(await validateRuleCrossReferences(pack), ['docs/rules/alpha.md references missing rule gamma.md']);
+  } finally {
+    await rm(pack, { force: true, recursive: true });
   }
 });
 
