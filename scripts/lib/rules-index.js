@@ -144,14 +144,20 @@ export function ruleGroupLabel(id) {
  * @returns {string}
  */
 export function renderRuleIndexLine(index = []) {
-  const buckets = new Map([...RULE_GROUPS.map((group) => [group.label, []]), [UNGROUPED_LABEL, []]]);
+  /** @type {Map<string, string[]>} */
+  const buckets = new Map();
+  for (const group of RULE_GROUPS) buckets.set(group.label, []);
+  buckets.set(UNGROUPED_LABEL, []);
   for (const item of index) {
     // `codebase-memory-mcp（codebase-memory-mcp）` costs the host bytes without
     // adding routing signal, so an id that repeats in its own title stays bare.
     const label = String(item.title ?? '').toLowerCase() === String(item.id).toLowerCase()
       ? item.id
       : `${item.id}（${item.title}）`;
-    buckets.get(ruleGroupLabel(item.id)).push(label);
+    const group = ruleGroupLabel(item.id);
+    const entries = buckets.get(group);
+    if (entries) entries.push(label);
+    else buckets.set(group, [label]);
   }
   return [...buckets.entries()]
     .filter(([, entries]) => entries.length > 0)
