@@ -7,7 +7,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
 
-import { inspectMemory, inspectRuntimeHooks, runtimeHookWarnings } from '../scripts/lib/runtime-diagnostics.js';
+import { hookDefinitionDrift, inspectMemory, inspectRuntimeHooks, runtimeHookWarnings } from '../scripts/lib/runtime-diagnostics.js';
 import { readHostHookState } from '../scripts/lib/host-hook-state.js';
 
 const execFileAsync = promisify(execFile);
@@ -202,6 +202,51 @@ test('host Hook trust state is read from the host config without echoing its has
   } finally {
     await rm(codexHome, { force: true, recursive: true });
     await rm(projectDir, { force: true, recursive: true });
+  }
+});
+
+test('Hook trust re-review is reported only for a trusted host whose installed definition changed', async () => {
+  const adapters = JSON.parse(await readFile(path.resolve('manifests/adapters.json'), 'utf8'));
+  const adapter = adapters.items.find((item) => item.id === 'codex');
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-hook-rereview-'));
+  try {
+    const definition = path.join(target, '.codex', 'hooks.json');
+    await mkdir(path.dirname(definition), { recursive: true });
+    const written = '{"hooks":{}}\n';
+    await writeFile(definition, written, 'utf8');
+    const record = {
+      files: [{
+        target: '.codex/hooks.json',
+        targetHash: createHash('sha256').update(Buffer.from(written, 'utf8')).digest('hex'),
+      }],
+    };
+
+    // Silence is the default: a matching record, no record at all, a record for
+    // another target, and a definition that is not installed are all not drift.
+    assert.equal(await hookDefinitionDrift(adapter, target, record), false);
+    assert.equal(await hookDefinitionDrift(adapter, target, null), false);
+    assert.equal(await hookDefinitionDrift(adapter, target, { files: [{ target: 'docs/hooks.md' }] }), false);
+    assert.equal(await hookDefinitionDrift(adapter, target, { files: [{ target: '.codex/hooks.json' }] }), false);
+
+    // A definition rewritten after the recorded install no longer matches it.
+    await writeFile(definition, '{"hooks":{"PreToolUse":[]}}\n', 'utf8');
+    assert.equal(await hookDefinitionDrift(adapter, target, record), true);
+
+    const trusted = await inspectRuntimeHooks(adapter, target, { hostHookState: { status: 'trusted-enabled' } });
+    const warned = runtimeHookWarnings(trusted, { definitionChanged: true }).map((warning) => warning.code);
+    assert.equal(warned.includes('HOOK_TRUST_REREVIEW_REQUIRED'), true);
+    const unreported = runtimeHookWarnings(trusted).map((warning) => warning.code);
+    assert.equal(unreported.includes('HOOK_TRUST_REREVIEW_REQUIRED'), false);
+
+    // A switched-off, untrusted, or unreadable host already has a sharper
+    // warning, and the re-review hint never claims the host will ask for trust.
+    for (const status of ['trusted-disabled', 'untrusted', 'unknown']) {
+      const report = await inspectRuntimeHooks(adapter, target, { hostHookState: { status } });
+      const codes = runtimeHookWarnings(report, { definitionChanged: true }).map((warning) => warning.code);
+      assert.equal(codes.includes('HOOK_TRUST_REREVIEW_REQUIRED'), false, status);
+    }
+  } finally {
+    await rm(target, { force: true, recursive: true });
   }
 });
 

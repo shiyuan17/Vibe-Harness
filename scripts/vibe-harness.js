@@ -9,6 +9,7 @@ import {
   applyUninstallPlan,
   createRollbackPlan,
   createUninstallPlan,
+  hashFile,
   readInstallState,
   registerGeneratedFile,
   stateFilePath,
@@ -47,7 +48,13 @@ import {
 import { parseModulesOption, parsePluginsOption } from './lib/module-selection.js';
 import { canonicalAgentsTemplate, loadAdapterCatalog, resolveAdapter } from './lib/adapter.js';
 import { safetyPostureWarnings } from './lib/safety-posture.js';
-import { inspectMemory, inspectRuntimeHooks, runtimeHookWarnings } from './lib/runtime-diagnostics.js';
+import {
+  hookDefinitionDrift,
+  hookDefinitionPath,
+  inspectMemory,
+  inspectRuntimeHooks,
+  runtimeHookWarnings,
+} from './lib/runtime-diagnostics.js';
 import { readFile } from 'node:fs/promises';
 import {
   createToolProvisioningPlan,
@@ -462,7 +469,19 @@ async function install(args) {
     validateConfigAndGeneratedContent(plan.renderData, template, { installedTargets, skillRoots: plan.skillRoots });
   }
   plan.redZoneConfirmed = Boolean(args['confirm-red-zone']);
+  // The host trust record is keyed on the Hook definition text, so an install
+  // that rewrites that text invalidates the host's record. Compare the file
+  // around the write: after the install the recorded hash matches the new file
+  // by construction, so the post-install drift check cannot see this case.
+  const installedHookDefinition = hookDefinitionPath(adapter, targetDir);
+  const hookDefinitionBefore = installedHookDefinition && await pathExists(installedHookDefinition)
+    ? await hashFile(installedHookDefinition)
+    : null;
   const result = await applyInstallPlan(plan);
+  const hookDefinitionChanged = Boolean(hookDefinitionBefore)
+    && installedHookDefinition
+    && await pathExists(installedHookDefinition)
+    && await hashFile(installedHookDefinition) !== hookDefinitionBefore;
   const previewFiles = plan.dryRun ? await previewInstallPlan(plan, { includeContent: Boolean(args.verbose) }) : [];
   const allowPreview = Boolean(args['allow-preview']);
   // Single superset plan (allowPreview:true) derives both the user-facing plan and
@@ -505,7 +524,7 @@ async function install(args) {
           message: 'Tool provisioning was not run; use vibe-harness provision --project <project> --write.',
         }] : [])),
     ...safetyPostureWarnings(adapter),
-    ...runtimeHookWarnings(runtimeHooks),
+    ...runtimeHookWarnings(runtimeHooks, { definitionChanged: hookDefinitionChanged }),
     ...Object.entries(plan.linearMcp ?? {})
       .filter(([, item]) => item.configuration === 'manual')
       .map(([target, item]) => ({
@@ -667,7 +686,9 @@ async function validate(args) {
       warnings: [
         ...toolWarnings(tools),
         ...safetyPostureWarnings(adapter),
-        ...runtimeHookWarnings(runtimeHooks),
+        ...runtimeHookWarnings(runtimeHooks, {
+          definitionChanged: await hookDefinitionDrift(adapter, targetDir, installState),
+        }),
         ...roleRuntimeWarnings(target.adapters),
       ],
     }, args);
@@ -1107,7 +1128,9 @@ async function doctor(args) {
         message: nestedInstallations.length + ' nested Vibe-Harness installation(s) require explicit migration and uninstall.',
       }] : []),
       ...safetyPostureWarnings(adapter),
-      ...runtimeHookWarnings(runtimeHooks),
+      ...runtimeHookWarnings(runtimeHooks, {
+        definitionChanged: await hookDefinitionDrift(adapter, targetDir, installState),
+      }),
       ...roleRuntimeWarnings(target?.adapters),
       ...(pack.instructionBudgetWarnings ?? []).map((message) => ({
         code: 'INSTRUCTION_BUDGET',

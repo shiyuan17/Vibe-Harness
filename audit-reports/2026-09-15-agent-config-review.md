@@ -947,6 +947,69 @@ AC-01、AC-02、AC-03、AC-04（含 AC-04a）、AC-11 已关闭；AC-08 的 Hook
 - `node ./scripts/validate.js`：通过（Workflow asset integrity clean；Self-install conformance `unmanagedCount = 3192`）。
 - `unmanagedCount` 在清理后没有下降，这是机制事实而非回归：`collectTargetFiles()`（`scripts/lib/install-state.js`）显式跳过 `.vibe-harness/`（stateDir）与 `node_modules/`，该计数统计的是「仓库内未登记进 install-state 的文件」，与本次删除的运行产物不相交。因此 AC-09 的实际收益是磁盘与规模治理；若要让该计数成为健康指标，仍需按第 8 节 AC-09 关闭条件单独定义基线。
 
+## 16. Hook 配置优化实施记录（2026-09-15，P0 与 P1，H-01–H-11）
+
+状态：三个独立提交已完成实施与验证，可逐个 revert。范围不含 SessionStart/PostToolUse 投影与「Hook 同进程 import」重构（H-09），也未改宿主全局配置、未写 requirements.toml、未改 v1/v2 Envelope 语义。约束：一次定义变更只做一次——改 `.codex/hooks.json` 即让宿主信任哈希失效，必须在宿主中重新信任一次。
+
+### 16.1 结论到批次
+
+H 编号沿用本轮 Hook 审查输出的编号；下表按执行计划的分批映射，描述以落地改动为准，不逐字复述审查原文。
+
+| 结论 | 内容 | 批次 / 出口 |
+| --- | --- | --- |
+| H-01 | 引导脚本失败走非零退出，宿主按「Hook 运行失败」处理并继续执行工具调用，实际是 fail-open | 提交 1 · 宿主 deny 契约 |
+| H-02 | PreToolUse matcher 是工具名枚举，宿主新增工具静默跳过策略；只读集合不含本地函数工具 | 提交 2 · `.*` 与显式名单 |
+| H-03 | `runtime/hooks/README.md` 把失败语义写成 non-zero exit，并把 Stop 写成 "unsupported on every host"，与 `manifests/adapters.json` 的 `not-projected` 矛盾 | 提交 3 · 文档口径 |
+| H-04 | 引导命令是手写双重转义字符串，无单一真源，不能独立审阅或执行 | 提交 1 · `scripts/lib/hook-bootstrap.cjs` |
+| H-05 | `docs/hooks.md` 未同步失败语义、matcher 全匹配与本地函数工具分类 | 提交 3 · 文档口径 |
+| H-06 | 引导依赖 `git rev-parse` 子进程，也依赖 PATH 上的 git | 提交 1 · 文件系统向上查找 `.git` |
+| H-07 | Hook 子进程整份继承 `process.env`，Provider 与云凭据变量随之进入 | 提交 1 · 环境白名单 |
+| H-08 | `gitOutput` 与 `isAncestor` 的 git 子进程没有超时，可能先于宿主超时被杀死（杀进程不等于阻断） | 提交 1 · 3 秒超时 |
+| H-09 | SessionStart/PostToolUse 投影与 Hook 同进程 import 重构 | 本轮排除，未实施 |
+| H-10 | 运行时没有自有预算，宿主 10 秒超时杀进程即 fail-open | 提交 1 · 5 秒 watchdog |
+| H-11 | doctor/安装缺少「定义变更可能要求重新信任」提示，且实施过程无台账 | 提交 3 · `HOOK_TRUST_REREVIEW_REQUIRED` 与本节 |
+
+### 16.2 改动面（按提交）
+
+| 提交 | 覆盖 | 主要改动 |
+| --- | --- | --- |
+| `fix(hooks): bootstrap 失败路径改为 fail-closed 并单源化命令定义` | H-01、H-04、H-06、H-07、H-08、H-10 | 新增 `scripts/lib/hook-bootstrap.cjs` 单一真源与载荷字符白名单；根定位改走 `.git` 向上查找；失败分支按宿主输出 deny 载荷并 `exit 0`；环境白名单；运行时 5 秒预算；两处 git 子进程超时；删除重复 `commandWindows` |
+| `feat(hooks): 钩子判定覆盖全部本地函数工具并补全只读工具集合` | H-02 | PreToolUse `matcher` 改为 `.*`；只读集合新增 15 个本地函数工具；写入类与未列名工具仍走 Envelope |
+| 本节所在提交 | H-03、H-05、H-11 | `runtime/hooks/README.md` 与 `docs/hooks.md` 口径统一；新增 `HOOK_TRUST_REREVIEW_REQUIRED` 与 `hookDefinitionDrift`、`hookDefinitionPath`；install/validate/doctor 三处接入；本节台账与 CHANGELOG |
+
+### 16.3 契约与接口变化
+
+- `.codex/hooks.json` 的 `command` 文本与 PreToolUse `matcher` 改变 ⇒ 宿主信任哈希失效，所有已安装项目需在宿主中重新信任一次（Codex 用 `/hooks`）。
+- Hook 失败出口由「非零退出」改为「宿主 deny 载荷」，理由前缀固定为 `[VIBE_HARNESS_HOOK:BOOTSTRAP_UNAVAILABLE]`。
+- 新增导出 `hookDefinitionDrift(adapter, targetDir, installState)`、`hookDefinitionPath(adapter, targetDir)`，以及 `runtimeHookWarnings(runtimeHooks, { definitionChanged })` 的可选第二参数与告警码 `HOOK_TRUST_REREVIEW_REQUIRED`。
+- 只读/无副作用工具集合扩大；`docs/schemas/*`、install-map 与 Envelope v1/v2 语义不变。
+
+### 16.4 验证证据
+
+| 命令 | 结果 |
+| --- | --- |
+| `node --test tests/hook-bootstrap.test.js tests/hook-runtime.test.js tests/codex-adapter.test.js` | 50 通过 / 0 失败 |
+| `node --test tests/hook-read-only-classification.test.js` | 14 通过 / 0 失败（含 2 个新增表驱动用例） |
+| `node --test tests/runtime-diagnostics.test.js` | 7 通过 / 0 失败（含新增 re-review 用例） |
+| `node --test tests/hook-installation.test.js` | 提交 1 时点 9 通过 / 0 失败 |
+| `node ./scripts/lint.js`、`pnpm typecheck`、`git diff --check` | 通过（`pnpm lint:eslint` 0 error，仓库既有 warning 不变） |
+| `vibe-harness install --project . --target codex --profile full --write --confirm-red-zone` | ok / ready / written 125 / retired 0 |
+
+bootstrap 端到端耗时中位数 275.8 ms → 225.2 ms（12 轮交错实测，省去一次 git 子进程）；仅作记录，不作门禁。
+
+环境噪声（已确认事实）：本批次期间工作区同时存在其他会话的未提交改动（`runtime/commands/run.mjs`、新增 `runtime/lib/worktree-audit.mjs`、`scripts/lib/worktree-audit.js`、`scripts/lib/install-preset.js` 等），因此 `pnpm validate`、`doctor` 与 `pnpm test:unit` 会报与钩子无关的失败：self-install conformance 报 `runtime/commands/run.mjs` 漂移与 `runtime/lib/worktree-audit.mjs` 缺失，`tests/project-commands.test.js` 因新安装面缺 `.agents/runtime/lib/worktree-audit.mjs` 失败。这些路径不属于本批次，也未被本批次的任何提交包含。
+
+### 16.5 未闭合与移交
+
+- H-09（SessionStart/PostToolUse 投影与同进程 import 重构）未实施。
+- 残余风险：引导命令以 `node` 开头，宿主 PATH 无 node 或 Node 版本过低时命令起不来，宿主仍按失败处理并继续工具调用；本轮不做 `process.execPath` 绝对路径固化，以保留 worktree 与迁移可移植性。该风险已写入 `runtime/hooks/README.md` 与 `docs/hooks.md`。
+- 非 Codex 宿主只同步共享引导的 fail-closed 行为，未在真实 Claude/Cursor/Qoder/ZCode/Antigravity 上实测，标记为静态结论。
+- 自安装仍会把 `docs/rules/project-specific-rules.md` 渲染成项目画像内容（13.6 已记录，本批次日经 install 复现并已恢复 pack 模板原文），投影策略问题本身仍未决策。
+
+### 16.6 回滚
+
+三个提交可逐个 `git revert`；由于 `command` 文本与 `matcher` 随之回退，revert 后同样需要重装安装面并在宿主中重新信任一次。
+
 ## 附录 A · 运行产物清理清单（2026-09-15 实测；删除已同日按用户确认执行，见第 15 节）
 
 体积与文件数为本机实测（PowerShell 递归统计）。「生产者」一列是仓库内可核对的生成入口；标「未找到生产者」的路径在仓库源码中没有任何引用，删除前必须确认其可重建性。
@@ -978,6 +1041,9 @@ doctor 的 `unmanagedCount` 在本轮测量中由 2989 升到 3190，随仓库�
 | `32d47a5` feat(install): 自安装纳入角色面并落地 F01-F10 台账 | 批次 3（P1） | AC-06、AC-07；eval reference/replay 再生成 | 是 |
 | `5a2d6b6` fix(install): 修复规则索引分组的类型推断 | 批次 2 的回归修复 | 批次 2 的 TS2769（`pnpm typecheck`） | 是 |
 | feat(hooks): 可观测宿主信任三态并固定契约取证 | 批次 4（P2 与 P1 混合） | AC-08 收尾、AC-09 清单、AC-10、AC-12 | 是 |
+| `04850f1` fix(hooks): bootstrap 失败路径改为 fail-closed 并单源化命令定义 | 第 16 节（H-01、H-04、H-06、H-07、H-08、H-10） | Hook 失败出口、引导单源化、环境与超时边界 | 是 |
+| `afeebe8` feat(hooks): 钩子判定覆盖全部本地函数工具并补全只读工具集合 | 第 16 节（H-02） | Hook 触发面与只读工具分类 | 是 |
+| fix(hooks): 文档口径、重新信任提示与实施台账（第 16 节所在提交） | 第 16 节（H-03、H-05、H-11） | Hook 文档、`HOOK_TRUST_REREVIEW_REQUIRED` | 是 |
 
 工作区中仍有用户在本次审查之前/之外改动的文件（stale-cleanup、install-preset 等相关）未纳入以上任何提交；每个提交只包含该批次自己的改动，`scripts/lib/pack-validation.js`、`package.json`、`adapters/install-map.json`、`scripts/lib/install-planner.js` 等重叠文件用「按内容建 blob 后更新索引」的方式只暂存本批次 hunk。
 

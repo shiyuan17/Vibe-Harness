@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 
 import { pathExists } from './manifest.js';
 import { readHostHookState } from './host-hook-state.js';
+import { hashFile } from './install-state.js';
 import { evaluateHook, HOOK_FAILURE_CODES } from '../../runtime/hooks/codex-hook.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -29,8 +30,40 @@ export const HOOK_COVERAGE_LIMITATIONS = [
   'Host sandbox, approval policy, process isolation, and network proxy enforcement require independent host-level verification.',
 ];
 
-function hookConfigTarget(adapter) {
+export function hookConfigTarget(adapter) {
   return adapter.projectConfig?.hooks?.target || hookConfigTargets[adapter.id] || null;
+}
+
+/** Absolute path of the adapter's installed Hook definition, if it has one. */
+export function hookDefinitionPath(adapter, targetDir) {
+  const relativeTarget = hookConfigTarget(adapter);
+  return relativeTarget ? path.join(targetDir, relativeTarget) : null;
+}
+
+/**
+ * True when the installed Hook definition no longer matches the hash the
+ * installer recorded for it. The host keys its own trust record on the
+ * definition text, so a definition that changed after the recorded install
+ * (edited by hand, or rendered by a newer pack) may require re-trusting before
+ * the safety policy applies again.
+ *
+ * The host's own hash algorithm is not reproducible from the project, so this
+ * stays a "may require re-trust" signal: it never claims causality, and it is
+ * silent when there is no install record or no installed definition to compare.
+ *
+ * @param {any} adapter
+ * @param {string} targetDir
+ * @param {any} installState
+ * @returns {Promise<boolean>}
+ */
+export async function hookDefinitionDrift(adapter, targetDir, installState) {
+  const relativeTarget = hookConfigTarget(adapter);
+  if (!relativeTarget || !Array.isArray(installState?.files)) return false;
+  const record = installState.files.find((file) => file.target === relativeTarget);
+  if (!record?.targetHash) return false;
+  const installed = path.join(targetDir, relativeTarget);
+  if (!await pathExists(installed)) return false;
+  return await hashFile(installed) !== record.targetHash;
 }
 
 function selfCheckPayload(adapterId, targetDir) {
@@ -152,8 +185,23 @@ export async function inspectRuntimeHooks(adapter, targetDir, { hostEvidence = {
   return report;
 }
 
-export function runtimeHookWarnings(runtimeHooks) {
+/**
+ * @param {any} runtimeHooks
+ * @param {{definitionChanged?: boolean}} [options] `definitionChanged` carries
+ * the caller's own comparison of the Hook definition before and after the
+ * current operation (an install that rewrites the definition), because the
+ * post-install record already matches the new file.
+ */
+export function runtimeHookWarnings(runtimeHooks, { definitionChanged = false } = {}) {
   const warnings = [];
+  if (definitionChanged
+    && runtimeHooks.configured
+    && runtimeHooks.activation.status === 'trusted-enabled') {
+    warnings.push({
+      code: 'HOOK_TRUST_REREVIEW_REQUIRED',
+      message: '已安装的 Hook 定义与宿主信任的那份不同（本次安装或手工改写改动了定义文本），宿主可能要求重新信任；请在 Codex 中运行 /hooks 复核并启用当前定义。',
+    });
+  }
   const disabled = runtimeHooks.configured && runtimeHooks.activation.status === 'trusted-disabled';
   if (disabled) {
     // The host records the Hook as trusted but switched off: that is a sharper

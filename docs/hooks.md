@@ -19,6 +19,8 @@ Vibe-Harness Hook 只执行项目级安全策略。它不创建任务状态、�
 
 PreToolUse 阻止危险 Git、全局 Agent 配置写入、凭据外传、红区文件上传和项目边界外写入。PermissionRequest 对相同硬边界执行拒绝；其他审批仍由宿主控制。
 
+Codex 投影的 PreToolUse <code>matcher</code> 为 <code>.*</code>，即对宿主上报的每个工具名求值（不再枚举 Bash、Edit、Write、ApplyPatch、apply_patch 与 mcp__.*）：宿主新增的工具不会因为不在枚举里而静默跳过策略。宿主把含正则元字符的 matcher 按未锚定的 JavaScript 正则求值，这与 Claude Code 文档中的匹配路径一致，也正是选择 <code>.*</code> 而不是依赖 <code>*</code> 特殊语义的原因。
+
 `not-projected` 与 `unsupported` 不是同一个结论：`not-projected` 表示宿主支持该事件、但本项目不安装对应 Hook（Codex 与 Claude Code 的 Stop 属于此类，宿主侧另有项目记录过 Stop 信任），`unsupported` 表示该宿主没有这一能力入口。Vibe-Harness 不在 Stop 时 commit 或 push，因此不投影该事件；这既不表示宿主缺少该事件，也不表示缺少它的项目失去了 Stop 防护以外的任何策略。
 
 manifest 的 `hookEvents` 与 `hookActivation` 是事件能力的单一事实源（`manifests/adapters.json`）。取证状态记录在每条 adapter 的 `evidence` 字段：Codex 声明已在 hostVersion 0.147.0 上于 2026-09-15 核对；其余宿主的 `lastVerifiedAt` 与 `hostVersion` 仍为空，表示「声明存在但本轮未在真实宿主上复核」，不得读作已验证。
@@ -32,10 +34,13 @@ manifest 的 `hookEvents` 与 `hookActivation` 是事件能力的单一事实源
 | PowerShell 与 Unix 只读 cmdlet（Get-ChildItem、Select-Object、Where-Object、Sort-Object、ForEach-Object、ConvertFrom-Json、Format-Table、Group-Object、Out-String、jq、rg 等） | 无副作用 | 允许 |
 | 宿主与基础设施 CLI 的只读子命令（codex 的 --version 与 --help、kubectl get、docker compose ps、terraform plan、aws list- 等） | 无副作用 | 允许 |
 | 解释器与工具链（node、python、pytest、go、cargo、dotnet、mvn、gradle、make、cmake、bundle、php 等） | workspaceWrite、standard | 允许，与既有 Node 工具链一致 |
+| 本地宿主函数工具（view_image、update_plan、agent、spawn_agent、task、read_file，以及 read_thread、read_thread_terminal、list_threads、list_archived_threads、wait_threads、list_agents、list_projects、get_goal、get_handoff_status） | 无副作用 | 允许 |
 | 写类子命令（delete、remove、apply、destroy、create 等）与未分类命令 | 高风险或无法判定 | 需要 Execution Envelope，否则拒绝 |
 | 危险 Git、全局 Agent 配置写入、凭据外传、红区上传、项目边界外写入 | 明确禁止 | 直接拒绝 |
 
 Shell 分段与读写谓词同样来自该模块，因此同一条命令在策略层与 Envelope 层的只读结论一致。apply_patch 的载荷是文件内容而非 shell 命令，只按补丁目标路径判定写入范围，不做命令替换、重定向或续行检查。
+
+本地宿主函数工具是一份显式名单：它们不触碰工作区，但名字里没有可推断的读动词（<code>update_plan</code> 是宿主本地清单，<code>view_image</code> 返回像素），未列名时会落到「无法判定」并要求 Execution Envelope。会改动宿主状态的工具不进这份名单——<code>write_stdin</code>、<code>create_thread</code>、<code>fork_thread</code>、<code>automation_update</code>、<code>handoff_thread</code>、<code>set_thread_*</code>、<code>send_message_to_thread</code>、<code>followup_task</code> 以及一切未列名的工具仍走 Envelope 路径（无 Envelope 即拒绝）。相对上一轮，<code>update_plan</code>、<code>view_image</code> 与 <code>Agent</code> 由「不判定」变为「放行」，<code>write_stdin</code>、<code>create_thread</code> 与 <code>automation_update</code> 由「不判定」变为「拒绝」。
 
 MCP 工具按「服务器 + 动词」分类：get、list、search、read、find、view、inspect、query、status、state、show、open 等只读与 UI 动词放行；write、create、update、delete、send、post、execute、run、apply、install 等写与执行动词，以及无法判定的工具名，保持既有 Execution Envelope 路径。
 
@@ -49,12 +54,22 @@ OpenCode 不安装项目 Hook。其配置文件仍属于默认红区，其他已
 
 每条 Hook 命令使用跨平台 Node bootstrap：
 
-1. 从宿主 session 的当前工作目录运行 <code>git rev-parse --show-toplevel</code>。
-2. 从返回的 Git root 定位 <code>.agents/runtime/hooks/codex-hook.mjs</code>。
-3. 使用 <code>process.execPath</code> 启动受管 Hook，并继承 stdin、stdout、stderr 和 Hook 参数。
-4. 找不到 Git root、受管入口或子进程启动失败时明确返回非零状态。
+1. 从宿主 session 的当前工作目录逐级向上查找首个含 <code>.git</code> 的目录（目录或文件均可，因此 worktree 与 submodule 各自解析到自己的检出）。
+2. 从该根定位 <code>.agents/runtime/hooks/codex-hook.mjs</code>。
+3. 使用 <code>process.execPath</code> 启动受管 Hook，并透传 stdin、stdout、stderr 和 Hook 参数；环境只传固定白名单（PATH、PATHEXT、SystemRoot、SystemDrive、TEMP、TMP、HOME、USERPROFILE、CODEX_HOME、两个 <code>VIBE_HARNESS_EXECUTION_ENVELOPE</code> 开关）加解析出的 <code>VIBE_HARNESS_GIT_ROOT</code>，不透传宿主整份环境。
+4. 找不到项目根、受管入口、子进程启动失败或超过 8 秒引导预算时，改用宿主 deny 契约阻断（见下节）。
 
-该入口不使用 shell command substitution。它可从仓库根、多级子目录和 Git worktree 启动，并始终命中当前 worktree 的受管 Hook。
+该入口不调用 <code>git</code>、不使用 shell command substitution，因此也不依赖 PATH 上的 git。它可从仓库根、多级子目录和 Git worktree 启动，并始终命中当前 worktree 的受管 Hook。
+
+## 失败契约
+
+宿主把非零退出记为「Hook 运行失败」并继续执行工具调用，所以阻断只能走宿主决策通道：只有 <code>exit 2</code> 或宿主可识别的 deny 决策才真正拦住调用。
+
+项目根缺失、受管入口缺失、子进程启动失败和 8 秒引导预算用尽，都输出按宿主分形的 deny 载荷后 <code>exit 0</code>：codex／claude／qoder／zcode 的 PreToolUse 用 <code>hookSpecificOutput.permissionDecision=deny</code>，它们的 PermissionRequest 用 <code>hookSpecificOutput.decision.behavior=deny</code>；Cursor 用 <code>{"continue":false}</code>；Antigravity 用 <code>{"decision":"deny"}</code>。只有完全未知的宿主回落到 <code>exit 2</code>。每个理由都以 <code>[VIBE_HARNESS_HOOK:BOOTSTRAP_UNAVAILABLE]</code> 开头，并同时向 stderr 写一行诊断供宿主日志排查。
+
+受管运行时在宿主的 10 秒超时之内保有自己的 5 秒预算，到点写出与常路径同形的 deny 决策（<code>HOOK_BUDGET_EXCEEDED</code>）后退出，而不是被宿主杀掉——被宿主杀掉的 Hook 不阻断工具调用。<code>VIBE_HARNESS_HOOK_BUDGET_MS</code> 只能缩短该预算，不能延长。
+
+残余风险：引导命令以 <code>node</code> 开头，因此依赖宿主 PATH 上的 node 与能运行受管运行时的 Node 版本；解释器本身起不来时命令不会执行，宿主仍按「运行失败」处理并继续工具调用。安装定义保留可移植的 <code>node</code> 调用而不是固化 <code>process.execPath</code>，以便 worktree 迁移与换机后继续可用；需要补足这一点的项目应在自己的宿主配置里固定解释器。
 
 ## 激活与诊断
 
@@ -64,9 +79,11 @@ Codex 的 Hook trust 是宿主状态，不能从项目文件推断。doctor 只�
 
 无论哪一种三态，activation.status 都不等于「宿主已加载」：<code>trusted-enabled</code> 与 <code>untrusted</code>、<code>unknown</code> 输出 HOOK_ACTIVATION_UNVERIFIED，<code>trusted-disabled</code> 输出更具体的 HOOK_DISABLED，提示安全策略当前不生效。用户需在 Codex 中运行 <code>/hooks</code> 复核并启用当前定义。配置文件型宿主只报告 configured-unverified，不把文件存在描述为 runtime active。
 
+宿主记录为 <code>trusted-enabled</code>、而已安装的 <code>.codex/hooks.json</code> 当前哈希与安装记录的 <code>targetHash</code> 不一致时（定义在安装后被改写，或由更新的 pack 渲染），<code>validate</code>、<code>doctor</code> 与 <code>install</code> 会追加 <code>HOOK_TRUST_REREVIEW_REQUIRED</code> 警告，文案写「可能要求重新信任」而不作因果断言——宿主的信任哈希算法无法从项目复现，这只是需要人工复核的信号。install 另外比较本次安装前后定义文件的哈希，因此「本次安装改写了定义、install-state 已同步」这种情况也能报出。宿主记录为停用、未信任或不可读时已有更具体的警告，不再叠加这一条。
+
 ## 配置与超时
 
-安全事件 timeout 为 10 秒；运行时固定为 guarded，并在无法安全判定时 fail-closed。项目配置只允许收紧出口 allowlist 和额外 red-zone，不提供运行模式或写入根配置。
+安全事件在宿主侧的 timeout 为 10 秒，受管运行时另保有 5 秒内部预算（见「失败契约」）；运行时固定为 guarded，并在无法安全判定时 fail-closed。项目配置只允许收紧出口 allowlist 和额外 red-zone，不提供运行模式或写入根配置。
 
 网络出口默认允许普通依赖和 Git 操作，但始终阻止凭据引用与红区文件上传。非空 allowlist 是能力授予，不是内容安全保证。
 
