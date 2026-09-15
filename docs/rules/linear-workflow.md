@@ -14,7 +14,7 @@ Linear 保存工作状态、责任、委派与依赖；GitHub 或 GitLab 保存�
 - 显式执行指令只授权当前 Issue 的最小身份登记，不授权修改 Assignee、Priority、Contract、Project、Cycle、Parent 或 relations。已有其他 Delegate、fallback Agent 标签或活动运行时，必须停止并请求显式 release 或 handoff。
 - Reviewer 和 Verifier 只读，不写 Receipt、不修改 Delegate 或 fallback 标签，也不取得实现所有权。
 
-每个请求在任何写入前都必须按 `governance-core.md` 建立 Execution Envelope，mode 只允许 inspect、plan、linear-sync、execute、monitor；effect 只允许 linearWrite、workspaceWrite、gitBranch、gitCommit、gitPush、mergeRequestWrite、credentialUse，并分别列入 allowedEffects 或 forbiddenEffects。`mergeRequestWrite` 显式覆盖创建或更新 PR/MR 与落地该 PR/MR 的合并（squash merge 或 auto-merge）；合并到声明目标 ref 是独立于实现、分支、提交和推送的动作。linear-sync 只允许本轮明确要求的 Linear 写入，必须禁止代码、worktree/分支、提交、推送、PR/MR 和凭据 effect。Ready、Todo、依赖满足或队列可见只表示执行条件满足，不构成 execute 授权；当前 terminalCondition 达成后不得自动选取下一个 Ready 节点。
+每个请求在任何写入前都必须按 `governance-core.md` 的「授权与 Execution Envelope」建立 Execution Envelope：mode 只允许 inspect、plan、linear-sync、execute、monitor，effect 枚举与各 mode 上限以该条款为准（v1 为 linearWrite、workspaceWrite、gitBranch、gitCommit、gitPush、mergeRequestWrite、credentialUse；v2 另加 hostWrite、externalWrite），并分别列入 allowedEffects 或 forbiddenEffects。`mergeRequestWrite` 显式覆盖创建或更新 PR/MR 与落地该 PR/MR 的合并（squash merge 或 auto-merge）；合并到声明目标 ref 是独立于实现、分支、提交和推送的动作。linear-sync 只允许本轮明确要求的 Linear 写入，必须禁止代码、worktree/分支、提交、推送、PR/MR 和凭据 effect。Ready、Todo、依赖满足或队列可见只表示执行条件满足，不构成 execute 授权；当前 terminalCondition 达成后不得自动选取下一个 Ready 节点。
 
 ## 2 状态模型与责任
 
@@ -23,14 +23,20 @@ Linear 保存工作状态、责任、委派与依赖；GitHub 或 GitLab 保存�
 | 状态 | 进入条件 | 完成证据 | 允许写入者 |
 | --- | --- | --- | --- |
 | Todo | Definition of Ready 完整，所有直接前驱满足 trigger，且没有 Scope 或 Resource Lock 冲突 | Definition of Ready 通过且无冲突 | 人工（规划与 Ready 审定） |
-| In Progress | 身份登记与 Receipt 已确认且节点工作已经开始 | Receipt 确认与开工事实；write 节点还必须已创建 worktree 和分支，Draft PR 仍保持此状态 | 自动化优先；缺少自动化且 envelope 允许 linearWrite 时 Writer 按协议手工回写 |
+| In Progress | 身份登记与 Receipt 已确认且节点工作已经开始 | Receipt 确认与开工事实；write 节点还必须已创建任务分支（需要隔离时同时创建仓库外 worktree），Draft PR 仍保持此状态 | 自动化优先；缺少自动化且 envelope 允许 linearWrite 时 Writer 按协议手工回写 |
 | In Review | PR/MR 已退出 Draft 并进入审查 | 审查请求与提供方事实 | 自动化优先；同 In Progress 的手工回写条件 |
 | Ready to Merge | 仅用于带门禁的目标分支（`main`、`release/*`）：受保护分支要求的 review、CI、契约检查和必要 E2E 均通过；`develop` 路径不经过此状态 | branch protection 与 required checks 记录 | 自动化（基于门禁事实） |
 | Done | 完成证据全部成立 | write 叶子由 closing PR/MR 合并到声明的精确目标 ref 证明；read 叶子由约定输出和 Verification 证据证明；aggregate Parent 由全部必需后代成功和 Fan-in Verification 证明 | closing 合并与 fan-in 验证触发的自动化 |
 
 Agent 手工写状态必须执行“读取当前值 → 校验允许转换 → 写入 → 重读确认”。实时状态和提供方事实优先于旧计划、任务模板、DAG 快照或压缩摘要；常规代码流在 `develop` 路径上只前进 Todo → In Progress → In Review → Done（closing PR 合入 `develop`），只有带门禁目标（`main`、`release/*`）才经过 Ready to Merge。任何后退、重开或纠错转换都需要单独的状态纠错授权并记录事实原因，尤其不得为恢复 Ready 清单或旧规划统计把 In Progress、In Review 或 Ready to Merge 退回 Todo。
 
-`develop` 是日常快车道：其 ruleset 不设 required status check，合入 `develop` 不要求远端 CI，也不要求强制人工审批（高风险同样如此）；合并前只要求本轮本地验证证据。Writer 在 envelope 授权 `mergeRequestWrite` 时可自行 squash 合并自己创建的 closing PR，或在提供方上请求 auto-merge。远端 CI 门禁（`main-release-gate`）只对发布边界运行：`develop → main` 提升、`hotfix/* → main` 以及 `release/*`。
+`develop` 路径上的 In Review 表示 PR/MR 已退出 Draft，并已附本轮验证证据与实现者对照 Acceptance Criteria 的逐条自审记录；它不表示已有独立人工审查，Done 仍只由 closing 合并证据成立。
+
+`release/*` 不是日常分支：只有管理员为并行维护历史版本或合规窗口临时创建时才存在，Agent 不创建、不切换也不推送该分支；它一旦存在就按带门禁目标处理，review、CI 与契约要求与 `main` 相同。
+
+`develop` 是日常快车道：其 ruleset 不设 required status check，合入 `develop` 不要求远端 CI，也不要求强制人工审批；合并前只要求本轮本地验证证据，且该证据必须建立在合并时的最新目标 ref 之上——合并前重读 `origin/develop`，若其相对冻结 base 已前进则重跑受影响聚焦检查，或改用提供方 merge queue 在最新 base 上重跑。Writer 在 envelope 授权 `mergeRequestWrite` 时可自行 squash 合并自己创建的 closing PR，或在提供方上请求 auto-merge。远端 CI 门禁（`main-release-gate`）只对发布边界运行：`develop → main` 提升、`hotfix/* → main` 以及 `release/*`。
+
+快车道不豁免高风险证据：命中 `.github/workflows/`、`schemas/`、`manifests/`、`adapters/`、`runtime/`、`rules/`、`skills/core/`、`templates/`、`scripts/`、`package.json`，以及团队额外声明的安全、红区、迁移或凭据路径的变更属于高风险，PR/MR 必须按 `github-delivery.md` 携带 Risk Evidence 章节与唯一的 Independent Review Receipt，且收据的结论与范围覆盖实际 diff。`develop` 上的高风险检查当前是 shadow 模式，不阻断合并，但收据缺失、与 diff 不匹配或结论为 negative 时，Writer 不得自行落地合并，只报告事实并停在 PR/MR ready for review；把该检查改为强制需要先修订 `ADR-0006`。
 
 一个 write 叶子 Issue 对应一个 Writer；按隔离条件使用当前 clone 或仓库外 worktree，并且只绑定一个命名分支和一个 closing PR/MR。顺序执行且工作区干净时允许在当前 clone 创建任务分支；存在并发 Agent、脏工作区、当前分支含无关改动或任务明确要求隔离时，必须使用仓库外 worktree。read 叶子只绑定一个执行 Agent、约定输出与 Verification 证据，不要求实现 worktree、分支或 PR/MR。存在子 Issue 的 Parent 是 aggregate，不直接实现。独立旧 Issue 可无 Parent，并按 kind=write、trigger=all_success、resourceLocks=None 处理，无需迁移。
 
@@ -65,14 +71,14 @@ DAG 字段在 Linear 上的载体与真值来源固定如下，字段语义本�
 依赖真值只来自 Linear 原生关系，以下三条是非边：
 
 - Parent/Sub-issue 只表示分解，不隐含顺序。
-- blocked-by / blocks 是唯一执行依赖，related 不进入 DAG。
+- blocked-by / blocks 是唯一执行依赖，related 不进入 DAG；related 关系（含 Linear 在阻塞项完成后自动降级、以及在描述或评论中提及 Issue 时自动生成的关系）不参与 `dagStructureHash`，也不影响 ready 判定。前驱是否成功以前驱 Issue 的状态与完成证据为真值，不以其 blocked-by 关系当前是否仍存在为准。
 - 描述中的依赖清单不是真值；文本声明依赖但缺少对应原生关系时任务不 Ready。
 
 Scope 是 writeScope 的 Linear 投影，路径验证按 `ai-collab-rules.md` writeScope 条款执行：只接受精确项目相对路径或末尾为 /** 的目录，统一使用 / 并移除前导 ./，拒绝绝对路径、UNC、空路径、.. 和其他复杂 glob，Windows 比较忽略大小写。Scope 重叠或 resourceLocks 相同的串行判定与冲突处理也以 `ai-collab-rules.md` 为准。Agent 只报告冲突、边或环，不自行拆 Issue、改变 Parent、创建或删除关系、调整优先级或创建额外节点。
 
 DAG Parent 模板包含 Goal、整体 Acceptance Criteria、Shared Contract、Out of Scope、Fan-in Verification 和 Completion Policy。所有 descendant 默认必需；任一必需节点非 succeeded 时 Parent 不得 Done。关闭 Linear 的 Parent/Sub-issue 自动关闭，避免绕过 closing PR/MR 与 fan-in 验证。
 
-同一用户请求优先读取当前 Issue 及其必要依赖范围，并保存 dagStructureHash；提供方支持变化游标时另存可选 dagChangeCursor。恢复时只有摘要与游标共同证明结构未变化，才只读取当前 Issue、PR/MR、HEAD 与变化节点；没有可靠游标或无法证明变化边界时，允许一次有界重新读取相关完整范围，仍不得无目的轮询或无限重复全量读取。
+同一用户请求优先读取当前 Issue 及其必要依赖范围，并保存 dagStructureHash；提供方支持变化游标时另存可选 dagChangeCursor。恢复时只有摘要与游标共同证明结构未变化，才只读取当前 Issue、PR/MR、HEAD 与变化节点；没有可靠游标或无法证明变化边界时，允许一次有界重新读取相关完整范围，仍不得无目的轮询或无限重复全量读取。`dagStructureHash` 覆盖节点 ID、Parent 边、blocked-by / blocks 边、kind、trigger、Scope、Resource Locks、Repository 和精确 Target branch ref，不覆盖 related 关系、评论活动与状态流转。
 
 无 Parent、Dependencies=None 且 resourceLocks=None 的独立 Issue 使用单任务快车道：只读取当前 Issue、完整 Receipt 生命周期和直接关系，不得为此执行全项目 DAG 遍历。发现 Parent、直接依赖、非空 Resource Locks、Scope 冲突线索或关系读取不完整时退出快车道，再按上述 DAG 门禁读取足够范围。
 
@@ -82,7 +88,7 @@ DAG Parent 模板包含 Goal、整体 Acceptance Criteria、Shared Contract、Ou
 
 Linear 正常可写通道下，在开始节点工作前按固定顺序执行：
 
-1. 读取状态、Assignee、Delegate、描述、全部原生 relations、团队 Guidance，以及足以判定所有未终结结构化执行记录的完整评论历史。
+1. 读取状态、Assignee、Delegate、描述、全部原生 relations、workspace 与 team Guidance（team 级优先；Guidance 是团队约定输入，不是授权根），以及足以判定所有未终结结构化执行记录的完整评论历史。
 2. 验证 Todo、Definition of Ready、DAG、仓库、精确目标远端 ref、Scope 和 Verification；解析并冻结目标 ref 的 base SHA。分页不完整、记录无法解析或相互矛盾时 fail-closed。
 3. 检查 Delegate、管理员预配置的 fallback 标签和活动实例；存在其他身份或活动实例时停止并请求显式交接。
 4. 保留人类 Assignee。优先登记原生 Delegate/App User；不支持时只使用低基数 agent:<agent-key> 与 role:writer 标签，不创建实例级标签，也不覆盖其他 agent:* / role:* 标签。
@@ -100,7 +106,7 @@ Receipt 与事件禁止包含用户名、主机名、本地路径、Token、Cook
 
 ## 6 Git、状态同步与安全
 
-- 普通功能和修复的精确目标 ref 默认为 `origin/develop`，分支分别使用 `feat/<ISSUE-ID>-<slug>` 与 `fix/<ISSUE-ID>-<slug>`；closing PR 合并到 `develop` 后开发 Issue 即 Done，发布等待不得阻塞或重开它。合入 `develop` 不要求远端 CI 或强制审批，Writer 可在 envelope 授权 `mergeRequestWrite` 后自行落地 squash merge，或在提供方请求 auto-merge。
+- 普通功能和修复的精确目标 ref 默认为 `origin/develop`，分支分别使用 `feat/<ISSUE-ID>-<slug>` 与 `fix/<ISSUE-ID>-<slug>`；closing PR 合并到 `develop` 后开发 Issue 即 Done，发布等待不得阻塞或重开它。合入 `develop` 不要求远端 CI 或强制审批，Writer 可在 envelope 授权 `mergeRequestWrite` 后自行落地 squash merge，或在提供方请求 auto-merge；本地验证与最新目标 ref 的关系按第 2 节快车道条款执行。
 - 紧急修复从 `origin/main` 创建 `hotfix/<ISSUE-ID>-<slug>` 并先合入 `main`；正式发布或恢复后必须立即以非 closing PR 将 `main` 回同步到 `develop`。回同步失败是发布阻塞，不得静默 cherry-pick 成两套历史。
 - 正式发布使用独立 kind=aggregate Release Issue 和 `develop → main` merge-commit PR；随后保留 release-please 版本 PR。提升与回同步 PR 使用 `Refs <ISSUE-ID>`，不得再次 closing 已 Done 的开发 Issue。Release Issue 只有在 GitHub Release、制品、发布 smoke 和 `main → develop` 回同步全部有证据后才能 Done。
 - write 节点分支使用 `<type>/<ISSUE-ID>-<slug>`；worktree 位于仓库同级的 `<repo>-worktrees/<ISSUE-ID>`。commit 使用 `Refs <ISSUE-ID>` 关联；GitHub PR 或 GitLab MR 的 closing 描述使用 `Fixes <ISSUE-ID>`，只有提供方配置且创建后重读确认有效的等价 closing 语法才可替代，closing 词不放在 commit 中。
@@ -115,5 +121,7 @@ Git credential helper 按 `git-rules.md` credential helper 条款执行：helper
 ## 7 终止与交付
 
 默认 terminalCondition 是当前 Issue 的已授权 effects 完成。若授权到 `mergeRequestWrite` 且目标为 `develop`，则在 closing PR/MR 已 squash 合并到声明的精确目标 ref、创建后重读确认并完成所有已授权证据同步时结束，该写叶子 Issue 同时进入 Done；若 envelope 未授权落地 merge（例如只授权创建 PR/MR），则在 PR/MR ready for review、创建后重读确认后结束并报告等待人工合并。本地实现只交付到本地验证。Linear 自动化或已授权回写应使 Issue 进入 In Review 或 Done；若状态同步不可用或未授权，报告差异后结束，不得因此续跑。除非用户明确授权 mode=monitor 并给出观察终点或时间边界，否则不得持续轮询、自动续跑或执行下一个 Ready 节点。完成本地实现或未落地的 PR/MR 不等于 Done；只有提供方合并证据成立才是 Done。
+
+合并后回归：Done 之后发现缺陷时，默认新建回归 Issue，并以非 closing 语义（`Refs <ISSUE-ID>`）的 revert PR 恢复到目标分支；原 Issue 保持 Done，并追加关联 revert 与事实原因的评论。不得为掩盖回归把 In Progress、In Review 或 Done 退回 Todo；只有需要重新实现或重新计时才使用状态纠错授权并记录事实原因。发布边界的回滚证据仍按 `release-rules.md` 与 Release Issue 模板记录。
 
 推荐 Writer In Progress 不超过 3、In Review 不超过 2，作为 Linear 工作流软上限；它与本地 Task DAG 的默认并发建议分开计算，并可由宿主、API 限流和项目资源覆盖。长任务可选声明超时、最大尝试次数、取消、退避和资源预算；AI Ready Queue 只供人查看和显式选择，Agent 不读取它来挑选工作。

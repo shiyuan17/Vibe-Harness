@@ -6,7 +6,7 @@
 
 为每个参与团队配置固定状态：Triage、Backlog、Todo、In Progress、In Review、Ready to Merge、Done。不要创建 Blocked 状态；使用 blocked-by / blocks 关系。
 
-默认分支流为 <code>feat/*、fix/* → develop → main</code>，hotfix 为 <code>hotfix/* → main → develop</code>。GitHub 默认分支设为 <code>develop</code>，release-please 明确固定 <code>target-branch: main</code>；普通开发 Issue 合入 <code>develop</code> 后即 Done，发布等待由独立 Release Issue 跟踪。合入 <code>develop</code> 不要求远端 CI 或强制审批，CI 只在发布边界（<code>develop → main</code>、<code>hotfix/* → main</code>、<code>release/*</code>）运行。
+默认分支流为 <code>feat/*、fix/* → develop → main</code>，hotfix 为 <code>hotfix/* → main → develop</code>。GitHub 默认分支设为 <code>develop</code>，release-please 明确固定 <code>target-branch: main</code>；普通开发 Issue 合入 <code>develop</code> 后即 Done，发布等待由独立 Release Issue 跟踪。合入 <code>develop</code> 不要求远端 CI 或强制审批，CI 只在发布边界（<code>develop → main</code>、<code>hotfix/* → main</code>、<code>release/*</code>）运行；合并前的本地验证必须建立在最新 <code>origin/develop</code> 之上。<code>release/*</code> 不是日常分支，只在管理员为并行维护历史版本时临时创建，出现时按与 <code>main</code> 相同的门禁处理。
 
 关闭 Linear 的 Parent/Sub-issue 自动关闭。write 子任务仍须由 closing PR/MR 合并证明完成，aggregate Parent 仍须通过 Fan-in Verification；任何子任务状态变化都不得绕过这些条件。
 
@@ -25,6 +25,7 @@ Triage 是团队收件箱，进入的 Issue 默认不进入常规视图，必须
 
 ## 指引（Guidance）
 
+- Guidance 分 workspace 级与 team 级，team 级优先级更高；两层都只是团队约定输入，不构成 Agent 授权。
 - Linear 保存工作状态、责任和原生依赖；GitHub 或 GitLab 保存代码、PR/MR、检查与合并状态。
 - 人类 Assignee 保持结果责任；Delegate/App User 表示 Agent 产品身份；Execution Receipt 表示具体运行实例；Activity Feed 保存委派历史。
 - Todo 必须通过 AI Coding Task 的 Definition of Ready。
@@ -70,7 +71,7 @@ GitHub/GitLab automation 只推进代码状态，不创建或终结 Execution Re
 
 ## GitHub 分支与发布设置
 
-- <code>develop</code>：只接受短期任务分支，普通 PR 使用 squash merge；不要求远端 CI 或强制审批，持有 Issue 登记的 Writer 可在授权后自行 squash 合并，或由作者启用 auto-merge（所有风险等级）。
+- <code>develop</code>：只接受短期任务分支，普通 PR 使用 squash merge；不要求远端 CI 或强制审批，持有 Issue 登记的 Writer 可在授权后自行 squash 合并，或由作者启用 auto-merge（所有风险等级）。合并前的本地验证必须建立在合并时的最新 <code>origin/develop</code> 之上；高风险变更仍须携带 Independent Review Receipt 与 Risk Evidence，收据缺失、与 diff 不匹配或结论为 negative 时不得自行落地合并。
 - <code>main</code>：只接受同仓库的 <code>develop</code>、<code>hotfix/*</code> 和 <code>release-please--branches--main*</code>；运行完整发布门禁。
 - <code>develop → main</code> 与 <code>main → develop</code> 使用 merge commit，保留任务提交和版本回同步历史。
 - GitHub Release 成功后创建 <code>main → develop</code> 回同步 PR；检查通过后 auto-merge。失败时 Release Issue 保持未完成并报告分支漂移。

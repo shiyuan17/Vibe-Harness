@@ -8,7 +8,8 @@
 
 - 只允许 Pull Request；<b>不设置 required status check</b>（合入 <code>develop</code> 不运行 CI）。
 - 普通 <code>feat/*</code> 与 <code>fix/*</code> 使用 squash merge；合并后删除任务分支。
-- 所有风险等级的 PR 都不强制人工审批、不要求远端 CI；持有 Issue 登记的 Writer 可在 Execution Envelope 授权 <code>mergeRequestWrite</code> 后自行 squash 合并，或由作者启用 auto-merge。合入 <code>develop</code> 视为完成，唯一前置是本地验证通过。
+- 所有风险等级的 PR 都不强制人工审批、不要求远端 CI；持有 Issue 登记的 Writer 可在 Execution Envelope 授权 <code>mergeRequestWrite</code> 后自行 squash 合并，或由作者启用 auto-merge。合入 <code>develop</code> 视为完成，唯一前置是本地验证通过，且该验证建立在合并时的最新 <code>origin/develop</code> 之上：目标 ref 已前进时重跑受影响检查，或交由 merge queue 在最新 base 上重跑。
+- 高风险 PR（命中 <code>schemas/</code>、<code>manifests/</code>、<code>adapters/</code>、<code>runtime/</code>、<code>rules/</code>、<code>skills/core/</code>、<code>templates/</code>、<code>scripts/</code>、<code>.github/workflows/</code> 或 <code>package.json</code>）仍必须携带 Risk Evidence 章节与唯一的 Independent Review Receipt；<code>independent-review</code> 当前为 shadow 模式，不阻断合并，但收据缺失、与 diff 不匹配或结论为 negative 时不得自行落地合并。
 - 任务分支目标存活不超过约两个工作日；更大工作使用拆分或 feature flag，而非长期共享 feature 分支。
 
 ## Main ruleset

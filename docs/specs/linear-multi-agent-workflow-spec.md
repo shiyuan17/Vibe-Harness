@@ -8,7 +8,7 @@
 
 Vibe-Harness 通过显式 integration plugin 提供 Linear 工作流规则、操作 Skill、团队模板和项目级 Remote MCP 配置。Linear 是工作状态、责任和原生依赖真值，GitHub 或 GitLab 是代码、PR/MR、检查和合并真值。
 
-默认交付分支模型是轻量 GitFlow：<code>feat/*、fix/* → develop → main</code>，hotfix 使用 <code>hotfix/* → main → develop</code>。开发 Issue 在 closing PR 合入 <code>develop</code> 后 Done；正式发布由独立 aggregate Release Issue、<code>develop → main</code> 提升 PR、release-please 版本 PR 和 <code>main → develop</code> 回同步共同证明。CI 只在发布边界运行（<code>develop → main</code>、<code>hotfix/* → main</code> 和 <code>release/*</code>）；合入 <code>develop</code> 不要求远端 CI 或强制人工审批，Writer 可在授权后自行落地 squash merge。
+默认交付分支模型是轻量 GitFlow：<code>feat/*、fix/* → develop → main</code>，hotfix 使用 <code>hotfix/* → main → develop</code>。开发 Issue 在 closing PR 合入 <code>develop</code> 后 Done；正式发布由独立 aggregate Release Issue、<code>develop → main</code> 提升 PR、release-please 版本 PR 和 <code>main → develop</code> 回同步共同证明。CI 只在发布边界运行（<code>develop → main</code>、<code>hotfix/* → main</code> 和 <code>release/*</code>）；合入 <code>develop</code> 不要求远端 CI 或强制人工审批，Writer 可在授权后自行落地 squash merge。合并前的本地验证必须建立在合并时的最新 <code>origin/develop</code> 之上，base 前进后重跑受影响检查或交由 merge queue 重跑；高风险变更即使在 shadow 模式下也必须携带 Independent Review Receipt，收据缺失、与 diff 不匹配或结论为 negative 时不得自行落地合并。<code>release/*</code> 不是日常分支，仅由管理员为并行维护版本临时创建，出现时按带门禁目标处理。
 
 本规格定义显式执行登记、具体运行实例审计和原生 DAG 完成语义，同时长期保留禁止自动领取。交付范围是规则、Skill、模板、安装投影、ADR、测试和 Eval，不包含常驻运行服务。
 

@@ -13,7 +13,7 @@ description: Use when executing, reviewing, verifying, refining, or synchronizin
 - 禁止自动领取，也就是不自动从队列领单：不扫描或轮询 Ready Queue，不创建 Webhook 调度器、Linear Loop、leader lease、自动超时回收或自动重派。
 - 未指定 Issue 时不得选择、认领或更新任务，也不得主动列出或搜索 Ready Queue。
 - 高风险执行只接受 v2 Execution Envelope，v1 仅作 contract-only/degraded 兼容；mode 与 effect 枚举按规则第 1 节。调用写工具前建立当前请求的 Execution Envelope。无原生 Goal bridge 时不声称后台持续执行，不阻止用户继续请求或宿主显式续跑恢复原范围工作。
-- 分支约定：`feat/*、fix/* → develop → main`；紧急修复 `hotfix/* → main → develop`。`develop` 是日常集成分支，`main` 是正式发布分支，不创建长期 `release/*` 分支；closing PR 合并后开发 Issue 立即 Done。合入 `develop` 不要求远端 CI 或强制审批；远端 CI 只在发布边界（`develop → main`、`hotfix/* → main`、`release/*`）运行。
+- 分支约定：`feat/*、fix/* → develop → main`；紧急修复 `hotfix/* → main → develop`。`develop` 是日常集成分支，`main` 是正式发布分支，不创建长期 `release/*` 分支，`release/*` 只在管理员为并行维护版本临时创建时存在并按其门禁处理；closing PR 合并后开发 Issue 立即 Done。合入 `develop` 不要求远端 CI 或强制审批；远端 CI 只在发布边界（`develop → main`、`hotfix/* → main`、`release/*`）运行。合并前的本地验证必须建立在最新 `origin/develop` 之上，高风险变更仍须携带 Independent Review Receipt。
 
 ## 1. 判断执行授权与角色
 
@@ -21,13 +21,13 @@ description: Use when executing, reviewing, verifying, refining, or synchronizin
 
 ## 2. 读取 Linear 真值
 
-使用可用的 Linear connector 读取当前 Issue 的状态、Assignee、Delegate、描述、Project、Cycle、labels、全部原生 relations、团队 Guidance，以及足以判定所有 Execution Receipt 生命周期的完整结构化评论历史。DAG 节点还要读取 DAG Root 和判定直接或传递依赖、Scope、Resource Locks、trigger 与 fan-in 所需的节点。
+使用可用的 Linear connector 读取当前 Issue 的状态、Assignee、Delegate、描述、Project、Cycle、labels、全部原生 relations、workspace 与 team Guidance（team 级优先，且指导不是授权根），以及足以判定所有 Execution Receipt 生命周期的完整结构化评论历史。DAG 节点还要读取 DAG Root 和判定直接或传递依赖、Scope、Resource Locks、trigger 与 fan-in 所需的节点。
 
 无 Parent、Dependencies=None 且 resourceLocks=None 的独立 Issue 使用单任务快车道：只读取当前 Issue、完整 Receipt 生命周期和直接关系，不得执行全项目 DAG 遍历。若发现 Parent、直接依赖、非空 Resource Locks、Scope 冲突线索或关系不完整，退出快车道并按 DAG 门禁补读足够范围。
 
 分页不完整、关系不可见、Receipt 无法解析或记录互相矛盾时 fail-closed。不得推断不存在的字段、关系、权限或评论。不要读取无关团队或扩大搜索范围。Triage Issue 只读解释，不自动 accept、duplicate、decline 或 snooze。
 
-同一用户请求保存 dagStructureHash，覆盖节点 ID、Parent/依赖边、kind、trigger、Scope、Resource Locks、Repository 和 Target branch；提供方支持时另存 dagChangeCursor。只有摘要与可靠游标共同证明结构未变，恢复才采用当前 Issue、PR/MR、HEAD 和变化节点的增量读取；旧哈希本身不是未变证据。无可靠游标时允许一次有界重读相关完整范围，仍不完整则暂停受影响执行。
+同一用户请求保存 dagStructureHash，覆盖范围以规则第 4 节为准（结构字段，不含 related 关系、评论活动与状态流转）；提供方支持时另存 dagChangeCursor。只有摘要与可靠游标共同证明结构未变，恢复才采用当前 Issue、PR/MR、HEAD 和变化节点的增量读取；旧哈希本身不是未变证据。无可靠游标时允许一次有界重读相关完整范围，仍不完整则暂停受影响执行。
 
 ## 3. 执行 Ready 与 DAG 门禁
 
@@ -55,7 +55,7 @@ Linear 只读、MCP 不可用或写入验证失败时，不得声称已登记、
 
 正常登记确认后，write 叶子 Issue 使用一个 Writer、一个命名分支和一个 closing PR/MR。顺序执行且工作区干净时允许使用当前 clone；并发 Agent、脏工作区、存在无关改动或明确需要隔离时，必须创建仓库外 worktree。分支使用 <type>/<ISSUE-ID>-<slug>，worktree 使用同级 <repo>-worktrees/<ISSUE-ID>。commit 使用 `Refs <ISSUE-ID>`；GitHub PR 或 GitLab MR 描述使用 `Fixes <ISSUE-ID>`，只有提供方配置且创建后重读确认的等价 closing 语法才可替代。read 节点只产出约定输出和 Verification 证据；aggregate Parent 不创建实现 worktree。
 
-普通 `feat/*`、`fix/*` 以 `origin/develop` 为目标；合入 `develop` 不要求远端 CI 或强制审批，Writer 在 envelope 授权 `mergeRequestWrite` 后可自行 squash 合并（或在提供方请求 auto-merge），closing PR 合并后开发 Issue 立即 Done。`hotfix/*` 从 `origin/main` 创建并先合入 `main`（此处运行发布门禁），随后用非 closing PR 回同步 `develop`。Release 流程与 credential helper 边界按规则第 6 节执行。
+普通 `feat/*`、`fix/*` 以 `origin/develop` 为目标；合入 `develop` 不要求远端 CI 或强制审批，Writer 在 envelope 授权 `mergeRequestWrite` 后可自行 squash 合并（或在提供方请求 auto-merge），closing PR 合并后开发 Issue 立即 Done。合并前必须确认本轮验证建立在最新 `origin/develop` 之上，base 已前进时重跑受影响检查；高风险变更缺少 Independent Review Receipt 或收据结论为 negative 时不得自行落地合并。`hotfix/*` 从 `origin/main` 创建并先合入 `main`（此处运行发布门禁），随后用非 closing PR 回同步 `develop`。Release 流程与 credential helper 边界按规则第 6 节执行。
 
 创建 PR/MR 前重新读取目标 ref 与 source HEAD，确认提供方 target 等于声明 ref；计算 merge-base，并确认它等于冻结 base SHA，或是该 SHA 在同一目标 ref 历史上的已验证后代。不一致时阻断创建。创建后重读标题、source、target、描述、Issue 链接和 closing 语义。
 
