@@ -4,7 +4,7 @@
 
 ## 何时需要 ADR
 
-以下变化必须创建 ADR：项目或系统结构、公共契约、安全或可靠性要求、关键依赖、迁移或回滚策略，以及跨模块边界。小型 Bug 修复、局部重命名和短期实验不要求创建 ADR。
+判据是影响持续时间、消费方范围、迁移成本和回滚难度：只有长期有效、高影响且难以逆转的决策才建 ADR，覆盖项目或系统结构、公共契约、安全或可靠性要求、关键依赖、迁移或回滚策略。小型 Bug 修复、局部重命名、可逆实现选择和短期实验不要求创建 ADR，跨模块边界本身也不构成触发条件；跨边界变更的 owner、接口与回滚要求见 docs/rules/project-directory.md。触发清单以本节为唯一来源，规则文件不重复维护阈值。
 
 ## 生命周期
 
@@ -12,4 +12,4 @@
 
 每条记录必须注明责任人、决策者、被咨询者和被告知者，并包含决策驱动因素、备选方案、决策结果、后果、确认方式以及非空的复核触发条件。日期统一使用 YYYY-MM-DD。
 
-机器可读索引为 catalog.json。治理记忆文件 ../memory/DECISIONS.md 只保存摘要索引。运行态恢复记忆 ../../memory/decisions.md 不属于正式 ADR 来源。
+机器可读索引为 catalog.json。治理记忆文件 ../memory/DECISIONS.md 只保存摘要索引。本地恢复记忆 decisions.md（默认 .agents/memory/decisions.md，路径由 vibe-harness.config.json 的 memory.path 配置）不属于正式 ADR 来源。
