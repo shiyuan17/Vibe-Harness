@@ -78,3 +78,20 @@ test('the installed surface carries the index only when docs/rules is installed'
   const withoutRules = createInstalledSurface({ profile: 'core', ruleIndex, targets: ['AGENTS.md'] });
   assert.equal(withoutRules.rulesLine, '');
 });
+
+test('the installed surface lists only the rules the plan installs', () => {
+  const ruleIndex = [
+    { id: 'governance-core', source: 'docs/rules/governance-core.md', title: 'Vibe-Harness 执行内核' },
+    { id: 'git-rules', source: 'docs/rules/git-rules.md', title: 'Git 规则' },
+    { id: 'codebase-memory-mcp', source: 'docs/rules/codebase-memory-mcp.md', title: 'codebase-memory-mcp' },
+  ];
+  const installed = createInstalledSurface({
+    profile: 'minimal',
+    ruleIndex,
+    targets: ['docs/rules/governance-core.md', 'docs/rules/git-rules.md'],
+  });
+  assert.equal(installed.rulesLine, '- 规则位于 `docs/rules/`。命中索引：governance-core（Vibe-Harness 执行内核）、git-rules（Git 规则）。');
+  // A rule the selected profile, module or plugin did not install must not be
+  // advertised: the host would route to a file that is not in the project.
+  assert.equal(installed.rulesLine.includes('codebase-memory-mcp'), false);
+});

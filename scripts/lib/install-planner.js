@@ -46,7 +46,7 @@ import { hasPluginCapability } from './plugin-provider-catalog.js';
 import { assertAdapterProfile, hookConfigTargets, loadAdapterCatalog, resolveAdapter, resolveAdapterEntry, skillRootMatcher, skillRootPrefixes } from './adapter.js';
 import { beginFileTransaction, createTransactionId } from './file-transaction.js';
 import { resolveRoleInstallEntries } from './role-projection.js';
-import { loadRuleIndex, renderRulesLine } from './rules-index.js';
+import { installedRuleIndex, loadRuleIndex, renderRulesLine } from './rules-index.js';
 import {
   hashManagedBlock,
   isManagedIgnore,
@@ -190,7 +190,7 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
       ? '- 当前安装方式：自定义能力模块安装。'
       : (profileLines[profile] ?? `- 当前 profile: \`${profile}\`。`),
     reviewLoopLine: '',
-    rulesLine: hasPrefix('docs/rules/') ? renderRulesLine(ruleIndex) : '',
+    rulesLine: hasPrefix('docs/rules/') ? renderRulesLine(installedRuleIndex(ruleIndex, installedTargets)) : '',
     skillRoutingLine: detectedSkillRoots.length > 0
       ? '宿主按 Skill description 选择当前所需能力，按需补充互补 Skill；不使用 Router 或流程 Skill 链。'
       : '当前 profile 未安装 Skills；仅按已安装规则和模板执行，不引用未安装的 skill。',
@@ -487,7 +487,15 @@ export async function createInstallPlan({
     profile,
     ruleIndex: ruleIndex ?? await loadRuleIndex(rootDir),
     skillRoots,
-    targets: actions.filter((action) => action.kind === 'write').map((action) => action.relativeTarget),
+    // The installed surface describes what the project has after the plan, not
+    // what this run happens to rewrite: a kept file can be classified as
+    // `write`, `user-modified` or `conflict` depending on `--force` and the
+    // file's current content, and retired targets leave the project entirely.
+    // Deriving the surface from the write set alone made the resident rule
+    // index change with unrelated local edits.
+    targets: actions
+      .filter((action) => action.discard !== true && !String(action.kind ?? '').startsWith('retire'))
+      .map((action) => action.relativeTarget),
   });
   const stateDirectory = path.basename(path.dirname(stateFilePath(path.resolve(targetDir))));
 

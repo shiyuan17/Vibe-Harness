@@ -10,6 +10,10 @@ function firstHeading(content) {
   return match ? match[1].trim() : null;
 }
 
+function normalizePath(value) {
+  return String(value ?? '').replaceAll('\\', '/');
+}
+
 /**
  * Builds the `docs/rules/` routing index from the rule manifest plus each
  * rule's first heading. The manifest is the single source of rule ids and
@@ -38,6 +42,27 @@ export async function loadRuleIndex(rootDir) {
     index.push({ id, source, title });
   }
   return index;
+}
+
+/**
+ * Keep only the rules the current plan actually installs.
+ *
+ * `loadRuleIndex` describes the pack's whole rule catalog, but the resident
+ * line is a routing index for one project: listing a rule that the selected
+ * profile, module or plugin did not install sends the host to a file that is
+ * not there, and it advertises capabilities the project does not have (for
+ * example the optional `codebase-memory-mcp`, `rtk`, `ast-grep` and
+ * `chrome-devtools-mcp` rules in a minimal install). The caller owns the
+ * installed target set; this helper only applies it, so the index and the rest
+ * of the installed surface are derived from the same plan.
+ *
+ * @param {Array<{ id: string, source: string, title: string }>} index rule catalog
+ * @param {string[]} installedTargets project-relative installed paths
+ * @returns {Array<{ id: string, source: string, title: string }>}
+ */
+export function installedRuleIndex(index = [], installedTargets = []) {
+  const installed = new Set((installedTargets ?? []).map(normalizePath));
+  return index.filter((item) => installed.has(normalizePath(item?.source)));
 }
 
 /**
