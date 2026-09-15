@@ -1,6 +1,6 @@
 # 项目审计
 
-vibe-harness audit --project PATH --kind memory|review|improvements|all 提供统一的项目级治理审计。默认只读；只有 improvements kind 可以使用 --write，并且唯一持久化目标是 docs/memory/IMPROVEMENTS.json。
+vibe-harness audit --project PATH --kind memory|review|improvements|cleanup|all 提供统一的项目级治理审计。默认只读；只有 improvements kind 可以使用 --write，并且唯一持久化目标是 docs/memory/IMPROVEMENTS.json。all 只汇总 memory、review 和 improvements；cleanup 需要显式指定，不包含在 all 内。
 
 ## Memory freshness
 
@@ -20,7 +20,14 @@ scripts/check-pull-request-approval.js 默认同为 shadow 模式，只记录是
 
 improvements kind 从 review findings 和垃圾回收观察中生成幂等候选。自动过程只能写入 proposed 或 eligible-for-owner-review，不会修改规则、自动接受候选或删除文件。可复现 Bug 和 Critical 安全 finding 一次即可进入 owner review；Hook、linter 和 Rule 需要两个独立 episode，Skill 需要三个。垃圾回收只报告至少九十天未变更且未被 manifest、catalog、测试或文档引用的治理资产。
 
+## Cleanup
+
+cleanup kind 对整个项目做只读陈旧资产扫描：失效引用、catalog 孤儿、install-state 与 eval 镜像漂移、代码索引过期、未被引用的文件与导出，以及超过一百八十天未验证的治理文档。审计器不删除、不重写任何文件；删除是 `stale-cleanup` Skill 中单独显式确认的步骤。确定性发现与启发式候选分级输出，候选保持 info 级别，必须经人工或 Agent 验证后才能进入清理。
+
+cleanup 刻意不纳入 `all`：它枚举整个项目并报告启发式候选，会淹没 all 聚焦产出的收据；需要垃圾回收观察时显式调用 `--kind cleanup`。
+
     pnpm vibe-harness audit --project ../some-project --kind memory
     pnpm vibe-harness audit --project ../some-project --kind review --receipt audit-reports/review.json
     pnpm vibe-harness audit --project ../some-project --kind improvements --receipt audit-reports/review.json
     pnpm vibe-harness audit --project ../some-project --kind improvements --receipt audit-reports/review.json --write
+    pnpm vibe-harness audit --project ../some-project --kind cleanup

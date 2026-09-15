@@ -1,6 +1,6 @@
 # 多角色路由规则
 
-角色人格与领域 Skill 正交：当前原子动作只激活一个角色人格，并按需加载 description 匹配的互补领域 Skill。角色改变决策视角，不改变授权、安全边界或证据要求；权限预设只作声明，生效程度由宿主映射决定，不能替代父 Agent 的 sandbox、用户授权和 Execution Envelope。
+角色人格与领域 Skill 正交：当前原子动作只激活一个角色人格，并可叠加至多一个互补领域 Skill；Skill 的选择与加载顺序以 agent-skill-routing.md 的判定顺序为单源，本文件不重复维护。角色改变决策视角，不改变授权、安全边界或证据要求；权限预设只作声明，生效程度由宿主映射决定，不能替代父 Agent 的 sandbox、用户授权和 Execution Envelope。
 
 ## 选择顺序
 

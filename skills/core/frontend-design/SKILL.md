@@ -1,6 +1,6 @@
 ---
 name: frontend-design
-description: Use for frontend visual direction, polish, responsiveness, or redesign-not logic-only work.
+description: Use for frontend visual direction, polish, responsiveness, or redesign—not logic-only work.
 ---
 
 # 设计并验证前端体验

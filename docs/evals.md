@@ -36,6 +36,12 @@ offline 模式验证 suite、oracle、聚合和 reference 一致性。online run
 
 `pnpm eval:check`、`pnpm eval:replay` 和在线 canary 都是显式命令，不属于 `pnpm check` 的默认快速路径。
 
+## 本仓库的评测现状
+
+本仓库自身处于已声明的接受状态：`vibe-harness.config.json` 的 `onlineRunner` 为 null，没有常驻本地 online runner；签入的 reference 只有 `evals/references/vibe-harness-core.offline.json` 一份，对应唯一的 offline run。本地与 PR 路径只产生 contract-replay 证明；未配置 runner 时直接运行 `pnpm eval:online` 只记录 degraded（runner 未配置），不产出 run，也不更新 reference。
+
+本仓库的在线行为证据只由每日定时 CI canary 生产（`.github/workflows/evals.yml`，env runtime source 加第三方 provider secrets）：执行 `pnpm eval:online` 与 nightly Harness Eval，再以 `pnpm eval:health` / `pnpm eval:compare` 执行健康度门禁与 7+7 天证据窗口对比；配置或安装缺失时写入 degraded 工件，不静默跳过。online run 不创建或更新 reference，reference 更新只来自上文 lifecycle 的显式 offline 流程。
+
 ## 多轮与 pass@k / pass^k 报告
 
 online run 对每个 case 按 `repetitions`（1..3）独立运行多轮，每轮在独立的一次性工作区与隔离 `CODEX_HOME`/`HOME` 中执行，避免试验间状态泄漏。run 输出新增 `trialSummaries`：每个 case 给出 `passAt1`（首轮是否通过）、`passAtK`（≥1 轮通过）、`passCaretK`（k 轮全过）、`passedTrials`、`meanScore` 与逐轮明细。

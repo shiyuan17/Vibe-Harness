@@ -38,9 +38,7 @@
 
 > Complete this table when two or more work units have ordering dependencies, parallel writes, or a shared contract. Vibe-Harness does not parse it or use it as a completion gate.
 
-> For a Linear projection, derive dependsOn only from native blocked-by / blocks relations; Parent/Sub-issue and related do not create execution edges. writeScope accepts exact project-relative paths or a directory range; conflicting scopes or resourceLocks require an existing dependency order. all_done is aggregate-only and cannot turn a failed Root into success.
-
-> DAG result uses pending / ready / running / unverified / succeeded / failed / blocked / skipped / cancelled; unverified and blocked are non-terminal. Linear Canceled, Duplicate, and Won't Fix are external terminal outcomes and map to non-succeeded. Revalidate the DAG, dependencies, scope, locks, HEAD, and workspace identity before dispatching a write node. Node handoff must report the result, changed files, base/head, verification command and exit code, risks, and blockers.
+> Field names and value domains follow the table below; field semantics are not restated here: the result enumeration and terminal states, writeScope and Resource Lock, pre-dispatch revalidation, node handoff evidence, and the Linear projection rules are owned by `ai-collab-rules.md`, and their Linear carriers and sources of truth by `linear-workflow.md`.
 
 | id | kind (read / write / aggregate) | output | dependsOn | trigger (all_success / all_done) | writeScope | resourceLocks | verification | result |
 |---|---|---|---|---|---|---|---|---|

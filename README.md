@@ -128,7 +128,7 @@ core 安装九个原生 Skills，full 安装十二个原生 Skills，并默认�
 | `full` | `core` 加三个原生 Skills、在线 Eval 和已支持宿主的安全 Hook，共十二个原生 Skills |
 | `docs-only` | 规则、模板和 schemas，不安装 runtime、Skills、MCP 或 Hook |
 
-外部工具和 memory 仍只通过 `--plugin` 显式启用。所有宿主配置文件均属于红区写入，需要 `--confirm-red-zone`。
+外部工具仍只通过 `--plugin` 显式启用。所有宿主配置文件均属于红区写入，需要 `--confirm-red-zone`。
 
 ```bash
 pnpm vibe-harness install --project ../some-project --target codex --profile full --dry-run

@@ -67,7 +67,7 @@
 ### 状态与交接解释
 
 - `pending` 是尚未派发，`ready` 是依赖与资源条件已满足，`running` 是已开始但尚未验证完成，`blocked` 是等待可恢复依赖或必要能力；这四种状态不是终态。`unverified` 是已有结论或产出但缺少完成证据、需要补证或改判，同样不是终态。`succeeded`、`failed`、`skipped`、`cancelled` 是终态；all_done 不得把仍 blocked 的节点视为已终结，也不得把仍 unverified 的节点视为已终结。无法继续时可以报告阻塞现状，但不能声称 all_done 已满足。
-Linear 状态到本地 `result` 的映射固定如下，只作本地解释，不新增或回写 Linear 字段：
+Linear 状态到本地 `result` 的映射固定如下，只作本地解释，不新增或回写 Linear 字段；这些字段在 Linear 上的载体与真值来源（原生关系、Delegate、Scope 投影与 fan-in 证据）按 `linear-workflow.md` 执行：
 
 | Linear 状态 | 本地 `result` | 判定依据 |
 | --- | --- | --- |

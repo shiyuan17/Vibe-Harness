@@ -1,6 +1,6 @@
 ---
 name: clarify-requirements
-description: Use for unresolved product choices or explicit requirements discovery-not discoverable facts, implementation details, approvals, or final goals.
+description: Use for unresolved product choices or explicit requirements discovery—not discoverable facts, implementation details, approvals, or final goals.
 ---
 
 # 澄清关键需求

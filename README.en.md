@@ -117,9 +117,9 @@ Common rules, runtime, memory, Evals, and the codebase-memory index have one sha
 
 A single Agent handles work by default. Explicit `open-code-review`, browser verification, Eval, and project test tools remain available. Task Markdown is an optional human-readable note and is not part of runtime decisions.
 
-## Profiles
+## Profiles and roles
 
-The core profile installs nine native Skills; full installs twelve.
+The core profile installs nine native Skills; full installs twelve and enables seven role personas by default. The role system uses single-primary-role dynamic switching: each atomic action activates exactly one role and may stack at most one domain Skill; it is not a fixed seven-stage pipeline.
 
 | Profile | Installed surface |
 | --- | --- |
@@ -128,7 +128,7 @@ The core profile installs nine native Skills; full installs twelve.
 | `full` | `core` plus three native Skills, online Eval, and supported platform safety Hooks, for twelve native Skills total |
 | `docs-only` | Rules, templates, and schemas without runtime, Skills, MCP, or Hooks |
 
-External tools and memory remain explicit `--plugin` choices. Every host configuration file is a red-zone write and requires `--confirm-red-zone`.
+External tools remain explicit `--plugin` choices. Every host configuration file is a red-zone write and requires `--confirm-red-zone`.
 
 ```bash
 pnpm vibe-harness install --project ../some-project --target codex --profile full --dry-run
@@ -219,7 +219,7 @@ Legacy `governance.mode`, `governance.workflow`, `hooks.completionGate`, and `va
 
 The Linear workflow is a separate external integration: linear-mcp uses the read-write endpoint and linear-mcp-readonly uses the read-only endpoint. They are mutually exclusive and neither is selected by plugin all. Codex, Cursor, Qoder, ZCode, Antigravity, and OpenCode receive project-scoped Remote MCP configuration. Claude and Gemini receive the same rules and Skill but report manual MCP setup as a degraded capability. The installer writes no token or OAuth credential; complete the host's native Linear authentication after configuration.
 
-Optional plugins are `rtk`, `ast-grep`, `codebase-memory-mcp`, `chrome-devtools-mcp`, `playwright-cli`, and `open-code-review`. Agentmemory runtime is suspended (upstream High vulnerabilities) and is not a `--plugin` choice; install the `memory` module via `--modules memory` when memory support is re-enabled.
+Optional plugins are `rtk`, `ast-grep`, `codebase-memory-mcp`, `chrome-devtools-mcp`, `playwright-cli`, and `open-code-review`. Agentmemory runtime is suspended (upstream High vulnerabilities) and is not a `--plugin` choice; install the `memory` module via `--modules memory` if you need memory capability.
 
 ```bash
 pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin -rtk --dry-run
