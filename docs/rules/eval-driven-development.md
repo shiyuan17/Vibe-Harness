@@ -25,7 +25,7 @@
 
 oracle 支持八类断言：七类确定性（event/output-fragment/artifact/exit-code）加 `llm-rubric`（LLM-as-judge 语义断言）。
 
-- `llm-rubric` 仅 online：judge 调用非确定，offline suite 禁止包含 `llmRubrics`；judge 不可用按 fail-closed 转 degraded。
+- `llm-rubric` 仅 online：judge 调用非确定，offline suite 禁止包含 `llmRubrics`；judge 不可用按 fail-closed 转 blocked（degraded）。
 - judge 默认与被测模型分离；复用被测模型自评时必须显式声明，并记为较弱的语义证据。
 - 语义断言进入 critical 门禁前须与人工标注的小样本对齐，对齐不成立时只能作报告信号；critical 语义结论应由确定性断言锚定，或用多次、多 judge 达成一致。
 - rubric 文本、judge 模型与阈值属于评分标准，按测量条件变化处理。
@@ -34,7 +34,7 @@ oracle 支持八类断言：七类确定性（event/output-fragment/artifact/exi
 
 online run 对每个 case 按 `repetitions` 独立运行多轮并输出 `trialSummaries`（`passAt1`/`passAtK`/`passCaretK`/脱敏逐轮诊断）；稳定性只评价 `repetitions > 1` 的 case 并报告覆盖率，当前不新增阈值门禁。`passAtK` 是至少一轮通过（能力上限），`passCaretK` 是全部轮次通过（可靠性下限）；重复次数少时后者不构成可靠性结论。offline 是确定性 replay，不输出多轮摘要。
 
-online runtime 只从 Codex 配置或环境变量提取 model/provider/base URL/reasoning/对应 auth 白名单；backend、CLI 版本和非敏感 runtime 参数必须进入 fingerprint。预算指 token、墙钟与成本的显式上限，随测量条件记录。runner、WSL、sandbox 或工具基础设施不可用时 fail-closed 为 degraded，不计为模型失败；同一 campaign 的 degraded attempt 必须保留，不能只报告成功样本。
+online runtime 只从 Codex 配置或环境变量提取 model/provider/base URL/reasoning/对应 auth 白名单；backend、CLI 版本和非敏感 runtime 参数必须进入 fingerprint。预算指 token、墙钟与成本的显式上限，随测量条件记录。runner、WSL、sandbox 或工具基础设施不可用时 fail-closed 为 blocked（degraded），不计为模型失败；同一 campaign 的受阻尝试（degraded attempt）必须保留，不能只报告成功样本。
 
 case 可声明 `flaky: true` 以保留抖动诊断信息，但 critical 失败仍计入 `criticalPassRate`，`status` 仍要求所有 case `passed`；抖动 case 必须隔离到非门禁观察集并限期修复或替换，隔离项仍进入报告。case 可声明 `kind`（`standard`/`variation`/`edge`/`adversarial`）：可选元数据标签，当前不加计数门禁。
 
