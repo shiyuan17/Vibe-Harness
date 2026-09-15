@@ -3,7 +3,14 @@ import path from 'node:path';
 import { readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
-import { loadEvalAssets, validateEvalAssets, validateEvalObserverCoverage, validateEvalSuiteSemantics } from './lib/eval-contract.js';
+import {
+  ASSET_DRIFT_PREFIX,
+  loadEvalAssets,
+  validateApprovedReferenceAssets,
+  validateEvalAssets,
+  validateEvalObserverCoverage,
+  validateEvalSuiteSemantics,
+} from './lib/eval-contract.js';
 import { validateClarificationCatalog } from './lib/clarification-metrics.js';
 import { evaluateGoalDefinition, validateGoalDefinitionCatalog } from './lib/goal-definition-metrics.js';
 import { loadAllManifests, readJson, validateJsonAgainstSchema } from './lib/manifest.js';
@@ -11,6 +18,10 @@ import { loadAllManifests, readJson, validateJsonAgainstSchema } from './lib/man
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const assets = await loadEvalAssets(rootDir);
 const errors = validateEvalAssets(assets);
+// The approved reference must still describe this checkout. Cross-checking run
+// against reference cannot see a rule, Skill, Hook or config change, because
+// both signed-in artifacts stay internally consistent while already stale.
+errors.push(...await validateApprovedReferenceAssets(rootDir));
 const manifests = await loadAllManifests(rootDir);
 const [clarificationCatalog, goalCatalog, goalRun] = await Promise.all([
   readJson(path.join(rootDir, 'evals/clarification-cases.json')),
@@ -36,7 +47,14 @@ const observers = await readJson(path.join(rootDir, 'runtime/evals/observers.jso
 errors.push(...validateEvalObserverCoverage(onlineSuites, observers));
 
 if (errors.length > 0) {
-  console.error(JSON.stringify({ errors, ok: false }, null, 2));
+  const drifted = errors.some((error) => error.startsWith(ASSET_DRIFT_PREFIX));
+  console.error(JSON.stringify({
+    errors,
+    nextAction: drifted
+      ? 'Confirm the drifted groups match this change, then regenerate the pair: pnpm vibe-harness eval run --project . --mode offline --write, pnpm vibe-harness eval reference --project . --from <run> --write --confirm-reference-update --force, pnpm eval:sync --write, pnpm eval:replay --write.'
+      : null,
+    ok: false,
+  }, null, 2));
   process.exit(1);
 }
 

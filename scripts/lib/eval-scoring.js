@@ -172,33 +172,49 @@ export function aggregateCaseScores(results) {
   };
 }
 
+/**
+ * Compare the asset fingerprint subtree only, using the canonical field names.
+ *
+ * The approved reference and the current checkout both carry
+ * `{ aggregateHash, groups }`, so reference-versus-checkout drift and
+ * run-versus-reference mismatch report the same field names instead of each
+ * deriving its own list.
+ *
+ * @param {{ aggregateHash?: string, groups?: Record<string, { fileCount?: number, hash?: string }> } | null} actual
+ * @param {{ aggregateHash?: string, groups?: Record<string, { fileCount?: number, hash?: string }> } | null} expected
+ */
+export function compareAssetFingerprints(actual, expected) {
+  const mismatches = [];
+  if (actual?.aggregateHash !== expected?.aggregateHash) {
+    mismatches.push({
+      field: 'assets.aggregateHash',
+      actual: actual?.aggregateHash ?? null,
+      expected: expected?.aggregateHash ?? null,
+    });
+  }
+  for (const group of ['config', 'hooks', 'rules', 'skills']) {
+    for (const property of ['fileCount', 'hash']) {
+      const actualValue = actual?.groups?.[group]?.[property];
+      const expectedValue = expected?.groups?.[group]?.[property];
+      if (actualValue !== expectedValue) {
+        mismatches.push({
+          field: ['assets', 'groups', group, property].join('.'),
+          actual: actualValue ?? null,
+          expected: expectedValue ?? null,
+        });
+      }
+    }
+  }
+  return { match: mismatches.length === 0, mismatches };
+}
+
 export function compareFingerprints(actual, expected) {
   const fields = ['suiteHash', 'runner', 'model', 'agent', 'configHash'];
   const mismatches = fields
     .filter((field) => actual?.[field] !== expected?.[field])
     .map((field) => ({ field, actual: actual?.[field] ?? null, expected: expected?.[field] ?? null }));
-  const groups = ['config', 'hooks', 'rules', 'skills'];
   if (actual?.assets || expected?.assets) {
-    if (actual?.assets?.aggregateHash !== expected?.assets?.aggregateHash) {
-      mismatches.push({
-        field: 'assets.aggregateHash',
-        actual: actual?.assets?.aggregateHash ?? null,
-        expected: expected?.assets?.aggregateHash ?? null,
-      });
-    }
-    for (const group of groups) {
-      for (const property of ['fileCount', 'hash']) {
-        const actualValue = actual?.assets?.groups?.[group]?.[property];
-        const expectedValue = expected?.assets?.groups?.[group]?.[property];
-        if (actualValue !== expectedValue) {
-          mismatches.push({
-            field: ['assets', 'groups', group, property].join('.'),
-            actual: actualValue ?? null,
-            expected: expectedValue ?? null,
-          });
-        }
-      }
-    }
+    mismatches.push(...compareAssetFingerprints(actual?.assets, expected?.assets).mismatches);
   }
   if (actual?.execution || expected?.execution) {
     const actualExecution = JSON.stringify(actual?.execution ?? null);

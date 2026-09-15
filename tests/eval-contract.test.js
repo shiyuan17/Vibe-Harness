@@ -9,6 +9,7 @@ import { promisify } from 'node:util';
 import { readJson, validateJsonAgainstSchema } from '../scripts/lib/manifest.js';
 import {
   loadEvalAssets,
+  validateApprovedReferenceAssets,
   validateEvalAssets,
   validateEvalObserverCoverage,
   validateEvalSuiteSemantics,
@@ -512,6 +513,35 @@ test('offline replay deterministically reproduces the checked-in run and matches
   assert.equal(replayed.status, 'passed');
   assert.equal(replayed.overallScore, 1);
   assert.deepEqual(replayed.fingerprint, assets.reference.fingerprint);
+});
+
+test('eval check re-checks the approved reference against the current assets', async () => {
+  assert.deepEqual(await validateApprovedReferenceAssets(rootDir), []);
+
+  const driftedRoot = await mkdtemp(path.join(tmpdir(), 'vibe-eval-reference-drift-'));
+  try {
+    await mkdir(path.join(driftedRoot, 'skills/demo'), { recursive: true });
+    await writeFile(path.join(driftedRoot, 'skills/demo/SKILL.md'), '---\nname: demo\n---\n', 'utf8');
+    const approved = await createEvalAssetFingerprint(driftedRoot);
+    await mkdir(path.join(driftedRoot, 'evals/references'), { recursive: true });
+    await writeFile(
+      path.join(driftedRoot, 'evals/references/vibe-harness-core.offline.json'),
+      JSON.stringify({ fingerprint: { assets: approved } }),
+      'utf8',
+    );
+    assert.deepEqual(await validateApprovedReferenceAssets(driftedRoot), []);
+
+    // A real content change moves the group hash and the aggregate, while the
+    // untouched groups must stay out of the report.
+    await writeFile(path.join(driftedRoot, 'skills/demo/SKILL.md'), '---\nname: demo\nextra: 1\n---\n', 'utf8');
+    const drift = await validateApprovedReferenceAssets(driftedRoot);
+    assert.deepEqual(drift, [
+      `asset fingerprint drift for assets.aggregateHash`,
+      `asset fingerprint drift for assets.groups.skills.hash`,
+    ]);
+  } finally {
+    await rm(driftedRoot, { force: true, recursive: true });
+  }
 });
 
 test('offline replay never emits multi-trial summaries', async () => {

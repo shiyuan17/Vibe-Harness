@@ -1,7 +1,8 @@
 import path from 'node:path';
 
+import { createEvalAssetFingerprint } from './eval-assets.js';
 import { readJson, validateJsonAgainstSchema } from './manifest.js';
-import { compareFingerprints } from './eval-scoring.js';
+import { compareAssetFingerprints, compareFingerprints } from './eval-scoring.js';
 
 const DIMENSIONS = ['correctness', 'safety', 'evidenceQuality', 'efficiency'];
 
@@ -178,4 +179,31 @@ export function validateEvalAssets({ suite, run, reference, schemas }) {
   if (run.overallScore !== reference.overallScore) errors.push('run overall score must match reference');
   if (run.criticalPassRate !== reference.criticalPassRate) errors.push('run critical pass rate must match reference');
   return errors.sort();
+}
+
+/**
+ * Error prefix for "the approved reference no longer describes this checkout".
+ *
+ * Kept as a declared constant because the CLI and tests branch on it, and
+ * because it is deliberately distinct from `fingerprint mismatch for …`, which
+ * means the two signed-in artifacts disagree with each other.
+ */
+export const ASSET_DRIFT_PREFIX = 'asset fingerprint drift for ';
+
+/**
+ * Re-check the approved reference against the current asset tree.
+ *
+ * Cross-checking run against reference is not enough: after a rule, Skill, Hook
+ * or config change both signed-in artifacts stay internally consistent while
+ * already being stale, so only hashing the current checkout can see the drift.
+ *
+ * @param {string} rootDir repository root
+ */
+export async function validateApprovedReferenceAssets(rootDir) {
+  const reference = await readJson(path.join(rootDir, 'evals/references/vibe-harness-core.offline.json'));
+  if (!reference.fingerprint?.assets) return [];
+  const assetsFingerprint = await createEvalAssetFingerprint(rootDir);
+  return compareAssetFingerprints(assetsFingerprint, reference.fingerprint.assets)
+    .mismatches
+    .map((mismatch) => ASSET_DRIFT_PREFIX + mismatch.field);
 }

@@ -88,12 +88,12 @@ installer 集成验证应覆盖已有文件拒写、红区确认、目标路径�
 
 ## Eval reference 更新清单
 
-rules、runtime hooks 或 config 内容变更会使 `evals/references/` 的 asset fingerprint（config、hooks、rules、skills 分组哈希）按设计漂移，`pnpm eval:check` 与 `pnpm eval:replay` 相应失败。reference 更新必须单独审查并显式确认，不得为让变更通过而自动提升：
+rules、runtime hooks 或 config 内容变更会使 `evals/references/` 的 asset fingerprint（config、hooks、rules、skills 分组哈希）按设计漂移，`pnpm eval:check`（复核 reference 与当前资产）与 `pnpm eval:replay`（复核签入 run 与当前资产）相应失败。reference 更新必须单独审查并显式确认，不得为让变更通过而自动提升：
 
 1. 确认指纹漂移分组与本轮预期变更一致（本轮只改 rules 时，漂移就应只有 rules 组）。
 2. 出现非预期分组漂移时先回到代码查因，不盲目再生成。
 3. 使用正规入口再生成：先 `pnpm vibe-harness eval run --project . --mode offline --write` 得到 run 文件（`.vibe-harness/evals/runs/<timestamp>.json`），再 `pnpm vibe-harness eval reference --project . --from <run 文件> --write --confirm-reference-update --force`；既有 reference 存在时缺少 `--force` 会以 `EVAL_REFERENCE_CONFLICT` 拒绝，`--force` 负责先备份旧文件再替换。命令细节见 `docs/evals.md`。`.agents/evals/` 镜像由 `pnpm eval:sync --write` 重生成（`pnpm eval:sync` 是只读检查，CI 的 `pnpm pack:contract` 已强制该镜像与 source 一致）；`evals/results/` 是运行产物，不参与镜像。
-   同一份资产指纹还嵌入签入的 replay 产物 `evals/results/vibe-harness-core.offline.json`，由 `pnpm eval:replay --write` 确定性重生成（旧文件备份到 `.vibe-harness/backups/`，该产物不参与 `.agents/evals/` 镜像）。`pnpm eval:check` 交叉校验签入 run 与 reference 的指纹，两者不能只更新一侧：先再生成 reference，再用 `pnpm eval:replay --write` 重生成 run；`--write` 在 reference 仍不一致时以非零退出并给出下一步。
+   同一份资产指纹还嵌入签入的 replay 产物 `evals/results/vibe-harness-core.offline.json`，由 `pnpm eval:replay --write` 确定性重生成（旧文件备份到 `.vibe-harness/backups/`，该产物不参与 `.agents/evals/` 镜像）。`pnpm eval:check` 既交叉校验签入 run 与 reference 的指纹，也把 reference 指纹与当前资产树复核，两者不能只更新一侧：先再生成 reference，再用 `pnpm eval:replay --write` 重生成 run；`--write` 在 reference 仍不一致时以非零退出并给出下一步。
 4. 重跑 `pnpm eval:check` 与 `pnpm eval:replay` 确认通过，并在 PR 说明中记录漂移分组与确认依据。
 
 ## 治理资产生成命令
