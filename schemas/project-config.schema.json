@@ -15,6 +15,7 @@
       "items": { "type": "string", "enum": ["codex", "claude", "gemini", "cursor", "qoder", "zcode", "antigravity", "opencode"] }
     },
     "profile": { "type": "string", "enum": ["minimal", "core", "full", "docs-only"] },
+    "preset": { "type": "string", "enum": ["everything"] },
     "modules": {
       "type": "array",
       "items": { "type": "string", "minLength": 1 },

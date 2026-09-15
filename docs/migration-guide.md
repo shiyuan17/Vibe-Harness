@@ -20,6 +20,12 @@ Vibe-Harness 不接管 Cognis 或 LoopEngine 安装。发现旧产品配置、�
 - 最后一个目标和共享资产必须通过 uninstall --all-targets --write 移除。
 - 单宿主卸载不得删除 shared runtime、memory、Eval 或项目根索引。
 
+## 启用安装预设
+
+已有安装可以在不改动其它宿主的前提下升级到聚合安装面：先执行 install --preset everything --dry-run，检查 configUpdate、requestedPlugins、requestedModules、targets 与红区计划，再用 install --preset everything --write --confirm-red-zone 把 preset 与 profile 写入 vibe-harness.config.json，并在同一事务内安装展开后的插件与 memory 模块。
+
+补写 preset 属于红区写入，缺少 --confirm-red-zone 时命令直接拒绝。写入后 validate 与 doctor 不接受 --preset，只按配置重放同一安装面；继续使用无 preset 配置的安装不受影响，也不需要迁移。
+
 ## 嵌套旧安装
 
 禁止通过子目录重复安装来模拟多宿主。doctor 发现根安装与子目录旧安装后，只报告问题，不自动删除。

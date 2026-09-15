@@ -1450,7 +1450,7 @@ test('full write installs governance assets without provisioning tools by defaul
     ], { env: offlineEnv });
 
     assert.equal(report.status, 'ready');
-    assert.deepEqual(report.provisioning, { executed: false, requested: false });
+    assert.deepEqual(report.provisioning, { executed: false, requested: false, source: 'none' });
     assert.deepEqual(report.warnings.map((warning) => warning.code), [
       'HOOK_ACTIVATION_UNVERIFIED',
       'HOOK_ENFORCEMENT_UNVERIFIED',

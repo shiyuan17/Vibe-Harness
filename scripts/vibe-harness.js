@@ -28,6 +28,7 @@ import { validatePack } from './lib/pack-validation.js';
 import { createVerificationPreflightError, runVerificationPlan } from './lib/project-verification.js';
 import { detectProjectProfile } from './lib/project-profile.js';
 import {
+  parseTargetsOption,
   readRequiredProjectConfig,
   resolveValidationCommands,
   validateConfigAndGeneratedContent,
@@ -39,13 +40,13 @@ import {
   validateProfileName,
   writeDefaultProjectConfig,
 } from './lib/project-config.js';
+import { installPresetForId, parsePresetOption, resolveInstallSurface } from './lib/install-preset.js';
 import { collectProjectBaselineInputs, createProjectBaseline } from './lib/project-baseline.js';
 import {
   checkProjectEvaluations,
   runProjectEvaluations,
   writeProjectEvaluationReference,
 } from './lib/project-evaluation.js';
-import { parseModulesOption, parsePluginsOption } from './lib/module-selection.js';
 import { canonicalAgentsTemplate, loadAdapterCatalog, resolveAdapter } from './lib/adapter.js';
 import { safetyPostureWarnings } from './lib/safety-posture.js';
 import {
@@ -234,6 +235,7 @@ function emitReport(report, args, { error = false } = {}) {
       ...(normalized.rtkHooks ? ['rtkHooksSource: ' + normalized.rtkHooks.source] : []),
       ...(normalized.runtimeHooks ? ['runtimeHooks: ' + normalized.runtimeHooks.activation.status + ' (' + normalized.runtimeHooks.activation.mechanism + ')'] : []),
       ...(normalized.memory ? ['memory: runtime=' + normalized.memory.runtime.status + ', durable=' + normalized.memory.durable.status] : []),
+      ...(normalized.preset ? ['preset: ' + normalized.preset] : []),
       `status: ${normalized.status}`,
       ...(normalized.profile ? [`profile: ${normalized.profile}`] : []),
       ...(Array.isArray(normalized.requestedPlugins) ? [`plugins: ${normalized.requestedPlugins.length ? normalized.requestedPlugins.join(',') : 'none'}`] : []),
@@ -302,23 +304,6 @@ function resolveCommandTargets(config, state, requestedTarget) {
   return { configured, selected: configured };
 }
 
-// The module selection is a project property, not a per-command argument:
-// vibe-harness.config.json wins when it declares one, otherwise the selection
-// recorded by the last install is authoritative. Every lifecycle command
-// (install, diff, validate, doctor) resolves it through here so a replay plans
-// the same surface the project was installed with instead of recomputing it
-// from the current profile, which would silently retire modules the project
-// still asks for.
-async function projectRequestedModules(config, targetDir) {
-  if (config.modules) return config.modules;
-  return (await readInstallState(targetDir))?.requestedModules ?? undefined;
-}
-
-async function projectRequestedPlugins(config, targetDir) {
-  if (config.plugins) return parsePluginsOption(config.plugins);
-  return (await readInstallState(targetDir))?.requestedPlugins ?? undefined;
-}
-
 function parseRtkHooksOption(value) {
   if (value === 'on') return true;
   if (value === 'off') return false;
@@ -357,13 +342,28 @@ function resolveRtkHooksEnabled(options) {
 }
 
 async function init(args) {
+  const allowedOptions = new Set(['_', 'force', 'preset', 'profile', 'project', 'target', 'targets']);
+  const unknownOption = Object.keys(args).find((key) => !allowedOptions.has(key));
+  if (unknownOption) throw new Error('Unknown init option: --' + unknownOption);
   const projectDir = path.resolve(args.project ?? process.cwd());
   const existingState = await readInstallState(projectDir);
+  const preset = args.preset === undefined ? undefined : parsePresetOption(args.preset);
+  const presetProfile = preset ? installPresetForId(preset).profile : null;
+  if (presetProfile && args.profile !== undefined && args.profile !== presetProfile) {
+    throw new Error('preset ' + preset + ' requires profile ' + presetProfile + ', received --profile ' + args.profile + '.');
+  }
+  const targets = args.targets === undefined ? undefined : parseTargetsOption(args.targets);
+  if (targets && args.target !== undefined) {
+    throw new Error('Use --target <adapter> or --targets <adapter,...>, not both.');
+  }
+  const selectedTargets = targets ?? [args.target ?? existingState?.targets?.[0] ?? 'codex'];
   const result = await writeDefaultProjectConfig({
     force: Boolean(args.force),
-    profile: args.profile ?? existingState?.profile ?? 'core',
+    preset,
+    profile: presetProfile ?? args.profile ?? existingState?.profile ?? 'core',
     projectDir,
-    target: args.target ?? existingState?.targets?.[0] ?? 'codex',
+    target: selectedTargets[0],
+    targets: selectedTargets,
   });
   console.log(JSON.stringify({
     config: result.config,
@@ -376,7 +376,7 @@ async function install(args) {
   if (!args.project) throw new Error('install requires --project <path>; legacy --target path and --apply were removed.');
   const allowedOptions = new Set([
     '_', 'allow-degraded', 'allow-preview', 'confirm-red-zone', 'dry-run', 'force', 'modules', 'output',
-    'plugin', 'preserve-retired', 'profile', 'project', 'provision', 'rtk-hooks', 'target', 'upgrade', 'verbose', 'write',
+    'plugin', 'preset', 'preserve-retired', 'profile', 'project', 'provision', 'rtk-hooks', 'target', 'upgrade', 'verbose', 'write',
   ]);
   const unknownOption = Object.keys(args).find((key) => !allowedOptions.has(key));
   if (unknownOption) throw new Error(`Unknown install option: --${unknownOption}`);
@@ -405,25 +405,26 @@ async function install(args) {
     throw new Error(`CLI target ${args.target} does not match vibe-harness.config.json target ${config.target}.`);
   }
   const adapter = await resolveAdapter(rootDir, adapterId);
-  const requestedProfile = args.profile ?? config.profile;
-  const profile = validateProfileName(requestedProfile);
-  validateProjectConfigWithSchema({ ...config, profile });
-  const projectProfile = await detectProjectProfile({ config, targetDir });
-  const validationCommands = resolveValidationCommands(config, projectProfile);
-  const renderData = {
+  const installSurface = resolveInstallSurface({ args, config, installState: existingState });
+  const profile = validateProfileName(installSurface.profile);
+  const effectiveConfig = {
     ...config,
+    ...(installSurface.preset ? { preset: installSurface.preset } : {}),
+    profile,
+  };
+  validateProjectConfigWithSchema(effectiveConfig);
+  const projectProfile = await detectProjectProfile({ config: effectiveConfig, targetDir });
+  const validationCommands = resolveValidationCommands(effectiveConfig, projectProfile);
+  const renderData = {
+    ...effectiveConfig,
     profile,
     projectProfile,
     target: adapterId,
     targets,
     validationCommands,
   };
-  const requestedModules = args.modules !== undefined
-    ? parseModulesOption(args.modules)
-    : await projectRequestedModules(config, targetDir);
-  const requestedPlugins = args.plugin !== undefined
-    ? parsePluginsOption(args.plugin)
-    : (config.plugins ? parsePluginsOption(config.plugins) : existingState?.requestedPlugins);
+  const requestedModules = installSurface.modules;
+  const requestedPlugins = installSurface.plugins;
   const rtkHooksSetting = resolveRtkHooksSetting({
     adapterId,
     args,
@@ -435,12 +436,23 @@ async function install(args) {
   const rtkHooksEnabled = rtkHooksSetting.enabled;
 
   const migratedConfig = migrateLegacyProjectConfig(config);
-  const configUpdate = Object.hasOwn(config, 'target') && args.upgrade
-    ? { config: migratedConfig, path: path.join(targetDir, 'vibe-harness.config.json') }
+  const writePreset = Boolean(installSurface.preset)
+    && (config.preset !== installSurface.preset || config.profile !== installSurface.profile);
+  const configUpdate = (Object.hasOwn(config, 'target') && Boolean(args.upgrade)) || writePreset
+    ? {
+        config: {
+          ...migratedConfig,
+          ...(writePreset ? { preset: installSurface.preset, profile: installSurface.profile } : {}),
+        },
+        path: path.join(targetDir, 'vibe-harness.config.json'),
+      }
     : null;
+  if (writePreset && !dryRunRequested && !args['confirm-red-zone']) {
+    throw new Error('Refusing to persist the project preset in vibe-harness.config.json without explicit red-zone confirmation; retry with --confirm-red-zone.');
+  }
   const plan = await createMultiTargetInstallPlan({
     configUpdate,
-    allowPreview: Boolean(args['allow-preview']),
+    allowPreview: installSurface.allowPreview,
     dryRun: dryRunRequested,
     force: Boolean(args.force),
     managedAgentsBlock: isMvpMode,
@@ -483,7 +495,7 @@ async function install(args) {
     && await pathExists(installedHookDefinition)
     && await hashFile(installedHookDefinition) !== hookDefinitionBefore;
   const previewFiles = plan.dryRun ? await previewInstallPlan(plan, { includeContent: Boolean(args.verbose) }) : [];
-  const allowPreview = Boolean(args['allow-preview']);
+  const allowPreview = installSurface.allowPreview;
   // Single superset plan (allowPreview:true) derives both the user-facing plan and
   // the deferred preview tools, avoiding a duplicate createToolProvisioningPlan call.
   const allToolActions = createToolProvisioningPlan({
@@ -498,18 +510,18 @@ async function install(args) {
   const deferredToolActions = allToolActions
     .filter((item) => item.supportLevel === 'preview' && !allowPreview)
     .map(compactToolAction);
-  const provisionRequested = Boolean(args.provision);
+  const provisionRequested = installSurface.provision;
   const provisionExecuted = provisionRequested && !plan.dryRun;
   const tools = provisionExecuted
     ? await provisionWithSignalHandling({
-        allowPreview: Boolean(args['allow-preview']),
+        allowPreview: installSurface.allowPreview,
         mcpConflicts: result.mcpConflicts,
         profile,
         resolvedModules: plan.resolvedModules,
         targetDir,
       })
     : await inspectProfileTools(profile, targetDir, plan.resolvedModules, undefined, {
-        allowPreview: Boolean(args['allow-preview']),
+        allowPreview: installSurface.allowPreview,
       });
   if (provisionExecuted && plannedToolActions.length > 0) {
     await registerGeneratedFile(targetDir, toolStateRelativePath(targetDir));
@@ -553,6 +565,13 @@ async function install(args) {
     actions: args.verbose ? plan.actions : plan.actions.map(compactAction),
     backupActions: plan.baselinePlan.actions,
     baselineId: result.baseline?.id ?? plan.baselinePlan.baselineId,
+    configUpdate: configUpdate
+      ? {
+          preset: writePreset ? installSurface.preset : null,
+          profile: writePreset ? installSurface.profile : null,
+          relativeTarget: path.relative(targetDir, configUpdate.path).replaceAll('\\', '/'),
+        }
+      : null,
     deferredToolActions,
     dryRun: plan.dryRun,
     implicitModules: plan.implicitModules,
@@ -560,9 +579,14 @@ async function install(args) {
     adapterCapabilities: plan.adapterCapabilities,
     linearMcp: plan.linearMcp,
     missingCapabilities: plan.missingCapabilities,
-    provisioning: { executed: provisionExecuted, requested: provisionRequested },
     previewFiles,
+    preset: installSurface.preset,
     profile: plan.profile,
+    provisioning: {
+      executed: provisionExecuted,
+      requested: provisionRequested,
+      source: installSurface.provisionSource,
+    },
     previewCapabilities: plan.previewCapabilities,
     requestedModules: plan.requestedModules,
     requestedPlugins: plan.requestedPlugins,
@@ -597,9 +621,10 @@ async function validate(args) {
     if (args.target && !targets.includes(args.target) && !installState?.targets?.includes(args.target)) {
       throw new Error(`CLI target ${args.target} does not match vibe-harness.config.json target ${config.target}.`);
     }
-    const requestedModules = await projectRequestedModules(config, targetDir);
-    const requestedPlugins = await projectRequestedPlugins(config, targetDir);
     validateProjectConfig(config);
+    const installSurface = resolveInstallSurface({ args, config, installState });
+    const requestedModules = installSurface.modules;
+    const requestedPlugins = installSurface.plugins;
     const adapter = await resolveAdapter(rootDir, selectedTargets[0]);
     const rtkHooksSetting = resolveRtkHooksSetting({
       adapterId: adapter.id,
@@ -616,7 +641,7 @@ async function validate(args) {
       dryRun: true,
       force: true,
       managedAgentsBlock: true,
-      profile: config.profile,
+      profile: installSurface.profile,
       requestedModules,
       requestedPlugins,
       rtkHooksEnabled,
@@ -637,7 +662,7 @@ async function validate(args) {
       aggregatePlan: plan,
       allowPreview: true,
       managedAgentsBlock: true,
-      profile: config.profile,
+      profile: installSurface.profile,
       requestedModules,
       requestedPlugins,
       rtkHooksEnabled,
@@ -667,19 +692,20 @@ async function validate(args) {
       commands: validationCommands,
       targetDir,
     });
-    const tools = await inspectProfileTools(config.profile, targetDir, plan.resolvedModules, undefined, {
+    const tools = await inspectProfileTools(installSurface.profile, targetDir, plan.resolvedModules, undefined, {
       allowPreview: true,
     });
-    const health = healthReport({ profile: config.profile, tools });
+    const health = healthReport({ profile: installSurface.profile, tools });
     const runtimeHooks = await inspectRuntimeHooks(adapter, targetDir);
     emitReport({
       ...health,
       commandStatus,
-      recommendations: toolRecommendations(tools, config.profile, { adapterId: adapter.id, mvp: true }),
+      recommendations: toolRecommendations(tools, installSurface.profile, { adapterId: adapter.id, mvp: true }),
       rtkHooks: rtkHooksReport(rtkHooksEnabled, tools, rtkHooksSetting.source),
       runtimeHooks,
       roles: roleRuntimeReport(target.adapters),
       scope: 'project',
+      preset: installSurface.preset,
       targets: selectedTargets,
       ...(args.verbose ? { targetDir } : {}),
       tools,
@@ -716,9 +742,10 @@ async function verify(args) {
   if (args.target && !targets.includes(args.target) && !installState?.targets?.includes(args.target)) {
     throw new Error(`CLI target ${args.target} does not match vibe-harness.config.json target ${config.target}.`);
   }
-  const requestedModules = await projectRequestedModules(config, targetDir);
-  const requestedPlugins = await projectRequestedPlugins(config, targetDir);
   validateProjectConfig(config);
+  const installSurface = resolveInstallSurface({ args, config, installState });
+  const requestedModules = installSurface.modules;
+  const requestedPlugins = installSurface.plugins;
   const adapter = await resolveAdapter(rootDir, selectedTargets[0]);
   const rtkHooksEnabled = resolveRtkHooksEnabled({
     adapterId: adapter.id,
@@ -733,7 +760,7 @@ async function verify(args) {
   const target = await diffMultiTargetInstall({
     allowPreview: true,
     managedAgentsBlock: true,
-    profile: config.profile,
+    profile: installSurface.profile,
     requestedModules,
     requestedPlugins,
     rtkHooksEnabled,
@@ -839,8 +866,9 @@ async function baseline(args) {
   try {
     installState = await readInstallState(targetDir);
     if (!installState) throw new Error('Install state is missing.');
-    requestedModules = await projectRequestedModules(config, targetDir);
-    requestedPlugins = await projectRequestedPlugins(config, targetDir);
+    const surface = resolveInstallSurface({ config, installState });
+    requestedModules = surface.modules;
+    requestedPlugins = surface.plugins;
   } catch (cause) {
     throw Object.assign(new Error('Project installation state is invalid; reinstall before baseline.'), {
       cause,
@@ -1036,10 +1064,9 @@ async function doctor(args) {
     throw new Error(`CLI target ${args.target} does not match vibe-harness.config.json target ${config.target}.`);
   }
   validateProjectConfig(config);
-  const profile = validateProfileName(args.profile ?? config.profile);
-  const requestedPlugins = config.plugins
-    ? parsePluginsOption(config.plugins)
-    : (installState?.requestedPlugins ?? []);
+  const installSurface = resolveInstallSurface({ args, config, installState });
+  const profile = validateProfileName(installSurface.profile);
+  const requestedPlugins = installSurface.plugins ?? [];
   const rtkHooksSetting = resolveRtkHooksSetting({
     adapterId: selectedTargets[0],
     config,
@@ -1107,6 +1134,7 @@ async function doctor(args) {
     runtimeHooks,
     roles: roleRuntimeReport(target?.adapters),
     provisioningProcess,
+    preset: installSurface.preset,
     ...(args.verbose ? { rootDir } : {}),
     target,
     ...(args.verbose ? { targetDir } : {}),
@@ -1152,13 +1180,12 @@ async function diff(args) {
     throw new Error(`CLI target ${args.target} does not match vibe-harness.config.json target ${config.target}.`);
   }
   validateProjectConfig(config);
-  const profile = validateProfileName(args.profile ?? config.profile);
+  const installSurface = resolveInstallSurface({ args, config, installState });
+  const profile = validateProfileName(installSurface.profile);
   const projectProfile = await detectProjectProfile({ config, targetDir });
   const validationCommands = resolveValidationCommands(config, projectProfile);
   const renderData = { ...config, profile, projectProfile, validationCommands };
-  const requestedPlugins = config.plugins
-    ? parsePluginsOption(config.plugins)
-    : (installState?.requestedPlugins ?? []);
+  const requestedPlugins = installSurface.plugins;
   const rtkHooksEnabled = resolveRtkHooksEnabled({
     adapterId: selectedTargets[0],
     config,
@@ -1170,7 +1197,7 @@ async function diff(args) {
     allowPreview: true,
     managedAgentsBlock: true,
     profile,
-    requestedModules: config.modules ?? installState?.requestedModules,
+    requestedModules: installSurface.modules ?? installState?.requestedModules,
     requestedPlugins,
     rtkHooksEnabled,
     renderData,
@@ -1296,13 +1323,14 @@ async function provision(args) {
   if (!configuredTargets.includes(adapterId) || !state.targets.includes(adapterId)) {
     throw new Error('Provision target ' + adapterId + ' must be present in both configured and installed targets.');
   }
-  const profile = validateProfileName(args.profile ?? state.profile);
+  const installSurface = resolveInstallSurface({ args, config, installState: state });
+  const profile = validateProfileName(installSurface.profile);
   if (profile !== state.profile) {
     throw new Error(`Provision profile ${profile} does not match installed profile ${state.profile}.`);
   }
   const toolIds = selectedToolIds(args.tool);
   const plannedToolActions = createToolProvisioningPlan({
-    allowPreview: Boolean(args['allow-preview']),
+    allowPreview: installSurface.allowPreview,
     profile,
     resolvedModules: state.resolvedModules,
     targetDir,
@@ -1311,10 +1339,10 @@ async function provision(args) {
   const dryRun = !args.write;
   const tools = dryRun
     ? await inspectProfileTools(profile, targetDir, state.resolvedModules, toolIds, {
-        allowPreview: Boolean(args['allow-preview']),
+        allowPreview: installSurface.allowPreview,
       })
     : await provisionWithSignalHandling({
-        allowPreview: Boolean(args['allow-preview']),
+        allowPreview: installSurface.allowPreview,
         force: Boolean(args.force),
         profile,
         resolvedModules: state.resolvedModules,
@@ -1329,6 +1357,7 @@ async function provision(args) {
     ...health,
     dryRun,
     plannedToolActions,
+    preset: installSurface.preset,
     profile,
     recommendations: toolRecommendations(tools, profile, { adapterId }),
     target: adapterId,
@@ -1361,7 +1390,7 @@ async function recover(args) {
 }
 
 async function printUsage() {
-  console.log('用法：vibe-harness <init|install|provision|recover|uninstall|validate|verify|baseline|eval|audit|doctor|diff|rollback> [--project path] [--target codex|claude|gemini|cursor|qoder|zcode|antigravity|opencode] [--all-targets] [--profile minimal|core|full|docs-only] [--modules list] [--plugin -all|-rtk|linear-mcp|linear-mcp-readonly ...] [--rtk-hooks on|off] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--full] [--plan] [--force] [--upgrade] [--preserve-retired] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded] [--provision]');
+  console.log('用法：vibe-harness <init|install|provision|recover|uninstall|validate|verify|baseline|eval|audit|doctor|diff|rollback> [--project path] [--target codex|claude|gemini|cursor|qoder|zcode|antigravity|opencode] [--targets codex,zcode,opencode] [--all-targets] [--profile minimal|core|full|docs-only] [--preset everything] [--modules list] [--plugin -all|-rtk|linear-mcp|linear-mcp-readonly ...] [--rtk-hooks on|off] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--full] [--plan] [--force] [--upgrade] [--preserve-retired] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded] [--provision]');
   console.log('所有项目命令使用 --project <path>；--target 只选择 adapter，--write 执行真实写入。旧版 --apply 和取路径值的 --target 已移除。');
 }
 
@@ -1382,6 +1411,14 @@ async function main() {
     });
   }
   if (args.profile) validateProfileName(args.profile);
+  if (args.preset !== undefined && !['init', 'install'].includes(command)) {
+    throw new Error('--preset is only accepted by init and install; other commands read the preset from vibe-harness.config.json.');
+  }
+  if (args.preset !== undefined) parsePresetOption(args.preset);
+  if (args.targets !== undefined) {
+    if (command !== 'init') throw new Error('--targets is only accepted by init.');
+    parseTargetsOption(args.targets);
+  }
   if (args.target && !mvpTargets.has(args.target)) {
     throw Object.assign(new Error('--target only accepts adapter ids codex|claude|gemini|cursor|qoder|zcode|antigravity|opencode; use --project <path> for a project path.'), {
       ...(command === 'baseline' ? { code: 'BASELINE_PROJECT_REQUIRED' } : {}),

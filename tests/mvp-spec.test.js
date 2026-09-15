@@ -408,6 +408,42 @@ test('full profile adds three domain skills and hooks without memory or tool plu
   }
 });
 
+test('only the everything preset makes a full install carry linear and memory', async () => {
+  const full = await initAndDryRunProfile('full');
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-everything-preset-'));
+  try {
+    const fullTargets = targetsFrom(full.report);
+    const fullAgents = full.report.previewFiles.find((file) => file.target === 'AGENTS.md').content;
+
+    assert.deepEqual(full.report.requestedPlugins, []);
+    assert.equal(full.report.preset, null);
+    assert.equal(fullTargets.includes('docs/rules/linear-workflow.md'), false);
+    assert.equal(fullTargets.includes('.agents/skills/agentmemory/SKILL.md'), false);
+    assert.equal(fullTargets.some((item) => item.startsWith('docs/memory/')), false);
+    assert.equal(fullAgents.includes('agentmemory'), false);
+
+    await runCli(['init', '--project', target, '--target', 'codex', '--preset', 'everything']);
+    const report = await runCli(['install', '--project', target, '--target', 'codex', '--dry-run']);
+    const targets = targetsFrom(report);
+    const agents = report.previewFiles.find((file) => file.target === 'AGENTS.md').content;
+
+    assert.equal(report.preset, 'everything');
+    assert.equal(report.profile, 'full');
+    assert.equal(report.requestedPlugins.includes('linear'), true);
+    assert.equal(report.requestedPlugins.length, 7);
+    assert.equal(report.requestedModules.includes('memory'), true);
+    assert.equal(targets.includes('docs/rules/linear-workflow.md'), true);
+    assert.equal(targets.includes('.agents/skills/linear-workflow/SKILL.md'), true);
+    assert.equal(targets.includes('.agents/skills/agentmemory/SKILL.md'), true);
+    assert.equal(targets.includes('.agents/memory/README.md'), true);
+    assert.equal(targets.includes('docs/memory/PROJECT_STATE.md'), true);
+    assert.equal(agents.includes('agentmemory'), true);
+  } finally {
+    await rm(full.target, { force: true, recursive: true });
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
 test('installed project directory rules use Chinese user-visible bullet text', async () => {
   const content = await readFile(path.join(rootDir, 'docs/rules/project-directory.md'), 'utf8');
 

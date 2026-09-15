@@ -6,6 +6,39 @@ Vibe-Harness installs project-scoped rules, domain Skills, optional Evals, expli
 
 There is one default execution path: `gather trustworthy facts -> decide and execute -> focused verification -> concise delivery`. The decision selects direct implementation, further investigation, clarification, authorization, planning, or task splitting according to evidence, ambiguity, and complexity. Quick, light, and full are risk levels used only to choose safeguards and verification depth.
 
+## Full installation (recommended)
+
+One prompt installs the full profile, every stable tool plugin, the Linear read-write integration, and the memory assets across multiple hosts, so plugins, Linear, and hosts do not have to be selected one by one:
+
+    Install Vibe-Harness with --preset everything into TARGET_PROJECT_ABSOLUTE_PATH for the codex, zcode, and opencode hosts. You are working from the Vibe-Harness repository and run:
+    pnpm install
+    pnpm vibe-harness init --project <TARGET_PROJECT_ABSOLUTE_PATH> --targets codex,zcode,opencode --preset everything
+    pnpm vibe-harness install --project <TARGET_PROJECT_ABSOLUTE_PATH> --write --confirm-red-zone
+    pnpm vibe-harness validate --project <TARGET_PROJECT_ABSOLUTE_PATH>
+    pnpm vibe-harness doctor --project <TARGET_PROJECT_ABSOLUTE_PATH>
+    Run init only when the target has no vibe-harness.config.json. I authorize this installation to write the project-scoped Hook and MCP red-zone configuration and to enable preview capabilities for zcode and opencode. everything already includes provision, so --provision is not needed. Write only inside the target project and do not modify global Agent, MCP, or Git configuration; report the actual writes and anything incomplete.
+
+Equivalent commands:
+
+```bash
+pnpm install
+pnpm vibe-harness init --project ../full-project --targets codex,zcode,opencode --preset everything
+pnpm vibe-harness install --project ../full-project --dry-run
+pnpm vibe-harness install --project ../full-project --write --confirm-red-zone
+pnpm vibe-harness validate --project ../full-project
+pnpm vibe-harness doctor --project ../full-project
+```
+
+`--preset everything` expands to `profile=full`, the six stable tool plugins, the linear-mcp read-write endpoint, and the memory module, and implies preview capability plus post-install provision. It does not change the contract that `--plugin all` still excludes Linear. Red-zone writes still require the explicit `--confirm-red-zone`. The init config is:
+
+```json
+{
+  "targets": ["codex", "zcode", "opencode"],
+  "profile": "full",
+  "preset": "everything"
+}
+```
+
 ## Quick start
 
 Requires pnpm 10+ and Node.js 20.19+, 22.18+, or 24+.

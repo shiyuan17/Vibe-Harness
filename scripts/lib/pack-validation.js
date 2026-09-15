@@ -16,6 +16,7 @@ import {
   validateManifestSources,
 } from './manifest.js';
 import { moduleCatalog } from './module-selection.js';
+import { validateInstallPresetCatalog } from './install-preset.js';
 import { scanForForbiddenTerms } from './redaction.js';
 import { canonicalAgentsTemplate, loadAdapterCatalog, resolveAdapterEntry, skillRootPrefixes } from './adapter.js';
 import { validateDocumentation } from './docs-validation.js';
@@ -1526,6 +1527,14 @@ export async function validatePack(rootDir) {
   const installMapSchema = await readPackJson(path.join(rootDir, 'schemas/install-map.schema.json'));
   validateAllManifestShapes(manifests);
   const schemaErrors = validateAllManifestSchemas(manifests, schemas);
+  const installPresetCatalog = await readPackJson(path.join(rootDir, 'manifests/install-presets.json'));
+  const installPresetSchema = await readPackJson(path.join(rootDir, 'schemas/install-preset.schema.json'));
+  const installPresetErrors = [
+    ...validateJsonAgainstSchema(installPresetCatalog, installPresetSchema, 'manifests/install-presets.json'),
+    ...validateInstallPresetCatalog(installPresetCatalog, {
+      profileIdSet: new Set(manifests.profiles.items.map((item) => item.id)),
+    }),
+  ];
 
   const knownGroups = new Set([
     ...manifests.profiles.items.flatMap((item) => item.groups),
@@ -1610,6 +1619,7 @@ export async function validatePack(rootDir) {
     missing: [...missing, ...installMapMissing].sort(),
     missingSkillInstalls,
     invalidSkillDirs,
+    installPresetErrors: installPresetErrors.sort(),
     redZoneConsistencyErrors,
     skillMetadataErrors,
     skillGraphErrors,
@@ -1630,6 +1640,7 @@ export async function validatePack(rootDir) {
       && schemaErrors.length === 0
       && selfInstallErrors.length === 0
       && instructionBudget.errors.length === 0
+      && installPresetErrors.length === 0
       && workflowScan.findings.length === 0
       && redZoneConsistencyErrors.length === 0,
     schemaErrors: schemaErrors.sort(),

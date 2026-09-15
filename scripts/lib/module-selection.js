@@ -43,6 +43,11 @@ export const pluginModules = pluginProviders
   .filter((provider) => provider.selection.includeInAll)
   .map((provider) => provider.moduleId);
 
+/** Profile module ids before dependency closure; presets extend this list. */
+export function profileModuleIds(profile) {
+  return [...(profileModules[profile] ?? [])];
+}
+
 export function parseModulesOption(value) {
   if (typeof value !== 'string') throw new Error('--modules requires a comma-separated module list.');
   return value.split(',').map((item) => item.trim()).filter(Boolean);

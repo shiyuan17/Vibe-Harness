@@ -6,6 +6,39 @@ Vibe-Harness 为 Codex、Claude Code、Gemini CLI、Cursor、Qoder、ZCode、Ant
 
 默认执行路径只有一条：`获取可信事实 -> 判定并执行 -> 聚焦验证 -> 简洁交付`。判定只用于按证据、歧义和复杂度选择直接实施、继续查证、澄清、请求授权、规划或拆分；快速、轻量、完整三档只用于选择风险控制和验证强度。
 
+## 全量安装（推荐）
+
+一条提示词即可完成 full profile、全部稳定工具插件、Linear 读写集成与 memory 资产的多宿主安装，不必再逐个启用插件、Linear 或宿主：
+
+    将 Vibe-Harness 全量安装（--preset everything）到 TARGET_PROJECT_ABSOLUTE_PATH，宿主为 codex、zcode、opencode。你在 Vibe-Harness 仓库中执行：
+    pnpm install
+    pnpm vibe-harness init --project <TARGET_PROJECT_ABSOLUTE_PATH> --targets codex,zcode,opencode --preset everything
+    pnpm vibe-harness install --project <TARGET_PROJECT_ABSOLUTE_PATH> --write --confirm-red-zone
+    pnpm vibe-harness validate --project <TARGET_PROJECT_ABSOLUTE_PATH>
+    pnpm vibe-harness doctor --project <TARGET_PROJECT_ABSOLUTE_PATH>
+    只有目标项目缺少 vibe-harness.config.json 时才需要 init；我授权本次安装写入项目级 Hook 与 MCP 红区配置，并放行 zcode/opencode 的预览能力。everything 已内含 provision，无需再写 --provision。只写目标项目，不修改全局 Agent、MCP 或 Git 配置；报告实际写入与未完成项。
+
+等价命令：
+
+```bash
+pnpm install
+pnpm vibe-harness init --project ../full-project --targets codex,zcode,opencode --preset everything
+pnpm vibe-harness install --project ../full-project --dry-run
+pnpm vibe-harness install --project ../full-project --write --confirm-red-zone
+pnpm vibe-harness validate --project ../full-project
+pnpm vibe-harness doctor --project ../full-project
+```
+
+`--preset everything` 展开为 `profile=full`、六个稳定工具插件、linear-mcp 读写端点与 memory 模块，并隐含放行预览能力和安装后 provision；它不改变 `--plugin all` 仍不含 Linear 的既有语义。红区写入仍必须显式使用 `--confirm-red-zone`。init 写入的配置：
+
+```json
+{
+  "targets": ["codex", "zcode", "opencode"],
+  "profile": "full",
+  "preset": "everything"
+}
+```
+
 ## 快速开始
 
 需要 pnpm 10+，以及 Node.js 20.19+、22.18+ 或 24+。

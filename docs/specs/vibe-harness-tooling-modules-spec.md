@@ -49,6 +49,14 @@ Linear 另有两个需要认证的显式外部集成：linear-mcp 配置读写 e
 
 选择优先级为 CLI `--plugin`、`vibe-harness.config.json` 的 `plugins`、install-state 的 `requestedPlugins`、空集合。install-state 同时保存 `requestedPlugins` 与 `resolvedModules`；validate、doctor、baseline、diff、reinstall 和 provision 复用该状态。卸载与 rollback 仅处理状态拥有的插件文件、runtime、缓存与 MCP 受管块。
 
+## 安装预设
+
+<code>manifests/install-presets.json</code> 与 <code>schemas/install-preset.schema.json</code> 声明项目级安装预设，<code>scripts/lib/install-preset.js</code> 负责目录校验与唯一解析入口。预设是聚合选择面：它把 profile、插件、模块、预览放行与 provision 组合成一次声明，由 <code>resolveInstallSurface()</code> 解析为 effective profile、plugins、modules、allowPreview 与 provision；install-state 仍只记录展开后的 <code>requestedPlugins</code> 与 <code>requestedModules</code>，因此 validate、doctor、diff、baseline 与 provision 重放的是同一安装面。
+
+当前只有 `everything` 一个预设，展开为 `profile=full`、6 个稳定工具插件、`linear` 读写模块与 `memory` 模块，并隐含 `--allow-preview` 与 `--provision`；它不隐含 `--confirm-red-zone`，红区写入仍须显式确认。
+
+预设不改变既有选择语义：`full` 与 `--plugin all` 的展开结果保持不变，`--plugin all` 仍只含 6 个稳定工具、不含 Linear；Linear 只能由显式插件选择或由预设显式带出。CLI 的 `--profile`、`--modules`、`--plugin` 与已声明的 preset 不得并存，`vibe-harness.config.json` 中 preset 存在时也不得同时声明 `plugins` 或 `modules`，避免配置与 install-state 静默分叉。`init --preset` 只写入配置，`install --preset` 在配置缺少该预设时于同一安装事务内补齐；配置属红区，真实写入仍须 `--confirm-red-zone`。
+
 ## 固定版本与入口
 
 | 插件 | 固定版本 | 项目内入口 |

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { pathExists } from './manifest.js';
 import { renderTemplate } from './template-renderer.js';
 import { parsePluginsOption, resolveModuleSelection } from './module-selection.js';
+import { installPresetForId, parsePresetOption } from './install-preset.js';
 import { assertPortableRelativePath } from './manifest.js';
 import { validateJsonAgainstSchema } from './schema-validation.js';
 import { safeJsonParse } from './safe-json.js';
@@ -141,7 +142,25 @@ export function createDefaultProjectConfig(projectDir, target = 'codex', profile
   };
 }
 
-export async function writeDefaultProjectConfig({ force = false, projectDir, profile = 'core', target = 'codex' }) {
+/** @param {unknown} value */
+export function parseTargetsOption(value) {
+  const values = Array.isArray(value) ? value : [value];
+  const tokens = values
+    .flatMap((item) => typeof item === 'string' ? item.split(',') : [])
+    .map((item) => item.trim());
+  if (tokens.length === 0 || tokens.some((token) => token.length === 0)) {
+    throw new Error('--targets requires a comma-separated adapter list.');
+  }
+  if (new Set(tokens).size !== tokens.length) {
+    throw new Error('--targets must not contain duplicate adapters.');
+  }
+  for (const token of tokens) {
+    if (!mvpTargets.has(token)) throw new Error('Unknown target: ' + token);
+  }
+  return tokens;
+}
+
+export async function writeDefaultProjectConfig({ force = false, preset, projectDir, profile = 'core', target = 'codex', targets }) {
   const configPath = path.join(projectDir, productIdentity.configFile);
   if (!force && await pathExists(configPath)) {
     throw new Error(`Refusing to overwrite existing config: ${configPath}`);
@@ -149,7 +168,26 @@ export async function writeDefaultProjectConfig({ force = false, projectDir, pro
   await mkdir(projectDir, { recursive: true });
   if (!mvpTargets.has(target)) throw new Error(`Unknown target: ${target}`);
   validateProfileName(profile);
-  const config = createDefaultProjectConfig(projectDir, target, profile);
+  const selectedTargets = targets ?? [target];
+  if (!Array.isArray(selectedTargets) || selectedTargets.length === 0) {
+    throw new Error('init requires at least one target.');
+  }
+  if (new Set(selectedTargets).size !== selectedTargets.length) {
+    throw new Error('init must not contain duplicate targets.');
+  }
+  for (const id of selectedTargets) {
+    if (!mvpTargets.has(id)) throw new Error('Unknown target: ' + id);
+  }
+  const presetId = preset === undefined ? undefined : parsePresetOption(preset);
+  const presetProfile = presetId ? installPresetForId(presetId).profile : null;
+  if (presetId && profile !== presetProfile) {
+    throw new Error('preset ' + presetId + ' requires profile ' + presetProfile + ', received ' + profile + '.');
+  }
+  const config = {
+    ...createDefaultProjectConfig(projectDir, selectedTargets[0], profile),
+    ...(presetId ? { preset: presetId } : {}),
+    targets: [...selectedTargets],
+  };
   await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
   return { config, path: configPath };
 }
@@ -285,6 +323,20 @@ export function validateProjectConfig(config) {
     throw new Error(`Unknown target: ${config.target}`);
   }
   validateProfileName(config.profile);
+  if (Object.hasOwn(config, 'preset')) {
+    const presetId = parsePresetOption(config.preset);
+    const preset = installPresetForId(presetId);
+    if (config.profile !== preset.profile) {
+      throw new Error('vibe-harness.config.json preset ' + presetId + ' requires profile '
+        + preset.profile + ', found ' + config.profile + '.');
+    }
+    for (const field of ['modules', 'plugins']) {
+      if (Object.hasOwn(config, field)) {
+        throw new Error('vibe-harness.config.json preset ' + presetId
+          + ' already declares the install surface; remove ' + field + ' or drop the preset.');
+      }
+    }
+  }
   if (Object.hasOwn(config, 'modules')) {
     resolveModuleSelection({ requestedModules: config.modules, rolesEnabled: config.roles?.enabled });
   }

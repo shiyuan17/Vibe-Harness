@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    {
+      "id": "everything",
+      "description": "全量安装：full profile、全部稳定工具插件、Linear 读写集成与 memory 资产；默认放行预览能力，并在真实写入后执行 provision。",
+      "profile": "full",
+      "addModules": ["memory"],
+      "plugins": { "all": true, "add": ["linear"] },
+      "allowPreview": true,
+      "provision": true
+    }
+  ]
+}
