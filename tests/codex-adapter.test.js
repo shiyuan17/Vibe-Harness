@@ -42,6 +42,11 @@ test('Codex Hook projection embeds one bootstrap source and no duplicated Window
   const template = await readFile(path.join(rootDir, 'adapters/codex/hooks.template.json'), 'utf8');
   const rendered = JSON.parse(renderTemplate(template));
   const payload = (await readFile(path.join(rootDir, 'scripts/lib/hook-bootstrap.cjs'), 'utf8')).replace(/\r?\n$/u, '');
+  // PreToolUse has to reach every local function tool. The previous matcher was
+  // an allowlist of tool names, so a newly added host tool silently skipped the
+  // safety policy; `.*` is anchored by the host and keeps the check in one
+  // place instead of relying on the special meaning of `*`.
+  assert.equal(rendered.hooks.PreToolUse[0].matcher, '.*');
   for (const event of ['PreToolUse', 'PermissionRequest']) {
     const handler = rendered.hooks[event][0].hooks[0];
     assert.equal(handler.type, 'command', event);

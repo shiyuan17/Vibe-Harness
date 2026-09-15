@@ -306,12 +306,29 @@ export function commandWrites(segment) {
 /** Tools that ask a host or MCP server to return something without mutating it. */
 const READ_ONLY_TOOL_PATTERN = /^(?:read|glob|grep|search|view|inspect|list|status|get|show|fetch|query|websearch|webfetch)$/iu;
 
+/**
+ * Local host function tools whose names carry no read verb. They are listed
+ * explicitly because the verb table above cannot infer intent from
+ * `update_plan` (a host-local checklist, not a workspace file), `view_image`
+ * (returns pixels), the sub-agent surfaces, or the thread/automation read
+ * tools; an unclassified tool still fails closed with
+ * `EXECUTION_ENVELOPE_MISSING`, which would force an Execution Envelope for
+ * calls that cannot touch the workspace.
+ *
+ * Calls that mutate host state stay out of this list on purpose:
+ * `write_stdin`, `create_thread`, `fork_thread`, `automation_update`,
+ * `handoff_thread`, `set_thread_*`, `send_message_to_thread` and
+ * `followup_task` keep the Envelope path, and so does every tool that is not
+ * named here.
+ */
+const READ_ONLY_HOST_TOOL_PATTERN = /^(?:agent|get_goal|get_handoff_status|list_agents|list_archived_threads|list_projects|list_threads|read_file|read_thread|read_thread_terminal|spawn_agent|task|update_plan|view_image|wait_threads)$/iu;
+
 /** Tools that mutate workspace files. */
 export const WORKSPACE_TOOL_PATTERN = /(?:^|__|\.)(?:apply_?patch|write(?:_file)?|edit(?:_file)?|delete(?:_file)?|remove(?:_file)?|move(?:_file)?|rename(?:_file)?|create(?:_file|_directory)?|mkdir)(?:$|__)/iu;
 
 /** @param {string} toolName @returns {boolean} */
 export function isReadOnlyToolName(toolName) {
-  return READ_ONLY_TOOL_PATTERN.test(toolName);
+  return READ_ONLY_TOOL_PATTERN.test(toolName) || READ_ONLY_HOST_TOOL_PATTERN.test(toolName);
 }
 
 /** @param {string} toolName @returns {boolean} */

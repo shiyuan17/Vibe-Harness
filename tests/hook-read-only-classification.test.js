@@ -285,6 +285,74 @@ test('network output to a generic environment-variable path is not credential ex
   });
 });
 
+/**
+ * Local host function tools that cannot touch the workspace. Their names carry
+ * no read verb (`update_plan` is a host-local checklist, `view_image` returns
+ * pixels), so the shared verb table cannot classify them and they are listed
+ * explicitly instead.
+ */
+const READ_ONLY_HOST_TOOLS = [
+  'view_image',
+  'update_plan',
+  'Agent',
+  'spawn_agent',
+  'task',
+  'read_file',
+  'read_thread',
+  'read_thread_terminal',
+  'list_threads',
+  'list_archived_threads',
+  'wait_threads',
+  'list_agents',
+  'list_projects',
+  'get_goal',
+  'get_handoff_status',
+];
+
+/**
+ * Host tools that mutate host state or drive other agents. They keep the
+ * Execution Envelope path, so a project without an Envelope denies them
+ * instead of letting them through unclassified, and every tool that is not
+ * named in either table behaves the same way.
+ */
+const ENVELOPE_HOST_TOOLS = [
+  'write_stdin',
+  'create_thread',
+  'fork_thread',
+  'automation_update',
+  'handoff_thread',
+  'set_thread_title',
+  'send_message_to_thread',
+  'followup_task',
+];
+
+test('local host function tools that cannot touch the workspace are allowed without an Execution Envelope', async () => {
+  await withProject(async (target) => {
+    for (const toolName of READ_ONLY_HOST_TOOLS) {
+      const normalized = request(target, { tool_input: {}, tool_name: toolName });
+      const classification = classifyExecutionEffects(normalized);
+      assert.equal(classification.readOnly, true, toolName);
+      assert.equal(classification.unknown, false, toolName);
+      assert.deepEqual(classification.effects, [], toolName);
+      assert.deepEqual(classification.highRiskReasons, [], toolName);
+      assert.equal(analyzeToolRequest(normalized, policyOptions(target)).action, 'allow', toolName);
+      assert.deepEqual(await evaluateCodexHook(input(target, { tool_input: {}, tool_name: toolName })), {}, toolName);
+    }
+  });
+});
+
+test('host tools that mutate host state or drive another agent still require an Execution Envelope', async () => {
+  await withProject(async (target) => {
+    for (const toolName of ENVELOPE_HOST_TOOLS) {
+      const normalized = request(target, { tool_input: {}, tool_name: toolName });
+      assert.equal(classifyExecutionEffects(normalized).readOnly, false, toolName);
+      const result = await evaluateCodexHook(input(target, { tool_input: {}, tool_name: toolName }));
+      assert.equal(result.hookSpecificOutput.permissionDecision, 'deny', toolName);
+      assert.match(result.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u, toolName);
+    }
+  });
+});
+
 test('read-only MCP tools pass while write-class MCP tools still need an Envelope', async () => {
   await withProject(async (target) => {
     const reads = [
