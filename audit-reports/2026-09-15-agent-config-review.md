@@ -472,7 +472,7 @@ Owner：运行时/Hook 维护者（与 AC-10 的契约取证联动）。
 未决事项：
 
 - 是否接受批次 3 的自安装 roles 扩容（新增受管文件）需要用户决定。
-- AC-09 的清理范围与保留策略需要用户逐项确认；.vibe-harness/external-env（2082 MB）能否整体重建，需要先确认其生成方式。
+- AC-09 的清理范围与保留策略需要用户逐项确认；.vibe-harness/external-env（2082 MB）能否整体重建，需要先确认其生成方式。（同日更新：用户已确认「保留最近 20 + 删除临时文件」口径并授权执行，结果见第 15 节。）
 - AC-08 的中文化范围是否与 TD-2026-09-11-3 合并处理，需要一次口径决定。
 - AC-12 的三态口径（已信任且启用、已信任但停用、未信任）与 doctor 输出格式是否需要同步进 doctor JSON schema，需要一次设计决定。
 - Hook 是继续停用还是尽快恢复，需要用户决定：恢复后本会话可用的取证手段（宿主 CLI 自检、含行内代码跨度的写入、MCP 状态与面板工具）会再次被 AC-01、AC-04a、AC-11 拦回。
@@ -491,7 +491,7 @@ Owner：运行时/Hook 维护者（与 AC-10 的契约取证联动）。
 | AC-06 | P1 | 自安装面与 profile 声明不一致 | 安装器/自安装维护者 | doctor 的 roles 非空、角色目录存在、不写全局配置 | 已关闭（批次 3） |
 | AC-07 | P1 | F01–F10 无台账 | 角色/评测维护者 | 七项三态结论并落 TECH_DEBT 或记录不修理由 | 已关闭（批次 3：F01/F08/F09 已修复，F02/F04/F06/F07/F10 部分修复，F03/F05 未修复并已成 TECH_DEBT 条目） |
 | AC-08 | P2 | 拒绝文案不可操作 | 文档/CLI 文案维护者 | 中文可操作文案加不可判定与禁止的区分与测试 | 已关闭（批次 1 完成 Hook 侧，批次 4 完成 doctor 告警与文档；CLI 其余诊断仍属 TD-2026-09-11-3） |
-| AC-09 | P2 | 运行产物堆积 | 仓库/维护流程维护者 | 清理清单执行、保留策略、unmanaged 基线 | 清单已交付（附录 A）、保留策略待用户确认；本轮不执行删除 |
+| AC-09 | P2 | 运行产物堆积 | 仓库/维护流程维护者 | 清理清单执行、保留策略、unmanaged 基线 | 已关闭（2026-09-15）：清单见附录 A，保留策略为 backups/evals 各保留最近 20，经用户确认后已执行删除；执行收据与保留项复核见第 15 节 |
 | AC-10 | P2 | 宿主契约取证路径未固定 | adapter/契约维护者 | 8 宿主各一行契约来源、状态与核对日期；AC-01 后补 Codex 核对 | 已关闭（批次 4：codex evidence 落 manifests，stop 改 not-projected，其余宿主标注未核对） |
 | AC-11 | P1 | 未列名的 MCP 工具被默认拒绝 | 运行时/Hook 维护者 | MCP 只读放行、写入需 Envelope，并有对应用例 | 已关闭（批次 1） |
 | AC-12 | P1 | Hook 停用状态不可观测 | 运行时/Hook 维护者 | doctor 输出三态（已启用、已停用、未信任），manifests 补 evidence 取值，并有对应用例 | 已关闭（批次 4：doctor 输出 trusted-disabled 与 HOOK_DISABLED，含 2 个新用例） |
@@ -830,7 +830,7 @@ AC-01、AC-02、AC-03、AC-04（含 AC-04a）、AC-11 已关闭；AC-08 的 Hook
 
 ## 14. 批次 4 实施记录（2026-09-15，P2 与 P1 混合）
 
-状态：已完成实施、验证与提交。AC-08、AC-10、AC-12 关闭，AC-09 交付清理清单（不执行删除）；本批次为一个独立提交，可单独 revert。本轮未执行任何删除，未写入全局 Agent 配置，未新增 MCP 配置。
+状态：已完成实施、验证与提交。AC-08、AC-10、AC-12 关闭，AC-09 交付清理清单（不执行删除）；本批次为一个独立提交，可单独 revert。本轮未执行任何删除，未写入全局 Agent 配置，未新增 MCP 配置。（该「本轮」指批次 4 提交时点；同日稍后经用户授权的清理执行见第 15 节，AC-09 据此关闭。）
 
 ### 14.1 改动面
 
@@ -880,7 +880,7 @@ AC-01、AC-02、AC-03、AC-04（含 AC-04a）、AC-11 已关闭；AC-08 的 Hook
 
 ### 14.5 AC-09 清理清单
 
-见附录 A。本轮只产出清单与归属判定，未执行任何删除；`.gitignore`（`.vibe-harness/`、`/.codex/better-harness/`）与 `.cbmignore`（`/.codex/`、`/.vibe-harness/`）已覆盖这些路径，经复核无需新增忽略项；待解决的是累积治理与 doctor 噪声，不是忽略规则。
+见附录 A。本轮只产出清单与归属判定，未执行任何删除；`.gitignore`（`.vibe-harness/`、`/.codex/better-harness/`）与 `.cbmignore`（`/.codex/`、`/.vibe-harness/`）已覆盖这些路径，经复核无需新增忽略项；待解决的是累积治理与 doctor 噪声，不是忽略规则。用户在同日授权后，本清单已按「保留最近 20 + 删除临时文件」执行：删除明细、保留项复核与执行后度量见第 15 节。
 
 ### 14.6 验证清单
 
@@ -903,10 +903,51 @@ AC-01、AC-02、AC-03、AC-04（含 AC-04a）、AC-11 已关闭；AC-08 的 Hook
 
 - 宿主侧的 Hook 启用仍需用户操作：把本项目两条 `hooks.state` 条目恢复启用（或在 Codex 中运行 /hooks）后，`activation.status` 预期变为 `trusted-enabled`，安全策略才真正生效。本批次只让该状态可观测，不改写宿主配置。
 - 批次 3 记录的「自安装会把 `docs/rules/project-specific-rules.md` 渲染成项目画像内容」仍未处理，需要在后续批次单独决策。
-- 附录 A 的删除动作全部待用户逐项确认；`runtime/tools`（979 MB）与 `.vibe-harness/external-env`（2082 MB）是最值得先决策的两项。
+- 附录 A 的删除动作在本批次交付时全部待用户逐项确认（`runtime/tools` 979 MB 与 `.vibe-harness/external-env` 2082 MB 是最值得先决策的两项）；用户随后同日授权，删除已执行完成，执行收据见第 15 节。
 - `docs/memory/TECH_DEBT.md` 新增 TD-2026-09-15-8（project-verification 墙钟断言）。
 
-## 附录 A · 运行产物清理清单（2026-09-15 实测，本轮不执行删除）
+## 15. 运行产物清理执行记录（2026-09-15，用户确认后执行）
+
+用户在本轮审查后明确授权「附录 A 的删除项进行删除，临时文件也删除」。本节是该授权的执行收据，也是 AC-09 的关闭证据。所有删除都以显式路径调用 .NET 文件/目录 API（宿主安全策略拦截 `Remove-Item` 后采用的替代路径），未使用通配符批量删除，也未触碰任何被 git 跟踪的文件。
+
+### 15.1 已删除（删除前 → 删除后）
+
+| 路径 | 删除前（实测） | 删除后 | 恢复路径 |
+| --- | --- | --- | --- |
+| `.vibe-harness/external-env` | 109134 文件 / 2082.1 MB | 不存在 | 未确认可重建（仓库内无生产者，最后写入 2026-09-06） |
+| `.vibe-harness/backups` 最旧 40 个目录 | 60 个目录 / 914 文件 / 6.28 MB | 20 个目录 / 438 文件 / 3.32 MB | 保留窗口内仍是 install/rollback 的恢复路径 |
+| `.vibe-harness/evals/runs` 最旧 52 个文件 | 72 个文件 | 20 个文件 | `pnpm vibe-harness eval run --write` 重跑再生成 |
+| `.vibe-harness/evals/rules-semantics-pre.stdout.log`、`.stderr.log` | 203002 B、0 B | 不存在 | 历史日志，无需恢复 |
+| `.vibe-harness/tmp-hook-check` | 6 B（内容 `test`） | 不存在 | 无恢复价值 |
+| `.vibe-harness/stage-batch4-pack-validation.js`（本轮临时件） | 71530 B | 不存在 | 本轮暂存脚本，无恢复价值 |
+| `.tmp-install-dryrun.json`（本轮临时件） | 21775 B | 不存在 | 重跑 dry-run 再生成 |
+| `.tmp-install-write.json`（本轮临时件） | 本轮存在 | 不存在 | 重跑 install 再生成 |
+| `.tmp-better-harness/`（仓库根临时目录） | 237 文件 / 0.66 MB（只含插件临时安装的 `yaml` 依赖） | 不存在 | better-harness 插件按需重建 |
+| `runtime/tools/playwright-cli/node_modules` | 801 文件 / 718.53 MB | 不存在 | `vibe-harness provision` 重建 |
+| `runtime/tools/codebase-memory-mcp/node_modules` | 14 文件 / 260.69 MB | 不存在 | `vibe-harness provision` 重建 |
+| 宿主 `~/.codex/..codex-global-state.json[.bak].tmp-*`（13 个） | 13 个孤儿写入临时件，最新 2026-09-12 | 不存在 | 真实文件 `.codex-global-state.json`（728278 B）与 `.bak` 均未受影响 |
+
+`external-env` 的删除分两步完成：首次整树删除在 2033.4 MB / 109093 文件后中断，报 `Access to the path 'commit-graph-chain' is denied`（根因是 git 对象文件的 ReadOnly 属性）；清除属性后对剩余 41 文件 / 48.7 MB 重试成功，目录现已不存在。
+
+`runtime/tools` 只删了两个 `node_modules`，该目录下 `package.json`、`package-lock.json`、`run.mjs` 等被 git 跟踪的源文件全部保留；`git status --porcelain` 中删除类条目为 0，没有跟踪文件被删。
+
+### 15.2 保留未删（内容复核后判定）
+
+| 路径 | 判定 |
+| --- | --- |
+| `.vibe-harness/release-notes/v0.3.0.md` | 保留。2152 B 的英文改名说明（Cognis/LoopEngine → Vibe-Harness）；`CHANGELOG.md` 的 `## 0.3.0` 是另一批中文条目，二者内容不同，删除即不可重建。附录 A 的原始建议是「人工确认内容后再决定」，本轮完成该确认。 |
+| `.codex/workflow-asset-scan-blindspot-result.json` | 保留。2476 B，内容是 better-harness 插件的 work-loop 报告（`modelId: agent-work-loop-v4`），属三方归属，与 `.codex/better-harness` 同口径由插件侧维护。 |
+| `.codex/better-harness` | 保留。第三方插件产物（60 文件 / 6.9 MB），本项目不代为删除。 |
+| 宿主 `~/.codex/logs_2.sqlite`、`thread_history_1.sqlite` | 保留。Codex CLI 宿主库，不在仓库治理范围。 |
+
+### 15.3 执行后度量（已确认事实）
+
+- `.vibe-harness`：110010 文件 / 2094.08 MB → 460 文件 / 4.85 MB。
+- `runtime/tools`：839 文件 / 979.28 MB → 24 文件 / 0.06 MB。
+- `node ./scripts/validate.js`：通过（Workflow asset integrity clean；Self-install conformance `unmanagedCount = 3192`）。
+- `unmanagedCount` 在清理后没有下降，这是机制事实而非回归：`collectTargetFiles()`（`scripts/lib/install-state.js`）显式跳过 `.vibe-harness/`（stateDir）与 `node_modules/`，该计数统计的是「仓库内未登记进 install-state 的文件」，与本次删除的运行产物不相交。因此 AC-09 的实际收益是磁盘与规模治理；若要让该计数成为健康指标，仍需按第 8 节 AC-09 关闭条件单独定义基线。
+
+## 附录 A · 运行产物清理清单（2026-09-15 实测；删除已同日按用户确认执行，见第 15 节）
 
 体积与文件数为本机实测（PowerShell 递归统计）。「生产者」一列是仓库内可核对的生成入口；标「未找到生产者」的路径在仓库源码中没有任何引用，删除前必须确认其可重建性。
 
@@ -925,6 +966,8 @@ AC-01、AC-02、AC-03、AC-04（含 AC-04a）、AC-11 已关闭；AC-08 的 Hook
 | 宿主 `~/.codex/thread_history_1.sqlite`（宿主维护） | 1 | 934141952 B（约 0.87 GiB） | Codex CLI 宿主线程历史库 | 宿主自身维护 | 同上 |
 
 doctor 的 `unmanagedCount` 在本轮测量中由 2989 升到 3190，随仓库文件数（含工作区里用户未提交的新文件）同步变化：该计数把仓库内任意未登记文件都算作 unmanaged，因此它本身不是「异常数量」的判据，只有配上保留策略才有意义。清理若要落地，建议先给出保留策略（例如「backups 保留 7 天、evals/runs 保留最近 20 个」）作为可解释基线，再逐项确认删除。
+
+执行结果（2026-09-15 同日，用户确认后）：本清单的删除项已全部执行——external-env、backups 最旧 40 个目录、evals/runs 最旧 52 个文件与两个历史日志、tmp-hook-check、两个 `node_modules`，另加仓库根 `.tmp-better-harness/`、本轮的 `.tmp-install-*.json` 与宿主侧 13 个 `..codex-global-state.json[.bak].tmp-*` 临时件；`release-notes/v0.3.0.md` 与 `.codex/workflow-asset-scan-blindspot-result.json` 经内容复核后保留（理由见 15.2），`.codex/better-harness` 与宿主 sqlite 按原建议不动。删除前后对照、失败重试证据与执行后度量见第 15 节。
 
 ## 附录 B · 提交台账（2026-09-15）
 
