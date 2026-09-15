@@ -123,16 +123,30 @@ test('schema-validated config rejects an out-of-range repetitions value', () => 
   );
 });
 
-test('validateProjectConfig rejects forbidden source-project terms in projectName', () => {
+test('validateProjectConfig enforces config-declared forbidden terms in projectName', () => {
+  const withTerms = {
+    ...defaultProjectConfig,
+    forbiddenProjectTerms: ['SYBaseProjectWeb', '病理'],
+  };
   assert.throws(
-    () => validateProjectConfig({ ...defaultProjectConfig, projectName: 'SYBaseProjectWeb-clone' }),
+    () => validateProjectConfig({ ...withTerms, projectName: 'SYBaseProjectWeb-clone' }),
     /forbidden source-project term/u,
   );
   assert.throws(
-    () => validateProjectConfig({ ...defaultProjectConfig, projectName: 'contains-病理-data' }),
+    () => validateProjectConfig({ ...withTerms, projectName: 'contains-病理-data' }),
     /forbidden source-project term/u,
   );
-  assert.equal(validateProjectConfig(defaultProjectConfig), true);
+  assert.equal(validateProjectConfig(withTerms), true);
+  // The pack core carries no predecessor identifiers: without a declared list,
+  // projectName validation only checks that it is a non-empty string.
+  assert.equal(
+    validateProjectConfig({ ...defaultProjectConfig, projectName: 'SYBaseProjectWeb-clone' }),
+    true,
+  );
+  assert.throws(
+    () => validateProjectConfig({ ...withTerms, forbiddenProjectTerms: ['dup', 'dup'] }),
+    /forbiddenProjectTerms must not contain duplicates/u,
+  );
 });
 
 test('project verification executes eval after lint, typecheck, and test', async () => {

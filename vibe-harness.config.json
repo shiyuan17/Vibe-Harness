@@ -1,5 +1,11 @@
 {
   "projectName": "Vibe-Harness",
+  "forbiddenProjectTerms": [
+    "SYBaseProjectWeb",
+    "SYBaseProject",
+    "病理",
+    "localhost:5777"
+  ],
   "language": "zh-CN",
   "packageManager": "pnpm",
   "profile": "full",

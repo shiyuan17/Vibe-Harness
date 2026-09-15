@@ -732,6 +732,20 @@
       "audiences": ["contributor", "maintainer"]
     },
     {
+      "path": "docs/schemas/project-config.schema.json",
+      "kind": "spec",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer", "auditor"]
+    },
+    {
+      "path": "schemas/project-config.schema.json",
+      "kind": "spec",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer", "user"]
+    },
+    {
       "path": "docs/schemas/harness-eval-scenario.schema.json",
       "kind": "spec",
       "status": "current",

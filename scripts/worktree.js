@@ -49,6 +49,10 @@ function printUsage() {
   console.log('  --json                   print the complete audit');
   console.log();
   console.log('This command never runs `git worktree remove`, `git worktree prune` or a branch delete.');
+  console.log();
+  console.log('Development-side audit only: worktrees are created, linked and removed through the');
+  console.log('project-side runner `node .agents/runtime/commands/run.mjs worktree <bootstrap|cleanup>');
+  console.log('--project <path> --json` (dry-run until `--write`), not by this tool.');
 }
 
 function usageError(message) {

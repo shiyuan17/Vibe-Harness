@@ -83,7 +83,7 @@ function parseArgs(argv) {
     ['allow-manual', 'allowManual'],
     ['no-numbers', 'numbers'],
   ]);
-  const booleanFlags = new Set(['json', 'plan', 'allow-manual', 'no-numbers', 'strict', 'write', 'deep']);
+  const booleanFlags = new Set(['json', 'plan', 'allow-manual', 'no-numbers', 'strict', 'write', 'deep', 'help']);
   const valueFlags = new Set(['project', 'base', 'only', 'timeout', 'output', 'task', 'base-ref', 'branch-prefix', 'file', 'from', 'to', 'spec', 'root']);
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
@@ -1097,7 +1097,7 @@ async function worktreeReport(projectDir, args) {
   if (subcommand === 'check') return worktreeCheckReport(projectDir, args);
   if (subcommand === 'bootstrap') return worktreeBootstrapReport(projectDir, args);
   if (subcommand === 'cleanup') return worktreeCleanupReport(projectDir, args);
-  throw new Error(`Unknown worktree subcommand: ${subcommand}`);
+  throw new Error(`Unknown worktree subcommand: ${subcommand} (expected list, check, bootstrap or cleanup)`);
 }
 
 function detectEol(text) {
@@ -1313,6 +1313,12 @@ function summary(report) {
     return lines.join('\n');
   }
   const lines = [`command: ${report.command}`, `status: ${report.status}`];
+  // The help receipt carries the usage contract; without this block it only
+  // surfaced under --json, so the summary path answered --help with nothing.
+  if (report.command === 'help') {
+    lines.push(report.usage);
+    if (report.worktree) lines.push(report.worktree);
+  }
   if (report.command === 'verify') {
     for (const [name, item] of Object.entries(report.checks ?? {})) lines.push(`${name}: ${item.status}`);
   }
@@ -1322,7 +1328,7 @@ function summary(report) {
 
 export async function runCommand(argv, { cwd = process.cwd() } = {}) {
   const args = parseArgs(argv);
-  const command = args._[0] ?? 'help';
+  const command = args.help ? 'help' : (args._[0] ?? 'help');
   if (args.output && !['json', 'summary'].includes(args.output)) throw new Error(`Unknown output format: ${args.output}`);
   const projectDir = path.resolve(cwd, args.project ?? '.');
   let report;
@@ -1333,7 +1339,13 @@ export async function runCommand(argv, { cwd = process.cwd() } = {}) {
   else if (command === 'worktree') report = await worktreeReport(projectDir, args);
   else if (command === 'slice') report = await sliceReport(projectDir, args);
   else if (command === 'patch') report = await patchReport(projectDir, args);
-  else if (command === 'help') report = { schemaVersion: SCHEMA_VERSION, command, status: 'ready', usage: 'run.mjs <env|context|changes|verify|worktree|slice|patch> --project <path> [--json]' };
+  else if (command === 'help') report = {
+    schemaVersion: SCHEMA_VERSION,
+    command,
+    status: 'ready',
+    usage: 'run.mjs <env|context|changes|verify|worktree|slice|patch> --project <path> [--json]',
+    worktree: 'run.mjs worktree <list|check|bootstrap|cleanup> --project <path>: bootstrap and cleanup stay dry-run until --write; cleanup refuses branches not merged into worktree.baseRef',
+  };
   else throw new Error(`Unknown command: ${command}`);
   return { args, report, exitCode: ['passed', 'ready', 'planned'].includes(report.status) ? 0 : 1 };
 }

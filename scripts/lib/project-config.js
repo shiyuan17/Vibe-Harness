@@ -102,13 +102,6 @@ export const defaultProjectConfig = {
   },
 };
 
-export const forbiddenProjectTerms = [
-  'SYBaseProjectWeb',
-  'SYBaseProject',
-  '病理',
-  'localhost:5777',
-];
-
 let cachedProjectConfigSchema;
 
 function loadProjectConfigSchema() {
@@ -305,7 +298,12 @@ export function validateProjectConfig(config) {
     });
   }
   assertNonEmptyString(config.projectName, 'projectName');
-  const matchedTerm = forbiddenProjectTerms.find((term) => config.projectName.includes(term));
+  // Forbidden terms are declared per project: identifiers from a private
+  // predecessor belong in that project's config, not in the generic pack.
+  if (Object.hasOwn(config, 'forbiddenProjectTerms')) {
+    assertUniqueStringArray(config.forbiddenProjectTerms, 'forbiddenProjectTerms');
+  }
+  const matchedTerm = (config.forbiddenProjectTerms ?? []).find((term) => config.projectName.includes(term));
   if (matchedTerm) {
     throw Object.assign(
       new Error(`projectName must not contain forbidden source-project term: ${matchedTerm}`),

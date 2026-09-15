@@ -115,6 +115,15 @@ test('help advertises every project command including worktree, slice and patch'
     result.report.usage,
     'run.mjs <env|context|changes|verify|worktree|slice|patch> --project <path> [--json]',
   );
+  assert.match(result.report.worktree, /worktree <list\|check\|bootstrap\|cleanup>/u);
+  assert.match(result.report.worktree, /dry-run until --write/u);
+});
+
+test('the --help flag routes to the help receipt from any command position', async () => {
+  const result = await runCommand(['worktree', '--help'], { cwd: rootDir });
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.report.command, 'help');
+  assert.equal(result.report.status, 'ready');
 });
 
 test('core installation provides a standalone project command runner', async () => {

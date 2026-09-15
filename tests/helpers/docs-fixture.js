@@ -19,6 +19,7 @@ export const GOVERNED_SCHEMAS = [
   'harness-eval-fixture',
   'harness-eval-result',
   'harness-eval-scenario',
+  'project-config',
   'project-verification',
   'role-pack',
 ];
