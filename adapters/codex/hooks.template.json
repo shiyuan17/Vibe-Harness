@@ -6,7 +6,6 @@
           {
             "type": "command",
             "command": "{{hookBootstrapCommand}} --expected-event PermissionRequest",
-            "commandWindows": "{{hookBootstrapCommand}} --expected-event PermissionRequest",
             "timeout": 10,
             "statusMessage": "Checking Vibe-Harness safety policy"
           }
@@ -20,7 +19,6 @@
           {
             "type": "command",
             "command": "{{hookBootstrapCommand}} --expected-event PreToolUse",
-            "commandWindows": "{{hookBootstrapCommand}} --expected-event PreToolUse",
             "timeout": 10,
             "statusMessage": "Checking Vibe-Harness safety policy"
           }

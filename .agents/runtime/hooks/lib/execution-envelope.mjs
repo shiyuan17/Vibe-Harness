@@ -685,7 +685,9 @@ function samePath(left, right) {
 
 function gitOutput(cwd, args) {
   try {
-    return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true }).trim();
+    // Bounded like lib/context.mjs: an unbounded Git call inside PreToolUse can
+    // outlive the host Hook timeout, and a host timeout is not a blocked call.
+    return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000, windowsHide: true }).trim();
   } catch {
     return '';
   }
@@ -717,6 +719,7 @@ function isAncestor(cwd, ancestor, descendant) {
     execFileSync('git', ['merge-base', '--is-ancestor', ancestor, descendant], {
       cwd,
       stdio: 'ignore',
+      timeout: 3000,
       windowsHide: true,
     });
     return true;

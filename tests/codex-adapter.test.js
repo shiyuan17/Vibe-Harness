@@ -4,6 +4,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { readJson } from '../scripts/lib/manifest.js';
+import { renderTemplate } from '../scripts/lib/template-renderer.js';
 
 const rootDir = path.resolve(import.meta.dirname, '..');
 
@@ -35,6 +36,21 @@ test('codex adapter and plugin metadata track the package version', async () => 
   assert.equal(plugin.version, pkg.version);
   assert.equal(Object.hasOwn(hooks, 'notes'), false);
   assert.deepEqual(Object.keys(hooks.hooks).sort(), ['PermissionRequest', 'PreToolUse']);
+});
+
+test('Codex Hook projection embeds one bootstrap source and no duplicated Windows override', async () => {
+  const template = await readFile(path.join(rootDir, 'adapters/codex/hooks.template.json'), 'utf8');
+  const rendered = JSON.parse(renderTemplate(template));
+  const payload = (await readFile(path.join(rootDir, 'scripts/lib/hook-bootstrap.cjs'), 'utf8')).replace(/\r?\n$/u, '');
+  for (const event of ['PreToolUse', 'PermissionRequest']) {
+    const handler = rendered.hooks[event][0].hooks[0];
+    assert.equal(handler.type, 'command', event);
+    assert.equal(handler.timeout, 10, event);
+    // The Windows override only earns its place when it differs from the
+    // cross-platform command; an identical copy is removed from the projection.
+    assert.equal(Object.hasOwn(handler, 'commandWindows'), false, event);
+    assert.equal(handler.command.includes(payload), true, event);
+  }
 });
 
 test('git-deliver Codex metadata disables implicit invocation', async () => {

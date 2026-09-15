@@ -122,11 +122,32 @@ test('full Codex install writes only safety Hook events through the Git-root boo
     const safetyCommands = ['PreToolUse', 'PermissionRequest'].flatMap((event) =>
       hooks[event].flatMap((group) => group.hooks.map((hook) => hook.command)));
     for (const command of safetyCommands) {
-      assert.match(command, /git.*rev-parse.*--show-toplevel/u);
+      // The root is resolved by walking up to `.git`, so the installed command
+      // no longer depends on a Git binary being on PATH.
+      assert.doesNotMatch(command, /rev-parse/u);
+      assert.match(command, /\.git/u);
       assert.match(command, /process\.execPath/u);
       assert.match(command, /codex-hook\.mjs/u);
       assert.doesNotMatch(command, /[A-Za-z]:[\\/]/u);
       assert.doesNotMatch(command, /\$\(|`/u);
+    }
+    // A missing project root or runtime must reach the host as a decision, not
+    // as a non-zero exit that the host records as a failed Hook run.
+    const orphanDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-hook-orphan-'));
+    try {
+      const denials = {
+        PermissionRequest: (decision) => decision.hookSpecificOutput.decision.behavior,
+        PreToolUse: (decision) => decision.hookSpecificOutput.permissionDecision,
+      };
+      for (const [event, readDecision] of Object.entries(denials)) {
+        const command = hooks[event][0].hooks[0].command;
+        const orphaned = await execFileAsync(command, { cwd: orphanDir, shell: true, windowsHide: true });
+        const decision = JSON.parse(orphaned.stdout);
+        assert.equal(readDecision(decision), 'deny', event);
+        assert.match(JSON.stringify(decision), /BOOTSTRAP_UNAVAILABLE/u, event);
+      }
+    } finally {
+      await rm(orphanDir, { force: true, recursive: true });
     }
     const validation = JSON.parse((await execFileAsync(process.execPath, [
       cliPath, 'validate', '--project', target,

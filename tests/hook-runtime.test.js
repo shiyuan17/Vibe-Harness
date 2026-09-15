@@ -722,6 +722,34 @@ test('Hook CLI classifies malformed, oversized, mismatched, and unavailable-cont
   }
 });
 
+test('Hook CLI answers with a fail-closed decision when it outlives its own budget', async () => {
+  const child = spawn(process.execPath, [hookCliPath, '--host', 'codex', '--expected-event', 'PreToolUse'], {
+    env: { ...process.env, VIBE_HARNESS_HOOK_BUDGET_MS: '150' },
+    stdio: ['pipe', 'pipe', 'pipe'],
+    windowsHide: true,
+  });
+  const stdout = [];
+  const stderr = [];
+  child.stdout.on('data', (chunk) => stdout.push(chunk));
+  child.stderr.on('data', (chunk) => stderr.push(chunk));
+  const startedAt = Date.now();
+  // stdin is neither written nor closed: a runtime that waited for the event
+  // forever would be killed by the host, and a host-killed Hook does not block
+  // the tool call. The internal budget has to answer first.
+  const code = await new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('close', resolve);
+  });
+  const elapsedMs = Date.now() - startedAt;
+  child.stdin.destroy();
+  const output = Buffer.concat(stdout).toString('utf8');
+  assert.equal(code, 0);
+  assert.equal(elapsedMs < 5000, true, 'the runtime must answer inside its own budget, not the host timeout');
+  assert.equal(JSON.parse(output).hookSpecificOutput.permissionDecision, 'deny');
+  assert.match(hookCliReason(output), /VIBE_HARNESS_HOOK:HOOK_BUDGET_EXCEEDED/u);
+  assert.equal(Buffer.concat(stderr).toString('utf8'), '');
+});
+
 test('Hook denies destructive Git operations and global Agent configuration writes', async () => {
   await withProject(async (target) => {
     const destructive = await evaluateCodexHook(input(target, {

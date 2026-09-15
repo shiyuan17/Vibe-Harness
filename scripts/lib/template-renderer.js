@@ -1,6 +1,37 @@
+import { readFileSync } from 'node:fs';
+
+// The Hook bootstrap is a real CommonJS file so it can be read, reviewed, and
+// executed on its own; the installed hooks.json embeds its text as the payload
+// of `node -e`. Every host runs that command through its own shell, so the
+// payload may only contain characters that survive cmd.exe, PowerShell, and sh
+// verbatim: a double quote, backslash, backtick, dollar sign, percent sign, or
+// line break would be re-interpreted before Node ever sees the script. The
+// whitelist below is therefore a hard gate, not a style preference.
+//
+// The placeholder is substituted into JSON templates as raw text, so the two
+// quotes that wrap the payload are emitted JSON-escaped (\" rather than ").
+// The host unescapes them while parsing hooks.json, which is what finally hands
+// the shell a quoted `node -e "<payload>"` command.
+const hookBootstrapSourcePath = new URL('./hook-bootstrap.cjs', import.meta.url);
+const hookBootstrapForbiddenPattern = /["\\`$%\r\n]/u;
+
+function renderHookBootstrapCommand() {
+  const source = readFileSync(hookBootstrapSourcePath, 'utf8').replace(/\r?\n$/u, '');
+  const forbidden = source.match(hookBootstrapForbiddenPattern);
+  if (forbidden) {
+    throw new Error(
+      'Hook bootstrap payload contains a shell-unsafe character: ' + JSON.stringify(forbidden[0])
+      + ' (see scripts/lib/hook-bootstrap.cjs).',
+    );
+  }
+  return 'node -e \\"' + source + '\\" --';
+}
+
+export const hookBootstrapCommand = renderHookBootstrapCommand();
+
 const defaultTemplateData = {
   codebaseMemoryStateDirectory: '.vibe-harness',
-  hookBootstrapCommand: 'node -e \\"const{spawnSync}=require(\'node:child_process\'),path=require(\'node:path\');const root=spawnSync(\'git\',[\'rev-parse\',\'--show-toplevel\'],{encoding:\'utf8\'});if(root.error||root.status!==0||!root.stdout.trim()){process.stderr.write(\'Vibe-Harness Hook requires a Git worktree root.\');process.exit(root.status||1)}const hook=path.join(root.stdout.trim(),\'.agents\',\'runtime\',\'hooks\',\'codex-hook.mjs\');const env={...process.env,VIBE_HARNESS_GIT_ROOT:root.stdout.trim()};const child=spawnSync(process.execPath,[hook,...process.argv.slice(1)],{stdio:\'inherit\',env});if(child.error){process.stderr.write(\'Vibe-Harness Hook bootstrap failed.\');process.exit(1)}process.exit(child.status??1)\\" --',
+  hookBootstrapCommand,
   installedSurface: {
     clarificationPostureLine: '',
     codebaseMemoryMcpLine: '',
