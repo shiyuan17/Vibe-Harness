@@ -17,6 +17,7 @@ test('the pack repository is conformant with its own installed copy', async () =
   assert.equal(report.skipped, false);
   assert.deepEqual(report.changed, []);
   assert.deepEqual(report.missing, []);
+  assert.deepEqual(report.orphanedStateTargets, []);
   assert.deepEqual(report.staleProjections, []);
   assert.equal(report.ok, true);
   assert.deepEqual(report.targets, ['codex']);
@@ -66,6 +67,72 @@ test('project-owned memory targets are seeded once and never reported as drift',
     assert.equal(action.projectOwned, true);
     await applyInstallPlan(plan);
     assert.equal(await readFile(decisionsPath, 'utf8'), projectDecisions);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('a registration whose target is gone and unplanned is reported as an orphan', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-orphan-'));
+  try {
+    await mkdir(path.join(target, '.vibe-harness'), { recursive: true });
+    await cp(path.join(rootDir, 'vibe-harness.config.json'), path.join(target, 'vibe-harness.config.json'));
+    const state = JSON.parse(await readFile(path.join(rootDir, '.vibe-harness/install-state.json'), 'utf8'));
+    // Clone a real entry so the schema stays satisfied, then point it at a
+    // target this pack does not ship and that is absent from the project.
+    const template = state.files.find((file) => file.group === 'rules-minimal');
+    const stale = { ...template, target: 'docs/rules/retired-example.md', source: 'docs/rules/retired-example.md' };
+    await writeFile(
+      path.join(target, '.vibe-harness/install-state.json'),
+      JSON.stringify({ ...state, files: [...state.files, stale] }, null, 2),
+      'utf8',
+    );
+
+    const report = await checkSelfInstallConformance(rootDir, { targetDir: target });
+
+    assert.deepEqual(report.orphanedStateTargets, ['docs/rules/retired-example.md']);
+    assert.equal(report.ok, false);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('install releases an orphaned registration instead of carrying it forward', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-orphan-release-'));
+  try {
+    await mkdir(path.join(target, '.vibe-harness'), { recursive: true });
+    await cp(path.join(rootDir, 'vibe-harness.config.json'), path.join(target, 'vibe-harness.config.json'));
+    const state = JSON.parse(await readFile(path.join(rootDir, '.vibe-harness/install-state.json'), 'utf8'));
+    const template = state.files.find((file) => file.group === 'rules-minimal');
+    const stale = { ...template, target: 'docs/rules/retired-example.md', source: 'docs/rules/retired-example.md' };
+    await writeFile(
+      path.join(target, '.vibe-harness/install-state.json'),
+      JSON.stringify({ ...state, files: [...state.files, stale] }, null, 2),
+      'utf8',
+    );
+
+    const options = {
+      adapterId: 'codex',
+      allowPreview: true,
+      profile: 'minimal',
+      requestedModules: ['rules'],
+      rootDir,
+      targetDir: target,
+    };
+    // An unplanned registration whose file is still on disk is a kept
+    // installation, not an orphan: only the already-missing one is released.
+    await mkdir(path.join(target, '.agents/skills/agentmemory'), { recursive: true });
+    await writeFile(path.join(target, '.agents/skills/agentmemory/SKILL.md'), '# agentmemory\n', 'utf8');
+    const plan = await createInstallPlan({ ...options, dryRun: false, force: true, redZoneConfirmed: true });
+    const released = plan.actions.filter((action) => action.kind === 'retire-missing').map((action) => action.relativeTarget);
+    assert.equal(released.includes('docs/rules/retired-example.md'), true);
+    assert.equal(released.includes('.agents/skills/agentmemory/SKILL.md'), false);
+
+    await applyInstallPlan(plan);
+
+    const written = JSON.parse(await readFile(path.join(target, '.vibe-harness/install-state.json'), 'utf8'));
+    assert.equal(written.files.some((file) => file.target === 'docs/rules/retired-example.md'), false);
+    assert.equal(written.files.some((file) => file.target === '.agents/skills/agentmemory/SKILL.md'), true);
   } finally {
     await rm(target, { force: true, recursive: true });
   }

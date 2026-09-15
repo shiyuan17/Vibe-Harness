@@ -46,7 +46,7 @@ import { hasPluginCapability } from './plugin-provider-catalog.js';
 import { assertAdapterProfile, hookConfigTargets, loadAdapterCatalog, resolveAdapter, resolveAdapterEntry, skillRootMatcher, skillRootPrefixes } from './adapter.js';
 import { beginFileTransaction, createTransactionId } from './file-transaction.js';
 import { resolveRoleInstallEntries } from './role-projection.js';
-import { installedRuleIndex, loadRuleIndex, renderRulesLine } from './rules-index.js';
+import { existingRuleSources, installedRuleIndex, loadRuleIndex, renderRulesLine } from './rules-index.js';
 import {
   hashManagedBlock,
   isManagedIgnore,
@@ -111,10 +111,15 @@ function toolDiscoveryLine(installedProviderModules) {
   return '先按问题类型选工具：' + routes.join('；') + '。' + rtkBoundary;
 }
 
-export function createInstalledSurface({ clarificationPosture = 'balanced', customModules = false, hookConfigTargets = [], memoryPath = '.agents/memory', profile, ruleIndex = [], skillRoots = [], targets }) {
+export function createInstalledSurface({ clarificationPosture = 'balanced', customModules = false, hookConfigTargets = [], memoryPath = '.agents/memory', profile, projectRuleSources = [], ruleIndex = [], skillRoots = [], targets }) {
   const installedTargets = targets.map((target) => target.replaceAll('\\', '/'));
+  // The routing index covers what the project has, so a rule file already on
+  // disk is listed even when this run does not rewrite it. See
+  // `existingRuleSources` in rules-index.js.
+  const routableTargets = [...installedTargets, ...projectRuleSources.map((source) => source.replaceAll('\\', '/'))];
   const hasTarget = (expectedTarget) => installedTargets.includes(expectedTarget);
   const hasPrefix = (prefix) => installedTargets.some((target) => target.startsWith(prefix));
+  const hasInstalledOrExistingPrefix = (prefix) => routableTargets.some((target) => target.startsWith(prefix));
   const hasSkill = (suffix) => installedTargets.some((target) => target.endsWith(`/skills/${suffix}`));
   const isSkillRootTarget = skillRootMatcher(skillRoots);
   const detectedSkillRoots = [...new Set(installedTargets
@@ -190,7 +195,7 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
       ? '- 当前安装方式：自定义能力模块安装。'
       : (profileLines[profile] ?? `- 当前 profile: \`${profile}\`。`),
     reviewLoopLine: '',
-    rulesLine: hasPrefix('docs/rules/') ? renderRulesLine(installedRuleIndex(ruleIndex, installedTargets)) : '',
+    rulesLine: hasInstalledOrExistingPrefix('docs/rules/') ? renderRulesLine(installedRuleIndex(ruleIndex, routableTargets)) : '',
     skillRoutingLine: detectedSkillRoots.length > 0
       ? '宿主按 Skill description 选择当前所需能力，按需补充互补 Skill；不使用 Router 或流程 Skill 链。'
       : '当前 profile 未安装 Skills；仅按已安装规则和模板执行，不引用未安装的 skill。',
@@ -477,25 +482,32 @@ export async function createInstallPlan({
 
   actions.push(...await planGeneratedDirectoryRetirements(ctx, actions));
 
+  actions.push(...await planOrphanedStateRetirements(ctx, new Set(actions.map((action) => action.relativeTarget))));
+
   const generatedDirectories = computeGeneratedDirectories(ctx, actions);
 
+  const resolvedRuleIndex = ruleIndex ?? await loadRuleIndex(rootDir);
+  // The installed surface describes what the project has after the plan, not
+  // what this run happens to rewrite: a kept file can be classified as
+  // `write`, `user-modified` or `conflict` depending on `--force` and the
+  // file's current content, and retired targets leave the project entirely.
+  // Deriving the surface from the write set alone made the resident rule
+  // index change with unrelated local edits.
+  const retainedTargets = planRetainedTargets(actions);
+  const removedTargets = planRemovedTargets(actions);
   const installedSurface = createInstalledSurface({
     clarificationPosture: renderData.clarification?.posture,
     customModules: moduleSelection.requestedModules !== null,
     hookConfigTargets: hookTargets,
     memoryPath: renderData.memory?.path,
     profile,
-    ruleIndex: ruleIndex ?? await loadRuleIndex(rootDir),
+    // A rule file already on disk is routable, but one this run retires is not:
+    // the line has to lose it in the same run that removes it.
+    projectRuleSources: (await existingRuleSources(targetDir, resolvedRuleIndex))
+      .filter((source) => !removedTargets.has(source)),
+    ruleIndex: resolvedRuleIndex,
     skillRoots,
-    // The installed surface describes what the project has after the plan, not
-    // what this run happens to rewrite: a kept file can be classified as
-    // `write`, `user-modified` or `conflict` depending on `--force` and the
-    // file's current content, and retired targets leave the project entirely.
-    // Deriving the surface from the write set alone made the resident rule
-    // index change with unrelated local edits.
-    targets: actions
-      .filter((action) => action.discard !== true && !String(action.kind ?? '').startsWith('retire'))
-      .map((action) => action.relativeTarget),
+    targets: retainedTargets,
   });
   const stateDirectory = path.basename(path.dirname(stateFilePath(path.resolve(targetDir))));
 
@@ -636,12 +648,15 @@ export async function createMultiTargetInstallPlan({ selectedTargets, targets, .
     ...writes.values(),
     ...(allTargetsSelected ? retirements.filter((action) => !plannedTargets.has(action.relativeTarget)) : []),
   ];
+  const removedTargets = planRemovedTargets(actions);
   const installedSurface = createInstalledSurface({
     clarificationPosture: options.renderData?.clarification?.posture,
     customModules: plans[0].requestedModules !== null,
     hookConfigTargets: plans[0].hookTargets,
     memoryPath: options.renderData?.memory?.path,
     profile: plans[0].profile,
+    projectRuleSources: (await existingRuleSources(options.targetDir, resolvedRuleIndex))
+      .filter((source) => !removedTargets.has(source)),
     ruleIndex: resolvedRuleIndex,
     skillRoots: plans[0].skillRoots,
     targets: [...writes.keys()],
@@ -852,6 +867,72 @@ async function planUpgradeRetirements(ctx, entryActions) {
     if (await pathExists(target)) {
       actions.push({ discard: true, kind: 'retire-runtime-state', redZone: false, relativeTarget, target });
     }
+  }
+  return actions;
+}
+
+/**
+ * Project-relative targets the plan removes from the project.
+ *
+ * A `retire`/`discard` action is how the installer releases a target, so the
+ * set is the complement of what survives the run. It is what stops the resident
+ * index from advertising a rule file in the very plan that deletes it — for
+ * example when `--plugin none` retires the optional-tool rules.
+ *
+ * @param {Array<Record<string, any>>} actions planned actions
+ * @returns {Set<string>} project-relative targets that leave the project
+ */
+function planRemovedTargets(actions) {
+  return new Set(actions
+    .filter((action) => action.discard === true || String(action.kind ?? '').startsWith('retire'))
+    .map((action) => action.relativeTarget));
+}
+
+/**
+ * Targets the project keeps after the plan.
+ *
+ * Retired and discarded targets leave the project, so the installed-surface
+ * lines must not describe them.
+ *
+ * @param {Array<Record<string, any>>} actions planned actions
+ * @returns {string[]} project-relative targets that survive the plan
+ */
+function planRetainedTargets(actions) {
+  const removed = planRemovedTargets(actions);
+  return actions
+    .filter((action) => !removed.has(action.relativeTarget))
+    .map((action) => action.relativeTarget);
+}
+
+/**
+ * Release registrations whose target is gone and that this plan does not manage.
+ *
+ * install-state can keep a target that no longer exists: a rule file renamed
+ * away, a module removed by hand, or a file the user deleted before the pack
+ * declared it retired. `mergeInstallState` carries unplanned registrations
+ * forward, so without this step the entry survives every install and the
+ * installed surface keeps advertising a file the project does not have.
+ * `checkSelfInstallConformance` reports exactly this as `orphanedStateTargets`,
+ * so the installer converges the same predicate the gate fails on. Nothing is
+ * deleted here — the target is already absent, so the action only drops the
+ * registration.
+ */
+async function planOrphanedStateRetirements(ctx, plannedTargets) {
+  const { state, targetDir } = ctx;
+  const managed = new Set(plannedTargets);
+  const actions = [];
+  for (const managedFile of state?.files ?? []) {
+    const relativeTarget = managedFile.target.replaceAll('\\', '/');
+    if (managed.has(relativeTarget)) continue;
+    assertPortableRelativePath(relativeTarget, 'orphaned managed target');
+    const target = path.resolve(targetDir, relativeTarget);
+    assertInsideDir(targetDir, target, 'orphaned managed target');
+    // Check the cheap lexical facts before the symbolic-link walk: this loop
+    // visits every registration, while only a handful become actions.
+    if (await pathExists(target)) continue;
+    await assertSafePathInside(targetDir, target, 'orphaned managed target');
+    actions.push({ discard: true, kind: 'retire-missing', redZone: false, relativeTarget, target });
+    managed.add(relativeTarget);
   }
   return actions;
 }
@@ -1089,6 +1170,7 @@ export async function diffTargetInstall({
     ...selectedEntries.map((entry) => memoryTargetPath(renderData, entry.target)),
     ...adapterConfigActions.map((action) => action.relativeTarget),
   ];
+  const diffRuleIndex = await loadRuleIndex(rootDir);
   const renderedData = withDefaultTemplateData({
     ...renderData,
     installedSurface: renderData.installedSurface ?? createInstalledSurface({
@@ -1097,7 +1179,8 @@ export async function diffTargetInstall({
       hookConfigTargets: hookTargets,
       memoryPath: renderData.memory?.path,
       profile,
-      ruleIndex: await loadRuleIndex(rootDir),
+      projectRuleSources: await existingRuleSources(targetDir, diffRuleIndex),
+      ruleIndex: diffRuleIndex,
       skillRoots,
       targets: installedTargets,
     }),
@@ -1547,6 +1630,11 @@ async function executeRetireActions(plan, ctx) {
   }
 
   for (const action of plan.actions) {
+    if (action.kind === 'retire-missing') {
+      // The target is already gone; only the registration is dropped.
+      discardedTargets.add(action.relativeTarget);
+      continue;
+    }
     if (action.kind === 'retire-modified') {
       skipped.push({
         reason: isSkillRootTarget(action.relativeTarget)

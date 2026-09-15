@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { createInstalledSurface } from '../scripts/lib/install-planner.js';
-import { loadRuleIndex, renderRuleIndexLine } from '../scripts/lib/rules-index.js';
+import { existingRuleSources, loadRuleIndex, renderRuleIndexLine } from '../scripts/lib/rules-index.js';
 
 const rootDir = path.resolve(import.meta.dirname, '..');
 
@@ -94,4 +94,44 @@ test('the installed surface lists only the rules the plan installs', () => {
   // A rule the selected profile, module or plugin did not install must not be
   // advertised: the host would route to a file that is not in the project.
   assert.equal(installed.rulesLine.includes('codebase-memory-mcp'), false);
+});
+
+test('the pack repository lists every rule file it actually has', async () => {
+  const index = await loadRuleIndex(rootDir);
+  const sources = await existingRuleSources(rootDir, index);
+  assert.deepEqual([...sources].sort(), index.map((item) => item.source).sort());
+  // The optional-plugin rules are on disk but outside the default plan, so the
+  // union — not the write set — is what makes the resident index complete.
+  const plan = await createInstalledSurface({ profile: 'core', ruleIndex: index, targets: sources.slice(0, 3) });
+  assert.equal(renderRuleIndexLine(index).includes('ast-grep'), true);
+  assert.equal(plan.rulesLine.includes('governance-core'), true);
+});
+
+test('a project that never installed a rule file is not advertised to it', async () => {
+  const ruleIndex = [
+    { id: 'git-rules', source: 'docs/rules/git-rules.md', title: 'Git 规则' },
+    { id: 'rtk', source: 'docs/rules/rtk.md', title: 'RTK 命令输出压缩规则' },
+  ];
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-rules-existing-'));
+  try {
+    await mkdir(path.join(target, 'docs/rules'), { recursive: true });
+    await writeFile(path.join(target, 'docs/rules/rtk.md'), '# RTK\n', 'utf8');
+
+    const sources = await existingRuleSources(target, ruleIndex);
+    assert.deepEqual(sources, ['docs/rules/rtk.md']);
+
+    const installed = createInstalledSurface({
+      profile: 'core',
+      projectRuleSources: sources,
+      ruleIndex,
+      targets: ['docs/rules/git-rules.md'],
+    });
+    assert.equal(installed.rulesLine, '- 规则位于 `docs/rules/`。命中索引：git-rules（Git 规则）、rtk（RTK 命令输出压缩规则）。');
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('existing rule sources are empty without a target project', async () => {
+  assert.deepEqual(await existingRuleSources('', [{ id: 'git-rules', source: 'docs/rules/git-rules.md', title: 'Git 规则' }]), []);
 });

@@ -24,6 +24,7 @@ if (!selfInstall.ok) {
 
 console.log('Workflow asset integrity', JSON.stringify(report.workflowScan));
 console.log('Self-install conformance', JSON.stringify({
+  orphanedStateTargets: selfInstall.orphanedStateTargets,
   skipped: selfInstall.skipped,
   targets: selfInstall.targets,
   unmanagedCount: selfInstall.unmanagedCount,

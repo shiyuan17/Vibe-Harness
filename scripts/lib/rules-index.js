@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { readPackJson } from './manifest.js';
+import { pathExists, readPackJson } from './manifest.js';
 
 const RULES_MANIFEST = 'manifests/rules.json';
 
@@ -63,6 +63,33 @@ export async function loadRuleIndex(rootDir) {
 export function installedRuleIndex(index = [], installedTargets = []) {
   const installed = new Set((installedTargets ?? []).map(normalizePath));
   return index.filter((item) => installed.has(normalizePath(item?.source)));
+}
+
+/**
+ * Rule sources that already exist in the target project.
+ *
+ * The resident line is a routing index for the project, not for the current
+ * run: a rule file that is already on disk is routable whether or not this plan
+ * rewrites it. Without this union the pack repository — which keeps the
+ * optional-plugin rules on disk while installing them only on request — listed
+ * 15 of its 21 rule files in its own AGENTS.md, so the host could not route to
+ * `linear-workflow`, `role-routing` or the four optional-tool rules that were
+ * sitting right there. A target project that never installed a file is
+ * unaffected: the file does not exist, so it is not added.
+ *
+ * @param {string} targetDir project root that owns the rule files
+ * @param {Array<{ id: string, source: string, title: string }>} index rule catalog
+ * @returns {Promise<string[]>} project-relative sources present on disk
+ */
+export async function existingRuleSources(targetDir, index = []) {
+  if (!targetDir) return [];
+  const present = [];
+  for (const item of index) {
+    const source = normalizePath(item?.source);
+    if (!source) continue;
+    if (await pathExists(path.join(targetDir, source))) present.push(source);
+  }
+  return present;
 }
 
 /**
