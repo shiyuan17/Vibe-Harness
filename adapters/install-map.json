@@ -905,6 +905,13 @@
     },
     {
       "group": "hooks",
+      "source": "runtime/hooks/lib/read-only-commands.mjs",
+      "target": ".agents/runtime/hooks/lib/read-only-commands.mjs",
+      "contentStrategy": "replace",
+      "redZone": true
+    },
+    {
+      "group": "hooks",
       "source": "runtime/hooks/lib/rtk.mjs",
       "target": ".agents/runtime/hooks/lib/rtk.mjs",
       "contentStrategy": "replace",

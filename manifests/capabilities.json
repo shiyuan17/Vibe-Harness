@@ -145,7 +145,7 @@
       "id": "hook-policy",
       "source": "Codex and Git hook policy",
       "disposition": "validator",
-      "targets": ["runtime/hooks/codex-hook.mjs", "runtime/hooks/lib/execution-envelope.mjs", "runtime/hooks/lib/policy.mjs", "runtime/hooks/lib/context.mjs", "runtime/hooks/lib/rtk.mjs"],
+      "targets": ["runtime/hooks/codex-hook.mjs", "runtime/hooks/lib/execution-envelope.mjs", "runtime/hooks/lib/policy.mjs", "runtime/hooks/lib/read-only-commands.mjs", "runtime/hooks/lib/context.mjs", "runtime/hooks/lib/rtk.mjs"],
       "tests": ["tests/hook-runtime.test.js"],
       "profiles": ["full"],
       "docs": ["docs/hooks.md"],

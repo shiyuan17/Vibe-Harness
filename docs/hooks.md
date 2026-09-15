@@ -19,6 +19,26 @@ Vibe-Harness Hook 只执行项目级安全策略。它不创建任务状态、�
 
 PreToolUse 阻止危险 Git、全局 Agent 配置写入、凭据外传、红区文件上传和项目边界外写入。PermissionRequest 对相同硬边界执行拒绝；其他审批仍由宿主控制。所有宿主的 Stop 都是 unsupported，Vibe-Harness 不自动 commit 或 push。
 
+## 判定分级
+
+只读与无副作用判定由 runtime/hooks/lib/read-only-commands.mjs 单点提供，policy.mjs 与 execution-envelope.mjs 共同引用，不再各自维护词表。判定按「可执行名 + 子命令动词」两级进行，不要求整段命中：
+
+| 类别 | 判定 | 出口 |
+| --- | --- | --- |
+| PowerShell 与 Unix 只读 cmdlet（Get-ChildItem、Select-Object、Where-Object、Sort-Object、ForEach-Object、ConvertFrom-Json、Format-Table、Group-Object、Out-String、jq、rg 等） | 无副作用 | 允许 |
+| 宿主与基础设施 CLI 的只读子命令（codex 的 --version 与 --help、kubectl get、docker compose ps、terraform plan、aws list- 等） | 无副作用 | 允许 |
+| 解释器与工具链（node、python、pytest、go、cargo、dotnet、mvn、gradle、make、cmake、bundle、php 等） | workspaceWrite、standard | 允许，与既有 Node 工具链一致 |
+| 写类子命令（delete、remove、apply、destroy、create 等）与未分类命令 | 高风险或无法判定 | 需要 Execution Envelope，否则拒绝 |
+| 危险 Git、全局 Agent 配置写入、凭据外传、红区上传、项目边界外写入 | 明确禁止 | 直接拒绝 |
+
+Shell 分段与读写谓词同样来自该模块，因此同一条命令在策略层与 Envelope 层的只读结论一致。apply_patch 的载荷是文件内容而非 shell 命令，只按补丁目标路径判定写入范围，不做命令替换、重定向或续行检查。
+
+MCP 工具按「服务器 + 动词」分类：get、list、search、read、find、view、inspect、query、status、state、show、open 等只读与 UI 动词放行；write、create、update、delete、send、post、execute、run、apply、install 等写与执行动词，以及无法判定的工具名，保持既有 Execution Envelope 路径。
+
+拒绝输出保留稳定的英文 reasonCode（机器契约），message 使用中文并给出最小可行动作，并区分「不可判定，需要 Execution Envelope」与「明确禁止」两类。
+
+项目内的 .codex、.claude、.cursor、.gemini 目录不是全局 Agent 配置；只有位于家目录之下、紧跟家目录的配置目录才命中全局配置规则，读取这些目录不视为写入。
+
 OpenCode 不安装项目 Hook。其配置文件仍属于默认红区，其他已安装的 stable Hook 可在多宿主项目中保护这些路径；这不代表 OpenCode 自身拥有 Hook 防护。
 
 ## 路径解析

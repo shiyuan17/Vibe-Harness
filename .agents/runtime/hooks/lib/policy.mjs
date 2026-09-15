@@ -1,6 +1,13 @@
 import path from 'node:path';
 import { realpathSync } from 'node:fs';
 import { CONTROL_PLANE_PATHS } from './context.mjs';
+import {
+  commandTokens,
+  commandWrites,
+  hasUnsafeShellConstruct,
+  isReadOnlyShellSegment,
+  shellSegments,
+} from './read-only-commands.mjs';
 
 export const supportedCodexHookEvents = new Set([
   'PreToolUse',
@@ -9,16 +16,17 @@ export const supportedCodexHookEvents = new Set([
 
 const writeToolPattern = /(?:apply_patch|write|edit|delete|remove|move|rename|create)/iu;
 const pathKeyPattern = /^(?:file_?path|path|target|destination|directory(?:_?path)?|dir)$/iu;
-const globalAgentConfigPattern = /(?:~|\$(?:\{)?HOME(?:\})?|\$env:(?:HOME|USERPROFILE)|%USERPROFILE%|[A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/][^\\/]+|[\\/](?:home|Users)[\\/][^\\/]+)[^\r\n]{0,96}[\\/'"]+\.(?:codex|claude|cursor|gemini)(?:[\\/'"]|$)/iu;
+// Only the Agent configuration directories that sit directly under a home
+// directory are global: `%USERPROFILE%\.codex`, `~/.claude` and friends. A
+// project that merely lives under the user profile (for example a temporary
+// project) keeps its own `.codex` and must not be treated as global config.
+const globalAgentConfigPattern = /(?:~|\$(?:\{)?HOME(?:\})?|\$env:(?:HOME|USERPROFILE)|%USERPROFILE%|[A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/][^\\/]+|[\\/](?:home|Users)[\\/][^\\/]+)[\\/'"]\.(?:codex|claude|cursor|gemini)(?:[\\/'"]|$)/iu;
 const networkCommandPattern = /\b(?:curl|wget|iwr|irm|Invoke-WebRequest|Invoke-RestMethod)\b/iu;
-const secretReferencePattern = /(?:\$\{?[A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|PAT|CRED)\}?|\$env:[A-Z0-9_]+|%(?:[A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD))%|Authorization\s*:[^\r\n]*(?:KEY|TOKEN|SECRET|Bearer)|-[HUu]\s+["']?[^"'\s]*(?:KEY|TOKEN|SECRET|PASSWORD|PAT|CRED))/iu;
+const secretReferencePattern = /(?:\$\{?[A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|PAT|CRED)[A-Z0-9_]*\}?|\$env:[A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|PAT|CRED)[A-Z0-9_]*|%[A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD)[A-Z0-9_]*%|Authorization\s*:[^\r\n]*(?:KEY|TOKEN|SECRET|Bearer)|-[HUu]\s+["']?[^"'\s]*(?:KEY|TOKEN|SECRET|PASSWORD|PAT|CRED))/iu;
 const egressUploadFlags = new Set(['-F', '--form', '-d', '--data', '--data-binary', '--data-raw', '-T', '--upload-file', '-K', '--config']);
 const urlHostPattern = /https?:\/\/\[?(?:[^\s:@/]+@)?([^\]/:@\s]+)/igu;
 const privateEgressPattern = /(?:curl|wget)[^\n]*(?:-F|--form|-d|--data(?:-binary|-raw)?|-T|--upload-file|-K|--config)/iu;
-// Shell constructs this lightweight segment splitter cannot safely tokenise.
-// When present, the command may hide a destructive payload inside a
-// substitution, so the policy fails closed (deny) rather than risk a bypass.
-const unsafeShellConstructPattern = /(?:\$\([^)]*\)|`[^`]*`|\\\r?\n)/u;
+const patchToolPattern = /(?:^|__|\.)apply_?patch(?:$|__|\.)/iu;
 
 // Build a red-zone matcher from configured path patterns. Each pattern is a
 // project-relative path fragment (e.g. `.env`, `auth/`, `.codex/hooks.json`).
@@ -159,47 +167,6 @@ function commandFrom(input) {
   return '';
 }
 
-function shellSegments(command) {
-  const segments = [];
-  let current = '';
-  let quote = null;
-  for (let index = 0; index < command.length; index += 1) {
-    const character = command[index];
-    if (quote) {
-      current += character;
-      if (character === quote && command[index - 1] !== '\\') quote = null;
-      continue;
-    }
-    if (character === '"' || character === "'") {
-      quote = character;
-      current += character;
-      continue;
-    }
-    const pair = command.slice(index, index + 2);
-    if (['&&', '||'].includes(pair)) {
-      if (current.trim()) segments.push(current.trim());
-      current = '';
-      index += 1;
-      continue;
-    }
-    if ([';', '|', '\n', '\r'].includes(character)) {
-      if (current.trim()) segments.push(current.trim());
-      current = '';
-      continue;
-    }
-    current += character;
-  }
-  if (current.trim()) segments.push(current.trim());
-  return segments;
-}
-
-function commandTokens(command) {
-  const tokens = [];
-  const pattern = /"([^"]*)"|'([^']*)'|([^\s]+)/gu;
-  for (const match of command.matchAll(pattern)) tokens.push(match[1] ?? match[2] ?? match[3]);
-  return tokens;
-}
-
 function gitCommandRisk(segment) {
   const tokens = commandTokens(segment);
   const executableIndex = tokens.findIndex((token) => /(?:^|[\\/])git(?:\.exe)?$/iu.test(token));
@@ -260,11 +227,6 @@ function referencesGlobalAgentConfig(value) {
   return globalAgentConfigPattern.test(value);
 }
 
-function commandWrites(segment) {
-  if (/(?:^|\s)(?:Set-Content|Add-Content|Out-File|New-Item|Remove-Item|Move-Item|Copy-Item|tee|rm|mv|cp|sed\s+-i)\b/iu.test(segment)) return true;
-  return /(?:^|[^<])>>?/u.test(segment);
-}
-
 function shellWritePaths(command) {
   const targets = [];
   for (const match of command.matchAll(/(?:^|[\s\d])>{1,2}\s*(?:"([^"]+)"|'([^']+)'|([^\s;&|]+))/gu)) {
@@ -284,10 +246,6 @@ function shellWritePaths(command) {
 
 function risk(level, reasonCode, reason) {
   return { level, reason, reasonCode };
-}
-
-function commandReads(segment) {
-  return /^\s*(?:Get-Content|Test-Path|Get-Item|Resolve-Path|cat|type)\b/iu.test(segment);
 }
 
 function egressUploadPaths(command) {
@@ -373,47 +331,54 @@ function classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts 
   const redZonePattern = redZoneMatcher(redZonePaths);
   const controlPlanePattern = redZoneMatcher(CONTROL_PLANE_PATHS);
   const command = commandFrom(input);
-  if (unsafeShellConstructPattern.test(command)) {
-    return risk('deny', 'UNSAFE_SHELL_CONSTRUCT', 'Shell command substitution or line continuation cannot be safely analysed and is blocked by repository policy.');
+  // apply_patch carries file content rather than a shell command, so payload
+  // text such as inline code spans or command substitution is never executed
+  // (AC-04a). Shell-only rules are skipped for patch tools and the patch
+  // targets alone decide the write-path verdicts below.
+  const isPatchTool = patchToolPattern.test(input.toolName ?? '');
+  if (!isPatchTool && hasUnsafeShellConstruct(command)) {
+    return risk('deny', 'UNSAFE_SHELL_CONSTRUCT', '命令包含命令替换或续行符，无法安全判定，已拒绝。请改写为不含美元符号加圆括号、反引号或不换行的等价写法；确需执行时请由宿主注入 Execution Envelope。');
   }
-  const segments = shellSegments(command);
+  const segments = isPatchTool ? [] : shellSegments(command);
   if (segments.some((segment) => gitCommandRisk(segment))) {
-    return risk('deny', 'DESTRUCTIVE_GIT', 'Destructive Git operation or hook bypass is blocked by repository policy.');
+    return risk('deny', 'DESTRUCTIVE_GIT', '检测到破坏性 Git 操作或 hook 绕过，已拒绝。请改用非破坏性等价命令（例如用 git stash 代替强制检出）；确需执行时请人工手动执行。');
   }
   for (const segment of segments) {
     if (!referencesGlobalAgentConfig(segment)) continue;
-    if (commandReads(segment) && !commandWrites(segment)) continue;
-    return risk('deny', 'GLOBAL_AGENT_CONFIG', 'Writes to global Agent configuration are blocked by repository policy.');
+    // Reading or enumerating an Agent configuration directory is not a write,
+    // so only effectful segments fall through to the write rule (AC-02).
+    if (isReadOnlyShellSegment(segment) && !commandWrites(segment)) continue;
+    return risk('deny', 'GLOBAL_AGENT_CONFIG', '检测到对全局 Agent 配置的写入，已拒绝。请改为修改目标项目内的配置；调整全局配置请人工手动执行。');
   }
-  if (networkCommandPattern.test(command) && secretReferencePattern.test(command)) {
-    return risk('deny', 'CREDENTIAL_EXFILTRATION', 'Possible credential exfiltration is blocked by repository policy.');
+  if (!isPatchTool && networkCommandPattern.test(command) && secretReferencePattern.test(command)) {
+    return risk('deny', 'CREDENTIAL_EXFILTRATION', '检测到可能把凭据发往外部网络，已拒绝。请改用不含凭据的请求，或先通过凭据代理取得授权。');
   }
-  if (privateEgressPattern.test(command) && redZonePattern) {
+  if (!isPatchTool && privateEgressPattern.test(command) && redZonePattern) {
     const uploadPaths = egressUploadPaths(command);
     const touchesRedZoneFile = uploadPaths.some((candidate) => {
       const absolute = path.isAbsolute(candidate) ? candidate : path.resolve(projectRoot, candidate);
       return redZonePattern.test(path.relative(projectRoot, absolute).replaceAll('\\', '/'));
     });
     if (touchesRedZoneFile) {
-      return risk('deny', 'CREDENTIAL_EXFILTRATION', 'Possible credential exfiltration is blocked by repository policy.');
+      return risk('deny', 'CREDENTIAL_EXFILTRATION', '检测到上传红区文件，可能造成凭据外传，已拒绝。请改用非红区文件，或先按流程取得显式授权。');
     }
   }
-  if (allowedEgressHosts.length > 0 && networkCommandPattern.test(command)) {
+  if (!isPatchTool && allowedEgressHosts.length > 0 && networkCommandPattern.test(command)) {
     const hosts = extractEgressHosts(command);
     if (hosts.length === 0) {
-      return risk('deny', 'EGRESS_VIOLATION', 'Network command without a parseable URL is blocked while an egress allowlist is configured.');
+      return risk('deny', 'EGRESS_VIOLATION', '已配置网络允许列表，但该命令没有可解析的目标地址，已拒绝。请在命令中写明完整的 http 或 https 地址。');
     }
     const violating = hosts.find((host) => !hostAllowed(host, allowedEgressHosts));
     if (violating) {
-      return risk('deny', 'EGRESS_VIOLATION', 'Network egress to a host outside the configured allowlist is blocked by repository policy.');
+      return risk('deny', 'EGRESS_VIOLATION', '目标主机不在网络允许列表内，已拒绝。请改用允许列表中的主机，或在项目配置中登记该主机。');
     }
   }
 
-  const shellTargets = shellWritePaths(command);
+  const shellTargets = isPatchTool ? [] : shellWritePaths(command);
   if (!writeToolPattern.test(input.toolName ?? '') && shellTargets.length === 0) return null;
   const candidates = [
     ...collectStructuredPaths(input.toolInput),
-    ...(input.toolName === 'apply_patch' ? patchPaths(command) : []),
+    ...(isPatchTool ? patchPaths(command) : []),
     ...shellTargets,
   ];
   const touchesControlPlane = candidates.some((candidate) => {
@@ -423,11 +388,11 @@ function classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts 
     return controlPlanePattern.test(path.relative(projectRoot, absolute).replaceAll('\\', '/'));
   });
   if (touchesControlPlane) {
-    return risk('deny', 'CONTROL_PLANE_WRITE', 'Direct writes to Vibe-Harness control-plane files are blocked; use the transactional installer with explicit confirmation.');
+    return risk('deny', 'CONTROL_PLANE_WRITE', '检测到直接写入 Vibe-Harness 控制面文件，已拒绝。请改用带 --write 的事务式安装器并显式确认。');
   }
   for (const candidate of candidates) {
     if (referencesGlobalAgentConfig(candidate)) {
-      return risk('deny', 'GLOBAL_AGENT_CONFIG', 'Writes to global Agent configuration are blocked by repository policy.');
+      return risk('deny', 'GLOBAL_AGENT_CONFIG', '检测到对全局 Agent 配置的写入，已拒绝。请改为修改目标项目内的配置；调整全局配置请人工手动执行。');
     }
     const absolute = path.isAbsolute(candidate)
       ? candidate
@@ -440,7 +405,7 @@ function classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts 
       || referencesGlobalAgentConfig(canonicalCandidate)
       || !isInsideAny(canonicalRoots, canonicalCandidate)
     ) {
-      return risk('deny', 'PROJECT_BOUNDARY', 'Write target escapes the project boundary.');
+      return risk('deny', 'PROJECT_BOUNDARY', '写入目标超出项目边界，已拒绝。请把写入限制在项目目录或已授权的附加目录内。');
     }
   }
   const touchesRedZone = redZonePattern
@@ -452,7 +417,7 @@ function classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts 
       })
     : false;
   if (touchesRedZone) {
-    return risk('deny', 'RED_ZONE', 'Direct writes to project red-zone paths are blocked by repository policy.');
+    return risk('deny', 'RED_ZONE', '写入命中项目红区路径，已拒绝。请改用非红区路径，或按流程显式确认后重试。');
   }
   return null;
 }

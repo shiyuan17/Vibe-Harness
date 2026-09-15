@@ -1,6 +1,17 @@
 import { execFileSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
+import {
+  RUNTIME_TOOLCHAIN_PATTERN,
+  classifyMcpToolName,
+  commandTokens,
+  commandWrites,
+  isReadOnlyShellSegment,
+  isReadOnlyToolName,
+  isWorkspaceToolName,
+  shellInvocation,
+  shellSegments,
+} from './read-only-commands.mjs';
 
 export const EXECUTION_ENVELOPE_SCHEMA = 'vibe-harness.execution-envelope/v1';
 export const EXECUTION_ENVELOPE_SCHEMA_V1 = EXECUTION_ENVELOPE_SCHEMA;
@@ -74,8 +85,6 @@ const externalTargetKeys = new Set(['kind', 'id', 'environment']);
 const shaPattern = /^[0-9a-fA-F]{40,64}$/u;
 const utcTimestampPattern = /^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\.[0-9]+)?Z$/u;
 
-const readOnlyToolPattern = /^(?:read|glob|grep|search|view|inspect|list|websearch|webfetch)$/iu;
-const workspaceToolPattern = /(?:^|__|\.)(?:apply_?patch|write(?:_file)?|edit(?:_file)?|delete(?:_file)?|remove(?:_file)?|move(?:_file)?|rename(?:_file)?|create(?:_file|_directory)?|mkdir)(?:$|__)/iu;
 const linearToolPattern = /(?:^|__)linear(?:__|$)/iu;
 const githubToolPattern = /(?:^|__)github(?:__|$)/iu;
 const gitlabToolPattern = /(?:^|__)gitlab(?:__|$)/iu;
@@ -86,11 +95,8 @@ const mergeRequestReadPattern = /(?:^|__)(?:get|list|search|read|find|view|fetch
 const mergeRequestWritePattern = /(?:^|__)(?:create|update|edit|merge|close|reopen|ready|comment|note|review|approve|unapprove|revoke|delete|lock|unlock|rebase|revert|subscribe|unsubscribe|todo)(?:_|__|$)/iu;
 const credentialToolPattern = /(?:credential|auth|keychain|secret.?service)/iu;
 const credentialUsePattern = /(?:^|__)(?:get|read|find|fill|login|authorize|store|save|update|delete|remove)(?:_|__|$)/iu;
-const shellWorkspaceWritePattern = /(?:^|\s)(?:Set-Content|Add-Content|Clear-Content|Out-File|New-Item|Remove-Item|Move-Item|Copy-Item|Rename-Item|mkdir|md|rmdir|rd|touch|rm|mv|cp|tee|truncate|install|chmod|chown|ln|dd|rsync|del|erase|copy|move|sed\s+-i)(?:\s|$)/iu;
 const credentialCommandPattern = /(?:\bgit(?:\.exe)?\s+credential(?:\s+(?:fill|approve|reject))?\b|\bgit-credential-[^\s]+|\bcredential-manager(?:-core)?\b|\bgit(?:\.exe)?\s+config\b[^\r\n]*\bcredential\.helper\b|\b(?:gh|glab)(?:\.exe)?\s+auth\b|\bcmdkey(?:\.exe)?\b|\bGet-StoredCredential\b|\bsecurity\s+find-(?:generic|internet)-password\b)/iu;
 const webApiCommandPattern = /(?:\bcurl(?:\.exe)?\b|\bwget(?:\.exe)?\b|\bInvoke-WebRequest\b|\bInvoke-RestMethod\b|\b(?:gh|glab)(?:\.exe)?\s+api\b)/iu;
-const shellReadOnlyPattern = /^\s*(?:(?:Get-Content|Test-Path|Get-Item|Get-ChildItem|Resolve-Path|Get-Location|Select-String|Measure-Object|cat|type|ls|dir|pwd|rg|grep|find|where|which|head|tail|wc|stat|file|tree|echo|Write-Output)\b|(?:node|npm|pnpm|yarn|git|gh|glab)(?:\.exe|\.cmd)?\s+(?:--version|-v)\b)/iu;
-const arbitraryRuntimePattern = /(?:^|[\\/])(?:node|npm|npx|pnpm|yarn|python|python3|py|ruby|perl|deno|bun)(?:\.exe|\.cmd)?$/iu;
 const issueIdentifierPattern = /\b[A-Z][A-Z0-9]{0,15}-[0-9]{1,10}\b/giu;
 const indirectWritePattern = /(?:WriteAllBytes|WriteAllText|writeFileSync|writeFile|appendFileSync|appendFile|createWriteStream|--codex-run-as-apply-patch)/iu;
 
@@ -284,69 +290,10 @@ function addUrlTargets(command, targets) {
   }
 }
 
-function shellSegments(command) {
-  const segments = [];
-  let current = '';
-  let quote = null;
-  for (let index = 0; index < command.length; index += 1) {
-    const character = command[index];
-    if (quote) {
-      current += character;
-      if (character === quote && command[index - 1] !== '\\') quote = null;
-      continue;
-    }
-    if (character === '"' || character === "'") {
-      quote = character;
-      current += character;
-      continue;
-    }
-    const pair = command.slice(index, index + 2);
-    if (pair === '&&' || pair === '||') {
-      if (current.trim()) segments.push(current.trim());
-      current = '';
-      index += 1;
-      continue;
-    }
-    if (character === ';' || character === '|' || character === '&' || character === '\n' || character === '\r') {
-      if (current.trim()) segments.push(current.trim());
-      current = '';
-      continue;
-    }
-    current += character;
-  }
-  if (current.trim()) segments.push(current.trim());
-  return segments;
-}
-
-function hasShellRedirection(command) {
-  let quote = null;
-  for (let index = 0; index < command.length; index += 1) {
-    const character = command[index];
-    if (quote) {
-      if (character === quote && command[index - 1] !== '\\') quote = null;
-      continue;
-    }
-    if (character === '"' || character === "'") {
-      quote = character;
-      continue;
-    }
-    if (character === '>' && command[index - 1] !== '<') return true;
-  }
-  return false;
-}
-
-function commandTokens(command) {
-  const tokens = [];
-  const pattern = /"([^"]*)"|'([^']*)'|([^\s]+)/gu;
-  for (const match of command.matchAll(pattern)) tokens.push(match[1] ?? match[2] ?? match[3]);
-  return tokens;
-}
-
 function gitInvocation(segment) {
-  const tokens = commandTokens(segment);
-  const executableIndex = tokens.findIndex((token) => /(?:^|[\\/])git(?:\.exe)?$/iu.test(token));
-  if (executableIndex < 0) return null;
-  const args = tokens.slice(executableIndex + 1);
+  const invocation = shellInvocation(segment);
+  if (!invocation || invocation.name !== 'git') return null;
+  const args = invocation.args;
   let index = 0;
   while (index < args.length) {
     const value = args[index].toLowerCase();
@@ -432,22 +379,18 @@ function classifyGit(segment, effects) {
 }
 
 function classifyArbitraryRuntime(segment, effects) {
-  const tokens = commandTokens(segment);
-  const executable = tokens.find((token) => arbitraryRuntimePattern.test(token));
-  if (!executable) return false;
-  const executableIndex = tokens.indexOf(executable);
-  const args = tokens.slice(executableIndex + 1);
+  const invocation = shellInvocation(segment);
+  if (!invocation || !RUNTIME_TOOLCHAIN_PATTERN.test(invocation.name)) return false;
+  const { args } = invocation;
   if (args.length === 1 && ['--version', '-v'].includes(args[0].toLowerCase())) return true;
   effects.add('workspaceWrite');
   return true;
 }
 
 function cliInvocation(segment, executable) {
-  const tokens = commandTokens(segment);
-  const pattern = new RegExp('(?:^|[\\\\/])' + executable + '(?:\\.exe)?$', 'iu');
-  const index = tokens.findIndex((token) => pattern.test(token));
-  if (index < 0) return null;
-  const args = tokens.slice(index + 1).map((item) => item.toLowerCase());
+  const invocation = shellInvocation(segment);
+  if (!invocation || invocation.name !== executable) return null;
+  const args = invocation.args.map((item) => item.toLowerCase());
   const optionsWithValues = new Set(['-r', '--repo', '--hostname', '--config-dir', '--config']);
   let argumentIndex = 0;
   while (argumentIndex < args.length && args[argumentIndex].startsWith('-')) {
@@ -491,10 +434,9 @@ function classifyWebCommand(segment, effects) {
 }
 
 function classifySupabase(segment, effects, targets) {
-  const tokens = commandTokens(segment);
-  const executableIndex = tokens.findIndex((token) => /(?:^|[\\/])supabase(?:\.exe|\.cmd)?$/iu.test(token));
-  if (executableIndex < 0) return null;
-  const args = tokens.slice(executableIndex + 1);
+  const invocation = shellInvocation(segment);
+  if (!invocation || invocation.name !== 'supabase') return null;
+  const { args } = invocation;
   const lowerArgs = args.map((item) => item.toLowerCase());
   const projectRefIndex = lowerArgs.findIndex((item) => item === '--project-ref' || item === '--project-id');
   const inlineProjectRef = args.find((item) => /^--project-(?:ref|id)=/iu.test(item));
@@ -537,11 +479,14 @@ function classifyMcpTool(toolName, effects) {
     effects.add('credentialUse');
     return true;
   }
-  if (workspaceToolPattern.test(toolName) && /(?:filesystem|file|workspace)/iu.test(toolName)) {
+  if (isWorkspaceToolName(toolName) && /(?:filesystem|file|workspace)/iu.test(toolName)) {
     effects.add('workspaceWrite');
     return true;
   }
-  return /(?:^|__)(?:get|list|search|read|find|view|fetch|inspect|query)(?:_|__|$)/iu.test(toolName);
+  // Everything else is decided by the shared server+verb table (AC-11): read
+  // and UI verbs pass, write and execute verbs keep the Envelope path, and an
+  // unclassified tool is no longer denied outright.
+  return classifyMcpToolName(toolName) === true;
 }
 
 export function classifyExecutionEffects(input) {
@@ -558,12 +503,12 @@ export function classifyExecutionEffects(input) {
   let unknown = false;
   const mcpClassification = classifyMcpTool(toolName, effects);
   if (mcpClassification !== null) unknown = !mcpClassification;
-  else if (workspaceToolPattern.test(toolName)) effects.add('workspaceWrite');
-  else if (readOnlyToolPattern.test(toolName)) unknown = false;
+  else if (isWorkspaceToolName(toolName)) effects.add('workspaceWrite');
+  else if (isReadOnlyToolName(toolName)) unknown = false;
   else if (command.length === 0) unknown = toolName.length > 0;
 
-  if (command.length > 0 && !workspaceToolPattern.test(toolName)) {
-    if (shellWorkspaceWritePattern.test(command) || hasShellRedirection(command)) effects.add('workspaceWrite');
+  if (command.length > 0 && !isWorkspaceToolName(toolName)) {
+    if (commandWrites(command)) effects.add('workspaceWrite');
     if (credentialCommandPattern.test(command)) effects.add('credentialUse');
     if (indirectWritePattern.test(command)) {
       effects.add('workspaceWrite');
@@ -589,9 +534,9 @@ export function classifyExecutionEffects(input) {
         continue;
       }
       if (classifyArbitraryRuntime(segment, effects)) continue;
-      if (shellWorkspaceWritePattern.test(segment) || hasShellRedirection(segment)) continue;
+      if (commandWrites(segment)) continue;
       if (credentialCommandPattern.test(segment)) continue;
-      if (!shellReadOnlyPattern.test(segment)) unknown = true;
+      if (!isReadOnlyShellSegment(segment)) unknown = true;
     }
     // Direct credential-helper output cannot be repurposed into a web/API
     // session under the generic credentialUse capability.
@@ -705,10 +650,10 @@ function targetDecision(input, classification, envelope) {
   const allowedTargets = new Set(envelope.targetIssueIds.map((item) => item.toUpperCase()));
   const mismatch = [...visibleTargets].find((item) => !allowedTargets.has(item));
   if (mismatch) {
-    return deny('EXECUTION_ENVELOPE_TARGET_MISMATCH', 'The tool request targets an Issue outside the active Execution Envelope.');
+    return deny('EXECUTION_ENVELOPE_TARGET_MISMATCH', '该调用面向的 Issue 不在活动 Execution Envelope 的目标范围内，已拒绝。请把调用改为 Envelope 内的 Issue，或重新申请覆盖该 Issue 的 Envelope。');
   }
   if (visibleTargets.size === 0) {
-    return deny('EXECUTION_ENVELOPE_TARGET_UNVERIFIED', 'The tool request does not expose a verifiable target Issue.');
+    return deny('EXECUTION_ENVELOPE_TARGET_UNVERIFIED', '该调用没有暴露可核验的目标 Issue，无法确认授权范围，已拒绝。请在 toolInput 中显式给出目标 Issue ID（例如 ENG-123）。');
   }
   return null;
 }
@@ -783,39 +728,39 @@ function isAncestor(cwd, ancestor, descendant) {
 function workspaceDecision(input, classification, envelope) {
   const expected = envelope.scope.workspace;
   const actual = inspectWorkspaceIdentity(input.cwd);
-  if (!actual) return deny('EXECUTION_ENVELOPE_WORKSPACE_UNAVAILABLE', 'The active Git workspace identity cannot be verified.');
+  if (!actual) return deny('EXECUTION_ENVELOPE_WORKSPACE_UNAVAILABLE', '无法核验当前 Git 工作区身份，已拒绝。请确认 cwd 位于有效的 Git 工作树中并重试。');
   if (!samePath(actual.canonicalCwd, expected.canonicalCwd)
     || !samePath(actual.worktreeRoot, expected.worktreeRoot)
     || !samePath(actual.gitCommonDir, expected.gitCommonDir)
     || !samePath(actual.gitDir, expected.gitDir)
     || actual.branch !== expected.branch) {
-    return deny('EXECUTION_ENVELOPE_WORKSPACE_MISMATCH', 'The current cwd, worktree, Git directory, or branch differs from the active envelope.');
+    return deny('EXECUTION_ENVELOPE_WORKSPACE_MISMATCH', '当前 cwd、worktree、Git 目录或分支与活动 Envelope 不一致，已拒绝。请回到 Envelope 记录的工作区与分支重试。');
   }
   if (!isAncestor(input.cwd, expected.baseSha, actual.headSha)
     || !isAncestor(input.cwd, expected.initialHeadSha, actual.headSha)) {
-    return deny('EXECUTION_ENVELOPE_HEAD_DIVERGED', 'The current HEAD is not a descendant of the frozen base and initial HEAD.');
+    return deny('EXECUTION_ENVELOPE_HEAD_DIVERGED', '当前 HEAD 不是冻结基线或初始 HEAD 的后代，已拒绝。请先核对历史，必要时重新申请 Envelope。');
   }
   const baseRefSha = gitOutput(input.cwd, ['rev-parse', expected.baseRef]);
   if (!baseRefSha || !isAncestor(input.cwd, expected.baseSha, baseRefSha)) {
-    return deny('EXECUTION_ENVELOPE_BASE_REF_MISMATCH', 'The frozen base SHA is not on the current base ref history.');
+    return deny('EXECUTION_ENVELOPE_BASE_REF_MISMATCH', '冻结的基线 SHA 不在当前基线引用历史上，已拒绝。请确认基线引用未被重写，或重新申请 Envelope。');
   }
   if (envelope.checkpoint && envelope.checkpoint.headSha !== actual.headSha) {
-    return deny('EXECUTION_ENVELOPE_CHECKPOINT_STALE', 'The current HEAD differs from the last host checkpoint.');
+    return deny('EXECUTION_ENVELOPE_CHECKPOINT_STALE', '当前 HEAD 与宿主最后一次 checkpoint 不一致，已拒绝。请在宿主侧更新 checkpoint 后重试。');
   }
   const allowedRoots = expected.allowedWriteRoots.map(canonicalPath);
   if (allowedRoots.some((root) => !root)) {
-    return deny('EXECUTION_ENVELOPE_WRITE_SCOPE_INVALID', 'An allowed write root cannot be resolved safely.');
+    return deny('EXECUTION_ENVELOPE_WRITE_SCOPE_INVALID', 'Envelope 声明的允许写入根无法安全解析，已拒绝。请修正 Envelope 中的 allowedWriteRoots 路径后重试。');
   }
   const outside = [...classification.workspaceTargets, ...classification.hostTargets]
     .find((target) => !allowedRoots.some((root) => isInside(root, target)));
-  if (outside) return deny('EXECUTION_ENVELOPE_WRITE_SCOPE_MISMATCH', 'The tool request targets a path outside the active write roots.');
+  if (outside) return deny('EXECUTION_ENVELOPE_WRITE_SCOPE_MISMATCH', '该调用的写入目标超出 Envelope 允许的写入根，已拒绝。请改为允许根内的路径，或重新申请覆盖该路径的 Envelope。');
   return null;
 }
 
 function externalTargetDecision(classification, envelope) {
   if (classification.externalTargets.length === 0) {
     return classification.effects.includes('externalWrite')
-      ? deny('EXECUTION_ENVELOPE_EXTERNAL_TARGET_UNVERIFIED', 'The external write does not expose a verifiable target.')
+      ? deny('EXECUTION_ENVELOPE_EXTERNAL_TARGET_UNVERIFIED', '该外部写操作没有暴露可核验的目标，无法确认授权范围，已拒绝。请在命令中写明完整的目标地址或资源标识。')
       : null;
   }
   const allowed = new Set(envelope.scope.externalTargets.map((target) => (
@@ -825,37 +770,37 @@ function externalTargetDecision(classification, envelope) {
     target.kind + '\u0000' + target.id + '\u0000' + target.environment,
   ));
   return mismatch
-    ? deny('EXECUTION_ENVELOPE_EXTERNAL_TARGET_MISMATCH', 'The tool request targets an external resource outside the active envelope.')
+    ? deny('EXECUTION_ENVELOPE_EXTERNAL_TARGET_MISMATCH', '该调用面向的外部资源不在活动 Envelope 授权范围内，已拒绝。请改为 Envelope 内的目标，或重新申请 Envelope。')
     : null;
 }
 
 function highRiskDecision(classification, envelope, nowMs) {
   if (classification.immutableWorkspaceOperation) {
-    return deny('EXECUTION_ENVELOPE_WORKTREE_MOVE_FORBIDDEN', 'An active task cannot move its bound worktree. Use a new task or host handoff.');
+    return deny('EXECUTION_ENVELOPE_WORKTREE_MOVE_FORBIDDEN', '活动任务不能移动自身绑定的 worktree，已拒绝。请新建任务或使用宿主 handoff 迁移工作区。');
   }
   if (envelope.riskClass !== 'high') {
-    return deny('EXECUTION_ENVELOPE_RISK_CLASS_REQUIRED', 'This request requires a high-risk v2 envelope.');
+    return deny('EXECUTION_ENVELOPE_RISK_CLASS_REQUIRED', '该请求属于高风险，需要 v2 high-risk Envelope，当前 Envelope 的 riskClass 不足。请由宿主重新签发 riskClass=high 的 Envelope。');
   }
   const host = envelope.hostContext;
   if (host.source !== 'host' || host.process !== 'isolated') {
-    return deny('EXECUTION_ENVELOPE_HOST_CONTEXT_INSUFFICIENT', 'High-risk execution requires host-provided process isolation.');
+    return deny('EXECUTION_ENVELOPE_HOST_CONTEXT_INSUFFICIENT', '高风险执行要求宿主提供进程隔离证明，当前 hostContext 不满足，已拒绝。请由宿主注入 source=host 且 process=isolated 的证明。');
   }
   const observedAt = Date.parse(host.observedAt);
   if (observedAt > nowMs || nowMs - observedAt > 5 * 60 * 1000) {
-    return deny('EXECUTION_ENVELOPE_HOST_CONTEXT_STALE', 'The host enforcement evidence is stale.');
+    return deny('EXECUTION_ENVELOPE_HOST_CONTEXT_STALE', '宿主强制证据已过期（超过 5 分钟），已拒绝。请让宿主重新采集并注入 hostContext。');
   }
   if (classification.effects.includes('workspaceWrite') && host.filesystem === 'read-only') {
-    return deny('EXECUTION_ENVELOPE_FILESYSTEM_INSUFFICIENT', 'The host filesystem boundary does not permit workspace writes.');
+    return deny('EXECUTION_ENVELOPE_FILESYSTEM_INSUFFICIENT', '宿主文件系统边界为只读，不允许工作区写入，已拒绝。请在允许写入的宿主边界内重试。');
   }
   if (classification.effects.includes('hostWrite') && host.filesystem !== 'unrestricted') {
-    return deny('EXECUTION_ENVELOPE_FILESYSTEM_INSUFFICIENT', 'Host writes require an explicit unrestricted filesystem boundary.');
+    return deny('EXECUTION_ENVELOPE_FILESYSTEM_INSUFFICIENT', '宿主目录写入要求显式的 unrestricted 文件系统边界，已拒绝。请让宿主重新签发对应边界。');
   }
   if (classification.effects.includes('externalWrite') && host.network === 'offline') {
-    return deny('EXECUTION_ENVELOPE_NETWORK_INSUFFICIENT', 'External writes require an enabled host network boundary.');
+    return deny('EXECUTION_ENVELOPE_NETWORK_INSUFFICIENT', '外部写操作要求启用宿主网络边界，当前为 offline，已拒绝。请让宿主重新签发网络边界。');
   }
   const approvalEffects = new Set(['hostWrite', 'externalWrite', 'credentialUse']);
   if (classification.effects.some((effect) => approvalEffects.has(effect)) && host.approval !== 'interactive') {
-    return deny('EXECUTION_ENVELOPE_APPROVAL_REQUIRED', 'Host writes, external writes, and credential use require interactive approval.');
+    return deny('EXECUTION_ENVELOPE_APPROVAL_REQUIRED', '宿主写入、外部写入与凭据使用要求交互式审批，当前 approval 不满足，已拒绝。请提供交互式审批或缩小该请求范围。');
   }
   return null;
 }
@@ -877,10 +822,10 @@ function envelopeInput(input, environment) {
 }
 
 function invalidEnvelopeDecision(status) {
-  if (status === 'missing') return deny('EXECUTION_ENVELOPE_MISSING', 'An Execution Envelope is required for this effectful or unclassified request.');
-  if (status === 'session-mismatch') return deny('EXECUTION_ENVELOPE_SESSION_MISMATCH', 'The Execution Envelope is bound to a different host session.');
-  if (status === 'expired') return deny('EXECUTION_ENVELOPE_EXPIRED', 'The Execution Envelope has expired.');
-  return deny('EXECUTION_ENVELOPE_INVALID', 'The Execution Envelope does not match the supported contract.');
+  if (status === 'missing') return deny('EXECUTION_ENVELOPE_MISSING', '该调用有副作用或无法安全判定，属于「不可判定」，需要 Execution Envelope 才能执行。只读命令无需 Envelope；确需执行请让宿主注入 Envelope，或改写为已登记的只读命令。');
+  if (status === 'session-mismatch') return deny('EXECUTION_ENVELOPE_SESSION_MISMATCH', 'Execution Envelope 绑定的是另一个宿主会话，已拒绝。请在当前会话重新签发 Envelope 后重试。');
+  if (status === 'expired') return deny('EXECUTION_ENVELOPE_EXPIRED', 'Execution Envelope 已过期，已拒绝。请重新签发有效期内的 Envelope。');
+  return deny('EXECUTION_ENVELOPE_INVALID', 'Execution Envelope 不符合受支持契约，已拒绝。请按 docs/schemas/execution-envelope-v2.schema.json 重新签发（缺失字段或版本不匹配都会命中此项）。');
 }
 
 /** @param {Record<string, any>} input @param {{environment?: NodeJS.ProcessEnv, now?: number | Date}} options */
@@ -907,21 +852,21 @@ export function evaluateExecutionEnvelope(input, { environment = process.env, no
   }
   const forbidden = classification.effects.find((effect) => envelope.forbiddenEffects.includes(effect));
   if (forbidden) {
-    return deny('EXECUTION_ENVELOPE_EFFECT_FORBIDDEN', 'Execution effect ' + forbidden + ' is explicitly forbidden by the active envelope.');
+    return deny('EXECUTION_ENVELOPE_EFFECT_FORBIDDEN', '活动 Envelope 明确禁止执行效果 ' + forbidden + '，已拒绝。请改用不含该效果的实现，或重新签发不含该禁止项的 Envelope。');
   }
   const ceiling = (version === 1 ? modeCeilingsV1 : modeCeilingsV2).get(envelope.mode);
   const modeViolation = classification.effects.find((effect) => !ceiling.has(effect));
   if (modeViolation) {
-    return deny('EXECUTION_ENVELOPE_MODE_VIOLATION', 'Execution mode ' + envelope.mode + ' does not permit effect ' + modeViolation + '.');
+    return deny('EXECUTION_ENVELOPE_MODE_VIOLATION', '执行模式 ' + envelope.mode + ' 不允许效果 ' + modeViolation + '，已拒绝。请改用允许该效果的模式（例如 execute）或缩小调用范围。');
   }
   if (classification.credentialPersistence) {
-    return deny('EXECUTION_ENVELOPE_CREDENTIAL_PERSISTENCE', 'Direct credential-helper output must not be written to files.');
+    return deny('EXECUTION_ENVELOPE_CREDENTIAL_PERSISTENCE', '禁止把凭据助手输出直接落盘，已拒绝。请改为只读取所需字段，不要把凭据写入文件。');
   }
   if (version === 1 && classification.risk === 'high') {
-    return deny('EXECUTION_ENVELOPE_V1_INSUFFICIENT', 'Execution Envelope v1 cannot authorize high-risk, host, external, credential, or worktree-topology effects.');
+    return deny('EXECUTION_ENVELOPE_V1_INSUFFICIENT', 'Execution Envelope v1 无法授权高风险、宿主、外部、凭据或 worktree 拓扑效果，已拒绝。请改用 v2 high-risk Envelope。');
   }
   if (classification.unknown) {
-    return deny('EXECUTION_ENVELOPE_UNKNOWN_EFFECT', 'The tool request has effects that cannot be classified safely.');
+    return deny('EXECUTION_ENVELOPE_UNKNOWN_EFFECT', '该调用的效果无法安全判定，属于「不可判定」，需要 Execution Envelope 才能执行。请改写为已登记的只读命令，或由宿主注入覆盖该调用的 Envelope。');
   }
   if (version === 2 && classification.risk === 'high') {
     const riskDecision = highRiskDecision(classification, envelope, nowMs);
@@ -929,7 +874,7 @@ export function evaluateExecutionEnvelope(input, { environment = process.env, no
   }
   const missing = classification.effects.find((effect) => !envelope.allowedEffects.includes(effect));
   if (missing) {
-    return deny('EXECUTION_ENVELOPE_EFFECT_NOT_ALLOWED', 'Execution effect ' + missing + ' is not authorized by the active envelope.');
+    return deny('EXECUTION_ENVELOPE_EFFECT_NOT_ALLOWED', '活动 Envelope 未授权执行效果 ' + missing + '，已拒绝。请在 Envelope 的 allowedEffects 中登记该效果后重试。');
   }
   const targetMismatch = targetDecision(input, classification, envelope);
   if (targetMismatch) return targetMismatch;
