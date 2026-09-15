@@ -108,6 +108,15 @@ test('changes reports git status without invoking a shell', async () => {
   }
 });
 
+test('help advertises every project command including worktree, slice and patch', async () => {
+  const result = await runCommand(['help', '--json'], { cwd: rootDir });
+  assert.equal(result.exitCode, 0);
+  assert.equal(
+    result.report.usage,
+    'run.mjs <env|context|changes|verify|worktree|slice|patch> --project <path> [--json]',
+  );
+});
+
 test('core installation provides a standalone project command runner', async () => {
   const project = await tempProject();
   try {

@@ -94,9 +94,14 @@ node .agents/runtime/commands/run.mjs context --project . --json
 node .agents/runtime/commands/run.mjs changes --project . --json
 node .agents/runtime/commands/run.mjs verify --project . --plan --json
 node .agents/runtime/commands/run.mjs verify --project . --json
+node .agents/runtime/commands/run.mjs worktree check --project . --strict --json
+node .agents/runtime/commands/run.mjs slice --project . --file <path> --from <n>
+node .agents/runtime/commands/run.mjs patch --project . --spec <spec.json>
 ```
 
 `verify --plan` 只预览已配置检查，不执行命令；脚本不提供任意命令执行接口，不自动修改配置或联网。验证命令来自 `vibe-harness.config.json` 的 `validationCommands`，失败、超时、危险命令和验证期间工作树变化都会明确报告。
+
+`worktree`、`slice` 和 `patch` 默认只读：`worktree check` 汇总隔离单元、merge-back 与依赖链接事实并给出 `cleanupAllowed` 建议，`worktree bootstrap` / `worktree cleanup` 只在追加 `--write` 时落盘，且 cleanup 在分支尚未并入 `worktree.baseRef` 或工作区不干净时拒绝执行、绝不删除分支；`slice` 打印指定行区间，`patch` 按 spec 在内存中完成带守卫的区间或序列替换，全部通过后才写盘。三者替代 `node -e` 内联片段与项目内一次性脚本。
 
 ## 多宿主安装
 

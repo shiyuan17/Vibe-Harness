@@ -12,6 +12,7 @@ import {
   isTaskBranch,
   parseWorktreeList,
   pathKey,
+  resolveWorktreeRoot,
   summarizeWorktreeAudit,
   validateWorktrees,
 } from '../scripts/lib/worktree-audit.js';
@@ -218,6 +219,72 @@ test('an unparsable listing fails closed', () => {
   const audit = validateWorktrees(42, { repositoryRoot: REPO });
   assert.equal(audit.ok, false);
   assert.deepEqual(codes(audit), ['WORKTREE_LIST_INVALID']);
+});
+
+test('a worktree outside the configured root fails while the root itself passes', () => {
+  const configuredRoot = path.resolve('/work/app-worktrees');
+  assert.equal(resolveWorktreeRoot(REPO, '../app-worktrees'), configuredRoot);
+  assert.equal(resolveWorktreeRoot(REPO, '/work/app-worktrees'), configuredRoot);
+  assert.equal(resolveWorktreeRoot(REPO), path.resolve('/work/app-worktrees'));
+
+  const listing = (worktreePath) => `${[
+    entry({ branch: 'main', path: REPO }).fields,
+    entry({ branch: 'feat/ENG-1-add-dag', path: worktreePath }).fields,
+  ].map((fields) => fields.join(NUL)).join(NUL + NUL)}${NUL}${NUL}`;
+
+  const inside = validateWorktrees(listing(OUTSIDE), { configuredRoot, repositoryRoot: REPO });
+  assert.deepEqual(codes(inside), ['WORKTREE_UNMANAGED']);
+  assert.equal(inside.configuredRoot, configuredRoot);
+
+  const outside = validateWorktrees(listing(path.resolve('/work/elsewhere/ENG-1')), { configuredRoot, repositoryRoot: REPO });
+  assert.ok(codes(outside).includes('WORKTREE_OUTSIDE_CONFIGURED_ROOT'));
+  assert.equal(outside.ok, false);
+  assert.equal(outside.cleanupAllowed, false);
+});
+
+test('dependency-link evidence reports missing and stale links separately', () => {
+  const branch = 'feat/ENG-1-add-dag';
+  const records = listing([entry({ branch: 'main', path: REPO }).fields, entry({ branch, path: OUTSIDE }).fields]);
+  const tasks = [{ branch, id: 'ENG-1', path: OUTSIDE }];
+  const clean = {
+    dirty: new Map([[pathKey(OUTSIDE), false]]),
+    integration: new Map([[branch, { baseDrift: false, integrated: true, mergeBaseSha: 'f'.repeat(40), targetRef: 'HEAD' }]]),
+    repositoryRoot: REPO,
+    tasks,
+  };
+
+  const missing = validateWorktrees(records, {
+    ...clean,
+    dependencyEvidence: new Map([[pathKey(OUTSIDE), [{ dependencyRoot: 'frontend', status: 'missing' }]]]),
+  });
+  assert.ok(codes(missing).includes('WORKTREE_DEPENDENCY_MISSING'));
+  assert.equal(missing.ok, true);
+  // A link the worktree never had describes provisioning, not merge-back, so it
+  // must not block removing an already-merged worktree.
+  assert.equal(missing.cleanupAllowed, true);
+
+  const stale = validateWorktrees(records, {
+    ...clean,
+    dependencyEvidence: new Map([[pathKey(OUTSIDE), [{ dependencyRoot: 'frontend', localPackage: '@demo/contracts', resolved: REPO, status: 'stale' }]]]),
+  });
+  assert.ok(codes(stale).includes('WORKTREE_DEPENDENCY_STALE'));
+  assert.equal(stale.ok, false);
+  assert.equal(stale.cleanupAllowed, true);
+  assert.match(summarizeWorktreeAudit(stale), /WORKTREE_DEPENDENCY_STALE/u);
+});
+
+test('integrationAll reports merge-back for worktrees no task registered', () => {
+  const branch = 'feat/ENG-1-add-dag';
+  const records = listing([entry({ branch: 'main', path: REPO }).fields, entry({ branch, path: OUTSIDE }).fields]);
+  const audit = validateWorktrees(records, {
+    integration: new Map([[branch, { baseDrift: false, integrated: false, mergeBaseSha: 'c'.repeat(40), targetRef: 'origin/develop' }]]),
+    integrationAll: true,
+    repositoryRoot: REPO,
+  });
+  assert.ok(codes(audit).includes('WORKTREE_MERGE_BACK_PENDING'));
+  assert.equal(audit.worktrees[1].integrated, false);
+  assert.equal(audit.worktrees[1].targetRef, 'origin/develop');
+  assert.equal(audit.cleanupAllowed, false);
 });
 
 async function makeGitFixture() {

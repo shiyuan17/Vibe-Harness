@@ -323,6 +323,32 @@ test('capability matrix maps every reusable capability to current assets', async
   assert.match((await validateCapabilityMatrix(rootDir, unmanagedDoc, { checkFiles: false })).join('\n'), /documentation catalog/u);
 });
 
+test('the worktree audit core ships with the project scripts it serves', async () => {
+  // The installed runner imports the shared core, so both files have to travel
+  // in the same install-map group or the project copy fails at import time.
+  const installMap = await readJson(path.join(rootDir, 'adapters/install-map.json'));
+  const entry = installMap.entries.find((item) => item.source === 'runtime/lib/worktree-audit.mjs');
+  assert.deepEqual(entry, {
+    contentStrategy: 'replace',
+    group: 'runtime-project-scripts',
+    source: 'runtime/lib/worktree-audit.mjs',
+    target: '.agents/runtime/lib/worktree-audit.mjs',
+  });
+  assert.equal(
+    installMap.entries.find((item) => item.source === 'runtime/commands/run.mjs').group,
+    entry.group,
+  );
+
+  const matrix = await readJson(path.join(rootDir, 'manifests/capabilities.json'));
+  const capability = matrix.items.find((item) => item.id === 'project-deterministic-scripts');
+  for (const target of ['runtime/commands/run.mjs', 'runtime/lib/worktree-audit.mjs']) {
+    assert.ok(capability.targets.includes(target), target);
+  }
+  for (const suite of ['tests/project-worktree-command.test.js', 'tests/project-file-edit-command.test.js']) {
+    assert.ok(capability.tests.includes(suite), suite);
+  }
+});
+
 test('self-installed artifacts must stay in sync with their sources', async () => {
   // The real pack validates (covered by the next test), which means every
   // replace entry whose source has no render placeholder is byte-identical to

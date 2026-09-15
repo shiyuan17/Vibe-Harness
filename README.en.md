@@ -94,9 +94,14 @@ node .agents/runtime/commands/run.mjs context --project . --json
 node .agents/runtime/commands/run.mjs changes --project . --json
 node .agents/runtime/commands/run.mjs verify --project . --plan --json
 node .agents/runtime/commands/run.mjs verify --project . --json
+node .agents/runtime/commands/run.mjs worktree check --project . --strict --json
+node .agents/runtime/commands/run.mjs slice --project . --file <path> --from <n>
+node .agents/runtime/commands/run.mjs patch --project . --spec <spec.json>
 ```
 
 `verify --plan` previews configured checks without executing them. The script has no arbitrary command option, does not edit configuration, and does not use the network. Commands come from `validationCommands` in `vibe-harness.config.json`; failures, timeouts, unsafe commands, and worktree changes during verification are reported explicitly.
+
+`worktree`, `slice`, and `patch` are read-only by default. `worktree check` reports isolation units, merge-back state, and dependency links plus a `cleanupAllowed` advisory; `worktree bootstrap` and `worktree cleanup` only write when `--write` is passed, and cleanup refuses while a branch has not landed in `worktree.baseRef` or the worktree is dirty and never deletes a branch. `slice` prints a line range; `patch` applies guarded range or sequence edits in memory and writes only after every operation passed. They replace inline `node -e` snippets and one-off scripts inside a project.
 
 ## Multi-host installation
 

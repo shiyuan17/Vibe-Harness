@@ -817,6 +817,11 @@ export const CONTENT_QUALITY_CHECKS = [
       'Git credential helper 只可由其已配置的 Git transport 透明调用',
       // 分支命名由项目 worktree 校验入口判定。
       '项目 worktree 校验入口',
+      // Worktree 引导与清理：脚本入口、默认只读、依赖链接断言与宿主边界前提。
+      '默认只读，只有追加 `--write` 才落盘',
+      '逐项 realpath 断言',
+      '宿主必须把 worktree 根登记为附加工作区根',
+      '不得以内联脚本、临时目录或改写路径触发方式绕过宿主边界',
     ],
   },
   {
@@ -1008,6 +1013,13 @@ export const CONTENT_QUALITY_CHECKS = [
       // Hook 入口错误码是可核对的人工判据。
       'HOOK_INPUT_INVALID_JSON',
       'HOOK_RUNTIME_ERROR',
+      // 宿主命令适配：每条写法都对应一次已复现的宿主失败。
+      '宿主命令适配',
+      'os error 123',
+      '不对仓库外路径直接调用',
+      '把替换写成 `run.mjs patch` 的 spec 文件',
+      '保持 LF 行尾',
+      '确认归属后再终止',
     ],
   },
   {

@@ -2,10 +2,23 @@
 
 import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { access, readFile, readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
+
+import { parseWorktreeList, pathKey, resolveWorktreeRoot, summarizeWorktreeAudit, validateWorktrees } from '../lib/worktree-audit.mjs';
 
 const execFileAsync = promisify(execFile);
 const SCHEMA_VERSION = 1;
@@ -65,10 +78,13 @@ export function assertSafeCommand(command) {
 }
 
 function parseArgs(argv) {
-  const args = { _: [], json: false, plan: false, allowManual: false, only: null };
+  const args = { _: [], json: false, plan: false, allowManual: false, only: null, task: [] };
   const aliases = new Map([
     ['allow-manual', 'allowManual'],
+    ['no-numbers', 'numbers'],
   ]);
+  const booleanFlags = new Set(['json', 'plan', 'allow-manual', 'no-numbers', 'strict', 'write', 'deep']);
+  const valueFlags = new Set(['project', 'base', 'only', 'timeout', 'output', 'task', 'base-ref', 'branch-prefix', 'file', 'from', 'to', 'spec', 'root']);
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
     if (!token.startsWith('--')) {
@@ -76,15 +92,25 @@ function parseArgs(argv) {
       continue;
     }
     const raw = token.slice(2);
-    if (raw === 'json' || raw === 'plan' || raw === 'allow-manual') {
-      args[aliases.get(raw) ?? raw] = true;
-      continue;
-    }
     const equals = raw.indexOf('=');
     const key = equals >= 0 ? raw.slice(0, equals) : raw;
+    if (equals === -1 && booleanFlags.has(key)) {
+      // `--no-numbers` turns numbering off; every other flag turns its key on.
+      args[aliases.get(key) ?? key] = key === 'no-numbers' ? false : true;
+      continue;
+    }
+    if (!valueFlags.has(key)) throw new Error(`Unknown option: --${key}`);
     const value = equals >= 0 ? raw.slice(equals + 1) : argv[++index];
     if (!value || value.startsWith('--')) throw new Error(`Option --${key} requires a value.`);
-    if (key === 'project' || key === 'base') args[key] = value;
+    if (key === 'task') args.task.push(value);
+    else if (key === 'base-ref') args.baseRef = value;
+    else if (key === 'branch-prefix') args.branchPrefix = value;
+    else if (key === 'file' || key === 'spec' || key === 'root') args[key] = value;
+    else if (key === 'from' || key === 'to') {
+      const parsed = Number.parseInt(value, 10);
+      if (!Number.isInteger(parsed)) throw new Error(`Option --${key} requires an integer.`);
+      args[key] = parsed;
+    } else if (key === 'project' || key === 'base') args[key] = value;
     else if (key === 'only') args.only = value.split(',').map((item) => item.trim()).filter(Boolean);
     else if (key === 'timeout') args.timeout = Number.parseInt(value, 10);
     else if (key === 'output') args.output = value;
@@ -485,7 +511,807 @@ async function changesReport(projectDir, args) {
   return report;
 }
 
+// --- worktree / slice / patch (P0) -----------------------------------------
+//
+// These commands replace the throwaway scripts an agent used to write into the
+// project itself: `git worktree add` plus a hand-built `node_modules` junction
+// per worktree, and inline `node -e` snippets that sliced or rewrote files.
+// Every command is read-only unless `--write` is passed; nothing here removes a
+// branch, and `worktree cleanup` refuses while a branch has not landed.
+
+const IGNORED_SCAN_DIRECTORIES = new Set([
+  '.agents', '.git', '.turbo', '.vibe-harness', 'build', 'coverage', 'dist', 'node_modules', 'out', 'target',
+]);
+
+async function readProjectConfig(projectDir) {
+  const info = await readJsonIfExists(path.join(projectDir, CONFIG_FILE));
+  return info.value && typeof info.value === 'object' && !Array.isArray(info.value) ? info.value : {};
+}
+
+function normalizeSlashes(value) {
+  return String(value).replaceAll('\\', '/').replace(/\/+$/u, '');
+}
+
+function isInsidePath(candidate, parent) {
+  const child = pathKey(candidate);
+  const base = pathKey(parent);
+  return child !== base && child.startsWith(`${base}/`);
+}
+
+function safeRealpath(target) {
+  try {
+    return realpathSync.native ? realpathSync.native(target) : realpathSync(target);
+  } catch {
+    return null;
+  }
+}
+
+function listDirectories(dir) {
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && !IGNORED_SCAN_DIRECTORIES.has(entry.name))
+      .map((entry) => entry.name)
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+function workspacePatterns(packageJson) {
+  const raw = packageJson?.workspaces;
+  const patterns = Array.isArray(raw) ? raw : Array.isArray(raw?.packages) ? raw.packages : [];
+  return patterns.filter((item) => typeof item === 'string' && item.trim() !== '');
+}
+
+function expandWorkspacePattern(rootDir, pattern) {
+  const normalized = normalizeSlashes(pattern).replace(/^\.\//u, '');
+  if (normalized.endsWith('/**')) {
+    const base = path.resolve(rootDir, normalized.slice(0, -3));
+    const found = [];
+    const walk = (dir, depth) => {
+      if (depth > 3) return;
+      for (const name of listDirectories(dir)) {
+        const next = path.join(dir, name);
+        if (isNestedCheckout(next)) continue;
+        found.push(next);
+        walk(next, depth + 1);
+      }
+    };
+    walk(base, 0);
+    return found;
+  }
+  if (normalized.endsWith('/*')) {
+    const base = path.resolve(rootDir, normalized.slice(0, -2));
+    return listDirectories(base)
+      .map((name) => path.join(base, name))
+      .filter((dir) => !isNestedCheckout(dir));
+  }
+  return [path.resolve(rootDir, normalized)];
+}
+
+/**
+ * A directory that owns its own `.git` entry is a separate checkout: a linked
+ * worktree, a submodule, or a vendored clone. Its workspace topology belongs to
+ * that checkout, so scanning it would report the same package name several
+ * times and point a link at another worktree's copy.
+ */
+function isNestedCheckout(dir) {
+  return existsSync(path.join(dir, '.git'));
+}
+
+function readPackageJsonSync(dir) {
+  try {
+    return JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Discover workspace roots and the local packages they declare.
+ *
+ * A dependency root is a directory that owns a hoisted `node_modules` and a
+ * `workspaces` declaration. The local packages are the workspace packages
+ * inside it: those must resolve to the worktree's own sources, because Node
+ * follows a shared junction back to the main checkout and would otherwise hand
+ * a worktree the main checkout's copy.
+ */
+function discoverWorkspaceTopology(projectDir) {
+  const candidates = [];
+  const visit = (dir, depth) => {
+    const packageJson = readPackageJsonSync(dir);
+    if (workspacePatterns(packageJson).length > 0) candidates.push({ dir, packageJson });
+    if (depth >= 2) return;
+    for (const name of listDirectories(dir)) {
+      const next = path.join(dir, name);
+      if (isNestedCheckout(next)) continue;
+      visit(next, depth + 1);
+    }
+  };
+  visit(projectDir, 0);
+
+  const roots = [];
+  const packages = [];
+  for (const candidate of candidates) {
+    const relativeRoot = normalizeSlashes(path.relative(projectDir, candidate.dir)) || '.';
+    roots.push({ dir: relativeRoot, abs: candidate.dir });
+    const seen = new Set();
+    for (const pattern of workspacePatterns(candidate.packageJson)) {
+      for (const dir of expandWorkspacePattern(candidate.dir, pattern)) {
+        const key = pathKey(dir);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const manifest = readPackageJsonSync(dir);
+        if (typeof manifest?.name !== 'string' || manifest.name.trim() === '') continue;
+        packages.push({
+          abs: dir,
+          dir: normalizeSlashes(path.relative(projectDir, dir)),
+          name: manifest.name.trim(),
+          root: relativeRoot,
+        });
+      }
+    }
+  }
+  return { packages, roots };
+}
+
+function readWorktreeConfig(config) {
+  const raw = config?.worktree;
+  if (raw === undefined) return { value: {}, error: null };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { value: {}, error: 'worktree must be an object.' };
+  }
+  const value = {};
+  for (const key of ['root', 'baseRef']) {
+    if (raw[key] === undefined) continue;
+    if (typeof raw[key] !== 'string' || raw[key].trim() === '') return { value: {}, error: `worktree.${key} must be a non-empty string.` };
+    value[key] = raw[key].trim();
+  }
+  for (const key of ['dependencyRoots', 'localPackages']) {
+    if (raw[key] === undefined) continue;
+    if (!Array.isArray(raw[key]) || raw[key].some((item) => typeof item !== 'string' || item.trim() === '')) {
+      return { value: {}, error: `worktree.${key} must be an array of non-empty strings.` };
+    }
+    value[key] = raw[key].map((item) => item.trim());
+  }
+  return { value, error: null };
+}
+
+function resolveWorktreeSettings(projectDir, projectConfig, args) {
+  const parsed = readWorktreeConfig(projectConfig);
+  if (parsed.error) return { error: parsed.error };
+  const configured = parsed.value;
+  const discovered = discoverWorkspaceTopology(projectDir);
+  const dependencyRoots = (configured.dependencyRoots ?? discovered.roots.map((root) => root.dir))
+    .filter((dir) => dir !== '.');
+  const wanted = configured.localPackages ? new Set(configured.localPackages) : null;
+  const localPackages = discovered.packages.filter((item) => wanted === null || wanted.has(item.name));
+  const unknown = wanted === null ? [] : [...wanted].filter((name) => !localPackages.some((item) => item.name === name));
+  return {
+    baseRef: args.baseRef ?? configured.baseRef ?? 'origin/develop',
+    configuredRoot: args.root ?? configured.root ?? null,
+    dependencyRoots,
+    localPackages,
+    projectDir,
+    root: resolveWorktreeRoot(projectDir, args.root ?? configured.root),
+    unknownLocalPackages: unknown,
+  };
+}
+
+async function worktreeEntries(projectDir) {
+  const top = await runGit(['rev-parse', '--show-toplevel'], projectDir);
+  if (!top.ok) return { entries: [], repositoryRoot: null, reason: 'not-a-git-worktree' };
+  const listing = await runFile('git', ['worktree', 'list', '--porcelain', '-z'], { cwd: projectDir, timeoutMs: 15_000 });
+  if (!listing.ok) return { entries: [], repositoryRoot: normalizePath(top.stdout.trim()), reason: 'worktree-list-failed' };
+  return { entries: parseWorktreeList(listing.stdout), repositoryRoot: normalizePath(top.stdout.trim()), reason: null };
+}
+
+async function worktreeDirtyMap(entries) {
+  const dirty = new Map();
+  for (const entry of entries) {
+    if (!entry.path || !existsSync(entry.path)) continue;
+    const status = await runGit(['status', '--porcelain=v1'], entry.path);
+    dirty.set(pathKey(entry.path), status.ok ? status.stdout.trim() !== '' : null);
+  }
+  return dirty;
+}
+
+async function resolveWorktreeIntegration(projectDir, entries, baseRef) {
+  const map = new Map();
+  const probe = await runGit(['rev-parse', '--verify', '--quiet', baseRef], projectDir);
+  if (!probe.ok) return { baseRefResolved: false, map };
+  for (const entry of entries) {
+    if (entry.primary || typeof entry.branch !== 'string' || entry.branch === '') continue;
+    const head = await runGit(['rev-parse', `refs/heads/${entry.branch}`], projectDir);
+    if (!head.ok) continue;
+    const mergeBase = await runGit(['merge-base', entry.branch, baseRef], projectDir);
+    const ancestor = await runGit(['merge-base', '--is-ancestor', head.stdout.trim(), baseRef], projectDir);
+    map.set(entry.branch, {
+      integrated: ancestor.ok,
+      mergeBaseSha: mergeBase.ok ? mergeBase.stdout.trim() : null,
+      targetRef: baseRef,
+    });
+  }
+  return { baseRefResolved: true, map };
+}
+
+function linkDirectory(target, linkPath) {
+  const type = process.platform === 'win32' ? 'junction' : 'dir';
+  symlinkSync(path.resolve(target), path.resolve(linkPath), type);
+}
+
+function ensureRealDirectory(target) {
+  if (!existsSync(target)) {
+    mkdirSync(target, { recursive: true });
+    return;
+  }
+  if (lstatSync(target).isSymbolicLink()) {
+    // Promote a whole-directory link into a real directory so individual
+    // entries can be overridden.
+    rmSync(target, { force: true, recursive: true });
+    mkdirSync(target, { recursive: true });
+  }
+}
+
+function packagesForRoot(settings, root) {
+  // A package belongs to a dependency root either because its own `workspaces`
+  // declaration discovered it there, or because the configured root contains
+  // its directory. The second form lets a project name a dependency root that
+  // is declared by a parent manifest.
+  return settings.localPackages.filter((item) => item.root === root
+    || (normalizeSlashes(root) !== '.' && isInsidePath(item.abs, path.resolve(settings.projectDir, root))));
+}
+
+/** Link one dependency root of a worktree against the main checkout. */
+function linkDependencyRoot(projectDir, worktreePath, settings, root) {
+  const mainModules = path.join(projectDir, root, 'node_modules');
+  const worktreeModules = path.join(worktreePath, root, 'node_modules');
+  const localPackages = packagesForRoot(settings, root);
+  if (!existsSync(mainModules)) return { action: 'skipped', reason: `${root}/node_modules is absent in the main checkout`, root };
+  if (localPackages.length === 0) {
+    if (existsSync(worktreeModules)) rmSync(worktreeModules, { force: true, recursive: true });
+    linkDirectory(mainModules, worktreeModules);
+    return { action: 'linked', mode: 'directory', root };
+  }
+  ensureRealDirectory(worktreeModules);
+  const localNames = new Set(localPackages.map((item) => item.name));
+  const localScopes = new Set(localPackages.filter((item) => item.name.startsWith('@')).map((item) => item.name.split('/')[0]));
+  for (const entry of listDirectories(mainModules).concat(listFilesOf(mainModules))) {
+    if (entry.startsWith('.') && entry !== '.bin') continue;
+    if (localScopes.has(entry)) continue;
+    const target = path.join(worktreeModules, entry);
+    if (existsSync(target)) rmSync(target, { force: true, recursive: true });
+    if (localNames.has(entry)) {
+      const local = localPackages.find((item) => item.name === entry);
+      linkDirectory(path.join(worktreePath, local.dir), target);
+      continue;
+    }
+    linkDirectory(path.join(mainModules, entry), target);
+  }
+  for (const scope of localScopes) {
+    const scopeDir = path.join(worktreeModules, scope);
+    mkdirSync(scopeDir, { recursive: true });
+    for (const entry of listDirectories(path.join(mainModules, scope))) {
+      const name = `${scope}/${entry}`;
+      const target = path.join(scopeDir, entry);
+      if (existsSync(target)) rmSync(target, { force: true, recursive: true });
+      const local = localPackages.find((item) => item.name === name);
+      linkDirectory(local ? path.join(worktreePath, local.dir) : path.join(mainModules, scope, entry), target);
+    }
+    for (const local of localPackages.filter((item) => item.name.startsWith(`${scope}/`))) {
+      const target = path.join(scopeDir, local.name.slice(scope.length + 1));
+      if (existsSync(target)) continue;
+      mkdirSync(path.dirname(target), { recursive: true });
+      linkDirectory(path.join(worktreePath, local.dir), target);
+    }
+  }
+  return { action: 'linked', localPackages: localPackages.map((item) => item.name), mode: 'overlay', root };
+}
+
+function listFilesOf(dir) {
+  try {
+    return readdirSync(dir, { withFileTypes: true }).filter((entry) => !entry.isDirectory()).map((entry) => entry.name);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Remove the dependency links a bootstrap created inside one worktree.
+ *
+ * `git worktree remove` does not follow a junction, so it deletes the tracked
+ * files and then stops, leaving the worktree directory behind. Removing the
+ * link directories first lets Git finish the job. Node's recursive removal
+ * unlinks a reparse point instead of descending into it, so the main checkout's
+ * `node_modules` is never touched.
+ */
+function removeDependencyLinks(worktreePath, settings) {
+  const removed = [];
+  for (const root of settings.dependencyRoots) {
+    const modules = path.join(worktreePath, root, 'node_modules');
+    if (!existsSync(modules)) continue;
+    if (!lstatSync(modules).isDirectory()) continue;
+    rmSync(modules, { force: true, recursive: true });
+    removed.push(`${root}/node_modules`);
+  }
+  return removed;
+}
+
+/** Filesystem evidence for the dependency links of every worktree. */
+function worktreeDependencyEvidence(projectDir, entries, settings) {
+  const evidence = new Map();
+  for (const entry of entries) {
+    if (entry.primary || !entry.path || !existsSync(entry.path)) continue;
+    const facts = [];
+    for (const root of settings.dependencyRoots) {
+      const mainModules = path.join(projectDir, root, 'node_modules');
+      const worktreeModules = path.join(entry.path, root, 'node_modules');
+      if (!existsSync(worktreeModules)) {
+        facts.push({ dependencyRoot: root, status: 'missing' });
+        continue;
+      }
+      const localPackages = packagesForRoot(settings, root);
+      if (localPackages.length === 0) {
+        const resolved = safeRealpath(worktreeModules);
+        if (resolved === null || pathKey(resolved) !== pathKey(mainModules)) {
+          facts.push({ dependencyRoot: root, resolved, status: 'stale' });
+        }
+        continue;
+      }
+      for (const local of localPackages) {
+        const linkPath = path.join(worktreeModules, local.name);
+        if (!existsSync(linkPath)) {
+          facts.push({ dependencyRoot: root, localPackage: local.name, status: 'missing' });
+          continue;
+        }
+        const resolved = safeRealpath(linkPath);
+        if (resolved === null || !isInsidePath(resolved, entry.path)) {
+          facts.push({ dependencyRoot: root, localPackage: local.name, resolved, status: 'stale' });
+        }
+      }
+    }
+    if (facts.length > 0) evidence.set(pathKey(entry.path), facts);
+  }
+  return evidence;
+}
+
+function parseWorktreeTask(value) {
+  const parts = String(value).split(':');
+  const [id, branch, ...rest] = parts;
+  if (!id || id.trim() === '') throw new Error(`--task ${value} has no identifier`);
+  return {
+    branch: branch === undefined || branch === '' ? null : branch,
+    id: id.trim(),
+    path: rest.length > 0 ? rest.join(':') : null,
+  };
+}
+
+async function worktreeListReport(projectDir) {
+  const { entries, reason, repositoryRoot } = await worktreeEntries(projectDir);
+  if (reason) return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'list', status: 'unavailable', error: reason, worktrees: [] };
+  return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'list', status: 'ready', repositoryRoot, worktrees: entries };
+}
+
+async function worktreeCheckReport(projectDir, args) {
+  const config = await readProjectConfig(projectDir);
+  const settings = resolveWorktreeSettings(projectDir, config, args);
+  if (settings.error) return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'check', status: 'failed', error: settings.error };
+  const { entries, reason, repositoryRoot } = await worktreeEntries(projectDir);
+  if (reason) return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'check', status: 'unavailable', error: reason };
+  const dirty = await worktreeDirtyMap(entries);
+  const { baseRefResolved, map } = await resolveWorktreeIntegration(projectDir, entries, settings.baseRef);
+  const tasks = args.task.map(parseWorktreeTask).map((task) => ({
+    ...task,
+    path: task.path ?? path.join(settings.root, task.id),
+  }));
+  const audit = validateWorktrees(entries, {
+    baseRef: settings.baseRef,
+    branchPrefix: args.branchPrefix ?? null,
+    configuredRoot: settings.root,
+    dependencyEvidence: worktreeDependencyEvidence(projectDir, entries, settings),
+    dirty,
+    integration: map,
+    integrationAll: true,
+    repositoryRoot,
+    tasks,
+  });
+  if (!baseRefResolved) {
+    audit.problems.push({
+      code: 'WORKTREE_BASE_REF_UNRESOLVED',
+      message: `worktree.baseRef ${settings.baseRef} does not resolve in ${repositoryRoot}; merge-back facts were skipped`,
+      severity: 'warning',
+    });
+    audit.warningCount += 1;
+  }
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    command: 'worktree',
+    subcommand: 'check',
+    status: audit.ok && !(args.strict && audit.warningCount > 0) ? 'passed' : 'failed',
+    audit,
+    localPackages: settings.localPackages.map((item) => item.name),
+    summary: summarizeWorktreeAudit(audit),
+    unknownLocalPackages: settings.unknownLocalPackages,
+  };
+}
+
+function worktreeBootstrapPlan(projectDir, settings, task, repositoryRoot) {
+  const worktreePath = task.path ?? path.join(settings.root, task.id);
+  const branch = task.branch ?? `feat/${task.id}-worktree`;
+  const steps = [
+    {
+      command: `git -C ${normalizeSlashes(repositoryRoot)} worktree add ${normalizeSlashes(worktreePath)} -b ${branch} ${settings.baseRef}`,
+      kind: 'git-worktree-add',
+      path: normalizeSlashes(worktreePath),
+    },
+  ];
+  for (const root of settings.dependencyRoots) {
+    const localPackages = packagesForRoot(settings, root);
+    steps.push({
+      kind: 'link-dependencies',
+      localPackages: localPackages.map((item) => item.name),
+      mode: localPackages.length > 0 ? 'overlay' : 'directory',
+      root,
+    });
+  }
+  return { branch, steps, worktreePath };
+}
+
+async function worktreeBootstrapReport(projectDir, args) {
+  const config = await readProjectConfig(projectDir);
+  const settings = resolveWorktreeSettings(projectDir, config, args);
+  if (settings.error) return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'bootstrap', status: 'failed', error: settings.error };
+  if (args.task.length === 0) {
+    return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'bootstrap', status: 'failed', error: 'bootstrap needs at least one --task <name>[:<branch>[:<path>]]' };
+  }
+  const { repositoryRoot, reason } = await worktreeEntries(projectDir);
+  if (reason) return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'bootstrap', status: 'unavailable', error: reason };
+  const results = [];
+  for (const raw of args.task) {
+    const task = parseWorktreeTask(raw);
+    const plan = worktreeBootstrapPlan(projectDir, settings, task, repositoryRoot);
+    if (!args.write) {
+      results.push({ ...plan, status: 'planned' });
+      continue;
+    }
+    if (isInsidePath(plan.worktreePath, repositoryRoot)) {
+      results.push({ ...plan, error: `${normalizeSlashes(plan.worktreePath)} is inside the repository; use worktree.root outside the project`, status: 'failed' });
+      continue;
+    }
+    const added = await runGit(['worktree', 'add', plan.worktreePath, '-b', plan.branch, settings.baseRef], projectDir);
+    if (!added.ok) {
+      results.push({ ...plan, error: boundedOutput(added.stderr || added.error?.message || 'git worktree add failed', projectDir), status: 'failed' });
+      continue;
+    }
+    try {
+      const links = settings.dependencyRoots.map((root) => linkDependencyRoot(projectDir, plan.worktreePath, settings, root));
+      const stale = [];
+      for (const root of settings.dependencyRoots) {
+        for (const local of packagesForRoot(settings, root)) {
+          const linkPath = path.join(plan.worktreePath, root, 'node_modules', local.name);
+          const resolved = safeRealpath(linkPath);
+          if (resolved === null || !isInsidePath(resolved, plan.worktreePath)) stale.push(local.name);
+        }
+      }
+      if (stale.length > 0) throw new Error(`local packages did not resolve inside the worktree: ${stale.join(', ')}`);
+      results.push({ ...plan, links, status: 'passed' });
+    } catch (error) {
+      // A half-provisioned worktree is worse than none: remove what this run
+      // created so the next attempt starts from a known state. `git worktree
+      // add -b` above only succeeds when the branch did not exist yet, so the
+      // branch is part of this transaction rather than someone else's work.
+      await runGit(['worktree', 'remove', '--force', plan.worktreePath], projectDir);
+      await runGit(['worktree', 'prune'], projectDir);
+      const branchHead = await runGit(['rev-parse', `refs/heads/${plan.branch}`], projectDir);
+      const baseHead = await runGit(['rev-parse', settings.baseRef], projectDir);
+      const untouched = branchHead.ok && baseHead.ok && branchHead.stdout.trim() === baseHead.stdout.trim();
+      const branchDeleted = untouched
+        && (await runGit(['branch', '--delete', '--force', plan.branch], projectDir)).ok;
+      results.push({
+        ...plan,
+        branchDeleted,
+        error: boundedOutput(error.message, projectDir),
+        status: 'failed',
+        rolledBack: true,
+      });
+    }
+  }
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    command: 'worktree',
+    subcommand: 'bootstrap',
+    status: results.every((item) => item.status !== 'failed') ? (args.write ? 'passed' : 'planned') : 'failed',
+    results,
+    write: Boolean(args.write),
+  };
+}
+
+async function worktreeCleanupReport(projectDir, args) {
+  const config = await readProjectConfig(projectDir);
+  const settings = resolveWorktreeSettings(projectDir, config, args);
+  if (settings.error) return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'cleanup', status: 'failed', error: settings.error };
+  if (args.task.length === 0) {
+    return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'cleanup', status: 'failed', error: 'cleanup needs at least one --task <name>' };
+  }
+  const { entries, reason } = await worktreeEntries(projectDir);
+  if (reason) return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'cleanup', status: 'unavailable', error: reason };
+  const results = [];
+  for (const raw of args.task) {
+    const task = parseWorktreeTask(raw);
+    const entry = entries.find((item) => !item.primary && item.path
+      && (pathKey(item.path) === pathKey(task.path ?? path.join(settings.root, task.id))
+        || (task.branch !== null && item.branch === task.branch)
+        || path.basename(item.path) === task.id));
+    if (!entry) {
+      results.push({ error: `no worktree matches task ${task.id}`, id: task.id, status: 'failed' });
+      continue;
+    }
+    if (entry.detached || typeof entry.branch !== 'string' || entry.branch === '') {
+      results.push({ branch: entry.branch, error: `${entry.path} has no named branch; a detached worktree cannot be proven merged`, id: task.id, path: normalizeSlashes(entry.path), status: 'failed' });
+      continue;
+    }
+    const head = await runGit(['rev-parse', `refs/heads/${entry.branch}`], projectDir);
+    const ancestor = head.ok ? await runGit(['merge-base', '--is-ancestor', head.stdout.trim(), settings.baseRef], projectDir) : { ok: false };
+    const dirty = await runGit(['status', '--porcelain=v1'], entry.path);
+    const blocked = [];
+    if (!ancestor.ok) blocked.push(`branch ${entry.branch} is not merged into ${settings.baseRef}`);
+    if (dirty.ok && dirty.stdout.trim() !== '') blocked.push('the worktree has uncommitted changes');
+    if (blocked.length > 0) {
+      results.push({ blockers: blocked, branch: entry.branch, id: task.id, path: normalizeSlashes(entry.path), status: 'blocked' });
+      continue;
+    }
+    if (!args.write) {
+      results.push({ branch: entry.branch, id: task.id, path: normalizeSlashes(entry.path), status: 'planned' });
+      continue;
+    }
+    const removedLinks = removeDependencyLinks(entry.path, settings);
+    const removed = await runGit(['worktree', 'remove', entry.path], projectDir);
+    if (!removed.ok) {
+      results.push({ branch: entry.branch, error: boundedOutput(removed.stderr || removed.error?.message || 'git worktree remove failed', projectDir), id: task.id, path: normalizeSlashes(entry.path), removedLinks, status: 'failed' });
+      continue;
+    }
+    await runGit(['worktree', 'prune'], projectDir);
+    results.push({
+      branch: entry.branch,
+      id: task.id,
+      path: normalizeSlashes(entry.path),
+      remainingDirectory: existsSync(entry.path),
+      removedLinks,
+      status: 'passed',
+    });
+  }
+  const failed = results.some((item) => item.status === 'failed' || item.status === 'blocked');
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    command: 'worktree',
+    subcommand: 'cleanup',
+    status: failed ? 'failed' : args.write ? 'passed' : 'planned',
+    results,
+    write: Boolean(args.write),
+  };
+}
+
+async function worktreeReport(projectDir, args) {
+  const subcommand = args._[1] ?? 'check';
+  if (subcommand === 'list') return worktreeListReport(projectDir);
+  if (subcommand === 'check') return worktreeCheckReport(projectDir, args);
+  if (subcommand === 'bootstrap') return worktreeBootstrapReport(projectDir, args);
+  if (subcommand === 'cleanup') return worktreeCleanupReport(projectDir, args);
+  throw new Error(`Unknown worktree subcommand: ${subcommand}`);
+}
+
+function detectEol(text) {
+  return text.includes('\r\n') ? '\r\n' : '\n';
+}
+
+function splitLines(text) {
+  const hadTrailingNewline = text.endsWith('\n');
+  const lines = text.split('\n').map((line) => (line.endsWith('\r') ? line.slice(0, -1) : line));
+  if (hadTrailingNewline) lines.pop();
+  return { hadTrailingNewline, lines };
+}
+
+async function sliceReport(projectDir, args) {
+  if (!args.file) return { schemaVersion: SCHEMA_VERSION, command: 'slice', status: 'failed', error: 'slice needs --file <path>' };
+  const file = path.resolve(projectDir, args.file);
+  let raw;
+  try {
+    raw = readFileSync(file, 'utf8');
+  } catch (error) {
+    return { schemaVersion: SCHEMA_VERSION, command: 'slice', status: 'failed', error: `cannot read ${normalizePath(args.file)}: ${error.code ?? error.message}` };
+  }
+  const { lines } = splitLines(raw);
+  const from = args.from ?? 1;
+  const to = args.to ?? lines.length;
+  if (!Number.isInteger(from) || from < 1 || to < from || from > lines.length + 1) {
+    return { schemaVersion: SCHEMA_VERSION, command: 'slice', status: 'failed', error: `range ${from}-${to} is outside 1-${lines.length}` };
+  }
+  const numbered = args.numbers !== false;
+  const width = String(Math.min(to, lines.length)).length;
+  const selected = [];
+  for (let index = from; index <= Math.min(to, lines.length); index += 1) {
+    const line = lines[index - 1];
+    selected.push(numbered ? `${String(index).padStart(width, ' ')} | ${line}` : line);
+  }
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    command: 'slice',
+    status: 'ready',
+    eol: detectEol(raw) === '\r\n' ? 'crlf' : 'lf',
+    file: normalizePath(path.relative(projectDir, file) || args.file),
+    from,
+    lines: selected,
+    numbered,
+    text: selected.join('\n'),
+    to: Math.min(to, lines.length),
+    totalLines: lines.length,
+  };
+}
+
+function applyPatchOps(lines, ops, specDir) {
+  const applied = [];
+  let current = [...lines];
+  let previousStart = Number.POSITIVE_INFINITY;
+  for (const [index, op] of ops.entries()) {
+    if (!op || typeof op !== 'object') throw Object.assign(new Error(`op[${index}] must be an object`), { code: 'PATCH_OP_INVALID' });
+    if (op.kind === 'range') {
+      const start = op.startLine;
+      const end = op.endLine;
+      if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start) {
+        throw Object.assign(new Error(`op[${index}] range ${String(start)}-${String(end)} is invalid`), { code: 'PATCH_OP_INVALID' });
+      }
+      if (start > previousStart) {
+        throw Object.assign(new Error(`op[${index}] starts at line ${start} after a later op; list range ops from the highest line number down`), { code: 'PATCH_OP_ORDER_INVALID' });
+      }
+      previousStart = start;
+      const first = current[start - 1];
+      const last = current[end - 1];
+      if (first === undefined || last === undefined) {
+        throw Object.assign(new Error(`op[${index}] range ${start}-${end} is outside the file (${current.length} lines)`), { code: 'PATCH_RANGE_OUT_OF_BOUNDS' });
+      }
+      if (typeof op.expectStart !== 'string' || !first.includes(op.expectStart)) {
+        throw Object.assign(new Error(`op[${index}] start guard failed at line ${start}: ${JSON.stringify(first.slice(0, 120))}`), { code: 'PATCH_GUARD_FAILED' });
+      }
+      if (typeof op.expectEnd !== 'string' || !last.includes(op.expectEnd)) {
+        throw Object.assign(new Error(`op[${index}] end guard failed at line ${end}: ${JSON.stringify(last.slice(0, 120))}`), { code: 'PATCH_GUARD_FAILED' });
+      }
+      if (typeof op.replaceFrom !== 'string' || op.replaceFrom === '') {
+        throw Object.assign(new Error(`op[${index}] needs replaceFrom pointing at a fragment file`), { code: 'PATCH_OP_INVALID' });
+      }
+      const fragmentPath = path.resolve(specDir, op.replaceFrom);
+      let fragmentRaw;
+      try {
+        fragmentRaw = readFileSync(fragmentPath, 'utf8');
+      } catch (error) {
+        throw Object.assign(new Error(`op[${index}] cannot read ${op.replaceFrom}: ${error.code ?? error.message}`), { code: 'PATCH_FRAGMENT_UNREADABLE' });
+      }
+      const { lines: fragment } = splitLines(fragmentRaw);
+      current = [...current.slice(0, start - 1), ...fragment, ...current.slice(end)];
+      applied.push({ index, kind: 'range', replacedLines: end - start + 1, startLine: start, endLine: end, replacementLines: fragment.length, status: 'applied' });
+      continue;
+    }
+    if (op.kind === 'sequence') {
+      const match = Array.isArray(op.match) ? op.match : null;
+      const replace = Array.isArray(op.replace) ? op.replace : null;
+      if (!match || match.length === 0 || !replace) {
+        throw Object.assign(new Error(`op[${index}] needs match and replace line arrays`), { code: 'PATCH_OP_INVALID' });
+      }
+      const hits = [];
+      for (let at = 0; at + match.length <= current.length; at += 1) {
+        if (match.every((line, offset) => current[at + offset] === line)) hits.push(at);
+      }
+      if (hits.length !== 1) {
+        throw Object.assign(new Error(`op[${index}] match occurs ${hits.length} times (expected exactly 1)`), { code: 'PATCH_MATCH_NOT_UNIQUE' });
+      }
+      current = [...current.slice(0, hits[0]), ...replace, ...current.slice(hits[0] + match.length)];
+      applied.push({ index, kind: 'sequence', matchLines: match.length, replacementLines: replace.length, startLine: hits[0] + 1, status: 'applied' });
+      continue;
+    }
+    throw Object.assign(new Error(`op[${index}] kind must be "range" or "sequence"`), { code: 'PATCH_OP_INVALID' });
+  }
+  return { applied, lines: current };
+}
+
+async function patchReport(projectDir, args) {
+  if (!args.spec) return { schemaVersion: SCHEMA_VERSION, command: 'patch', status: 'failed', error: 'patch needs --spec <spec.json>' };
+  const specPath = path.resolve(projectDir, args.spec);
+  let spec;
+  try {
+    spec = JSON.parse(readFileSync(specPath, 'utf8'));
+  } catch (error) {
+    return { schemaVersion: SCHEMA_VERSION, command: 'patch', status: 'failed', error: `cannot read spec: ${error.message}` };
+  }
+  if (!spec || typeof spec !== 'object' || Array.isArray(spec) || typeof spec.file !== 'string' || !Array.isArray(spec.ops) || spec.ops.length === 0) {
+    return { schemaVersion: SCHEMA_VERSION, command: 'patch', status: 'failed', error: 'spec must be { "file": "<path>", "ops": [ ... ] } with at least one op' };
+  }
+  const specDir = path.dirname(specPath);
+  const target = path.resolve(specDir, spec.file);
+  let raw;
+  try {
+    raw = readFileSync(target, 'utf8');
+  } catch (error) {
+    return { schemaVersion: SCHEMA_VERSION, command: 'patch', status: 'failed', error: `cannot read ${normalizePath(spec.file)}: ${error.code ?? error.message}` };
+  }
+  const eol = detectEol(raw);
+  const { hadTrailingNewline, lines } = splitLines(raw);
+  let result;
+  try {
+    result = applyPatchOps(lines, spec.ops, specDir);
+  } catch (error) {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      command: 'patch',
+      status: 'failed',
+      code: error.code ?? 'PATCH_FAILED',
+      error: boundedOutput(error.message, projectDir),
+      file: normalizePath(spec.file),
+      write: Boolean(args.write),
+      written: false,
+    };
+  }
+  const nextText = result.lines.join(eol) + (hadTrailingNewline ? eol : '');
+  if (!args.write) {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      command: 'patch',
+      status: 'planned',
+      dryRun: true,
+      eol: eol === '\r\n' ? 'crlf' : 'lf',
+      file: normalizePath(spec.file),
+      ops: result.applied,
+      write: false,
+      written: false,
+    };
+  }
+  try {
+    writeFileSync(target, nextText);
+  } catch (error) {
+    return { schemaVersion: SCHEMA_VERSION, command: 'patch', status: 'failed', error: `cannot write ${normalizePath(spec.file)}: ${error.code ?? error.message}`, file: normalizePath(spec.file), written: false };
+  }
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    command: 'patch',
+    status: 'passed',
+    eol: eol === '\r\n' ? 'crlf' : 'lf',
+    file: normalizePath(spec.file),
+    linesAfter: result.lines.length,
+    linesBefore: lines.length,
+    ops: result.applied,
+    write: true,
+    written: true,
+  };
+}
+
+function patchSummary(report) {
+  const lines = [`command: ${report.command}`, `status: ${report.status}`];
+  if (report.file) lines.push(`file: ${report.file}`);
+  if (report.error) lines.push(`error: ${report.error}`);
+  for (const op of report.ops ?? []) {
+    lines.push(`op[${op.index}] ${op.kind}: ${op.status}${op.startLine ? ` at line ${op.startLine}` : ''}`);
+  }
+  if (report.written === false && report.status !== 'failed') lines.push('dry run: pass --write to apply');
+  return lines.join('\n');
+}
+
 function summary(report) {
+  if (report.command === 'slice') return report.error ? `command: slice\nstatus: failed\nerror: ${report.error}` : report.text;
+  if (report.command === 'patch') return patchSummary(report);
+  if (report.command === 'worktree') {
+    const lines = [`command: worktree ${report.subcommand ?? ''}`.trim()];
+    if (report.error) lines.push(`error: ${report.error}`);
+    // The check subcommand already prints a `status:` line through its audit
+    // summary, so only the other subcommands carry the receipt status here.
+    if (report.summary) lines.push(report.summary);
+    else lines.push(`status: ${report.status}`);
+    for (const entry of report.worktrees ?? []) {
+      lines.push(`worktree: ${entry.path} ${entry.branch ?? '(detached)'}${entry.integrated === true ? ' [merged]' : entry.integrated === false ? ' [merge-back pending]' : ''}`);
+    }
+    for (const item of report.results ?? []) {
+      lines.push(`${item.status}: ${item.id ?? item.path ?? ''} ${item.error ?? ''} ${(item.blockers ?? []).join('; ')}`.trim());
+      for (const step of item.steps ?? []) lines.push(`  ${step.kind}${step.command ? `: ${step.command}` : step.root ? `: ${step.root} (${step.mode})` : ''}`);
+    }
+    return lines.join('\n');
+  }
   const lines = [`command: ${report.command}`, `status: ${report.status}`];
   if (report.command === 'verify') {
     for (const [name, item] of Object.entries(report.checks ?? {})) lines.push(`${name}: ${item.status}`);
@@ -504,7 +1330,10 @@ export async function runCommand(argv, { cwd = process.cwd() } = {}) {
   else if (command === 'context') report = { schemaVersion: SCHEMA_VERSION, command, status: 'ready', ...(await projectContext(projectDir)) };
   else if (command === 'changes') report = await changesReport(projectDir, args);
   else if (command === 'verify') report = await verifyProject(projectDir, args, { planOnly: args.plan });
-  else if (command === 'help') report = { schemaVersion: SCHEMA_VERSION, command, status: 'ready', usage: 'run.mjs <env|context|changes|verify> --project <path> [--json]' };
+  else if (command === 'worktree') report = await worktreeReport(projectDir, args);
+  else if (command === 'slice') report = await sliceReport(projectDir, args);
+  else if (command === 'patch') report = await patchReport(projectDir, args);
+  else if (command === 'help') report = { schemaVersion: SCHEMA_VERSION, command, status: 'ready', usage: 'run.mjs <env|context|changes|verify|worktree|slice|patch> --project <path> [--json]' };
   else throw new Error(`Unknown command: ${command}`);
   return { args, report, exitCode: ['passed', 'ready', 'planned'].includes(report.status) ? 0 : 1 };
 }

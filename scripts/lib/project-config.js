@@ -96,6 +96,10 @@ export const defaultProjectConfig = {
     enabled: true,
     path: '.agents/memory',
   },
+  worktree: {
+    root: '../ExampleProject-worktrees',
+    baseRef: 'origin/develop',
+  },
 };
 
 export const forbiddenProjectTerms = [
@@ -134,11 +138,15 @@ export function profileToCatalogProfile(profile) {
 }
 
 export function createDefaultProjectConfig(projectDir, target = 'codex', profile = 'core') {
+  const projectName = path.basename(path.resolve(projectDir));
   return {
     ...defaultProjectConfig,
-    projectName: path.basename(path.resolve(projectDir)),
+    projectName,
     profile,
     targets: [target],
+    // The worktree root is per-project: docs/rules/git-rules.md §Worktree keeps
+    // every isolation unit beside the repository, never inside it.
+    worktree: { ...defaultProjectConfig.worktree, root: `../${projectName}-worktrees` },
   };
 }
 

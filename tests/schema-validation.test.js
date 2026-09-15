@@ -124,3 +124,32 @@ test('project config validates the structured logging contract', () => {
   unknown.projectRules.overrides.logging.platform = ['production'];
   assert.throws(() => validateProjectConfigWithSchema(unknown), /platform.*not allowed/u);
 });
+
+test('project config accepts the worktree contract and rejects unknown keys', () => {
+  // The default config ships the block, so a fresh install already declares the
+  // outside-repository root docs/rules/git-rules.md §Worktree requires.
+  assert.equal(validateProjectConfigWithSchema(defaultProjectConfig), true);
+  assert.match(defaultProjectConfig.worktree.root, /\.\.\/.+?-worktrees$/u);
+  assert.equal(defaultProjectConfig.worktree.baseRef, 'origin/develop');
+
+  const full = structuredClone(defaultProjectConfig);
+  full.worktree = {
+    baseRef: 'origin/develop',
+    dependencyRoots: ['frontend'],
+    localPackages: ['@bl-cnas/prototype-contracts'],
+    root: '../BL-CNAS-worktrees',
+  };
+  assert.equal(validateProjectConfigWithSchema(full), true);
+
+  const unknownKey = structuredClone(full);
+  unknownKey.worktree.baseBranch = 'develop';
+  assert.throws(() => validateProjectConfigWithSchema(unknownKey), /baseBranch.*not allowed/u);
+
+  const badRoot = structuredClone(full);
+  badRoot.worktree.root = '';
+  assert.throws(() => validateProjectConfigWithSchema(badRoot), /root/u);
+
+  const badPackages = structuredClone(full);
+  badPackages.worktree.localPackages = ['@bl-cnas/contracts', '@bl-cnas/contracts'];
+  assert.throws(() => validateProjectConfigWithSchema(badPackages), /unique items|duplicates/u);
+});

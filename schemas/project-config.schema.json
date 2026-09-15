@@ -141,6 +141,24 @@
       },
       "additionalProperties": false
     },
+    "worktree": {
+      "type": "object",
+      "properties": {
+        "root": { "type": "string", "minLength": 1 },
+        "baseRef": { "type": "string", "minLength": 1 },
+        "dependencyRoots": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "localPackages": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      },
+      "additionalProperties": false
+    },
     "roles": {
       "type": "object",
       "properties": {

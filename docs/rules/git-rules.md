@@ -100,6 +100,9 @@ Vibe-Harness 自身使用 Conventional Commits、commitlint、pre-commit、pre-p
 - 使用 worktree 时，一个隔离单元对应一个命名分支和明确写入范围；不需要隔离时直接在当前工作区保护用户改动。
 - worktree 放在仓库外部，避免被构建和依赖扫描。
 - 子 Agent 只在分配的 worktree、分支和写入范围内工作；审查任务默认只读。
+- worktree 的引导、审计与清理使用项目脚本入口 `node .agents/runtime/commands/run.mjs worktree <list|check|bootstrap|cleanup> --project . --json`；默认只读，只有追加 `--write` 才落盘，`cleanup` 在分支未并入 `worktree.baseRef` 或工作区不干净时直接拒绝，并且从不删除分支。
+- worktree 的依赖链接（`node_modules` junction 或 symlink）由 `worktree bootstrap` 建立并对每个本地包逐项 realpath 断言；断言失败时回滚本次新建的 worktree，不留半成品。`worktree check` 报告依赖链接缺失或指回主检出的事实，不用手写脚本重复搭建。
+- 宿主必须把 worktree 根登记为附加工作区根（Codex 的 workspace roots 或等价配置），否则该 worktree 内的写入会被宿主边界策略拒绝；不得以内联脚本、临时目录或改写路径触发方式绕过宿主边界。
 - merge-back 完成前不清理 worktree 或删除分支。
 - 清理前确认 worktree 无未提交改动，并先用 `git worktree remove` 再用 `git worktree prune`。
 - 使用 `git worktree list --porcelain -z` 获取可机器解析的 worktree 清单。
