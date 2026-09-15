@@ -82,6 +82,8 @@
 
 ## 审计参考
 
+inventory 快照规则：含计数口径的条目必须标注快照日期与再生成方式；计数被取代的快照移入 [`archive/`](archive/)，原文不回溯改写。
+
 - [源规则映射](inventory/source-rules-mapping.md)
 - [源资产](inventory/source-assets.md)
 - [Skills 精简](inventory/skills-optimization-zh.md)
@@ -91,6 +93,7 @@
 - [Pre-existing 测试失败处理方案](inventory/preexisting-test-failures-remediation.md)
 - [AI 专属 Eval 体系调查报告](inventory/ai-eval-investigation.md)
 - [Vibe-Harness 与 Superpowers 系统审查](inventory/harness-superpowers-comparison.md)
+- [治理规范与工作流审计（2026-09）](inventory/governance-audit-2026-09.md)
 
 ## 历史
 

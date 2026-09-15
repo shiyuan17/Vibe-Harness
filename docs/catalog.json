@@ -1072,6 +1072,16 @@
         "maintainer",
         "auditor"
       ]
+    },
+    {
+      "path": "docs/inventory/governance-audit-2026-09.md",
+      "kind": "inventory",
+      "status": "reference",
+      "language": "zh-CN",
+      "audiences": [
+        "auditor",
+        "maintainer"
+      ]
     }
   ]
 }
