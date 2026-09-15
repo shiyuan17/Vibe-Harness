@@ -1031,6 +1031,29 @@ export const CONTENT_QUALITY_CHECKS = [
     terms: ['4000', '执行型', '探索型', '明确要求激活', '不得静默替换', '不扩大授权'],
   },
   {
+    // The task-decomposition reference is the on-demand guide behind the
+    // Skill's pointer sentence, so its judgment shape is a governed surface:
+    // Goal/node layering, ready gating, fail-closed outcomes, the node prompt
+    // contract, and the "no invented hash" boundary stay present.
+    file: 'skills/core/task-decomposition/references/task-decomposition-guide.md',
+    terms: [
+      'docs/rules/ai-collab-rules.md 为准',
+      '不是 DAG 节点',
+      'ready 节点',
+      '需要修订 DAG',
+      '不得臆造契约',
+      '垂直切片',
+      'writeScope',
+      'resourceLocks',
+      '可选字段',
+      '输出格式',
+      '明确不做什么',
+      '不新造 hash',
+      'pnpm task-dag check',
+      '反模式',
+    ],
+  },
+  {
     file: 'adapters/antigravity/RULES.template.md',
     terms: ['编辑前先检查项目状态', '红区', '人工确认', '验证结果'],
   },
