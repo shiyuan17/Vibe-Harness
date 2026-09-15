@@ -8,6 +8,7 @@ import test from 'node:test';
 import { promisify } from 'node:util';
 
 import { inspectMemory, inspectRuntimeHooks, runtimeHookWarnings } from '../scripts/lib/runtime-diagnostics.js';
+import { readHostHookState } from '../scripts/lib/host-hook-state.js';
 
 const execFileAsync = promisify(execFile);
 const runtimeTarget = '.agents/memory/CURRENT.md';
@@ -141,6 +142,94 @@ test('runtime Hook enforcement requires independent host evidence', async () => 
     assert.equal(enforced.status, 'enforced');
     assert.equal(enforced.activation.status, 'verified');
     assert.deepEqual(runtimeHookWarnings(enforced), []);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+function hostStateFixture(projectDir, { disabled = 0, enabled = 0 } = {}) {
+  const prefix = path.join(projectDir, '.codex', 'hooks.json');
+  const sections = [];
+  for (let index = 0; index < disabled; index += 1) {
+    sections.push(
+      `[hooks.state.'${prefix}:pre_tool_use:${index}:0']`,
+      `trusted_hash = "sha256:${String(index).repeat(64)}"`,
+      'enabled = false',
+      '',
+    );
+  }
+  for (let index = 0; index < enabled; index += 1) {
+    sections.push(
+      `[hooks.state.'${prefix}:permission_request:${index}:0']`,
+      `trusted_hash = "sha256:${String(index + 5).repeat(64)}"`,
+      '',
+    );
+  }
+  return sections.join('\n');
+}
+
+test('host Hook trust state is read from the host config without echoing its hash', async () => {
+  const codexHome = await mkdtemp(path.join(tmpdir(), 'vibe-harness-codex-home-states-'));
+  const projectDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-codex-project-'));
+  const configPath = path.join(codexHome, 'config.toml');
+  try {
+    const missing = await readHostHookState({ adapterId: 'codex', env: { CODEX_HOME: codexHome }, projectDir });
+    assert.equal(missing.status, 'unknown');
+    assert.equal(missing.reason, 'config-missing');
+
+    await writeFile(configPath, hostStateFixture(projectDir, { disabled: 2 }), 'utf8');
+    const disabled = await readHostHookState({ adapterId: 'codex', env: { CODEX_HOME: codexHome }, projectDir });
+    assert.equal(disabled.status, 'trusted-disabled');
+    assert.equal(disabled.reason, 'entries-disabled');
+    assert.deepEqual(disabled.entries, { disabled: 2, enabled: 0, total: 2, trusted: 2 });
+    assert.equal(JSON.stringify(disabled).includes('trusted_hash'), false);
+    assert.equal(JSON.stringify(disabled).includes('sha256:'), false);
+
+    await writeFile(configPath, hostStateFixture(projectDir, { enabled: 2 }), 'utf8');
+    const trusted = await readHostHookState({ adapterId: 'codex', env: { CODEX_HOME: codexHome }, projectDir });
+    assert.equal(trusted.status, 'trusted-enabled');
+    assert.equal(trusted.reason, 'entries-enabled');
+
+    await writeFile(configPath, hostStateFixture(projectDir, { disabled: 1, enabled: 1 }), 'utf8');
+    const mixed = await readHostHookState({ adapterId: 'codex', env: { CODEX_HOME: codexHome }, projectDir });
+    assert.equal(mixed.status, 'trusted-disabled', '一个停用条目足以让策略不生效');
+    assert.equal(mixed.reason, 'entries-partially-disabled');
+
+    await writeFile(configPath, "[hooks.state.'C:\\Other\\project\\.codex\\hooks.json:pre_tool_use:0:0']\ntrusted_hash = \"sha256:aa\"\n", 'utf8');
+    const other = await readHostHookState({ adapterId: 'codex', env: { CODEX_HOME: codexHome }, projectDir });
+    assert.equal(other.status, 'untrusted');
+    assert.equal(other.reason, 'no-entries');
+  } finally {
+    await rm(codexHome, { force: true, recursive: true });
+    await rm(projectDir, { force: true, recursive: true });
+  }
+});
+
+test('activation status reports host trust and warns when the Hook is switched off', async () => {
+  const adapters = JSON.parse(await readFile(path.resolve('manifests/adapters.json'), 'utf8'));
+  const adapter = adapters.items.find((item) => item.id === 'codex');
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-hook-trust-'));
+  try {
+    await mkdir(path.join(target, '.codex'), { recursive: true });
+    await writeFile(path.join(target, '.codex', 'hooks.json'), '{}\n', 'utf8');
+    const states = [
+      { expected: 'trusted-enabled', hostHookState: { status: 'trusted-enabled' }, code: 'HOOK_ACTIVATION_UNVERIFIED' },
+      { expected: 'trusted-disabled', hostHookState: { status: 'trusted-disabled' }, code: 'HOOK_DISABLED' },
+      { expected: 'untrusted', hostHookState: { status: 'untrusted' }, code: 'HOOK_ACTIVATION_UNVERIFIED' },
+      { expected: 'unknown', hostHookState: { status: 'stale-value' }, code: 'HOOK_ACTIVATION_UNVERIFIED' },
+    ];
+    for (const state of states) {
+      const report = await inspectRuntimeHooks(adapter, target, { hostHookState: state.hostHookState });
+      assert.equal(report.activation.status, state.expected, state.expected);
+      assert.equal(report.activation.verification.length > 0, true, state.expected);
+      if (state.code === 'HOOK_DISABLED') {
+        assert.match(report.activation.verification, /\/hooks/u);
+      }
+      const codes = runtimeHookWarnings(report).map((warning) => warning.code);
+      assert.equal(codes.includes(state.code), true, state.expected + ' -> ' + state.code);
+      assert.equal(codes.includes('HOOK_ACTIVATION_UNVERIFIED'), state.code === 'HOOK_ACTIVATION_UNVERIFIED', state.expected);
+      assert.equal(JSON.stringify(report.hostHookState).includes('trusted_hash'), false);
+    }
   } finally {
     await rm(target, { force: true, recursive: true });
   }

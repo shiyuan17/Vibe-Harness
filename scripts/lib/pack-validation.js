@@ -1404,10 +1404,15 @@ export async function validateSelfInstalledArtifacts(rootDir, adapters, installM
 
 // Instruction-content budget gate. Codex silently truncates AGENTS.md at 32 KiB
 // (`project_doc_max_bytes`); frontier models reliably follow ~150-200 instructions.
-// We estimate tokens at 4 bytes/token (matching ai-context-kit's heuristic) and warn
-// before the content approaches the truncation line. This runs at the pack layer over
-// every adapter's instruction template, covering antigravity and opencode which the
-// line-budget test (codex/claude/gemini only) does not reach.
+// We estimate tokens at 4 bytes/token and warn before the content approaches the
+// truncation line. Thresholds and estimation follow the token-budget lint rules of the
+// npm package ai-context-kit 0.1.2 (MIT, author Ofer Shapira) — warning above 2,000
+// tokens, error above 5,000, 4 characters per token; source:
+// https://www.npmjs.com/package/ai-context-kit and
+// https://github.com/ofershap/ai-context-kit. Recorded so the heuristic is checkable
+// instead of implicit. This runs at the pack layer over every adapter's instruction
+// template, covering antigravity and opencode which the line-budget test
+// (codex/claude/gemini only) does not reach.
 const TOKEN_WARNING_THRESHOLD = 2000;
 const TOKEN_ERROR_THRESHOLD = 5000;
 const CODEX_TRUNCATION_BYTES = 32 * 1024;

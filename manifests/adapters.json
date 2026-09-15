@@ -10,10 +10,10 @@
       "supportedProfiles": ["minimal", "core", "full", "docs-only"],
       "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "stable", "policy": "stable", "mcp": "stable", "sandbox": "stable", "memory": "stable", "plugin": "stable", "goals": "stable", "subagents": "stable" },
       "roleProjection": { "format": "codex-toml", "targetRoot": ".codex/agents", "extension": ".toml", "activation": "automatic", "permissionEnforcement": "native" },
-      "hookEvents": { "preToolUse": "stable", "permissionRequest": "stable", "stop": "unsupported" },
+      "hookEvents": { "preToolUse": "stable", "permissionRequest": "stable", "stop": "not-projected" },
       "hookActivation": "manual-trust",
       "executionAuthority": { "envelopeVersions": ["v1", "v2"], "trustedSource": "host-injected", "projectConfigMayAuthorize": false, "highRiskEnforcement": "host-required", "goalLifecycle": "host-native-required" },
-      "evidence": { "status": "configured-unverified", "lastVerifiedAt": "", "hostVersion": "" },
+      "evidence": { "status": "configured-unverified", "lastVerifiedAt": "2026-09-15", "hostVersion": "0.147.0" },
       "redZonePrefixes": [".codex/"]
     },
     {
@@ -25,7 +25,7 @@
       "supportedProfiles": ["minimal", "core", "full", "docs-only"],
       "capabilities": { "instructions": "stable", "skills": "stable", "hooks": "stable", "policy": "stable", "mcp": "preview", "sandbox": "preview", "memory": "preview", "plugin": "unsupported", "goals": "unsupported", "subagents": "stable" },
       "roleProjection": { "format": "claude-markdown", "targetRoot": ".claude/agents", "extension": ".md", "activation": "automatic", "permissionEnforcement": "prompt-guarded" },
-      "hookEvents": { "preToolUse": "stable", "permissionRequest": "stable", "stop": "unsupported" },
+      "hookEvents": { "preToolUse": "stable", "permissionRequest": "stable", "stop": "not-projected" },
       "hookActivation": "config-file",
       "executionAuthority": { "envelopeVersions": ["v1", "v2"], "trustedSource": "host-injected", "projectConfigMayAuthorize": false, "highRiskEnforcement": "host-required", "goalLifecycle": "prompt-only" },
       "evidence": { "status": "configured-unverified", "lastVerifiedAt": "", "hostVersion": "" },

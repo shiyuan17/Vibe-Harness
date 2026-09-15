@@ -17,6 +17,20 @@ const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '..');
 const cliPath = path.join(rootDir, 'scripts/vibe-harness.js');
 
+// Host Hook trust is recorded in the host config, not in the project, so this
+// suite points CODEX_HOME at an empty directory: the Hook trust state is then
+// deterministically "unknown" (config missing) instead of whatever the machine
+// running the suite happens to have trusted. Tests that need the three real
+// states live in tests/runtime-diagnostics.test.js.
+let isolatedCodexHome = null;
+test.before(async () => {
+  isolatedCodexHome = await mkdtemp(path.join(tmpdir(), 'vibe-harness-codex-home-'));
+  process.env.CODEX_HOME = isolatedCodexHome;
+});
+test.after(async () => {
+  if (isolatedCodexHome) await rm(isolatedCodexHome, { force: true, recursive: true });
+});
+
 function sha256(content) {
   return createHash('sha256').update(content).digest('hex');
 }

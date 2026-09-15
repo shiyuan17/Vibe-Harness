@@ -113,3 +113,10 @@
 - 影响：`configured-unverified` 与「当前任务可执行」仍可能被读成同一个 ready 结论；权限收紧、插件缺失或工具名错误都不会改变该结论。
 - Owner：Vibe-Harness 维护者。
 - 关闭条件：把状态拆成「文件已生成 / 宿主已激活 / 工具绑定已验证 / 当前任务可执行」并逐级给证据，或明确声明只覆盖第一级并同步 `docs/roles.md` 与 doctor 文案。
+
+## TD-2026-09-15-8 project-verification 的超时收据用例绑定墙钟阈值，高负载下误判
+
+- 证据：`tests/project-verification.test.js` 的 `verify --project terminates a hanging command and returns a structured timeout receipt` 在结尾断言 `Date.now() - startedAt < 5000`。2026-09-15 的批次 2 与批次 4 收尾中，全量 `pnpm test:integration` 各失败一次（实测耗时 7.5 秒级），同一文件单独运行 17/17 通过、重跑整表通过；两次失败都在与其它检查并行执行时出现。
+- 影响：该用例要证明的是「超时后仍返回结构化收据」（已完成），但收据之外还绑定了机器无关性不足的墙钟上界，使 CI 与高负载本机出现与被测行为无关的红灯；失败信息指向 `timeoutMs` 断言之后的最后一行为真，容易误读为超时机制失效。
+- Owner：Vibe-Harness 维护者。
+- 关闭条件：把 `< 5000` 换成与被测语义一致的判据（例如比较收据内声明的 `timeoutMs` 与实际耗时区间、或把上界放宽到覆盖进程树回收的合理范围），或在文件头注明该断言的环境前提并绑定可核对的技术债 ID；连续 10 次全量 `pnpm test:integration` 不再出现该失败后关闭。

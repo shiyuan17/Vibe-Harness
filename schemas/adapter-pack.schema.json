@@ -78,9 +78,9 @@
             "type": "object",
             "required": ["preToolUse", "permissionRequest", "stop"],
             "properties": {
-              "preToolUse": { "type": "string", "enum": ["unsupported", "preview", "stable"] },
-              "permissionRequest": { "type": "string", "enum": ["unsupported", "preview", "stable"] },
-              "stop": { "type": "string", "enum": ["unsupported", "preview", "stable"] }
+              "preToolUse": { "type": "string", "enum": ["unsupported", "not-projected", "preview", "stable"] },
+              "permissionRequest": { "type": "string", "enum": ["unsupported", "not-projected", "preview", "stable"] },
+              "stop": { "type": "string", "enum": ["unsupported", "not-projected", "preview", "stable"] }
             },
             "additionalProperties": false
           },

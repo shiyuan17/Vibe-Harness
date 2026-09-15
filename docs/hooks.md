@@ -8,8 +8,8 @@ Vibe-Harness Hook 只执行项目级安全策略。它不创建任务状态、�
 
 | 宿主 | PreToolUse | PermissionRequest | Stop | 激活方式 |
 | --- | --- | --- | --- | --- |
-| Codex | stable | stable | unsupported | manual-trust |
-| Claude Code | stable | stable | unsupported | config-file |
+| Codex | stable | stable | not-projected | manual-trust |
+| Claude Code | stable | stable | not-projected | config-file |
 | Gemini | unsupported | unsupported | unsupported | unsupported |
 | Cursor | stable | unsupported | unsupported | config-file |
 | Qoder | stable | stable | unsupported | config-file |
@@ -17,7 +17,11 @@ Vibe-Harness Hook 只执行项目级安全策略。它不创建任务状态、�
 | Antigravity | preview | unsupported | unsupported | config-file |
 | OpenCode | unsupported | unsupported | unsupported | unsupported |
 
-PreToolUse 阻止危险 Git、全局 Agent 配置写入、凭据外传、红区文件上传和项目边界外写入。PermissionRequest 对相同硬边界执行拒绝；其他审批仍由宿主控制。所有宿主的 Stop 都是 unsupported，Vibe-Harness 不自动 commit 或 push。
+PreToolUse 阻止危险 Git、全局 Agent 配置写入、凭据外传、红区文件上传和项目边界外写入。PermissionRequest 对相同硬边界执行拒绝；其他审批仍由宿主控制。
+
+`not-projected` 与 `unsupported` 不是同一个结论：`not-projected` 表示宿主支持该事件、但本项目不安装对应 Hook（Codex 与 Claude Code 的 Stop 属于此类，宿主侧另有项目记录过 Stop 信任），`unsupported` 表示该宿主没有这一能力入口。Vibe-Harness 不在 Stop 时 commit 或 push，因此不投影该事件；这既不表示宿主缺少该事件，也不表示缺少它的项目失去了 Stop 防护以外的任何策略。
+
+manifest 的 `hookEvents` 与 `hookActivation` 是事件能力的单一事实源（`manifests/adapters.json`）。取证状态记录在每条 adapter 的 `evidence` 字段：Codex 声明已在 hostVersion 0.147.0 上于 2026-09-15 核对；其余宿主的 `lastVerifiedAt` 与 `hostVersion` 仍为空，表示「声明存在但本轮未在真实宿主上复核」，不得读作已验证。
 
 ## 判定分级
 
@@ -56,7 +60,9 @@ OpenCode 不安装项目 Hook。其配置文件仍属于默认红区，其他已
 
 <code>validate</code> 和 <code>doctor</code> 输出 runtimeHooks，包括配置是否存在、声明事件、git-root 路径策略、激活机制、状态和核验方法。
 
-Codex 的 Hook trust 是宿主状态，不能从项目文件推断。即使文件一致，activation.status 也保持 unknown，并输出 HOOK_ACTIVATION_UNVERIFIED；用户必须在 Codex 中运行 <code>/hooks</code> 复核当前定义。配置文件型宿主只报告 configured-unverified，不把文件存在描述为 runtime active。
+Codex 的 Hook trust 是宿主状态，不能从项目文件推断。doctor 只读宿主配置中本项目条目（<code>hooks.state</code> 里 <code>hooks.json 绝对路径:事件:索引:索引</code> 形式的键），把它归为三态之一：<code>trusted-enabled</code>（已信任且启用）、<code>trusted-disabled</code>（已信任但被停用）、<code>untrusted</code>（没有本项目条目）；宿主配置缺失或解析失败时回退 <code>unknown</code>。宿主的 <code>trusted_hash</code> 属宿主状态，只用于判定是否存在信任记录，不进入任何输出。
+
+无论哪一种三态，activation.status 都不等于「宿主已加载」：<code>trusted-enabled</code> 与 <code>untrusted</code>、<code>unknown</code> 输出 HOOK_ACTIVATION_UNVERIFIED，<code>trusted-disabled</code> 输出更具体的 HOOK_DISABLED，提示安全策略当前不生效。用户需在 Codex 中运行 <code>/hooks</code> 复核并启用当前定义。配置文件型宿主只报告 configured-unverified，不把文件存在描述为 runtime active。
 
 ## 配置与超时
 

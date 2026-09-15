@@ -4,11 +4,23 @@ import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 
 import { pathExists } from './manifest.js';
+import { readHostHookState } from './host-hook-state.js';
 import { evaluateHook, HOOK_FAILURE_CODES } from '../../runtime/hooks/codex-hook.mjs';
 
 const execFileAsync = promisify(execFile);
 const hookConfigTargets = {
   codex: '.codex/hooks.json',
+};
+
+/**
+ * User-facing text for each host Hook trust state. The reasonCode stays the
+ * machine contract; the sentence only has to be actionable.
+ */
+const MANUAL_TRUST_VERIFICATION = {
+  'trusted-disabled': '本项目 Hook 已在宿主侧停用（hooks.state enabled=false），安全策略当前不生效；请在 Codex 中用 /hooks 或宿主配置重新启用后再复跑 doctor。',
+  'trusted-enabled': '本项目 Hook 已被宿主信任，但仍没有证据表明宿主已加载它；请保留本次结论为 configured-unverified。',
+  'untrusted': '宿主没有本项目的 Hook 信任记录，安全策略当前不生效；请在 Codex 中运行 /hooks 信任当前项目的 Hook 定义。',
+  'unknown': '无法读取宿主 Hook 信任状态；请在 Codex 中运行 /hooks 复核当前项目的 Hook 定义。',
 };
 
 export const HOOK_COVERAGE_LIMITATIONS = [
@@ -64,12 +76,21 @@ export async function inspectRuntimeHookSelfCheck(adapter, targetDir, { configur
   }
 }
 
-/** @param {any} adapter @param {string} targetDir @param {{hostEvidence?: Record<string, any>, selfCheck?: boolean}} options */
-export async function inspectRuntimeHooks(adapter, targetDir, { hostEvidence = {}, selfCheck = false } = {}) {
+/**
+ * @param {any} adapter
+ * @param {string} targetDir
+ * @param {{hostEvidence?: Record<string, any>, hostHookState?: Record<string, any> | null, selfCheck?: boolean}} options
+ */
+export async function inspectRuntimeHooks(adapter, targetDir, { hostEvidence = {}, hostHookState = null, selfCheck = false } = {}) {
   const configTarget = hookConfigTarget(adapter);
   const configured = Boolean(configTarget && await pathExists(path.join(targetDir, configTarget)));
   const mechanism = adapter.hookActivation;
   const supported = mechanism !== 'unsupported';
+  // Host trust is recorded outside the project, so it can only be read, never
+  // inferred from project files (see readHostHookState for the field contract).
+  const trustState = mechanism === 'manual-trust'
+    ? (hostHookState ?? await readHostHookState({ adapterId: adapter.id, projectDir: targetDir }))
+    : null;
   let status = 'unknown';
   let verification = configTarget
     ? 'Confirm that the host loaded ' + configTarget + ' for this project.'
@@ -78,8 +99,8 @@ export async function inspectRuntimeHooks(adapter, targetDir, { hostEvidence = {
     status = 'unsupported';
     verification = 'This host does not support Vibe-Harness runtime Hooks.';
   } else if (mechanism === 'manual-trust') {
-    status = 'unknown';
-    verification = 'Run /hooks in Codex and verify the current project Hook definitions are trusted.';
+    status = Object.hasOwn(MANUAL_TRUST_VERIFICATION, trustState?.status) ? trustState.status : 'unknown';
+    verification = MANUAL_TRUST_VERIFICATION[status];
   } else if (configured) {
     status = 'configured-unverified';
   }
@@ -99,7 +120,10 @@ export async function inspectRuntimeHooks(adapter, targetDir, { hostEvidence = {
     && envelopeRequired
     && hostContextVerified
     && authority.highRiskEnforcement === 'host-required';
-  if (activated === true) status = 'verified';
+  if (activated === true) {
+    status = 'verified';
+    verification = 'Host evidence confirms the Hook is activated for this project.';
+  }
   const report = {
     activated,
     configured,
@@ -115,6 +139,14 @@ export async function inspectRuntimeHooks(adapter, targetDir, { hostEvidence = {
     status: enforced ? 'enforced' : (!supported ? 'unsupported' : (!configured ? 'not-configured' : 'configured-unverified')),
     supported,
     activation: { mechanism, status, verification },
+    hostHookState: trustState
+      ? {
+          configPath: trustState.configPath,
+          entries: { ...trustState.entries },
+          reason: trustState.reason,
+          status: trustState.status,
+        }
+      : null,
   };
   if (selfCheck) report.selfCheck = await inspectRuntimeHookSelfCheck(adapter, targetDir, { configured });
   return report;
@@ -122,7 +154,16 @@ export async function inspectRuntimeHooks(adapter, targetDir, { hostEvidence = {
 
 export function runtimeHookWarnings(runtimeHooks) {
   const warnings = [];
-  if (runtimeHooks.configured && !['unsupported', 'verified'].includes(runtimeHooks.activation.status)) {
+  const disabled = runtimeHooks.configured && runtimeHooks.activation.status === 'trusted-disabled';
+  if (disabled) {
+    // The host records the Hook as trusted but switched off: that is a sharper
+    // statement than "activation unverified", so it replaces it instead of
+    // stacking a second warning about the same condition.
+    warnings.push({
+      code: 'HOOK_DISABLED',
+      message: runtimeHooks.activation.verification,
+    });
+  } else if (runtimeHooks.configured && !['unsupported', 'verified'].includes(runtimeHooks.activation.status)) {
     warnings.push({
       code: 'HOOK_ACTIVATION_UNVERIFIED',
       message: runtimeHooks.activation.verification,

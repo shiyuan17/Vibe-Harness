@@ -28,7 +28,7 @@ test('manifests expose adapters, profiles, rules, and skills', async () => {
   assert.deepEqual(Object.keys(manifests).sort(), ['adapters', 'profiles', 'roles', 'rules', 'skills']);
   assert.equal(manifests.rules.items.some((item) => item.id === 'governance-core'), true);
   assert.equal(manifests.rules.items.some((item) => item.id === 'chrome-devtools-mcp'), true);
-  assert.equal(manifests.skills.items.filter((item) => item.kind === 'native').length, 11);
+  assert.equal(manifests.skills.items.filter((item) => item.kind === 'native').length, 12);
   assert.deepEqual(manifests.profiles.items.map((item) => item.id), ['minimal', 'core', 'full', 'docs-only']);
 });
 
@@ -104,8 +104,8 @@ test('adapter manifest v5 requires execution authority and the fixed Hook contra
   const manifest = await readJson(path.join(rootDir, 'manifests/adapters.json'));
   const schema = await readJson(path.join(rootDir, 'schemas/adapter-pack.schema.json'));
   const expected = {
-    codex: ['stable', 'stable', 'unsupported', 'manual-trust'],
-    claude: ['stable', 'stable', 'unsupported', 'config-file'],
+    codex: ['stable', 'stable', 'not-projected', 'manual-trust'],
+    claude: ['stable', 'stable', 'not-projected', 'config-file'],
     gemini: ['unsupported', 'unsupported', 'unsupported', 'unsupported'],
     cursor: ['stable', 'unsupported', 'unsupported', 'config-file'],
     qoder: ['stable', 'stable', 'unsupported', 'config-file'],
@@ -153,7 +153,9 @@ test('adapter Hook templates match the event-level manifest exactly', async () =
     } catch {}
     const hooks = adapter.id === 'codex' ? (template.hooks || {}) : template;
     const declared = new Set(Object.entries(adapter.hookEvents)
-      .filter(([, support]) => support !== 'unsupported')
+      // not-projected means the host supports the event but this pack does not
+      // install a Hook for it, so it must not appear in the template.
+      .filter(([, support]) => support !== 'unsupported' && support !== 'not-projected')
       .map(([event]) => event));
     const actual = new Set(Object.keys(hooks).map((event) => eventKeys[event]).filter(Boolean));
     assert.deepEqual([...actual].sort(), [...declared].sort(), adapter.id);

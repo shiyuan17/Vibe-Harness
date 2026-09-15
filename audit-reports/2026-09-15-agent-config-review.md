@@ -490,11 +490,11 @@ Owner：运行时/Hook 维护者（与 AC-10 的契约取证联动）。
 | AC-05 | P1 | 托管块冗余与空行污染 | 安装器/投影维护者 | 渲染无空占位行与重复同义行，预算仍 0 warn 0 error | 已关闭（批次 2） |
 | AC-06 | P1 | 自安装面与 profile 声明不一致 | 安装器/自安装维护者 | doctor 的 roles 非空、角色目录存在、不写全局配置 | 已关闭（批次 3） |
 | AC-07 | P1 | F01–F10 无台账 | 角色/评测维护者 | 七项三态结论并落 TECH_DEBT 或记录不修理由 | 已关闭（批次 3：F01/F08/F09 已修复，F02/F04/F06/F07/F10 部分修复，F03/F05 未修复并已成 TECH_DEBT 条目） |
-| AC-08 | P2 | 拒绝文案不可操作 | 文档/CLI 文案维护者 | 中文可操作文案加不可判定与禁止的区分与测试 | 部分关闭（批次 1 完成 Hook 侧文案，CLI 侧与 TD-2026-09-11-3 合并留批次 4） |
-| AC-09 | P2 | 运行产物堆积 | 仓库/维护流程维护者 | 清理清单执行、保留策略、unmanaged 基线 | 未开始（需用户确认） |
-| AC-10 | P2 | 宿主契约取证路径未固定 | adapter/契约维护者 | 8 宿主各一行契约来源、状态与核对日期；AC-01 后补 Codex 核对 | 进行中（Codex 侧证据与来源已取得，待落 manifests） |
+| AC-08 | P2 | 拒绝文案不可操作 | 文档/CLI 文案维护者 | 中文可操作文案加不可判定与禁止的区分与测试 | 已关闭（批次 1 完成 Hook 侧，批次 4 完成 doctor 告警与文档；CLI 其余诊断仍属 TD-2026-09-11-3） |
+| AC-09 | P2 | 运行产物堆积 | 仓库/维护流程维护者 | 清理清单执行、保留策略、unmanaged 基线 | 清单已交付（附录 A）、保留策略待用户确认；本轮不执行删除 |
+| AC-10 | P2 | 宿主契约取证路径未固定 | adapter/契约维护者 | 8 宿主各一行契约来源、状态与核对日期；AC-01 后补 Codex 核对 | 已关闭（批次 4：codex evidence 落 manifests，stop 改 not-projected，其余宿主标注未核对） |
 | AC-11 | P1 | 未列名的 MCP 工具被默认拒绝 | 运行时/Hook 维护者 | MCP 只读放行、写入需 Envelope，并有对应用例 | 已关闭（批次 1） |
-| AC-12 | P1 | Hook 停用状态不可观测 | 运行时/Hook 维护者 | doctor 输出三态（已启用、已停用、未信任），manifests 补 evidence 取值，并有对应用例 | 未开始 |
+| AC-12 | P1 | Hook 停用状态不可观测 | 运行时/Hook 维护者 | doctor 输出三态（已启用、已停用、未信任），manifests 补 evidence 取值，并有对应用例 | 已关闭（批次 4：doctor 输出 trusted-disabled 与 HOOK_DISABLED，含 2 个新用例） |
 
 实施顺序（用户批准的计划已调整并锁定）：批次 1（P0，先解除自我阻断）→ 批次 2（投影瘦身）→ 批次 3（自安装面与角色面自证）→ 批次 4（成本、文案与取证纪律）。批次 2 提到批次 3 之前，原因是批次 3 会重装本仓库并重写 AGENTS.md，需要先让投影定型，避免同一段受管块在一个提交内被改两次。每批一个独立提交，可单独 revert，提交之间不夹带内容。
 
@@ -827,3 +827,115 @@ AC-01、AC-02、AC-03、AC-04（含 AC-04a）、AC-11 已关闭；AC-08 的 Hook
 ### 13.7 回滚
 
 单独 `git revert` 本批次提交即可回到「声明为 full、实际无 roles」的状态；`.vibe-harness/install-state.json` 属 gitignore，如需彻底回退还需在目标项目重跑一次 `install --write`（角色目录会作为孤儿被 `retire` 处理），或在本地恢复本次登记前的 install-state 备份。
+
+## 14. 批次 4 实施记录（2026-09-15，P2 与 P1 混合）
+
+状态：已完成实施、验证与提交。AC-08、AC-10、AC-12 关闭，AC-09 交付清理清单（不执行删除）；本批次为一个独立提交，可单独 revert。本轮未执行任何删除，未写入全局 Agent 配置，未新增 MCP 配置。
+
+### 14.1 改动面
+
+| 文件 | 作用 |
+| --- | --- |
+| `scripts/lib/host-hook-state.js` | 新增只读宿主 Hook 状态读取：解析 `CODEX_HOME` 或用户目录下 `.codex/config.toml` 的 `[hooks.state]`，只返回本项目三态与条目计数，不读取、不输出 `trusted_hash` |
+| `scripts/lib/runtime-diagnostics.js` | `inspectRuntimeHooks` 接收/自动读取宿主状态，`activation.status` 细化为 `trusted-enabled`、`trusted-disabled`、`untrusted`，缺失或解析失败回退 `unknown`；新增 `runtimeHooks.hostHookState`；`runtimeHookWarnings` 新增 `HOOK_DISABLED` |
+| `manifests/adapters.json` | codex 的 `stop` 由 `unsupported` 改为 `not-projected`，claude 同步；codex 的 `evidence` 填入真实取值（`lastVerifiedAt: 2026-09-15`、`hostVersion: 0.147.0`）；其余宿主保持空值 |
+| `schemas/adapter-pack.schema.json` | `hookEvents` 的三个事件枚举增加 `not-projected` |
+| `docs/hooks.md` | 事件矩阵同步 `not-projected`；补 `not-projected` 与 `unsupported` 的语义区分、evidence 取证状态说明；重写激活与诊断一节，写明三态、`HOOK_DISABLED` 与否决 `trusted_hash` 回显 |
+| `scripts/lib/pack-validation.js` | 指令预算注释补齐启发式出处（npm `ai-context-kit` 0.1.2，MIT，作者 Ofer Shapira，阈值 2000/5000 token、4 字符/token 与两条来源链接） |
+| `tests/runtime-diagnostics.test.js` | 新增宿主状态解析用例与激活三态用例（含「一个停用条目即视为停用」「输出不含 `trusted_hash`」） |
+| `tests/hook-installation.test.js` | 套件把 `CODEX_HOME` 指向空目录，使临时项目的信任态确定为 `unknown`，不再依赖跑测机器的宿主配置 |
+| `tests/manifest-schema.test.js` | 期望表更新为 `not-projected`；模板一致性断言排除 `not-projected`（宿主支持但本项目未投影的事件不得出现在模板里） |
+
+### 14.2 AC-12 实测（已确认事实）
+
+`vibe-harness doctor --project .` 输出：
+
+```json
+{
+  "activation": { "mechanism": "manual-trust", "status": "trusted-disabled" },
+  "hostHookState": {
+    "configPath": "C:\\Users\\Administrator\\.codex\\config.toml",
+    "entries": { "disabled": 2, "enabled": 0, "total": 2, "trusted": 2 },
+    "reason": "entries-disabled",
+    "status": "trusted-disabled"
+  },
+  "warnings": ["HOOK_DISABLED", "HOOK_ENFORCEMENT_UNVERIFIED"]
+}
+```
+
+即：宿主侧本项目两条 Hook 定义仍是「已信任但停用」，doctor 现在能把这一状态说出来，并给出可行动作（在 /hooks 或宿主配置中重新启用后复跑）。`trusted_hash` 只用于判定是否存在信任记录，未进入任何输出。三态判定口径：有本项目条目且都在启用 → `trusted-enabled`；有本项目条目但至少一条 `enabled = false` → `trusted-disabled`（一个停用条目足以让策略不生效，故不按「多数」判定）；没有本项目条目 → `untrusted`；宿主配置缺失或不可读 → `unknown`。
+
+### 14.3 AC-10 取证（已确认事实）
+
+- Codex：`codex --version` 实测返回 `codex-cli 0.147.0`（批次 1 修复只读白名单后才可执行）；`hostVersion` 与核对日期已写入 `manifests/adapters.json` 的 `evidence`。
+- Stop 语义：Codex 与 Claude Code 的 `hookEvents.stop` 改为 `not-projected`。依据是宿主侧存在把该项目含 `stop` 在内的 10 个事件全部记为已信任的记录（第 10 节已确认），而仓库 `.codex/hooks.json` 只定义 PreToolUse 与 PermissionRequest；因此原 `unsupported` 读起来像「宿主不支持」，实际含义是「本项目不投影」。
+- 其余六个宿主（gemini、cursor、qoder、zcode、antigravity、opencode）的 `lastVerifiedAt` 与 `hostVersion` 继续保持空字符串，含义是「声明存在、本轮未在真实宿主复核」，并在 `docs/hooks.md` 明确写出该读法。
+- 8 宿主声明与官方契约的核对方式固定为：以 `manifests/adapters.json` 的 `hookEvents`/`hookActivation`/`roleProjection`/`redZonePrefixes` 为声明面，逐个对照宿主官方文档与（有条件的）宿主二进制事件枚举；`developers.openai.com` 返回 403、`genai.owasp.org` 证书吊销检查失败两项受阻状态保持如实记录，不因本轮修订而消失。
+
+### 14.4 AC-08 收尾
+
+- Hook 侧：批次 1 已把拒绝输出改成中文主句并保留 `[VIBE_HARNESS_POLICY:<reasonCode>]` 前缀，本轮新增的 doctor 告警同样使用中文主句，`reasonCode`/`warning.code` 集合保持不变（机器契约）。
+- `docs/hooks.md`：判定矩阵已在批次 1 同步，本轮补上激活三态与 `HOOK_DISABLED`，并保留「不可判定，需要 Execution Envelope」与「明确禁止」两类出口的区分。
+- 未纳入本轮：CLI 其余诊断（`toolRecommendations` 的 `unsupported` 分支、`runtime/hooks/lib/rtk.mjs`、`scripts/lib/tool-provisioning/runtime-probe.js`）仍中英混用，属 TD-2026-09-11-3 的范围，需要先定语言契约再统一，本轮不扩大范围。
+
+### 14.5 AC-09 清理清单
+
+见附录 A。本轮只产出清单与归属判定，未执行任何删除；`.gitignore`（`.vibe-harness/`、`/.codex/better-harness/`）与 `.cbmignore`（`/.codex/`、`/.vibe-harness/`）已覆盖这些路径，经复核无需新增忽略项；待解决的是累积治理与 doctor 噪声，不是忽略规则。
+
+### 14.6 验证清单
+
+| 命令 | 结果 |
+| --- | --- |
+| `node --test tests/runtime-diagnostics.test.js` | 6 通过 / 0 失败（含 2 个新增用例） |
+| `node --test tests/runtime-diagnostics.test.js tests/manifest-schema.test.js tests/hook-installation.test.js tests/safety-posture.test.js tests/target-validation.test.js` | 53 通过 / 0 失败 |
+| `node ./scripts/vibe-harness.js doctor --project .` | status ready，`activation.status = trusted-disabled`，warnings = HOOK_DISABLED + HOOK_ENFORCEMENT_UNVERIFIED |
+| `pnpm eval:check` | 通过（config 组随 manifests/schemas 变更再生成后） |
+| `pnpm check` | 通过（345 通过 / 0 失败） |
+| `pnpm test:integration` | 319 通过 / 1 失败 / 1 跳过；唯一失败是既有墙钟脆弱断言（见下） |
+| `pnpm docs:audit` | 通过 |
+| `git diff --check` | 通过 |
+
+已知失败（已确认事实，非本批次回归）：`tests/project-verification.test.js` 的 `verify --project terminates a hanging command and returns a structured timeout receipt` 在末尾断言 `Date.now() - startedAt < 5000`；两次全量 `pnpm test:integration` 均只失败该用例（实测 7.5 秒级），该文件单独运行 17/17 通过。该断言与批次 4 的改动面（宿主 Hook 状态读取、manifests/schemas、docs）无交集，与批次 2 记录的是同一处负载敏感断言。已按仓库的 flaky 口径登记为新条目 TD-2026-09-15-8（证据、影响、owner、关闭条件齐全）。
+
+附带修复（已确认事实）：批次 2 引入的分组渲染在 `scripts/lib/rules-index.js` 用了 `new Map([...])` 的元组数组，`pnpm typecheck` 报 TS2769；批次 2 的验证清单没有跑 `pnpm check`，因此该错误直到本批次收尾才暴露。本批次以独立提交 `fix(install): 修复规则索引分组的类型推断` 修复（改为预置分组键 + 类型化 `Map<string, string[]>`），使批次 4 的回滚不会重新引入类型错误。
+
+### 14.7 未闭合与移交
+
+- 宿主侧的 Hook 启用仍需用户操作：把本项目两条 `hooks.state` 条目恢复启用（或在 Codex 中运行 /hooks）后，`activation.status` 预期变为 `trusted-enabled`，安全策略才真正生效。本批次只让该状态可观测，不改写宿主配置。
+- 批次 3 记录的「自安装会把 `docs/rules/project-specific-rules.md` 渲染成项目画像内容」仍未处理，需要在后续批次单独决策。
+- 附录 A 的删除动作全部待用户逐项确认；`runtime/tools`（979 MB）与 `.vibe-harness/external-env`（2082 MB）是最值得先决策的两项。
+- `docs/memory/TECH_DEBT.md` 新增 TD-2026-09-15-8（project-verification 墙钟断言）。
+
+## 附录 A · 运行产物清理清单（2026-09-15 实测，本轮不执行删除）
+
+体积与文件数为本机实测（PowerShell 递归统计）。「生产者」一列是仓库内可核对的生成入口；标「未找到生产者」的路径在仓库源码中没有任何引用，删除前必须确认其可重建性。
+
+| 路径 | 文件数 | 体积 | 生产者 | 恢复路径 | 建议 |
+| --- | --- | --- | --- | --- | --- |
+| `.vibe-harness/external-env` | 109134 | 2082.1 MB | 未找到生产者（最后写入 2026-09-06，仓库内无引用） | 未确认可重建 | 先确认生成方式；确认前不删除，可先改名隔离并复跑一次安装与验证 |
+| `.vibe-harness/backups` | 912 | 6.2 MB（58 个时间戳目录，2026-08-03…2026-09-15） | 安装/升级事务与 `eval reference --force`、`eval:replay --write` 的写前备份 | 它本身就是恢复路径 | 保留最近窗口（建议 7 天或最近 20 个目录），更早目录可删 |
+| `.vibe-harness/evals` | 73 | 6.5 MB（`runs/` 72 个 run 文件 + 2 个历史 stdout/stderr 日志） | `vibe-harness eval run --write` | 重新运行同一命令即可再生成 | 只保留最近若干 run；两个历史日志可直接删 |
+| `.vibe-harness/release-notes/v0.3.0.md` | 1 | 2.1 KB | 未找到生产者（仓库内无引用） | 无法重建 | 人工确认内容后再决定 |
+| `.vibe-harness/tmp-hook-check` | 1 | 6 字节（内容为 `test`） | 未找到生产者 | 无法重建且无价值 | 可删（仍需确认） |
+| `.vibe-harness/transactions` | 0 | 0 | 安装事务日志目录 | 重跑 install 生成 | 空目录，无需处理 |
+| `runtime/tools` | 839 | 979.3 MB | `vibe-harness provision`（包含 `node_modules`） | 重新 provision | 属可选工具链，可按需删除后恢复 |
+| `.codex/better-harness`（三方归属） | 60 | 6.9 MB（20 个顶层目录：`.cleanup`、`.draft-2026-08-13-codex-quick`、`.scratch-learning-evidence-20260902` 与 17 个历史 run） | 第三方插件 better-harness（marketplace 源 QoderAI/better-harness），非本项目产物 | 由该插件重新生成 | 交插件侧维护，本项目不代为删除 |
+| `.codex/workflow-asset-scan-blindspot-result.json`（三方归属） | 1 | 2.4 KB | 未找到生产者，内容为外部工作流的执行报告 | 无法重建 | 保留或经确认后删除 |
+| 宿主 `~/.codex/logs_2.sqlite`（宿主维护） | 1 | 2588700672 B（约 2.41 GiB） | Codex CLI 宿主日志库 | 宿主自身维护 | 不在本仓库治理范围，需宿主侧保留策略 |
+| 宿主 `~/.codex/thread_history_1.sqlite`（宿主维护） | 1 | 934141952 B（约 0.87 GiB） | Codex CLI 宿主线程历史库 | 宿主自身维护 | 同上 |
+
+doctor 的 `unmanagedCount` 在本轮测量中由 2989 升到 3190，随仓库文件数（含工作区里用户未提交的新文件）同步变化：该计数把仓库内任意未登记文件都算作 unmanaged，因此它本身不是「异常数量」的判据，只有配上保留策略才有意义。清理若要落地，建议先给出保留策略（例如「backups 保留 7 天、evals/runs 保留最近 20 个」）作为可解释基线，再逐项确认删除。
+
+## 附录 B · 提交台账（2026-09-15）
+
+| 提交 | 批次 | 覆盖 finding | 可单独 revert |
+| --- | --- | --- | --- |
+| `2308667` fix(hooks): 统一只读判定并修正风险分级 | 批次 1（P0） | AC-01、AC-02、AC-03、AC-04、AC-04a、AC-11；AC-08 的 Hook 侧 | 是 |
+| `2edca93` refactor(install): 精简托管指令块并分组规则索引 | 批次 2（P1） | AC-05 | 是 |
+| `32d47a5` feat(install): 自安装纳入角色面并落地 F01-F10 台账 | 批次 3（P1） | AC-06、AC-07；eval reference/replay 再生成 | 是 |
+| `5a2d6b6` fix(install): 修复规则索引分组的类型推断 | 批次 2 的回归修复 | 批次 2 的 TS2769（`pnpm typecheck`） | 是 |
+| feat(hooks): 可观测宿主信任三态并固定契约取证 | 批次 4（P2 与 P1 混合） | AC-08 收尾、AC-09 清单、AC-10、AC-12 | 是 |
+
+工作区中仍有用户在本次审查之前/之外改动的文件（stale-cleanup、install-preset 等相关）未纳入以上任何提交；每个提交只包含该批次自己的改动，`scripts/lib/pack-validation.js`、`package.json`、`adapters/install-map.json`、`scripts/lib/install-planner.js` 等重叠文件用「按内容建 blob 后更新索引」的方式只暂存本批次 hunk。
+
+批次 4 的提交就是本报告所在的提交，因此其 SHA 不写死在报告里（写入即会失效），用 `git log -1 --format=%h -- audit-reports/2026-09-15-agent-config-review.md` 取当前值即可。
