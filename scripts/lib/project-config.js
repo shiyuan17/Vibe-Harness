@@ -240,15 +240,13 @@ function assertNonEmptyString(value, label) {
   }
 }
 
-export function resolveValidationCommands(config, projectProfile) {
+const validationCheckDefaults = { lint: null, typecheck: null, test: null, eval: null };
+
+export function resolveValidationCommands(config) {
   const configured = Object.fromEntries(
     Object.entries(config?.validationCommands ?? {}).filter(([, value]) => value),
   );
-  return {
-    ...(projectProfile?.validationCommands ?? {}),
-    ...configured,
-    eval: configured.eval ?? null,
-  };
+  return { ...validationCheckDefaults, ...configured };
 }
 
 function assertOptionalCommand(value, label) {

@@ -29,7 +29,7 @@ export async function checkSelfInstallConformance(rootDir, { targetDir = rootDir
   const profile = validateProfileName(config.profile);
   const targets = projectTargets(config);
   const projectProfile = await detectProjectProfile({ config, targetDir });
-  const validationCommands = resolveValidationCommands(config, projectProfile);
+  const validationCommands = resolveValidationCommands(config);
   const renderData = { ...config, profile, projectProfile, targets, validationCommands };
   const requestedModules = config.modules ?? installState.requestedModules;
   const requestedPlugins = config.plugins ?? installState.requestedPlugins ?? [];
@@ -58,7 +58,7 @@ export async function checkSelfInstallConformance(rootDir, { targetDir = rootDir
   // A managed target that left the disk and is not part of this plan is an
   // orphan: install-state kept the registration while the file disappeared, so
   // the installed surface still claims a rule the project no longer has (for
-  // example `docs/rules/AGENT_SKILL_ROUTING.md`, renamed away long ago). The
+  // example a retired rule document that was renamed away long ago). The
   // conformance diff cannot see it — there is nothing on disk to compare — so
   // this is the only place the stale registration gets reported.
   // Only targets the project keeps count as planned. A `retire`/`discard`

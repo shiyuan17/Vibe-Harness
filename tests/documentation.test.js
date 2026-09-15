@@ -19,10 +19,11 @@ test('documentation catalog covers current and archived Markdown', async () => {
   assert.equal(report.ok, true, JSON.stringify(report, null, 2));
 });
 
-test('AGENTS validation guidance distinguishes repository typecheck from project verify configuration', async () => {
+test('AGENTS validation guidance wires repository typecheck into repo check and project verify', async () => {
   const agents = await readFile(path.join(rootDir, 'AGENTS.md'), 'utf8');
   assert.match(agents, /pnpm typecheck/u);
-  assert.match(agents, /未接入项目 verify 默认命令/u);
+  assert.match(agents, /已并入 `pnpm check` 与项目 verify 默认命令/u);
+  assert.doesNotMatch(agents, /未接入项目 verify 默认命令/u);
   assert.match(agents, /TypeScript 配置、类型声明、JSDoc 类型契约/u);
 });
 

@@ -414,7 +414,7 @@ async function install(args) {
   };
   validateProjectConfigWithSchema(effectiveConfig);
   const projectProfile = await detectProjectProfile({ config: effectiveConfig, targetDir });
-  const validationCommands = resolveValidationCommands(effectiveConfig, projectProfile);
+  const validationCommands = resolveValidationCommands(effectiveConfig);
   const renderData = {
     ...effectiveConfig,
     profile,
@@ -635,7 +635,7 @@ async function validate(args) {
     });
     const rtkHooksEnabled = rtkHooksSetting.enabled;
     const projectProfile = await detectProjectProfile({ config, targetDir });
-    const validationCommands = resolveValidationCommands(config, projectProfile);
+    const validationCommands = resolveValidationCommands(config);
     const plan = await createMultiTargetInstallPlan({
       allowPreview: true,
       dryRun: true,
@@ -755,7 +755,7 @@ async function verify(args) {
     targets,
   });
   const projectProfile = await detectProjectProfile({ config, targetDir });
-  const validationCommands = resolveValidationCommands(config, projectProfile);
+  const validationCommands = resolveValidationCommands(config);
   const renderData = { ...config, projectProfile, validationCommands };
   const target = await diffMultiTargetInstall({
     allowPreview: true,
@@ -882,7 +882,7 @@ async function baseline(args) {
     requestedPlugins: requestedPlugins ?? [],
     targets,
   });
-  const validationCommands = resolveValidationCommands(config, projectProfile);
+  const validationCommands = resolveValidationCommands(config);
   const renderData = { ...config, projectProfile, validationCommands };
   const target = await diffMultiTargetInstall({
     allowPreview: true,
@@ -1081,7 +1081,7 @@ async function doctor(args) {
   let renderData = { ...config, profile };
   if (managedAgentsBlock) {
     const projectProfile = await detectProjectProfile({ config, targetDir });
-    const validationCommands = resolveValidationCommands(config, projectProfile);
+    const validationCommands = resolveValidationCommands(config);
     renderData = { ...config, profile, projectProfile, validationCommands };
   }
   const adapter = await resolveAdapter(rootDir, selectedTargets[0]);
@@ -1183,7 +1183,7 @@ async function diff(args) {
   const installSurface = resolveInstallSurface({ args, config, installState });
   const profile = validateProfileName(installSurface.profile);
   const projectProfile = await detectProjectProfile({ config, targetDir });
-  const validationCommands = resolveValidationCommands(config, projectProfile);
+  const validationCommands = resolveValidationCommands(config);
   const renderData = { ...config, profile, projectProfile, validationCommands };
   const requestedPlugins = installSurface.plugins;
   const rtkHooksEnabled = resolveRtkHooksEnabled({

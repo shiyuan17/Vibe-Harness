@@ -57,7 +57,7 @@ test('ast-grep wrapper normalizes documented and native command forms', () => {
 });
 
 async function runCli(args) {
-  const { stdout } = await execFileAsync(process.execPath, [cliPath, ...args], { cwd: rootDir });
+  const { stdout } = await execFileAsync(process.execPath, [cliPath, ...args], { cwd: rootDir, maxBuffer: 8 * 1024 * 1024 });
   return JSON.parse(stdout);
 }
 

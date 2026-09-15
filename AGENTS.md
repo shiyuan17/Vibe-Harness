@@ -32,7 +32,7 @@ Vibe-Harness 用来打包可复用的 AI coding 项目规则、领域 Skills、�
 | runtime tool lockfile/provision | `pnpm runtime:audit` |
 | 浏览器行为 | 真实浏览器关键路径 |
 
-TypeScript 配置、类型声明、JSDoc 类型契约，或完成主张涉及类型安全的 JS/TS 改动，追加运行 pnpm typecheck（已并入 `pnpm check`，`pnpm check` 通过即已执行）；该仓库脚本已存在，但当前未接入项目 verify 默认命令。
+TypeScript 配置、类型声明、JSDoc 类型契约，或完成主张涉及类型安全的 JS/TS 改动，追加运行 pnpm typecheck（已并入 `pnpm check` 与项目 verify 默认命令，`pnpm check` 通过即已执行）。
 
 - 可用 `pnpm verify:focused` 把本轮变更路径映射为同一风险计划（JSON 收据包含 `riskLevel`、`impactGroups`、`selectedChecks`、`skippedChecks` 和 `fallbackUsed`）；`--run` 依序执行。`unknown` 必须回退到 high，未选检查标记为 `not_selected`。
 - 只运行与变更和完成主张匹配的聚焦检查；不要自动派发 Review/Test 角色。
@@ -85,6 +85,7 @@ TypeScript 配置、类型声明、JSDoc 类型契约，或完成主张涉及类
 - Skills 位于 `.agents/skills/`。
 - agentmemory skills 位于 `.agents/skills/`，本地记忆库位于 `.agents/memory/`。
 - Codex hook 配置位于 `.codex/hooks.json`。
+- 项目级确定性脚本：`node .agents/runtime/commands/run.mjs <env|context|changes|verify|worktree|slice|patch> --project . --json`。
 宿主按 Skill description 选择当前所需能力，按需补充互补 Skill；不使用 Router 或流程 Skill 链。
 
 规则优先级：平台系统与用户本轮指令优先；目标项目明确的本地规则优先于 Vibe-Harness 默认规则；目录级规则只作用于其子树。先按优先级、适用范围和当前明确指令解析冲突；仅对仍影响结果且无法解决的实质冲突请求澄清。

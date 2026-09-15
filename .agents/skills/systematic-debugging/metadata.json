@@ -1,0 +1,1 @@
+{"id":"systematic-debugging","kind":"core","entry":"SKILL.md","triggers":["bug","测试失败","非预期行为","构建失败"],"outputs":["根因分析"]}

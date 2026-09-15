@@ -294,6 +294,12 @@
       "contentStrategy": "replace"
     },
     {
+      "group": "runtime-eval-online",
+      "source": "runtime/evals/lib/knowledge-coverage.mjs",
+      "target": ".agents/runtime/evals/lib/knowledge-coverage.mjs",
+      "contentStrategy": "replace"
+    },
+    {
       "group": "evals-core",
       "source": "evals/suites/vibe-harness-core.json",
       "target": ".agents/evals/suites/vibe-harness-core.json",
@@ -484,6 +490,12 @@
     },
     {
       "group": "skills-core",
+      "source": "skills/core/clarify-requirements/metadata.json",
+      "target": ".agents/skills/clarify-requirements/metadata.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
       "source": "skills/core/clarify-requirements/agents/openai.yaml",
       "target": ".agents/skills/clarify-requirements/agents/openai.yaml",
       "contentStrategy": "replace"
@@ -502,8 +514,20 @@
     },
     {
       "group": "skills-core",
+      "source": "skills/core/define-goal/metadata.json",
+      "target": ".agents/skills/define-goal/metadata.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
       "source": "skills/core/task-decomposition/SKILL.md",
       "target": ".agents/skills/task-decomposition/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/task-decomposition/metadata.json",
+      "target": ".agents/skills/task-decomposition/metadata.json",
       "contentStrategy": "replace"
     },
     {
@@ -538,6 +562,12 @@
     },
     {
       "group": "skills-core",
+      "source": "skills/core/git-deliver/metadata.json",
+      "target": ".agents/skills/git-deliver/metadata.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
       "source": "skills/core/git-deliver/agents/openai.yaml",
       "target": ".agents/skills/git-deliver/agents/openai.yaml",
       "contentStrategy": "replace"
@@ -550,6 +580,12 @@
     },
     {
       "group": "skills-core",
+      "source": "skills/core/eval-driven-development/metadata.json",
+      "target": ".agents/skills/eval-driven-development/metadata.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
       "source": "skills/core/eval-driven-development/agents/openai.yaml",
       "target": ".agents/skills/eval-driven-development/agents/openai.yaml",
       "contentStrategy": "replace"
@@ -558,6 +594,12 @@
       "group": "skills-core",
       "source": "skills/core/systematic-debugging/SKILL.md",
       "target": ".agents/skills/systematic-debugging/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/systematic-debugging/metadata.json",
+      "target": ".agents/skills/systematic-debugging/metadata.json",
       "contentStrategy": "replace"
     },
     {
@@ -712,6 +754,12 @@
     },
     {
       "group": "skills-core",
+      "source": "skills/core/security-and-hardening/metadata.json",
+      "target": ".agents/skills/security-and-hardening/metadata.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
       "source": "skills/core/security-and-hardening/agents/openai.yaml",
       "target": ".agents/skills/security-and-hardening/agents/openai.yaml",
       "contentStrategy": "replace"
@@ -724,6 +772,12 @@
     },
     {
       "group": "skills-full",
+      "source": "skills/core/api-and-interface-design/metadata.json",
+      "target": ".agents/skills/api-and-interface-design/metadata.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-full",
       "source": "skills/core/api-and-interface-design/agents/openai.yaml",
       "target": ".agents/skills/api-and-interface-design/agents/openai.yaml",
       "contentStrategy": "replace"
@@ -732,6 +786,12 @@
       "group": "skills-full",
       "source": "skills/core/frontend-design/SKILL.md",
       "target": ".agents/skills/frontend-design/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-full",
+      "source": "skills/core/frontend-design/metadata.json",
+      "target": ".agents/skills/frontend-design/metadata.json",
       "contentStrategy": "replace"
     },
     {
@@ -798,6 +858,12 @@
       "group": "skills-full",
       "source": "skills/core/runtime-cross-repo-rollout/SKILL.md",
       "target": ".agents/skills/runtime-cross-repo-rollout/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-full",
+      "source": "skills/core/runtime-cross-repo-rollout/metadata.json",
+      "target": ".agents/skills/runtime-cross-repo-rollout/metadata.json",
       "contentStrategy": "replace"
     },
     {

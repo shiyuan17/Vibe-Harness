@@ -12,14 +12,15 @@
     "evals",
     "memory",
     "hooks",
-    "roles"
+    "roles",
+    "project-scripts"
   ],
   "roles": {
     "enabled": true
   },
   "validationCommands": {
     "lint": "pnpm lint",
-    "typecheck": null,
+    "typecheck": "pnpm typecheck",
     "test": "pnpm test:unit",
     "eval": "pnpm eval:replay"
   },

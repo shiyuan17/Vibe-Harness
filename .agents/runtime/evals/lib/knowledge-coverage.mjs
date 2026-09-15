@@ -153,6 +153,24 @@ export function taskEpisode(input) {
   return episode;
 }
 
+export function lifecycleDecision({ goalStatus = 'active', hasNewInput = false, continuationRequested = false, terminalConditionReached = false, approvalPending = false, workspaceDrift = false, unownedHead = false, blockerCount = 0 }) {
+  if (goalStatus === 'complete' || terminalConditionReached) return { action: 'stop', reason: 'terminal-condition' };
+  if (approvalPending) return { action: 'stop', reason: 'approval-pending' };
+  if (workspaceDrift || unownedHead) return { action: 'stop', reason: workspaceDrift ? 'workspace-drift' : 'unowned-head' };
+  if (blockerCount >= 3) return { action: 'stop', reason: 'repeated-blocker' };
+  if (!hasNewInput) return { action: 'stop', reason: 'no-new-input' };
+  return { action: 'continue', reason: continuationRequested ? 'explicit-continuation' : 'new-input' };
+}
+
+export function completionClaimStatus(acceptance = []) {
+  const items = acceptance.map((item) => ({
+    id: item.id,
+    status: ['passed', 'failed', 'blocked', 'unverified'].includes(item.status) ? item.status : 'unverified',
+  }));
+  const complete = items.length > 0 && items.every((item) => item.status === 'passed');
+  return { complete, items };
+}
+
 export function reconcileKnowledgeCoverageEpisodes(episodes) {
   const available = episodes.filter(Boolean);
   if (available.length === 0) return null;

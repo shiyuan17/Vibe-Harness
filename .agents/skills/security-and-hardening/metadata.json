@@ -1,0 +1,1 @@
+{"id":"security-and-hardening","kind":"core","entry":"SKILL.md","triggers":["security","auth","untrusted input","敏感数据"],"outputs":["安全控制与验证"]}

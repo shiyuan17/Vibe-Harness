@@ -2,15 +2,13 @@
 import { appendFile } from 'node:fs/promises';
 import { readProjectConfig, resolveValidationCommands } from './lib/project-config.js';
 import { inspectValidationCommands } from './lib/command-status.js';
-import { detectProjectProfile } from './lib/project-profile.js';
 import { buildVerificationPlan } from './lib/verification-plan.js';
 import { collectChangedDetails, collectChangedPaths } from './verify-focused.js';
 
 const targetDir = process.cwd();
 const config = await readProjectConfig(targetDir);
-const profile = await detectProjectProfile({ config, targetDir });
 const commandStatus = await inspectValidationCommands({
-  commands: resolveValidationCommands(config, profile),
+  commands: resolveValidationCommands(config),
   targetDir,
 });
 const base = process.env.BASE_SHA || null;
