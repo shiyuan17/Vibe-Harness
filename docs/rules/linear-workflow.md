@@ -34,9 +34,9 @@ Agent 手工写状态必须执行“读取当前值 → 校验允许转换 → �
 
 `release/*` 不是日常分支：只有管理员为并行维护历史版本或合规窗口临时创建时才存在，Agent 不创建、不切换也不推送该分支；它一旦存在就按带门禁目标处理，review、CI 与契约要求与 `main` 相同。
 
-`develop` 是日常快车道：其 ruleset 不设 required status check，合入 `develop` 不要求远端 CI，也不要求强制人工审批；合并前只要求本轮本地验证证据，且该证据必须建立在合并时的最新目标 ref 之上——合并前重读 `origin/develop`，若其相对冻结 base 已前进则重跑受影响聚焦检查，或改用提供方 merge queue 在最新 base 上重跑。Writer 在 envelope 授权 `mergeRequestWrite` 时可自行 squash 合并自己创建的 closing PR，或在提供方上请求 auto-merge。远端 CI 门禁（`main-release-gate`）只对发布边界运行：`develop → main` 提升、`hotfix/* → main` 以及 `release/*`。
+`develop` 是日常快车道：其 ruleset 不设 required status check，合入 `develop` 不要求远端 CI，也不要求强制人工审批；合并前只要求本轮本地验证证据，且该证据必须建立在合并时的最新目标 ref 之上——合并前重读 `origin/develop`，若其相对冻结 base 已前进则重跑受影响聚焦检查，或改用提供方 merge queue 在最新 base 上重跑。Writer 在 envelope 授权 `mergeRequestWrite` 时可自行 squash 合并自己创建的 closing PR，或在提供方上请求 auto-merge。项目在发布边界配置的 required check 只对发布边界运行：`develop → main` 提升、`hotfix/* → main` 以及 `release/*`；该检查的名称与聚合方式以项目 CI 配置为准。
 
-快车道不豁免高风险证据：命中 `.github/workflows/`、`schemas/`、`manifests/`、`adapters/`、`runtime/`、`rules/`、`skills/core/`、`templates/`、`scripts/`、`package.json`，以及团队额外声明的安全、红区、迁移或凭据路径的变更属于高风险，PR/MR 必须按 `github-delivery.md` 携带 Risk Evidence 章节与唯一的 Independent Review Receipt，且收据的结论与范围覆盖实际 diff。`develop` 上的高风险检查当前是 shadow 模式，不阻断合并，但收据缺失、与 diff 不匹配或结论为 negative 时，Writer 不得自行落地合并，只报告事实并停在 PR/MR ready for review；把该检查改为强制需要先修订 `ADR-0006`。
+快车道不豁免高风险证据：命中 CI workflow 定义、`schemas/`、`manifests/`、`adapters/`、`runtime/`、`docs/rules/`、`skills/core/`、`templates/`、`scripts/`、依赖清单，以及团队额外声明的安全、红区、迁移或凭据路径的变更属于高风险，PR/MR 必须按项目自己的发布交付文档携带 Risk Evidence 章节与唯一的 Independent Review Receipt，且收据的结论与范围覆盖实际 diff。`develop` 上的高风险检查当前是 shadow 模式，不阻断合并，但收据缺失、与 diff 不匹配或结论为 negative 时，Writer 不得自行落地合并，只报告事实并停在 PR/MR ready for review；把该检查改为强制需要先修订项目记录该门禁决策的决策记录。
 
 一个 write 叶子 Issue 对应一个 Writer；按隔离条件使用当前 clone 或仓库外 worktree，并且只绑定一个命名分支和一个 closing PR/MR。顺序执行且工作区干净时允许在当前 clone 创建任务分支；存在并发 Agent、脏工作区、当前分支含无关改动或任务明确要求隔离时，必须使用仓库外 worktree。read 叶子只绑定一个执行 Agent、约定输出与 Verification 证据，不要求实现 worktree、分支或 PR/MR。存在子 Issue 的 Parent 是 aggregate，不直接实现。独立旧 Issue 可无 Parent，并按 kind=write、trigger=all_success、resourceLocks=None 处理，无需迁移。
 

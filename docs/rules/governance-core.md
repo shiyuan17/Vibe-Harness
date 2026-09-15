@@ -61,7 +61,7 @@
 - 若检查失败后继续修复，必须在最后一次实质修改后的状态重跑同一检查，或在交付中记录覆盖同一受影响行为的等价检查及理由；handoff 只引用晚于最后一次实质修改的结果。
 - 检查通过后，无新修改、失败或未解决疑点不重复验证；必要工作未完成时继续推进，必要验证受阻时报告具体缺口，不把部分完成写成完整完成。
 - 仅在交付含时间窗口证据包时：使用同一组 since、until 和 generatedAt 基准，history window 与 scope window 必须引用该组基准，且 newest commit 不得晚于 until；采集延迟导致声明窗口无法完整覆盖时，自动将实际 scope 缩窄到可覆盖范围，并在报告中同时保留 requested window、effective window、缩窄原因和边界状态；不得用延迟采集时间静默替换原声明窗口。
-- 任务样例：10:00 针对规则变更运行 pnpm check 失败；10:05 修改规则；10:07 重跑 pnpm check 通过。交付只能引用 10:07 的结果，因为它晚于最后一次实质修改。
+- 任务样例：10:00 针对规则变更运行项目聚焦检查失败；10:05 修改规则；10:07 重跑同一检查通过。交付只能引用 10:07 的结果，因为它晚于最后一次实质修改。
 - 仅在使用 vibe-harness verify --project 时：交付引用本轮 `verification.id`、`verification.finishedAt` 和 `verification.before.head`／`verification.after.head` 与对应 `fingerprint`；每个子检查的 `verificationId` 将该结果及其 stdout/stderr 关联到同一 wrapper 收据。只有 `verification.snapshotComparison` 为 match 时，才能证明检查期间采样到的工作树未变化；收据不写入项目状态。
 
 ## 交付与证据标签

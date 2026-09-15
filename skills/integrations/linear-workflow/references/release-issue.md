@@ -39,7 +39,7 @@ None. This Issue records the release evidence and branch promotion contract.
 ## 验收标准（Acceptance Criteria）
 
 - [ ] Promotion PR uses <code>Refs &lt;ISSUE-ID&gt;</code> and merges <code>develop</code> into <code>main</code> with a merge commit.
-- [ ] Full <code>main-release-gate</code> and release verification pass.
+- [ ] Release-boundary required check and release verification pass.
 - [ ] release-please version PR merges with <code>main</code> as its target.
 - [ ] GitHub Release, tag, assets, checksum, provenance and release evidence are observable.
 - [ ] <code>main</code> → <code>develop</code> back-sync PR merges successfully.

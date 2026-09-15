@@ -60,7 +60,7 @@
 - 父 Agent 在 fan-in 后重新读取工作区状态和实际 diff，核对写入归属、共享契约与冲突，并在最后一次实质写入后运行集成验证；child 自报只证明其局部范围。
 - 子 Agent 回传偏离目标、重复他人工作或缺少证据时，父 Agent 拒绝采纳并重派或回收该工作，不因单个无效回传把整张图升级为阻塞。
 - 用户取消或出现致命失败时停止派发新节点，对 in-flight 工作先读取真实状态再处置；部分写入不得被后继节点消费，worktree 与分支按隔离事实标记废弃或待清理。
-- 派发前可用 `pnpm task-dag check --file <dag.json> [--require-ready]` 校验节点契约、依赖边与环、writeScope 与 resourceLocks 冲突，用 `pnpm worktree list|check|plan` 核对隔离事实；两个命令只校验结构与隔离事实，不替代人读判断。
+- 派发前可用项目提供的 DAG 校验入口检查节点契约、依赖边与环、writeScope 与 resourceLocks 冲突，用项目提供的隔离核对入口检查 worktree 事实；两者只校验结构与隔离事实，不替代人读判断。
 
 ## Linear 投影
 

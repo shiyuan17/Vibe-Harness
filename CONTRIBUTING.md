@@ -37,6 +37,24 @@
 
 verify 输出本轮 ID、时间和可用的 Git 工作树指纹；检查期间工作树变化时收据失效且命令返回非零。
 
+## 规则中的仓库私有事实
+
+`docs/rules/*.md` 会随 pack 安装到目标项目，因此规则正文只写可移植的中立措辞，本仓库的具体路径、脚本与门禁名集中登记在这里（`project-specific-rules.md` 是渲染产物，例外）：
+
+| 规则中的中立措辞 | 本仓库事实 |
+| --- | --- |
+| 项目在发布边界配置的 required check | `.github/workflows/ci.yml` 的聚合 job `merge-gate`，它是 main ruleset 的唯一 required check，详见 `docs/github-delivery.md` |
+| 项目自己的发布交付文档 | `docs/github-delivery.md` |
+| 项目记录该门禁决策的决策记录 | `docs/adr/ADR-0006-release-gated-ci-writer-landed-merges.md` |
+| 项目提供的聚焦验证入口 | `pnpm verify:focused`；常规门禁仍是 `pnpm check` |
+| 项目提供的 DAG 校验入口 | `pnpm task-dag check --file <dag.json> [--require-ready]` |
+| 项目提供的隔离核对入口 | `pnpm worktree list\|check\|plan` |
+| 宿主 Skill 根目录下已安装的 Skill 入口 | `.agents/skills/<id>/SKILL.md` |
+| 以其 ADR 索引作为触发清单与流程来源 | `docs/adr/README.md`，字段见 `templates/adr/adr-template.md` 与 `schemas/adr.schema.json` |
+| 项目自己的贡献指南和测试配置 | 本文件的「测试实现（本仓库）」一节 |
+
+`pnpm validate` 的规则可移植性门禁与规则交叉引用门禁会阻止这些私有事实回流到规则正文，也会阻挡指向不存在规则文件的同目录引用。
+
 ## 验证选择
 
 验证矩阵的唯一规范来源是 `AGENTS.md` 的「验证选择」一节（含按影响追加的显式验证表和 `pnpm verify:focused` 用法）；本节只说明与贡献流程相关的边界。

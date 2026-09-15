@@ -38,26 +38,26 @@ Vibe-Harness 不通过 Stop Hook、运行时脚本或任何默认流程自动执
 - 每个 commit 只承载一个逻辑变更；重构与功能变更默认拆开，提交后的状态应能通过该变更对应的聚焦检查。
 - 提交主题使用 `<type>(<scope>): <描述>`，常用类型为 feat、fix、docs、refactor、test、chore 和 eval；项目配置 commitlint 时，其配置是类型枚举、长度和大小写规则的唯一事实来源。
 - 提交正文说明为什么改、影响面和被否决的方案；破坏性变更用 `feat!:` 或 `BREAKING CHANGE:` footer 显式声明，不靠正文措辞暗示。
-- Issue 关联写进 PR/MR 描述与 `Refs <ISSUE-ID>` 等 trailer，closing magic word 不放进 commit；完整语义以 `linear-workflow.md` 为准。
+- Issue 关联写进 PR/MR 描述与 `Refs <ISSUE-ID>` 等 trailer，closing magic word 不放进 commit；完整语义以 `linear-workflow.md`（若项目已安装该规则）为准。
 - 不使用 `--no-verify` 绕过项目 Git Hook。
 - 不添加未经确认的 `Co-authored-by`、`Signed-off-by` 或等价署名 trailer；需要标注 AI 参与时使用项目批准的 trailer，不伪造他人身份。
 - 不把构建产物、依赖缓存、VCS 元数据、大体积二进制或用户未归属改动混入提交；行尾与二进制按 `.gitattributes` 处理，超大文件走 LFS 或外置存储。
 
 ## 分支模型与合并
 
-分支模型、门禁边界与 `develop` 快车道的完整规范以 `linear-workflow.md` 和 `github-delivery.md` 为准；本节只保留 Git 域必须直接遵守的结论，发现与那两处不一致时按它们修正本节。
+分支模型、门禁边界与 `develop` 快车道的完整规范：协作工作流以 `linear-workflow.md`（若项目已安装该规则）为准，仓库侧以项目自己的发布交付文档为准；本节只保留 Git 域必须直接遵守的结论，发现与那两处不一致时按它们修正本节。
 
 - 默认分支模型：`feat/*、fix/* → develop → main`；紧急修复：`hotfix/* → main → develop`。该模型在项目显式建立对应分支后生效；尚未创建 `develop` 或迁移未完成的仓库，以实际默认分支和已声明目标 ref 为准，不按设想中的分支开始工作。
 - 普通任务 PR 使用 squash merge；`develop → main` 的发布提升与 `main → develop` 的回同步使用 merge commit。squash 在目标分支生成的提交主题来自 PR/MR 标题，因此标题与提交主题使用同一 Conventional Commit 语法。
 - `main` 只接受同仓库 `develop`、`hotfix/*` 和 release-please 的 PR，不使用长期 `release/*` 分支；目标项目已配置 `release/*` 时按其保护规则处理。
-- 必须有门禁效果的 required CI 只在发布边界运行：`develop → main` 提升、`hotfix/* → main` 和项目自行配置的 `release/*` 边界。本仓库该边界由 workflow 聚合 job `merge-gate` 承担，它是 main ruleset 的唯一 required check；`github-delivery.md` 等文档中的历史名 `main-release-gate` 指同一发布边界。
+- 必须有门禁效果的 required CI 只在发布边界运行：`develop → main` 提升、`hotfix/* → main` 和项目自行配置的 `release/*` 边界；边界检查的名称、聚合方式与是否为唯一 required check 以项目 CI 配置为准。
 - 普通任务 PR 仍会跑不阻断合并的 advisory CI job；`develop` ruleset 不设 required status check，合入 `develop` 不要求远端 CI 或强制审批，Writer 可在 envelope 授权 `mergeRequestWrite` 后自行落地 squash merge；`Ready to Merge` 只用于带门禁目标。
-- 合并前的本地验证必须建立在合并时的最新 `origin/develop` 之上：目标 ref 已前进时重跑受影响检查，或改用 merge queue 在最新 base 上重跑；高风险变更仍须按 `github-delivery.md` 携带 Independent Review Receipt，shadow 模式下该检查不阻断合并，但收据缺失、与 diff 不匹配或结论为 negative 时不得自行落地合并。
+- 合并前的本地验证必须建立在合并时的最新 `origin/develop` 之上：目标 ref 已前进时重跑受影响检查，或改用 merge queue 在最新 base 上重跑；高风险变更仍须按项目交付文档携带 Independent Review Receipt，shadow 模式下该检查不阻断合并，但收据缺失、与 diff 不匹配或结论为 negative 时不得自行落地合并。
 - 无门禁合入以本地验证为唯一前置，因此还要能快速发现回归：使用项目已启用的 post-merge 检测或等价的合并后检查；发现回归时由落地该合并的 Writer 负责 revert 并重走修复流程，不用改写历史掩盖。
 
 ## 分支与 PR/MR
 
-- 默认分支名使用 `<type>/<short-topic>`，只用小写字母、数字和连字符；Linear 工作流下使用 `<type>/<ISSUE-ID>-<slug>`，与 `pnpm worktree check` 的校验一致；已有任务分支或用户指定分支优先。
+- 默认分支名使用 `<type>/<short-topic>`，只用小写字母、数字和连字符；Linear 工作流下使用 `<type>/<ISSUE-ID>-<slug>`，与项目 worktree 校验入口的分支命名校验一致；已有任务分支或用户指定分支优先。
 - main、master、develop、release 和其他共享分支上的提交与推送遵循仓库保护和人工审批。
 - PR/MR 包含摘要、风险、验证、回滚和审查备注；高风险 PR/MR 说明红区确认和独立审查状态。
 - PR/MR 标题使用 `<type>(<scope>): <描述>`，因为 squash 合并用它生成目标分支上的提交主题。

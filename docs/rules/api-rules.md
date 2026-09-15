@@ -38,4 +38,4 @@ API 规则用于保护契约稳定性、边界输入和兼容演进。变更接�
 
 调用方、兼容策略、权限语义、幂等语义或错误格式不清时先查源码、消费方和公开契约，不编造 API、字段或权限码。仍需高影响产品决定或新增授权时按 governance-core 暂停受影响部分，独立工作继续。
 
-本规则定义适用边界与最低证据；按需展开的执行步骤见 `api-and-interface-design` Skill（`.agents/skills/api-and-interface-design/SKILL.md`），两者描述同一契约，修改须同步。
+本规则定义适用边界与最低证据；按需展开的执行步骤见宿主 Skill 根目录下已安装的 `api-and-interface-design` Skill 入口，两者描述同一契约，修改须同步。

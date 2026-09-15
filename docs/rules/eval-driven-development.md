@@ -67,4 +67,4 @@ execution fixture 用 `allowedWritePaths` 声明唯一允许的 workspace 相对
 
 ## 与其他契约的关系
 
-本规则是常驻契约；按需展开的执行步骤见 `eval-driven-development` Skill（`.agents/skills/eval-driven-development/SKILL.md`），两者描述同一门禁，修改须同步。执行步骤与命令入口见 `docs/evals.md`，行为评测架构见 `docs/specs/harness-evals-framework.md`。
+本规则是常驻契约；按需展开的执行步骤见宿主 Skill 根目录下已安装的 `eval-driven-development` Skill 入口，两者描述同一门禁，修改须同步。评测命令入口与行为评测架构以项目自己的评测文档为准。
