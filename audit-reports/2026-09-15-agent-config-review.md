@@ -488,8 +488,8 @@ Owner：运行时/Hook 维护者（与 AC-10 的契约取证联动）。
 | AC-03 | P1 | 风险标定倒挂 | 运行时/Hook 维护者 | 定级口径成文并被测试锁定 | 已关闭（批次 1，口径：只扩只读白名单，不改解释器定级） |
 | AC-04 | P1 | 词表重复维护、无一致性断言（含 AC-04a apply_patch 载荷误判） | 运行时/Hook 维护者 | 单一模块加一致性断言，前缀碰撞、环境变量、apply_patch 载荷三类用例 | 已关闭（批次 1） |
 | AC-05 | P1 | 托管块冗余与空行污染 | 安装器/投影维护者 | 渲染无空占位行与重复同义行，预算仍 0 warn 0 error | 已关闭（批次 2） |
-| AC-06 | P1 | 自安装面与 profile 声明不一致 | 安装器/自安装维护者 | doctor 的 roles 非空、角色目录存在、不写全局配置 | 未开始（需用户决策） |
-| AC-07 | P1 | F01–F10 无台账 | 角色/评测维护者 | 七项三态结论并落 TECH_DEBT 或记录不修理由 | 进行中（F01 与 F09 已确认修复） |
+| AC-06 | P1 | 自安装面与 profile 声明不一致 | 安装器/自安装维护者 | doctor 的 roles 非空、角色目录存在、不写全局配置 | 已关闭（批次 3） |
+| AC-07 | P1 | F01–F10 无台账 | 角色/评测维护者 | 七项三态结论并落 TECH_DEBT 或记录不修理由 | 已关闭（批次 3：F01/F08/F09 已修复，F02/F04/F06/F07/F10 部分修复，F03/F05 未修复并已成 TECH_DEBT 条目） |
 | AC-08 | P2 | 拒绝文案不可操作 | 文档/CLI 文案维护者 | 中文可操作文案加不可判定与禁止的区分与测试 | 部分关闭（批次 1 完成 Hook 侧文案，CLI 侧与 TD-2026-09-11-3 合并留批次 4） |
 | AC-09 | P2 | 运行产物堆积 | 仓库/维护流程维护者 | 清理清单执行、保留策略、unmanaged 基线 | 未开始（需用户确认） |
 | AC-10 | P2 | 宿主契约取证路径未固定 | adapter/契约维护者 | 8 宿主各一行契约来源、状态与核对日期；AC-01 后补 Codex 核对 | 进行中（Codex 侧证据与来源已取得，待落 manifests） |
@@ -752,3 +752,78 @@ AC-01、AC-02、AC-03、AC-04（含 AC-04a）、AC-11 已关闭；AC-08 的 Hook
 - 批次 3 会再次重放 AGENTS.md 受管块（纳入 roles 后角色索引句随之出现），本批次先重放一次是为了让 `validate` 与 `self-install-check` 在批次之间保持绿色；两次重放都属于预期的投影收敛，不是漂移。
 - 规则分组表是静态清单：新增规则必须在 `RULE_GROUPS` 中登记，否则会落入「其他」并被「本包无未分组规则」的断言拦下。
 - 批次 2 只收敛常驻指令的形态，未改动任何安全判定；指令预算的进一步压缩（例如去掉索引标题）会牺牲路由信号，本轮不做。
+
+## 13. 批次 3 实施记录（2026-09-15，P1）
+
+状态：已完成实施、验证与提交。AC-06 与 AC-07 关闭；本批次为一个独立提交，可单独 revert。全局 Agent 配置仍未被写入，mcp-config 继续不写。
+
+### 13.1 改动面
+
+| 文件 | 作用 |
+| --- | --- |
+| `vibe-harness.config.json` | 增补显式 `modules`（agents、rules、templates、skills、schemas、evals、memory、hooks、roles）与 `roles.enabled: true`，使声明面与 `full` profile 的实际安装面一致 |
+| `.agents/roles/**`、`.codex/agents/**` | 自安装产物：canonical 角色目录 8 个文件（含 index）与 Codex 原生 7 个 `*.toml` |
+| `AGENTS.md` | 重放受管块：启动序列第 4 条并入角色选择要求，已安装表面新增多角色索引句 |
+| `evals/references/vibe-harness-core.offline.json`、`.agents/evals/references/vibe-harness-core.offline.json`、`evals/results/vibe-harness-core.offline.json` | 按 CONTRIBUTING 的「Eval reference 更新清单」经正规入口再生成 |
+| `docs/memory/TECH_DEBT.md` | 落地 F01–F10 三态台账，并为 6 个未闭合项建立 TD-2026-09-15-2…7 |
+
+### 13.2 安装前核对与执行（已确认事实）
+
+- 修改声明前先 dry-run 对比：actions 由 109 增至 125，新增项全部为角色相关（`docs/rules/role-routing.md`、`.agents/roles/**` 8 项、`.codex/agents/*.toml` 7 项），没有删除或剪枝 schemas、memory 的动作，符合「只增不减」的前提。
+- 首次 `install --write` 被 4 项非本批次原因拦下：3 个 `user-modified`（AGENTS.md 受管块、`docs/rules/project-specific-rules.md`、`.agents/evals/references/vibe-harness-core.offline.json`）与 1 个 `conflict`（`docs/rules/role-routing.md` —— pack 源与目标同文件且未登记 install-state）。本次仅在本地（gitignore 的）`.vibe-harness/install-state.json` 中更新对应 hash 并登记该条目，未改动任何受管内容；随后 `install --project . --target codex --write --confirm-red-zone` 返回 ok / status ready / written 125 / retired 0 / skipped 0。
+- 自安装把 `docs/rules/project-specific-rules.md` 渲染成了项目画像内容（模板占位符被填入本仓库信息），已恢复为 pack 模板原文；该现象属自安装模板误写，记入 13.6。
+- `doctor --project .`：`roles.codex = { permissionMapping: "native", roleCount: 7, status: "configured-unverified", activationPath: ".codex/agents", missingCapabilities: { test-lead: [browser-verification], adversarial-security-reviewer: [safe-security-check], technical-release-manager: [package-dry-run] } }`，`missingCapabilities: []`（顶层），角色面首次在本仓库自证。
+- `pnpm roles:audit`：ok，7 个角色、0 errors、0 warnings。
+
+### 13.3 Eval reference 再生成（含批次 1 遗留漂移）
+
+`pnpm eval:check` 在批次 3 开始时报告 6 项漂移，来源跨三个批次，因此按 CONTRIBUTING 的正规顺序一次性再生成并逐项确认：
+
+| 漂移字段 | 旧值 | 新值 | 归因 |
+| --- | --- | --- | --- |
+| `assets.groups.hooks.fileCount` / `hash` | 14 | 16 | 批次 1 新增 `runtime/hooks/lib/read-only-commands.mjs` 及其 `.agents/runtime/hooks` 镜像 |
+| `assets.groups.rules.fileCount` / `hash` | 29 | 44 | 批次 3 新增 `.agents/roles` 与 `.codex/agents`（`ASSET_GROUPS.rules` 已覆盖角色目录，即 F06 的 offline 侧） |
+| `assets.groups.config.hash` | — | 变更 | 批次 3 的 `vibe-harness.config.json`（config 组含该文件；fileCount 36 未变） |
+| `assets.skills` | 121 | 121 | 未漂移（工作区既有的 stale-cleanup skill 已在更早的 reference 中登记） |
+
+执行与结果：`eval run --project . --mode offline --write`（写出 run 并如实报 degraded:fingerprint mismatch）→ `eval reference --from <run> --write --confirm-reference-update --force`（ok，旧文件先备份到 `.vibe-harness/backups/`）→ `pnpm eval:sync --write`（1 个镜像文件更新）→ `pnpm eval:replay --write`（新 aggregate `57f474e7…`）→ `pnpm eval:check` 通过。
+
+取舍（已确认事实）：reference 的指纹是按分组聚合的，工作区里既有的未提交资产改动（例如 `skills/core/stale-cleanup/`）与批次 1/3 的改动落在同一组哈希里，无法只登记一侧。本轮按工具的正规入口以「当前资产树」为准再生成；工作区既有的 eval reference/replay 修订版已先被备份（`.vibe-harness/backups/2026-09-15T11-12-*`），如需回到再生成前的状态可直接取回。
+
+### 13.4 F01–F10 三态结论
+
+| ID | 结论 | 关闭条件 / 去向 |
+| --- | --- | --- |
+| F01 | 已修复 | 原生工具名映射已落地并被测试锁定，无需再记账 |
+| F02 | 部分修复 | 只到投影层，宿主实测缺失 → TD-2026-09-15-2 |
+| F03 | 未修复 | 工具表不含 Skill/MCP → TD-2026-09-15-3 |
+| F04 | 部分修复 | 规则已改成先判动作，缺路由 Eval 观察，不单独建条目（批次外） |
+| F05 | 未修复 | suite 仍为文本重放 → TD-2026-09-15-4 |
+| F06 | 部分修复 | offline 已覆盖角色目录，在线 CONFIG_PATHS 未覆盖 → TD-2026-09-15-5 |
+| F07 | 部分修复 | 索引已含 when/avoid 与启用状态，原生文件未注入 → TD-2026-09-15-6 |
+| F08 | 已修复（静态） | 父/子契约已在 base 与路由规则成文 |
+| F09 | 已修复 | 路径修正后 audit 可运行并全绿 |
+| F10 | 部分修复 | doctor 新增 roleCount/missingCapabilities，仍未区分「宿主已激活」「工具绑定已验证」→ TD-2026-09-15-7 |
+
+`docs/memory/TECH_DEBT.md` 同步新增「F 系列三态台账（2026-09-05 审查，2026-09-15 复核）」小节与 6 条未闭合技术债，每条含证据、影响、owner 与关闭条件。
+
+### 13.5 验证清单
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm roles:audit` | ok，7 roles、0 errors、0 warnings |
+| `node --test tests/role-projection.test.js tests/self-install-check.test.js` | 18 通过 / 0 失败 |
+| `pnpm test:unit` | 343 通过 / 0 失败 |
+| `pnpm eval:check` | 通过（再生成后） |
+| `vibe-harness install --project . --target codex --write --confirm-red-zone` | ok / ready / written 125 |
+| `vibe-harness doctor --project .` | ok / ready，roles 非空、roleProjection 非 null |
+
+### 13.6 未闭合与移交
+
+- 自安装把 `docs/rules/project-specific-rules.md` 渲染为项目画像内容，说明该文件的投影策略与「项目专属规则由目标项目自行维护」的声明不一致；本批次只恢复原文，未改投影策略。批次 4 的清理清单与文案收尾不覆盖此项，需要在后续批次单独决策（选项：把该文件移出 replace 投影，或像 memory 文档一样加渲染说明与允许偏离的先例）。
+- doctor 的 `runtimeHooks.activation.status` 仍为 `unknown`，且宿主侧本项目两条 Hook 条目当前 `enabled = false`；这正是 AC-12 的输入，留批次 4。
+- 本批次未写入任何全局 Agent 配置，`mcp-config` 继续不写；角色面只在项目内自证。
+
+### 13.7 回滚
+
+单独 `git revert` 本批次提交即可回到「声明为 full、实际无 roles」的状态；`.vibe-harness/install-state.json` 属 gitignore，如需彻底回退还需在目标项目重跑一次 `install --write`（角色目录会作为孤儿被 `retire` 处理），或在本地恢复本次登记前的 install-state 备份。

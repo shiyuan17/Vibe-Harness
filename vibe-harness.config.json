@@ -3,6 +3,20 @@
   "language": "zh-CN",
   "packageManager": "pnpm",
   "profile": "full",
+  "modules": [
+    "agents",
+    "rules",
+    "templates",
+    "skills",
+    "schemas",
+    "evals",
+    "memory",
+    "hooks",
+    "roles"
+  ],
+  "roles": {
+    "enabled": true
+  },
   "validationCommands": {
     "lint": "pnpm lint",
     "typecheck": null,
