@@ -125,18 +125,6 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
   const detectedSkillRoots = [...new Set(installedTargets
     .filter((target) => isSkillRootTarget(target))
     .map((target) => target.split('/skills/')[0] + '/skills'))];
-  const hasEngineeringRules = [
-    'docs/rules/coding-rules.md',
-    'docs/rules/frontend-rules.md',
-    'docs/rules/api-rules.md',
-    'docs/rules/ai-collab-rules.md',
-    'docs/rules/project-directory.md',
-    'docs/rules/project-specific-rules.md',
-  ].some(hasTarget);
-  const hasOperationalRules = [
-    'docs/rules/release-rules.md',
-    'docs/rules/troubleshooting.md',
-  ].some(hasTarget);
   const hasAgentMemorySkills = hasSkill('agentmemory/SKILL.md');
   const hasRtkTool = hasTarget('.agents/runtime/tools/rtk/run.mjs');
   const hasAstGrepTool = hasTarget('.agents/runtime/tools/ast-grep/run.mjs');
@@ -175,7 +163,6 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
     discoveryLine: hasTarget('docs/rules/codebase-memory-mcp.md')
       ? '若 `codebase-memory-mcp` 可用，先确认索引状态并用于结构化定位；不可用时说明并退回仓库搜索。'
       : '使用仓库搜索和已安装规则定位相关代码；需要结构化索引时先确认目标项目已有能力。',
-    engineeringRulesLine: hasEngineeringRules ? '- 工程专项规则位于 `docs/rules/`。' : '',
     hooksLine: hookConfigTargets
       .filter((entry) => hasTarget(entry.target))
       .map((entry) => `- ${entry.displayName} hook 配置位于 \`${entry.target}\`。`)
@@ -190,7 +177,6 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
         : (hasLocalMemory
           ? `读取 \`${normalizedMemoryPath}/README.md\` 与 \`CURRENT.md\` 恢复上下文；记忆仅作辅助，不覆盖当前源码与用户指令。`
           : '')),
-    operationalRulesLine: hasOperationalRules ? '- 发布 / 设计 / 排障规则位于 `docs/rules/`。' : '',
     profileLine: customModules
       ? '- 当前安装方式：自定义能力模块安装。'
       : (profileLines[profile] ?? `- 当前 profile: \`${profile}\`。`),

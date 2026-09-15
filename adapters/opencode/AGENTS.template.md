@@ -27,8 +27,6 @@
 {{installedSurface.clarificationPostureLine}}
 {{installedSurface.codebaseMemoryMcpLine}}
 {{installedSurface.rulesLine}}
-{{installedSurface.engineeringRulesLine}}
-{{installedSurface.operationalRulesLine}}
 {{installedSurface.templatesLine}}
 {{installedSurface.skillsLine}}
 {{installedSurface.memorySkillsLine}}

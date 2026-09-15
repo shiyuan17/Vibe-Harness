@@ -5,7 +5,8 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { createInstalledSurface } from '../scripts/lib/install-planner.js';
-import { existingRuleSources, loadRuleIndex, renderRuleIndexLine } from '../scripts/lib/rules-index.js';
+import { existingRuleSources, loadRuleIndex, renderRuleIndexLine, ruleGroupLabel } from '../scripts/lib/rules-index.js';
+import { renderTemplate } from '../scripts/lib/template-renderer.js';
 
 const rootDir = path.resolve(import.meta.dirname, '..');
 
@@ -33,7 +34,33 @@ test('the rule index is derived from the rule manifest and each rule heading', a
     const heading = String(await readFile(path.join(rootDir, item.source), 'utf8')).match(/^#[ \t]+(.+?)[ \t]*$/mu)[1].trim();
     assert.equal(item.title, heading);
   }
-  assert.match(renderRuleIndexLine(index), /^governance-core（.+）[、\s\S]*ast-grep（.+）$/u);
+  const line = renderRuleIndexLine(index);
+  assert.match(line, /^治理 governance-core（Vibe-Harness 执行内核）/u);
+  assert.match(line, /；工程 [^；]*coding-rules（编码规则）[^；]*/u);
+  assert.match(line, /；工具与集成 [^；]*rtk（RTK 命令输出压缩规则）、ast-grep（ast-grep 结构化搜索规则）/u);
+  assert.match(line, /；发布与排障 release-rules（发布规则）、troubleshooting（排障规则）$/u);
+});
+
+test('every packaged rule has an explicit routing group', async () => {
+  const index = await loadRuleIndex(rootDir);
+  const ungrouped = index.filter((item) => ruleGroupLabel(item.id) === '其他');
+  assert.deepEqual(ungrouped.map((item) => item.id), []);
+  assert.equal(renderRuleIndexLine(index).includes('其他 '), false);
+  assert.equal(ruleGroupLabel('a-rule-the-pack-does-not-ship'), '其他');
+});
+
+test('adapter instruction templates render without blank placeholder lines', async () => {
+  const templates = ['codex/AGENTS', 'claude/CLAUDE', 'gemini/GEMINI', 'opencode/AGENTS', 'antigravity/RULES'];
+  const rulesLine = '- 规则位于 `docs/rules/`。命中索引：治理 git-rules（Git 规则）。';
+  for (const name of templates) {
+    const template = await readFile(path.join(rootDir, `adapters/${name}.template.md`), 'utf8');
+    const rendered = renderTemplate(template, { installedSurface: { rulesLine } });
+    assert.equal(rendered.includes('{{'), false, `${name} left a placeholder unresolved`);
+    assert.equal(/\n[ \t]*\n[ \t]*\n/u.test(rendered), false, `${name} rendered a blank line`);
+    assert.ok(rendered.split('- 规则位于').length - 1 <= 1, `${name} repeated the rules line`);
+    assert.equal(rendered.includes('工程专项规则'), false, `${name} kept the synonymous rule lines`);
+    if (name !== 'antigravity/RULES') assert.equal(rendered.includes(rulesLine), true, `${name} dropped the rules index`);
+  }
 });
 
 test('a manifest entry without a matching rule file or heading fails closed', async () => {
@@ -74,7 +101,7 @@ test('the installed surface carries the index only when docs/rules is installed'
     ruleIndex,
     targets: ['docs/rules/git-rules.md', 'docs/rules/coding-rules.md'],
   });
-  assert.equal(installed.rulesLine, '- 规则位于 `docs/rules/`。命中索引：git-rules（Git 规则）。');
+  assert.equal(installed.rulesLine, '- 规则位于 `docs/rules/`。命中索引：治理 git-rules（Git 规则）。');
   const withoutRules = createInstalledSurface({ profile: 'core', ruleIndex, targets: ['AGENTS.md'] });
   assert.equal(withoutRules.rulesLine, '');
 });
@@ -90,7 +117,7 @@ test('the installed surface lists only the rules the plan installs', () => {
     ruleIndex,
     targets: ['docs/rules/governance-core.md', 'docs/rules/git-rules.md'],
   });
-  assert.equal(installed.rulesLine, '- 规则位于 `docs/rules/`。命中索引：governance-core（Vibe-Harness 执行内核）、git-rules（Git 规则）。');
+  assert.equal(installed.rulesLine, '- 规则位于 `docs/rules/`。命中索引：治理 governance-core（Vibe-Harness 执行内核）、git-rules（Git 规则）。');
   // A rule the selected profile, module or plugin did not install must not be
   // advertised: the host would route to a file that is not in the project.
   assert.equal(installed.rulesLine.includes('codebase-memory-mcp'), false);
@@ -126,7 +153,7 @@ test('a project that never installed a rule file is not advertised to it', async
       ruleIndex,
       targets: ['docs/rules/git-rules.md'],
     });
-    assert.equal(installed.rulesLine, '- 规则位于 `docs/rules/`。命中索引：git-rules（Git 规则）、rtk（RTK 命令输出压缩规则）。');
+    assert.equal(installed.rulesLine, '- 规则位于 `docs/rules/`。命中索引：治理 git-rules（Git 规则）；工具与集成 rtk（RTK 命令输出压缩规则）。');
   } finally {
     await rm(target, { force: true, recursive: true });
   }

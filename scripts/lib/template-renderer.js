@@ -5,11 +5,9 @@ const defaultTemplateData = {
     clarificationPostureLine: '',
     codebaseMemoryMcpLine: '',
     discoveryLine: '使用仓库搜索和已安装规则定位相关代码；需要结构化索引时先确认目标项目已有能力。',
-    engineeringRulesLine: '',
     hooksLine: '',
     memoryLoadLine: '',
     memorySkillsLine: '',
-    operationalRulesLine: '',
     profileLine: '- 当前 profile 使用 Vibe-Harness Codex 安装面。',
     reviewLoopLine: '',
     rulesLine: '- 规则位于 `docs/rules/`。',
@@ -105,20 +103,34 @@ export function withDefaultTemplateData(data = {}) {
 
 export function renderTemplate(template, data = {}) {
   const resolvedData = withDefaultTemplateData(data);
-  const rendered = template.replaceAll(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/gu, (match, expression) => {
-    const value = lookup(resolvedData, expression);
-    if (value === undefined) {
-      throw new Error(`Missing template variable: ${expression}`);
-    }
-    if (value === null) {
-      return '未配置';
-    }
-    return String(value);
-  });
+  const placeholderPattern = /\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/gu;
+  const rendered = template.split('\n').flatMap((line) => {
+    let substituted = false;
+    const value = line.replaceAll(placeholderPattern, (match, expression) => {
+      substituted = true;
+      return resolvePlaceholder(resolvedData, expression);
+    });
+    // A line that carries only placeholders and renders to nothing would leave
+    // a blank line in the resident instructions. The hosts pay for every line
+    // they load, so the whole line is dropped instead of emitting an empty one.
+    if (substituted && value.trim() === '') return [];
+    return [value];
+  }).join('\n');
   if (template.includes('installedSurface.startupLines')) {
     return rendered.replace(/\n## 启动\n[\s\S]*?\n## 硬边界\n/u, '\n## 启动\n' + resolvedData.installedSurface.startupLines + '\n## 硬边界\n');
   }
   return rendered;
+}
+
+function resolvePlaceholder(resolvedData, expression) {
+  const value = lookup(resolvedData, expression);
+  if (value === undefined) {
+    throw new Error(`Missing template variable: ${expression}`);
+  }
+  if (value === null) {
+    return '未配置';
+  }
+  return String(value);
 }
 
 export function hasIncompleteManagedInstructionBlock(content = '') {

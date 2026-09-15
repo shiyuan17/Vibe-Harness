@@ -93,15 +93,70 @@ export async function existingRuleSources(targetDir, index = []) {
 }
 
 /**
- * Renders the index as one line so hosts can route to the matching rule file
- * without listing `docs/rules/` first. Ids carry the routing signal, titles
- * disambiguate the ones whose id is not self-describing.
+ * Routing groups for the resident index. A flat list of 21 `id（title）` pairs
+ * was one long sentence with no shape: the host could not tell a governance
+ * rule from an optional-tool rule, and every new rule lengthened the same line.
+ * The groups mirror the categories the pack already documents — governance,
+ * engineering, tool integrations and release/troubleshooting — while keeping
+ * the manifest as the single source of which rules exist. An id that no group
+ * claims still renders (under the trailing group) so a new manifest entry can
+ * never be silently dropped; `tests/rules-index.test.js` asserts the pack's own
+ * catalog is fully assigned.
+ */
+const RULE_GROUPS = [
+  {
+    ids: [
+      'governance-core', 'agent-skill-routing', 'eval-driven-development',
+      'role-routing', 'git-rules', 'test-rules', 'ai-collab-rules',
+    ],
+    label: '治理',
+  },
+  {
+    ids: [
+      'coding-rules', 'frontend-rules', 'api-rules', 'db-rules',
+      'log-management', 'project-directory', 'project-specific-rules',
+    ],
+    label: '工程',
+  },
+  {
+    ids: ['codebase-memory-mcp', 'chrome-devtools-mcp', 'linear-workflow', 'rtk', 'ast-grep'],
+    label: '工具与集成',
+  },
+  { ids: ['release-rules', 'troubleshooting'], label: '发布与排障' },
+];
+
+const UNGROUPED_LABEL = '其他';
+
+const ruleGroupByRuleId = new Map(RULE_GROUPS.flatMap((group) => group.ids.map((id) => [id, group.label])));
+
+/** @param {string} id @returns {string} */
+export function ruleGroupLabel(id) {
+  return ruleGroupByRuleId.get(String(id)) ?? UNGROUPED_LABEL;
+}
+
+/**
+ * Renders the index as one grouped line so hosts can route to the matching rule
+ * file without listing `docs/rules/` first. Ids carry the routing signal,
+ * titles disambiguate the ones whose id is not self-describing, and the group
+ * prefix tells the host which family of rule it is looking at.
  *
  * @param {Array<{ id: string, title: string }>} index
  * @returns {string}
  */
 export function renderRuleIndexLine(index = []) {
-  return index.map((item) => `${item.id}（${item.title}）`).join('、');
+  const buckets = new Map([...RULE_GROUPS.map((group) => [group.label, []]), [UNGROUPED_LABEL, []]]);
+  for (const item of index) {
+    // `codebase-memory-mcp（codebase-memory-mcp）` costs the host bytes without
+    // adding routing signal, so an id that repeats in its own title stays bare.
+    const label = String(item.title ?? '').toLowerCase() === String(item.id).toLowerCase()
+      ? item.id
+      : `${item.id}（${item.title}）`;
+    buckets.get(ruleGroupLabel(item.id)).push(label);
+  }
+  return [...buckets.entries()]
+    .filter(([, entries]) => entries.length > 0)
+    .map(([label, entries]) => `${label} ${entries.join('、')}`)
+    .join('；');
 }
 
 /**

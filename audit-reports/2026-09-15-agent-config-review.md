@@ -6,7 +6,7 @@
 
 执行判定：本轮只交付报告。未修改任何配置、规则、Hook、模板、adapter、install-state、Eval reference；第 5 节的批次 1–4 是待批准计划，全部未实施。
 
-实施更新（同日）：用户在计划批准后下达实施指令，批次 1 已完成实施与验证并合入独立提交，证据与改动面见第 11 节。批次 2、3、4 尚未开始。本报告自此兼具审查结论与实施台账两种用途。
+实施更新（同日）：用户在计划批准后下达实施指令，批次 1 与批次 2 已完成实施与验证并各自合入独立提交，证据与改动面见第 11、12 节。批次 3、4 尚未开始。本报告自此兼具审查结论与实施台账两种用途。
 
 工作区漂移记录：审查开始时 git status --porcelain 为 29 项（22 项 M + 7 项 ??），审查结束时为 38 项（30 项 M + 8 项 ??），期间新增 tests/target-validation.test.js、tests/tool-provisioning.test.js 等改动。判定为并行人工编辑，本报告不评估这些未归属改动，也不覆盖它们。
 
@@ -487,7 +487,7 @@ Owner：运行时/Hook 维护者（与 AC-10 的契约取证联动）。
 | AC-02 | P0 | 只读枚举被误报为写全局配置 | 运行时/Hook 维护者 | 项目内 .codex 读取 allow、家目录写入仍 deny、对照测试 | 已关闭（批次 1） |
 | AC-03 | P1 | 风险标定倒挂 | 运行时/Hook 维护者 | 定级口径成文并被测试锁定 | 已关闭（批次 1，口径：只扩只读白名单，不改解释器定级） |
 | AC-04 | P1 | 词表重复维护、无一致性断言（含 AC-04a apply_patch 载荷误判） | 运行时/Hook 维护者 | 单一模块加一致性断言，前缀碰撞、环境变量、apply_patch 载荷三类用例 | 已关闭（批次 1） |
-| AC-05 | P1 | 托管块冗余与空行污染 | 安装器/投影维护者 | 渲染无空占位行与重复同义行，预算仍 0 warn 0 error | 未开始 |
+| AC-05 | P1 | 托管块冗余与空行污染 | 安装器/投影维护者 | 渲染无空占位行与重复同义行，预算仍 0 warn 0 error | 已关闭（批次 2） |
 | AC-06 | P1 | 自安装面与 profile 声明不一致 | 安装器/自安装维护者 | doctor 的 roles 非空、角色目录存在、不写全局配置 | 未开始（需用户决策） |
 | AC-07 | P1 | F01–F10 无台账 | 角色/评测维护者 | 七项三态结论并落 TECH_DEBT 或记录不修理由 | 进行中（F01 与 F09 已确认修复） |
 | AC-08 | P2 | 拒绝文案不可操作 | 文档/CLI 文案维护者 | 中文可操作文案加不可判定与禁止的区分与测试 | 部分关闭（批次 1 完成 Hook 侧文案，CLI 侧与 TD-2026-09-11-3 合并留批次 4） |
@@ -698,3 +698,57 @@ AC-01、AC-02、AC-03、AC-04（含 AC-04a）、AC-11 已关闭；AC-08 的 Hook
 ### 11.7 回滚
 
 单次 `git revert` 即可回滚本批次；运行时判定只由 `runtime/hooks/lib` 决定，本仓库已安装面在回滚后需按 11.2 的同步方式重新对齐（或直接执行一次带 `--write` 的安装）。
+
+## 12. 批次 2 实施记录（2026-09-15，P1）
+
+状态：已完成实施、验证与提交。AC-05 关闭；本批次为一个独立提交，可单独 revert。
+
+### 12.1 改动面
+
+| 文件 | 作用 |
+| --- | --- |
+| `scripts/lib/template-renderer.js` | 渲染改为逐行处理：一行只有占位符且替换结果为空时丢弃整行，不再渲染空行；`defaultTemplateData` 去掉被合并的两个字段 |
+| `scripts/lib/rules-index.js` | 规则索引按治理 / 工程 / 工具与集成 / 发布与排障分组渲染；新增 `ruleGroupLabel` 与未分组兜底「其他」；id 与 title 相同的项只渲染一次 |
+| `scripts/lib/install-planner.js` | 删除 `engineeringRulesLine` 与 `operationalRulesLine` 两条同义行及其前缀判定；规则行继续与角色索引句同条 |
+| `adapters/codex/AGENTS.template.md`、`adapters/claude/CLAUDE.template.md`、`adapters/gemini/GEMINI.template.md`、`adapters/opencode/AGENTS.template.md` | 删除两个已被合并的占位符行（antigravity 模板不引用这两个字段，无需改动） |
+| `AGENTS.md` | 按新渲染结果重放本仓库受管块 |
+| `tests/rules-index.test.js` | 分组断言、每条规则都有显式分组、模板渲染无空占位行与无重复同义行 |
+
+### 12.2 口径与取舍
+
+- 分组实际为四组（治理、工程、工具与集成、发布与排障），比原计划的三组多一组。原因：`codebase-memory-mcp`、`chrome-devtools-mcp`、`linear-workflow`、`rtk`、`ast-grep` 只在安装对应插件后才出现，并入「工程」会掩盖「这条规则可能并不存在于本项目」的区别。未登记分组的 id 落入兜底组「其他」而不是被丢弃，并有测试断言本包 21 条规则全部已显式分组。
+- 索引保留 `id（title）` 的形态，标题是宿主路由到不具名 id 的唯一线索；只对 id 与 title 完全相同的项去掉重复标题。
+- 同义行的合并口径：三条「位于 docs/rules/」收敛为一条索引行，规则索引用分组前缀表达「工程」「发布与排障」的分类，不再需要独立说明行。
+
+### 12.3 效果（已确认事实）
+
+| 指标 | 批次 2 前 | 批次 2 后 |
+| --- | --- | --- |
+| AGENTS.md 行数 | 95 | 91 |
+| AGENTS.md 字节 | 7372 | 7291 |
+| 指向 docs/rules 的同义行 | 3 | 1 |
+| 空占位行 | 2 | 0 |
+| 指令预算门禁（`validateInstructionBudget`） | 0 warn / 0 error | 0 warn / 0 error |
+| 渲染后的 codex 常驻指令（门禁口径：adapter 模板加全量规则索引） | 未记录 | 2705 字节 / 约 677 token |
+
+其余宿主的门禁口径渲染体积：claude 2882 字节、gemini 2825 字节、opencode 2705 字节、antigravity 534 字节，均远低于 2000 token 警告线与 32 KiB 截断线。AGENTS.md 全文 7291 字节，同样低于阈值。
+
+### 12.4 验证清单
+
+| 命令 | 结果 |
+| --- | --- |
+| `node --test tests/rules-index.test.js` | 9 通过 / 0 失败 |
+| `node --test tests/self-install-check.test.js tests/cross-platform-adapters.test.js tests/codex-adapter.test.js tests/opencode-adapter.test.js` | 55 通过 / 0 失败 |
+| `pnpm test:unit` | 343 通过 / 0 失败 |
+| `pnpm test:integration` | 320 通过 / 0 失败 / 1 跳过（341 秒） |
+| `pnpm smoke:lifecycle` | init、dry-run、write、validate、doctor 五步全部退出码 0 |
+| `node ./scripts/validate.js` | 通过（自安装一致性 ready） |
+| `validateInstructionBudget` | 0 warn / 0 error |
+
+插曲（已确认事实）：第一次整跑 `pnpm test:integration` 时 `tests/project-verification.test.js:249` 的「超时必须 5 秒内返回」墙钟断言在高负载下取到大于 5 秒而失败；该文件单独复跑 17/17 通过，重跑整表 320/0 通过。该断言与批次 2 的改动面无交集，属于既有高负载脆弱断言（CHANGELOG 亦记录过同类现象）。
+
+### 12.5 未闭合与移交
+
+- 批次 3 会再次重放 AGENTS.md 受管块（纳入 roles 后角色索引句随之出现），本批次先重放一次是为了让 `validate` 与 `self-install-check` 在批次之间保持绿色；两次重放都属于预期的投影收敛，不是漂移。
+- 规则分组表是静态清单：新增规则必须在 `RULE_GROUPS` 中登记，否则会落入「其他」并被「本包无未分组规则」的断言拦下。
+- 批次 2 只收敛常驻指令的形态，未改动任何安全判定；指令预算的进一步压缩（例如去掉索引标题）会牺牲路由信号，本轮不做。
