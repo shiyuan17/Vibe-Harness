@@ -17,7 +17,7 @@
 |---|---|---|
 | 最小化 layout work | 批量读写 DOM，避免交替 read/write | 交替触发 layout thrash（强制同步布局） |
 | 击键成本 | 优先 uncontrolled 输入；controlled 输入保证每击键廉价 | controlled 输入每次击键触发重渲染 |
-| 大列表虚拟化 | >50 项列表用虚拟化（如 virtua）或 `content-visibility: auto` | 全量渲染 DOM 阻塞交互 |
+| 大列表虚拟化 | 按实测渲染成本决定：出现长任务、掉帧或输入延迟时用虚拟化（如 virtua）或 `content-visibility: auto` | 固定项数阈值掩盖行高、设备与渲染成本差异，判据是实测而非数量 |
 | 让浏览器布局 | 优先 flex/grid/intrinsic 布局，避免 JS 测量 | JS 测量触发 layout thrash |
 | offload 昂贵任务 | 长任务移到 Web Worker | 避免阻塞主线程交互 |
 
