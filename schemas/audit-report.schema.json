@@ -5,7 +5,7 @@
   "required": ["schemaVersion", "kind", "generatedAt", "project", "status", "readOnly", "evidence"],
   "properties": {
     "schemaVersion": { "type": "integer", "enum": [1] },
-    "kind": { "type": "string", "enum": ["memory", "review", "improvements", "all"] },
+    "kind": { "type": "string", "enum": ["memory", "review", "improvements", "cleanup", "all"] },
     "generatedAt": { "type": "string", "minLength": 1 },
     "project": { "type": "string", "minLength": 1 },
     "status": { "type": "string", "enum": ["healthy", "warning", "degraded"] },
@@ -14,5 +14,51 @@
     "details": { "type": "object" },
     "written": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
   },
+  "allOf": [
+    {
+      "oneOf": [
+        {
+          "properties": {
+            "kind": { "const": "cleanup" },
+            "details": {
+              "type": "object",
+              "required": ["cleanup"],
+              "properties": {
+                "cleanup": {
+                  "type": "object",
+                  "required": ["candidateFindings", "confirmedFindings", "filesScanned", "inventory", "skipped"],
+                  "properties": {
+                    "candidateFindings": { "type": "integer", "minimum": 0 },
+                    "confirmedFindings": { "type": "integer", "minimum": 0 },
+                    "filesScanned": { "type": "integer", "minimum": 0 },
+                    "skipped": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+                    "inventory": {
+                      "type": "object",
+                      "required": ["assetsScanned", "documentsScanned", "filesScanned", "memoryFilesScanned", "referenceSourcesScanned", "sourceFilesScanned"],
+                      "properties": {
+                        "assetsScanned": { "type": "integer", "minimum": 0 },
+                        "documentsScanned": { "type": "integer", "minimum": 0 },
+                        "filesScanned": { "type": "integer", "minimum": 0 },
+                        "memoryFilesScanned": { "type": "integer", "minimum": 0 },
+                        "referenceSourcesScanned": { "type": "integer", "minimum": 0 },
+                        "sourceFilesScanned": { "type": "integer", "minimum": 0 }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "required": ["kind", "details"]
+        },
+        {
+          "not": {
+            "properties": { "kind": { "const": "cleanup" } },
+            "required": ["kind"]
+          }
+        }
+      ]
+    }
+  ],
   "additionalProperties": false
 }

@@ -267,7 +267,11 @@ export async function validateSkillGraph(
         errors.push(`${item.id} must document fallback for optional skills or tools`);
       }
       const lineCount = content.split(/\r?\n/u).length;
-      const maxLines = item.kind === 'native' ? 50 : 160;
+      // 2026-09-15: raised 50 -> 150 for the `stale-cleanup` entry. Cleanup has
+      // to state per-class confidence rules, safety boundaries, and the report
+      // shape, which does not compress into the review-Skill budget. The
+      // aggregate below rose with it so no other Skill is squeezed to pay.
+      const maxLines = item.kind === 'native' ? 150 : 160;
       if (lineCount > maxLines) errors.push(`${item.id} exceeds ${maxLines} line SKILL.md budget`);
       if (item.kind === 'native') {
         const description = frontmatterValue('description');
@@ -308,13 +312,14 @@ export async function validateSkillGraph(
     }
   }
 
-  if (nativeBodyLines > 300) errors.push(`native Skill body budget exceeds 300 lines: ${nativeBodyLines}`);
+  if (nativeBodyLines > 450) errors.push(`native Skill body budget exceeds 450 lines: ${nativeBodyLines}`);
   // The identity budget keeps the always-loaded routing surface compact. It is
-  // calibrated for the English-description era (2026-09 unification): 1300
-  // characters is roughly 330 tokens at 4 bytes/token, still well under the
-  // Chinese-era 1100-character surface that weighed in near 625 tokens because
-  // CJK characters carry ~3 bytes and ~1 token each.
-  if (nativeIdentityCharacters > 1500) errors.push(`native Skill name and description budget exceeds 1500 characters: ${nativeIdentityCharacters}`);
+  // calibrated for the English-description era (2026-09 unification): at 4
+  // bytes/token the ceiling is roughly 440 tokens, still under the Chinese-era
+  // 1100-character surface that weighed in near 625 tokens because CJK
+  // characters carry ~3 bytes and ~1 token each. Raised 1500 -> 1750 when
+  // `stale-cleanup` joined the routing surface.
+  if (nativeIdentityCharacters > 1750) errors.push(`native Skill name and description budget exceeds 1750 characters: ${nativeIdentityCharacters}`);
 
   if (checkFiles) {
     for (const root of ['skills/core', 'skills/integrations']) {

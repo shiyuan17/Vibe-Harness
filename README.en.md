@@ -114,13 +114,13 @@ A single Agent handles work by default. Explicit `open-code-review`, browser ver
 
 ## Profiles
 
-The core profile installs eight native Skills; full installs eleven.
+The core profile installs nine native Skills; full installs twelve.
 
 | Profile | Installed surface |
 | --- | --- |
 | `minimal` | Platform instructions, safety boundaries, Git/Test rules, and optional task/delivery templates |
-| `core` | `minimal` plus common engineering rules, eight native Skills, project-local deterministic scripts, and offline Eval |
-| `full` | `core` plus three native Skills, online Eval, and supported platform safety Hooks, for eleven native Skills total |
+| `core` | `minimal` plus common engineering rules, nine native Skills, project-local deterministic scripts, and offline Eval |
+| `full` | `core` plus three native Skills, online Eval, and supported platform safety Hooks, for twelve native Skills total |
 | `docs-only` | Rules, templates, and schemas without runtime, Skills, MCP, or Hooks |
 
 External tools and memory remain explicit `--plugin` choices. Every host configuration file is a red-zone write and requires `--confirm-red-zone`.

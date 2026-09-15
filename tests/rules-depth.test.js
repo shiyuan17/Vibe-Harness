@@ -11,10 +11,10 @@ import { scanForForbiddenTerms } from '../scripts/lib/redaction.js';
 import { assertRuleAnchors } from './helpers/governed-docs.js';
 
 const rootDir = path.resolve(import.meta.dirname, '..');
-const coreSkills = ['clarify-requirements', 'define-goal', 'task-decomposition', 'git-deliver', 'systematic-debugging', 'bug-finding', 'eval-driven-development', 'security-and-hardening'];
+const coreSkills = ['clarify-requirements', 'define-goal', 'task-decomposition', 'git-deliver', 'systematic-debugging', 'bug-finding', 'stale-cleanup', 'eval-driven-development', 'security-and-hardening'];
 const fullSkills = [...coreSkills, 'api-and-interface-design', 'frontend-design', 'runtime-cross-repo-rollout'];
 
-test('canonical governance and eleven native Skills are declared', async () => {
+test('canonical governance and twelve native Skills are declared', async () => {
   const manifests = await loadAllManifests(rootDir);
   const rules = new Set(manifests.rules.items.map((item) => item.id));
   for (const id of ['governance-core', 'git-rules', 'test-rules', 'agent-skill-routing']) assert.equal(rules.has(id), true);
@@ -142,7 +142,7 @@ test('sibling rule references must resolve inside docs/rules', async () => {
   }
 });
 
-test('profiles install zero, eight, or eleven native Skills at intended tiers', async () => {
+test('profiles install zero, nine, or twelve native Skills at intended tiers', async () => {
   for (const [profile, expected] of [['minimal', []], ['docs-only', []], ['core', coreSkills], ['full', fullSkills]]) {
     const plan = await createInstallPlan({ dryRun: true, profile, rootDir, targetDir: path.join(rootDir, `.tmp-depth-${profile}`) });
     const targets = new Set(plan.actions.map((item) => item.relativeTarget));

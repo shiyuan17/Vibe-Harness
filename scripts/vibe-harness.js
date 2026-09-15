@@ -68,7 +68,7 @@ import { inspectTransactions, recoverTransaction } from './lib/file-transaction.
 import { assertNoUnsupportedLegacyAssets } from './lib/project-layout.js';
 import { findNestedInstallations, nestedInstallMigrationCommands } from './lib/nested-install.js';
 import { sanitizePublicReport } from './lib/tool-provisioning/subprocess.js';
-import { runProjectAudit } from './lib/project-audit.js';
+import { AUDIT_KINDS, runProjectAudit } from './lib/project-audit.js';
 import { buildImpactMapping, collectChangedDetails, collectChangedPaths } from './verify-focused.js';
 import { buildVerificationPlan } from './lib/verification-plan.js';
 
@@ -970,7 +970,7 @@ async function evaluateProject(args) {
 
 async function auditProject(args) {
   if (!args.project) throw new Error('audit requires --project <path>.');
-  if (!args.kind) throw new Error('audit requires --kind memory|review|improvements|all.');
+  if (!args.kind) throw new Error(`audit requires --kind ${AUDIT_KINDS.join('|')}.`);
   if (args.target) throw new Error('audit uses --project <path> and does not accept --target.');
   const allowed = new Set(['_', 'base', 'kind', 'output', 'project', 'receipt', 'verbose', 'write']);
   const unknownOption = Object.keys(args).find((key) => !allowed.has(key));

@@ -1,9 +1,18 @@
 import path from 'node:path';
 
+import { auditCleanup } from './cleanup-audit.js';
 import { auditImprovements } from './improvements-audit.js';
 import { auditMemory } from './memory-audit.js';
 import { auditReview } from './review-audit.js';
 import { readJson, validateJsonAgainstSchema } from './manifest.js';
+
+export const AUDIT_KINDS = Object.freeze(['memory', 'review', 'improvements', 'cleanup', 'all']);
+
+// `all` deliberately excludes `cleanup`. Cleanup scanning is read-only and safe
+// to run, but it enumerates the whole project and reports heuristic candidates,
+// which would drown the focused memory/review/improvements receipt that `all`
+// exists to produce. Callers ask for cleanup explicitly.
+const AGGREGATE_KINDS = Object.freeze(['memory', 'review', 'improvements']);
 
 function reportStatus(items) {
   if (items.some((item) => item.severity === 'error')) return 'degraded';
@@ -12,14 +21,17 @@ function reportStatus(items) {
 }
 
 export async function runProjectAudit({ baseSha, kind, now = new Date(), receiptPath, rootDir, targetDir, write = false }) {
-  if (!['memory', 'review', 'improvements', 'all'].includes(kind)) throw new Error('audit --kind must be memory, review, improvements, or all.');
+  if (!AUDIT_KINDS.includes(kind)) {
+    throw new Error(`audit --kind must be ${AUDIT_KINDS.join(', ')}.`);
+  }
   if (write && kind !== 'improvements') throw new Error('audit --write is only allowed with --kind improvements.');
-  const selected = kind === 'all' ? ['memory', 'review', 'improvements'] : [kind];
+  const selected = kind === 'all' ? AGGREGATE_KINDS : [kind];
   const reports = {};
   for (const item of selected) {
     if (item === 'memory') reports.memory = await auditMemory({ now, targetDir });
     if (item === 'review') reports.review = await auditReview({ baseSha, receiptPath, rootDir, targetDir });
     if (item === 'improvements') reports.improvements = await auditImprovements({ now, receiptPath, rootDir, targetDir, write });
+    if (item === 'cleanup') reports.cleanup = await auditCleanup({ now, rootDir, targetDir });
   }
   const evidence = Object.values(reports).flatMap((report) => report.evidence);
   const written = Object.values(reports).flatMap((report) => report.written ?? []);

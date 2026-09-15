@@ -11,7 +11,7 @@ import { runSkillsAudit } from '../scripts/lib/skills-audit.js';
 
 const rootDir = path.resolve(import.meta.dirname, '..');
 const execFileAsync = promisify(execFile);
-const coreSkills = ['clarify-requirements', 'define-goal', 'task-decomposition', 'git-deliver', 'systematic-debugging', 'bug-finding', 'eval-driven-development', 'security-and-hardening'];
+const coreSkills = ['clarify-requirements', 'define-goal', 'task-decomposition', 'git-deliver', 'systematic-debugging', 'bug-finding', 'stale-cleanup', 'eval-driven-development', 'security-and-hardening'];
 const fullSkills = ['api-and-interface-design', 'frontend-design', 'runtime-cross-repo-rollout'];
 const nativeSkills = [...coreSkills, ...fullSkills];
 const retiredSkills = [
@@ -20,11 +20,11 @@ const retiredSkills = [
   'loop-planning', 'subagent-driven-development',
 ];
 
-test('manifest exposes eleven native and three explicit integration Skills', async () => {
+test('manifest exposes twelve native and three explicit integration Skills', async () => {
   const manifest = await readJson(path.join(rootDir, 'manifests/skills.json'));
   assert.deepEqual(manifest.items.filter((item) => item.kind === 'native').map((item) => item.id), nativeSkills);
   assert.deepEqual(manifest.items.filter((item) => item.kind === 'integration').map((item) => item.id), ['browser-verification', 'agentmemory', 'linear-workflow']);
-  assert.equal(manifest.items.length, 14);
+  assert.equal(manifest.items.length, 15);
   for (const item of manifest.items) {
     assert.deepEqual(item.requiresSkills, []);
     assert.deepEqual(item.optionalSkills, []);
@@ -57,7 +57,7 @@ test('native Skill descriptions, bodies, resources, and OpenAI metadata stay wit
     lines += lineCount;
     identityCharacters += item.id.length + description.length;
     assert.ok(description.length <= 300, `${item.id} description budget`);
-    assert.ok(lineCount <= 50, `${item.id} line budget`);
+    assert.ok(lineCount <= 150, `${item.id} line budget`);
     const yaml = await readFile(path.join(skillDir, 'agents/openai.yaml'), 'utf8');
     assert.match(yaml, /allow_implicit_invocation: (?:true|false)/u);
     assert.equal(yaml.includes('allow_implicit_invocation: false'), item.id === 'git-deliver');
@@ -65,14 +65,17 @@ test('native Skill descriptions, bodies, resources, and OpenAI metadata stay wit
     const resources = (await readdir(skillDir)).filter((name) => !['SKILL.md', 'metadata.json', 'agents'].includes(name));
     assert.ok(resources.length <= 2, `${item.id} resource budget`);
   }
-  assert.ok(lines <= 300);
-  // Mirrors the pack-validation identity budget: 1300 characters is calibrated
-  // for English descriptions and stays well under the Chinese-era surface in
-  // token terms (CJK characters carry ~3 bytes and ~1 token each).
-  assert.ok(identityCharacters <= 1500);
+  assert.ok(lines <= 450);
+  // Mirrors the pack-validation identity budget. The English-description era
+  // (2026-09 unification) costs roughly 4 bytes/token, so the ceiling keeps the
+  // always-loaded routing surface under ~450 tokens. The per-Skill entry budget
+  // rose to 150 lines for `stale-cleanup`, whose cleanup boundaries need more
+  // room than a pure review Skill; the aggregate rose with it so the pack does
+  // not have to compress unrelated Skills to pay for it.
+  assert.ok(identityCharacters <= 1750);
 });
 
-test('core and full install exactly eight and eleven native Skills', async () => {
+test('core and full install exactly nine and twelve native Skills', async () => {
   for (const [profile, expected] of [['core', coreSkills], ['full', nativeSkills]]) {
     const plan = await createInstallPlan({ dryRun: true, profile, rootDir, targetDir: path.join(rootDir, `.tmp-skills-${profile}`) });
     const installed = plan.actions
@@ -142,8 +145,8 @@ test('retirement catalog covers every removed Router and flow Skill', async () =
 
 test('skills audit derives the compact inventory and executes the graph validator', async () => {
   const { stdout } = await execFileAsync(process.execPath, ['scripts/skills-audit.js'], { cwd: rootDir });
-  assert.match(stdout, /总数：14/u);
-  assert.match(stdout, /native：11/u);
+  assert.match(stdout, /总数：15/u);
+  assert.match(stdout, /native：12/u);
   assert.match(stdout, /integration：3/u);
   assert.deepEqual((await runSkillsAudit(rootDir)).errors, []);
 });

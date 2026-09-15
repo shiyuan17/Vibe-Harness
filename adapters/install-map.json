@@ -585,6 +585,30 @@
       "contentStrategy": "replace"
     },
     {
+      "group": "skills-core",
+      "source": "skills/core/stale-cleanup/SKILL.md",
+      "target": ".agents/skills/stale-cleanup/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/stale-cleanup/metadata.json",
+      "target": ".agents/skills/stale-cleanup/metadata.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/stale-cleanup/agents/openai.yaml",
+      "target": ".agents/skills/stale-cleanup/agents/openai.yaml",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/stale-cleanup/references/asset-classes.md",
+      "target": ".agents/skills/stale-cleanup/references/asset-classes.md",
+      "contentStrategy": "replace"
+    },
+    {
       "group": "skills-browser",
       "source": "skills/integrations/browser-verification/SKILL.md",
       "target": ".agents/skills/browser-verification/SKILL.md",
