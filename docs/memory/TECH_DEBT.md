@@ -4,7 +4,7 @@
 
 <!-- 渲染说明：此模板含 render 占位符，安装时由 template-renderer 输出，内容不与 docs/memory/TECH_DEBT.md 逐字对应；实时技术债记录见 docs/memory/TECH_DEBT.md。占位符：Vibe-Harness。 -->
 
-最后更新：2026-09-14
+最后更新：2026-09-15
 
 ## TD-2026-09-02-1 `.githooks/` 不在运行时红区清单
 
@@ -47,3 +47,10 @@
 - 影响：该用例的正确性建立在「宿主能把压缩限制在恢复边界附近」这一前提上；模型若只读计划文件的一部分、或 provider 的 token 记账口径变化，用例可能退化为长时间空转，占用 case 预算并从 degraded 路径污染同批 suite（execution suite 并发为 1，degraded 会停止调度后续 case）。
 - Owner：Vibe-Harness 维护者。
 - 关闭条件：把压缩阶段改为受显式预算约束（例如给压缩续跑单独设置轮次或墙钟上限、超出即判定为 capability-gated 而不是等待 case 超时），或把该 case 迁出默认 execution suite 进入需显式选择运行的压缩专用 suite。
+
+## TD-2026-09-15-1 负载敏感集成测试的 retry 标记缺少可核对的追踪条目
+
+- 证据：`tests/tool-provisioning.test.js` 的 `MCP browser probe invokes list_pages after tool discovery` 与 `full write degrades unavailable tools and rollback removes only the managed MCP block` 带 `{ retry: 2 }`，原注释引用 TD-2026-09-01-2；该 ID 在 docs/memory/TECH_DEBT.md 中没有对应条目，此前只出现在 audit-reports/2026-09-02-focused-verification-workflow-review.md。docs/rules/test-rules.md 现要求隔离项绑定可核对的技术债 ID、owner 和关闭条件。
+- 影响：负载敏感用例的重试标记可能长期存在而没有到期判据，与「flaky 测试须隔离并限期修复，不以重跑掩盖」的规则口径无法核对，重试也随之变成隐性豁免。
+- Owner：Vibe-Harness 维护者。
+- 关闭条件：连续 10 次全量 `pnpm test:integration` 不再出现该类负载敏感失败后移除两处 `{ retry: 2 }`；若仍复现，改为隔离该用例或修正超时与并发假设，并保留失败证据。

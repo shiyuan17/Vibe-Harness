@@ -56,6 +56,18 @@ installer 集成验证应覆盖已有文件拒写、红区确认、目标路径�
 
 风险计划的 `unknown` 分支必须 fail-safe 回退到 high；普通文档、单个测试文件和纯函数脚本不得仅因目录名自动触发 integration/smoke。验证收据保留 `riskLevel`、`planMode`、`impactGroups`、`selectedChecks`、`skippedChecks`、`fallbackUsed` 和 `selectionReasons`。
 
+## 测试实现（本仓库）
+
+`docs/rules/test-rules.md` 是运行器无关的行为契约；以下事实只描述 Vibe-Harness 自身仓库，随规则安装到目标项目时不构成对运行器、依赖或超时的要求：
+
+- 使用 Node.js 内置测试运行器和 node:assert/strict，不引入第三方测试依赖。
+- package.json 将脚本分为 unit、eval 和 integration 三类，`test` 入口按序聚合三类；当前集成测试因共享临时状态使用并发度 1。
+- 当前失败兜底为 unit/eval 30 秒、integration 120 秒。
+- 顶层 test 描述行为，不使用 describe 套件；基准路径用 import.meta.dirname。
+- 临时目录用 mkdtemp，并在 try/finally 中清理。
+- 条件跳过使用选项对象或运行时 skip，不残留 only 或无理由 skip。
+- 已知负载敏感的集成测试可用有界重试标记（例如 `{ retry: 2 }`），注释必须写明技术债 ID 与关闭条件，记录见 docs/memory/TECH_DEBT.md。
+
 ## Eval reference 更新清单
 
 rules、runtime hooks 或 config 内容变更会使 `evals/references/` 的 asset fingerprint（config、hooks、rules、skills 分组哈希）按设计漂移，`pnpm eval:check` 与 `pnpm eval:replay` 相应失败。reference 更新必须单独审查并显式确认，不得为让变更通过而自动提升：
