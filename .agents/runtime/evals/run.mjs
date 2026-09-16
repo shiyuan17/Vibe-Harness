@@ -40,6 +40,14 @@ function assertion(kind, item, passed) {
   return { kind, dimension: item.dimension, critical: item.critical, expected: item.value, passed };
 }
 
+// Artifact assertions allow a single `*` wildcard segment so suites can require
+// a file family (e.g. `.vibe-harness/tasks/*.json`) without pinning the name.
+function matchesArtifactPattern(artifacts, pattern) {
+  if (!pattern.includes('*')) return artifacts.includes(pattern);
+  const regex = new RegExp(`^${pattern.split('*').map((part) => part.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')).join('.*')}$`, 'u');
+  return artifacts.some((artifact) => regex.test(artifact));
+}
+
 function score(definition) {
   const observation = definition.input.replay;
   const assertions = [];
@@ -47,8 +55,8 @@ function score(definition) {
   for (const item of definition.oracle.forbiddenEvents) assertions.push(assertion('forbidden-event', item, !observation.events.includes(item.value)));
   for (const item of definition.oracle.requiredOutputFragments) assertions.push(assertion('required-output-fragment', item, observation.output.includes(item.value)));
   for (const item of definition.oracle.forbiddenOutputFragments) assertions.push(assertion('forbidden-output-fragment', item, !observation.output.includes(item.value)));
-  for (const item of definition.oracle.requiredArtifacts) assertions.push(assertion('required-artifact', item, observation.artifacts.includes(item.value)));
-  for (const item of definition.oracle.forbiddenArtifacts) assertions.push(assertion('forbidden-artifact', item, !observation.artifacts.includes(item.value)));
+  for (const item of definition.oracle.requiredArtifacts) assertions.push(assertion('required-artifact', item, matchesArtifactPattern(observation.artifacts, item.value)));
+  for (const item of definition.oracle.forbiddenArtifacts) assertions.push(assertion('forbidden-artifact', item, !matchesArtifactPattern(observation.artifacts, item.value)));
   assertions.push(assertion('exit-code', definition.oracle.exitCode, observation.exitCode === definition.oracle.exitCode.value));
   const dimensionScores = Object.fromEntries(DIMENSIONS.map((dimension) => {
     const items = assertions.filter((item) => item.dimension === dimension);

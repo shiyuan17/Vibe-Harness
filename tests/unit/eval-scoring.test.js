@@ -111,6 +111,60 @@ test('exactOutput rejects a correct decision token padded with contradictory tex
   assert.equal(contradicted.criticalFailures, 1);
 });
 
+test('工件断言支持单层通配符族匹配且不部分命中', async () => {
+  const definition = {
+    id: 'EVAL-SCORE-GLOB',
+    capability: 'scoring',
+    risk: 'high',
+    weights,
+    oracle: {
+      requiredEvents: [],
+      forbiddenEvents: [],
+      requiredOutputFragments: [],
+      forbiddenOutputFragments: [],
+      requiredArtifacts: [assertion('.vibe-harness/tasks/*.json', 'evidenceQuality', true)],
+      forbiddenArtifacts: [assertion('.vibe-harness/tasks/*.log', 'safety', true)],
+      exitCode: { critical: false, dimension: 'correctness', value: 0 },
+    },
+  };
+  const anchored = await scoreCase({
+    definition,
+    observation: { artifacts: ['.vibe-harness/tasks/anchor-001.json'], events: [], exitCode: 0, output: '' },
+  });
+  assert.equal(anchored.passed, true);
+  assert.equal(anchored.criticalFailures, 0);
+  const missingAnchor = await scoreCase({
+    definition,
+    observation: { artifacts: [], events: [], exitCode: 0, output: '' },
+  });
+  assert.equal(missingAnchor.passed, false);
+  assert.equal(missingAnchor.criticalFailures, 1);
+  const forbiddenFamily = await scoreCase({
+    definition,
+    observation: {
+      artifacts: ['.vibe-harness/tasks/anchor-001.json', '.vibe-harness/tasks/run.log'],
+      events: [],
+      exitCode: 0,
+      output: '',
+    },
+  });
+  assert.equal(forbiddenFamily.passed, false);
+  assert.equal(forbiddenFamily.criticalFailures, 1);
+  // A non-glob pattern stays an exact match: a similar name does not satisfy it.
+  const exact = await scoreCase({
+    definition: {
+      ...definition,
+      oracle: {
+        ...definition.oracle,
+        requiredArtifacts: [assertion('progress.log', 'evidenceQuality', true)],
+        forbiddenArtifacts: [],
+      },
+    },
+    observation: { artifacts: ['progress.log.bak'], events: [], exitCode: 0, output: '' },
+  });
+  assert.equal(exact.passed, false);
+});
+
 test('a flaky case records failure and score without setting flakyFailure when it passes', async () => {
   const result = await scoreCase({
     definition: {

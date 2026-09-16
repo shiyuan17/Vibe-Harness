@@ -9,7 +9,7 @@
       "tests": ["tests/unit/execution-simplification.test.js", "tests/component/rules-depth.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
       "docs": ["docs/architecture.md"],
-      "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-online-canary.json"] }
+      "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-online-canary.json", "evals/suites/vibe-harness-online-execution.json"] }
     },
     {
       "id": "plan-task-split",

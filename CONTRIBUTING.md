@@ -51,6 +51,7 @@ verify 输出本轮 ID、时间和可用的 Git 工作树指纹；检查期间�
 | 项目提供的隔离核对入口 | `pnpm worktree list\|check\|plan` |
 | 宿主 Skill 根目录下已安装的 Skill 入口 | `.agents/skills/<id>/SKILL.md` |
 | 以其 ADR 索引作为触发清单与流程来源 | `docs/adr/README.md`，字段见 `templates/adr/adr-template.md` 与 `schemas/adr.schema.json` |
+| 项目提供的状态锚点入口与锚点存放目录 | `.vibe-harness/tasks/`（task 命令 `node .agents/runtime/commands/run.mjs task <init|update|status|list>` 读写） |
 | 项目自己的贡献指南和测试配置 | 本文件的「测试实现（本仓库）」一节 |
 
 `pnpm validate` 的规则可移植性门禁与规则交叉引用门禁会阻止这些私有事实回流到规则正文，也会阻挡指向不存在规则文件的同目录引用。

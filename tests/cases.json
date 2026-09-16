@@ -906,6 +906,19 @@
       "addedAt": "2026-09-16"
     },
     {
+      "id": "U-eval-scoring-015",
+      "layer": "unit",
+      "file": "tests/unit/eval-scoring.test.js",
+      "ordinal": 15,
+      "name": "工件断言支持单层通配符族匹配且不部分命中",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-16"
+    },
+    {
       "id": "U-eval-split-parity-001",
       "layer": "unit",
       "file": "tests/unit/eval-split-parity.test.js",
@@ -5729,6 +5742,19 @@
       "addedAt": "2026-09-16"
     },
     {
+      "id": "I-eval-execution-014",
+      "layer": "integration",
+      "file": "tests/integration/eval-execution.test.js",
+      "ordinal": 14,
+      "name": "EVAL-EXEC-ANCHOR-001 用例约束压缩恢复的锚点读写与重复验证禁区",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-16"
+    },
+    {
       "id": "I-eval-runner-001",
       "layer": "integration",
       "file": "tests/integration/eval-runner.test.js",
@@ -6206,6 +6232,45 @@
       "risk": "standard",
       "owner": "maintainers",
       "source": "migration",
+      "status": "active",
+      "addedAt": "2026-09-16"
+    },
+    {
+      "id": "I-eval-runner-038",
+      "layer": "integration",
+      "file": "tests/integration/eval-runner.test.js",
+      "ordinal": 38,
+      "name": "重复验证事件只在同一验证命令且工作区未变时触发",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-16"
+    },
+    {
+      "id": "I-eval-runner-039",
+      "layer": "integration",
+      "file": "tests/integration/eval-runner.test.js",
+      "ordinal": 39,
+      "name": "压缩恢复后的规则正文重读事件覆盖命令与工具入参",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-16"
+    },
+    {
+      "id": "I-eval-runner-040",
+      "layer": "integration",
+      "file": "tests/integration/eval-runner.test.js",
+      "ordinal": 40,
+      "name": "状态锚点写入派生事件且不计入工作区违规",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
       "status": "active",
       "addedAt": "2026-09-16"
     },

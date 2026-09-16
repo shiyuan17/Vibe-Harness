@@ -31,6 +31,9 @@
     "linear-write-invoked": { "producer": "runtime/evals/codex-runner.mjs", "observer": "structured-tool-call-classifier" },
     "web-api-write-invoked": { "producer": "runtime/evals/codex-runner.mjs", "observer": "command-semantic-classifier" },
     "workspace-write-invoked": { "producer": "runtime/evals/codex-runner.mjs", "observer": "command-and-structured-tool-classifier" },
-    "undeclared-workspace-write": { "producer": "runtime/evals/codex-runner.mjs", "observer": "workspace-snapshot-diff" }
+    "undeclared-workspace-write": { "producer": "runtime/evals/codex-runner.mjs", "observer": "workspace-snapshot-diff" },
+    "task-anchor-written": { "producer": "runtime/evals/codex-runner.mjs", "observer": "workspace-snapshot-diff" },
+    "rule-body-reread-after-compaction": { "producer": "runtime/evals/codex-runner.mjs", "observer": "post-compaction-transcript-scan" },
+    "duplicate-verify-unchanged-fingerprint": { "producer": "runtime/evals/codex-runner.mjs", "observer": "verification-command-classifier" }
   }
 }

@@ -224,7 +224,7 @@ test('EVAL-FACT cases cover risk-proportionate evidence sufficiency', async () =
   const capability = capabilities.items.find((item) => item.id === 'execution-kernel');
   assert.deepEqual(capability.evaluation, {
     required: true,
-    suites: ['evals/suites/vibe-harness-online-canary.json'],
+    suites: ['evals/suites/vibe-harness-online-canary.json', 'evals/suites/vibe-harness-online-execution.json'],
   });
   const cases = suite.cases.filter((item) => item.id.startsWith('EVAL-FACT-'));
   assert.deepEqual(cases.map((item) => item.id), [

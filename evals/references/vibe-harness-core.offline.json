@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "id": "vibe-harness-core-offline-reference",
-  "approvedAt": "2026-09-16T10:00:33.585Z",
+  "approvedAt": "2026-09-16T12:09:41.399Z",
   "suite": {
     "id": "vibe-harness-core",
     "version": "2.2.0"
@@ -15,11 +15,11 @@
     "agent": "offline",
     "configHash": "fixture-v1",
     "assets": {
-      "aggregateHash": "5a29e4b4668669f6db6cb1aa63282739b3d516701223459a3c11167fbb17e57b",
+      "aggregateHash": "b7029e49ca9d6c99c2230e2675f739dfe6f51279feec3cdcfd030be5b05edaab",
       "groups": {
         "config": {
           "fileCount": 36,
-          "hash": "88c921ceab33647d88db3626eff306616ed76b8ee947f7eb9aac16c325d40f6b"
+          "hash": "4f6211f966ae0a765b1960cfb1ef2e798199d5be8b1342354eef959a18f85420"
         },
         "hooks": {
           "fileCount": 16,

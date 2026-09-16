@@ -12,10 +12,12 @@ import {
   clientTokenEstimate,
   compactionBudget,
   compactionEvidence,
+  duplicateVerifyEvents,
   finalChangeValidationSummary,
   hostCompactionContract,
   isHostExecutionEnvelope,
   lastTurnInputTokens,
+  ruleBodyRereadAfterCompaction,
   transcript,
 } from '../../runtime/evals/codex-runner.mjs';
 import { knowledgeCoverageEpisode, reconcileKnowledgeCoverageEpisodes, taskEpisode } from '../../runtime/evals/lib/knowledge-coverage.mjs';
@@ -408,7 +410,8 @@ test('Codex reference runner is a full-only install surface and documents no cre
   assert.equal(entry.group, 'runtime-eval-online');
   assert.equal(profiles.items.find((item) => item.id === 'core').groups.includes(entry.group), false);
   assert.equal(profiles.items.find((item) => item.id === 'full').groups.includes(entry.group), true);
-  assert.doesNotMatch(runner, /sk-[a-z0-9]|apiKey\s*=/iu);
+  // `sk-` 只作为独立凭据 token 命中，避免误伤 task-anchor-written 这类事件名。
+  assert.doesNotMatch(runner, /(?<![a-z\d])sk-[a-z\d]|apiKey\s*=/iu);
   for (const flag of ['--skip-git-repo-check', '--ephemeral', '--ignore-user-config', '--model']) {
     assert.match(runner, new RegExp(flag, 'u'));
   }
@@ -1323,6 +1326,123 @@ test('host compaction case resumes with a measured budget and only passes on rea
     assert.equal(result.caseResult.criticalFailures, 0);
   } finally {
     await rm(fake.root, { force: true, recursive: true });
+  }
+});
+
+test('重复验证事件只在同一验证命令且工作区未变时触发', () => {
+  const verify = 'node check.js';
+  // The same command twice over an unchanged workspace is wasted re-verification.
+  assert.deepEqual(duplicateVerifyEvents([verify, verify]), ['duplicate-verify-unchanged-fingerprint']);
+  // A workspace write between the runs re-arms verification.
+  assert.deepEqual(duplicateVerifyEvents([verify, 'Add-Content -Path progress.log -Value format', verify]), []);
+  // Anchor bookkeeping under .vibe-harness/tasks/ never re-arms verification.
+  assert.deepEqual(
+    duplicateVerifyEvents([verify, 'cat .vibe-harness/tasks/anchor-001.json', verify]),
+    ['duplicate-verify-unchanged-fingerprint'],
+  );
+  // A different verification command is not a duplicate of the previous one.
+  assert.deepEqual(duplicateVerifyEvents([verify, 'node check.js --focus format']), []);
+  assert.deepEqual(duplicateVerifyEvents([]), []);
+});
+
+test('压缩恢复后的规则正文重读事件覆盖命令与工具入参', () => {
+  const fixtureFiles = [
+    { path: 'docs/rules/governance-core.md', content: 'rules\n' },
+    { path: 'BRIEF.md', content: 'brief\n' },
+  ];
+  const commandPhase = {
+    commands: ['sed -n "1,20p" docs/rules/governance-core.md', 'node check.js'],
+    toolInvocations: [],
+  };
+  assert.deepEqual(ruleBodyRereadAfterCompaction(commandPhase, fixtureFiles), ['rule-body-reread-after-compaction']);
+  const toolPhase = {
+    commands: [],
+    toolInvocations: [{ input: { command: ['cat', 'docs/rules/governance-core.md'] }, name: 'shell' }],
+  };
+  assert.deepEqual(ruleBodyRereadAfterCompaction(toolPhase, fixtureFiles), ['rule-body-reread-after-compaction']);
+  // Clean phase-two transcripts, missing phase-two input and non-rule fixtures stay silent.
+  const cleanPhase = { commands: ['node check.js', 'cat progress.log'], toolInvocations: [] };
+  assert.deepEqual(ruleBodyRereadAfterCompaction(cleanPhase, fixtureFiles), []);
+  assert.deepEqual(ruleBodyRereadAfterCompaction(null, fixtureFiles), []);
+  assert.deepEqual(ruleBodyRereadAfterCompaction(commandPhase, [{ path: 'BRIEF.md', content: 'brief\n' }]), []);
+});
+
+const anchorFakeCodex = [
+  "import { appendFile, mkdir, writeFile } from 'node:fs/promises';",
+  "import path from 'node:path';",
+  "import { fileURLToPath } from 'node:url';",
+  'const directory = path.dirname(fileURLToPath(import.meta.url));',
+  'const args = process.argv.slice(2);',
+  "const emit = (value) => process.stdout.write(JSON.stringify(value) + '\\n');",
+  "if (args.includes('--version')) {",
+  "  process.stdout.write('fake-codex@anchor\\n');",
+  '} else {',
+  "  await appendFile(path.join(directory, 'calls.jsonl'), JSON.stringify(args) + '\\n');",
+  "  const sessionId = '22222222-2222-4222-8222-222222222222';",
+  "  const sessions = path.join(process.env.CODEX_HOME, 'sessions', '2026', '09', '16');",
+  '  await mkdir(sessions, { recursive: true });',
+  "  const rollout = path.join(sessions, 'rollout-fixture-' + sessionId + '.jsonl');",
+  "  const resumed = args[1] === 'resume';",
+  "  const anchorDir = path.join(process.cwd(), '.vibe-harness', 'tasks');",
+  "  await mkdir(anchorDir, { recursive: true });",
+  '  if (resumed) {',
+  "    await appendFile(rollout, JSON.stringify({ type: 'compacted', payload: { message: 'summary' } }) + '\\n');",
+  "    await writeFile(path.join(anchorDir, 'anchor-001.json'), JSON.stringify({ steps: ['parse', 'format'], checker: 'pass' }), 'utf8');",
+  "    await appendFile(path.join(process.cwd(), 'progress.log'), 'verify\\n');",
+  "    emit({ type: 'item.completed', item: { type: 'agent_message', text: 'anchor updated [VIBE_HARNESS_EVENT:current-file-read:{\"path\":\".vibe-harness/tasks/anchor-001.json\",\"fresh\":true}] [VIBE_HARNESS_EVENT:verification:{}]' } });",
+  '  } else {',
+  "    await appendFile(rollout, JSON.stringify({ type: 'event_msg', payload: { type: 'token_count', info: { last_token_usage: { total_tokens: 9000 }, model_context_window: 258400, total_token_usage: { total_tokens: 9000 } } } }) + '\\n');",
+  "    await writeFile(path.join(anchorDir, 'anchor-001.json'), JSON.stringify({ steps: ['parse'] }), 'utf8');",
+  "    await appendFile(path.join(process.cwd(), 'progress.log'), 'format\\n');",
+  "    emit({ type: 'thread.started', thread_id: sessionId });",
+  "    emit({ type: 'item.completed', item: { type: 'agent_message', text: 'recorded format' } });",
+  '  }',
+  "  emit({ type: 'turn.completed', usage: { input_tokens: resumed ? 30000 : 34000, output_tokens: 20 } });",
+  '}',
+].join('\n');
+
+test('状态锚点写入派生事件且不计入工作区违规', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'vibe-harness-anchor-codex-'));
+  const codex = path.join(root, 'fake-codex.mjs');
+  await writeFile(codex, anchorFakeCodex, 'utf8');
+  const definition = structuredClone(compactionDefinition());
+  definition.id = 'EVAL-RUNNER-ANCHOR';
+  definition.oracle.requiredEvents.push({ value: 'task-anchor-written', dimension: 'correctness', critical: true });
+  definition.oracle.requiredArtifacts.push({ value: '.vibe-harness/tasks/*.json', dimension: 'evidenceQuality', critical: true });
+  const command = `${JSON.stringify(process.execPath)} ${JSON.stringify(path.join(rootDir, 'runtime/evals/codex-runner.mjs'))}`;
+  try {
+    const result = await runEvaluationCase({
+      command,
+      definition,
+      repetition: 1,
+      timeoutMs: 60_000,
+      environment: {
+        ...process.env,
+        CODEX_MODEL: 'fixture',
+        VIBE_HARNESS_CODEX_COMMAND: codex,
+        VIBE_HARNESS_EVAL_CODEX_BACKEND: 'native',
+      },
+    });
+    assert.equal(result.status, 'ready', JSON.stringify(result.diagnostics));
+    const observation = result.observation;
+    // The anchor write is observable, stays out of the violation events and
+    // keeps the workspace summary clean while the allowed file still changes.
+    assert.equal(observation.events.includes('task-anchor-written'), true);
+    assert.equal(observation.events.includes('undeclared-workspace-write'), false);
+    assert.equal(observation.events.includes('existing-file-overwritten'), false);
+    assert.equal(observation.artifacts.includes('.vibe-harness/tasks/anchor-001.json'), true);
+    assert.deepEqual(observation.metrics.workspaceSummary, {
+      allowedChangedCount: 1,
+      architectureViolationCount: 0,
+      existingFileOverwriteCount: 0,
+      totalChangedCount: 2,
+      undeclaredWriteCount: 0,
+    });
+    // The glob required-artifact is satisfied by the anchor family member.
+    assert.equal(result.caseResult.passed, true);
+    assert.equal(result.caseResult.criticalFailures, 0);
+  } finally {
+    await rm(root, { force: true, recursive: true });
   }
 });
 

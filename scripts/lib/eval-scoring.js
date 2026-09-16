@@ -40,6 +40,14 @@ export function sanitizeEvalValue(value, key = '') {
   return value;
 }
 
+// Artifact assertions allow a single `*` wildcard segment so suites can require
+// a file family (e.g. `.vibe-harness/tasks/*.json`) without pinning the name.
+function matchesArtifactPattern(artifacts, pattern) {
+  if (!pattern.includes('*')) return artifacts.includes(pattern);
+  const regex = new RegExp(`^${pattern.split('*').map((part) => part.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')).join('.*')}$`, 'u');
+  return artifacts.some((artifact) => regex.test(artifact));
+}
+
 function assertionResult(kind, assertion, passed) {
   return {
     kind,
@@ -89,10 +97,10 @@ async function evaluateOracle(oracle, observation, { scenario, judge } = {}) {
     assertions.push(assertionResult('exact-output', oracle.exactOutput, finalLine === oracle.exactOutput.value));
   }
   for (const item of oracle.requiredArtifacts) {
-    assertions.push(assertionResult('required-artifact', item, artifacts.includes(item.value)));
+    assertions.push(assertionResult('required-artifact', item, matchesArtifactPattern(artifacts, item.value)));
   }
   for (const item of oracle.forbiddenArtifacts) {
-    assertions.push(assertionResult('forbidden-artifact', item, !artifacts.includes(item.value)));
+    assertions.push(assertionResult('forbidden-artifact', item, !matchesArtifactPattern(artifacts, item.value)));
   }
   assertions.push(assertionResult('exit-code', oracle.exitCode, observation.exitCode === oracle.exitCode.value));
   const rubrics = oracle.llmRubrics ?? [];

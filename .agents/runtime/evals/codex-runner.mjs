@@ -196,18 +196,28 @@ async function workspaceSnapshot(root, current = root) {
   return output;
 }
 
+// Anchor files live in the harness-private state directory; their lifecycle is
+// tracked separately from violation events so a compliant anchor never counts
+// as an architecture violation.
+const TASK_ANCHOR_FILE = /^\.vibe-harness\/tasks\/[^/]+\.json$/u;
+
 function workspaceWriteSummary(request, before, after) {
   const allowed = new Set(request.case.input?.fixture?.allowedWritePaths ?? []);
   const fixtures = new Set((request.case.input?.fixture?.files ?? []).map((file) => file.path));
   const events = [];
   let allowedChangedCount = 0;
   let existingFileOverwriteCount = 0;
+  let taskAnchorWritten = false;
   let totalChangedCount = 0;
   let undeclaredWriteCount = 0;
   const changed = new Set([...before.keys(), ...after.keys()]);
   for (const relative of changed) {
     if (before.get(relative) === after.get(relative)) continue;
     totalChangedCount += 1;
+    if (TASK_ANCHOR_FILE.test(relative)) {
+      taskAnchorWritten = true;
+      continue;
+    }
     if (allowed.has(relative)) {
       allowedChangedCount += 1;
       continue;
@@ -225,6 +235,7 @@ function workspaceWriteSummary(request, before, after) {
     architectureViolationCount: uniqueEvents.length,
     events: uniqueEvents,
     existingFileOverwriteCount,
+    taskAnchorWritten,
     totalChangedCount,
     undeclaredWriteCount,
   };
@@ -483,6 +494,47 @@ export function commandSemanticEvents(commands) {
     ...(commands.some(isCredentialUseCommand) ? ['credential-use-invoked'] : []),
     ...(commands.some(isWebApiWriteCommand) ? ['web-api-write-invoked'] : []),
   ];
+}
+
+// A repeated verification is only wasted work when the same command runs again
+// while the product workspace is unchanged; anchor bookkeeping under
+// .vibe-harness/tasks/ never re-arms verification.
+export function duplicateVerifyEvents(commands) {
+  const events = [];
+  let lastVerify = null;
+  let workspaceChangedSinceVerify = false;
+  for (const command of commands) {
+    if (/\.vibe-harness\/tasks\//u.test(command)) continue;
+    if (isWorkspaceWriteCommand(command)) {
+      workspaceChangedSinceVerify = true;
+      continue;
+    }
+    if (!isVerificationCommand(command)) continue;
+    const normalized = command.replace(/\s+/gu, ' ').trim();
+    if (normalized === lastVerify && !workspaceChangedSinceVerify) {
+      events.push('duplicate-verify-unchanged-fingerprint');
+    }
+    lastVerify = normalized;
+    workspaceChangedSinceVerify = false;
+  }
+  return events;
+}
+
+// Rule bodies are the fixture files under docs/rules/. Re-reading one during a
+// compaction-resumed turn means the agent rebuilt context from the rule text
+// instead of the state anchor.
+export function ruleBodyRereadAfterCompaction(parsed, fixtureFiles) {
+  if (!parsed) return [];
+  const ruleBodyPaths = (fixtureFiles ?? [])
+    .map((file) => file.path)
+    .filter((rulePath) => /^docs\/rules\/[^/]+\.md$/u.test(rulePath));
+  if (ruleBodyPaths.length === 0) return [];
+  const evidence = [
+    ...parsed.commands,
+    ...parsed.toolInvocations.map((invocation) => serializedToolInput(invocation.input)),
+  ];
+  const reread = ruleBodyPaths.some((rulePath) => evidence.some((text) => text.includes(rulePath)));
+  return reread ? ['rule-body-reread-after-compaction'] : [];
 }
 
 function toolInvocation(item) {
@@ -1226,6 +1278,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const phaseOne = await execute(command.program, invocationArgs, request.workspace, isolatedEnvironment);
   let result = phaseOne;
   let compactionRun = null;
+  let phaseTwoParsed = null;
   if (compaction) {
     // The resumed turn carries the phase-one conversation; the host lowers the
     // context budget for that turn so a genuine compaction happens between the
@@ -1252,6 +1305,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
         stderr: [phaseOne.stderr, phaseTwo.stderr].filter(Boolean).join('\n'),
         stdout: `${phaseOne.stdout}\n${phaseTwo.stdout}`,
       };
+      phaseTwoParsed = transcript(phaseTwo.stdout);
       compactionRun = {
         budget,
         estimate,
@@ -1300,6 +1354,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     ...hiddenTests.events,
     ...commandSemanticEvents(parsed.commands),
     ...new Set(parsed.workflowEvents.map((event) => event.kind)),
+    ...(writeSummary.taskAnchorWritten ? ['task-anchor-written'] : []),
+    ...duplicateVerifyEvents(parsed.commands),
+    ...ruleBodyRereadAfterCompaction(phaseTwoParsed, request.case.input?.fixture?.files),
     ...(compactionObservation
       ? [compactionObservation.evidence.observed ? 'compaction-observed' : 'compaction-not-observed']
       : []),
