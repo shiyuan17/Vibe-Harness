@@ -108,7 +108,7 @@ test('changes reports git status without invoking a shell', async () => {
   }
 });
 
-test('help advertises every project command including worktree, slice, patch and task', async () => {
+test('help 覆盖含 worktree、slice、patch 与 task 在内的全部项目命令', async () => {
   const result = await runCommand(['help', '--json'], { cwd: rootDir });
   assert.equal(result.exitCode, 0);
   assert.equal(
