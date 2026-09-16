@@ -4,6 +4,7 @@
 
 - Workflow tier: quick / light / full
 - Status: in progress / waiting / blocked / complete / cancelled
+- Stage: review / plan / implement / verify
 - Risk level: low / medium / high
 
 ## Source
@@ -53,6 +54,22 @@
 - Module dependencies:
 
 ## Execution and verification
+
+> Verification receipts record the actual command or manual criterion with its result; delivery cites only receipts later than the last substantive change.
+
+## Implementation units (long tasks track them in the state anchor)
+
+> Long tasks establish a state anchor before the first substantive write and update the anchor stage when entering a new review, plan, implement, or verify stage; this table together with decisions made, blockers, and the next action forms the human-readable projection of the anchor — on recovery read them plus the current diff first.
+
+> Anchor semantics are owned by `governance-core.md`; Vibe-Harness does not parse this table or use it as a completion gate.
+
+| Unit | File scope | Status | Verification receipt |
+|---|---|---|---|
+|  |  |  |  |
+
+## Decisions made
+
+## Blockers
 
 ## Go/no-go decision
 

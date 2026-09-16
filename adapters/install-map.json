@@ -158,6 +158,18 @@
       "contentStrategy": "replace"
     },
     {
+      "group": "templates-minimal",
+      "source": "templates/finding-report.md",
+      "target": "docs/templates/finding-report.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "templates-minimal",
+      "source": "templates/workflow.md",
+      "target": "docs/templates/workflow.md",
+      "contentStrategy": "replace"
+    },
+    {
       "group": "templates-memory",
       "source": "templates/memory/PROJECT_STATE.md",
       "target": "docs/memory/PROJECT_STATE.md",

@@ -1093,6 +1093,26 @@
         "contributor",
         "maintainer"
       ]
+    },
+    {
+      "path": "docs/templates/finding-report.md",
+      "kind": "plan",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "agent",
+        "maintainer"
+      ]
+    },
+    {
+      "path": "docs/templates/workflow.md",
+      "kind": "plan",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "agent",
+        "maintainer"
+      ]
     }
   ]
 }

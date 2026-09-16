@@ -73,6 +73,8 @@
 
 - [可选任务记录](templates/task.md)
 - [简洁交付记录](templates/delivery.md)
+- [全生命周期工作流](templates/workflow.md)
+- [<主题> 审查报告](templates/finding-report.md)
 - [项目状态](memory/PROJECT_STATE.md)
 - [架构记忆](memory/ARCHITECTURE.md)
 - [决策](memory/DECISIONS.md)
