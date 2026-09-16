@@ -10,6 +10,7 @@
     { "id": "git-rules", "source": "docs/rules/git-rules.md" },
     { "id": "test-rules", "source": "docs/rules/test-rules.md" },
     { "id": "ai-collab-rules", "source": "docs/rules/ai-collab-rules.md" },
+    { "id": "review-report", "source": "docs/rules/review-report.md" },
     { "id": "linear-workflow", "source": "docs/rules/linear-workflow.md" },
     { "id": "api-rules", "source": "docs/rules/api-rules.md" },
     { "id": "coding-rules", "source": "docs/rules/coding-rules.md" },

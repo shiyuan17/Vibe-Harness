@@ -1082,6 +1082,17 @@
         "auditor",
         "maintainer"
       ]
+    },
+    {
+      "path": "docs/rules/review-report.md",
+      "kind": "agent-rules",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "agent",
+        "contributor",
+        "maintainer"
+      ]
     }
   ]
 }

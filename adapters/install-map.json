@@ -56,6 +56,12 @@
       "contentStrategy": "replace"
     },
     {
+      "group": "rules-core",
+      "source": "docs/rules/review-report.md",
+      "target": "docs/rules/review-report.md",
+      "contentStrategy": "replace"
+    },
+    {
       "group": "rules-linear",
       "source": "docs/rules/linear-workflow.md",
       "target": "docs/rules/linear-workflow.md",

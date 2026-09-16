@@ -60,6 +60,7 @@
 - [RTK](rules/rtk.md)
 - [测试](rules/test-rules.md)
 - [排障](rules/troubleshooting.md)
+- [审查报告规则](rules/review-report.md)
 
 ## Schema
 
