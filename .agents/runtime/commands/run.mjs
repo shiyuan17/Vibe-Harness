@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFile, spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   closeSync,
   existsSync,
@@ -45,6 +45,8 @@ const MAX_TIMEOUT_MS = 3_600_000;
 const MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 const MAX_OUTPUT_CHARS = 8 * 1024;
 const CHECK_ORDER = ['lint', 'typecheck', 'test', 'eval'];
+// Report statuses that map to wrapper exit code 0.
+const PASS_STATUSES = ['passed', 'ready', 'planned', 'reused'];
 const CONFIG_FILE = 'vibe-harness.config.json';
 
 const shellControlPattern = /(?:&&|\|\||[;|&<>`$])|\$\(/u;
@@ -95,13 +97,22 @@ export function assertSafeCommand(command) {
 }
 
 function parseArgs(argv) {
-  const args = { _: [], json: false, plan: false, allowManual: false, only: null, task: [] };
+  const args = { _: [], json: false, plan: false, allowManual: false, only: null, task: [], acceptance: [], decision: [], blocker: [], unitStatus: [] };
   const aliases = new Map([
     ['allow-manual', 'allowManual'],
     ['no-numbers', 'numbers'],
   ]);
-  const booleanFlags = new Set(['json', 'plan', 'allow-manual', 'no-numbers', 'strict', 'write', 'deep', 'help', 'confirm-red-zone']);
-  const valueFlags = new Set(['project', 'base', 'only', 'timeout', 'output', 'task', 'base-ref', 'branch-prefix', 'file', 'from', 'to', 'spec', 'root']);
+  const booleanFlags = new Set(['json', 'plan', 'allow-manual', 'no-numbers', 'strict', 'write', 'deep', 'help', 'confirm-red-zone', 'reuse']);
+  const valueFlags = new Set(['project', 'base', 'only', 'timeout', 'output', 'task', 'base-ref', 'branch-prefix', 'file', 'from', 'to', 'spec', 'root', 'title', 'goal', 'risk-level', 'stage', 'unit', 'unit-status', 'acceptance', 'decision', 'blocker', 'next-action', 'verification']);
+  // Repeatable flags collect into arrays so one invocation can carry several
+  // values (task ids, acceptance items, decisions, blockers, unit updates).
+  const arrayFlags = new Map([
+    ['task', args.task],
+    ['acceptance', args.acceptance],
+    ['decision', args.decision],
+    ['blocker', args.blocker],
+    ['unit-status', args.unitStatus],
+  ]);
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
     if (!token.startsWith('--')) {
@@ -119,7 +130,7 @@ function parseArgs(argv) {
     if (!valueFlags.has(key)) throw new Error(`Unknown option: --${key}`);
     const value = equals >= 0 ? raw.slice(equals + 1) : argv[++index];
     if (!value || value.startsWith('--')) throw new Error(`Option --${key} requires a value.`);
-    if (key === 'task') args.task.push(value);
+    if (arrayFlags.has(key)) arrayFlags.get(key).push(value);
     else if (key === 'base-ref') args.baseRef = value;
     else if (key === 'branch-prefix') args.branchPrefix = value;
     else if (key === 'file' || key === 'spec' || key === 'root') args[key] = value;
@@ -131,6 +142,9 @@ function parseArgs(argv) {
     else if (key === 'only') args.only = value.split(',').map((item) => item.trim()).filter(Boolean);
     else if (key === 'timeout') args.timeout = Number.parseInt(value, 10);
     else if (key === 'output') args.output = value;
+    else if (key === 'risk-level') args.riskLevel = value;
+    else if (key === 'next-action') args.nextAction = value;
+    else if (key === 'title' || key === 'goal' || key === 'stage' || key === 'unit' || key === 'verification') args[key] = value;
     else throw new Error(`Unknown option: --${key}`);
   }
   return args;
@@ -428,6 +442,53 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
   }
   const selectedNames = CHECK_ORDER.filter((name) => !only || only.includes(name));
   const before = planOnly ? null : await gitFingerprint(projectDir);
+  // `--reuse` replays the anchor's most recent passed receipt instead of
+  // re-executing the commands when neither the working-tree fingerprint nor
+  // the command set changed; any mismatch falls through to a normal run.
+  if (!planOnly && args.reuse) {
+    let reusable;
+    try {
+      reusable = await findReusableVerification(projectDir, args.task[0] ?? null, {
+        fingerprint: before.fingerprint,
+        commandSet: verificationCommandSet(configured.commands, selectedNames, projectDir),
+      });
+    } catch (error) {
+      return { schemaVersion: SCHEMA_VERSION, command: 'verify', status: 'failed', code: error.code ?? 'TASK_ANCHOR_INVALID', error: boundedOutput(error.message, projectDir), checks: {} };
+    }
+    if (reusable) {
+      const reusedChecks = {};
+      for (const name of CHECK_ORDER) {
+        const command = configured.commands[name];
+        if (!command) {
+          reusedChecks[name] = { status: 'not_configured' };
+          continue;
+        }
+        if (!selectedNames.includes(name)) {
+          reusedChecks[name] = { status: 'not_selected', command: displayCommand(command, projectDir) };
+          continue;
+        }
+        reusedChecks[name] = { status: 'reused', command: displayCommand(command, projectDir) };
+      }
+      const receipt = reusable.verification;
+      return {
+        schemaVersion: SCHEMA_VERSION,
+        command: 'verify',
+        status: 'reused',
+        reused: {
+          taskId: reusable.taskId,
+          unitId: reusable.unitId,
+          ...(typeof receipt.id === 'string' ? { id: receipt.id } : {}),
+          ...(typeof receipt.finishedAt === 'string' ? { finishedAt: receipt.finishedAt } : {}),
+          ...(typeof receipt.beforeHead === 'string' ? { beforeHead: receipt.beforeHead } : {}),
+          ...(typeof receipt.afterHead === 'string' ? { afterHead: receipt.afterHead } : {}),
+          fingerprint: typeof receipt.fingerprint === 'string' ? receipt.fingerprint : null,
+          command: typeof receipt.command === 'string' ? receipt.command : null,
+          at: typeof receipt.at === 'string' ? receipt.at : null,
+        },
+        checks: reusedChecks,
+      };
+    }
+  }
   let selectedCount = 0;
   for (const name of CHECK_ORDER) {
     const command = configured.commands[name];
@@ -493,6 +554,11 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
       after: after.snapshot,
       stable,
       status: stable === false ? 'workspace_changed' : failed ? 'checks_failed' : 'verified',
+      // Receipt identity: governance-core.md references these fields when a
+      // delivery cites `vibe-harness verify --project`.
+      id: randomUUID(),
+      finishedAt: new Date().toISOString(),
+      fingerprint: after.fingerprint,
     },
   };
 }
@@ -1715,9 +1781,559 @@ function patchSummary(report) {
   return lines.join('\n');
 }
 
+// --- task anchors ------------------------------------------------------------
+//
+// `task` persists one JSON anchor per long-running task under
+// `.vibe-harness/tasks/` so a compacted or resumed session can recover from
+// the anchor plus the current diff without re-reading rule bodies or the full
+// report. init and update stay read-only until --write; status and list never
+// write. A damaged anchor is rejected, never silently rebuilt.
+
+const TASK_SCHEMA_VERSION = 1;
+const TASKS_RELATIVE_DIR = '.vibe-harness/tasks';
+const TASK_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u;
+const WINDOWS_RESERVED_NAMES = /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/iu;
+const TASK_STAGES = ['review', 'plan', 'implement', 'verify'];
+const TASK_UNIT_STATUSES = ['pending', 'in_progress', 'done', 'blocked'];
+const TASK_RISK_LEVELS = ['quick', 'light', 'full'];
+const DEFAULT_TASK_RISK_LEVEL = 'light';
+const INITIAL_TASK_STAGE = 'plan';
+
+function validateTaskId(taskId) {
+  if (typeof taskId !== 'string' || !TASK_ID_PATTERN.test(taskId) || WINDOWS_RESERVED_NAMES.test(taskId)) {
+    throw Object.assign(
+      new Error(`Invalid task id ${JSON.stringify(String(taskId))}: expected 1-64 characters from [A-Za-z0-9._-], starting alphanumeric, and not a reserved device name`),
+      { code: 'VIBE_HARNESS_INVALID_TASK_ID' },
+    );
+  }
+  return taskId;
+}
+
+function taskAnchorPath(projectDir, taskId) {
+  return path.join(projectDir, TASKS_RELATIVE_DIR, `${taskId}.json`);
+}
+
+function taskAnchorRelativePath(taskId) {
+  return `${TASKS_RELATIVE_DIR}/${taskId}.json`;
+}
+
+async function readTaskAnchor(projectDir, taskId) {
+  validateTaskId(taskId);
+  const filePath = taskAnchorPath(projectDir, taskId);
+  let raw;
+  try {
+    raw = await readFile(filePath, 'utf8');
+  } catch (error) {
+    if (error?.code === 'ENOENT') return { exists: false, anchor: null, filePath };
+    throw Object.assign(
+      new Error(`cannot read ${taskAnchorRelativePath(taskId)}: ${error.code ?? error.message}`),
+      { code: 'VIBE_HARNESS_TASK_ANCHOR_UNREADABLE' },
+    );
+  }
+  let anchor;
+  try {
+    anchor = JSON.parse(raw);
+  } catch (error) {
+    throw Object.assign(
+      new Error(`${taskAnchorRelativePath(taskId)} is not valid JSON: ${error.message}`),
+      { code: 'VIBE_HARNESS_TASK_ANCHOR_INVALID' },
+    );
+  }
+  if (!anchor || typeof anchor !== 'object' || Array.isArray(anchor)
+    || typeof anchor.taskId !== 'string' || anchor.taskId !== taskId
+    || !Number.isInteger(anchor.schemaVersion)) {
+    throw Object.assign(
+      new Error(`${taskAnchorRelativePath(taskId)} is not a task anchor (expected taskId ${JSON.stringify(taskId)} and an integer schemaVersion)`),
+      { code: 'VIBE_HARNESS_TASK_ANCHOR_INVALID' },
+    );
+  }
+  return { exists: true, anchor, filePath };
+}
+
+function writeTaskAnchor(filePath, anchor) {
+  mkdirSync(path.dirname(filePath), { recursive: true });
+  writeFileSync(filePath, `${JSON.stringify(anchor, null, 2)}\n`, 'utf8');
+}
+
+function stableStringify(value) {
+  if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const keys = Object.keys(value).sort();
+    return `{${keys.map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+// Idempotency probe: updatedAt and sessions grow with every real write, so
+// they are excluded when deciding whether an update changed anything.
+function anchorSignature(anchor) {
+  const clone = { ...(anchor ?? {}) };
+  delete clone.updatedAt;
+  delete clone.sessions;
+  return stableStringify(clone);
+}
+
+function taskFailure(subcommand, message, code) {
+  return { schemaVersion: SCHEMA_VERSION, command: 'task', subcommand, status: 'failed', ...(code ? { code } : {}), error: message };
+}
+
+function upsertTaskUnit(units, unitId) {
+  let unit = units.find((item) => item && item.id === unitId);
+  if (!unit) {
+    unit = { id: unitId, title: unitId, files: [], status: 'pending', verification: null };
+    units.push(unit);
+  }
+  return unit;
+}
+
+function parseVerificationReceipt(value, projectDir) {
+  let raw = String(value).trim();
+  if (!raw.startsWith('{')) {
+    const filePath = path.resolve(projectDir, raw);
+    try {
+      raw = readFileSync(filePath, 'utf8');
+    } catch (error) {
+      throw Object.assign(
+        new Error(`cannot read verification receipt ${normalizePath(value)}: ${error.code ?? error.message}`),
+        { code: 'VIBE_HARNESS_VERIFICATION_RECEIPT_UNREADABLE' },
+      );
+    }
+  }
+  let receipt;
+  try {
+    receipt = JSON.parse(raw);
+  } catch (error) {
+    throw Object.assign(
+      new Error(`verification receipt is not valid JSON: ${error.message}`),
+      { code: 'VIBE_HARNESS_VERIFICATION_RECEIPT_INVALID' },
+    );
+  }
+  if (!receipt || typeof receipt !== 'object' || Array.isArray(receipt)
+    || receipt.command !== 'verify' || !receipt.verification || typeof receipt.verification !== 'object') {
+    throw Object.assign(
+      new Error('verification receipt must be a verify report (JSON output of run.mjs verify)'),
+      { code: 'VIBE_HARNESS_VERIFICATION_RECEIPT_INVALID' },
+    );
+  }
+  return receipt;
+}
+
+// A unit's verification.command records the command SET that produced the
+// receipt (`name=command` lines in CHECK_ORDER) so `verify --reuse` can compare
+// it against the currently configured selection.
+function taskVerificationFromReceipt(receipt) {
+  const verification = receipt.verification ?? {};
+  const checks = receipt.checks && typeof receipt.checks === 'object' && !Array.isArray(receipt.checks) ? receipt.checks : {};
+  const command = CHECK_ORDER
+    .filter((name) => checks[name] && typeof checks[name] === 'object' && checks[name].status === 'passed' && typeof checks[name].command === 'string')
+    .map((name) => `${name}=${checks[name].command}`)
+    .join('\n');
+  return {
+    command,
+    status: typeof receipt.status === 'string' ? receipt.status : null,
+    exitCode: typeof receipt.status === 'string' && PASS_STATUSES.includes(receipt.status) ? 0 : 1,
+    fingerprint: typeof verification.fingerprint === 'string' ? verification.fingerprint : null,
+    at: typeof verification.finishedAt === 'string' ? verification.finishedAt : null,
+    ...(typeof verification.id === 'string' ? { id: verification.id } : {}),
+    ...(typeof verification.finishedAt === 'string' ? { finishedAt: verification.finishedAt } : {}),
+    ...(typeof verification.before?.head === 'string' ? { beforeHead: verification.before.head } : {}),
+    ...(typeof verification.after?.head === 'string' ? { afterHead: verification.after.head } : {}),
+  };
+}
+
+function verificationCommandSet(commands, selectedNames, projectDir) {
+  return CHECK_ORDER
+    .filter((name) => selectedNames.includes(name) && typeof commands[name] === 'string')
+    .map((name) => `${name}=${displayCommand(commands[name], projectDir)}`)
+    .join('\n');
+}
+
+async function findReusableVerification(projectDir, taskId, { fingerprint, commandSet }) {
+  if (typeof fingerprint !== 'string') return null;
+  const taskIds = [];
+  if (taskId) {
+    taskIds.push(taskId);
+  } else {
+    let entries = [];
+    try {
+      entries = await readdir(path.join(projectDir, TASKS_RELATIVE_DIR), { withFileTypes: true });
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
+      const candidate = entry.name.slice(0, -'.json'.length);
+      // Files this CLI could not have written are not anchors; skip them
+      // instead of failing an otherwise verifiable tree.
+      if (!TASK_ID_PATTERN.test(candidate) || WINDOWS_RESERVED_NAMES.test(candidate)) continue;
+      taskIds.push(candidate);
+    }
+    taskIds.sort((left, right) => left.localeCompare(right));
+  }
+  let best = null;
+  for (const id of taskIds) {
+    const read = await readTaskAnchor(projectDir, id);
+    if (!read.exists) continue;
+    const units = Array.isArray(read.anchor.units) ? read.anchor.units : [];
+    for (const unit of units) {
+      const verification = unit && typeof unit === 'object' && unit.verification && typeof unit.verification === 'object' ? unit.verification : null;
+      if (!verification || verification.status !== 'passed' || verification.fingerprint !== fingerprint) continue;
+      if (typeof verification.command !== 'string' || verification.command !== commandSet) continue;
+      const at = typeof verification.at === 'string' ? verification.at : '';
+      if (!best || at > best.at) best = { taskId: id, unitId: unit.id, verification, at };
+    }
+  }
+  return best;
+}
+
+async function taskInitReport(projectDir, args) {
+  const taskId = args._[2];
+  if (taskId === undefined) {
+    return taskFailure('init', 'task init needs a task id: task init <task-id> --title <t> --goal <g>');
+  }
+  try {
+    validateTaskId(taskId);
+  } catch (error) {
+    return taskFailure('init', error.message, error.code);
+  }
+  if (args.title === undefined || args.title.trim() === '') return taskFailure('init', 'task init needs --title <text>');
+  if (args.goal === undefined || args.goal.trim() === '') return taskFailure('init', 'task init needs --goal <text>');
+  const riskLevel = args.riskLevel ?? DEFAULT_TASK_RISK_LEVEL;
+  if (!TASK_RISK_LEVELS.includes(riskLevel)) {
+    return taskFailure('init', `--risk-level must be one of ${TASK_RISK_LEVELS.join(', ')}`);
+  }
+  const read = await readTaskAnchor(projectDir, taskId);
+  if (read.exists) {
+    return taskFailure('init', `anchor for task ${taskId} already exists at ${taskAnchorRelativePath(taskId)}; use "task update ${taskId}" to change it`);
+  }
+  const now = new Date().toISOString();
+  const anchor = {
+    schemaVersion: TASK_SCHEMA_VERSION,
+    taskId,
+    title: args.title,
+    stage: INITIAL_TASK_STAGE,
+    riskLevel,
+    goal: args.goal,
+    acceptance: args.acceptance.filter((item) => item.trim() !== ''),
+    units: [],
+    decisions: [],
+    blockers: [],
+    nextAction: null,
+    sessions: [{ at: now, action: 'init' }],
+    updatedAt: now,
+  };
+  if (args.write) writeTaskAnchor(read.filePath, anchor);
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    command: 'task',
+    subcommand: 'init',
+    taskId,
+    status: args.write ? 'passed' : 'planned',
+    ...(args.write ? {} : { dryRun: true }),
+    write: Boolean(args.write),
+    written: Boolean(args.write),
+    path: taskAnchorRelativePath(taskId),
+    anchor,
+  };
+}
+
+async function taskUpdateReport(projectDir, args) {
+  const taskId = args._[2];
+  if (taskId === undefined) {
+    return taskFailure('update', 'task update needs a task id: task update <task-id> [--stage <s>] [--unit-status <unitId>:<status>] [--verification <receipt> --unit <unitId>]');
+  }
+  try {
+    validateTaskId(taskId);
+  } catch (error) {
+    return taskFailure('update', error.message, error.code);
+  }
+  if (args.verification !== undefined && args.unit === undefined) {
+    return taskFailure('update', '--verification requires --unit <unitId>');
+  }
+  const read = await readTaskAnchor(projectDir, taskId);
+  if (!read.exists) {
+    return taskFailure('update', `no anchor for task ${taskId}: run "task init ${taskId}" first`);
+  }
+  const current = read.anchor;
+  const currentSignature = anchorSignature(current);
+  // Deep-clone before mutating: the raw anchor stays the baseline for the
+  // idempotency probe, so in-place edits must never leak into it.
+  const next = JSON.parse(JSON.stringify(current));
+  const changes = [];
+  if (!Array.isArray(next.units)) next.units = [];
+  if (!Array.isArray(next.decisions)) next.decisions = [];
+  if (!Array.isArray(next.blockers)) next.blockers = [];
+  if (!Array.isArray(next.sessions)) next.sessions = [];
+  if (args.stage !== undefined) {
+    if (!TASK_STAGES.includes(args.stage)) {
+      return taskFailure('update', `--stage must be one of ${TASK_STAGES.join(', ')}`);
+    }
+    if (next.stage !== args.stage) {
+      next.stage = args.stage;
+      changes.push('stage');
+    }
+  }
+  for (const entry of args.unitStatus) {
+    const separator = entry.lastIndexOf(':');
+    const unitId = separator > 0 ? entry.slice(0, separator) : null;
+    const status = separator > 0 ? entry.slice(separator + 1) : null;
+    if (!unitId || !TASK_UNIT_STATUSES.includes(status)) {
+      return taskFailure('update', `--unit-status ${JSON.stringify(entry)} must be <unitId>:<status> with status from ${TASK_UNIT_STATUSES.join(', ')}`);
+    }
+    try {
+      validateTaskId(unitId);
+    } catch (error) {
+      return taskFailure('update', error.message, error.code);
+    }
+    const existed = next.units.some((item) => item && item.id === unitId);
+    const unit = upsertTaskUnit(next.units, unitId);
+    if (!existed || unit.status !== status) {
+      unit.status = status;
+      changes.push(`unit-status:${unitId}`);
+    }
+  }
+  for (const [flag, field] of [['decision', 'decisions'], ['blocker', 'blockers']]) {
+    for (const value of args[flag]) {
+      if (value.trim() === '') continue;
+      if (!next[field].includes(value)) {
+        next[field].push(value);
+        changes.push(flag);
+      }
+    }
+  }
+  if (args.nextAction !== undefined && next.nextAction !== args.nextAction) {
+    next.nextAction = args.nextAction;
+    changes.push('nextAction');
+  }
+  if (args.verification !== undefined) {
+    try {
+      validateTaskId(args.unit);
+    } catch (error) {
+      return taskFailure('update', error.message, error.code);
+    }
+    let receipt;
+    try {
+      receipt = parseVerificationReceipt(args.verification, projectDir);
+    } catch (error) {
+      return taskFailure('update', error.message, error.code);
+    }
+    const existed = next.units.some((item) => item && item.id === args.unit);
+    const unit = upsertTaskUnit(next.units, args.unit);
+    const entry = taskVerificationFromReceipt(receipt);
+    if (!existed || stableStringify(unit.verification ?? null) !== stableStringify(entry)) {
+      unit.verification = entry;
+      changes.push(`verification:${args.unit}`);
+    }
+  }
+  const changed = anchorSignature(next) !== currentSignature;
+  let anchor = next;
+  if (changed) {
+    const now = new Date().toISOString();
+    anchor = { ...next, updatedAt: now, sessions: [...next.sessions, { at: now, action: 'update' }] };
+    if (args.write) {
+      try {
+        writeTaskAnchor(read.filePath, anchor);
+      } catch (error) {
+        return taskFailure('update', `cannot write ${taskAnchorRelativePath(taskId)}: ${error.code ?? error.message}`);
+      }
+    }
+  }
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    command: 'task',
+    subcommand: 'update',
+    taskId,
+    status: args.write ? 'passed' : 'planned',
+    ...(args.write ? {} : { dryRun: true }),
+    write: Boolean(args.write),
+    written: changed && Boolean(args.write),
+    changed,
+    changes,
+    path: taskAnchorRelativePath(taskId),
+    anchor,
+  };
+}
+
+function taskResumeHint(taskId, anchor, pendingUnits) {
+  const parts = [
+    `read ${taskAnchorRelativePath(taskId)} and the current diff (git status --porcelain plus git diff) first`,
+    'do not re-read rule bodies or the full report',
+    `stage: ${typeof anchor.stage === 'string' ? anchor.stage : 'unknown'}`,
+  ];
+  if (pendingUnits.length > 0) parts.push(`pending units: ${pendingUnits.join(', ')}`);
+  if (typeof anchor.nextAction === 'string' && anchor.nextAction !== '') parts.push(`next action: ${anchor.nextAction}`);
+  return `${parts.join('; ')}.`;
+}
+
+async function taskStatusReport(projectDir, args) {
+  const taskId = args._[2];
+  if (taskId === undefined) {
+    return taskFailure('status', 'task status needs a task id: task status <task-id>');
+  }
+  try {
+    validateTaskId(taskId);
+  } catch (error) {
+    return taskFailure('status', error.message, error.code);
+  }
+  const read = await readTaskAnchor(projectDir, taskId);
+  if (!read.exists) {
+    return taskFailure('status', `no anchor for task ${taskId}: run "task init ${taskId}" first`);
+  }
+  const anchor = read.anchor;
+  const units = Array.isArray(anchor.units) ? anchor.units.filter((unit) => unit && typeof unit === 'object') : [];
+  const pendingUnits = units.filter((unit) => unit.status !== 'done').map((unit) => unit.id);
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    command: 'task',
+    subcommand: 'status',
+    taskId,
+    status: 'ready',
+    path: taskAnchorRelativePath(taskId),
+    title: typeof anchor.title === 'string' ? anchor.title : null,
+    stage: typeof anchor.stage === 'string' ? anchor.stage : null,
+    riskLevel: typeof anchor.riskLevel === 'string' ? anchor.riskLevel : null,
+    goal: typeof anchor.goal === 'string' ? anchor.goal : null,
+    acceptance: Array.isArray(anchor.acceptance) ? anchor.acceptance : [],
+    units,
+    pendingUnits,
+    decisions: Array.isArray(anchor.decisions) ? anchor.decisions : [],
+    blockers: Array.isArray(anchor.blockers) ? anchor.blockers : [],
+    nextAction: typeof anchor.nextAction === 'string' ? anchor.nextAction : null,
+    sessions: Array.isArray(anchor.sessions) ? anchor.sessions : [],
+    updatedAt: typeof anchor.updatedAt === 'string' ? anchor.updatedAt : null,
+    resumeHint: taskResumeHint(taskId, anchor, pendingUnits),
+  };
+}
+
+async function taskListReport(projectDir) {
+  let entries = [];
+  try {
+    entries = await readdir(path.join(projectDir, TASKS_RELATIVE_DIR), { withFileTypes: true });
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      return taskFailure('list', `cannot read ${TASKS_RELATIVE_DIR}: ${error.code ?? error.message}`);
+    }
+  }
+  const tasks = [];
+  for (const entry of entries
+    .filter((item) => item.isFile() && item.name.endsWith('.json'))
+    .sort((left, right) => left.name.localeCompare(right.name))) {
+    const taskId = entry.name.slice(0, -'.json'.length);
+    if (!TASK_ID_PATTERN.test(taskId) || WINDOWS_RESERVED_NAMES.test(taskId)) {
+      tasks.push({ taskId, status: 'invalid', error: 'filename is not a valid task id' });
+      continue;
+    }
+    let read;
+    try {
+      read = await readTaskAnchor(projectDir, taskId);
+    } catch (error) {
+      tasks.push({ taskId, status: 'invalid', error: error.message });
+      continue;
+    }
+    if (!read.exists) continue;
+    const anchor = read.anchor;
+    const units = Array.isArray(anchor.units) ? anchor.units.filter((unit) => unit && typeof unit === 'object') : [];
+    tasks.push({
+      taskId,
+      status: 'ready',
+      title: typeof anchor.title === 'string' ? anchor.title : null,
+      stage: typeof anchor.stage === 'string' ? anchor.stage : null,
+      riskLevel: typeof anchor.riskLevel === 'string' ? anchor.riskLevel : null,
+      unitCount: units.length,
+      doneUnits: units.filter((unit) => unit.status === 'done').length,
+      pendingUnits: units.filter((unit) => unit.status !== 'done').map((unit) => unit.id),
+      blockerCount: Array.isArray(anchor.blockers) ? anchor.blockers.length : 0,
+      updatedAt: typeof anchor.updatedAt === 'string' ? anchor.updatedAt : null,
+    });
+  }
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    command: 'task',
+    subcommand: 'list',
+    status: 'ready',
+    directory: TASKS_RELATIVE_DIR,
+    count: tasks.length,
+    invalidCount: tasks.filter((item) => item.status === 'invalid').length,
+    tasks,
+  };
+}
+
+async function taskReport(projectDir, args) {
+  const subcommand = args._[1] ?? null;
+  try {
+    if (subcommand === null) {
+      return taskFailure(null, 'task needs a subcommand: task <init|update|status|list> [task-id]');
+    }
+    if (subcommand === 'init') return await taskInitReport(projectDir, args);
+    if (subcommand === 'update') return await taskUpdateReport(projectDir, args);
+    if (subcommand === 'status') return await taskStatusReport(projectDir, args);
+    if (subcommand === 'list') return await taskListReport(projectDir);
+    return taskFailure(subcommand, `Unknown task subcommand: ${JSON.stringify(String(subcommand))} (expected init, update, status or list)`);
+  } catch (error) {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      command: 'task',
+      subcommand,
+      status: 'failed',
+      ...(error.code ? { code: error.code } : {}),
+      error: boundedOutput(error.message, projectDir),
+    };
+  }
+}
+
+function taskSummary(report) {
+  const lines = [`command: task ${report.subcommand ?? ''}`.trim(), `status: ${report.status}`];
+  if (report.error) {
+    lines.push(`error: ${report.error}`);
+    return lines.join('\n');
+  }
+  if (report.path) lines.push(`path: ${report.path}`);
+  if (report.taskId) lines.push(`taskId: ${report.taskId}`);
+  if (report.subcommand === 'init' || report.subcommand === 'update') {
+    const anchor = report.anchor ?? {};
+    lines.push(`title: ${anchor.title ?? ''}`);
+    lines.push(`stage: ${anchor.stage ?? ''}`);
+    lines.push(`riskLevel: ${anchor.riskLevel ?? ''}`);
+    if (report.subcommand === 'update') {
+      lines.push(`changed: ${report.changed ? 'yes' : 'no'}`);
+      if ((report.changes ?? []).length > 0) lines.push(`changes: ${report.changes.join(', ')}`);
+    }
+    lines.push(`units: ${Array.isArray(anchor.units) ? anchor.units.length : 0}`);
+    lines.push(`decisions: ${Array.isArray(anchor.decisions) ? anchor.decisions.length : 0}`);
+    lines.push(`blockers: ${Array.isArray(anchor.blockers) ? anchor.blockers.length : 0}`);
+    if (anchor.nextAction) lines.push(`nextAction: ${anchor.nextAction}`);
+    if (report.written === false && report.status !== 'failed') lines.push('dry run: pass --write to apply');
+    return lines.join('\n');
+  }
+  if (report.subcommand === 'status') {
+    lines.push(`stage: ${report.stage ?? ''}`);
+    lines.push(`goal: ${report.goal ?? ''}`);
+    for (const unit of report.units ?? []) {
+      lines.push(`unit ${unit.id}: ${unit.status ?? 'unknown'}${unit.verification ? ' (verified)' : ''}`);
+    }
+    if ((report.pendingUnits ?? []).length > 0) lines.push(`pendingUnits: ${report.pendingUnits.join(', ')}`);
+    if (report.nextAction) lines.push(`nextAction: ${report.nextAction}`);
+    lines.push(`resumeHint: ${report.resumeHint}`);
+    return lines.join('\n');
+  }
+  if (report.subcommand === 'list') {
+    lines.push(`count: ${report.count}`);
+    for (const item of report.tasks ?? []) {
+      if (item.status === 'invalid') {
+        lines.push(`task ${item.taskId}: invalid (${item.error})`);
+        continue;
+      }
+      lines.push(`task ${item.taskId}: ${item.stage ?? 'unknown'} (${item.unitCount} units, ${item.doneUnits} done, ${item.blockerCount} blockers)`);
+    }
+    return lines.join('\n');
+  }
+  return lines.join('\n');
+}
+
 function summary(report) {
   if (report.command === 'slice') return report.error ? `command: slice\nstatus: failed\nerror: ${report.error}` : report.text;
   if (report.command === 'patch') return patchSummary(report);
+  if (report.command === 'task') return taskSummary(report);
   if (report.command === 'worktree') {
     const lines = [`command: worktree ${report.subcommand ?? ''}`.trim()];
     if (report.error) lines.push(`error: ${report.error}`);
@@ -1750,9 +2366,12 @@ function summary(report) {
   if (report.command === 'help') {
     lines.push(report.usage);
     if (report.worktree) lines.push(report.worktree);
+    if (report.task) lines.push(report.task);
+    if (report.reuse) lines.push(report.reuse);
   }
   if (report.command === 'verify') {
     for (const [name, item] of Object.entries(report.checks ?? {})) lines.push(`${name}: ${item.status}`);
+    if (report.reused) lines.push(`reused: ${report.reused.taskId}/${report.reused.unitId}${report.reused.id ? ` receipt ${report.reused.id}` : ''}`);
   }
   if (report.error) lines.push(`error: ${report.error}`);
   return lines.join('\n');
@@ -1771,15 +2390,18 @@ export async function runCommand(argv, { cwd = process.cwd() } = {}) {
   else if (command === 'worktree') report = await worktreeReport(projectDir, args);
   else if (command === 'slice') report = await sliceReport(projectDir, args);
   else if (command === 'patch') report = await patchReport(projectDir, args);
+  else if (command === 'task') report = await taskReport(projectDir, args);
   else if (command === 'help') report = {
     schemaVersion: SCHEMA_VERSION,
     command,
     status: 'ready',
-    usage: 'run.mjs <env|context|changes|verify|worktree|slice|patch> --project <path> [--json]',
+    usage: 'run.mjs <env|context|changes|verify|worktree|slice|patch|task> --project <path> [--json]',
     worktree: 'run.mjs worktree <list|check|bootstrap|cleanup> --project <path>: bootstrap and cleanup stay dry-run until --write; bootstrap allocates the next port block from .vibe-harness/worktree-ports.json, materializes worktree.provision.envFiles and runs worktree.provision.setupCommands (a red-zone target also needs --confirm-red-zone); cleanup refuses branches not merged into worktree.baseRef',
+    task: 'run.mjs task <init|update|status|list> [task-id] --project <path>: anchors live in .vibe-harness/tasks/<task-id>.json; init and update stay dry-run until --write while status and list never write; update accepts --stage, --unit-status <unitId>:<status>, --decision, --blocker, --next-action, and --unit <unitId> --verification <verify receipt> to record a verify receipt on a unit',
+    reuse: 'run.mjs verify --project <path> [--task <task-id>] --reuse: returns status "reused" without executing commands when the working-tree fingerprint and command set match the most recent passed receipt in the anchor; otherwise the checks run normally',
   };
   else throw new Error(`Unknown command: ${command}`);
-  return { args, report, exitCode: ['passed', 'ready', 'planned'].includes(report.status) ? 0 : 1 };
+  return { args, report, exitCode: PASS_STATUSES.includes(report.status) ? 0 : 1 };
 }
 
 export async function main(argv = process.argv.slice(2)) {

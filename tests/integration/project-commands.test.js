@@ -108,15 +108,17 @@ test('changes reports git status without invoking a shell', async () => {
   }
 });
 
-test('help advertises every project command including worktree, slice and patch', async () => {
+test('help advertises every project command including worktree, slice, patch and task', async () => {
   const result = await runCommand(['help', '--json'], { cwd: rootDir });
   assert.equal(result.exitCode, 0);
   assert.equal(
     result.report.usage,
-    'run.mjs <env|context|changes|verify|worktree|slice|patch> --project <path> [--json]',
+    'run.mjs <env|context|changes|verify|worktree|slice|patch|task> --project <path> [--json]',
   );
   assert.match(result.report.worktree, /worktree <list\|check\|bootstrap\|cleanup>/u);
   assert.match(result.report.worktree, /dry-run until --write/u);
+  assert.match(result.report.task, /task <init\|update\|status\|list>/u);
+  assert.match(result.report.reuse, /--reuse/u);
 });
 
 test('the --help flag routes to the help receipt from any command position', async () => {
