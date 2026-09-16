@@ -60,8 +60,12 @@ doctor 的 Hook 自检只验证包内受审策略引擎在 guarded 策略下拒�
 | 多个 worktree 同时启动 dev server 时端口互相占用 | 端口由 `worktree bootstrap` 按主检出 `.vibe-harness/worktree-ports.json` 分段分配（`.vibe-harness/worktree-ports.lock` 串行化），从该 worktree 的 `envFile` 读取端口而不是硬编码；冲突按登记表事实报告，不用 `netstat`/`lsof` 推断分配 |
 | worktree 缺依赖或缺少环境变量 | 先按项目安装命令补齐主检出依赖，再重新执行 `run.mjs worktree bootstrap --write`；主检出缺 `node_modules` 时 bootstrap 直接 blocked，只有声明 `worktree.provision.setupCommands`/`envFiles` 才会在 worktree 内补齐，`worktree check` 核对依赖链接 realpath 与 env 文件是否与登记表一致 |
 | 端口被占用后手工 `taskkill` 误杀无关进程 | 先用端口占用查询（`netstat -ano`/`lsof -i`）定位 PID，确认归属后再终止；无法确认归属时报告并停止 |
+| 路径含 `[id]` 一类方括号片段时被 PowerShell 按通配符解释，访问不到实际文件 | 对这类路径必须用 `-LiteralPath` 按字面值访问，不把方括号片段交给通配符解释 |
+| 长中文提交信息内联传给 `git commit -m` 时被 shell 转义破坏 | 先把完整提交信息写入文件再执行 `git commit -F <file>`，正文遵守项目 commitlint 行长约束 |
 
 宿主边界策略拒绝写入不是产品缺陷：先确认目标路径是否属于已授权工作区根，按 `git-rules.md` 的 Worktree 段把 worktree 根登记为附加工作区根，而不是绕开边界或改用一次性脚本。
+
+- 输出压缩可能改写规则引用文本：引用规则原文时必须用原文读取方式核对，不凭压缩后的转述。
 
 ## 停止条件
 

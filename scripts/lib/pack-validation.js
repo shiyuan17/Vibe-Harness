@@ -1082,6 +1082,10 @@ export const CONTENT_QUALITY_CHECKS = [
       // 并发 worktree 的资源冲突与依赖/环境缺口各有对应条目。
       '多个 worktree 同时启动 dev server 时端口互相占用',
       'worktree 缺依赖或缺少环境变量',
+      // 宿主命令适配新增：方括号路径、长中文提交信息与输出压缩改写风险。
+      '对这类路径必须用 `-LiteralPath` 按字面值访问',
+      '先把完整提交信息写入文件再执行 `git commit -F <file>`',
+      '输出压缩可能改写规则引用文本',
     ],
   },
   {
