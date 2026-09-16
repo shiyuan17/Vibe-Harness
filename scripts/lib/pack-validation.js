@@ -683,6 +683,14 @@ export const CONTENT_QUALITY_CHECKS = [
       '单 Agent、简单顺序任务和纯对话不创建 DAG',
       SHARED_RULE_PHRASES.taskDagNotParsed,
       '也不形成固定完成门禁',
+      // 三档协作判定与多会话 DAG 节点映射
+      '协作方式先按三档判据判定',
+      '可 fan-out，需显式声明',
+      '仅当跨模块且 `writeScope` 不重叠时允许',
+      '共享契约永远唯一写者',
+      '当计划要交给多方或多会话执行时',
+      '必须映射为一个 DAG 节点',
+      '按严重度或层次择一维度，不得混用',
       // 轻量 Task DAG 与状态解释
       'all_success',
       'all_done',
