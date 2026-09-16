@@ -18,6 +18,7 @@ Skill 是宿主按 description 直接选择的领域能力包：description 是�
 宿主依据每个 SKILL.md 的 description 直接选择能力，不使用 Router 或流程 Skill 链；Skill 只补充领域知识，不覆盖项目规则、人工确认或安全边界。
 
 - 判定顺序：授权与安全边界（governance-core）> 用户本轮显式指定或显式调用的 Skill > 职责最窄且匹配的领域 Skill > 按需补充的互补 Skill。
+- 命中 Skill 触发场景时，先显式读取该 Skill 的 SKILL.md 再按其内容行动，不凭记忆或印象替代读取；宿主路由漏选时仍可按场景显式读取兜底。
 - 一个原子动作只路由一个主 Skill；多个 Skill 同时匹配时取职责最具体者，不叠加流程链掩盖歧义。
 - 明确请求提交或推送即授权所请求的 Git 动作；显式调用 `$git-deliver` 或明确指定该 Skill 则授权分组、提交并普通推送当前任务改动；普通完成请求不构成 Git 写入授权。
 - 高影响产品决定使用 `clarify-requirements`：仅处理当轮可关闭的解阻或显式需求发现，不持久化目标。

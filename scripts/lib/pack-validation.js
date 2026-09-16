@@ -610,6 +610,10 @@ export const CONTENT_QUALITY_CHECKS = [
       // Progressive disclosure keeps SKILL.md an entry point, not a transcript.
       '渐进披露',
       '按需读取',
+      // Skill 场景兜底：命中即读取，不以记忆替代
+      '先显式读取该 Skill 的 SKILL.md',
+      '不凭记忆或印象替代读取',
+      '宿主路由漏选时仍可按场景显式读取兜底',
     ],
   },
   {
