@@ -11761,6 +11761,19 @@
       "addedAt": "2026-09-16"
     },
     {
+      "id": "M-cross-platform-adapters-027",
+      "layer": "matrix",
+      "file": "tests/matrix/cross-platform-adapters.test.js",
+      "ordinal": 27,
+      "name": "启动段钉住长任务状态锚点与 SKILL.md 显式读取",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-16"
+    },
+    {
       "id": "M-installation-baseline-001",
       "layer": "matrix",
       "file": "tests/matrix/installation-baseline.test.js",

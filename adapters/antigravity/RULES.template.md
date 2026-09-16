@@ -4,6 +4,8 @@
 
 实现前先读取 docs/rules/governance-core.md；仅当领域 Skill 的 description 与当前任务匹配时才加载。所有写入保持在项目内，红区（red zone）操作必须显式人工确认，并使用与变更面匹配的命令验证主张。
 
+长任务（预计执行超过 60 分钟或发生一次以上上下文压缩）先建立状态锚点；命中 Skill 触发场景时先读该 Skill 的 SKILL.md 再行动。
+
 编辑前先检查项目状态。任何红区操作都需人工确认，完成后验证结果。
 
 {{installedSurface.memoryLoadLine}}

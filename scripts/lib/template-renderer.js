@@ -80,6 +80,7 @@ function buildStartupLines(surface, projectProfile) {
   const tick = String.fromCharCode(96);
   const lines = [
     '先读取 ' + tick + 'docs/rules/governance-core.md' + tick + '；只有出现 Skill 或专项领域信号时再读取 ' + tick + 'docs/rules/agent-skill-routing.md' + tick + ' 和一个命中的专项规则。',
+    '长任务（预计执行超过 60 分钟或发生一次以上上下文压缩）先建立状态锚点；命中 Skill 触发场景时先读该 Skill 的 ' + tick + 'SKILL.md' + tick + ' 再行动。',
   ];
   if (surface.memoryLoadLine) lines.push(surface.memoryLoadLine);
   if (projectProfile.vcsStatusInstruction) lines.push(projectProfile.vcsStatusInstruction);

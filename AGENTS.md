@@ -57,11 +57,12 @@ TypeScript 配置、类型声明、JSDoc 类型契约，或完成主张涉及类
 
 ## 启动
 1. 先读取 `docs/rules/governance-core.md`；只有出现 Skill 或专项领域信号时再读取 `docs/rules/agent-skill-routing.md` 和一个命中的专项规则。
-2. 仅当任务需要恢复项目状态且当前授权允许读取 Memory body 时，读取 `docs/memory/` 的治理记忆（优先 `PROJECT_STATE.md`），按其与本地记忆库的优先级合并；本地记忆库恢复入口为 `.agents/memory/CURRENT.md`。 当专项 Skill 限制 Memory 证据边界时，仅检查相关 Memory 路径是否存在及必要元数据、不读取其正文；不限制任务相关源码阅读。
-3. 编辑前运行 `git status --short`，保护用户未归属改动。
-4. 先按问题类型选工具：纯文本、配置和日志使用 rg 与直接文件阅读。 按 docs/rules/role-routing.md 先识别动作，再在有效且能力匹配的角色中选择一个角色，并只读取 .agents/roles/ 中对应角色文件；阶段变化时重新选择。
-5. 将任务归为快速、轻量或完整，并选择与主张匹配的验证。
-6. 使用“获取可信事实 → 判定并执行 → 聚焦验证 → 简洁交付”的单一路径；宿主按 description 直接选择领域 Skill。
+2. 长任务（预计执行超过 60 分钟或发生一次以上上下文压缩）先建立状态锚点；命中 Skill 触发场景时先读该 Skill 的 `SKILL.md` 再行动。
+3. 仅当任务需要恢复项目状态且当前授权允许读取 Memory body 时，读取 `docs/memory/` 的治理记忆（优先 `PROJECT_STATE.md`），按其与本地记忆库的优先级合并；本地记忆库恢复入口为 `.agents/memory/CURRENT.md`。 当专项 Skill 限制 Memory 证据边界时，仅检查相关 Memory 路径是否存在及必要元数据、不读取其正文；不限制任务相关源码阅读。
+4. 编辑前运行 `git status --short`，保护用户未归属改动。
+5. 先按问题类型选工具：纯文本、配置和日志使用 rg 与直接文件阅读。 按 docs/rules/role-routing.md 先识别动作，再在有效且能力匹配的角色中选择一个角色，并只读取 .agents/roles/ 中对应角色文件；阶段变化时重新选择。
+6. 将任务归为快速、轻量或完整，并选择与主张匹配的验证。
+7. 使用“获取可信事实 → 判定并执行 → 聚焦验证 → 简洁交付”的单一路径；宿主按 description 直接选择领域 Skill。
 ## 硬边界
 
 - 只在授权范围内行动；红区、生产、权限、凭据、外部写入和不可逆操作按 governance-core 的授权与批准规则执行；缺少覆盖授权时人工确认，已有覆盖授权不重复确认。
