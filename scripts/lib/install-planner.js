@@ -45,7 +45,11 @@ import { moduleCatalog, resolveModuleSelection } from './module-selection.js';
 import { hasPluginCapability } from './plugin-provider-catalog.js';
 import { assertAdapterProfile, hookConfigTargets, loadAdapterCatalog, resolveAdapter, resolveAdapterEntry, skillRootMatcher, skillRootPrefixes } from './adapter.js';
 import { beginFileTransaction, createTransactionId } from './file-transaction.js';
-import { resolveRoleInstallEntries } from './role-projection.js';
+import {
+  MANAGED_MCP_SERVER_PREFIX,
+  resolveRoleInstallEntries,
+  supportsNativeCapabilityBinding,
+} from './role-projection.js';
 import { existingRuleSources, installedRuleIndex, loadRuleIndex, renderRulesLine } from './rules-index.js';
 import {
   hashManagedBlock,
@@ -270,6 +274,30 @@ function createManagedMcpServers(targetDir, resolvedModules) {
   return servers;
 }
 
+/**
+ * Capabilities this install actually resolves for the target host: the skills
+ * that land under its skill root and the MCP servers it writes into its own
+ * config. Hosts whose native role schema has no place for them return null, so
+ * the projection never claims a binding the host cannot hold.
+ */
+function resolvedRoleCapabilities({ adapter, allowedGroups, installMap, moduleSelection, targetDir }) {
+  if (!supportsNativeCapabilityBinding(adapter.id)) return null;
+  const skillPrefix = adapter.skillRoot + '/';
+  const skills = [...new Set(installMap.entries
+    .filter((entry) => allowedGroups.has(entry.group))
+    .map((entry) => {
+      if (!entry.target.startsWith(skillPrefix) || !entry.target.endsWith('/SKILL.md')) return null;
+      const name = entry.target.slice(skillPrefix.length, -'/SKILL.md'.length);
+      return name.includes('/') ? null : name;
+    })
+    .filter(Boolean))].sort();
+  const mcpServers = allowedGroups.has('mcp-config')
+    ? Object.keys(createManagedMcpServers(path.resolve(targetDir), moduleSelection.resolvedModules))
+      .map((name) => MANAGED_MCP_SERVER_PREFIX + name).sort()
+    : [];
+  return { mcpServers, skills };
+}
+
 function adapterConfigRedZone(adapter, target) {
   return adapter.redZonePrefixes.some((prefix) => target.startsWith(prefix.replaceAll('\\', '/')));
 }
@@ -325,7 +353,7 @@ async function planAdapterConfigActions(ctx) {
           hookMarker: 'Vibe-Harness safety policy',
           hooksPath: null,
           mcpPath: null,
-          serverPrefix: 'vibe-harness-',
+          serverPrefix: MANAGED_MCP_SERVER_PREFIX,
           ...(definition.syntax && definition.syntax !== 'json' ? { syntax: definition.syntax } : {}),
         },
         kinds: [],
@@ -446,6 +474,13 @@ export async function createInstallPlan({
     ? await resolveRoleInstallEntries({
         adapter,
         packageVersion: currentPackageVersion,
+        resolvedCapabilities: resolvedRoleCapabilities({
+          adapter,
+          allowedGroups,
+          installMap: ctx.installMap,
+          moduleSelection,
+          targetDir,
+        }),
         rolesConfig: renderData.roles,
         rootDir,
         targetDir,
@@ -1132,6 +1167,13 @@ export async function diffTargetInstall({
     ? await resolveRoleInstallEntries({
         adapter,
         packageVersion: await packageVersion(rootDir),
+        resolvedCapabilities: resolvedRoleCapabilities({
+          adapter,
+          allowedGroups,
+          installMap,
+          moduleSelection,
+          targetDir,
+        }),
         rolesConfig: renderData.roles,
         rootDir,
         targetDir,

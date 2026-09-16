@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "id": "vibe-harness-core-offline-reference",
-  "approvedAt": "2026-09-15T23:41:32.519Z",
+  "approvedAt": "2026-09-16T07:40:32.325Z",
   "suite": {
     "id": "vibe-harness-core",
     "version": "2.2.0"
@@ -15,19 +15,19 @@
     "agent": "offline",
     "configHash": "fixture-v1",
     "assets": {
-      "aggregateHash": "e5c24b01d46f9e9d17b12d082acccc9c1f697cd7a4b16c2110311f320fd43a6c",
+      "aggregateHash": "146b5baab435807ae350a5fa59f1411806bb9ccd146b4318b6a107921f20357e",
       "groups": {
         "config": {
           "fileCount": 36,
-          "hash": "86eca5ad67a8d8312499f1d0f4661d8d2f6006abc806380033666010cf1d4ffb"
+          "hash": "b5681dfc6c566c9f8b57a3714afc7f19a1cb24c3a7349bf70329946ef8b87422"
         },
         "hooks": {
           "fileCount": 16,
-          "hash": "a0167e3815c5d727baaf8e46f574ea32e2d44a2b76bad92ef719032bac6d132f"
+          "hash": "b46cb939a93f4f82e284801c77e016d84171a7c592f51acf59d9a4d40a04ae16"
         },
         "rules": {
           "fileCount": 44,
-          "hash": "5c7ccc71439afd247f64c6978786412823e3928249a559309af0575fcd1c1bd8"
+          "hash": "5edebf1378aa0cfbc5bb9da58091fcaf466b175a96404603577f07e004e57c1b"
         },
         "skills": {
           "fileCount": 128,

@@ -28,6 +28,7 @@ jobs:
       lint: ${{ steps.plan.outputs.lint }}
       validate: ${{ steps.plan.outputs.validate }}
       unit: ${{ steps.plan.outputs.unit }}
+      component: ${{ steps.plan.outputs.component }}
       eval: ${{ steps.plan.outputs.eval }}
       evalCheck: ${{ steps.plan.outputs.evalCheck }}
       docs: ${{ steps.plan.outputs.docs }}
@@ -126,6 +127,12 @@ jobs:
         run: pnpm validate
       - if: needs.change-plan.outputs.unit == 'true'
         run: pnpm test:unit
+      - if: needs.change-plan.outputs.component == 'true'
+        run: pnpm test:component
+      - if: needs.change-plan.outputs.unit == 'true'
+        run: pnpm tests:catalog check --observed .vibe-harness/observed-tests/unit.json
+      - if: needs.change-plan.outputs.component == 'true'
+        run: pnpm tests:catalog check --observed .vibe-harness/observed-tests/component.json
       - if: needs.change-plan.outputs.evalCheck == 'true'
         run: pnpm eval:check
       - if: needs.change-plan.outputs.evalCheck == 'true'
@@ -166,6 +173,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:integration
+      - run: pnpm tests:catalog check --observed .vibe-harness/observed-tests/integration.json
 
   smoke-gate:
     name: smoke gate
@@ -256,8 +264,10 @@ jobs:
       - run: pnpm eval:harness check
       - run: pnpm eval:harness plan --tier fast
       - run: pnpm eval:replay
-      - run: pnpm test:eval
       - run: pnpm test:integration
+      - run: pnpm test:e2e
+      - run: pnpm test:matrix
+      - run: pnpm tests:catalog check --observed .vibe-harness/observed-tests/unit.json --observed .vibe-harness/observed-tests/component.json --observed .vibe-harness/observed-tests/integration.json --observed .vibe-harness/observed-tests/e2e.json --observed .vibe-harness/observed-tests/matrix.json
       - run: pnpm smoke:lifecycle
       - run: git diff --check
 

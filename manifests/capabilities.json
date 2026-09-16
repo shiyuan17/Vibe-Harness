@@ -6,7 +6,7 @@
       "source": "agent execution and safety prompts",
       "disposition": "generalize",
       "targets": ["adapters/codex/AGENTS.template.md", "docs/rules/governance-core.md"],
-      "tests": ["tests/execution-simplification.test.js", "tests/rules-depth.test.js"],
+      "tests": ["tests/unit/execution-simplification.test.js", "tests/component/rules-depth.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
       "docs": ["docs/architecture.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-online-canary.json"] }
@@ -16,7 +16,7 @@
       "source": "post-plan task split judgment in the execution kernel",
       "disposition": "generalize",
       "targets": ["docs/rules/governance-core.md", "templates/task.md", "templates/task.en-US.md"],
-      "tests": ["tests/execution-simplification.test.js"],
+      "tests": ["tests/unit/execution-simplification.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
       "docs": ["docs/rules/governance-core.md", "docs/templates/task.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-online-canary.json", "evals/suites/vibe-harness-online-autonomy.json"] }
@@ -26,7 +26,7 @@
       "source": "human-readable multi-agent dependency and fan-in contract",
       "disposition": "generalize",
       "targets": ["docs/rules/governance-core.md", "docs/rules/ai-collab-rules.md", "templates/task.md", "templates/task.en-US.md"],
-      "tests": ["tests/execution-simplification.test.js", "tests/eval-contract.test.js", "tests/linear-workflow.test.js", "tests/target-validation.test.js"],
+      "tests": ["tests/unit/execution-simplification.test.js", "tests/component/eval-contract.test.js", "tests/integration/linear-workflow.test.js", "tests/matrix/target-validation.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
       "docs": ["docs/rules/governance-core.md", "docs/rules/ai-collab-rules.md", "docs/templates/task.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-online-canary.json"] }
@@ -36,7 +36,7 @@
       "source": "native Skill descriptions and agent-skill-routing.md",
       "disposition": "generalize",
       "targets": ["docs/rules/agent-skill-routing.md", "skills/core/clarify-requirements/SKILL.md", "skills/core/define-goal/SKILL.md", "manifests/skills.json"],
-      "tests": ["tests/manifest-schema.test.js", "tests/skill-closure.test.js"],
+      "tests": ["tests/component/manifest-schema.test.js", "tests/integration/skill-closure.test.js"],
       "profiles": ["core", "full"],
       "docs": ["docs/inventory/skills-optimization-zh.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-core.json"] }
@@ -46,7 +46,7 @@
       "source": "Codex host goal operations and generalized requirement-to-goal analysis",
       "disposition": "generalize",
       "targets": ["skills/core/define-goal/SKILL.md", "evals/goal-definition-cases.json", "manifests/adapters.json", "schemas/adapter-pack.schema.json"],
-      "tests": ["tests/goal-definition-metrics.test.js", "tests/cross-platform-adapters.test.js", "tests/skill-closure.test.js"],
+      "tests": ["tests/unit/goal-definition-metrics.test.js", "tests/matrix/cross-platform-adapters.test.js", "tests/integration/skill-closure.test.js"],
       "profiles": ["core", "full"],
       "docs": ["docs/inventory/skills-optimization-zh.md", "docs/inventory/governance-reference-analysis.md"],
       "evaluation": { "required": true, "suites": ["evals/goal-definition-cases.json", "evals/suites/vibe-harness-online-canary.json"] }
@@ -56,7 +56,7 @@
       "source": "plan-to-Goal/DAG decomposition and host-neutral node execution prompts",
       "disposition": "generalize",
       "targets": ["skills/core/task-decomposition/SKILL.md", "docs/rules/agent-skill-routing.md", "templates/task.md", "manifests/skills.json", "adapters/install-map.json"],
-      "tests": ["tests/skill-closure.test.js", "tests/rules-depth.test.js", "tests/manifest-schema.test.js"],
+      "tests": ["tests/integration/skill-closure.test.js", "tests/component/rules-depth.test.js", "tests/component/manifest-schema.test.js"],
       "profiles": ["core", "full"],
       "docs": ["docs/inventory/skills-optimization-zh.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-online-canary.json"] }
@@ -66,7 +66,7 @@
       "source": "GIT_RULES.md",
       "disposition": "generalize",
       "targets": ["docs/rules/git-rules.md"],
-      "tests": ["tests/rules-depth.test.js"],
+      "tests": ["tests/component/rules-depth.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
       "docs": ["CONTRIBUTING.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-core.json"] }
@@ -76,7 +76,7 @@
       "source": "CODING / FRONTEND / API / DB / project-linked logging",
       "disposition": "generalize",
       "targets": ["docs/rules/coding-rules.md", "docs/rules/frontend-rules.md", "docs/rules/api-rules.md", "docs/rules/db-rules.md", "docs/rules/log-management.md", "docs/rules/project-specific-rules.md", "scripts/lib/project-profile.js", "scripts/lib/project-baseline.js", "schemas/project-config.schema.json", "schemas/project-baseline.schema.json"],
-      "tests": ["tests/rules-depth.test.js", "tests/project-profile.test.js", "tests/project-baseline.test.js", "tests/schema-validation.test.js"],
+      "tests": ["tests/component/rules-depth.test.js", "tests/integration/project-profile.test.js", "tests/integration/project-baseline.test.js", "tests/component/schema-validation.test.js"],
       "profiles": ["core", "full", "docs-only"],
       "docs": ["README.en.md", "docs/rules/log-management.md", "docs/rules/project-specific-rules.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-core.json", "evals/suites/vibe-harness-online-canary.json"] }
@@ -86,7 +86,7 @@
       "source": "explicit project-local Git delivery Skill",
       "disposition": "generalize",
       "targets": ["skills/core/git-deliver/SKILL.md", "docs/rules/git-rules.md", "manifests/skills.json", "adapters/install-map.json"],
-      "tests": ["tests/skill-closure.test.js", "tests/rules-depth.test.js", "tests/cross-platform-adapters.test.js", "tests/mvp-spec.test.js"],
+      "tests": ["tests/integration/skill-closure.test.js", "tests/component/rules-depth.test.js", "tests/matrix/cross-platform-adapters.test.js", "tests/integration/mvp-spec.test.js"],
       "profiles": ["core", "full"],
       "docs": ["README.md", "README.en.md", "docs/inventory/skills-optimization-zh.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-online-canary.json"] }
@@ -96,7 +96,7 @@
       "source": "docs/memory",
       "disposition": "template",
       "targets": ["templates/memory/PROJECT_STATE.md", "templates/memory/ARCHITECTURE.md", "templates/memory/DECISIONS.md", "templates/memory/KNOWN_BUGS.md", "templates/memory/TECH_DEBT.md", "templates/memory/FAILURE_LEARNINGS.md", "templates/memory/IMPROVEMENTS.json"],
-      "tests": ["tests/installation-baseline.test.js", "tests/manifest-schema.test.js", "tests/project-audit.test.js"],
+      "tests": ["tests/matrix/installation-baseline.test.js", "tests/component/manifest-schema.test.js", "tests/integration/project-audit.test.js"],
       "profiles": ["full", "docs-only"],
       "docs": ["docs/architecture.md"],
       "evaluation": { "required": false, "reason": "Static installer tests cover template installation deterministically." }
@@ -106,7 +106,7 @@
       "source": "RELEASE.md",
       "disposition": "generalize",
       "targets": ["docs/rules/release-rules.md"],
-      "tests": ["tests/rules-depth.test.js"],
+      "tests": ["tests/component/rules-depth.test.js"],
       "profiles": ["full", "docs-only"],
       "docs": ["CONTRIBUTING.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-core.json"] }
@@ -116,7 +116,7 @@
       "source": "evaluation-driven Agent behavior development",
       "disposition": "validator",
       "targets": ["docs/rules/eval-driven-development.md", "skills/core/eval-driven-development/SKILL.md", "runtime/evals/run.mjs", "scripts/lib/eval-replay.js", "scripts/lib/eval-runner.js", "scripts/lib/eval-scoring.js", "scripts/lib/eval-trials.js", "scripts/lib/project-evaluation.js"],
-      "tests": ["tests/eval-contract.test.js", "tests/eval-runner.test.js", "tests/eval-scoring.test.js"],
+      "tests": ["tests/component/eval-contract.test.js", "tests/integration/eval-runner.test.js", "tests/unit/eval-scoring.test.js"],
       "profiles": ["core", "full"],
       "docs": ["docs/evals.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-core.json", "evals/suites/vibe-harness-online-canary.json", "evals/suites/vibe-harness-online-execution.json"] }
@@ -126,7 +126,7 @@
       "source": "Vibe-Harness CLI lifecycle and ownership contract",
       "disposition": "validator",
       "targets": ["scripts/vibe-harness.js", "scripts/lib/install-planner.js", "scripts/lib/install-state.js", "scripts/lib/file-transaction.js"],
-      "tests": ["tests/installer-lifecycle.test.js", "tests/uninstall.test.js", "tests/installation-baseline.test.js", "tests/transaction-recovery.test.js"],
+      "tests": ["tests/e2e/installer-lifecycle.test.js", "tests/e2e/uninstall.test.js", "tests/matrix/installation-baseline.test.js", "tests/integration/transaction-recovery.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
       "docs": ["docs/migration-guide.md", "docs/architecture.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-core.json", "evals/suites/vibe-harness-online-canary.json"] }
@@ -135,8 +135,8 @@
       "id": "project-deterministic-scripts",
       "source": "project-local deterministic fact collection and configured verification commands",
       "disposition": "generalize",
-      "targets": ["runtime/commands/run.mjs", "runtime/lib/worktree-audit.mjs", "scripts/lib/project-verification.js", "scripts/lib/module-selection.js", "scripts/lib/install-planner.js", "adapters/install-map.json", "manifests/profiles.json"],
-      "tests": ["tests/project-commands.test.js", "tests/project-worktree-command.test.js", "tests/project-file-edit-command.test.js", "tests/module-selection.test.js", "tests/installer-lifecycle.test.js", "tests/uninstall.test.js"],
+      "targets": ["runtime/commands/run.mjs", "runtime/lib/worktree-audit.mjs", "runtime/lib/worktree-ports.mjs", "scripts/lib/project-verification.js", "scripts/lib/module-selection.js", "scripts/lib/install-planner.js", "adapters/install-map.json", "manifests/profiles.json"],
+      "tests": ["tests/integration/project-commands.test.js", "tests/integration/project-worktree-command.test.js", "tests/integration/project-file-edit-command.test.js", "tests/integration/module-selection.test.js", "tests/e2e/installer-lifecycle.test.js", "tests/e2e/uninstall.test.js"],
       "profiles": ["core", "full"],
       "docs": ["README.md", "README.en.md", "docs/architecture.md"],
       "evaluation": { "required": false, "reason": "Command parsing, safety boundaries, configured verification, and installation lifecycle are deterministic and covered by unit/integration tests." }
@@ -146,7 +146,7 @@
       "source": "Codex and Git hook policy",
       "disposition": "validator",
       "targets": ["runtime/hooks/codex-hook.mjs", "runtime/hooks/lib/execution-envelope.mjs", "runtime/hooks/lib/policy.mjs", "runtime/hooks/lib/read-only-commands.mjs", "runtime/hooks/lib/context.mjs", "runtime/hooks/lib/rtk.mjs"],
-      "tests": ["tests/hook-runtime.test.js"],
+      "tests": ["tests/integration/hook-runtime.test.js"],
       "profiles": ["full"],
       "docs": ["docs/hooks.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-core.json", "evals/suites/vibe-harness-online-canary.json"] }
@@ -156,7 +156,7 @@
       "source": "request-scoped execution authority, recovery checkpoint, and observable Hook enforcement",
       "disposition": "validator",
       "targets": ["schemas/execution-envelope.schema.json", "schemas/execution-envelope-v2.schema.json", "runtime/hooks/lib/execution-envelope.mjs", "runtime/hooks/codex-hook.mjs", "docs/rules/governance-core.md", "docs/rules/linear-workflow.md", "skills/integrations/linear-workflow/SKILL.md", "adapters/install-map.json"],
-      "tests": ["tests/hook-runtime.test.js", "tests/hook-installation.test.js", "tests/execution-simplification.test.js", "tests/linear-workflow.test.js", "tests/eval-governance-metrics.test.js", "tests/eval-runner.test.js"],
+      "tests": ["tests/integration/hook-runtime.test.js", "tests/e2e/hook-installation.test.js", "tests/unit/execution-simplification.test.js", "tests/integration/linear-workflow.test.js", "tests/unit/eval-governance-metrics.test.js", "tests/integration/eval-runner.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
       "docs": ["docs/adr/ADR-0002-linear-execution-envelope-and-recovery.md", "docs/specs/linear-multi-agent-workflow-spec.md", "docs/schemas/execution-envelope.schema.json", "docs/schemas/execution-envelope-v2.schema.json", "docs/hooks.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/linear-workflow-online.json"] }
@@ -166,7 +166,7 @@
       "source": "documentation catalog and policy",
       "disposition": "validator",
       "targets": ["docs/catalog.json", "manifests/capabilities.json", "schemas/docs-catalog.schema.json", "scripts/docs-audit.js", "scripts/lib/docs-validation.js"],
-      "tests": ["tests/documentation.test.js"],
+      "tests": ["tests/component/documentation.test.js"],
       "profiles": [],
       "docs": ["docs/README.md"],
       "evaluation": { "required": false, "reason": "Documentation catalog integrity is deterministic and enforced by schema and link tests." }
@@ -176,7 +176,7 @@
       "source": "project-local tool provisioning",
       "disposition": "validator",
       "targets": ["scripts/vibe-harness.js", "scripts/lib/module-selection.js", "scripts/lib/plugin-provider-catalog.js", "scripts/lib/tool-provisioning.js", "scripts/lib/runtime-audit.js", "manifests/plugin-providers.json", "manifests/profiles.json", "schemas/plugin-provider-catalog.schema.json", "runtime/tools/chrome-devtools-mcp/package-lock.json", "runtime/tools/ast-grep/package-lock.json", "runtime/tools/rtk/package-lock.json", "runtime/tools/rtk/run.mjs"],
-      "tests": ["tests/manifest-schema.test.js", "tests/tool-provisioning.test.js", "tests/runtime-audit.test.js", "tests/tooling-modules.test.js"],
+      "tests": ["tests/component/manifest-schema.test.js", "tests/matrix/tool-provisioning.test.js", "tests/component/runtime-audit.test.js", "tests/integration/tooling-modules.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
       "docs": ["docs/architecture.md", "docs/specs/vibe-harness-tooling-modules-spec.md"],
       "evaluation": { "required": false, "reason": "Provisioning ownership, command flags, and dependency audits are deterministic lifecycle checks." }
@@ -186,7 +186,7 @@
       "source": "explicit project-local tool plugin selection",
       "disposition": "validator",
       "targets": ["scripts/vibe-harness.js", "scripts/lib/module-selection.js", "scripts/lib/plugin-provider-catalog.js", "scripts/lib/install-planner.js", "scripts/lib/tool-provisioning.js", "manifests/plugin-providers.json", "manifests/profiles.json", "schemas/plugin-provider-catalog.schema.json"],
-      "tests": ["tests/manifest-schema.test.js", "tests/module-selection.test.js", "tests/tool-provisioning.test.js", "tests/tooling-modules.test.js"],
+      "tests": ["tests/component/manifest-schema.test.js", "tests/integration/module-selection.test.js", "tests/matrix/tool-provisioning.test.js", "tests/integration/tooling-modules.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
       "docs": ["README.md", "README.en.md", "docs/architecture.md", "docs/migration-guide.md", "docs/specs/vibe-harness-tooling-modules-spec.md"],
       "evaluation": { "required": false, "reason": "Plugin aliases, dependency closure, persistence, and zero-tool profile defaults are deterministic installer contracts." }
@@ -196,7 +196,7 @@
       "source": "project-local RTK command output compression",
       "disposition": "generalize",
       "targets": ["docs/rules/rtk.md", "runtime/lib/rtk-environment.mjs", "runtime/tools/rtk/run.mjs", "runtime/tools/rtk/package-lock.json", "scripts/lib/tool-provisioning.js", "scripts/lib/module-selection.js"],
-      "tests": ["tests/tooling-modules.test.js", "tests/module-selection.test.js"],
+      "tests": ["tests/integration/tooling-modules.test.js", "tests/integration/module-selection.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
       "docs": ["README.md", "README.en.md", "docs/architecture.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-core.json"] }
@@ -206,7 +206,7 @@
       "source": "project-local ast-grep structured code search",
       "disposition": "generalize",
       "targets": ["docs/rules/ast-grep.md", "runtime/tools/ast-grep/run.mjs", "runtime/tools/ast-grep/args.mjs", "runtime/tools/ast-grep/package-lock.json", "scripts/lib/tool-provisioning.js", "scripts/lib/module-selection.js"],
-      "tests": ["tests/tooling-modules.test.js", "tests/module-selection.test.js", "tests/runtime-audit.test.js"],
+      "tests": ["tests/integration/tooling-modules.test.js", "tests/integration/module-selection.test.js", "tests/component/runtime-audit.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
       "docs": ["README.md", "README.en.md", "docs/architecture.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-core.json"] }
@@ -216,7 +216,7 @@
       "source": "project-local Chrome DevTools diagnostics",
       "disposition": "generalize",
       "targets": ["docs/rules/chrome-devtools-mcp.md", "runtime/tools/chrome-devtools-mcp/run.mjs", "runtime/tools/chrome-devtools-mcp/package-lock.json", "skills/integrations/browser-verification/SKILL.md"],
-      "tests": ["tests/module-selection.test.js", "tests/tool-provisioning.test.js", "tests/runtime-audit.test.js", "tests/skill-closure.test.js"],
+      "tests": ["tests/integration/module-selection.test.js", "tests/matrix/tool-provisioning.test.js", "tests/component/runtime-audit.test.js", "tests/integration/skill-closure.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
       "docs": ["README.md", "README.en.md", "docs/architecture.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-core.json"] }
@@ -226,7 +226,7 @@
       "source": "canonical Skill catalog and closure",
       "disposition": "validator",
       "targets": ["manifests/skills.json", "scripts/lib/pack-validation.js", "scripts/skills-audit.js"],
-      "tests": ["tests/skill-closure.test.js", "tests/manifest-schema.test.js"],
+      "tests": ["tests/integration/skill-closure.test.js", "tests/component/manifest-schema.test.js"],
       "profiles": ["core", "full"],
       "docs": ["docs/inventory/skills-optimization-zh.md"],
       "evaluation": { "required": false, "reason": "Skill metadata and closure are validated deterministically." }
@@ -236,7 +236,7 @@
       "source": "evaluation runner and canary observability",
       "disposition": "validator",
       "targets": ["runtime/evals/codex-runner.mjs", "runtime/evals/lib/protected-config.mjs", "runtime/evals/observers.json", "scripts/eval-check.js", "scripts/eval-health.js", "scripts/eval-online.js", "scripts/lib/eval-contract.js", "scripts/lib/eval-health.js", "scripts/lib/eval-runtime-config.js", ".github/workflows/evals.yml"],
-      "tests": ["tests/eval-ci.test.js", "tests/eval-runner.test.js"],
+      "tests": ["tests/integration/eval-ci.test.js", "tests/integration/eval-runner.test.js"],
       "profiles": ["full"],
       "docs": ["docs/evals.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-online-canary.json"] }
@@ -246,7 +246,7 @@
       "source": "single-role dynamic routing and native host projections",
       "disposition": "generalize",
       "targets": ["manifests/roles.json", "schemas/role-pack.schema.json", "roles/base.md", "roles/prompts/chief-architect.md", "roles/prompts/product-manager.md", "roles/prompts/technical-project-manager.md", "roles/prompts/senior-engineer.md", "roles/prompts/test-lead.md", "roles/prompts/adversarial-security-reviewer.md", "roles/prompts/technical-release-manager.md", "docs/rules/role-routing.md", "scripts/lib/role-projection.js", "scripts/roles-audit.js"],
-      "tests": ["tests/role-projection.test.js", "tests/module-selection.test.js", "tests/cross-platform-adapters.test.js"],
+      "tests": ["tests/integration/role-projection.test.js", "tests/integration/module-selection.test.js", "tests/matrix/cross-platform-adapters.test.js"],
       "profiles": ["full"],
       "docs": ["README.md", "README.en.md", "docs/architecture.md", "docs/roles.md", "docs/rules/role-routing.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-role-routing.json"] }
@@ -256,7 +256,7 @@
       "source": "Eight-host shared runtime and adapter projections",
       "disposition": "validator",
       "targets": ["manifests/adapters.json", "adapters/install-map.json", "adapters/claude/CLAUDE.template.md", "adapters/gemini/GEMINI.template.md", "adapters/antigravity/RULES.template.md", "adapters/opencode/AGENTS.template.md", "adapters/opencode/mcp.template.json", "scripts/lib/install-planner.js", "scripts/lib/install-state.js", "scripts/lib/managed-json-config.js", "scripts/lib/nested-install.js"],
-      "tests": ["tests/cross-platform-adapters.test.js", "tests/opencode-adapter.test.js"],
+      "tests": ["tests/matrix/cross-platform-adapters.test.js", "tests/integration/opencode-adapter.test.js"],
       "profiles": ["minimal", "core", "full", "docs-only"],
       "docs": ["README.md", "README.en.md", "docs/architecture.md", "docs/migration-guide.md"],
       "evaluation": { "required": false, "reason": "Adapter file sets and lifecycle behavior are deterministic and verified on Linux and Windows. Adapters without stable PreToolUse and PermissionRequest coverage, or with empty redZonePrefixes, run with a degraded runtime safety posture; this is surfaced explicitly by the DEGRADED_SAFETY_POSTURE warning in install, validate, and doctor." }
@@ -266,7 +266,7 @@
       "source": "Explicit Linear issue delegation, append-only execution receipts, native DAG relations, GitHub/GitLab automation, and remote MCP integration",
       "disposition": "generalize",
       "targets": ["docs/rules/linear-workflow.md", "docs/rules/ai-collab-rules.md", "skills/integrations/linear-workflow/SKILL.md", "skills/integrations/linear-workflow/references/ai-coding-task.md", "skills/integrations/linear-workflow/references/dag-parent.md", "skills/integrations/linear-workflow/references/execution-receipt.md", "skills/integrations/linear-workflow/references/release-issue.md", "skills/integrations/linear-workflow/references/triage-template.md", "skills/integrations/linear-workflow/references/workspace-setup.md", "adapters/install-map.json"],
-      "tests": ["tests/linear-workflow.test.js", "tests/execution-simplification.test.js", "tests/module-selection.test.js", "tests/skill-closure.test.js", "tests/target-validation.test.js"],
+      "tests": ["tests/integration/linear-workflow.test.js", "tests/unit/execution-simplification.test.js", "tests/integration/module-selection.test.js", "tests/integration/skill-closure.test.js", "tests/matrix/target-validation.test.js"],
       "profiles": [],
       "docs": ["docs/specs/linear-multi-agent-workflow-spec.md", "docs/rules/linear-workflow.md", "docs/rules/ai-collab-rules.md"],
       "evaluation": { "required": true, "suites": ["evals/suites/linear-workflow-online.json"] }
@@ -276,7 +276,7 @@
       "source": "project memory contracts",
       "disposition": "project-only",
       "reason": "Business DTOs, permissions, ports, and repository names remain owned by the target project.",
-      "tests": ["tests/redaction.test.js"],
+      "tests": ["tests/unit/redaction.test.js"],
       "profiles": [],
       "docs": ["docs/inventory/source-rules-mapping.md"],
       "evaluation": { "required": false, "reason": "Project-specific contracts are outside the reusable pack." }
@@ -286,7 +286,7 @@
       "source": "application source",
       "disposition": "excluded-with-reason",
       "reason": "Vibe-Harness distributes governance assets and does not migrate product runtime code.",
-      "tests": ["tests/redaction.test.js"],
+      "tests": ["tests/unit/redaction.test.js"],
       "profiles": [],
       "docs": ["docs/inventory/source-rules-mapping.md"],
       "evaluation": { "required": false, "reason": "Application runtime code is explicitly excluded from Vibe-Harness." }

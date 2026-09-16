@@ -796,14 +796,14 @@ AC-01、AC-02、AC-03、AC-04（含 AC-04a）、AC-11 已关闭；AC-08 的 Hook
 | --- | --- | --- |
 | F01 | 已修复 | 原生工具名映射已落地并被测试锁定，无需再记账 |
 | F02 | 部分修复 | 只到投影层，宿主实测缺失 → TD-2026-09-15-2 |
-| F03 | 未修复 | 工具表不含 Skill/MCP → TD-2026-09-15-3 |
+| F03 | 已修复（静态，2026-09-16 更新） | 能力按本次安装解析结果注入四个宿主，Codex 由父会话继承，Antigravity 维持 configured-unverified → TD-2026-09-15-3 |
 | F04 | 部分修复 | 规则已改成先判动作，缺路由 Eval 观察，不单独建条目（批次外） |
 | F05 | 未修复 | suite 仍为文本重放 → TD-2026-09-15-4 |
 | F06 | 部分修复 | offline 已覆盖角色目录，在线 CONFIG_PATHS 未覆盖 → TD-2026-09-15-5 |
-| F07 | 部分修复 | 索引已含 when/avoid 与启用状态，原生文件未注入 → TD-2026-09-15-6 |
+| F07 | 已修复（2026-09-16 更新） | when/avoid 与 description 组合进原生 description，索引同源同语言；TD-2026-09-15-6 关闭 |
 | F08 | 已修复（静态） | 父/子契约已在 base 与路由规则成文 |
 | F09 | 已修复 | 路径修正后 audit 可运行并全绿 |
-| F10 | 部分修复 | doctor 新增 roleCount/missingCapabilities，仍未区分「宿主已激活」「工具绑定已验证」→ TD-2026-09-15-7 |
+| F10 | 部分修复（2026-09-16 更新） | doctor 已拆四级状态（fileGenerated / hostActivated / toolBinding / currentTaskExecutable），真机实证仍缺 → TD-2026-09-15-7 |
 
 `docs/memory/TECH_DEBT.md` 同步新增「F 系列三态台账（2026-09-05 审查，2026-09-15 复核）」小节与 6 条未闭合技术债，每条含证据、影响、owner 与关闭条件。
 
@@ -1010,6 +1010,86 @@ bootstrap 端到端耗时中位数 275.8 ms → 225.2 ms（12 轮交错实测，
 
 三个提交可逐个 `git revert`；由于 `command` 文本与 `matcher` 随之回退，revert 后同样需要重装安装面并在宿主中重新信任一次。
 
+## 17. 角色投影全面优化实施记录（2026-09-16，P1–P6 与 8 宿主）
+
+状态：一个独立提交，可单独 revert。范围覆盖 8 个宿主（codex / claude / gemini / cursor / qoder / zcode / antigravity / opencode）与 `.agents/roles/index.md` 索引面；不写宿主全局配置、不新增 MCP server 或凭据、不改角色 Prompt 正文与 Skill 正文语言（正文维持中文，只有 description 与 `routing.when`/`routing.avoid` 改英文）。原则是「只投影当前宿主已验证的契约」：无法验证的键位不猜也不保留，并把「文件已生成 / 宿主已激活 / 工具绑定已验证」拆开表述。
+
+### 17.1 改动面
+
+| 文件 | 作用 |
+| --- | --- |
+| `manifests/roles.json` | 7 个内置角色的 `description`、`routing.when`、`routing.avoid` 全部改英文，组合后逐条落在 259–299 字符，全 ASCII |
+| `manifests/adapters.json`、`schemas/adapter-pack.schema.json` | 每个 adapter 的 `roleProjection` 新增 `toolBinding`（`native` / `prompt-guarded` / `configured-unverified`）并成为 schema 必填 |
+| `scripts/lib/role-projection.js` | 新增 `projectRoleDescription()`（唯一组合规则与 fail-closed 校验）、`supportNativeCapabilityBinding()` 与 `MANAGED_MCP_SERVER_PREFIX`；Qoder 改为手写 frontmatter 且不写 `tools`；OpenCode 补 deny 键位与 bash 前缀白名单；Antigravity 工具名按二进制核实修正 |
+| `runtime/hooks/lib/read-only-commands.mjs` | 新增导出 `readOnlyCommandPrefixes()`，从既有分类表派生 184 条无参数只读命令前缀，供 OpenCode 的 bash allowlist 与角色审计共用同一来源 |
+| `scripts/lib/install-planner.js` | 新增 `resolvedRoleCapabilities()`，把本次安装解析到的 Skill 名与 `vibe-harness-*` MCP server 名传入两处 `resolveRoleInstallEntries()` 调用点 |
+| `scripts/lib/roles-audit.js` | 新增 description 逐字/单行/ASCII/≤300/explicit 前缀断言、role `name` 与 Prompt H1 一致性断言、OpenCode bash 白名单顺序与来源断言、逐宿主能力键位断言（期望表独立于投影助手维护） |
+| `scripts/vibe-harness.js` | doctor 的角色报告拆成四级状态并新增 `ROLE_TOOL_BINDING_UNVERIFIED` 告警 |
+| `roles/prompts/technical-release-manager.md` | H1 由「技术发布经理」改为「发布就绪审查者」，与 manifest `name` 及 `docs/roles.md` 对齐（P3） |
+| `docs/rules/role-routing.md`、`docs/roles.md` | 新增「角色描述契约」与 8 宿主映射表；doctor 口径改为四级状态 |
+| `tests/role-projection.test.js`、`tests/opencode-adapter.test.js` | 新增描述契约、能力绑定、fail-closed、OpenCode 权限面与审计负向用例；适配器侧新增端到端用例断言落盘后的 agent 文件 |
+
+### 17.2 各宿主投影契约（按已核实的键位）
+
+| 宿主 | 投影路径 | 权限键位 | 注入的能力 | `toolBinding` |
+| --- | --- | --- | --- | --- |
+| Codex | `.codex/agents/*.toml` | `sandbox_mode` | Skill 与 MCP 由父会话继承 | native |
+| Claude | `.claude/agents/*.md` | `tools` 白名单、`skills` 预加载、`permissionMode: plan`（analysis） | 按本次安装枚举 `mcp__<server>`，无 server 时不写 `mcp__` 键；不把 `Skill` 写进 `tools` | prompt-guarded |
+| Gemini CLI | `.gemini/agents/*.md` | `tools` | 仅当本次安装含 MCP server 时追加官方通配 `mcp_*` | prompt-guarded |
+| Cursor | `.cursor/agents/*.md` | `readonly` | 无 | prompt-guarded |
+| Qoder | `.qoder/agents/*.md` | 无（解析器不认 `tools`） | `skills` 与 `mcpServers` 列表 | prompt-guarded |
+| ZCode | `.zcode/plugins/vibe-harness-roles/agents/*.md` | `tools`、`permissionMode: plan`（analysis 与 security-review） | `skills`（声明后宿主自动授予 Skill 工具） | prompt-guarded，需手动激活插件 |
+| Antigravity | `.agents/agents/*.md` | `tools` | 无 | configured-unverified |
+| OpenCode | `.opencode/agents/*.md` | `edit` / `bash` / `task` / `webfetch` / `websearch` / `external_directory` | 无 | native |
+
+两点与执行计划原文的差异，按宿主实际语义修正（已确认事实）：
+
+- OpenCode 的 bash 映射把 catch-all `"*"` 写在最前、具体 allow 规则写在后面。计划原文写的是「把 `"*"` 放在最后一条」，与官方文档矛盾：opencode.ai/docs/permissions 明确「Rules are evaluated by pattern match, with the last matching rule winning. A common pattern is to put the catch-all `"*"` rule first, and more specific rules after it.」若按计划原文落盘，184 条 allow 会被随后的 `"*": ask` 覆盖，白名单失效。现实现与审计断言都以「catch-all 在前、specific 在后」为准。
+- 角色级 `sandbox_mode` 未在 Codex 真机冒烟中独立生效（见 17.4 与 TD-2026-09-15-2），因此本批次没有据此改动 Codex 的 `permissionEnforcement`：该键位仍按既有契约投影，真正生效范围改由四级状态与 doctor 告警如实呈现。
+
+### 17.3 门禁与诊断
+
+- `resolveRoleInstallEntries()` 的入参扩展为可选 `resolvedCapabilities`：缺省时不注入任何能力键位（向后兼容），传入时按宿主白名单 fail-closed——非 `claude`/`gemini`/`qoder`/`zcode` 的宿主收到能力请求直接报错，MCP 名必须是 `vibe-harness-*`、Skill 名必须是纯目录名，否则安装中止而不是静默丢弃。
+- `scripts/lib/roles-audit.js` 的期望值不复用投影助手：description 由 manifest 字段在审计侧重算，能力键位由独立常量表断言。已覆盖 Qoder 不得出现 `tools`、Claude 必须逐字枚举已安装 server 且不得把 `Skill` 写进 `tools`、Gemini 的 `mcp_*` 条件性、不可绑定宿主不得出现 mcp/skills、Antigravity 工具名白名单、OpenCode bash 顺序与来源。
+- doctor 的 `roles.<host>` 现在输出 `fileGenerated: generated`、`hostActivated`、`toolBinding`、`currentTaskExecutable`（无真机证据恒为 false），合并字段 `status` 只描述第一级；`configured-unverified` 的宿主额外报 `ROLE_TOOL_BINDING_UNVERIFIED`。
+
+### 17.4 Codex 真机冒烟（已确认事实，Codex 0.147.0）
+
+在本仓库工作区派生两个角色子 Agent，`agent_type` 分别为 `chief-architect`（analysis 预设）与 `senior-engineer`（implementation 预设），并读取两者的会话记录（`~/.codex/sessions/2026/09/16/`）：
+
+- 角色文件确实被宿主加载：两个子 Agent 的注入上下文都包含本仓库角色契约正文（`# 首席架构师` / `# 高级工程师` 与 `# 生效权限预设` 段落），说明 `.codex/agents/*.toml` 的 `developer_instructions` 进入了子会话。
+- 命令面：`codex exec` 的子会话里 `list_agents` 只返回 `/root`，`spawn_agent` 的 `agent_type` 接受本仓库的 7 个角色 id；一次带 `-s read-only` 的 CLI 会话中，`chief-architect` 子 Agent 自报 sandbox 为只读。
+- 角色级 sandbox 未独立生效：两次桌面宿主派生的子 Agent 拿到的 `<permissions instructions>` 都是父会话的 `sandbox_mode is danger-full-access`，没有出现角色文件里写的 `read-only` 或 `workspace-write`。据此不宣称「只读角色一定只读」。
+- 未验证项：`description` 组合串是否直接参与委派无法从会话记录区分（宿主只暴露 agent_type 与本仓库角色契约），其余 7 个宿主未安装/未登录，全部停在 `configured-unverified`。
+
+### 17.5 验证清单
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm check` | 通过（lint、typecheck、结构校验与 381 项单元测试，0 失败） |
+| `pnpm roles:audit` | ok，7 roles、0 errors、0 warnings |
+| `pnpm skills:audit` | clean，15 Skills（12 native + 3 integration）、0 findings |
+| `pnpm docs:audit` | 通过，115 documents |
+| `pnpm test:integration` | 加本批次用例前一次全绿（320 通过 / 1 既有跳过 / 0 失败）；加用例后两次被外部负载打红，均为超时类（见 17.6 与 TD-2026-09-15-8），同一文件清单把单测预算放宽到 600000 ms 后为 321 通过 / 1 既有跳过 / 0 失败 |
+| `pnpm smoke:lifecycle` | 全部 step exitCode 0 |
+| `node --test tests/role-projection.test.js`、`tests/opencode-adapter.test.js` | 17 / 17、5 / 5 通过 |
+| `git diff --check` | 干净（退出码 0） |
+| 自安装重放 `install --project . --target codex --write --confirm-red-zone` | 首次因 3 个 `user-modified`（`docs/rules/project-specific-rules.md`、`docs/rules/role-routing.md`、`.agents/evals/references/*.offline.json`）被拒；核对三者源与目标同路径同内容后用 `--force` 重放，ok / ready / written 138 / retired 0 / skipped 0，随后把被实例化的 `docs/rules/project-specific-rules.md` 恢复为 pack 模板原文（沿用 13.2 与 16.5 记录的既有现象） |
+
+Eval 指纹：本批次同时改动 hooks（`runtime/hooks/lib/read-only-commands.mjs` 新增导出）、config（`manifests`、`schemas`）与 rules（`roles/`、`.agents/roles`、`.codex/agents`、`docs/rules/role-routing.md`）三组，因此漂移为三组加 `aggregateHash`，比执行计划预估的「config 与 rules 两组」多出 hooks 组。按 CONTRIBUTING 清单顺序执行 `eval run --write` → `eval reference --from <run> --write --confirm-reference-update --force` → `eval:sync --write` → `eval:replay --write` 后，`pnpm eval:check` 与 `pnpm eval:replay` 通过；新旧指纹对照：config `86eca5ad…` → `223c04b7…`、hooks `a0167e38…` → `b46cb939…`、rules `5c7ccc71…` → `9218948c…`、aggregate `e5c24b01…` → `48f3c958…`，skills 组未动（128 文件）。
+
+### 17.6 未闭合与移交
+
+- Antigravity 的发现路径与工具名仍无真机证据（TD-2026-09-15-3），`toolBinding` 固定 `configured-unverified`。
+- 角色级 `sandbox_mode` 在 Codex 上的实际效力未确认（TD-2026-09-15-2）；`currentTaskExecutable` 对全部宿主仍为 false（TD-2026-09-15-7）。
+- Gemini/Cursor/Qoder/ZCode/Claude/Antigravity/OpenCode 七个宿主只做静态投影与审计，未做真机加载与工具绑定验证，文档与 doctor 均按此口径表述。
+- `docs/rules/project-specific-rules.md` 的自安装实例化现象仍存在（13.6、16.5 已记录），本批次沿用「重放后从 git 恢复模板原文」的既有做法，未改变投影策略。
+- 本批次收尾时本机同时运行其它项目的构建，`pnpm test:integration` 两次红灯都不是断言失败而是超时：一次是 TD-2026-09-15-8 记录的 `Date.now() - startedAt < 5000` 断言（该场景同机三次独立测量 5329 / 9983 / 7937 ms），一次是 `tests/cross-platform-adapters.test.js` 的 120 秒单测上限（该文件单独运行 42/42 通过但耗时 107.8 秒）。两条证据已补进 TD-2026-09-15-8；本批次未修改该断言或测试超时预算（不属本批次范围）。
+
+### 17.7 回滚
+
+本节所在提交可单独 `git revert`；回滚后需要重放一次自安装（角色投影会随之回到旧键位），并按 CONTRIBUTING 的 Eval reference 清单再生成一次 reference/replay 产物。
+
 ## 附录 A · 运行产物清理清单（2026-09-15 实测；删除已同日按用户确认执行，见第 15 节）
 
 体积与文件数为本机实测（PowerShell 递归统计）。「生产者」一列是仓库内可核对的生成入口；标「未找到生产者」的路径在仓库源码中没有任何引用，删除前必须确认其可重建性。
@@ -1044,6 +1124,7 @@ doctor 的 `unmanagedCount` 在本轮测量中由 2989 升到 3190，随仓库�
 | `04850f1` fix(hooks): bootstrap 失败路径改为 fail-closed 并单源化命令定义 | 第 16 节（H-01、H-04、H-06、H-07、H-08、H-10） | Hook 失败出口、引导单源化、环境与超时边界 | 是 |
 | `afeebe8` feat(hooks): 钩子判定覆盖全部本地函数工具并补全只读工具集合 | 第 16 节（H-02） | Hook 触发面与只读工具分类 | 是 |
 | fix(hooks): 文档口径、重新信任提示与实施台账（第 16 节所在提交） | 第 16 节（H-03、H-05、H-11） | Hook 文档、`HOOK_TRUST_REREVIEW_REQUIRED` | 是 |
+| 本节所在提交 | 第 17 节（角色投影 P1–P6、8 宿主） | F03（静态部分）、F07、F10 的四级状态与能力注入 | 是 |
 
 工作区中仍有用户在本次审查之前/之外改动的文件（stale-cleanup、install-preset 等相关）未纳入以上任何提交；每个提交只包含该批次自己的改动，`scripts/lib/pack-validation.js`、`package.json`、`adapters/install-map.json`、`scripts/lib/install-planner.js` 等重叠文件用「按内容建 blob 后更新索引」的方式只暂存本批次 hunk。
 

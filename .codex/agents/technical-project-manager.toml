@@ -1,5 +1,5 @@
 name = "technical-project-manager"
-description = "用于多工作流依赖、关键路径、里程碑与可执行任务拆分。"
+description = "[Explicit invocation only; do not auto-select. Use for multi-workstream dependencies, critical path, milestones, and task decomposition. Triggers: several dependent work units; a critical path or staged plan; decomposition that needs a Task DAG. Avoid: a single local task; process for its own sake."
 sandbox_mode = "read-only"
 developer_instructions = """
 # Vibe-Harness 角色契约

@@ -14,21 +14,33 @@ import { buildVerificationPlan } from './lib/verification-plan.js';
 const execFileAsync = promisify(execFile);
 
 function checkStage(command) {
+  if (/test:matrix/iu.test(command)) return 'matrix';
+  if (/test:e2e/iu.test(command)) return 'e2e';
   if (/test:integration/iu.test(command)) return 'integration';
   if (/smoke:lifecycle/iu.test(command)) return 'smoke';
+  if (/test:component/iu.test(command)) return 'component';
   return 'focused';
 }
 
 export function buildImpactMapping(paths, commands) {
+  const stage = (name) => [...new Set(commands.filter((item) => checkStage(item.command) === name).map((item) => item.command))];
   return paths.map((source) => ({
     source,
-    focused: commands.filter((item) => checkStage(item.command) === 'focused').map((item) => item.command),
+    focused: [
+      ...stage('focused'),
+      ...stage('component'),
+    ],
     integration: [...new Set([
-      ...commands.filter((item) => checkStage(item.command) === 'integration').map((item) => item.command),
+      ...stage('integration'),
       ...( /^(?:scripts|runtime|adapters)\//u.test(source) ? ['pnpm test:integration'] : []),
     ])],
+    e2e: [...new Set([
+      ...stage('e2e'),
+      ...( /^(?:scripts|runtime|adapters|\.github\/workflows)\//u.test(source) ? ['pnpm test:e2e'] : []),
+    ])],
+    matrix: stage('matrix'),
     smoke: [...new Set([
-      ...commands.filter((item) => checkStage(item.command) === 'smoke').map((item) => item.command),
+      ...stage('smoke'),
       ...( /^(?:scripts|runtime|adapters|\.github\/workflows)\//u.test(source) ? ['pnpm smoke:lifecycle'] : []),
     ])],
   }));

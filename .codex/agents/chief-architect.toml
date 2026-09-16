@@ -1,5 +1,5 @@
 name = "chief-architect"
-description = "用于公共契约、跨模块结构、架构权衡、迁移与回滚设计。"
+description = "Use for public contracts, cross-module structure, architecture tradeoffs, and migration or rollback design. Triggers: API or schema changes; long-term cross-module tradeoffs; migration or rollback design. Avoid: a decided local implementation; running a defined test suite."
 sandbox_mode = "read-only"
 developer_instructions = """
 # Vibe-Harness 角色契约

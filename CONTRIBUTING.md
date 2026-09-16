@@ -66,7 +66,7 @@ pnpm check
 git diff --check
 ```
 
-`pnpm check` 已内含语法/资产扫描、ESLint、typecheck、安装结构校验和单元测试；CI 的 fast 与 full 门禁同样执行 ESLint 和 typecheck，本地不再与远端门禁存在覆盖差异。
+`pnpm check` 已内含语法/资产扫描、ESLint、typecheck、安装结构校验、单元测试（L1）与组件测试（L2）；CI 的 fast 与 full 门禁同样执行 ESLint 和 typecheck，本地不再与远端门禁存在覆盖差异。集成（L3）、端到端关键路径（L4）与全量矩阵（L5）按需显式运行，定义见 `docs/rules/test-rules.md` 的「测试分层」。
 
 installer 集成验证应覆盖已有文件拒写、红区确认、目标路径逃逸和事务回滚边界。
 
@@ -79,12 +79,19 @@ installer 集成验证应覆盖已有文件拒写、红区确认、目标路径�
 `docs/rules/test-rules.md` 是运行器无关的行为契约；以下事实只描述 Vibe-Harness 自身仓库，随规则安装到目标项目时不构成对运行器、依赖或超时的要求：
 
 - 使用 Node.js 内置测试运行器和 node:assert/strict，不引入第三方测试依赖。
-- package.json 将脚本分为 unit、eval 和 integration 三类，`test` 入口按序聚合三类；当前集成测试因共享临时状态使用并发度 1。
-- 当前失败兜底为 unit/eval 30 秒、integration 120 秒。
+- 测试按 `docs/rules/test-rules.md` 的五层划分目录与脚本：`tests/unit/`（`test:unit`）、`tests/component/`（`test:component`）、`tests/integration/`（`test:integration`）、`tests/e2e/`（`test:e2e`）、`tests/matrix/`（`test:matrix`）；`tests/helpers/` 与 `tests/fixtures/` 不属任何层。`test` 入口按 unit → component → integration → e2e → matrix 顺序聚合。
+- `pnpm check` 只跑 L1 与 L2；L3 在 worktree 与提交前运行受影响子集，L4 是 PR 门禁（真实浏览器与真实服务，1–3 条主流程），L5 在发布边界运行。低层通过不得替代高层结论；跳层必须在完成主张里写明理由。
+- 当前失败兜底为 unit/component 30 秒、integration/e2e 120 秒、matrix 600 秒；集成与端到端因共享临时状态使用并发度 2 或更低。
 - 顶层 test 描述行为，不使用 describe 套件；基准路径用 import.meta.dirname。
+- 一个用例只暴露一个失败原因；命名描述行为而非实现；表驱动用例必须参数化命名（把参数写进用例名），使失败摘要能直接定位用例。
+- 断言失败要能定位到输入与期望值，不用只断言「返回了对象」的空断言。
 - 临时目录用 mkdtemp，并在 try/finally 中清理。
 - 条件跳过使用选项对象或运行时 skip，不残留 only 或无理由 skip。
 - 已知负载敏感的集成测试可用有界重试标记（例如 `{ retry: 2 }`），注释必须写明技术债 ID 与关闭条件，记录见 docs/memory/TECH_DEBT.md。
+- 同一层内不得重复覆盖同一行为；退役或隔离用例必须回写 `tests/cases.json`（`pnpm tests:catalog sync --write`），`status: quarantined` 必须绑定 `techDebtId`。
+- 新增或重写用例的 `name` 用项目 `language`（本仓库 `zh-CN`）描述，且能定位被验证的行为；迁移批次存量用例由 `legacy: true` 标记，允许保留英文描述。
+- 用例台账（`tests/cases.json`）的条目 ID 为 `<层前缀>-<文件 stem>-<三位声明序号>`，改名保留 ID；一致性由运行时枚举（`scripts/lib/test-case-reporter.mjs`）与 `pnpm tests:catalog check` 共同守护。
+- 表驱动用例在台账中保留一条参数化条目（名称带 `${...}` 占位符即视为模板），运行时展开的每个实例由该模板匹配，既不为每行重复登记，也不因行数变化报漂移；模板匹配不到任何实例时仍按 `ledger-stale-entry` 报错。
 
 ## Eval reference 更新清单
 
@@ -107,7 +114,7 @@ rules、runtime hooks 或 config 内容变更会使 `evals/references/` 的 asse
 - `pnpm envelope plan [--mode <mode>] [--issue <ID>] [--effect <effect>] --objective <text> --terminal <text> [--base-ref <ref>] [--host-context <file>] [--request-id <id>] [--session-id <id>] [--emit receipt|envelope] [--out <path>] [--write]`：从当前工作区身份生成 Execution Envelope v2 草稿（canonical cwd、worktree root、Git dir、branch、冻结 base SHA、allowed write roots 与 mode effect 上限），并只把 `requestId`、`sessionId`、`hostContext` 留作宿主注入——命令不自造宿主证明，草稿在宿主补齐前保持 invalid。`pnpm envelope check --file <path> [--cwd <path>]` 用发布 schema、runtime 解析器与当前工作区复核信封：越界 effect、allowed/forbidden 冲突、过期、陈旧宿主证明、工作区或 HEAD/base ref 漂移、checkpoint 失配与无法核对工作区都按 fail-closed 报错。
 - `pnpm receipt start|event|handoff|check`：固化 Linear 执行回执与交接协议。`start` 生成新的 `executionId` 与 `runtimeInstanceId`（不复制宿主 thread、session、用户名、主机名或本地路径），`event` 生成终结事件（`handed-off` 必须携带预生成的 successor ID），`handoff` 生成 `vibe-harness.handoff/v1` 载荷（声明 complete 必须同时满足 accepted 与 reviewed/passed 的 finalCheck），`check --file <comments.json> [--issue <ID>]` 分析一个 Issue 的结构化评论历史：同 ID 不同内容、同一 Issue 多个 active execution、孤儿或重复终结事件、交接 successor 的 source 或目标 Issue 不符都报冲突并退出非零，交接未确认等合法中间态以 pending 报出。三个生成命令默认只打印记录，`--write` 时才写入 `--out`，且都不会写入 Linear。
 - `pnpm task-dag check --file <dag.json> [--require-ready] [--json]`：按 `docs/rules/ai-collab-rules.md` 的节点字段校验派发前的轻量 Task DAG——节点契约、依赖边与环、writeScope 重叠、resourceLocks、ready 集与结构哈希；`hash` 输出确定性结构哈希供 checkpoint 记录。错误 fail-closed（未知前驱、环、自依赖、非法 writeScope、read 节点带写范围、write 节点无写范围、共享路径或锁且无依赖路径的两个 write 节点都不 ready），`--require-ready` 在无可派发节点时退出非零。命令只读，不写任何文件。`docs/templates/task.md` 的表格仍是人读记录，不被解析。
-- `pnpm worktree list|check|plan`：用 `git worktree list --porcelain -z` 做 worktree 隔离审计。`check` 按登记任务（`--task <ISSUE-ID>[:<branch>[:<path>]]`，路径可省略，默认取仓库同级 `<repo>-worktrees/<ISSUE-ID>`）核对分支命名 `<type>/<ISSUE-ID>-<slug>`、worktree 位于仓库外部且不互相嵌套、非主工作区绑定命名分支、同一分支不被两个 worktree 占用，并报告 merge-back 事实（分支是否已并入 `--base-ref`、merge-base 是否偏离 `--base-sha`）与 `--deep` 的未提交改动。错误 fail-closed，警告（未创建的登记 worktree、未纳管 worktree、未 merge-back、脏工作区）可用 `--strict` 升级为失败；`plan` 只打印 `git worktree add` 命令。三个子命令都只读，命令绝不执行 `git worktree remove`、`git worktree prune` 或删除分支，未合并的 worktree 只阻止宣称“已集成”。实际创建、依赖链接与清理走项目面入口 `node .agents/runtime/commands/run.mjs worktree <bootstrap|cleanup> --project . --json`（默认 dry-run，`--write` 落盘）；两个入口的子命令集不同，分工见 `docs/rules/git-rules.md` Worktree 节。
+- `pnpm worktree list|check|plan`：用 `git worktree list --porcelain -z` 做 worktree 隔离审计。`check` 按登记任务（`--task <ISSUE-ID>[:<branch>[:<path>]]`，路径可省略，默认取仓库同级 `<repo>-worktrees/<ISSUE-ID>`）核对分支命名 `<type>/<ISSUE-ID>-<slug>`、worktree 位于仓库外部且不互相嵌套、非主工作区绑定命名分支、同一分支不被两个 worktree 占用，并报告 merge-back 事实（分支是否已并入 `--base-ref`、merge-base 是否偏离 `--base-sha`）与 `--deep` 的未提交改动。主检出存在 `.vibe-harness/worktree-ports.json` 时，`check` 一并报告每个 worktree 的端口块与它的 env 文件是否仍与登记表一致（env 漂移、env 未忽略与主检出缺依赖都是 warning）。错误 fail-closed，警告（未创建的登记 worktree、未纳管 worktree、未 merge-back、脏工作区）可用 `--strict` 升级为失败；`plan` 只打印 `git worktree add` 命令。三个子命令都只读，命令绝不执行 `git worktree remove`、`git worktree prune` 或删除分支，未合并的 worktree 只阻止宣称“已集成”。实际创建、依赖链接、端口分配与清理走项目面入口 `node .agents/runtime/commands/run.mjs worktree <bootstrap|cleanup> --project . --json`（默认 dry-run，`--write` 落盘）；两个入口的子命令集不同，分工见 `docs/rules/git-rules.md` Worktree 节。
 - `vibe-harness audit --project <path> --kind cleanup`：只读扫描死代码、过期引用、过期文档、过期资源、过期记忆与过期索引，输出 `audit-report` 收据，`details.cleanup` 记录扫描面、已确认项与候选线索计数以及本次未覆盖的判定。扫描器把高置信结构与启发式候选分开标记，绝不删除或改写文件，`--write` 对 `cleanup` 一律拒绝；`--kind all` 仍只聚合 memory、review 与 improvements，清理需显式指定。
 
 ## Pull Request

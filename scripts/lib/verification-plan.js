@@ -169,14 +169,16 @@ function addCheck(checks, command, reason, id = command, scripts = {}) {
     if (!checkCommand || checks.some((item) => item.id === checkId || item.command === checkCommand)) return;
     checks.push({ id: checkId, command: checkCommand, reason });
   };
-  // `pnpm check` is an aggregate in this repository. Expand it into atomic
-  // checks so the plan cannot execute unit tests twice.
+  // `pnpm check` is an aggregate in this repository (L1 unit + L2 component).
+  // Expand it into atomic checks so the plan cannot execute a layer twice.
   if (/^(?:pnpm|npm|yarn)(?:\s+run)?\s+check$/iu.test(command)
     && typeof scripts.check === 'string'
     && /test:unit/iu.test(scripts.check)) {
     if (scripts.lint) check('lint', 'pnpm lint');
+    if (scripts.typecheck) check('typecheck', 'pnpm typecheck');
     if (scripts.validate) check('validate', 'pnpm validate');
     check('test', 'pnpm test:unit');
+    if (/test:component/iu.test(scripts.check)) check('component', 'pnpm test:component');
     return;
   }
   check(id, command);
@@ -193,19 +195,27 @@ export async function buildVerificationPlan({ changedPaths = [], changedDetails 
   const reasons = [];
   if (risk.configuredZones.red) reasons.push('命中 riskZones.red 或 pathPatterns.red');
   else if (risk.configuredZones.yellow) reasons.push('命中 riskZones.yellow 或 pathPatterns.yellow');
+  // Test layers follow docs/rules/test-rules.md: L1 unit and L2 component run on
+  // every change, L3 integration on the affected subset, L4 e2e at the PR gate
+  // and L5 matrix at release boundaries. A project that only defines some layer
+  // scripts simply gets the layers it owns.
+  const scriptFallback = {
+    lint: 'lint',
+    typecheck: 'typecheck',
+    test: 'test:unit',
+    component: 'test:component',
+    integration: 'test:integration',
+    e2e: 'test:e2e',
+    matrix: 'test:matrix',
+    eval: 'eval:replay',
+  };
   const configured = (name) => {
     if (commandStatus[name]?.status && commandStatus[name].status !== 'not_configured') {
       return commandStatus[name].command;
     }
-    const scriptName = {
-      lint: 'lint',
-      typecheck: 'typecheck',
-      test: 'test:unit',
-      eval: 'eval:replay',
-    }[name];
+    const scriptName = scriptFallback[name];
     return scriptName && scripts[scriptName] ? 'pnpm ' + scriptName : null;
   };
-  const scriptFallback = { lint: 'lint', typecheck: 'typecheck', test: 'test:unit', eval: 'eval:replay' };
   const addConfigured = (name, reason) => {
     const fallbackScript = scriptFallback[name];
     const command = configured(name) ?? (scripts[fallbackScript] ? `pnpm ${fallbackScript}` : null);
@@ -214,13 +224,13 @@ export async function buildVerificationPlan({ changedPaths = [], changedDetails 
 
   if (full || risk.riskLevel === 'high' || risk.fallbackUsed) {
     if (scripts.validate) addCheck(checks, 'pnpm validate', '完整验证的原子配置校验', 'validate', scripts);
-    for (const name of ['lint', 'typecheck', 'test', 'eval']) addConfigured(name, `完整验证：项目配置的 ${name}`);
+    for (const name of ['lint', 'typecheck', 'test', 'component', 'eval']) addConfigured(name, `完整验证：项目配置的 ${name}`);
       if (scripts['test:integration']) addCheck(checks, 'pnpm test:integration', '高风险或完整验证的集成回归', 'integration', scripts);
       if (scripts['smoke:lifecycle']) addCheck(checks, 'pnpm smoke:lifecycle', '生命周期、安装或 Hook 回归', 'smoke', scripts);
     reasons.push(full ? '显式 --full' : risk.fallbackUsed ? '影响范围无法可靠分类，安全回退' : '命中高风险路径');
   } else {
     if (changedPaths.length === 0) {
-      for (const name of ['lint', 'typecheck', 'test', 'eval']) addConfigured(name, `无变更时的项目基线 ${name}`);
+      for (const name of ['lint', 'typecheck', 'test', 'component', 'eval']) addConfigured(name, `无变更时的项目基线 ${name}`);
       reasons.push('无变更，运行项目基线检查');
     }
     if (risk.impactGroups.includes('docs') && !risk.impactGroups.some((group) => ['rules', 'schemas'].includes(group))) {
@@ -229,16 +239,18 @@ export async function buildVerificationPlan({ changedPaths = [], changedDetails 
     }
     if (risk.impactGroups.includes('rules')) {
       addConfigured('test', '规则行为锁定测试');
+      addConfigured('component', '规则契约与资产测试');
        if (scripts['eval:check']) addCheck(checks, 'pnpm eval:check', '规则契约与 reference 校验', 'eval-check', scripts);
       reasons.push('规则或治理内容变更');
     }
     if (risk.impactGroups.includes('tests')) {
       addConfigured('test', '受影响单元测试');
+      addConfigured('component', '受影响组件测试');
       if (risk.riskLevel === 'quick') reasons.push('单个测试文件变更');
     }
     if (risk.impactGroups.includes('eval')) {
        if (scripts['eval:check']) addCheck(checks, 'pnpm eval:check', 'Eval 契约校验', 'eval-check', scripts);
-       if (scripts['test:eval']) addCheck(checks, 'pnpm test:eval', 'Eval 基础设施测试', 'eval-test', scripts);
+      addConfigured('component', 'Eval 资产与契约测试');
     }
     if (risk.impactGroups.includes('skills')) {
        if (scripts['skills:audit']) addCheck(checks, 'pnpm skills:audit', 'Skill 元数据审计', 'skills', scripts);
@@ -246,6 +258,7 @@ export async function buildVerificationPlan({ changedPaths = [], changedDetails 
     }
     if (risk.impactGroups.includes('scripts')) {
       addConfigured('test', '脚本相关单元测试');
+      addConfigured('component', '脚本相关组件测试');
       reasons.push('普通脚本或局部业务逻辑变更');
     }
     if (risk.impactGroups.includes('config')) {
@@ -264,7 +277,10 @@ export async function buildVerificationPlan({ changedPaths = [], changedDetails 
     if (fallback) addCheck(checks, fallback, '没有更窄的检查可用，使用项目最小配置检查', 'fallback', scripts);
   }
 
-  const known = ['lint', 'typecheck', 'test', 'eval', 'docs', 'eval-check', 'eval-test', 'skills', 'validate', 'integration', 'smoke'];
+  const known = [
+    'lint', 'typecheck', 'validate', 'test', 'component', 'eval', 'docs', 'eval-check', 'skills',
+    'integration', 'e2e', 'matrix', 'smoke',
+  ];
   const selectedChecks = checks.map((item) => ({
     ...item,
     ...(commandStatus[item.id]?.status ? { status: commandStatus[item.id].status } : {}),

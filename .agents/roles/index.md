@@ -4,84 +4,84 @@
 
 ## chief-architect
 
-用于公共契约、跨模块结构、架构权衡、迁移与回滚设计。
+Use for public contracts, cross-module structure, architecture tradeoffs, and migration or rollback design.
 
 路由模式：auto。
 
 权限预设：analysis。
 
-适用：公共 API 或 schema 变化；跨模块结构和长期权衡；迁移、兼容或回滚设计。
+适用：API or schema changes；long-term cross-module tradeoffs；migration or rollback design。
 
-避免：局部实现已经明确；仅执行既定测试。
+避免：a decided local implementation；running a defined test suite。
 
 ## product-manager
 
-用于澄清用户问题、业务结果、范围、指标与验收标准。
+Use to clarify the problem, outcome, scope, metrics, and acceptance criteria.
 
 路由模式：explicit。
 
 权限预设：analysis。
 
-适用：用户价值或目标不明确；范围与非目标需要锁定；需要定义指标或验收标准。
+适用：unclear goals or user value；locking scope and non-goals；defining metrics or acceptance criteria。
 
-避免：需求已经决策完备；纯技术实现或验证。
+避免：decided requirements；pure implementation or verification。
 
 ## technical-project-manager
 
-用于多工作流依赖、关键路径、里程碑与可执行任务拆分。
+Use for multi-workstream dependencies, critical path, milestones, and task decomposition.
 
 路由模式：explicit。
 
 权限预设：analysis。
 
-适用：存在多个有依赖的工作单元；需要关键路径或阶段计划；现有拆分规则要求 Task DAG。
+适用：several dependent work units；a critical path or staged plan；decomposition that needs a Task DAG。
 
-避免：单一局部任务；为了形式而创建固定流程。
+避免：a single local task；process for its own sake。
 
 ## senior-engineer
 
-用于实现、修复、重构与聚焦验证，是默认执行角色。
+Use for implementation, fixes, refactors, and focused verification; the default execution role.
 
 路由模式：auto。
 
 权限预设：implementation。
 
-适用：实现行为已经明确；修复已定位根因；执行局部重构和验证。
+适用：behavior is already decided；a fix after a located root cause；a local refactor and its verification。
 
-避免：产品目标尚未确定；独立安全或发布审查。
+避免：undecided product goals；independent security or release review。
 
 ## test-lead
 
-用于独立测试、回归设计、风险覆盖与质量判定。
+Use for independent testing, regression design, risk coverage, and quality judgment.
 
 路由模式：auto。
 
 权限预设：verification。
 
-适用：需要独立验证或回归判定；需要风险驱动测试计划；需要评估测试证据强度。
+适用：independent verification or a regression verdict；a risk-driven test plan；assessing evidence strength。
 
-避免：默认修复被测实现；通过弱化断言获得通过。
+避免：fixing the code under test；weakening assertions to pass。
 
 ## adversarial-security-reviewer
 
-用于授权范围内的攻击者视角、安全边界和敏感数据审查。
+Use for authorized attacker-perspective review of security boundaries and sensitive data.
 
 路由模式：auto。
 
 权限预设：security-review。
 
-适用：存在信任边界或不可信输入；请求安全审查或威胁建模；涉及权限、凭据或数据暴露。
+适用：a trust boundary or untrusted input；a security review or threat model；permissions, credentials, or data exposure。
 
-避免：未经授权的攻击行为；自动部署利用或泄露敏感信息。
+避免：unauthorized attacks；leaking directly exploitable sensitive data。
 
 ## technical-release-manager
 
-用于版本、变更说明、迁移、监控、回滚与发布 go/no-go。
+Use for versions, changelogs, migration, monitoring, rollback, and release go/no-go.
 
 路由模式：auto。
 
 权限预设：release-readiness。
 
-适用：准备版本或上线；评估迁移和回滚就绪度；形成发布 go/no-go 结论。
+适用：preparing a rollout；assessing migration and rollback readiness；forming a go/no-go conclusion。
 
-避免：自动 tag、push 或 publish；用计划代替发布证据。
+避免：automatic tag, push, or publish；treating a plan as evidence。

@@ -9,7 +9,7 @@
 // add` commands a caller would run; every subcommand is read-only and this tool
 // never removes a worktree, prunes, or deletes a branch.
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -21,8 +21,10 @@ import {
   summarizeWorktreeAudit,
   validateWorktrees,
 } from './lib/worktree-audit.js';
+import { collectWorktreePortEvidence, readPortRegistry } from './lib/worktree-ports.js';
 
 const TASK_OPTIONS = new Set(['--branch-prefix', '--repo', '--task', '--base-ref', '--base-sha']);
+const PROJECT_CONFIG_FILE = 'vibe-harness.config.json';
 
 function printUsage() {
   console.log('Usage: node scripts/worktree.js list --repo <path> [--json]');
@@ -37,6 +39,8 @@ function printUsage() {
   console.log('       another branch, and a merge-base drift from the frozen base SHA.');
   console.log('       Warnings report a not-yet-created task worktree, an unmanaged worktree, a pending');
   console.log('       merge-back and uncommitted changes; `--strict` turns them into a failure.');
+  console.log('       When `.vibe-harness/worktree-ports.json` exists the same check also reports the');
+  console.log('       port block of every worktree and whether its regenerated env file still matches.');
   console.log('plan   Print the `git worktree add` command per task. Never executed here.');
   console.log();
   console.log('  --repo <path>            repository or worktree to inspect; default the current directory');
@@ -167,6 +171,47 @@ function resolveIntegration(repo, baseRef, tasks) {
   return { baseRefResolved, map };
 }
 
+/**
+ * The read-only slice of the project's worktree declaration this tool needs to
+ * report the port and environment facts of an existing registry. An absent or
+ * unreadable config falls back to the harness defaults.
+ */
+function readProjectWorktreeSettings(repositoryRoot) {
+  try {
+    const config = JSON.parse(readFileSync(path.join(repositoryRoot, PROJECT_CONFIG_FILE), 'utf8'));
+    const worktree = config?.worktree ?? {};
+    const envFile = worktree.ports?.envFile;
+    return {
+      dependencyRoots: Array.isArray(worktree.dependencyRoots) ? worktree.dependencyRoots : [],
+      envFile: typeof envFile === 'string' && envFile.trim() !== '' ? envFile : undefined,
+      envFiles: Array.isArray(worktree.provision?.envFiles) ? worktree.provision.envFiles : [],
+    };
+  } catch {
+    return { dependencyRoots: [], envFile: undefined, envFiles: [] };
+  }
+}
+
+/**
+ * Port and environment facts of the main checkout's registry.
+ *
+ * The project-side runner writes the registry during `worktree bootstrap`, so
+ * `check` only reports what that registry and the filesystem say. Without a
+ * registry there is nothing to report and nothing to invent.
+ */
+function readPortFacts(repositoryRoot, entries) {
+  const registryInfo = readPortRegistry(repositoryRoot);
+  if (!registryInfo.exists) {
+    return { flat: [], summary: [] };
+  }
+  const collected = collectWorktreePortEvidence({
+    entries,
+    projectDir: repositoryRoot,
+    registryInfo,
+    settings: readProjectWorktreeSettings(repositoryRoot),
+  });
+  return { flat: [...collected.registryProblems, ...[...collected.evidence.values()].flat()], summary: collected.summary };
+}
+
 function buildAudit(options) {
   const baseRef = options.baseRef;
   const baseSha = options.baseSha;
@@ -180,11 +225,14 @@ function buildAudit(options) {
     path: task.path ?? (typeof task.branch === 'string' && task.branch !== '' ? defaultWorktreePath(repositoryRoot, task.id) : null),
   }));
   const { baseRefResolved, map } = resolveIntegration(options.repo, baseRef, tasks);
+  const portFacts = readPortFacts(repositoryRoot, entries);
   const audit = validateWorktrees(listing, {
     baseRef,
     branchPrefix: options.branchPrefix ?? undefined,
     dirty: options.deep ? readDirty(repositoryRoot, entries) : new Map(),
     integration: map,
+    portProblems: portFacts.flat,
+    portSummary: portFacts.summary,
     repositoryRoot,
     tasks,
   });

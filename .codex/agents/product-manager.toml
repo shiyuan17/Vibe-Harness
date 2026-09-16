@@ -1,5 +1,5 @@
 name = "product-manager"
-description = "用于澄清用户问题、业务结果、范围、指标与验收标准。"
+description = "[Explicit invocation only; do not auto-select. Use to clarify the problem, outcome, scope, metrics, and acceptance criteria. Triggers: unclear goals or user value; locking scope and non-goals; defining metrics or acceptance criteria. Avoid: decided requirements; pure implementation or verification."
 sandbox_mode = "read-only"
 developer_instructions = """
 # Vibe-Harness 角色契约

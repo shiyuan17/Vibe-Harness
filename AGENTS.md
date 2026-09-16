@@ -19,16 +19,17 @@ Vibe-Harness 用来打包可复用的 AI coding 项目规则、领域 Skills、�
 
 本节是验证矩阵的唯一规范来源；CONTRIBUTING.md 引用本节，不再重复维护表格。
 
-- 普通变更运行 `pnpm check` 和 `git diff --check`；`pnpm check` 依序执行语法/资产扫描、ESLint、typecheck、结构校验和单元测试。项目 `vibe-harness verify --project <path>` 默认按 `auto` 风险计划执行，`--plan` 只预览，`--full` 显式执行完整矩阵。
+- 普通变更运行 `pnpm check` 和 `git diff --check`；`pnpm check` 依序执行语法/资产扫描、ESLint、typecheck、结构校验、单元测试（L1）和组件测试（L2）。项目 `vibe-harness verify --project <path>` 默认按 `auto` 风险计划执行，`--plan` 只预览，`--full` 显式执行完整矩阵。
 - 按影响追加：
 
 | 变更 | 显式验证 |
 | --- | --- |
 | 文档、catalog、schema | `pnpm check` 已内含文档校验；仅未运行 check 时显式运行 `pnpm docs:audit` |
-| Skill 或 Eval 资产 | `pnpm skills:audit`、`pnpm eval:check`、`pnpm test:eval` 或对应 Eval 命令 |
+| Skill 或 Eval 资产 | `pnpm skills:audit`、`pnpm eval:check`、`pnpm test:component`（资产与契约用例）或对应 Eval 命令 |
 | installer、profile、runtime、adapter、工具 | `pnpm test:integration`、`pnpm smoke:lifecycle` 或受影响的聚焦测试 |
-| rules、runtime、docs/rules 内容 | `pnpm test:unit`、`pnpm eval:check`；eval reference 指纹漂移按 CONTRIBUTING 清单单独确认 |
-| CI workflow | `pnpm test:eval`（eval-ci 测试断言 workflow 内容） |
+| rules、runtime、docs/rules 内容 | `pnpm test:unit`、`pnpm test:component`、`pnpm eval:check`；eval reference 指纹漂移按 CONTRIBUTING 清单单独确认 |
+| CI workflow | `pnpm test:integration`（eval-ci 用例断言 workflow 内容） |
+| 测试分层脚本或测试目录 | 受影响层：`pnpm test:unit\|component\|integration\|e2e\|matrix`；台账改动追加 `pnpm tests:catalog check` |
 | runtime tool lockfile/provision | `pnpm runtime:audit` |
 | 浏览器行为 | 真实浏览器关键路径 |
 

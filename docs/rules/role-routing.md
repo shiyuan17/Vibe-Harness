@@ -2,6 +2,14 @@
 
 角色人格与领域 Skill 正交：当前原子动作只激活一个角色人格，并可叠加至多一个互补领域 Skill；Skill 的选择与加载顺序以 agent-skill-routing.md 的判定顺序为单源，本文件不重复维护。角色改变决策视角，不改变授权、安全边界或证据要求；权限预设只作声明，生效程度由宿主映射决定，不能替代父 Agent 的 sandbox、用户授权和 Execution Envelope。
 
+## 角色描述契约
+
+- 宿主按角色 description 委派，description 必须同时写清能力、触发条件和不适用边界；只写能力会让父 Agent 在无关动作上误派角色。
+- description 由安装器从角色清单的 `description`、`routing.when`、`routing.avoid` 组合而成，格式为「能力句 + `Triggers:` + 适用项 + `. Avoid:` + 避免项 + `.`」。`routing.mode: explicit` 的角色额外以 `[Explicit invocation only; do not auto-select. ` 开头，用于抑制自动委派。
+- 组合结果必须是单行、单一语言（英文）且不超过 300 字符；超出时安装与审计直接失败，不允许按长度截断或按宿主静默丢弃尾部。
+- 原生角色文件与 `.agents/roles/index.md` 必须取自同一真值：索引额外列出 `routing.mode`、权限预设与适用/避免项，两者不一致视为路由行为漂移。
+- 修改 description 或 `routing.when`/`routing.avoid` 等于修改路由行为，按本文件末尾的要求用真实任务或 `vibe-harness-role-routing` Eval 观察后再收敛。
+
 ## 选择顺序
 
 1. 先判断当前原子动作：澄清、设计、实现、独立验证、审查或已授权的外部执行。主题不是动作的替代品；一个请求含多类动作时按序拆成原子动作逐个路由，不用一个角色代表全部。

@@ -15,8 +15,9 @@ if (!sha || !runId || !runAttempt) throw new Error('GitHub run identity is requi
 const finishedAt = new Date().toISOString();
 const id = 'github-actions:' + runId + ':' + runAttempt;
 const checks = [
-  'pnpm check', 'pnpm docs:audit', 'pnpm eval:check', 'pnpm eval:replay', 'pnpm test:eval',
-  'pnpm test:integration', 'pnpm smoke:lifecycle', 'pnpm runtime:audit', 'pnpm pack:contract', 'pnpm pack',
+  'pnpm check', 'pnpm docs:audit', 'pnpm eval:check', 'pnpm eval:replay',
+  'pnpm test:integration', 'pnpm test:e2e', 'pnpm test:matrix',
+  'pnpm smoke:lifecycle', 'pnpm runtime:audit', 'pnpm pack:contract', 'pnpm pack',
 ];
 await writeFile('release-artifacts/verification.json', JSON.stringify({ schemaVersion: 2, id, finishedAt, snapshotComparison: 'match', sha, checks }, null, 2) + '\n', 'utf8');
 if (process.env.GITHUB_OUTPUT) {

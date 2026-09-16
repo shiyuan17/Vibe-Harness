@@ -160,6 +160,36 @@
           "type": "array",
           "uniqueItems": true,
           "items": { "type": "string", "minLength": 1 }
+        },
+        "ports": {
+          "type": "object",
+          "properties": {
+            "base": { "type": "integer", "minimum": 1, "maximum": 65535 },
+            "blockSize": { "type": "integer", "minimum": 1, "maximum": 1000 },
+            "variables": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "type": "string", "pattern": "^(?:[A-Z][A-Z0-9]*_)*PORT(?:_[A-Z0-9]+)*$" }
+            },
+            "envFile": { "type": "string", "minLength": 1, "pattern": "^[^/\\\\][^\\\\]*$" }
+          },
+          "additionalProperties": false
+        },
+        "provision": {
+          "type": "object",
+          "properties": {
+            "setupCommands": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "envFiles": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "type": "string", "minLength": 1 }
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

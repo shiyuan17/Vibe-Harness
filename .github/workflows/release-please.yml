@@ -35,8 +35,9 @@ jobs:
       - run: pnpm docs:audit
       - run: pnpm eval:check
       - run: pnpm eval:replay
-      - run: pnpm test:eval
       - run: pnpm test:integration
+      - run: pnpm test:e2e
+      - run: pnpm test:matrix
       - run: pnpm smoke:lifecycle
       - run: pnpm runtime:audit
       - run: pnpm pack:contract

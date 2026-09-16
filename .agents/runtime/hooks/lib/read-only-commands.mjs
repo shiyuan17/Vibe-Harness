@@ -303,6 +303,39 @@ export function commandWrites(segment) {
   return hasShellRedirection(segment);
 }
 
+/**
+ * Exact, argument-free command forms the policy layer already proves free of
+ * side effects. Hosts that express tool permissions as glob/pattern maps (the
+ * OpenCode role projection) turn these into `allow` entries ahead of the `"*"`
+ * fallback so read-only probes stop asking for approval.
+ *
+ * Only argument-free forms are exported on purpose: a pattern such as
+ * `git log*` also matches `git log --output=<file>`, which writes. Derived from
+ * the tables above and re-checked through `isReadOnlyShellSegment`, so a
+ * classification change here cannot silently widen a host permission map.
+ *
+ * @returns {string[]}
+ */
+export function readOnlyCommandPrefixes() {
+  const prefixes = new Set();
+  for (const name of SIMPLE_READ_ONLY_COMMANDS) {
+    if (isReadOnlyShellSegment(name)) prefixes.add(name);
+  }
+  for (const [name, rule] of READ_ONLY_CLI_RULES) {
+    for (const verb of rule.verbs ?? []) {
+      const candidate = name + ' ' + verb;
+      if (isReadOnlyShellSegment(candidate)) prefixes.add(candidate);
+    }
+    for (const [noun, verbs] of Object.entries(rule.nouns ?? {})) {
+      for (const verb of verbs) {
+        const candidate = name + ' ' + noun + ' ' + verb;
+        if (isReadOnlyShellSegment(candidate)) prefixes.add(candidate);
+      }
+    }
+  }
+  return [...prefixes].sort();
+}
+
 /** Tools that ask a host or MCP server to return something without mutating it. */
 const READ_ONLY_TOOL_PATTERN = /^(?:read|glob|grep|search|view|inspect|list|status|get|show|fetch|query|websearch|webfetch)$/iu;
 

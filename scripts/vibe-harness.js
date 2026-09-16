@@ -162,13 +162,24 @@ function compactTargetReport(report) {
 function roleRuntimeReport(adapters = {}) {
   return Object.fromEntries(Object.entries(adapters)
     .filter(([, item]) => item.roleProjection)
-    .map(([id, item]) => [id, {
-      permissionMapping: item.roleProjection.permissionMapping,
-      roleCount: item.roleProjection.roles.length,
-      status: item.roleProjection.activation === 'manual' ? 'manual-activation-required' : 'configured-unverified',
-      activationPath: item.roleProjection.activationPath,
-      missingCapabilities: item.roleProjection.missingCapabilities ?? {},
-    }]));
+    .map(([id, item]) => {
+      const projection = item.roleProjection;
+      const manual = projection.activation === 'manual';
+      return [id, {
+        permissionMapping: projection.permissionMapping,
+        roleCount: projection.roles.length,
+        // The merged status stays a statement about generated files only; the
+        // four fields below keep "written", "loaded", "bound" and "usable now"
+        // from being read as one conclusion.
+        status: manual ? 'manual-activation-required' : 'configured-unverified',
+        fileGenerated: 'generated',
+        hostActivated: manual ? 'manual-activation-required' : 'automatic',
+        toolBinding: projection.toolBinding ?? 'configured-unverified',
+        currentTaskExecutable: false,
+        activationPath: projection.activationPath,
+        missingCapabilities: projection.missingCapabilities ?? {},
+      }];
+    }));
 }
 
 function roleRuntimeWarnings(adapters = {}) {
@@ -183,6 +194,10 @@ function roleRuntimeWarnings(adapters = {}) {
       ...(projection.permissionMapping === 'degraded-permission-mapping' ? [{
         code: 'ROLE_PERMISSION_MAPPING_DEGRADED',
         message: id + ' 无法原生强制所有角色权限；严格的父级 sandbox 和 Prompt guard 仍然有效。',
+      }] : []),
+      ...(projection.toolBinding === 'configured-unverified' ? [{
+        code: 'ROLE_TOOL_BINDING_UNVERIFIED',
+        message: id + ' 的角色工具绑定尚未验证（宿主读取角色文件的路径或工具名未经实证）；在完成真机核验前只按文件已生成处理。',
       }] : []),
     ];
   });

@@ -101,7 +101,7 @@ node .agents/runtime/commands/run.mjs patch --project . --spec <spec.json>
 
 `verify --plan` 只预览已配置检查，不执行命令；脚本不提供任意命令执行接口，不自动修改配置或联网。验证命令来自 `vibe-harness.config.json` 的 `validationCommands`，失败、超时、危险命令和验证期间工作树变化都会明确报告。
 
-`worktree`、`slice` 和 `patch` 默认只读：`worktree check` 汇总隔离单元、merge-back 与依赖链接事实并给出 `cleanupAllowed` 建议，`worktree bootstrap` / `worktree cleanup` 只在追加 `--write` 时落盘，且 cleanup 在分支尚未并入 `worktree.baseRef` 或工作区不干净时拒绝执行、绝不删除分支；`slice` 打印指定行区间，`patch` 按 spec 在内存中完成带守卫的区间或序列替换，全部通过后才写盘。三者替代 `node -e` 内联片段与项目内一次性脚本。
+`worktree`、`slice` 和 `patch` 默认只读：`worktree check` 汇总隔离单元、merge-back、依赖链接与端口登记事实并给出 `cleanupAllowed` 建议；`worktree bootstrap` 按六步（`worktree add` → 依赖链接 → 端口分段与 env 文件 → 声明的 envFiles → 声明的 setupCommands → 工具链探针）执行，默认只出计划、追加 `--write` 才落盘，目标命中 `hooks.redZonePaths` 时还需 `--confirm-red-zone`；端口按主检出 `.vibe-harness/worktree-ports.json` 的登记表分段并由 `.vibe-harness/worktree-ports.lock` 串行化，主检出缺 `node_modules` 时 bootstrap 以 `blocked` 结束而不是静默继续。`worktree cleanup` 只在追加 `--write` 时落盘，且 cleanup 在分支尚未并入 `worktree.baseRef` 或工作区不干净时拒绝执行、绝不删除分支；`slice` 打印指定行区间，`patch` 按 spec 在内存中完成带守卫的区间或序列替换，全部通过后才写盘。三者替代 `node -e` 内联片段与项目内一次性脚本。
 
 ## 多宿主安装
 

@@ -1,5 +1,5 @@
 name = "adversarial-security-reviewer"
-description = "用于授权范围内的攻击者视角、安全边界和敏感数据审查。"
+description = "Use for authorized attacker-perspective review of security boundaries and sensitive data. Triggers: a trust boundary or untrusted input; a security review or threat model; permissions, credentials, or data exposure. Avoid: unauthorized attacks; leaking directly exploitable sensitive data."
 sandbox_mode = "read-only"
 developer_instructions = """
 # Vibe-Harness 角色契约

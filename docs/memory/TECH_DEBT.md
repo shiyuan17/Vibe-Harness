@@ -4,7 +4,7 @@
 
 <!-- 渲染说明：此模板含 render 占位符，安装时由 template-renderer 输出，内容不与 docs/memory/TECH_DEBT.md 逐字对应；实时技术债记录见 docs/memory/TECH_DEBT.md。占位符：Vibe-Harness。 -->
 
-最后更新：2026-09-15
+最后更新：2026-09-16
 
 ## TD-2026-09-02-1 `.githooks/` 不在运行时红区清单
 
@@ -57,34 +57,36 @@
 
 ## F 系列三态台账（2026-09-05 审查，2026-09-15 复核）
 
-`audit-reports/2026-09-05-agent-capability-design-review.md` 的 F01–F10 此前没有可核对的处置记录。下表按「已修复 / 部分修复 / 未修复 / 无法判定」逐项给结论与证据；未关闭项在下方各自成条目。本轮未执行宿主实测，凡结论依赖真实宿主绑定的项目一律不给「已修复」。
+`audit-reports/2026-09-05-agent-capability-design-review.md` 的 F01–F10 此前没有可核对的处置记录。下表按「已修复 / 部分修复 / 未修复 / 无法判定」逐项给结论与证据；未关闭项在下方各自成条目。本轮未执行宿主实测，凡结论依赖真实宿主绑定的项目一律不给「已修复」。2026-09-16 的角色投影批次按同一表格复核 F03、F07 与 F10，并在 Codex 上补了一次真机冒烟。
 
 | ID | 结论 | 证据 |
 | --- | --- | --- |
 | F01 | 已修复 | `scripts/lib/role-projection.js:52` 新增 `NATIVE_TOOLS`，Gemini 用 `read_file`/`grep_search`/`run_shell_command`、Antigravity 用 `view_file`/`grep_search`/`run_command`；`tests/role-projection.test.js:366` 断言原生名称；`pnpm roles:audit` ok（7 roles、0 errors）。 |
 | F02 | 部分修复 | `EXECUTE_PRESETS` 含 `verification`/`release-readiness`，OpenCode 投影对 test-lead 与发布角色从 `bash: "*": deny` 变为 `ask`，Codex 从 `read-only` 变为 `workspace-write`；但角色预设仍只是声明，Hook 不消费它，缺宿主实测。见 TD-2026-09-15-2。 |
-| F03 | 未修复 | `projectedToolNames()` 仍只产出 read/search/glob/edit/write/run，Claude 投影无 Skill 工具、无 MCP 工具名。见 TD-2026-09-15-3。 |
+| F03 | 已修复（静态） | `resolveRoleInstallEntries()` 按本次安装实际解析到的能力注入：Claude 枚举 `mcp__<server>` 并预加载 `skills`（不把 `Skill` 写进 `tools`）、ZCode 声明 `skills`（宿主自动授予 Skill 工具）、Qoder 写 `skills`/`mcpServers`、Gemini 在有 server 时追加 `mcp_*`；Codex 按官方契约继承父会话。Antigravity 维持 `configured-unverified`，见 TD-2026-09-15-3。`pnpm roles:audit` 对上述键位逐条断言并退出 0。 |
 | F04 | 部分修复 | `docs/rules/role-routing.md` 选择顺序第 1 条改为先判原子动作、第 4 条明确「已明确的实现不改派只读咨询角色」；本轮未做路由 Eval 观察，不能声明稳定。 |
 | F05 | 未修复 | `evals/suites/vibe-harness-role-routing.json` 的 case 仍只有 `role-selected` 事件断言，`requiredArtifacts` 全空、无 execution fixture，只证明文本判分契约。见 TD-2026-09-15-4。 |
-| F06 | 部分修复 | `scripts/lib/eval-assets.js` 的 `ASSET_GROUPS.rules` 已含 `roles`、`.agents/roles`、`.codex/agents` 等（本次 reference 的 rules 组 29→44 文件即由此产生）；`scripts/lib/project-evaluation.js` 的在线 `CONFIG_PATHS` 仍未含角色目录。见 TD-2026-09-15-5。 |
-| F07 | 部分修复 | 索引仍写出 custom 的 `when`/`avoid`，原生角色文件只组合 base、正文与权限；路由规则第 2 条已要求 custom 与内置同过滤、以 `.agents/roles/index.md` 为准，但未落进原生文件。见 TD-2026-09-15-6。 |
+| F06 | 部分修复 | `scripts/lib/eval-assets.js` 的 `ASSET_GROUPS.rules` 已含 `roles`、`.agents/roles`、`.codex/agents` 等（本次 reference 的 rules 组 29→44 文件即由此产生）；`scripts/lib/project-evaluation.js` 的在线 `CONFIG_PATHS` 不含任何角色目录。见 TD-2026-09-15-5。 |
+| F07 | 已修复 | `projectRoleDescription()` 把 `description`、`routing.when` 与 `routing.avoid` 组合进每个宿主原生角色的 description（Codex TOML 同源），`.agents/roles/index.md` 的 description 与适用/避免行与之同源同语言；`scripts/lib/roles-audit.js` 增加逐字一致、单行、ASCII 与 explicit 前缀断言。 |
 | F08 | 已修复（静态） | `roles/base.md` 新增「固定职责的子 Agent 不自行切换角色、不重派任务、不扩大权限」「职责、工具、证据或停止条件不再匹配时回传父 Agent」与接单前确认目标/基线/写范围/验收的段落；`docs/rules/role-routing.md` 的切换与协作一节同口径。 |
 | F09 | 已修复 | `scripts/lib/roles-audit.js:115` 改读 `docs/rules/role-routing.md`；本轮 `pnpm roles:audit` 退出 0（7 roles、0 errors、0 warnings），`tests/role-projection.test.js` 通过。 |
-| F10 | 部分修复 | doctor 现在输出 `roles.codex = {permissionMapping, roleCount:7, activationPath, missingCapabilities}`，本仓库首次能自证角色投影非空；仍无「宿主已激活」「工具绑定已验证」状态。见 TD-2026-09-15-7。 |
+| F10 | 部分修复 | doctor 的 `roles.<host>` 拆成 `fileGenerated`（generated）/ `hostActivated`（automatic 或 manual-activation-required）/ `toolBinding`（native、prompt-guarded 或 configured-unverified）/ `currentTaskExecutable` 四级，合并字段 `status` 只描述第一级；本仓库 2026-09-16 的 Codex 真机冒烟把第二级补到「角色定义被宿主加载」。见 TD-2026-09-15-7。 |
 
 ## TD-2026-09-15-2 验证类角色的权限只到投影层，缺宿主实测与角色专属只读约束
 
-- 证据：`scripts/lib/role-projection.js` 的 `EXECUTE_PRESETS` 让 `verification`/`release-readiness` 角色获得执行能力（OpenCode `bash "*": ask`、Codex `sandbox_mode: workspace-write`），但 `runtime/hooks/lib/policy.mjs` 与 `execution-envelope.mjs` 的判定输入不含角色的 permissionPreset；临时项目把 `agent_type` 标记为 test-lead 后评估普通 Bash 重定向仍返回放行（静态结论，未执行该命令）。
+- 证据：`scripts/lib/role-projection.js` 的 `EXECUTE_PRESETS` 让 `verification`/`release-readiness` 角色获得执行能力（OpenCode `bash "*": ask`、Codex `sandbox_mode: workspace-write`），但 `runtime/hooks/lib/policy.mjs` 与 `execution-envelope.mjs` 的判定输入不含角色的 permissionPreset；临时项目把 `agent_type` 标记为 test-lead 后评估普通 Bash 重定向仍返回放行（静态结论，未执行该命令）。2026-09-16 用 Codex 0.147.0 补了一次真机冒烟：以 `agent_type: chief-architect`（analysis 预设）和 `agent_type: senior-engineer`（implementation 预设）各派生一个子 Agent，两者的会话记录里都拿到了本仓库的角色契约正文（含 `# 生效权限预设`），说明角色文件确实被宿主加载；但两例注入的 `<permissions instructions>` 都是父会话的 `sandbox_mode is danger-full-access`，没有出现角色文件里写的 `read-only` 或 `workspace-write`。
 - 影响：宿主是否真正按投影授予验证命令、验证产物写隔离目录、拒绝业务源码写入，目前没有证据；「验证角色可以跑测试」既是能力声明也可能成为越权写入的旁路。
 - Owner：Vibe-Harness 维护者。
 - 关闭条件：在至少一个宿主上用真实子 Agent 覆盖「命令成功、截图落盘到隔离目录、业务源码修改被拒」三种情况并记录宿主版本；或确认由宿主 sandbox 承担并把角色预设降级为纯声明，同步 `docs/roles.md` 与 doctor 的能力字段。
 
-## TD-2026-09-15-3 原生子 Agent 工具表不含 Skill 与 MCP 工具
+## TD-2026-09-15-3 Antigravity 角色文件发现路径与工具绑定未实证
 
-- 证据：`projectedToolNames()`（`scripts/lib/role-projection.js:192`）只按 read/search/glob/edit/write/run 六类产出宿主原生名称；Claude 投影无 Skill 工具与预加载 skills，Qoder/ZCode 的穷举 `tools` 表不含已安装 MCP 工具，analysis 类角色无 WebSearch/WebFetch。
-- 影响：父会话装了插件，架构、测试、发布等子 Agent 仍无法原生调用图谱、浏览器或 Linear 能力，只能读本地 Skill 正文或消费父 Agent 提供的证据；派发前的能力检查因此无法按「已安装插件」推导。
+本轮已关闭该条目的可静态修复部分：`resolveRoleInstallEntries()` 改为按本次安装实际解析到的能力注入，Claude 枚举 `mcp__<server>` 并预加载 `skills`、ZCode 声明 `skills`、Qoder 写 `skills` 与 `mcpServers`、Gemini 在有 server 时追加 `mcp_*`；Codex 侧按官方契约由父会话继承（未设置的字段沿用父会话配置，属预期而非缺口），`pnpm roles:audit` 对这四类键位逐条断言。仍开的是 Antigravity 一侧。
+
+- 证据：`manifests/adapters.json` 把 Antigravity 的 `roleProjection.toolBinding` 固定为 `configured-unverified`，`scripts/lib/role-projection.js` 只写二进制核实过的工具名（`view_file`、`grep_search`、`list_dir`、`replace_file_content`、`write_to_file`、`run_command`）；`.agents/agents/` 是否是该宿主读取项目角色定义的路径、这六个名字是否真被接受，本仓库没有任何真机记录，doctor 也只把它报成 `configured-unverified`。
+- 影响：Antigravity 用户拿到的角色文件可能既没被加载、也可能因工具名或路径不符而静默降级，而设备上看到的仍是「文件已生成」；其它七个宿主不受该条目影响。
 - Owner：Vibe-Harness 维护者。
-- 关闭条件：按已安装能力为角色投影最小具体工具集合（或显式记录不投影的理由），并用图谱、浏览器、用户提供上下文三条路径实测子 Agent 可达性；证据不足时保持 configured-unverified。
+- 关闭条件：在装有 Antigravity 的机器上用真实子 Agent 确认 `.agents/agents/*.md` 被加载且六个工具名均被接受；若路径或名字不符，按实测修正 `roleProjection.targetRoot` 与 `NATIVE_TOOLS.antigravity`，并把 `toolBinding` 提升为 `native` 或 `prompt-guarded`；在此之前不得宣称 Antigravity 的工具绑定成功。
 
 ## TD-2026-09-15-4 角色 Eval 仍以文本重放为主，不能证明能力闭环
 
@@ -100,23 +102,17 @@
 - Owner：Vibe-Harness 维护者。
 - 关闭条件：把角色正文目录并入在线 `CONFIG_PATHS`（或说明在线路径为何不需要），并补一条「改角色正文必须导致对应指纹变化」的断言。
 
-## TD-2026-09-15-6 自定义与禁用角色的 when/avoid 只进索引，不进原生角色文件
+## TD-2026-09-15-7 角色四级状态已落地，仍缺宿主侧真机实证
 
-- 证据：`roleIndex()`（`scripts/lib/role-projection.js:176`）写出每个角色的适用与避免，原生投影只组合 base、角色正文与权限；禁用角色在索引中被过滤，原生文件仍按定义生成。`docs/rules/role-routing.md` 第 2 条要求有效集合以 `.agents/roles/index.md` 为准。
-- 影响：不先读有效索引的宿主可能继续选择已禁用角色，或让 custom 与内置角色按 description 临场竞争；明确指定已注册 custom 仍有入口，因此不是完全不可调用。
+- 证据：doctor 的 `roles.<host>` 现在输出 `fileGenerated: generated`、`hostActivated: automatic|manual-activation-required`、`toolBinding: native|prompt-guarded|configured-unverified`、`currentTaskExecutable`（无真机证据时恒为 false），合并字段 `status` 只描述第一级；`manifests/adapters.json` 新增 `roleProjection.toolBinding` 并成为 schema 必填，校验枚举只允许这三种取值。2026-09-16 的 Codex 0.147.0 真机冒烟补到第二级：派生的角色子 Agent 拿到了本仓库角色契约正文，因此 `hostActivated` 对 Codex 不再是推定；派发同时暴露两个新事实——角色描述未观察到直接参与委派，角色文件的 `sandbox_mode` 未独立生效（见 TD-2026-09-15-2）。
+- 影响：`configured-unverified` 与「当前任务可执行」仍可能被读成同一个 ready 结论；权限收紧、插件缺失或工具名错误都不会改变 `currentTaskExecutable`，只有逐宿主的真机证据才能推进它。
 - Owner：Vibe-Harness 维护者。
-- 关闭条件：让原生角色文件可见其 when/avoid 与启用状态，或明确要求宿主先读有效索引并把该要求写进投影产物；覆盖禁用安全/发布角色、仅 custom 匹配、显式指定禁用角色、多个 custom 同时匹配四种场景。
-
-## TD-2026-09-15-7 doctor 的 ready/native 未区分文件生成、宿主激活与工具绑定
-
-- 证据：`roleRuntimeReport()`（`scripts/lib/role-projection.js:405`）只输出 activation、permissionMapping、roleCount、activationPath 与 missingCapabilities；本仓库自安装纳入 roles 后 `doctor` 的 roles 非空、missingCapabilities 列出 test-lead 缺 browser-verification 等，但没有任何字段说明宿主是否已加载角色文件、工具名是否真的绑定成功。
-- 影响：`configured-unverified` 与「当前任务可执行」仍可能被读成同一个 ready 结论；权限收紧、插件缺失或工具名错误都不会改变该结论。
-- Owner：Vibe-Harness 维护者。
-- 关闭条件：把状态拆成「文件已生成 / 宿主已激活 / 工具绑定已验证 / 当前任务可执行」并逐级给证据，或明确声明只覆盖第一级并同步 `docs/roles.md` 与 doctor 文案。
+- 关闭条件：为每个启用角色的宿主积累至少一次真机记录（宿主版本、角色被加载的证据、角色内工具与权限的实际行为），并把证据路径写进 doctor 输出；在此之前文档与 doctor 文案维持四级状态，不给合并结论。
 
 ## TD-2026-09-15-8 project-verification 的超时收据用例绑定墙钟阈值，高负载下误判
 
-- 证据：`tests/project-verification.test.js` 的 `verify --project terminates a hanging command and returns a structured timeout receipt` 在结尾断言 `Date.now() - startedAt < 5000`。2026-09-15 的批次 2 与批次 4 收尾中，全量 `pnpm test:integration` 各失败一次（实测耗时 7.5 秒级），同一文件单独运行 17/17 通过、重跑整表通过；两次失败都在与其它检查并行执行时出现。
+- 证据：`tests/project-verification.test.js` 的 `verify --project terminates a hanging command and returns a structured timeout receipt` 在结尾断言 `Date.now() - startedAt < 5000`。2026-09-15 的批次 2 与批次 4 收尾中，全量 `pnpm test:integration` 各失败一次（实测耗时 7.5 秒级），同一文件单独运行 17/17 通过、重跑整表通过；两次失败都在与其它检查并行执行时出现。2026-09-16 角色投影批次复现同一现象并补了独立测量：本机同时运行其它项目的构建时，同一场景三次实测为 5329 ms、9983 ms、7937 ms，全部超过 5000 ms 上界；同批次另有一次 `tests/cross-platform-adapters.test.js` 的 `claude minimal supports an empty-project write, validate, and uninstall lifecycle` 触发 `--test-timeout=120000` 上限，该文件单独运行 42/42 通过但耗时 107.8 秒，放宽到 `--test-timeout=600000` 后同一份文件清单 321 通过 / 1 既有跳过 / 0 失败。2026-09-16 测试分层批次确认 `tests/verify-focused.test.js` 的 `verify-focused --run terminates a hanging command with project timeout recovery` 复制了同一断言：单独运行在本机实测 7.1 秒，同样超过 5000 ms 上界，该文件已在断言处绑定本技术债 ID。
+- 2026-09-16 测试分层批次已按关闭条件替换判据：`tests/integration/project-verification.test.js` 与 `tests/integration/verify-focused.test.js` 的 `< 5000` 上界改为「不早于收据声明的 `timeoutMs` 结束，且在 30 秒进程树回收预算内结束」，两处仍绑定本技术债 ID；该批次全量 `pnpm test:integration` 仍复现过一次 9097 ms 的旧断言失败，说明替换前该红灯在高负载下必然出现。
 - 影响：该用例要证明的是「超时后仍返回结构化收据」（已完成），但收据之外还绑定了机器无关性不足的墙钟上界，使 CI 与高负载本机出现与被测行为无关的红灯；失败信息指向 `timeoutMs` 断言之后的最后一行为真，容易误读为超时机制失效。
 - Owner：Vibe-Harness 维护者。
 - 关闭条件：把 `< 5000` 换成与被测语义一致的判据（例如比较收据内声明的 `timeoutMs` 与实际耗时区间、或把上界放宽到覆盖进程树回收的合理范围），或在文件头注明该断言的环境前提并绑定可核对的技术债 ID；连续 10 次全量 `pnpm test:integration` 不再出现该失败后关闭。

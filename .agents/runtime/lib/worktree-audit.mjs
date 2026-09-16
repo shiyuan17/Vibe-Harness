@@ -28,6 +28,18 @@ export const WORKTREE_DEPENDENCY_CODES = Object.freeze([
   'WORKTREE_DEPENDENCY_STALE',
 ]);
 
+// Port segmentation and per-worktree environment facts are provisioning state
+// too: a missing regenerated env file or a conflicting block blocks the work in
+// that worktree, but it must not stop removal of an already-merged worktree.
+export const WORKTREE_PORT_CODES = Object.freeze([
+  'WORKTREE_ENV_NOT_IGNORED',
+  'WORKTREE_MAIN_DEPENDENCIES_MISSING',
+  'WORKTREE_PORT_CONFLICT',
+  'WORKTREE_PORT_ENV_DRIFT',
+  'WORKTREE_PORT_ENV_MISSING',
+  'WORKTREE_PORT_REGISTRY_INVALID',
+]);
+
 // Branch types allowed by the `<type>/<ISSUE-ID>-<slug>` convention in
 // docs/rules/linear-workflow.md. The list mirrors the commit/PR types the same
 // rules use, plus the hotfix/release branches named in docs/rules/git-rules.md.
@@ -48,7 +60,7 @@ export const DEFAULT_BRANCH_TYPES = Object.freeze([
 ]);
 
 const slugPattern = /^[a-z0-9][a-z0-9._-]*$/u;
-const dependencyCodeSet = new Set(WORKTREE_DEPENDENCY_CODES);
+const dependencyCodeSet = new Set([...WORKTREE_DEPENDENCY_CODES, ...WORKTREE_PORT_CODES]);
 
 /** @returns {value is Record<string, any>} */
 function isObject(value) {
@@ -385,6 +397,13 @@ export function validateWorktrees(value, options = {}) {
     }
   }
 
+  // Port segmentation and per-worktree env facts come from the same kind of
+  // caller-owned evidence: the registry plus the filesystem, never a guess.
+  for (const problem of Array.isArray(options.portProblems) ? options.portProblems : []) {
+    if (!isObject(problem) || !isNonEmptyString(problem.code)) continue;
+    push(problem.code, String(problem.message ?? ''), problem.severity === 'warning' ? 'warning' : 'error');
+  }
+
   return finishAudit({ entries: enrichedEntries, problems, tasks: normalizedTasks }, options, { unmanaged, unregistered });
 }
 
@@ -415,6 +434,7 @@ function finishAudit({ entries, problems, tasks }, options, extra = {}) {
     errorCount: errors.length,
     ok: errors.length === 0,
     problems: [...problems].sort((left, right) => left.code.localeCompare(right.code) || left.message.localeCompare(right.message)),
+    ports: Array.isArray(options.portSummary) ? options.portSummary : [],
     schema: WORKTREE_AUDIT_SCHEMA,
     schemaVersion: 1,
     tasks,
@@ -438,6 +458,10 @@ export function summarizeWorktreeAudit(audit) {
   }
   for (const task of audit.tasks) {
     lines.push(`task: ${task.id} branch ${task.branch ?? '(none)'} -> ${task.worktree ?? `(unregistered, expected ${task.path})`}`);
+  }
+  for (const item of audit.ports ?? []) {
+    const ports = Object.entries(item.ports ?? {}).map(([name, port]) => `${name}=${port}`).join(' ');
+    lines.push(`ports: ${item.path} block ${item.block}${ports ? ` (${ports})` : ''}`);
   }
   for (const problem of audit.problems) lines.push(`${problem.severity}: ${problem.code} ${problem.message}`);
   return lines.join('\n');

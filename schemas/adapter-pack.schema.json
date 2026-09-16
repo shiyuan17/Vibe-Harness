@@ -64,13 +64,14 @@
           },
           "roleProjection": {
             "type": "object",
-            "required": ["format", "targetRoot", "extension", "activation", "permissionEnforcement"],
+            "required": ["format", "targetRoot", "extension", "activation", "permissionEnforcement", "toolBinding"],
             "properties": {
               "format": { "type": "string", "enum": ["codex-toml", "claude-markdown", "gemini-markdown", "cursor-markdown", "qoder-markdown", "zcode-plugin-markdown", "antigravity-markdown", "opencode-markdown"] },
               "targetRoot": { "type": "string", "minLength": 1 },
               "extension": { "type": "string", "enum": [".md", ".toml"] },
               "activation": { "type": "string", "enum": ["automatic", "manual"] },
-              "permissionEnforcement": { "type": "string", "enum": ["native", "prompt-guarded"] }
+              "permissionEnforcement": { "type": "string", "enum": ["native", "prompt-guarded"] },
+              "toolBinding": { "type": "string", "enum": ["native", "prompt-guarded", "configured-unverified"] }
             },
             "additionalProperties": false
           },

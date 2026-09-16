@@ -3,14 +3,17 @@
 import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
+  closeSync,
   existsSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
   symlinkSync,
+  writeSync,
   writeFileSync,
 } from 'node:fs';
 import { access, readFile, readdir, realpath } from 'node:fs/promises';
@@ -19,6 +22,20 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
 import { parseWorktreeList, pathKey, resolveWorktreeRoot, summarizeWorktreeAudit, validateWorktrees } from '../lib/worktree-audit.mjs';
+import {
+  allocatePortBlock,
+  collectWorktreePortEvidence,
+  DEFAULT_PORT_BLOCK_SIZE,
+  DEFAULT_PORT_ENV_FILE,
+  inferPortPlan,
+  isPortVariable,
+  PORT_LOCK_RELATIVE_PATH,
+  PORT_REGISTRY_RELATIVE_PATH,
+  portsForBlock,
+  readPortRegistry,
+  renderWorktreeEnv,
+  validatePortRegistry,
+} from '../lib/worktree-ports.mjs';
 
 const execFileAsync = promisify(execFile);
 const SCHEMA_VERSION = 1;
@@ -83,7 +100,7 @@ function parseArgs(argv) {
     ['allow-manual', 'allowManual'],
     ['no-numbers', 'numbers'],
   ]);
-  const booleanFlags = new Set(['json', 'plan', 'allow-manual', 'no-numbers', 'strict', 'write', 'deep', 'help']);
+  const booleanFlags = new Set(['json', 'plan', 'allow-manual', 'no-numbers', 'strict', 'write', 'deep', 'help', 'confirm-red-zone']);
   const valueFlags = new Set(['project', 'base', 'only', 'timeout', 'output', 'task', 'base-ref', 'branch-prefix', 'file', 'from', 'to', 'spec', 'root']);
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
@@ -96,7 +113,7 @@ function parseArgs(argv) {
     const key = equals >= 0 ? raw.slice(0, equals) : raw;
     if (equals === -1 && booleanFlags.has(key)) {
       // `--no-numbers` turns numbering off; every other flag turns its key on.
-      args[aliases.get(key) ?? key] = key === 'no-numbers' ? false : true;
+      args[aliases.get(key) ?? (key === 'confirm-red-zone' ? 'confirmRedZone' : key)] = key === 'no-numbers' ? false : true;
       continue;
     }
     if (!valueFlags.has(key)) throw new Error(`Unknown option: --${key}`);
@@ -674,6 +691,62 @@ function readWorktreeConfig(config) {
     }
     value[key] = raw[key].map((item) => item.trim());
   }
+  // `ports` and `provision` are fail-closed: a declared but malformed block
+  // stops the plan instead of silently falling back to an inferred default,
+  // because a wrong block silently hands two worktrees the same dev-server port.
+  if (raw.ports !== undefined) {
+    if (!raw.ports || typeof raw.ports !== 'object' || Array.isArray(raw.ports)) {
+      return { value: {}, error: 'worktree.ports must be an object.' };
+    }
+    const ports = {};
+    if (raw.ports.base !== undefined) {
+      if (!Number.isInteger(raw.ports.base) || raw.ports.base < 1 || raw.ports.base > 65_535) {
+        return { value: {}, error: 'worktree.ports.base must be an integer between 1 and 65535.' };
+      }
+      ports.base = raw.ports.base;
+    }
+    if (raw.ports.blockSize !== undefined) {
+      if (!Number.isInteger(raw.ports.blockSize) || raw.ports.blockSize < 1 || raw.ports.blockSize > 1_000) {
+        return { value: {}, error: 'worktree.ports.blockSize must be an integer between 1 and 1000.' };
+      }
+      ports.blockSize = raw.ports.blockSize;
+    }
+    if (raw.ports.variables !== undefined) {
+      if (!Array.isArray(raw.ports.variables)
+        || raw.ports.variables.some((item) => typeof item !== 'string' || !isPortVariable(item.trim()))) {
+        return { value: {}, error: 'worktree.ports.variables must be an array of port variable names such as PORT or WEB_PORT.' };
+      }
+      ports.variables = raw.ports.variables.map((item) => item.trim());
+    }
+    if (raw.ports.envFile !== undefined) {
+      if (typeof raw.ports.envFile !== 'string' || raw.ports.envFile.trim() === '' || path.isAbsolute(raw.ports.envFile)) {
+        return { value: {}, error: 'worktree.ports.envFile must be a non-empty project-relative path.' };
+      }
+      ports.envFile = normalizeSlashes(raw.ports.envFile.trim());
+    }
+    value.ports = ports;
+  }
+  if (raw.provision !== undefined) {
+    if (!raw.provision || typeof raw.provision !== 'object' || Array.isArray(raw.provision)) {
+      return { value: {}, error: 'worktree.provision must be an object.' };
+    }
+    const provision = {};
+    if (raw.provision.setupCommands !== undefined) {
+      if (!Array.isArray(raw.provision.setupCommands)
+        || raw.provision.setupCommands.some((item) => typeof item !== 'string' || item.trim() === '')) {
+        return { value: {}, error: 'worktree.provision.setupCommands must be an array of non-empty command strings.' };
+      }
+      provision.setupCommands = raw.provision.setupCommands.map((item) => item.trim());
+    }
+    if (raw.provision.envFiles !== undefined) {
+      if (!Array.isArray(raw.provision.envFiles)
+        || raw.provision.envFiles.some((item) => typeof item !== 'string' || item.trim() === '' || path.isAbsolute(item))) {
+        return { value: {}, error: 'worktree.provision.envFiles must be an array of project-relative paths.' };
+      }
+      provision.envFiles = raw.provision.envFiles.map((item) => normalizeSlashes(item.trim()));
+    }
+    value.provision = provision;
+  }
   return { value, error: null };
 }
 
@@ -687,11 +760,29 @@ function resolveWorktreeSettings(projectDir, projectConfig, args) {
   const wanted = configured.localPackages ? new Set(configured.localPackages) : null;
   const localPackages = discovered.packages.filter((item) => wanted === null || wanted.has(item.name));
   const unknown = wanted === null ? [] : [...wanted].filter((name) => !localPackages.some((item) => item.name === name));
+  const ports = configured.ports ?? {};
+  const provision = configured.provision ?? {};
+  const portPlan = inferPortPlan(projectDir, {
+    configuredBase: ports.base ?? null,
+    declaredVariables: ports.variables ?? [],
+    provisionEnvFiles: provision.envFiles ?? [],
+  });
   return {
     baseRef: args.baseRef ?? configured.baseRef ?? 'origin/develop',
     configuredRoot: args.root ?? configured.root ?? null,
     dependencyRoots,
     localPackages,
+    ports: {
+      base: portPlan.base,
+      blockSize: ports.blockSize ?? DEFAULT_PORT_BLOCK_SIZE,
+      envFile: ports.envFile ?? DEFAULT_PORT_ENV_FILE,
+      files: portPlan.files,
+      variables: portPlan.variables,
+    },
+    provision: {
+      envFiles: provision.envFiles ?? [],
+      setupCommands: provision.setupCommands ?? [],
+    },
     projectDir,
     root: resolveWorktreeRoot(projectDir, args.root ?? configured.root),
     unknownLocalPackages: unknown,
@@ -875,6 +966,128 @@ function worktreeDependencyEvidence(projectDir, entries, settings) {
   return evidence;
 }
 
+const PORT_LOCK_TIMEOUT_MS = 5_000;
+const PORT_LOCK_RETRY_MS = 50;
+
+function delay(ms) {
+  return new Promise((resolve) => { setTimeout(resolve, ms); });
+}
+
+/**
+ * Red-zone membership for a project-relative path.
+ *
+ * docs/rules/governance-core.md makes red-zone writes an explicit confirmation,
+ * and `hooks.redZonePaths` is the only declaration that decides membership.
+ */
+function isRedZonePath(relativePath, patterns) {
+  const candidate = normalizeSlashes(relativePath).replace(/^\.\//u, '').toLowerCase();
+  for (const raw of Array.isArray(patterns) ? patterns : []) {
+    if (typeof raw !== 'string' || raw.trim() === '') continue;
+    const directory = raw.trim().replaceAll('\\', '/').replace(/^\.\//u, '');
+    const body = directory.replace(/\/+$/u, '').toLowerCase().replace(/^\.\//u, '');
+    if (body === '') continue;
+    if (candidate === body || candidate.startsWith(`${body}/`)) return true;
+    if (!body.includes('/') && path.basename(candidate) === body) return true;
+  }
+  return false;
+}
+
+/** Exclusive lock file around every registry read/modify/write. */
+async function withPortRegistryLock(projectDir, action, { timeoutMs = PORT_LOCK_TIMEOUT_MS } = {}) {
+  const lockPath = path.join(projectDir, PORT_LOCK_RELATIVE_PATH);
+  mkdirSync(path.dirname(lockPath), { recursive: true });
+  const deadline = Date.now() + timeoutMs;
+  let held = false;
+  for (;;) {
+    try {
+      const handle = openSync(lockPath, 'wx');
+      writeSync(handle, `${process.pid}\n${new Date().toISOString()}\n`);
+      closeSync(handle);
+      held = true;
+      break;
+    } catch (error) {
+      if (error.code !== 'EEXIST') return { error: `cannot create ${PORT_LOCK_RELATIVE_PATH}: ${error.code ?? error.message}` };
+      if (Date.now() >= deadline) {
+        return {
+          code: 'WORKTREE_PORT_LOCK_TIMEOUT',
+          error: `${PORT_LOCK_RELATIVE_PATH} is held by another process after ${timeoutMs}ms; the lock is never removed automatically`,
+        };
+      }
+      await delay(PORT_LOCK_RETRY_MS);
+    }
+  }
+  try {
+    return await action();
+  } finally {
+    if (held) {
+      try {
+        rmSync(lockPath, { force: true });
+      } catch { /* the lock is advisory; a failed unlink is reported by the next bootstrap */ }
+    }
+  }
+}
+
+function writePortRegistry(projectDir, registry) {
+  const file = path.join(projectDir, PORT_REGISTRY_RELATIVE_PATH);
+  mkdirSync(path.dirname(file), { recursive: true });
+  const entries = [...registry.entries].sort((left, right) => left.block - right.block || left.id.localeCompare(right.id));
+  writeFileSync(file, `${JSON.stringify({ ...registry, entries }, null, 2)}\n`, 'utf8');
+}
+
+/**
+ * Allocate or reuse the worktree's port block from the main checkout registry.
+ *
+ * The registry is the fact source: a conflict between two entries fails closed
+ * instead of silently handing the second worktree a used port.
+ */
+function planPortAssignment(projectDir, settings, { branch, id, path: worktreePath }) {
+  const info = readPortRegistry(projectDir);
+  if (info.error) {
+    return { code: info.code ?? 'WORKTREE_PORT_REGISTRY_INVALID', error: `${info.path}: ${info.error}` };
+  }
+  const registry = info.registry ?? {
+    schemaVersion: 1,
+    base: settings.ports.base,
+    blockSize: settings.ports.blockSize,
+    entries: [],
+    variables: settings.ports.variables,
+  };
+  const validated = validatePortRegistry(registry);
+  if (!validated.ok) {
+    return { code: validated.code ?? 'WORKTREE_PORT_REGISTRY_INVALID', error: `${info.path}: ${validated.error}` };
+  }
+  const block = allocatePortBlock(registry, { id });
+  const ports = portsForBlock(registry.base, registry.blockSize, block, registry.variables);
+  const existing = registry.entries.find((entry) => entry.id === id);
+  return {
+    block,
+    envFile: settings.ports.envFile,
+    ports,
+    registry: {
+      ...registry,
+      entries: [
+        ...registry.entries.filter((entry) => entry.id !== id),
+        { block, branch, id, path: normalizeSlashes(worktreePath), ports, updatedAt: new Date().toISOString() },
+      ],
+    },
+    registryDiffers: !existing
+      ? registry.base !== settings.ports.base || registry.blockSize !== settings.ports.blockSize
+      : false,
+    reused: Boolean(existing),
+  };
+}
+
+function releasePortRegistryEntry(projectDir, id) {
+  return withPortRegistryLock(projectDir, async () => {
+    const info = readPortRegistry(projectDir);
+    if (!info.registry) return { released: false, reason: info.error ?? 'no registry' };
+    const entries = info.registry.entries.filter((entry) => entry.id !== id);
+    if (entries.length === info.registry.entries.length) return { released: false, reason: 'no entry' };
+    writePortRegistry(projectDir, { ...info.registry, entries });
+    return { released: true };
+  });
+}
+
 function parseWorktreeTask(value) {
   const parts = String(value).split(':');
   const [id, branch, ...rest] = parts;
@@ -904,6 +1117,22 @@ async function worktreeCheckReport(projectDir, args) {
     ...task,
     path: task.path ?? path.join(settings.root, task.id),
   }));
+  const collected = collectWorktreePortEvidence({
+    entries,
+    projectDir,
+    registryInfo: readPortRegistry(projectDir),
+    settings: {
+      dependencyRoots: settings.dependencyRoots,
+      envFile: settings.ports.envFile,
+      envFiles: settings.provision.envFiles,
+    },
+  });
+  // The audit counts severity in one place, so the caller flattens the
+  // per-worktree facts into the same problem list the other codes use.
+  const portFacts = {
+    flat: [...collected.registryProblems, ...[...collected.evidence.values()].flat()],
+    summary: collected.summary,
+  };
   const audit = validateWorktrees(entries, {
     baseRef: settings.baseRef,
     branchPrefix: args.branchPrefix ?? null,
@@ -912,6 +1141,8 @@ async function worktreeCheckReport(projectDir, args) {
     dirty,
     integration: map,
     integrationAll: true,
+    portProblems: portFacts.flat,
+    portSummary: portFacts.summary,
     repositoryRoot,
     tasks,
   });
@@ -930,21 +1161,59 @@ async function worktreeCheckReport(projectDir, args) {
     status: audit.ok && !(args.strict && audit.warningCount > 0) ? 'passed' : 'failed',
     audit,
     localPackages: settings.localPackages.map((item) => item.name),
+    portRegistry: {
+      base: settings.ports.base,
+      blockSize: settings.ports.blockSize,
+      envFile: settings.ports.envFile,
+      exists: readPortRegistry(projectDir).exists,
+      path: PORT_REGISTRY_RELATIVE_PATH,
+      variables: settings.ports.variables,
+    },
     summary: summarizeWorktreeAudit(audit),
     unknownLocalPackages: settings.unknownLocalPackages,
   };
 }
 
-function worktreeBootstrapPlan(projectDir, settings, task, repositoryRoot) {
+/**
+ * Six-step bootstrap plan: worktree add, dependency links, port allocation plus
+ * env file, declared env files, declared setup commands, toolchain probe.
+ *
+ * The plan is produced without touching the disk so `--dry-run` and `--write`
+ * describe the same steps; only the apply path performs them.
+ */
+function worktreeBootstrapPlan(projectDir, settings, task, repositoryRoot, { confirmRedZone = false, existingEntry = null } = {}) {
   const worktreePath = task.path ?? path.join(settings.root, task.id);
   const branch = task.branch ?? `feat/${task.id}-worktree`;
-  const steps = [
-    {
-      command: `git -C ${normalizeSlashes(repositoryRoot)} worktree add ${normalizeSlashes(worktreePath)} -b ${branch} ${settings.baseRef}`,
-      kind: 'git-worktree-add',
-      path: normalizeSlashes(worktreePath),
-    },
-  ];
+  const redZonePatterns = readWorktreeRedZone(projectDir);
+  const missingRoots = settings.dependencyRoots
+    .filter((root) => !existsSync(path.join(projectDir, root, 'node_modules')));
+  const setupCommands = settings.provision.setupCommands;
+  const writeTargets = [settings.ports.envFile, ...settings.provision.envFiles];
+  const redZoneTargets = writeTargets.filter((file) => isRedZonePath(file, redZonePatterns));
+  const blocked = [];
+  if (missingRoots.length > 0 && setupCommands.length === 0) {
+    blocked.push({
+      code: 'WORKTREE_MAIN_DEPENDENCIES_MISSING',
+      message: `${missingRoots.map((root) => `${root === '.' ? '' : `${root}/`}node_modules`).join(', ')} is absent in the main checkout; run the project's install command there first (or declare worktree.provision.setupCommands so the worktree installs its own dependencies)`,
+    });
+  }
+  if (redZoneTargets.length > 0 && !confirmRedZone) {
+    blocked.push({
+      code: 'WORKTREE_RED_ZONE_CONFIRMATION_REQUIRED',
+      message: `${redZoneTargets.join(', ')} is a red-zone path (hooks.redZonePaths); pass --confirm-red-zone to write it`,
+    });
+  }
+  const steps = [{
+    branch,
+    command: `git -C ${normalizeSlashes(repositoryRoot)} worktree add ${normalizeSlashes(worktreePath)} -b ${branch} ${settings.baseRef}`,
+    kind: existingEntry ? 'reuse-worktree' : 'git-worktree-add',
+    path: normalizeSlashes(worktreePath),
+  }];
+  // A worktree that installs its own dependencies must do that before the links
+  // overlay the main checkout, otherwise the setup command deletes the links.
+  if (missingRoots.length > 0) {
+    for (const command of setupCommands) steps.push({ command, kind: 'setup-command' });
+  }
   for (const root of settings.dependencyRoots) {
     const localPackages = packagesForRoot(settings, root);
     steps.push({
@@ -954,7 +1223,82 @@ function worktreeBootstrapPlan(projectDir, settings, task, repositoryRoot) {
       root,
     });
   }
-  return { branch, steps, worktreePath };
+  const assignment = planPortAssignment(projectDir, settings, { branch, id: task.id, path: worktreePath });
+  if (assignment.error) {
+    blocked.push({ code: assignment.code, message: assignment.error });
+  } else {
+    steps.push({
+      block: assignment.block,
+      envFile: assignment.envFile,
+      kind: 'allocate-ports',
+      ports: assignment.ports,
+      registry: PORT_REGISTRY_RELATIVE_PATH,
+      reused: assignment.reused,
+    });
+  }
+  steps.push({
+    files: settings.provision.envFiles,
+    kind: 'materialize-env-files',
+    redZone: redZoneTargets,
+  });
+  if (missingRoots.length === 0) {
+    for (const command of setupCommands) steps.push({ command, kind: 'setup-command' });
+  }
+  steps.push({
+    kind: 'probe-toolchain',
+    programs: [...new Set(['git', 'node', projectPackageManager(projectDir) ?? 'pnpm'])],
+  });
+  return {
+    blocked,
+    branch,
+    missingDependencyRoots: missingRoots,
+    ports: assignment.error ? null : assignment.ports,
+    steps,
+    worktreePath,
+  };
+}
+
+function readWorktreeRedZone(projectDir) {
+  try {
+    const config = JSON.parse(readFileSync(path.join(projectDir, CONFIG_FILE), 'utf8'));
+    return Array.isArray(config?.hooks?.redZonePaths) ? config.hooks.redZonePaths : [];
+  } catch {
+    return [];
+  }
+}
+
+function projectPackageManager(projectDir) {
+  try {
+    const packageJson = JSON.parse(readFileSync(path.join(projectDir, 'package.json'), 'utf8'));
+    return packageManager(packageJson, projectDir);
+  } catch {
+    return null;
+  }
+}
+
+/** Run the declared setup commands inside the new worktree. */
+async function runSetupCommands(commands, worktreePath, projectDir, timeoutMs) {
+  const results = [];
+  for (const command of commands) {
+    let tokens;
+    try {
+      tokens = assertSafeCommand(command);
+    } catch (error) {
+      return { error: `${command}: ${error.message}`, results, step: { command, kind: 'setup-command', status: 'blocked' } };
+    }
+    // `--write` is the explicit authorization for this command list; credentials
+    // never travel with it, and the receipt carries a redacted tail only.
+    const result = await executeCommand(command, worktreePath, timeoutMs);
+    results.push({ command, exitCode: result.exitCode, status: result.status, ...(result.code ? { code: result.code } : {}) });
+    if (result.status !== 'passed') {
+      return {
+        error: `${command} ${result.code ?? 'failed'}${result.stderr ? `: ${result.stderr}` : ''}`,
+        results,
+        step: { command, code: result.code ?? 'COMMAND_FAILED', kind: 'setup-command', status: 'failed' },
+      };
+    }
+  }
+  return { error: null, results, step: null };
 }
 
 async function worktreeBootstrapReport(projectDir, args) {
@@ -964,26 +1308,48 @@ async function worktreeBootstrapReport(projectDir, args) {
   if (args.task.length === 0) {
     return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'bootstrap', status: 'failed', error: 'bootstrap needs at least one --task <name>[:<branch>[:<path>]]' };
   }
-  const { repositoryRoot, reason } = await worktreeEntries(projectDir);
+  const { entries, repositoryRoot, reason } = await worktreeEntries(projectDir);
   if (reason) return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'bootstrap', status: 'unavailable', error: reason };
+  const timeoutMs = timeoutValue(args.timeout ?? config.verification?.timeoutMs);
   const results = [];
   for (const raw of args.task) {
     const task = parseWorktreeTask(raw);
-    const plan = worktreeBootstrapPlan(projectDir, settings, task, repositoryRoot);
-    if (!args.write) {
-      results.push({ ...plan, status: 'planned' });
-      continue;
-    }
-    if (isInsidePath(plan.worktreePath, repositoryRoot)) {
+    const existing = entries.find((entry) => !entry.primary
+      && entry.path
+      && pathKey(entry.path) === pathKey(task.path ?? path.join(settings.root, task.id)));
+    const plan = worktreeBootstrapPlan(projectDir, settings, task, repositoryRoot, {
+      confirmRedZone: Boolean(args.confirmRedZone),
+      existingEntry: existing ?? null,
+    });
+    if (args.write && isInsidePath(plan.worktreePath, repositoryRoot)) {
       results.push({ ...plan, error: `${normalizeSlashes(plan.worktreePath)} is inside the repository; use worktree.root outside the project`, status: 'failed' });
       continue;
     }
-    const added = await runGit(['worktree', 'add', plan.worktreePath, '-b', plan.branch, settings.baseRef], projectDir);
-    if (!added.ok) {
-      results.push({ ...plan, error: boundedOutput(added.stderr || added.error?.message || 'git worktree add failed', projectDir), status: 'failed' });
+    const blockedError = plan.blocked[0];
+    if (blockedError) {
+      results.push({ ...plan, code: blockedError.code, error: blockedError.message, status: 'blocked' });
       continue;
     }
+    if (!args.write) {
+      results.push({ ...plan, ports: plan.ports, status: 'planned' });
+      continue;
+    }
+    if (!existing) {
+      const added = await runGit(['worktree', 'add', plan.worktreePath, '-b', plan.branch, settings.baseRef], projectDir);
+      if (!added.ok) {
+        results.push({ ...plan, error: boundedOutput(added.stderr || added.error?.message || 'git worktree add failed', projectDir), status: 'failed' });
+        continue;
+      }
+    }
     try {
+      // A worktree that has to install its own dependencies runs the declared
+      // setup commands before the links are overlaid on top of them.
+      const setupFirst = plan.missingDependencyRoots.length > 0;
+      let setup = { error: null, results: [], step: null };
+      if (setupFirst) {
+        setup = await runSetupCommands(settings.provision.setupCommands, plan.worktreePath, projectDir, timeoutMs);
+        if (setup.error) throw Object.assign(new Error(setup.error), { code: setup.step?.code ?? 'SETUP_COMMAND_FAILED' });
+      }
       const links = settings.dependencyRoots.map((root) => linkDependencyRoot(projectDir, plan.worktreePath, settings, root));
       const stale = [];
       for (const root of settings.dependencyRoots) {
@@ -994,7 +1360,55 @@ async function worktreeBootstrapReport(projectDir, args) {
         }
       }
       if (stale.length > 0) throw new Error(`local packages did not resolve inside the worktree: ${stale.join(', ')}`);
-      results.push({ ...plan, links, status: 'passed' });
+
+      // The registry entry is written inside the lock so two concurrent
+      // bootstraps can never pick the same block.
+      const allocation = await withPortRegistryLock(projectDir, async () => {
+        const assignment = planPortAssignment(projectDir, settings, { branch: plan.branch, id: task.id, path: plan.worktreePath });
+        if (assignment.error) return { error: assignment.error, code: assignment.code };
+        writePortRegistry(projectDir, assignment.registry);
+        const envPath = path.join(plan.worktreePath, assignment.envFile);
+        mkdirSync(path.dirname(envPath), { recursive: true });
+        writeFileSync(envPath, renderWorktreeEnv({ block: assignment.block, id: task.id, ports: assignment.ports }), 'utf8');
+        return { block: assignment.block, envFile: assignment.envFile, ports: assignment.ports, reused: assignment.reused };
+      });
+      if (allocation.error) throw Object.assign(new Error(allocation.error), { code: allocation.code });
+
+      const envFiles = [];
+      for (const file of settings.provision.envFiles) {
+        const source = path.join(projectDir, file);
+        const target = path.join(plan.worktreePath, file);
+        if (existsSync(target)) {
+          envFiles.push({ file, status: 'present' });
+          continue;
+        }
+        if (!existsSync(source)) {
+          envFiles.push({ file, reason: 'absent in the main checkout', status: 'skipped' });
+          continue;
+        }
+        mkdirSync(path.dirname(target), { recursive: true });
+        writeFileSync(target, readFileSync(source));
+        envFiles.push({ file, status: 'materialized' });
+      }
+
+      if (!setupFirst) {
+        setup = await runSetupCommands(settings.provision.setupCommands, plan.worktreePath, projectDir, timeoutMs);
+        if (setup.error) throw Object.assign(new Error(setup.error), { code: setup.step?.code ?? 'SETUP_COMMAND_FAILED' });
+      }
+
+      const toolchain = {};
+      for (const program of plan.steps.find((step) => step.kind === 'probe-toolchain').programs) {
+        toolchain[program] = await probeExecutable(program, plan.worktreePath);
+      }
+      results.push({
+        ...plan,
+        allocation,
+        envFiles,
+        links,
+        setupCommands: setup.results,
+        status: 'passed',
+        toolchain,
+      });
     } catch (error) {
       // A half-provisioned worktree is worse than none: remove what this run
       // created so the next attempt starts from a known state. `git worktree
@@ -1007,10 +1421,13 @@ async function worktreeBootstrapReport(projectDir, args) {
       const untouched = branchHead.ok && baseHead.ok && branchHead.stdout.trim() === baseHead.stdout.trim();
       const branchDeleted = untouched
         && (await runGit(['branch', '--delete', '--force', plan.branch], projectDir)).ok;
+      const released = await releasePortRegistryEntry(projectDir, task.id);
       results.push({
         ...plan,
         branchDeleted,
+        code: error.code ?? 'BOOTSTRAP_FAILED',
         error: boundedOutput(error.message, projectDir),
+        released: released.released === true,
         status: 'failed',
         rolledBack: true,
       });
@@ -1020,7 +1437,8 @@ async function worktreeBootstrapReport(projectDir, args) {
     schemaVersion: SCHEMA_VERSION,
     command: 'worktree',
     subcommand: 'bootstrap',
-    status: results.every((item) => item.status !== 'failed') ? (args.write ? 'passed' : 'planned') : 'failed',
+    status: results.every((item) => !['failed', 'blocked'].includes(item.status)) ? (args.write ? 'passed' : 'planned') : 'failed',
+    ports: settings.ports,
     results,
     write: Boolean(args.write),
   };
@@ -1071,10 +1489,14 @@ async function worktreeCleanupReport(projectDir, args) {
       continue;
     }
     await runGit(['worktree', 'prune'], projectDir);
+    // The block is released inside the same lock that hands it out; the branch
+    // itself is still never deleted here.
+    const released = await releasePortRegistryEntry(projectDir, task.id);
     results.push({
       branch: entry.branch,
       id: task.id,
       path: normalizeSlashes(entry.path),
+      portBlockReleased: released.released === true,
       remainingDirectory: existsSync(entry.path),
       removedLinks,
       status: 'passed',
@@ -1308,7 +1730,17 @@ function summary(report) {
     }
     for (const item of report.results ?? []) {
       lines.push(`${item.status}: ${item.id ?? item.path ?? ''} ${item.error ?? ''} ${(item.blockers ?? []).join('; ')}`.trim());
+      if (item.code) lines.push(`  code: ${item.code}`);
+      if (item.allocation) {
+        const ports = Object.entries(item.allocation.ports ?? {}).map(([name, port]) => `${name}=${port}`).join(' ');
+        lines.push(`  ports: ${item.allocation.envFile} block ${item.allocation.block}${ports ? ` (${ports})` : ''}`);
+      } else if (item.ports) {
+        const ports = Object.entries(item.ports).map(([name, port]) => `${name}=${port}`).join(' ');
+        lines.push(`  ports: block${ports ? ` (${ports})` : ''}`);
+      }
       for (const step of item.steps ?? []) lines.push(`  ${step.kind}${step.command ? `: ${step.command}` : step.root ? `: ${step.root} (${step.mode})` : ''}`);
+      for (const file of item.envFiles ?? []) lines.push(`  env-file ${file.file}: ${file.status}${file.reason ? ` (${file.reason})` : ''}`);
+      for (const command of item.setupCommands ?? []) lines.push(`  setup ${command.command}: ${command.status}`);
     }
     return lines.join('\n');
   }
@@ -1344,7 +1776,7 @@ export async function runCommand(argv, { cwd = process.cwd() } = {}) {
     command,
     status: 'ready',
     usage: 'run.mjs <env|context|changes|verify|worktree|slice|patch> --project <path> [--json]',
-    worktree: 'run.mjs worktree <list|check|bootstrap|cleanup> --project <path>: bootstrap and cleanup stay dry-run until --write; cleanup refuses branches not merged into worktree.baseRef',
+    worktree: 'run.mjs worktree <list|check|bootstrap|cleanup> --project <path>: bootstrap and cleanup stay dry-run until --write; bootstrap allocates the next port block from .vibe-harness/worktree-ports.json, materializes worktree.provision.envFiles and runs worktree.provision.setupCommands (a red-zone target also needs --confirm-red-zone); cleanup refuses branches not merged into worktree.baseRef',
   };
   else throw new Error(`Unknown command: ${command}`);
   return { args, report, exitCode: ['passed', 'ready', 'planned'].includes(report.status) ? 0 : 1 };

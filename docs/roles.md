@@ -30,11 +30,37 @@ roles.enabled 可以覆盖 profile 默认值；roles.disabled 按 ID 禁用已�
 - security-review：只读安全审查和授权范围内的安全检查。
 - release-readiness：只读发布审查、验证与包 dry-run，禁止自动 tag、push 或 publish。
 
-宿主不能精确表达权限时，安装器使用最严格可用映射，并在安装或 doctor 以 degraded-permission-mapping 状态和 ROLE_PERMISSION_MAPPING_DEGRADED 告警报告。doctor 的 configured-unverified 仅说明文件已生成，另列出角色所需但未绑定的能力；它不表示宿主已激活或真实任务已验证。Prompt 防线不能替代父 Agent 的真实 sandbox。
+宿主不能精确表达权限时，安装器使用最严格可用映射，并在安装或 doctor 以 degraded-permission-mapping 状态和 ROLE_PERMISSION_MAPPING_DEGRADED 告警报告。Prompt 防线不能替代父 Agent 的真实 sandbox。
+
+## 角色描述
+
+宿主按 description 自动委派，因此每个角色的 description 由安装器从 `manifests/roles.json` 的 `description`、`routing.when` 和 `routing.avoid` 组合成单行英文句子：能力句 + `Triggers:` + 适用项 + `. Avoid:` + 避免项 + `.`。`routing.mode: explicit` 的角色（product-manager、technical-project-manager）额外以 `[Explicit invocation only; do not auto-select. ` 开头，抑制自动委派。组合结果必须不超过 300 字符；超出时安装失败并指出角色，不做截断。
+
+该组合串同时写入各宿主原生角色文件的 description 与 `.agents/roles/index.md`；索引额外列出路由模式、权限预设与适用/避免项，是有效角色集合的第二入口。
+
+## 宿主映射
+
+| 宿主 | 投影路径 | 可表达的权限键位 | 注入的能力 | 状态 |
+| --- | --- | --- | --- | --- |
+| Codex | `.codex/agents/*.toml` | `sandbox_mode` | Skill 与 MCP 由父会话继承（未设置的字段沿用父会话配置，属预期，不是缺口） | native |
+| Claude | `.claude/agents/*.md` | `tools` 白名单、`skills` 预加载、`permissionMode` | 按本次安装枚举 `mcp__<server>`，预加载已安装 Skill；不把 `Skill` 写进 `tools` | prompt-guarded |
+| Gemini CLI | `.gemini/agents/*.md` | `tools` | 安装含 MCP server 时追加 `mcp_*` 通配 | prompt-guarded |
+| Cursor | `.cursor/agents/*.md` | `readonly` | 无 | prompt-guarded |
+| Qoder | `.qoder/agents/*.md` | 无（frontmatter 只解析 `name`/`description`/`model`/`skills`/`mcpServers`） | `skills` 与 `mcpServers` 列表 | prompt-guarded |
+| ZCode | `.zcode/plugins/vibe-harness-roles/agents/*.md` | `tools`、`permissionMode` | `skills`（声明后宿主自动授予 Skill 工具） | prompt-guarded，需手动激活插件 |
+| Antigravity | `.agents/agents/*.md` | `tools` | 无 | configured-unverified |
+| OpenCode | `.opencode/agents/*.md` | `edit`/`bash`/`task`/`webfetch`/`websearch`/`external_directory` 权限映射 | 无 | native |
+
+- Codex、Claude、Gemini、Cursor、Qoder、Antigravity、OpenCode 直接生成项目级原生 Agent 文件；ZCode 生成项目插件包，不写用户全局目录。
+- Qoder 的 subagent frontmatter 没有 `tools` 键，投影因此不再写工具表；该宿主的权限只靠组合后的 Prompt 与父级 sandbox，安装器不声明原生强制。
+- Antigravity 的工具名取自宿主二进制（`view_file`、`grep_search`、`list_dir`、`replace_file_content`、`write_to_file`、`run_command`），但 `.agents/agents/` 是否是宿主读取角色定义的位置尚未实证，因此该宿主的工具绑定状态固定为 `configured-unverified`，doctor 输出 ROLE_TOOL_BINDING_UNVERIFIED。
+- OpenCode 是唯一原生强制权限的宿主：所有角色 deny `task`/`webfetch`/`websearch`；非可执行预设额外 deny `external_directory` 且完全关闭 bash；可执行预设在 `"*": ask` 之后追加只读命令精确白名单（仅无参数形式，带参数命令仍然询问），白名单由 runtime/hooks/lib/read-only-commands.mjs 的分类表派生。
 
 ## 宿主输出
 
-Codex、Claude、Gemini CLI、Cursor、Qoder、Antigravity 和 OpenCode 直接生成项目级原生 Agent 文件。ZCode 生成 .zcode/plugins/vibe-harness-roles 项目插件包，不写用户全局目录；doctor 会报告 manual-activation-required，由用户在 ZCode 中手动启用。
+ZCode 的角色能力经项目插件生效，doctor 会报告 manual-activation-required，由用户在 ZCode 中手动启用后角色才可能被加载。
+
+doctor 的角色报告把状态拆成四级，不把「文件已生成」读成「当前任务可用」：`fileGenerated`（安装器已写出角色文件）、`hostActivated`（宿主是否已加载，ZCode 为 manual-activation-required）、`toolBinding`（native / prompt-guarded / configured-unverified）、`currentTaskExecutable`（本轮是否有真机证据，无证据一律为 false）。合并字段 `status` 只描述第一级。
 
 ## 生命周期
 

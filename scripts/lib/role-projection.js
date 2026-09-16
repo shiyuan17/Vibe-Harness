@@ -10,11 +10,55 @@ import {
   isRedZoneTarget,
   readPackJson,
 } from './manifest.js';
+import { readOnlyCommandPrefixes } from '../../runtime/hooks/lib/read-only-commands.mjs';
 import { validateJsonAgainstSchema } from './schema-validation.js';
 
 const ROLE_ID_PATTERN = /^[a-z][a-z0-9-]{2,63}$/u;
 const PROJECT_PROMPT_PATTERN = /^docs\/agent-roles\/[a-z0-9][a-z0-9._-]*\.md$/iu;
 const MAX_PROJECT_PROMPT_BYTES = 32 * 1024;
+/**
+ * Combined role descriptions have to stay inside every host's own limit while
+ * still naming what the role does and when to use it. `schemas/role-pack.schema.json`
+ * bounds the three source fields separately, so the composed string is checked
+ * here (and again in `roles-audit.js`) instead of in the JSON schema.
+ */
+const MAX_PROJECTED_DESCRIPTION_LENGTH = 300;
+const EXPLICIT_DESCRIPTION_PREFIX = '[Explicit invocation only; do not auto-select. ';
+const PROJECTED_DESCRIPTION_PATTERN = /^[\x20-\x7e]+$/u;
+/** Managed MCP servers are always written with this prefix in the target config. */
+export const MANAGED_MCP_SERVER_PREFIX = 'vibe-harness-';
+const BINDABLE_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/u;
+
+function isBindableName(name) {
+  return typeof name === 'string' && BINDABLE_NAME_PATTERN.test(name);
+}
+
+function isManagedMcpServerName(name) {
+  return typeof name === 'string'
+    && name.startsWith(MANAGED_MCP_SERVER_PREFIX)
+    && isBindableName(name.slice(MANAGED_MCP_SERVER_PREFIX.length));
+}
+/**
+ * Hosts whose native subagent schema can bind installed Skills or MCP servers.
+ * Every other host keeps the capability in the parent session, so asking for an
+ * injection there is a configuration error rather than something to ignore.
+ */
+const CAPABILITY_INJECTION_HOSTS = new Set(['claude', 'gemini', 'qoder', 'zcode']);
+/** Presets that must not change the workspace, mapped to a host plan/permission mode. */
+const PLAN_MODE_PRESETS = new Set(['analysis']);
+
+/**
+ * True when the host's native subagent schema can bind installed Skills or MCP
+ * servers. Callers use it to skip the request for hosts that keep the capability
+ * in the parent session; passing a request to one of those still fails closed.
+ *
+ * @param {string} adapterId
+ * @returns {boolean}
+ */
+export function supportsNativeCapabilityBinding(adapterId) {
+  return CAPABILITY_INJECTION_HOSTS.has(adapterId);
+}
+
 const PROMPT_OVERRIDE_PATTERNS = [
   /ignore\s+(?:all\s+)?previous\s+instructions/iu,
   /override\s+(?:the\s+)?(?:governance|safety|sandbox|authorization)/iu,
@@ -54,7 +98,7 @@ const NATIVE_TOOLS = {
   qoder: { read: 'Read', search: 'Grep', glob: 'Glob', edit: 'Edit', write: 'Write', run: 'Bash' },
   zcode: { read: 'Read', search: 'Grep', glob: 'Glob', edit: 'Edit', write: 'Write', run: 'Bash' },
   gemini: { read: 'read_file', search: 'grep_search', glob: 'glob', edit: 'replace', write: 'write_file', run: 'run_shell_command' },
-  antigravity: { read: 'view_file', search: 'grep_search', glob: null, edit: 'replace_file_content', write: 'replace_file_content', run: 'run_command' },
+  antigravity: { read: 'view_file', search: 'grep_search', glob: 'list_dir', edit: 'replace_file_content', write: 'write_to_file', run: 'run_command' },
 };
 
 function isWritablePreset(permissionPresetId) {
@@ -63,6 +107,70 @@ function isWritablePreset(permissionPresetId) {
 
 function isExecutablePreset(permissionPresetId) {
   return EXECUTE_PRESETS.has(permissionPresetId);
+}
+
+/**
+ * Builds the single description every host projection and the role index share.
+ *
+ * Hosts delegate on this string, so it has to answer "what does this role do"
+ * and "when should it be used" in one language and one line: hosts differ in
+ * how many characters they accept, and a mixed-language description makes the
+ * delegation decision depend on which half the parent model weighs.
+ *
+ * @param {{ description?: string, id?: string, routing?: { avoid?: string[], mode?: string, when?: string[] } }} role
+ * @returns {string}
+ */
+export function projectRoleDescription(role) {
+  const routing = role.routing ?? {};
+  const when = Array.isArray(routing.when) ? routing.when : [];
+  const avoid = Array.isArray(routing.avoid) ? routing.avoid : [];
+  const description = (routing.mode === 'explicit' ? EXPLICIT_DESCRIPTION_PREFIX : '')
+    + String(role.description ?? '').trim()
+    + ' Triggers: ' + when.join('; ')
+    + '. Avoid: ' + avoid.join('; ')
+    + '.';
+  assertProjectedDescription(description, role.id ?? 'role');
+  return description;
+}
+
+function assertProjectedDescription(description, label) {
+  if (!PROJECTED_DESCRIPTION_PATTERN.test(description)) {
+    throw new Error('Projected description for role ' + label
+      + ' must be a single line of plain ASCII text.');
+  }
+  if (description.length > MAX_PROJECTED_DESCRIPTION_LENGTH) {
+    throw new Error('Projected description for role ' + label + ' is ' + description.length
+      + ' characters; hosts accept at most ' + MAX_PROJECTED_DESCRIPTION_LENGTH
+      + '. Shorten description, routing.when, or routing.avoid.');
+  }
+}
+
+/**
+ * Normalizes the installed capabilities a caller wants bound into native role
+ * files. Absent input means "bind nothing" so older callers keep working; the
+ * value is validated fail-closed instead of being dropped silently.
+ */
+function resolveBindableCapabilities(adapter, resolvedCapabilities) {
+  const mcpServers = [...new Set(resolvedCapabilities?.mcpServers ?? [])];
+  const skills = [...new Set(resolvedCapabilities?.skills ?? [])];
+  if (mcpServers.length === 0 && skills.length === 0) return { mcpServers: [], skills: [] };
+  if (!CAPABILITY_INJECTION_HOSTS.has(adapter.id)) {
+    throw new Error(adapter.id + ' cannot bind installed Skills or MCP servers into native role files; '
+      + 'keep the capability in the parent session or drop the roles module.');
+  }
+  for (const name of mcpServers) {
+    if (!isManagedMcpServerName(name)) {
+      throw new Error('Cannot bind MCP server ' + JSON.stringify(name) + ' into role files for '
+        + adapter.id + '; expected a ' + MANAGED_MCP_SERVER_PREFIX + '* server managed by this installer.');
+    }
+  }
+  for (const name of skills) {
+    if (!isBindableName(name)) {
+      throw new Error('Cannot bind installed skill ' + JSON.stringify(name) + ' into role files for '
+        + adapter.id + '; expected a plain skill directory name.');
+    }
+  }
+  return { mcpServers: mcpServers.sort(), skills: skills.sort() };
 }
 
 /**
@@ -199,42 +307,101 @@ export function projectedToolNames(host, permissionPresetId) {
   return [...new Set(names)];
 }
 
-function genericMarkdown(role, prompt, adapter) {
+/**
+ * Claude Code resolves every entry of `tools` before it starts a subagent and
+ * refuses to launch on an unknown name, so MCP entries are enumerated from the
+ * servers this install actually manages instead of using a wildcard.
+ */
+function claudeTools(role, capabilities) {
+  return [
+    ...projectedToolNames('claude', role.permissionPreset),
+    ...capabilities.mcpServers.map((name) => 'mcp__' + name),
+  ];
+}
+
+function genericMarkdown(role, prompt, adapter, capabilities) {
   const format = adapter.roleProjection.format;
   const fields = {
     name: role.id,
-    description: role.description,
+    description: projectRoleDescription(role),
   };
   if (format === 'claude-markdown') {
-    fields.tools = projectedToolNames('claude', role.permissionPreset);
+    fields.tools = claudeTools(role, capabilities);
+    if (capabilities.skills.length > 0) fields.skills = capabilities.skills;
     fields.model = 'inherit';
+    if (PLAN_MODE_PRESETS.has(role.permissionPreset)) fields.permissionMode = 'plan';
   } else if (format === 'gemini-markdown') {
     fields.kind = 'local';
-    fields.tools = projectedToolNames('gemini', role.permissionPreset);
+    fields.tools = [
+      ...projectedToolNames('gemini', role.permissionPreset),
+      ...(capabilities.mcpServers.length > 0 ? ['mcp_*'] : []),
+    ];
   } else if (format === 'cursor-markdown') {
     fields.model = 'inherit';
     fields.readonly = !isExecutablePreset(role.permissionPreset);
-  } else if (format === 'qoder-markdown') {
-    fields.tools = projectedToolNames('qoder', role.permissionPreset);
   } else if (format === 'antigravity-markdown') {
     fields.tools = projectedToolNames('antigravity', role.permissionPreset);
   } else if (format === 'zcode-plugin-markdown') {
     fields.tools = projectedToolNames('zcode', role.permissionPreset);
+    if (capabilities.skills.length > 0) fields.skills = capabilities.skills;
+    if (PLAN_MODE_PRESETS.has(role.permissionPreset)) fields.permissionMode = 'plan';
   }
   return frontmatter(fields) + prompt;
 }
 
+/**
+ * Qoder parses `name`, `description`, `model`, `skills`, `mcpServers` and
+ * `additionalPrompt`; an unknown key such as `tools` is inert, so the projection
+ * only emits the keys the host reads and uses its own list form (`- item`) for
+ * the two arrays. `model` is intentionally not written: Qoder expects a concrete
+ * model id here, and a guessed value would override the host default.
+ */
+function qoderMarkdown(role, prompt, capabilities) {
+  const fieldLines = (name, values) => (values.length === 0
+    ? [name + ': []']
+    : [name + ':', ...values.map((value) => '  - ' + value)]);
+  const lines = [
+    '---',
+    'name: ' + yamlScalar(role.id),
+    'description: ' + yamlScalar(projectRoleDescription(role)),
+    ...fieldLines('skills', capabilities.skills),
+    ...fieldLines('mcpServers', capabilities.mcpServers),
+    '---',
+    '',
+    prompt,
+  ];
+  return lines.join('\n');
+}
+
+/**
+ * OpenCode is the only host that enforces role permissions natively, so its
+ * projection denies the delegation, fetch, and search surfaces outright and
+ * keeps its read-only bash allowlist to argument-free commands the shared policy
+ * table already classifies. OpenCode evaluates the last matching rule first, so
+ * the `"*"` fallback stays ahead of the specific entries.
+ *
+ * The allowlist only ships for presets that may run validation commands at all;
+ * a read-only preset keeps bash disabled, because granting it read-only shells
+ * would widen `analysis`/`security-review` beyond their declared capabilities.
+ */
 function opencodeMarkdown(role, prompt) {
   const writable = isWritablePreset(role.permissionPreset);
   const executable = isExecutablePreset(role.permissionPreset);
   const lines = [
     '---',
-    'description: ' + yamlScalar(role.description),
+    'description: ' + yamlScalar(projectRoleDescription(role)),
     'mode: subagent',
     'permission:',
     '  edit: ' + (writable ? 'allow' : 'deny'),
+    '  task: deny',
+    '  webfetch: deny',
+    '  websearch: deny',
+    '  external_directory: ' + (executable ? 'ask' : 'deny'),
     '  bash:',
     '    "*": ' + (executable ? 'ask' : 'deny'),
+    ...(executable
+      ? readOnlyCommandPrefixes().map((prefix) => '    ' + yamlScalar(prefix) + ': allow')
+      : []),
     '---',
     '',
     prompt,
@@ -248,18 +415,20 @@ function missingCapabilities(adapter, rolePack, role) {
   return required.filter((capability) => !available.has(capability));
 }
 
-export function projectRole(role, adapter) {
+export function projectRole(role, adapter, resolvedCapabilities = null) {
+  const capabilities = resolveBindableCapabilities(adapter, resolvedCapabilities);
   const format = adapter.roleProjection.format;
   if (format === 'codex-toml') {
     return stringifyToml({
       name: role.id,
-      description: role.description,
+      description: projectRoleDescription(role),
       sandbox_mode: isExecutablePreset(role.permissionPreset) ? 'workspace-write' : 'read-only',
       developer_instructions: role.prompt,
     });
   }
   if (format === 'opencode-markdown') return opencodeMarkdown(role, role.prompt);
-  return genericMarkdown(role, role.prompt, adapter);
+  if (format === 'qoder-markdown') return qoderMarkdown(role, role.prompt, capabilities);
+  return genericMarkdown(role, role.prompt, adapter, capabilities);
 }
 
 function roleTarget(adapter, roleId) {
@@ -299,10 +468,25 @@ function zcodeMetadataEntries(adapter, packageVersion) {
 }
 
 /**
- * @param {{ adapter: any, packageVersion: string, rolesConfig?: RoleConfig, rootDir: string, targetDir: string }} options
+ * @param {{
+ *   adapter: any,
+ *   packageVersion: string,
+ *   resolvedCapabilities?: { mcpServers?: string[], skills?: string[] } | null,
+ *   rolesConfig?: RoleConfig,
+ *   rootDir: string,
+ *   targetDir: string
+ * }} options
  */
-export async function resolveRoleInstallEntries({ adapter, packageVersion, rolesConfig = {}, rootDir, targetDir }) {
+export async function resolveRoleInstallEntries({
+  adapter,
+  packageVersion,
+  resolvedCapabilities = null,
+  rolesConfig = {},
+  rootDir,
+  targetDir,
+}) {
   const rolePack = await loadRolePack(rootDir);
+  const capabilities = resolveBindableCapabilities(adapter, resolvedCapabilities);
   const baseSource = path.resolve(rootDir, rolePack.basePrompt);
   assertInsideDir(rootDir, baseSource, 'role base prompt');
   await assertSafePathInside(rootDir, baseSource, 'role base prompt');
@@ -385,7 +569,8 @@ export async function resolveRoleInstallEntries({ adapter, packageVersion, roles
       source: role.relativeSource,
       sourceRoot: role.sourceRoot,
       target: roleTarget(adapter, role.id),
-      inlineContent: projectRole(role, adapter),
+      // Validated once above so an illegal binding fails before any file is planned.
+      inlineContent: projectRole(role, adapter, capabilities),
     });
   }
   entries.push(...zcodeMetadataEntries(adapter, packageVersion));
@@ -407,6 +592,7 @@ export async function resolveRoleInstallEntries({ adapter, packageVersion, roles
         ? '.zcode/plugins/vibe-harness-roles/'
         : adapter.roleProjection.targetRoot,
       permissionMapping: adapter.roleProjection.permissionEnforcement === 'native' ? 'native' : 'degraded-permission-mapping',
+      toolBinding: adapter.roleProjection.toolBinding ?? 'configured-unverified',
       missingCapabilities: Object.fromEntries(enabledRoles.map((role) => [
         role.id,
         missingCapabilities(adapter, rolePack, role),
