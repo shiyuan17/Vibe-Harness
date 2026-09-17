@@ -204,7 +204,7 @@ export async function npmInvocation(args) {
   return { args: [npmCli, ...args], command: process.execPath };
 }
 
-/** @param {Record<string, any>} request @param {{probeTool?: boolean}} options */
+/** @param {Record<string, any>} request @param {{probeTool?: string}} options */
 export async function runMcpHandshake(request, { probeTool } = {}) {
   await /** @type {Promise<void>} */ (new Promise((resolve, reject) => {
     const child = spawn(request.command, request.args, {
@@ -297,7 +297,8 @@ export async function runMcpHandshake(request, { probeTool } = {}) {
 
 export async function defaultPhaseRunner(request) {
   if (request.phase === 'mcp-handshake') return runMcpHandshake(request);
-  if (request.phase === 'browser-smoke') return runMcpHandshake(request, { probeTool: true });
+  // The browser smoke test calls a real tool so that a Chrome launch failure is observable.
+  if (request.phase === 'browser-smoke') return runMcpHandshake(request, { probeTool: 'list_pages' });
   return defaultCommandRunner(request);
 }
 
