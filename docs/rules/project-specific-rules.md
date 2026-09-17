@@ -5,7 +5,7 @@
 ## 项目画像
 
 - 技术栈：{{projectProfile.stackSummary}}
-- 包管理器：`pnpm`
+- 包管理器：`{{projectProfile.packageManager}}`
 - 版本控制：Git
 - 状态命令：`git status --short`
 - 关键目录 / 模块：未发现显式模块清单；按现有目录职责就近修改。
