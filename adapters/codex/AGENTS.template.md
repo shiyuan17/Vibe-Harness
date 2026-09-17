@@ -19,7 +19,7 @@
 - Test: {{validationCommands.test}}
 - Eval: {{validationCommands.eval}}
 
-`vibe-harness validate --project` 只检查安装一致性；`vibe-harness verify --project <path>` 执行项目已配置的验证命令。测试范围细则见 `docs/rules/test-rules.md`。
+`vibe-harness validate --project` 只检查安装一致性；`vibe-harness verify --project <path>` 默认只执行快速层（开发中同步，失败阻塞当前实施单元）{{validationCommands.tiers.quick}}；中等层（阶段或合并前，{{validationCommands.tiers.standard}}）与深度层（异步或发布边界，{{validationCommands.tiers.deep}}）必须显式升级 `--tier standard|deep|all`，`--full` 运行完整矩阵。快速层通过时收据标注部分范围并给出下一层入口，未取得被延迟层的证据前不得宣称集成、发布或整体完成；深度层可由项目 CI 或独立 worktree 异步完成。测试范围细则见 `docs/rules/test-rules.md`。
 
 ## 已安装表面
 

@@ -19,7 +19,7 @@ Vibe-Harness 用来打包可复用的 AI coding 项目规则、领域 Skills、�
 
 本节是验证矩阵的唯一规范来源；CONTRIBUTING.md 引用本节，不再重复维护表格。
 
-- 普通变更运行 `pnpm check` 和 `git diff --check`；`pnpm check` 依序执行语法/资产扫描、ESLint、typecheck、结构校验、单元测试（L1）和组件测试（L2）。项目 `vibe-harness verify --project <path>` 默认按 `auto` 风险计划执行，`--plan` 只预览，`--full` 显式执行完整矩阵。
+- 普通变更运行 `pnpm check` 和 `git diff --check`；`pnpm check` 依序执行语法/资产扫描、ESLint、typecheck、结构校验、单元测试（L1）和组件测试（L2）。项目 `vibe-harness verify --project <path>` 不带 `--tier` 时默认只执行快速层（层命令来自配置声明或按包脚本推导，完全推导不出层时退回 `auto` 风险计划），收据标注部分范围；`--tier standard|deep|all` 按层累计显式升级（`all` 等价 `deep`），`--plan` 只预览，`--full` 运行完整风险矩阵并与 `--tier` 互斥。
 - 按影响追加：
 
 | 变更 | 显式验证 |
@@ -35,7 +35,7 @@ Vibe-Harness 用来打包可复用的 AI coding 项目规则、领域 Skills、�
 
 TypeScript 配置、类型声明、JSDoc 类型契约，或完成主张涉及类型安全的 JS/TS 改动，追加运行 pnpm typecheck（已并入 `pnpm check` 与项目 verify 默认命令，`pnpm check` 通过即已执行）。
 
-- 可用 `pnpm verify:focused` 把本轮变更路径映射为同一风险计划（JSON 收据包含 `riskLevel`、`impactGroups`、`selectedChecks`、`skippedChecks` 和 `fallbackUsed`）；`--run` 依序执行。`unknown` 必须回退到 high，未选检查标记为 `not_selected`。
+- 可用 `pnpm verify:focused` 把本轮变更路径映射为同一风险计划（JSON 收据包含 `riskLevel`、`impactGroups`、`selectedChecks`、`skippedChecks`、`deferredChecks`、`executionTier`、`scopeStatus` 和 `fallbackUsed`）；`--run` 默认只执行快速层，`--tier quick|standard|deep|all` 按成本层筛选后依序执行。`unknown` 必须回退到 high，未选检查标记为 `not_selected`。
 - 只运行与变更和完成主张匹配的聚焦检查；不要自动派发 Review/Test 角色。
 
 ## 安全规则
@@ -76,7 +76,7 @@ TypeScript 配置、类型声明、JSDoc 类型契约，或完成主张涉及类
 - Test: pnpm test:unit
 - Eval: pnpm eval:replay
 
-`vibe-harness validate --project` 只检查安装一致性；`vibe-harness verify --project <path>` 执行项目已配置的验证命令。测试范围细则见 `docs/rules/test-rules.md`。
+`vibe-harness validate --project` 只检查安装一致性；`vibe-harness verify --project <path>` 默认只执行快速层（开发中同步，失败阻塞当前实施单元）pnpm lint、pnpm typecheck、pnpm test:unit、pnpm test:component；中等层（阶段或合并前，pnpm test:integration）与深度层（异步或发布边界，pnpm eval:replay、pnpm test:e2e、pnpm test:matrix、pnpm smoke:lifecycle）必须显式升级 `--tier standard|deep|all`，`--full` 运行完整矩阵。快速层通过时收据标注部分范围并给出下一层入口，未取得被延迟层的证据前不得宣称集成、发布或整体完成；深度层可由项目 CI 或独立 worktree 异步完成。测试范围细则见 `docs/rules/test-rules.md`。
 
 ## 已安装表面
 

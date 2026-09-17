@@ -12,6 +12,14 @@ Vibe-Harness 不接管 Cognis 或 LoopEngine 安装。发现旧产品配置、�
 
 迁移前先执行 install --upgrade --dry-run。若任一宿主投影、同路径内容或结构化 MCP/Hook 节点冲突，事务不会写入配置、投影或 state。红区写入仍要求 --confirm-red-zone。
 
+## 验证分层迁移
+
+validationCommands.tiers.quick/standard/deep 是可选的分层验证面；缺少该字段的旧配置仍可运行，verify 按目标项目声明的包脚本推导有效层，推导不出任何命令时退回风险计划。
+
+行为变化：verify 不再默认执行 lint/typecheck/test/eval 四项。不带 --tier 时只执行快速层，快速层通过仍返回 status ready，但收据标注 scopeStatus: partial 并列出被延迟的检查与下一层入口；全部声明层改由 --tier standard|deep|all 显式表达（all 等价 deep，按层累计只执行各层声明的命令），--full 则在全部层命令之外追加风险派生检查、运行完整风险矩阵并与 --tier 互斥。CI 或发布门禁若要保持旧的全量语义，改用 --tier all（或 --full），只声明快速层的项目不受影响。
+
+只有 install --upgrade 会补齐缺失的层键：它按目标项目声明的脚本与固定的 Maven/.NET 入口保守推导，已有数组（包括空数组，表示该层被显式禁用）不会被覆盖。dry-run 会显示 configUpdate.addedTiers 与推导结果；真实写回 vibe-harness.config.json 属于红区写入，必须显式传 --confirm-red-zone，并在同一事务内回滚。
+
 ## 多宿主生命周期
 
 - 不带 --target 的 install、upgrade、validate、doctor 和 diff 处理全部配置目标。

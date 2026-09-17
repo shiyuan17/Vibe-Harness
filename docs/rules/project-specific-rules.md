@@ -30,10 +30,13 @@
 ## 验证规范
 
 - 默认验证：{{projectProfile.verificationSummary}}
-- Lint：`pnpm lint`
-- Typecheck：`pnpm typecheck`
-- Test：`pnpm test:unit`
-- Eval：`pnpm eval:replay`
+- 快速层（开发中同步，失败阻塞当前实施单元）：{{validationCommands.tiers.quick}}
+- 中等层（实施单元边界、提交前或合并前，失败阻塞合并或完成声明）：{{validationCommands.tiers.standard}}
+- 深度层（异步、夜间、关键 PR 或发布边界，失败阻塞集成与发布）：{{validationCommands.tiers.deep}}
+- `vibe-harness verify` 默认只执行快速层；中等层与深度层显式传 `--tier standard|deep|all` 升级，`--full` 运行完整矩阵。快速层通过时收据标注部分范围并列出被延迟的检查。
+- 项目配置的四项命令（完整范围，含深度层）：Lint {{validationCommands.lint}}；Typecheck {{validationCommands.typecheck}}；Test {{validationCommands.test}}；Eval {{validationCommands.eval}}
+- 深度层的调度状态（queued/running/passed/failed/blocked/stale）只表示排期进度；最终验收仍按 passed/failed/blocked/unverified，实质写入后旧深度收据作废需重跑。
+- E2E 只保留真实入口完整旅程，参数校验、配置解析、提示文案和可注入组件行为下沉到单元、组件或集成层。
 - 无法运行某项验证时，交付必须说明原因、替代证据和剩余风险。
 
 ## Git / VCS 规范

@@ -33,7 +33,7 @@
 - 项目路径只通过 `--project <path>` 传入，`--target` 只选择 adapter。
 - dry-run 不写入；真实修改必须使用 `--write`。
 - Codex full 写红区需要 `--confirm-red-zone`。
-- `validate --project` 只检查安装一致性；`verify --project` 默认按变更风险生成唯一验证计划并执行，`--plan` 只预览计划，`--full` 显式执行完整验证矩阵。`minimal/core/full/docs-only` 仍表示安装能力范围，不表示验证风险等级。
+- `validate --project` 只检查安装一致性；`verify --project` 不带 `--tier` 时默认只执行快速层（层命令来自配置声明或按包脚本推导，完全推导不出层时退回 `auto` 风险计划），收据标注部分范围；`--tier standard|deep|all` 按层累计显式升级（`all` 等价 `deep`），`--plan` 只预览计划，`--full` 显式执行完整验证矩阵并与 `--tier` 互斥。`minimal/core/full/docs-only` 仍表示安装能力范围，不表示验证风险等级。
 
 verify 输出本轮 ID、时间和可用的 Git 工作树指纹；检查期间工作树变化时收据失效且命令返回非零。
 
@@ -73,7 +73,7 @@ installer 集成验证应覆盖已有文件拒写、红区确认、目标路径�
 
 不要为了满足固定流程运行无关 Review/Test。没有本轮输出时，不得复用历史结果声称通过。角色包、角色路由或宿主投影变更还必须运行 pnpm roles:audit，并按影响范围补充宿主生命周期测试。
 
-风险计划的 `unknown` 分支必须 fail-safe 回退到 high；普通文档、单个测试文件和纯函数脚本不得仅因目录名自动触发 integration/smoke。验证收据保留 `riskLevel`、`planMode`、`impactGroups`、`selectedChecks`、`skippedChecks`、`fallbackUsed` 和 `selectionReasons`。
+风险计划的 `unknown` 分支必须 fail-safe 回退到 high；普通文档、单个测试文件和纯函数脚本不得仅因目录名自动触发 integration/smoke。验证收据保留 `riskLevel`、`planMode`、`impactGroups`、`selectedChecks`、`skippedChecks`、`executionTier`、`tierSource`、`scopeStatus`、`deferredChecks`、`nextTier`、`tierFallback`、`fallbackUsed` 和 `selectionReasons`。
 
 ## 测试实现（本仓库）
 

@@ -99,7 +99,7 @@ node .agents/runtime/commands/run.mjs slice --project . --file <path> --from <n>
 node .agents/runtime/commands/run.mjs patch --project . --spec <spec.json>
 ```
 
-`verify --plan` 只预览已配置检查，不执行命令；脚本不提供任意命令执行接口，不自动修改配置或联网。验证命令来自 `vibe-harness.config.json` 的 `validationCommands`，失败、超时、危险命令和验证期间工作树变化都会明确报告。
+`verify --plan` 只预览已配置检查，不执行命令；脚本不提供任意命令执行接口，不自动修改配置或联网。验证命令来自 `vibe-harness.config.json` 的 `validationCommands`，失败、超时、危险命令和验证期间工作树变化都会明确报告。成本分层按「最小充分成本」默认走快：`verify` 不带 `--tier` 时只执行快速层（随改动同步、失败阻塞当前实施单元），中等层与深度层必须显式升级——`--tier standard|deep|all` 选定成本层，`--full` 运行完整风险矩阵与全部声明层。快速层通过时收据标注 `scopeStatus: partial` 并列出被延迟的检查与下一层入口，未取得被延迟层的证据前不得宣称集成、发布或整体完成。
 
 `worktree`、`slice` 和 `patch` 默认只读：`worktree check` 汇总隔离单元、merge-back、依赖链接与端口登记事实并给出 `cleanupAllowed` 建议；`worktree bootstrap` 按六步（`worktree add` → 依赖链接 → 端口分段与 env 文件 → 声明的 envFiles → 声明的 setupCommands → 工具链探针）执行，默认只出计划、追加 `--write` 才落盘，目标命中 `hooks.redZonePaths` 时还需 `--confirm-red-zone`；端口按主检出 `.vibe-harness/worktree-ports.json` 的登记表分段并由 `.vibe-harness/worktree-ports.lock` 串行化，主检出缺 `node_modules` 时 bootstrap 以 `blocked` 结束而不是静默继续。`worktree cleanup` 只在追加 `--write` 时落盘，且 cleanup 在分支尚未并入 `worktree.baseRef` 或工作区不干净时拒绝执行、绝不删除分支；`slice` 打印指定行区间，`patch` 按 spec 在内存中完成带守卫的区间或序列替换，全部通过后才写盘。三者替代 `node -e` 内联片段与项目内一次性脚本。
 
@@ -171,7 +171,12 @@ ZCode 尚未公开项目级 Skill 的磁盘路径，因此 Vibe-Harness 不会�
     "lint": null,
     "typecheck": null,
     "test": null,
-    "eval": null
+    "eval": null,
+    "tiers": {
+      "quick": [],
+      "standard": [],
+      "deep": []
+    }
   },
   "evaluations": {
     "enabled": false,

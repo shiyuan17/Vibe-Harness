@@ -99,7 +99,7 @@ node .agents/runtime/commands/run.mjs slice --project . --file <path> --from <n>
 node .agents/runtime/commands/run.mjs patch --project . --spec <spec.json>
 ```
 
-`verify --plan` previews configured checks without executing them. The script has no arbitrary command option, does not edit configuration, and does not use the network. Commands come from `validationCommands` in `vibe-harness.config.json`; failures, timeouts, unsafe commands, and worktree changes during verification are reported explicitly.
+`verify --plan` previews configured checks without executing them. The script has no arbitrary command option, does not edit configuration, and does not use the network. Commands come from `validationCommands` in `vibe-harness.config.json`; failures, timeouts, unsafe commands, and worktree changes during verification are reported explicitly. Cost tiers default to the fast path: without `--tier`, `verify` runs only the quick layer (it follows implementation and blocks the current work unit), and the standard and deep layers have to be asked for with `--tier standard|deep|all` or `--full` for the complete matrix. A passing quick-layer run reports `scopeStatus: partial` and lists the deferred checks plus the next layer, so it can never be read as integration, release, or overall completion.
 
 `worktree`, `slice`, and `patch` are read-only by default. `worktree check` reports isolation units, merge-back state, dependency links, and the port registration facts plus a `cleanupAllowed` advisory. `worktree bootstrap` runs six steps (`worktree add` -> dependency links -> port block and env file -> declared envFiles -> declared setupCommands -> toolchain probe), prints the plan unless `--write` is passed, and additionally needs `--confirm-red-zone` when a target matches `hooks.redZonePaths`; ports are segmented by the main checkout's `.vibe-harness/worktree-ports.json` registry under the `.vibe-harness/worktree-ports.lock` exclusive lock, and a main checkout without `node_modules` ends the bootstrap as `blocked` instead of continuing silently. `worktree cleanup` only writes when `--write` is passed, refuses while a branch has not landed in `worktree.baseRef` or the worktree is dirty, and never deletes a branch. `slice` prints a line range; `patch` applies guarded range or sequence edits in memory and writes only after every operation passed. They replace inline `node -e` snippets and one-off scripts inside a project.
 
@@ -171,7 +171,12 @@ ZCode project Skill storage has no documented project-scoped path, so Vibe-Harne
     "lint": null,
     "typecheck": null,
     "test": null,
-    "eval": null
+    "eval": null,
+    "tiers": {
+      "quick": [],
+      "standard": [],
+      "deep": []
+    }
   },
   "evaluations": {
     "enabled": false,
