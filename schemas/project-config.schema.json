@@ -37,7 +37,16 @@
         "lint": { "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }] },
         "typecheck": { "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }] },
         "test": { "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }] },
-        "eval": { "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }] }
+        "eval": { "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }] },
+        "tiers": {
+          "type": "object",
+          "properties": {
+            "quick": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+            "standard": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+            "deep": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+          },
+          "additionalProperties": false
+        }
       },
       "additionalProperties": false
     },

@@ -616,6 +616,8 @@ export async function runVerificationPlan({
     targetDir,
     timeoutMs,
   });
+  const deferredChecks = (plan.deferredChecks ?? []).map((item) => ({ ...item }));
+  const nextTier = plan.nextTier ?? null;
   focused.results = (focused.results ?? []).map((item) => ({
     ...item,
     ...(item.category === 'focused-check' ? { category: item.id ?? item.command } : {}),
@@ -670,13 +672,35 @@ export async function runVerificationPlan({
     results,
     verification: {
       ...focused.verification,
+      changeBoundary: {
+        ...focused.verification.changeBoundary,
+        // A deferred layer is missing evidence, so a passing fast run cannot
+        // report the change boundary as verified.
+        status: deferredChecks.length > 0 ? 'unverified' : focused.verification.changeBoundary.status,
+      },
+      deferredChecks,
+      executionTier: plan.executionTier ?? null,
       riskLevel: plan.riskLevel,
       planMode: plan.planMode,
       impactGroups: [...(plan.impactGroups ?? [])],
+      nextTier,
+      // A deferred layer is completed by the next tier up; the hint is the
+      // command that produces the missing evidence.
+      recovery: deferredChecks.length > 0 && !focused.error
+        ? {
+            status: 'available',
+            hint: nextTier
+              ? `vibe-harness verify --project . --tier ${nextTier}`
+              : 'vibe-harness verify --project . --full',
+          }
+        : focused.verification.recovery,
+      scopeStatus: deferredChecks.length > 0 ? 'partial' : 'complete',
       selectedChecks: (plan.selectedChecks ?? []).map((item) => ({ ...item })),
       skippedChecks: (plan.skippedChecks ?? []).map((item) => ({ ...item })),
       fallbackUsed: plan.fallbackUsed === true,
       selectionReasons: [...(plan.selectionReasons ?? [])],
+      tierFallback: plan.tierFallback ?? null,
+      tierSource: plan.tierSource ?? null,
     },
   };
 }

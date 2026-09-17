@@ -57,7 +57,7 @@ const defaultTemplateData = {
     vcsStatusCommand: 'git status --short',
     vcsStatusInstruction: '编辑前运行 `git status --short`，保护用户未归属改动。',
     vcsSummary: '未识别 VCS',
-    verificationSummary: '使用目标项目配置的验证命令，并补充聚焦测试或人工核对证据。',
+    verificationSummary: '快速层：未配置；中等层：未配置；深度层：未配置',
     logging: {
       status: 'unknown',
       evidenceSummary: '实现：未发现；配置：未发现；查询：未发现；关联字段：未发现',
@@ -70,6 +70,11 @@ const defaultTemplateData = {
     typecheck: '未配置',
     test: '未配置',
     eval: '未配置',
+    tiers: {
+      quick: [],
+      standard: [],
+      deep: [],
+    },
   },
 };
 
@@ -129,6 +134,12 @@ export function withDefaultTemplateData(data = {}) {
     validationCommands: {
       ...defaultTemplateData.validationCommands,
       ...(data.validationCommands ?? {}),
+      // Tiers are merged per key: a caller that supplies one tier (or none)
+      // must still render the other labels instead of failing the render.
+      tiers: {
+        ...defaultTemplateData.validationCommands.tiers,
+        ...(data.validationCommands?.tiers ?? {}),
+      },
     },
   };
 }
@@ -161,6 +172,11 @@ function resolvePlaceholder(resolvedData, expression) {
   }
   if (value === null) {
     return '未配置';
+  }
+  // Tier placeholders hold command arrays; an empty array is the explicit
+  // "not configured" state rather than a rendered `[]`.
+  if (Array.isArray(value)) {
+    return value.length > 0 ? value.map((item) => String(item)).join('、') : '未配置';
   }
   return String(value);
 }

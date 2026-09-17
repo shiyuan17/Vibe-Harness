@@ -9,6 +9,12 @@ import { promisify } from 'node:util';
 import { assertSafeCommand } from './lib/shell-command.js';
 import { readProjectConfig } from './lib/project-config.js';
 import { runFocusedProjectVerification } from './lib/project-verification.js';
+import {
+  DEFAULT_VALIDATION_TIER,
+  VALIDATION_TIERS,
+  cumulativeTierNames,
+  normalizeTierOption,
+} from './lib/validation-tiers.js';
 import { buildVerificationPlan } from './lib/verification-plan.js';
 
 const execFileAsync = promisify(execFile);
@@ -159,11 +165,12 @@ function executableFor(command) {
 }
 
 function printUsage() {
-  console.log('Usage: node scripts/verify-focused.js [--base <ref>] [--run] [--json]');
+  console.log('Usage: node scripts/verify-focused.js [--base <ref>] [--run] [--tier quick|standard|deep|all] [--json]');
   console.log();
   console.log('Prints suggested focused verification commands for the current changes.');
   console.log('  --base <ref>  Diff against <ref> instead of HEAD (covers committed changes).');
-  console.log('  --run         Execute the suggested commands in order, stopping on first failure.');
+  console.log('  --run         Execute the selected commands in order, stopping on first failure.');
+  console.log('  --tier <t>    Cost layer to execute: quick (default), standard, deep, or all.');
   console.log('  --json        Emit suggestions or the complete focused-verification receipt as JSON.');
 }
 
@@ -178,11 +185,20 @@ async function main() {
   let run = false;
   let json = false;
   let base = null;
+  let tier = DEFAULT_VALIDATION_TIER;
   for (let index = 0; index < args.length; index++) {
     if (args[index] === '--run') {
       run = true;
     } else if (args[index] === '--json') {
       json = true;
+    } else if (args[index] === '--tier') {
+      const value = args[++index];
+      if (value === undefined) usageError('--tier requires a layer argument (quick, standard, deep, all).');
+      try {
+        tier = normalizeTierOption(value);
+      } catch (error) {
+        usageError(error.message);
+      }
     } else if (args[index] === '--base') {
       base = args[++index];
       if (!base) usageError('--base requires a git ref argument.');
@@ -210,11 +226,30 @@ async function main() {
     changedDetails,
     targetDir: process.cwd(),
   });
-  const commands = plan.selectedChecks;
+  // The risk plan answers "what does this change affect"; the cost layer
+  // answers "which of that evidence do I pay for now". The fast layer is the
+  // default, and the deferred checks stay visible instead of disappearing.
+  const activeTiers = new Set(cumulativeTierNames(tier));
+  const tierOf = (item) => item.costTier ?? 'standard';
+  const commands = plan.selectedChecks.filter((item) => activeTiers.has(tierOf(item)));
+  const deferredChecks = plan.selectedChecks
+    .filter((item) => !activeTiers.has(tierOf(item)))
+    .map((item) => ({ ...item }));
+  const nextTier = VALIDATION_TIERS.find((name) => deferredChecks.some((item) => tierOf(item) === name)) ?? null;
+  const scopeStatus = deferredChecks.length > 0 ? 'partial' : 'complete';
   const notes = plan.selectionReasons;
-  const impactMapping = buildImpactMapping(paths, commands);
+  const impactMapping = buildImpactMapping(paths, plan.selectedChecks);
   if (!run && json) {
-    console.log(JSON.stringify({ ...plan, impactMapping, notes }, null, 2));
+    console.log(JSON.stringify({
+      ...plan,
+      deferredChecks,
+      executionTier: tier,
+      impactMapping,
+      nextTier,
+      notes,
+      scopeStatus,
+      selectedChecks: commands,
+    }, null, 2));
     return;
   }
   let report = null;
@@ -226,9 +261,13 @@ async function main() {
     });
     report.verification = {
       ...report.verification,
+      deferredChecks,
+      executionTier: tier,
       riskLevel: plan.riskLevel,
       planMode: plan.planMode,
       impactGroups: [...plan.impactGroups],
+      nextTier,
+      scopeStatus,
       selectedChecks: plan.selectedChecks.map((item) => ({ ...item })),
       skippedChecks: plan.skippedChecks.map((item) => ({ ...item })),
       fallbackUsed: plan.fallbackUsed,
@@ -244,7 +283,13 @@ async function main() {
   }
   console.log(`Focused verification suggestions (${paths.length} changed path(s), ${commands.length} command(s)):`);
   for (const item of commands) console.log(`  ${item.command.padEnd(24)}# ${item.reason}`);
+  for (const item of deferredChecks) {
+    console.log(`  ${item.command.padEnd(24)}# deferred (${item.costTier}): ${item.blockingScope}`);
+  }
   for (const note of notes) console.log(`Note: ${note}`);
+  if (deferredChecks.length > 0) {
+    console.log(`Deferred layers are not run by default; escalate with --tier ${nextTier ?? 'deep'} when the completion claim needs them.`);
+  }
   console.log('Use --run to execute the commands in order and emit a receipt.');
 
   if (!run) return;

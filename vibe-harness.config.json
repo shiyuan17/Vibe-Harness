@@ -28,7 +28,24 @@
     "lint": "pnpm lint",
     "typecheck": "pnpm typecheck",
     "test": "pnpm test:unit",
-    "eval": "pnpm eval:replay"
+    "eval": "pnpm eval:replay",
+    "tiers": {
+      "quick": [
+        "pnpm lint",
+        "pnpm typecheck",
+        "pnpm test:unit",
+        "pnpm test:component"
+      ],
+      "standard": [
+        "pnpm test:integration"
+      ],
+      "deep": [
+        "pnpm eval:replay",
+        "pnpm test:e2e",
+        "pnpm test:matrix",
+        "pnpm smoke:lifecycle"
+      ]
+    }
   },
   "evaluations": {
     "enabled": true,

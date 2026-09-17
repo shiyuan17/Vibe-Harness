@@ -1,6 +1,40 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import {
+  VALIDATION_TIER_BLOCKING_SCOPE,
+  nextNonEmptyTier,
+  resolveExecutionTier,
+  selectTierChecks,
+} from './validation-tiers.js';
+
+/**
+ * Cost tier of each selectable check. The risk plan and the tier plan answer
+ * different questions — "what does this change affect" versus "how expensive is
+ * the evidence" — so both carry the cost tier and the scope it blocks.
+ */
+const CHECK_COST_TIERS = {
+  component: 'quick',
+  docs: 'quick',
+  'eval-check': 'quick',
+  fallback: 'quick',
+  lint: 'quick',
+  skills: 'quick',
+  test: 'quick',
+  typecheck: 'quick',
+  validate: 'quick',
+  integration: 'standard',
+  e2e: 'deep',
+  eval: 'deep',
+  matrix: 'deep',
+  smoke: 'deep',
+};
+
+/** @param {string} id */
+function costTierForCheck(id) {
+  return CHECK_COST_TIERS[id] ?? 'standard';
+}
+
 const HIGH_PATHS = [
   /^\.github\/workflows\//u,
   /^(?:schemas|manifests|adapters|runtime)\//u,
@@ -185,9 +219,20 @@ function addCheck(checks, command, reason, id = command, scripts = {}) {
 }
 
 /**
- * @param {{changedPaths?: string[], changedDetails?: Array<object>, commandStatus?: object, config?: {riskZones?: {red?: string[], yellow?: string[], pathPatterns?: {red?: string[], yellow?: string[]}}}, targetDir?: string, full?: boolean}} options
+ * @param {{changedPaths?: string[], changedDetails?: Array<object>, commandStatus?: object, config?: {riskZones?: {red?: string[], yellow?: string[], pathPatterns?: {red?: string[], yellow?: string[]}}}, targetDir?: string, full?: boolean, tier?: 'quick'|'standard'|'deep'|null, tierExplicit?: boolean, tiers?: {quick?: string[], standard?: string[], deep?: string[]}|null, tierSource?: string|null}} options
  */
-export async function buildVerificationPlan({ changedPaths = [], changedDetails = [], commandStatus = {}, config = {}, targetDir = process.cwd(), full = false } = {}) {
+export async function buildVerificationPlan({
+  changedPaths = [],
+  changedDetails = [],
+  commandStatus = {},
+  config = {},
+  targetDir = process.cwd(),
+  full = false,
+  tier = null,
+  tierExplicit = false,
+  tiers = null,
+  tierSource = null,
+} = {}) {
   const paths = changedPaths.map(normalize);
   const risk = classifyVerificationRisk(paths, { changedDetails, riskZones: config.riskZones });
   const scripts = await projectScripts(targetDir);
@@ -281,17 +326,50 @@ export async function buildVerificationPlan({ changedPaths = [], changedDetails 
     'lint', 'typecheck', 'validate', 'test', 'component', 'eval', 'docs', 'eval-check', 'skills',
     'integration', 'e2e', 'matrix', 'smoke',
   ];
-  const selectedChecks = checks.map((item) => ({
+  const riskChecks = checks.map((item) => ({
     ...item,
+    blockingScope: VALIDATION_TIER_BLOCKING_SCOPE[costTierForCheck(item.id)],
+    costTier: costTierForCheck(item.id),
     ...(commandStatus[item.id]?.status ? { status: commandStatus[item.id].status } : {}),
   }));
+  // A tier run answers "how much evidence do I pay for now": it selects the
+  // configured commands of the cumulative layers and reports the rest as
+  // deferred, so a fast pass can never be mistaken for a complete one. An
+  // unnamed run resolves to the fast layer, so the expensive layers are only
+  // paid for when the caller asks for them.
+  // `--full` is itself an explicit request for every declared layer, so it
+  // never falls back to a cheaper layer.
+  const resolved = tier ? resolveExecutionTier({ explicit: tierExplicit || full, tier, tiers }) : null;
+  const tierSelection = resolved?.tier ? selectTierChecks({ commandStatus, tier: resolved.tier, tiers }) : null;
+  // `--full` means the complete matrix: the tier surface covers the configured
+  // commands, and the risk plan adds the checks it derives from the change
+  // itself (for example schema validation or the lifecycle smoke suite). A
+  // plain tier run stays exactly that layer, so a fast pass cannot quietly
+  // execute the deferred commands through the risk plan.
+  const extraRiskChecks = tierSelection
+    ? riskChecks.filter((item) => !tierSelection.selectedChecks.some(
+        (check) => check.id === item.id || check.command === item.command,
+      ))
+    : [];
+  const selectedChecks = tierSelection
+    ? (full ? [...tierSelection.selectedChecks, ...extraRiskChecks] : [...tierSelection.selectedChecks])
+    : riskChecks;
   const selectedIds = new Set(selectedChecks.map((item) => item.id));
+  const deferredChecks = full
+    ? []
+    : [...(tierSelection?.deferredChecks ?? [])].filter((item) => !selectedIds.has(item.id));
   return {
     ...risk,
-    planMode: full ? 'full' : 'auto',
+    deferredChecks,
+    executionTier: resolved?.tier ?? null,
+    nextTier: resolved?.tier ? nextNonEmptyTier(resolved.tier, tiers) : null,
+    planMode: full ? 'full' : (resolved?.tier ? 'tier:' + resolved.tier : 'auto'),
+    riskSelectedChecks: riskChecks.map((item) => ({ id: item.id, command: item.command })),
     selectedChecks,
     skippedChecks: known.filter((id) => !selectedIds.has(id)).map((id) => ({ id, status: 'not_selected' })),
     selectionReasons: [...new Set(reasons)],
+    tierFallback: resolved?.fallback ?? null,
+    tierSource,
     fallbackUsed: risk.fallbackUsed,
   };
 }

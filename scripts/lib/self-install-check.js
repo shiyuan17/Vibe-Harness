@@ -4,7 +4,7 @@ import { pathExists } from './manifest.js';
 import {
   projectTargets,
   readRequiredProjectConfig,
-  resolveValidationCommands,
+  validationCommandView,
   validateProfileName,
   validateProjectConfig,
 } from './project-config.js';
@@ -29,7 +29,7 @@ export async function checkSelfInstallConformance(rootDir, { targetDir = rootDir
   const profile = validateProfileName(config.profile);
   const targets = projectTargets(config);
   const projectProfile = await detectProjectProfile({ config, targetDir });
-  const validationCommands = resolveValidationCommands(config);
+  const validationCommands = validationCommandView(projectProfile, config);
   const renderData = { ...config, profile, projectProfile, targets, validationCommands };
   const requestedModules = config.modules ?? installState.requestedModules;
   const requestedPlugins = config.plugins ?? installState.requestedPlugins ?? [];

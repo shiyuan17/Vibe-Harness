@@ -12,6 +12,13 @@ import { safeJsonParse } from './safe-json.js';
 import { productIdentity } from './product-identity.js';
 import { resolveProjectConfigLocation } from './project-layout.js';
 import {
+  assertValidationTiers,
+  deriveValidationTiers,
+  emptyValidationTiers,
+  normalizeValidationTiers,
+  readProjectTierFacts,
+} from './validation-tiers.js';
+import {
   DEFAULT_PROJECT_VERIFICATION_TIMEOUT_MS,
   MAX_PROJECT_VERIFICATION_TIMEOUT_MS,
   MIN_PROJECT_VERIFICATION_TIMEOUT_MS,
@@ -57,6 +64,7 @@ export const defaultProjectConfig = {
     typecheck: null,
     test: null,
     eval: null,
+    tiers: emptyValidationTiers(),
   },
   verification: {
     timeoutMs: DEFAULT_PROJECT_VERIFICATION_TIMEOUT_MS,
@@ -189,6 +197,18 @@ export async function writeDefaultProjectConfig({ force = false, preset, project
     ...(presetId ? { preset: presetId } : {}),
     targets: [...selectedTargets],
   };
+  // A brand-new project has no declared tiers yet. Detect what the repository
+  // itself declares and write the derivation (or three empty arrays when no
+  // command is unambiguous) so the file states the tier surface explicitly
+  // instead of leaving it implicit until the first `install --upgrade`.
+  const tierFacts = await readProjectTierFacts(projectDir);
+  const derivedTiers = deriveValidationTiers({
+    configuredCommands: config.validationCommands,
+    packageManager: tierFacts.packageManager ?? config.packageManager,
+    scripts: tierFacts.scripts,
+    stacks: tierFacts.stacks,
+  });
+  config.validationCommands = { ...config.validationCommands, tiers: derivedTiers.tiers };
   await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
   return { config, path: configPath };
 }
@@ -235,11 +255,34 @@ function assertNonEmptyString(value, label) {
 
 const validationCheckDefaults = { lint: null, typecheck: null, test: null, eval: null };
 
+/**
+ * The four configured commands as a flat, string-only view. Tier arrays live
+ * under `validationCommands.tiers` and are resolved separately, so a consumer
+ * that inspects or executes commands never receives a nested object.
+ *
+ * @param {Record<string, any>} config
+ */
 export function resolveValidationCommands(config) {
   const configured = Object.fromEntries(
-    Object.entries(config?.validationCommands ?? {}).filter(([, value]) => value),
+    Object.entries(config?.validationCommands ?? {})
+      .filter(([name, value]) => Object.hasOwn(validationCheckDefaults, name) && value),
   );
   return { ...validationCheckDefaults, ...configured };
+}
+
+/**
+ * Render view handed to the instruction templates: the four configured commands
+ * plus the resolved tier arrays. The tiers stay arrays because the renderer
+ * formats them; an empty array renders as the explicit "not configured" label.
+ *
+ * @param {{validationTiers?: any}|undefined} projectProfile
+ * @param {Record<string, any>} config
+ */
+export function validationCommandView(projectProfile, config) {
+  return {
+    ...resolveValidationCommands(config),
+    tiers: normalizeValidationTiers(projectProfile?.validationTiers ?? config?.validationCommands?.tiers),
+  };
 }
 
 function assertOptionalCommand(value, label) {
@@ -352,6 +395,9 @@ export function validateProjectConfig(config) {
   assertOptionalCommand(config.validationCommands.typecheck, 'validationCommands.typecheck');
   assertOptionalCommand(config.validationCommands.test, 'validationCommands.test');
   assertOptionalCommand(config.validationCommands.eval, 'validationCommands.eval');
+  if (Object.hasOwn(config.validationCommands, 'tiers')) {
+    assertValidationTiers(config.validationCommands.tiers, 'validationCommands.tiers');
+  }
   if (Object.hasOwn(config, 'riskZones')) {
     assertObject(config.riskZones, 'riskZones');
     for (const field of ['red', 'yellow']) {

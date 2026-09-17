@@ -3,6 +3,11 @@ import path from 'node:path';
 
 import { readInstallState } from './install-state.js';
 import { assertPortableRelativePath, pathExists } from './manifest.js';
+import {
+  deriveValidationTiers,
+  emptyValidationTiers,
+  resolveValidationTiers,
+} from './validation-tiers.js';
 
 const ignoredDirs = new Set([
   '.git',
@@ -366,6 +371,24 @@ function withVcsStatusInstruction(profile) {
   };
 }
 
+/**
+ * Tier summary for the resident instructions: every tier is always shown, an
+ * unrecognized tier is labelled instead of being silently dropped.
+ *
+ * @param {{quick?: string[], standard?: string[], deep?: string[]}} tiers
+ * @param {string[]} commands
+ */
+function verificationSummaryFor(tiers, commands) {
+  const label = (name, list) => `${name}：${list.length > 0 ? list.join('、') : '未配置'}`;
+  const lines = [
+    label('快速层', tiers.quick),
+    label('中等层', tiers.standard),
+    label('深度层', tiers.deep),
+  ];
+  if (unique(commands).length > 0) lines.push(`默认四项：${unique(commands).join(', ')}`);
+  return lines.join('；');
+}
+
 /** @param {Record<string, any>} config */
 function createGenericProfile(config = {}) {
   return {
@@ -377,7 +400,11 @@ function createGenericProfile(config = {}) {
     vcsStatusCommand: '检查目标项目 VCS 状态',
     vcsStatusInstruction: '编辑前检查目标目录文件状态；当前未配置 VCS 状态命令。',
     vcsSummary: '未识别 VCS',
-    verificationSummary: '使用 vibe-harness.config.json 中的 validationCommands，并补充聚焦测试或人工核对证据。',
+    verificationSummary: verificationSummaryFor(emptyValidationTiers(), []),
+    derivedValidationTiers: emptyValidationTiers(),
+    tierReasons: emptyValidationTiers(),
+    tierSource: 'empty',
+    validationTiers: emptyValidationTiers(),
     validationCommands: {
       lint: null,
       typecheck: null,
@@ -456,20 +483,38 @@ export async function detectProjectProfile({ config = {}, targetDir }) {
 
   const vcsKinds = unique([hasGit ? 'Git' : '', hasSvn ? 'SVN' : '']);
   const vcsStatusCommand = hasGit ? 'git status --short' : (hasSvn ? 'svn status' : '检查目标项目 VCS 状态');
+  const tierFacts = {
+    configuredCommands: config.validationCommands,
+    packageManager,
+    scripts: pkg?.scripts ?? {},
+    stacks: {
+      dotnet: slnFiles.length > 0 || csprojFiles.length > 0,
+      maven: pomFiles.length > 0,
+    },
+  };
+  const derivedValidationTiers = deriveValidationTiers(tierFacts);
+  const resolvedTiers = resolveValidationTiers({
+    configuredTiers: config.validationCommands?.tiers,
+    derived: derivedValidationTiers,
+  });
   const detected = {
     codingStandards: standards.length > 0 ? standards.join('\n- ') : '未发现专用 lint/format 配置；沿用仓库现有代码风格并保持最小改动。',
+    derivedValidationTiers: derivedValidationTiers.tiers,
     directoryGuidance: directories.length > 0 ? directories.join(', ') : '未发现显式模块清单；按现有目录职责就近修改。',
     packageManager,
     reviewGuidance: '按 package.json scripts、pom.xml 或 solution 配置选择与改动匹配的验证。',
     stackSummary: unique(stacks).join(', ') || '未识别到主技术栈；以目标项目现有文件为准。',
+    tierReasons: resolvedTiers.tierReasons,
+    tierSource: resolvedTiers.tierSource,
     vcsStatusCommand,
     vcsSummary: vcsKinds.join(' + ') || '未识别 VCS',
-    verificationSummary: unique(commands).join(', ') || '使用 vibe-harness.config.json 中的 validationCommands，并补充聚焦测试或人工核对证据。',
+    verificationSummary: verificationSummaryFor(resolvedTiers.tiers, commands),
     validationCommands: {
       lint: commands.find((command) => /(?:^|\s)(?:run\s+)?lint(?:\s|$)/u.test(command)) ?? null,
       typecheck: commands.find((command) => /(?:check:type|typecheck|ts:check)/u.test(command)) ?? null,
       test: commands.find((command) => /(?:^|\s)(?:run\s+)?test(?::[^\s]+)?(?:\s|$)|mvn\s+test/u.test(command)) ?? null,
     },
+    validationTiers: resolvedTiers.tiers,
     logging: await detectLoggingProfile({
       config,
       targetDir,

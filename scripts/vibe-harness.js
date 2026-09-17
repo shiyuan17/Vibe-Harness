@@ -30,7 +30,7 @@ import { detectProjectProfile } from './lib/project-profile.js';
 import {
   parseTargetsOption,
   readRequiredProjectConfig,
-  resolveValidationCommands,
+  validationCommandView,
   validateConfigAndGeneratedContent,
   validateProjectConfig,
   validateProjectConfigWithSchema,
@@ -40,6 +40,13 @@ import {
   validateProfileName,
   writeDefaultProjectConfig,
 } from './lib/project-config.js';
+import {
+  DEFAULT_VALIDATION_TIER,
+  emptyValidationTiers,
+  normalizeTierOption,
+  planValidationTierMigration,
+  validationTiersDeclared,
+} from './lib/validation-tiers.js';
 import { installPresetForId, parsePresetOption, resolveInstallSurface } from './lib/install-preset.js';
 import { collectProjectBaselineInputs, createProjectBaseline } from './lib/project-baseline.js';
 import {
@@ -252,6 +259,11 @@ function emitReport(report, args, { error = false } = {}) {
       ...(normalized.memory ? ['memory: runtime=' + normalized.memory.runtime.status + ', durable=' + normalized.memory.durable.status] : []),
       ...(normalized.preset ? ['preset: ' + normalized.preset] : []),
       `status: ${normalized.status}`,
+      ...(normalized.scopeStatus ? [`scopeStatus: ${normalized.scopeStatus}`] : []),
+      ...(normalized.nextTier ? [`nextTier: ${normalized.nextTier}`] : []),
+      ...(Array.isArray(normalized.deferredChecks) && normalized.deferredChecks.length > 0
+        ? [`deferredChecks: ${normalized.deferredChecks.map((item) => item.id).join(',')}`]
+        : []),
       ...(normalized.profile ? [`profile: ${normalized.profile}`] : []),
       ...(Array.isArray(normalized.requestedPlugins) ? [`plugins: ${normalized.requestedPlugins.length ? normalized.requestedPlugins.join(',') : 'none'}`] : []),
       ...(normalized.rtkHooks ? [`rtkHooks: ${normalized.rtkHooks.status} (enabled=${normalized.rtkHooks.enabled})`] : []),
@@ -429,7 +441,7 @@ async function install(args) {
   };
   validateProjectConfigWithSchema(effectiveConfig);
   const projectProfile = await detectProjectProfile({ config: effectiveConfig, targetDir });
-  const validationCommands = resolveValidationCommands(effectiveConfig);
+  const validationCommands = validationCommandView(projectProfile, effectiveConfig);
   const renderData = {
     ...effectiveConfig,
     profile,
@@ -453,17 +465,35 @@ async function install(args) {
   const migratedConfig = migrateLegacyProjectConfig(config);
   const writePreset = Boolean(installSurface.preset)
     && (config.preset !== installSurface.preset || config.profile !== installSurface.profile);
-  const configUpdate = (Object.hasOwn(config, 'target') && Boolean(args.upgrade)) || writePreset
+  // Tier migration is upgrade-only: a project that already declared its tiers
+  // keeps them, and only missing keys are filled from the detected project
+  // facts. An empty array is a deliberate "this tier is disabled" statement.
+  const tierMigration = args.upgrade
+    ? planValidationTierMigration({
+        configuredTiers: config.validationCommands?.tiers,
+        derivedTiers: projectProfile.derivedValidationTiers ?? emptyValidationTiers(),
+      })
+    : null;
+  const migrateTarget = Object.hasOwn(config, 'target') && Boolean(args.upgrade);
+  const configUpdate = migrateTarget || writePreset || tierMigration
     ? {
         config: {
           ...migratedConfig,
           ...(writePreset ? { preset: installSurface.preset, profile: installSurface.profile } : {}),
+          ...(tierMigration
+            ? { validationCommands: { ...migratedConfig.validationCommands, tiers: tierMigration.tiers } }
+            : {}),
         },
         path: path.join(targetDir, 'vibe-harness.config.json'),
       }
     : null;
   if (writePreset && !dryRunRequested && !args['confirm-red-zone']) {
     throw new Error('Refusing to persist the project preset in vibe-harness.config.json without explicit red-zone confirmation; retry with --confirm-red-zone.');
+  }
+  if (tierMigration && !dryRunRequested && !args['confirm-red-zone']) {
+    throw new Error(
+      'Refusing to persist validationCommands.tiers in vibe-harness.config.json without explicit red-zone confirmation; retry with --confirm-red-zone.',
+    );
   }
   const plan = await createMultiTargetInstallPlan({
     configUpdate,
@@ -582,6 +612,9 @@ async function install(args) {
     baselineId: result.baseline?.id ?? plan.baselinePlan.baselineId,
     configUpdate: configUpdate
       ? {
+          ...(tierMigration
+            ? { addedTiers: tierMigration.addedTiers, tiers: tierMigration.tiers }
+            : {}),
           preset: writePreset ? installSurface.preset : null,
           profile: writePreset ? installSurface.profile : null,
           relativeTarget: path.relative(targetDir, configUpdate.path).replaceAll('\\', '/'),
@@ -650,7 +683,7 @@ async function validate(args) {
     });
     const rtkHooksEnabled = rtkHooksSetting.enabled;
     const projectProfile = await detectProjectProfile({ config, targetDir });
-    const validationCommands = resolveValidationCommands(config);
+    const validationCommands = validationCommandView(projectProfile, config);
     const plan = await createMultiTargetInstallPlan({
       allowPreview: true,
       dryRun: true,
@@ -712,6 +745,9 @@ async function validate(args) {
     });
     const health = healthReport({ profile: installSurface.profile, tools });
     const runtimeHooks = await inspectRuntimeHooks(adapter, targetDir);
+    // Missing tiers stay a hint, not a failure: the effective tiers are derived
+    // from the project scripts, and the plan reports which source was used.
+    const tiersMissing = !validationTiersDeclared(config.validationCommands?.tiers);
     emitReport({
       ...health,
       commandStatus,
@@ -721,8 +757,10 @@ async function validate(args) {
       roles: roleRuntimeReport(target.adapters),
       scope: 'project',
       preset: installSurface.preset,
+      tierSource: projectProfile.tierSource,
       targets: selectedTargets,
       ...(args.verbose ? { targetDir } : {}),
+      validationTiers: projectProfile.validationTiers,
       tools,
       warnings: [
         ...toolWarnings(tools),
@@ -731,6 +769,10 @@ async function validate(args) {
           definitionChanged: await hookDefinitionDrift(adapter, targetDir, installState),
         }),
         ...roleRuntimeWarnings(target.adapters),
+        ...(tiersMissing ? [{
+          code: 'VALIDATION_TIERS_NOT_CONFIGURED',
+          message: 'Add validationCommands.tiers (quick/standard/deep) or declare the matching package scripts; verify falls back to the detected project commands.',
+        }] : []),
       ],
     }, args);
     applyHealthExit(health.status, args);
@@ -770,7 +812,7 @@ async function verify(args) {
     targets,
   });
   const projectProfile = await detectProjectProfile({ config, targetDir });
-  const validationCommands = resolveValidationCommands(config);
+  const validationCommands = validationCommandView(projectProfile, config);
   const renderData = { ...config, projectProfile, validationCommands };
   const target = await diffMultiTargetInstall({
     allowPreview: true,
@@ -803,6 +845,15 @@ async function verify(args) {
     });
   }
   const commandStatus = await inspectValidationCommands({ commands: validationCommands, targetDir });
+  if (args.tier !== undefined && args.full) {
+    throw new Error('Use --tier or --full, not both: --tier selects a cost layer, --full runs the complete matrix.');
+  }
+  // The fast layer is the default path: standard and deep evidence has to be
+  // asked for. `--full` stays the single explicit "complete matrix" door and
+  // implies every declared layer.
+  const full = Boolean(args.full);
+  const tierExplicit = args.tier !== undefined;
+  const tier = tierExplicit ? normalizeTierOption(args.tier) : (full ? 'deep' : DEFAULT_VALIDATION_TIER);
   let changedPaths = [];
   let changedDetails = [];
   try {
@@ -818,7 +869,11 @@ async function verify(args) {
     config,
     changedDetails,
     targetDir,
-    full: Boolean(args.full),
+    full,
+    tier,
+    tierExplicit,
+    tiers: validationCommands.tiers,
+    tierSource: projectProfile.tierSource,
   });
   const planned = { ...plan, impactMapping: buildImpactMapping(changedPaths, plan.selectedChecks) };
   if (args.plan) {
@@ -840,9 +895,15 @@ async function verify(args) {
   });
   emitReport({
     ...verificationReport,
+    deferredChecks: verificationReport.verification?.deferredChecks ?? [],
+    executionTier: verificationReport.verification?.executionTier ?? null,
+    nextTier: verificationReport.verification?.nextTier ?? null,
     scope: 'project',
+    scopeStatus: verificationReport.verification?.scopeStatus ?? 'complete',
     status: verificationReport.ok ? 'ready' : 'invalid',
     targetDir,
+    tierFallback: verificationReport.verification?.tierFallback ?? null,
+    tierSource: verificationReport.verification?.tierSource ?? null,
   }, args, { error: !verificationReport.ok });
   if (!verificationReport.ok) process.exitCode = 1;
 }
@@ -897,7 +958,7 @@ async function baseline(args) {
     requestedPlugins: requestedPlugins ?? [],
     targets,
   });
-  const validationCommands = resolveValidationCommands(config);
+  const validationCommands = validationCommandView(projectProfile, config);
   const renderData = { ...config, projectProfile, validationCommands };
   const target = await diffMultiTargetInstall({
     allowPreview: true,
@@ -1093,11 +1154,15 @@ async function doctor(args) {
   const managedAgentsBlock = installState?.files?.some(
     (file) => ['managed-block', 'managed-instruction-block'].includes(file.contentStrategy),
   );
+  const detectedProfile = await detectProjectProfile({ config, targetDir });
   let renderData = { ...config, profile };
   if (managedAgentsBlock) {
-    const projectProfile = await detectProjectProfile({ config, targetDir });
-    const validationCommands = resolveValidationCommands(config);
-    renderData = { ...config, profile, projectProfile, validationCommands };
+    renderData = {
+      ...config,
+      profile,
+      projectProfile: detectedProfile,
+      validationCommands: validationCommandView(detectedProfile, config),
+    };
   }
   const adapter = await resolveAdapter(rootDir, selectedTargets[0]);
   const [pack, gitHooks, nestedInstallations, provisioningProcess, transactions, transactionLock] = await Promise.all([
@@ -1153,6 +1218,8 @@ async function doctor(args) {
     ...(args.verbose ? { rootDir } : {}),
     target,
     ...(args.verbose ? { targetDir } : {}),
+    tierSource: detectedProfile.tierSource ?? 'empty',
+    validationTiers: detectedProfile.validationTiers ?? emptyValidationTiers(),
     tools,
     transactionLock,
     transactions,
@@ -1198,7 +1265,7 @@ async function diff(args) {
   const installSurface = resolveInstallSurface({ args, config, installState });
   const profile = validateProfileName(installSurface.profile);
   const projectProfile = await detectProjectProfile({ config, targetDir });
-  const validationCommands = resolveValidationCommands(config);
+  const validationCommands = validationCommandView(projectProfile, config);
   const renderData = { ...config, profile, projectProfile, validationCommands };
   const requestedPlugins = installSurface.plugins;
   const rtkHooksEnabled = resolveRtkHooksEnabled({
@@ -1405,7 +1472,7 @@ async function recover(args) {
 }
 
 async function printUsage() {
-  console.log('用法：vibe-harness <init|install|provision|recover|uninstall|validate|verify|baseline|eval|audit|doctor|diff|rollback> [--project path] [--target codex|claude|gemini|cursor|qoder|zcode|antigravity|opencode] [--targets codex,zcode,opencode] [--all-targets] [--profile minimal|core|full|docs-only] [--preset everything] [--modules list] [--plugin -all|-rtk|linear-mcp|linear-mcp-readonly ...] [--rtk-hooks on|off] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--full] [--plan] [--force] [--upgrade] [--preserve-retired] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded] [--provision]');
+  console.log('用法：vibe-harness <init|install|provision|recover|uninstall|validate|verify|baseline|eval|audit|doctor|diff|rollback> [--project path] [--target codex|claude|gemini|cursor|qoder|zcode|antigravity|opencode] [--targets codex,zcode,opencode] [--all-targets] [--profile minimal|core|full|docs-only] [--preset everything] [--modules list] [--plugin -all|-rtk|linear-mcp|linear-mcp-readonly ...] [--rtk-hooks on|off] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--full] [--tier quick|standard|deep|all] [--plan] [--force] [--upgrade] [--preserve-retired] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded] [--provision]');
   console.log('所有项目命令使用 --project <path>；--target 只选择 adapter，--write 执行真实写入。旧版 --apply 和取路径值的 --target 已移除。');
 }
 
