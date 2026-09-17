@@ -4,7 +4,7 @@
 
 > Long tasks maintain a state anchor per `governance-core.md`: establish it before the first substantive write, update the anchor stage when entering a new review, plan, implement, or verify stage, and read the anchor plus the current diff first on recovery. Delivery maps to the closing checklist of the delivery rules, not a fifth stage value.
 
-> The fan-out boundary matches the collaboration criteria of `ai-collab-rules.md`: the write path stays single-agent by default; read-only exploration and evidence gathering may fan out; parallel writes are allowed only across modules with non-overlapping writeScope, and any shared contract keeps a single writer.
+> The fan-out boundary matches the collaboration criteria of `ai-collab-rules.md`: the write path stays single-agent by default; read-only exploration and evidence gathering may fan out; parallel writes are allowed only across modules with non-overlapping writeScope, and any shared contract keeps a single writer. Every heavy step of this workflow (whole-repository scans, full Spec/Plan/Tasks, multiple agents, worktrees, full test and documentation runs, deep review) follows the cost-and-escalation criteria in `governance-core.md`.
 
 ## Review (review)
 

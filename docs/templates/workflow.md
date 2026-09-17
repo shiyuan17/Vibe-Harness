@@ -4,7 +4,7 @@
 
 > 长任务按 `governance-core.md` 维护状态锚点：首次实质写入前建立，进入 review、plan、implement、verify 任一新阶段时更新锚点阶段，恢复时先读锚点与当前 diff。交付对应「交付与证据标签」的收尾核对，不新增第五个阶段值。
 
-> fan-out 边界与 `ai-collab-rules.md` 的协作判据同口径：写路径单 Agent（默认）；只读探查与证据收集可 fan-out；仅当跨模块且 writeScope 不重叠时允许并行写，共享契约唯一写者。
+> fan-out 边界与 `ai-collab-rules.md` 的协作判据同口径：写路径单 Agent（默认）；只读探查与证据收集可 fan-out；仅当跨模块且 writeScope 不重叠时允许并行写，共享契约唯一写者。本流程的所有重步骤（全仓扫描、完整 Spec/Plan/Tasks、多 Agent、Worktree、全量测试与文档更新、深度审查）都按 `governance-core.md` 的「成本与升级」判断是否执行。
 
 ## 审查（review）
 
