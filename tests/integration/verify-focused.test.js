@@ -140,6 +140,82 @@ test('verify-focused --run --json emits one reviewable receipt', async () => {
   }
 });
 
+test('verify-focused --run 默认只执行快速层并把更深检查标为 deferred', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'verify-focused-tier-'));
+  const git = (...args) => execFileAsync('git', ['-C', dir, ...args]);
+  try {
+    await git('init');
+    await git('config', 'user.email', 'test@example.com');
+    await git('config', 'user.name', 'Vibe-Harness Test');
+    const scripts = {
+      'test:unit': 'node run-unit.mjs',
+      'test:component': 'node run-component.mjs',
+      'test:integration': 'node run-integration.mjs',
+      'test:e2e': 'node run-e2e.mjs',
+      'smoke:lifecycle': 'node run-smoke.mjs',
+    };
+    const packageJson = { name: 'verify-focused-tier-fixture', private: true, scripts };
+    await writeFile(path.join(dir, 'package.json'), JSON.stringify(packageJson));
+    for (const name of ['unit', 'component', 'integration', 'e2e', 'smoke']) {
+      await writeFile(
+        path.join(dir, `run-${name}.mjs`),
+        `console.log('${name}-ran');\n`,
+        'utf8',
+      );
+    }
+    // pnpm installs missing dependencies before running a script, which would
+    // change the worktree mid-verification and invalidate the receipt.
+    await writeFile(path.join(dir, '.gitignore'), 'node_modules/\n');
+    const installCommand = process.platform === 'win32'
+      ? ['cmd.exe', ['/c', 'pnpm.cmd', 'install', '--ignore-scripts']]
+      : ['pnpm', ['install', '--ignore-scripts']];
+    await execFileAsync(installCommand[0], installCommand[1], { cwd: dir });
+    await git('add', '.');
+    await git('commit', '-m', 'base');
+    // package.json is a high-risk path, so the risk plan derives the whole
+    // matrix; the cost layer decides which part of it this run pays for.
+    await writeFile(path.join(dir, 'package.json'), JSON.stringify({ ...packageJson, version: '0.0.1' }));
+
+    const scriptPath = path.resolve(import.meta.dirname, '../../scripts/verify-focused.js');
+    const fast = JSON.parse((await execFileAsync(process.execPath, [scriptPath, '--run', '--json'], {
+      cwd: dir,
+      maxBuffer: 1024 * 1024 * 8,
+    })).stdout);
+
+    assert.equal(fast.ok, true);
+    assert.equal(fast.verification.executionTier, 'quick');
+    assert.equal(fast.verification.scopeStatus, 'partial');
+    assert.equal(fast.verification.nextTier, 'standard');
+    assert.deepEqual(
+      fast.verification.focused.commands.map((item) => item.command),
+      ['pnpm test:unit', 'pnpm test:component'],
+    );
+    assert.deepEqual(fast.verification.deferredChecks.map((item) => item.costTier), ['standard', 'deep']);
+    assert.deepEqual(
+      fast.results.map((item) => [item.command, item.status]),
+      [['pnpm test:unit', 'passed'], ['pnpm test:component', 'passed']],
+    );
+    assert.match(fast.results[0].stdout, /unit-ran/u);
+
+    const deep = JSON.parse((await execFileAsync(process.execPath, [scriptPath, '--run', '--json', '--tier', 'deep'], {
+      cwd: dir,
+      maxBuffer: 1024 * 1024 * 8,
+    })).stdout);
+
+    assert.equal(deep.ok, true);
+    assert.equal(deep.verification.executionTier, 'deep');
+    assert.equal(deep.verification.scopeStatus, 'complete');
+    assert.deepEqual(deep.verification.deferredChecks, []);
+    assert.deepEqual(
+      deep.results.map((item) => item.command),
+      ['pnpm test:unit', 'pnpm test:component', 'pnpm test:integration', 'pnpm smoke:lifecycle'],
+    );
+    assert.deepEqual(deep.results.map((item) => item.status), ['passed', 'passed', 'passed', 'passed']);
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
 test('verify-focused --run terminates a hanging command with project timeout recovery', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'verify-focused-timeout-'));
   const git = (...args) => execFileAsync('git', ['-C', dir, ...args]);

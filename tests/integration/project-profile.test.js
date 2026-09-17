@@ -9,6 +9,7 @@ import test from 'node:test';
 import { promisify } from 'node:util';
 
 import { detectProjectProfile } from '../../scripts/lib/project-profile.js';
+import { renderTemplate } from '../../scripts/lib/template-renderer.js';
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '../..');
@@ -445,5 +446,229 @@ test('doctor summarizes unmanaged files by default and shows full list only when
     assert.equal(verbose.target.unmanaged.some((item) => item.target === 'local-a.txt'), true);
   } finally {
     await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('detectProjectProfile 从已声明脚本推导三个成本层', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-profile-tiers-node-'));
+  try {
+    await writeJson(path.join(target, 'package.json'), {
+      packageManager: 'pnpm@10.33.0',
+      scripts: {
+        lint: 'oxlint .',
+        'test:unit': 'vitest run',
+        'test:integration': 'vitest run --dir tests/integration',
+        'test:e2e': 'playwright test',
+        build: 'vite build',
+      },
+    });
+
+    const profile = await detectProjectProfile({ targetDir: target });
+
+    assert.equal(profile.tierSource, 'derived');
+    assert.deepEqual(profile.derivedValidationTiers.quick, ['pnpm lint', 'pnpm test:unit']);
+    assert.deepEqual(profile.validationTiers, {
+      quick: ['pnpm lint', 'pnpm test:unit'],
+      standard: ['pnpm test:integration'],
+      deep: ['pnpm test:e2e'],
+    });
+    assert.match(profile.verificationSummary, /快速层：pnpm lint、pnpm test:unit/u);
+    assert.match(profile.verificationSummary, /中等层：pnpm test:integration/u);
+    assert.match(profile.verificationSummary, /深度层：pnpm test:e2e/u);
+    assert.match(profile.tierReasons.quick.join('\n'), /package\.json scripts\.lint/u);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('detectProjectProfile 区分显式分层配置与空推导', async () => {
+  const explicit = await mkdtemp(path.join(tmpdir(), 'vibe-harness-profile-tiers-explicit-'));
+  const empty = await mkdtemp(path.join(tmpdir(), 'vibe-harness-profile-tiers-empty-'));
+  try {
+    await writeJson(path.join(explicit, 'package.json'), {
+      packageManager: 'pnpm@10.33.0',
+      scripts: { lint: 'oxlint .', 'test:e2e': 'playwright test' },
+    });
+    await writeJson(path.join(empty, 'package.json'), {
+      packageManager: 'pnpm@10.33.0',
+      scripts: { build: 'vite build' },
+    });
+
+    const explicitProfile = await detectProjectProfile({
+      config: {
+        validationCommands: {
+          lint: null,
+          typecheck: null,
+          test: null,
+          eval: null,
+          tiers: { quick: ['pnpm lint'], standard: [], deep: [] },
+        },
+      },
+      targetDir: explicit,
+    });
+    const emptyProfile = await detectProjectProfile({ targetDir: empty });
+
+    assert.equal(explicitProfile.tierSource, 'explicit');
+    assert.deepEqual(explicitProfile.validationTiers, { quick: ['pnpm lint'], standard: [], deep: [] });
+    assert.match(explicitProfile.tierReasons.deep[0], /显式配置为空数组/u);
+
+    assert.equal(emptyProfile.tierSource, 'empty');
+    assert.deepEqual(emptyProfile.validationTiers, { quick: [], standard: [], deep: [] });
+    assert.match(emptyProfile.verificationSummary, /快速层：未配置；中等层：未配置；深度层：未配置/u);
+  } finally {
+    await rm(explicit, { force: true, recursive: true });
+    await rm(empty, { force: true, recursive: true });
+  }
+});
+
+test('detectProjectProfile 只从固定入口推导 Maven 与 .NET 层', async () => {
+  const maven = await mkdtemp(path.join(tmpdir(), 'vibe-harness-profile-tiers-maven-'));
+  const dotnet = await mkdtemp(path.join(tmpdir(), 'vibe-harness-profile-tiers-dotnet-'));
+  try {
+    await writeFile(path.join(maven, 'pom.xml'), '<project />', 'utf8');
+    await writeFile(path.join(dotnet, 'Legacy.sln'), 'Microsoft Visual Studio Solution File\n', 'utf8');
+
+    const mavenProfile = await detectProjectProfile({ targetDir: maven });
+    const dotnetProfile = await detectProjectProfile({ targetDir: dotnet });
+
+    assert.equal(mavenProfile.tierSource, 'derived');
+    assert.deepEqual(mavenProfile.validationTiers.standard, ['mvn test']);
+    assert.deepEqual(mavenProfile.validationTiers.deep, ['mvn verify']);
+
+    assert.equal(dotnetProfile.tierSource, 'derived');
+    assert.deepEqual(dotnetProfile.validationTiers.standard, ['dotnet test']);
+    assert.deepEqual(dotnetProfile.validationTiers.deep, []);
+  } finally {
+    await rm(maven, { force: true, recursive: true });
+    await rm(dotnet, { force: true, recursive: true });
+  }
+});
+
+test('生成的入口文件渲染三个成本层并标注未配置层', async () => {
+  const configured = await mkdtemp(path.join(tmpdir(), 'vibe-harness-profile-tiers-render-'));
+  const unconfigured = await mkdtemp(path.join(tmpdir(), 'vibe-harness-profile-tiers-render-empty-'));
+  try {
+    await writeJson(path.join(configured, 'package.json'), {
+      packageManager: 'pnpm@10.33.0',
+      scripts: {
+        lint: 'oxlint .',
+        'test:unit': 'vitest run',
+        'test:integration': 'vitest run --dir tests/integration',
+        'test:e2e': 'playwright test',
+      },
+    });
+    await writeJson(path.join(unconfigured, 'package.json'), {
+      packageManager: 'pnpm@10.33.0',
+      scripts: { build: 'vite build' },
+    });
+
+    await runCli(['init', '--project', configured]);
+    await runCli(['init', '--project', unconfigured]);
+
+    const report = await runCli(['install', '--project', configured, '--target', 'codex', '--profile', 'core', '--dry-run', '--verbose']);
+    const agents = report.previewFiles.find((file) => file.target === 'AGENTS.md').content;
+    const projectRules = report.previewFiles.find((file) => file.target === 'docs/rules/project-specific-rules.md').content;
+
+    assert.match(agents, /快速层（开发中同步，失败阻塞当前实施单元）pnpm lint、pnpm test:unit/u);
+    assert.match(agents, /中等层（阶段或合并前，pnpm test:integration）/u);
+    assert.match(agents, /深度层（异步或发布边界，pnpm test:e2e）/u);
+    assert.match(projectRules, /快速层（开发中同步，失败阻塞当前实施单元）：pnpm lint、pnpm test:unit/u);
+    assert.match(projectRules, /深度层（异步、夜间、关键 PR 或发布边界，失败阻塞集成与发布）：pnpm test:e2e/u);
+    assert.match(projectRules, /vibe-harness verify` 默认只执行快速层；中等层与深度层显式传 `--tier standard\|deep\|all` 升级，`--full` 运行完整矩阵/u);
+
+    const emptyReport = await runCli(['install', '--project', unconfigured, '--target', 'codex', '--profile', 'core', '--dry-run', '--verbose']);
+    const emptyAgents = emptyReport.previewFiles.find((file) => file.target === 'AGENTS.md').content;
+    const emptyRules = emptyReport.previewFiles.find((file) => file.target === 'docs/rules/project-specific-rules.md').content;
+    assert.match(emptyAgents, /快速层（开发中同步，失败阻塞当前实施单元）未配置/u);
+    assert.match(emptyRules, /快速层（开发中同步，失败阻塞当前实施单元）：未配置/u);
+  } finally {
+    await rm(configured, { force: true, recursive: true });
+    await rm(unconfigured, { force: true, recursive: true });
+  }
+});
+
+test('validate 对缺失的分层配置只提示且不失败', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tier-validate-'));
+  try {
+    await writeJson(path.join(target, 'package.json'), {
+      packageManager: 'pnpm@10.33.0',
+      scripts: { lint: 'oxlint .', 'test:unit': 'vitest run', 'test:integration': 'vitest run' },
+    });
+    await runCli(['init', '--project', target]);
+    await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'core', '--write']);
+
+    // A pre-tiers config renders identically because the derived commands equal
+    // the ones init persisted, so only the hint changes.
+    const configPath = path.join(target, 'vibe-harness.config.json');
+    const config = JSON.parse(await readFile(configPath, 'utf8'));
+    delete config.validationCommands.tiers;
+    await writeJson(configPath, config);
+
+    const report = await runCli(['validate', '--project', target]);
+    assert.equal(report.status, 'ready');
+    assert.equal(report.tierSource, 'derived');
+    assert.deepEqual(report.validationTiers.quick, ['pnpm lint', 'pnpm test:unit']);
+    assert.equal(
+      report.warnings.some((warning) => warning.code === 'VALIDATION_TIERS_NOT_CONFIGURED'),
+      true,
+    );
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('doctor 报告分层来源与各层命令', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tier-doctor-'));
+  try {
+    await writeJson(path.join(target, 'package.json'), {
+      packageManager: 'pnpm@10.33.0',
+      scripts: { lint: 'oxlint .', 'test:unit': 'vitest run', 'test:e2e': 'playwright test' },
+    });
+    await runCli(['init', '--project', target]);
+    await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'core', '--write']);
+
+    const report = await runCli(['doctor', '--project', target]);
+    assert.equal(report.tierSource, 'explicit');
+    assert.deepEqual(report.validationTiers, {
+      quick: ['pnpm lint', 'pnpm test:unit'],
+      standard: [],
+      deep: ['pnpm test:e2e'],
+    });
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('四个 adapter 指令模板都渲染三层命令，未配置时统一显示未配置', async () => {
+  const templates = ['codex/AGENTS.template.md', 'claude/CLAUDE.template.md', 'gemini/GEMINI.template.md', 'opencode/AGENTS.template.md'];
+  const commands = {
+    eval: null,
+    lint: 'pnpm lint',
+    test: 'pnpm test:unit',
+    typecheck: 'pnpm typecheck',
+  };
+  for (const file of templates) {
+    const template = await readFile(path.join(rootDir, 'adapters', file), 'utf8');
+
+    const rendered = renderTemplate(template, {
+      projectName: 'tier-render',
+      validationCommands: {
+        ...commands,
+        tiers: {
+          quick: ['pnpm lint', 'pnpm test:unit'],
+          standard: ['pnpm test:integration'],
+          deep: ['pnpm test:e2e'],
+        },
+      },
+    });
+    assert.match(rendered, /快速层（开发中同步，失败阻塞当前实施单元）pnpm lint、pnpm test:unit/u, file);
+    assert.match(rendered, /中等层（阶段或合并前，pnpm test:integration）/u, file);
+    assert.match(rendered, /深度层（异步或发布边界，pnpm test:e2e）/u, file);
+    assert.match(rendered, /Eval: 未配置/u, file);
+
+    const empty = renderTemplate(template, { projectName: 'tier-render-empty', validationCommands: commands });
+    assert.match(empty, /快速层（开发中同步，失败阻塞当前实施单元）未配置/u, file);
+    assert.match(empty, /中等层（阶段或合并前，未配置）/u, file);
+    assert.match(empty, /深度层（异步或发布边界，未配置）/u, file);
   }
 });

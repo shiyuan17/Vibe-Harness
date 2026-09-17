@@ -70,7 +70,11 @@ test('verify --project executes configured available commands', async () => {
     assert.doesNotMatch(JSON.stringify(report), /success-secret|alice%40corp|pass%3Aword|signature=|fragment/u);
     assert.equal(report.results.typecheck.status, 'not_configured');
     assert.equal(report.results.typecheck.verificationId, report.verification.id);
-    assert.equal(report.verification.planMode, 'auto');
+    // The single configured command seeds the fast layer, so the default run
+    // executes that layer instead of the old four-command batch.
+    assert.equal(report.verification.planMode, 'tier:quick');
+    assert.equal(report.verification.executionTier, 'quick');
+    assert.equal(report.verification.scopeStatus, 'complete');
     assert.equal(report.verification.riskLevel, 'standard');
     assert.ok(Array.isArray(report.verification.selectedChecks));
     assert.ok(Array.isArray(report.verification.skippedChecks));
@@ -108,7 +112,7 @@ test('verify --project executes configured available commands', async () => {
   }
 });
 
-test('verify --project --plan previews without executing checks and --full preserves the complete matrix', async () => {
+test('verify --project --plan 预览快速层且不执行检查，--full 保留完整矩阵', async () => {
   const target = await createProject({
     lint: 'node verify-marker.mjs',
     typecheck: null,
@@ -129,13 +133,21 @@ test('verify --project --plan previews without executing checks and --full prese
     const preview = await runCli(['verify', '--project', target, '--plan']);
     assert.equal(preview.ok, true);
     assert.equal(preview.status, 'ready');
-    assert.equal(preview.plan.planMode, 'auto');
-    assert.ok(Array.isArray(preview.plan.selectedChecks));
+    // The configured lint/test commands seed the fast layer, so an unnamed run
+    // previews exactly that layer instead of the old four-command default.
+    assert.equal(preview.plan.planMode, 'tier:quick');
+    assert.equal(preview.plan.executionTier, 'quick');
+    assert.deepEqual(
+      preview.plan.selectedChecks.map((item) => item.command),
+      ['node verify-marker.mjs', 'node verify-marker-test.mjs'],
+    );
     await assert.rejects(readFile(path.join(target, 'marker.txt'), 'utf8'), /ENOENT/u);
 
     const full = await runCli(['verify', '--project', target, '--full']);
     assert.equal(full.ok, true);
     assert.equal(full.verification.planMode, 'full');
+    assert.equal(full.verification.executionTier, 'deep');
+    assert.deepEqual(full.verification.deferredChecks, []);
     assert.ok(full.verification.selectedChecks.length >= 2);
     const marker = await readFile(path.join(target, 'marker.txt'), 'utf8');
     assert.equal(marker.split(/\r?\n/u).filter(Boolean).length, 2);
@@ -598,6 +610,267 @@ test('focused verification receipt binds changed paths, suggestions, results, an
     assert.equal(report.verification.before.ignoredContentHashed, false);
     assert.ok(Array.isArray(report.verification.before.ignoredPaths));
     assert.match(report.verification.id, /^[0-9a-f-]{36}$/u);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+// The tiered surface is upgrade-only: a command missing from
+// `validationCommands.tiers` is deferred, not silently dropped, and a fast pass
+// never reports the change boundary as verified.
+const tierTiers = {
+  quick: ['node verify-quick.mjs'],
+  standard: ['node verify-standard.mjs'],
+  deep: ['node verify-deep.mjs'],
+};
+
+async function writeTierFixtures(target) {
+  for (const name of ['quick', 'standard', 'deep']) {
+    await writeFile(
+      path.join(target, `verify-${name}.mjs`),
+      `import { appendFile } from 'node:fs/promises';\nawait appendFile('tier-marker.txt', '${name}\\n');\n`,
+      'utf8',
+    );
+  }
+}
+
+async function tierMarker(target) {
+  try {
+    return (await readFile(path.join(target, 'tier-marker.txt'), 'utf8')).split(/\r?\n/u).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+test('不带 --tier 的 verify 默认只跑快速层并标注部分范围', async () => {
+  const target = await createProject({
+    lint: null,
+    typecheck: null,
+    test: null,
+    eval: null,
+    tiers: tierTiers,
+  });
+  try {
+    await writeTierFixtures(target);
+    const report = await runCli(['verify', '--project', target]);
+
+    assert.equal(report.ok, true);
+    assert.equal(report.status, 'ready');
+    assert.equal(report.executionTier, 'quick');
+    assert.equal(report.nextTier, 'standard');
+    assert.equal(report.scopeStatus, 'partial');
+    assert.equal(report.verification.planMode, 'tier:quick');
+    assert.equal(report.verification.executionTier, 'quick');
+    assert.equal(report.verification.nextTier, 'standard');
+    assert.equal(report.verification.tierSource, 'explicit');
+    assert.equal(report.verification.scopeStatus, 'partial');
+    assert.equal(report.verification.tierFallback, null);
+    assert.equal(report.verification.changeBoundary.status, 'unverified');
+    assert.deepEqual(report.verification.deferredChecks.map((item) => item.costTier), ['standard', 'deep']);
+    assert.deepEqual(await tierMarker(target), ['quick']);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('快速层未声明命令时默认调用回退到最便宜的非空层', async () => {
+  const target = await createProject({
+    lint: null,
+    typecheck: null,
+    test: null,
+    eval: null,
+    tiers: { quick: [], standard: ['node verify-standard.mjs'], deep: [] },
+  });
+  try {
+    await writeTierFixtures(target);
+    const report = await runCli(['verify', '--project', target]);
+
+    assert.equal(report.ok, true);
+    assert.equal(report.verification.executionTier, 'standard');
+    assert.equal(report.verification.nextTier, null);
+    assert.equal(report.verification.scopeStatus, 'complete');
+    assert.deepEqual(report.verification.tierFallback, {
+      from: 'quick',
+      reason: 'quick 层未声明命令，回退到最便宜的非空层',
+      to: 'standard',
+    });
+    assert.deepEqual(await tierMarker(target), ['standard']);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('显式 --tier 指向空层时保持 blocked 而不回退', async () => {
+  const target = await createProject({
+    lint: null,
+    typecheck: null,
+    test: null,
+    eval: null,
+    tiers: { quick: [], standard: ['node verify-standard.mjs'], deep: [] },
+  });
+  try {
+    await writeTierFixtures(target);
+    await assert.rejects(
+      execFileAsync(process.execPath, [cliPath, 'verify', '--project', target, '--tier', 'quick']),
+      (error) => {
+        const payload = JSON.parse(error.stderr);
+        assert.equal(payload.ok, false);
+        assert.equal(payload.error.code, 'PROJECT_VERIFICATION_NO_CHECKS');
+        assert.equal(payload.verification.executionTier, 'quick');
+        assert.equal(payload.verification.tierFallback, null);
+        return true;
+      },
+    );
+    assert.deepEqual(await tierMarker(target), []);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('verify --tier quick 通过、延迟更深层且不宣称完成', async () => {
+  const target = await createProject({
+    lint: null,
+    typecheck: null,
+    test: null,
+    eval: null,
+    tiers: tierTiers,
+  });
+  try {
+    await writeTierFixtures(target);
+    const report = await runCli(['verify', '--project', target, '--tier', 'quick']);
+
+    assert.equal(report.ok, true);
+    assert.equal(report.status, 'ready');
+    assert.equal(report.scopeStatus, 'partial');
+    assert.equal(report.executionTier, 'quick');
+    assert.equal(report.tierSource, 'explicit');
+    assert.deepEqual(report.verification.executionTier, 'quick');
+    assert.equal(report.verification.planMode, 'tier:quick');
+    assert.equal(report.verification.scopeStatus, 'partial');
+    assert.equal(report.verification.tierSource, 'explicit');
+    assert.equal(report.verification.changeBoundary.status, 'unverified');
+    assert.deepEqual(
+      report.verification.deferredChecks.map((item) => [item.id, item.costTier]),
+      [['verify-standard-mjs', 'standard'], ['verify-deep-mjs', 'deep']],
+    );
+    assert.equal(report.verification.nextTier, 'standard');
+    assert.match(report.verification.recovery.hint, /--tier standard/u);
+    assert.deepEqual(await tierMarker(target), ['quick']);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('verify --tier standard 只运行快速层与中等层', async () => {
+  const target = await createProject({
+    lint: null,
+    typecheck: null,
+    test: null,
+    eval: null,
+    tiers: tierTiers,
+  });
+  try {
+    await writeTierFixtures(target);
+    const report = await runCli(['verify', '--project', target, '--tier', 'standard']);
+
+    assert.equal(report.ok, true);
+    assert.equal(report.verification.scopeStatus, 'partial');
+    assert.deepEqual(report.verification.deferredChecks.map((item) => item.costTier), ['deep']);
+    assert.deepEqual(await tierMarker(target), ['quick', 'standard']);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('verify --tier deep 与 all 运行全部层并完成范围', async () => {
+  for (const tier of ['deep', 'all']) {
+    const target = await createProject({
+      lint: null,
+      typecheck: null,
+      test: null,
+      eval: null,
+      tiers: tierTiers,
+    });
+    try {
+      await writeTierFixtures(target);
+      const report = await runCli(['verify', '--project', target, '--tier', tier]);
+
+      assert.equal(report.ok, true);
+      assert.equal(report.executionTier, 'deep');
+      assert.equal(report.nextTier, null);
+      assert.equal(report.scopeStatus, 'complete');
+      assert.deepEqual(report.verification.deferredChecks, []);
+      assert.deepEqual(await tierMarker(target), ['quick', 'standard', 'deep']);
+    } finally {
+      await rm(target, { force: true, recursive: true });
+    }
+  }
+});
+
+test('verify --plan 结合分层只预览不执行', async () => {
+  const target = await createProject({
+    lint: null,
+    typecheck: null,
+    test: null,
+    eval: null,
+    tiers: tierTiers,
+  });
+  try {
+    await writeTierFixtures(target);
+    const preview = await runCli(['verify', '--project', target, '--tier', 'quick', '--plan']);
+
+    assert.equal(preview.ok, true);
+    assert.equal(preview.plan.planMode, 'tier:quick');
+    assert.equal(preview.plan.executionTier, 'quick');
+    assert.equal(preview.plan.tierSource, 'explicit');
+    assert.deepEqual(preview.plan.selectedChecks.map((item) => item.costTier), ['quick']);
+    assert.deepEqual(preview.plan.deferredChecks.map((item) => item.costTier), ['standard', 'deep']);
+    assert.equal(preview.plan.selectedChecks[0].blockingScope, 'quick 失败阻塞当前实施单元');
+    assert.equal(preview.plan.deferredChecks[1].blockingScope, 'deep 失败阻塞集成、发布或依赖该证据的完成声明');
+    assert.deepEqual(await tierMarker(target), []);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('verify --tier 拒绝未知取值与 --full 组合', async () => {
+  const target = await createProject({ lint: null, typecheck: null, test: null, eval: null, tiers: tierTiers });
+  try {
+    await assert.rejects(
+      execFileAsync(process.execPath, [cliPath, 'verify', '--project', target, '--tier', 'nightly']),
+      /--tier must be one of/u,
+    );
+    await assert.rejects(
+      execFileAsync(process.execPath, [cliPath, 'verify', '--project', target, '--tier', 'quick', '--full']),
+      /Use --tier or --full, not both/u,
+    );
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('verify --tier deep 暴露失败的深度命令以便回流修复', async () => {
+  const target = await createProject({
+    lint: null,
+    typecheck: null,
+    test: null,
+    eval: null,
+    tiers: { quick: ['node verify-quick.mjs'], standard: [], deep: ['node verify-fail.mjs'] },
+  });
+  try {
+    await writeTierFixtures(target);
+    await writeFile(path.join(target, 'verify-fail.mjs'), 'process.exitCode = 9;\n', 'utf8');
+    await assert.rejects(
+      execFileAsync(process.execPath, [cliPath, 'verify', '--project', target, '--tier', 'deep']),
+      (error) => {
+        const payload = JSON.parse(error.stderr);
+        assert.equal(payload.ok, false);
+        assert.equal(payload.error.code, 'PROJECT_VERIFICATION_FAILED');
+        assert.match(payload.error.message, /failed with exit 9/u);
+        assert.equal(payload.verification.executionTier, 'deep');
+        return true;
+      },
+    );
   } finally {
     await rm(target, { force: true, recursive: true });
   }

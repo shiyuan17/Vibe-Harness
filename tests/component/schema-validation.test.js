@@ -125,6 +125,44 @@ test('project config validates the structured logging contract', () => {
   assert.throws(() => validateProjectConfigWithSchema(unknown), /platform.*not allowed/u);
 });
 
+test('项目配置把 validationCommands.tiers 作为可选且受校验的成本层配置块', () => {
+  // Optional: a config written before the tiers existed stays valid, and the
+  // effective tiers fall back to derivation.
+  const legacy = structuredClone(defaultProjectConfig);
+  delete legacy.validationCommands.tiers;
+  assert.equal(validateProjectConfigWithSchema(legacy), true);
+
+  // Empty arrays are the explicit "this tier is disabled" statement.
+  assert.equal(validateProjectConfigWithSchema({
+    ...structuredClone(defaultProjectConfig),
+    validationCommands: { lint: null, typecheck: null, test: null, eval: null, tiers: { quick: [], standard: [], deep: [] } },
+  }), true);
+
+  const valid = structuredClone(defaultProjectConfig);
+  valid.validationCommands.tiers = {
+    quick: ['pnpm lint', 'pnpm test:unit'],
+    standard: ['pnpm test:integration'],
+    deep: ['pnpm test:e2e'],
+  };
+  assert.equal(validateProjectConfigWithSchema(valid), true);
+
+  const notAnArray = structuredClone(valid);
+  notAnArray.validationCommands.tiers.quick = 'pnpm lint';
+  assert.throws(() => validateProjectConfigWithSchema(notAnArray), /quick.*array/u);
+
+  const emptyCommand = structuredClone(valid);
+  emptyCommand.validationCommands.tiers.deep = [''];
+  assert.throws(() => validateProjectConfigWithSchema(emptyCommand), /deep/u);
+
+  const duplicate = structuredClone(valid);
+  duplicate.validationCommands.tiers.quick = ['pnpm lint', 'pnpm lint'];
+  assert.throws(() => validateProjectConfigWithSchema(duplicate), /unique items|duplicates/u);
+
+  const unknownTier = structuredClone(valid);
+  unknownTier.validationCommands.tiers.nightly = ['pnpm test'];
+  assert.throws(() => validateProjectConfigWithSchema(unknownTier), /nightly.*not allowed/u);
+});
+
 test('project config accepts the worktree contract and rejects unknown keys', () => {
   // The default config ships the block, so a fresh install already declares the
   // outside-repository root docs/rules/git-rules.md §Worktree requires.

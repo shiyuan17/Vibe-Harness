@@ -158,3 +158,55 @@ test('configured zone names match whole path parts instead of substrings', () =>
     );
   }
 });
+
+test('成本层缺省解析为快速层而 --full 保留完整矩阵', async () => {
+  const target = await targetWithScripts();
+  const tiers = {
+    quick: ['pnpm lint', 'pnpm test:unit'],
+    standard: ['pnpm test:integration'],
+    deep: ['pnpm test:e2e'],
+  };
+  try {
+    const fast = await buildVerificationPlan({
+      changedPaths: ['docs/rules/test-rules.md'],
+      targetDir: target,
+      tier: 'quick',
+      tiers,
+    });
+    assert.equal(fast.planMode, 'tier:quick');
+    assert.equal(fast.executionTier, 'quick');
+    assert.equal(fast.nextTier, 'standard');
+    assert.deepEqual(fast.selectedChecks.map((item) => item.command), ['pnpm lint', 'pnpm test:unit']);
+    assert.deepEqual(fast.deferredChecks.map((item) => item.costTier), ['standard', 'deep']);
+    assert.equal(fast.tierFallback, null);
+
+    // The risk plan must not smuggle a deferred command into a fast run.
+    assert.equal(fast.selectedChecks.some((item) => ['integration', 'e2e'].includes(item.costTier)), false);
+
+    const full = await buildVerificationPlan({
+      changedPaths: ['docs/rules/test-rules.md'],
+      full: true,
+      targetDir: target,
+      tier: 'deep',
+      tiers,
+    });
+    assert.equal(full.planMode, 'full');
+    assert.deepEqual(full.deferredChecks, []);
+    const commands = full.selectedChecks.map((item) => item.command);
+    for (const expected of ['pnpm lint', 'pnpm test:unit', 'pnpm test:integration', 'pnpm test:e2e']) {
+      assert.equal(commands.includes(expected), true, `--full must include ${expected}`);
+    }
+    assert.equal(new Set(commands).size, commands.length);
+
+    const undeclared = await buildVerificationPlan({
+      changedPaths: ['docs/rules/test-rules.md'],
+      targetDir: target,
+      tier: 'quick',
+      tiers: { quick: [], standard: [], deep: [] },
+    });
+    assert.equal(undeclared.planMode, 'auto');
+    assert.equal(undeclared.executionTier, null);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});

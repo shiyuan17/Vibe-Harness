@@ -253,3 +253,120 @@ test('CLI write mode installs localized en-US templates when language is en-US',
     await rm(target, { force: true, recursive: true });
   }
 });
+
+const tierScripts = {
+  lint: 'oxlint .',
+  'test:unit': 'vitest run',
+  'test:integration': 'vitest run --dir tests/integration',
+  'test:e2e': 'playwright test',
+};
+
+async function legacyTierProject({ tiers } = {}) {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tier-migration-'));
+  await writeFile(
+    path.join(target, 'package.json'),
+    `${JSON.stringify({ packageManager: 'pnpm@10.33.0', scripts: tierScripts }, null, 2)}\n`,
+    'utf8',
+  );
+  const cliPath = path.join(rootDir, 'scripts/vibe-harness.js');
+  await execFileAsync(process.execPath, [cliPath, 'init', '--project', target, '--target', 'codex', '--profile', 'core']);
+  // A config written before the tiers existed has no `tiers` key; that is the
+  // upgrade surface, so the fixture drops it (or seeds a partial one).
+  const configPath = path.join(target, 'vibe-harness.config.json');
+  const config = JSON.parse(await readFile(configPath, 'utf8'));
+  delete config.validationCommands.tiers;
+  if (tiers) config.validationCommands.tiers = tiers;
+  await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+  return { configPath, cliPath, target };
+}
+
+async function readConfig(configPath) {
+  return JSON.parse(await readFile(configPath, 'utf8'));
+}
+
+test('install --upgrade 预演报告将要补充的层键且不写入', async () => {
+  const { cliPath, configPath, target } = await legacyTierProject();
+  try {
+    const before = await readFile(configPath, 'utf8');
+    const plan = await execFileAsync(process.execPath, [
+      cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'core', '--upgrade', '--dry-run',
+    ]);
+    const report = JSON.parse(plan.stdout);
+
+    assert.equal(report.dryRun, true);
+    assert.equal(report.configUpdate.relativeTarget, 'vibe-harness.config.json');
+    assert.deepEqual(report.configUpdate.addedTiers, ['quick', 'standard', 'deep']);
+    assert.deepEqual(report.configUpdate.tiers, {
+      quick: ['pnpm lint', 'pnpm test:unit'],
+      standard: ['pnpm test:integration'],
+      deep: ['pnpm test:e2e'],
+    });
+    assert.equal(await readFile(configPath, 'utf8'), before);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('install --upgrade 未经红区确认拒绝写回分层配置', async () => {
+  const { cliPath, configPath, target } = await legacyTierProject();
+  try {
+    const before = await readFile(configPath, 'utf8');
+    await assert.rejects(
+      execFileAsync(process.execPath, [
+        cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'core', '--upgrade', '--write', '--allow-degraded',
+      ]),
+      /validationCommands\.tiers.*confirm-red-zone/u,
+    );
+    assert.equal(await readFile(configPath, 'utf8'), before);
+    assert.equal(Object.hasOwn((await readConfig(configPath)).validationCommands, 'tiers'), false);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('install --upgrade --write 只补充缺失的层键', async () => {
+  const { cliPath, configPath, target } = await legacyTierProject({ tiers: { quick: [] } });
+  try {
+    await execFileAsync(process.execPath, [
+      cliPath,
+      'install',
+      '--project',
+      target,
+      '--target',
+      'codex',
+      '--profile',
+      'core',
+      '--upgrade',
+      '--write',
+      '--confirm-red-zone',
+      '--allow-degraded',
+    ]);
+    const config = await readConfig(configPath);
+
+    // The empty array is a deliberate "disabled" statement, so the migration
+    // must keep it while filling the two absent keys.
+    assert.deepEqual(config.validationCommands.tiers, {
+      quick: [],
+      standard: ['pnpm test:integration'],
+      deep: ['pnpm test:e2e'],
+    });
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('install --upgrade 不改动已完整声明的分层配置', async () => {
+  const declared = { quick: ['pnpm lint:project'], standard: [], deep: [] };
+  const { cliPath, configPath, target } = await legacyTierProject({ tiers: declared });
+  try {
+    const result = await execFileAsync(process.execPath, [
+      cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'core', '--upgrade', '--dry-run',
+    ]);
+    const report = JSON.parse(result.stdout);
+
+    assert.equal(report.configUpdate, null);
+    assert.deepEqual((await readConfig(configPath)).validationCommands.tiers, declared);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
