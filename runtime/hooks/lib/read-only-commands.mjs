@@ -370,8 +370,85 @@ export function isWorkspaceToolName(toolName) {
 }
 
 /**
- * MCP tool names are `<server>__<tool>`; classify by the verbs inside the
- * tool segment instead of requiring one of a few hard-coded read words.
+ * Explicit, server-scoped MCP tool decisions.
+ *
+ * The verb table below guesses intent from the words in a tool name, which is
+ * all a Hook can do for a server it has never seen. A server whose surface this
+ * repository pins does not need guessing: every name in the table is answered
+ * from the tool's own contract, so `trace_path` (no read verb) is no longer
+ * "unclassified" and `index_repository` (no write verb either) is no longer
+ * forced through an Execution Envelope.
+ *
+ * `read-only` covers tools that cannot change persistent state, plus the
+ * reversible graph writes the pinned runtime documents (`index_repository`
+ * and `ingest_traces`): they rewrite the tool's own cache, are idempotent, and
+ * never touch the project. `workspace-write` mutates project files, and
+ * `high-risk` is deliberate data loss.
+ *
+ * The pinned codebase-memory-mcp surface is listed as its own name/value table
+ * so a single source answers both the policy lookup and the documentation.
+ *
+ * @type {ReadonlyArray<readonly [string, 'read-only' | 'workspace-write' | 'high-risk']>}
+ */
+const CODEBASE_MEMORY_TOOL_DECISIONS = [
+  ['check_index_coverage', 'read-only'],
+  ['compare_graphs', 'read-only'],
+  ['delete_project', 'high-risk'],
+  ['detect_changes', 'read-only'],
+  ['get_architecture', 'read-only'],
+  ['get_code_snippet', 'read-only'],
+  ['get_file_outline', 'read-only'],
+  ['get_graph_schema', 'read-only'],
+  ['index_repository', 'read-only'],
+  ['index_status', 'read-only'],
+  ['ingest_traces', 'read-only'],
+  ['list_projects', 'read-only'],
+  ['manage_adr', 'workspace-write'],
+  ['query_graph', 'read-only'],
+  ['search_code', 'read-only'],
+  ['search_graph', 'read-only'],
+  ['trace_path', 'read-only'],
+];
+
+/** @type {Map<string, Map<string, 'read-only' | 'workspace-write' | 'high-risk'>>} */
+const MCP_TOOL_DECISIONS = new Map([
+  ['codebase-memory-mcp', new Map(CODEBASE_MEMORY_TOOL_DECISIONS)],
+]);
+
+/**
+ * Split `mcp__<server>__<tool>` and normalize the server segment so the
+ * adapter's `vibe-harness-` prefix and the underscore/hyphen spelling both
+ * resolve to the same table entry.
+ *
+ * @param {string} toolName
+ * @returns {{ server: string, tool: string } | null}
+ */
+function parseMcpToolName(toolName) {
+  if (!/^mcp__/iu.test(toolName)) return null;
+  const rest = toolName.slice('mcp__'.length);
+  const separator = rest.indexOf('__');
+  if (separator === -1) return null;
+  const server = rest.slice(0, separator).toLowerCase().replaceAll('_', '-').replace(/^vibe-harness-/u, '');
+  const tool = rest.slice(separator + 2).toLowerCase();
+  if (server === '' || tool === '') return null;
+  return { server, tool };
+}
+
+/**
+ * @param {string} toolName
+ * @returns {'read-only' | 'workspace-write' | 'high-risk' | null} `null` when no
+ * explicit decision is registered for the server and tool.
+ */
+export function mcpToolPolicy(toolName) {
+  const parsed = parseMcpToolName(toolName);
+  if (!parsed) return null;
+  return MCP_TOOL_DECISIONS.get(parsed.server)?.get(parsed.tool) ?? null;
+}
+
+/**
+ * MCP tool names are `<server>__<tool>`; an explicit server contract wins, and
+ * anything else is classified by the verbs inside the tool segment instead of
+ * requiring one of a few hard-coded read words.
  */
 const MCP_READ_VERB_PATTERN = /(?:^|__)(?:checks?|count|describe|diff|exists|export|fetch|find|get|history|inspect|list|logs?|open|query|read|report|search|show|state|status|summary|validate|view)(?:_|__|$)/iu;
 const MCP_WRITE_VERB_PATTERN = /(?:^|__)(?:add|apply|archive|assign|cancel|clear|close|commit|create|delete|drop|edit|execute|import|install|lock|mark|merge|move|patch|post|publish|push|put|rebase|remove|rename|reopen|reset|resolve|restore|revert|run|save|send|set|start|stop|submit|subscribe|todo|truncate|unarchive|unassign|unlock|unsubscribe|update|upload|write)(?:_|__|$)/iu;
@@ -384,6 +461,9 @@ const MCP_WRITE_VERB_PATTERN = /(?:^|__)(?:add|apply|archive|assign|cancel|clear
  */
 export function classifyMcpToolName(toolName) {
   if (!/^mcp__/iu.test(toolName)) return null;
+  const policy = mcpToolPolicy(toolName);
+  if (policy === 'read-only') return true;
+  if (policy !== null) return false;
   if (MCP_WRITE_VERB_PATTERN.test(toolName)) return false;
   if (MCP_READ_VERB_PATTERN.test(toolName)) return true;
   return false;

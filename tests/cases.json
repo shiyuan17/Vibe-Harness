@@ -3753,6 +3753,19 @@
       "addedAt": "2026-09-16"
     },
     {
+      "id": "C-hook-read-only-classification-015",
+      "layer": "component",
+      "file": "tests/component/hook-read-only-classification.test.js",
+      "ordinal": 15,
+      "name": "codebase-memory 工具面按显式契约判定，不按动词猜测",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-17"
+    },
+    {
       "id": "C-install-preset-001",
       "layer": "component",
       "file": "tests/component/install-preset.test.js",

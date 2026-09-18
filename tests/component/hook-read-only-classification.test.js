@@ -387,3 +387,51 @@ test('read-only MCP tools pass while write-class MCP tools still need an Envelop
     }
   });
 });
+
+test('codebase-memory 工具面按显式契约判定，不按动词猜测', async () => {
+  await withProject(async (target) => {
+    // `trace_path` carries no read verb and `index_repository` carries no write
+    // verb, so the verb table alone would classify both as "cannot be
+    // determined" and force an Execution Envelope for a pure graph query.
+    const readOnly = [
+      'search_graph', 'query_graph', 'trace_path', 'get_code_snippet', 'get_file_outline',
+      'get_graph_schema', 'compare_graphs', 'get_architecture', 'search_code',
+      'list_projects', 'index_status', 'check_index_coverage', 'detect_changes',
+      // Reversible tool-state writes: they only rewrite the tool's own cache.
+      'index_repository', 'ingest_traces',
+    ];
+    for (const tool of readOnly) {
+      for (const server of ['codebase-memory-mcp', 'codebase_memory_mcp', 'vibe-harness-codebase-memory-mcp']) {
+        const toolName = `mcp__${server}__${tool}`;
+        const classification = classifyExecutionEffects(request(target, { tool_input: {}, tool_name: toolName }));
+        assert.equal(classification.readOnly, true, toolName);
+        assert.equal(classification.unknown, false, toolName);
+        assert.deepEqual(classification.effects, [], toolName);
+        assert.deepEqual(await evaluateCodexHook(input(target, { tool_input: {}, tool_name: toolName })), {}, toolName);
+      }
+    }
+
+    // `manage_adr` writes project files even though its name has no write verb.
+    const manageToolName = 'mcp__codebase-memory-mcp__manage_adr';
+    const manage = classifyExecutionEffects(request(target, { tool_input: { mode: 'update' }, tool_name: manageToolName }));
+    assert.equal(manage.readOnly, false);
+    assert.deepEqual(manage.effects, ['workspaceWrite']);
+    const manageDenied = await evaluateCodexHook(
+      input(target, { tool_input: { mode: 'update' }, tool_name: manageToolName }),
+      { environment: { VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED: '1' } },
+    );
+    assert.equal(manageDenied.hookSpecificOutput.permissionDecision, 'deny');
+    assert.match(manageDenied.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u);
+
+    // `delete_project` destroys a whole project's graph and stays refused with
+    // and without the project-level Envelope requirement.
+    for (const environment of [undefined, { VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED: '1' }]) {
+      const deleted = await evaluateCodexHook(
+        input(target, { tool_input: { project: 'fixture' }, tool_name: 'mcp__codebase-memory-mcp__delete_project' }),
+        environment ? { environment } : undefined,
+      );
+      assert.equal(deleted.hookSpecificOutput.permissionDecision, 'deny');
+      assert.match(deleted.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u);
+    }
+  });
+});

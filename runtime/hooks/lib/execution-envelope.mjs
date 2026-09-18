@@ -9,6 +9,7 @@ import {
   isReadOnlyShellSegment,
   isReadOnlyToolName,
   isWorkspaceToolName,
+  mcpToolPolicy,
   shellInvocation,
   shellSegments,
 } from './read-only-commands.mjs';
@@ -461,6 +462,16 @@ function classifySupabase(segment, effects, targets) {
 
 function classifyMcpTool(toolName, effects) {
   if (!/^mcp__/iu.test(toolName)) return null;
+  // A server whose tool surface this repository pins is answered from its own
+  // contract instead of a verb guess: `trace_path` and `index_repository` pass,
+  // `manage_adr` writes project files, and `delete_project` stays high-risk.
+  const policy = mcpToolPolicy(toolName);
+  if (policy === 'read-only') return true;
+  if (policy === 'workspace-write') {
+    effects.add('workspaceWrite');
+    return true;
+  }
+  if (policy === 'high-risk') return false;
   if (linearToolPattern.test(toolName)) {
     if (linearWritePattern.test(toolName)) {
       effects.add('linearWrite');
