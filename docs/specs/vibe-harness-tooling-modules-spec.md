@@ -63,7 +63,7 @@ Linear 另有两个需要认证的显式外部集成：linear-mcp 配置读写 e
 | --- | --- | --- |
 | RTK | `rtk-ai/rtk v0.45.0` | `node .agents/runtime/tools/rtk/run.mjs <command> ...`；原始输出使用 `node .agents/runtime/tools/rtk/run.mjs proxy <command> ...` |
 | ast-grep | `@ast-grep/cli@0.45.1` | `node .agents/runtime/tools/ast-grep/run.mjs <sg\|ast-grep> ...` |
-| codebase-memory-mcp | `0.9.0` | `.agents/runtime/tools/codebase-memory-mcp/run.mjs` |
+| codebase-memory-mcp | `0.11.0` | `.agents/runtime/tools/codebase-memory-mcp/run.mjs` |
 | Chrome DevTools MCP | `1.6.0` | `.agents/runtime/tools/chrome-devtools-mcp/run.mjs` |
 | Playwright CLI | `0.1.17` | `.agents/runtime/tools/playwright-cli/run.mjs` |
 | Open Code Review | `1.7.7` | `.agents/runtime/tools/open-code-review/run.mjs` |
@@ -77,16 +77,17 @@ ast-grep 表中的前缀形式仅为兼容入口；canonical CLI 是 <code>node 
 - npm 工具使用提交的 lockfile 与受审查安装阶段；ast-grep 在 `npm ci --ignore-scripts` 后显式运行 native binary postinstall。RTK 使用官方 release 平台/架构映射和固定 SHA-256，未提供资产的平台报告 `unsupported`。
 - 工具状态为 `pending`、`ready`、`degraded` 或 `unsupported`；Open Code Review 还可在凭据缺失时报告 `pending-config`。错误使用稳定 code、脱敏诊断、限长输出和恢复或 fallback 建议。
 - 显式 provision 执行所需的版本、binary、索引、MCP 或 browser smoke；install、validate、doctor 和 baseline 的只读路径不执行目标项目二进制。
-- codebase-memory-mcp 的受管 MCP 环境固定设置 `CBM_MEM_BUDGET_MB=2048` 与 `CBM_WORKERS=2`。provisioning 在首次索引前将 `auto_index`、`auto_watch` 设为 `false`，后台不会在没有显式调用时重复索引。
+- codebase-memory-mcp 的受管 MCP 环境固定设置 `CBM_MEM_BUDGET_MB=2048` 与 `CBM_WORKERS=2`。provisioning 在首次索引前将 `auto_index`、`auto_watch` 设为 `false`，后台不会在没有显式调用时重复索引。图缓存落在用户私有目录（Windows 为 `%LOCALAPPDATA%\vibe-harness\codebase-memory-mcp\<project-slug>`，其他平台为 XDG cache 等价路径），由 install planner、`componentEnvironment`、runtime wrapper 与项目命令共用同一个解析函数，避免 MCP 与管理 CLI 读到两张图；`CBM_CACHE_DIR` 仍是显式覆盖入口。0.11.0 拒绝路径链上存在不受信身份写权限的缓存目录，因此 provisioning 在索引前增加 `cache-precheck` 阶段，失败时给出稳定诊断码 `CBM_CACHE_DIR_NOT_PRIVATE`，不修改祖先目录 ACL。
+- wrapper 在 `index_repository` 成功后写入 `.vibe-harness/tool-state/codebase-memory-mcp/index-state.json`（`schemaVersion`、`project`、`rootPath`、`headSha`、`branch`、`indexedAt`、`mode`、`nodes`、`edges`、`cacheDir`、`runtimeVersion`）。项目命令 `run.mjs codebase-memory status|refresh` 以该状态戳比对当前 HEAD，返回 `fresh`、`stale` 或 `missing`；`refresh` 默认 dry-run，只有 `--write` 才重建并刷新状态戳。linked worktree 映射到主检出条目，`status` 额外返回 `sourceRoot`。
 - 选择 codebase-memory-mcp 时，安装器在项目根维护 `# VIBE_HARNESS:CBM:START` / `# VIBE_HARNESS:CBM:END` 包围的 `.cbmignore` 块，排除 Vibe-Harness 状态、Agent 配置、构建输出、工具缓存、日志和压缩包。既有用户规则保留；无受管块的既有文件在未使用 `--force` 时报告冲突。
-- runtime、下载缓存、索引与工具状态均位于目标项目。未使用 `--force` 时不覆盖用户文件；真实 install、provision、rollback 和 uninstall 使用 `--write`，红区仍需显式确认。
+- runtime、下载缓存与工具状态位于目标项目；codebase-memory-mcp 的图缓存是唯一例外，按上面的私有目录规则外移。未使用 `--force` 时不覆盖用户文件；真实 install、provision、rollback 和 uninstall 使用 `--write`，红区仍需显式确认。
 - `pnpm runtime:audit` 审计 npm runtime 的实际依赖面并对 High/Critical fail-closed；RTK 使用 release checksum 供应链校验。存在未修复 High 风险的 runtime 不进入可安装清单。
 
 ## 三工具调用关系
 
 - RTK 属于输出通道，只压缩符合条件的 Shell 输出，不参与代码检索和语义判断。新安装选择 RTK 时 Codex Hook 默认开启；CLI、项目配置、已有安装状态依次覆盖默认值。
 - ast-grep 属于本地语法层：先用 <code>outline</code> 缩小读取范围，再用 <code>run</code> 或 <code>scan</code> 做 AST 查询；持久化规则必须通过 <code>test</code>。
-- codebase-memory-mcp 属于跨文件语义层：需要调用链、架构或影响分析时先检查索引，再定位精确符号并读取源码或追踪调用路径。
+- codebase-memory-mcp 属于跨文件语义层：需要调用链、影响面、架构或跨文件符号时先运行 `codebase-memory status` 确认新鲜度，过期或缺失再 `refresh`，然后定位精确符号并用 `trace_path`、`detect_changes` 等工具取关系，最后读取源码核验。`index_status` 的 `ready` 只代表图可读，新鲜度由状态戳与当前 HEAD 的比对决定。
 - 普通文本、配置、日志和未知语言使用 <code>rg</code>；各层不可伪装成其他层的等价替代，所有结论回到源码、测试或原始产物核验。
 
 ## 使用与回退规则

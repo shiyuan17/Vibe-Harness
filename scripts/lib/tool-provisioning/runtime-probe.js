@@ -6,9 +6,13 @@ import { assertInsideDir, assertSafePathInside, pathExists } from '../manifest.j
 import { resolveOcrEndpoint } from '../ocr-config.js';
 import { inspectPlaywrightTool } from '../../../runtime/tools/playwright-cli/run.mjs';
 import { resolveRtkAsset } from '../../../runtime/tools/rtk/run.mjs';
+import {
+  codebaseMemoryCacheRoot,
+  codebaseMemoryLegacyCacheDir,
+} from '../../../runtime/tools/codebase-memory-mcp/cache-path.mjs';
 import { projectStateDir } from '../project-layout.js';
 
-import { allowedEnvironment, createToolProvisioningPlan, detectLinuxLibc, hasOcrCredentials, phaseRequest, resolveToolNativePackage } from './environment.js';
+import { allowedEnvironment, createToolProvisioningPlan, detectLinuxLibc, hasOcrCredentials, phaseRequest, resolveCodebaseMemoryCacheDir, resolveToolNativePackage } from './environment.js';
 import { readToolState } from './tool-state.js';
 import {
   boundedTimeout,
@@ -20,7 +24,9 @@ import {
 } from './subprocess.js';
 
 const codebaseMemoryWindowsBinaryHashes = new Map([
-  ['0.9.0', '9a205fa5ae759fbc866bfe1554f0c05a303be9ae6e0a00f94d875dc0c25e0680'],
+  // 0.11.0 ships one portable Windows binary; the hash pins the exact asset the
+  // provisioning repair step is allowed to install.
+  ['0.11.0', '7edcd3807ebcfd85ec1968985964080f2589748da2fc3c7ce9261eebab31ff04'],
 ]);
 
 const publicAstGrepDiagnosticCodes = new Set([
@@ -52,6 +58,8 @@ const publicRtkDiagnosticCodes = new Set([
 ]);
 
 const publicIndexDiagnosticCodes = new Set([
+  'CBM_CACHE_DIR_NOT_PRIVATE',
+  'INDEX_CACHE_RESET_REFUSED',
   'INDEX_NOT_READY',
   'INDEX_OUTPUT_INVALID',
   'INDEX_RESULT_INVALID',
@@ -76,6 +84,13 @@ function diagnosticCode(error, spec, phase) {
   const specialized = specializedDiagnosticCode([error?.message, error?.stderr, error?.stdout].filter(Boolean).join('\n'), spec, phase);
   if (specialized) return specialized;
   const output = `${error?.message ?? ''}\n${error?.stderr ?? ''}\n${error?.stdout ?? ''}`;
+  // 0.11.0 refuses a cache directory whose path chain grants mutation rights to
+  // an untrusted identity (for example `C:\` inheriting `Authenticated
+  // Users:(M)`). The upstream wording is the only stable signal it exposes, so
+  // the precheck phase turns it into a first-class diagnostic code.
+  if (/secure\s+CLI\s+coordination\s+could\s+not\s+be\s+created|DACL\s+entry\s+\d+\s+grants\s+mutation\s+rights/iu.test(output)) {
+    return 'CBM_CACHE_DIR_NOT_PRIVATE';
+  }
   if (/repo_path\s+is\s+outside\s+the\s+allowed\s+root/iu.test(output)) return 'INDEX_PATH_OUTSIDE_ALLOWED_ROOT';
   if (/(?:index|database|graph).*(?:corrupt|invalid)|corrupt.*(?:index|database|graph)|需要重新索引/iu.test(output)) {
     return 'INDEX_CORRUPT_REINDEX_REQUIRED';
@@ -118,17 +133,80 @@ function toolContractError(code, message) {
   return Object.assign(new Error(message), { code });
 }
 
+function coerceScalar(value) {
+  const trimmed = value.trim();
+  if (trimmed === 'true') return true;
+  if (trimmed === 'false') return false;
+  if (/^-?\d+$/u.test(trimmed)) return Number.parseInt(trimmed, 10);
+  if (trimmed.length >= 2
+    && ((trimmed.startsWith('"') && trimmed.endsWith('"'))
+      || (trimmed.startsWith("'") && trimmed.endsWith("'")))) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+/**
+ * Parse the human-readable `key: value` block 0.11.0 prints when `--json` only
+ * wraps the text in an MCP envelope. Nested sections are indented and therefore
+ * never match the column-zero pattern, so `parse_partial:` and friends are
+ * skipped instead of being reported as empty values.
+ */
+function parseKeyValueText(text) {
+  const result = {};
+  let found = false;
+  for (const line of String(text ?? '').split(/\r?\n/gu)) {
+    const match = /^([A-Za-z_][A-Za-z0-9_.-]*):(?:[ \t]*(.*))?$/u.exec(line);
+    if (!match) continue;
+    found = true;
+    const value = (match[2] ?? '').trim();
+    if (value === '') continue;
+    result[match[1]] = coerceScalar(value);
+  }
+  return found ? result : null;
+}
+
+/** Parse the text of an MCP result envelope, tolerating JSON and text bodies. */
+function parseEnvelopeText(text) {
+  const trimmed = String(text ?? '').trim();
+  if (trimmed === '') return null;
+  if (trimmed.startsWith('{')) {
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return parseKeyValueText(trimmed);
+    }
+  }
+  return parseKeyValueText(trimmed);
+}
+
+/**
+ * Read one tool result from a CLI run. The accepted shapes are the three the
+ * pinned runtime can emit: a flat JSON object (legacy 0.9.0), an MCP envelope
+ * whose `content[0].text` carries JSON (`--json`, index_repository), and an MCP
+ * envelope whose text is the human-readable block (`--json`, index_status).
+ */
 function parseCommandJson(output, code, message) {
   const line = String(output?.stdout ?? '')
     .split(/\r?\n/gu)
     .map((item) => item.trim())
     .findLast((item) => item.startsWith('{'));
-  if (!line) throw toolContractError(code, message);
-  try {
-    return JSON.parse(line);
-  } catch {
-    throw toolContractError(code, message);
+  if (line) {
+    try {
+      const parsed = JSON.parse(line);
+      const inner = parsed?.content?.[0]?.text;
+      if (typeof inner === 'string') {
+        const nested = parseEnvelopeText(inner);
+        if (nested) return nested;
+      }
+      return parsed;
+    } catch {
+      // Fall through to the plain-text reader below.
+    }
   }
+  const textResult = parseKeyValueText(output?.stdout);
+  if (textResult) return textResult;
+  throw toolContractError(code, message);
 }
 
 function normalizedProjectPath(value) {
@@ -161,8 +239,14 @@ function validateIndexStatus(output, targetDir) {
     || !Number.isInteger(result.edges) || result.edges < 0) {
     throw toolContractError('INDEX_STATUS_INVALID', 'Index verification did not return valid graph counts.');
   }
+  // `indexed_at` is the snapshot time 0.11.0 added; it replaces the 0.9.0
+  // `git` block, whose HEAD was read live and therefore proved nothing.
+  if (typeof result.indexed_at !== 'string' || result.indexed_at.trim() === '') {
+    throw toolContractError('INDEX_STATUS_INVALID', 'Index verification did not report when the graph was indexed.');
+  }
   return {
     edges: result.edges,
+    indexedAt: result.indexed_at,
     mode: 'moderate',
     nodes: result.nodes,
     status: 'ready',
@@ -194,6 +278,43 @@ export function withOptionalToolIdentity(spec, state, platform, arch) {
     platform: `${platform}-${arch}`,
     source: state.source ?? spec.source ?? `npm:${spec.packageName}@${spec.version}`,
   };
+}
+
+/**
+ * Drop the codebase-memory graph for one project so a corrupt index can be
+ * rebuilt from scratch.
+ *
+ * The 0.11.0 cache lives outside the project, so the reset is only allowed
+ * when the resolved directory is exactly this project's entry under the
+ * private cache root (or a legacy in-project cache). Both in-project leftovers
+ * of older layouts are cleared on the same pass.
+ *
+ * @param {string} targetDir
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {Promise<string>} the cache directory that was removed
+ */
+export async function resetCodebaseMemoryCache(targetDir, env = process.env) {
+  const effectiveEnv = { ...process.env, ...env };
+  const cacheDir = path.resolve(resolveCodebaseMemoryCacheDir(targetDir, effectiveEnv));
+  const allowedRoots = [path.resolve(targetDir), path.resolve(codebaseMemoryCacheRoot(effectiveEnv))];
+  const insideOwnedRoot = allowedRoots.some((root) => {
+    const relative = path.relative(root, cacheDir);
+    return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
+  });
+  if (!insideOwnedRoot) {
+    throw toolContractError(
+      'INDEX_CACHE_RESET_REFUSED',
+      `Refusing to reset the codebase-memory cache outside the project or the private cache root: ${cacheDir}`,
+    );
+  }
+  await rm(cacheDir, { force: true, recursive: true });
+  const legacyCacheDir = codebaseMemoryLegacyCacheDir(targetDir);
+  await assertSafePathInside(targetDir, legacyCacheDir, 'codebase-memory legacy cache');
+  await rm(legacyCacheDir, { force: true, recursive: true });
+  const projectIndexDir = path.join(targetDir, '.codebase-memory');
+  await assertSafePathInside(targetDir, projectIndexDir, 'codebase-memory project index');
+  await rm(projectIndexDir, { force: true, recursive: true });
+  return cacheDir;
 }
 
 export async function runToolPhases(
@@ -245,6 +366,12 @@ export async function runToolPhases(
       if (phase === 'index') context.indexProject = validateIndexResult(output);
       if (phase === 'index-verify') context.index = validateIndexStatus(output, targetDir);
     } catch (error) {
+      // The cache precheck exists to turn an unusable cache directory into the
+      // stable `CBM_CACHE_DIR_NOT_PRIVATE` diagnostic. Any other precheck
+      // failure (a launcher download, a transient timeout) is not a cache
+      // verdict: the index phases open the same directory with their own budget
+      // and contract, so they stay the authority on whether indexing works.
+      if (phase === 'cache-precheck' && diagnosticCode(error, spec, phase) !== 'CBM_CACHE_DIR_NOT_PRIVATE') continue;
       if (spec.id === 'codebaseMemoryMcp'
         && phase === 'binary-install'
         && /(?:binary\s+not\s+found|download\s+failed|install\s+failed)/iu.test(`${error?.message ?? ''}\n${error?.stderr ?? ''}`)
@@ -267,13 +394,9 @@ export async function runToolPhases(
         && diagnosticCode(error, spec, phase) === 'INDEX_CORRUPT_REINDEX_REQUIRED'
         && !retriedCorruptIndex.has(phase)) {
         retriedCorruptIndex.add(phase);
-        const cacheDir = path.join(await projectStateDir(targetDir), 'tool-state/codebase-memory-mcp/cache');
-        await assertSafePathInside(targetDir, cacheDir, 'codebase-memory cache');
-        await rm(cacheDir, { force: true, recursive: true });
-        const projectIndexDir = path.join(targetDir, '.codebase-memory');
-        await assertSafePathInside(targetDir, projectIndexDir, 'codebase-memory project index');
-        await rm(projectIndexDir, { force: true, recursive: true });
-        context.codebaseMemoryCacheDir = cacheDir;
+        // Pin the cleaned directory for the retry so it does not fall back to a
+        // directory the resolver would otherwise recompute differently.
+        context.codebaseMemoryCacheDir = await resetCodebaseMemoryCache(targetDir, env);
         const retryRequest = /** @type {Record<string, any>} */ (await phaseRequest(spec, phase, targetDir, env, context));
         retryRequest.signal = signal;
         retryRequest.timeout = boundedTimeout(env, retryRequest.timeout);

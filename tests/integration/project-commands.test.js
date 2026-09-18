@@ -113,8 +113,9 @@ test('help 覆盖含 worktree、slice、patch 与 task 在内的全部项目命�
   assert.equal(result.exitCode, 0);
   assert.equal(
     result.report.usage,
-    'run.mjs <env|context|changes|verify|worktree|slice|patch|task> --project <path> [--json]',
+    'run.mjs <env|context|changes|verify|worktree|slice|patch|task|codebase-memory> --project <path> [--json]',
   );
+  assert.match(result.report.codebaseMemory, /codebase-memory <status\|refresh>/u);
   assert.match(result.report.worktree, /worktree <list\|check\|bootstrap\|cleanup>/u);
   assert.match(result.report.worktree, /dry-run until --write/u);
   assert.match(result.report.task, /task <init\|update\|status\|list>/u);

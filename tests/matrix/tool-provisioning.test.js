@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 import { parse as parseToml } from '@iarna/toml';
 
 import { createInstallPlan, previewInstallPlan } from '../../scripts/lib/install-planner.js';
+import { codebaseMemoryCacheDir } from '../../runtime/tools/codebase-memory-mcp/cache-path.mjs';
 import { resolveOcrEndpoint } from '../../scripts/lib/ocr-config.js';
 import {
   createToolProvisioningPlan,
@@ -41,6 +42,23 @@ const PROFILE_TOOL_MODULES = [
   'open-code-review',
 ];
 
+// 0.11.0 prints a human-readable block by default and only wraps it in an MCP
+// envelope for `--json`; index_repository puts JSON inside that envelope while
+// index_status puts the `key: value` block there. Both shapes appear below.
+function codebaseMemoryJsonEnvelope(payload) {
+  return JSON.stringify({
+    content: [{ text: JSON.stringify(payload), type: 'text' }],
+    isError: false,
+  });
+}
+
+function codebaseMemoryTextEnvelope(fields) {
+  return JSON.stringify({
+    content: [{ text: Object.entries(fields).map(([key, value]) => `${key}: ${value}`).join('\n'), type: 'text' }],
+    isError: false,
+  });
+}
+
 async function successfulToolOutput(request, targetDir, { materializeCodebaseMemoryRuntime = true } = {}) {
   if (request.component === 'codebaseMemoryMcp'
     && request.phase === 'binary-install'
@@ -49,7 +67,7 @@ async function successfulToolOutput(request, targetDir, { materializeCodebaseMem
   }
   if (request.component === 'codebaseMemoryMcp' && request.phase === 'index') {
     return {
-      stdout: JSON.stringify({
+      stdout: codebaseMemoryJsonEnvelope({
         edges: 13,
         nodes: 21,
         project: 'vibe-harness-target',
@@ -59,8 +77,9 @@ async function successfulToolOutput(request, targetDir, { materializeCodebaseMem
   }
   if (request.component === 'codebaseMemoryMcp' && request.phase === 'index-verify') {
     return {
-      stdout: JSON.stringify({
+      stdout: codebaseMemoryTextEnvelope({
         edges: 13,
+        indexed_at: '2026-01-01T00:00:00Z',
         nodes: 21,
         project: 'vibe-harness-target',
         root_path: path.resolve(targetDir).replaceAll('\\', '/'),
@@ -287,9 +306,9 @@ test('provisioning continues after one component fails and never persists comman
       .slice(0, 5), [
       'dependency-install',
       'binary-install',
+      'cache-precheck',
       'configure-auto-index',
       'configure-auto-watch',
-      'index',
     ]);
     const configureAutoIndex = calls.find((call) => call.component === 'codebaseMemoryMcp' && call.phase === 'configure-auto-index');
     const configureAutoWatch = calls.find((call) => call.component === 'codebaseMemoryMcp' && call.phase === 'configure-auto-watch');
@@ -300,9 +319,14 @@ test('provisioning continues after one component fails and never persists comman
       '--repo-path', '.',
       '--mode', 'moderate',
       '--persistence', 'false',
+      '--json',
     ]);
     assert.equal(index.env.CBM_ALLOWED_ROOT, targetDir);
-    assert.equal(index.env.CBM_CACHE_DIR.startsWith(targetDir), true);
+    // The graph cache is private to the user; a project-local cache fails
+    // 0.11.0's DACL check on the usual Windows drive layout.
+    assert.equal(index.env.CBM_CACHE_DIR.startsWith(targetDir), false);
+    assert.equal(index.env.CBM_CACHE_DIR.includes('codebase-memory-mcp'), true);
+    assert.equal(path.isAbsolute(index.env.CBM_CACHE_DIR), true);
     assert.equal(index.env.CBM_MEM_BUDGET_MB, '2048');
     assert.equal(index.env.CBM_WORKERS, '2');
     const state = await readFile(path.join(targetDir, '.vibe-harness/tool-state/tools.json'), 'utf8');
@@ -337,9 +361,10 @@ test('codebase-memory index verification gates ready status and persists only a 
     });
 
     const verify = calls.find((call) => call.component === 'codebaseMemoryMcp' && call.phase === 'index-verify');
-    assert.deepEqual(verify.args.slice(1), ['cli', 'index_status', '--project', 'vibe-harness-target']);
+    assert.deepEqual(verify.args.slice(1), ['cli', 'index_status', '--project', 'vibe-harness-target', '--json']);
     assert.deepEqual(report.codebaseMemoryMcp.index, {
       edges: 13,
+      indexedAt: '2026-01-01T00:00:00Z',
       mode: 'moderate',
       nodes: 21,
       status: 'ready',
@@ -353,17 +378,38 @@ test('codebase-memory index verification gates ready status and persists only a 
   }
 });
 
-test('codebase-memory rejects empty verification output and mismatched project roots', async () => {
+test('codebase-memory 拒绝空校验输出、根路径不匹配与缺少快照时间的索引状态', async () => {
   for (const [name, verifyOutput, expectedCode] of [
     ['empty-output', '', 'INDEX_OUTPUT_INVALID'],
-    ['wrong-root', JSON.stringify({ root_path: 'C:/other-project', status: 'ready' }), 'INDEX_ROOT_MISMATCH'],
+    ['wrong-root', () => codebaseMemoryTextEnvelope({
+      edges: 13,
+      indexed_at: '2026-01-01T00:00:00Z',
+      nodes: 21,
+      root_path: 'C:/other-project',
+      status: 'ready',
+    }), 'INDEX_ROOT_MISMATCH'],
+    // The 0.9.0 `git` block is gone: `indexed_at` is the field that proves the
+    // runtime reported a real snapshot instead of reading the live HEAD.
+    ['missing-indexed-at', (caseDir) => codebaseMemoryTextEnvelope({
+      edges: 13,
+      nodes: 21,
+      root_path: path.resolve(caseDir).replaceAll('\\', '/'),
+      status: 'ready',
+    }), 'INDEX_STATUS_INVALID'],
+    ['invalid-counts', (caseDir) => codebaseMemoryTextEnvelope({
+      edges: 13,
+      indexed_at: '2026-01-01T00:00:00Z',
+      nodes: 'many',
+      root_path: path.resolve(caseDir).replaceAll('\\', '/'),
+      status: 'ready',
+    }), 'INDEX_STATUS_INVALID'],
   ]) {
     const targetDir = await mkdtemp(path.join(tmpdir(), `vibe-harness-index-${name}-`));
     try {
       const report = await provisionProfileTools({
         commandRunner: async (request) => {
           if (request.component === 'codebaseMemoryMcp' && request.phase === 'index-verify') {
-            return { stdout: verifyOutput };
+            return { stdout: typeof verifyOutput === 'function' ? verifyOutput(targetDir) : verifyOutput };
           }
           return successfulToolOutput(request, targetDir);
         },
@@ -389,6 +435,9 @@ test('codebase-memory rejects index output that does not identify an indexed pro
     ['', 'INDEX_OUTPUT_INVALID'],
     [JSON.stringify({ status: 'indexed' }), 'INDEX_RESULT_INVALID'],
     [JSON.stringify({ project: 'vibe-harness-target', status: 'failed' }), 'INDEX_RESULT_INVALID'],
+    // 0.11.0 wraps index_repository's JSON in the MCP envelope, so the reader
+    // has to look inside `content[0].text` before judging the result.
+    [codebaseMemoryJsonEnvelope({ project: 'vibe-harness-target', status: 'error', hint: 'no sources' }), 'INDEX_RESULT_INVALID'],
   ]) {
     const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-index-result-'));
     try {
@@ -423,18 +472,18 @@ test('real codebase-memory provisioning creates a verified project-local index',
       const { stdout } = await execFileAsync(locator[0], locator[1]);
       systemBinary = stdout.split(/\r?\n/u).map((line) => line.trim()).find(Boolean);
       const { stdout: versionOutput } = await execFileAsync(systemBinary, ['--version']);
-      if (!versionOutput.includes('0.9.0')) {
-        testContext.skip('requires a local codebase-memory-mcp 0.9.0 binary fixture');
+      if (!versionOutput.includes('0.11.0')) {
+        testContext.skip('requires a local codebase-memory-mcp 0.11.0 binary fixture');
         return;
       }
     } catch {
-      testContext.skip('requires a local codebase-memory-mcp 0.9.0 binary fixture');
+      testContext.skip('requires a local codebase-memory-mcp 0.11.0 binary fixture');
       return;
     }
 
     await mkdir(toolDir, { recursive: true });
     await writeFile(path.join(targetDir, 'example.js'), 'export const indexedValue = 42;\n', 'utf8');
-    for (const file of ['package.json', 'package-lock.json', 'run.mjs', 'path-alias.mjs']) {
+    for (const file of ['package.json', 'package-lock.json', 'run.mjs', 'path-alias.mjs', 'cache-path.mjs', 'index-state.mjs', 'project-root.mjs']) {
       await copyFile(path.join(runtimeSource, file), path.join(toolDir, file));
     }
 
@@ -471,6 +520,9 @@ test('real codebase-memory provisioning creates a verified project-local index',
     await assert.rejects(readFile(path.join(targetDir, '.codebase-memory/graph.db.zst')), /ENOENT/u);
   } finally {
     await rm(targetDir, { force: true, recursive: true });
+    // The real runtime writes its graph outside the project, so this run cleans
+    // the private cache directory it created instead of leaving an orphan.
+    await rm(codebaseMemoryCacheDir(targetDir), { force: true, recursive: true });
   }
 });
 
@@ -562,7 +614,7 @@ test('OCR without credentials is pending-config and inspect restores persisted s
     assert.equal(report.openCodeReview.status, 'pending-config');
     assert.equal(report.openCodeReview.phase, 'llm-config');
     assert.equal(inspected.openCodeReview.status, 'pending-config');
-    assert.equal(inspected.codebaseMemoryMcp.version, '0.9.0');
+    assert.equal(inspected.codebaseMemoryMcp.version, '0.11.0');
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }
@@ -621,6 +673,7 @@ test('ready tools reuse package phases while codebase-memory reindexes and verif
     await provisionProfileTools({ allowPreview: true, commandRunner: runner, env, profile: 'full', resolvedModules: PROFILE_TOOL_MODULES, targetDir });
     const repeatedCalls = calls.slice(firstCallCount);
     assert.deepEqual(repeatedCalls.map((call) => [call.component, call.phase]), [
+      ['codebaseMemoryMcp', 'cache-precheck'],
       ['codebaseMemoryMcp', 'configure-auto-index'],
       ['codebaseMemoryMcp', 'configure-auto-watch'],
       ['codebaseMemoryMcp', 'index'],
@@ -635,7 +688,7 @@ test('ready tools reuse package phases while codebase-memory reindexes and verif
     await provisionProfileTools({ allowPreview: true, commandRunner: runner, env, profile: 'full', resolvedModules: PROFILE_TOOL_MODULES, targetDir });
     const newCalls = calls.slice(beforeChangedLock);
     assert.deepEqual(newCalls.filter((call) => call.component === 'codebaseMemoryMcp').map((call) => call.phase), [
-      'configure-auto-index', 'configure-auto-watch', 'index', 'index-verify', 'mcp-handshake',
+      'cache-precheck', 'configure-auto-index', 'configure-auto-watch', 'index', 'index-verify', 'mcp-handshake',
     ]);
     assert.equal(newCalls.some((call) => call.component === 'openCodeReview'), true);
   } finally {
@@ -668,8 +721,8 @@ test('a missing codebase-memory runtime bypasses package reuse and reinstalls be
     assert.deepEqual(calls.slice(beforeRepair)
       .filter((call) => call.component === 'codebaseMemoryMcp')
       .map((call) => call.phase), [
-      'dependency-install', 'binary-install', 'configure-auto-index', 'configure-auto-watch',
-      'index', 'index-verify', 'mcp-handshake',
+      'dependency-install', 'binary-install', 'cache-precheck', 'configure-auto-index',
+      'configure-auto-watch', 'index', 'index-verify', 'mcp-handshake',
     ]);
   } finally {
     await rm(targetDir, { force: true, recursive: true });
@@ -683,9 +736,6 @@ test('a missing Chrome DevTools runtime bypasses dependency reuse before browser
   const calls = [];
   const runner = async (request) => {
     calls.push(request);
-    if (request.component === 'codebaseMemoryMcp' && request.phase === 'binary-install') {
-      await seedCodebaseMemoryRuntime(codebaseMemory.toolDir);
-    }
     return successfulToolOutput(request, targetDir);
   };
   try {
@@ -739,8 +789,8 @@ test('a successful codebase-memory binary install repairs a still-missing runtim
     assert.equal(report.codebaseMemoryMcp.status, 'ready');
     assert.equal(repairCalls, 1);
     assert.deepEqual(calls.map((call) => call.phase), [
-      'dependency-install', 'binary-install', 'configure-auto-index', 'configure-auto-watch',
-      'index', 'index-verify', 'mcp-handshake',
+      'dependency-install', 'binary-install', 'cache-precheck', 'configure-auto-index',
+      'configure-auto-watch', 'index', 'index-verify', 'mcp-handshake',
     ]);
   } finally {
     await rm(targetDir, { force: true, recursive: true });
@@ -1043,6 +1093,65 @@ test('tool processes receive only base variables and tool-specific credentials',
   }
 });
 
+test('codebase-memory 前检只把 DACL 拒绝当作缓存判定', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-cache-precheck-dacl-'));
+  try {
+    const calls = [];
+    const report = await provisionProfileTools({
+      commandRunner: async (request) => {
+        calls.push(request.phase);
+        if (request.component === 'codebaseMemoryMcp' && request.phase === 'cache-precheck') {
+          throw Object.assign(new Error('Tool command failed.'), {
+            code: 'TOOL_COMMAND_FAILED',
+            stderr: 'codebase-memory-mcp: secure CLI coordination could not be created (cache-private): '
+              + 'C:\\: DACL entry 0 grants mutation rights 0x00010112 to untrusted identity (Users S-1-5-32-545)',
+          });
+        }
+        return successfulToolOutput(request, targetDir);
+      },
+      env: {},
+      profile: 'full',
+      resolvedModules: ['codebase-memory'],
+      targetDir,
+    });
+
+    assert.equal(report.codebaseMemoryMcp.status, 'degraded');
+    assert.equal(report.codebaseMemoryMcp.code, 'CBM_CACHE_DIR_NOT_PRIVATE');
+    assert.equal(calls.includes('index'), false);
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('codebase-memory 前检的非 DACL 失败不降级，索引阶段仍是判定者', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-cache-precheck-skip-'));
+  try {
+    const calls = [];
+    const report = await provisionProfileTools({
+      commandRunner: async (request) => {
+        calls.push(request.phase);
+        if (request.component === 'codebaseMemoryMcp' && request.phase === 'cache-precheck') {
+          throw Object.assign(new Error('Tool command timed out.'), {
+            code: 'TOOL_TIMEOUT',
+            stderr: 'level=warn msg=mem.allocator.preloading_completed still_preloading=false',
+          });
+        }
+        return successfulToolOutput(request, targetDir);
+      },
+      env: {},
+      profile: 'full',
+      resolvedModules: ['codebase-memory'],
+      targetDir,
+    });
+
+    assert.equal(report.codebaseMemoryMcp.status, 'ready');
+    assert.equal(calls.includes('index'), true);
+    assert.equal(calls.includes('index-verify'), true);
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
 test('codebase-memory maps allowed-root path failures to a stable diagnostic code', async () => {
   const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-index-path-'));
   try {
@@ -1211,7 +1320,10 @@ test('codebase-memory automatically rebuilds a corrupt cache on the next provisi
 
     const indexCalls = calls.filter((request) => request.phase === 'index');
     assert.equal(indexCalls.length, 2);
-    assert.equal(path.basename(indexCalls[1].env.CBM_CACHE_DIR), 'cache');
+    // The retry re-pins the same private cache directory it just cleared so the
+    // rebuild cannot silently fall back to another location.
+    assert.equal(indexCalls[1].env.CBM_CACHE_DIR, indexCalls[0].env.CBM_CACHE_DIR);
+    assert.equal(indexCalls[1].env.CBM_CACHE_DIR.includes('codebase-memory-mcp'), true);
     await assert.rejects(readFile(path.join(targetDir, '.codebase-memory/graph.db.zst')), /ENOENT/u);
     assert.equal(report.codebaseMemoryMcp.status, 'ready');
   } finally {
@@ -1374,10 +1486,12 @@ test('installed tool wrappers enforce runtime environment allowlists', async () 
       await mkdir(path.dirname(entryPath), { recursive: true });
       await copyFile(path.join(rootDir, `runtime/tools/${item.runtime}/run.mjs`), path.join(runtimeDir, 'run.mjs'));
       if (item.runtime === 'codebase-memory-mcp') {
-        await copyFile(
-          path.join(rootDir, 'runtime/tools/codebase-memory-mcp/path-alias.mjs'),
-          path.join(runtimeDir, 'path-alias.mjs'),
-        );
+        for (const module of ['path-alias.mjs', 'cache-path.mjs', 'index-state.mjs', 'project-root.mjs']) {
+          await copyFile(
+            path.join(rootDir, 'runtime/tools/codebase-memory-mcp', module),
+            path.join(runtimeDir, module),
+          );
+        }
       }
       if (item.runtime === 'open-code-review') {
         await copyFile(

@@ -32,6 +32,7 @@ import {
   PLAYWRIGHT_GENERATED_RELATIVE_DIR,
   PLAYWRIGHT_TOOL_RELATIVE_DIR,
 } from '../../runtime/tools/playwright-cli/run.mjs';
+import { codebaseMemoryCacheDir } from '../../runtime/tools/codebase-memory-mcp/cache-path.mjs';
 import {
   extractManagedCbmIgnoreBlock,
   extractManagedMcpBlock,
@@ -100,15 +101,24 @@ async function packageVersion(rootDir) {
   return pkg.version;
 }
 
-function toolDiscoveryLine(installedProviderModules) {
+/** Command surface for the freshness check the installed plan can actually run. */
+function codebaseMemoryStatusCommand(hasProjectScripts) {
+  return hasProjectScripts
+    ? '`node .agents/runtime/commands/run.mjs codebase-memory status --project . --json`'
+    : '`codebase-memory status`';
+}
+
+function toolDiscoveryLine(installedProviderModules, { hasProjectScripts = false } = {}) {
   const routes = [];
   if (hasPluginCapability(installedProviderModules, 'code-intelligence.semantic-graph')) {
-    routes.push('跨文件符号关系、调用链、架构和影响分析使用 codebase-memory-mcp，需要语义图时先确认索引状态');
+    routes.push('跨文件符号关系、调用链、影响面或架构问题先用 codebase-memory-mcp 的 status 命令（'
+      + codebaseMemoryStatusCommand(hasProjectScripts)
+      + '）确认索引新鲜度，过期或缺失时再 refresh 并查询语义图');
   }
   if (hasPluginCapability(installedProviderModules, 'code-search.structural')) {
     routes.push('本地 AST 结构、语法模式和规则调试使用项目内 ast-grep');
   }
-  routes.push('纯文本、配置和日志使用 rg 与直接文件阅读');
+  routes.push('单文件文本、配置和日志使用 rg 与直接文件阅读');
   const rtkBoundary = hasPluginCapability(installedProviderModules, 'shell.output-compression')
     ? ' RTK 只压缩符合条件的 Shell 输出，不参与检索工具选择。'
     : '';
@@ -162,7 +172,9 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
       ? `- 需求澄清姿态：\`${clarificationPosture}\`（action-leaning 偏向采用最小可逆默认值直接推进；balanced 按规则判断；conservative 对尚未解决的高影响分歧更谨慎）。`
       : '',
     codebaseMemoryMcpLine: hasCodebaseMemoryMcp
-      ? '- codebase-memory-mcp 规则位于 `docs/rules/codebase-memory-mcp.md`。'
+      ? '- codebase-memory-mcp 规则位于 `docs/rules/codebase-memory-mcp.md`；跨文件符号、调用链、影响面或架构问题先运行 '
+        + codebaseMemoryStatusCommand(hasProjectScripts)
+        + '，再按需 refresh 语义图，单文件文本、配置和日志仍用 rg。'
       : '',
     discoveryLine: hasTarget('docs/rules/codebase-memory-mcp.md')
       ? '若 `codebase-memory-mcp` 可用，先确认索引状态并用于结构化定位；不可用时说明并退回仓库搜索。'
@@ -200,7 +212,7 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
       + installedSurface.memoryLoadLine
       + ' 当专项 Skill 限制 Memory 证据边界时，仅检查相关 Memory 路径是否存在及必要元数据、不读取其正文；不限制任务相关源码阅读。';
   }
-  installedSurface.discoveryLine = toolDiscoveryLine(installedProviderModules);
+  installedSurface.discoveryLine = toolDiscoveryLine(installedProviderModules, { hasProjectScripts });
   if (hasRoles) {
     installedSurface.discoveryLine += ' 按 docs/rules/role-routing.md 先识别动作，再在有效且能力匹配的角色中选择一个角色，并只读取 .agents/roles/ 中对应角色文件；阶段变化时重新选择。';
     installedSurface.rulesLine += ' 多角色索引位于 .agents/roles/index.md。';
@@ -245,7 +257,6 @@ function sourceForEntry(entrySource, renderData) {
 function createManagedMcpServers(targetDir, resolvedModules) {
   const codebaseTool = path.join(targetDir, '.agents/runtime/tools/codebase-memory-mcp/run.mjs');
   const chromeDevtoolsTool = path.join(targetDir, '.agents/runtime/tools/chrome-devtools-mcp/run.mjs');
-  const stateRoot = path.dirname(stateFilePath(targetDir));
   const servers = {};
   if (hasPluginCapability(resolvedModules, 'browser.devtools')) servers['chrome-devtools'] = {
       args: [chromeDevtoolsTool],
@@ -260,7 +271,11 @@ function createManagedMcpServers(targetDir, resolvedModules) {
       command: process.execPath,
       env: {
         CBM_ALLOWED_ROOT: targetDir,
-        CBM_CACHE_DIR: path.join(stateRoot, 'tool-state/codebase-memory-mcp/cache'),
+        // The graph cache is private to the user, not the repository:
+        // 0.11.0 refuses a cache under a path chain that grants mutation
+        // rights to an untrusted identity, which rules out project-local
+        // caches for the usual drive layouts.
+        CBM_CACHE_DIR: codebaseMemoryCacheDir(path.resolve(targetDir)),
         CBM_MEM_BUDGET_MB: '2048',
         CBM_WORKERS: '2',
       },

@@ -5,6 +5,12 @@ import { fileURLToPath } from 'node:url';
 import { inspectValidationCommands } from './lib/command-status.js';
 import { inspectGitHooks } from './lib/git-hooks.js';
 import {
+  CODEBASE_MEMORY_CACHE_STALE_COPY,
+  codebaseMemoryRuntimePresent,
+  describeCodebaseMemoryCache,
+  removeCodebaseMemoryCache,
+} from './lib/codebase-memory-cache.js';
+import {
   applyRollbackPlan,
   applyUninstallPlan,
   createRollbackPlan,
@@ -219,6 +225,58 @@ function optionalToolFallback(tool) {
   if (tool === 'rtk') return '直接使用原命令并记录该回退。';
   if (tool === 'astGrep') return '改用 rg 或项目搜索命令并记录该回退。';
   return null;
+}
+
+/**
+ * Cache facts are only reported for projects that actually resolve the tool,
+ * so an unrelated project never grows a diagnostic about a cache it does not
+ * use. The report covers the location, the freshness stamp and any cache left
+ * behind by the pre-0.11.0 layout (those copies are never deleted silently).
+ */
+async function inspectCodebaseMemoryCache(targetDir, tools = {}) {
+  if (!tools?.codebaseMemoryMcp && !(await codebaseMemoryRuntimePresent(targetDir))) return null;
+  return describeCodebaseMemoryCache(targetDir);
+}
+
+function codebaseMemoryCacheWarnings(cache) {
+  if (!cache) return [];
+  const warnings = [];
+  if (cache.staleCopies.length > 0) {
+    warnings.push({
+      code: CODEBASE_MEMORY_CACHE_STALE_COPY,
+      message: 'Stale codebase-memory index copies exist at '
+        + cache.staleCopies.map((item) => `${item.path} (${item.kind})`).join(', ')
+        + '; doctor only reports them and never deletes them.',
+    });
+  }
+  if (cache.indexState && cache.freshness.state !== 'fresh') {
+    warnings.push({
+      code: 'CODEBASE_MEMORY_INDEX_STALE',
+      message: 'The codebase-memory index stamp predates the current HEAD ('
+        + cache.freshness.reason
+        + '); rebuild it through the project command `codebase-memory refresh --project . --write`.',
+    });
+  }
+  return warnings;
+}
+
+function planRemovesCodebaseMemoryRuntime(actions = []) {
+  return actions.some((action) => String(action?.target ?? action?.relativeTarget ?? '')
+    .replaceAll('\\', '/')
+    .includes('.agents/runtime/tools/codebase-memory-mcp/'));
+}
+
+/**
+ * Cleanup runs only when the runtime leaves the project: a targeted uninstall
+ * that keeps another adapter keeps the cache, and a dry run reports the
+ * intended directory without touching the disk.
+ */
+async function cleanupCodebaseMemoryCache({ actions = [], dryRun, targetDir }) {
+  const runtimeRemoved = !(await codebaseMemoryRuntimePresent(targetDir))
+    || planRemovesCodebaseMemoryRuntime(actions);
+  if (!runtimeRemoved) return null;
+  const cleanup = await removeCodebaseMemoryCache(targetDir, { dryRun });
+  return cleanup.reason === 'absent' ? null : cleanup;
 }
 
 function toolSummaryLines(tools = {}, recommendations = []) {
@@ -745,11 +803,13 @@ async function validate(args) {
     });
     const health = healthReport({ profile: installSurface.profile, tools });
     const runtimeHooks = await inspectRuntimeHooks(adapter, targetDir);
+    const codebaseMemoryCache = await inspectCodebaseMemoryCache(targetDir, tools);
     // Missing tiers stay a hint, not a failure: the effective tiers are derived
     // from the project scripts, and the plan reports which source was used.
     const tiersMissing = !validationTiersDeclared(config.validationCommands?.tiers);
     emitReport({
       ...health,
+      ...(codebaseMemoryCache ? { codebaseMemoryCache } : {}),
       commandStatus,
       recommendations: toolRecommendations(tools, installSurface.profile, { adapterId: adapter.id, mvp: true }),
       rtkHooks: rtkHooksReport(rtkHooksEnabled, tools, rtkHooksSetting.source),
@@ -769,6 +829,7 @@ async function validate(args) {
           definitionChanged: await hookDefinitionDrift(adapter, targetDir, installState),
         }),
         ...roleRuntimeWarnings(target.adapters),
+        ...codebaseMemoryCacheWarnings(codebaseMemoryCache),
         ...(tiersMissing ? [{
           code: 'VALIDATION_TIERS_NOT_CONFIGURED',
           message: 'Add validationCommands.tiers (quick/standard/deep) or declare the matching package scripts; verify falls back to the detected project commands.',
@@ -1198,8 +1259,10 @@ async function doctor(args) {
   });
   if (runtimeHooks.selfCheck?.status === 'degraded') health = { ok: false, status: 'degraded' };
   const memory = await inspectMemory(config, installState, targetDir);
+  const codebaseMemoryCache = await inspectCodebaseMemoryCache(targetDir, tools);
   emitReport({
     ...health,
+    ...(codebaseMemoryCache ? { codebaseMemoryCache } : {}),
     gitHooks,
     memory,
     nestedInstallations,
@@ -1242,6 +1305,7 @@ async function doctor(args) {
         definitionChanged: await hookDefinitionDrift(adapter, targetDir, installState),
       }),
       ...roleRuntimeWarnings(target?.adapters),
+      ...codebaseMemoryCacheWarnings(codebaseMemoryCache),
       ...(pack.instructionBudgetWarnings ?? []).map((message) => ({
         code: 'INSTRUCTION_BUDGET',
         message,
@@ -1309,9 +1373,17 @@ async function rollback(args) {
     targetDir: path.resolve(args.project),
   });
   const result = await applyRollbackPlan(plan);
+  // The rollback restores the pre-install surface, so the private cache the
+  // runtime wrote afterwards would otherwise survive as an orphan.
+  const cacheCleanup = await cleanupCodebaseMemoryCache({
+    actions: plan.actions,
+    dryRun: !args.write,
+    targetDir: path.resolve(args.project),
+  });
   printRawReport({
     actions: plan.actions,
     applied: result.applied,
+    ...(cacheCleanup ? { cacheCleanup } : {}),
     dryRun: plan.dryRun,
     retainedState: result.retainedState,
     skipped: result.skipped,
@@ -1357,9 +1429,11 @@ async function uninstall(args) {
     targetDir,
   });
   const result = await applyUninstallPlan(plan);
+  const cacheCleanup = await cleanupCodebaseMemoryCache({ actions: plan.actions, dryRun: !args.write, targetDir });
   printRawReport({
     actions: plan.actions,
     applied: result.applied,
+    ...(cacheCleanup ? { cacheCleanup } : {}),
     dryRun: plan.dryRun,
     retainedState: result.retainedState,
     skipped: result.skipped,

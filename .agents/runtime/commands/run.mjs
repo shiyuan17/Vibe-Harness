@@ -2330,10 +2330,259 @@ function taskSummary(report) {
   return lines.join('\n');
 }
 
+/**
+ * Shared codebase-memory helpers shipped with the tool runtime. They are the
+ * same modules the wrapper, the managed MCP block and the provisioning phases
+ * resolve their paths through, so this command cannot report a cache or a
+ * state file the tool never uses. The lookup is lazy because the runtime only
+ * exists when the plugin (or an equivalent project copy) was installed.
+ *
+ * @returns {Promise<{cachePath: any, indexState: any, projectRoot: any} | null>}
+ */
+let codebaseMemoryHelperModules;
+async function codebaseMemoryHelpers() {
+  codebaseMemoryHelperModules ??= (async () => {
+    const base = new URL('../tools/codebase-memory-mcp/', import.meta.url);
+    try {
+      const [cachePath, indexState, projectRoot] = await Promise.all([
+        import(new URL('cache-path.mjs', base).href),
+        import(new URL('index-state.mjs', base).href),
+        import(new URL('project-root.mjs', base).href),
+      ]);
+      return { cachePath, indexState, projectRoot };
+    } catch (error) {
+      if (error?.code === 'ERR_MODULE_NOT_FOUND') return null;
+      throw error;
+    }
+  })();
+  return codebaseMemoryHelperModules;
+}
+
+function codebaseMemoryWrapperPath(projectDir) {
+  return path.join(projectDir, '.agents/runtime/tools/codebase-memory-mcp/run.mjs');
+}
+
+async function codebaseMemoryRuntimeInstalled(projectDir) {
+  try {
+    await access(codebaseMemoryWrapperPath(projectDir));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function codebaseMemoryEnvironment(indexRoot, helpers) {
+  return {
+    ...process.env,
+    CBM_ALLOWED_ROOT: indexRoot,
+    CBM_CACHE_DIR: helpers.cachePath.codebaseMemoryCacheDir(indexRoot),
+    CBM_MEM_BUDGET_MB: '2048',
+    CBM_WORKERS: '2',
+  };
+}
+
+/**
+ * The freshness stamp is the only durable answer to "is this graph current?".
+ * `index_status` reports the live HEAD, and the pinned runtime keeps
+ * auto_index/auto_watch off, so a graph nobody rebuilt after a commit must
+ * report stale instead of ready.
+ */
+async function codebaseMemoryStatus(projectDir, helpers) {
+  const facts = helpers.projectRoot.resolveGitFacts(projectDir);
+  const sourceRoot = facts?.root ?? path.resolve(projectDir);
+  const indexRoot = facts?.mainRoot ?? path.resolve(projectDir);
+  const worktreeMapped = Boolean(facts?.isWorktree);
+  const state = await helpers.indexState.readIndexState(helpers.cachePath.codebaseMemoryIndexStatePath(indexRoot));
+  const freshness = helpers.indexState.evaluateIndexFreshness(state, { headSha: facts?.headSha ?? null });
+  const report = {
+    branch: facts?.branch ?? null,
+    cacheDir: state?.cacheDir ?? helpers.cachePath.codebaseMemoryCacheDir(indexRoot),
+    edges: state?.edges ?? null,
+    headSha: facts?.headSha ?? null,
+    indexedAt: state?.indexedAt ?? null,
+    indexedHeadSha: state?.headSha ?? null,
+    indexStatePath: helpers.indexState.indexStateRelativePath(indexRoot),
+    mode: state?.mode ?? null,
+    nodes: state?.nodes ?? null,
+    project: state?.project ?? null,
+    reason: freshness.reason,
+    rootPath: indexRoot,
+    runtimeInstalled: await codebaseMemoryRuntimeInstalled(projectDir),
+    runtimeVersion: state?.runtimeVersion ?? null,
+    sourceRoot,
+    status: freshness.state,
+    worktreeMapped,
+  };
+  if (worktreeMapped) {
+    report.worktreeNote = '索引映射到主检出；worktree 未提交的新文件与新符号不在图中，需用 rg 补充核验。';
+  }
+  if (freshness.state === 'fresh') return report;
+  report.guidance = freshness.state === 'missing'
+    ? ['尚未记录索引状态；运行 `node .agents/runtime/commands/run.mjs codebase-memory refresh --project . --write` 建立索引并写入状态戳。']
+    : ['HEAD 已变化，索引图早于当前提交；重新运行 `... codebase-memory refresh --project . --write`，或仅用 rg 补充核验后再决定是否重建。'];
+  if (freshness.state === 'missing' && report.runtimeInstalled) {
+    report.probe = await codebaseMemoryProbe(projectDir, indexRoot, helpers);
+    if (report.probe.matched) {
+      // A graph exists for this project but nothing recorded which HEAD it
+      // covers; report stale instead of claiming the project was never indexed.
+      report.status = 'stale';
+      report.reason = 'index-without-state-stamp';
+    }
+  }
+  return report;
+}
+
+/**
+ * Ask the runtime whether it already holds a graph for the project root. The
+ * probe is deliberately shallow: it only matches the reported `root_path`, so
+ * a missing stamp stays distinguishable from a genuinely absent index.
+ */
+async function codebaseMemoryProbe(projectDir, indexRoot, helpers) {
+  const wrapper = codebaseMemoryWrapperPath(projectDir);
+  const expected = indexRoot.replaceAll('\\', '/').replace(/\/+$/u, '');
+  try {
+    const { stdout } = await execFileAsync(process.execPath, [wrapper, 'cli', 'list_projects', '--json'], {
+      cwd: indexRoot,
+      env: codebaseMemoryEnvironment(indexRoot, helpers),
+      maxBuffer: 4 * 1024 * 1024,
+      timeout: 60_000,
+      windowsHide: true,
+    });
+    const haystack = process.platform === 'win32' ? stdout.toLowerCase() : stdout;
+    const needle = process.platform === 'win32' ? expected.toLowerCase() : expected;
+    return { matched: haystack.includes(needle), probe: 'list_projects' };
+  } catch (error) {
+    return {
+      matched: false,
+      probe: 'list_projects',
+      probeError: boundedOutput(String(error?.message ?? error), projectDir),
+    };
+  }
+}
+
+async function runCodebaseMemoryWrapper(wrapper, args, cwd, env, timeoutMs) {
+  try {
+    const { stderr, stdout } = await execFileAsync(process.execPath, [wrapper, ...args], {
+      cwd,
+      env,
+      maxBuffer: 8 * 1024 * 1024,
+      timeout: timeoutMs,
+      windowsHide: true,
+    });
+    return { status: 'passed', stderr: boundedOutput(stderr, cwd), stdout: boundedOutput(stdout, cwd) };
+  } catch (error) {
+    return {
+      code: error?.killed ? 'TIMEOUT' : 'COMMAND_FAILED',
+      exitCode: typeof error?.code === 'number' ? error.code : null,
+      status: 'failed',
+      stderr: boundedOutput(String(error?.stderr ?? error?.message ?? error), cwd),
+      stdout: boundedOutput(String(error?.stdout ?? ''), cwd),
+    };
+  }
+}
+
+async function codebaseMemoryRefresh(projectDir, args, helpers) {
+  const current = await codebaseMemoryStatus(projectDir, helpers);
+  if (!current.runtimeInstalled) {
+    return {
+      action: 'refresh',
+      command: 'codebase-memory',
+      guidance: ['codebase-memory runtime 未安装；先运行 `vibe-harness provision --project <path> --write`。'],
+      reason: 'runtime-not-installed',
+      rootPath: current.rootPath,
+      sourceRoot: current.sourceRoot,
+      status: 'unavailable',
+      worktreeMapped: current.worktreeMapped,
+    };
+  }
+  const steps = [
+    'cli index_repository --repo-path . --mode moderate --persistence false --json',
+    'cli index_status --project <project> --json',
+  ];
+  if (!args.write) {
+    return {
+      action: 'refresh',
+      command: 'codebase-memory',
+      current,
+      dryRun: true,
+      rootPath: current.rootPath,
+      sourceRoot: current.sourceRoot,
+      status: 'planned',
+      steps,
+      worktreeMapped: current.worktreeMapped,
+    };
+  }
+  const wrapper = codebaseMemoryWrapperPath(projectDir);
+  const env = codebaseMemoryEnvironment(current.rootPath, helpers);
+  const indexRun = await runCodebaseMemoryWrapper(
+    wrapper,
+    ['cli', 'index_repository', '--repo-path', '.', '--mode', 'moderate', '--persistence', 'false', '--json'],
+    current.rootPath,
+    env,
+    900_000,
+  );
+  const refreshed = await codebaseMemoryStatus(projectDir, helpers);
+  const verify = refreshed.runtimeInstalled && indexRun.status === 'passed'
+    ? await runCodebaseMemoryWrapper(
+      wrapper,
+      ['cli', 'index_status', '--project', refreshed.project ?? path.basename(current.rootPath), '--json'],
+      current.rootPath,
+      env,
+      120_000,
+    )
+    : null;
+  return {
+    ...refreshed,
+    action: 'refresh',
+    refresh: {
+      indexRepository: { ...indexRun, stdout: undefined },
+      verify: verify ? { ...verify, stdout: undefined } : null,
+    },
+  };
+}
+
+async function codebaseMemoryReport(projectDir, args) {
+  const action = args._[1] ?? 'status';
+  if (!['status', 'refresh'].includes(action)) throw new Error(`Unknown codebase-memory subcommand: ${action}`);
+  const helpers = await codebaseMemoryHelpers();
+  const defaults = { action, command: 'codebase-memory', schemaVersion: SCHEMA_VERSION };
+  if (!helpers) {
+    return {
+      ...defaults,
+      guidance: ['codebase-memory runtime 未安装；先运行 `vibe-harness provision --project <path> --write`。'],
+      reason: 'runtime-not-installed',
+      status: 'unavailable',
+    };
+  }
+  const report = action === 'refresh'
+    ? await codebaseMemoryRefresh(projectDir, args, helpers)
+    : await codebaseMemoryStatus(projectDir, helpers);
+  return { ...defaults, ...report };
+}
+
 function summary(report) {
   if (report.command === 'slice') return report.error ? `command: slice\nstatus: failed\nerror: ${report.error}` : report.text;
   if (report.command === 'patch') return patchSummary(report);
   if (report.command === 'task') return taskSummary(report);
+  if (report.command === 'codebase-memory') {
+    const lines = [`command: codebase-memory ${report.action ?? 'status'}`.trim(), `status: ${report.status}`];
+    if (report.reason) lines.push(`reason: ${report.reason}`);
+    if (report.rootPath) lines.push(`root: ${report.rootPath}`);
+    if (report.sourceRoot && report.sourceRoot !== report.rootPath) lines.push(`sourceRoot: ${report.sourceRoot}`);
+    if (report.headSha) lines.push(`head: ${report.headSha}`);
+    if (report.indexedHeadSha) lines.push(`indexedHead: ${report.indexedHeadSha}`);
+    if (report.indexedAt) lines.push(`indexedAt: ${report.indexedAt}`);
+    if (Number.isInteger(report.nodes)) lines.push(`graph: ${report.nodes} nodes / ${report.edges} edges`);
+    if (report.cacheDir) lines.push(`cache: ${report.cacheDir}`);
+    if (report.dryRun) for (const step of report.steps ?? []) lines.push(`step: ${step}`);
+    if (report.refresh) for (const [name, item] of Object.entries(report.refresh)) {
+      if (item) lines.push(`${name}: ${item.status}${item.code ? ` (${item.code})` : ''}`);
+    }
+    for (const item of report.guidance ?? []) lines.push(`next: ${item}`);
+    if (report.worktreeNote) lines.push(report.worktreeNote);
+    if (report.error) lines.push(`error: ${report.error}`);
+    return lines.join('\n');
+  }
   if (report.command === 'worktree') {
     const lines = [`command: worktree ${report.subcommand ?? ''}`.trim()];
     if (report.error) lines.push(`error: ${report.error}`);
@@ -2365,6 +2614,7 @@ function summary(report) {
   // surfaced under --json, so the summary path answered --help with nothing.
   if (report.command === 'help') {
     lines.push(report.usage);
+    if (report.codebaseMemory) lines.push(report.codebaseMemory);
     if (report.worktree) lines.push(report.worktree);
     if (report.task) lines.push(report.task);
     if (report.reuse) lines.push(report.reuse);
@@ -2391,17 +2641,25 @@ export async function runCommand(argv, { cwd = process.cwd() } = {}) {
   else if (command === 'slice') report = await sliceReport(projectDir, args);
   else if (command === 'patch') report = await patchReport(projectDir, args);
   else if (command === 'task') report = await taskReport(projectDir, args);
+  else if (command === 'codebase-memory') report = await codebaseMemoryReport(projectDir, args);
   else if (command === 'help') report = {
     schemaVersion: SCHEMA_VERSION,
     command,
     status: 'ready',
-    usage: 'run.mjs <env|context|changes|verify|worktree|slice|patch|task> --project <path> [--json]',
+    usage: 'run.mjs <env|context|changes|verify|worktree|slice|patch|task|codebase-memory> --project <path> [--json]',
+    codebaseMemory: 'run.mjs codebase-memory <status|refresh> --project <path>: status reports fresh|stale|missing from the index state stamp written by the runtime wrapper after a successful index_repository and never writes; refresh stays dry-run until --write and then rebuilds the semantic graph through the pinned project runtime',
     worktree: 'run.mjs worktree <list|check|bootstrap|cleanup> --project <path>: bootstrap and cleanup stay dry-run until --write; bootstrap allocates the next port block from .vibe-harness/worktree-ports.json, materializes worktree.provision.envFiles and runs worktree.provision.setupCommands (a red-zone target also needs --confirm-red-zone); cleanup refuses branches not merged into worktree.baseRef',
     task: 'run.mjs task <init|update|status|list> [task-id] --project <path>: anchors live in .vibe-harness/tasks/<task-id>.json; init and update stay dry-run until --write while status and list never write; update accepts --stage, --unit-status <unitId>:<status>, --decision, --blocker, --next-action, and --unit <unitId> --verification <verify receipt> to record a verify receipt on a unit',
     reuse: 'run.mjs verify --project <path> [--task <task-id>] --reuse: returns status "reused" without executing commands when the working-tree fingerprint and command set match the most recent passed receipt in the anchor; otherwise the checks run normally',
   };
   else throw new Error(`Unknown command: ${command}`);
-  return { args, report, exitCode: PASS_STATUSES.includes(report.status) ? 0 : 1 };
+  // A freshness verdict is the answer to a question, not a failed command:
+  // `stale` and `missing` still exit 0 so callers can read the receipt, while
+  // an unavailable runtime or an execution failure keeps the failure exit.
+  const exitCode = command === 'codebase-memory'
+    ? (['failed', 'unavailable'].includes(report.status) ? 1 : 0)
+    : (PASS_STATUSES.includes(report.status) ? 0 : 1);
+  return { args, report, exitCode };
 }
 
 export async function main(argv = process.argv.slice(2)) {
