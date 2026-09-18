@@ -1113,6 +1113,16 @@
         "agent",
         "maintainer"
       ]
+    },
+    {
+      "path": "docs/templates/find-question.md",
+      "kind": "plan",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "agent",
+        "maintainer"
+      ]
     }
   ]
 }

@@ -165,6 +165,12 @@
     },
     {
       "group": "templates-minimal",
+      "source": "templates/find-question.md",
+      "target": "docs/templates/find-question.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "templates-minimal",
       "source": "templates/workflow.md",
       "target": "docs/templates/workflow.md",
       "contentStrategy": "replace"
