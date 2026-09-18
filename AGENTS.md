@@ -82,7 +82,8 @@ TypeScript 配置、类型声明、JSDoc 类型契约，或完成主张涉及类
 
 - 当前安装方式：自定义能力模块安装。 当前另安装 integration Skills：agentmemory；它们不计入 profile 的原生领域 Skill 数量。
 - 需求澄清姿态：`balanced`（action-leaning 偏向采用最小可逆默认值直接推进；balanced 按规则判断；conservative 对尚未解决的高影响分歧更谨慎）。
-- 规则位于 `docs/rules/`。命中索引：治理 governance-core（Vibe-Harness 执行内核）、agent-skill-routing（Skill 编写与路由规则）、eval-driven-development（评测驱动开发）、role-routing（多角色路由规则）、git-rules（Git 规则）、test-rules（测试规则）、ai-collab-rules（AI 协作规则）、review-report（审查报告规则）；工程 api-rules（API 规则）、coding-rules（编码规则）、frontend-rules（前端规则）、log-management（可观测性与日志管理规则）、project-directory（项目目录规则）、project-specific-rules（项目专属规则）、db-rules（DB 规则）；工具与集成 codebase-memory-mcp、chrome-devtools-mcp（Chrome DevTools MCP）、linear-workflow（Linear 多 Agent 工作流）、rtk（RTK 命令输出压缩规则）、ast-grep（ast-grep 结构化搜索规则）；发布与排障 release-rules（发布规则）、troubleshooting（排障规则）。 多角色索引位于 .agents/roles/index.md。
+- 表达模式位于 `docs/rules/response-modes.md`：按任务类型自动选择，或消息内显式 `/模式名` 并可组合；模式只控制思考深度、表达方式与输出粒度，不改变任务目标、验证范围或安全边界。
+- 规则位于 `docs/rules/`。命中索引：治理 governance-core（Vibe-Harness 执行内核）、agent-skill-routing（Skill 编写与路由规则）、eval-driven-development（评测驱动开发）、role-routing（多角色路由规则）、git-rules（Git 规则）、test-rules（测试规则）、ai-collab-rules（AI 协作规则）、review-report（审查报告规则）、response-modes（表达模式规则）；工程 api-rules（API 规则）、coding-rules（编码规则）、frontend-rules（前端规则）、log-management（可观测性与日志管理规则）、project-directory（项目目录规则）、project-specific-rules（项目专属规则）、db-rules（DB 规则）；工具与集成 codebase-memory-mcp、chrome-devtools-mcp（Chrome DevTools MCP）、linear-workflow（Linear 多 Agent 工作流）、rtk（RTK 命令输出压缩规则）、ast-grep（ast-grep 结构化搜索规则）；发布与排障 release-rules（发布规则）、troubleshooting（排障规则）。 多角色索引位于 .agents/roles/index.md。
 - 模板位于 `docs/templates/`。
 - Skills 位于 `.agents/skills/`。
 - agentmemory skills 位于 `.agents/skills/`，本地记忆库位于 `.agents/memory/`。

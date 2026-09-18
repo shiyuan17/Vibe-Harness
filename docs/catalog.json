@@ -473,6 +473,16 @@
       ]
     },
     {
+      "path": "docs/inventory/response-mode-investigation.md",
+      "kind": "inventory",
+      "status": "reference",
+      "language": "zh-CN",
+      "audiences": [
+        "auditor",
+        "maintainer"
+      ]
+    },
+    {
       "path": "docs/archive/README.md",
       "kind": "index",
       "status": "reference",
@@ -1085,6 +1095,17 @@
     },
     {
       "path": "docs/rules/review-report.md",
+      "kind": "agent-rules",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "agent",
+        "contributor",
+        "maintainer"
+      ]
+    },
+    {
+      "path": "docs/rules/response-modes.md",
       "kind": "agent-rules",
       "status": "current",
       "language": "zh-CN",

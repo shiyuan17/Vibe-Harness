@@ -252,6 +252,16 @@
       "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-role-routing.json"] }
     },
     {
+      "id": "response-mode-selection",
+      "source": "response-mode expression control layer orthogonal to roles and skills",
+      "disposition": "generalize",
+      "targets": ["docs/rules/response-modes.md", "manifests/rules.json", "scripts/lib/rules-index.js", "scripts/lib/install-planner.js", "scripts/lib/template-renderer.js", "adapters/codex/AGENTS.template.md", "adapters/opencode/AGENTS.template.md", "adapters/antigravity/RULES.template.md", "evals/suites/vibe-harness-response-modes.json"],
+      "tests": ["tests/component/rules-index.test.js", "tests/matrix/cross-platform-adapters.test.js"],
+      "profiles": ["minimal", "core", "full", "docs-only"],
+      "docs": ["docs/rules/response-modes.md", "docs/inventory/response-mode-investigation.md"],
+      "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-response-modes.json"] }
+    },
+    {
       "id": "cross-platform-adapters",
       "source": "Eight-host shared runtime and adapter projections",
       "disposition": "validator",

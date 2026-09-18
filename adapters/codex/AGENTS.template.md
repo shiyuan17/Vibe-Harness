@@ -25,6 +25,7 @@
 
 {{installedSurface.profileLine}}
 {{installedSurface.clarificationPostureLine}}
+{{installedSurface.responseModeLine}}
 {{installedSurface.codebaseMemoryMcpLine}}
 {{installedSurface.rulesLine}}
 {{installedSurface.templatesLine}}

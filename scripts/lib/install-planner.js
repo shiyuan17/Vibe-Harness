@@ -196,6 +196,9 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
     profileLine: customModules
       ? '- 当前安装方式：自定义能力模块安装。'
       : (profileLines[profile] ?? `- 当前 profile: \`${profile}\`。`),
+    responseModeLine: routableTargets.includes('docs/rules/response-modes.md')
+      ? '- 表达模式位于 `docs/rules/response-modes.md`：按任务类型自动选择，或消息内显式 `/模式名` 并可组合；模式只控制思考深度、表达方式与输出粒度，不改变任务目标、验证范围或安全边界。'
+      : '',
     reviewLoopLine: '',
     rulesLine: hasInstalledOrExistingPrefix('docs/rules/') ? renderRulesLine(installedRuleIndex(ruleIndex, routableTargets)) : '',
     skillRoutingLine: detectedSkillRoots.length > 0

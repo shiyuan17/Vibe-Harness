@@ -62,6 +62,12 @@
       "contentStrategy": "replace"
     },
     {
+      "group": "rules-core",
+      "source": "docs/rules/response-modes.md",
+      "target": "docs/rules/response-modes.md",
+      "contentStrategy": "replace"
+    },
+    {
       "group": "rules-linear",
       "source": "docs/rules/linear-workflow.md",
       "target": "docs/rules/linear-workflow.md",
@@ -363,6 +369,12 @@
       "group": "evals-online",
       "source": "evals/suites/vibe-harness-role-routing.json",
       "target": ".agents/evals/suites/vibe-harness-role-routing.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "evals-online",
+      "source": "evals/suites/vibe-harness-response-modes.json",
+      "target": ".agents/evals/suites/vibe-harness-response-modes.json",
       "contentStrategy": "replace"
     },
     {

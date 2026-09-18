@@ -40,6 +40,7 @@ const defaultTemplateData = {
     memoryLoadLine: '',
     memorySkillsLine: '',
     profileLine: '- 当前 profile 使用 Vibe-Harness Codex 安装面。',
+    responseModeLine: '',
     reviewLoopLine: '',
     rulesLine: '- 规则位于 `docs/rules/`。',
     skillRoutingLine: '',

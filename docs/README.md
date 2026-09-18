@@ -61,6 +61,7 @@
 - [测试](rules/test-rules.md)
 - [排障](rules/troubleshooting.md)
 - [审查报告规则](rules/review-report.md)
+- [表达模式规则](rules/response-modes.md)
 
 ## Schema
 
@@ -97,6 +98,7 @@ inventory 快照规则：含计数口径的条目必须标注快照日期与再�
 - [Pre-existing 测试失败处理方案](inventory/preexisting-test-failures-remediation.md)
 - [AI 专属 Eval 体系调查报告](inventory/ai-eval-investigation.md)
 - [Vibe-Harness 与 Superpowers 系统审查](inventory/harness-superpowers-comparison.md)
+- [表达模式层调研](inventory/response-mode-investigation.md)
 - [治理规范与工作流审计（2026-09）](inventory/governance-audit-2026-09.md)
 
 ## 历史

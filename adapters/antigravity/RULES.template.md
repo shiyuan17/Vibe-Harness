@@ -11,3 +11,4 @@
 {{installedSurface.memoryLoadLine}}
 {{installedSurface.discoveryLine}}
 {{installedSurface.clarificationPostureLine}}
+{{installedSurface.responseModeLine}}
