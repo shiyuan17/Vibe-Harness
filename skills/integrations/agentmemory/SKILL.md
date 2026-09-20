@@ -21,8 +21,11 @@ description: Use when saving, recalling, resuming, forgetting, summarizing, or l
 
 本地记忆库默认位于 `.agents/memory/`：
 
+- `CURRENT.md`：唯一恢复入口；若安装了治理记忆（`docs/memory/PROJECT_STATE.md`），经它引用读取、不复制其内容。
 - `observations.md` 保存长期观察、陷阱和验证注意事项。
 - `decisions.md` 保存已确认的长期决策。
 - `sessions/` 保存需要跨 session 恢复的摘要或交接记录。
+
+更新 `CURRENT.md` 时写入锚点提交（更新时刻的 HEAD 完整 SHA）与绝对日期；恢复时核验锚点提交仍是当前历史的祖先。
 
 记忆只能辅助恢复上下文；当前文件、Git 状态、测试输出和用户最新指令始终优先。

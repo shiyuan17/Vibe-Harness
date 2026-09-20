@@ -2,8 +2,8 @@
 
 <!-- 渲染说明：此模板含 render 占位符，安装时由 template-renderer 输出，内容不与 docs/memory/PROJECT_STATE.md 逐字对应；实时项目状态见 docs/memory/PROJECT_STATE.md。占位符：Vibe-Harness。 -->
 
-- 最后更新: 2026-09-15
-- 当前阶段: 第一性原理审查结论落地（第 1–4 项与建议项 A、B 的 3b、4a、C 以及 R-04 已完成；剩余 R-05/R-06/R-07 未排期）
-- 当前重点: 证据基础设施修复、规范可维护性收敛与真实压缩恢复证据均已完成——自安装一致性门禁（scripts/lib/self-install-check.js）、install 重放不再退役既有模块、Eval 资产指纹与结账形态解耦（scripts/lib/eval-assets.js 的 canonicalAssetBytes）、四个 adapter 的启动纪律收敛到单一生成源、i18n 断言改为结构化契约、已安装表面带规则索引（scripts/lib/rules-index.js）、规则措辞锚点收进单一合同表（scripts/lib/pack-validation.js 的 CONTENT_QUALITY_CHECKS 与 SHARED_RULE_PHRASES）、宿主可控真实压缩用例（runtime/evals/codex-runner.mjs 的 compaction 预算与 session store 证据 + EVAL-EXEC-COMPACT-001）
-- 下一步动作: 建议项剩余部分 R-05（review-feedback 压力 case）或 R-06/R-07；docs/memory/IMPROVEMENTS.json 仍为空队列（ID 由 mergeImprovementCandidates 从 receipt 派生，不得手工伪造）
-- 恢复提示: 先读 docs/inventory/harness-superpowers-comparison.md 的「处置状态（2026-09-14）」确认哪些 Finding 已关闭，未关闭项见 docs/memory/TECH_DEBT.md 的技术债清单；活跃上下文与最后验证日期见 .agents/memory/CURRENT.md
+- 最后更新: 2026-09-19
+- 当前阶段: 三方审查综合结论（audit-reports/2026-09-18-architecture-audit-synthesis.md）P0+P1 批次执行中：P0 五项已关闭，P1 已完成 1–6，P1-7 进行中
+- 当前重点: P1 批次——角色权限执行化、跨宿主 fail-closed、stub-behavioral runner、check:fast/check:full 拆分、hook 只读快速路径、规则↔Skill parity、memory 单入口与 HEAD 绑定；收尾统一执行 dogfood/eval 产物再生成
+- 下一步动作: P1-8 worktree 崩溃恢复与安装器退出运行时管理、P1-9 debugging/bug-finding 判别与路由 eval、P1-10 CI 去冗余；随后批次收尾（dogfood 刷新、eval reference 再生成、CHANGELOG 与交付汇总）
+- 恢复提示: 恢复唯一入口是 .agents/memory/CURRENT.md；本文件是被它引用的治理状态源。先读 docs/inventory/harness-superpowers-comparison.md 的「处置状态（2026-09-14）」确认哪些 Finding 已关闭，未关闭项见 docs/memory/TECH_DEBT.md 的技术债清单

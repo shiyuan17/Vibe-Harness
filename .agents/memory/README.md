@@ -6,7 +6,7 @@
 
 ## 文件
 
-- `CURRENT.md`：当前活跃上下文指针，跨 session 恢复的首选入口。
+- `CURRENT.md`：唯一恢复入口，跨 session 恢复从它开始；若安装了治理记忆（`docs/memory/`），按它对 `docs/memory/PROJECT_STATE.md` 的引用读取，不复制其内容。
 - `observations.md`：长期观察、项目陷阱、验证注意事项。
 - `decisions.md`：已确认的架构、流程和协作决策。
 - `sessions/`：需要跨 session 恢复的摘要或交接记录。
@@ -18,7 +18,8 @@
 - 只存非派生事实；以下内容可从仓库或工具直接读取，不记录：目录结构、依赖清单、代码模式、架构、文件路径、git 历史、调试方案、已存在于文档的内容。
 - 写入前确认内容已验证，且不会泄露敏感信息。
 - 记忆不能覆盖当前文件、测试结果或用户最新指令。
-- 本地恢复时优先读 `CURRENT.md`，再按需读 observations、decisions 和 sessions。
+- 本地恢复时从 `CURRENT.md` 唯一入口开始；治理记忆按该文件的引用读取、不复制其内容，再按需读 observations、decisions 和 sessions。
+- 更新 `CURRENT.md` 时写入锚点提交（更新时刻的 HEAD 完整 SHA）与绝对日期；恢复时核验锚点提交仍是当前历史的祖先（`git merge-base --is-ancestor <SHA> HEAD`），`最后验证` 超过 1 天须重新核验后再采信。
 - 发现记忆过期时，更新条目并说明新证据。
 - 当上下文接近压缩边界或完成一个里程碑时，先写 `CURRENT.md` 检查点再做下一步。
 - 单个记忆文件建议不超过 200 行；超过时按主题或时间拆分（如 `observations-2026Q3.md`），定期合并重复条目。审计方法见 agentmemory skill 的 [references/audit.md](../skills/agentmemory/references/audit.md)。
