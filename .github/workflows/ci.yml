@@ -33,6 +33,7 @@ jobs:
       evalCheck: ${{ steps.plan.outputs.evalCheck }}
       docs: ${{ steps.plan.outputs.docs }}
       skills: ${{ steps.plan.outputs.skills }}
+      docsOnly: ${{ steps.plan.outputs.docsOnly }}
     env:
       BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
       FORCE_FULL: ${{ github.ref == 'refs/heads/main' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
@@ -119,14 +120,16 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm lint:eslint
-      - run: pnpm typecheck
-      - if: needs.change-plan.outputs.lint == 'true'
-        run: pnpm lint
+      # The fast layer runs as one named command so CI and the local quick tier
+      # share a single definition (lint.js + typecheck + unit live in check:fast).
+      # A docs-only diff cannot affect eslint, typecheck, or unit results, so the
+      # change-plan docsOnly flag skips both steps; docs:audit below still runs.
+      - if: needs.change-plan.outputs.docsOnly != 'true'
+        run: pnpm lint:eslint
+      - if: needs.change-plan.outputs.docsOnly != 'true'
+        run: pnpm check:fast
       - if: needs.change-plan.outputs.validate == 'true'
         run: pnpm validate
-      - if: needs.change-plan.outputs.unit == 'true'
-        run: pnpm test:unit
       - if: needs.change-plan.outputs.component == 'true'
         run: pnpm test:component
       - if: needs.change-plan.outputs.unit == 'true'

@@ -31,14 +31,30 @@ jobs:
           cache: pnpm
       - run: node scripts/release-readiness.js --sha "$GITHUB_SHA" --require-clean --receipt release-artifacts/release-readiness.json
       - run: pnpm install --frozen-lockfile
-      - run: pnpm check
+      # Reuse the change plan instead of re-running the full product matrix on
+      # every main push: a docs-only diff is fully covered by the CI full gate
+      # that runs unconditionally on the same push, so only the release checks
+      # below remain for it. Code pushes keep the complete re-verification
+      # (docs/rules/test-rules.md: deep layers run at release boundaries).
+      - id: plan
+        env:
+          BASE_SHA: ${{ github.event.before }}
+        run: pnpm verify:plan
+      - if: steps.plan.outputs.docsOnly != 'true'
+        run: pnpm check
       - run: pnpm docs:audit
-      - run: pnpm eval:check
-      - run: pnpm eval:replay
-      - run: pnpm test:integration
-      - run: pnpm test:e2e
-      - run: pnpm test:matrix
-      - run: pnpm smoke:lifecycle
+      - if: steps.plan.outputs.docsOnly != 'true'
+        run: pnpm eval:check
+      - if: steps.plan.outputs.docsOnly != 'true'
+        run: pnpm eval:replay
+      - if: steps.plan.outputs.docsOnly != 'true'
+        run: pnpm test:integration
+      - if: steps.plan.outputs.docsOnly != 'true'
+        run: pnpm test:e2e
+      - if: steps.plan.outputs.docsOnly != 'true'
+        run: pnpm test:matrix
+      - if: steps.plan.outputs.docsOnly != 'true'
+        run: pnpm smoke:lifecycle
       - run: pnpm runtime:audit
       - run: pnpm pack:contract
       - run: pnpm pack --pack-destination release-artifacts

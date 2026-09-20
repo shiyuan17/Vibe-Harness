@@ -37,6 +37,8 @@ workflow 在同一个 <code>pull_request</code> 事件上运行三个一致性 j
 
 发布边界另有一道准备度检查：<code>release-verify</code> 在安装依赖前运行 <code>pnpm release:readiness --sha "$GITHUB_SHA" --require-clean</code>，核对 <code>package.json</code>、<code>.release-please-manifest.json</code> 与 <code>CHANGELOG.md</code> 是否一致，并把收据写入 release-artifacts。
 
+CI 去冗余同样由变更计划驱动：当所选检查仅剩 docs 审计时，change-plan 输出 <code>docsOnly</code>，fast-gate 据此跳过不受纯文档变更影响的 <code>eslint</code> 与 <code>check:fast</code>（docs 审计仍运行）；<code>release-verify</code> 复用同一变更计划产物，docs-only 推送只保留发布必需检查（readiness、docs 审计、runtime 审计、pack 契约与真实 tarball 打包），代码推送仍执行完整验证矩阵——同一次 main 推送上 full-gate 已全量运行。
+
 ## 迁移顺序与回同步
 
 1. 先固定 release-please 的 <code>target-branch: main</code>，部署分支来源检查和 develop/main 两级门禁。
