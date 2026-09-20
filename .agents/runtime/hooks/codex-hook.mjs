@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 
 import { findProjectRoot, readHookSettings } from './lib/context.mjs';
 import { evaluateExecutionEnvelope } from './lib/execution-envelope.mjs';
-import { analyzeToolRequest, createHostHookResult, normalizeHostHookInput } from './lib/policy.mjs';
+import { analyzeToolRequest, commandFrom, createHostHookResult, normalizeHostHookInput } from './lib/policy.mjs';
+import { isReadOnlyToolName } from './lib/read-only-commands.mjs';
 import { inspectRtkHook, routeRtkCommand } from './lib/rtk.mjs';
 
 const MAX_INPUT_BYTES = 1024 * 1024;
@@ -115,17 +116,36 @@ export async function evaluateHook(rawInput, {
     if (error?.code === HOOK_FAILURE_CODES.projectContextUnavailable) throw error;
     throw hookFailure(HOOK_FAILURE_CODES.projectContextUnavailable);
   }
+  // Read-only tools with no command payload can never reach a deny verdict in
+  // policy (the write gate misses them), the envelope (read-only
+  // classification) or RTK routing (empty command), so they skip project-root
+  // resolution and settings loading. The cwd check above still fails closed
+  // first, and this answer matches createHostHookResult's allow shape for
+  // every host.
+  if (isReadOnlyToolName(String(input.toolName ?? '')) && commandFrom(input) === '') {
+    return host === 'antigravity' ? { decision: 'allow' } : {};
+  }
   const rootDir = await findProjectRoot(input.cwd);
   const settings = await readHookSettings(rootDir);
+  // The host injects the acting role's permission preset through the parent-
+  // owned environment; the project config can also declare one. The host
+  // channel wins and, like the execution envelope, still applies when the
+  // project turns the hook off, because role scoping is host authority.
+  const hostPreset = typeof environment.VIBE_HARNESS_PERMISSION_PRESET === 'string'
+    && environment.VIBE_HARNESS_PERMISSION_PRESET.trim().length > 0
+    ? environment.VIBE_HARNESS_PERMISSION_PRESET.trim()
+    : null;
   const envelopeConfigured = Object.hasOwn(input, 'executionEnvelope')
     || Object.hasOwn(environment, 'VIBE_HARNESS_EXECUTION_ENVELOPE')
     || environment.VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED === '1';
-  if (settings.mode === 'off' && !envelopeConfigured) return {};
+  if (settings.mode === 'off' && !envelopeConfigured && !hostPreset) return {};
+  const permissionPreset = hostPreset ?? settings.permissionPreset ?? null;
 
   const safetyDecision = analyzeToolRequest(input, {
     allowedWriteRoots: settings.allowedWriteRoots,
     allowedEgressHosts: settings.allowedEgressHosts,
     mode: settings.mode,
+    permissionPreset,
     projectRoot: rootDir,
     redZonePaths: settings.redZonePaths,
   });
@@ -134,6 +154,7 @@ export async function evaluateHook(rawInput, {
   }
   const envelopeDecision = evaluateExecutionEnvelope(input, {
     environment,
+    permissionPreset,
     ...(now === undefined ? {} : { now }),
   });
   if (envelopeDecision.action !== 'allow') {

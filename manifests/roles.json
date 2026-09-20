@@ -2,13 +2,13 @@
   "schemaVersion": 1,
   "basePrompt": "roles/base.md",
   "routingOrder": [
+    "senior-engineer",
+    "test-lead",
     "adversarial-security-reviewer",
     "technical-release-manager",
-    "product-manager",
     "chief-architect",
-    "technical-project-manager",
-    "test-lead",
-    "senior-engineer"
+    "product-manager",
+    "technical-project-manager"
   ],
   "permissionPresets": [
     { "id": "analysis", "capabilities": ["read", "search", "reason"] },

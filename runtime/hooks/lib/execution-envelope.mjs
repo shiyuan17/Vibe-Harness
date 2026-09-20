@@ -13,6 +13,7 @@ import {
   shellInvocation,
   shellSegments,
 } from './read-only-commands.mjs';
+import { presetDeniesClassification, presetDeniesToolWrite } from './role-permissions.mjs';
 
 export const EXECUTION_ENVELOPE_SCHEMA = 'vibe-harness.execution-envelope/v1';
 export const EXECUTION_ENVELOPE_SCHEMA_V1 = EXECUTION_ENVELOPE_SCHEMA;
@@ -842,9 +843,17 @@ function invalidEnvelopeDecision(status) {
   return deny('EXECUTION_ENVELOPE_INVALID', 'Execution Envelope 不符合受支持契约，已拒绝。请按 docs/schemas/execution-envelope-v2.schema.json 重新签发（缺失字段或版本不匹配都会命中此项）。');
 }
 
-/** @param {Record<string, any>} input @param {{environment?: NodeJS.ProcessEnv, now?: number | Date}} options */
-export function evaluateExecutionEnvelope(input, { environment = process.env, now = Date.now() } = {}) {
+/** @param {Record<string, any>} input @param {{environment?: NodeJS.ProcessEnv, now?: number | Date, permissionPreset?: string | null}} options */
+export function evaluateExecutionEnvelope(input, { environment = process.env, now = Date.now(), permissionPreset = environment.VIBE_HARNESS_PERMISSION_PRESET ?? null } = {}) {
   const classification = classifyExecutionEffects(input);
+  // The role permission ceiling applies before any envelope parsing: a signed
+  // envelope can never escalate a role above its preset tier.
+  if (presetDeniesToolWrite(permissionPreset, String(input.toolName ?? ''))) {
+    return deny('ROLE_PERMISSION_PRESET', '当前角色权限预设不允许直接写入文件，已拒绝。请把文件修改交由具备 workspace-write 能力的角色或主会话执行。');
+  }
+  if (presetDeniesClassification(permissionPreset, classification)) {
+    return deny('ROLE_PERMISSION_PRESET', '当前角色权限预设为只读，该调用带有副作用或无法安全判定，已拒绝。请改用只读命令，或在允许写入的角色与主会话中执行。');
+  }
   const required = environment.VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED === '1';
   const candidate = envelopeInput(input, environment);
   if (!candidate.present) {

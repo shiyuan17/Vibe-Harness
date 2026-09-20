@@ -862,6 +862,7 @@ test('Hook settings contain safety configuration only', async () => {
       allowedWriteRoots: [],
       allowedEgressHosts: [],
       mode: 'guarded',
+      permissionPreset: null,
       redZonePaths: DEFAULT_RED_ZONE_PATHS,
       rtkEnabled: false,
     });
@@ -874,6 +875,7 @@ test('Hook reads allowedEgressHosts from project configuration', async () => {
       allowedWriteRoots: [],
       allowedEgressHosts: [],
       mode: 'guarded',
+      permissionPreset: null,
       redZonePaths: DEFAULT_RED_ZONE_PATHS,
       rtkEnabled: false,
     });
@@ -902,6 +904,7 @@ test('Hook settings apply repository configuration only as a restriction without
       allowedWriteRoots: [],
       allowedEgressHosts: ['evil.test'],
       mode: 'guarded',
+      permissionPreset: null,
       redZonePaths: DEFAULT_RED_ZONE_PATHS,
       rtkEnabled: false,
     });

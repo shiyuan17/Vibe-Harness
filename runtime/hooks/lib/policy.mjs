@@ -8,6 +8,7 @@ import {
   isReadOnlyShellSegment,
   shellSegments,
 } from './read-only-commands.mjs';
+import { rolePresetTier } from './role-permissions.mjs';
 
 export const supportedCodexHookEvents = new Set([
   'PreToolUse',
@@ -160,7 +161,7 @@ function canonicalPath(candidate) {
   }
 }
 
-function commandFrom(input) {
+export function commandFrom(input) {
   for (const key of ['command', 'cmd', 'input']) {
     if (typeof input.toolInput?.[key] === 'string') return input.toolInput[key];
   }
@@ -327,7 +328,7 @@ function isInsideAny(baseDirs, candidate) {
   return baseDirs.some((baseDir) => isInside(baseDir, candidate));
 }
 
-function classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts = [], redZonePaths = []) {
+function classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts = [], redZonePaths = [], permissionPreset = null) {
   const redZonePattern = redZoneMatcher(redZonePaths);
   const controlPlanePattern = redZoneMatcher(CONTROL_PLANE_PATHS);
   const command = commandFrom(input);
@@ -419,6 +420,18 @@ function classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts 
   if (touchesRedZone) {
     return risk('deny', 'RED_ZONE', '写入命中项目红区路径，已拒绝。请改用非红区路径，或按流程显式确认后重试。');
   }
+  // At this point the request is a write attempt (write tool or shell write
+  // target), so the role permission ceiling applies. Read-only presets deny
+  // every write attempt; executable presets deny direct file-write tools but
+  // keep shell writes on the Execution Envelope path so validation commands
+  // still work (mirrors role-projection sandbox/permission semantics).
+  const presetTier = rolePresetTier(permissionPreset);
+  if (presetTier === 'read-only') {
+    return risk('deny', 'ROLE_PERMISSION_PRESET', '当前角色权限预设为只读（' + permissionPreset + '），不允许任何写入，已拒绝。请在允许写入的角色或主会话中执行该操作。');
+  }
+  if (presetTier === 'executable' && writeToolPattern.test(input.toolName ?? '')) {
+    return risk('deny', 'ROLE_PERMISSION_PRESET', '当前角色权限预设（' + permissionPreset + '）可执行验证命令但不允许直接写入文件，已拒绝。请把文件修改交由具备 workspace-write 能力的角色或主会话执行。');
+  }
   return null;
 }
 
@@ -426,11 +439,12 @@ export function analyzeToolRequest(input, {
   allowedWriteRoots = [],
   allowedEgressHosts = [],
   mode = 'guarded',
+  permissionPreset = null,
   projectRoot = input.cwd,
   redZonePaths = [],
 } = {}) {
   if (mode === 'off') return { action: 'allow' };
-  const risk = classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts, redZonePaths);
+  const risk = classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts, redZonePaths, permissionPreset);
   if (!risk) return { action: 'allow' };
   if (risk.level === 'warn' || mode === 'observe') {
     return { action: 'warn', reason: risk.reason, reasonCode: risk.reasonCode };

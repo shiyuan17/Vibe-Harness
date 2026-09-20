@@ -86,9 +86,10 @@ const PROJECTED_CAPABILITIES = {
 };
 
 // Permission presets that may modify the workspace versus those that may only
-// execute approved validation commands and write isolated evidence.
-const WRITE_PRESETS = new Set(['implementation']);
-const EXECUTE_PRESETS = new Set(['implementation', 'verification', 'release-readiness']);
+// execute approved validation commands and write isolated evidence. Exported
+// for the pack-level equivalence check against runtime/hooks/lib/role-permissions.mjs.
+export const WRITE_PRESETS = new Set(['implementation']);
+export const EXECUTE_PRESETS = new Set(['implementation', 'verification', 'release-readiness']);
 
 // Host-native tool names per adapter. Gemini and Antigravity use their own
 // built-in tool identifiers; emitting another host's names can make a projected
@@ -279,14 +280,22 @@ function composePrompt(basePrompt, rolePrompt, projectPrompt, permission) {
   return sections.join('\n\n') + '\n';
 }
 
-function roleIndex(roles) {
+function roleIndex(roles, routingOrder) {
+  // role-routing.md declares routingOrder as the index display order, so the
+  // rendered headings must follow it instead of the manifest items order.
+  // Custom roles are absent from routingOrder and keep their declared order
+  // after the built-ins (stable sort); disabled roles never reach this call.
+  const order = new Map(routingOrder.map((id, index) => [id, index]));
+  const ordered = [...roles].sort(
+    (a, b) => (order.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (order.get(b.id) ?? Number.MAX_SAFE_INTEGER),
+  );
   const lines = [
     '# 可用角色',
     '',
     '每个原子动作只选择一个角色：先识别动作，再在可用且能力匹配的角色中选择领域视角。`explicit` 角色只在用户明确指定或父 Agent 明确咨询时使用。',
     '',
   ];
-  for (const role of roles) {
+  for (const role of ordered) {
     lines.push('## ' + role.id, '', role.description, '', '路由模式：' + (role.routing.mode ?? 'auto') + '。', '', '权限预设：' + role.permissionPreset + '。', '');
     lines.push('适用：' + role.routing.when.join('；') + '。', '');
     lines.push('避免：' + role.routing.avoid.join('；') + '。', '');
@@ -553,7 +562,7 @@ export async function resolveRoleInstallEntries({
       source: 'manifests/roles.json',
       sourceRoot: 'pack',
       target: '.agents/roles/index.md',
-      inlineContent: roleIndex(enabledRoles),
+      inlineContent: roleIndex(enabledRoles, rolePack.routingOrder),
     },
   ];
   for (const role of enabledRoles) {

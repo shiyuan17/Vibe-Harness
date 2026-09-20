@@ -83,6 +83,44 @@ test('roles audit uses the governed routing path and role indexes expose explici
   }
 });
 
+test('role index headings follow routingOrder with custom roles appended last', async () => {
+  const [rolePack, catalog] = await Promise.all([loadRolePack(rootDir), loadAdapterCatalog(rootDir)]);
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-role-index-order-'));
+  try {
+    const promptDir = path.join(targetDir, 'docs', 'agent-roles');
+    await mkdir(promptDir, { recursive: true });
+    await writeFile(path.join(promptDir, 'domain-expert.md'), '# Domain expert\n\nUse project terminology.\n', 'utf8');
+    const result = await resolveRoleInstallEntries({
+      adapter: catalog.items.find((adapter) => adapter.id === 'codex'),
+      packageVersion: '0.3.0',
+      rolesConfig: {
+        custom: [{
+          id: 'domain-expert',
+          name: 'Domain expert',
+          description: 'Project expertise',
+          promptPath: 'docs/agent-roles/domain-expert.md',
+          permissionPreset: 'analysis',
+          routing: { when: ['domain work'], avoid: ['general work'] },
+        }],
+        disabled: ['chief-architect'],
+      },
+      rootDir,
+      targetDir,
+    });
+    const index = result.entries.find((entry) => entry.target === '.agents/roles/index.md').inlineContent;
+    const headings = [...index.matchAll(/^## (.+)$/gmu)].map((match) => match[1]);
+    assert.deepEqual(
+      headings,
+      [...rolePack.routingOrder.filter((id) => id !== 'chief-architect'), 'domain-expert'],
+    );
+    // The default implementation role leads the index so the display order
+    // matches the selection order in docs/rules/role-routing.md.
+    assert.equal(headings[0], 'senior-engineer');
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
 test('role duplicate audit ignores shared prefixes but rejects complete duplicates', () => {
   const base = 'shared contract';
   assert.deepEqual(findDuplicateRoleContents([
@@ -300,7 +338,12 @@ test('full installs roles by default while core excludes them and full can opt o
   }
 });
 
-test('role projections participate in upgrade retirement and doctor diagnostics', async () => {
+// This test drives repeated CLI install/upgrade/doctor invocations; on slow
+// filesystems those are I/O-bound and exceed the default 120s test budget.
+// 2026-09-19 calibration (solo, slow box): install --write 35s, validate 68s,
+// doctor 73s per invocation; RTK round-trip measured >300s solo, so 600s is a
+// hang guard, not a performance claim.
+test('role projections participate in upgrade retirement and doctor diagnostics', { timeout: 600000 }, async () => {
   const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-role-lifecycle-'));
   try {
     await run(['init', '--project', targetDir, '--target', 'codex', '--profile', 'full']);
