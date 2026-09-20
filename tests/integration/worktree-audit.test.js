@@ -31,11 +31,12 @@ function listing(records) {
   return `${records.map((fields) => fields.join(NUL)).join(NUL + NUL)}${NUL}${NUL}`;
 }
 
-function entry({ branch, detached = false, head = 'a'.repeat(40), locked, path: worktreePath }) {
+function entry({ branch, detached = false, head = 'a'.repeat(40), locked, path: worktreePath, prunable }) {
   const fields = [`worktree ${worktreePath}`, `HEAD ${head}`];
   if (detached) fields.push('detached');
   else fields.push(`branch refs/heads/${branch}`);
   if (locked !== undefined) fields.push(`locked ${locked}`);
+  if (prunable !== undefined) fields.push(prunable === true ? 'prunable' : `prunable ${prunable}`);
   return { fields };
 }
 
@@ -124,6 +125,38 @@ test('a detached non-primary worktree and a duplicated branch are errors', () =>
     entry({ branch: 'feat/ENG-1-add-dag', path: path.resolve('/work/app-worktrees/ENG-1-copy') }).fields,
   ]), { repositoryRoot: REPO });
   assert.ok(codes(duplicated).includes('WORKTREE_DUPLICATE_BRANCH'));
+});
+
+test('a prunable residue is an error that blocks cleanup until recovered', () => {
+  const residue = validateWorktrees(listing([
+    entry({ branch: 'main', path: REPO }).fields,
+    entry({ branch: 'feat/ENG-1-add-dag', path: OUTSIDE, prunable: 'worktree directory missing' }).fields,
+  ]), { repositoryRoot: REPO });
+  // The directory is gone while Git still holds the metadata and the branch
+  // binding, so the audit fails on top of the unmanaged warning.
+  assert.deepEqual(codes(residue), ['WORKTREE_PRUNABLE_RESIDUE', 'WORKTREE_UNMANAGED']);
+  assert.equal(residue.ok, false);
+  assert.equal(residue.errorCount, 1);
+  assert.equal(residue.cleanupAllowed, false);
+  assert.match(
+    residue.problems.find((problem) => problem.code === 'WORKTREE_PRUNABLE_RESIDUE').message,
+    /worktree directory missing.*worktree recover/us,
+  );
+
+  // A live worktree is only unmanaged, and the primary worktree never counts
+  // as residue even when Git marks it prunable.
+  const live = validateWorktrees(listing([
+    entry({ branch: 'main', path: REPO }).fields,
+    entry({ branch: 'feat/ENG-1-add-dag', path: OUTSIDE }).fields,
+  ]), { repositoryRoot: REPO });
+  assert.deepEqual(codes(live), ['WORKTREE_UNMANAGED']);
+  assert.equal(live.ok, true);
+
+  const primary = validateWorktrees(listing([
+    entry({ branch: 'main', path: REPO, prunable: 'worktree directory missing' }).fields,
+  ]), { repositoryRoot: REPO });
+  assert.deepEqual(codes(primary), []);
+  assert.equal(primary.ok, true);
 });
 
 test('task registration reports a missing branch, a bad branch and an unbound path', () => {

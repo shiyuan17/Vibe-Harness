@@ -264,6 +264,23 @@ export function validateWorktrees(value, options = {}) {
     }
   }
 
+  // A prunable entry is one whose directory is gone while the Git
+  // administrative residue (`.git/worktrees/<id>` plus the branch binding)
+  // survives — typically after a hard kill between directory removal and
+  // prune. The entry still names a path and a branch, so task materialization
+  // and port-registry matching would reason about a directory that no longer
+  // exists. It is a full error (not a dependency code): the residue must be
+  // resolved with `run.mjs worktree recover` or `git worktree prune` before
+  // the audit can pass.
+  for (const entry of entries) {
+    if (entry.primary || !entry.prunable) continue;
+    const reason = typeof entry.prunable === 'string' ? entry.prunable : 'worktree directory missing';
+    push(
+      'WORKTREE_PRUNABLE_RESIDUE',
+      `${entry.path} is prunable (${reason}); the directory is gone but Git metadata and the branch binding remain; run \`run.mjs worktree recover\` or \`git worktree prune\``,
+    );
+  }
+
   const byBranch = new Map();
   for (const entry of entries) {
     if (!isNonEmptyString(entry.branch)) continue;

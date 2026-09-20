@@ -13,7 +13,9 @@ import { runCommand } from '../../runtime/commands/run.mjs';
 // `run.mjs worktree` is the installed entry point for worktree provisioning and
 // cleanup under docs/rules/git-rules.md §Worktree: read-only by default,
 // `--write` for real writes, no cleanup before merge-back and never a branch
-// delete. These tests pin the receipt shape and the safety gates.
+// delete. `worktree recover` is the exception: it removes crash residue, and a
+// branch is deleted only after being proven to sit at the base ref with a clean
+// tree. These tests pin the receipt shape and the safety gates.
 
 const execFileAsync = promisify(execFile);
 const gitIdentity = ['-c', 'user.email=fixture@example.invalid', '-c', 'user.name=Fixture'];
@@ -538,6 +540,155 @@ test('worktree check 报告缺失的端口 env 文件', async () => {
     assert.equal(result.exitCode, 1);
     assert.equal(result.report.status, 'failed');
     assert.ok(result.report.audit.problems.some((problem) => problem.code === 'WORKTREE_PORT_ENV_MISSING'));
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('worktree recover reports residue as an error and only --write prunes it', async () => {
+  const fixture = await makeWorkspaceFixture();
+  try {
+    await runCommand([
+      'worktree', 'bootstrap', '--project', fixture.repo, '--task', 'ENG-1:feat/ENG-1-scaffold', '--write', '--json',
+    ], { cwd: fixture.repo });
+    // A hard kill between directory removal and `git worktree prune` leaves the
+    // directory gone while Git still holds the binding.
+    await rm(fixture.worktreePath, { force: true, recursive: true });
+
+    const checked = await runCommand(['worktree', 'check', '--project', fixture.repo, '--json'], { cwd: fixture.repo });
+    assert.equal(checked.exitCode, 1);
+    assert.ok(
+      checked.report.audit.problems.some((problem) => problem.code === 'WORKTREE_PRUNABLE_RESIDUE'),
+      JSON.stringify(checked.report.audit.problems),
+    );
+
+    const planned = await runCommand(['worktree', 'recover', '--project', fixture.repo, '--json'], { cwd: fixture.repo });
+    assert.equal(planned.exitCode, 0, JSON.stringify(planned.report));
+    assert.equal(planned.report.status, 'planned');
+    assert.equal(planned.report.write, false);
+    assert.equal(planned.report.prunable.length, 1);
+    assert.equal(planned.report.pruned, null);
+    assert.deepEqual(
+      planned.report.orphanedBranches.map((item) => [item.branch, item.status]),
+      [['feat/ENG-1-scaffold', 'planned']],
+    );
+    assert.deepEqual(
+      planned.report.orphanedRegistry.map((item) => [item.id, item.status]),
+      [['ENG-1', 'planned']],
+    );
+    // The dry run leaves the binding, the branch and the registry untouched.
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
+    assert.equal(
+      await git(fixture.repo, ['branch', '--list', 'feat/ENG-1-scaffold', '--format=%(refname:short)']),
+      'feat/ENG-1-scaffold',
+    );
+    assert.equal((await readRegistry(fixture.repo)).entries.length, 1);
+
+    const written = await runCommand(['worktree', 'recover', '--project', fixture.repo, '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(written.exitCode, 0, JSON.stringify(written.report));
+    assert.equal(written.report.status, 'passed');
+    assert.equal(written.report.pruned, true);
+    assert.deepEqual(
+      written.report.orphanedBranches.map((item) => [item.branch, item.status]),
+      [['feat/ENG-1-scaffold', 'passed']],
+    );
+    assert.deepEqual(
+      written.report.orphanedRegistry.map((item) => [item.id, item.status]),
+      [['ENG-1', 'passed']],
+    );
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), false);
+    assert.equal(await git(fixture.repo, ['branch', '--list', 'feat/ENG-1-scaffold']), '');
+    assert.deepEqual((await readRegistry(fixture.repo)).entries, []);
+    // Removing the residue never takes the main checkout's dependencies with
+    // it, even though the worktree linked into them.
+    const mainDependency = path.join(fixture.repo, 'frontend/node_modules/dep-a/package.json');
+    assert.equal(JSON.parse(await readFile(mainDependency, 'utf8')).name, 'dep-a');
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('worktree recover removes an incomplete worktree but never a user branch', async () => {
+  const fixture = await makeWorkspaceFixture();
+  try {
+    await runCommand([
+      'worktree', 'bootstrap', '--project', fixture.repo, '--task', 'ENG-1:feat/ENG-1-scaffold', '--write', '--json',
+    ], { cwd: fixture.repo });
+    // A bootstrap that died between `git worktree add` and the locked writes
+    // leaves the worktree without its port env file. The user placeholder
+    // branch is not bootstrap residue and must survive.
+    await rm(path.join(fixture.worktreePath, '.vibe-harness/worktree.env'));
+    await git(fixture.repo, ['branch', 'user/feature']);
+
+    const written = await runCommand(['worktree', 'recover', '--project', fixture.repo, '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(written.exitCode, 0, JSON.stringify(written.report));
+    assert.equal(written.report.status, 'passed');
+    const [result] = written.report.results;
+    assert.equal(result.status, 'passed');
+    assert.equal(result.branchDeleted, true);
+    assert.equal(result.portBlockReleased, true);
+    assert.deepEqual(written.report.orphanedBranches, []);
+    assert.deepEqual(written.report.orphanedRegistry, []);
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), false);
+    assert.equal(await git(fixture.repo, ['branch', '--list', 'feat/ENG-1-scaffold']), '');
+    assert.equal(
+      await git(fixture.repo, ['branch', '--list', 'user/feature', '--format=%(refname:short)']),
+      'user/feature',
+    );
+    assert.deepEqual((await readRegistry(fixture.repo)).entries, []);
+    // The main checkout's dependencies survive the teardown.
+    const mainDependency = path.join(fixture.repo, 'frontend/node_modules/dep-a/package.json');
+    assert.equal(JSON.parse(await readFile(mainDependency, 'utf8')).name, 'dep-a');
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('worktree recover leaves touched, dirty and foreign worktrees alone', async () => {
+  const fixture = await makeWorkspaceFixture();
+  try {
+    // A commit beyond the base ref means the branch may hold work.
+    await runCommand([
+      'worktree', 'bootstrap', '--project', fixture.repo, '--task', 'ENG-1:feat/ENG-1-scaffold', '--write', '--json',
+    ], { cwd: fixture.repo });
+    await writeFile(path.join(fixture.worktreePath, 'work.txt'), 'done\n', 'utf8');
+    await git(fixture.worktreePath, ['add', '.']);
+    await git(fixture.worktreePath, ['commit', '-q', '-m', 'feat: work']);
+
+    // Uncommitted changes block removal even when the env file is missing.
+    const secondWorktree = path.join(fixture.root, 'repo-worktrees', 'ENG-2');
+    await runCommand([
+      'worktree', 'bootstrap', '--project', fixture.repo, '--task', 'ENG-2:feat/ENG-2-scaffold', '--write', '--json',
+    ], { cwd: fixture.repo });
+    await rm(path.join(secondWorktree, '.vibe-harness/worktree.env'));
+    await writeFile(path.join(secondWorktree, 'wip.txt'), 'wip\n', 'utf8');
+
+    // A foreign worktree outside the configured root, never registered.
+    await git(fixture.repo, ['worktree', 'add', '-q', '-b', 'user/foreign', path.join(fixture.root, 'elsewhere')]);
+
+    const written = await runCommand(['worktree', 'recover', '--project', fixture.repo, '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(written.exitCode, 0, JSON.stringify(written.report));
+    assert.equal(written.report.status, 'passed');
+    assert.deepEqual(written.report.results, []);
+    assert.deepEqual(written.report.orphanedBranches, []);
+    assert.deepEqual(written.report.orphanedRegistry, []);
+    assert.deepEqual(written.report.prunable, []);
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
+    assert.equal(await entryExists(fixture.repo, secondWorktree), true);
+    assert.equal(await entryExists(fixture.repo, path.join(fixture.root, 'elsewhere')), true);
+    assert.equal(
+      await git(fixture.repo, ['branch', '--list', 'feat/ENG-1-scaffold', '--format=%(refname:short)']),
+      'feat/ENG-1-scaffold',
+    );
+    assert.equal(
+      await git(fixture.repo, ['branch', '--list', 'feat/ENG-2-scaffold', '--format=%(refname:short)']),
+      'feat/ENG-2-scaffold',
+    );
+    assert.equal(
+      await git(fixture.repo, ['branch', '--list', 'user/foreign', '--format=%(refname:short)']),
+      'user/foreign',
+    );
+    assert.equal((await readRegistry(fixture.repo)).entries.length, 2);
   } finally {
     await removeTemporaryDirectory(fixture.root);
   }
