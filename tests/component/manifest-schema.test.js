@@ -418,7 +418,10 @@ test('self-installed artifacts must stay in sync with their sources', async () =
   assert.match(missingSeedErrors.join('\n'), /self-installed artifact is missing/u);
 });
 
-test('complete pack validates', async () => {
+// Validating the complete pack reads every manifest, schema, and skill, so it
+// is I/O-bound and legitimately exceeds the default test budget on slow
+// filesystems.
+test('complete pack validates', { timeout: 120000 }, async () => {
   const report = await validatePack(rootDir);
   assert.equal(report.ok, true, JSON.stringify(report, null, 2));
   assert.deepEqual(report.workflowScan, {

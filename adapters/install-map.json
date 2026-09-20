@@ -1071,8 +1071,22 @@
     },
     {
       "group": "hooks",
+      "source": "runtime/hooks/lib/role-permissions.mjs",
+      "target": ".agents/runtime/hooks/lib/role-permissions.mjs",
+      "contentStrategy": "replace",
+      "redZone": true
+    },
+    {
+      "group": "hooks",
       "source": "runtime/hooks/lib/rtk.mjs",
       "target": ".agents/runtime/hooks/lib/rtk.mjs",
+      "contentStrategy": "replace",
+      "redZone": true
+    },
+    {
+      "group": "hooks",
+      "source": "manifests/red-zone.json",
+      "target": ".agents/runtime/hooks/red-zone.json",
       "contentStrategy": "replace",
       "redZone": true
     },
@@ -1081,14 +1095,16 @@
       "source": "adapters/git/pre-commit",
       "target": ".githooks/pre-commit",
       "executable": true,
-      "contentStrategy": "replace"
+      "contentStrategy": "replace",
+      "redZone": true
     },
     {
       "group": "hooks",
       "source": "adapters/git/pre-push",
       "target": ".githooks/pre-push",
       "executable": true,
-      "contentStrategy": "replace"
+      "contentStrategy": "replace",
+      "redZone": true
     },
     {
       "group": "hooks",

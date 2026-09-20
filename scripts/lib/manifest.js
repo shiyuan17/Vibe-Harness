@@ -4,6 +4,7 @@ import path from 'node:path';
 import { validateJsonAgainstSchema } from './schema-validation.js';
 import { safeJsonParse } from './safe-json.js';
 import { CONTENT_STRATEGIES } from './managed-block.js';
+import { compiledInstallPatterns } from './red-zone.js';
 
 export { validateJsonAgainstSchema };
 
@@ -234,34 +235,22 @@ export function validateAllManifestSchemas(manifests, schemas) {
   return errors.sort();
 }
 
-// Unified red-zone predicate. This must stay aligned with the runtime hook's
-// red-zone paths (runtime/hooks/lib/context.mjs DEFAULT_RED_ZONE_PATHS): any
-// install target the hook treats as a project red-zone must also be flagged
-// red-zone at install time so --confirm-red-zone gates it. Covers agent config
-// (.codex/, .claude/, etc.), runtime hook scripts, pack control-plane state
-// (vibe-harness.config.json, .vibe-harness/install-state.json), CI/CD
-// workflows, environment files, and auth/ci directories. Skill content roots
+// Unified red-zone predicate. Derived from the canonical manifests/red-zone.json
+// (module-load sync read, mirroring the adapters.json read in project-config.js;
+// the pack CLI always runs beside its own manifests). This must stay aligned with
+// the runtime hook's red-zone paths (runtime/hooks/lib/context.mjs
+// DEFAULT_RED_ZONE_PATHS): any install target the hook treats as a project
+// red-zone must also be flagged red-zone at install time so --confirm-red-zone
+// gates it. Covers agent config (.codex/, .claude/, etc.), runtime hook scripts,
+// pack control-plane state (vibe-harness.config.json,
+// .vibe-harness/install-state.json), CI/CD workflows, git hooks (.githooks/),
+// environment files, and auth/ci directories. Skill content roots
 // (e.g. .gemini/skills/) are intentionally NOT here: adapters gate only the
 // config files they own via manifests/adapters.json redZonePrefixes.
-// Bidirectional consistency with the runtime list and adapter prefixes is
-// enforced by validateRedZoneConsistency in pack-validation.js.
-export const RED_ZONE_PATTERNS = [
-  /(?:^|\/)\.codex\//u,
-  /(?:^|\/)\.claude\//u,
-  /(?:^|\/)\.cursor\//u,
-  /(?:^|\/)\.qoder\//u,
-  /(?:^|\/)\.zcode\//u,
-  /(?:^|\/)\.agents\/runtime\/hooks\//u,
-  /(?:^|\/)vibe-harness\.config\.json$/u,
-  /(?:^|\/)\.vibe-harness\/install-state\.json$/u,
-  /(?:^|\/)opencode\.jsonc?$/u,
-  /(?:^|\/)\.mcp\.json$/u,
-  /(?:^|\/)\.github\/workflows\//u,
-  /(?:^|\/)\.env(?:\.[^/]+)?$/u,
-  /(?:^|\/)auth(?:\/|$)/u,
-  /(?:^|\/)ci\/cd(?:\/|$)/u,
-  /\/hooks\.json$/u,
-];
+// Bidirectional consistency with the canonical manifest, the runtime list, and
+// adapter prefixes is enforced by validateRedZoneManifest and
+// validateRedZoneConsistency in pack-validation.js.
+export const RED_ZONE_PATTERNS = compiledInstallPatterns();
 
 export function isRedZoneTarget(target) {
   const normalized = target.replaceAll('\\', '/');

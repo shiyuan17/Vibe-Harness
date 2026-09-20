@@ -5,15 +5,19 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
-// Default red-zone path patterns. Kept in sync with
-// scripts/lib/project-config.js defaultProjectConfig.hooks.redZonePaths and the
-// previously hard-coded projectRedZonePattern in policy.mjs. Each entry matches
-// the path itself or any descendant (a trailing '/' is optional).
+// Default red-zone path patterns. Must equal manifests/red-zone.json
+// runtimePaths (the canonical single source); this literal is the fail-safe
+// floor shipped inside the installed hook and is used whenever the installed
+// projection .agents/runtime/hooks/red-zone.json is missing or unreadable.
+// Equivalence is enforced by validateRedZoneDerivations in
+// scripts/lib/pack-validation.js. Each entry matches the path itself or any
+// descendant (a trailing '/' is optional).
 export const DEFAULT_RED_ZONE_PATHS = [
   '.env',
   'auth/',
   'ci/cd/',
   '.github/workflows/',
+  '.githooks/',
   'vibe-harness.config.json',
   '.vibe-harness/install-state.json',
   '.agents/runtime/hooks/',
@@ -30,6 +34,26 @@ export const DEFAULT_RED_ZONE_PATHS = [
   'opencode.jsonc',
   '.claude/settings.json',
 ];
+
+const RED_ZONE_PROJECTION_PATH = '.agents/runtime/hooks/red-zone.json';
+
+// The installed projection of manifests/red-zone.json. The projection can only
+// extend the built-in floor: a missing, invalid, or truncated projection falls
+// back to the literal defaults, and the union always keeps every
+// DEFAULT_RED_ZONE_PATHS entry, so pack updates add coverage without ever
+// silently narrowing it.
+async function readProjectedRedZonePaths(rootDir) {
+  try {
+    const projected = JSON.parse(await readFile(path.join(rootDir, RED_ZONE_PROJECTION_PATH), 'utf8'));
+    const paths = projected?.runtimePaths;
+    if (!Array.isArray(paths) || paths.some((entry) => typeof entry !== 'string' || entry.trim().length === 0)) {
+      return [];
+    }
+    return paths;
+  } catch {
+    return [];
+  }
+}
 
 export const CONTROL_PLANE_PATHS = [
   'vibe-harness.config.json',
@@ -108,13 +132,26 @@ function readAllowedEgressHosts(config) {
   return hosts;
 }
 
-function readRedZonePaths(config) {
+function readPermissionPreset(config) {
+  const preset = config.hooks?.permissionPreset;
+  if (preset === undefined || preset === null) return null;
+  if (typeof preset !== 'string' || preset.trim().length === 0) {
+    throw new Error('hooks.permissionPreset must be a non-empty string.');
+  }
+  return preset.trim();
+}
+
+async function readRedZonePaths(rootDir, config) {
   const paths = config.hooks?.redZonePaths;
-  if (paths === undefined) return DEFAULT_RED_ZONE_PATHS;
-  if (!Array.isArray(paths) || paths.some((entry) => typeof entry !== 'string' || entry.trim().length === 0)) {
+  if (paths !== undefined
+    && (!Array.isArray(paths) || paths.some((entry) => typeof entry !== 'string' || entry.trim().length === 0))) {
     throw new Error('hooks.redZonePaths must contain non-empty path strings.');
   }
-  return [...new Set([...DEFAULT_RED_ZONE_PATHS, ...paths])];
+  return [...new Set([
+    ...DEFAULT_RED_ZONE_PATHS,
+    ...await readProjectedRedZonePaths(rootDir),
+    ...(paths ?? []),
+  ])];
 }
 
 export async function readHookSettings(rootDir) {
@@ -130,10 +167,11 @@ export async function readHookSettings(rootDir) {
       allowedWriteRoots: [],
       allowedEgressHosts: readAllowedEgressHosts(config),
       mode: 'guarded',
-      redZonePaths: readRedZonePaths(config),
+      permissionPreset: readPermissionPreset(config),
+      redZonePaths: await readRedZonePaths(rootDir, config),
       rtkEnabled: Object.hasOwn(config.hooks?.rtk ?? {}, 'enabled') ? config.hooks.rtk.enabled : Boolean(state?.rtkHooksEnabled),
     };
   } catch {
-    return { allowedWriteRoots: [], allowedEgressHosts: [], mode: 'guarded', redZonePaths: DEFAULT_RED_ZONE_PATHS, rtkEnabled: false };
+    return { allowedWriteRoots: [], allowedEgressHosts: [], mode: 'guarded', permissionPreset: null, redZonePaths: DEFAULT_RED_ZONE_PATHS, rtkEnabled: false };
   }
 }

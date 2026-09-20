@@ -7,6 +7,7 @@ import { renderTemplate } from './template-renderer.js';
 import { parsePluginsOption, resolveModuleSelection } from './module-selection.js';
 import { installPresetForId, parsePresetOption } from './install-preset.js';
 import { assertPortableRelativePath } from './manifest.js';
+import { readRedZoneManifestSync } from './red-zone.js';
 import { validateJsonAgainstSchema } from './schema-validation.js';
 import { safeJsonParse } from './safe-json.js';
 import { productIdentity } from './product-identity.js';
@@ -28,15 +29,12 @@ export const mvpProfiles = new Set(['minimal', 'core', 'full', 'docs-only']);
 export const mvpTargets = new Set(['codex', 'claude', 'gemini', 'cursor', 'qoder', 'zcode', 'antigravity', 'opencode']);
 
 const adapterCatalog = JSON.parse(readFileSync(path.join(path.resolve(import.meta.dirname, '..', '..'), 'manifests', 'adapters.json'), 'utf8'));
+// Derived from the canonical manifests/red-zone.json (single source; the
+// equivalence is enforced by validateRedZoneDerivations in pack-validation.js)
+// plus every adapter's redZonePrefixes, so a fresh project config never starts
+// narrower than the pack's own floor.
 export const defaultRedZonePaths = [...new Set([
-  '.env',
-  'auth/',
-  'ci/cd/',
-  '.github/workflows/',
-  'vibe-harness.config.json',
-  '.vibe-harness/install-state.json',
-  '.agents/runtime/hooks/',
-  '.codex/config.toml',
+  ...readRedZoneManifestSync().runtimePaths,
   ...adapterCatalog.items.flatMap((adapter) => adapter.redZonePrefixes),
 ])];
 
@@ -232,6 +230,18 @@ export async function readRequiredProjectConfig(projectDir) {
 export function projectTargets(config) {
   if (Array.isArray(config?.targets)) return [...config.targets];
   return typeof config?.target === 'string' ? [config.target] : [];
+}
+
+/**
+ * The project's Hook enforcement posture. "strict" is opt-in and turns an
+ * unproven Hook enforcement state and unsupported-envelope red-zone projections
+ * into blocking failures; the default "advisory" keeps them as warnings.
+ *
+ * @param {Record<string, any>|undefined} config
+ * @returns {'advisory'|'strict'}
+ */
+export function resolveEnforcementPolicy(config) {
+  return config?.hooks?.enforcement === 'strict' ? 'strict' : 'advisory';
 }
 
 export function migrateLegacyProjectConfig(config) {
@@ -436,6 +446,14 @@ export function validateProjectConfig(config) {
         if (typeof host !== 'string' || host.trim().length === 0) {
           throw new Error('hooks.allowedEgressHosts must contain non-empty host strings');
         }
+      }
+    }
+    if (Object.hasOwn(config.hooks, 'permissionPreset')) {
+      assertNonEmptyString(config.hooks.permissionPreset, 'hooks.permissionPreset');
+    }
+    if (Object.hasOwn(config.hooks, 'enforcement')) {
+      if (!['advisory', 'strict'].includes(config.hooks.enforcement)) {
+        throw new Error('hooks.enforcement must be advisory or strict');
       }
     }
     if (Object.hasOwn(config.hooks, 'rtk')) {

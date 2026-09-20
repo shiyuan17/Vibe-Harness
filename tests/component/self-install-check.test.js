@@ -11,7 +11,9 @@ import { checkSelfInstallConformance } from '../../scripts/lib/self-install-chec
 
 const rootDir = path.resolve(import.meta.dirname, '../..');
 
-test('the pack repository is conformant with its own installed copy', async () => {
+// Conformance checks diff the full install plan, so they are I/O-bound and
+// legitimately exceed the default test budget on slow filesystems.
+test('the pack repository is conformant with its own installed copy', { timeout: 120000 }, async () => {
   const report = await checkSelfInstallConformance(rootDir);
 
   assert.equal(report.skipped, false);
@@ -42,7 +44,7 @@ test('self-install conformance fails when the installed copy is absent', async (
   }
 });
 
-test('project-owned memory targets are seeded once and never reported as drift', async () => {
+test('project-owned memory targets are seeded once and never reported as drift', { timeout: 120000 }, async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-project-owned-'));
   const decisionsPath = path.join(target, 'docs/memory/DECISIONS.md');
   const projectDecisions = '# 决策索引\n\n- **ADR-0001** 项目自有决策 - accepted - 由项目维护\n';

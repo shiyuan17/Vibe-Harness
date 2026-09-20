@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { readFile, readdir } from 'node:fs/promises';
 
 import {
@@ -17,13 +18,17 @@ import {
 } from './manifest.js';
 import { moduleCatalog } from './module-selection.js';
 import { validateInstallPresetCatalog } from './install-preset.js';
+import { validateRedZoneManifest } from './red-zone.js';
+import { defaultRedZonePaths } from './project-config.js';
 import { scanForForbiddenTerms } from './redaction.js';
 import { canonicalAgentsTemplate, loadAdapterCatalog, resolveAdapterEntry, skillRootPrefixes } from './adapter.js';
 import { validateDocumentation } from './docs-validation.js';
 import { renderTemplate, withDefaultTemplateData } from './template-renderer.js';
 import { loadRuleIndex, renderRulesLine } from './rules-index.js';
+import { EXECUTE_PRESETS as PROJECTION_EXECUTE_PRESETS, WRITE_PRESETS as PROJECTION_WRITE_PRESETS } from './role-projection.js';
 import { DEFAULT_RED_ZONE_PATHS } from '../../runtime/hooks/lib/context.mjs';
 import { redZoneMatcher } from '../../runtime/hooks/lib/policy.mjs';
+import { EXECUTABLE_PRESETS as RUNTIME_EXECUTABLE_PRESETS, WRITABLE_PRESETS as RUNTIME_WRITABLE_PRESETS } from '../../runtime/hooks/lib/role-permissions.mjs';
 import { scanWorkflowAssets } from './workflow-assets.js';
 
 const forbiddenTerms = ['SYBaseProjectWeb', 'SYBaseProject', 'D:\\Github\\JW', 'T-019', 'T-024', '患者', '病理', '医疗'];
@@ -388,6 +393,10 @@ export const SHARED_RULE_PHRASES = Object.freeze({
   // Resident instruction templates summarize the kernel's authorization
   // boundary instead of duplicating it, so the pointer itself is the contract.
   residentBoundaryPointer: '按 governance-core 的授权与批准规则执行',
+  // Resident rules and the Skills that expand them declare the pair contract
+  // with the same sentence; ruleSkillParityViolations requires it on both
+  // sides so neither half can claim to be the only truth.
+  ruleSkillSyncDeclaration: '修改须同步',
 });
 
 /**
@@ -403,6 +412,58 @@ export const EVAL_CONTRACT_PARITY_TERMS = Object.freeze([
   'fail-closed',
   'flaky',
   'reference 更新必须单独审查并显式确认',
+]);
+
+/**
+ * The rule↔Skill mapping table: one rule and the Skill that expands it into
+ * execution steps form a single contract. The rule is the resident half
+ * (scope, gates, evidence floor) and the Skill is the on-demand half (steps,
+ * routing). Each side must name the other, both must carry the sync
+ * declaration, and both must carry the shared wording verbatim — so a pair
+ * cannot drift into two contracts while every per-file gate stays green.
+ *
+ * Rules reference the Skill by installed name (never a repository-private
+ * skill path) because rules install into every target project while Skills
+ * are per-profile; the "已安装的" conditional keeps the sentence true for
+ * hosts that did not install the Skill. The linear-workflow pair is an
+ * integration module and follows the same conditional idiom.
+ */
+export const RULE_SKILL_PARITY_PAIRS = Object.freeze([
+  {
+    rule: 'docs/rules/api-rules.md',
+    skill: 'skills/core/api-and-interface-design/SKILL.md',
+    skillName: 'api-and-interface-design',
+    sharedTerms: ['兼容窗口', '弃用路径'],
+  },
+  {
+    rule: 'docs/rules/eval-driven-development.md',
+    skill: 'skills/core/eval-driven-development/SKILL.md',
+    skillName: 'eval-driven-development',
+    sharedTerms: EVAL_CONTRACT_PARITY_TERMS,
+  },
+  {
+    rule: 'docs/rules/frontend-rules.md',
+    skill: 'skills/core/frontend-design/SKILL.md',
+    skillName: 'frontend-design',
+    sharedTerms: ['真实浏览器', 'reduced-motion'],
+  },
+  {
+    rule: 'docs/rules/git-rules.md',
+    skill: 'skills/core/git-deliver/SKILL.md',
+    skillName: 'git-deliver',
+    sharedTerms: ['Conventional Commit', 'no-verify'],
+  },
+  {
+    rule: 'docs/rules/linear-workflow.md',
+    skill: 'skills/integrations/linear-workflow/SKILL.md',
+    skillName: 'linear-workflow',
+    sharedTerms: [
+      SHARED_RULE_PHRASES.prohibitedAutoClaimMechanisms,
+      SHARED_RULE_PHRASES.gitFlowDefault,
+      SHARED_RULE_PHRASES.gitFlowHotfix,
+      SHARED_RULE_PHRASES.developNoRemoteCi,
+    ],
+  },
 ]);
 
 /**
@@ -489,9 +550,11 @@ export const CONTENT_QUALITY_CHECKS = [
       '按实际依赖、写入隔离和独立并行收益',
       '不按信号数量或公共契约变化强制拆分',
       '宿主 Plan 模式保持只读',
-      // 长任务状态锚点与阶段切分：锚点建立、恢复纪律与交付收尾
+      // 长任务状态锚点与阶段切分：量化触发、锚点建立、恢复纪律与交付收尾
       '长任务状态锚点与阶段切分',
-      '预计执行超过 60 分钟或预计发生一次以上上下文压缩',
+      '先验：开始时预计执行超过 60 分钟',
+      '后验：会话中发生第一次上下文压缩',
+      '继续实质写入前必须先更新锚点',
       '首次实质写入前',
       '未提供时以最后一次交付记录充当恢复基准',
       '不重读规则正文',
@@ -863,7 +926,6 @@ export const CONTENT_QUALITY_CHECKS = [
       // 发布边界检查的名称与聚合方式属于项目 CI 事实，规则只声明边界语义。
       '项目在发布边界配置的 required check',
       '该检查的名称与聚合方式以项目 CI 配置为准',
-      '自行落地 squash merge',
       // 3 Definition of Ready
       '以 `ai-collab-rules.md` 为唯一规范来源',
       '统一遵循 `ai-collab-rules.md`',
@@ -953,7 +1015,8 @@ export const CONTENT_QUALITY_CHECKS = [
       SHARED_RULE_PHRASES.gitFlowHotfix,
       '边界检查的名称、聚合方式与是否为唯一 required check 以项目 CI 配置为准',
       '普通任务 PR 仍会跑不阻断合并的 advisory CI job',
-      '无门禁合入以本地验证为唯一前置',
+      '自行落地 squash merge',
+      '无门禁合入在变更不含高风险路径时以本地验证为唯一前置',
       // 协作工作流引用必须带条件语气：未安装 linear-workflow 的项目同样成立。
       '若项目已安装该规则',
       '项目交付文档',
@@ -1377,12 +1440,174 @@ export async function validateRuleCrossReferences(rootDir) {
   return errors;
 }
 
+/**
+ * Check one rule↔Skill parity pair against file contents. Pure on purpose:
+ * the component test feeds mutated copies here for its negative controls.
+ *
+ * @param {{rule: string, skill: string, skillName: string, sharedTerms: readonly string[]}} pair
+ * @param {Map<string, string>} contents repository-relative path → file body
+ * @returns {string[]} violations, empty when the pair stays one contract
+ */
+export function ruleSkillParityViolations(pair, contents) {
+  const rule = contents.get(pair.rule) ?? '';
+  const skill = contents.get(pair.skill) ?? '';
+  const violations = [];
+  if (!rule.includes(`\`${pair.skillName}\``)) {
+    violations.push(`${pair.rule} must point at the installed \`${pair.skillName}\` Skill entry`);
+  }
+  if (!skill.includes(pair.rule)) {
+    violations.push(`${pair.skill} must point at its resident contract ${pair.rule}`);
+  }
+  if (!rule.includes(SHARED_RULE_PHRASES.ruleSkillSyncDeclaration)
+    || !skill.includes(SHARED_RULE_PHRASES.ruleSkillSyncDeclaration)) {
+    violations.push(`${pair.rule} and ${pair.skill} must both declare: ${SHARED_RULE_PHRASES.ruleSkillSyncDeclaration}`);
+  }
+  for (const term of pair.sharedTerms) {
+    if (!rule.includes(term) || !skill.includes(term)) {
+      violations.push(`shared contract wording must appear in both ${pair.rule} and ${pair.skill}: ${term}`);
+    }
+  }
+  return violations;
+}
+
+/**
+ * Enforce every declared rule↔Skill pair against the working tree.
+ *
+ * @param {string} rootDir repository root
+ * @returns {Promise<string[]>} parity errors
+ */
+export async function validateRuleSkillParity(rootDir) {
+  const contents = new Map();
+  const errors = [];
+  for (const pair of RULE_SKILL_PARITY_PAIRS) {
+    for (const file of [pair.rule, pair.skill]) {
+      if (!contents.has(file)) {
+        contents.set(file, await readFile(path.join(rootDir, file), 'utf8'));
+      }
+    }
+    errors.push(...ruleSkillParityViolations(pair, contents));
+  }
+  return errors;
+}
+
+/**
+ * The local memory entry is a recovery contract, so its shape is checkable:
+ * CURRENT.md stays the single entry, references (never copies) the governance
+ * state file, and binds its freshness to a commit that still exists in this
+ * repository's history.
+ */
+export const MEMORY_ENTRY_FIELD_LABELS = Object.freeze([
+  '目标',
+  '当前状态',
+  '已验证证据',
+  '未完成事项',
+  '下一步最小动作',
+  '锚点提交',
+  '最后更新',
+  '最后验证',
+]);
+
+// Field labels that only docs/memory/PROJECT_STATE.md may carry; finding one
+// in CURRENT.md means the entry copies governance state instead of referencing it.
+const MEMORY_PROJECT_STATE_EXCLUSIVE_LABELS = Object.freeze(['当前阶段', '当前重点', '恢复提示']);
+
+const MEMORY_ANCHOR_COMMIT_PATTERN = /^[0-9a-f]{40}$/u;
+const MEMORY_ABSOLUTE_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;
+
+/**
+ * Check the memory-entry invariants. Pure on purpose: the component test
+ * feeds mutated copies and a stub commit verifier, so no git is required.
+ *
+ * @param {string} currentBody body of .agents/memory/CURRENT.md
+ * @param {boolean} hasGovernanceMemory whether docs/memory/PROJECT_STATE.md is installed
+ * @param {(sha: string) => {exists: boolean, ancestorOfHead: boolean}} verifyCommit
+ * @returns {string[]} violations, empty when the entry stays one contract
+ */
+export function memoryEntryViolations(currentBody, hasGovernanceMemory, verifyCommit) {
+  const violations = [];
+  for (const label of MEMORY_ENTRY_FIELD_LABELS) {
+    if (!new RegExp(`^- ${label}:`, 'mu').test(currentBody)) {
+      violations.push(`.agents/memory/CURRENT.md must keep the field: ${label}`);
+    }
+  }
+  for (const label of MEMORY_PROJECT_STATE_EXCLUSIVE_LABELS) {
+    if (currentBody.includes(`${label}:`)) {
+      violations.push(`.agents/memory/CURRENT.md must reference docs/memory/PROJECT_STATE.md instead of copying its field: ${label}`);
+    }
+  }
+  if (hasGovernanceMemory && !currentBody.includes('docs/memory/PROJECT_STATE.md')) {
+    violations.push('.agents/memory/CURRENT.md must reference docs/memory/PROJECT_STATE.md instead of duplicating it');
+  }
+  const anchorLine = /^- 锚点提交:[ \t]*([^\n]*)$/mu.exec(currentBody);
+  const anchorValue = anchorLine ? anchorLine[1].trim() : '';
+  if (anchorValue && !anchorValue.startsWith('(')) {
+    if (!MEMORY_ANCHOR_COMMIT_PATTERN.test(anchorValue)) {
+      violations.push('锚点提交 must be the full 40-character commit SHA of the HEAD at update time');
+    } else {
+      const verdict = verifyCommit(anchorValue);
+      if (!verdict.exists) {
+        violations.push(`anchor commit ${anchorValue} does not exist in this repository history`);
+      } else if (!verdict.ancestorOfHead) {
+        violations.push(`anchor commit ${anchorValue} is not an ancestor of HEAD; the memory entry drifted from this history`);
+      }
+    }
+  }
+  for (const label of ['最后更新', '最后验证']) {
+    const dateLine = new RegExp(`^- ${label}:[ \\t]*([^\\n]*)$`, 'mu').exec(currentBody);
+    const value = dateLine ? dateLine[1].trim() : '';
+    if (value && !value.startsWith('(') && !MEMORY_ABSOLUTE_DATE_PATTERN.test(value)) {
+      violations.push(`${label} must be an absolute YYYY-MM-DD date, got: ${value}`);
+    }
+  }
+  return violations;
+}
+
+/**
+ * Verify a memory anchor commit against the repository that owns the memory.
+ * Fail-closed: an anchor that cannot be resolved is a violation, not a skip.
+ */
+function verifyCommitInRepository(rootDir, sha) {
+  try {
+    execFileSync('git', ['cat-file', '-e', `${sha}^{commit}`], { cwd: rootDir, stdio: 'ignore' });
+  } catch {
+    return { exists: false, ancestorOfHead: false };
+  }
+  try {
+    execFileSync('git', ['merge-base', '--is-ancestor', sha, 'HEAD'], { cwd: rootDir, stdio: 'ignore' });
+  } catch {
+    return { exists: true, ancestorOfHead: false };
+  }
+  return { exists: true, ancestorOfHead: true };
+}
+
+/**
+ * Enforce the memory single-entry contract wherever the local memory module
+ * is installed; starter and live entries must both pass.
+ *
+ * @param {string} rootDir repository root
+ * @returns {Promise<string[]>} memory-entry errors
+ */
+export async function validateMemoryEntry(rootDir) {
+  if (!(await pathExists(path.join(rootDir, '.agents/memory/README.md')))) {
+    return [];
+  }
+  const currentPath = path.join(rootDir, '.agents/memory/CURRENT.md');
+  if (!(await pathExists(currentPath))) {
+    return ['.agents/memory/CURRENT.md is missing while the local memory module is installed'];
+  }
+  const currentBody = await readFile(currentPath, 'utf8');
+  const hasGovernanceMemory = await pathExists(path.join(rootDir, 'docs/memory/PROJECT_STATE.md'));
+  return memoryEntryViolations(currentBody, hasGovernanceMemory, (sha) => verifyCommitInRepository(rootDir, sha));
+}
+
 export async function validateContentQuality(rootDir) {
   const results = await Promise.all(CONTENT_QUALITY_CHECKS.map((check) => checkRequiredTerms(rootDir, check)));
   const errors = [
     ...results.flat(),
     ...await validateRulePortability(rootDir),
     ...await validateRuleCrossReferences(rootDir),
+    ...await validateRuleSkillParity(rootDir),
+    ...await validateMemoryEntry(rootDir),
   ];
   const agentsPath = path.join(rootDir, 'AGENTS.md');
   if (await pathExists(agentsPath)) {
@@ -1710,6 +1935,77 @@ export function validateRedZoneConsistency(adapters, installMap, { redZonePaths 
   return [...new Set(errors)].sort();
 }
 
+// Cross-checks the derived and literal red-zone copies against the canonical
+// manifests/red-zone.json: the runtime hook's DEFAULT_RED_ZONE_PATHS literal
+// must equal the canonical runtimePaths exactly (it is the fail-safe floor
+// when the installed projection .agents/runtime/hooks/red-zone.json is
+// unreadable), and the CLI's project-config default must contain every
+// canonical runtime path (it may add adapter redZonePrefixes on top).
+// The options exist so tests can inject mutated lists; production callers rely
+// on the real runtime/project-config values.
+export function validateRedZoneDerivations(redZoneManifest, {
+  runtimeRedZonePaths = DEFAULT_RED_ZONE_PATHS,
+  projectDefaultRedZonePaths = defaultRedZonePaths,
+} = {}) {
+  const canonicalPaths = redZoneManifest?.runtimePaths;
+  if (!Array.isArray(canonicalPaths) || canonicalPaths.length === 0) {
+    return ['manifests/red-zone.json runtimePaths must be a non-empty array of non-empty strings'];
+  }
+  const errors = [];
+  if (runtimeRedZonePaths.length !== canonicalPaths.length
+    || runtimeRedZonePaths.some((entry, index) => entry !== canonicalPaths[index])) {
+    errors.push('runtime/hooks/lib/context.mjs DEFAULT_RED_ZONE_PATHS must equal manifests/red-zone.json runtimePaths exactly');
+  }
+  for (const entry of canonicalPaths) {
+    if (!projectDefaultRedZonePaths.includes(entry)) {
+      errors.push(`scripts/lib/project-config.js defaultRedZonePaths is missing canonical runtime path: ${entry}`);
+    }
+  }
+  return errors;
+}
+
+// Cross-checks the role permission-preset tier sets against the canonical
+// manifests/roles.json capabilities: a preset is writable when it grants
+// 'workspace-write' and executable when it is writable or grants
+// 'validation-command'. The projection (scripts/lib/role-projection.js) and
+// the runtime hook (runtime/hooks/lib/role-permissions.mjs) both hardcode the
+// derived sets, so any drift from roles.json or between the two copies fails
+// pack validation. The options exist so tests can inject mutated sets.
+export function validateRolePresetDerivations(rolePack, {
+  projectionWritablePresets = PROJECTION_WRITE_PRESETS,
+  projectionExecutablePresets = PROJECTION_EXECUTE_PRESETS,
+  runtimeWritablePresets = RUNTIME_WRITABLE_PRESETS,
+  runtimeExecutablePresets = RUNTIME_EXECUTABLE_PRESETS,
+} = {}) {
+  const presets = rolePack?.permissionPresets;
+  if (!Array.isArray(presets) || presets.length === 0) {
+    return ['manifests/roles.json permissionPresets must be a non-empty array'];
+  }
+  if (presets.some((preset) => typeof preset?.id !== 'string' || !Array.isArray(preset.capabilities))) {
+    return ['manifests/roles.json permissionPresets entries must declare id and capabilities'];
+  }
+  const entries = presets.map((preset) => [preset.id, preset]);
+  const canonicalWritable = new Set(entries
+    .filter(([, preset]) => preset.capabilities.includes('workspace-write'))
+    .map(([id]) => id));
+  const canonicalExecutable = new Set([...canonicalWritable, ...entries
+    .filter(([, preset]) => preset.capabilities.includes('validation-command'))
+    .map(([id]) => id)]);
+  const errors = [];
+  const compare = (label, actual, expected) => {
+    const actualIds = [...actual].sort();
+    const expectedIds = [...expected].sort();
+    if (actualIds.length !== expectedIds.length || actualIds.some((id, index) => id !== expectedIds[index])) {
+      errors.push(`${label} [${actualIds.join(', ')}] must equal the set derived from manifests/roles.json capabilities [${expectedIds.join(', ')}]`);
+    }
+  };
+  compare('scripts/lib/role-projection.js WRITE_PRESETS', projectionWritablePresets, canonicalWritable);
+  compare('scripts/lib/role-projection.js EXECUTE_PRESETS', projectionExecutablePresets, canonicalExecutable);
+  compare('runtime/hooks/lib/role-permissions.mjs WRITABLE_PRESETS', runtimeWritablePresets, canonicalWritable);
+  compare('runtime/hooks/lib/role-permissions.mjs EXECUTABLE_PRESETS', runtimeExecutablePresets, canonicalExecutable);
+  return errors;
+}
+
 export async function validatePack(rootDir) {
   const manifests = await loadAllManifests(rootDir);
   const schemas = await loadAllManifestSchemas(rootDir);
@@ -1724,6 +2020,16 @@ export async function validatePack(rootDir) {
       profileIdSet: new Set(manifests.profiles.items.map((item) => item.id)),
     }),
   ];
+  const redZoneManifest = await readPackJson(path.join(rootDir, 'manifests/red-zone.json'));
+  const redZoneSchema = await readPackJson(path.join(rootDir, 'schemas/red-zone.schema.json'));
+  const redZoneErrors = [
+    ...validateJsonAgainstSchema(redZoneManifest, redZoneSchema, 'manifests/red-zone.json'),
+    ...validateRedZoneManifest(redZoneManifest, {
+      adapterPrefixes: manifests.adapters.items.flatMap((adapter) => adapter.redZonePrefixes ?? []),
+    }),
+    ...validateRedZoneDerivations(redZoneManifest),
+  ].sort();
+  const rolePresetErrors = validateRolePresetDerivations(manifests.roles).sort();
 
   const knownGroups = new Set([
     ...manifests.profiles.items.flatMap((item) => item.groups),
@@ -1810,6 +2116,8 @@ export async function validatePack(rootDir) {
     invalidSkillDirs,
     installPresetErrors: installPresetErrors.sort(),
     redZoneConsistencyErrors,
+    redZoneErrors,
+    rolePresetErrors,
     skillMetadataErrors,
     skillGraphErrors,
     documentationErrors: documentation.errors,
@@ -1831,7 +2139,9 @@ export async function validatePack(rootDir) {
       && instructionBudget.errors.length === 0
       && installPresetErrors.length === 0
       && workflowScan.findings.length === 0
-      && redZoneConsistencyErrors.length === 0,
+      && redZoneConsistencyErrors.length === 0
+      && redZoneErrors.length === 0
+      && rolePresetErrors.length === 0,
     schemaErrors: schemaErrors.sort(),
   };
 }
