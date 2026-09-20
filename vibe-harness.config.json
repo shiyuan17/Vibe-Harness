@@ -33,10 +33,10 @@
       "quick": [
         "pnpm lint",
         "pnpm typecheck",
-        "pnpm test:unit",
-        "pnpm test:component"
+        "pnpm test:unit"
       ],
       "standard": [
+        "pnpm test:component",
         "pnpm test:integration"
       ],
       "deep": [
@@ -46,6 +46,9 @@
         "pnpm smoke:lifecycle"
       ]
     }
+  },
+  "verification": {
+    "timeoutMs": 600000
   },
   "evaluations": {
     "enabled": true,

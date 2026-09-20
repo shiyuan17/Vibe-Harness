@@ -33,7 +33,7 @@
 - 项目路径只通过 `--project <path>` 传入，`--target` 只选择 adapter。
 - dry-run 不写入；真实修改必须使用 `--write`。
 - Codex full 写红区需要 `--confirm-red-zone`。
-- `validate --project` 只检查安装一致性；`verify --project` 不带 `--tier` 时默认只执行快速层（层命令来自配置声明或按包脚本推导，完全推导不出层时退回 `auto` 风险计划），收据标注部分范围；`--tier standard|deep|all` 按层累计显式升级（`all` 等价 `deep`），`--plan` 只预览计划，`--full` 显式执行完整验证矩阵并与 `--tier` 互斥。`minimal/core/full/docs-only` 仍表示安装能力范围，不表示验证风险等级。
+- `validate --project` 只检查安装一致性；`verify --project` 不带 `--tier` 时默认只执行快速层（层命令来自配置声明或按包脚本推导，完全推导不出层时退回 `auto` 风险计划），收据标注部分范围；`--tier standard|deep` 按层累计显式升级，`--plan` 只预览计划，`--full` 显式执行完整验证矩阵并与 `--tier` 互斥。`minimal/core/full/docs-only` 仍表示安装能力范围，不表示验证风险等级。
 
 verify 输出本轮 ID、时间和可用的 Git 工作树指纹；检查期间工作树变化时收据失效且命令返回非零。
 
@@ -58,7 +58,7 @@ verify 输出本轮 ID、时间和可用的 Git 工作树指纹；检查期间�
 
 ## 验证选择
 
-验证矩阵的唯一规范来源是 `AGENTS.md` 的「验证选择」一节（含按影响追加的显式验证表和 `pnpm verify:focused` 用法）；本节只说明与贡献流程相关的边界。
+验证命令与成本层的单一真值源是 `vibe-harness.config.json` 的 `validationCommands`（含 `tiers`）；`AGENTS.md` 的「验证选择」一节只保留默认门槛、`pnpm verify:focused` 用法和计划外的治理性追加表。本节只说明与贡献流程相关的边界。
 
 普通变更运行：
 
@@ -67,7 +67,7 @@ pnpm check
 git diff --check
 ```
 
-`pnpm check` 已内含语法/资产扫描、ESLint、typecheck、安装结构校验、单元测试（L1）与组件测试（L2）；CI 的 fast 与 full 门禁同样执行 ESLint 和 typecheck，本地不再与远端门禁存在覆盖差异。集成（L3）、端到端关键路径（L4）与全量矩阵（L5）按需显式运行，定义见 `docs/rules/test-rules.md` 的「测试分层」。
+快速迭代可用 `pnpm check:fast`（语法/资产扫描、typecheck、单元测试，与 `vibe-harness verify` 快速层同一定义）；`pnpm check` 是 `pnpm check:full` 的别名，已内含语法/资产扫描、ESLint、typecheck、安装结构校验、测试台账校验、单元测试（L1）与组件测试（L2）。CI 的 fast 门禁执行 `pnpm lint:eslint` 与 `pnpm check:fast`，full 门禁执行完整 `pnpm check`，本地不再与远端门禁存在覆盖差异。集成（L3）、端到端关键路径（L4）与全量矩阵（L5）按需显式运行，定义见 `docs/rules/test-rules.md` 的「测试分层」。
 
 installer 集成验证应覆盖已有文件拒写、红区确认、目标路径逃逸和事务回滚边界。
 
@@ -115,14 +115,14 @@ rules、runtime hooks 或 config 内容变更会使 `evals/references/` 的 asse
 - `pnpm envelope plan [--mode <mode>] [--issue <ID>] [--effect <effect>] --objective <text> --terminal <text> [--base-ref <ref>] [--host-context <file>] [--request-id <id>] [--session-id <id>] [--emit receipt|envelope] [--out <path>] [--write]`：从当前工作区身份生成 Execution Envelope v2 草稿（canonical cwd、worktree root、Git dir、branch、冻结 base SHA、allowed write roots 与 mode effect 上限），并只把 `requestId`、`sessionId`、`hostContext` 留作宿主注入——命令不自造宿主证明，草稿在宿主补齐前保持 invalid。`pnpm envelope check --file <path> [--cwd <path>]` 用发布 schema、runtime 解析器与当前工作区复核信封：越界 effect、allowed/forbidden 冲突、过期、陈旧宿主证明、工作区或 HEAD/base ref 漂移、checkpoint 失配与无法核对工作区都按 fail-closed 报错。
 - `pnpm receipt start|event|handoff|check`：固化 Linear 执行回执与交接协议。`start` 生成新的 `executionId` 与 `runtimeInstanceId`（不复制宿主 thread、session、用户名、主机名或本地路径），`event` 生成终结事件（`handed-off` 必须携带预生成的 successor ID），`handoff` 生成 `vibe-harness.handoff/v1` 载荷（声明 complete 必须同时满足 accepted 与 reviewed/passed 的 finalCheck），`check --file <comments.json> [--issue <ID>]` 分析一个 Issue 的结构化评论历史：同 ID 不同内容、同一 Issue 多个 active execution、孤儿或重复终结事件、交接 successor 的 source 或目标 Issue 不符都报冲突并退出非零，交接未确认等合法中间态以 pending 报出。三个生成命令默认只打印记录，`--write` 时才写入 `--out`，且都不会写入 Linear。
 - `pnpm task-dag check --file <dag.json> [--require-ready] [--json]`：按 `docs/rules/ai-collab-rules.md` 的节点字段校验派发前的轻量 Task DAG——节点契约、依赖边与环、writeScope 重叠、resourceLocks、ready 集与结构哈希；`hash` 输出确定性结构哈希供 checkpoint 记录。错误 fail-closed（未知前驱、环、自依赖、非法 writeScope、read 节点带写范围、write 节点无写范围、共享路径或锁且无依赖路径的两个 write 节点都不 ready），`--require-ready` 在无可派发节点时退出非零。命令只读，不写任何文件。`docs/templates/task.md` 的表格仍是人读记录，不被解析。
-- `pnpm worktree list|check|plan`：用 `git worktree list --porcelain -z` 做 worktree 隔离审计。`check` 按登记任务（`--task <ISSUE-ID>[:<branch>[:<path>]]`，路径可省略，默认取仓库同级 `<repo>-worktrees/<ISSUE-ID>`）核对分支命名 `<type>/<ISSUE-ID>-<slug>`、worktree 位于仓库外部且不互相嵌套、非主工作区绑定命名分支、同一分支不被两个 worktree 占用，并报告 merge-back 事实（分支是否已并入 `--base-ref`、merge-base 是否偏离 `--base-sha`）与 `--deep` 的未提交改动。主检出存在 `.vibe-harness/worktree-ports.json` 时，`check` 一并报告每个 worktree 的端口块与它的 env 文件是否仍与登记表一致（env 漂移、env 未忽略与主检出缺依赖都是 warning）。错误 fail-closed，警告（未创建的登记 worktree、未纳管 worktree、未 merge-back、脏工作区）可用 `--strict` 升级为失败；`plan` 只打印 `git worktree add` 命令。三个子命令都只读，命令绝不执行 `git worktree remove`、`git worktree prune` 或删除分支，未合并的 worktree 只阻止宣称“已集成”。实际创建、依赖链接、端口分配与清理走项目面入口 `node .agents/runtime/commands/run.mjs worktree <bootstrap|cleanup> --project . --json`（默认 dry-run，`--write` 落盘）；两个入口的子命令集不同，分工见 `docs/rules/git-rules.md` Worktree 节。
+- `pnpm worktree list|check|plan`：用 `git worktree list --porcelain -z` 做 worktree 隔离审计。`check` 按登记任务（`--task <ISSUE-ID>[:<branch>[:<path>]]`，路径可省略，默认取仓库同级 `<repo>-worktrees/<ISSUE-ID>`）核对分支命名 `<type>/<ISSUE-ID>-<slug>`、worktree 位于仓库外部且不互相嵌套、非主工作区绑定命名分支、同一分支不被两个 worktree 占用，并报告 merge-back 事实（分支是否已并入 `--base-ref`、merge-base 是否偏离 `--base-sha`）与 `--deep` 的未提交改动。主检出存在 `.vibe-harness/worktree-ports.json` 时，`check` 一并报告每个 worktree 的端口块与它的 env 文件是否仍与登记表一致（env 漂移、env 未忽略与主检出缺依赖都是 warning）。错误 fail-closed，警告（未创建的登记 worktree、未纳管 worktree、未 merge-back、脏工作区）可用 `--strict` 升级为失败；`plan` 只打印 `git worktree add` 命令。三个子命令都只读，命令绝不执行 `git worktree remove`、`git worktree prune` 或删除分支，未合并的 worktree 只阻止宣称“已集成”。实际创建、依赖链接、端口分配、崩溃恢复与清理走项目面入口 `node .agents/runtime/commands/run.mjs worktree <bootstrap|recover|cleanup> --project . --json`（默认 dry-run，`--write` 落盘，`recover` 只清理带归因证据的崩溃残留，见 git-rules 的 Worktree 节）；两个入口的子命令集不同，分工见 `docs/rules/git-rules.md` Worktree 节。
 - `vibe-harness audit --project <path> --kind cleanup`：只读扫描死代码、过期引用、过期文档、过期资源、过期记忆与过期索引，输出 `audit-report` 收据，`details.cleanup` 记录扫描面、已确认项与候选线索计数以及本次未覆盖的判定。扫描器把高置信结构与启发式候选分开标记，绝不删除或改写文件，`--write` 对 `cleanup` 一律拒绝；`--kind all` 仍只聚合 memory、review 与 improvements，清理需显式指定。
 
 ## Pull Request
 
 涉及结构、公共契约、安全与可靠性、关键依赖、迁移回滚或跨模块边界的 PR 必须在 docs/adr/ 中提供正式 ADR，或说明无需 ADR 的原因。同步更新 docs/adr/catalog.json 和 docs/memory/DECISIONS.md；接受或拒绝后的决策通过新 ADR 替代，不改写历史核心内容。
 
-文档、ADR、catalog 和 schema 变更按 AGENTS.md 验证矩阵执行；pnpm check 已包含文档与 ADR 校验时不重复运行，仅在未覆盖相关变更时补充聚焦检查。
+文档、ADR、catalog 和 schema 变更按 AGENTS.md「验证选择」一节执行；pnpm check 已包含文档与 ADR 校验时不重复运行，仅在未覆盖相关变更时补充聚焦检查。
 
 PR 说明目标、影响范围、实际验证、未验证项和必要的回滚路径。一个 commit 表达一个逻辑目的；不要用格式化或无关重构掩盖行为变化。
 

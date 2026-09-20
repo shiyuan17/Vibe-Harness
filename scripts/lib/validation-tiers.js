@@ -297,9 +297,10 @@ export function planValidationTierMigration({ configuredTiers, derivedTiers } = 
 /** @param {unknown} value @returns {'quick'|'standard'|'deep'} */
 export function normalizeTierOption(value) {
   const token = typeof value === 'string' ? value.trim().toLowerCase() : '';
-  if (token === 'all') return 'deep';
+  // No `all` alias: under cumulative tier semantics it would silently mean
+  // `deep`, and a caller that wants every declared layer should say so.
   if (token === 'quick' || token === 'standard' || token === 'deep') return token;
-  throw new Error(`--tier must be one of quick, standard, deep, all; received ${JSON.stringify(value)}.`);
+  throw new Error(`--tier must be one of quick, standard, deep; received ${JSON.stringify(value)}.`);
 }
 
 /** @param {'quick'|'standard'|'deep'} tier */

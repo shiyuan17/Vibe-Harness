@@ -99,13 +99,13 @@ node .agents/runtime/commands/run.mjs slice --project . --file <path> --from <n>
 node .agents/runtime/commands/run.mjs patch --project . --spec <spec.json>
 ```
 
-`verify --plan` 只预览已配置检查，不执行命令；脚本不提供任意命令执行接口，不自动修改配置或联网。验证命令来自 `vibe-harness.config.json` 的 `validationCommands`，失败、超时、危险命令和验证期间工作树变化都会明确报告。成本分层按「最小充分成本」默认走快：`verify` 不带 `--tier` 时只执行快速层（随改动同步、失败阻塞当前实施单元），中等层与深度层必须显式升级——`--tier standard|deep|all` 选定成本层，`--full` 运行完整风险矩阵与全部声明层。快速层通过时收据标注 `scopeStatus: partial` 并列出被延迟的检查与下一层入口，未取得被延迟层的证据前不得宣称集成、发布或整体完成。
+`verify --plan` 只预览已配置检查，不执行命令；脚本不提供任意命令执行接口，不自动修改配置或联网。验证命令来自 `vibe-harness.config.json` 的 `validationCommands`，失败、超时、危险命令和验证期间工作树变化都会明确报告。成本分层按「最小充分成本」默认走快：`verify` 不带 `--tier` 时只执行快速层（随改动同步、失败阻塞当前实施单元），中等层与深度层必须显式升级——`--tier standard|deep` 选定成本层，`--full` 运行完整风险矩阵与全部声明层。快速层通过时收据标注 `scopeStatus: partial` 并列出被延迟的检查与下一层入口，未取得被延迟层的证据前不得宣称集成、发布或整体完成。
 
-`worktree`、`slice` 和 `patch` 默认只读：`worktree check` 汇总隔离单元、merge-back、依赖链接与端口登记事实并给出 `cleanupAllowed` 建议；`worktree bootstrap` 按六步（`worktree add` → 依赖链接 → 端口分段与 env 文件 → 声明的 envFiles → 声明的 setupCommands → 工具链探针）执行，默认只出计划、追加 `--write` 才落盘，目标命中 `hooks.redZonePaths` 时还需 `--confirm-red-zone`；端口按主检出 `.vibe-harness/worktree-ports.json` 的登记表分段并由 `.vibe-harness/worktree-ports.lock` 串行化，主检出缺 `node_modules` 时 bootstrap 以 `blocked` 结束而不是静默继续。`worktree cleanup` 只在追加 `--write` 时落盘，且 cleanup 在分支尚未并入 `worktree.baseRef` 或工作区不干净时拒绝执行、绝不删除分支；`slice` 打印指定行区间，`patch` 按 spec 在内存中完成带守卫的区间或序列替换，全部通过后才写盘。三者替代 `node -e` 内联片段与项目内一次性脚本。
+`worktree`、`slice` 和 `patch` 默认只读：`worktree check` 汇总隔离单元、merge-back、依赖链接与端口登记事实并给出 `cleanupAllowed` 建议；`worktree bootstrap` 按六步（`worktree add` → 依赖链接 → 端口分段与 env 文件 → 声明的 envFiles → 声明的 setupCommands → 工具链探针）执行，默认只出计划、追加 `--write` 才落盘，目标命中 `hooks.redZonePaths` 时还需 `--confirm-red-zone`；端口按主检出 `.vibe-harness/worktree-ports.json` 的登记表分段并由 `.vibe-harness/worktree-ports.lock` 串行化，主检出缺 `node_modules` 时 bootstrap 以 `blocked` 结束而不是静默继续。`worktree cleanup` 只在追加 `--write` 时落盘，且 cleanup 在分支尚未并入 `worktree.baseRef` 或工作区不干净时拒绝执行、绝不删除分支；`worktree recover` 清理崩溃残留——引导中断留下的不完整 worktree、目录已消失的 prunable 绑定与带归因证据的孤立分支/端口登记——同样默认只出计划，分支删除仅限从未离开基线的证据门内；`slice` 打印指定行区间，`patch` 按 spec 在内存中完成带守卫的区间或序列替换，全部通过后才写盘。三者替代 `node -e` 内联片段与项目内一次性脚本。
 
 ## 多宿主安装
 
-同一个项目只安装一次。配置中的 targets 数组声明全部宿主；不带 --target 的 install、upgrade、validate、doctor 和 diff 处理全部目标，带 --target 时只选择配置或 install-state 中仍存在的一个宿主，绝不隐式追加。
+同一个项目只安装一次。配置中的 targets 数组声明全部宿主；不带 --target 的 install、upgrade、verify、validate、doctor 和 diff 处理全部目标，带 --target 时只选择配置或 install-state 中仍存在的一个宿主，绝不隐式追加。
 
 公共规则、runtime、memory、Eval 和 codebase-memory 索引在项目根以 shared owner 维护一份；宿主入口、原生 Skills、MCP 和 Hook 以 adapter:id owner 维护投影。不要在项目子目录重复安装来模拟多宿主支持。
 

@@ -39,12 +39,25 @@ import {
 
 const execFileAsync = promisify(execFile);
 const SCHEMA_VERSION = 1;
+// Verify receipts are their own contract: v2 keeps `blocked` a distinct
+// terminal status instead of folding it into `failed`, adds the cost-tier
+// surface (tier, deferredChecks, nextTier) and stamps the producing engine so
+// the CLI engine receipt (scripts/vibe-harness.js verify, schemaVersion 2,
+// engine 'vibe-harness-cli') can be told apart from this one.
+const VERIFY_SCHEMA_VERSION = 2;
+const VERIFY_ENGINE = 'vibe-harness-runtime';
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MIN_TIMEOUT_MS = 1_000;
 const MAX_TIMEOUT_MS = 3_600_000;
 const MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 const MAX_OUTPUT_CHARS = 8 * 1024;
 const CHECK_ORDER = ['lint', 'typecheck', 'test', 'eval'];
+const VERIFY_TIERS = ['quick', 'standard', 'deep'];
+const DEFAULT_VERIFY_TIER = 'quick';
+// Slot cost tiers when the project declares no validationCommands.tiers: the
+// eval slot replays the offline reference suite, which governance-core.md
+// places in the deep layer, so it is deferred rather than run by default.
+const DEFAULT_SLOT_TIERS = { lint: 'quick', typecheck: 'quick', test: 'quick', eval: 'deep' };
 // Report statuses that map to wrapper exit code 0.
 const PASS_STATUSES = ['passed', 'ready', 'planned', 'reused'];
 const CONFIG_FILE = 'vibe-harness.config.json';
@@ -102,8 +115,8 @@ function parseArgs(argv) {
     ['allow-manual', 'allowManual'],
     ['no-numbers', 'numbers'],
   ]);
-  const booleanFlags = new Set(['json', 'plan', 'allow-manual', 'no-numbers', 'strict', 'write', 'deep', 'help', 'confirm-red-zone', 'reuse']);
-  const valueFlags = new Set(['project', 'base', 'only', 'timeout', 'output', 'task', 'base-ref', 'branch-prefix', 'file', 'from', 'to', 'spec', 'root', 'title', 'goal', 'risk-level', 'stage', 'unit', 'unit-status', 'acceptance', 'decision', 'blocker', 'next-action', 'verification']);
+  const booleanFlags = new Set(['json', 'plan', 'allow-manual', 'no-numbers', 'strict', 'write', 'help', 'confirm-red-zone', 'reuse']);
+  const valueFlags = new Set(['project', 'base', 'only', 'timeout', 'output', 'tier', 'task', 'base-ref', 'branch-prefix', 'file', 'from', 'to', 'spec', 'root', 'title', 'goal', 'risk-level', 'stage', 'unit', 'unit-status', 'acceptance', 'decision', 'blocker', 'next-action', 'verification']);
   // Repeatable flags collect into arrays so one invocation can carry several
   // values (task ids, acceptance items, decisions, blockers, unit updates).
   const arrayFlags = new Map([
@@ -142,6 +155,7 @@ function parseArgs(argv) {
     else if (key === 'only') args.only = value.split(',').map((item) => item.trim()).filter(Boolean);
     else if (key === 'timeout') args.timeout = Number.parseInt(value, 10);
     else if (key === 'output') args.output = value;
+    else if (key === 'tier') args.tier = value;
     else if (key === 'risk-level') args.riskLevel = value;
     else if (key === 'next-action') args.nextAction = value;
     else if (key === 'title' || key === 'goal' || key === 'stage' || key === 'unit' || key === 'verification') args[key] = value;
@@ -361,6 +375,53 @@ function configuredChecks(config) {
   return { commands, error: null };
 }
 
+function parseVerifyTier(value) {
+  const token = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (token === '') return DEFAULT_VERIFY_TIER;
+  if (VERIFY_TIERS.includes(token)) return token;
+  throw new Error(`--tier must be one of ${VERIFY_TIERS.join(', ')}; received ${JSON.stringify(value)}.`);
+}
+
+function activeTierNames(tier) {
+  return VERIFY_TIERS.slice(0, VERIFY_TIERS.indexOf(tier) + 1);
+}
+
+// Slot cost tiers come from the project's declared validationCommands.tiers
+// arrays (exact command-string match) with DEFAULT_SLOT_TIERS as the fallback
+// for slots the declaration does not cover. `--only` is an explicit
+// per-check selection and wins over tier deferral.
+function resolveVerifyTierPlan({ commands, tiers, tier, only, projectDir }) {
+  const declared = tiers && typeof tiers === 'object' && !Array.isArray(tiers) ? tiers : null;
+  const slotTiers = {};
+  for (const name of CHECK_ORDER) {
+    if (typeof commands[name] !== 'string') continue;
+    slotTiers[name] = DEFAULT_SLOT_TIERS[name] ?? 'quick';
+    if (!declared) continue;
+    for (const tierName of VERIFY_TIERS) {
+      const list = declared[tierName];
+      if (Array.isArray(list) && list.some((item) => typeof item === 'string' && item.trim() === commands[name])) {
+        slotTiers[name] = tierName;
+        break;
+      }
+    }
+  }
+  const active = new Set(activeTierNames(tier));
+  const selectedNames = [];
+  const deferredChecks = [];
+  for (const name of CHECK_ORDER) {
+    if (typeof commands[name] !== 'string') continue;
+    if (only && !only.includes(name)) continue;
+    if (!only && !active.has(slotTiers[name])) {
+      deferredChecks.push({ name, tier: slotTiers[name], command: displayCommand(commands[name], projectDir) });
+      continue;
+    }
+    selectedNames.push(name);
+  }
+  const nextTier = VERIFY_TIERS.slice(VERIFY_TIERS.indexOf(tier) + 1)
+    .find((name) => deferredChecks.some((item) => item.tier === name)) ?? null;
+  return { tier, slotTiers, selectedNames, deferredChecks, nextTier };
+}
+
 function manualCommand(command) {
   return command.startsWith('manual:') ? command.slice('manual:'.length).trim() : null;
 }
@@ -431,16 +492,30 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
   const unknownOnly = only?.filter((name) => !CHECK_ORDER.includes(name)) ?? [];
   const timeoutMs = timeoutValue(args.timeout ?? config.verification?.timeoutMs);
   const checks = {};
+  let tier;
+  try {
+    tier = parseVerifyTier(args.tier);
+  } catch (error) {
+    return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'failed', error: error.message, checks: {} };
+  }
   if (configured.error) {
-    return { schemaVersion: SCHEMA_VERSION, command: 'verify', status: 'failed', error: configured.error, checks: {} };
+    return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'failed', error: configured.error, checks: {} };
   }
   if (unknownOnly.length > 0) {
-    return { schemaVersion: SCHEMA_VERSION, command: 'verify', status: 'failed', error: `Unknown checks: ${unknownOnly.join(', ')}`, checks: {} };
+    return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'failed', error: `Unknown checks: ${unknownOnly.join(', ')}`, checks: {} };
   }
   if (only && only.length === 0) {
-    return { schemaVersion: SCHEMA_VERSION, command: 'verify', status: 'failed', error: '--only requires at least one check.', checks: {} };
+    return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'failed', error: '--only requires at least one check.', checks: {} };
   }
-  const selectedNames = CHECK_ORDER.filter((name) => !only || only.includes(name));
+  const tierPlan = resolveVerifyTierPlan({
+    commands: configured.commands,
+    tiers: config?.validationCommands?.tiers,
+    tier,
+    only,
+    projectDir,
+  });
+  const selectedNames = tierPlan.selectedNames;
+  const deferredNames = new Set(tierPlan.deferredChecks.map((item) => item.name));
   const before = planOnly ? null : await gitFingerprint(projectDir);
   // `--reuse` replays the anchor's most recent passed receipt instead of
   // re-executing the commands when neither the working-tree fingerprint nor
@@ -453,7 +528,7 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
         commandSet: verificationCommandSet(configured.commands, selectedNames, projectDir),
       });
     } catch (error) {
-      return { schemaVersion: SCHEMA_VERSION, command: 'verify', status: 'failed', code: error.code ?? 'TASK_ANCHOR_INVALID', error: boundedOutput(error.message, projectDir), checks: {} };
+      return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'failed', code: error.code ?? 'TASK_ANCHOR_INVALID', error: boundedOutput(error.message, projectDir), checks: {} };
     }
     if (reusable) {
       const reusedChecks = {};
@@ -464,15 +539,21 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
           continue;
         }
         if (!selectedNames.includes(name)) {
-          reusedChecks[name] = { status: 'not_selected', command: displayCommand(command, projectDir) };
+          reusedChecks[name] = deferredNames.has(name)
+            ? { status: 'deferred', tier: tierPlan.slotTiers[name], command: displayCommand(command, projectDir) }
+            : { status: 'not_selected', command: displayCommand(command, projectDir) };
           continue;
         }
         reusedChecks[name] = { status: 'reused', command: displayCommand(command, projectDir) };
       }
       const receipt = reusable.verification;
       return {
-        schemaVersion: SCHEMA_VERSION,
+        schemaVersion: VERIFY_SCHEMA_VERSION,
+        engine: VERIFY_ENGINE,
         command: 'verify',
+        tier: tierPlan.tier,
+        deferredChecks: tierPlan.deferredChecks,
+        nextTier: tierPlan.nextTier,
         status: 'reused',
         reused: {
           taskId: reusable.taskId,
@@ -497,7 +578,9 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
       continue;
     }
     if (!selectedNames.includes(name)) {
-      checks[name] = { status: 'not_selected', command: displayCommand(command, projectDir) };
+      checks[name] = deferredNames.has(name)
+        ? { status: 'deferred', tier: tierPlan.slotTiers[name], command: displayCommand(command, projectDir) }
+        : { status: 'not_selected', command: displayCommand(command, projectDir) };
       continue;
     }
     selectedCount += 1;
@@ -533,27 +616,35 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
     };
   }
   if (selectedCount === 0) {
-    return { schemaVersion: SCHEMA_VERSION, command: 'verify', status: 'unverified', checks, error: 'No configured checks selected.' };
+    return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', tier: tierPlan.tier, deferredChecks: tierPlan.deferredChecks, nextTier: tierPlan.nextTier, status: 'unverified', checks, error: 'No configured checks selected.' };
   }
   if (planOnly) {
-    return { schemaVersion: SCHEMA_VERSION, command: 'verify', status: 'planned', timeoutMs, checks };
+    return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', tier: tierPlan.tier, deferredChecks: tierPlan.deferredChecks, nextTier: tierPlan.nextTier, status: 'planned', timeoutMs, checks };
   }
   const after = await gitFingerprint(projectDir);
   const stable = before.fingerprint !== null && after.fingerprint !== null
     ? before.fingerprint === after.fingerprint
     : null;
-  const failed = Object.values(checks).some((item) => ['blocked', 'failed'].includes(item.status));
+  // `blocked` (unsafe/manual/missing executable) is a distinct terminal
+  // status: it means the check never produced evidence, which is a different
+  // statement than a check that ran and failed.
+  const failed = Object.values(checks).some((item) => item.status === 'failed');
+  const blocked = Object.values(checks).some((item) => item.status === 'blocked');
   return {
-    schemaVersion: SCHEMA_VERSION,
+    schemaVersion: VERIFY_SCHEMA_VERSION,
+    engine: VERIFY_ENGINE,
     command: 'verify',
-    status: failed || stable === false ? 'failed' : 'passed',
+    tier: tierPlan.tier,
+    deferredChecks: tierPlan.deferredChecks,
+    nextTier: tierPlan.nextTier,
+    status: failed || stable === false ? 'failed' : blocked ? 'blocked' : 'passed',
     timeoutMs,
     checks,
     verification: {
       before: before.snapshot,
       after: after.snapshot,
       stable,
-      status: stable === false ? 'workspace_changed' : failed ? 'checks_failed' : 'verified',
+      status: stable === false ? 'workspace_changed' : failed ? 'checks_failed' : blocked ? 'checks_blocked' : 'verified',
       // Receipt identity: governance-core.md references these fields when a
       // delivery cites `vibe-harness verify --project`.
       id: randomUUID(),
@@ -1579,13 +1670,220 @@ async function worktreeCleanupReport(projectDir, args) {
   };
 }
 
+/**
+ * Crash recovery for worktree provisioning (docs/rules/git-rules.md §Worktree).
+ *
+ * A hard kill bypasses the in-process rollback a failed bootstrap runs, so the
+ * repository can be left with prunable worktree residue (directory gone, Git
+ * metadata and branch binding left), worktrees whose provisioning stopped
+ * before the locked registry/env write, zero-commit branches only that residue
+ * still references, and registry entries whose worktree no longer exists.
+ * Every category is detected from evidence (git listings, the port registry,
+ * the filesystem) and nothing is touched without `--write`; a branch is only
+ * ever deleted after being proven to sit at the base ref with a clean tree,
+ * so no work can be lost.
+ */
+async function worktreeRecoverReport(projectDir, args) {
+  const config = await readProjectConfig(projectDir);
+  const settings = resolveWorktreeSettings(projectDir, config, args);
+  if (settings.error) return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'recover', status: 'failed', error: settings.error };
+  const { entries, reason } = await worktreeEntries(projectDir);
+  if (reason) return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'recover', status: 'unavailable', error: reason };
+  const registry = readPortRegistry(projectDir).registry ?? null;
+  const registryEntryFor = (worktree) => (registry?.entries ?? []).find((item) => item.id === path.basename(worktree.path)
+    || (item.path && pathKey(item.path) === pathKey(worktree.path))
+    || (item.branch && item.branch === worktree.branch)) ?? null;
+  const baseHead = await runGit(['rev-parse', '--verify', '--quiet', settings.baseRef], projectDir);
+  const baseSha = baseHead.ok ? baseHead.stdout.trim() : null;
+  // Without a resolvable base ref nothing can be proven untouched, so the two
+  // categories that delete branches stay empty; `worktree check` is the command
+  // that reports WORKTREE_BASE_REF_UNRESOLVED.
+  const branchUntouched = async (branch) => {
+    if (baseSha === null) return false;
+    const head = await runGit(['rev-parse', `refs/heads/${branch}`], projectDir);
+    return head.ok && head.stdout.trim() === baseSha;
+  };
+
+  const prunable = entries.filter((entry) => !entry.primary && entry.prunable);
+  const liveEntries = entries.filter((entry) => !entry.prunable);
+
+  // Incomplete worktrees: a bootstrap that died between `git worktree add` and
+  // the locked registry/env write leaves a worktree that is clean, still at the
+  // base ref, and missing the registry entry or the port env file (a successful
+  // bootstrap always writes both). Attribution requires the worktree to sit
+  // under the configured root or carry a registry entry, so foreign worktrees
+  // are never touched.
+  const incomplete = [];
+  for (const entry of entries) {
+    if (entry.primary || entry.prunable || entry.detached || typeof entry.branch !== 'string' || entry.branch === '') continue;
+    const registryEntry = registryEntryFor(entry);
+    if (!isInsidePath(entry.path, settings.root) && !registryEntry) continue;
+    const envFilePresent = existsSync(path.join(entry.path, settings.ports.envFile));
+    if (envFilePresent && registryEntry) continue;
+    if (!await branchUntouched(entry.branch)) continue;
+    const dirty = await runGit(['status', '--porcelain=v1'], entry.path);
+    if (!dirty.ok || dirty.stdout.trim() !== '') continue;
+    incomplete.push({
+      branch: entry.branch,
+      envFilePresent,
+      id: registryEntry?.id ?? path.basename(entry.path),
+      path: entry.path,
+      registryEntryId: registryEntry?.id ?? null,
+    });
+  }
+
+  // Zero-commit branches nothing checks out, referenced only by residue. The
+  // prunable listing is the attribution evidence that the bootstrap created the
+  // branch, so this must be detected before prune removes that listing;
+  // unreferenced branches are user placeholders and are never deleted. Bindings
+  // that only a prunable listing still holds are freed by the prune below, so
+  // those branches are cleanup candidates here; every other binding (primary,
+  // live or incomplete worktree) keeps its branch out of cleanup.
+  const checkedOut = new Set(entries
+    .filter((entry) => !entry.prunable && typeof entry.branch === 'string' && entry.branch !== '')
+    .map((entry) => entry.branch));
+  const branchListing = await runGit(['for-each-ref', 'refs/heads', '--format=%(refname:short)'], projectDir);
+  const orphanedBranches = [];
+  if (branchListing.ok) {
+    for (const branch of branchListing.stdout.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean)) {
+      if (checkedOut.has(branch) || branch === settings.baseRef) continue;
+      if (!await branchUntouched(branch)) continue;
+      const evidence = (registry?.entries ?? []).some((item) => item.branch === branch) ? 'registry'
+        : prunable.some((item) => item.branch === branch) ? 'prunable'
+        : null;
+      if (evidence === null) continue;
+      orphanedBranches.push({ branch, evidence });
+    }
+  }
+
+  // Registry entries no surviving worktree claims. A prunable worktree is
+  // already gone from the filesystem, so its entry only leaks the port block;
+  // an entry matched by an incomplete worktree is released by that worktree's
+  // own rollback instead.
+  const orphanedRegistry = [];
+  for (const item of registry?.entries ?? []) {
+    const claimed = liveEntries.some((entry) => !entry.primary && (
+      item.id === path.basename(entry.path)
+      || (item.path && pathKey(item.path) === pathKey(entry.path))
+      || (item.branch && item.branch === entry.branch)
+    ));
+    if (!claimed) orphanedRegistry.push({ id: item.id, path: item.path ?? null });
+  }
+
+  // Apply: incomplete worktrees first (each removal is its own rollback), then
+  // one prune for the residue, then branch deletes (prune is what frees the
+  // bindings the prunable listing held), then registry releases.
+  const results = [];
+  for (const item of incomplete) {
+    if (!args.write) {
+      results.push({ ...item, status: 'planned' });
+      continue;
+    }
+    const removedLinks = removeDependencyLinks(item.path, settings);
+    const removed = await runGit(['worktree', 'remove', '--force', item.path], projectDir);
+    if (!removed.ok) {
+      results.push({
+        ...item,
+        code: 'WORKTREE_RECOVER_REMOVE_FAILED',
+        error: boundedOutput(removed.stderr || removed.error?.message || 'git worktree remove failed', projectDir),
+        removedLinks,
+        status: 'failed',
+      });
+      continue;
+    }
+    const branchDeleted = (await runGit(['branch', '--delete', '--force', item.branch], projectDir)).ok;
+    const released = item.registryEntryId !== null
+      ? await releasePortRegistryEntry(projectDir, item.registryEntryId)
+      : { released: false };
+    const errors = [];
+    if (!branchDeleted) errors.push(`branch ${item.branch} could not be deleted`);
+    if (item.registryEntryId !== null && released.released !== true) errors.push(`registry entry ${item.registryEntryId} not released`);
+    results.push({
+      ...item,
+      ...(errors.length > 0 ? { code: 'WORKTREE_RECOVER_PARTIAL', error: errors.join('; ') } : {}),
+      branchDeleted,
+      portBlockReleased: released.released === true,
+      removedLinks,
+      status: errors.length === 0 ? 'passed' : 'failed',
+    });
+  }
+
+  let pruned = null;
+  if (args.write && (prunable.length > 0 || incomplete.length > 0)) {
+    pruned = (await runGit(['worktree', 'prune'], projectDir)).ok;
+  }
+
+  const branchResults = [];
+  for (const item of orphanedBranches) {
+    if (!args.write) {
+      branchResults.push({ ...item, status: 'planned' });
+      continue;
+    }
+    const deleted = await runGit(['branch', '--delete', '--force', item.branch], projectDir);
+    branchResults.push(deleted.ok
+      ? { ...item, status: 'passed' }
+      : {
+        ...item,
+        code: 'WORKTREE_RECOVER_BRANCH_FAILED',
+        error: boundedOutput(deleted.stderr || deleted.error?.message || 'git branch --delete failed', projectDir),
+        status: 'failed',
+      });
+  }
+
+  const registryResults = [];
+  for (const item of orphanedRegistry) {
+    if (!args.write) {
+      registryResults.push({ ...item, status: 'planned' });
+      continue;
+    }
+    const released = await releasePortRegistryEntry(projectDir, item.id);
+    registryResults.push(released.released === true
+      ? { ...item, status: 'passed' }
+      : {
+        ...item,
+        code: 'WORKTREE_RECOVER_RELEASE_FAILED',
+        error: released.reason ?? released.error ?? 'registry entry not released',
+        status: 'failed',
+      });
+  }
+
+  const failed = [...results, ...branchResults, ...registryResults].some((item) => item.status === 'failed')
+    || (args.write && prunable.length > 0 && pruned !== true);
+  const summary = [
+    `status: ${failed ? 'failed' : args.write ? 'passed' : 'planned'} (write: ${Boolean(args.write)})`,
+    `prunable residue: ${prunable.length}${prunable.length > 0 ? ` (${prunable.map((item) => item.path).join(', ')})` : ''}`,
+    ...results.map((item) => `incomplete: ${item.path} branch ${item.branch} ${item.status}`),
+    ...branchResults.map((item) => `branch: ${item.branch} ${item.status}${item.evidence ? ` [${item.evidence}]` : ''}${item.error ? ` (${item.error})` : ''}`),
+    ...registryResults.map((item) => `registry entry: ${item.id} ${item.status}`),
+  ].join('\n');
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    command: 'worktree',
+    subcommand: 'recover',
+    status: failed ? 'failed' : args.write ? 'passed' : 'planned',
+    baseRef: settings.baseRef,
+    orphanedBranches: branchResults,
+    orphanedRegistry: registryResults,
+    prunable: prunable.map((item) => ({
+      branch: item.branch,
+      path: item.path,
+      reason: typeof item.prunable === 'string' ? item.prunable : 'worktree directory missing',
+    })),
+    pruned: args.write ? pruned : null,
+    results,
+    summary,
+    write: Boolean(args.write),
+  };
+}
+
 async function worktreeReport(projectDir, args) {
   const subcommand = args._[1] ?? 'check';
   if (subcommand === 'list') return worktreeListReport(projectDir);
   if (subcommand === 'check') return worktreeCheckReport(projectDir, args);
   if (subcommand === 'bootstrap') return worktreeBootstrapReport(projectDir, args);
   if (subcommand === 'cleanup') return worktreeCleanupReport(projectDir, args);
-  throw new Error(`Unknown worktree subcommand: ${subcommand} (expected list, check, bootstrap or cleanup)`);
+  if (subcommand === 'recover') return worktreeRecoverReport(projectDir, args);
+  throw new Error(`Unknown worktree subcommand: ${subcommand} (expected list, check, bootstrap, cleanup or recover)`);
 }
 
 function detectEol(text) {
@@ -2618,9 +2916,12 @@ function summary(report) {
     if (report.worktree) lines.push(report.worktree);
     if (report.task) lines.push(report.task);
     if (report.reuse) lines.push(report.reuse);
+    if (report.verify) lines.push(report.verify);
   }
   if (report.command === 'verify') {
+    if (report.tier) lines.push(`tier: ${report.tier}`);
     for (const [name, item] of Object.entries(report.checks ?? {})) lines.push(`${name}: ${item.status}`);
+    if (report.nextTier) lines.push(`nextTier: ${report.nextTier}`);
     if (report.reused) lines.push(`reused: ${report.reused.taskId}/${report.reused.unitId}${report.reused.id ? ` receipt ${report.reused.id}` : ''}`);
   }
   if (report.error) lines.push(`error: ${report.error}`);
@@ -2646,11 +2947,12 @@ export async function runCommand(argv, { cwd = process.cwd() } = {}) {
     schemaVersion: SCHEMA_VERSION,
     command,
     status: 'ready',
-    usage: 'run.mjs <env|context|changes|verify|worktree|slice|patch|task|codebase-memory> --project <path> [--json]',
+    usage: 'run.mjs <env|context|changes|verify|worktree|slice|patch|task|codebase-memory> [--project <path>] [--json]（--project 缺省为当前目录）',
     codebaseMemory: 'run.mjs codebase-memory <status|refresh> --project <path>: status reports fresh|stale|missing from the index state stamp written by the runtime wrapper after a successful index_repository and never writes; refresh stays dry-run until --write and then rebuilds the semantic graph through the pinned project runtime',
-    worktree: 'run.mjs worktree <list|check|bootstrap|cleanup> --project <path>: bootstrap and cleanup stay dry-run until --write; bootstrap allocates the next port block from .vibe-harness/worktree-ports.json, materializes worktree.provision.envFiles and runs worktree.provision.setupCommands (a red-zone target also needs --confirm-red-zone); cleanup refuses branches not merged into worktree.baseRef',
+    worktree: 'run.mjs worktree <list|check|bootstrap|cleanup|recover> --project <path>: bootstrap, cleanup and recover stay dry-run until --write; bootstrap allocates the next port block from .vibe-harness/worktree-ports.json, materializes worktree.provision.envFiles and runs worktree.provision.setupCommands (a red-zone target also needs --confirm-red-zone); cleanup refuses branches not merged into worktree.baseRef; recover reclaims crash residue (prunable worktrees, bootstrap worktrees still clean at the base ref, zero-commit branches only residue references, leaked registry entries) and never deletes a branch that moved past the base ref',
     task: 'run.mjs task <init|update|status|list> [task-id] --project <path>: anchors live in .vibe-harness/tasks/<task-id>.json; init and update stay dry-run until --write while status and list never write; update accepts --stage, --unit-status <unitId>:<status>, --decision, --blocker, --next-action, and --unit <unitId> --verification <verify receipt> to record a verify receipt on a unit',
     reuse: 'run.mjs verify --project <path> [--task <task-id>] --reuse: returns status "reused" without executing commands when the working-tree fingerprint and command set match the most recent passed receipt in the anchor; otherwise the checks run normally',
+    verify: 'run.mjs verify --project <path> [--tier quick|standard|deep] [--only lint,typecheck,test,eval] [--plan]: quick is the default cost layer and slots outside it are reported as deferred with nextTier; --only selects explicit checks and bypasses tier deferral; blocked checks (unsafe, manual without --allow-manual, missing executable) end the receipt with status "blocked" instead of "failed"',
   };
   else throw new Error(`Unknown command: ${command}`);
   // A freshness verdict is the answer to a question, not a failed command:

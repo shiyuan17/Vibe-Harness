@@ -210,3 +210,72 @@ test('成本层缺省解析为快速层而 --full 保留完整矩阵', async () 
     await rm(target, { force: true, recursive: true });
   }
 });
+
+test('被覆盖映射完整归因的脚本变更收窄为文件级测试命令', async () => {
+  const target = await targetWithScripts();
+  try {
+    const plan = await buildVerificationPlan({
+      changedPaths: ['scripts/lib/helper.js'],
+      targetDir: target,
+      covers: { 'tests/unit/alpha.test.js': ['scripts/lib/helper.js'] },
+    });
+    const test = plan.selectedChecks.find((item) => item.id === 'test');
+    const component = plan.selectedChecks.find((item) => item.id === 'component');
+    assert.equal(test.command, 'node --test tests/unit/alpha.test.js');
+    assert.ok(test.reason.includes('文件级聚焦'));
+    // 没有归因的层保持完整层级命令，不凭空构造聚焦。
+    assert.equal(component.command, 'pnpm test:component');
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('覆盖映射未归因的源文件变更阻止收窄并回退整层', async () => {
+  const target = await targetWithScripts();
+  try {
+    const plan = await buildVerificationPlan({
+      changedPaths: ['scripts/lib/helper.js', 'docs/guide.md'],
+      targetDir: target,
+      covers: { 'tests/unit/alpha.test.js': ['scripts/lib/helper.js'] },
+    });
+    const test = plan.selectedChecks.find((item) => item.id === 'test');
+    assert.equal(test.command, 'pnpm test:unit');
+    assert.equal(test.command.includes('alpha.test.js'), false);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('变更自身的测试文件直接入选聚焦命令', async () => {
+  const target = await targetWithScripts();
+  try {
+    const plan = await buildVerificationPlan({
+      changedPaths: ['tests/unit/beta.test.js'],
+      targetDir: target,
+      covers: { 'tests/unit/alpha.test.js': [], 'tests/unit/beta.test.js': [] },
+    });
+    const test = plan.selectedChecks.find((item) => item.id === 'test');
+    const component = plan.selectedChecks.find((item) => item.id === 'component');
+    assert.equal(test.command, 'node --test tests/unit/beta.test.js');
+    assert.equal(component.command, 'pnpm test:component');
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('tier 计划不收窄测试命令以保持层命令同一性', async () => {
+  const target = await targetWithScripts();
+  try {
+    const plan = await buildVerificationPlan({
+      changedPaths: ['scripts/lib/helper.js'],
+      targetDir: target,
+      tier: 'quick',
+      tiers: { quick: ['pnpm test:unit'], standard: [], deep: [] },
+      covers: { 'tests/unit/alpha.test.js': ['scripts/lib/helper.js'] },
+    });
+    assert.deepEqual(plan.selectedChecks.map((item) => item.command), ['pnpm test:unit']);
+    assert.equal(plan.selectedChecks.some((item) => item.command.includes('alpha.test.js')), false);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});

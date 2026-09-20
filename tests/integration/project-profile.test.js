@@ -574,7 +574,7 @@ test('生成的入口文件渲染三个成本层并标注未配置层', async ()
     assert.match(agents, /深度层（异步或发布边界，pnpm test:e2e）/u);
     assert.match(projectRules, /快速层（开发中同步，失败阻塞当前实施单元）：pnpm lint、pnpm test:unit/u);
     assert.match(projectRules, /深度层（异步、夜间、关键 PR 或发布边界，失败阻塞集成与发布）：pnpm test:e2e/u);
-    assert.match(projectRules, /vibe-harness verify` 默认只执行快速层；中等层与深度层显式传 `--tier standard\|deep\|all` 升级，`--full` 运行完整矩阵/u);
+    assert.match(projectRules, /vibe-harness verify` 默认只执行快速层；中等层与深度层显式传 `--tier standard\|deep` 升级，`--full` 运行完整矩阵/u);
 
     const emptyReport = await runCli(['install', '--project', unconfigured, '--target', 'codex', '--profile', 'core', '--dry-run', '--verbose']);
     const emptyAgents = emptyReport.previewFiles.find((file) => file.target === 'AGENTS.md').content;

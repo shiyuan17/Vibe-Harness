@@ -35,6 +35,17 @@
           "addedAt": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" }
         }
       }
+    },
+    "covers": {
+      "type": "object",
+      "description": "静态覆盖映射：测试文件 → 它通过相对 import 可达的源文件列表（下界语义）。",
+      "patternProperties": {
+        "^tests/(unit|component|integration|e2e|matrix)/[A-Za-z0-9._-]+\\.test\\.js$": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[A-Za-z0-9._/-]+$" }
+        }
+      },
+      "additionalProperties": false
     }
   }
 }

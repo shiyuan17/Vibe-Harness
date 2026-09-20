@@ -7,7 +7,7 @@ import test from 'node:test';
 import { promisify } from 'node:util';
 
 import { removeTemporaryDirectory } from '../../scripts/lib/temp-cleanup.js';
-import { buildLedger, checkLedger, enumerateDeclaredCases, scanDeclarations } from '../../scripts/tests-catalog.js';
+import { buildLedger, checkLedger, enumerateDeclaredCases, ledgerDocument, scanDeclarations } from '../../scripts/tests-catalog.js';
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '../..');
@@ -189,6 +189,11 @@ test('sync --write 连续两次结果一致', async () => {
     const document = JSON.parse(first);
     assert.deepEqual(document.cases.map((item) => item.id), ['U-alpha-001', 'U-alpha-002', 'E-beta-001']);
     assert.equal(document.cases.every((item) => item.legacy === true), true, '首次生成的批次标记为存量');
+    // 覆盖映射随台账落盘：无导入的测试文件也保留空条目。
+    assert.deepEqual(document.covers, {
+      'tests/unit/alpha.test.js': [],
+      'tests/e2e/beta.test.js': [],
+    });
   } finally {
     await removeTemporaryDirectory(dir);
   }
@@ -207,6 +212,30 @@ test('新增用例在既有台账上按 legacy: false 落盘', () => {
     ['U-alpha-001', true, 'migration'],
     ['U-alpha-002', false, 'declared'],
   ]);
+});
+
+test('covers 映射仅按需落盘且漂移时报 ledger-covers-out-of-sync', async () => {
+  assert.equal('covers' in ledgerDocument([]), false);
+  assert.deepEqual(ledgerDocument([], { 'tests/unit/alpha.test.js': ['scripts/lib/helper.js'] }).covers, {
+    'tests/unit/alpha.test.js': ['scripts/lib/helper.js'],
+  });
+
+  const inSync = await checkLedger({
+    ledger: { ...ledgerWith([]), covers: { 'tests/unit/alpha.test.js': ['scripts/lib/helper.js'] } },
+    schema,
+    covers: { 'tests/unit/alpha.test.js': ['scripts/lib/helper.js'] },
+  });
+  assert.equal(inSync.errors.some((item) => item.code === 'ledger-covers-out-of-sync'), false);
+
+  const drifted = await checkLedger({
+    ledger: { ...ledgerWith([]), covers: { 'tests/unit/alpha.test.js': ['scripts/lib/helper.js'] } },
+    schema,
+    covers: {
+      'tests/unit/alpha.test.js': ['scripts/lib/helper.js'],
+      'tests/unit/beta.test.js': [],
+    },
+  });
+  assert.equal(drifted.errors.some((item) => item.code === 'ledger-covers-out-of-sync'), true);
 });
 
 const parameterizedEntry = entry({

@@ -10,7 +10,7 @@ import {
   collectChangedPaths,
   parseNulPathList,
   parseNulPorcelainPaths,
-} from '../../scripts/verify-focused.js';
+} from '../../scripts/lib/change-impact.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -259,6 +259,8 @@ test('verify-focused --run terminates a hanging command with project timeout rec
     assert.equal(elapsedMs >= declaredTimeoutMs, true);
     assert.equal(elapsedMs < declaredTimeoutMs + reclamationBudgetMs, true);
   } finally {
-    await rm(dir, { recursive: true, force: true });
+    // The killed process tree can still hold dir handles for a moment on
+    // Windows (EBUSY on rmdir); retry per fs.rm semantics instead of racing.
+    await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

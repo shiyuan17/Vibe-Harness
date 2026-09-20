@@ -7,6 +7,7 @@ import {
   resolveExecutionTier,
   selectTierChecks,
 } from './validation-tiers.js';
+import { TEST_FILE_PATTERN } from './test-enumeration.js';
 
 /**
  * Cost tier of each selectable check. The risk plan and the tier plan answer
@@ -219,7 +220,85 @@ function addCheck(checks, command, reason, id = command, scripts = {}) {
 }
 
 /**
- * @param {{changedPaths?: string[], changedDetails?: Array<object>, commandStatus?: object, config?: {riskZones?: {red?: string[], yellow?: string[], pathPatterns?: {red?: string[], yellow?: string[]}}}, targetDir?: string, full?: boolean, tier?: 'quick'|'standard'|'deep'|null, tierExplicit?: boolean, tiers?: {quick?: string[], standard?: string[], deep?: string[]}|null, tierSource?: string|null}} options
+ * Load the ledger's coverage map (test file → sources it reaches through
+ * relative imports) from the target directory. Foreign projects carry no
+ * ledger, so they resolve to null and never narrow — the fail-safe direction.
+ *
+ * @param {string} targetDir
+ * @returns {Promise<Record<string, string[]>|null>}
+ */
+async function readLedgerCovers(targetDir) {
+  try {
+    const ledger = JSON.parse(await readFile(path.join(targetDir, 'tests/cases.json'), 'utf8'));
+    const covers = ledger?.covers;
+    return covers !== null && typeof covers === 'object' && !Array.isArray(covers) ? covers : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Pick the layer's test files a change set justifies. The result is null unless
+ * narrowing is provably safe: every changed non-test source must be reached by
+ * one of the selected tests, because the coverage map is a lower bound (dynamic
+ * imports and readFile dependencies are invisible to it) and "not listed" must
+ * never be read as "unaffected".
+ *
+ * @param {string[]} paths normalized changed paths
+ * @param {Record<string, string[]>|null} coverage test file → covered sources
+ * @param {string} layer layer directory name under tests/
+ * @returns {string[]|null} sorted test files, or null to keep the full layer
+ */
+function focusedTestFiles(paths, coverage, layer) {
+  if (!coverage || typeof coverage !== 'object') return null;
+  const own = paths.filter((item) => item.startsWith(`tests/${layer}/`) && TEST_FILE_PATTERN.test(item));
+  const sources = paths.filter((item) => !TEST_FILE_PATTERN.test(item));
+  const selected = new Set(own);
+  for (const [testFile, covered] of Object.entries(coverage)) {
+    if (!testFile.startsWith(`tests/${layer}/`) || !Array.isArray(covered)) continue;
+    if (covered.some((source) => sources.includes(source))) selected.add(testFile);
+  }
+  if (selected.size === 0) return null;
+  const reaches = (testFile, source) => {
+    const covered = coverage[testFile];
+    return Array.isArray(covered) && covered.includes(source);
+  };
+  if (!sources.every((source) => [...selected].some((testFile) => reaches(testFile, source)))) return null;
+  return [...selected].sort();
+}
+
+// Must stay aligned with shellControlPattern in ./shell-command.js: plan
+// commands are executed through assertSafeCommand, so a token that survives
+// here but is rejected there would turn the whole check into 'blocked'.
+const UNSAFE_TOKEN_PATTERN = /[;|&<>$`]/u;
+
+/**
+ * Rewrite a layer's `node --test` command so it runs only the focused test
+ * files, preserving every other flag (concurrency, timeout, reporters) of the
+ * configured script. Any script shape that cannot be verified — a non-node
+ * runner, a missing `--test`, shell metacharacters — returns null and the
+ * caller keeps the full layer command.
+ *
+ * @param {string} scriptName package.json script name of the layer
+ * @param {string[]} files focused test files
+ * @param {Record<string, string>} scripts package.json scripts
+ * @returns {string|null}
+ */
+function focusedRunner(scriptName, files, scripts) {
+  const script = scripts[scriptName];
+  if (typeof script !== 'string' || files.length === 0) return null;
+  const tokens = script.split(/\s+/u).filter(Boolean);
+  if (tokens[0] !== 'node' || !tokens.includes('--test')) return null;
+  if (tokens.some((token) => UNSAFE_TOKEN_PATTERN.test(token))) return null;
+  const flags = tokens.filter((token) => !TEST_FILE_PATTERN.test(token));
+  // The case reporter writes to a single .vibe-harness/observed-tests/<layer>.json
+  // destination, so a focused run leaves the subset there; the full gate has to
+  // re-run before the ledger's observed comparison is meaningful again.
+  return [...flags, ...files].join(' ');
+}
+
+/**
+ * @param {{changedPaths?: string[], changedDetails?: Array<object>, commandStatus?: object, config?: {riskZones?: {red?: string[], yellow?: string[], pathPatterns?: {red?: string[], yellow?: string[]}}}, targetDir?: string, full?: boolean, tier?: 'quick'|'standard'|'deep'|null, tierExplicit?: boolean, tiers?: {quick?: string[], standard?: string[], deep?: string[]}|null, tierSource?: string|null, covers?: Record<string, string[]>|null}} options
  */
 export async function buildVerificationPlan({
   changedPaths = [],
@@ -232,10 +311,14 @@ export async function buildVerificationPlan({
   tierExplicit = false,
   tiers = null,
   tierSource = null,
+  covers = undefined,
 } = {}) {
   const paths = changedPaths.map(normalize);
   const risk = classifyVerificationRisk(paths, { changedDetails, riskZones: config.riskZones });
   const scripts = await projectScripts(targetDir);
+  // The coverage map comes from the caller or from the target's own ledger;
+  // it is only consulted in tier-less (change-driven) plans.
+  const coverage = covers === undefined ? await readLedgerCovers(targetDir) : covers;
   const checks = [];
   const reasons = [];
   if (risk.configuredZones.red) reasons.push('命中 riskZones.red 或 pathPatterns.red');
@@ -266,6 +349,20 @@ export async function buildVerificationPlan({
     const command = configured(name) ?? (scripts[fallbackScript] ? `pnpm ${fallbackScript}` : null);
       if (command) addCheck(checks, command, reason, name, scripts);
   };
+  // Test layers can narrow below the layer script when the change is fully
+  // attributed by the ledger's coverage map: the plan then rewrites the
+  // layer's `node --test` command to run only the selected files. Tier runs
+  // never narrow — they select by configured command identity, and file-level
+  // focus would break that 1:1 mapping.
+  const addTestLayer = (name, reason, layer) => {
+    const focused = tier ? null : focusedTestFiles(paths, coverage, layer);
+    const command = focused ? focusedRunner(scriptFallback[name], focused, scripts) : null;
+    if (command) {
+      addCheck(checks, command, `${reason}（文件级聚焦：${focused.length} 个测试文件）`, name, scripts);
+      return;
+    }
+    addConfigured(name, reason);
+  };
 
   if (full || risk.riskLevel === 'high' || risk.fallbackUsed) {
     if (scripts.validate) addCheck(checks, 'pnpm validate', '完整验证的原子配置校验', 'validate', scripts);
@@ -289,8 +386,8 @@ export async function buildVerificationPlan({
       reasons.push('规则或治理内容变更');
     }
     if (risk.impactGroups.includes('tests')) {
-      addConfigured('test', '受影响单元测试');
-      addConfigured('component', '受影响组件测试');
+      addTestLayer('test', '受影响单元测试', 'unit');
+      addTestLayer('component', '受影响组件测试', 'component');
       if (risk.riskLevel === 'quick') reasons.push('单个测试文件变更');
     }
     if (risk.impactGroups.includes('eval')) {
@@ -302,8 +399,8 @@ export async function buildVerificationPlan({
        if (scripts['eval:check']) addCheck(checks, 'pnpm eval:check', 'Skill Eval 契约校验', 'eval-check', scripts);
     }
     if (risk.impactGroups.includes('scripts')) {
-      addConfigured('test', '脚本相关单元测试');
-      addConfigured('component', '脚本相关组件测试');
+      addTestLayer('test', '脚本相关单元测试', 'unit');
+      addTestLayer('component', '脚本相关组件测试', 'component');
       reasons.push('普通脚本或局部业务逻辑变更');
     }
     if (risk.impactGroups.includes('config')) {

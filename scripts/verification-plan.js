@@ -3,7 +3,7 @@ import { appendFile } from 'node:fs/promises';
 import { readProjectConfig, resolveValidationCommands } from './lib/project-config.js';
 import { inspectValidationCommands } from './lib/command-status.js';
 import { buildVerificationPlan } from './lib/verification-plan.js';
-import { collectChangedDetails, collectChangedPaths } from './verify-focused.js';
+import { collectChangedDetails, collectChangedPaths } from './lib/change-impact.js';
 
 const targetDir = process.cwd();
 const config = await readProjectConfig(targetDir);
@@ -37,6 +37,10 @@ const report = {
     smoke: plan.riskLevel === 'high' || plan.lifecycle,
     supplyChain: plan.riskLevel === 'high' || plan.impactGroups.some((item) => ['runtime', 'manifests', 'config', 'schemas'].includes(item)),
     full: forceFull || plan.riskLevel === 'high',
+    // A docs-only diff selects nothing but the docs audit, so the code
+    // baseline (eslint, typecheck, unit) cannot be affected by it. CI gates
+    // those steps on this flag instead of duplicating the decision in YAML.
+    docsOnly: plan.selectedChecks.length > 0 && plan.selectedChecks.every((item) => item.id === 'docs'),
   },
 };
 console.log(JSON.stringify(report, null, 2));
@@ -55,6 +59,7 @@ if (process.env.GITHUB_OUTPUT) {
     `evalCheck=${report.required.evalCheck}`,
     `docs=${report.required.docs}`,
     `skills=${report.required.skills}`,
+    `docsOnly=${report.required.docsOnly}`,
   ];
   await appendFile(process.env.GITHUB_OUTPUT, `${lines.join('\n')}\n`, 'utf8');
 }

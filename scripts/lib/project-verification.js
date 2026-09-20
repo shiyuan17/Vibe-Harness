@@ -429,6 +429,7 @@ export async function runProjectVerification({
     results,
     verification: {
       schemaVersion: 2,
+      engine: 'vibe-harness-cli',
       after,
       before,
       changeBoundary: {
@@ -561,6 +562,7 @@ export async function runFocusedProjectVerification({
     results,
     verification: {
       schemaVersion: 2,
+      engine: 'vibe-harness-cli',
       after,
       before,
       durationMs: finishedAt.getTime() - startedAt.getTime(),

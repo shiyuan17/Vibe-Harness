@@ -2,16 +2,18 @@
 // Test-case ledger for this repository (docs/rules/test-rules.md §用例约定).
 //
 // `sync` walks the five layer directories, reads the declared `test(...)` names
-// in declaration order and rewrites tests/cases.json. `check` re-validates the
-// ledger structure and, when runtime enumeration is supplied, compares it with
-// what node:test actually reported. The ledger is a repository-local practice:
-// `tests/` is not part of the published pack, so nothing here leaks into
-// installed projects.
+// in declaration order and rewrites tests/cases.json, including the `covers`
+// map that attributes source files to the tests that reach them. `check`
+// re-validates the ledger structure and, when runtime enumeration is supplied,
+// compares it with what node:test actually reported. The ledger is a
+// repository-local practice: `tests/` is not part of the published pack, so
+// nothing here leaks into installed projects.
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { validateJsonAgainstSchema } from './lib/manifest.js';
+import { buildTestCoverageMap } from './lib/test-coverage-map.js';
 import { onDiskTestFiles, TEST_LAYERS } from './lib/test-enumeration.js';
 
 export const LEDGER_PATH = 'tests/cases.json';
@@ -247,18 +249,45 @@ function stableStringify(value, indent = 2) {
   return `${JSON.stringify(value, null, indent)}\n`;
 }
 
-export function ledgerDocument(entries) {
-  return { schemaVersion: 1, layers: LAYER_ORDER, cases: entries };
+// Canonical form for coverage-map comparison: one sorted-JSON signature per
+// test file. A missing map and an invalid shape both canonicalise to distinct,
+// comparable values instead of crashing the check.
+function coversSignature(covers) {
+  if (covers === null || covers === undefined) return new Map();
+  const signature = new Map();
+  for (const [key, value] of Object.entries(covers)) {
+    signature.set(key, Array.isArray(value) ? JSON.stringify([...value].sort()) : 'invalid');
+  }
+  return signature;
+}
+
+/**
+ * Serialise the ledger document. `covers` is the static coverage map (test file
+ * → sorted list of source files it reaches through relative imports); pass it
+ * only when the document should carry the coverage block at all.
+ *
+ * @param {any[]} entries ledger case entries
+ * @param {Record<string, string[]>|null} [covers] coverage map, or null to omit
+ */
+export function ledgerDocument(entries, covers = null) {
+  return {
+    schemaVersion: 1,
+    layers: LAYER_ORDER,
+    cases: entries,
+    ...(covers === null ? {} : { covers }),
+  };
 }
 
 /**
  * Validate the ledger shape and its cross-references. `observed` is the runtime
- * enumeration produced by scripts/lib/test-case-reporter.mjs.
+ * enumeration produced by scripts/lib/test-case-reporter.mjs; `covers` is the
+ * freshly computed coverage map — when supplied, the persisted `covers` block
+ * must match it or the check reports drift.
  *
- * @param {{ledger?: any, schema?: any, declared?: any[]|null, observed?: any[]|null, observedLayers?: string[]|null, strict?: boolean}} [options]
+ * @param {{ledger?: any, schema?: any, declared?: any[]|null, observed?: any[]|null, observedLayers?: string[]|null, covers?: Record<string, string[]>|null, strict?: boolean}} [options]
  */
 export async function checkLedger({
-  ledger, schema, declared = null, observed = null, observedLayers = null, strict = false,
+  ledger, schema, declared = null, observed = null, observedLayers = null, covers = null, strict = false,
 } = {}) {
   const errors = [];
   const warnings = [];
@@ -296,6 +325,23 @@ export async function checkLedger({
     }
     if (entry?.legacy === false && !CJK_PATTERN.test(String(entry?.name ?? ''))) {
       warn('ledger-name-language', { id, name: entry?.name });
+    }
+  }
+
+  // The coverage map is a third truth source with the same drift treatment: a
+  // freshly computed map must equal the persisted one, otherwise file-level
+  // focusing would silently work from stale attribution.
+  if (covers !== null) {
+    const expected = coversSignature(covers);
+    const actual = coversSignature(ledger?.covers);
+    const differing = [...new Set([...expected.keys(), ...actual.keys()])]
+      .filter((key) => expected.get(key) !== actual.get(key))
+      .sort();
+    if (differing.length > 0) {
+      push('ledger-covers-out-of-sync', {
+        total: differing.length,
+        sample: differing.slice(0, 5),
+      });
     }
   }
 
@@ -405,7 +451,11 @@ async function main() {
       if (left.file !== right.file) return left.file.localeCompare(right.file);
       return left.ordinal - right.ordinal;
     });
-    const document = ledgerDocument(merged);
+    // The coverage map is always whole-repository, even for a layer-scoped
+    // sync: `covers` is a global view and rescanning only one layer would
+    // silently drop the other layers' attribution.
+    const covers = await buildTestCoverageMap(rootDir);
+    const document = ledgerDocument(merged, covers);
     const added = merged.filter((entry) => !previous.some((item) => identityOf(item) === identityOf(entry)));
     const removed = previous.filter((entry) => !merged.some((item) => identityOf(item) === identityOf(entry)));
     if (options.write) {
@@ -414,6 +464,7 @@ async function main() {
     const report = {
       command: 'sync',
       cases: merged.length,
+      covers: Object.keys(covers).length,
       added: added.length,
       removed: removed.length,
       problems,
@@ -422,7 +473,7 @@ async function main() {
     };
     if (options.json) console.log(JSON.stringify(report, null, 2));
     else {
-      console.log(`tests-catalog sync: ${merged.length} case(s), +${added.length} -${removed.length}${options.write ? '' : ' (dry-run, pass --write)'}`);
+      console.log(`tests-catalog sync: ${merged.length} case(s), ${Object.keys(covers).length} cover map entr(ies), +${added.length} -${removed.length}${options.write ? '' : ' (dry-run, pass --write)'}`);
       for (const problem of problems) console.log(`  ${problem.code} ${problem.file}${problem.line ? `:${problem.line}` : ''}`);
       for (const entry of removed) console.log(`  removed ${entry.layer} ${entry.file} — ${entry.name}`);
     }
@@ -441,6 +492,7 @@ async function main() {
     ? [...new Set(observed.map((entry) => layerOf(toPosix(entry.file))).filter(Boolean))]
     : null;
   const result = await checkLedger({
+    covers: await buildTestCoverageMap(rootDir),
     declared, ledger, observed, observedLayers, schema, strict: options.strict,
   });
   const report = {

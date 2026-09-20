@@ -112,7 +112,13 @@ test('verify --project executes configured available commands', async () => {
   }
 });
 
-test('verify --project --plan 预览快速层且不执行检查，--full 保留完整矩阵', async () => {
+// The raised tests below drive real CLI verify subprocesses (1-4 invocations
+// each); on slow filesystems every invocation carries a multi-second I/O floor,
+// so they legitimately exceed the default 120s test budget.
+// 2026-09-19 calibration (solo, slow box): install --write 35s, validate 68s,
+// doctor 73s per invocation; RTK round-trip measured >300s solo, so 600s is a
+// hang guard, not a performance claim.
+test('verify --project --plan 预览快速层且不执行检查，--full 保留完整矩阵', { timeout: 600000 }, async () => {
   const target = await createProject({
     lint: 'node verify-marker.mjs',
     typecheck: null,
@@ -158,7 +164,7 @@ test('verify --project --plan 预览快速层且不执行检查，--full 保留�
   }
 });
 
-test('verify --project blocks missing and manual commands by default', async () => {
+test('verify --project blocks missing and manual commands by default', { timeout: 600000 }, async () => {
   const target = await createProject({
     lint: 'pnpm missing-script',
     typecheck: 'node -e "console.log(42)"',
@@ -226,7 +232,7 @@ test('verify --project propagates command failures', async () => {
   }
 });
 
-test('verify --project terminates a hanging command and returns a structured timeout receipt', async () => {
+test('verify --project terminates a hanging command and returns a structured timeout receipt', { timeout: 600000 }, async () => {
   const target = await createProject({
     lint: 'node verify-hang.mjs',
     typecheck: null,
@@ -260,9 +266,11 @@ test('verify --project terminates a hanging command and returns a structured tim
     );
     // TD-2026-09-15-8: 结构化超时收据已由上方断言覆盖；这里的墙钟判据只要求
     // 「不早于声明的 timeoutMs 结束，且在进程树回收的合理预算内结束」，
-    // 不再绑定与机器负载强相关的固定上界。
+    // 不再绑定与机器负载强相关的固定上界。预算还需覆盖 CLI 进程启动与
+    // 安装漂移预检的文件 I/O（慢盘下单次 verify 调用可达数十秒，2026-09-19
+    // 实测整测 84.7s，单跑 111.4s），故从 30s 放宽至 240s；精确的 1s 终止语义由收据字段断言。
     const declaredTimeoutMs = 1000;
-    const reclamationBudgetMs = 30_000;
+    const reclamationBudgetMs = 240_000;
     const elapsedMs = Date.now() - startedAt;
     assert.equal(elapsedMs >= declaredTimeoutMs, true);
     assert.equal(elapsedMs < declaredTimeoutMs + reclamationBudgetMs, true);
@@ -782,8 +790,8 @@ test('verify --tier standard 只运行快速层与中等层', async () => {
   }
 });
 
-test('verify --tier deep 与 all 运行全部层并完成范围', async () => {
-  for (const tier of ['deep', 'all']) {
+test('verify --tier deep 运行全部层并完成范围，all 别名已移除', { timeout: 600000 }, async () => {
+  for (const tier of ['deep']) {
     const target = await createProject({
       lint: null,
       typecheck: null,
@@ -796,11 +804,19 @@ test('verify --tier deep 与 all 运行全部层并完成范围', async () => {
       const report = await runCli(['verify', '--project', target, '--tier', tier]);
 
       assert.equal(report.ok, true);
+      assert.equal(report.verification.schemaVersion, 2);
+      assert.equal(report.verification.engine, 'vibe-harness-cli');
       assert.equal(report.executionTier, 'deep');
       assert.equal(report.nextTier, null);
       assert.equal(report.scopeStatus, 'complete');
       assert.deepEqual(report.verification.deferredChecks, []);
       assert.deepEqual(await tierMarker(target), ['quick', 'standard', 'deep']);
+      // `all` was a silent alias for `deep`; it now fails loudly so callers
+      // notice the difference between "every declared layer" and "full matrix".
+      await assert.rejects(
+        runCli(['verify', '--project', target, '--tier', 'all']),
+        /--tier must be one of quick, standard, deep/u,
+      );
     } finally {
       await rm(target, { force: true, recursive: true });
     }
@@ -833,7 +849,7 @@ test('verify --plan 结合分层只预览不执行', async () => {
   }
 });
 
-test('verify --tier 拒绝未知取值与 --full 组合', async () => {
+test('verify --tier 拒绝未知取值与 --full 组合', { timeout: 600000 }, async () => {
   const target = await createProject({ lint: null, typecheck: null, test: null, eval: null, tiers: tierTiers });
   try {
     await assert.rejects(

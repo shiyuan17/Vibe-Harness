@@ -181,12 +181,12 @@ test('planValidationTierMigration 在每层都已声明时不再补充', () => {
   }), null);
 });
 
-test('normalizeTierOption 把 all 归一为 deep 并拒绝未知取值', () => {
+test('normalizeTierOption 不再接受 all 别名并拒绝未知取值', () => {
   assert.equal(normalizeTierOption('quick'), 'quick');
   assert.equal(normalizeTierOption('standard'), 'standard');
   assert.equal(normalizeTierOption('deep'), 'deep');
-  assert.equal(normalizeTierOption('all'), 'deep');
   assert.equal(normalizeTierOption(' DEEP '), 'deep');
+  assert.throws(() => normalizeTierOption('all'), /--tier must be one of quick, standard, deep/u);
   assert.throws(() => normalizeTierOption('nightly'), /--tier must be one of/u);
   assert.throws(() => normalizeTierOption(undefined), /--tier must be one of/u);
 });

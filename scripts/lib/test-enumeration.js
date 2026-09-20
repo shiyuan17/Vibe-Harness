@@ -14,7 +14,9 @@ export const TEST_LAYERS = [
 
 export const TEST_HELPERS_DIRECTORY = 'helpers';
 
-const TEST_FILE_PATTERN = /^tests\/([\w.-]+)\/[\w.-]+\.test\.js$/u;
+// Exported for the coverage map and the focused runner: both must recognise a
+// test-file token by exactly the same shape the enumeration guard uses.
+export const TEST_FILE_PATTERN = /^tests\/([\w.-]+)\/[\w.-]+\.test\.js$/u;
 
 function registeredTestFiles(script) {
   return script.split(/\s+/u).filter((token) => TEST_FILE_PATTERN.test(token));

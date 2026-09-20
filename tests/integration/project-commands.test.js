@@ -85,10 +85,84 @@ test('verify blocks shell metacharacters and manual commands by default', async 
     });
     const result = await runCommand(['verify', '--project', '.', '--json'], { cwd: project });
     assert.equal(result.exitCode, 1);
+    // `blocked` stays a distinct terminal status: no evidence was produced,
+    // which is a different statement than a check that ran and failed.
+    assert.equal(result.report.schemaVersion, 2);
+    assert.equal(result.report.engine, 'vibe-harness-runtime');
+    assert.equal(result.report.status, 'blocked');
+    assert.equal(result.report.verification.status, 'checks_blocked');
     assert.equal(result.report.checks.lint.status, 'blocked');
     assert.equal(result.report.checks.lint.code, 'VIBE_HARNESS_UNSAFE_COMMAND');
     assert.equal(result.report.checks.test.status, 'blocked');
     assert.equal(result.report.checks.test.code, 'MANUAL_REQUIRES_ALLOW');
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
+
+test('verify 在 failed 与 blocked 并存时保持 failed 优先于 blocked', async () => {
+  const project = await tempProject();
+  try {
+    await writeConfig(project, {
+      lint: 'node -e "process.exit(0)"; touch escaped.txt',
+      test: 'node -e "process.exit(3)"',
+    });
+    const result = await runCommand(['verify', '--project', '.', '--json'], { cwd: project });
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.report.status, 'failed');
+    assert.equal(result.report.verification.status, 'checks_failed');
+    assert.equal(result.report.checks.lint.status, 'blocked');
+    assert.equal(result.report.checks.test.status, 'failed');
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
+
+test('verify 默认延迟深层插槽并支持 --tier deep 显式升级', async () => {
+  const project = await tempProject();
+  try {
+    await writeConfig(project, { lint: 'node -e "process.exit(0)"', eval: 'node -e "process.exit(0)"' });
+    const quick = await runCommand(['verify', '--project', '.', '--json'], { cwd: project });
+    assert.equal(quick.exitCode, 0);
+    assert.equal(quick.report.status, 'passed');
+    assert.equal(quick.report.tier, 'quick');
+    assert.equal(quick.report.checks.lint.status, 'passed');
+    assert.equal(quick.report.checks.eval.status, 'deferred');
+    assert.deepEqual(quick.report.deferredChecks, [{ name: 'eval', tier: 'deep', command: 'node -e "process.exit(0)"' }]);
+    assert.equal(quick.report.nextTier, 'deep');
+
+    const deep = await runCommand(['verify', '--project', '.', '--tier', 'deep', '--json'], { cwd: project });
+    assert.equal(deep.exitCode, 0);
+    assert.equal(deep.report.status, 'passed');
+    assert.equal(deep.report.tier, 'deep');
+    assert.equal(deep.report.checks.eval.status, 'passed');
+    assert.deepEqual(deep.report.deferredChecks, []);
+    assert.equal(deep.report.nextTier, null);
+
+    const invalid = await runCommand(['verify', '--project', '.', '--tier', 'all', '--json'], { cwd: project });
+    assert.equal(invalid.exitCode, 1);
+    assert.equal(invalid.report.status, 'failed');
+    assert.match(invalid.report.error, /--tier must be one of quick, standard, deep/u);
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
+
+test('verify 按声明的 validationCommands.tiers 解析插槽层级', async () => {
+  const project = await tempProject();
+  try {
+    await writeConfig(project, {
+      test: 'node -e "process.exit(0)"',
+      tiers: { quick: [], standard: [], deep: ['node -e "process.exit(0)"'] },
+    });
+    const quick = await runCommand(['verify', '--project', '.', '--json'], { cwd: project });
+    assert.equal(quick.report.status, 'unverified');
+    assert.equal(quick.report.checks.test.status, 'deferred');
+    assert.deepEqual(quick.report.deferredChecks, [{ name: 'test', tier: 'deep', command: 'node -e "process.exit(0)"' }]);
+    // `--only` is an explicit per-check selection and wins over tier deferral.
+    const explicit = await runCommand(['verify', '--project', '.', '--only', 'test', '--json'], { cwd: project });
+    assert.equal(explicit.report.status, 'passed');
+    assert.equal(explicit.report.checks.test.status, 'passed');
   } finally {
     await rm(project, { recursive: true, force: true });
   }
@@ -116,7 +190,7 @@ test('help 覆盖含 worktree、slice、patch 与 task 在内的全部项目命�
     'run.mjs <env|context|changes|verify|worktree|slice|patch|task|codebase-memory> --project <path> [--json]',
   );
   assert.match(result.report.codebaseMemory, /codebase-memory <status\|refresh>/u);
-  assert.match(result.report.worktree, /worktree <list\|check\|bootstrap\|cleanup>/u);
+  assert.match(result.report.worktree, /worktree <list\|check\|bootstrap\|cleanup\|recover>/u);
   assert.match(result.report.worktree, /dry-run until --write/u);
   assert.match(result.report.task, /task <init\|update\|status\|list>/u);
   assert.match(result.report.reuse, /--reuse/u);
