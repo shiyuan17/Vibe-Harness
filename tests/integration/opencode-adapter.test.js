@@ -118,7 +118,12 @@ test('OpenCode exposes all profiles, native Skills, shared instructions, and deg
   }
 });
 
-test('OpenCode JSONC MCP lifecycle preserves comments, formatting, trailing commas, and user properties', async () => {
+// This test drives repeated CLI adapter install/uninstall round-trips; on slow
+// filesystems those are I/O-bound and exceed the default 120s test budget.
+// 2026-09-19 calibration (solo, slow box): install --write 35s, validate 68s,
+// doctor 73s per invocation; RTK round-trip measured >300s solo, so 600s is a
+// hang guard, not a performance claim.
+test('OpenCode JSONC MCP lifecycle preserves comments, formatting, trailing commas, and user properties', { timeout: 600000 }, async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-opencode-jsonc-'));
   try {
     await run(['init', '--project', target, '--target', 'opencode', '--profile', 'core']);

@@ -29,6 +29,7 @@ import {
   diffTargetInstall,
   inspectTargetInstall,
   previewInstallPlan,
+  strictEnforcementWarnings,
 } from './lib/install-planner.js';
 import { validatePack } from './lib/pack-validation.js';
 import { createVerificationPreflightError, runVerificationPlan } from './lib/project-verification.js';
@@ -36,6 +37,7 @@ import { detectProjectProfile } from './lib/project-profile.js';
 import {
   parseTargetsOption,
   readRequiredProjectConfig,
+  resolveEnforcementPolicy,
   validationCommandView,
   validateConfigAndGeneratedContent,
   validateProjectConfig,
@@ -63,6 +65,7 @@ import {
 import { canonicalAgentsTemplate, loadAdapterCatalog, resolveAdapter } from './lib/adapter.js';
 import { safetyPostureWarnings } from './lib/safety-posture.js';
 import {
+  blockingHookWarning,
   hookDefinitionDrift,
   hookDefinitionPath,
   inspectMemory,
@@ -82,7 +85,7 @@ import { assertNoUnsupportedLegacyAssets } from './lib/project-layout.js';
 import { findNestedInstallations, nestedInstallMigrationCommands } from './lib/nested-install.js';
 import { sanitizePublicReport } from './lib/tool-provisioning/subprocess.js';
 import { AUDIT_KINDS, runProjectAudit } from './lib/project-audit.js';
-import { buildImpactMapping, collectChangedDetails, collectChangedPaths } from './verify-focused.js';
+import { buildImpactMapping, collectChangedDetails, collectChangedPaths } from './lib/change-impact.js';
 import { buildVerificationPlan } from './lib/verification-plan.js';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -124,6 +127,32 @@ function toolStateRelativePath(targetDir) {
   ).replaceAll('\\', '/');
 }
 
+// Signal 0 only probes process existence: ESRCH means the pid is gone, EPERM
+// means the process exists but is protected. Any other failure counts as gone
+// so the stale classification always names a recovery path.
+function processAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === 'EPERM';
+  }
+}
+
+function provisioningProcessWarning(marker) {
+  const parentPid = Number(marker.parentPid);
+  if (marker.status === 'active' && Number.isInteger(parentPid) && parentPid > 0 && !processAlive(parentPid)) {
+    return {
+      code: 'PROVISIONING_MARKER_STALE',
+      message: `Provisioning marker reports an active process (parent pid ${parentPid}) that no longer exists; re-run provisioning with --write to refresh it, or uninstall/rollback to retire it.`,
+    };
+  }
+  return {
+    code: 'PROVISIONING_PROCESS_INCOMPLETE',
+    message: `Provisioning process state is ${marker.status}.`,
+  };
+}
+
 function compactAction(action) {
   return {
     ...(action.kind === 'write' ? {} : { kind: action.kind }),
@@ -155,11 +184,13 @@ function compactTargetReport(report) {
       status: item.status,
     }])),
     changed: (report.changed ?? []).map(({ target }) => ({ target })),
+    enforcementPolicy: report.enforcementPolicy ?? 'advisory',
     missing: (report.missing ?? []).map(({ target }) => ({ target })),
     ok: report.ok,
     profile: report.profile,
     redZone: (report.redZone ?? []).map(({ status, target }) => ({ status, target })),
     staleProjections: report.staleProjections ?? [],
+    strictEnforcementRefusals: report.strictEnforcementRefusals ?? [],
     summary: report.summary ? {
       changedCount: report.summary.changedCount,
       missingCount: report.summary.missingCount,
@@ -484,11 +515,9 @@ async function install(args) {
   }
   const sourceConfig = await readRequiredProjectConfig(targetDir);
   const config = sourceConfig;
+  const enforcementPolicy = resolveEnforcementPolicy(config);
   const { configured: targets, selected: selectedTargets } = resolveCommandTargets(config, existingState, args.target);
   const adapterId = selectedTargets[0];
-  if (args.target && !targets.includes(args.target) && !existingState?.targets?.includes(args.target)) {
-    throw new Error(`CLI target ${args.target} does not match vibe-harness.config.json target ${config.target}.`);
-  }
   const adapter = await resolveAdapter(rootDir, adapterId);
   const installSurface = resolveInstallSurface({ args, config, installState: existingState });
   const profile = validateProfileName(installSurface.profile);
@@ -557,6 +586,7 @@ async function install(args) {
     configUpdate,
     allowPreview: installSurface.allowPreview,
     dryRun: dryRunRequested,
+    enforcementPolicy,
     force: Boolean(args.force),
     managedAgentsBlock: isMvpMode,
     profile,
@@ -629,7 +659,7 @@ async function install(args) {
   if (provisionExecuted && plannedToolActions.length > 0) {
     await registerGeneratedFile(targetDir, toolStateRelativePath(targetDir));
   }
-  const health = provisionExecuted ? healthReport({ profile, tools }) : { ok: true, status: 'ready' };
+  let health = provisionExecuted ? healthReport({ profile, tools }) : { ok: true, status: 'ready' };
   const runtimeHooks = await inspectRuntimeHooks(adapter, targetDir);
   const warnings = [
     ...(provisionExecuted
@@ -639,7 +669,12 @@ async function install(args) {
           message: 'Tool provisioning was not run; use vibe-harness provision --project <project> --write.',
         }] : [])),
     ...safetyPostureWarnings(adapter),
-    ...runtimeHookWarnings(runtimeHooks, { definitionChanged: hookDefinitionChanged }),
+    ...runtimeHookWarnings(runtimeHooks, { definitionChanged: hookDefinitionChanged, enforcementPolicy }),
+    ...strictEnforcementWarnings(plan.strictEnforcementRefusals),
+    ...(result.backupRetentionError ? [{
+      code: 'BACKUP_RETENTION_FAILED',
+      message: 'Install committed, but pruning old backups failed: ' + result.backupRetentionError,
+    }] : []),
     ...Object.entries(plan.linearMcp ?? {})
       .filter(([, item]) => item.configuration === 'manual')
       .map(([target, item]) => ({
@@ -663,10 +698,18 @@ async function install(args) {
         }] : []),
       ]),
   ];
+  // A blocking Hook warning (hooks.enforcement "strict") downgrades an
+  // otherwise ready install to degraded so the exit code carries the posture.
+  if (blockingHookWarning(warnings) && health.status === 'ready') {
+    health = { ok: false, status: 'degraded' };
+  }
   emitReport({
     ...health,
+    enforcementPolicy,
+    strictEnforcementRefusals: plan.strictEnforcementRefusals ?? [],
     actions: args.verbose ? plan.actions : plan.actions.map(compactAction),
     backupActions: plan.baselinePlan.actions,
+    backupRetentionError: result.backupRetentionError ?? null,
     baselineId: result.baseline?.id ?? plan.baselinePlan.baselineId,
     configUpdate: configUpdate
       ? {
@@ -688,6 +731,7 @@ async function install(args) {
     previewFiles,
     preset: installSurface.preset,
     profile: plan.profile,
+    prunedBackups: result.prunedBackups ?? [],
     provisioning: {
       executed: provisionExecuted,
       requested: provisionRequested,
@@ -724,10 +768,8 @@ async function validate(args) {
     const config = await readRequiredProjectConfig(targetDir);
     const installState = await readInstallState(targetDir);
     const { configured: targets, selected: selectedTargets } = resolveCommandTargets(config, installState, args.target);
-    if (args.target && !targets.includes(args.target) && !installState?.targets?.includes(args.target)) {
-      throw new Error(`CLI target ${args.target} does not match vibe-harness.config.json target ${config.target}.`);
-    }
     validateProjectConfig(config);
+    const enforcementPolicy = resolveEnforcementPolicy(config);
     const installSurface = resolveInstallSurface({ args, config, installState });
     const requestedModules = installSurface.modules;
     const requestedPlugins = installSurface.plugins;
@@ -745,6 +787,7 @@ async function validate(args) {
     const plan = await createMultiTargetInstallPlan({
       allowPreview: true,
       dryRun: true,
+      enforcementPolicy,
       force: true,
       managedAgentsBlock: true,
       profile: installSurface.profile,
@@ -801,16 +844,36 @@ async function validate(args) {
     const tools = await inspectProfileTools(installSurface.profile, targetDir, plan.resolvedModules, undefined, {
       allowPreview: true,
     });
-    const health = healthReport({ profile: installSurface.profile, tools });
+    let health = healthReport({ profile: installSurface.profile, tools });
     const runtimeHooks = await inspectRuntimeHooks(adapter, targetDir);
     const codebaseMemoryCache = await inspectCodebaseMemoryCache(targetDir, tools);
     // Missing tiers stay a hint, not a failure: the effective tiers are derived
     // from the project scripts, and the plan reports which source was used.
     const tiersMissing = !validationTiersDeclared(config.validationCommands?.tiers);
+    const warnings = [
+      ...toolWarnings(tools),
+      ...safetyPostureWarnings(adapter),
+      ...runtimeHookWarnings(runtimeHooks, {
+        definitionChanged: await hookDefinitionDrift(adapter, targetDir, installState),
+        enforcementPolicy,
+      }),
+      ...strictEnforcementWarnings(target.strictEnforcementRefusals),
+      ...roleRuntimeWarnings(target.adapters),
+      ...codebaseMemoryCacheWarnings(codebaseMemoryCache),
+      ...(tiersMissing ? [{
+        code: 'VALIDATION_TIERS_NOT_CONFIGURED',
+        message: 'Add validationCommands.tiers (quick/standard/deep) or declare the matching package scripts; verify falls back to the detected project commands.',
+      }] : []),
+    ];
+    if (blockingHookWarning(warnings) && health.status === 'ready') {
+      health = { ok: false, status: 'degraded' };
+    }
     emitReport({
       ...health,
       ...(codebaseMemoryCache ? { codebaseMemoryCache } : {}),
       commandStatus,
+      enforcementPolicy,
+      strictEnforcementRefusals: target.strictEnforcementRefusals ?? [],
       recommendations: toolRecommendations(tools, installSurface.profile, { adapterId: adapter.id, mvp: true }),
       rtkHooks: rtkHooksReport(rtkHooksEnabled, tools, rtkHooksSetting.source),
       runtimeHooks,
@@ -822,19 +885,7 @@ async function validate(args) {
       ...(args.verbose ? { targetDir } : {}),
       validationTiers: projectProfile.validationTiers,
       tools,
-      warnings: [
-        ...toolWarnings(tools),
-        ...safetyPostureWarnings(adapter),
-        ...runtimeHookWarnings(runtimeHooks, {
-          definitionChanged: await hookDefinitionDrift(adapter, targetDir, installState),
-        }),
-        ...roleRuntimeWarnings(target.adapters),
-        ...codebaseMemoryCacheWarnings(codebaseMemoryCache),
-        ...(tiersMissing ? [{
-          code: 'VALIDATION_TIERS_NOT_CONFIGURED',
-          message: 'Add validationCommands.tiers (quick/standard/deep) or declare the matching package scripts; verify falls back to the detected project commands.',
-        }] : []),
-      ],
+      warnings,
     }, args);
     applyHealthExit(health.status, args);
     return;
@@ -857,10 +908,8 @@ async function verify(args) {
   const config = await readRequiredProjectConfig(targetDir);
   const installState = await readInstallState(targetDir);
   const { configured: targets, selected: selectedTargets } = resolveCommandTargets(config, installState, args.target);
-  if (args.target && !targets.includes(args.target) && !installState?.targets?.includes(args.target)) {
-    throw new Error(`CLI target ${args.target} does not match vibe-harness.config.json target ${config.target}.`);
-  }
   validateProjectConfig(config);
+  const enforcementPolicy = resolveEnforcementPolicy(config);
   const installSurface = resolveInstallSurface({ args, config, installState });
   const requestedModules = installSurface.modules;
   const requestedPlugins = installSurface.plugins;
@@ -877,6 +926,7 @@ async function verify(args) {
   const renderData = { ...config, projectProfile, validationCommands };
   const target = await diffMultiTargetInstall({
     allowPreview: true,
+    enforcementPolicy,
     managedAgentsBlock: true,
     profile: installSurface.profile,
     requestedModules,
@@ -906,6 +956,19 @@ async function verify(args) {
     });
   }
   const commandStatus = await inspectValidationCommands({ commands: validationCommands, targetDir });
+  // The verification receipt also carries the Hook enforcement posture: under
+  // hooks.enforcement "strict" an unproven or denied posture must not read as
+  // a green verification run.
+  const runtimeHooks = await inspectRuntimeHooks(adapter, targetDir);
+  const hookPolicyWarnings = [
+    ...safetyPostureWarnings(adapter),
+    ...runtimeHookWarnings(runtimeHooks, {
+      definitionChanged: await hookDefinitionDrift(adapter, targetDir, installState),
+      enforcementPolicy,
+    }),
+    ...strictEnforcementWarnings(target.strictEnforcementRefusals),
+  ];
+  const blockingHookFailure = blockingHookWarning(hookPolicyWarnings);
   if (args.tier !== undefined && args.full) {
     throw new Error('Use --tier or --full, not both: --tier selects a cost layer, --full runs the complete matrix.');
   }
@@ -956,17 +1019,22 @@ async function verify(args) {
   });
   emitReport({
     ...verificationReport,
+    ...(blockingHookFailure ? { ok: false } : {}),
     deferredChecks: verificationReport.verification?.deferredChecks ?? [],
+    enforcementPolicy,
     executionTier: verificationReport.verification?.executionTier ?? null,
     nextTier: verificationReport.verification?.nextTier ?? null,
+    runtimeHooks,
     scope: 'project',
     scopeStatus: verificationReport.verification?.scopeStatus ?? 'complete',
-    status: verificationReport.ok ? 'ready' : 'invalid',
+    status: verificationReport.ok && !blockingHookFailure ? 'ready' : 'invalid',
+    strictEnforcementRefusals: target.strictEnforcementRefusals ?? [],
     targetDir,
     tierFallback: verificationReport.verification?.tierFallback ?? null,
     tierSource: verificationReport.verification?.tierSource ?? null,
-  }, args, { error: !verificationReport.ok });
-  if (!verificationReport.ok) process.exitCode = 1;
+    ...(hookPolicyWarnings.length ? { warnings: hookPolicyWarnings } : {}),
+  }, args, { error: !verificationReport.ok || Boolean(blockingHookFailure) });
+  if (!verificationReport.ok || blockingHookFailure) process.exitCode = 1;
 }
 
 async function baseline(args) {
@@ -1197,10 +1265,8 @@ async function doctor(args) {
   const installState = await readInstallState(targetDir);
   const config = await readRequiredProjectConfig(targetDir);
   const { configured: targets, selected: selectedTargets } = resolveCommandTargets(config, installState, args.target);
-  if (args.target && !targets.includes(args.target) && !installState?.targets?.includes(args.target)) {
-    throw new Error(`CLI target ${args.target} does not match vibe-harness.config.json target ${config.target}.`);
-  }
   validateProjectConfig(config);
+  const enforcementPolicy = resolveEnforcementPolicy(config);
   const installSurface = resolveInstallSurface({ args, config, installState });
   const profile = validateProfileName(installSurface.profile);
   const requestedPlugins = installSurface.plugins ?? [];
@@ -1236,6 +1302,7 @@ async function doctor(args) {
   ]);
   let target = await diffMultiTargetInstall({
     allowPreview: true,
+    enforcementPolicy,
     managedAgentsBlock: true,
     profile,
     requestedModules: installState?.requestedModules,
@@ -1260,9 +1327,33 @@ async function doctor(args) {
   if (runtimeHooks.selfCheck?.status === 'degraded') health = { ok: false, status: 'degraded' };
   const memory = await inspectMemory(config, installState, targetDir);
   const codebaseMemoryCache = await inspectCodebaseMemoryCache(targetDir, tools);
+  const warnings = [
+    ...toolWarnings(tools),
+    ...(provisioningProcess ? [provisioningProcessWarning(provisioningProcess)] : []),
+    ...(nestedInstallations.length > 0 ? [{
+      code: 'NESTED_INSTALLATIONS_FOUND',
+      message: nestedInstallations.length + ' nested Vibe-Harness installation(s) require explicit migration and uninstall.',
+    }] : []),
+    ...safetyPostureWarnings(adapter),
+    ...runtimeHookWarnings(runtimeHooks, {
+      definitionChanged: await hookDefinitionDrift(adapter, targetDir, installState),
+      enforcementPolicy,
+    }),
+    ...strictEnforcementWarnings(target?.strictEnforcementRefusals),
+    ...roleRuntimeWarnings(target?.adapters),
+    ...codebaseMemoryCacheWarnings(codebaseMemoryCache),
+    ...(pack.instructionBudgetWarnings ?? []).map((message) => ({
+      code: 'INSTRUCTION_BUDGET',
+      message,
+    })),
+  ];
+  if (blockingHookWarning(warnings) && health.status === 'ready') {
+    health = { ok: false, status: 'degraded' };
+  }
   emitReport({
     ...health,
     ...(codebaseMemoryCache ? { codebaseMemoryCache } : {}),
+    enforcementPolicy,
     gitHooks,
     memory,
     nestedInstallations,
@@ -1290,27 +1381,7 @@ async function doctor(args) {
       adapterId: selectedTargets[0],
       mvp: true,
     }),
-    warnings: [
-      ...toolWarnings(tools),
-      ...(provisioningProcess ? [{
-        code: 'PROVISIONING_PROCESS_INCOMPLETE',
-        message: `Provisioning process state is ${provisioningProcess.status}.`,
-      }] : []),
-      ...(nestedInstallations.length > 0 ? [{
-        code: 'NESTED_INSTALLATIONS_FOUND',
-        message: nestedInstallations.length + ' nested Vibe-Harness installation(s) require explicit migration and uninstall.',
-      }] : []),
-      ...safetyPostureWarnings(adapter),
-      ...runtimeHookWarnings(runtimeHooks, {
-        definitionChanged: await hookDefinitionDrift(adapter, targetDir, installState),
-      }),
-      ...roleRuntimeWarnings(target?.adapters),
-      ...codebaseMemoryCacheWarnings(codebaseMemoryCache),
-      ...(pack.instructionBudgetWarnings ?? []).map((message) => ({
-        code: 'INSTRUCTION_BUDGET',
-        message,
-      })),
-    ],
+    warnings,
     targets: selectedTargets,
   }, args);
   applyHealthExit(health.status, args);
@@ -1322,10 +1393,8 @@ async function diff(args) {
   const config = await readRequiredProjectConfig(targetDir);
   const installState = await readInstallState(targetDir);
   const { configured: targets, selected: selectedTargets } = resolveCommandTargets(config, installState, args.target);
-  if (args.target && !targets.includes(args.target) && !installState?.targets?.includes(args.target)) {
-    throw new Error(`CLI target ${args.target} does not match vibe-harness.config.json target ${config.target}.`);
-  }
   validateProjectConfig(config);
+  const enforcementPolicy = resolveEnforcementPolicy(config);
   const installSurface = resolveInstallSurface({ args, config, installState });
   const profile = validateProfileName(installSurface.profile);
   const projectProfile = await detectProjectProfile({ config, targetDir });
@@ -1341,6 +1410,7 @@ async function diff(args) {
   });
   const report = await diffMultiTargetInstall({
     allowPreview: true,
+    enforcementPolicy,
     managedAgentsBlock: true,
     profile,
     requestedModules: installSurface.modules ?? installState?.requestedModules,
@@ -1546,8 +1616,8 @@ async function recover(args) {
 }
 
 async function printUsage() {
-  console.log('用法：vibe-harness <init|install|provision|recover|uninstall|validate|verify|baseline|eval|audit|doctor|diff|rollback> [--project path] [--target codex|claude|gemini|cursor|qoder|zcode|antigravity|opencode] [--targets codex,zcode,opencode] [--all-targets] [--profile minimal|core|full|docs-only] [--preset everything] [--modules list] [--plugin -all|-rtk|linear-mcp|linear-mcp-readonly ...] [--rtk-hooks on|off] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--full] [--tier quick|standard|deep|all] [--plan] [--force] [--upgrade] [--preserve-retired] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded] [--provision]');
-  console.log('所有项目命令使用 --project <path>；--target 只选择 adapter，--write 执行真实写入。旧版 --apply 和取路径值的 --target 已移除。');
+  console.log('用法：vibe-harness <init|install|provision|recover|uninstall|validate|verify|baseline|eval|audit|doctor|diff|rollback> [--project path] [--target codex|claude|gemini|cursor|qoder|zcode|antigravity|opencode] [--targets codex,zcode,opencode (仅 init)] [--all-targets] [--profile minimal|core|full|docs-only] [--preset everything] [--modules list] [--plugin -all|-rtk|linear-mcp|linear-mcp-readonly ...] [--rtk-hooks on|off] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--full] [--tier quick|standard|deep] [--plan] [--force] [--upgrade] [--preserve-retired] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded] [--provision]');
+  console.log('所有项目命令使用 --project <path>；--target 只选择 adapter，--targets 只在 init 时声明多宿主目标，--write 执行真实写入。旧版 --apply 和取路径值的 --target 已移除。');
 }
 
 async function main() {

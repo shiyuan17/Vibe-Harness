@@ -334,7 +334,13 @@ test('RTK hooks default on for a fresh Codex install and explicit options retain
   }
 });
 
-test('RTK hook precedence persists CLI state and disables inherited hooks when RTK is removed', async () => {
+// The raised tests below issue eight CLI invocations per test (install/
+// validate/doctor round-trips); on slow filesystems that legitimately exceeds
+// the default 120s test budget.
+// 2026-09-19 calibration (solo, slow box): install --write 35s, validate 68s,
+// doctor 73s per invocation; RTK round-trip measured >300s solo, so 600s is a
+// hang guard, not a performance claim.
+test('RTK hook precedence persists CLI state and disables inherited hooks when RTK is removed', { timeout: 600000 }, async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-rtk-hook-precedence-'));
   try {
     await runCli(['init', '--project', target]);
@@ -497,7 +503,7 @@ test('retired Agentmemory plugin is rejected', async () => {
   }
 });
 
-test('CLI plugin selection augments full and persists for validation and reinstall', async () => {
+test('CLI plugin selection augments full and persists for validation and reinstall', { timeout: 600000 }, async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-plugin-persistence-'));
   try {
     await runCli(['init', '--project', target, '--profile', 'full']);

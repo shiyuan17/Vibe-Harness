@@ -81,6 +81,21 @@ Codex 的 Hook trust 是宿主状态，不能从项目文件推断。doctor 只�
 
 宿主记录为 <code>trusted-enabled</code>、而已安装的 <code>.codex/hooks.json</code> 当前哈希与安装记录的 <code>targetHash</code> 不一致时（定义在安装后被改写，或由更新的 pack 渲染），<code>validate</code>、<code>doctor</code> 与 <code>install</code> 会追加 <code>HOOK_TRUST_REREVIEW_REQUIRED</code> 警告，文案写「可能要求重新信任」而不作因果断言——宿主的信任哈希算法无法从项目复现，这只是需要人工复核的信号。install 另外比较本次安装前后定义文件的哈希，因此「本次安装改写了定义、install-state 已同步」这种情况也能报出。宿主记录为停用、未信任或不可读时已有更具体的警告，不再叠加这一条。
 
+## 跨宿主 fail-closed（hooks.enforcement）
+
+`hooks.enforcement` 配置只取 `advisory`（默认，向后兼容）或 `strict`。它不改变 Hook 运行时的判定，只改变安装与诊断命令在「执行能力无法证明」时的结论；配置值由 schemas/project-config.schema.json 校验。
+
+报告的 `runtimeHooks.envelopeSupport` 逐宿主给出高风险执行包络事实（`degraded`、`highRiskEnforcement`、`versions`）。声明 `envelopeVersions` 为空且 `highRiskEnforcement` 为 `unsupported` 的宿主，在任何模式下都附带 ENVELOPE_UNSUPPORTED 警告；该警告永远不阻断——「是否因此拒绝」是策略决定，不是事实陈述。
+
+advisory 保持既有行为：HOOK_ENFORCEMENT_UNVERIFIED 只是提示（Hook 策略是纵深防御），安装与验证命令照常给出 ready；不含执行包络的宿主照常可装可验。
+
+strict 把两类「声明 ≠ 执行」的缺口转为硬结论：
+
+1. **未证明的 Hook 执行**：已安装 Hook 但 `enforced` 无法证明时，HOOK_ENFORCEMENT_UNVERIFIED 升级为阻断警告。`install`、`validate`、`doctor` 的状态从 ready 降为 degraded（exit 2），可用 `--allow-degraded` 显式越过（报告仍标注 degraded）；`verify` 没有 degraded 词汇，配置的检查全绿也判 invalid（exit 1）。宿主证据（激活、Envelope enforcement、sandbox、approval、process、network）齐备时该警告消失。
+2. **红区写入拒绝**：strict 下的真实写入，若某个红区目标的所有投影宿主都未声明高风险执行包络（owner-union 判定：任一共有宿主可执行即不拒绝），安装直接拒绝且没有 bypass 旗标——配置值本身就是运维决定，救济路径只有去掉 unsupported 目标、去掉 hooks 相关模块，或改回 advisory。混合目标安装（既有可执行宿主也有 unsupported 宿主）因此不被拒绝，只按第 1 条对未证明的执行报 degraded。
+
+一句话：advisory 如实报告「宿主没有执行包络」但不改变行为；strict 要求命令结论与执行能力一致，宁可拒绝也不给出 ready 或通过。当前没有任何宿主真实注入 hostEvidence，strict 项目的常态因此是 degraded/invalid，直到 TD-2026-09-18-1 的宿主证据通道落地。
+
 ## 配置与超时
 
 安全事件在宿主侧的 timeout 为 10 秒，受管运行时另保有 5 秒内部预算（见「失败契约」）；运行时固定为 guarded，并在无法安全判定时 fail-closed。项目配置只允许收紧出口 allowlist 和额外 red-zone，不提供运行模式或写入根配置。
@@ -105,7 +120,7 @@ Hook 能直接绑定 Linear 写入、包含 Issue ID 的 Git 分支、提交、�
 
 Hooks are defense in depth, not a complete machine-security boundary. Command-string inspection cannot reliably interpret arbitrary PowerShell, Python, Node.js, package-manager, Git, subprocess, or network behavior. File-system isolation, process isolation, approval enforcement, and egress control must be provided and independently verified by the host sandbox and network proxy.
 
-<code>doctor</code> and project <code>validate</code> report <code>supported</code>, <code>configured</code>, <code>activated</code>, <code>enforced</code>, <code>executionAuthority</code>, and <code>coverageLimitations</code>. <code>activated</code> remains null when project files cannot prove host runtime state. <code>enforced</code> becomes true only when the host independently proves Hook activation, required Envelope enforcement, sandbox, approval, process isolation, and network control. Adapter capability support never substitutes for this per-task evidence. Legacy activation, declaredEvents, pathResolution, and selfCheck fields remain available for compatibility.
+<code>doctor</code> and project <code>validate</code> report <code>supported</code>, <code>configured</code>, <code>activated</code>, <code>enforced</code>, <code>envelopeSupport</code>, <code>executionAuthority</code>, and <code>coverageLimitations</code>. <code>activated</code> remains null when project files cannot prove host runtime state. <code>enforced</code> becomes true only when the host independently proves Hook activation, required Envelope enforcement, sandbox, approval, process isolation, and network control. Adapter capability support never substitutes for this per-task evidence. Legacy activation, declaredEvents, pathResolution, and selfCheck fields remain available for compatibility.
 
 Repository configuration can only tighten policy. Runtime mode is always guarded, write roots are not expanded by project configuration, configured red-zone paths are added to the built-in control-plane list, and an egress allowlist narrows permitted hosts. Repository-local install state records installation history but is not an authorization root.
 

@@ -144,6 +144,11 @@ export async function inspectRuntimeHooks(adapter, targetDir, { hostEvidence = {
     projectConfigMayAuthorize: false,
     trustedSource: 'none',
   };
+  // A host with no declared execution envelope cannot enforce the runtime Hook
+  // policy no matter what is installed, so the report states that explicitly
+  // instead of leaving it implicit in executionAuthority.
+  const envelopeDegraded = authority.envelopeVersions.length === 0
+    || authority.highRiskEnforcement === 'unsupported';
   const activated = supported && hostEvidence.activated === true ? true : (supported ? null : false);
   const hostContextVerified = ['sandbox', 'approval', 'process', 'network']
     .every((field) => hostEvidence[field] === true);
@@ -163,6 +168,11 @@ export async function inspectRuntimeHooks(adapter, targetDir, { hostEvidence = {
     coverageLimitations: [...HOOK_COVERAGE_LIMITATIONS],
     declaredEvents: { ...adapter.hookEvents },
     enforced,
+    envelopeSupport: {
+      degraded: envelopeDegraded,
+      highRiskEnforcement: authority.highRiskEnforcement,
+      versions: [...authority.envelopeVersions],
+    },
     executionAuthority: {
       ...authority,
       envelopeRequired,
@@ -187,13 +197,22 @@ export async function inspectRuntimeHooks(adapter, targetDir, { hostEvidence = {
 
 /**
  * @param {any} runtimeHooks
- * @param {{definitionChanged?: boolean}} [options] `definitionChanged` carries
- * the caller's own comparison of the Hook definition before and after the
- * current operation (an install that rewrites the definition), because the
- * post-install record already matches the new file.
+ * @param {{definitionChanged?: boolean, enforcementPolicy?: string}} [options]
+ * `definitionChanged` carries the caller's own comparison of the Hook
+ * definition before and after the current operation (an install that rewrites
+ * the definition), because the post-install record already matches the new
+ * file. `enforcementPolicy` mirrors the project's hooks.enforcement setting:
+ * under "strict" the unproven-enforcement warning is marked blocking and
+ * callers downgrade their success status instead of treating it as advisory.
  */
-export function runtimeHookWarnings(runtimeHooks, { definitionChanged = false } = {}) {
+export function runtimeHookWarnings(runtimeHooks, { definitionChanged = false, enforcementPolicy = 'advisory' } = {}) {
   const warnings = [];
+  if (runtimeHooks.envelopeSupport?.degraded) {
+    warnings.push({
+      code: 'ENVELOPE_UNSUPPORTED',
+      message: 'This host declares no high-risk execution envelope (envelopeVersions is empty and highRiskEnforcement is unsupported), so runtime red-zone, egress, and credential policies cannot be enforced here; high-risk operations rely on host-native approval and human review only.',
+    });
+  }
   if (definitionChanged
     && runtimeHooks.configured
     && runtimeHooks.activation.status === 'trusted-enabled') {
@@ -218,9 +237,13 @@ export function runtimeHookWarnings(runtimeHooks, { definitionChanged = false } 
     });
   }
   if (runtimeHooks.configured && !runtimeHooks.enforced) {
+    const strict = enforcementPolicy === 'strict';
     warnings.push({
       code: 'HOOK_ENFORCEMENT_UNVERIFIED',
-      message: 'Hook policy is defense in depth only; verify the host sandbox, approval policy, process isolation, and network proxy before treating it as enforced.',
+      message: strict
+        ? 'hooks.enforcement is "strict" and Hook enforcement is not proven for this project, so this command reports a degraded status; verify the host sandbox, approval policy, process isolation, and network proxy (or re-run with --allow-degraded) before relying on the Hook policy.'
+        : 'Hook policy is defense in depth only; verify the host sandbox, approval policy, process isolation, and network proxy before treating it as enforced.',
+      ...(strict ? { blocking: true } : {}),
     });
   }
   if (runtimeHooks.selfCheck?.status === 'degraded') {
@@ -230,6 +253,17 @@ export function runtimeHookWarnings(runtimeHooks, { definitionChanged = false } 
     });
   }
   return warnings;
+}
+
+/**
+ * First blocking Hook warning, or null when every warning is advisory. Under
+ * hooks.enforcement "strict" a blocking warning must downgrade the command's
+ * success status even when every other check passed.
+ *
+ * @param {any[]} [warnings]
+ */
+export function blockingHookWarning(warnings = []) {
+  return warnings.find((warning) => warning?.blocking === true) ?? null;
 }
 
 function extractField(content, labels) {

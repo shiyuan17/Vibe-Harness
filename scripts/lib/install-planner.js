@@ -6,6 +6,7 @@ import {
   backupFile,
   collectTargetFiles,
   hashFile,
+  pruneBackups,
   readInstallState,
   stateFilePath,
   toTargetPath,
@@ -127,8 +128,8 @@ function toolDiscoveryLine(installedProviderModules, { hasProjectScripts = false
 
 export function createInstalledSurface({ clarificationPosture = 'balanced', customModules = false, hookConfigTargets = [], memoryPath = '.agents/memory', profile, projectRuleSources = [], ruleIndex = [], skillRoots = [], targets }) {
   const installedTargets = targets.map((target) => target.replaceAll('\\', '/'));
-  // The routing index covers what the project has, so a rule file already on
-  // disk is listed even when this run does not rewrite it. See
+  // The routing index covers what the project owns: this run's targets plus
+  // rule files recorded in the install state from earlier transactions. See
   // `existingRuleSources` in rules-index.js.
   const routableTargets = [...installedTargets, ...projectRuleSources.map((source) => source.replaceAll('\\', '/'))];
   const hasTarget = (expectedTarget) => installedTargets.includes(expectedTarget);
@@ -179,6 +180,7 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
     discoveryLine: hasTarget('docs/rules/codebase-memory-mcp.md')
       ? '若 `codebase-memory-mcp` 可用，先确认索引状态并用于结构化定位；不可用时说明并退回仓库搜索。'
       : '使用仓库搜索和已安装规则定位相关代码；需要结构化索引时先确认目标项目已有能力。',
+    hasProjectScripts,
     hooksLine: hookConfigTargets
       .filter((entry) => hasTarget(entry.target))
       .map((entry) => `- ${entry.displayName} hook 配置位于 \`${entry.target}\`。`)
@@ -187,7 +189,7 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
       ? `- agentmemory skills 位于 \`${agentMemorySkillRoot}/\`${hasLocalMemory ? `，本地记忆库位于 \`${normalizedMemoryPath}/\`` : ''}。`
       : '',
     memoryLoadLine: hasGovernanceMemory && hasLocalMemory
-      ? `读取 \`docs/memory/\` 的治理记忆（优先 \`PROJECT_STATE.md\`），按其与本地记忆库的优先级合并；本地记忆库恢复入口为 \`${normalizedMemoryPath}/CURRENT.md\`。`
+      ? `从 \`${normalizedMemoryPath}/CURRENT.md\` 唯一入口恢复上下文：本地恢复线索以它为准，治理真值按它对 \`docs/memory/PROJECT_STATE.md\` 的引用读取，不复制其内容。`
       : (hasGovernanceMemory
         ? `读取 \`docs/memory/\` 的治理记忆（优先 \`PROJECT_STATE.md\`）恢复上下文；记忆仅作辅助，不覆盖当前源码与用户指令。`
         : (hasLocalMemory
@@ -207,8 +209,8 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
     skillsLine: detectedSkillRoots.length > 0 ? `- Skills 位于 ${detectedSkillRoots.map((root) => `\`${root}/\``).join('、')}。` : '',
     templatesLine: hasPrefix('docs/templates/') ? '- 模板位于 `docs/templates/`。' : '',
     toolingLine: hasPrefix('.agents/runtime/tools/')
-      ? `- 项目内工具位于 \`.agents/runtime/tools/\`；使用 \`vibe-harness doctor --project <path>\` 查看初始化状态。${hasTarget('docs/rules/chrome-devtools-mcp.md') ? ' Chrome DevTools MCP 规则位于 \`docs/rules/chrome-devtools-mcp.md\`。' : ''}${hasRtkTool ? ' RTK 规则位于 \`docs/rules/rtk.md\`。' : ''}${hasAstGrepTool ? ' ast-grep 规则位于 \`docs/rules/ast-grep.md\`。' : ''}${hasProjectScripts ? ' 项目级确定性脚本：\`node .agents/runtime/commands/run.mjs <env|context|changes|verify|worktree|slice|patch|task> --project . --json\`。' : ''}`
-      : (hasProjectScripts ? '- 项目级确定性脚本：`node .agents/runtime/commands/run.mjs <env|context|changes|verify|worktree|slice|patch|task> --project . --json`。' : ''),
+      ? `- 项目内工具位于 \`.agents/runtime/tools/\`；使用 \`vibe-harness doctor --project <path>\` 查看初始化状态。${hasTarget('docs/rules/chrome-devtools-mcp.md') ? ' Chrome DevTools MCP 规则位于 \`docs/rules/chrome-devtools-mcp.md\`。' : ''}${hasRtkTool ? ' RTK 规则位于 \`docs/rules/rtk.md\`。' : ''}${hasAstGrepTool ? ' ast-grep 规则位于 \`docs/rules/ast-grep.md\`。' : ''}${hasProjectScripts ? ' 项目级确定性脚本：\`node .agents/runtime/commands/run.mjs <env|context|changes|verify|worktree|slice|patch|task|codebase-memory> --project . --json\`。' : ''}`
+      : (hasProjectScripts ? '- 项目级确定性脚本：`node .agents/runtime/commands/run.mjs <env|context|changes|verify|worktree|slice|patch|task|codebase-memory> --project . --json`。' : ''),
   };
   if (installedSurface.memoryLoadLine) {
     installedSurface.memoryLoadLine = '仅当任务需要恢复项目状态且当前授权允许读取 Memory body 时，'
@@ -434,12 +436,13 @@ async function planAdapterConfigActions(ctx) {
   return actions;
 }
 
-/** @param {{adapterId?: string, allowPreview?: boolean, configUpdate?: any, dryRun?: boolean, force?: boolean, managedAgentsBlock?: boolean, preserveRetired?: boolean, profile?: string, requestedModules?: string[], requestedPlugins?: any, rtkHooksEnabled?: boolean, renderData?: Record<string, any>, rootDir: string, ruleIndex?: Array<{ id: string, source: string, title: string }>, targetDir: string, upgrade?: boolean}} options */
+/** @param {{adapterId?: string, allowPreview?: boolean, configUpdate?: any, dryRun?: boolean, enforcementPolicy?: string, force?: boolean, managedAgentsBlock?: boolean, preserveRetired?: boolean, profile?: string, requestedModules?: string[], requestedPlugins?: any, rtkHooksEnabled?: boolean, renderData?: Record<string, any>, rootDir: string, ruleIndex?: Array<{ id: string, source: string, title: string }>, targetDir: string, upgrade?: boolean}} options */
 export async function createInstallPlan({
   adapterId = 'codex',
   allowPreview = false,
   configUpdate = null,
   dryRun = true,
+  enforcementPolicy = 'advisory',
   force = false,
   managedAgentsBlock = false,
   preserveRetired = false,
@@ -576,12 +579,24 @@ export async function createInstallPlan({
     endpoint: linearEndpoint,
   } : null;
 
+  // hooks.enforcement "strict" refuses red-zone writes onto hosts that declare
+  // no high-risk execution envelope. The per-plan value only says "this adapter
+  // is unsupported and projects red-zone writes"; createMultiTargetInstallPlan
+  // refines it with owner-union semantics across the selected targets.
+  const highRiskEnforcement = adapter.executionAuthority?.highRiskEnforcement ?? 'unsupported';
+  const strictEnforcementRefusals = enforcementPolicy === 'strict'
+    && highRiskEnforcement !== 'host-required'
+    && actions.some((action) => action.redZone && action.kind === 'write')
+    ? [adapter.id]
+    : [];
+
   return {
     adapter: adapter.id,
     adapterCapabilities: adapter.capabilities,
     baselinePlan,
     configUpdate,
     dryRun,
+    enforcementPolicy,
     force,
     generatedDirectories: generatedDirectories.map((item) => ({ ...item, owners: item.owners ?? ['shared'] })),
     implicitModules: moduleSelection.implicitModules,
@@ -610,12 +625,65 @@ export async function createInstallPlan({
     targetDir: path.resolve(targetDir),
     upgrade,
     version: currentPackageVersion,
+    highRiskEnforcement,
+    strictEnforcementRefusals,
     actions: ownedActions,
   };
 }
 
 function mergeOwners(left = [], right = []) {
   return [...new Set([...left, ...right])].sort();
+}
+
+/**
+ * Owner-union semantics for hooks.enforcement "strict": a red-zone target is
+ * denied only when every adapter that projects it declares no high-risk
+ * execution envelope. The hooks module is project-wide, so shared targets (for
+ * example .agents/runtime/hooks/*) written identically by codex and gemini stay
+ * allowed, because codex's envelope enforces them. Per-plan refusals cannot
+ * express this after the action merge, which keeps only the first plan's
+ * adapterId, so the union is computed from the unmerged per-adapter plans.
+ */
+function strictRefusedAdapters(plans) {
+  const redZoneOwners = new Map();
+  for (const plan of plans) {
+    const unsupported = plan.highRiskEnforcement !== 'host-required';
+    for (const action of plan.actions) {
+      if (!action.redZone || action.kind !== 'write') continue;
+      const owners = redZoneOwners.get(action.relativeTarget) ?? { enforcing: false, unsupported: false };
+      owners.enforcing = owners.enforcing || !unsupported;
+      owners.unsupported = owners.unsupported || unsupported;
+      redZoneOwners.set(action.relativeTarget, owners);
+    }
+  }
+  const deniedTargets = [...redZoneOwners.entries()]
+    .filter(([, owners]) => owners.unsupported && !owners.enforcing)
+    .map(([target]) => target);
+  if (deniedTargets.length === 0) return [];
+  const denied = new Set(deniedTargets);
+  return [...new Set(plans
+    .filter((plan) => plan.highRiskEnforcement !== 'host-required'
+      && plan.actions.some((action) => action.redZone && action.kind === 'write' && denied.has(action.relativeTarget)))
+    .map((plan) => plan.adapter))];
+}
+
+/**
+ * Report-facing form of the strict refusal: a blocking warning so dry-runs and
+ * read-only commands surface the denial, while applyInstallPlan refuses the
+ * real write. Returns an empty list under the default "advisory" policy.
+ *
+ * @param {string[] | null | undefined} refusals
+ */
+export function strictEnforcementWarnings(refusals) {
+  return (refusals ?? []).length > 0
+    ? [{
+        code: 'HIGH_RISK_WRITES_DENIED',
+        message: 'Hosts without a high-risk execution envelope ('
+          + [...refusals].join(', ')
+          + ') exclusively own red-zone projections; hooks.enforcement is "strict", so these high-risk writes are denied. Drop the unsupported targets or the hooks-facing modules, or set hooks.enforcement to "advisory".',
+        blocking: true,
+      }]
+    : [];
 }
 
 function compatibleActions(left, right) {
@@ -712,6 +780,7 @@ export async function createMultiTargetInstallPlan({ selectedTargets, targets, .
       previewCapabilities: plan.previewCapabilities,
       roleProjection: plan.roleProjection,
     }])),
+    strictEnforcementRefusals: options.enforcementPolicy === 'strict' ? strictRefusedAdapters(plans) : [],
     linearMcp: Object.fromEntries(plans
       .filter((plan) => plan.linearMcp)
       .map((plan) => [plan.adapter, plan.linearMcp])),
@@ -1426,6 +1495,7 @@ export async function diffMultiTargetInstall({ aggregatePlan, selectedTargets, t
     adapters,
     changed,
     conflicts: uniqueItems(entries.flatMap(([, report]) => report.conflicts)),
+    enforcementPolicy: plan.enforcementPolicy ?? 'advisory',
     expected,
     missing,
     ok: entries.every(([, report]) => report.ok) && staleProjections.length === 0,
@@ -1433,6 +1503,7 @@ export async function diffMultiTargetInstall({ aggregatePlan, selectedTargets, t
     redZone: uniqueItems(entries.flatMap(([, report]) => report.redZone)),
     same,
     staleProjections,
+    strictEnforcementRefusals: plan.strictEnforcementRefusals ?? [],
     summary: {
       changedCount: changed.length,
       missingCount: missing.length,
@@ -1478,9 +1549,14 @@ export async function applyInstallPlan(plan, hooks = {}) {
 
     installStatePersisted = true;
     await finalizeTransaction(transaction);
+    // Retention runs after the commit: the install is already durable, so a
+    // prune failure is reported instead of failing an applied transaction.
+    const retention = await safePruneBackups(plan.targetDir);
     return {
       baseline: ctx.baseline,
+      backupRetentionError: retention.error,
       mcpConflicts: [...new Set(writeResult.mcpConflicts)],
+      prunedBackups: retention.pruned,
       retired: retireResult.retired,
       retained: retireResult.retained,
       skipped: retireResult.skipped,
@@ -1514,6 +1590,17 @@ function validatePlanGuards(plan) {
     if (conflict) {
       throw new Error(`Refusing to overwrite existing file: ${conflict.target}`);
     }
+  }
+
+  // hooks.enforcement "strict" has no bypass flag: the config value is the
+  // operator's decision, so the only remedies are dropping the unsupported
+  // targets or modules, or switching the policy back to "advisory".
+  if (!plan.dryRun && (plan.strictEnforcementRefusals ?? []).length > 0) {
+    throw new Error(
+      'Refusing red-zone writes for '
+      + plan.strictEnforcementRefusals.join(', ')
+      + ': hooks.enforcement is "strict" and these targets declare no high-risk execution envelope. Drop the unsupported targets or the hooks-facing modules, or set hooks.enforcement to "advisory".',
+    );
   }
 
   if (!plan.dryRun && !plan.redZoneConfirmed && plan.actions.some((action) => action.redZone)) {
@@ -1842,5 +1929,14 @@ async function finalizeTransaction(transaction) {
       throw new AggregateError([error, releaseError], error.message);
     }
     throw error;
+  }
+}
+
+async function safePruneBackups(targetDir) {
+  try {
+    const pruned = await pruneBackups(targetDir);
+    return { error: null, pruned };
+  } catch (error) {
+    return { error: error.message, pruned: [] };
   }
 }

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -1550,6 +1551,49 @@ test('cancelled provisioning preserves an interrupted process marker for doctor'
     assert.equal(doctor.status, 'degraded');
     assert.equal(doctor.provisioningProcess.status, 'interrupted');
     assert.equal(doctor.warnings.some((warning) => warning.code === 'PROVISIONING_PROCESS_INCOMPLETE'), true);
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('doctor reports a stale active marker whose parent process is gone', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tools-stale-marker-'));
+  const markerPath = path.join(targetDir, '.vibe-harness/tool-state/provisioning.json');
+  const writeMarker = async (parentPid) => {
+    await mkdir(path.dirname(markerPath), { recursive: true });
+    await writeFile(markerPath, `${JSON.stringify({
+      currentTool: 'codebaseMemoryMcp',
+      parentPid,
+      startedAt: '2026-09-19T00:00:00.000Z',
+      status: 'active',
+    }, null, 2)}\n`, 'utf8');
+  };
+  try {
+    await runCli(['init', '--project', targetDir, '--profile', 'core']);
+    await runCli(['install', '--project', targetDir, '--profile', 'core', '--write']);
+
+    // A marker left 'active' by a provisioning run whose parent has since died
+    // is crash residue, not an in-flight run.
+    const child = spawn(process.execPath, ['--version']);
+    const deadPid = child.pid;
+    await once(child, 'exit');
+    await writeMarker(deadPid);
+
+    const stale = await runCli(['doctor', '--project', targetDir, '--allow-degraded']);
+    assert.equal(stale.status, 'degraded');
+    assert.equal(stale.provisioningProcess.status, 'active');
+    const warning = stale.warnings.find((item) => item.code === 'PROVISIONING_MARKER_STALE');
+    assert.ok(warning, JSON.stringify(stale.warnings));
+    assert.match(warning.message, new RegExp(`parent pid ${deadPid}.*no longer exists`, 'u'));
+    assert.match(warning.message, /uninstall\/rollback/u);
+
+    // A live parent means the marker still tracks a real run, so only the
+    // generic incomplete-process warning applies.
+    await writeMarker(process.pid);
+    const live = await runCli(['doctor', '--project', targetDir, '--allow-degraded']);
+    assert.equal(live.provisioningProcess.status, 'active');
+    assert.equal(live.warnings.some((item) => item.code === 'PROVISIONING_MARKER_STALE'), false);
+    assert.equal(live.warnings.some((item) => item.code === 'PROVISIONING_PROCESS_INCOMPLETE'), true);
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }

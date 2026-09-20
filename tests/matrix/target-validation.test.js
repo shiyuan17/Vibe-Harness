@@ -261,3 +261,53 @@ test('install --preset persists the preset into an existing project config under
     await rm(target, { force: true, recursive: true });
   }
 });
+
+test('non-init commands reject --targets before command dispatch', async () => {
+  const cliPath = path.join(rootDir, 'scripts', 'vibe-harness.js');
+  for (const command of ['install', 'provision', 'validate', 'verify', 'baseline', 'eval', 'audit', 'doctor', 'diff', 'rollback', 'uninstall', 'recover']) {
+    await assert.rejects(
+      execFileAsync(process.execPath, [cliPath, command, '--targets', 'codex,zcode']),
+      /--targets is only accepted by init/u,
+    );
+  }
+});
+
+test('project commands reject a missing --project with the command-specific message', async () => {
+  const cliPath = path.join(rootDir, 'scripts', 'vibe-harness.js');
+  const expectations = [
+    ['install', [], /install requires --project <path>; legacy --target path and --apply were removed/u],
+    ['verify', [], /verify requires --project <path>/u],
+    ['baseline', [], /baseline requires --project <path>/u],
+    // eval validates its subcommand before --project, so the subcommand must be present.
+    ['eval', ['check'], /eval requires --project <path>/u],
+    ['audit', [], /audit requires --project <path>/u],
+    ['doctor', [], /doctor requires --project <path>/u],
+    ['diff', [], /diff requires --project <path>/u],
+    ['rollback', [], /rollback requires --project <path>/u],
+  ];
+  for (const [command, extraArgs, pattern] of expectations) {
+    await assert.rejects(execFileAsync(process.execPath, [cliPath, command, ...extraArgs]), pattern);
+  }
+});
+
+test('verify rejects a --target adapter that is neither configured nor installed', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-target-select-'));
+  try {
+    const cliPath = path.join(rootDir, 'scripts', 'vibe-harness.js');
+    await execFileAsync(process.execPath, [cliPath, 'init', '--project', target, '--target', 'codex']);
+    await assert.rejects(
+      execFileAsync(process.execPath, [cliPath, 'verify', '--project', target, '--target', 'zcode']),
+      /CLI target zcode is not configured or installed for this project/u,
+    );
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('--target rejects a path value and points callers at --project', async () => {
+  const cliPath = path.join(rootDir, 'scripts', 'vibe-harness.js');
+  await assert.rejects(
+    execFileAsync(process.execPath, [cliPath, 'verify', '--project', '.', '--target', './some/path']),
+    /--target only accepts adapter ids/u,
+  );
+});
