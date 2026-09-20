@@ -58,6 +58,28 @@ function stateDirNameFor(targetDir) {
   return path.basename(path.dirname(stateFilePath(targetDir)));
 }
 
+function toolStateTargets(targetDir) {
+  const stateDir = stateDirNameFor(targetDir);
+  return [
+    `${stateDir}/tool-state/tools.json`,
+    `${stateDir}/tool-state/provisioning.json`,
+  ];
+}
+
+// The tool runtime writes its state outside the installer's file plan, so a
+// surviving manifest under .agents/runtime/tools/ (not adapter ownership)
+// decides whether that state must be kept.
+async function toolRuntimeManifestsPresent(targetDir) {
+  const toolsRoot = path.join(targetDir, '.agents', 'runtime', 'tools');
+  if (!(await pathExists(toolsRoot))) return false;
+  const entries = await readdir(toolsRoot, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+    if (await pathExists(path.join(toolsRoot, entry.name, 'package.json'))) return true;
+  }
+  return false;
+}
+
 export async function hashFile(filePath) {
   const content = await readFile(filePath);
   return createHash('sha256').update(content).digest('hex');
@@ -139,6 +161,36 @@ export async function backupFile({ backupId, target, targetDir }) {
   await mkdir(path.dirname(backupPath), { recursive: true });
   await copyFile(target, backupPath);
   return backupRelative;
+}
+
+// Every write transaction adds one directory under <stateDir>/backups/ holding
+// full copies of the files it replaced, so without a bound the directory grows
+// without limit. Backup ids are ISO-8601 timestamps (baseline) or timestamps
+// with a transaction suffix (install), which sort lexicographically in
+// creation order. Pruning runs only after a transaction has committed, so a
+// crash mid-prune can cost old backups but never the current one.
+export const DEFAULT_BACKUP_RETENTION = 10;
+
+export async function pruneBackups(targetDir, { keep = DEFAULT_BACKUP_RETENTION } = {}) {
+  if (!Number.isInteger(keep) || keep < 0) {
+    throw new Error(`Backup retention must be a non-negative integer, received ${keep}.`);
+  }
+  const backupsRoot = path.join(targetDir, stateDirNameFor(targetDir), 'backups');
+  if (!(await pathExists(backupsRoot))) return [];
+  const entries = await readdir(backupsRoot, { withFileTypes: true });
+  const backupIds = entries
+    .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
+    .map((entry) => entry.name)
+    .sort();
+  const pruned = [];
+  for (const backupId of backupIds.slice(0, Math.max(0, backupIds.length - keep))) {
+    const backupDir = path.join(backupsRoot, backupId);
+    assertInsideDir(targetDir, backupDir, 'backup retention');
+    await assertSafePathInside(targetDir, backupDir, 'backup retention');
+    await rm(backupDir, { force: true, recursive: true });
+    pruned.push(backupId);
+  }
+  return pruned;
 }
 
 export async function collectTargetFiles(targetDir, currentDir = targetDir) {
@@ -294,6 +346,16 @@ export async function createRollbackPlan({ dryRun = true, redZoneConfirmed = fal
     });
   }
 
+  // The runtime writes tool-state/tools.json and the transient
+  // tool-state/provisioning.json marker outside the installer's file plan,
+  // so they survive as orphans unless retirement is explicit. A rollback
+  // exits the whole install, so both files are retired whenever present.
+  // tools.json churns on every provision (`updatedAt`), so hash discipline
+  // would only produce spurious 'target-modified' skips.
+  for (const target of toolStateTargets(targetDir)) {
+    actions.push({ kind: 'delete-tool-state', redZone: false, target });
+  }
+
   await assertStateActionPathsSafe(targetDir, actions, 'rollback');
 
   return {
@@ -354,6 +416,11 @@ export async function applyRollbackPlan(plan, hooks = {}) {
       }
       await rm(target, { force: true });
       applied.push(action.target);
+    } else if (action.kind === 'delete-tool-state') {
+      if (await pathExists(target)) {
+        await rm(target, { force: true });
+        applied.push(action.target);
+      }
     } else if (action.kind === 'remove-managed-ignore-block' && await pathExists(target)) {
       const content = await readFile(target, 'utf8');
       const block = extractManagedCbmIgnoreBlock(content);
@@ -574,6 +641,22 @@ export async function createUninstallPlan({ allTargets = false, configUpdate = n
     }
   }
 
+  // Tool runtime state must retire with the tool runtimes: the provisioning
+  // marker is transient process state, and tools.json only matters while a
+  // manifest under .agents/runtime/tools/ survives the uninstall. Manifests
+  // carry owners: ['shared'], so a targeted uninstall keeps both the tools
+  // and their state.
+  const survivingToolManifests = targeted
+    ? state.files.filter((file) => !exclusivelyOwned(file)
+      && file.target.startsWith('.agents/runtime/tools/')
+      && file.target.endsWith('/package.json'))
+    : [];
+  if (survivingToolManifests.length === 0) {
+    for (const target of toolStateTargets(targetDir)) {
+      actions.push({ kind: 'delete-tool-state', redZone: false, target });
+    }
+  }
+
   await assertStateActionPathsSafe(targetDir, actions, 'uninstall');
 
   const removeOwner = (items = []) => items.flatMap((item) => {
@@ -690,6 +773,15 @@ async function applyUninstallAction(plan, action) {
   if (action.kind === 'delete-created') {
     if (!(await pathExists(target))) return null;
     if (await hashFile(target) !== action.expectedHash) return 'target-modified';
+    await rm(target, { force: true });
+    return null;
+  }
+  if (action.kind === 'delete-tool-state') {
+    // Re-check on disk: a partial uninstall that left a tool manifest behind
+    // (for example because its directory was owner-modified) must keep the
+    // tool state that manifest still describes.
+    if (await toolRuntimeManifestsPresent(plan.targetDir)) return 'tool-runtime-present';
+    if (!(await pathExists(target))) return null;
     await rm(target, { force: true });
     return null;
   }

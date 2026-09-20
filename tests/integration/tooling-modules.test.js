@@ -168,7 +168,13 @@ test('tool inspection degrades persisted ready tools when project-local binaries
   }
 });
 
-test('tool inspection hashes runtimes without executing project binaries', async () => {
+// The raised tests below drive real CLI install/doctor/inspection subprocesses
+// (multiple invocations per test); on slow filesystems each invocation carries a
+// multi-second I/O floor, so they legitimately exceed the default 120s budget.
+// 2026-09-19 calibration (solo, slow box): install --write 35s, validate 68s,
+// doctor 73s per invocation; RTK round-trip measured >300s solo, so 600s is a
+// hang guard, not a performance claim.
+test('tool inspection hashes runtimes without executing project binaries', { timeout: 600000 }, async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tool-hash-mismatch-'));
   let inspectExecutions = 0;
   try {
@@ -319,7 +325,70 @@ test('optional tool uninstall removes managed runtimes and preserves user files'
   }
 });
 
-test('plugin none retires deselected wrappers, generated directories, and managed MCP servers', async () => {
+test('uninstall retires tool runtime state only when the tool runtimes are gone', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tool-state-retire-'));
+  const toolsState = path.join(target, '.vibe-harness/tool-state/tools.json');
+  const marker = path.join(target, '.vibe-harness/tool-state/provisioning.json');
+  try {
+    await runCli(['init', '--project', target, '--targets', 'codex,claude']);
+    await runCli([
+      'install', '--project', target, '--profile', 'core',
+      '--plugin', '-rtk', 'ast-grep', '--rtk-hooks', 'off', '--write',
+    ]);
+    // Installing alone records no tool state; seed both files the way a crashed
+    // or interrupted tool runtime leaves them behind.
+    await writeToolState(target, { astGrep: { status: 'ready' } }, {});
+    await writeFile(marker, `${JSON.stringify({
+      parentPid: 4194304,
+      startedAt: '2026-09-19T00:00:00.000Z',
+      status: 'active',
+    }, null, 2)}\n`, 'utf8');
+
+    // The shared tool runtimes survive a targeted uninstall for the remaining
+    // target, so the state that describes them must survive with them.
+    await runCli(['uninstall', '--project', target, '--target', 'codex', '--write']);
+    assert.equal(JSON.parse(await readFile(toolsState, 'utf8')).tools.astGrep.status, 'ready');
+    assert.equal(JSON.parse(await readFile(marker, 'utf8')).status, 'active');
+    assert.match(await readFile(path.join(target, '.agents/runtime/tools/ast-grep/run.mjs'), 'utf8'), /\S/u);
+
+    // The final uninstall removes the runtimes, and the state retires with them.
+    await runCli(['uninstall', '--project', target, '--all-targets', '--write']);
+    await assert.rejects(readFile(toolsState, 'utf8'), /ENOENT/u);
+    await assert.rejects(readFile(marker, 'utf8'), /ENOENT/u);
+    await assert.rejects(readFile(path.join(target, '.agents/runtime/tools/ast-grep/run.mjs'), 'utf8'), /ENOENT/u);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('rollback retires tool runtime state with the installation', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tool-state-rollback-'));
+  const toolsState = path.join(target, '.vibe-harness/tool-state/tools.json');
+  const marker = path.join(target, '.vibe-harness/tool-state/provisioning.json');
+  try {
+    await runCli(['init', '--project', target]);
+    await runCli([
+      'install', '--project', target, '--target', 'codex', '--profile', 'core',
+      '--plugin', '-rtk', 'ast-grep', '--rtk-hooks', 'off', '--write',
+    ]);
+    await writeToolState(target, { astGrep: { status: 'ready' } }, {});
+    await writeFile(marker, `${JSON.stringify({
+      parentPid: 4194304,
+      startedAt: '2026-09-19T00:00:00.000Z',
+      status: 'active',
+    }, null, 2)}\n`, 'utf8');
+
+    // Rollback restores the pre-install surface, so the private state the tool
+    // runtime wrote afterwards would otherwise survive as an orphan.
+    await runCli(['rollback', '--project', target, '--write']);
+    await assert.rejects(readFile(toolsState, 'utf8'), /ENOENT/u);
+    await assert.rejects(readFile(marker, 'utf8'), /ENOENT/u);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('plugin none retires deselected wrappers, generated directories, and managed MCP servers', { timeout: 600000 }, async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tool-clear-selection-'));
   const configPath = path.join(target, '.codex/config.toml');
   const rtkRuntime = path.join(target, '.agents/runtime/tools/rtk/bin/runtime.fixture');
@@ -419,7 +488,7 @@ test('ast-grep public failures retain supported diagnostic codes and statuses', 
   }
 });
 
-test('tool state and doctor outputs sanitize structured registry diagnostics', async () => {
+test('tool state and doctor outputs sanitize structured registry diagnostics', { timeout: 600000 }, async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-registry-diagnostic-'));
   const secretRegistry = 'https://alice%40corp:pass%3Aword@registry.example.test/private?signature=registry-secret#fragment';
   try {
@@ -888,7 +957,7 @@ test('RTK provisioning persists unsupported without invoking the installer', asy
   }
 });
 
-test('ast-grep public failures produce compatible doctor recommendations', async () => {
+test('ast-grep public failures produce compatible doctor recommendations', { timeout: 600000 }, async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-ast-grep-recommendations-'));
   const statePath = path.join(target, '.vibe-harness/tool-state/tools.json');
   try {
@@ -944,7 +1013,7 @@ test('ast-grep public failures produce compatible doctor recommendations', async
   }
 });
 
-test('failed optional-tool provisioning degrades health and allow-degraded preserves status', async () => {
+test('failed optional-tool provisioning degrades health and allow-degraded preserves status', { timeout: 600000 }, async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tool-degraded-'));
   const env = { ...process.env, VIBE_HARNESS_TEST_OFFLINE: '1' };
   try {

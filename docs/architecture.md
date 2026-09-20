@@ -39,6 +39,7 @@ install-state stateVersion 5 使用 targets 取代 adapter。files、generatedFi
 - install、upgrade、validate、doctor 和 diff 默认处理配置中的全部 targets。
 - --target 只选择配置或状态中仍存在的一个宿主，不追加目标。
 - 目标级 uninstall 删除一个投影并更新配置和状态；最后一个目标与共享资产必须通过 --all-targets 删除。
+- `.vibe-harness/tool-state/`（`tools.json` 与 `provisioning.json`）由工具运行时在安装文件计划之外写入：rollback 与 `--all-targets` uninstall 随工具运行时一并退休该状态；目标级 uninstall 在仍有共享 `.agents/runtime/tools/*/package.json` 清单存活时保留它。
 - 从配置手工删除 target 只产生 stale projection，upgrade 不隐式卸载。
 - install 和 upgrade 是跨宿主事务；任何投影失败都不提交文件、配置迁移或新 state。
 - rollback 恢复上一次完整事务，不保留半迁移状态。

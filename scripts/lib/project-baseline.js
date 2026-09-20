@@ -8,6 +8,7 @@ import {
   backupFile,
   createBackupId,
   hashFile,
+  pruneBackups,
   readInstallState,
   registerGeneratedFile,
   stateFilePath,
@@ -320,6 +321,7 @@ export async function createProjectBaseline({
     throw baselineError('BASELINE_ARTIFACT_CONFLICT', `Refusing to overwrite unmanaged or modified baseline artifact: ${conflicts[0].relativeTarget}`);
   }
   const backups = [];
+  let backupRetentionError = null;
   if (write) {
     const backupId = createBackupId(now);
     const transaction = await beginFileTransaction({
@@ -341,6 +343,13 @@ export async function createProjectBaseline({
     await registerGeneratedFile(targetDir, baselineTarget);
     await registerGeneratedFile(targetDir, reportTarget);
     await transaction.commit();
+    // Retention mirrors the install path: only after the commit, and a prune
+    // failure must not fail an already-durable baseline write.
+    try {
+      await pruneBackups(targetDir);
+    } catch (error) {
+      backupRetentionError = error.message;
+    }
     } catch (error) {
       await transaction.rollback();
       throw error;
@@ -348,6 +357,7 @@ export async function createProjectBaseline({
   }
   return {
     artifacts: artifacts.map((item) => ({ action: item.action, target: item.relativeTarget })),
+    backupRetentionError,
     backups,
     baseline,
     dryRun: !write,

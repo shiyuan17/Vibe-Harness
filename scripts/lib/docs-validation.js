@@ -43,6 +43,12 @@ const repositoryScanExcludedDirectories = new Set([
   'coverage',
   'dist',
   'node_modules',
+  // These directory names only ever hold generated output (package-manager
+  // stores and eval run artifacts), never governed repository content.
+  '.pnpm-store',
+  'candidates',
+  'generated',
+  'runs',
   'output',
   'tmp',
 ]);
