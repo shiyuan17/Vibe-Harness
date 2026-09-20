@@ -9,6 +9,11 @@ const ASSET_GROUPS = {
   skills: ['skills', '.agents/skills'],
 };
 
+// Single source for the group set: drift comparison and contract tests
+// import this list instead of restating the names, and the eval schemas pin
+// the same set, so changing it is a cross-file contract change.
+export const EVAL_ASSET_GROUP_NAMES = Object.freeze(Object.keys(ASSET_GROUPS));
+
 async function collect(rootDir, relative) {
   const absolute = path.join(rootDir, relative);
   let metadata;

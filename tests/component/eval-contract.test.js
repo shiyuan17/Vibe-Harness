@@ -15,7 +15,7 @@ import {
   validateEvalSuiteSemantics,
 } from '../../scripts/lib/eval-contract.js';
 import { OFFLINE_RESULT_PATH, buildOfflineRun, syncOfflineRunArtifact } from '../../scripts/lib/eval-replay.js';
-import { createEvalAssetFingerprint } from '../../scripts/lib/eval-assets.js';
+import { createEvalAssetFingerprint, EVAL_ASSET_GROUP_NAMES } from '../../scripts/lib/eval-assets.js';
 import { scoreCase } from '../../scripts/lib/eval-scoring.js';
 
 const rootDir = path.resolve(import.meta.dirname, '../..');
@@ -41,7 +41,7 @@ test('eval run schema keeps v1 readable while writers emit v2 proof and asset fi
   assert.equal(replayed.schemaVersion, 2);
   assert.equal(replayed.proof, 'contract-replay');
   assert.match(replayed.fingerprint.assets.aggregateHash, /^[a-f0-9]{64}$/u);
-  assert.deepEqual(Object.keys(replayed.fingerprint.assets.groups).sort(), ['config', 'hooks', 'rules', 'skills']);
+  assert.deepEqual(Object.keys(replayed.fingerprint.assets.groups).sort(), [...EVAL_ASSET_GROUP_NAMES].sort());
 });
 
 test('role source changes invalidate the rules asset fingerprint without hashing reports', async () => {
@@ -92,9 +92,9 @@ test('online role and tool routing suites declare their fixture and reporting co
   ]);
 });
 
-test('core suite contains exactly 38 generic cases in the required category split', async () => {
+test('core suite contains exactly 40 generic cases in the required category split', async () => {
   const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-core.json'));
-  assert.equal(suite.cases.length, 38);
+  assert.equal(suite.cases.length, 40);
   const counts = suite.cases.reduce((result, item) => ({
     ...result,
     [item.category]: (result[item.category] ?? 0) + 1,
@@ -102,11 +102,11 @@ test('core suite contains exactly 38 generic cases in the required category spli
   assert.deepEqual(counts, {
     'install-lifecycle': 6,
     'task-delivery-governance': 4,
-    'skill-routing': 19,
+    'skill-routing': 21,
     'safety-isolation': 9,
   });
   const ids = new Set(suite.cases.map((item) => item.id));
-  assert.equal(ids.size, 38);
+  assert.equal(ids.size, 40);
   for (const id of ['EVAL-GOV-EVIDENCE-005', 'EVAL-GOV-DEGRADED-006', 'EVAL-GOV-SENSITIVE-007', 'EVAL-GOV-ANALYSIS-008']) {
     assert.equal(ids.has(id), true);
   }

@@ -2,7 +2,7 @@ const supportedKeywords = new Set([
   '$defs', '$id', '$ref', '$schema', 'additionalProperties', 'allOf', 'anyOf', 'const', 'default', 'description', 'enum',
   'exclusiveMaximum', 'exclusiveMinimum', 'items', 'maxItems', 'maxLength', 'maxProperties', 'maximum',
   'format', 'minItems', 'minLength', 'minProperties', 'minimum', 'multipleOf', 'not', 'oneOf', 'pattern',
-  'properties', 'required', 'title', 'type', 'uniqueItems',
+  'patternProperties', 'properties', 'required', 'title', 'type', 'uniqueItems',
 ]);
 
 function assertSchemaObject(schema, schemaPath) {
@@ -32,6 +32,9 @@ export function assertSupportedSchemaKeywords(schema, schemaPath = '$') {
     }
   }
   if (schema.not) assertSupportedSchemaKeywords(schema.not, `${schemaPath}.not`);
+  for (const [pattern, child] of Object.entries(schema.patternProperties ?? {})) {
+    assertSupportedSchemaKeywords(child, `${schemaPath}.patternProperties.${pattern}`);
+  }
   if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
     assertSupportedSchemaKeywords(schema.additionalProperties, `${schemaPath}.additionalProperties`);
   }
@@ -93,7 +96,6 @@ export function validateJsonAgainstSchema(value, schema, label = 'value') {
       if (!variants.some((variantErrors) => variantErrors.length === 0)) {
         addError(instancePath, `${schemaPath}.anyOf`, 'must match at least one allowed schema');
       }
-      return;
     }
     if (Array.isArray(currentSchema.oneOf)) {
       const matches = currentSchema.oneOf.filter((candidate, index) => {
@@ -102,7 +104,6 @@ export function validateJsonAgainstSchema(value, schema, label = 'value') {
         return errors.splice(start).length === 0;
       }).length;
       if (matches !== 1) addError(instancePath, `${schemaPath}.oneOf`, 'must match exactly one allowed schema');
-      return;
     }
     if (currentSchema.not) {
       const start = errors.length;
@@ -137,6 +138,14 @@ export function validateJsonAgainstSchema(value, schema, label = 'value') {
       }
       for (const key of keys) {
         if (Object.hasOwn(properties, key)) continue;
+        const matchedPatterns = Object.entries(currentSchema.patternProperties ?? {})
+          .filter(([pattern]) => new RegExp(pattern, 'u').test(key));
+        if (matchedPatterns.length > 0) {
+          for (const [pattern, child] of matchedPatterns) {
+            evaluate(current[key], child, `${instancePath}.${key}`, `${schemaPath}.patternProperties.${pattern}`);
+          }
+          continue;
+        }
         if (currentSchema.additionalProperties === false) {
           addError(`${instancePath}.${key}`, `${schemaPath}.additionalProperties`, 'is not allowed');
         } else if (currentSchema.additionalProperties && typeof currentSchema.additionalProperties === 'object') {

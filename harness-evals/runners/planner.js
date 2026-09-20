@@ -5,13 +5,14 @@ function repetitions(scenario, tier) {
   return scenario.phase.regression.repetitions[tier] ?? (tier === 'fast' ? 1 : tier === 'nightly' ? 3 : 5);
 }
 
-/** @param {{scenarios: Array<Record<string, any>>, tier?: string, scenarioIds?: string[], backendCapabilities?: string[], attemptLimit?: number}} options */
+/** @param {{scenarios: Array<Record<string, any>>, tier?: string, scenarioIds?: string[], backendCapabilities?: string[], attemptsPerScenario?: number, globalAttemptLimit?: number}} options */
 export function planHarnessEval({
   scenarios,
   tier = 'fast',
   scenarioIds = [],
   backendCapabilities = [],
-  attemptLimit = Number.POSITIVE_INFINITY,
+  attemptsPerScenario = Number.POSITIVE_INFINITY,
+  globalAttemptLimit = Number.POSITIVE_INFINITY,
 } = /** @type {{scenarios: Array<Record<string, any>>}} */ ({})) {
   if (!Array.isArray(scenarios)) throw new TypeError('scenarios must be an array');
   if (!TIERS.has(tier)) throw new Error('tier must be fast, nightly, or full');
@@ -22,12 +23,15 @@ export function planHarnessEval({
       : new Set(scenarios.map((scenario) => scenario.id));
   const unknown = [...requested].filter((id) => !scenarios.some((scenario) => scenario.id === id));
   if (unknown.length > 0) throw new Error(`unknown scenario ids: ${unknown.join(', ')}`);
-  let remaining = attemptLimit;
+  let remainingGlobal = globalAttemptLimit;
   const entries = scenarios.filter((scenario) => requested.has(scenario.id)).map((scenario) => {
     const missingCapabilities = scenario.capabilities.required.filter((capability) => !backendCapabilities.includes(capability));
     const desired = repetitions(scenario, tier);
-    const scheduledAttempts = missingCapabilities.length > 0 ? 0 : Math.max(0, Math.min(desired, remaining));
-    remaining -= scheduledAttempts;
+    // attemptsPerScenario caps each scenario independently; globalAttemptLimit is an
+    // optional total-cost ceiling applied in scenario order once per-scenario caps are settled.
+    const capped = Math.max(0, Math.min(desired, attemptsPerScenario));
+    const scheduledAttempts = missingCapabilities.length > 0 ? 0 : Math.max(0, Math.min(capped, remainingGlobal));
+    remainingGlobal -= scheduledAttempts;
     return {
       scenarioId: scenario.id,
       status: missingCapabilities.length > 0

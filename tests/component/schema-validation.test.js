@@ -223,3 +223,42 @@ test('project config accepts the worktree contract and rejects unknown keys', ()
   emptySetupCommand.worktree.provision.setupCommands = [''];
   assert.throws(() => validateProjectConfigWithSchema(emptySetupCommand), /setupCommands/u);
 });
+
+test('patternProperties 命中的键按子模式校验且不受 additionalProperties 拒绝', () => {
+  const schema = {
+    type: 'object',
+    properties: { declared: { type: 'string' } },
+    patternProperties: {
+      '^tests/.+\\.test\\.js$': { type: 'array', items: { type: 'string' } },
+    },
+    additionalProperties: false,
+  };
+  assert.deepEqual(validateJsonAgainstSchema({
+    declared: 'ok',
+    'tests/unit/alpha.test.js': ['scripts/lib/helper.js'],
+  }, schema), []);
+
+  const badType = validateJsonAgainstSchema({ 'tests/unit/alpha.test.js': 'scripts/lib/helper.js' }, schema);
+  assert.ok(badType.some((e) => e.includes('tests/unit/alpha.test.js') && e.includes('must be array') && e.includes('patternProperties')));
+
+  const badItem = validateJsonAgainstSchema({ 'tests/unit/alpha.test.js': [42] }, schema);
+  assert.ok(badItem.some((e) => e.includes('[0]') && e.includes('must be string') && e.includes('patternProperties')));
+
+  const rogue = validateJsonAgainstSchema({ rogue: true }, schema);
+  assert.ok(rogue.some((e) => e.includes('rogue') && e.includes('is not allowed')));
+});
+
+test('assertSupportedSchemaKeywords 递归检查 patternProperties 子模式', () => {
+  assertSupportedSchemaKeywords({
+    type: 'object',
+    patternProperties: { '^a+$': { type: 'string', minLength: 1 } },
+    additionalProperties: false,
+  });
+  assert.throws(
+    () => assertSupportedSchemaKeywords({
+      type: 'object',
+      patternProperties: { '^a+$': { type: 'string', unsupportedConstraint: true } },
+    }),
+    /Unsupported schema keyword at \$\.patternProperties\./u,
+  );
+});

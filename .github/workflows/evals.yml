@@ -84,6 +84,15 @@ jobs:
           HARNESS_EVAL_TIER: ${{ github.event.inputs.tier || 'nightly' }}
           HARNESS_EVAL_ATTEMPTS: ${{ vars.HARNESS_EVAL_ATTEMPTS || '6' }}
         run: pnpm eval:harness run --tier "$HARNESS_EVAL_TIER" --attempts "$HARNESS_EVAL_ATTEMPTS"
+      - name: Gate on harness eval step outcome
+        if: always()
+        env:
+          HARNESS_EVAL_OUTCOME: ${{ steps.harness-eval.outcome }}
+        run: |
+          if [ "$HARNESS_EVAL_OUTCOME" = "failure" ] || [ "$HARNESS_EVAL_OUTCOME" = "cancelled" ]; then
+            echo "harness eval step finished with outcome: $HARNESS_EVAL_OUTCOME" >&2
+            exit 1
+          fi
       - name: Download recent online evaluation health artifacts
         if: always()
         env:

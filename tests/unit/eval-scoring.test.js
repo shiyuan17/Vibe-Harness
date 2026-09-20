@@ -4,10 +4,12 @@ import test from 'node:test';
 import { summarizeTrials } from '../../scripts/lib/eval-trials.js';
 import {
   aggregateCaseScores,
+  compareAssetFingerprints,
   compareFingerprints,
   sanitizeEvalValue,
   scoreCase,
 } from '../../scripts/lib/eval-scoring.js';
+import { EVAL_ASSET_GROUP_NAMES } from '../../scripts/lib/eval-assets.js';
 
 const weights = {
   correctness: 4,
@@ -458,4 +460,31 @@ test('compareFingerprints reports exact component mismatches', () => {
   };
   assert.equal(compareFingerprints({ ...expected, execution }, { ...expected, execution }).match, true);
   assert.equal(compareFingerprints({ ...expected, execution: { ...execution, concurrency: 1 } }, { ...expected, execution }).mismatches[0].field, 'execution');
+});
+
+test('asset fingerprint group names are single-sourced from eval-assets.js', () => {
+  // Literal pin on purpose: the four groups are a cross-file contract (the
+  // eval schemas require the same set), so changing them must be a conscious
+  // decision, not a silent scoring detail.
+  assert.deepEqual([...EVAL_ASSET_GROUP_NAMES], ['config', 'hooks', 'rules', 'skills']);
+});
+
+test('compareAssetFingerprints itemizes every group from the single-sourced list', () => {
+  const groups = Object.fromEntries(EVAL_ASSET_GROUP_NAMES.map((name) => [name, { fileCount: 2, hash: `${name}-hash` }]));
+  const expected = { aggregateHash: 'aggregate', groups };
+  assert.deepEqual(compareAssetFingerprints(expected, expected), { match: true, mismatches: [] });
+
+  const drifted = { aggregateHash: 'aggregate-2', groups: { ...groups, rules: { fileCount: 1, hash: 'rules-hash-2' } } };
+  assert.deepEqual(compareAssetFingerprints(drifted, expected).mismatches.map((item) => item.field), [
+    'assets.aggregateHash',
+    'assets.groups.rules.fileCount',
+    'assets.groups.rules.hash',
+  ]);
+
+  const missingGroup = { aggregateHash: 'aggregate', groups: { ...groups } };
+  delete missingGroup.groups.skills;
+  assert.deepEqual(compareAssetFingerprints(missingGroup, expected).mismatches.map((item) => item.field), [
+    'assets.groups.skills.fileCount',
+    'assets.groups.skills.hash',
+  ]);
 });

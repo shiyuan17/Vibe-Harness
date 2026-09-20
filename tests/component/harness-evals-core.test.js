@@ -16,6 +16,7 @@ import {
   createCodexCliBackend,
   createDeterministicVerifier,
   createHarnessRunner,
+  planHarnessEval,
   readTraceBundle,
   redactTraceValue,
   renderHtmlReport,
@@ -343,4 +344,64 @@ test('impact selection adds fixed critical scenarios and falls back on unknown p
   const unknown = selectScenariosForChanges({ changedPaths: ['unknown/file'], impactMap, allScenarioIds: ['H01', 'H04', 'H20'] });
   assert.deepEqual(unknown.selectedScenarioIds, ['H01', 'H04', 'H20']);
   assert.equal(unknown.fallbackUsed, true);
+});
+
+test('harness eval 计划按场景分配尝试预算并保留可选全局上限', () => {
+  const capabilities = ['resume'];
+  const scenarios = Array.from({ length: 20 }, (_, index) => ({
+    id: `H${String(index + 1).padStart(2, '0')}`,
+    title: `scenario ${index + 1}`,
+    source: 'internal',
+    capabilities: { required: ['resume'] },
+    phase: { regression: { repetitions: {} } },
+  }));
+  const planned = planHarnessEval({ scenarios, tier: 'nightly', backendCapabilities: capabilities, attemptsPerScenario: 3 });
+  assert.equal(planned.summary.selectedScenarios, 20);
+  assert.equal(planned.summary.readyScenarios, 20);
+  assert.equal(planned.summary.scheduledAttempts, 60);
+  const capped = planHarnessEval({ scenarios, tier: 'nightly', backendCapabilities: capabilities, attemptsPerScenario: 1 });
+  assert.equal(capped.summary.partialScenarios, 20);
+  assert.equal(capped.summary.scheduledAttempts, 20);
+  assert.ok(capped.entries.every((entry) => entry.status === 'partial' && entry.scheduledAttempts === 1 && entry.desiredAttempts === 3));
+  const globallyCapped = planHarnessEval({ scenarios, tier: 'nightly', backendCapabilities: capabilities, attemptsPerScenario: 3, globalAttemptLimit: 6 });
+  assert.equal(globallyCapped.summary.scheduledAttempts, 6);
+  assert.ok(globallyCapped.entries.slice(0, 2).every((entry) => entry.status === 'ready' && entry.scheduledAttempts === 3));
+  assert.ok(globallyCapped.entries.slice(2).every((entry) => entry.status === 'not-scheduled' && entry.scheduledAttempts === 0));
+});
+
+test('harness eval 计划区分 blocked 与预算耗尽且 blocked 不消耗预算', () => {
+  const scenarios = [
+    { id: 'H01', title: 'needs fault injection', source: 'internal', capabilities: { required: ['fault-injection'] }, phase: { regression: { repetitions: {} } } },
+    { id: 'H02', title: 'supported', source: 'internal', capabilities: { required: ['resume'] }, phase: { regression: { repetitions: {} } } },
+    { id: 'H03', title: 'also supported', source: 'internal', capabilities: { required: ['resume'] }, phase: { regression: { repetitions: {} } } },
+  ];
+  const plan = planHarnessEval({ scenarios, tier: 'nightly', backendCapabilities: ['resume'], attemptsPerScenario: 3, globalAttemptLimit: 3 });
+  assert.equal(plan.entries[0].status, 'blocked');
+  assert.equal(plan.entries[0].scheduledAttempts, 0);
+  assert.deepEqual(plan.entries[0].missingCapabilities, ['fault-injection']);
+  assert.equal(plan.entries[1].status, 'ready');
+  assert.equal(plan.entries[1].scheduledAttempts, 3);
+  assert.equal(plan.entries[2].status, 'not-scheduled');
+  assert.equal(plan.entries[2].scheduledAttempts, 0);
+  assert.equal(plan.summary.blockedScenarios, 1);
+  assert.equal(plan.summary.scheduledAttempts, 3);
+});
+
+test('harness eval 结果把 blocked 与 failed 区分为不同终态', () => {
+  const blocked = buildResultV3({
+    scenario: { id: 'H15', title: 'Capability missing', version: '1.0.0' },
+    attempts: [{ id: 'attempt-1', status: 'blocked', phase: 'regression' }],
+    checks: [{ id: 'H15-preflight', category: 'infrastructure', severity: 'critical', status: 'blocked', code: 'BACKEND_CAPABILITY_UNAVAILABLE' }],
+    fingerprint: {},
+    generatedAt: '2026-09-18T00:00:00.000Z',
+  });
+  assert.equal(blocked.status, 'blocked');
+  const failed = buildResultV3({
+    scenario: { id: 'H04', title: 'Verification skipped', version: '1.0.0' },
+    attempts: [{ id: 'attempt-1', status: 'failed', phase: 'regression' }],
+    checks: [{ id: 'H04-C1', category: 'outcome', severity: 'critical', status: 'failed', code: 'VERIFICATION_SKIPPED' }],
+    fingerprint: {},
+    generatedAt: '2026-09-18T00:00:00.000Z',
+  });
+  assert.equal(failed.status, 'failed');
 });

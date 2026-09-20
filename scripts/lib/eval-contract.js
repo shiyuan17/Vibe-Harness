@@ -199,11 +199,11 @@ export const ASSET_DRIFT_PREFIX = 'asset fingerprint drift for ';
  *
  * @param {string} rootDir repository root
  */
-export async function validateApprovedReferenceAssets(rootDir) {
+export async function validateApprovedReferenceAssets(rootDir, assetsFingerprint) {
   const reference = await readJson(path.join(rootDir, 'evals/references/vibe-harness-core.offline.json'));
   if (!reference.fingerprint?.assets) return [];
-  const assetsFingerprint = await createEvalAssetFingerprint(rootDir);
-  return compareAssetFingerprints(assetsFingerprint, reference.fingerprint.assets)
+  const current = assetsFingerprint ?? await createEvalAssetFingerprint(rootDir);
+  return compareAssetFingerprints(current, reference.fingerprint.assets)
     .mismatches
     .map((mismatch) => ASSET_DRIFT_PREFIX + mismatch.field);
 }

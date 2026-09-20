@@ -7,7 +7,7 @@ import { readJson } from '../../scripts/lib/manifest.js';
 
 const rootDir = path.resolve(import.meta.dirname, '../..');
 
-test('CI blocks offline eval drift and scheduled workflow runs advisory online canaries', async () => {
+test('CI 阻断 offline eval 漂移且夜间 workflow 对 harness eval 失败置红', async () => {
   const [ci, online] = await Promise.all([
     readFile(path.join(rootDir, '.github/workflows/ci.yml'), 'utf8'),
     readFile(path.join(rootDir, '.github/workflows/evals.yml'), 'utf8'),
@@ -27,6 +27,9 @@ test('CI blocks offline eval drift and scheduled workflow runs advisory online c
   assert.match(ci, /risk-evidence:/u);
   assert.match(ci, /merge-gate:/u);
   assert.match(ci, /needs:\s*\[change-plan, product, supply-chain, risk-evidence, branch-policy, independent-review, high-risk-approval\]/u);
+  assert.match(ci, /docsOnly: \$\{\{ steps\.plan\.outputs\.docsOnly \}\}/u);
+  assert.match(ci, /if: needs\.change-plan\.outputs\.docsOnly != 'true'\s*\n\s*run: pnpm lint:eslint/u);
+  assert.match(ci, /if: needs\.change-plan\.outputs\.docsOnly != 'true'\s*\n\s*run: pnpm check:fast/u);
   assert.match(ci, /branch-policy:\n\s+name: branch policy\n\s+if: github\.event_name == 'pull_request'/u);
   assert.match(ci, /node scripts\/branch-policy\.js/u);
   assert.match(ci, /node scripts\/independent-review\.js/u);
@@ -41,6 +44,9 @@ test('CI blocks offline eval drift and scheduled workflow runs advisory online c
   assert.match(online, /pnpm eval:online/u);
   assert.match(online, /pnpm eval:harness run --tier/u);
   assert.match(online, /Harness Eval tier/u);
+  assert.match(online, /Gate on harness eval step outcome/u);
+  assert.match(online, /HARNESS_EVAL_OUTCOME: \$\{\{ steps\.harness-eval\.outcome \}\}/u);
+  assert.match(online, /"\$HARNESS_EVAL_OUTCOME" = "failure"[\s\S]*"\$HARNESS_EVAL_OUTCOME" = "cancelled"[\s\S]*exit 1/u);
   assert.match(online, /retention-days:\s*(?:3[0-9]|[4-9][0-9]|[1-9][0-9]{2,})/u);
   assert.match(online, /--limit\s+(?:1[4-9]|[2-9][0-9])/u);
   assert.match(online, /pnpm eval:compare/u);
@@ -74,6 +80,12 @@ test('GitHub Actions are least-privilege, commit-pinned, and receive automated u
   assert.match(release, /release-verify:/u);
   assert.match(release, /node scripts\/release-readiness\.js --sha "\$GITHUB_SHA" --require-clean --receipt release-artifacts\/release-readiness\.json/u);
   assert.match(release, /pnpm pack --pack-destination/u);
+  assert.match(release, /id: plan\s*\n\s*env:\s*\n\s*BASE_SHA: \$\{\{ github\.event\.before \}\}\s*\n\s*run: pnpm verify:plan/u);
+  assert.match(release, /if: steps\.plan\.outputs\.docsOnly != 'true'\s*\n\s*run: pnpm check\n/u);
+  assert.match(release, /if: steps\.plan\.outputs\.docsOnly != 'true'\s*\n\s*run: pnpm eval:replay/u);
+  assert.doesNotMatch(release, /docsOnly != 'true'\s*\n\s*run: pnpm docs:audit/u);
+  assert.doesNotMatch(release, /docsOnly != 'true'\s*\n\s*run: pnpm runtime:audit/u);
+  assert.doesNotMatch(release, /docsOnly != 'true'\s*\n\s*run: pnpm pack:contract/u);
   assert.match(release, /attest-build-provenance@/u);
   assert.match(release, /release-evidence\.json/u);
   assert.match(release, /secrets\.RELEASE_PLEASE_TOKEN/u);

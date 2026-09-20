@@ -13,7 +13,7 @@ import { pathExists } from './manifest.js';
 // replay of buildOfflineRun().
 export const OFFLINE_RESULT_PATH = 'evals/results/vibe-harness-core.offline.json';
 
-function stableJson(value) {
+export function stableJson(value) {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
   if (value && typeof value === 'object') {
     return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`;
@@ -67,7 +67,7 @@ export async function buildOfflineRun(suite, {
  * @param {any} before
  * @param {any} after
  */
-function fingerprintChanges(before, after) {
+export function fingerprintChanges(before, after) {
   if (!before) {
     return [{
       field: 'fingerprint',

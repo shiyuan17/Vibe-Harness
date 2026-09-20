@@ -43,6 +43,30 @@ test('harness eval plan reports capability blocks instead of simulating support'
   assert.deepEqual(plan.entries.find((entry) => entry.scenarioId === 'H20').missingCapabilities, ['resume']);
 });
 
+test('harness eval plan 把 --attempts 解释为每场景预算并支持 --global-attempts 总上限', async () => {
+  const { stdout } = await run(['plan', '--tier', 'nightly', '--attempts', '3']);
+  const plan = JSON.parse(stdout);
+  assert.equal(plan.tier, 'nightly');
+  assert.equal(plan.summary.selectedScenarios, 20);
+  const blockedCount = plan.entries.filter((entry) => entry.status === 'blocked').length;
+  assert.ok(blockedCount < 20, 'the default backend must keep at least one scenario schedulable');
+  assert.ok(
+    plan.entries.every((entry) => entry.scheduledAttempts === 0 || entry.scheduledAttempts === entry.desiredAttempts),
+    'non-blocked scenarios must receive their full per-scenario budget instead of a first-come budget',
+  );
+  assert.equal(plan.summary.scheduledAttempts, 3 * (20 - blockedCount));
+
+  const capped = JSON.parse((await run(['plan', '--tier', 'nightly', '--attempts', '3', '--global-attempts', '6'])).stdout);
+  assert.equal(capped.summary.scheduledAttempts, 6);
+  assert.equal(capped.entries.filter((entry) => entry.scheduledAttempts === 3).length, 2);
+  assert.ok(capped.entries.every((entry) => entry.scheduledAttempts === 0 || entry.scheduledAttempts === 3));
+});
+
+test('harness eval plan 拒绝非法的尝试预算参数', async () => {
+  await assert.rejects(run(['plan', '--tier', 'fast', '--attempts', '0']), /--attempts must be a positive integer/u);
+  await assert.rejects(run(['plan', '--tier', 'fast', '--global-attempts', 'abc']), /--global-attempts must be a positive integer/u);
+});
+
 test('RED dry runs require and resolve an immutable pre-change Harness revision', async () => {
   await assert.rejects(
     run(['run', '--phase', 'red', '--dry-run', '--scenario', 'H04']),

@@ -203,8 +203,10 @@ async function checkCommand() {
 async function planCommand(args, backendCapabilities) {
   const catalog = await loadHarnessEvalCatalog(rootDir);
   if (catalog.errors.length > 0) throw new Error(catalog.errors.join('\n'));
-  const attemptLimit = args.attempts === undefined ? Number.POSITIVE_INFINITY : Number(args.attempts);
-  if (!(attemptLimit > 0)) throw new Error('--attempts must be a positive integer');
+  const attemptsPerScenario = args.attempts === undefined ? Number.POSITIVE_INFINITY : Number(args.attempts);
+  if (!(attemptsPerScenario > 0)) throw new Error('--attempts must be a positive integer');
+  const globalAttemptLimit = args['global-attempts'] === undefined ? Number.POSITIVE_INFINITY : Number(args['global-attempts']);
+  if (!(globalAttemptLimit > 0)) throw new Error('--global-attempts must be a positive integer');
   let scenarioIds = requestedScenarios(args);
   let impact = null;
   if (scenarioIds.length === 0 && typeof args.changed === 'string') {
@@ -220,7 +222,8 @@ async function planCommand(args, backendCapabilities) {
     tier: args.tier ?? 'fast',
     scenarioIds,
     backendCapabilities,
-    attemptLimit,
+    attemptsPerScenario,
+    globalAttemptLimit,
   });
   return impact ? { ...plan, impact } : plan;
 }

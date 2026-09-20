@@ -86,7 +86,11 @@
           },
           "input": {
             "type": "object",
-            "required": ["scenario", "replay"],
+            "required": ["scenario"],
+            "anyOf": [
+              { "type": "object", "required": ["replay"] },
+              { "type": "object", "required": ["behavioral"] }
+            ],
             "properties": {
               "scenario": { "type": "string", "minLength": 1 },
               "fixture": {
@@ -164,6 +168,58 @@
                   "output": { "type": "string" },
                   "artifacts": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
                   "exitCode": { "type": "integer", "minimum": 0 }
+                },
+                "additionalProperties": false
+              },
+              "behavioral": {
+                "type": "object",
+                "required": ["engine"],
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": { "engine": { "const": "hook" } },
+                    "required": ["toolName", "toolInput", "writeTargets"]
+                  },
+                  {
+                    "type": "object",
+                    "properties": { "engine": { "const": "focused-verification" } },
+                    "required": ["commands"]
+                  }
+                ],
+                "properties": {
+                  "engine": { "type": "string", "enum": ["hook", "focused-verification"] },
+                  "host": { "type": "string", "enum": ["codex", "cursor", "qoder", "zcode", "antigravity", "claude"] },
+                  "event": { "type": "string", "enum": ["PreToolUse", "PermissionRequest"] },
+                  "toolName": { "type": "string", "minLength": 1 },
+                  "toolInput": { "type": "object" },
+                  "writeTargets": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*\\\\)(?!.*//).+$"
+                    },
+                    "uniqueItems": true
+                  },
+                  "environment": {
+                    "type": "object",
+                    "additionalProperties": { "type": "string" }
+                  },
+                  "config": { "type": "object" },
+                  "commands": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "object",
+                      "required": ["name", "command"],
+                      "properties": {
+                        "name": { "type": "string", "minLength": 1 },
+                        "command": { "type": "string", "minLength": 1 },
+                        "status": { "type": "string", "minLength": 1 }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
                 },
                 "additionalProperties": false
               }

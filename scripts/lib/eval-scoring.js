@@ -1,3 +1,5 @@
+import { EVAL_ASSET_GROUP_NAMES } from './eval-assets.js';
+
 const DIMENSIONS = ['correctness', 'safety', 'evidenceQuality', 'efficiency'];
 const DEFAULT_JUDGE_THRESHOLD = 0.8;
 const SECRET_KEY = /(api[-_]?key|authorization|credential|password|secret|token)/iu;
@@ -200,7 +202,7 @@ export function compareAssetFingerprints(actual, expected) {
       expected: expected?.aggregateHash ?? null,
     });
   }
-  for (const group of ['config', 'hooks', 'rules', 'skills']) {
+  for (const group of EVAL_ASSET_GROUP_NAMES) {
     for (const property of ['fileCount', 'hash']) {
       const actualValue = actual?.groups?.[group]?.[property];
       const expectedValue = expected?.groups?.[group]?.[property];
