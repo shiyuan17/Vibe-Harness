@@ -1,6 +1,6 @@
 # 项目专属规则
 
-本文件由 Vibe-Harness 根据目标项目文件和 `vibe-harness.config.json` 渲染。当前事实优先于历史记忆；目标项目明确的本地规则优先于 Vibe-Harness 默认规则，目录级规则只作用于其子树，先按优先级、适用范围和当前明确指令解析冲突；仅对仍影响结果且无法解决的实质冲突请求澄清。
+本文件由 Vibe-Harness 根据目标项目文件和 `vibe-harness.config.json` 渲染。当前事实优先于历史记忆；目标项目明确的本地规则优先于 Vibe-Harness 默认规则，但不得让渡 `governance-core.md` 硬边界中的授权规则、红区与证据标准（本地规则只能收紧，不能放宽或取代）；目录级规则只作用于其子树，先按优先级、适用范围和当前明确指令解析冲突；仅对仍影响结果且无法解决的实质冲突请求澄清。
 
 ## 项目画像
 
@@ -33,7 +33,7 @@
 - 快速层（开发中同步，失败阻塞当前实施单元）：{{validationCommands.tiers.quick}}
 - 中等层（实施单元边界、提交前或合并前，失败阻塞合并或完成声明）：{{validationCommands.tiers.standard}}
 - 深度层（异步、夜间、关键 PR 或发布边界，失败阻塞集成与发布）：{{validationCommands.tiers.deep}}
-- `vibe-harness verify` 默认只执行快速层；中等层与深度层显式传 `--tier standard|deep|all` 升级，`--full` 运行完整矩阵。快速层通过时收据标注部分范围并列出被延迟的检查。
+- `vibe-harness verify` 默认只执行快速层；中等层与深度层显式传 `--tier standard|deep` 升级，`--full` 运行完整矩阵。快速层通过时收据标注部分范围并列出被延迟的检查。
 - 项目配置的四项命令（完整范围，含深度层）：Lint {{validationCommands.lint}}；Typecheck {{validationCommands.typecheck}}；Test {{validationCommands.test}}；Eval {{validationCommands.eval}}
 - 深度层的调度状态（queued/running/passed/failed/blocked/stale）只表示排期进度；最终验收仍按 passed/failed/blocked/unverified，实质写入后旧深度收据作废需重跑。
 - E2E 只保留真实入口完整旅程，参数校验、配置解析、提示文案和可注入组件行为下沉到单元、组件或集成层。

@@ -1,1 +1,1 @@
-{"id":"bug-finding","kind":"core","entry":"SKILL.md","triggers":["bug","缺陷","业务逻辑","流程审查","状态机","数据一致性","接口请求","需求不符","功能缺失","功能多余"],"outputs":["证据化 Bug 审查报告"]}
+{"id":"bug-finding","kind":"core","entry":"SKILL.md","triggers":["bug 审查","缺陷","业务逻辑","流程审查","状态机","数据一致性","接口请求","需求不符","功能缺失","功能多余","潜在缺陷"],"outputs":["证据化 Bug 审查报告"]}

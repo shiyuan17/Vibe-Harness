@@ -1,6 +1,6 @@
 ---
 name: bug-finding
-description: Review an existing project for logic, flow, feature, state, consistency, requirement, and API bugs using static evidence and the smallest available runtime checks.
+description: Use when reviewing existing code for latent logic, flow, feature, state, consistency, requirement, or API bugs with no failing symptom—read-only audit, not root-cause debugging.
 ---
 
 # Bug 查找审查

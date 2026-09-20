@@ -6,6 +6,11 @@
 // a dependency path orders them. The template table in docs/templates/task.md
 // stays a human record: this module validates the same field names in JSON so a
 // dispatch can be checked mechanically before any write is handed out.
+//
+// Invocation surface: the `pnpm task-dag check|hash` CLI (scripts/task-dag.js)
+// driven on demand by the task-decomposition skill and the online canary
+// scenarios. Nothing in the installed runtime calls it automatically — it is a
+// pre-dispatch validator, not a lifecycle step.
 import { createHash } from 'node:crypto';
 
 export const TASK_DAG_SCHEMA = 'vibe-harness.task-dag/v1';

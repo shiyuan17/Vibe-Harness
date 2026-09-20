@@ -6,6 +6,11 @@
 // writeScope conflicts, resource locks, the ready set and the structure hash a
 // checkpoint records. The JSON field names match the human table in
 // docs/templates/task.md, which stays a human record and is not parsed here.
+//
+// Invocation surface: `pnpm task-dag check|hash` — called on demand by the
+// task-decomposition skill (`check --file <dag.json> [--require-ready]`) and
+// the online canary scenarios. Nothing in the installed runtime calls it
+// automatically; it stays an independent pre-dispatch validator.
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';

@@ -68,7 +68,10 @@ test('legacy brand audit ignores archive assets', async () => {
   }
 });
 
-test('execution envelope schemas are governed without Markdown false positives', async () => {
+// validateDocumentation walks every governed Markdown file in the repo; the
+// doc tree has grown past what the runner's default budget tolerates under
+// the suite's --test-concurrency (20.9s solo on 2026-09-19, 30s default).
+test('execution envelope schemas are governed without Markdown false positives', { timeout: 120000 }, async () => {
   const governedPaths = await collectGovernedPaths(rootDir);
   assert.ok(governedPaths.includes('docs/schemas/execution-envelope.schema.json'));
   assert.ok(governedPaths.includes('schemas/execution-envelope.schema.json'));

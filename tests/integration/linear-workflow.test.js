@@ -347,7 +347,12 @@ test('Claude and Gemini install Linear guidance and report manual MCP setup', as
   }
 });
 
-test('Codex Linear install validates and uninstalls without persisting credentials', async () => {
+// This test drives full CLI install/validate/uninstall round-trips; on slow
+// filesystems those are I/O-bound and exceed the default 120s test budget.
+// 2026-09-19 calibration (solo, slow box): install --write 35s, validate 68s,
+// doctor 73s per invocation; RTK round-trip measured >300s solo, so 600s is a
+// hang guard, not a performance claim.
+test('Codex Linear install validates and uninstalls without persisting credentials', { timeout: 600000 }, async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-linear-lifecycle-'));
   try {
     await runCli(['init', '--project', target, '--target', 'codex']);

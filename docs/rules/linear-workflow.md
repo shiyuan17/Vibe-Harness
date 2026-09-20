@@ -34,7 +34,7 @@ Agent 手工写状态必须执行“读取当前值 → 校验允许转换 → �
 
 `release/*` 不是日常分支：只有管理员为并行维护历史版本或合规窗口临时创建时才存在，Agent 不创建、不切换也不推送该分支；它一旦存在就按带门禁目标处理，review、CI 与契约要求与 `main` 相同。
 
-`develop` 是日常快车道：其 ruleset 不设 required status check，合入 `develop` 不要求远端 CI，也不要求强制人工审批；合并前只要求本轮本地验证证据，且该证据必须建立在合并时的最新目标 ref 之上——合并前重读 `origin/develop`，若其相对冻结 base 已前进则重跑受影响聚焦检查，或改用提供方 merge queue 在最新 base 上重跑。Writer 在 envelope 授权 `mergeRequestWrite` 时可自行 squash 合并自己创建的 closing PR，或在提供方上请求 auto-merge。项目在发布边界配置的 required check 只对发布边界运行：`develop → main` 提升、`hotfix/* → main` 以及 `release/*`；该检查的名称与聚合方式以项目 CI 配置为准。
+`develop` 是日常快车道：其 ruleset 不设 required status check，合入 `develop` 不要求远端 CI，也不要求强制人工审批。合并前的本地验证与最新目标 ref 的前置、merge queue 与 squash/auto-merge 落地机制以 `git-rules.md` 分支模型与合并条款为准，Writer 只落地自己创建的 closing PR。项目在发布边界配置的 required check 只对发布边界运行：`develop → main` 提升、`hotfix/* → main` 以及 `release/*`；该检查的名称与聚合方式以项目 CI 配置为准。
 
 快车道不豁免高风险证据：命中 CI workflow 定义、`schemas/`、`manifests/`、`adapters/`、`runtime/`、`docs/rules/`、`skills/core/`、`templates/`、`scripts/`、依赖清单，以及团队额外声明的安全、红区、迁移或凭据路径的变更属于高风险，PR/MR 必须按项目自己的发布交付文档携带 Risk Evidence 章节与唯一的 Independent Review Receipt，且收据的结论与范围覆盖实际 diff。`develop` 上的高风险检查当前是 shadow 模式，不阻断合并，但收据缺失、与 diff 不匹配或结论为 negative 时，Writer 不得自行落地合并，只报告事实并停在 PR/MR ready for review；把该检查改为强制需要先修订项目记录该门禁决策的决策记录。
 
@@ -106,13 +106,13 @@ Receipt 与事件禁止包含用户名、主机名、本地路径、Token、Cook
 
 ## 6 Git、状态同步与安全
 
-- 普通功能和修复的精确目标 ref 默认为 `origin/develop`，分支分别使用 `feat/<ISSUE-ID>-<slug>` 与 `fix/<ISSUE-ID>-<slug>`；closing PR 合并到 `develop` 后开发 Issue 即 Done，发布等待不得阻塞或重开它。合入 `develop` 不要求远端 CI 或强制审批，Writer 可在 envelope 授权 `mergeRequestWrite` 后自行落地 squash merge，或在提供方请求 auto-merge；本地验证与最新目标 ref 的关系按第 2 节快车道条款执行。
+- 分支命名、合并方式与门禁边界以 `git-rules.md` 分支模型条款为唯一规范来源，本节只声明 Linear 绑定。普通功能和修复的精确目标 ref 默认为 `origin/develop`；closing PR 合并到 `develop` 后开发 Issue 即 Done，发布等待不得阻塞或重开它；本地验证与最新目标 ref 的关系按第 2 节快车道条款执行。
 - 紧急修复从 `origin/main` 创建 `hotfix/<ISSUE-ID>-<slug>` 并先合入 `main`；正式发布或恢复后必须立即以非 closing PR 将 `main` 回同步到 `develop`。回同步失败是发布阻塞，不得静默 cherry-pick 成两套历史。
 - 正式发布使用独立 kind=aggregate Release Issue 和 `develop → main` merge-commit PR；随后保留 release-please 版本 PR。提升与回同步 PR 使用 `Refs <ISSUE-ID>`，不得再次 closing 已 Done 的开发 Issue。Release Issue 只有在 GitHub Release、制品、发布 smoke 和 `main → develop` 回同步全部有证据后才能 Done。
-- write 节点分支使用 `<type>/<ISSUE-ID>-<slug>`；worktree 位于仓库同级的 `<repo>-worktrees/<ISSUE-ID>`。commit 使用 `Refs <ISSUE-ID>` 关联；GitHub PR 或 GitLab MR 的 closing 描述使用 `Fixes <ISSUE-ID>`，只有提供方配置且创建后重读确认有效的等价 closing 语法才可替代，closing 词不放在 commit 中。
-- 开始实现前记录精确目标远端 ref 和 base SHA，并从该基线创建分支。创建 PR/MR 前重新读取目标 ref 与 source HEAD，确认提供方所选 target 与声明 ref 相同，并验证 merge-base 等于冻结 base SHA 或是该 SHA 在同一目标 ref 历史上的已验证后代；不一致时阻断创建。创建后重读确认标题、source、target、描述、Issue 链接和 closing 语义。
+- write 节点的分支命名、`Refs <ISSUE-ID>` / `Fixes <ISSUE-ID>` 关联与 closing 语义以 `git-rules.md` 分支与 PR/MR 条款为准；worktree 位于仓库同级的 `<repo>-worktrees/<ISSUE-ID>`。
+- 开始实现前记录精确目标远端 ref 和 base SHA，并从该基线创建分支；PR/MR 创建前的基线与 merge-base 核对、创建后的重读确认按 `git-rules.md` 分支与 PR/MR 条款执行。
 - 优先由 Linear 的 GitHub/GitLab 集成或团队已配置自动化推进 In Progress、In Review、Ready to Merge 和 Done。只有缺少对应自动化且 Execution Envelope 明确允许 linearWrite 时才按状态写入协议手工回写。
-- Ready to Merge 仅对带门禁的目标分支（`main`、`release/*`）适用，并依赖 branch protection、required review 和 required checks；没有这些门禁时不得仅凭 Linear 自动化声称可合并。`develop` 路径不设置该状态。
+- Ready to Merge 仅对带门禁的目标分支适用，进入条件与完成证据按第 2 节状态表；没有门禁事实时不得仅凭 Linear 自动化声称可合并。
 - 已授权 Issue 内可追加事实性的进展、验证、阻塞或决策评论。除本节定义的最小身份登记外，创建其他 Issue、改变关系、优先级、Assignee、Delegate、Project、Cycle、Parent 或 Contract 都需要单独授权。
 - MCP 不可用时可以使用用户提供的 Issue 内容，但必须明确未读取或同步 Linear；不得伪造评论、状态、关系、Delegate、Receipt、PR、review、CI 或 merge 结果。
 
@@ -125,3 +125,5 @@ Git credential helper 按 `git-rules.md` credential helper 条款执行：helper
 合并后回归：Done 之后发现缺陷时，默认新建回归 Issue，并以非 closing 语义（`Refs <ISSUE-ID>`）的 revert PR 恢复到目标分支；原 Issue 保持 Done，并追加关联 revert 与事实原因的评论。不得为掩盖回归把 In Progress、In Review 或 Done 退回 Todo；只有需要重新实现或重新计时才使用状态纠错授权并记录事实原因。发布边界的回滚证据仍按 `release-rules.md` 与 Release Issue 模板记录。
 
 推荐 Writer In Progress 不超过 3、In Review 不超过 2，作为 Linear 工作流软上限；它与本地 Task DAG 的默认并发建议分开计算，并可由宿主、API 限流和项目资源覆盖。长任务可选声明超时、最大尝试次数、取消、退避和资源预算；AI Ready Queue 只供人查看和显式选择，Agent 不读取它来挑选工作。
+
+本规则是 Linear 工作流的常驻契约；触发判定、操作顺序与 Linear 不可写回退见宿主 Skill 根目录下已安装的 `linear-workflow` Skill 入口，两者描述同一工作流，修改须同步。

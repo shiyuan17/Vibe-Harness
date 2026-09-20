@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { readInstallState } from './install-state.js';
 import { pathExists, readPackJson } from './manifest.js';
 
 const RULES_MANIFEST = 'manifests/rules.json';
@@ -66,27 +67,30 @@ export function installedRuleIndex(index = [], installedTargets = []) {
 }
 
 /**
- * Rule sources that already exist in the target project.
+ * Rule sources the target project actually owns.
  *
- * The resident line is a routing index for the project, not for the current
- * run: a rule file that is already on disk is routable whether or not this plan
- * rewrites it. Without this union the pack repository — which keeps the
- * optional-plugin rules on disk while installing them only on request — listed
- * 15 of its 21 rule files in its own AGENTS.md, so the host could not route to
- * `linear-workflow`, `role-routing` or the four optional-tool rules that were
- * sitting right there. A target project that never installed a file is
- * unaffected: the file does not exist, so it is not added.
+ * The resident line is a routing index for the project, not for the pack
+ * catalog: a rule is routable only when it is both on disk and recorded in
+ * the project's install state. That state's `files` ledger is cumulative
+ * across transactions (see `mergeInstallState` in install-planner.js), so a
+ * rule an earlier install wrote stays owned after a partial refresh that
+ * does not rewrite it. On-disk presence alone is not ownership: the pack
+ * repository keeps the optional-plugin rules on disk while never installing
+ * them, and advertising those would route the host to files the project did
+ * not choose to install. Callers still retire targets this run removes.
  *
  * @param {string} targetDir project root that owns the rule files
  * @param {Array<{ id: string, source: string, title: string }>} index rule catalog
- * @returns {Promise<string[]>} project-relative sources present on disk
+ * @returns {Promise<string[]>} project-relative sources owned in install state and present on disk
  */
 export async function existingRuleSources(targetDir, index = []) {
   if (!targetDir) return [];
+  const state = await readInstallState(path.resolve(targetDir));
+  const owned = new Set((state?.files ?? []).map((file) => normalizePath(file?.target)));
   const present = [];
   for (const item of index) {
     const source = normalizePath(item?.source);
-    if (!source) continue;
+    if (!source || !owned.has(source)) continue;
     if (await pathExists(path.join(targetDir, source))) present.push(source);
   }
   return present;

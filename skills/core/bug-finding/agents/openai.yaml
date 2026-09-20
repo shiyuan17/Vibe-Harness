@@ -1,6 +1,6 @@
 interface:
   display_name: "Bug Finding"
-  short_description: "Find common logic, flow, state, consistency, and API bugs"
+  short_description: "Review for latent bugs with no failing symptom—read-only audit"
   default_prompt: "Use $bug-finding to review this project for common bugs and produce an evidence-based, read-only audit report."
 policy:
   allow_implicit_invocation: true

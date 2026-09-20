@@ -104,10 +104,12 @@ test('启动段钉住长任务状态锚点与 SKILL.md 显式读取', async () =
   const { installedSurface } = withDefaultTemplateData({});
   // The four placeholder templates render the generated sequence verbatim
   // (pinned above); antigravity keeps its own prose copy of the same line.
-  assert.match(installedSurface.startupLines, /长任务（预计执行超过 60 分钟或发生一次以上上下文压缩）先建立状态锚点/u);
+  assert.match(installedSurface.startupLines, /长任务（预计执行超过 60 分钟，或发生第一次上下文压缩）先建立状态锚点/u);
+  assert.match(installedSurface.startupLines, /已建锚点后再次压缩必须先更新锚点再继续写入/u);
   assert.match(installedSurface.startupLines, /先读该 Skill 的 `SKILL\.md` 再行动/u);
   const antigravity = await readFile(path.join(rootDir, 'adapters/antigravity/RULES.template.md'), 'utf8');
-  assert.match(antigravity, /长任务（预计执行超过 60 分钟或发生一次以上上下文压缩）先建立状态锚点/u);
+  assert.match(antigravity, /长任务（预计执行超过 60 分钟，或发生第一次上下文压缩）先建立状态锚点/u);
+  assert.match(antigravity, /已建锚点后再次压缩必须先更新锚点再继续写入/u);
   assert.match(antigravity, /先读该 Skill 的 SKILL\.md 再行动/u);
 });
 

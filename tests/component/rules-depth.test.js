@@ -142,7 +142,9 @@ test('sibling rule references must resolve inside docs/rules', async () => {
   }
 });
 
-test('profiles install zero, nine, or twelve native Skills at intended tiers', async () => {
+// Four full-repo install plans are I/O-bound and exceed the runner's default
+// budget under the suite's --test-concurrency (25.2s solo on 2026-09-19).
+test('profiles install zero, nine, or twelve native Skills at intended tiers', { timeout: 120000 }, async () => {
   for (const [profile, expected] of [['minimal', []], ['docs-only', []], ['core', coreSkills], ['full', fullSkills]]) {
     const plan = await createInstallPlan({ dryRun: true, profile, rootDir, targetDir: path.join(rootDir, `.tmp-depth-${profile}`) });
     const targets = new Set(plan.actions.map((item) => item.relativeTarget));

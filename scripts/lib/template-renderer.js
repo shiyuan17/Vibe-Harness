@@ -84,9 +84,21 @@ export const managedInstructionBlockEnd = '<!-- VIBE_HARNESS:END -->';
 
 function buildStartupLines(surface, projectProfile) {
   const tick = String.fromCharCode(96);
+  // The long-task anchor line names the installed entry point when the project
+  // carries the runtime commands; a project without them falls back to the
+  // last delivery record as the recovery baseline.
+  const anchorLine = surface.hasProjectScripts
+    ? '长任务（预计执行超过 60 分钟，或发生第一次上下文压缩）先用 '
+      + tick + 'node .agents/runtime/commands/run.mjs task init --project <path> --write' + tick
+      + ' 建立状态锚点（锚点与收据位于 ' + tick + '.vibe-harness/tasks/' + tick
+      + '；阶段推进用 ' + tick + 'task update' + tick
+      + '，重复验证用 ' + tick + 'run.mjs verify --reuse' + tick
+      + '；已建锚点后再次压缩必须先更新锚点再继续写入）；命中 Skill 触发场景时先读该 Skill 的 ' + tick + 'SKILL.md' + tick + ' 再行动。'
+    : '长任务（预计执行超过 60 分钟，或发生第一次上下文压缩）先建立状态锚点，项目未提供锚点入口时以最后一次交付记录充当恢复基准；已建锚点后再次压缩必须先更新锚点再继续写入；命中 Skill 触发场景时先读该 Skill 的 '
+      + tick + 'SKILL.md' + tick + ' 再行动。';
   const lines = [
     '先读取 ' + tick + 'docs/rules/governance-core.md' + tick + '；只有出现 Skill 或专项领域信号时再读取 ' + tick + 'docs/rules/agent-skill-routing.md' + tick + ' 和一个命中的专项规则。',
-    '长任务（预计执行超过 60 分钟或发生一次以上上下文压缩）先建立状态锚点；命中 Skill 触发场景时先读该 Skill 的 ' + tick + 'SKILL.md' + tick + ' 再行动。',
+    anchorLine,
   ];
   if (surface.memoryLoadLine) lines.push(surface.memoryLoadLine);
   if (projectProfile.vcsStatusInstruction) lines.push(projectProfile.vcsStatusInstruction);

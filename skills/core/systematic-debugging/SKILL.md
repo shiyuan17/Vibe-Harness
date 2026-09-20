@@ -1,6 +1,6 @@
 ---
 name: systematic-debugging
-description: Use for bugs or failures without a proven cause—not known fixes.
+description: Use when a specific failure, error, or flaky test needs its root cause proven before fixing—not for applying known fixes.
 ---
 
 # 系统定位故障
@@ -15,7 +15,7 @@ description: Use for bugs or failures without a proven cause—not known fixes.
 4. 用失败测试或最小复现固定问题，实施最小修复。
 5. 运行聚焦回归及相关套件，确认测试没有弱化。
 
-怀疑测试顺序污染时运行 `find-polluter.sh <test-command> <candidate...>`；不要用固定 sleep、批量猜改或重复尝试掩盖未知根因。
+怀疑测试顺序污染时运行 `find-polluter.sh <file_or_dir_to_check> <test_pattern> [test_command_template]`（默认测试命令 `npm test {file}`，`{file}` 会被替换为每个候选测试文件；退出码 1 表示已定位污染者，0 表示未发现）；不要用固定 sleep、批量猜改或重复尝试掩盖未知根因。
 
 ## 交付
 

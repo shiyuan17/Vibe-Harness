@@ -44,7 +44,7 @@ case 可声明 `flaky: true` 以保留抖动诊断信息，但 critical 失败�
 | --- | --- | --- |
 | offline replay（contract-replay） | suite、oracle、scoring 与 reference 可确定性复现 | 当前规则、Skill 或 Hook 的真实行为 |
 | online / Harness Evals | 声明条件下指定模型与宿主的可观察行为 | 未声明条件的普适结论 |
-| `stub-behavioral` | 保留的历史合同位，当前无生产者 | 不得当作可用证明 |
+| `stub-behavioral` | 当前资产下确定性运行时组件的行为合同（Hook 红区/权限判定、聚焦验证 blocked/failed 语义），随资产指纹漂移 | 模型提示遵从、多轮行为或宿主真机行为 |
 
 Harness Evals 是行为评测的规范架构（Scenario v3 / Result v3、RED → GREEN → Pressure → Regression、verifier 负控）；legacy `evals/` 只作为兼容资产来源，不复制也不推断缺失证据。
 

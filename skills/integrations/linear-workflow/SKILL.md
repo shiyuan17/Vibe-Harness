@@ -5,7 +5,7 @@ description: Use when executing, reviewing, verifying, refining, or synchronizin
 
 # Linear 工作流
 
-本 Skill 是 linear-workflow 规则的操作入口：规则定义授权模型、状态门禁、原生 DAG 语义、Execution Receipt 和 Git 流的完整合同，本 Skill 只保留触发条件、操作顺序和回退。规范条文以 docs/rules/linear-workflow.md 为准，本文件不重复。
+本 Skill 是 linear-workflow 规则的操作入口：规则定义授权模型、状态门禁、原生 DAG 语义、Execution Receipt 和 Git 流的完整合同，本 Skill 只保留触发条件、操作顺序和回退。规范条文以 docs/rules/linear-workflow.md 为准，本文件不重复；两者描述同一工作流，修改须同步。
 
 触发与边界：
 

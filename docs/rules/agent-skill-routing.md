@@ -25,8 +25,8 @@ Skill 是宿主按 description 直接选择的领域能力包：description 是�
 - 用户明确要求编写、优化或激活跨任务持续目标时使用 `define-goal`：产出可激活的 Goal Brief，不处理当轮解阻。
 - 用户要求拆分已有计划、建立 Task DAG 或生成节点执行提示词时使用 `task-decomposition`：产出拆分判定、Goal/DAG 和宿主无关的单节点提示词；不自动派发或执行任务。简单单 Agent 任务不创建 DAG。
 - 仅在用户显式调用 `$git-deliver` 或明确指定 `git-deliver` Skill 时使用：整理当前任务改动、按逻辑分组提交并安全地普通推送当前分支。
-- 未知根因故障使用 `systematic-debugging`；Agent 规则、Skill、提示或 Hook 行为变化使用 `eval-driven-development`。
-- 只读排查现有项目的逻辑、流程、状态、一致性与接口缺陷时使用 `bug-finding`：产出证据化审查报告，不修改源码、配置、依赖或数据。
+- 出现具体故障、报错或测试失败且根因未知时使用 `systematic-debugging`：先证明根因再修复；根因已知或已有既定修复时不触发；Agent 规则、Skill、提示或 Hook 行为变化使用 `eval-driven-development`。
+- 只读审查现有项目的逻辑、流程、状态、一致性与接口缺陷时使用 `bug-finding`：面向没有具体失败症状的存量代码，产出证据化审查报告，不修改源码、配置、依赖或数据；要定位具体失败的根因时改用 `systematic-debugging`。
 - 识别或清理死代码、无用引用、过期文档、孤儿资源、陈旧记忆与过期索引时使用 `stale-cleanup`：默认只读并区分已确认项与候选线索，删除只在用户显式要求并逐项确认后执行；它不替代 `bug-finding` 的缺陷根因定位。
 - 信任边界使用 `security-and-hardening`；公共契约使用 `api-and-interface-design`；前端体验使用 `frontend-design`；跨仓运行时使用 `runtime-cross-repo-rollout`。
 - 页面交互、console、network、性能、响应式、可访问性或视觉验收使用 browser-verification integration Skill；它仅由 playwright 或 chrome-devtools plugin 显式安装，不计入 profile 的原生领域 Skill 数量。未安装时使用项目已有的浏览器验证入口。

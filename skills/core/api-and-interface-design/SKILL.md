@@ -7,6 +7,8 @@ description: Use for public APIs, schemas, events, config, or consumed module bo
 
 以现有契约和调用方为真值，先固定边界再实现。
 
+常驻契约见 `docs/rules/api-rules.md`；本 Skill 是按需展开的执行步骤，两者描述同一契约，修改须同步。
+
 ## 执行
 
 1. 找到契约来源、生产者、消费者和兼容窗口。

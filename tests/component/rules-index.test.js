@@ -6,7 +6,7 @@ import test from 'node:test';
 
 import { createInstalledSurface } from '../../scripts/lib/install-planner.js';
 import { existingRuleSources, loadRuleIndex, renderRuleIndexLine, ruleGroupLabel } from '../../scripts/lib/rules-index.js';
-import { renderTemplate } from '../../scripts/lib/template-renderer.js';
+import { renderTemplate, withDefaultTemplateData } from '../../scripts/lib/template-renderer.js';
 
 const rootDir = path.resolve(import.meta.dirname, '../..');
 
@@ -123,15 +123,46 @@ test('the installed surface lists only the rules the plan installs', () => {
   assert.equal(installed.rulesLine.includes('codebase-memory-mcp'), false);
 });
 
-test('the pack repository lists every rule file it actually has', async () => {
-  const index = await loadRuleIndex(rootDir);
-  const sources = await existingRuleSources(rootDir, index);
-  assert.deepEqual([...sources].sort(), index.map((item) => item.source).sort());
-  // The optional-plugin rules are on disk but outside the default plan, so the
-  // union — not the write set — is what makes the resident index complete.
-  const plan = await createInstalledSurface({ profile: 'core', ruleIndex: index, targets: sources.slice(0, 3) });
-  assert.equal(renderRuleIndexLine(index).includes('ast-grep'), true);
-  assert.equal(plan.rulesLine.includes('governance-core'), true);
+test('既有规则源遵循安装状态所有权台账', async () => {
+  const ruleIndex = [
+    { id: 'git-rules', source: 'docs/rules/git-rules.md', title: 'Git 规则' },
+    { id: 'rtk', source: 'docs/rules/rtk.md', title: 'RTK 命令输出压缩规则' },
+    { id: 'ast-grep', source: 'docs/rules/ast-grep.md', title: 'ast-grep 结构化搜索规则' },
+  ];
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-rules-owned-'));
+  try {
+    await mkdir(path.join(target, 'docs/rules'), { recursive: true });
+    await mkdir(path.join(target, '.vibe-harness'), { recursive: true });
+    for (const item of ruleIndex) {
+      await writeFile(path.join(target, item.source), `# ${item.title}\n`, 'utf8');
+    }
+    await writeFile(path.join(target, '.vibe-harness/install-state.json'), JSON.stringify({
+      files: [
+        { created: true, group: 'rules', redZone: false, source: 'docs/rules/git-rules.md', sourceHash: '0', target: 'docs/rules/git-rules.md', targetHash: '0' },
+        { created: true, group: 'rules', redZone: false, source: 'docs/rules/rtk.md', sourceHash: '0', target: 'docs/rules/rtk.md', targetHash: '0' },
+      ],
+      profile: 'core',
+      version: '0.3.0',
+    }), 'utf8');
+
+    // On disk but never installed (the pack-repository situation for the
+    // optional plugin rules): present without ownership, so not advertised.
+    const sources = await existingRuleSources(target, ruleIndex);
+    assert.deepEqual(sources, ['docs/rules/git-rules.md', 'docs/rules/rtk.md']);
+
+    // A partial write set keeps the resident index complete: every owned rule
+    // stays listed even when this run rewrites only a subset of them.
+    const plan = createInstalledSurface({
+      profile: 'core',
+      projectRuleSources: sources,
+      ruleIndex,
+      targets: ['docs/rules/git-rules.md'],
+    });
+    assert.equal(plan.rulesLine.includes('rtk（RTK 命令输出压缩规则）'), true);
+    assert.equal(plan.rulesLine.includes('ast-grep'), false);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
 });
 
 test('a project that never installed a rule file is not advertised to it', async () => {
@@ -143,6 +174,19 @@ test('a project that never installed a rule file is not advertised to it', async
   try {
     await mkdir(path.join(target, 'docs/rules'), { recursive: true });
     await writeFile(path.join(target, 'docs/rules/rtk.md'), '# RTK\n', 'utf8');
+
+    // Without an install state nothing is owned, so the on-disk file is not
+    // advertised even though it exists.
+    assert.deepEqual(await existingRuleSources(target, ruleIndex), []);
+
+    await mkdir(path.join(target, '.vibe-harness'), { recursive: true });
+    await writeFile(path.join(target, '.vibe-harness/install-state.json'), JSON.stringify({
+      files: [
+        { created: true, group: 'rules', redZone: false, source: 'docs/rules/rtk.md', sourceHash: '0', target: 'docs/rules/rtk.md', targetHash: '0' },
+      ],
+      profile: 'core',
+      version: '0.3.0',
+    }), 'utf8');
 
     const sources = await existingRuleSources(target, ruleIndex);
     assert.deepEqual(sources, ['docs/rules/rtk.md']);
@@ -157,6 +201,21 @@ test('a project that never installed a rule file is not advertised to it', async
   } finally {
     await rm(target, { force: true, recursive: true });
   }
+});
+
+test('安装了项目脚本时启动锚点点名运行时任务入口', async () => {
+  const surface = createInstalledSurface({
+    profile: 'core',
+    ruleIndex: [],
+    targets: ['.agents/runtime/commands/run.mjs', 'docs/rules/git-rules.md'],
+  });
+  const data = withDefaultTemplateData({ installedSurface: surface });
+  assert.match(data.installedSurface.startupLines, /run\.mjs task init --project <path> --write/u);
+  assert.match(data.installedSurface.startupLines, /\.vibe-harness\/tasks\//u);
+  assert.match(data.installedSurface.startupLines, /verify --reuse/u);
+  const bare = withDefaultTemplateData({});
+  assert.doesNotMatch(bare.installedSurface.startupLines, /task init/u);
+  assert.match(bare.installedSurface.startupLines, /先建立状态锚点/u);
 });
 
 test('existing rule sources are empty without a target project', async () => {

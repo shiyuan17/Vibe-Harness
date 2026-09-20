@@ -5,7 +5,7 @@ description: Use only when the user explicitly invokes $git-deliver or explicitl
 
 # 分批提交并推送
 
-把显式调用视为对当前仓库、当前任务相关改动执行普通 Git commit 和 push 的授权；仍遵守项目 Git 规则、红区和人工确认边界。
+把显式调用视为对当前仓库、当前任务相关改动执行普通 Git commit 和 push 的授权；提交授权、分支模型与停止边界见 `docs/rules/git-rules.md`，两者描述同一提交授权边界，修改须同步；仍遵守红区和人工确认边界。
 
 ## 执行
 
