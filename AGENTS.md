@@ -57,7 +57,7 @@ TypeScript 配置、类型声明、JSDoc 类型契约，或完成主张涉及类
 项目：Vibe-Harness
 
 ## 启动
-1. 先读取 `docs/rules/governance-core.md`；只有出现 Skill 或专项领域信号时再读取 `docs/rules/agent-skill-routing.md` 和一个命中的专项规则。
+1. 先读取 `docs/rules/governance-core.md` 顶部的 Fast Path 卡片；仅当任务超出快速档或命中升级触发时读取全文。只有出现 Skill 或专项领域信号时再读取 `docs/rules/agent-skill-routing.md` 和一个命中的专项规则。
 2. 长任务（预计执行超过 60 分钟，或发生第一次上下文压缩）先用 `node .agents/runtime/commands/run.mjs task init --project <path> --write` 建立状态锚点（锚点与收据位于 `.vibe-harness/tasks/`；阶段推进用 `task update`，重复验证用 `run.mjs verify --reuse`；已建锚点后再次压缩必须先更新锚点再继续写入）；命中 Skill 触发场景时先读该 Skill 的 `SKILL.md` 再行动。
 3. 仅当任务需要恢复项目状态且当前授权允许读取 Memory body 时，从 `.agents/memory/CURRENT.md` 唯一入口恢复上下文：本地恢复线索以它为准，治理真值按它对 `docs/memory/PROJECT_STATE.md` 的引用读取，不复制其内容。 当专项 Skill 限制 Memory 证据边界时，仅检查相关 Memory 路径是否存在及必要元数据、不读取其正文；不限制任务相关源码阅读。
 4. 编辑前运行 `git status --short`，保护用户未归属改动。

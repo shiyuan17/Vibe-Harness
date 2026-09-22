@@ -42,6 +42,9 @@ const HIGH_PATHS = [
   /^(?:scripts\/vibe-harness\.js|scripts\/lib\/(?:install|module|pack|project-verification|tool-provisioning))/u,
   /^(?:package(?:-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|npm-shrinkwrap\.json)$/u,
   /^(?:\.codex|\.cursor|\.qoder|\.zcode)\//u,
+  // The host's ignore list controls what the agent is allowed to see, so it
+  // carries the same trust level as the .codex/ config directory.
+  /^\.zcodeignore$/u,
   /^\.agents\/(?:runtime\/hooks\/|(?:mcp_config|hooks)\.json$)/u,
 ];
 
@@ -68,8 +71,11 @@ const GROUP_RULES = [
   // code. Without an explicit group they fall through to `unknown`, which
   // escalates a documentation-only change to the full verification matrix.
   ['docs', /^(?:audit-reports\/|\.github\/|\.agents\/memory\/)/u],
-  ['docs', /^(?:docs\/|README(?:\.en)?\.md$|CHANGELOG\.md$)/u],
-  ['config', /^(?:vibe-harness\.config\.json|package(?:-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|(?:tsconfig(?:\.[^/]+)?|jsconfig\.json|\.editorconfig|\.npmrc|\.nvmrc|\.prettierrc(?:\.[^/]+)?))$/iu],
+  ['docs', /^(?:docs\/|README(?:\.en)?\.md$|CHANGELOG\.md$|LICENSE$)/u],
+  // Root dotfiles and tool configs get an explicit group so a single trivial
+  // change (ignore lists, lint/commitlint config) does not escalate to the
+  // unknown->high full-matrix fallback.
+  ['config', /^(?:vibe-harness\.config\.json|package(?:-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|(?:tsconfig(?:\.[^/]+)?|jsconfig\.json|\.editorconfig|\.npmrc|\.nvmrc|\.prettierrc(?:\.[^/]+)?|\.gitignore|\.gitattributes|\.cbmignore|\.zcodeignore|\.lintstagedrc\.json|\.release-please-manifest\.json|commitlint\.config\.mjs|eslint\.config\.mjs))$/iu],
 ];
 
 const LOW_IMPACT_CONFIG = /^(?:\.editorconfig|\.npmrc|\.nvmrc|\.prettierrc(?:\.[^/]+)?|(?:jsconfig|tsconfig(?:\.[^/]+)?)\.json)$/iu;

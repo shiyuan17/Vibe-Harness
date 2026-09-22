@@ -1722,7 +1722,10 @@ export async function validateContentQuality(rootDir) {
   // 2026-09-11: raised 92 -> 150 so rule typography (sections, lists, tables) is not
   // forced back into dense prose; the budget is a ceiling, not a target, and the
   // resident files are expected to stay well below it.
-  if (residentLines > 150) errors.push(`resident governance surface exceeds 150 lines: ${residentLines}`);
+  // 2026-09-22: raised 150 -> 165 for the governance-core Fast Path card (+11 lines);
+  // the card enables layered loading, so per-task resident reading drops from the
+  // full kernel to the ~12-line card even as the file itself grows.
+  if (residentLines > 165) errors.push(`resident governance surface exceeds 165 lines: ${residentLines}`);
 
   const proseOwners = new Map();
   for (const directory of ['docs/rules', 'templates']) {
