@@ -32,7 +32,6 @@ jobs:
       eval: ${{ steps.plan.outputs.eval }}
       evalCheck: ${{ steps.plan.outputs.evalCheck }}
       docs: ${{ steps.plan.outputs.docs }}
-      skills: ${{ steps.plan.outputs.skills }}
       docsOnly: ${{ steps.plan.outputs.docsOnly }}
     env:
       BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
@@ -146,8 +145,6 @@ jobs:
         run: pnpm eval:replay
       - if: needs.change-plan.outputs.docs == 'true'
         run: pnpm docs:audit
-      - if: needs.change-plan.outputs.skills == 'true'
-        run: pnpm skills:audit
       - run: git diff --check
 
   integration-gate:
@@ -215,7 +212,6 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm runtime:audit
-      - run: pnpm skills:audit
       - run: pnpm pack:contract
 
   security:
