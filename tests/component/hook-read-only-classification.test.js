@@ -271,6 +271,50 @@ test('writes outside the project boundary and into red-zone paths stay denied', 
   });
 });
 
+test('interpreter inline code and in-place editors route through the write gates', async () => {
+  await withProject(async (target) => {
+    const outside = path.join(tmpdir(), 'vibe-harness-interpreter-outside.txt');
+    const cases = [
+      // Inline-code literals hit red-zone and control-plane gates.
+      ["node -e \"require('fs').writeFileSync('.env', 'x')\"", 'RED_ZONE'],
+      ["python -c \"open('vibe-harness.config.json', 'w').close()\"", 'CONTROL_PLANE_WRITE'],
+      ["node -e \"write('.codex/config.toml')\"", 'CONTROL_PLANE_WRITE'],
+      [`node -e "write('${outside.replaceAll('\\', '/')}')"`, 'PROJECT_BOUNDARY'],
+      // In-place editors contribute their file operands.
+      ["sed -i 's/a/b/' .env", 'RED_ZONE'],
+      ["sed -i 's/a/b/' .codex/config.toml", 'CONTROL_PLANE_WRITE'],
+      ["awk -i inplace '{print}' .env", 'RED_ZONE'],
+      ["perl -pi -e 's/a/b/' .env", 'RED_ZONE'],
+      // Everyday interpreter usage stays allowed.
+      ['node -e "console.log(1)"', undefined],
+      ['node scripts/build.js', undefined],
+      ["sed -i 's/a/b/' src/file.js", undefined],
+      ["sed -n 's/a/b/p' file.txt", undefined],
+      ['awk \'{print}\' file.txt', undefined],
+    ];
+    for (const [command, reasonCode] of cases) {
+      const decision = analyzeToolRequest(request(target, { tool_input: { command } }), policyOptions(target));
+      if (reasonCode === undefined) {
+        assert.equal(decision.action, 'allow', command);
+        assert.equal(decision.reasonCode, undefined, command);
+      } else {
+        assert.equal(decision.action, 'deny', command);
+        assert.equal(decision.reasonCode, reasonCode, command);
+      }
+    }
+
+    // Inline code without a path-like literal is still a write attempt, so the
+    // read-only preset ceiling applies.
+    const presetOptions = { ...policyOptions(target), permissionPreset: 'analysis' };
+    const presetDecision = analyzeToolRequest(
+      request(target, { tool_input: { command: 'node -e "console.log(1)"' } }),
+      presetOptions,
+    );
+    assert.equal(presetDecision.action, 'deny');
+    assert.equal(presetDecision.reasonCode, 'ROLE_PERMISSION_PRESET');
+  });
+});
+
 test('network output to a generic environment-variable path is not credential exfiltration', async () => {
   await withProject(async (target) => {
     const commands = [
