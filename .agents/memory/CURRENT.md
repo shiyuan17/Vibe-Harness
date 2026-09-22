@@ -7,10 +7,10 @@
 项目阶段、技术债与决策经本文件引用 `docs/memory/PROJECT_STATE.md` 读取，不在此复制其内容；本文件只记录任务级恢复线索。
 
 - 目标: 落地 2026-09-22 架构审查整改 P0+P1 全 8 项（audit-reports/2026-09-22-optimization-plan.md，worktree 分支 codex/optimization-p0p1，base codex/governance-audit-batch）
-- 当前状态: 批次 A（P0 解释器内联写闸门）已提交 5b1cf44；批次 B（CI 去冗余 #7、独立评审收据遥测 #2、记忆新鲜度检查 #3）实现完毕待提交；批次 C/D 与收尾待做
-- 已验证证据: 批次 A 验证五连全绿（unit 158/158、component 306/306、integration 517/517、eval:check 通过、tests:catalog check 通过）；eval reference 已按 CONTRIBUTING 清单再生成（hooks 组指纹 cc474410）；#2 遥测冒烟通过（stdout JSON 语义不变、step summary 正确写入）
-- 未完成事项: 批次 B 验证与提交；批次 C（Fast Path 卡片 #4、失败登记 #6、unknown 预分类 #8）；批次 D（Hook 覆盖矩阵 #5）；收尾（记忆最终新鲜化、CHANGELOG、全量门禁、合并回 codex/governance-audit-batch、worktree 清理）
-- 下一步最小动作: 完成批次 B 新鲜度检查器测试与记忆文件新鲜化后，跑批次验证（test:integration、test:component、eval:check、check、tests:catalog check）并提交
-- 锚点提交: 5b1cf44c8d3dc798b38437b2ea2c214af7249b02
+- 当前状态: 全部批次已提交——步骤 0（3a9fd80 报告/方案落盘）、批次 A（5b1cf44 P0 解释器内联写闸门）、批次 B（e7cc3d8 CI 去冗余 #7、评审收据遥测 #2、记忆新鲜度检查 #3）、批次 C（83f842a Fast Path #4、失败登记 #6、unknown 预分类 #8）、批次 D（e2e47ba HOOK_ACTIVATION_UNSUPPORTED #5）；收尾批次进行中
+- 已验证证据: 各批次验证链均全绿；批次 D（enforcement-gate 12/12、test:integration 518+1 既有跳过、matrix tool-provisioning 109+1 既有跳过、tests:catalog 1127=1127、docs:audit 121、eval:check 通过无指纹漂移）；批次 A eval reference 已按 CONTRIBUTING 清单再生成（hooks 组）
+- 未完成事项: 收尾批次剩余动作：CHANGELOG 补记、锚点 stage:verify、全量门禁（pnpm check + git diff --check + eval:check）、主检出 merge --no-ff 回 codex/governance-audit-batch、worktree cleanup、删除分支
+- 下一步最小动作: CHANGELOG 补记后跑全量门禁，通过即主检出合并并清理 worktree
+- 锚点提交: e2e47ba3fdb49ffc938c45b0ba8c7095c59a2403
 - 最后更新: 2026-09-22
 - 最后验证: 2026-09-22
