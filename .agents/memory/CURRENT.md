@@ -7,10 +7,10 @@
 项目阶段、技术债与决策经本文件引用 `docs/memory/PROJECT_STATE.md` 读取，不在此复制其内容；本文件只记录任务级恢复线索。
 
 - 目标: 落地 2026-09-22 架构审查整改 P0+P1 全 8 项（audit-reports/2026-09-22-optimization-plan.md，worktree 分支 codex/optimization-p0p1，base codex/governance-audit-batch）
-- 当前状态: 全部批次已提交——步骤 0（3a9fd80 报告/方案落盘）、批次 A（5b1cf44 P0 解释器内联写闸门）、批次 B（e7cc3d8 CI 去冗余 #7、评审收据遥测 #2、记忆新鲜度检查 #3）、批次 C（83f842a Fast Path #4、失败登记 #6、unknown 预分类 #8）、批次 D（e2e47ba HOOK_ACTIVATION_UNSUPPORTED #5）；收尾批次进行中
-- 已验证证据: 各批次验证链均全绿；批次 D（enforcement-gate 12/12、test:integration 518+1 既有跳过、matrix tool-provisioning 109+1 既有跳过、tests:catalog 1127=1127、docs:audit 121、eval:check 通过无指纹漂移）；批次 A eval reference 已按 CONTRIBUTING 清单再生成（hooks 组）
-- 未完成事项: 收尾批次剩余动作：CHANGELOG 补记、锚点 stage:verify、全量门禁（pnpm check + git diff --check + eval:check）、主检出 merge --no-ff 回 codex/governance-audit-batch、worktree cleanup、删除分支
-- 下一步最小动作: CHANGELOG 补记后跑全量门禁，通过即主检出合并并清理 worktree
-- 锚点提交: e2e47ba3fdb49ffc938c45b0ba8c7095c59a2403
+- 当前状态: 全部完成——六个提交（3a9fd80 报告/方案落盘、5b1cf44 P0 解释器内联写闸门、e7cc3d8 CI 去冗余 #7+评审收据遥测 #2+记忆新鲜度 #3、83f842a Fast Path #4+失败登记 #6+unknown 预分类 #8、e2e47ba HOOK_ACTIVATION_UNSUPPORTED #5、2768756 CHANGELOG 补记+记忆新鲜化）已 merge --no-ff 合回 codex/governance-audit-batch（f970fd1），worktree 已 cleanup，分支 codex/optimization-p0p1 已删除
+- 已验证证据: 各批次验证链均全绿；收尾全量门禁通过（pnpm check 全链含 test:unit 与 test:component 314/314、git diff --check、eval:check 无指纹漂移、validate.js 结构校验含 #3 记忆新鲜度自证）；批次 A eval reference 已按 CONTRIBUTING 清单再生成（hooks 组）
+- 未完成事项: 无；P2 两项（#9 eval 体系收敛/run.mjs 拆分/envelope v1 退役、#10 其余项）为本轮明确非目标，另批规划
+- 下一步最小动作: 暂无——后续批次从 docs/memory/TECH_DEBT.md 技术债清单与 audit-reports/2026-09-22-optimization-plan.md 非目标节选取
+- 锚点提交: f970fd14c0742008b225f3181149a31723e5426d
 - 最后更新: 2026-09-22
 - 最后验证: 2026-09-22
