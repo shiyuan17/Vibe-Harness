@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -43,6 +43,22 @@ test('an unknown path cannot lower the risk selected for a mixed change', () => 
   const plan = classifyVerificationRisk(['scripts/example.js', 'misc/example.bin']);
   assert.equal(plan.riskLevel, 'high');
   assert.equal(plan.fallbackUsed, true);
+});
+
+test('仓库根实际文件在分组规则中永不为 unknown', async () => {
+  const rootDir = path.resolve(import.meta.dirname, '../..');
+  const entries = await readdir(rootDir, { withFileTypes: true });
+  // `.git` is VCS metadata (a file in worktrees, a directory elsewhere) that git
+  // never reports as a changed path, so it is not a repository file here.
+  const files = entries
+    .filter((entry) => entry.isFile() && entry.name !== '.git')
+    .map((entry) => entry.name);
+  assert.ok(files.length > 0);
+  for (const file of files) {
+    const report = classifyVerificationRisk([file]);
+    assert.equal(report.fallbackUsed, false, `${file} must match a GROUP_RULES entry`);
+    assert.ok(!report.impactGroups.includes('unknown'), file);
+  }
 });
 
 test('riskZones and pathPatterns raise risk and preserve the reason in the plan', async () => {

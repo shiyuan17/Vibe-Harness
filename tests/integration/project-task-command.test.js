@@ -104,6 +104,7 @@ test('task init 在 --write 前保持 dry-run，写入后落盘锚点', async ()
     assert.deepEqual(anchor.units, []);
     assert.deepEqual(anchor.decisions, []);
     assert.deepEqual(anchor.blockers, []);
+    assert.deepEqual(anchor.failures, []);
     assert.equal(anchor.nextAction, null);
     assert.equal(anchor.sessions.length, 1);
     assert.equal(anchor.sessions[0].action, 'init');
@@ -231,6 +232,54 @@ test('重复执行相同的 task update 不产生任何变更', async () => {
     assert.deepEqual(second.report.changes, []);
     const after = await readFile(anchorPath(project, 'stable'), 'utf8');
     assert.equal(after, before);
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
+
+test('task update 登记失败并按文本去重，status 提示最近失败', async () => {
+  const project = await tempProject();
+  try {
+    await runCommand(['task', 'init', 'flaky', '--title', 'F', '--goal', 'G', '--write', '--json'], { cwd: project });
+    const update = await runCommand([
+      'task', 'update', 'flaky',
+      '--failure', 'test:unit 在 policy.mjs 用例超时',
+      '--failure', 'test:unit 在 policy.mjs 用例超时',
+      '--failure', 'eval:check reference 指纹漂移',
+      '--write', '--json',
+    ], { cwd: project });
+    assert.equal(update.exitCode, 0);
+    assert.equal(update.report.status, 'passed');
+    assert.equal(update.report.written, true);
+    assert.equal(update.report.changes.filter((change) => change === 'failure').length, 2);
+    assert.equal(update.report.anchor.failures.length, 2);
+
+    const anchor = await readAnchor(project, 'flaky');
+    assert.deepEqual(anchor.failures.map((item) => item.text), [
+      'test:unit 在 policy.mjs 用例超时',
+      'eval:check reference 指纹漂移',
+    ]);
+    for (const entry of anchor.failures) {
+      assert.equal(typeof entry.at, 'string');
+      assert.ok(entry.at.length > 0);
+    }
+
+    const repeat = await runCommand([
+      'task', 'update', 'flaky', '--failure', 'test:unit 在 policy.mjs 用例超时', '--write', '--json',
+    ], { cwd: project });
+    assert.equal(repeat.report.changed, false);
+    assert.equal(repeat.report.written, false);
+    assert.deepEqual(repeat.report.changes, []);
+    const after = await readAnchor(project, 'flaky');
+    assert.equal(after.failures.length, 2);
+
+    await runCommand([
+      'task', 'update', 'flaky', '--failure', 'test:component documentation 断言过期', '--write', '--json',
+    ], { cwd: project });
+    const status = await runCommand(['task', 'status', 'flaky', '--json'], { cwd: project });
+    assert.equal(status.exitCode, 0);
+    assert.equal(status.report.failures.length, 3);
+    assert.match(status.report.resumeHint, /recent failure: test:component documentation 断言过期/u);
   } finally {
     await rm(project, { recursive: true, force: true });
   }

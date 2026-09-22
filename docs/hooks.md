@@ -48,7 +48,7 @@ MCP 工具先按「服务器 + 工具名」查显式合同表，再回退到「�
 
 项目内的 .codex、.claude、.cursor、.gemini 目录不是全局 Agent 配置；只有位于家目录之下、紧跟家目录的配置目录才命中全局配置规则，读取这些目录不视为写入。
 
-OpenCode 不安装项目 Hook。其配置文件仍属于默认红区，其他已安装的 stable Hook 可在多宿主项目中保护这些路径；这不代表 OpenCode 自身拥有 Hook 防护。
+Gemini 与 OpenCode 的 Hook 机制不被支持（`hookActivation: unsupported`）。Gemini 在 `--allow-preview` 下仍会把 Hook 文件落到 `.agents/runtime/hooks/`，多宿主项目中这些文件也可能由其他目标共装，但它们不会被该宿主激活；OpenCode 不安装项目 Hook。OpenCode 的配置文件仍属于默认红区，其他已安装的 stable Hook 可在多宿主项目中保护这些路径；这不代表 OpenCode 自身拥有 Hook 防护。install／validate／doctor 对这种「文件已落盘、宿主不支持激活」的状态以 `HOOK_ACTIVATION_UNSUPPORTED` 警告按宿主归因透出，报告字段 `runtimeHooks.filesInstalled` 区分「文件在盘」与「宿主支持」。
 
 ## 路径解析
 

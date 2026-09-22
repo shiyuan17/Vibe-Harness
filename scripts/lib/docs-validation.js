@@ -25,8 +25,10 @@ const legacyBrandFullyAllowedFiles = new Set([
   'scripts/lib/docs-validation.js',
   'scripts/lib/project-layout.js',
   // .gitignore legitimately ignores leftover legacy state directories; this is
-  // compatibility bookkeeping, not a brand reference.
+  // compatibility bookkeeping, not a brand reference. .zcodeignore mirrors that
+  // list for the host (its top section is generated from .gitignore).
   '.gitignore',
+  '.zcodeignore',
 ]);
 const repositoryScanExcludedDirectories = new Set([
   '.agents',

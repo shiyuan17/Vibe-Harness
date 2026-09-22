@@ -12,6 +12,9 @@ const execFileAsync = promisify(execFile);
 const hookConfigTargets = {
   codex: '.codex/hooks.json',
 };
+// The managed hook entrypoint doubles as the hooks-group sentinel: preview and
+// multi-target installs land it on disk even for hosts that can never load it.
+const runtimeHookEntryPath = '.agents/runtime/hooks/codex-hook.mjs';
 
 /**
  * User-facing text for each host Hook trust state. The reasonCode stays the
@@ -117,6 +120,7 @@ export async function inspectRuntimeHookSelfCheck(adapter, targetDir, { configur
 export async function inspectRuntimeHooks(adapter, targetDir, { hostEvidence = {}, hostHookState = null, selfCheck = false } = {}) {
   const configTarget = hookConfigTarget(adapter);
   const configured = Boolean(configTarget && await pathExists(path.join(targetDir, configTarget)));
+  const filesInstalled = await pathExists(path.join(targetDir, runtimeHookEntryPath));
   const mechanism = adapter.hookActivation;
   const supported = mechanism !== 'unsupported';
   // Host trust is recorded outside the project, so it can only be read, never
@@ -178,6 +182,8 @@ export async function inspectRuntimeHooks(adapter, targetDir, { hostEvidence = {
       envelopeRequired,
       hostContextVerified,
     },
+    filesInstalled,
+    host: adapter.id,
     pathResolution: 'git-root',
     status: enforced ? 'enforced' : (!supported ? 'unsupported' : (!configured ? 'not-configured' : 'configured-unverified')),
     supported,
@@ -211,6 +217,16 @@ export function runtimeHookWarnings(runtimeHooks, { definitionChanged = false, e
     warnings.push({
       code: 'ENVELOPE_UNSUPPORTED',
       message: 'This host declares no high-risk execution envelope (envelopeVersions is empty and highRiskEnforcement is unsupported), so runtime red-zone, egress, and credential policies cannot be enforced here; high-risk operations rely on host-native approval and human review only.',
+    });
+  }
+  if (runtimeHooks.supported === false && runtimeHooks.filesInstalled) {
+    // The hooks group can be on disk for a host that can never load it (a
+    // preview install, or a multi-target project where another host owns the
+    // files); name that host instead of letting the files read as an active
+    // policy.
+    warnings.push({
+      code: 'HOOK_ACTIVATION_UNSUPPORTED',
+      message: runtimeHooks.host + ' 的 Hook 机制不被支持：Hook 文件仅随安装落盘、不会被该宿主激活；红区与凭据策略依赖宿主原生审批与人工复核。',
     });
   }
   if (definitionChanged

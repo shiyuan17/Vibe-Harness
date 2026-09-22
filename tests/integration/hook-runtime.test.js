@@ -1117,7 +1117,7 @@ test('control-plane writes are denied with a dedicated reason code', () => {
   }
 });
 
-test('arbitrary interpreters and network clients remain explicit Hook coverage limitations', () => {
+test('arbitrary PowerShell and network clients remain explicit Hook coverage limitations', () => {
   const rootDir = path.resolve('.');
   const evaluate = (command) => analyzeToolRequest(
     normalizeCodexHookInput(input(rootDir, { tool_input: { command } })),
@@ -1125,17 +1125,106 @@ test('arbitrary interpreters and network clients remain explicit Hook coverage l
   );
   const powershellWrite = ['Set', '-Content C:\\outside-audit.txt test'].join('');
   const powershellRemove = ['Remove', '-Item C:\\outside-audit.txt'].join('');
-  const pythonWrite = ['python -c "op', 'en(\'C:/outside-audit.txt\', \'w\').write(\'x\')"'].join('');
-  const nodeWrite = ['node -e "require(\'f', 's\').writeFileSync(\'C:/outside-audit.txt\', \'x\')"'].join('');
   const pythonNetwork = ['python -c "import urllib.request; urllib.request.url', 'open(\'https://example.test\')"'].join('');
   const nodeNetwork = ['node -e "fe', 'tch(\'https://example.test\')"'].join('');
   const gitNetwork = ['git cl', 'one https://example.test/repository.git'].join('');
 
-  for (const command of [powershellWrite, powershellRemove, pythonWrite, nodeWrite, pythonNetwork, nodeNetwork, gitNetwork]) {
+  for (const command of [powershellWrite, powershellRemove, pythonNetwork, nodeNetwork, gitNetwork]) {
     assert.equal(evaluate(command).action, 'allow', command);
   }
   assert.equal(HOOK_COVERAGE_LIMITATIONS.some((item) => /PowerShell, Python, Node\.js/iu.test(item)), true);
   assert.equal(HOOK_COVERAGE_LIMITATIONS.some((item) => /sandbox.*network proxy/iu.test(item)), true);
+});
+
+test('interpreter inline code write attempts hit the write gates they used to bypass', () => {
+  const rootDir = path.resolve('.');
+  const evaluate = (command) => analyzeToolRequest(
+    normalizeCodexHookInput(input(rootDir, { tool_input: { command } })),
+    { mode: 'guarded', projectRoot: rootDir, redZonePaths: DEFAULT_RED_ZONE_PATHS },
+  );
+  const expectations = new Map([
+    // Red-zone literals inside inline code.
+    ["node -e \"require('fs').writeFileSync('.env', 'x')\"", 'RED_ZONE'],
+    ["node -e \"writeFileSync('.env.production')\"", 'RED_ZONE'],
+    ["node -e \"write('.github/workflows/ci.yml')\"", 'RED_ZONE'],
+    ["node --eval \"write('.env')\"", 'RED_ZONE'],
+    ["node -p \"read('.env')\"", 'RED_ZONE'],
+    ["python -c \"open('.env').read()\"", 'RED_ZONE'],
+    ["python -Bc \"open('.env')\"", 'RED_ZONE'],
+    ["py -c \"open('.env')\"", 'RED_ZONE'],
+    ["ruby -e \"File.write('.env')\"", 'RED_ZONE'],
+    ["php -r \"file_put_contents('.env', 'x');\"", 'RED_ZONE'],
+    ["deno eval \"writeTextFile('.env')\"", 'RED_ZONE'],
+    // Control-plane literals inside inline code.
+    ["python -c \"open('vibe-harness.config.json', 'w').close()\"", 'CONTROL_PLANE_WRITE'],
+    ["node -e \"writeFileSync('vibe-harness.config.json')\"", 'CONTROL_PLANE_WRITE'],
+    ["node -e \"write('.codex/config.toml')\"", 'CONTROL_PLANE_WRITE'],
+    // Project-boundary literals inside inline code.
+    ["node -e \"require('fs').writeFileSync('C:/outside-audit.txt', 'x')\"", 'PROJECT_BOUNDARY'],
+    ["python -c \"open('C:/outside-audit.txt', 'w').write('x')\"", 'PROJECT_BOUNDARY'],
+    ["node -e \"writeFileSync('/etc/hosts')\"", 'PROJECT_BOUNDARY'],
+    // In-place text processors contribute their file operands.
+    ["sed -i 's/a/b/' .env", 'RED_ZONE'],
+    ["sed --in-place 's/a/b/' .env", 'RED_ZONE'],
+    ["sed -i.bak 's/a/b/' .env", 'RED_ZONE'],
+    ["sed -i 's/a/b/' .codex/config.toml", 'CONTROL_PLANE_WRITE'],
+    ["awk -i inplace '{print}' .env", 'RED_ZONE'],
+    ["awk -i inplace -f prog.awk .env", 'RED_ZONE'],
+    ["perl -i -pe 's/a/b/' .env", 'RED_ZONE'],
+    ["perl -pi -e 's/a/b/' .env", 'RED_ZONE'],
+    // Invocation behind package runners and shell chains still resolves.
+    ["npx node -e \"write('.env')\"", 'RED_ZONE'],
+    ["pnpm exec node -e \"write('.env')\"", 'RED_ZONE'],
+    ["echo hi && node -e \"write('.env')\"", 'RED_ZONE'],
+  ]);
+
+  for (const [command, reasonCode] of expectations) {
+    const decision = evaluate(command);
+    assert.equal(decision.action, 'deny', command);
+    assert.equal(decision.reasonCode, reasonCode, command);
+  }
+});
+
+test('ordinary interpreter script usage is not over-blocked', () => {
+  const rootDir = path.resolve('.');
+  const evaluate = (command) => analyzeToolRequest(
+    normalizeCodexHookInput(input(rootDir, { tool_input: { command } })),
+    { mode: 'guarded', projectRoot: rootDir, redZonePaths: DEFAULT_RED_ZONE_PATHS },
+  );
+
+  for (const command of [
+    'node -e "console.log(1)"',
+    "node -e \"console.log('docs/README.md')\"",
+    'node scripts/build.js',
+    'python scripts/report.py',
+    'perl -e "print \'ok\'"',
+    'sed -n \'s/a/b/p\' file.txt',
+    'sed -i \'s/a/b/\' src/file.js',
+    'awk \'{print}\' file.txt',
+    'git commit -m \'node -e .env note\'',
+    'pnpm test',
+  ]) {
+    assert.equal(evaluate(command).action, 'allow', command);
+  }
+});
+
+test('interpreter inline code honors read-only role permission presets', () => {
+  const rootDir = path.resolve('.');
+  const evaluate = (command, permissionPreset) => analyzeToolRequest(
+    normalizeCodexHookInput(input(rootDir, { tool_input: { command } })),
+    { mode: 'guarded', permissionPreset, projectRoot: rootDir, redZonePaths: DEFAULT_RED_ZONE_PATHS },
+  );
+
+  // Inline code without a path-like literal still counts as a write attempt, so
+  // the read-only preset ceiling applies instead of the command sailing through.
+  const analysisDecision = evaluate('node -e "console.log(1)"', 'analysis');
+  assert.equal(analysisDecision.action, 'deny');
+  assert.equal(analysisDecision.reasonCode, 'ROLE_PERMISSION_PRESET');
+  assert.equal(evaluate('node -e "console.log(1)"', 'verification').action, 'allow');
+  assert.equal(evaluate('node -e "console.log(1)"', null).action, 'allow');
+  const sedDecision = evaluate('sed -i \'s/a/b/\' src/file.js', 'analysis');
+  assert.equal(sedDecision.action, 'deny');
+  assert.equal(sedDecision.reasonCode, 'ROLE_PERMISSION_PRESET');
 });
 
 test('unsupported lifecycle events fail closed instead of creating task context', async () => {

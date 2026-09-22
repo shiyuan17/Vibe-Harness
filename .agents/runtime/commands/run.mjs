@@ -110,20 +110,21 @@ export function assertSafeCommand(command) {
 }
 
 function parseArgs(argv) {
-  const args = { _: [], json: false, plan: false, allowManual: false, only: null, task: [], acceptance: [], decision: [], blocker: [], unitStatus: [] };
+  const args = { _: [], json: false, plan: false, allowManual: false, only: null, task: [], acceptance: [], decision: [], blocker: [], failure: [], unitStatus: [] };
   const aliases = new Map([
     ['allow-manual', 'allowManual'],
     ['no-numbers', 'numbers'],
   ]);
   const booleanFlags = new Set(['json', 'plan', 'allow-manual', 'no-numbers', 'strict', 'write', 'help', 'confirm-red-zone', 'reuse']);
-  const valueFlags = new Set(['project', 'base', 'only', 'timeout', 'output', 'tier', 'task', 'base-ref', 'branch-prefix', 'file', 'from', 'to', 'spec', 'root', 'title', 'goal', 'risk-level', 'stage', 'unit', 'unit-status', 'acceptance', 'decision', 'blocker', 'next-action', 'verification']);
+  const valueFlags = new Set(['project', 'base', 'only', 'timeout', 'output', 'tier', 'task', 'base-ref', 'branch-prefix', 'file', 'from', 'to', 'spec', 'root', 'title', 'goal', 'risk-level', 'stage', 'unit', 'unit-status', 'acceptance', 'decision', 'blocker', 'failure', 'next-action', 'verification']);
   // Repeatable flags collect into arrays so one invocation can carry several
-  // values (task ids, acceptance items, decisions, blockers, unit updates).
+  // values (task ids, acceptance items, decisions, blockers, failures, unit updates).
   const arrayFlags = new Map([
     ['task', args.task],
     ['acceptance', args.acceptance],
     ['decision', args.decision],
     ['blocker', args.blocker],
+    ['failure', args.failure],
     ['unit-status', args.unitStatus],
   ]);
   for (let index = 0; index < argv.length; index += 1) {
@@ -2316,6 +2317,7 @@ async function taskInitReport(projectDir, args) {
     units: [],
     decisions: [],
     blockers: [],
+    failures: [],
     nextAction: null,
     sessions: [{ at: now, action: 'init' }],
     updatedAt: now,
@@ -2338,7 +2340,7 @@ async function taskInitReport(projectDir, args) {
 async function taskUpdateReport(projectDir, args) {
   const taskId = args._[2];
   if (taskId === undefined) {
-    return taskFailure('update', 'task update needs a task id: task update <task-id> [--stage <s>] [--unit-status <unitId>:<status>] [--verification <receipt> --unit <unitId>]');
+    return taskFailure('update', 'task update needs a task id: task update <task-id> [--stage <s>] [--unit-status <unitId>:<status>] [--failure <text>] [--verification <receipt> --unit <unitId>]');
   }
   try {
     validateTaskId(taskId);
@@ -2361,6 +2363,7 @@ async function taskUpdateReport(projectDir, args) {
   if (!Array.isArray(next.units)) next.units = [];
   if (!Array.isArray(next.decisions)) next.decisions = [];
   if (!Array.isArray(next.blockers)) next.blockers = [];
+  if (!Array.isArray(next.failures)) next.failures = [];
   if (!Array.isArray(next.sessions)) next.sessions = [];
   if (args.stage !== undefined) {
     if (!TASK_STAGES.includes(args.stage)) {
@@ -2397,6 +2400,15 @@ async function taskUpdateReport(projectDir, args) {
         next[field].push(value);
         changes.push(flag);
       }
+    }
+  }
+  // Failures are deduped by text so re-reporting the same failure (for example
+  // after a compaction-driven resume) does not grow the anchor.
+  for (const value of args.failure) {
+    if (value.trim() === '') continue;
+    if (!next.failures.some((item) => item && item.text === value)) {
+      next.failures.push({ at: new Date().toISOString(), text: value });
+      changes.push('failure');
     }
   }
   if (args.nextAction !== undefined && next.nextAction !== args.nextAction) {
@@ -2459,6 +2471,10 @@ function taskResumeHint(taskId, anchor, pendingUnits) {
     `stage: ${typeof anchor.stage === 'string' ? anchor.stage : 'unknown'}`,
   ];
   if (pendingUnits.length > 0) parts.push(`pending units: ${pendingUnits.join(', ')}`);
+  const failures = Array.isArray(anchor.failures)
+    ? anchor.failures.filter((item) => item && typeof item === 'object' && typeof item.text === 'string')
+    : [];
+  if (failures.length > 0) parts.push(`recent failure: ${failures[failures.length - 1].text}`);
   if (typeof anchor.nextAction === 'string' && anchor.nextAction !== '') parts.push(`next action: ${anchor.nextAction}`);
   return `${parts.join('; ')}.`;
 }
@@ -2496,6 +2512,7 @@ async function taskStatusReport(projectDir, args) {
     pendingUnits,
     decisions: Array.isArray(anchor.decisions) ? anchor.decisions : [],
     blockers: Array.isArray(anchor.blockers) ? anchor.blockers : [],
+    failures: Array.isArray(anchor.failures) ? anchor.failures : [],
     nextAction: typeof anchor.nextAction === 'string' ? anchor.nextAction : null,
     sessions: Array.isArray(anchor.sessions) ? anchor.sessions : [],
     updatedAt: typeof anchor.updatedAt === 'string' ? anchor.updatedAt : null,
@@ -2950,7 +2967,7 @@ export async function runCommand(argv, { cwd = process.cwd() } = {}) {
     usage: 'run.mjs <env|context|changes|verify|worktree|slice|patch|task|codebase-memory> [--project <path>] [--json]（--project 缺省为当前目录）',
     codebaseMemory: 'run.mjs codebase-memory <status|refresh> --project <path>: status reports fresh|stale|missing from the index state stamp written by the runtime wrapper after a successful index_repository and never writes; refresh stays dry-run until --write and then rebuilds the semantic graph through the pinned project runtime',
     worktree: 'run.mjs worktree <list|check|bootstrap|cleanup|recover> --project <path>: bootstrap, cleanup and recover stay dry-run until --write; bootstrap allocates the next port block from .vibe-harness/worktree-ports.json, materializes worktree.provision.envFiles and runs worktree.provision.setupCommands (a red-zone target also needs --confirm-red-zone); cleanup refuses branches not merged into worktree.baseRef; recover reclaims crash residue (prunable worktrees, bootstrap worktrees still clean at the base ref, zero-commit branches only residue references, leaked registry entries) and never deletes a branch that moved past the base ref',
-    task: 'run.mjs task <init|update|status|list> [task-id] --project <path>: anchors live in .vibe-harness/tasks/<task-id>.json; init and update stay dry-run until --write while status and list never write; update accepts --stage, --unit-status <unitId>:<status>, --decision, --blocker, --next-action, and --unit <unitId> --verification <verify receipt> to record a verify receipt on a unit',
+    task: 'run.mjs task <init|update|status|list> [task-id] --project <path>: anchors live in .vibe-harness/tasks/<task-id>.json; init and update stay dry-run until --write while status and list never write; update accepts --stage, --unit-status <unitId>:<status>, --decision, --blocker, --failure (repeatable, deduped by text, {at,text} entries), --next-action, and --unit <unitId> --verification <verify receipt> to record a verify receipt on a unit',
     reuse: 'run.mjs verify --project <path> [--task <task-id>] --reuse: returns status "reused" without executing commands when the working-tree fingerprint and command set match the most recent passed receipt in the anchor; otherwise the checks run normally',
     verify: 'run.mjs verify --project <path> [--tier quick|standard|deep] [--only lint,typecheck,test,eval] [--plan]: quick is the default cost layer and slots outside it are reported as deferred with nextTier; --only selects explicit checks and bypasses tier deferral; blocked checks (unsafe, manual without --allow-manual, missing executable) end the receipt with status "blocked" instead of "failed"',
   };

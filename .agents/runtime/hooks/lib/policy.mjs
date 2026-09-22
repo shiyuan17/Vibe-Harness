@@ -245,6 +245,144 @@ function shellWritePaths(command) {
   return targets.filter((target) => !['/dev/null', 'NUL', 'nul'].includes(target));
 }
 
+// Interpreters and in-place text processors write through inline code or
+// flag-marked operands instead of the redirection/cp-style operands above
+// (`node -e`, `python -c`, `sed -i`, ...). The helpers below recover those
+// write targets so RED_ZONE / CONTROL_PLANE_WRITE / PROJECT_BOUNDARY still
+// apply; inline code only contributes quoted path-like literals, so ordinary
+// script arguments and flag values stay out of the candidates.
+const INTERPRETER_EXECUTABLE_PATTERN = /(?:^|[\\/])(?:node|python|python3|py|perl|ruby|php|deno|sed|awk)(?:\.exe|\.cmd|\.bat)?$/iu;
+const INTERPRETER_CODE_SPEC = new Map([
+  ['node', { chars: ['e', 'p'], long: ['eval'] }],
+  ['python', { chars: ['c'], long: [] }],
+  ['python3', { chars: ['c'], long: [] }],
+  ['py', { chars: ['c'], long: [] }],
+  ['perl', { chars: ['e'], long: ['eval'] }],
+  ['ruby', { chars: ['e'], long: ['eval'] }],
+  ['php', { chars: ['r'], long: [] }],
+]);
+
+function isPathLikeLiteral(value) {
+  if (value.length === 0) return false;
+  if (/^(?:[\\/]|[A-Za-z]:[\\/]|~[\\/])/u.test(value)) return true;
+  if (value.includes('/') || value.includes('\\')) return true;
+  return /\.[A-Za-z0-9]+$/u.test(value);
+}
+
+function inlineCodePaths(code) {
+  const targets = [];
+  for (const match of code.matchAll(/"([^"]*)"|'([^']*)'/gu)) {
+    const literal = match[1] ?? match[2];
+    if (literal !== undefined && isPathLikeLiteral(literal)) targets.push(literal);
+  }
+  return targets;
+}
+
+function codeFlagTarget(argument, spec, next) {
+  if (argument.startsWith('--')) {
+    const entry = spec.long.find((name) => argument === `--${name}` || argument.startsWith(`--${name}=`));
+    if (entry === undefined) return null;
+    return argument.includes('=') ? argument.slice(argument.indexOf('=') + 1) : next;
+  }
+  if (!/^-[a-zA-Z]+$/u.test(argument)) return null;
+  return spec.chars.some((char) => argument.includes(char)) ? next : null;
+}
+
+/** sed and perl share -i (in-place) and -e/-f (script) flag semantics. */
+function inPlaceTextTargets(args) {
+  let inPlace = false;
+  let scriptPending = false;
+  let scriptSeen = false;
+  const files = [];
+  for (const argument of args) {
+    if (scriptPending) {
+      scriptPending = false;
+      scriptSeen = true;
+      continue;
+    }
+    if (argument === '--in-place' || argument.startsWith('--in-place=') || /^-i\./u.test(argument)) {
+      inPlace = true;
+      continue;
+    }
+    if (argument === '--expression' || argument.startsWith('--expression=')
+      || argument === '--file' || argument.startsWith('--file=')) {
+      scriptSeen = true;
+      if (!argument.includes('=')) scriptPending = true;
+      continue;
+    }
+    if (/^-[a-zA-Z]+$/u.test(argument)) {
+      if (argument.includes('i')) inPlace = true;
+      if (argument.includes('e') || argument.includes('f')) scriptPending = true;
+      continue;
+    }
+    files.push(argument);
+  }
+  if (!inPlace) return [];
+  return scriptSeen ? files : files.slice(1);
+}
+
+function awkInPlaceTargets(args) {
+  let inPlace = false;
+  let programPending = false;
+  let programSeen = false;
+  const files = [];
+  for (const argument of args) {
+    if (programPending) {
+      programPending = false;
+      programSeen = true;
+      continue;
+    }
+    if (argument === '--file' || argument.startsWith('--file=')) {
+      programSeen = true;
+      if (!argument.includes('=')) programPending = true;
+      continue;
+    }
+    if (/^-[a-zA-Z]+$/u.test(argument)) {
+      if (argument.includes('i')) inPlace = true;
+      if (argument.includes('f')) programPending = true;
+      continue;
+    }
+    if (argument === 'inplace') continue;
+    files.push(argument);
+  }
+  if (!inPlace) return [];
+  return programSeen ? files : files.slice(1);
+}
+
+function interpreterInlineCode(segments) {
+  const result = { present: false, targets: [] };
+  for (const segment of segments) {
+    const tokens = commandTokens(segment);
+    const index = tokens.findIndex((token) => INTERPRETER_EXECUTABLE_PATTERN.test(token));
+    if (index < 0) continue;
+    const name = tokens[index].replaceAll('\\', '/').split('/').at(-1).toLowerCase().replace(/\.(?:exe|cmd|bat)$/u, '');
+    const args = tokens.slice(index + 1);
+    const spec = INTERPRETER_CODE_SPEC.get(name);
+    if (spec) {
+      args.forEach((argument, position) => {
+        const code = codeFlagTarget(argument, spec, args[position + 1] ?? null);
+        if (code !== null) {
+          result.targets.push(...inlineCodePaths(code));
+          result.present = true;
+        }
+      });
+      if (name === 'perl') result.targets.push(...inPlaceTextTargets(args));
+      continue;
+    }
+    if (name === 'deno') {
+      const evalIndex = args.indexOf('eval');
+      if (evalIndex >= 0) {
+        result.targets.push(...args.slice(evalIndex + 1).flatMap((argument) => inlineCodePaths(argument)));
+        result.present = true;
+      }
+      continue;
+    }
+    if (name === 'sed') result.targets.push(...inPlaceTextTargets(args));
+    if (name === 'awk') result.targets.push(...awkInPlaceTargets(args));
+  }
+  return result;
+}
+
 function risk(level, reasonCode, reason) {
   return { level, reason, reasonCode };
 }
@@ -375,8 +513,12 @@ function classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts 
     }
   }
 
-  const shellTargets = isPatchTool ? [] : shellWritePaths(command);
-  if (!writeToolPattern.test(input.toolName ?? '') && shellTargets.length === 0) return null;
+  // Interpreter inline code marks the request as a write attempt even when no
+  // path-like literal was recovered: the ROLE_PERMISSION_PRESET ceiling below
+  // then still applies to read-only presets.
+  const interpreterCode = isPatchTool ? { present: false, targets: [] } : interpreterInlineCode(segments);
+  const shellTargets = isPatchTool ? [] : [...shellWritePaths(command), ...interpreterCode.targets];
+  if (!writeToolPattern.test(input.toolName ?? '') && shellTargets.length === 0 && !interpreterCode.present) return null;
   const candidates = [
     ...collectStructuredPaths(input.toolInput),
     ...(isPatchTool ? patchPaths(command) : []),

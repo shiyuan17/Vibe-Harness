@@ -87,6 +87,47 @@ test('envelopeSupport 显式报告宿主执行包络的降级状态', async () =
   }
 });
 
+test('HOOK_ACTIVATION_UNSUPPORTED 按宿主归因已落盘的 Hook 文件', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-hook-files-'));
+  try {
+    // Without hook files on disk the activation gap already shows through
+    // runtimeHooks.activation; the extra warning has nothing to add.
+    const gemini = await adapterEntry('gemini');
+    const opencode = await adapterEntry('opencode');
+    for (const adapter of [gemini, opencode]) {
+      const bare = await inspectRuntimeHooks(adapter, target);
+      assert.equal(bare.supported, false);
+      assert.equal(bare.filesInstalled, false);
+      assert.equal(runtimeHookWarnings(bare).some((warning) => warning.code === 'HOOK_ACTIVATION_UNSUPPORTED'), false);
+    }
+
+    // The hooks group on disk (a preview install, or a multi-target project
+    // where another host owns the files) must not read as an active policy:
+    // the warning names the host and stays advisory.
+    const entryPath = path.join(target, '.agents', 'runtime', 'hooks', 'codex-hook.mjs');
+    await mkdir(path.dirname(entryPath), { recursive: true });
+    await writeFile(entryPath, '// hooks-group sentinel\n', 'utf8');
+    for (const adapter of [gemini, opencode]) {
+      const installed = await inspectRuntimeHooks(adapter, target);
+      assert.equal(installed.filesInstalled, true);
+      assert.equal(installed.host, adapter.id);
+      const warning = runtimeHookWarnings(installed).find((item) => item.code === 'HOOK_ACTIVATION_UNSUPPORTED');
+      assert.ok(warning, 'HOOK_ACTIVATION_UNSUPPORTED for ' + adapter.id);
+      assert.match(warning.message, new RegExp(adapter.id, 'u'));
+      assert.equal(warning.blocking, undefined);
+    }
+
+    // A supported host with the same files on disk never trips the warning.
+    const codex = await adapterEntry('codex');
+    const codexReport = await inspectRuntimeHooks(codex, target);
+    assert.equal(codexReport.supported, true);
+    assert.equal(codexReport.filesInstalled, true);
+    assert.equal(runtimeHookWarnings(codexReport).some((item) => item.code === 'HOOK_ACTIVATION_UNSUPPORTED'), false);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
 test('strict 策略把未证明的 Hook 执行从提示升级为阻断', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-strict-warning-'));
   try {
@@ -294,8 +335,30 @@ test('CLI gemini 默认 advisory 全量安装保持可用（回归）', async ()
     assert.equal(report.enforcementPolicy, 'advisory');
     assert.deepEqual(report.strictEnforcementRefusals, []);
     assert.equal(report.warnings.some((warning) => warning.code === 'HIGH_RISK_WRITES_DENIED'), false);
+    // The hooks group landed on disk under --allow-preview, but gemini's hook
+    // mechanism is unsupported: every reporting command must attribute that
+    // to the host instead of letting the files read as an active policy.
+    const unsupported = report.warnings.find((warning) => warning.code === 'HOOK_ACTIVATION_UNSUPPORTED');
+    assert.ok(unsupported, 'HOOK_ACTIVATION_UNSUPPORTED surfaces on gemini install');
+    assert.match(unsupported.message, /gemini/u);
+    assert.equal(unsupported.blocking, undefined);
+    assert.equal(report.runtimeHooks.host, 'gemini');
+    assert.equal(report.runtimeHooks.filesInstalled, true);
     const hook = await readFile(path.join(target, '.githooks', 'pre-commit'), 'utf8');
     assert.equal(hook.length > 0, true);
+
+    const validation = await execFileAsync(process.execPath, [
+      cliPath, 'validate', '--project', target, '--output', 'json',
+    ]);
+    const validated = JSON.parse(validation.stdout);
+    assert.equal(validated.ok, true);
+    assert.equal(validated.warnings.some((warning) => warning.code === 'HOOK_ACTIVATION_UNSUPPORTED'), true);
+
+    const doctorRun = await execFileAsync(process.execPath, [
+      cliPath, 'doctor', '--project', target, '--output', 'json',
+    ]);
+    const doctored = JSON.parse(doctorRun.stdout);
+    assert.equal(doctored.warnings.some((warning) => warning.code === 'HOOK_ACTIVATION_UNSUPPORTED'), true);
   } finally {
     await rm(target, { force: true, recursive: true });
   }

@@ -1600,6 +1600,81 @@ export async function validateMemoryEntry(rootDir) {
   return memoryEntryViolations(currentBody, hasGovernanceMemory, (sha) => verifyCommitInRepository(rootDir, sha));
 }
 
+/**
+ * Freshness is the memory contract's other half: a structurally valid entry that
+ * sits days behind HEAD still misdirects every recovery that trusts it. Live
+ * memory may lag the newest commit by at most one day; starter placeholders
+ * never match the absolute-date pattern and stay exempt from the comparison.
+ */
+export const MEMORY_FRESHNESS_GRACE_DAYS = 1;
+
+function memoryUpdateDateValue(body) {
+  if (typeof body !== 'string') return null;
+  const dateLine = /^- 最后更新:[ \t]*([^\n]*)$/mu.exec(body);
+  const value = dateLine ? dateLine[1].trim() : '';
+  return MEMORY_ABSOLUTE_DATE_PATTERN.test(value) ? value : null;
+}
+
+function calendarDayNumber(date) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(date);
+  if (!match) return null;
+  return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])) / 86_400_000;
+}
+
+/**
+ * Check the memory freshness invariants. Pure on purpose: the component test
+ * feeds starter bodies and mutated copies, so no git is required.
+ *
+ * @param {string|null} currentBody body of .agents/memory/CURRENT.md, null when absent
+ * @param {string|null} stateBody body of docs/memory/PROJECT_STATE.md, null when absent
+ * @param {string|null} headDate HEAD committer date as YYYY-MM-DD, null when unresolvable
+ * @returns {string[]} violations, empty when both entries stay fresh
+ */
+export function memoryFreshnessViolations(currentBody, stateBody, headDate) {
+  if (typeof headDate !== 'string' || calendarDayNumber(headDate) === null) {
+    return ['HEAD committer date is unavailable; memory freshness cannot be verified'];
+  }
+  const headDay = calendarDayNumber(headDate);
+  const violations = [];
+  for (const [file, body] of [
+    ['.agents/memory/CURRENT.md', currentBody],
+    ['docs/memory/PROJECT_STATE.md', stateBody],
+  ]) {
+    const value = memoryUpdateDateValue(body);
+    if (value === null) continue;
+    const staleDays = headDay - calendarDayNumber(value);
+    if (staleDays > MEMORY_FRESHNESS_GRACE_DAYS) {
+      violations.push(`${file} 最后更新 (${value}) is ${staleDays} days behind HEAD (${headDate}); refresh the memory entry`);
+    }
+  }
+  return violations;
+}
+
+function headCommitterShortDate(rootDir) {
+  try {
+    return execFileSync('git', ['log', '-1', '--format=%cs'], { cwd: rootDir }).toString().trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Compare the live memory files against the repository's HEAD committer date.
+ * Fail-closed like the anchor binding: a HEAD date that cannot be resolved is
+ * a violation, not a skip.
+ *
+ * @param {string} rootDir repository root
+ * @returns {Promise<string[]>} memory-freshness errors
+ */
+export async function validateMemoryFreshness(rootDir) {
+  const [currentBody, stateBody] = await Promise.all([
+    readFile(path.join(rootDir, '.agents/memory/CURRENT.md'), 'utf8').catch(() => null),
+    readFile(path.join(rootDir, 'docs/memory/PROJECT_STATE.md'), 'utf8').catch(() => null),
+  ]);
+  if (currentBody === null && stateBody === null) return [];
+  return memoryFreshnessViolations(currentBody, stateBody, headCommitterShortDate(rootDir));
+}
+
 export async function validateContentQuality(rootDir) {
   const results = await Promise.all(CONTENT_QUALITY_CHECKS.map((check) => checkRequiredTerms(rootDir, check)));
   const errors = [
@@ -1608,6 +1683,7 @@ export async function validateContentQuality(rootDir) {
     ...await validateRuleCrossReferences(rootDir),
     ...await validateRuleSkillParity(rootDir),
     ...await validateMemoryEntry(rootDir),
+    ...await validateMemoryFreshness(rootDir),
   ];
   const agentsPath = path.join(rootDir, 'AGENTS.md');
   if (await pathExists(agentsPath)) {
@@ -1646,7 +1722,10 @@ export async function validateContentQuality(rootDir) {
   // 2026-09-11: raised 92 -> 150 so rule typography (sections, lists, tables) is not
   // forced back into dense prose; the budget is a ceiling, not a target, and the
   // resident files are expected to stay well below it.
-  if (residentLines > 150) errors.push(`resident governance surface exceeds 150 lines: ${residentLines}`);
+  // 2026-09-22: raised 150 -> 165 for the governance-core Fast Path card (+11 lines);
+  // the card enables layered loading, so per-task resident reading drops from the
+  // full kernel to the ~12-line card even as the file itself grows.
+  if (residentLines > 165) errors.push(`resident governance surface exceeds 165 lines: ${residentLines}`);
 
   const proseOwners = new Map();
   for (const directory of ['docs/rules', 'templates']) {
