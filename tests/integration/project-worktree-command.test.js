@@ -13,9 +13,12 @@ import { runCommand } from '../../runtime/commands/run.mjs';
 // `run.mjs worktree` is the installed entry point for worktree provisioning and
 // cleanup under docs/rules/git-rules.md §Worktree: read-only by default,
 // `--write` for real writes, no cleanup before merge-back and never a branch
-// delete. `worktree recover` is the exception: it removes crash residue, and a
-// branch is deleted only after being proven to sit at the base ref with a clean
-// tree. These tests pin the receipt shape and the safety gates.
+// delete. `worktree recover` removes crash residue, and a branch is deleted
+// only after being proven to sit at the base ref with a clean tree. `worktree
+// land` is the merge-back closure: merge into the primary checkout's current
+// branch, gate through verify, clean up, and — only with `--push` on top of
+// `--write` — push the target and delete the worktree branch. These tests pin
+// the receipt shape and the safety gates.
 
 const execFileAsync = promisify(execFile);
 const gitIdentity = ['-c', 'user.email=fixture@example.invalid', '-c', 'user.name=Fixture'];
@@ -39,6 +42,7 @@ async function makeWorkspaceFixture({
   hooks = null,
   installDependencies = true,
   trackContracts = true,
+  validationCommands = null,
   worktree = {},
 } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'vibe-harness-worktree-command-'));
@@ -65,6 +69,7 @@ async function makeWorkspaceFixture({
       ...worktree,
     },
     ...(hooks ? { hooks } : {}),
+    ...(validationCommands ? { validationCommands } : {}),
   });
   for (const [relative, content] of Object.entries(extraFiles)) {
     const target = path.join(repo, relative);
@@ -689,6 +694,298 @@ test('worktree recover leaves touched, dirty and foreign worktrees alone', async
       'user/foreign',
     );
     assert.equal((await readRegistry(fixture.repo)).entries.length, 2);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+// `worktree land` closes the loop git-rules.md §Worktree describes. The
+// fixtures below move the primary checkout onto a landing branch (land refuses
+// the protected branches the fixture repo starts on) and configure a trivial
+// passing check so the verify gate has real evidence to run.
+
+async function makeLandFixture({ extraFiles = {}, validationCommands = { test: 'node --version' }, worktree = {} } = {}) {
+  const fixture = await makeWorkspaceFixture({ extraFiles, validationCommands, worktree });
+  await git(fixture.repo, ['checkout', '-q', '-b', 'feat/landing-zone']);
+  return fixture;
+}
+
+async function bootstrapWithWork(fixture) {
+  await runCommand([
+    'worktree', 'bootstrap', '--project', fixture.repo, '--task', 'ENG-1:feat/ENG-1-scaffold', '--write', '--json',
+  ], { cwd: fixture.repo });
+  await writeFile(path.join(fixture.worktreePath, 'work.txt'), 'done\n', 'utf8');
+  await git(fixture.worktreePath, ['add', '.']);
+  await git(fixture.worktreePath, ['commit', '-q', '-m', 'feat: work']);
+}
+
+test('worktree land 默认 dry-run:输出按序步骤计划且不落盘', async () => {
+  const fixture = await makeLandFixture();
+  try {
+    await bootstrapWithWork(fixture);
+    const planned = await runCommand(['worktree', 'land', '--project', fixture.repo, '--json'], { cwd: fixture.repo });
+    assert.equal(planned.exitCode, 0, JSON.stringify(planned.report));
+    assert.equal(planned.report.status, 'planned');
+    assert.equal(planned.report.targetBranch, 'feat/landing-zone');
+    assert.equal(planned.report.tier, 'quick');
+    assert.equal(planned.report.write, false);
+    assert.deepEqual(
+      planned.report.results[0].steps.map((step) => [step.id, step.status]),
+      [['merge', 'planned'], ['verify', 'planned'], ['push', 'planned'], ['cleanup', 'planned'], ['delete-branch', 'planned']],
+    );
+    assert.equal(planned.report.results[0].alreadyMerged, false);
+    // Planning is read-only: no merge commit on the target, worktree intact.
+    assert.equal(await git(fixture.repo, ['rev-list', '--count', 'feat/landing-zone']), '1');
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
+    assert.equal((await readRegistry(fixture.repo)).entries.length, 1);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('worktree land --push 无 --write 直接拒绝', async () => {
+  const fixture = await makeLandFixture();
+  try {
+    const result = await runCommand(['worktree', 'land', '--project', fixture.repo, '--push', '--json'], { cwd: fixture.repo });
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.report.status, 'failed');
+    assert.match(result.report.error, /--push requires --write/u);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('worktree land 拒绝合入保护分支', async () => {
+  const fixture = await makeWorkspaceFixture();
+  try {
+    await bootstrapWithWork(fixture);
+    const result = await runCommand(['worktree', 'land', '--project', fixture.repo, '--json'], { cwd: fixture.repo });
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.report.status, 'failed');
+    assert.equal(result.report.code, 'LAND_TARGET_PROTECTED');
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('worktree land 的 --base-ref 是意图断言而不是选择器', async () => {
+  const fixture = await makeLandFixture();
+  try {
+    await bootstrapWithWork(fixture);
+    const result = await runCommand(['worktree', 'land', '--project', fixture.repo, '--base-ref', 'main', '--json'], { cwd: fixture.repo });
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.report.status, 'failed');
+    assert.match(result.report.error, /check out main first or omit --base-ref/u);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('脏工作区与未完成锚点单元都把 land 置为 blocked', async () => {
+  const fixture = await makeLandFixture();
+  try {
+    await bootstrapWithWork(fixture);
+    await writeFile(path.join(fixture.worktreePath, 'wip.txt'), 'wip\n', 'utf8');
+    const dirtyWorktree = await runCommand(['worktree', 'land', '--project', fixture.repo, '--json'], { cwd: fixture.repo });
+    assert.equal(dirtyWorktree.report.status, 'blocked');
+    assert.match(dirtyWorktree.report.blockers.join('; '), /the worktree has uncommitted changes/u);
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
+    await rm(path.join(fixture.worktreePath, 'wip.txt'));
+
+    await writeFile(path.join(fixture.repo, 'primary-wip.txt'), 'wip\n', 'utf8');
+    const dirtyPrimary = await runCommand(['worktree', 'land', '--project', fixture.repo, '--json'], { cwd: fixture.repo });
+    assert.equal(dirtyPrimary.report.status, 'blocked');
+    assert.match(dirtyPrimary.report.blockers.join('; '), /the primary checkout has uncommitted changes/u);
+    await rm(path.join(fixture.repo, 'primary-wip.txt'));
+
+    // An anchor with a unit still in progress means the slice is not done
+    // yet; landing it would merge half-finished work.
+    await mkdir(path.join(fixture.repo, '.vibe-harness/tasks'), { recursive: true });
+    await writeJson(path.join(fixture.repo, '.vibe-harness/tasks/ENG-1.json'), {
+      schemaVersion: 1,
+      taskId: 'ENG-1',
+      units: [{ id: 'impl', status: 'in_progress' }],
+    });
+    const pendingAnchor = await runCommand(['worktree', 'land', '--project', fixture.repo, '--json'], { cwd: fixture.repo });
+    assert.equal(pendingAnchor.report.status, 'blocked');
+    assert.match(pendingAnchor.report.blockers.join('; '), /has units not done \(impl\)/u);
+
+    // All units done unblocks the plan, and a full-risk anchor escalates the
+    // verify tier from quick to standard.
+    await writeJson(path.join(fixture.repo, '.vibe-harness/tasks/ENG-1.json'), {
+      schemaVersion: 1,
+      taskId: 'ENG-1',
+      riskLevel: 'full',
+      stage: 'implement',
+      units: [{ id: 'impl', status: 'done' }],
+    });
+    const planned = await runCommand(['worktree', 'land', '--project', fixture.repo, '--json'], { cwd: fixture.repo });
+    assert.equal(planned.report.status, 'planned');
+    assert.equal(planned.report.tier, 'standard');
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('多个归因 worktree 时 land 要求 --task 指定', async () => {
+  const fixture = await makeLandFixture();
+  try {
+    await bootstrapWithWork(fixture);
+    await runCommand([
+      'worktree', 'bootstrap', '--project', fixture.repo, '--task', 'ENG-2:feat/ENG-2-scaffold', '--write', '--json',
+    ], { cwd: fixture.repo });
+    const ambiguous = await runCommand(['worktree', 'land', '--project', fixture.repo, '--json'], { cwd: fixture.repo });
+    assert.equal(ambiguous.exitCode, 1);
+    assert.match(ambiguous.report.error, /multiple attributed worktrees/u);
+    assert.match(ambiguous.report.error, /ENG-2/u);
+
+    const chosen = await runCommand(['worktree', 'land', '--project', fixture.repo, '--task', 'ENG-1', '--json'], { cwd: fixture.repo });
+    assert.equal(chosen.exitCode, 0, JSON.stringify(chosen.report));
+    assert.equal(chosen.report.status, 'planned');
+    assert.equal(chosen.report.results[0].id, 'ENG-1');
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('land --write 合并、验证并清理,但不推送不删分支', async () => {
+  const fixture = await makeLandFixture();
+  try {
+    await bootstrapWithWork(fixture);
+    const written = await runCommand(['worktree', 'land', '--project', fixture.repo, '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(written.exitCode, 0, JSON.stringify(written.report));
+    assert.equal(written.report.status, 'passed');
+    assert.deepEqual(
+      written.report.results[0].steps.map((step) => [step.id, step.status]),
+      [['merge', 'passed'], ['verify', 'passed'], ['push', 'skipped'], ['cleanup', 'passed'], ['delete-branch', 'skipped']],
+    );
+    assert.equal(typeof written.report.results[0].steps[1].receipt, 'string');
+    assert.equal(written.report.results[0].pushed, false);
+    assert.equal(written.report.results[0].branchDeleted, false);
+    assert.equal(written.report.results[0].portBlockReleased, true);
+    // The merge is a real --no-ff merge commit: fixture + work + merge.
+    assert.equal(await git(fixture.repo, ['rev-list', '--count', 'feat/landing-zone']), '3');
+    assert.match(await git(fixture.repo, ['log', '-1', '--format=%s']), /^Merge branch/u);
+    // Worktree and registry entry gone, branch kept for the manual push.
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), false);
+    assert.equal(await git(fixture.repo, ['branch', '--list', 'feat/ENG-1-scaffold', '--format=%(refname:short)']), 'feat/ENG-1-scaffold');
+    assert.deepEqual((await readRegistry(fixture.repo)).entries, []);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('已并入时 land 幂等重试:merge 跳过、verify 与清理照常', async () => {
+  const fixture = await makeLandFixture();
+  try {
+    await bootstrapWithWork(fixture);
+    // A previous land attempt merged but died before cleanup, reproduced by a
+    // manual merge of the same branch.
+    await git(fixture.repo, ['merge', '--no-ff', '-q', '-m', 'merge ENG-1', 'feat/ENG-1-scaffold']);
+    const relanded = await runCommand(['worktree', 'land', '--project', fixture.repo, '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(relanded.exitCode, 0, JSON.stringify(relanded.report));
+    assert.equal(relanded.report.results[0].alreadyMerged, true);
+    assert.deepEqual(
+      relanded.report.results[0].steps.map((step) => [step.id, step.status]),
+      [['merge', 'skipped'], ['verify', 'passed'], ['push', 'skipped'], ['cleanup', 'passed'], ['delete-branch', 'skipped']],
+    );
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), false);
+    assert.deepEqual((await readRegistry(fixture.repo)).entries, []);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('验证门禁失败时中止:保留合并结果与分支供人工处理', async () => {
+  const fixture = await makeLandFixture({
+    extraFiles: { 'fail.mjs': 'process.exit(1);\n' },
+    validationCommands: { test: 'node fail.mjs' },
+  });
+  try {
+    await bootstrapWithWork(fixture);
+    const failed = await runCommand(['worktree', 'land', '--project', fixture.repo, '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(failed.exitCode, 1);
+    assert.equal(failed.report.status, 'failed');
+    const steps = failed.report.results[0].steps;
+    // The merge succeeded and stays on the target branch; nothing after the
+    // failed verify ran, so the worktree and the branch are untouched.
+    assert.deepEqual(steps.map((step) => [step.id, step.status]), [['merge', 'passed'], ['verify', 'failed']]);
+    assert.equal(steps[1].code, 'LAND_VERIFY_FAILED');
+    assert.equal(await git(fixture.repo, ['rev-list', '--count', 'feat/landing-zone']), '3');
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
+    assert.equal(await git(fixture.repo, ['branch', '--list', 'feat/ENG-1-scaffold', '--format=%(refname:short)']), 'feat/ENG-1-scaffold');
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('--no-verify 跳过验证门禁', async () => {
+  const fixture = await makeLandFixture({
+    extraFiles: { 'fail.mjs': 'process.exit(1);\n' },
+    validationCommands: { test: 'node fail.mjs' },
+  });
+  try {
+    await bootstrapWithWork(fixture);
+    const planned = await runCommand(['worktree', 'land', '--project', fixture.repo, '--no-verify', '--json'], { cwd: fixture.repo });
+    assert.equal(planned.report.results[0].steps[1].detail, 'skipped by --no-verify');
+    const written = await runCommand(['worktree', 'land', '--project', fixture.repo, '--write', '--no-verify', '--json'], { cwd: fixture.repo });
+    assert.equal(written.exitCode, 0, JSON.stringify(written.report));
+    assert.deepEqual(written.report.results[0].steps.map((step) => [step.id, step.status]), [
+      ['merge', 'passed'], ['verify', 'skipped'], ['push', 'skipped'], ['cleanup', 'passed'], ['delete-branch', 'skipped'],
+    ]);
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), false);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('land --write --push 在唯一 origin 远端时建立跟踪并删除分支', async () => {
+  const fixture = await makeLandFixture();
+  try {
+    // A bare repo stands in for origin: the target branch has no upstream yet,
+    // so the push policy starts tracking under the sole-origin rule.
+    const origin = path.join(fixture.root, 'origin.git');
+    await git(fixture.root, ['init', '--bare', '-q', origin]);
+    await git(fixture.repo, ['remote', 'add', 'origin', origin]);
+    await bootstrapWithWork(fixture);
+    const pushed = await runCommand([
+      'worktree', 'land', '--project', fixture.repo, '--write', '--push', '--json',
+    ], { cwd: fixture.repo });
+    assert.equal(pushed.exitCode, 0, JSON.stringify(pushed.report));
+    assert.equal(pushed.report.results[0].pushed, true);
+    assert.equal(pushed.report.results[0].branchDeleted, true);
+    assert.deepEqual(
+      pushed.report.results[0].steps.map((step) => [step.id, step.status]),
+      [['merge', 'passed'], ['verify', 'passed'], ['push', 'passed'], ['cleanup', 'passed'], ['delete-branch', 'passed']],
+    );
+    assert.equal(await git(fixture.repo, ['rev-parse', '--abbrev-ref', 'feat/landing-zone@{upstream}']), 'origin/feat/landing-zone');
+    assert.equal((await git(origin, ['rev-parse', '--verify', 'refs/heads/feat/landing-zone'])).length, 40);
+    // The worktree branch is gone only now, after the push succeeded.
+    assert.equal(await git(fixture.repo, ['branch', '--list', 'feat/ENG-1-scaffold']), '');
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), false);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('无 upstream 且远端面不满足推送策略时 --push 被 blocked', async () => {
+  const fixture = await makeLandFixture();
+  try {
+    // A remote that is not origin breaks the sole-origin rule, so the push
+    // policy refuses to set an upstream.
+    await git(fixture.repo, ['remote', 'add', 'upstream', path.join(fixture.root, 'up.git')]);
+    await bootstrapWithWork(fixture);
+    const blocked = await runCommand([
+      'worktree', 'land', '--project', fixture.repo, '--write', '--push', '--json',
+    ], { cwd: fixture.repo });
+    assert.equal(blocked.exitCode, 1);
+    assert.equal(blocked.report.status, 'blocked');
+    assert.match(blocked.report.blockers.join('; '), /push policy does not allow setting one/u);
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
+    // Without --push the same state plans cleanly.
+    const planned = await runCommand(['worktree', 'land', '--project', fixture.repo, '--json'], { cwd: fixture.repo });
+    assert.equal(planned.report.status, 'planned');
   } finally {
     await removeTemporaryDirectory(fixture.root);
   }

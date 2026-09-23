@@ -147,6 +147,9 @@ test('task init 拒绝重复锚点、缺失字段与未知风险级别', async (
     const anchor = await readAnchor(project, 'gamma');
     assert.equal(anchor.riskLevel, 'full');
     assert.deepEqual(anchor.acceptance, ['first', 'second']);
+    const fullStatus = await runCommand(['task', 'status', 'gamma', '--json'], { cwd: project });
+    assert.equal(fullStatus.report.verificationAdvisory, 'riskLevel full: claim unit completion on a standard-tier verify receipt');
+    assert.match(fullStatus.report.resumeHint, /verification advisory: riskLevel full/u);
   } finally {
     await rm(project, { recursive: true, force: true });
   }
@@ -206,6 +209,8 @@ test('task update 记录阶段、单元状态、决策、阻塞项与下一步',
     assert.match(status.report.resumeHint, /stage: implement/u);
     assert.match(status.report.resumeHint, /pending units: u1/u);
     assert.match(status.report.resumeHint, /next action: finish the unit/u);
+    assert.equal(status.report.verificationAdvisory, 'riskLevel light: a quick-tier focused receipt supports the unit completion claim');
+    assert.match(status.report.resumeHint, /verification advisory: riskLevel light/u);
   } finally {
     await rm(project, { recursive: true, force: true });
   }

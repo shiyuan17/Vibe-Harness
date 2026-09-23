@@ -46,7 +46,7 @@
 
 - Input: implementation unit status and verification receipts.
 - Output: a delivery record (result, actual changes, verification performed this run), organized with `delivery.md`.
-- Exit criteria (closing checklist): implementation unit status agrees with the verification receipts, all decisions made are recorded, blockers are resolved or explicitly handed over, and the next action can be executed independently; disposable files are attributed and cleaned up.
+- Exit criteria (closing checklist): implementation unit status agrees with the verification receipts, all decisions made are recorded, blockers are resolved or explicitly handed over, and the next action can be executed independently; disposable files are attributed and cleaned up. Delivery implemented in a worktree first closes the loop through the project entry point `worktree land` — dry-run prints the plan by default, `--write` merges back into the primary checkout's current branch through the verify gate, and push plus branch deletion happen only with an explicit `--push`; an unmerged worktree blocks any "integrated" claim.
 - New session: once delivery is complete and the next action is independently executable, that action is the entry point for a new session.
 - Fan-out: none; delivery and the closing check stay with a single responsible agent.
 - Stop: stop after delivery; do not start supplementary audits or out-of-scope work automatically; when blocked, hand the blockers over explicitly and finish.

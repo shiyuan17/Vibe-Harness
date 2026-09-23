@@ -18,6 +18,8 @@ Git 规则的目标是保护用户改动、保持提交可审查，并确保 wor
 
 Vibe-Harness 不通过 Stop Hook、运行时脚本或任何默认流程自动执行 `git commit` 或 `git push`。提交和推送必须由用户在当前任务中明确授权；显式调用 `$git-deliver` 或明确指定该 Skill，视为对当前仓库、当前任务相关改动的分组提交和当前分支普通推送授权。没有授权时只报告 working tree 状态和建议命令。
 
+`worktree land --write --push` 是显式调用即授权在该入口的投影：它不执行 commit，只把已提交内容合并进主检出当前分支，并按与 `$git-deliver` 相同的推送策略（upstream 存在则普通推送；无 upstream 仅在唯一远端为 origin 且目标分支非保护或共享分支时建立跟踪）普通推送目标分支。不带 `--push` 的 `land` 不构成推送授权，收据只给出建议命令。
+
 获得授权后仍须先给出或核对提交分组：
 
 | 字段 | 内容 |
@@ -102,22 +104,23 @@ Vibe-Harness 自身使用 Conventional Commits、commitlint、pre-commit、pre-p
 - 使用 worktree 时，一个隔离单元对应一个命名分支和明确写入范围；不需要隔离时直接在当前工作区保护用户改动。
 - worktree 放在仓库外部，避免被构建和依赖扫描。
 - 子 Agent 只在分配的 worktree、分支和写入范围内工作；审查任务默认只读。
-- worktree 的引导、审计与清理使用项目脚本入口 `node .agents/runtime/commands/run.mjs worktree <list|check|bootstrap|recover|cleanup> --project . --json`；默认只读，只有追加 `--write` 才落盘，`cleanup` 在分支未并入 `worktree.baseRef` 或工作区不干净时直接拒绝，并且从不删除分支。不带 `--write` 的 `bootstrap` 即逐任务列出步骤的计划预览，项目面不设单独 plan 子命令；`--help`（或 `help` 子命令）给出该入口自身的命令面说明。
-- 崩溃残留走专门入口：目录已消失但 Git 元数据与分支绑定仍在的 worktree 由 `worktree check` 报为 `WORKTREE_PRUNABLE_RESIDUE` 错误并阻塞审计通过。`worktree recover` 默认只出计划，追加 `--write` 后按序移除不完整 worktree（端口 env 文件在位且登记在册时跳过，仅当分支未离开基线且工作区干净时连同分支与端口登记一起移除）、prunable 残留（一次 `git worktree prune`）、孤立分支与孤立端口登记。分支删除仅在存在归因证据（端口登记表条目或 prunable 清单）、分支 HEAD 等于 `worktree.baseRef` 解析出的基线 SHA 且该分支不是基线本身时发生；无引用的用户占位分支、带未并入提交的分支与登记面之外的外来 worktree 一律不动。`recover` 是该入口唯一会删除分支的子命令，且仅限上述证据门——这不与「merge-back 完成前不删除分支」冲突：被删分支从未持有任何提交。
+- worktree 的引导、审计与清理使用项目脚本入口 `node .agents/runtime/commands/run.mjs worktree <list|check|bootstrap|land|recover|cleanup> --project . --json`；默认只读，只有追加 `--write` 才落盘，`cleanup` 在分支未并入 `worktree.baseRef` 或工作区不干净时直接拒绝，并且从不删除分支。不带 `--write` 的 `bootstrap` 即逐任务列出步骤的计划预览，项目面不设单独 plan 子命令；`--help`（或 `help` 子命令）给出该入口自身的命令面说明。
+- `worktree land` 把归因 worktree 闭环回收进主检出当前分支：默认 dry-run 输出按序步骤计划，`--write` 执行「合并（`--no-ff`，已并入则跳过）→ 验证门禁（默认 quick 层，关联任务锚点 `riskLevel=full` 时升 standard，`--no-verify` 跳过）→ 推送（仅 `--push`，须与 `--write` 同现）→ worktree 清理与端口登记释放 → 推送成功后删除分支」。门禁 fail-closed：worktree 与主检出均须干净、目标分支非保护分支（main、master、develop、release*）、关联任务锚点单元全部完成；目标默认是主检出当前分支，`--base-ref` 仅作意图断言，不切换检出。不带 `--push` 时不推送不删分支，收据给出建议命令。
+- 崩溃残留走专门入口：目录已消失但 Git 元数据与分支绑定仍在的 worktree 由 `worktree check` 报为 `WORKTREE_PRUNABLE_RESIDUE` 错误并阻塞审计通过。`worktree recover` 默认只出计划，追加 `--write` 后按序移除不完整 worktree（端口 env 文件在位且登记在册时跳过，仅当分支未离开基线且工作区干净时连同分支与端口登记一起移除）、prunable 残留（一次 `git worktree prune`）、孤立分支与孤立端口登记。分支删除仅在存在归因证据（端口登记表条目或 prunable 清单）、分支 HEAD 等于 `worktree.baseRef` 解析出的基线 SHA 且该分支不是基线本身时发生；无引用的用户占位分支、带未并入提交的分支与登记面之外的外来 worktree 一律不动。`recover` 的分支删除仅限上述证据门——这不与「merge-back 完成前不删除分支」冲突：被删分支从未持有任何提交。该入口的另一处分支删除只发生在 `land` 的推送成功之后，且使用自带未合并拒绝保险的 `git branch -d`。
 - worktree 工具分两个入口：上述项目面入口是安装交付内唯一的写入面，负责创建、依赖链接与清理；Vibe-Harness 源仓库的开发面另有只读审计 CLI（`scripts/worktree.js`，`list|check|plan`，按登记任务核对分支命名与 merge-back 事实，永不执行写入、也永不创建 worktree），不随安装交付——目标项目不引入第二个 worktree 写入口。
 - worktree 的依赖链接（`node_modules` junction 或 symlink）由 `worktree bootstrap` 建立并对每个本地包逐项 realpath 断言；断言失败时回滚本次新建的 worktree，不留半成品。`worktree check` 报告依赖链接缺失或指回主检出的事实，不用手写脚本重复搭建。
 - 多 worktree 并发时端口按登记表分段：`worktree.ports` 声明 `base`、`blockSize`、`variables` 与 `envFile`，主检出保留 `[base, base+blockSize-1]`，第 n 个 worktree 占用 `[base+n*blockSize, base+(n+1)*blockSize-1]`，块内第 i 个变量取 `blockStart+i`。分配结果写入主检出 `.vibe-harness/worktree-ports.json`，并由 `.vibe-harness/worktree-ports.lock` 独占锁串行化；锁等待超时即 fail-closed，不自动清理残留锁。端口冲突只按登记表与声明事实判定，不调用 `netstat`/`lsof` 推断分配。
 - worktree 环境补齐是声明式的：`worktree.provision.setupCommands` 与 `envFiles` 由 `bootstrap` 按「worktree add → 依赖链接 → 端口分配与 env 文件 → 声明的 envFiles 落地 → 声明的 setupCommands → 工具链探针」执行，默认只出计划、追加 `--write` 才落盘，目标命中 `hooks.redZonePaths` 时还需 `--confirm-red-zone`。
 - 主检出缺少依赖（依赖根的 `node_modules` 不存在）时 `bootstrap` 以 `blocked` 结束并给出建议命令，不静默继续；仅当声明 `setupCommands` 时才允许 worktree 自行补齐依赖，此时 setup 先于依赖链接执行。`worktree check` 只核对文件系统事实（依赖链接 realpath、env 文件与登记表一致），不推断某条命令是否执行过。
 - 宿主必须把 worktree 根登记为附加工作区根（Codex 的 workspace roots 或等价配置），否则该 worktree 内的写入会被宿主边界策略拒绝；不得以内联脚本、临时目录或改写路径触发方式绕过宿主边界。
-- merge-back 完成前不清理 worktree 或删除分支。
+- merge-back 完成前不清理 worktree 或删除分支；闭环回收按 `worktree land` 的步骤顺序执行——推送先于 worktree 清理，分支删除仅在推送成功后。
 - 清理前确认 worktree 无未提交改动，并先用 `git worktree remove` 再用 `git worktree prune`。
 - 使用 `git worktree list --porcelain -z` 获取可机器解析的 worktree 清单。
 
 ## 完成定义
 
 - 本次任务按已授权交付边界结束；本地实现可在最终验证后交付，未合并的 worktree 只阻止宣称“已集成”。
-- 只有目标分支包含 merge-back 结果且验证晚于最后一次实质修改时，才能宣称“已集成”；存在未解释改动时不得宣称相应交付边界已完成。
+- 只有目标分支包含 merge-back 结果且验证晚于最后一次实质修改时，才能宣称“已集成”；`worktree land` 的 passed 收据（merged、verified、pushed）是该状态的机读证据。存在未解释改动时不得宣称相应交付边界已完成。
 - 工具不可用时只给出分组清单和命令建议，不声称已经提交、推送或合并。
 
 ## 禁止项
