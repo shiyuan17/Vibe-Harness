@@ -28,7 +28,10 @@ const report = {
     validate: plan.selectedChecks.some((item) => item.id === 'validate'),
     unit: plan.selectedChecks.some((item) => item.id === 'test'),
     component: plan.selectedChecks.some((item) => item.id === 'component'),
-    eval: plan.selectedChecks.some((item) => item.id === 'eval'),
+    // A slimmed high-risk plan defers eval instead of selecting it; CI still
+    // pays for that evidence, so the gate counts both surfaces.
+    eval: plan.selectedChecks.some((item) => item.id === 'eval')
+      || (plan.deferredChecks ?? []).some((item) => item.id === 'eval'),
     evalCheck: plan.selectedChecks.some((item) => item.id === 'eval-check'),
     docs: plan.selectedChecks.some((item) => item.id === 'docs'),
     skills: plan.selectedChecks.some((item) => item.id === 'skills'),

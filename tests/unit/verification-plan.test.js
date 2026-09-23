@@ -109,20 +109,35 @@ test('documentation, tests, and ordinary scripts stay below integration and smok
   }
 });
 
-test('high risk and unknown plans select lifecycle checks, while aggregate check expands atomically', async () => {
+test('high risk defers deep evidence while lifecycle changes keep smoke synchronous', async () => {
   const target = await targetWithScripts();
   try {
-    const high = await buildVerificationPlan({ changedPaths: ['scripts/lib/install-planner.js'], targetDir: target });
-    assert.deepEqual(high.selectedChecks.map((item) => item.id), [
-      'validate', 'lint', 'typecheck', 'test', 'component', 'eval', 'integration', 'smoke',
+    // install-planner.js is high risk AND on the lifecycle surface, so smoke
+    // stays synchronous and only eval moves to the deferred deep evidence.
+    const lifecycle = await buildVerificationPlan({ changedPaths: ['scripts/lib/install-planner.js'], targetDir: target });
+    assert.deepEqual(lifecycle.selectedChecks.map((item) => item.id), [
+      'validate', 'lint', 'typecheck', 'test', 'component', 'integration', 'smoke',
     ]);
-    assert.equal(new Set(high.selectedChecks.map((item) => item.command)).size, high.selectedChecks.length);
+    assert.equal(lifecycle.selectedChecks.some((item) => item.id === 'eval'), false);
+    assert.deepEqual(lifecycle.deferredChecks.map((item) => item.id), ['eval']);
+    assert.equal(new Set(lifecycle.selectedChecks.map((item) => item.command)).size, lifecycle.selectedChecks.length);
 
+    // A high-risk path outside the lifecycle surface defers both deep checks.
+    const plain = await buildVerificationPlan({ changedPaths: ['schemas/example.json'], targetDir: target });
+    assert.deepEqual(plain.selectedChecks.map((item) => item.id), [
+      'validate', 'lint', 'typecheck', 'test', 'component', 'integration',
+    ]);
+    assert.deepEqual(plain.deferredChecks.map((item) => item.id), ['eval', 'smoke']);
+    assert.ok(plain.deferredChecks.every((item) => item.costTier === 'deep' && item.blockingScope && item.command));
+
+    // The unknown fallback stays fail-safe: the whole matrix stays synchronous.
     const unknown = await buildVerificationPlan({ changedPaths: ['misc/example.bin'], targetDir: target });
     assert.equal(unknown.riskLevel, 'high');
     assert.equal(unknown.fallbackUsed, true);
+    assert.ok(unknown.selectedChecks.some((item) => item.id === 'eval'));
     assert.ok(unknown.selectedChecks.some((item) => item.id === 'integration'));
     assert.ok(unknown.selectedChecks.some((item) => item.id === 'smoke'));
+    assert.deepEqual(unknown.deferredChecks, []);
   } finally {
     await rm(target, { force: true, recursive: true });
   }

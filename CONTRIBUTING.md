@@ -63,11 +63,11 @@ verify 输出本轮 ID、时间和可用的 Git 工作树指纹；检查期间�
 普通变更运行：
 
 ```bash
-pnpm check
+pnpm check:fast
 git diff --check
 ```
 
-快速迭代可用 `pnpm check:fast`（语法/资产扫描、typecheck、单元测试，与 `vibe-harness verify` 快速层同一定义）；`pnpm check` 是 `pnpm check:full` 的别名，已内含语法/资产扫描、ESLint、typecheck、安装结构校验、测试台账校验、单元测试（L1）与组件测试（L2）。CI 的 fast 门禁执行 `pnpm lint:eslint` 与 `pnpm check:fast`，full 门禁执行完整 `pnpm check`，本地不再与远端门禁存在覆盖差异。集成（L3）、端到端关键路径（L4）与全量矩阵（L5）按需显式运行，定义见 `docs/rules/test-rules.md` 的「测试分层」。
+普通变更的默认门禁是 `pnpm check:fast`（语法/资产扫描、typecheck、单元测试，与 `vibe-harness verify` 快速层同一定义）；`pnpm check` 是 `pnpm check:full` 的别名，在 `check:fast` 之上追加 ESLint、安装结构校验、测试台账校验与组件测试（L2），升级到阶段收尾、合并前或高风险边界运行。CI 的 fast 门禁执行 `pnpm lint:eslint` 与 `pnpm check:fast`，full 门禁执行完整 `pnpm check`，本地不再与远端门禁存在覆盖差异。集成（L3）、端到端关键路径（L4）与全量矩阵（L5）按需显式运行，定义见 `docs/rules/test-rules.md` 的「测试分层」。
 
 installer 集成验证应覆盖已有文件拒写、红区确认、目标路径逃逸和事务回滚边界。
 
@@ -81,7 +81,7 @@ installer 集成验证应覆盖已有文件拒写、红区确认、目标路径�
 
 - 使用 Node.js 内置测试运行器和 node:assert/strict，不引入第三方测试依赖。
 - 测试按 `docs/rules/test-rules.md` 的五层划分目录与脚本：`tests/unit/`（`test:unit`）、`tests/component/`（`test:component`）、`tests/integration/`（`test:integration`）、`tests/e2e/`（`test:e2e`）、`tests/matrix/`（`test:matrix`）；`tests/helpers/` 与 `tests/fixtures/` 不属任何层。`test` 入口按 unit → component → integration → e2e → matrix 顺序聚合。
-- `pnpm check` 只跑 L1 与 L2；L3 在 worktree 与提交前运行受影响子集，L4 是 PR 门禁（真实浏览器与真实服务，1–3 条主流程），L5 在发布边界运行。低层通过不得替代高层结论；跳层必须在完成主张里写明理由。
+- `pnpm check` 只跑 L1 与 L2；L3 在 worktree 与提交前运行受影响子集，L4（真实浏览器与真实服务，1–3 条主流程）仅在 CI full 门禁（main 推送、夜间调度或高风险计划）、发布边界或深度层显式升级时执行，标准 PR 不要求 e2e；L5 在发布边界运行。低层通过不得替代高层结论；跳层必须在完成主张里写明理由。
 - 当前失败兜底为 unit/component 30 秒、integration/e2e 120 秒、matrix 600 秒；集成与端到端因共享临时状态使用并发度 2 或更低。
 - 顶层 test 描述行为，不使用 describe 套件；基准路径用 import.meta.dirname。
 - 一个用例只暴露一个失败原因；命名描述行为而非实现；表驱动用例必须参数化命名（把参数写进用例名），使失败摘要能直接定位用例。

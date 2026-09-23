@@ -20,7 +20,7 @@ Vibe-Harness 用来打包可复用的 AI coding 项目规则、领域 Skills、�
 
 验证命令与成本层的单一真值源是 `vibe-harness.config.json` 的 `validationCommands`（`tiers` 声明快速/中等/深度层命令）；`pnpm verify:focused` 用同一分类器（`scripts/lib/change-impact.js` 与 `scripts/lib/verification-plan.js`）把变更路径映射为聚焦计划。本节与受管块只保留默认门槛和计划外的治理性追加，不复制层命令清单。
 
-- 普通变更运行 `pnpm check` 和 `git diff --check`；快速迭代可用 `pnpm check:fast`（语法/资产扫描、typecheck、单元测试，与 verify 快速层同一定义）。`pnpm check` 是 `pnpm check:full` 的别名，依序执行语法/资产扫描、ESLint、typecheck、结构校验、测试台账校验、单元测试（L1）和组件测试（L2），具体脚本以 `package.json` 为准。
+- 普通变更运行 `pnpm check:fast` 和 `git diff --check`（语法/资产扫描、typecheck、单元测试，与 verify 快速层同一定义）。`pnpm check` 是 `pnpm check:full` 的别名，在 `check:fast` 之上追加 ESLint、结构校验、测试台账校验与组件测试（L2），升级到阶段收尾、合并前或高风险边界运行，具体脚本以 `package.json` 为准。
 - 项目级验证统一走 `vibe-harness verify --project <path>`：不带 `--tier` 时默认只执行快速层，`--tier standard|deep` 按层累计显式升级，`--plan` 只预览，`--full` 运行完整风险矩阵并与 `--tier` 互斥；快速层通过时收据标注部分范围，未取得被延迟层证据前不得宣称集成、发布或整体完成。项目内安装副本入口为 `node .agents/runtime/commands/run.mjs verify`；两个引擎的收据以 `engine` 字段区分（`vibe-harness-cli` / `vibe-harness-runtime`），命令同源于项目配置。
 - 按影响追加时优先用 `pnpm verify:focused --run`（或 `--tier quick|standard|deep`）让计划按变更路径自动选择；`unknown` 必须回退到 high，未选检查标记为 `not_selected`。计划覆盖不到的治理性追加：
 

@@ -8,6 +8,7 @@ import {
   selectTierChecks,
 } from './validation-tiers.js';
 import { TEST_FILE_PATTERN } from './test-enumeration.js';
+import { LIFECYCLE_PATHS } from './change-impact.js';
 
 /**
  * Cost tier of each selectable check. The risk plan and the tier plan answer
@@ -46,13 +47,6 @@ const HIGH_PATHS = [
   // carries the same trust level as the .codex/ config directory.
   /^\.zcodeignore$/u,
   /^\.agents\/(?:runtime\/hooks\/|(?:mcp_config|hooks)\.json$)/u,
-];
-
-const LIFECYCLE_PATHS = [
-  /^scripts\/(?:vibe-harness\.js|smoke-lifecycles\.js|lib\/(?:install|file-transaction|transaction|tool-provisioning))/u,
-  /^runtime\/hooks\//u,
-  /^\.agents\/runtime\/hooks\//u,
-  /^\.github\/workflows\//u,
 ];
 
 /** @type {Array<[string, RegExp]>} */
@@ -370,11 +364,31 @@ export async function buildVerificationPlan({
     addConfigured(name, reason);
   };
 
+  // Deep-layer evidence the slimmed high branch defers instead of paying for
+  // synchronously; it joins plan.deferredChecks below (auto plans only — when a
+  // tier resolved, the tier's own deferral surface owns the visibility).
+  const deferredEvidence = [];
   if (full || risk.riskLevel === 'high' || risk.fallbackUsed) {
+    // A classified high-risk change keeps synchronous evidence down to the
+    // integration layer; eval and lifecycle smoke are deep evidence that stay
+    // visible as deferred checks until the caller escalates. `--full` and the
+    // unknown fallback keep paying the whole matrix up front (fail-safe).
+    const slim = !full && !risk.fallbackUsed;
     if (scripts.validate) addCheck(checks, 'pnpm validate', '完整验证的原子配置校验', 'validate', scripts);
-    for (const name of ['lint', 'typecheck', 'test', 'component', 'eval']) addConfigured(name, `完整验证：项目配置的 ${name}`);
+    const syncNames = slim ? ['lint', 'typecheck', 'test', 'component'] : ['lint', 'typecheck', 'test', 'component', 'eval'];
+    for (const name of syncNames) addConfigured(name, `完整验证：项目配置的 ${name}`);
       if (scripts['test:integration']) addCheck(checks, 'pnpm test:integration', '高风险或完整验证的集成回归', 'integration', scripts);
-      if (scripts['smoke:lifecycle']) addCheck(checks, 'pnpm smoke:lifecycle', '生命周期、安装或 Hook 回归', 'smoke', scripts);
+      if (scripts['smoke:lifecycle'] && (!slim || risk.lifecycle)) {
+        addCheck(checks, 'pnpm smoke:lifecycle', '生命周期、安装或 Hook 回归', 'smoke', scripts);
+      }
+    if (slim) {
+      const evalCommand = configured('eval');
+      if (evalCommand) deferredEvidence.push({ command: evalCommand, id: 'eval', reason: '高风险变更的深度层证据，显式升级后执行' });
+      if (!risk.lifecycle && scripts['smoke:lifecycle']) {
+        deferredEvidence.push({ command: 'pnpm smoke:lifecycle', id: 'smoke', reason: '高风险变更的深度层证据，显式升级后执行' });
+      }
+      reasons.push('高风险同步证据保留到 integration；eval 与 smoke 为深度层证据，显式升级后执行');
+    }
     reasons.push(full ? '显式 --full' : risk.fallbackUsed ? '影响范围无法可靠分类，安全回退' : '命中高风险路径');
   } else {
     if (changedPaths.length === 0) {
@@ -460,7 +474,15 @@ export async function buildVerificationPlan({
   const selectedIds = new Set(selectedChecks.map((item) => item.id));
   const deferredChecks = full
     ? []
-    : [...(tierSelection?.deferredChecks ?? [])].filter((item) => !selectedIds.has(item.id));
+    : [
+        ...(tierSelection?.deferredChecks ?? []),
+        ...(tierSelection ? [] : deferredEvidence.map((item) => ({
+          ...item,
+          blockingScope: VALIDATION_TIER_BLOCKING_SCOPE[costTierForCheck(item.id)],
+          costTier: costTierForCheck(item.id),
+          ...(commandStatus[item.id]?.status ? { status: commandStatus[item.id].status } : {}),
+        }))),
+      ].filter((item) => !selectedIds.has(item.id));
   return {
     ...risk,
     deferredChecks,

@@ -7,6 +7,7 @@ import test from 'node:test';
 import { promisify } from 'node:util';
 
 import {
+  buildImpactMapping,
   collectChangedPaths,
   parseNulPathList,
   parseNulPorcelainPaths,
@@ -263,4 +264,37 @@ test('verify-focused --run terminates a hanging command with project timeout rec
     // Windows (EBUSY on rmdir); retry per fs.rm semantics instead of racing.
     await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
+});
+
+test('impact mapping narrows e2e and smoke appends to their actual surfaces', () => {
+  const mapping = new Map(buildImpactMapping([
+    'scripts/lib/other.js',
+    'runtime/commands/run.mjs',
+    'runtime/hooks/codex-hook.mjs',
+    'scripts/lib/install-planner.js',
+    '.github/workflows/ci.yml',
+  ], [{ command: 'pnpm test:unit' }]).map((item) => [item.source, item]));
+
+  // Ordinary scripts and runtime commands keep the integration regression but
+  // no longer auto-trigger e2e or lifecycle smoke.
+  const script = mapping.get('scripts/lib/other.js');
+  assert.deepEqual(script.integration, ['pnpm test:integration']);
+  assert.deepEqual(script.e2e, []);
+  assert.deepEqual(script.smoke, []);
+
+  const command = mapping.get('runtime/commands/run.mjs');
+  assert.deepEqual(command.e2e, []);
+  assert.deepEqual(command.smoke, []);
+
+  // The lifecycle surface still claims smoke evidence.
+  const hook = mapping.get('runtime/hooks/codex-hook.mjs');
+  assert.deepEqual(hook.smoke, ['pnpm smoke:lifecycle']);
+  const installer = mapping.get('scripts/lib/install-planner.js');
+  assert.deepEqual(installer.smoke, ['pnpm smoke:lifecycle']);
+
+  // Workflow changes remain the only e2e trigger and also stay on the
+  // lifecycle surface for smoke.
+  const workflow = mapping.get('.github/workflows/ci.yml');
+  assert.deepEqual(workflow.e2e, ['pnpm test:e2e']);
+  assert.deepEqual(workflow.smoke, ['pnpm smoke:lifecycle']);
 });

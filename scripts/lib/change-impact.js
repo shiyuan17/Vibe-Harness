@@ -8,6 +8,17 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
+// The lifecycle surface: a change here can break install/rollback/hook wiring
+// itself, so it is the only place (besides CI) that may claim lifecycle smoke
+// evidence. Single source of truth — verification-plan.js imports it for risk
+// classification instead of keeping a second copy.
+export const LIFECYCLE_PATHS = [
+  /^scripts\/(?:vibe-harness\.js|smoke-lifecycles\.js|lib\/(?:install|file-transaction|transaction|tool-provisioning))/u,
+  /^runtime\/hooks\//u,
+  /^\.agents\/runtime\/hooks\//u,
+  /^\.github\/workflows\//u,
+];
+
 export function checkStage(command) {
   if (/test:matrix/iu.test(command)) return 'matrix';
   if (/test:e2e/iu.test(command)) return 'e2e';
@@ -31,12 +42,16 @@ export function buildImpactMapping(paths, commands) {
     ])],
     e2e: [...new Set([
       ...stage('e2e'),
-      ...( /^(?:scripts|runtime|adapters|\.github\/workflows)\//u.test(source) ? ['pnpm test:e2e'] : []),
+      // Real-browser e2e evidence is a CI/release boundary concern: only a
+      // workflow change can affect the e2e wiring itself.
+      ...( /^\.github\/workflows\//u.test(source) ? ['pnpm test:e2e'] : []),
     ])],
     matrix: stage('matrix'),
     smoke: [...new Set([
       ...stage('smoke'),
-      ...( /^(?:scripts|runtime|adapters|\.github\/workflows)\//u.test(source) ? ['pnpm smoke:lifecycle'] : []),
+      // Lifecycle smoke only responds to changes on the lifecycle surface;
+      // ordinary runtime/scripts changes cannot break install or hook wiring.
+      ...( LIFECYCLE_PATHS.some((pattern) => pattern.test(source)) ? ['pnpm smoke:lifecycle'] : []),
     ])],
   }));
 }

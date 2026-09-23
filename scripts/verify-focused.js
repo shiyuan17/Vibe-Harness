@@ -86,10 +86,19 @@ async function main() {
   // default, and the deferred checks stay visible instead of disappearing.
   const activeTiers = new Set(cumulativeTierNames(tier));
   const tierOf = (item) => item.costTier ?? 'standard';
-  const commands = plan.selectedChecks.filter((item) => activeTiers.has(tierOf(item)));
-  const deferredChecks = plan.selectedChecks
-    .filter((item) => !activeTiers.has(tierOf(item)))
-    .map((item) => ({ ...item }));
+  // The plan's own deferred evidence (the slimmed high branch) joins the pool:
+  // an escalated tier still pays for it, a quick run still reports it deferred.
+  const pool = [...plan.selectedChecks, ...(plan.deferredChecks ?? [])];
+  const poolSeen = new Set();
+  const commands = [];
+  const deferredChecks = [];
+  for (const item of pool) {
+    const key = item.id ?? item.command;
+    if (poolSeen.has(key)) continue;
+    poolSeen.add(key);
+    if (activeTiers.has(tierOf(item))) commands.push(item);
+    else deferredChecks.push({ ...item });
+  }
   const nextTier = VALIDATION_TIERS.find((name) => deferredChecks.some((item) => tierOf(item) === name)) ?? null;
   const scopeStatus = deferredChecks.length > 0 ? 'partial' : 'complete';
   const notes = plan.selectionReasons;
