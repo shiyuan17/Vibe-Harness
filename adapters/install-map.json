@@ -122,6 +122,24 @@
       "contentStrategy": "replace"
     },
     {
+      "group": "rules-codegraph",
+      "source": "docs/rules/codegraph.md",
+      "target": "docs/rules/codegraph.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-serena",
+      "source": "docs/rules/serena.md",
+      "target": "docs/rules/serena.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "rules-probe",
+      "source": "docs/rules/probe.md",
+      "target": "docs/rules/probe.md",
+      "contentStrategy": "replace"
+    },
+    {
       "group": "rules-full",
       "source": "docs/rules/db-rules.md",
       "target": "docs/rules/db-rules.md",

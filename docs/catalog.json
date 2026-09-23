@@ -1144,6 +1144,39 @@
         "agent",
         "maintainer"
       ]
+    },
+    {
+      "path": "docs/rules/codegraph.md",
+      "kind": "agent-rules",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "agent",
+        "contributor",
+        "maintainer"
+      ]
+    },
+    {
+      "path": "docs/rules/probe.md",
+      "kind": "agent-rules",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "agent",
+        "contributor",
+        "maintainer"
+      ]
+    },
+    {
+      "path": "docs/rules/serena.md",
+      "kind": "agent-rules",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "agent",
+        "contributor",
+        "maintainer"
+      ]
     }
   ]
 }

@@ -8,7 +8,7 @@ ast-grep 是项目内可选的结构化代码搜索工具。它用于按语法�
 
 - 阅读大文件或目录前，先用 `node .agents/runtime/tools/ast-grep/run.mjs outline <path>` 获取本地结构，再读取候选源码范围。`outline` 只描述局部语法，不解析类型、引用或调用图。
 - 精确语法节点、调用表达式、导入形式和条件结构使用 `run --lang ... -p ...`；复杂或重复查询使用 YAML rule、`scan` 和 `test`。
-- 跨文件符号关系、实际调用链、架构和影响分析交给可用的 codebase-memory-mcp；纯文本、配置、日志和未知语言使用 `rg`。
+- 跨文件符号关系、实际调用链、架构和影响分析交给可用的 codebase-memory-mcp 或 codegraph；纯文本、配置、日志和未知语言使用 `rg`。
 - RTK 仅压缩 Shell 输出，不改变 ast-grep 参数，也不得包装项目内 ast-grep 入口。
 
 ## 使用顺序

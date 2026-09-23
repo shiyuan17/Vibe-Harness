@@ -57,6 +57,37 @@ test('installed surface joins Hook lines with newlines', () => {
   assert.doesNotMatch(surface.hooksLine, /。- /u);
 });
 
+test('rule-only tool plugins render their capability routes in the discovery line', () => {
+  const baseline = createInstalledSurface({
+    profile: 'core',
+    targets: ['AGENTS.md'],
+  });
+  assert.equal(baseline.discoveryLine, '先按问题类型选工具：单文件文本、配置和日志使用 rg 与直接文件阅读。');
+
+  const surface = createInstalledSurface({
+    profile: 'core',
+    targets: ['AGENTS.md', 'docs/rules/codegraph.md', 'docs/rules/serena.md', 'docs/rules/probe.md'],
+  });
+  assert.equal(surface.discoveryLine.includes('自然语言意图检索用 probe（--max-results ≤ 50、--max-tokens ≤ 10000）'), true);
+  assert.equal(surface.discoveryLine.includes('实时 symbol、引用、定义与类型解析用 serena（同时激活 ≤ 2 个 Worktree）'), true);
+  assert.equal(surface.discoveryLine.includes('多跳调用链与影响面查询用 codegraph（默认 Base Index + Git Diff，不为每个 Worktree 重建索引）'), true);
+  // Routes follow the tier ladder (probe → serena → codegraph) with the rg fallback last.
+  const probeIndex = surface.discoveryLine.indexOf('自然语言意图检索用 probe');
+  const serenaIndex = surface.discoveryLine.indexOf('实时 symbol、引用、定义与类型解析用 serena');
+  const codegraphIndex = surface.discoveryLine.indexOf('多跳调用链与影响面查询用 codegraph');
+  const rgIndex = surface.discoveryLine.indexOf('单文件文本、配置和日志使用 rg');
+  assert.ok(probeIndex < serenaIndex && serenaIndex < codegraphIndex && codegraphIndex < rgIndex);
+
+  // Each rule-only plugin is detected independently from its rule file alone.
+  const onlyCodegraph = createInstalledSurface({
+    profile: 'core',
+    targets: ['AGENTS.md', 'docs/rules/codegraph.md'],
+  });
+  assert.equal(onlyCodegraph.discoveryLine.includes('用 codegraph'), true);
+  assert.equal(onlyCodegraph.discoveryLine.includes('用 serena'), false);
+  assert.equal(onlyCodegraph.discoveryLine.includes('用 probe'), false);
+});
+
 test('AGENTS startup rendering contains no empty numbered entries', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-agents-startup-'));
   try {

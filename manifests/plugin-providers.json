@@ -8,7 +8,10 @@
     { "id": "browser.automation", "description": "通过项目本地浏览器运行时自动化浏览器交互。" },
     { "id": "code-review.automated", "description": "对项目变更运行自动化代码评审提供方。" },
     { "id": "work-management.read-write", "description": "通过远端提供方读取和修改工作管理数据。" },
-    { "id": "work-management.read-only", "description": "通过受限的远端提供方只读工作管理数据。" }
+    { "id": "work-management.read-only", "description": "通过受限的远端提供方只读工作管理数据。" },
+    { "id": "code-intelligence.call-graph", "description": "通过仓库级代码图谱查询多跳调用链与影响面。" },
+    { "id": "code-intelligence.lsp-navigation", "description": "通过语言服务器提供实时符号、引用、定义与类型解析导航。" },
+    { "id": "code-search.natural-language", "description": "用自然语言意图查询检索相关代码片段。" }
   ],
   "providers": [
     {
@@ -70,6 +73,33 @@
       "transport": "cli",
       "selection": { "includeInAll": true, "allowInProjectConfig": true },
       "provisioningToolId": "openCodeReview"
+    },
+    {
+      "id": "codegraph",
+      "cliName": "codegraph",
+      "aliases": ["codegraph"],
+      "moduleId": "codegraph",
+      "capabilities": ["code-intelligence.call-graph"],
+      "transport": "local-mcp",
+      "selection": { "includeInAll": false, "allowInProjectConfig": true }
+    },
+    {
+      "id": "serena",
+      "cliName": "serena",
+      "aliases": ["serena", "serena-agent"],
+      "moduleId": "serena",
+      "capabilities": ["code-intelligence.lsp-navigation"],
+      "transport": "local-mcp",
+      "selection": { "includeInAll": false, "allowInProjectConfig": true }
+    },
+    {
+      "id": "probe",
+      "cliName": "probe",
+      "aliases": ["probe"],
+      "moduleId": "probe",
+      "capabilities": ["code-search.natural-language"],
+      "transport": "cli",
+      "selection": { "includeInAll": false, "allowInProjectConfig": true }
     },
     {
       "id": "linear",

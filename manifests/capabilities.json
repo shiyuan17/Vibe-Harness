@@ -212,6 +212,36 @@
       "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-core.json"] }
     },
     {
+      "id": "codegraph-repository-index",
+      "source": "project-local codegraph repository knowledge-graph exploration rules",
+      "disposition": "generalize",
+      "targets": ["docs/rules/codegraph.md", "manifests/plugin-providers.json", "adapters/install-map.json", "scripts/lib/module-selection.js", "scripts/lib/rules-index.js"],
+      "tests": ["tests/component/manifest-schema.test.js", "tests/component/rules-depth.test.js", "tests/component/rules-index.test.js", "tests/integration/codebase-memory-mcp.test.js"],
+      "profiles": ["minimal", "core", "full", "docs-only"],
+      "docs": ["README.md", "README.en.md", "docs/architecture.md"],
+      "evaluation": { "required": false, "reason": "可选外部工具激活规则依赖宿主环境自行配置对应工具；离线合同回放不覆盖外部工具运行时行为。" }
+    },
+    {
+      "id": "serena-lsp-navigation",
+      "source": "project-local serena LSP symbol navigation rules",
+      "disposition": "generalize",
+      "targets": ["docs/rules/serena.md", "manifests/plugin-providers.json", "adapters/install-map.json", "scripts/lib/module-selection.js", "scripts/lib/rules-index.js"],
+      "tests": ["tests/component/manifest-schema.test.js", "tests/component/rules-depth.test.js", "tests/component/rules-index.test.js", "tests/integration/codebase-memory-mcp.test.js"],
+      "profiles": ["minimal", "core", "full", "docs-only"],
+      "docs": ["README.md", "README.en.md", "docs/architecture.md"],
+      "evaluation": { "required": false, "reason": "可选外部工具激活规则依赖宿主环境自行配置对应工具；离线合同回放不覆盖外部工具运行时行为。" }
+    },
+    {
+      "id": "probe-natural-language-search",
+      "source": "project-local probe natural-language code search rules",
+      "disposition": "generalize",
+      "targets": ["docs/rules/probe.md", "manifests/plugin-providers.json", "adapters/install-map.json", "scripts/lib/module-selection.js", "scripts/lib/rules-index.js"],
+      "tests": ["tests/component/manifest-schema.test.js", "tests/component/rules-depth.test.js", "tests/component/rules-index.test.js", "tests/integration/codebase-memory-mcp.test.js"],
+      "profiles": ["minimal", "core", "full", "docs-only"],
+      "docs": ["README.md", "README.en.md", "docs/architecture.md"],
+      "evaluation": { "required": false, "reason": "可选外部工具激活规则依赖宿主环境自行配置对应工具；离线合同回放不覆盖外部工具运行时行为。" }
+    },
+    {
       "id": "chrome-devtools-mcp",
       "source": "project-local Chrome DevTools diagnostics",
       "disposition": "generalize",

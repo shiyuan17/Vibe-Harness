@@ -1060,8 +1060,44 @@ export const CONTENT_QUALITY_CHECKS = [
     ],
   },
   {
+    file: 'docs/rules/codegraph.md',
+    terms: [
+      SHARED_RULE_PHRASES.optionalToolActivation,
+      'codegraph 插件或项目内等价工具已存在时生效',
+      // Tier 3 预算：Base Index + Git Diff 是默认，重建是受四条件约束的例外且必须串行。
+      '默认使用 Base Index + Git Diff',
+      '不给每个 Worktree 重建完整知识图谱',
+      '禁止所有 Worktree 自动完整重建索引',
+      'MAX_CONCURRENT_INDEX = 1',
+    ],
+  },
+  {
+    file: 'docs/rules/probe.md',
+    terms: [
+      SHARED_RULE_PHRASES.optionalToolActivation,
+      'probe 插件或项目内等价工具已存在时生效',
+      // Tier 1 预算：轻量并行、限量结果、限定范围。
+      'RAYON_NUM_THREADS',
+      '--max-results',
+      '--max-tokens',
+      '禁止无目的全仓扫描',
+    ],
+  },
+  {
     file: 'docs/rules/rtk.md',
     terms: [SHARED_RULE_PHRASES.optionalToolActivation, 'RTK 插件或工具已存在时生效'],
+  },
+  {
+    file: 'docs/rules/serena.md',
+    terms: [
+      SHARED_RULE_PHRASES.optionalToolActivation,
+      'serena 插件或项目内等价工具已存在时生效',
+      // Tier 2 预算：按需激活、限量并发、用完释放；符号级编辑不作为首选写入路径。
+      '仅在需要 symbol、references、definition、type resolution 时启用',
+      '同时激活 ≤ 2 个 Worktree',
+      '完成 Symbol 分析后释放不再需要的实例',
+      '不作为首选写入路径',
+    ],
   },
   {
     file: 'docs/rules/api-rules.md',

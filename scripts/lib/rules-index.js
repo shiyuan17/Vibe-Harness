@@ -124,7 +124,7 @@ const RULE_GROUPS = [
     label: '工程',
   },
   {
-    ids: ['codebase-memory-mcp', 'chrome-devtools-mcp', 'linear-workflow', 'rtk', 'ast-grep'],
+    ids: ['codebase-memory-mcp', 'chrome-devtools-mcp', 'linear-workflow', 'rtk', 'ast-grep', 'codegraph', 'serena', 'probe'],
     label: '工具与集成',
   },
   { ids: ['release-rules', 'troubleshooting'], label: '发布与排障' },

@@ -8,6 +8,7 @@ codebase-memory-mcp 是可选的代码语义图能力，用于跨文件符号关
 - 缓存位于用户私有目录（Windows 为 `%LOCALAPPDATA%\vibe-harness\codebase-memory-mcp\<project-slug>`，其他平台为 XDG cache 下的等价路径），不在仓库内。不要把它移回仓库：0.11.0 拒绝路径链上存在不受信身份写权限的缓存目录，`C:\` 这类根目录默认继承 `Authenticated Users:(M)`，仓库内缓存会直接失败并报 `CBM_CACHE_DIR_NOT_PRIVATE`；修 ACL 不是解法，换私有目录才是。
 - 受管 MCP 环境固定 `CBM_MEM_BUDGET_MB=2048` 与 `CBM_WORKERS=2`，并保持 `auto_index`、`auto_watch` 关闭：新鲜度由状态戳加按需 refresh 保证，不靠后台重复索引。
 - linked worktree 的索引与查询映射到主检出，`status` 同时返回 `sourceRoot`。图只覆盖主检出已提交的内容，worktree 未提交的新文件与新符号不在图中，必须用 `rg` 补充核验。
+- 与 codegraph 同属 Tier 3 仓库索引层：单点符号、语义图查询与架构速览用本工具，多跳调用链、影响面与自然语言探索优先 codegraph（见 `codegraph.md`）。Worktree 场景默认共享主检出索引并叠加 `git diff` 变更集，不为每个 Worktree 重建知识图谱。
 - `vibe-harness doctor` 与 `vibe-harness validate --project .` 报告缓存位置、状态戳新鲜度与存在的陈旧副本；`uninstall` 与 `rollback` 在项目 runtime 离开后清理该项目的私有缓存目录。陈旧副本只被报告、不被自动删除，是否清理由人确认。
 
 ## 使用顺序

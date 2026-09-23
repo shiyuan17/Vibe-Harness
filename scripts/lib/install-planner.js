@@ -119,6 +119,15 @@ function toolDiscoveryLine(installedProviderModules, { hasProjectScripts = false
   if (hasPluginCapability(installedProviderModules, 'code-search.structural')) {
     routes.push('本地 AST 结构、语法模式和规则调试使用项目内 ast-grep');
   }
+  if (hasPluginCapability(installedProviderModules, 'code-search.natural-language')) {
+    routes.push('自然语言意图检索用 probe（--max-results ≤ 50、--max-tokens ≤ 10000）');
+  }
+  if (hasPluginCapability(installedProviderModules, 'code-intelligence.lsp-navigation')) {
+    routes.push('实时 symbol、引用、定义与类型解析用 serena（同时激活 ≤ 2 个 Worktree）');
+  }
+  if (hasPluginCapability(installedProviderModules, 'code-intelligence.call-graph')) {
+    routes.push('多跳调用链与影响面查询用 codegraph（默认 Base Index + Git Diff，不为每个 Worktree 重建索引）');
+  }
   routes.push('单文件文本、配置和日志使用 rg 与直接文件阅读');
   const rtkBoundary = hasPluginCapability(installedProviderModules, 'shell.output-compression')
     ? ' RTK 只压缩符合条件的 Shell 输出，不参与检索工具选择。'
@@ -145,11 +154,17 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
   const hasAstGrepTool = hasTarget('.agents/runtime/tools/ast-grep/run.mjs');
   const hasProjectScripts = hasTarget('.agents/runtime/commands/run.mjs');
   const hasCodebaseMemoryMcp = hasTarget('docs/rules/codebase-memory-mcp.md');
+  const hasCodegraphRule = hasTarget('docs/rules/codegraph.md');
+  const hasSerenaRule = hasTarget('docs/rules/serena.md');
+  const hasProbeRule = hasTarget('docs/rules/probe.md');
   const hasRoles = hasTarget('.agents/roles/index.md');
   const installedProviderModules = [
     hasRtkTool ? 'rtk' : null,
     hasAstGrepTool ? 'ast-grep' : null,
     hasCodebaseMemoryMcp ? 'codebase-memory' : null,
+    hasCodegraphRule ? 'codegraph' : null,
+    hasSerenaRule ? 'serena' : null,
+    hasProbeRule ? 'probe' : null,
   ].filter(Boolean);
   const agentMemoryTarget = installedTargets.find((target) => target.endsWith('/skills/agentmemory/SKILL.md'));
   const agentMemorySkillRoot = agentMemoryTarget?.slice(0, agentMemoryTarget.indexOf('/agentmemory/SKILL.md'));

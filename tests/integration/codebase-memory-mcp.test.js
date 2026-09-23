@@ -75,7 +75,10 @@ test('codebase-memory-mcp rule uses MCP tools and a repository-search fallback w
     assert.equal(rule.includes('codebase-memory-mcp install'), false);
     assert.equal(agents.includes('codebase-memory-mcp'), false);
     assert.equal(agents.toLowerCase().includes('codegraph'), false);
-    assert.equal(await exists(path.join(rootDir, 'docs/rules/codegraph.md')), false);
+    // The 2024 removal took out the CLI-era integration (scripts/lib/codegraph.js,
+    // doctor and help enumeration). What ships today is the MCP-era optional
+    // rule-only plugin, so the rule file is expected on disk.
+    assert.equal(await exists(path.join(rootDir, 'docs/rules/codegraph.md')), true);
 
     await execFileAsync(process.execPath, [cliPath, 'init', '--project', target]);
     const core = await execFileAsync(process.execPath, [cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'core', '--dry-run', '--verbose'], { maxBuffer: 8 * 1024 * 1024 });
@@ -88,6 +91,19 @@ test('codebase-memory-mcp rule uses MCP tools and a repository-search fallback w
     assert.equal(coreAgents.includes('codebase-memory-mcp'), false);
     assert.equal(fullAgents.includes('codebase-memory-mcp'), false);
     assert.equal(selectedAgents.includes('codebase-memory-mcp'), true);
+
+    // The rule-only tool plugins stay opt-in: no profile installs them, and each
+    // explicit --plugin selection installs the rule file plus its index line.
+    for (const plugin of ['codegraph', 'serena', 'probe']) {
+      assert.equal(coreAgents.includes(plugin), false, `core should not install ${plugin}`);
+      assert.equal(fullAgents.includes(plugin), false, `full should not install ${plugin}`);
+
+      const pluginInstall = await execFileAsync(process.execPath, [cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'core', '--plugin', plugin, '--dry-run', '--verbose'], { maxBuffer: 8 * 1024 * 1024 });
+      const pluginPreview = JSON.parse(pluginInstall.stdout).previewFiles;
+      const pluginAgents = pluginPreview.find((file) => file.target === 'AGENTS.md').content;
+      assert.equal(pluginPreview.some((file) => file.target === `docs/rules/${plugin}.md`), true, `${plugin} rule file should install`);
+      assert.equal(pluginAgents.includes(`${plugin}（`), true, `${plugin} should render in the rules index`);
+    }
   } finally {
     await rm(target, { force: true, recursive: true });
   }

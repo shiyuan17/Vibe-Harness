@@ -28,7 +28,7 @@
     },
     "plugins": {
       "type": "array",
-      "items": { "type": "string", "enum": ["rtk", "ast-grep", "codebase-memory", "chrome-devtools", "playwright", "open-code-review"] },
+      "items": { "type": "string", "enum": ["rtk", "ast-grep", "codebase-memory", "chrome-devtools", "playwright", "open-code-review", "codegraph", "serena", "probe"] },
       "uniqueItems": true
     },
     "validationCommands": {

@@ -23,6 +23,9 @@
     { "id": "troubleshooting", "source": "docs/rules/troubleshooting.md" },
     { "id": "rtk", "source": "docs/rules/rtk.md" },
     { "id": "ast-grep", "source": "docs/rules/ast-grep.md" },
+    { "id": "codegraph", "source": "docs/rules/codegraph.md" },
+    { "id": "serena", "source": "docs/rules/serena.md" },
+    { "id": "probe", "source": "docs/rules/probe.md" },
     { "id": "response-modes", "source": "docs/rules/response-modes.md" }
   ]
 }

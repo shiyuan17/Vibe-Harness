@@ -37,7 +37,7 @@ test('the rule index is derived from the rule manifest and each rule heading', a
   const line = renderRuleIndexLine(index);
   assert.match(line, /^治理 governance-core（Vibe-Harness 执行内核）/u);
   assert.match(line, /；工程 [^；]*coding-rules（编码规则）[^；]*/u);
-  assert.match(line, /；工具与集成 [^；]*rtk（RTK 命令输出压缩规则）、ast-grep（ast-grep 结构化搜索规则）/u);
+  assert.match(line, /；工具与集成 [^；]*rtk（RTK 命令输出压缩规则）、ast-grep（ast-grep 结构化搜索规则）、codegraph（codegraph 仓库索引探索规则）、serena（serena 语义符号导航规则）、probe（probe 轻量代码检索规则）/u);
   assert.match(line, /；发布与排障 release-rules（发布规则）、troubleshooting（排障规则）$/u);
 });
 
