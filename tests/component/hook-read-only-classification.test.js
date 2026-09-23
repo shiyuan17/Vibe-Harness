@@ -479,3 +479,105 @@ test('codebase-memory 工具面按显式契约判定，不按动词猜测', asyn
     }
   });
 });
+
+test('codegraph 查询面按显式表放行，索引变更动词保持 Envelope 门禁', async () => {
+  await withProject(async (target) => {
+    // The live server exposes `codegraph_`-prefixed tool names, and none of
+    // explore/callers/callees/impact/node/files carries a read verb, so the
+    // explicit per-server table — not verb guessing — is what keeps the plugin
+    // usable without an Execution Envelope. The bare short names fall back to
+    // the same table (callers…node) or the read verbs (search, status).
+    const readOnly = [
+      'codegraph_explore', 'codegraph_search', 'codegraph_callers', 'codegraph_callees',
+      'codegraph_impact', 'codegraph_node', 'codegraph_files', 'codegraph_status',
+      'explore', 'search', 'callers', 'callees', 'impact', 'node', 'files', 'status',
+    ];
+    for (const tool of readOnly) {
+      const toolName = `mcp__codegraph__${tool}`;
+      const classification = classifyExecutionEffects(request(target, { tool_input: {}, tool_name: toolName }));
+      assert.equal(classification.readOnly, true, toolName);
+      assert.equal(classification.unknown, false, toolName);
+      assert.deepEqual(classification.effects, [], toolName);
+      assert.deepEqual(await evaluateCodexHook(input(target, { tool_input: {}, tool_name: toolName })), {}, toolName);
+    }
+
+    // Index-mutating verbs stay out of the table: `sync` and `unlock` match
+    // write verbs, `init`/`index`/`serve` match neither pattern, and all of
+    // them fail closed until an Execution Envelope covers the call.
+    for (const tool of ['init', 'index', 'sync', 'unlock', 'serve']) {
+      const toolName = `mcp__codegraph__${tool}`;
+      assert.equal(classifyExecutionEffects(request(target, { tool_input: {}, tool_name: toolName })).unknown, true, toolName);
+      const result = await evaluateCodexHook(input(target, { tool_input: {}, tool_name: toolName }));
+      assert.equal(result.hookSpecificOutput.permissionDecision, 'deny', toolName);
+      assert.match(result.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u, toolName);
+    }
+
+    // CLI: the freshness probe is read-only; index mutations are not.
+    assert.equal(isReadOnlyShellSegment('codegraph status'), true);
+    assert.deepEqual(await evaluateCodexHook(input(target, { tool_input: { command: 'codegraph status' } })), {});
+    for (const command of ['codegraph init', 'codegraph index', 'codegraph sync']) {
+      assert.equal(isReadOnlyShellSegment(command), false, command);
+      const result = await evaluateCodexHook(input(target, { tool_input: { command } }));
+      assert.equal(result.hookSpecificOutput.permissionDecision, 'deny', command);
+      assert.match(result.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u, command);
+    }
+  });
+});
+
+test('serena 语义导航只读面按动词放行，写入与执行类工具保持 Envelope 门禁', async () => {
+  await withProject(async (target) => {
+    // Serena has no explicit MCP table entry: every navigation tool the rule
+    // references starts with a read verb (find/get/read/list/search), so the
+    // shared verb table classifies them without per-server registration.
+    const readOnly = [
+      'find_symbol', 'find_referencing_symbols', 'get_symbols_overview', 'find_implementations',
+      'find_declaration', 'get_diagnostics_for_file', 'get_diagnostics_for_symbol',
+      'read_file', 'search_for_pattern', 'find_file', 'list_dir',
+    ];
+    for (const tool of readOnly) {
+      for (const server of ['serena', 'serena_agent']) {
+        const toolName = `mcp__${server}__${tool}`;
+        const classification = classifyExecutionEffects(request(target, { tool_input: {}, tool_name: toolName }));
+        assert.equal(classification.readOnly, true, toolName);
+        assert.equal(classification.unknown, false, toolName);
+        assert.deepEqual(classification.effects, [], toolName);
+        assert.deepEqual(await evaluateCodexHook(input(target, { tool_input: {}, tool_name: toolName })), {}, toolName);
+      }
+    }
+
+    // Shell execution and content replacement stay on the Envelope path: the
+    // rule never widens them just because serena is present.
+    for (const tool of ['execute_shell_command', 'replace_content']) {
+      const toolName = `mcp__serena__${tool}`;
+      assert.equal(classifyExecutionEffects(request(target, { tool_input: {}, tool_name: toolName })).unknown, true, toolName);
+      const result = await evaluateCodexHook(input(target, { tool_input: {}, tool_name: toolName }));
+      assert.equal(result.hookSpecificOutput.permissionDecision, 'deny', toolName);
+      assert.match(result.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u, toolName);
+    }
+  });
+});
+
+test('probe 检索入口与 fd 默认放行，agent 模式与 exec 旗标保持 Envelope 门禁', async () => {
+  await withProject(async (target) => {
+    const readOnly = [
+      'probe search "auth middleware" src',
+      'probe query "how does indexing work" --max-results 50 --max-tokens 10000',
+      'probe --version',
+      'fd "\\.md$" docs',
+    ];
+    for (const command of readOnly) {
+      assert.equal(isReadOnlyShellSegment(command), true, command);
+      assert.deepEqual(await evaluateCodexHook(input(target, { tool_input: { command } })), {}, command);
+    }
+
+    // `probe agent` opens an interactive editing session and `fd -x` /
+    // `fd --exec-batch` run a command per match, so both stay behind the
+    // Envelope instead of riding the read-only prefix.
+    for (const command of ['probe agent', 'fd -x ls', 'fd --exec-batch rg pattern']) {
+      assert.equal(isReadOnlyShellSegment(command), false, command);
+      const result = await evaluateCodexHook(input(target, { tool_input: { command } }));
+      assert.equal(result.hookSpecificOutput.permissionDecision, 'deny', command);
+      assert.match(result.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u, command);
+    }
+  });
+});

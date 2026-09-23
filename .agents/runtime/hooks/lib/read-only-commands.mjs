@@ -24,7 +24,7 @@ const SIMPLE_READ_ONLY_COMMANDS = new Set([
   'write-host', 'write-output',
   // Unix and cross-platform read tools.
   'awk', 'basename', 'cat', 'column', 'cut', 'date', 'df', 'dir', 'dirname',
-  'du', 'echo', 'env', 'file', 'find', 'grep', 'head', 'hostname', 'id', 'jq',
+  'du', 'echo', 'env', 'fd', 'file', 'find', 'grep', 'head', 'hostname', 'id', 'jq',
   'ls', 'nl', 'printenv', 'ps', 'pwd', 'readlink', 'realpath', 'rg', 'sed',
   'sort', 'stat', 'tail', 'tr', 'tree', 'type', 'uniq', 'wc', 'which',
   'where', 'whoami',
@@ -53,7 +53,8 @@ const READ_ONLY_ARGUMENT_GUARDS = [
   [/(?:^|\s)--pre(?:=|\s|$)/iu, /^rg$/iu],
   [/(?:^|\s)(?:-i|--in-place)(?:\s|=|$)/iu, /^sed$/iu],
   [/(?:^|\s)(?:system|exec)\s*\(/iu, /^awk$/iu],
-  [/(?:^|\s)-{1,2}out(?:=|\s|$)/iu, /^terraform$/iu],
+  [/(?:^|\s)-{1,2}(?:x|exec|exec-batch)(?:\s|=|$)/iu, /^fd$/iu],
+  [/(?:^|\s)-out(?:=|\s|$)/iu, /^terraform$/iu],
 ];
 
 /**
@@ -74,6 +75,7 @@ const READ_ONLY_CLI_RULES = new Map([
     verbPrefix: /^(?:describe|get|list)-/iu,
     verbs: ['head', 'help', 'ls'],
   }],
+  ['codegraph', { verbs: ['status'] }],
   ['codex', { nouns: { features: ['list'], mcp: ['get', 'list'] } }],
   ['docker', {
     nouns: {
@@ -124,6 +126,7 @@ const READ_ONLY_CLI_RULES = new Map([
       'version',
     ],
   }],
+  ['probe', { verbs: ['query', 'search'] }],
   ['terraform', {
     nouns: { state: ['list', 'show'], workspace: ['list', 'show'] },
     verbs: ['output', 'plan', 'providers', 'show', 'validate', 'version'],
@@ -410,9 +413,36 @@ const CODEBASE_MEMORY_TOOL_DECISIONS = [
   ['trace_path', 'read-only'],
 ];
 
+/**
+ * The codegraph server's core query tools (explore/callers/callees/impact/
+ * node/files) carry none of the shared read verbs, so they are registered
+ * explicitly instead of relying on verb matching; index-mutating verbs stay
+ * out of the table on purpose. Both the `codegraph_`-prefixed live names and
+ * the bare short names are covered.
+ *
+ * @type {ReadonlyArray<readonly [string, 'read-only' | 'workspace-write' | 'high-risk']>}
+ */
+const CODEGRAPH_TOOL_DECISIONS = [
+  ['callers', 'read-only'],
+  ['callees', 'read-only'],
+  ['codegraph_callers', 'read-only'],
+  ['codegraph_callees', 'read-only'],
+  ['codegraph_explore', 'read-only'],
+  ['codegraph_files', 'read-only'],
+  ['codegraph_impact', 'read-only'],
+  ['codegraph_node', 'read-only'],
+  ['codegraph_search', 'read-only'],
+  ['codegraph_status', 'read-only'],
+  ['explore', 'read-only'],
+  ['files', 'read-only'],
+  ['impact', 'read-only'],
+  ['node', 'read-only'],
+];
+
 /** @type {Map<string, Map<string, 'read-only' | 'workspace-write' | 'high-risk'>>} */
 const MCP_TOOL_DECISIONS = new Map([
   ['codebase-memory-mcp', new Map(CODEBASE_MEMORY_TOOL_DECISIONS)],
+  ['codegraph', new Map(CODEGRAPH_TOOL_DECISIONS)],
 ]);
 
 /**

@@ -4260,6 +4260,45 @@
       "addedAt": "2026-09-17"
     },
     {
+      "id": "C-hook-read-only-classification-017",
+      "layer": "component",
+      "file": "tests/component/hook-read-only-classification.test.js",
+      "ordinal": 17,
+      "name": "codegraph 查询面按显式表放行，索引变更动词保持 Envelope 门禁",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-23"
+    },
+    {
+      "id": "C-hook-read-only-classification-018",
+      "layer": "component",
+      "file": "tests/component/hook-read-only-classification.test.js",
+      "ordinal": 18,
+      "name": "serena 语义导航只读面按动词放行，写入与执行类工具保持 Envelope 门禁",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-23"
+    },
+    {
+      "id": "C-hook-read-only-classification-019",
+      "layer": "component",
+      "file": "tests/component/hook-read-only-classification.test.js",
+      "ordinal": 19,
+      "name": "probe 检索入口与 fd 默认放行，agent 模式与 exec 旗标保持 Envelope 门禁",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-23"
+    },
+    {
       "id": "C-install-preset-001",
       "layer": "component",
       "file": "tests/component/install-preset.test.js",
