@@ -39,29 +39,45 @@
 
 ## 规则
 
+分组与 `scripts/lib/rules-index.js` 的 RULE_GROUPS 一致，与 AGENTS.md 托管块生成的命中索引同构。
+
+### 治理
+
 - [执行内核](rules/governance-core.md)
 - [Skill 编写与路由](rules/agent-skill-routing.md)
-- [AI 协作](rules/ai-collab-rules.md)
-- [ast-grep](rules/ast-grep.md)
-- [Linear 工作流](rules/linear-workflow.md)
-- [API](rules/api-rules.md)
-- [编码](rules/coding-rules.md)
-- [Chrome DevTools MCP](rules/chrome-devtools-mcp.md)
-- [codebase-memory-mcp](rules/codebase-memory-mcp.md)
-- [数据库](rules/db-rules.md)
 - [Eval](rules/eval-driven-development.md)
-- [前端](rules/frontend-rules.md)
+- [角色路由](rules/role-routing.md)
 - [Git](rules/git-rules.md)
+- [测试](rules/test-rules.md)
+- [AI 协作](rules/ai-collab-rules.md)
+- [审查报告规则](rules/review-report.md)
+- [表达模式规则](rules/response-modes.md)
+
+### 工程
+
+- [编码](rules/coding-rules.md)
+- [前端](rules/frontend-rules.md)
+- [API](rules/api-rules.md)
+- [数据库](rules/db-rules.md)
 - [可观测性与日志](rules/log-management.md)
 - [项目目录](rules/project-directory.md)
 - [项目专项](rules/project-specific-rules.md)
-- [发布](rules/release-rules.md)
-- [角色路由](rules/role-routing.md)
+
+### 工具与集成
+
+- [codebase-memory-mcp](rules/codebase-memory-mcp.md)
+- [Chrome DevTools MCP](rules/chrome-devtools-mcp.md)
+- [Linear 工作流](rules/linear-workflow.md)
 - [RTK](rules/rtk.md)
-- [测试](rules/test-rules.md)
+- [ast-grep](rules/ast-grep.md)
+- [codegraph 仓库索引探索规则](rules/codegraph.md)
+- [serena 语义符号导航规则](rules/serena.md)
+- [probe 轻量代码检索规则](rules/probe.md)
+
+### 发布与排障
+
+- [发布](rules/release-rules.md)
 - [排障](rules/troubleshooting.md)
-- [审查报告规则](rules/review-report.md)
-- [表达模式规则](rules/response-modes.md)
 
 ## Schema
 

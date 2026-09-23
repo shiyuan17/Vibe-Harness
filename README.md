@@ -224,7 +224,7 @@ ZCode 尚未公开项目级 Skill 的磁盘路径，因此 Vibe-Harness 不会�
 
 Linear 工作流是单独的外部集成：linear-mcp 使用读写端点，linear-mcp-readonly 使用只读端点，两者互斥且都不会被 plugin all 选中。Codex、Cursor、Qoder、ZCode、Antigravity 和 OpenCode 会生成项目级 Remote MCP 配置；Claude 与 Gemini 安装相同规则和 Skill，但报告 MCP 手工配置降级。安装器不写入 Token 或 OAuth 凭据，配置完成后仍需按宿主提示完成 Linear 原生认证。
 
-可选插件包括 `rtk`、`ast-grep`、`codebase-memory-mcp`、`chrome-devtools-mcp`、`playwright-cli` 和 `open-code-review`。Agentmemory runtime 因上游 High 漏洞暂停提供，不作为 `--plugin` 选项；如需记忆能力，请通过 `--modules memory` 安装 memory 模块。
+可选插件包括 `rtk`、`ast-grep`、`codebase-memory-mcp`、`chrome-devtools-mcp`、`playwright-cli`、`open-code-review`、`codegraph`、`serena` 和 `probe`。其中 `codegraph`、`serena`、`probe` 是纯规则插件：安装器只写入对应规则，不安装也不配置外部工具本身，MCP/CLI 由宿主环境自行准备。Agentmemory runtime 因上游 High 漏洞暂停提供，不作为 `--plugin` 选项；如需记忆能力，请通过 `--modules memory` 安装 memory 模块。
 
 ```bash
 pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin -rtk --dry-run
