@@ -82,6 +82,52 @@ const defaultTemplateData = {
 export const managedInstructionBlockStart = '<!-- VIBE_HARNESS:START -->';
 export const managedInstructionBlockEnd = '<!-- VIBE_HARNESS:END -->';
 
+/** @param {unknown} value */
+function renderListValue(value) {
+  if (value === null || value === undefined) return '未配置';
+  // Tier placeholders hold command arrays; an empty array is the explicit
+  // "not configured" state rather than a rendered `[]`.
+  if (Array.isArray(value)) {
+    return value.length > 0 ? value.map((item) => String(item)).join('、') : '未配置';
+  }
+  return String(value);
+}
+
+/**
+ * The instruction sections every adapter's template shares verbatim.
+ *
+ * Codex, Claude, Gemini and opencode each render their own instruction file,
+ * but the hard bounds, the verify semantics and the rule-priority paragraph are
+ * the same resident text in all of them. Keeping one copy here means a change
+ * lands once instead of four times, which is what let the four templates drift
+ * apart silently before. Host-specific bullets (for example Claude's Hook
+ * activation note) stay in the host's own template next to the shared line.
+ *
+ * @param {{validationCommands?: {tiers?: {quick?: string[], standard?: string[], deep?: string[]}}}} data
+ */
+export function buildManagedInstructionSections(data = {}) {
+  const tick = String.fromCharCode(96);
+  const tiers = data.validationCommands?.tiers ?? {};
+  return {
+    hardBoundsLines: [
+      '- 只在授权范围内行动；红区、生产、权限、凭据、外部写入和不可逆操作按 governance-core 的授权与批准规则执行；缺少覆盖授权时人工确认，已有覆盖授权不重复确认。',
+      '- 不编造事实或证据；没有本轮有效验证不得声称完成。',
+      '- 任务记录是可选的人读文档，不触发测试、Review、子 Agent 或完成门禁。',
+    ].join('\n'),
+    rulesPriorityLine: '规则优先级：平台系统与用户本轮指令优先；目标项目明确的本地规则优先于 Vibe-Harness 默认规则，'
+      + '但不得让渡 governance-core 硬边界中的授权规则、红区与证据标准（本地规则只能收紧，不能放宽或取代）；'
+      + '目录级规则只作用于其子树。先按优先级、适用范围和当前明确指令解析冲突；仅对仍影响结果且无法解决的实质冲突请求澄清。'
+      + '统一优先级矩阵见 ' + tick + 'docs/rules/governance-core.md' + tick + ' 的硬边界节。',
+    verifySemanticsLine: tick + 'vibe-harness validate --project' + tick + ' 只检查安装一致性；'
+      + tick + 'vibe-harness verify --project <path>' + tick + ' 默认只执行快速层（开发中同步，失败阻塞当前实施单元）'
+      + renderListValue(tiers.quick) + '；中等层（阶段或合并前，' + renderListValue(tiers.standard)
+      + '）与深度层（异步或发布边界，' + renderListValue(tiers.deep)
+      + '）必须显式升级 ' + tick + '--tier standard|deep' + tick + '，' + tick + '--full' + tick
+      + ' 运行完整矩阵。快速层通过时收据标注部分范围并给出下一层入口，未取得被延迟层的证据前不得宣称集成、发布或整体完成；'
+      + '深度层可由项目 CI 或独立 worktree 异步完成。测试范围细则见 ' + tick + 'docs/rules/test-rules.md' + tick + '。',
+  };
+}
+
 function buildStartupLines(surface, projectProfile) {
   const tick = String.fromCharCode(96);
   // The long-task anchor line names the installed entry point when the project
@@ -132,10 +178,24 @@ export function withDefaultTemplateData(data = {}) {
       ...(data.projectProfile ?? {}),
     });
   }
+  const validationCommands = {
+    ...defaultTemplateData.validationCommands,
+    ...(data.validationCommands ?? {}),
+    // Tiers are merged per key: a caller that supplies one tier (or none)
+    // must still render the other labels instead of failing the render.
+    tiers: {
+      ...defaultTemplateData.validationCommands.tiers,
+      ...(data.validationCommands?.tiers ?? {}),
+    },
+  };
   return {
     ...defaultTemplateData,
     ...data,
     installedSurface,
+    managedBlock: {
+      ...buildManagedInstructionSections({ validationCommands }),
+      ...(data.managedBlock ?? {}),
+    },
     projectProfile: {
       ...defaultTemplateData.projectProfile,
       ...(data.projectProfile ?? {}),
@@ -144,16 +204,7 @@ export function withDefaultTemplateData(data = {}) {
         ...(data.projectProfile?.logging ?? {}),
       },
     },
-    validationCommands: {
-      ...defaultTemplateData.validationCommands,
-      ...(data.validationCommands ?? {}),
-      // Tiers are merged per key: a caller that supplies one tier (or none)
-      // must still render the other labels instead of failing the render.
-      tiers: {
-        ...defaultTemplateData.validationCommands.tiers,
-        ...(data.validationCommands?.tiers ?? {}),
-      },
-    },
+    validationCommands,
   };
 }
 
@@ -183,15 +234,7 @@ function resolvePlaceholder(resolvedData, expression) {
   if (value === undefined) {
     throw new Error(`Missing template variable: ${expression}`);
   }
-  if (value === null) {
-    return '未配置';
-  }
-  // Tier placeholders hold command arrays; an empty array is the explicit
-  // "not configured" state rather than a rendered `[]`.
-  if (Array.isArray(value)) {
-    return value.length > 0 ? value.map((item) => String(item)).join('、') : '未配置';
-  }
-  return String(value);
+  return renderListValue(value);
 }
 
 export function hasIncompleteManagedInstructionBlock(content = '') {

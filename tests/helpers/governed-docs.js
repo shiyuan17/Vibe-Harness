@@ -12,10 +12,8 @@
 // and agreement between a rule's enumerated vocabulary and the machine-readable
 // module that consumes it.
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
 
-import { contentQualityCheck } from '../../scripts/lib/pack-validation.js';
+import { contentQualityCheck, governedFileSurface } from '../../scripts/lib/pack-validation.js';
 
 /**
  * Assert that every declared wording anchor for `files` is still present.
@@ -27,7 +25,13 @@ export async function assertRuleAnchors(rootDir, files) {
   const missing = [];
   for (const file of files) {
     const { terms } = contentQualityCheck(file);
-    const content = await readFile(path.join(rootDir, file), 'utf8');
+    // Anchors may live in the file body or in the instruction sections it
+    // renders, so the check reads the same surface `pnpm validate` reads.
+    const content = await governedFileSurface(rootDir, file);
+    if (content === null) {
+      missing.push(`${file}: missing file`);
+      continue;
+    }
     for (const term of terms) {
       if (!content.includes(term)) missing.push(`${file}: ${term}`);
     }

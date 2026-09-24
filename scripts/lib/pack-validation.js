@@ -64,13 +64,62 @@ export async function findInvalidSkillDirs(rootDir) {
   return invalid.sort();
 }
 
-async function checkRequiredTerms(rootDir, { file, terms }) {
+/**
+ * A governed file's raw body and the text it renders to.
+ *
+ * Instruction templates keep host-specific text inline and pull the sections
+ * every adapter shares from `buildManagedInstructionSections`, so a wording
+ * anchor may live in the template body or in the sections it renders. Both are
+ * part of the host's resident surface after installation; checking the raw body
+ * alone would reject a template that correctly single-sources the shared text.
+ *
+ * @param {string} rootDir repository root
+ * @param {string} file repository-relative path
+ * @returns {Promise<{raw: string, rendered: string} | null>} null when missing
+ */
+async function readGovernedFile(rootDir, file) {
   const fullPath = path.join(rootDir, file);
   if (!(await pathExists(fullPath))) {
-    return [`${file} is missing`];
+    return null;
   }
 
-  const content = await readFile(fullPath, 'utf8');
+  const raw = await readFile(fullPath, 'utf8');
+  if (!file.endsWith('.template.md')) return { raw, rendered: raw };
+  try {
+    return { raw, rendered: renderTemplate(raw, withDefaultTemplateData({})) };
+  } catch {
+    // A template that cannot render with default data still has its raw body
+    // checked here; the adapters' own tests cover the render itself.
+    return { raw, rendered: raw };
+  }
+}
+
+/** @param {{raw: string, rendered: string}} file */
+function governedSurface({ raw, rendered }) {
+  return raw === rendered ? raw : `${raw}\n${rendered}`;
+}
+
+/**
+ * The searchable text of a governed file: its body plus, for instruction
+ * templates, the shared sections it renders.
+ *
+ * `pnpm validate` and the tests read the same surface, so a template that
+ * single-sources the shared wording passes both instead of only one.
+ *
+ * @param {string} rootDir repository root
+ * @param {string} file repository-relative path
+ * @returns {Promise<string | null>} null when the file is missing
+ */
+export async function governedFileSurface(rootDir, file) {
+  const governed = await readGovernedFile(rootDir, file);
+  return governed === null ? null : governedSurface(governed);
+}
+
+async function checkRequiredTerms(rootDir, { file, terms }) {
+  const content = await governedFileSurface(rootDir, file);
+  if (content === null) {
+    return [`${file} is missing`];
+  }
   return terms
     .filter((term) => !content.includes(term))
     .map((term) => `${file} must document ${term}`);
@@ -1727,8 +1776,8 @@ export async function validateContentQuality(rootDir) {
     if (!/--project[^\n]*--write/u.test(agents)) errors.push('AGENTS.md must document the --project/--write lifecycle');
     if (/pnpm vibe-harness[^\n]*(?:codex-internal|codex-minimal|--apply)/u.test(agents)) errors.push('AGENTS.md must not contain removed legacy lifecycle commands');
   }
-  const [agentsTemplate, governanceCore] = await Promise.all([
-    readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8'),
+  const [canonicalAgents, governanceCore] = await Promise.all([
+    readGovernedFile(rootDir, canonicalAgentsTemplate),
     readFile(path.join(rootDir, 'docs/rules/governance-core.md'), 'utf8'),
   ]);
   // Every host reads its own instruction template before any rule file, so each
@@ -1742,14 +1791,19 @@ export async function validateContentQuality(rootDir) {
     instructionTemplates.add(templateSource);
   }
   for (const templateSource of instructionTemplates) {
-    const template = await readFile(path.join(rootDir, templateSource), 'utf8').catch(() => null);
-    if (template === null) continue;
-    if (!/governance-core/u.test(template)) errors.push(`${templateSource} must point at docs/rules/governance-core.md for authorization boundaries`);
+    const governed = await readGovernedFile(rootDir, templateSource);
+    if (governed === null) continue;
+    if (!/governance-core/u.test(governedSurface(governed))) errors.push(`${templateSource} must point at docs/rules/governance-core.md for authorization boundaries`);
   }
-  if (!agentsTemplate.includes(SHARED_RULE_PHRASES.residentBoundaryPointer)) {
-    errors.push(`adapters/codex/AGENTS.template.md must keep the boundary pointer: ${SHARED_RULE_PHRASES.residentBoundaryPointer}`);
+  if (canonicalAgents === null) {
+    errors.push(`${canonicalAgentsTemplate} is missing`);
+  } else if (!governedSurface(canonicalAgents).includes(SHARED_RULE_PHRASES.residentBoundaryPointer)) {
+    errors.push(`${canonicalAgentsTemplate} must keep the boundary pointer: ${SHARED_RULE_PHRASES.residentBoundaryPointer}`);
   }
-  const residentLines = `${agentsTemplate}\n${governanceCore}`.split(/\r?\n/u).length;
+  // The budget measures the resident surface a host reads on every turn, so it
+  // counts the rendered template: the shared sections live in the renderer and
+  // would otherwise grow outside the ceiling they exist to hold.
+  const residentLines = `${canonicalAgents?.rendered ?? ''}\n${governanceCore}`.split(/\r?\n/u).length;
   // Budget history: 89-90 lines across all prior revisions; the 2026-09 split of the
   // 1000+-character judgment paragraph into labeled sub-bullets added 2 structural
   // lines with zero content growth. The gate measures resident context size, and

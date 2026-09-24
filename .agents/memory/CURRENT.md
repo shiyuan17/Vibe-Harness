@@ -6,11 +6,11 @@
 
 项目阶段、技术债与决策经本文件引用 `docs/memory/PROJECT_STATE.md` 读取，不在此复制其内容；本文件只记录任务级恢复线索。
 
-- 目标: 落地 2026-09-22 架构审查整改 P0+P1 全 8 项（audit-reports/2026-09-22-optimization-plan.md，worktree 分支 codex/optimization-p0p1，base codex/governance-audit-batch）
-- 当前状态: 全部完成——六个提交（3a9fd80 报告/方案落盘、5b1cf44 P0 解释器内联写闸门、e7cc3d8 CI 去冗余 #7+评审收据遥测 #2+记忆新鲜度 #3、83f842a Fast Path #4+失败登记 #6+unknown 预分类 #8、e2e47ba HOOK_ACTIVATION_UNSUPPORTED #5、2768756 CHANGELOG 补记+记忆新鲜化）已 merge --no-ff 合回 codex/governance-audit-batch（f970fd1），worktree 已 cleanup，分支 codex/optimization-p0p1 已删除
-- 已验证证据: 各批次验证链均全绿；收尾全量门禁通过（pnpm check 全链含 test:unit 与 test:component 314/314、git diff --check、eval:check 无指纹漂移、validate.js 结构校验含 #3 记忆新鲜度自证）；批次 A eval reference 已按 CONTRIBUTING 清单再生成（hooks 组）
-- 未完成事项: 无；P2 两项（#9 eval 体系收敛/run.mjs 拆分/envelope v1 退役、#10 其余项）为本轮明确非目标，另批规划
-- 下一步最小动作: 暂无——后续批次从 docs/memory/TECH_DEBT.md 技术债清单与 audit-reports/2026-09-22-optimization-plan.md 非目标节选取
-- 锚点提交: f970fd14c0742008b225f3181149a31723e5426d
-- 最后更新: 2026-09-22
-- 最后验证: 2026-09-22
+- 目标: 按 `harness提示词优化.mak` 对 Harness 常驻指令面做 token 效率审查并落地整改（分支 codex/governance-audit-batch，远端 shiyuan17/Vibe-Harness）；顺序为 P1 受管指令段落单源化 → P2 常驻段瘦身 → P3 规则 Fast Path 卡片
+- 当前状态: P1 完成（adapters 四份模板的共享段改由 scripts/lib/template-renderer.js 的 buildManagedInstructionSections 单一生成，校验改为「原始体 + 渲染面」，常驻行预算改测渲染面），P2/P3 未开始
+- 已验证证据: 本轮提交前的 8 个 adapter 渲染快照对比逐字节一致；P1 门禁待本轮收尾执行（validate.js / check:fast / test:component / test:integration / docs:audit）
+- 未完成事项: P2 常驻受管段瘦身（verify 段、硬边界、规则优先级、memory 段、启动段 2/5、去重复 memorySkillsLine）与 P3 test-rules/git-rules 的 Fast Path 卡片未开始
+- 下一步最小动作: 完成 P1 门禁与提交推送后，按审查报告执行 P2，再执行 P3
+- 锚点提交: 77f99beca677e802ce21cf210f1926aa37dc4a1d
+- 最后更新: 2026-09-24
+- 最后验证: 2026-09-24

@@ -9,6 +9,7 @@ import test from 'node:test';
 import { promisify } from 'node:util';
 
 import {
+  buildManagedInstructionSections,
   extractManagedInstructionBlock,
   mergeManagedInstructionBlock,
   removeManagedInstructionBlock,
@@ -129,6 +130,40 @@ test('every instruction adapter renders the same generated startup sequence', as
   for (const [index, section] of sections.entries()) {
     assert.equal(section, sections[0], files[index] + ' startup differs from ' + files[0]);
   }
+});
+
+test('共享的受管指令段落只有一个生成源', async () => {
+  const files = ['codex/AGENTS.template.md', 'claude/CLAUDE.template.md', 'gemini/GEMINI.template.md', 'opencode/AGENTS.template.md'];
+  const templates = await Promise.all(files.map((file) => readFile(path.join(rootDir, 'adapters', file), 'utf8')));
+  const renderData = {
+    projectName: 'shared-sections',
+    validationCommands: {
+      eval: 'pnpm eval', lint: 'pnpm lint', test: 'pnpm test', typecheck: 'pnpm typecheck',
+      tiers: { quick: ['pnpm quick'], standard: ['pnpm standard'], deep: ['pnpm deep'] },
+    },
+  };
+  const expected = buildManagedInstructionSections({ validationCommands: renderData.validationCommands });
+
+  for (const [index, template] of templates.entries()) {
+    for (const placeholder of ['managedBlock.hardBoundsLines', 'managedBlock.verifySemanticsLine', 'managedBlock.rulesPriorityLine']) {
+      assert.equal(template.includes(`{{${placeholder}}}`), true, `${files[index]} must use ${placeholder}`);
+    }
+    // Inlining the text again would recreate the four copies that drift apart.
+    for (const literal of ['只在授权范围内行动', '统一优先级矩阵见', '只检查安装一致性']) {
+      assert.equal(template.includes(literal), false, `${files[index]} must not inline the shared section: ${literal}`);
+    }
+    const rendered = renderTemplate(template, renderData);
+    for (const section of [expected.hardBoundsLines, expected.verifySemanticsLine, expected.rulesPriorityLine]) {
+      assert.equal(rendered.includes(section), true, `${files[index]} must render the shared section`);
+    }
+  }
+
+  // The shared sections are byte-identical across hosts; host differences stay
+  // in each host's own template instead of being copied into the shared text.
+  const priorityLines = templates.map((template) => renderTemplate(template, renderData).match(/^规则优先级：.*$/mu)?.[0]);
+  assert.deepEqual(new Set(priorityLines), new Set([expected.rulesPriorityLine]));
+  const verifyLines = templates.map((template) => renderTemplate(template, renderData).match(/^`vibe-harness validate --project`.*$/mu)?.[0]);
+  assert.deepEqual(new Set(verifyLines), new Set([expected.verifySemanticsLine]));
 });
 
 test('启动段钉住长任务状态锚点与 SKILL.md 显式读取', async () => {
