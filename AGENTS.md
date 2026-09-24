@@ -8,21 +8,20 @@ Vibe-Harness 用来打包可复用的 AI coding 项目规则、领域 Skills、�
 - 当前架构、规格、参考审计与历史归档从 `docs/README.md` 进入。
 - 执行内核与可选交付简表分别见 `docs/rules/governance-core.md` 和 `templates/delivery.md`。
 
-## 命令面边界
+## 命令与安全边界
 
-- 所有项目命令使用 `--project <temp-project>`；`--target codex|claude|gemini|cursor|qoder|zcode|antigravity|opencode` 只选择 adapter；多宿主目标在配置 `targets` 数组声明，`--targets` 仅 `init` 使用。
-- 真实写入统一使用 `--write`；`--apply`、`codex-internal` 和 `codex-minimal` 已移除。
-- 项目生命周期使用 `--project <temp-project>`，预览使用 `--dry-run`，真实写入使用 `--write`。
-- Codex `full` 写入红区文件时仍需 `--confirm-red-zone`。
-- `pnpm task-dag check --file <dag.json>`（可选 `--require-ready`、`--json`）是派发前校验入口，由 task-decomposition Skill 和在线 canary 按需调用；runtime 不自动调用它。
+- 所有项目命令使用 `--project <path>`；`--target` 只选择 adapter；真实写入统一用 `--write`，Codex `full` 写红区文件仍需 `--confirm-red-zone`。
+- 安装器不得写入全局 Agent 配置；未使用 `--force` 时不得覆盖目标项目已有文件；未显式确认时不得写入红区文件。
+- 项目专有示例不得进入 `rules`、`templates`、`skills/core`、`adapters`、`manifests`、`schemas` 等通用核心目录。
+- 优先用 dry-run 和命令输出作为证据，不用猜测代替验证。
+- 完整命令边界、`task-dag check` 派发前校验入口与已移除的旧参数见 `CONTRIBUTING.md`。
 
 ## 验证选择
 
-验证命令与成本层的单一真值源是 `vibe-harness.config.json` 的 `validationCommands`（`tiers` 声明快速/中等/深度层命令）；`pnpm verify:focused` 用同一分类器（`scripts/lib/change-impact.js` 与 `scripts/lib/verification-plan.js`）把变更路径映射为聚焦计划。本节与受管块只保留默认门槛和计划外的治理性追加，不复制层命令清单。
+验证命令与成本层的单一真值源是 `vibe-harness.config.json` 的 `validationCommands`；`pnpm verify:focused` 用同一分类器把变更路径映射为聚焦计划，`unknown` 一律回退 high。本节只保留默认门槛和计划外的治理性追加，不复制层命令清单与已由受管块描述的 `verify` 语义。
 
-- 普通变更运行 `pnpm check:fast` 和 `git diff --check`（语法/资产扫描、typecheck、单元测试，与 verify 快速层同一定义）。`pnpm check` 是 `pnpm check:full` 的别名，在 `check:fast` 之上追加 ESLint、结构校验、测试台账校验与组件测试（L2），升级到阶段收尾、合并前或高风险边界运行，具体脚本以 `package.json` 为准。
-- 项目级验证统一走 `vibe-harness verify --project <path>`：不带 `--tier` 时默认只执行快速层，`--tier standard|deep` 按层累计显式升级，`--plan` 只预览，`--full` 运行完整风险矩阵并与 `--tier` 互斥；快速层通过时收据标注部分范围，未取得被延迟层证据前不得宣称集成、发布或整体完成。项目内安装副本入口为 `node .agents/runtime/commands/run.mjs verify`；两个引擎的收据以 `engine` 字段区分（`vibe-harness-cli` / `vibe-harness-runtime`），命令同源于项目配置。
-- 按影响追加时优先用 `pnpm verify:focused --run`（或 `--tier quick|standard|deep`）让计划按变更路径自动选择；`unknown` 必须回退到 high，未选检查标记为 `not_selected`。计划覆盖不到的治理性追加：
+- 普通变更运行 `pnpm check:fast` 和 `git diff --check`（语法/资产扫描、typecheck、单元测试）；`pnpm check` 在其上追加 ESLint、结构校验、测试台账校验与组件测试，升级到阶段收尾、合并前或高风险边界运行。
+- 按影响追加时优先用 `pnpm verify:focused --run`（或 `--tier quick|standard|deep`）让计划按变更路径自动选择；未选检查标记为 `not_selected`。计划覆盖不到的治理性追加：
 
 | 变更 | 显式验证 |
 | --- | --- |
@@ -35,21 +34,13 @@ Vibe-Harness 用来打包可复用的 AI coding 项目规则、领域 Skills、�
 | runtime tool lockfile/provision | `pnpm runtime:audit` |
 | 浏览器行为 | 真实浏览器关键路径 |
 
-TypeScript 配置、类型声明、JSDoc 类型契约，或完成主张涉及类型安全的 JS/TS 改动，追加运行 pnpm typecheck（已并入 `pnpm check` 与项目 verify 默认命令，`pnpm check` 通过即已执行）。
+TypeScript 配置、类型声明、JSDoc 类型契约，或完成主张涉及类型安全的 JS/TS 改动，追加运行 `pnpm typecheck`（已并入 `pnpm check` 与项目 verify 默认命令）。
 
 - 只运行与变更和完成主张匹配的聚焦检查；不要自动派发 Review/Test 角色。
 
-## 安全规则
-
-1. 安装器不得写入全局 Agent 配置。
-2. 未使用 `--force` 时不得覆盖目标项目已有文件。
-3. 安装、rollback 和卸载真实写入必须使用 `--write`，且未显式确认时不得写入红区文件。
-4. 项目专有示例不得进入 `rules`、`templates`、`skills/core`、`adapters`、`manifests`、`schemas` 等通用核心目录。
-5. 优先用 dry-run 和命令输出作为证据，不用猜测代替验证。
-
 ## codebase-memory-mcp
 
-若 `codebase-memory-mcp` MCP 工具可用，理解或定位代码前先检查当前仓库索引状态（`node .agents/runtime/commands/run.mjs codebase-memory status --project . --json`），并按需使用结构查询。MCP 不可用时明确说明缺少该能力，退回 `rg` 和直接文件阅读；不要修改全局 Agent 或 MCP 配置。
+若 `codebase-memory-mcp` 可用，理解或定位代码前先检查当前仓库索引状态（`node .agents/runtime/commands/run.mjs codebase-memory status --project . --json`），并按需使用结构查询；不可用时明确说明缺少该能力并退回 `rg` 和直接文件阅读。规则全文见 `docs/rules/codebase-memory-mcp.md`。
 
 <!-- VIBE_HARNESS:START -->
 # AGENTS.md

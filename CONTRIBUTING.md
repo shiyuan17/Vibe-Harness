@@ -30,10 +30,12 @@
 
 ## 命令边界
 
-- 项目路径只通过 `--project <path>` 传入，`--target` 只选择 adapter。
-- dry-run 不写入；真实修改必须使用 `--write`。
+- 项目路径只通过 `--project <path>` 传入，`--target` 只选择 adapter；多宿主目标在配置 `targets` 数组声明，`--targets` 仅 `init` 使用。
+- dry-run 不写入；真实修改必须使用 `--write`。`--apply`、`codex-internal` 和 `codex-minimal` 已移除。
 - Codex full 写红区需要 `--confirm-red-zone`。
+- `pnpm task-dag check --file <dag.json>`（可选 `--require-ready`、`--json`）是派发前校验入口，由 task-decomposition Skill 和在线 canary 按需调用；runtime 不自动调用它。
 - `validate --project` 只检查安装一致性；`verify --project` 不带 `--tier` 时默认只执行快速层（层命令来自配置声明或按包脚本推导，完全推导不出层时退回 `auto` 风险计划），收据标注部分范围；`--tier standard|deep` 按层累计显式升级，`--plan` 只预览计划，`--full` 显式执行完整验证矩阵并与 `--tier` 互斥。`minimal/core/full/docs-only` 仍表示安装能力范围，不表示验证风险等级。
+- 项目内安装副本入口为 `node .agents/runtime/commands/run.mjs verify`；两个引擎的收据以 `engine` 字段区分（`vibe-harness-cli` / `vibe-harness-runtime`），命令同源于项目配置。
 
 verify 输出本轮 ID、时间和可用的 Git 工作树指纹；检查期间工作树变化时收据失效且命令返回非零。
 
