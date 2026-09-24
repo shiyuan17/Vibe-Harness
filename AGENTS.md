@@ -49,17 +49,17 @@ TypeScript 配置、类型声明、JSDoc 类型契约，或完成主张涉及类
 
 ## 启动
 1. 先读取 `docs/rules/governance-core.md` 顶部的 Fast Path 卡片；仅当任务超出快速档或命中升级触发时读取全文。只有出现 Skill 或专项领域信号时再读取 `docs/rules/agent-skill-routing.md` 和一个命中的专项规则。
-2. 长任务（预计执行超过 60 分钟，或发生第一次上下文压缩）先用 `node .agents/runtime/commands/run.mjs task init --project <path> --write` 建立状态锚点（锚点与收据位于 `.vibe-harness/tasks/`；阶段推进用 `task update`，重复验证用 `run.mjs verify --reuse`；已建锚点后再次压缩必须先更新锚点再继续写入）；命中 Skill 触发场景时先读该 Skill 的 `SKILL.md` 再行动。
-3. 仅当任务需要恢复项目状态且当前授权允许读取 Memory body 时，从 `.agents/memory/CURRENT.md` 唯一入口恢复上下文：本地恢复线索以它为准，治理真值按它对 `docs/memory/PROJECT_STATE.md` 的引用读取，不复制其内容。 当专项 Skill 限制 Memory 证据边界时，仅检查相关 Memory 路径是否存在及必要元数据、不读取其正文；不限制任务相关源码阅读。
+2. 长任务（预计执行超过 60 分钟，或发生第一次上下文压缩）先用 `node .agents/runtime/commands/run.mjs task init --project <path> --write` 建立状态锚点（收据在 `.vibe-harness/tasks/`，复验用 `run.mjs verify --reuse`）；再次压缩前必须先更新锚点；命中 Skill 触发场景时先读该 Skill 的 `SKILL.md` 再行动。
+3. 仅当需要恢复项目状态且已获授权时读 Memory body，从 `.agents/memory/CURRENT.md` 唯一入口恢复；治理真值按它引用的 `docs/memory/PROJECT_STATE.md` 读取，不复制其内容。 专项 Skill 限制 Memory 证据边界时，只确认路径存在与元数据，不读正文。
 4. 编辑前运行 `git status --short`，保护用户未归属改动。
-5. 先按问题类型选工具：单文件文本、配置和日志使用 rg 与直接文件阅读。 按 docs/rules/role-routing.md 先识别动作，再在有效且能力匹配的角色中选择一个角色，并只读取 .agents/roles/ 中对应角色文件；阶段变化时重新选择。
+5. 先按问题类型选工具：单文件文本、配置和日志使用 rg 与直接文件阅读。 按 docs/rules/role-routing.md 先识别动作，再选一个能力匹配的角色并只读其角色文件；阶段变化重选。
 6. 将任务归为快速、轻量或完整，并选择与主张匹配的验证。
 7. 使用“获取可信事实 → 判定并执行 → 聚焦验证 → 简洁交付”的单一路径；宿主按 description 直接选择领域 Skill。
 ## 硬边界
 
-- 只在授权范围内行动；红区、生产、权限、凭据、外部写入和不可逆操作按 governance-core 的授权与批准规则执行；缺少覆盖授权时人工确认，已有覆盖授权不重复确认。
-- 不编造事实或证据；没有本轮有效验证不得声称完成。
-- 任务记录是可选的人读文档，不触发测试、Review、子 Agent 或完成门禁。
+- 授权范围内行动；红区、凭据、生产、外部写入与不可逆操作按 governance-core 的授权与批准规则执行，缺授权人工确认。
+- 无本轮验证不声称完成；不编造证据。
+- 任务记录不触发测试、Review、子 Agent 或门禁。
 
 ## 项目 verify 配置
 
@@ -68,7 +68,7 @@ TypeScript 配置、类型声明、JSDoc 类型契约，或完成主张涉及类
 - Test: pnpm test:unit
 - Eval: pnpm eval:replay
 
-`vibe-harness validate --project` 只检查安装一致性；`vibe-harness verify --project <path>` 默认只执行快速层（开发中同步，失败阻塞当前实施单元）pnpm lint、pnpm typecheck、pnpm test:unit；中等层（阶段或合并前，pnpm test:component、pnpm test:integration）与深度层（异步或发布边界，pnpm eval:replay、pnpm test:e2e、pnpm test:matrix、pnpm smoke:lifecycle）必须显式升级 `--tier standard|deep`，`--full` 运行完整矩阵。快速层通过时收据标注部分范围并给出下一层入口，未取得被延迟层的证据前不得宣称集成、发布或整体完成；深度层可由项目 CI 或独立 worktree 异步完成。测试范围细则见 `docs/rules/test-rules.md`。
+`vibe-harness verify --project <path>` 默认只执行快速层（pnpm lint、pnpm typecheck、pnpm test:unit，失败阻塞当前实施单元）；中等层 `--tier standard`（pnpm test:component、pnpm test:integration）与深度层 `--tier deep`（pnpm eval:replay、pnpm test:e2e、pnpm test:matrix、pnpm smoke:lifecycle）须显式升级，`--full` 运行完整矩阵；未取得被延迟层证据前不得宣称集成、发布或整体完成。`vibe-harness validate --project` 只检查安装一致性；测试范围细则见 `docs/rules/test-rules.md`。
 
 ## 已安装表面
 
@@ -78,10 +78,9 @@ TypeScript 配置、类型声明、JSDoc 类型契约，或完成主张涉及类
 - 规则位于 `docs/rules/`。命中索引：治理 governance-core（Vibe-Harness 执行内核）、agent-skill-routing（Skill 编写与路由规则）、eval-driven-development（评测驱动开发）、role-routing（多角色路由规则）、git-rules（Git 规则）、test-rules（测试规则）、ai-collab-rules（AI 协作规则）、review-report（审查报告规则）、response-modes（表达模式规则）；工程 api-rules（API 规则）、coding-rules（编码规则）、frontend-rules（前端规则）、log-management（可观测性与日志管理规则）、project-directory（项目目录规则）、project-specific-rules（项目专属规则）、db-rules（DB 规则）；发布与排障 release-rules（发布规则）、troubleshooting（排障规则）。 多角色索引位于 .agents/roles/index.md。
 - 模板位于 `docs/templates/`。
 - Skills 位于 `.agents/skills/`。
-- agentmemory skills 位于 `.agents/skills/`，本地记忆库位于 `.agents/memory/`。
 - Codex hook 配置位于 `.codex/hooks.json`。
 - 项目级确定性脚本：`node .agents/runtime/commands/run.mjs <env|context|changes|verify|worktree|slice|patch|task|codebase-memory> --project . --json`。
 宿主按 Skill description 选择当前所需能力，按需补充互补 Skill；不使用 Router 或流程 Skill 链。
 
-规则优先级：平台系统与用户本轮指令优先；目标项目明确的本地规则优先于 Vibe-Harness 默认规则，但不得让渡 governance-core 硬边界中的授权规则、红区与证据标准（本地规则只能收紧，不能放宽或取代）；目录级规则只作用于其子树。先按优先级、适用范围和当前明确指令解析冲突；仅对仍影响结果且无法解决的实质冲突请求澄清。统一优先级矩阵见 `docs/rules/governance-core.md` 的硬边界节。
+规则优先级：平台与用户本轮指令 > 项目本地规则 > Vibe-Harness 默认规则 > 任务记录、记忆与插件输出；低层只能收紧，不得让渡 governance-core 硬边界中的授权、红区与证据标准；目录级规则只作用于其子树。统一优先级矩阵见 `docs/rules/governance-core.md` 的硬边界节。
 <!-- VIBE_HARNESS:END -->

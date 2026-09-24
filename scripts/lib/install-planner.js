@@ -149,7 +149,6 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
   const detectedSkillRoots = [...new Set(installedTargets
     .filter((target) => isSkillRootTarget(target))
     .map((target) => target.split('/skills/')[0] + '/skills'))];
-  const hasAgentMemorySkills = hasSkill('agentmemory/SKILL.md');
   const hasRtkTool = hasTarget('.agents/runtime/tools/rtk/run.mjs');
   const hasAstGrepTool = hasTarget('.agents/runtime/tools/ast-grep/run.mjs');
   const hasProjectScripts = hasTarget('.agents/runtime/commands/run.mjs');
@@ -166,8 +165,6 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
     hasSerenaRule ? 'serena' : null,
     hasProbeRule ? 'probe' : null,
   ].filter(Boolean);
-  const agentMemoryTarget = installedTargets.find((target) => target.endsWith('/skills/agentmemory/SKILL.md'));
-  const agentMemorySkillRoot = agentMemoryTarget?.slice(0, agentMemoryTarget.indexOf('/agentmemory/SKILL.md'));
   const normalizedMemoryPath = memoryPath.replaceAll('\\', '/').replace(/\/+$/u, '');
   const hasLocalMemory = installedTargets.includes(`${normalizedMemoryPath}/README.md`);
   const hasGovernanceMemory = hasPrefix('docs/memory/');
@@ -200,11 +197,8 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
       .filter((entry) => hasTarget(entry.target))
       .map((entry) => `- ${entry.displayName} hook 配置位于 \`${entry.target}\`。`)
       .join(String.fromCharCode(10)),
-    memorySkillsLine: hasAgentMemorySkills
-      ? `- agentmemory skills 位于 \`${agentMemorySkillRoot}/\`${hasLocalMemory ? `，本地记忆库位于 \`${normalizedMemoryPath}/\`` : ''}。`
-      : '',
     memoryLoadLine: hasGovernanceMemory && hasLocalMemory
-      ? `从 \`${normalizedMemoryPath}/CURRENT.md\` 唯一入口恢复上下文：本地恢复线索以它为准，治理真值按它对 \`docs/memory/PROJECT_STATE.md\` 的引用读取，不复制其内容。`
+      ? `从 \`${normalizedMemoryPath}/CURRENT.md\` 唯一入口恢复；治理真值按它引用的 \`docs/memory/PROJECT_STATE.md\` 读取，不复制其内容。`
       : (hasGovernanceMemory
         ? `读取 \`docs/memory/\` 的治理记忆（优先 \`PROJECT_STATE.md\`）恢复上下文；记忆仅作辅助，不覆盖当前源码与用户指令。`
         : (hasLocalMemory
@@ -228,13 +222,13 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
       : (hasProjectScripts ? '- 项目级确定性脚本：`node .agents/runtime/commands/run.mjs <env|context|changes|verify|worktree|slice|patch|task|codebase-memory> --project . --json`。' : ''),
   };
   if (installedSurface.memoryLoadLine) {
-    installedSurface.memoryLoadLine = '仅当任务需要恢复项目状态且当前授权允许读取 Memory body 时，'
+    installedSurface.memoryLoadLine = '仅当需要恢复项目状态且已获授权时读 Memory body，'
       + installedSurface.memoryLoadLine
-      + ' 当专项 Skill 限制 Memory 证据边界时，仅检查相关 Memory 路径是否存在及必要元数据、不读取其正文；不限制任务相关源码阅读。';
+      + ' 专项 Skill 限制 Memory 证据边界时，只确认路径存在与元数据，不读正文。';
   }
   installedSurface.discoveryLine = toolDiscoveryLine(installedProviderModules, { hasProjectScripts });
   if (hasRoles) {
-    installedSurface.discoveryLine += ' 按 docs/rules/role-routing.md 先识别动作，再在有效且能力匹配的角色中选择一个角色，并只读取 .agents/roles/ 中对应角色文件；阶段变化时重新选择。';
+    installedSurface.discoveryLine += ' 按 docs/rules/role-routing.md 先识别动作，再选一个能力匹配的角色并只读其角色文件；阶段变化重选。';
     installedSurface.rulesLine += ' 多角色索引位于 .agents/roles/index.md。';
   }
   if (installedIntegrationSkills.length > 0) {

@@ -417,8 +417,8 @@ test('explicit memory module can disable or relocate the local memory library', 
     assert.equal(targets.includes('.agents/memory/README.md'), false);
     const agents = relocated.previewFiles.find((file) => file.target === 'AGENTS.md').content;
     assert.match(agents, /docs\/agent-memory\//);
-    assert.match(agents, /仅当任务需要恢复项目状态且当前授权允许读取 Memory body 时/u);
-    assert.match(agents, /限制 Memory 证据边界时，仅检查相关 Memory 路径是否存在及必要元数据、不读取其正文/u);
+    assert.match(agents, /仅当需要恢复项目状态且已获授权时读 Memory body/u);
+    assert.match(agents, /限制 Memory 证据边界时，只确认路径存在与元数据，不读正文/u);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
@@ -569,9 +569,9 @@ test('生成的入口文件渲染三个成本层并标注未配置层', async ()
     const agents = report.previewFiles.find((file) => file.target === 'AGENTS.md').content;
     const projectRules = report.previewFiles.find((file) => file.target === 'docs/rules/project-specific-rules.md').content;
 
-    assert.match(agents, /快速层（开发中同步，失败阻塞当前实施单元）pnpm lint、pnpm test:unit/u);
-    assert.match(agents, /中等层（阶段或合并前，pnpm test:integration）/u);
-    assert.match(agents, /深度层（异步或发布边界，pnpm test:e2e）/u);
+    assert.match(agents, /快速层（pnpm lint、pnpm test:unit，失败阻塞当前实施单元）/u);
+    assert.match(agents, /中等层 `--tier standard`（pnpm test:integration）/u);
+    assert.match(agents, /深度层 `--tier deep`（pnpm test:e2e）/u);
     assert.match(projectRules, /快速层（开发中同步，失败阻塞当前实施单元）：pnpm lint、pnpm test:unit/u);
     assert.match(projectRules, /深度层（异步、夜间、关键 PR 或发布边界，失败阻塞集成与发布）：pnpm test:e2e/u);
     assert.match(projectRules, /vibe-harness verify` 默认只执行快速层；中等层与深度层显式传 `--tier standard\|deep` 升级，`--full` 运行完整矩阵/u);
@@ -579,7 +579,7 @@ test('生成的入口文件渲染三个成本层并标注未配置层', async ()
     const emptyReport = await runCli(['install', '--project', unconfigured, '--target', 'codex', '--profile', 'core', '--dry-run', '--verbose']);
     const emptyAgents = emptyReport.previewFiles.find((file) => file.target === 'AGENTS.md').content;
     const emptyRules = emptyReport.previewFiles.find((file) => file.target === 'docs/rules/project-specific-rules.md').content;
-    assert.match(emptyAgents, /快速层（开发中同步，失败阻塞当前实施单元）未配置/u);
+    assert.match(emptyAgents, /快速层（未配置，失败阻塞当前实施单元）/u);
     assert.match(emptyRules, /快速层（开发中同步，失败阻塞当前实施单元）：未配置/u);
   } finally {
     await rm(configured, { force: true, recursive: true });
@@ -661,14 +661,14 @@ test('四个 adapter 指令模板都渲染三层命令，未配置时统一显�
         },
       },
     });
-    assert.match(rendered, /快速层（开发中同步，失败阻塞当前实施单元）pnpm lint、pnpm test:unit/u, file);
-    assert.match(rendered, /中等层（阶段或合并前，pnpm test:integration）/u, file);
-    assert.match(rendered, /深度层（异步或发布边界，pnpm test:e2e）/u, file);
+    assert.match(rendered, /快速层（pnpm lint、pnpm test:unit，失败阻塞当前实施单元）/u, file);
+    assert.match(rendered, /中等层 `--tier standard`（pnpm test:integration）/u, file);
+    assert.match(rendered, /深度层 `--tier deep`（pnpm test:e2e）/u, file);
     assert.match(rendered, /Eval: 未配置/u, file);
 
     const empty = renderTemplate(template, { projectName: 'tier-render-empty', validationCommands: commands });
-    assert.match(empty, /快速层（开发中同步，失败阻塞当前实施单元）未配置/u, file);
-    assert.match(empty, /中等层（阶段或合并前，未配置）/u, file);
-    assert.match(empty, /深度层（异步或发布边界，未配置）/u, file);
+    assert.match(empty, /快速层（未配置，失败阻塞当前实施单元）/u, file);
+    assert.match(empty, /中等层 `--tier standard`（未配置）/u, file);
+    assert.match(empty, /深度层 `--tier deep`（未配置）/u, file);
   }
 });

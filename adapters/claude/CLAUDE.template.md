@@ -27,7 +27,6 @@
 {{installedSurface.rulesLine}}
 {{installedSurface.templatesLine}}
 {{installedSurface.skillsLine}}
-{{installedSurface.memorySkillsLine}}
 {{installedSurface.hooksLine}}
 {{installedSurface.toolingLine}}
 {{installedSurface.skillRoutingLine}}

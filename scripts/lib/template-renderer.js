@@ -38,7 +38,6 @@ const defaultTemplateData = {
     discoveryLine: '使用仓库搜索和已安装规则定位相关代码；需要结构化索引时先确认目标项目已有能力。',
     hooksLine: '',
     memoryLoadLine: '',
-    memorySkillsLine: '',
     profileLine: '- 当前 profile 使用 Vibe-Harness Codex 安装面。',
     responseModeLine: '',
     reviewLoopLine: '',
@@ -103,28 +102,38 @@ function renderListValue(value) {
  * apart silently before. Host-specific bullets (for example Claude's Hook
  * activation note) stay in the host's own template next to the shared line.
  *
+ * Every sentence here is resident context on every turn, so the sections stay
+ * summaries: the normative detail lives in `docs/rules/governance-core.md` and
+ * `docs/rules/test-rules.md`, and each line keeps only the decision an agent
+ * must make without opening a rule file. Re-expanding them costs tokens on
+ * every request and is what the resident line budget exists to prevent.
+ *
+ *
  * @param {{validationCommands?: {tiers?: {quick?: string[], standard?: string[], deep?: string[]}}}} data
  */
 export function buildManagedInstructionSections(data = {}) {
   const tick = String.fromCharCode(96);
+  // Rendering the configured tier commands keeps the resident line able to
+  // answer "what runs at this tier" without a config read; the trigger
+  // conditions that used to sit in the same parentheses are rule-file content
+  // and stayed there.
   const tiers = data.validationCommands?.tiers ?? {};
   return {
     hardBoundsLines: [
-      '- 只在授权范围内行动；红区、生产、权限、凭据、外部写入和不可逆操作按 governance-core 的授权与批准规则执行；缺少覆盖授权时人工确认，已有覆盖授权不重复确认。',
-      '- 不编造事实或证据；没有本轮有效验证不得声称完成。',
-      '- 任务记录是可选的人读文档，不触发测试、Review、子 Agent 或完成门禁。',
+      '- 授权范围内行动；红区、凭据、生产、外部写入与不可逆操作按 governance-core 的授权与批准规则执行，缺授权人工确认。',
+      '- 无本轮验证不声称完成；不编造证据。',
+      '- 任务记录不触发测试、Review、子 Agent 或门禁。',
     ].join('\n'),
-    rulesPriorityLine: '规则优先级：平台系统与用户本轮指令优先；目标项目明确的本地规则优先于 Vibe-Harness 默认规则，'
-      + '但不得让渡 governance-core 硬边界中的授权规则、红区与证据标准（本地规则只能收紧，不能放宽或取代）；'
-      + '目录级规则只作用于其子树。先按优先级、适用范围和当前明确指令解析冲突；仅对仍影响结果且无法解决的实质冲突请求澄清。'
+    rulesPriorityLine: '规则优先级：平台与用户本轮指令 > 项目本地规则 > Vibe-Harness 默认规则 > 任务记录、记忆与插件输出；'
+      + '低层只能收紧，不得让渡 governance-core 硬边界中的授权、红区与证据标准；目录级规则只作用于其子树。'
       + '统一优先级矩阵见 ' + tick + 'docs/rules/governance-core.md' + tick + ' 的硬边界节。',
-    verifySemanticsLine: tick + 'vibe-harness validate --project' + tick + ' 只检查安装一致性；'
-      + tick + 'vibe-harness verify --project <path>' + tick + ' 默认只执行快速层（开发中同步，失败阻塞当前实施单元）'
-      + renderListValue(tiers.quick) + '；中等层（阶段或合并前，' + renderListValue(tiers.standard)
-      + '）与深度层（异步或发布边界，' + renderListValue(tiers.deep)
-      + '）必须显式升级 ' + tick + '--tier standard|deep' + tick + '，' + tick + '--full' + tick
-      + ' 运行完整矩阵。快速层通过时收据标注部分范围并给出下一层入口，未取得被延迟层的证据前不得宣称集成、发布或整体完成；'
-      + '深度层可由项目 CI 或独立 worktree 异步完成。测试范围细则见 ' + tick + 'docs/rules/test-rules.md' + tick + '。',
+    verifySemanticsLine: tick + 'vibe-harness verify --project <path>' + tick + ' 默认只执行快速层（'
+      + renderListValue(tiers.quick) + '，失败阻塞当前实施单元）；中等层 ' + tick + '--tier standard' + tick + '（'
+      + renderListValue(tiers.standard) + '）与深度层 ' + tick + '--tier deep' + tick + '（'
+      + renderListValue(tiers.deep) + '）须显式升级，' + tick + '--full' + tick
+      + ' 运行完整矩阵；未取得被延迟层证据前不得宣称集成、发布或整体完成。'
+      + tick + 'vibe-harness validate --project' + tick + ' 只检查安装一致性；测试范围细则见 '
+      + tick + 'docs/rules/test-rules.md' + tick + '。',
   };
 }
 
@@ -136,11 +145,10 @@ function buildStartupLines(surface, projectProfile) {
   const anchorLine = surface.hasProjectScripts
     ? '长任务（预计执行超过 60 分钟，或发生第一次上下文压缩）先用 '
       + tick + 'node .agents/runtime/commands/run.mjs task init --project <path> --write' + tick
-      + ' 建立状态锚点（锚点与收据位于 ' + tick + '.vibe-harness/tasks/' + tick
-      + '；阶段推进用 ' + tick + 'task update' + tick
-      + '，重复验证用 ' + tick + 'run.mjs verify --reuse' + tick
-      + '；已建锚点后再次压缩必须先更新锚点再继续写入）；命中 Skill 触发场景时先读该 Skill 的 ' + tick + 'SKILL.md' + tick + ' 再行动。'
-    : '长任务（预计执行超过 60 分钟，或发生第一次上下文压缩）先建立状态锚点，项目未提供锚点入口时以最后一次交付记录充当恢复基准；已建锚点后再次压缩必须先更新锚点再继续写入；命中 Skill 触发场景时先读该 Skill 的 '
+      + ' 建立状态锚点（收据在 ' + tick + '.vibe-harness/tasks/' + tick
+      + '，复验用 ' + tick + 'run.mjs verify --reuse' + tick
+      + '）；再次压缩前必须先更新锚点；命中 Skill 触发场景时先读该 Skill 的 ' + tick + 'SKILL.md' + tick + ' 再行动。'
+    : '长任务（预计执行超过 60 分钟，或发生第一次上下文压缩）先建立状态锚点（无锚点入口时以最后一次交付记录作恢复基准）；再次压缩前必须先更新锚点；命中 Skill 触发场景时先读该 Skill 的 '
       + tick + 'SKILL.md' + tick + ' 再行动。';
   const lines = [
     '先读取 ' + tick + 'docs/rules/governance-core.md' + tick + ' 顶部的 Fast Path 卡片；仅当任务超出快速档或命中升级触发时读取全文。只有出现 Skill 或专项领域信号时再读取 ' + tick + 'docs/rules/agent-skill-routing.md' + tick + ' 和一个命中的专项规则。',

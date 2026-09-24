@@ -149,7 +149,7 @@ test('共享的受管指令段落只有一个生成源', async () => {
       assert.equal(template.includes(`{{${placeholder}}}`), true, `${files[index]} must use ${placeholder}`);
     }
     // Inlining the text again would recreate the four copies that drift apart.
-    for (const literal of ['只在授权范围内行动', '统一优先级矩阵见', '只检查安装一致性']) {
+    for (const literal of ['按 governance-core 的授权与批准规则执行', '统一优先级矩阵见', '只检查安装一致性']) {
       assert.equal(template.includes(literal), false, `${files[index]} must not inline the shared section: ${literal}`);
     }
     const rendered = renderTemplate(template, renderData);
@@ -162,8 +162,11 @@ test('共享的受管指令段落只有一个生成源', async () => {
   // in each host's own template instead of being copied into the shared text.
   const priorityLines = templates.map((template) => renderTemplate(template, renderData).match(/^规则优先级：.*$/mu)?.[0]);
   assert.deepEqual(new Set(priorityLines), new Set([expected.rulesPriorityLine]));
-  const verifyLines = templates.map((template) => renderTemplate(template, renderData).match(/^`vibe-harness validate --project`.*$/mu)?.[0]);
+  // The verify section opens with the layered-verification sentence; the
+  // validate/ install-consistency pointer closes the same line.
+  const verifyLines = templates.map((template) => renderTemplate(template, renderData).match(/^`vibe-harness verify --project <path>`.*$/mu)?.[0]);
   assert.deepEqual(new Set(verifyLines), new Set([expected.verifySemanticsLine]));
+  assert.equal(expected.verifySemanticsLine.includes('只检查安装一致性'), true);
 });
 
 test('启动段钉住长任务状态锚点与 SKILL.md 显式读取', async () => {
@@ -171,11 +174,11 @@ test('启动段钉住长任务状态锚点与 SKILL.md 显式读取', async () =
   // The four placeholder templates render the generated sequence verbatim
   // (pinned above); antigravity keeps its own prose copy of the same line.
   assert.match(installedSurface.startupLines, /长任务（预计执行超过 60 分钟，或发生第一次上下文压缩）先建立状态锚点/u);
-  assert.match(installedSurface.startupLines, /已建锚点后再次压缩必须先更新锚点再继续写入/u);
+  assert.match(installedSurface.startupLines, /再次压缩前必须先更新锚点/u);
   assert.match(installedSurface.startupLines, /先读该 Skill 的 `SKILL\.md` 再行动/u);
   const antigravity = await readFile(path.join(rootDir, 'adapters/antigravity/RULES.template.md'), 'utf8');
   assert.match(antigravity, /长任务（预计执行超过 60 分钟，或发生第一次上下文压缩）先建立状态锚点/u);
-  assert.match(antigravity, /已建锚点后再次压缩必须先更新锚点再继续写入/u);
+  assert.match(antigravity, /再次压缩前必须先更新锚点/u);
   assert.match(antigravity, /先读该 Skill 的 SKILL\.md 再行动/u);
 });
 
