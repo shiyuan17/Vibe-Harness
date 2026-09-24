@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { createInstalledSurface } from '../../scripts/lib/install-planner.js';
-import { existingRuleSources, loadRuleIndex, renderRuleIndexLine, ruleGroupLabel } from '../../scripts/lib/rules-index.js';
+import { existingRuleSources, loadRuleIndex, renderRuleIndexLine, renderRulesLine, ruleGroupLabel } from '../../scripts/lib/rules-index.js';
 import { renderTemplate, withDefaultTemplateData } from '../../scripts/lib/template-renderer.js';
 
 const rootDir = path.resolve(import.meta.dirname, '../..');
@@ -39,6 +39,39 @@ test('the rule index is derived from the rule manifest and each rule heading', a
   assert.match(line, /；工程 [^；]*coding-rules（编码规则）[^；]*/u);
   assert.match(line, /；工具与集成 [^；]*rtk（RTK 命令输出压缩规则）、ast-grep（ast-grep 结构化搜索规则）、codegraph（codegraph 仓库索引探索规则）、serena（serena 语义符号导航规则）、probe（probe 轻量代码检索规则）/u);
   assert.match(line, /；发布与排障 release-rules（发布规则）、troubleshooting（排障规则）$/u);
+});
+
+test('规则索引只为带卡片的规则标注 ⚡，并在有卡片时给出图例', async () => {
+  // Which rules ship a Fast Path card is a capability claim, not a rendering
+  // detail: the host picks the layered read path off this index.
+  const index = await loadRuleIndex(rootDir);
+  assert.deepEqual(
+    index.filter((item) => item.hasCard).map((item) => item.id).sort(),
+    ['ai-collab-rules', 'git-rules', 'governance-core', 'linear-workflow', 'test-rules'],
+  );
+  const line = renderRuleIndexLine(index);
+  assert.match(line, /governance-core（Vibe-Harness 执行内核）⚡/u);
+  assert.match(line, /git-rules（Git 规则）⚡/u);
+  assert.equal(line.includes('agent-skill-routing（Skill 编写与路由规则）⚡'), false);
+  assert.match(renderRulesLine(index), /命中索引（⚡ 先读该规则顶部的 Fast Path 卡片）：/u);
+
+  // A project whose rules carry no card must not pay for the legend.
+  const plain = [{ id: 'rtk', title: 'RTK 命令输出压缩规则' }];
+  assert.equal(renderRulesLine(plain), '- 规则位于 `docs/rules/`。命中索引：工具与集成 rtk（RTK 命令输出压缩规则）。');
+  assert.equal(renderRuleIndexLine([...plain, { hasCard: true, id: 'git-rules', title: 'Git 规则' }]), '治理 git-rules（Git 规则）⚡；工具与集成 rtk（RTK 命令输出压缩规则）');
+});
+
+test('docs/README 的规则索引与规则文件声明的卡片一致', async () => {
+  const readme = await readFile(path.join(rootDir, 'docs/README.md'), 'utf8');
+  const declared = new Map();
+  for (const match of readme.matchAll(/^- \[[^\]]+\]\(rules\/([a-z0-9-]+)\.md\)( ⚡)?$/gmu)) {
+    declared.set(match[1], Boolean(match[2]));
+  }
+  const index = await loadRuleIndex(rootDir);
+  assert.equal(declared.size, index.length);
+  for (const item of index) {
+    assert.equal(declared.get(item.id), item.hasCard, `docs/README card marker mismatch for ${item.id}`);
+  }
 });
 
 test('every packaged rule has an explicit routing group', async () => {

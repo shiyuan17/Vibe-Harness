@@ -2,6 +2,15 @@
 
 Git 规则的目标是保护用户改动、保持提交可审查，并确保 worktree 任务真正 merge-back；每个 Git 判断都以仓库实际远端事实为准，不用设想中的分支模型代替核实。
 
+## Fast Path 卡片
+
+- **默认路径**：编辑前后核对 `git status --short`，只暂存本任务改动，一个逻辑变更一个 commit；`gitBranch`、`gitCommit`、`gitPush`、`mergeRequestWrite` 互不隐含，授权覆盖时才执行，未授权只报告状态与建议命令。
+- **提交信息**：主题 `<type>(<scope>): <描述>`，正文写为什么改与被否决的方案；不用 `--no-verify`，不伪造署名 trailer。
+- **不变量**：归属不清的改动视为用户改动，不覆盖、不暂存、不提交；凭据、私钥与个人敏感数据不进入提交、提交信息或 PR/MR。
+- **继续读全文的信号**：历史改写、force push、共享分支与门禁、worktree 隔离、合并落地、冲突处理、Hook 或跨仓协作。
+
+以下为完整规则，仅当任务超出卡片或命中升级触发时继续读取。
+
 ## 启动与归属
 
 - 编辑前运行 `git status --short`；SVN 工作副本运行 `svn status`。

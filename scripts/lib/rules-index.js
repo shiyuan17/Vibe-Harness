@@ -6,6 +6,23 @@ import { pathExists, readPackJson } from './manifest.js';
 
 const RULES_MANIFEST = 'manifests/rules.json';
 
+/**
+ * The heading every layered rule uses for its top card.
+ *
+ * A rule file a host reads on demand is otherwise a single unit: routing to it
+ * costs the whole file. The card states the default execution surface so the
+ * host can stop there and read the rest only when the task exceeds it. The
+ * marker in the resident index is derived from this heading rather than
+ * declared separately, so the index can never advertise a card the file does
+ * not have.
+ */
+export const FAST_PATH_CARD_HEADING = '## Fast Path 卡片';
+
+/** @param {string} content rule file body @returns {boolean} */
+export function declaresFastPathCard(content) {
+  return new RegExp(`^${FAST_PATH_CARD_HEADING}[ \\t]*$`, 'mu').test(String(content));
+}
+
 function firstHeading(content) {
   const match = String(content).match(/^#[ \t]+(.+?)[ \t]*$/mu);
   return match ? match[1].trim() : null;
@@ -24,7 +41,7 @@ function normalizePath(value) {
  * hosts' resident instructions.
  *
  * @param {string} rootDir Pack root that owns `manifests/rules.json`.
- * @returns {Promise<Array<{ id: string, source: string, title: string }>>}
+ * @returns {Promise<Array<{ id: string, source: string, title: string, hasCard: boolean }>>}
  */
 export async function loadRuleIndex(rootDir) {
   const manifest = await readPackJson(path.join(rootDir, RULES_MANIFEST));
@@ -40,7 +57,7 @@ export async function loadRuleIndex(rootDir) {
     const content = await readFile(path.join(rootDir, source), 'utf8');
     const title = firstHeading(content);
     if (!title) throw new Error(`rule file has no first heading: ${source}`);
-    index.push({ id, source, title });
+    index.push({ hasCard: declaresFastPathCard(content), id, source, title });
   }
   return index;
 }
@@ -145,7 +162,10 @@ export function ruleGroupLabel(id) {
  * titles disambiguate the ones whose id is not self-describing, and the group
  * prefix tells the host which family of rule it is looking at.
  *
- * @param {Array<{ id: string, title: string }>} index
+ * Card-bearing rules carry a `⚡` suffix so the host knows the file starts with
+ * a card it may stop at instead of reading the whole rule.
+ *
+ * @param {Array<{ id: string, title: string, hasCard?: boolean }>} index
  * @returns {string}
  */
 export function renderRuleIndexLine(index = []) {
@@ -159,10 +179,11 @@ export function renderRuleIndexLine(index = []) {
     const label = String(item.title ?? '').toLowerCase() === String(item.id).toLowerCase()
       ? item.id
       : `${item.id}（${item.title}）`;
+    const marked = item.hasCard ? `${label}⚡` : label;
     const group = ruleGroupLabel(item.id);
     const entries = buckets.get(group);
-    if (entries) entries.push(label);
-    else buckets.set(group, [label]);
+    if (entries) entries.push(marked);
+    else buckets.set(group, [marked]);
   }
   return [...buckets.entries()]
     .filter(([, entries]) => entries.length > 0)
@@ -175,10 +196,15 @@ export function renderRuleIndexLine(index = []) {
  * budget gate so the gate measures the same text the hosts receive instead of a
  * shorter placeholder.
  *
- * @param {Array<{ id: string, title: string }>} index
+ * The legend is emitted only when an installed rule actually declares a card,
+ * so a project whose rules carry none does not pay for the explanation.
+ *
+ * @param {Array<{ id: string, title: string, hasCard?: boolean }>} index
  * @returns {string}
  */
 export function renderRulesLine(index = []) {
   const base = '- 规则位于 `docs/rules/`。';
-  return index.length === 0 ? base : `${base}命中索引：${renderRuleIndexLine(index)}。`;
+  if (index.length === 0) return base;
+  const legend = index.some((item) => item?.hasCard) ? '（⚡ 先读该规则顶部的 Fast Path 卡片）' : '';
+  return `${base}命中索引${legend}：${renderRuleIndexLine(index)}。`;
 }

@@ -39,17 +39,17 @@
 
 ## 规则
 
-分组与 `scripts/lib/rules-index.js` 的 RULE_GROUPS 一致，与 AGENTS.md 托管块生成的命中索引同构。
+分组与 `scripts/lib/rules-index.js` 的 RULE_GROUPS 一致，与 AGENTS.md 托管块生成的命中索引同构；带 ⚡ 的规则在文件顶部提供 Fast Path 卡片，命中后先读卡片、仅当任务超出卡片或命中升级触发时读全文。
 
 ### 治理
 
-- [执行内核](rules/governance-core.md)
+- [执行内核](rules/governance-core.md) ⚡
 - [Skill 编写与路由](rules/agent-skill-routing.md)
 - [Eval](rules/eval-driven-development.md)
 - [角色路由](rules/role-routing.md)
-- [Git](rules/git-rules.md)
-- [测试](rules/test-rules.md)
-- [AI 协作](rules/ai-collab-rules.md)
+- [Git](rules/git-rules.md) ⚡
+- [测试](rules/test-rules.md) ⚡
+- [AI 协作](rules/ai-collab-rules.md) ⚡
 - [审查报告规则](rules/review-report.md)
 - [表达模式规则](rules/response-modes.md)
 
@@ -67,7 +67,7 @@
 
 - [codebase-memory-mcp](rules/codebase-memory-mcp.md)
 - [Chrome DevTools MCP](rules/chrome-devtools-mcp.md)
-- [Linear 工作流](rules/linear-workflow.md)
+- [Linear 工作流](rules/linear-workflow.md) ⚡
 - [RTK](rules/rtk.md)
 - [ast-grep](rules/ast-grep.md)
 - [codegraph 仓库索引探索规则](rules/codegraph.md)

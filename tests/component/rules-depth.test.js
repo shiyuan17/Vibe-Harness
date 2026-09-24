@@ -6,7 +6,13 @@ import test from 'node:test';
 
 import { createInstallPlan, renderActionContent } from '../../scripts/lib/install-planner.js';
 import { loadAllManifests, readJson } from '../../scripts/lib/manifest.js';
-import { validateRuleCrossReferences, validateRulePortability } from '../../scripts/lib/pack-validation.js';
+import {
+  FAST_PATH_CARD_DIVIDER,
+  FAST_PATH_CARD_MIN_BYTES,
+  validateFastPathCards,
+  validateRuleCrossReferences,
+  validateRulePortability,
+} from '../../scripts/lib/pack-validation.js';
 import { scanForForbiddenTerms } from '../../scripts/lib/redaction.js';
 import { assertRuleAnchors } from '../helpers/governed-docs.js';
 
@@ -99,6 +105,52 @@ test('generic rules constrain process while retaining safety boundaries', async 
   assert.ok(linearReferences.length > 0, 'git-rules must cite linear-workflow.md for the branch model');
   for (const line of linearReferences) {
     assert.match(line, /若项目已安装该规则/u);
+  }
+});
+
+// A rule the host routes to is otherwise read as one unit, so a large rule
+// without a top card forces the whole file on every hit. The gate is
+// fail-closed in both directions: a rule above the size floor must declare a
+// card, and a declared card must be a real one — first section, closed by the
+// shared divider, with a body behind it.
+test('layered loading: large rules declare a top Fast Path card', async () => {
+  assert.deepEqual(await validateFastPathCards(rootDir), []);
+
+  const pack = await mkdtemp(path.join(tmpdir(), 'vibe-rules-cards-'));
+  const rulePath = path.join(pack, 'docs/rules/large.md');
+  const body = `${'正文说明。'.repeat(4000)}\n`;
+  const card = `## Fast Path 卡片\n\n- 默认路径：只做最小充分检查。\n\n${FAST_PATH_CARD_DIVIDER}\n`;
+  try {
+    await mkdir(path.dirname(rulePath), { recursive: true });
+
+    await writeFile(rulePath, `# 大规则\n\n${body}`, 'utf8');
+    const bytes = Buffer.byteLength(await readFile(rulePath, 'utf8'), 'utf8');
+    assert.ok(bytes >= FAST_PATH_CARD_MIN_BYTES, `fixture must exceed the floor: ${bytes}`);
+    const cardless = await validateFastPathCards(pack);
+    assert.equal(cardless.length, 1);
+    assert.match(cardless[0], /needs a top card/u);
+
+    await writeFile(rulePath, `# 大规则\n\n${card}\n## 正文\n\n${body}`, 'utf8');
+    assert.deepEqual(await validateFastPathCards(pack), []);
+
+    await writeFile(rulePath, `# 大规则\n\n## 正文\n\n${body}\n${card}\n## 补充\n\n${body}`, 'utf8');
+    assert.deepEqual(await validateFastPathCards(pack), [
+      'docs/rules/large.md must open with the "## Fast Path 卡片" section before any other section',
+    ]);
+
+    await writeFile(rulePath, `# 大规则\n\n## Fast Path 卡片\n\n- 默认路径：只做最小充分检查。\n\n## 正文\n\n${body}`, 'utf8');
+    assert.deepEqual(await validateFastPathCards(pack), [
+      `docs/rules/large.md card must close with: ${FAST_PATH_CARD_DIVIDER}`,
+    ]);
+
+    await writeFile(rulePath, `# 大规则\n\n${card}`, 'utf8');
+    assert.deepEqual(await validateFastPathCards(pack), ['docs/rules/large.md keeps a card but no rule body after it']);
+
+    // The floor is a floor: a rule below it may skip the card instead.
+    await writeFile(rulePath, '# 小规则\n\n一句话。\n', 'utf8');
+    assert.deepEqual(await validateFastPathCards(pack), []);
+  } finally {
+    await rm(pack, { force: true, recursive: true });
   }
 });
 

@@ -24,7 +24,7 @@ import { scanForForbiddenTerms } from './redaction.js';
 import { canonicalAgentsTemplate, loadAdapterCatalog, resolveAdapterEntry, skillRootPrefixes } from './adapter.js';
 import { validateDocumentation } from './docs-validation.js';
 import { renderTemplate, withDefaultTemplateData } from './template-renderer.js';
-import { loadRuleIndex, renderRulesLine } from './rules-index.js';
+import { declaresFastPathCard, FAST_PATH_CARD_HEADING, loadRuleIndex, renderRulesLine } from './rules-index.js';
 import { EXECUTE_PRESETS as PROJECTION_EXECUTE_PRESETS, WRITE_PRESETS as PROJECTION_WRITE_PRESETS } from './role-projection.js';
 import { DEFAULT_RED_ZONE_PATHS } from '../../runtime/hooks/lib/context.mjs';
 import { redZoneMatcher } from '../../runtime/hooks/lib/policy.mjs';
@@ -1760,6 +1760,78 @@ export async function validateMemoryFreshness(rootDir) {
   return memoryFreshnessViolations(currentBody, stateBody, headCommitterShortDate(rootDir));
 }
 
+/**
+ * Rules big enough that reading one in full stops being the cheap default.
+ *
+ * A host that routes to `docs/rules/<id>.md` otherwise pays for the whole file
+ * on every hit, and the largest rules cost thousands of tokens. A top card
+ * turns such a rule into a layered document: the card states the default
+ * execution surface, and the rest is read only when the task exceeds it.
+ *
+ * The threshold is the size where the saving clearly outweighs the card, and it
+ * is a floor rather than a target: any rule may carry a card, and the gate only
+ * fails a large rule that does not.
+ */
+export const FAST_PATH_CARD_MIN_BYTES = 15000;
+
+/**
+ * The line that closes every card. Keeping one sentence across rules makes the
+ * layered contract recognizable instead of file-specific prose, and the gate
+ * below fails a card that drops it.
+ */
+export const FAST_PATH_CARD_DIVIDER = '以下为完整规则，仅当任务超出卡片或命中升级触发时继续读取。';
+
+/**
+ * Check the layered-loading contract on every rule file. Fail-closed: a large
+ * rule without a card, a card that is not the first section, or a card without
+ * the shared divider all make the routing instruction that points at cards
+ * false for the project that installed the rule.
+ *
+ * @param {string} rootDir repository root
+ * @returns {Promise<string[]>} violations, sorted
+ */
+export async function validateFastPathCards(rootDir) {
+  const rulesDir = path.join(rootDir, 'docs/rules');
+  if (!(await pathExists(rulesDir))) return [];
+  const errors = [];
+  const entries = await readdir(rulesDir, { withFileTypes: true });
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
+    const relative = `docs/rules/${entry.name}`;
+    const content = await readFile(path.join(rulesDir, entry.name), 'utf8');
+    const lines = content.split(/\r?\n/u).map((line) => line.trimEnd());
+    // Same predicate the resident index uses to mark a rule, so the marker and
+    // this gate can never disagree about whether a card exists.
+    if (!declaresFastPathCard(content)) {
+      const bytes = Buffer.byteLength(content, 'utf8');
+      if (bytes >= FAST_PATH_CARD_MIN_BYTES) {
+        errors.push(`${relative} is ${bytes} bytes without a "${FAST_PATH_CARD_HEADING}" card; a rule this size needs a top card`);
+      }
+      continue;
+    }
+    const cardIndex = lines.indexOf(FAST_PATH_CARD_HEADING);
+    if (lines.filter((line) => line === FAST_PATH_CARD_HEADING).length > 1) {
+      errors.push(`${relative} declares more than one "${FAST_PATH_CARD_HEADING}" heading`);
+    }
+    const sectionIndexes = lines
+      .map((line, index) => (line.startsWith('## ') ? index : -1))
+      .filter((index) => index !== -1);
+    if (sectionIndexes[0] !== cardIndex) {
+      errors.push(`${relative} must open with the "${FAST_PATH_CARD_HEADING}" section before any other section`);
+    }
+    const bodyStart = sectionIndexes.find((index) => index > cardIndex);
+    if (bodyStart === undefined) {
+      errors.push(`${relative} keeps a card but no rule body after it`);
+      continue;
+    }
+    const card = lines.slice(cardIndex + 1, bodyStart).join('\n');
+    if (!card.includes(FAST_PATH_CARD_DIVIDER)) {
+      errors.push(`${relative} card must close with: ${FAST_PATH_CARD_DIVIDER}`);
+    }
+  }
+  return errors.sort();
+}
+
 export async function validateContentQuality(rootDir) {
   const results = await Promise.all(CONTENT_QUALITY_CHECKS.map((check) => checkRequiredTerms(rootDir, check)));
   const errors = [
@@ -1769,6 +1841,7 @@ export async function validateContentQuality(rootDir) {
     ...await validateRuleSkillParity(rootDir),
     ...await validateMemoryEntry(rootDir),
     ...await validateMemoryFreshness(rootDir),
+    ...await validateFastPathCards(rootDir),
   ];
   const agentsPath = path.join(rootDir, 'AGENTS.md');
   if (await pathExists(agentsPath)) {
@@ -1815,6 +1888,9 @@ export async function validateContentQuality(rootDir) {
   // 2026-09-22: raised 150 -> 165 for the governance-core Fast Path card (+11 lines);
   // the card enables layered loading, so per-task resident reading drops from the
   // full kernel to the ~12-line card even as the file itself grows.
+  // 2026-09-24: cards on the other large rules sit in files the host reads on
+  // demand, so they stay outside this resident budget (AGENTS.md rendered plus
+  // this rule file) and are held by validateFastPathCards instead.
   if (residentLines > 165) errors.push(`resident governance surface exceeds 165 lines: ${residentLines}`);
 
   const proseOwners = new Map();

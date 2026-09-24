@@ -4,6 +4,16 @@ Linear 保存工作状态、责任、委派与依赖；GitHub 或 GitLab 保存�
 
 默认采用轻量三层工作流：`feat/*、fix/* → develop → main`；紧急修复使用 `hotfix/* → main → develop`。`develop` 是日常集成分支，`main` 是正式发布分支；不创建长期 `release/*` 分支。任务分支应在约两个工作日内合并和删除，超出时优先拆小或用 feature flag 隔离未完成功能。
 
+## Fast Path 卡片
+
+- **默认路径**：Linear 保存状态、责任、委派与依赖，代码、提交与合并证据在 Git；先确认本轮 Issue 与授权，再实现、验证、登记。
+- **授权**：只有用户在本轮明确要求，或宿主以该 Issue 为目标显式启动，才可登记与执行；Ready、Todo 或队列可见只表示执行条件满足，不构成 execute 授权。
+- **状态**：常规代码路径在 `develop` 上只走 Todo → In Progress → In Review → Done；只有带门禁目标（`main`、`release/*`）经过 Ready to Merge。
+- **快车道不豁免高风险证据**：`develop` 不要求远端 CI 与强制审批，但高风险路径变更仍须携带 Risk Evidence 与 Independent Review Receipt。
+- **继续读全文的信号**：Execution Envelope v2 字段、Definition of Ready、原生 DAG 投影、Receipt 生命周期、并发与隔离、终止与交付。
+
+以下为完整规则，仅当任务超出卡片或命中升级触发时继续读取。
+
 ## 1 授权模型
 
 后续 v1 字段列表仅是兼容基线。高风险 Linear 执行必须使用 Execution Envelope v2，冻结 riskClass、workspace identity、允许写入根、无凭据 external targets 和宿主 enforcement 证明；v1 不授权凭据、hostWrite、externalWrite、高风险间接写入或 worktree 拓扑变化。每次自动续跑核对宿主实际提供的 Goal/thread 状态、最新用户输入、当前 Issue、cwd、worktree、branch、HEAD 和 blocker；授权沿用、局部暂停和无进展时的诊断按 governance-core 执行，Goal 状态变更使用宿主合同。Goal 完成后不得自动审计或选取下一 Ready 节点。
