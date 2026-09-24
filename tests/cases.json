@@ -3844,6 +3844,32 @@
       "addedAt": "2026-09-18"
     },
     {
+      "id": "C-harness-evals-core-014",
+      "layer": "component",
+      "file": "tests/component/harness-evals-core.test.js",
+      "ordinal": 14,
+      "name": "token billing telemetry splits fresh input, cache reads and output",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-24"
+    },
+    {
+      "id": "C-harness-evals-core-015",
+      "layer": "component",
+      "file": "tests/component/harness-evals-core.test.js",
+      "ordinal": 15,
+      "name": "trace metrics keep the cached-prefix count the Codex runner reports",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-24"
+    },
+    {
       "id": "C-harness-evals-external-001",
       "layer": "component",
       "file": "tests/component/harness-evals-external.test.js",

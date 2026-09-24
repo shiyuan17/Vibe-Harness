@@ -405,3 +405,55 @@ test('harness eval 结果把 blocked 与 failed 区分为不同终态', () => {
   });
   assert.equal(failed.status, 'failed');
 });
+
+test('token billing telemetry splits fresh input, cache reads and output', () => {
+  const attempts = [
+    { status: 'passed', tokenUsage: { inputTokens: 1000, cachedInputTokens: 900, outputTokens: 100, reasoningOutputTokens: 40, totalTokens: 1100 } },
+    { status: 'passed', tokenUsage: { inputTokens: 500, cachedTokens: 100, outputTokens: 50, reasoningOutputTokens: 0, totalTokens: 550 } },
+    // Only a pre-summed total: the split is unknown, so it must not be guessed.
+    { status: 'passed', tokenUsage: { totalTokens: 42 } },
+  ];
+  const billing = buildMetrics({ attempts }).efficiency.tokenBilling;
+  assert.equal(billing.uncachedInputTokens.value, 500);
+  assert.equal(billing.cachedInputTokens.value, 1000);
+  assert.equal(billing.outputTokens.value, 150);
+  assert.equal(billing.reasoningOutputTokens.value, 40);
+  assert.equal(billing.cacheHitRate.value, 0.666667);
+  // 500*1 (uncached) + 1000*0.1 (cached) + 150*8 (output) = 1800
+  assert.equal(billing.costUnits.value, 1800);
+  assert.equal(billing.costUnits.state, 'partial');
+  assert.deepEqual(billing.costUnits.coverage, { collected: 2, eligible: 3, total: 3 });
+  assert.deepEqual(billing.weights, { cachedInput: 0.1, output: 8, uncachedInput: 1 });
+
+  const repriced = buildMetrics({
+    attempts,
+    billingWeights: { cachedInput: 1, output: 1, uncachedInput: 1 },
+  }).efficiency.tokenBilling;
+  assert.equal(repriced.costUnits.value, 1650);
+
+  const unsplit = buildMetrics({ attempts: [{ status: 'passed', tokenUsage: { totalTokens: 42 } }] }).efficiency.tokenBilling;
+  assert.equal(unsplit.costUnits.state, 'unavailable');
+  assert.equal(unsplit.costUnits.missingReason, 'telemetry-not-reported');
+});
+
+test('trace metrics keep the cached-prefix count the Codex runner reports', async () => {
+  const written = [];
+  const backend = {
+    capabilities: ['resume'],
+    async prepare() { return {}; },
+    async run() {
+      return {
+        status: 'passed', output: 'ok', events: [], durationMs: 5,
+        tokenUsage: { inputTokens: 100, cachedInputTokens: 80, outputTokens: 20, reasoningOutputTokens: 5, totalTokens: 120 },
+      };
+    },
+    async resume() {}, async cancel() {}, async collect() {}, async cleanup() {},
+  };
+  const runner = createHarnessRunner({ backend, traceStore: { async write({ trace }) { written.push(trace); } } });
+  const execution = await runner.prepare({ scenario });
+  await runner.run(execution.executionId);
+  assert.equal(written.length, 1);
+  assert.equal(written[0].final_metrics.total_prompt_tokens, 100);
+  assert.equal(written[0].final_metrics.total_cached_tokens, 80);
+  await runner.cleanup(execution.executionId);
+});

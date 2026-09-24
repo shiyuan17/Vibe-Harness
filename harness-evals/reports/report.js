@@ -32,13 +32,14 @@ export function renderMarkdownReport(report) {
     '',
     `Results: ${report.results.length}; passed ${report.statuses.passed}; failed ${report.statuses.failed}; blocked ${report.statuses.blocked}; partial ${report.statuses.partial}; RED not reproduced ${report.statuses['not-reproduced']}.`,
     '',
-    '| Scenario | Source | Status | Task success | Workflow compliance | Tokens | Wall time |',
-    '| --- | --- | --- | --- | --- | --- | --- |',
+    '| Scenario | Source | Status | Task success | Workflow compliance | Tokens | Cache hit | Cost units | Wall time |',
+    '| --- | --- | --- | --- | --- | --- | --- | --- | --- |',
   ];
   for (const result of report.results) {
     const tokenMetric = result.metrics?.efficiency?.tokenUsage;
+    const billing = result.metrics?.efficiency?.tokenBilling;
     const wallMetric = result.metrics?.efficiency?.wallTime;
-    lines.push(`| ${result.scenario.id} | ${result.source.kind}${result.source.benchmark ? `/${result.source.benchmark}` : ''} | ${result.status} | ${ratio(result.metrics?.outcome?.taskSuccessRate)} | ${ratio(result.metrics?.workflow?.workflowCompliance)} | ${tokenMetric?.value ?? 'unavailable'} | ${wallMetric?.value ?? 'unavailable'} |`);
+    lines.push(`| ${result.scenario.id} | ${result.source.kind}${result.source.benchmark ? `/${result.source.benchmark}` : ''} | ${result.status} | ${ratio(result.metrics?.outcome?.taskSuccessRate)} | ${ratio(result.metrics?.workflow?.workflowCompliance)} | ${tokenMetric?.value ?? 'unavailable'} | ${ratio(billing?.cacheHitRate)} | ${billing?.costUnits?.value ?? 'unavailable'} | ${wallMetric?.value ?? 'unavailable'} |`);
   }
   lines.push('', '## Regression', '');
   if (!report.comparison) lines.push('No comparable baseline was supplied.');

@@ -43,7 +43,11 @@ export function createHarnessRunner({
       metrics: {
         inputTokens: attempt.tokenUsage?.inputTokens,
         outputTokens: attempt.tokenUsage?.outputTokens,
-        cachedTokens: attempt.tokenUsage?.cachedTokens,
+        // Backends spell the cached-prefix count differently: the Codex CLI
+        // runner reports `cachedInputTokens` and the trace schema expects
+        // `cachedTokens`. Reading only one spelling wrote 0 cached tokens into
+        // every trace, so a change in cache-read volume was invisible.
+        cachedTokens: attempt.tokenUsage?.cachedTokens ?? attempt.tokenUsage?.cachedInputTokens,
         toolCalls: attempt.events.filter((event) => event.type === 'tool-call').length,
       },
       extra: { execution_id: execution.executionId, attempt_id: attempt.id },

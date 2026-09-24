@@ -1,7 +1,7 @@
 export { adaptLegacyRun } from '../adapters/legacy-run.js';
 export { createBaseline } from '../baselines/baseline.js';
 export { createFixtureManager, materializeFixture } from '../fixtures/materializer.js';
-export { buildMetrics, ratioMetric, scalarMetric } from '../metrics/metrics.js';
+export { buildMetrics, DEFAULT_BILLING_WEIGHTS, ratioMetric, scalarMetric } from '../metrics/metrics.js';
 export { compareResults } from '../regressions/compare.js';
 export { compareAgentConditions } from '../regressions/collaboration.js';
 export { selectScenariosForChanges } from '../regressions/select.js';

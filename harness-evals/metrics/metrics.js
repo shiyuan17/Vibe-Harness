@@ -1,7 +1,31 @@
 const ADJUDICATED_ATTEMPT_STATUSES = new Set(['passed', 'failed']);
 
+/**
+ * Relative billing weights for the token classes providers price apart.
+ *
+ * Cached input is billed at a fraction of uncached input and output at a
+ * multiple of it, so a flat `totalTokens` sum cannot tell a change that trades
+ * cache reads for output tokens from one that removes tokens outright. These
+ * are relative weights, not prices: the pack has no authoritative price list
+ * for every provider and gateway its hosts run on, and publishing invented
+ * dollar figures would fabricate evidence. A caller that owns a price list
+ * passes its own weights through `buildMetrics({ billingWeights })`.
+ */
+export const DEFAULT_BILLING_WEIGHTS = Object.freeze({
+  cachedInput: 0.1,
+  output: 8,
+  uncachedInput: 1,
+});
+
 function round(value) {
   return Math.round(value * 1_000_000) / 1_000_000;
+}
+
+/** @param {unknown} value */
+function finiteOrNull(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 export function ratioMetric(numerator, denominator, {
@@ -75,8 +99,62 @@ function totalTelemetry(attempts, key) {
   };
 }
 
-/** @param {{attempts?: Array<Record<string, any>>, checks?: Array<Record<string, any>>}} options */
-export function buildMetrics({ attempts = [], checks = [] } = {}) {
+/**
+ * Splits one attempt's usage into billing classes. Providers report
+ * `input_tokens` inclusive of the cached prefix, and reasoning tokens inside
+ * `output_tokens`, so both are subtracted out rather than added on. An attempt
+ * that carries only a pre-summed `totalTokens` is not collected: guessing the
+ * split would silently misprice it.
+ *
+ * @param {Record<string, any>} attempt
+ * @returns {{uncachedInput: number, cachedInput: number, output: number, reasoning: number, input: number} | null}
+ */
+function attemptBilling(attempt) {
+  const usage = attempt?.tokenUsage;
+  if (!usage || typeof usage !== 'object') return null;
+  const input = finiteOrNull(usage.inputTokens ?? usage.promptTokens);
+  const output = finiteOrNull(usage.outputTokens ?? usage.completionTokens);
+  if (input === null && output === null) return null;
+  const inputTokens = Math.max(0, input ?? 0);
+  const outputTokens = Math.max(0, output ?? 0);
+  const cachedInput = Math.min(finiteOrNull(usage.cachedInputTokens ?? usage.cachedTokens) ?? 0, inputTokens);
+  return {
+    cachedInput,
+    input: inputTokens,
+    output: outputTokens,
+    reasoning: Math.min(finiteOrNull(usage.reasoningOutputTokens) ?? 0, outputTokens),
+    uncachedInput: inputTokens - cachedInput,
+  };
+}
+
+/**
+ * @param {Array<Record<string, any>>} attempts
+ * @param {{cachedInput: number, output: number, uncachedInput: number}} weights
+ */
+function tokenBilling(attempts, weights) {
+  const collected = attempts.map(attemptBilling).filter((entry) => entry !== null);
+  const coverage = { collected: collected.length, eligible: attempts.length, total: attempts.length };
+  const sum = (key) => collected.reduce((total, entry) => total + entry[key], 0);
+  const inputTokens = sum('input');
+  const cachedInput = sum('cachedInput');
+  const costUnits = collected.length === 0
+    ? null
+    : (sum('uncachedInput') * weights.uncachedInput)
+      + (cachedInput * weights.cachedInput)
+      + (sum('output') * weights.output);
+  return {
+    cachedInputTokens: scalarMetric(collected.length > 0 ? cachedInput : null, 'tokens', coverage),
+    cacheHitRate: ratioMetric(cachedInput, inputTokens, coverage),
+    costUnits: scalarMetric(costUnits === null ? null : round(costUnits), 'cost-units', coverage),
+    outputTokens: scalarMetric(collected.length > 0 ? sum('output') : null, 'tokens', coverage),
+    reasoningOutputTokens: scalarMetric(collected.length > 0 ? sum('reasoning') : null, 'tokens', coverage),
+    uncachedInputTokens: scalarMetric(collected.length > 0 ? sum('uncachedInput') : null, 'tokens', coverage),
+    weights: { ...weights },
+  };
+}
+
+/** @param {{attempts?: Array<Record<string, any>>, checks?: Array<Record<string, any>>, billingWeights?: {cachedInput: number, output: number, uncachedInput: number}}} options */
+export function buildMetrics({ attempts = [], checks = [], billingWeights = DEFAULT_BILLING_WEIGHTS } = {}) {
   const adjudicated = attempts.filter((attempt) => ADJUDICATED_ATTEMPT_STATUSES.has(attempt.status));
   const passed = adjudicated.filter((attempt) => attempt.status === 'passed').length;
   const completionClaims = adjudicated.filter((attempt) => typeof attempt.completionClaim === 'boolean');
@@ -137,6 +215,7 @@ export function buildMetrics({ attempts = [], checks = [] } = {}) {
     efficiency: {
       wallTime: scalarMetric(duration.total, 'ms', { collected: duration.collected, eligible: attempts.length, total: attempts.length }),
       tokenUsage: scalarMetric(tokenValues.length > 0 ? tokenValues.reduce((sum, value) => sum + value, 0) : null, 'tokens', { collected: tokenValues.length, eligible: attempts.length, total: attempts.length }),
+      tokenBilling: tokenBilling(attempts, billingWeights),
       toolCalls: scalarMetric(observedEventAttempts.length > 0 ? toolCalls : null, 'count', { collected: observedEventAttempts.length, eligible: attempts.length, total: attempts.length }),
       repeatedSearch: scalarMetric(observedEventAttempts.length > 0 ? repeatedSearches(events) : null, 'count', { collected: observedEventAttempts.length, eligible: attempts.length, total: attempts.length }),
       contextConsumption: scalarMetric(contextValues.length > 0 ? Math.max(...contextValues) : null, 'tokens', { collected: contextValues.length, eligible: attempts.length, total: attempts.length }),
