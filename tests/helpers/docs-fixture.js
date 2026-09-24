@@ -123,7 +123,14 @@ function primaryIndex() {
  * @returns {Promise<string>} the fixture root directory.
  */
 export async function createDocsFixture({ adrDocument = ADR_DOCUMENT } = {}) {
-  const root = await mkdtemp(path.join(repositoryRoot, 'tests', 'tmp-docs-'));
+  // Fixtures stay under `tests/tmp/` because docs-validation re-reads the
+  // working tree while component tests run in parallel: a fixture inside a
+  // scanned directory can be removed between the parent listing and the
+  // recursive read, failing the scan with ENOENT. `tmp` is already excluded
+  // from the repository scan (scripts/lib/docs-validation.js).
+  const parent = path.join(repositoryRoot, 'tests', 'tmp');
+  await mkdir(parent, { recursive: true });
+  const root = await mkdtemp(path.join(parent, 'docs-'));
   for (const directory of ['docs/adr', 'docs/archive', 'docs/memory', 'docs/rules', 'docs/schemas', 'schemas', 'templates/adr']) {
     await mkdir(path.join(root, directory), { recursive: true });
   }

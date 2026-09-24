@@ -1177,6 +1177,56 @@
         "contributor",
         "maintainer"
       ]
+    },
+    {
+      "path": "docs/templates/plan.md",
+      "kind": "plan",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "agent",
+        "maintainer"
+      ]
+    },
+    {
+      "path": "docs/plans/governance-evidence.md",
+      "kind": "plan",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "agent",
+        "maintainer"
+      ]
+    },
+    {
+      "path": "docs/templates/evidence.md",
+      "kind": "plan",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "agent",
+        "maintainer"
+      ]
+    },
+    {
+      "path": "docs/templates/less_harness_token.md",
+      "kind": "plan",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "agent",
+        "maintainer"
+      ]
+    },
+    {
+      "path": "docs/templates/review-brief.md",
+      "kind": "plan",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "agent",
+        "maintainer"
+      ]
     }
   ]
 }

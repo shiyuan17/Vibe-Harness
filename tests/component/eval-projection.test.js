@@ -12,7 +12,12 @@ const ENTRIES = [
 ];
 
 async function makeFixture({ entries = ENTRIES } = {}) {
-  const root = await mkdtemp(path.join(import.meta.dirname, 'tmp-eval-'));
+  // Keep the fixture under `tmp/`; the repository scan excludes it, so a
+  // parallel test cannot delete it mid-scan (see F2 in
+  // docs/plans/governance-evidence.md).
+  const parent = path.join(import.meta.dirname, 'tmp');
+  await mkdir(parent, { recursive: true });
+  const root = await mkdtemp(path.join(parent, 'eval-'));
   await mkdir(path.join(root, 'adapters'), { recursive: true });
   await writeFile(path.join(root, 'adapters/install-map.json'), `${JSON.stringify({ entries }, null, 2)}\n`, 'utf8');
   return root;

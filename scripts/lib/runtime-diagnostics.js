@@ -33,6 +33,65 @@ export const HOOK_COVERAGE_LIMITATIONS = [
   'Host sandbox, approval policy, process isolation, and network proxy enforcement require independent host-level verification.',
 ];
 
+/**
+ * Declared host support for starting a sub-Agent whose context does not inherit
+ * the parent session: `isolated` (a fresh context is available), `inherited`
+ * (sub-Agents only continue the parent session), `unavailable` (the host offers
+ * no sub-Agent context at all). The evidence field records how far the
+ * declaration was verified on a real host, reusing the manifest's evidence
+ * vocabulary.
+ */
+export const FRESH_CONTEXT_MODES = ['isolated', 'inherited', 'unavailable'];
+export const FRESH_CONTEXT_EVIDENCE = ['verified', 'configured-unverified', 'preview'];
+
+/**
+ * User-facing text for each fresh-context conclusion. The reason codes stay the
+ * machine contract; the sentence has to name the next useful action.
+ */
+const FRESH_CONTEXT_VERIFICATION = {
+  'FRESH_CONTEXT_CONTRADICTS_SUBAGENTS': '宿主声明 subagents 不支持，却声明了可用的 fresh-context 模式（或相反）；请对照宿主契约修正 manifests/adapters.json 后重新核对。',
+  'FRESH_CONTEXT_INHERITED_ONLY': '该宿主的子 Agent 只能继承父会话上下文，无法提供不继承的独立复审上下文；本轮不能用它承担独立复审（独立复审要求宿主真实支持 fresh context，仅新建 contextId 不构成独立性证明）。',
+  'FRESH_CONTEXT_UNDECLARED': '该宿主没有声明 fresh-context 能力；按 fail-closed 记为 unavailable，直到补上声明并在真实宿主上核对。',
+  'FRESH_CONTEXT_UNAVAILABLE': '该宿主声明没有子 Agent 上下文能力；它不能提供独立复审上下文，相关完成主张只能依赖宿主原生审批与人工复核。',
+  'FRESH_CONTEXT_UNVERIFIED': '该宿主声明可提供不继承的独立上下文，但证据状态不是 verified；`contextIndependence=verified` 只能在真实宿主证据就位后成立。',
+};
+
+/**
+ * Read one adapter's declared fresh-context capability. An absent or invalid
+ * declaration never falls back to "isolated": independent review needs a
+ * host-supported non-inheriting context, so the diagnostic stays fail-closed.
+ *
+ * @param {any} adapter
+ */
+export function inspectFreshContext(adapter) {
+  const declared = adapter?.freshContext ?? {};
+  const declaredMode = FRESH_CONTEXT_MODES.includes(declared.mode) ? declared.mode : null;
+  const evidence = FRESH_CONTEXT_EVIDENCE.includes(declared.evidence) ? declared.evidence : 'configured-unverified';
+  const mode = declaredMode ?? 'unavailable';
+  const subagents = adapter?.capabilities?.subagents;
+  const codes = [];
+  if (declaredMode === null) {
+    codes.push('FRESH_CONTEXT_UNDECLARED');
+  } else if ((subagents === 'unsupported') !== (mode === 'unavailable')) {
+    codes.push('FRESH_CONTEXT_CONTRADICTS_SUBAGENTS');
+  } else if (mode === 'inherited') {
+    codes.push('FRESH_CONTEXT_INHERITED_ONLY');
+  } else if (mode === 'unavailable') {
+    codes.push('FRESH_CONTEXT_UNAVAILABLE');
+  } else if (evidence !== 'verified') {
+    codes.push('FRESH_CONTEXT_UNVERIFIED');
+  }
+  return {
+    evidence,
+    host: typeof adapter?.id === 'string' ? adapter.id : null,
+    // Only a verified, non-inheriting context can carry an independent review;
+    // a second reviewer identity inside one context never qualifies.
+    independentReviewSupported: mode === 'isolated' && evidence === 'verified',
+    messages: codes.map((code) => ({ code, message: FRESH_CONTEXT_VERIFICATION[code] })),
+    mode,
+  };
+}
+
 export function hookConfigTarget(adapter) {
   return adapter.projectConfig?.hooks?.target || hookConfigTargets[adapter.id] || null;
 }
@@ -183,6 +242,11 @@ export async function inspectRuntimeHooks(adapter, targetDir, { hostEvidence = {
       hostContextVerified,
     },
     filesInstalled,
+    // The host's declared fresh-context capability travels with the runtime
+    // diagnostics entry because an independent review needs a context the host
+    // can really start without the implementing session, and the host report is
+    // the only place that fact is available to callers.
+    freshContext: inspectFreshContext(adapter),
     host: adapter.id,
     pathResolution: 'git-root',
     status: enforced ? 'enforced' : (!supported ? 'unsupported' : (!configured ? 'not-configured' : 'configured-unverified')),

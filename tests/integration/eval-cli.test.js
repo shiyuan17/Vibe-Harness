@@ -17,10 +17,11 @@ const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '../..');
 const cliPath = path.join(rootDir, 'scripts/vibe-harness.js');
 
-async function run(args) {
+async function run(args, { env = {} } = {}) {
   try {
     const result = await execFileAsync(process.execPath, [cliPath, ...args], {
       cwd: rootDir,
+      env: { ...process.env, ...env },
       maxBuffer: 8 * 1024 * 1024,
     });
     return { code: 0, payload: JSON.parse(result.stdout), stderr: result.stderr };
@@ -238,15 +239,21 @@ test('reference update requires confirmation and force protects existing files',
     assert.equal(unconfirmed.code, 1);
     assert.match(unconfirmed.payload.error.message, /confirm-reference-update/u);
 
-    const conflict = await run([
+    const unprotected = await run([
       'eval', 'reference', '--project', target, '--from', runPath, '--write', '--confirm-reference-update',
     ]);
+    assert.equal(unprotected.code, 1);
+    assert.match(unprotected.payload.error.message, /VIBE_HARNESS_PROTECTED_APPROVAL/u);
+
+    const conflict = await run([
+      'eval', 'reference', '--project', target, '--from', runPath, '--write', '--confirm-reference-update',
+    ], { env: { VIBE_HARNESS_PROTECTED_APPROVAL: '1' } });
     assert.equal(conflict.code, 1);
     assert.match(conflict.payload.error.message, /--force/u);
 
     const forced = await run([
       'eval', 'reference', '--project', target, '--from', runPath, '--write', '--confirm-reference-update', '--force',
-    ]);
+    ], { env: { VIBE_HARNESS_PROTECTED_APPROVAL: '1' } });
     assert.equal(forced.code, 0);
     assert.equal(forced.payload.backups.length, 1);
     const reference = JSON.parse(await readFile(path.join(target, 'evals/references/core.json'), 'utf8'));
@@ -282,7 +289,7 @@ test('threshold failures stay invalid without a reference and cannot be promoted
     const promotion = await run([
       'eval', 'reference', '--project', target, '--from', candidate.payload.written[0],
       '--write', '--confirm-reference-update',
-    ]);
+    ], { env: { VIBE_HARNESS_PROTECTED_APPROVAL: '1' } });
     assert.equal(promotion.code, 1);
     assert.match(promotion.payload.error.message, /absolute thresholds/u);
   } finally {
@@ -327,7 +334,7 @@ test('online eval uses the runner contract, degrades without reference, then pas
     const approved = await run([
       'eval', 'reference', '--project', target, '--from', first.payload.written[0],
       '--write', '--confirm-reference-update',
-    ]);
+    ], { env: { VIBE_HARNESS_PROTECTED_APPROVAL: '1' } });
     assert.equal(approved.code, 0, JSON.stringify(approved.payload));
     const second = await run([
       'eval', 'run', '--project', target, '--suite', 'online-smoke', '--mode', 'online', '--runner', command,

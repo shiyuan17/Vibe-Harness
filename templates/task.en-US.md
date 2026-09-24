@@ -1,6 +1,6 @@
 # <Task ID> <Title>
 
-> Optional human-readable note.
+> Ordinary task notes are optional. For cross-session handoff, plan drift checks, or incremental gates, use a checked-in plan at `docs/plans/<task-id>.md` and bind it with `task init --plan-file`.
 
 - Workflow tier: quick / light / full
 - Status: in progress / waiting / blocked / complete / cancelled
@@ -10,6 +10,12 @@
 ## Source
 
 ## Goal
+
+## Managed Plan
+
+- Path:
+- Plan revision:
+- Plan digest:
 
 ## Non-goals
 

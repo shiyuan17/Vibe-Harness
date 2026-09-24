@@ -128,7 +128,7 @@ rules、runtime hooks 或 config 内容变更会使 `evals/references/` 的 asse
 
 PR 说明目标、影响范围、实际验证、未验证项和必要的回滚路径。一个 commit 表达一个逻辑目的；不要用格式化或无关重构掩盖行为变化。
 
-高风险 PR 的独立审查收据由 `independent-review` job 校验，默认 shadow 模式：收据结论（mode、status、risk level、evidence codes、receiptId）追加写入 GitHub step summary，degraded 不阻断合并。切换为 required 模式（在 ci.yml 的 `independent-review` job 注入 `VIBE_HARNESS_INDEPENDENT_REVIEW_MODE=required`，degraded 即失败）需同时满足：过去 20 个高风险 PR 或连续 14 天（以先到者为准）内没有 `REVIEW_FINGERPRINT_STALE`、`REVIEW_SAME_IDENTITY` 类 degraded，且收据率（携带有效收据的高风险 PR 占比）大于 80%。指标从 step summary 与 job 运行历史回收，切换 PR 需在说明中附上统计证据；任一条件失守即移除该环境变量回退 shadow 并重新累计。
+高风险 PR 的独立审查收据由 `independent-review` job 校验，默认 shadow 模式：收据结论（mode、status、risk level、evidence codes、receiptId）追加写入 GitHub step summary，degraded 不阻断合并。v2 收据还必须包含两个不同 reviewer/context，且 `contextIndependence=verified`；`attested` 或 `unavailable` 不得支持 approved 完成主张。切换为 required 模式（在 ci.yml 的 `independent-review` job 注入 `VIBE_HARNESS_INDEPENDENT_REVIEW_MODE=required`，degraded 即失败）需同时满足：过去 20 个高风险 PR 或连续 14 天（以先到者为准）内没有 `REVIEW_FINGERPRINT_STALE`、`REVIEW_SAME_IDENTITY` 类 degraded，且收据率（携带有效收据的高风险 PR 占比）大于 80%。指标从 step summary 与 job 运行历史回收，切换 PR 需在说明中附上统计证据；任一条件失守即移除该环境变量回退 shadow 并重新累计。
 
 普通功能与修复从最新 <code>develop</code> 创建短期 <code>feat/*</code> 或 <code>fix/*</code> 分支，并以 squash merge 合入 <code>develop</code>。紧急线上修复从 <code>main</code> 创建 <code>hotfix/*</code>，合入 <code>main</code> 后立即把 <code>main</code> 回同步到 <code>develop</code>。正式发布以 merge commit 将 <code>develop</code> 提升到 <code>main</code>；不得创建长期 <code>release/*</code> 分支。发布成功后必须将 <code>main</code> 回同步到 <code>develop</code>，版本文件未回同步时不得开始下一次发布提升。
 

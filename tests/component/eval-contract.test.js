@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -20,6 +21,62 @@ import { scoreCase } from '../../scripts/lib/eval-scoring.js';
 
 const rootDir = path.resolve(import.meta.dirname, '../..');
 const execFileAsync = promisify(execFile);
+
+// Every path the eval fingerprint hashes (see scripts/lib/eval-assets.js), plus
+// the shipped pack surface the CLI imports from. Staged packs let a test
+// exercise `--write` end to end without the checked-in run and reference being
+// the write target.
+const evalPackPaths = [
+  'vibe-harness.config.json',
+  'package.json',
+  'manifests',
+  'schemas',
+  'runtime',
+  '.agents/runtime/hooks',
+  'docs/rules',
+  'roles',
+  'docs/agent-roles',
+  '.agents/roles',
+  '.codex/agents',
+  '.claude/agents',
+  '.gemini/agents',
+  '.cursor/agents',
+  '.qoder/agents',
+  '.zcode/plugins/vibe-harness-roles',
+  '.agents/agents',
+  '.opencode/agents',
+  'skills',
+  '.agents/skills',
+  'evals',
+  'scripts',
+  'templates',
+  'adapters',
+  'harness-evals',
+];
+
+async function stageEvalPack(targetDir) {
+  for (const relative of evalPackPaths) {
+    try {
+      await cp(path.join(rootDir, relative), path.join(targetDir, relative), { recursive: true });
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+  }
+  // The CLI imports the pack's runtime dependencies; the staged pack borrows
+  // them through a junction instead of copying the whole store. node_modules is
+  // not part of any eval asset group, so the fingerprint stays unaffected.
+  await symlink(path.join(rootDir, 'node_modules'), path.join(targetDir, 'node_modules'), 'junction');
+  return targetDir;
+}
+
+async function runEvalReplayCli(scriptPath, args, cwd) {
+  try {
+    const result = await execFileAsync(process.execPath, [scriptPath, ...args], { cwd, windowsHide: true });
+    return { code: 0, stderr: result.stderr, stdout: result.stdout };
+  } catch (error) {
+    return { code: error.code, stderr: `${error.stderr ?? ''}`, stdout: `${error.stdout ?? ''}` };
+  }
+}
 
 test('eval schemas use draft 2020-12 with compatible versions', async () => {
   for (const name of ['eval-suite', 'eval-run', 'eval-reference']) {
@@ -612,20 +669,58 @@ test('offline replay artifact regeneration creates a missing artifact without a 
   }
 });
 
-test('eval replay CLI regenerates the artifact only with --write and rejects unknown arguments', async () => {
-  const scriptPath = path.join(rootDir, 'scripts/eval-replay.js');
-  const write = await execFileAsync(process.execPath, [scriptPath, '--write', '--json'], { cwd: rootDir });
-  const report = JSON.parse(write.stdout);
-  assert.equal(report.ok, true);
-  assert.equal(report.reference, 'matched');
-  assert.equal(report.status, 'current');
-  assert.equal(report.path, OFFLINE_RESULT_PATH);
-  assert.deepEqual(report.written, []);
+test('eval replay CLI writes only inside the pack it evaluates and rejects unknown arguments', async () => {
+  const packRoot = await mkdtemp(path.join(tmpdir(), 'vibe-eval-replay-pack-'));
+  try {
+    await stageEvalPack(packRoot);
+    // A staged pack that fingerprints differently from the source would prove
+    // nothing about the real assets, so the copy is verified first.
+    assert.deepEqual(await createEvalAssetFingerprint(packRoot), await createEvalAssetFingerprint(rootDir));
 
-  await assert.rejects(
-    execFileAsync(process.execPath, [scriptPath, '--bogus'], { cwd: rootDir }),
-    (error) => error.code === 1 && /unknown argument/u.test(error.stderr),
-  );
+    const scriptPath = path.join(packRoot, 'scripts/eval-replay.js');
+    const referencePath = path.join(packRoot, 'evals/references/vibe-harness-core.offline.json');
+    const artifactPath = path.join(packRoot, OFFLINE_RESULT_PATH);
+    const tracked = [OFFLINE_RESULT_PATH, 'evals/references/vibe-harness-core.offline.json'];
+    const sourceHash = async (relative) => createHash('sha256').update(await readFile(path.join(rootDir, relative))).digest('hex');
+    const before = await Promise.all(tracked.map(sourceHash));
+
+    // Driving the artifact stale makes the regeneration path independent of
+    // whether the checked-in pair is currently consistent.
+    const stale = await readJson(artifactPath);
+    stale.fingerprint.assets.aggregateHash = '0'.repeat(64);
+    await writeFile(artifactPath, `${JSON.stringify(stale, null, 2)}\n`, 'utf8');
+
+    const regenerated = await runEvalReplayCli(scriptPath, ['--write', '--json'], packRoot);
+    const first = JSON.parse(regenerated.stdout);
+    assert.equal(first.status, 'updated');
+    assert.equal(first.path, OFFLINE_RESULT_PATH);
+    assert.deepEqual(first.written, [OFFLINE_RESULT_PATH]);
+    assert.equal(first.backups.length, 1);
+    assert.equal(path.isAbsolute(first.backups[0].backup), false, 'backups stay inside the evaluated pack');
+
+    // With the staged reference aligned to the regenerated run the CLI reports a
+    // current pack, which is what `pnpm eval:replay --write` asserts in CI.
+    const reference = await readJson(referencePath);
+    reference.fingerprint = (await readJson(artifactPath)).fingerprint;
+    await writeFile(referencePath, `${JSON.stringify(reference, null, 2)}\n`, 'utf8');
+
+    const current = JSON.parse((await runEvalReplayCli(scriptPath, ['--write', '--json'], packRoot)).stdout);
+    assert.equal(current.ok, true);
+    assert.equal(current.reference, 'matched');
+    assert.equal(current.status, 'current');
+    assert.equal(current.path, OFFLINE_RESULT_PATH);
+    assert.deepEqual(current.written, []);
+
+    // The point of the staged pack: nothing above may touch the checked-in pair.
+    assert.deepEqual(await Promise.all(tracked.map(sourceHash)), before);
+
+    const bogus = await runEvalReplayCli(scriptPath, ['--bogus'], packRoot);
+    assert.equal(bogus.code, 1);
+    assert.match(bogus.stderr, /unknown argument/u);
+    assert.deepEqual(await Promise.all(tracked.map(sourceHash)), before);
+  } finally {
+    await rm(packRoot, { force: true, recursive: true });
+  }
 });
 
 test('offline replay evaluates forbidden secret text before sanitizing persisted output', async () => {

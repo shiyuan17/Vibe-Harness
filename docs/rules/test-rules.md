@@ -138,7 +138,8 @@ Agent 测试终态优先于固定过程：合法替代路径不应判为失败�
 - 临时资源在测试结束时清理，断言失败也执行 cleanup。
 - 优先依赖注入式替身；需要自动还原时使用运行器内置 mock 机制。
 - 不提交无意跳过测试的残留；合法条件跳过必须显式说明环境条件。
-- 缺陷修复先写暴露该缺陷的复现测试，再实施修复。
+- 缺陷修复先写暴露该缺陷的复现测试，再确认目标断言真实失败并冻结复现测试、相关验收测试、fixture、快照、测试辅助代码和影响判据的配置，之后才实施修复。修复阶段不得修改、删除、重命名、绕过或无理由更新冻结资产；测试确有错误时必须由独立受保护的评审/CI 收据批准，重新确认红灯后建立新基线。不能把语法错误、依赖缺失、超时或零测试执行登记为有效红灯：`freeze-tests` 机器校验红灯来源，只接受 `test`／`eval` 检查的失败（`VIBE_HARNESS_RED_CHECK_NOT_TEST`），拒绝超时与自相矛盾的收据（`VIBE_HARNESS_RED_EVIDENCE_INVALID`）、工作区在运行中变化的收据（`VIBE_HARNESS_RED_EVIDENCE_UNSTABLE`）、语法错误（`VIBE_HARNESS_RED_EVIDENCE_SYNTAX`）、依赖缺失（`VIBE_HARNESS_RED_EVIDENCE_DEPENDENCY`）、零用例执行（`VIBE_HARNESS_RED_EVIDENCE_EMPTY`）、点名了别的目标而未覆盖被冻结路径的命令（`VIBE_HARNESS_RED_PATH_UNCOVERED`），以及来自其他任务的收据（`VIBE_HARNESS_RED_EVIDENCE_TASK_MISMATCH`）。
+- `freeze-tests` 写入的冻结路径由 PreToolUse 作为机器门禁消费：结构化编辑与补丁头按目标拒绝；shell 侧拒绝「写形命令点名冻结资产」与「解析出的写入目标命中冻结资产」，写动词清单与只读分类共用同一真值源，覆盖 `Remove-Item`、`Rename-Item`、`Clear-Content`、`rd`／`rmdir`、`sed -i`、`dd of=`、`rsync` 等删除、重命名与覆盖形式，重定向按目标解析（拒绝写入冻结资产，允许把冻结测试的输出重定向到别处），项目内符号链接别名按真实路径拦截；锚点自身按控制面保护。无法解析目标的结构化写请求仍然 fail-closed，纯 shell 命令的不可解析目标属已声明覆盖边界。命令检查无法跟随任意代码，未点名冻结资产的脚本间接写入同样属已声明的 Hook 覆盖边界，不得据此宣称完整防护。只有 `rebaseline-tests` 携带宿主受保护批准信号后才能替换冻结基线。
 - flaky 测试须隔离并限期修复，不以重跑掩盖；隔离项必须绑定可核对的技术债 ID、owner 和关闭条件，重试只允许有界且必须报告。
 - 测试断言行为而非实现细节，重构不应要求同步修改测试；替身只接既有依赖边界，不在产品实现中引入仅测试使用的辅助路径。
 - 项目可设置与环境和历史耗时匹配的失败兜底超时。单元和 Eval 约 30 秒、集成约 120 秒仅是 Vibe-Harness 参考值，不是目标项目通用门禁。

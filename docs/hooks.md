@@ -1,6 +1,6 @@
 # Hook 安全策略
 
-Vibe-Harness Hook 只执行项目级安全策略。它不创建任务状态、不运行测试、不检查交付文本、不在 Stop 时提交，也不执行 git push。
+Vibe-Harness Hook 只执行项目级安全策略，并叠加一道只读门禁：已冻结的验收测试资产不能被改写。它不创建任务状态、不运行测试、不检查交付文本、不在 Stop 时提交，也不执行 git push。
 
 ## 事件能力矩阵
 
@@ -17,7 +17,7 @@ Vibe-Harness Hook 只执行项目级安全策略。它不创建任务状态、�
 | Antigravity | preview | unsupported | unsupported | config-file |
 | OpenCode | unsupported | unsupported | unsupported | unsupported |
 
-PreToolUse 阻止危险 Git、全局 Agent 配置写入、凭据外传、红区文件上传和项目边界外写入。PermissionRequest 对相同硬边界执行拒绝；其他审批仍由宿主控制。
+PreToolUse 阻止危险 Git、全局 Agent 配置写入、凭据外传、红区文件上传、项目边界外写入、控制面直写与冻结测试资产写入。PermissionRequest 对相同硬边界执行拒绝；其他审批仍由宿主控制。
 
 Codex 投影的 PreToolUse <code>matcher</code> 为 <code>.*</code>，即对宿主上报的每个工具名求值（不再枚举 Bash、Edit、Write、ApplyPatch、apply_patch 与 mcp__.*）：宿主新增的工具不会因为不在枚举里而静默跳过策略。宿主把含正则元字符的 matcher 按未锚定的 JavaScript 正则求值，这与 Claude Code 文档中的匹配路径一致，也正是选择 <code>.*</code> 而不是依赖 <code>*</code> 特殊语义的原因。
 
@@ -36,7 +36,7 @@ manifest 的 `hookEvents` 与 `hookActivation` 是事件能力的单一事实源
 | 解释器与工具链（node、python、pytest、go、cargo、dotnet、mvn、gradle、make、cmake、bundle、php 等） | workspaceWrite、standard | 允许，与既有 Node 工具链一致 |
 | 本地宿主函数工具（view_image、update_plan、agent、spawn_agent、task、read_file，以及 read_thread、read_thread_terminal、list_threads、list_archived_threads、wait_threads、list_agents、list_projects、get_goal、get_handoff_status） | 无副作用 | 允许 |
 | 写类子命令（delete、remove、apply、destroy、create 等）与未分类命令 | 高风险或无法判定 | 需要 Execution Envelope，否则拒绝 |
-| 危险 Git、全局 Agent 配置写入、凭据外传、红区上传、项目边界外写入 | 明确禁止 | 直接拒绝 |
+| 危险 Git、全局 Agent 配置写入、凭据外传、红区上传、项目边界外写入、控制面直写、冻结测试资产写入 | 明确禁止 | 直接拒绝 |
 
 Shell 分段与读写谓词同样来自该模块，因此同一条命令在策略层与 Envelope 层的只读结论一致。apply_patch 的载荷是文件内容而非 shell 命令，只按补丁目标路径判定写入范围，不做命令替换、重定向或续行检查。
 
@@ -49,6 +49,14 @@ MCP 工具先按「服务器 + 工具名」查显式合同表，再回退到「�
 项目内的 .codex、.claude、.cursor、.gemini 目录不是全局 Agent 配置；只有位于家目录之下、紧跟家目录的配置目录才命中全局配置规则，读取这些目录不视为写入。
 
 Gemini 与 OpenCode 的 Hook 机制不被支持（`hookActivation: unsupported`）。Gemini 在 `--allow-preview` 下仍会把 Hook 文件落到 `.agents/runtime/hooks/`，多宿主项目中这些文件也可能由其他目标共装，但它们不会被该宿主激活；OpenCode 不安装项目 Hook。OpenCode 的配置文件仍属于默认红区，其他已安装的 stable Hook 可在多宿主项目中保护这些路径；这不代表 OpenCode 自身拥有 Hook 防护。install／validate／doctor 对这种「文件已落盘、宿主不支持激活」的状态以 `HOOK_ACTIVATION_UNSUPPORTED` 警告按宿主归因透出，报告字段 `runtimeHooks.filesInstalled` 区分「文件在盘」与「宿主支持」。
+
+## 冻结测试资产
+
+受管任务锚点可以把一次缺陷修复的验收资产冻结起来。当 `.vibe-harness/tasks/` 下的锚点带有 `units[].testFreeze.paths` 且 `status: frozen` 时，PreToolUse 拒绝任何解析后命中这些路径（或其父目录）的写入：结构化编辑工具与 `*** Update/Add/Delete File:` 补丁头按目标拒绝；shell 命令拒绝「写形命令点名冻结资产」和「解析出的写入目标命中冻结资产」，写动词清单与只读分类共用 `read-only-commands.mjs` 的同一真值源（覆盖 `Remove-Item`、`Rename-Item`、`Clear-Content`、`rd`／`rmdir`、`sed -i`、`dd of=`、`rsync` 等），重定向按目标解析，解释器内联代码按交给文件 API 的字面路径判定，只经符号链接到达该资产的路径按真实路径拦截。因此运行与读取冻结测试始终可用（`node --test tests/frozen.test.js > node-test.log` 与 `… | tee report.txt` 都放行），而任何命中冻结资产的目标都拒绝。无法解析出目标的结构化写请求以 `FROZEN_TEST_WRITE_TARGET_UNKNOWN` 拒绝而不是放行，锚点不可读时以 `FROZEN_TEST_STATE_UNAVAILABLE` 拒绝；两者保持 fail-closed，因为被静默跳过的冻结没有第二道门禁兜底。命令行无法跟随的任意代码写入（未点名冻结资产）是已声明的覆盖边界，不宣称完整防护。
+
+锚点本身属于控制面：对 `.vibe-harness/tasks/` 的直接编辑、补丁或 shell 写入以 `CONTROL_PLANE_WRITE` 拒绝，冻结不能通过改写记录它的文件来解除。该门禁只读；`run.mjs task freeze-tests` 是建立冻结的唯一写入方，`rebaseline-tests` 额外要求宿主受保护批准收据。它在 `hooks.mode = off` 的提前返回之前生效——off 关闭的是安全策略，不是已冻结的验收基线——并且不参与任务完成判定。
+
+红区与控制面判定按解析后的真实路径匹配，项目内符号链接别名不再是绕过通道；无法解析出真实路径的候选保留字面路径，并由项目边界判定兜底拒绝。
 
 ## 路径解析
 

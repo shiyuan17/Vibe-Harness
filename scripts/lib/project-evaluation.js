@@ -528,7 +528,19 @@ function referenceFromRun(run, approvedAt) {
   };
 }
 
-export async function writeProjectEvaluationReference({ config, force = false, from, now = new Date(), rootDir, targetDir, write = false }) {
+export async function writeProjectEvaluationReference({
+  config,
+  force = false,
+  from,
+  now = new Date(),
+  protectedApproval = false,
+  rootDir,
+  targetDir,
+  write = false,
+}) {
+  if (write && protectedApproval !== true) {
+    throw evalError('EVAL_REFERENCE_PROTECTED_APPROVAL_REQUIRED', 'Evaluation reference writes require host-provided protected approval (VIBE_HARNESS_PROTECTED_APPROVAL=1).');
+  }
   const schemas = await loadSchemas(rootDir);
   const runPath = await resolveProjectPath(targetDir, from, 'evaluation run source');
   const run = await readJson(runPath);

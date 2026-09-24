@@ -193,7 +193,7 @@ test('help 覆盖含 worktree、slice、patch 与 task 在内的全部项目命�
   assert.match(result.report.worktree, /worktree <list\|check\|bootstrap\|land\|cleanup\|recover>/u);
   assert.match(result.report.worktree, /dry-run until --write/u);
   assert.match(result.report.worktree, /land merges the attributed worktree back into the primary checkout current branch/u);
-  assert.match(result.report.task, /task <init\|update\|status\|list>/u);
+  assert.match(result.report.task, /task <init\|update\|status\|list\|plan-check\|plan-sync\|check\|freeze-tests\|rebaseline-tests>/u);
   assert.match(result.report.reuse, /--reuse/u);
 });
 

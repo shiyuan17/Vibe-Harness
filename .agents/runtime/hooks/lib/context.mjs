@@ -55,9 +55,16 @@ async function readProjectedRedZonePaths(rootDir) {
   }
 }
 
+// Control-plane paths are managed state that only the transaction-style
+// installers and the runtime CLI write. `.vibe-harness/tasks/` holds the task
+// anchors that record unit status, verification receipts and frozen test
+// assets, so a direct edit there could silently un-freeze an acceptance
+// baseline or fabricate a passed receipt; it is denied like the rest of the
+// control plane and stays writable only through `run.mjs task ... --write`.
 export const CONTROL_PLANE_PATHS = [
   'vibe-harness.config.json',
   '.vibe-harness/install-state.json',
+  '.vibe-harness/tasks/',
   '.agents/runtime/hooks/',
   '.agents/hooks.json',
   '.agents/mcp_config.json',

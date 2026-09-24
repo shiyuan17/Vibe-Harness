@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
@@ -94,7 +94,7 @@ test('task init 在 --write 前保持 dry-run，写入后落盘锚点', async ()
     assert.equal('dryRun' in wet.report, false);
 
     const anchor = await readAnchor(project, 'alpha');
-    assert.equal(anchor.schemaVersion, 1);
+    assert.equal(anchor.schemaVersion, 2);
     assert.equal(anchor.taskId, 'alpha');
     assert.equal(anchor.title, 'Anchor A');
     assert.equal(anchor.stage, 'plan');
@@ -617,6 +617,523 @@ test('help 说明锚点目录与重放状态', async () => {
   const result = await runCommand(['help', '--json'], { cwd: rootDir });
   assert.equal(result.exitCode, 0);
   assert.match(result.report.task, /\.vibe-harness\/tasks\/<task-id>\.json/u);
-  assert.match(result.report.task, /task <init\|update\|status\|list>/u);
+  assert.match(result.report.task, /task <init\|update\|status\|list\|plan-check\|plan-sync\|check\|freeze-tests\|rebaseline-tests>/u);
   assert.match(result.report.reuse, /status "reused"/u);
+});
+
+test('受管计划绑定、漂移检查与 plan-sync 阻断更新', async () => {
+  const project = await tempProject();
+  try {
+    await mkdir(path.join(project, 'docs', 'plans'), { recursive: true });
+    const planPath = path.join(project, 'docs', 'plans', 'handoff.md');
+    const plan = [
+      '# Handoff',
+      '',
+      '## Goal',
+      'Ship a handoff-ready task.',
+      '',
+      '## Non-goals',
+      'Do not change the public API.',
+      '',
+      '## Plan of Work',
+      'Implement the runtime contract.',
+      '',
+      '## Validation and Acceptance',
+      'Run the focused integration test.',
+    ].join('\n');
+    await writeFile(planPath, `${plan}\n`, 'utf8');
+    const init = await runCommand([
+      'task', 'init', 'handoff', '--title', 'Handoff', '--goal', 'Ship it',
+      '--plan-file', 'docs/plans/handoff.md', '--write', '--json',
+    ], { cwd: project });
+    assert.equal(init.report.status, 'passed');
+    assert.equal(init.report.anchor.planFile, 'docs/plans/handoff.md');
+    assert.equal(init.report.anchor.planRevision.length, 12);
+
+    await writeFile(planPath, `${plan}\n\n## Decision Log\nChanged the implementation order.\n`, 'utf8');
+    const drift = await runCommand(['task', 'plan-check', 'handoff', '--json'], { cwd: project });
+    assert.equal(drift.report.status, 'failed');
+    assert.equal(drift.report.code, 'VIBE_HARNESS_PLAN_DRIFT');
+    const blocked = await runCommand(['task', 'update', 'handoff', '--stage', 'implement', '--write', '--json'], { cwd: project });
+    assert.equal(blocked.report.status, 'failed');
+    assert.equal(blocked.report.code, 'VIBE_HARNESS_PLAN_DRIFT');
+    await writeConfig(project, { test: 'node -e "process.exit(0)"' });
+    const verifyBlocked = await runCommand(['verify', '--task', 'handoff', '--json'], { cwd: project });
+    assert.equal(verifyBlocked.report.status, 'blocked');
+    assert.equal(verifyBlocked.report.code, 'VIBE_HARNESS_PLAN_DRIFT');
+
+    const sync = await runCommand(['task', 'plan-sync', 'handoff', '--reason', 'implementation order changed', '--write', '--json'], { cwd: project });
+    assert.equal(sync.report.status, 'passed');
+    const checked = await runCommand(['task', 'plan-check', 'handoff', '--json'], { cwd: project });
+    assert.equal(checked.report.status, 'passed');
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
+
+test('受管计划拒绝项目外路径和缺少必需章节的文件', async () => {
+  const project = await tempProject();
+  try {
+    await mkdir(path.join(project, 'docs', 'plans'), { recursive: true });
+    await writeFile(path.join(project, 'docs', 'plans', 'invalid.md'), '# Invalid\n', 'utf8');
+    const invalid = await runCommand([
+      'task', 'init', 'invalid', '--title', 'Invalid', '--goal', 'Reject it',
+      '--plan-file', 'docs/plans/invalid.md', '--write', '--json',
+    ], { cwd: project });
+    assert.equal(invalid.report.status, 'failed');
+    assert.equal(invalid.report.code, 'VIBE_HARNESS_PLAN_INVALID');
+
+    const outside = await runCommand([
+      'task', 'init', 'outside', '--title', 'Outside', '--goal', 'Reject it',
+      '--plan-file', '../outside.md', '--write', '--json',
+    ], { cwd: project });
+    assert.equal(outside.report.status, 'failed');
+    assert.equal(outside.report.code, 'VIBE_HARNESS_PLAN_OUTSIDE_PROJECT');
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
+
+// Builds a handoff plan whose acceptance table holds A-001 and A-002, so a
+// fresh reader can see the machine-readable execution block next to the prose
+// the block is bound to.
+function planWithUnits(units, extra = {}, acceptance = ['A-001', 'A-002']) {
+  return [
+    '# Handoff',
+    '',
+    '## 目标',
+    '交付可交接的计划。',
+    '',
+    '## 非目标',
+    '不改公共 API。',
+    '',
+    '## 实施顺序',
+    '按执行块中的单元推进。',
+    '',
+    '## 验收方式',
+    '',
+    '| 验收 ID | 判据 | 命令或操作 | 预期结果 | 证据 |',
+    '|---|---|---|---|---|',
+    ...acceptance.map((id) => `| ${id} | 判据 ${id} | node --test | 通过 | 测试输出 |`),
+    '',
+    '## 实施单元',
+    '',
+    '```plan-units',
+    JSON.stringify({ allowedScope: ['runtime/**'], protectedAssets: ['evals/**'], units, ...extra }, null, 2),
+    '```',
+  ].join('\n');
+}
+
+async function bindPlan(project, taskId, planText) {
+  await mkdir(path.join(project, 'docs', 'plans'), { recursive: true });
+  const planPath = path.join(project, 'docs', 'plans', `${taskId}.md`);
+  await writeFile(planPath, `${planText}\n`, 'utf8');
+  const init = await runCommand([
+    'task', 'init', taskId, '--title', taskId, '--goal', 'Ship it',
+    '--plan-file', `docs/plans/${taskId}.md`, '--write', '--json',
+  ], { cwd: project });
+  assert.equal(init.report.status, 'passed');
+  return planPath;
+}
+
+test('plan-check 通过自洽的执行块并报出单元与验收绑定', async () => {
+  const project = await tempProject();
+  try {
+    await bindPlan(project, 'units', planWithUnits([
+      { id: 'U1', title: '边界', files: ['runtime/commands/run.mjs'], dependsOn: [], acceptance: ['A-001'] },
+      { id: 'U2', title: '文档', files: ['runtime/hooks/README.md'], dependsOn: ['U1'], acceptance: ['A-002'] },
+    ]));
+    const checked = await runCommand(['task', 'plan-check', 'units', '--json'], { cwd: project });
+    assert.equal(checked.report.status, 'passed');
+    assert.equal(checked.report.units.present, true);
+    assert.equal(checked.report.units.count, 2);
+    assert.deepEqual(checked.report.units.ids, ['U1', 'U2']);
+    assert.deepEqual(checked.report.units.warnings, []);
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
+
+test('plan-check 拒绝执行块越界与受保护资产写入', async () => {
+  const project = await tempProject();
+  try {
+    await bindPlan(project, 'scope', planWithUnits([
+      { id: 'U1', title: '越界', files: ['docs/plans/other.md'], dependsOn: [], acceptance: ['A-001'] },
+      { id: 'U2', title: '受保护', files: ['evals/results/x.json'], dependsOn: [], acceptance: ['A-001'] },
+    ]));
+    const checked = await runCommand(['task', 'plan-check', 'scope', '--json'], { cwd: project });
+    assert.equal(checked.report.status, 'failed');
+    assert.equal(checked.report.code, 'VIBE_HARNESS_PLAN_UNITS_INVALID');
+    const codes = checked.report.problems.map((item) => item.code);
+    assert.ok(codes.includes('VIBE_HARNESS_PLAN_SCOPE_VIOLATION'), codes.join(','));
+    assert.ok(codes.includes('VIBE_HARNESS_PLAN_PROTECTED_ASSET'), codes.join(','));
+    // The dispatch gate reads the same verdict: a drifting scope blocks update.
+    const blocked = await runCommand(['task', 'update', 'scope', '--stage', 'implement', '--write', '--json'], { cwd: project });
+    assert.equal(blocked.report.status, 'failed');
+    assert.equal(blocked.report.code, 'VIBE_HARNESS_PLAN_UNITS_INVALID');
+
+    // Touching a protected asset is only legal when the same unit repeats that
+    // exact asset, so the exception is visible in the plan's own text.
+    await bindPlan(project, 'granted', planWithUnits([
+      {
+        id: 'U1',
+        title: '受批准写入受保护资产',
+        files: ['evals/results/x.json', 'runtime/a.mjs'],
+        protectedAssets: ['evals/**'],
+        dependsOn: [],
+        acceptance: ['A-001'],
+      },
+    ], { allowedScope: ['runtime/**', 'evals/**'] }));
+    const granted = await runCommand(['task', 'plan-check', 'granted', '--json'], { cwd: project });
+    assert.equal(granted.report.status, 'passed');
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
+
+test('plan-check 拒绝非法依赖与依赖成环', async () => {
+  const project = await tempProject();
+  try {
+    await bindPlan(project, 'deps', planWithUnits([
+      { id: 'U1', title: '未知前驱', files: ['runtime/a.mjs'], dependsOn: ['U9'], acceptance: ['A-001'] },
+      { id: 'U2', title: '自依赖', files: ['runtime/b.mjs'], dependsOn: ['U2'], acceptance: ['A-001'] },
+      { id: 'U3', title: '成环', files: ['runtime/c.mjs'], dependsOn: ['U4'], acceptance: ['A-001'] },
+      { id: 'U4', title: '成环', files: ['runtime/d.mjs'], dependsOn: ['U3'], acceptance: ['A-001'] },
+    ]));
+    const checked = await runCommand(['task', 'plan-check', 'deps', '--json'], { cwd: project });
+    assert.equal(checked.report.status, 'failed');
+    const codes = checked.report.problems.map((item) => item.code);
+    assert.deepEqual([...new Set(codes)], ['VIBE_HARNESS_PLAN_DEPENDENCY_INVALID']);
+    assert.ok(checked.report.problems.some((item) => /unknown unit U9/u.test(item.message)));
+    assert.ok(checked.report.problems.some((item) => /depends on itself/u.test(item.message)));
+    assert.ok(checked.report.problems.some((item) => /cycle/u.test(item.message)));
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
+
+test('plan-check 拒绝未绑定的验收 ID 并把未认领验收记为警告', async () => {
+  const project = await tempProject();
+  try {
+    await bindPlan(project, 'accept', planWithUnits([
+      { id: 'U1', title: '引用不存在验收', files: ['runtime/a.mjs'], dependsOn: [], acceptance: ['A-099'] },
+      { id: 'U2', title: '无验收', files: ['runtime/b.mjs'], dependsOn: [], acceptance: [] },
+    ]));
+    const checked = await runCommand(['task', 'plan-check', 'accept', '--json'], { cwd: project });
+    assert.equal(checked.report.status, 'failed');
+    const codes = checked.report.problems.map((item) => item.code);
+    assert.deepEqual([...new Set(codes)], ['VIBE_HARNESS_PLAN_ACCEPTANCE_UNBOUND']);
+    assert.ok(checked.report.problems.some((item) => /A-099/u.test(item.message)));
+    assert.ok(checked.report.problems.some((item) => /claims no acceptance id/u.test(item.message)));
+
+    await bindPlan(project, 'unclaimed', planWithUnits([
+      { id: 'U1', title: '只认领一条', files: ['runtime/a.mjs'], dependsOn: [], acceptance: ['A-001'] },
+    ]));
+    const warned = await runCommand(['task', 'plan-check', 'unclaimed', '--json'], { cwd: project });
+    assert.equal(warned.report.status, 'passed');
+    assert.deepEqual(warned.report.units.warnings.map((item) => item.code), ['VIBE_HARNESS_PLAN_ACCEPTANCE_UNCLAIMED']);
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
+
+test('缺少执行块的旧计划只产生警告并保持可绑定', async () => {
+  const project = await tempProject();
+  try {
+    await bindPlan(project, 'legacy', planWithUnits([], {}, ['A-001']).replace(/\n## 实施单元[\s\S]*$/u, ''));
+    const checked = await runCommand(['task', 'plan-check', 'legacy', '--json'], { cwd: project });
+    assert.equal(checked.report.status, 'passed');
+    assert.equal(checked.report.units.present, false);
+    // Without a block there is no unit list to claim acceptance with, so the
+    // only honest signal is "the machine-readable contract is missing".
+    assert.deepEqual(checked.report.units.warnings.map((item) => item.code), ['VIBE_HARNESS_PLAN_UNITS_MISSING']);
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
+
+test('task check 拒绝执行块未声明的单元', async () => {
+  const project = await tempProject();
+  try {
+    await bindPlan(project, 'declared', planWithUnits([
+      { id: 'U1', title: '声明过的单元', files: ['runtime/a.mjs'], dependsOn: [], acceptance: ['A-001'] },
+    ]));
+    for (const unit of ['U1', 'U2']) {
+      const recorded = await runCommand(['task', 'update', 'declared', '--unit-status', `${unit}:in_progress`, '--write', '--json'], { cwd: project });
+      assert.equal(recorded.report.status, 'passed', unit);
+    }
+    const undeclared = await runCommand(['task', 'check', 'declared', '--unit', 'U2', '--json'], { cwd: project });
+    assert.equal(undeclared.report.status, 'failed');
+    assert.equal(undeclared.report.code, 'VIBE_HARNESS_PLAN_UNIT_UNDECLARED');
+    const declared = await runCommand(['task', 'check', 'declared', '--unit', 'U1', '--json'], { cwd: project });
+    assert.equal(declared.report.status, 'failed');
+    assert.equal(declared.report.code, 'VIBE_HARNESS_TASK_NOT_READY');
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
+
+test('freeze-tests 只接受真实红灯，rebaseline-tests 需要受保护批准', async () => {
+  const project = await tempProject();
+  try {
+    await runCommand(['task', 'init', 'bug', '--title', 'Bug', '--goal', 'Fix bug', '--write', '--json'], { cwd: project });
+    const green = receiptFixture({ status: 'passed' });
+    const rejected = await runCommand([
+      'task', 'freeze-tests', 'bug', '--unit', 'u1', '--test-path', 'tests/unit/bug.test.js',
+      '--verification', JSON.stringify(green), '--write', '--json',
+    ], { cwd: project });
+    assert.equal(rejected.report.status, 'failed');
+    assert.equal(rejected.report.code, 'VIBE_HARNESS_RED_EVIDENCE_REQUIRED');
+
+    const red = receiptFixture({ status: 'failed' });
+    red.checks.test.status = 'failed';
+    const frozen = await runCommand([
+      'task', 'freeze-tests', 'bug', '--unit', 'u1', '--test-path', 'tests/unit/bug.test.js',
+      '--verification', JSON.stringify(red), '--write', '--json',
+    ], { cwd: project });
+    assert.equal(frozen.report.status, 'passed');
+    const anchor = await readAnchor(project, 'bug');
+    assert.deepEqual(anchor.units[0].testFreeze.paths, ['tests/unit/bug.test.js']);
+    assert.equal(anchor.units[0].testFreeze.status, 'frozen');
+
+    const noApproval = await runCommand([
+      'task', 'rebaseline-tests', 'bug', '--unit', 'u1', '--test-path', 'tests/unit/bug.test.js',
+      '--verification', JSON.stringify(red), '--write', '--json',
+    ], { cwd: project });
+    assert.equal(noApproval.report.status, 'failed');
+    assert.equal(noApproval.report.code, 'VIBE_HARNESS_REBASELINE_APPROVAL_INVALID');
+
+    const approval = JSON.stringify({ status: 'approved', source: 'protected-ci', trust: 'verified', reviewer: 'protected-review', protectedCheck: 'required-review' });
+    const rebaseline = await runCommand([
+      'task', 'rebaseline-tests', 'bug', '--unit', 'u1', '--test-path', 'tests/unit/bug.test.js',
+      '--verification', JSON.stringify(red), '--approval', approval, '--write', '--json',
+    ], { cwd: project });
+    assert.equal(rebaseline.report.status, 'failed');
+    assert.equal(rebaseline.report.code, 'VIBE_HARNESS_REBASELINE_APPROVAL_INVALID');
+
+    const previousApproval = process.env.VIBE_HARNESS_PROTECTED_APPROVAL;
+    process.env.VIBE_HARNESS_PROTECTED_APPROVAL = '1';
+    const verifiedRebaseline = await runCommand([
+      'task', 'rebaseline-tests', 'bug', '--unit', 'u1', '--test-path', 'tests/unit/bug.test.js',
+      '--verification', JSON.stringify(red), '--approval', approval, '--write', '--json',
+    ], { cwd: project });
+    if (previousApproval === undefined) delete process.env.VIBE_HARNESS_PROTECTED_APPROVAL;
+    else process.env.VIBE_HARNESS_PROTECTED_APPROVAL = previousApproval;
+    assert.equal(verifiedRebaseline.report.status, 'passed');
+    const updated = await readAnchor(project, 'bug');
+    assert.equal(updated.units[0].testFreeze.approval.trust, 'verified');
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
+
+test('task check --complete 在存在 blocker 时保持阻塞', async () => {
+  const project = await tempProject();
+  try {
+    await runCommand(['task', 'init', 'blocked', '--title', 'Blocked', '--goal', 'Do not complete', '--write', '--json'], { cwd: project });
+    await runCommand(['task', 'update', 'blocked', '--unit-status', 'u1:done', '--blocker', '等待 protected approval', '--write', '--json'], { cwd: project });
+    const check = await runCommand(['task', 'check', 'blocked', '--complete', '--json'], { cwd: project });
+    assert.equal(check.report.status, 'failed');
+    assert.equal(check.report.code, 'VIBE_HARNESS_TASK_NOT_READY');
+    assert.deepEqual(check.report.blockers, ['等待 protected approval']);
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
+
+test('task check --complete 拒绝没有验证收据的 done 单元', async () => {
+  const project = await tempProject();
+  try {
+    await runCommand(['task', 'init', 'missing-receipt', '--title', 'Missing receipt', '--goal', 'Keep evidence mandatory', '--write', '--json'], { cwd: project });
+    await runCommand(['task', 'update', 'missing-receipt', '--unit-status', 'u1:done', '--write', '--json'], { cwd: project });
+    const check = await runCommand(['task', 'check', 'missing-receipt', '--complete', '--json'], { cwd: project });
+    assert.equal(check.report.status, 'failed');
+    assert.deepEqual(check.report.unverified, ['u1']);
+    assert.match(check.report.error, /unverified units: u1/u);
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
+
+// Blockers are appended, never overwritten. Once the external approval they
+// wait on arrives, the anchor needs an explicit clear or the task can never
+// satisfy `task check --complete` again.
+test('task update --clear-blockers 解除已解决的外部阻塞并可判定完成', async () => {
+  const project = await tempProject();
+  try {
+    await runCommand(['task', 'init', 'approved', '--title', 'Approved', '--goal', 'Resume after approval', '--write', '--json'], { cwd: project });
+    const blocked = await runCommand(['task', 'update', 'approved', '--unit-status', 'u1:done', '--blocker', '等待 protected approval', '--write', '--json'], { cwd: project });
+    assert.ok(blocked.report.changes.includes('blocker'));
+    await recordReceipt(project, 'approved', 'u1', receiptFixture());
+
+    const stillBlocked = await runCommand(['task', 'check', 'approved', '--complete', '--json'], { cwd: project });
+    assert.equal(stillBlocked.report.status, 'failed');
+    assert.deepEqual(stillBlocked.report.blockers, ['等待 protected approval']);
+
+    const cleared = await runCommand(['task', 'update', 'approved', '--clear-blockers', '--write', '--json'], { cwd: project });
+    assert.equal(cleared.report.status, 'passed');
+    assert.ok(cleared.report.changes.includes('clear-blockers'));
+    assert.deepEqual((await readAnchor(project, 'approved')).blockers, []);
+
+    const complete = await runCommand(['task', 'check', 'approved', '--complete', '--json'], { cwd: project });
+    assert.equal(complete.report.status, 'passed', JSON.stringify(complete.report));
+
+    const repeated = await runCommand(['task', 'update', 'approved', '--clear-blockers', '--write', '--json'], { cwd: project });
+    assert.equal(repeated.report.changed, false);
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
+
+test('失败单元阻塞依赖单元的派发前校验', async () => {
+  const project = await tempProject();
+  try {
+    await bindPlan(project, 'chain', planWithUnits([
+      { id: 'A', title: '先做', files: ['runtime/commands/run.mjs'], dependsOn: [], acceptance: ['A-001'] },
+      { id: 'B', title: '依赖 A', files: ['runtime/hooks/README.md'], dependsOn: ['A'], acceptance: ['A-002'] },
+    ]));
+    await runCommand(['task', 'update', 'chain', '--unit-status', 'A:pending', '--unit-status', 'B:pending', '--write', '--json'], { cwd: project });
+
+    // Nothing has failed yet: B stays dispatchable, and the unfinished
+    // predecessor is reported instead of silently disappearing.
+    const open = await runCommand(['task', 'check', 'chain', '--unit', 'B', '--dispatch', '--json'], { cwd: project });
+    assert.equal(open.report.status, 'failed');
+    assert.equal(open.report.code, 'VIBE_HARNESS_UNIT_PREDECESSOR_UNMET');
+    assert.deepEqual(open.report.predecessors.unfinished, [{ id: 'A', status: 'pending' }]);
+
+    await runCommand(['task', 'update', 'chain', '--unit-status', 'A:done', '--write', '--json'], { cwd: project });
+    const dispatchable = await runCommand(['task', 'check', 'chain', '--unit', 'B', '--dispatch', '--json'], { cwd: project });
+    assert.equal(dispatchable.report.status, 'passed');
+    assert.equal(dispatchable.report.code, undefined);
+
+    await runCommand(['task', 'update', 'chain', '--unit-status', 'A:failed', '--failure', 'A 的聚焦验证失败', '--write', '--json'], { cwd: project });
+    const blocked = await runCommand(['task', 'check', 'chain', '--unit', 'B', '--dispatch', '--json'], { cwd: project });
+    assert.equal(blocked.exitCode, 1);
+    assert.equal(blocked.report.status, 'failed');
+    assert.equal(blocked.report.code, 'VIBE_HARNESS_UNIT_PREDECESSOR_FAILED');
+    assert.deepEqual(blocked.report.predecessors.failed, [{ id: 'A', status: 'failed' }]);
+    assert.match(blocked.report.error, /A=failed/u);
+
+    const complete = await runCommand(['task', 'check', 'chain', '--complete', '--json'], { cwd: project });
+    assert.equal(complete.report.status, 'failed');
+    assert.deepEqual(complete.report.failedUnits, ['A']);
+
+    // Repairing the predecessor unblocks the dependent without touching the plan.
+    await runCommand(['task', 'update', 'chain', '--unit-status', 'A:done', '--write', '--json'], { cwd: project });
+    const reopened = await runCommand(['task', 'check', 'chain', '--unit', 'B', '--dispatch', '--json'], { cwd: project });
+    assert.equal(reopened.report.status, 'passed');
+
+    // A blocked predecessor stops the dispatch the same way a failed one does.
+    await runCommand(['task', 'update', 'chain', '--unit-status', 'A:blocked', '--write', '--json'], { cwd: project });
+    const blockedAgain = await runCommand(['task', 'check', 'chain', '--unit', 'B', '--dispatch', '--json'], { cwd: project });
+    assert.equal(blockedAgain.report.code, 'VIBE_HARNESS_UNIT_PREDECESSOR_FAILED');
+    assert.deepEqual(blockedAgain.report.predecessors.blocked, [{ id: 'A', status: 'blocked' }]);
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
+
+test('freeze-tests 校验红灯真实性与覆盖范围', async () => {
+  const project = await tempProject();
+  try {
+    await runCommand(['task', 'init', 'red', '--title', 'Red', '--goal', 'Freeze a real red', '--write', '--json'], { cwd: project });
+    const freeze = (receipt, testPath = 'tests/unit/bug.test.js') => runCommand([
+      'task', 'freeze-tests', 'red', '--unit', 'u1', '--test-path', testPath,
+      '--verification', JSON.stringify(receipt), '--write', '--json',
+    ], { cwd: project });
+    const red = () => {
+      const receipt = receiptFixture({ status: 'failed' });
+      receipt.checks.test.status = 'failed';
+      receipt.checks.test.exitCode = 1;
+      return receipt;
+    };
+
+    const lintOnly = red();
+    lintOnly.checks.test = { status: 'passed', command: 'test=node -e "process.exit(0)"', exitCode: 0 };
+    lintOnly.checks.lint = { status: 'failed', command: 'lint=pnpm lint', exitCode: 1 };
+    assert.equal((await freeze(lintOnly)).report.code, 'VIBE_HARNESS_RED_CHECK_NOT_TEST');
+
+    const timeout = red();
+    timeout.checks.test.code = 'TIMEOUT';
+    assert.equal((await freeze(timeout)).report.code, 'VIBE_HARNESS_RED_EVIDENCE_INVALID');
+
+    const syntax = red();
+    syntax.checks.test.stderr = 'SyntaxError: Unexpected token }';
+    assert.equal((await freeze(syntax)).report.code, 'VIBE_HARNESS_RED_EVIDENCE_SYNTAX');
+
+    const empty = red();
+    empty.checks.test.stdout = '# tests 0\n';
+    assert.equal((await freeze(empty)).report.code, 'VIBE_HARNESS_RED_EVIDENCE_EMPTY');
+
+    const dependency = red();
+    dependency.checks.test.stderr = "Error: Cannot find module 'left-pad'";
+    assert.equal((await freeze(dependency)).report.code, 'VIBE_HARNESS_RED_EVIDENCE_DEPENDENCY');
+
+    const unstable = red();
+    unstable.verification.stable = false;
+    assert.equal((await freeze(unstable)).report.code, 'VIBE_HARNESS_RED_EVIDENCE_UNSTABLE');
+
+    // A focused command that named a different file never ran the frozen asset.
+    const otherPath = red();
+    otherPath.checks.test.command = 'test=node --test tests/unit/other.test.js';
+    assert.equal((await freeze(otherPath)).report.code, 'VIBE_HARNESS_RED_PATH_UNCOVERED');
+
+    const focused = red();
+    focused.checks.test.command = 'test=node --test tests/unit/bug.test.js';
+    const frozen = await freeze(focused);
+    assert.equal(frozen.report.status, 'passed');
+    assert.deepEqual(frozen.report.freeze.redEvidence.checks, [{ name: 'test', command: 'test=node --test tests/unit/bug.test.js', exitCode: 1 }]);
+    const anchor = await readAnchor(project, 'red');
+    assert.deepEqual(anchor.units[0].testFreeze.paths, ['tests/unit/bug.test.js']);
+    assert.equal(anchor.units[0].testFreeze.redEvidence.status, 'failed');
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
+
+test('验证收据携带任务与计划关联并拒绝跨任务收据', async () => {
+  const project = await tempProject();
+  try {
+    await writeConfig(project, { test: 'node -e "process.exit(0)"' });
+    await bindPlan(project, 'bound', planWithUnits([
+      { id: 'u1', title: '单元', files: ['runtime/commands/run.mjs'], dependsOn: [], acceptance: ['A-001'] },
+    ]));
+    const verified = await runCommand(['verify', '--project', '.', '--task', 'bound', '--json'], { cwd: project });
+    assert.equal(verified.report.status, 'passed');
+    const anchor = await readAnchor(project, 'bound');
+    assert.deepEqual(verified.report.verification.task, {
+      id: 'bound',
+      stage: 'plan',
+      planFile: 'docs/plans/bound.md',
+      planRevision: anchor.planRevision,
+      planDigest: anchor.planDigest,
+    });
+
+    const recorded = await runCommand(['task', 'update', 'bound', '--unit', 'u1', '--verification', JSON.stringify(verified.report), '--write', '--json'], { cwd: project });
+    assert.equal(recorded.report.status, 'passed');
+    const withReceipt = await readAnchor(project, 'bound');
+    assert.equal(withReceipt.units[0].verification.taskId, 'bound');
+    assert.equal(withReceipt.units[0].verification.planDigest, anchor.planDigest);
+
+    const foreign = structuredClone(verified.report);
+    foreign.verification.task.id = 'elsewhere';
+    const rejected = await runCommand(['task', 'update', 'bound', '--unit', 'u1', '--verification', JSON.stringify(foreign), '--write', '--json'], { cwd: project });
+    assert.equal(rejected.report.status, 'failed');
+    assert.equal(rejected.report.code, 'VIBE_HARNESS_VERIFICATION_TASK_MISMATCH');
+
+    // The same association constrains a freeze: red evidence from another task
+    // cannot freeze this task's acceptance assets.
+    await runCommand(['task', 'init', 'red-owner', '--title', 'Red', '--goal', 'Freeze', '--write', '--json'], { cwd: project });
+    const redForeign = receiptFixture({ status: 'failed' });
+    redForeign.checks.test.status = 'failed';
+    redForeign.verification.task = { id: 'elsewhere' };
+    const deniedFreeze = await runCommand([
+      'task', 'freeze-tests', 'red-owner', '--unit', 'u1', '--test-path', 'tests/unit/bug.test.js',
+      '--verification', JSON.stringify(redForeign), '--write', '--json',
+    ], { cwd: project });
+    assert.equal(deniedFreeze.report.status, 'failed');
+    assert.equal(deniedFreeze.report.code, 'VIBE_HARNESS_RED_EVIDENCE_TASK_MISMATCH');
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
 });

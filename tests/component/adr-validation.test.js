@@ -6,7 +6,12 @@ import test from 'node:test';
 import { parseAdrDocument, validateAdrDirectory, validateHistoricalAdr } from '../../scripts/lib/adr-validation.js';
 
 async function makeFixture() {
-  const root = await mkdtemp(path.join(process.cwd(), 'tests', 'tmp-adr-'));
+  // Keep the fixture under `tests/tmp/`; the repository scan excludes `tmp`,
+  // so a parallel test cannot delete it mid-scan (see F2 in
+  // docs/plans/governance-evidence.md).
+  const parent = path.join(process.cwd(), 'tests', 'tmp');
+  await mkdir(parent, { recursive: true });
+  const root = await mkdtemp(path.join(parent, 'adr-'));
   await mkdir(path.join(root, 'docs/adr'), { recursive: true });
   await mkdir(path.join(root, 'docs/memory'), { recursive: true });
   await mkdir(path.join(root, 'schemas'), { recursive: true });

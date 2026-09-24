@@ -11,11 +11,38 @@ import {
   validateCanonicalRuleLayout,
   validateSchemaParity,
 } from '../../scripts/lib/docs-validation.js';
+import { createDocsFixture, removeDocsFixture } from '../helpers/docs-fixture.js';
 
 const rootDir = path.resolve(import.meta.dirname, '../..');
+// Temporary fixtures stay under `tmp/`, which the repository scan excludes;
+// anything else inside the repository can be deleted by a parallel test while
+// docs-validation walks the working tree (see the guard case below).
+const fixtureParent = path.join(import.meta.dirname, 'tmp');
+
+async function createFixture(prefix) {
+  await mkdir(fixtureParent, { recursive: true });
+  return mkdtemp(path.join(fixtureParent, prefix));
+}
 
 test('documentation catalog covers current and archived Markdown', async () => {
   const report = await validateDocumentation({ rootDir });
+  assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+});
+
+// docs-validation re-reads the working tree under --test-concurrency, so a
+// fixture that lives inside a scanned directory can be removed between the
+// parent listing and the recursive read (recorded flake: ENOENT scandir
+// tests/tmp-docs-*). Repository-internal fixtures must therefore live under
+// `tmp/`, which the repository scan already excludes.
+test('repository-internal test fixtures stay outside the governed scan', async () => {
+  const fixture = await createDocsFixture();
+  let report;
+  try {
+    assert.equal(path.basename(path.dirname(fixture)), 'tmp');
+    report = await validateDocumentation({ rootDir });
+  } finally {
+    await removeDocsFixture(fixture);
+  }
   assert.equal(report.ok, true, JSON.stringify(report, null, 2));
 });
 
@@ -59,7 +86,7 @@ test('read-only evaluation keeps Memory body access behind recovery and authoriz
 });
 
 test('legacy brand audit ignores archive assets', async () => {
-  const tmp = await mkdtemp(path.join(import.meta.dirname, 'tmp-legacy-archive-'));
+  const tmp = await createFixture('legacy-archive-');
   try {
     await writeFile(path.join(tmp, 'release.zip'), 'LoopEngine', 'utf8');
     assert.deepEqual(await validateLegacyBrandUsage({ rootDir: tmp }), []);
@@ -145,7 +172,7 @@ test('schema parity holds for the governed repository', async () => {
 });
 
 test('canonical rules layout rejects a legacy root rules directory', async () => {
-  const tmp = await mkdtemp(path.join(import.meta.dirname, 'tmp-rules-layout-'));
+  const tmp = await createFixture('rules-layout-');
   try {
     await mkdir(path.join(tmp, 'rules'), { recursive: true });
     await mkdir(path.join(tmp, 'docs/rules'), { recursive: true });
@@ -156,7 +183,7 @@ test('canonical rules layout rejects a legacy root rules directory', async () =>
 });
 
 test('canonical rules keep lowercase file names aligned with rule ids', async () => {
-  const tmp = await mkdtemp(path.join(import.meta.dirname, 'tmp-rules-naming-'));
+  const tmp = await createFixture('rules-naming-');
   try {
     await mkdir(path.join(tmp, 'docs/rules'), { recursive: true });
     await mkdir(path.join(tmp, 'manifests'), { recursive: true });
@@ -178,7 +205,7 @@ test('canonical rules keep lowercase file names aligned with rule ids', async ()
 });
 
 test('schema parity reports drift between paired schema files', async () => {
-  const tmp = await mkdtemp(path.join(import.meta.dirname, 'tmp-schema-parity-'));
+  const tmp = await createFixture('schema-parity-');
   try {
     await mkdir(path.join(tmp, 'schemas'), { recursive: true });
     await mkdir(path.join(tmp, 'docs/schemas'), { recursive: true });
@@ -192,7 +219,7 @@ test('schema parity reports drift between paired schema files', async () => {
 });
 
 test('schema parity errors for docs schema without source counterpart', async () => {
-  const tmp = await mkdtemp(path.join(import.meta.dirname, 'tmp-schema-orphan-'));
+  const tmp = await createFixture('schema-orphan-');
   try {
     await mkdir(path.join(tmp, 'schemas'), { recursive: true });
     await mkdir(path.join(tmp, 'docs/schemas'), { recursive: true });

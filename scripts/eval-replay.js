@@ -64,7 +64,7 @@ async function main() {
         errors: referenceMatched ? [] : mismatches.map((item) => `reference fingerprint mismatch for ${item.field}`),
         nextAction: referenceMatched
           ? null
-          : 'Regenerate the reference (`pnpm vibe-harness eval reference --project . --from <run> --write --confirm-reference-update --force`) and rerun `pnpm eval:replay`.',
+          : 'Obtain protected approval, regenerate the reference (`VIBE_HARNESS_PROTECTED_APPROVAL=1 pnpm vibe-harness eval reference --project . --from <run> --write --confirm-reference-update --force`) and rerun `pnpm eval:replay`.',
         ok: referenceMatched,
         path: report.path,
         reference: referenceMatched ? 'matched' : 'mismatched',

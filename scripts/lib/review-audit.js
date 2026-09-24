@@ -96,6 +96,17 @@ export function evaluateReviewReceipt({ change, receipt, schema }) {
   if (receipt?.readOnly !== true) evidence.push(auditItem('REVIEW_NOT_READ_ONLY', 'error', 'Reviewer must declare a read-only review.'));
   if (receipt?.reviewer?.identity === receipt?.implementer?.identity) evidence.push(auditItem('REVIEW_SAME_IDENTITY', 'error', 'Reviewer identity must differ from implementer identity.'));
   if (receipt?.reviewer?.contextId === receipt?.implementer?.contextId) evidence.push(auditItem('REVIEW_SAME_CONTEXT', 'error', 'Reviewer context must differ from implementer context.'));
+  if (risk.level === 'high' && receipt?.schemaVersion === 2) {
+    const reviewers = Array.isArray(receipt.reviewers) ? receipt.reviewers : [];
+    const identities = reviewers.map((item) => item?.identity).filter(Boolean);
+    const contexts = reviewers.map((item) => item?.contextId).filter(Boolean);
+    if (reviewers.length < 2) evidence.push(auditItem('REVIEW_SECOND_REVIEW_MISSING', 'error', 'Schema v2 high-risk reviews require two independent reviewers.'));
+    if (new Set(identities).size !== identities.length) evidence.push(auditItem('REVIEW_DUPLICATE_IDENTITY', 'error', 'Independent reviewers must have distinct identities.'));
+    if (new Set(contexts).size !== contexts.length) evidence.push(auditItem('REVIEW_DUPLICATE_CONTEXT', 'error', 'Independent reviewers must have distinct contexts.'));
+    if (receipt.contextIndependence !== 'verified') {
+      evidence.push(auditItem('REVIEW_CONTEXT_INDEPENDENCE_UNVERIFIED', 'error', 'Schema v2 high-risk reviews require host-verified context independence; attested or unavailable is not sufficient for approval.'));
+    }
+  }
   const verification = receipt?.verification;
   if (verification?.headSha !== change.headSha || verification?.stable !== true || verification?.status !== 'passed') {
     evidence.push(auditItem('REVIEW_VERIFICATION_INVALID', 'error', 'Final verification must be passed, stable, and bound to the current head.'));

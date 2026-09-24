@@ -811,6 +811,21 @@ test('脏工作区与未完成锚点单元都把 land 置为 blocked', async () 
     assert.equal(pendingAnchor.report.status, 'blocked');
     assert.match(pendingAnchor.report.blockers.join('; '), /has units not done \(impl\)/u);
 
+    // A failed unit is its own blocker with a dedicated code: land reuses the
+    // same predecessor judgement the dispatch gate uses, so a red unit cannot
+    // be quietly landed as long as its dependents are simply absent from the
+    // anchor's unit list.
+    await writeJson(path.join(fixture.repo, '.vibe-harness/tasks/ENG-1.json'), {
+      schemaVersion: 1,
+      taskId: 'ENG-1',
+      units: [{ id: 'impl', status: 'failed' }],
+    });
+    const failedUnit = await runCommand(['worktree', 'land', '--project', fixture.repo, '--json'], { cwd: fixture.repo });
+    assert.equal(failedUnit.report.status, 'blocked');
+    assert.equal(failedUnit.report.code, 'LAND_UNIT_PREDECESSOR_FAILED');
+    assert.deepEqual(failedUnit.report.unitGate, { failed: ['impl'], waiting: [] });
+    assert.match(failedUnit.report.blockers.join('; '), /has failed or blocked units \(impl\)/u);
+
     // All units done unblocks the plan, and a full-risk anchor escalates the
     // verify tier from quick to standard.
     await writeJson(path.join(fixture.repo, '.vibe-harness/tasks/ENG-1.json'), {

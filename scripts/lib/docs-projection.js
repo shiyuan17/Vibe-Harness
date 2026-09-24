@@ -66,6 +66,7 @@ const PREFIX_CLASSIFICATIONS = [
   { entry: classify('spec', 'implemented', 'zh-CN', ['maintainer', 'auditor']), pattern: /^docs\/specs\/[^/]+\.md$/u },
   { entry: classify('inventory', 'reference', 'zh-CN', ['auditor', 'maintainer']), pattern: /^docs\/inventory\/[^/]+\.md$/u },
   { entry: classify('operations', 'current', 'zh-CN', ['maintainer', 'agent']), pattern: /^docs\/memory\/[^/]+\.md$/u },
+  { entry: classify('plan', 'current', 'zh-CN', ['agent', 'maintainer']), pattern: /^docs\/plans\/[^/]+\.md$/u },
   { entry: classify('plan', 'current', 'zh-CN', ['agent', 'maintainer']), pattern: /^docs\/templates\/[^/]+\.md$/u },
   { entry: classify('spec', 'current', 'en', ['contributor', 'maintainer', 'auditor']), pattern: /^docs\/schemas\/[^/]+\.json$/u },
   { entry: classify('spec', 'current', 'en', ['contributor', 'maintainer']), pattern: /^schemas\/[^/]+\.json$/u },

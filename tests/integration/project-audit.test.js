@@ -48,6 +48,28 @@ test('review receipt approves only independent current stable review', async () 
   const openHigh = structuredClone(receipt);
   openHigh.findings = [{ code: 'F-1', title: 'Open risk', severity: 'high', status: 'open', targetAsset: 'schemas/example.json' }];
   assert.match(evaluateReviewReceipt({ change, receipt: openHigh, schema }).evidence.map((item) => item.code).join(','), /REVIEW_HIGH_FINDING_OPEN/u);
+  const dual = structuredClone(receipt);
+  dual.schemaVersion = 2;
+  dual.reviewers = [
+    { type: 'human', identity: 'reviewer', contextId: 'review-context' },
+    { type: 'host-native', identity: 'security-reviewer', contextId: 'security-context' },
+  ];
+  dual.contextIndependence = 'verified';
+  assert.equal(evaluateReviewReceipt({ change, receipt: dual, schema }).status, 'healthy');
+  const singleV2 = structuredClone(dual);
+  singleV2.reviewers = [singleV2.reviewers[0]];
+  assert.match(evaluateReviewReceipt({ change, receipt: singleV2, schema }).evidence.map((item) => item.code).join(','), /REVIEW_SECOND_REVIEW_MISSING/u);
+  const attestedV2 = structuredClone(dual);
+  attestedV2.contextIndependence = 'attested';
+  assert.match(evaluateReviewReceipt({ change, receipt: attestedV2, schema }).evidence.map((item) => item.code).join(','), /REVIEW_CONTEXT_INDEPENDENCE_UNVERIFIED/u);
+  // v2 is a structural contract: the schema itself requires the dual-reviewer
+  // fields, so a v2 receipt cannot claim approval by omitting them, while a v1
+  // receipt stays readable without them.
+  const v2WithoutFields = structuredClone(receipt);
+  v2WithoutFields.schemaVersion = 2;
+  assert.match(evaluateReviewReceipt({ change, receipt: v2WithoutFields, schema }).evidence.map((item) => item.code).join(','), /REVIEW_RECEIPT_SCHEMA/u);
+  const v1Readable = structuredClone(receipt);
+  assert.equal(evaluateReviewReceipt({ change, receipt: v1Readable, schema }).status, 'healthy');
 });
 
 test('PR body accepts one independent review receipt block', () => {

@@ -10,7 +10,7 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["id", "installMap", "instructionTarget", "instructionTemplate", "skillRoot", "supportedProfiles", "capabilities", "roleProjection", "hookEvents", "hookActivation", "executionAuthority", "evidence", "redZonePrefixes"],
+        "required": ["id", "installMap", "instructionTarget", "instructionTemplate", "skillRoot", "supportedProfiles", "capabilities", "freshContext", "roleProjection", "hookEvents", "hookActivation", "executionAuthority", "evidence", "redZonePrefixes"],
         "properties": {
           "id": { "type": "string", "enum": ["codex", "claude", "gemini", "cursor", "qoder", "zcode", "antigravity", "opencode"] },
           "installMap": { "type": "string", "minLength": 1 },
@@ -59,6 +59,15 @@
               "plugin": { "type": "string", "enum": ["unsupported", "preview", "stable"] },
               "goals": { "type": "string", "enum": ["unsupported", "preview", "stable"] },
               "subagents": { "type": "string", "enum": ["unsupported", "preview", "stable"] }
+            },
+            "additionalProperties": false
+          },
+          "freshContext": {
+            "type": "object",
+            "required": ["mode", "evidence"],
+            "properties": {
+              "mode": { "type": "string", "enum": ["isolated", "inherited", "unavailable"] },
+              "evidence": { "type": "string", "enum": ["verified", "configured-unverified", "preview"] }
             },
             "additionalProperties": false
           },

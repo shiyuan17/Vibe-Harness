@@ -1164,6 +1164,7 @@ async function evaluateProject(args) {
       config,
       force: Boolean(args.force),
       from: args.from,
+      protectedApproval: process.env.VIBE_HARNESS_PROTECTED_APPROVAL === '1',
       rootDir,
       targetDir,
       write: Boolean(args.write),

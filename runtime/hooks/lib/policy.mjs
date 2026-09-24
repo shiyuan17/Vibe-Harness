@@ -470,6 +470,18 @@ function classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts 
   const redZonePattern = redZoneMatcher(redZonePaths);
   const controlPlanePattern = redZoneMatcher(CONTROL_PLANE_PATHS);
   const command = commandFrom(input);
+  // Red-zone and control-plane patterns are project-relative, so they have to
+  // be matched against the resolved target: a project-internal symlink whose
+  // real target is `.env` or `.agents/runtime/hooks/` is the same write as the
+  // direct path. A candidate that cannot be resolved keeps its lexical form;
+  // the boundary loop below still fails closed on it.
+  const canonicalRoot = canonicalPath(projectRoot) ?? path.resolve(projectRoot);
+  const projectRelativeTarget = (candidate) => {
+    const absolute = path.isAbsolute(candidate)
+      ? candidate
+      : path.resolve(projectRoot, candidate);
+    return path.relative(canonicalRoot, canonicalPath(absolute) ?? absolute).replaceAll('\\', '/');
+  };
   // apply_patch carries file content rather than a shell command, so payload
   // text such as inline code spans or command substitution is never executed
   // (AC-04a). Shell-only rules are skipped for patch tools and the patch
@@ -495,8 +507,7 @@ function classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts 
   if (!isPatchTool && privateEgressPattern.test(command) && redZonePattern) {
     const uploadPaths = egressUploadPaths(command);
     const touchesRedZoneFile = uploadPaths.some((candidate) => {
-      const absolute = path.isAbsolute(candidate) ? candidate : path.resolve(projectRoot, candidate);
-      return redZonePattern.test(path.relative(projectRoot, absolute).replaceAll('\\', '/'));
+      return redZonePattern.test(projectRelativeTarget(candidate));
     });
     if (touchesRedZoneFile) {
       return risk('deny', 'CREDENTIAL_EXFILTRATION', '检测到上传红区文件，可能造成凭据外传，已拒绝。请改用非红区文件，或先按流程取得显式授权。');
@@ -524,12 +535,9 @@ function classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts 
     ...(isPatchTool ? patchPaths(command) : []),
     ...shellTargets,
   ];
-  const touchesControlPlane = candidates.some((candidate) => {
-    const absolute = path.isAbsolute(candidate)
-      ? candidate
-      : path.resolve(projectRoot, candidate);
-    return controlPlanePattern.test(path.relative(projectRoot, absolute).replaceAll('\\', '/'));
-  });
+  const touchesControlPlane = candidates.some(
+    (candidate) => controlPlanePattern.test(projectRelativeTarget(candidate)),
+  );
   if (touchesControlPlane) {
     return risk('deny', 'CONTROL_PLANE_WRITE', '检测到直接写入 Vibe-Harness 控制面文件，已拒绝。请改用带 --write 的事务式安装器并显式确认。');
   }
@@ -552,12 +560,7 @@ function classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts 
     }
   }
   const touchesRedZone = redZonePattern
-    ? candidates.some((candidate) => {
-        const absolute = path.isAbsolute(candidate)
-          ? candidate
-          : path.resolve(projectRoot, candidate);
-        return redZonePattern.test(path.relative(projectRoot, absolute).replaceAll('\\', '/'));
-      })
+    ? candidates.some((candidate) => redZonePattern.test(projectRelativeTarget(candidate)))
     : false;
   if (touchesRedZone) {
     return risk('deny', 'RED_ZONE', '写入命中项目红区路径，已拒绝。请改用非红区路径，或按流程显式确认后重试。');

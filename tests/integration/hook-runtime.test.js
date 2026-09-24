@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -257,6 +257,166 @@ test('Hook supports only safety events and allows ordinary project commands', as
       tool_input: { file_path: 'src/app.js' },
       tool_name: 'Write',
     })), {});
+  });
+});
+
+test('Hook 机器门禁拒绝所有冻结测试写入路径', async () => {
+  await withProject(async (target) => {
+    const frozenPath = path.join(target, 'tests', 'frozen.test.js');
+    await mkdir(path.dirname(frozenPath), { recursive: true });
+    await writeFile(frozenPath, 'original\n', 'utf8');
+    await mkdir(path.join(target, '.vibe-harness', 'tasks'), { recursive: true });
+    await writeFile(path.join(target, '.vibe-harness', 'tasks', 'frozen.json'), JSON.stringify({
+      schemaVersion: 2,
+      units: [{ id: 'u1', status: 'done', testFreeze: { status: 'frozen', paths: ['tests/frozen.test.js'] } }],
+    }), 'utf8');
+
+    const direct = await evaluateCodexHook(input(target, {
+      tool_name: 'Write',
+      tool_input: { file_path: 'tests/frozen.test.js', content: 'changed' },
+    }));
+    assert.match(direct.hookSpecificOutput.permissionDecisionReason, /FROZEN_TEST_WRITE/u);
+
+    const patch = await evaluateCodexHook(input(target, {
+      tool_name: 'apply_patch',
+      tool_input: { input: '*** Begin Patch\n*** Update File: tests/frozen.test.js\n@@\n-original\n+changed\n*** End Patch' },
+    }));
+    assert.match(patch.hookSpecificOutput.permissionDecisionReason, /FROZEN_TEST_WRITE/u);
+
+    for (const command of [
+      'echo changed > tests/frozen.test.js',
+      'rm tests/frozen.test.js',
+      'mv tests/frozen.test.js tests/moved.test.js',
+      'mklink tests/link.test.js tests/frozen.test.js',
+      "node -e \"require('fs').writeFileSync('tests/frozen.test.js', 'changed')\"",
+      'pwsh -Command "Set-Content tests/frozen.test.js changed"',
+      'Rename-Item tests/frozen.test.js tests/legacy.test.js',
+      'Clear-Content tests/frozen.test.js',
+      'rd /s /q tests',
+      'rmdir /s /q tests',
+      "sed -i 's/original/changed/' tests/frozen.test.js",
+      'dd of=tests/frozen.test.js',
+      'rsync -a empty/ tests/',
+      "node -e \"require('fs').rmSync('tests/frozen.test.js')\"",
+      "python -c \"import os; os.remove('tests/frozen.test.js')\"",
+    ]) {
+      const result = await evaluateCodexHook(input(target, { tool_input: { command } }));
+      assert.match(result.hookSpecificOutput.permissionDecisionReason, /FROZEN_TEST_WRITE/u, command);
+    }
+
+    // The freeze protects the asset from edits, not from being run or read:
+    // blocking interpreter invocations wholesale would make the fix and its
+    // re-verification impossible while a freeze is active. Redirecting or
+    // piping the test's own output writes a new file, never the frozen asset.
+    for (const command of [
+      'node --test tests/frozen.test.js',
+      'node .agents/runtime/commands/run.mjs verify --project . --tier quick',
+      'cat tests/frozen.test.js',
+      'node --test tests/frozen.test.js > node-test.log',
+      'node --test tests/frozen.test.js | tee report.txt',
+      'git diff -- tests/frozen.test.js',
+    ]) {
+      assert.deepEqual(await evaluateCodexHook(input(target, { tool_input: { command } })), {}, command);
+    }
+
+    const sourceWrite = await evaluateCodexHook(input(target, {
+      tool_name: 'Write',
+      tool_input: { file_path: 'src/app.js', content: 'changed' },
+    }));
+    assert.deepEqual(sourceWrite, {});
+
+    // A structured write request whose target cannot be resolved still fails
+    // closed: its payload must name a path, so the request was not understood.
+    const unresolvedWrite = await evaluateCodexHook(input(target, {
+      tool_name: 'Write',
+      tool_input: { content: 'changed' },
+    }));
+    assert.match(unresolvedWrite.hookSpecificOutput.permissionDecisionReason, /FROZEN_TEST_WRITE_TARGET_UNKNOWN/u);
+  });
+});
+
+test('Hook 拒绝改写冻结记录的锚点写入并把 run.mjs 保留为唯一写入方', async () => {
+  await withProject(async (target) => {
+    await mkdir(path.join(target, 'tests'), { recursive: true });
+    await writeFile(path.join(target, 'tests', 'frozen.test.js'), 'original\n', 'utf8');
+    await mkdir(path.join(target, '.vibe-harness', 'tasks'), { recursive: true });
+    await writeFile(path.join(target, '.vibe-harness', 'tasks', 'frozen.json'), JSON.stringify({
+      schemaVersion: 2,
+      units: [{ id: 'u1', status: 'done', testFreeze: { status: 'frozen', paths: ['tests/frozen.test.js'] } }],
+    }), 'utf8');
+
+    const evaluate = (toolInput, toolName = 'Write') => evaluateCodexHook(
+      input(target, { tool_input: toolInput, tool_name: toolName }),
+    );
+
+    // The anchor that owns the freeze is control plane: rewriting it directly
+    // would let an implementer lift its own freeze.
+    const directAnchor = await evaluate({ content: '{}', file_path: '.vibe-harness/tasks/frozen.json' });
+    assert.match(directAnchor.hookSpecificOutput.permissionDecisionReason, /CONTROL_PLANE_WRITE/u);
+    const patchAnchor = await evaluate({
+      input: '*** Begin Patch\n*** Update File: .vibe-harness/tasks/frozen.json\n@@\n-a\n+b\n*** End Patch',
+    }, 'apply_patch');
+    assert.match(patchAnchor.hookSpecificOutput.permissionDecisionReason, /CONTROL_PLANE_WRITE/u);
+    const shellAnchor = await evaluate({ command: 'echo {} > .vibe-harness/tasks/frozen.json' }, 'Bash');
+    assert.match(shellAnchor.hookSpecificOutput.permissionDecisionReason, /CONTROL_PLANE_WRITE/u);
+
+    // The managed runtime CLI is the sanctioned writer and is not blocked.
+    const managedWrite = await evaluate(
+      { command: 'node .agents/runtime/commands/run.mjs task update frozen --unit u1 --write' },
+      'Bash',
+    );
+    assert.deepEqual(managedWrite, {});
+  });
+});
+
+test('Hook 拒绝经项目内符号链接到达的红区、控制面与冻结资产写入', async () => {
+  await withProject(async (target) => {
+    await mkdir(path.join(target, 'auth'), { recursive: true });
+    await mkdir(path.join(target, '.agents', 'runtime', 'hooks'), { recursive: true });
+    await mkdir(path.join(target, 'src'), { recursive: true });
+    await mkdir(path.join(target, 'tests'), { recursive: true });
+    await writeFile(path.join(target, '.env'), 'SECRET=1\n', 'utf8');
+    await writeFile(path.join(target, 'tests', 'frozen.test.js'), 'original\n', 'utf8');
+    await mkdir(path.join(target, '.vibe-harness', 'tasks'), { recursive: true });
+    await writeFile(path.join(target, '.vibe-harness', 'tasks', 'frozen.json'), JSON.stringify({
+      schemaVersion: 2,
+      units: [{ id: 'u1', status: 'done', testFreeze: { status: 'frozen', paths: ['tests/frozen.test.js'] } }],
+    }), 'utf8');
+
+    const evaluate = (filePath) => evaluateCodexHook(
+      input(target, { tool_input: { content: 'x', file_path: filePath }, tool_name: 'Write' }),
+    );
+    const link = async (linkPath, linkTarget, type) => {
+      try {
+        await symlink(path.join(target, linkTarget), path.join(target, linkPath), type);
+        return true;
+      } catch (error) {
+        // Developer mode or symlink privileges may be unavailable; the lexical
+        // checks this file already covers stay in force either way.
+        if (!['EPERM', 'EACCES', 'UNKNOWN'].includes(error.code)) throw error;
+        return false;
+      }
+    };
+
+    if (await link('env-alias', '.env', 'file')) {
+      const redZone = await evaluate('env-alias');
+      assert.match(redZone.hookSpecificOutput.permissionDecisionReason, /RED_ZONE/u);
+    }
+    if (await link('auth-alias', 'auth', process.platform === 'win32' ? 'junction' : 'dir')) {
+      const redZoneDir = await evaluate('auth-alias/keys.txt');
+      assert.match(redZoneDir.hookSpecificOutput.permissionDecisionReason, /RED_ZONE/u);
+    }
+    if (await link('hooks-alias', path.join('.agents', 'runtime', 'hooks'), process.platform === 'win32' ? 'junction' : 'dir')) {
+      const controlPlane = await evaluate('hooks-alias/lib/policy.mjs');
+      assert.match(controlPlane.hookSpecificOutput.permissionDecisionReason, /CONTROL_PLANE_WRITE/u);
+    }
+    if (await link('tests-alias', 'tests', process.platform === 'win32' ? 'junction' : 'dir')) {
+      const frozen = await evaluate('tests-alias/frozen.test.js');
+      assert.match(frozen.hookSpecificOutput.permissionDecisionReason, /FROZEN_TEST_WRITE/u);
+    }
+    if (await link('src-alias', 'src', process.platform === 'win32' ? 'junction' : 'dir')) {
+      assert.deepEqual(await evaluate('src-alias/app.js'), {});
+    }
   });
 });
 

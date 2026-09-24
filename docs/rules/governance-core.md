@@ -113,7 +113,13 @@
 
 ## 任务与协作
 
-任务 Markdown 是可选的人读记录，可保存目标、档位、状态、验收、下一步、验证和风险；它不被解析或参与运行时判断。单 Agent 是默认路径；仅在用户明确要求或独立工作单元有明显收益时使用宿主原生协作能力。
+任务 Markdown 是可选的人读记录；普通记录可保存目标、档位、状态、验收、下一步、验证和风险，但显式绑定的可交接计划必须入库到 `docs/plans/<task-id>.md`，并通过 `task init --plan-file` 绑定到运行时锚点。受管计划由 `task plan-check` 检查摘要漂移：目标、范围、接口、依赖、验收或回滚方案发生实质变化时，先记录原因、更新计划并运行 `task plan-sync`，再继续受影响实施；机器检查只判定摘要、路径和绑定状态，语义偏离仍需规则与独立复审。单 Agent 是默认路径；仅在用户明确要求或独立工作单元有明显收益时使用宿主原生协作能力。
+- 受管计划以可验证增量推进：实现最小增量 → 运行聚焦验证 → 失败则修复并重验 → 通过后进入依赖增量。快速层失败阻塞当前单元及其依赖，但不阻塞已隔离且无失败依赖的工作。派发前先用 `task check <task-id> --unit <unit-id> --dispatch` 询问前驱状态：失败或阻塞的前驱以 `VIBE_HARNESS_UNIT_PREDECESSOR_FAILED` 停止派发，未完成的前驱以 `VIBE_HARNESS_UNIT_PREDECESSOR_UNMET` 提示尚未就绪；`worktree land` 复用同一前驱判定（`LAND_UNIT_PREDECESSOR_FAILED`）。
+- 受管计划的完成主张必须引用与验收主张匹配的证据：实际命令、退出码、结果摘要、代码/计划指纹，以及适用的构建、Lint、截图、HTTP 响应或 Diff；未运行、不适用或缺失证据不得改判为 passed。`verify --task <task-id>` 写出的收据自带任务与计划关联（任务 id、阶段、计划路径、修订与摘要），把它记回锚点时任务不匹配会被 `VIBE_HARNESS_VERIFICATION_TASK_MISMATCH` 拒绝。
+- 缺陷冻结只能由真实失败的验证收据建立；重建冻结基线必须由宿主注入的受保护 CI/评审批准信号放行。冻结路径与任务锚点的写入由 PreToolUse 机器门禁拦截（锚点属控制面，只认 `run.mjs` 受管子命令的写入）：结构化写请求或补丁头按解析出的目标拒绝；shell 侧按「写形命令点名冻结资产，或解析出的写入目标命中冻结资产」拒绝，写动词清单与只读分类共用同一真值源，重定向按目标解析（因此运行冻结测试并把输出重定向到别处仍然可用），项目内符号链接别名按真实路径拦截。命令检查无法跟随任意代码，目标不可解析的任意代码写入属已声明边界，必须如实声明而不是宣称完整防护。本地 JSON、自报 `trust` 字段或 Agent 身份不能授权解冻；缺少受保护信号时保持 blocked。
+- 规则升级顺序：违反后果严重且可由机器判断的约束，优先落成 Hook（PreToolUse 拒绝、PermissionRequest 确认或 Git Hook），Rules 只保留判断口径、例外与人工判据；只写 Rules 而留下可绕过路径视为未完成。
+- 高风险 v2 独立评审必须提供两个不同 reviewer/context，并由宿主验证 `contextIndependence=verified`；`attested` 或 `unavailable` 只能作为降级信息，不能支持 approved 完成主张。
+- Eval reference 写入同样要求显式确认与宿主 `VIBE_HARNESS_PROTECTED_APPROVAL=1`，不得由 `eval:check` 漂移提示自动提升。
 
 - 两个以上协作单元存在顺序依赖、并行写入或共享契约时，按 ai-collab-rules.md 使用轻量 Task DAG；简单任务不创建 DAG。
 - 只派发依赖已满足且无写入范围或逻辑资源冲突的 ready 节点，并在每次 write 派发前重验证 DAG、依赖、Scope、锁、HEAD 和工作区身份；冲突节点必须串行或由唯一节点独占。

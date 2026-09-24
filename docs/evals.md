@@ -26,11 +26,11 @@ core suite 覆盖安装、安全 Hook、浏览器和显式工具能力。
 pnpm vibe-harness eval check --project ../some-project
 pnpm vibe-harness eval run --project ../some-project --mode offline
 pnpm vibe-harness eval run --project ../some-project --mode offline --write
-pnpm vibe-harness eval reference --project ../some-project --from .vibe-harness/evals/runs/<run>.json --write --confirm-reference-update --force
+VIBE_HARNESS_PROTECTED_APPROVAL=1 pnpm vibe-harness eval reference --project ../some-project --from .vibe-harness/evals/runs/<run>.json --write --confirm-reference-update --force
 pnpm eval:replay --write
 ```
 
-offline 模式验证 suite、oracle、聚合和 reference 一致性。online runner 必须在一次性项目中执行，限制输出与超时，并保护全局配置。reference 更新始终显式执行，不能为让变更通过而自动提升；既有 reference 存在时还需 `--force`，由它先备份旧文件再替换，因此 `eval run --write` 与 `eval reference --write --confirm-reference-update --force` 是一组固定顺序。资产敏感度（改动规则、Skill、Hook 或配置后必须失败）由 stub-behavioral 产物的资产指纹耦合与 Harness Evals 的 RED 阶段共同验证；旧 behavioral 变异命令已移除，见上文 proof 说明。run fingerprint 分别记录 config、hooks、rules、skills 分类哈希与聚合哈希，分组清单单源于 `scripts/lib/eval-assets.js`（漂移比较与契约测试导入同一导出，两份 eval schema 的 required 清单固定同一契约，新增分组需同步 schema 与本节）；资产漂移、缺 reference 或 degraded run 不计为通过。
+offline 模式验证 suite、oracle、聚合和 reference 一致性。online runner 必须在一次性项目中执行，限制输出与超时，并保护全局配置。reference 更新始终显式执行，不能为让变更通过而自动提升；写入必须同时满足 `--confirm-reference-update` 与宿主注入的 `VIBE_HARNESS_PROTECTED_APPROVAL=1`，既有 reference 存在时还需 `--force`，由它先备份旧文件再替换，因此 `eval run --write` 与受保护的 `eval reference --write --confirm-reference-update --force` 是一组固定顺序。资产敏感度（改动规则、Skill、Hook 或配置后必须失败）由 stub-behavioral 产物的资产指纹耦合与 Harness Evals 的 RED 阶段共同验证；旧 behavioral 变异命令已移除，见上文 proof 说明。run fingerprint 分别记录 config、hooks、rules、skills 分类哈希与聚合哈希，分组清单单源于 `scripts/lib/eval-assets.js`（漂移比较与契约测试导入同一导出，两份 eval schema 的 required 清单固定同一契约，新增分组需同步 schema 与本节）；资产漂移、缺 reference 或 degraded run 不计为通过。
 
 签入的 offline run（`evals/results/vibe-harness-core.offline.json`）与 reference 内嵌同一份资产指纹，两个命令按同一份指纹覆盖不同比对：`pnpm eval:check` 交叉校验 run 与 reference，并把 reference 内嵌指纹与当前资产树复核（漂移时以 `asset fingerprint drift for <field>` 列出分组并给出再生成顺序）；`pnpm eval:replay` 只读比对签名入产物与当前资产。因此两者必须同时更新，顺序是先再生成 reference，再用 `pnpm eval:replay --write` 重生成 run（旧文件备份到 `.vibe-harness/backups/`）。`--write` 先只校验 suite 契约，写完后交叉比对 reference 指纹，仍不一致就以非零退出并给出再生成命令；未漂移时不写文件、不产生备份。
 
@@ -55,7 +55,7 @@ stub-behavioral 产物按同一纪律单独配对：`pnpm eval:check` 校验 `ev
 | `harness-evals/` | 新统一体系的框架资产（scenarios、fixtures、runners、verifiers、external 适配等）。 | 框架资产提交；运行生成物 `reports/generated/`、`traces/runs/`、`baselines/candidates/`、`regressions/generated/` 不提交，本地缺失等同空历史，由 CI 产生 |
 | `.vibe-harness/` | 运行时状态：`evals/runs/` 存放 offline/online run 工件（`eval reference --from` 的输入），另有 backups、tasks、transactions。 | 整体忽略 |
 
-写路径数据流：`evals/` 经 install-map 投影为 `.agents/evals/`；`eval run --write` 落 `.vibe-harness/evals/runs/`，经显式 `eval reference --from <run> --write --confirm-reference-update --force` 提升为 `evals/references/`，再由 `pnpm eval:replay --write` 生成配对签入 run；`pnpm eval:behavioral --write` 单独再生成 `evals/results/vibe-harness-behavioral.stub.json`；`pnpm eval:harness run` 的产物只落 `harness-evals/` 的不提交生成目录。旧 `evals/` 资产不复制进 `harness-evals/`。
+写路径数据流：`evals/` 经 install-map 投影为 `.agents/evals/`；`eval run --write` 落 `.vibe-harness/evals/runs/`，经宿主注入 `VIBE_HARNESS_PROTECTED_APPROVAL=1` 且显式 `eval reference --from <run> --write --confirm-reference-update --force` 提升为 `evals/references/`，再由 `pnpm eval:replay --write` 生成配对签入 run；`pnpm eval:behavioral --write` 单独再生成 `evals/results/vibe-harness-behavioral.stub.json`；`pnpm eval:harness run` 的产物只落 `harness-evals/` 的不提交生成目录。旧 `evals/` 资产不复制进 `harness-evals/`。
 
 不变量：投影与源字节一致且无孤儿（复用 `eval-projection.js` 计划器）；`evals/references/` 恰好一份、`evals/results/` 恰好两份签入产物；`evals/` 与 `.agents/evals/` 的全部文件必须被 git 跟踪——`eval:check` 无条件读取 behavioral 产物，未跟踪的必需资产会让 fresh clone 直接失败；harness-evals 生成目录与 `.vibe-harness/` 不得出现被跟踪文件；`harness-evals/` 内不得有与 `evals/` 字节相同的复制件。
 

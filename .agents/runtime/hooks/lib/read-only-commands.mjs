@@ -143,7 +143,14 @@ export const RUNTIME_TOOLCHAIN_PATTERN = /(?:^|[\\/])(?:biome|cargo|cmake|deno|d
 
 const UNSAFE_SHELL_CONSTRUCT_PATTERN = /(?:\$\([^)]*\)|`[^`]*`|\\\r?\n)/u;
 
-const SHELL_WRITE_PATTERN = /(?:^|\s)(?:Set-Content|Add-Content|Clear-Content|Out-File|New-Item|Remove-Item|Move-Item|Copy-Item|Rename-Item|mkdir|md|rmdir|rd|touch|rm|mv|cp|tee|truncate|install|chmod|chown|ln|dd|rsync|del|erase|copy|move|sed\s+-i)(?=\s|$)/iu;
+/**
+ * Shell verbs that change the filesystem. Exported as the single truth source
+ * for "is this command write-shaped?": the policy layer's `commandWrites` and
+ * the frozen-test write gate both read it, so a new verb cannot be added to one
+ * without the other. It deliberately does not treat a bare redirection as a
+ * verb — a redirect has a target that callers resolve and judge separately.
+ */
+export const SHELL_WRITE_VERB_PATTERN = /(?:^|\s)(?:Set-Content|Add-Content|Clear-Content|Out-File|New-Item|Remove-Item|Move-Item|Copy-Item|Rename-Item|mkdir|md|rmdir|rd|touch|rm|mv|cp|tee|truncate|install|chmod|chown|ln|dd|rsync|del|erase|copy|move|sed\s+-i)(?=\s|$)/iu;
 
 /**
  * Splits a shell command on `&&`, `||`, `;`, `&`, `|` and newlines while
@@ -302,7 +309,7 @@ export function isReadOnlyShellSegment(segment) {
  * @returns {boolean}
  */
 export function commandWrites(segment) {
-  if (SHELL_WRITE_PATTERN.test(segment)) return true;
+  if (SHELL_WRITE_VERB_PATTERN.test(segment)) return true;
   return hasShellRedirection(segment);
 }
 

@@ -164,6 +164,12 @@
       "contentStrategy": "replace"
     },
     {
+      "group": "templates-minimal",
+      "source": "templates/plan.md",
+      "target": "docs/templates/plan.md",
+      "contentStrategy": "replace"
+    },
+    {
       "group": "rules-core",
       "source": "docs/rules/eval-driven-development.md",
       "target": "docs/rules/eval-driven-development.md",
@@ -1070,6 +1076,13 @@
       "group": "hooks",
       "source": "runtime/hooks/lib/execution-envelope.mjs",
       "target": ".agents/runtime/hooks/lib/execution-envelope.mjs",
+      "contentStrategy": "replace",
+      "redZone": true
+    },
+    {
+      "group": "hooks",
+      "source": "runtime/hooks/lib/frozen-test-writes.mjs",
+      "target": ".agents/runtime/hooks/lib/frozen-test-writes.mjs",
       "contentStrategy": "replace",
       "redZone": true
     },

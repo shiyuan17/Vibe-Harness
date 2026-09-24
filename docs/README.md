@@ -88,11 +88,16 @@
 
 ## 模板与记忆
 
+- [受管执行计划](plans/governance-evidence.md)
 - [可选任务记录](templates/task.md)
 - [简洁交付记录](templates/delivery.md)
 - [全生命周期工作流](templates/workflow.md)
 - [<主题> 审查报告](templates/finding-report.md)
 - [跨层一致性审查（find-question）](templates/find-question.md)
+- [<任务编号> <标题>](templates/plan.md)
+- [复审简报：<单元 / 变更 ID>](templates/review-brief.md)
+- [Improve this agent harness's token efficiency](templates/less_harness_token.md)
+- [证据附件：<任务 / 单元 ID>](templates/evidence.md)
 - [项目状态](memory/PROJECT_STATE.md)
 - [架构记忆](memory/ARCHITECTURE.md)
 - [决策](memory/DECISIONS.md)

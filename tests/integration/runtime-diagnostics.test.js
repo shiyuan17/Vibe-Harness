@@ -7,7 +7,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
 
-import { hookDefinitionDrift, inspectMemory, inspectRuntimeHooks, runtimeHookWarnings } from '../../scripts/lib/runtime-diagnostics.js';
+import { FRESH_CONTEXT_MODES, hookDefinitionDrift, inspectFreshContext, inspectMemory, inspectRuntimeHooks, runtimeHookWarnings } from '../../scripts/lib/runtime-diagnostics.js';
 import { readHostHookState } from '../../scripts/lib/host-hook-state.js';
 
 const execFileAsync = promisify(execFile);
@@ -245,6 +245,88 @@ test('Hook trust re-review is reported only for a trusted host whose installed d
       const codes = runtimeHookWarnings(report, { definitionChanged: true }).map((warning) => warning.code);
       assert.equal(codes.includes('HOOK_TRUST_REREVIEW_REQUIRED'), false, status);
     }
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('fresh-context diagnostics never promote an inherited or unverified host to independent review', () => {
+  const adapter = (freshContext, subagents = 'stable') => ({ capabilities: { subagents }, freshContext, id: 'fixture' });
+
+  // An undeclared capability stays fail-closed instead of defaulting to a fresh
+  // context: only a host that really starts a non-inheriting context may host an
+  // independent review.
+  const undeclared = inspectFreshContext({ capabilities: { subagents: 'stable' }, id: 'fixture' });
+  assert.equal(undeclared.mode, 'unavailable');
+  assert.equal(undeclared.independentReviewSupported, false);
+  assert.deepEqual(undeclared.messages.map((item) => item.code), ['FRESH_CONTEXT_UNDECLARED']);
+
+  const inherited = inspectFreshContext(adapter({ evidence: 'configured-unverified', mode: 'inherited' }));
+  assert.equal(inherited.independentReviewSupported, false);
+  assert.deepEqual(inherited.messages.map((item) => item.code), ['FRESH_CONTEXT_INHERITED_ONLY']);
+
+  // A host that can start an isolated context still cannot back
+  // `contextIndependence=verified` until the declaration carries host evidence.
+  const unverified = inspectFreshContext(adapter({ evidence: 'configured-unverified', mode: 'isolated' }));
+  assert.equal(unverified.independentReviewSupported, false);
+  assert.deepEqual(unverified.messages.map((item) => item.code), ['FRESH_CONTEXT_UNVERIFIED']);
+
+  const verified = inspectFreshContext(adapter({ evidence: 'verified', mode: 'isolated' }));
+  assert.equal(verified.independentReviewSupported, true);
+  assert.deepEqual(verified.messages, []);
+
+  const unavailable = inspectFreshContext(adapter({ evidence: 'configured-unverified', mode: 'unavailable' }, 'unsupported'));
+  assert.deepEqual(unavailable.messages.map((item) => item.code), ['FRESH_CONTEXT_UNAVAILABLE']);
+});
+
+test('fresh-context diagnostics reject a declaration that contradicts the subagents level', () => {
+  const contradictory = [
+    { capabilities: { subagents: 'unsupported' }, freshContext: { evidence: 'configured-unverified', mode: 'isolated' } },
+    { capabilities: { subagents: 'stable' }, freshContext: { evidence: 'configured-unverified', mode: 'unavailable' } },
+    { capabilities: { subagents: 'stable' }, freshContext: { evidence: 'verified', mode: 'forked' } },
+  ];
+  for (const adapter of contradictory) {
+    const report = inspectFreshContext(adapter);
+    assert.equal(report.independentReviewSupported, false);
+    assert.equal(report.messages.length, 1, JSON.stringify(adapter));
+    assert.ok(
+      ['FRESH_CONTEXT_CONTRADICTS_SUBAGENTS', 'FRESH_CONTEXT_UNDECLARED'].includes(report.messages[0].code),
+      report.messages[0].code,
+    );
+  }
+});
+
+test('every adapter declares a fresh-context mode consistent with its declared subagents level', async () => {
+  const adapters = JSON.parse(await readFile(path.resolve('manifests/adapters.json'), 'utf8'));
+  assert.ok(adapters.items.length > 0);
+  for (const adapter of adapters.items) {
+    const report = inspectFreshContext(adapter);
+    assert.equal(report.host, adapter.id);
+    assert.ok(FRESH_CONTEXT_MODES.includes(report.mode), `${adapter.id}: ${report.mode}`);
+    // A contradictory or undeclared capability has to surface as a finding; the
+    // remaining codes only describe an honest, still-unverified declaration.
+    const findings = report.messages
+      .map((item) => item.code)
+      .filter((code) => code === 'FRESH_CONTEXT_CONTRADICTS_SUBAGENTS' || code === 'FRESH_CONTEXT_UNDECLARED');
+    assert.deepEqual(findings, [], adapter.id);
+    assert.equal(
+      report.independentReviewSupported,
+      report.mode === 'isolated' && report.evidence === 'verified',
+      adapter.id,
+    );
+  }
+});
+
+test('the runtime diagnostics entry surfaces the declared fresh-context capability', async () => {
+  const adapters = JSON.parse(await readFile(path.resolve('manifests/adapters.json'), 'utf8'));
+  const adapter = adapters.items.find((item) => item.id === 'codex');
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-fresh-context-'));
+  try {
+    const report = await inspectRuntimeHooks(adapter, target);
+    assert.deepEqual(report.freshContext, inspectFreshContext(adapter));
+    assert.equal(report.freshContext.host, 'codex');
+    assert.equal(report.freshContext.mode, 'isolated');
+    assert.equal(report.freshContext.independentReviewSupported, false);
   } finally {
     await rm(target, { force: true, recursive: true });
   }

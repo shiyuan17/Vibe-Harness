@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { findProjectRoot, readHookSettings } from './lib/context.mjs';
+import { evaluateFrozenTestWrite } from './lib/frozen-test-writes.mjs';
 import { evaluateExecutionEnvelope } from './lib/execution-envelope.mjs';
 import { analyzeToolRequest, commandFrom, createHostHookResult, normalizeHostHookInput } from './lib/policy.mjs';
 import { isReadOnlyToolName } from './lib/read-only-commands.mjs';
@@ -127,6 +128,10 @@ export async function evaluateHook(rawInput, {
   }
   const rootDir = await findProjectRoot(input.cwd);
   const settings = await readHookSettings(rootDir);
+  const frozenTestDecision = await evaluateFrozenTestWrite(input, rootDir);
+  if (frozenTestDecision.action === 'deny') {
+    return createHostHookResult(host, input.event, frozenTestDecision, { durationMs: elapsedMs() });
+  }
   // The host injects the acting role's permission preset through the parent-
   // owned environment; the project config can also declare one. The host
   // channel wins and, like the execution envelope, still applies when the

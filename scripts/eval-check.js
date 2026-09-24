@@ -92,12 +92,15 @@ errors.push(...validateEvalObserverCoverage(onlineSuites, observers));
 if (errors.length > 0) {
   const drifted = errors.some((error) => error.startsWith(ASSET_DRIFT_PREFIX));
   const behavioralDrifted = errors.some((error) => error.startsWith(ASSET_DRIFT_PREFIX) && error.endsWith(' (behavioral run)'));
+  const referenceDrifted = errors.some((error) => error.startsWith(ASSET_DRIFT_PREFIX) && !error.endsWith(' (behavioral run)'));
   console.error(JSON.stringify({
     errors,
-    nextAction: behavioralDrifted
+    nextAction: behavioralDrifted && referenceDrifted
+      ? 'Confirm the drifted groups match this change, obtain protected approval from the host, then regenerate the reference and behavioral pair: pnpm vibe-harness eval run --project . --mode offline --write, VIBE_HARNESS_PROTECTED_APPROVAL=1 pnpm vibe-harness eval reference --project . --from <run> --write --confirm-reference-update --force, pnpm eval:sync --write, pnpm eval:replay --write, pnpm eval:behavioral --write.'
+      : behavioralDrifted
       ? 'Confirm the drifted groups match this change, then regenerate the behavioral artifact with pnpm eval:behavioral --write.'
       : drifted
-        ? 'Confirm the drifted groups match this change, then regenerate the pair: pnpm vibe-harness eval run --project . --mode offline --write, pnpm vibe-harness eval reference --project . --from <run> --write --confirm-reference-update --force, pnpm eval:sync --write, pnpm eval:replay --write.'
+        ? 'Confirm the drifted groups match this change, obtain protected approval from the host, then regenerate the pair: pnpm vibe-harness eval run --project . --mode offline --write, VIBE_HARNESS_PROTECTED_APPROVAL=1 pnpm vibe-harness eval reference --project . --from <run> --write --confirm-reference-update --force, pnpm eval:sync --write, pnpm eval:replay --write.'
         : null,
     ok: false,
   }, null, 2));
