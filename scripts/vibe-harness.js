@@ -664,6 +664,13 @@ async function install(args) {
   }
   let health = provisionExecuted ? healthReport({ profile, tools }) : { ok: true, status: 'ready' };
   const runtimeHooks = await inspectRuntimeHooks(adapter, targetDir);
+  // Project-owned seeds keep whatever the project wrote into them. The plan
+  // marks the targets whose content is retained instead of reinstalled, so both
+  // the dry-run plan and the write report can name them instead of letting a
+  // memory file silently drift away from install-state.
+  const retainedProjectOwned = (plan.actions ?? [])
+    .filter((action) => action.projectContentRetained === true)
+    .map((action) => ({ reason: 'project-owned-drift', target: action.relativeTarget }));
   const warnings = [
     ...(provisionExecuted
       ? toolWarnings(tools)
@@ -672,6 +679,11 @@ async function install(args) {
           message: 'Tool provisioning was not run; use vibe-harness provision --project <project> --write.',
         }] : [])),
     ...safetyPostureWarnings(adapter),
+    ...(retainedProjectOwned.length > 0 ? [{
+      code: 'PROJECT_OWNED_FILE_RETAINED',
+      message: 'Kept project-owned content and re-recorded it as the baseline: '
+        + retainedProjectOwned.map((item) => item.target).join(', ') + '.',
+    }] : []),
     ...runtimeHookWarnings(runtimeHooks, { definitionChanged: hookDefinitionChanged, enforcementPolicy }),
     ...strictEnforcementWarnings(plan.strictEnforcementRefusals),
     ...(result.backupRetentionError ? [{
@@ -759,6 +771,7 @@ async function install(args) {
     warnings,
     retired: result.retired,
     retained: result.retained,
+    retainedProjectOwned,
     skipped: result.skipped,
     written: result.written,
   }, args);

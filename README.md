@@ -291,7 +291,7 @@ preserve-retired 选项会保留升级计划中本应退休的资产，并在结
 
 ## 安全边界
 
-- 未使用 `--force` 时不覆盖已有项目文件。
+- 未使用 `--force` 时不覆盖已有项目文件。项目自有的受管种子（`docs/memory/*`、`.agents/memory/*`）在内容漂移时保留项目内容、把当前内容重新记录为基线，并在 `retainedProjectOwned`（`reason: project-owned-drift`）与 `PROJECT_OWNED_FILE_RETAINED` 告警中报告；其他受管文件漂移仍然以 `Refusing to upgrade user-modified file` 拒绝。
 - 所有真实写入使用 `--write`；红区写入需要显式确认。
 - 安装器不修改全局 Agent 配置或 `.git/config`。
 - Codex、Cursor、Qoder 和 ZCode Hook 会把 `PreToolUse` 和权限事件归一到同一安全策略，用于阻止危险 Git、全局配置写入、凭据外传、红区文件上传、越界写入，以及（配置 `allowedEgressHosts` 白名单后）非白名单主机出口。RTK Hook 路由仍只支持 Codex。

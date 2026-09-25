@@ -291,7 +291,7 @@ The preserve-retired option keeps assets that an upgrade would retire and report
 
 ## Safety boundaries
 
-- Existing project files are preserved unless `--force` is explicit.
+- Existing project files are preserved unless `--force` is explicit. Project-owned managed seeds (`docs/memory/*`, `.agents/memory/*`) keep the project's drifted content, re-record it as the baseline, and are reported through `retainedProjectOwned` (`reason: project-owned-drift`) and the `PROJECT_OWNED_FILE_RETAINED` warning; drifted harness-owned files still fail closed with `Refusing to upgrade user-modified file`.
 - Every mutation requires `--write`; red-zone writes require explicit confirmation.
 - The installer does not modify global Agent configuration or `.git/config`.
 - Codex, Cursor, Qoder, and ZCode Hooks normalize their `PreToolUse` and permission events through the same safety policy to block dangerous Git, global configuration writes, credential exfiltration, red-zone file uploads, out-of-project writes, and (when an `allowedEgressHosts` allowlist is configured) non-allowlisted network egress. RTK Hook routing remains Codex-only.

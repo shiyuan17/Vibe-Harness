@@ -52,6 +52,12 @@ validationCommands.tiers.quick/standard/deep 是可选的分层验证面；缺�
 
 所有项目命令使用 --project path；--target 只选择 adapter。所有真实修改使用 --write，不使用 --apply。完整流程优先 dry-run，并以 validate、doctor 和命令输出作为迁移证据。
 
+## 项目自有种子漂移
+
+docs/memory/* 和 .agents/memory/* 是项目自有的受管种子：安装器只播种一次，之后由项目维护。升级或重装时若这些文件与 install-state 记录的基线不同，安装器保留项目写入的内容、把当前内容重新记录为新基线，并在报告里以 retainedProjectOwned（reason: project-owned-drift）和 PROJECT_OWNED_FILE_RETAINED 告警列出，不再以 Refusing to upgrade user-modified file 中断。dry-run 也会列出同样的目标。
+
+其他受管文件（rules、roles、skills、runtime 等）漂移仍然 fail-closed：--force 会先备份再覆盖，否则必须先手工收敛内容。角色文件的处理维持不变，见 Role migration。
+
 ## Role migration
 
 升级到包含角色模块的 full profile 会生成宿主中立的 .agents/roles/ 和对应的原生 Agent 投影。旧安装不会被强制替换：非受管同名文件直接冲突，用户修改过的受管角色在 upgrade、rollback 和 uninstall 时保留并报告。禁用角色会在下一次升级中按 hash 安全退役。

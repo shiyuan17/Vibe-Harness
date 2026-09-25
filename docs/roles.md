@@ -64,7 +64,7 @@ doctor 的角色报告把状态拆成四级，不把「文件已生成」读成�
 
 ## 生命周期
 
-角色文件与其他安装资产使用同一 install-state v5、owner 合并、冲突检测、事务写入、diff、rollback 和 uninstall 机制。未使用 force 时不会覆盖非受管同名文件；用户修改过的受管角色文件在 upgrade、rollback 或 uninstall 时保留并报告冲突。
+角色文件与其他安装资产使用同一 install-state v5、owner 合并、冲突检测、事务写入、diff、rollback 和 uninstall 机制。未使用 force 时不会覆盖非受管同名文件；用户修改过的受管角色文件在 upgrade、rollback 或 uninstall 时保留并报告冲突。角色文件不是项目自有的种子，漂移不适用「保留并重新记录基线」的处理（那条路径只覆盖 docs/memory/* 与 .agents/memory/*，见[迁移指南](migration-guide.md)的项目自有种子漂移一节）。
 
 ## 设计参考
 

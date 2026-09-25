@@ -754,6 +754,9 @@ export async function createMultiTargetInstallPlan({ selectedTargets, targets, .
           ? 'user-modified'
           : existing.kind === 'conflict' || action.kind === 'conflict' ? 'conflict' : 'write',
         owners: mergeOwners(existing.owners, action.owners),
+        ...(existing.projectContentRetained || action.projectContentRetained
+          ? { projectContentRetained: true }
+          : {}),
       });
     }
   }
@@ -840,11 +843,15 @@ async function planEntryActions(ctx) {
       : entry.contentStrategy;
     const exists = await pathExists(target);
     let kind = exists && !force ? 'conflict' : 'write';
+    let projectContentRetained = false;
     const managedFile = managed.get(relativeTarget);
+    const blockCompared = isManagedInstruction(contentStrategy)
+      || isManagedToml(contentStrategy)
+      || isManagedIgnore(contentStrategy);
 
     if (exists && managedFile && !force) {
       let currentHash;
-      if (isManagedInstruction(contentStrategy) || isManagedToml(contentStrategy) || isManagedIgnore(contentStrategy)) {
+      if (blockCompared) {
         const content = await readFile(target, 'utf8');
         const block = isManagedInstruction(contentStrategy)
           ? extractManagedInstructionBlock(content)
@@ -855,10 +862,18 @@ async function planEntryActions(ctx) {
       } else {
         currentHash = await hashFile(target);
       }
-      const expectedHash = (isManagedInstruction(contentStrategy) || isManagedToml(contentStrategy) || isManagedIgnore(contentStrategy))
-        ? managedFile.managedBlockHash
-        : managedFile.targetHash;
-      kind = currentHash === expectedHash ? 'write' : 'user-modified';
+      const expectedHash = blockCompared ? managedFile.managedBlockHash : managedFile.targetHash;
+      // A project-owned seed belongs to the project once written: when its
+      // content drifted from the recorded hash the installer keeps what the
+      // project wrote, re-records that content as the new baseline, and reports
+      // the target. Harness-owned files keep failing closed below.
+      projectContentRetained = Boolean(entry.projectOwned) && currentHash !== expectedHash;
+      kind = currentHash === expectedHash || projectContentRetained ? 'write' : 'user-modified';
+    } else if (exists && managedFile && force && entry.projectOwned && !blockCompared) {
+      // `--force` reinstalls harness-owned targets; a project-owned seed still
+      // keeps the project's content, so the report must say so instead of
+      // implying the seed itself was reinstalled.
+      projectContentRetained = await hashFile(target) !== managedFile.targetHash;
     } else if (isManagedInstruction(contentStrategy) || isManagedToml(contentStrategy)) {
       kind = 'write';
     } else if (isManagedIgnore(contentStrategy)) {
@@ -889,6 +904,7 @@ async function planEntryActions(ctx) {
       relativeTarget,
       source,
       target,
+      ...(projectContentRetained ? { projectContentRetained: true } : {}),
     });
   }
   return actions;
@@ -1589,7 +1605,9 @@ function retirementTargets(actions = []) {
 }
 
 function validatePlanGuards(plan) {
-  const userModified = plan.actions.find((action) => action.kind === 'user-modified');
+  // Project-owned seeds are reported as retained instead of blocking the plan;
+  // every other managed target that drifted still fails closed here.
+  const userModified = plan.actions.find((action) => action.kind === 'user-modified' && !action.projectOwned);
   if (userModified) {
     throw new Error(`Refusing to upgrade user-modified file: ${userModified.target}`);
   }

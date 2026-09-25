@@ -412,3 +412,56 @@ test('reinstall refuses generated-file registrations outside the project', async
     await rm(outside, { force: true });
   }
 });
+
+test('项目自有受管种子漂移时保留原内容并重新记录基线', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-project-owned-retain-'));
+  try {
+    await runCli(['init', '--project', target, '--profile', 'minimal']);
+    await runCli(['install', '--project', target, '--modules', 'memory', '--write']);
+
+    const seed = path.join(target, 'docs/memory/PROJECT_STATE.md');
+    const drifted = `${await readFile(seed, 'utf8')}\n项目本地补充：这份状态由项目自己维护。\n`;
+    await writeFile(seed, drifted, 'utf8');
+
+    // The dry-run plan already names the retained target so the operator can see
+    // the drift before anything is written.
+    const preview = await runCli(['install', '--project', target, '--modules', 'memory', '--dry-run']);
+    assert.deepEqual(preview.retainedProjectOwned, [
+      { reason: 'project-owned-drift', target: 'docs/memory/PROJECT_STATE.md' },
+    ]);
+    assert.ok(preview.warnings.some((item) => item.code === 'PROJECT_OWNED_FILE_RETAINED'));
+    assert.equal(await readFile(seed, 'utf8'), drifted);
+
+    const applied = await runCli(['install', '--project', target, '--modules', 'memory', '--write']);
+    assert.deepEqual(applied.retainedProjectOwned, [
+      { reason: 'project-owned-drift', target: 'docs/memory/PROJECT_STATE.md' },
+    ]);
+    assert.equal(await readFile(seed, 'utf8'), drifted);
+
+    const state = JSON.parse(await readFile(path.join(target, '.vibe-harness/install-state.json'), 'utf8'));
+    const record = state.files.find((file) => file.target === 'docs/memory/PROJECT_STATE.md');
+    assert.equal(record.targetHash, sha256(drifted));
+    assert.equal(record.previousHash, sha256(drifted));
+
+    // The retained pass re-recorded the baseline, so the next install is quiet.
+    const settled = await runCli(['install', '--project', target, '--modules', 'memory', '--write']);
+    assert.deepEqual(settled.retainedProjectOwned, []);
+
+    // Harness-owned targets in the same install still fail closed on drift.
+    const rule = path.join(target, 'docs/rules/git-rules.md');
+    await writeFile(rule, `${await readFile(rule, 'utf8')}\n本地手工修改\n`, 'utf8');
+    await assert.rejects(
+      execFileAsync(process.execPath, [
+        cliPath,
+        'install',
+        '--project', target,
+        '--modules', 'memory',
+        '--write',
+        '--allow-degraded',
+      ]),
+      /Refusing to upgrade user-modified file/,
+    );
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
