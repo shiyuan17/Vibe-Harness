@@ -76,14 +76,21 @@ test('install preset catalog rejects unknown profiles, modules and plugins', () 
 });
 
 test('everything expands to the full profile, every stable plugin, linear and memory', () => {
-  assert.deepEqual(expandInstallPreset('everything'), {
+  const expanded = expandInstallPreset('everything');
+  assert.deepEqual(expanded, {
     allowPreview: true,
     modules: ['agents', 'rules', 'templates', 'skills', 'evals', 'project-scripts', 'hooks', 'roles', 'memory'],
-    plugins: [...pluginModules, 'linear'],
+    plugins: [...pluginModules, 'linear', 'codegraph', 'serena', 'probe'],
     preset: 'everything',
     profile: 'full',
     provision: true,
   });
+  // The rule-only stable plugins stay out of `--plugin all` yet still ship with
+  // the aggregate preset, so `everything` and `--plugin all` keep distinct
+  // contracts.
+  assert.deepEqual(expanded.plugins.filter((moduleId) => !pluginModules.includes(moduleId)), [
+    'linear', 'codegraph', 'serena', 'probe',
+  ]);
   assert.throws(() => expandInstallPreset('unknown'), /Unknown preset: unknown/u);
   assert.throws(() => parsePresetOption(''), /--preset requires a preset id/u);
 });
@@ -95,7 +102,7 @@ test('resolveInstallSurface expands the preset and keeps explicit selection othe
   assert.equal(presetSurface.allowPreview, true);
   assert.equal(presetSurface.provision, true);
   assert.equal(presetSurface.provisionSource, 'preset');
-  assert.deepEqual(presetSurface.plugins, [...pluginModules, 'linear']);
+  assert.deepEqual(presetSurface.plugins, [...pluginModules, 'linear', 'codegraph', 'serena', 'probe']);
 
   const cliSurface = resolveInstallSurface({ args: { preset: 'everything' }, config: projectConfig({ profile: 'core' }) });
   assert.equal(cliSurface.preset, 'everything');

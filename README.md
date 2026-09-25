@@ -58,7 +58,7 @@ pnpm vibe-harness validate --project ../full-project
 pnpm vibe-harness doctor --project ../full-project
 ```
 
-`--preset everything` 展开为 `profile=full`、六个稳定工具插件、linear-mcp 读写端点与 memory 模块，并隐含放行预览能力和安装后 provision；它不改变 `--plugin all` 仍不含 Linear 的既有语义。红区写入仍必须显式使用 `--confirm-red-zone`。init 写入的配置：
+`--preset everything` 展开为 `profile=full`、六个带 runtime 的稳定工具插件、rule-only 的 `codegraph`／`serena`／`probe`、linear-mcp 读写端点与 memory 模块，并隐含放行预览能力和安装后 provision；它不改变 `--plugin all` 仍只含六个带 runtime 的稳定工具、不含 Linear 与三个 rule-only 插件的既有语义。红区写入仍必须显式使用 `--confirm-red-zone`。init 写入的配置：
 
 ```json
 {

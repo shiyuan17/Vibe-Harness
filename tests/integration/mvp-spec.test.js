@@ -420,6 +420,9 @@ test('only the everything preset makes a full install carry linear and memory', 
     assert.equal(fullTargets.includes('docs/rules/linear-workflow.md'), false);
     assert.equal(fullTargets.includes('.agents/skills/agentmemory/SKILL.md'), false);
     assert.equal(fullTargets.some((item) => item.startsWith('docs/memory/')), false);
+    assert.equal(fullTargets.includes('docs/rules/codegraph.md'), false);
+    assert.equal(fullTargets.includes('docs/rules/serena.md'), false);
+    assert.equal(fullTargets.includes('docs/rules/probe.md'), false);
     assert.equal(fullAgents.includes('agentmemory'), false);
 
     await runCli(['init', '--project', target, '--target', 'codex', '--preset', 'everything']);
@@ -430,13 +433,16 @@ test('only the everything preset makes a full install carry linear and memory', 
     assert.equal(report.preset, 'everything');
     assert.equal(report.profile, 'full');
     assert.equal(report.requestedPlugins.includes('linear'), true);
-    assert.equal(report.requestedPlugins.length, 7);
+    assert.equal(report.requestedPlugins.length, 10);
     assert.equal(report.requestedModules.includes('memory'), true);
     assert.equal(targets.includes('docs/rules/linear-workflow.md'), true);
     assert.equal(targets.includes('.agents/skills/linear-workflow/SKILL.md'), true);
     assert.equal(targets.includes('.agents/skills/agentmemory/SKILL.md'), true);
     assert.equal(targets.includes('.agents/memory/README.md'), true);
     assert.equal(targets.includes('docs/memory/PROJECT_STATE.md'), true);
+    assert.equal(targets.includes('docs/rules/codegraph.md'), true);
+    assert.equal(targets.includes('docs/rules/serena.md'), true);
+    assert.equal(targets.includes('docs/rules/probe.md'), true);
     assert.equal(agents.includes('agentmemory'), true);
   } finally {
     await rm(full.target, { force: true, recursive: true });

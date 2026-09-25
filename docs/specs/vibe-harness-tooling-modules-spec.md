@@ -46,7 +46,7 @@ Linear 另有两个需要认证的显式外部集成：linear-mcp 配置读写 e
 | `serena` | `serena` | LSP 实时符号导航（rule-only） | stable |
 | `probe` | `probe` | 自然语言意图检索（rule-only） | stable |
 
-`--plugin -all` 或 `--plugin all` 展开为全部 6 个带 runtime 的稳定工具插件；rule-only 的 `codegraph`、`serena`、`probe` 不随 `all` 展开，需按名显式选择。`--plugin -rtk` 启用一个；`--plugin -rtk ast-grep` 启用多个。支持逗号分隔和重复 `--plugin`，规范化后拒绝未知值、重复值以及 `all`/`none` 与其他值混用。`--plugin none` 显式清空已持久化选择。Agentmemory runtime 因上游依赖树仍含 High 漏洞而暂停提供，不通过降低 audit 门禁重新开放。
+`--plugin -all` 或 `--plugin all` 展开为全部 6 个带 runtime 的稳定工具插件；rule-only 的 `codegraph`、`serena`、`probe` 不随 `all` 展开，需按名显式选择，聚合预设 `everything` 会显式带出这三个。`--plugin -rtk` 启用一个；`--plugin -rtk ast-grep` 启用多个。支持逗号分隔和重复 `--plugin`，规范化后拒绝未知值、重复值以及 `all`/`none` 与其他值混用。`--plugin none` 显式清空已持久化选择。Agentmemory runtime 因上游依赖树仍含 High 漏洞而暂停提供，不通过降低 audit 门禁重新开放。
 
 插件选择是 profile 的增量集合：先解析 profile 或高级 `--modules` 替换集合，再加入插件及依赖闭包。因此 `full --plugin -rtk` 仍保留 full 的 governance、skills 与 hooks；memory 仅在显式选择 `memory` module 时加入。`--modules` 继续作为完整模块替换接口，不等同于插件选择。
 
@@ -56,9 +56,9 @@ Linear 另有两个需要认证的显式外部集成：linear-mcp 配置读写 e
 
 <code>manifests/install-presets.json</code> 与 <code>schemas/install-preset.schema.json</code> 声明项目级安装预设，<code>scripts/lib/install-preset.js</code> 负责目录校验与唯一解析入口。预设是聚合选择面：它把 profile、插件、模块、预览放行与 provision 组合成一次声明，由 <code>resolveInstallSurface()</code> 解析为 effective profile、plugins、modules、allowPreview 与 provision；install-state 仍只记录展开后的 <code>requestedPlugins</code> 与 <code>requestedModules</code>，因此 validate、doctor、diff、baseline 与 provision 重放的是同一安装面。
 
-当前只有 `everything` 一个预设，展开为 `profile=full`、6 个稳定工具插件、`linear` 读写模块与 `memory` 模块，并隐含 `--allow-preview` 与 `--provision`；它不隐含 `--confirm-red-zone`，红区写入仍须显式确认。
+当前只有 `everything` 一个预设，展开为 `profile=full`、6 个带 runtime 的稳定工具插件、rule-only 的 `codegraph`／`serena`／`probe`、`linear` 读写模块与 `memory` 模块，并隐含 `--allow-preview` 与 `--provision`；它不隐含 `--confirm-red-zone`，红区写入仍须显式确认。
 
-预设不改变既有选择语义：`full` 与 `--plugin all` 的展开结果保持不变，`--plugin all` 仍只含 6 个稳定工具、不含 Linear；Linear 只能由显式插件选择或由预设显式带出。CLI 的 `--profile`、`--modules`、`--plugin` 与已声明的 preset 不得并存，`vibe-harness.config.json` 中 preset 存在时也不得同时声明 `plugins` 或 `modules`，避免配置与 install-state 静默分叉。`init --preset` 只写入配置，`install --preset` 在配置缺少该预设时于同一安装事务内补齐；配置属红区，真实写入仍须 `--confirm-red-zone`。
+预设不改变既有选择语义：`full` 与 `--plugin all` 的展开结果保持不变，`--plugin all` 仍只含 6 个带 runtime 的稳定工具、不含 Linear 与三个 rule-only 插件；它们只能由显式插件选择或由预设显式带出。CLI 的 `--profile`、`--modules`、`--plugin` 与已声明的 preset 不得并存，`vibe-harness.config.json` 中 preset 存在时也不得同时声明 `plugins` 或 `modules`，避免配置与 install-state 静默分叉。`init --preset` 只写入配置，`install --preset` 在配置缺少该预设时于同一安装事务内补齐；配置属红区，真实写入仍须 `--confirm-red-zone`。
 
 ## 固定版本与入口
 

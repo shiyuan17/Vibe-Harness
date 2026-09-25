@@ -182,7 +182,7 @@ test('everything preset plans the full surface for every target before writing',
     assert.equal(report.profile, 'full');
     assert.deepEqual(report.targets, ['codex', 'zcode', 'opencode']);
     assert.equal(report.requestedPlugins.includes('linear'), true);
-    assert.equal(report.requestedPlugins.length, 7);
+    assert.equal(report.requestedPlugins.length, 10);
     assert.equal(report.requestedModules.includes('memory'), true);
     assert.deepEqual(report.provisioning, { executed: false, requested: true, source: 'preset' });
     assert.equal(report.requiresRedZoneConfirmation, true);

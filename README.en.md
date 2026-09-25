@@ -58,7 +58,7 @@ pnpm vibe-harness validate --project ../full-project
 pnpm vibe-harness doctor --project ../full-project
 ```
 
-`--preset everything` expands to `profile=full`, the six stable tool plugins, the linear-mcp read-write endpoint, and the memory module, and implies preview capability plus post-install provision. It does not change the contract that `--plugin all` still excludes Linear. Red-zone writes still require the explicit `--confirm-red-zone`. The init config is:
+`--preset everything` expands to `profile=full`, the six stable tool plugins with a runtime, the rule-only `codegraph`/`serena`/`probe` plugins, the linear-mcp read-write endpoint, and the memory module, and implies preview capability plus post-install provision. It does not change the contract that `--plugin all` still ships only the six stable plugins with a runtime and excludes Linear along with the three rule-only plugins. Red-zone writes still require the explicit `--confirm-red-zone`. The init config is:
 
 ```json
 {

@@ -3,10 +3,10 @@
   "items": [
     {
       "id": "everything",
-      "description": "全量安装：full profile、全部稳定工具插件、Linear 读写集成与 memory 资产；默认放行预览能力，并在真实写入后执行 provision。",
+      "description": "全量安装：full profile、全部带 runtime 的稳定工具插件、rule-only 的 codegraph/serena/probe、Linear 读写集成与 memory 资产；默认放行预览能力，并在真实写入后执行 provision。",
       "profile": "full",
       "addModules": ["memory"],
-      "plugins": { "all": true, "add": ["linear"] },
+      "plugins": { "all": true, "add": ["linear", "codegraph", "serena", "probe"] },
       "allowPreview": true,
       "provision": true
     }
