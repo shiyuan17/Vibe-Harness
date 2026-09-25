@@ -46,6 +46,60 @@
             "deep": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
           },
           "additionalProperties": false
+        },
+        "checks": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "required": ["id"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "command": { "type": "string", "minLength": 1 },
+              "layer": { "type": "string", "minLength": 1 },
+              "costTier": { "type": "string", "enum": ["quick", "standard", "deep"] },
+              "scopes": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": { "type": "string", "enum": ["affected", "layer", "full"] }
+              },
+              "estimatedDurationMs": { "type": "integer", "minimum": 0 },
+              "deterministic": { "type": "boolean" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "micro": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "required": ["id"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "command": { "type": "string", "minLength": 1 },
+              "kind": { "type": "string", "enum": ["module", "rule", "pure"] },
+              "entry": { "type": "string", "minLength": 1, "pattern": "^(?![A-Za-z]:)(?![/\\\\])[^\\\\]*$" },
+              "args": {},
+              "costTier": { "type": "string", "enum": ["quick", "standard", "deep"] },
+              "scopes": { "type": "array", "uniqueItems": true, "items": { "type": "string", "enum": ["affected", "layer", "full"] } },
+              "maxDurationMs": { "type": "integer", "minimum": 1, "maximum": 120000 },
+              "maxOutputBytes": { "type": "integer", "minimum": 256, "maximum": 1048576 },
+              "outputLimit": { "type": "integer", "minimum": 256, "maximum": 1048576 },
+              "deterministic": { "type": "boolean" },
+              "network": { "type": "string", "enum": ["deny"] },
+              "workspaceWrite": { "type": "string", "enum": ["deny"] },
+              "allowedEnv": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" } },
+              "expectedExitCodes": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "integer" } },
+              "promotableTo": { "type": ["string", "null"], "enum": ["unit", "probe", null] },
+              "environment": { "type": "string", "enum": ["cold", "warm"] }
+            },
+            "anyOf": [
+              { "required": ["command"], "not": { "required": ["kind"] } },
+              { "required": ["kind", "entry"] }
+            ],
+            "additionalProperties": false
+          }
         }
       },
       "additionalProperties": false
@@ -54,7 +108,23 @@
       "type": "object",
       "required": ["timeoutMs"],
       "properties": {
-        "timeoutMs": { "type": "integer", "minimum": 1000, "maximum": 3600000 }
+        "timeoutMs": { "type": "integer", "minimum": 1000, "maximum": 3600000 },
+        "defaultScope": { "type": "string", "enum": ["affected", "layer", "full"] },
+        "budgetMs": { "type": ["integer", "null"], "minimum": 0 },
+        "environment": {
+          "type": "object",
+          "properties": {
+            "mode": { "type": "string", "enum": ["cold", "warm"] },
+            "provider": { "type": "string", "minLength": 1 },
+            "start": { "type": "string", "minLength": 1 },
+            "health": { "type": "string", "minLength": 1 },
+            "stop": { "type": "string", "minLength": 1 },
+            "reuseKey": { "type": "string", "minLength": 1 },
+            "ttlMs": { "type": "integer", "minimum": 1000, "maximum": 86400000 },
+            "fallback": { "type": "string", "enum": ["cold", "blocked"] }
+          },
+          "additionalProperties": false
+        }
       },
       "additionalProperties": false
     },

@@ -32,3 +32,10 @@
 - 未运行的检查：
 - 未验证的行为：
 - 剩余风险与回滚方式：
+# Verification Evidence
+
+- `minimumTier` / `selectedChecks` / `deferredChecks`：
+- `requiredEvidence`：
+- `completionClaimScope`：
+- `unverifiedRisks`：
+- receipt、commit、worktree 与 snapshot 指纹：

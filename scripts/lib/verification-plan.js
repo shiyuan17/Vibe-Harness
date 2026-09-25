@@ -9,6 +9,14 @@ import {
 } from './validation-tiers.js';
 import { TEST_FILE_PATTERN } from './test-enumeration.js';
 import { LIFECYCLE_PATHS } from './change-impact.js';
+import {
+  DEFAULT_VERIFICATION_SCOPE,
+  estimateVerificationCost,
+  normalizeVerificationScope,
+  normalizeMicroChecks,
+  verificationScopeConfidence,
+  validationCheckMap,
+} from './verification-contract.js';
 
 /**
  * Cost tier of each selectable check. The risk plan and the tier plan answer
@@ -37,6 +45,14 @@ function costTierForCheck(id) {
   return CHECK_COST_TIERS[id] ?? 'standard';
 }
 
+function minimumTierForRisk(risk, scopeConfidence) {
+  if (risk.configuredZones.red || risk.riskLevel === 'high' || risk.lifecycle) return 'integration';
+  if (scopeConfidence !== 'complete') return 'unit';
+  if (risk.publicContract || ['schemas', 'manifests', 'rules', 'config'].some((group) => risk.impactGroups.includes(group))) return 'slice';
+  if (risk.impactGroups.some((group) => ['scripts', 'tests', 'templates'].includes(group))) return 'unit';
+  return 'micro';
+}
+
 const HIGH_PATHS = [
   /^\.github\/workflows\//u,
   /^(?:schemas|manifests|adapters|runtime)\//u,
@@ -60,6 +76,7 @@ const GROUP_RULES = [
   ['adapters', /^adapters\//u],
   ['runtime', /^(?:runtime\/|\.agents\/runtime\/)/u],
   ['scripts', /^scripts\//u],
+  ['templates', /^(?:templates\/|docs\/templates\/)/u],
   ['workflows', /^\.github\/workflows\//u],
   // Governance notes and delivery audits are reviewed documents, not runtime
   // code. Without an explicit group they fall through to `unknown`, which
@@ -168,7 +185,7 @@ export function classifyVerificationRisk(changedPaths = [], { riskZones = {}, ch
     if (pathGroup === 'docs' && !pathYellow) return 'quick';
     if (pathGroup === 'tests' && !pathYellow) return 'quick';
     if (LOW_IMPACT_CONFIG.test(pathname) && !pathYellow) return 'quick';
-    if (pathYellow || ['rules', 'tests', 'eval', 'skills', 'scripts', 'config'].includes(pathGroup)) return 'standard';
+    if (pathYellow || ['rules', 'tests', 'eval', 'skills', 'scripts', 'templates', 'config'].includes(pathGroup)) return 'standard';
     return 'standard';
   });
   const riskOrder = ['quick', 'standard', 'high'];
@@ -298,7 +315,7 @@ function focusedRunner(scriptName, files, scripts) {
 }
 
 /**
- * @param {{changedPaths?: string[], changedDetails?: Array<object>, commandStatus?: object, config?: {riskZones?: {red?: string[], yellow?: string[], pathPatterns?: {red?: string[], yellow?: string[]}}}, targetDir?: string, full?: boolean, tier?: 'quick'|'standard'|'deep'|null, tierExplicit?: boolean, tiers?: {quick?: string[], standard?: string[], deep?: string[]}|null, tierSource?: string|null, covers?: Record<string, string[]>|null}} options
+ * @param {{changedPaths?: string[], changedDetails?: Array<object>, commandStatus?: object, config?: any, targetDir?: string, full?: boolean, tier?: 'quick'|'standard'|'deep'|null, tierExplicit?: boolean, tiers?: {quick?: string[], standard?: string[], deep?: string[]}|null, tierSource?: string|null, covers?: Record<string, string[]>|null, scope?: 'affected'|'layer'|'full'}} options
  */
 export async function buildVerificationPlan({
   changedPaths = [],
@@ -312,7 +329,11 @@ export async function buildVerificationPlan({
   tiers = null,
   tierSource = null,
   covers = undefined,
+  scope = null,
 } = {}) {
+  const verificationScope = normalizeVerificationScope(
+    scope ?? config?.verification?.defaultScope ?? DEFAULT_VERIFICATION_SCOPE,
+  );
   const paths = changedPaths.map(normalize);
   const risk = classifyVerificationRisk(paths, { changedDetails, riskZones: config.riskZones });
   const scripts = await projectScripts(targetDir);
@@ -338,6 +359,8 @@ export async function buildVerificationPlan({
     eval: 'eval:replay',
   };
   const configured = (name) => {
+    const declaredCheck = validationCheckMap(config).get(name);
+    if (declaredCheck?.command) return declaredCheck.command;
     if (commandStatus[name]?.status && commandStatus[name].status !== 'not_configured') {
       return commandStatus[name].command;
     }
@@ -355,7 +378,9 @@ export async function buildVerificationPlan({
   // never narrow — they select by configured command identity, and file-level
   // focus would break that 1:1 mapping.
   const addTestLayer = (name, reason, layer) => {
-    const focused = tier ? null : focusedTestFiles(paths, coverage, layer);
+    const focused = verificationScope === 'affected' || (!tier && verificationScope === 'layer')
+      ? focusedTestFiles(paths, coverage, layer)
+      : null;
     const command = focused ? focusedRunner(scriptFallback[name], focused, scripts) : null;
     if (command) {
       addCheck(checks, command, `${reason}（文件级聚焦：${focused.length} 个测试文件）`, name, scripts);
@@ -483,6 +508,35 @@ export async function buildVerificationPlan({
           ...(commandStatus[item.id]?.status ? { status: commandStatus[item.id].status } : {}),
         }))),
       ].filter((item) => !selectedIds.has(item.id));
+  const metadata = validationCheckMap(config);
+  const selectedWithMetadata = selectedChecks.map((item) => {
+    const configured = metadata.get(item.id);
+    return configured
+      ? { ...item, deterministic: configured.deterministic, ...(configured.estimatedDurationMs !== undefined
+        ? { estimatedDurationMs: configured.estimatedDurationMs } : {}) }
+      : item;
+  });
+  const cost = estimateVerificationCost(selectedWithMetadata, config);
+  const scopeConfidence = verificationScopeConfidence({
+    changedPaths: paths,
+    coverageAvailable: coverage !== null && coverage !== undefined,
+    focusedChecks: selectedWithMetadata,
+    scope: verificationScope,
+  });
+  /** @type {any[]} */
+  const microChecks = normalizeMicroChecks(config?.validationCommands?.micro);
+  const microEligible = microChecks.filter((check) => check.scopes.includes(verificationScope));
+  const selectedMicroChecks = microEligible.filter((check) => {
+    if (risk.riskLevel === 'high' || risk.publicContract || risk.lifecycle) return false;
+    if (scopeConfidence !== 'complete') return false;
+    return check.costTier === 'quick' || check.kind === 'pure' || check.kind === 'rule';
+  }).map((check) => ({ id: check.id, kind: check.kind ?? 'legacy', entry: check.entry, command: check.command, costTier: check.costTier ?? 'quick' }));
+  const selectedMicroIds = new Set(selectedMicroChecks.map((check) => check.id));
+  const deferredMicroChecks = microEligible
+    .filter((check) => !selectedMicroIds.has(check.id))
+    .map((check) => ({ id: check.id, reason: scopeConfidence !== 'complete' ? `scope confidence ${scopeConfidence}` : 'risk or tier requires formal evidence', costTier: check.costTier ?? 'quick' }));
+  const minimumTier = minimumTierForRisk(risk, scopeConfidence);
+  const escalationRequired = deferredChecks.length > 0 || deferredMicroChecks.length > 0 || scopeConfidence !== 'complete';
   return {
     ...risk,
     deferredChecks,
@@ -490,11 +544,28 @@ export async function buildVerificationPlan({
     nextTier: resolved?.tier ? nextNonEmptyTier(resolved.tier, tiers) : null,
     planMode: full ? 'full' : (resolved?.tier ? 'tier:' + resolved.tier : 'auto'),
     riskSelectedChecks: riskChecks.map((item) => ({ id: item.id, command: item.command })),
-    selectedChecks,
+    selectedChecks: selectedWithMetadata,
+    minimumTier,
+    selectedMicroChecks,
+    deferredMicroChecks,
+    escalation: {
+      required: escalationRequired,
+      reason: escalationRequired ? (scopeConfidence !== 'complete' ? `impact mapping is ${scopeConfidence}` : 'deferred evidence remains') : null,
+      nextTier: resolved?.tier ? nextNonEmptyTier(resolved.tier, tiers) : (minimumTier === 'micro' ? 'unit' : 'integration'),
+    },
     skippedChecks: known.filter((id) => !selectedIds.has(id)).map((id) => ({ id, status: 'not_selected' })),
     selectionReasons: [...new Set(reasons)],
     tierFallback: resolved?.fallback ?? null,
     tierSource,
     fallbackUsed: risk.fallbackUsed,
+    scope: verificationScope,
+    scopeConfidence,
+    budgetMs: Number.isInteger(config?.verification?.budgetMs) ? config.verification.budgetMs : null,
+    estimatedCostMs: cost.estimatedDurationMs,
+    estimatedChecks: cost.estimatedChecks,
+    environment: {
+      mode: config?.verification?.environment?.mode ?? 'cold',
+      fallback: config?.verification?.environment?.fallback ?? 'blocked',
+    },
   };
 }

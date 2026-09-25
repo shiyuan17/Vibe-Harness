@@ -129,7 +129,7 @@ const RULE_GROUPS = [
     ids: [
       'governance-core', 'agent-skill-routing', 'eval-driven-development',
       'role-routing', 'git-rules', 'test-rules', 'ai-collab-rules',
-      'review-report', 'response-modes',
+      'review-report', 'response-modes', 'micro-verification',
     ],
     label: '治理',
   },

@@ -324,6 +324,12 @@
     },
     {
       "group": "runtime-project-scripts",
+      "source": "runtime/lib/micro-runner.mjs",
+      "target": ".agents/runtime/lib/micro-runner.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
       "source": "runtime/lib/worktree-audit.mjs",
       "target": ".agents/runtime/lib/worktree-audit.mjs",
       "contentStrategy": "replace"

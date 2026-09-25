@@ -7,11 +7,9 @@
 {{installedSurface.startupLines}}
 
 ## 硬边界
-
 {{managedBlock.hardBoundsLines}}
 
 ## 项目 verify 配置
-
 - Lint: {{validationCommands.lint}}
 - Typecheck: {{validationCommands.typecheck}}
 - Test: {{validationCommands.test}}

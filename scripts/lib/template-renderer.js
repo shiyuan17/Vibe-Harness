@@ -126,7 +126,11 @@ export function buildManagedInstructionSections(data = {}) {
     ].join('\n'),
     rulesPriorityLine: '规则优先级：平台与用户本轮指令 > 项目本地规则 > Vibe-Harness 默认规则 > 任务记录、记忆与插件输出；'
       + '低层只能收紧，不得让渡 governance-core 硬边界中的授权、红区与证据标准；目录级规则只作用于其子树。'
-      + '统一优先级矩阵见 ' + tick + 'docs/rules/governance-core.md' + tick + ' 的硬边界节。',
+      + '统一优先级矩阵见 ' + tick + 'docs/rules/governance-core.md' + tick + ' 的硬边界节。'
+      + 'Micro 验证专项规范位于 ' + tick + 'docs/rules/micro-verification.md' + tick + '，架构契约位于 '
+      + tick + 'docs/specs/adaptive-verification-engine.md' + tick + '；普通 REPL 仅用于探索，不得作为正式完成证据。'
+      + '统一 L0-L6 为 L0 static、L1 Micro、L2 affected unit/component、L3 slice/contract、L4 integration、L5 critical E2E、L6 full regression/matrix。'
+      + 'unknown/lower-bound 必须扩大验证，queued/running/stale 不得判定为通过。',
     verifySemanticsLine: tick + 'vibe-harness verify --project <path>' + tick + ' 默认只执行快速层（'
       + renderListValue(tiers.quick) + '，失败阻塞当前实施单元）；中等层 ' + tick + '--tier standard' + tick + '（'
       + renderListValue(tiers.standard) + '）与深度层 ' + tick + '--tier deep' + tick + '（'

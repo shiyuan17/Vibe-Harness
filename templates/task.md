@@ -82,3 +82,13 @@
 ## 下一步动作
 
 ## 风险
+# Verification Contract
+
+- `minimumTier`：
+- `selectedMicroChecks`：
+- `selectedChecks`：
+- `deferredChecks`：
+- `nextTier` / escalation：
+- `completionClaimScope`：
+- `requiredEvidence`：
+- `unverifiedRisks`：

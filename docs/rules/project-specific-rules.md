@@ -50,3 +50,6 @@
 
 - 按 package.json scripts、pom.xml 或 solution 配置选择与改动匹配的验证。
 - 仅在用户明确要求 Review 或显式调用 Review 工具时执行；Vibe-Harness 不自动创建审查角色或完成门禁。
+# 验证层级约束
+
+项目规则可以声明更严格的检查、slice、related test 或 warm provider，但不得降低内置 red/high 风险的最低层级。所有项目应逐步声明结构化 `validationCommands.micro`；未声明的 REPL 只作为探索，不进入完成证据。配置无法证明影响完整时，Planner 必须选择 lower-bound/unknown 并扩大正式测试层。

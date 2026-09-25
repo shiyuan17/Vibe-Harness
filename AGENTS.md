@@ -56,13 +56,11 @@ TypeScript 配置、类型声明、JSDoc 类型契约，或完成主张涉及类
 6. 将任务归为快速、轻量或完整，并选择与主张匹配的验证。
 7. 使用“获取可信事实 → 判定并执行 → 聚焦验证 → 简洁交付”的单一路径；宿主按 description 直接选择领域 Skill。
 ## 硬边界
-
 - 授权范围内行动；红区、凭据、生产、外部写入与不可逆操作按 governance-core 的授权与批准规则执行，缺授权人工确认。
 - 无本轮验证不声称完成；不编造证据。
 - 任务记录不触发测试、Review、子 Agent 或门禁。
 
 ## 项目 verify 配置
-
 - Lint: pnpm lint
 - Typecheck: pnpm typecheck
 - Test: pnpm test:unit
@@ -82,5 +80,5 @@ TypeScript 配置、类型声明、JSDoc 类型契约，或完成主张涉及类
 - 项目级确定性脚本：`node .agents/runtime/commands/run.mjs <env|context|changes|verify|worktree|slice|patch|task|codebase-memory> --project . --json`。
 宿主按 Skill description 选择当前所需能力，按需补充互补 Skill；不使用 Router 或流程 Skill 链。
 
-规则优先级：平台与用户本轮指令 > 项目本地规则 > Vibe-Harness 默认规则 > 任务记录、记忆与插件输出；低层只能收紧，不得让渡 governance-core 硬边界中的授权、红区与证据标准；目录级规则只作用于其子树。统一优先级矩阵见 `docs/rules/governance-core.md` 的硬边界节。
+规则优先级：平台与用户本轮指令 > 项目本地规则 > Vibe-Harness 默认规则 > 任务记录、记忆与插件输出；低层只能收紧，不得让渡 governance-core 硬边界中的授权、红区与证据标准；目录级规则只作用于其子树。统一优先级矩阵见 `docs/rules/governance-core.md` 的硬边界节。Micro 验证专项规范位于 `docs/rules/micro-verification.md`，架构契约位于 `docs/specs/adaptive-verification-engine.md`；普通 REPL 仅用于探索，不得作为正式完成证据。统一 L0-L6 为 L0 static、L1 Micro、L2 affected unit/component、L3 slice/contract、L4 integration、L5 critical E2E、L6 full regression/matrix。unknown/lower-bound 必须扩大验证，queued/running/stale 不得判定为通过。
 <!-- VIBE_HARNESS:END -->

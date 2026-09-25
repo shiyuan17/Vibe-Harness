@@ -24,6 +24,11 @@ import {
   MAX_PROJECT_VERIFICATION_TIMEOUT_MS,
   MIN_PROJECT_VERIFICATION_TIMEOUT_MS,
 } from './project-verification.js';
+import {
+  normalizeValidationChecks,
+  normalizeMicroChecks,
+  normalizeVerificationScope,
+} from './verification-contract.js';
 
 export const mvpProfiles = new Set(['minimal', 'core', 'full', 'docs-only']);
 export const mvpTargets = new Set(['codex', 'claude', 'gemini', 'cursor', 'qoder', 'zcode', 'antigravity', 'opencode']);
@@ -292,6 +297,8 @@ export function validationCommandView(projectProfile, config) {
   return {
     ...resolveValidationCommands(config),
     tiers: normalizeValidationTiers(projectProfile?.validationTiers ?? config?.validationCommands?.tiers),
+    checks: normalizeValidationChecks(config?.validationCommands?.checks),
+    micro: normalizeMicroChecks(config?.validationCommands?.micro),
   };
 }
 
@@ -408,6 +415,8 @@ export function validateProjectConfig(config) {
   if (Object.hasOwn(config.validationCommands, 'tiers')) {
     assertValidationTiers(config.validationCommands.tiers, 'validationCommands.tiers');
   }
+  normalizeValidationChecks(config.validationCommands.checks);
+  normalizeMicroChecks(config.validationCommands.micro);
   if (Object.hasOwn(config, 'riskZones')) {
     assertObject(config.riskZones, 'riskZones');
     for (const field of ['red', 'yellow']) {
@@ -434,6 +443,39 @@ export function validateProjectConfig(config) {
         + ' to '
         + MAX_PROJECT_VERIFICATION_TIMEOUT_MS,
       );
+    }
+    if (Object.hasOwn(config.verification, 'defaultScope')) {
+      normalizeVerificationScope(config.verification.defaultScope);
+    }
+    if (Object.hasOwn(config.verification, 'budgetMs')
+      && config.verification.budgetMs !== null
+      && (!Number.isInteger(config.verification.budgetMs) || config.verification.budgetMs < 0)) {
+      throw new Error('verification.budgetMs must be null or a non-negative integer');
+    }
+    if (Object.hasOwn(config.verification, 'environment')) {
+      assertObject(config.verification.environment, 'verification.environment');
+      const environment = config.verification.environment;
+      if (environment.mode !== undefined && !['cold', 'warm'].includes(environment.mode)) {
+        throw new Error('verification.environment.mode must be cold or warm');
+      }
+      if (environment.fallback !== undefined && !['cold', 'blocked'].includes(environment.fallback)) {
+        throw new Error('verification.environment.fallback must be cold or blocked');
+      }
+      if (environment.ttlMs !== undefined
+        && (!Number.isInteger(environment.ttlMs) || environment.ttlMs < 1000 || environment.ttlMs > 86400000)) {
+        throw new Error('verification.environment.ttlMs must be between 1000 and 86400000');
+      }
+      if (environment.reuseKey !== undefined) {
+        assertNonEmptyString(environment.reuseKey, 'verification.environment.reuseKey');
+      }
+      if (environment.mode === 'warm') {
+        for (const field of ['provider', 'start', 'health', 'stop', 'reuseKey']) {
+          if (environment[field] !== undefined) assertNonEmptyString(environment[field], `verification.environment.${field}`);
+        }
+        if (!environment.provider || !environment.start || !environment.health || !environment.stop) {
+          throw new Error('verification.environment warm mode requires provider, start, health, and stop');
+        }
+      }
     }
   }
   if (Object.hasOwn(config, 'hooks')) {

@@ -34,6 +34,19 @@
 
 ## 长命令与收据复用
 
+## REPL / Micro Verification
+
+REPL 只用于获得短时、可重复的局部证据，不是未声明的任意命令执行入口，也不能替代单元、组件、集成、E2E 或 Eval 证据。项目必须先在 `validationCommands.micro` 声明 Micro check，声明 `id`、固定入口命令、最大时长、输出上限、确定性和环境；未声明的 REPL 不得作为验证结果引用。
+
+- **允许范围**：Node 模块入口、规则输入/输出检查和纯计算 probe；输入应是最小、可审计的 fixture 或参数。
+- **禁止范围**：`node -e`/`node --eval`/`node -p` 等内联解释器；shell 管道、重定向和复合命令；网络访问、凭据读取、包安装、Git 写入、工作区写入、删除/覆盖/发布操作。
+- **证据格式**：至少记录 check id、输入摘要、输出摘要、耗时、退出码、状态和脱敏诊断；输出达到上限、超时、环境不可用或执行异常一律为 `blocked`，不得改判为 passed/failed。
+- **确定性与复用**：非确定性、外部数据依赖或环境状态不明的 Micro check 禁止复用；代码、配置、fixture、锁文件或工具链变化后旧结果标记 stale。
+- **升级规则**：Micro 只能证明其声明的局部不变量；发现行为跨模块、影响公共契约、涉及安全/生命周期，或 Micro 失败时，按影响映射升级到受影响测试层或更高成本层。
+- **固化规则**：稳定 Micro 场景可以人工转成普通 unit/probe，但 runner 不得自动修改测试、台账、基线或 Eval reference。
+
+`verify:micro --id <check-id> --run` 和 `verify:focused --micro <check-id> --run` 是受控入口；`--micro` 与普通 `--tier` 互斥。REPL 的通过只表示该 check 的局部观察成立，不改变完成主张、风险等级或必要验证集合。
+
 单条检查的时长上限是 Agent 墙钟预算，与测试运行器的单用例超时是两个口径，独立使用，不得混写：
 
 | 口径 | 含义 | 超限处理 |
@@ -166,3 +179,10 @@ Agent 测试终态优先于固定过程：合法替代路径不应判为失败�
 - reference 更新必须单独审查并显式确认，不得为让变更通过而自动提升。
 
 测试与 Eval 的执行步骤、oracle 类型和 case kind 见 docs/rules/eval-driven-development.md。
+# 验证阶梯与成本分层
+
+所有验证统一使用 L0-L6：L0 Static（lint/typecheck/changed compile）、L1 Micro/Probe、L2 affected unit/component、L3 module/slice/contract、L4 affected integration、L5 critical E2E、L6 full regression/matrix/eval。L0/L1 不能替代行为层证据，L1 不能替代 L2-L6；默认从最小充分层开始，只有风险、影响不确定性或任务边界触发升级。
+
+Agent 内循环默认 `L0 → L1（仅声明且适用）→ L2 affected`；任务 checkpoint 使用 affected + standard；PR 按风险加入 L4/L5；nightly/release 执行 deep/L6。E2E、matrix、full eval 不得默认阻塞内循环。unknown/lower-bound 影响映射必须扩大范围，不能静默跳过。
+
+Micro 的完整声明与安全契约见 `micro-verification.md`；它只能支撑声明的局部不变量，不能单独支撑公共契约、集成、安全、发布或整体完成。

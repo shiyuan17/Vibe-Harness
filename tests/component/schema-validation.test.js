@@ -262,3 +262,16 @@ test('assertSupportedSchemaKeywords 递归检查 patternProperties 子模式', (
     /Unsupported schema keyword at \$\.patternProperties\./u,
   );
 });
+
+test('project config accepts structured Micro and rejects undeclared or mixed entries', () => {
+  const base = structuredClone(defaultProjectConfig);
+  const entry = { id: 'local', kind: 'pure', entry: 'scripts/probes/local.mjs' };
+  base.validationCommands.micro = [entry];
+  assert.doesNotThrow(() => validateProjectConfigWithSchema(base));
+  assert.throws(() => validateProjectConfigWithSchema({
+    ...base, validationCommands: { ...base.validationCommands, micro: [{ id: 'local' }] },
+  }));
+  assert.throws(() => validateProjectConfigWithSchema({
+    ...base, validationCommands: { ...base.validationCommands, micro: [{ ...entry, command: 'node local.mjs' }] },
+  }));
+});

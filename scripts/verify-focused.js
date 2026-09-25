@@ -12,20 +12,24 @@ import {
   cumulativeTierNames,
   normalizeTierOption,
 } from './lib/validation-tiers.js';
+import { normalizeVerificationScope } from './lib/verification-contract.js';
 import {
   buildImpactMapping,
   collectChangedDetails,
   collectChangedPaths,
 } from './lib/change-impact.js';
 import { buildVerificationPlan } from './lib/verification-plan.js';
+import { main as runMicroVerification } from './micro-verify.js';
 
 function printUsage() {
-  console.log('Usage: node scripts/verify-focused.js [--base <ref>] [--run] [--tier quick|standard|deep] [--json]');
+  console.log('Usage: node scripts/verify-focused.js [--base <ref>] [--run] [--tier quick|standard|deep] [--scope affected|layer|full] [--micro <check-id>] [--json]');
   console.log();
   console.log('Prints suggested focused verification commands for the current changes.');
   console.log('  --base <ref>  Diff against <ref> instead of HEAD (covers committed changes).');
   console.log('  --run         Execute the selected commands in order, stopping on first failure.');
   console.log('  --tier <t>    Cost layer to execute: quick (default), standard, or deep.');
+  console.log('  --scope <s>   Evidence scope: affected, layer (default), or full.');
+  console.log('  --micro <id>  Execute one declared micro check; mutually exclusive with --tier.');
   console.log('  --json        Emit suggestions or the complete focused-verification receipt as JSON.');
 }
 
@@ -41,6 +45,9 @@ async function main() {
   let json = false;
   let base = null;
   let tier = DEFAULT_VALIDATION_TIER;
+  let tierExplicit = false;
+  let scope = null;
+  let micro = null;
   for (let index = 0; index < args.length; index++) {
     if (args[index] === '--run') {
       run = true;
@@ -51,18 +58,40 @@ async function main() {
       if (value === undefined) usageError('--tier requires a layer argument (quick, standard, deep).');
       try {
         tier = normalizeTierOption(value);
+        tierExplicit = true;
       } catch (error) {
         usageError(error.message);
       }
     } else if (args[index] === '--base') {
       base = args[++index];
       if (!base) usageError('--base requires a git ref argument.');
+    } else if (args[index] === '--scope') {
+      const value = args[++index];
+      if (value === undefined) usageError('--scope requires an evidence scope (affected, layer, full).');
+      try {
+        scope = normalizeVerificationScope(value);
+      } catch (error) {
+        usageError(error.message);
+      }
+    } else if (args[index] === '--micro') {
+      micro = args[++index];
+      if (!micro) usageError('--micro requires a check id.');
     } else if (args[index] === '--help' || args[index] === '-h') {
       printUsage();
       return;
     } else {
       usageError(`unknown argument: ${args[index]}`);
     }
+  }
+
+  if (micro) {
+    if (tierExplicit) usageError('--micro cannot be combined with --tier.');
+    await runMicroVerification([
+      '--id', micro,
+      ...(run ? ['--run'] : []),
+      ...(json ? ['--json'] : []),
+    ], process.cwd());
+    return;
   }
 
   const paths = await collectChangedPaths({ base });
@@ -80,6 +109,7 @@ async function main() {
     config,
     changedDetails,
     targetDir: process.cwd(),
+    scope,
   });
   // The risk plan answers "what does this change affect"; the cost layer
   // answers "which of that evidence do I pay for now". The fast layer is the
@@ -112,6 +142,12 @@ async function main() {
       nextTier,
       notes,
       scopeStatus,
+      scope: plan.scope,
+      scopeConfidence: plan.scopeConfidence,
+      budgetMs: plan.budgetMs,
+      estimatedCostMs: plan.estimatedCostMs,
+      estimatedChecks: plan.estimatedChecks,
+      environment: plan.environment,
       selectedChecks: commands,
     }, null, 2));
     return;
@@ -132,6 +168,12 @@ async function main() {
       impactGroups: [...plan.impactGroups],
       nextTier,
       scopeStatus,
+      scope: plan.scope,
+      scopeConfidence: plan.scopeConfidence,
+      budgetMs: plan.budgetMs,
+      estimatedCostMs: plan.estimatedCostMs,
+      estimatedChecks: plan.estimatedChecks,
+      environment: plan.environment,
       selectedChecks: plan.selectedChecks.map((item) => ({ ...item })),
       skippedChecks: plan.skippedChecks.map((item) => ({ ...item })),
       fallbackUsed: plan.fallbackUsed,

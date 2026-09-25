@@ -6,6 +6,35 @@ Vibe-Harness installs project-scoped rules, domain Skills, optional Evals, expli
 
 There is one default execution path: `gather trustworthy facts -> decide and execute -> focused verification -> concise delivery`. The decision selects direct implementation, further investigation, clarification, authorization, planning, or task splitting according to evidence, ambiguity, and complexity. Quick, light, and full are risk levels used only to choose safeguards and verification depth.
 
+## Micro in an installed project
+
+Installation does not scan business code or create probes. First dry-run the upgrade, then use the original install options with `--write` and validate. Both `.agents/runtime/commands/run.mjs` and `.agents/runtime/lib/micro-runner.mjs` must be updated. Node 22+ and a Git worktree are required.
+
+    pnpm vibe-harness install --project <项目绝对路径> --dry-run
+    pnpm vibe-harness validate --project <项目绝对路径>
+
+Declare a reviewed `validationCommands.micro` entry in the target project's config; for example, `scripts/probes/normalize.mjs` exports `default(args)`:
+
+```json
+[
+  {
+    "id": "normalize-example",
+    "kind": "pure",
+    "entry": "scripts/probes/normalize.mjs",
+    "args": { "value": "example" },
+    "costTier": "quick",
+    "scopes": ["affected", "layer"],
+    "maxDurationMs": 3000,
+    "maxOutputBytes": 2048,
+    "network": "deny",
+    "workspaceWrite": "deny",
+    "allowedEnv": []
+  }
+]
+```
+
+Run `node .agents/runtime/commands/run.mjs verify --project . --micro normalize-example --plan --json`, then omit `--plan` to execute. This requires Node 22+ and a Git worktree; legacy `command` entries are rejected by the installed runtime. Micro proves only a local observation, not task completion. Node permissions do not enforce network isolation for untrusted probes; see [Micro verification rules](docs/rules/micro-verification.md).
+
 ## Full installation (recommended)
 
 One prompt installs the full profile, every stable tool plugin, the Linear read-write integration, and the memory assets across multiple hosts, so plugins, Linear, and hosts do not have to be selected one by one:

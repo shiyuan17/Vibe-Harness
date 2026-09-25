@@ -1270,6 +1270,45 @@
       "addedAt": "2026-09-16"
     },
     {
+      "id": "U-micro-verification-001",
+      "layer": "unit",
+      "file": "tests/unit/micro-verification.test.js",
+      "ordinal": 1,
+      "name": "Micro checks require bounded, explicit execution metadata",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-24"
+    },
+    {
+      "id": "U-micro-verification-002",
+      "layer": "unit",
+      "file": "tests/unit/micro-verification.test.js",
+      "ordinal": 2,
+      "name": "Micro command policy rejects inline REPL, network, and mutation forms",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-24"
+    },
+    {
+      "id": "U-micro-verification-003",
+      "layer": "unit",
+      "file": "tests/unit/micro-verification.test.js",
+      "ordinal": 3,
+      "name": "Micro command policy accepts a declared module entry without shell evaluation",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-24"
+    },
+    {
       "id": "U-redaction-001",
       "layer": "unit",
       "file": "tests/unit/redaction.test.js",
@@ -1803,6 +1842,32 @@
       "addedAt": "2026-09-16"
     },
     {
+      "id": "U-verification-contract-001",
+      "layer": "unit",
+      "file": "tests/unit/verification-contract.test.js",
+      "ordinal": 1,
+      "name": "structured Micro declarations normalize with safe defaults",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-24"
+    },
+    {
+      "id": "U-verification-contract-002",
+      "layer": "unit",
+      "file": "tests/unit/verification-contract.test.js",
+      "ordinal": 2,
+      "name": "structured Micro declarations reject absolute and unsafe entries",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-24"
+    },
+    {
       "id": "U-verification-plan-001",
       "layer": "unit",
       "file": "tests/unit/verification-plan.test.js",
@@ -1820,6 +1885,19 @@
       "layer": "unit",
       "file": "tests/unit/verification-plan.test.js",
       "ordinal": 2,
+      "name": "planner exposes minimum tier, Micro selection, and escalation contract",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-24"
+    },
+    {
+      "id": "U-verification-plan-003",
+      "layer": "unit",
+      "file": "tests/unit/verification-plan.test.js",
+      "ordinal": 3,
       "name": "an unknown path cannot lower the risk selected for a mixed change",
       "legacy": true,
       "risk": "standard",
@@ -1829,10 +1907,10 @@
       "addedAt": "2026-09-16"
     },
     {
-      "id": "U-verification-plan-003",
+      "id": "U-verification-plan-004",
       "layer": "unit",
       "file": "tests/unit/verification-plan.test.js",
-      "ordinal": 3,
+      "ordinal": 4,
       "name": "仓库根实际文件在分组规则中永不为 unknown",
       "legacy": false,
       "risk": "standard",
@@ -1842,24 +1920,11 @@
       "addedAt": "2026-09-22"
     },
     {
-      "id": "U-verification-plan-004",
-      "layer": "unit",
-      "file": "tests/unit/verification-plan.test.js",
-      "ordinal": 4,
-      "name": "riskZones and pathPatterns raise risk and preserve the reason in the plan",
-      "legacy": true,
-      "risk": "standard",
-      "owner": "maintainers",
-      "source": "migration",
-      "status": "active",
-      "addedAt": "2026-09-16"
-    },
-    {
       "id": "U-verification-plan-005",
       "layer": "unit",
       "file": "tests/unit/verification-plan.test.js",
       "ordinal": 5,
-      "name": "documentation, tests, and ordinary scripts stay below integration and smoke",
+      "name": "riskZones and pathPatterns raise risk and preserve the reason in the plan",
       "legacy": true,
       "risk": "standard",
       "owner": "maintainers",
@@ -1872,7 +1937,7 @@
       "layer": "unit",
       "file": "tests/unit/verification-plan.test.js",
       "ordinal": 6,
-      "name": "high risk defers deep evidence while lifecycle changes keep smoke synchronous",
+      "name": "documentation, tests, and ordinary scripts stay below integration and smoke",
       "legacy": true,
       "risk": "standard",
       "owner": "maintainers",
@@ -1885,7 +1950,7 @@
       "layer": "unit",
       "file": "tests/unit/verification-plan.test.js",
       "ordinal": 7,
-      "name": "comment-only source changes remain quick when the diff supplies content evidence",
+      "name": "high risk defers deep evidence while lifecycle changes keep smoke synchronous",
       "legacy": true,
       "risk": "standard",
       "owner": "maintainers",
@@ -1898,7 +1963,7 @@
       "layer": "unit",
       "file": "tests/unit/verification-plan.test.js",
       "ordinal": 8,
-      "name": "governance notes and delivery audits stay out of the full verification matrix",
+      "name": "comment-only source changes remain quick when the diff supplies content evidence",
       "legacy": true,
       "risk": "standard",
       "owner": "maintainers",
@@ -1911,7 +1976,7 @@
       "layer": "unit",
       "file": "tests/unit/verification-plan.test.js",
       "ordinal": 9,
-      "name": "configured zone names match whole path parts instead of substrings",
+      "name": "governance notes and delivery audits stay out of the full verification matrix",
       "legacy": true,
       "risk": "standard",
       "owner": "maintainers",
@@ -1924,6 +1989,19 @@
       "layer": "unit",
       "file": "tests/unit/verification-plan.test.js",
       "ordinal": 10,
+      "name": "configured zone names match whole path parts instead of substrings",
+      "legacy": true,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "migration",
+      "status": "active",
+      "addedAt": "2026-09-16"
+    },
+    {
+      "id": "U-verification-plan-011",
+      "layer": "unit",
+      "file": "tests/unit/verification-plan.test.js",
+      "ordinal": 11,
       "name": "成本层缺省解析为快速层而 --full 保留完整矩阵",
       "legacy": false,
       "risk": "standard",
@@ -1933,24 +2011,11 @@
       "addedAt": "2026-09-16"
     },
     {
-      "id": "U-verification-plan-011",
-      "layer": "unit",
-      "file": "tests/unit/verification-plan.test.js",
-      "ordinal": 11,
-      "name": "被覆盖映射完整归因的脚本变更收窄为文件级测试命令",
-      "legacy": false,
-      "risk": "standard",
-      "owner": "maintainers",
-      "source": "declared",
-      "status": "active",
-      "addedAt": "2026-09-19"
-    },
-    {
       "id": "U-verification-plan-012",
       "layer": "unit",
       "file": "tests/unit/verification-plan.test.js",
       "ordinal": 12,
-      "name": "覆盖映射未归因的源文件变更阻止收窄并回退整层",
+      "name": "被覆盖映射完整归因的脚本变更收窄为文件级测试命令",
       "legacy": false,
       "risk": "standard",
       "owner": "maintainers",
@@ -1963,7 +2028,7 @@
       "layer": "unit",
       "file": "tests/unit/verification-plan.test.js",
       "ordinal": 13,
-      "name": "变更自身的测试文件直接入选聚焦命令",
+      "name": "覆盖映射未归因的源文件变更阻止收窄并回退整层",
       "legacy": false,
       "risk": "standard",
       "owner": "maintainers",
@@ -1976,6 +2041,19 @@
       "layer": "unit",
       "file": "tests/unit/verification-plan.test.js",
       "ordinal": 14,
+      "name": "变更自身的测试文件直接入选聚焦命令",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-19"
+    },
+    {
+      "id": "U-verification-plan-015",
+      "layer": "unit",
+      "file": "tests/unit/verification-plan.test.js",
+      "ordinal": 15,
       "name": "tier 计划不收窄测试命令以保持层命令同一性",
       "legacy": false,
       "risk": "standard",
@@ -1983,6 +2061,32 @@
       "source": "declared",
       "status": "active",
       "addedAt": "2026-09-19"
+    },
+    {
+      "id": "U-verification-queue-001",
+      "layer": "unit",
+      "file": "tests/unit/verification-queue.test.js",
+      "ordinal": 1,
+      "name": "verification queue enforces state transitions and fingerprints",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-24"
+    },
+    {
+      "id": "U-verification-queue-002",
+      "layer": "unit",
+      "file": "tests/unit/verification-queue.test.js",
+      "ordinal": 2,
+      "name": "expired queued verification becomes stale without starting a runner",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-24"
     },
     {
       "id": "U-worktree-ports-001",
@@ -5118,6 +5222,32 @@
       "addedAt": "2026-09-22"
     },
     {
+      "id": "C-micro-receipt-001",
+      "layer": "component",
+      "file": "tests/component/micro-receipt.test.js",
+      "ordinal": 1,
+      "name": "Micro receipt schema accepts bounded passed evidence",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-24"
+    },
+    {
+      "id": "C-micro-receipt-002",
+      "layer": "component",
+      "file": "tests/component/micro-receipt.test.js",
+      "ordinal": 2,
+      "name": "Micro receipt schema rejects an unreviewable status",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-24"
+    },
+    {
       "id": "C-pack-contract-001",
       "layer": "component",
       "file": "tests/component/pack-contract.test.js",
@@ -6000,6 +6130,19 @@
       "source": "declared",
       "status": "active",
       "addedAt": "2026-09-19"
+    },
+    {
+      "id": "C-schema-validation-014",
+      "layer": "component",
+      "file": "tests/component/schema-validation.test.js",
+      "ordinal": 14,
+      "name": "project config accepts structured Micro and rejects undeclared or mixed entries",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-24"
     },
     {
       "id": "C-self-install-check-001",
@@ -8782,6 +8925,32 @@
       "source": "declared",
       "status": "active",
       "addedAt": "2026-09-16"
+    },
+    {
+      "id": "I-installed-micro-001",
+      "layer": "integration",
+      "file": "tests/integration/installed-micro.test.js",
+      "ordinal": 1,
+      "name": "installed runtime executes only explicitly declared Micro and keeps evidence local",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-24"
+    },
+    {
+      "id": "I-installed-micro-002",
+      "layer": "integration",
+      "file": "tests/integration/installed-micro.test.js",
+      "ordinal": 2,
+      "name": "installed Micro blocks undeclared, legacy, network, mutation and output overflow",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-24"
     },
     {
       "id": "I-linear-workflow-001",
@@ -13841,6 +14010,19 @@
       "addedAt": "2026-09-16"
     },
     {
+      "id": "E-installer-lifecycle-014",
+      "layer": "e2e",
+      "file": "tests/e2e/installer-lifecycle.test.js",
+      "ordinal": 14,
+      "name": "项目自有受管种子漂移时保留原内容并重新记录基线",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-25"
+    },
+    {
       "id": "E-playwright-cli-integration-001",
       "layer": "e2e",
       "file": "tests/e2e/playwright-cli-integration.test.js",
@@ -15312,6 +15494,7 @@
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/tool-provisioning/tool-state.js",
       "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js",
       "tests/helpers/offline-tools.js"
     ],
     "tests/component/check-fast-tier-alignment.test.js": [
@@ -15402,7 +15585,8 @@
       "scripts/lib/tool-provisioning/runtime-probe.js",
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/tool-provisioning/tool-state.js",
-      "scripts/lib/validation-tiers.js"
+      "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js"
     ],
     "tests/component/eval-contract.test.js": [
       "runtime/lib/rtk-environment.mjs",
@@ -15439,7 +15623,8 @@
       "scripts/lib/tool-provisioning/runtime-probe.js",
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/tool-provisioning/tool-state.js",
-      "scripts/lib/validation-tiers.js"
+      "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js"
     ],
     "tests/component/eval-judge.test.js": [
       "runtime/hooks/lib/execution-envelope.mjs",
@@ -15566,7 +15751,8 @@
       "scripts/lib/shell-command.js",
       "scripts/lib/template-renderer.js",
       "scripts/lib/tool-provisioning/subprocess.js",
-      "scripts/lib/validation-tiers.js"
+      "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js"
     ],
     "tests/component/install-state-schema.test.js": [
       "runtime/lib/rtk-environment.mjs",
@@ -15600,6 +15786,7 @@
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/tool-provisioning/tool-state.js",
       "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js",
       "tests/helpers/offline-tools.js"
     ],
     "tests/component/manifest-schema.test.js": [
@@ -15645,6 +15832,7 @@
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/tool-provisioning/tool-state.js",
       "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js",
       "scripts/lib/workflow-assets.js"
     ],
     "tests/component/memory-entry.test.js": [
@@ -15690,6 +15878,7 @@
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/tool-provisioning/tool-state.js",
       "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js",
       "scripts/lib/workflow-assets.js"
     ],
     "tests/component/memory-freshness.test.js": [
@@ -15735,7 +15924,11 @@
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/tool-provisioning/tool-state.js",
       "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js",
       "scripts/lib/workflow-assets.js"
+    ],
+    "tests/component/micro-receipt.test.js": [
+      "scripts/lib/schema-validation.js"
     ],
     "tests/component/pack-contract.test.js": [
       "scripts/lib/pack-contract.js"
@@ -15771,7 +15964,8 @@
       "scripts/lib/tool-provisioning/runtime-probe.js",
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/tool-provisioning/tool-state.js",
-      "scripts/lib/validation-tiers.js"
+      "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js"
     ],
     "tests/component/red-zone-consistency.test.js": [
       "runtime/hooks/lib/context.mjs",
@@ -15816,6 +16010,7 @@
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/tool-provisioning/tool-state.js",
       "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js",
       "scripts/lib/workflow-assets.js"
     ],
     "tests/component/role-preset-consistency.test.js": [
@@ -15862,6 +16057,7 @@
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/tool-provisioning/tool-state.js",
       "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js",
       "scripts/lib/workflow-assets.js"
     ],
     "tests/component/rule-skill-parity.test.js": [
@@ -15907,6 +16103,7 @@
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/tool-provisioning/tool-state.js",
       "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js",
       "scripts/lib/workflow-assets.js"
     ],
     "tests/component/rules-depth.test.js": [
@@ -15954,6 +16151,7 @@
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/tool-provisioning/tool-state.js",
       "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js",
       "scripts/lib/workflow-assets.js",
       "tests/helpers/governed-docs.js"
     ],
@@ -15994,7 +16192,8 @@
       "scripts/lib/tool-provisioning/runtime-probe.js",
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/tool-provisioning/tool-state.js",
-      "scripts/lib/validation-tiers.js"
+      "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js"
     ],
     "tests/component/runtime-audit.test.js": [
       "runtime/lib/rtk-environment.mjs",
@@ -16030,7 +16229,8 @@
       "scripts/lib/shell-command.js",
       "scripts/lib/template-renderer.js",
       "scripts/lib/tool-provisioning/subprocess.js",
-      "scripts/lib/validation-tiers.js"
+      "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js"
     ],
     "tests/component/self-install-check.test.js": [
       "runtime/hooks/lib/read-only-commands.mjs",
@@ -16072,6 +16272,7 @@
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/tool-provisioning/tool-state.js",
       "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js",
       "tests/helpers/offline-tools.js"
     ],
     "tests/component/tests-catalog.test.js": [
@@ -16112,6 +16313,7 @@
       "scripts/lib/template-renderer.js",
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js",
       "tests/helpers/offline-tools.js"
     ],
     "tests/e2e/installer-lifecycle.test.js": [
@@ -16195,7 +16397,8 @@
       "scripts/lib/tool-provisioning/runtime-probe.js",
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/tool-provisioning/tool-state.js",
-      "scripts/lib/validation-tiers.js"
+      "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js"
     ],
     "tests/integration/codebase-memory-mcp.test.js": [
       "runtime/tools/codebase-memory-mcp/cache-path.mjs",
@@ -16249,6 +16452,7 @@
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/tool-provisioning/tool-state.js",
       "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js",
       "tests/helpers/offline-tools.js"
     ],
     "tests/integration/envelope-records.test.js": [
@@ -16290,7 +16494,8 @@
       "scripts/lib/shell-command.js",
       "scripts/lib/template-renderer.js",
       "scripts/lib/tool-provisioning/subprocess.js",
-      "scripts/lib/validation-tiers.js"
+      "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js"
     ],
     "tests/integration/eval-execution.test.js": [
       "runtime/evals/lib/hidden-tests.mjs",
@@ -16399,7 +16604,8 @@
       "scripts/lib/tool-provisioning/runtime-probe.js",
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/tool-provisioning/tool-state.js",
-      "scripts/lib/validation-tiers.js"
+      "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js"
     ],
     "tests/integration/install-dry-run.test.js": [
       "runtime/hooks/lib/read-only-commands.mjs",
@@ -16439,8 +16645,10 @@
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/tool-provisioning/tool-state.js",
       "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js",
       "tests/helpers/offline-tools.js"
     ],
+    "tests/integration/installed-micro.test.js": [],
     "tests/integration/linear-workflow.test.js": [
       "runtime/hooks/lib/context.mjs",
       "runtime/hooks/lib/policy.mjs",
@@ -16487,6 +16695,7 @@
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/tool-provisioning/tool-state.js",
       "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js",
       "scripts/lib/workflow-assets.js",
       "tests/helpers/governed-docs.js"
     ],
@@ -16535,6 +16744,7 @@
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/tool-provisioning/tool-state.js",
       "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js",
       "scripts/lib/workflow-assets.js"
     ],
     "tests/integration/module-selection.test.js": [
@@ -16554,7 +16764,8 @@
       "scripts/lib/shell-command.js",
       "scripts/lib/template-renderer.js",
       "scripts/lib/tool-provisioning/subprocess.js",
-      "scripts/lib/validation-tiers.js"
+      "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js"
     ],
     "tests/integration/mvp-spec.test.js": [
       "tests/helpers/offline-tools.js"
@@ -16608,7 +16819,8 @@
       "scripts/lib/tool-provisioning/runtime-probe.js",
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/tool-provisioning/tool-state.js",
-      "scripts/lib/validation-tiers.js"
+      "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js"
     ],
     "tests/integration/project-baseline.test.js": [
       "runtime/lib/rtk-environment.mjs",
@@ -16642,10 +16854,12 @@
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/tool-provisioning/tool-state.js",
       "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js",
       "tests/helpers/offline-tools.js"
     ],
     "tests/integration/project-commands.test.js": [
       "runtime/commands/run.mjs",
+      "runtime/lib/micro-runner.mjs",
       "runtime/lib/worktree-audit.mjs",
       "runtime/lib/worktree-ports.mjs"
     ],
@@ -16694,7 +16908,8 @@
       "scripts/lib/tool-provisioning/runtime-probe.js",
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/tool-provisioning/tool-state.js",
-      "scripts/lib/validation-tiers.js"
+      "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js"
     ],
     "tests/integration/project-evaluation.test.js": [
       "runtime/evals/lib/knowledge-coverage.mjs",
@@ -16741,10 +16956,12 @@
       "scripts/lib/tool-provisioning/runtime-probe.js",
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/tool-provisioning/tool-state.js",
-      "scripts/lib/validation-tiers.js"
+      "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js"
     ],
     "tests/integration/project-file-edit-command.test.js": [
       "runtime/commands/run.mjs",
+      "runtime/lib/micro-runner.mjs",
       "runtime/lib/worktree-audit.mjs",
       "runtime/lib/worktree-ports.mjs",
       "scripts/lib/temp-cleanup.js"
@@ -16782,10 +16999,12 @@
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/tool-provisioning/tool-state.js",
       "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js",
       "tests/helpers/offline-tools.js"
     ],
     "tests/integration/project-task-command.test.js": [
       "runtime/commands/run.mjs",
+      "runtime/lib/micro-runner.mjs",
       "runtime/lib/worktree-audit.mjs",
       "runtime/lib/worktree-ports.mjs"
     ],
@@ -16803,6 +17022,7 @@
     ],
     "tests/integration/project-worktree-command.test.js": [
       "runtime/commands/run.mjs",
+      "runtime/lib/micro-runner.mjs",
       "runtime/lib/worktree-audit.mjs",
       "runtime/lib/worktree-ports.mjs",
       "scripts/lib/temp-cleanup.js"
@@ -16864,7 +17084,8 @@
       "scripts/lib/tool-provisioning/runtime-probe.js",
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/tool-provisioning/tool-state.js",
-      "scripts/lib/validation-tiers.js"
+      "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js"
     ],
     "tests/integration/runtime-diagnostics.test.js": [
       "runtime/hooks/codex-hook.mjs",
@@ -16907,7 +17128,8 @@
       "scripts/lib/tool-provisioning/runtime-probe.js",
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/tool-provisioning/tool-state.js",
-      "scripts/lib/validation-tiers.js"
+      "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js"
     ],
     "tests/integration/safety-posture.test.js": [
       "scripts/lib/adapter.js",
@@ -16965,6 +17187,7 @@
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/tool-provisioning/tool-state.js",
       "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js",
       "scripts/lib/workflow-assets.js"
     ],
     "tests/integration/task-dag.test.js": [
@@ -17052,6 +17275,7 @@
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/tool-provisioning/tool-state.js",
       "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js",
       "tests/helpers/offline-tools.js"
     ],
     "tests/matrix/installation-baseline.test.js": [],
@@ -17094,6 +17318,7 @@
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/tool-provisioning/tool-state.js",
       "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js",
       "tests/helpers/offline-tools.js"
     ],
     "tests/matrix/tool-provisioning.test.js": [
@@ -17133,7 +17358,8 @@
       "scripts/lib/tool-provisioning/runtime-probe.js",
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/tool-provisioning/tool-state.js",
-      "scripts/lib/validation-tiers.js"
+      "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js"
     ],
     "tests/unit/clarification-metrics.test.js": [
       "scripts/lib/clarification-metrics.js"
@@ -17247,6 +17473,7 @@
       "scripts/lib/tool-provisioning/subprocess.js",
       "scripts/lib/tool-provisioning/tool-state.js",
       "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js",
       "scripts/lib/workflow-assets.js",
       "tests/helpers/governed-docs.js"
     ],
@@ -17256,6 +17483,28 @@
     "tests/unit/managed-json-config.test.js": [
       "scripts/lib/managed-json-config.js",
       "tests/helpers/offline-tools.js"
+    ],
+    "tests/unit/micro-verification.test.js": [
+      "scripts/lib/install-preset.js",
+      "scripts/lib/managed-block.js",
+      "scripts/lib/manifest.js",
+      "scripts/lib/micro-runner.js",
+      "scripts/lib/module-selection.js",
+      "scripts/lib/plugin-provider-catalog.js",
+      "scripts/lib/process-tree.js",
+      "scripts/lib/product-identity.js",
+      "scripts/lib/project-config.js",
+      "scripts/lib/project-layout.js",
+      "scripts/lib/project-verification.js",
+      "scripts/lib/red-zone.js",
+      "scripts/lib/safe-json.js",
+      "scripts/lib/schema-validation.js",
+      "scripts/lib/shell-command.js",
+      "scripts/lib/template-renderer.js",
+      "scripts/lib/tool-provisioning/subprocess.js",
+      "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js",
+      "scripts/micro-verify.js"
     ],
     "tests/unit/redaction.test.js": [
       "scripts/lib/redaction.js"
@@ -17294,6 +17543,9 @@
       "scripts/lib/schema-validation.js",
       "scripts/lib/validation-tiers.js"
     ],
+    "tests/unit/verification-contract.test.js": [
+      "scripts/lib/verification-contract.js"
+    ],
     "tests/unit/verification-plan.test.js": [
       "scripts/lib/change-impact.js",
       "scripts/lib/managed-block.js",
@@ -17303,7 +17555,11 @@
       "scripts/lib/schema-validation.js",
       "scripts/lib/test-enumeration.js",
       "scripts/lib/validation-tiers.js",
+      "scripts/lib/verification-contract.js",
       "scripts/lib/verification-plan.js"
+    ],
+    "tests/unit/verification-queue.test.js": [
+      "scripts/verification-queue.js"
     ],
     "tests/unit/worktree-ports.test.js": [
       "runtime/lib/worktree-audit.mjs",

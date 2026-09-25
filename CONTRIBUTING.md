@@ -146,3 +146,8 @@ PR 说明目标、影响范围、实际验证、未验证项和必要的回滚�
 4. 不得手动编辑 `package.json` 的 `version` 字段或手动创建 `v*` tag；版本变更只能通过 Release PR 完成。
 
 Breaking change（`feat!:` 或 `BREAKING CHANGE:` footer）会触发 major 版本 bump。
+# 验证契约
+
+贡献者按 L0-L6 验证阶梯选择最小充分证据：实现过程中使用受控 Micro/L1，局部行为使用 affected unit/component，任务边界执行 standard，关键 PR/nightly/release 执行 deep。不得用 L0 或 Micro 通过替代高层失败，也不得把 queued/running/stale receipt 当作通过。变更影响为 unknown 或 lower-bound 时必须扩大验证，并在 receipt 中记录原因、延期项和未验证风险。
+
+项目配置中的 Micro check 必须是结构化声明；legacy command 仅作迁移兼容，不得复用缓存或进入 async。CLI、runtime、CI 必须消费同一 Planner receipt。

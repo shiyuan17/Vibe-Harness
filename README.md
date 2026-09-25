@@ -6,6 +6,35 @@ Vibe-Harness 为 Codex、Claude Code、Gemini CLI、Cursor、Qoder、ZCode、Ant
 
 默认执行路径只有一条：`获取可信事实 -> 判定并执行 -> 聚焦验证 -> 简洁交付`。判定只用于按证据、歧义和复杂度选择直接实施、继续查证、澄清、请求授权、规划或拆分；快速、轻量、完整三档只用于选择风险控制和验证强度。
 
+## 在已安装项目启用 Micro
+
+安装本身不会扫描业务、生成 probe 或自动启用 Micro。先在本仓库预演升级，确认不会覆盖项目自有文件，再按原安装参数执行 `--write` 并验证。已安装的 `.agents/runtime/commands/run.mjs` 和 `.agents/runtime/lib/micro-runner.mjs` 必须一同更新；需要 Node 22+ 和 Git 工作树。
+
+    pnpm vibe-harness install --project <项目绝对路径> --dry-run
+    pnpm vibe-harness validate --project <项目绝对路径>
+
+只为**选定的局部不变量**编写经审阅的项目 probe，例如 `scripts/probes/normalize.mjs` 导出 `default(args)`，并在目标项目 `vibe-harness.config.json` 的 `validationCommands.micro` 中显式增加：
+
+```json
+[
+  {
+    "id": "normalize-example",
+    "kind": "pure",
+    "entry": "scripts/probes/normalize.mjs",
+    "args": { "value": "example" },
+    "costTier": "quick",
+    "scopes": ["affected", "layer"],
+    "maxDurationMs": 3000,
+    "maxOutputBytes": 2048,
+    "network": "deny",
+    "workspaceWrite": "deny",
+    "allowedEnv": []
+  }
+]
+```
+
+使用 `node .agents/runtime/commands/run.mjs verify --project . --micro normalize-example --plan --json` 查看计划，去掉 `--plan` 才执行。未声明 ID 和旧 `command` 格式在受管入口被拒绝；普通 REPL 仅供探索。Micro 通过只证明局部观察，任务完成仍须运行受影响的正式测试；不可信 probe 的网络隔离不能仅靠 Node 权限模型，细节见 [Micro 规则](docs/rules/micro-verification.md)。
+
 ## 全量安装（推荐）
 
 一条提示词即可完成 full profile、全部稳定工具插件、Linear 读写集成与 memory 资产的多宿主安装，不必再逐个启用插件、Linear 或宿主：

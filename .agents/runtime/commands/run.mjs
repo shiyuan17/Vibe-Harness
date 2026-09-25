@@ -20,6 +20,7 @@ import { access, readFile, readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
+import { runMicroCheck } from '../lib/micro-runner.mjs';
 
 import { parseWorktreeList, pathKey, resolveWorktreeRoot, summarizeWorktreeAudit, validateWorktrees } from '../lib/worktree-audit.mjs';
 import {
@@ -53,6 +54,8 @@ const MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 const MAX_OUTPUT_CHARS = 8 * 1024;
 const CHECK_ORDER = ['lint', 'typecheck', 'test', 'eval'];
 const VERIFY_TIERS = ['quick', 'standard', 'deep'];
+const VERIFY_SCOPES = ['affected', 'layer', 'full'];
+const DEFAULT_VERIFY_SCOPE = 'layer';
 const DEFAULT_VERIFY_TIER = 'quick';
 // Slot cost tiers when the project declares no validationCommands.tiers: the
 // eval slot replays the offline reference suite, which governance-core.md
@@ -117,8 +120,8 @@ function parseArgs(argv) {
     ['no-verify', 'verify'],
     ['clear-blockers', 'clearBlockers'],
   ]);
-  const booleanFlags = new Set(['json', 'plan', 'allow-manual', 'no-numbers', 'no-verify', 'strict', 'write', 'help', 'confirm-red-zone', 'reuse', 'push', 'complete', 'dispatch', 'clear-blockers']);
-  const valueFlags = new Set(['project', 'base', 'only', 'timeout', 'output', 'tier', 'task', 'base-ref', 'branch-prefix', 'file', 'from', 'to', 'spec', 'root', 'title', 'goal', 'risk-level', 'stage', 'unit', 'unit-status', 'acceptance', 'decision', 'blocker', 'failure', 'next-action', 'verification', 'plan-file', 'reason', 'approval', 'test-path']);
+  const booleanFlags = new Set(['json', 'plan', 'async', 'allow-manual', 'no-numbers', 'no-verify', 'strict', 'write', 'help', 'confirm-red-zone', 'reuse', 'push', 'complete', 'dispatch', 'clear-blockers']);
+  const valueFlags = new Set(['project', 'base', 'only', 'timeout', 'output', 'tier', 'scope', 'micro', 'task', 'base-ref', 'branch-prefix', 'file', 'from', 'to', 'spec', 'root', 'title', 'goal', 'risk-level', 'stage', 'unit', 'unit-status', 'acceptance', 'decision', 'blocker', 'failure', 'next-action', 'verification', 'plan-file', 'reason', 'approval', 'test-path']);
   // Repeatable flags collect into arrays so one invocation can carry several
   // values (task ids, acceptance items, decisions, blockers, failures, unit updates).
   const arrayFlags = new Map([
@@ -161,6 +164,8 @@ function parseArgs(argv) {
     else if (key === 'timeout') args.timeout = Number.parseInt(value, 10);
     else if (key === 'output') args.output = value;
     else if (key === 'tier') args.tier = value;
+    else if (key === 'scope') args.scope = value;
+    else if (key === 'micro') args.micro = value;
     else if (key === 'risk-level') args.riskLevel = value;
     else if (key === 'next-action') args.nextAction = value;
     else if (key === 'title' || key === 'goal' || key === 'stage' || key === 'unit' || key === 'verification' || key === 'reason' || key === 'approval') args[key] = value;
@@ -388,6 +393,13 @@ function parseVerifyTier(value) {
   throw new Error(`--tier must be one of ${VERIFY_TIERS.join(', ')}; received ${JSON.stringify(value)}.`);
 }
 
+function parseVerifyScope(value) {
+  const token = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (token === '') return DEFAULT_VERIFY_SCOPE;
+  if (VERIFY_SCOPES.includes(token)) return token;
+  throw new Error(`--scope must be one of ${VERIFY_SCOPES.join(', ')}; received ${JSON.stringify(value)}.`);
+}
+
 function activeTierNames(tier) {
   return VERIFY_TIERS.slice(0, VERIFY_TIERS.indexOf(tier) + 1);
 }
@@ -514,6 +526,43 @@ async function verificationTaskBinding(projectDir, taskId) {
 }
 
 async function verifyProject(projectDir, args, { planOnly = false } = {}) {
+  if (args.micro !== undefined) {
+    if (args.tier || args.only || args.async || args.reuse || args.allowManual) {
+      return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'blocked', code: 'MICRO_EXCLUSIVE', error: '--micro cannot be combined with --tier, --only, --async, --reuse, or --allow-manual.', checks: {} };
+    }
+    const configInfo = await readJsonIfExists(path.join(projectDir, CONFIG_FILE));
+    if (configInfo.error) return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'blocked', error: configInfo.error, checks: {} };
+    const config = configInfo.value ?? {};
+    let scope;
+    try { scope = parseVerifyScope(args.scope ?? config.verification?.defaultScope); }
+    catch (error) { return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'blocked', error: error.message, checks: {} }; }
+    const micro = await runMicroCheck(projectDir, config.validationCommands?.micro, args.micro, {
+      planOnly,
+      scope,
+      snapshot: () => gitFingerprint(projectDir),
+    });
+    return {
+      schemaVersion: VERIFY_SCHEMA_VERSION,
+      engine: VERIFY_ENGINE,
+      command: 'verify',
+      tier: 'quick',
+      scope,
+      scopeConfidence: 'unknown',
+      minimumTier: 'unit',
+      riskLevel: null,
+      impactGroups: [],
+      selectedMicroChecks: [args.micro],
+      selectedChecks: [],
+      deferredChecks: [],
+      deferredMicroChecks: [],
+      nextTier: 'standard',
+      status: micro.status,
+      checks: { [args.micro]: micro },
+      cache: { status: 'not_requested' },
+      environment: { mode: 'cold', status: 'cold' },
+      snapshotComparison: micro.snapshotComparison ?? 'unknown',
+    };
+  }
   const taskIdCandidate = args.task?.[0] && TASK_ID_PATTERN.test(args.task[0]) && !WINDOWS_RESERVED_NAMES.test(args.task[0]) ? args.task[0] : null;
   let taskBinding = null;
   if (taskIdCandidate) {
@@ -537,6 +586,42 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
   const only = args.only;
   const unknownOnly = only?.filter((name) => !CHECK_ORDER.includes(name)) ?? [];
   const timeoutMs = timeoutValue(args.timeout ?? config.verification?.timeoutMs);
+  let scope;
+  try {
+    scope = parseVerifyScope(args.scope ?? config.verification?.defaultScope);
+  } catch (error) {
+    return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'failed', error: error.message, checks: {} };
+  }
+  const requestedEnvironmentMode = config?.verification?.environment?.mode ?? 'cold';
+  const environmentFallback = config?.verification?.environment?.fallback ?? 'blocked';
+  const warmProvider = config?.verification?.environment;
+  const warmConfigured = warmProvider?.provider && warmProvider?.start && warmProvider?.health && warmProvider?.stop;
+  const environmentMode = requestedEnvironmentMode === 'warm' && environmentFallback === 'cold' ? 'cold' : requestedEnvironmentMode;
+  const environmentStatus = requestedEnvironmentMode === 'warm' && environmentMode === 'cold' ? 'fallback-cold' : requestedEnvironmentMode === 'warm' ? 'configured' : 'cold';
+  if (requestedEnvironmentMode === 'warm' && environmentMode === 'warm' && !warmConfigured) {
+    return {
+      schemaVersion: VERIFY_SCHEMA_VERSION,
+      engine: VERIFY_ENGINE,
+      command: 'verify',
+      status: 'blocked',
+      scope,
+      scopeConfidence: scope === 'full' ? 'complete' : 'unknown',
+      environment: { mode: 'warm', status: 'blocked', reason: 'No warm provider is configured.' },
+      checks: {},
+      error: 'Warm verification requested but no provider is configured.',
+    };
+  }
+  const declaredChecks = new Map(
+    (Array.isArray(config?.validationCommands?.checks) ? config.validationCommands.checks : [])
+      .filter((item) => item && typeof item.id === 'string')
+      .map((item) => [item.id, item]),
+  );
+  const estimateSelectedCost = (names) => {
+    const durations = names.map((name) => declaredChecks.get(name)?.estimatedDurationMs);
+    return durations.every((value) => Number.isInteger(value))
+      ? durations.reduce((sum, value) => sum + value, 0)
+      : null;
+  };
   const checks = {};
   let tier;
   try {
@@ -562,11 +647,42 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
   });
   const selectedNames = tierPlan.selectedNames;
   const deferredNames = new Set(tierPlan.deferredChecks.map((item) => item.name));
+  if (args.async) {
+    if (tier !== 'deep') {
+      return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'failed', error: '--async requires --tier deep.', checks: {} };
+    }
+    const queueId = randomUUID();
+    const queueDir = path.join(projectDir, '.vibe-harness', 'verification', 'queue');
+    mkdirSync(queueDir, { recursive: true });
+    const queueSnapshot = await gitFingerprint(projectDir);
+    const commandSet = selectedNames.map((name) => configured.commands[name]).filter(Boolean);
+    const fingerprint = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+    const createdAt = new Date();
+    const queue = {
+      schemaVersion: 1,
+      id: queueId,
+      status: 'queued',
+      tier,
+      scope,
+      createdAt: createdAt.toISOString(),
+      expiresAt: new Date(createdAt.getTime() + 86_400_000).toISOString(),
+      commitSha: queueSnapshot.head ?? null,
+      worktreeFingerprint: queueSnapshot.fingerprint ?? null,
+      planFingerprint: fingerprint({ tier, scope, selectedNames, deferredNames: [...deferredNames] }),
+      commandSetFingerprint: fingerprint(commandSet),
+      commandSet,
+      stateMachine: ['queued', 'running', 'passed', 'failed', 'blocked', 'stale'],
+    };
+    writeFileSync(path.join(queueDir, `${queueId}.json`), JSON.stringify(queue, null, 2) + '\n', 'utf8');
+    return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'queued', tier, scope, scopeConfidence: scope === 'full' ? 'complete' : 'unknown', riskLevel: null, impactGroups: [], queue };
+  }
   const before = planOnly ? null : await gitFingerprint(projectDir);
   // `--reuse` replays the anchor's most recent passed receipt instead of
   // re-executing the commands when neither the working-tree fingerprint nor
   // the command set changed; any mismatch falls through to a normal run.
-  if (!planOnly && args.reuse) {
+  const reuseAllowed = args.reuse
+    && selectedNames.every((name) => declaredChecks.get(name)?.deterministic !== false);
+  if (!planOnly && reuseAllowed) {
     let reusable;
     try {
       reusable = await findReusableVerification(projectDir, args.task[0] ?? null, {
@@ -598,9 +714,15 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
         engine: VERIFY_ENGINE,
         command: 'verify',
         tier: tierPlan.tier,
+        scope,
+        scopeConfidence: scope === 'full' ? 'complete' : 'unknown',
+        riskLevel: null,
+        impactGroups: [],
         deferredChecks: tierPlan.deferredChecks,
         nextTier: tierPlan.nextTier,
         status: 'reused',
+        cache: { status: 'hit' },
+        environment: { mode: environmentMode, status: 'reused' },
         reused: {
           taskId: reusable.taskId,
           unitId: reusable.unitId,
@@ -613,6 +735,11 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
           at: typeof receipt.at === 'string' ? receipt.at : null,
         },
         checks: reusedChecks,
+        selectedChecks: selectedNames,
+        minimumTier: tierPlan.tier === 'quick' ? 'unit' : tierPlan.tier === 'standard' ? 'slice' : 'integration',
+        selectedMicroChecks: [],
+        deferredMicroChecks: [],
+        estimatedCostMs: estimateSelectedCost(selectedNames),
       };
     }
   }
@@ -662,10 +789,52 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
     };
   }
   if (selectedCount === 0) {
-    return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', tier: tierPlan.tier, deferredChecks: tierPlan.deferredChecks, nextTier: tierPlan.nextTier, status: 'unverified', checks, error: 'No configured checks selected.' };
+    return {
+      schemaVersion: VERIFY_SCHEMA_VERSION,
+      engine: VERIFY_ENGINE,
+      command: 'verify',
+      tier: tierPlan.tier,
+      scope,
+      scopeConfidence: scope === 'full' ? 'complete' : 'unknown',
+      riskLevel: null,
+      impactGroups: [],
+      deferredChecks: tierPlan.deferredChecks,
+      nextTier: tierPlan.nextTier,
+      status: 'unverified',
+      checks,
+      selectedChecks: selectedNames,
+      minimumTier: tierPlan.tier === 'quick' ? 'unit' : tierPlan.tier === 'standard' ? 'slice' : 'integration',
+      selectedMicroChecks: [],
+      deferredMicroChecks: [],
+      estimatedCostMs: estimateSelectedCost(selectedNames),
+      cache: { status: args.reuse ? 'miss' : 'not_requested' },
+      environment: { mode: environmentMode, status: environmentStatus },
+      error: 'No configured checks selected.',
+    };
   }
   if (planOnly) {
-    return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', tier: tierPlan.tier, deferredChecks: tierPlan.deferredChecks, nextTier: tierPlan.nextTier, status: 'planned', timeoutMs, checks };
+    return {
+      schemaVersion: VERIFY_SCHEMA_VERSION,
+      engine: VERIFY_ENGINE,
+      command: 'verify',
+      tier: tierPlan.tier,
+      scope,
+      scopeConfidence: scope === 'full' ? 'complete' : 'unknown',
+      riskLevel: null,
+      impactGroups: [],
+      deferredChecks: tierPlan.deferredChecks,
+      nextTier: tierPlan.nextTier,
+      status: 'planned',
+      timeoutMs,
+      checks,
+      selectedChecks: selectedNames,
+      minimumTier: tierPlan.tier === 'quick' ? 'unit' : tierPlan.tier === 'standard' ? 'slice' : 'integration',
+      selectedMicroChecks: [],
+      deferredMicroChecks: [],
+      estimatedCostMs: estimateSelectedCost(selectedNames),
+      cache: { status: 'not_requested' },
+      environment: { mode: environmentMode, status: environmentStatus },
+    };
   }
   const after = await gitFingerprint(projectDir);
   const stable = before.fingerprint !== null && after.fingerprint !== null
@@ -681,15 +850,27 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
     engine: VERIFY_ENGINE,
     command: 'verify',
     tier: tierPlan.tier,
+    scope,
+    scopeConfidence: scope === 'full' ? 'complete' : 'unknown',
+    riskLevel: null,
+    impactGroups: [],
     deferredChecks: tierPlan.deferredChecks,
     nextTier: tierPlan.nextTier,
     status: failed || stable === false ? 'failed' : blocked ? 'blocked' : 'passed',
     timeoutMs,
     checks,
+    selectedChecks: selectedNames,
+    minimumTier: tierPlan.tier === 'quick' ? 'unit' : tierPlan.tier === 'standard' ? 'slice' : 'integration',
+    selectedMicroChecks: [],
+    deferredMicroChecks: [],
+    estimatedCostMs: estimateSelectedCost(selectedNames),
+    cache: { status: args.reuse ? 'miss' : 'not_requested' },
+    environment: { mode: environmentMode, status: environmentStatus },
     verification: {
       before: before.snapshot,
       after: after.snapshot,
       stable,
+      snapshotComparison: stable === null ? 'unknown' : stable ? 'match' : 'changed',
       status: stable === false ? 'workspace_changed' : failed ? 'checks_failed' : blocked ? 'checks_blocked' : 'verified',
       // Receipt identity: governance-core.md references these fields when a
       // delivery cites `vibe-harness verify --project`.
@@ -4112,7 +4293,7 @@ export async function runCommand(argv, { cwd = process.cwd() } = {}) {
     worktree: 'run.mjs worktree <list|check|bootstrap|land|cleanup|recover> --project <path>: bootstrap, land, cleanup and recover stay dry-run until --write; bootstrap allocates the next port block from .vibe-harness/worktree-ports.json, materializes worktree.provision.envFiles and runs worktree.provision.setupCommands (a red-zone target also needs --confirm-red-zone); land merges the attributed worktree back into the primary checkout current branch (--no-ff), runs the verify gate (quick tier by default, standard when the task anchor declares riskLevel full, --no-verify skips), then removes the worktree — with --push it also pushes the target branch (upstream, else -u origin when origin is the sole remote) and deletes the worktree branch only after the push succeeds; cleanup refuses branches not merged into worktree.baseRef; recover reclaims crash residue (prunable worktrees, bootstrap worktrees still clean at the base ref, zero-commit branches only residue references, leaked registry entries) and never deletes a branch that moved past the base ref',
     task: 'run.mjs task <init|update|status|list|plan-check|plan-sync|check|freeze-tests|rebaseline-tests> [task-id] --project <path>: anchors live in .vibe-harness/tasks/<task-id>.json and managed plans live in docs/plans/*.md; init accepts --plan-file, plan-check detects drift, plan-sync requires --reason, check gates readiness (check --unit <id> --dispatch answers whether the unit may be handed out now), freeze-tests requires a failed verification and --test-path, and rebaseline-tests additionally requires a protected approval receipt. Write commands stay dry-run until --write.',
     reuse: 'run.mjs verify --project <path> [--task <task-id>] --reuse: returns status "reused" without executing commands when the working-tree fingerprint and command set match the most recent passed receipt in the anchor; otherwise the checks run normally',
-    verify: 'run.mjs verify --project <path> [--tier quick|standard|deep] [--only lint,typecheck,test,eval] [--plan]: quick is the default cost layer and slots outside it are reported as deferred with nextTier; --only selects explicit checks and bypasses tier deferral; blocked checks (unsafe, manual without --allow-manual, missing executable) end the receipt with status "blocked" instead of "failed"',
+    verify: 'run.mjs verify --project <path> [--tier quick|standard|deep] [--scope affected|layer|full] [--async --tier deep] [--only lint,typecheck,test,eval] [--plan] or --micro <declared-id> [--plan]: Micro is explicit and never replaces unit/integration evidence; --micro is exclusive with tier, only, async, reuse and manual.',
   };
   else throw new Error(`Unknown command: ${command}`);
   // A freshness verdict is the answer to a question, not a failed command:

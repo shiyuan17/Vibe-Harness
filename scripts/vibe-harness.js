@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import path from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 
 import { inspectValidationCommands } from './lib/command-status.js';
 import { inspectGitHooks } from './lib/git-hooks.js';
@@ -55,6 +57,7 @@ import {
   planValidationTierMigration,
   validationTiersDeclared,
 } from './lib/validation-tiers.js';
+import { normalizeVerificationScope } from './lib/verification-contract.js';
 import { installPresetForId, parsePresetOption, resolveInstallSurface } from './lib/install-preset.js';
 import { collectProjectBaselineInputs, createProjectBaseline } from './lib/project-baseline.js';
 import {
@@ -72,7 +75,6 @@ import {
   inspectRuntimeHooks,
   runtimeHookWarnings,
 } from './lib/runtime-diagnostics.js';
-import { readFile } from 'node:fs/promises';
 import {
   createToolProvisioningPlan,
   inspectProvisioningMarker,
@@ -87,6 +89,7 @@ import { sanitizePublicReport } from './lib/tool-provisioning/subprocess.js';
 import { AUDIT_KINDS, runProjectAudit } from './lib/project-audit.js';
 import { buildImpactMapping, collectChangedDetails, collectChangedPaths } from './lib/change-impact.js';
 import { buildVerificationPlan } from './lib/verification-plan.js';
+import { enqueueVerification } from './verification-queue.js';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -978,6 +981,10 @@ async function verify(args) {
   const full = Boolean(args.full);
   const tierExplicit = args.tier !== undefined;
   const tier = tierExplicit ? normalizeTierOption(args.tier) : (full ? 'deep' : DEFAULT_VALIDATION_TIER);
+  /** @type {'affected'|'layer'|'full'|null} */
+  const scope = args.scope === undefined
+    ? null
+    : normalizeVerificationScope(args.scope);
   let changedPaths = [];
   let changedDetails = [];
   try {
@@ -998,8 +1005,32 @@ async function verify(args) {
     tierExplicit,
     tiers: validationCommands.tiers,
     tierSource: projectProfile.tierSource,
+    scope,
   });
   const planned = { ...plan, impactMapping: buildImpactMapping(changedPaths, plan.selectedChecks) };
+  if (args.async) {
+    if (tier !== 'deep') throw new Error('--async requires --tier deep.');
+    const fingerprint = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+    const queueReceipt = await enqueueVerification({
+      projectDir: targetDir,
+      tier,
+      scope: planned.scope,
+      commitSha: null,
+      worktreeFingerprint: fingerprint(changedPaths),
+      planFingerprint: fingerprint(planned),
+      commandSetFingerprint: fingerprint(planned.selectedChecks.map((item) => item.command)),
+    });
+    queueReceipt.plan = planned;
+    await writeFile(path.join(targetDir, '.vibe-harness', 'verification', 'queue', `${queueReceipt.id}.json`), JSON.stringify(queueReceipt, null, 2) + '\n', 'utf8');
+    emitReport({
+      ok: true,
+      scope: 'project',
+      status: 'queued',
+      queue: queueReceipt,
+      targetDir,
+    }, args);
+    return;
+  }
   if (args.plan) {
     emitReport({
       ok: true,
@@ -1021,11 +1052,20 @@ async function verify(args) {
     ...verificationReport,
     ...(blockingHookFailure ? { ok: false } : {}),
     deferredChecks: verificationReport.verification?.deferredChecks ?? [],
+    deferredMicroChecks: verificationReport.verification?.deferredMicroChecks ?? planned.deferredMicroChecks ?? [],
+    selectedMicroChecks: verificationReport.verification?.selectedMicroChecks ?? planned.selectedMicroChecks ?? [],
+    minimumTier: verificationReport.verification?.minimumTier ?? planned.minimumTier ?? null,
+    escalation: verificationReport.verification?.escalation ?? planned.escalation ?? null,
     enforcementPolicy,
     executionTier: verificationReport.verification?.executionTier ?? null,
     nextTier: verificationReport.verification?.nextTier ?? null,
+    scopeConfidence: verificationReport.verification?.scopeConfidence ?? planned.scopeConfidence ?? null,
+    estimatedCostMs: verificationReport.verification?.estimatedCostMs ?? planned.estimatedCostMs ?? null,
+    budgetMs: verificationReport.verification?.budgetMs ?? planned.budgetMs ?? null,
+    environment: verificationReport.verification?.environment ?? planned.environment ?? null,
     runtimeHooks,
     scope: 'project',
+    verificationScope: planned.scope ?? null,
     scopeStatus: verificationReport.verification?.scopeStatus ?? 'complete',
     status: verificationReport.ok && !blockingHookFailure ? 'ready' : 'invalid',
     strictEnforcementRefusals: target.strictEnforcementRefusals ?? [],
@@ -1617,7 +1657,7 @@ async function recover(args) {
 }
 
 async function printUsage() {
-  console.log('用法：vibe-harness <init|install|provision|recover|uninstall|validate|verify|baseline|eval|audit|doctor|diff|rollback> [--project path] [--target codex|claude|gemini|cursor|qoder|zcode|antigravity|opencode] [--targets codex,zcode,opencode (仅 init)] [--all-targets] [--profile minimal|core|full|docs-only] [--preset everything] [--modules list] [--plugin -all|-rtk|linear-mcp|linear-mcp-readonly ...] [--rtk-hooks on|off] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--full] [--tier quick|standard|deep] [--plan] [--force] [--upgrade] [--preserve-retired] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded] [--provision]');
+  console.log('用法：vibe-harness <init|install|provision|recover|uninstall|validate|verify|baseline|eval|audit|doctor|diff|rollback> [--project path] [--target codex|claude|gemini|cursor|qoder|zcode|antigravity|opencode] [--targets codex,zcode,opencode (仅 init)] [--all-targets] [--profile minimal|core|full|docs-only] [--preset everything] [--modules list] [--plugin -all|-rtk|linear-mcp|linear-mcp-readonly ...] [--rtk-hooks on|off] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--full] [--tier quick|standard|deep] [--scope affected|layer|full] [--async] [--plan] [--force] [--upgrade] [--preserve-retired] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded] [--provision]');
   console.log('所有项目命令使用 --project <path>；--target 只选择 adapter，--targets 只在 init 时声明多宿主目标，--write 执行真实写入。旧版 --apply 和取路径值的 --target 已移除。');
 }
 

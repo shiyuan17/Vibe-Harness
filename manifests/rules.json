@@ -9,6 +9,7 @@
     { "id": "chrome-devtools-mcp", "source": "docs/rules/chrome-devtools-mcp.md" },
     { "id": "git-rules", "source": "docs/rules/git-rules.md" },
     { "id": "test-rules", "source": "docs/rules/test-rules.md" },
+    { "id": "micro-verification", "source": "docs/rules/micro-verification.md" },
     { "id": "ai-collab-rules", "source": "docs/rules/ai-collab-rules.md" },
     { "id": "review-report", "source": "docs/rules/review-report.md" },
     { "id": "linear-workflow", "source": "docs/rules/linear-workflow.md" },

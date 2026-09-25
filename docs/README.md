@@ -36,6 +36,7 @@
 - [Agentmemory Skill 规格](specs/agentmemory-skill-consolidation-spec.md)
 - [显式工具插件规格](specs/vibe-harness-tooling-modules-spec.md)
 - [Linear 多 Agent 工作流规格](specs/linear-multi-agent-workflow-spec.md)
+- [Adaptive Verification Engine 规格](specs/adaptive-verification-engine.md)
 
 ## 规则
 
@@ -49,6 +50,7 @@
 - [角色路由](rules/role-routing.md)
 - [Git](rules/git-rules.md) ⚡
 - [测试](rules/test-rules.md) ⚡
+- [Micro Verification](rules/micro-verification.md)
 - [AI 协作](rules/ai-collab-rules.md) ⚡
 - [审查报告规则](rules/review-report.md)
 - [表达模式规则](rules/response-modes.md)
@@ -91,6 +93,9 @@
 - [受管执行计划](plans/governance-evidence.md)
 - [可选任务记录](templates/task.md)
 - [简洁交付记录](templates/delivery.md)
+- [Micro Check 模板](templates/micro-check.md)
+- [验证计划模板](templates/verification-plan.md)
+- [验证收据模板](templates/verification-receipt.md)
 - [全生命周期工作流](templates/workflow.md)
 - [<主题> 审查报告](templates/finding-report.md)
 - [跨层一致性审查（find-question）](templates/find-question.md)

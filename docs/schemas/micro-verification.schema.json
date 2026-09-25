@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Micro Verification Receipt",
+  "type": "object",
+  "required": ["schemaVersion", "id", "checkId", "status", "durationMs", "snapshotComparison"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "minLength": 1 },
+    "checkId": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["planned", "passed", "failed", "blocked", "stale", "unverified"] },
+    "scope": { "enum": ["affected", "layer", "full"] },
+    "riskLevel": { "type": "string" },
+    "inputSummary": { "type": "object" },
+    "outputSummary": { "type": "object" },
+    "durationMs": { "type": "integer", "minimum": 0 },
+    "exitCode": { "type": ["integer", "null"] },
+    "workspaceFingerprint": { "type": ["string", "null"] },
+    "configFingerprint": { "type": ["string", "null"] },
+    "fixtureFingerprint": { "type": ["string", "null"] },
+    "toolchainFingerprint": { "type": ["string", "null"] },
+    "snapshotComparison": { "enum": ["match", "changed", "unavailable"] },
+    "cache": {
+      "type": "object",
+      "required": ["status"],
+      "properties": { "status": { "enum": ["hit", "miss", "stale", "disabled"] }, "key": { "type": "string" } },
+      "additionalProperties": false
+    },
+    "escalation": { "type": "object" }
+  },
+  "additionalProperties": true
+}

@@ -39,6 +39,30 @@ test('verification risk classifier selects quick, standard, and high safely', ()
   assert.equal(unknown.fallbackUsed, true);
 });
 
+test('planner exposes minimum tier, Micro selection, and escalation contract', async () => {
+  const target = await targetWithScripts();
+  try {
+    const plan = await buildVerificationPlan({
+      changedPaths: ['src/config.js'],
+      config: {
+        validationCommands: {
+          micro: [{ id: 'config-probe', kind: 'pure', entry: 'scripts/probes/config.mjs', scopes: ['affected'] }],
+        },
+        verification: { defaultScope: 'affected' },
+      },
+      targetDir: target,
+      scope: 'affected',
+      covers: { 'tests/unit/config.test.js': ['src/config.js'] },
+    });
+    assert.equal(plan.minimumTier, 'unit');
+    assert.ok(Array.isArray(plan.selectedMicroChecks));
+    assert.ok(Array.isArray(plan.deferredMicroChecks));
+    assert.equal(typeof plan.escalation.required, 'boolean');
+  } finally {
+    await rm(target, { recursive: true, force: true });
+  }
+});
+
 test('an unknown path cannot lower the risk selected for a mixed change', () => {
   const plan = classifyVerificationRisk(['scripts/example.js', 'misc/example.bin']);
   assert.equal(plan.riskLevel, 'high');
