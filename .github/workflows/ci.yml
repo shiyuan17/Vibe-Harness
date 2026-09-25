@@ -258,6 +258,12 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Consume queued deep verification receipts
+        shell: bash
+        run: |
+          if [ -d .vibe-harness/verification/queue ]; then
+            node scripts/verification-queue.js consume .
+          fi
       - run: pnpm check
       - run: pnpm eval:check
       - run: pnpm eval:harness check
