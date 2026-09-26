@@ -2794,9 +2794,9 @@ function planUnitGraph(planCheck) {
  * A predecessor the plan never declared stays `pending` instead of being
  * treated as satisfied.
  */
-function unitPredecessorState(planUnits, anchorUnits, unitId) {
+function unitPredecessorState(planUnits, anchorUnits, unitId, isVerified = () => false) {
   const byId = new Map(planUnits.map((unit) => [unit.id, unit]));
-  const statusOf = new Map(anchorUnits.map((unit) => [unit.id, typeof unit.status === 'string' ? unit.status : 'pending']));
+  const unitsById = new Map(anchorUnits.map((unit) => [unit.id, unit]));
   const failed = [];
   const blocked = [];
   const unfinished = [];
@@ -2808,10 +2808,12 @@ function unitPredecessorState(planUnits, anchorUnits, unitId) {
     if (seen.has(id)) continue;
     seen.add(id);
     checked.push(id);
-    const status = statusOf.get(id) ?? 'pending';
+    const predecessor = unitsById.get(id);
+    const status = typeof predecessor?.status === 'string' ? predecessor.status : 'pending';
     if (status === 'failed') failed.push({ id, status });
     else if (status === 'blocked') blocked.push({ id, status });
     else if (status !== 'done') unfinished.push({ id, status });
+    else if (!isVerified(predecessor)) unfinished.push({ id, status: 'unverified' });
     queue.push(...(byId.get(id)?.dependsOn ?? []));
   }
   return { blocked, checked, failed, unfinished };
@@ -2938,9 +2940,14 @@ async function readTaskAnchor(projectDir, taskId) {
   }
   if (!anchor || typeof anchor !== 'object' || Array.isArray(anchor)
     || typeof anchor.taskId !== 'string' || anchor.taskId !== taskId
-    || !Number.isInteger(anchor.schemaVersion)) {
+    || ![1, TASK_SCHEMA_VERSION].includes(anchor.schemaVersion)
+    || typeof anchor.title !== 'string' || anchor.title.trim() === ''
+    || typeof anchor.goal !== 'string' || anchor.goal.trim() === ''
+    || !TASK_STAGES.includes(anchor.stage) || !TASK_RISK_LEVELS.includes(anchor.riskLevel)
+    || !['acceptance', 'units', 'decisions', 'blockers', 'failures', 'sessions'].every((field) => Array.isArray(anchor[field]))
+    || !(anchor.nextAction === null || typeof anchor.nextAction === 'string')) {
     throw Object.assign(
-      new Error(`${taskAnchorRelativePath(taskId)} is not a task anchor (expected taskId ${JSON.stringify(taskId)} and an integer schemaVersion)`),
+      new Error(`${taskAnchorRelativePath(taskId)} is not a supported, recoverable task anchor (expected taskId ${JSON.stringify(taskId)} and schemaVersion 1 or ${TASK_SCHEMA_VERSION} with required recovery fields)`),
       { code: 'VIBE_HARNESS_TASK_ANCHOR_INVALID' },
     );
   }
@@ -3212,6 +3219,14 @@ function verificationCommandSet(commands, selectedNames, projectDir) {
     .join('\n');
 }
 
+function currentUnitVerification(unit, fingerprint, configured, projectDir) {
+  if (unit?.verification?.status !== 'passed' || !fingerprint || unit.verification.fingerprint !== fingerprint || configured.error) return false;
+  const commandLines = unit.verification.command?.split('\n').filter(Boolean) ?? [];
+  const names = commandLines.map((line) => line.slice(0, line.indexOf('=')));
+  return commandLines.length > 0 && names.every((name) => CHECK_ORDER.includes(name))
+    && unit.verification.command === verificationCommandSet(configured.commands, names, projectDir);
+}
+
 async function findReusableVerification(projectDir, taskId, { fingerprint, commandSet }) {
   if (typeof fingerprint !== 'string') return null;
   const taskIds = [];
@@ -3387,8 +3402,12 @@ async function taskCheckReport(projectDir, args) {
   // depends on it: continuing would build on an unverified result. The check is
   // the pre-dispatch gate, so it answers before the work is handed out.
   const planUnits = planUnitGraph(planCheck);
+  const needsEvidence = Boolean(args.dispatch || args.complete);
+  const currentFingerprint = needsEvidence ? (await gitFingerprint(projectDir)).fingerprint : null;
+  const configured = needsEvidence ? configuredChecks(await readProjectConfig(projectDir)) : null;
+  const isVerified = (unit) => currentUnitVerification(unit, currentFingerprint, configured, projectDir);
   const predecessors = selected && planUnits.length > 0
-    ? unitPredecessorState(planUnits, units, selected.id)
+    ? unitPredecessorState(planUnits, units, selected.id, isVerified)
     : { blocked: [], checked: [], failed: [], unfinished: [] };
   const stopped = [...predecessors.failed, ...predecessors.blocked];
   const describeUnits = (items) => items.map((item) => `${item.id}=${item.status}`).join(', ');
@@ -3397,18 +3416,32 @@ async function taskCheckReport(projectDir, args) {
   // completion, so a parent agent can gate a write dispatch mechanically.
   if (args.dispatch) {
     if (!args.unit) return taskFailure('check', '--dispatch requires --unit <unitId>', 'VIBE_HARNESS_TASK_UNIT_MISSING');
+    let conflicts = [];
+    if (typeof planCheck.plan?.path === 'string') {
+      const plan = await readManagedPlan(projectDir, planCheck.plan.path);
+      const declared = planExecutionUnits(plan.content).units;
+      const target = declared.find((unit) => unit.id === selected.id);
+      if (target) {
+        conflicts = declared.filter((unit) => unit.id !== target.id
+          && units.some((active) => active.id === unit.id && active.status === 'in_progress')
+          && unit.files.some((file) => target.files.some((other) => scopeIntersects(file, other))))
+          .map((unit) => unit.id);
+      }
+    }
     const unmet = [...stopped, ...predecessors.unfinished];
     return {
       schemaVersion: SCHEMA_VERSION,
       command: 'task',
       subcommand: 'check',
       taskId,
-      status: unmet.length > 0 ? 'failed' : 'passed',
-      ...(unmet.length > 0 ? {
-        code: stopped.length > 0 ? 'VIBE_HARNESS_UNIT_PREDECESSOR_FAILED' : 'VIBE_HARNESS_UNIT_PREDECESSOR_UNMET',
-        error: `unit ${selected?.id ?? args.unit} is not ready to dispatch: ${stopped.length > 0 ? describeUnits(stopped) : describeUnits(predecessors.unfinished)}`,
+      status: unmet.length > 0 || conflicts.length > 0 ? 'failed' : 'passed',
+      ...(unmet.length > 0 || conflicts.length > 0 ? {
+        code: stopped.length > 0 ? 'VIBE_HARNESS_UNIT_PREDECESSOR_FAILED' : unmet.length > 0 ? 'VIBE_HARNESS_UNIT_PREDECESSOR_UNMET' : 'VIBE_HARNESS_UNIT_SCOPE_CONFLICT',
+        error: `unit ${selected?.id ?? args.unit} is not ready to dispatch: ${stopped.length > 0 ? describeUnits(stopped) : unmet.length > 0 ? describeUnits(predecessors.unfinished) : `overlapping in-progress units: ${conflicts.join(', ')}`}`,
       } : {}),
       dispatch: true,
+      readinessScope: 'current predecessors and declared file overlap; resource locks not evaluated',
+      conflicts,
       unit: args.unit,
       predecessors,
       plan: planCheck.plan ?? null,
@@ -3437,7 +3470,10 @@ async function taskCheckReport(projectDir, args) {
   const unfinished = targetUnits.filter((unit) => unit.status !== 'done').map((unit) => unit.id ?? '?');
   const failedUnits = targetUnits.filter((unit) => unit.status === 'failed').map((unit) => unit.id ?? '?');
   const unverified = targetUnits
-    .filter((unit) => unit.status === 'done' && unit.verification?.status !== 'passed')
+    .filter((unit) => {
+      if (unit.status !== 'done') return false;
+      return args.complete ? !isVerified(unit) : unit.verification?.status !== 'passed';
+    })
     .map((unit) => unit.id ?? '?');
   const complete = Boolean(args.complete);
   const blockers = Array.isArray(read.anchor.blockers) ? read.anchor.blockers.filter((item) => typeof item === 'string' && item.trim() !== '') : [];
@@ -3538,11 +3574,18 @@ async function taskUpdateReport(projectDir, args) {
   if (args.verification !== undefined && args.unit === undefined) {
     return taskFailure('update', '--verification requires --unit <unitId>');
   }
+  if (args.title !== undefined || args.goal !== undefined || args.riskLevel !== undefined || args.acceptance.length > 0) {
+    return taskFailure('update', '--title, --goal, --risk-level and --acceptance are only supported by task init', 'VIBE_HARNESS_TASK_OPTION_UNSUPPORTED');
+  }
   const read = await readTaskAnchor(projectDir, taskId);
   if (!read.exists) {
     return taskFailure('update', `no anchor for task ${taskId}: run "task init ${taskId}" first`);
   }
   const current = read.anchor;
+  const recoveryOnly = (args.blocker.length > 0 || args.failure.length > 0 || args.nextAction !== undefined)
+    && args.stage === undefined && args.unitStatus.length === 0 && args.decision.length === 0
+    && !args.clearBlockers && args.verification === undefined && args.planFile === undefined;
+  let recoveryPlan = null;
   let requestedPlan = null;
   if (args.planFile !== undefined) {
     try {
@@ -3559,9 +3602,10 @@ async function taskUpdateReport(projectDir, args) {
   }
   if (typeof current.planFile === 'string') {
     const planCheck = await taskPlanCheckReport(projectDir, taskId);
-    if (planCheck.status !== 'passed' && planCheck.code !== 'VIBE_HARNESS_TASK_ANCHOR_MISSING') {
+    if (planCheck.status !== 'passed' && planCheck.code !== 'VIBE_HARNESS_TASK_ANCHOR_MISSING' && !recoveryOnly) {
       return taskFailure('update', planCheck.error ?? 'task plan check failed; update the plan and run task plan-sync before continuing', planCheck.code ?? 'VIBE_HARNESS_PLAN_DRIFT');
     }
+    if (recoveryOnly && planCheck.status !== 'passed') recoveryPlan = planCheck;
   }
   const currentSignature = anchorSignature(current);
   // Deep-clone before mutating: the raw anchor stays the baseline for the
@@ -3683,6 +3727,7 @@ async function taskUpdateReport(projectDir, args) {
     written: changed && Boolean(args.write),
     changed,
     changes,
+    ...(recoveryPlan ? { planStatus: recoveryPlan.status, planCode: recoveryPlan.code, planError: recoveryPlan.error } : {}),
     path: taskAnchorRelativePath(taskId),
     anchor,
   };
