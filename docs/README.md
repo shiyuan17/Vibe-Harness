@@ -15,6 +15,7 @@
 - [ADR-0005：规则治理：SSOT、排版与本地化](adr/ADR-0005-rules-governance.md)
 - [ADR-0006：发布边界门禁与 Writer 落地 develop 合并](adr/ADR-0006-release-gated-ci-writer-landed-merges.md)
 - [DAG result 引入 unverified](adr/ADR-0007-dag-result-unverified.md)
+- [ADR-0008：宿主限时授权自动领取 Linear 任务](adr/ADR-0008-bounded-linear-auto-claim.md)
 - [ADR Schema](schemas/adr.schema.json)
 - [Execution Envelope v1 Schema](schemas/execution-envelope.schema.json)
 - [Execution Envelope v2 Schema](schemas/execution-envelope-v2.schema.json)

@@ -28,6 +28,10 @@
     {
       "id": "ADR-0007",
       "path": "docs/adr/ADR-0007-dag-result-unverified.md"
+    },
+    {
+      "id": "ADR-0008",
+      "path": "docs/adr/ADR-0008-bounded-linear-auto-claim.md"
     }
   ]
 }

@@ -1119,6 +1119,17 @@
       ]
     },
     {
+      "path": "docs/adr/ADR-0008-bounded-linear-auto-claim.md",
+      "kind": "architecture",
+      "status": "current",
+      "language": "en",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
+    },
+    {
       "path": "docs/inventory/governance-audit-2026-09.md",
       "kind": "inventory",
       "status": "reference",

@@ -1,7 +1,7 @@
 ---
 id: ADR-0001
 title: Linear explicit execution identity and native DAG contract
-status: accepted
+status: superseded
 date: 2026-08-15
 review-date: 2027-02-15
 owner: vibe-harness-maintainers
@@ -9,7 +9,7 @@ decision-makers: [vibe-harness-maintainers]
 consulted: [linear-workflow-users]
 informed: [vibe-harness-contributors]
 supersedes: []
-superseded-by: null
+superseded-by: ADR-0008
 ---
 
 # Linear explicit execution identity and native DAG contract

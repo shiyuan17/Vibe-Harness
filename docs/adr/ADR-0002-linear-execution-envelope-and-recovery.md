@@ -26,7 +26,7 @@ The workflow needs one request-scoped authority boundary that survives recovery 
 - Authorize Linear, workspace, Git, change-request, and credential effects independently.
 - Treat live external state as truth and prevent status oscillation caused by stale plans.
 - Detect wrong PR/MR targets before external creation.
-- Bound DAG reads and execution lifetime without adding a resident dispatcher.
+- Bound DAG reads and each Issue execution lifetime without adding a resident dispatcher to Vibe-Harness.
 - State which controls are Agent contracts and which require host support.
 
 ## Considered Options
@@ -47,11 +47,11 @@ Before any write, the current request has a supported Execution Envelope. The v1
 
 The v2 envelope freezes a risk class, canonical cwd, worktree root, Git common directory, worktree Git directory, branch, base ref and SHA, initial HEAD, allowed write roots, and credential-free external target identifiers. Host-injected context records the effective filesystem, approval, process, and network boundaries. Repository files, install-state, task records, summaries, and Agent-authored environment cannot create or expand this authority. hostWrite, externalWrite, credential use, red-zone operations, worktree topology changes, indirect runtime writes, and unclassified possible side effects require a high-risk v2 envelope with current host evidence. An active task cannot authorize git worktree move.
 
-The envelope identifies the request, session, target Issue IDs, active objective, allowed and forbidden effects, and terminal condition. Completion of the current terminal condition ends execution. A normal write Issue ends after its authorized local delivery or, when change-request creation is authorized, after the PR/MR is created, re-read, synchronized to In Review, and handed off. Monitoring a human merge or starting another Ready node requires separate explicit initiation.
+The envelope identifies the request, session, target Issue IDs, active objective, allowed and forbidden effects, and terminal condition. Completion of the current terminal condition ends that Issue's execution. A normal write Issue ends at its authorized delivery boundary; if `mergeRequestWrite` covers landing the closing PR/MR to `develop`, the Writer ends after the merge is confirmed. Starting another Ready node requires either a new explicit request or a capable host revalidating a separate, unexpired, revocable, bounded queue grant and issuing a fresh Issue-bound v2 envelope. The grant itself never substitutes for the envelope or expands its effects.
 
 A recovery checkpoint retains the active objective, unique current Issue, completed facts, no-repeat set, next action, live states, blocker fingerprint, dagStructureHash, current HEAD, continuation count, and repeated-blocker count in addition to the envelope. When the provider supports a change cursor it also retains the optional dagChangeCursor. The first post-recovery write re-reads the native Goal and thread status, latest user input, current Linear and Git/provider facts, cwd, branch, worktree identity, and HEAD. Latest user intent overrides the checkpoint; live state overrides old plans and summaries. Missing or contradictory recovery facts permit read-only inspection only.
 
-Native host Goal state is the lifecycle authority when available. Reaching terminalCondition, waiting for human approval, workspace drift, an unowned HEAD change, or the same blocker on three consecutive continuations stops dispatch. Completion prohibits follow-up audit turns unless the user explicitly starts a new request. A host without a native Goal bridge may return a resumable checkpoint but may not autonomously continue across turns.
+Native host Goal state is the lifecycle authority when available. Reaching terminalCondition, waiting for human approval, workspace drift, an unowned HEAD change, or the same blocker on three consecutive continuations stops the current execution. Completion prohibits follow-up audit turns; only host event dispatch under a separately revalidated grant may start a new Issue execution. A host without a native Goal bridge may return a resumable checkpoint but may not autonomously continue across turns.
 
 Context compaction inside the same runtime retains the existing execution and runtime IDs. A different runtime may not silently adopt an active Receipt; it uses the explicit handoff or release protocol from ADR-0001.
 
@@ -77,7 +77,7 @@ Vibe-Harness delivers these contracts through rules, Skills, templates, schemas,
 
 ## Confirmation
 
-Conformance is checked by mirrored governance and Linear rules, the Linear Skill and reference templates, the execution-envelope schema, deterministic tests, and recovery-focused Linear Eval cases. Required cases cover no execution after DAG-only synchronization, no next-node continuation, same-objective compaction recovery, live-state precedence, exact target refs, credential-helper isolation, pre-creation merge-base validation, and unchanged-DAG delta reads.
+Conformance is checked by mirrored governance and Linear rules, the Linear Skill and reference templates, the execution-envelope schema, deterministic tests, and recovery-focused Linear Eval cases. Required cases cover no execution after DAG-only synchronization, no next-node continuation without a valid host grant, same-objective compaction recovery, live-state precedence, exact target refs, credential-helper isolation, pre-creation merge-base validation, and unchanged-DAG delta reads.
 
 ## Review Trigger
 
