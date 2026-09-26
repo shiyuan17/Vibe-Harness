@@ -22,6 +22,10 @@ scripts/check-pull-request-approval.js 默认同为 shadow 模式，只记录是
 
 improvements kind 从 review findings 和垃圾回收观察中生成幂等候选。自动过程只能写入 proposed 或 eligible-for-owner-review，不会修改规则、自动接受候选或删除文件。可复现 Bug 和 Critical 安全 finding 一次即可进入 owner review；Hook、linter 和 Rule 需要两个独立 episode，Skill 需要三个。垃圾回收只报告至少九十天未变更且未被 manifest、catalog、测试或文档引用的治理资产。
 
+改进闭环由 owner 显式执行：确认失败与现有资产责任 → 候选评审 → 最小修复 → 定向验证 → 后续可比场景效果回查。确定性缺陷沉淀普通回归测试；Agent 行为问题进入 Eval。先核对现有 Rule/Skill 的选择、调用、验证与停止边界；仅在可比 episode 证明没有匹配 owner 时才考虑新增能力。已有 `evidenceRefs` 可关联审查证据、修复提交、验证收据和 Eval 结果，不引入自动连接器或逐任务回灌门禁。
+
+`implemented` 只表示修复已经落地，不能代表效果已改善；改善主张须在相同测量条件下对照后续结果并说明证据强度。GC 与行为问题分别判断，不用资产删除数、规则数或候选数作为质量指标。`docs/rules` 是当前规则源，旧 `rules` 仍在候选扫描范围以兼容已有项目；未引用且超过九十天只产生待复核线索，不证明应删除。
+
 ## Cleanup
 
 cleanup kind 对整个项目做只读陈旧资产扫描：失效引用、catalog 孤儿、install-state 与 eval 镜像漂移、代码索引过期、未被引用的文件与导出，以及超过一百八十天未验证的治理文档。审计器不删除、不重写任何文件；删除是 `stale-cleanup` Skill 中单独显式确认的步骤。确定性发现与启发式候选分级输出，候选保持 info 级别，必须经人工或 Agent 验证后才能进入清理。

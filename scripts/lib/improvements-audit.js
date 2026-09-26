@@ -93,7 +93,7 @@ async function walkFiles(root, relative = '') {
 }
 
 async function garbageCollectionObservations(targetDir, now) {
-  const roots = ['rules', 'templates', 'skills', 'runtime', 'adapters', 'manifests', 'schemas'];
+  const roots = ['docs/rules', 'rules', 'templates', 'skills', 'runtime', 'adapters', 'manifests', 'schemas'];
   const candidates = (await Promise.all(roots.map((root) => walkFiles(targetDir, root)))).flat();
   const referenceFiles = (await Promise.all(['manifests', 'docs', 'tests'].map((root) => walkFiles(targetDir, root)))).flat();
   const references = [];
