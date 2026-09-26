@@ -97,6 +97,12 @@ test('generic rules constrain process while retaining safety boundaries', async 
     assert.doesNotMatch(content, pattern, name);
   }
 
+  const codegraph = await readFile(path.join(rootDir, 'docs/rules/codegraph.md'), 'utf8');
+  assert.match(codegraph, /当前源码.*视为已读/u);
+  assert.match(codegraph, /索引陈旧|变更信号/u);
+  assert.match(codegraph, /工具不可用.*回退/u);
+  assert.match(codegraph, /图关系.*源码.*行为证据/u);
+
   // A rule that cites another rule must stay honest about what the target
   // project has: `linear-workflow` is an integration rule, so git-rules may
   // only defer to it conditionally instead of assuming it is installed.

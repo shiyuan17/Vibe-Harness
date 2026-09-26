@@ -12,11 +12,11 @@ codegraph 是项目内可选的仓库级代码知识图谱工具（Tier 3 Reposi
 
 ## 使用顺序
 
-1. 先用 `codegraph status` 查看索引新鲜度；索引陈旧时先按「资源预算」判断是否允许重建，默认不重建。
-2. 在 Worktree 中工作时，先用 `git merge-base` 取基线，再用 `git diff --name-only <base>` 圈定与基线的变更集。
-3. 默认入口是 `codegraph_explore`（上游默认只暴露该 MCP 工具）：以问题或符号名查询 Base Index，获取相关源码分组与调用路径。
-4. 需要精确调用链或影响面时，使用 `codegraph_callers`、`codegraph_callees`、`codegraph_impact`、`codegraph_node`、`codegraph_search`；这些工具需通过 `CODEGRAPH_MCP_TOOLS` 显式启用。
-5. 变更集内的文件以工作区实际内容为准（用 `rg` 和直接阅读核验），未变更部分信任索引；引用行号前必须回到源码核对。
+1. 首次使用时按工具返回的索引状态判断新鲜度；没有状态信息或收到变更信号时才用 `codegraph status` 检查。同一任务、同一工作区内沿用已确认状态，不为每次查询重复检查；索引陈旧时默认不重建。
+2. 在 Worktree 中工作时，先用 `git merge-base` 取基线，再用 `git diff --name-only <base>` 圈定与基线的变更集；工作区改动以实际内容为准。
+3. 默认入口是 `codegraph_explore`（上游默认只暴露该 MCP 工具）：以问题或符号名查询 Base Index，获取相关源码分组与调用路径。工具返回当前源码且未标陈旧时视为已读，不重复用 `rg` 或文件阅读核验相同内容与行号；只有图关系、摘要、陈旧文件、未入索引的改动或来源冲突才补取当前事实。
+4. 需要精确调用链或影响面时，使用宿主实际提供的 `codegraph_callers`、`codegraph_callees`、`codegraph_impact`、`codegraph_node`、`codegraph_search`；这些工具需通过 `CODEGRAPH_MCP_TOOLS` 显式启用，不可用时不假装调用。
+5. 同一事实优先复用已取得的源码与索引状态；一次查询无法覆盖所需范围时才转用其他检索工具，不同时串行调用多个同类工具重复证明。跨工作区、收到失效信号或工作树发生相关变更后，重新核对受影响的部分。
 
 ## 资源预算（Tier 3）
 
@@ -28,8 +28,8 @@ codegraph 是项目内可选的仓库级代码知识图谱工具（Tier 3 Reposi
 
 ## 降级与证据
 
-- 索引 stale 或缺失且不允许重建时，退回 `rg` + codebase-memory-mcp + `git diff` 变更集人工核对，并记录 `tool: codegraph`、索引状态、替代命令和覆盖限制。
-- `codegraph_impact` 等影响面结论必须抽样回到源码核验后才可引用；索引结论不是完成证据。
+- 索引 stale 或缺失且不允许重建、工具不可用时，按任务需要回退到 `rg`、直接文件阅读、已有的其他索引工具和 `git diff` 变更集核对，并记录 `tool: codegraph`、状态、替代命令和覆盖限制；不为回退强制调用所有工具。
+- 图关系或仅有摘要的影响面结论需以当前源码核对后引用；图关系不是源码行为证据，索引结论不是完成证据。已返回未标陈旧的当前源码无需重复阅读。
 - 不因 codegraph 无法安装而修改全局配置或 PATH；缺失时用可复现的文本搜索继续工作。
 
 ## 规范依据

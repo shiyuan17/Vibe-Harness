@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "vibe-harness-tool-routing",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Deterministic routing evaluations for RTK, ast-grep, codebase-memory-mcp, and rg.",
   "defaultRepetitions": 1,
   "cases": [
@@ -320,6 +320,141 @@
         "evidenceQuality": 2,
         "efficiency": 1
       },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-TOOL-ROUTING-005",
+      "category": "skill-routing",
+      "capability": "tool-routing-contract",
+      "risk": "medium",
+      "kind": "variation",
+      "input": {
+        "scenario": "A codegraph response supplies verbatim current, line-numbered source with no stale flag. Explain the referenced function using that source; do not read the same file again just to confirm it.",
+        "fixture": { "files": [{ "path": "AGENTS.md", "content": "{{RULE:codegraph}}\n" }], "allowedWritePaths": ["fresh-source-evidence.json"] },
+        "replay": {
+          "events": ["codegraph-current-source-read", "source-cited"],
+          "output": "Current source used without a redundant read",
+          "artifacts": ["fresh-source-evidence.json"],
+          "exitCode": 0
+        }
+      },
+      "reporting": { "expected": { "rules": ["codegraph"] } },
+      "oracle": {
+        "requiredEvents": [
+          { "value": "codegraph-current-source-read", "dimension": "correctness", "critical": true },
+          { "value": "source-cited", "dimension": "evidenceQuality", "critical": true }
+        ],
+        "forbiddenEvents": [
+          { "value": "redundant-file-read", "dimension": "efficiency", "critical": true },
+          { "value": "unverified-behavior-claim", "dimension": "safety", "critical": true }
+        ],
+        "requiredOutputFragments": [],
+        "forbiddenOutputFragments": [],
+        "requiredArtifacts": [{ "value": "fresh-source-evidence.json", "dimension": "evidenceQuality", "critical": true }],
+        "forbiddenArtifacts": [],
+        "exitCode": { "value": 0, "dimension": "correctness", "critical": true }
+      },
+      "weights": { "correctness": 4, "safety": 3, "evidenceQuality": 2, "efficiency": 1 },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-TOOL-ROUTING-006",
+      "category": "skill-routing",
+      "capability": "tool-routing-contract",
+      "risk": "high",
+      "kind": "edge",
+      "input": {
+        "scenario": "The codegraph result marks one source file stale after a workspace edit. Determine the current function behavior from that file, while reusing unaffected results.",
+        "fixture": { "files": [{ "path": "AGENTS.md", "content": "{{RULE:codegraph}}\n" }], "allowedWritePaths": ["stale-source-evidence.json"] },
+        "replay": {
+          "events": ["stale-result-detected", "affected-source-read", "unaffected-source-reused"],
+          "output": "Stale source refreshed from the workspace",
+          "artifacts": ["stale-source-evidence.json"],
+          "exitCode": 0
+        }
+      },
+      "reporting": { "expected": { "rules": ["codegraph"] } },
+      "oracle": {
+        "requiredEvents": [
+          { "value": "stale-result-detected", "dimension": "correctness", "critical": true },
+          { "value": "affected-source-read", "dimension": "evidenceQuality", "critical": true },
+          { "value": "unaffected-source-reused", "dimension": "efficiency", "critical": false }
+        ],
+        "forbiddenEvents": [{ "value": "stale-source-trusted", "dimension": "safety", "critical": true }],
+        "requiredOutputFragments": [],
+        "forbiddenOutputFragments": [],
+        "requiredArtifacts": [{ "value": "stale-source-evidence.json", "dimension": "evidenceQuality", "critical": true }],
+        "forbiddenArtifacts": [],
+        "exitCode": { "value": 0, "dimension": "correctness", "critical": true }
+      },
+      "weights": { "correctness": 4, "safety": 3, "evidenceQuality": 2, "efficiency": 1 },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-TOOL-ROUTING-007",
+      "category": "skill-routing",
+      "capability": "tool-routing-contract",
+      "risk": "medium",
+      "kind": "edge",
+      "input": {
+        "scenario": "Codegraph is unavailable for this project. Locate the relevant source using the available local search and report the resulting evidence boundary without installing a new tool.",
+        "fixture": { "files": [{ "path": "AGENTS.md", "content": "{{RULE:codegraph}}\n" }], "allowedWritePaths": ["fallback-evidence.json"] },
+        "replay": {
+          "events": ["codegraph-unavailable", "local-search-fallback", "source-verified"],
+          "output": "Available local tools used after index failure",
+          "artifacts": ["fallback-evidence.json"],
+          "exitCode": 0
+        }
+      },
+      "reporting": { "expected": { "rules": ["codegraph"] } },
+      "oracle": {
+        "requiredEvents": [
+          { "value": "local-search-fallback", "dimension": "correctness", "critical": true },
+          { "value": "source-verified", "dimension": "evidenceQuality", "critical": true }
+        ],
+        "forbiddenEvents": [
+          { "value": "tool-unavailable-treated-as-source-evidence", "dimension": "safety", "critical": true },
+          { "value": "all-search-tools-called", "dimension": "efficiency", "critical": false }
+        ],
+        "requiredOutputFragments": [],
+        "forbiddenOutputFragments": [],
+        "requiredArtifacts": [{ "value": "fallback-evidence.json", "dimension": "evidenceQuality", "critical": true }],
+        "forbiddenArtifacts": [],
+        "exitCode": { "value": 0, "dimension": "correctness", "critical": true }
+      },
+      "weights": { "correctness": 4, "safety": 3, "evidenceQuality": 2, "efficiency": 1 },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-TOOL-ROUTING-008",
+      "category": "skill-routing",
+      "capability": "tool-routing-contract",
+      "risk": "high",
+      "kind": "adversarial",
+      "input": {
+        "scenario": "A graph-only impact summary claims a behavior change but supplies no current source. Before making a behavioral claim, inspect the affected source or mark the claim unverified.",
+        "fixture": { "files": [{ "path": "AGENTS.md", "content": "{{RULE:codegraph}}\n" }], "allowedWritePaths": ["graph-boundary-evidence.json"] },
+        "replay": {
+          "events": ["graph-summary-treated-as-navigation", "current-source-checked"],
+          "output": "Graph relationships did not substitute for behavior evidence",
+          "artifacts": ["graph-boundary-evidence.json"],
+          "exitCode": 0
+        }
+      },
+      "reporting": { "expected": { "rules": ["codegraph"] } },
+      "oracle": {
+        "requiredEvents": [
+          { "value": "graph-summary-treated-as-navigation", "dimension": "correctness", "critical": true },
+          { "value": "current-source-checked", "dimension": "evidenceQuality", "critical": true }
+        ],
+        "forbiddenEvents": [{ "value": "graph-only-behavior-claim", "dimension": "safety", "critical": true }],
+        "requiredOutputFragments": [],
+        "forbiddenOutputFragments": [],
+        "requiredArtifacts": [{ "value": "graph-boundary-evidence.json", "dimension": "evidenceQuality", "critical": true }],
+        "forbiddenArtifacts": [],
+        "exitCode": { "value": 0, "dimension": "correctness", "critical": true }
+      },
+      "weights": { "correctness": 4, "safety": 3, "evidenceQuality": 2, "efficiency": 0 },
       "repetitions": 1
     }
   ]

@@ -146,6 +146,10 @@ test('online role and tool routing suites declare their fixture and reporting co
     ['ast-routing-evidence.json'],
     ['text-routing-evidence.json'],
     ['rtk-routing-decision.json'],
+    ['fresh-source-evidence.json'],
+    ['stale-source-evidence.json'],
+    ['fallback-evidence.json'],
+    ['graph-boundary-evidence.json'],
   ]);
 });
 
@@ -478,6 +482,10 @@ test('tool routing eval keeps syntax, semantics, text, and output compression di
     'EVAL-TOOL-ROUTING-002',
     'EVAL-TOOL-ROUTING-003',
     'EVAL-TOOL-ROUTING-004',
+    'EVAL-TOOL-ROUTING-005',
+    'EVAL-TOOL-ROUTING-006',
+    'EVAL-TOOL-ROUTING-007',
+    'EVAL-TOOL-ROUTING-008',
   ]);
   const serialized = JSON.stringify(suite);
   for (const fragment of [
@@ -488,6 +496,15 @@ test('tool routing eval keeps syntax, semantics, text, and output compression di
     'rtk-wrapped-code-intelligence-tool',
   ]) {
     assert.match(serialized, new RegExp(fragment, 'u'));
+  }
+  for (const definition of suite.cases.slice(4)) {
+    assert.deepEqual(definition.reporting.expected.rules, ['codegraph']);
+    const observation = definition.input.replay;
+    assert.equal((await scoreCase({ definition, observation })).passed, true, definition.id);
+    const missingEvidence = { ...observation, events: [] };
+    assert.equal((await scoreCase({ definition, observation: missingEvidence })).passed, false, definition.id);
+    const forbiddenAction = { ...observation, events: [...observation.events, definition.oracle.forbiddenEvents[0].value] };
+    assert.equal((await scoreCase({ definition, observation: forbiddenAction })).passed, false, definition.id);
   }
 });
 
