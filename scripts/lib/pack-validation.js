@@ -433,7 +433,7 @@ export const SHARED_RULE_PHRASES = Object.freeze({
   developNoRemoteCi: '不要求远端 CI',
   releaseOnlyCiBoundary: '只在发布边界',
   releaseGateBranches: '`main`、`release/*`',
-  prohibitedAutoClaimMechanisms: 'Webhook 调度器、Linear Loop、leader lease、自动超时回收或自动重派',
+  boundedAutoClaim: '跨实例互斥',
   noAssertionWeakening: '降低断言、删除断言或无理由跳过相关测试绕过',
   // The kernel owns the substitution boundary and the delivery template
   // restates it; both files must carry the same sentence, so a reword in one
@@ -507,7 +507,7 @@ export const RULE_SKILL_PARITY_PAIRS = Object.freeze([
     skill: 'skills/integrations/linear-workflow/SKILL.md',
     skillName: 'linear-workflow',
     sharedTerms: [
-      SHARED_RULE_PHRASES.prohibitedAutoClaimMechanisms,
+      SHARED_RULE_PHRASES.boundedAutoClaim,
       SHARED_RULE_PHRASES.gitFlowDefault,
       SHARED_RULE_PHRASES.gitFlowHotfix,
       SHARED_RULE_PHRASES.developNoRemoteCi,
@@ -951,9 +951,9 @@ export const CONTENT_QUALITY_CHECKS = [
     file: 'docs/rules/linear-workflow.md',
     terms: [
       // 1 授权模型
-      '禁止自动领取',
-      '不得扫描、轮询、订阅或从 Ready Queue 选择 Issue',
-      SHARED_RULE_PHRASES.prohibitedAutoClaimMechanisms,
+      '无有效授权时禁止自动领取',
+      '限时领单授权',
+      SHARED_RULE_PHRASES.boundedAutoClaim,
       '用户在本轮明确要求',
       '显式启动',
       '不授权登记或执行',
@@ -1410,9 +1410,9 @@ export const CONTENT_QUALITY_CHECKS = [
     {
       file: 'skills/integrations/linear-workflow/SKILL.md',
       terms: [
-        '不自动从队列领单',
-        '未指定 Issue 时不得选择、认领或更新任务',
-        SHARED_RULE_PHRASES.prohibitedAutoClaimMechanisms,
+        '无宿主授权派发时禁止自动领取',
+        'Agent 不扫描、轮询或订阅 Ready Queue',
+        SHARED_RULE_PHRASES.boundedAutoClaim,
         '远端 CI 只在发布边界',
         SHARED_RULE_PHRASES.gitFlowDefault,
         SHARED_RULE_PHRASES.gitFlowHotfix,

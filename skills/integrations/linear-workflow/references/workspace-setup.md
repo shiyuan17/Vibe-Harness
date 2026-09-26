@@ -29,7 +29,7 @@ Triage 是团队收件箱，进入的 Issue 默认不进入常规视图，必须
 - Linear 保存工作状态、责任和原生依赖；GitHub 或 GitLab 保存代码、PR/MR、检查与合并状态。
 - 人类 Assignee 保持结果责任；Delegate/App User 表示 Agent 产品身份；Execution Receipt 表示具体运行实例；Activity Feed 保存委派历史。
 - Todo 必须通过 AI Coding Task 的 Definition of Ready。
-- 禁止自动领取：只执行用户明确要求的具体 Issue，或已委派给当前 Agent 且由宿主显式启动的 Issue。
+- 默认不自动领取：除具体 Issue 的显式执行指令或已委派且宿主显式启动外，仅具备限时授权、事件派发与跨实例互斥能力的宿主可选择 Todo Issue。授权由用户授予并由宿主保存、撤销和计数；Workspace Guidance 与视图不是授权。
 - Parent/Sub-issue 只表示分解，blocked-by / blocks 才表示执行依赖，related 永不表示依赖。
 - Reviewer 和 Verifier 只读，不登记 Receipt 或修改 Delegate。
 - 每个 Issue 的 Target branch 填写可解析的精确远端 ref；“默认分支”只有确为实现基线时才有效。分支格式为 <type>/<ISSUE-ID>-<slug>，worktree 位于仓库同级的 <repo>-worktrees/<ISSUE-ID>。commit 使用 <code>Refs &lt;ISSUE-ID&gt;</code>，closing GitHub PR 或 GitLab MR 使用 <code>Fixes &lt;ISSUE-ID&gt;</code>；只有提供方配置且创建后重读确认的等价语法才可替代。
@@ -43,7 +43,7 @@ Triage 是团队收件箱，进入的 Issue 默认不进入常规视图，必须
 
 优先使用原生 Delegate/App User。若客户端不支持 Delegate，只允许管理员预先创建低基数、稳定的 agent:<agent-key> 与 role:writer 标签。不得为 execution、runtime、thread 或 session 创建实例级标签，也不得由 Agent 临时创建 fallback 标签。
 
-已有其他 Delegate、其他 agent label 或未终结活动 Receipt 时，Agent 不得覆盖；必须由人工核对工作状态后显式释放或交接。不要配置自动超时、自动回收或自动重派。
+已有其他 Delegate、其他 agent label 或未终结活动 Receipt 时，Agent 不得覆盖；必须由人工核对工作状态后显式释放或交接。自动领取仍不得配置自动超时、自动回收或自动重派；写后重读不替代宿主跨实例独占派发。
 
 ## GitHub / GitLab 自动化
 
@@ -61,7 +61,7 @@ GitHub/GitLab automation 只推进代码状态，不创建或终结 Execution Re
 
 ## 自定义视图（Custom Views）
 
-1. AI Ready Queue：Status = Todo 且没有 blocked-by；仅供人类查看或显式选择，Agent 不自动扫描或领取。
+1. AI Ready Queue：Status = Todo 且没有 blocked-by；供人类查看或有效限时授权的宿主事件派发。视图只是候选集，宿主须按 Priority 降序、创建时间升序、Issue ID 升序选择，Agent 不扫描队列；选中后仍逐项核验完整 Definition of Ready。
 2. AI Working：Status = In Progress，并按 Delegate 或 agent:* 分组。
 3. Review Queue：Status = In Review，Priority 降序、Updated 升序。
 4. Human Decisions：label = needs:decision。

@@ -20,11 +20,29 @@ Execution Receipt 是 Linear Issue 上不可变、追加式的结构化评论，
       "startedAt": "RFC3339-UTC"
     }
 
+自动领取使用独立的 v2 Start Receipt，不能把限时授权伪装成一次具体 Issue 的显式请求：
+
+    {
+      "schema": "vibe-harness.linear-execution/v2",
+      "executionId": "uuid-v4",
+      "source": "authorized-auto-claim",
+      "agentKey": "codex",
+      "hostKind": "codex-desktop",
+      "delegateId": "linear-app-user-id-or-null",
+      "runtimeInstanceId": "opaque-uuid-v4",
+      "role": "writer",
+      "dagRootIssue": "ENG-100-or-null",
+      "dagNodeIssue": "ENG-123",
+      "startedAt": "RFC3339-UTC",
+      "grantId": "opaque-uuid-v4"
+    }
+
 约束：
 
-- schema 固定为 vibe-harness.linear-execution/v1。
+- 显式或已委派执行保持 vibe-harness.linear-execution/v1 的原字段与 source 枚举；自动领取只用 vibe-harness.linear-execution/v2，字段另加必填 UUID v4 `grantId`，source 固定为 authorized-auto-claim。
+- `grantId` 只引用宿主持久的可撤销限时授权，不包含授权内容或个人身份，也不独自证明权限；宿主必须核验队列范围、截止时间、剩余领取数、Agent 身份、effects 和逐 Issue v2 Envelope。
 - executionId 和 runtimeInstanceId 是新生成的 UUID v4。runtimeInstanceId 只用于 Receipt 关联，不得复制宿主 thread、session、OAuth session、用户名、主机名或其他真实会话标识。
-- source 只允许 explicit-user-request、existing-delegate、authorized-handoff。
+- v1 source 只允许 explicit-user-request、existing-delegate、authorized-handoff；v2 source 只允许 authorized-auto-claim。
 - agentKey 和 hostKind 使用稳定、低基数的产品标识；role 只允许 writer。
 - delegateId 是当前原生 Delegate/App User ID；fallback label 模式填写 null。
 - dagRootIssue 为顶层 Parent 标识；独立 Issue 填 null。dagNodeIssue 必须是当前 Issue。
@@ -72,7 +90,7 @@ handed-off 事件可携带一个 vibe-harness.handoff/v1 payload。它是完成�
 
 一个 Start Receipt 在其后没有有效 terminal event 时是 active。同一 Issue 同时最多一个 active execution；两个以上 active Receipt、一个 execution 的多个矛盾终结事件、同一 ID 的不同内容或无法完整读取评论历史都属于冲突，必须停止并由人工处理。
 
-同一 eventId 且字段完全一致的重复结果视为同一事件；同一 execution 最多有一个有效 terminal event。未知的新增字段可由 V1 消费者忽略，但未知 schema major、未知 eventType 或破坏现有字段语义时必须 fail-closed。
+同一 eventId 且字段完全一致的重复结果视为同一事件；同一 execution 最多有一个有效 terminal event。v1 与 v2 Start Receipt 一起判定活动实例和冲突；未知的新增字段可由 V1 消费者忽略，但未知 schema major、未知 eventType 或破坏现有字段语义时必须 fail-closed。
 
 ## 幂等写入
 
