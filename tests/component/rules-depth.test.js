@@ -103,6 +103,11 @@ test('generic rules constrain process while retaining safety boundaries', async 
   assert.match(codegraph, /工具不可用.*回退/u);
   assert.match(codegraph, /图关系.*源码.*行为证据/u);
 
+  const contributing = await readFile(path.join(rootDir, 'CONTRIBUTING.md'), 'utf8');
+  assert.match(contributing, /证据层级 L0-L6.*成本档.*运行范围/u);
+  assert.match(contributing, /集成（L4）.*端到端.*（L5）.*矩阵（L6）/u);
+  assert.doesNotMatch(contributing, /集成（L3）|端到端关键路径（L4）|全量矩阵（L5）|`pnpm check` 只跑 L1 与 L2/u);
+
   // A rule that cites another rule must stay honest about what the target
   // project has: `linear-workflow` is an integration rule, so git-rules may
   // only defer to it conditionally instead of assuming it is installed.
