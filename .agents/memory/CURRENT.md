@@ -6,11 +6,11 @@
 
 项目阶段、技术债与决策经本文件引用 `docs/memory/PROJECT_STATE.md` 读取，不在此复制其内容；本文件只记录任务级恢复线索。
 
-- 目标: 按 `harness提示词优化.mak` 对 Harness 常驻指令面与按需规则面做 token 效率审查并落地整改（分支 codex/governance-audit-batch，远端 shiyuan17/Vibe-Harness）；顺序为 P1 受管指令段落单源化 → P2 常驻段瘦身 → P3 大规则按需加载卡片
-- 当前状态: P1、P2、P3 均已落地并推送；本批次（常驻面单源化 + 常驻段瘦身 + 大规则分层加载）收尾完成
-- 已验证证据: P1 提交前 8 个 adapter 渲染快照逐字节一致；P2 后 AGENTS.md 常驻面 2532→2329 tokens（o200k），分段实测 硬边界 96→72、规则优先级 137→95、verify 212→163、memory 106→79、启动段2 130→108、启动段5 70→58、重复 memorySkillsLine 27→0；P3 为 5 个超大规则补 Fast Path 卡片（governance-core 449、git-rules 239、test-rules 290、ai-collab-rules 300、linear-workflow 254 tokens），命中后停在卡片的单次节省 4239–5646 tokens，索引新增 ⚡ 标注与图例使常驻面 +26 tokens；P3 门禁全绿（validate 含新增 validateFastPathCards 与大规则卡片门禁、pnpm check 322/322、test:integration 531 pass/0 fail/1 skip、docs:audit 124 文档、docs:sync 0 漂移、eval:check/eval:replay 通过，reference 与 behavioral 产物仅 rules 组指纹漂移且按 CONTRIBUTING 清单显式再生成、skills:audit、eval:harness:fast）
-- 未完成事项: nightly 模型背书回归（H01/H04/H06/H09）启动后未跑完即被中断，仍未取得该证据；常驻面与 host 工具定义相比仍只占会话成本的约 2.5%，更大杠杆在宿主侧
-- 下一步最小动作: 本批无遗留项；下一批先安排 nightly H01–H20 模型背书回归
-- 锚点提交: 6785f2f698b33a6ef7114a35334e7a7a9ad19968
-- 最后更新: 2026-09-24
-- 最后验证: 2026-09-24
+- 目标: 在 codex/governance-audit-batch 上按 git 规范分批提交并推送本轮规则与验证改进（codegraph 证据复用与降级边界、warm 环境复用契约、L0-L6 层级表述、十二层责任地图、GC 覆盖 docs/rules、离线 reference 指纹刷新）
+- 当前状态: 6 个提交已落地（a8b5747 codegraph 规则与路由用例、381dd1a warm 复用契约、84016c8 L0-L6 表述、d0c2169 十二层责任地图、6e0dff8 GC 覆盖 docs/rules、6e25608 reference 指纹刷新）；本记忆提交只做锚点收尾，随后推送
+- 已验证证据: 提交前 `pnpm verify:focused --run` passed、`pnpm check:fast` passed、`pnpm test:integration` 556 pass/0 fail/1 skip、`pnpm docs:audit` 134 文档、`pnpm skills:audit` clean、`pnpm eval:check`/`eval:replay`/`eval:sync`（drift 0）passed；reference 仅 rules 组与 aggregateHash 漂移（rules 5a28ee4c→466701d2、aggregate 5f884e82→e5171e4c），按 CONTRIBUTING 清单经 eval run → eval reference --confirm-reference-update --force（旧文件备份在 .vibe-harness/backups/）→ eval:sync --write → eval:replay --write → eval:behavioral --write 再生成
+- 未完成事项: nightly 模型背书回归（H01/H04/H06/H09）仍未取得证据；本轮规则改动的中间提交不各自通过 eval:check（整树资产指纹只在末次 rules 变更与 reference 同批落地后一致），仅批次末端可比
+- 下一步最小动作: 推送后核对 origin/codex/governance-audit-batch 与本地一致；随后安排 nightly H01–H20 模型背书回归
+- 锚点提交: 6e256089f1240b9b318615bdb50fc0e71cbf1db1
+- 最后更新: 2026-09-26
+- 最后验证: 2026-09-26
