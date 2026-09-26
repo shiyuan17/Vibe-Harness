@@ -7,6 +7,7 @@ import test from 'node:test';
 import { promisify } from 'node:util';
 
 import {
+  AUTO_CLAIM_RECEIPT_SOURCE,
   analyzeReceiptLedger,
   buildHandoffPayload,
   buildStartReceipt,
@@ -14,6 +15,7 @@ import {
   handoffClaimsComplete,
   scanSensitiveFields,
   summarizeReceiptLedger,
+  START_RECEIPT_SCHEMA_V2,
   validateHandoffPayload,
   validateStartReceipt,
   validateTerminalEvent,
@@ -27,6 +29,7 @@ const RECEIPT_CLI = path.join(repositoryRoot, 'scripts', 'receipt.js');
 const EXECUTION_A = '11111111-2222-4333-8444-555555555555';
 const EXECUTION_B = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 const EVENT_A = '99999999-8888-4777-8666-555555555555';
+const GRANT_A = '12345678-1234-4234-8234-123456789abc';
 
 function receipt(overrides = {}) {
   return buildStartReceipt({
@@ -286,4 +289,54 @@ test('receipt CLI builds records, returns a verdict and refuses unsupported clai
   } finally {
     await removeTemporaryDirectory(outDir);
   }
+});
+
+test('auto-claim v2 receipts require a grant reference and preserve v1 validation', () => {
+  const claimed = buildStartReceipt({
+    agentKey: 'codex',
+    dagNodeIssue: 'ENG-123',
+    grantId: GRANT_A,
+    hostKind: 'codex-desktop',
+    schema: START_RECEIPT_SCHEMA_V2,
+    source: AUTO_CLAIM_RECEIPT_SOURCE,
+  });
+  assert.equal(validateStartReceipt(claimed).ok, true, JSON.stringify(validateStartReceipt(claimed).problems));
+  assert.deepEqual(Object.keys(claimed).slice(-1), ['grantId']);
+  assert.equal(validateStartReceipt({ ...claimed, grantId: undefined }).ok, false);
+  assert.equal(validateStartReceipt({ ...claimed, grantId: 'not-a-uuid' }).ok, false);
+  assert.equal(validateStartReceipt({ ...claimed, source: 'explicit-user-request' }).problems
+    .some((problem) => problem.code === 'RECEIPT_SOURCE_INVALID'), true);
+  assert.equal(validateStartReceipt({ ...claimed, schema: 'vibe-harness.linear-execution/v1' }).problems
+    .some((problem) => problem.code === 'RECEIPT_SOURCE_INVALID'), true);
+  assert.equal(validateStartReceipt(receipt()).ok, true);
+});
+
+test('ledger checks auto-claim and v1 executions for the same Issue together', () => {
+  const claimed = buildStartReceipt({
+    agentKey: 'codex',
+    dagNodeIssue: 'ENG-123',
+    executionId: EXECUTION_B,
+    grantId: GRANT_A,
+    hostKind: 'codex-desktop',
+    schema: START_RECEIPT_SCHEMA_V2,
+    source: AUTO_CLAIM_RECEIPT_SOURCE,
+  });
+  assert.equal(analyzeReceiptLedger([claimed]).ok, true);
+  assert.deepEqual(analyzeReceiptLedger([claimed, event({ executionId: EXECUTION_B })]).activeExecutions, []);
+  assert.equal(analyzeReceiptLedger([claimed, claimed]).duplicateCount, 1);
+  assert.equal(analyzeReceiptLedger([claimed, { ...claimed, grantId: '99999999-8888-4777-8666-555555555555' }]).conflicts
+    .some((item) => item.code === 'RECEIPT_ID_CONFLICT'), true);
+  const conflict = analyzeReceiptLedger([receipt(), claimed]);
+  assert.equal(conflict.conflicts.some((item) => item.code === 'RECEIPT_MULTIPLE_ACTIVE_EXECUTIONS'), true);
+  assert.deepEqual(conflict.activeByIssue, { 'ENG-123': [EXECUTION_A, EXECUTION_B] });
+});
+
+test('receipt CLI emits v2 only with an explicit auto-claim source and grant ID', async () => {
+  const args = ['start', '--issue', 'ENG-123', '--agent', 'codex', '--host', 'codex-desktop'];
+  const claimed = await runCli([...args, '--source', AUTO_CLAIM_RECEIPT_SOURCE, '--grant-id', GRANT_A]);
+  assert.equal(claimed.code, 0, claimed.stderr);
+  assert.equal(JSON.parse(claimed.stdout).schema, START_RECEIPT_SCHEMA_V2);
+  assert.equal(JSON.parse(claimed.stdout).grantId, GRANT_A);
+  assert.equal((await runCli([...args, '--source', AUTO_CLAIM_RECEIPT_SOURCE])).code, 1);
+  assert.equal((await runCli([...args, '--grant-id', GRANT_A])).code, 1);
 });

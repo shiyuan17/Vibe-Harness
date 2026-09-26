@@ -8970,7 +8970,7 @@
       "layer": "integration",
       "file": "tests/integration/linear-workflow.test.js",
       "ordinal": 1,
-      "name": "Linear workflow keeps explicit execution registration and forbids automatic claiming",
+      "name": "Linear workflow allows only bounded host-dispatched claiming and preserves explicit registration",
       "legacy": true,
       "risk": "standard",
       "owner": "maintainers",
@@ -9172,6 +9172,19 @@
       "source": "migration",
       "status": "active",
       "addedAt": "2026-09-16"
+    },
+    {
+      "id": "I-linear-workflow-017",
+      "layer": "integration",
+      "file": "tests/integration/linear-workflow.test.js",
+      "ordinal": 17,
+      "name": "Linear auto-claim Evals distinguish valid host grants from unsafe dispatch",
+      "legacy": false,
+      "risk": "high",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-26"
     },
     {
       "id": "I-lint-discovery-001",
@@ -12045,6 +12058,45 @@
       "source": "migration",
       "status": "active",
       "addedAt": "2026-09-16"
+    },
+    {
+      "id": "I-receipt-records-007",
+      "layer": "integration",
+      "file": "tests/integration/receipt-records.test.js",
+      "ordinal": 7,
+      "name": "auto-claim v2 receipts require a grant reference and preserve v1 validation",
+      "legacy": false,
+      "risk": "high",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-26"
+    },
+    {
+      "id": "I-receipt-records-008",
+      "layer": "integration",
+      "file": "tests/integration/receipt-records.test.js",
+      "ordinal": 8,
+      "name": "ledger checks auto-claim and v1 executions for the same Issue together",
+      "legacy": false,
+      "risk": "high",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-26"
+    },
+    {
+      "id": "I-receipt-records-009",
+      "layer": "integration",
+      "file": "tests/integration/receipt-records.test.js",
+      "ordinal": 9,
+      "name": "receipt CLI emits v2 only with an explicit auto-claim source and grant ID",
+      "legacy": false,
+      "risk": "high",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-26"
     },
     {
       "id": "I-release-readiness-001",

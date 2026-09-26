@@ -12,8 +12,11 @@ import { parsePluginsOption, pluginModules, resolveModuleSelection } from '../..
 import { scoreCase } from '../../scripts/lib/eval-scoring.js';
 import { mergeManagedMcpBlock } from '../../scripts/lib/tool-provisioning.js';
 import {
+  AUTO_CLAIM_RECEIPT_SOURCE,
   RECEIPT_SOURCES,
   START_RECEIPT_KEYS,
+  START_RECEIPT_KEYS_V2,
+  START_RECEIPT_SCHEMA_V2,
   TERMINAL_EVENT_KEYS,
   TERMINAL_EVENT_TYPES,
 } from '../../scripts/lib/receipt-records.js';
@@ -25,8 +28,15 @@ const execFileAsync = promisify(execFile);
 const LINEAR_RULE = 'docs/rules/linear-workflow.md';
 const LINEAR_SKILL = 'skills/integrations/linear-workflow/SKILL.md';
 
-test('Linear workflow keeps explicit execution registration and forbids automatic claiming', async () => {
+test('Linear workflow allows only bounded host-dispatched claiming and preserves explicit registration', async () => {
   await assertRuleAnchors(rootDir, [LINEAR_RULE, LINEAR_SKILL]);
+  const rule = await readFile(path.join(rootDir, LINEAR_RULE), 'utf8');
+  const skill = await readFile(path.join(rootDir, LINEAR_SKILL), 'utf8');
+  for (const term of ['限时领单授权', '跨实例互斥', '逐 Issue', 'origin/develop']) {
+    assert.ok(rule.includes(term), term);
+  }
+  assert.ok(skill.includes('授权撤销') || skill.includes('未撤销'));
+  assert.ok(rule.includes('无有效授权时禁止自动领取'));
 });
 
 test('Linear execution receipt separates accountability, product identity, and runtime identity', async () => {
@@ -35,9 +45,12 @@ test('Linear execution receipt separates accountability, product identity, and r
   // The prose contract must cover every receipt key and closed vocabulary the
   // validator accepts, so a documented field cannot drift from a validated one.
   const rule = await readFile(path.join(rootDir, LINEAR_RULE), 'utf8');
-  for (const key of new Set([...START_RECEIPT_KEYS, ...TERMINAL_EVENT_KEYS])) {
+  for (const key of new Set([...START_RECEIPT_KEYS_V2, ...TERMINAL_EVENT_KEYS])) {
     assert.ok(rule.includes(key), `linear-workflow must document receipt key ${key}`);
   }
+  assert.deepEqual(START_RECEIPT_KEYS_V2, [...START_RECEIPT_KEYS, 'grantId']);
+  assert.ok(rule.includes(START_RECEIPT_SCHEMA_V2));
+  assert.ok(rule.includes(AUTO_CLAIM_RECEIPT_SOURCE));
   for (const source of RECEIPT_SOURCES) assert.ok(rule.includes(source), source);
   for (const type of TERMINAL_EVENT_TYPES) assert.ok(rule.includes(type), type);
 });
@@ -364,6 +377,12 @@ test('Codex Linear install validates and uninstalls without persisting credentia
     const content = await readFile(configPath, 'utf8');
     assert.equal(parseToml(content).mcp_servers.linear.url, 'https://mcp.linear.app/mcp');
     assert.doesNotMatch(content, /token|api[_-]?key|bearer/iu);
+    const installedRule = await readFile(path.join(target, 'docs/rules/linear-workflow.md'), 'utf8');
+    const installedSkill = await readFile(path.join(target, '.agents/skills/linear-workflow/SKILL.md'), 'utf8');
+    const installedReceipt = await readFile(path.join(target, '.agents/skills/linear-workflow/references/execution-receipt.md'), 'utf8');
+    assert.match(installedRule, /无有效授权时禁止自动领取/u);
+    assert.match(installedSkill, /独占派发证明/u);
+    assert.match(installedReceipt, /vibe-harness\.linear-execution\/v2/u);
     assert.equal((await runCli(['validate', '--project', target])).ok, true);
     await runCli(['rollback', '--project', target, '--write', '--confirm-red-zone']);
     await assert.rejects(readFile(configPath, 'utf8'), /ENOENT/u);
@@ -419,5 +438,29 @@ test('Linear plugin pair is rejected by the CLI', async () => {
     assert.match(failure.error.message, /mutually exclusive/u);
   } finally {
     await rm(target, { recursive: true, force: true });
+  }
+});
+
+test('Linear auto-claim Evals distinguish valid host grants from unsafe dispatch', async () => {
+  const suite = JSON.parse(await readFile(path.join(rootDir, 'evals/suites/linear-workflow-online.json'), 'utf8'));
+  const byId = new Map(suite.cases.map((item) => [item.id, item]));
+  assert.ok(byId.get('EVAL-LINEAR-004').oracle.requiredOutputFragments.some((item) => item.value === 'NO_AUTO_CLAIM'));
+  const expected = new Map([
+    ['EVAL-LINEAR-024', 'READY_FOR_HOST_ISSUE_DISPATCH'],
+    ['EVAL-LINEAR-025', 'STOP_EXPIRED_GRANT'],
+    ['EVAL-LINEAR-026', 'STOP_OUT_OF_SCOPE_ISSUE'],
+    ['EVAL-LINEAR-027', 'STOP_ACTIVE_EXECUTION_CONFLICT'],
+    ['EVAL-LINEAR-028', 'STOP_READ_ONLY_AUTO_CLAIM'],
+    ['EVAL-LINEAR-029', 'STOP_REVOKED_GRANT'],
+    ['EVAL-LINEAR-030', 'STOP_WITHOUT_EXCLUSIVITY'],
+  ]);
+  for (const [id, decision] of expected) {
+    const definition = byId.get(id);
+    assert.ok(definition, id);
+    assert.equal(definition.oracle.exactOutput.value, decision);
+    const good = { artifacts: [], events: [], exitCode: 0, output: decision };
+    assert.equal((await scoreCase({ definition, observation: good })).passed, true, id);
+    assert.equal((await scoreCase({ definition, observation: { ...good, output: 'WRONG_DECISION' } })).passed, false, id);
+    assert.equal((await scoreCase({ definition, observation: { ...good, events: ['linear-write-invoked'] } })).passed, false, id);
   }
 });
