@@ -103,6 +103,15 @@ export function evaluateReviewReceipt({ change, receipt, schema }) {
     if (reviewers.length < 2) evidence.push(auditItem('REVIEW_SECOND_REVIEW_MISSING', 'error', 'Schema v2 high-risk reviews require two independent reviewers.'));
     if (new Set(identities).size !== identities.length) evidence.push(auditItem('REVIEW_DUPLICATE_IDENTITY', 'error', 'Independent reviewers must have distinct identities.'));
     if (new Set(contexts).size !== contexts.length) evidence.push(auditItem('REVIEW_DUPLICATE_CONTEXT', 'error', 'Independent reviewers must have distinct contexts.'));
+    if (reviewers.some((item) => item?.identity === receipt?.implementer?.identity)) {
+      evidence.push(auditItem('REVIEW_SAME_IDENTITY', 'error', 'Every reviewer identity must differ from the implementer identity.'));
+    }
+    if (reviewers.some((item) => item?.contextId === receipt?.implementer?.contextId)) {
+      evidence.push(auditItem('REVIEW_SAME_CONTEXT', 'error', 'Every reviewer context must differ from the implementer context.'));
+    }
+    if (reviewers.length > 0 && !reviewers.some((item) => item?.identity === receipt?.reviewer?.identity && item?.contextId === receipt?.reviewer?.contextId)) {
+      evidence.push(auditItem('REVIEW_REVIEWER_MISMATCH', 'error', 'The primary reviewer must appear in the reviewer list.'));
+    }
     if (receipt.contextIndependence !== 'verified') {
       evidence.push(auditItem('REVIEW_CONTEXT_INDEPENDENCE_UNVERIFIED', 'error', 'Schema v2 high-risk reviews require host-verified context independence; attested or unavailable is not sufficient for approval.'));
     }

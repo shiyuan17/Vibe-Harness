@@ -56,6 +56,15 @@ test('review receipt approves only independent current stable review', async () 
   ];
   dual.contextIndependence = 'verified';
   assert.equal(evaluateReviewReceipt({ change, receipt: dual, schema }).status, 'healthy');
+  const mismatchedReviewer = structuredClone(dual);
+  mismatchedReviewer.reviewer = { ...mismatchedReviewer.reviewer, identity: 'unlisted-reviewer' };
+  assert.match(evaluateReviewReceipt({ change, receipt: mismatchedReviewer, schema }).evidence.map((item) => item.code).join(','), /REVIEW_REVIEWER_MISMATCH/u);
+  const implementerInReviewers = structuredClone(dual);
+  implementerInReviewers.reviewers[1] = { type: 'host-native', identity: 'implementer', contextId: 'security-context' };
+  assert.match(evaluateReviewReceipt({ change, receipt: implementerInReviewers, schema }).evidence.map((item) => item.code).join(','), /REVIEW_SAME_IDENTITY/u);
+  const implementerContext = structuredClone(dual);
+  implementerContext.reviewers[1].contextId = 'implement-context';
+  assert.match(evaluateReviewReceipt({ change, receipt: implementerContext, schema }).evidence.map((item) => item.code).join(','), /REVIEW_SAME_CONTEXT/u);
   const singleV2 = structuredClone(dual);
   singleV2.reviewers = [singleV2.reviewers[0]];
   assert.match(evaluateReviewReceipt({ change, receipt: singleV2, schema }).evidence.map((item) => item.code).join(','), /REVIEW_SECOND_REVIEW_MISSING/u);
