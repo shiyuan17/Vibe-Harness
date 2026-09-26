@@ -11,6 +11,25 @@ Vibe-Harness 是跨平台、项目级的 AI coding 资产包。它使用 Node.js
 - scripts 提供 CLI、planner、事务、状态迁移、验证、doctor、diff 和 provisioning。
 - manifests 和 schemas 定义 profiles、adapter capability、项目配置与 install-state 契约。
 
+## 十二层责任地图
+
+十二层用于对照责任和发现断点，不是每个任务依次执行的十二个阶段。快速任务仍走「可信事实 → 最小行动 → 聚焦验证 → 简洁交付」；Policy 与 Security 是贯穿边界，Feedback Sensors 只提供观察，Verification 决定证据是否支持完成主张，Learning 在有可复核问题时按需触发。
+
+| 层 | 现有责任归属与边界 |
+| --- | --- |
+| Intent | 目标、约束、验收、授权和终止条件；短任务不强制创建目标文档。 |
+| Task Router | 风险档位、歧义处理、角色与 Skill 路由及表达模式各管一维，不另建总路由器。 |
+| Context Engine | Fast Path、渐进披露、按需检索及长任务锚点；只补取不新鲜或尚未覆盖的事实。 |
+| Knowledge System | 文档 catalog、ADR、仓库地图和 Memory 用于导航；当前源码与验证结果优先。 |
+| Policy | 治理内核与领域规则给出优先级、契约和约束，不因其他层重复定义。 |
+| Capability | Skills、MCP、CLI、确定性脚本按宿主能力选择；声明、安装、可调用、已验证不能互换。 |
+| Execution | 单 Agent 默认执行，必要时选 DAG、子 Agent 和 worktree；不强制调度。 |
+| Feedback Sensors | 测试、浏览器、Hook 诊断和 Trace 提供观察，不直接产生完成判定。 |
+| Verification | L0-L6 证据层级、quick/standard/deep 成本档与 affected/layer/full 范围分别判断，收据绑定实际检查。 |
+| Security & Sandbox | 授权、红区、Execution Envelope 与宿主沙箱贯穿所有操作；文件存在不证明宿主执行生效。 |
+| Eval & Metrics | 契约 replay、确定性运行时行为及在线 Harness Evals 各守其证明边界；改善要同条件对比。 |
+| Learning & GC | 确认失败经责任归属、候选评审、修复、验证和后续回查；GC 只给人工复核候选。 |
+
 ## Capability / Provider 边界
 
 <code>manifests/plugin-providers.json</code> 是可选插件身份与能力关系的内部真值：capability 表示消费方需要的稳定能力，provider 表示实现该能力的具体产品，module 表示安装器交付的资产与依赖闭包。安装器、provisioning、MCP 投影和生成指令通过 catalog 解析 provider，不再各自维护插件别名与 tool-to-module 映射。
