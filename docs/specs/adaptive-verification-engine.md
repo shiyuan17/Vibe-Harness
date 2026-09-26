@@ -34,4 +34,10 @@ Receipt 必须绑定工作树、计划、命令集合和环境指纹。异步深
 
 ## 环境与回滚
 
-CI 默认 cold。warm provider 必须声明 start/health/stop/reuseKey/ttl，并按 worktree 隔离；失败按声明回退 cold 或 blocked。灰度期间保持旧 `layer` 默认语义，Micro、warm、async 和 affected 均显式 opt-in，可回滚但不得回滚安全边界、unknown 扩大和快照稳定性检查。
+CI 与发布默认 cold，warm 必须由项目在 `verification.environment` 显式声明（mode、provider、start、health、stop、reuseKey、ttlMs、fallback），并按 worktree 隔离；失败按声明回退 cold 或 blocked。
+
+本地任务与会话内默认复用已就绪的环境、服务进程、缓存、索引与容器，不重复冷启动。复用契约：隔离键由 worktree、配置与 fixture、reuseKey 组成，同一键只保留一个实例，并发写入者不共享实例；健康检查通过且未超过 TTL 才可复用，配置、依赖、fixture、镜像、工具链或工作树身份变化、健康检查失败或 TTL 到期即失效并按声明回退。容器按会话或任务级托管回收，用例级临时资源仍在用例结束时清理。
+
+运行器当前只消费上述声明并记录 `environment` 状态，不代为执行 start/health/stop；生命周期执行由项目或宿主提供的 provider 承担，未接线时不得宣称运行器已具备自动起停。
+
+灰度期间保持旧 `layer` 默认语义，Micro、warm、async 和 affected 均显式 opt-in，可回滚但不得回滚安全边界、unknown 扩大和快照稳定性检查。

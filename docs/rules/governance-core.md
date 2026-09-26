@@ -27,7 +27,7 @@
 默认路径、档位判定、升级触发与高成本动作清单以顶部 Fast Path 卡片为准；本节只保留卡片放不下的两条不变量：
 
 - **升级阶梯**：Progressive Context Loading → Changed-Scope Validation → Risk-Based Review → Async Deep Verification → Final Gate，按需跳级，上一级已足够时不进入下一级；深度证据可异步取得，但未取得前不得宣称依赖它的集成、发布或整体完成。
-- **与授权和安全正交**：成本判定不改变授权根、红区要求和安全边界；低成本不豁免红线，高成本也不因流程完整而执行，不得创建规则未要求的 Spec、任务、角色或隔离工作区。验证侧默认只执行快速层，见 test-rules.md 的成本分层与 `vibe-harness verify --tier`。
+- **与授权和安全正交**：成本判定不改变授权根、红区要求和安全边界；低成本不豁免红线，高成本也不因流程完整而执行，不得创建规则未要求的 Spec、任务、角色或隔离工作区；已就绪且可复用的环境、缓存、索引与容器不得重复冷启动，失效即按声明回退 cold 或 blocked。验证侧默认只执行快速层，见 test-rules.md 的成本分层与 `vibe-harness verify --tier`。
 
 ## 长任务状态锚点与阶段切分
 
