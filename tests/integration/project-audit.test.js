@@ -140,6 +140,24 @@ test('empty current memory template stays a warning without becoming active', as
   assert.equal(codes.includes('MEMORY_ACTIVE_UNVERIFIED'), false);
 });
 
+test('Memory 审计声明未覆盖 Session 且不依赖验证日期顺序', async () => {
+  const project = await temporaryProject();
+  await mkdir(path.join(project, '.agents/memory/sessions'), { recursive: true });
+  await mkdir(path.join(project, '.agents/memory/archive'), { recursive: true });
+  await writeFile(path.join(project, '.agents/memory/sessions/entry.md'), '- lastVerified: invalid\n', 'utf8');
+  const current = path.join(project, '.agents/memory/CURRENT.md');
+  for (const dates of [['2026-08-12', '2026-08-01'], ['2026-08-01', '2026-08-12']]) {
+    await writeFile(current, `# Current\n- 目标: active\n- lastVerified: ${dates[0]}\n- lastVerified: ${dates[1]}\n`, 'utf8');
+    const report = await auditMemory({ now: new Date('2026-08-12T12:00:00.000Z'), targetDir: project });
+    assert.equal(report.status, 'warning');
+    assert.equal(report.details.scope, 'root-md-json-files');
+    assert.equal(report.details.referenceScope, 'file-level');
+    assert.deepEqual(report.details.excludedDirectories, ['.agents/memory/archive', '.agents/memory/sessions']);
+    assert.ok(report.evidence.some((entry) => entry.code === 'MEMORY_SCOPE_PARTIAL'));
+    assert.ok(report.evidence.some((entry) => entry.code === 'MEMORY_ACTIVE_STALE'));
+  }
+});
+
 test('improvement candidates are idempotent, thresholded, and terminal-safe', () => {
   const now = new Date('2026-08-12T00:00:00.000Z');
   const base = { schemaVersion: 1, updatedAt: now.toISOString(), candidates: [] };

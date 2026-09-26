@@ -58,12 +58,15 @@ function activeTarget(content) {
   return Boolean(value && !/^\([^)]*\)$/u.test(value) && !/^<[^>]*>$/u.test(value));
 }
 
-async function listMemoryFiles(targetDir) {
+async function listMemoryFiles(targetDir, excludedDirectories) {
   const files = [];
   for (const relativeRoot of ['docs/memory', '.agents/memory']) {
     const absoluteRoot = path.join(targetDir, relativeRoot);
     if (!await pathExists(absoluteRoot)) continue;
     for (const entry of await readdir(absoluteRoot, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        excludedDirectories.push(path.join(relativeRoot, entry.name).replaceAll('\\', '/'));
+      }
       if (!entry.isFile() || !/\.(?:md|json)$/iu.test(entry.name)) continue;
       files.push({
         absolute: path.join(absoluteRoot, entry.name),
@@ -76,7 +79,12 @@ async function listMemoryFiles(targetDir) {
 
 export async function auditMemory({ now = new Date(), targetDir }) {
   const evidence = [];
-  const files = await listMemoryFiles(targetDir);
+  const excludedDirectories = [];
+  const files = await listMemoryFiles(targetDir, excludedDirectories);
+  excludedDirectories.sort();
+  if (excludedDirectories.length > 0) {
+    evidence.push(item('MEMORY_SCOPE_PARTIAL', 'warning', 'Nested directories are outside this root-file audit.'));
+  }
   if (files.length === 0) evidence.push(item('MEMORY_NOT_INSTALLED', 'warning', 'No project memory files were found.'));
   for (const file of files) {
     const content = await readFile(file.absolute, 'utf8');
@@ -88,7 +96,11 @@ export async function auditMemory({ now = new Date(), targetDir }) {
         evidence.push(item('MEMORY_INVALID_DATE', 'error', 'Memory contains an invalid date.', file.relative));
       }
     }
-    const verified = fields.find((entry) => /verified|validated|验证/iu.test(entry.label));
+    const verifiedFields = fields.filter((entry) => /verified|validated|验证/iu.test(entry.label));
+    if (verifiedFields.length > 1) {
+      evidence.push(item('MEMORY_MULTIPLE_VERIFICATION_DATES', 'warning', 'Multiple entries share a file; entry-level references were not audited.', file.relative));
+    }
+    const verified = verifiedFields.sort((left, right) => left.value.localeCompare(right.value))[0];
     if (/CURRENT\.md$/iu.test(file.relative) && activeTarget(content)) {
       const verifiedDate = verified ? calendarDate(verified.value) : null;
       if (!verifiedDate) evidence.push(item('MEMORY_ACTIVE_UNVERIFIED', 'warning', 'Active memory has no valid last verification date.', file.relative));
@@ -117,5 +129,5 @@ export async function auditMemory({ now = new Date(), targetDir }) {
       }
     }
   }
-  return { status: reportStatus(evidence), evidence, details: { filesChecked: files.length } };
+  return { status: reportStatus(evidence), evidence, details: { scope: 'root-md-json-files', referenceScope: 'file-level', filesChecked: files.length, excludedDirectories } };
 }
