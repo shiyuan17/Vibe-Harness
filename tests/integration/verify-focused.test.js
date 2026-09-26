@@ -96,6 +96,10 @@ test('collectChangedPaths returns an empty list for a clean worktree', async () 
     await git('commit', '-m', 'base');
     const paths = await collectChangedPaths({ cwd: dir });
     assert.deepEqual(paths, []);
+    const scriptPath = path.resolve(import.meta.dirname, '../../scripts/verify-focused.js');
+    const planned = await execFileAsync(process.execPath, [scriptPath], { cwd: dir });
+    assert.match(planned.stdout, /project baseline command\(s\) selected/u);
+    assert.doesNotMatch(planned.stdout, /no focused verification needed/u);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

@@ -21,6 +21,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { runMicroCheck } from '../lib/micro-runner.mjs';
+import { gitFingerprint, gitSnapshot } from '../lib/git-fingerprint.mjs';
 
 import { parseWorktreeList, pathKey, resolveWorktreeRoot, summarizeWorktreeAudit, validateWorktrees } from '../lib/worktree-audit.mjs';
 import {
@@ -218,24 +219,6 @@ async function runGit(args, cwd) {
   return runFile('git', args, { cwd, timeoutMs: 15_000 });
 }
 
-function parseStatusPorcelain(value) {
-  const records = String(value ?? '').split('\0').filter(Boolean);
-  const changes = [];
-  for (let index = 0; index < records.length; index += 1) {
-    const record = records[index];
-    const status = record.slice(0, 2);
-    const firstPath = normalizePath(record.slice(3));
-    const rename = status.includes('R') || status.includes('C');
-    const nextPath = rename ? normalizePath(records[++index] ?? '') : null;
-    changes.push({
-      status,
-      path: firstPath,
-      ...(nextPath ? { newPath: nextPath } : {}),
-    });
-  }
-  return changes;
-}
-
 function parseNameStatus(value) {
   const records = String(value ?? '').split('\0').filter(Boolean);
   const changes = [];
@@ -256,69 +239,6 @@ function parseNameStatus(value) {
     }
   }
   return changes;
-}
-
-async function gitSnapshot(projectDir) {
-  const root = await runGit(['rev-parse', '--show-toplevel'], projectDir);
-  if (!root.ok) return { available: false, reason: 'not-a-git-worktree', changes: [] };
-  const status = await runGit(['status', '--porcelain=v1', '-z', '--untracked-files=all'], projectDir);
-  const head = await runGit(['rev-parse', 'HEAD'], projectDir);
-  return {
-    available: status.ok,
-    root: status.ok ? normalizePath(root.stdout.trim()) : null,
-    head: head.ok ? head.stdout.trim() : null,
-    changes: status.ok ? parseStatusPorcelain(status.stdout) : [],
-    reason: status.ok ? null : 'git-status-failed',
-  };
-}
-
-async function gitFingerprint(projectDir) {
-  const snapshot = await gitSnapshot(projectDir);
-  if (!snapshot.available) return { snapshot, fingerprint: null };
-  const hash = createHash('sha256');
-  hash.update(snapshot.head ?? '');
-  // HEAD plus porcelain status cannot see a file that is already dirty before
-  // verification and is rewritten again while the checks run: the status line
-  // stays ` M path` and the fingerprint would still claim a stable workspace.
-  // Hash the content of every changed path so the receipt matches the claim
-  // that the result belongs to the delivered bytes.
-  const changes = [...snapshot.changes].sort((left, right) => left.path.localeCompare(right.path));
-  for (const change of changes) {
-    hash.update(change.status);
-    hash.update('\0');
-    hash.update(change.path);
-    hash.update('\0');
-    if (change.newPath) {
-      hash.update(change.newPath);
-      hash.update('\0');
-    }
-  }
-  for (const relativePath of changedPathList(changes)) {
-    hash.update(relativePath);
-    hash.update('\0');
-    hash.update(await changedPathContent(snapshot.root ?? projectDir, relativePath));
-    hash.update('\0');
-  }
-  return { snapshot, fingerprint: hash.digest('hex') };
-}
-
-function changedPathList(changes) {
-  const paths = new Set();
-  for (const change of changes) {
-    if (change.path) paths.add(change.path);
-    if (change.newPath) paths.add(change.newPath);
-  }
-  return [...paths].sort();
-}
-
-async function changedPathContent(rootDir, relativePath) {
-  try {
-    return await readFile(path.join(rootDir, relativePath));
-  } catch {
-    // Deleted, unreadable, or otherwise absent paths still contribute a marker
-    // so a delete/re-add pair cannot produce the same fingerprint.
-    return Buffer.from('<unreadable>', 'utf8');
-  }
 }
 
 function packageManager(packageJson, projectDir) {

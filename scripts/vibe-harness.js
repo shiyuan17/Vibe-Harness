@@ -1028,8 +1028,6 @@ async function verify(args) {
       projectDir: targetDir,
       tier,
       scope: planned.scope,
-      commitSha: null,
-      worktreeFingerprint: fingerprint(changedPaths),
       planFingerprint: fingerprint(planned),
       commandSetFingerprint: fingerprint(planned.selectedChecks.map((item) => item.command)),
     });

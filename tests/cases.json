@@ -11475,6 +11475,19 @@
       "addedAt": "2026-09-16"
     },
     {
+      "id": "I-project-verification-027",
+      "layer": "integration",
+      "file": "tests/integration/project-verification.test.js",
+      "ordinal": 27,
+      "name": "异步验证使用一致的内容指纹，变化使排队和通过收据失效",
+      "legacy": false,
+      "risk": "high",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-26"
+    },
+    {
       "id": "I-project-worktree-command-001",
       "layer": "integration",
       "file": "tests/integration/project-worktree-command.test.js",
@@ -16911,6 +16924,7 @@
     ],
     "tests/integration/project-commands.test.js": [
       "runtime/commands/run.mjs",
+      "runtime/lib/git-fingerprint.mjs",
       "runtime/lib/micro-runner.mjs",
       "runtime/lib/worktree-audit.mjs",
       "runtime/lib/worktree-ports.mjs"
@@ -17013,6 +17027,7 @@
     ],
     "tests/integration/project-file-edit-command.test.js": [
       "runtime/commands/run.mjs",
+      "runtime/lib/git-fingerprint.mjs",
       "runtime/lib/micro-runner.mjs",
       "runtime/lib/worktree-audit.mjs",
       "runtime/lib/worktree-ports.mjs",
@@ -17056,11 +17071,13 @@
     ],
     "tests/integration/project-task-command.test.js": [
       "runtime/commands/run.mjs",
+      "runtime/lib/git-fingerprint.mjs",
       "runtime/lib/micro-runner.mjs",
       "runtime/lib/worktree-audit.mjs",
       "runtime/lib/worktree-ports.mjs"
     ],
     "tests/integration/project-verification.test.js": [
+      "runtime/lib/git-fingerprint.mjs",
       "scripts/lib/managed-block.js",
       "scripts/lib/manifest.js",
       "scripts/lib/process-tree.js",
@@ -17070,10 +17087,12 @@
       "scripts/lib/safe-json.js",
       "scripts/lib/schema-validation.js",
       "scripts/lib/shell-command.js",
-      "scripts/lib/tool-provisioning/subprocess.js"
+      "scripts/lib/tool-provisioning/subprocess.js",
+      "scripts/verification-queue.js"
     ],
     "tests/integration/project-worktree-command.test.js": [
       "runtime/commands/run.mjs",
+      "runtime/lib/git-fingerprint.mjs",
       "runtime/lib/micro-runner.mjs",
       "runtime/lib/worktree-audit.mjs",
       "runtime/lib/worktree-ports.mjs",
@@ -17537,6 +17556,7 @@
       "tests/helpers/offline-tools.js"
     ],
     "tests/unit/micro-verification.test.js": [
+      "runtime/lib/git-fingerprint.mjs",
       "scripts/lib/install-preset.js",
       "scripts/lib/managed-block.js",
       "scripts/lib/manifest.js",
@@ -17611,6 +17631,7 @@
       "scripts/lib/verification-plan.js"
     ],
     "tests/unit/verification-queue.test.js": [
+      "runtime/lib/git-fingerprint.mjs",
       "scripts/verification-queue.js"
     ],
     "tests/unit/worktree-ports.test.js": [

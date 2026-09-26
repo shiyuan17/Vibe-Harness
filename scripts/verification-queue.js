@@ -4,6 +4,7 @@ import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { promisify } from 'node:util';
+import { gitFingerprint } from '../runtime/lib/git-fingerprint.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -22,6 +23,11 @@ async function persist(projectDir, receipt) {
 /** @param {any} options */
 export async function enqueueVerification({ projectDir, tier = 'deep', scope = 'layer', planFingerprint = null, commandSetFingerprint = null, worktreeFingerprint = null, commitSha = null, ttlMs = 86_400_000 } = {}) {
   if (tier !== 'deep') throw new Error('Async verification requires deep tier');
+  if (commitSha === null || worktreeFingerprint === null) {
+    const current = await gitFingerprint(projectDir);
+    commitSha ??= current.snapshot.head ?? null;
+    worktreeFingerprint ??= current.fingerprint;
+  }
   const createdAt = new Date();
   const receipt = {
     schemaVersion: 1,
@@ -49,19 +55,23 @@ export async function transitionQueue(projectDir, id, status, patch = {}) {
   if (!QUEUE_STATES.includes(status)) throw new Error(`Invalid queue status: ${status}`);
   /** @type {any} */
   const current = await readQueueReceipt(projectDir, id);
-  const allowed = current.status === 'queued' ? ['running', 'stale'] : current.status === 'running' ? ['passed', 'failed', 'blocked', 'stale'] : [];
+  const allowed = current.status === 'queued' ? ['running', 'stale'] : current.status === 'running' ? ['passed', 'failed', 'blocked', 'stale'] : current.status === 'passed' ? ['stale'] : [];
   if (!allowed.includes(status)) throw new Error(`Invalid queue transition ${current.status} -> ${status}`);
   return persist(projectDir, { ...current, ...patch, status, updatedAt: new Date().toISOString() });
 }
 
 /** @param {any} identity */
 export async function markStaleIfChanged(projectDir, id, identity = {}) {
-  const { commitSha, worktreeFingerprint } = identity;
+  const { commitSha, worktreeFingerprint, planFingerprint, commandSetFingerprint } = identity;
   /** @type {any} */
   const current = await readQueueReceipt(projectDir, id);
-  if ((commitSha && current.commitSha && commitSha !== current.commitSha)
-    || (worktreeFingerprint && current.worktreeFingerprint && worktreeFingerprint !== current.worktreeFingerprint)) {
-    return transitionQueue(projectDir, id, 'stale', { staleReason: 'commit or worktree fingerprint changed' });
+  if (!['queued', 'running', 'passed'].includes(current.status)) return current;
+  if (
+    (current.commitSha && commitSha !== current.commitSha)
+    || (current.worktreeFingerprint && worktreeFingerprint !== current.worktreeFingerprint)
+    || (planFingerprint && current.planFingerprint && planFingerprint !== current.planFingerprint)
+    || (commandSetFingerprint && current.commandSetFingerprint && commandSetFingerprint !== current.commandSetFingerprint)) {
+    return transitionQueue(projectDir, id, 'stale', { staleReason: 'verification identity changed or is unavailable' });
   }
   return current;
 }
@@ -77,9 +87,22 @@ export async function consumeVerificationQueue(projectDir) {
   for (const name of names.filter((item) => item.endsWith('.json')).sort()) {
     const id = name.slice(0, -5);
     const queued = await readQueueReceipt(projectDir, id);
-    if (queued.status !== 'queued') continue;
+    if (!['queued', 'passed'].includes(queued.status)) continue;
     if (queued.expiresAt && Date.parse(queued.expiresAt) <= Date.now()) {
       receipts.push(await transitionQueue(projectDir, id, 'stale', { staleReason: 'queue receipt expired' }));
+      continue;
+    }
+    const snapshot = await gitFingerprint(projectDir);
+    const current = await markStaleIfChanged(projectDir, id, {
+      commitSha: snapshot.snapshot.head,
+      worktreeFingerprint: snapshot.fingerprint,
+    });
+    if (current.status === 'stale') {
+      receipts.push(current);
+      continue;
+    }
+    if (current.status === 'passed') {
+      receipts.push(current);
       continue;
     }
     await transitionQueue(projectDir, id, 'running', { claimedAt: new Date().toISOString(), consumer: 'ci' });

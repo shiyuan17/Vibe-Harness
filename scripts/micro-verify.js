@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 
 import { readProjectConfig } from './lib/project-config.js';
 import { normalizeMicroChecks } from './lib/verification-contract.js';
-import { createProjectSnapshot } from './lib/project-verification.js';
+import { gitFingerprint } from '../runtime/lib/git-fingerprint.mjs';
 import { executeStructuredMicro, microFingerprint, redactMicro } from './lib/micro-runner.js';
 
 const CONTROL = /(?:&&|\|\||[;|&<>`$])|\$\(/u;
@@ -100,14 +100,16 @@ function execute(check, targetDir) {
 }
 
 async function executeStructured(check, targetDir) {
-  const before = await createProjectSnapshot(targetDir);
+  const snapshot = async () => {
+    const result = await gitFingerprint(targetDir);
+    return { available: result.snapshot.available, fingerprint: result.fingerprint };
+  };
+  const before = await snapshot();
   /** @type {any} */
-  const result = await executeStructuredMicro(check, targetDir, { snapshotBefore: before });
-  const after = await createProjectSnapshot(targetDir);
-  result.snapshotComparison = before.available && after.available
-    ? before.fingerprint === after.fingerprint ? 'match' : 'changed'
-    : 'unavailable';
-  if (result.status === 'passed' && result.snapshotComparison !== 'match') result.status = 'blocked';
+  const result = await executeStructuredMicro(check, targetDir, {
+    snapshotBefore: before,
+    captureSnapshotAfter: snapshot,
+  });
   result.configFingerprint = microFingerprint(check);
   result.fixtureFingerprint = microFingerprint(check.args?.fixture ?? null);
   result.toolchainFingerprint = microFingerprint({ node: process.version, platform: process.platform });

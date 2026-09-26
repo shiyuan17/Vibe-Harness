@@ -330,6 +330,12 @@
     },
     {
       "group": "runtime-project-scripts",
+      "source": "runtime/lib/git-fingerprint.mjs",
+      "target": ".agents/runtime/lib/git-fingerprint.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
       "source": "runtime/lib/worktree-audit.mjs",
       "target": ".agents/runtime/lib/worktree-audit.mjs",
       "contentStrategy": "replace"

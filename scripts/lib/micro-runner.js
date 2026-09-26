@@ -43,7 +43,7 @@ function killTree(child) {
 }
 
 /** @param {any} check @param {string} targetDir @param {any} options */
-export async function executeStructuredMicro(check, targetDir, { snapshotBefore, snapshotAfter } = {}) {
+export async function executeStructuredMicro(check, targetDir, { snapshotBefore, snapshotAfter, captureSnapshotAfter } = {}) {
   const startedAt = Date.now();
   const runnerPath = fileURLToPath(import.meta.url);
   const input = JSON.stringify({ kind: check.kind, args: check.args ?? {}, fixture: check.args?.fixture ?? null });
@@ -82,8 +82,9 @@ export async function executeStructuredMicro(check, targetDir, { snapshotBefore,
       finish({ status: expected ? 'passed' : 'failed', exitCode, signal });
     });
   });
-  const snapshotComparison = snapshotBefore && snapshotAfter
-    ? snapshotBefore.fingerprint === snapshotAfter.fingerprint ? 'match' : 'changed'
+  const after = snapshotAfter ?? (captureSnapshotAfter ? await captureSnapshotAfter() : null);
+  const snapshotComparison = snapshotBefore?.available && after?.available
+    ? snapshotBefore.fingerprint === after.fingerprint ? 'match' : 'changed'
     : 'unavailable';
   if (result.status === 'passed' && snapshotComparison !== 'match') result.status = 'blocked';
   return {

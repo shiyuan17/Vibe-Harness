@@ -52,6 +52,10 @@ test('installed runtime executes only explicitly declared Micro and keeps eviden
     assert.equal(planned.status, 'planned');
     const result = await verify(project);
     assert.equal(result.status, 'passed');
+    const sourceRun = await exec(process.execPath, [path.join(root, 'scripts/micro-verify.js'), '--id', 'local', '--run', '--json'], { cwd: project });
+    const sourceReceipt = JSON.parse(sourceRun.stdout);
+    assert.equal(sourceReceipt.status, result.status);
+    assert.equal(sourceReceipt.checks.local.snapshotComparison, result.checks.local.snapshotComparison);
     assert.equal(result.checks.local.snapshotComparison, 'match');
     assert.equal(result.checks.local.outputSummary.bytes > 0, true);
     assert.deepEqual(result.selectedChecks, []);

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
+import { consumeVerificationQueue } from '../../scripts/verification-queue.js';
 
 import {
   createVerificationPreflightError,
@@ -887,6 +888,36 @@ test('verify --tier deep 暴露失败的深度命令以便回流修复', async (
         return true;
       },
     );
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('异步验证使用一致的内容指纹，变化使排队和通过收据失效', async () => {
+  const target = await createProject({
+    lint: null,
+    typecheck: null,
+    test: 'node verify-check.mjs',
+    eval: null,
+    tiers: { quick: [], standard: [], deep: ['node verify-check.mjs'] },
+  });
+  try {
+    await writeFile(path.join(target, '.gitignore'), '.vibe-harness/\n', 'utf8');
+    await writeFile(path.join(target, 'verify-check.mjs'), 'process.exit(0);\n', 'utf8');
+    await initializeGitProject(target);
+    await runCli(['install', '--project', target, '--target', 'codex', '--profile', 'core', '--write', '--force']);
+    const first = await runCli(['verify', '--project', target, '--tier', 'deep', '--async']);
+    assert.equal(first.status, 'queued');
+    assert.ok(first.queue.commitSha);
+    assert.ok(first.queue.worktreeFingerprint);
+    assert.equal((await consumeVerificationQueue(target))[0].status, 'passed');
+    assert.equal((await consumeVerificationQueue(target))[0].status, 'passed');
+    const second = await runCli(['verify', '--project', target, '--tier', 'deep', '--async']);
+    assert.equal(second.status, 'queued');
+    await writeFile(path.join(target, 'verify-check.mjs'), 'throw new Error("must not execute stale work");\n', 'utf8');
+    const invalidated = await consumeVerificationQueue(target);
+    assert.deepEqual(invalidated.map((receipt) => receipt.status), ['stale', 'stale']);
+    assert.ok(invalidated.every((receipt) => /identity/iu.test(receipt.staleReason)));
   } finally {
     await rm(target, { force: true, recursive: true });
   }

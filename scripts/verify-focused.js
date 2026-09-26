@@ -184,7 +184,9 @@ async function main() {
     if (json) return;
   }
   if (paths.length === 0) {
-    console.log('No changed paths detected; no focused verification needed.');
+    console.log(run
+      ? `No changed paths detected; ran ${commands.length} selected baseline command(s).`
+      : `No changed paths detected; ${commands.length} project baseline command(s) selected.`);
     return;
   }
   console.log(`Focused verification suggestions (${paths.length} changed path(s), ${commands.length} command(s)):`);
