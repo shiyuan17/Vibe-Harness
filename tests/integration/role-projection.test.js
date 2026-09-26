@@ -77,6 +77,7 @@ test('roles audit uses the governed routing path and role indexes expose explici
     const index = result.entries.find((entry) => entry.target === '.agents/roles/index.md').inlineContent;
     assert.match(index, /路由模式：explicit/u);
     assert.deepEqual(result.diagnostics.missingCapabilities['test-lead'], ['browser-verification']);
+    assert.equal(result.diagnostics.permissionMapping, 'native-sandbox-coarse-role-permission-unverified');
     assert.equal(rolePack.items.length, result.roles.length);
   } finally {
     await rm(targetDir, { force: true, recursive: true });

@@ -600,7 +600,9 @@ export async function resolveRoleInstallEntries({
       activationPath: adapter.id === 'zcode'
         ? '.zcode/plugins/vibe-harness-roles/'
         : adapter.roleProjection.targetRoot,
-      permissionMapping: adapter.roleProjection.permissionEnforcement === 'native' ? 'native' : 'degraded-permission-mapping',
+      permissionMapping: adapter.id === 'codex' && adapter.roleProjection.permissionEnforcement === 'native'
+        ? 'native-sandbox-coarse-role-permission-unverified'
+        : adapter.roleProjection.permissionEnforcement === 'native' ? 'native' : 'degraded-permission-mapping',
       toolBinding: adapter.roleProjection.toolBinding ?? 'configured-unverified',
       missingCapabilities: Object.fromEntries(enabledRoles.map((role) => [
         role.id,
