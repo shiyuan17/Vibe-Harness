@@ -940,6 +940,30 @@ function isInsidePath(candidate, parent) {
   return child !== base && child.startsWith(`${base}/`);
 }
 
+function safeWorktreeFile(root, relative, label) {
+  const target = path.resolve(root, relative);
+  const canonicalRoot = safeRealpath(root);
+  if (!canonicalRoot || !isInsidePath(target, root)) {
+    throw new Error(`${label} must stay inside its worktree`);
+  }
+  let existing = target;
+  while (true) {
+    try {
+      lstatSync(existing);
+      break;
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+      existing = path.dirname(existing);
+    }
+  }
+  const canonicalExisting = safeRealpath(existing);
+  if (!canonicalExisting || (pathKey(canonicalExisting) !== pathKey(canonicalRoot)
+    && !isInsidePath(canonicalExisting, canonicalRoot))) {
+    throw new Error(`${label} must stay inside its worktree`);
+  }
+  return target;
+}
+
 function safeRealpath(target) {
   try {
     return realpathSync.native ? realpathSync.native(target) : realpathSync(target);
@@ -1751,8 +1775,8 @@ async function worktreeBootstrapReport(projectDir, args) {
       const allocation = await withPortRegistryLock(projectDir, async () => {
         const assignment = planPortAssignment(projectDir, settings, { branch: plan.branch, id: task.id, path: plan.worktreePath });
         if (assignment.error) return { error: assignment.error, code: assignment.code };
+        const envPath = safeWorktreeFile(plan.worktreePath, assignment.envFile, 'worktree.ports.envFile');
         writePortRegistry(projectDir, assignment.registry);
-        const envPath = path.join(plan.worktreePath, assignment.envFile);
         mkdirSync(path.dirname(envPath), { recursive: true });
         writeFileSync(envPath, renderWorktreeEnv({ block: assignment.block, id: task.id, ports: assignment.ports }), 'utf8');
         return { block: assignment.block, envFile: assignment.envFile, ports: assignment.ports, reused: assignment.reused };
@@ -1761,8 +1785,8 @@ async function worktreeBootstrapReport(projectDir, args) {
 
       const envFiles = [];
       for (const file of settings.provision.envFiles) {
-        const source = path.join(projectDir, file);
-        const target = path.join(plan.worktreePath, file);
+        const source = safeWorktreeFile(projectDir, file, 'worktree.provision.envFiles source');
+        const target = safeWorktreeFile(plan.worktreePath, file, 'worktree.provision.envFiles target');
         if (existsSync(target)) {
           envFiles.push({ file, status: 'present' });
           continue;
@@ -1795,18 +1819,18 @@ async function worktreeBootstrapReport(projectDir, args) {
         toolchain,
       });
     } catch (error) {
-      // A half-provisioned worktree is worse than none: remove what this run
-      // created so the next attempt starts from a known state. `git worktree
-      // add -b` above only succeeds when the branch did not exist yet, so the
-      // branch is part of this transaction rather than someone else's work.
-      await runGit(['worktree', 'remove', '--force', plan.worktreePath], projectDir);
-      await runGit(['worktree', 'prune'], projectDir);
-      const branchHead = await runGit(['rev-parse', `refs/heads/${plan.branch}`], projectDir);
-      const baseHead = await runGit(['rev-parse', settings.baseRef], projectDir);
-      const untouched = branchHead.ok && baseHead.ok && branchHead.stdout.trim() === baseHead.stdout.trim();
-      const branchDeleted = untouched
-        && (await runGit(['branch', '--delete', '--force', plan.branch], projectDir)).ok;
-      const released = await releasePortRegistryEntry(projectDir, task.id);
+      let branchDeleted = false;
+      let released = { released: false };
+      if (!existing) {
+        await runGit(['worktree', 'remove', '--force', plan.worktreePath], projectDir);
+        await runGit(['worktree', 'prune'], projectDir);
+        const branchHead = await runGit(['rev-parse', `refs/heads/${plan.branch}`], projectDir);
+        const baseHead = await runGit(['rev-parse', settings.baseRef], projectDir);
+        const untouched = branchHead.ok && baseHead.ok && branchHead.stdout.trim() === baseHead.stdout.trim();
+        branchDeleted = untouched
+          && (await runGit(['branch', '--delete', '--force', plan.branch], projectDir)).ok;
+        released = await releasePortRegistryEntry(projectDir, task.id);
+      }
       results.push({
         ...plan,
         branchDeleted,
@@ -1814,7 +1838,7 @@ async function worktreeBootstrapReport(projectDir, args) {
         error: boundedOutput(error.message, projectDir),
         released: released.released === true,
         status: 'failed',
-        rolledBack: true,
+        rolledBack: !existing,
       });
     }
   }

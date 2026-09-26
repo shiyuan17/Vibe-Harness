@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -423,6 +423,59 @@ test('setup 命令失败时回滚 worktree、分支与端口登记项', async ()
   }
 });
 
+test('复用 Worktree 初始化失败保留已有分支和未提交文件', async () => {
+  const fixture = await makeWorkspaceFixture({
+    extraFiles: { 'setup.mjs': "if (process.env.FAIL_SETUP) process.exit(3);\n" },
+    worktree: { provision: { setupCommands: ['node setup.mjs'] } },
+  });
+  try {
+    const taskArgs = ['worktree', 'bootstrap', '--project', fixture.repo, '--task', 'ENG-1:feat/ENG-1-scaffold', '--write', '--json'];
+    const created = await runCommand(taskArgs, { cwd: fixture.repo });
+    assert.equal(created.exitCode, 0, JSON.stringify(created.report));
+    await writeFile(path.join(fixture.worktreePath, 'keep.txt'), 'uncommitted\n', 'utf8');
+    await writeFile(path.join(fixture.worktreePath, 'setup.mjs'), 'process.exit(3);\n', 'utf8');
+    const failed = await runCommand(taskArgs, { cwd: fixture.repo });
+    assert.equal(failed.exitCode, 1);
+    assert.equal(failed.report.results[0].rolledBack, false);
+    assert.equal(failed.report.results[0].branchDeleted, false);
+    assert.equal(await readFile(path.join(fixture.worktreePath, 'keep.txt'), 'utf8'), 'uncommitted\n');
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
+    assert.match(await git(fixture.repo, ['branch', '--list', 'feat/ENG-1-scaffold']), /feat\/ENG-1-scaffold/u);
+    assert.equal((await readRegistry(fixture.repo)).entries.length, 1);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('Worktree 环境文件拒绝父目录与链接逃逸且不产生越界写入', async () => {
+  const fixture = await makeWorkspaceFixture({ worktree: { ports: { envFile: '../outside.env' } } });
+  try {
+    const taskArgs = ['worktree', 'bootstrap', '--project', fixture.repo, '--task', 'ENG-1:feat/ENG-1-scaffold', '--write', '--json'];
+    const escaped = await runCommand(taskArgs, { cwd: fixture.repo });
+    assert.equal(escaped.exitCode, 1);
+    assert.match(escaped.report.results[0].error, /must stay inside/iu);
+    assert.equal(existsSync(path.join(path.dirname(fixture.worktreePath), 'outside.env')), false);
+
+    const configPath = path.join(fixture.repo, 'vibe-harness.config.json');
+    const config = JSON.parse(await readFile(configPath, 'utf8'));
+    config.worktree.ports.envFile = 'linked/outside.env';
+    await writeJson(configPath, config);
+    const linkedPath = path.join(fixture.root, 'repo-worktrees', 'ENG-2');
+    await git(fixture.repo, ['worktree', 'add', linkedPath, '-b', 'feat/ENG-2-scaffold', 'main']);
+    await symlink(fixture.root, path.join(linkedPath, 'linked'), 'junction');
+    const linked = await runCommand([
+      'worktree', 'bootstrap', '--project', fixture.repo, '--task', 'ENG-2:feat/ENG-2-scaffold', '--write', '--json',
+    ], { cwd: fixture.repo });
+    assert.equal(linked.exitCode, 1);
+    assert.match(linked.report.results[0].error, /must stay inside/iu);
+    assert.equal(linked.report.results[0].rolledBack, false);
+    assert.equal(existsSync(path.join(fixture.root, 'outside.env')), false);
+    assert.equal(await entryExists(fixture.repo, linkedPath), true);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
 test('红区 env 文件默认 blocked，--confirm-red-zone 后才写入', async () => {
   const fixture = await makeWorkspaceFixture({
     extraFiles: { '.env': 'API_TOKEN=fixture\n' },
@@ -801,10 +854,15 @@ test('脏工作区与未完成锚点单元都把 land 置为 blocked', async () 
 
     // An anchor with a unit still in progress means the slice is not done
     // yet; landing it would merge half-finished work.
-    await mkdir(path.join(fixture.repo, '.vibe-harness/tasks'), { recursive: true });
+    const initialized = await runCommand([
+      'task', 'init', 'ENG-1', '--project', fixture.repo,
+      '--title', 'Landing fixture', '--goal', 'Land verified work', '--write', '--json',
+    ], { cwd: fixture.repo });
+    assert.equal(initialized.report.status, 'passed');
+    const anchor = initialized.report.anchor;
     await writeJson(path.join(fixture.repo, '.vibe-harness/tasks/ENG-1.json'), {
+      ...anchor,
       schemaVersion: 1,
-      taskId: 'ENG-1',
       units: [{ id: 'impl', status: 'in_progress' }],
     });
     const pendingAnchor = await runCommand(['worktree', 'land', '--project', fixture.repo, '--json'], { cwd: fixture.repo });
@@ -816,8 +874,8 @@ test('脏工作区与未完成锚点单元都把 land 置为 blocked', async () 
     // be quietly landed as long as its dependents are simply absent from the
     // anchor's unit list.
     await writeJson(path.join(fixture.repo, '.vibe-harness/tasks/ENG-1.json'), {
+      ...anchor,
       schemaVersion: 1,
-      taskId: 'ENG-1',
       units: [{ id: 'impl', status: 'failed' }],
     });
     const failedUnit = await runCommand(['worktree', 'land', '--project', fixture.repo, '--json'], { cwd: fixture.repo });
@@ -829,8 +887,8 @@ test('脏工作区与未完成锚点单元都把 land 置为 blocked', async () 
     // All units done unblocks the plan, and a full-risk anchor escalates the
     // verify tier from quick to standard.
     await writeJson(path.join(fixture.repo, '.vibe-harness/tasks/ENG-1.json'), {
+      ...anchor,
       schemaVersion: 1,
-      taskId: 'ENG-1',
       riskLevel: 'full',
       stage: 'implement',
       units: [{ id: 'impl', status: 'done' }],
