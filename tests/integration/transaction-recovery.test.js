@@ -52,6 +52,36 @@ test('recover previews then restores the active transaction only with --write', 
   }
 });
 
+test('中断事务必须先恢复才能开始后续写入', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-ordered-recover-'));
+  const managedPath = path.join(target, 'managed.md');
+  try {
+    await writeFile(managedPath, 'original\n', 'utf8');
+    const interrupted = await beginFileTransaction({
+      operation: 'interrupted',
+      targetDir: target,
+      trackedPaths: [managedPath],
+    });
+    await writeFile(managedPath, 'interrupted\n', 'utf8');
+    const lockDir = path.join(target, '.vibe-harness/transaction.lock');
+    await writeFile(path.join(lockDir, 'owner-pid'), '99999999\n', 'utf8');
+    await assert.rejects(
+      beginFileTransaction({ operation: 'later', targetDir: target, trackedPaths: [managedPath] }),
+      /Unfinished transaction.*recover/iu,
+    );
+    assert.equal(await readFile(managedPath, 'utf8'), 'interrupted\n');
+    assert.equal(await exists(path.join(target, '.vibe-harness/transactions', interrupted.id)), true);
+    await recoverTransaction({ targetDir: target, write: true });
+    const later = await beginFileTransaction({ operation: 'later', targetDir: target, trackedPaths: [managedPath] });
+    await writeFile(managedPath, 'new-success\n', 'utf8');
+    await later.commit();
+    assert.equal((await recoverTransaction({ targetDir: target, write: true })).recovered.length, 0);
+    assert.equal(await readFile(managedPath, 'utf8'), 'new-success\n');
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
 test('doctor reports active transactions without modifying them', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-doctor-transaction-'));
   let transaction;
@@ -130,6 +160,26 @@ test('recover refuses to release a lock owned by another transaction', async () 
     );
     assert.equal((await readFile(path.join(lockDir, 'transaction-id'), 'utf8')).trim(), 'newer');
     assert.equal(await exists(transactionDir), true);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('失去归属锁的恢复不得覆盖后来成功的状态', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-orphan-recover-'));
+  const managedPath = path.join(target, 'managed.md');
+  try {
+    await writeFile(managedPath, 'original\n', 'utf8');
+    await beginFileTransaction({ operation: 'interrupted', targetDir: target, trackedPaths: [managedPath] });
+    await rm(path.join(target, '.vibe-harness/transaction.lock'), { recursive: true, force: true });
+    await writeFile(managedPath, 'new-success\n', 'utf8');
+    await assert.rejects(recoverTransaction({ targetDir: target, write: true }), /no ownership lock/iu);
+    assert.equal(await readFile(managedPath, 'utf8'), 'new-success\n');
+    await assert.rejects(
+      beginFileTransaction({ operation: 'later', targetDir: target, trackedPaths: [managedPath] }),
+      /Unfinished transaction/iu,
+    );
+    assert.equal(await readFile(managedPath, 'utf8'), 'new-success\n');
   } finally {
     await rm(target, { force: true, recursive: true });
   }
