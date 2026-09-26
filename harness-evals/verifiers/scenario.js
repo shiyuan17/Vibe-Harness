@@ -160,10 +160,21 @@ function checkTrace(definition, context) {
     }
   }
   if (mechanism === 'multi-agent-dependency') {
-    const dispatched = has('agent-dispatch', (event) => event.succeeded !== false);
-    const completed = has('agent-complete', (event) => event.succeeded === true);
-    const verified = has('verification', (event) => event.succeeded === true);
-    if (dispatched && completed && verified) return { passed: true, evidence: { dependencyDispatch: true, producerCompletion: true, parentVerification: true } };
+    const unitOf = (event) => event.unit ?? event.taskId ?? event.target;
+    const dispatch = (unit) => firstIndex('agent-dispatch', (event) => event.succeeded !== false && unitOf(event) === unit);
+    const complete = (unit, after) => firstIndex('agent-complete', (event) => event.succeeded === true && unitOf(event) === unit, after);
+    const schemaDispatch = dispatch('schema');
+    const encoderDispatch = dispatch('encoder');
+    const schemaComplete = complete('schema', schemaDispatch);
+    const decoderDispatch = dispatch('decoder');
+    const encoderComplete = complete('encoder', encoderDispatch);
+    const decoderComplete = complete('decoder', decoderDispatch);
+    const fanIn = firstIndex('verification', (event) => event.succeeded === true, Math.max(encoderComplete, decoderComplete));
+    if (schemaDispatch >= 0 && encoderDispatch >= 0 && schemaComplete > schemaDispatch
+      && encoderDispatch < schemaComplete && decoderDispatch > schemaComplete
+      && encoderComplete > encoderDispatch && decoderComplete > decoderDispatch && fanIn > decoderComplete) {
+      return { passed: true, evidence: { dependencyDispatch: true, producerCompletion: true, parentVerification: true } };
+    }
   }
   if (mechanism === 'worktree-conflict') {
     const conflict = ordered.find(({ event }) => event.type === 'agent-conflict'
@@ -190,7 +201,7 @@ function checkTrace(definition, context) {
       return { passed: true, evidence: { childFailureObserved: true, repairObserved: true, recoveryVerification: true } };
     }
   }
-  if (['stale-context', 'agent-handoff', 'subagent-failure', 'duplicate-work', 'worktree-conflict'].includes(mechanism)) {
+  if (['stale-context', 'agent-handoff', 'subagent-failure', 'duplicate-work', 'worktree-conflict', 'multi-agent-dependency'].includes(mechanism)) {
     return { unverified: true, code: 'TRACE_SEMANTIC_EVIDENCE_MISSING' };
   }
   const lastChange = events.findLastIndex((event) => event.type === 'change');

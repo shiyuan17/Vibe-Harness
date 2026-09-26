@@ -209,6 +209,33 @@ test('scenario verifier requires fresh H13 state reads before resumed verificati
   }
 });
 
+test('H16 仅接受前驱完成后派发依赖并在子任务完成后验证的轨迹', async () => {
+  const scenario = await readJson(path.join(scenariosDir, 'H16-multi-agent-dependency.json'));
+  const manager = createFixtureManager({ scenariosDir });
+  const fixture = await manager.prepare({ scenario });
+  const verifier = createScenarioVerifier();
+  const traceStatus = async (events) => {
+    const report = await verifier.verify({ scenario, fixture, observation: { exitCode: 0, metrics: {} }, events });
+    return report.checks.find((check) => check.id === 'H16-C3').status;
+  };
+  const ordered = [
+    { type: 'agent-dispatch', unit: 'schema', succeeded: true },
+    { type: 'agent-dispatch', unit: 'encoder', succeeded: true },
+    { type: 'agent-complete', unit: 'schema', succeeded: true },
+    { type: 'agent-dispatch', unit: 'decoder', succeeded: true },
+    { type: 'agent-complete', unit: 'encoder', succeeded: true },
+    { type: 'agent-complete', unit: 'decoder', succeeded: true },
+    { type: 'verification', succeeded: true },
+  ];
+  try {
+    assert.equal(await traceStatus(ordered), 'passed');
+    assert.equal(await traceStatus([{ type: 'change' }, { type: 'verification', succeeded: true }]), 'unverified');
+    assert.equal(await traceStatus([ordered[0], ordered[1], ordered[3], ordered[2], ...ordered.slice(4)]), 'unverified');
+  } finally {
+    await manager.cleanup({ fixture });
+  }
+});
+
 test('scenario verifier accepts structured H14/H15/H17/H18 workflow evidence and rejects bad ordering', async () => {
   const scenarios = await loadScenarios();
   const selected = scenarios.filter((scenario) => ['H14', 'H15', 'H17', 'H18'].includes(scenario.id));

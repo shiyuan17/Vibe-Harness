@@ -4173,6 +4173,19 @@
       "layer": "component",
       "file": "tests/component/harness-evals-scenarios.test.js",
       "ordinal": 7,
+      "name": "H16 仅接受前驱完成后派发依赖并在子任务完成后验证的轨迹",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-26"
+    },
+    {
+      "id": "C-harness-evals-scenarios-008",
+      "layer": "component",
+      "file": "tests/component/harness-evals-scenarios.test.js",
+      "ordinal": 8,
       "name": "scenario verifier accepts structured H14/H15/H17/H18 workflow evidence and rejects bad ordering",
       "legacy": true,
       "risk": "standard",
@@ -4182,10 +4195,10 @@
       "addedAt": "2026-09-16"
     },
     {
-      "id": "C-harness-evals-scenarios-008",
+      "id": "C-harness-evals-scenarios-009",
       "layer": "component",
       "file": "tests/component/harness-evals-scenarios.test.js",
-      "ordinal": 8,
+      "ordinal": 9,
       "name": "Internal and External results validate against the same v3 result schema",
       "legacy": true,
       "risk": "standard",
