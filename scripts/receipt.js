@@ -16,11 +16,13 @@ import { pathToFileURL } from 'node:url';
 import { readJson } from './lib/manifest.js';
 import {
   analyzeReceiptLedger,
+  AUTO_CLAIM_RECEIPT_SOURCE,
   buildHandoffPayload,
   buildStartReceipt,
   buildTerminalEvent,
   HANDOFF_STATUSES,
   RECEIPT_SOURCES,
+  START_RECEIPT_SCHEMA_V2,
   summarizeReceiptLedger,
   TERMINAL_EVENT_TYPES,
   validateHandoffPayload,
@@ -31,7 +33,7 @@ import { safeJsonParse } from './lib/safe-json.js';
 
 const VALUE_OPTIONS = new Set([
   '--agent', '--dag-root', '--delegate', '--event-id', '--execution-id', '--file', '--final-check',
-  '--final-check-relevance', '--final-check-status', '--handoff', '--host', '--issue', '--occurred-at', '--out',
+  '--final-check-relevance', '--final-check-status', '--grant-id', '--handoff', '--host', '--issue', '--occurred-at', '--out',
   '--role', '--runtime-instance-id', '--source', '--started-at', '--status', '--successor', '--type', '--unresolved',
 ]);
 
@@ -44,10 +46,11 @@ function printUsage() {
   console.log('Every subcommand is read-only unless --write names an explicit --out path, and none of them');
   console.log('posts to Linear: the caller does that and re-reads the field values afterwards.');
   console.log();
-  console.log('start   Build a Start Receipt (vibe-harness.linear-execution/v1).');
+  console.log('start   Build a Start Receipt (v1, or v2 for authorized auto-claim).');
   console.log('  --issue <ID>                 current Issue (dagNodeIssue); required');
   console.log('  --agent <key> --host <kind>  stable product keys, e.g. codex / codex-desktop; required');
-  console.log(`  --source <value>             ${RECEIPT_SOURCES.join(' | ')} (default explicit-user-request)`);
+  console.log(`  --source <value>             ${[...RECEIPT_SOURCES, AUTO_CLAIM_RECEIPT_SOURCE].join(' | ')} (default explicit-user-request)`);
+  console.log('  --grant-id <uuid>            host-held grant reference; required with authorized-auto-claim');
   console.log('  --delegate <id>              native Delegate/App User id; omit or null for fallback labels');
   console.log('  --dag-root <ID>              top-level parent Issue; omit for a standalone Issue');
   console.log('  --execution-id <uuid> --runtime-instance-id <uuid> --started-at <RFC3339Z>');
@@ -149,16 +152,20 @@ function parseUnresolved(items = []) {
 
 async function runStart(argv) {
   const options = parseArgs(argv);
+  const source = options.values.get('--source');
+  const grantId = options.values.get('--grant-id');
+  if (grantId !== undefined && source !== AUTO_CLAIM_RECEIPT_SOURCE) usageError('--grant-id requires --source authorized-auto-claim');
   const receipt = buildStartReceipt({
     agentKey: requireValue(options, '--agent', '--agent <key>'),
     ...(options.values.get('--dag-root') === undefined ? {} : { dagRootIssue: options.values.get('--dag-root') }),
     ...(options.values.get('--delegate') === undefined ? {} : { delegateId: options.values.get('--delegate') }),
     dagNodeIssue: requireValue(options, '--issue', '--issue <ISSUE-ID>'),
     ...(options.values.get('--execution-id') === undefined ? {} : { executionId: options.values.get('--execution-id') }),
+    ...(source === AUTO_CLAIM_RECEIPT_SOURCE ? { grantId, schema: START_RECEIPT_SCHEMA_V2 } : {}),
     hostKind: requireValue(options, '--host', '--host <kind>'),
     ...(options.values.get('--role') === undefined ? {} : { role: options.values.get('--role') }),
     ...(options.values.get('--runtime-instance-id') === undefined ? {} : { runtimeInstanceId: options.values.get('--runtime-instance-id') }),
-    ...(options.values.get('--source') === undefined ? {} : { source: options.values.get('--source') }),
+    ...(source === undefined ? {} : { source }),
     ...(options.values.get('--started-at') === undefined ? {} : { startedAt: options.values.get('--started-at') }),
   });
   await emit(receipt, validateStartReceipt(receipt), options, { label: 'start receipt' });
