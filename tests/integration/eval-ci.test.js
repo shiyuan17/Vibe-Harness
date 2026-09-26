@@ -31,7 +31,7 @@ test('CI 阻断 offline eval 漂移且夜间 workflow 对 harness eval 失败置
   assert.match(ci, /supply-chain:/u);
   assert.match(ci, /risk-evidence:/u);
   assert.match(ci, /merge-gate:/u);
-  assert.match(ci, /needs:\s*\[change-plan, product, supply-chain, risk-evidence, branch-policy, independent-review, high-risk-approval\]/u);
+  assert.match(ci, /needs:\s*\[change-plan, product, supply-chain, security, risk-evidence, branch-policy, independent-review, high-risk-approval\]/u);
   assert.match(ci, /docsOnly: \$\{\{ steps\.plan\.outputs\.docsOnly \}\}/u);
   assert.match(ci, /if: needs\.change-plan\.outputs\.docsOnly != 'true'\s*\n\s*run: pnpm lint:eslint/u);
   assert.match(ci, /if: needs\.change-plan\.outputs\.docsOnly != 'true'\s*\n\s*run: pnpm check:fast/u);

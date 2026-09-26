@@ -36,6 +36,7 @@ const PASSING_GATE_ENV = {
   REQUIRED_FULL_GATE_RESULT: 'false',
   REQUIRED_INTEGRATION_GATE_RESULT: 'false',
   RISK_EVIDENCE_RESULT: 'success',
+  SECURITY_RESULT: 'success',
   SMOKE_GATE_RESULT: 'skipped',
   REQUIRED_SMOKE_GATE_RESULT: 'false',
   SUPPLY_CHAIN_RESULT: 'skipped',
@@ -70,9 +71,13 @@ test('merge-gate ignores gate names that no workflow job exports', async () => {
 });
 
 test('merge-gate fails a real gate failure', async () => {
-  const { code, report } = await runScript(MERGE_GATE, { env: { ...PASSING_GATE_ENV, PRODUCT_RESULT: 'failure' } });
-  assert.equal(code, 1);
-  assert.equal(report.ok, false);
+  for (const name of Object.keys(PASSING_GATE_ENV).filter((key) => key.endsWith('_RESULT') && !key.startsWith('REQUIRED_'))) {
+    for (const status of ['failure', 'cancelled']) {
+      const { code, report } = await runScript(MERGE_GATE, { env: { ...PASSING_GATE_ENV, [name]: status } });
+      assert.equal(code, 1, `${name}=${status}`);
+      assert.equal(report.ok, false, `${name}=${status}`);
+    }
+  }
 });
 
 async function runApprovalCheck({ event, env = {} }) {

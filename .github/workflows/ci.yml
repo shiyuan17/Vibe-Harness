@@ -296,11 +296,13 @@ jobs:
 
   merge-gate:
     if: always()
-    needs: [change-plan, product, supply-chain, risk-evidence, branch-policy, independent-review, high-risk-approval]
+    needs: [change-plan, product, supply-chain, security, risk-evidence, branch-policy, independent-review, high-risk-approval]
     runs-on: ubuntu-latest
     env:
       PRODUCT_RESULT: ${{ needs.product.result }}
       SUPPLY_CHAIN_RESULT: ${{ needs.supply-chain.result }}
+      SECURITY_RESULT: ${{ needs.security.result }}
+      REQUIRED_SECURITY_RESULT: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
       REQUIRED_SUPPLY_CHAIN_RESULT: ${{ needs.change-plan.outputs.supplyChain == 'true' || github.ref == 'refs/heads/main' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
       RISK_EVIDENCE_RESULT: ${{ needs.risk-evidence.result }}
       CHANGE_PLAN_RESULT: ${{ needs.change-plan.result }}
