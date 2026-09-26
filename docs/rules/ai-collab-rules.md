@@ -76,7 +76,7 @@
 - 瞬时网络、限流或无副作用工具故障最多尝试三次，并遵守可用的 Retry-After；权限和安全拒绝不得重试绕过；契约歧义先查明，确定性测试失败先修复再验证，非幂等外部写入结果不明时先重读状态。
 - 长任务可选声明节点超时、最大尝试次数、取消、退避和资源与 token 预算，普通单 Agent 任务不要求填写。
 - 每次派发 write 节点前重新确认 DAG 版本或 hash、依赖、writeScope、Resource Lock、HEAD 和工作区身份未变化；发生变化时暂停后继并重新计算 ready 集合。
-- 派发 write 前以登记表为端口/容器锁事实：读取主检出 `.vibe-harness/worktree-ports.json`（连同 `.vibe-harness/worktree-ports.lock`）确认节点声明的端口块与容器不与其它 running 节点重叠，端口值从分配出的 env 文件读取而不是硬编码；登记表缺失、锁不可用或声明冲突时 fail-closed，不凭 `netstat`/`lsof` 输出或猜测推断。
+- 仅派发实际声明或使用端口/容器的 write 节点时，以登记表为端口/容器锁事实：读取主检出 `.vibe-harness/worktree-ports.json`（连同 `.vibe-harness/worktree-ports.lock`）确认端口块与容器不与其它 running 节点重叠，端口值从分配出的 env 文件读取而不是硬编码；此时登记表缺失、锁不可用或声明冲突才 fail-closed，不凭 `netstat`/`lsof` 输出或猜测推断；无关节点不创建空登记表。
 - 子 Agent 交接至少报告节点结果、实际修改文件、base/head、验证命令与退出码、未决风险和阻塞原因；节点标识、DAG hash、尝试次数与起止时间随交接与交付报告记录。这些信息只是人读证据，不构成授权根。
 - 父 Agent 在 fan-in 后重新读取工作区状态和实际 diff，核对写入归属、共享契约与冲突，并在最后一次实质写入后运行集成验证；child 自报只证明其局部范围。
 - 子 Agent 回传偏离目标、重复他人工作或缺少证据时，父 Agent 拒绝采纳并重派或回收该工作，不因单个无效回传把整张图升级为阻塞。
