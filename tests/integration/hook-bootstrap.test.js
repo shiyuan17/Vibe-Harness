@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { exec, execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
+import { spawn } from 'node:child_process';
 
 import { createHostHookResult } from '../../runtime/hooks/lib/policy.mjs';
 import { renderTemplate } from '../../scripts/lib/template-renderer.js';
@@ -187,17 +188,46 @@ test('Hook bootstrap passes only the allowlisted environment to the managed runt
       'process.stdout.write(JSON.stringify({',
       "  leaked: process.env.OPENAI_API_KEY === undefined && process.env.AWS_SECRET_ACCESS_KEY === undefined ? 'none' : 'present',",
       "  root: process.env.VIBE_HARNESS_GIT_ROOT ?? null,",
+      "  preset: process.env.VIBE_HARNESS_PERMISSION_PRESET ?? null,",
       '}));',
       '',
     ].join('\n'));
     const command = await bootstrapCommand();
     const result = await runBootstrap(command, {
       cwd: main,
-      env: { AWS_SECRET_ACCESS_KEY: 'probe-secret', OPENAI_API_KEY: 'probe-key' },
+      env: { AWS_SECRET_ACCESS_KEY: 'probe-secret', OPENAI_API_KEY: 'probe-key', VIBE_HARNESS_PERMISSION_PRESET: 'read-only' },
     });
     const report = JSON.parse(result.stdout);
     assert.equal(report.leaked, 'none');
+    assert.equal(report.preset, 'read-only');
     assert.equal(await realpath(report.root), await realpath(main));
+    await cp(path.join(rootDir, 'runtime/hooks'), path.join(main, '.agents/runtime/hooks'), { recursive: true });
+    const event = JSON.stringify({
+      cwd: main,
+      hook_event_name: 'PreToolUse',
+      tool_name: 'Write',
+      tool_input: { file_path: path.join(main, 'normal.txt'), content: 'probe' },
+    });
+    const invoke = async (args) => {
+      const child = spawn(process.execPath, args, {
+        cwd: main,
+        env: { ...process.env, VIBE_HARNESS_PERMISSION_PRESET: 'analysis' },
+        windowsHide: true,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      const stdout = [];
+      child.stdout.on('data', (chunk) => stdout.push(chunk));
+      child.stdin.end(event);
+      await new Promise((resolve, reject) => {
+        child.once('error', reject);
+        child.once('close', resolve);
+      });
+      return JSON.parse(Buffer.concat(stdout).toString('utf8'));
+    };
+    const direct = await invoke([path.join(main, '.agents/runtime/hooks/codex-hook.mjs'), '--host', 'codex', '--expected-event', 'PreToolUse']);
+    const wrapped = await invoke(['-e', (await readFile(bootstrapSourcePath, 'utf8')).trim(), '--', '--host', 'codex', '--expected-event', 'PreToolUse']);
+    assert.equal(direct.hookSpecificOutput.permissionDecision, 'deny');
+    assert.equal(wrapped.hookSpecificOutput.permissionDecision, direct.hookSpecificOutput.permissionDecision);
   } finally {
     await rm(base, { force: true, recursive: true });
   }
