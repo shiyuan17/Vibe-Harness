@@ -13,7 +13,8 @@ description: Use when executing, reviewing, verifying, refining, synchronizing, 
 - 无宿主授权派发时禁止自动领取；Agent 不扫描、轮询或订阅 Ready Queue。Vibe-Harness 不提供常驻调度器、自动超时回收或自动重派。
 - 没有具体 Issue ID 时，Agent 不选择、认领或更新任务；宿主按规则第 1 节选候选，不把队列可见性当授权。
 - 高风险执行只接受 v2 Execution Envelope，v1 仅作 contract-only/degraded 兼容；mode 与 effect 枚举按规则第 1 节。调用写工具前建立当前请求的 Execution Envelope。无原生 Goal bridge 时不声称后台持续执行，不阻止用户继续请求或宿主显式续跑恢复原范围工作。
-- 分支约定：`feat/*、fix/* → develop → main`；紧急修复 `hotfix/* → main → develop`。`develop` 是日常集成分支，`main` 是正式发布分支，不创建长期 `release/*` 分支，`release/*` 只在管理员为并行维护版本临时创建时存在并按其门禁处理；closing PR 合并后开发 Issue 立即 Done。合入 `develop` 不要求远端 CI 或强制审批；远端 CI 只在发布边界（`develop → main`、`hotfix/* → main`、`release/*`）运行。合并前的本地验证必须建立在最新 `origin/develop` 之上，高风险变更仍须携带 Independent Review Receipt。
+- Parent 计划必须携带 `executionMode`、`wallClock` 和 `agentPlan`；单 Agent 是默认执行模式，只有共享契约冻结、writeScope/Resource Lock 隔离、Agent 容量可用且预计净节省至少 45 分钟和 25% 时才并行。
+- 分支约定：`feat/*、fix/* → develop → main`；紧急修复 `hotfix/* → main → develop`。`develop` 是日常集成分支，`main` 是正式发布分支，不创建长期 `release/*` 分支，`release/*` 只在管理员为并行维护版本临时创建时存在并按其门禁处理；closing PR 合并后开发 Issue 立即 Done。合入 `develop` 必须通过稳定 fast gate；远端完整 CI 只在发布边界（`develop → main`、`hotfix/* → main`、`release/*`）运行。合并前的本地验证必须建立在最新 `origin/develop` 之上，高风险变更仍须携带 Independent Review Receipt。
 
 ## 1. 判断执行授权与角色
 
@@ -33,6 +34,12 @@ description: Use when executing, reviewing, verifying, refining, synchronizing, 
 
 按规则第 3、4 节逐项核对 Definition of Ready、依赖真值、Scope 投影与冲突串行；发现缺口或冲突时只报告事实，不自动拆 Issue、补关系、改变 Parent 或调整优先级。门禁通过后解析目标远端 ref 并冻结 base SHA，后续分支和 worktree 从该基线创建。契约耦合节点的派发前重验证按规则第 4 节执行。
 
+墙钟规划的编排顺序固定为 Shared Contract → Parallel Candidate → Fan-in → Final Gate。规划时分别估算 active work、external wait/block、coordination/fan-in 和 verification；并行估算为共享准备 + 并行单元最长耗时 + 协调 + fan-in + 最终集成，并加 20% 缓冲。默认最多 2 个并行写 Agent、4 个只读 Agent；`fanInOwner: parent-agent`；无真实容量时安全降级为单 Agent。共享 API、Schema、迁移、公共模板和最终集成只由一个 owner 写入。共享契约变化、writeScope 越界、Resource Lock/数据库冲突、关键路径阻塞或净节省低于门槛时立即停止并重算，不继续扩展派发。
+
+仅当入口、数据或环境存在实质不确定性时，在 Parent/叶子计划中记录早期探查的问题、方法、预计分钟数、退出条件和后续正式检查；探查计入共享准备或叶子 active work 一次，不抵扣 verification/fan-in。首轮规划默认限时 30 分钟，到时未解则记录风险并重新估算。普通 REPL、临时脚本及人工观察只用于探索，不能写为验证收据；仅配置中已声明的受管 Micro 能产生 L1 收据，且不能代替叶子聚焦验证或 Parent 一次性 fan-in。探查失败、环境异常、`unknown/lower-bound` 不得判为通过。
+
+只读记录预计/实际墙钟、Active Time、Blocked Time、Coordination Time、Fan-out 节省、Fan-in 返工、WIP Age、Cycle Time、Lead Time、重试/冲突/返工率；这些指标只改进后续规划，不触发自动重派、取消、释放、降级或优先级变化。
+
 ## 4. 登记 Agent 与 Execution Receipt
 
 正常写通道下，在创建 worktree、分支或开始实现前按固定顺序登记；完整 schema、幂等与恢复语义见规则第 5 节：
@@ -41,7 +48,7 @@ description: Use when executing, reviewing, verifying, refining, synchronizing, 
 2. 保留人类 Assignee，优先登记原生 Delegate/App User。
 3. 不支持 Delegate 时，只使用管理员预配置的低基数 agent:<agent-key> 与 role:writer 标签；不得创建带实例 ID 的标签。
 4. 按 references/execution-receipt.md 追加不可变 start Receipt；自动领取用 v2、source=authorized-auto-claim 和宿主授权的非敏感 grantId，其他情形沿用 v1。
-5. 重新读取并逐字段确认身份与 Receipt 一致；任何部分写入、结果不确定或验证失败都报告 registration-incomplete，不开始实现，也不声称已领取。
+5. 通过 provider 原子 Claim 后重新读取并逐字段确认身份、Receipt、lease 和 fencing token 一致；任何 Claim 能力缺失、部分写入、结果不确定或验证失败都 fail-closed，报告 registration-incomplete，不开始实现，也不声称已领取。
 
 v1 source 依次判定为：有效交接使用 authorized-handoff；本轮明确执行指令使用 explicit-user-request；否则只有当前 Agent 已是 Delegate 且宿主显式启动时使用 existing-delegate。宿主自动领单不伪装成 v1 显式指令，必须使用 v2 authorized-auto-claim。宿主没有可证明的跨实例互斥能力时，写后重读也不能替代原子领取，停止派发。
 
@@ -53,9 +60,9 @@ Linear 只读、MCP 不可用或写入验证失败时，不得声称已登记、
 
 ## 6. 隔离执行与状态同步
 
-正常登记确认后，write 叶子 Issue 使用一个 Writer、一个命名分支和一个 closing PR/MR。顺序执行且工作区干净时允许使用当前 clone；并发 Agent、脏工作区、存在无关改动或明确需要隔离时，必须创建仓库外 worktree。分支使用 <type>/<ISSUE-ID>-<slug>，worktree 使用同级 <repo>-worktrees/<ISSUE-ID>。commit 使用 `Refs <ISSUE-ID>`；GitHub PR 或 GitLab MR 描述使用 `Fixes <ISSUE-ID>`，只有提供方配置且创建后重读确认的等价 closing 语法才可替代。read 节点只产出约定输出和 Verification 证据；aggregate Parent 不创建实现 worktree。
+正常登记确认后，write 叶子 Issue 使用一个 Writer、一个命名分支和一个 closing PR/MR。顺序执行且工作区干净时允许使用当前 clone；并发 Agent、脏工作区、存在无关改动或明确需要隔离时，必须创建仓库外 worktree。分支使用 <type>/<ISSUE-ID>-<slug>，worktree 使用同级 <repo>-worktrees/<ISSUE-ID>。commit 使用 `Refs <ISSUE-ID>`；GitHub PR 或 GitLab MR 描述使用 `Fixes <ISSUE-ID>`，只有提供方配置且创建后重读确认的等价 closing 语法才可替代。read 节点只产出约定输出和 Verification 证据；aggregate Parent 不创建实现 worktree。父 Agent 在 fan-in 前不得采纳 child 自报作为 Parent 完成证据。
 
-普通 `feat/*`、`fix/*` 以 `origin/develop` 为目标；合入 `develop` 不要求远端 CI 或强制审批，Writer 在 envelope 授权 `mergeRequestWrite` 后可自行 squash 合并（或在提供方请求 auto-merge），closing PR 合并后开发 Issue 立即 Done。限时领单的默认目标也是合入 `develop`，但 `linearWrite`、`workspaceWrite`、`gitBranch`、`gitCommit`、`gitPush`、`mergeRequestWrite` 及实际需要的其他 effects 均须逐项授权；缺少合并授权时停在已授权终点，不假称 Done。合并前必须确认本轮验证建立在最新 `origin/develop` 之上，base 已前进时重跑受影响检查；高风险变更缺少 Independent Review Receipt 或收据结论为 negative 时不得自行落地合并。`hotfix/*` 从 `origin/main` 创建并先合入 `main`（此处运行发布门禁），随后用非 closing PR 回同步 `develop`。Release 流程与 credential helper 边界按规则第 6 节执行。
+普通 `feat/*`、`fix/*` 以 `origin/develop` 为目标；合入 `develop` 必须通过稳定 fast gate，Writer 在 envelope 授权 `mergeRequestWrite` 后可自行 squash 合并（或在提供方请求 auto-merge），closing PR 合并后开发 Issue 立即 Done。限时领单的默认目标也是合入 `develop`，但 `linearWrite`、`workspaceWrite`、`gitBranch`、`gitCommit`、`gitPush`、`mergeRequestWrite` 及实际需要的其他 effects 均须逐项授权；缺少合并授权时停在已授权终点，不假称 Done。合并前必须确认本轮验证建立在最新 `origin/develop` 之上，base 已前进时重跑受影响检查；高风险变更缺少 Independent Review Receipt 或收据结论为 negative 时不得自行落地合并。`hotfix/*` 从 `origin/main` 创建并先合入 `main`（此处运行发布门禁），随后用非 closing PR 回同步 `develop`。Release 流程与 credential helper 边界按规则第 6 节执行。
 
 创建 PR/MR 前重新读取目标 ref 与 source HEAD，确认提供方 target 等于声明 ref；计算 merge-base，并确认它等于冻结 base SHA，或是该 SHA 在同一目标 ref 历史上的已验证后代。不一致时阻断创建。创建后重读标题、source、target、描述、Issue 链接和 closing 语义。
 

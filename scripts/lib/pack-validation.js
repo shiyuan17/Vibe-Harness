@@ -430,10 +430,13 @@ export const SHARED_RULE_PHRASES = Object.freeze({
   testScopeReference: '测试范围细则',
   gitFlowDefault: 'feat/*、fix/* → develop → main',
   gitFlowHotfix: 'hotfix/* → main → develop',
-  developNoRemoteCi: '不要求远端 CI',
+  developRequiredFastGate: 'fast gate',
   releaseOnlyCiBoundary: '只在发布边界',
   releaseGateBranches: '`main`、`release/*`',
   boundedAutoClaim: '跨实例互斥',
+  wallClockPlanning: '墙钟规划',
+  singleAgentDefault: '单 Agent 是默认执行模式',
+  fanInOwner: 'fanInOwner: parent-agent',
   noAssertionWeakening: '降低断言、删除断言或无理由跳过相关测试绕过',
   // The kernel owns the substitution boundary and the delivery template
   // restates it; both files must carry the same sentence, so a reword in one
@@ -508,9 +511,11 @@ export const RULE_SKILL_PARITY_PAIRS = Object.freeze([
     skillName: 'linear-workflow',
     sharedTerms: [
       SHARED_RULE_PHRASES.boundedAutoClaim,
+      SHARED_RULE_PHRASES.wallClockPlanning,
+      SHARED_RULE_PHRASES.singleAgentDefault,
       SHARED_RULE_PHRASES.gitFlowDefault,
       SHARED_RULE_PHRASES.gitFlowHotfix,
-      SHARED_RULE_PHRASES.developNoRemoteCi,
+      SHARED_RULE_PHRASES.developRequiredFastGate,
     ],
   },
 ]);
@@ -954,6 +959,9 @@ export const CONTENT_QUALITY_CHECKS = [
       '无有效授权时禁止自动领取',
       '限时领单授权',
       SHARED_RULE_PHRASES.boundedAutoClaim,
+      SHARED_RULE_PHRASES.wallClockPlanning,
+      SHARED_RULE_PHRASES.singleAgentDefault,
+      SHARED_RULE_PHRASES.fanInOwner,
       '用户在本轮明确要求',
       '显式启动',
       '不授权登记或执行',
@@ -969,12 +977,10 @@ export const CONTENT_QUALITY_CHECKS = [
       '仅对带门禁',
       SHARED_RULE_PHRASES.gitFlowDefault,
       SHARED_RULE_PHRASES.gitFlowHotfix,
-      SHARED_RULE_PHRASES.developNoRemoteCi,
-      '只对发布边界运行',
+      SHARED_RULE_PHRASES.developRequiredFastGate,
+      '稳定的 fast gate 聚合检查',
       SHARED_RULE_PHRASES.releaseGateBranches,
-      // 发布边界检查的名称与聚合方式属于项目 CI 事实，规则只声明边界语义。
-      '项目在发布边界配置的 required check',
-      '该检查的名称与聚合方式以项目 CI 配置为准',
+      '项目在发布边界配置的完整 required check',
       // 3 Definition of Ready
       '以 `ai-collab-rules.md` 为唯一规范来源',
       '统一遵循 `ai-collab-rules.md`',
@@ -1019,7 +1025,6 @@ export const CONTENT_QUALITY_CHECKS = [
       // 高风险路径清单：本仓库的仓库内规则目录名，不是项目私有引用。
       'CI workflow 定义',
       '项目自己的发布交付文档',
-      '项目记录该门禁决策的决策记录',
     ],
   },
   {
@@ -1062,13 +1067,11 @@ export const CONTENT_QUALITY_CHECKS = [
       // 分支模型与合并：默认模型、squash/merge 分工与门禁边界。
       SHARED_RULE_PHRASES.gitFlowDefault,
       SHARED_RULE_PHRASES.gitFlowHotfix,
-      '边界检查的名称、聚合方式与是否为唯一 required check 以项目 CI 配置为准',
-      '普通任务 PR 仍会跑不阻断合并的 advisory CI job',
-      '自行落地 squash merge',
-      '无门禁合入在变更不含高风险路径时以本地验证为唯一前置',
+      SHARED_RULE_PHRASES.developRequiredFastGate,
+      '必须先通过 required fast gate',
+      '紧急旁路必须有明确过期时间、授权人和审计记录',
       // 协作工作流引用必须带条件语气：未安装 linear-workflow 的项目同样成立。
       '若项目已安装该规则',
-      '项目交付文档',
       // 同步与历史：只改写未推送提交，revert 而非历史改写。
       '只改写自己尚未推送的提交',
       '优先用 `--force-with-lease`',
@@ -1413,10 +1416,13 @@ export const CONTENT_QUALITY_CHECKS = [
         '无宿主授权派发时禁止自动领取',
         'Agent 不扫描、轮询或订阅 Ready Queue',
         SHARED_RULE_PHRASES.boundedAutoClaim,
-        '远端 CI 只在发布边界',
+        SHARED_RULE_PHRASES.wallClockPlanning,
+        SHARED_RULE_PHRASES.singleAgentDefault,
+        SHARED_RULE_PHRASES.fanInOwner,
+        '远端完整 CI 只在发布边界',
         SHARED_RULE_PHRASES.gitFlowDefault,
         SHARED_RULE_PHRASES.gitFlowHotfix,
-        SHARED_RULE_PHRASES.developNoRemoteCi,
+        SHARED_RULE_PHRASES.developRequiredFastGate,
       ],
     },
     {
@@ -1426,6 +1432,9 @@ export const CONTENT_QUALITY_CHECKS = [
         'Contract: None',
         'Dependencies: None',
         'resourceLocks: None',
+        '"executionMode": "auto"',
+        '"wallClock":',
+        '"fanInOwner": "parent-agent"',
       ],
     },
     {
@@ -1437,7 +1446,7 @@ export const CONTENT_QUALITY_CHECKS = [
     terms: [
       SHARED_RULE_PHRASES.gitFlowDefault,
       SHARED_RULE_PHRASES.gitFlowHotfix,
-      SHARED_RULE_PHRASES.developNoRemoteCi,
+      SHARED_RULE_PHRASES.developRequiredFastGate,
       SHARED_RULE_PHRASES.releaseOnlyCiBoundary,
     ],
   },

@@ -1130,6 +1130,17 @@
       ]
     },
     {
+      "path": "docs/adr/ADR-0009-develop-required-fast-gate.md",
+      "kind": "architecture",
+      "status": "current",
+      "language": "en",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
+    },
+    {
       "path": "docs/inventory/governance-audit-2026-09.md",
       "kind": "inventory",
       "status": "reference",

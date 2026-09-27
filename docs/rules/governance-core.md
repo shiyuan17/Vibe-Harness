@@ -6,7 +6,7 @@
 
 - **默认路径**：必要事实 → 最小计划 → 直接实施 → 局部快速验证 → 简洁交付；多数任务止步于本卡片。
 - **档位判定**：只读、解释、文档或微小非行为变化 → 快速；可逆的本地行为改动 → 轻量；安全、迁移、生产、发布、外部写入、公共契约、红区、不可逆或跨仓 → 完整。
-- **升级触发**（满足其一才执行；触发是必要而非充分，仍按最小充分选择并记录原因）：用户显式要求；局部事实无法界定影响面或无法缩小范围；风险升到完整档；命中公共契约、安全、迁移、发布或红区；项目 CI、发布门禁或外部要求。高成本动作不默认执行，也不因在此列出而成为流程：全仓扫描、完整 Spec/Plan/Tasks、多 Agent、Worktree、全量测试与 E2E、全量 Build/Lint/Typecheck、深度 Code Review 与 Red Team、全量文档更新、长时间 Benchmark 与性能测试。
+- **升级触发**（满足其一才执行；触发是必要而非充分，仍按最小充分选择并记录原因）：用户显式要求；局部事实无法界定影响面或无法缩小范围；风险升到完整档；命中公共契约、安全、迁移、发布或红区；项目 CI、发布门禁或外部要求。高成本动作不默认执行，也不因在此列出而成为流程：全仓扫描、完整 Spec/Plan/Tasks、多 Agent、Worktree、全量测试与 E2E、全量 Build/Lint/Typecheck、深度 Code Review 与 Red Team、全量文档更新、长时间 Benchmark 与性能测试。Parent 计划另须记录 active work、external wait/block、coordination/fan-in、verification 和单/并行墙钟估算，净节省未达 45 分钟及 25% 时保持单 Agent。
 - **硬边界速查**：只在授权范围内行动；红区、凭据、生产、外部写入与不可逆操作须有明确授权；敏感数据不入回复、日志或提交；不编造证据，未经验证不得声称完成。
 - **锚点触发**：预计执行超过 60 分钟或发生第一次上下文压缩才建状态锚点；已建锚点后再次压缩，先更新锚点再继续写入。
 - **验证档位**：默认只执行快速层；`vibe-harness verify --tier standard|deep` 显式升级、`--full` 完整矩阵；快速层通过不得宣称集成、发布或整体完成。
@@ -27,7 +27,7 @@
 默认路径、档位判定、升级触发与高成本动作清单以顶部 Fast Path 卡片为准；本节只保留卡片放不下的两条不变量：
 
 - **升级阶梯**：Progressive Context Loading → Changed-Scope Validation → Risk-Based Review → Async Deep Verification → Final Gate，按需跳级，上一级已足够时不进入下一级；深度证据可异步取得，但未取得前不得宣称依赖它的集成、发布或整体完成。
-- **与授权和安全正交**：成本判定不改变授权根、红区要求和安全边界；低成本不豁免红线，高成本也不因流程完整而执行，不得创建规则未要求的 Spec、任务、角色或隔离工作区；已就绪且可复用的环境、缓存、索引与容器不得重复冷启动，失效即按声明回退 cold 或 blocked。验证侧默认只执行快速层，见 test-rules.md 的成本分层与 `vibe-harness verify --tier`。
+- **与授权和安全正交**：成本判定不改变授权根、红区要求和安全边界；低成本不豁免红线，高成本也不因流程完整而执行，不得创建规则未要求的 Spec、任务、角色或隔离工作区；已就绪且可复用的环境、缓存、索引与容器不得重复冷启动，失效即按声明回退 cold 或 blocked。验证侧默认只执行快速层，见 test-rules.md 的成本分层与 `vibe-harness verify --tier`。墙钟规划模型为共享准备 + 单元工作/聚焦验证 + 最终集成；单 Agent 是默认执行模式，并行取最长单元并加入协调、fan-in 和 20% 缓冲，预算只是规划证据。
 
 ## 长任务状态锚点与阶段切分
 
@@ -59,7 +59,7 @@
 - v1 合同保持兼容，但只作为 contract-only/degraded 路径，不能授权 hostWrite、externalWrite、凭据、高风险间接写入、红区或 worktree 拓扑变化。高风险任务必须使用 v2，除 v1 字段外冻结 riskClass、canonical cwd、worktree root、Git common dir、git dir、branch、base ref/SHA、initial HEAD、allowed write roots、无凭据 external targets 与宿主注入的 filesystem/approval/process/network 证明。
 - 普通项目内低风险写入保持低摩擦；高风险或不可分类调用缺少可验证 v2 时 fail-closed。缺少宿主证明是能力阻塞，不能通过重复询问用户或由 Agent 自造证明解除；保留不依赖该操作的安全工作。
 - **拆分判定**：按实际依赖、写入隔离和独立并行收益决定是否拆分，不按信号数量或公共契约变化强制拆分。只有子任务边界清晰、合并可控且预期并行收益超过协调开销时才拆分；单 Agent 可以稳定完成的任务直接实施。实际使用两个以上协作单元时才按协作规则维护必要依赖和写入归属，简单任务不创建 DAG。用户请求拆分建议时解释判断即可，不强制输出执行判定字段。Plan 只描述实施方式，不构成新增授权；宿主 Plan 模式保持只读，退出后沿用仍有效的实施授权。
-- **Execution Envelope 与跨域任务**：实际跨域协作时明确共享 API/schema 的唯一写入归属和 fan-in 验收；并发写入需要隔离时分配独立 workspace，不因命中多个领域强制拆分。
+- **Execution Envelope 与跨域任务**：实际跨域协作时明确共享 API/schema 的唯一写入归属和 fan-in 验收；并发写入需要隔离时分配独立 workspace，不因命中多个领域强制拆分。单 Agent 默认；仅独立切片/只读探查/隔离验证可多 Agent，最多 2 个写、4 个读，父 Agent 负责 fan-in/冲突/最终验证/Linear 交付，容量不足则串行；只读记录墙钟、Active/Blocked/Coordination、Fan-out/Fan-in、WIP/Cycle/Lead 与重试/冲突/返工率，不改变授权、优先级或生命周期。
 
 ## 风险档位
 

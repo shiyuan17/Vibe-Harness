@@ -63,10 +63,10 @@ Vibe-Harness 不通过 Stop Hook、运行时脚本或任何默认流程自动执
 - 默认分支模型：`feat/*、fix/* → develop → main`；紧急修复：`hotfix/* → main → develop`。该模型在项目显式建立对应分支后生效；尚未创建 `develop` 或迁移未完成的仓库，以实际默认分支和已声明目标 ref 为准，不按设想中的分支开始工作。
 - 普通任务 PR 使用 squash merge；`develop → main` 的发布提升与 `main → develop` 的回同步使用 merge commit。squash 在目标分支生成的提交主题来自 PR/MR 标题，因此标题与提交主题使用同一 Conventional Commit 语法。
 - `main` 只接受同仓库 `develop`、`hotfix/*` 和 release-please 的 PR，不使用长期 `release/*` 分支；目标项目已配置 `release/*` 时按其保护规则处理。
-- 必须有门禁效果的 required CI 只在发布边界运行：`develop → main` 提升、`hotfix/* → main` 和项目自行配置的 `release/*` 边界；边界检查的名称、聚合方式与是否为唯一 required check 以项目 CI 配置为准。
-- 普通任务 PR 仍会跑不阻断合并的 advisory CI job；`develop` ruleset 不设 required status check，合入 `develop` 不要求远端 CI 或强制审批，Writer 可在 envelope 授权 `mergeRequestWrite` 后自行落地 squash merge；`Ready to Merge` 只用于带门禁目标。
-- 合并前的本地验证必须建立在合并时的最新 `origin/develop` 之上：目标 ref 已前进时重跑受影响检查，或改用 merge queue 在最新 base 上重跑；高风险变更仍须按项目交付文档携带 Independent Review Receipt，shadow 模式下该检查不阻断合并，但收据缺失、与 diff 不匹配或结论为 negative 时不得自行落地合并。
-- 无门禁合入在变更不含高风险路径时以本地验证为唯一前置；高风险路径仍按上一条携带 Independent Review Receipt。无门禁合入还要能快速发现回归：使用项目已启用的 post-merge 检测或等价的合并后检查；发现回归时由落地该合并的 Writer 负责 revert 并重走修复流程，不用改写历史掩盖。
+- `develop` 必须配置稳定的 fast gate 聚合检查，至少覆盖 lint、typecheck、unit，并按变更影响追加 component/integration；发布边界继续使用完整 required CI。
+- 普通任务 PR 仍可由 Writer 在 envelope 授权 `mergeRequestWrite` 后自行 squash merge，但必须先通过 `develop` required fast gate；`Ready to Merge` 仍只用于带发布门禁目标。
+- 合并前的本地验证必须建立在合并时的最新 `origin/develop` 之上：目标 ref 已前进时重跑受影响检查，或改用 merge queue 在最新 base 上重跑；高风险变更的 Independent Review Receipt 缺失、过期、与 diff 不匹配或结论为 negative 时不得自行落地合并。
+- 紧急旁路必须有明确过期时间、授权人和审计记录；不得以 advisory、跳过检查或本地标记静默绕过 required gate。
 
 ## 分支与 PR/MR
 
@@ -76,7 +76,7 @@ Vibe-Harness 不通过 Stop Hook、运行时脚本或任何默认流程自动执
 - PR/MR 标题使用 `<type>(<scope>): <描述>`，因为 squash 合并用它生成目标分支上的提交主题。
 - 单个 PR/MR 尽量只承载一个逻辑目的，超出可审查规模时拆分；确需一次交付的，在描述中说明无法拆分的原因。
 - Linear 工作流下必须给出可解析的精确目标远端 ref；只有解析结果确为仓库默认分支时才可写“默认分支”。开始实现前记录目标 ref 和 base SHA，分支与 worktree 必须从该基线创建。
-- Linear 普通任务默认以 `origin/develop` 为基线；只有 hotfix 以 `origin/main` 为基线。发布提升和回同步使用 `Refs <ISSUE-ID>`，不得用 closing magic word 重复关闭已完成开发 Issue。普通任务 closing PR 合入 `develop` 即为 Done，该合入不要求远端 CI。
+- Linear 普通任务默认以 `origin/develop` 为基线；只有 hotfix 以 `origin/main` 为基线。发布提升和回同步使用 `Refs <ISSUE-ID>`，不得用 closing magic word 重复关闭已完成开发 Issue。普通任务 closing PR 合入 `develop` 即为 Done，但必须先通过 required fast gate。
 - 顺序执行且工作区干净时，任务分支可在当前 clone 创建；并发 Agent、脏工作区、存在无关改动或明确要求隔离时，必须使用仓库外 worktree。该优化不改变“一任务一分支一 closing PR/MR”。
 - 创建 PR/MR 前重新读取远端目标 ref 和 source HEAD，校验提供方所选 base 等于已声明目标 ref，并计算 merge-base。merge-base 必须等于冻结 base SHA，或是该 SHA 在同一目标 ref 历史上的已验证后代；否则停止创建并报告基线不一致。
 - GitHub PR 与 GitLab MR 的标题、source、target、描述和 closing 语义都必须在创建后重读确认。Linear 分支和标题保留 Issue ID；closing 描述使用 `Fixes <ISSUE-ID>`，只有提供方配置并经重读确认的等价语法才可替代；closing 词不放在 commit 中。

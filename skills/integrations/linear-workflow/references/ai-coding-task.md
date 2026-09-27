@@ -67,6 +67,47 @@ all_done 只允许清理或失败报告节点使用，且这类节点应按 aggr
 
 独立旧 Issue 无需迁移，默认视为 Root=None、kind=write、trigger=all_success、resourceLocks=None。
 
+## 墙钟与 Agent 编排（Parent 必填）
+
+```linear-plan
+{
+  "schema": "vibe-harness.linear-plan/v1",
+  "executionMode": "auto",
+  "wallClock": {
+    "budgetMinutes": 0,
+    "sharedPreparationMinutes": 0,
+    "externalWaitBlockMinutes": 0,
+    "activeWorkMinutes": 0,
+    "verificationMinutes": 0,
+    "singleAgentMinutes": 0,
+    "parallelAgentMinutes": 0,
+    "coordinationMinutes": 0,
+    "fanInMinutes": 0,
+    "finalIntegrationMinutes": 0,
+    "uncertaintyBufferRatio": 0.2,
+    "units": [{ "id": "unit-id", "activeMinutes": 0, "verificationMinutes": 0 }],
+    "criticalPath": ["unit-id"],
+    "confidence": "medium"
+  },
+  "agentPlan": {
+    "maxWriteAgents": 2,
+    "maxReadAgents": 4,
+    "fanInOwner": "parent-agent"
+  }
+}
+```
+
+单 Agent 是默认执行模式。只有至少两个 ready 单元、共享 API/Schema/迁移已有唯一 owner、writeScope 与 Resource Lock 完全不重叠、真实 Agent/workspace 容量可用，且预计净节省至少 45 分钟和 25% 时，`auto` 才可选择 `parallel`；否则降级为 `single`。共享契约、数据库迁移、公共模板和最终集成只允许一个 owner 写入。
+
+## 早期探查（存在实质不确定性时选填）
+
+- 待回答问题（入口、数据或环境）：
+- 方法与预计分钟数（普通 REPL / 已声明的受管 Micro / 其他只读探查）：
+- 退出条件与未解决时的风险：
+- 后续正式检查（叶子聚焦验证；Parent fan-in 另行执行）：
+
+首轮规划默认限时 30 分钟，超时未解则记录风险并重新估算；无实质不确定性时跳过。探查时间计入共享准备或叶子 active work 一次，不扣除 verification/fan-in。普通 REPL、临时脚本和人工观察不产出完成收据；只有项目配置中已声明的受管 Micro 可产生 L1 收据，且不能替代下方 Verification。
+
 ## 验证（Verification）
 
 - command or observable check

@@ -22,6 +22,8 @@
 - 禁止 force push 和分支删除。
 - 当前不要求 reviewer 或 CODEOWNERS；有非作者写权限协作者后再启用高风险 owner review。
 
+为 develop 创建 active ruleset，并配置同名的 `merge-gate` required check；启用 strict / require branches to be up to date。develop 至少消费 fast gate，按 change-plan 追加 component/integration；不要求发布级人工审批。
+
 失败 check 会使 merge-gate 失败；PR 新提交会生成新的 check suite，旧 SHA 的结果不能满足最新提交。
 
 ## CI 门禁接线
@@ -31,9 +33,9 @@ workflow 在同一个 <code>pull_request</code> 事件上运行三个一致性 j
 - <code>branch-policy</code>：校验 PR 来源分支，main 只接受同仓库的 <code>develop</code>、<code>hotfix/*</code>、<code>release-please--branches--main*</code>，develop 接受任务分支前缀。
 - <code>independent-review</code>：校验高风险 PR body 中的独立审查收据区块。
 - <code>high-risk-approval</code>：校验是否存在当前的非作者批准。
-- <code>merge-gate</code> 聚合 <code>product</code>、<code>supply-chain</code>、<code>risk-evidence</code> 与以上三个门禁。它同时是 main ruleset 的唯一 required check，因此 develop PR 上的失败不会阻塞合并。
+- <code>merge-gate</code> 聚合 <code>product</code>、<code>supply-chain</code>、<code>risk-evidence</code> 与以上三个门禁，并作为 main 与 develop ruleset 的稳定 required check。
 
-<code>independent-review</code> 与 <code>high-risk-approval</code> 默认 shadow 模式：只记录结论，不因缺少收据或批准而失败；设置 <code>VIBE_HARNESS_INDEPENDENT_REVIEW_MODE=required</code> 或 <code>VIBE_HARNESS_PR_APPROVAL_MODE=required</code> 后才转为强制。
+<code>independent-review</code> 在当前规则下为 required，缺少、过期、与 diff 不匹配或结论为 negative 时阻断高风险合并；<code>high-risk-approval</code> 仍可按项目授权保持 shadow，是否要求人工批准由 ruleset 单独决定。
 
 发布边界另有一道准备度检查：<code>release-verify</code> 在安装依赖前运行 <code>pnpm release:readiness --sha "$GITHUB_SHA" --require-clean</code>，核对 <code>package.json</code>、<code>.release-please-manifest.json</code> 与 <code>CHANGELOG.md</code> 是否一致，并把收据写入 release-artifacts。
 

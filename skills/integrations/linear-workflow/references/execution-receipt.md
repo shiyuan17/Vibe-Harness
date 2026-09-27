@@ -20,7 +20,7 @@ Execution Receipt 是 Linear Issue 上不可变、追加式的结构化评论，
       "startedAt": "RFC3339-UTC"
     }
 
-自动领取使用独立的 v2 Start Receipt，不能把限时授权伪装成一次具体 Issue 的显式请求：
+自动领取使用独立的 v2 Start Receipt，不能把限时授权伪装成一次具体 Issue 的显式请求。新的可写执行使用 v3，并要求 provider 原子 Claim：
 
     {
       "schema": "vibe-harness.linear-execution/v2",
@@ -37,16 +37,37 @@ Execution Receipt 是 Linear Issue 上不可变、追加式的结构化评论，
       "grantId": "opaque-uuid-v4"
     }
 
+v3 在上述字段基础上追加 Claim 绑定：
+
+    {
+      "schema": "vibe-harness.linear-execution/v3",
+      "executionId": "uuid-v4",
+      "source": "explicit-user-request",
+      "agentKey": "codex",
+      "hostKind": "codex-desktop",
+      "delegateId": null,
+      "runtimeInstanceId": "opaque-uuid-v4",
+      "role": "writer",
+      "dagRootIssue": null,
+      "dagNodeIssue": "ENG-123",
+      "startedAt": "RFC3339-UTC",
+      "claimId": "uuid-v4",
+      "leaseExpiresAt": "RFC3339-UTC",
+      "fencingToken": "provider-issued-token",
+      "claimProvider": "linear-provider"
+    }
+
 约束：
 
-- 显式或已委派执行保持 vibe-harness.linear-execution/v1 的原字段与 source 枚举；自动领取只用 vibe-harness.linear-execution/v2，字段另加必填 UUID v4 `grantId`，source 固定为 authorized-auto-claim。
+- v1/v2 保持历史读取兼容；新的可写执行使用 v3，并追加 `claimId`、`leaseExpiresAt`、`fencingToken`、`claimProvider`。v3 自动领取仍要求 UUID v4 `grantId`，source 固定为 authorized-auto-claim。
 - `grantId` 只引用宿主持久的可撤销限时授权，不包含授权内容或个人身份，也不独自证明权限；宿主必须核验队列范围、截止时间、剩余领取数、Agent 身份、effects 和逐 Issue v2 Envelope。
 - executionId 和 runtimeInstanceId 是新生成的 UUID v4。runtimeInstanceId 只用于 Receipt 关联，不得复制宿主 thread、session、OAuth session、用户名、主机名或其他真实会话标识。
-- v1 source 只允许 explicit-user-request、existing-delegate、authorized-handoff；v2 source 只允许 authorized-auto-claim。
+- v1 source 只允许 explicit-user-request、existing-delegate、authorized-handoff；v2 source 只允许 authorized-auto-claim；v3 支持四种 source，但自动领取必须携带 grantId。
 - agentKey 和 hostKind 使用稳定、低基数的产品标识；role 只允许 writer。
 - delegateId 是当前原生 Delegate/App User ID；fallback label 模式填写 null。
 - dagRootIssue 为顶层 Parent 标识；独立 Issue 填 null。dagNodeIssue 必须是当前 Issue。
 - startedAt 使用 UTC RFC3339 时间，不得倒签或回填。
+- provider 不支持原子 Claim 时必须 fail-closed，不得使用本地锁替代；lease 过期后必须重新授权并生成新的 fencing token。
 
 ## 终结事件（Terminal Event）
 

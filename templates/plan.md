@@ -26,6 +26,53 @@
 
 按可独立验证的增量描述目标、修改位置、依赖和产物。每个增量必须在进入下一个依赖增量前完成验证。
 
+## 墙钟与 Agent 编排
+
+Parent 计划必须先估算单 Agent 与受限并行的墙钟时间，再决定执行模式。规划必须区分 active work、external wait/block、coordination/fan-in 和 verification；墙钟预算是规划证据，不是完成授权或时间承诺。
+
+```linear-plan
+{
+  "schema": "vibe-harness.linear-plan/v1",
+  "executionMode": "auto",
+  "wallClock": {
+    "budgetMinutes": 600,
+    "sharedPreparationMinutes": 30,
+    "externalWaitBlockMinutes": 15,
+    "activeWorkMinutes": 390,
+    "verificationMinutes": 90,
+    "singleAgentMinutes": 585,
+    "parallelAgentMinutes": 432,
+    "coordinationMinutes": 30,
+    "fanInMinutes": 45,
+    "finalIntegrationMinutes": 60,
+    "uncertaintyBufferRatio": 0.2,
+    "units": [
+      { "id": "U1", "activeMinutes": 120, "verificationMinutes": 30 },
+      { "id": "U3", "activeMinutes": 150, "verificationMinutes": 30 },
+      { "id": "U5", "activeMinutes": 120, "verificationMinutes": 30 }
+    ],
+    "criticalPath": ["U3"],
+    "confidence": "medium"
+  },
+  "agentPlan": {
+    "maxWriteAgents": 2,
+    "maxReadAgents": 4,
+    "fanInOwner": "parent-agent"
+  }
+}
+```
+
+`auto` 只有在至少两个 ready 单元、共享契约已有唯一 owner、writeScope 与 Resource Lock 完全隔离、真实 Agent/workspace 容量可用且预计净节省至少 45 分钟和 25% 时才选择 `parallel`，否则降级为 `single`。默认最多 2 个并行写 Agent、4 个只读 Agent；共享契约、数据库迁移、公共模板和最终集成只由一个 owner 写入。
+
+### 早期探查（存在实质不确定性时选填）
+
+- 待回答问题（入口、数据或环境）：
+- 方法与预计分钟数（普通 REPL / 已声明的受管 Micro / 其他只读探查）：
+- 退出条件与未解决时的风险：
+- 后续正式检查：
+
+探查只计入共享准备或单元 active work 一次，不抵扣 verification/fan-in；首轮规划默认限时 30 分钟，未解决时记录风险并重新估算。普通 REPL、临时脚本和人工观察不是完成收据；已声明的受管 Micro 仅提供 L1 局部证据，不能替代聚焦测试或最终集成。
+
 ## 验收方式
 
 为每项验收提供唯一 ID、实际命令或人工判据、预期结果和所需证据。

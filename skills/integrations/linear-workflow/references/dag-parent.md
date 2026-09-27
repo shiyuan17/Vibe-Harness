@@ -40,6 +40,23 @@ all_success 要求全部直接前驱成功。all_done 只允许聚合终态、�
 
 不定义 optional node：Parent 下所有 descendant node 都是 required。多层 Parent 也必须是 aggregate。
 
+## 墙钟与 Agent 编排（Parent 必填）
+
+在本节之后追加一个 `linear-plan` JSON block，字段以
+`schemas/linear-plan.schema.json` 为准。`wallClock` 必须包含 active work、
+external wait/block、verification、coordination/fan-in、串行/并行估算和关键路径；
+`agentPlan.fanInOwner` 固定为 `parent-agent`。缺少该 block 的新 Parent 计划不得派发，
+旧 Parent 计划只允许读取并必须先迁移。
+
+## 早期探查（存在实质不确定性时选填）
+
+- 待回答问题（入口、数据或环境）：
+- 方法与预计分钟数（普通 REPL / 已声明的受管 Micro / 其他只读探查）：
+- 退出条件与未解决时的风险：
+- 后续正式检查：
+
+首轮规划默认限时 30 分钟，未解决时记录风险并重新估算。探查时间只计入共享准备一次，不减少最终验证时间。普通 REPL、临时脚本或人工观察不能作为完成收据；已声明的受管 Micro 即使通过也仅证明 L1 局部观察。
+
 ## Fan-in 验证（Fan-in Verification）
 
 - command or observable end-to-end check

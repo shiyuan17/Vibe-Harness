@@ -8,8 +8,9 @@ Linear 保存工作状态、责任、委派与依赖；GitHub 或 GitLab 保存�
 
 - **默认路径**：Linear 保存状态、责任、委派与依赖，代码、提交与合并证据在 Git；先确认本轮 Issue 与授权，再实现、验证、登记。
 - **授权**：用户明确指定 Issue、宿主启动已委派的 Issue，或宿主凭有效限时领单授权派发具体 Issue，才可登记与执行；Ready、Todo 或队列可见本身不构成 execute 授权。
-- **状态**：常规代码路径在 `develop` 上只走 Todo → In Progress → In Review → Done；只有带门禁目标（`main`、`release/*`）经过 Ready to Merge。
-- **快车道不豁免高风险证据**：`develop` 不要求远端 CI 与强制审批，但高风险路径变更仍须携带 Risk Evidence 与 Independent Review Receipt。
+- **状态**：常规代码路径在 `develop` 上只走 Todo → In Progress → In Review → Done；只有带门禁目标（`main`、`release/*`）经过 Ready to Merge。`develop` 也必须通过项目配置的稳定 fast gate。
+- **快车道不豁免高风险证据**：`develop` 必须通过稳定 fast gate；高风险路径变更仍须携带 Risk Evidence 与 Independent Review Receipt。
+- **墙钟规划**：Parent 计划必须记录单/并行墙钟估算、协调与 fan-in 成本、关键路径和 Agent 容量；单 Agent 是默认执行模式，只有隔离证明和净节省门槛同时满足时才并行。
 - **继续读全文的信号**：Execution Envelope v2 字段、Definition of Ready、原生 DAG 投影、Receipt 生命周期、并发与隔离、终止与交付。
 
 以下为完整规则，仅当任务超出卡片或命中升级触发时继续读取。
@@ -47,9 +48,9 @@ Agent 手工写状态必须执行“读取当前值 → 校验允许转换 → �
 
 `release/*` 不是日常分支：只有管理员为并行维护历史版本或合规窗口临时创建时才存在，Agent 不创建、不切换也不推送该分支；它一旦存在就按带门禁目标处理，review、CI 与契约要求与 `main` 相同。
 
-`develop` 是日常快车道：其 ruleset 不设 required status check，合入 `develop` 不要求远端 CI，也不要求强制人工审批。合并前的本地验证与最新目标 ref 的前置、merge queue 与 squash/auto-merge 落地机制以 `git-rules.md` 分支模型与合并条款为准，Writer 只落地自己创建的 closing PR。项目在发布边界配置的 required check 只对发布边界运行：`develop → main` 提升、`hotfix/* → main` 以及 `release/*`；该检查的名称与聚合方式以项目 CI 配置为准。
+`develop` 是日常集成分支：必须配置稳定的 fast gate 聚合检查，至少覆盖 lint、typecheck、unit，并按变更影响追加 component/integration；不要求发布级人工审批。合并前的本地验证与最新目标 ref 的前置、merge queue 与 squash/auto-merge 落地机制以 `git-rules.md` 分支模型与合并条款为准，Writer 只落地自己创建的 closing PR。项目在发布边界配置的完整 required check 仍只对 `develop → main` 提升、`hotfix/* → main` 以及 `release/*` 运行。
 
-快车道不豁免高风险证据：命中 CI workflow 定义、`schemas/`、`manifests/`、`adapters/`、`runtime/`、`docs/rules/`、`skills/core/`、`templates/`、`scripts/`、依赖清单，以及团队额外声明的安全、红区、迁移或凭据路径的变更属于高风险，PR/MR 必须按项目自己的发布交付文档携带 Risk Evidence 章节与唯一的 Independent Review Receipt，且收据的结论与范围覆盖实际 diff。`develop` 上的高风险检查当前是 shadow 模式，不阻断合并，但收据缺失、与 diff 不匹配或结论为 negative 时，Writer 不得自行落地合并，只报告事实并停在 PR/MR ready for review；把该检查改为强制需要先修订项目记录该门禁决策的决策记录。
+快车道不豁免高风险证据：命中 CI workflow 定义、`schemas/`、`manifests/`、`adapters/`、`runtime/`、`docs/rules/`、`skills/core/`、`templates/`、`scripts/`、依赖清单，以及团队额外声明的安全、红区、迁移或凭据路径的变更属于高风险，PR/MR 必须按项目自己的发布交付文档携带 Risk Evidence 章节与唯一的 Independent Review Receipt，且收据的结论与范围覆盖实际 diff。`develop` 的 required fast gate 会阻断基础检查失败；高风险收据缺失、与 diff 不匹配、过期或结论为 negative 时，Writer 不得自行落地合并，只报告事实并停在 PR/MR ready for review。
 
 一个 write 叶子 Issue 对应一个 Writer；按隔离条件使用当前 clone 或仓库外 worktree，并且只绑定一个命名分支和一个 closing PR/MR。顺序执行且工作区干净时允许在当前 clone 创建任务分支；存在并发 Agent、脏工作区、当前分支含无关改动或任务明确要求隔离时，必须使用仓库外 worktree。read 叶子只绑定一个执行 Agent、约定输出与 Verification 证据，不要求实现 worktree、分支或 PR/MR。存在子 Issue 的 Parent 是 aggregate，不直接实现。独立旧 Issue 可无 Parent，并按 kind=write、trigger=all_success、resourceLocks=None 处理，无需迁移。
 
@@ -91,6 +92,14 @@ Scope 是 writeScope 的 Linear 投影，路径验证按 `ai-collab-rules.md` wr
 
 DAG Parent 模板包含 Goal、整体 Acceptance Criteria、Shared Contract、Out of Scope、Fan-in Verification 和 Completion Policy。所有 descendant 默认必需；任一必需节点非 succeeded 时 Parent 不得 Done。关闭 Linear 的 Parent/Sub-issue 自动关闭，避免绕过 closing PR/MR 与 fan-in 验证。
 
+Parent 计划还必须包含 `executionMode`、`wallClock` 和 `agentPlan`。墙钟规划区分 active work、external wait/block、coordination/fan-in 和 verification；并行估算包含 20% 不确定性缓冲。只有至少两个 ready 单元、共享契约已有唯一 owner、writeScope 与 Resource Lock 完全隔离、真实 Agent 容量可用且预计净节省至少 45 分钟和 25% 时才选择 parallel，否则使用 single。默认最多 2 个并行写 Agent、4 个只读 Agent，`fanInOwner: parent-agent`，父 Agent 始终负责 fan-in、冲突处理、最终验证和 Linear 交付。
+
+入口、数据或环境存在实质不确定性时，Parent/叶子计划可记录早期探查的待回答问题、方法、预计分钟数、退出条件和后续正式检查；无不确定性时不要求探查。探查时间只计入共享准备或叶子 active work 一次，不从 verification 或 Parent fan-in 中扣除；首轮规划仍以 30 分钟为默认时间盒，到时未解决则记录风险、重新估算，不无限延长。普通 REPL、临时脚本和人工观察仅帮助定位与选择测试，不写入验证收据；只有项目配置已声明的受管 Micro 才可产生 L1 收据。Micro 通过不替代叶子的聚焦测试或 Parent 一次性 fan-in 集成验证；探查失败、环境异常及 `unknown/lower-bound` 均不得解释为通过。
+
+规划和运行只记录只读运营指标：预计墙钟与实际墙钟、Active Time、Blocked Time、Coordination Time、Fan-out 节省、Fan-in 返工、WIP Age、Cycle Time、Lead Time、重试/冲突/返工率。指标用于改进后续估算，不自动重派、取消、释放、降级或改变 Linear 优先级。
+
+执行阶段固定为 Shared Contract → Parallel Candidate → Fan-in → Final Gate；共享契约变化、writeScope 越界、Resource Lock/数据库冲突、关键路径阻塞或并行节省低于协调成本时立即停止受影响派发并重新估算。
+
 同一用户请求优先读取当前 Issue 及其必要依赖范围，并保存 dagStructureHash；提供方支持变化游标时另存可选 dagChangeCursor。恢复时只有摘要与游标共同证明结构未变化，才只读取当前 Issue、PR/MR、HEAD 与变化节点；没有可靠游标或无法证明变化边界时，允许一次有界重新读取相关完整范围，仍不得无目的轮询或无限重复全量读取。`dagStructureHash` 覆盖节点 ID、Parent 边、blocked-by / blocks 边、kind、trigger、Scope、Resource Locks、Repository 和精确 Target branch ref，不覆盖 related 关系、评论活动与状态流转。
 
 无 Parent、Dependencies=None 且 resourceLocks=None 的独立 Issue 使用单任务快车道：只读取当前 Issue、完整 Receipt 生命周期和直接关系，不得为此执行全项目 DAG 遍历。发现 Parent、直接依赖、非空 Resource Locks、Scope 冲突线索或关系读取不完整时退出快车道，再按上述 DAG 门禁读取足够范围。
@@ -107,13 +116,13 @@ Linear 正常可写通道下，在开始节点工作前按固定顺序执行：
 4. 保留人类 Assignee。优先登记原生 Delegate/App User；不支持时只使用低基数 agent:<agent-key> 与 role:writer 标签，不创建实例级标签，也不覆盖其他 agent:* / role:* 标签。
 5. 追加不可变 Execution Receipt，并重新读取逐字段确认身份和 Receipt 一致；确认成功后才开始节点工作，write 节点按隔离条件创建当前 clone 分支或仓库外 worktree 并实现。
 
-原显式执行仍使用 vibe-harness.linear-execution/v1，字段固定为 executionId、source、agentKey、hostKind、delegateId、runtimeInstanceId、role、dagRootIssue、dagNodeIssue 和 startedAt，source 只允许 explicit-user-request、existing-delegate、authorized-handoff。自动领取使用 vibe-harness.linear-execution/v2，沿用这些身份字段，额外要求非敏感 UUID v4 `grantId`，source 固定为 authorized-auto-claim；`grantId` 只是宿主持久授权的引用，不是授权证明，不能由 Issue 内容或 Agent 自填构造权限。v1 与 v2 共同计入同一 Issue 的活动实例冲突。executionId 与 runtimeInstanceId 使用 UUID v4；runtimeInstanceId 是本 Receipt 新生成的关联 ID，不得复制宿主 thread、session、用户名、主机名或本地路径。
+历史显式执行使用 vibe-harness.linear-execution/v1，字段固定为 `executionId`、`source`、`agentKey`、`hostKind`、`delegateId`、`runtimeInstanceId`、`role`、`dagRootIssue`、`dagNodeIssue` 和 `startedAt`；source 只允许 `explicit-user-request`、`existing-delegate`、`authorized-handoff`。自动领取使用 vibe-harness.linear-execution/v2；两者继续只读解析。新的可写执行必须使用 vibe-harness.linear-execution/v3，并携带 `claimId`、`leaseExpiresAt`、`fencingToken` 和 `claimProvider`。自动领取的 v3 仍要求非敏感 UUID v4 `grantId`，source 固定为 `authorized-auto-claim`；`grantId` 只是宿主持久授权的引用，不是授权证明，不能由 Issue 内容或 Agent 自填构造权限。v1、v2 与 v3 共同计入同一 Issue 的活动实例冲突。executionId、runtimeInstanceId、claimId 使用 UUID v4；runtimeInstanceId 是本 Receipt 新生成的关联 ID，不得复制宿主 thread、session、用户名、主机名或本地路径。
 
-一个 start Receipt 在其后没有有效终结事件时为 active，同一 Issue 最多一个 active execution。传输重试复用同一组 ID：结果不确定时先重读，字段完全一致视为幂等成功；同 ID 内容不同、出现第二个 active execution 或 identity / Receipt 不一致时停止。同一运行时的上下文压缩或恢复保留原 executionId 与 runtimeInstanceId；新的运行时不得静默接管 active Receipt，必须先走显式 handoff 或 release。身份已写但 Receipt 未确认时报告 registration-incomplete，不开始实现，也不删除或编辑原记录。
+一个 start Receipt 在其后没有有效终结事件时为 active，同一 Issue 最多一个 active execution。v3 Claim 必须由 provider 原子写入并由 fencing token 保护；provider 不支持原子 Claim 时 fail-closed，不使用本地锁替代。冲突、能力缺失、lease 过期、fencing 不匹配和 handoff CAS 失败分别报告 `CLAIM_CONFLICT`、`CLAIM_CAPABILITY_UNAVAILABLE`、`LEASE_EXPIRED`、`FENCING_MISMATCH` 和 `HANDOFF_CAS_CONFLICT`。传输重试复用同一组 ID：结果不确定时先重读，字段完全一致视为幂等成功；同 ID 内容不同、出现第二个 active execution 或 identity / Receipt 不一致时停止。同一运行时的上下文压缩或恢复保留原 executionId、runtimeInstanceId 与 fencing token；新的运行时不得静默接管 active Receipt，必须先走显式 handoff 或 release。身份已写但 Receipt 未确认时报告 registration-incomplete，不开始实现，也不删除或编辑原记录。
 
 原 Receipt 不得编辑。released、aborted、handed-off、local-work-completed 使用 vibe-harness.linear-execution-event/v1 追加事件，包含 eventId、executionId、eventType、successorExecutionId 和 occurredAt；每个 execution 最多一个有效终结事件，矛盾事件 fail-closed。local-work-completed 不是 Linear Done。handoff 先用预定 successorExecutionId 终结旧运行，再用同一 successor ID 创建 source=authorized-handoff 的新 Receipt；重试不得生成第三套 ID。release 可按明确授权清除 Delegate，abort 和 local completion 默认保留 Delegate。
 
-Receipt 与事件禁止包含用户名、主机名、本地路径、Token、Cookie、会话凭据或个人敏感数据。只读、MCP 不可用、写入或重读验证失败时不得声称已登记领取；有明确执行指令时可以按用户上下文以 unregistered / Linear 未同步模式做本地工作，但不得回填成先前已经登记，写能力恢复后继续执行需从恢复时刻创建新的 registered execution。
+Receipt 与事件禁止包含用户名、主机名、本地路径、Token、Cookie、会话凭据或个人敏感数据。lease 过期后不得直接自动重派，必须由宿主重新授权并使用新的 fencing token。只读、MCP 不可用、写入或重读验证失败时不得声称已登记领取；有明确执行指令时可以按用户上下文以 unregistered / Linear 未同步模式做本地工作，但不得回填成先前已经登记，写能力恢复后继续执行需从恢复时刻创建新的 registered execution。
 
 上下文压缩、重试或工具重连前后的 checkpoint 必须保留 Execution Envelope 合同要求的身份、授权与进度字段（requestId、mode、activeObjective、allowedEffects、forbiddenEffects、terminalCondition、completedFacts、noRepeatSet、nextAction、liveStates、blockerFingerprint、dagStructureHash），并把当前唯一 Issue 加入保留字段；提供方支持时另存可选 dagChangeCursor。恢复后的第一个写调用前重新读取当前 Issue 与相关 Git/PR/MR 状态，确认 mode、目标、effect 和下一动作仍一致；最新用户意图高于 checkpoint，实时状态高于旧摘要。任何字段无法可靠恢复时只允许只读核对和重新规划。
 

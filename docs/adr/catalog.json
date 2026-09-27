@@ -32,6 +32,10 @@
     {
       "id": "ADR-0008",
       "path": "docs/adr/ADR-0008-bounded-linear-auto-claim.md"
+    },
+    {
+      "id": "ADR-0009",
+      "path": "docs/adr/ADR-0009-develop-required-fast-gate.md"
     }
   ]
 }
