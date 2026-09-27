@@ -1179,6 +1179,110 @@
       "addedAt": "2026-09-16"
     },
     {
+      "id": "U-linear-metrics-001",
+      "layer": "unit",
+      "file": "tests/unit/linear-metrics.test.js",
+      "ordinal": 1,
+      "name": "operations events are append-only safe and aggregate read-only metrics",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-27"
+    },
+    {
+      "id": "U-linear-metrics-002",
+      "layer": "unit",
+      "file": "tests/unit/linear-metrics.test.js",
+      "ordinal": 2,
+      "name": "operations metrics reject sensitive fields and report unavailable evidence",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-27"
+    },
+    {
+      "id": "U-linear-planning-001",
+      "layer": "unit",
+      "file": "tests/unit/linear-planning.test.js",
+      "ordinal": 1,
+      "name": "wall-clock estimation separates serial work, parallel overhead, and critical path",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-26"
+    },
+    {
+      "id": "U-linear-planning-002",
+      "layer": "unit",
+      "file": "tests/unit/linear-planning.test.js",
+      "ordinal": 2,
+      "name": "parallel mode requires isolation, frozen contract, capacity, and net savings",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-26"
+    },
+    {
+      "id": "U-linear-planning-003",
+      "layer": "unit",
+      "file": "tests/unit/linear-planning.test.js",
+      "ordinal": 3,
+      "name": "single mode is fail-safe when capacity or contract conditions are missing",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-26"
+    },
+    {
+      "id": "U-linear-planning-004",
+      "layer": "unit",
+      "file": "tests/unit/linear-planning.test.js",
+      "ordinal": 4,
+      "name": "single mode rejects parallelism when coordination erases the wall-clock gain",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-26"
+    },
+    {
+      "id": "U-linear-planning-005",
+      "layer": "unit",
+      "file": "tests/unit/linear-planning.test.js",
+      "ordinal": 5,
+      "name": "wall-clock planning contract validates bounded agent caps and fan-in ownership",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-26"
+    },
+    {
+      "id": "U-linear-planning-006",
+      "layer": "unit",
+      "file": "tests/unit/linear-planning.test.js",
+      "ordinal": 6,
+      "name": "wall-clock validation rejects stale totals, missing units, and undersized budgets",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-27"
+    },
+    {
       "id": "U-managed-json-config-001",
       "layer": "unit",
       "file": "tests/unit/managed-json-config.test.js",
@@ -7150,13 +7254,13 @@
       "layer": "integration",
       "file": "tests/integration/eval-ci.test.js",
       "ordinal": 9,
-      "name": "CI 独立复审保持 shadow 观测并消费 v2 双复审契约",
+      "name": "CI 独立复审以 required 模式消费 v2 双复审契约",
       "legacy": false,
       "risk": "standard",
       "owner": "maintainers",
       "source": "declared",
       "status": "active",
-      "addedAt": "2026-09-24"
+      "addedAt": "2026-09-27"
     },
     {
       "id": "I-eval-cli-001",
@@ -9187,6 +9291,32 @@
       "addedAt": "2026-09-26"
     },
     {
+      "id": "I-linear-workflow-018",
+      "layer": "integration",
+      "file": "tests/integration/linear-workflow.test.js",
+      "ordinal": 18,
+      "name": "Linear wall-clock orchestration keeps planning contracts aligned and fails closed",
+      "legacy": false,
+      "risk": "high",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-26"
+    },
+    {
+      "id": "I-linear-workflow-019",
+      "layer": "integration",
+      "file": "tests/integration/linear-workflow.test.js",
+      "ordinal": 19,
+      "name": "Linear early exploration remains optional and cannot replace formal verification",
+      "legacy": false,
+      "risk": "high",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-27"
+    },
+    {
       "id": "I-lint-discovery-001",
       "layer": "integration",
       "file": "tests/integration/lint-discovery.test.js",
@@ -11050,20 +11180,20 @@
       "layer": "integration",
       "file": "tests/integration/project-task-command.test.js",
       "ordinal": 25,
-      "name": "plan-check 拒绝执行块越界与受保护资产写入",
+      "name": "plan-check validates the linear wall-clock contract and rejects stale estimates",
       "legacy": false,
       "risk": "standard",
       "owner": "maintainers",
       "source": "declared",
       "status": "active",
-      "addedAt": "2026-09-24"
+      "addedAt": "2026-09-27"
     },
     {
       "id": "I-project-task-command-026",
       "layer": "integration",
       "file": "tests/integration/project-task-command.test.js",
       "ordinal": 26,
-      "name": "plan-check 拒绝非法依赖与依赖成环",
+      "name": "plan-check 拒绝执行块越界与受保护资产写入",
       "legacy": false,
       "risk": "standard",
       "owner": "maintainers",
@@ -11076,7 +11206,7 @@
       "layer": "integration",
       "file": "tests/integration/project-task-command.test.js",
       "ordinal": 27,
-      "name": "plan-check 拒绝未绑定的验收 ID 并把未认领验收记为警告",
+      "name": "plan-check 拒绝非法依赖与依赖成环",
       "legacy": false,
       "risk": "standard",
       "owner": "maintainers",
@@ -11089,7 +11219,7 @@
       "layer": "integration",
       "file": "tests/integration/project-task-command.test.js",
       "ordinal": 28,
-      "name": "缺少执行块的旧计划只产生警告并保持可绑定",
+      "name": "plan-check 拒绝未绑定的验收 ID 并把未认领验收记为警告",
       "legacy": false,
       "risk": "standard",
       "owner": "maintainers",
@@ -11102,7 +11232,7 @@
       "layer": "integration",
       "file": "tests/integration/project-task-command.test.js",
       "ordinal": 29,
-      "name": "task check 拒绝执行块未声明的单元",
+      "name": "缺少执行块的旧计划只产生警告并保持可绑定",
       "legacy": false,
       "risk": "standard",
       "owner": "maintainers",
@@ -11115,7 +11245,7 @@
       "layer": "integration",
       "file": "tests/integration/project-task-command.test.js",
       "ordinal": 30,
-      "name": "freeze-tests 只接受真实红灯，rebaseline-tests 需要受保护批准",
+      "name": "task check 拒绝执行块未声明的单元",
       "legacy": false,
       "risk": "standard",
       "owner": "maintainers",
@@ -11128,7 +11258,7 @@
       "layer": "integration",
       "file": "tests/integration/project-task-command.test.js",
       "ordinal": 31,
-      "name": "task check --complete 在存在 blocker 时保持阻塞",
+      "name": "freeze-tests 只接受真实红灯，rebaseline-tests 需要受保护批准",
       "legacy": false,
       "risk": "standard",
       "owner": "maintainers",
@@ -11141,7 +11271,7 @@
       "layer": "integration",
       "file": "tests/integration/project-task-command.test.js",
       "ordinal": 32,
-      "name": "task check --complete 拒绝没有验证收据的 done 单元",
+      "name": "task check --complete 在存在 blocker 时保持阻塞",
       "legacy": false,
       "risk": "standard",
       "owner": "maintainers",
@@ -11154,7 +11284,7 @@
       "layer": "integration",
       "file": "tests/integration/project-task-command.test.js",
       "ordinal": 33,
-      "name": "task update --clear-blockers 解除已解决的外部阻塞并可判定完成",
+      "name": "task check --complete 拒绝没有验证收据的 done 单元",
       "legacy": false,
       "risk": "standard",
       "owner": "maintainers",
@@ -11167,7 +11297,7 @@
       "layer": "integration",
       "file": "tests/integration/project-task-command.test.js",
       "ordinal": 34,
-      "name": "失败单元阻塞依赖单元的派发前校验",
+      "name": "task update --clear-blockers 解除已解决的外部阻塞并可判定完成",
       "legacy": false,
       "risk": "standard",
       "owner": "maintainers",
@@ -11180,6 +11310,19 @@
       "layer": "integration",
       "file": "tests/integration/project-task-command.test.js",
       "ordinal": 35,
+      "name": "失败单元阻塞依赖单元的派发前校验",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-24"
+    },
+    {
+      "id": "I-project-task-command-036",
+      "layer": "integration",
+      "file": "tests/integration/project-task-command.test.js",
+      "ordinal": 36,
       "name": "派发拒绝与执行中单元重叠的写入且允许独立单元",
       "legacy": false,
       "risk": "standard",
@@ -11189,10 +11332,10 @@
       "addedAt": "2026-09-26"
     },
     {
-      "id": "I-project-task-command-036",
+      "id": "I-project-task-command-037",
       "layer": "integration",
       "file": "tests/integration/project-task-command.test.js",
-      "ordinal": 36,
+      "ordinal": 37,
       "name": "freeze-tests 校验红灯真实性与覆盖范围",
       "legacy": false,
       "risk": "standard",
@@ -11202,10 +11345,10 @@
       "addedAt": "2026-09-24"
     },
     {
-      "id": "I-project-task-command-037",
+      "id": "I-project-task-command-038",
       "layer": "integration",
       "file": "tests/integration/project-task-command.test.js",
-      "ordinal": 37,
+      "ordinal": 38,
       "name": "验证收据携带任务与计划关联并拒绝跨任务收据",
       "legacy": false,
       "risk": "standard",
@@ -12097,6 +12240,32 @@
       "source": "declared",
       "status": "active",
       "addedAt": "2026-09-26"
+    },
+    {
+      "id": "I-receipt-records-010",
+      "layer": "integration",
+      "file": "tests/integration/receipt-records.test.js",
+      "ordinal": 10,
+      "name": "v3 receipts preserve legacy reads and require atomic claim metadata",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-27"
+    },
+    {
+      "id": "I-receipt-records-011",
+      "layer": "integration",
+      "file": "tests/integration/receipt-records.test.js",
+      "ordinal": 11,
+      "name": "atomic claim is provider-gated, idempotent, fenced, and lease-aware",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-27"
     },
     {
       "id": "I-release-readiness-001",
@@ -17042,6 +17211,7 @@
     "tests/integration/project-commands.test.js": [
       "runtime/commands/run.mjs",
       "runtime/lib/git-fingerprint.mjs",
+      "runtime/lib/linear-planning.mjs",
       "runtime/lib/micro-runner.mjs",
       "runtime/lib/worktree-audit.mjs",
       "runtime/lib/worktree-ports.mjs"
@@ -17145,6 +17315,7 @@
     "tests/integration/project-file-edit-command.test.js": [
       "runtime/commands/run.mjs",
       "runtime/lib/git-fingerprint.mjs",
+      "runtime/lib/linear-planning.mjs",
       "runtime/lib/micro-runner.mjs",
       "runtime/lib/worktree-audit.mjs",
       "runtime/lib/worktree-ports.mjs",
@@ -17189,6 +17360,7 @@
     "tests/integration/project-task-command.test.js": [
       "runtime/commands/run.mjs",
       "runtime/lib/git-fingerprint.mjs",
+      "runtime/lib/linear-planning.mjs",
       "runtime/lib/micro-runner.mjs",
       "runtime/lib/worktree-audit.mjs",
       "runtime/lib/worktree-ports.mjs"
@@ -17210,12 +17382,14 @@
     "tests/integration/project-worktree-command.test.js": [
       "runtime/commands/run.mjs",
       "runtime/lib/git-fingerprint.mjs",
+      "runtime/lib/linear-planning.mjs",
       "runtime/lib/micro-runner.mjs",
       "runtime/lib/worktree-audit.mjs",
       "runtime/lib/worktree-ports.mjs",
       "scripts/lib/temp-cleanup.js"
     ],
     "tests/integration/receipt-records.test.js": [
+      "scripts/lib/linear-claim.js",
       "scripts/lib/receipt-records.js",
       "scripts/lib/temp-cleanup.js"
     ],
@@ -17667,6 +17841,13 @@
     ],
     "tests/unit/goal-definition-metrics.test.js": [
       "scripts/lib/goal-definition-metrics.js"
+    ],
+    "tests/unit/linear-metrics.test.js": [
+      "scripts/lib/linear-metrics.js"
+    ],
+    "tests/unit/linear-planning.test.js": [
+      "scripts/lib/linear-planning.js",
+      "scripts/lib/task-dag.js"
     ],
     "tests/unit/managed-json-config.test.js": [
       "scripts/lib/managed-json-config.js",

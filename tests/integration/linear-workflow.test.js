@@ -379,9 +379,14 @@ test('Codex Linear install validates and uninstalls without persisting credentia
     assert.doesNotMatch(content, /token|api[_-]?key|bearer/iu);
     const installedRule = await readFile(path.join(target, 'docs/rules/linear-workflow.md'), 'utf8');
     const installedSkill = await readFile(path.join(target, '.agents/skills/linear-workflow/SKILL.md'), 'utf8');
+    const installedTaskTemplate = await readFile(path.join(target, 'docs/templates/linear/ai-coding-task.md'), 'utf8');
     const installedReceipt = await readFile(path.join(target, '.agents/skills/linear-workflow/references/execution-receipt.md'), 'utf8');
     assert.match(installedRule, /无有效授权时禁止自动领取/u);
     assert.match(installedSkill, /独占派发证明/u);
+    for (const content of [installedRule, installedSkill, installedTaskTemplate]) {
+      assert.match(content, /早期探查/u);
+      assert.match(content, /普通 REPL/u);
+    }
     assert.match(installedReceipt, /vibe-harness\.linear-execution\/v2/u);
     assert.equal((await runCli(['validate', '--project', target])).ok, true);
     await runCli(['rollback', '--project', target, '--write', '--confirm-red-zone']);
@@ -456,6 +461,118 @@ test('Linear auto-claim Evals distinguish valid host grants from unsafe dispatch
   ]);
   for (const [id, decision] of expected) {
     const definition = byId.get(id);
+    assert.ok(definition, id);
+    assert.equal(definition.oracle.exactOutput.value, decision);
+    const good = { artifacts: [], events: [], exitCode: 0, output: decision };
+    assert.equal((await scoreCase({ definition, observation: good })).passed, true, id);
+    assert.equal((await scoreCase({ definition, observation: { ...good, output: 'WRONG_DECISION' } })).passed, false, id);
+    assert.equal((await scoreCase({ definition, observation: { ...good, events: ['linear-write-invoked'] } })).passed, false, id);
+  }
+});
+
+test('Linear wall-clock orchestration keeps planning contracts aligned and fails closed', async () => {
+  const rule = await readFile(path.join(rootDir, LINEAR_RULE), 'utf8');
+  const skill = await readFile(path.join(rootDir, LINEAR_SKILL), 'utf8');
+  const planTemplate = await readFile(path.join(rootDir, 'docs/templates/plan.md'), 'utf8');
+  const taskTemplate = await readFile(path.join(rootDir, 'docs/templates/task.md'), 'utf8');
+  const codingTemplate = await readFile(
+    path.join(rootDir, 'skills/integrations/linear-workflow/references/ai-coding-task.md'),
+    'utf8',
+  );
+  for (const content of [rule, skill, planTemplate, codingTemplate]) {
+    assert.match(content, /executionMode/u);
+    assert.match(content, /(?:fanInOwner: parent-agent|"fanInOwner": "parent-agent")/u);
+  }
+  assert.match(taskTemplate, /执行模式：auto \/ single \/ parallel/u);
+  assert.match(taskTemplate, /fanInOwner：parent-agent/u);
+  assert.match(rule, /`wallClock`/u);
+  assert.match(skill, /`wallClock`/u);
+  for (const template of [planTemplate, codingTemplate]) {
+    assert.match(template, /"wallClock":/u);
+  }
+  assert.match(taskTemplate, /墙钟预算（分钟）/u);
+  for (const content of [rule, skill]) {
+    assert.match(content, /Shared Contract/u);
+    assert.match(content, /Parallel Candidate/u);
+    assert.match(content, /Fan-in/u);
+    assert.match(content, /Final Gate/u);
+    assert.match(content, /Active Time/u);
+    assert.match(content, /Blocked Time/u);
+    assert.match(content, /Coordination Time/u);
+    assert.match(content, /WIP Age/u);
+    assert.match(content, /自动重派/u);
+  }
+
+  const suite = JSON.parse(await readFile(path.join(rootDir, 'evals/suites/linear-workflow-online.json'), 'utf8'));
+  assert.equal(suite.version, '1.5.0');
+  const byId = new Map(suite.cases.map((item) => [item.id, item]));
+  const expected = new Map([
+    ['EVAL-LINEAR-031', 'SINGLE_AGENT_COORDINATION_COST'],
+    ['EVAL-LINEAR-032', 'SINGLE_AGENT_SHARED_CONTRACT'],
+    ['EVAL-LINEAR-033', 'SINGLE_AGENT_NO_CAPACITY'],
+    ['EVAL-LINEAR-034', 'PARALLEL_ALLOWED'],
+    ['EVAL-LINEAR-035', 'STOP_BEFORE_FAN_IN'],
+  ]);
+  for (const [id, decision] of expected) {
+    const definition = byId.get(id);
+    assert.ok(definition, id);
+    assert.equal(definition.oracle.exactOutput.value, decision);
+    const good = { artifacts: [], events: [], exitCode: 0, output: decision };
+    assert.equal((await scoreCase({ definition, observation: good })).passed, true, id);
+    assert.equal(
+      (await scoreCase({ definition, observation: { ...good, output: 'OPPOSITE_DECISION' } })).passed,
+      false,
+      id,
+    );
+    assert.equal(
+      (await scoreCase({ definition, observation: { ...good, events: ['linear-write-invoked'] } })).passed,
+      false,
+      id,
+    );
+  }
+});
+
+test('Linear early exploration remains optional and cannot replace formal verification', async () => {
+  const rulePaths = [
+    LINEAR_RULE,
+    'docs/rules/ai-collab-rules.md',
+    LINEAR_SKILL,
+  ];
+  const templatePaths = [
+    'templates/plan.md',
+    'templates/task.md',
+    'skills/integrations/linear-workflow/references/ai-coding-task.md',
+    'skills/integrations/linear-workflow/references/dag-parent.md',
+  ];
+  for (const file of [...rulePaths, ...templatePaths]) {
+    const content = await readFile(path.join(rootDir, file), 'utf8');
+    assert.match(content, /早期探查/u, file);
+    assert.match(content, /30 分钟/u, file);
+    assert.match(content, /普通 REPL/u, file);
+    assert.match(content, /Micro/u, file);
+  }
+  for (const file of templatePaths) {
+    const content = await readFile(path.join(rootDir, file), 'utf8');
+    assert.match(content, /存在实质不确定性时选填/u, file);
+    assert.match(content, /待回答问题/u, file);
+    assert.match(content, /预计分钟数/u, file);
+    assert.match(content, /退出条件/u, file);
+    assert.match(content, /后续正式检查/u, file);
+  }
+  for (const name of ['plan.md', 'task.md']) {
+    assert.equal(
+      await readFile(path.join(rootDir, 'templates', name), 'utf8'),
+      await readFile(path.join(rootDir, 'docs/templates', name), 'utf8'),
+    );
+  }
+  const suite = JSON.parse(await readFile(path.join(rootDir, 'evals/suites/linear-workflow-online.json'), 'utf8'));
+  const expected = new Map([
+    ['EVAL-LINEAR-036', 'TIMEBOX_PROBE_KEEP_FORMAL_GATES'],
+    ['EVAL-LINEAR-037', 'REPL_NOT_COMPLETION_EVIDENCE'],
+    ['EVAL-LINEAR-038', 'NO_DECLARED_MICRO_USE_FORMAL_CHECKS'],
+  ]);
+  for (const [id, decision] of expected) {
+    const definition = suite.cases.find((item) => item.id === id);
     assert.ok(definition, id);
     assert.equal(definition.oracle.exactOutput.value, decision);
     const good = { artifacts: [], events: [], exitCode: 0, output: decision };

@@ -16,10 +16,12 @@ import {
   scanSensitiveFields,
   summarizeReceiptLedger,
   START_RECEIPT_SCHEMA_V2,
+  START_RECEIPT_SCHEMA_V3,
   validateHandoffPayload,
   validateStartReceipt,
   validateTerminalEvent,
 } from '../../scripts/lib/receipt-records.js';
+import { atomicClaim, createClaimRequest, releaseClaim, renewClaim } from '../../scripts/lib/linear-claim.js';
 import { removeTemporaryDirectory } from '../../scripts/lib/temp-cleanup.js';
 
 const execFileAsync = promisify(execFile);
@@ -30,6 +32,7 @@ const EXECUTION_A = '11111111-2222-4333-8444-555555555555';
 const EXECUTION_B = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 const EVENT_A = '99999999-8888-4777-8666-555555555555';
 const GRANT_A = '12345678-1234-4234-8234-123456789abc';
+const CLAIM_A = '22222222-3333-4333-8444-555555555555';
 
 function receipt(overrides = {}) {
   return buildStartReceipt({
@@ -339,4 +342,61 @@ test('receipt CLI emits v2 only with an explicit auto-claim source and grant ID'
   assert.equal(JSON.parse(claimed.stdout).grantId, GRANT_A);
   assert.equal((await runCli([...args, '--source', AUTO_CLAIM_RECEIPT_SOURCE])).code, 1);
   assert.equal((await runCli([...args, '--grant-id', GRANT_A])).code, 1);
+});
+
+test('v3 receipts preserve legacy reads and require atomic claim metadata', () => {
+  const claimed = buildStartReceipt({
+    agentKey: 'codex',
+    dagNodeIssue: 'ENG-123',
+    hostKind: 'codex-desktop',
+    schema: START_RECEIPT_SCHEMA_V3,
+    claimId: CLAIM_A,
+    startedAt: '2026-09-27T10:00:00.000Z',
+    leaseExpiresAt: '2026-09-27T11:00:00.000Z',
+    fencingToken: 'fence-a',
+    claimProvider: 'linear-provider',
+  });
+  assert.equal(validateStartReceipt(claimed).ok, true, JSON.stringify(validateStartReceipt(claimed).problems));
+  assert.equal(analyzeReceiptLedger([claimed]).activeExecutions.length, 1);
+  assert.equal(validateStartReceipt({ ...claimed, claimId: undefined }).ok, false);
+  assert.equal(validateStartReceipt({
+    ...claimed,
+    leaseExpiresAt: '2026-09-27T09:00:00.000Z',
+  }).ok, false);
+});
+
+test('atomic claim is provider-gated, idempotent, fenced, and lease-aware', () => {
+  const capabilities = { atomicClaim: true, fencing: true };
+  const request = createClaimRequest({
+    issueId: 'ENG-123',
+    executionId: EXECUTION_A,
+    claimId: CLAIM_A,
+    idempotencyKey: 'request-a',
+    leaseExpiresAt: '2026-09-27T11:00:00.000Z',
+    fencingToken: 'fence-a',
+  });
+  const now = new Date('2026-09-27T10:00:00.000Z');
+  const first = atomicClaim(null, request, { capabilities, now });
+  assert.equal(first.status, 'claimed');
+  assert.equal(atomicClaim(first.claim, request, { capabilities, now }).status, 'idempotent');
+  assert.throws(
+    () => atomicClaim(first.claim, createClaimRequest({
+      issueId: 'ENG-123',
+      executionId: EXECUTION_B,
+      idempotencyKey: 'request-b',
+      leaseExpiresAt: '2026-09-27T11:00:00.000Z',
+      fencingToken: 'fence-b',
+    }), { capabilities, now }),
+    /already has an active claim/u,
+  );
+  assert.equal(renewClaim(first.claim, {
+    claimId: CLAIM_A,
+    fencingToken: 'fence-a',
+    leaseExpiresAt: '2026-09-27T12:00:00.000Z',
+  }, { now }).status, 'renewed');
+  assert.equal(releaseClaim(first.claim, request, { fencingToken: 'fence-a' }).status, 'released');
+  assert.throws(
+    () => atomicClaim(first.claim, request, { capabilities: {}, now }),
+    /atomic claim and fencing/u,
+  );
 });

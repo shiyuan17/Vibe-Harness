@@ -786,6 +786,38 @@ async function bindPlan(project, taskId, planText) {
   return planPath;
 }
 
+function withLinearPlan(planText, overrides = {}) {
+  const linearPlan = {
+    schema: 'vibe-harness.linear-plan/v1',
+    executionMode: 'auto',
+    wallClock: {
+      budgetMinutes: 120,
+      sharedPreparationMinutes: 10,
+      externalWaitBlockMinutes: 5,
+      activeWorkMinutes: 40,
+      verificationMinutes: 20,
+      singleAgentMinutes: 80,
+      parallelAgentMinutes: 72,
+      coordinationMinutes: 5,
+      fanInMinutes: 5,
+      finalIntegrationMinutes: 5,
+      uncertaintyBufferRatio: 0.2,
+      units: [
+        { id: 'U1', activeMinutes: 20, verificationMinutes: 10 },
+        { id: 'U2', activeMinutes: 20, verificationMinutes: 10 }
+      ],
+      criticalPath: ['U1'],
+      confidence: 'medium',
+    },
+    agentPlan: { maxWriteAgents: 2, maxReadAgents: 4, fanInOwner: 'parent-agent' },
+    ...overrides,
+  };
+  return planText.replace(
+    '\n## 验收方式',
+    `\n## 墙钟与 Agent 编排\n\n\`\`\`linear-plan\n${JSON.stringify(linearPlan, null, 2)}\n\`\`\`\n\n## 验收方式`,
+  );
+}
+
 test('plan-check 通过自洽的执行块并报出单元与验收绑定', async () => {
   const project = await tempProject();
   try {
@@ -799,6 +831,34 @@ test('plan-check 通过自洽的执行块并报出单元与验收绑定', async 
     assert.equal(checked.report.units.count, 2);
     assert.deepEqual(checked.report.units.ids, ['U1', 'U2']);
     assert.deepEqual(checked.report.units.warnings, []);
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
+
+test('plan-check validates the linear wall-clock contract and rejects stale estimates', async () => {
+  const project = await tempProject();
+  try {
+    const plan = planWithUnits([
+      { id: 'U1', title: '边界', files: ['runtime/commands/run.mjs'], dependsOn: [], acceptance: ['A-001'] },
+    ]);
+    await bindPlan(project, 'linear-plan', withLinearPlan(plan));
+    const passed = await runCommand(['task', 'plan-check', 'linear-plan', '--json'], { cwd: project });
+    assert.equal(passed.report.status, 'passed');
+    assert.equal(passed.report.linearPlan.present, true);
+
+    const invalid = withLinearPlan(plan, {
+      wallClock: {
+        ...JSON.parse(withLinearPlan(plan).match(/```linear-plan\n([\s\S]*?)```/u)[1]).wallClock,
+        singleAgentMinutes: 999,
+      },
+    });
+    await writeFile(path.join(project, 'docs', 'plans', 'linear-plan.md'), `${invalid}\n`, 'utf8');
+    const drift = await runCommand(['task', 'plan-sync', 'linear-plan', '--reason', 'refresh test plan', '--write', '--json'], { cwd: project });
+    assert.equal(drift.report.status, 'passed');
+    const rejected = await runCommand(['task', 'plan-check', 'linear-plan', '--json'], { cwd: project });
+    assert.equal(rejected.report.status, 'failed');
+    assert.equal(rejected.report.code, 'VIBE_HARNESS_LINEAR_PLAN_CONTRACT_INVALID');
   } finally {
     await rm(project, { recursive: true, force: true });
   }
