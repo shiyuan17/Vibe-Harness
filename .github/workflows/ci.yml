@@ -59,10 +59,9 @@ jobs:
           fetch-depth: 0
       - run: node scripts/risk-evidence.js
 
-  # The three conformance gates below only make sense for a pull request. They
-  # run on every pull_request event, but merge-gate is the only required check
-  # and it is configured on main, so a develop pull request is never blocked by
-  # them (ADR-0006: develop merges need neither remote CI nor approval).
+  # The conformance gates below run on every pull_request event. The stable
+  # merge-gate aggregate is required on develop and main; ADR-0009 keeps the
+  # daily branch fast while requiring the fast gate and affected checks.
   branch-policy:
     name: branch policy
     if: github.event_name == 'pull_request'
@@ -79,7 +78,9 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
-      - run: node scripts/independent-review.js
+      - env:
+          VIBE_HARNESS_INDEPENDENT_REVIEW_MODE: required
+        run: node scripts/independent-review.js
 
   high-risk-approval:
     name: high-risk approval

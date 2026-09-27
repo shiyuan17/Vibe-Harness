@@ -170,13 +170,12 @@ test('EDD documentation documents reference baselines and offline/online lifecyc
   assert.match(docs, /eval check/u);
 });
 
-// The CI review job is a shadow observer unless the repository explicitly
-// pins required mode: it must surface a v2 contract violation (a high-risk
-// receipt without the second independent reviewer) in the step summary and the
-// machine-readable report while leaving the merge decision to merge-gate.
-test('CI 独立复审保持 shadow 观测并消费 v2 双复审契约', async () => {
+// The CI review job runs in required mode: it must surface a v2 contract
+// violation (a high-risk receipt without the second independent reviewer) in
+// the step summary and machine-readable report, blocking the aggregate gate.
+test('CI 独立复审以 required 模式消费 v2 双复审契约', async () => {
   const ci = await readFile(path.join(rootDir, '.github/workflows/ci.yml'), 'utf8');
-  assert.doesNotMatch(ci, /VIBE_HARNESS_INDEPENDENT_REVIEW_MODE/u);
+  assert.match(ci, /VIBE_HARNESS_INDEPENDENT_REVIEW_MODE: required/u);
   assert.match(ci, /node scripts\/independent-review\.js/u);
   assert.match(ci, /HIGH_RISK_REVIEW_RESULT: \$\{\{ needs\.independent-review\.result \}\}/u);
 
@@ -214,23 +213,17 @@ test('CI 独立复审保持 shadow 观测并消费 v2 双复审契约', async ()
     const eventPath = path.join(fixture, 'event.json');
     await writeFile(eventPath, `${JSON.stringify({ pull_request: { base: { sha: change.baseSha }, body } }, null, 2)}\n`, 'utf8');
 
-    const shadow = await execFileAsync(process.execPath, [path.join(rootDir, 'scripts/independent-review.js')], {
-      cwd: fixture,
-      env: { ...process.env, GITHUB_EVENT_PATH: eventPath, GITHUB_STEP_SUMMARY: '' },
-    });
-    const shadowReport = JSON.parse(shadow.stdout);
-    assert.equal(shadowReport.mode, 'shadow');
-    assert.equal(shadowReport.ok, true, 'shadow mode must not block the merge');
-    assert.equal(shadowReport.status, 'degraded');
-    const evidence = shadowReport.evidence.map((item) => item.code);
-    assert.match(evidence.join(','), /REVIEW_SECOND_REVIEW_MISSING|REVIEW_RECEIPT_SCHEMA/u);
-
     const required = await execFileAsync(process.execPath, [path.join(rootDir, 'scripts/independent-review.js')], {
       cwd: fixture,
       env: { ...process.env, GITHUB_EVENT_PATH: eventPath, GITHUB_STEP_SUMMARY: '', VIBE_HARNESS_INDEPENDENT_REVIEW_MODE: 'required' },
     }).then((result) => ({ exitCode: 0, stdout: result.stdout }), (error) => ({ exitCode: 1, stdout: error.stdout }));
     assert.equal(required.exitCode, 1, 'required mode must block a v2 receipt without two reviewers');
-    assert.equal(JSON.parse(required.stdout).status, 'degraded');
+    const requiredReport = JSON.parse(required.stdout);
+    assert.equal(requiredReport.mode, 'required');
+    assert.equal(requiredReport.ok, false);
+    assert.equal(requiredReport.status, 'degraded');
+    const evidence = requiredReport.evidence.map((item) => item.code);
+    assert.match(evidence.join(','), /REVIEW_SECOND_REVIEW_MISSING|REVIEW_RECEIPT_SCHEMA/u);
   } finally {
     await rm(fixture, { recursive: true, force: true });
   }
