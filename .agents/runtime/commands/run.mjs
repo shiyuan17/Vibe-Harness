@@ -22,6 +22,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { runMicroCheck } from '../lib/micro-runner.mjs';
 import { gitFingerprint, gitSnapshot } from '../lib/git-fingerprint.mjs';
+import { parseLinearPlanBlock } from '../lib/linear-planning.mjs';
 
 import { parseWorktreeList, pathKey, resolveWorktreeRoot, summarizeWorktreeAudit, validateWorktrees } from '../lib/worktree-audit.mjs';
 import {
@@ -2879,6 +2880,19 @@ async function taskPlanCheckReport(projectDir, taskId) {
     };
   }
   const units = planExecutionUnits(plan.content);
+  const linearPlan = parseLinearPlanBlock(plan.content);
+  const linearPlanProblems = linearPlan.errors.map((message) => ({
+    code: message.startsWith('VIBE_HARNESS_LINEAR_PLAN_INVALID')
+      ? 'VIBE_HARNESS_LINEAR_PLAN_INVALID'
+      : 'VIBE_HARNESS_LINEAR_PLAN_CONTRACT_INVALID',
+    message,
+  }));
+  if (!linearPlan.present && /墙钟与 Agent 编排/u.test(plan.content)) {
+    linearPlanProblems.push({
+      code: 'VIBE_HARNESS_LINEAR_PLAN_MISSING',
+      message: 'plan declares wall-clock orchestration but has no linear-plan JSON block',
+    });
+  }
   const unitSummary = {
     present: units.present,
     count: units.units.length,
@@ -2890,17 +2904,21 @@ async function taskPlanCheckReport(projectDir, taskId) {
   };
   // An execution block that contradicts itself is worse than no block: a fresh
   // reader cannot tell which boundary wins, so the plan stops the dispatch.
-  if (units.problems.length > 0) {
+  if (units.problems.length > 0 || linearPlanProblems.length > 0) {
     return {
       schemaVersion: SCHEMA_VERSION,
       command: 'task',
       subcommand: 'plan-check',
       taskId,
       status: 'failed',
-      code: 'VIBE_HARNESS_PLAN_UNITS_INVALID',
-      error: units.problems.map((item) => `${item.code}: ${item.message}`).join('; '),
-      problems: units.problems,
+      code: units.problems.length > 0 ? 'VIBE_HARNESS_PLAN_UNITS_INVALID' : 'VIBE_HARNESS_LINEAR_PLAN_CONTRACT_INVALID',
+      error: [...units.problems, ...linearPlanProblems].map((item) => `${item.code}: ${item.message}`).join('; '),
+      problems: [...units.problems, ...linearPlanProblems],
       units: unitSummary,
+      linearPlan: {
+        present: linearPlan.present,
+        warnings: linearPlan.warnings,
+      },
       plan: { path: plan.path, revision: plan.revision, digest: plan.digest, missing: [] },
     };
   }
@@ -2912,6 +2930,10 @@ async function taskPlanCheckReport(projectDir, taskId) {
     status: 'passed',
     managed: true,
     units: unitSummary,
+    linearPlan: {
+      present: linearPlan.present,
+      warnings: linearPlan.warnings,
+    },
     plan: { path: plan.path, revision: plan.revision, digest: plan.digest, missing: [] },
   };
 }

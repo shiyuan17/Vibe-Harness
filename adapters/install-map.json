@@ -309,6 +309,24 @@
       "contentStrategy": "replace"
     },
     {
+      "group": "schemas-core",
+      "source": "schemas/linear-plan.schema.json",
+      "target": "docs/schemas/linear-plan.schema.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "schemas-core",
+      "source": "schemas/linear-execution-v3.schema.json",
+      "target": "docs/schemas/linear-execution-v3.schema.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "schemas-core",
+      "source": "schemas/linear-operations-event.schema.json",
+      "target": "docs/schemas/linear-operations-event.schema.json",
+      "contentStrategy": "replace"
+    },
+    {
       "group": "runtime-eval",
       "source": "runtime/evals/run.mjs",
       "target": ".agents/runtime/evals/run.mjs",
@@ -344,6 +362,12 @@
       "group": "runtime-project-scripts",
       "source": "runtime/lib/worktree-ports.mjs",
       "target": ".agents/runtime/lib/worktree-ports.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
+      "source": "runtime/lib/linear-planning.mjs",
+      "target": ".agents/runtime/lib/linear-planning.mjs",
       "contentStrategy": "replace"
     },
     {

@@ -14,6 +14,10 @@
 import { createHash } from 'node:crypto';
 
 export const TASK_DAG_SCHEMA = 'vibe-harness.task-dag/v1';
+export const DAG_CONCURRENCY_DEFAULTS = Object.freeze({
+  maxWriteAgents: 2,
+  maxReadAgents: 4,
+});
 
 export const NODE_KINDS = Object.freeze(['read', 'write', 'aggregate']);
 export const NODE_TRIGGERS = Object.freeze(['all_success', 'all_done']);
