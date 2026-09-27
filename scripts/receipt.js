@@ -23,6 +23,7 @@ import {
   HANDOFF_STATUSES,
   RECEIPT_SOURCES,
   START_RECEIPT_SCHEMA_V2,
+  START_RECEIPT_SCHEMA_V3,
   summarizeReceiptLedger,
   TERMINAL_EVENT_TYPES,
   validateHandoffPayload,
@@ -34,6 +35,7 @@ import { safeJsonParse } from './lib/safe-json.js';
 const VALUE_OPTIONS = new Set([
   '--agent', '--dag-root', '--delegate', '--event-id', '--execution-id', '--file', '--final-check',
   '--final-check-relevance', '--final-check-status', '--grant-id', '--handoff', '--host', '--issue', '--occurred-at', '--out',
+  '--claim-id', '--claim-provider', '--fencing-token', '--lease-expires-at',
   '--role', '--runtime-instance-id', '--source', '--started-at', '--status', '--successor', '--type', '--unresolved',
 ]);
 
@@ -46,11 +48,13 @@ function printUsage() {
   console.log('Every subcommand is read-only unless --write names an explicit --out path, and none of them');
   console.log('posts to Linear: the caller does that and re-reads the field values afterwards.');
   console.log();
-  console.log('start   Build a Start Receipt (v1, or v2 for authorized auto-claim).');
+  console.log('start   Build a Start Receipt (v1, v2 auto-claim, or v3 atomically claimed execution).');
   console.log('  --issue <ID>                 current Issue (dagNodeIssue); required');
   console.log('  --agent <key> --host <kind>  stable product keys, e.g. codex / codex-desktop; required');
   console.log(`  --source <value>             ${[...RECEIPT_SOURCES, AUTO_CLAIM_RECEIPT_SOURCE].join(' | ')} (default explicit-user-request)`);
   console.log('  --grant-id <uuid>            host-held grant reference; required with authorized-auto-claim');
+  console.log('  --claim-id <uuid> --lease-expires-at <RFC3339Z>');
+  console.log('  --fencing-token <value> --claim-provider <key>  required for v3 claims');
   console.log('  --delegate <id>              native Delegate/App User id; omit or null for fallback labels');
   console.log('  --dag-root <ID>              top-level parent Issue; omit for a standalone Issue');
   console.log('  --execution-id <uuid> --runtime-instance-id <uuid> --started-at <RFC3339Z>');
@@ -154,14 +158,29 @@ async function runStart(argv) {
   const options = parseArgs(argv);
   const source = options.values.get('--source');
   const grantId = options.values.get('--grant-id');
+  const claimFields = ['--claim-id', '--lease-expires-at', '--fencing-token', '--claim-provider']
+    .some((key) => options.values.has(key));
   if (grantId !== undefined && source !== AUTO_CLAIM_RECEIPT_SOURCE) usageError('--grant-id requires --source authorized-auto-claim');
+  if (claimFields && ['--claim-id', '--lease-expires-at', '--fencing-token', '--claim-provider']
+    .some((key) => options.values.get(key) === undefined)) {
+    usageError('v3 claims require --claim-id, --lease-expires-at, --fencing-token and --claim-provider');
+  }
   const receipt = buildStartReceipt({
     agentKey: requireValue(options, '--agent', '--agent <key>'),
     ...(options.values.get('--dag-root') === undefined ? {} : { dagRootIssue: options.values.get('--dag-root') }),
     ...(options.values.get('--delegate') === undefined ? {} : { delegateId: options.values.get('--delegate') }),
     dagNodeIssue: requireValue(options, '--issue', '--issue <ISSUE-ID>'),
     ...(options.values.get('--execution-id') === undefined ? {} : { executionId: options.values.get('--execution-id') }),
-    ...(source === AUTO_CLAIM_RECEIPT_SOURCE ? { grantId, schema: START_RECEIPT_SCHEMA_V2 } : {}),
+    ...(source === AUTO_CLAIM_RECEIPT_SOURCE ? { grantId } : {}),
+    ...(claimFields
+      ? {
+        claimId: options.values.get('--claim-id'),
+        leaseExpiresAt: options.values.get('--lease-expires-at'),
+        fencingToken: options.values.get('--fencing-token'),
+        claimProvider: options.values.get('--claim-provider'),
+        schema: START_RECEIPT_SCHEMA_V3,
+      }
+      : source === AUTO_CLAIM_RECEIPT_SOURCE ? { schema: START_RECEIPT_SCHEMA_V2 } : {}),
     hostKind: requireValue(options, '--host', '--host <kind>'),
     ...(options.values.get('--role') === undefined ? {} : { role: options.values.get('--role') }),
     ...(options.values.get('--runtime-instance-id') === undefined ? {} : { runtimeInstanceId: options.values.get('--runtime-instance-id') }),

@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 
 export const START_RECEIPT_SCHEMA = 'vibe-harness.linear-execution/v1';
 export const START_RECEIPT_SCHEMA_V2 = 'vibe-harness.linear-execution/v2';
+export const START_RECEIPT_SCHEMA_V3 = 'vibe-harness.linear-execution/v3';
 export const TERMINAL_EVENT_SCHEMA = 'vibe-harness.linear-execution-event/v1';
 export const HANDOFF_SCHEMA = 'vibe-harness.handoff/v1';
 
@@ -24,6 +25,13 @@ export const HANDOFF_FINAL_CHECK_STATUS = 'passed';
 
 export const START_RECEIPT_KEYS = Object.freeze(['schema', 'executionId', 'source', 'agentKey', 'hostKind', 'delegateId', 'runtimeInstanceId', 'role', 'dagRootIssue', 'dagNodeIssue', 'startedAt']);
 export const START_RECEIPT_KEYS_V2 = Object.freeze([...START_RECEIPT_KEYS, 'grantId']);
+export const START_RECEIPT_KEYS_V3 = Object.freeze([
+  ...START_RECEIPT_KEYS,
+  'claimId',
+  'leaseExpiresAt',
+  'fencingToken',
+  'claimProvider',
+]);
 export const TERMINAL_EVENT_KEYS = Object.freeze(['schema', 'eventId', 'executionId', 'eventType', 'successorExecutionId', 'occurredAt']);
 export const TERMINAL_EVENT_OPTIONAL_KEYS = Object.freeze(['handoff']);
 export const HANDOFF_KEYS = Object.freeze(['schema', 'completion', 'finalCheck', 'unresolvedItems']);
@@ -183,11 +191,12 @@ export function validateStartReceipt(value) {
     return result(problems);
   }
   const autoClaim = value.schema === START_RECEIPT_SCHEMA_V2;
-  const keys = autoClaim ? START_RECEIPT_KEYS_V2 : START_RECEIPT_KEYS;
+  const claimed = value.schema === START_RECEIPT_SCHEMA_V3;
+  const keys = claimed ? START_RECEIPT_KEYS_V3 : autoClaim ? START_RECEIPT_KEYS_V2 : START_RECEIPT_KEYS;
   requireKeys(value, keys, push);
   warnUnknownKeys(value, keys, push);
-  if (value.schema !== START_RECEIPT_SCHEMA && !autoClaim) {
-    push('RECEIPT_SCHEMA_INVALID', `schema must be ${START_RECEIPT_SCHEMA} or ${START_RECEIPT_SCHEMA_V2}`, 'error');
+  if (![START_RECEIPT_SCHEMA, START_RECEIPT_SCHEMA_V2, START_RECEIPT_SCHEMA_V3].includes(value.schema)) {
+    push('RECEIPT_SCHEMA_INVALID', `schema must be ${START_RECEIPT_SCHEMA}, ${START_RECEIPT_SCHEMA_V2} or ${START_RECEIPT_SCHEMA_V3}`, 'error');
   }
   checkUuid(value.executionId, 'executionId', push);
   checkUuid(value.runtimeInstanceId, 'runtimeInstanceId', push);
@@ -197,6 +206,20 @@ export function validateStartReceipt(value) {
     push('RECEIPT_SOURCE_INVALID', `source must be one of ${RECEIPT_SOURCES.join(', ')}`, 'error');
   }
   if (autoClaim) checkUuid(value.grantId, 'grantId', push);
+  if (claimed) {
+    checkUuid(value.grantId, 'grantId', push);
+    checkUuid(value.claimId, 'claimId', push);
+    checkNullableString(value.fencingToken, 'fencingToken', push);
+    checkNullableString(value.claimProvider, 'claimProvider', push);
+    checkTimestamp(value.leaseExpiresAt, 'leaseExpiresAt', push);
+    if (value.source === 'authorized-auto-claim' && value.grantId === undefined) {
+      push('RECEIPT_CLAIM_GRANT_MISSING', 'v3 auto-claim receipts require grantId', 'error');
+    }
+    if (value.leaseExpiresAt !== undefined && value.startedAt !== undefined
+      && Date.parse(value.leaseExpiresAt) <= Date.parse(value.startedAt)) {
+      push('RECEIPT_LEASE_EXPIRED', 'leaseExpiresAt must be later than startedAt', 'error');
+    }
+  }
   if (value.role !== undefined && !RECEIPT_ROLES.includes(value.role)) {
     push('RECEIPT_ROLE_INVALID', `role must be one of ${RECEIPT_ROLES.join(', ')}`, 'error');
   }
@@ -351,6 +374,10 @@ export function buildStartReceipt({
   delegateId = null,
   executionId = randomUUID(),
   grantId,
+  claimId,
+  leaseExpiresAt,
+  fencingToken,
+  claimProvider,
   hostKind,
   role = 'writer',
   runtimeInstanceId = randomUUID(),
@@ -370,7 +397,17 @@ export function buildStartReceipt({
     dagRootIssue,
     dagNodeIssue,
     startedAt,
-    ...(schema === START_RECEIPT_SCHEMA_V2 ? { grantId } : {}),
+    ...(schema === START_RECEIPT_SCHEMA_V2
+      ? { grantId }
+      : schema === START_RECEIPT_SCHEMA_V3 && grantId !== undefined
+        ? { grantId }
+        : {}),
+    ...(schema === START_RECEIPT_SCHEMA_V3 ? {
+      claimId,
+      leaseExpiresAt,
+      fencingToken,
+      claimProvider,
+    } : {}),
   };
 }
 
@@ -465,10 +502,12 @@ export function analyzeReceiptLedger(input, { issue = null } = {}) {
 
   for (const [index, record] of ledger.comments.entries()) {
     const schema = isObject(record) ? record.schema : null;
-    const isReceipt = schema === START_RECEIPT_SCHEMA || schema === START_RECEIPT_SCHEMA_V2;
+    const isReceipt = schema === START_RECEIPT_SCHEMA
+      || schema === START_RECEIPT_SCHEMA_V2
+      || schema === START_RECEIPT_SCHEMA_V3;
     const isEvent = schema === TERMINAL_EVENT_SCHEMA;
     if (!isReceipt && !isEvent) {
-      conflicts.push({ code: 'LEDGER_UNKNOWN_RECORD', message: `record[${index}] is not a ${START_RECEIPT_SCHEMA}, ${START_RECEIPT_SCHEMA_V2} or ${TERMINAL_EVENT_SCHEMA} object` });
+      conflicts.push({ code: 'LEDGER_UNKNOWN_RECORD', message: `record[${index}] is not a ${START_RECEIPT_SCHEMA}, ${START_RECEIPT_SCHEMA_V2}, ${START_RECEIPT_SCHEMA_V3} or ${TERMINAL_EVENT_SCHEMA} object` });
       continue;
     }
     const validation = isReceipt ? validateStartReceipt(record) : validateTerminalEvent(record);
