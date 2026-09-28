@@ -1413,6 +1413,32 @@
       "addedAt": "2026-09-24"
     },
     {
+      "id": "U-observed-tests-directory-001",
+      "layer": "unit",
+      "file": "tests/unit/observed-tests-directory.test.js",
+      "ordinal": 1,
+      "name": "每个测试层脚本先建立产物目录再运行 node --test",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-28"
+    },
+    {
+      "id": "U-observed-tests-directory-002",
+      "layer": "unit",
+      "file": "tests/unit/observed-tests-directory.test.js",
+      "ordinal": 2,
+      "name": "产物目录前置步骤可在全新工作区创建清单目录",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-09-28"
+    },
+    {
       "id": "U-redaction-001",
       "layer": "unit",
       "file": "tests/unit/redaction.test.js",
@@ -17875,6 +17901,16 @@
       "scripts/lib/validation-tiers.js",
       "scripts/lib/verification-contract.js",
       "scripts/micro-verify.js"
+    ],
+    "tests/unit/observed-tests-directory.test.js": [
+      "scripts/lib/managed-block.js",
+      "scripts/lib/manifest.js",
+      "scripts/lib/red-zone.js",
+      "scripts/lib/safe-json.js",
+      "scripts/lib/schema-validation.js",
+      "scripts/lib/temp-cleanup.js",
+      "scripts/lib/test-case-reporter.mjs",
+      "scripts/lib/test-enumeration.js"
     ],
     "tests/unit/redaction.test.js": [
       "scripts/lib/redaction.js"

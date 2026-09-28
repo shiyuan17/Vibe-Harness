@@ -9,10 +9,10 @@ import path from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { Transform } from 'node:stream';
 
-// `--test-reporter-destination` opens its file immediately, and the default
-// artifact directory is inside the gitignored `.vibe-harness/` tree, so a fresh
-// clone has to have it created before the stream is opened. Doing it here keeps
-// the package.json test scripts declarative (`--test-reporter=<module>`).
+// `--test-reporter-destination` opens its file before this module is loaded on
+// Node 22, so creating the directory here only helps callers that load it
+// first; the package.json test scripts therefore guarantee the directory
+// through scripts/prepare-observed-tests.mjs instead of relying on this line.
 export const OBSERVED_CASES_DIRECTORY = '.vibe-harness/observed-tests';
 
 mkdirSync(path.join(process.cwd(), OBSERVED_CASES_DIRECTORY), { recursive: true });
