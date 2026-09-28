@@ -10,6 +10,7 @@ import {
   isReadOnlyToolName,
   isWorkspaceToolName,
   mcpToolPolicy,
+  parseMcpToolName,
   shellInvocation,
   shellSegments,
 } from './read-only-commands.mjs';
@@ -84,12 +85,20 @@ const workspaceScopeKeys = new Set([
 ]);
 const hostContextKeys = new Set(['source', 'filesystem', 'approval', 'process', 'network', 'observedAt']);
 const externalTargetKeys = new Set(['kind', 'id', 'environment']);
+const scopeKeys = new Set(['workspace', 'externalTargets', 'linear']);
+const linearScopeKeys = new Set(['teamIds', 'projectIds']);
 const shaPattern = /^[0-9a-fA-F]{40,64}$/u;
 const utcTimestampPattern = /^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\.[0-9]+)?Z$/u;
 
-const linearToolPattern = /(?:^|__)linear(?:__|$)/iu;
-const githubToolPattern = /(?:^|__)github(?:__|$)/iu;
-const gitlabToolPattern = /(?:^|__)gitlab(?:__|$)/iu;
+// Provider identity lives in the MCP server segment, and the server spelling is
+// not stable across adapters: the installer writes `linear`, the provider
+// catalog aliases it as `linear-mcp`/`linear-mcp-readonly`, and the role
+// projection prefixes it as `vibe-harness-linear`. The shared
+// `parseMcpToolName` normalization resolves all of them to the same server
+// token, so provider detection matches the normalized segment instead of the
+// raw tool name.
+const linearServerPattern = /^linear(?:$|-)/u;
+const mergeRequestServerPattern = /^(?:github|gitlab)(?:$|-)/u;
 const linearReadPattern = /(?:^|__)(?:get|list|search|read|find|view|fetch|query)(?:_|__|$)/iu;
 const linearWritePattern = /(?:^|__)(?:save|create|update|delete|archive|restore|merge|submit|resolve|cancel|add|remove|set|assign|unassign)(?:_|__|$)/iu;
 const mergeRequestObjectPattern = /(?:pull_?request|merge_?request|\bpr\b|\bmr\b)/iu;
@@ -184,10 +193,28 @@ function validWorkspaceScope(value) {
   return isUniqueStringArray(value.allowedWriteRoots, { minLength: 1 }) && value.allowedWriteRoots.length > 0;
 }
 
+/**
+ * `scope.linear` registers the Linear team/project targets a Linear write may
+ * address when the call cannot expose an existing Issue ID (issue creation).
+ * It is optional and purely additive; when present at least one of the two
+ * arrays must be a non-empty unique string array.
+ *
+ * @param {unknown} value
+ */
+function validLinearScope(value) {
+  if (!isObject(value) || !hasOnlyKeys(value, linearScopeKeys)) return false;
+  const declared = [...linearScopeKeys].filter((key) => Object.hasOwn(value, key));
+  if (declared.length === 0) return false;
+  return declared.every((key) => Array.isArray(value[key])
+    && value[key].length > 0
+    && isUniqueStringArray(value[key], { maxLength: 256, minLength: 1 }));
+}
+
 function validScope(value) {
   const targetKeys = new Set();
-  if (!isObject(value) || !hasOnlyKeys(value, new Set(['workspace', 'externalTargets']))) return false;
+  if (!isObject(value) || !hasOnlyKeys(value, scopeKeys)) return false;
   if (!validWorkspaceScope(value.workspace) || !Array.isArray(value.externalTargets)) return false;
+  if (Object.hasOwn(value, 'linear') && !validLinearScope(value.linear)) return false;
   for (const target of value.externalTargets) {
     if (!validExternalTarget(target)) return false;
     const key = target.kind + '\u0000' + target.id + '\u0000' + target.environment;
@@ -473,14 +500,15 @@ function classifyMcpTool(toolName, effects) {
     return true;
   }
   if (policy === 'high-risk') return false;
-  if (linearToolPattern.test(toolName)) {
+  const server = parseMcpToolName(toolName)?.server ?? '';
+  if (linearServerPattern.test(server)) {
     if (linearWritePattern.test(toolName)) {
       effects.add('linearWrite');
       return true;
     }
     return linearReadPattern.test(toolName);
   }
-  if ((githubToolPattern.test(toolName) || gitlabToolPattern.test(toolName)) && mergeRequestObjectPattern.test(toolName)) {
+  if (mergeRequestServerPattern.test(server) && mergeRequestObjectPattern.test(toolName)) {
     if (mergeRequestWritePattern.test(toolName)) {
       effects.add('mergeRequestWrite');
       return true;
@@ -653,6 +681,96 @@ function visibleIssueTargets(input, targetBoundEffects) {
   return identifiers;
 }
 
+const linearScopeTargetKeys = {
+  project: new Set(['project', 'projectid', 'projectkey']),
+  team: new Set(['team', 'teamid', 'teamkey']),
+};
+
+function addLinearScopeTarget(value, targets) {
+  if (typeof value === 'string') {
+    if (value.length > 0) targets.add(value.toUpperCase());
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) addLinearScopeTarget(item, targets);
+    return;
+  }
+  if (isObject(value)) {
+    for (const key of ['id', 'key']) addLinearScopeTarget(value[key], targets);
+  }
+}
+
+/**
+ * Visible Linear team/project identifiers. An issue creation names its
+ * destination instead of an Issue ID: `teamId` (UUID) or `team`/`teamKey`
+ * (team key), plus an optional project. `scope.linear` binds on whichever
+ * spelling the call exposes.
+ *
+ * @param {unknown} toolInput
+ * @returns {{ projects: Set<string>, teams: Set<string> }}
+ */
+function visibleLinearScopeTargets(toolInput) {
+  const projects = new Set();
+  const teams = new Set();
+  if (!isObject(toolInput)) return { projects, teams };
+  for (const [key, value] of Object.entries(toolInput)) {
+    const normalizedKey = key.replaceAll('_', '').toLowerCase();
+    if (linearScopeTargetKeys.team.has(normalizedKey)) addLinearScopeTarget(value, teams);
+    if (linearScopeTargetKeys.project.has(normalizedKey)) addLinearScopeTarget(value, projects);
+  }
+  return { projects, teams };
+}
+
+function declaredLinearScope(envelope) {
+  return isObject(envelope.scope?.linear) ? envelope.scope.linear : null;
+}
+
+/**
+ * `scope.linear` may only narrow the Linear writes an Envelope authorizes: any
+ * team/project the call exposes must be registered. A category the Envelope
+ * does not register is not checked, so a team-only registration still
+ * authorizes a call that also names a project.
+ */
+function linearScopeMismatch(input, envelope) {
+  const declared = declaredLinearScope(envelope);
+  if (!declared) return null;
+  const { projects, teams } = visibleLinearScopeTargets(input.toolInput);
+  /** @type {[string, Set<string>][]} */
+  const categories = [['teamIds', teams], ['projectIds', projects]];
+  for (const [declaredKey, visible] of categories) {
+    const allowed = new Set((declared[declaredKey] ?? []).map((item) => item.toUpperCase()));
+    if (allowed.size === 0) continue;
+    if ([...visible].some((item) => !allowed.has(item))) {
+      return deny('EXECUTION_ENVELOPE_TARGET_MISMATCH', '该 Linear 调用面向的 team/project 不在活动 Execution Envelope 的 scope.linear 目标范围内，已拒绝。请把调用改为已登记的 team/project，或重新申请覆盖该目标的 Envelope。');
+    }
+  }
+  return null;
+}
+
+/**
+ * A Linear write that exposes no Issue ID (issue creation) may bind through
+ * `scope.linear` instead. Without that registration the call stays
+ * fail-closed on the unchanged EXECUTION_ENVELOPE_TARGET_UNVERIFIED path.
+ *
+ * @returns {'authorized' | 'not-applicable' | { action: string, reason: string, reasonCode: string }}
+ */
+function linearScopeDecision(input, classification, envelope) {
+  if (!classification.effects.includes('linearWrite')) return 'not-applicable';
+  const declared = declaredLinearScope(envelope);
+  if (!declared) return 'not-applicable';
+  const mismatch = linearScopeMismatch(input, envelope);
+  if (mismatch) return mismatch;
+  const { projects, teams } = visibleLinearScopeTargets(input.toolInput);
+  const matched = ['teamIds', 'projectIds'].some((key) => {
+    const allowed = new Set((declared[key] ?? []).map((item) => item.toUpperCase()));
+    const visible = key === 'teamIds' ? teams : projects;
+    return allowed.size > 0 && [...visible].some((item) => allowed.has(item));
+  });
+  return matched
+    ? 'authorized'
+    : deny('EXECUTION_ENVELOPE_TARGET_UNVERIFIED', '该 Linear 调用没有暴露可核验的目标 team/project，无法确认授权范围，已拒绝。请在 toolInput 中给出已登记的目标（teamId、teamKey 或 projectId），或改用可核验的 Issue ID。');
+}
+
 function targetDecision(input, classification, envelope) {
   const targetBoundEffects = classification.effects.filter((effect) => [
     'linearWrite', 'gitBranch', 'gitCommit', 'gitPush', 'mergeRequestWrite',
@@ -664,10 +782,20 @@ function targetDecision(input, classification, envelope) {
   if (mismatch) {
     return deny('EXECUTION_ENVELOPE_TARGET_MISMATCH', '该调用面向的 Issue 不在活动 Execution Envelope 的目标范围内，已拒绝。请把调用改为 Envelope 内的 Issue，或重新申请覆盖该 Issue 的 Envelope。');
   }
-  if (visibleTargets.size === 0) {
-    return deny('EXECUTION_ENVELOPE_TARGET_UNVERIFIED', '该调用没有暴露可核验的目标 Issue，无法确认授权范围，已拒绝。请在 toolInput 中显式给出目标 Issue ID（例如 ENG-123）。');
+  if (visibleTargets.size > 0) {
+    // The Issue already authorizes the call; a registered scope.linear still
+    // narrows which team/project the same call may name.
+    return linearScopeMismatch(input, envelope);
   }
-  return null;
+  const linearDecision = linearScopeDecision(input, classification, envelope);
+  if (linearDecision === 'authorized') return null;
+  if (linearDecision !== 'not-applicable') return linearDecision;
+  // Linear creation is the one target-bound effect whose target does not exist
+  // yet, so the denial names the registration that would authorize it.
+  const linearHint = classification.effects.includes('linearWrite')
+    ? '；如需在 Linear 新建 Issue，请为活动 Envelope 登记 scope.linear 的 team/project 目标'
+    : '';
+  return deny('EXECUTION_ENVELOPE_TARGET_UNVERIFIED', `该调用没有暴露可核验的目标 Issue，无法确认授权范围，已拒绝。请在 toolInput 中显式给出目标 Issue ID（例如 ENG-123）${linearHint}。`);
 }
 
 function canonicalPath(candidate) {

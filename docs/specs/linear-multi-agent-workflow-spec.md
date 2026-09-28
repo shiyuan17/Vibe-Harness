@@ -31,7 +31,9 @@ Remote MCP server 使用 url，本地 MCP server 使用 command、args 和 env�
 
 ## Execution Envelope 与宿主边界
 
-本节后续 v1 字段保留为兼容基线；高风险执行以 v2 追加合同为准。v1 只能用于历史、只读和项目内低风险兼容路径，不能授权 hostWrite、externalWrite、凭据、高风险间接写入、红区或 worktree 拓扑变化。v2 额外冻结 riskClass、canonical cwd、worktree root、Git common dir、git dir、branch、base ref/SHA、initial HEAD、allowed write roots、无凭据 external targets，以及仅由宿主注入的 filesystem、approval、process、network 证明。
+本节后续 v1 字段保留为兼容基线；高风险执行以 v2 追加合同为准。v1 只能用于历史、只读和项目内低风险兼容路径，不能授权 hostWrite、externalWrite、凭据、高风险间接写入、红区或 worktree 拓扑变化。v2 额外冻结 riskClass、canonical cwd、worktree root、Git common dir、git dir、branch、base ref/SHA、initial HEAD、allowed write roots、无凭据 external targets、可选的 <code>scope.linear</code> team/project 目标，以及仅由宿主注入的 filesystem、approval、process、network 证明。
+
+Linear 写入按归一化后的 MCP server 段绑定 provider，因此安装器写入的 <code>linear</code>、provider 别名 <code>linear-mcp</code>/<code>linear-mcp-readonly</code> 与角色投影的 <code>vibe-harness-linear</code> 解析为同一 provider。更新既有 Issue 仍以 toolInput 暴露的 Issue ID 与 <code>targetIssueIds</code> 绑定；新建 Issue 时 toolInput 中不存在 Issue ID，此时由 <code>scope.linear</code> 的 <code>teamIds</code>/<code>projectIds</code> 提供可核验的 team/project 目标，登记之外的 team/project 一律拒绝；未登记 <code>scope.linear</code> 的新建保持 fail-closed。
 
 高风险或不可分类调用缺少 high-risk v2、精确目标或新鲜宿主证明时 fail-closed。活动执行的 workspace identity 不可移动；worktree move 无法由 effect allowlist 授权。checkpoint 另保存 headSha、continuationCount 和 blockerCount；每次自动续跑前重读原生 Goal、thread status、最新用户输入、cwd、worktree、branch、HEAD 和 blocker。达到终点、等待审批、workspace 漂移、未归属 HEAD 或相同 blocker 连续三次时停止；没有原生 Goal bridge 时只输出可恢复 checkpoint，不跨 turn 自主续跑。
 

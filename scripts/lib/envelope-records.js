@@ -330,6 +330,8 @@ export function buildEnvelopeDraft({
   expiresAt = null,
   forbiddenEffects = [],
   hostContext = null,
+  linearProjects = [],
+  linearTeams = [],
   mode = 'inspect',
   now = new Date(),
   requestId = null,
@@ -356,6 +358,18 @@ export function buildEnvelopeDraft({
       push('WRITE_ROOT_NOT_ABSOLUTE', `allowed write root ${root} is relative; the hook resolves roots against its own cwd`, 'warning');
     }
   }
+  // scope.linear binds Linear writes that carry no Issue ID yet (issue
+  // creation); the schema requires at least one non-empty target array, so a
+  // caller that passes neither must not end up with an empty `linear` object.
+  const linearScope = (linearTeams.length > 0 || linearProjects.length > 0)
+    ? {
+      ...(linearProjects.length > 0 ? { projectIds: linearProjects } : {}),
+      ...(linearTeams.length > 0 ? { teamIds: linearTeams } : {}),
+    }
+    : undefined;
+  if (linearScope === undefined && allowedEffects.includes('linearWrite') && targetIssueIds.length === 0) {
+    push('LINEAR_SCOPE_ABSENT', 'linearWrite is allowed without targetIssueIds and scope.linear registers no team/project target; a Linear issue creation exposes no Issue ID and would be denied with EXECUTION_ENVELOPE_TARGET_UNVERIFIED - pass --linear-team or --linear-project', 'warning');
+  }
 
   // Only v2 freezes a workspace identity; a v1 draft is contract-only/degraded
   // and must not report workspace problems it cannot carry.
@@ -367,6 +381,7 @@ export function buildEnvelopeDraft({
   const scope = workspace
     ? {
       externalTargets,
+      ...(linearScope === undefined ? {} : { linear: linearScope }),
       workspace: {
         allowedWriteRoots: allowedWriteRoots.length > 0 ? allowedWriteRoots : [workspace.worktreeRoot],
         baseRef,
@@ -447,6 +462,13 @@ export function summarizeEnvelopePlan(plan) {
   ];
   if (plan.workspace) {
     lines.push(`workspace: branch ${plan.workspace.branch} base ${plan.envelope.scope?.workspace.baseRef ?? 'n/a'}@${(plan.envelope.scope?.workspace.baseSha ?? 'unresolved').slice(0, 12)} head ${plan.workspace.headSha.slice(0, 12)}`);
+  }
+  const linearScope = plan.envelope.scope?.linear;
+  if (linearScope) {
+    const parts = [];
+    if (Array.isArray(linearScope.teamIds) && linearScope.teamIds.length > 0) parts.push(`teams ${linearScope.teamIds.join(', ')}`);
+    if (Array.isArray(linearScope.projectIds) && linearScope.projectIds.length > 0) parts.push(`projects ${linearScope.projectIds.join(', ')}`);
+    if (parts.length > 0) lines.push(`scope.linear: ${parts.join('; ')}`);
   }
   if (plan.hostInjectedFields.length > 0) lines.push(`host must inject: ${plan.hostInjectedFields.join(', ')}`);
   lines.push(...formatProblems(plan.problems));

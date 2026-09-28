@@ -460,7 +460,7 @@ const MCP_TOOL_DECISIONS = new Map([
  * @param {string} toolName
  * @returns {{ server: string, tool: string } | null}
  */
-function parseMcpToolName(toolName) {
+export function parseMcpToolName(toolName) {
   if (!/^mcp__/iu.test(toolName)) return null;
   const rest = toolName.slice('mcp__'.length);
   const separator = rest.indexOf('__');

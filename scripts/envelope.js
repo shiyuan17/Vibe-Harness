@@ -22,7 +22,7 @@ import { readJson } from './lib/manifest.js';
 import { safeJsonParse } from './lib/safe-json.js';
 
 const ENVIRONMENTS = ['local', 'test', 'staging', 'production', 'remote'];
-const PLANNED_OPTIONS = new Set(['--mode', '--version', '--issue', '--effect', '--forbid', '--objective', '--terminal', '--risk', '--base-ref', '--write-root', '--external-target', '--host-context', '--request-id', '--session-id', '--expires-at', '--cwd', '--emit', '--out']);
+const PLANNED_OPTIONS = new Set(['--mode', '--version', '--issue', '--effect', '--forbid', '--objective', '--terminal', '--risk', '--base-ref', '--write-root', '--external-target', '--linear-team', '--linear-project', '--host-context', '--request-id', '--session-id', '--expires-at', '--cwd', '--emit', '--out']);
 
 function printUsage() {
   console.log('Usage: node scripts/envelope.js plan [options]');
@@ -40,6 +40,8 @@ function printUsage() {
   console.log('  --base-ref <ref>             frozen target ref; default origin/develop');
   console.log('  --write-root <path>          allowed write root, repeatable; default worktree root');
   console.log('  --external-target <kind:id:environment>   repeatable');
+  console.log('  --linear-team <id|key>       scope.linear team target, repeatable; authorizes Linear issue creation');
+  console.log('  --linear-project <id|key>    scope.linear project target, repeatable');
   console.log('  --host-context <file>        host-provided hostContext JSON; never generated here');
   console.log('  --request-id <id> --session-id <id>       host-owned identifiers');
   console.log('  --expires-at <RFC3339Z>      optional expiry');
@@ -89,6 +91,8 @@ export function parsePlanArgs(argv) {
     forbiddenEffects: [],
     hostContextPath: null,
     json: false,
+    linearProjects: [],
+    linearTeams: [],
     mode: undefined,
     out: null,
     requestId: null,
@@ -119,6 +123,8 @@ export function parsePlanArgs(argv) {
     else if (token === '--base-ref') options.baseRef = value;
     else if (token === '--write-root') options.allowedWriteRoots.push(value);
     else if (token === '--external-target') options.externalTargets.push(parseExternalTarget(value));
+    else if (token === '--linear-team') options.linearTeams.push(value);
+    else if (token === '--linear-project') options.linearProjects.push(value);
     else if (token === '--host-context') options.hostContextPath = value;
     else if (token === '--request-id') options.requestId = value;
     else if (token === '--session-id') options.sessionId = value;
@@ -188,6 +194,8 @@ async function runPlan(argv) {
     expiresAt: options.expiresAt,
     forbiddenEffects: options.forbiddenEffects,
     hostContext,
+    linearProjects: options.linearProjects,
+    linearTeams: options.linearTeams,
     ...(options.mode === undefined ? {} : { mode: options.mode }),
     requestId: options.requestId,
     ...(options.riskClass === undefined ? {} : { riskClass: options.riskClass }),
