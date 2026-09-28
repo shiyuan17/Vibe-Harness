@@ -4,7 +4,69 @@
 
 Vibe-Harness installs project-scoped rules, domain Skills, optional Evals, explicit tool plugins, and safety Hooks for Codex, Claude Code, Gemini CLI, Cursor, Qoder, ZCode, Antigravity, and OpenCode. It writes only inside the target project and never changes global Agent configuration.
 
-There is one default execution path: `gather facts -> execute -> focused verification -> concise delivery`. Quick, light, and full are risk levels used only to choose safeguards and verification depth.
+There is one default execution path: `gather trustworthy facts -> decide and execute -> focused verification -> concise delivery`. The decision selects direct implementation, further investigation, clarification, authorization, planning, or task splitting according to evidence, ambiguity, and complexity. Quick, light, and full are risk levels used only to choose safeguards and verification depth.
+
+## Micro in an installed project
+
+Installation does not scan business code or create probes. First dry-run the upgrade, then use the original install options with `--write` and validate. Both `.agents/runtime/commands/run.mjs` and `.agents/runtime/lib/micro-runner.mjs` must be updated. Node 22+ and a Git worktree are required.
+
+    pnpm vibe-harness install --project <项目绝对路径> --dry-run
+    pnpm vibe-harness validate --project <项目绝对路径>
+
+Declare a reviewed `validationCommands.micro` entry in the target project's config; for example, `scripts/probes/normalize.mjs` exports `default(args)`:
+
+```json
+[
+  {
+    "id": "normalize-example",
+    "kind": "pure",
+    "entry": "scripts/probes/normalize.mjs",
+    "args": { "value": "example" },
+    "costTier": "quick",
+    "scopes": ["affected", "layer"],
+    "maxDurationMs": 3000,
+    "maxOutputBytes": 2048,
+    "network": "deny",
+    "workspaceWrite": "deny",
+    "allowedEnv": []
+  }
+]
+```
+
+Run `node .agents/runtime/commands/run.mjs verify --project . --micro normalize-example --plan --json`, then omit `--plan` to execute. This requires Node 22+ and a Git worktree; legacy `command` entries are rejected by the installed runtime. Micro proves only a local observation, not task completion. Node permissions do not enforce network isolation for untrusted probes; see [Micro verification rules](docs/rules/micro-verification.md).
+
+## Full installation (recommended)
+
+One prompt installs the full profile, every stable tool plugin, the Linear read-write integration, and the memory assets across multiple hosts, so plugins, Linear, and hosts do not have to be selected one by one:
+
+    Install Vibe-Harness with --preset everything into TARGET_PROJECT_ABSOLUTE_PATH for the codex, zcode, and opencode hosts. You are working from the Vibe-Harness repository and run:
+    pnpm install
+    pnpm vibe-harness init --project <TARGET_PROJECT_ABSOLUTE_PATH> --targets codex,zcode,opencode --preset everything
+    pnpm vibe-harness install --project <TARGET_PROJECT_ABSOLUTE_PATH> --write --confirm-red-zone
+    pnpm vibe-harness validate --project <TARGET_PROJECT_ABSOLUTE_PATH>
+    pnpm vibe-harness doctor --project <TARGET_PROJECT_ABSOLUTE_PATH>
+    Run init only when the target has no vibe-harness.config.json. I authorize this installation to write the project-scoped Hook and MCP red-zone configuration and to enable preview capabilities for zcode and opencode. everything already includes provision, so --provision is not needed. Write only inside the target project and do not modify global Agent, MCP, or Git configuration; report the actual writes and anything incomplete.
+
+Equivalent commands:
+
+```bash
+pnpm install
+pnpm vibe-harness init --project ../full-project --targets codex,zcode,opencode --preset everything
+pnpm vibe-harness install --project ../full-project --dry-run
+pnpm vibe-harness install --project ../full-project --write --confirm-red-zone
+pnpm vibe-harness validate --project ../full-project
+pnpm vibe-harness doctor --project ../full-project
+```
+
+`--preset everything` expands to `profile=full`, the six stable tool plugins with a runtime, the rule-only `codegraph`/`serena`/`probe` plugins, the linear-mcp read-write endpoint, and the memory module, and implies preview capability plus post-install provision. It does not change the contract that `--plugin all` still ships only the six stable plugins with a runtime and excludes Linear along with the three rule-only plugins. Red-zone writes still require the explicit `--confirm-red-zone`. The init config is:
+
+```json
+{
+  "targets": ["codex", "zcode", "opencode"],
+  "profile": "full",
+  "preset": "everything"
+}
+```
 
 ## Quick start
 
@@ -36,6 +98,8 @@ pnpm vibe-harness install --project ../some-project --target codex --profile cor
 pnpm vibe-harness provision --project ../some-project --target codex --profile core --dry-run
 pnpm vibe-harness provision --project ../some-project --target codex --profile core --write
 pnpm vibe-harness validate --project ../some-project
+pnpm vibe-harness verify --project ../some-project --plan
+pnpm vibe-harness verify --project ../some-project --full
 pnpm vibe-harness doctor --project ../some-project
 ```
 
@@ -45,13 +109,32 @@ pnpm vibe-harness doctor --project ../some-project
 pnpm vibe-harness verify --project ../some-project
 ```
 
-`verify` runs configured commands in `lint -> typecheck -> test -> eval` order and skips unconfigured commands.
+`verify` builds one `auto` risk plan from changed paths: documentation, single-test, and pure-function changes run only affected checks; public contracts, installers, runtime, Hooks, CI, lockfiles, or unclassified changes fall back to full verification. `--plan` only prints risk, impact groups, selected/skipped checks, and fallback reasons; `--full` explicitly runs the complete matrix. Unselected checks are recorded as `not_selected`, while unconfigured checks remain `not_configured`.
 
 Verification JSON also includes the run ID, timestamps, and a non-persisted Git worktree fingerprint. A worktree change during checks returns PROJECT_VERIFICATION_STALE.
 
+### Project-local deterministic scripts
+
+The `core` and `full` profiles install a project-local command surface by default; `minimal` and `docs-only` do not. Mechanical fact collection and configured checks stay in the script, while the Agent chooses scope and explains results:
+
+```bash
+node .agents/runtime/commands/run.mjs env --project . --json
+node .agents/runtime/commands/run.mjs context --project . --json
+node .agents/runtime/commands/run.mjs changes --project . --json
+node .agents/runtime/commands/run.mjs verify --project . --plan --json
+node .agents/runtime/commands/run.mjs verify --project . --json
+node .agents/runtime/commands/run.mjs worktree check --project . --strict --json
+node .agents/runtime/commands/run.mjs slice --project . --file <path> --from <n>
+node .agents/runtime/commands/run.mjs patch --project . --spec <spec.json>
+```
+
+`verify --plan` previews configured checks without executing them. The script has no arbitrary command option, does not edit configuration, and does not use the network. Commands come from `validationCommands` in `vibe-harness.config.json`; failures, timeouts, unsafe commands, and worktree changes during verification are reported explicitly. Cost tiers default to the fast path: without `--tier`, `verify` runs only the quick layer (it follows implementation and blocks the current work unit), and the standard and deep layers have to be asked for with `--tier standard|deep` or `--full` for the complete matrix. A passing quick-layer run reports `scopeStatus: partial` and lists the deferred checks plus the next layer, so it can never be read as integration, release, or overall completion.
+
+`worktree`, `slice`, and `patch` are read-only by default. `worktree check` reports isolation units, merge-back state, dependency links, and the port registration facts plus a `cleanupAllowed` advisory. `worktree bootstrap` runs six steps (`worktree add` -> dependency links -> port block and env file -> declared envFiles -> declared setupCommands -> toolchain probe), prints the plan unless `--write` is passed, and additionally needs `--confirm-red-zone` when a target matches `hooks.redZonePaths`; ports are segmented by the main checkout's `.vibe-harness/worktree-ports.json` registry under the `.vibe-harness/worktree-ports.lock` exclusive lock, and a main checkout without `node_modules` ends the bootstrap as `blocked` instead of continuing silently. `worktree cleanup` only writes when `--write` is passed, refuses while a branch has not landed in `worktree.baseRef` or the worktree is dirty, and never deletes a branch. `worktree recover` clears crash residue — incomplete worktrees left by an interrupted bootstrap, prunable bindings whose directory is gone, and orphaned branches or port registrations with attribution evidence; it also only prints a plan unless `--write` is passed, and branch deletion stays behind the evidence gates for branches that never left the baseline. `slice` prints a line range; `patch` applies guarded range or sequence edits in memory and writes only after every operation passed. They replace inline `node -e` snippets and one-off scripts inside a project.
+
 ## Multi-host installation
 
-Install a project only once. The targets array declares every host. Without --target, install, upgrade, validate, doctor, and diff process all targets. With --target, a command selects one host still present in configuration or install-state and never adds it implicitly.
+Install a project only once. The targets array declares every host. Without --target, install, upgrade, verify, validate, doctor, and diff process all targets. With --target, a command selects one host still present in configuration or install-state and never adds it implicitly.
 
 Common rules, runtime, memory, Evals, and the codebase-memory index have one shared owner at the project root. Host instructions, native Skills, MCP, and Hooks use adapter:id projection owners. Do not repeat installation in a project subdirectory to simulate multi-host support.
 
@@ -63,16 +146,18 @@ Common rules, runtime, memory, Evals, and the codebase-memory index have one sha
 
 A single Agent handles work by default. Explicit `open-code-review`, browser verification, Eval, and project test tools remain available. Task Markdown is an optional human-readable note and is not part of runtime decisions.
 
-## Profiles
+## Profiles and roles
+
+The core profile installs nine native Skills; full installs twelve and enables seven role personas by default. The role system uses single-primary-role dynamic switching: each atomic action activates exactly one role and may stack at most one domain Skill; it is not a fixed seven-stage pipeline.
 
 | Profile | Installed surface |
 | --- | --- |
 | `minimal` | Platform instructions, safety boundaries, Git/Test rules, and optional task/delivery templates |
-| `core` | `minimal` plus common engineering rules, five domain Skills, and offline Eval |
-| `full` | `core` plus three domain Skills, online Eval, and supported platform safety Hooks |
+| `core` | `minimal` plus common engineering rules, nine native Skills, project-local deterministic scripts, and offline Eval |
+| `full` | `core` plus three native Skills, online Eval, and supported platform safety Hooks, for twelve native Skills total |
 | `docs-only` | Rules, templates, and schemas without runtime, Skills, MCP, or Hooks |
 
-External tools and memory remain explicit `--plugin` choices. Every host configuration file is a red-zone write and requires `--confirm-red-zone`.
+External tools remain explicit `--plugin` choices. Every host configuration file is a red-zone write and requires `--confirm-red-zone`.
 
 ```bash
 pnpm vibe-harness install --project ../some-project --target codex --profile full --dry-run
@@ -115,7 +200,12 @@ ZCode project Skill storage has no documented project-scoped path, so Vibe-Harne
     "lint": null,
     "typecheck": null,
     "test": null,
-    "eval": null
+    "eval": null,
+    "tiers": {
+      "quick": [],
+      "standard": [],
+      "deep": []
+    }
   },
   "evaluations": {
     "enabled": false,
@@ -130,13 +220,12 @@ ZCode project Skill storage has no documented project-scoped path, so Vibe-Harne
     "repetitions": 3
   },
   "hooks": {
-    "allowedWriteRoots": [],
-    "allowedEgressHosts": [],
-    "mode": "guarded"
+    "allowedEgressHosts": []
   },
   "riskZones": {
     "red": ["auth", "secrets", "ci-cd", "env"],
-    "yellow": ["shared-libs", "state", "routing", "io-clients"]
+    "yellow": ["shared-libs", "state", "routing", "io-clients"],
+    "pathPatterns": { "red": [], "yellow": [] }
   },
   "crossRepo": {
     "enabled": false,
@@ -162,7 +251,7 @@ Legacy `governance.mode`, `governance.workflow`, `hooks.completionGate`, and `va
 
 The Linear workflow is a separate external integration: linear-mcp uses the read-write endpoint and linear-mcp-readonly uses the read-only endpoint. They are mutually exclusive and neither is selected by plugin all. Codex, Cursor, Qoder, ZCode, Antigravity, and OpenCode receive project-scoped Remote MCP configuration. Claude and Gemini receive the same rules and Skill but report manual MCP setup as a degraded capability. The installer writes no token or OAuth credential; complete the host's native Linear authentication after configuration.
 
-Optional plugins are `rtk`, `ast-grep`, `codebase-memory-mcp`, `chrome-devtools-mcp`, `playwright-cli`, and `open-code-review`. Agentmemory runtime is suspended (upstream High vulnerabilities) and is not a `--plugin` choice; install the `memory` module via `--modules memory` when memory support is re-enabled.
+Optional plugins are `rtk`, `ast-grep`, `codebase-memory-mcp`, `chrome-devtools-mcp`, `playwright-cli`, `open-code-review`, `codegraph`, `serena`, and `probe`. `codegraph`, `serena`, and `probe` are rule-only plugins: the installer ships the rule file only, never installs or configures the external tool itself, and hosts provide the MCP/CLI on their own. Agentmemory runtime is suspended (upstream High vulnerabilities) and is not a `--plugin` choice; install the `memory` module via `--modules memory` if you need memory capability.
 
 ```bash
 pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin -rtk --dry-run
@@ -188,6 +277,8 @@ pnpm vibe-harness uninstall --project ../some-project --target codex --write
 pnpm vibe-harness uninstall --project ../some-project --all-targets --write
 ```
 
+The preserve-retired option keeps assets that an upgrade would retire and reports them as retained. Without it, upgrade retirement remains unchanged.
+
 ### Exit codes
 
 | Code | Meaning |
@@ -198,11 +289,15 @@ pnpm vibe-harness uninstall --project ../some-project --all-targets --write
 
 ## Safety boundaries
 
-- Existing project files are preserved unless `--force` is explicit.
+- Existing project files are preserved unless `--force` is explicit. Project-owned managed seeds (`docs/memory/*`, `.agents/memory/*`) keep the project's drifted content, re-record it as the baseline, and are reported through `retainedProjectOwned` (`reason: project-owned-drift`) and the `PROJECT_OWNED_FILE_RETAINED` warning; drifted harness-owned files still fail closed with `Refusing to upgrade user-modified file`.
 - Every mutation requires `--write`; red-zone writes require explicit confirmation.
 - The installer does not modify global Agent configuration or `.git/config`.
 - Codex, Cursor, Qoder, and ZCode Hooks normalize their `PreToolUse` and permission events through the same safety policy to block dangerous Git, global configuration writes, credential exfiltration, red-zone file uploads, out-of-project writes, and (when an `allowedEgressHosts` allowlist is configured) non-allowlisted network egress. RTK Hook routing remains Codex-only.
 - Completion claims must match fresh evidence; narrow the claim and report risk when verification is unavailable.
+
+## Roles
+
+Full enables seven role personas by default; other profiles can opt in with roles.enabled. Each atomic action activates one role and may add at most one matching domain Skill, with rerouting only when the goal or action type changes. The ZCode role plugin stays project-local and doctor reports manual-activation-required; hosts with weaker permission expression report degraded mapping. See the [role documentation](docs/roles.md) for configuration, permissions, and routing.
 
 ## Documentation
 

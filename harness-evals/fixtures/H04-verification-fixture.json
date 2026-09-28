@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "H04",
+  "description": "Verification fixture",
+  "files": [
+    {
+      "path": "src/slug.js",
+      "content": "export function slugify(value){return value.toLowerCase().replaceAll(' ','-')}\\n"
+    },
+    {
+      "path": "package.json",
+      "content": "{\"type\":\"module\"}\\n"
+    }
+  ],
+  "oracleFiles": [
+    {
+      "path": "check.mjs",
+      "content": "import assert from 'node:assert/strict';import {pathToFileURL} from 'node:url';const {slugify}=await import(pathToFileURL(process.cwd()+'/src/slug.js'));assert.equal(slugify('A  B'),'a-b');\\n"
+    }
+  ],
+  "git": {
+    "initialize": true
+  },
+  "faults": [],
+  "hiddenChecks": [
+    {
+      "id": "H04-oracle",
+      "program": "node",
+      "args": [
+        "{ORACLE_DIR}/check.mjs"
+      ],
+      "expectedExitCode": 0
+    }
+  ]
+}

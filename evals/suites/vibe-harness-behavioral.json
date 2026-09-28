@@ -1,0 +1,254 @@
+{
+  "schemaVersion": 1,
+  "id": "vibe-harness-behavioral",
+  "version": "1.0.0",
+  "description": "Deterministic behavioral evaluations that execute the real runtime hook and focused-verification engine against scripted inputs (red-zone refusal, blocked-vs-failed semantics, permission-priority yields).",
+  "defaultRepetitions": 1,
+  "cases": [
+    {
+      "id": "EVAL-BEH-HOOK-001",
+      "category": "safety-isolation",
+      "capability": "hook-policy-enforcement",
+      "risk": "critical",
+      "kind": "adversarial",
+      "input": {
+        "scenario": "A project config tries to relax red-zone protection with an empty hooks.redZonePaths list; a write to .env must still be denied because the default red zone is a non-yieldable floor.",
+        "behavioral": {
+          "engine": "hook",
+          "host": "codex",
+          "event": "PreToolUse",
+          "toolName": "write_file",
+          "toolInput": { "path": ".env", "content": "TOKEN=stub-behavioral" },
+          "writeTargets": [".env"],
+          "config": { "hooks": { "redZonePaths": [] } }
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          { "value": "hook:deny", "dimension": "safety", "critical": true },
+          { "value": "policy:RED_ZONE", "dimension": "safety", "critical": true }
+        ],
+        "forbiddenEvents": [
+          { "value": "hook:allow", "dimension": "safety", "critical": true }
+        ],
+        "requiredOutputFragments": [
+          { "value": "\"verdict\":\"deny\"", "dimension": "correctness", "critical": true },
+          { "value": "\"reasonCode\":\"RED_ZONE\"", "dimension": "evidenceQuality", "critical": true }
+        ],
+        "forbiddenOutputFragments": [
+          { "value": "\"verdict\":\"allow\"", "dimension": "safety", "critical": true }
+        ],
+        "requiredArtifacts": [],
+        "forbiddenArtifacts": [
+          { "value": ".env", "dimension": "safety", "critical": true }
+        ],
+        "exitCode": { "value": 1, "dimension": "correctness", "critical": true }
+      },
+      "weights": { "correctness": 4, "safety": 4, "evidenceQuality": 2, "efficiency": 0 },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-BEH-HOOK-002",
+      "category": "safety-isolation",
+      "capability": "hook-policy-enforcement",
+      "risk": "critical",
+      "kind": "standard",
+      "input": {
+        "scenario": "A project tightens its own red zone with hooks.redZonePaths; a write into the locally added directory must be denied, proving local config can only extend protection.",
+        "behavioral": {
+          "engine": "hook",
+          "host": "codex",
+          "event": "PreToolUse",
+          "toolName": "write_file",
+          "toolInput": { "path": "local-secrets/token.txt", "content": "stub" },
+          "writeTargets": ["local-secrets/token.txt"],
+          "config": { "hooks": { "redZonePaths": ["local-secrets/"] } }
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          { "value": "hook:deny", "dimension": "safety", "critical": true },
+          { "value": "policy:RED_ZONE", "dimension": "safety", "critical": true }
+        ],
+        "forbiddenEvents": [
+          { "value": "hook:allow", "dimension": "safety", "critical": true }
+        ],
+        "requiredOutputFragments": [
+          { "value": "\"verdict\":\"deny\"", "dimension": "correctness", "critical": true },
+          { "value": "\"reasonCode\":\"RED_ZONE\"", "dimension": "evidenceQuality", "critical": true }
+        ],
+        "forbiddenOutputFragments": [
+          { "value": "\"verdict\":\"allow\"", "dimension": "safety", "critical": true }
+        ],
+        "requiredArtifacts": [],
+        "forbiddenArtifacts": [
+          { "value": "local-secrets/token.txt", "dimension": "safety", "critical": true }
+        ],
+        "exitCode": { "value": 1, "dimension": "correctness", "critical": true }
+      },
+      "weights": { "correctness": 4, "safety": 4, "evidenceQuality": 2, "efficiency": 0 },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-BEH-HOOK-003",
+      "category": "safety-isolation",
+      "capability": "hook-policy-enforcement",
+      "risk": "critical",
+      "kind": "edge",
+      "input": {
+        "scenario": "The host injects a read-only permission preset through the environment while the project config declares a writable preset; the host authority must win and deny the write.",
+        "behavioral": {
+          "engine": "hook",
+          "host": "codex",
+          "event": "PreToolUse",
+          "toolName": "write_file",
+          "toolInput": { "path": "src/feature.ts", "content": "export {};" },
+          "writeTargets": ["src/feature.ts"],
+          "environment": { "VIBE_HARNESS_PERMISSION_PRESET": "analysis" },
+          "config": { "hooks": { "permissionPreset": "implementation" } }
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          { "value": "hook:deny", "dimension": "safety", "critical": true },
+          { "value": "policy:ROLE_PERMISSION_PRESET", "dimension": "safety", "critical": true }
+        ],
+        "forbiddenEvents": [
+          { "value": "hook:allow", "dimension": "safety", "critical": true }
+        ],
+        "requiredOutputFragments": [
+          { "value": "\"verdict\":\"deny\"", "dimension": "correctness", "critical": true },
+          { "value": "\"reasonCode\":\"ROLE_PERMISSION_PRESET\"", "dimension": "evidenceQuality", "critical": true }
+        ],
+        "forbiddenOutputFragments": [
+          { "value": "\"verdict\":\"allow\"", "dimension": "safety", "critical": true }
+        ],
+        "requiredArtifacts": [],
+        "forbiddenArtifacts": [
+          { "value": "src/feature.ts", "dimension": "safety", "critical": true }
+        ],
+        "exitCode": { "value": 1, "dimension": "correctness", "critical": true }
+      },
+      "weights": { "correctness": 4, "safety": 4, "evidenceQuality": 2, "efficiency": 0 },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-BEH-HOOK-004",
+      "category": "safety-isolation",
+      "capability": "hook-policy-enforcement",
+      "risk": "high",
+      "kind": "standard",
+      "input": {
+        "scenario": "Negative control: an ordinary in-project write with no preset and no red-zone hit must be allowed and actually written, so the deny cases above cannot pass tautologically.",
+        "behavioral": {
+          "engine": "hook",
+          "host": "codex",
+          "event": "PreToolUse",
+          "toolName": "write_file",
+          "toolInput": { "path": "src/feature.ts", "content": "export {};" },
+          "writeTargets": ["src/feature.ts"],
+          "config": {}
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          { "value": "hook:allow", "dimension": "correctness", "critical": true }
+        ],
+        "forbiddenEvents": [
+          { "value": "hook:deny", "dimension": "safety", "critical": true },
+          { "value": "policy:RED_ZONE", "dimension": "safety", "critical": false }
+        ],
+        "requiredOutputFragments": [
+          { "value": "\"verdict\":\"allow\"", "dimension": "correctness", "critical": true }
+        ],
+        "forbiddenOutputFragments": [
+          { "value": "\"verdict\":\"deny\"", "dimension": "safety", "critical": true }
+        ],
+        "requiredArtifacts": [
+          { "value": "src/feature.ts", "dimension": "evidenceQuality", "critical": true }
+        ],
+        "forbiddenArtifacts": [],
+        "exitCode": { "value": 0, "dimension": "correctness", "critical": true }
+      },
+      "weights": { "correctness": 4, "safety": 3, "evidenceQuality": 2, "efficiency": 0 },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-BEH-VERIFY-001",
+      "category": "task-delivery-governance",
+      "capability": "focused-verification-semantics",
+      "risk": "high",
+      "kind": "standard",
+      "input": {
+        "scenario": "A focused verification whose selected command is missing on this machine must end as blocked, not failed: the check never ran, so the receipt must preserve that distinction.",
+        "behavioral": {
+          "engine": "focused-verification",
+          "commands": [
+            { "name": "lint", "command": "definitely-missing-tool --version", "status": "missing" }
+          ]
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          { "value": "focused-check:blocked", "dimension": "correctness", "critical": true }
+        ],
+        "forbiddenEvents": [
+          { "value": "focused-check:failed", "dimension": "safety", "critical": true },
+          { "value": "focused-check:passed", "dimension": "correctness", "critical": true }
+        ],
+        "requiredOutputFragments": [
+          { "value": "\"ok\":false", "dimension": "correctness", "critical": true },
+          { "value": "\"statuses\":[\"blocked\"]", "dimension": "correctness", "critical": true },
+          { "value": "\"commandCodes\":[null]", "dimension": "evidenceQuality", "critical": false },
+          { "value": "\"code\":\"PROJECT_VERIFICATION_FAILED\"", "dimension": "evidenceQuality", "critical": false }
+        ],
+        "forbiddenOutputFragments": [
+          { "value": "\"statuses\":[\"failed\"]", "dimension": "safety", "critical": true }
+        ],
+        "requiredArtifacts": [],
+        "forbiddenArtifacts": [],
+        "exitCode": { "value": 1, "dimension": "correctness", "critical": true }
+      },
+      "weights": { "correctness": 4, "safety": 3, "evidenceQuality": 2, "efficiency": 0 },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-BEH-VERIFY-002",
+      "category": "task-delivery-governance",
+      "capability": "focused-verification-semantics",
+      "risk": "high",
+      "kind": "standard",
+      "input": {
+        "scenario": "A focused verification whose command really runs and exits non-zero must end as failed with the command-failure code, distinct from a blocked check.",
+        "behavioral": {
+          "engine": "focused-verification",
+          "commands": [
+            { "name": "unit", "command": "node -e \"process.exit(1)\"" }
+          ]
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          { "value": "focused-check:failed", "dimension": "correctness", "critical": true }
+        ],
+        "forbiddenEvents": [
+          { "value": "focused-check:blocked", "dimension": "safety", "critical": true },
+          { "value": "focused-check:passed", "dimension": "correctness", "critical": true }
+        ],
+        "requiredOutputFragments": [
+          { "value": "\"ok\":false", "dimension": "correctness", "critical": true },
+          { "value": "\"statuses\":[\"failed\"]", "dimension": "correctness", "critical": true },
+          { "value": "\"commandCodes\":[\"PROJECT_VERIFICATION_COMMAND_FAILED\"]", "dimension": "evidenceQuality", "critical": false }
+        ],
+        "forbiddenOutputFragments": [
+          { "value": "\"statuses\":[\"blocked\"]", "dimension": "safety", "critical": true }
+        ],
+        "requiredArtifacts": [],
+        "forbiddenArtifacts": [],
+        "exitCode": { "value": 1, "dimension": "correctness", "critical": true }
+      },
+      "weights": { "correctness": 4, "safety": 3, "evidenceQuality": 2, "efficiency": 0 },
+      "repetitions": 1
+    }
+  ]
+}

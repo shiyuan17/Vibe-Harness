@@ -57,4 +57,4 @@
 |---|---|---|
 | 验证可访问性树 | 在浏览器可访问性面板检查名称、角色、状态 | DOM 结构不等于可访问性呈现 |
 | landmark | 用 `header`/`nav`/`main`/`aside`/`footer` 划分 | 辅助技术靠 landmark 快速跳转 |
-| 对比度 | 正文与控件达可访问对比度；优先 APCA 而非 WCAG 2 | APCA 更准确反映感知对比度
+| 对比度 | 以 WCAG 2.2 AA 达标（正文 4.5:1、大字 3:1、控件与状态 3:1）；APCA 只作补充启发 | WCAG 3 仍是 Working Draft 且对比度算法未定，验收基线仍是 WCAG 2.2 AA

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Vibe-Harness Profile Pack Manifest",
+  "title": "Vibe-Harness Profile Pack 清单",
   "type": "object",
   "required": ["schemaVersion", "items"],
   "properties": {

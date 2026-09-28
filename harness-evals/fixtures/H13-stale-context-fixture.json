@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "H13",
+  "description": "Stale context fixture",
+  "files": [
+    {
+      "path": "src/colors.json",
+      "content": "{\"red\":\"#f00\",\"blue\":\"#00f\"}\\n"
+    },
+    {
+      "path": "CHECKPOINT.md",
+      "content": "Stale checkpoint: blue is missing from src/colors.json.\\n"
+    }
+  ],
+  "oracleFiles": [
+    {
+      "path": "check.mjs",
+      "content": "import assert from 'node:assert/strict';import fs from 'node:fs';const x=JSON.parse(fs.readFileSync('src/colors.json'));assert.equal(x.blue,'#00f');assert.equal(Object.keys(x).filter(k=>k==='blue').length,1);\\n"
+    }
+  ],
+  "git": {
+    "initialize": true
+  },
+  "faults": [],
+  "hiddenChecks": [
+    {
+      "id": "H13-oracle",
+      "program": "node",
+      "args": [
+        "{ORACLE_DIR}/check.mjs"
+      ],
+      "expectedExitCode": 0
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "fixedCritical": ["H01", "H04", "H06", "H09", "H15", "H20"],
+  "rules": [
+    { "prefix": "docs/rules/governance-core.md", "scenarios": ["H01", "H02", "H05", "H06", "H07", "H08"] },
+    { "prefix": "docs/rules/test-rules.md", "scenarios": ["H03", "H04", "H06", "H10", "H11"] },
+    { "prefix": "docs/rules/ai-collab-rules.md", "scenarios": ["H14", "H15", "H16", "H17", "H18", "H19"] },
+    { "prefix": "skills/", "scenarios": ["H02", "H03", "H07", "H08", "H09", "H10", "H11"] },
+    { "prefix": "roles/", "scenarios": ["H14", "H15", "H16", "H17", "H18", "H19"] },
+    { "prefix": "runtime/evals/", "scenarios": ["H04", "H06", "H09", "H12", "H13", "H20"] },
+    { "prefix": "harness-evals/", "scenarios": ["H01", "H02", "H03", "H04", "H05", "H06", "H07", "H08", "H09", "H10", "H11", "H12", "H13", "H14", "H15", "H16", "H17", "H18", "H19", "H20"] }
+  ]
+}

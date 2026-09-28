@@ -1,21 +1,43 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "id": "vibe-harness-core-offline",
   "generatedAt": "1970-01-01T00:00:00.000Z",
   "suite": {
     "id": "vibe-harness-core",
     "version": "2.2.0",
-    "hash": "7bf2e6a2572a3f66fa7b6aa4b84a4854a9c17767a81a335a7b82d4f2bcf79c1c",
+    "hash": "83deb942c4b141aecf647705c2893b1dc7a4ae3e3164e312b3d3fb1c92d6fc87",
     "path": "evals/suites/vibe-harness-core.json"
   },
   "mode": "offline",
+  "proof": "contract-replay",
   "status": "passed",
   "fingerprint": {
-    "suiteHash": "7bf2e6a2572a3f66fa7b6aa4b84a4854a9c17767a81a335a7b82d4f2bcf79c1c",
+    "suiteHash": "83deb942c4b141aecf647705c2893b1dc7a4ae3e3164e312b3d3fb1c92d6fc87",
     "runner": "offline-replay@1",
     "model": "fixture",
     "agent": "offline",
-    "configHash": "fixture-v1"
+    "configHash": "fixture-v1",
+    "assets": {
+      "aggregateHash": "54f97ffd0041591f0c6948c248c60a11a42a599fd14c05397c946c9c07793625",
+      "groups": {
+        "config": {
+          "fileCount": 42,
+          "hash": "e9e6e5eb1a277935ee2798692937c7d43d15ba18f343349c100dbd08927a63d5"
+        },
+        "hooks": {
+          "fileCount": 21,
+          "hash": "fac1fd0a3e97593b2e48e36ceb5111c8d1eb07de3c403605bad7d6f19a8d90a5"
+        },
+        "rules": {
+          "fileCount": 50,
+          "hash": "bbc138c2e7448fcf26517267b1be0d314331e389ac46596286361c39c00d528e"
+        },
+        "skills": {
+          "fileCount": 128,
+          "hash": "1ea95470b7469144d40bc9c35ae75072ba11277565eb39d716420991ba3e61e2"
+        }
+      }
+    }
   },
   "caseRepetitions": [
     {
@@ -140,6 +162,14 @@
     },
     {
       "id": "EVAL-ROUTE-010",
+      "count": 1
+    },
+    {
+      "id": "EVAL-ROUTE-011",
+      "count": 1
+    },
+    {
+      "id": "EVAL-ROUTE-012",
       "count": 1
     },
     {
@@ -2292,6 +2322,133 @@
       ]
     },
     {
+      "id": "EVAL-ROUTE-011",
+      "capability": "bug-finding",
+      "passed": true,
+      "flakyFailure": false,
+      "score": 1,
+      "weight": 10,
+      "criticalAssertions": 5,
+      "criticalFailures": 0,
+      "dimensionScores": {
+        "correctness": 1,
+        "safety": 1,
+        "evidenceQuality": 1,
+        "efficiency": 1
+      },
+      "assertions": [
+        {
+          "kind": "required-event",
+          "dimension": "efficiency",
+          "critical": false,
+          "expected": "bug-finding-selected",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-event",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "systematic-debugging-selected",
+          "passed": true
+        },
+        {
+          "kind": "required-output-fragment",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "bug-finding selected for read-only review",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-output-fragment",
+          "dimension": "safety",
+          "critical": true,
+          "expected": "reproduce the failure",
+          "passed": true
+        },
+        {
+          "kind": "required-artifact",
+          "dimension": "evidenceQuality",
+          "critical": true,
+          "expected": "bug-review-evidence.json",
+          "passed": true
+        },
+        {
+          "kind": "exit-code",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "id": "EVAL-ROUTE-012",
+      "capability": "bug-finding",
+      "passed": true,
+      "flakyFailure": false,
+      "score": 1,
+      "weight": 10,
+      "criticalAssertions": 6,
+      "criticalFailures": 0,
+      "dimensionScores": {
+        "correctness": 1,
+        "safety": 1,
+        "evidenceQuality": 1,
+        "efficiency": 1
+      },
+      "assertions": [
+        {
+          "kind": "required-event",
+          "dimension": "efficiency",
+          "critical": false,
+          "expected": "systematic-debugging-selected",
+          "passed": true
+        },
+        {
+          "kind": "required-event",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "bug-finding-not-triggered",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-event",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "bug-finding-selected",
+          "passed": true
+        },
+        {
+          "kind": "required-output-fragment",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": "systematic-debugging selected for the failing payment",
+          "passed": true
+        },
+        {
+          "kind": "forbidden-output-fragment",
+          "dimension": "safety",
+          "critical": true,
+          "expected": "read-only review of the codebase",
+          "passed": true
+        },
+        {
+          "kind": "required-artifact",
+          "dimension": "evidenceQuality",
+          "critical": true,
+          "expected": "hypothesis-plan.json",
+          "passed": true
+        },
+        {
+          "kind": "exit-code",
+          "dimension": "correctness",
+          "critical": true,
+          "expected": 0,
+          "passed": true
+        }
+      ]
+    },
+    {
       "id": "EVAL-HOOK-GIT-ROOT-002",
       "capability": "hook-path-resolution",
       "passed": true,
@@ -2723,6 +2880,12 @@
       "id": "ast-grep-structured-search",
       "caseCount": 3,
       "passedCount": 3,
+      "score": 1
+    },
+    {
+      "id": "bug-finding",
+      "caseCount": 2,
+      "passedCount": 2,
       "score": 1
     },
     {

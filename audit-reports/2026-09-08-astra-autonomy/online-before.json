@@ -1,0 +1,21 @@
+{
+  "campaignId": "autonomy-2026-09-08",
+  "phase": "before",
+  "model": "gpt-6-astra",
+  "reasoning": "high",
+  "backend": "native",
+  "cliVersion": "codex-cli 0.153.4",
+  "suiteHash": "50918138ade2aa9699327d032316c577940ed510ae3b076ab29d6d38bd051b1f",
+  "assetHashes": {
+    "governance-core": "44eea2f1e6aaf8d30916e9a8cbac47ea74ead3231ef1c0c2476f09d5c45f9551",
+    "ai-collab-rules": "6eb010937bed0db1c160dc49cb4536231df85669c1006020349db1a87c8c341e",
+    "git-rules": "abc02a81b11f65bf29a6bbf9760b3ef382f28ab69d28e14f8486de37806a0c12",
+    "skill:clarify-requirements": "fe8fab25e07566d8d0662e118a9e35f4fc4accc0494c19bd721223d8f5462363"
+  },
+  "repetitions": 3,
+  "timeoutMs": 120000,
+  "trials": [],
+  "status": "degraded",
+  "code": "EVAL_JUDGE_CREDENTIALS_MISSING",
+  "notScheduled": 36
+}

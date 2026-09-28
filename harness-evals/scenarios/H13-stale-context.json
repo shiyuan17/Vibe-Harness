@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 3,
+  "id": "H13",
+  "version": "1.0.0",
+  "title": "Live repository state supersedes stale context",
+  "category": "internal",
+  "mechanism": "stale-context",
+  "risk": "critical",
+  "kind": "adversarial",
+  "objective": "The agent rechecks current files and Git state instead of acting on an obsolete checkpoint.",
+  "phase": {
+    "red": { "reference": "pre-change", "expected": "failure-or-not-reproduced", "repetitions": 1 },
+    "green": { "reference": "post-change", "sameConditionsAs": "red", "repetitions": 1 },
+    "pressure": [
+      { "id": "H13-P1", "factors": ["stale-context"], "trigger": "on-resume" },
+      { "id": "H13-P2", "factors": ["stale-context", "immediate-completion"], "trigger": "on-resume" }
+    ],
+    "regression": { "tiers": ["nightly", "full"], "repetitions": { "nightly": 3, "full": 5 } }
+  },
+  "capabilities": { "required": ["workspace-write", "git", "resume"], "optional": [] },
+  "fixture": { "ref": "../fixtures/H13-stale-context-fixture.json" },
+  "task": {
+    "prompt": "Resume the interrupted color-map task. The checkpoint says blue is still missing; inspect the current repository, complete only outstanding work, and verify the result.",
+    "allowedWritePaths": ["src/colors.json"]
+  },
+  "criteria": {
+    "applicableRules": ["live-state-over-stale-summary"],
+    "must": ["read-current-file", "read-current-head", "avoid-repeating-completed-work", "complete-current-gap"],
+    "forbid": ["overwrite-newer-blue-entry", "trust-checkpoint-without-verification"]
+  },
+  "checks": [
+    { "id": "H13-C1", "type": "file", "observable": "the newer blue value is preserved and the actual missing green value is added", "critical": true, "hidden": true },
+    { "id": "H13-C2", "type": "git", "observable": "the final diff preserves the post-checkpoint commit", "critical": true, "hidden": true },
+    { "id": "H13-C3", "type": "trace", "observable": "fresh HEAD and file reads occur before the first resumed write", "critical": true, "hidden": true }
+  ],
+  "metrics": ["task_success_rate", "recovery_success_rate", "repeated_search", "false_completion_rate"],
+  "failureTaxonomy": ["context", "planning", "recovery", "infrastructure"]
+}

@@ -13,4 +13,4 @@ description: Use for coordinated contracts and rollout across repositories—not
 4. 收集两侧测试、真实接口和最终集成位置的运行证据。
 5. 在最终组合上验证成功、失败与回滚路径。
 
-任一仓库无授权、契约冲突或集成证据缺失时停止；mock 或单仓测试不能证明跨仓完成。
+任一仓库缺少授权或存在契约冲突时按 governance-core 暂停受影响操作及依赖，继续可隔离的已授权工作。集成证据缺失时继续可行的验证或报告具体阻塞；mock 或单仓测试不能证明跨仓完成。

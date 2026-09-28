@@ -1,5 +1,14 @@
 import path from 'node:path';
 import { realpathSync } from 'node:fs';
+import { CONTROL_PLANE_PATHS } from './context.mjs';
+import {
+  commandTokens,
+  commandWrites,
+  hasUnsafeShellConstruct,
+  isReadOnlyShellSegment,
+  shellSegments,
+} from './read-only-commands.mjs';
+import { rolePresetTier } from './role-permissions.mjs';
 
 export const supportedCodexHookEvents = new Set([
   'PreToolUse',
@@ -8,16 +17,17 @@ export const supportedCodexHookEvents = new Set([
 
 const writeToolPattern = /(?:apply_patch|write|edit|delete|remove|move|rename|create)/iu;
 const pathKeyPattern = /^(?:file_?path|path|target|destination|directory(?:_?path)?|dir)$/iu;
-const globalAgentConfigPattern = /(?:~|\$(?:\{)?HOME(?:\})?|\$env:(?:HOME|USERPROFILE)|%USERPROFILE%|[A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/][^\\/]+|[\\/](?:home|Users)[\\/][^\\/]+)[^\r\n]{0,96}[\\/'"]+\.(?:codex|claude|cursor|gemini)(?:[\\/'"]|$)/iu;
+// Only the Agent configuration directories that sit directly under a home
+// directory are global: `%USERPROFILE%\.codex`, `~/.claude` and friends. A
+// project that merely lives under the user profile (for example a temporary
+// project) keeps its own `.codex` and must not be treated as global config.
+const globalAgentConfigPattern = /(?:~|\$(?:\{)?HOME(?:\})?|\$env:(?:HOME|USERPROFILE)|%USERPROFILE%|[A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/][^\\/]+|[\\/](?:home|Users)[\\/][^\\/]+)[\\/'"]\.(?:codex|claude|cursor|gemini)(?:[\\/'"]|$)/iu;
 const networkCommandPattern = /\b(?:curl|wget|iwr|irm|Invoke-WebRequest|Invoke-RestMethod)\b/iu;
-const secretReferencePattern = /(?:\$\{?[A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|PAT|CRED)\}?|\$env:[A-Z0-9_]+|%(?:[A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD))%|Authorization\s*:[^\r\n]*(?:KEY|TOKEN|SECRET|Bearer)|-[HUu]\s+["']?[^"'\s]*(?:KEY|TOKEN|SECRET|PASSWORD|PAT|CRED))/iu;
+const secretReferencePattern = /(?:\$\{?[A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|PAT|CRED)[A-Z0-9_]*\}?|\$env:[A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|PAT|CRED)[A-Z0-9_]*|%[A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD)[A-Z0-9_]*%|Authorization\s*:[^\r\n]*(?:KEY|TOKEN|SECRET|Bearer)|-[HUu]\s+["']?[^"'\s]*(?:KEY|TOKEN|SECRET|PASSWORD|PAT|CRED))/iu;
 const egressUploadFlags = new Set(['-F', '--form', '-d', '--data', '--data-binary', '--data-raw', '-T', '--upload-file', '-K', '--config']);
 const urlHostPattern = /https?:\/\/\[?(?:[^\s:@/]+@)?([^\]/:@\s]+)/igu;
 const privateEgressPattern = /(?:curl|wget)[^\n]*(?:-F|--form|-d|--data(?:-binary|-raw)?|-T|--upload-file|-K|--config)/iu;
-// Shell constructs this lightweight segment splitter cannot safely tokenise.
-// When present, the command may hide a destructive payload inside a
-// substitution, so the policy fails closed (deny) rather than risk a bypass.
-const unsafeShellConstructPattern = /(?:\$\([^)]*\)|`[^`]*`|\\\r?\n)/u;
+const patchToolPattern = /(?:^|__|\.)apply_?patch(?:$|__|\.)/iu;
 
 // Build a red-zone matcher from configured path patterns. Each pattern is a
 // project-relative path fragment (e.g. `.env`, `auth/`, `.codex/hooks.json`).
@@ -66,6 +76,8 @@ export function normalizeCodexHookInput(value) {
     toolInput: value.tool_input,
     toolName: value.tool_name,
   };
+  if (Object.hasOwn(value, 'execution_envelope')) normalized.executionEnvelope = value.execution_envelope;
+  else if (Object.hasOwn(value, 'executionEnvelope')) normalized.executionEnvelope = value.executionEnvelope;
   return normalized;
 }
 
@@ -85,6 +97,7 @@ function hostEvent(value) {
  * into the policy's host-neutral request shape. These hosts use different key
  * casing, so validation happens before a request reaches the shared policy.
  */
+/** @param {Record<string, any>} value @param {{expectedEvent?: string | null, fallbackCwd?: string, host?: string}} options */
 export function normalizeHostHookInput(value, { expectedEvent, fallbackCwd, host } = {}) {
   if (host === 'codex') return normalizeCodexHookInput(value);
   if (host === 'antigravity') {
@@ -93,7 +106,7 @@ export function normalizeHostHookInput(value, { expectedEvent, fallbackCwd, host
     if (!event) throw new Error('Unsupported antigravity hook event.');
     const cwd = value.toolCall?.args?.Cwd ?? value.toolCall?.args?.cwd ?? value.workspacePaths?.[0] ?? fallbackCwd;
     if (typeof cwd !== 'string' || cwd.length === 0) throw new Error('antigravity hook input workspace path is required.');
-    return {
+    const normalized = {
       cwd,
       event,
       permissionMode: value.permissionMode,
@@ -101,6 +114,9 @@ export function normalizeHostHookInput(value, { expectedEvent, fallbackCwd, host
       toolInput: value.toolCall?.args ?? {},
       toolName: value.toolCall?.name ?? '',
     };
+    if (Object.hasOwn(value, 'execution_envelope')) normalized.executionEnvelope = value.execution_envelope;
+    else if (Object.hasOwn(value, 'executionEnvelope')) normalized.executionEnvelope = value.executionEnvelope;
+    return normalized;
   }
   if (!['cursor', 'qoder', 'zcode', 'claude'].includes(host)) throw new Error(`Unsupported hook host: ${String(host)}`);
   assertObject(value, `${host} hook input`);
@@ -111,7 +127,7 @@ export function normalizeHostHookInput(value, { expectedEvent, fallbackCwd, host
   const cwd = value.cwd ?? value.workspaceRoot ?? value.workspace_root ?? value.projectRoot ?? value.project_root ?? fallbackCwd;
   if (typeof cwd !== 'string' || cwd.length === 0) throw new Error(`${host} hook input.cwd is required.`);
   const toolInput = value.tool_input ?? value.toolInput ?? value.tool?.input ?? value.tool?.arguments ?? value.arguments ?? value.input ?? {};
-  return {
+  const normalized = {
     cwd,
     event,
     permissionMode: value.permission_mode ?? value.permissionMode,
@@ -119,6 +135,9 @@ export function normalizeHostHookInput(value, { expectedEvent, fallbackCwd, host
     toolInput: typeof toolInput === 'string' ? { command: toolInput } : toolInput,
     toolName: value.tool_name ?? value.toolName ?? value.tool?.name ?? value.name ?? '',
   };
+  if (Object.hasOwn(value, 'execution_envelope')) normalized.executionEnvelope = value.execution_envelope;
+  else if (Object.hasOwn(value, 'executionEnvelope')) normalized.executionEnvelope = value.executionEnvelope;
+  return normalized;
 }
 
 function isInside(baseDir, candidate) {
@@ -142,52 +161,11 @@ function canonicalPath(candidate) {
   }
 }
 
-function commandFrom(input) {
+export function commandFrom(input) {
   for (const key of ['command', 'cmd', 'input']) {
     if (typeof input.toolInput?.[key] === 'string') return input.toolInput[key];
   }
   return '';
-}
-
-function shellSegments(command) {
-  const segments = [];
-  let current = '';
-  let quote = null;
-  for (let index = 0; index < command.length; index += 1) {
-    const character = command[index];
-    if (quote) {
-      current += character;
-      if (character === quote && command[index - 1] !== '\\') quote = null;
-      continue;
-    }
-    if (character === '"' || character === "'") {
-      quote = character;
-      current += character;
-      continue;
-    }
-    const pair = command.slice(index, index + 2);
-    if (['&&', '||'].includes(pair)) {
-      if (current.trim()) segments.push(current.trim());
-      current = '';
-      index += 1;
-      continue;
-    }
-    if ([';', '|', '\n', '\r'].includes(character)) {
-      if (current.trim()) segments.push(current.trim());
-      current = '';
-      continue;
-    }
-    current += character;
-  }
-  if (current.trim()) segments.push(current.trim());
-  return segments;
-}
-
-function commandTokens(command) {
-  const tokens = [];
-  const pattern = /"([^"]*)"|'([^']*)'|([^\s]+)/gu;
-  for (const match of command.matchAll(pattern)) tokens.push(match[1] ?? match[2] ?? match[3]);
-  return tokens;
 }
 
 function gitCommandRisk(segment) {
@@ -250,11 +228,6 @@ function referencesGlobalAgentConfig(value) {
   return globalAgentConfigPattern.test(value);
 }
 
-function commandWrites(segment) {
-  if (/(?:^|\s)(?:Set-Content|Add-Content|Out-File|New-Item|Remove-Item|Move-Item|Copy-Item|tee|rm|mv|cp|sed\s+-i)\b/iu.test(segment)) return true;
-  return /(?:^|[^<])>>?/u.test(segment);
-}
-
 function shellWritePaths(command) {
   const targets = [];
   for (const match of command.matchAll(/(?:^|[\s\d])>{1,2}\s*(?:"([^"]+)"|'([^']+)'|([^\s;&|]+))/gu)) {
@@ -272,12 +245,146 @@ function shellWritePaths(command) {
   return targets.filter((target) => !['/dev/null', 'NUL', 'nul'].includes(target));
 }
 
-function risk(level, reasonCode, reason) {
-  return { level, reason, reasonCode };
+// Interpreters and in-place text processors write through inline code or
+// flag-marked operands instead of the redirection/cp-style operands above
+// (`node -e`, `python -c`, `sed -i`, ...). The helpers below recover those
+// write targets so RED_ZONE / CONTROL_PLANE_WRITE / PROJECT_BOUNDARY still
+// apply; inline code only contributes quoted path-like literals, so ordinary
+// script arguments and flag values stay out of the candidates.
+const INTERPRETER_EXECUTABLE_PATTERN = /(?:^|[\\/])(?:node|python|python3|py|perl|ruby|php|deno|sed|awk)(?:\.exe|\.cmd|\.bat)?$/iu;
+const INTERPRETER_CODE_SPEC = new Map([
+  ['node', { chars: ['e', 'p'], long: ['eval'] }],
+  ['python', { chars: ['c'], long: [] }],
+  ['python3', { chars: ['c'], long: [] }],
+  ['py', { chars: ['c'], long: [] }],
+  ['perl', { chars: ['e'], long: ['eval'] }],
+  ['ruby', { chars: ['e'], long: ['eval'] }],
+  ['php', { chars: ['r'], long: [] }],
+]);
+
+function isPathLikeLiteral(value) {
+  if (value.length === 0) return false;
+  if (/^(?:[\\/]|[A-Za-z]:[\\/]|~[\\/])/u.test(value)) return true;
+  if (value.includes('/') || value.includes('\\')) return true;
+  return /\.[A-Za-z0-9]+$/u.test(value);
 }
 
-function commandReads(segment) {
-  return /^\s*(?:Get-Content|Test-Path|Get-Item|Resolve-Path|cat|type)\b/iu.test(segment);
+function inlineCodePaths(code) {
+  const targets = [];
+  for (const match of code.matchAll(/"([^"]*)"|'([^']*)'/gu)) {
+    const literal = match[1] ?? match[2];
+    if (literal !== undefined && isPathLikeLiteral(literal)) targets.push(literal);
+  }
+  return targets;
+}
+
+function codeFlagTarget(argument, spec, next) {
+  if (argument.startsWith('--')) {
+    const entry = spec.long.find((name) => argument === `--${name}` || argument.startsWith(`--${name}=`));
+    if (entry === undefined) return null;
+    return argument.includes('=') ? argument.slice(argument.indexOf('=') + 1) : next;
+  }
+  if (!/^-[a-zA-Z]+$/u.test(argument)) return null;
+  return spec.chars.some((char) => argument.includes(char)) ? next : null;
+}
+
+/** sed and perl share -i (in-place) and -e/-f (script) flag semantics. */
+function inPlaceTextTargets(args) {
+  let inPlace = false;
+  let scriptPending = false;
+  let scriptSeen = false;
+  const files = [];
+  for (const argument of args) {
+    if (scriptPending) {
+      scriptPending = false;
+      scriptSeen = true;
+      continue;
+    }
+    if (argument === '--in-place' || argument.startsWith('--in-place=') || /^-i\./u.test(argument)) {
+      inPlace = true;
+      continue;
+    }
+    if (argument === '--expression' || argument.startsWith('--expression=')
+      || argument === '--file' || argument.startsWith('--file=')) {
+      scriptSeen = true;
+      if (!argument.includes('=')) scriptPending = true;
+      continue;
+    }
+    if (/^-[a-zA-Z]+$/u.test(argument)) {
+      if (argument.includes('i')) inPlace = true;
+      if (argument.includes('e') || argument.includes('f')) scriptPending = true;
+      continue;
+    }
+    files.push(argument);
+  }
+  if (!inPlace) return [];
+  return scriptSeen ? files : files.slice(1);
+}
+
+function awkInPlaceTargets(args) {
+  let inPlace = false;
+  let programPending = false;
+  let programSeen = false;
+  const files = [];
+  for (const argument of args) {
+    if (programPending) {
+      programPending = false;
+      programSeen = true;
+      continue;
+    }
+    if (argument === '--file' || argument.startsWith('--file=')) {
+      programSeen = true;
+      if (!argument.includes('=')) programPending = true;
+      continue;
+    }
+    if (/^-[a-zA-Z]+$/u.test(argument)) {
+      if (argument.includes('i')) inPlace = true;
+      if (argument.includes('f')) programPending = true;
+      continue;
+    }
+    if (argument === 'inplace') continue;
+    files.push(argument);
+  }
+  if (!inPlace) return [];
+  return programSeen ? files : files.slice(1);
+}
+
+function interpreterInlineCode(segments) {
+  const result = { present: false, targets: [] };
+  for (const segment of segments) {
+    const tokens = commandTokens(segment);
+    const index = tokens.findIndex((token) => INTERPRETER_EXECUTABLE_PATTERN.test(token));
+    if (index < 0) continue;
+    const name = tokens[index].replaceAll('\\', '/').split('/').at(-1).toLowerCase().replace(/\.(?:exe|cmd|bat)$/u, '');
+    const args = tokens.slice(index + 1);
+    const spec = INTERPRETER_CODE_SPEC.get(name);
+    if (spec) {
+      args.forEach((argument, position) => {
+        const code = codeFlagTarget(argument, spec, args[position + 1] ?? null);
+        if (code !== null) {
+          result.targets.push(...inlineCodePaths(code));
+          result.present = true;
+        }
+      });
+      if (name === 'perl') result.targets.push(...inPlaceTextTargets(args));
+      continue;
+    }
+    if (name === 'deno') {
+      const evalIndex = args.indexOf('eval');
+      if (evalIndex >= 0) {
+        result.targets.push(...args.slice(evalIndex + 1).flatMap((argument) => inlineCodePaths(argument)));
+        result.present = true;
+      }
+      continue;
+    }
+    if (name === 'sed') result.targets.push(...inPlaceTextTargets(args));
+    if (name === 'awk') result.targets.push(...awkInPlaceTargets(args));
+  }
+  return result;
+}
+
+function risk(level, reasonCode, reason) {
+  return { level, reason, reasonCode };
 }
 
 function egressUploadPaths(command) {
@@ -359,55 +466,84 @@ function isInsideAny(baseDirs, candidate) {
   return baseDirs.some((baseDir) => isInside(baseDir, candidate));
 }
 
-function classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts = [], redZonePaths = []) {
+function classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts = [], redZonePaths = [], permissionPreset = null) {
   const redZonePattern = redZoneMatcher(redZonePaths);
+  const controlPlanePattern = redZoneMatcher(CONTROL_PLANE_PATHS);
   const command = commandFrom(input);
-  if (unsafeShellConstructPattern.test(command)) {
-    return risk('deny', 'UNSAFE_SHELL_CONSTRUCT', 'Shell command substitution or line continuation cannot be safely analysed and is blocked by repository policy.');
+  // Red-zone and control-plane patterns are project-relative, so they have to
+  // be matched against the resolved target: a project-internal symlink whose
+  // real target is `.env` or `.agents/runtime/hooks/` is the same write as the
+  // direct path. A candidate that cannot be resolved keeps its lexical form;
+  // the boundary loop below still fails closed on it.
+  const canonicalRoot = canonicalPath(projectRoot) ?? path.resolve(projectRoot);
+  const projectRelativeTarget = (candidate) => {
+    const absolute = path.isAbsolute(candidate)
+      ? candidate
+      : path.resolve(projectRoot, candidate);
+    return path.relative(canonicalRoot, canonicalPath(absolute) ?? absolute).replaceAll('\\', '/');
+  };
+  // apply_patch carries file content rather than a shell command, so payload
+  // text such as inline code spans or command substitution is never executed
+  // (AC-04a). Shell-only rules are skipped for patch tools and the patch
+  // targets alone decide the write-path verdicts below.
+  const isPatchTool = patchToolPattern.test(input.toolName ?? '');
+  if (!isPatchTool && hasUnsafeShellConstruct(command)) {
+    return risk('deny', 'UNSAFE_SHELL_CONSTRUCT', '命令包含命令替换或续行符，无法安全判定，已拒绝。请改写为不含美元符号加圆括号、反引号或不换行的等价写法；确需执行时请由宿主注入 Execution Envelope。');
   }
-  const segments = shellSegments(command);
+  const segments = isPatchTool ? [] : shellSegments(command);
   if (segments.some((segment) => gitCommandRisk(segment))) {
-    return risk('deny', 'DESTRUCTIVE_GIT', 'Destructive Git operation or hook bypass is blocked by repository policy.');
+    return risk('deny', 'DESTRUCTIVE_GIT', '检测到破坏性 Git 操作或 hook 绕过，已拒绝。请改用非破坏性等价命令（例如用 git stash 代替强制检出）；确需执行时请人工手动执行。');
   }
   for (const segment of segments) {
     if (!referencesGlobalAgentConfig(segment)) continue;
-    if (commandReads(segment) && !commandWrites(segment)) continue;
-    return risk('deny', 'GLOBAL_AGENT_CONFIG', 'Writes to global Agent configuration are blocked by repository policy.');
+    // Reading or enumerating an Agent configuration directory is not a write,
+    // so only effectful segments fall through to the write rule (AC-02).
+    if (isReadOnlyShellSegment(segment) && !commandWrites(segment)) continue;
+    return risk('deny', 'GLOBAL_AGENT_CONFIG', '检测到对全局 Agent 配置的写入，已拒绝。请改为修改目标项目内的配置；调整全局配置请人工手动执行。');
   }
-  if (networkCommandPattern.test(command) && secretReferencePattern.test(command)) {
-    return risk('deny', 'CREDENTIAL_EXFILTRATION', 'Possible credential exfiltration is blocked by repository policy.');
+  if (!isPatchTool && networkCommandPattern.test(command) && secretReferencePattern.test(command)) {
+    return risk('deny', 'CREDENTIAL_EXFILTRATION', '检测到可能把凭据发往外部网络，已拒绝。请改用不含凭据的请求，或先通过凭据代理取得授权。');
   }
-  if (privateEgressPattern.test(command) && redZonePattern) {
+  if (!isPatchTool && privateEgressPattern.test(command) && redZonePattern) {
     const uploadPaths = egressUploadPaths(command);
     const touchesRedZoneFile = uploadPaths.some((candidate) => {
-      const absolute = path.isAbsolute(candidate) ? candidate : path.resolve(projectRoot, candidate);
-      return redZonePattern.test(path.relative(projectRoot, absolute).replaceAll('\\', '/'));
+      return redZonePattern.test(projectRelativeTarget(candidate));
     });
     if (touchesRedZoneFile) {
-      return risk('deny', 'CREDENTIAL_EXFILTRATION', 'Possible credential exfiltration is blocked by repository policy.');
+      return risk('deny', 'CREDENTIAL_EXFILTRATION', '检测到上传红区文件，可能造成凭据外传，已拒绝。请改用非红区文件，或先按流程取得显式授权。');
     }
   }
-  if (allowedEgressHosts.length > 0 && networkCommandPattern.test(command)) {
+  if (!isPatchTool && allowedEgressHosts.length > 0 && networkCommandPattern.test(command)) {
     const hosts = extractEgressHosts(command);
     if (hosts.length === 0) {
-      return risk('deny', 'EGRESS_VIOLATION', 'Network command without a parseable URL is blocked while an egress allowlist is configured.');
+      return risk('deny', 'EGRESS_VIOLATION', '已配置网络允许列表，但该命令没有可解析的目标地址，已拒绝。请在命令中写明完整的 http 或 https 地址。');
     }
     const violating = hosts.find((host) => !hostAllowed(host, allowedEgressHosts));
     if (violating) {
-      return risk('deny', 'EGRESS_VIOLATION', 'Network egress to a host outside the configured allowlist is blocked by repository policy.');
+      return risk('deny', 'EGRESS_VIOLATION', '目标主机不在网络允许列表内，已拒绝。请改用允许列表中的主机，或在项目配置中登记该主机。');
     }
   }
 
-  const shellTargets = shellWritePaths(command);
-  if (!writeToolPattern.test(input.toolName ?? '') && shellTargets.length === 0) return null;
+  // Interpreter inline code marks the request as a write attempt even when no
+  // path-like literal was recovered: the ROLE_PERMISSION_PRESET ceiling below
+  // then still applies to read-only presets.
+  const interpreterCode = isPatchTool ? { present: false, targets: [] } : interpreterInlineCode(segments);
+  const shellTargets = isPatchTool ? [] : [...shellWritePaths(command), ...interpreterCode.targets];
+  if (!writeToolPattern.test(input.toolName ?? '') && shellTargets.length === 0 && !interpreterCode.present) return null;
   const candidates = [
     ...collectStructuredPaths(input.toolInput),
-    ...(input.toolName === 'apply_patch' ? patchPaths(command) : []),
+    ...(isPatchTool ? patchPaths(command) : []),
     ...shellTargets,
   ];
+  const touchesControlPlane = candidates.some(
+    (candidate) => controlPlanePattern.test(projectRelativeTarget(candidate)),
+  );
+  if (touchesControlPlane) {
+    return risk('deny', 'CONTROL_PLANE_WRITE', '检测到直接写入 Vibe-Harness 控制面文件，已拒绝。请改用带 --write 的事务式安装器并显式确认。');
+  }
   for (const candidate of candidates) {
     if (referencesGlobalAgentConfig(candidate)) {
-      return risk('deny', 'GLOBAL_AGENT_CONFIG', 'Writes to global Agent configuration are blocked by repository policy.');
+      return risk('deny', 'GLOBAL_AGENT_CONFIG', '检测到对全局 Agent 配置的写入，已拒绝。请改为修改目标项目内的配置；调整全局配置请人工手动执行。');
     }
     const absolute = path.isAbsolute(candidate)
       ? candidate
@@ -420,19 +556,26 @@ function classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts 
       || referencesGlobalAgentConfig(canonicalCandidate)
       || !isInsideAny(canonicalRoots, canonicalCandidate)
     ) {
-      return risk('deny', 'PROJECT_BOUNDARY', 'Write target escapes the project boundary.');
+      return risk('deny', 'PROJECT_BOUNDARY', '写入目标超出项目边界，已拒绝。请把写入限制在项目目录内；需要写入 worktree 时，以该 worktree 为会话根（cwd）重开会话。');
     }
   }
   const touchesRedZone = redZonePattern
-    ? candidates.some((candidate) => {
-        const absolute = path.isAbsolute(candidate)
-          ? candidate
-          : path.resolve(projectRoot, candidate);
-        return redZonePattern.test(path.relative(projectRoot, absolute).replaceAll('\\', '/'));
-      })
+    ? candidates.some((candidate) => redZonePattern.test(projectRelativeTarget(candidate)))
     : false;
   if (touchesRedZone) {
-    return risk('warn', 'RED_ZONE', 'The pending write touches a project red-zone; keep explicit approval and verification evidence.');
+    return risk('deny', 'RED_ZONE', '写入命中项目红区路径，已拒绝。请改用非红区路径，或按流程显式确认后重试。');
+  }
+  // At this point the request is a write attempt (write tool or shell write
+  // target), so the role permission ceiling applies. Read-only presets deny
+  // every write attempt; executable presets deny direct file-write tools but
+  // keep shell writes on the Execution Envelope path so validation commands
+  // still work (mirrors role-projection sandbox/permission semantics).
+  const presetTier = rolePresetTier(permissionPreset);
+  if (presetTier === 'read-only') {
+    return risk('deny', 'ROLE_PERMISSION_PRESET', '当前角色权限预设为只读（' + permissionPreset + '），不允许任何写入，已拒绝。请在允许写入的角色或主会话中执行该操作。');
+  }
+  if (presetTier === 'executable' && writeToolPattern.test(input.toolName ?? '')) {
+    return risk('deny', 'ROLE_PERMISSION_PRESET', '当前角色权限预设（' + permissionPreset + '）可执行验证命令但不允许直接写入文件，已拒绝。请把文件修改交由具备 workspace-write 能力的角色或主会话执行。');
   }
   return null;
 }
@@ -441,11 +584,12 @@ export function analyzeToolRequest(input, {
   allowedWriteRoots = [],
   allowedEgressHosts = [],
   mode = 'guarded',
+  permissionPreset = null,
   projectRoot = input.cwd,
   redZonePaths = [],
 } = {}) {
   if (mode === 'off') return { action: 'allow' };
-  const risk = classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts, redZonePaths);
+  const risk = classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts, redZonePaths, permissionPreset);
   if (!risk) return { action: 'allow' };
   if (risk.level === 'warn' || mode === 'observe') {
     return { action: 'warn', reason: risk.reason, reasonCode: risk.reasonCode };
@@ -453,6 +597,7 @@ export function analyzeToolRequest(input, {
   return { action: 'deny', reason: risk.reason, reasonCode: risk.reasonCode };
 }
 
+/** @param {string} event @param {Record<string, any>} decision @param {{durationMs?: number}} options */
 export function createCodexHookResult(event, decision, { durationMs } = {}) {
   if (!decision || decision.action === 'allow') return {};
   const durationSuffix = Number.isFinite(durationMs) && durationMs >= 0 ? `:${Math.round(durationMs)}` : '';
@@ -496,6 +641,7 @@ function policyReason(decision, durationMs) {
 }
 
 /** Serialize a host-neutral policy decision using the host's hook contract. */
+/** @param {string} host @param {string} event @param {Record<string, any>} decision @param {{durationMs?: number}} options */
 export function createHostHookResult(host, event, decision, { durationMs } = {}) {
   if (host === 'codex') return createCodexHookResult(event, decision, { durationMs });
   if (host === 'antigravity') {

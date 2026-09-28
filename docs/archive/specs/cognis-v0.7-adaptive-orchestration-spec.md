@@ -1,3 +1,8 @@
+---
+status: superseded
+superseded-by: null
+---
+
 状态：Superseded
 
 # Cognis v0.7 自适应单/多 Agent 编排规格

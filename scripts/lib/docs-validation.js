@@ -7,6 +7,7 @@ import {
   readJson,
   validateJsonAgainstSchema,
 } from './manifest.js';
+import { validateAdrDirectory } from './adr-validation.js';
 
 const historicalStatuses = new Set(['completed', 'superseded']);
 const relativeTimePattern = /(?:今天|昨天|刚刚|最近|上周|\btoday\b|\byesterday\b|\brecently\b)/iu;
@@ -24,8 +25,10 @@ const legacyBrandFullyAllowedFiles = new Set([
   'scripts/lib/docs-validation.js',
   'scripts/lib/project-layout.js',
   // .gitignore legitimately ignores leftover legacy state directories; this is
-  // compatibility bookkeeping, not a brand reference.
+  // compatibility bookkeeping, not a brand reference. .zcodeignore mirrors that
+  // list for the host (its top section is generated from .gitignore).
   '.gitignore',
+  '.zcodeignore',
 ]);
 const repositoryScanExcludedDirectories = new Set([
   '.agents',
@@ -42,26 +45,33 @@ const repositoryScanExcludedDirectories = new Set([
   'coverage',
   'dist',
   'node_modules',
+  // These directory names only ever hold generated output (package-manager
+  // stores and eval run artifacts), never governed repository content.
+  '.pnpm-store',
+  'candidates',
+  'generated',
+  'runs',
   'output',
   'tmp',
+]);
+const repositoryScanExcludedExtensions = new Set([
+  '.7z',
+  '.bz2',
+  '.gz',
+  '.rar',
+  '.tar',
+  '.tgz',
+  '.xz',
+  '.zip',
 ]);
 
 function normalize(relativePath) {
   return relativePath.replaceAll('\\', '/');
 }
 
-// The rules/ source tree and docs/rules/ rendered copies live on different
-// filesystems and may carry CR/LF differences; compare after stripping CR.
+// Normalize line endings before comparing governed text assets.
 function normalizeLineEndings(value) {
   return value.replace(/\r\n/gu, '\n').replace(/\r/gu, '\n');
-}
-
-// docs/rules/ renders certain source filenames with different casing or
-// separators (e.g. rules/agent-skill-routing.md -> docs/rules/AGENT_SKILL_ROUTING.md).
-// Normalize by lowercasing and treating underscores as hyphens so the two
-// trees can be paired without false drift reports.
-function normalizeRuleName(name) {
-  return name.toLowerCase().replaceAll('_', '-');
 }
 
 function markdownWithoutCode(content) {
@@ -93,7 +103,9 @@ async function collectRepositoryFiles(directory, rootDir, results = []) {
     if (entry.isDirectory() && repositoryScanExcludedDirectories.has(entry.name)) continue;
     const fullPath = path.join(directory, entry.name);
     if (entry.isDirectory()) await collectRepositoryFiles(fullPath, rootDir, results);
-    else if (entry.isFile()) results.push(normalize(path.relative(rootDir, fullPath)));
+    else if (entry.isFile() && !repositoryScanExcludedExtensions.has(path.extname(entry.name).toLowerCase())) {
+      results.push(normalize(path.relative(rootDir, fullPath)));
+    }
   }
   return results;
 }
@@ -116,7 +128,7 @@ export async function validateLegacyBrandUsage({ rootDir }) {
   const errors = [];
   for (const file of await collectRepositoryFiles(rootDir, rootDir)) {
     if (legacyBrandFullyAllowed(file)) continue;
-    const content = (await readFile(path.join(rootDir, file))).toString('utf8');
+    const content = await readFile(path.join(rootDir, file), 'utf8');
     const lines = content.split(/\r?\n/u);
     const invalidContent = lines.some((line, lineIndex) => (
       legacyBrandPattern.test(line) && !legacyLineAllowed(file, line, lineIndex, lines)
@@ -132,10 +144,32 @@ export async function collectGovernedPaths(rootDir) {
   const rootFiles = (await readdir(rootDir, { withFileTypes: true }))
     .filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
     .map((entry) => entry.name);
-  return [...rootFiles, ...await collectMarkdown(path.join(rootDir, 'docs'), rootDir)].sort();
+  const governedAssets = [
+    'docs/adr/catalog.json',
+    'docs/schemas/adr.schema.json',
+    'docs/schemas/execution-envelope.schema.json',
+    'docs/schemas/execution-envelope-v2.schema.json',
+    'docs/schemas/project-verification.schema.json',
+    'docs/schemas/project-config.schema.json',
+    'docs/schemas/role-pack.schema.json',
+    'schemas/adr.schema.json',
+    'schemas/execution-envelope.schema.json',
+    'schemas/execution-envelope-v2.schema.json',
+    'schemas/project-verification.schema.json',
+    'schemas/project-config.schema.json',
+    'schemas/role-pack.schema.json',
+    'docs/schemas/harness-eval-fixture.schema.json',
+    'docs/schemas/harness-eval-result.schema.json',
+    'docs/schemas/harness-eval-scenario.schema.json',
+    'schemas/harness-eval-fixture.schema.json',
+    'schemas/harness-eval-result.schema.json',
+    'schemas/harness-eval-scenario.schema.json',
+    'templates/adr/adr-template.md',
+  ];
+  return [...rootFiles, ...await collectMarkdown(path.join(rootDir, 'docs'), rootDir), ...governedAssets].sort();
 }
 
-function extractLocalLinks(content) {
+export function extractLocalLinks(content) {
   const links = [];
   const markdown = markdownWithoutCode(content);
   const patterns = [
@@ -404,58 +438,49 @@ async function validateSourceMapping(rootDir) {
   return errors;
 }
 
-// rules/*.md is the packaging source; docs/rules/*.md is the governed copy
-// catalog consumers read. Except project-specific-rules.md (a render template
-// whose {{placeholders}} are filled at install time), pairs must stay
-// byte-identical modulo line endings. rules-only files (tool rules shipped
-// only in the pack, e.g. ast-grep.md) are warned rather than errored so they
-// can be documented later without blocking the audit.
-const rulesParityExcluded = new Set(['project-specific-rules.md']);
-
-async function listMarkdownFiles(directory) {
-  if (!(await pathExists(directory))) return [];
-  const entries = await readdir(directory, { withFileTypes: true });
-  return entries
-    .filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
-    .map((entry) => entry.name);
-}
-
-export async function validateRulesParity(rootDir) {
+// docs/rules/ is the canonical rule asset directory consumed by packaging,
+// catalog validation, and installation. The root-level rules/ directory is
+// prohibited so a second source tree cannot be reintroduced accidentally. Rule
+// files stay lowercase kebab-case and match their manifest id, so the file
+// name, the routing id and the installed path cannot drift apart.
+export async function validateCanonicalRuleLayout(rootDir) {
   const errors = [];
-  const warnings = [];
-  const rulesDir = path.join(rootDir, 'rules');
-  const docsRulesDir = path.join(rootDir, 'docs/rules');
-  if (!(await pathExists(rulesDir)) || !(await pathExists(docsRulesDir))) {
-    return { errors, warnings };
+  if (await pathExists(path.join(rootDir, 'rules'))) {
+    errors.push('legacy rules/ directory must be removed; use docs/rules/');
   }
-  const rulesFiles = await listMarkdownFiles(rulesDir);
-  const docsRulesFiles = await listMarkdownFiles(docsRulesDir);
-  const docsByName = new Map();
-  for (const name of docsRulesFiles) docsByName.set(normalizeRuleName(name), name);
-  const rulesByName = new Map();
-  for (const name of rulesFiles) rulesByName.set(normalizeRuleName(name), name);
-
-  for (const name of rulesFiles) {
-    const key = normalizeRuleName(name);
-    if (rulesParityExcluded.has(name)) continue;
-    const docsName = docsByName.get(key);
-    if (!docsName) {
-      warnings.push(`rules/${name} has no docs/rules counterpart; consider documenting it`);
-      continue;
-    }
-    const rulesContent = normalizeLineEndings(await readFile(path.join(rulesDir, name), 'utf8'));
-    const docsContent = normalizeLineEndings(await readFile(path.join(docsRulesDir, docsName), 'utf8'));
-    if (rulesContent !== docsContent) {
-      errors.push(`docs/rules/${docsName} drifted from rules/${name}`);
+  const rulesDir = path.join(rootDir, 'docs/rules');
+  if (!(await pathExists(rulesDir))) {
+    errors.push('canonical docs/rules directory is missing');
+    return errors;
+  }
+  const ruleFiles = (await readdir(rulesDir, { withFileTypes: true }))
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
+    .map((entry) => entry.name)
+    .sort();
+  for (const name of ruleFiles) {
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*\.md$/u.test(name)) {
+      errors.push('docs/rules/' + name + ' must use lowercase kebab-case');
     }
   }
-  for (const name of docsRulesFiles) {
-    if (rulesParityExcluded.has(name)) continue;
-    if (!rulesByName.has(normalizeRuleName(name))) {
-      errors.push(`docs/rules/${name} has no rules/ source counterpart`);
+  const manifestPath = path.join(rootDir, 'manifests/rules.json');
+  if (await pathExists(manifestPath)) {
+    const manifest = await readJson(manifestPath);
+    const items = Array.isArray(manifest?.items) ? manifest.items : [];
+    for (const item of items) {
+      if (typeof item?.id !== 'string' || typeof item?.source !== 'string') continue;
+      if (path.basename(item.source) !== `${item.id}.md`) {
+        errors.push(`${item.id} rule id must match its file name: ${item.source}`);
+      }
+    }
+    const knownIds = new Set(items.map((item) => item?.id));
+    for (const name of ruleFiles) {
+      const id = name.slice(0, -3);
+      if (!knownIds.has(id)) {
+        errors.push(`docs/rules/${name} is missing from manifests/rules.json`);
+      }
     }
   }
-  return { errors, warnings };
+  return errors;
 }
 
 async function listJsonFiles(directory) {
@@ -522,9 +547,13 @@ async function validateDocumentationUnchecked({ catalog, rootDir, today = new Da
       continue;
     }
     const fullPath = path.join(rootDir, relativePath);
-    if (!(await pathExists(fullPath))) continue;
+    if (!(await pathExists(fullPath))) {
+      errors.push('catalog documentation does not exist: ' + relativePath);
+      continue;
+    }
     const content = await readFile(fullPath, 'utf8');
     const enforceCurrent = !historicalStatuses.has(item.status);
+    if (!relativePath.endsWith('.md')) continue;
     errors.push(...await validateCurrentDocumentContent({ content, enforceCurrent, file: relativePath, rootDir, today }));
 
     const marker = expectedStatusMarker(item);
@@ -543,6 +572,13 @@ async function validateDocumentationUnchecked({ catalog, rootDir, today = new Da
   }
 
   const agents = await readFile(path.join(rootDir, 'AGENTS.md'), 'utf8');
+  const packageJson = await readJson(path.join(rootDir, 'package.json'));
+  if (packageJson.scripts?.typecheck) {
+    if (!agents.includes('pnpm typecheck')) errors.push('AGENTS.md must expose the package.json typecheck script');
+    if (!/TypeScript 配置、类型声明、JSDoc 类型契约/u.test(agents)) {
+      errors.push('AGENTS.md must define when typecheck is required');
+    }
+  }
   const agentLines = agents.split(/\r?\n/u).length;
   const agentBytes = Buffer.byteLength(agents);
   if (agentLines > 300) errors.push(`AGENTS.md exceeds 300 line budget: ${agentLines}`);
@@ -557,10 +593,9 @@ async function validateDocumentationUnchecked({ catalog, rootDir, today = new Da
     errors.push(...await validateSourceMapping(rootDir));
   }
   errors.push(...await validateLegacyBrandUsage({ rootDir }));
+  errors.push(...await validateAdrDirectory(rootDir));
 
-  const rulesParity = await validateRulesParity(rootDir);
-  errors.push(...rulesParity.errors);
-  warnings.push(...rulesParity.warnings);
+  errors.push(...await validateCanonicalRuleLayout(rootDir));
   errors.push(...await validateSchemaParity(rootDir));
 
   const [primary, secondary, gitignore] = await Promise.all([

@@ -1,17 +1,33 @@
 # Git 规则
 
-Git 规则的目标是保护用户改动、保持提交可审查，并确保 worktree 任务真正 merge-back。
+Git 规则的目标是保护用户改动、保持提交可审查，并确保 worktree 任务真正 merge-back；每个 Git 判断都以仓库实际远端事实为准，不用设想中的分支模型代替核实。
+
+## Fast Path 卡片
+
+- **默认路径**：编辑前后核对 `git status --short`，只暂存本任务改动，一个逻辑变更一个 commit；`gitBranch`、`gitCommit`、`gitPush`、`mergeRequestWrite` 互不隐含，授权覆盖时才执行，未授权只报告状态与建议命令。
+- **提交信息**：主题 `<type>(<scope>): <描述>`，正文写为什么改与被否决的方案；不用 `--no-verify`，不伪造署名 trailer。
+- **不变量**：归属不清的改动视为用户改动，不覆盖、不暂存、不提交；凭据、私钥与个人敏感数据不进入提交、提交信息或 PR/MR。
+- **继续读全文的信号**：历史改写、force push、共享分支与门禁、worktree 隔离、合并落地、冲突处理、Hook 或跨仓协作。
+
+以下为完整规则，仅当任务超出卡片或命中升级触发时继续读取。
 
 ## 启动与归属
 
-- 编辑前运行 <code>git status --short</code>；SVN 工作副本运行 <code>svn status</code>。
+- 编辑前运行 `git status --short`；SVN 工作副本运行 `svn status`。
 - 只处理当前任务路径。归属不清、任务开始前已存在或来自并发工作的改动都视为用户改动，不覆盖、不暂存、不提交。
-- 运行时代码、共享契约、构建、跨仓、多 Agent 或脏工作区无法隔离时使用独立 worktree。
+- 仅在并发工作可能冲突、脏工作区与任务范围重叠、跨仓协作或明确需要独立构建与验证环境时使用独立 worktree；普通单 Agent 局部修复不因任务类型自动创建 worktree。
 - 分批交付前再次检查 working tree 和 staged diff，明确包含、排除、验证、风险和回滚方式。
 
 ## 提交授权
 
-Vibe-Harness 不通过 Stop Hook、运行时脚本或任何默认流程自动执行 <code>git commit</code> 或 <code>git push</code>。提交和推送必须由用户在当前任务中明确授权；没有授权时只报告 working tree 状态和建议命令。
+当前请求必须按 Execution Envelope 分别授权 `workspaceWrite`、`gitBranch`、`gitCommit`、`gitPush`、`mergeRequestWrite` 和 `credentialUse`。
+
+- 任一 effect 都不隐含其他 effect：实现授权不等于建分支、提交、推送或创建 PR/MR，提交授权也不等于推送或创建 PR/MR；`forbiddenEffects` 始终优先。
+- 完整 mode 与 effect 枚举以 `governance-core.md` 的「授权与 Execution Envelope」条款为准；本清单是 Git 域不含 `linearWrite` 的子集。
+
+Vibe-Harness 不通过 Stop Hook、运行时脚本或任何默认流程自动执行 `git commit` 或 `git push`。提交和推送必须由用户在当前任务中明确授权；显式调用 `$git-deliver` 或明确指定该 Skill，视为对当前仓库、当前任务相关改动的分组提交和当前分支普通推送授权。没有授权时只报告 working tree 状态和建议命令。
+
+`worktree land --write --push` 是显式调用即授权在该入口的投影：它不执行 commit，只把已提交内容合并进主检出当前分支，并按与 `$git-deliver` 相同的推送策略（upstream 存在则普通推送；无 upstream 仅在唯一远端为 origin 且目标分支非保护或共享分支时建立跟踪）普通推送目标分支。不带 `--push` 的 `land` 不构成推送授权，收据只给出建议命令。
 
 获得授权后仍须先给出或核对提交分组：
 
@@ -24,45 +40,101 @@ Vibe-Harness 不通过 Stop Hook、运行时脚本或任何默认流程自动执
 | 风险 | 低 / 中 / 高与理由 |
 | 回滚 | 回滚方式 |
 
-- 每个 commit 只承载一个逻辑变更；重构与功能变更默认拆开。
-- 提交主题使用 <code>&lt;type&gt;(&lt;scope&gt;): &lt;描述&gt;</code>，常用类型为 feat、fix、docs、refactor、test、chore 和 eval。
-- 不使用 <code>--no-verify</code> 绕过项目 Git Hook。
-- 不自动 push。涉及共享分支、红区、强制推送、删除远端引用或历史重写时必须再次获得人工确认。
+- `$git-deliver` 只在已有 upstream 时普通推送；无 upstream 时，仅在唯一明确远端为 origin 且当前分支非保护或共享分支时建立跟踪并普通推送，否则停止确认。
+- main、master、develop、release、仓库识别出的保护或共享分支不得由 `$git-deliver` 自动推送。强制推送、删除远端引用和历史重写不属于该 Skill 授权范围。
 - 未获提交授权时，不得把未提交状态描述为失败；应交付改动清单和验证证据。
 
-## 分支与 PR
+分组交付的执行步骤见宿主 Skill 根目录下已安装的 `git-deliver` Skill 入口，两者描述同一提交授权边界，修改须同步。
 
-- 默认分支名使用 <code>&lt;type&gt;/&lt;short-topic&gt;</code>；已有任务分支或用户指定分支优先。
+## 提交内容与信息
+
+- 每个 commit 只承载一个逻辑变更；重构与功能变更默认拆开，提交后的状态应能通过该变更对应的聚焦检查。
+- 提交主题使用 `<type>(<scope>): <描述>`，常用类型为 feat、fix、docs、refactor、test、chore 和 eval；项目配置 commitlint 时，其配置是类型枚举、长度和大小写规则的唯一事实来源。
+- 提交正文说明为什么改、影响面和被否决的方案；破坏性变更用 `feat!:` 或 `BREAKING CHANGE:` footer 显式声明，不靠正文措辞暗示。
+- Issue 关联写进 PR/MR 描述与 `Refs <ISSUE-ID>` 等 trailer，closing magic word 不放进 commit；完整语义以 `linear-workflow.md`（若项目已安装该规则）为准。
+- 不使用 `--no-verify` 绕过项目 Git Hook。
+- 不添加未经确认的 `Co-authored-by`、`Signed-off-by` 或等价署名 trailer；需要标注 AI 参与时使用项目批准的 trailer，不伪造他人身份。
+- 不把构建产物、依赖缓存、VCS 元数据、大体积二进制或用户未归属改动混入提交；行尾与二进制按 `.gitattributes` 处理，超大文件走 LFS 或外置存储。
+
+## 分支模型与合并
+
+分支模型、合并语义与门禁边界以本节为唯一规范来源；Linear 工作流把这些机制绑定到 Issue 状态、Receipt 与分支命名的投影，以 `linear-workflow.md`（若项目已安装该规则）为准，仓库侧以项目自己的发布交付文档为准。发现不一致时先判定条款所属域，再修正漂移一侧。
+
+- 默认分支模型：`feat/*、fix/* → develop → main`；紧急修复：`hotfix/* → main → develop`。该模型在项目显式建立对应分支后生效；尚未创建 `develop` 或迁移未完成的仓库，以实际默认分支和已声明目标 ref 为准，不按设想中的分支开始工作。
+- 普通任务 PR 使用 squash merge；`develop → main` 的发布提升与 `main → develop` 的回同步使用 merge commit。squash 在目标分支生成的提交主题来自 PR/MR 标题，因此标题与提交主题使用同一 Conventional Commit 语法。
+- `main` 只接受同仓库 `develop`、`hotfix/*` 和 release-please 的 PR，不使用长期 `release/*` 分支；目标项目已配置 `release/*` 时按其保护规则处理。
+- `develop` 必须配置稳定的 fast gate 聚合检查，至少覆盖 lint、typecheck、unit，并按变更影响追加 component/integration；发布边界继续使用完整 required CI。
+- 普通任务 PR 仍可由 Writer 在 envelope 授权 `mergeRequestWrite` 后自行 squash merge，但必须先通过 `develop` required fast gate；`Ready to Merge` 仍只用于带发布门禁目标。
+- 合并前的本地验证必须建立在合并时的最新 `origin/develop` 之上：目标 ref 已前进时重跑受影响检查，或改用 merge queue 在最新 base 上重跑；高风险变更的 Independent Review Receipt 缺失、过期、与 diff 不匹配或结论为 negative 时不得自行落地合并。
+- 紧急旁路必须有明确过期时间、授权人和审计记录；不得以 advisory、跳过检查或本地标记静默绕过 required gate。
+
+## 分支与 PR/MR
+
+- 默认分支名使用 `<type>/<short-topic>`，只用小写字母、数字和连字符；Linear 工作流下使用 `<type>/<ISSUE-ID>-<slug>`，与项目 worktree 校验入口的分支命名校验一致；已有任务分支或用户指定分支优先。
 - main、master、develop、release 和其他共享分支上的提交与推送遵循仓库保护和人工审批。
-- PR 包含摘要、风险、验证、回滚和审查备注；高风险 PR 说明红区确认和独立审查状态。
-- Linear 工作流下分支和 PR 保留 Issue ID；closing 词只用于 closing PR。
+- PR/MR 包含摘要、风险、验证、回滚和审查备注；高风险 PR/MR 说明红区确认和独立审查状态。
+- PR/MR 标题使用 `<type>(<scope>): <描述>`，因为 squash 合并用它生成目标分支上的提交主题。
+- 单个 PR/MR 尽量只承载一个逻辑目的，超出可审查规模时拆分；确需一次交付的，在描述中说明无法拆分的原因。
+- Linear 工作流下必须给出可解析的精确目标远端 ref；只有解析结果确为仓库默认分支时才可写“默认分支”。开始实现前记录目标 ref 和 base SHA，分支与 worktree 必须从该基线创建。
+- Linear 普通任务默认以 `origin/develop` 为基线；只有 hotfix 以 `origin/main` 为基线。发布提升和回同步使用 `Refs <ISSUE-ID>`，不得用 closing magic word 重复关闭已完成开发 Issue。普通任务 closing PR 合入 `develop` 即为 Done，但必须先通过 required fast gate。
+- 顺序执行且工作区干净时，任务分支可在当前 clone 创建；并发 Agent、脏工作区、存在无关改动或明确要求隔离时，必须使用仓库外 worktree。该优化不改变“一任务一分支一 closing PR/MR”。
+- 创建 PR/MR 前重新读取远端目标 ref 和 source HEAD，校验提供方所选 base 等于已声明目标 ref，并计算 merge-base。merge-base 必须等于冻结 base SHA，或是该 SHA 在同一目标 ref 历史上的已验证后代；否则停止创建并报告基线不一致。
+- GitHub PR 与 GitLab MR 的标题、source、target、描述和 closing 语义都必须在创建后重读确认。Linear 分支和标题保留 Issue ID；closing 描述使用 `Fixes <ISSUE-ID>`，只有提供方配置并经重读确认的等价语法才可替代；closing 词不放在 commit 中。
+
+## 同步与历史
+
+- 只改写自己尚未推送的提交；共享分支上已推送的历史不得通过 rebase、amend 或 force push 修改。
+- 需要同步尚未推送的分支时优先用 `--force-with-lease` 而不是 `--force`，推送前重新读取远端 SHA 确认没有被他人更新。
+- 任务分支落后于目标 ref 时默认 rebase 到最新目标 ref；仓库明确要求 merge 同步时按其约定执行，并记录选择。
+- 拉取更新使用 `--ff-only` 或 rebase，不用会产生隐式 merge commit 的默认 `git pull`。
+- 已推到共享分支的错误变更用 revert 加修复提交处理，保留可审计历史；不使用 reset、checkout 或历史改写抹掉已发布内容。
+
+## 安全与敏感数据
+
+- 密码、Secret、Token、Cookie、私钥和个人敏感数据不得进入提交、提交信息、PR/MR 描述、附件或 Git 历史；需要示例时使用占位值。
+- 密钥检测分层执行：本地 Hook 扫描暂存内容，CI 与服务端保护各自独立扫描。客户端 Hook 可被绕过，本地扫描通过不作为密钥未泄露的证据。
+- 发现凭据已进入历史时先轮换或吊销该凭据，再按单独授权清理历史和远端引用，并通知受影响协作者；只删除文件后继续推送不算处理。
+
+Git credential helper 只可由其已配置的 Git transport 透明调用。仅有 Git transport 授权时不得读取、解析或转用 helper 输出进行网页或 API 登录；此类转换必须另有 `credentialUse` 与对应外部写入授权。Agent 不得把 helper 输出或原始凭据写入文件，credential query、包装脚本或其他辅助文件也不得写入仓库或 worktree。
 
 ## Git Hooks
 
-full profile 会安装项目级 pre-commit 和 pre-push 文件，但不会修改本地或全局 Git 配置。是否启用 <code>core.hooksPath</code> 由用户决定。客户端 Hook 可被本地用户绕过，强制策略应放在 CI 和服务端保护中。
+- full profile 会安装项目级 pre-commit 和 pre-push 文件，但不会修改本地或全局 Git 配置；是否启用 `core.hooksPath` 由用户决定。
+- 项目可用 husky 或其他管理器激活同一批 Hook 脚本；本仓库以 `prepare: husky` 激活 pre-commit/pre-push，并叠加 lint-staged 与 commit-msg 校验。两套机制并存时以仓库实际运行的脚本为准，不重复维护逻辑。
+- Hook 只承载快速、确定的本地检查（空白与冲突标记、暂存区密钥扫描、格式与 lint）；完整验证、跨平台矩阵和发布门禁由 CI 承担。
+- 客户端 Hook 可被本地用户绕过，强制策略应放在 CI 和服务端保护中。
 
 ## 参考实现边界
 
-Vibe-Harness 自身使用 Conventional Commits、pre-commit、pre-push、lint 和测试作为可审查的参考实现；这些检查只在用户明确授权提交后由 Git 正常触发，不构成自动提交授权。
+Vibe-Harness 自身使用 Conventional Commits、commitlint、pre-commit、pre-push、lint 和测试作为可审查的参考实现；这些检查只在用户明确授权提交后由 Git 正常触发，不构成自动提交授权。
 
 ## Worktree
 
-- 一个实现任务对应一个命名分支 worktree，低风险例外除外。
+- 使用 worktree 时，一个隔离单元对应一个命名分支和明确写入范围；不需要隔离时直接在当前工作区保护用户改动。
 - worktree 放在仓库外部，避免被构建和依赖扫描。
 - 子 Agent 只在分配的 worktree、分支和写入范围内工作；审查任务默认只读。
-- merge-back 完成前不清理 worktree 或删除分支。
-- 清理前确认 worktree 无未提交改动，并先用 <code>git worktree remove</code> 再用 <code>git worktree prune</code>。
-- 使用 <code>git worktree list --porcelain -z</code> 获取可机器解析的 worktree 清单。
+- worktree 的引导、审计与清理使用项目脚本入口 `node .agents/runtime/commands/run.mjs worktree <list|check|bootstrap|land|recover|cleanup> --project . --json`；默认只读，只有追加 `--write` 才落盘，`cleanup` 在分支未并入 `worktree.baseRef` 或工作区不干净时直接拒绝，并且从不删除分支。不带 `--write` 的 `bootstrap` 即逐任务列出步骤的计划预览，项目面不设单独 plan 子命令；`--help`（或 `help` 子命令）给出该入口自身的命令面说明。
+- `worktree land` 把归因 worktree 闭环回收进主检出当前分支：默认 dry-run 输出按序步骤计划，`--write` 执行「合并（`--no-ff`，已并入则跳过）→ 验证门禁（默认 quick 层，关联任务锚点 `riskLevel=full` 时升 standard，`--no-verify` 跳过）→ 推送（仅 `--push`，须与 `--write` 同现）→ worktree 清理与端口登记释放 → 推送成功后删除分支」。门禁 fail-closed：worktree 与主检出均须干净、目标分支非保护分支（main、master、develop、release*）、关联任务锚点单元全部完成；目标默认是主检出当前分支，`--base-ref` 仅作意图断言，不切换检出。不带 `--push` 时不推送不删分支，收据给出建议命令。
+- 崩溃残留走专门入口：目录已消失但 Git 元数据与分支绑定仍在的 worktree 由 `worktree check` 报为 `WORKTREE_PRUNABLE_RESIDUE` 错误并阻塞审计通过。`worktree recover` 默认只出计划，追加 `--write` 后按序移除不完整 worktree（端口 env 文件在位且登记在册时跳过，仅当分支未离开基线且工作区干净时连同分支与端口登记一起移除）、prunable 残留（一次 `git worktree prune`）、孤立分支与孤立端口登记。分支删除仅在存在归因证据（端口登记表条目或 prunable 清单）、分支 HEAD 等于 `worktree.baseRef` 解析出的基线 SHA 且该分支不是基线本身时发生；无引用的用户占位分支、带未并入提交的分支与登记面之外的外来 worktree 一律不动。`recover` 的分支删除仅限上述证据门——这不与「merge-back 完成前不删除分支」冲突：被删分支从未持有任何提交。该入口的另一处分支删除只发生在 `land` 的推送成功之后，且使用自带未合并拒绝保险的 `git branch -d`。
+- worktree 工具分两个入口：上述项目面入口是安装交付内唯一的写入面，负责创建、依赖链接与清理；Vibe-Harness 源仓库的开发面另有只读审计 CLI（`scripts/worktree.js`，`list|check|plan`，按登记任务核对分支命名与 merge-back 事实，永不执行写入、也永不创建 worktree），不随安装交付——目标项目不引入第二个 worktree 写入口。
+- worktree 的依赖链接（`node_modules` junction 或 symlink）由 `worktree bootstrap` 建立并对每个本地包逐项 realpath 断言；断言失败时回滚本次新建的 worktree，不留半成品。`worktree check` 报告依赖链接缺失或指回主检出的事实，不用手写脚本重复搭建。
+- 多 worktree 并发时端口按登记表分段：`worktree.ports` 声明 `base`、`blockSize`、`variables` 与 `envFile`，主检出保留 `[base, base+blockSize-1]`，第 n 个 worktree 占用 `[base+n*blockSize, base+(n+1)*blockSize-1]`，块内第 i 个变量取 `blockStart+i`。分配结果写入主检出 `.vibe-harness/worktree-ports.json`，并由 `.vibe-harness/worktree-ports.lock` 独占锁串行化；锁等待超时即 fail-closed，不自动清理残留锁。端口冲突只按登记表与声明事实判定，不调用 `netstat`/`lsof` 推断分配。
+- worktree 环境补齐是声明式的：`worktree.provision.setupCommands` 与 `envFiles` 由 `bootstrap` 按「worktree add → 依赖链接 → 端口分配与 env 文件 → 声明的 envFiles 落地 → 声明的 setupCommands → 工具链探针」执行，默认只出计划、追加 `--write` 才落盘，目标命中 `hooks.redZonePaths` 时还需 `--confirm-red-zone`。
+- 主检出缺少依赖（依赖根的 `node_modules` 不存在）时 `bootstrap` 以 `blocked` 结束并给出建议命令，不静默继续；仅当声明 `setupCommands` 时才允许 worktree 自行补齐依赖，此时 setup 先于依赖链接执行。`worktree check` 只核对文件系统事实（依赖链接 realpath、env 文件与登记表一致），不推断某条命令是否执行过。
+- worktree 内的写入只能由以该 worktree 为会话根（会话 cwd 即 worktree 根）的 Agent 完成；宿主边界策略的可写范围是项目根，主检出会话不得跨根写入 worktree；不得以内联脚本、临时目录或改写路径触发方式绕过宿主边界。
+- merge-back 完成前不清理 worktree 或删除分支；闭环回收按 `worktree land` 的步骤顺序执行——推送先于 worktree 清理，分支删除仅在推送成功后。
+- 清理前确认 worktree 无未提交改动，并先用 `git worktree remove` 再用 `git worktree prune`。
+- 使用 `git worktree list --porcelain -z` 获取可机器解析的 worktree 清单。
 
 ## 完成定义
 
-- 采纳的 worktree 提交必须合并回声明的目标分支。
-- 目标分支未包含 merge-back 结果、验证早于最后一次实质修改或存在未解释改动时，不得宣称完成。
+- 本次任务按已授权交付边界结束；本地实现可在最终验证后交付，未合并的 worktree 只阻止宣称“已集成”。
+- 只有目标分支包含 merge-back 结果且验证晚于最后一次实质修改时，才能宣称“已集成”；`worktree land` 的 passed 收据（merged、verified、pushed）是该状态的机读证据。存在未解释改动时不得宣称相应交付边界已完成。
 - 工具不可用时只给出分组清单和命令建议，不声称已经提交、推送或合并。
 
 ## 禁止项
 
-- 不使用 <code>git reset --hard</code>、<code>git checkout --</code> 或破坏性清理覆盖用户改动，除非用户明确要求。
-- 不把构建产物、依赖缓存、VCS 元数据或用户未归属改动混入提交。
+- 不使用 `git reset --hard`、`git checkout --` 或破坏性清理覆盖用户改动，除非用户明确要求。
+- 不用 force push、历史改写或远端引用删除去修复共享分支上已推送的历史。
 - 不以时间间隔、文件行数、变更数量或工具调用边界触发提交。
-- 不把本地孤立分支、未合并 worktree 或未验证 commit 当作完成状态。
+- 本地孤立分支或未合并 worktree 可以支撑已验证的本地交付，但不能据此宣称已集成、推送或发布；未验证 commit 不支撑对应完成主张。

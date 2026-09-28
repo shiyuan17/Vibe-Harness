@@ -4,7 +4,69 @@
 
 Vibe-Harness 为 Codex、Claude Code、Gemini CLI、Cursor、Qoder、ZCode、Antigravity 和 OpenCode 安装项目级规则、领域 Skills、可选 Eval、显式工具插件和安全 Hook。它只写目标项目，不修改全局 Agent 配置。
 
-默认执行路径只有一条：`获取事实 -> 直接执行 -> 聚焦验证 -> 简洁交付`。快速、轻量、完整三档只用于选择风险控制和验证强度。
+默认执行路径只有一条：`获取可信事实 -> 判定并执行 -> 聚焦验证 -> 简洁交付`。判定只用于按证据、歧义和复杂度选择直接实施、继续查证、澄清、请求授权、规划或拆分；快速、轻量、完整三档只用于选择风险控制和验证强度。
+
+## 在已安装项目启用 Micro
+
+安装本身不会扫描业务、生成 probe 或自动启用 Micro。先在本仓库预演升级，确认不会覆盖项目自有文件，再按原安装参数执行 `--write` 并验证。已安装的 `.agents/runtime/commands/run.mjs` 和 `.agents/runtime/lib/micro-runner.mjs` 必须一同更新；需要 Node 22+ 和 Git 工作树。
+
+    pnpm vibe-harness install --project <项目绝对路径> --dry-run
+    pnpm vibe-harness validate --project <项目绝对路径>
+
+只为**选定的局部不变量**编写经审阅的项目 probe，例如 `scripts/probes/normalize.mjs` 导出 `default(args)`，并在目标项目 `vibe-harness.config.json` 的 `validationCommands.micro` 中显式增加：
+
+```json
+[
+  {
+    "id": "normalize-example",
+    "kind": "pure",
+    "entry": "scripts/probes/normalize.mjs",
+    "args": { "value": "example" },
+    "costTier": "quick",
+    "scopes": ["affected", "layer"],
+    "maxDurationMs": 3000,
+    "maxOutputBytes": 2048,
+    "network": "deny",
+    "workspaceWrite": "deny",
+    "allowedEnv": []
+  }
+]
+```
+
+使用 `node .agents/runtime/commands/run.mjs verify --project . --micro normalize-example --plan --json` 查看计划，去掉 `--plan` 才执行。未声明 ID 和旧 `command` 格式在受管入口被拒绝；普通 REPL 仅供探索。Micro 通过只证明局部观察，任务完成仍须运行受影响的正式测试；不可信 probe 的网络隔离不能仅靠 Node 权限模型，细节见 [Micro 规则](docs/rules/micro-verification.md)。
+
+## 全量安装（推荐）
+
+一条提示词即可完成 full profile、全部稳定工具插件、Linear 读写集成与 memory 资产的多宿主安装，不必再逐个启用插件、Linear 或宿主：
+
+    将 Vibe-Harness 全量安装（--preset everything）到 TARGET_PROJECT_ABSOLUTE_PATH，宿主为 codex、zcode、opencode。你在 Vibe-Harness 仓库中执行：
+    pnpm install
+    pnpm vibe-harness init --project <TARGET_PROJECT_ABSOLUTE_PATH> --targets codex,zcode,opencode --preset everything
+    pnpm vibe-harness install --project <TARGET_PROJECT_ABSOLUTE_PATH> --write --confirm-red-zone
+    pnpm vibe-harness validate --project <TARGET_PROJECT_ABSOLUTE_PATH>
+    pnpm vibe-harness doctor --project <TARGET_PROJECT_ABSOLUTE_PATH>
+    只有目标项目缺少 vibe-harness.config.json 时才需要 init；我授权本次安装写入项目级 Hook 与 MCP 红区配置，并放行 zcode/opencode 的预览能力。everything 已内含 provision，无需再写 --provision。只写目标项目，不修改全局 Agent、MCP 或 Git 配置；报告实际写入与未完成项。
+
+等价命令：
+
+```bash
+pnpm install
+pnpm vibe-harness init --project ../full-project --targets codex,zcode,opencode --preset everything
+pnpm vibe-harness install --project ../full-project --dry-run
+pnpm vibe-harness install --project ../full-project --write --confirm-red-zone
+pnpm vibe-harness validate --project ../full-project
+pnpm vibe-harness doctor --project ../full-project
+```
+
+`--preset everything` 展开为 `profile=full`、六个带 runtime 的稳定工具插件、rule-only 的 `codegraph`／`serena`／`probe`、linear-mcp 读写端点与 memory 模块，并隐含放行预览能力和安装后 provision；它不改变 `--plugin all` 仍只含六个带 runtime 的稳定工具、不含 Linear 与三个 rule-only 插件的既有语义。红区写入仍必须显式使用 `--confirm-red-zone`。init 写入的配置：
+
+```json
+{
+  "targets": ["codex", "zcode", "opencode"],
+  "profile": "full",
+  "preset": "everything"
+}
+```
 
 ## 快速开始
 
@@ -36,6 +98,8 @@ pnpm vibe-harness install --project ../some-project --target codex --profile cor
 pnpm vibe-harness provision --project ../some-project --target codex --profile core --dry-run
 pnpm vibe-harness provision --project ../some-project --target codex --profile core --write
 pnpm vibe-harness validate --project ../some-project
+pnpm vibe-harness verify --project ../some-project --plan
+pnpm vibe-harness verify --project ../some-project --full
 pnpm vibe-harness doctor --project ../some-project
 ```
 
@@ -45,13 +109,32 @@ pnpm vibe-harness doctor --project ../some-project
 pnpm vibe-harness verify --project ../some-project
 ```
 
-`verify` 依次执行已配置的 `lint -> typecheck -> test -> eval`，未配置的项会跳过。
+`verify` 默认按 changed paths 生成唯一的 `auto` 风险计划：文档、单测试和纯函数改动只运行受影响检查；公共契约、安装器、runtime、Hook、CI、锁文件或无法分类的改动回退到完整验证。`--plan` 只输出风险等级、影响分组、选中/跳过检查和回退原因；`--full` 显式运行完整矩阵。未选中的检查在收据中标记为 `not_selected`，未配置项保持 `not_configured`。
 
 验证 JSON 还包含本轮 ID、时间和非持久化 Git 工作树指纹；检查期间工作树变化时返回 PROJECT_VERIFICATION_STALE。
 
+### 项目内确定性脚本
+
+`core` 和 `full` 默认安装项目级脚本入口；`minimal` 与 `docs-only` 不安装。它们把可机械核验的工作交给脚本，把范围选择和结果解释留给 Agent：
+
+```bash
+node .agents/runtime/commands/run.mjs env --project . --json
+node .agents/runtime/commands/run.mjs context --project . --json
+node .agents/runtime/commands/run.mjs changes --project . --json
+node .agents/runtime/commands/run.mjs verify --project . --plan --json
+node .agents/runtime/commands/run.mjs verify --project . --json
+node .agents/runtime/commands/run.mjs worktree check --project . --strict --json
+node .agents/runtime/commands/run.mjs slice --project . --file <path> --from <n>
+node .agents/runtime/commands/run.mjs patch --project . --spec <spec.json>
+```
+
+`verify --plan` 只预览已配置检查，不执行命令；脚本不提供任意命令执行接口，不自动修改配置或联网。验证命令来自 `vibe-harness.config.json` 的 `validationCommands`，失败、超时、危险命令和验证期间工作树变化都会明确报告。成本分层按「最小充分成本」默认走快：`verify` 不带 `--tier` 时只执行快速层（随改动同步、失败阻塞当前实施单元），中等层与深度层必须显式升级——`--tier standard|deep` 选定成本层，`--full` 运行完整风险矩阵与全部声明层。快速层通过时收据标注 `scopeStatus: partial` 并列出被延迟的检查与下一层入口，未取得被延迟层的证据前不得宣称集成、发布或整体完成。
+
+`worktree`、`slice` 和 `patch` 默认只读：`worktree check` 汇总隔离单元、merge-back、依赖链接与端口登记事实并给出 `cleanupAllowed` 建议；`worktree bootstrap` 按六步（`worktree add` → 依赖链接 → 端口分段与 env 文件 → 声明的 envFiles → 声明的 setupCommands → 工具链探针）执行，默认只出计划、追加 `--write` 才落盘，目标命中 `hooks.redZonePaths` 时还需 `--confirm-red-zone`；端口按主检出 `.vibe-harness/worktree-ports.json` 的登记表分段并由 `.vibe-harness/worktree-ports.lock` 串行化，主检出缺 `node_modules` 时 bootstrap 以 `blocked` 结束而不是静默继续。`worktree cleanup` 只在追加 `--write` 时落盘，且 cleanup 在分支尚未并入 `worktree.baseRef` 或工作区不干净时拒绝执行、绝不删除分支；`worktree recover` 清理崩溃残留——引导中断留下的不完整 worktree、目录已消失的 prunable 绑定与带归因证据的孤立分支/端口登记——同样默认只出计划，分支删除仅限从未离开基线的证据门内；`slice` 打印指定行区间，`patch` 按 spec 在内存中完成带守卫的区间或序列替换，全部通过后才写盘。三者替代 `node -e` 内联片段与项目内一次性脚本。
+
 ## 多宿主安装
 
-同一个项目只安装一次。配置中的 targets 数组声明全部宿主；不带 --target 的 install、upgrade、validate、doctor 和 diff 处理全部目标，带 --target 时只选择配置或 install-state 中仍存在的一个宿主，绝不隐式追加。
+同一个项目只安装一次。配置中的 targets 数组声明全部宿主；不带 --target 的 install、upgrade、verify、validate、doctor 和 diff 处理全部目标，带 --target 时只选择配置或 install-state 中仍存在的一个宿主，绝不隐式追加。
 
 公共规则、runtime、memory、Eval 和 codebase-memory 索引在项目根以 shared owner 维护一份；宿主入口、原生 Skills、MCP 和 Hook 以 adapter:id owner 维护投影。不要在项目子目录重复安装来模拟多宿主支持。
 
@@ -63,16 +146,18 @@ pnpm vibe-harness verify --project ../some-project
 
 单 Agent 默认完成任务。用户显式调用的 `open-code-review`、浏览器验证、Eval 和项目测试仍可正常使用。任务 Markdown 是可选的人读记录，不参与运行时判断。
 
-## Profiles
+## Profiles and roles
+
+core 安装九个原生 Skills，full 安装十二个原生 Skills，并默认启用七个角色人格。角色系统采用“单主角色动态切换”：每个原子动作只激活一个角色，可叠加至多一个领域 Skill；它不是固定七阶段流水线。
 
 | Profile | 安装内容 |
 | --- | --- |
 | `minimal` | 平台说明、安全边界、Git/Test 规则和可选任务/交付模板 |
-| `core` | `minimal` 加通用工程规则、五个领域 Skills 和离线 Eval |
-| `full` | `core` 加三个领域 Skills、在线 Eval 和已支持宿主的安全 Hook |
+| `core` | `minimal` 加通用工程规则、九个原生 Skills、项目内确定性脚本和离线 Eval |
+| `full` | `core` 加三个原生 Skills、在线 Eval 和已支持宿主的安全 Hook，共十二个原生 Skills |
 | `docs-only` | 规则、模板和 schemas，不安装 runtime、Skills、MCP 或 Hook |
 
-外部工具和 memory 仍只通过 `--plugin` 显式启用。所有宿主配置文件均属于红区写入，需要 `--confirm-red-zone`。
+外部工具仍只通过 `--plugin` 显式启用。所有宿主配置文件均属于红区写入，需要 `--confirm-red-zone`。
 
 ```bash
 pnpm vibe-harness install --project ../some-project --target codex --profile full --dry-run
@@ -115,7 +200,12 @@ ZCode 尚未公开项目级 Skill 的磁盘路径，因此 Vibe-Harness 不会�
     "lint": null,
     "typecheck": null,
     "test": null,
-    "eval": null
+    "eval": null,
+    "tiers": {
+      "quick": [],
+      "standard": [],
+      "deep": []
+    }
   },
   "evaluations": {
     "enabled": false,
@@ -130,13 +220,12 @@ ZCode 尚未公开项目级 Skill 的磁盘路径，因此 Vibe-Harness 不会�
     "repetitions": 3
   },
   "hooks": {
-    "allowedWriteRoots": [],
-    "allowedEgressHosts": [],
-    "mode": "guarded"
+    "allowedEgressHosts": []
   },
   "riskZones": {
     "red": ["auth", "secrets", "ci-cd", "env"],
-    "yellow": ["shared-libs", "state", "routing", "io-clients"]
+    "yellow": ["shared-libs", "state", "routing", "io-clients"],
+    "pathPatterns": { "red": [], "yellow": [] }
   },
   "crossRepo": {
     "enabled": false,
@@ -162,7 +251,7 @@ ZCode 尚未公开项目级 Skill 的磁盘路径，因此 Vibe-Harness 不会�
 
 Linear 工作流是单独的外部集成：linear-mcp 使用读写端点，linear-mcp-readonly 使用只读端点，两者互斥且都不会被 plugin all 选中。Codex、Cursor、Qoder、ZCode、Antigravity 和 OpenCode 会生成项目级 Remote MCP 配置；Claude 与 Gemini 安装相同规则和 Skill，但报告 MCP 手工配置降级。安装器不写入 Token 或 OAuth 凭据，配置完成后仍需按宿主提示完成 Linear 原生认证。
 
-可选插件包括 `rtk`、`ast-grep`、`codebase-memory-mcp`、`chrome-devtools-mcp`、`playwright-cli` 和 `open-code-review`。Agentmemory runtime 因上游 High 漏洞暂停提供，不作为 `--plugin` 选项；如需记忆能力，请通过 `--modules memory` 安装 memory 模块。
+可选插件包括 `rtk`、`ast-grep`、`codebase-memory-mcp`、`chrome-devtools-mcp`、`playwright-cli`、`open-code-review`、`codegraph`、`serena` 和 `probe`。其中 `codegraph`、`serena`、`probe` 是纯规则插件：安装器只写入对应规则，不安装也不配置外部工具本身，MCP/CLI 由宿主环境自行准备。Agentmemory runtime 因上游 High 漏洞暂停提供，不作为 `--plugin` 选项；如需记忆能力，请通过 `--modules memory` 安装 memory 模块。
 
 ```bash
 pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin -rtk --dry-run
@@ -188,6 +277,8 @@ pnpm vibe-harness uninstall --project ../some-project --target codex --write
 pnpm vibe-harness uninstall --project ../some-project --all-targets --write
 ```
 
+preserve-retired 选项会保留升级计划中本应退休的资产，并在结果中报告 retained；不使用该选项时，升级退休行为保持不变。
+
 ### 退出码
 
 | 退出码 | 含义 |
@@ -198,11 +289,15 @@ pnpm vibe-harness uninstall --project ../some-project --all-targets --write
 
 ## 安全边界
 
-- 未使用 `--force` 时不覆盖已有项目文件。
+- 未使用 `--force` 时不覆盖已有项目文件。项目自有的受管种子（`docs/memory/*`、`.agents/memory/*`）在内容漂移时保留项目内容、把当前内容重新记录为基线，并在 `retainedProjectOwned`（`reason: project-owned-drift`）与 `PROJECT_OWNED_FILE_RETAINED` 告警中报告；其他受管文件漂移仍然以 `Refusing to upgrade user-modified file` 拒绝。
 - 所有真实写入使用 `--write`；红区写入需要显式确认。
 - 安装器不修改全局 Agent 配置或 `.git/config`。
 - Codex、Cursor、Qoder 和 ZCode Hook 会把 `PreToolUse` 和权限事件归一到同一安全策略，用于阻止危险 Git、全局配置写入、凭据外传、红区文件上传、越界写入，以及（配置 `allowedEgressHosts` 白名单后）非白名单主机出口。RTK Hook 路由仍只支持 Codex。
 - 完成主张必须由本轮有效证据支持；无法验证时缩小主张并说明风险。
+
+## Roles
+
+full 默认启用七个角色人格，其他 profile 可用 roles.enabled 显式启用。每个原子动作只激活一个角色，并可叠加至多一个领域 Skill；目标或动作类型改变时才重新路由。ZCode 角色插件只写项目目录，doctor 报告 manual-activation-required；宿主权限表达不足时报告降级映射。角色配置、权限和路由详见 [角色文档](docs/roles.md)。
 
 ## 文档
 

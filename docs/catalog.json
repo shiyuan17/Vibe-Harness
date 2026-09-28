@@ -71,6 +71,28 @@
       ]
     },
     {
+      "path": "docs/roles.md",
+      "kind": "user-guide",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "user",
+        "contributor",
+        "maintainer"
+      ]
+    },
+    {
+      "path": "docs/rules/role-routing.md",
+      "kind": "agent-rules",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "agent",
+        "contributor",
+        "maintainer"
+      ]
+    },
+    {
       "path": "docs/hooks.md",
       "kind": "operations",
       "status": "current",
@@ -88,6 +110,17 @@
       "audiences": [
         "maintainer",
         "contributor"
+      ]
+    },
+    {
+      "path": "docs/audits.md",
+      "kind": "operations",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "maintainer",
+        "contributor",
+        "auditor"
       ]
     },
     {
@@ -324,6 +357,13 @@
       ]
     },
     {
+      "path": "docs/specs/harness-evals-framework.md",
+      "kind": "spec",
+      "status": "implemented",
+      "language": "en",
+      "audiences": ["maintainer", "contributor", "auditor"]
+    },
+    {
       "path": "docs/specs/vibe-harness-tooling-modules-spec.md",
       "kind": "spec",
       "status": "implemented",
@@ -344,6 +384,20 @@
         "auditor",
         "user"
       ]
+    },
+    {
+      "path": "docs/specs/adaptive-verification-engine.md",
+      "kind": "spec",
+      "status": "implemented",
+      "language": "zh-CN",
+      "audiences": ["maintainer", "contributor", "auditor"]
+    },
+    {
+      "path": "docs/rules/micro-verification.md",
+      "kind": "agent-rules",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": ["agent", "maintainer", "auditor"]
     },
     {
       "path": "docs/inventory/source-rules-mapping.md",
@@ -414,6 +468,26 @@
     },
     {
       "path": "docs/inventory/ai-eval-investigation.md",
+      "kind": "inventory",
+      "status": "reference",
+      "language": "zh-CN",
+      "audiences": [
+        "auditor",
+        "maintainer"
+      ]
+    },
+    {
+      "path": "docs/inventory/harness-superpowers-comparison.md",
+      "kind": "inventory",
+      "status": "reference",
+      "language": "zh-CN",
+      "audiences": [
+        "auditor",
+        "maintainer"
+      ]
+    },
+    {
+      "path": "docs/inventory/response-mode-investigation.md",
       "kind": "inventory",
       "status": "reference",
       "language": "zh-CN",
@@ -528,6 +602,223 @@
       ]
     },
     {
+      "path": "docs/adr/README.md",
+      "kind": "index",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
+    },
+    {
+      "path": "docs/adr/ADR-0001-linear-explicit-execution-and-dag.md",
+      "kind": "architecture",
+      "status": "current",
+      "language": "en",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
+    },
+    {
+      "path": "docs/adr/ADR-0002-linear-execution-envelope-and-recovery.md",
+      "kind": "architecture",
+      "status": "current",
+      "language": "en",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
+    },
+    {
+      "path": "docs/adr/ADR-0003-lightweight-gitflow.md",
+      "kind": "architecture",
+      "status": "current",
+      "language": "en",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
+    },
+    {
+      "path": "docs/adr/ADR-0004-task-decomposition-governance.md",
+      "kind": "architecture",
+      "status": "current",
+      "language": "en",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
+    },
+    {
+      "path": "docs/adr/ADR-0005-rules-governance.md",
+      "kind": "architecture",
+      "status": "current",
+      "language": "bilingual",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
+    },
+    {
+      "path": "docs/adr/ADR-0006-release-gated-ci-writer-landed-merges.md",
+      "kind": "architecture",
+      "status": "current",
+      "language": "en",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
+    },
+    {
+      "path": "docs/adr/catalog.json",
+      "kind": "index",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer", "auditor"]
+    },
+    {
+      "path": "docs/schemas/adr.schema.json",
+      "kind": "spec",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer", "auditor"]
+    },
+    {
+      "path": "schemas/adr.schema.json",
+      "kind": "spec",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer"]
+    },
+    {
+      "path": "docs/schemas/execution-envelope.schema.json",
+      "kind": "spec",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer", "auditor"]
+    },
+    {
+      "path": "docs/schemas/execution-envelope-v2.schema.json",
+      "kind": "spec",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer", "auditor"]
+    },
+    {
+      "path": "docs/schemas/project-verification.schema.json",
+      "kind": "spec",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer", "auditor"]
+    },
+    {
+      "path": "schemas/execution-envelope.schema.json",
+      "kind": "spec",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer"]
+    },
+    {
+      "path": "schemas/execution-envelope-v2.schema.json",
+      "kind": "spec",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer"]
+    },
+    {
+      "path": "schemas/project-verification.schema.json",
+      "kind": "spec",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer"]
+    },
+    {
+      "path": "docs/schemas/role-pack.schema.json",
+      "kind": "spec",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer", "auditor"]
+    },
+    {
+      "path": "schemas/role-pack.schema.json",
+      "kind": "spec",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer"]
+    },
+    {
+      "path": "docs/schemas/project-config.schema.json",
+      "kind": "spec",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer", "auditor"]
+    },
+    {
+      "path": "schemas/project-config.schema.json",
+      "kind": "spec",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer", "user"]
+    },
+    {
+      "path": "docs/schemas/harness-eval-scenario.schema.json",
+      "kind": "spec",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer", "auditor"]
+    },
+    {
+      "path": "schemas/harness-eval-scenario.schema.json",
+      "kind": "spec",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer"]
+    },
+    {
+      "path": "docs/schemas/harness-eval-fixture.schema.json",
+      "kind": "spec",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer", "auditor"]
+    },
+    {
+      "path": "schemas/harness-eval-fixture.schema.json",
+      "kind": "spec",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer"]
+    },
+    {
+      "path": "docs/schemas/harness-eval-result.schema.json",
+      "kind": "spec",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer", "auditor"]
+    },
+    {
+      "path": "schemas/harness-eval-result.schema.json",
+      "kind": "spec",
+      "status": "current",
+      "language": "en",
+      "audiences": ["contributor", "maintainer"]
+    },
+    {
+      "path": "templates/adr/adr-template.md",
+      "kind": "plan",
+      "status": "current",
+      "language": "bilingual",
+      "audiences": ["contributor", "maintainer"]
+    },
+    {
       "path": "docs/memory/ARCHITECTURE.md",
       "kind": "operations",
       "status": "current",
@@ -588,7 +879,7 @@
       ]
     },
     {
-      "path": "docs/rules/AGENT_SKILL_ROUTING.md",
+      "path": "docs/rules/agent-skill-routing.md",
       "kind": "agent-rules",
       "status": "current",
       "language": "zh-CN",
@@ -787,6 +1078,205 @@
     },
     {
       "path": "docs/templates/task.md",
+      "kind": "plan",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "agent",
+        "maintainer"
+      ]
+    },
+    {
+      "path": "docs/templates/micro-check.md",
+      "kind": "plan",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": ["agent", "maintainer"]
+    },
+    {
+      "path": "docs/templates/verification-plan.md",
+      "kind": "plan",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": ["agent", "maintainer"]
+    },
+    {
+      "path": "docs/templates/verification-receipt.md",
+      "kind": "plan",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": ["agent", "maintainer", "auditor"]
+    },
+    {
+      "path": "docs/adr/ADR-0007-dag-result-unverified.md",
+      "kind": "architecture",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
+    },
+    {
+      "path": "docs/adr/ADR-0008-bounded-linear-auto-claim.md",
+      "kind": "architecture",
+      "status": "current",
+      "language": "en",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
+    },
+    {
+      "path": "docs/adr/ADR-0009-develop-required-fast-gate.md",
+      "kind": "architecture",
+      "status": "current",
+      "language": "en",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
+    },
+    {
+      "path": "docs/inventory/governance-audit-2026-09.md",
+      "kind": "inventory",
+      "status": "reference",
+      "language": "zh-CN",
+      "audiences": [
+        "auditor",
+        "maintainer"
+      ]
+    },
+    {
+      "path": "docs/rules/review-report.md",
+      "kind": "agent-rules",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "agent",
+        "contributor",
+        "maintainer"
+      ]
+    },
+    {
+      "path": "docs/rules/response-modes.md",
+      "kind": "agent-rules",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "agent",
+        "contributor",
+        "maintainer"
+      ]
+    },
+    {
+      "path": "docs/templates/finding-report.md",
+      "kind": "plan",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "agent",
+        "maintainer"
+      ]
+    },
+    {
+      "path": "docs/templates/workflow.md",
+      "kind": "plan",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "agent",
+        "maintainer"
+      ]
+    },
+    {
+      "path": "docs/templates/find-question.md",
+      "kind": "plan",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "agent",
+        "maintainer"
+      ]
+    },
+    {
+      "path": "docs/rules/codegraph.md",
+      "kind": "agent-rules",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "agent",
+        "contributor",
+        "maintainer"
+      ]
+    },
+    {
+      "path": "docs/rules/probe.md",
+      "kind": "agent-rules",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "agent",
+        "contributor",
+        "maintainer"
+      ]
+    },
+    {
+      "path": "docs/rules/serena.md",
+      "kind": "agent-rules",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "agent",
+        "contributor",
+        "maintainer"
+      ]
+    },
+    {
+      "path": "docs/templates/plan.md",
+      "kind": "plan",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "agent",
+        "maintainer"
+      ]
+    },
+    {
+      "path": "docs/plans/governance-evidence.md",
+      "kind": "plan",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "agent",
+        "maintainer"
+      ]
+    },
+    {
+      "path": "docs/templates/evidence.md",
+      "kind": "plan",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "agent",
+        "maintainer"
+      ]
+    },
+    {
+      "path": "docs/templates/less_harness_token.md",
+      "kind": "plan",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "agent",
+        "maintainer"
+      ]
+    },
+    {
+      "path": "docs/templates/review-brief.md",
       "kind": "plan",
       "status": "current",
       "language": "zh-CN",

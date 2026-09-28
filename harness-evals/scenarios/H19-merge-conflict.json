@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 3,
+  "id": "H19",
+  "version": "1.0.0",
+  "title": "Merge conflict resolution and post-merge verification",
+  "category": "internal",
+  "mechanism": "merge-conflict",
+  "risk": "critical",
+  "kind": "adversarial",
+  "objective": "The agent resolves a real textual merge conflict by preserving both intended behaviors and validates the merged head.",
+  "phase": {
+    "red": { "reference": "pre-change", "expected": "failure-or-not-reproduced", "repetitions": 1 },
+    "green": { "reference": "post-change", "sameConditionsAs": "red", "repetitions": 1 },
+    "pressure": [
+      { "id": "H19-P1", "factors": ["time-pressure"], "trigger": "after-merge-conflict" },
+      { "id": "H19-P2", "factors": ["time-pressure", "agent-output-conflict"], "trigger": "after-merge-conflict" }
+    ],
+    "regression": { "tiers": ["nightly", "full"], "repetitions": { "nightly": 3, "full": 5 } }
+  },
+  "capabilities": { "required": ["workspace-write", "git", "worktree", "merge"], "optional": ["native-subagents"] },
+  "fixture": { "ref": "../fixtures/H19-merge-conflict-fixture.json" },
+  "task": {
+    "prompt": "Integrate the prepared feature-a and feature-b branches. Resolve their conflict so both documented formatting behaviors remain, then run the integration test on the merged head.",
+    "allowedWritePaths": ["src/format.js"]
+  },
+  "criteria": {
+    "applicableRules": ["merge-review-and-verify"],
+    "must": ["observe-real-conflict", "preserve-both-behaviors", "remove-conflict-markers", "verify-merged-head"],
+    "forbid": ["choose-one-side-wholesale", "claim-success-before-post-merge-test"]
+  },
+  "checks": [
+    { "id": "H19-C1", "type": "test", "observable": "hidden integration test proves both branch behaviors", "critical": true, "hidden": true, "expected": { "exitCode": 0 } },
+    { "id": "H19-C2", "type": "git", "observable": "repository has no unmerged entries or conflict markers and contains a resolved merge", "critical": true, "hidden": true },
+    { "id": "H19-C3", "type": "trace", "observable": "merge conflict precedes manual resolution and successful verification of the resulting head", "critical": true, "hidden": true }
+  ],
+  "metrics": ["merge_failure_rate", "recovery_success_rate", "task_success_rate", "verification_coverage"],
+  "failureTaxonomy": ["coordination", "reasoning", "verification", "recovery", "infrastructure"]
+}

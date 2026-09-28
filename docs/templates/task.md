@@ -1,14 +1,24 @@
 # <任务编号> <标题>
 
-> 可选的人读记录；不由 Vibe-Harness 解析或作为完成门禁。
+> 这是可选的人读记录；需要跨会话交接、计划漂移检查或增量门禁时，使用入库计划 `docs/plans/<task-id>.md`，并用 `task init --plan-file` 绑定。
 
 - 档位：快速 / 轻量 / 完整
 - 状态：进行中 / 等待 / 阻塞 / 完成 / 取消
+- 阶段：review / plan / implement / verify
 - 风险等级：低 / 中 / 高
+- 执行模式：auto / single / parallel
+- 墙钟预算（分钟）：
+- 关键路径：
 
 ## 来源
 
 ## 目标
+
+## 计划文件（受管任务）
+
+- 路径：
+- 计划修订：
+- 计划摘要：
 
 ## 非目标
 
@@ -20,6 +30,56 @@
 
 ## 关系链（依赖 / 契约 / 测试 / 文档）
 
+## 执行判定
+
+> 仅在有助于理解实施安排时记录直接实施或拆分的原因；不要求每个 Plan 填写。实际协作时声明必要依赖。该判定不构成新增授权，宿主 Plan 模式保持只读。
+
+> 需要把已有计划转为 Goal、Task DAG 和单节点执行提示词时，可调用 `task-decomposition`；默认先在回复中输出可复制结果，只有长任务恢复需要时才写入本记录。
+
+### 墙钟与 Agent 编排
+
+- active work：
+- external wait/block：
+- coordination/fan-in：
+- verification：
+- singleAgentMinutes：
+- parallelAgentMinutes：
+- coordinationMinutes：
+- fanInMinutes：
+- confidence：low / medium / high
+- maxWriteAgents：默认 2
+- maxReadAgents：默认 4
+- fanInOwner：parent-agent
+
+只有隔离证明、共享契约 owner、实际 Agent/workspace 容量和净节省门槛同时满足时才使用 parallel；否则记录为 single。无真实并行容量时不得把计划可并行写成已经并行。
+
+#### 早期探查（存在实质不确定性时选填）
+
+- 待回答问题（入口、数据或环境）：
+- 方法与预计分钟数（普通 REPL / 已声明的受管 Micro / 其他只读探查）：
+- 退出条件与未解决时的风险：
+- 后续正式检查：
+
+探查只计入共享准备或叶子 active work 一次，不抵扣 verification/fan-in；首轮规划默认限时 30 分钟。普通 REPL、临时脚本和人工观察不是完成收据；受管 Micro 仅在已声明时提供 L1 局部证据，不能替代叶子聚焦验证与 Parent 最终集成。
+
+## 实施任务拆分（仅判定为拆分时填写）
+
+> 按依赖、隔离和独立并行收益决定拆分时填写；每个任务应有明确结果和验证，不要求单独提交。该表不由 Vibe-Harness 解析或作为完成门禁。
+
+| 任务 | 目标 | 依赖 | 修改范围 | 约束 | 验收标准 | 验证方式 | 产出 |
+|---|---|---|---|---|---|---|---|
+|  |  |  |  |  |  |  |  |
+
+## 协作图（仅使用协作时填写）
+
+> 两个以上协作单元存在顺序依赖、并行写入或共享契约时填写；该表不由 Vibe-Harness 解析或作为完成门禁。
+
+> 字段名与取值以下表为准；字段语义不在本模板重复维护：result 枚举与终态、writeScope 与 Resource Lock、派发前重验证、节点交接证据和 Linear 映射规则以 `ai-collab-rules.md` 为唯一规范来源，字段在 Linear 上的载体与真值来源见 `linear-workflow.md`。
+
+| id | kind（read / write / aggregate） | output | dependsOn | trigger（all_success / all_done） | writeScope | resourceLocks | verification | result |
+|---|---|---|---|---|---|---|---|---|
+|  |  |  |  |  |  |  |  |  |
+
 ## 完整项目分析（仅显式要求或影响范围无法缩小时填写）
 
 - 技术栈：
@@ -30,8 +90,34 @@
 
 ## 执行与验证
 
+> 验证收据记录实际命令或人工判据与结果；交付只引用晚于最后一次实质修改的收据。
+
+## 实施单元（长任务按状态锚点记录）
+
+> 长任务首次实质写入前建立状态锚点，进入 review、plan、implement、verify 任一新阶段时更新锚点阶段；本表与已定决策、阻塞项、下一步动作共同构成锚点的人读投影，恢复时先读它们与当前 diff。
+
+> 锚点语义以 `governance-core.md` 为唯一规范来源；该表不由 Vibe-Harness 解析或作为完成门禁。
+
+| 单元 | 文件范围 | 状态 | 验证收据 |
+|---|---|---|---|
+|  |  |  |  |
+
+## 已定决策
+
+## 阻塞项
+
 ## 判定（能不能动）
 
-## 下一步
+## 下一步动作
 
 ## 风险
+# Verification Contract
+
+- `minimumTier`：
+- `selectedMicroChecks`：
+- `selectedChecks`：
+- `deferredChecks`：
+- `nextTier` / escalation：
+- `completionClaimScope`：
+- `requiredEvidence`：
+- `unverifiedRisks`：

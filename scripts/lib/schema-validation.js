@@ -1,8 +1,8 @@
 const supportedKeywords = new Set([
-  '$id', '$schema', 'additionalProperties', 'allOf', 'anyOf', 'const', 'default', 'description', 'enum',
+  '$defs', '$id', '$ref', '$schema', 'additionalProperties', 'allOf', 'anyOf', 'const', 'default', 'description', 'enum',
   'exclusiveMaximum', 'exclusiveMinimum', 'items', 'maxItems', 'maxLength', 'maxProperties', 'maximum',
-  'minItems', 'minLength', 'minProperties', 'minimum', 'multipleOf', 'not', 'oneOf', 'pattern',
-  'properties', 'required', 'title', 'type', 'uniqueItems',
+  'format', 'minItems', 'minLength', 'minProperties', 'minimum', 'multipleOf', 'not', 'oneOf', 'pattern',
+  'patternProperties', 'properties', 'required', 'title', 'type', 'uniqueItems',
 ]);
 
 function assertSchemaObject(schema, schemaPath) {
@@ -16,8 +16,14 @@ export function assertSupportedSchemaKeywords(schema, schemaPath = '$') {
   for (const key of Object.keys(schema)) {
     if (!supportedKeywords.has(key)) throw new Error(`Unsupported schema keyword at ${schemaPath}: ${key}`);
   }
+  if (schema.format !== undefined && schema.format !== 'date-time') {
+    throw new Error(`Unsupported schema format at ${schemaPath}: ${schema.format}`);
+  }
   for (const [key, child] of Object.entries(schema.properties ?? {})) {
     assertSupportedSchemaKeywords(child, `${schemaPath}.properties.${key}`);
+  }
+  for (const [key, child] of Object.entries(schema.$defs ?? {})) {
+    assertSupportedSchemaKeywords(child, `${schemaPath}.$defs.${key}`);
   }
   if (schema.items) assertSupportedSchemaKeywords(schema.items, `${schemaPath}.items`);
   for (const keyword of ['allOf', 'anyOf', 'oneOf']) {
@@ -26,12 +32,16 @@ export function assertSupportedSchemaKeywords(schema, schemaPath = '$') {
     }
   }
   if (schema.not) assertSupportedSchemaKeywords(schema.not, `${schemaPath}.not`);
+  for (const [pattern, child] of Object.entries(schema.patternProperties ?? {})) {
+    assertSupportedSchemaKeywords(child, `${schemaPath}.patternProperties.${pattern}`);
+  }
   if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
     assertSupportedSchemaKeywords(schema.additionalProperties, `${schemaPath}.additionalProperties`);
   }
 }
 
 function typeMatches(value, type) {
+  if (Array.isArray(type)) return type.some((candidate) => typeMatches(value, candidate));
   if (type === 'array') return Array.isArray(value);
   if (type === 'integer') return Number.isInteger(value);
   if (type === 'number') return typeof value === 'number' && Number.isFinite(value);
@@ -53,11 +63,27 @@ export function validateJsonAgainstSchema(value, schema, label = 'value') {
   assertSupportedSchemaKeywords(schema);
   const errors = [];
 
+  function resolveReference(reference) {
+    if (typeof reference !== 'string' || !reference.startsWith('#/')) {
+      throw new Error(`Only local JSON Schema references are supported: ${reference}`);
+    }
+    return reference.slice(2).split('/').reduce((current, segment) => {
+      const key = segment.replaceAll('~1', '/').replaceAll('~0', '~');
+      if (!current || typeof current !== 'object' || !Object.hasOwn(current, key)) {
+        throw new Error(`Unresolved JSON Schema reference: ${reference}`);
+      }
+      return current[key];
+    }, schema);
+  }
+
   function addError(instancePath, schemaPath, message) {
     errors.push(`${instancePath} ${message} [schema: ${schemaPath}]`);
   }
 
   function evaluate(current, currentSchema, instancePath, schemaPath) {
+    if (currentSchema.$ref) {
+      evaluate(current, resolveReference(currentSchema.$ref), instancePath, currentSchema.$ref);
+    }
     for (const [index, candidate] of (currentSchema.allOf ?? []).entries()) {
       evaluate(current, candidate, instancePath, `${schemaPath}.allOf[${index}]`);
     }
@@ -70,7 +96,6 @@ export function validateJsonAgainstSchema(value, schema, label = 'value') {
       if (!variants.some((variantErrors) => variantErrors.length === 0)) {
         addError(instancePath, `${schemaPath}.anyOf`, 'must match at least one allowed schema');
       }
-      return;
     }
     if (Array.isArray(currentSchema.oneOf)) {
       const matches = currentSchema.oneOf.filter((candidate, index) => {
@@ -79,7 +104,6 @@ export function validateJsonAgainstSchema(value, schema, label = 'value') {
         return errors.splice(start).length === 0;
       }).length;
       if (matches !== 1) addError(instancePath, `${schemaPath}.oneOf`, 'must match exactly one allowed schema');
-      return;
     }
     if (currentSchema.not) {
       const start = errors.length;
@@ -88,7 +112,7 @@ export function validateJsonAgainstSchema(value, schema, label = 'value') {
     }
 
     if (currentSchema.type && !typeMatches(current, currentSchema.type)) {
-      addError(instancePath, `${schemaPath}.type`, `must be ${currentSchema.type}`);
+      addError(instancePath, `${schemaPath}.type`, `must be ${Array.isArray(currentSchema.type) ? currentSchema.type.join(' or ') : currentSchema.type}`);
       return;
     }
     if (Array.isArray(currentSchema.enum) && !currentSchema.enum.some((item) => jsonEquals(item, current))) {
@@ -114,6 +138,14 @@ export function validateJsonAgainstSchema(value, schema, label = 'value') {
       }
       for (const key of keys) {
         if (Object.hasOwn(properties, key)) continue;
+        const matchedPatterns = Object.entries(currentSchema.patternProperties ?? {})
+          .filter(([pattern]) => new RegExp(pattern, 'u').test(key));
+        if (matchedPatterns.length > 0) {
+          for (const [pattern, child] of matchedPatterns) {
+            evaluate(current[key], child, `${instancePath}.${key}`, `${schemaPath}.patternProperties.${pattern}`);
+          }
+          continue;
+        }
         if (currentSchema.additionalProperties === false) {
           addError(`${instancePath}.${key}`, `${schemaPath}.additionalProperties`, 'is not allowed');
         } else if (currentSchema.additionalProperties && typeof currentSchema.additionalProperties === 'object') {
@@ -149,6 +181,9 @@ export function validateJsonAgainstSchema(value, schema, label = 'value') {
       }
       if (currentSchema.pattern !== undefined && !(new RegExp(currentSchema.pattern, 'u')).test(current)) {
         addError(instancePath, `${schemaPath}.pattern`, `must match pattern ${currentSchema.pattern}`);
+      }
+      if (currentSchema.format === 'date-time' && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/u.test(current)) {
+        addError(instancePath, `${schemaPath}.format`, 'must use RFC 3339 date-time format');
       }
     }
 

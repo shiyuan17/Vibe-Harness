@@ -4,6 +4,7 @@ import path from 'node:path';
 import { validateJsonAgainstSchema } from './schema-validation.js';
 import { safeJsonParse } from './safe-json.js';
 import { CONTENT_STRATEGIES } from './managed-block.js';
+import { compiledInstallPatterns } from './red-zone.js';
 
 export { validateJsonAgainstSchema };
 
@@ -16,26 +17,44 @@ export async function pathExists(filePath) {
   }
 }
 
+// Pack-static files (manifests, schemas, install maps, the pack's own
+// package.json) are immutable within a single CLI run, yet per-adapter planning
+// re-reads them for every target. Memoize those reads per absolute path.
+// Anything under the target project (install state, configs, eval results) must
+// keep using readJson: those files are written and re-read within one run, so a
+// cache would resurrect stale state.
+const packJsonCache = new Map();
+
+export async function readPackJson(filePath) {
+  const cacheKey = path.resolve(filePath);
+  const cached = packJsonCache.get(cacheKey);
+  if (cached) return cached;
+  const value = safeJsonParse(await readFile(filePath, 'utf8'));
+  packJsonCache.set(cacheKey, value);
+  return value;
+}
+
 export async function readJson(filePath) {
-  const raw = await readFile(filePath, 'utf8');
-  return safeJsonParse(raw);
+  return safeJsonParse(await readFile(filePath, 'utf8'));
 }
 
 export async function loadAllManifests(rootDir) {
   return {
-    adapters: await readJson(`${rootDir}/manifests/adapters.json`),
-    profiles: await readJson(`${rootDir}/manifests/profiles.json`),
-    rules: await readJson(`${rootDir}/manifests/rules.json`),
-    skills: await readJson(`${rootDir}/manifests/skills.json`),
+    roles: await readPackJson(path.join(rootDir, 'manifests', 'roles.json')),
+    adapters: await readPackJson(`${rootDir}/manifests/adapters.json`),
+    profiles: await readPackJson(`${rootDir}/manifests/profiles.json`),
+    rules: await readPackJson(`${rootDir}/manifests/rules.json`),
+    skills: await readPackJson(`${rootDir}/manifests/skills.json`),
   };
 }
 
 export async function loadAllManifestSchemas(rootDir) {
   return {
-    adapters: await readJson(`${rootDir}/schemas/adapter-pack.schema.json`),
-    profiles: await readJson(`${rootDir}/schemas/profile-pack.schema.json`),
-    rules: await readJson(`${rootDir}/schemas/rule-pack.schema.json`),
-    skills: await readJson(`${rootDir}/schemas/skill-pack.schema.json`),
+    roles: await readPackJson(path.join(rootDir, 'schemas', 'role-pack.schema.json')),
+    adapters: await readPackJson(`${rootDir}/schemas/adapter-pack.schema.json`),
+    profiles: await readPackJson(`${rootDir}/schemas/profile-pack.schema.json`),
+    rules: await readPackJson(`${rootDir}/schemas/rule-pack.schema.json`),
+    skills: await readPackJson(`${rootDir}/schemas/skill-pack.schema.json`),
   };
 }
 
@@ -79,6 +98,13 @@ export function assertInsideDir(baseDir, candidatePath, label) {
 function normalizePathForComparison(value) {
   const normalized = path.resolve(value);
   return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+
+// True when both paths resolve to the same file. Self-installed pack assets
+// (source and target are the same path in the pack repository) are their own
+// source of truth, so any content comparison against them is vacuous.
+export function sameResolvedPath(left, right) {
+  return normalizePathForComparison(left) === normalizePathForComparison(right);
 }
 
 function isInsideResolvedDir(baseDir, candidatePath) {
@@ -173,6 +199,10 @@ export function validateCatalogManifest(name, manifest) {
       }
     }
     if (name === 'adapters') {
+      if (!item.roleProjection || typeof item.roleProjection !== 'object' || Array.isArray(item.roleProjection)) {
+        throw new Error('adapters.items[' + index + '].roleProjection is invalid');
+      }
+      assertPortableRelativePath(item.roleProjection.targetRoot, 'adapters.items[' + index + '].roleProjection.targetRoot');
       assertNonEmptyString(item.installMap, `${name}.items[${index}].installMap`);
       assertPortableRelativePath(item.installMap, `${name}.items[${index}].installMap`);
       assertPortableRelativePath(item.instructionTarget, `${name}.items[${index}].instructionTarget`);
@@ -205,31 +235,32 @@ export function validateAllManifestSchemas(manifests, schemas) {
   return errors.sort();
 }
 
-// Unified red-zone predicate. This must stay aligned with the runtime hook's
-// `projectRedZonePattern` (runtime/hooks/lib/policy.mjs): any install target
-// that the hook treats as a project red-zone must also be flagged red-zone at
-// install time so --confirm-red-zone gates it. Covers global Agent config
-// (.codex/, .claude/, etc.), CI/CD workflows, environment files, and auth/ci
-// directories.
-const RED_ZONE_PATTERNS = [
-  /(?:^|\/)\.codex\//u,
-  /(?:^|\/)\.claude\//u,
-  /(?:^|\/)\.gemini\//u,
-  /(?:^|\/)\.cursor\//u,
-  /(?:^|\/)\.qoder\//u,
-  /(?:^|\/)\.zcode\//u,
-  /(?:^|\/)opencode\.jsonc?$/u,
-  /(?:^|\/)\.mcp\.json$/u,
-  /(?:^|\/)\.github\/workflows\//u,
-  /(?:^|\/)\.env(?:\.[^/]+)?$/u,
-  /(?:^|\/)auth(?:\/|$)/u,
-  /(?:^|\/)ci\/cd(?:\/|$)/u,
-  /\/hooks\.json$/u,
-];
+// Unified red-zone predicate. Derived from the canonical manifests/red-zone.json
+// (module-load sync read, mirroring the adapters.json read in project-config.js;
+// the pack CLI always runs beside its own manifests). This must stay aligned with
+// the runtime hook's red-zone paths (runtime/hooks/lib/context.mjs
+// DEFAULT_RED_ZONE_PATHS): any install target the hook treats as a project
+// red-zone must also be flagged red-zone at install time so --confirm-red-zone
+// gates it. Covers agent config (.codex/, .claude/, etc.), runtime hook scripts,
+// pack control-plane state (vibe-harness.config.json,
+// .vibe-harness/install-state.json), CI/CD workflows, git hooks (.githooks/),
+// environment files, and auth/ci directories. Skill content roots
+// (e.g. .gemini/skills/) are intentionally NOT here: adapters gate only the
+// config files they own via manifests/adapters.json redZonePrefixes.
+// Bidirectional consistency with the canonical manifest, the runtime list, and
+// adapter prefixes is enforced by validateRedZoneManifest and
+// validateRedZoneConsistency in pack-validation.js.
+export const RED_ZONE_PATTERNS = compiledInstallPatterns();
 
 export function isRedZoneTarget(target) {
   const normalized = target.replaceAll('\\', '/');
   return RED_ZONE_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function assertOptionalBooleanField(entry, key, label) {
+  if (Object.hasOwn(entry, key) && typeof entry[key] !== 'boolean') {
+    throw new Error(`${label} must be boolean`);
+  }
 }
 
 export function validateInstallMapShape(installMap, allowedGroups) {
@@ -248,7 +279,7 @@ export function validateInstallMapShape(installMap, allowedGroups) {
   const targets = new Set();
   for (const [index, entry] of installMap.entries.entries()) {
     assertObject(entry, `install-map.entries[${index}]`);
-    const allowedEntryKeys = new Set(['contentStrategy', 'executable', 'group', 'redZone', 'source', 'target']);
+    const allowedEntryKeys = new Set(['contentStrategy', 'executable', 'group', 'projectOwned', 'redZone', 'source', 'target']);
     for (const key of Object.keys(entry)) {
       if (!allowedEntryKeys.has(key)) {
         throw new Error(`install-map.entries[${index}].${key} is not allowed`);
@@ -272,8 +303,10 @@ export function validateInstallMapShape(installMap, allowedGroups) {
     if (isRedZoneTarget(entry.target) && entry.redZone !== true) {
       throw new Error(`Red-zone target must be marked redZone: ${entry.target}`);
     }
-    if (Object.hasOwn(entry, 'executable') && typeof entry.executable !== 'boolean') {
-      throw new Error(`install-map.entries[${index}].executable must be boolean`);
+    assertOptionalBooleanField(entry, 'executable', `install-map.entries[${index}].executable`);
+    assertOptionalBooleanField(entry, 'projectOwned', `install-map.entries[${index}].projectOwned`);
+    if (entry.projectOwned === true && entry.contentStrategy !== 'replace') {
+      throw new Error(`install-map.entries[${index}].projectOwned requires the replace content strategy`);
     }
   }
 

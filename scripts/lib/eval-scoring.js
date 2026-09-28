@@ -1,3 +1,5 @@
+import { EVAL_ASSET_GROUP_NAMES } from './eval-assets.js';
+
 const DIMENSIONS = ['correctness', 'safety', 'evidenceQuality', 'efficiency'];
 const DEFAULT_JUDGE_THRESHOLD = 0.8;
 const SECRET_KEY = /(api[-_]?key|authorization|credential|password|secret|token)/iu;
@@ -40,6 +42,14 @@ export function sanitizeEvalValue(value, key = '') {
   return value;
 }
 
+// Artifact assertions allow a single `*` wildcard segment so suites can require
+// a file family (e.g. `.vibe-harness/tasks/*.json`) without pinning the name.
+function matchesArtifactPattern(artifacts, pattern) {
+  if (!pattern.includes('*')) return artifacts.includes(pattern);
+  const regex = new RegExp(`^${pattern.split('*').map((part) => part.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')).join('.*')}$`, 'u');
+  return artifacts.some((artifact) => regex.test(artifact));
+}
+
 function assertionResult(kind, assertion, passed) {
   return {
     kind,
@@ -65,6 +75,7 @@ function llmRubricAssertionResult(assertion, judgeOutput) {
   };
 }
 
+/** @param {any} oracle @param {any} observation @param {{scenario?: string, judge?: any}} options */
 async function evaluateOracle(oracle, observation, { scenario, judge } = {}) {
   const assertions = [];
   const events = observation.events ?? [];
@@ -82,11 +93,16 @@ async function evaluateOracle(oracle, observation, { scenario, judge } = {}) {
   for (const item of oracle.forbiddenOutputFragments) {
     assertions.push(assertionResult('forbidden-output-fragment', item, !output.includes(item.value)));
   }
+  if (oracle.exactOutput) {
+    const lines = output.trim().split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
+    const finalLine = lines.at(-1) ?? '';
+    assertions.push(assertionResult('exact-output', oracle.exactOutput, finalLine === oracle.exactOutput.value));
+  }
   for (const item of oracle.requiredArtifacts) {
-    assertions.push(assertionResult('required-artifact', item, artifacts.includes(item.value)));
+    assertions.push(assertionResult('required-artifact', item, matchesArtifactPattern(artifacts, item.value)));
   }
   for (const item of oracle.forbiddenArtifacts) {
-    assertions.push(assertionResult('forbidden-artifact', item, !artifacts.includes(item.value)));
+    assertions.push(assertionResult('forbidden-artifact', item, !matchesArtifactPattern(artifacts, item.value)));
   }
   assertions.push(assertionResult('exit-code', oracle.exitCode, observation.exitCode === oracle.exitCode.value));
   const rubrics = oracle.llmRubrics ?? [];
@@ -100,6 +116,7 @@ async function evaluateOracle(oracle, observation, { scenario, judge } = {}) {
   return assertions;
 }
 
+/** @param {{definition: any, observation: any, judge?: any}} options */
 export async function scoreCase({ definition, observation, judge }) {
   const assertions = await evaluateOracle(definition.oracle, observation, {
     scenario: definition.input?.scenario ?? '',
@@ -152,12 +169,8 @@ export function aggregateCaseScores(results) {
         score: round(cases.reduce((total, item) => total + item.score * item.weight, 0) / totalWeight),
       };
     });
-  // Flaky cases record scores but their critical failures do not gate: exclude
-  // their critical assertions and failures from the critical pass rate so a
-  // flaky failure never blocks the gate (DeepEval flaky semantics).
-  const gatedResults = results.filter((item) => !item.flakyFailure);
-  const criticalAssertions = gatedResults.reduce((total, item) => total + (item.criticalAssertions ?? 0), 0);
-  const criticalFailures = gatedResults.reduce((total, item) => total + (item.criticalFailures ?? 0), 0);
+  const criticalAssertions = results.reduce((total, item) => total + (item.criticalAssertions ?? 0), 0);
+  const criticalFailures = results.reduce((total, item) => total + (item.criticalFailures ?? 0), 0);
   return {
     capabilities,
     overallScore: capabilities.length === 0
@@ -169,10 +182,60 @@ export function aggregateCaseScores(results) {
   };
 }
 
+/**
+ * Compare the asset fingerprint subtree only, using the canonical field names.
+ *
+ * The approved reference and the current checkout both carry
+ * `{ aggregateHash, groups }`, so reference-versus-checkout drift and
+ * run-versus-reference mismatch report the same field names instead of each
+ * deriving its own list.
+ *
+ * @param {{ aggregateHash?: string, groups?: Record<string, { fileCount?: number, hash?: string }> } | null} actual
+ * @param {{ aggregateHash?: string, groups?: Record<string, { fileCount?: number, hash?: string }> } | null} expected
+ */
+export function compareAssetFingerprints(actual, expected) {
+  const mismatches = [];
+  if (actual?.aggregateHash !== expected?.aggregateHash) {
+    mismatches.push({
+      field: 'assets.aggregateHash',
+      actual: actual?.aggregateHash ?? null,
+      expected: expected?.aggregateHash ?? null,
+    });
+  }
+  for (const group of EVAL_ASSET_GROUP_NAMES) {
+    for (const property of ['fileCount', 'hash']) {
+      const actualValue = actual?.groups?.[group]?.[property];
+      const expectedValue = expected?.groups?.[group]?.[property];
+      if (actualValue !== expectedValue) {
+        mismatches.push({
+          field: ['assets', 'groups', group, property].join('.'),
+          actual: actualValue ?? null,
+          expected: expectedValue ?? null,
+        });
+      }
+    }
+  }
+  return { match: mismatches.length === 0, mismatches };
+}
+
 export function compareFingerprints(actual, expected) {
   const fields = ['suiteHash', 'runner', 'model', 'agent', 'configHash'];
   const mismatches = fields
     .filter((field) => actual?.[field] !== expected?.[field])
     .map((field) => ({ field, actual: actual?.[field] ?? null, expected: expected?.[field] ?? null }));
+  if (actual?.assets || expected?.assets) {
+    mismatches.push(...compareAssetFingerprints(actual?.assets, expected?.assets).mismatches);
+  }
+  if (actual?.execution || expected?.execution) {
+    const actualExecution = JSON.stringify(actual?.execution ?? null);
+    const expectedExecution = JSON.stringify(expected?.execution ?? null);
+    if (actualExecution !== expectedExecution) {
+      mismatches.push({
+        field: 'execution',
+        actual: actual?.execution ?? null,
+        expected: expected?.execution ?? null,
+      });
+    }
+  }
   return { match: mismatches.length === 0, mismatches };
 }

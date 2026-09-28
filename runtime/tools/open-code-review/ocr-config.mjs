@@ -28,7 +28,9 @@ function endpointUrl(url, protocol, useAnthropic) {
   }
 }
 
+/** @param {{authHeader?: unknown, extraHeaders?: unknown, model?: unknown, protocol?: unknown, timeout?: unknown, token?: unknown, url?: unknown, useAnthropic?: unknown, baseUrl?: boolean}} options */
 function candidateEnvironment({ authHeader, extraHeaders, model, protocol, timeout, token, url, useAnthropic, baseUrl = false }) {
+  /** @type {Record<string, string | undefined>} */
   const environment = {};
   if (nonEmpty(url)) environment.OCR_LLM_URL = baseUrl ? endpointUrl(url, protocol, useAnthropic) : nonEmpty(url);
   if (nonEmpty(token)) environment.OCR_LLM_TOKEN = nonEmpty(token);
@@ -139,6 +141,7 @@ function resolveCodexEnvironment(config, source) {
   });
 }
 
+/** @param {{env?: NodeJS.ProcessEnv, homeDir?: string, readText?: (filePath: string) => Promise<string>}} options */
 export async function resolveOcrEndpoint({ env = process.env, homeDir, readText = (filePath) => readFile(filePath, 'utf8') } = {}) {
   const explicit = candidateEnvironment({
     authHeader: env.OCR_LLM_AUTH_HEADER,

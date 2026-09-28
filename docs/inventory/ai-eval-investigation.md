@@ -1,7 +1,8 @@
-﻿# AI 专属 Eval 体系调查报告
+# AI 专属 Eval 体系调查报告
 
 > 状态:调查报告(非门禁文档)
 > 日期:2026-07-30
+> 快照口径:本文所有计数为 2026-07-30 快照,再生成方式为 §6 各项实施状态对应的 eval 治理命令;后续计数口径以 governance-audit-2026-09.md 的快照基准为准。
 > 范围:审视 Vibe-Harness 当前 AI 专属 Eval 体系,对照 2024–2026 业界最佳实践,给出是否需要调整的结论与建议。
 > 方法:全仓库勘察(规则/脚本/suite/CI/产物)+ 网络权威来源调研(框架官方文档与论文)。所有项目侧关键事实已用命令亲自核实,标注于 §3。
 
@@ -38,7 +39,7 @@ Vibe-Harness 的 AI 专属 Eval 体系在**架构与契约层面已处于业界�
 
 | 文件 | 作用 |
 |---|---|
-| `docs/rules/eval-driven-development.md` + `rules/eval-driven-development.md` | 常驻契约(两份镜像)。8 条核心条款:修改非确定性 Agent 行为前须定义可观察失败场景;改前冻结同模型/runner/预算/指纹的参考结果;改后同条件重跑对比;critical 必须全过;reference 更新须单独审查;真实评测只在一次性项目跑;baseline ≠ evaluation reference;online 按 repetitions 多轮产出 trialSummaries(仅报告,不加阈值门禁) |
+| docs/rules/eval-driven-development.md | 唯一常驻契约。8 条核心条款:修改非确定性 Agent 行为前须定义可观察失败场景;改前冻结同模型/runner/预算/指纹的参考结果;改后同条件重跑对比;critical 必须全过;reference 更新须单独审查;真实评测只在一次性项目跑;baseline ≠ evaluation reference;online 按 repetitions 多轮产出 trialSummaries(仅报告,不加阈值门禁) |
 | `.agents/skills/eval-driven-development/SKILL.md` | 按需展开的 5 步执行流程,描述同一门禁。含 degraded 上报规则、禁自动更新 reference |
 | `docs/evals.md` | 评测总览:suite/run/reference 三合同、生命周期命令、pass@k(至少一次成功,能力上限)vs pass^k(多次全过,可靠性)定义 |
 
@@ -150,7 +151,7 @@ offline eval 是硬门禁(阻断)。
 | 沙箱隔离 | Inspect Docker/K8s、Codex `--sandbox workspace-write` | ✅ 临时 workspace + `--ephemeral` + CODEX_HOME 隔离 + 受保护配置快照 | ✅ 做得更严(含全局配置变更检测) |
 | reference 冻结 | LangSmith dataset tag+版本只读、DeepEval `--official`、Braintrust experiment 不可变 | ✅ `writeProjectEvaluationReference` + `--force` + `--confirm-reference-update` + 三方 hash 一致 | ✅ 等价 |
 | 分层门禁 | LangSmith(离线阻断/在线报告)、Promptfoo `--fail-on-error`、Braintrust PR smoke→全量 | ✅ CI offline 阻断 + canary 仅 schedule 报告 | ✅ 对齐业界共识 |
-| flaky 标记 | DeepEval `flaky=True`(记分不阻断) | ❌ 无 | ⚠️ 缺口 |
+| flaky 标记 | DeepEval `flaky=True`(保留诊断) | ✅ 有标记但仍参与 critical 门禁 | ✅ 已落地 |
 | 预算护栏 | Inspect cost_limit、LangSmith spend limit、Promptfoo maxEvalTimeMs | 部分:case 级 10min 超时、1MiB 输出上限;**无 cost_limit / token 预算** | 🟡 有超时无成本预算 |
 | 缓存 | Promptfoo(14 天 TTL, success-only)、Langsmith pytest cache | ❌ 无 | 🟡 缺口(但 offline 是 replay 不需要) |
 | 防过拟合 | DeepEval 四类 golden(standard/variation/edge/adversarial)、Promptfoo 定期重生成红队 | ❌ 无分类标准、无对抗输入再生 | ⚠️ 缺口 |
@@ -223,11 +224,11 @@ offline eval 是硬门禁(阻断)。
 
 ### P1b:引入 flaky 标记
 
-> **实施状态:已实施(2026-07-30)**。case 级新增可选 `flaky` 布尔;`scoreCase` 返回 `flakyFailure`(`definition.flaky && criticalFailures > 0`);`aggregateCaseScores` 的 `criticalPassRate` 与 `buildOfflineRun`/`buildOnlineRun` 的 status 判定均排除 flaky 失败,实现"记分不阻断"语义。`.agents/runtime/evals/run.mjs` 同步该逻辑。
+> **实施状态:已调整**。case 级保留可选 `flaky` 布尔与 `flakyFailure` 诊断字段；`aggregateCaseScores`、offline replay 和 online run 都继续把 critical 失败纳入门禁，run status 不再因 flaky 标记而放行。
 
 - schema 的 case 级增加 `flaky: boolean`(可选,默认 false)。
-- scoring:`flaky=true` 的 case 失败时,`passed` 仍为 false 但标记 `flakyFailure:true`,**不触发 criticalPassRate 失败**(记分不阻断)。
-- health:flaky 失败计入 `meanScore` 但不计入门禁失败计数。
+- scoring:`flaky=true` 的 case 失败时,`passed` 仍为 false 但标记 `flakyFailure:true`;该字段只提供诊断，不绕过 `criticalPassRate` 或 run status。
+- health:flaky 失败计入 `meanScore` 与门禁失败计数。
 - 借鉴:DeepEval `LLMTestCase(flaky=True)`——"score and verdict are still reported, but its failure never fails the test case"。
 
 ### P2:完善 golden 治理

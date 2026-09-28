@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "benchmark": "swe-bench",
+  "upstream": {
+    "repository": "https://github.com/SWE-bench/SWE-bench",
+    "revision": "02e7a74ffd0b707aab73d203fe87bdc7c76afc8e"
+  },
+  "dataset": {
+    "name": "SWE-bench/SWE-bench_Lite",
+    "revision": "b0dde1093fe417d83b7184254edf8199c1f0dff5"
+  },
+  "selection": {
+    "strategy": "first-stable-by-dataset-order",
+    "goldMustPass": true,
+    "emptyPatchMustFail": true
+  },
+  "tasks": [
+    {
+      "id": "astropy__astropy-12907",
+      "metadata": { "split": "test" }
+    }
+  ]
+}

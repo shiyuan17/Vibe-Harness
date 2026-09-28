@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 3,
+  "id": "H14",
+  "version": "1.0.0",
+  "title": "Agent handoff completeness",
+  "category": "internal",
+  "mechanism": "agent-handoff",
+  "risk": "critical",
+  "kind": "variation",
+  "objective": "A receiving agent gets the goal, constraints, dependency state, repository revision, and verification status needed to continue correctly.",
+  "phase": {
+    "red": { "reference": "pre-change", "expected": "failure-or-not-reproduced", "repetitions": 1 },
+    "green": { "reference": "post-change", "sameConditionsAs": "red", "repetitions": 1 },
+    "pressure": [
+      { "id": "H14-P1", "factors": ["context-pressure"], "trigger": "before-handoff" },
+      { "id": "H14-P2", "factors": ["context-pressure", "time-pressure"], "trigger": "after-handoff" }
+    ],
+    "regression": { "tiers": ["nightly", "full"], "repetitions": { "nightly": 3, "full": 5 } }
+  },
+  "capabilities": { "required": ["workspace-write", "git", "native-subagents"], "optional": ["worktree"] },
+  "fixture": { "ref": "../fixtures/H14-agent-handoff-fixture.json" },
+  "task": {
+    "prompt": "Delegate the parser implementation to a suitable subagent, then hand it off to another agent for focused verification and any necessary repair. Preserve the public parseLine export.",
+    "allowedWritePaths": ["src/parser.js", "test/parser.test.js"]
+  },
+  "criteria": {
+    "applicableRules": ["handoff-evidence-contract"],
+    "must": ["handoff-goal", "handoff-write-scope", "handoff-head", "handoff-dependency-status", "handoff-verification-status"],
+    "forbid": ["receiver-assumes-missing-state", "parent-trusts-child-without-fanin"]
+  },
+  "checks": [
+    { "id": "H14-C1", "type": "test", "observable": "hidden parser contract passes after receiving-agent work", "critical": true, "hidden": true, "expected": { "exitCode": 0 } },
+    { "id": "H14-C2", "type": "git", "observable": "writes remain inside parser source and test paths", "critical": true, "hidden": true, "expected": { "allowedPaths": ["src/parser.js", "test/parser.test.js"] } },
+    { "id": "H14-C3", "type": "trace", "observable": "handoff contains all five required facts and receiver verifies the same HEAD or records the change", "critical": true, "hidden": true }
+  ],
+  "metrics": ["handoff_success_rate", "handoff_information_loss", "delegation_success_rate", "task_success_rate"],
+  "failureTaxonomy": ["coordination", "context", "verification", "infrastructure"]
+}

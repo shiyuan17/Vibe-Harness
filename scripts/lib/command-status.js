@@ -21,6 +21,9 @@ export async function inspectValidationCommands({ commands = {}, targetDir }) {
       report[name] = { command: null, status: 'not_configured' };
       continue;
     }
+    // The render view also carries the tier arrays, which are not executable
+    // commands: skip them instead of inspecting a nested object.
+    if (typeof command !== 'string') continue;
     const localNode = command.match(/^node\s+([^\s]+)$/u);
     if (localNode) {
       report[name] = {

@@ -6,10 +6,37 @@ Vibe-Harness 是跨平台、项目级的 AI coding 资产包。它使用 Node.js
 
 - rules 和 templates 提供共享规则、模板及 memory 文档源。
 - skills 提供由宿主按 description 直接选择的领域 Skills。
-- runtime 提供 Hooks、Eval 和显式选择的项目内工具。
+- runtime 提供 Hooks、Eval、确定性项目脚本和显式选择的项目内工具。
 - adapters 提供 Codex、Claude Code、Gemini CLI、Cursor、Qoder、ZCode、Antigravity 和 OpenCode 的项目入口与路径投影。
 - scripts 提供 CLI、planner、事务、状态迁移、验证、doctor、diff 和 provisioning。
 - manifests 和 schemas 定义 profiles、adapter capability、项目配置与 install-state 契约。
+
+## 十二层责任地图
+
+十二层用于对照责任和发现断点，不是每个任务依次执行的十二个阶段。快速任务仍走「可信事实 → 最小行动 → 聚焦验证 → 简洁交付」；Policy 与 Security 是贯穿边界，Feedback Sensors 只提供观察，Verification 决定证据是否支持完成主张，Learning 在有可复核问题时按需触发。
+
+| 层 | 现有责任归属与边界 |
+| --- | --- |
+| Intent | 目标、约束、验收、授权和终止条件；短任务不强制创建目标文档。 |
+| Task Router | 风险档位、歧义处理、角色与 Skill 路由及表达模式各管一维，不另建总路由器。 |
+| Context Engine | Fast Path、渐进披露、按需检索及长任务锚点；只补取不新鲜或尚未覆盖的事实。 |
+| Knowledge System | 文档 catalog、ADR、仓库地图和 Memory 用于导航；当前源码与验证结果优先。 |
+| Policy | 治理内核与领域规则给出优先级、契约和约束，不因其他层重复定义。 |
+| Capability | Skills、MCP、CLI、确定性脚本按宿主能力选择；声明、安装、可调用、已验证不能互换。 |
+| Execution | 单 Agent 默认执行，必要时选 DAG、子 Agent 和 worktree；不强制调度。 |
+| Feedback Sensors | 测试、浏览器、Hook 诊断和 Trace 提供观察，不直接产生完成判定。 |
+| Verification | L0-L6 证据层级、quick/standard/deep 成本档与 affected/layer/full 范围分别判断，收据绑定实际检查。 |
+| Security & Sandbox | 授权、红区、Execution Envelope 与宿主沙箱贯穿所有操作；文件存在不证明宿主执行生效。 |
+| Eval & Metrics | 契约 replay、确定性运行时行为及在线 Harness Evals 各守其证明边界；改善要同条件对比。 |
+| Learning & GC | 确认失败经责任归属、候选评审、修复、验证和后续回查；GC 只给人工复核候选。 |
+
+## Capability / Provider 边界
+
+<code>manifests/plugin-providers.json</code> 是可选插件身份与能力关系的内部真值：capability 表示消费方需要的稳定能力，provider 表示实现该能力的具体产品，module 表示安装器交付的资产与依赖闭包。安装器、provisioning、MCP 投影和生成指令通过 catalog 解析 provider，不再各自维护插件别名与 tool-to-module 映射。
+
+Provider 只声明 <code>cli</code>、<code>local-mcp</code> 或 <code>remote-mcp</code> transport；不同 transport 的参数、返回值、错误和生命周期保持各自合同，不抽象为统一执行接口。RTK 属于输出压缩能力，不是代码搜索 provider；ast-grep 与 codebase-memory-mcp 分别提供结构搜索和语义图能力，<code>rg</code> 仍是未受管的文本搜索与 fallback。当前不存在自动组合这些工具的 hybrid provider，Agent 继续按安装后的能力和专项规则选择工具。
+
+Catalog 不改变外部项目配置和状态合同。<code>plugins</code>、<code>requestedPlugins</code>、<code>resolvedModules</code>、CLI 别名、输出字段及 install-state schemaVersion 保持不变；Linear 读写与只读 provider 继续互斥且不随 <code>plugin all</code> 展开。
 
 ## 多宿主安装模型
 
@@ -31,6 +58,7 @@ install-state stateVersion 5 使用 targets 取代 adapter。files、generatedFi
 - install、upgrade、validate、doctor 和 diff 默认处理配置中的全部 targets。
 - --target 只选择配置或状态中仍存在的一个宿主，不追加目标。
 - 目标级 uninstall 删除一个投影并更新配置和状态；最后一个目标与共享资产必须通过 --all-targets 删除。
+- `.vibe-harness/tool-state/`（`tools.json` 与 `provisioning.json`）由工具运行时在安装文件计划之外写入：rollback 与 `--all-targets` uninstall 随工具运行时一并退休该状态；目标级 uninstall 在仍有共享 `.agents/runtime/tools/*/package.json` 清单存活时保留它。
 - 从配置手工删除 target 只产生 stale projection，upgrade 不隐式卸载。
 - install 和 upgrade 是跨宿主事务；任何投影失败都不提交文件、配置迁移或新 state。
 - rollback 恢复上一次完整事务，不保留半迁移状态。
@@ -50,9 +78,15 @@ install-state stateVersion 5 使用 targets 取代 adapter。files、generatedFi
 
 adapter capability 使用 stable、preview 和 unsupported 描述各产品表面。validate、doctor 和 diff 提供项目汇总及逐宿主结果；未选宿主标为 skipped，内容漂移标为 conflict，配置删除但仍安装的宿主标为 stale projection。
 
+## 多角色路由
+
+full profile 默认安装七个角色；其他 profile 保持关闭，或通过 roles.enabled 显式启用。路由先判定当前原子动作，再从有效且能力匹配的角色中选择领域视角；产品经理和技术项目经理只接受显式咨询，已明确的实现仍由高级工程师承接。当前动作保持角色稳定，只有目标或动作类型改变时重新推导。真实子 Agent 只在独立并行、高风险二次复审或既有拆分规则命中时创建，并在职责或权限变化时回传父 Agent。
+
+角色 Prompt 按宿主及用户指令、不可覆盖治理与安全前缀、通用角色契约、角色 Prompt、项目追加 Prompt、一个领域 Skill 和当前任务组合。项目覆盖不能删除安全、授权、sandbox 或验证约束；能力预设只能收紧内置默认集合。角色文件和 ZCode 项目插件与普通安装资产共享 state v5、owner、冲突、事务、rollback 和 uninstall 生命周期。
+
 ## 原生 include 能力对照
 
-各编辑器对指令文件的原生 include / 导入能力不同，Vibe-Harness 当前统一采用纯拷贝模型（规则作为独立文件安装到 `docs/rules/`，指令模板只通过指针行引用），以保证跨宿主可移植性并简化漂移检测（`validateSelfInstalledArtifacts` 逐字节比对源与安装产物）。下表记录各宿主能力，供未来评估是否转向原生 include 时参考：
+各编辑器对指令文件的原生 include / 导入能力不同，Vibe-Harness 当前统一采用纯拷贝模型（唯一规则资产位于 docs/rules/，规则作为独立文件安装，指令模板只通过指针行引用），以保证跨宿主可移植性并简化漂移检测（validateSelfInstalledArtifacts 逐字节比对规则资产与安装产物）。下表记录各宿主能力，供未来评估是否转向原生 include 时参考：
 
 | 宿主 | 指令文件 | 原生 include 能力 | 截断限制 |
 |---|---|---|---|

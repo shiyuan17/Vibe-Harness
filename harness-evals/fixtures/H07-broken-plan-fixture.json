@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "id": "H07",
+  "description": "Broken plan fixture",
+  "files": [
+    {
+      "path": "packages/account/normalize.js",
+      "content": "export function normalizeAccount(value){return value.trim()}\\n"
+    },
+    {
+      "path": "PLAN.md",
+      "content": "1. Edit src/account.js (this path does not exist). 2. Run npm test.\\n"
+    },
+    {
+      "path": "package.json",
+      "content": "{\"type\":\"module\"}\\n"
+    }
+  ],
+  "oracleFiles": [
+    {
+      "path": "check.mjs",
+      "content": "import assert from 'node:assert/strict';import {pathToFileURL} from 'node:url';const {normalizeAccount}=await import(pathToFileURL(process.cwd()+'/packages/account/normalize.js'));assert.equal(normalizeAccount(' ALICE '),'alice');\\n"
+    }
+  ],
+  "git": {
+    "initialize": true
+  },
+  "faults": [],
+  "hiddenChecks": [
+    {
+      "id": "H07-oracle",
+      "program": "node",
+      "args": [
+        "{ORACLE_DIR}/check.mjs"
+      ],
+      "expectedExitCode": 0
+    }
+  ]
+}

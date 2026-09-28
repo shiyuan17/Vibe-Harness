@@ -5,14 +5,43 @@ import path from 'node:path';
 import { pathExists } from './manifest.js';
 import { renderTemplate } from './template-renderer.js';
 import { parsePluginsOption, resolveModuleSelection } from './module-selection.js';
+import { installPresetForId, parsePresetOption } from './install-preset.js';
 import { assertPortableRelativePath } from './manifest.js';
+import { readRedZoneManifestSync } from './red-zone.js';
 import { validateJsonAgainstSchema } from './schema-validation.js';
 import { safeJsonParse } from './safe-json.js';
 import { productIdentity } from './product-identity.js';
 import { resolveProjectConfigLocation } from './project-layout.js';
+import {
+  assertValidationTiers,
+  deriveValidationTiers,
+  emptyValidationTiers,
+  normalizeValidationTiers,
+  readProjectTierFacts,
+} from './validation-tiers.js';
+import {
+  DEFAULT_PROJECT_VERIFICATION_TIMEOUT_MS,
+  MAX_PROJECT_VERIFICATION_TIMEOUT_MS,
+  MIN_PROJECT_VERIFICATION_TIMEOUT_MS,
+} from './project-verification.js';
+import {
+  normalizeValidationChecks,
+  normalizeMicroChecks,
+  normalizeVerificationScope,
+} from './verification-contract.js';
 
 export const mvpProfiles = new Set(['minimal', 'core', 'full', 'docs-only']);
 export const mvpTargets = new Set(['codex', 'claude', 'gemini', 'cursor', 'qoder', 'zcode', 'antigravity', 'opencode']);
+
+const adapterCatalog = JSON.parse(readFileSync(path.join(path.resolve(import.meta.dirname, '..', '..'), 'manifests', 'adapters.json'), 'utf8'));
+// Derived from the canonical manifests/red-zone.json (single source; the
+// equivalence is enforced by validateRedZoneDerivations in pack-validation.js)
+// plus every adapter's redZonePrefixes, so a fresh project config never starts
+// narrower than the pack's own floor.
+export const defaultRedZonePaths = [...new Set([
+  ...readRedZoneManifestSync().runtimePaths,
+  ...adapterCatalog.items.flatMap((adapter) => adapter.redZonePrefixes),
+])];
 
 export function canonicalProfile(profile) {
   if (profile === 'codex-internal') return 'full';
@@ -38,6 +67,10 @@ export const defaultProjectConfig = {
     typecheck: null,
     test: null,
     eval: null,
+    tiers: emptyValidationTiers(),
+  },
+  verification: {
+    timeoutMs: DEFAULT_PROJECT_VERIFICATION_TIMEOUT_MS,
   },
   evaluations: {
     enabled: false,
@@ -52,10 +85,8 @@ export const defaultProjectConfig = {
     repetitions: 3,
   },
   hooks: {
-    allowedWriteRoots: [],
     allowedEgressHosts: [],
-    mode: 'guarded',
-    redZonePaths: ['.env', 'auth/', 'ci/cd/', '.github/workflows/', '.codex/hooks.json', '.cursor/hooks.json', '.cursor/mcp.json', '.mcp.json', '.qoder/settings.json', '.zcode/config.json', 'opencode.json', 'opencode.jsonc', '.agents/hooks.json', '.agents/mcp_config.json', '.claude/settings.json'],
+    redZonePaths: defaultRedZonePaths,
   },
   riskZones: {
     red: ['auth', 'secrets', 'ci-cd', 'env'],
@@ -76,14 +107,11 @@ export const defaultProjectConfig = {
     enabled: true,
     path: '.agents/memory',
   },
+  worktree: {
+    root: '../ExampleProject-worktrees',
+    baseRef: 'origin/develop',
+  },
 };
-
-export const forbiddenProjectTerms = [
-  'SYBaseProjectWeb',
-  'SYBaseProject',
-  '病理',
-  'localhost:5777',
-];
 
 let cachedProjectConfigSchema;
 
@@ -114,15 +142,37 @@ export function profileToCatalogProfile(profile) {
 }
 
 export function createDefaultProjectConfig(projectDir, target = 'codex', profile = 'core') {
+  const projectName = path.basename(path.resolve(projectDir));
   return {
     ...defaultProjectConfig,
-    projectName: path.basename(path.resolve(projectDir)),
+    projectName,
     profile,
     targets: [target],
+    // The worktree root is per-project: docs/rules/git-rules.md §Worktree keeps
+    // every isolation unit beside the repository, never inside it.
+    worktree: { ...defaultProjectConfig.worktree, root: `../${projectName}-worktrees` },
   };
 }
 
-export async function writeDefaultProjectConfig({ force = false, projectDir, profile = 'core', target = 'codex' }) {
+/** @param {unknown} value */
+export function parseTargetsOption(value) {
+  const values = Array.isArray(value) ? value : [value];
+  const tokens = values
+    .flatMap((item) => typeof item === 'string' ? item.split(',') : [])
+    .map((item) => item.trim());
+  if (tokens.length === 0 || tokens.some((token) => token.length === 0)) {
+    throw new Error('--targets requires a comma-separated adapter list.');
+  }
+  if (new Set(tokens).size !== tokens.length) {
+    throw new Error('--targets must not contain duplicate adapters.');
+  }
+  for (const token of tokens) {
+    if (!mvpTargets.has(token)) throw new Error('Unknown target: ' + token);
+  }
+  return tokens;
+}
+
+export async function writeDefaultProjectConfig({ force = false, preset, projectDir, profile = 'core', target = 'codex', targets }) {
   const configPath = path.join(projectDir, productIdentity.configFile);
   if (!force && await pathExists(configPath)) {
     throw new Error(`Refusing to overwrite existing config: ${configPath}`);
@@ -130,7 +180,38 @@ export async function writeDefaultProjectConfig({ force = false, projectDir, pro
   await mkdir(projectDir, { recursive: true });
   if (!mvpTargets.has(target)) throw new Error(`Unknown target: ${target}`);
   validateProfileName(profile);
-  const config = createDefaultProjectConfig(projectDir, target, profile);
+  const selectedTargets = targets ?? [target];
+  if (!Array.isArray(selectedTargets) || selectedTargets.length === 0) {
+    throw new Error('init requires at least one target.');
+  }
+  if (new Set(selectedTargets).size !== selectedTargets.length) {
+    throw new Error('init must not contain duplicate targets.');
+  }
+  for (const id of selectedTargets) {
+    if (!mvpTargets.has(id)) throw new Error('Unknown target: ' + id);
+  }
+  const presetId = preset === undefined ? undefined : parsePresetOption(preset);
+  const presetProfile = presetId ? installPresetForId(presetId).profile : null;
+  if (presetId && profile !== presetProfile) {
+    throw new Error('preset ' + presetId + ' requires profile ' + presetProfile + ', received ' + profile + '.');
+  }
+  const config = {
+    ...createDefaultProjectConfig(projectDir, selectedTargets[0], profile),
+    ...(presetId ? { preset: presetId } : {}),
+    targets: [...selectedTargets],
+  };
+  // A brand-new project has no declared tiers yet. Detect what the repository
+  // itself declares and write the derivation (or three empty arrays when no
+  // command is unambiguous) so the file states the tier surface explicitly
+  // instead of leaving it implicit until the first `install --upgrade`.
+  const tierFacts = await readProjectTierFacts(projectDir);
+  const derivedTiers = deriveValidationTiers({
+    configuredCommands: config.validationCommands,
+    packageManager: tierFacts.packageManager ?? config.packageManager,
+    scripts: tierFacts.scripts,
+    stacks: tierFacts.stacks,
+  });
+  config.validationCommands = { ...config.validationCommands, tiers: derivedTiers.tiers };
   await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
   return { config, path: configPath };
 }
@@ -156,6 +237,18 @@ export function projectTargets(config) {
   return typeof config?.target === 'string' ? [config.target] : [];
 }
 
+/**
+ * The project's Hook enforcement posture. "strict" is opt-in and turns an
+ * unproven Hook enforcement state and unsupported-envelope red-zone projections
+ * into blocking failures; the default "advisory" keeps them as warnings.
+ *
+ * @param {Record<string, any>|undefined} config
+ * @returns {'advisory'|'strict'}
+ */
+export function resolveEnforcementPolicy(config) {
+  return config?.hooks?.enforcement === 'strict' ? 'strict' : 'advisory';
+}
+
 export function migrateLegacyProjectConfig(config) {
   if (!Object.hasOwn(config, 'target')) return config;
   const migrated = { ...config, targets: [config.target] };
@@ -175,14 +268,37 @@ function assertNonEmptyString(value, label) {
   }
 }
 
-export function resolveValidationCommands(config, projectProfile) {
+const validationCheckDefaults = { lint: null, typecheck: null, test: null, eval: null };
+
+/**
+ * The four configured commands as a flat, string-only view. Tier arrays live
+ * under `validationCommands.tiers` and are resolved separately, so a consumer
+ * that inspects or executes commands never receives a nested object.
+ *
+ * @param {Record<string, any>} config
+ */
+export function resolveValidationCommands(config) {
   const configured = Object.fromEntries(
-    Object.entries(config?.validationCommands ?? {}).filter(([, value]) => value),
+    Object.entries(config?.validationCommands ?? {})
+      .filter(([name, value]) => Object.hasOwn(validationCheckDefaults, name) && value),
   );
+  return { ...validationCheckDefaults, ...configured };
+}
+
+/**
+ * Render view handed to the instruction templates: the four configured commands
+ * plus the resolved tier arrays. The tiers stay arrays because the renderer
+ * formats them; an empty array renders as the explicit "not configured" label.
+ *
+ * @param {{validationTiers?: any}|undefined} projectProfile
+ * @param {Record<string, any>} config
+ */
+export function validationCommandView(projectProfile, config) {
   return {
-    ...(projectProfile?.validationCommands ?? {}),
-    ...configured,
-    eval: configured.eval ?? null,
+    ...resolveValidationCommands(config),
+    tiers: normalizeValidationTiers(projectProfile?.validationTiers ?? config?.validationCommands?.tiers),
+    checks: normalizeValidationChecks(config?.validationCommands?.checks),
+    micro: normalizeMicroChecks(config?.validationCommands?.micro),
   };
 }
 
@@ -190,6 +306,43 @@ function assertOptionalCommand(value, label) {
   if (value !== null && value !== undefined) {
     assertNonEmptyString(value, label);
   }
+}
+
+const projectRuleOverrideFields = new Set([
+  'codingStandards', 'directoryGuidance', 'reviewGuidance', 'stackSummary',
+  'verificationSummary', 'vcsSummary', 'vcsStatusCommand', 'packageManager', 'logging',
+]);
+
+const loggingOverrideFields = ['frameworks', 'configFiles', 'sources', 'queries', 'correlationFields', 'verification'];
+
+const rolePermissionPresets = new Set(['analysis', 'implementation', 'verification', 'security-review', 'release-readiness']);
+const rolePromptPattern = /^docs\/agent-roles\/[a-z0-9][a-z0-9._-]*\.md$/iu;
+const builtInRoleIds = new Set(JSON.parse(readFileSync(
+  path.join(path.resolve(import.meta.dirname, '..', '..'), 'manifests', 'roles.json'),
+  'utf8',
+)).items.map((role) => role.id));
+
+function validatePermissionPreset(value, label) {
+  if (!rolePermissionPresets.has(value)) throw new Error(label + ' is not a supported permission preset');
+}
+
+function validateRolePromptPath(value, label) {
+  try {
+    assertPortableRelativePath(value, label);
+  } catch {
+    throw new Error(label + ' must be a project-relative Markdown path under docs/agent-roles');
+  }
+  if (!rolePromptPattern.test(value.replaceAll('\\', '/'))) {
+    throw new Error(label + ' must be a direct Markdown file under docs/agent-roles');
+  }
+}
+
+function assertUniqueStringArray(value, label) {
+  if (!Array.isArray(value)) throw new Error(label + ' must be an array');
+  if (value.some((item) => typeof item !== 'string' || item.trim().length === 0)) {
+    throw new Error(label + ' must contain non-empty strings');
+  }
+  if (new Set(value).size !== value.length) throw new Error(label + ' must not contain duplicates');
 }
 
 export function validateProjectConfig(config) {
@@ -205,7 +358,12 @@ export function validateProjectConfig(config) {
     });
   }
   assertNonEmptyString(config.projectName, 'projectName');
-  const matchedTerm = forbiddenProjectTerms.find((term) => config.projectName.includes(term));
+  // Forbidden terms are declared per project: identifiers from a private
+  // predecessor belong in that project's config, not in the generic pack.
+  if (Object.hasOwn(config, 'forbiddenProjectTerms')) {
+    assertUniqueStringArray(config.forbiddenProjectTerms, 'forbiddenProjectTerms');
+  }
+  const matchedTerm = (config.forbiddenProjectTerms ?? []).find((term) => config.projectName.includes(term));
   if (matchedTerm) {
     throw Object.assign(
       new Error(`projectName must not contain forbidden source-project term: ${matchedTerm}`),
@@ -229,8 +387,22 @@ export function validateProjectConfig(config) {
     throw new Error(`Unknown target: ${config.target}`);
   }
   validateProfileName(config.profile);
+  if (Object.hasOwn(config, 'preset')) {
+    const presetId = parsePresetOption(config.preset);
+    const preset = installPresetForId(presetId);
+    if (config.profile !== preset.profile) {
+      throw new Error('vibe-harness.config.json preset ' + presetId + ' requires profile '
+        + preset.profile + ', found ' + config.profile + '.');
+    }
+    for (const field of ['modules', 'plugins']) {
+      if (Object.hasOwn(config, field)) {
+        throw new Error('vibe-harness.config.json preset ' + presetId
+          + ' already declares the install surface; remove ' + field + ' or drop the preset.');
+      }
+    }
+  }
   if (Object.hasOwn(config, 'modules')) {
-    resolveModuleSelection({ requestedModules: config.modules });
+    resolveModuleSelection({ requestedModules: config.modules, rolesEnabled: config.roles?.enabled });
   }
   if (Object.hasOwn(config, 'plugins')) {
     parsePluginsOption(config.plugins);
@@ -240,21 +412,74 @@ export function validateProjectConfig(config) {
   assertOptionalCommand(config.validationCommands.typecheck, 'validationCommands.typecheck');
   assertOptionalCommand(config.validationCommands.test, 'validationCommands.test');
   assertOptionalCommand(config.validationCommands.eval, 'validationCommands.eval');
-  if (Object.hasOwn(config, 'hooks')) {
-    assertObject(config.hooks, 'hooks');
-    if (Object.hasOwn(config.hooks, 'mode') && !['off', 'observe', 'guarded'].includes(config.hooks.mode)) {
-      throw new Error('hooks.mode must be off, observe, or guarded');
+  if (Object.hasOwn(config.validationCommands, 'tiers')) {
+    assertValidationTiers(config.validationCommands.tiers, 'validationCommands.tiers');
+  }
+  normalizeValidationChecks(config.validationCommands.checks);
+  normalizeMicroChecks(config.validationCommands.micro);
+  if (Object.hasOwn(config, 'riskZones')) {
+    assertObject(config.riskZones, 'riskZones');
+    for (const field of ['red', 'yellow']) {
+      if (Object.hasOwn(config.riskZones, field)) assertUniqueStringArray(config.riskZones[field], `riskZones.${field}`);
     }
-    if (Object.hasOwn(config.hooks, 'allowedWriteRoots')) {
-      if (!Array.isArray(config.hooks.allowedWriteRoots)) {
-        throw new Error('hooks.allowedWriteRoots must be an array');
-      }
-      for (const root of config.hooks.allowedWriteRoots) {
-        if (typeof root !== 'string' || root.trim().length === 0 || !path.isAbsolute(root)) {
-          throw new Error('hooks.allowedWriteRoots must contain non-empty absolute paths');
+    if (Object.hasOwn(config.riskZones, 'pathPatterns')) {
+      assertObject(config.riskZones.pathPatterns, 'riskZones.pathPatterns');
+      for (const field of ['red', 'yellow']) {
+        if (Object.hasOwn(config.riskZones.pathPatterns, field)) {
+          assertUniqueStringArray(config.riskZones.pathPatterns[field], `riskZones.pathPatterns.${field}`);
         }
       }
     }
+  }
+  if (Object.hasOwn(config, 'verification')) {
+    assertObject(config.verification, 'verification');
+    const timeoutMs = config.verification.timeoutMs;
+    if (!Number.isInteger(timeoutMs)
+      || timeoutMs < MIN_PROJECT_VERIFICATION_TIMEOUT_MS
+      || timeoutMs > MAX_PROJECT_VERIFICATION_TIMEOUT_MS) {
+      throw new Error(
+        'verification.timeoutMs must be an integer from '
+        + MIN_PROJECT_VERIFICATION_TIMEOUT_MS
+        + ' to '
+        + MAX_PROJECT_VERIFICATION_TIMEOUT_MS,
+      );
+    }
+    if (Object.hasOwn(config.verification, 'defaultScope')) {
+      normalizeVerificationScope(config.verification.defaultScope);
+    }
+    if (Object.hasOwn(config.verification, 'budgetMs')
+      && config.verification.budgetMs !== null
+      && (!Number.isInteger(config.verification.budgetMs) || config.verification.budgetMs < 0)) {
+      throw new Error('verification.budgetMs must be null or a non-negative integer');
+    }
+    if (Object.hasOwn(config.verification, 'environment')) {
+      assertObject(config.verification.environment, 'verification.environment');
+      const environment = config.verification.environment;
+      if (environment.mode !== undefined && !['cold', 'warm'].includes(environment.mode)) {
+        throw new Error('verification.environment.mode must be cold or warm');
+      }
+      if (environment.fallback !== undefined && !['cold', 'blocked'].includes(environment.fallback)) {
+        throw new Error('verification.environment.fallback must be cold or blocked');
+      }
+      if (environment.ttlMs !== undefined
+        && (!Number.isInteger(environment.ttlMs) || environment.ttlMs < 1000 || environment.ttlMs > 86400000)) {
+        throw new Error('verification.environment.ttlMs must be between 1000 and 86400000');
+      }
+      if (environment.reuseKey !== undefined) {
+        assertNonEmptyString(environment.reuseKey, 'verification.environment.reuseKey');
+      }
+      if (environment.mode === 'warm') {
+        for (const field of ['provider', 'start', 'health', 'stop', 'reuseKey']) {
+          if (environment[field] !== undefined) assertNonEmptyString(environment[field], `verification.environment.${field}`);
+        }
+        if (!environment.provider || !environment.start || !environment.health || !environment.stop) {
+          throw new Error('verification.environment warm mode requires provider, start, health, and stop');
+        }
+      }
+    }
+  }
+  if (Object.hasOwn(config, 'hooks')) {
+    assertObject(config.hooks, 'hooks');
     if (Object.hasOwn(config.hooks, 'allowedEgressHosts')) {
       if (!Array.isArray(config.hooks.allowedEgressHosts)) {
         throw new Error('hooks.allowedEgressHosts must be an array');
@@ -263,6 +488,14 @@ export function validateProjectConfig(config) {
         if (typeof host !== 'string' || host.trim().length === 0) {
           throw new Error('hooks.allowedEgressHosts must contain non-empty host strings');
         }
+      }
+    }
+    if (Object.hasOwn(config.hooks, 'permissionPreset')) {
+      assertNonEmptyString(config.hooks.permissionPreset, 'hooks.permissionPreset');
+    }
+    if (Object.hasOwn(config.hooks, 'enforcement')) {
+      if (!['advisory', 'strict'].includes(config.hooks.enforcement)) {
+        throw new Error('hooks.enforcement must be advisory or strict');
       }
     }
     if (Object.hasOwn(config.hooks, 'rtk')) {
@@ -279,6 +512,25 @@ export function validateProjectConfig(config) {
     }
     if (Object.hasOwn(config.projectRules, 'overrides')) {
       assertObject(config.projectRules.overrides, 'projectRules.overrides');
+      for (const field of Object.keys(config.projectRules.overrides)) {
+        if (!projectRuleOverrideFields.has(field)) throw new Error('projectRules.overrides.' + field + ' is not allowed');
+      }
+      for (const field of projectRuleOverrideFields) {
+        if (field !== 'logging' && Object.hasOwn(config.projectRules.overrides, field)) {
+          assertNonEmptyString(config.projectRules.overrides[field], 'projectRules.overrides.' + field);
+        }
+      }
+      if (Object.hasOwn(config.projectRules.overrides, 'logging')) {
+        assertObject(config.projectRules.overrides.logging, 'projectRules.overrides.logging');
+        for (const field of Object.keys(config.projectRules.overrides.logging)) {
+          if (!loggingOverrideFields.includes(field)) throw new Error('projectRules.overrides.logging.' + field + ' is not allowed');
+        }
+        for (const field of loggingOverrideFields) {
+          if (Object.hasOwn(config.projectRules.overrides.logging, field)) {
+            assertUniqueStringArray(config.projectRules.overrides.logging[field], 'projectRules.overrides.logging.' + field);
+          }
+        }
+      }
     }
   }
   if (Object.hasOwn(config, 'clarification')) {
@@ -293,6 +545,49 @@ export function validateProjectConfig(config) {
       throw new Error('memory.enabled must be boolean');
     }
     assertNonEmptyString(config.memory.path, 'memory.path');
+  }
+  if (Object.hasOwn(config, 'roles')) {
+    assertObject(config.roles, 'roles');
+    const customIds = new Set();
+    if (Object.hasOwn(config.roles, 'enabled') && typeof config.roles.enabled !== 'boolean') {
+      throw new Error('roles.enabled must be boolean');
+    }
+    if (Object.hasOwn(config.roles, 'disabled')) {
+      assertUniqueStringArray(config.roles.disabled, 'roles.disabled');
+    }
+    if (Object.hasOwn(config.roles, 'overrides')) {
+      assertObject(config.roles.overrides, 'roles.overrides');
+      for (const [id, override] of Object.entries(config.roles.overrides)) {
+        if (!/^[a-z][a-z0-9-]{2,63}$/u.test(id)) throw new Error('roles.overrides contains an invalid role id');
+        if (!builtInRoleIds.has(id)) throw new Error('roles.overrides references unknown built-in role: ' + id);
+        assertObject(override, 'roles.overrides.' + id);
+        if (Object.keys(override).length === 0) throw new Error('roles.overrides.' + id + ' must contain a promptPath or permissionPreset');
+        if (Object.hasOwn(override, 'promptPath')) validateRolePromptPath(override.promptPath, 'roles.overrides.' + id + '.promptPath');
+        if (Object.hasOwn(override, 'permissionPreset')) validatePermissionPreset(override.permissionPreset, 'roles.overrides.' + id + '.permissionPreset');
+      }
+    }
+    if (Object.hasOwn(config.roles, 'custom')) {
+      if (!Array.isArray(config.roles.custom)) throw new Error('roles.custom must be an array');
+      for (const [index, role] of config.roles.custom.entries()) {
+        assertObject(role, 'roles.custom[' + index + ']');
+        if (!/^[a-z][a-z0-9-]{2,63}$/u.test(role.id)) throw new Error('roles.custom[' + index + '].id is invalid');
+        if (builtInRoleIds.has(role.id)) throw new Error('roles.custom role id conflicts with built-in role: ' + role.id);
+        if (customIds.has(role.id)) throw new Error('roles.custom contains a duplicate role id: ' + role.id);
+        customIds.add(role.id);
+        assertNonEmptyString(role.name, 'roles.custom[' + index + '].name');
+        assertNonEmptyString(role.description, 'roles.custom[' + index + '].description');
+        validateRolePromptPath(role.promptPath, 'roles.custom[' + index + '].promptPath');
+        validatePermissionPreset(role.permissionPreset, 'roles.custom[' + index + '].permissionPreset');
+        assertObject(role.routing, 'roles.custom[' + index + '].routing');
+        assertUniqueStringArray(role.routing.when, 'roles.custom[' + index + '].routing.when');
+        assertUniqueStringArray(role.routing.avoid, 'roles.custom[' + index + '].routing.avoid');
+      }
+    }
+    for (const id of config.roles.disabled ?? []) {
+      if (!builtInRoleIds.has(id) && !customIds.has(id)) {
+        throw new Error('roles.disabled references unknown role: ' + id);
+      }
+    }
   }
   if (Object.hasOwn(config, 'evaluations')) {
     assertObject(config.evaluations, 'evaluations');
@@ -330,6 +625,7 @@ export function validateProjectConfig(config) {
   return true;
 }
 
+/** @param {string[]} installedTargets @param {{exact?: string, prefix?: string, suffix?: string}} options */
 function hasInstalledSurface(installedTargets, { exact, prefix, suffix }) {
   if (exact) {
     return installedTargets.includes(exact);
@@ -349,6 +645,7 @@ const GENERATED_CONTENT_FRAGMENTS = {
   'en-US': ['Edit before', 'red zone', 'manual confirmation', 'verify'],
 };
 
+/** @param {string} content @param {{installedTargets?: string[], skillRoots?: string[]}} options */
 export function validateGeneratedContent(content, { installedTargets, skillRoots } = {}) {
   const passesSomeLanguage = Object.values(GENERATED_CONTENT_FRAGMENTS).some(
     (fragments) => fragments.every((fragment) => content.includes(fragment)),

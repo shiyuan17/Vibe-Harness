@@ -78,6 +78,14 @@ function wait(delayMs) {
   return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
+/**
+ * @typedef {RequestInit & {dispatcher?: any}} RtkRequestInit
+ */
+
+/**
+ * @param {string} url
+ * @param {{attempts?: number, dispatcher?: any, fetchImpl?: (input: string | URL | Request, init?: RtkRequestInit) => Promise<Response>, nowImpl?: () => number, randomImpl?: () => number, timeoutMs?: number, waitImpl?: (delayMs: number) => Promise<void>}} options
+ */
 export async function fetchRtkAsset(url, {
   attempts = DOWNLOAD_ATTEMPTS,
   dispatcher,
@@ -90,6 +98,7 @@ export async function fetchRtkAsset(url, {
   let lastError;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
+      /** @type {RtkRequestInit} */
       const request = {
         redirect: 'follow',
         signal: AbortSignal.timeout(timeoutMs),

@@ -123,6 +123,10 @@ function projectRetryCommand(rewritten, original) {
   return replacements > 0 && restored === original.trim() ? converted : null;
 }
 
+/**
+ * @param {Record<string, any>} input
+ * @param {{mode?: string, projectRoot?: string, rtk?: Record<string, any>, runner?: (binary: string, command: string, options?: {cwd?: string, maxOutputBytes?: number, timeoutMs?: number}) => Promise<Record<string, any>>}} options
+ */
 export async function routeRtkCommand(input, {
   mode = 'guarded',
   projectRoot,

@@ -172,9 +172,12 @@ export async function beginFileTransaction({
     await mkdir(lockPath);
   } catch (error) {
     if (error.code === 'EEXIST') {
-      // A lock left behind by a crashed process blocks every future install.
-      // If the owning PID is no longer alive, break the stale lock and retry.
       if (await lockOwnerIsStale(resolvedTargetDir, lockPath)) {
+        const pending = (await inspectTransactions(resolvedTargetDir))
+          .filter((item) => ['active', 'recovery-failed'].includes(item.status));
+        if (pending.length > 0) {
+          throw new Error(`Unfinished transaction ${pending[0].id}; run recover --project ${resolvedTargetDir} before writing.`);
+        }
         await rm(lockPath, { force: true, recursive: true });
         try {
           await mkdir(lockPath);
@@ -193,6 +196,11 @@ export async function beginFileTransaction({
   }
 
   try {
+    const pending = (await inspectTransactions(resolvedTargetDir))
+      .filter((item) => ['active', 'recovery-failed'].includes(item.status));
+    if (pending.length > 0) {
+      throw new Error(`Unfinished transaction ${pending[0].id}; run recover --project ${resolvedTargetDir} before writing.`);
+    }
     await mkdir(preimagesDir, { recursive: true });
     const uniqueTrackedPaths = [...new Set(trackedPaths.map((item) => path.resolve(item)))];
     const records = [];
@@ -293,7 +301,10 @@ export async function recoverTransaction({ id, targetDir, write = false }) {
   if (!write) return { recovered: [], selected, transactions };
   const { lockPath, transactionRoot } = await transactionLayout(resolvedTargetDir);
   const lockOwner = await readTransactionLockId(resolvedTargetDir, lockPath);
-  if (lockOwner !== null && lockOwner !== selected.id) {
+  if (lockOwner === null) {
+    throw new Error(`Transaction ${selected.id} has no ownership lock; refusing to restore over potentially newer writes.`);
+  }
+  if (lockOwner !== selected.id) {
     throw new Error(`Transaction lock is owned by transaction ${lockOwner}; refusing to recover ${selected.id}.`);
   }
   const transactionDir = path.join(transactionRoot, selected.id);

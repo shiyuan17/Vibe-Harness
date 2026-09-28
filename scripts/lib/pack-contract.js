@@ -10,7 +10,7 @@ const requiredFiles = [
 const requiredPrefixes = [
   'adapters/',
   'manifests/',
-  'rules/',
+  'docs/rules/',
   'runtime/',
   'schemas/',
   'scripts/',
@@ -32,7 +32,10 @@ const forbiddenFiles = new Set([
   'vibe-harness.config.json',
 ]);
 
+const allowedDocumentationPrefixes = new Set(['docs/rules/']);
+
 function isForbiddenPath(item) {
+  if (allowedDocumentationPrefixes.has(item) || [...allowedDocumentationPrefixes].some((prefix) => item.startsWith(prefix))) return false;
   const basename = item.split('/').at(-1);
   return forbiddenPrefixes.some((prefix) => item.startsWith(prefix))
     || forbiddenFiles.has(item)

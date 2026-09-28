@@ -25,7 +25,7 @@ const evidence = await createReleaseEvidence({
   verifiedSha: required('VERIFIED_SHA'),
   verificationId: required('VERIFICATION_ID'),
   verificationFinishedAt: required('VERIFICATION_FINISHED_AT'),
-  verificationStable: required('VERIFICATION_STABLE') === 'true',
+  verificationSnapshotComparison: required('VERIFICATION_SNAPSHOT_COMPARISON'),
   checks: required('VERIFICATION_CHECKS').split(',').filter(Boolean),
   tarballPath,
   attestationStatus: required('ATTESTATION_STATUS'),

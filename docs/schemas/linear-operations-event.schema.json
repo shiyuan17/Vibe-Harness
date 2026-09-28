@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vibe-harness.invalid/schemas/linear-operations-event.schema.json",
+  "title": "Vibe-Harness Linear operations event",
+  "type": "object",
+  "required": ["schema", "eventId", "issueId", "executionId", "phase", "occurredAt", "source"],
+  "properties": {
+    "schema": { "type": "string", "const": "vibe-harness.linear-operations/v1" },
+    "eventId": { "type": "string", "minLength": 1 },
+    "issueId": { "type": "string", "minLength": 1 },
+    "executionId": { "type": ["string", "null"] },
+    "phase": { "type": "string", "enum": ["active", "blocked", "coordination", "verification", "fan-in", "terminal"] },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "durationMinutes": { "type": ["number", "null"], "minimum": 0 },
+    "agentCount": { "type": ["number", "null"], "minimum": 0 },
+    "retryCount": { "type": ["number", "null"], "minimum": 0 },
+    "conflictCount": { "type": ["number", "null"], "minimum": 0 },
+    "reworkCount": { "type": ["number", "null"], "minimum": 0 },
+    "reasonCode": { "type": ["string", "null"], "maxLength": 128 },
+    "source": { "type": "string", "minLength": 1, "maxLength": 64 }
+  },
+  "additionalProperties": false
+}

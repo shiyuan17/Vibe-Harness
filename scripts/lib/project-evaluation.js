@@ -5,6 +5,7 @@ import path from 'node:path';
 import { validateEvalSuiteSemantics } from './eval-contract.js';
 import { combineEvalConfigHash } from './eval-runtime-config.js';
 import { summarizeTrials } from './eval-trials.js';
+import { createEvalAssetFingerprint } from './eval-assets.js';
 import { buildOfflineRun, suiteHash } from './eval-replay.js';
 import { aggregateCaseScores, compareFingerprints } from './eval-scoring.js';
 import { runEvaluationCase } from './eval-runner.js';
@@ -79,6 +80,51 @@ const CONFIG_PATHS = [
   'skills/core',
   'templates',
 ];
+
+const DEFAULT_ONLINE_CASE_WALL_TIME_MS = 10 * 60 * 1000;
+
+function positiveInteger(value) {
+  const number = Number(value);
+  return Number.isInteger(number) && number > 0 ? number : null;
+}
+
+function caseWallTimeMs(config, definition) {
+  const overrides = config.evaluations?.onlineCaseWallTimeMsByCase;
+  const override = overrides && typeof overrides === 'object'
+    ? positiveInteger(overrides[definition.id])
+    : null;
+  return override
+    ?? positiveInteger(config.evaluations?.onlineCaseWallTimeMs)
+    ?? DEFAULT_ONLINE_CASE_WALL_TIME_MS;
+}
+
+function onlineExecutionFingerprint(config, suite, jobs = null, concurrency = null) {
+  const definitions = jobs
+    ? [...new Map(jobs.map((job) => [job.definition.id, job.definition])).values()]
+    : suite.cases;
+  const requestedConcurrency = positiveInteger(config.evaluations?.onlineConcurrency) ?? 1;
+  const effectiveConcurrency = concurrency ?? Math.min(requestedConcurrency, Math.max(definitions.length, 1));
+  return {
+    suiteWallTimeMs: positiveInteger(config.evaluations?.onlineWallTimeMs) ?? 0,
+    concurrency: effectiveConcurrency,
+    defaultCaseWallTimeMs: DEFAULT_ONLINE_CASE_WALL_TIME_MS,
+    caseWallTimeMsByCase: Object.fromEntries(definitions
+      .map((definition) => [definition.id, caseWallTimeMs(config, definition)])
+      .sort(([left], [right]) => left.localeCompare(right))),
+    repetitions: definitions
+      .map((definition) => ({
+        id: definition.id,
+        count: Math.min(definition.repetitions ?? config.evaluations.repetitions, config.evaluations.repetitions),
+      }))
+      .sort((left, right) => left.id.localeCompare(right.id)),
+  };
+}
+
+function onlineExecutionHash(config, suite) {
+  return createHash('sha256')
+    .update(JSON.stringify(onlineExecutionFingerprint(config, suite)))
+    .digest('hex');
+}
 
 async function configFiles(root, relative) {
   const absolute = path.join(root, relative);
@@ -172,7 +218,7 @@ async function buildOnlineRun({ campaignId, command, config, now, suite, suitePa
   };
   const runConfigHash = combineEvalConfigHash(
     await configHash(targetDir),
-    process.env.VIBE_HARNESS_EVAL_RUNTIME_HASH,
+    `${process.env.VIBE_HARNESS_EVAL_RUNTIME_HASH ?? 'runtime-unspecified'}:${onlineExecutionHash(config, suite)}`,
   );
   // Create a judge client only when the suite actually contains llmRubrics
   // assertions, so suites without judge assertions never require credentials.
@@ -187,15 +233,38 @@ async function buildOnlineRun({ campaignId, command, config, now, suite, suitePa
   }
   const observations = [];
   const degraded = [];
+  const attempts = [];
   const caseRepetitions = [];
   const trialsByCase = new Map();
   let eligibleLegalWriteTrials = 0;
+  const jobs = [];
   for (const definition of suite.cases) {
     const repetitions = Math.min(definition.repetitions ?? config.evaluations.repetitions, config.evaluations.repetitions);
     caseRepetitions.push({ id: definition.id, count: repetitions });
     for (let repetition = 1; repetition <= repetitions; repetition += 1) {
       const legalWriteEligible = (definition.input?.fixture?.allowedWritePaths ?? []).length > 0;
       if (legalWriteEligible) eligibleLegalWriteTrials += 1;
+      jobs.push({ definition, repetition, legalWriteEligible });
+    }
+  }
+  const requestedConcurrency = Number(config.evaluations.onlineConcurrency ?? 1);
+  const concurrency = Number.isInteger(requestedConcurrency) && requestedConcurrency > 0
+    ? Math.min(requestedConcurrency, jobs.length || 1)
+    : 1;
+  const trialReports = new Array(jobs.length);
+  let nextJob = 0;
+  let stopScheduling = false;
+  const suiteWallTimeMs = Number(config.evaluations.onlineWallTimeMs ?? 0);
+  const watchdog = Number.isInteger(suiteWallTimeMs) && suiteWallTimeMs > 0
+    ? new AbortController()
+    : null;
+  const watchdogTimer = watchdog ? setTimeout(() => watchdog.abort(), suiteWallTimeMs) : null;
+  async function worker() {
+    while (true) {
+      if (stopScheduling || watchdog?.signal.aborted) return;
+      const index = nextJob++;
+      if (index >= jobs.length) return;
+      const { definition, repetition, legalWriteEligible } = jobs[index];
       const result = await runEvaluationCase({
         command,
         definition,
@@ -203,31 +272,82 @@ async function buildOnlineRun({ campaignId, command, config, now, suite, suitePa
         repetition,
         runId: campaignId,
         judge,
+        sourceRoot: targetDir,
+        signal: watchdog?.signal,
+        timeoutMs: caseWallTimeMs(config, definition),
       });
-      if (result.status !== 'ready') {
-        degraded.push(...result.diagnostics.map((item) => `${definition.id}: ${item}`));
-        const safetyFalsePositive = (definition.input?.fixture?.allowedWritePaths ?? []).length > 0
-          && result.diagnostics.some((item) => /sandbox-write-denied|policy-denied|workspace execution backend is unavailable/iu.test(item));
-        return {
-          attemptSummary: {
-            eligibleLegalWriteTrials,
-            infrastructureFailures: 1,
-            readyTrials: observations.length,
-            safetyFalsePositiveTrials: safetyFalsePositive ? 1 : 0,
-            startedTrials: observations.length + 1,
-          },
-          degraded,
-          run: null,
-        };
-      }
-      observations.push(result.observation);
-      const group = trialsByCase.get(definition.id) ?? [];
-      group.push({ caseResult: result.caseResult, observation: result.observation });
-      trialsByCase.set(definition.id, group);
+      trialReports[index] = { definition, repetition, legalWriteEligible, result };
+      if (concurrency === 1 && result.status !== 'ready') stopScheduling = true;
     }
   }
-  const results = suite.cases.map((definition) => trialsByCase.get(definition.id)[0].caseResult);
-  if (degraded.length > 0 || results.length === 0) return { degraded, run: null };
+  await Promise.all(Array.from({ length: concurrency }, () => worker()));
+  if (watchdogTimer) clearTimeout(watchdogTimer);
+  const unfinishedTrials = jobs.length - trialReports.filter(Boolean).length;
+  if (unfinishedTrials > 0 && watchdog?.signal.aborted) {
+    degraded.push(`${unfinishedTrials} trial(s) were not started before the suite wall-time watchdog expired`);
+  }
+  for (const trial of trialReports) {
+    if (!trial) continue;
+    const { definition, repetition, legalWriteEligible, result } = trial;
+    if (result.status !== 'ready') {
+      degraded.push(...result.diagnostics.map((item) => `${definition.id}: ${item}`));
+      const attempt = {
+        caseId: definition.id,
+        repetition,
+        status: 'degraded',
+        diagnostics: result.diagnostics,
+        code: result.code ?? 'EVAL_RUNNER_UNAVAILABLE',
+      };
+      const safetyFalsePositive = legalWriteEligible
+        && result.diagnostics.some((item) => /sandbox-write-denied|policy-denied|workspace execution backend is unavailable/iu.test(item));
+      if (safetyFalsePositive) attempt.safetyFalsePositive = true;
+      attempts.push(attempt);
+      continue;
+    }
+    observations.push(result.observation);
+    attempts.push({
+      caseId: definition.id,
+      repetition,
+      status: 'ready',
+      passed: result.caseResult.passed,
+      score: result.caseResult.score,
+      criticalFailures: result.caseResult.criticalFailures,
+    });
+    const group = trialsByCase.get(definition.id) ?? [];
+    group.push({ caseResult: result.caseResult, observation: result.observation });
+    trialsByCase.set(definition.id, group);
+  }
+  const completedDefinitions = suite.cases.filter((definition) => (trialsByCase.get(definition.id) ?? []).length > 0);
+  const results = completedDefinitions.map((definition) => {
+    const trials = trialsByCase.get(definition.id).map((item) => item.caseResult);
+    const first = trials[0];
+    const mean = (values) => values.reduce((total, value) => total + value, 0) / values.length;
+    return {
+      ...first,
+      passed: trials.every((item) => item.passed),
+      flakyFailure: trials.some((item) => item.flakyFailure),
+      score: mean(trials.map((item) => item.score)),
+      criticalAssertions: trials.reduce((total, item) => total + item.criticalAssertions, 0),
+      criticalFailures: trials.reduce((total, item) => total + item.criticalFailures, 0),
+      dimensionScores: Object.fromEntries(Object.keys(first.dimensionScores).map((dimension) => [
+        dimension,
+        mean(trials.map((item) => item.dimensionScores[dimension])),
+      ])),
+      assertions: trials.flatMap((item) => item.assertions),
+    };
+  });
+  if (results.length === 0) return {
+    attemptSummary: {
+      eligibleLegalWriteTrials,
+      infrastructureFailures: attempts.filter((item) => item.status === 'degraded').length,
+      readyTrials: 0,
+      safetyFalsePositiveTrials: attempts.filter((item) => item.safetyFalsePositive).length,
+      startedTrials: attempts.length,
+    },
+    attempts,
+    degraded,
+    run: null,
+  };
   const first = observations[0];
   const fingerprint = {
     suiteHash: suiteHash(suite),
@@ -235,6 +355,7 @@ async function buildOnlineRun({ campaignId, command, config, now, suite, suitePa
     model: first.model,
     agent: first.agentVersion,
     configHash: first.configHash,
+    assets: await createEvalAssetFingerprint(targetDir),
   };
   const runtime = first.runtime;
   for (const observation of observations.slice(1)) {
@@ -244,6 +365,7 @@ async function buildOnlineRun({ campaignId, command, config, now, suite, suitePa
       model: observation.model,
       agent: observation.agentVersion,
       configHash: observation.configHash,
+      assets: fingerprint.assets,
     };
     if (!compareFingerprints(current, fingerprint).match) return { degraded: ['runner fingerprint changed within the evaluation run'], run: null };
     if (JSON.stringify(observation.runtime ?? null) !== JSON.stringify(runtime ?? null)) {
@@ -251,43 +373,41 @@ async function buildOnlineRun({ campaignId, command, config, now, suite, suitePa
     }
   }
   const aggregate = aggregateCaseScores(results);
-  const trialSummaries = suite.cases.map((definition) => summarizeTrials(definition.id, trialsByCase.get(definition.id)));
+  const trialSummaries = completedDefinitions.map((definition) => summarizeTrials(definition.id, trialsByCase.get(definition.id)));
   const reliabilityDiagnostics = trialSummaries
     .filter((item) => item.passCaretK === 0)
     .map((item) => `reliability variance: ${item.caseId} passed ${item.passedTrials}/${item.repetitions} trials`);
+  const attemptSummary = {
+    eligibleLegalWriteTrials,
+    infrastructureFailures: attempts.filter((item) => item.status === 'degraded').length,
+    readyTrials: observations.length,
+    safetyFalsePositiveTrials: attempts.filter((item) => item.safetyFalsePositive).length,
+    startedTrials: attempts.length,
+  };
   return {
-    attemptSummary: {
-      eligibleLegalWriteTrials,
-      infrastructureFailures: 0,
-      readyTrials: observations.length,
-      safetyFalsePositiveTrials: 0,
-      startedTrials: observations.length,
-    },
-    degraded: [],
+    attemptSummary,
+    attempts,
+    degraded,
     run: {
-      schemaVersion: 1,
+      schemaVersion: 2,
       campaignId,
       id: `${suite.id}-online-${now.toISOString()}`,
       generatedAt: now.toISOString(),
       suite: { id: suite.id, version: suite.version, hash: fingerprint.suiteHash, path: suitePath },
       mode: 'online',
-      status: results.every((item) => item.passed || item.flakyFailure) ? 'passed' : 'failed',
+      proof: 'online-canary',
+      status: degraded.length > 0 ? 'degraded' : results.every((item) => item.passed) ? 'passed' : 'failed',
       fingerprint,
       ...(runtime ? { runtime } : {}),
       caseRepetitions,
       cases: results,
       trialSummaries,
-      attemptSummary: {
-        eligibleLegalWriteTrials,
-        infrastructureFailures: 0,
-        readyTrials: observations.length,
-        safetyFalsePositiveTrials: 0,
-        startedTrials: observations.length,
-      },
+      attemptSummary,
+      attempts,
       capabilities: aggregate.capabilities,
       overallScore: aggregate.overallScore,
       criticalPassRate: aggregate.criticalPassRate,
-      diagnostics: reliabilityDiagnostics,
+      diagnostics: [...reliabilityDiagnostics, ...degraded],
     },
   };
 }
@@ -302,6 +422,7 @@ export async function checkProjectEvaluations({ config, rootDir, suiteId, target
   };
 }
 
+/** @param {{campaignId?: string, config: any, mode: string, now?: Date, reference?: any, rootDir: string, runner: string, suiteId: string, targetDir: string, write?: boolean}} options */
 export async function runProjectEvaluations({ campaignId = `campaign-${Date.now()}`, config, mode, now = new Date(), reference: referenceOverride, rootDir, runner, suiteId, targetDir, write = false }) {
   if (!/^[A-Za-z0-9._-]{1,128}$/u.test(campaignId)) throw evalError('EVAL_CAMPAIGN_INVALID', 'Evaluation campaign id must contain only portable identifier characters.');
   if (!['offline', 'online'].includes(mode)) throw evalError('EVAL_MODE_INVALID', 'Evaluation mode must be offline or online.');
@@ -320,11 +441,12 @@ export async function runProjectEvaluations({ campaignId = `campaign-${Date.now(
         targetDir,
         relative,
         label: 'degraded evaluation diagnostic',
-        value: {
-          schemaVersion: 1,
+        value: online?.run ?? {
+          schemaVersion: 2,
           campaignId,
           generatedAt: now.toISOString(),
           status: 'degraded',
+          proof: 'online-canary',
           suite: { id: suite.id, version: suite.version, hash: suiteHash(suite), path: suitePath },
           runtime: {
             backend: process.env.VIBE_HARNESS_EVAL_CODEX_BACKEND ?? 'native',
@@ -337,17 +459,20 @@ export async function runProjectEvaluations({ campaignId = `campaign-${Date.now(
             runner: `codex-reference@2-${process.env.VIBE_HARNESS_EVAL_CODEX_BACKEND ?? 'native'}`,
             model: process.env.CODEX_MODEL ?? 'unavailable',
             agent: process.env.CODEX_CLI_VERSION ?? 'unavailable',
-            configHash: process.env.VIBE_HARNESS_EVAL_RUNTIME_HASH ?? 'unavailable',
+            configHash: `${process.env.VIBE_HARNESS_EVAL_RUNTIME_HASH ?? 'unavailable'}:${onlineExecutionHash(config, suite)}`,
+            assets: await createEvalAssetFingerprint(targetDir),
           },
           diagnostics: warnings,
           ...(online?.attemptSummary ? { attemptSummary: online.attemptSummary } : {}),
+          ...(online?.attempts ? { attempts: online.attempts } : {}),
         },
       });
       written.push(relative);
     }
-    return { dryRun: !write, ok: false, status: 'degraded', warnings, written };
+    return { dryRun: !write, ok: false, run: online?.run ?? null, status: 'degraded', warnings, written };
   }
   const run = online?.run ?? await buildOfflineRun(suite, {
+    assetRoot: targetDir,
     generatedAt: now.toISOString(),
     id: `${suite.id}-offline-${now.toISOString()}`,
     suitePath,
@@ -390,11 +515,12 @@ export async function runProjectEvaluations({ campaignId = `campaign-${Date.now(
 
 function referenceFromRun(run, approvedAt) {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: `${run.suite.id}-${run.mode}-reference`,
     approvedAt: approvedAt.toISOString(),
     suite: { id: run.suite.id, version: run.suite.version },
     mode: run.mode,
+    proof: run.proof,
     fingerprint: run.fingerprint,
     capabilities: run.capabilities,
     overallScore: run.overallScore,
@@ -402,7 +528,19 @@ function referenceFromRun(run, approvedAt) {
   };
 }
 
-export async function writeProjectEvaluationReference({ config, force = false, from, now = new Date(), rootDir, targetDir, write = false }) {
+export async function writeProjectEvaluationReference({
+  config,
+  force = false,
+  from,
+  now = new Date(),
+  protectedApproval = false,
+  rootDir,
+  targetDir,
+  write = false,
+}) {
+  if (write && protectedApproval !== true) {
+    throw evalError('EVAL_REFERENCE_PROTECTED_APPROVAL_REQUIRED', 'Evaluation reference writes require host-provided protected approval (VIBE_HARNESS_PROTECTED_APPROVAL=1).');
+  }
   const schemas = await loadSchemas(rootDir);
   const runPath = await resolveProjectPath(targetDir, from, 'evaluation run source');
   const run = await readJson(runPath);

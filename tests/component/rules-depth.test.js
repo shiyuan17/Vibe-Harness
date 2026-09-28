@@ -1,0 +1,248 @@
+import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+
+import { createInstallPlan, renderActionContent } from '../../scripts/lib/install-planner.js';
+import { loadAllManifests, readJson } from '../../scripts/lib/manifest.js';
+import {
+  FAST_PATH_CARD_DIVIDER,
+  FAST_PATH_CARD_MIN_BYTES,
+  validateFastPathCards,
+  validateRuleCrossReferences,
+  validateRulePortability,
+} from '../../scripts/lib/pack-validation.js';
+import { scanForForbiddenTerms } from '../../scripts/lib/redaction.js';
+import { assertRuleAnchors } from '../helpers/governed-docs.js';
+
+const rootDir = path.resolve(import.meta.dirname, '../..');
+const coreSkills = ['clarify-requirements', 'define-goal', 'task-decomposition', 'git-deliver', 'systematic-debugging', 'bug-finding', 'stale-cleanup', 'eval-driven-development', 'security-and-hardening'];
+const fullSkills = [...coreSkills, 'api-and-interface-design', 'frontend-design', 'runtime-cross-repo-rollout'];
+
+test('canonical governance and twelve native Skills are declared', async () => {
+  const manifests = await loadAllManifests(rootDir);
+  const rules = new Set(manifests.rules.items.map((item) => item.id));
+  for (const id of ['governance-core', 'git-rules', 'test-rules', 'agent-skill-routing']) assert.equal(rules.has(id), true);
+  assert.deepEqual(manifests.skills.items.filter((item) => item.kind === 'native').map((item) => item.id), fullSkills);
+});
+
+test('completion evidence and task-scoped testing live in governance rules', async () => {
+  await assertRuleAnchors(rootDir, [
+    'docs/rules/governance-core.md',
+    'docs/rules/test-rules.md',
+    'docs/rules/troubleshooting.md',
+    'docs/rules/project-directory.md',
+    'docs/rules/git-rules.md',
+    'templates/task.md',
+    'templates/task.en-US.md',
+    'adapters/codex/AGENTS.template.md',
+    'adapters/claude/CLAUDE.template.md',
+    'adapters/gemini/GEMINI.template.md',
+  ]);
+
+  // A delivery may cite only a verification sample taken after the last
+  // substantive change, so the worked example has to keep that order.
+  const kernel = await readFile(path.join(rootDir, 'docs/rules/governance-core.md'), 'utf8');
+  const taskExample = kernel.match(/10:00[\s\S]*10:05[\s\S]*10:07[\s\S]*交付只能引用 10:07/u)?.[0];
+  assert.ok(taskExample, 'governance-core must keep its verification-attribution example');
+  assert.ok(taskExample.indexOf('10:00') < taskExample.indexOf('10:05'));
+  assert.ok(taskExample.indexOf('10:05') < taskExample.indexOf('10:07'));
+});
+
+test('OBS-RULE-001 observability guidance stays concise and enforces behavior', async () => {
+  const rule = await readFile(path.join(rootDir, 'docs/rules/log-management.md'), 'utf8');
+  const lines = rule.trimEnd().split(/\r?\n/u);
+  assert.ok(lines.length <= 60, 'log-management.md exceeds 60 lines: ' + lines.length);
+  assert.deepEqual(lines.filter((line) => line.startsWith('## ')), [
+    '## 目标与边界',
+    '## 最小字段与关联',
+    '## 指标与追踪底线',
+    '## 安全与可靠性',
+    '## 排障与验收',
+  ]);
+  await assertRuleAnchors(rootDir, ['docs/rules/log-management.md']);
+
+  // Anti-drift: the rule stays a boundary contract, not a vendor feature tour,
+  // a config dump, or a project-specific example.
+  assert.doesNotMatch(rule, /https?:\/\//u);
+  assert.doesNotMatch(rule, /OpenTelemetry|observedTimestamp|instrumentationScope|severityNumber|四个黄金信号|错误预算|多窗口|WAL|尾部采样|Eval 的 durationMs/u);
+  assert.doesNotMatch(rule, /^\s+\{.*\}\s*$/mu);
+  assert.doesNotMatch(rule, /ORDER_CREATE_FAILED|orders|req-123/u);
+});
+
+test('generic rules constrain process while retaining safety boundaries', async () => {
+  const names = [
+    'ai-collab-rules', 'ast-grep', 'chrome-devtools-mcp', 'codebase-memory-mcp',
+    'codegraph', 'coding-rules', 'frontend-rules', 'git-rules', 'log-management',
+    'probe', 'project-directory', 'release-rules', 'role-routing', 'rtk',
+    'serena', 'test-rules', 'troubleshooting',
+  ];
+  await assertRuleAnchors(rootDir, names.map((name) => `docs/rules/${name}.md`));
+
+  // Anti-drift: process scaffolding these rules deliberately reject. Each entry
+  // is a gate a future edit could reintroduce by accident.
+  const rejected = new Map([
+    ['codebase-memory-mcp', /full\/internal profile|full profile.*安装/u],
+    ['codegraph', /为每个 Worktree 自动重建完整索引|索引重建无需串行/u],
+    ['frontend-rules', /设计令牌系统必须存在|超过 50 项列表虚拟化|启用 CSP 与可信类型/u],
+    ['probe', /取代 `rg` 与 ast-grep|无限制全仓扫描/u],
+    ['project-directory', /跨模块边界变化必须创建 ADR/u],
+    ['git-rules', /一个实现任务对应一个命名分支 worktree/u],
+    ['release-rules', /tgz|SHA256|npm publish/u],
+    ['serena', /优先用 serena 完成写入|serena 实例常驻所有 Worktree/u],
+  ]);
+  for (const [name, pattern] of rejected) {
+    const content = await readFile(path.join(rootDir, 'docs/rules', name + '.md'), 'utf8');
+    assert.doesNotMatch(content, pattern, name);
+  }
+
+  const codegraph = await readFile(path.join(rootDir, 'docs/rules/codegraph.md'), 'utf8');
+  assert.match(codegraph, /当前源码.*视为已读/u);
+  assert.match(codegraph, /索引陈旧|变更信号/u);
+  assert.match(codegraph, /工具不可用.*回退/u);
+  assert.match(codegraph, /图关系.*源码.*行为证据/u);
+
+  const contributing = await readFile(path.join(rootDir, 'CONTRIBUTING.md'), 'utf8');
+  assert.match(contributing, /证据层级 L0-L6.*成本档.*运行范围/u);
+  assert.match(contributing, /集成（L4）.*端到端.*（L5）.*矩阵（L6）/u);
+  assert.doesNotMatch(contributing, /集成（L3）|端到端关键路径（L4）|全量矩阵（L5）|`pnpm check` 只跑 L1 与 L2/u);
+
+  // A rule that cites another rule must stay honest about what the target
+  // project has: `linear-workflow` is an integration rule, so git-rules may
+  // only defer to it conditionally instead of assuming it is installed.
+  const gitRules = await readFile(path.join(rootDir, 'docs/rules/git-rules.md'), 'utf8');
+  const linearReferences = gitRules.split(/\r?\n/u).filter((line) => line.includes('`linear-workflow.md`'));
+  assert.ok(linearReferences.length > 0, 'git-rules must cite linear-workflow.md for the branch model');
+  for (const line of linearReferences) {
+    assert.match(line, /若项目已安装该规则/u);
+  }
+});
+
+// A rule the host routes to is otherwise read as one unit, so a large rule
+// without a top card forces the whole file on every hit. The gate is
+// fail-closed in both directions: a rule above the size floor must declare a
+// card, and a declared card must be a real one — first section, closed by the
+// shared divider, with a body behind it.
+test('layered loading: large rules declare a top Fast Path card', async () => {
+  assert.deepEqual(await validateFastPathCards(rootDir), []);
+
+  const pack = await mkdtemp(path.join(tmpdir(), 'vibe-rules-cards-'));
+  const rulePath = path.join(pack, 'docs/rules/large.md');
+  const body = `${'正文说明。'.repeat(4000)}\n`;
+  const card = `## Fast Path 卡片\n\n- 默认路径：只做最小充分检查。\n\n${FAST_PATH_CARD_DIVIDER}\n`;
+  try {
+    await mkdir(path.dirname(rulePath), { recursive: true });
+
+    await writeFile(rulePath, `# 大规则\n\n${body}`, 'utf8');
+    const bytes = Buffer.byteLength(await readFile(rulePath, 'utf8'), 'utf8');
+    assert.ok(bytes >= FAST_PATH_CARD_MIN_BYTES, `fixture must exceed the floor: ${bytes}`);
+    const cardless = await validateFastPathCards(pack);
+    assert.equal(cardless.length, 1);
+    assert.match(cardless[0], /needs a top card/u);
+
+    await writeFile(rulePath, `# 大规则\n\n${card}\n## 正文\n\n${body}`, 'utf8');
+    assert.deepEqual(await validateFastPathCards(pack), []);
+
+    await writeFile(rulePath, `# 大规则\n\n## 正文\n\n${body}\n${card}\n## 补充\n\n${body}`, 'utf8');
+    assert.deepEqual(await validateFastPathCards(pack), [
+      'docs/rules/large.md must open with the "## Fast Path 卡片" section before any other section',
+    ]);
+
+    await writeFile(rulePath, `# 大规则\n\n## Fast Path 卡片\n\n- 默认路径：只做最小充分检查。\n\n## 正文\n\n${body}`, 'utf8');
+    assert.deepEqual(await validateFastPathCards(pack), [
+      `docs/rules/large.md card must close with: ${FAST_PATH_CARD_DIVIDER}`,
+    ]);
+
+    await writeFile(rulePath, `# 大规则\n\n${card}`, 'utf8');
+    assert.deepEqual(await validateFastPathCards(pack), ['docs/rules/large.md keeps a card but no rule body after it']);
+
+    // The floor is a floor: a rule below it may skip the card instead.
+    await writeFile(rulePath, '# 小规则\n\n一句话。\n', 'utf8');
+    assert.deepEqual(await validateFastPathCards(pack), []);
+  } finally {
+    await rm(pack, { force: true, recursive: true });
+  }
+});
+
+test('portable rules stay free of repository-private references', async () => {
+  assert.deepEqual(await validateRulePortability(rootDir), []);
+
+  const pack = await mkdtemp(path.join(tmpdir(), 'vibe-rules-portability-'));
+  try {
+    await mkdir(path.join(pack, 'docs/rules'), { recursive: true });
+    await writeFile(path.join(pack, 'docs/rules/portable.md'), '# Portable\n\n见 CONTRIBUTING.md 与 pnpm verify:focused。\n', 'utf8');
+    const errors = await validateRulePortability(pack);
+    assert.ok(errors.some((error) => error.includes('CONTRIBUTING.md')), JSON.stringify(errors));
+    assert.ok(errors.some((error) => error.includes('repository script')), JSON.stringify(errors));
+  } finally {
+    await rm(pack, { force: true, recursive: true });
+  }
+});
+
+test('the rendered project-specific rule file is exempt from the portability gate', async () => {
+  const pack = await mkdtemp(path.join(tmpdir(), 'vibe-rules-portability-exempt-'));
+  try {
+    await mkdir(path.join(pack, 'docs/rules'), { recursive: true });
+    // Carrying the target project's own commands and docs is the whole job of
+    // this rendered file, so the private-reference gate must skip it.
+    await writeFile(path.join(pack, 'docs/rules/project-specific-rules.md'), '# 项目规则\n\n- Lint：`pnpm lint`，见 CONTRIBUTING.md\n', 'utf8');
+    assert.deepEqual(await validateRulePortability(pack), []);
+  } finally {
+    await rm(pack, { force: true, recursive: true });
+  }
+});
+
+test('sibling rule references must resolve inside docs/rules', async () => {
+  assert.deepEqual(await validateRuleCrossReferences(rootDir), []);
+
+  const pack = await mkdtemp(path.join(tmpdir(), 'vibe-rules-cross-reference-'));
+  try {
+    await mkdir(path.join(pack, 'docs/rules'), { recursive: true });
+    await writeFile(path.join(pack, 'docs/rules/alpha.md'), '# Alpha\n\n完整规范见 `beta.md` 与 `gamma.md`。\n', 'utf8');
+    // Path-qualified references are not sibling references, so they stay out of
+    // this contract even though they are also written in backticks.
+    await writeFile(path.join(pack, 'docs/rules/beta.md'), '# Beta\n\n见 `.agents/memory/decisions.md`、`docs/rules/alpha.md` 与 `roles/prompts/<role-id>.md`。\n', 'utf8');
+    assert.deepEqual(await validateRuleCrossReferences(pack), ['docs/rules/alpha.md references missing rule gamma.md']);
+  } finally {
+    await rm(pack, { force: true, recursive: true });
+  }
+});
+
+// Four full-repo install plans are I/O-bound and exceed the runner's default
+// budget under the suite's --test-concurrency (25.2s solo on 2026-09-19).
+test('profiles install zero, nine, or twelve native Skills at intended tiers', { timeout: 120000 }, async () => {
+  for (const [profile, expected] of [['minimal', []], ['docs-only', []], ['core', coreSkills], ['full', fullSkills]]) {
+    const plan = await createInstallPlan({ dryRun: true, profile, rootDir, targetDir: path.join(rootDir, `.tmp-depth-${profile}`) });
+    const targets = new Set(plan.actions.map((item) => item.relativeTarget));
+    const installed = fullSkills.filter((skill) => targets.has(`.agents/skills/${skill}/SKILL.md`));
+    assert.deepEqual(installed, expected);
+    assert.equal(targets.has('.agents/skills/agentmemory/SKILL.md'), false);
+    assert.equal(targets.has('.agents/memory/README.md'), false);
+    assert.equal(targets.has('.codex/hooks.json'), profile === 'full');
+  }
+});
+
+test('installed native Skills preserve the same dependency-free contracts across adapters', async () => {
+  for (const adapterId of ['codex', 'claude', 'gemini']) {
+    const plan = await createInstallPlan({ adapterId, dryRun: true, profile: 'core', rootDir, targetDir: path.join(rootDir, `.tmp-depth-${adapterId}`) });
+    for (const skill of coreSkills) {
+      const action = plan.actions.find((item) => item.relativeSource === `skills/core/${skill}/SKILL.md`);
+      assert.ok(action);
+      assert.match(await renderActionContent(action, plan.renderData), new RegExp(`name: ${skill}`, 'u'));
+    }
+    assert.equal(plan.actions.some((item) => item.relativeTarget.endsWith('/agents/openai.yaml')), adapterId === 'codex');
+  }
+});
+
+test('reusable assets stay generic and source mapping points to existing assets', async () => {
+  const leaks = await scanForForbiddenTerms({
+    forbiddenTerms: ['SYBaseProjectWeb', 'SYBaseProject', 'D:\\Github\\JW', 'T-019', '患者', '病理'],
+    includeDirs: ['rules', 'templates', 'skills/core', 'skills/integrations', 'memory', 'adapters/codex', 'adapters/claude', 'adapters/gemini', 'manifests', 'schemas'],
+    rootDir,
+  });
+  assert.deepEqual(leaks, []);
+  const mapping = await readFile(path.join(rootDir, 'docs/inventory/source-rules-mapping.md'), 'utf8');
+  assert.match(mapping, /Skill descriptions/u);
+  assert.equal((await readJson(path.join(rootDir, 'manifests/profiles.json'))).items.length, 4);
+});

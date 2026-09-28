@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { assertPortableRelativePath, readJson, validateCatalogManifest } from './manifest.js';
+import { assertPortableRelativePath, readPackJson, validateCatalogManifest } from './manifest.js';
 
 // All AGENTS.md targets (codex, cursor, qoder, zcode, opencode) share one canonical
 // instruction template. Per-adapter AGENTS.template.md files MUST NOT diverge from it;
@@ -8,7 +8,7 @@ import { assertPortableRelativePath, readJson, validateCatalogManifest } from '.
 // the source of truth; the others were removed to prevent silent drift.
 export const canonicalAgentsTemplate = 'adapters/codex/AGENTS.template.md';
 
-const fullCapabilities = ['instructions', 'skills', 'hooks', 'policy', 'mcp', 'sandbox', 'memory'];
+const fullCapabilities = ['instructions', 'skills', 'hooks', 'policy', 'mcp', 'sandbox', 'memory', 'subagents'];
 
 function supportLevel(value) {
   if (value === true) return 'stable';
@@ -32,7 +32,7 @@ function normalizeAdapter(adapter) {
 }
 
 export async function loadAdapterCatalog(rootDir) {
-  const catalog = await readJson(path.join(rootDir, 'manifests/adapters.json'));
+  const catalog = await readPackJson(path.join(rootDir, 'manifests/adapters.json'));
   validateCatalogManifest('adapters', catalog);
   return { ...catalog, items: catalog.items.map(normalizeAdapter) };
 }

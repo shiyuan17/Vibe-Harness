@@ -1,0 +1,1 @@
+{"id":"task-decomposition","kind":"core","entry":"SKILL.md","triggers":["任务拆分","任务拆解","拆分计划","Task DAG","子任务规划","节点执行提示词"],"outputs":["Split Decision","Goal Brief","Task DAG","Node Execution Prompts"]}

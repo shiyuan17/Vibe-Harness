@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "id": "H17",
+  "description": "Duplicate work fixture",
+  "files": [
+    {
+      "path": "src/email.js",
+      "content": "export function normalizeEmail(v){return v}\\n"
+    },
+    {
+      "path": "src/phone.js",
+      "content": "export function normalizePhone(v){return v}\\n"
+    },
+    {
+      "path": "package.json",
+      "content": "{\"type\":\"module\"}\\n"
+    }
+  ],
+  "oracleFiles": [
+    {
+      "path": "check.mjs",
+      "content": "import assert from 'node:assert/strict';import {pathToFileURL} from 'node:url';const e=await import(pathToFileURL(process.cwd()+'/src/email.js'));const p=await import(pathToFileURL(process.cwd()+'/src/phone.js'));assert.equal(e.normalizeEmail(' A@B.COM '),'a@b.com');assert.equal(p.normalizePhone('+1 (555) 010-0000'),'15550100000');\\n"
+    }
+  ],
+  "git": {
+    "initialize": true
+  },
+  "faults": [],
+  "hiddenChecks": [
+    {
+      "id": "H17-oracle",
+      "program": "node",
+      "args": [
+        "{ORACLE_DIR}/check.mjs"
+      ],
+      "expectedExitCode": 0
+    }
+  ]
+}
