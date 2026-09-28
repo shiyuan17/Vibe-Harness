@@ -1038,7 +1038,7 @@ async function verify(args) {
       scope: 'project',
       status: 'queued',
       queue: queueReceipt,
-      targetDir,
+      ...(args.verbose ? { targetDir } : {}),
     }, args);
     return;
   }
@@ -1047,7 +1047,7 @@ async function verify(args) {
       ok: true,
       scope: 'project',
       status: 'ready',
-      targetDir,
+      ...(args.verbose ? { targetDir } : {}),
       plan: planned,
     }, args);
     return;
@@ -1080,7 +1080,7 @@ async function verify(args) {
     scopeStatus: verificationReport.verification?.scopeStatus ?? 'complete',
     status: verificationReport.ok && !blockingHookFailure ? 'ready' : 'invalid',
     strictEnforcementRefusals: target.strictEnforcementRefusals ?? [],
-    targetDir,
+    ...(args.verbose ? { targetDir } : {}),
     tierFallback: verificationReport.verification?.tierFallback ?? null,
     tierSource: verificationReport.verification?.tierSource ?? null,
     ...(hookPolicyWarnings.length ? { warnings: hookPolicyWarnings } : {}),

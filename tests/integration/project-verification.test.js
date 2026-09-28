@@ -261,12 +261,26 @@ test('verify --project terminates a hanging command and returns a structured tim
         assert.equal(payload.results.lint.timeoutMs, 1000);
         assert.equal(payload.results.lint.verificationId, payload.verification.id);
         assert.equal(payload.results.lint.next.command, 'vibe-harness verify --project .');
+        // The absolute project path is a --verbose-only field; a non-verbose
+        // receipt must not carry it as structured metadata either, otherwise
+        // the path survives the text redaction that already covers nested
+        // diagnostics.
+        assert.equal(payload.targetDir, undefined);
         // Name the offending slice so a platform-specific leak is diagnosable
         // from the CI log instead of only reporting "the payload contains it".
         const serialized = JSON.stringify(payload);
-        const leakAt = serialized.indexOf(target);
+        // A Windows path appears JSON-escaped inside the serialized payload and
+        // some producers emit it with forward slashes, so comparing against the
+        // literal separator form alone would silently pass on Windows while
+        // POSIX kept failing. Check every spelling.
+        const spellings = [...new Set([
+          target,
+          target.replaceAll('\\', '/'),
+          JSON.stringify(target).slice(1, -1),
+        ])];
+        const leakAt = spellings.map((spelling) => serialized.indexOf(spelling)).find((index) => index >= 0) ?? -1;
         assert.equal(leakAt, -1, leakAt < 0 ? undefined
-          : `payload leaked the project path: ...${serialized.slice(Math.max(0, leakAt - 120), leakAt + target.length + 60)}...`);
+          : `payload leaked the project path: ...${serialized.slice(Math.max(0, leakAt - 120), leakAt + 180)}...`);
         return true;
       },
     );
