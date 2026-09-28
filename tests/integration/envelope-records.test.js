@@ -153,6 +153,51 @@ test('envelope drafts freeze the real workspace identity and never fabricate hos
   assert.equal(summarizeEnvelopePlan(complete).includes('status: valid'), true);
 });
 
+test('scope.linear drafts Linear creation targets and warns when they are absent', async () => {
+  const workspace = inspectWorkspaceIdentity(fixture.root);
+  const base = {
+    activeObjective: 'create a Linear issue',
+    allowedEffects: ['linearWrite'],
+    baseRef: 'HEAD',
+    cwd: fixture.root,
+    hostContext: hostProof(),
+    mode: 'linear-sync',
+    requestId: 'req-3',
+    sessionId: 'session-1',
+    targetIssueIds: [],
+    terminalCondition: 'issue created',
+  };
+
+  const draft = buildEnvelopeDraft({ ...base, linearProjects: ['project-1'], linearTeams: ['ENG'] });
+  assert.deepEqual(draft.envelope.scope.linear, { projectIds: ['project-1'], teamIds: ['ENG'] });
+  assert.equal(draft.valid, true, JSON.stringify(draft.problems));
+  assert.equal(summarizeEnvelopePlan(draft).includes('scope.linear: teams ENG; projects project-1'), true);
+
+  // An issue creation exposes no Issue ID, so a linearWrite envelope without a
+  // registration cannot authorize it; the draft says so before the hook does.
+  const absent = buildEnvelopeDraft({ ...base });
+  assert.equal(Object.hasOwn(absent.envelope.scope, 'linear'), false);
+  assert.equal(absent.problems.find((problem) => problem.code === 'LINEAR_SCOPE_ABSENT')?.severity, 'warning');
+
+  // Updating an existing Issue binds through targetIssueIds instead, so the
+  // warning is scoped to the creation path that exposes no Issue ID.
+  const issueBound = buildEnvelopeDraft({ ...base, targetIssueIds: ['ENG-123'] });
+  assert.equal(issueBound.problems.some((problem) => problem.code === 'LINEAR_SCOPE_ABSENT'), false);
+
+  const teamOnly = buildEnvelopeDraft({ ...base, linearTeams: ['ENG'] });
+  assert.deepEqual(teamOnly.envelope.scope.linear, { teamIds: ['ENG'] });
+
+  // A registration the schema rejects fails the same check the hook denies on.
+  for (const linear of [{ teamIds: [] }, {}, { teamIds: ['A', 'A'] }, { extra: 'x' }]) {
+    const check = checkEnvelope(
+      { ...teamOnly.envelope, scope: { ...teamOnly.envelope.scope, linear } },
+      { cwd: fixture.root, workspace },
+    );
+    assert.equal(check.ok, false, JSON.stringify(linear));
+    assert.equal(check.problems.some((problem) => problem.code === 'ENVELOPE_SCHEMA_VIOLATION'), true, JSON.stringify(linear));
+  }
+});
+
 test('envelope checks fail closed on ceiling, conflict and expiry problems', async () => {
   // The workspace identity is inspected once and reused: these cases are about
   // the semantic checks, not about re-reading the Git workspace.
@@ -326,6 +371,40 @@ test('envelope CLI plans a draft, injects host proof and checks the result', asy
     const checked = await runCli(['check', '--file', envelopeFile, '--cwd', fixture.root, '--json']);
     assert.equal(checked.code, 0, checked.stderr);
     assert.equal(JSON.parse(checked.stdout).ok, true);
+  } finally {
+    await removeTemporaryDirectory(outDir);
+  }
+});
+
+test('envelope CLI registers scope.linear targets that authorize Linear creation', async () => {
+  const outDir = await mkdtemp(path.join(tmpdir(), 'vibe-envelope-out-'));
+  try {
+    const hostFile = path.join(outDir, 'host-context.json');
+    await writeFile(hostFile, `${JSON.stringify(hostProof(), null, 2)}\n`, 'utf8');
+    const envelopeFile = path.join(outDir, 'linear.json');
+    const written = await runCli([
+      'plan', '--cwd', fixture.root, '--mode', 'linear-sync', '--effect', 'linearWrite',
+      '--linear-team', 'ENG', '--linear-project', 'project-1',
+      '--objective', 'create a Linear issue', '--terminal', 'issue created', '--base-ref', 'HEAD',
+      '--host-context', hostFile, '--request-id', 'req-9', '--session-id', 'session-9',
+      '--emit', 'envelope', '--out', envelopeFile, '--write',
+    ]);
+    assert.equal(written.code, 0, written.stderr);
+    const envelope = JSON.parse(await readFile(envelopeFile, 'utf8'));
+    assert.deepEqual(envelope.scope.linear, { projectIds: ['project-1'], teamIds: ['ENG'] });
+
+    const checked = await runCli(['check', '--file', envelopeFile, '--cwd', fixture.root, '--json']);
+    assert.equal(checked.code, 0, checked.stderr);
+    assert.equal(JSON.parse(checked.stdout).ok, true);
+
+    const decision = evaluateExecutionEnvelope({
+      cwd: fixture.root,
+      executionEnvelope: envelope,
+      sessionId: 'session-9',
+      toolInput: { teamId: 'ENG', title: 'New work' },
+      toolName: 'mcp__linear-mcp__create_issue',
+    });
+    assert.deepEqual(decision, { action: 'allow' });
   } finally {
     await removeTemporaryDirectory(outDir);
   }

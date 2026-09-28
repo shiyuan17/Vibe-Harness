@@ -824,7 +824,10 @@ test('verify --tier deep 运行全部层并完成范围，all 别名已移除', 
       const report = await runCli(['verify', '--project', target, '--tier', tier]);
 
       assert.equal(report.ok, true);
-      assert.equal(report.verification.schemaVersion, 2);
+      assert.equal(report.verification.schemaVersion, 3);
+      for (const field of ['worktreeIdentity', 'planFingerprint', 'commandSetFingerprint', 'environmentFingerprint']) {
+        assert.match(report.verification[field], /^[a-f0-9]{64}$/u);
+      }
       assert.equal(report.verification.engine, 'vibe-harness-cli');
       assert.equal(report.executionTier, 'deep');
       assert.equal(report.nextTier, null);

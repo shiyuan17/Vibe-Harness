@@ -14,6 +14,7 @@ import {
   EXECUTION_ENVELOPE_MODES,
   EXECUTION_ENVELOPE_SCHEMA,
   EXECUTION_ENVELOPE_SCHEMA_V2,
+  classifyExecutionEffects,
   inspectWorkspaceIdentity,
   parseExecutionEnvelope,
   validateExecutionEnvelope,
@@ -199,6 +200,29 @@ test('Execution Envelope v2 is additive and reports its enforcement grade', asyn
     assert.equal(parseExecutionEnvelope(envelope).enforcementGrade, 'host-verified/high-risk');
     assert.equal(validateExecutionEnvelopeV2({ ...envelope, riskClass: 'critical' }), false);
     assert.equal(validateExecutionEnvelopeV2({ ...envelope, hostContext: { ...envelope.hostContext, source: 'project' } }), false);
+
+    // The optional scope.linear registration stays aligned with the published
+    // schema: the runtime validator and the schema must agree on every shape.
+    for (const linear of [
+      { teamIds: ['ENG'] },
+      { projectIds: ['project-1'] },
+      { projectIds: ['project-1'], teamIds: ['ENG'] },
+      {},
+      { teamIds: [] },
+      { teamIds: ['A', 'A'] },
+      { teamIds: [''] },
+      { teamIds: ['x'.repeat(257)] },
+      { teamIds: [1] },
+      { extra: 'x' },
+      [],
+    ]) {
+      const fixture = { ...envelope, scope: { ...envelope.scope, linear } };
+      assert.equal(
+        validateExecutionEnvelopeV2(fixture),
+        validateJsonAgainstSchema(fixture, schema, 'executionEnvelopeV2').length === 0,
+        JSON.stringify(linear),
+      );
+    }
   });
 });
 
@@ -708,6 +732,112 @@ test('Execution Envelope classifies ordinary Git, Linear, and credential operati
       }));
       assert.match(denied.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_V1_INSUFFICIENT/u, command);
     }
+  });
+});
+
+test('Linear provider aliases classify from the MCP server segment', async () => {
+  const catalog = JSON.parse(await readFile(path.resolve('manifests/plugin-providers.json'), 'utf8'));
+  const providers = catalog.providers.filter((item) => item.id === 'linear' || item.id === 'linear-readonly');
+  assert.equal(providers.length, 2);
+  const aliases = [...new Set(providers.flatMap((item) => [item.cliName, ...(item.aliases ?? [])]))];
+  // The provider catalog is the truth source for the spellings the installer and
+  // the role projection write; the hook has to resolve every one of them.
+  for (const alias of [...aliases, 'vibe-harness-linear']) {
+    const write = classifyExecutionEffects({
+      cwd: process.cwd(),
+      toolInput: { id: 'ENG-123' },
+      toolName: 'mcp__' + alias + '__save_issue',
+    });
+    assert.deepEqual(write.effects, ['linearWrite'], alias);
+    assert.equal(write.unknown, false, alias);
+    const read = classifyExecutionEffects({
+      cwd: process.cwd(),
+      toolInput: { id: 'ENG-123' },
+      toolName: 'mcp__' + alias + '__get_issue',
+    });
+    assert.equal(read.readOnly, true, alias);
+  }
+});
+
+test('Linear writes bind to scope.linear targets when the call exposes no Issue ID', async () => {
+  await withProject(async (target) => {
+    initializeGitProject(target);
+
+    // The installer's `linear` server, the provider aliases and the role
+    // projection's `vibe-harness-linear` are one provider for authorization.
+    for (const server of ['linear', 'linear-mcp', 'linear-mcp-readonly', 'vibe-harness-linear']) {
+      const required = await evaluateCodexHook(input(target, {
+        tool_input: { id: 'ENG-123', status: 'Todo' },
+        tool_name: 'mcp__' + server + '__save_issue',
+      }), { environment: { VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED: '1' } });
+      assert.match(required.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u, server);
+
+      const allowed = await evaluateCodexHook(input(target, {
+        execution_envelope: executionEnvelopeV2(target, { allowedEffects: ['linearWrite'] }),
+        tool_input: { id: 'ENG-123', status: 'Todo' },
+        tool_name: 'mcp__' + server + '__save_issue',
+      }));
+      assert.deepEqual(allowed, {}, server);
+    }
+
+    const creationEnvelope = executionEnvelopeV2(target, { allowedEffects: ['linearWrite'] });
+    creationEnvelope.scope.linear = { teamIds: ['ENG'] };
+
+    for (const toolInput of [{ teamId: 'ENG', title: 'New work' }, { team: 'eng', title: 'New work' }, { teamKey: 'ENG', title: 'New work' }]) {
+      const created = await evaluateCodexHook(input(target, {
+        execution_envelope: creationEnvelope,
+        tool_input: toolInput,
+        tool_name: 'mcp__linear-mcp__create_issue',
+      }));
+      assert.deepEqual(created, {}, JSON.stringify(toolInput));
+    }
+
+    const projectEnvelope = executionEnvelopeV2(target, { allowedEffects: ['linearWrite'] });
+    projectEnvelope.scope.linear = { projectIds: ['project-1'] };
+    const createdInProject = await evaluateCodexHook(input(target, {
+      execution_envelope: projectEnvelope,
+      tool_input: { projectId: 'PROJECT-1', title: 'New work' },
+      tool_name: 'mcp__linear__create_issue',
+    }));
+    assert.deepEqual(createdInProject, {});
+
+    // Fail-closed: no registration, no visible target, or an unregistered team.
+    const unregistered = await evaluateCodexHook(input(target, {
+      execution_envelope: executionEnvelopeV2(target, { allowedEffects: ['linearWrite'] }),
+      tool_input: { teamId: 'ENG', title: 'New work' },
+      tool_name: 'mcp__linear-mcp__create_issue',
+    }));
+    assert.match(unregistered.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_TARGET_UNVERIFIED/u);
+
+    const noVisibleTarget = await evaluateCodexHook(input(target, {
+      execution_envelope: creationEnvelope,
+      tool_input: { title: 'New work' },
+      tool_name: 'mcp__linear-mcp__create_issue',
+    }));
+    assert.match(noVisibleTarget.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_TARGET_UNVERIFIED/u);
+
+    const wrongTeam = await evaluateCodexHook(input(target, {
+      execution_envelope: creationEnvelope,
+      tool_input: { teamId: 'OPS', title: 'New work' },
+      tool_name: 'mcp__linear-mcp__create_issue',
+    }));
+    assert.match(wrongTeam.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_TARGET_MISMATCH/u);
+
+    // An Issue-bound update still runs the Issue check, and a registered
+    // scope.linear narrows the team the same call may name.
+    const crossTeamUpdate = await evaluateCodexHook(input(target, {
+      execution_envelope: creationEnvelope,
+      tool_input: { id: 'ENG-123', teamId: 'OPS' },
+      tool_name: 'mcp__linear-mcp__save_issue',
+    }));
+    assert.match(crossTeamUpdate.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_TARGET_MISMATCH/u);
+
+    const otherIssue = await evaluateCodexHook(input(target, {
+      execution_envelope: creationEnvelope,
+      tool_input: { id: 'OPS-9', status: 'Todo' },
+      tool_name: 'mcp__linear-mcp__save_issue',
+    }));
+    assert.match(otherIssue.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_TARGET_MISMATCH/u);
   });
 });
 

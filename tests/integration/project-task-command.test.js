@@ -456,7 +456,7 @@ test('verify --reuse 命中时重放收据而不执行命令', async () => {
     // The proof of execution is written outside the worktree so the check can
     // run without moving the fingerprint the receipt is about to record.
     await writeFile(path.join(project, 'marker.cjs'), `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'executed');\n`, 'utf8');
-    await writeConfig(project, { test: 'node marker.cjs' });
+    await writeConfig(project, { test: 'node marker.cjs', checks: [{ id: 'test', deterministic: true }] });
     await initGitProject(project, '.vibe-harness/\n');
 
     const first = await runCommand(['verify', '--project', '.', '--json'], { cwd: project });
@@ -493,7 +493,7 @@ test('verify --reuse 命中时重放收据而不执行命令', async () => {
 test('verify --reuse 标记未选中的检查并只重放记录的选择', async () => {
   const project = await tempProject();
   try {
-    await writeConfig(project, { lint: 'node -e "process.exit(0)"', test: 'node -e "process.exit(0)"' });
+    await writeConfig(project, { lint: 'node -e "process.exit(0)"', test: 'node -e "process.exit(0)"', checks: [{ id: 'test', deterministic: true }] });
     await initGitProject(project, '.vibe-harness/\n');
     const first = await runCommand(['verify', '--project', '.', '--only', 'test', '--json'], { cwd: project });
     assert.equal(first.report.status, 'passed');
@@ -1006,32 +1006,38 @@ test('freeze-tests 只接受真实红灯，rebaseline-tests 需要受保护批�
     assert.deepEqual(anchor.units[0].testFreeze.paths, ['tests/unit/bug.test.js']);
     assert.equal(anchor.units[0].testFreeze.status, 'frozen');
 
-    const noApproval = await runCommand([
-      'task', 'rebaseline-tests', 'bug', '--unit', 'u1', '--test-path', 'tests/unit/bug.test.js',
-      '--verification', JSON.stringify(red), '--write', '--json',
-    ], { cwd: project });
-    assert.equal(noApproval.report.status, 'failed');
-    assert.equal(noApproval.report.code, 'VIBE_HARNESS_REBASELINE_APPROVAL_INVALID');
-
-    const approval = JSON.stringify({ status: 'approved', source: 'protected-ci', trust: 'verified', reviewer: 'protected-review', protectedCheck: 'required-review' });
-    const rebaseline = await runCommand([
-      'task', 'rebaseline-tests', 'bug', '--unit', 'u1', '--test-path', 'tests/unit/bug.test.js',
-      '--verification', JSON.stringify(red), '--approval', approval, '--write', '--json',
-    ], { cwd: project });
-    assert.equal(rebaseline.report.status, 'failed');
-    assert.equal(rebaseline.report.code, 'VIBE_HARNESS_REBASELINE_APPROVAL_INVALID');
-
+    // Approving a rebaseline is a host decision, so the negative cases pin the
+    // variable off instead of inheriting whatever the developer machine has.
     const previousApproval = process.env.VIBE_HARNESS_PROTECTED_APPROVAL;
-    process.env.VIBE_HARNESS_PROTECTED_APPROVAL = '1';
-    const verifiedRebaseline = await runCommand([
-      'task', 'rebaseline-tests', 'bug', '--unit', 'u1', '--test-path', 'tests/unit/bug.test.js',
-      '--verification', JSON.stringify(red), '--approval', approval, '--write', '--json',
-    ], { cwd: project });
-    if (previousApproval === undefined) delete process.env.VIBE_HARNESS_PROTECTED_APPROVAL;
-    else process.env.VIBE_HARNESS_PROTECTED_APPROVAL = previousApproval;
-    assert.equal(verifiedRebaseline.report.status, 'passed');
-    const updated = await readAnchor(project, 'bug');
-    assert.equal(updated.units[0].testFreeze.approval.trust, 'verified');
+    delete process.env.VIBE_HARNESS_PROTECTED_APPROVAL;
+    try {
+      const noApproval = await runCommand([
+        'task', 'rebaseline-tests', 'bug', '--unit', 'u1', '--test-path', 'tests/unit/bug.test.js',
+        '--verification', JSON.stringify(red), '--write', '--json',
+      ], { cwd: project });
+      assert.equal(noApproval.report.status, 'failed');
+      assert.equal(noApproval.report.code, 'VIBE_HARNESS_REBASELINE_APPROVAL_INVALID');
+
+      const approval = JSON.stringify({ status: 'approved', source: 'protected-ci', trust: 'verified', reviewer: 'protected-review', protectedCheck: 'required-review' });
+      const rebaseline = await runCommand([
+        'task', 'rebaseline-tests', 'bug', '--unit', 'u1', '--test-path', 'tests/unit/bug.test.js',
+        '--verification', JSON.stringify(red), '--approval', approval, '--write', '--json',
+      ], { cwd: project });
+      assert.equal(rebaseline.report.status, 'failed');
+      assert.equal(rebaseline.report.code, 'VIBE_HARNESS_REBASELINE_APPROVAL_INVALID');
+
+      process.env.VIBE_HARNESS_PROTECTED_APPROVAL = '1';
+      const verifiedRebaseline = await runCommand([
+        'task', 'rebaseline-tests', 'bug', '--unit', 'u1', '--test-path', 'tests/unit/bug.test.js',
+        '--verification', JSON.stringify(red), '--approval', approval, '--write', '--json',
+      ], { cwd: project });
+      assert.equal(verifiedRebaseline.report.status, 'passed');
+      const updated = await readAnchor(project, 'bug');
+      assert.equal(updated.units[0].testFreeze.approval.trust, 'verified');
+    } finally {
+      if (previousApproval === undefined) delete process.env.VIBE_HARNESS_PROTECTED_APPROVAL;
+      else process.env.VIBE_HARNESS_PROTECTED_APPROVAL = previousApproval;
+    }
   } finally {
     await rm(project, { recursive: true, force: true });
   }

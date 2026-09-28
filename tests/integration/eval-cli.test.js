@@ -21,7 +21,10 @@ async function run(args, { env = {} } = {}) {
   try {
     const result = await execFileAsync(process.execPath, [cliPath, ...args], {
       cwd: rootDir,
-      env: { ...process.env, ...env },
+      // Protected approval is a host decision, so a case that needs it opts in
+      // through `env`; an ambient value on the developer machine must not
+      // decide whether the "no protected approval" cases pass.
+      env: { ...process.env, VIBE_HARNESS_PROTECTED_APPROVAL: '', ...env },
       maxBuffer: 8 * 1024 * 1024,
     });
     return { code: 0, payload: JSON.parse(result.stdout), stderr: result.stderr };

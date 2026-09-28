@@ -63,7 +63,16 @@ test('rule-only tool plugins render their capability routes in the discovery lin
     profile: 'core',
     targets: ['AGENTS.md'],
   });
-  assert.equal(baseline.discoveryLine, '先按问题类型选工具：单文件文本、配置和日志使用 rg 与直接文件阅读。');
+  assert.equal(
+    baseline.discoveryLine.startsWith(
+      '先按问题类型选工具，默认只用一个与当前问题最匹配的入口：单文件文本、配置和日志使用 rg 与直接文件阅读。',
+    ),
+    true,
+  );
+  // Freshness is reused per task/workspace, and a stale index may still be used
+  // to locate work as long as the affected facts are confirmed against source.
+  assert.equal(baseline.discoveryLine.includes('同一任务、同一工作区内已确认新鲜的索引不重复检查'), true);
+  assert.equal(baseline.discoveryLine.includes('不自动全量重建，也不把旧图当作当前事实'), true);
 
   const surface = createInstalledSurface({
     profile: 'core',
@@ -87,6 +96,24 @@ test('rule-only tool plugins render their capability routes in the discovery lin
   assert.equal(onlyCodegraph.discoveryLine.includes('用 codegraph'), true);
   assert.equal(onlyCodegraph.discoveryLine.includes('用 serena'), false);
   assert.equal(onlyCodegraph.discoveryLine.includes('用 probe'), false);
+});
+
+test('角色文件按触发场景加载，不作为常驻启动步骤', async () => {
+  const surface = createInstalledSurface({
+    profile: 'full',
+    targets: ['AGENTS.md', '.agents/roles/index.md'],
+  });
+  assert.equal(
+    surface.discoveryLine.includes('只有发生架构决策、独立验证或安全审查等角色触发场景时才按 docs/rules/role-routing.md 选择一个能力匹配的角色并只读其角色文件'),
+    true,
+  );
+  assert.equal(surface.discoveryLine.includes('普通只读、局部实现与聚焦验证不加载角色文件'), true);
+  // The pre-change wording made role loading a startup step for every task.
+  assert.equal(surface.discoveryLine.includes('先识别动作'), false);
+
+  // Generated surface and rule text must not contradict each other.
+  const rule = await readFile(path.join(rootDir, 'docs/rules/role-routing.md'), 'utf8');
+  assert.match(rule, /默认不加载角色文件：普通只读、局部实现和聚焦验证由主 Agent 直接完成/u);
 });
 
 test('AGENTS startup rendering contains no empty numbered entries', async () => {

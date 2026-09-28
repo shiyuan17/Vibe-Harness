@@ -121,14 +121,14 @@ test('verify 在 failed 与 blocked 并存时保持 failed 优先于 blocked', a
 test('verify 默认延迟深层插槽并支持 --tier deep 显式升级', async () => {
   const project = await tempProject();
   try {
-    await writeConfig(project, { lint: 'node -e "process.exit(0)"', eval: 'node -e "process.exit(0)"' });
+    await writeConfig(project, { lint: 'node -e "process.exit(0)"', eval: 'node -e "process.exitCode=0"' });
     const quick = await runCommand(['verify', '--project', '.', '--json'], { cwd: project });
     assert.equal(quick.exitCode, 0);
     assert.equal(quick.report.status, 'passed');
     assert.equal(quick.report.tier, 'quick');
     assert.equal(quick.report.checks.lint.status, 'passed');
     assert.equal(quick.report.checks.eval.status, 'deferred');
-    assert.deepEqual(quick.report.deferredChecks, [{ name: 'eval', tier: 'deep', command: 'node -e "process.exit(0)"' }]);
+    assert.deepEqual(quick.report.deferredChecks, [{ name: 'eval', tier: 'deep', command: 'node -e "process.exitCode=0"' }]);
     assert.equal(quick.report.nextTier, 'deep');
 
     const deep = await runCommand(['verify', '--project', '.', '--tier', 'deep', '--json'], { cwd: project });
@@ -155,7 +155,7 @@ test('verify 按声明的 validationCommands.tiers 解析插槽层级', async ()
       test: 'node -e "process.exit(0)"',
       tiers: { quick: [], standard: [], deep: ['node -e "process.exit(0)"'] },
     });
-    const quick = await runCommand(['verify', '--project', '.', '--json'], { cwd: project });
+    const quick = await runCommand(['verify', '--project', '.', '--tier', 'quick', '--json'], { cwd: project });
     assert.equal(quick.report.status, 'unverified');
     assert.equal(quick.report.checks.test.status, 'deferred');
     assert.deepEqual(quick.report.deferredChecks, [{ name: 'test', tier: 'deep', command: 'node -e "process.exit(0)"' }]);
