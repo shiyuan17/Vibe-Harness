@@ -261,7 +261,12 @@ test('verify --project terminates a hanging command and returns a structured tim
         assert.equal(payload.results.lint.timeoutMs, 1000);
         assert.equal(payload.results.lint.verificationId, payload.verification.id);
         assert.equal(payload.results.lint.next.command, 'vibe-harness verify --project .');
-        assert.equal(JSON.stringify(payload).includes(target), false);
+        // Name the offending slice so a platform-specific leak is diagnosable
+        // from the CI log instead of only reporting "the payload contains it".
+        const serialized = JSON.stringify(payload);
+        const leakAt = serialized.indexOf(target);
+        assert.equal(leakAt, -1, leakAt < 0 ? undefined
+          : `payload leaked the project path: ...${serialized.slice(Math.max(0, leakAt - 120), leakAt + target.length + 60)}...`);
         return true;
       },
     );

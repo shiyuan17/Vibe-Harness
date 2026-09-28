@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -358,7 +358,11 @@ test('端口与 env 事实按补齐状态报告，不参与 merge-back 判定', 
 });
 
 async function makeGitFixture() {
-  const root = await mkdtemp(path.join(tmpdir(), 'vibe-worktree-'));
+  // The runtime reports canonical paths, and `git worktree` does the same. A raw
+  // `mkdtemp` path can be an 8.3 alias (`RUNNER~1`) or a junction on Windows, and
+  // the expectations below compare `pathKey` values, so the fixture root has to
+  // be the canonical directory.
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), 'vibe-worktree-')));
   const repo = path.join(root, 'repo');
   const worktreePath = path.join(root, 'repo-worktrees', 'ENG-1');
   await mkdir(repo);
