@@ -1319,9 +1319,9 @@ test('interpreter inline code write attempts hit the write gates they used to by
     ["python -c \"open('vibe-harness.config.json', 'w').close()\"", 'CONTROL_PLANE_WRITE'],
     ["node -e \"writeFileSync('vibe-harness.config.json')\"", 'CONTROL_PLANE_WRITE'],
     ["node -e \"write('.codex/config.toml')\"", 'CONTROL_PLANE_WRITE'],
-    // Project-boundary literals inside inline code.
-    ["node -e \"require('fs').writeFileSync('C:/outside-audit.txt', 'x')\"", 'PROJECT_BOUNDARY'],
-    ["python -c \"open('C:/outside-audit.txt', 'w').write('x')\"", 'PROJECT_BOUNDARY'],
+    // Project-boundary literals inside inline code. A drive-letter literal is
+    // only an absolute path where the host says so, so the Windows form is
+    // asserted on Windows and the POSIX form below covers the other runners.
     ["node -e \"writeFileSync('/etc/hosts')\"", 'PROJECT_BOUNDARY'],
     // In-place text processors contribute their file operands.
     ["sed -i 's/a/b/' .env", 'RED_ZONE'],
@@ -1342,6 +1342,21 @@ test('interpreter inline code write attempts hit the write gates they used to by
     const decision = evaluate(command);
     assert.equal(decision.action, 'deny', command);
     assert.equal(decision.reasonCode, reasonCode, command);
+  }
+
+  // `C:/outside-audit.txt` is absolute only on Windows. On POSIX it names a
+  // directory called `C:` inside the project, so the same literal is an in-project
+  // write there and must not be reported as a boundary violation.
+  const driveLetter = ["node -e \"require('fs').writeFileSync('C:/outside-audit.txt', 'x')\"",
+    "python -c \"open('C:/outside-audit.txt', 'w').write('x')\""];
+  for (const command of driveLetter) {
+    const decision = evaluate(command);
+    if (process.platform === 'win32') {
+      assert.equal(decision.action, 'deny', command);
+      assert.equal(decision.reasonCode, 'PROJECT_BOUNDARY', command);
+    } else {
+      assert.equal(decision.action, 'allow', command);
+    }
   }
 });
 

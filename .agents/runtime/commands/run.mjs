@@ -4284,7 +4284,13 @@ export async function runCommand(argv, { cwd = process.cwd() } = {}) {
   const args = parseArgs(argv);
   const command = args.help ? 'help' : (args._[0] ?? 'help');
   if (args.output && !['json', 'summary'].includes(args.output)) throw new Error(`Unknown output format: ${args.output}`);
-  const projectDir = path.resolve(cwd, args.project ?? '.');
+  // Windows exposes aliases for the same directory: 8.3 short names
+  // (`RUNNER~1`), junctions and symlinked checkouts. The typed path and the
+  // real path then differ as strings, so every derived path (worktree targets,
+  // registry entries, env files) and every containment comparison has to start
+  // from the canonical directory instead of the alias the caller typed.
+  const requestedProjectDir = path.resolve(cwd, args.project ?? '.');
+  const projectDir = safeRealpath(requestedProjectDir) ?? requestedProjectDir;
   let report;
   if (command === 'env') report = await envReport(projectDir);
   else if (command === 'context') report = { schemaVersion: SCHEMA_VERSION, command, status: 'ready', ...(await projectContext(projectDir)) };

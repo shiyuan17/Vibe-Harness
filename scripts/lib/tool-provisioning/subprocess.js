@@ -1,4 +1,5 @@
 import { execFile, spawn } from 'node:child_process';
+import { realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -52,7 +53,17 @@ function sensitiveDiagnosticKey(key) {
 export function redactDiagnosticText(value, targetDir) {
   if (!value) return '';
   const projectPath = path.resolve(targetDir);
-  const projectPaths = [projectPath, projectPath.replaceAll('\\', '/')];
+  // The caller may hold an alias for the project (an 8.3 short name, a junction
+  // or a symlinked checkout) while a child process reports the canonical path, or
+  // the other way round. Redact both spellings, otherwise a diagnostic leaks the
+  // project location just because the two forms differ as strings.
+  const projectVariants = new Set([projectPath]);
+  try {
+    projectVariants.add(realpathSync.native ? realpathSync.native(projectPath) : realpathSync(projectPath));
+  } catch {
+    // An unresolvable path contributes only its literal form.
+  }
+  const projectPaths = [...projectVariants].flatMap((variant) => [variant, variant.replaceAll('\\', '/')]);
   let redacted = sanitizeHttpUrls(value);
   for (const projectVariant of projectPaths) {
     const projectPattern = new RegExp(projectVariant.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'giu');

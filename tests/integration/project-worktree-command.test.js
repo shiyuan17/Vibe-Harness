@@ -45,11 +45,21 @@ async function makeWorkspaceFixture({
   validationCommands = null,
   worktree = {},
 } = {}) {
-  const root = await mkdtemp(path.join(tmpdir(), 'vibe-harness-worktree-command-'));
+  // The runtime reports canonical paths for the project it is pointed at, and
+  // `git worktree list` already does. Resolve the fixture root once so the
+  // expectations here compare the same form the product reports; a raw
+  // `mkdtemp` path can be an 8.3 alias (`RUNNER~1`) or a junction on Windows.
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), 'vibe-harness-worktree-command-')));
   const repo = path.join(root, 'repo');
   await mkdir(path.join(repo, 'frontend/packages/contracts'), { recursive: true });
   await git(repo, ['init', '-q']);
   await git(repo, ['symbolic-ref', 'HEAD', 'refs/heads/main']);
+  // `worktree land` makes a real merge commit through plain `git merge`, which
+  // needs a committer identity from the checkout itself. A clean CI runner has
+  // no global identity, so the fixture records one instead of inheriting the
+  // developer machine's.
+  await git(repo, ['config', 'user.email', 'fixture@example.invalid']);
+  await git(repo, ['config', 'user.name', 'Fixture']);
   await writeFile(path.join(repo, '.gitignore'), gitignore, 'utf8');
   await writeJson(path.join(repo, 'frontend/package.json'), {
     name: 'fixture-frontend',
