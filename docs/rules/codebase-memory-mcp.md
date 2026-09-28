@@ -13,8 +13,8 @@ codebase-memory-mcp 是可选的代码语义图能力，用于跨文件符号关
 
 ## 使用顺序
 
-1. 先运行 `node .agents/runtime/commands/run.mjs codebase-memory status --project . --json` 取 `fresh`、`stale` 或 `missing`。判据是状态戳记录的 HEAD 与当前 HEAD 是否一致，`missing` 也可能表示"有图但没人记录它覆盖哪个提交"。
-2. 任务确实需要语义图且状态不是 `fresh` 时，运行 `node .agents/runtime/commands/run.mjs codebase-memory refresh --project . --write` 重建索引并刷新状态戳；纯文本任务可以直接用 `rg` 推进。
+1. 先运行 `node .agents/runtime/commands/run.mjs codebase-memory status --project . --json` 取 `fresh`、`stale` 或 `missing`。判据是状态戳记录的 HEAD 与当前 HEAD 是否一致，`missing` 也可能表示"有图但没人记录它覆盖哪个提交"。同一任务、同一工作区内沿用已确认的状态，不重复检查；只有 HEAD 变化、refresh 记录变化或跨工作区切换等失效信号才重新检查。
+2. 任务确实需要语义图且状态不是 `fresh` 时，允许先用既有清单/图定位，再用当前源码补齐受影响事实；只有满足 `codegraph.md` 的资源预算条件才运行 `node .agents/runtime/commands/run.mjs codebase-memory refresh --project . --write` 重建索引并刷新状态戳。不自动全量重建，也不把旧图当作当前事实；纯文本任务可以直接用 `rg` 推进。
 3. 用 `search_graph` 定位精确符号，用 `trace_path` 追踪实际调用链，用 `detect_changes` 评估改动影响面，需要全局结构时用 `get_architecture`。
 4. `index_status` 的 `ready` 只说明图可读，`indexed_at` 才是快照时间；不要把 `ready` 当成新鲜度证据，也不要用它替代第 1 步。
 5. 结论必须回到 `get_code_snippet`、`search_code` 或直接读取源码核验，工具结果只是导航线索。

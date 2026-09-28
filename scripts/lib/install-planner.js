@@ -132,7 +132,15 @@ function toolDiscoveryLine(installedProviderModules, { hasProjectScripts = false
   const rtkBoundary = hasPluginCapability(installedProviderModules, 'shell.output-compression')
     ? ' RTK 只压缩符合条件的 Shell 输出，不参与检索工具选择。'
     : '';
-  return '先按问题类型选工具：' + routes.join('；') + '。' + rtkBoundary;
+  // One route per question, not one route per tool: naming every capability in
+  // the same turn is what pushes agents to run several index tools to prove the
+  // same fact. The default is a single best-matching entry, and the freshness
+  // sentence stops the same task/workspace from re-checking an index it just
+  // confirmed.
+  return '先按问题类型选工具，默认只用一个与当前问题最匹配的入口：' + routes.join('；') + '。'
+    + '同一任务、同一工作区内已确认新鲜的索引不重复检查；索引陈旧时先用旧图定位，'
+    + '再用当前源码补齐受影响事实，不自动全量重建，也不把旧图当作当前事实。'
+    + rtkBoundary;
 }
 
 export function createInstalledSurface({ clarificationPosture = 'balanced', customModules = false, hookConfigTargets = [], memoryPath = '.agents/memory', profile, projectRuleSources = [], ruleIndex = [], skillRoots = [], targets }) {
@@ -228,7 +236,10 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
   }
   installedSurface.discoveryLine = toolDiscoveryLine(installedProviderModules, { hasProjectScripts });
   if (hasRoles) {
-    installedSurface.discoveryLine += ' 按 docs/rules/role-routing.md 先识别动作，再选一个能力匹配的角色并只读其角色文件；阶段变化重选。';
+    // Role files are optional context, not a startup step: loading one on every
+    // read-only or local task costs tokens and buys nothing. Selection stays
+    // available for the actions that actually need a second perspective.
+    installedSurface.discoveryLine += ' 只有发生架构决策、独立验证或安全审查等角色触发场景时才按 docs/rules/role-routing.md 选择一个能力匹配的角色并只读其角色文件；普通只读、局部实现与聚焦验证不加载角色文件。';
     installedSurface.rulesLine += ' 多角色索引位于 .agents/roles/index.md。';
   }
   if (installedIntegrationSkills.length > 0) {

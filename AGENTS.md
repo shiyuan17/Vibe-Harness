@@ -52,7 +52,7 @@ TypeScript 配置、类型声明、JSDoc 类型契约，或完成主张涉及类
 2. 长任务（预计执行超过 60 分钟，或发生第一次上下文压缩）先用 `node .agents/runtime/commands/run.mjs task init --project <path> --write` 建立状态锚点（收据在 `.vibe-harness/tasks/`，复验用 `run.mjs verify --reuse`）；再次压缩前必须先更新锚点；命中 Skill 触发场景时先读该 Skill 的 `SKILL.md` 再行动。
 3. 仅当需要恢复项目状态且已获授权时读 Memory body，从 `.agents/memory/CURRENT.md` 唯一入口恢复；治理真值按它引用的 `docs/memory/PROJECT_STATE.md` 读取，不复制其内容。 专项 Skill 限制 Memory 证据边界时，只确认路径存在与元数据，不读正文。
 4. 编辑前运行 `git status --short`，保护用户未归属改动。
-5. 先按问题类型选工具：单文件文本、配置和日志使用 rg 与直接文件阅读。 按 docs/rules/role-routing.md 先识别动作，再选一个能力匹配的角色并只读其角色文件；阶段变化重选。
+5. 先按问题类型选工具，默认只用一个与当前问题最匹配的入口：单文件文本、配置和日志使用 rg 与直接文件阅读。同一任务、同一工作区内已确认新鲜的索引不重复检查；索引陈旧时先用旧图定位，再用当前源码补齐受影响事实，不自动全量重建，也不把旧图当作当前事实。 只有发生架构决策、独立验证或安全审查等角色触发场景时才按 docs/rules/role-routing.md 选择一个能力匹配的角色并只读其角色文件；普通只读、局部实现与聚焦验证不加载角色文件。
 6. 将任务归为快速、轻量或完整，并选择与主张匹配的验证。
 7. 使用“获取可信事实 → 判定并执行 → 聚焦验证 → 简洁交付”的单一路径；宿主按 description 直接选择领域 Skill。
 ## 硬边界
