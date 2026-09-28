@@ -21,6 +21,15 @@ function toPosix(value) {
   return String(value ?? '').replaceAll('\\', '/');
 }
 
+// Locale-aware collation depends on the host locale, so the same run produced a
+// different order on the CI runner than in a zh-CN shell and the emitted
+// manifest stopped being a stable artifact. Comparing code units keeps the
+// manifest reproducible everywhere (docs/rules/test-rules.md §用例约定).
+function compareText(left, right) {
+  if (left === right) return 0;
+  return left < right ? -1 : 1;
+}
+
 /**
  * Reduce a `test:pass` / `test:fail` event to a ledger-comparable case record.
  *
@@ -60,7 +69,7 @@ export default class TestCaseReporter extends Transform {
 
   _flush(callback) {
     const cases = [...this.#cases].sort((left, right) => (
-      left.file === right.file ? left.name.localeCompare(right.name) : left.file.localeCompare(right.file)
+      left.file === right.file ? compareText(left.name, right.name) : compareText(left.file, right.file)
     ));
     this.push(`${JSON.stringify({ schemaVersion: 1, cases }, null, 2)}\n`);
     callback();

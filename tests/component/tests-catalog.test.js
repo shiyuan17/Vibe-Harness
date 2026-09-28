@@ -155,9 +155,12 @@ test('reporter 产出的运行时清单与台账比对语义一致', async () =>
       'tests/unit/fixture.test.js',
     ], { cwd: dir, env: detachedTestEnv(), windowsHide: true });
     const document = JSON.parse(await readFile(observed, 'utf8'));
+    // Counted in code units so the manifest stays byte-stable across host
+    // locales: '乙' (U+4E59) sorts before '甲' (U+7532), and neither depends on
+    // whether the runner collates Chinese by pinyin (zh) or by code point (en).
     assert.deepEqual(document.cases, [
-      { file: 'tests/unit/fixture.test.js', name: '运行时枚举的用例甲' },
       { file: 'tests/unit/fixture.test.js', name: '运行时枚举的用例乙' },
+      { file: 'tests/unit/fixture.test.js', name: '运行时枚举的用例甲' },
     ]);
   } finally {
     await removeTemporaryDirectory(dir);
