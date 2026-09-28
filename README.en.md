@@ -220,9 +220,7 @@ ZCode project Skill storage has no documented project-scoped path, so Vibe-Harne
     "repetitions": 3
   },
   "hooks": {
-    "allowedWriteRoots": [],
-    "allowedEgressHosts": [],
-    "mode": "guarded"
+    "allowedEgressHosts": []
   },
   "riskZones": {
     "red": ["auth", "secrets", "ci-cd", "env"],

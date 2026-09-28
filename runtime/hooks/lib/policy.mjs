@@ -556,7 +556,7 @@ function classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts 
       || referencesGlobalAgentConfig(canonicalCandidate)
       || !isInsideAny(canonicalRoots, canonicalCandidate)
     ) {
-      return risk('deny', 'PROJECT_BOUNDARY', '写入目标超出项目边界，已拒绝。请把写入限制在项目目录或已授权的附加目录内。');
+      return risk('deny', 'PROJECT_BOUNDARY', '写入目标超出项目边界，已拒绝。请把写入限制在项目目录内；需要写入 worktree 时，以该 worktree 为会话根（cwd）重开会话。');
     }
   }
   const touchesRedZone = redZonePattern

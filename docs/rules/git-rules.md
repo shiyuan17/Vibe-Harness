@@ -121,7 +121,7 @@ Vibe-Harness 自身使用 Conventional Commits、commitlint、pre-commit、pre-p
 - 多 worktree 并发时端口按登记表分段：`worktree.ports` 声明 `base`、`blockSize`、`variables` 与 `envFile`，主检出保留 `[base, base+blockSize-1]`，第 n 个 worktree 占用 `[base+n*blockSize, base+(n+1)*blockSize-1]`，块内第 i 个变量取 `blockStart+i`。分配结果写入主检出 `.vibe-harness/worktree-ports.json`，并由 `.vibe-harness/worktree-ports.lock` 独占锁串行化；锁等待超时即 fail-closed，不自动清理残留锁。端口冲突只按登记表与声明事实判定，不调用 `netstat`/`lsof` 推断分配。
 - worktree 环境补齐是声明式的：`worktree.provision.setupCommands` 与 `envFiles` 由 `bootstrap` 按「worktree add → 依赖链接 → 端口分配与 env 文件 → 声明的 envFiles 落地 → 声明的 setupCommands → 工具链探针」执行，默认只出计划、追加 `--write` 才落盘，目标命中 `hooks.redZonePaths` 时还需 `--confirm-red-zone`。
 - 主检出缺少依赖（依赖根的 `node_modules` 不存在）时 `bootstrap` 以 `blocked` 结束并给出建议命令，不静默继续；仅当声明 `setupCommands` 时才允许 worktree 自行补齐依赖，此时 setup 先于依赖链接执行。`worktree check` 只核对文件系统事实（依赖链接 realpath、env 文件与登记表一致），不推断某条命令是否执行过。
-- 宿主必须把 worktree 根登记为附加工作区根（Codex 的 workspace roots 或等价配置），否则该 worktree 内的写入会被宿主边界策略拒绝；不得以内联脚本、临时目录或改写路径触发方式绕过宿主边界。
+- worktree 内的写入只能由以该 worktree 为会话根（会话 cwd 即 worktree 根）的 Agent 完成；宿主边界策略的可写范围是项目根，主检出会话不得跨根写入 worktree；不得以内联脚本、临时目录或改写路径触发方式绕过宿主边界。
 - merge-back 完成前不清理 worktree 或删除分支；闭环回收按 `worktree land` 的步骤顺序执行——推送先于 worktree 清理，分支删除仅在推送成功后。
 - 清理前确认 worktree 无未提交改动，并先用 `git worktree remove` 再用 `git worktree prune`。
 - 使用 `git worktree list --porcelain -z` 获取可机器解析的 worktree 清单。

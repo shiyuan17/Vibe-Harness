@@ -1084,7 +1084,7 @@ export const CONTENT_QUALITY_CHECKS = [
       // Worktree 引导与清理：脚本入口、默认只读、依赖链接断言与宿主边界前提。
       '默认只读，只有追加 `--write` 才落盘',
       '逐项 realpath 断言',
-      '宿主必须把 worktree 根登记为附加工作区根',
+      'worktree 内的写入只能由以该 worktree 为会话根',
       '不得以内联脚本、临时目录或改写路径触发方式绕过宿主边界',
       // 端口分段与声明式环境补齐：并发 worktree 的端口与依赖事实必须可核对。
       '多 worktree 并发时端口按登记表分段',

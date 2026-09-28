@@ -220,9 +220,7 @@ ZCode 尚未公开项目级 Skill 的磁盘路径，因此 Vibe-Harness 不会�
     "repetitions": 3
   },
   "hooks": {
-    "allowedWriteRoots": [],
-    "allowedEgressHosts": [],
-    "mode": "guarded"
+    "allowedEgressHosts": []
   },
   "riskZones": {
     "red": ["auth", "secrets", "ci-cd", "env"],
