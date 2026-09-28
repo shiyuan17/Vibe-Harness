@@ -6,11 +6,11 @@
 
 项目阶段、技术债与决策经本文件引用 `docs/memory/PROJECT_STATE.md` 读取，不在此复制其内容；本文件只记录任务级恢复线索。
 
-- 目标: 在 codex/governance-audit-batch 上按 git 规范分批提交并推送本轮规则与验证改进（codegraph 证据复用与降级边界、warm 环境复用契约、L0-L6 层级表述、十二层责任地图、GC 覆盖 docs/rules、离线 reference 指纹刷新）
-- 当前状态: 6 个提交已落地（a8b5747 codegraph 规则与路由用例、381dd1a warm 复用契约、84016c8 L0-L6 表述、d0c2169 十二层责任地图、6e0dff8 GC 覆盖 docs/rules、6e25608 reference 指纹刷新）；本记忆提交只做锚点收尾，随后推送
-- 已验证证据: 提交前 `pnpm verify:focused --run` passed、`pnpm check:fast` passed、`pnpm test:integration` 556 pass/0 fail/1 skip、`pnpm docs:audit` 134 文档、`pnpm skills:audit` clean、`pnpm eval:check`/`eval:replay`/`eval:sync`（drift 0）passed；reference 仅 rules 组与 aggregateHash 漂移（rules 5a28ee4c→466701d2、aggregate 5f884e82→e5171e4c），按 CONTRIBUTING 清单经 eval run → eval reference --confirm-reference-update --force（旧文件备份在 .vibe-harness/backups/）→ eval:sync --write → eval:replay --write → eval:behavioral --write 再生成
-- 未完成事项: nightly 模型背书回归（H01/H04/H06/H09）仍未取得证据；本轮规则改动的中间提交不各自通过 eval:check（整树资产指纹只在末次 rules 变更与 reference 同批落地后一致），仅批次末端可比
-- 下一步最小动作: 推送后核对 origin/codex/governance-audit-batch 与本地一致；随后安排 nightly H01–H20 模型背书回归
-- 锚点提交: 6e256089f1240b9b318615bdb50fc0e71cbf1db1
-- 最后更新: 2026-09-26
-- 最后验证: 2026-09-26
+- 目标: 把治理批次按 git 规范分批提交推送，先开 PR 合并到 develop（PR #31），再按正常策略经 develop → main 合并到 main
+- 当前状态: 已建 develop 分支（基于 main 17fb8f3）并推送；PR #31 head=codex/governance-audit-batch、base 已改为 develop；本批 6 个提交已推送（db02a2a 墙钟规划契约、9c32cac v3 回执与运营指标、8ef5a50 develop required gate 规则、ea4f93b develop CI required gate、ef3dbc6 规划/回执/计划校验用例、79ccf5c 离线 reference 与运行指纹刷新）；ruleset 已收敛（main 20501924 只留 product+merge-gate，develop 24096092 新建 required merge-gate）
+- 已验证证据: 79ccf5c 之前于 ef3dbc6 上 `pnpm check:fast` passed（lint 285 文件、typecheck、unit 175/175）、`pnpm test:integration` 575 用例 574 pass/1 skip/0 fail、`pnpm skills:audit`、`pnpm docs:audit`、`pnpm tests:catalog check` 通过；本轮 eval run 后按 CONTRIBUTING 清单提升 reference（漂移分组 config/rules/skills，aggregate 54f97ffd、config e9e6e5eb/42、rules bbc138c2/50、skills 1ea95470/128），旧文件备份在 .vibe-harness/backups/，随后 eval:sync --write（drift 0）、eval:replay --write、eval:behavioral --write、eval:check passed
+- 未完成事项: 独立复审收据（independent review 已 required）须由独立审查者产出，尚未指定审查者；PR #31 的 merge-gate 需新 push 触发才能读到新正文；develop → main 的 PR 尚未开；nightly 模型背书回归（H01/H04/H06/H09）仍未取得证据
+- 下一步最小动作: 推送本批后核对 origin/codex/governance-audit-batch 与本地一致，`gh pr checks 31` 观察 branch policy 与 merge-gate；取得独立复审收据后合并至 develop，再开 develop → main
+- 锚点提交: 79ccf5c8c8c23cf7a0a73284e867dc423d0f04e9
+- 最后更新: 2026-09-28
+- 最后验证: 2026-09-28
