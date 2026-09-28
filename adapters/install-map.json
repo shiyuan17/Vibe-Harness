@@ -348,6 +348,18 @@
     },
     {
       "group": "runtime-project-scripts",
+      "source": "runtime/lib/verification-plan.mjs",
+      "target": ".agents/runtime/lib/verification-plan.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
+      "source": "runtime/lib/verification-receipt.mjs",
+      "target": ".agents/runtime/lib/verification-receipt.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
       "source": "runtime/lib/git-fingerprint.mjs",
       "target": ".agents/runtime/lib/git-fingerprint.mjs",
       "contentStrategy": "replace"

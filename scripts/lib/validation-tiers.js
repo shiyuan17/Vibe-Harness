@@ -7,10 +7,13 @@
 // owns the tier vocabulary, the conservative derivation from project facts and
 // the scheduling states used by the async deep receipt.
 
-import { readdir, readFile } from 'node:fs/promises';
-import path from 'node:path';
-
-import { pathExists } from './manifest.js';
+import {
+  deriveVerificationTiers,
+  readVerificationTierFacts,
+  resolveVerificationTiers,
+  selectVerificationChecks,
+  verificationCheckId,
+} from '../../runtime/lib/verification-plan.mjs';
 
 /** @typedef {'quick'|'standard'|'deep'} ValidationTier */
 
@@ -35,37 +38,6 @@ export const VALIDATION_TIER_BLOCKING_SCOPE = Object.freeze({
   quick: 'quick 失败阻塞当前实施单元',
   standard: 'standard 失败阻塞合并或完成声明',
   deep: 'deep 失败阻塞集成、发布或依赖该证据的完成声明',
-});
-
-/**
- * Derivation order per tier. The order is the declared contract: `quick` starts
- * with static checks and the unit/component layers, `standard` holds the
- * integration boundaries, and `deep` holds the end-to-end, matrix, smoke,
- * performance and benchmark suites.
- */
-const TIER_SCRIPT_PATTERNS = Object.freeze({
-  quick: [/^lint$/u, /^(?:check:type|typecheck|ts:check)$/u, /^test:unit$/u, /^test:component$/u],
-  standard: [/^test:integration$/u, /^test:contract$/u, /^test:api$/u],
-  deep: [
-    /^test:e2e$/u,
-    /^test:matrix$/u,
-    /^test:smoke$/u,
-    /^smoke(?::[^\s]+)?$/u,
-    /^test:perf$/u,
-    /^bench(?::[^\s]+)?$/u,
-  ],
-});
-
-/**
- * Explicitly configured commands keep working, so they also seed a tier: the
- * static/unit commands stay on the fast loop and the eval contract replay joins
- * the deferred layer.
- */
-const CONFIGURED_COMMAND_TIERS = Object.freeze({
-  lint: 'quick',
-  typecheck: 'quick',
-  test: 'quick',
-  eval: 'deep',
 });
 
 /** @returns {{quick: string[], standard: string[], deep: string[]}} */
@@ -119,12 +91,6 @@ export function validationTiersEmpty(tiers) {
   return VALIDATION_TIERS.every((tier) => (tiers?.[tier] ?? []).length === 0);
 }
 
-function packageScriptCommand(packageManager, scriptName) {
-  if (packageManager === 'npm') return scriptName === 'test' ? 'npm test' : `npm run ${scriptName}`;
-  if (packageManager === 'yarn') return `yarn ${scriptName}`;
-  return `${packageManager} ${scriptName}`;
-}
-
 /**
  * Derive tiers from the project's own facts.
  *
@@ -135,40 +101,8 @@ function packageScriptCommand(packageManager, scriptName) {
  *
  * @param {{packageManager?: string, scripts?: Record<string, any>, configuredCommands?: Record<string, any>, stacks?: {maven?: boolean, dotnet?: boolean}}} facts
  */
-export function deriveValidationTiers({
-  packageManager = 'pnpm',
-  scripts = {},
-  configuredCommands = {},
-  stacks = {},
-} = {}) {
-  const tiers = emptyValidationTiers();
-  const reasons = emptyValidationTiers();
-  const add = (tier, command, reason) => {
-    const value = typeof command === 'string' ? command.trim() : '';
-    if (!value || tiers[tier].includes(value)) return;
-    tiers[tier].push(value);
-    reasons[tier].push(`${value} ← ${reason}`);
-  };
-
-  for (const [name, tier] of Object.entries(CONFIGURED_COMMAND_TIERS)) {
-    add(tier, configuredCommands?.[name], `vibe-harness.config.json validationCommands.${name}`);
-  }
-  const scriptNames = Object.keys(scripts ?? {}).filter((name) => typeof scripts[name] === 'string');
-  for (const tier of VALIDATION_TIERS) {
-    for (const pattern of TIER_SCRIPT_PATTERNS[tier]) {
-      for (const scriptName of scriptNames) {
-        if (pattern.test(scriptName)) add(tier, packageScriptCommand(packageManager, scriptName), `package.json scripts.${scriptName}`);
-      }
-    }
-  }
-  if (stacks.maven) {
-    add('standard', 'mvn test', 'pom.xml');
-    add('deep', 'mvn verify', 'pom.xml');
-  }
-  if (stacks.dotnet) {
-    add('standard', 'dotnet test', 'solution/csproj');
-  }
-  return { reasons, tiers };
+export function deriveValidationTiers(facts = {}) {
+  return deriveVerificationTiers(facts);
 }
 
 /**
@@ -183,18 +117,19 @@ export function resolveValidationTiers({ configuredTiers, derived } = {}) {
     : null;
   const derivedTiers = normalizeValidationTiers(derived?.tiers);
   const derivedReasons = derived?.reasons ?? emptyValidationTiers();
-  const tiers = emptyValidationTiers();
+  const tiers = resolveVerificationTiers({
+    config: { validationCommands: { tiers: configured ?? {} } },
+    derived: derivedTiers,
+  });
   const tierReasons = emptyValidationTiers();
 
   for (const tier of VALIDATION_TIERS) {
     if (configured && Object.hasOwn(configured, tier)) {
-      tiers[tier] = normalizeValidationTiers({ [tier]: configured[tier] })[tier];
       tierReasons[tier] = tiers[tier].length > 0
         ? tiers[tier].map((command) => `${command} ← vibe-harness.config.json validationCommands.tiers.${tier}`)
         : ['显式配置为空数组，该层被禁用'];
       continue;
     }
-    tiers[tier] = [...derivedTiers[tier]];
     tierReasons[tier] = [...(derivedReasons[tier] ?? [])];
   }
 
@@ -204,68 +139,8 @@ export function resolveValidationTiers({ configuredTiers, derived } = {}) {
   return { tierReasons, tierSource, tiers };
 }
 
-async function readJsonIfExists(filePath) {
-  if (!(await pathExists(filePath))) return null;
-  try {
-    return JSON.parse(await readFile(filePath, 'utf8'));
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Bounded stack scan for the tier derivation.
- *
- * `init` runs before anything else exists, so it cannot reuse the project
- * profile. The scan stays shallow and marker-based: a root-level pom.xml, or a
- * solution/project file in the first two levels. Anything deeper would make
- * `init` walk an arbitrary tree to answer a question about declared commands.
- */
-async function hasDotnetMarker(targetDir) {
-  const marker = /\.(?:sln|csproj)$/iu;
-  for (const directory of [targetDir, ...(await listDirectories(targetDir))]) {
-    let entries;
-    try {
-      entries = await readdir(directory, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    if (entries.some((entry) => entry.isFile() && marker.test(entry.name))) return true;
-  }
-  return false;
-}
-
-async function listDirectories(targetDir) {
-  try {
-    const entries = await readdir(targetDir, { withFileTypes: true });
-    return entries
-      .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules')
-      .map((entry) => path.join(targetDir, entry.name));
-  } catch {
-    return [];
-  }
-}
-
-/** @param {string} targetDir */
-export async function readProjectTierFacts(targetDir) {
-  const pkg = await readJsonIfExists(path.join(targetDir, 'package.json'));
-  const declaredManager = typeof pkg?.packageManager === 'string' ? pkg.packageManager.split('@')[0] : null;
-  const scripts = pkg && typeof pkg.scripts === 'object' && pkg.scripts !== null ? pkg.scripts : {};
-  const [hasPnpmLock, hasYarnLock, hasNpmLock, hasMaven] = await Promise.all([
-    pathExists(path.join(targetDir, 'pnpm-lock.yaml')),
-    pathExists(path.join(targetDir, 'yarn.lock')),
-    pathExists(path.join(targetDir, 'package-lock.json')),
-    pathExists(path.join(targetDir, 'pom.xml')),
-  ]);
-  return {
-    packageManager: declaredManager
-      ?? (hasPnpmLock ? 'pnpm' : (hasYarnLock ? 'yarn' : (hasNpmLock ? 'npm' : (pkg ? 'npm' : null)))),
-    scripts,
-    stacks: {
-      dotnet: await hasDotnetMarker(targetDir),
-      maven: hasMaven,
-    },
-  };
+export async function readProjectTierFacts(targetDir, fallbackManager = undefined) {
+  return readVerificationTierFacts(targetDir, fallbackManager);
 }
 
 /**
@@ -375,47 +250,18 @@ export function resolveExecutionTier({ explicit = false, tier = null, tiers = nu
  * @param {string} command @param {Record<string, any>} commandStatus
  */
 export function checkIdForCommand(command, commandStatus = {}) {
-  for (const [name, item] of Object.entries(commandStatus ?? {})) {
-    if (item?.command === command) return name;
-  }
-  const slug = String(command).trim()
-    .replace(/^(?:pnpm|npm|yarn|npx|node)\s+(?:run\s+)?/u, '')
-    .replace(/[^\p{L}\p{N}]+/gu, '-')
-    .replace(/^-+|-+$/gu, '')
-    .toLowerCase();
-  return slug || 'check';
+  return verificationCheckId(command, commandStatus);
 }
 
 /**
  * Select the commands a tier run executes and the checks it defers.
  *
- * @param {{tier: 'quick'|'standard'|'deep', tiers: any, commandStatus?: Record<string, any>}} options
+ * @param {{tier: 'quick'|'standard'|'deep', tiers: any, commandStatus?: Record<string, any>, metadata?: any[], projectDir?: string, only?: string[]|null}} options
  */
-export function selectTierChecks({ tier, tiers, commandStatus = {} }) {
-  const active = new Set(cumulativeTierNames(tier));
-  const normalized = normalizeValidationTiers(tiers);
-  const selectedChecks = [];
-  const deferredChecks = [];
-  const seen = new Set();
-  for (const name of VALIDATION_TIERS) {
-    for (const command of normalized[name]) {
-      const id = checkIdForCommand(command, commandStatus);
-      if (seen.has(id)) continue;
-      seen.add(id);
-      const check = {
-        id,
-        blockingScope: VALIDATION_TIER_BLOCKING_SCOPE[name],
-        command,
-        costTier: name,
-        reason: `${name} 层验证命令`,
-        // A configured command that the project cannot run (missing script,
-        // manual entry) must still block instead of being executed blindly:
-        // the tier selection carries the inspected status through.
-        ...(commandStatus?.[id]?.status ? { status: commandStatus[id].status } : {}),
-      };
-      if (active.has(name)) selectedChecks.push(check);
-      else deferredChecks.push(check);
-    }
-  }
-  return { deferredChecks, selectedChecks };
+export function selectTierChecks({
+  tier, tiers, commandStatus = {}, metadata = [], projectDir = undefined, only = null,
+}) {
+  return selectVerificationChecks({
+    tier, tiers: normalizeValidationTiers(tiers), commandStatus, metadata, projectDir, only,
+  });
 }

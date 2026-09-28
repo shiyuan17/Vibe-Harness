@@ -23,6 +23,10 @@ import { promisify } from 'node:util';
 import { runMicroCheck } from '../lib/micro-runner.mjs';
 import { gitFingerprint, gitSnapshot } from '../lib/git-fingerprint.mjs';
 import { parseLinearPlanBlock } from '../lib/linear-planning.mjs';
+import {
+  resolveVerificationTiers, selectVerificationChecks, verificationChanges, verificationCheckEvidence, verificationContextEnvironment, verificationCwd,
+} from '../lib/verification-plan.mjs';
+import { findVerificationReceipt, storeVerificationReceipt, verificationCacheContext } from '../lib/verification-receipt.mjs';
 
 import { parseWorktreeList, pathKey, resolveWorktreeRoot, summarizeWorktreeAudit, validateWorktrees } from '../lib/worktree-audit.mjs';
 import {
@@ -59,10 +63,6 @@ const VERIFY_TIERS = ['quick', 'standard', 'deep'];
 const VERIFY_SCOPES = ['affected', 'layer', 'full'];
 const DEFAULT_VERIFY_SCOPE = 'layer';
 const DEFAULT_VERIFY_TIER = 'quick';
-// Slot cost tiers when the project declares no validationCommands.tiers: the
-// eval slot replays the offline reference suite, which governance-core.md
-// places in the deep layer, so it is deferred rather than run by default.
-const DEFAULT_SLOT_TIERS = { lint: 'quick', typecheck: 'quick', test: 'quick', eval: 'deep' };
 // Report statuses that map to wrapper exit code 0.
 const PASS_STATUSES = ['passed', 'ready', 'planned', 'reused'];
 const CONFIG_FILE = 'vibe-harness.config.json';
@@ -144,6 +144,13 @@ function parseArgs(argv) {
     const raw = token.slice(2);
     const equals = raw.indexOf('=');
     const key = equals >= 0 ? raw.slice(0, equals) : raw;
+    if (key === 'paths') {
+      const values = [];
+      while (index + 1 < argv.length && !argv[index + 1].startsWith('--')) values.push(argv[++index]);
+      if (!values.length) throw new Error('--paths requires at least one path.');
+      args.paths = [...(args.paths ?? []), ...values];
+      continue;
+    }
     if (equals === -1 && booleanFlags.has(key)) {
       // `--no-*` flags turn their aliased key off; every other flag turns on.
       const offFlags = new Set(['no-numbers', 'no-verify']);
@@ -291,7 +298,7 @@ function timeoutValue(value) {
     : DEFAULT_TIMEOUT_MS;
 }
 
-function configuredChecks(config) {
+function configuredChecks(config, projectDir = undefined) {
   const raw = config?.validationCommands;
   if (raw === undefined) return { commands: {}, error: null };
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
@@ -304,7 +311,16 @@ function configuredChecks(config) {
     if (typeof value !== 'string') return { commands: {}, error: `validationCommands.${name} must be a string or null.` };
     commands[name] = value.trim();
   }
-  return { commands, error: null };
+  if (projectDir) {
+    try {
+      const plan = resolveVerifyTierPlan({ commands, config, tier: 'deep', only: null, projectDir, explicit: true });
+      for (const check of plan.allChecks) commands[check.id] = check.command;
+      return { commands, definitions: Object.fromEntries(plan.allChecks.map((check) => [check.id, check])), error: null };
+    } catch (error) {
+      return { commands, error: error.message };
+    }
+  }
+  return { commands, definitions: {}, error: null };
 }
 
 function parseVerifyTier(value) {
@@ -321,44 +337,27 @@ function parseVerifyScope(value) {
   throw new Error(`--scope must be one of ${VERIFY_SCOPES.join(', ')}; received ${JSON.stringify(value)}.`);
 }
 
-function activeTierNames(tier) {
-  return VERIFY_TIERS.slice(0, VERIFY_TIERS.indexOf(tier) + 1);
-}
-
-// Slot cost tiers come from the project's declared validationCommands.tiers
-// arrays (exact command-string match) with DEFAULT_SLOT_TIERS as the fallback
-// for slots the declaration does not cover. `--only` is an explicit
-// per-check selection and wins over tier deferral.
-function resolveVerifyTierPlan({ commands, tiers, tier, only, projectDir }) {
-  const declared = tiers && typeof tiers === 'object' && !Array.isArray(tiers) ? tiers : null;
-  const slotTiers = {};
-  for (const name of CHECK_ORDER) {
-    if (typeof commands[name] !== 'string') continue;
-    slotTiers[name] = DEFAULT_SLOT_TIERS[name] ?? 'quick';
-    if (!declared) continue;
-    for (const tierName of VERIFY_TIERS) {
-      const list = declared[tierName];
-      if (Array.isArray(list) && list.some((item) => typeof item === 'string' && item.trim() === commands[name])) {
-        slotTiers[name] = tierName;
-        break;
-      }
-    }
+function resolveVerifyTierPlan({ commands, config, tier, only, projectDir, explicit = false }) {
+  const tiers = resolveVerificationTiers({ config, projectDir });
+  const requestedTier = tier;
+  if (!explicit && !only && tiers[tier].length === 0) {
+    tier = VERIFY_TIERS.find((name) => tiers[name].length > 0) ?? tier;
   }
-  const active = new Set(activeTierNames(tier));
-  const selectedNames = [];
-  const deferredChecks = [];
-  for (const name of CHECK_ORDER) {
-    if (typeof commands[name] !== 'string') continue;
-    if (only && !only.includes(name)) continue;
-    if (!only && !active.has(slotTiers[name])) {
-      deferredChecks.push({ name, tier: slotTiers[name], command: displayCommand(commands[name], projectDir) });
-      continue;
-    }
-    selectedNames.push(name);
-  }
-  const nextTier = VERIFY_TIERS.slice(VERIFY_TIERS.indexOf(tier) + 1)
-    .find((name) => deferredChecks.some((item) => item.tier === name)) ?? null;
-  return { tier, slotTiers, selectedNames, deferredChecks, nextTier };
+  const commandStatus = Object.fromEntries(Object.entries(commands).map(([name, command]) => [name, { command }]));
+  const plan = selectVerificationChecks({
+    tier, tiers, commandStatus, metadata: config.validationCommands?.checks ?? [], projectDir, only,
+  });
+  return {
+    ...plan,
+    tier,
+    tierFallback: tier === requestedTier ? null : { from: requestedTier, to: tier, reason: '请求层为空，使用最便宜的非空层' },
+    slotTiers: Object.fromEntries(plan.allChecks.map((check) => [check.id, check.costTier])),
+    selectedNames: plan.selectedChecks.map((check) => check.id),
+    deferredChecks: plan.deferredChecks.map((check) => ({
+      name: check.id, tier: check.costTier, command: check.command,
+      ...(check.cwd !== '.' ? { cwd: check.cwd } : {}),
+    })),
+  };
 }
 
 function manualCommand(command) {
@@ -369,19 +368,23 @@ function displayCommand(command, targetDir) {
   return boundedOutput(command, targetDir);
 }
 
-async function executeCommand(command, targetDir, timeoutMs) {
+async function executeCommand(command, targetDir, timeoutMs, redactionRoot = targetDir, environment = {}) {
   const tokens = assertSafeCommand(command);
   let [program, ...args] = tokens;
   if (process.platform === 'win32' && ['npm', 'pnpm', 'yarn'].includes(program)) {
     program = 'cmd.exe';
     args = ['/c', `${tokens[0]}.cmd`, ...args];
+  } else if (process.platform === 'win32' && ['mvnw.cmd', './mvnw.cmd', '.\\mvnw.cmd'].includes(program)) {
+    if (tokens.some((token) => /[%!\r\n]/u.test(token))) throw new Error('Unsafe Maven Wrapper arguments.');
+    program = 'cmd.exe';
+    args = ['/d', '/c', tokens[0], ...args];
   } else if (program === 'node') {
     program = process.execPath;
   }
   return new Promise((resolve) => {
     const child = spawn(program, args, {
       cwd: targetDir,
-      env: { ...process.env },
+      env: { ...process.env, ...environment },
       shell: false,
       windowsHide: true,
     });
@@ -394,7 +397,7 @@ async function executeCommand(command, targetDir, timeoutMs) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve({ ...result, stdout: boundedOutput(stdout, targetDir), stderr: boundedOutput(stderr, targetDir) });
+      resolve({ ...result, stdout: boundedOutput(stdout, redactionRoot), stderr: boundedOutput(stderr, redactionRoot) });
     };
     const terminate = () => {
       try { child.kill('SIGTERM'); } catch { /* process may already be gone */ }
@@ -447,6 +450,7 @@ async function verificationTaskBinding(projectDir, taskId) {
 }
 
 async function verifyProject(projectDir, args, { planOnly = false } = {}) {
+  const startedAt = new Date().toISOString();
   if (args.micro !== undefined) {
     if (args.tier || args.only || args.async || args.reuse || args.allowManual) {
       return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'blocked', code: 'MICRO_EXCLUSIVE', error: '--micro cannot be combined with --tier, --only, --async, --reuse, or --allow-manual.', checks: {} };
@@ -484,7 +488,13 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
       snapshotComparison: micro.snapshotComparison ?? 'unknown',
     };
   }
-  const taskIdCandidate = args.task?.[0] && TASK_ID_PATTERN.test(args.task[0]) && !WINDOWS_RESERVED_NAMES.test(args.task[0]) ? args.task[0] : null;
+  if (args.task?.[0]) {
+    try { validateTaskId(args.task[0]); }
+    catch (error) {
+      return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'failed', code: error.code, error: error.message, checks: {} };
+    }
+  }
+  const taskIdCandidate = args.task?.[0] ?? null;
   let taskBinding = null;
   if (taskIdCandidate) {
     const planCheck = await taskPlanCheckReport(projectDir, taskIdCandidate);
@@ -502,10 +512,12 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
     taskBinding = await verificationTaskBinding(projectDir, taskIdCandidate);
   }
   const configInfo = await readJsonIfExists(path.join(projectDir, CONFIG_FILE));
+  if (configInfo.error) {
+    return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'blocked', error: configInfo.error, checks: {} };
+  }
   const config = configInfo.value && typeof configInfo.value === 'object' ? configInfo.value : {};
   const configured = configuredChecks(config);
   const only = args.only;
-  const unknownOnly = only?.filter((name) => !CHECK_ORDER.includes(name)) ?? [];
   const timeoutMs = timeoutValue(args.timeout ?? config.verification?.timeoutMs);
   let scope;
   try {
@@ -553,22 +565,38 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
   if (configured.error) {
     return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'failed', error: configured.error, checks: {} };
   }
-  if (unknownOnly.length > 0) {
-    return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'failed', error: `Unknown checks: ${unknownOnly.join(', ')}`, checks: {} };
-  }
   if (only && only.length === 0) {
     return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'failed', error: '--only requires at least one check.', checks: {} };
   }
-  const tierPlan = resolveVerifyTierPlan({
-    commands: configured.commands,
-    tiers: config?.validationCommands?.tiers,
-    tier,
-    only,
-    projectDir,
-  });
+  let tierPlan;
+  let changeScope;
+  try {
+    changeScope = verificationChanges(projectDir, { paths: args.paths, base: args.base });
+    tierPlan = resolveVerifyTierPlan({
+      commands: configured.commands,
+      config,
+      tier,
+      only,
+      projectDir,
+      explicit: args.tier !== undefined,
+    });
+  } catch (error) {
+    return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'failed', error: error.message, checks: {} };
+  }
+  const checkOrder = [...new Set([...tierPlan.allChecks.map((check) => check.id), ...CHECK_ORDER])];
+  const checkMetadata = new Map(tierPlan.allChecks.map((check) => [check.id, check]));
+  for (const check of tierPlan.allChecks) configured.commands[check.id] = check.command;
   const selectedNames = tierPlan.selectedNames;
   const deferredNames = new Set(tierPlan.deferredChecks.map((item) => item.name));
-  if (args.async) {
+  if (scope === 'affected' && changeScope.selectionMode === 'changed' && changeScope.changedPaths.length === 0) {
+    return {
+      schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify',
+      status: planOnly ? 'planned' : 'unverified', noChanges: true, scope, ...changeScope,
+      tier: tierPlan.tier, checks: {}, selectedChecks: [], skippedChecks: tierPlan.selectedChecks.map((check) => ({ id: check.id, reason: 'empty-change-scope' })),
+      deferredChecks: [], nextTier: null, cache: { status: 'not_requested' },
+    };
+  }
+  if (args.async && !planOnly) {
     if (tier !== 'deep') {
       return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'failed', error: '--async requires --tier deep.', checks: {} };
     }
@@ -598,74 +626,41 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
     return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'queued', tier, scope, scopeConfidence: scope === 'full' ? 'complete' : 'unknown', riskLevel: null, impactGroups: [], queue };
   }
   const before = planOnly ? null : await gitFingerprint(projectDir);
-  // `--reuse` replays the anchor's most recent passed receipt instead of
-  // re-executing the commands when neither the working-tree fingerprint nor
-  // the command set changed; any mismatch falls through to a normal run.
-  const reuseAllowed = args.reuse
-    && selectedNames.every((name) => declaredChecks.get(name)?.deterministic !== false);
-  if (!planOnly && reuseAllowed) {
-    let reusable;
-    try {
-      reusable = await findReusableVerification(projectDir, args.task[0] ?? null, {
-        fingerprint: before.fingerprint,
-        commandSet: verificationCommandSet(configured.commands, selectedNames, projectDir),
-      });
-    } catch (error) {
-      return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'failed', code: error.code ?? 'TASK_ANCHOR_INVALID', error: boundedOutput(error.message, projectDir), checks: {} };
-    }
-    if (reusable) {
-      const reusedChecks = {};
-      for (const name of CHECK_ORDER) {
-        const command = configured.commands[name];
-        if (!command) {
-          reusedChecks[name] = { status: 'not_configured' };
-          continue;
-        }
-        if (!selectedNames.includes(name)) {
-          reusedChecks[name] = deferredNames.has(name)
-            ? { status: 'deferred', tier: tierPlan.slotTiers[name], command: displayCommand(command, projectDir) }
-            : { status: 'not_selected', command: displayCommand(command, projectDir) };
-          continue;
-        }
-        reusedChecks[name] = { status: 'reused', command: displayCommand(command, projectDir) };
-      }
-      const receipt = reusable.verification;
+  const receiptPlan = { ...changeScope, selectedChecks: tierPlan.selectedChecks, deferredChecks: tierPlan.deferredChecks, tier: tierPlan.tier, scope };
+  const cacheContext = planOnly ? null : await verificationCacheContext(projectDir, receiptPlan, before);
+  const cached = !planOnly && args.reuse ? await findVerificationReceipt(projectDir, cacheContext) : null;
+  if (cached?.receipt) {
+    const confirmedContext = await verificationCacheContext(projectDir, receiptPlan);
+    const confirmed = confirmedContext.snapshot;
+    if (confirmedContext.key === cacheContext.key) {
+      const commandSet = verificationCommandSet(configured.commands, selectedNames, projectDir, Object.fromEntries(checkMetadata));
+      const anchor = taskIdCandidate ? await findReusableVerification(projectDir, taskIdCandidate, {
+        fingerprint: before.fingerprint, commandSet,
+      }) : null;
+      const reusedChecks = Object.fromEntries(checkOrder.map((name) => [name, {
+        status: selectedNames.includes(name) ? 'reused' : deferredNames.has(name) ? 'deferred' : configured.commands[name] ? 'not_selected' : 'not_configured',
+        ...(configured.commands[name] ? { command: displayCommand(configured.commands[name], projectDir), cwd: checkMetadata.get(name)?.cwd ?? '.' } : {}),
+      }]));
       return {
-        schemaVersion: VERIFY_SCHEMA_VERSION,
-        engine: VERIFY_ENGINE,
-        command: 'verify',
-        tier: tierPlan.tier,
-        scope,
-        scopeConfidence: scope === 'full' ? 'complete' : 'unknown',
-        riskLevel: null,
-        impactGroups: [],
-        deferredChecks: tierPlan.deferredChecks,
-        nextTier: tierPlan.nextTier,
-        status: 'reused',
-        cache: { status: 'hit' },
-        environment: { mode: environmentMode, status: 'reused' },
+        schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'reused',
+        tier: tierPlan.tier, scope, ...changeScope, scopeConfidence: scope === 'full' ? 'complete' : 'unknown',
+        checks: reusedChecks, selectedChecks: selectedNames, deferredChecks: tierPlan.deferredChecks, nextTier: tierPlan.nextTier,
+        minimumTier: null,
+        selectedMicroChecks: [], deferredMicroChecks: [], estimatedCostMs: estimateSelectedCost(selectedNames),
+        cache: { status: 'hit', reason: cached.reason }, environment: { mode: environmentMode, status: 'reused' },
         reused: {
-          taskId: reusable.taskId,
-          unitId: reusable.unitId,
-          ...(typeof receipt.id === 'string' ? { id: receipt.id } : {}),
-          ...(typeof receipt.finishedAt === 'string' ? { finishedAt: receipt.finishedAt } : {}),
-          ...(typeof receipt.beforeHead === 'string' ? { beforeHead: receipt.beforeHead } : {}),
-          ...(typeof receipt.afterHead === 'string' ? { afterHead: receipt.afterHead } : {}),
-          fingerprint: typeof receipt.fingerprint === 'string' ? receipt.fingerprint : null,
-          command: typeof receipt.command === 'string' ? receipt.command : null,
-          at: typeof receipt.at === 'string' ? receipt.at : null,
+          id: cached.receipt.id, finishedAt: cached.receipt.finishedAt, fingerprint: before.fingerprint,
+          command: commandSet, beforeHead: before.snapshot.head, afterHead: confirmed.snapshot.head,
+          ...(anchor?.verification.id === cached.receipt.id ? { taskId: anchor.taskId, unitId: anchor.unitId } : {}),
         },
-        checks: reusedChecks,
-        selectedChecks: selectedNames,
-        minimumTier: tierPlan.tier === 'quick' ? 'unit' : tierPlan.tier === 'standard' ? 'slice' : 'integration',
-        selectedMicroChecks: [],
-        deferredMicroChecks: [],
-        estimatedCostMs: estimateSelectedCost(selectedNames),
+        verification: { ...cached.receipt, engine: VERIFY_ENGINE, before: before.snapshot, after: confirmed.snapshot, stable: true },
       };
     }
   }
+  if (!planOnly) await storeVerificationReceipt(projectDir, cacheContext, { status: 'running' });
   let selectedCount = 0;
-  for (const name of CHECK_ORDER) {
+  let stopped = false;
+  for (const name of checkOrder) {
     const command = configured.commands[name];
     if (!command) {
       checks[name] = { status: 'not_configured' };
@@ -678,6 +673,10 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
       continue;
     }
     selectedCount += 1;
+    if (stopped) {
+      checks[name] = { status: 'not_run', command: displayCommand(command, projectDir), reason: 'previous-check-failed' };
+      continue;
+    }
     const manual = manualCommand(command);
     const executableCommand = manual ?? command;
     let tokens;
@@ -691,23 +690,40 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
       checks[name] = { status: 'blocked', code: 'MANUAL_REQUIRES_ALLOW', command: displayCommand(command, projectDir) };
       continue;
     }
-    if (!await probeExecutable(tokens[0] === 'node' ? process.execPath : tokens[0], projectDir)) {
+    const cwd = verificationCwd(projectDir, checkMetadata.get(name)?.cwd);
+    if (!await probeExecutable(tokens[0] === 'node' ? process.execPath : tokens[0], cwd.absolute)) {
       checks[name] = { status: 'blocked', code: 'MISSING_EXECUTABLE', command: displayCommand(command, projectDir) };
       continue;
     }
     if (planOnly) {
-      checks[name] = { status: 'planned', command: displayCommand(command, projectDir) };
+      checks[name] = { status: 'planned', command: displayCommand(command, projectDir), cwd: cwd.relative };
       continue;
     }
-    const result = await executeCommand(executableCommand, projectDir, timeoutMs);
+    let result;
+    try {
+      result = await executeCommand(executableCommand, cwd.absolute, timeoutMs, projectDir, verificationContextEnvironment({ ...changeScope, scope }));
+    } catch (error) {
+      result = { status: 'blocked', code: 'UNSAFE_COMMAND', exitCode: null, stderr: boundedOutput(error.message, projectDir) };
+    }
     checks[name] = {
       status: result.status,
       code: result.code,
       command: displayCommand(command, projectDir),
+      cwd: cwd.relative,
       exitCode: result.exitCode,
       ...(result.stdout ? { stdout: result.stdout } : {}),
       ...(result.stderr ? { stderr: result.stderr } : {}),
+      ...(result.status === 'passed' ? verificationCheckEvidence(result.stdout, result.stderr) : {}),
     };
+    stopped = checks[name].status === 'failed';
+  }
+  for (const name of CHECK_ORDER) {
+    if (only) break;
+    if (checks[name]?.status !== 'not_selected') continue;
+    const alias = selectedNames.find((id) => configured.commands[id] === configured.commands[name] && (checks[id]?.cwd ?? '.') === '.');
+    if (alias && ['passed', 'failed', 'blocked'].includes(checks[alias].status)) {
+      checks[name] = { ...checks[alias], aliasOf: alias };
+    }
   }
   if (selectedCount === 0) {
     return {
@@ -724,7 +740,7 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
       status: 'unverified',
       checks,
       selectedChecks: selectedNames,
-      minimumTier: tierPlan.tier === 'quick' ? 'unit' : tierPlan.tier === 'standard' ? 'slice' : 'integration',
+      minimumTier: null,
       selectedMicroChecks: [],
       deferredMicroChecks: [],
       estimatedCostMs: estimateSelectedCost(selectedNames),
@@ -745,11 +761,12 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
       impactGroups: [],
       deferredChecks: tierPlan.deferredChecks,
       nextTier: tierPlan.nextTier,
-      status: 'planned',
+      status: Object.values(checks).some((check) => check.status === 'blocked') ? 'blocked' : 'planned',
+      ...changeScope,
       timeoutMs,
       checks,
       selectedChecks: selectedNames,
-      minimumTier: tierPlan.tier === 'quick' ? 'unit' : tierPlan.tier === 'standard' ? 'slice' : 'integration',
+      minimumTier: null,
       selectedMicroChecks: [],
       deferredMicroChecks: [],
       estimatedCostMs: estimateSelectedCost(selectedNames),
@@ -758,6 +775,8 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
     };
   }
   const after = await gitFingerprint(projectDir);
+  const afterContext = await verificationCacheContext(projectDir, receiptPlan, after);
+  const inputsStable = cacheContext.key === afterContext.key;
   const stable = before.fingerprint !== null && after.fingerprint !== null
     ? before.fingerprint === after.fingerprint
     : null;
@@ -766,7 +785,9 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
   // statement than a check that ran and failed.
   const failed = Object.values(checks).some((item) => item.status === 'failed');
   const blocked = Object.values(checks).some((item) => item.status === 'blocked');
-  return {
+  const executed = selectedNames.filter((name) => checks[name]?.status === 'passed');
+  const checksNotRun = executed.length < selectedNames.length;
+  const report = {
     schemaVersion: VERIFY_SCHEMA_VERSION,
     engine: VERIFY_ENGINE,
     command: 'verify',
@@ -777,22 +798,37 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
     impactGroups: [],
     deferredChecks: tierPlan.deferredChecks,
     nextTier: tierPlan.nextTier,
-    status: failed || stable === false ? 'failed' : blocked ? 'blocked' : 'passed',
+    status: failed || stable === false || !inputsStable ? 'failed' : blocked ? 'blocked' : executed.length === 0 ? 'unverified' : 'passed',
+    skippedChecks: selectedNames.filter((name) => checks[name]?.status === 'not_selected').map((name) => ({ id: name, reason: checks[name].reason })),
+    ...changeScope,
     timeoutMs,
     checks,
     selectedChecks: selectedNames,
-    minimumTier: tierPlan.tier === 'quick' ? 'unit' : tierPlan.tier === 'standard' ? 'slice' : 'integration',
+    minimumTier: null,
     selectedMicroChecks: [],
     deferredMicroChecks: [],
     estimatedCostMs: estimateSelectedCost(selectedNames),
-    cache: { status: args.reuse ? 'miss' : 'not_requested' },
+    cache: { status: args.reuse ? 'miss' : 'not_requested', reason: cached?.reason ?? cacheContext?.reason, stored: false },
     environment: { mode: environmentMode, status: environmentStatus },
     verification: {
+      schemaVersion: 3,
+      engine: VERIFY_ENGINE,
+      startedAt,
+      ...cacheContext.fingerprints,
       before: before.snapshot,
       after: after.snapshot,
       stable,
+      inputsStable,
       snapshotComparison: stable === null ? 'unknown' : stable ? 'match' : 'changed',
-      status: stable === false ? 'workspace_changed' : failed ? 'checks_failed' : blocked ? 'checks_blocked' : 'verified',
+      status: stable === false || !inputsStable
+        ? 'workspace_changed'
+        : failed
+          ? 'checks_failed'
+          : blocked
+            ? 'checks_blocked'
+            : checksNotRun
+              ? 'checks_not_run'
+              : 'verified',
       // Receipt identity: governance-core.md references these fields when a
       // delivery cites `vibe-harness verify --project`.
       id: randomUUID(),
@@ -801,6 +837,10 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
       ...(taskBinding ? { task: taskBinding } : {}),
     },
   };
+  report.cache.stored = await storeVerificationReceipt(projectDir, cacheContext, {
+    ...report.verification, status: executed.length === selectedNames.length ? report.status : 'unverified',
+  }).catch(() => false);
+  return report;
 }
 
 async function envReport(projectDir) {
@@ -3212,13 +3252,13 @@ function taskVerificationFromReceipt(receipt) {
   const verification = receipt.verification ?? {};
   const binding = verification.task && typeof verification.task === 'object' && !Array.isArray(verification.task) ? verification.task : null;
   const checks = receipt.checks && typeof receipt.checks === 'object' && !Array.isArray(receipt.checks) ? receipt.checks : {};
-  const command = CHECK_ORDER
-    .filter((name) => checks[name] && typeof checks[name] === 'object' && checks[name].status === 'passed' && typeof checks[name].command === 'string')
-    .map((name) => `${name}=${checks[name].command}`)
+  const command = Object.keys(checks)
+    .filter((name) => checks[name] && typeof checks[name] === 'object' && ['passed', 'reused'].includes(checks[name].status) && typeof checks[name].command === 'string')
+    .map((name) => `${name}=${checks[name].command}${checks[name].cwd && checks[name].cwd !== '.' ? ` [cwd=${checks[name].cwd}]` : ''}`)
     .join('\n');
   return {
     command,
-    status: typeof receipt.status === 'string' ? receipt.status : null,
+    status: receipt.status === 'reused' ? 'passed' : typeof receipt.status === 'string' ? receipt.status : null,
     exitCode: typeof receipt.status === 'string' && PASS_STATUSES.includes(receipt.status) ? 0 : 1,
     fingerprint: typeof verification.fingerprint === 'string' ? verification.fingerprint : null,
     at: typeof verification.finishedAt === 'string' ? verification.finishedAt : null,
@@ -3234,10 +3274,10 @@ function taskVerificationFromReceipt(receipt) {
   };
 }
 
-function verificationCommandSet(commands, selectedNames, projectDir) {
-  return CHECK_ORDER
-    .filter((name) => selectedNames.includes(name) && typeof commands[name] === 'string')
-    .map((name) => `${name}=${displayCommand(commands[name], projectDir)}`)
+function verificationCommandSet(commands, selectedNames, projectDir, definitions = {}) {
+  return selectedNames
+    .filter((name) => typeof commands[name] === 'string')
+    .map((name) => `${name}=${displayCommand(commands[name], projectDir)}${definitions[name]?.cwd && definitions[name].cwd !== '.' ? ` [cwd=${definitions[name].cwd}]` : ''}`)
     .join('\n');
 }
 
@@ -3245,8 +3285,8 @@ function currentUnitVerification(unit, fingerprint, configured, projectDir) {
   if (unit?.verification?.status !== 'passed' || !fingerprint || unit.verification.fingerprint !== fingerprint || configured.error) return false;
   const commandLines = unit.verification.command?.split('\n').filter(Boolean) ?? [];
   const names = commandLines.map((line) => line.slice(0, line.indexOf('=')));
-  return commandLines.length > 0 && names.every((name) => CHECK_ORDER.includes(name))
-    && unit.verification.command === verificationCommandSet(configured.commands, names, projectDir);
+  return commandLines.length > 0 && names.every((name) => Object.hasOwn(configured.commands, name))
+    && unit.verification.command === verificationCommandSet(configured.commands, names, projectDir, configured.definitions);
 }
 
 async function findReusableVerification(projectDir, taskId, { fingerprint, commandSet }) {
@@ -3426,7 +3466,7 @@ async function taskCheckReport(projectDir, args) {
   const planUnits = planUnitGraph(planCheck);
   const needsEvidence = Boolean(args.dispatch || args.complete);
   const currentFingerprint = needsEvidence ? (await gitFingerprint(projectDir)).fingerprint : null;
-  const configured = needsEvidence ? configuredChecks(await readProjectConfig(projectDir)) : null;
+  const configured = needsEvidence ? configuredChecks(await readProjectConfig(projectDir), projectDir) : null;
   const isVerified = (unit) => currentUnitVerification(unit, currentFingerprint, configured, projectDir);
   const predecessors = selected && planUnits.length > 0
     ? unitPredecessorState(planUnits, units, selected.id, isVerified)
@@ -4309,7 +4349,7 @@ export async function runCommand(argv, { cwd = process.cwd() } = {}) {
     codebaseMemory: 'run.mjs codebase-memory <status|refresh> --project <path>: status reports fresh|stale|missing from the index state stamp written by the runtime wrapper after a successful index_repository and never writes; refresh stays dry-run until --write and then rebuilds the semantic graph through the pinned project runtime',
     worktree: 'run.mjs worktree <list|check|bootstrap|land|cleanup|recover> --project <path>: bootstrap, land, cleanup and recover stay dry-run until --write; bootstrap allocates the next port block from .vibe-harness/worktree-ports.json, materializes worktree.provision.envFiles and runs worktree.provision.setupCommands (a red-zone target also needs --confirm-red-zone); land merges the attributed worktree back into the primary checkout current branch (--no-ff), runs the verify gate (quick tier by default, standard when the task anchor declares riskLevel full, --no-verify skips), then removes the worktree — with --push it also pushes the target branch (upstream, else -u origin when origin is the sole remote) and deletes the worktree branch only after the push succeeds; cleanup refuses branches not merged into worktree.baseRef; recover reclaims crash residue (prunable worktrees, bootstrap worktrees still clean at the base ref, zero-commit branches only residue references, leaked registry entries) and never deletes a branch that moved past the base ref',
     task: 'run.mjs task <init|update|status|list|plan-check|plan-sync|check|freeze-tests|rebaseline-tests> [task-id] --project <path>: anchors live in .vibe-harness/tasks/<task-id>.json and managed plans live in docs/plans/*.md; init accepts --plan-file, plan-check detects drift, plan-sync requires --reason, check gates readiness (check --unit <id> --dispatch answers whether the unit may be handed out now), freeze-tests requires a failed verification and --test-path, and rebaseline-tests additionally requires a protected approval receipt. Write commands stay dry-run until --write.',
-    reuse: 'run.mjs verify --project <path> [--task <task-id>] --reuse: returns status "reused" without executing commands when the working-tree fingerprint and command set match the most recent passed receipt in the anchor; otherwise the checks run normally',
+    reuse: 'run.mjs verify --project <path> [--task <task-id>] --reuse: returns status "reused" only for explicitly deterministic checks with matching v3 input fingerprints in the ignored receipt store; task anchors are optional and legacy receipts are not reused',
     verify: 'run.mjs verify --project <path> [--tier quick|standard|deep] [--scope affected|layer|full] [--async --tier deep] [--only lint,typecheck,test,eval] [--plan] or --micro <declared-id> [--plan]: Micro is explicit and never replaces unit/integration evidence; --micro is exclusive with tier, only, async, reuse and manual.',
   };
   else throw new Error(`Unknown command: ${command}`);
@@ -4318,7 +4358,7 @@ export async function runCommand(argv, { cwd = process.cwd() } = {}) {
   // an unavailable runtime or an execution failure keeps the failure exit.
   const exitCode = command === 'codebase-memory'
     ? (['failed', 'unavailable'].includes(report.status) ? 1 : 0)
-    : (PASS_STATUSES.includes(report.status) ? 0 : 1);
+    : (PASS_STATUSES.includes(report.status) || (report.status === 'unverified' && report.noChanges === true) ? 0 : 1);
   return { args, report, exitCode };
 }
 

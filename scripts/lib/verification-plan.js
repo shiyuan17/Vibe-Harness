@@ -315,7 +315,7 @@ function focusedRunner(scriptName, files, scripts) {
 }
 
 /**
- * @param {{changedPaths?: string[], changedDetails?: Array<object>, commandStatus?: object, config?: any, targetDir?: string, full?: boolean, tier?: 'quick'|'standard'|'deep'|null, tierExplicit?: boolean, tiers?: {quick?: string[], standard?: string[], deep?: string[]}|null, tierSource?: string|null, covers?: Record<string, string[]>|null, scope?: 'affected'|'layer'|'full'}} options
+ * @param {{changedPaths?: string[], changedDetails?: Array<object>, commandStatus?: object, config?: any, targetDir?: string, full?: boolean, tier?: 'quick'|'standard'|'deep'|null, tierExplicit?: boolean, tiers?: {quick?: string[], standard?: string[], deep?: string[]}|null, tierSource?: string|null, covers?: Record<string, string[]>|null, scope?: 'affected'|'layer'|'full', only?: string[]|null}} options
  */
 export async function buildVerificationPlan({
   changedPaths = [],
@@ -330,6 +330,7 @@ export async function buildVerificationPlan({
   tierSource = null,
   covers = undefined,
   scope = null,
+  only = null,
 } = {}) {
   const verificationScope = normalizeVerificationScope(
     scope ?? config?.verification?.defaultScope ?? DEFAULT_VERIFICATION_SCOPE,
@@ -482,7 +483,23 @@ export async function buildVerificationPlan({
   // `--full` is itself an explicit request for every declared layer, so it
   // never falls back to a cheaper layer.
   const resolved = tier ? resolveExecutionTier({ explicit: tierExplicit || full, tier, tiers }) : null;
-  const tierSelection = resolved?.tier ? selectTierChecks({ commandStatus, tier: resolved.tier, tiers }) : null;
+  // An explicit `--tier` is honored exactly, including a layer the project
+  // declares as empty: the caller asked for that layer, so the run reports the
+  // gap instead of silently falling back to the legacy slot commands. An
+  // unnamed run on a surface with no command in any layer keeps the risk-plan
+  // path, which is how a project that declares only the four legacy slots
+  // still gets a baseline run.
+  if (resolved && !resolved.tier && tierExplicit && Object.hasOwn(config.validationCommands?.tiers ?? {}, tier)) {
+    resolved.tier = tier;
+  }
+  const tierSelection = resolved?.tier ? selectTierChecks({
+    commandStatus,
+    tier: resolved.tier,
+    tiers,
+    metadata: config.validationCommands?.checks ?? [],
+    projectDir: targetDir,
+    only,
+  }) : null;
   // `--full` means the complete matrix: the tier surface covers the configured
   // commands, and the risk plan adds the checks it derives from the change
   // itself (for example schema validation or the lifecycle smoke suite). A

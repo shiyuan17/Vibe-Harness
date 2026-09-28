@@ -7,6 +7,8 @@ import { promisify } from 'node:util';
 import { assertSafeCommand } from './shell-command.js';
 import { terminateProcessTree } from './process-tree.js';
 import { maxDiagnosticOutput, redactDiagnosticText } from './tool-provisioning/subprocess.js';
+import { verificationCheckEvidence, verificationContextEnvironment, verificationCwd } from '../../runtime/lib/verification-plan.mjs';
+import { findVerificationReceipt, storeVerificationReceipt, verificationCacheContext } from '../../runtime/lib/verification-receipt.mjs';
 
 const execFileAsync = promisify(execFile);
 export const DEFAULT_PROJECT_VERIFICATION_TIMEOUT_MS = 120_000;
@@ -37,6 +39,9 @@ function executableFor(program) {
   // on Node >= 18.20/20.12), so route them through cmd.exe like git-hook.mjs.
   if (process.platform === 'win32' && ['pnpm', 'npm', 'yarn'].includes(program)) {
     return { command: 'cmd.exe', preArgs: ['/c', `${program}.cmd`] };
+  }
+  if (process.platform === 'win32' && ['mvnw.cmd', './mvnw.cmd', '.\\mvnw.cmd'].includes(program)) {
+    return { command: 'cmd.exe', preArgs: ['/d', '/c', program] };
   }
   return { command: program, preArgs: [] };
 }
@@ -83,7 +88,7 @@ function verificationEnvironment(verificationId) {
   return environment;
 }
 
-function executeVerificationCommand(file, args, { cwd, signal, timeoutMs, verificationId }) {
+function executeVerificationCommand(file, args, { cwd, signal, timeoutMs, verificationId, context = {} }) {
   return new Promise((resolve, reject) => {
     let timedOut = false;
     let cancelled = false;
@@ -142,7 +147,7 @@ function executeVerificationCommand(file, args, { cwd, signal, timeoutMs, verifi
     child = spawn(file, args, {
       cwd,
       detached: process.platform !== 'win32',
-      env: verificationEnvironment(verificationId),
+      env: { ...verificationEnvironment(verificationId), ...context },
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     });
@@ -472,30 +477,34 @@ export async function runFocusedProjectVerification({
       continue;
     }
     let program, args;
-    if (item.status === 'missing' || (item.status === 'manual' && !allowManual)) {
+    const manual = item.command.startsWith('manual:');
+    const executableCommand = manual ? item.command.slice('manual:'.length).trim() : item.command;
+    if (item.status === 'missing' || ((item.status === 'manual' || manual) && !allowManual)) {
       results.push({
         ...item,
         status: 'blocked',
         verificationId: id,
         next: { command: 'pnpm verify --project .' },
       });
-      stopped = true;
       continue;
     }
     try {
-      [program, ...args] = assertSafeCommand(item.command);
+      [program, ...args] = assertSafeCommand(executableCommand);
+      if (process.platform === 'win32' && /mvnw\.cmd$/u.test(program) && args.some((token) => /[%!\r\n]/u.test(token))) {
+        throw new Error('Unsafe Maven Wrapper arguments.');
+      }
     } catch {
       results.push({ ...item, status: 'blocked', verificationId: id });
-      stopped = true;
       continue;
     }
     try {
       const { command: exec, preArgs } = executableFor(program);
       const result = await executeVerificationCommand(exec, [...preArgs, ...args], {
-        cwd: targetDir,
+        cwd: verificationCwd(targetDir, item.cwd).absolute,
         signal,
         timeoutMs: focusedCommandTimeoutMs(item.command, timeoutMs),
         verificationId: id,
+        context: verificationContextEnvironment(focused),
       });
       results.push({
         ...item,
@@ -504,7 +513,9 @@ export async function runFocusedProjectVerification({
         verificationId: id,
         stderr: verificationOutput(result.stderr, targetDir),
         stdout: verificationOutput(result.stdout, targetDir),
+        ...verificationCheckEvidence(verificationOutput(result.stdout, targetDir), verificationOutput(result.stderr, targetDir)),
       });
+      stopped = results.at(-1).status === 'failed';
     } catch (cause) {
       results.push({
         ...item,
@@ -517,8 +528,9 @@ export async function runFocusedProjectVerification({
           timeoutMs: focusedCommandTimeoutMs(item.command, timeoutMs),
           verificationId: id,
         }),
+        ...(cause.code === 'ENOENT' ? { status: 'blocked', code: 'MISSING_EXECUTABLE' } : {}),
       });
-      stopped = true;
+      stopped = results.at(-1).status === 'failed';
     }
   }
   const after = await createProjectSnapshot(targetDir);
@@ -529,7 +541,9 @@ export async function runFocusedProjectVerification({
   const finishedAt = new Date();
   const hasFinalChange = (before.changedFiles ?? 0) > 0 || (after.changedFiles ?? 0) > 0;
   const failedResult = results.find((result) => ['blocked', 'failed'].includes(result.status));
-  const evidence = verificationEvidence({ commandsPassed: !failedResult, requireStable, snapshotComparison });
+  const commandsPassed = results.length > 0 && results.every((result) => result.status === 'passed');
+  const evidence = verificationEvidence({ commandsPassed, requireStable, snapshotComparison });
+  if (!failedResult && !commandsPassed) evidence.commandExecution.status = 'unverified';
   let error;
   if (snapshotComparison === 'changed') {
     error = {
@@ -544,7 +558,7 @@ export async function runFocusedProjectVerification({
         targetDir,
       ),
     };
-  } else if (focused.commands.length === 0) {
+  } else if (focused.commands.length === 0 || !results.some((result) => result.status === 'passed')) {
     error = {
       code: 'PROJECT_VERIFICATION_NO_CHECKS',
       message: 'No applicable verification checks were selected; configure a matching check or run with --full.',
@@ -581,7 +595,7 @@ export async function runFocusedProjectVerification({
       },
       changeBoundary: {
         resultsAfterFinalChange: hasFinalChange,
-        status: hasFinalChange && snapshotComparison === 'match' && !failedResult ? 'verified' : 'unverified',
+        status: hasFinalChange && snapshotComparison === 'match' && commandsPassed ? 'verified' : 'unverified',
       },
       deliveryBoundaries: {
         ci: 'unverified',
@@ -599,19 +613,39 @@ export async function runFocusedProjectVerification({
 
 export async function runVerificationPlan({
   allowManual = false,
+  reuse = false,
   commandStatus = {},
   plan,
   signal = undefined,
   targetDir,
   timeoutMs = DEFAULT_PROJECT_VERIFICATION_TIMEOUT_MS,
 }) {
-  const focused = await runFocusedProjectVerification({
+  const cacheContext = await verificationCacheContext(targetDir, plan);
+  const cached = reuse ? await findVerificationReceipt(targetDir, cacheContext) : null;
+  const confirmed = cached?.receipt ? await verificationCacheContext(targetDir, plan) : null;
+  const hit = cached?.receipt && confirmed?.key === cacheContext.key;
+  if (!hit) await storeVerificationReceipt(targetDir, cacheContext, { status: 'running' });
+  const focused = hit ? {
+    ok: true,
+    error: undefined,
+    results: (plan.selectedChecks ?? []).map((check) => ({ ...check, status: 'reused', verificationId: cached.receipt.id })),
+    verification: {
+      ...cached.receipt,
+      before: { ...cacheContext.snapshot.snapshot, fingerprint: cacheContext.snapshot.fingerprint },
+      after: { ...confirmed.snapshot.snapshot, fingerprint: confirmed.snapshot.fingerprint },
+      evidence: { commandExecution: { status: 'passed', reused: true } },
+      changeBoundary: { status: 'unverified' },
+      recovery: { status: 'not-needed' },
+    },
+  } : await runFocusedProjectVerification({
     allowManual,
     focused: {
       changedPaths: plan.changedPaths ?? [],
       commands: plan.selectedChecks ?? [],
       notes: plan.selectionReasons ?? [],
       impactMapping: plan.impactMapping,
+      baseSha: plan.baseSha,
+      scope: plan.scope,
     },
     requireStable: false,
     signal,
@@ -669,11 +703,19 @@ export async function runVerificationPlan({
       focused.error = { code: 'PROJECT_VERIFICATION_FAILED', message: verificationOutput(message, targetDir) };
     }
   }
-  return {
+  const report = {
     ...focused,
     results,
     verification: {
       ...focused.verification,
+      schemaVersion: 3,
+      engine: 'vibe-harness-cli',
+      ...cacheContext.fingerprints,
+      cache: {
+        status: hit ? 'hit' : reuse ? 'miss' : 'not_requested',
+        reason: cached?.reason ?? cacheContext.reason,
+        ...(hit ? { sourceId: cached.receipt.id, finishedAt: cached.receipt.finishedAt } : {}),
+      },
       changeBoundary: {
         ...focused.verification.changeBoundary,
         // A deferred layer is missing evidence, so a passing fast run cannot
@@ -705,15 +747,30 @@ export async function runVerificationPlan({
               : 'vibe-harness verify --project . --full',
           }
         : focused.verification.recovery,
-      scopeStatus: deferredChecks.length > 0 ? 'partial' : 'complete',
+      scopeStatus: deferredChecks.length > 0 || focused.results.some((item) => item.status === 'not_selected') ? 'partial' : 'complete',
       selectedChecks: (plan.selectedChecks ?? []).map((item) => ({ ...item })),
-      skippedChecks: (plan.skippedChecks ?? []).map((item) => ({ ...item })),
+      skippedChecks: [
+        ...(plan.skippedChecks ?? []).map((item) => ({ ...item })),
+        ...focused.results.filter((item) => item.status === 'not_selected').map((item) => ({ id: item.id, reason: item.reason })),
+      ],
       fallbackUsed: plan.fallbackUsed === true,
       selectionReasons: [...(plan.selectionReasons ?? [])],
       tierFallback: plan.tierFallback ?? null,
       tierSource: plan.tierSource ?? null,
     },
   };
+  if (!hit) {
+    const afterContext = await verificationCacheContext(targetDir, plan);
+    if (afterContext.key !== cacheContext.key) {
+      report.ok = false;
+      report.error = { code: 'PROJECT_VERIFICATION_INPUTS_CHANGED', message: 'Verification inputs changed while checks were running.' };
+      report.verification.inputsStable = false;
+    }
+    await storeVerificationReceipt(targetDir, cacheContext, {
+      ...report.verification, status: report.ok && focused.results.every((item) => item.status === 'passed') ? 'passed' : 'failed',
+    }).catch(() => false);
+  }
+  return report;
 }
 
 /** @param {{allowManual?: boolean, commandStatus: any, failureMode?: string, signal?: AbortSignal, targetDir: string, timeoutMs?: number, verificationId?: string | null}} options */

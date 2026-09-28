@@ -90,6 +90,7 @@ import { AUDIT_KINDS, runProjectAudit } from './lib/project-audit.js';
 import { buildImpactMapping, collectChangedDetails, collectChangedPaths } from './lib/change-impact.js';
 import { buildVerificationPlan } from './lib/verification-plan.js';
 import { enqueueVerification } from './verification-queue.js';
+import { verificationChanges } from '../runtime/lib/verification-plan.mjs';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -384,7 +385,7 @@ function parseArgs(argv) {
     const token = argv[index];
     if (token.startsWith('--')) {
       const key = token.slice(2);
-      if (key === 'plugin') {
+      if (key === 'plugin' || key === 'paths') {
         const values = [];
         while (index + 1 < argv.length && !argv[index + 1].startsWith('--')) {
           values.push(argv[index + 1]);
@@ -998,11 +999,11 @@ async function verify(args) {
   const scope = args.scope === undefined
     ? null
     : normalizeVerificationScope(args.scope);
-  let changedPaths = [];
+  const changeScope = verificationChanges(targetDir, { paths: args.paths, base: args.base });
+  const changedPaths = changeScope.changedPaths;
   let changedDetails = [];
   try {
-    changedPaths = await collectChangedPaths({ cwd: targetDir });
-    changedDetails = await collectChangedDetails({ cwd: targetDir });
+    changedDetails = await collectChangedDetails({ cwd: targetDir, base: changeScope.baseSha });
   } catch (error) {
     const detail = String(error?.stderr ?? '') + ' ' + String(error?.message ?? '');
     if (!/not a git repository|不是 git 仓库/iu.test(detail)) throw error;
@@ -1019,9 +1020,18 @@ async function verify(args) {
     tiers: validationCommands.tiers,
     tierSource: projectProfile.tierSource,
     scope,
+    only: typeof args.only === 'string' ? args.only.split(',').filter(Boolean) : args.only ? [] : null,
   });
-  const planned = { ...plan, impactMapping: buildImpactMapping(changedPaths, plan.selectedChecks) };
-  if (args.async) {
+  const planned = { ...plan, ...changeScope, impactMapping: buildImpactMapping(changedPaths, plan.selectedChecks) };
+  if (!full && planned.scope === 'affected' && changeScope.selectionMode === 'changed' && changedPaths.length === 0) {
+    planned.skippedChecks = planned.selectedChecks.map((check) => ({ id: check.id, status: 'not_selected', reason: 'empty-change-scope' }));
+    planned.selectedChecks = [];
+    if (!args.plan) {
+      emitReport({ ok: true, scope: 'project', status: 'unverified', noChanges: true, plan: planned }, args);
+      return;
+    }
+  }
+  if (args.async && !args.plan) {
     if (tier !== 'deep') throw new Error('--async requires --tier deep.');
     const fingerprint = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
     const queueReceipt = await enqueueVerification({
@@ -1054,6 +1064,7 @@ async function verify(args) {
   }
   const verificationReport = await runVerificationPlan({
     allowManual: Boolean(args['allow-manual']),
+    reuse: Boolean(args.reuse),
     commandStatus,
     plan: planned,
     targetDir,

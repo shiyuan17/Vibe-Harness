@@ -20,7 +20,7 @@ export function normalizeValidationChecks(value) {
     }
     const id = typeof item.id === 'string' ? item.id.trim() : '';
     const command = typeof item.command === 'string' ? item.command.trim() : '';
-    if (!id || !command) throw new Error(`validationCommands.checks[${index}] requires id and command`);
+    if (!id) throw new Error(`validationCommands.checks[${index}] requires id`);
     if (seen.has(id)) throw new Error(`validationCommands.checks must not contain duplicate id: ${id}`);
     seen.add(id);
     const layer = typeof item.layer === 'string' ? item.layer.trim() : 'custom';
@@ -49,7 +49,8 @@ export function normalizeValidationChecks(value) {
       layer,
       costTier,
       scopes,
-      deterministic: item.deterministic !== false,
+      deterministic: item.deterministic === true,
+      cwd: item.cwd ?? '.',
       ...(Number.isInteger(item.estimatedDurationMs) ? { estimatedDurationMs: item.estimatedDurationMs } : {}),
     };
   });

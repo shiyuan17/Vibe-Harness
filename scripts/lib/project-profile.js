@@ -6,6 +6,7 @@ import { assertPortableRelativePath, pathExists } from './manifest.js';
 import {
   deriveValidationTiers,
   emptyValidationTiers,
+  readProjectTierFacts,
   resolveValidationTiers,
 } from './validation-tiers.js';
 
@@ -417,11 +418,20 @@ function createGenericProfile(config = {}) {
 /** @param {{config?: Record<string, any>, targetDir: string}} options */
 export async function detectProjectProfile({ config = {}, targetDir }) {
   const mode = config.projectRules?.mode ?? 'auto';
-  if (mode === 'off') {
-    return withVcsStatusInstruction(createGenericProfile(config));
-  }
-  if (mode === 'manual') {
-    return withVcsStatusInstruction(applyOverrides(createGenericProfile(config), config.projectRules?.overrides));
+  if (mode === 'off' || mode === 'manual') {
+    const generic = createGenericProfile(config);
+    const derived = deriveValidationTiers({
+      ...await readProjectTierFacts(targetDir, config.packageManager),
+      configuredCommands: config.validationCommands,
+    });
+    const resolved = resolveValidationTiers({ configuredTiers: config.validationCommands?.tiers, derived });
+    return withVcsStatusInstruction({
+      ...(mode === 'manual' ? applyOverrides(generic, config.projectRules?.overrides) : generic),
+      derivedValidationTiers: derived.tiers,
+      validationTiers: resolved.tiers,
+      tierSource: resolved.tierSource,
+      tierReasons: resolved.tierReasons,
+    });
   }
 
   const isManagedPath = managedPathMatcher(await readManagedInstallState(targetDir));
@@ -483,15 +493,7 @@ export async function detectProjectProfile({ config = {}, targetDir }) {
 
   const vcsKinds = unique([hasGit ? 'Git' : '', hasSvn ? 'SVN' : '']);
   const vcsStatusCommand = hasGit ? 'git status --short' : (hasSvn ? 'svn status' : '检查目标项目 VCS 状态');
-  const tierFacts = {
-    configuredCommands: config.validationCommands,
-    packageManager,
-    scripts: pkg?.scripts ?? {},
-    stacks: {
-      dotnet: slnFiles.length > 0 || csprojFiles.length > 0,
-      maven: pomFiles.length > 0,
-    },
-  };
+  const tierFacts = { ...await readProjectTierFacts(targetDir, config.packageManager), configuredCommands: config.validationCommands };
   const derivedValidationTiers = deriveValidationTiers(tierFacts);
   const resolvedTiers = resolveValidationTiers({
     configuredTiers: config.validationCommands?.tiers,

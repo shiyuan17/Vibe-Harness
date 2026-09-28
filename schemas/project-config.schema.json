@@ -56,6 +56,7 @@
             "properties": {
               "id": { "type": "string", "minLength": 1 },
               "command": { "type": "string", "minLength": 1 },
+              "cwd": { "type": "string", "minLength": 1 },
               "layer": { "type": "string", "minLength": 1 },
               "costTier": { "type": "string", "enum": ["quick", "standard", "deep"] },
               "scopes": {
