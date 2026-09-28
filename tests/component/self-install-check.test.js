@@ -1,39 +1,70 @@
 import '../helpers/offline-tools.js';
 
 import assert from 'node:assert/strict';
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { promisify } from 'node:util';
 
 import { applyInstallPlan, createInstallPlan, diffTargetInstall } from '../../scripts/lib/install-planner.js';
 import { checkSelfInstallConformance } from '../../scripts/lib/self-install-check.js';
 
+const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '../..');
+const cliPath = path.join(rootDir, 'scripts/vibe-harness.js');
+const packConfigPath = path.join(rootDir, 'vibe-harness.config.json');
+
+// Conformance compares a real installed copy against the pack. The pack
+// repository's own `.vibe-harness/` state is gitignored, so a clean checkout has
+// nothing to compare against and reading a developer's local state would make
+// the suite machine-dependent; every case installs the pack into a temporary
+// project through the real CLI instead.
+async function installPackIntoTemporaryProject({ modules, profile } = {}) {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-self-install-'));
+  const config = JSON.parse(await readFile(packConfigPath, 'utf8'));
+  if (profile) config.profile = profile;
+  if (modules) config.modules = modules;
+  await writeFile(path.join(target, 'vibe-harness.config.json'), `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+  await execFileAsync(process.execPath, [
+    cliPath,
+    'install',
+    '--project', target,
+    '--target', 'codex',
+    '--write',
+    '--confirm-red-zone',
+  ], { cwd: rootDir, windowsHide: true });
+  return target;
+}
+
+async function readInstalledState(target) {
+  return JSON.parse(await readFile(path.join(target, '.vibe-harness/install-state.json'), 'utf8'));
+}
 
 // Conformance checks diff the full install plan, so they are I/O-bound and
 // legitimately exceed the default test budget on slow filesystems.
-test('the pack repository is conformant with its own installed copy', { timeout: 120000 }, async () => {
-  const report = await checkSelfInstallConformance(rootDir);
+test('装到干净项目后的自托管一致性检查为 clean', { timeout: 120000 }, async () => {
+  const target = await installPackIntoTemporaryProject();
+  try {
+    const report = await checkSelfInstallConformance(rootDir, { targetDir: target });
 
-  assert.equal(report.skipped, false);
-  assert.deepEqual(report.changed, []);
-  assert.deepEqual(report.missing, []);
-  assert.deepEqual(report.orphanedStateTargets, []);
-  assert.deepEqual(report.staleProjections, []);
-  assert.equal(report.ok, true);
-  assert.deepEqual(report.targets, ['codex']);
+    assert.equal(report.skipped, false);
+    assert.deepEqual(report.changed, []);
+    assert.deepEqual(report.missing, []);
+    assert.deepEqual(report.orphanedStateTargets, []);
+    assert.deepEqual(report.staleProjections, []);
+    assert.equal(report.ok, true);
+    assert.deepEqual(report.targets, ['codex']);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
 });
 
-test('self-install conformance fails when the installed copy is absent', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-self-install-'));
+test('已安装副本缺文件时自托管一致性检查失败', async () => {
+  const target = await installPackIntoTemporaryProject();
   try {
-    await mkdir(path.join(target, '.vibe-harness'), { recursive: true });
-    await cp(path.join(rootDir, 'vibe-harness.config.json'), path.join(target, 'vibe-harness.config.json'));
-    await cp(
-      path.join(rootDir, '.vibe-harness/install-state.json'),
-      path.join(target, '.vibe-harness/install-state.json'),
-    );
+    await rm(path.join(target, 'AGENTS.md'), { force: true });
 
     const report = await checkSelfInstallConformance(rootDir, { targetDir: target });
 
@@ -74,12 +105,10 @@ test('project-owned memory targets are seeded once and never reported as drift',
   }
 });
 
-test('a registration whose target is gone and unplanned is reported as an orphan', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-orphan-'));
+test('目标已消失且不在安装计划内的登记被报告为孤儿', async () => {
+  const target = await installPackIntoTemporaryProject();
   try {
-    await mkdir(path.join(target, '.vibe-harness'), { recursive: true });
-    await cp(path.join(rootDir, 'vibe-harness.config.json'), path.join(target, 'vibe-harness.config.json'));
-    const state = JSON.parse(await readFile(path.join(rootDir, '.vibe-harness/install-state.json'), 'utf8'));
+    const state = await readInstalledState(target);
     // Clone a real entry so the schema stays satisfied, then point it at a
     // target this pack does not ship and that is absent from the project.
     const template = state.files.find((file) => file.group === 'rules-minimal');
@@ -93,18 +122,17 @@ test('a registration whose target is gone and unplanned is reported as an orphan
     const report = await checkSelfInstallConformance(rootDir, { targetDir: target });
 
     assert.deepEqual(report.orphanedStateTargets, ['docs/rules/retired-example.md']);
+    assert.deepEqual(report.missing, []);
     assert.equal(report.ok, false);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
 });
 
-test('install releases an orphaned registration instead of carrying it forward', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-orphan-release-'));
+test('安装释放孤儿登记而不把它带到下一次安装', async () => {
+  const target = await installPackIntoTemporaryProject();
   try {
-    await mkdir(path.join(target, '.vibe-harness'), { recursive: true });
-    await cp(path.join(rootDir, 'vibe-harness.config.json'), path.join(target, 'vibe-harness.config.json'));
-    const state = JSON.parse(await readFile(path.join(rootDir, '.vibe-harness/install-state.json'), 'utf8'));
+    const state = await readInstalledState(target);
     const template = state.files.find((file) => file.group === 'rules-minimal');
     const stale = { ...template, target: 'docs/rules/retired-example.md', source: 'docs/rules/retired-example.md' };
     await writeFile(
@@ -130,6 +158,9 @@ test('install releases an orphaned registration instead of carrying it forward',
     assert.equal(released.includes('docs/rules/retired-example.md'), true);
     assert.equal(released.includes('.agents/skills/agentmemory/SKILL.md'), false);
 
+    // The CLI confirms red zone explicitly before applying; a full install
+    // leaves red-zone registrations that this minimal plan keeps.
+    plan.redZoneConfirmed = true;
     await applyInstallPlan(plan);
 
     const written = JSON.parse(await readFile(path.join(target, '.vibe-harness/install-state.json'), 'utf8'));

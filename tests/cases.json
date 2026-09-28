@@ -6292,26 +6292,26 @@
       "layer": "component",
       "file": "tests/component/self-install-check.test.js",
       "ordinal": 1,
-      "name": "the pack repository is conformant with its own installed copy",
-      "legacy": true,
+      "name": "装到干净项目后的自托管一致性检查为 clean",
+      "legacy": false,
       "risk": "standard",
       "owner": "maintainers",
-      "source": "migration",
+      "source": "declared",
       "status": "active",
-      "addedAt": "2026-09-16"
+      "addedAt": "2026-09-28"
     },
     {
       "id": "C-self-install-check-002",
       "layer": "component",
       "file": "tests/component/self-install-check.test.js",
       "ordinal": 2,
-      "name": "self-install conformance fails when the installed copy is absent",
-      "legacy": true,
+      "name": "已安装副本缺文件时自托管一致性检查失败",
+      "legacy": false,
       "risk": "standard",
       "owner": "maintainers",
-      "source": "migration",
+      "source": "declared",
       "status": "active",
-      "addedAt": "2026-09-16"
+      "addedAt": "2026-09-28"
     },
     {
       "id": "C-self-install-check-003",
@@ -6331,26 +6331,26 @@
       "layer": "component",
       "file": "tests/component/self-install-check.test.js",
       "ordinal": 4,
-      "name": "a registration whose target is gone and unplanned is reported as an orphan",
-      "legacy": true,
+      "name": "目标已消失且不在安装计划内的登记被报告为孤儿",
+      "legacy": false,
       "risk": "standard",
       "owner": "maintainers",
-      "source": "migration",
+      "source": "declared",
       "status": "active",
-      "addedAt": "2026-09-16"
+      "addedAt": "2026-09-28"
     },
     {
       "id": "C-self-install-check-005",
       "layer": "component",
       "file": "tests/component/self-install-check.test.js",
       "ordinal": 5,
-      "name": "install releases an orphaned registration instead of carrying it forward",
-      "legacy": true,
+      "name": "安装释放孤儿登记而不把它带到下一次安装",
+      "legacy": false,
       "risk": "standard",
       "owner": "maintainers",
-      "source": "migration",
+      "source": "declared",
       "status": "active",
-      "addedAt": "2026-09-16"
+      "addedAt": "2026-09-28"
     },
     {
       "id": "C-self-install-check-006",
