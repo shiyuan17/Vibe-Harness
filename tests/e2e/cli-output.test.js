@@ -35,12 +35,22 @@ test('default dry-run is compact while verbose retains rendered content', async 
     const compact = await run(['install', '--project', target, '--target', 'codex', '--profile', 'core', '--dry-run']);
     const compactReport = JSON.parse(compact.stdout);
 
-    assert.equal(Buffer.byteLength(compact.stdout) < 15 * 1024, true);
+    // The guard keeps testing "no rendered bodies in the default output": a leaked
+    // body costs kilobytes per planned file. Budget it per planned file instead of
+    // pinning an absolute limit that goes stale whenever the core profile installs
+    // more files; a per-file metadata record is well under 256 bytes.
+    const compactBytes = Buffer.byteLength(compact.stdout);
+    const compactBudget = 4 * 1024 + compactReport.previewFiles.length * 256;
+    assert.equal(compactBytes < compactBudget, true,
+      `compact dry-run wrote ${compactBytes} bytes for ${compactReport.previewFiles.length} planned files (budget ${compactBudget})`);
     assert.equal(compactReport.previewFiles.some((file) => Object.hasOwn(file, 'content')), false);
     assert.equal(compactReport.actions.some((action) => Object.hasOwn(action, 'source') || Object.hasOwn(action, 'target')), false);
 
     const verbose = await run(['install', '--project', target, '--target', 'codex', '--profile', 'core', '--dry-run', '--verbose']);
     const verboseReport = JSON.parse(verbose.stdout);
+    // Verbose keeps every rendered body, so compact must stay an order of magnitude
+    // smaller than the same plan rendered in full.
+    assert.equal(compactBytes * 10 < Buffer.byteLength(verbose.stdout), true);
     assert.equal(verboseReport.previewFiles.some((file) => typeof file.content === 'string'), true);
     assert.equal(verboseReport.actions.some((action) => typeof action.source === 'string'), true);
 
