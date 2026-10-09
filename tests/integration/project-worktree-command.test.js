@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
 
 import { removeTemporaryDirectory } from '../../scripts/lib/temp-cleanup.js';
 import { runCommand } from '../../runtime/commands/run.mjs';
@@ -22,6 +23,7 @@ import { runCommand } from '../../runtime/commands/run.mjs';
 
 const execFileAsync = promisify(execFile);
 const gitIdentity = ['-c', 'user.email=fixture@example.invalid', '-c', 'user.name=Fixture'];
+const runtimePath = fileURLToPath(new URL('../../runtime/commands/run.mjs', import.meta.url));
 
 async function git(cwd, args) {
   const { stdout } = await execFileAsync('git', [...gitIdentity, ...args], { cwd, windowsHide: true });
@@ -980,7 +982,7 @@ test('已并入时 land 幂等重试:merge 跳过、verify 与清理照常', asy
   }
 });
 
-test('验证门禁失败时中止:保留合并结果与分支供人工处理', async () => {
+test('验证门禁失败时中止:主检出不改变并保留任务分支', async () => {
   const fixture = await makeLandFixture({
     extraFiles: { 'fail.mjs': 'process.exit(1);\n' },
     validationCommands: { test: 'node fail.mjs' },
@@ -991,11 +993,11 @@ test('验证门禁失败时中止:保留合并结果与分支供人工处理', a
     assert.equal(failed.exitCode, 1);
     assert.equal(failed.report.status, 'failed');
     const steps = failed.report.results[0].steps;
-    // The merge succeeded and stays on the target branch; nothing after the
-    // failed verify ran, so the worktree and the branch are untouched.
+    // The merge only exists in the isolated candidate; the primary and the
+    // source worktree remain untouched after a failed verify.
     assert.deepEqual(steps.map((step) => [step.id, step.status]), [['merge', 'passed'], ['verify', 'failed']]);
     assert.equal(steps[1].code, 'LAND_VERIFY_FAILED');
-    assert.equal(await git(fixture.repo, ['rev-list', '--count', 'feat/landing-zone']), '3');
+    assert.equal(await git(fixture.repo, ['rev-list', '--count', 'feat/landing-zone']), '1');
     assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
     assert.equal(await git(fixture.repo, ['branch', '--list', 'feat/ENG-1-scaffold', '--format=%(refname:short)']), 'feat/ENG-1-scaffold');
   } finally {
@@ -1003,7 +1005,7 @@ test('验证门禁失败时中止:保留合并结果与分支供人工处理', a
   }
 });
 
-test('--no-verify 跳过验证门禁', async () => {
+test('--no-verify 可预览但拒绝写入', async () => {
   const fixture = await makeLandFixture({
     extraFiles: { 'fail.mjs': 'process.exit(1);\n' },
     validationCommands: { test: 'node fail.mjs' },
@@ -1013,11 +1015,10 @@ test('--no-verify 跳过验证门禁', async () => {
     const planned = await runCommand(['worktree', 'land', '--project', fixture.repo, '--no-verify', '--json'], { cwd: fixture.repo });
     assert.equal(planned.report.results[0].steps[1].detail, 'skipped by --no-verify');
     const written = await runCommand(['worktree', 'land', '--project', fixture.repo, '--write', '--no-verify', '--json'], { cwd: fixture.repo });
-    assert.equal(written.exitCode, 0, JSON.stringify(written.report));
-    assert.deepEqual(written.report.results[0].steps.map((step) => [step.id, step.status]), [
-      ['merge', 'passed'], ['verify', 'skipped'], ['push', 'skipped'], ['cleanup', 'passed'], ['delete-branch', 'skipped'],
-    ]);
-    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), false);
+    assert.equal(written.exitCode, 1, JSON.stringify(written.report));
+    assert.equal(written.report.code, 'LAND_VERIFY_REQUIRED');
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
+    assert.equal(await git(fixture.repo, ['rev-list', '--count', 'feat/landing-zone']), '1');
   } finally {
     await removeTemporaryDirectory(fixture.root);
   }
@@ -1069,6 +1070,192 @@ test('无 upstream 且远端面不满足推送策略时 --push 被 blocked', asy
     // Without --push the same state plans cleanly.
     const planned = await runCommand(['worktree', 'land', '--project', fixture.repo, '--json'], { cwd: fixture.repo });
     assert.equal(planned.report.status, 'planned');
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('两个进程同时 land 同一目标时第二个因共享锁超时且不改动目标', async () => {
+  const fixture = await makeLandFixture({
+    extraFiles: {
+      'slow.mjs': "import { writeFileSync } from 'node:fs'; import path from 'node:path'; writeFileSync(path.resolve('..', 'landing-ready'), 'ready'); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 8000);\n",
+    },
+    validationCommands: { test: 'node slow.mjs' },
+  });
+  try {
+    await bootstrapWithWork(fixture);
+    const first = execFileAsync(process.execPath, [
+      runtimePath, 'worktree', 'land', '--project', fixture.repo, '--write', '--json',
+    ], { cwd: fixture.repo, windowsHide: true });
+    const marker = path.join(fixture.root, 'landing-ready');
+    for (let attempt = 0; attempt < 200 && !existsSync(marker); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.equal(existsSync(marker), true);
+    const second = await runCommand(['worktree', 'land', '--project', fixture.repo, '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(second.report.status, 'blocked');
+    assert.equal(second.report.code, 'LAND_LOCK_TIMEOUT');
+    assert.equal(await git(fixture.repo, ['rev-list', '--count', 'feat/landing-zone']), '1');
+    const firstResult = JSON.parse((await first).stdout);
+    assert.equal(firstResult.status, 'passed', JSON.stringify(firstResult));
+    assert.equal(await git(fixture.repo, ['rev-list', '--count', 'feat/landing-zone']), '3');
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('等待锁期间目标前进时以新 HEAD 创建候选并保留两项改动', async () => {
+  const fixture = await makeLandFixture();
+  try {
+    await bootstrapWithWork(fixture);
+    const lockPath = path.join(fixture.repo, '.git', 'vibe-harness-worktree-land.lock');
+    await writeFile(lockPath, 'held\n', 'utf8');
+    const landing = execFileAsync(process.execPath, [
+      runtimePath, 'worktree', 'land', '--project', fixture.repo, '--write', '--json',
+    ], { cwd: fixture.repo, windowsHide: true });
+    await writeFile(path.join(fixture.repo, 'other.txt'), 'independent\n', 'utf8');
+    await git(fixture.repo, ['add', 'other.txt']);
+    await git(fixture.repo, ['commit', '-q', '-m', 'feat: other']);
+    await rm(lockPath);
+    const result = JSON.parse((await landing).stdout);
+    assert.equal(result.status, 'passed', JSON.stringify(result));
+    assert.equal(await git(fixture.repo, ['rev-list', '--count', 'feat/landing-zone']), '4');
+    assert.equal((await readFile(path.join(fixture.repo, 'other.txt'), 'utf8')).trim(), 'independent');
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('验证期间目标 HEAD 前进时阻断落地并保留任务 worktree', async () => {
+  const fixture = await makeLandFixture({
+    extraFiles: {
+      'slow.mjs': "import { writeFileSync } from 'node:fs'; import path from 'node:path'; writeFileSync(path.resolve('..', 'landing-ready'), 'ready'); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2000);\n",
+    },
+    validationCommands: { test: 'node slow.mjs' },
+  });
+  try {
+    await bootstrapWithWork(fixture);
+    const landing = execFileAsync(process.execPath, [
+      runtimePath, 'worktree', 'land', '--project', fixture.repo, '--write', '--json',
+    ], { cwd: fixture.repo, windowsHide: true });
+    const marker = path.join(fixture.root, 'landing-ready');
+    for (let attempt = 0; attempt < 200 && !existsSync(marker); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.equal(existsSync(marker), true);
+    await writeFile(path.join(fixture.repo, 'other.txt'), 'independent\n', 'utf8');
+    await git(fixture.repo, ['add', 'other.txt']);
+    await git(fixture.repo, ['commit', '-q', '-m', 'feat: other']);
+    const result = JSON.parse((await landing.catch((error) => error)).stdout);
+    assert.equal(result.status, 'blocked', JSON.stringify(result));
+    assert.equal(result.results[0].steps.at(-1).code, 'LAND_BASELINE_CHANGED');
+    assert.equal(await git(fixture.repo, ['rev-list', '--count', 'feat/landing-zone']), '2');
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('验证期间主检出切换分支时不落到错误目标', async () => {
+  const fixture = await makeLandFixture({
+    extraFiles: {
+      'slow.mjs': "import { writeFileSync } from 'node:fs'; import path from 'node:path'; writeFileSync(path.resolve('..', 'landing-ready'), 'ready'); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2000);\n",
+    },
+    validationCommands: { test: 'node slow.mjs' },
+  });
+  try {
+    await bootstrapWithWork(fixture);
+    const landing = execFileAsync(process.execPath, [
+      runtimePath, 'worktree', 'land', '--project', fixture.repo, '--write', '--json',
+    ], { cwd: fixture.repo, windowsHide: true });
+    const marker = path.join(fixture.root, 'landing-ready');
+    for (let attempt = 0; attempt < 200 && !existsSync(marker); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.equal(existsSync(marker), true);
+    await git(fixture.repo, ['checkout', '-q', '-b', 'feat/other-target']);
+    const result = JSON.parse((await landing.catch((error) => error)).stdout);
+    assert.equal(result.code, 'LAND_BASELINE_CHANGED');
+    assert.equal(await git(fixture.repo, ['rev-list', '--count', 'feat/other-target']), '1');
+    assert.equal(await git(fixture.repo, ['rev-list', '--count', 'feat/landing-zone']), '1');
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('候选合并冲突只影响候选工作区，不污染主检出', async () => {
+  const fixture = await makeLandFixture({ extraFiles: { 'shared.txt': 'base\n' } });
+  try {
+    await bootstrapWithWork(fixture);
+    await writeFile(path.join(fixture.worktreePath, 'shared.txt'), 'source\n');
+    await git(fixture.worktreePath, ['add', 'shared.txt']);
+    await git(fixture.worktreePath, ['commit', '-q', '-m', 'feat: source']);
+    await writeFile(path.join(fixture.repo, 'shared.txt'), 'target\n');
+    await git(fixture.repo, ['add', 'shared.txt']);
+    await git(fixture.repo, ['commit', '-q', '-m', 'feat: target']);
+    const result = await runCommand(['worktree', 'land', '--project', fixture.repo, '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(result.report.status, 'failed');
+    assert.equal(result.report.results[0].steps[0].code, 'LAND_MERGE_CONFLICT');
+    assert.equal(await git(fixture.repo, ['rev-list', '--count', 'feat/landing-zone']), '2');
+    assert.equal(await git(fixture.repo, ['status', '--porcelain=v1']), '');
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('recover 只回收归因且干净的中断候选 worktree', async () => {
+  const fixture = await makeLandFixture();
+  try {
+    await bootstrapWithWork(fixture);
+    const candidate = path.join(fixture.root, '.vibe-harness-land-ENG-1-00000000-0000-4000-8000-000000000000');
+    await git(fixture.repo, ['worktree', 'add', '--detach', candidate, 'HEAD']);
+    const planned = await runCommand(['worktree', 'recover', '--project', fixture.repo, '--json'], { cwd: fixture.repo });
+    assert.equal(planned.report.candidates[0].status, 'planned');
+    assert.equal(await entryExists(fixture.repo, candidate), true);
+    const recovered = await runCommand(['worktree', 'recover', '--project', fixture.repo, '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(recovered.report.candidates[0].status, 'passed');
+    assert.equal(await entryExists(fixture.repo, candidate), false);
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('recover 保留脏候选与无法归因的 worktree', async () => {
+  const fixture = await makeLandFixture();
+  try {
+    await bootstrapWithWork(fixture);
+    const candidate = path.join(fixture.root, '.vibe-harness-land-ENG-1-00000000-0000-4000-8000-000000000000');
+    const foreign = path.join(fixture.root, '.vibe-harness-land-OTHER-00000000-0000-4000-8000-000000000001');
+    await git(fixture.repo, ['worktree', 'add', '--detach', candidate, 'HEAD']);
+    await git(fixture.repo, ['worktree', 'add', '--detach', foreign, 'HEAD']);
+    await writeFile(path.join(candidate, 'unowned.txt'), 'keep\n');
+    const recovered = await runCommand(['worktree', 'recover', '--project', fixture.repo, '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(recovered.report.status, 'failed');
+    assert.equal(recovered.report.candidates[0].status, 'blocked');
+    assert.equal(await entryExists(fixture.repo, candidate), true);
+    assert.equal(await entryExists(fixture.repo, foreign), true);
+    assert.equal((await readFile(path.join(candidate, 'unowned.txt'), 'utf8')).trim(), 'keep');
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('不带 --push 的 land 不写远端引用且保留任务分支', async () => {
+  const fixture = await makeLandFixture();
+  try {
+    const origin = path.join(fixture.root, 'origin.git');
+    await git(fixture.root, ['init', '--bare', '-q', origin]);
+    await git(fixture.repo, ['remote', 'add', 'origin', origin]);
+    await bootstrapWithWork(fixture);
+    const result = await runCommand(['worktree', 'land', '--project', fixture.repo, '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(result.report.status, 'passed', JSON.stringify(result.report));
+    assert.equal(result.report.results[0].pushed, false);
+    assert.equal(result.report.results[0].branchDeleted, false);
+    assert.equal(await git(origin, ['branch', '--list', 'feat/landing-zone']), '');
+    assert.equal(await git(fixture.repo, ['branch', '--list', 'feat/ENG-1-scaffold', '--format=%(refname:short)']), 'feat/ENG-1-scaffold');
   } finally {
     await removeTemporaryDirectory(fixture.root);
   }
