@@ -65,6 +65,13 @@ export async function createChangeEvidence(targetDir, baseSha, { excludedPaths =
     gitText(['diff', '--name-only', 'HEAD'], targetDir),
     gitText(['ls-files', '--others', '--exclude-standard'], targetDir),
   ]);
+  // Fail closed: when the comparison base is known but the diff cannot be
+  // produced (base pruned, shallow clone, rewritten history) the change set must
+  // never collapse to "no paths". An empty change set would reclassify a
+  // high-risk diff as ordinary and silently skip the review gate.
+  if (base && changed === null) {
+    return { available: false, baseSha: base, changedPaths: [], fingerprint: null, headSha: snapshot.head };
+  }
   const excluded = new Set(excludedPaths.map((item) => item.replaceAll('\\', '/')));
   const changedPaths = [...new Set([changed, working, untracked]
     .flatMap((value) => String(value ?? '').split(/\r?\n/u))
@@ -96,6 +103,9 @@ export function evaluateReviewReceipt({ change, receipt, schema }) {
   if (receipt?.readOnly !== true) evidence.push(auditItem('REVIEW_NOT_READ_ONLY', 'error', 'Reviewer must declare a read-only review.'));
   if (receipt?.reviewer?.identity === receipt?.implementer?.identity) evidence.push(auditItem('REVIEW_SAME_IDENTITY', 'error', 'Reviewer identity must differ from implementer identity.'));
   if (receipt?.reviewer?.contextId === receipt?.implementer?.contextId) evidence.push(auditItem('REVIEW_SAME_CONTEXT', 'error', 'Reviewer context must differ from implementer context.'));
+  if (risk.level === 'high' && receipt?.schemaVersion !== 2) {
+    evidence.push(auditItem('REVIEW_SCHEMA_V2_REQUIRED', 'error', 'High-risk changes require a schema v2 receipt: only v2 carries the two-reviewer and context-independence contract.'));
+  }
   if (risk.level === 'high' && receipt?.schemaVersion === 2) {
     const reviewers = Array.isArray(receipt.reviewers) ? receipt.reviewers : [];
     const identities = reviewers.map((item) => item?.identity).filter(Boolean);

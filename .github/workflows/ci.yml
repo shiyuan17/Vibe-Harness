@@ -78,6 +78,10 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
+          # Receipts bind baseSha/headSha to the PR head commit, not to the
+          # throwaway merge commit GitHub fabricates for the event, so an
+          # offline reviewer can compute the same fingerprint we validate.
+          ref: ${{ github.event.pull_request.head.sha }}
       - env:
           VIBE_HARNESS_INDEPENDENT_REVIEW_MODE: required
         run: node scripts/independent-review.js
@@ -282,6 +286,7 @@ jobs:
     needs: [change-plan, fast-gate, integration-gate, smoke-gate, full-gate]
     runs-on: ubuntu-latest
     env:
+      MERGE_GATE_SCOPE: product
       CHANGE_PLAN_RESULT: ${{ needs.change-plan.result }}
       FAST_GATE_RESULT: ${{ needs.fast-gate.result }}
       REQUIRED_FAST_GATE_RESULT: ${{ needs.change-plan.outputs.full != 'true' }}
@@ -300,6 +305,7 @@ jobs:
     needs: [change-plan, product, supply-chain, security, risk-evidence, branch-policy, independent-review, high-risk-approval]
     runs-on: ubuntu-latest
     env:
+      MERGE_GATE_SCOPE: aggregate
       PRODUCT_RESULT: ${{ needs.product.result }}
       SUPPLY_CHAIN_RESULT: ${{ needs.supply-chain.result }}
       SECURITY_RESULT: ${{ needs.security.result }}

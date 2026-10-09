@@ -42,7 +42,13 @@ const change = await createChangeEvidence(targetDir, baseSha);
 const risk = classifyChangedPaths(change.changedPaths);
 const blocks = extractIndependentReviewReceiptBlocks(event.pull_request.body ?? '');
 let report;
-if (risk.level === 'ordinary') {
+if (!change.available) {
+  report = {
+    status: 'degraded',
+    evidence: [{ code: 'REVIEW_GIT_UNAVAILABLE', severity: 'error', message: 'Git change evidence is unavailable; the change set cannot be classified.' }],
+    details: risk,
+  };
+} else if (risk.level === 'ordinary') {
   report = { status: 'not-required', evidence: [], details: risk };
 } else if (blocks.length !== 1) {
   report = {

@@ -1,6 +1,7 @@
 const HIGH_RISK_PATTERNS = [
   /^\.github\/workflows\//u,
   /^(?:schemas|manifests|adapters|runtime|rules|skills\/core|templates|scripts)\//u,
+  /^docs\/rules\//u,
   /^package\.json$/u,
 ];
 

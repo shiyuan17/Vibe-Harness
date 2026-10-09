@@ -17,6 +17,9 @@ test('risk classifier treats delivery and public-contract paths as high risk', (
   assert.equal(classifyChangedPaths(['docs/README.md']).level, 'ordinary');
   assert.equal(classifyChangedPaths(['schemas/eval-run.schema.json']).level, 'high');
   assert.equal(classifyChangedPaths(['.github/workflows/release-please.yml']).level, 'high');
+  // Governance rules under docs/rules are control-plane assets: the classifier
+  // must agree with docs/rules/linear-workflow.md, which lists them as high risk.
+  assert.equal(classifyChangedPaths(['docs/rules/git-rules.md']).level, 'high');
 });
 
 test('high-risk pull requests require complete human-readable evidence', () => {

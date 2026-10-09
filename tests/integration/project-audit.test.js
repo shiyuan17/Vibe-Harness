@@ -38,7 +38,12 @@ test('review receipt approves only independent current stable review', async () 
     decision: 'approved',
   };
   const change = { available: true, baseSha: receipt.baseSha, headSha: sha, fingerprint: receipt.changeFingerprint, changedPaths: receipt.highRiskPaths };
-  assert.equal(evaluateReviewReceipt({ change, receipt, schema }).status, 'healthy');
+  // v1 stays schema-valid, but a high-risk change cannot be approved through it:
+  // the two-reviewer and context-independence contract only exists in v2.
+  const v1HighRisk = evaluateReviewReceipt({ change, receipt, schema });
+  assert.equal(v1HighRisk.status, 'degraded');
+  assert.match(v1HighRisk.evidence.map((item) => item.code).join(','), /REVIEW_SCHEMA_V2_REQUIRED/u);
+  assert.doesNotMatch(v1HighRisk.evidence.map((item) => item.code).join(','), /REVIEW_RECEIPT_SCHEMA/u);
   const stale = structuredClone(receipt);
   stale.headSha = 'd'.repeat(40);
   assert.match(evaluateReviewReceipt({ change, receipt: stale, schema }).evidence.map((item) => item.code).join(','), /REVIEW_HEAD_STALE/u);
@@ -78,7 +83,7 @@ test('review receipt approves only independent current stable review', async () 
   v2WithoutFields.schemaVersion = 2;
   assert.match(evaluateReviewReceipt({ change, receipt: v2WithoutFields, schema }).evidence.map((item) => item.code).join(','), /REVIEW_RECEIPT_SCHEMA/u);
   const v1Readable = structuredClone(receipt);
-  assert.equal(evaluateReviewReceipt({ change, receipt: v1Readable, schema }).status, 'healthy');
+  assert.match(evaluateReviewReceipt({ change, receipt: v1Readable, schema }).evidence.map((item) => item.code).join(','), /REVIEW_SCHEMA_V2_REQUIRED/u);
 });
 
 test('PR body accepts one independent review receipt block', () => {
@@ -103,6 +108,25 @@ test('review evidence excludes its receipt file from the change fingerprint', as
   const after = await createChangeEvidence(project, undefined, { excludedPaths: ['review.json'] });
   assert.deepEqual(before.changedPaths, ['tracked.txt']);
   assert.equal(after.fingerprint, before.fingerprint);
+});
+
+test('change evidence fails closed when the comparison base cannot be diffed', async () => {
+  const project = await temporaryProject();
+  await git('git', ['init'], { cwd: project, windowsHide: true });
+  await git('git', ['config', 'user.email', 'audit@example.invalid'], { cwd: project, windowsHide: true });
+  await git('git', ['config', 'user.name', 'Audit Test'], { cwd: project, windowsHide: true });
+  await mkdir(path.join(project, 'schemas'), { recursive: true });
+  await writeFile(path.join(project, 'schemas', 'example.json'), '{}\n', 'utf8');
+  await git('git', ['add', 'schemas/example.json'], { cwd: project, windowsHide: true });
+  await git('git', ['commit', '-m', 'test: seed change evidence fixture'], { cwd: project, windowsHide: true });
+  // A base that cannot be resolved must not collapse into an empty (ordinary)
+  // change set, which would skip the high-risk review gate.
+  const unavailable = await createChangeEvidence(project, 'f'.repeat(40));
+  assert.equal(unavailable.available, false);
+  assert.deepEqual(unavailable.changedPaths, []);
+  const head = (await git('git', ['rev-parse', 'HEAD'], { cwd: project, windowsHide: true })).stdout.trim();
+  const resolved = await createChangeEvidence(project, head);
+  assert.equal(resolved.available, true);
 });
 
 test('memory audit detects empty, stale, missing, changed, and healthy fixtures', async () => {

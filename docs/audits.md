@@ -12,9 +12,11 @@ review kind 根据 base diff、当前 head、变更指纹、高风险路径和�
 
 approved 要求 Reviewer 与实现者身份、context ID 均不同，readOnly 为 true，最终验证绑定当前 head 且 stable 为 true，并且没有未解决的 High 或 Critical finding。收据文件本身不参与变更指纹，避免自引用；任何其他新提交或工作树变更都会使旧收据失效。
 
-v1 回执保持可读；v2 是高风险变更的双复审契约：Schema 结构上要求同时给出两个 `reviewers`（身份与 contextId 互不相同）与 `contextIndependence`，并且只有宿主验证的 `contextIndependence=verified` 才支持 approved，`attested` 与 `unavailable` 只能作为降级信息。少一个复审者或缺少独立性声明时，收据本身就不成立，而不是仅在审计时降级。
+v1 回执保持可读，但只对普通变更成立：高风险变更一律要求 v2，v1 回执在高风险下报 `REVIEW_SCHEMA_V2_REQUIRED`，不能支持 approved。v2 是高风险变更的双复审契约：Schema 结构上要求同时给出两个 `reviewers`（身份与 contextId 互不相同）与 `contextIndependence`，并且只有宿主验证的 `contextIndependence=verified` 才支持 approved，`attested` 与 `unavailable` 只能作为降级信息。少一个复审者或缺少独立性声明时，收据本身就不成立，而不是仅在审计时降级。
 
-高风险 PR 的 body 只允许一个 Independent Review Receipt JSON 区块。scripts/independent-review.js 默认以 shadow 模式运行；设置 VIBE_HARNESS_INDEPENDENT_REVIEW_MODE=required 后才会让 degraded 结果返回失败。
+收据绑定 `pull_request.base.sha` 与 `pull_request.head.sha`：independent-review job 检出 PR head 提交，复审者不依赖 GitHub 临时 merge commit 也能复算 changeFingerprint。取不到比对 base 的 diff 时审计 fail-closed，不再退化成空变更集。
+
+高风险 PR 的 body 只允许一个 Independent Review Receipt JSON 区块。scripts/independent-review.js 默认以 shadow 模式运行；设置 VIBE_HARNESS_INDEPENDENT_REVIEW_MODE=required 后才会让 degraded 结果返回失败，本仓库 develop/main 的 `pull_request` 门禁使用 required 模式。
 
 scripts/check-pull-request-approval.js 默认同为 shadow 模式，只记录是否存在当前的非作者批准；设置 VIBE_HARNESS_PR_APPROVAL_MODE=required 后才会在缺少批准时失败。
 
