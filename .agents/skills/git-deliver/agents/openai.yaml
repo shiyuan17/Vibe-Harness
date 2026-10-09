@@ -1,0 +1,6 @@
+interface:
+  display_name: "Git Deliver"
+  short_description: "Group task changes into verified commits and push, only on explicit invocation"
+  default_prompt: "Use $git-deliver to group the current task's changes into verified Conventional Commits and push the current branch."
+policy:
+  allow_implicit_invocation: false

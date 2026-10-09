@@ -1,16 +1,16 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Vibe-Harness Adapter Catalog",
+  "title": "Vibe-Harness adapter 目录",
   "type": "object",
   "required": ["schemaVersion", "items"],
   "properties": {
-    "schemaVersion": { "type": "integer", "const": 3 },
+    "schemaVersion": { "type": "integer", "const": 5 },
     "items": {
       "type": "array",
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["id", "installMap", "instructionTarget", "instructionTemplate", "skillRoot", "supportedProfiles", "capabilities", "hookEvents", "hookActivation", "redZonePrefixes"],
+        "required": ["id", "installMap", "instructionTarget", "instructionTemplate", "skillRoot", "supportedProfiles", "capabilities", "freshContext", "roleProjection", "hookEvents", "hookActivation", "executionAuthority", "evidence", "redZonePrefixes"],
         "properties": {
           "id": { "type": "string", "enum": ["codex", "claude", "gemini", "cursor", "qoder", "zcode", "antigravity", "opencode"] },
           "installMap": { "type": "string", "minLength": 1 },
@@ -47,7 +47,7 @@
           "supportedProfiles": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
           "capabilities": {
             "type": "object",
-            "required": ["instructions", "skills", "hooks", "policy", "mcp", "sandbox", "memory", "plugin", "goals"],
+            "required": ["instructions", "skills", "hooks", "policy", "mcp", "sandbox", "memory", "plugin", "goals", "subagents"],
             "properties": {
               "instructions": { "type": "string", "enum": ["unsupported", "preview", "stable"] },
               "skills": { "type": "string", "enum": ["unsupported", "preview", "stable"] },
@@ -57,7 +57,30 @@
               "sandbox": { "type": "string", "enum": ["unsupported", "preview", "stable"] },
               "memory": { "type": "string", "enum": ["unsupported", "preview", "stable"] },
               "plugin": { "type": "string", "enum": ["unsupported", "preview", "stable"] },
-              "goals": { "type": "string", "enum": ["unsupported", "preview", "stable"] }
+              "goals": { "type": "string", "enum": ["unsupported", "preview", "stable"] },
+              "subagents": { "type": "string", "enum": ["unsupported", "preview", "stable"] }
+            },
+            "additionalProperties": false
+          },
+          "freshContext": {
+            "type": "object",
+            "required": ["mode", "evidence"],
+            "properties": {
+              "mode": { "type": "string", "enum": ["isolated", "inherited", "unavailable"] },
+              "evidence": { "type": "string", "enum": ["verified", "configured-unverified", "preview"] }
+            },
+            "additionalProperties": false
+          },
+          "roleProjection": {
+            "type": "object",
+            "required": ["format", "targetRoot", "extension", "activation", "permissionEnforcement", "toolBinding"],
+            "properties": {
+              "format": { "type": "string", "enum": ["codex-toml", "claude-markdown", "gemini-markdown", "cursor-markdown", "qoder-markdown", "zcode-plugin-markdown", "antigravity-markdown", "opencode-markdown"] },
+              "targetRoot": { "type": "string", "minLength": 1 },
+              "extension": { "type": "string", "enum": [".md", ".toml"] },
+              "activation": { "type": "string", "enum": ["automatic", "manual"] },
+              "permissionEnforcement": { "type": "string", "enum": ["native", "prompt-guarded"] },
+              "toolBinding": { "type": "string", "enum": ["native", "prompt-guarded", "configured-unverified"] }
             },
             "additionalProperties": false
           },
@@ -65,13 +88,39 @@
             "type": "object",
             "required": ["preToolUse", "permissionRequest", "stop"],
             "properties": {
-              "preToolUse": { "type": "string", "enum": ["unsupported", "preview", "stable"] },
-              "permissionRequest": { "type": "string", "enum": ["unsupported", "preview", "stable"] },
-              "stop": { "type": "string", "enum": ["unsupported", "preview", "stable"] }
+              "preToolUse": { "type": "string", "enum": ["unsupported", "not-projected", "preview", "stable"] },
+              "permissionRequest": { "type": "string", "enum": ["unsupported", "not-projected", "preview", "stable"] },
+              "stop": { "type": "string", "enum": ["unsupported", "not-projected", "preview", "stable"] }
             },
             "additionalProperties": false
           },
           "hookActivation": { "type": "string", "enum": ["manual-trust", "config-file", "unsupported"] },
+          "executionAuthority": {
+            "type": "object",
+            "required": ["envelopeVersions", "trustedSource", "projectConfigMayAuthorize", "highRiskEnforcement", "goalLifecycle"],
+            "properties": {
+              "envelopeVersions": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": { "type": "string", "enum": ["v1", "v2"] }
+              },
+              "trustedSource": { "type": "string", "enum": ["host-injected", "none"] },
+              "projectConfigMayAuthorize": { "type": "boolean", "const": false },
+              "highRiskEnforcement": { "type": "string", "enum": ["host-required", "unsupported"] },
+              "goalLifecycle": { "type": "string", "enum": ["host-native-required", "prompt-only", "unsupported"] }
+            },
+            "additionalProperties": false
+          },
+          "evidence": {
+            "type": "object",
+            "required": ["status", "lastVerifiedAt", "hostVersion"],
+            "properties": {
+              "status": { "type": "string", "enum": ["verified", "configured-unverified", "preview"] },
+              "lastVerifiedAt": { "type": "string", "pattern": "^$|^\\d{4}-\\d{2}-\\d{2}$" },
+              "hostVersion": { "type": "string" }
+            },
+            "additionalProperties": false
+          },
           "redZonePrefixes": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
         },
         "additionalProperties": false

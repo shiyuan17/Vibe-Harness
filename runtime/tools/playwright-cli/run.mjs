@@ -213,20 +213,19 @@ async function npmInvocation(args) {
 }
 
 async function defaultRunCliCommand(command, args, options) {
-  await new Promise((resolve, reject) => {
+  await /** @type {Promise<void>} */ (new Promise((resolve, reject) => {
     const child = spawn(command, args, { ...options, shell: false, windowsHide: true });
     child.once('error', reject);
     child.once('close', (code) => {
       if (code === 0) resolve();
       else {
-        const error = new Error(`Playwright CLI exited with code ${code}.`);
-        error.code = code;
-        reject(error);
+        reject(Object.assign(new Error(`Playwright CLI exited with code ${code}.`), { code }));
       }
     });
-  });
+  }));
 }
 
+/** @param {{targetDir?: string, toolDir?: string}} options */
 export async function inspectPlaywrightTool({ targetDir, toolDir } = {}) {
   const paths = runtimePaths({ targetDir, toolDir });
   await assertRuntimePathsSafe(paths);
@@ -246,6 +245,7 @@ export async function inspectPlaywrightTool({ targetDir, toolDir } = {}) {
   };
 }
 
+/** @param {{env?: NodeJS.ProcessEnv, runCommand?: (command: string, args: string[], options: Record<string, any>) => Promise<void>, targetDir?: string, toolDir?: string}} options */
 export async function preparePlaywrightTool({ env = process.env, runCommand = defaultRunCommand, targetDir, toolDir } = {}) {
   const paths = runtimePaths({ targetDir, toolDir });
   await assertRuntimePathsSafe(paths);
@@ -283,10 +283,11 @@ export async function preparePlaywrightTool({ env = process.env, runCommand = de
       status: 'unavailable',
       version: PLAYWRIGHT_CLI_VERSION,
     }, null, 2)}\n`, 'utf8');
-    const wrapped = new Error('Unable to prepare Playwright CLI. Retry the command or use the documented browser fallback.');
-    wrapped.code = 'PLAYWRIGHT_CLI_PROVISION_FAILED';
-    wrapped.cause = error;
-    wrapped.phase = phase;
+    const wrapped = Object.assign(new Error('Unable to prepare Playwright CLI. Retry the command or use the documented browser fallback.'), {
+      code: 'PLAYWRIGHT_CLI_PROVISION_FAILED',
+      cause: error,
+      phase,
+    });
     for (const property of ['exitCode', 'outputTruncated', 'stderr', 'stdout']) {
       if (error?.[property] !== undefined) wrapped[property] = error[property];
     }
@@ -296,6 +297,7 @@ export async function preparePlaywrightTool({ env = process.env, runCommand = de
   }
 }
 
+/** @param {string[]} args @param {{env?: NodeJS.ProcessEnv, runCommand?: (command: string, args: string[], options: Record<string, any>) => Promise<void>, runCliCommand?: (command: string, args: string[], options: Record<string, any>) => Promise<void>, targetDir?: string, toolDir?: string}} options */
 export async function runPlaywrightCli(args, options = {}) {
   const toolDir = options.toolDir ?? path.dirname(fileURLToPath(import.meta.url));
   const targetDir = options.targetDir ?? path.resolve(toolDir, '../../../..');

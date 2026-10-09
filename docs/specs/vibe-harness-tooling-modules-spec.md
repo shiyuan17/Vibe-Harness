@@ -22,7 +22,13 @@
 
 状态：Implemented
 
-6 个工具插件均为项目内、可选且相互独立的能力。`minimal`、`core`、`full` 和 `docs-only` 的默认安装均不包含外部工具；`full` 表示完整治理能力，不表示自动下载工具。
+9 个工具插件均为项目内、可选且相互独立的能力：6 个带项目内固定版本 runtime 的工具插件之外，`codegraph`、`serena`、`probe` 是 rule-only 插件——安装器只写入对应规则文件，不安装也不配置外部工具本身，MCP/CLI 由宿主环境自行准备。`minimal`、`core`、`full` 和 `docs-only` 的默认安装均不包含外部工具；`full` 表示完整治理能力，不表示自动下载工具。
+
+## Capability / Provider Catalog
+
+<code>manifests/plugin-providers.json</code> 统一声明 11 个可选 provider（9 个工具插件加 `linear`、`linear-readonly` 两个远程集成）的稳定 capability、公开别名、内部 module、transport、选择面、provisioning tool 关联和互斥关系。module 仍负责安装资产组及依赖闭包；provider 负责具体实现身份；capability 是 planner、provisioning、MCP 投影和 Agent 指令消费的边界。
+
+Catalog 是内部实现合同，不新增项目配置或 install-state 字段。现有 <code>plugins</code>、<code>requestedPlugins</code>、<code>resolvedModules</code>、CLI 输出和 schemaVersion 保持不变。CLI、local MCP 与 remote MCP 不共享统一调用接口，也不提供 hybrid provider；各 provider 的版本、命令、错误、权限、fallback 和生命周期仍由专项实现与规则定义。
 
 ## 选择合同
 
@@ -36,12 +42,23 @@ Linear 另有两个需要认证的显式外部集成：linear-mcp 配置读写 e
 | `chrome-devtools-mcp` | `chrome-devtools` | Chrome console、network 与性能诊断 | stable |
 | `playwright-cli` | `playwright` | 浏览器自动化与回归证据 | stable |
 | `open-code-review` | `open-code-review` | 项目内 AI code review | stable |
+| `codegraph` | `codegraph` | 仓库级调用链与影响面图谱（rule-only） | stable |
+| `serena` | `serena` | LSP 实时符号导航（rule-only） | stable |
+| `probe` | `probe` | 自然语言意图检索（rule-only） | stable |
 
-`--plugin -all` 或 `--plugin all` 展开为全部 6 个；`--plugin -rtk` 启用一个；`--plugin -rtk ast-grep` 启用多个。支持逗号分隔和重复 `--plugin`，规范化后拒绝未知值、重复值以及 `all`/`none` 与其他值混用。`--plugin none` 显式清空已持久化选择。Agentmemory runtime 因上游依赖树仍含 High 漏洞而暂停提供，不通过降低 audit 门禁重新开放。
+`--plugin -all` 或 `--plugin all` 展开为全部 6 个带 runtime 的稳定工具插件；rule-only 的 `codegraph`、`serena`、`probe` 不随 `all` 展开，需按名显式选择，聚合预设 `everything` 会显式带出这三个。`--plugin -rtk` 启用一个；`--plugin -rtk ast-grep` 启用多个。支持逗号分隔和重复 `--plugin`，规范化后拒绝未知值、重复值以及 `all`/`none` 与其他值混用。`--plugin none` 显式清空已持久化选择。Agentmemory runtime 因上游依赖树仍含 High 漏洞而暂停提供，不通过降低 audit 门禁重新开放。
 
 插件选择是 profile 的增量集合：先解析 profile 或高级 `--modules` 替换集合，再加入插件及依赖闭包。因此 `full --plugin -rtk` 仍保留 full 的 governance、skills 与 hooks；memory 仅在显式选择 `memory` module 时加入。`--modules` 继续作为完整模块替换接口，不等同于插件选择。
 
 选择优先级为 CLI `--plugin`、`vibe-harness.config.json` 的 `plugins`、install-state 的 `requestedPlugins`、空集合。install-state 同时保存 `requestedPlugins` 与 `resolvedModules`；validate、doctor、baseline、diff、reinstall 和 provision 复用该状态。卸载与 rollback 仅处理状态拥有的插件文件、runtime、缓存与 MCP 受管块。
+
+## 安装预设
+
+<code>manifests/install-presets.json</code> 与 <code>schemas/install-preset.schema.json</code> 声明项目级安装预设，<code>scripts/lib/install-preset.js</code> 负责目录校验与唯一解析入口。预设是聚合选择面：它把 profile、插件、模块、预览放行与 provision 组合成一次声明，由 <code>resolveInstallSurface()</code> 解析为 effective profile、plugins、modules、allowPreview 与 provision；install-state 仍只记录展开后的 <code>requestedPlugins</code> 与 <code>requestedModules</code>，因此 validate、doctor、diff、baseline 与 provision 重放的是同一安装面。
+
+当前只有 `everything` 一个预设，展开为 `profile=full`、6 个带 runtime 的稳定工具插件、rule-only 的 `codegraph`／`serena`／`probe`、`linear` 读写模块与 `memory` 模块，并隐含 `--allow-preview` 与 `--provision`；它不隐含 `--confirm-red-zone`，红区写入仍须显式确认。
+
+预设不改变既有选择语义：`full` 与 `--plugin all` 的展开结果保持不变，`--plugin all` 仍只含 6 个带 runtime 的稳定工具、不含 Linear 与三个 rule-only 插件；它们只能由显式插件选择或由预设显式带出。CLI 的 `--profile`、`--modules`、`--plugin` 与已声明的 preset 不得并存，`vibe-harness.config.json` 中 preset 存在时也不得同时声明 `plugins` 或 `modules`，避免配置与 install-state 静默分叉。`init --preset` 只写入配置，`install --preset` 在配置缺少该预设时于同一安装事务内补齐；配置属红区，真实写入仍须 `--confirm-red-zone`。
 
 ## 固定版本与入口
 
@@ -49,7 +66,7 @@ Linear 另有两个需要认证的显式外部集成：linear-mcp 配置读写 e
 | --- | --- | --- |
 | RTK | `rtk-ai/rtk v0.45.0` | `node .agents/runtime/tools/rtk/run.mjs <command> ...`；原始输出使用 `node .agents/runtime/tools/rtk/run.mjs proxy <command> ...` |
 | ast-grep | `@ast-grep/cli@0.45.1` | `node .agents/runtime/tools/ast-grep/run.mjs <sg\|ast-grep> ...` |
-| codebase-memory-mcp | `0.9.0` | `.agents/runtime/tools/codebase-memory-mcp/run.mjs` |
+| codebase-memory-mcp | `0.11.0` | `.agents/runtime/tools/codebase-memory-mcp/run.mjs` |
 | Chrome DevTools MCP | `1.6.0` | `.agents/runtime/tools/chrome-devtools-mcp/run.mjs` |
 | Playwright CLI | `0.1.17` | `.agents/runtime/tools/playwright-cli/run.mjs` |
 | Open Code Review | `1.7.7` | `.agents/runtime/tools/open-code-review/run.mjs` |
@@ -63,16 +80,25 @@ ast-grep 表中的前缀形式仅为兼容入口；canonical CLI 是 <code>node 
 - npm 工具使用提交的 lockfile 与受审查安装阶段；ast-grep 在 `npm ci --ignore-scripts` 后显式运行 native binary postinstall。RTK 使用官方 release 平台/架构映射和固定 SHA-256，未提供资产的平台报告 `unsupported`。
 - 工具状态为 `pending`、`ready`、`degraded` 或 `unsupported`；Open Code Review 还可在凭据缺失时报告 `pending-config`。错误使用稳定 code、脱敏诊断、限长输出和恢复或 fallback 建议。
 - 显式 provision 执行所需的版本、binary、索引、MCP 或 browser smoke；install、validate、doctor 和 baseline 的只读路径不执行目标项目二进制。
-- codebase-memory-mcp 的受管 MCP 环境固定设置 `CBM_MEM_BUDGET_MB=2048` 与 `CBM_WORKERS=2`。provisioning 在首次索引前将 `auto_index`、`auto_watch` 设为 `false`，后台不会在没有显式调用时重复索引。
+- codebase-memory-mcp 的受管 MCP 环境固定设置 `CBM_MEM_BUDGET_MB=2048` 与 `CBM_WORKERS=2`。provisioning 在首次索引前将 `auto_index`、`auto_watch` 设为 `false`，后台不会在没有显式调用时重复索引。图缓存落在用户私有目录（Windows 为 `%LOCALAPPDATA%\vibe-harness\codebase-memory-mcp\<project-slug>`，其他平台为 XDG cache 等价路径），由 install planner、`componentEnvironment`、runtime wrapper 与项目命令共用同一个解析函数，避免 MCP 与管理 CLI 读到两张图；`CBM_CACHE_DIR` 仍是显式覆盖入口。0.11.0 拒绝路径链上存在不受信身份写权限的缓存目录，因此 provisioning 在索引前增加 `cache-precheck` 阶段，失败时给出稳定诊断码 `CBM_CACHE_DIR_NOT_PRIVATE`，不修改祖先目录 ACL。
+- wrapper 在 `index_repository` 成功后写入 `.vibe-harness/tool-state/codebase-memory-mcp/index-state.json`（`schemaVersion`、`project`、`rootPath`、`headSha`、`branch`、`indexedAt`、`mode`、`nodes`、`edges`、`cacheDir`、`runtimeVersion`）。项目命令 `run.mjs codebase-memory status|refresh` 以该状态戳比对当前 HEAD，返回 `fresh`、`stale` 或 `missing`；`refresh` 默认 dry-run，只有 `--write` 才重建并刷新状态戳。linked worktree 映射到主检出条目，`status` 额外返回 `sourceRoot`。
 - 选择 codebase-memory-mcp 时，安装器在项目根维护 `# VIBE_HARNESS:CBM:START` / `# VIBE_HARNESS:CBM:END` 包围的 `.cbmignore` 块，排除 Vibe-Harness 状态、Agent 配置、构建输出、工具缓存、日志和压缩包。既有用户规则保留；无受管块的既有文件在未使用 `--force` 时报告冲突。
-- runtime、下载缓存、索引与工具状态均位于目标项目。未使用 `--force` 时不覆盖用户文件；真实 install、provision、rollback 和 uninstall 使用 `--write`，红区仍需显式确认。
+- runtime、下载缓存与工具状态位于目标项目；codebase-memory-mcp 的图缓存是唯一例外，按上面的私有目录规则外移。未使用 `--force` 时不覆盖用户文件；真实 install、provision、rollback 和 uninstall 使用 `--write`，红区仍需显式确认。
 - `pnpm runtime:audit` 审计 npm runtime 的实际依赖面并对 High/Critical fail-closed；RTK 使用 release checksum 供应链校验。存在未修复 High 风险的 runtime 不进入可安装清单。
 
-## 三工具调用关系
+## 检索工具调用关系（Tier 0–3 分层模型）
 
-- RTK 属于输出通道，只压缩符合条件的 Shell 输出，不参与代码检索和语义判断。新安装选择 RTK 时 Codex Hook 默认开启；CLI、项目配置、已有安装状态依次覆盖默认值。
-- ast-grep 属于本地语法层：先用 <code>outline</code> 缩小读取范围，再用 <code>run</code> 或 <code>scan</code> 做 AST 查询；持久化规则必须通过 <code>test</code>。
-- codebase-memory-mcp 属于跨文件语义层：需要调用链、架构或影响分析时先检查索引，再定位精确符号并读取源码或追踪调用路径。
+RTK 属于输出通道，只压缩符合条件的 Shell 输出，不参与代码检索和语义判断，也不参与分层选择。新安装选择 RTK 时 Codex Hook 默认开启；CLI、项目配置、已有安装状态依次覆盖默认值。
+
+| Tier | 工具 | 职责 | 资源预算与调用要点 |
+| --- | --- | --- | --- |
+| Tier 0 并行自由层 | `rg`、`fd`、`git grep`、ast-grep | 确定性文本匹配与本地语法模式 | 无共享状态、可任意并行，不依赖索引；ast-grep 先用 `outline` 缩小读取范围，再用 `run` 或 `scan` 做 AST 查询，持久化规则必须通过 `test` |
+| Tier 1 轻量上下文 | probe | 自然语言意图检索：本地索引加重排序，输出紧凑相关片段 | `--max-results` ≤ 50、`--max-tokens` ≤ 10000，parser workers 用 `RAYON_NUM_THREADS` 约束在 2~4；不依赖共享索引，允许 Worktree 独立使用；不是 Tier 0 确定性匹配的替代 |
+| Tier 2 实时语义 | serena | LSP 实时 symbol、references、definition 与 type resolution（新鲜度敏感，覆盖 Worktree 中未入索引的变更） | 同时激活 ≤ 2 个 Worktree；LSP 实例按需启动、用完释放，不在空闲会话中常驻，不与 Tier 3 索引任务并行争用资源 |
+| Tier 3 仓库级索引 | codebase-memory-mcp、codegraph | 跨文件语义图、多跳调用链、影响面与架构速览 | 默认 Base Index + Git Diff：所有 Worktree 共享主仓库索引，不为每个 Worktree 重建；确需重建时只在主仓库串行执行一次（codegraph 上游单写者锁，MAX_CONCURRENT_INDEX = 1）；cbm 图缓存预算 `CBM_MEM_BUDGET_MB=2048`、`CBM_WORKERS=2`，`auto_index`/`auto_watch` 固定 `false` |
+
+- Tier 3 新鲜度合同：codebase-memory-mcp 需要调用链、影响面、架构或跨文件符号时先运行 `codebase-memory status` 确认新鲜度，过期或缺失再 `refresh`，然后定位精确符号并用 `trace_path`、`detect_changes` 等工具取关系，最后读取源码核验；`index_status` 的 `ready` 只代表图可读，新鲜度由状态戳与当前 HEAD 的比对决定。codegraph 先用 `codegraph status` 查看索引新鲜度，索引陈旧时默认不重建，用 `git merge-base` 取基线、`git diff --name-only <base>` 圈定变更集叠加索引结果，变更集内文件以工作区实际内容为准。
+- codegraph 默认入口是 `codegraph_explore`（上游默认只暴露该 MCP 工具）；`codegraph_callers`、`codegraph_callees`、`codegraph_impact` 等需通过 `CODEGRAPH_MCP_TOOLS` 显式启用。
 - 普通文本、配置、日志和未知语言使用 <code>rg</code>；各层不可伪装成其他层的等价替代，所有结论回到源码、测试或原始产物核验。
 
 ## 使用与回退规则

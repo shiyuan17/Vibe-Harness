@@ -1,7 +1,14 @@
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { pathExists } from './manifest.js';
+import { readInstallState } from './install-state.js';
+import { assertPortableRelativePath, pathExists } from './manifest.js';
+import {
+  deriveValidationTiers,
+  emptyValidationTiers,
+  readProjectTierFacts,
+  resolveValidationTiers,
+} from './validation-tiers.js';
 
 const ignoredDirs = new Set([
   '.git',
@@ -22,6 +29,68 @@ const ignoredDirs = new Set([
 
 function unique(values) {
   return [...new Set(values.filter(Boolean))];
+}
+
+function redactSensitiveText(value) {
+  return String(value)
+    .replace(/[\u0000-\u001f\u007f]+/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim()
+    .replace(/\b((?:api[-_]?key|password|secret|token)=)[^\s/]+/giu, '$1[REDACTED]')
+    .replace(/(--?(?:api[-_]?key|password|secret|token)(?:=|\s+))[^\s]+/giu, '$1[REDACTED]')
+    .replace(/\bBearer\s+[^\s]+/giu, 'Bearer [REDACTED]');
+}
+
+const loggingContractFields = ['frameworks', 'configFiles', 'sources', 'queries', 'correlationFields', 'verification'];
+
+function emptyLoggingProfile() {
+  return {
+    status: 'unknown',
+    evidence: {
+      frameworks: [],
+      configFiles: [],
+      queryCandidates: [],
+      correlationCandidates: [],
+    },
+    contract: Object.fromEntries(loggingContractFields.map((field) => [field, []])),
+  };
+}
+
+function normalizedLoggingContract(logging = {}) {
+  return Object.fromEntries(loggingContractFields.map((field) => [field, unique(
+    Array.isArray(logging[field]) ? logging[field].map(redactSensitiveText).filter(Boolean) : [],
+  )]));
+}
+
+function loggingStatus(evidence, contract) {
+  const hasSources = contract.sources.length > 0;
+  const hasQueries = contract.queries.length > 0 || evidence.queryCandidates.length > 0;
+  const hasVerification = contract.verification.length > 0;
+  if (hasSources && hasQueries && hasVerification) return 'complete';
+  if (Object.values(evidence).some((values) => values.length > 0)
+    || Object.values(contract).some((values) => values.length > 0)) return 'partial';
+  return 'unknown';
+}
+
+function withLoggingSummaries(logging) {
+  const summarize = (values) => values.length > 0 ? values.join('、') : '未发现';
+  return {
+    ...logging,
+    evidenceSummary: [
+      '实现：' + summarize(logging.evidence.frameworks),
+      '配置：' + summarize(logging.evidence.configFiles),
+      '查询：' + summarize(logging.evidence.queryCandidates),
+      '关联字段：' + summarize(logging.evidence.correlationCandidates),
+    ].join('；'),
+    contractSummary: [
+      '实现：' + summarize(logging.contract.frameworks),
+      '配置：' + summarize(logging.contract.configFiles),
+      '来源：' + summarize(logging.contract.sources),
+      '查询：' + summarize(logging.contract.queries),
+      '关联字段：' + summarize(logging.contract.correlationFields),
+      '验证：' + summarize(logging.contract.verification),
+    ].join('；'),
+  };
 }
 
 function mergeText(base, override) {
@@ -45,7 +114,40 @@ async function readTextIfExists(filePath) {
   return readFile(filePath, 'utf8');
 }
 
-async function findFiles(targetDir, predicate, { currentDir = targetDir, maxDepth = 3 } = {}) {
+function managedPathMatcher(installState) {
+  const pathKey = (value) => {
+    assertPortableRelativePath(value, 'install-state managed target');
+    const normalized = value.replaceAll('\\', '/');
+    return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+  };
+  const exactTargets = new Set([
+    ...(installState?.files ?? []),
+    ...(installState?.generatedFiles ?? []),
+  ].map((item) => pathKey(item.target)));
+  const directoryTargets = (installState?.generatedDirectories ?? [])
+    .map((item) => pathKey(item.target));
+
+  return (relativePath) => {
+    const key = pathKey(relativePath);
+    return exactTargets.has(key)
+      || directoryTargets.some((directory) => key === directory || key.startsWith(directory + '/'));
+  };
+}
+
+async function readManagedInstallState(targetDir) {
+  try {
+    return await readInstallState(targetDir);
+  } catch {
+    return null;
+  }
+}
+
+/** @param {string} targetDir @param {(name: string, fullPath: string) => boolean} predicate @param {{currentDir?: string, isManagedPath?: (relativePath: string) => boolean, maxDepth?: number}} options */
+async function findFiles(targetDir, predicate, {
+  currentDir = targetDir,
+  isManagedPath = () => false,
+  maxDepth = 3,
+} = {}) {
   if (maxDepth < 0 || !(await pathExists(currentDir))) {
     return [];
   }
@@ -54,14 +156,20 @@ async function findFiles(targetDir, predicate, { currentDir = targetDir, maxDept
   const files = [];
   for (const entry of entries) {
     const fullPath = path.join(currentDir, entry.name);
+    const relativePath = path.relative(targetDir, fullPath).replaceAll('\\', '/');
+    if (isManagedPath(relativePath)) continue;
     if (entry.isDirectory()) {
       if (!ignoredDirs.has(entry.name)) {
-        files.push(...await findFiles(targetDir, predicate, { currentDir: fullPath, maxDepth: maxDepth - 1 }));
+        files.push(...await findFiles(targetDir, predicate, {
+          currentDir: fullPath,
+          isManagedPath,
+          maxDepth: maxDepth - 1,
+        }));
       }
       continue;
     }
     if (entry.isFile() && predicate(entry.name, fullPath)) {
-      files.push(path.relative(targetDir, fullPath).replaceAll('\\', '/'));
+      files.push(relativePath);
     }
   }
   return files.sort();
@@ -168,6 +276,68 @@ function detectNodeCommands(pkg, packageManager) {
   return commands;
 }
 
+function detectNodeLogQueries(pkg, packageManager) {
+  if (!pkg?.scripts) return [];
+  return Object.keys(pkg.scripts)
+    .filter((name) => /^(?:log|logs|tail)(?::|$)|:(?:log|logs|tail)(?::|$)/iu.test(name))
+    .map((name) => scriptCommand(packageManager, name));
+}
+
+async function detectLoggingProfile({ config, targetDir, pkg, packageManager, pomFiles, csprojFiles, isManagedPath }) {
+  const contract = normalizedLoggingContract(config.projectRules?.overrides?.logging);
+  const dependencies = { ...(pkg?.dependencies ?? {}), ...(pkg?.devDependencies ?? {}) };
+  const frameworks = [];
+  if (dependencies.pino) frameworks.push('Pino');
+  if (dependencies.winston) frameworks.push('Winston');
+
+  const pomTexts = await Promise.all(pomFiles.map((file) => readTextIfExists(path.join(targetDir, file))));
+  const hasLog4j = pomTexts.some((text) => /spring-boot-starter-log4j2|log4j-(?:core|api|slf4j)/iu.test(text));
+  if (pomTexts.some((text) => /spring-boot-starter-logging|logback-(?:classic|core)/iu.test(text)
+    || (!hasLog4j && /spring-boot-starter-/iu.test(text)))) frameworks.push('Logback');
+  if (hasLog4j) frameworks.push('Log4j');
+
+  const csprojTexts = await Promise.all(csprojFiles.map((file) => readTextIfExists(path.join(targetDir, file))));
+  if (csprojTexts.some((text) => /Serilog/iu.test(text))) frameworks.push('Serilog');
+  if (csprojTexts.some((text) => /NLog/iu.test(text))) frameworks.push('NLog');
+
+  const knownConfigFiles = await findFiles(targetDir, (name) => {
+    const lower = name.toLowerCase();
+    return /^(?:pino|winston)\.config\.(?:js|cjs|mjs|ts)$/u.test(lower)
+      || /^(?:logback(?:-spring)?\.xml|log4j2\.(?:xml|json|ya?ml|properties)|nlog(?:\.[^.]+)?\.config)$/u.test(lower)
+      || /^appsettings(?:\.[^.]+)?\.json$/u.test(lower);
+  }, { isManagedPath });
+  const configFiles = [];
+  for (const file of knownConfigFiles) {
+    if (/^appsettings(?:\.[^.]+)?\.json$/iu.test(path.basename(file))) {
+      const content = await readTextIfExists(path.join(targetDir, file));
+      if (!/(?:Serilog|NLog)/iu.test(content)) continue;
+    }
+    configFiles.push(file);
+  }
+
+  const searchableFiles = (await findFiles(targetDir, (name) => {
+    const lower = name.toLowerCase();
+    return !['package-lock.json', 'vibe-harness.config.json'].includes(lower)
+      && /\.(?:cjs|cs|java|js|json|jsx|mjs|properties|ts|tsx|xml|ya?ml)$/u.test(lower);
+  }, { isManagedPath })).slice(0, 250);
+  const correlationCandidates = [];
+  const searchableContents = await Promise.all(searchableFiles.map((file) => readTextIfExists(path.join(targetDir, file))));
+  for (const content of searchableContents) {
+    for (const field of ['traceId', 'spanId', 'correlationId', 'requestId']) {
+      if (content.includes(field)) correlationCandidates.push(field);
+    }
+  }
+
+  const evidence = {
+    frameworks: unique(frameworks),
+    configFiles: unique(configFiles),
+    queryCandidates: unique(detectNodeLogQueries(pkg, packageManager)),
+    correlationCandidates: unique(correlationCandidates),
+  };
+  return withLoggingSummaries({ status: loggingStatus(evidence, contract), evidence, contract });
+}
+
+/** @param {Record<string, any>} profile @param {Record<string, any>} overrides */
 function applyOverrides(profile, overrides = {}) {
   if (!overrides || typeof overrides !== 'object') {
     return profile;
@@ -182,6 +352,13 @@ function applyOverrides(profile, overrides = {}) {
     vcsSummary: mergeText(profile.vcsSummary, overrides.vcsSummary),
     vcsStatusCommand: mergeText(profile.vcsStatusCommand, overrides.vcsStatusCommand),
     packageManager: mergeText(profile.packageManager, overrides.packageManager),
+    logging: overrides.logging
+      ? withLoggingSummaries({
+        status: loggingStatus(profile.logging.evidence, normalizedLoggingContract(overrides.logging)),
+        evidence: profile.logging.evidence,
+        contract: normalizedLoggingContract(overrides.logging),
+      })
+      : profile.logging,
   };
 }
 
@@ -195,6 +372,25 @@ function withVcsStatusInstruction(profile) {
   };
 }
 
+/**
+ * Tier summary for the resident instructions: every tier is always shown, an
+ * unrecognized tier is labelled instead of being silently dropped.
+ *
+ * @param {{quick?: string[], standard?: string[], deep?: string[]}} tiers
+ * @param {string[]} commands
+ */
+function verificationSummaryFor(tiers, commands) {
+  const label = (name, list) => `${name}：${list.length > 0 ? list.join('、') : '未配置'}`;
+  const lines = [
+    label('快速层', tiers.quick),
+    label('中等层', tiers.standard),
+    label('深度层', tiers.deep),
+  ];
+  if (unique(commands).length > 0) lines.push(`默认四项：${unique(commands).join(', ')}`);
+  return lines.join('；');
+}
+
+/** @param {Record<string, any>} config */
 function createGenericProfile(config = {}) {
   return {
     codingStandards: '未发现专用 lint/format 配置；沿用仓库现有代码风格并保持最小改动。',
@@ -205,29 +401,45 @@ function createGenericProfile(config = {}) {
     vcsStatusCommand: '检查目标项目 VCS 状态',
     vcsStatusInstruction: '编辑前检查目标目录文件状态；当前未配置 VCS 状态命令。',
     vcsSummary: '未识别 VCS',
-    verificationSummary: '使用 vibe-harness.config.json 中的 validationCommands，并补充聚焦测试或人工核对证据。',
+    verificationSummary: verificationSummaryFor(emptyValidationTiers(), []),
+    derivedValidationTiers: emptyValidationTiers(),
+    tierReasons: emptyValidationTiers(),
+    tierSource: 'empty',
+    validationTiers: emptyValidationTiers(),
     validationCommands: {
       lint: null,
       typecheck: null,
       test: null,
     },
+    logging: withLoggingSummaries(emptyLoggingProfile()),
   };
 }
 
+/** @param {{config?: Record<string, any>, targetDir: string}} options */
 export async function detectProjectProfile({ config = {}, targetDir }) {
   const mode = config.projectRules?.mode ?? 'auto';
-  if (mode === 'off') {
-    return withVcsStatusInstruction(createGenericProfile(config));
-  }
-  if (mode === 'manual') {
-    return withVcsStatusInstruction(applyOverrides(createGenericProfile(config), config.projectRules?.overrides));
+  if (mode === 'off' || mode === 'manual') {
+    const generic = createGenericProfile(config);
+    const derived = deriveValidationTiers({
+      ...await readProjectTierFacts(targetDir, config.packageManager),
+      configuredCommands: config.validationCommands,
+    });
+    const resolved = resolveValidationTiers({ configuredTiers: config.validationCommands?.tiers, derived });
+    return withVcsStatusInstruction({
+      ...(mode === 'manual' ? applyOverrides(generic, config.projectRules?.overrides) : generic),
+      derivedValidationTiers: derived.tiers,
+      validationTiers: resolved.tiers,
+      tierSource: resolved.tierSource,
+      tierReasons: resolved.tierReasons,
+    });
   }
 
+  const isManagedPath = managedPathMatcher(await readManagedInstallState(targetDir));
   const pkg = await readJsonIfExists(path.join(targetDir, 'package.json'));
   const hasPnpmWorkspace = await pathExists(path.join(targetDir, 'pnpm-workspace.yaml'));
-  const pomFiles = await findFiles(targetDir, (name) => name === 'pom.xml');
-  const slnFiles = await findFiles(targetDir, (name) => name.endsWith('.sln'));
-  const csprojFiles = await findFiles(targetDir, (name) => name.endsWith('.csproj'));
+  const pomFiles = await findFiles(targetDir, (name) => name === 'pom.xml', { isManagedPath });
+  const slnFiles = await findFiles(targetDir, (name) => name.endsWith('.sln'), { isManagedPath });
+  const csprojFiles = await findFiles(targetDir, (name) => name.endsWith('.csproj'), { isManagedPath });
   const editorconfig = await readTextIfExists(path.join(targetDir, '.editorconfig'));
   const hasGit = await pathExists(path.join(targetDir, '.git'));
   const hasSvn = await pathExists(path.join(targetDir, '.svn'));
@@ -281,20 +493,39 @@ export async function detectProjectProfile({ config = {}, targetDir }) {
 
   const vcsKinds = unique([hasGit ? 'Git' : '', hasSvn ? 'SVN' : '']);
   const vcsStatusCommand = hasGit ? 'git status --short' : (hasSvn ? 'svn status' : '检查目标项目 VCS 状态');
+  const tierFacts = { ...await readProjectTierFacts(targetDir, config.packageManager), configuredCommands: config.validationCommands };
+  const derivedValidationTiers = deriveValidationTiers(tierFacts);
+  const resolvedTiers = resolveValidationTiers({
+    configuredTiers: config.validationCommands?.tiers,
+    derived: derivedValidationTiers,
+  });
   const detected = {
     codingStandards: standards.length > 0 ? standards.join('\n- ') : '未发现专用 lint/format 配置；沿用仓库现有代码风格并保持最小改动。',
+    derivedValidationTiers: derivedValidationTiers.tiers,
     directoryGuidance: directories.length > 0 ? directories.join(', ') : '未发现显式模块清单；按现有目录职责就近修改。',
     packageManager,
     reviewGuidance: '按 package.json scripts、pom.xml 或 solution 配置选择与改动匹配的验证。',
     stackSummary: unique(stacks).join(', ') || '未识别到主技术栈；以目标项目现有文件为准。',
+    tierReasons: resolvedTiers.tierReasons,
+    tierSource: resolvedTiers.tierSource,
     vcsStatusCommand,
     vcsSummary: vcsKinds.join(' + ') || '未识别 VCS',
-    verificationSummary: unique(commands).join(', ') || '使用 vibe-harness.config.json 中的 validationCommands，并补充聚焦测试或人工核对证据。',
+    verificationSummary: verificationSummaryFor(resolvedTiers.tiers, commands),
     validationCommands: {
       lint: commands.find((command) => /(?:^|\s)(?:run\s+)?lint(?:\s|$)/u.test(command)) ?? null,
       typecheck: commands.find((command) => /(?:check:type|typecheck|ts:check)/u.test(command)) ?? null,
       test: commands.find((command) => /(?:^|\s)(?:run\s+)?test(?::[^\s]+)?(?:\s|$)|mvn\s+test/u.test(command)) ?? null,
     },
+    validationTiers: resolvedTiers.tiers,
+    logging: await detectLoggingProfile({
+      config,
+      targetDir,
+      pkg,
+      packageManager,
+      pomFiles,
+      csprojFiles,
+      isManagedPath,
+    }),
   };
 
   return withVcsStatusInstruction(applyOverrides(detected, config.projectRules?.overrides));

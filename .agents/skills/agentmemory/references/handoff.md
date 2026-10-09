@@ -17,12 +17,13 @@ MCP 不可用时回退到授权 HTTP：`GET $AGENTMEMORY_URL/agentmemory/session
 
 MCP 与 HTTP 均不可用时使用本地 handoff：
 
-1. 优先读本地记忆库的 `CURRENT.md` 获取活跃上下文指针。
+1. 从本地记忆库的 `CURRENT.md` 唯一入口开始获取活跃上下文指针；若它引用了 `docs/memory/PROJECT_STATE.md`，按引用读取治理状态，不期待其内容被复制进 `CURRENT.md`。
 2. `CURRENT.md` 缺失或信息不足时，按 `sessions/` 倒序找最新记录补齐。
 3. 明确未访问外部记忆。
 
 ## 漂移核验
 
 - 所有时间引用使用绝对日期（YYYY-MM-DD），不得使用"今天/昨天/下周"等相对表达。
+- 若 `CURRENT.md` 声明锚点提交，用 `git merge-base --is-ancestor <SHA> HEAD` 核验它仍在当前历史；不是祖先时按记忆漂移处理，先复核当前 Git 与文件状态再采信。
 - 若 `CURRENT.md` 的 `最后验证` 超过 1 天，恢复后必须先核验当前 Git 状态和文件状态再采信记忆内容；记忆是时间点观察，非实时状态。
 - 不得编造 observation；恢复后必须复核当前 Git 和文件状态。

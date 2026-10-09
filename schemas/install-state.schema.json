@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Vibe-Harness Install State",
-  "description": "Validates install-state.json. Legacy states remain readable for migration. Canonical stateVersion 5 writes targets instead of adapter and records shared or adapter-scoped owners for managed and generated assets.",
+  "title": "Vibe-Harness 安装状态",
+  "description": "校验 install-state.json。旧状态在迁移期间仍可读取。规范 stateVersion 5 写入 targets 而不是 adapter，并为托管与生成资产记录共享或 adapter 作用域的 owner。",
   "type": "object",
   "required": ["files", "profile", "version"],
   "properties": {

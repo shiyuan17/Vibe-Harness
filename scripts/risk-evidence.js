@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFile } from 'node:fs/promises';
+import { appendFile, readFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
@@ -19,4 +19,15 @@ const { stdout } = await git('git', ['diff', '--name-only', comparison], { encod
 const changedPaths = stdout.split(/\r?\n/u).filter(Boolean);
 const report = assessRiskEvidence({ body, changedPaths });
 console.log(JSON.stringify(report, null, 2));
+if (process.env.GITHUB_OUTPUT) {
+  const entries = [
+    'level=' + report.level,
+    'docs=' + report.checks.docs,
+    'eval=' + report.checks.eval,
+    'integration=' + report.checks.integration,
+    'skills=' + report.checks.skills,
+    '',
+  ];
+  await appendFile(process.env.GITHUB_OUTPUT, entries.join('\n'), 'utf8');
+}
 if (!report.ok) process.exitCode = 1;

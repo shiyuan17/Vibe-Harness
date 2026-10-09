@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    {
+      "id": "ADR-0001",
+      "path": "docs/adr/ADR-0001-linear-explicit-execution-and-dag.md"
+    },
+    {
+      "id": "ADR-0002",
+      "path": "docs/adr/ADR-0002-linear-execution-envelope-and-recovery.md"
+    },
+    {
+      "id": "ADR-0003",
+      "path": "docs/adr/ADR-0003-lightweight-gitflow.md"
+    },
+    {
+      "id": "ADR-0004",
+      "path": "docs/adr/ADR-0004-task-decomposition-governance.md"
+    },
+    {
+      "id": "ADR-0005",
+      "path": "docs/adr/ADR-0005-rules-governance.md"
+    },
+    {
+      "id": "ADR-0006",
+      "path": "docs/adr/ADR-0006-release-gated-ci-writer-landed-merges.md"
+    },
+    {
+      "id": "ADR-0007",
+      "path": "docs/adr/ADR-0007-dag-result-unverified.md"
+    },
+    {
+      "id": "ADR-0008",
+      "path": "docs/adr/ADR-0008-bounded-linear-auto-claim.md"
+    },
+    {
+      "id": "ADR-0009",
+      "path": "docs/adr/ADR-0009-develop-required-fast-gate.md"
+    }
+  ]
+}

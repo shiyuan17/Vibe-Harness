@@ -2,6 +2,8 @@
 
 Chrome DevTools MCP 用于实时浏览器诊断、console 与 network 深挖、Lighthouse 和 performance trace。它不能替代可重复的 Playwright 回归证据。复杂问题先用 DevTools 定位，再用 Playwright 验证修复。
 
+本规则仅在 Chrome DevTools MCP 插件或工具已存在时生效；工具不存在时使用项目已有浏览器验证能力，并将非等价的性能诊断标记为未验证。
+
 ## 使用顺序
 
 1. 只访问用户指定、项目配置或任务直接需要的 URL；先用 `list_pages` / `new_page` 建立隔离页面。

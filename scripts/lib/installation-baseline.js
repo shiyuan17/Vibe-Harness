@@ -32,7 +32,8 @@ async function collectRegularFiles(targetDir, relativeDir) {
   return files;
 }
 
-export async function createBaselinePlan({ baseline, date, targetDir }) {
+/** @param {{baseline?: any, date?: Date, targetDir: string}} options */
+export async function createBaselinePlan({ baseline, date = new Date(), targetDir }) {
   if (baseline?.id) {
     return { actions: [], baseline, baselineId: baseline.id, targetDir };
   }

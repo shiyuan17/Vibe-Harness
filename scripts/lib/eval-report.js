@@ -18,6 +18,7 @@ function percentile(values, quantile) {
   return round(lower === upper ? sorted[lower] : sorted[lower] + (sorted[upper] - sorted[lower]) * (index - lower), 2);
 }
 
+/** @param {number} numerator @param {number} denominator @param {{collected?: number, eligible?: number, state?: string, total?: number | null}} options */
 function measured(numerator, denominator, { collected = denominator, eligible = denominator, state, total = denominator } = {}) {
   const resolved = state ?? (denominator === 0 ? 'na' : 'value');
   return {
@@ -54,11 +55,21 @@ function trialRows(run, suite) {
   })));
 }
 
+/** @returns {{collected: number, eligible: number, total: number, cachedInputTokens: number, inputTokens: number, outputTokens: number, reasoningOutputTokens: number, totalTokens: number}} */
 function aggregateTokens(trials) {
   const fields = ['cachedInputTokens', 'inputTokens', 'outputTokens', 'reasoningOutputTokens', 'totalTokens'];
   const collectedTrials = trials.filter((item) => item.trial.toolSummary?.tokenUsage);
-  const usage = Object.fromEntries(fields.map((field) => [field, sum(collectedTrials, (item) => item.trial.toolSummary.tokenUsage[field])]));
-  return { collected: collectedTrials.length, eligible: trials.length, total: trials.length, ...usage };
+  const usage = /** @type {Record<string, number>} */ (Object.fromEntries(fields.map((field) => [field, sum(collectedTrials, (item) => item.trial.toolSummary.tokenUsage[field])])))
+  return {
+    collected: collectedTrials.length,
+    eligible: trials.length,
+    total: trials.length,
+    cachedInputTokens: usage.cachedInputTokens ?? 0,
+    inputTokens: usage.inputTokens ?? 0,
+    outputTokens: usage.outputTokens ?? 0,
+    reasoningOutputTokens: usage.reasoningOutputTokens ?? 0,
+    totalTokens: usage.totalTokens ?? 0,
+  };
 }
 
 function latency(trials) {
@@ -239,6 +250,7 @@ export function assessRunComparison(current, comparison) {
   return { compatible: true, reason: '同指纹、同 Suite', state: 'value' };
 }
 
+/** @param {{canaryAttempts?: any[], canaryComparisonRun?: any, canaryRun: any, canarySuite: any, executionAttempts?: any[], executionComparisonRun?: any, executionRun: any, executionSuite: any}} options */
 export function buildEvalReportModel({
   canaryAttempts = [], canaryComparisonRun, canaryRun, canarySuite,
   executionAttempts = [], executionComparisonRun, executionRun, executionSuite,
@@ -322,6 +334,7 @@ export function buildEvalReportModel({
         errorCategories: trial.toolSummary?.errorCategories ?? [],
         failedAssertions: trial.failedAssertions ?? [],
         hookTimings: trial.toolSummary?.hookTimings ?? [],
+        linearIssueReadCount: trial.toolSummary?.linearIssueReadCount ?? null,
         passed: trial.passed,
         repetition: trial.repetition,
         ruleCoverage: trial.toolSummary?.ruleCoverage ?? null,
@@ -357,7 +370,7 @@ export function buildEvalReportModel({
       apiContractFailures: scalar(apiContractFailures, { collected: testRows.length, eligible: testEligible.length, state: testRows.length ? (testRows.length < testEligible.length ? 'partial' : 'value') : 'unavailable', total: trials.length }),
       architectureViolations: scalar(architectureViolations, { collected: workspaceRows.length, eligible: workspaceRows.length, state: workspaceRows.length ? 'value' : 'unavailable', total: trials.length }),
       changePrecision: measured(changedAllowed, changedTotal, { collected: writeCollected.length, eligible: writeEligible.length, state: writeCollected.length ? (writeCollected.length < writeEligible.length ? 'partial' : (changedTotal ? 'value' : 'na')) : 'unavailable', total: trials.length }),
-      contextHitRate: measured(tokenUsage.cachedInputTokens, tokenUsage.inputTokens, { collected: tokenUsage.collected, eligible: trials.length, state: tokenUsage.collected ? (tokenUsage.inputTokens ? 'value' : 'na') : 'unavailable', total: trials.length }),
+      cachedInputRatio: measured(tokenUsage.cachedInputTokens, tokenUsage.inputTokens, { collected: tokenUsage.collected, eligible: trials.length, state: tokenUsage.collected ? (tokenUsage.inputTokens ? 'value' : 'na') : 'unavailable', total: trials.length }),
       dangerousBlockRate: measured(dangerousBlocked, dangerousTrials.length, { collected: dangerousTrials.length, eligible: dangerousTrials.length, state: dangerousTrials.length ? 'value' : 'unavailable', total: trials.length }),
       estimatedReworkMinutes: scalar(reworkMinutes, { collected: summaries.length, eligible: summaries.length, state: 'estimated', total: summaries.length }),
       firstPassRate: measured(firstPassCases, totalCases),
@@ -396,6 +409,7 @@ export function buildEvalReportModel({
       campaignId: run.campaignId ?? null,
       generatedAt: run.generatedAt,
       model: run.fingerprint.model,
+      proof: run.proof ?? 'legacy-unspecified',
       reference: run.reference?.status ?? 'missing',
       runtime: run.runtime ?? null,
       status: run.status,
@@ -446,6 +460,7 @@ function bar(value, max, label) {
 }
 
 function trialDetails(item, maxDuration, maxTokens) {
+  let trialIndex = 0;
   return item.trials.map((trial) => {
     const outcomes = trial.toolOutcomeSummary;
     const tests = trial.testSummary;
@@ -462,7 +477,11 @@ function trialDetails(item, maxDuration, maxTokens) {
         <div><h4>Token</h4>${bar(tokens, maxTokens, `${tokens} token`)}<p>${tokens || '未采集'}</p></div>
         <dl><dt>验证次数</dt><dd>${trial.verificationCount ?? '未采集'}</dd><dt>工具终态</dt><dd>${outcomes ? `成功 ${outcomes.successful ?? 0} / 预期拒绝 ${outcomes.expectedDenied ?? 0} / 意外失败 ${outcomes.unexpectedFailed ?? outcomes.failed ?? 0} / 未知 ${outcomes.unknown ?? 0}` : '未采集'}</dd><dt>隐藏测试</dt><dd>${tests ? `${tests.passed}/${tests.total}；API 存在性失败 ${tests.apiExistenceFailures ?? '未采集'}` : '不适用'}</dd><dt>Workspace</dt><dd>${workspace ? `允许变化 ${workspace.allowedChangedCount} / 未声明变化 ${workspace.undeclaredWriteCount}` : '未采集'}</dd><dt>错误类别</dt><dd>${trial.errorCategories.length ? trial.errorCategories.map(escapeHtml).join('、') : '无'}</dd><dt>Hook 耗时</dt><dd>${hookMs === null ? '未采集' : `${round(hookMs, 1)} ms · ${hookTimings.length} 次`}</dd><dt>声明规则</dt><dd>${rules.length ? rules.map(escapeHtml).join('、') : '未声明'}</dd><dt>声明技能</dt><dd>${skills.length ? skills.map(escapeHtml).join('、') : '未声明'}</dd></dl>
       </div></details>`;
-  }).join('');
+  }).join('').replaceAll('<dt>验证次数</dt>', () => {
+    const trial = item.trials[trialIndex++];
+    const reads = trial.linearIssueReadCount ?? '未采集';
+    return '<dt>Linear Issue 读取</dt><dd>' + reads + '</dd><dt>验证次数</dt>';
+  });
 }
 
 function suitePanel(model, suiteId) {
@@ -487,7 +506,7 @@ export function renderEvalReport(model) {
     card('测试通过率', percent(m.testPassRate), '隐藏行为与 API 测试', m.testPassRate, tone(m.testPassRate, (v) => v === 1)),
     card('基础设施健康率', percent(m.infrastructureHealthRate), '同 campaign ready / started', m.infrastructureHealthRate, tone(m.infrastructureHealthRate, (v) => v === 1)),
   ].join('');
-  const groups = [
+  const groups = /** @type {Array<[string, string[]]>} */ ([
     ['交付质量', [
       card('架构/边界违规事件', number(m.architectureViolations), '事件数，不等同文件数', m.architectureViolations, tone(m.architectureViolations, (v) => v === 0)),
       card('误修改文件数', number(m.unintendedFiles), '允许路径之外的变化文件', m.unintendedFiles, tone(m.unintendedFiles, (v) => v === 0)),
@@ -504,7 +523,7 @@ export function renderEvalReport(model) {
       card('Trial 平均耗时', m.latency.state === 'unavailable' ? '未采集' : `${round(m.latency.averageMs / 1000, 1)} 秒`, m.latency.state === 'unavailable' ? 'runner timing' : `P50 ${round(m.latency.p50Ms / 1000, 1)}s · P95 ${round(m.latency.p95Ms / 1000, 1)}s · 最慢 ${m.latency.slowestCase}`, m.latency, m.latency.state),
       card('Token / ready trial', m.tokenEfficiency.state === 'unavailable' ? '未采集' : new Intl.NumberFormat('zh-CN').format(m.tokenEfficiency.perReadyTrial), '按试次归一化', m.tokenUsage, m.tokenEfficiency.state),
       card('Token / 完成 case', m.tokenEfficiency.state === 'unavailable' ? '未采集' : new Intl.NumberFormat('zh-CN').format(m.tokenEfficiency.perCompletedCase), '按完成 case 归一化', m.tokenUsage, m.tokenEfficiency.state),
-      card('上下文命中率', percent(m.contextHitRate), 'cached input / input', m.contextHitRate, m.contextHitRate.state),
+      card('缓存输入比例', percent(m.cachedInputRatio), 'cached input / input', m.cachedInputRatio, m.cachedInputRatio.state),
       card('验证执行率', percent(m.verificationRate), 'Execution trial 主动验证', m.verificationRate, m.verificationRate.state),
     ]],
     ['治理覆盖', [
@@ -517,7 +536,7 @@ export function renderEvalReport(model) {
       card('错误恢复率', percent(m.recoveryRate), '可恢复工具错误后最终通过', m.recoveryRate, m.recoveryRate.state),
       card('Token 总消耗', new Intl.NumberFormat('zh-CN').format(m.tokenUsage.totalTokens), `input ${new Intl.NumberFormat('zh-CN').format(m.tokenUsage.inputTokens)} · cached ${new Intl.NumberFormat('zh-CN').format(m.tokenUsage.cachedInputTokens)} · output ${new Intl.NumberFormat('zh-CN').format(m.tokenUsage.outputTokens)}`, m.tokenUsage, m.tokenUsage.collected < m.tokenUsage.total ? 'partial' : 'neutral'),
     ]],
-  ].map(([title, cards]) => `<section class="metric-group"><h3>${title}</h3><div class="metrics">${cards.join('')}</div></section>`).join('');
+  ]).map(([title, cards]) => `<section class="metric-group"><h3>${title}</h3><div class="metrics">${cards.join('')}</div></section>`).join('');
   const qualityCards = [
     card('稳定性覆盖', `${m.stablePassRate.eligible}/${m.stablePassRate.total} cases`, '只对 repetitions > 1 评价稳定性', m.stablePassRate, m.stablePassRate.eligible === m.stablePassRate.total ? 'good' : 'partial'),
     card('未知工具终态', String(m.toolUnknown), '不进入有效结果率分母', m.toolEffectiveResultRate, m.toolUnknown === 0 ? 'good' : 'warn'),

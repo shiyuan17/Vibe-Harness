@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "id": "H16",
+  "description": "Multi-agent dependency fixture",
+  "files": [
+    {
+      "path": "src/schema.js",
+      "content": "export const tokenSchema={version:1}\\n"
+    },
+    {
+      "path": "src/encode.js",
+      "content": "export function encode(value){return JSON.stringify(value)}\\n"
+    },
+    {
+      "path": "src/decode.js",
+      "content": "export function decode(value){return JSON.parse(value)}\\n"
+    },
+    {
+      "path": "package.json",
+      "content": "{\"type\":\"module\"}\\n"
+    }
+  ],
+  "oracleFiles": [
+    {
+      "path": "check.mjs",
+      "content": "import assert from 'node:assert/strict';import {pathToFileURL} from 'node:url';const s=await import(pathToFileURL(process.cwd()+'/src/schema.js'));const e=await import(pathToFileURL(process.cwd()+'/src/encode.js'));const d=await import(pathToFileURL(process.cwd()+'/src/decode.js'));const token={type:'word',value:'a'};assert.deepEqual(d.decode(e.encode(token,s.tokenSchema),s.tokenSchema),token);\\n"
+    }
+  ],
+  "git": {
+    "initialize": true
+  },
+  "faults": [],
+  "hiddenChecks": [
+    {
+      "id": "H16-oracle",
+      "program": "node",
+      "args": [
+        "{ORACLE_DIR}/check.mjs"
+      ],
+      "expectedExitCode": 0
+    }
+  ]
+}

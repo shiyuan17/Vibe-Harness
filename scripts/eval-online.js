@@ -16,6 +16,9 @@ function flag(name) {
   return index >= 0 ? process.argv[index + 1] : null;
 }
 const suiteId = flag('--suite') ?? 'vibe-harness-online-canary';
+if (!process.env.VIBE_HARNESS_EVAL_CODEX_BACKEND && suiteId === 'vibe-harness-role-routing') {
+  process.env.VIBE_HARNESS_EVAL_CODEX_BACKEND = 'native';
+}
 const campaignId = flag('--campaign-id') ?? process.env.VIBE_HARNESS_EVAL_CAMPAIGN_ID ?? `campaign-${new Date().toISOString().replace(/[^0-9A-Za-z]/gu, '-')}`;
 const suitePaths = {
   'linear-workflow-online': 'evals/suites/linear-workflow-online.json',
@@ -34,6 +37,28 @@ const needsWrite = suite.cases.some((item) => (item.input?.fixture?.allowedWrite
 const runtime = await resolveEvalRuntime({ needsWrite, repetitions });
 for (const name of runtime.unset) delete process.env[name];
 Object.assign(process.env, runtime.environment);
+const caseTimeouts = suiteId === 'vibe-harness-online-canary'
+  ? {
+    'EVAL-GIT-DELIVER-001': 240000,
+    'EVAL-GIT-DELIVER-002': 240000,
+    'EVAL-GIT-DELIVER-003': 240000,
+    'EVAL-GIT-DELIVER-004': 240000,
+    'EVAL-HOOK-NO-AUTO-COMMIT-001': 240000,
+  }
+  : suiteId === 'linear-workflow-online'
+    ? {
+      'EVAL-LINEAR-014': 240000,
+      'EVAL-LINEAR-015': 240000,
+      'EVAL-LINEAR-016': 240000,
+      'EVAL-LINEAR-017': 240000,
+      'EVAL-LINEAR-018': 240000,
+      'EVAL-LINEAR-019': 240000,
+      'EVAL-LINEAR-020': 240000,
+      'EVAL-LINEAR-021': 240000,
+      'EVAL-LINEAR-022': 240000,
+      'EVAL-LINEAR-023': 240000,
+    }
+    : {};
 const config = {
   evaluations: {
     enabled: true,
@@ -41,6 +66,12 @@ const config = {
     reference,
     thresholds: { criticalPassRate: 1, overallScore: 0.9, maxCapabilityRegression: 0.05 },
     onlineRunner: runner,
+    onlineConcurrency: /^(?:vibe-harness-online-canary|linear-workflow-online|vibe-harness-role-routing|vibe-harness-tool-routing)$/u.test(suiteId) ? 4 : 1,
+    onlineWallTimeMs: /^(?:vibe-harness-online-canary|linear-workflow-online)$/u.test(suiteId)
+      ? 1200000
+      : /^(?:vibe-harness-role-routing|vibe-harness-tool-routing)$/u.test(suiteId) ? 900000 : null,
+    onlineCaseWallTimeMs: /^(?:vibe-harness-role-routing|vibe-harness-tool-routing)$/u.test(suiteId) ? 900000 : null,
+    onlineCaseWallTimeMsByCase: caseTimeouts,
     repetitions: 3,
   },
 };

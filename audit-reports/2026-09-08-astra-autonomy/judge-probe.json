@@ -1,0 +1,10 @@
+{
+  "model": "gpt-6-astra",
+  "source": "codex",
+  "wireApi": "responses",
+  "status": "ready",
+  "score": 1,
+  "rationale": "The output is exactly READY.",
+  "judgeModel": "gpt-6-astra",
+  "durationMs": 21176
+}

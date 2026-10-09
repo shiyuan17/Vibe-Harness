@@ -172,7 +172,7 @@ async function provisionSingleTool(spec, {
         timeout: boundedTimeout(env, 600_000),
       });
       const result = await preparePlaywrightTool({
-        env: componentEnvironment(spec, targetDir, provisionEnv),
+        env: await componentEnvironment(spec, targetDir, provisionEnv),
         runCommand,
         targetDir,
         toolDir: spec.toolDir,

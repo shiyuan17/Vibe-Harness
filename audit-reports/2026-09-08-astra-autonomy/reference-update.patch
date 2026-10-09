@@ -1,0 +1,111 @@
+--- evals/results/vibe-harness-core.offline.json
++++ evals/results/vibe-harness-core.offline.json (candidate, not approved)
+@@ -18,23 +18,23 @@
+     "agent": "offline",
+     "configHash": "fixture-v1",
+     "assets": {
+-      "aggregateHash": "53ece50cadcbb6a7e3a6c7b444985a2d356616563ef937ec7fcd14b250a1d765",
++      "aggregateHash": "8ec289527815804c864422eeffcb77340c2ced8579f1668029654432550a733f",
+       "groups": {
+         "config": {
+           "fileCount": 34,
+-          "hash": "8cc6847f02253b427935c676a72d772159b80bf0adef02145a5c15b28a8df2ba"
++          "hash": "b93ea43babfa04947ade759285b5125aedf13c229cf90812a5cc3837b0ae6c0f"
+         },
+         "hooks": {
+           "fileCount": 14,
+-          "hash": "f4733912be026723cdab1187fd98b5e25baaec3128b992bb1dba4440e1f84833"
++          "hash": "9f74f34e8cb566e46a9c4da09874fda3214ba4a440da51ae2cce0d1a78fda805"
+         },
+         "rules": {
+           "fileCount": 29,
+-          "hash": "ecfbbeec8a6519f53804827766be2618047009f0c467dcac416a2999e7d195d9"
++          "hash": "669bc8a456eb5506956bbd46dfad014c523081bda3d88c396fb0c00eb39801a7"
+         },
+         "skills": {
+           "fileCount": 107,
+-          "hash": "4fb7ed3169b3ba409f3ba1bc6ad21aff3e41d981d254faea9be2bb8efacf6416"
++          "hash": "2248a7f19e8d57a8fc6d1674bac04be13484388ea6e80d75584b9904a306bb0d"
+         }
+       }
+     }
+--- evals/references/vibe-harness-core.offline.json
++++ evals/references/vibe-harness-core.offline.json (candidate, not approved)
+@@ -1,7 +1,7 @@
+ {
+   "schemaVersion": 2,
+   "id": "vibe-harness-core-offline-reference",
+-  "approvedAt": "2026-09-05T12:20:48.496Z",
++  "approvedAt": "2026-09-07T22:04:36.133Z",
+   "suite": {
+     "id": "vibe-harness-core",
+     "version": "2.2.0"
+@@ -15,23 +15,23 @@
+     "agent": "offline",
+     "configHash": "fixture-v1",
+     "assets": {
+-      "aggregateHash": "53ece50cadcbb6a7e3a6c7b444985a2d356616563ef937ec7fcd14b250a1d765",
++      "aggregateHash": "8ec289527815804c864422eeffcb77340c2ced8579f1668029654432550a733f",
+       "groups": {
+         "config": {
+           "fileCount": 34,
+-          "hash": "8cc6847f02253b427935c676a72d772159b80bf0adef02145a5c15b28a8df2ba"
++          "hash": "b93ea43babfa04947ade759285b5125aedf13c229cf90812a5cc3837b0ae6c0f"
+         },
+         "hooks": {
+           "fileCount": 14,
+-          "hash": "f4733912be026723cdab1187fd98b5e25baaec3128b992bb1dba4440e1f84833"
++          "hash": "9f74f34e8cb566e46a9c4da09874fda3214ba4a440da51ae2cce0d1a78fda805"
+         },
+         "rules": {
+           "fileCount": 29,
+-          "hash": "ecfbbeec8a6519f53804827766be2618047009f0c467dcac416a2999e7d195d9"
++          "hash": "669bc8a456eb5506956bbd46dfad014c523081bda3d88c396fb0c00eb39801a7"
+         },
+         "skills": {
+           "fileCount": 107,
+-          "hash": "4fb7ed3169b3ba409f3ba1bc6ad21aff3e41d981d254faea9be2bb8efacf6416"
++          "hash": "2248a7f19e8d57a8fc6d1674bac04be13484388ea6e80d75584b9904a306bb0d"
+         }
+       }
+     }
+--- .agents/evals/references/vibe-harness-core.offline.json
++++ .agents/evals/references/vibe-harness-core.offline.json (candidate, not approved)
+@@ -1,7 +1,7 @@
+ {
+   "schemaVersion": 2,
+   "id": "vibe-harness-core-offline-reference",
+-  "approvedAt": "2026-09-05T12:20:48.496Z",
++  "approvedAt": "2026-09-07T22:04:36.133Z",
+   "suite": {
+     "id": "vibe-harness-core",
+     "version": "2.2.0"
+@@ -15,23 +15,23 @@
+     "agent": "offline",
+     "configHash": "fixture-v1",
+     "assets": {
+-      "aggregateHash": "53ece50cadcbb6a7e3a6c7b444985a2d356616563ef937ec7fcd14b250a1d765",
++      "aggregateHash": "8ec289527815804c864422eeffcb77340c2ced8579f1668029654432550a733f",
+       "groups": {
+         "config": {
+           "fileCount": 34,
+-          "hash": "8cc6847f02253b427935c676a72d772159b80bf0adef02145a5c15b28a8df2ba"
++          "hash": "b93ea43babfa04947ade759285b5125aedf13c229cf90812a5cc3837b0ae6c0f"
+         },
+         "hooks": {
+           "fileCount": 14,
+-          "hash": "f4733912be026723cdab1187fd98b5e25baaec3128b992bb1dba4440e1f84833"
++          "hash": "9f74f34e8cb566e46a9c4da09874fda3214ba4a440da51ae2cce0d1a78fda805"
+         },
+         "rules": {
+           "fileCount": 29,
+-          "hash": "ecfbbeec8a6519f53804827766be2618047009f0c467dcac416a2999e7d195d9"
++          "hash": "669bc8a456eb5506956bbd46dfad014c523081bda3d88c396fb0c00eb39801a7"
+         },
+         "skills": {
+           "fileCount": 107,
+-          "hash": "4fb7ed3169b3ba409f3ba1bc6ad21aff3e41d981d254faea9be2bb8efacf6416"
++          "hash": "2248a7f19e8d57a8fc6d1674bac04be13484388ea6e80d75584b9904a306bb0d"
+         }
+       }
+     }

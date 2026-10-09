@@ -1,14 +1,24 @@
 import path from 'node:path';
 
 import { assertInsideDir } from '../manifest.js';
+import {
+  assertPluginProviderCatalog,
+  pluginProviderCatalog,
+  pluginProviderForTool,
+} from '../plugin-provider-catalog.js';
 import { projectStateDir } from '../project-layout.js';
 
 import { npmInvocation } from './subprocess.js';
+import { codebaseMemoryCacheDir } from '../../../runtime/tools/codebase-memory-mcp/cache-path.mjs';
 
 export function detectLinuxLibc() {
   if (process.platform !== 'linux') return null;
   try {
-    return process.report?.getReport?.().header?.glibcVersionRuntime ? 'gnu' : 'musl';
+    const report = process.report?.getReport?.();
+    const header = typeof report === 'object' && report !== null && 'header' in report
+      ? /** @type {Record<string, any>} */ (report).header
+      : null;
+    return header && typeof header === 'object' && header.glibcVersionRuntime ? 'gnu' : 'musl';
   } catch {
     return null;
   }
@@ -41,6 +51,7 @@ const toolSpecs = [
     phases: [
       'dependency-install',
       'binary-install',
+      'cache-precheck',
       'configure-auto-index',
       'configure-auto-watch',
       'index',
@@ -48,7 +59,7 @@ const toolSpecs = [
       'mcp-handshake',
     ],
     relativeDir: '.agents/runtime/tools/codebase-memory-mcp',
-    version: '0.9.0',
+    version: '0.11.0',
   },
   {
     id: 'playwrightCli',
@@ -90,25 +101,22 @@ const toolSpecs = [
   },
 ];
 
+assertPluginProviderCatalog(pluginProviderCatalog, {
+  provisioningToolIds: new Set(toolSpecs.map((spec) => spec.id)),
+});
+
 function resolveToolSpec(spec, targetDir, mode = 'eager') {
   const toolDir = path.resolve(targetDir, spec.relativeDir);
   assertInsideDir(targetDir, toolDir, `${spec.id} tool directory`);
   return { ...spec, mode, toolDir };
 }
 
+/** @param {{allowPreview?: boolean, profile: string, resolvedModules: string[], targetDir: string, toolIds?: string[]}} options */
 export function createToolProvisioningPlan({ allowPreview = false, profile, resolvedModules, targetDir, toolIds }) {
   let plan = [];
   if (Array.isArray(resolvedModules)) {
-    const moduleByTool = new Map([
-      ['codebaseMemoryMcp', 'codebase-memory'],
-      ['playwrightCli', 'playwright'],
-      ['chromeDevtoolsMcp', 'chrome-devtools'],
-      ['openCodeReview', 'open-code-review'],
-      ['rtk', 'rtk'],
-      ['astGrep', 'ast-grep'],
-    ]);
     plan = toolSpecs
-      .filter((spec) => resolvedModules.includes(moduleByTool.get(spec.id)))
+      .filter((spec) => resolvedModules.includes(pluginProviderForTool(spec.id).moduleId))
       .map((spec) => resolveToolSpec(
         spec,
         targetDir,
@@ -174,6 +182,23 @@ export function allowedEnvironment(spec, env) {
   return Object.fromEntries(Object.entries(env).filter(([name]) => allowedNames.has(name)));
 }
 
+/**
+ * Cache location for the codebase-memory runtime.
+ *
+ * The per-user private root is the single source of truth shared with the
+ * wrapper and the managed MCP block; an explicit `CBM_CACHE_DIR` still wins so
+ * an operator can pin the location. `process.env` supplies the platform base
+ * directories when a caller passes a narrowed environment.
+ *
+ * @param {string} targetDir
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {string}
+ */
+export function resolveCodebaseMemoryCacheDir(targetDir, env = process.env) {
+  return codebaseMemoryCacheDir(targetDir, { ...process.env, ...env }, process.platform);
+}
+
+/** @param {any} spec @param {string} targetDir @param {NodeJS.ProcessEnv} env @param {{codebaseMemoryCacheDir?: string}} options */
 export async function componentEnvironment(spec, targetDir, env, { codebaseMemoryCacheDir } = {}) {
   const stateRoot = path.join(await projectStateDir(targetDir), 'tool-state');
   const npmCache = path.join(stateRoot, 'npm-cache', spec.id);
@@ -182,7 +207,7 @@ export async function componentEnvironment(spec, targetDir, env, { codebaseMemor
     return {
       ...baseEnv,
       CBM_ALLOWED_ROOT: targetDir,
-      CBM_CACHE_DIR: codebaseMemoryCacheDir ?? path.join(stateRoot, 'codebase-memory-mcp/cache'),
+      CBM_CACHE_DIR: codebaseMemoryCacheDir ?? resolveCodebaseMemoryCacheDir(targetDir, env),
       CBM_MEM_BUDGET_MB: '2048',
       CBM_WORKERS: '2',
       npm_config_cache: npmCache,
@@ -262,6 +287,7 @@ export async function phaseRequest(spec, phase, targetDir, env, context = {}) {
         'moderate',
         '--persistence',
         'false',
+        '--json',
       ],
       command: process.execPath,
       component: spec.id,
@@ -269,6 +295,25 @@ export async function phaseRequest(spec, phase, targetDir, env, context = {}) {
       env: componentEnv,
       phase,
       timeout: 600_000,
+    };
+  }
+  // 0.11.0 refuses a cache directory whose path chain grants mutation rights
+  // to an untrusted identity. Probe the cache once before the tool spends any
+  // work on it so the failure carries a stable diagnostic code.
+  if (phase === 'cache-precheck') {
+    return {
+      args: [
+        path.join(spec.toolDir, 'run.mjs'),
+        'cli',
+        'list_projects',
+        '--json',
+      ],
+      command: process.execPath,
+      component: spec.id,
+      cwd: targetDir,
+      env: componentEnv,
+      phase,
+      timeout: 120_000,
     };
   }
   if (phase === 'index-verify') {
@@ -279,6 +324,7 @@ export async function phaseRequest(spec, phase, targetDir, env, context = {}) {
         'index_status',
         '--project',
         context.indexProject,
+        '--json',
       ],
       command: process.execPath,
       component: spec.id,

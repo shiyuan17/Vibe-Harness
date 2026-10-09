@@ -1,6 +1,6 @@
 ---
 name: clarify-requirements
-description: Use for unresolved product choices or explicit requirements discovery-not discoverable facts, implementation details, approvals, or final goals.
+description: Use for unresolved product choices or explicit requirements discovery—not discoverable facts, implementation details, approvals, or final goals.
 ---
 
 # 澄清关键需求
@@ -11,9 +11,9 @@ description: Use for unresolved product choices or explicit requirements discove
 
 1. 检查仓库、测试、文档和公开契约；不要向用户询问可发现事实。
 2. 将剩余未知分为：安全审批、阻塞产品决定、可逆实现选择。
-3. 将安全审批交给人工确认；可逆实现选择沿用仓库惯例或采用最小可逆默认值。
-4. 仅当不同答案会改变用户行为、数据语义、安全、公共接口或验收结果时阻塞。
-5. 候选超过三个时按影响×不确定性排序，丢弃低分项；同轮合并最多三个互不依赖的决定，依赖前置答案的留到下一轮。
+3. 安全审批遵循 governance-core 的授权与批准规则，已有覆盖授权不重复确认；可逆实现选择沿用仓库惯例或采用最小可逆默认值。
+4. 仅当剩余分歧无法从当前意图、事实和项目惯例解决，且不同答案实质改变产品结果、数据语义、安全或验收时，才暂停依赖该答案的工作；等待回答时继续独立的已授权工作。
+5. 候选超过三个时按影响×不确定性排序，保留其他重要问题待解；同轮合并最多三个互不依赖的决定，依赖前置答案的留到下一轮。
 6. 每题给出推荐项、二至三个互斥选择和一句结果影响。
 7. 回答关闭分支后立即继续，不追加通用设计、计划或最终确认。对照示例见 [references/examples.md](references/examples.md)。
 
@@ -25,7 +25,7 @@ description: Use for unresolved product choices or explicit requirements discove
 
 ## 自治姿态
 
-读取项目配置 `clarification.posture`：action-leaning 偏向采用最小可逆默认值直接推进，仅在不可逆或高影响分支阻塞；balanced（默认）按上文判断；conservative 对跨模块或公共契约改动也倾向先确认。配置缺失视为 balanced。
+读取项目配置 `clarification.posture`：action-leaning 偏向采用最小可逆默认值直接推进，仅在不可逆或高影响分支阻塞；balanced（默认）按上文判断；conservative 对尚未解决的高影响分歧更谨慎。配置缺失视为 balanced；三种姿态都不为清晰请求、可发现事实或已关闭决定制造问题，跨模块或公共契约本身不是确认触发器。
 
 ## 禁止
 

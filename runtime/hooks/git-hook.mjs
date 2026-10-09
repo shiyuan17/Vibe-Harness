@@ -19,7 +19,7 @@ const forbiddenPathPattern = /^(?:node_modules|\.vibe-harness\/backups)\//u;
 const focusedTestPattern = /\b(?:test|it|describe)\.only\s*\(/u;
 const skippedTestPattern = /\b(?:test|it|describe)\.skip\s*\(/u;
 
-export function scanStagedDiff(diff, { redZonePaths = DEFAULT_RED_ZONE_PATHS } = {}) {
+export function scanStagedDiff(diff, { redZoneConfirmed = false, redZonePaths = DEFAULT_RED_ZONE_PATHS } = {}) {
   const added = diff.split(/\r?\n/u).filter((line) => line.startsWith('+') && !line.startsWith('+++'));
   if (secretPatterns.some((pattern) => added.some((line) => pattern.test(line)))) {
     throw new Error('Possible secret found in staged content. Remove it and rotate any exposed credential.');
@@ -29,7 +29,7 @@ export function scanStagedDiff(diff, { redZonePaths = DEFAULT_RED_ZONE_PATHS } =
   if (forbidden) throw new Error(`Forbidden generated or backup path is staged: ${forbidden}`);
   const redZonePattern = redZoneMatcher(redZonePaths);
   if (redZonePattern) {
-    const redZoneHit = files.find((file) => redZonePattern.test(file));
+    const redZoneHit = redZoneConfirmed ? null : files.find((file) => redZonePattern.test(file));
     if (redZoneHit) throw new Error(`Red-zone path is staged and requires explicit approval: ${redZoneHit}`);
   }
   const testFiles = files.filter((file) => /\.test\.m?js$/u.test(file));
@@ -51,7 +51,10 @@ async function preCommit(rootDir) {
     windowsHide: true,
   });
   const settings = await readHookSettings(rootDir);
-  scanStagedDiff(stdout, { redZonePaths: settings.redZonePaths });
+  scanStagedDiff(stdout, {
+  redZoneConfirmed: process.env.VIBE_HARNESS_CONFIRM_RED_ZONE === '1',
+  redZonePaths: settings.redZonePaths,
+});
 }
 
 // Reject shell metacharacters so a compromised vibe-harness.config.json cannot inject

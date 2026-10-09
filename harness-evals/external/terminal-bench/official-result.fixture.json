@@ -1,0 +1,5 @@
+{
+  "task_name": "chess-best-move",
+  "reward": 1,
+  "trajectory_path": "trials/chess-best-move/agent/trajectory.json"
+}

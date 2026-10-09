@@ -1,0 +1,21 @@
+{
+  "status": "approved-and-applied",
+  "runPath": ".vibe-harness/evals/runs/2026-09-07T22-04-35-714Z.json",
+  "caseCount": 38,
+  "outcomesUnchanged": true,
+  "changedGroups": [
+    "config",
+    "hooks",
+    "rules",
+    "skills"
+  ],
+  "candidateContractsValid": true,
+  "repositoryReferenceUpdated": true,
+  "approvedAt": "2026-09-07T22:09:08.980Z",
+  "approvalBasis": "User explicitly approved the prepared offline reference update in this task.",
+  "written": [
+    "evals/references/vibe-harness-core.offline.json",
+    "evals/results/vibe-harness-core.offline.json",
+    ".agents/evals/references/vibe-harness-core.offline.json"
+  ]
+}

@@ -1,14 +1,54 @@
 {
   "projectName": "Vibe-Harness",
+  "forbiddenProjectTerms": [
+    "SYBaseProjectWeb",
+    "SYBaseProject",
+    "病理",
+    "localhost:5777"
+  ],
   "language": "zh-CN",
   "packageManager": "pnpm",
-  "target": "codex",
   "profile": "full",
+  "modules": [
+    "agents",
+    "rules",
+    "templates",
+    "skills",
+    "schemas",
+    "evals",
+    "memory",
+    "hooks",
+    "roles",
+    "project-scripts"
+  ],
+  "roles": {
+    "enabled": true
+  },
   "validationCommands": {
     "lint": "pnpm lint",
-    "typecheck": null,
+    "typecheck": "pnpm typecheck",
     "test": "pnpm test:unit",
-    "eval": "pnpm eval:replay"
+    "eval": "pnpm eval:replay",
+    "tiers": {
+      "quick": [
+        "pnpm lint",
+        "pnpm typecheck",
+        "pnpm test:unit"
+      ],
+      "standard": [
+        "pnpm test:component",
+        "pnpm test:integration"
+      ],
+      "deep": [
+        "pnpm eval:replay",
+        "pnpm test:e2e",
+        "pnpm test:matrix",
+        "pnpm smoke:lifecycle"
+      ]
+    }
+  },
+  "verification": {
+    "timeoutMs": 600000
   },
   "evaluations": {
     "enabled": true,
@@ -25,9 +65,18 @@
     "repetitions": 3
   },
   "hooks": {
-    "mode": "guarded",
-    "allowedWriteRoots": [],
-    "redZonePaths": [".env", "auth/", "ci/cd/", ".github/workflows/", ".codex/hooks.json", ".cursor/hooks.json", ".cursor/mcp.json", ".mcp.json", ".qoder/settings.json", ".zcode/config.json"]
+    "redZonePaths": [
+      ".env",
+      "auth/",
+      "ci/cd/",
+      ".github/workflows/",
+      ".codex/hooks.json",
+      ".cursor/hooks.json",
+      ".cursor/mcp.json",
+      ".mcp.json",
+      ".qoder/settings.json",
+      ".zcode/config.json"
+    ]
   },
   "riskZones": {
     "red": [
@@ -57,5 +106,8 @@
   "memory": {
     "enabled": true,
     "path": ".agents/memory"
-  }
+  },
+  "targets": [
+    "codex"
+  ]
 }

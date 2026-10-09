@@ -1,0 +1,6 @@
+interface:
+  display_name: "Stale Cleanup"
+  short_description: "Find and confirm removal of stale assets"
+  default_prompt: "Use $stale-cleanup to scan this project for dead code, stale references, outdated docs, orphan resources, stale memory, and stale indexes, then clean only what I explicitly confirm."
+policy:
+  allow_implicit_invocation: true

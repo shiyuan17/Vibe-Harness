@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "basePrompt": "roles/base.md",
+  "routingOrder": [
+    "senior-engineer",
+    "test-lead",
+    "adversarial-security-reviewer",
+    "technical-release-manager",
+    "chief-architect",
+    "product-manager",
+    "technical-project-manager"
+  ],
+  "permissionPresets": [
+    { "id": "analysis", "capabilities": ["read", "search", "reason"] },
+    { "id": "implementation", "capabilities": ["read", "search", "reason", "workspace-write", "validation-command"] },
+    { "id": "verification", "capabilities": ["read", "search", "reason", "validation-command", "browser-verification"] },
+    { "id": "security-review", "capabilities": ["read", "search", "reason", "safe-security-check"] },
+    { "id": "release-readiness", "capabilities": ["read", "search", "reason", "validation-command", "package-dry-run"] }
+  ],
+  "items": [
+    {
+      "id": "chief-architect",
+      "name": "首席架构师",
+      "description": "Use for public contracts, cross-module structure, architecture tradeoffs, and migration or rollback design.",
+      "permissionPreset": "analysis",
+      "promptSource": "roles/prompts/chief-architect.md",
+      "routing": { "when": ["API or schema changes", "long-term cross-module tradeoffs", "migration or rollback design"], "avoid": ["a decided local implementation", "running a defined test suite"] }
+    },
+    {
+      "id": "product-manager",
+      "name": "产品经理",
+      "description": "Use to clarify the problem, outcome, scope, metrics, and acceptance criteria.",
+      "permissionPreset": "analysis",
+      "promptSource": "roles/prompts/product-manager.md",
+      "routing": { "when": ["unclear goals or user value", "locking scope and non-goals", "defining metrics or acceptance criteria"], "avoid": ["decided requirements", "pure implementation or verification"], "mode": "explicit" }
+    },
+    {
+      "id": "technical-project-manager",
+      "name": "技术项目经理",
+      "description": "Use for multi-workstream dependencies, critical path, milestones, and task decomposition.",
+      "permissionPreset": "analysis",
+      "promptSource": "roles/prompts/technical-project-manager.md",
+      "routing": { "when": ["several dependent work units", "a critical path or staged plan", "decomposition that needs a Task DAG"], "avoid": ["a single local task", "process for its own sake"], "mode": "explicit" }
+    },
+    {
+      "id": "senior-engineer",
+      "name": "高级工程师",
+      "description": "Use for implementation, fixes, refactors, and focused verification; the default execution role.",
+      "permissionPreset": "implementation",
+      "promptSource": "roles/prompts/senior-engineer.md",
+      "routing": { "when": ["behavior is already decided", "a fix after a located root cause", "a local refactor and its verification"], "avoid": ["undecided product goals", "independent security or release review"] }
+    },
+    {
+      "id": "test-lead",
+      "name": "测试负责人",
+      "description": "Use for independent testing, regression design, risk coverage, and quality judgment.",
+      "permissionPreset": "verification",
+      "promptSource": "roles/prompts/test-lead.md",
+      "routing": { "when": ["independent verification or a regression verdict", "a risk-driven test plan", "assessing evidence strength"], "avoid": ["fixing the code under test", "weakening assertions to pass"] }
+    },
+    {
+      "id": "adversarial-security-reviewer",
+      "name": "黑客审查者",
+      "description": "Use for authorized attacker-perspective review of security boundaries and sensitive data.",
+      "permissionPreset": "security-review",
+      "promptSource": "roles/prompts/adversarial-security-reviewer.md",
+      "routing": { "when": ["a trust boundary or untrusted input", "a security review or threat model", "permissions, credentials, or data exposure"], "avoid": ["unauthorized attacks", "leaking directly exploitable sensitive data"] }
+    },
+    {
+      "id": "technical-release-manager",
+      "name": "发布就绪审查者",
+      "description": "Use for versions, changelogs, migration, monitoring, rollback, and release go/no-go.",
+      "permissionPreset": "release-readiness",
+      "promptSource": "roles/prompts/technical-release-manager.md",
+      "routing": { "when": ["preparing a rollout", "assessing migration and rollback readiness", "forming a go/no-go conclusion"], "avoid": ["automatic tag, push, or publish", "treating a plan as evidence"] }
+    }
+  ]
+}

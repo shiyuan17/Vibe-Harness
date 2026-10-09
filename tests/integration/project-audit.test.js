@@ -1,0 +1,261 @@
+import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
+import { mkdtemp, mkdir, readFile, stat, utimes, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+import { promisify } from 'node:util';
+
+import { mergeImprovementCandidates, IMPROVEMENTS_TARGET } from '../../scripts/lib/improvements-audit.js';
+import { auditMemory } from '../../scripts/lib/memory-audit.js';
+import { createChangeEvidence, evaluateReviewReceipt, extractIndependentReviewReceiptBlocks } from '../../scripts/lib/review-audit.js';
+import { runProjectAudit } from '../../scripts/lib/project-audit.js';
+import { readJson } from '../../scripts/lib/manifest.js';
+
+const rootDir = path.resolve(import.meta.dirname, '../..');
+const git = promisify(execFile);
+
+async function temporaryProject() {
+  return mkdtemp(path.join(os.tmpdir(), 'vibe-harness-audit-'));
+}
+
+test('review receipt approves only independent current stable review', async () => {
+  const schema = await readJson(path.join(rootDir, 'schemas/review-receipt.schema.json'));
+  const sha = 'a'.repeat(40);
+  const receipt = {
+    schemaVersion: 1,
+    id: 'review-1',
+    createdAt: '2026-08-12T00:00:00.000Z',
+    baseSha: 'b'.repeat(40),
+    headSha: sha,
+    changeFingerprint: 'c'.repeat(64),
+    highRiskPaths: ['schemas/example.json'],
+    reviewer: { type: 'human', identity: 'reviewer', contextId: 'review-context' },
+    implementer: { identity: 'implementer', contextId: 'implement-context' },
+    readOnly: true,
+    verification: { id: 'verify-1', finishedAt: '2026-08-12T00:00:00.000Z', headSha: sha, stable: true, status: 'passed' },
+    findings: [],
+    decision: 'approved',
+  };
+  const change = { available: true, baseSha: receipt.baseSha, headSha: sha, fingerprint: receipt.changeFingerprint, changedPaths: receipt.highRiskPaths };
+  // v1 stays schema-valid, but a high-risk change cannot be approved through it:
+  // the two-reviewer and context-independence contract only exists in v2.
+  const v1HighRisk = evaluateReviewReceipt({ change, receipt, schema });
+  assert.equal(v1HighRisk.status, 'degraded');
+  assert.match(v1HighRisk.evidence.map((item) => item.code).join(','), /REVIEW_SCHEMA_V2_REQUIRED/u);
+  assert.doesNotMatch(v1HighRisk.evidence.map((item) => item.code).join(','), /REVIEW_RECEIPT_SCHEMA/u);
+  const stale = structuredClone(receipt);
+  stale.headSha = 'd'.repeat(40);
+  assert.match(evaluateReviewReceipt({ change, receipt: stale, schema }).evidence.map((item) => item.code).join(','), /REVIEW_HEAD_STALE/u);
+  const sameReviewer = structuredClone(receipt);
+  sameReviewer.reviewer.identity = sameReviewer.implementer.identity;
+  assert.match(evaluateReviewReceipt({ change, receipt: sameReviewer, schema }).evidence.map((item) => item.code).join(','), /REVIEW_SAME_IDENTITY/u);
+  const openHigh = structuredClone(receipt);
+  openHigh.findings = [{ code: 'F-1', title: 'Open risk', severity: 'high', status: 'open', targetAsset: 'schemas/example.json' }];
+  assert.match(evaluateReviewReceipt({ change, receipt: openHigh, schema }).evidence.map((item) => item.code).join(','), /REVIEW_HIGH_FINDING_OPEN/u);
+  const dual = structuredClone(receipt);
+  dual.schemaVersion = 2;
+  dual.reviewers = [
+    { type: 'human', identity: 'reviewer', contextId: 'review-context' },
+    { type: 'host-native', identity: 'security-reviewer', contextId: 'security-context' },
+  ];
+  dual.contextIndependence = 'verified';
+  assert.equal(evaluateReviewReceipt({ change, receipt: dual, schema }).status, 'healthy');
+  const mismatchedReviewer = structuredClone(dual);
+  mismatchedReviewer.reviewer = { ...mismatchedReviewer.reviewer, identity: 'unlisted-reviewer' };
+  assert.match(evaluateReviewReceipt({ change, receipt: mismatchedReviewer, schema }).evidence.map((item) => item.code).join(','), /REVIEW_REVIEWER_MISMATCH/u);
+  const implementerInReviewers = structuredClone(dual);
+  implementerInReviewers.reviewers[1] = { type: 'host-native', identity: 'implementer', contextId: 'security-context' };
+  assert.match(evaluateReviewReceipt({ change, receipt: implementerInReviewers, schema }).evidence.map((item) => item.code).join(','), /REVIEW_SAME_IDENTITY/u);
+  const implementerContext = structuredClone(dual);
+  implementerContext.reviewers[1].contextId = 'implement-context';
+  assert.match(evaluateReviewReceipt({ change, receipt: implementerContext, schema }).evidence.map((item) => item.code).join(','), /REVIEW_SAME_CONTEXT/u);
+  const singleV2 = structuredClone(dual);
+  singleV2.reviewers = [singleV2.reviewers[0]];
+  assert.match(evaluateReviewReceipt({ change, receipt: singleV2, schema }).evidence.map((item) => item.code).join(','), /REVIEW_SECOND_REVIEW_MISSING/u);
+  const attestedV2 = structuredClone(dual);
+  attestedV2.contextIndependence = 'attested';
+  assert.match(evaluateReviewReceipt({ change, receipt: attestedV2, schema }).evidence.map((item) => item.code).join(','), /REVIEW_CONTEXT_INDEPENDENCE_UNVERIFIED/u);
+  // v2 is a structural contract: the schema itself requires the dual-reviewer
+  // fields, so a v2 receipt cannot claim approval by omitting them, while a v1
+  // receipt stays readable without them.
+  const v2WithoutFields = structuredClone(receipt);
+  v2WithoutFields.schemaVersion = 2;
+  assert.match(evaluateReviewReceipt({ change, receipt: v2WithoutFields, schema }).evidence.map((item) => item.code).join(','), /REVIEW_RECEIPT_SCHEMA/u);
+  const v1Readable = structuredClone(receipt);
+  assert.match(evaluateReviewReceipt({ change, receipt: v1Readable, schema }).evidence.map((item) => item.code).join(','), /REVIEW_SCHEMA_V2_REQUIRED/u);
+});
+
+test('PR body accepts one independent review receipt block', () => {
+  const fence = String.fromCharCode(96).repeat(3);
+  const body = '## Independent Review Receipt\n\n' + fence + 'json\n{"id":"one"}\n' + fence;
+  assert.deepEqual(extractIndependentReviewReceiptBlocks(body), ['{"id":"one"}']);
+  assert.equal(extractIndependentReviewReceiptBlocks(body + '\n' + body).length, 2);
+});
+
+test('review evidence excludes its receipt file from the change fingerprint', async () => {
+  const project = await temporaryProject();
+  await git('git', ['init'], { cwd: project, windowsHide: true });
+  await git('git', ['config', 'user.email', 'audit@example.invalid'], { cwd: project, windowsHide: true });
+  await git('git', ['config', 'user.name', 'Audit Test'], { cwd: project, windowsHide: true });
+  await writeFile(path.join(project, 'tracked.txt'), 'base\n', 'utf8');
+  await git('git', ['add', 'tracked.txt'], { cwd: project, windowsHide: true });
+  await git('git', ['commit', '-m', 'test: seed audit fixture'], { cwd: project, windowsHide: true });
+  await writeFile(path.join(project, 'tracked.txt'), 'changed\n', 'utf8');
+  await writeFile(path.join(project, 'review.json'), '{}\n', 'utf8');
+  const before = await createChangeEvidence(project, undefined, { excludedPaths: ['review.json'] });
+  await writeFile(path.join(project, 'review.json'), '{"changed":true}\n', 'utf8');
+  const after = await createChangeEvidence(project, undefined, { excludedPaths: ['review.json'] });
+  assert.deepEqual(before.changedPaths, ['tracked.txt']);
+  assert.equal(after.fingerprint, before.fingerprint);
+});
+
+test('change evidence fails closed when the comparison base cannot be diffed', async () => {
+  const project = await temporaryProject();
+  await git('git', ['init'], { cwd: project, windowsHide: true });
+  await git('git', ['config', 'user.email', 'audit@example.invalid'], { cwd: project, windowsHide: true });
+  await git('git', ['config', 'user.name', 'Audit Test'], { cwd: project, windowsHide: true });
+  await mkdir(path.join(project, 'schemas'), { recursive: true });
+  await writeFile(path.join(project, 'schemas', 'example.json'), '{}\n', 'utf8');
+  await git('git', ['add', 'schemas/example.json'], { cwd: project, windowsHide: true });
+  await git('git', ['commit', '-m', 'test: seed change evidence fixture'], { cwd: project, windowsHide: true });
+  // A base that cannot be resolved must not collapse into an empty (ordinary)
+  // change set, which would skip the high-risk review gate.
+  const unavailable = await createChangeEvidence(project, 'f'.repeat(40));
+  assert.equal(unavailable.available, false);
+  assert.deepEqual(unavailable.changedPaths, []);
+  const head = (await git('git', ['rev-parse', 'HEAD'], { cwd: project, windowsHide: true })).stdout.trim();
+  const resolved = await createChangeEvidence(project, head);
+  assert.equal(resolved.available, true);
+});
+
+test('memory audit detects empty, stale, missing, changed, and healthy fixtures', async () => {
+  const project = await temporaryProject();
+  await mkdir(path.join(project, 'docs/memory'), { recursive: true });
+  await writeFile(path.join(project, 'docs/memory/EMPTY.md'), '# State\n- lastVerified: YYYY-MM-DD\n', 'utf8');
+  await writeFile(path.join(project, 'docs/memory/STALE.md'), '# State\n- lastVerified: 2026-01-01\n- target: rules/missing.md\n', 'utf8');
+  await writeFile(path.join(project, 'docs/memory/INVALID.md'), '# State\n- lastVerified: not-a-date\n', 'utf8');
+  await writeFile(path.join(project, 'docs/memory/INVALID-CALENDAR.md'), '# State\n- lastVerified: 2026-02-31\n', 'utf8');
+  await mkdir(path.join(project, '.agents/memory'), { recursive: true });
+  await writeFile(path.join(project, '.agents/memory/CURRENT.md'), '# Current\n- 目标: active audit\n- 最后验证: 2026-08-10\n', 'utf8');
+  const stale = await auditMemory({ now: new Date('2026-08-12T00:00:00.000Z'), targetDir: project });
+  const codes = stale.evidence.map((item) => item.code);
+  assert.equal(codes.includes('MEMORY_EMPTY_TEMPLATE'), true);
+  assert.equal(codes.includes('MEMORY_DURABLE_REVIEW_DUE'), true);
+  assert.equal(codes.includes('MEMORY_REFERENCE_MISSING'), true);
+  assert.equal(codes.includes('MEMORY_INVALID_DATE'), true);
+  assert.equal(codes.includes('MEMORY_ACTIVE_STALE'), true);
+
+  await mkdir(path.join(project, 'rules'), { recursive: true });
+  await writeFile(path.join(project, 'rules/current.md'), 'rule', 'utf8');
+  await writeFile(path.join(project, 'docs/memory/HEALTHY.md'), '# State\n- lastVerified: 2026-08-12\n- target: rules/current.md\n', 'utf8');
+  const healthy = await auditMemory({ now: new Date('2026-08-12T12:00:00.000Z'), targetDir: project });
+  assert.equal(healthy.details.filesChecked, 6);
+});
+
+test('empty current memory template stays a warning without becoming active', async () => {
+  const project = await temporaryProject();
+  await mkdir(path.join(project, '.agents/memory'), { recursive: true });
+  await writeFile(path.join(project, '.agents/memory/CURRENT.md'), '# Current\n\n- 目标:\n- 最后验证: (YYYY-MM-DD，使用绝对日期)\n', 'utf8');
+  const report = await auditMemory({ now: new Date('2026-08-12T00:00:00.000Z'), targetDir: project });
+  const codes = report.evidence.map((item) => item.code);
+  assert.equal(codes.includes('MEMORY_EMPTY_TEMPLATE'), true);
+  assert.equal(codes.includes('MEMORY_INVALID_DATE'), false);
+  assert.equal(codes.includes('MEMORY_ACTIVE_UNVERIFIED'), false);
+});
+
+test('Memory 审计声明未覆盖 Session 且不依赖验证日期顺序', async () => {
+  const project = await temporaryProject();
+  await mkdir(path.join(project, '.agents/memory/sessions'), { recursive: true });
+  await mkdir(path.join(project, '.agents/memory/archive'), { recursive: true });
+  await writeFile(path.join(project, '.agents/memory/sessions/entry.md'), '- lastVerified: invalid\n', 'utf8');
+  const current = path.join(project, '.agents/memory/CURRENT.md');
+  for (const dates of [['2026-08-12', '2026-08-01'], ['2026-08-01', '2026-08-12']]) {
+    await writeFile(current, `# Current\n- 目标: active\n- lastVerified: ${dates[0]}\n- lastVerified: ${dates[1]}\n`, 'utf8');
+    const report = await auditMemory({ now: new Date('2026-08-12T12:00:00.000Z'), targetDir: project });
+    assert.equal(report.status, 'warning');
+    assert.equal(report.details.scope, 'root-md-json-files');
+    assert.equal(report.details.referenceScope, 'file-level');
+    assert.deepEqual(report.details.excludedDirectories, ['.agents/memory/archive', '.agents/memory/sessions']);
+    assert.ok(report.evidence.some((entry) => entry.code === 'MEMORY_SCOPE_PARTIAL'));
+    assert.ok(report.evidence.some((entry) => entry.code === 'MEMORY_ACTIVE_STALE'));
+  }
+});
+
+test('improvement candidates are idempotent, thresholded, and terminal-safe', () => {
+  const now = new Date('2026-08-12T00:00:00.000Z');
+  const base = { schemaVersion: 1, updatedAt: now.toISOString(), candidates: [] };
+  const observation = {
+    code: 'RULE-1', episode: 'episode-1', evidenceRefs: ['evidence-1'], expectedBenefit: 'Avoid recurrence.',
+    firstSeenAt: now.toISOString(), lastSeenAt: now.toISOString(), owner: '', reviewBy: '', severity: 'medium',
+    targetAsset: 'rules/example.md', title: 'Repeated rule finding', type: 'rule',
+  };
+  const first = mergeImprovementCandidates(base, [observation], now);
+  assert.equal(first.candidates[0].status, 'proposed');
+  const duplicate = mergeImprovementCandidates(first, [observation], now);
+  assert.equal(duplicate.candidates[0].distinctEpisodes.length, 1);
+  const second = mergeImprovementCandidates(duplicate, [{ ...observation, episode: 'episode-2' }], now);
+  assert.equal(second.candidates[0].status, 'eligible-for-owner-review');
+  second.candidates[0].status = 'implemented';
+  const terminal = mergeImprovementCandidates(second, [{ ...observation, episode: 'episode-3' }], now);
+  assert.equal(terminal.candidates[0].status, 'implemented');
+});
+
+test('only improvements kind writes and uses the governance queue target', async () => {
+  const project = await temporaryProject();
+  await assert.rejects(
+    runProjectAudit({ kind: 'memory', rootDir, targetDir: project, write: true }),
+    /only allowed/u,
+  );
+  const before = await stat(project);
+  const preview = await runProjectAudit({ kind: 'improvements', rootDir, targetDir: project, write: false });
+  assert.equal(preview.readOnly, true);
+  await assert.rejects(readFile(path.join(project, IMPROVEMENTS_TARGET), 'utf8'), /ENOENT/u);
+  const written = await runProjectAudit({ kind: 'improvements', rootDir, targetDir: project, write: true });
+  assert.deepEqual(written.written, [IMPROVEMENTS_TARGET]);
+  assert.equal(JSON.parse(await readFile(path.join(project, IMPROVEMENTS_TARGET), 'utf8')).schemaVersion, 1);
+  assert.ok((await stat(project)).mtimeMs >= before.mtimeMs);
+});
+
+test('improvements accepts only project-local valid review receipts', async () => {
+  const project = await temporaryProject();
+  const outside = path.join(path.dirname(project), 'outside-review.json');
+  await writeFile(outside, '{}\n', 'utf8');
+  await assert.rejects(
+    runProjectAudit({ kind: 'improvements', receiptPath: outside, rootDir, targetDir: project }),
+    /inside the project/u,
+  );
+  await writeFile(path.join(project, 'invalid-review.json'), '{}\n', 'utf8');
+  await assert.rejects(
+    runProjectAudit({ kind: 'improvements', receiptPath: 'invalid-review.json', rootDir, targetDir: project }),
+    /review receipt/u,
+  );
+});
+
+test('garbage collection only creates old unreferenced candidates', async () => {
+  const project = await temporaryProject();
+  await mkdir(path.join(project, 'rules'), { recursive: true });
+  await mkdir(path.join(project, 'docs/rules'), { recursive: true });
+  const oldAsset = path.join(project, 'rules/unused.md');
+  const currentRule = path.join(project, 'docs/rules/unused.md');
+  const referencedRule = path.join(project, 'docs/rules/referenced.md');
+  const recentRule = path.join(project, 'docs/rules/recent.md');
+  await writeFile(oldAsset, 'unused', 'utf8');
+  await writeFile(currentRule, 'unused', 'utf8');
+  await writeFile(referencedRule, 'referenced', 'utf8');
+  await writeFile(recentRule, 'recent', 'utf8');
+  await writeFile(path.join(project, 'docs/README.md'), 'See docs/rules/referenced.md\n', 'utf8');
+  const oldDate = new Date('2026-01-01T00:00:00.000Z');
+  for (const asset of [oldAsset, currentRule, referencedRule]) await utimes(asset, oldDate, oldDate);
+  const report = await runProjectAudit({ kind: 'improvements', now: new Date('2026-08-12T00:00:00.000Z'), rootDir, targetDir: project });
+  const candidates = report.details.improvements.details.queue.candidates;
+  const candidate = candidates.find((item) => item.targetAsset === 'rules/unused.md');
+  assert.equal(candidate.type, 'garbage-collection');
+  assert.equal(candidate.status, 'proposed');
+  assert.deepEqual(candidates.map((item) => item.targetAsset).sort(), ['docs/rules/unused.md', 'rules/unused.md']);
+  const repeated = await runProjectAudit({ kind: 'improvements', now: new Date('2026-08-12T00:00:00.000Z'), rootDir, targetDir: project });
+  assert.deepEqual(repeated.details.improvements.details.queue, report.details.improvements.details.queue);
+  assert.equal(report.readOnly, true);
+  assert.deepEqual(report.written, []);
+  await assert.rejects(readFile(path.join(project, IMPROVEMENTS_TARGET), 'utf8'), /ENOENT/u);
+});

@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "benchmark": "swe-bench-live",
+  "upstream": {
+    "repository": "https://github.com/microsoft/SWE-bench-Live",
+    "revision": "9b4b11c5d77365107e91bc19d7a3aebbe8da76b7"
+  },
+  "dataset": {
+    "name": "SWE-bench-Live/SWE-bench-Live",
+    "revision": "b51a86422e10cfd403beb4773e5a2947953e36ec"
+  },
+  "selection": {
+    "strategy": "first-stable-by-dataset-order",
+    "goldMustPass": true,
+    "goldRepetitions": 3,
+    "emptyPatchMustFail": true
+  },
+  "tasks": [
+    {
+      "id": "conan-io__conan-15377",
+      "metadata": { "split": "test", "platform": "linux" }
+    }
+  ]
+}

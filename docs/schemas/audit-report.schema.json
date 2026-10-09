@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Vibe-Harness 审计报告",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "generatedAt", "project", "status", "readOnly", "evidence"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "enum": [1] },
+    "kind": { "type": "string", "enum": ["memory", "review", "improvements", "cleanup", "all"] },
+    "generatedAt": { "type": "string", "minLength": 1 },
+    "project": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "enum": ["healthy", "warning", "degraded"] },
+    "readOnly": { "type": "boolean" },
+    "evidence": { "type": "array", "items": { "type": "object", "required": ["code", "severity", "message"], "properties": { "code": { "type": "string", "minLength": 1 }, "severity": { "type": "string", "enum": ["info", "warning", "error"] }, "message": { "type": "string", "minLength": 1 }, "path": { "type": "string" } }, "additionalProperties": false } },
+    "details": { "type": "object" },
+    "written": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+  },
+  "allOf": [
+    {
+      "oneOf": [
+        {
+          "properties": {
+            "kind": { "const": "cleanup" },
+            "details": {
+              "type": "object",
+              "required": ["cleanup"],
+              "properties": {
+                "cleanup": {
+                  "type": "object",
+                  "required": ["candidateFindings", "confirmedFindings", "filesScanned", "inventory", "skipped"],
+                  "properties": {
+                    "candidateFindings": { "type": "integer", "minimum": 0 },
+                    "confirmedFindings": { "type": "integer", "minimum": 0 },
+                    "filesScanned": { "type": "integer", "minimum": 0 },
+                    "skipped": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+                    "inventory": {
+                      "type": "object",
+                      "required": ["assetsScanned", "documentsScanned", "filesScanned", "memoryFilesScanned", "referenceSourcesScanned", "sourceFilesScanned"],
+                      "properties": {
+                        "assetsScanned": { "type": "integer", "minimum": 0 },
+                        "documentsScanned": { "type": "integer", "minimum": 0 },
+                        "filesScanned": { "type": "integer", "minimum": 0 },
+                        "memoryFilesScanned": { "type": "integer", "minimum": 0 },
+                        "referenceSourcesScanned": { "type": "integer", "minimum": 0 },
+                        "sourceFilesScanned": { "type": "integer", "minimum": 0 }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "required": ["kind", "details"]
+        },
+        {
+          "not": {
+            "properties": { "kind": { "const": "cleanup" } },
+            "required": ["kind"]
+          }
+        }
+      ]
+    }
+  ],
+  "additionalProperties": false
+}

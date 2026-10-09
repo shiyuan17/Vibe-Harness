@@ -1,9 +1,19 @@
+import {
+  assertPluginProviderCatalog,
+  pluginProviderCatalog,
+  pluginProviderForAlias,
+  pluginProviderForId,
+  pluginProviderForModule,
+  pluginProviders,
+} from './plugin-provider-catalog.js';
+
 export const moduleCatalog = {
   agents: { dependencies: [], groups: ['agents', 'agents-index'] },
   rules: { dependencies: [], groups: ['rules-minimal', 'rules-core', 'rules-full'] },
   templates: { dependencies: [], groups: ['templates-minimal'] },
   skills: { dependencies: ['agents', 'rules', 'templates'], groups: ['skills-core', 'skills-full'] },
   schemas: { dependencies: [], groups: ['schemas-core'] },
+  'project-scripts': { dependencies: [], groups: ['runtime-project-scripts'] },
   evals: { dependencies: ['schemas'], groups: ['runtime-eval', 'runtime-eval-online', 'evals-core', 'evals-online'] },
   memory: { dependencies: ['skills'], groups: ['templates-memory', 'skills-memory'] },
   playwright: { dependencies: ['skills'], groups: ['skills-browser', 'tools-playwright'] },
@@ -12,44 +22,34 @@ export const moduleCatalog = {
   'open-code-review': { dependencies: ['skills'], groups: ['tools-open-code-review'] },
   rtk: { dependencies: ['agents', 'rules'], groups: ['rules-rtk', 'tools-rtk'] },
   'ast-grep': { dependencies: ['agents', 'rules'], groups: ['rules-ast-grep', 'tools-ast-grep'] },
+  codegraph: { dependencies: ['agents', 'rules'], groups: ['rules-codegraph'] },
+  serena: { dependencies: ['agents', 'rules'], groups: ['rules-serena'] },
+  probe: { dependencies: ['agents', 'rules'], groups: ['rules-probe'] },
   linear: { dependencies: ['skills'], groups: ['rules-linear', 'skills-linear', 'templates-linear', 'mcp-config'] },
   'linear-readonly': { dependencies: ['skills'], groups: ['rules-linear', 'skills-linear', 'templates-linear', 'mcp-config'] },
   hooks: { dependencies: ['agents'], groups: ['hooks'] },
+  roles: { dependencies: ['agents', 'rules'], groups: ['roles'] },
 };
+
+assertPluginProviderCatalog(pluginProviderCatalog, { moduleIds: new Set(Object.keys(moduleCatalog)) });
 
 const profileModules = {
   minimal: ['agents', 'rules', 'templates'],
-  core: ['agents', 'rules', 'templates', 'skills', 'evals'],
+  core: ['agents', 'rules', 'templates', 'skills', 'evals', 'project-scripts'],
   full: [
-    'agents', 'rules', 'templates', 'skills', 'evals', 'hooks',
+    'agents', 'rules', 'templates', 'skills', 'evals', 'project-scripts', 'hooks', 'roles',
   ],
   'docs-only': ['rules', 'templates', 'schemas'],
 };
 
-export const pluginModules = [
-  'rtk',
-  'ast-grep',
-  'codebase-memory',
-  'chrome-devtools',
-  'playwright',
-  'open-code-review',
-];
+export const pluginModules = pluginProviders
+  .filter((provider) => provider.selection.includeInAll)
+  .map((provider) => provider.moduleId);
 
-const pluginAliases = new Map([
-  ['rtk', 'rtk'],
-  ['ast-grep', 'ast-grep'],
-  ['codebase-memory-mcp', 'codebase-memory'],
-  ['codebase-memory', 'codebase-memory'],
-  ['chrome-devtools-mcp', 'chrome-devtools'],
-  ['chrome-devtools', 'chrome-devtools'],
-  ['playwright-cli', 'playwright'],
-  ['playwright', 'playwright'],
-  ['open-code-review', 'open-code-review'],
-  ['linear-mcp', 'linear'],
-  ['linear', 'linear'],
-  ['linear-mcp-readonly', 'linear-readonly'],
-  ['linear-readonly', 'linear-readonly'],
-]);
+/** Profile module ids before dependency closure; presets extend this list. */
+export function profileModuleIds(profile) {
+  return [...(profileModules[profile] ?? [])];
+}
 
 export function parseModulesOption(value) {
   if (typeof value !== 'string') throw new Error('--modules requires a comma-separated module list.');
@@ -74,12 +74,24 @@ export function parsePluginsOption(value) {
     return [];
   }
   const plugins = tokens.map((token) => {
-    const plugin = pluginAliases.get(token);
+    const plugin = pluginProviderForAlias(token)?.moduleId;
     if (!plugin) throw new Error(`Unknown plugin: ${token}`);
     return plugin;
   });
   if (new Set(plugins).size !== plugins.length) throw new Error('plugins contains a duplicate plugin.');
   return plugins;
+}
+
+function conflictingProviders(moduleIds) {
+  const selectedProviderIds = new Set(moduleIds
+    .map((moduleId) => pluginProviderForModule(moduleId)?.id)
+    .filter(Boolean));
+  for (const provider of pluginProviders) {
+    if (!selectedProviderIds.has(provider.id)) continue;
+    const conflictId = (provider.conflicts ?? []).find((candidate) => selectedProviderIds.has(candidate));
+    if (conflictId) return [provider, pluginProviderForId(conflictId)];
+  }
+  return null;
 }
 
 function validateModules(requestedModules) {
@@ -108,22 +120,35 @@ function resolveDependencies(moduleIds) {
   return selected;
 }
 
+/** @param {{profile?: string, profileGroups?: string[], requestedModules?: string[], requestedPlugins?: any, rolesEnabled?: boolean, rtkHooksEnabled?: boolean}} options */
 export function resolveModuleSelection({
   profile,
   profileGroups = [],
   requestedModules,
   requestedPlugins,
+  rolesEnabled,
   rtkHooksEnabled = false,
 }) {
   const customModules = requestedModules !== undefined && requestedModules !== null;
   if (customModules) validateModules(requestedModules);
-  const baseModules = customModules ? requestedModules : (profileModules[profile] ?? []);
+  let baseModules = customModules ? [...requestedModules] : [...(profileModules[profile] ?? [])];
+  if (customModules && typeof rolesEnabled === 'boolean') {
+    const moduleEnablesRoles = baseModules.includes('roles');
+    if (moduleEnablesRoles !== rolesEnabled) {
+      throw new Error('roles.enabled conflicts with the explicit modules selection; include roles or make the values agree.');
+    }
+  } else if (!customModules && rolesEnabled === true && !baseModules.includes('roles')) {
+    baseModules.push('roles');
+  } else if (!customModules && rolesEnabled === false) {
+    baseModules = baseModules.filter((id) => id !== 'roles');
+  }
   const baseSelection = resolveDependencies(baseModules);
   const plugins = requestedPlugins === undefined || requestedPlugins === null || requestedPlugins.length === 0
     ? []
     : parsePluginsOption(requestedPlugins);
-  if (plugins.includes('linear') && plugins.includes('linear-readonly')) {
-    throw new Error('linear-mcp and linear-mcp-readonly are mutually exclusive.');
+  const conflict = conflictingProviders(plugins);
+  if (conflict) {
+    throw new Error(conflict[0].cliName + ' and ' + conflict[1].cliName + ' are mutually exclusive.');
   }
   if (rtkHooksEnabled && !plugins.includes('rtk')) {
     throw new Error('RTK hook integration requires the rtk plugin. Select --plugin -rtk.');
@@ -136,6 +161,8 @@ export function resolveModuleSelection({
   const allowedGroups = customModules || profileGroups.length === 0
     ? new Set([...baseSelection].flatMap((id) => moduleCatalog[id].groups))
     : new Set(profileGroups);
+  if (baseSelection.has('roles')) allowedGroups.add('roles');
+  else allowedGroups.delete('roles');
   for (const group of [...pluginSelection].flatMap((id) => moduleCatalog[id].groups)) allowedGroups.add(group);
   for (const group of [...integrationSelection].flatMap((id) => moduleCatalog[id].groups)) allowedGroups.add(group);
   return {

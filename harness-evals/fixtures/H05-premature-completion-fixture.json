@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "id": "H05",
+  "description": "Premature completion fixture",
+  "files": [
+    {
+      "path": "schema/source.json",
+      "content": "{\"fields\":[\"id\"]}\\n"
+    },
+    {
+      "path": "schema/generated.json",
+      "content": "{\"fields\":[\"id\"]}\\n"
+    },
+    {
+      "path": "scripts/generate.mjs",
+      "content": "import fs from 'node:fs';fs.writeFileSync('schema/generated.json',fs.readFileSync('schema/source.json'));\\n"
+    },
+    {
+      "path": "AGENTS.md",
+      "content": "Schema work is complete only after source, generated output, and validation agree.\\n"
+    }
+  ],
+  "oracleFiles": [
+    {
+      "path": "check.mjs",
+      "content": "import assert from 'node:assert/strict';import fs from 'node:fs';const a=JSON.parse(fs.readFileSync('schema/source.json'));const b=JSON.parse(fs.readFileSync('schema/generated.json'));assert.ok(a.fields.includes('status'));assert.deepEqual(a,b);\\n"
+    }
+  ],
+  "git": {
+    "initialize": true
+  },
+  "faults": [],
+  "hiddenChecks": [
+    {
+      "id": "H05-oracle",
+      "program": "node",
+      "args": [
+        "{ORACLE_DIR}/check.mjs"
+      ],
+      "expectedExitCode": 0
+    }
+  ]
+}

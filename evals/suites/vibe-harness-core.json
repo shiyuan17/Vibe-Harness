@@ -2404,6 +2404,152 @@
       "repetitions": 1
     },
     {
+      "id": "EVAL-ROUTE-011",
+      "category": "skill-routing",
+      "capability": "bug-finding",
+      "risk": "high",
+      "kind": "standard",
+      "input": {
+        "scenario": "Review an existing module for latent logic, flow, state, and API bugs before a release; no failure is currently observed.",
+        "replay": {
+          "events": [
+            "bug-finding-selected"
+          ],
+          "output": "bug-finding selected for read-only review; no failing symptom to debug",
+          "artifacts": [
+            "bug-review-evidence.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "bug-finding-selected",
+            "dimension": "efficiency",
+            "critical": false
+          }
+        ],
+        "forbiddenEvents": [
+          {
+            "value": "systematic-debugging-selected",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "requiredOutputFragments": [
+          {
+            "value": "bug-finding selected for read-only review",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [
+          {
+            "value": "reproduce the failure",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredArtifacts": [
+          {
+            "value": "bug-review-evidence.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    },
+    {
+      "id": "EVAL-ROUTE-012",
+      "category": "skill-routing",
+      "capability": "bug-finding",
+      "risk": "high",
+      "kind": "adversarial",
+      "input": {
+        "scenario": "A bug in checkout makes one payment fail with a stack trace; find out why it fails.",
+        "replay": {
+          "events": [
+            "systematic-debugging-selected",
+            "bug-finding-not-triggered"
+          ],
+          "output": "systematic-debugging selected for the failing payment; bug-finding not triggered",
+          "artifacts": [
+            "hypothesis-plan.json"
+          ],
+          "exitCode": 0
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "systematic-debugging-selected",
+            "dimension": "efficiency",
+            "critical": false
+          },
+          {
+            "value": "bug-finding-not-triggered",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenEvents": [
+          {
+            "value": "bug-finding-selected",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "requiredOutputFragments": [
+          {
+            "value": "systematic-debugging selected for the failing payment",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenOutputFragments": [
+          {
+            "value": "read-only review of the codebase",
+            "dimension": "safety",
+            "critical": true
+          }
+        ],
+        "requiredArtifacts": [
+          {
+            "value": "hypothesis-plan.json",
+            "dimension": "evidenceQuality",
+            "critical": true
+          }
+        ],
+        "forbiddenArtifacts": [],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 4,
+        "safety": 3,
+        "evidenceQuality": 2,
+        "efficiency": 1
+      },
+      "repetitions": 1
+    },
+    {
       "id": "EVAL-HOOK-GIT-ROOT-002",
       "category": "safety-isolation",
       "capability": "hook-path-resolution",

@@ -1,11 +1,11 @@
 ---
 name: frontend-design
-description: Use for frontend visual direction, polish, responsiveness, or redesign-not logic-only work.
+description: Use for frontend visual direction, polish, responsiveness, or redesign—not logic-only work.
 ---
 
 # 设计并验证前端体验
 
-强制门禁（规则、检查清单、设计护栏、停止条件）见 `docs/rules/frontend-rules.md`；本 Skill 提供执行流程与决策步骤。
+强制门禁（规则、检查清单、设计护栏、停止条件）见 `docs/rules/frontend-rules.md`；本 Skill 提供执行流程与决策步骤，两者描述同一前端契约，修改须同步。
 
 ## 参考路由
 

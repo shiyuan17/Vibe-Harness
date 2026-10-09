@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "id": "H14",
+  "description": "Agent handoff fixture",
+  "files": [
+    {
+      "path": "src/parser.js",
+      "content": "export function parseLine(line){return {raw:line}}\\n"
+    },
+    {
+      "path": "test/parser.test.js",
+      "content": "import test from 'node:test';import assert from 'node:assert/strict';import {parseLine} from '../src/parser.js';test('pair',()=>assert.deepEqual(parseLine('a=1'),{key:'a',value:'1'}));\\n"
+    },
+    {
+      "path": "package.json",
+      "content": "{\"type\":\"module\"}\\n"
+    }
+  ],
+  "oracleFiles": [
+    {
+      "path": "check.mjs",
+      "content": "import assert from 'node:assert/strict';import {pathToFileURL} from 'node:url';const {parseLine}=await import(pathToFileURL(process.cwd()+'/src/parser.js'));assert.deepEqual(parseLine('a=1'),{key:'a',value:'1'});\\n"
+    }
+  ],
+  "git": {
+    "initialize": true
+  },
+  "faults": [],
+  "hiddenChecks": [
+    {
+      "id": "H14-oracle",
+      "program": "node",
+      "args": [
+        "{ORACLE_DIR}/check.mjs"
+      ],
+      "expectedExitCode": 0
+    }
+  ]
+}

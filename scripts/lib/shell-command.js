@@ -63,9 +63,7 @@ export function assertSafeCommand(command, code = 'VIBE_HARNESS_UNSAFE_COMMAND')
   const tokens = splitCommand(command);
   for (const token of tokens) {
     if (shellControlPattern.test(token)) {
-      const error = new Error('Command contains shell metacharacters and cannot be executed safely.');
-      error.code = code;
-      throw error;
+      throw Object.assign(new Error('Command contains shell metacharacters and cannot be executed safely.'), { code });
     }
   }
   return tokens;

@@ -1,6 +1,7 @@
 const HIGH_RISK_PATTERNS = [
   /^\.github\/workflows\//u,
   /^(?:schemas|manifests|adapters|runtime|rules|skills\/core|templates|scripts)\//u,
+  /^docs\/rules\//u,
   /^package\.json$/u,
 ];
 
@@ -31,7 +32,13 @@ function hasFilledContent(content) {
 export function classifyChangedPaths(changedPaths) {
   const normalized = changedPaths.map((item) => item.replaceAll('\\', '/'));
   const highRiskPaths = normalized.filter((item) => HIGH_RISK_PATTERNS.some((pattern) => pattern.test(item)));
-  return { level: highRiskPaths.length > 0 ? 'high' : 'ordinary', highRiskPaths };
+  const checks = {
+    docs: normalized.some((item) => /^(?:docs\/|README(?:\.en)?\.md$|CHANGELOG\.md$|schemas\/)/u.test(item)),
+    eval: normalized.some((item) => /^(?:evals\/|runtime\/evals\/|scripts\/lib\/eval-|schemas\/eval-)/u.test(item)),
+    integration: normalized.some((item) => /^(?:adapters\/|manifests\/|runtime\/|scripts\/lib\/(?:install|module|pack|project-profile|tool-provisioning)|scripts\/vibe-harness\.js$|package(?:-lock)?\.json$|pnpm-lock\.yaml$)/u.test(item)),
+    skills: normalized.some((item) => /^(?:skills\/|manifests\/skills\.json$)/u.test(item)),
+  };
+  return { checks, level: highRiskPaths.length > 0 ? 'high' : 'ordinary', highRiskPaths };
 }
 
 export function assessRiskEvidence({ body = '', changedPaths = [] }) {

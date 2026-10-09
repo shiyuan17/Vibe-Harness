@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vibe-harness.invalid/schemas/adr.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "title", "status", "date", "owner", "decision-makers", "consulted", "informed", "supersedes", "superseded-by"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^ADR-[0-9]{4}$" },
+    "title": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "enum": ["proposed", "accepted", "rejected", "deprecated", "superseded"] },
+    "date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "review-date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "owner": { "type": "string", "minLength": 1 },
+    "decision-makers": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "consulted": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "informed": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "supersedes": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^ADR-[0-9]{4}$" } },
+    "superseded-by": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "string", "pattern": "^ADR-[0-9]{4}$" }
+      ]
+    }
+  }
+}

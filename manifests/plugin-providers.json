@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "capabilities": [
+    { "id": "shell.output-compression", "description": "在不改变命令语义的前提下压缩大量 shell 命令输出。" },
+    { "id": "code-search.structural", "description": "通过语法感知查询定位源码结构。" },
+    { "id": "code-intelligence.semantic-graph", "description": "通过语义图检查跨文件符号、关系、架构与影响面。" },
+    { "id": "browser.devtools", "description": "通过开发者工具能力检查和控制浏览器。" },
+    { "id": "browser.automation", "description": "通过项目本地浏览器运行时自动化浏览器交互。" },
+    { "id": "code-review.automated", "description": "对项目变更运行自动化代码评审提供方。" },
+    { "id": "work-management.read-write", "description": "通过远端提供方读取和修改工作管理数据。" },
+    { "id": "work-management.read-only", "description": "通过受限的远端提供方只读工作管理数据。" },
+    { "id": "code-intelligence.call-graph", "description": "通过仓库级代码图谱查询多跳调用链与影响面。" },
+    { "id": "code-intelligence.lsp-navigation", "description": "通过语言服务器提供实时符号、引用、定义与类型解析导航。" },
+    { "id": "code-search.natural-language", "description": "用自然语言意图查询检索相关代码片段。" }
+  ],
+  "providers": [
+    {
+      "id": "rtk",
+      "cliName": "rtk",
+      "aliases": ["rtk"],
+      "moduleId": "rtk",
+      "capabilities": ["shell.output-compression"],
+      "transport": "cli",
+      "selection": { "includeInAll": true, "allowInProjectConfig": true },
+      "provisioningToolId": "rtk"
+    },
+    {
+      "id": "ast-grep",
+      "cliName": "ast-grep",
+      "aliases": ["ast-grep"],
+      "moduleId": "ast-grep",
+      "capabilities": ["code-search.structural"],
+      "transport": "cli",
+      "selection": { "includeInAll": true, "allowInProjectConfig": true },
+      "provisioningToolId": "astGrep"
+    },
+    {
+      "id": "codebase-memory",
+      "cliName": "codebase-memory-mcp",
+      "aliases": ["codebase-memory-mcp", "codebase-memory"],
+      "moduleId": "codebase-memory",
+      "capabilities": ["code-intelligence.semantic-graph"],
+      "transport": "local-mcp",
+      "selection": { "includeInAll": true, "allowInProjectConfig": true },
+      "provisioningToolId": "codebaseMemoryMcp"
+    },
+    {
+      "id": "chrome-devtools",
+      "cliName": "chrome-devtools-mcp",
+      "aliases": ["chrome-devtools-mcp", "chrome-devtools"],
+      "moduleId": "chrome-devtools",
+      "capabilities": ["browser.devtools"],
+      "transport": "local-mcp",
+      "selection": { "includeInAll": true, "allowInProjectConfig": true },
+      "provisioningToolId": "chromeDevtoolsMcp"
+    },
+    {
+      "id": "playwright",
+      "cliName": "playwright-cli",
+      "aliases": ["playwright-cli", "playwright"],
+      "moduleId": "playwright",
+      "capabilities": ["browser.automation"],
+      "transport": "cli",
+      "selection": { "includeInAll": true, "allowInProjectConfig": true },
+      "provisioningToolId": "playwrightCli"
+    },
+    {
+      "id": "open-code-review",
+      "cliName": "open-code-review",
+      "aliases": ["open-code-review"],
+      "moduleId": "open-code-review",
+      "capabilities": ["code-review.automated"],
+      "transport": "cli",
+      "selection": { "includeInAll": true, "allowInProjectConfig": true },
+      "provisioningToolId": "openCodeReview"
+    },
+    {
+      "id": "codegraph",
+      "cliName": "codegraph",
+      "aliases": ["codegraph"],
+      "moduleId": "codegraph",
+      "capabilities": ["code-intelligence.call-graph"],
+      "transport": "local-mcp",
+      "selection": { "includeInAll": false, "allowInProjectConfig": true }
+    },
+    {
+      "id": "serena",
+      "cliName": "serena",
+      "aliases": ["serena", "serena-agent"],
+      "moduleId": "serena",
+      "capabilities": ["code-intelligence.lsp-navigation"],
+      "transport": "local-mcp",
+      "selection": { "includeInAll": false, "allowInProjectConfig": true }
+    },
+    {
+      "id": "probe",
+      "cliName": "probe",
+      "aliases": ["probe"],
+      "moduleId": "probe",
+      "capabilities": ["code-search.natural-language"],
+      "transport": "cli",
+      "selection": { "includeInAll": false, "allowInProjectConfig": true }
+    },
+    {
+      "id": "linear",
+      "cliName": "linear-mcp",
+      "aliases": ["linear-mcp", "linear"],
+      "moduleId": "linear",
+      "capabilities": ["work-management.read-write"],
+      "transport": "remote-mcp",
+      "selection": { "includeInAll": false, "allowInProjectConfig": false },
+      "conflicts": ["linear-readonly"]
+    },
+    {
+      "id": "linear-readonly",
+      "cliName": "linear-mcp-readonly",
+      "aliases": ["linear-mcp-readonly", "linear-readonly"],
+      "moduleId": "linear-readonly",
+      "capabilities": ["work-management.read-only"],
+      "transport": "remote-mcp",
+      "selection": { "includeInAll": false, "allowInProjectConfig": false },
+      "conflicts": ["linear"]
+    }
+  ]
+}

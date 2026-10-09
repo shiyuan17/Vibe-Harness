@@ -1,0 +1,6 @@
+interface:
+  display_name: "Task Decomposition"
+  short_description: "Split plans into verifiable Task DAGs and executable node prompts"
+  default_prompt: "Use $task-decomposition to split this implementation plan into a Goal, Task DAG, and host-neutral execution prompts."
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vibe-harness.invalid/schemas/linear-execution-v3.schema.json",
+  "title": "Vibe-Harness Linear execution Receipt v3",
+  "type": "object",
+  "required": [
+    "schema",
+    "executionId",
+    "source",
+    "agentKey",
+    "hostKind",
+    "delegateId",
+    "runtimeInstanceId",
+    "role",
+    "dagRootIssue",
+    "dagNodeIssue",
+    "startedAt",
+    "claimId",
+    "leaseExpiresAt",
+    "fencingToken",
+    "claimProvider"
+  ],
+  "properties": {
+    "schema": { "type": "string", "const": "vibe-harness.linear-execution/v3" },
+    "executionId": { "type": "string", "format": "uuid" },
+    "source": {
+      "type": "string",
+      "enum": ["explicit-user-request", "existing-delegate", "authorized-handoff", "authorized-auto-claim"]
+    },
+    "agentKey": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "hostKind": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "delegateId": { "type": ["string", "null"] },
+    "runtimeInstanceId": { "type": "string", "format": "uuid" },
+    "role": { "type": "string", "const": "writer" },
+    "dagRootIssue": { "type": ["string", "null"] },
+    "dagNodeIssue": { "type": "string", "minLength": 1 },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "grantId": { "type": "string", "format": "uuid" },
+    "claimId": { "type": "string", "format": "uuid" },
+    "leaseExpiresAt": { "type": "string", "format": "date-time" },
+    "fencingToken": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "claimProvider": { "type": "string", "minLength": 1, "maxLength": 128 }
+  },
+  "additionalProperties": false
+}

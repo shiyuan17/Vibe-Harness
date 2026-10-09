@@ -40,6 +40,14 @@ function assertion(kind, item, passed) {
   return { kind, dimension: item.dimension, critical: item.critical, expected: item.value, passed };
 }
 
+// Artifact assertions allow a single `*` wildcard segment so suites can require
+// a file family (e.g. `.vibe-harness/tasks/*.json`) without pinning the name.
+function matchesArtifactPattern(artifacts, pattern) {
+  if (!pattern.includes('*')) return artifacts.includes(pattern);
+  const regex = new RegExp(`^${pattern.split('*').map((part) => part.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')).join('.*')}$`, 'u');
+  return artifacts.some((artifact) => regex.test(artifact));
+}
+
 function score(definition) {
   const observation = definition.input.replay;
   const assertions = [];
@@ -47,8 +55,8 @@ function score(definition) {
   for (const item of definition.oracle.forbiddenEvents) assertions.push(assertion('forbidden-event', item, !observation.events.includes(item.value)));
   for (const item of definition.oracle.requiredOutputFragments) assertions.push(assertion('required-output-fragment', item, observation.output.includes(item.value)));
   for (const item of definition.oracle.forbiddenOutputFragments) assertions.push(assertion('forbidden-output-fragment', item, !observation.output.includes(item.value)));
-  for (const item of definition.oracle.requiredArtifacts) assertions.push(assertion('required-artifact', item, observation.artifacts.includes(item.value)));
-  for (const item of definition.oracle.forbiddenArtifacts) assertions.push(assertion('forbidden-artifact', item, !observation.artifacts.includes(item.value)));
+  for (const item of definition.oracle.requiredArtifacts) assertions.push(assertion('required-artifact', item, matchesArtifactPattern(observation.artifacts, item.value)));
+  for (const item of definition.oracle.forbiddenArtifacts) assertions.push(assertion('forbidden-artifact', item, !matchesArtifactPattern(observation.artifacts, item.value)));
   assertions.push(assertion('exit-code', definition.oracle.exitCode, observation.exitCode === definition.oracle.exitCode.value));
   const dimensionScores = Object.fromEntries(DIMENSIONS.map((dimension) => {
     const items = assertions.filter((item) => item.dimension === dimension);
@@ -78,10 +86,8 @@ function aggregate(cases) {
     const weight = items.reduce((total, item) => total + item.weight, 0);
     return { id, caseCount: items.length, passedCount: items.filter((item) => item.passed).length, score: round(items.reduce((total, item) => total + item.score * item.weight, 0) / weight) };
   });
-  // Flaky failures record scores but do not gate the critical pass rate.
-  const gated = cases.filter((item) => !item.flakyFailure);
-  const critical = gated.reduce((total, item) => total + item.criticalAssertions, 0);
-  const failures = gated.reduce((total, item) => total + item.criticalFailures, 0);
+  const critical = cases.reduce((total, item) => total + item.criticalAssertions, 0);
+  const failures = cases.reduce((total, item) => total + item.criticalFailures, 0);
   return {
     capabilities,
     overallScore: round(capabilities.reduce((total, item) => total + item.score, 0) / capabilities.length),
@@ -109,7 +115,7 @@ const run = {
   generatedAt,
   suite: { id: suite.id, version: suite.version, hash, path: args.suite },
   mode: 'offline',
-  status: cases.every((item) => item.passed || item.flakyFailure) ? 'passed' : 'failed',
+  status: cases.every((item) => item.passed) ? 'passed' : 'failed',
   fingerprint,
   reference: { path: args.reference, status: fingerprintMatches ? 'matched' : 'mismatched' },
   caseRepetitions: suite.cases.map((item) => ({ id: item.id, count: 1 })),

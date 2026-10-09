@@ -3,7 +3,7 @@ const expectedKinds = new Map([
   ['dependent', 4],
   ['mixed', 4],
   ['discovery', 4],
-  ['near-miss', 4],
+  ['near-miss', 6],
 ]);
 
 export function validateClarificationCatalog(catalog) {

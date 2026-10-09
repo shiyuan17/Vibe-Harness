@@ -1,0 +1,277 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import { defaultProjectConfig, validateProjectConfigWithSchema } from '../../scripts/lib/project-config.js';
+import { assertSupportedSchemaKeywords, validateJsonAgainstSchema } from '../../scripts/lib/schema-validation.js';
+
+test('validateJsonAgainstSchema reports type mismatches with instance and schema paths', () => {
+  const schema = {
+    type: 'object',
+    required: ['name'],
+    properties: { name: { type: 'string', minLength: 1 }, count: { type: 'integer', minimum: 0 } },
+    additionalProperties: false,
+  };
+  const errors = validateJsonAgainstSchema({ name: 42, rogue: true }, schema, 'config');
+  assert.ok(errors.some((e) => e.includes('config.name') && e.includes('must be string')));
+  assert.ok(errors.some((e) => e.includes('config.rogue') && e.includes('is not allowed')));
+  assert.equal(errors.length, 2);
+});
+
+test('validateJsonAgainstSchema enforces numeric minimum/maximum and enum constraints', () => {
+  const schema = {
+    type: 'object',
+    properties: {
+      level: { type: 'integer', minimum: 1, maximum: 3 },
+      mood: { type: 'string', enum: ['low', 'high'] },
+    },
+  };
+  const errors = validateJsonAgainstSchema({ level: 5, mood: 'medium' }, schema);
+  assert.ok(errors.some((e) => e.includes('level') && e.includes('must be <= 3')));
+  assert.ok(errors.some((e) => e.includes('mood') && e.includes('must be one of')));
+});
+
+test('validateJsonAgainstSchema handles anyOf for nullable string fields', () => {
+  const schema = {
+    type: 'object',
+    properties: {
+      cmd: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'null' }] },
+    },
+  };
+  assert.deepEqual(validateJsonAgainstSchema({ cmd: 'pnpm test' }, schema), []);
+  assert.deepEqual(validateJsonAgainstSchema({ cmd: null }, schema), []);
+  assert.ok(validateJsonAgainstSchema({ cmd: 42 }, schema).length > 0);
+});
+
+test('validateJsonAgainstSchema enforces array uniqueItems and minItems', () => {
+  const schema = { type: 'array', items: { type: 'string' }, minItems: 1, uniqueItems: true };
+  assert.ok(validateJsonAgainstSchema([], schema).some((e) => e.includes('at least 1')));
+  assert.ok(validateJsonAgainstSchema(['a', 'a'], schema).some((e) => e.includes('unique items')));
+  assert.deepEqual(validateJsonAgainstSchema(['a', 'b'], schema), []);
+});
+
+test('assertSupportedSchemaKeywords rejects unsupported keywords', () => {
+  assert.throws(
+    () => assertSupportedSchemaKeywords({ type: 'string', unsupportedConstraint: true }),
+    /Unsupported schema keyword/u,
+  );
+  assert.throws(
+    () => assertSupportedSchemaKeywords({ properties: { a: { type: 'string', format: 'uri' } } }),
+    /Unsupported schema format/u,
+  );
+});
+
+test('validateJsonAgainstSchema resolves local definitions, union types, and date-time strings', () => {
+  const schema = {
+    type: 'object',
+    required: ['generatedAt', 'value'],
+    properties: {
+      generatedAt: { type: 'string', format: 'date-time' },
+      value: { $ref: '#/$defs/nullableValue' },
+    },
+    $defs: { nullableValue: { type: ['string', 'null'] } },
+    additionalProperties: false,
+  };
+  assert.deepEqual(validateJsonAgainstSchema({ generatedAt: '2026-09-05T00:00:00Z', value: null }, schema), []);
+  assert.ok(validateJsonAgainstSchema({ generatedAt: 'yesterday', value: 3 }, schema).length >= 2);
+});
+
+test('assertSupportedSchemaKeywords accepts the supported keyword set', () => {
+  const schema = {
+    type: 'object',
+    properties: { id: { type: 'string', pattern: '^[a-z]+$' } },
+    required: ['id'],
+    additionalProperties: false,
+  };
+  assertSupportedSchemaKeywords(schema);
+});
+
+test('project config accepts legacy and canonical targets while enforcing the multi-host contract', () => {
+  const legacy = { ...defaultProjectConfig, target: 'codex' };
+  delete legacy.targets;
+  assert.equal(validateProjectConfigWithSchema(legacy), true);
+  assert.equal(validateProjectConfigWithSchema({ ...defaultProjectConfig, targets: ['antigravity'] }), true);
+  assert.throws(
+    () => validateProjectConfigWithSchema({ ...defaultProjectConfig, target: 'codex' }),
+    /exactly one of target/u,
+  );
+  assert.throws(
+    () => validateProjectConfigWithSchema({ ...defaultProjectConfig, targets: ['codex', 'codex'] }),
+    /unique items|duplicate adapters/u,
+  );
+});
+
+test('project config validates the structured logging contract', () => {
+  const valid = structuredClone(defaultProjectConfig);
+  valid.projectRules.overrides.logging = {
+    frameworks: ['pino'],
+    configFiles: ['src/logger.ts'],
+    sources: ['application stdout'],
+    queries: ['pnpm logs:api'],
+    correlationFields: ['traceId'],
+    verification: ['pnpm test:logging'],
+  };
+  assert.equal(validateProjectConfigWithSchema(valid), true);
+
+  const invalidType = structuredClone(valid);
+  invalidType.projectRules.overrides.logging.queries = 'pnpm logs:api';
+  assert.throws(() => validateProjectConfigWithSchema(invalidType), /queries.*array/u);
+
+  const duplicate = structuredClone(valid);
+  duplicate.projectRules.overrides.logging.frameworks = ['pino', 'pino'];
+  assert.throws(() => validateProjectConfigWithSchema(duplicate), /unique items|duplicates/u);
+
+  const unknown = structuredClone(valid);
+  unknown.projectRules.overrides.logging.platform = ['production'];
+  assert.throws(() => validateProjectConfigWithSchema(unknown), /platform.*not allowed/u);
+});
+
+test('项目配置把 validationCommands.tiers 作为可选且受校验的成本层配置块', () => {
+  // Optional: a config written before the tiers existed stays valid, and the
+  // effective tiers fall back to derivation.
+  const legacy = structuredClone(defaultProjectConfig);
+  delete legacy.validationCommands.tiers;
+  assert.equal(validateProjectConfigWithSchema(legacy), true);
+
+  // Empty arrays are the explicit "this tier is disabled" statement.
+  assert.equal(validateProjectConfigWithSchema({
+    ...structuredClone(defaultProjectConfig),
+    validationCommands: { lint: null, typecheck: null, test: null, eval: null, tiers: { quick: [], standard: [], deep: [] } },
+  }), true);
+
+  const valid = structuredClone(defaultProjectConfig);
+  valid.validationCommands.tiers = {
+    quick: ['pnpm lint', 'pnpm test:unit'],
+    standard: ['pnpm test:integration'],
+    deep: ['pnpm test:e2e'],
+  };
+  assert.equal(validateProjectConfigWithSchema(valid), true);
+
+  const notAnArray = structuredClone(valid);
+  notAnArray.validationCommands.tiers.quick = 'pnpm lint';
+  assert.throws(() => validateProjectConfigWithSchema(notAnArray), /quick.*array/u);
+
+  const emptyCommand = structuredClone(valid);
+  emptyCommand.validationCommands.tiers.deep = [''];
+  assert.throws(() => validateProjectConfigWithSchema(emptyCommand), /deep/u);
+
+  const duplicate = structuredClone(valid);
+  duplicate.validationCommands.tiers.quick = ['pnpm lint', 'pnpm lint'];
+  assert.throws(() => validateProjectConfigWithSchema(duplicate), /unique items|duplicates/u);
+
+  const unknownTier = structuredClone(valid);
+  unknownTier.validationCommands.tiers.nightly = ['pnpm test'];
+  assert.throws(() => validateProjectConfigWithSchema(unknownTier), /nightly.*not allowed/u);
+});
+
+test('project config accepts the worktree contract and rejects unknown keys', () => {
+  // The default config ships the block, so a fresh install already declares the
+  // outside-repository root docs/rules/git-rules.md §Worktree requires.
+  assert.equal(validateProjectConfigWithSchema(defaultProjectConfig), true);
+  assert.match(defaultProjectConfig.worktree.root, /\.\.\/.+?-worktrees$/u);
+  assert.equal(defaultProjectConfig.worktree.baseRef, 'origin/develop');
+
+  const full = structuredClone(defaultProjectConfig);
+  full.worktree = {
+    baseRef: 'origin/develop',
+    dependencyRoots: ['frontend'],
+    localPackages: ['@bl-cnas/prototype-contracts'],
+    ports: {
+      base: 4100,
+      blockSize: 5,
+      envFile: '.vibe-harness/worktree.env',
+      variables: ['API_PORT', 'WEB_PORT'],
+    },
+    provision: {
+      envFiles: ['.env.local'],
+      setupCommands: ['pnpm install --frozen-lockfile'],
+    },
+    root: '../BL-CNAS-worktrees',
+  };
+  assert.equal(validateProjectConfigWithSchema(full), true);
+
+  const unknownKey = structuredClone(full);
+  unknownKey.worktree.baseBranch = 'develop';
+  assert.throws(() => validateProjectConfigWithSchema(unknownKey), /baseBranch.*not allowed/u);
+
+  const badRoot = structuredClone(full);
+  badRoot.worktree.root = '';
+  assert.throws(() => validateProjectConfigWithSchema(badRoot), /root/u);
+
+  const badPackages = structuredClone(full);
+  badPackages.worktree.localPackages = ['@bl-cnas/contracts', '@bl-cnas/contracts'];
+  assert.throws(() => validateProjectConfigWithSchema(badPackages), /unique items|duplicates/u);
+
+  // The port block decides which dev-server port a worktree gets, so an
+  // unusable declaration has to be rejected instead of silently falling back.
+  const badBlockSize = structuredClone(full);
+  badBlockSize.worktree.ports.blockSize = 0;
+  assert.throws(() => validateProjectConfigWithSchema(badBlockSize), /blockSize/u);
+
+  const badPortVariable = structuredClone(full);
+  badPortVariable.worktree.ports.variables = ['API_TOKEN'];
+  assert.throws(() => validateProjectConfigWithSchema(badPortVariable), /variables|pattern/u);
+
+  const unknownPortKey = structuredClone(full);
+  unknownPortKey.worktree.ports.stride = 2;
+  assert.throws(() => validateProjectConfigWithSchema(unknownPortKey), /stride.*not allowed/u);
+
+  const unknownProvisionKey = structuredClone(full);
+  unknownProvisionKey.worktree.provision.postInstall = ['node setup.mjs'];
+  assert.throws(() => validateProjectConfigWithSchema(unknownProvisionKey), /postInstall.*not allowed/u);
+
+  const emptySetupCommand = structuredClone(full);
+  emptySetupCommand.worktree.provision.setupCommands = [''];
+  assert.throws(() => validateProjectConfigWithSchema(emptySetupCommand), /setupCommands/u);
+});
+
+test('patternProperties 命中的键按子模式校验且不受 additionalProperties 拒绝', () => {
+  const schema = {
+    type: 'object',
+    properties: { declared: { type: 'string' } },
+    patternProperties: {
+      '^tests/.+\\.test\\.js$': { type: 'array', items: { type: 'string' } },
+    },
+    additionalProperties: false,
+  };
+  assert.deepEqual(validateJsonAgainstSchema({
+    declared: 'ok',
+    'tests/unit/alpha.test.js': ['scripts/lib/helper.js'],
+  }, schema), []);
+
+  const badType = validateJsonAgainstSchema({ 'tests/unit/alpha.test.js': 'scripts/lib/helper.js' }, schema);
+  assert.ok(badType.some((e) => e.includes('tests/unit/alpha.test.js') && e.includes('must be array') && e.includes('patternProperties')));
+
+  const badItem = validateJsonAgainstSchema({ 'tests/unit/alpha.test.js': [42] }, schema);
+  assert.ok(badItem.some((e) => e.includes('[0]') && e.includes('must be string') && e.includes('patternProperties')));
+
+  const rogue = validateJsonAgainstSchema({ rogue: true }, schema);
+  assert.ok(rogue.some((e) => e.includes('rogue') && e.includes('is not allowed')));
+});
+
+test('assertSupportedSchemaKeywords 递归检查 patternProperties 子模式', () => {
+  assertSupportedSchemaKeywords({
+    type: 'object',
+    patternProperties: { '^a+$': { type: 'string', minLength: 1 } },
+    additionalProperties: false,
+  });
+  assert.throws(
+    () => assertSupportedSchemaKeywords({
+      type: 'object',
+      patternProperties: { '^a+$': { type: 'string', unsupportedConstraint: true } },
+    }),
+    /Unsupported schema keyword at \$\.patternProperties\./u,
+  );
+});
+
+test('project config accepts structured Micro and rejects undeclared or mixed entries', () => {
+  const base = structuredClone(defaultProjectConfig);
+  const entry = { id: 'local', kind: 'pure', entry: 'scripts/probes/local.mjs' };
+  base.validationCommands.micro = [entry];
+  assert.doesNotThrow(() => validateProjectConfigWithSchema(base));
+  assert.throws(() => validateProjectConfigWithSchema({
+    ...base, validationCommands: { ...base.validationCommands, micro: [{ id: 'local' }] },
+  }));
+  assert.throws(() => validateProjectConfigWithSchema({
+    ...base, validationCommands: { ...base.validationCommands, micro: [{ ...entry, command: 'node local.mjs' }] },
+  }));
+});
