@@ -4,6 +4,7 @@ import { execFile, spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   closeSync,
+  copyFileSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -63,6 +64,8 @@ const VERIFY_TIERS = ['quick', 'standard', 'deep'];
 const VERIFY_SCOPES = ['affected', 'layer', 'full'];
 const DEFAULT_VERIFY_SCOPE = 'layer';
 const DEFAULT_VERIFY_TIER = 'quick';
+const LAND_LOCK_TIMEOUT_MS = 5_000;
+const LAND_LOCK_RETRY_MS = 50;
 // Report statuses that map to wrapper exit code 0.
 const PASS_STATUSES = ['passed', 'ready', 'planned', 'reused'];
 const CONFIG_FILE = 'vibe-harness.config.json';
@@ -1888,14 +1891,116 @@ async function worktreeCleanupReport(projectDir, args) {
  * (docs/rules/git-rules.md §Worktree): merge --no-ff, run the verify gate,
  * optionally push, then remove the worktree and — only after a successful
  * push — delete its branch. Every step re-checks its evidence, so a failed
- * run is safe to retry: an already-merged branch skips the merge, and a run
- * interrupted after the push retries with just the cleanup and delete.
+ * run is safe to retry: an already-merged branch skips the candidate merge,
+ * and a run interrupted after the push retries with just cleanup and delete.
  * Without --write the report is the ordered plan; without --push the branch
  * survives with a suggested command instead of being deleted.
  */
 const LAND_PROTECTED_BRANCH_PATTERN = /^(?:main|master|develop|release(?:[-/].+)?)$/iu;
 
+async function gitCommonDir(projectDir) {
+  const result = await runGit(['rev-parse', '--git-common-dir'], projectDir);
+  if (!result.ok || result.stdout.trim() === '') return { ok: false, error: boundedOutput(result.stderr || result.error?.message || 'cannot resolve git common dir', projectDir) };
+  return { ok: true, path: path.resolve(projectDir, result.stdout.trim()) };
+}
+
+async function withWorktreeLandLock(projectDir, action) {
+  const common = await gitCommonDir(projectDir);
+  if (!common.ok) {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      command: 'worktree',
+      subcommand: 'land',
+      status: 'blocked',
+      code: 'LAND_LOCK_UNAVAILABLE',
+      blockers: [common.error],
+    };
+  }
+  const lockPath = path.join(common.path, 'vibe-harness-worktree-land.lock');
+  const deadline = Date.now() + LAND_LOCK_TIMEOUT_MS;
+  let held = false;
+  for (;;) {
+    try {
+      const handle = openSync(lockPath, 'wx');
+      writeSync(handle, `${process.pid}\n${new Date().toISOString()}\n`);
+      closeSync(handle);
+      held = true;
+      break;
+    } catch (error) {
+      if (error.code !== 'EEXIST') {
+        return {
+          schemaVersion: SCHEMA_VERSION,
+          command: 'worktree',
+          subcommand: 'land',
+          status: 'blocked',
+          code: 'LAND_LOCK_UNAVAILABLE',
+          blockers: [`cannot create shared land lock: ${error.code ?? error.message}`],
+        };
+      }
+      if (Date.now() >= deadline) {
+        return {
+          schemaVersion: SCHEMA_VERSION,
+          command: 'worktree',
+          subcommand: 'land',
+          status: 'blocked',
+          code: 'LAND_LOCK_TIMEOUT',
+          blockers: [`${normalizeSlashes(lockPath)} is held by another land operation after ${LAND_LOCK_TIMEOUT_MS}ms; inspect the owner before removing the lock`],
+        };
+      }
+      await delay(LAND_LOCK_RETRY_MS);
+    }
+  }
+  try {
+    return await action();
+  } finally {
+    if (held) {
+      try { rmSync(lockPath, { force: true }); } catch { /* keep the lock for manual recovery if removal is uncertain */ }
+    }
+  }
+}
+
+async function cleanupLandCandidate(projectDir, candidatePath, { abort = false } = {}) {
+  if (!candidatePath) return { removed: true, residual: null };
+  if (abort) await runGit(['merge', '--abort'], candidatePath);
+  const config = await readProjectConfig(projectDir);
+  const settings = resolveWorktreeSettings(projectDir, config, {});
+  if (!settings.error) removeDependencyLinks(candidatePath, settings);
+  const status = await runGit(['status', '--porcelain=v1'], candidatePath);
+  if (!status.ok || status.stdout.trim() !== '') {
+    return {
+      removed: false,
+      residual: normalizeSlashes(candidatePath),
+      reason: status.ok ? 'candidate worktree is dirty after merge cleanup' : boundedOutput(status.stderr || status.error?.message || 'candidate status failed', projectDir),
+    };
+  }
+  const removed = await runGit(['worktree', 'remove', candidatePath], projectDir);
+  if (!removed.ok) {
+    return {
+      removed: false,
+      residual: normalizeSlashes(candidatePath),
+      reason: boundedOutput(removed.stderr || removed.error?.message || 'candidate worktree remove failed', projectDir),
+    };
+  }
+  await runGit(['worktree', 'prune'], projectDir);
+  return { removed: true, residual: null };
+}
+
 async function worktreeLandReport(projectDir, args) {
+  if (args.write && args.verify === false) {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      command: 'worktree',
+      subcommand: 'land',
+      status: 'failed',
+      code: 'LAND_VERIFY_REQUIRED',
+      error: 'worktree land --write requires verification; use dry-run to inspect a no-verify plan',
+    };
+  }
+  if (!args.write) return worktreeLandReportUnlocked(projectDir, args);
+  return withWorktreeLandLock(projectDir, () => worktreeLandReportUnlocked(projectDir, args));
+}
+
+async function worktreeLandReportUnlocked(projectDir, args) {
   const failure = (error, code) => ({ schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'land', status: 'failed', ...(code ? { code } : {}), error });
   if (args.push && !args.write) {
     return failure('worktree land --push requires --write: push and branch deletion only run in a real write');
@@ -1955,9 +2060,11 @@ async function worktreeLandReport(projectDir, args) {
 
   const blockers = [];
   const worktreeStatus = await runGit(['status', '--porcelain=v1'], entry.path);
-  if (worktreeStatus.ok && worktreeStatus.stdout.trim() !== '') blockers.push('the worktree has uncommitted changes');
+  if (!worktreeStatus.ok) blockers.push('the worktree status could not be read');
+  else if (worktreeStatus.stdout.trim() !== '') blockers.push('the worktree has uncommitted changes');
   const primaryStatus = await runGit(['status', '--porcelain=v1'], primary.path);
-  if (primaryStatus.ok && primaryStatus.stdout.trim() !== '') blockers.push('the primary checkout has uncommitted changes');
+  if (!primaryStatus.ok) blockers.push('the primary checkout status could not be read');
+  else if (primaryStatus.stdout.trim() !== '') blockers.push('the primary checkout has uncommitted changes');
   // An anchor with unfinished units means the work is not done yet; landing it
   // anyway would merge a half-finished slice into the target branch.
   let anchorInfo = null;
@@ -2024,7 +2131,7 @@ async function worktreeLandReport(projectDir, args) {
     portBlockReleased: false,
   };
   const stepPlans = [
-    { id: 'merge', detail: alreadyMerged ? `already merged into ${targetBranch}; skipped` : `git merge --no-ff --no-edit ${entry.branch}` },
+    { id: 'merge', detail: alreadyMerged ? `already merged into ${targetBranch}; skipped` : `merge ${entry.branch} in an isolated candidate worktree, then fast-forward ${targetBranch}` },
     ...(args.verify === false ? [{ id: 'verify', detail: 'skipped by --no-verify' }] : [{ id: 'verify', detail: `verify --tier ${tier} on the merged result` }]),
     ...(args.push ? [{ id: 'push', detail: pushCommand ?? 'blocked by push policy' }] : [{ id: 'push', detail: `no --push; branch kept, run after landing: git push${hasUpstream ? '' : ` -u origin ${targetBranch}`}` }]),
     { id: 'cleanup', detail: 'remove dependency links, the worktree, then release the port registry entry' },
@@ -2065,33 +2172,100 @@ async function worktreeLandReport(projectDir, args) {
     steps.push(step);
   };
 
-  // Step 1: merge. A failed merge is left in the primary checkout for the user
-  // to resolve or abort; land never rolls a merge back on its own.
-  if (alreadyMerged) {
-    steps.push({ id: 'merge', status: 'skipped', detail: `${entry.branch} is already merged into ${targetBranch}` });
+  let candidatePath = null;
+  let candidateHeadSha = null;
+  const targetHead = await runGit(['rev-parse', `refs/heads/${targetBranch}`], primary.path);
+  if (!targetHead.ok) {
+    markFailed({ id: 'merge', status: 'failed', code: 'LAND_TARGET_HEAD_UNRESOLVED', error: boundedOutput(targetHead.stderr || targetHead.error?.message || 'target branch head could not be resolved', projectDir), detail: `resolve ${targetBranch}` });
   } else {
-    const merged = await runGit(['merge', '--no-ff', '--no-edit', entry.branch], primary.path);
-    if (merged.ok) steps.push({ id: 'merge', status: 'passed', detail: `merged ${entry.branch} into ${targetBranch}` });
-    else markFailed({ id: 'merge', status: 'failed', code: 'LAND_MERGE_FAILED', error: boundedOutput(merged.stderr || merged.error?.message || 'git merge failed', projectDir), detail: `git merge --no-ff --no-edit ${entry.branch}` });
+    const candidateBaseSha = targetHead.stdout.trim();
+    candidatePath = path.join(path.dirname(settings.root), `.vibe-harness-land-${taskId}-${randomUUID()}`);
+    const added = await runGit(['worktree', 'add', '--detach', candidatePath, candidateBaseSha], projectDir);
+    if (!added.ok) {
+      markFailed({ id: 'merge', status: 'failed', code: 'LAND_CANDIDATE_CREATE_FAILED', error: boundedOutput(added.stderr || added.error?.message || 'candidate worktree creation failed', projectDir), detail: `git worktree add --detach ${candidatePath} ${candidateBaseSha}` });
+    } else {
+      try {
+        for (const root of settings.dependencyRoots) linkDependencyRoot(projectDir, candidatePath, settings, root);
+        for (const relative of new Set([settings.ports.envFile, ...settings.provision.envFiles])) {
+          const source = safeWorktreeFile(entry.path, relative, 'worktree candidate env');
+          const target = safeWorktreeFile(candidatePath, relative, 'worktree candidate env');
+          if (existsSync(source)) {
+            mkdirSync(path.dirname(target), { recursive: true });
+            copyFileSync(source, target);
+          }
+        }
+      } catch (error) {
+        const removed = await cleanupLandCandidate(projectDir, candidatePath);
+        markFailed({ id: 'merge', status: 'failed', code: 'LAND_CANDIDATE_SETUP_FAILED', error: error.message, candidatePath: removed.residual, detail: 'prepare isolated candidate dependencies' });
+      }
+      let candidateMerge = { ok: true };
+      if (!failedStep && !alreadyMerged) candidateMerge = await runGit(['merge', '--no-ff', '--no-edit', entry.branch], candidatePath);
+      if (!failedStep && !candidateMerge.ok) {
+        const removed = await cleanupLandCandidate(projectDir, candidatePath, { abort: true });
+        markFailed({
+          id: 'merge',
+          status: 'failed',
+          code: 'LAND_MERGE_CONFLICT',
+          error: boundedOutput(candidateMerge.stderr || candidateMerge.error?.message || 'candidate merge failed', projectDir),
+          candidatePath: removed.residual,
+          detail: `isolated merge ${entry.branch} into ${targetBranch}`,
+        });
+      } else if (!failedStep) {
+        const candidateHead = await runGit(['rev-parse', 'HEAD'], candidatePath);
+        if (!candidateHead.ok) {
+          const removed = await cleanupLandCandidate(projectDir, candidatePath);
+          markFailed({ id: 'merge', status: 'failed', code: 'LAND_CANDIDATE_HEAD_UNRESOLVED', error: boundedOutput(candidateHead.stderr || candidateHead.error?.message || 'candidate HEAD could not be resolved', projectDir), candidatePath: removed.residual, detail: 'resolve candidate HEAD' });
+        } else {
+          candidateHeadSha = candidateHead.stdout.trim();
+          steps.push({ id: 'merge', status: alreadyMerged ? 'skipped' : 'passed', detail: alreadyMerged ? `${entry.branch} is already merged into ${targetBranch}` : `merged ${entry.branch} in isolated candidate worktree` });
+          const verify = await verifyProject(candidatePath, { tier, task: [taskId], only: null, reuse: false, allowManual: false });
+          const verifyOk = PASS_STATUSES.includes(verify.status);
+          const checkLines = Object.entries(verify.checks ?? {})
+            .filter(([, item]) => item?.status && item.status !== 'not_configured')
+            .map(([name, item]) => `${name}=${item.status}`)
+            .join(' ');
+          if (verifyOk) {
+            steps.push({ id: 'verify', status: 'passed', tier: verify.tier, receipt: verify.verification?.id ?? null, detail: `verify isolated candidate ${verify.status}${checkLines ? ` (${checkLines})` : ''}` });
+          } else {
+            const removed = await cleanupLandCandidate(projectDir, candidatePath);
+            markFailed({ id: 'verify', status: 'failed', code: 'LAND_VERIFY_FAILED', tier: verify.tier, error: verify.error ?? `verify ended ${verify.status}${checkLines ? ` (${checkLines})` : ''}`, candidatePath: removed.residual, detail: `verify --tier ${tier} on isolated candidate` });
+          }
+        }
+      }
+    }
   }
 
-  // Step 2: verify the merged result. The gate runs even when the merge was
-  // skipped, because "integrated" requires verification after the last
-  // substantive change either way.
   if (!failedStep) {
-    if (args.verify === false) {
-      steps.push({ id: 'verify', status: 'skipped', detail: 'skipped by --no-verify' });
+    const targetNow = await runGit(['rev-parse', `refs/heads/${targetBranch}`], primary.path);
+    const sourceNow = await runGit(['rev-parse', `refs/heads/${entry.branch}`], projectDir);
+    const primaryNow = await runGit(['status', '--porcelain=v1'], primary.path);
+    const primaryBranchNow = await runGit(['symbolic-ref', '--quiet', '--short', 'HEAD'], primary.path);
+    const sourceStatusNow = await runGit(['status', '--porcelain=v1'], entry.path);
+    const candidateNow = candidatePath ? await runGit(['status', '--porcelain=v1'], candidatePath) : { ok: false };
+    const candidateHeadNow = candidatePath ? await runGit(['rev-parse', 'HEAD'], candidatePath) : { ok: false };
+    const baselineBlockers = [];
+    if (!targetNow.ok || targetNow.stdout.trim() !== targetHead.stdout.trim()) baselineBlockers.push(`target branch ${targetBranch} changed while land was running`);
+    if (!sourceNow.ok || sourceNow.stdout.trim() !== branchHeadSha) baselineBlockers.push(`source branch ${entry.branch} changed while land was running`);
+    if (!primaryBranchNow.ok || primaryBranchNow.stdout.trim() !== targetBranch) baselineBlockers.push('the primary checkout switched branches while land was running');
+    if (!primaryNow.ok || primaryNow.stdout.trim() !== '') baselineBlockers.push('the primary checkout became dirty while land was running');
+    if (!sourceStatusNow.ok || sourceStatusNow.stdout.trim() !== '') baselineBlockers.push('the source worktree became dirty while land was running');
+    if (!candidateNow.ok || candidateNow.stdout.trim() !== '') baselineBlockers.push('the candidate worktree is not clean after verification');
+    if (!candidateHeadNow.ok || candidateHeadNow.stdout.trim() !== candidateHeadSha) baselineBlockers.push('the candidate HEAD changed during verification');
+    if (baselineBlockers.length > 0) {
+      const removed = await cleanupLandCandidate(projectDir, candidatePath);
+      markFailed({ id: 'merge', status: 'blocked', code: 'LAND_BASELINE_CHANGED', blockers: baselineBlockers, candidatePath: removed.residual, detail: 'baseline changed after isolated verification; retry from the current target' });
     } else {
-      const verify = await verifyProject(primary.path, { tier, task: [taskId], only: null, reuse: false, allowManual: false });
-      const verifyOk = PASS_STATUSES.includes(verify.status);
-      const checkLines = Object.entries(verify.checks ?? {})
-        .filter(([, item]) => item?.status && item.status !== 'not_configured')
-        .map(([name, item]) => `${name}=${item.status}`)
-        .join(' ');
-      if (verifyOk) {
-        steps.push({ id: 'verify', status: 'passed', tier: verify.tier, receipt: verify.verification?.id ?? null, detail: `verify ${verify.status}${checkLines ? ` (${checkLines})` : ''}` });
+      const finalized = await runGit(['merge', '--ff-only', candidateHeadSha], primary.path);
+      if (!finalized.ok) {
+        const removed = await cleanupLandCandidate(projectDir, candidatePath);
+        markFailed({ id: 'merge', status: 'failed', code: 'LAND_FINALIZE_FAILED', error: boundedOutput(finalized.stderr || finalized.error?.message || 'candidate could not be fast-forwarded into the primary checkout', projectDir), candidatePath: removed.residual, detail: `git merge --ff-only ${candidateHeadSha}` });
       } else {
-        markFailed({ id: 'verify', status: 'failed', code: 'LAND_VERIFY_FAILED', tier: verify.tier, error: verify.error ?? `verify ended ${verify.status}${checkLines ? ` (${checkLines})` : ''}`, detail: `verify --tier ${tier} on the merged result` });
+        const removed = await cleanupLandCandidate(projectDir, candidatePath);
+        if (!removed.removed) {
+          markFailed({ id: 'merge', status: 'failed', code: 'LAND_CANDIDATE_CLEANUP_FAILED', candidatePath: removed.residual, error: removed.reason, detail: 'remove isolated candidate worktree' });
+        } else {
+          steps[steps.findIndex((step) => step.id === 'merge')].detail = `candidate verified and fast-forwarded into ${targetBranch}`;
+        }
       }
     }
   }
@@ -2139,16 +2313,20 @@ async function worktreeLandReport(projectDir, args) {
     steps.push({ id: 'delete-branch', status: 'skipped', detail: `branch ${entry.branch} kept without --push; delete after pushing with: git branch -d ${entry.branch}` });
   }
 
-  const stepFailures = steps.filter((step) => step.status === 'failed');
+  const stepFailures = steps.filter((step) => step.status === 'failed' || step.status === 'blocked');
+  const landStatus = stepFailures.some((step) => step.status === 'blocked') && !stepFailures.some((step) => step.status === 'failed')
+    ? 'blocked'
+    : stepFailures.length > 0 ? 'failed' : 'passed';
   return {
     schemaVersion: SCHEMA_VERSION,
     command: 'worktree',
     subcommand: 'land',
-    status: stepFailures.length > 0 ? 'failed' : 'passed',
+    status: landStatus,
+    ...(failedStep?.code ? { code: failedStep.code } : {}),
     targetBranch,
     tier,
     write: true,
-    results: [{ ...baseResult, pushed, branchDeleted: steps.some((step) => step.id === 'delete-branch' && step.status === 'passed'), portBlockReleased: steps.some((step) => step.id === 'cleanup' && step.status === 'passed' && step.portBlockReleased === true), status: stepFailures.length > 0 ? 'failed' : 'passed', steps }],
+    results: [{ ...baseResult, pushed, branchDeleted: steps.some((step) => step.id === 'delete-branch' && step.status === 'passed'), portBlockReleased: steps.some((step) => step.id === 'cleanup' && step.status === 'passed' && step.portBlockReleased === true), status: landStatus, steps }],
   };
 }
 
@@ -2166,6 +2344,12 @@ async function worktreeLandReport(projectDir, args) {
  * so no work can be lost.
  */
 async function worktreeRecoverReport(projectDir, args) {
+  if (!args.write) return worktreeRecoverReportUnlocked(projectDir, args);
+  const result = await withWorktreeLandLock(projectDir, () => worktreeRecoverReportUnlocked(projectDir, args));
+  return result.subcommand === 'land' ? { ...result, subcommand: 'recover' } : result;
+}
+
+async function worktreeRecoverReportUnlocked(projectDir, args) {
   const config = await readProjectConfig(projectDir);
   const settings = resolveWorktreeSettings(projectDir, config, args);
   if (settings.error) return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'recover', status: 'failed', error: settings.error };
@@ -2188,6 +2372,16 @@ async function worktreeRecoverReport(projectDir, args) {
 
   const prunable = entries.filter((entry) => !entry.primary && entry.prunable);
   const liveEntries = entries.filter((entry) => !entry.prunable);
+  const candidateRoot = path.dirname(settings.root);
+  const candidatePattern = /^\.vibe-harness-land-(.+)-([0-9a-f]{8}-[0-9a-f-]{27,})$/iu;
+  const candidates = [];
+  for (const entry of liveEntries) {
+    if (!entry.detached || !entry.path || pathKey(path.dirname(entry.path)) !== pathKey(candidateRoot)) continue;
+    const match = candidatePattern.exec(path.basename(entry.path));
+    if (!match || !(registry?.entries ?? []).some((item) => item.id === match[1])) continue;
+    const state = await runGit(['status', '--porcelain=v1'], entry.path);
+    candidates.push({ path: entry.path, id: match[1], clean: state.ok && state.stdout.trim() === '', status: 'planned' });
+  }
 
   // Incomplete worktrees: a bootstrap that died between `git worktree add` and
   // the locked registry/env write leaves a worktree that is clean, still at the
@@ -2256,6 +2450,21 @@ async function worktreeRecoverReport(projectDir, args) {
   // one prune for the residue, then branch deletes (prune is what frees the
   // bindings the prunable listing held), then registry releases.
   const results = [];
+  const candidateResults = [];
+  for (const item of candidates) {
+    if (!item.clean) {
+      candidateResults.push({ ...item, status: 'blocked', reason: 'candidate is dirty; inspect it before manual cleanup' });
+      continue;
+    }
+    if (!args.write) {
+      candidateResults.push(item);
+      continue;
+    }
+    const removed = await cleanupLandCandidate(projectDir, item.path);
+    candidateResults.push(removed.removed
+      ? { ...item, status: 'passed' }
+      : { ...item, status: 'failed', code: 'WORKTREE_RECOVER_CANDIDATE_FAILED', error: removed.reason });
+  }
   for (const item of incomplete) {
     if (!args.write) {
       results.push({ ...item, status: 'planned' });
@@ -2329,11 +2538,12 @@ async function worktreeRecoverReport(projectDir, args) {
       });
   }
 
-  const failed = [...results, ...branchResults, ...registryResults].some((item) => item.status === 'failed')
+  const failed = [...results, ...candidateResults, ...branchResults, ...registryResults].some((item) => item.status === 'failed' || item.status === 'blocked')
     || (args.write && prunable.length > 0 && pruned !== true);
   const summary = [
     `status: ${failed ? 'failed' : args.write ? 'passed' : 'planned'} (write: ${Boolean(args.write)})`,
     `prunable residue: ${prunable.length}${prunable.length > 0 ? ` (${prunable.map((item) => item.path).join(', ')})` : ''}`,
+    ...candidateResults.map((item) => `land candidate: ${item.path} ${item.status}${item.reason ? ` (${item.reason})` : ''}`),
     ...results.map((item) => `incomplete: ${item.path} branch ${item.branch} ${item.status}`),
     ...branchResults.map((item) => `branch: ${item.branch} ${item.status}${item.evidence ? ` [${item.evidence}]` : ''}${item.error ? ` (${item.error})` : ''}`),
     ...registryResults.map((item) => `registry entry: ${item.id} ${item.status}`),
@@ -2344,6 +2554,7 @@ async function worktreeRecoverReport(projectDir, args) {
     subcommand: 'recover',
     status: failed ? 'failed' : args.write ? 'passed' : 'planned',
     baseRef: settings.baseRef,
+    candidates: candidateResults,
     orphanedBranches: branchResults,
     orphanedRegistry: registryResults,
     prunable: prunable.map((item) => ({
@@ -4347,7 +4558,7 @@ export async function runCommand(argv, { cwd = process.cwd() } = {}) {
     status: 'ready',
     usage: 'run.mjs <env|context|changes|verify|worktree|slice|patch|task|codebase-memory> [--project <path>] [--json]（--project 缺省为当前目录）',
     codebaseMemory: 'run.mjs codebase-memory <status|refresh> --project <path>: status reports fresh|stale|missing from the index state stamp written by the runtime wrapper after a successful index_repository and never writes; refresh stays dry-run until --write and then rebuilds the semantic graph through the pinned project runtime',
-    worktree: 'run.mjs worktree <list|check|bootstrap|land|cleanup|recover> --project <path>: bootstrap, land, cleanup and recover stay dry-run until --write; bootstrap allocates the next port block from .vibe-harness/worktree-ports.json, materializes worktree.provision.envFiles and runs worktree.provision.setupCommands (a red-zone target also needs --confirm-red-zone); land merges the attributed worktree back into the primary checkout current branch (--no-ff), runs the verify gate (quick tier by default, standard when the task anchor declares riskLevel full, --no-verify skips), then removes the worktree — with --push it also pushes the target branch (upstream, else -u origin when origin is the sole remote) and deletes the worktree branch only after the push succeeds; cleanup refuses branches not merged into worktree.baseRef; recover reclaims crash residue (prunable worktrees, bootstrap worktrees still clean at the base ref, zero-commit branches only residue references, leaked registry entries) and never deletes a branch that moved past the base ref',
+    worktree: 'run.mjs worktree <list|check|bootstrap|land|cleanup|recover> --project <path>: bootstrap, land, cleanup and recover stay dry-run until --write; bootstrap allocates the next port block from .vibe-harness/worktree-ports.json, materializes worktree.provision.envFiles and runs worktree.provision.setupCommands (a red-zone target also needs --confirm-red-zone); land serializes writes through a shared Git common-dir lock, merges the attributed worktree in an isolated candidate (--no-ff), verifies it (quick tier by default, standard when the task anchor declares riskLevel full), then fast-forwards the primary checkout only when its baseline is unchanged; --write --no-verify is rejected; with --push it also pushes the target branch (upstream, else -u origin when origin is the sole remote) and deletes the worktree branch only after the push succeeds; cleanup refuses branches not merged into worktree.baseRef; recover reclaims clean attributed candidate residue and bootstrap crash residue but never deletes a branch that moved past the base ref',
     task: 'run.mjs task <init|update|status|list|plan-check|plan-sync|check|freeze-tests|rebaseline-tests> [task-id] --project <path>: anchors live in .vibe-harness/tasks/<task-id>.json and managed plans live in docs/plans/*.md; init accepts --plan-file, plan-check detects drift, plan-sync requires --reason, check gates readiness (check --unit <id> --dispatch answers whether the unit may be handed out now), freeze-tests requires a failed verification and --test-path, and rebaseline-tests additionally requires a protected approval receipt. Write commands stay dry-run until --write.',
     reuse: 'run.mjs verify --project <path> [--task <task-id>] --reuse: returns status "reused" only for explicitly deterministic checks with matching v3 input fingerprints in the ignored receipt store; task anchors are optional and legacy receipts are not reused',
     verify: 'run.mjs verify --project <path> [--tier quick|standard|deep] [--scope affected|layer|full] [--async --tier deep] [--only lint,typecheck,test,eval] [--plan] or --micro <declared-id> [--plan]: Micro is explicit and never replaces unit/integration evidence; --micro is exclusive with tier, only, async, reuse and manual.',
