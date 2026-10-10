@@ -175,6 +175,7 @@ test('project config accepts the worktree contract and rejects unknown keys', ()
     baseRef: 'origin/develop',
     dependencyRoots: ['frontend'],
     localPackages: ['@bl-cnas/prototype-contracts'],
+    mirrors: ['.agents', '.codex', 'frontend/internal/*/dist'],
     ports: {
       base: 4100,
       blockSize: 5,
@@ -222,6 +223,24 @@ test('project config accepts the worktree contract and rejects unknown keys', ()
   const emptySetupCommand = structuredClone(full);
   emptySetupCommand.worktree.provision.setupCommands = [''];
   assert.throws(() => validateProjectConfigWithSchema(emptySetupCommand), /setupCommands/u);
+
+  // `worktree.mirrors` projects the ignored governance surface, so a declared
+  // path must stay project-relative and may use one whole-segment `*` wildcard.
+  const absoluteMirror = structuredClone(full);
+  absoluteMirror.worktree.mirrors = ['/etc/passwd'];
+  assert.throws(() => validateProjectConfigWithSchema(absoluteMirror), /mirrors|pattern/u);
+
+  const parentMirror = structuredClone(full);
+  parentMirror.worktree.mirrors = ['../outside'];
+  assert.throws(() => validateProjectConfigWithSchema(parentMirror), /mirrors|pattern/u);
+
+  const emptyMirror = structuredClone(full);
+  emptyMirror.worktree.mirrors = [''];
+  assert.throws(() => validateProjectConfigWithSchema(emptyMirror), /mirrors|pattern/u);
+
+  const wildcardMirror = structuredClone(full);
+  wildcardMirror.worktree.mirrors = ['frontend/packages/@core/*/dist'];
+  assert.equal(validateProjectConfigWithSchema(wildcardMirror), true);
 });
 
 test('patternProperties 命中的键按子模式校验且不受 additionalProperties 拒绝', () => {

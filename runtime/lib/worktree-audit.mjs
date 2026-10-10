@@ -40,6 +40,15 @@ export const WORKTREE_PORT_CODES = Object.freeze([
   'WORKTREE_PORT_REGISTRY_INVALID',
 ]);
 
+// Mirror-projection facts are provisioning state too: a declared governance
+// surface (`.agents`, `.codex`, `.serena`, `.codegraph`) that a worktree does
+// not project blocks the tools in that worktree, but it must not stop the
+// removal of an already-merged worktree.
+export const WORKTREE_MIRROR_CODES = Object.freeze([
+  'WORKTREE_MIRROR_MISSING',
+  'WORKTREE_MIRROR_STALE',
+]);
+
 // Branch types allowed by the `<type>/<ISSUE-ID>-<slug>` convention in
 // docs/rules/linear-workflow.md. The list mirrors the commit/PR types the same
 // rules use, plus the hotfix/release branches named in docs/rules/git-rules.md.
@@ -60,7 +69,7 @@ export const DEFAULT_BRANCH_TYPES = Object.freeze([
 ]);
 
 const slugPattern = /^[a-z0-9][a-z0-9._-]*$/u;
-const dependencyCodeSet = new Set([...WORKTREE_DEPENDENCY_CODES, ...WORKTREE_PORT_CODES]);
+const dependencyCodeSet = new Set([...WORKTREE_DEPENDENCY_CODES, ...WORKTREE_PORT_CODES, ...WORKTREE_MIRROR_CODES]);
 
 /** @returns {value is Record<string, any>} */
 function isObject(value) {
@@ -419,6 +428,28 @@ export function validateWorktrees(value, options = {}) {
   for (const problem of Array.isArray(options.portProblems) ? options.portProblems : []) {
     if (!isObject(problem) || !isNonEmptyString(problem.code)) continue;
     push(problem.code, String(problem.message ?? ''), problem.severity === 'warning' ? 'warning' : 'error');
+  }
+
+  // Mirror-projection facts arrive the same way: the caller reads the
+  // filesystem (this module stays free of Node APIs beyond `node:path`) and the
+  // audit only folds the observed facts into the shared problem list.
+  const mirrorEvidence = options.mirrorEvidence;
+  if (mirrorEvidence instanceof Map) {
+    for (const entry of enrichedEntries) {
+      if (entry.primary || !isNonEmptyString(entry.path)) continue;
+      const facts = mirrorEvidence.get(pathKey(entry.path));
+      if (!Array.isArray(facts)) continue;
+      for (const fact of facts) {
+        if (fact?.status === 'missing') {
+          push('WORKTREE_MIRROR_MISSING', `${entry.path}: mirrored path ${fact.mirror} is absent; run \`run.mjs worktree bootstrap\` for this worktree`, 'warning');
+        } else if (fact?.status === 'stale') {
+          push(
+            'WORKTREE_MIRROR_STALE',
+            `${entry.path}: mirrored path ${fact.mirror} is a local copy (${fact.resolved ?? 'an unknown path'}) instead of a link to the main checkout; delete the local copy and rerun \`run.mjs worktree bootstrap\``,
+          );
+        }
+      }
+    }
   }
 
   return finishAudit({ entries: enrichedEntries, problems, tasks: normalizedTasks }, options, { unmanaged, unregistered });

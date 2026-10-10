@@ -87,6 +87,10 @@ Codex 的 Hook trust 是宿主状态，不能从项目文件推断。doctor 只�
 
 无论哪一种三态，activation.status 都不等于「宿主已加载」：<code>trusted-enabled</code> 与 <code>untrusted</code>、<code>unknown</code> 输出 HOOK_ACTIVATION_UNVERIFIED，<code>trusted-disabled</code> 输出更具体的 HOOK_DISABLED，提示安全策略当前不生效。用户需在 Codex 中运行 <code>/hooks</code> 复核并启用当前定义。配置文件型宿主只报告 configured-unverified，不把文件存在描述为 runtime active。
 
+信任记录以「<code>hooks.json</code> 绝对路径 + 事件 + 索引」为键：把项目移动到新目录（或换一台机器）会让原信任记录落在旧路径上，新路径被判定为 <code>untrusted</code>；重新安装同样会重写定义文本，可能触发 <code>HOOK_TRUST_REREVIEW_REQUIRED</code>。两种情况都需在 Codex 中对该路径重新运行 <code>/hooks</code>，本项目只报告状态、不改写宿主配置。
+
+同一原因，worktree 里的 <code>hooks.json</code> 路径（<code>&lt;worktree&gt;/.codex/hooks.json</code>）是**独立于主检出的信任键**：当 <code>worktree.mirrors</code> 把 <code>.codex</code> 投影进新 worktree 时，主检出的授权不会自动延伸到该 worktree，必须在那个 worktree 内单独运行一次 <code>/hooks</code>。<code>worktree bootstrap</code> 的收据对这种情况给出 <code>WORKTREE_HOOK_TRUST_REQUIRED</code> 警告；授权仍由人工在 Codex 侧完成。
+
 宿主记录为 <code>trusted-enabled</code>、而已安装的 <code>.codex/hooks.json</code> 当前哈希与安装记录的 <code>targetHash</code> 不一致时（定义在安装后被改写，或由更新的 pack 渲染），<code>validate</code>、<code>doctor</code> 与 <code>install</code> 会追加 <code>HOOK_TRUST_REREVIEW_REQUIRED</code> 警告，文案写「可能要求重新信任」而不作因果断言——宿主的信任哈希算法无法从项目复现，这只是需要人工复核的信号。install 另外比较本次安装前后定义文件的哈希，因此「本次安装改写了定义、install-state 已同步」这种情况也能报出。宿主记录为停用、未信任或不可读时已有更具体的警告，不再叠加这一条。
 
 ## 跨宿主 fail-closed（hooks.enforcement）

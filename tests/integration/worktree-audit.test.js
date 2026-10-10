@@ -306,6 +306,37 @@ test('dependency-link evidence reports missing and stale links separately', () =
   assert.match(summarizeWorktreeAudit(stale), /WORKTREE_DEPENDENCY_STALE/u);
 });
 
+test('治理面镜像缺失/过期被报告且不阻塞清理', () => {
+  const branch = 'feat/ENG-1-add-dag';
+  const records = listing([entry({ branch: 'main', path: REPO }).fields, entry({ branch, path: OUTSIDE }).fields]);
+  const tasks = [{ branch, id: 'ENG-1', path: OUTSIDE }];
+  const clean = {
+    dirty: new Map([[pathKey(OUTSIDE), false]]),
+    integration: new Map([[branch, { baseDrift: false, integrated: true, mergeBaseSha: 'f'.repeat(40), targetRef: 'HEAD' }]]),
+    repositoryRoot: REPO,
+    tasks,
+  };
+
+  const missing = validateWorktrees(records, {
+    ...clean,
+    mirrorEvidence: new Map([[pathKey(OUTSIDE), [{ mirror: '.agents', status: 'missing' }]]]),
+  });
+  assert.ok(codes(missing).includes('WORKTREE_MIRROR_MISSING'));
+  assert.equal(missing.ok, true);
+  // A missing projection blocks the tools in that worktree, not the cleanup of
+  // an already-merged worktree.
+  assert.equal(missing.cleanupAllowed, true);
+  assert.match(summarizeWorktreeAudit(missing), /WORKTREE_MIRROR_MISSING/u);
+
+  const stale = validateWorktrees(records, {
+    ...clean,
+    mirrorEvidence: new Map([[pathKey(OUTSIDE), [{ mirror: '.codegraph', resolved: OUTSIDE, status: 'stale' }]]]),
+  });
+  assert.ok(codes(stale).includes('WORKTREE_MIRROR_STALE'));
+  assert.equal(stale.ok, false);
+  assert.equal(stale.cleanupAllowed, true);
+});
+
 test('integrationAll reports merge-back for worktrees no task registered', () => {
   const branch = 'feat/ENG-1-add-dag';
   const records = listing([entry({ branch: 'main', path: REPO }).fields, entry({ branch, path: OUTSIDE }).fields]);

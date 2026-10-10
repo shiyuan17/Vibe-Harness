@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { execFile, spawn } from 'node:child_process';
-import { pathToFileURL } from 'node:url';
+import { realpath } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 import { DEFAULT_RED_ZONE_PATHS, findProjectRoot, readHookSettings, readProjectConfig } from './lib/context.mjs';
@@ -135,8 +137,15 @@ async function prePush(rootDir) {
 }
 
 // Run the hook only when invoked directly as `node git-hook.mjs <hook>`, not when
-// imported (e.g. by tests exercising the pure scanStagedDiff export).
-const isMain = import.meta.url === pathToFileURL(process.argv[1]).href;
+// imported (e.g. by tests exercising the pure scanStagedDiff export). A Worktree
+// reaches the entry through its `.agents` junction, so both sides are realpath
+// normalized before the comparison.
+const invokedPath = process.argv[1]
+  ? await realpath(process.argv[1]).catch(() => path.resolve(process.argv[1]))
+  : null;
+const modulePath = await realpath(fileURLToPath(import.meta.url))
+  .catch(() => fileURLToPath(import.meta.url));
+const isMain = invokedPath !== null && invokedPath === modulePath;
 if (isMain) {
   const hook = process.argv[2];
   try {
