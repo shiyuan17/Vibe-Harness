@@ -128,7 +128,12 @@ test('verify 默认延迟深层插槽并支持 --tier deep 显式升级', async 
     assert.equal(quick.report.tier, 'quick');
     assert.equal(quick.report.checks.lint.status, 'passed');
     assert.equal(quick.report.checks.eval.status, 'deferred');
-    assert.deepEqual(quick.report.deferredChecks, [{ name: 'eval', tier: 'deep', command: 'node -e "process.exitCode=0"' }]);
+    assert.deepEqual(quick.report.deferredChecks, [{
+      name: 'eval',
+      tier: 'deep',
+      command: 'node -e "process.exitCode=0"',
+      selectionReasons: ['deep 层检查覆盖 项目根目录；请求执行层为 quick'],
+    }]);
     assert.equal(quick.report.nextTier, 'deep');
 
     const deep = await runCommand(['verify', '--project', '.', '--tier', 'deep', '--json'], { cwd: project });
@@ -158,7 +163,12 @@ test('verify 按声明的 validationCommands.tiers 解析插槽层级', async ()
     const quick = await runCommand(['verify', '--project', '.', '--tier', 'quick', '--json'], { cwd: project });
     assert.equal(quick.report.status, 'unverified');
     assert.equal(quick.report.checks.test.status, 'deferred');
-    assert.deepEqual(quick.report.deferredChecks, [{ name: 'test', tier: 'deep', command: 'node -e "process.exit(0)"' }]);
+    assert.deepEqual(quick.report.deferredChecks, [{
+      name: 'test',
+      tier: 'deep',
+      command: 'node -e "process.exit(0)"',
+      selectionReasons: ['deep 层检查覆盖 项目根目录；请求执行层为 quick'],
+    }]);
     // `--only` is an explicit per-check selection and wins over tier deferral.
     const explicit = await runCommand(['verify', '--project', '.', '--only', 'test', '--json'], { cwd: project });
     assert.equal(explicit.report.status, 'passed');

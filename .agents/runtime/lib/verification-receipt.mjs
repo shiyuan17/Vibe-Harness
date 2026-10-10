@@ -9,6 +9,7 @@ import { verificationCwd } from './verification-plan.mjs';
 
 const execute = promisify(execFile);
 const RECEIPTS = '.vibe-harness/verification/receipts';
+export const VERIFICATION_RECEIPT_SCHEMA_VERSION = 4;
 const INPUTS = [
   'vibe-harness.config.json', 'package.json', 'bun.lock', 'bun.lockb', 'pnpm-lock.yaml', 'package-lock.json', 'yarn.lock',
   'pom.xml', 'mvnw', 'mvnw.cmd', '.mvn/wrapper/maven-wrapper.properties',
@@ -16,6 +17,26 @@ const INPUTS = [
 
 function digest(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
+
+function normalizedReview(review, selectedIds = [], changedPaths = []) {
+  const value = review && typeof review === 'object' ? review : {};
+  const selectedCheckIds = Array.isArray(value.selectedCheckIds)
+    ? value.selectedCheckIds.filter((item) => typeof item === 'string' && item.trim())
+    : [...selectedIds];
+  const reviewedCheckIds = Array.isArray(value.reviewedCheckIds)
+    ? value.reviewedCheckIds.filter((item) => typeof item === 'string' && item.trim())
+    : [];
+  const status = ['relevant', 'unreviewed', 'blocked'].includes(value.status) ? value.status : 'unreviewed';
+  return {
+    status,
+    changedPaths: Array.isArray(value.changedPaths) ? value.changedPaths.filter((item) => typeof item === 'string') : [...changedPaths],
+    selectedCheckIds,
+    ...(reviewedCheckIds.length ? { reviewedCheckIds } : {}),
+    reasonCode: typeof value.reasonCode === 'string' && value.reasonCode.trim()
+      ? value.reasonCode
+      : status === 'relevant' ? 'RELEVANT_CHECK_REVIEWED' : 'REVIEW_NOT_RECORDED',
+  };
 }
 
 async function version(program, args, cwd) {
@@ -103,6 +124,7 @@ export async function verificationCacheContext(projectDir, plan, snapshot = unde
     fingerprints, key: digest(fingerprints), available, snapshot: state,
     reason: !deterministic ? 'checks-not-explicitly-deterministic' : warm ? 'warm-environment-not-attested' : !state.fingerprint ? 'snapshot-unavailable' : !toolsAvailable ? 'toolchain-unavailable' : 'no-matching-receipt',
     selectedIds: commands.map((check) => check.id),
+    changedPaths: [...(plan.changedPaths ?? [])],
   };
 }
 
@@ -115,12 +137,21 @@ export async function findVerificationReceipt(projectDir, context) {
     if ((await lstat(file)).isSymbolicLink()) throw new Error('Receipt must not be a symbolic link.');
     if ((await stat(file)).size > 1024 * 1024) throw new Error('Receipt exceeds size limit.');
     const receipt = JSON.parse(await readFile(file, 'utf8'));
-    const valid = receipt.schemaVersion === 3 && receipt.status === 'passed' && receipt.snapshotComparison === 'match'
+    const valid = [3, VERIFICATION_RECEIPT_SCHEMA_VERSION].includes(receipt.schemaVersion)
+      && receipt.status === 'passed' && receipt.snapshotComparison === 'match'
       && receipt.id && receipt.finishedAt
       && Object.entries(context.fingerprints).every(([key, value]) => receipt[key] === value)
       && JSON.stringify(receipt.selectedChecks) === JSON.stringify(context.selectedIds);
     if (!valid) return { status: 'miss', reason: 'receipt-invalid-or-stale', receipt: null };
-    return { status: 'hit', reason: 'all-input-fingerprints-match', receipt };
+    return {
+      status: 'hit',
+      reason: 'all-input-fingerprints-match',
+      receipt: {
+        ...receipt,
+        review: normalizedReview(receipt.schemaVersion === 3 ? null : receipt.review, context.selectedIds, context.changedPaths),
+        legacy: receipt.schemaVersion === 3,
+      },
+    };
   } catch {
     return { status: 'miss', reason: 'no-valid-matching-receipt', receipt: null };
   }
@@ -136,8 +167,9 @@ export async function storeVerificationReceipt(projectDir, context, receipt) {
   const directory = await receiptDirectory(projectDir, true);
   if (!directory) return false;
   const summary = {
-    schemaVersion: 3, engine: receipt.engine, id: receipt.id, startedAt: receipt.startedAt, finishedAt: receipt.finishedAt,
+    schemaVersion: VERIFICATION_RECEIPT_SCHEMA_VERSION, engine: receipt.engine, id: receipt.id, startedAt: receipt.startedAt, finishedAt: receipt.finishedAt,
     status: 'passed', snapshotComparison: 'match', selectedChecks: context.selectedIds,
+    review: normalizedReview(receipt.review, context.selectedIds, context.changedPaths),
     ...context.fingerprints,
   };
   const temporary = path.join(directory, `${context.key}.${randomUUID()}.tmp`);

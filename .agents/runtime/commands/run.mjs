@@ -362,16 +362,31 @@ function resolveVerifyTierPlan({ commands, config, tier, only, projectDir, expli
   const plan = selectVerificationChecks({
     tier, tiers, commandStatus, metadata: config.validationCommands?.checks ?? [], projectDir, only,
   });
+  const selectionReasonsByCheck = Object.fromEntries(plan.allChecks.map((check) => [
+    check.id,
+    [`${check.costTier} 层检查覆盖 ${check.cwd && check.cwd !== '.' ? check.cwd : '项目根目录'}；请求执行层为 ${tier}`],
+  ]));
+  const selectedChecks = plan.selectedChecks.map((check) => ({
+    ...check,
+    selectionReasons: selectionReasonsByCheck[check.id] ?? [check.reason ?? `${check.costTier} 层验证命令`],
+  }));
+  const deferredChecks = plan.deferredChecks.map((check) => ({
+    ...check,
+    selectionReasons: selectionReasonsByCheck[check.id] ?? [check.reason ?? `${check.costTier} 层验证命令`],
+  }));
   return {
     ...plan,
+    selectedChecks,
+    deferredChecks: deferredChecks.map((check) => ({
+      name: check.id, tier: check.costTier, command: check.command,
+      ...(check.cwd !== '.' ? { cwd: check.cwd } : {}),
+      selectionReasons: check.selectionReasons,
+    })),
     tier,
     tierFallback: tier === requestedTier ? null : { from: requestedTier, to: tier, reason: '请求层为空，使用最便宜的非空层' },
     slotTiers: Object.fromEntries(plan.allChecks.map((check) => [check.id, check.costTier])),
-    selectedNames: plan.selectedChecks.map((check) => check.id),
-    deferredChecks: plan.deferredChecks.map((check) => ({
-      name: check.id, tier: check.costTier, command: check.command,
-      ...(check.cwd !== '.' ? { cwd: check.cwd } : {}),
-    })),
+    selectedNames: selectedChecks.map((check) => check.id),
+    selectionReasonsByCheck,
   };
 }
 
@@ -461,6 +476,48 @@ async function verificationTaskBinding(projectDir, taskId) {
     planFile: typeof anchor.planFile === 'string' ? anchor.planFile : null,
     planRevision: typeof anchor.planRevision === 'string' ? anchor.planRevision : null,
     planDigest: typeof anchor.planDigest === 'string' ? anchor.planDigest : null,
+  };
+}
+
+function verificationReview({ changedPaths = [], selectedNames = [], checks = {}, selectionReasonsByCheck = {}, legacyReview = null } = {}) {
+  if (legacyReview && typeof legacyReview === 'object') {
+    return {
+      ...legacyReview,
+      status: ['relevant', 'unreviewed', 'blocked'].includes(legacyReview.status) ? legacyReview.status : 'unreviewed',
+      changedPaths: Array.isArray(legacyReview.changedPaths) ? legacyReview.changedPaths : [...changedPaths],
+      selectedCheckIds: Array.isArray(legacyReview.selectedCheckIds) ? legacyReview.selectedCheckIds : [...selectedNames],
+      reasonCode: legacyReview.reasonCode ?? 'REVIEW_NOT_RECORDED',
+    };
+  }
+  const reviewedCheckIds = selectedNames.filter((name) => {
+    const check = checks[name];
+    return ['passed', 'reused'].includes(check?.status)
+      && (check?.reviewed === true || (selectionReasonsByCheck[name] ?? []).length > 0);
+  });
+  return {
+    status: reviewedCheckIds.length > 0 ? 'relevant' : selectedNames.length > 0 ? 'unreviewed' : 'blocked',
+    changedPaths: [...changedPaths],
+    selectedCheckIds: [...selectedNames],
+    ...(reviewedCheckIds.length ? { reviewedCheckIds } : {}),
+    reasonCode: reviewedCheckIds.length ? 'RELEVANT_CHECK_REVIEWED' : 'NO_REVIEWED_RELEVANT_CHECK',
+  };
+}
+
+function verificationAcceptance({ review, status, snapshotComparison, inputsStable, fingerprint, selectedNames = [], deferredCount = 0 } = {}) {
+  const passed = status === 'verified' || status === 'passed' || status === 'reused';
+  const stable = snapshotComparison === 'match' && inputsStable !== false && typeof fingerprint === 'string' && fingerprint.length > 0;
+  const relevant = review?.status === 'relevant' && (review.reviewedCheckIds ?? []).some((id) => selectedNames.includes(id));
+  let reasonCode = 'ACCEPTED';
+  if (!passed) reasonCode = 'VERIFICATION_NOT_PASSED';
+  else if (deferredCount > 0) reasonCode = 'DEFERRED_CHECKS';
+  else if (!stable) reasonCode = 'FINAL_SNAPSHOT_MISMATCH';
+  else if (!relevant) reasonCode = review?.status === 'blocked' ? 'REVIEW_BLOCKED' : 'NO_REVIEWED_RELEVANT_CHECK';
+  return {
+    status: passed && stable && relevant && deferredCount === 0 ? 'accepted' : 'blocked',
+    reasonCode,
+    finalFingerprint: typeof fingerprint === 'string' ? fingerprint : null,
+    selectedCheckIds: [...selectedNames],
+    reviewStatus: review?.status ?? 'unreviewed',
   };
 }
 
@@ -660,6 +717,7 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
         schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'reused',
         tier: tierPlan.tier, scope, ...changeScope, scopeConfidence: scope === 'full' ? 'complete' : 'unknown',
         checks: reusedChecks, selectedChecks: selectedNames, deferredChecks: tierPlan.deferredChecks, nextTier: tierPlan.nextTier,
+        selectionReasonsByCheck: tierPlan.selectionReasonsByCheck,
         minimumTier: null,
         selectedMicroChecks: [], deferredMicroChecks: [], estimatedCostMs: estimateSelectedCost(selectedNames),
         cache: { status: 'hit', reason: cached.reason }, environment: { mode: environmentMode, status: 'reused' },
@@ -668,7 +726,34 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
           command: commandSet, beforeHead: before.snapshot.head, afterHead: confirmed.snapshot.head,
           ...(anchor?.verification.id === cached.receipt.id ? { taskId: anchor.taskId, unitId: anchor.unitId } : {}),
         },
-        verification: { ...cached.receipt, engine: VERIFY_ENGINE, before: before.snapshot, after: confirmed.snapshot, stable: true },
+        verification: {
+          ...cached.receipt,
+          schemaVersion: 3,
+          engine: VERIFY_ENGINE,
+          before: before.snapshot,
+          after: confirmed.snapshot,
+          stable: true,
+          snapshotComparison: 'match',
+          review: verificationReview({
+            changedPaths: changeScope.changedPaths,
+            selectedNames,
+            selectionReasonsByCheck: tierPlan.selectionReasonsByCheck,
+            legacyReview: cached.receipt.review,
+          }),
+          acceptance: verificationAcceptance({
+            review: verificationReview({
+              changedPaths: changeScope.changedPaths,
+              selectedNames,
+              selectionReasonsByCheck: tierPlan.selectionReasonsByCheck,
+              legacyReview: cached.receipt.review,
+            }),
+            status: 'reused',
+            snapshotComparison: 'match',
+            fingerprint: before.fingerprint,
+            selectedNames,
+            deferredCount: tierPlan.deferredChecks.length,
+          }),
+        },
       };
     }
   }
@@ -755,6 +840,7 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
       status: 'unverified',
       checks,
       selectedChecks: selectedNames,
+      selectionReasonsByCheck: tierPlan.selectionReasonsByCheck,
       minimumTier: null,
       selectedMicroChecks: [],
       deferredMicroChecks: [],
@@ -781,6 +867,7 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
       timeoutMs,
       checks,
       selectedChecks: selectedNames,
+      selectionReasonsByCheck: tierPlan.selectionReasonsByCheck,
       minimumTier: null,
       selectedMicroChecks: [],
       deferredMicroChecks: [],
@@ -802,6 +889,23 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
   const blocked = Object.values(checks).some((item) => item.status === 'blocked');
   const executed = selectedNames.filter((name) => checks[name]?.status === 'passed');
   const checksNotRun = executed.length < selectedNames.length;
+  const finalStatus = failed || stable === false || !inputsStable ? 'failed' : blocked ? 'blocked' : executed.length === 0 ? 'unverified' : 'passed';
+  const review = verificationReview({
+    changedPaths: changeScope.changedPaths,
+    selectedNames,
+    checks,
+    selectionReasonsByCheck: tierPlan.selectionReasonsByCheck,
+  });
+  const snapshotComparison = stable === null ? 'unknown' : stable ? 'match' : 'changed';
+  const verificationStatus = stable === false || !inputsStable
+    ? 'workspace_changed'
+    : failed
+      ? 'checks_failed'
+      : blocked
+        ? 'checks_blocked'
+        : checksNotRun
+          ? 'checks_not_run'
+          : 'verified';
   const report = {
     schemaVersion: VERIFY_SCHEMA_VERSION,
     engine: VERIFY_ENGINE,
@@ -813,12 +917,13 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
     impactGroups: [],
     deferredChecks: tierPlan.deferredChecks,
     nextTier: tierPlan.nextTier,
-    status: failed || stable === false || !inputsStable ? 'failed' : blocked ? 'blocked' : executed.length === 0 ? 'unverified' : 'passed',
+    status: finalStatus,
     skippedChecks: selectedNames.filter((name) => checks[name]?.status === 'not_selected').map((name) => ({ id: name, reason: checks[name].reason })),
     ...changeScope,
     timeoutMs,
     checks,
     selectedChecks: selectedNames,
+    selectionReasonsByCheck: tierPlan.selectionReasonsByCheck,
     minimumTier: null,
     selectedMicroChecks: [],
     deferredMicroChecks: [],
@@ -834,21 +939,23 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
       after: after.snapshot,
       stable,
       inputsStable,
-      snapshotComparison: stable === null ? 'unknown' : stable ? 'match' : 'changed',
-      status: stable === false || !inputsStable
-        ? 'workspace_changed'
-        : failed
-          ? 'checks_failed'
-          : blocked
-            ? 'checks_blocked'
-            : checksNotRun
-              ? 'checks_not_run'
-              : 'verified',
+      snapshotComparison,
+      status: verificationStatus,
       // Receipt identity: governance-core.md references these fields when a
       // delivery cites `vibe-harness verify --project`.
       id: randomUUID(),
       finishedAt: new Date().toISOString(),
       fingerprint: after.fingerprint,
+      review,
+      acceptance: verificationAcceptance({
+        review,
+        status: verificationStatus,
+        snapshotComparison,
+        inputsStable,
+        fingerprint: after.fingerprint,
+        selectedNames,
+        deferredCount: tierPlan.deferredChecks.length,
+      }),
       ...(taskBinding ? { task: taskBinding } : {}),
     },
   };

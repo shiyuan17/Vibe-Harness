@@ -83,16 +83,28 @@ export function completionReceipt(report, delivery, { rollback = 'Restore the pr
       ...(status !== 'passed' ? { reason: check.code ?? check.reason ?? check.status ?? 'not run' } : {}) };
   });
   const deferred = (report.deferredChecks ?? []).map((check) => check.id ?? check.name ?? check);
+  const acceptanceEvidence = report.verification?.acceptance ?? null;
+  const acceptanceBlocked = !acceptanceEvidence || acceptanceEvidence.status !== 'accepted';
+  const review = report.verification?.review ?? null;
+  const unverified = [
+    ...acceptance.filter((item) => item.status !== 'passed').map((item) => item.id),
+    ...deferred,
+    ...(acceptanceBlocked ? [`review:${acceptanceEvidence?.reasonCode ?? 'NO_ACCEPTANCE_EVIDENCE'}`] : []),
+  ];
   return {
     delivery: { profile: delivery.profile, stage: 'verify' },
-    status: ['passed', 'failed', 'blocked'].includes(report.status) ? report.status : report.status === 'reused' ? 'passed' : 'unverified',
+    status: acceptanceBlocked
+      ? 'blocked'
+      : ['passed', 'failed', 'blocked'].includes(report.status) ? report.status : report.status === 'reused' ? 'passed' : 'unverified',
     acceptance,
-    unverified: [...acceptance.filter((item) => item.status !== 'passed').map((item) => item.id), ...deferred],
+    unverified,
     remainingRisks: deferred.length ? ['Deferred checks do not support integration or release completion.'] : [],
     rollback,
     source: { head: report.verification?.after?.head ?? null, fingerprint: report.verification?.fingerprint ?? null },
     target: { head: report.verification?.before?.head ?? null },
     verification: report.verification ?? null,
+    ...(review ? { review } : {}),
+    ...(acceptanceEvidence ? { verificationAcceptance: acceptanceEvidence } : {}),
   };
 }
 
@@ -119,6 +131,9 @@ export function validateCompletion(receipt, delivery, current = null) {
       || Date.parse(verification.finishedAt) > Date.now() || verification.snapshotComparison !== 'match'
       || !['verified', 'passed', 'completed'].includes(verification.status)
       || !nonempty(verification.fingerprint)) errors.push('current verification evidence is missing');
+    if (!verification?.acceptance || verification.acceptance.status !== 'accepted') {
+      errors.push('reviewed relevant check and final acceptance evidence are missing');
+    }
     if (current && (receipt.source?.head !== current.snapshot.head
       || verification?.fingerprint !== current.fingerprint || !current.fingerprint)) errors.push('verification fingerprint is stale');
     if (current && (!current.writeFingerprint || verification?.writeFingerprint !== current.writeFingerprint
