@@ -9,6 +9,25 @@
   "language": "zh-CN",
   "packageManager": "pnpm",
   "profile": "full",
+  "delivery": {
+    "default": "managed-mr",
+    "profiles": {
+      "managed-mr": {
+        "merge": "squash",
+        "cleanup": "evidence-compatible",
+        "requireReceipt": true
+      },
+      "local-land": {
+        "merge": "no-ff",
+        "cleanup": "ancestor",
+        "requireReceipt": true
+      },
+      "inspect-only": {
+        "write": false,
+        "requireReceipt": false
+      }
+    }
+  },
   "modules": [
     "agents",
     "rules",
@@ -109,5 +128,11 @@
   },
   "targets": [
     "codex"
-  ]
+  ],
+  "worktree": {
+    "mirrors": [
+      ".agents",
+      ".codex"
+    ]
+  }
 }

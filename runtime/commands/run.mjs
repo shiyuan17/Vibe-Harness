@@ -13,7 +13,6 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
-  symlinkSync,
   writeSync,
   writeFileSync,
 } from 'node:fs';
@@ -28,8 +27,19 @@ import {
   resolveVerificationTiers, selectVerificationChecks, verificationChanges, verificationCheckEvidence, verificationContextEnvironment, verificationCwd,
 } from '../lib/verification-plan.mjs';
 import { findVerificationReceipt, storeVerificationReceipt, verificationCacheContext } from '../lib/verification-receipt.mjs';
+import { completionReceipt, overrideWarnings, resolveDelivery, validateCompletion } from '../lib/delivery.mjs';
+import { readMergeEvidence, validateMergeEvidence } from '../lib/merge-evidence.mjs';
+import { serviceReport, teardownServices } from '../lib/services.mjs';
 
 import { parseWorktreeList, pathKey, resolveWorktreeRoot, summarizeWorktreeAudit, validateWorktrees } from '../lib/worktree-audit.mjs';
+import {
+  ensureRealDirectory,
+  expandMirrors,
+  linkDirectory,
+  linkOrCopyMirrors,
+  removeMirrorLinks,
+  worktreeMirrorEvidence,
+} from '../lib/worktree-mirrors.mjs';
 import {
   allocatePortBlock,
   collectWorktreePortEvidence,
@@ -127,6 +137,7 @@ function parseArgs(argv) {
   ]);
   const booleanFlags = new Set(['json', 'plan', 'async', 'allow-manual', 'no-numbers', 'no-verify', 'strict', 'write', 'help', 'confirm-red-zone', 'reuse', 'push', 'complete', 'dispatch', 'clear-blockers']);
   const valueFlags = new Set(['project', 'base', 'only', 'timeout', 'output', 'tier', 'scope', 'micro', 'task', 'base-ref', 'branch-prefix', 'file', 'from', 'to', 'spec', 'root', 'title', 'goal', 'risk-level', 'stage', 'unit', 'unit-status', 'acceptance', 'decision', 'blocker', 'failure', 'next-action', 'verification', 'plan-file', 'reason', 'approval', 'test-path']);
+  for (const flag of ['delivery', 'receipt', 'merge-evidence', 'mr', 'service', 'port']) valueFlags.add(flag);
   // Repeatable flags collect into arrays so one invocation can carry several
   // values (task ids, acceptance items, decisions, blockers, failures, unit updates).
   const arrayFlags = new Map([
@@ -182,6 +193,7 @@ function parseArgs(argv) {
     else if (key === 'next-action') args.nextAction = value;
     else if (key === 'title' || key === 'goal' || key === 'stage' || key === 'unit' || key === 'verification' || key === 'reason' || key === 'approval') args[key] = value;
     else if (key === 'plan-file') args.planFile = value;
+    else if (['delivery', 'receipt', 'merge-evidence', 'mr', 'service', 'port'].includes(key)) args[key] = value;
     else throw new Error(`Unknown option: --${key}`);
   }
   return args;
@@ -1064,6 +1076,31 @@ function readWorktreeConfig(config) {
     }
     value[key] = raw[key].map((item) => item.trim());
   }
+  // `mirrors` projects the ignored governance surface (`.agents`, `.codex`,
+  // `.serena`, `.codegraph`) into every worktree. A declared path must be
+  // project-relative and may use at most one whole-segment `*` wildcard.
+  if (raw.mirrors !== undefined) {
+    if (!Array.isArray(raw.mirrors)) {
+      return { value: {}, error: 'worktree.mirrors must be an array of project-relative paths.' };
+    }
+    const mirrors = [];
+    for (const item of raw.mirrors) {
+      if (typeof item !== 'string' || item.trim() === '') {
+        return { value: {}, error: 'worktree.mirrors must be an array of non-empty project-relative paths.' };
+      }
+      const normalized = normalizeSlashes(item.trim()).replace(/^\.\//u, '');
+      const segments = normalized.split('/');
+      const wildcards = segments.filter((segment) => segment.includes('*'));
+      if (segments.length === 0 || segments.some((segment) => segment === '')
+        || path.isAbsolute(normalized) || /^[A-Za-z]:/u.test(normalized) || normalized.startsWith('/')
+        || segments.includes('..')
+        || wildcards.length > 1 || (wildcards.length === 1 && wildcards[0] !== '*')) {
+        return { value: {}, error: `worktree.mirrors entry ${item} must be a project-relative path (at most one whole-segment "*" wildcard, no absolute path or "..").` };
+      }
+      mirrors.push(normalized);
+    }
+    value.mirrors = mirrors;
+  }
   // `ports` and `provision` are fail-closed: a declared but malformed block
   // stops the plan instead of silently falling back to an inferred default,
   // because a wrong block silently hands two worktrees the same dev-server port.
@@ -1145,6 +1182,10 @@ function resolveWorktreeSettings(projectDir, projectConfig, args) {
     configuredRoot: args.root ?? configured.root ?? null,
     dependencyRoots,
     localPackages,
+    // `mirrors` is optional for backward compatibility: an old config that
+    // predates the key resolves to an empty projection, exactly today's
+    // behaviour, with no diagnostics.
+    mirrors: configured.mirrors ?? [],
     ports: {
       base: portPlan.base,
       blockSize: ports.blockSize ?? DEFAULT_PORT_BLOCK_SIZE,
@@ -1159,6 +1200,9 @@ function resolveWorktreeSettings(projectDir, projectConfig, args) {
     projectDir,
     root: resolveWorktreeRoot(projectDir, args.root ?? configured.root),
     unknownLocalPackages: unknown,
+    // Every discovered workspace package, so `link-package-roots` can project
+    // the per-package `node_modules` of an isolated layout.
+    workspacePackages: discovered.packages,
   };
 }
 
@@ -1199,24 +1243,6 @@ async function resolveWorktreeIntegration(projectDir, entries, baseRef) {
   return { baseRefResolved: true, map };
 }
 
-function linkDirectory(target, linkPath) {
-  const type = process.platform === 'win32' ? 'junction' : 'dir';
-  symlinkSync(path.resolve(target), path.resolve(linkPath), type);
-}
-
-function ensureRealDirectory(target) {
-  if (!existsSync(target)) {
-    mkdirSync(target, { recursive: true });
-    return;
-  }
-  if (lstatSync(target).isSymbolicLink()) {
-    // Promote a whole-directory link into a real directory so individual
-    // entries can be overridden.
-    rmSync(target, { force: true, recursive: true });
-    mkdirSync(target, { recursive: true });
-  }
-}
-
 function packagesForRoot(settings, root) {
   // A package belongs to a dependency root either because its own `workspaces`
   // declaration discovered it there, or because the configured root contains
@@ -1224,6 +1250,56 @@ function packagesForRoot(settings, root) {
   // is declared by a parent manifest.
   return settings.localPackages.filter((item) => item.root === root
     || (normalizeSlashes(root) !== '.' && isInsidePath(item.abs, path.resolve(settings.projectDir, root))));
+}
+
+// Content-addressed dependency stores that must travel with an overlay: bun
+// (`bun install` writes `.bun`) and pnpm (`.pnpm`) resolve packages through
+// these point directories, so skipping them leaves a worktree unable to run
+// vitest/tsc. Build caches (`.cache`, `.vite`, `.vite-temp`) stay skipped
+// because they are regenerated and must never be shared between worktrees.
+const OVERLAY_POINT_ENTRIES = new Set(['.bin', '.bun', '.pnpm']);
+
+/** Link one overlay entry (top-level, or under a scope) from its source. */
+function linkOverlayEntry({ localPackages, mainModules, name, scope = null, worktreeModules, worktreePath }) {
+  const target = scope === null ? path.join(worktreeModules, name) : path.join(worktreeModules, scope, name);
+  if (existsSync(target)) rmSync(target, { force: true, recursive: true });
+  const fullName = scope === null ? name : `${scope}/${name}`;
+  const local = localPackages.find((item) => item.name === fullName);
+  if (local) {
+    linkDirectory(path.join(worktreePath, local.dir), target);
+    return;
+  }
+  linkDirectory(scope === null ? path.join(mainModules, name) : path.join(mainModules, scope, name), target);
+}
+
+/**
+ * Overlay one `node_modules` directory against the main checkout.
+ *
+ * Third-party entries link back to the main checkout, while every local package
+ * resolves to the worktree's own sources — Node follows a shared junction, so a
+ * local package must never resolve through the main checkout's copy.
+ */
+function overlayModulesDirectory({ localPackages, mainModules, worktreeModules, worktreePath }) {
+  ensureRealDirectory(worktreeModules);
+  const localScopes = new Set(localPackages.filter((item) => item.name.startsWith('@')).map((item) => item.name.split('/')[0]));
+  for (const entry of listDirectories(mainModules).concat(listFilesOf(mainModules))) {
+    if (entry.startsWith('.') && !OVERLAY_POINT_ENTRIES.has(entry)) continue;
+    if (localScopes.has(entry)) continue;
+    linkOverlayEntry({ localPackages, mainModules, name: entry, worktreeModules, worktreePath });
+  }
+  for (const scope of localScopes) {
+    const scopeDir = path.join(worktreeModules, scope);
+    mkdirSync(scopeDir, { recursive: true });
+    for (const entry of listDirectories(path.join(mainModules, scope))) {
+      linkOverlayEntry({ localPackages, mainModules, name: entry, scope, worktreeModules, worktreePath });
+    }
+    for (const local of localPackages.filter((item) => item.name.startsWith(`${scope}/`))) {
+      const target = path.join(scopeDir, local.name.slice(scope.length + 1));
+      if (existsSync(target)) continue;
+      mkdirSync(path.dirname(target), { recursive: true });
+      linkDirectory(path.join(worktreePath, local.dir), target);
+    }
+  }
 }
 
 /** Link one dependency root of a worktree against the main checkout. */
@@ -1237,39 +1313,40 @@ function linkDependencyRoot(projectDir, worktreePath, settings, root) {
     linkDirectory(mainModules, worktreeModules);
     return { action: 'linked', mode: 'directory', root };
   }
-  ensureRealDirectory(worktreeModules);
-  const localNames = new Set(localPackages.map((item) => item.name));
-  const localScopes = new Set(localPackages.filter((item) => item.name.startsWith('@')).map((item) => item.name.split('/')[0]));
-  for (const entry of listDirectories(mainModules).concat(listFilesOf(mainModules))) {
-    if (entry.startsWith('.') && entry !== '.bin') continue;
-    if (localScopes.has(entry)) continue;
-    const target = path.join(worktreeModules, entry);
-    if (existsSync(target)) rmSync(target, { force: true, recursive: true });
-    if (localNames.has(entry)) {
-      const local = localPackages.find((item) => item.name === entry);
-      linkDirectory(path.join(worktreePath, local.dir), target);
-      continue;
-    }
-    linkDirectory(path.join(mainModules, entry), target);
-  }
-  for (const scope of localScopes) {
-    const scopeDir = path.join(worktreeModules, scope);
-    mkdirSync(scopeDir, { recursive: true });
-    for (const entry of listDirectories(path.join(mainModules, scope))) {
-      const name = `${scope}/${entry}`;
-      const target = path.join(scopeDir, entry);
-      if (existsSync(target)) rmSync(target, { force: true, recursive: true });
-      const local = localPackages.find((item) => item.name === name);
-      linkDirectory(local ? path.join(worktreePath, local.dir) : path.join(mainModules, scope, entry), target);
-    }
-    for (const local of localPackages.filter((item) => item.name.startsWith(`${scope}/`))) {
-      const target = path.join(scopeDir, local.name.slice(scope.length + 1));
-      if (existsSync(target)) continue;
-      mkdirSync(path.dirname(target), { recursive: true });
-      linkDirectory(path.join(worktreePath, local.dir), target);
-    }
-  }
+  overlayModulesDirectory({ localPackages, mainModules, worktreeModules, worktreePath });
   return { action: 'linked', localPackages: localPackages.map((item) => item.name), mode: 'overlay', root };
+}
+
+/**
+ * Overlay the isolated `node_modules` of one workspace package.
+ *
+ * An isolated layout (pnpm, bun's isolated linker) installs a package's own
+ * dependencies next to that package instead of only at the hoisted root, so
+ * linking just `root/node_modules` leaves `apps/*`, `packages/**`,
+ * `internal/**` and `scripts/*` unable to resolve. A package without its own
+ * `node_modules` produces no entry.
+ */
+function linkPackageRoot(projectDir, worktreePath, settings, pkg) {
+  const mainModules = path.join(projectDir, pkg.dir, 'node_modules');
+  if (!existsSync(mainModules)) return null;
+  const worktreeModules = path.join(worktreePath, pkg.dir, 'node_modules');
+  overlayModulesDirectory({
+    localPackages: settings.localPackages,
+    mainModules,
+    worktreeModules,
+    worktreePath,
+  });
+  return { dir: pkg.dir, package: pkg.name, status: 'linked' };
+}
+
+/** Project the per-package `node_modules` overlays of every workspace package. */
+function linkPackageRoots(projectDir, worktreePath, settings) {
+  const results = [];
+  for (const pkg of settings.workspacePackages ?? []) {
+    const result = linkPackageRoot(projectDir, worktreePath, settings, pkg);
+    if (result) results.push(result);
+  }
+  return results;
 }
 
 function listFilesOf(dir) {
@@ -1299,6 +1376,21 @@ function removeDependencyLinks(worktreePath, settings) {
     removed.push(`${root}/node_modules`);
   }
   return removed;
+}
+
+/**
+ * Remove every link a bootstrap created inside one worktree.
+ *
+ * The dependency links plus the mirrored governance directories must be gone
+ * before `git worktree remove`; a directory junction left in place can make the
+ * removal reach the main checkout's `.agents`. Copied files and real
+ * directories are left for Git so checkout content is never deleted here.
+ */
+function removeWorktreeLinks(worktreePath, settings) {
+  return [
+    ...removeDependencyLinks(worktreePath, settings),
+    ...removeMirrorLinks(worktreePath, settings.mirrors ?? []),
+  ];
 }
 
 /** Filesystem evidence for the dependency links of every worktree. */
@@ -1514,6 +1606,7 @@ async function worktreeCheckReport(projectDir, args) {
     dirty,
     integration: map,
     integrationAll: true,
+    mirrorEvidence: worktreeMirrorEvidence(projectDir, entries, settings.mirrors),
     portProblems: portFacts.flat,
     portSummary: portFacts.summary,
     repositoryRoot,
@@ -1556,7 +1649,9 @@ async function worktreeCheckReport(projectDir, args) {
  */
 function worktreeBootstrapPlan(projectDir, settings, task, repositoryRoot, { confirmRedZone = false, existingEntry = null } = {}) {
   const worktreePath = task.path ?? path.join(settings.root, task.id);
-  const branch = task.branch ?? `feat/${task.id}-worktree`;
+  // A re-bootstrap of an existing worktree keeps that worktree's real branch in
+  // the receipt and the port registry instead of the convention default.
+  const branch = task.branch ?? existingEntry?.branch ?? `feat/${task.id}-worktree`;
   const redZonePatterns = readWorktreeRedZone(projectDir);
   const missingRoots = settings.dependencyRoots
     .filter((root) => !existsSync(path.join(projectDir, root, 'node_modules')));
@@ -1596,6 +1691,22 @@ function worktreeBootstrapPlan(projectDir, settings, task, repositoryRoot, { con
       root,
     });
   }
+  // Isolated layouts keep a per-package `node_modules` next to each workspace
+  // package; that overlay is projected in its own step so the receipt shows
+  // which packages were covered.
+  steps.push({
+    kind: 'link-package-roots',
+    packages: (settings.workspacePackages ?? [])
+      .filter((pkg) => existsSync(path.join(projectDir, pkg.dir, 'node_modules')))
+      .map((pkg) => pkg.name),
+  });
+  // The governance surface (`worktree.mirrors`) is projected before the port
+  // and env files so a declared mirror that also holds a copied file (for
+  // example `.serena/project.yml`) is in place ahead of the env materialization.
+  steps.push({
+    kind: 'mirror-governance',
+    mirrors: expandMirrors(projectDir, settings.mirrors),
+  });
   const assignment = planPortAssignment(projectDir, settings, { branch, id: task.id, path: worktreePath });
   if (assignment.error) {
     blocked.push({ code: assignment.code, message: assignment.error });
@@ -1647,6 +1758,36 @@ function projectPackageManager(projectDir) {
   } catch {
     return null;
   }
+}
+
+/** True when one declared mirror projects `relative` (exact, directory or wildcard). */
+function mirrorsCover(projectDir, mirrors, relative) {
+  const target = normalizeSlashes(relative).replace(/^\.\//u, '');
+  for (const mirror of expandMirrors(projectDir, mirrors)) {
+    if (target === mirror || target.startsWith(`${mirror}/`)) return true;
+    if (mirror.includes('*')) {
+      const pattern = new RegExp(
+        `^${mirror.split('*').map((part) => part.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')).join('[^/]*')}$`,
+        'u',
+      );
+      if (pattern.test(target)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Warnings a bootstrap receipt carries about the projected surface.
+ *
+ * The host trust record is keyed by the hook definition's absolute path, so a
+ * worktree that mirrors `.codex/hooks.json` needs its own `/hooks` authorization
+ * even though the file is shared. Vibe-Harness never writes host config; it
+ * only surfaces the actionable reminder.
+ */
+function worktreeBootstrapWarnings(projectDir, settings) {
+  const warnings = [];
+  if (mirrorsCover(projectDir, settings.mirrors, '.codex/hooks.json')) warnings.push('WORKTREE_HOOK_TRUST_REQUIRED');
+  return warnings;
 }
 
 /** Run the declared setup commands inside the new worktree. */
@@ -1734,6 +1875,12 @@ async function worktreeBootstrapReport(projectDir, args) {
       }
       if (stale.length > 0) throw new Error(`local packages did not resolve inside the worktree: ${stale.join(', ')}`);
 
+      // The isolated per-package overlays and the governance mirrors come
+      // before the port/env writes, so a mirrored surface that also carries a
+      // copied env file is in place when the env materialization runs.
+      const packageRoots = linkPackageRoots(projectDir, plan.worktreePath, settings);
+      const mirrors = linkOrCopyMirrors(projectDir, plan.worktreePath, settings.mirrors);
+
       // The registry entry is written inside the lock so two concurrent
       // bootstraps can never pick the same block.
       const allocation = await withPortRegistryLock(projectDir, async () => {
@@ -1778,14 +1925,21 @@ async function worktreeBootstrapReport(projectDir, args) {
         allocation,
         envFiles,
         links,
+        mirrors,
+        packageRoots,
         setupCommands: setup.results,
         status: 'passed',
         toolchain,
+        warnings: worktreeBootstrapWarnings(projectDir, settings),
       });
     } catch (error) {
       let branchDeleted = false;
       let released = { released: false };
       if (!existing) {
+        // A directory junction left in the failed worktree could make the
+        // forced removal descend into the main checkout, so the links are torn
+        // down first exactly as the cleanup and land paths do.
+        removeWorktreeLinks(plan.worktreePath, settings);
         await runGit(['worktree', 'remove', '--force', plan.worktreePath], projectDir);
         await runGit(['worktree', 'prune'], projectDir);
         const branchHead = await runGit(['rev-parse', `refs/heads/${plan.branch}`], projectDir);
@@ -1818,7 +1972,11 @@ async function worktreeBootstrapReport(projectDir, args) {
 }
 
 async function worktreeCleanupReport(projectDir, args) {
+  if (args.write && !args.cleanupLocked) {
+    return withWorktreeLandLock(projectDir, () => worktreeCleanupReport(projectDir, { ...args, cleanupLocked: true }));
+  }
   const config = await readProjectConfig(projectDir);
+  const delivery = resolveDelivery(config, args.delivery);
   const settings = resolveWorktreeSettings(projectDir, config, args);
   if (settings.error) return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'cleanup', status: 'failed', error: settings.error };
   if (args.task.length === 0) {
@@ -1845,7 +2003,26 @@ async function worktreeCleanupReport(projectDir, args) {
     const ancestor = head.ok ? await runGit(['merge-base', '--is-ancestor', head.stdout.trim(), settings.baseRef], projectDir) : { ok: false };
     const dirty = await runGit(['status', '--porcelain=v1'], entry.path);
     const blocked = [];
-    if (!ancestor.ok) blocked.push(`branch ${entry.branch} is not merged into ${settings.baseRef}`);
+    let mergeEvidence = null;
+    let receipt = null;
+    if (delivery.requireReceipt) {
+      try {
+        receipt = args.receipt ? JSON.parse(await readFile(path.resolve(projectDir, args.receipt), 'utf8')) : null;
+        const gate = validateCompletion(receipt, delivery, await gitFingerprint(entry.path));
+        if (gate.status !== 'passed') blocked.push(...gate.errors);
+        const target = await runGit(['rev-parse', '--verify', settings.baseRef], projectDir);
+        if (!target.ok || receipt?.target?.head !== target.stdout.trim()) blocked.push('completion receipt target is stale');
+      } catch { blocked.push('completion receipt could not be read'); }
+    }
+    if (!ancestor.ok && delivery.cleanup === 'evidence-compatible') {
+      try {
+        const evidence = await readMergeEvidence(projectDir, { file: args['merge-evidence'] ? path.resolve(projectDir, args['merge-evidence']) : null, mr: args.mr });
+        mergeEvidence = await validateMergeEvidence(projectDir, entry.path, args.mr ? { ...evidence, taskId: task.id } : evidence,
+          { taskId: task.id, sourceHead: head.stdout?.trim(), targetRef: settings.baseRef, delivery, receipt });
+        if (mergeEvidence.status !== 'passed') blocked.push(mergeEvidence.reason);
+      } catch { blocked.push('Merge evidence unavailable; cannot prove GitLab MR merged'); }
+    } else if (!ancestor.ok) blocked.push(`branch ${entry.branch} is not merged into ${settings.baseRef}`);
+    if (!dirty.ok) blocked.push('the worktree status could not be read');
     if (dirty.ok && dirty.stdout.trim() !== '') blocked.push('the worktree has uncommitted changes');
     if (blocked.length > 0) {
       results.push({ blockers: blocked, branch: entry.branch, id: task.id, path: normalizeSlashes(entry.path), status: 'blocked' });
@@ -1855,7 +2032,29 @@ async function worktreeCleanupReport(projectDir, args) {
       results.push({ branch: entry.branch, id: task.id, path: normalizeSlashes(entry.path), status: 'planned' });
       continue;
     }
-    const removedLinks = removeDependencyLinks(entry.path, settings);
+    const confirmedHead = await runGit(['rev-parse', 'HEAD'], entry.path);
+    const confirmedDirty = await runGit(['status', '--porcelain=v1'], entry.path);
+    const confirmedTarget = await runGit(['rev-parse', settings.baseRef], projectDir);
+    if (!confirmedHead.ok || confirmedHead.stdout.trim() !== head.stdout.trim() || !confirmedDirty.ok || confirmedDirty.stdout.trim()
+      || !confirmedTarget.ok || (mergeEvidence && confirmedTarget.stdout.trim() !== mergeEvidence.evidence.targetAfter)
+      || (!mergeEvidence && !(await runGit(['merge-base', '--is-ancestor', head.stdout.trim(), settings.baseRef], projectDir)).ok)) {
+      results.push({ id: task.id, status: 'blocked', blockers: ['Worktree or target changed before cleanup'] });
+      continue;
+    }
+    const services = await teardownServices(projectDir, entry.path);
+    if (services.status !== 'passed') {
+      results.push({ id: task.id, status: 'blocked', blockers: ['Managed service teardown failed'], services });
+      continue;
+    }
+    if (delivery.requireReceipt) {
+      const finalReceipt = validateCompletion(receipt, delivery, await gitFingerprint(entry.path));
+      const finalTarget = await runGit(['rev-parse', '--verify', settings.baseRef], projectDir);
+      if (finalReceipt.status !== 'passed' || !finalTarget.ok || finalTarget.stdout.trim() !== receipt.target.head) {
+        results.push({ id: task.id, status: 'blocked', blockers: ['Evidence changed during service teardown'] });
+        continue;
+      }
+    }
+    const removedLinks = removeWorktreeLinks(entry.path, settings);
     const removed = await runGit(['worktree', 'remove', entry.path], projectDir);
     if (!removed.ok) {
       results.push({ branch: entry.branch, error: boundedOutput(removed.stderr || removed.error?.message || 'git worktree remove failed', projectDir), id: task.id, path: normalizeSlashes(entry.path), removedLinks, status: 'failed' });
@@ -1880,7 +2079,7 @@ async function worktreeCleanupReport(projectDir, args) {
     schemaVersion: SCHEMA_VERSION,
     command: 'worktree',
     subcommand: 'cleanup',
-    status: failed ? 'failed' : args.write ? 'passed' : 'planned',
+    status: failed ? (delivery.profile !== 'legacy' && results.some((item) => item.status === 'blocked') ? 'blocked' : 'failed') : args.write ? 'passed' : 'planned',
     results,
     write: Boolean(args.write),
   };
@@ -1964,7 +2163,7 @@ async function cleanupLandCandidate(projectDir, candidatePath, { abort = false }
   if (abort) await runGit(['merge', '--abort'], candidatePath);
   const config = await readProjectConfig(projectDir);
   const settings = resolveWorktreeSettings(projectDir, config, {});
-  if (!settings.error) removeDependencyLinks(candidatePath, settings);
+  if (!settings.error) removeWorktreeLinks(candidatePath, settings);
   const status = await runGit(['status', '--porcelain=v1'], candidatePath);
   if (!status.ok || status.stdout.trim() !== '') {
     return {
@@ -1986,6 +2185,17 @@ async function cleanupLandCandidate(projectDir, candidatePath, { abort = false }
 }
 
 async function worktreeLandReport(projectDir, args) {
+  const delivery = resolveDelivery(await readProjectConfig(projectDir), args.delivery);
+  if (args.write && args.task[0]) {
+    const taskId = parseWorktreeTask(args.task[0]).id;
+    const anchor = await readTaskAnchor(projectDir, taskId);
+    if (anchor.exists) await taskCheckpointReport(projectDir, { ...args, _: ['task', 'checkpoint', taskId], reason: 'pre-delivery' });
+  }
+  if (delivery.merge === 'squash') {
+    const result = await worktreeCleanupReport(projectDir, args);
+    return { ...result, subcommand: 'land', delivery: { profile: delivery.profile, stage: 'cleanup' },
+      guidance: 'Managed MR landing reads merge evidence only; it never creates a local no-ff merge or pushes.' };
+  }
   if (args.write && args.verify === false) {
     return {
       schemaVersion: SCHEMA_VERSION,
@@ -2172,6 +2382,7 @@ async function worktreeLandReportUnlocked(projectDir, args) {
     steps.push(step);
   };
 
+  let landReceipt = null;
   let candidatePath = null;
   let candidateHeadSha = null;
   const targetHead = await runGit(['rev-parse', `refs/heads/${targetBranch}`], primary.path);
@@ -2219,7 +2430,14 @@ async function worktreeLandReportUnlocked(projectDir, args) {
           candidateHeadSha = candidateHead.stdout.trim();
           steps.push({ id: 'merge', status: alreadyMerged ? 'skipped' : 'passed', detail: alreadyMerged ? `${entry.branch} is already merged into ${targetBranch}` : `merged ${entry.branch} in isolated candidate worktree` });
           const verify = await verifyProject(candidatePath, { tier, task: [taskId], only: null, reuse: false, allowManual: false });
-          const verifyOk = PASS_STATUSES.includes(verify.status);
+          const delivery = resolveDelivery(config, args.delivery);
+          if (delivery.requireReceipt) {
+            landReceipt = completionReceipt(verify, delivery, { rollback: `git revert -m 1 ${candidateHeadSha}` });
+            landReceipt.delivery.stage = 'complete';
+            landReceipt.target.head = candidateHeadSha;
+          }
+          const completionGate = delivery.requireReceipt ? validateCompletion(landReceipt, delivery, await gitFingerprint(candidatePath)) : null;
+          const verifyOk = PASS_STATUSES.includes(verify.status) && completionGate?.status !== 'blocked';
           const checkLines = Object.entries(verify.checks ?? {})
             .filter(([, item]) => item?.status && item.status !== 'not_configured')
             .map(([name, item]) => `${name}=${item.status}`)
@@ -2287,7 +2505,11 @@ async function worktreeLandReportUnlocked(projectDir, args) {
   // Step 4: cleanup. The worktree removal must precede the branch delete below
   // because a checked-out branch cannot be deleted.
   if (!failedStep) {
-    const removedLinks = removeDependencyLinks(entry.path, settings);
+    const services = await teardownServices(projectDir, entry.path);
+    if (services.status !== 'passed') markFailed({ id: 'services', status: 'blocked', code: 'SERVICE_TEARDOWN_BLOCKED', services });
+  }
+  if (!failedStep) {
+    const removedLinks = removeWorktreeLinks(entry.path, settings);
     const removed = await runGit(['worktree', 'remove', entry.path], projectDir);
     if (removed.ok) {
       await runGit(['worktree', 'prune'], projectDir);
@@ -2325,6 +2547,7 @@ async function worktreeLandReportUnlocked(projectDir, args) {
     ...(failedStep?.code ? { code: failedStep.code } : {}),
     targetBranch,
     tier,
+    ...(landReceipt ? { completion: landReceipt } : {}),
     write: true,
     results: [{ ...baseResult, pushed, branchDeleted: steps.some((step) => step.id === 'delete-branch' && step.status === 'passed'), portBlockReleased: steps.some((step) => step.id === 'cleanup' && step.status === 'passed' && step.portBlockReleased === true), status: landStatus, steps }],
   };
@@ -2470,7 +2693,9 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
       results.push({ ...item, status: 'planned' });
       continue;
     }
-    const removedLinks = removeDependencyLinks(item.path, settings);
+    const services = await teardownServices(projectDir, item.path);
+    if (services.status !== 'passed') { results.push({ ...item, status: 'blocked', services }); continue; }
+    const removedLinks = removeWorktreeLinks(item.path, settings);
     const removed = await runGit(['worktree', 'remove', '--force', item.path], projectDir);
     if (!removed.ok) {
       results.push({
@@ -2527,6 +2752,8 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
       registryResults.push({ ...item, status: 'planned' });
       continue;
     }
+    const services = item.path ? await teardownServices(projectDir, item.path) : { status: 'passed' };
+    if (services.status !== 'passed') { registryResults.push({ ...item, status: 'blocked', services }); continue; }
     const released = await releasePortRegistryEntry(projectDir, item.id);
     registryResults.push(released.released === true
       ? { ...item, status: 'passed' }
@@ -3662,6 +3889,13 @@ async function taskCheckReport(projectDir, args) {
   if (planCheck.status !== 'passed') return { ...planCheck, subcommand: 'check' };
   const read = await readTaskAnchor(projectDir, taskId);
   if (!read.exists) return taskFailure('check', `no anchor for task ${taskId}: run "task init ${taskId}" first`);
+  let deliveryGate = null;
+  if (args.complete) {
+    const delivery = resolveDelivery(await readProjectConfig(projectDir), args.delivery);
+    const receipt = args.receipt ? JSON.parse(await readFile(path.resolve(projectDir, args.receipt), 'utf8')) : read.anchor.completion;
+    deliveryGate = validateCompletion(receipt, delivery, await gitFingerprint(projectDir));
+    if (deliveryGate.status === 'blocked') return { command: 'task', subcommand: 'check', taskId, status: 'blocked', complete: false, code: 'DELIVERY_RECEIPT_REQUIRED', ...deliveryGate };
+  }
   const units = Array.isArray(read.anchor.units) ? read.anchor.units.filter((unit) => unit && typeof unit === 'object') : [];
   const selected = args.unit ? units.find((unit) => unit.id === args.unit) : null;
   if (args.unit && !selected) return taskFailure('check', `unit ${args.unit} is not present in task ${taskId}`, 'VIBE_HARNESS_TASK_UNIT_MISSING');
@@ -3761,6 +3995,7 @@ async function taskCheckReport(projectDir, args) {
     status: ok ? 'passed' : 'failed',
     ...(ok ? {} : { code: 'VIBE_HARNESS_TASK_NOT_READY', error: `task is not ready${unfinished.length ? `; unfinished units: ${unfinished.join(', ')}` : ''}${unverified.length ? `; unverified units: ${unverified.join(', ')}` : ''}${failedUnits.length ? `; failed units: ${failedUnits.join(', ')}` : ''}` }),
     complete,
+    ...(deliveryGate ? { deliveryGate } : {}),
     unit: args.unit ?? null,
     unfinished,
     unverified,
@@ -3976,6 +4211,10 @@ async function taskUpdateReport(projectDir, args) {
       changes.push(`verification:${args.unit}`);
     }
   }
+  if (args.stage === 'verify' && current.stage !== 'verify') {
+    next.latestCheckpoint = await buildTaskCheckpoint(projectDir, next, 'pre-verify');
+    changes.push('checkpoint');
+  }
   const changed = anchorSignature(next) !== currentSignature;
   let anchor = next;
   if (changed) {
@@ -4037,6 +4276,56 @@ function taskResumeHint(taskId, anchor, pendingUnits) {
   return `${parts.join('; ')}.`;
 }
 
+async function buildTaskCheckpoint(projectDir, anchor, reason) {
+  const current = await gitFingerprint(projectDir);
+  return {
+    at: new Date().toISOString(), reason, headSha: current.snapshot.head,
+    worktree: normalizeSlashes(safeRealpath(projectDir) ?? projectDir), fingerprint: current.fingerprint,
+    stage: anchor.stage, activeUnits: anchor.units.filter((unit) => unit.status === 'in_progress').map((unit) => unit.id),
+    changes: current.snapshot.changes, blockers: anchor.blockers, nextAction: anchor.nextAction,
+    latestVerification: anchor.units.map((unit) => unit.verification).filter(Boolean)
+      .sort((left, right) => String(right.finishedAt).localeCompare(String(left.finishedAt)))[0] ?? null,
+  };
+}
+
+async function taskRecoveryState(projectDir, anchor) {
+  const current = await buildTaskCheckpoint(projectDir, anchor, 'recovery-inspection');
+  const previous = anchor.latestCheckpoint;
+  const drift = previous ? ['headSha', 'worktree', 'fingerprint', 'activeUnits', 'latestVerification', 'blockers', 'nextAction']
+    .filter((key) => stableStringify(previous[key]) !== stableStringify(current[key])) : ['checkpoint-missing'];
+  return { status: drift.length ? 'blocked' : 'passed', drift, current,
+    guidance: 'Compare current changes and reconcile the existing unit before resuming; do not replan the goal.' };
+}
+
+async function taskCheckpointReport(projectDir, args) {
+  const taskId = args._[2];
+  if (!args.reason?.trim()) return taskFailure('checkpoint', '--reason is required');
+  const read = await readTaskAnchor(projectDir, taskId);
+  if (!read.exists) return taskFailure('checkpoint', 'task anchor is missing');
+  const checkpoint = await buildTaskCheckpoint(projectDir, read.anchor, args.reason.trim());
+  if (!checkpoint.headSha || !checkpoint.fingerprint) return { command: 'task', subcommand: 'checkpoint', status: 'blocked', error: 'Workspace identity unavailable' };
+  const anchor = { ...read.anchor, latestCheckpoint: checkpoint, updatedAt: checkpoint.at };
+  if (args.write) writeTaskAnchor(read.filePath, anchor);
+  return { schemaVersion: SCHEMA_VERSION, command: 'task', subcommand: 'checkpoint', taskId,
+    status: args.write ? 'passed' : 'planned', written: Boolean(args.write), latestCheckpoint: checkpoint };
+}
+
+async function taskEventReport(projectDir, args) {
+  const reason = args.reason;
+  if (!['pre-compaction', 'resume', 'continue', 'pre-delivery', 'pre-verify'].includes(reason)) return taskFailure('event', 'Unsupported checkpoint event');
+  const taskId = args._[2];
+  const read = await readTaskAnchor(projectDir, taskId);
+  if (!read.exists) return taskFailure('event', 'task anchor is missing');
+  if (reason === 'resume') {
+    const recovery = await taskRecoveryState(projectDir, read.anchor);
+    if (recovery.status !== 'passed') return { command: 'task', subcommand: 'event', status: 'blocked', recovery };
+  }
+  const count = (read.anchor.continuationCount ?? 0) + (reason === 'continue' ? 1 : 0);
+  if (args.write && reason === 'continue') writeTaskAnchor(read.filePath, { ...read.anchor, continuationCount: count });
+  if (reason === 'continue' && count < 2) return { command: 'task', subcommand: 'event', status: args.write ? 'passed' : 'planned', continuationCount: count, checkpointed: false };
+  return { ...await taskCheckpointReport(projectDir, args), subcommand: 'event', continuationCount: count };
+}
+
 async function taskStatusReport(projectDir, args) {
   const taskId = args._[2];
   if (taskId === undefined) {
@@ -4079,6 +4368,8 @@ async function taskStatusReport(projectDir, args) {
     planStatus: planCheck.status,
     updatedAt: typeof anchor.updatedAt === 'string' ? anchor.updatedAt : null,
     resumeHint: taskResumeHint(taskId, anchor, pendingUnits),
+    latestCheckpoint: anchor.latestCheckpoint ?? null,
+    recovery: await taskRecoveryState(projectDir, anchor),
   };
 }
 
@@ -4144,6 +4435,8 @@ async function taskReport(projectDir, args) {
       return taskFailure(null, 'task needs a subcommand: task <init|update|status|list|plan-check|plan-sync|check|freeze-tests|rebaseline-tests> [task-id]');
     }
     if (subcommand === 'init') return await taskInitReport(projectDir, args);
+    if (subcommand === 'checkpoint') return await taskCheckpointReport(projectDir, args);
+    if (subcommand === 'event') return await taskEventReport(projectDir, args);
     if (subcommand === 'update') return await taskUpdateReport(projectDir, args);
     if (subcommand === 'status') return await taskStatusReport(projectDir, args);
     if (subcommand === 'list') return await taskListReport(projectDir);
@@ -4542,6 +4835,19 @@ export async function runCommand(argv, { cwd = process.cwd() } = {}) {
   // from the canonical directory instead of the alias the caller typed.
   const requestedProjectDir = path.resolve(cwd, args.project ?? '.');
   const projectDir = safeRealpath(requestedProjectDir) ?? requestedProjectDir;
+  const config = command === 'help' ? {} : await readProjectConfig(projectDir);
+  const delivery = resolveDelivery(config, args.delivery);
+  if (delivery.write === false && (args.write || args.push || (command === 'verify' && !args.plan) || ['patch'].includes(command))) {
+    return { args, report: { command, status: 'blocked', code: 'DELIVERY_INSPECT_ONLY', error: 'inspect-only cannot execute commands or write' }, exitCode: 1 };
+  }
+  if (command === 'verify' && !args.plan && args.task[0]) {
+    try {
+      const anchor = await readTaskAnchor(projectDir, args.task[0]);
+      if (anchor.exists) await taskCheckpointReport(projectDir, { ...args, _: ['task', 'checkpoint', args.task[0]], reason: 'pre-verify', write: true });
+    } catch (error) {
+      if (error.code !== 'VIBE_HARNESS_INVALID_TASK_ID') throw error;
+    }
+  }
   let report;
   if (command === 'env') report = await envReport(projectDir);
   else if (command === 'context') report = { schemaVersion: SCHEMA_VERSION, command, status: 'ready', ...(await projectContext(projectDir)) };
@@ -4551,12 +4857,16 @@ export async function runCommand(argv, { cwd = process.cwd() } = {}) {
   else if (command === 'slice') report = await sliceReport(projectDir, args);
   else if (command === 'patch') report = await patchReport(projectDir, args);
   else if (command === 'task') report = await taskReport(projectDir, args);
+  else if (command === 'runtime' && args._[1] === 'service') report = await serviceReport(projectDir, args, assertSafeCommand);
   else if (command === 'codebase-memory') report = await codebaseMemoryReport(projectDir, args);
   else if (command === 'help') report = {
     schemaVersion: SCHEMA_VERSION,
     command,
     status: 'ready',
     usage: 'run.mjs <env|context|changes|verify|worktree|slice|patch|task|codebase-memory> [--project <path>] [--json]（--project 缺省为当前目录）',
+    delivery: '--delivery managed-mr|local-land|inspect-only overrides delivery.default. managed-mr land/cleanup requires --receipt <file> and --merge-evidence <file> or --mr <iid> when source is not an ancestor.',
+    services: 'run.mjs runtime service <start|status|stop> --project <path> [--service <id>] [--port <number>] [--write]; only registered supervisor-owned processes can be stopped.',
+    checkpoint: 'task checkpoint <id> --reason <text> [--write]; task event <id> --reason pre-compaction|resume|continue|pre-delivery|pre-verify [--write]. Host lifecycle events need an actual host bridge; events are not inferred from tool calls.',
     codebaseMemory: 'run.mjs codebase-memory <status|refresh> --project <path>: status reports fresh|stale|missing from the index state stamp written by the runtime wrapper after a successful index_repository and never writes; refresh stays dry-run until --write and then rebuilds the semantic graph through the pinned project runtime',
     worktree: 'run.mjs worktree <list|check|bootstrap|land|cleanup|recover> --project <path>: bootstrap, land, cleanup and recover stay dry-run until --write; bootstrap allocates the next port block from .vibe-harness/worktree-ports.json, materializes worktree.provision.envFiles and runs worktree.provision.setupCommands (a red-zone target also needs --confirm-red-zone); land serializes writes through a shared Git common-dir lock, merges the attributed worktree in an isolated candidate (--no-ff), verifies it (quick tier by default, standard when the task anchor declares riskLevel full), then fast-forwards the primary checkout only when its baseline is unchanged; --write --no-verify is rejected; with --push it also pushes the target branch (upstream, else -u origin when origin is the sole remote) and deletes the worktree branch only after the push succeeds; cleanup refuses branches not merged into worktree.baseRef; recover reclaims clean attributed candidate residue and bootstrap crash residue but never deletes a branch that moved past the base ref',
     task: 'run.mjs task <init|update|status|list|plan-check|plan-sync|check|freeze-tests|rebaseline-tests> [task-id] --project <path>: anchors live in .vibe-harness/tasks/<task-id>.json and managed plans live in docs/plans/*.md; init accepts --plan-file, plan-check detects drift, plan-sync requires --reason, check gates readiness (check --unit <id> --dispatch answers whether the unit may be handed out now), freeze-tests requires a failed verification and --test-path, and rebaseline-tests additionally requires a protected approval receipt. Write commands stay dry-run until --write.',
@@ -4564,6 +4874,11 @@ export async function runCommand(argv, { cwd = process.cwd() } = {}) {
     verify: 'run.mjs verify --project <path> [--tier quick|standard|deep] [--scope affected|layer|full] [--async --tier deep] [--only lint,typecheck,test,eval] [--plan] or --micro <declared-id> [--plan]: Micro is explicit and never replaces unit/integration evidence; --micro is exclusive with tier, only, async, reuse and manual.',
   };
   else throw new Error(`Unknown command: ${command}`);
+  if (command !== 'help') {
+    report.delivery ??= { profile: delivery.profile, stage: command };
+    report.warnings = [...(report.warnings ?? []), ...delivery.warnings, ...overrideWarnings(config)];
+    if (command === 'verify' && delivery.requireReceipt) report.completion = completionReceipt(report, delivery);
+  }
   // A freshness verdict is the answer to a question, not a failed command:
   // `stale` and `missing` still exit 0 so callers can read the receipt, while
   // an unavailable runtime or an execution failure keeps the failure exit.
