@@ -38,5 +38,5 @@
 
 - 判定：approved / rejected / needs-more-evidence
 - 未覆盖范围：本次复审未检查的模块、路径或风险
-- 分歧：若存在第二个独立复审者，逐条对账分歧并给出结论与理由
-- 独立性声明：`contextIndependence`＝verified / attested / unavailable，并说明证据来源
+- 分歧：若存在多个独立复审者，逐条对账分歧并给出结论与理由
+- 独立性声明：`contextIndependence`＝verified / attested / unavailable，并说明证据来源；`attested` 可支持 approved，`unavailable` 不支持
