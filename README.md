@@ -1,5 +1,16 @@
 # Vibe-Harness
 
+### 交付与生命周期
+
+新项目默认 `delivery.default = managed-mr`（squash）；可用 `--delivery local-land` 选择 no-ff 或 `--delivery inspect-only` 只读。旧配置不声明 delivery 时保留 legacy，仅提示迁移。安装 profile 与 delivery profile 是不同维度。
+
+- `node .agents/runtime/commands/run.mjs worktree cleanup --project . --task <id> --delivery managed-mr --receipt <completion.json> --merge-evidence <merge.json>` 默认预览；`--write` 才清理。可用 `--mr <iid>` 读取 GitLab merge evidence，读取失败 blocked。
+- `node .agents/runtime/commands/run.mjs task checkpoint <id> --project . --reason pre-compaction --write` 保存恢复状态；`task event <id> --reason resume|continue|pre-compaction` 是宿主显式事件入口，不代表已安装宿主监听。
+- `node .agents/runtime/commands/run.mjs runtime service start --project . --service frontend --port 5173 --write` 启动配置声明的服务；`status` 只读，`stop --write` 仅停止可证明归属的登记服务。
+- 新模式完整完成须完整收据、当前指纹和全部必需验收通过；验证命令通过不等于 MR、浏览器、数据库或发布通过。
+
+配置示例与迁移边界见 [交付生命周期规格](docs/specs/delivery-lifecycle.md)。
+
 [English](README.en.md) | [简体中文](README.md)
 
 Vibe-Harness 为 Codex、Claude Code、Gemini CLI、Cursor、Qoder、ZCode、Antigravity 和 OpenCode 安装项目级规则、领域 Skills、可选 Eval、显式工具插件和安全 Hook。它只写目标项目，不修改全局 Agent 配置。
@@ -148,13 +159,13 @@ node .agents/runtime/commands/run.mjs patch --project . --spec <spec.json>
 
 ## Profiles and roles
 
-core 安装九个原生 Skills，full 安装十二个原生 Skills，并默认启用七个角色人格。角色系统采用“单主角色动态切换”：每个原子动作只激活一个角色，可叠加至多一个领域 Skill；它不是固定七阶段流水线。
+core 安装十个原生 Skills，full 安装十三个原生 Skills，并默认启用七个角色人格。角色系统采用“单主角色动态切换”：每个原子动作只激活一个角色，可叠加至多一个领域 Skill；它不是固定七阶段流水线。
 
 | Profile | 安装内容 |
 | --- | --- |
 | `minimal` | 平台说明、安全边界、Git/Test 规则和可选任务/交付模板 |
-| `core` | `minimal` 加通用工程规则、九个原生 Skills、项目内确定性脚本和离线 Eval |
-| `full` | `core` 加三个原生 Skills、在线 Eval 和已支持宿主的安全 Hook，共十二个原生 Skills |
+| `core` | `minimal` 加通用工程规则、十个原生 Skills、项目内确定性脚本和离线 Eval |
+| `full` | `core` 加三个原生 Skills、在线 Eval 和已支持宿主的安全 Hook，共十三个原生 Skills |
 | `docs-only` | 规则、模板和 schemas，不安装 runtime、Skills、MCP 或 Hook |
 
 外部工具仍只通过 `--plugin` 显式启用。所有宿主配置文件均属于红区写入，需要 `--confirm-red-zone`。

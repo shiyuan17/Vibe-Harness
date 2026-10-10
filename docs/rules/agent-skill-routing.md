@@ -28,6 +28,7 @@ Skill 是宿主按 description 直接选择的领域能力包：description 是�
 - 出现具体故障、报错或测试失败且根因未知时使用 `systematic-debugging`：先证明根因再修复；根因已知或已有既定修复时不触发；Agent 规则、Skill、提示或 Hook 行为变化使用 `eval-driven-development`。
 - 只读审查现有项目的逻辑、流程、状态、一致性与接口缺陷时使用 `bug-finding`：面向没有具体失败症状的存量代码，产出证据化审查报告，不修改源码、配置、依赖或数据；要定位具体失败的根因时改用 `systematic-debugging`。
 - 识别或清理死代码、无用引用、过期文档、孤儿资源、陈旧记忆与过期索引时使用 `stale-cleanup`：默认只读并区分已确认项与候选线索，删除只在用户显式要求并逐项确认后执行；它不替代 `bug-finding` 的缺陷根因定位。
+- 需要跨文件建立代码上下文（符号定位、调用链、影响面、架构）时使用 `code-navigation`：先让 deferred 的 codegraph/serena/probe/codebase-memory 工具可见再检索，并给出工具不可用时的降级路径；单文件文本、配置与日志检索用 `rg`，已定位根因的修复用 `systematic-debugging`，只读缺陷审查用 `bug-finding`。
 - 信任边界使用 `security-and-hardening`；公共契约使用 `api-and-interface-design`；前端体验使用 `frontend-design`；跨仓运行时使用 `runtime-cross-repo-rollout`。
 - 页面交互、console、network、性能、响应式、可访问性或视觉验收使用 browser-verification integration Skill；它仅由 playwright 或 chrome-devtools plugin 显式安装，不计入 profile 的原生领域 Skill 数量。未安装时使用项目已有的浏览器验证入口。
 - 提及 Linear Issue，或请求委派、执行、审查、核验、解释与状态同步时使用 linear-workflow integration Skill；它仅由 linear-mcp 或 linear-mcp-readonly 显式安装。普通提及、查询、Review 或 Verify 只触发规则选择，不授权登记领取；Writer 仅在具体 Issue 的明确执行指令、已有 Delegate 的宿主显式启动，或宿主依据有效限时领单授权派发具体 Issue 时登记。后者还须逐 Issue v2 Envelope 和跨实例互斥证明；队列可见与配置文件不是授权。未安装时只能使用用户提供的 Issue 上下文，不声称已读取或同步 Linear。
