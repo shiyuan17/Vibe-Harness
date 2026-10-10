@@ -62,6 +62,9 @@ export function atomicClaim(current, request, {
   assertAtomicCapability(capabilities);
   assertRequest(request);
   const currentClaim = current ?? null;
+  if (currentClaim && Date.parse(currentClaim.leaseExpiresAt) <= now.getTime()) {
+    throw claimError('LEASE_EXPIRED', 'expired claim requires explicit reconciliation; it cannot be replaced automatically');
+  }
   if (currentClaim
     && currentClaim.issueId === request.issueId
     && currentClaim.idempotencyKey === request.idempotencyKey) {
