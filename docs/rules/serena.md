@@ -20,6 +20,7 @@ serena 是项目内可选的语言服务器（LSP）语义工具（Tier 2 Semant
 
 - 仅在需要 symbol、references、definition、type resolution 时启用；同时激活 ≤ 2 个 Worktree，完成 Symbol 分析后释放不再需要的实例。
 - LSP 实例按需启动、用完释放，不在空闲会话中常驻，不与 Tier 3 索引任务并行争用资源。
+- worktree 内 serena 依赖自己的工作区配置：`worktree.mirrors` 把 `.serena/project.yml` 与 `.serena/.gitignore` 作为**文件复制**投影进每个 worktree（首次缺失时复制一次，不覆盖本地改动），而 serena 的语言索引在该 worktree 内自建，不共享主检出的索引；除非镜像被手工删除，worktree 内的 symbol 查询只反映 worktree 自己的源码。
 
 ## 写入边界
 

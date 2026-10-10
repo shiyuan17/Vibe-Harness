@@ -171,10 +171,10 @@ test('worktree bootstrap plans by default and only --write creates the worktree'
     assert.equal(await readRegistry(fixture.repo), null);
     assert.deepEqual(
       planned.report.results[0].steps.map((step) => step.kind),
-      ['git-worktree-add', 'link-dependencies', 'allocate-ports', 'materialize-env-files', 'probe-toolchain'],
+      ['git-worktree-add', 'link-dependencies', 'link-package-roots', 'mirror-governance', 'allocate-ports', 'materialize-env-files', 'probe-toolchain'],
     );
-    assert.equal(planned.report.results[0].steps[2].block, 1);
-    assert.deepEqual(planned.report.results[0].steps[2].ports, { PORT: 3010 });
+    assert.equal(planned.report.results[0].steps[4].block, 1);
+    assert.deepEqual(planned.report.results[0].steps[4].ports, { PORT: 3010 });
 
     const written = await runCommand([
       'worktree', 'bootstrap', '--project', fixture.repo, '--task', 'ENG-1:feat/ENG-1-scaffold', '--write', '--json',
@@ -240,6 +240,139 @@ test('a half-provisioned bootstrap rolls back and leaves no branch behind', asyn
     assert.equal(await entryExists(fixture.repo, fixture.worktreePath), false);
     const branches = await git(fixture.repo, ['branch', '--list', 'feat/ENG-1-scaffold']);
     assert.equal(branches, '');
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('bootstrap 投影治理面镜像：目录链接、文件复制、skipped 与 present', async () => {
+  const fixture = await makeWorkspaceFixture({
+    extraFiles: {
+      '.agents/skills/demo/SKILL.md': '# demo\n',
+      '.serena/project.yml': 'project_name: fixture\n',
+      'opencode.json': '{ "mcp": {} }\n',
+    },
+    gitignore: 'node_modules\n.vibe-harness/\n.agents/\n.serena/\nopencode.json\n',
+    worktree: { mirrors: ['.agents', 'opencode.json', '.serena/project.yml', '.serena/.gitignore', 'missing-dir'] },
+  });
+  try {
+    const bootArgs = ['worktree', 'bootstrap', '--project', fixture.repo, '--task', 'ENG-1:feat/ENG-1-scaffold', '--write', '--json'];
+    const written = await runCommand(bootArgs, { cwd: fixture.repo });
+    assert.equal(written.exitCode, 0, JSON.stringify(written.report));
+    const byMirror = new Map(written.report.results[0].mirrors.map((item) => [item.mirror, item.status]));
+    assert.equal(byMirror.get('.agents'), 'linked');
+    assert.equal(byMirror.get('opencode.json'), 'copied');
+    assert.equal(byMirror.get('.serena/project.yml'), 'copied');
+    // The main checkout does not carry these, so they are reported without
+    // failing the bootstrap.
+    assert.equal(byMirror.get('.serena/.gitignore'), 'skipped');
+    assert.equal(byMirror.get('missing-dir'), 'skipped');
+
+    // A directory mirror is a link, so the worktree sees the main checkout's
+    // Skills without copying 1 GB.
+    assert.equal(
+      await realpath(path.join(fixture.worktreePath, '.agents')),
+      await realpath(path.join(fixture.repo, '.agents')),
+    );
+    // Copied files are real files inside the worktree, not links back.
+    const opencodeReal = await realpath(path.join(fixture.worktreePath, 'opencode.json'));
+    assert.notEqual(opencodeReal, await realpath(path.join(fixture.repo, 'opencode.json')));
+    assert.equal(await readFile(path.join(fixture.worktreePath, '.serena/project.yml'), 'utf8'), 'project_name: fixture\n');
+
+    // A mirror that already exists is `present` and never overwritten.
+    await rm(path.join(fixture.worktreePath, '.agents'), { force: true, recursive: true });
+    await mkdir(path.join(fixture.worktreePath, '.agents/local'), { recursive: true });
+    await writeFile(path.join(fixture.worktreePath, '.agents/local/keep.txt'), 'mine\n', 'utf8');
+    const again = await runCommand(bootArgs, { cwd: fixture.repo });
+    assert.equal(again.exitCode, 0, JSON.stringify(again.report));
+    const present = new Map(again.report.results[0].mirrors.map((item) => [item.mirror, item.status]));
+    assert.equal(present.get('.agents'), 'present');
+    assert.equal(await readFile(path.join(fixture.worktreePath, '.agents/local/keep.txt'), 'utf8'), 'mine\n');
+
+    // A declared mirror that is a local copy instead of a link is a stale fact
+    // the audit reports, and it never blocks cleanup of a merged worktree.
+    const checked = await runCommand([
+      'worktree', 'check', '--project', fixture.repo, '--task', 'ENG-1:feat/ENG-1-scaffold', '--json',
+    ], { cwd: fixture.repo });
+    const codes = checked.report.audit.problems.map((problem) => problem.code);
+    assert.ok(codes.includes('WORKTREE_MIRROR_STALE'), codes.join(','));
+    assert.equal(checked.report.audit.cleanupAllowed, true);
+
+    // Removing the local copy and re-running restores the link.
+    await rm(path.join(fixture.worktreePath, '.agents'), { force: true, recursive: true });
+    const restored = await runCommand(bootArgs, { cwd: fixture.repo });
+    assert.equal(restored.exitCode, 0, JSON.stringify(restored.report));
+    assert.equal(
+      await realpath(path.join(fixture.worktreePath, '.agents')),
+      await realpath(path.join(fixture.repo, '.agents')),
+    );
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('bootstrap 链接 .bun store、跳过构建缓存并投影包级 node_modules', async () => {
+  const fixture = await makeWorkspaceFixture();
+  try {
+    // Content-addressed bun store plus a build cache in the same point directory.
+    await mkdir(path.join(fixture.repo, 'frontend/node_modules/.bun'), { recursive: true });
+    await writeJson(path.join(fixture.repo, 'frontend/node_modules/.bun/marker.json'), { ok: true });
+    await mkdir(path.join(fixture.repo, 'frontend/node_modules/.cache'), { recursive: true });
+    await writeFile(path.join(fixture.repo, 'frontend/node_modules/.cache/stale.txt'), 'cache\n', 'utf8');
+    // An isolated per-package install: the workspace package keeps its own
+    // `node_modules`, which the hoisted root link alone would never cover.
+    await mkdir(path.join(fixture.repo, 'frontend/packages/contracts/node_modules/dep-b'), { recursive: true });
+    await writeJson(path.join(fixture.repo, 'frontend/packages/contracts/node_modules/dep-b/package.json'), { name: 'dep-b', version: '1.0.0' });
+
+    const written = await runCommand([
+      'worktree', 'bootstrap', '--project', fixture.repo, '--task', 'ENG-1:feat/ENG-1-scaffold', '--write', '--json',
+    ], { cwd: fixture.repo });
+    assert.equal(written.exitCode, 0, JSON.stringify(written.report));
+
+    // `.bun` travels with the overlay; `.cache` stays in the main checkout.
+    assert.equal(
+      await realpath(path.join(fixture.worktreePath, 'frontend/node_modules/.bun')),
+      await realpath(path.join(fixture.repo, 'frontend/node_modules/.bun')),
+    );
+    assert.equal(existsSync(path.join(fixture.worktreePath, 'frontend/node_modules/.cache')), false);
+
+    // The per-package overlay links the third-party dependency back and keeps
+    // the local package inside the worktree.
+    const packageModules = path.join(fixture.worktreePath, 'frontend/packages/contracts/node_modules');
+    assert.equal(existsSync(packageModules), true);
+    assert.equal(
+      await realpath(path.join(packageModules, 'dep-b')),
+      await realpath(path.join(fixture.repo, 'frontend/packages/contracts/node_modules/dep-b')),
+    );
+    const worktreeRoot = await realpath(fixture.worktreePath);
+    const localInPackage = await realpath(path.join(packageModules, '@fixture/contracts'));
+    assert.equal(path.relative(worktreeRoot, localInPackage).startsWith('..'), false);
+    assert.deepEqual(written.report.results[0].packageRoots.map((item) => item.package), ['@fixture/contracts']);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('bootstrap 失败回滚时清除镜像链接且不触碰主检出', async () => {
+  const fixture = await makeWorkspaceFixture({
+    extraFiles: {
+      '.agents/skills/demo/SKILL.md': '# demo\n',
+      'setup.mjs': 'process.exit(3);\n',
+    },
+    gitignore: 'node_modules\n.vibe-harness/\n.agents/\n',
+    worktree: { mirrors: ['.agents'], provision: { setupCommands: ['node setup.mjs'] } },
+  });
+  try {
+    const result = await runCommand([
+      'worktree', 'bootstrap', '--project', fixture.repo, '--task', 'ENG-1:feat/ENG-1-scaffold', '--write', '--json',
+    ], { cwd: fixture.repo });
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.report.results[0].rolledBack, true);
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), false);
+    // The mirrored governance surface in the main checkout survived the
+    // rolled-back junction: a recursive delete must never reach it.
+    assert.equal(existsSync(path.join(fixture.repo, '.agents/skills/demo/SKILL.md')), true);
+    assert.equal(await readFile(path.join(fixture.repo, '.agents/skills/demo/SKILL.md'), 'utf8'), '# demo\n');
   } finally {
     await removeTemporaryDirectory(fixture.root);
   }
@@ -329,6 +462,28 @@ test('同一 task 重复 bootstrap 复用既有端口块', async () => {
   }
 });
 
+test('复用 worktree 的回执与端口登记沿用既有分支而不是约定默认名', async () => {
+  const fixture = await makeWorkspaceFixture();
+  try {
+    await runCommand([
+      'worktree', 'bootstrap', '--project', fixture.repo, '--task', 'ENG-7:feat/ENG-7-reuse', '--write', '--json',
+    ], { cwd: fixture.repo });
+    // The second call names the task only: the path matches the existing
+    // worktree, so the receipt and the registry must keep that branch instead
+    // of falling back to `feat/ENG-7-worktree`.
+    const again = await runCommand([
+      'worktree', 'bootstrap', '--project', fixture.repo, '--task', 'ENG-7', '--write', '--json',
+    ], { cwd: fixture.repo });
+    assert.equal(again.exitCode, 0, JSON.stringify(again.report));
+    assert.equal(again.report.results[0].steps[0].kind, 'reuse-worktree');
+    assert.equal(again.report.results[0].branch, 'feat/ENG-7-reuse');
+    const registry = await readRegistry(fixture.repo);
+    assert.deepEqual(registry.entries.map((entry) => entry.branch), ['feat/ENG-7-reuse']);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
 test('并发 bootstrap 由锁串行化且不会分到同一个端口块', async () => {
   const fixture = await makeWorkspaceFixture();
   try {
@@ -395,7 +550,7 @@ test('声明 setupCommands 时缺依赖改为 setup 先于 link 的顺序', asyn
     assert.equal(planned.exitCode, 0, JSON.stringify(planned.report));
     assert.deepEqual(
       planned.report.results[0].steps.map((step) => step.kind),
-      ['git-worktree-add', 'setup-command', 'link-dependencies', 'allocate-ports', 'materialize-env-files', 'probe-toolchain'],
+      ['git-worktree-add', 'setup-command', 'link-dependencies', 'link-package-roots', 'mirror-governance', 'allocate-ports', 'materialize-env-files', 'probe-toolchain'],
     );
 
     const written = await runCommand([
