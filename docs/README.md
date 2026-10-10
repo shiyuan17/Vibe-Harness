@@ -17,6 +17,7 @@
 - [DAG result 引入 unverified](adr/ADR-0007-dag-result-unverified.md)
 - [ADR-0008：宿主限时授权自动领取 Linear 任务](adr/ADR-0008-bounded-linear-auto-claim.md)
 - [ADR-0009：develop required fast gate](adr/ADR-0009-develop-required-fast-gate.md)
+- [Single-reviewer high-risk review receipt](adr/ADR-0012-single-reviewer-review-receipt.md)
 - [ADR Schema](schemas/adr.schema.json)
 - [Execution Envelope v1 Schema](schemas/execution-envelope.schema.json)
 - [Execution Envelope v2 Schema](schemas/execution-envelope-v2.schema.json)

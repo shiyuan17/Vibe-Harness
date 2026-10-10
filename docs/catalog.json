@@ -1284,6 +1284,17 @@
         "agent",
         "maintainer"
       ]
+    },
+    {
+      "path": "docs/adr/ADR-0012-single-reviewer-review-receipt.md",
+      "kind": "architecture",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
     }
   ]
 }
