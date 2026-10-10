@@ -39,7 +39,7 @@ test('review receipt approves only independent current stable review', async () 
   };
   const change = { available: true, baseSha: receipt.baseSha, headSha: sha, fingerprint: receipt.changeFingerprint, changedPaths: receipt.highRiskPaths };
   // v1 stays schema-valid, but a high-risk change cannot be approved through it:
-  // the two-reviewer and context-independence contract only exists in v2.
+  // the reviewer and context-independence contract only exists in v2.
   const v1HighRisk = evaluateReviewReceipt({ change, receipt, schema });
   assert.equal(v1HighRisk.status, 'degraded');
   assert.match(v1HighRisk.evidence.map((item) => item.code).join(','), /REVIEW_SCHEMA_V2_REQUIRED/u);
@@ -72,13 +72,19 @@ test('review receipt approves only independent current stable review', async () 
   assert.match(evaluateReviewReceipt({ change, receipt: implementerContext, schema }).evidence.map((item) => item.code).join(','), /REVIEW_SAME_CONTEXT/u);
   const singleV2 = structuredClone(dual);
   singleV2.reviewers = [singleV2.reviewers[0]];
-  assert.match(evaluateReviewReceipt({ change, receipt: singleV2, schema }).evidence.map((item) => item.code).join(','), /REVIEW_SECOND_REVIEW_MISSING/u);
-  const attestedV2 = structuredClone(dual);
+  assert.equal(evaluateReviewReceipt({ change, receipt: singleV2, schema }).status, 'healthy');
+  const attestedV2 = structuredClone(singleV2);
   attestedV2.contextIndependence = 'attested';
-  assert.match(evaluateReviewReceipt({ change, receipt: attestedV2, schema }).evidence.map((item) => item.code).join(','), /REVIEW_CONTEXT_INDEPENDENCE_UNVERIFIED/u);
-  // v2 is a structural contract: the schema itself requires the dual-reviewer
-  // fields, so a v2 receipt cannot claim approval by omitting them, while a v1
-  // receipt stays readable without them.
+  assert.equal(evaluateReviewReceipt({ change, receipt: attestedV2, schema }).status, 'healthy');
+  const unavailableV2 = structuredClone(singleV2);
+  unavailableV2.contextIndependence = 'unavailable';
+  assert.match(evaluateReviewReceipt({ change, receipt: unavailableV2, schema }).evidence.map((item) => item.code).join(','), /REVIEW_CONTEXT_INDEPENDENCE_UNAVAILABLE/u);
+  const emptyReviewersV2 = structuredClone(singleV2);
+  emptyReviewersV2.reviewers = [];
+  assert.match(evaluateReviewReceipt({ change, receipt: emptyReviewersV2, schema }).evidence.map((item) => item.code).join(','), /REVIEW_RECEIPT_SCHEMA/u);
+  // v2 is a structural contract: the schema itself requires the reviewer and
+  // context-independence fields, so a v2 receipt cannot claim approval by
+  // omitting them, while a v1 receipt stays readable without them.
   const v2WithoutFields = structuredClone(receipt);
   v2WithoutFields.schemaVersion = 2;
   assert.match(evaluateReviewReceipt({ change, receipt: v2WithoutFields, schema }).evidence.map((item) => item.code).join(','), /REVIEW_RECEIPT_SCHEMA/u);

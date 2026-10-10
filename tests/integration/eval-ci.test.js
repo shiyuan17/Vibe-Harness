@@ -170,16 +170,20 @@ test('EDD documentation documents reference baselines and offline/online lifecyc
   assert.match(docs, /eval check/u);
 });
 
-// The CI review job runs in required mode: it must surface a v2 contract
-// violation (a high-risk receipt without the second independent reviewer) in
-// the step summary and machine-readable report, blocking the aggregate gate.
-test('CI 独立复审以 required 模式消费 v2 双复审契约', async () => {
+// The CI review job runs in required mode: a high-risk v2 receipt that omits the
+// reviewer and context-independence fields must surface as a contract violation
+// in the step summary and machine-readable report, blocking the aggregate gate,
+// while one reviewer with attested context independence clears it.
+test('CI 独立复审以 required 模式消费 v2 单复审契约', async () => {
   const ci = await readFile(path.join(rootDir, '.github/workflows/ci.yml'), 'utf8');
   assert.match(ci, /VIBE_HARNESS_INDEPENDENT_REVIEW_MODE: required/u);
   assert.match(ci, /node scripts\/independent-review\.js/u);
   assert.match(ci, /HIGH_RISK_REVIEW_RESULT: \$\{\{ needs\.independent-review\.result \}\}/u);
 
   const fixture = await mkdtemp(path.join(os.tmpdir(), 'vibe-harness-independent-review-'));
+  // The event payload lives outside the fixture repository: a file inside it
+  // would join the change set and make the receipt look stale.
+  const eventDir = await mkdtemp(path.join(os.tmpdir(), 'vibe-harness-independent-review-event-'));
   try {
     await execFileAsync('git', ['init', '--quiet'], { cwd: fixture });
     await execFileAsync('git', ['config', 'user.email', 'fixture@example.com'], { cwd: fixture });
@@ -210,7 +214,7 @@ test('CI 独立复审以 required 模式消费 v2 双复审契约', async () => 
       decision: 'approved',
     };
     const body = ['## Independent Review Receipt', '', '```json', JSON.stringify(receipt, null, 2), '```', ''].join('\n');
-    const eventPath = path.join(fixture, 'event.json');
+    const eventPath = path.join(eventDir, 'event.json');
     await writeFile(eventPath, `${JSON.stringify({ pull_request: { base: { sha: change.baseSha }, body } }, null, 2)}\n`, 'utf8');
 
     const required = await execFileAsync(process.execPath, [path.join(rootDir, 'scripts/independent-review.js')], {
@@ -223,8 +227,27 @@ test('CI 独立复审以 required 模式消费 v2 双复审契约', async () => 
     assert.equal(requiredReport.ok, false);
     assert.equal(requiredReport.status, 'degraded');
     const evidence = requiredReport.evidence.map((item) => item.code);
-    assert.match(evidence.join(','), /REVIEW_SECOND_REVIEW_MISSING|REVIEW_RECEIPT_SCHEMA/u);
+    assert.match(evidence.join(','), /REVIEW_RECEIPT_SCHEMA/u);
+
+    // Relaxed contract: one independent reviewer plus an attested independence
+    // declaration is enough for required mode to pass.
+    const approvedReceipt = {
+      ...receipt,
+      reviewers: [{ type: 'human', identity: 'reviewer', contextId: 'review-context' }],
+      contextIndependence: 'attested',
+    };
+    const approvedBody = ['## Independent Review Receipt', '', '```json', JSON.stringify(approvedReceipt, null, 2), '```', ''].join('\n');
+    await writeFile(eventPath, `${JSON.stringify({ pull_request: { base: { sha: change.baseSha }, body: approvedBody } }, null, 2)}\n`, 'utf8');
+    const approved = await execFileAsync(process.execPath, [path.join(rootDir, 'scripts/independent-review.js')], {
+      cwd: fixture,
+      env: { ...process.env, GITHUB_EVENT_PATH: eventPath, GITHUB_STEP_SUMMARY: '', VIBE_HARNESS_INDEPENDENT_REVIEW_MODE: 'required' },
+    }).then((result) => ({ exitCode: 0, stdout: result.stdout }), (error) => ({ exitCode: 1, stdout: error.stdout }));
+    assert.equal(approved.exitCode, 0, 'required mode must accept a single-reviewer v2 receipt with attested independence');
+    const approvedReport = JSON.parse(approved.stdout);
+    assert.equal(approvedReport.ok, true);
+    assert.equal(approvedReport.status, 'healthy');
   } finally {
     await rm(fixture, { recursive: true, force: true });
+    await rm(eventDir, { recursive: true, force: true });
   }
 });

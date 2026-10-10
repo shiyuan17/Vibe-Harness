@@ -7332,13 +7332,13 @@
       "layer": "integration",
       "file": "tests/integration/eval-ci.test.js",
       "ordinal": 9,
-      "name": "CI 独立复审以 required 模式消费 v2 双复审契约",
+      "name": "CI 独立复审以 required 模式消费 v2 单复审契约",
       "legacy": false,
       "risk": "standard",
       "owner": "maintainers",
       "source": "declared",
       "status": "active",
-      "addedAt": "2026-09-27"
+      "addedAt": "2026-10-10"
     },
     {
       "id": "I-eval-cli-001",
