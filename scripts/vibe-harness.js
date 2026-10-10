@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import path from 'node:path';
+import { completionReceipt, overrideWarnings, resolveDelivery } from '../runtime/lib/delivery.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -37,6 +38,7 @@ import { validatePack } from './lib/pack-validation.js';
 import { createVerificationPreflightError, runVerificationPlan } from './lib/project-verification.js';
 import { detectProjectProfile } from './lib/project-profile.js';
 import {
+  defaultWorktreeMirrors,
   parseTargetsOption,
   readRequiredProjectConfig,
   resolveEnforcementPolicy,
@@ -566,13 +568,27 @@ async function install(args) {
       })
     : null;
   const migrateTarget = Object.hasOwn(config, 'target') && Boolean(args.upgrade);
-  const configUpdate = migrateTarget || writePreset || tierMigration
+  // Seed `worktree.mirrors` once, from the resolved install surface, so a
+  // project upgraded from before the key existed still gets its governance
+  // surface projected into every worktree. A project that already declares the
+  // key keeps its own list untouched.
+  const mirrorsSeed = Object.hasOwn(config.worktree ?? {}, 'mirrors')
+    ? null
+    : defaultWorktreeMirrors({
+        plugins: [...new Set([...(config.plugins ?? []), ...(requestedPlugins ?? [])])],
+        target: adapterId,
+      });
+  const seedMirrors = Boolean(mirrorsSeed && mirrorsSeed.length > 0);
+  const configUpdate = migrateTarget || writePreset || tierMigration || seedMirrors
     ? {
         config: {
           ...migratedConfig,
           ...(writePreset ? { preset: installSurface.preset, profile: installSurface.profile } : {}),
           ...(tierMigration
             ? { validationCommands: { ...migratedConfig.validationCommands, tiers: tierMigration.tiers } }
+            : {}),
+          ...(seedMirrors
+            ? { worktree: { ...migratedConfig.worktree, mirrors: mirrorsSeed } }
             : {}),
         },
         path: path.join(targetDir, 'vibe-harness.config.json'),
@@ -584,6 +600,11 @@ async function install(args) {
   if (tierMigration && !dryRunRequested && !args['confirm-red-zone']) {
     throw new Error(
       'Refusing to persist validationCommands.tiers in vibe-harness.config.json without explicit red-zone confirmation; retry with --confirm-red-zone.',
+    );
+  }
+  if (seedMirrors && !dryRunRequested && !args['confirm-red-zone']) {
+    throw new Error(
+      'Refusing to persist worktree.mirrors in vibe-harness.config.json without explicit red-zone confirmation; retry with --confirm-red-zone.',
     );
   }
   const plan = await createMultiTargetInstallPlan({
@@ -685,6 +706,10 @@ async function install(args) {
       message: 'Kept project-owned content and re-recorded it as the baseline: '
         + retainedProjectOwned.map((item) => item.target).join(', ') + '.',
     }] : []),
+    ...(seedMirrors ? [{
+      code: 'WORKTREE_MIRRORS_SEEDED',
+      message: 'Recorded worktree.mirrors (' + mirrorsSeed.join(', ') + ') in vibe-harness.config.json so worktrees project the governance surface; rerun `worktree bootstrap` for existing worktrees.',
+    }] : []),
     ...runtimeHookWarnings(runtimeHooks, { definitionChanged: hookDefinitionChanged, enforcementPolicy }),
     ...strictEnforcementWarnings(plan.strictEnforcementRefusals),
     ...(result.backupRetentionError ? [{
@@ -732,6 +757,7 @@ async function install(args) {
           ...(tierMigration
             ? { addedTiers: tierMigration.addedTiers, tiers: tierMigration.tiers }
             : {}),
+          ...(seedMirrors ? { mirrors: mirrorsSeed } : {}),
           preset: writePreset ? installSurface.preset : null,
           profile: writePreset ? installSurface.profile : null,
           relativeTarget: path.relative(targetDir, configUpdate.path).replaceAll('\\', '/'),
@@ -839,11 +865,27 @@ async function validate(args) {
       targets,
     });
     if (!target.ok) {
+      // The inconsistency report is the *only* signal a project in drift gets,
+      // so it must still carry the host-side posture: a project can be fully
+      // installed and still have its Hook disabled in the host, and that is
+      // exactly when the operator needs the reminder. Skipping it here would
+      // leave `validate` quieter than `doctor` on the same machine state.
+      const runtimeHooks = await inspectRuntimeHooks(adapter, targetDir);
       emitReport({
         ok: false,
         scope: 'project',
         ...(args.verbose ? { targetDir } : {}),
+        runtimeHooks,
         target: args.verbose ? target : compactTargetReport(target),
+        warnings: [
+          ...overrideWarnings(config),
+          ...safetyPostureWarnings(adapter),
+          ...runtimeHookWarnings(runtimeHooks, {
+            definitionChanged: await hookDefinitionDrift(adapter, targetDir, installState),
+            enforcementPolicy,
+          }),
+          ...strictEnforcementWarnings(target.strictEnforcementRefusals),
+        ],
       }, args, { error: true });
       applyHealthExit('invalid', args);
       return;
@@ -868,6 +910,7 @@ async function validate(args) {
     // from the project scripts, and the plan reports which source was used.
     const tiersMissing = !validationTiersDeclared(config.validationCommands?.tiers);
     const warnings = [
+      ...overrideWarnings(config),
       ...toolWarnings(tools),
       ...safetyPostureWarnings(adapter),
       ...runtimeHookWarnings(runtimeHooks, {
@@ -923,6 +966,8 @@ async function verify(args) {
   if (!args.project) throw new Error('verify requires --project <path>.');
   const targetDir = path.resolve(args.project);
   const config = await readRequiredProjectConfig(targetDir);
+  const delivery = resolveDelivery(config, args.delivery);
+  if (delivery.write === false && !args.plan) throw new Error('inspect-only only permits verify --plan');
   const installState = await readInstallState(targetDir);
   const { configured: targets, selected: selectedTargets } = resolveCommandTargets(config, installState, args.target);
   validateProjectConfig(config);
@@ -1072,6 +1117,13 @@ async function verify(args) {
   });
   emitReport({
     ...verificationReport,
+    delivery: { profile: delivery.profile, stage: 'verify' },
+    ...(delivery.requireReceipt ? { completion: completionReceipt({
+      ...verificationReport, status: verificationReport.ok ? 'passed' : 'blocked',
+      checks: verificationReport.results,
+      scope: planned.scope, selectedChecks: verificationReport.verification?.selectedChecks,
+      deferredChecks: verificationReport.verification?.deferredChecks,
+    }, delivery) } : {}),
     ...(blockingHookFailure ? { ok: false } : {}),
     deferredChecks: verificationReport.verification?.deferredChecks ?? [],
     deferredMicroChecks: verificationReport.verification?.deferredMicroChecks ?? planned.deferredMicroChecks ?? [],
@@ -1094,7 +1146,7 @@ async function verify(args) {
     ...(args.verbose ? { targetDir } : {}),
     tierFallback: verificationReport.verification?.tierFallback ?? null,
     tierSource: verificationReport.verification?.tierSource ?? null,
-    ...(hookPolicyWarnings.length ? { warnings: hookPolicyWarnings } : {}),
+    warnings: [...hookPolicyWarnings, ...delivery.warnings, ...overrideWarnings(config)],
   }, args, { error: !verificationReport.ok || Boolean(blockingHookFailure) });
   if (!verificationReport.ok || blockingHookFailure) process.exitCode = 1;
 }
@@ -1391,6 +1443,7 @@ async function doctor(args) {
   const memory = await inspectMemory(config, installState, targetDir);
   const codebaseMemoryCache = await inspectCodebaseMemoryCache(targetDir, tools);
   const warnings = [
+    ...overrideWarnings(config),
     ...toolWarnings(tools),
     ...(provisioningProcess ? [provisioningProcessWarning(provisioningProcess)] : []),
     ...(nestedInstallations.length > 0 ? [{
@@ -1700,6 +1753,11 @@ async function main() {
     });
   }
   if (args.profile) validateProfileName(args.profile);
+  if (args.delivery || (args.project && args.write && command !== 'init' && command !== 'recover')) {
+    const deliveryConfig = command === 'init' ? {} : await readRequiredProjectConfig(path.resolve(args.project));
+    const delivery = resolveDelivery(deliveryConfig, args.delivery);
+    if (delivery.write === false && args.write) throw new Error('inspect-only does not permit writes');
+  }
   if (args.preset !== undefined && !['init', 'install'].includes(command)) {
     throw new Error('--preset is only accepted by init and install; other commands read the preset from vibe-harness.config.json.');
   }

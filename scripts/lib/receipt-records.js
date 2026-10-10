@@ -32,6 +32,10 @@ export const START_RECEIPT_KEYS_V3 = Object.freeze([
   'fencingToken',
   'claimProvider',
 ]);
+// `grantId` stays optional on v3 and is required only for the
+// authorized-auto-claim source, so it is validated separately instead of
+// joining the always-required key list.
+export const START_RECEIPT_KEYS_V3_OPTIONAL = Object.freeze(['grantId']);
 export const TERMINAL_EVENT_KEYS = Object.freeze(['schema', 'eventId', 'executionId', 'eventType', 'successorExecutionId', 'occurredAt']);
 export const TERMINAL_EVENT_OPTIONAL_KEYS = Object.freeze(['handoff']);
 export const HANDOFF_KEYS = Object.freeze(['schema', 'completion', 'finalCheck', 'unresolvedItems']);
@@ -194,7 +198,7 @@ export function validateStartReceipt(value) {
   const claimed = value.schema === START_RECEIPT_SCHEMA_V3;
   const keys = claimed ? START_RECEIPT_KEYS_V3 : autoClaim ? START_RECEIPT_KEYS_V2 : START_RECEIPT_KEYS;
   requireKeys(value, keys, push);
-  warnUnknownKeys(value, keys, push);
+  warnUnknownKeys(value, claimed ? [...keys, ...START_RECEIPT_KEYS_V3_OPTIONAL] : keys, push);
   if (![START_RECEIPT_SCHEMA, START_RECEIPT_SCHEMA_V2, START_RECEIPT_SCHEMA_V3].includes(value.schema)) {
     push('RECEIPT_SCHEMA_INVALID', `schema must be ${START_RECEIPT_SCHEMA}, ${START_RECEIPT_SCHEMA_V2} or ${START_RECEIPT_SCHEMA_V3}`, 'error');
   }
@@ -202,8 +206,9 @@ export function validateStartReceipt(value) {
   checkUuid(value.runtimeInstanceId, 'runtimeInstanceId', push);
   if (autoClaim && value.source !== AUTO_CLAIM_RECEIPT_SOURCE) {
     push('RECEIPT_SOURCE_INVALID', `v2 source must be ${AUTO_CLAIM_RECEIPT_SOURCE}`, 'error');
-  } else if (!autoClaim && value.source !== undefined && !RECEIPT_SOURCES.includes(value.source)) {
-    push('RECEIPT_SOURCE_INVALID', `source must be one of ${RECEIPT_SOURCES.join(', ')}`, 'error');
+  } else if (!autoClaim && value.source !== undefined
+    && ![...RECEIPT_SOURCES, ...(claimed ? [AUTO_CLAIM_RECEIPT_SOURCE] : [])].includes(value.source)) {
+    push('RECEIPT_SOURCE_INVALID', `source must be one of ${RECEIPT_SOURCES.join(', ')}${claimed ? `, ${AUTO_CLAIM_RECEIPT_SOURCE}` : ''}`, 'error');
   }
   if (autoClaim) checkUuid(value.grantId, 'grantId', push);
   if (claimed) {

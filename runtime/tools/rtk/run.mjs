@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { chmod, mkdir, mkdtemp, open, readFile, readdir, rename, rm, stat } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, stat } from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
 import path from 'node:path';
 import { Transform } from 'node:stream';
@@ -302,7 +302,15 @@ async function run(args, toolDir) {
 }
 
 const [command, ...args] = process.argv.slice(2);
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// A Worktree reaches this entry through its `.agents` junction, so the entry
+// path is compared by realpath: a plain resolve comparison made the RTK entry
+// exit 0 without running the wrapped command.
+const invokedPath = process.argv[1]
+  ? await realpath(process.argv[1]).catch(() => path.resolve(process.argv[1]))
+  : null;
+const modulePath = await realpath(fileURLToPath(import.meta.url))
+  .catch(() => fileURLToPath(import.meta.url));
+if (invokedPath !== null && invokedPath === modulePath) {
   const toolDir = path.dirname(fileURLToPath(import.meta.url));
   if (command === 'install') {
     installRtk(toolDir).then((result) => console.log(JSON.stringify(result))).catch((error) => {

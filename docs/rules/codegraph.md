@@ -21,6 +21,7 @@ codegraph 是项目内可选的仓库级代码知识图谱工具（Tier 3 Reposi
 ## 资源预算（Tier 3）
 
 - 默认使用 Base Index + Git Diff，不给每个 Worktree 重建完整知识图谱：所有 Worktree 共享主仓库索引，用第 2 步的变更集叠加索引结果。
+- 「共享主仓库索引」由 `worktree.mirrors` 中的 `.codegraph` 落实：`worktree bootstrap` 把主检出的 `.codegraph` 作为目录链接投影进每个 worktree，因此 worktree 内的 `codegraph explore -p <worktree>` 直接命中主索引而不是报「未索引」；若镜像缺失或指回本地副本，`worktree check` 报 `WORKTREE_MIRROR_MISSING`/`WORKTREE_MIRROR_STALE`。
 - 禁止所有 Worktree 自动完整重建索引。只有满足以下条件之一、且 Git Diff 叠加仍不足以覆盖任务需要时，才允许显式重建：大量结构变化；调用关系明显变化；需要准确 impact analysis；主仓库索引已经无法代表当前代码。
 - 索引任务默认串行：MAX_CONCURRENT_INDEX = 1。上游一个项目只允许一个 live MCP writer，该单写者锁就是共享索引的机制保障，不要绕过。
 - 确需重建时在主仓库执行一次（如 `codegraph index --force` 或 `codegraph sync`），不在各 Worktree 内各自执行。

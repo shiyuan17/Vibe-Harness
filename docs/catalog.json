@@ -1141,6 +1141,17 @@
       ]
     },
     {
+      "path": "docs/adr/ADR-0010-symphony-hosted-linear-dispatch.md",
+      "kind": "architecture",
+      "status": "current",
+      "language": "en",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
+    },
+    {
       "path": "docs/inventory/governance-audit-2026-09.md",
       "kind": "inventory",
       "status": "reference",
@@ -1283,6 +1294,27 @@
       "audiences": [
         "agent",
         "maintainer"
+      ]
+    },
+    {
+      "path": "docs/adr/ADR-0011-delivery-lifecycle.md",
+      "kind": "architecture",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
+    },
+    {
+      "path": "docs/specs/delivery-lifecycle.md",
+      "kind": "spec",
+      "status": "implemented",
+      "language": "zh-CN",
+      "audiences": [
+        "maintainer",
+        "auditor"
       ]
     }
   ]

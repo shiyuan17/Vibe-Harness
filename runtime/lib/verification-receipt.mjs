@@ -77,6 +77,7 @@ export async function verificationCacheContext(projectDir, plan, snapshot = unde
   const fingerprints = {
     worktreeIdentity: digest(root),
     fingerprint: state.fingerprint,
+    writeFingerprint: state.writeFingerprint ?? null,
     planFingerprint: digest({
       checks: commands, tier: plan.executionTier ?? plan.tier ?? 'quick', scope: plan.scope ?? 'layer',
       changedPaths: plan.changedPaths ?? [], baseSha: plan.baseSha ?? null,

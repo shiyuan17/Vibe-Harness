@@ -1,0 +1,6 @@
+interface:
+  display_name: "Code Navigation"
+  short_description: "Establish cross-file context before changing existing code"
+  default_prompt: "Use $code-navigation to locate symbols, trace call paths, and map impact across files before modifying existing code."
+policy:
+  allow_implicit_invocation: true
