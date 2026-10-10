@@ -363,6 +363,18 @@ test('v3 receipts preserve legacy reads and require atomic claim metadata', () =
     ...claimed,
     leaseExpiresAt: '2026-09-27T09:00:00.000Z',
   }).ok, false);
+  const autoClaimed = {
+    ...claimed,
+    grantId: GRANT_A,
+    source: AUTO_CLAIM_RECEIPT_SOURCE,
+  };
+  assert.equal(validateStartReceipt(autoClaimed).ok, true, JSON.stringify(validateStartReceipt(autoClaimed).problems));
+  assert.equal(analyzeReceiptLedger([autoClaimed]).activeExecutions.length, 1);
+  assert.equal(validateStartReceipt({ ...autoClaimed, grantId: undefined }).ok, false);
+  assert.equal(validateStartReceipt({
+    ...autoClaimed,
+    schema: 'vibe-harness.linear-execution/v1',
+  }).ok, false);
 });
 
 test('atomic claim is provider-gated, idempotent, fenced, and lease-aware', () => {
@@ -398,5 +410,20 @@ test('atomic claim is provider-gated, idempotent, fenced, and lease-aware', () =
   assert.throws(
     () => atomicClaim(first.claim, request, { capabilities: {}, now }),
     /atomic claim and fencing/u,
+  );
+  const afterExpiry = new Date('2026-09-27T11:00:00.000Z');
+  assert.throws(
+    () => atomicClaim(first.claim, request, { capabilities, now: afterExpiry }),
+    (error) => error.code === 'LEASE_EXPIRED',
+  );
+  assert.throws(
+    () => atomicClaim(first.claim, createClaimRequest({
+      issueId: 'ENG-123',
+      executionId: EXECUTION_B,
+      idempotencyKey: 'request-b',
+      leaseExpiresAt: '2026-09-27T12:00:00.000Z',
+      fencingToken: 'fence-b',
+    }), { capabilities, now: afterExpiry }),
+    (error) => error.code === 'LEASE_EXPIRED',
   );
 });
