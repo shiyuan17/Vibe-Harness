@@ -22,6 +22,7 @@ import {
   validateWorktrees,
 } from './lib/worktree-audit.js';
 import { collectWorktreePortEvidence, readPortRegistry } from './lib/worktree-ports.js';
+import { worktreeMirrorEvidence } from './lib/worktree-mirrors.js';
 
 const TASK_OPTIONS = new Set(['--branch-prefix', '--repo', '--task', '--base-ref', '--base-sha']);
 const PROJECT_CONFIG_FILE = 'vibe-harness.config.json';
@@ -185,9 +186,10 @@ function readProjectWorktreeSettings(repositoryRoot) {
       dependencyRoots: Array.isArray(worktree.dependencyRoots) ? worktree.dependencyRoots : [],
       envFile: typeof envFile === 'string' && envFile.trim() !== '' ? envFile : undefined,
       envFiles: Array.isArray(worktree.provision?.envFiles) ? worktree.provision.envFiles : [],
+      mirrors: Array.isArray(worktree.mirrors) ? worktree.mirrors : [],
     };
   } catch {
-    return { dependencyRoots: [], envFile: undefined, envFiles: [] };
+    return { dependencyRoots: [], envFile: undefined, envFiles: [], mirrors: [] };
   }
 }
 
@@ -231,6 +233,7 @@ function buildAudit(options) {
     branchPrefix: options.branchPrefix ?? undefined,
     dirty: options.deep ? readDirty(repositoryRoot, entries) : new Map(),
     integration: map,
+    mirrorEvidence: worktreeMirrorEvidence(repositoryRoot, entries, readProjectWorktreeSettings(repositoryRoot).mirrors),
     portProblems: portFacts.flat,
     portSummary: portFacts.summary,
     repositoryRoot,

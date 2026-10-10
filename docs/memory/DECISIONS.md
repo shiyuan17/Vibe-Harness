@@ -17,6 +17,8 @@
 - **ADR-0007** DAG result 引入 unverified - accepted - 本地 result 新增非终态 unverified，把 Linear「Done 缺证据」从 blocked 改判过去，使缺证据与等依赖不再共用一个枚举 - [ADR](../adr/ADR-0007-dag-result-unverified.md)
 - **ADR-0008** 宿主限时授权自动领取 Linear 任务 - accepted - 事件派发、独占选单、逐 Issue v2 Envelope 与 v2 Start Receipt；不交付真实派发服务 - [ADR](../adr/ADR-0008-bounded-linear-auto-claim.md)
 - **ADR-0009** develop required fast gate - accepted - develop 合并必须通过稳定 fast gate，发布边界继续执行完整门禁 - [ADR](../adr/ADR-0009-develop-required-fast-gate.md)
+- **ADR-0010** Symphony-hosted Linear dispatch with durable grants and claims - accepted - 宿主通过 PostgreSQL Grant、原子 Claim 和权限代理承载受限自动派发；尚不表示已部署 - [ADR](../adr/ADR-0010-symphony-hosted-linear-dispatch.md)
+- **ADR-0011** Evidence-bound delivery and owned service lifecycle - proposed - Evidence-bound delivery and owned service lifecycle - [ADR](../adr/ADR-0011-delivery-lifecycle.md)
 
 ## 纪律
 

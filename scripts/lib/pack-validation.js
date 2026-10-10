@@ -372,8 +372,11 @@ export async function validateSkillGraph(
   // bytes/token the ceiling is roughly 440 tokens, still under the Chinese-era
   // 1100-character surface that weighed in near 625 tokens because CJK
   // characters carry ~3 bytes and ~1 token each. Raised 1500 -> 1750 when
-  // `stale-cleanup` joined the routing surface.
-  if (nativeIdentityCharacters > 1750) errors.push(`native Skill name and description budget exceeds 1750 characters: ${nativeIdentityCharacters}`);
+  // `stale-cleanup` joined the routing surface, then 1750 -> 2000 when
+  // `code-navigation` joined it: that Skill's routing line is what makes the
+  // deferred code-intelligence tools visible before the model picks a tool, so
+  // it earns the extra always-loaded characters rather than being squeezed.
+  if (nativeIdentityCharacters > 2000) errors.push(`native Skill name and description budget exceeds 2000 characters: ${nativeIdentityCharacters}`);
 
   if (checkFiles) {
     for (const root of ['skills/core', 'skills/integrations']) {
@@ -1900,7 +1903,11 @@ export async function validateContentQuality(rootDir) {
   // 2026-09-24: cards on the other large rules sit in files the host reads on
   // demand, so they stay outside this resident budget (AGENTS.md rendered plus
   // this rule file) and are held by validateFastPathCards instead.
-  if (residentLines > 165) errors.push(`resident governance surface exceeds 165 lines: ${residentLines}`);
+  // 2026-10-09: raised 165 -> 170 for the code-navigation pointer in the Fast
+  // Path card (+1 line). That card is the surface 22/30 sessions actually read,
+  // so a one-line pointer at the deferred code-intelligence tools earns its
+  // place; the rest of the allowance is headroom, not a target.
+  if (residentLines > 170) errors.push(`resident governance surface exceeds 170 lines: ${residentLines}`);
 
   const proseOwners = new Map();
   for (const directory of ['docs/rules', 'templates']) {

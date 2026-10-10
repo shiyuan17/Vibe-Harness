@@ -30,8 +30,38 @@ import {
   normalizeVerificationScope,
 } from './verification-contract.js';
 
+import { validateDeliveryConfig } from '../../runtime/lib/delivery.mjs';
+
 export const mvpProfiles = new Set(['minimal', 'core', 'full', 'docs-only']);
 export const mvpTargets = new Set(['codex', 'claude', 'gemini', 'cursor', 'qoder', 'zcode', 'antigravity', 'opencode']);
+
+// The ignored governance surface each adapter and plugin keeps beside the
+// repository. `worktree bootstrap` projects these into every worktree so the
+// code-navigation toolchain stays reachable (docs/rules/git-rules.md §Worktree).
+const TARGET_WORKTREE_MIRRORS = {
+  codex: ['.agents', '.codex'],
+  opencode: ['.opencode', 'opencode.json'],
+  zcode: ['.zcode'],
+};
+const PLUGIN_WORKTREE_MIRRORS = {
+  codegraph: ['.codegraph'],
+  serena: ['.serena/project.yml', '.serena/.gitignore'],
+};
+
+/**
+ * The `worktree.mirrors` default for one resolved install surface: the
+ * adapter directory plus the plugin directories a project enabled. Order is
+ * stable and de-duplicated so the written config is deterministic.
+ */
+export function defaultWorktreeMirrors({ plugins = [], target = 'codex' } = {}) {
+  const mirrors = [];
+  const add = (items) => {
+    for (const item of items ?? []) if (!mirrors.includes(item)) mirrors.push(item);
+  };
+  add(TARGET_WORKTREE_MIRRORS[target]);
+  for (const plugin of plugins) add(PLUGIN_WORKTREE_MIRRORS[plugin]);
+  return mirrors;
+}
 
 const adapterCatalog = JSON.parse(readFileSync(path.join(path.resolve(import.meta.dirname, '..', '..'), 'manifests', 'adapters.json'), 'utf8'));
 // Derived from the canonical manifests/red-zone.json (single source; the
@@ -62,6 +92,14 @@ export const defaultProjectConfig = {
   packageManager: 'pnpm',
   targets: ['codex'],
   profile: 'core',
+  delivery: {
+    default: 'managed-mr',
+    profiles: {
+      'managed-mr': { merge: 'squash', cleanup: 'evidence-compatible', requireReceipt: true },
+      'local-land': { merge: 'no-ff', cleanup: 'ancestor', requireReceipt: true },
+      'inspect-only': { write: false, requireReceipt: false },
+    },
+  },
   validationCommands: {
     lint: null,
     typecheck: null,
@@ -147,10 +185,15 @@ export function createDefaultProjectConfig(projectDir, target = 'codex', profile
     ...defaultProjectConfig,
     projectName,
     profile,
+    delivery: defaultProjectConfig.delivery,
     targets: [target],
     // The worktree root is per-project: docs/rules/git-rules.md §Worktree keeps
     // every isolation unit beside the repository, never inside it.
-    worktree: { ...defaultProjectConfig.worktree, root: `../${projectName}-worktrees` },
+    worktree: {
+      ...defaultProjectConfig.worktree,
+      mirrors: defaultWorktreeMirrors({ target }),
+      root: `../${projectName}-worktrees`,
+    },
   };
 }
 
@@ -347,6 +390,7 @@ function assertUniqueStringArray(value, label) {
 
 export function validateProjectConfig(config) {
   assertObject(config, 'vibe-harness.config.json');
+  validateDeliveryConfig(config);
   const obsolete = [
     ...(Object.hasOwn(config, 'governance') ? ['governance'] : []),
     ...(Object.hasOwn(config.hooks ?? {}, 'completionGate') ? ['hooks.completionGate'] : []),

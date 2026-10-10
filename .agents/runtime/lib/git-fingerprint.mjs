@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
@@ -77,5 +77,21 @@ export async function gitFingerprint(projectDir) {
     }
     hash.update('\0');
   }
-  return { snapshot, fingerprint: hash.digest('hex') };
+  const tracked = await git(['ls-files', '-z', '--cached', '--others', '--exclude-standard'], projectDir);
+  let writeFingerprint = null;
+  let latestWriteAt = null;
+  if (tracked.ok) {
+    const files = [...new Set(tracked.stdout.split('\0').filter(Boolean))].sort();
+    const metadata = await Promise.all(files.map(async (file) => {
+      try {
+        const info = await stat(path.join(projectDir, file));
+        return [file, info.mtimeMs, info.ctimeMs, info.size];
+      } catch (error) { return [file, error.code === 'ENOENT' ? 'missing' : 'unreadable']; }
+    }));
+    if (!metadata.some((item) => item[1] === 'unreadable')) {
+      writeFingerprint = createHash('sha256').update(JSON.stringify(metadata)).digest('hex');
+      latestWriteAt = metadata.reduce((latest, item) => typeof item[1] === 'number' ? Math.max(latest, item[1]) : latest, 0);
+    }
+  }
+  return { snapshot, fingerprint: hash.digest('hex'), writeFingerprint, latestWriteAt };
 }

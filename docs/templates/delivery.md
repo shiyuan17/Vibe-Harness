@@ -1,5 +1,7 @@
 # 交付记录
 
+启用 Delivery Profile 的项目同时保存结构化 completion JSON：delivery.profile/stage、status、acceptance（id/status/command 或 criterion/scope）、unverified、remainingRisks、rollback、source/target、verification。`verify` 只生成 stage=verify 的证据草稿，不自动宣称 complete；补齐实际验收后以 `task check <id> --complete --receipt <file>` 或 worktree 清理门检验。缺失浏览器或真实数据库环境记录 blocked，不由静态检查或替代数据库结果代替。
+
 - 结果：
 - 实际变更：
 - 本轮验证：

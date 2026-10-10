@@ -317,8 +317,14 @@ export async function runPlaywrightCli(args, options = {}) {
   );
 }
 
-const invokedPath = process.argv[1] ? path.resolve(process.argv[1]) : null;
-if (invokedPath === fileURLToPath(import.meta.url)) {
+// A Worktree reaches this entry through its `.agents` junction, so the entry
+// path is compared by realpath instead of by the path string it was called with.
+const invokedPath = process.argv[1]
+  ? await realpath(process.argv[1]).catch(() => path.resolve(process.argv[1]))
+  : null;
+const modulePath = await realpath(fileURLToPath(import.meta.url))
+  .catch(() => fileURLToPath(import.meta.url));
+if (invokedPath !== null && invokedPath === modulePath) {
   try {
     await runPlaywrightCli(process.argv.slice(2));
   } catch (error) {

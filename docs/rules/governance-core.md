@@ -6,13 +6,13 @@
 
 - **默认路径**：必要事实 → 最小计划 → 直接实施 → 局部快速验证 → 简洁交付；多数任务止步于本卡片。
 - **档位判定**：只读、解释、文档或微小非行为变化 → 快速；可逆的本地行为改动 → 轻量；安全、迁移、生产、发布、外部写入、公共契约、红区、不可逆或跨仓 → 完整。
-- **升级触发**（满足其一才执行；触发是必要而非充分，仍按最小充分选择并记录原因）：用户显式要求；局部事实无法界定影响面或无法缩小范围；风险升到完整档；命中公共契约、安全、迁移、发布或红区；项目 CI、发布门禁或外部要求。高成本动作不默认执行，也不因在此列出而成为流程：全仓扫描、完整 Spec/Plan/Tasks、多 Agent、Worktree、全量测试与 E2E、全量 Build/Lint/Typecheck、深度 Code Review 与 Red Team、全量文档更新、长时间 Benchmark 与性能测试。Parent 计划另须记录 active work、external wait/block、coordination/fan-in、verification 和单/并行墙钟估算，净节省未达 45 分钟及 25% 时保持单 Agent。
+- **升级触发**（满足其一才执行；触发是必要而非充分，仍按最小充分选择并记录原因）：用户显式要求；局部事实无法界定影响面或无法缩小范围；风险升到完整档；命中公共契约、安全、迁移、发布或红区；项目 CI、发布门禁或外部要求。高成本动作不默认执行，也不因在此列出而成为流程：全仓扫描、完整 Spec/Plan/Tasks、多 Agent、Worktree、全量测试与 E2E、全量 Build/Lint/Typecheck、深度 Code Review 与 Red Team、全量文档更新、长时 Benchmark 与性能测试。Parent 计划另须记录 active work、external wait/block、coordination/fan-in、verification 和单/并行墙钟估算，净节省未达 45 分钟及 25% 时保持单 Agent。
 - **硬边界速查**：只在授权范围内行动；红区、凭据、生产、外部写入与不可逆操作须有明确授权；敏感数据不入回复、日志或提交；不编造证据，未经验证不得声称完成。
+- **代码上下文**：改动既有代码或需要跨文件符号、调用链、影响面与架构时，先用 `code-navigation` Skill 建立上下文（其中含 deferred 代码智能工具的加载步骤与降级路径）；单文件文本、配置与日志仍用 rg。
 - **锚点触发**：预计执行超过 60 分钟或发生第一次上下文压缩才建状态锚点；已建锚点后再次压缩，先更新锚点再继续写入。
 - **验证档位**：默认只执行快速层；`vibe-harness verify --tier standard|deep` 显式升级、`--full` 完整矩阵；快速层通过不得宣称集成、发布或整体完成。
 
 以下为完整规则，仅当任务超出卡片或命中升级触发时继续读取。
-
 ## 默认循环
 
 所有任务使用同一路径：`获取可信事实 → 判定并执行 → 聚焦验证 → 简洁交付`。
@@ -28,7 +28,6 @@
 
 - **升级阶梯**：Progressive Context Loading → Changed-Scope Validation → Risk-Based Review → Async Deep Verification → Final Gate，按需跳级，上一级已足够时不进入下一级；深度证据可异步取得，但未取得前不得宣称依赖它的集成、发布或整体完成。
 - **与授权和安全正交**：成本判定不改变授权根、红区要求和安全边界；低成本不豁免红线，高成本也不因流程完整而执行，不得创建规则未要求的 Spec、任务、角色或隔离工作区；已就绪且可复用的环境、缓存、索引与容器不得重复冷启动，失效即按声明回退 cold 或 blocked。验证侧默认只执行快速层，见 test-rules.md 的成本分层与 `vibe-harness verify --tier`。墙钟规划模型为共享准备 + 单元工作/聚焦验证 + 最终集成；单 Agent 是默认执行模式，并行取最长单元并加入协调、fan-in 和 20% 缓冲，预算只是规划证据。
-
 ## 长任务状态锚点与阶段切分
 
 - **触发（量化门槛）**：满足其一即按长任务管理并建立状态锚点——先验：开始时预计执行超过 60 分钟；后验：会话中发生第一次上下文压缩（压缩事件是可观测的上下文水位信号，不依赖预估）。两者皆未发生视为短任务，不建锚点，不因本节存在而增加流程。
@@ -88,6 +87,12 @@ REPL/Micro 验证遵循最小权限和证据降级原则：只有项目配置中
 - 仅在使用 vibe-harness verify --project 时：交付引用本轮 `verification.id`、`verification.finishedAt` 和 `verification.before.head`／`verification.after.head` 与对应 `fingerprint`；每个子检查的 `verificationId` 将该结果及其 stdout/stderr 关联到同一 wrapper 收据。只有 `verification.snapshotComparison` 为 match 时，才能证明检查期间采样到的工作树未变化；收据不写入项目状态。
 
 ## 交付与证据标签
+
+项目声明 `delivery` 时，`delivery.default` 选择交付模式，命令行 `--delivery` 仅覆盖本次；缺省配置保留 legacy 行为并提示迁移。managed-mr 保留 squash MR，不以本地 no-ff 替代；local-land 使用 ancestor；inspect-only 禁止写入和执行验证命令。新模式完整完成须有 passed/failed/blocked/unverified 四态验收、实际命令或人工判据、范围、未验证项、剩余风险、回滚与 source/target 指纹。全部必需项 passed 且收据仍新鲜才可完整完成，旧任务缺字段只兼容告警。验证通过后的新写入使收据不可复用，即使内容后来还原。
+
+已建锚点的任务使用 `task checkpoint <id> --reason <text> --write` 保存 HEAD、工作区、改动、单元、最后验证、blocker 与 nextAction。`task event` 接收 pre-compaction、resume、continue、pre-delivery、pre-verify；第二次 continue 才 checkpoint；resume 先核对漂移，不重写计划。受管 verify 和显式 task 的 land 在运行前记录 checkpoint。压缩、恢复与用户消息只在宿主真实投递事件时自动触发；未安装宿主 bridge 时由 Agent 显式调用，不声称已监听事件。
+
+治理例外在 `projectRules.exceptions` 中登记 id、owner、approvedAt、expiresAt、reviewCadence、rollbackCondition、successMetric。缺字段、日期无效或过期标记 stale，validate/doctor 告警；不得由 Agent 编造批准日期、owner 或自动续期，也不自动删除。
 
 交付只报告结果、实际变更和本轮验证。需要区分证据强度时使用人读标签：**已确认事实**（当前源码、测试、命令输出或实际产物直接支持）、**静态结论**（由代码、配置或公开契约推导，未证明运行时行为）、**待验证假设**（尚未验证，不能支撑完成声明）、**验证受阻**（工具、权限、网络、超时或环境导致检查未有效执行，不得据此推断产品通过或失败）。标签不形成机器状态、完成门禁或固定交付格式；仅在存在时补充未验证项、风险或后续动作。
 

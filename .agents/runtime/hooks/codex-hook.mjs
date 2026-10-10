@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { stat } from 'node:fs/promises';
+import { realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -189,7 +189,15 @@ export async function evaluateCodexHook(rawInput, options = {}) {
   return evaluateHook(rawInput, { ...options, host: 'codex' });
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// A Worktree reaches this entry through its `.agents` junction, so the entry
+// path is compared by realpath: a plain resolve/URL comparison made a Worktree
+// session skip every safety decision and return no result at all.
+const hookEntryPath = process.argv[1]
+  ? await realpath(process.argv[1]).catch(() => path.resolve(process.argv[1]))
+  : null;
+const hookModulePath = await realpath(fileURLToPath(import.meta.url))
+  .catch(() => fileURLToPath(import.meta.url));
+if (hookEntryPath !== null && hookEntryPath === hookModulePath) {
   const argv = process.argv.slice(2);
   const expectedEvent = expectedEventFromArgs(argv);
   const host = hostFromArgs(argv);

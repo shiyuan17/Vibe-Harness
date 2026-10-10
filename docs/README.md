@@ -17,6 +17,8 @@
 - [DAG result 引入 unverified](adr/ADR-0007-dag-result-unverified.md)
 - [ADR-0008：宿主限时授权自动领取 Linear 任务](adr/ADR-0008-bounded-linear-auto-claim.md)
 - [ADR-0009：develop required fast gate](adr/ADR-0009-develop-required-fast-gate.md)
+- [ADR-0010：Symphony 持久授权与原子领单宿主](adr/ADR-0010-symphony-hosted-linear-dispatch.md)
+- [Evidence-bound delivery and owned service lifecycle](adr/ADR-0011-delivery-lifecycle.md)
 - [ADR Schema](schemas/adr.schema.json)
 - [Execution Envelope v1 Schema](schemas/execution-envelope.schema.json)
 - [Execution Envelope v2 Schema](schemas/execution-envelope-v2.schema.json)
@@ -42,6 +44,7 @@
 - [显式工具插件规格](specs/vibe-harness-tooling-modules-spec.md)
 - [Linear 多 Agent 工作流规格](specs/linear-multi-agent-workflow-spec.md)
 - [Adaptive Verification Engine 规格](specs/adaptive-verification-engine.md)
+- [交付生命周期与兼容迁移](specs/delivery-lifecycle.md)
 
 ## 规则
 

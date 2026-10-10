@@ -107,7 +107,8 @@
       "group": "rules-core",
       "source": "docs/rules/project-specific-rules.md",
       "target": "docs/rules/project-specific-rules.md",
-      "contentStrategy": "replace"
+      "contentStrategy": "replace",
+      "projectOwned": true
     },
     {
       "group": "rules-rtk",
@@ -348,6 +349,30 @@
     },
     {
       "group": "runtime-project-scripts",
+      "source": "runtime/lib/delivery.mjs",
+      "target": ".agents/runtime/lib/delivery.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
+      "source": "runtime/lib/merge-evidence.mjs",
+      "target": ".agents/runtime/lib/merge-evidence.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
+      "source": "runtime/lib/services.mjs",
+      "target": ".agents/runtime/lib/services.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
+      "source": "runtime/lib/service-supervisor.mjs",
+      "target": ".agents/runtime/lib/service-supervisor.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
       "source": "runtime/lib/verification-plan.mjs",
       "target": ".agents/runtime/lib/verification-plan.mjs",
       "contentStrategy": "replace"
@@ -374,6 +399,12 @@
       "group": "runtime-project-scripts",
       "source": "runtime/lib/worktree-ports.mjs",
       "target": ".agents/runtime/lib/worktree-ports.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
+      "source": "runtime/lib/worktree-mirrors.mjs",
+      "target": ".agents/runtime/lib/worktree-mirrors.mjs",
       "contentStrategy": "replace"
     },
     {
@@ -829,6 +860,12 @@
     },
     {
       "group": "skills-linear",
+      "source": "skills/integrations/linear-workflow/references/symphony-host.md",
+      "target": ".agents/skills/linear-workflow/references/symphony-host.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-linear",
       "source": "skills/integrations/linear-workflow/references/release-issue.md",
       "target": ".agents/skills/linear-workflow/references/release-issue.md",
       "contentStrategy": "replace"
@@ -897,6 +934,24 @@
       "group": "skills-core",
       "source": "skills/core/security-and-hardening/agents/openai.yaml",
       "target": ".agents/skills/security-and-hardening/agents/openai.yaml",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/code-navigation/SKILL.md",
+      "target": ".agents/skills/code-navigation/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/code-navigation/metadata.json",
+      "target": ".agents/skills/code-navigation/metadata.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/code-navigation/agents/openai.yaml",
+      "target": ".agents/skills/code-navigation/agents/openai.yaml",
       "contentStrategy": "replace"
     },
     {

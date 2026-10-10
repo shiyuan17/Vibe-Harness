@@ -105,6 +105,41 @@ test('project-owned memory targets are seeded once and never reported as drift',
   }
 });
 
+// The project-specific rules file is the one accepted home for local
+// governance: it is rendered on first install, then owned by the project. A
+// project that records its own overrides there must never be blocked by the
+// fail-closed upgrade guard, or the only way to keep local policy would be to
+// stop upgrading.
+test('project-specific rules are a project-owned seed, so local governance never blocks an upgrade', { timeout: 120000 }, async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-rules-seed-'));
+  const rulesPath = path.join(target, 'docs/rules/project-specific-rules.md');
+  const localRules = '# 项目专属规则\n\n## 本地治理条款\n\n- Pack 默认 / 本项目取值 / 依据与证据\n';
+  const options = {
+    adapterId: 'codex',
+    allowPreview: true,
+    profile: 'full',
+    requestedModules: ['rules'],
+    rootDir,
+    targetDir: target,
+  };
+  try {
+    await mkdir(path.dirname(rulesPath), { recursive: true });
+    await writeFile(rulesPath, localRules, 'utf8');
+
+    const diff = await diffTargetInstall({ ...options, dryRun: true });
+    assert.equal(diff.changed.some((item) => item.target === 'docs/rules/project-specific-rules.md'), false);
+    assert.equal(diff.same.some((item) => item.target === 'docs/rules/project-specific-rules.md'), true);
+
+    const plan = await createInstallPlan({ ...options, dryRun: false, force: true });
+    const action = plan.actions.find((item) => item.relativeTarget === 'docs/rules/project-specific-rules.md');
+    assert.equal(action.projectOwned, true);
+    await applyInstallPlan(plan);
+    assert.equal(await readFile(rulesPath, 'utf8'), localRules);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
 test('目标已消失且不在安装计划内的登记被报告为孤儿', async () => {
   const target = await installPackIntoTemporaryProject();
   try {

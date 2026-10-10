@@ -20,7 +20,7 @@ Execution Receipt 是 Linear Issue 上不可变、追加式的结构化评论，
       "startedAt": "RFC3339-UTC"
     }
 
-自动领取使用独立的 v2 Start Receipt，不能把限时授权伪装成一次具体 Issue 的显式请求。新的可写执行使用 v3，并要求 provider 原子 Claim：
+历史自动领取使用独立的 v2 Start Receipt，不能把限时授权伪装成一次具体 Issue 的显式请求。此示例仅用于读取兼容；新的可写执行使用 v3，并要求 provider 原子 Claim：
 
     {
       "schema": "vibe-harness.linear-execution/v2",
@@ -37,7 +37,7 @@ Execution Receipt 是 Linear Issue 上不可变、追加式的结构化评论，
       "grantId": "opaque-uuid-v4"
     }
 
-v3 在上述字段基础上追加 Claim 绑定：
+v3 在历史共有身份字段基础上追加 Claim 绑定；自动领单必须将 source 改为 authorized-auto-claim 并增加 grantId：
 
     {
       "schema": "vibe-harness.linear-execution/v3",
@@ -54,7 +54,7 @@ v3 在上述字段基础上追加 Claim 绑定：
       "claimId": "uuid-v4",
       "leaseExpiresAt": "RFC3339-UTC",
       "fencingToken": "provider-issued-token",
-      "claimProvider": "linear-provider"
+      "claimProvider": "host-atomic-provider"
     }
 
 约束：
@@ -68,6 +68,7 @@ v3 在上述字段基础上追加 Claim 绑定：
 - dagRootIssue 为顶层 Parent 标识；独立 Issue 填 null。dagNodeIssue 必须是当前 Issue。
 - startedAt 使用 UTC RFC3339 时间，不得倒签或回填。
 - provider 不支持原子 Claim 时必须 fail-closed，不得使用本地锁替代；lease 过期后必须重新授权并生成新的 fencing token。
+- 顺序为宿主核验授权和 Ready → provider 原子 Claim → 登记 Delegate → 追加 v3 Receipt → 重读确认；登记不完整须保留 Claim 和现场等待核对。过期 Claim 不能由下一次原子 Claim 自动替换，同一运行时未过期的传输重试才可复用幂等键。
 
 ## 终结事件（Terminal Event）
 
@@ -111,7 +112,7 @@ handed-off 事件可携带一个 vibe-harness.handoff/v1 payload。它是完成�
 
 一个 Start Receipt 在其后没有有效 terminal event 时是 active。同一 Issue 同时最多一个 active execution；两个以上 active Receipt、一个 execution 的多个矛盾终结事件、同一 ID 的不同内容或无法完整读取评论历史都属于冲突，必须停止并由人工处理。
 
-同一 eventId 且字段完全一致的重复结果视为同一事件；同一 execution 最多有一个有效 terminal event。v1 与 v2 Start Receipt 一起判定活动实例和冲突；未知的新增字段可由 V1 消费者忽略，但未知 schema major、未知 eventType 或破坏现有字段语义时必须 fail-closed。
+同一 eventId 且字段完全一致的重复结果视为同一事件；同一 execution 最多有一个有效 terminal event。v1、v2 与 v3 Start Receipt 一起判定活动实例和冲突；未知的新增字段可由旧消费者忽略，但未知 schema major、未知 eventType 或破坏现有字段语义时必须 fail-closed。
 
 ## 幂等写入
 

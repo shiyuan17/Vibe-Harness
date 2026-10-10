@@ -20,6 +20,28 @@
       "items": { "type": "string", "enum": ["codex", "claude", "gemini", "cursor", "qoder", "zcode", "antigravity", "opencode"] }
     },
     "profile": { "type": "string", "enum": ["minimal", "core", "full", "docs-only"] },
+    "delivery": {
+      "type": "object",
+      "required": ["default", "profiles"],
+      "properties": {
+        "default": { "type": "string", "minLength": 1 },
+        "profiles": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["requireReceipt"],
+            "properties": {
+              "merge": { "enum": ["squash", "no-ff"] },
+              "cleanup": { "enum": ["evidence-compatible", "ancestor"] },
+              "requireReceipt": { "type": "boolean" },
+              "write": { "type": "boolean" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "preset": { "type": "string", "enum": ["everything"] },
     "modules": {
       "type": "array",
@@ -188,6 +210,23 @@
       "type": "object",
       "properties": {
         "mode": { "type": "string", "enum": ["auto", "manual", "off"] },
+        "exceptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "owner": { "type": "string", "minLength": 1 },
+              "approvedAt": { "type": "string", "minLength": 1 },
+              "expiresAt": { "type": "string", "minLength": 1 },
+              "reviewCadence": { "type": "string", "minLength": 1 },
+              "rollbackCondition": { "type": "string", "minLength": 1 },
+              "successMetric": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+          }
+        },
         "overrides": {
           "type": "object",
           "properties": {
@@ -249,6 +288,15 @@
           "uniqueItems": true,
           "items": { "type": "string", "minLength": 1 }
         },
+        "mirrors": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?![A-Za-z]:)(?![/\\\\])(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\*.*\\*)(?:[^/*\\\\]+|\\*)(?:/(?:[^/*\\\\]+|\\*))*$"
+          }
+        },
         "ports": {
           "type": "object",
           "properties": {
@@ -267,6 +315,21 @@
         "provision": {
           "type": "object",
           "properties": {
+            "services": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["id", "command", "cwd", "healthcheck", "stopOnTeardown"],
+                "properties": {
+                  "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
+                  "command": { "type": "string", "minLength": 1 },
+                  "cwd": { "type": "string", "minLength": 1 },
+                  "healthcheck": { "type": "string", "minLength": 1 },
+                  "stopOnTeardown": { "type": "boolean" }
+                },
+                "additionalProperties": false
+              }
+            },
             "setupCommands": {
               "type": "array",
               "items": { "type": "string", "minLength": 1 }

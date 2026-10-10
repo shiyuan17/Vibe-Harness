@@ -21,7 +21,7 @@ const runtimeHookEntryPath = '.agents/runtime/hooks/codex-hook.mjs';
  * machine contract; the sentence only has to be actionable.
  */
 const MANUAL_TRUST_VERIFICATION = {
-  'trusted-disabled': '本项目 Hook 已在宿主侧停用（hooks.state enabled=false），安全策略当前不生效；请在 Codex 中用 /hooks 或宿主配置重新启用后再复跑 doctor。',
+  'trusted-disabled': '本项目 Hook 已在宿主侧停用（hooks.state enabled=false），安全策略当前不生效；请在 Codex 中用 /hooks 或宿主配置重新启用后再复跑 doctor 或 validate。',
   'trusted-enabled': '本项目 Hook 已被宿主信任，但仍没有证据表明宿主已加载它；请保留本次结论为 configured-unverified。',
   'untrusted': '宿主没有本项目的 Hook 信任记录，安全策略当前不生效；请在 Codex 中运行 /hooks 信任当前项目的 Hook 定义。',
   'unknown': '无法读取宿主 Hook 信任状态；请在 Codex 中运行 /hooks 复核当前项目的 Hook 定义。',

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { access, chmod, copyFile, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { access, chmod, copyFile, mkdir, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -836,7 +836,7 @@ function collaborationWorkflowEvents(event, item, index, text = '') {
     && /(?:collab|agent|subagent|worker|thread)/u.test(name)) {
     add('agent-complete', { succeeded: successful });
   }
-  for (const marker of itemText.matchAll(/\[VIBE_HARNESS_EVENT:(compaction|agent-dispatch|agent-complete|ownership|agent-conflict|repair|verification|clarification-requested|current-head-read|current-file-read|role-selected|no-subagent-dispatch|unauthorized-action-refused|role-reselected-after-action-change|no-capable-role|codebase-memory-index-checked|codebase-memory-search-graph-used|codebase-memory-trace-call-path-used|ast-grep-outline-used|ast-grep-run-used|ast-grep-scope-minimized|rg-used|text-search-scope-minimized|high-output-shell-routed|ast-grep-bypassed|mcp-runtime-bypassed|interactive-command-bypassed|raw-evidence-bypassed|source-verified)(?::([^\]]+))?\]/giu)) {
+  for (const marker of itemText.matchAll(/\[VIBE_HARNESS_EVENT:(compaction|agent-dispatch|agent-complete|ownership|agent-conflict|repair|verification|clarification-requested|current-head-read|current-file-read|role-selected|no-subagent-dispatch|unauthorized-action-refused|role-reselected-after-action-change|no-capable-role|codebase-memory-index-checked|codebase-memory-search-graph-used|codebase-memory-trace-call-path-used|codegraph-current-source-read|stale-result-detected|codegraph-unavailable|graph-summary-treated-as-navigation|code-navigation-skill-loaded|deferred-tool-search-used|symbol-located-before-edit|code-intelligence-unavailable|status-recorded|local-source-context-built|ast-grep-outline-used|ast-grep-run-used|ast-grep-scope-minimized|rg-used|text-search-scope-minimized|high-output-shell-routed|ast-grep-bypassed|mcp-runtime-bypassed|interactive-command-bypassed|raw-evidence-bypassed|source-verified)(?::([^\]]+))?\]/giu)) {
     const fields = markerFields(marker[2]?.trim().slice(0, 1000));
     if (typeof fields.succeeded === 'string') fields.succeeded = fields.succeeded !== 'false';
     if (typeof fields.disjoint === 'string') fields.disjoint = fields.disjoint !== 'false';
@@ -1216,7 +1216,14 @@ async function repositoryHead(workspace, environment) {
   return result.code === 0 ? result.stdout.trim() || null : null;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// A Worktree reaches this entry through its `.agents` junction, so the entry
+// path is compared by realpath instead of by the path string it was called with.
+const invokedPath = process.argv[1]
+  ? await realpath(process.argv[1]).catch(() => path.resolve(process.argv[1]))
+  : null;
+const modulePath = await realpath(fileURLToPath(import.meta.url))
+  .catch(() => fileURLToPath(import.meta.url));
+if (invokedPath !== null && invokedPath === modulePath) {
   try {
   const startedAt = process.hrtime.bigint();
   const request = await stdin();

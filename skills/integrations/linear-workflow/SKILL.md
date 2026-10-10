@@ -12,13 +12,13 @@ description: Use when executing, reviewing, verifying, refining, synchronizing, 
 - Writer 仅在用户明确要求具体 Issue、已有 Delegate 且宿主显式启动，或宿主依据有效限时领单授权事件派发具体 Issue 时执行。
 - 无宿主授权派发时禁止自动领取；Agent 不扫描、轮询或订阅 Ready Queue。Vibe-Harness 不提供常驻调度器、自动超时回收或自动重派。
 - 没有具体 Issue ID 时，Agent 不选择、认领或更新任务；宿主按规则第 1 节选候选，不把队列可见性当授权。
-- 高风险执行只接受 v2 Execution Envelope，v1 仅作 contract-only/degraded 兼容；mode 与 effect 枚举按规则第 1 节。调用写工具前建立当前请求的 Execution Envelope。无原生 Goal bridge 时不声称后台持续执行，不阻止用户继续请求或宿主显式续跑恢复原范围工作。
+- 高风险执行只接受 v2 Execution Envelope，v1 仅作 contract-only/degraded 兼容；mode 与 effect 枚举按规则第 1 节。调用写工具前建立当前请求的 Execution Envelope。自动领单的 Envelope 与宿主证明只由宿主签发，Issue、项目配置和 Agent 不得自造。无原生 Goal bridge 时不声称后台持续执行，不阻止用户继续请求或宿主显式续跑恢复原范围工作。
 - Parent 计划必须携带 `executionMode`、`wallClock` 和 `agentPlan`；单 Agent 是默认执行模式，只有共享契约冻结、writeScope/Resource Lock 隔离、Agent 容量可用且预计净节省至少 45 分钟和 25% 时才并行。
 - 分支约定：`feat/*、fix/* → develop → main`；紧急修复 `hotfix/* → main → develop`。`develop` 是日常集成分支，`main` 是正式发布分支，不创建长期 `release/*` 分支，`release/*` 只在管理员为并行维护版本临时创建时存在并按其门禁处理；closing PR 合并后开发 Issue 立即 Done。合入 `develop` 必须通过稳定 fast gate；远端完整 CI 只在发布边界（`develop → main`、`hotfix/* → main`、`release/*`）运行。合并前的本地验证必须建立在最新 `origin/develop` 之上，高风险变更仍须携带 Independent Review Receipt。
 
 ## 1. 判断执行授权与角色
 
-按规则第 1 节判定授权后开始。提及、查看、总结、解释、Review、Verify 或列出队列都不构成领取授权；Ready、Todo、依赖满足或队列可见不是 execute 授权。Reviewer 和 Verifier 始终只读，不登记执行身份、不写 Receipt、不取得实现所有权。自动领取仅接受宿主给出的具体 Issue ID、未撤销且未过期的限时授权、尚未用尽的领取数额、独占派发证明和绑定该 Issue 的 v2 execute Envelope；缺任一项即拒绝。每个 Issue 达到 terminalCondition 后结束本次运行，下一任务只能由宿主重新核验授权并启动新的运行。
+按规则第 1 节判定授权后开始。提及、查看、总结、解释、Review、Verify 或列出队列都不构成领取授权；Ready、Todo、依赖满足或队列可见不是 execute 授权。Reviewer 和 Verifier 始终只读，不登记执行身份、不写 Receipt、不取得实现所有权。自动领取仅接受宿主给出的具体 Issue ID、未撤销且未过期的限时授权、尚未用尽的领取数额、独占派发证明和绑定该 Issue 的 v2 execute Envelope；缺任一项即拒绝。新写入的 Start Receipt 使用 v3，历史 v1/v2 只读兼容。每个 Issue 达到 terminalCondition 后结束本次运行，下一任务只能由宿主重新核验授权并启动新的运行。
 
 ## 2. 读取 Linear 真值
 
@@ -45,12 +45,12 @@ description: Use when executing, reviewing, verifying, refining, synchronizing, 
 正常写通道下，在创建 worktree、分支或开始实现前按固定顺序登记；完整 schema、幂等与恢复语义见规则第 5 节：
 
 1. 检查是否已有其他 Delegate、其他 fallback Agent label 或未终结的活动实例；存在时停止并请求显式交接。
-2. 保留人类 Assignee，优先登记原生 Delegate/App User。
-3. 不支持 Delegate 时，只使用管理员预配置的低基数 agent:<agent-key> 与 role:writer 标签；不得创建带实例 ID 的标签。
-4. 按 references/execution-receipt.md 追加不可变 start Receipt；自动领取用 v2、source=authorized-auto-claim 和宿主授权的非敏感 grantId，其他情形沿用 v1。
-5. 通过 provider 原子 Claim 后重新读取并逐字段确认身份、Receipt、lease 和 fencing token 一致；任何 Claim 能力缺失、部分写入、结果不确定或验证失败都 fail-closed，报告 registration-incomplete，不开始实现，也不声称已领取。
+2. 宿主在持久提供方上原子 Claim，证明跨实例互斥，并冻结 claimId、executionId、lease 与 fencing token；Claim 不得由 Agent 本地锁或写后重读代替。结果不确定时先查询同一幂等键，不得申请第二套 ID。
+3. 保留人类 Assignee，优先登记原生 Delegate/App User；不支持时只使用管理员预配置的低基数 agent:<agent-key> 与 role:writer 标签，不创建实例级标签。
+4. 按 references/execution-receipt.md 追加不可变 v3 Start Receipt；自动领取固定 source=authorized-auto-claim，并带宿主授权的非敏感 grantId。
+5. 重新读取并逐字段确认 Claim、身份、Receipt、lease 和 fencing token 一致；任何能力缺失、部分写入、结果不确定或验证失败都 fail-closed，报告 registration-incomplete，不开始实现，也不声称已领取。
 
-v1 source 依次判定为：有效交接使用 authorized-handoff；本轮明确执行指令使用 explicit-user-request；否则只有当前 Agent 已是 Delegate 且宿主显式启动时使用 existing-delegate。宿主自动领单不伪装成 v1 显式指令，必须使用 v2 authorized-auto-claim。宿主没有可证明的跨实例互斥能力时，写后重读也不能替代原子领取，停止派发。
+非自动执行 source 依次判定为：有效交接使用 authorized-handoff；本轮明确执行指令使用 explicit-user-request；否则只有当前 Agent 已是 Delegate 且宿主显式启动时使用 existing-delegate。宿主自动领单不伪装成显式指令，必须使用 v3 authorized-auto-claim。lease 过期、Grant 撤销或宿主重启不得静默接管或自动重派；暂停写入，保留现场并请求人工核对。
 
 ## 5. Linear 不可写时的回退/fallback
 
@@ -82,5 +82,6 @@ Linear 只读、MCP 不可用或写入验证失败时，不得声称已登记、
 - references/release-issue.md
 - references/triage-template.md
 - references/workspace-setup.md
+- references/symphony-host.md
 
-这些文件是配置和契约清单，不授权直接修改 Linear Workspace。
+这些文件是配置和契约清单，不授权直接修改 Linear Workspace；Symphony 参考还要求宿主侧实际实现和验证，安装本 Skill 不会安装调度器。

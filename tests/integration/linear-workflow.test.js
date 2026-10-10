@@ -16,7 +16,9 @@ import {
   RECEIPT_SOURCES,
   START_RECEIPT_KEYS,
   START_RECEIPT_KEYS_V2,
+  START_RECEIPT_KEYS_V3,
   START_RECEIPT_SCHEMA_V2,
+  START_RECEIPT_SCHEMA_V3,
   TERMINAL_EVENT_KEYS,
   TERMINAL_EVENT_TYPES,
 } from '../../scripts/lib/receipt-records.js';
@@ -53,6 +55,17 @@ test('Linear execution receipt separates accountability, product identity, and r
   assert.ok(rule.includes(AUTO_CLAIM_RECEIPT_SOURCE));
   for (const source of RECEIPT_SOURCES) assert.ok(rule.includes(source), source);
   for (const type of TERMINAL_EVENT_TYPES) assert.ok(rule.includes(type), type);
+  const skill = await readFile(path.join(rootDir, LINEAR_SKILL), 'utf8');
+  const spec = await readFile(path.join(rootDir, 'docs/specs/linear-multi-agent-workflow-spec.md'), 'utf8');
+  const hostReference = await readFile(path.join(rootDir, 'skills/integrations/linear-workflow/references/symphony-host.md'), 'utf8');
+  const receiptReference = await readFile(path.join(rootDir, 'skills/integrations/linear-workflow/references/execution-receipt.md'), 'utf8');
+  for (const key of START_RECEIPT_KEYS_V3) {
+    assert.ok(spec.includes(key) || skill.includes(key) || hostReference.includes(key) || receiptReference.includes(key), key);
+  }
+  assert.ok(spec.includes(START_RECEIPT_SCHEMA_V3));
+  assert.match(skill, /宿主在持久提供方上原子 Claim[\s\S]*登记原生 Delegate[\s\S]*不可变 v3 Start Receipt/u);
+  assert.match(hostReference, /进程内 claimed 集合[\s\S]*不能直接承载自动领单/u);
+  assert.match(hostReference, /过期 Claim 不能|lease 过期或 fencing 失配/u);
 });
 
 test('Linear online Eval covers authorized handoff and stable fallback labels', async () => {
@@ -258,6 +271,7 @@ test('Codex Linear plugins render read-write and read-only project MCP endpoints
       assert.doesNotMatch(config.content, /token|api[_-]?key|bearer/iu);
       assert.equal(report.actions.some((item) => item.relativeTarget === 'docs/rules/linear-workflow.md'), true);
       assert.equal(report.actions.some((item) => item.relativeTarget === '.agents/skills/linear-workflow/SKILL.md'), true);
+      assert.equal(report.actions.some((item) => item.relativeTarget === '.agents/skills/linear-workflow/references/symphony-host.md'), true);
       assert.equal(report.actions.some((item) => item.relativeTarget === 'docs/templates/linear/ai-coding-task.md'), true);
       assert.equal(report.actions.some((item) => item.relativeTarget === 'docs/templates/linear/workspace-setup.md'), true);
       assert.equal(report.actions.some((item) => item.relativeTarget === 'docs/templates/linear/triage-template.md'), true);

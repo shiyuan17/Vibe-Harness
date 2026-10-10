@@ -109,7 +109,7 @@ function codebaseMemoryStatusCommand(hasProjectScripts) {
     : '`codebase-memory status`';
 }
 
-function toolDiscoveryLine(installedProviderModules, { hasProjectScripts = false } = {}) {
+function toolDiscoveryLine(installedProviderModules, { hasProjectScripts = false, hasCodeNavigationSkill = false } = {}) {
   const routes = [];
   if (hasPluginCapability(installedProviderModules, 'code-intelligence.semantic-graph')) {
     routes.push('跨文件符号关系、调用链、影响面或架构问题先用 codebase-memory-mcp 的 status 命令（'
@@ -137,7 +137,14 @@ function toolDiscoveryLine(installedProviderModules, { hasProjectScripts = false
   // same fact. The default is a single best-matching entry, and the freshness
   // sentence stops the same task/workspace from re-checking an index it just
   // confirmed.
-  return '先按问题类型选工具，默认只用一个与当前问题最匹配的入口：' + routes.join('；') + '。'
+  // The code-navigation Skill is the always-loaded trigger that makes the
+  // deferred code-intelligence tools visible before the model picks a tool.
+  // When it is installed it leads the routing sentence; when it is not, the
+  // line is byte-identical to before so the rg-only baseline stays intact.
+  const codeNavigationLead = hasCodeNavigationSkill
+    ? '跨文件上下文（符号、调用链、影响面、架构）先用 code-navigation Skill 建立，再按其内容选择下面对应的单一入口；'
+    : '';
+  return '先按问题类型选工具，默认只用一个与当前问题最匹配的入口：' + codeNavigationLead + routes.join('；') + '。'
     + '同一任务、同一工作区内已确认新鲜的索引不重复检查；索引陈旧时先用旧图定位，'
     + '再用当前源码补齐受影响事实，不自动全量重建，也不把旧图当作当前事实。'
     + rtkBoundary;
@@ -184,7 +191,7 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
   const profileLines = {
     core: '- 当前安装方式：通用安装（不包含扩展 MCP 或 hooks 安装面）。',
     'docs-only': '- 当前安装方式：仅文档安装。',
-    full: '- 当前安装方式：完整能力安装（包含十二个原生 Skills、可选 Eval 和 Codex 安全 hooks；memory 与外部工具仅通过 `--plugin` 显式启用）。',
+    full: '- 当前安装方式：完整能力安装（包含十三个原生 Skills、可选 Eval 和 Codex 安全 hooks；memory 与外部工具仅通过 `--plugin` 显式启用）。',
     minimal: '- 当前安装方式：最小安装。',
   };
 
@@ -234,7 +241,10 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
       + installedSurface.memoryLoadLine
       + ' 专项 Skill 限制 Memory 证据边界时，只确认路径存在与元数据，不读正文。';
   }
-  installedSurface.discoveryLine = toolDiscoveryLine(installedProviderModules, { hasProjectScripts });
+  installedSurface.discoveryLine = toolDiscoveryLine(installedProviderModules, {
+    hasProjectScripts,
+    hasCodeNavigationSkill: hasSkill('code-navigation/SKILL.md'),
+  });
   if (hasRoles) {
     // Role files are optional context, not a startup step: loading one on every
     // read-only or local task costs tokens and buys nothing. Selection stays

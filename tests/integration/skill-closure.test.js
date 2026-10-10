@@ -11,7 +11,7 @@ import { runSkillsAudit } from '../../scripts/lib/skills-audit.js';
 
 const rootDir = path.resolve(import.meta.dirname, '../..');
 const execFileAsync = promisify(execFile);
-const coreSkills = ['clarify-requirements', 'define-goal', 'task-decomposition', 'git-deliver', 'systematic-debugging', 'bug-finding', 'stale-cleanup', 'eval-driven-development', 'security-and-hardening'];
+const coreSkills = ['clarify-requirements', 'define-goal', 'task-decomposition', 'git-deliver', 'systematic-debugging', 'bug-finding', 'stale-cleanup', 'eval-driven-development', 'security-and-hardening', 'code-navigation'];
 const fullSkills = ['api-and-interface-design', 'frontend-design', 'runtime-cross-repo-rollout'];
 const nativeSkills = [...coreSkills, ...fullSkills];
 const retiredSkills = [
@@ -20,11 +20,11 @@ const retiredSkills = [
   'loop-planning', 'subagent-driven-development',
 ];
 
-test('manifest exposes twelve native and three explicit integration Skills', async () => {
+test('manifest exposes thirteen native and three explicit integration Skills', async () => {
   const manifest = await readJson(path.join(rootDir, 'manifests/skills.json'));
   assert.deepEqual(manifest.items.filter((item) => item.kind === 'native').map((item) => item.id), nativeSkills);
   assert.deepEqual(manifest.items.filter((item) => item.kind === 'integration').map((item) => item.id), ['browser-verification', 'agentmemory', 'linear-workflow']);
-  assert.equal(manifest.items.length, 15);
+  assert.equal(manifest.items.length, 16);
   for (const item of manifest.items) {
     assert.deepEqual(item.requiresSkills, []);
     assert.deepEqual(item.optionalSkills, []);
@@ -72,10 +72,10 @@ test('native Skill descriptions, bodies, resources, and OpenAI metadata stay wit
   // rose to 150 lines for `stale-cleanup`, whose cleanup boundaries need more
   // room than a pure review Skill; the aggregate rose with it so the pack does
   // not have to compress unrelated Skills to pay for it.
-  assert.ok(identityCharacters <= 1750);
+  assert.ok(identityCharacters <= 2000);
 });
 
-test('core and full install exactly nine and twelve native Skills', async () => {
+test('core and full install exactly ten and thirteen native Skills', async () => {
   for (const [profile, expected] of [['core', coreSkills], ['full', nativeSkills]]) {
     const plan = await createInstallPlan({ dryRun: true, profile, rootDir, targetDir: path.join(rootDir, `.tmp-skills-${profile}`) });
     const installed = plan.actions
@@ -145,8 +145,8 @@ test('retirement catalog covers every removed Router and flow Skill', async () =
 
 test('skills audit derives the compact inventory and executes the graph validator', async () => {
   const { stdout } = await execFileAsync(process.execPath, ['scripts/skills-audit.js'], { cwd: rootDir });
-  assert.match(stdout, /总数：15/u);
-  assert.match(stdout, /native：12/u);
+  assert.match(stdout, /总数：16/u);
+  assert.match(stdout, /native：13/u);
   assert.match(stdout, /integration：3/u);
   assert.deepEqual((await runSkillsAudit(rootDir)).errors, []);
 });

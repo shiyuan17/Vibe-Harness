@@ -231,7 +231,7 @@ test('transcript records only explicit structured handoffs', () => {
 
 const installedSkillOwners = [
   'agentmemory', 'api-and-interface-design', 'bug-finding', 'clarify-requirements',
-  'define-goal', 'eval-driven-development', 'frontend-design', 'runtime-cross-repo-rollout',
+  'code-navigation', 'define-goal', 'eval-driven-development', 'frontend-design', 'runtime-cross-repo-rollout',
   'security-and-hardening', 'stale-cleanup', 'systematic-debugging', 'task-decomposition', 'git-deliver',
 ].map((id) => ({ kind: 'skill', id }));
 
@@ -279,7 +279,7 @@ test('knowledge coverage distinguishes existing coverage, missing evidence, and 
   assert.equal(confirmed.promotionStatus, 'eligible-for-owner-review');
 });
 
-test('knowledge coverage candidate inventory matches the 13 installed project Skills', async () => {
+test('knowledge coverage candidate inventory matches the 14 installed project Skills', async () => {
   const installed = (await readdir(path.join(rootDir, '.agents/skills'), { withFileTypes: true }))
     .filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
   assert.deepEqual(installed, installedSkillOwners.map((owner) => owner.id).sort());

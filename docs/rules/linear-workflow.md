@@ -113,12 +113,13 @@ Linear 正常可写通道下，在开始节点工作前按固定顺序执行：
 1. 读取状态、Assignee、Delegate、描述、全部原生 relations、workspace 与 team Guidance（team 级优先；Guidance 是团队约定输入，不是授权根），以及足以判定所有未终结结构化执行记录的完整评论历史。
 2. 验证 Todo、Definition of Ready、DAG、仓库、精确目标远端 ref、Scope 和 Verification；解析并冻结目标 ref 的 base SHA。分页不完整、记录无法解析或相互矛盾时 fail-closed。
 3. 检查 Delegate、管理员预配置的 fallback 标签和活动实例；存在其他身份或活动实例时停止并请求显式交接。
-4. 保留人类 Assignee。优先登记原生 Delegate/App User；不支持时只使用低基数 agent:<agent-key> 与 role:writer 标签，不创建实例级标签，也不覆盖其他 agent:* / role:* 标签。
-5. 追加不可变 Execution Receipt，并重新读取逐字段确认身份和 Receipt 一致；确认成功后才开始节点工作，write 节点按隔离条件创建当前 clone 分支或仓库外 worktree 并实现。
+4. 宿主通过持久 provider 原子 Claim，取得 claimId、executionId、lease 与 fencing token；结果不确定时先按同一幂等键查询，不得重新生成一套 ID。没有跨实例互斥能力则停止。
+5. 保留人类 Assignee。优先登记原生 Delegate/App User；不支持时只使用低基数 agent:<agent-key> 与 role:writer 标签，不创建实例级标签，也不覆盖其他 agent:* / role:* 标签。
+6. 追加不可变 v3 Execution Receipt，并重新读取逐字段确认 Claim、身份和 Receipt 一致；确认成功后才开始节点工作，write 节点按隔离条件创建当前 clone 分支或仓库外 worktree 并实现。部分登记保留 Claim 等待人工核对，不自动释放或重派。
 
 历史显式执行使用 vibe-harness.linear-execution/v1，字段固定为 `executionId`、`source`、`agentKey`、`hostKind`、`delegateId`、`runtimeInstanceId`、`role`、`dagRootIssue`、`dagNodeIssue` 和 `startedAt`；source 只允许 `explicit-user-request`、`existing-delegate`、`authorized-handoff`。自动领取使用 vibe-harness.linear-execution/v2；两者继续只读解析。新的可写执行必须使用 vibe-harness.linear-execution/v3，并携带 `claimId`、`leaseExpiresAt`、`fencingToken` 和 `claimProvider`。自动领取的 v3 仍要求非敏感 UUID v4 `grantId`，source 固定为 `authorized-auto-claim`；`grantId` 只是宿主持久授权的引用，不是授权证明，不能由 Issue 内容或 Agent 自填构造权限。v1、v2 与 v3 共同计入同一 Issue 的活动实例冲突。executionId、runtimeInstanceId、claimId 使用 UUID v4；runtimeInstanceId 是本 Receipt 新生成的关联 ID，不得复制宿主 thread、session、用户名、主机名或本地路径。
 
-一个 start Receipt 在其后没有有效终结事件时为 active，同一 Issue 最多一个 active execution。v3 Claim 必须由 provider 原子写入并由 fencing token 保护；provider 不支持原子 Claim 时 fail-closed，不使用本地锁替代。冲突、能力缺失、lease 过期、fencing 不匹配和 handoff CAS 失败分别报告 `CLAIM_CONFLICT`、`CLAIM_CAPABILITY_UNAVAILABLE`、`LEASE_EXPIRED`、`FENCING_MISMATCH` 和 `HANDOFF_CAS_CONFLICT`。传输重试复用同一组 ID：结果不确定时先重读，字段完全一致视为幂等成功；同 ID 内容不同、出现第二个 active execution 或 identity / Receipt 不一致时停止。同一运行时的上下文压缩或恢复保留原 executionId、runtimeInstanceId 与 fencing token；新的运行时不得静默接管 active Receipt，必须先走显式 handoff 或 release。身份已写但 Receipt 未确认时报告 registration-incomplete，不开始实现，也不删除或编辑原记录。
+一个 start Receipt 在其后没有有效终结事件时为 active，同一 Issue 最多一个 active execution。v3 Claim 必须由 provider 原子写入并由 fencing token 保护；provider 不支持原子 Claim 时 fail-closed，不使用本地锁替代。冲突、能力缺失、lease 过期、fencing 不匹配和 handoff CAS 失败分别报告 `CLAIM_CONFLICT`、`CLAIM_CAPABILITY_UNAVAILABLE`、`LEASE_EXPIRED`、`FENCING_MISMATCH` 和 `HANDOFF_CAS_CONFLICT`。lease 过期后的 Claim 不得自动替换或视为幂等成功；先停止并人工核对。未过期的传输重试复用同一组 ID：结果不确定时先重读，字段完全一致视为幂等成功；同 ID 内容不同、出现第二个 active execution 或 identity / Receipt 不一致时停止。同一运行时的上下文压缩或恢复保留原 executionId、runtimeInstanceId 与 fencing token；新的运行时不得静默接管 active Receipt，必须先走显式 handoff 或 release。身份已写但 Receipt 未确认时报告 registration-incomplete，不开始实现，也不删除或编辑原记录。
 
 原 Receipt 不得编辑。released、aborted、handed-off、local-work-completed 使用 vibe-harness.linear-execution-event/v1 追加事件，包含 eventId、executionId、eventType、successorExecutionId 和 occurredAt；每个 execution 最多一个有效终结事件，矛盾事件 fail-closed。local-work-completed 不是 Linear Done。handoff 先用预定 successorExecutionId 终结旧运行，再用同一 successor ID 创建 source=authorized-handoff 的新 Receipt；重试不得生成第三套 ID。release 可按明确授权清除 Delegate，abort 和 local completion 默认保留 Delegate。
 
