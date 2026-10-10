@@ -176,7 +176,7 @@ export async function inspectRuntimeHookSelfCheck(adapter, targetDir, { configur
  * @param {string} targetDir
  * @param {{hostEvidence?: Record<string, any>, hostHookState?: Record<string, any> | null, selfCheck?: boolean}} options
  */
-export async function inspectRuntimeHooks(adapter, targetDir, { hostEvidence = {}, hostHookState = null, selfCheck = false } = {}) {
+export async function inspectRuntimeHooks(adapter, targetDir, { hostEvidence = {}, hostHookState = null, selfCheck = true } = {}) {
   const configTarget = hookConfigTarget(adapter);
   const configured = Boolean(configTarget && await pathExists(path.join(targetDir, configTarget)));
   const filesInstalled = await pathExists(path.join(targetDir, runtimeHookEntryPath));
@@ -216,11 +216,50 @@ export async function inspectRuntimeHooks(adapter, targetDir, { hostEvidence = {
   const hostContextVerified = ['sandbox', 'approval', 'process', 'network']
     .every((field) => hostEvidence[field] === true);
   const envelopeRequired = hostEvidence.envelopeRequired === true;
+  const selfCheckResult = selfCheck
+    ? await inspectRuntimeHookSelfCheck(adapter, targetDir, { configured })
+    : null;
   const enforced = configured
     && activated === true
     && envelopeRequired
     && hostContextVerified
-    && authority.highRiskEnforcement === 'host-required';
+    && authority.highRiskEnforcement === 'host-required'
+    && selfCheckResult?.status === 'pass';
+  const enforcementReasonCode = !supported
+    ? 'HOST_HOOK_UNSUPPORTED'
+    : !configured
+      ? 'HOOK_NOT_CONFIGURED'
+      : activated !== true
+        ? 'HOST_HOOK_NOT_ACTIVATED'
+        : !envelopeRequired
+          ? 'EXECUTION_ENVELOPE_UNPROVEN'
+          : !hostContextVerified
+            ? 'HOST_CAPABILITIES_UNPROVEN'
+            : authority.highRiskEnforcement !== 'host-required'
+              ? 'ADAPTER_ENFORCEMENT_NOT_HOST_REQUIRED'
+              : selfCheckResult?.status !== 'pass'
+                ? (selfCheckResult?.code ?? 'HOOK_SELF_CHECK_UNVERIFIED')
+                : 'ENFORCED';
+  const diagnosticStatus = enforced
+    ? 'enforced'
+    : !supported
+      ? 'unsupported'
+      : !configured
+        ? 'not-configured'
+        : selfCheckResult?.status === 'degraded'
+          ? 'degraded'
+          : activated === true
+            ? 'verified'
+            : 'configured-unverified';
+  const checkedAt = new Date().toISOString();
+  const hostEvidenceSummary = {
+    activated: hostEvidence.activated === true,
+    envelopeRequired,
+    sandbox: hostEvidence.sandbox === true,
+    approval: hostEvidence.approval === true,
+    process: hostEvidence.process === true,
+    network: hostEvidence.network === true,
+  };
   if (activated === true) {
     status = 'verified';
     verification = 'Host evidence confirms the Hook is activated for this project.';
@@ -249,19 +288,24 @@ export async function inspectRuntimeHooks(adapter, targetDir, { hostEvidence = {
     freshContext: inspectFreshContext(adapter),
     host: adapter.id,
     pathResolution: 'git-root',
-    status: enforced ? 'enforced' : (!supported ? 'unsupported' : (!configured ? 'not-configured' : 'configured-unverified')),
+    status: diagnosticStatus,
     supported,
     activation: { mechanism, status, verification },
+    hostEvidence: hostEvidenceSummary,
+    enforcementReasonCode,
+    evidenceSource: enforced
+      ? 'host-and-self-check'
+      : selfCheckResult ? 'project-config-and-self-check' : configured ? 'project-config' : 'none',
+    checkedAt,
     hostHookState: trustState
       ? {
-          configPath: trustState.configPath,
           entries: { ...trustState.entries },
           reason: trustState.reason,
           status: trustState.status,
         }
       : null,
   };
-  if (selfCheck) report.selfCheck = await inspectRuntimeHookSelfCheck(adapter, targetDir, { configured });
+  if (selfCheckResult) report.selfCheck = selfCheckResult;
   return report;
 }
 
