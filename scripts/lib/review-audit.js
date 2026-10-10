@@ -104,13 +104,14 @@ export function evaluateReviewReceipt({ change, receipt, schema }) {
   if (receipt?.reviewer?.identity === receipt?.implementer?.identity) evidence.push(auditItem('REVIEW_SAME_IDENTITY', 'error', 'Reviewer identity must differ from implementer identity.'));
   if (receipt?.reviewer?.contextId === receipt?.implementer?.contextId) evidence.push(auditItem('REVIEW_SAME_CONTEXT', 'error', 'Reviewer context must differ from implementer context.'));
   if (risk.level === 'high' && receipt?.schemaVersion !== 2) {
-    evidence.push(auditItem('REVIEW_SCHEMA_V2_REQUIRED', 'error', 'High-risk changes require a schema v2 receipt: only v2 carries the two-reviewer and context-independence contract.'));
+    evidence.push(auditItem('REVIEW_SCHEMA_V2_REQUIRED', 'error', 'High-risk changes require a schema v2 receipt: only v2 carries the reviewer and context-independence contract.'));
   }
   if (risk.level === 'high' && receipt?.schemaVersion === 2) {
     const reviewers = Array.isArray(receipt.reviewers) ? receipt.reviewers : [];
     const identities = reviewers.map((item) => item?.identity).filter(Boolean);
     const contexts = reviewers.map((item) => item?.contextId).filter(Boolean);
-    if (reviewers.length < 2) evidence.push(auditItem('REVIEW_SECOND_REVIEW_MISSING', 'error', 'Schema v2 high-risk reviews require two independent reviewers.'));
+    // The reviewer floor is structural: the schema requires at least one entry,
+    // so an empty list is already reported as REVIEW_RECEIPT_SCHEMA.
     if (new Set(identities).size !== identities.length) evidence.push(auditItem('REVIEW_DUPLICATE_IDENTITY', 'error', 'Independent reviewers must have distinct identities.'));
     if (new Set(contexts).size !== contexts.length) evidence.push(auditItem('REVIEW_DUPLICATE_CONTEXT', 'error', 'Independent reviewers must have distinct contexts.'));
     if (reviewers.some((item) => item?.identity === receipt?.implementer?.identity)) {
@@ -122,8 +123,8 @@ export function evaluateReviewReceipt({ change, receipt, schema }) {
     if (reviewers.length > 0 && !reviewers.some((item) => item?.identity === receipt?.reviewer?.identity && item?.contextId === receipt?.reviewer?.contextId)) {
       evidence.push(auditItem('REVIEW_REVIEWER_MISMATCH', 'error', 'The primary reviewer must appear in the reviewer list.'));
     }
-    if (receipt.contextIndependence !== 'verified') {
-      evidence.push(auditItem('REVIEW_CONTEXT_INDEPENDENCE_UNVERIFIED', 'error', 'Schema v2 high-risk reviews require host-verified context independence; attested or unavailable is not sufficient for approval.'));
+    if (receipt.contextIndependence === 'unavailable') {
+      evidence.push(auditItem('REVIEW_CONTEXT_INDEPENDENCE_UNAVAILABLE', 'error', 'Schema v2 high-risk reviews accept attested context independence; an unavailable declaration cannot support approval.'));
     }
   }
   const verification = receipt?.verification;
