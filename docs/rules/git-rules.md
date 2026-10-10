@@ -11,6 +11,12 @@ Git 规则的目标是保护用户改动、保持提交可审查，并确保 wor
 
 以下为完整规则，仅当任务超出卡片或命中升级触发时继续读取。
 
+## Delivery Profile 清理边界
+
+managed-mr 的 land 只读取已合入 MR 的证据，不本地合并或推送。ancestor 快速路径保留；squash 清理须绑定 sourceBase/sourceHead、targetRef/targetBefore/targetAfter、mergeMethod/mergeCommit、patchId 和 taskId。重读目标引用、核对整个 source diff 与单父 squash commit 的 stable patch-id、干净工作树以及当前完成收据；缺失、漂移或不一致一律 blocked。GitLab `--mr` 读取失败不得猜测已合并。cleanup 保留分支，不自动强删 squash source 分支。
+
+受管服务通过 `runtime service start|status|stop` 管理，start/stop 写入须 `--write`；只管理自己启动登记的 supervisor/child。停止前核对 PID、cwd、command fingerprint 和启动时间，不能证明归属或 supervisor 丢失时 blocked。cleanup、land、recover 在移除对应工作区前停止登记服务，失败保留工作区；不扫描、终止用户未知进程。
+
 ## 启动与归属
 
 - 编辑前运行 `git status --short`；SVN 工作副本运行 `svn status`。
@@ -120,9 +126,12 @@ Vibe-Harness 自身使用 Conventional Commits、commitlint、pre-commit、pre-p
 - 临时候选 worktree 只有在工作区干净时自动移除；异常残留由 `worktree recover` 报告，`--write` 仅清理有归因、干净的候选。脏候选与疑似残留锁由操作者核对，不强制删除；本地 `land` 不创建远端合并队列，也不能代替共享分支 required checks。
 - 崩溃残留走专门入口：目录已消失但 Git 元数据与分支绑定仍在的 worktree 由 `worktree check` 报为 `WORKTREE_PRUNABLE_RESIDUE` 错误并阻塞审计通过。`worktree recover` 默认只出计划，追加 `--write` 后按序移除不完整 worktree（端口 env 文件在位且登记在册时跳过，仅当分支未离开基线且工作区干净时连同分支与端口登记一起移除）、prunable 残留（一次 `git worktree prune`）、孤立分支与孤立端口登记。分支删除仅在存在归因证据（端口登记表条目或 prunable 清单）、分支 HEAD 等于 `worktree.baseRef` 解析出的基线 SHA 且该分支不是基线本身时发生；无引用的用户占位分支、带未并入提交的分支与登记面之外的外来 worktree 一律不动。`recover` 的分支删除仅限上述证据门——这不与「merge-back 完成前不删除分支」冲突：被删分支从未持有任何提交。该入口的另一处分支删除只发生在 `land` 的推送成功之后，且使用自带未合并拒绝保险的 `git branch -d`。
 - worktree 工具分两个入口：上述项目面入口是安装交付内唯一的写入面，负责创建、依赖链接与清理；Vibe-Harness 源仓库的开发面另有只读审计 CLI（`scripts/worktree.js`，`list|check|plan`，按登记任务核对分支命名与 merge-back 事实，永不执行写入、也永不创建 worktree），不随安装交付——目标项目不引入第二个 worktree 写入口。
-- worktree 的依赖链接（`node_modules` junction 或 symlink）由 `worktree bootstrap` 建立并对每个本地包逐项 realpath 断言；断言失败时回滚本次新建的 worktree，不留半成品。`worktree check` 报告依赖链接缺失或指回主检出的事实，不用手写脚本重复搭建。
+- worktree 的依赖链接（`node_modules` junction 或 symlink）由 `worktree bootstrap` 建立并对每个本地包逐项 realpath 断言；断言失败时回滚本次新建的 worktree，不留半成品。`.bin`/`.bun`/`.pnpm` 这些内容寻址 store 随 overlay 投影（隔离布局靠它们解析依赖），构建缓存 `.cache`/`.vite`/`.vite-temp` 仍跳过；每个自带 `node_modules` 的 workspace 包另有包级 overlay，使 `apps/*`、`packages/**`、`internal/**`、`scripts/*` 在隔离布局下解析到 worktree 自身。`worktree check` 报告依赖链接缺失或指回主检出的事实，不用手写脚本重复搭建。
 - 多 worktree 并发时端口按登记表分段：`worktree.ports` 声明 `base`、`blockSize`、`variables` 与 `envFile`，主检出保留 `[base, base+blockSize-1]`，第 n 个 worktree 占用 `[base+n*blockSize, base+(n+1)*blockSize-1]`，块内第 i 个变量取 `blockStart+i`。分配结果写入主检出 `.vibe-harness/worktree-ports.json`，并由 `.vibe-harness/worktree-ports.lock` 独占锁串行化；锁等待超时即 fail-closed，不自动清理残留锁。端口冲突只按登记表与声明事实判定，不调用 `netstat`/`lsof` 推断分配。
-- worktree 环境补齐是声明式的：`worktree.provision.setupCommands` 与 `envFiles` 由 `bootstrap` 按「worktree add → 依赖链接 → 端口分配与 env 文件 → 声明的 envFiles 落地 → 声明的 setupCommands → 工具链探针」执行，默认只出计划、追加 `--write` 才落盘，目标命中 `hooks.redZonePaths` 时还需 `--confirm-red-zone`。
+- worktree 环境补齐是声明式的：`worktree.provision.setupCommands` 与 `envFiles` 由 `bootstrap` 按「worktree add →（主检出缺依赖时先 setup）→ 依赖链接 → 包级依赖 overlay → 治理面镜像 → 端口分配与 env 文件 → 声明的 envFiles 落地 →（否则 setup）→ 工具链探针」执行，默认只出计划、追加 `--write` 才落盘，目标命中 `hooks.redZonePaths` 时还需 `--confirm-red-zone`。
+- worktree 的治理面投影是声明式的：`worktree.mirrors` 列出项目相对路径，**目录链接到主检出同名路径、文件在 worktree 侧缺失时从主检出复制一次**。路径允许单段 `*` 通配（如 `frontend/internal/*/dist`），拒绝绝对路径、`..` 与空串。这是让 codegraph、serena、probe、codebase-memory 在 worktree 内可取用的前提：`.agents`（Skills/runtime/ast-grep/rtk）、`.codex`（hooks 与项目级 MCP 块）、`.codegraph`、`.serena` 等被 `.gitignore` 忽略，新 worktree 里如果只做依赖链接就会全部缺失。主检出没有的镜像项记为 `skipped` 而不使 bootstrap 失败；worktree 侧已存在的实体记为 `present` 且绝不覆盖，`worktree check` 对其报 `WORKTREE_MIRROR_STALE`。`mirrors` 缺失时按空投影处理，行为与不声明一致。
+- 镜像目录是链接，不是副本：**移除 worktree 前必须先走 `worktree remove`/`land`/`recover` 的 teardown（它们先删除镜像链接再 `git worktree remove`），不要对含链接的 worktree 直接递归删除**——穿过 junction 的递归删除会伤到主检出的 `.agents` 或 `.codegraph`。复制型条目（`opencode.json`、`.serena/project.yml`）留在 worktree 内由 Git 处理。
+- 镜像让治理面以链接路径出现，所以安装交付的可执行入口按 **realpath** 判定自己是否为主模块（`.agents/runtime/hooks/*`、`tools/rtk`、`tools/playwright-cli`、`runtime/evals/codex-runner.mjs`）：worktree 内经链接路径调用照常执行，不会静默退出；只比较调用路径字符串会让 Hook 不给决策、RTK 入口空跑退出 0。新增入口沿用同一判定。
 - 主检出缺少依赖（依赖根的 `node_modules` 不存在）时 `bootstrap` 以 `blocked` 结束并给出建议命令，不静默继续；仅当声明 `setupCommands` 时才允许 worktree 自行补齐依赖，此时 setup 先于依赖链接执行。`worktree check` 只核对文件系统事实（依赖链接 realpath、env 文件与登记表一致），不推断某条命令是否执行过。
 - worktree 内的写入只能由以该 worktree 为会话根（会话 cwd 即 worktree 根）的 Agent 完成；宿主边界策略的可写范围是项目根，主检出会话不得跨根写入 worktree；不得以内联脚本、临时目录或改写路径触发方式绕过宿主边界。
 - merge-back 完成前不清理 worktree 或删除分支；闭环回收按 `worktree land` 的步骤顺序执行——推送先于 worktree 清理，分支删除仅在推送成功后。
