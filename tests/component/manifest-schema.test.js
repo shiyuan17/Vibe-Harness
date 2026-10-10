@@ -28,7 +28,7 @@ test('manifests expose adapters, profiles, rules, and skills', async () => {
   assert.deepEqual(Object.keys(manifests).sort(), ['adapters', 'profiles', 'roles', 'rules', 'skills']);
   assert.equal(manifests.rules.items.some((item) => item.id === 'governance-core'), true);
   assert.equal(manifests.rules.items.some((item) => item.id === 'chrome-devtools-mcp'), true);
-  assert.equal(manifests.skills.items.filter((item) => item.kind === 'native').length, 12);
+  assert.equal(manifests.skills.items.filter((item) => item.kind === 'native').length, 13);
   assert.deepEqual(manifests.profiles.items.map((item) => item.id), ['minimal', 'core', 'full', 'docs-only']);
 });
 

@@ -150,6 +150,8 @@ test('online role and tool routing suites declare their fixture and reporting co
     ['stale-source-evidence.json'],
     ['fallback-evidence.json'],
     ['graph-boundary-evidence.json'],
+    ['discovery-evidence.json'],
+    ['discovery-fallback-evidence.json'],
   ]);
 });
 
@@ -486,6 +488,8 @@ test('tool routing eval keeps syntax, semantics, text, and output compression di
     'EVAL-TOOL-ROUTING-006',
     'EVAL-TOOL-ROUTING-007',
     'EVAL-TOOL-ROUTING-008',
+    'EVAL-TOOL-ROUTING-009',
+    'EVAL-TOOL-ROUTING-010',
   ]);
   const serialized = JSON.stringify(suite);
   for (const fragment of [
