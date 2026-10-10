@@ -133,6 +133,12 @@ async function main() {
   const scopeStatus = deferredChecks.length > 0 ? 'partial' : 'complete';
   const notes = plan.selectionReasons;
   const impactMapping = buildImpactMapping(paths, plan.selectedChecks);
+  const selectionReasonsByCheck = plan.selectionReasonsByCheck ?? Object.fromEntries(
+    [...plan.selectedChecks, ...(plan.deferredChecks ?? [])].map((item) => [
+      item.id ?? item.command,
+      [...(item.selectionReasons ?? (item.reason ? [item.reason] : []))],
+    ]),
+  );
   if (!run && json) {
     console.log(JSON.stringify({
       ...plan,
@@ -149,13 +155,19 @@ async function main() {
       estimatedChecks: plan.estimatedChecks,
       environment: plan.environment,
       selectedChecks: commands,
+      selectionReasonsByCheck,
     }, null, 2));
     return;
   }
   let report = null;
   if (run) {
     report = await runFocusedProjectVerification({
-      focused: { changedPaths: paths, commands, notes, impactMapping },
+      focused: {
+        changedPaths: paths,
+        commands: commands.map((item) => ({ ...item, reviewed: true })),
+        notes,
+        impactMapping,
+      },
       targetDir: process.cwd(),
       timeoutMs: config.verification?.timeoutMs,
     });
@@ -175,10 +187,18 @@ async function main() {
       estimatedChecks: plan.estimatedChecks,
       environment: plan.environment,
       selectedChecks: plan.selectedChecks.map((item) => ({ ...item })),
+      selectionReasonsByCheck,
       skippedChecks: plan.skippedChecks.map((item) => ({ ...item })),
       fallbackUsed: plan.fallbackUsed,
       selectionReasons: [...plan.selectionReasons],
     };
+    if (deferredChecks.length > 0 && report.verification.acceptance) {
+      report.verification.acceptance = {
+        ...report.verification.acceptance,
+        status: 'blocked',
+        reasonCode: 'DEFERRED_CHECKS',
+      };
+    }
     if (json) console.log(JSON.stringify(report, null, 2));
     if (!report.ok) process.exitCode = 1;
     if (json) return;

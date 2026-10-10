@@ -218,8 +218,14 @@ async function projectScripts(targetDir) {
 function addCheck(checks, command, reason, id = command, scripts = {}) {
   if (!command) return;
   const check = (checkId, checkCommand) => {
-    if (!checkCommand || checks.some((item) => item.id === checkId || item.command === checkCommand)) return;
-    checks.push({ id: checkId, command: checkCommand, reason });
+    if (!checkCommand) return;
+    const existing = checks.find((item) => item.id === checkId || item.command === checkCommand);
+    if (existing) {
+      existing.selectionReasons = [...new Set([...(existing.selectionReasons ?? []), reason])];
+      existing.reason = existing.selectionReasons.join('；');
+      return;
+    }
+    checks.push({ id: checkId, command: checkCommand, reason, selectionReasons: [reason] });
   };
   // `pnpm check` is an aggregate in this repository (L1 unit + L2 component).
   // Expand it into atomic checks so the plan cannot execute a layer twice.
@@ -533,6 +539,10 @@ export async function buildVerificationPlan({
         ? { estimatedDurationMs: configured.estimatedDurationMs } : {}) }
       : item;
   });
+  const selectionReasonsByCheck = Object.fromEntries([...selectedWithMetadata, ...deferredChecks].map((item) => [
+    item.id ?? item.command,
+    [...new Set(item.selectionReasons ?? (item.reason ? [item.reason] : []))],
+  ]));
   const cost = estimateVerificationCost(selectedWithMetadata, config);
   const scopeConfidence = verificationScopeConfidence({
     changedPaths: paths,
@@ -562,6 +572,7 @@ export async function buildVerificationPlan({
     planMode: full ? 'full' : (resolved?.tier ? 'tier:' + resolved.tier : 'auto'),
     riskSelectedChecks: riskChecks.map((item) => ({ id: item.id, command: item.command })),
     selectedChecks: selectedWithMetadata,
+    selectionReasonsByCheck,
     minimumTier,
     selectedMicroChecks,
     deferredMicroChecks,

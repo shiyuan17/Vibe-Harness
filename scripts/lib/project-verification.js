@@ -61,6 +61,41 @@ function boundedDiagnostic(value, targetDir, maxLength = 480) {
   return sanitized.length > maxLength ? sanitized.slice(0, maxLength - 3) + '...' : sanitized;
 }
 
+function focusedReview({ changedPaths = [], selectedChecks = [], results = [] } = {}) {
+  const selectedCheckIds = selectedChecks.map((item) => item.id ?? item.command).filter(Boolean);
+  const reviewedCheckIds = results
+    .filter((item) => ['passed', 'reused'].includes(item.status))
+    .filter((item) => item.reviewed === true || item.relevance === 'reviewed' || (item.selectionReasons ?? []).length > 0)
+    .map((item) => item.id ?? item.command)
+    .filter(Boolean);
+  return {
+    status: reviewedCheckIds.length > 0 ? 'relevant' : selectedCheckIds.length > 0 ? 'unreviewed' : 'blocked',
+    changedPaths: [...changedPaths],
+    selectedCheckIds,
+    ...(reviewedCheckIds.length ? { reviewedCheckIds } : {}),
+    reasonCode: reviewedCheckIds.length ? 'RELEVANT_CHECK_REVIEWED' : 'NO_REVIEWED_RELEVANT_CHECK',
+  };
+}
+
+/** @param {{review?: any, commandsPassed?: boolean, snapshotComparison?: string, finalFingerprint?: string|null, deferredCount?: number}} options */
+function focusedAcceptance({ review, commandsPassed, snapshotComparison, finalFingerprint, deferredCount = 0 } = {}) {
+  const stable = commandsPassed && snapshotComparison === 'match' && typeof finalFingerprint === 'string' && finalFingerprint.length > 0;
+  const relevant = review?.status === 'relevant' && (review.reviewedCheckIds ?? []).length > 0;
+  return {
+    status: stable && relevant && deferredCount === 0 ? 'accepted' : 'blocked',
+    reasonCode: !commandsPassed
+      ? 'VERIFICATION_NOT_PASSED'
+      : deferredCount > 0
+        ? 'DEFERRED_CHECKS'
+      : snapshotComparison !== 'match' || !finalFingerprint
+        ? 'FINAL_SNAPSHOT_MISMATCH'
+        : relevant ? 'ACCEPTED' : 'NO_REVIEWED_RELEVANT_CHECK',
+    finalFingerprint: finalFingerprint ?? null,
+    selectedCheckIds: [...(review?.selectedCheckIds ?? [])],
+    reviewStatus: review?.status ?? 'unreviewed',
+  };
+}
+
 function normalizedTimeoutMs(timeoutMs) {
   return Number.isInteger(timeoutMs)
     && timeoutMs >= MIN_PROJECT_VERIFICATION_TIMEOUT_MS
@@ -482,6 +517,7 @@ export async function runFocusedProjectVerification({
     if (item.status === 'missing' || ((item.status === 'manual' || manual) && !allowManual)) {
       results.push({
         ...item,
+        ...(item.selectionReasons ? { selectionReasons: [...item.selectionReasons] } : {}),
         status: 'blocked',
         verificationId: id,
         next: { command: 'pnpm verify --project .' },
@@ -570,6 +606,11 @@ export async function runFocusedProjectVerification({
       message: 'Git snapshot evidence is unavailable; focused checks passed, but this receipt cannot satisfy a stability-required completion.',
     };
   }
+  const review = focusedReview({
+    changedPaths: focused.changedPaths,
+    selectedChecks: focused.commands,
+    results,
+  });
   return {
     ...(error ? { error } : {}),
     ok: !error,
@@ -597,6 +638,13 @@ export async function runFocusedProjectVerification({
         resultsAfterFinalChange: hasFinalChange,
         status: hasFinalChange && snapshotComparison === 'match' && commandsPassed ? 'verified' : 'unverified',
       },
+      review,
+      acceptance: focusedAcceptance({
+        review,
+        commandsPassed,
+        snapshotComparison,
+        finalFingerprint: after.fingerprint,
+      }),
       deliveryBoundaries: {
         ci: 'unverified',
         rollback: 'unverified',
@@ -635,6 +683,19 @@ export async function runVerificationPlan({
       after: { ...confirmed.snapshot.snapshot, fingerprint: confirmed.snapshot.fingerprint },
       evidence: { commandExecution: { status: 'passed', reused: true } },
       changeBoundary: { status: 'unverified' },
+      review: cached.receipt.review ?? {
+        status: 'unreviewed',
+        changedPaths: [...(plan.changedPaths ?? [])],
+        selectedCheckIds: (plan.selectedChecks ?? []).map((item) => item.id ?? item.command),
+        reasonCode: 'LEGACY_V3_RECEIPT',
+      },
+      acceptance: {
+        status: 'blocked',
+        reasonCode: cached.receipt.review?.status === 'relevant' ? 'FINAL_SNAPSHOT_MISMATCH' : 'NO_REVIEWED_RELEVANT_CHECK',
+        finalFingerprint: confirmed.snapshot.fingerprint,
+        selectedCheckIds: (plan.selectedChecks ?? []).map((item) => item.id ?? item.command),
+        reviewStatus: cached.receipt.review?.status ?? 'unreviewed',
+      },
       recovery: { status: 'not-needed' },
     },
   } : await runFocusedProjectVerification({
@@ -749,6 +810,9 @@ export async function runVerificationPlan({
         : focused.verification.recovery,
       scopeStatus: deferredChecks.length > 0 || focused.results.some((item) => item.status === 'not_selected') ? 'partial' : 'complete',
       selectedChecks: (plan.selectedChecks ?? []).map((item) => ({ ...item })),
+      selectionReasonsByCheck: plan.selectionReasonsByCheck ?? Object.fromEntries(
+        (plan.selectedChecks ?? []).map((item) => [item.id ?? item.command, [...(item.selectionReasons ?? (item.reason ? [item.reason] : []))]]),
+      ),
       skippedChecks: [
         ...(plan.skippedChecks ?? []).map((item) => ({ ...item })),
         ...focused.results.filter((item) => item.status === 'not_selected').map((item) => ({ id: item.id, reason: item.reason })),
@@ -759,6 +823,13 @@ export async function runVerificationPlan({
       tierSource: plan.tierSource ?? null,
     },
   };
+  if (deferredChecks.length > 0 && report.verification.acceptance) {
+    report.verification.acceptance = {
+      ...report.verification.acceptance,
+      status: 'blocked',
+      reasonCode: 'DEFERRED_CHECKS',
+    };
+  }
   if (!hit) {
     const afterContext = await verificationCacheContext(targetDir, plan);
     if (afterContext.key !== cacheContext.key) {
