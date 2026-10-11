@@ -22,6 +22,22 @@ function state(...targets) {
   return { files: targets.map((target) => ({ target })) };
 }
 
+/**
+ * A `.codex/hooks.json` that reproduces the pack's guarded-event surface: the
+ * catch-all `PreToolUse` matcher and `PermissionRequest`, each invoking the
+ * managed entry for the event it is registered under. The self-check compares
+ * the installed definition against the adapter template, so a fixture that
+ * wires only one event is (correctly) degraded.
+ */
+function codexHookConfig(command = (event) => `node .agents/runtime/hooks/codex-hook.mjs --host codex --expected-event ${event}`) {
+  return {
+    hooks: {
+      PermissionRequest: [{ hooks: [{ type: 'command', command: command('PermissionRequest') }] }],
+      PreToolUse: [{ matcher: '.*', hooks: [{ type: 'command', command: command('PreToolUse') }] }],
+    },
+  };
+}
+
 function dateOffset(days) {
   const date = new Date();
   date.setUTCDate(date.getUTCDate() + days);
@@ -124,9 +140,7 @@ test('runtime Hook enforcement requires independent host evidence', async () => 
     await mkdir(path.join(target, '.codex'), { recursive: true });
     await mkdir(path.join(target, '.agents', 'runtime', 'hooks'), { recursive: true });
     await cp(path.resolve('runtime/hooks'), path.join(target, '.agents', 'runtime', 'hooks'), { recursive: true });
-    await writeFile(path.join(target, '.codex', 'hooks.json'), JSON.stringify({
-      hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: 'node .agents/runtime/hooks/codex-hook.mjs --host codex --expected-event PreToolUse' }] }] },
-    }, null, 2) + '\n', 'utf8');
+    await writeFile(path.join(target, '.codex', 'hooks.json'), JSON.stringify(codexHookConfig(), null, 2) + '\n', 'utf8');
 
     const unverified = await inspectRuntimeHooks(adapter, target);
     assert.equal(unverified.enforced, false);
@@ -161,9 +175,8 @@ test('Hook 自检拒绝缺失、漂移或未接线的已安装 handler', async (
     await mkdir(path.join(target, '.codex'), { recursive: true });
     await mkdir(path.join(target, '.agents', 'runtime', 'hooks'), { recursive: true });
     const handler = path.join(target, '.agents/runtime/hooks/codex-hook.mjs');
-    const wired = JSON.stringify({
-      hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: 'node .agents/runtime/hooks/codex-hook.mjs --host codex --expected-event PreToolUse' }] }] },
-    }, null, 2) + '\n';
+    const wired = JSON.stringify(codexHookConfig(), null, 2) + '\n';
+    const unwired = (event) => ({ status: 'degraded', code: 'HOOK_SELF_CHECK_CONFIG_UNWIRED', event });
 
     await writeFile(path.join(target, '.codex', 'hooks.json'), wired, 'utf8');
     assert.deepEqual(
@@ -184,6 +197,8 @@ test('Hook 自检拒绝缺失、漂移或未接线的已安装 handler', async (
     await writeFile(path.join(target, '.codex', 'hooks.json'), '{}\n', 'utf8');
     assert.deepEqual(
       await inspectRuntimeHookSelfCheck(adapter, target, { configured: true }),
+      // An empty definition has no managed block at all, so no single event can
+      // be named as the one that is unwired.
       { status: 'degraded', code: 'HOOK_SELF_CHECK_CONFIG_UNWIRED' },
     );
 
@@ -215,7 +230,41 @@ test('Hook 自检拒绝缺失、漂移或未接线的已安装 handler', async (
     }, null, 2) + '\n', 'utf8');
     assert.deepEqual(
       await inspectRuntimeHookSelfCheck(adapter, target, { configured: true }),
-      { status: 'degraded', code: 'HOOK_SELF_CHECK_CONFIG_UNWIRED' },
+      unwired('PermissionRequest'),
+    );
+
+    // A managed command registered under the wrong event — or under an event
+    // the host does not guard at all — is not wiring for the event that runs.
+    await writeFile(path.join(target, '.codex', 'hooks.json'), JSON.stringify(codexHookConfig(
+      (event) => `node .agents/runtime/hooks/codex-hook.mjs --host codex --expected-event ${event === 'PreToolUse' ? 'PermissionRequest' : event}`,
+    ), null, 2) + '\n', 'utf8');
+    assert.deepEqual(
+      await inspectRuntimeHookSelfCheck(adapter, target, { configured: true }),
+      unwired('PreToolUse'),
+    );
+    await writeFile(path.join(target, '.codex', 'hooks.json'), JSON.stringify({
+      hooks: {
+        Stop: [{ hooks: [{ type: 'command', command: 'node .agents/runtime/hooks/codex-hook.mjs --host codex --expected-event PreToolUse' }] }],
+        PreToolUse: [{ matcher: '.*', hooks: [{ type: 'command', command: 'echo guard' }] }],
+        PermissionRequest: [{ hooks: [{ type: 'command', command: 'node .agents/runtime/hooks/codex-hook.mjs --host codex --expected-event PermissionRequest' }] }],
+      },
+    }, null, 2) + '\n', 'utf8');
+    assert.deepEqual(
+      await inspectRuntimeHookSelfCheck(adapter, target, { configured: true }),
+      unwired('PreToolUse'),
+    );
+
+    // The template's catch-all matcher is part of the guarded surface: a
+    // `PreToolUse` entry narrowed to one tool leaves every other tool unguarded.
+    await writeFile(path.join(target, '.codex', 'hooks.json'), JSON.stringify({
+      hooks: {
+        ...codexHookConfig().hooks,
+        PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'node .agents/runtime/hooks/codex-hook.mjs --host codex --expected-event PreToolUse' }] }],
+      },
+    }, null, 2) + '\n', 'utf8');
+    assert.deepEqual(
+      await inspectRuntimeHookSelfCheck(adapter, target, { configured: true }),
+      unwired('PreToolUse'),
     );
 
     await writeFile(path.join(target, '.codex', 'hooks.json'), wired, 'utf8');
@@ -225,9 +274,9 @@ test('Hook 自检拒绝缺失、漂移或未接线的已安装 handler', async (
     // path from separately quoted segments, so that shipped shape has to count
     // as wiring as well.
     const bootstrap = await readFile(path.resolve('scripts/lib/hook-bootstrap.cjs'), 'utf8');
-    await writeFile(path.join(target, '.codex', 'hooks.json'), JSON.stringify({
-      hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: `node -e "${bootstrap}" -- --expected-event PreToolUse` }] }] },
-    }, null, 2) + '\n', 'utf8');
+    await writeFile(path.join(target, '.codex', 'hooks.json'), JSON.stringify(codexHookConfig(
+      (event) => `node -e "${bootstrap.replace(/\r?\n$/u, '')}" -- --expected-event ${event}`,
+    ), null, 2) + '\n', 'utf8');
     assert.equal((await inspectRuntimeHookSelfCheck(adapter, target, { configured: true })).status, 'pass');
   } finally {
     await rm(target, { force: true, recursive: true });

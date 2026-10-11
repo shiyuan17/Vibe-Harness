@@ -144,7 +144,13 @@ test('strict 策略把未证明的 Hook 执行从提示升级为阻断', async (
     await mkdir(path.join(target, '.agents', 'runtime', 'hooks'), { recursive: true });
     await cp(path.join(rootDir, 'runtime/hooks'), path.join(target, '.agents', 'runtime', 'hooks'), { recursive: true });
     await writeFile(path.join(target, '.codex', 'hooks.json'), JSON.stringify({
-      hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: 'node .agents/runtime/hooks/codex-hook.mjs --host codex --expected-event PreToolUse' }] }] },
+      // The self-check compares the installed definition against the adapter
+      // template, so the fixture has to reproduce the guarded-event surface:
+      // the catch-all `PreToolUse` matcher and `PermissionRequest`.
+      hooks: {
+        PermissionRequest: [{ hooks: [{ type: 'command', command: 'node .agents/runtime/hooks/codex-hook.mjs --host codex --expected-event PermissionRequest' }] }],
+        PreToolUse: [{ matcher: '.*', hooks: [{ type: 'command', command: 'node .agents/runtime/hooks/codex-hook.mjs --host codex --expected-event PreToolUse' }] }],
+      },
     }, null, 2) + '\n', 'utf8');
 
     const unverified = await inspectRuntimeHooks(codex, target);

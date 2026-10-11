@@ -6,6 +6,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { pathExists } from './manifest.js';
 import { readHostHookState } from './host-hook-state.js';
 import { hashFile } from './install-state.js';
+import { hookBootstrapCommand } from './template-renderer.js';
 import { evaluateHook, HOOK_FAILURE_CODES } from '../../runtime/hooks/codex-hook.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -221,48 +222,130 @@ async function inspectInstalledHookWiring(adapter, targetDir) {
     } catch {
       return { status: 'degraded', code: 'HOOK_SELF_CHECK_CONFIG_UNWIRED' };
     }
-    if (config === null || !hookCommands(config).some(commandInvokesHandler)) {
-      return { status: 'degraded', code: 'HOOK_SELF_CHECK_CONFIG_UNWIRED' };
+    const wiring = await inspectManagedHookWiring(adapter, config);
+    if (wiring.status !== 'pass') return wiring;
+  }
+  return { status: 'pass', code: 'HOOK_SELF_CHECK_WIRING_VERIFIED' };
+}
+
+/**
+ * The guarded-event surface the installed Hook definition has to reproduce.
+ *
+ * Both halves are read from the pack's own adapter template, so the comparison
+ * is structural rather than textual: for every event the template guards, the
+ * installed definition has to carry an entry — at the adapter's declared
+ * configuration path, with the template's catch-all matcher where it declares
+ * one — whose command is a *parsed* invocation of the managed handler naming
+ * that event. A definition that keeps the managed command under an irrelevant
+ * event, or that only mentions the handler path in prose, therefore cannot pass
+ * while the guarded event runs something else.
+ */
+async function inspectManagedHookWiring(adapter, config) {
+  const templatePath = path.join(path.resolve(import.meta.dirname, '..', '..'), 'adapters', adapter.id, 'hooks.template.json');
+  const rawTemplate = await readFile(templatePath, 'utf8').catch(() => null);
+  let template;
+  try {
+    template = rawTemplate === null ? null : JSON.parse(rawTemplate);
+  } catch {
+    template = undefined;
+  }
+  if (template === undefined || template === null || typeof template !== 'object' || Array.isArray(template)) {
+    return { status: 'degraded', code: 'HOOK_SELF_CHECK_WIRING_UNVERIFIED' };
+  }
+  const wrapperInvalid = template.hooks !== undefined && (template.hooks === null || typeof template.hooks !== 'object' || Array.isArray(template.hooks));
+  const events = wrapperInvalid ? [] : Object.entries(template.hooks ?? template);
+  if (events.length === 0) {
+    return { status: 'degraded', code: 'HOOK_SELF_CHECK_WIRING_UNVERIFIED' };
+  }
+  const installed = hookEventMap(adapter, config, template);
+  if (installed === null) return { status: 'degraded', code: 'HOOK_SELF_CHECK_CONFIG_UNWIRED' };
+  for (const [event, groups] of events) {
+    if (!Array.isArray(groups)) return { status: 'degraded', code: 'HOOK_SELF_CHECK_WIRING_UNVERIFIED' };
+    const installedGroups = Array.isArray(installed[event]) ? installed[event] : [];
+    for (const group of groups) {
+      const expectedHooks = Array.isArray(group?.hooks) ? group.hooks : [];
+      const matched = installedGroups.some((candidate) => candidate !== null && typeof candidate === 'object'
+        && (group?.matcher === undefined || candidate.matcher === group.matcher)
+        && Array.isArray(candidate.hooks)
+        && expectedHooks.every((hook) => candidate.hooks.some((installedHook) => installedHook?.type === hook.type
+          && managedCommandEvent(installedHook?.command, adapter) === event)));
+      if (!matched) return { status: 'degraded', code: 'HOOK_SELF_CHECK_CONFIG_UNWIRED', event };
     }
   }
   return { status: 'pass', code: 'HOOK_SELF_CHECK_WIRING_VERIFIED' };
 }
 
-/** Every `command` string of the parsed configuration, in declaration order. */
-function hookCommands(node, found = []) {
-  if (Array.isArray(node)) {
-    for (const item of node) hookCommands(item, found);
-  } else if (node !== null && typeof node === 'object') {
-    for (const [key, value] of Object.entries(node)) {
-      if (key === 'command' && typeof value === 'string') found.push(value);
-      else hookCommands(value, found);
-    }
+/**
+ * The event map inside an installed definition.
+ *
+ * The managed block is written at the adapter's declared configuration path,
+ * and a template that carries its own single `hooks` wrapper (`codex`, which
+ * declares no `projectConfig` at all and therefore installs the template
+ * verbatim) adds one further level. Both levels are derived from the template,
+ * so a definition that keeps the managed command one level off the guarded
+ * events cannot be read as wired.
+ */
+function hookEventMap(adapter, config, template) {
+  const declared = adapter?.projectConfig?.hooks?.path;
+  const wrapper = template.hooks !== undefined && Object.keys(template).length === 1 ? ['hooks'] : [];
+  const segments = [...(Array.isArray(declared) ? declared : []), ...wrapper];
+  let current = config;
+  for (const segment of segments) {
+    if (current === null || typeof current !== 'object' || Array.isArray(current)) return null;
+    current = current[segment];
   }
-  return found;
+  return current !== null && typeof current === 'object' && !Array.isArray(current) ? current : null;
 }
 
-const expectedCommandSegments = runtimeHookEntryPath.split('/');
+// The installer single-sources an inline bootstrap as `node -e "<payload>" --`,
+// but the placeholder is substituted into the JSON template as raw text, so the
+// constant carries JSON-escaped quotes while the *parsed* command carries real
+// ones. Comparing the parsed command against the escaped constant would never
+// match, so the prefix is unescaped once here.
+const hookBootstrapPrefix = hookBootstrapCommand.replaceAll('\\"', '"');
 
 /**
- * True when a configured command launches this managed entry.
+ * The `--expected-event` of a parsed managed invocation, or null.
  *
- * Two shapes are legitimate. A host may name the entry as one path token
- * (`node .agents/runtime/hooks/codex-hook.mjs`), or the inline bootstrap the
- * installer single-sources may assemble it from separately quoted segments
- * (`path.join(root, '.agents', 'runtime', 'hooks', 'codex-hook.mjs')`). Both
- * are checked for the file itself, so prose, a command that only echoes the
- * path words without quotes, or a command naming a different file is not
- * treated as wiring.
+ * Two shapes are legitimate: the inline bootstrap the installer single-sources
+ * (matched as the exact prefix, never as a substring) and a host that names the
+ * managed entry directly. The direct form is tokenized, so `echo .agents runtime
+ * hooks codex-hook.mjs` has the wrong program and is not an invocation.
  */
-function commandInvokesHandler(command) {
-  if (command.replaceAll(/["'\s,]/gu, '').includes(runtimeHookEntryPath)) return true;
-  let cursor = 0;
-  for (const segment of expectedCommandSegments) {
-    const index = command.indexOf(`'${segment}'`, cursor);
-    if (index === -1) return false;
-    cursor = index + segment.length + 2;
+function managedCommandEvent(command, adapter) {
+  if (typeof command !== 'string' || command.trim() === '') return null;
+  const trimmed = command.trim();
+  // The inline bootstrap is matched as an exact prefix, never as a substring.
+  if (trimmed.startsWith(hookBootstrapPrefix)) {
+    return managedInvocationEvent(trimmed.slice(hookBootstrapPrefix.length), adapter);
   }
-  return true;
+  const tokens = tokenizeCommand(trimmed);
+  if (!/^node(?:\.exe)?$/iu.test(tokens[0] ?? '')) return null;
+  const entry = String(tokens[1] ?? '').replaceAll('\\', '/');
+  if (!entry.endsWith(runtimeHookEntryPath)) return null;
+  return managedInvocationEvent(tokens.slice(1).join(' '), adapter);
+}
+
+/** Splits a command line into tokens, honouring simple quoting. */
+function tokenizeCommand(command) {
+  return [...command.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/gu)].map((match) => match[1] ?? match[2] ?? match[3]);
+}
+
+/** The guarded event a managed invocation declares, or null when it is malformed. */
+function managedInvocationEvent(args, adapter) {
+  const event = commandOption(args, '--expected-event');
+  if (event === null) return null;
+  const host = commandOption(args, '--host');
+  if (host !== null && typeof adapter?.id === 'string' && host !== adapter.id) return null;
+  return event;
+}
+
+/** The value of one `--name <value>` option, or null when absent or malformed. */
+function commandOption(text, name) {
+  const match = new RegExp(`(?:^|\\s)${name}\\s+(?:"([^"]*)"|'([^']*)'|(\\S+))`, 'u').exec(text);
+  if (match === null) return null;
+  const value = match[1] ?? match[2] ?? match[3];
+  return value === undefined || value === '' || value.startsWith('--') ? null : value;
 }
 
 async function listFiles(root, prefix = '') {
