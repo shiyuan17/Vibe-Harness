@@ -78,8 +78,10 @@ function patchContentDigest(project, before, after) {
  * changed the other occurrence would still compare equal. Reproducing the merge
  * closes that gap — the squash commit has to carry exactly the tree a merge of
  * `sourceHead` onto `targetBefore` produces. A merge that conflicts cannot
- * reproduce a squash at all and blocks; a Git too old for
- * `merge-tree --write-tree` answers nothing, and the patch checks stand alone.
+ * reproduce a squash at all and blocks, and so does a Git without
+ * `merge-tree --write-tree`: the patch checks it would leave standing are
+ * location-free, so treating them as the whole proof would let a squash that
+ * changed the wrong occurrence of identical content authorize a cleanup.
  */
 function mergeResultTree(project, targetBefore, sourceHead) {
   const result = spawnSync('git', [...NO_REPLACE_OBJECTS, 'merge-tree', '--write-tree', targetBefore, sourceHead], {
@@ -88,7 +90,9 @@ function mergeResultTree(project, targetBefore, sourceHead) {
   if (result.error) throw new Error('Git evidence could not be read');
   if (result.status !== 0) {
     const detail = `${result.stdout ?? ''}${result.stderr ?? ''}`;
-    if (/unknown option|usage: git/iu.test(detail)) return null;
+    if (/unknown option|usage: git/iu.test(detail)) {
+      throw new Error('Git is too old to reproduce the merge tree this evidence requires');
+    }
     throw new Error('Squash is not reproducible by merging the source branch');
   }
   const [tree] = String(result.stdout ?? '').trim().split('\n');
@@ -138,8 +142,7 @@ export async function validateMergeEvidence(project, worktree, evidence, { taskI
     if (patchContentDigest(project, evidence.sourceBase, sourceHead)
       !== patchContentDigest(project, evidence.targetBefore, evidence.mergeCommit)) throw new Error('Patch content mismatch');
     const mergedTree = mergeResultTree(project, evidence.targetBefore, evidence.sourceHead);
-    if (mergedTree !== null
-      && mergedTree !== git(project, ['rev-parse', '--verify', `${evidence.mergeCommit}^{tree}`])) {
+    if (mergedTree !== git(project, ['rev-parse', '--verify', `${evidence.mergeCommit}^{tree}`])) {
       throw new Error('Squash tree is not the merge of the source branch');
     }
     // The cleanliness gate owns the removal decision, so it cannot be weakened

@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { userInfo } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
@@ -43,7 +43,18 @@ async function authenticationKey() {
   if (cachedKey !== undefined) return cachedKey;
   let directory;
   try {
-    directory = path.join(homedir(), KEY_DIRECTORY);
+    // The account's home is read from the OS rather than through `os.homedir()`,
+    // which follows `HOME`/`USERPROFILE`: a caller that redirected the
+    // environment could point the key directory inside the project, pre-create a
+    // known key file and mint valid records for a handcrafted receipt. An
+    // unusable answer is not replaced by a guess — the key is then unavailable,
+    // and every unauthenticated record is rejected.
+    const account = userInfo();
+    if (typeof account?.homedir !== 'string' || account.homedir === '' || !path.isAbsolute(account.homedir)) {
+      cachedKey = null;
+      return cachedKey;
+    }
+    directory = path.join(account.homedir, KEY_DIRECTORY);
   } catch {
     cachedKey = null;
     return cachedKey;
