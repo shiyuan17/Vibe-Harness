@@ -20,6 +20,7 @@ import {
   findVerificationReceipt,
   recordFinalVerification,
 } from '../../runtime/lib/verification-receipt.mjs';
+import { gitFingerprint } from '../../runtime/lib/git-fingerprint.mjs';
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '../..');
@@ -551,6 +552,26 @@ test('Git verification snapshots change when project content changes', async () 
     assert.equal(before.head, after.head);
     assert.notEqual(before.fingerprint, after.fingerprint);
     assert.equal(after.changedFiles, 1);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('a transient create-then-delete still changes the write fingerprint', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-verify-transient-'));
+  try {
+    await initializeGitProject(target);
+    const before = await gitFingerprint(target);
+    assert.equal(typeof before.writeFingerprint, 'string');
+    // The scratch path is gone again by the time the second snapshot runs, so
+    // neither the tracked nor the untracked listing mentions it: only the
+    // directory's own timestamps can carry the write.
+    const scratch = path.join(target, 'scratch.txt');
+    await writeFile(scratch, 'scratch\n', 'utf8');
+    await rm(scratch, { force: true });
+    const after = await gitFingerprint(target);
+    assert.notEqual(after.writeFingerprint, before.writeFingerprint);
+    assert.equal(after.latestWriteAt > before.latestWriteAt, true);
   } finally {
     await rm(target, { force: true, recursive: true });
   }

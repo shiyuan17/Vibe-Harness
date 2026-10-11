@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { lstat, readFile, readlink, stat } from 'node:fs/promises';
+import { lstat, readdir, readFile, readlink, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
@@ -28,9 +28,72 @@ async function git(args, projectDir) {
   }
 }
 
-/** Splits one NUL-separated path listing. */
+/**
+ * Run Git and keep the bytes of its output.
+ *
+ * Git allows any byte except NUL in a path, so a path listing is bytes rather
+ * than text. Reading it as a string would replace a path that is not valid
+ * UTF-8 with U+FFFD, and the replacement no longer addresses the file on disk.
+ */
+async function gitBytes(args, projectDir) {
+  try {
+    const result = await execFileAsync('git', args, {
+      cwd: projectDir,
+      encoding: 'buffer',
+      maxBuffer: 64 * 1024 * 1024,
+      timeout: 15_000,
+      windowsHide: true,
+    });
+    return { ok: true, stdout: Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout ?? '') };
+  } catch {
+    return { ok: false, stdout: Buffer.alloc(0) };
+  }
+}
+
+/**
+ * Splits one NUL-separated path listing into paths.
+ *
+ * A path whose bytes are not valid UTF-8 cannot be addressed by the string this
+ * process would decode it to: `lstat()` would then check a different location
+ * and the entry would be recorded as missing (or, for an untracked path, as no
+ * write at all). The listing therefore fails closed — `null` — instead of being
+ * published as evidence for a file that was never observed.
+ *
+ * @param {Buffer|string} value
+ * @returns {string[]|null}
+ */
 function splitPaths(value) {
-  return String(value ?? '').split('\0').filter(Boolean);
+  const buffer = Buffer.isBuffer(value) ? value : Buffer.from(String(value ?? ''), 'utf8');
+  const paths = [];
+  let start = 0;
+  for (let index = 0; index <= buffer.length; index += 1) {
+    if (index !== buffer.length && buffer[index] !== 0) continue;
+    if (index > start) {
+      const slice = buffer.subarray(start, index);
+      const decoded = slice.toString('utf8');
+      if (!Buffer.from(decoded, 'utf8').equals(slice)) return null;
+      paths.push(decoded);
+    }
+    start = index + 1;
+  }
+  return paths;
+}
+
+/**
+ * One Git answer that names a location, decoded only when that is lossless.
+ *
+ * `rev-parse --show-toplevel` and a porcelain status both carry filesystem
+ * paths, so the same "U+FFFD is not the path" rule applies: a value that is not
+ * valid UTF-8 cannot be used to address the file it came from, and the caller
+ * has to drop the evidence rather than work from a location that does not exist.
+ *
+ * @param {Buffer} buffer
+ * @returns {string|null}
+ */
+function decodePathText(buffer) {
+  if (!Buffer.isBuffer(buffer)) return String(buffer ?? '');
+  const value = buffer.toString('utf8');
+  return Buffer.from(value, 'utf8').equals(buffer) ? value : null;
 }
 
 /**
@@ -48,8 +111,15 @@ function pathKey(value) {
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
 }
 
+/**
+ * The `--porcelain=v1 -z` status records, or null when a path is undecodable.
+ *
+ * @param {Buffer|string} value
+ * @returns {Array<{status: string, path: string, newPath?: string}>|null}
+ */
 function parseStatus(value) {
-  const records = String(value ?? '').split('\0').filter(Boolean);
+  const records = splitPaths(value);
+  if (records === null) return null;
   const changes = [];
   for (let index = 0; index < records.length; index += 1) {
     const record = records[index];
@@ -157,11 +227,110 @@ async function deletionEvidence(root, relativePath) {
   }
 }
 
+/**
+ * The paths this project does not own.
+ *
+ * Git's own ignore rules are the project's declaration of which paths are not
+ * part of its write surface: the harness's own bookkeeping (`.vibe-harness`),
+ * dependency trees, and build output all live there. The directory walk below
+ * skips exactly those, so the harness writing a receipt cannot look like the
+ * project writing a file, and an arbitrarily large ignored tree is never walked.
+ */
+async function ignoredPaths(repositoryDir) {
+  const ignored = await gitBytes(['ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--directory'], repositoryDir);
+  if (!ignored.ok) return null;
+  const paths = splitPaths(ignored.stdout);
+  if (paths === null) return null;
+  return new Set(paths.map((value) => value.replace(/\/+$/u, '')));
+}
+
+/**
+ * Metadata evidence for the repository's directory tree.
+ *
+ * The per-path records only cover paths that are still listed, so a write that
+ * is created and removed again between two snapshots leaves nothing behind in
+ * either listing — while the directory that held it did change. Every
+ * directory's own timestamps are recorded for that reason: creating or removing
+ * an entry updates its parent, which is what dates a transient write. It is also
+ * the only evidence that reaches a directory this snapshot lists no path for.
+ *
+ * The walk never follows a link (a worktree's `.agents` junction is the
+ * documented case, and following it would walk the checkout it points at) and
+ * never enters an ignored directory. Returns `null` when the tree cannot be
+ * enumerated, so the caller fails closed rather than publishing a partial
+ * surface.
+ */
+async function directoryEvidence(repositoryDir, ignored) {
+  const records = [];
+  let latestWriteAt = 0;
+  const queue = [{ absolute: path.resolve(repositoryDir), relative: '' }];
+  while (queue.length > 0) {
+    const current = queue.pop();
+    let info;
+    try {
+      info = await lstat(current.absolute);
+    } catch (error) {
+      if (error.code !== 'ENOENT') return null;
+      // A directory that vanished mid-walk was written to after this snapshot
+      // started, and there is no metadata left to date it with.
+      return null;
+    }
+    if (info.isSymbolicLink()) {
+      if (current.relative === '') return null;
+      continue;
+    }
+    if (!info.isDirectory()) return null;
+    records.push([current.relative, info.mtimeMs, info.ctimeMs]);
+    latestWriteAt = Math.max(latestWriteAt, info.mtimeMs, info.ctimeMs);
+    let entries;
+    try {
+      entries = await readdir(current.absolute, { withFileTypes: true });
+    } catch {
+      return null;
+    }
+    for (const entry of entries) {
+      if (entry.name === '.git' || (!entry.isDirectory() && !entry.isSymbolicLink())) continue;
+      const relative = current.relative === '' ? entry.name : `${current.relative}/${entry.name}`;
+      if (ignored.has(relative)) continue;
+      queue.push({ absolute: path.join(current.absolute, entry.name), relative });
+    }
+  }
+  // `readdir` order is not a contract, so the evidence is ordered before it is
+  // hashed: two snapshots of an unchanged tree must produce one fingerprint.
+  records.sort((left, right) => left[0].localeCompare(right[0]));
+  return { latestWriteAt, records };
+}
+
+/**
+ * The write evidence for one repository's own tree: every listed tracked or
+ * untracked path, plus the directory metadata that dates a transient write.
+ */
+async function writeEvidence(repositoryDir, trackedBuffer, untrackedBuffer) {
+  const tracked = splitPaths(trackedBuffer);
+  const untracked = splitPaths(untrackedBuffer);
+  if (tracked === null || untracked === null) return null;
+  const files = await pathWriteEvidence(repositoryDir, [
+    ...tracked.map((value) => ({ path: value, tracked: true })),
+    ...untracked.map((value) => ({ path: value, tracked: false })),
+  ]);
+  if (files === null) return null;
+  const ignored = await ignoredPaths(repositoryDir);
+  if (ignored === null) return null;
+  const directories = await directoryEvidence(repositoryDir, ignored);
+  if (directories === null) return null;
+  return {
+    latestWriteAt: Math.max(files.latestWriteAt, directories.latestWriteAt),
+    records: [...files.records, ...directories.records],
+  };
+}
+
 /** The gitlink paths recorded in one repository's index, relative to it. */
 async function gitlinkPaths(repositoryDir) {
-  const staged = await git(['ls-files', '--stage', '-z'], repositoryDir);
+  const staged = await gitBytes(['ls-files', '--stage', '-z'], repositoryDir);
   if (!staged.ok) return null;
-  return [...new Set(splitPaths(staged.stdout)
+  const records = splitPaths(staged.stdout);
+  if (records === null) return null;
+  return [...new Set(records
     .filter((record) => record.startsWith('160000 '))
     .map((record) => record.slice(record.indexOf('\t') + 1))
     .filter(Boolean))].sort();
@@ -201,12 +370,15 @@ async function submoduleEvidence(repositoryDir, prefix = '', depth = 0, visited 
     if (!toplevel.ok || pathKey(toplevel.stdout.trim()) !== key) return null;
     const head = await git(['rev-parse', 'HEAD'], full);
     const status = await git(['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignore-submodules=none'], full);
-    const tracked = await git(['ls-files', '-z', '--cached'], full);
-    const untracked = await git(['ls-files', '-z', '--others', '--exclude-standard'], full);
+    const tracked = await gitBytes(['ls-files', '-z', '--cached'], full);
+    const untracked = await gitBytes(['ls-files', '-z', '--others', '--exclude-standard'], full);
     if (!head.ok || !status.ok || !tracked.ok || !untracked.ok) return null;
+    const trackedPaths = splitPaths(tracked.stdout);
+    const untrackedPaths = splitPaths(untracked.stdout);
+    if (trackedPaths === null || untrackedPaths === null) return null;
     const writes = await pathWriteEvidence(full, [
-      ...splitPaths(tracked.stdout).map((value) => ({ path: value, tracked: true })),
-      ...splitPaths(untracked.stdout).map((value) => ({ path: value, tracked: false })),
+      ...trackedPaths.map((value) => ({ path: value, tracked: true })),
+      ...untrackedPaths.map((value) => ({ path: value, tracked: false })),
     ]);
     if (writes === null) return null;
     const nested = await submoduleEvidence(full, submodulePath, depth + 1, visited);
@@ -230,16 +402,25 @@ function latestWriteAtOf(evidence) {
 }
 
 export async function gitSnapshot(projectDir) {
-  const root = await git(['rev-parse', '--show-toplevel'], projectDir);
+  // The repository root and the status records both name filesystem paths, so
+  // both are read as bytes: a path that does not survive the UTF-8 decode
+  // cannot be addressed, and a snapshot built from one would describe files
+  // this process never looked at.
+  const root = await gitBytes(['rev-parse', '--show-toplevel'], projectDir);
   if (!root.ok) return { available: false, reason: 'not-a-git-worktree', changes: [] };
-  const status = await git(['status', '--porcelain=v1', '-z', '--untracked-files=all'], projectDir);
+  const rootPath = decodePathText(root.stdout);
+  if (rootPath === null) return { available: false, reason: 'git-root-undecodable', changes: [] };
+  const status = await gitBytes(['status', '--porcelain=v1', '-z', '--untracked-files=all'], projectDir);
   const head = await git(['rev-parse', 'HEAD'], projectDir);
+  if (!status.ok) return { available: false, reason: 'git-status-failed', changes: [] };
+  const changes = parseStatus(status.stdout);
+  if (changes === null) return { available: false, reason: 'git-status-undecodable', changes: [] };
   return {
-    available: status.ok,
-    root: status.ok ? root.stdout.trim().replaceAll('\\', '/') : null,
+    available: true,
+    root: rootPath.trim().replaceAll('\\', '/'),
     head: head.ok ? head.stdout.trim() : null,
-    changes: status.ok ? parseStatus(status.stdout) : [],
-    reason: status.ok ? null : 'git-status-failed',
+    changes,
+    reason: null,
   };
 }
 
@@ -275,19 +456,16 @@ export async function gitFingerprint(projectDir) {
     }
     hash.update('\0');
   }
-  const tracked = await git(['ls-files', '-z', '--cached'], repositoryRoot);
-  const untracked = await git(['ls-files', '-z', '--others', '--exclude-standard'], repositoryRoot);
+  const tracked = await gitBytes(['ls-files', '-z', '--cached'], repositoryRoot);
+  const untracked = await gitBytes(['ls-files', '-z', '--others', '--exclude-standard'], repositoryRoot);
   let writeFingerprint = null;
   let latestWriteAt = null;
   if (tracked.ok && untracked.ok) {
-    const files = await pathWriteEvidence(repositoryRoot, [
-      ...splitPaths(tracked.stdout).map((value) => ({ path: value, tracked: true })),
-      ...splitPaths(untracked.stdout).map((value) => ({ path: value, tracked: false })),
-    ]);
+    const writes = await writeEvidence(repositoryRoot, tracked.stdout, untracked.stdout);
     const submodules = await submoduleEvidence(repositoryRoot);
-    if (files !== null && submodules !== null) {
-      writeFingerprint = createHash('sha256').update(JSON.stringify([...files.records, ...submodules])).digest('hex');
-      latestWriteAt = Math.max(files.latestWriteAt, latestWriteAtOf(submodules));
+    if (writes !== null && submodules !== null) {
+      writeFingerprint = createHash('sha256').update(JSON.stringify([...writes.records, ...submodules])).digest('hex');
+      latestWriteAt = Math.max(writes.latestWriteAt, latestWriteAtOf(submodules));
     }
   }
   return { snapshot, fingerprint: hash.digest('hex'), writeFingerprint, latestWriteAt };
