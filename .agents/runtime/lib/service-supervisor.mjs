@@ -1,7 +1,9 @@
-import { spawn, execFile } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmodSync, realpathSync } from 'node:fs';
 import { createServer } from 'node:net';
+
+import { signalTree as signalProcessTree, treeGone as processTreeGone } from './services.mjs';
 
 // A supervisor owns exactly one service process tree. The tree is started as a
 // detached process-group leader on Unix (`taskkill /t` is the Windows
@@ -14,8 +16,24 @@ const REAP_STAGE_MS = 2500;
 // retry, but not forever: the endpoint is released after this idle lifetime.
 const IDLE_LIFETIME_MS = 10 * 60 * 1000;
 const SOCKET_TIMEOUT_MS = 15000;
+// A Windows tree proof spawns a PowerShell process, so the wait between two
+// proofs is a poll interval rather than a fixed number of probes.
+const PROOF_POLL_MS = 200;
+const TERMINATION_SIGNALS = ['SIGTERM', 'SIGINT', 'SIGHUP', 'SIGBREAK'];
 
-process.once('message', (input) => {
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** True once `proof()` reports the whole owned tree gone, or when the budget runs out. */
+async function waitForProof(proof, budgetMs) {
+  const deadline = Date.now() + budgetMs;
+  for (;;) {
+    if (proof()) return true;
+    if (Date.now() >= deadline) return false;
+    await sleep(Math.min(PROOF_POLL_MS, Math.max(1, deadline - Date.now())));
+  }
+}
+
+function startService(input) {
   const cwd = realpathSync(input.cwd);
   const fingerprint = createHash('sha256').update(JSON.stringify([cwd, input.tokens])).digest('hex');
   const child = spawn(input.tokens[0] === 'node' ? process.execPath : input.tokens[0], input.tokens.slice(1), {
@@ -24,55 +42,56 @@ process.once('message', (input) => {
   });
   let exited = false;
   let stopping = false;
-  let reapInFlight = null;
+  let reaping = null;
+  let idle = null;
   const startedAt = new Date().toISOString();
   const identity = { pid: child.pid, supervisorPid: process.pid, cwd, commandFingerprint: fingerprint, startedAt };
+  const blocked = (reason) => ({ ...identity, status: 'blocked', reason });
+
   /** Signal the whole owned tree: the detached group on Unix, `taskkill /t` on Windows. */
-  const signalTree = (signal) => {
-    if (process.platform === 'win32') {
-      execFile('taskkill.exe', ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true, timeout: 4000 }, () => {});
-      return;
-    }
-    try { process.kill(-child.pid, signal); } catch { /* the group is already gone */ }
-  };
+  const signalTree = (signal) => signalProcessTree(child.pid, signal);
   /**
-   * True only while some part of the owned tree can still be observed. Unix
-   * answers this from the process group; Windows cannot be asked for a group,
-   * so the root child's exit is the observable proof after a forced
-   * `taskkill /t`.
+   * True only while some part of the owned tree can still be observed.
+   *
+   * `exited` is deliberately not part of this answer: a launcher that exits
+   * after spawning a server leaves descendants that only the tree probe can
+   * see, so the root child's exit decides *when* to reap, never whether the
+   * tree is gone.
    */
-  const treeGone = () => {
-    if (process.platform === 'win32') return exited;
-    try { process.kill(-child.pid, 0); return false; } catch { return true; }
-  };
-  const waitGone = async (budgetMs) => {
-    for (let waited = 0; waited < budgetMs; waited += 100) {
-      if (treeGone()) return true;
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-    return treeGone();
+  const treeGone = () => processTreeGone(child.pid);
+
+  const stayResident = () => {
+    if (idle) return;
+    idle = setTimeout(() => server.close(() => process.exit(0)), IDLE_LIFETIME_MS);
+    idle.unref();
   };
   /** Graceful signal, wait, forced kill, wait: the proof `stop`/`status` report. */
   const reapTree = () => {
-    if (reapInFlight) return reapInFlight;
+    if (reaping) return reaping;
     const attempt = (async () => {
       if (treeGone()) return true;
       signalTree('SIGTERM');
-      if (await waitGone(REAP_STAGE_MS)) return true;
+      if (await waitForProof(treeGone, REAP_STAGE_MS)) return true;
       signalTree('SIGKILL');
-      return waitGone(REAP_STAGE_MS);
+      return waitForProof(treeGone, REAP_STAGE_MS);
     })();
-    reapInFlight = attempt.finally(() => { reapInFlight = null; });
-    return reapInFlight;
+    reaping = attempt.finally(() => { reaping = null; });
+    return reaping;
   };
   const reply = (socket, payload) => socket.end(`${JSON.stringify(payload)}\n`);
   const settle = (socket, gone) => {
-    reply(socket, gone ? { ...identity, status: 'stopped' } : { ...identity, status: 'blocked', reason: 'descendants-survive' });
+    reply(socket, gone ? { ...identity, status: 'stopped' } : blocked('descendants-survive'));
     // A terminal "stopped" ends this supervisor: an exited service must not keep
     // a detached node process and its endpoint resident. A surviving tree keeps
     // being served so `stop` can retry, bounded by the idle lifetime below.
     if (gone) server.close(() => process.exit(0));
-    else stopping = false;
+    else { stopping = false; stayResident(); }
+  };
+  /** Prove the tree gone for the launcher over IPC, before an endpoint exists. */
+  const abort = async () => {
+    const gone = await reapTree();
+    if (!gone) stayResident();
+    return gone ? { ...identity, status: 'stopped' } : blocked('descendants-survive');
   };
   const server = createServer((socket) => {
     let buffer = '';
@@ -90,33 +109,73 @@ process.once('message', (input) => {
       }
       if (request.action !== 'stop' || stopping
         || ['pid', 'supervisorPid', 'cwd', 'commandFingerprint', 'startedAt'].some((key) => request[key] !== identity[key])) {
-        reply(socket, { status: 'blocked', reason: 'ownership-mismatch' }); return;
+        reply(socket, blocked('ownership-mismatch')); return;
       }
       stopping = true;
       settle(socket, await reapTree());
     });
   });
+  /**
+   * Retire the owned tree on every way out of this process.
+   *
+   * The launcher kills this supervisor when its startup handshake times out,
+   * and exiting on the signal alone would leave the detached service behind.
+   * The tree is signalled and proven gone first, exactly like an explicit stop.
+   */
+  const releaseAndExit = async (code) => {
+    if (idle) { clearTimeout(idle); idle = null; }
+    await reapTree();
+    process.exit(code);
+  };
+  for (const signal of TERMINATION_SIGNALS.filter((name) => name !== 'SIGBREAK' || process.platform === 'win32')) {
+    process.on(signal, () => { void releaseAndExit(0); });
+  }
+  // The startup handshake runs over IPC before the control endpoint exists, so
+  // a launcher that times out asks for the same proof here instead of killing
+  // the supervisor and orphaning whatever the service already spawned.
+  process.on('message', async (message) => {
+    if (!message || message.action !== 'abort') return;
+    const result = await abort();
+    try { process.send?.(result); } catch { /* the launcher is already gone */ }
+    if (result.status === 'stopped') {
+      const timer = setTimeout(() => process.exit(0), 25);
+      timer.unref();
+    }
+  });
   child.once('error', () => { server.close(); process.exit(1); });
   child.once('exit', () => {
     exited = true;
-    const idle = setTimeout(() => server.close(() => process.exit(0)), IDLE_LIFETIME_MS);
-    idle.unref();
+    stayResident();
   });
   child.once('spawn', () => {
-    // A bind failure must not orphan the tree: the child was started as a
-    // detached group leader, so the same proof `stop` uses runs before exiting.
-    server.once('error', async () => { await reapTree(); process.exit(1); });
+    // The launcher needs the service identity before the endpoint can answer:
+    // that identity is what lets it reclaim this tree if the handshake times out.
+    try { process.send?.({ ...identity, status: 'spawned' }); } catch { /* the handshake is already abandoned */ }
+    // A bind failure, or a control socket that cannot be restricted to its
+    // owner, must not orphan the tree: the same proof `stop` uses runs before
+    // the caller is told anything.
+    server.once('error', async () => {
+      const gone = await reapTree();
+      if (gone) { process.exit(1); return; }
+      // Descendants survived both signals. Exiting here would leave them with no
+      // owner and no handle, so the supervisor stays resident and reports the
+      // surviving tree to the launcher over IPC instead of exiting.
+      try { process.send?.({ ...identity, status: 'blocked', reason: 'control-endpoint-unavailable' }); } catch { /* the launcher is gone */ }
+      stayResident();
+    });
     server.listen(input.endpoint, () => {
       // The unix control socket sits in the shared temp directory, where any
-      // local user can enumerate it and the unauthenticated status/stop protocol
-      // reveals the ownership fields. connect(2) needs write permission, so
-      // 0600 keeps the protocol owner-only; Windows named pipes already default
-      // to the creating user's ACL.
+      // local user can enumerate it. The unauthenticated status/stop protocol
+      // reveals the ownership fields and `connect(2)` only needs write
+      // permission, so a socket that cannot be restricted to its owner is
+      // treated like a bind failure instead of being published as it is.
       if (process.platform !== 'win32') {
-        try { chmodSync(input.endpoint, 0o600); } catch { /* ownership is re-checked by the caller */ }
+        try { chmodSync(input.endpoint, 0o600); } catch { server.emit('error', new Error('Service control socket could not be restricted to its owner.')); return; }
       }
-      process.send?.({ ...identity, status: 'running' });
+      try { process.send?.({ ...identity, status: 'running' }); } catch { /* the handshake is already abandoned */ }
       process.disconnect?.();
     });
   });
-});
+}
+
+process.once('message', (input) => { startService(input); });

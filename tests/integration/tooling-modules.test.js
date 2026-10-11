@@ -1080,4 +1080,7 @@ test('playwright-cli 从词法调用路径推导所属项目', () => {
   // A path that is not the declared tool entry names no project.
   assert.equal(projectDirFromInvocation(path.join(projectDir, 'scripts', 'run.mjs')), null);
   assert.equal(projectDirFromInvocation(path.join(projectDir, '.agents', 'runtime', 'tools', 'playwright-cli')), null);
+  // The suffix has to start at a path-component boundary: a sibling directory
+  // whose name merely ends with `.agents` is not this project's tool entry.
+  assert.equal(projectDirFromInvocation(`${projectDir}.agents/runtime/tools/playwright-cli/run.mjs`.split('/').join(path.sep)), null);
 });

@@ -40,8 +40,16 @@ export const mvpTargets = new Set(['codex', 'claude', 'gemini', 'cursor', 'qoder
 // code-navigation toolchain stays reachable (docs/rules/git-rules.md §Worktree).
 const TARGET_WORKTREE_MIRRORS = {
   codex: ['.agents', '.codex'],
-  opencode: ['.opencode', 'opencode.json'],
+  claude: ['.claude'],
+  gemini: ['.gemini'],
+  cursor: ['.cursor'],
+  qoder: ['.qoder'],
   zcode: ['.zcode'],
+  // Antigravity keeps both its instructions and its skills under `.agents`
+  // (manifests/adapters.json), so an Antigravity-only project reaches the same
+  // mirror as Codex.
+  antigravity: ['.agents'],
+  opencode: ['.opencode', 'opencode.json'],
 };
 const PLUGIN_WORKTREE_MIRRORS = {
   codegraph: ['.codegraph'],

@@ -26,6 +26,7 @@ import {
   lstatSync,
   mkdirSync,
   readdirSync,
+  readlinkSync,
   realpathSync,
   rmSync,
   statSync,
@@ -138,9 +139,24 @@ export function expandMirrors(projectDir, mirrors, { followDirectoryLinks = fals
         } catch {
           entries = [];
         }
-        for (const entry of entries
-          .filter((item) => (item.isDirectory() || (followDirectoryLinks && item.isSymbolicLink())) && !EXPANSION_EXCLUDED.has(item.name))
-          .sort((a, b) => a.name.localeCompare(b.name))) {
+        // A followed link only counts when it points at a directory: removing a
+        // link to a file as if it were an expanded mirror leaf would delete a
+        // declared file mirror instead of a projected directory.
+        const expandable = (item) => {
+          if (EXPANSION_EXCLUDED.has(item.name)) return false;
+          if (item.isDirectory()) return true;
+          if (!followDirectoryLinks || !item.isSymbolicLink()) return false;
+          const abs = path.join(base.abs, item.name);
+          try {
+            return statSync(abs).isDirectory();
+          } catch (error) {
+            // A dangling link still has to be discoverable: its main-checkout
+            // source was deleted after bootstrap, and the link it left behind
+            // is exactly what teardown has to take down.
+            return error?.code === 'ENOENT';
+          }
+        };
+        for (const entry of entries.filter(expandable).sort((a, b) => a.name.localeCompare(b.name))) {
           next.push({ abs: path.join(base.abs, entry.name), rel: base.rel === '' ? entry.name : `${base.rel}/${entry.name}` });
         }
       }
@@ -196,15 +212,18 @@ export function linkOrCopyMirrors(projectDir, worktreePath, mirrors) {
       results.push({ mirror, reason: 'absent in the main checkout', status: 'skipped' });
       continue;
     }
-    if (existsSync(target)) {
-      results.push({ mirror, status: 'present' });
-      continue;
-    }
+    // The ancestor check comes before the existence check: an existing target
+    // reached through a link parent resolves into the main checkout, so calling
+    // it `present` would report a mirror the worktree does not actually own.
     const linked = linkedAncestors(worktreePath, mirror);
     if (linked.length > 0) {
       // Writing through the link would land outside the worktree (typically in
       // the main checkout), so the mirror is reported instead of projected.
       results.push({ mirror, status: 'skipped', reason: `a parent inside the worktree is a link: ${linked[0]}` });
+      continue;
+    }
+    if (existsSync(target)) {
+      results.push({ mirror, status: 'present' });
       continue;
     }
     mkdirSync(path.dirname(target), { recursive: true });
@@ -217,6 +236,26 @@ export function linkOrCopyMirrors(projectDir, worktreePath, mirrors) {
     }
   }
   return results;
+}
+
+/**
+ * True when a worktree-side link's own target is this mirror's main-checkout
+ * path.
+ *
+ * The check reads the link itself instead of resolving it, so a dangling link
+ * whose main-checkout source was deleted after bootstrap still matches, while an
+ * unrelated developer-created link inside the wildcard's directory — or a link
+ * to a file — is left for Git to handle.
+ */
+function linkTargetsMainCheckout(projectDir, target, mirror) {
+  let raw;
+  try {
+    raw = readlinkSync(target);
+  } catch {
+    return false;
+  }
+  const resolved = path.isAbsolute(raw) ? raw : path.resolve(path.dirname(target), raw);
+  return pathKey(resolved) === pathKey(path.join(projectDir, mirror));
 }
 
 /**
@@ -251,6 +290,7 @@ export function removeMirrorLinks(projectDir, worktreePath, mirrors) {
       stats = null;
     }
     if (stats === null || !stats.isSymbolicLink()) continue;
+    if (!linkTargetsMainCheckout(projectDir, target, mirror)) continue;
     if (linkedAncestors(worktreePath, mirror).length > 0) continue;
     rmSync(target, { force: true, recursive: true });
     removed.push(mirror);

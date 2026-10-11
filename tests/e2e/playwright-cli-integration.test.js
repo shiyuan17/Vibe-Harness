@@ -2,7 +2,7 @@ import '../helpers/offline-tools.js';
 
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -195,6 +195,27 @@ test('Playwright command forwards output while provisioning remains injectable',
     );
   } finally {
     await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('Playwright tool directory must resolve to the project declaration', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'vibe-harness-playwright-tool-dir-'));
+  const targetDir = path.join(root, 'project');
+  const outside = path.join(root, 'outside');
+  try {
+    await mkdir(path.join(targetDir, '.agents/runtime/tools/playwright-cli'), { recursive: true });
+    await mkdir(path.join(outside, 'playwright-cli'), { recursive: true });
+    // A caller-supplied link inside the project must not redirect the tool
+    // directory outside it, even though the lexical containment check passes.
+    await symlink(outside, path.join(targetDir, '.tools-link'), 'junction');
+    await assert.rejects(
+      inspectPlaywrightTool({ targetDir, toolDir: path.join(targetDir, '.tools-link/playwright-cli') }),
+      /must resolve to the target project's declared tool path/u,
+    );
+    // The project's own declaration is still the accepted shape.
+    assert.equal((await inspectPlaywrightTool({ targetDir })).status, 'pending');
+  } finally {
+    await rm(root, { force: true, recursive: true });
   }
 });
 

@@ -71,10 +71,21 @@ async function assertRuntimePathsSafe(paths) {
   ]) await assertSafeRuntimePath(paths.targetDir, candidate, label);
   // The tool directory is the declared `.agents` mirror, so a worktree reaches
   // it through that project's junction and the realpath belongs to the shared
-  // main checkout by design. Project-local state stays under the artifacts and
-  // state directories above; the lexical containment check is what keeps this
-  // project's tool path from being redirected elsewhere.
+  // main checkout by design. The check is therefore not "no links above it" but
+  // "it resolves to this project's own declared tool path": a caller-supplied
+  // tool directory that resolves elsewhere is still rejected, while the
+  // worktree's own junction keeps working. Project-local state stays under the
+  // artifacts and state directories above.
   assertInside(paths.targetDir, paths.toolDir, 'Playwright tool directory');
+  const normalize = (value) => (process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value));
+  const declared = path.join(path.resolve(paths.targetDir), ...PLAYWRIGHT_TOOL_RELATIVE_DIR.split('/'));
+  const [canonicalTool, canonicalDeclared] = await Promise.all([
+    realpath(path.resolve(paths.toolDir)).catch(() => null),
+    realpath(declared).catch(() => null),
+  ]);
+  if (canonicalTool !== null && canonicalDeclared !== null && normalize(canonicalTool) !== normalize(canonicalDeclared)) {
+    throw new Error('Playwright tool directory must resolve to the target project\'s declared tool path.');
+  }
 }
 
 async function pathExists(filePath) {
@@ -346,6 +357,11 @@ export function projectDirFromInvocation(invocationPath) {
   const comparable = process.platform === 'win32' ? candidate.toLowerCase() : candidate;
   const expected = process.platform === 'win32' ? suffix.toLowerCase() : suffix;
   if (!comparable.endsWith(expected)) return null;
+  // The suffix has to start at a path-component boundary: `…/project.agents/…`
+  // also ends with the tool suffix lexically, but the project it belongs to is
+  // `…` and not `…/project`.
+  const before = comparable.slice(0, comparable.length - expected.length);
+  if (before !== '' && !/[\\/]$/u.test(before)) return null;
   const projectDir = candidate.slice(0, candidate.length - suffix.length).replace(/[\\/]+$/u, '');
   return projectDir === '' ? null : projectDir;
 }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, lstatSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -1221,19 +1221,26 @@ test('镜像展开与拆除按两侧计算并拒绝链接祖先', async () => {
     const nested = await linkOrCopyMirrors(main, worktree, ['notes', 'notes/readme.md']);
     const nestedByMirror = new Map(nested.map((item) => [item.mirror, item]));
     assert.equal(nestedByMirror.get('notes').status, 'linked');
-    // A nested declaration already visible through the parent link is never
-    // re-projected: writing it would go through the link into the main checkout.
-    assert.equal(nestedByMirror.get('notes/readme.md').status, 'present');
+    // A nested declaration reached through the parent link is never re-projected:
+    // the ancestor check runs before the existence check, so it is reported as
+    // skipped instead of being mistaken for a mirror the worktree owns.
+    assert.equal(nestedByMirror.get('notes/readme.md').status, 'skipped');
     assert.equal(await readFile(path.join(main, 'notes/readme.md'), 'utf8'), 'notes\n');
 
     // The main checkout loses a wildcard leaf after bootstrap; the link inside
     // the worktree is only discoverable by expanding the worktree side, and it
     // still has to come down without the main checkout being touched.
     await rm(path.join(main, 'tools/beta'), { recursive: true, force: true });
+    // A link the developer made by hand is not this bootstrap's projection: it
+    // stays for `git worktree remove` even though the wildcard reaches it.
+    const handMade = path.join(root, 'elsewhere');
+    await mkdir(handMade, { recursive: true });
+    await symlink(handMade, path.join(worktree, 'tools/custom'), 'junction');
     const removed = removeMirrorLinks(main, worktree, ['tools/*']);
     assert.deepEqual([...removed].sort(), ['tools/alpha', 'tools/beta']);
     assert.equal(existsSync(path.join(worktree, 'tools/alpha')), false);
     assert.equal(existsSync(path.join(worktree, 'tools/beta')), false);
+    assert.equal(lstatSync(path.join(worktree, 'tools/custom')).isSymbolicLink(), true);
     assert.equal(existsSync(path.join(main, 'tools/alpha')), true);
   } finally {
     await removeTemporaryDirectory(root);
