@@ -33,12 +33,13 @@ manifest 的 `hookEvents` 与 `hookActivation` 是事件能力的单一事实源
 | --- | --- | --- |
 | PowerShell 与 Unix 只读 cmdlet（Get-ChildItem、Select-Object、Where-Object、Sort-Object、ForEach-Object、ConvertFrom-Json、Format-Table、Group-Object、Out-String、jq、rg 等） | 无副作用 | 允许 |
 | 宿主与基础设施 CLI 的只读子命令（codex 的 --version 与 --help、kubectl get、docker compose ps、terraform plan、aws list- 等） | 无副作用 | 允许 |
+| Git 只读与同步命令（`git fetch`、`git ls-remote`、`git stash list`、`git submodule status`、`git pull --ff-only`） | 无副作用（`pull --ff-only` 额外要求跟踪工作区干净） | 允许；脏工作区 `pull --ff-only` 以 `VIBE_HARNESS_SYNC_DIRTY_TREE` 拒绝，裸 `git pull` 判为 `workspaceWrite` |
 | 解释器与工具链（node、python、pytest、go、cargo、dotnet、mvn、gradle、make、cmake、bundle、php 等） | workspaceWrite、standard | 允许，与既有 Node 工具链一致 |
 | 本地宿主函数工具（view_image、update_plan、agent、spawn_agent、task、read_file，以及 read_thread、read_thread_terminal、list_threads、list_archived_threads、wait_threads、list_agents、list_projects、get_goal、get_handoff_status） | 无副作用 | 允许 |
 | 写类子命令（delete、remove、apply、destroy、create 等）与未分类命令 | 高风险或无法判定 | 需要 Execution Envelope，否则拒绝 |
 | 危险 Git、全局 Agent 配置写入、凭据外传、红区上传、项目边界外写入、控制面直写、冻结测试资产写入 | 明确禁止 | 直接拒绝 |
 
-Shell 分段与读写谓词同样来自该模块，因此同一条命令在策略层与 Envelope 层的只读结论一致。apply_patch 的载荷是文件内容而非 shell 命令，只按补丁目标路径判定写入范围，不做命令替换、重定向或续行检查。
+Shell 分段与读写谓词同样来自该模块，因此同一条命令在策略层与 Envelope 层的只读结论一致。`git pull --ff-only` 只能在跟踪工作区干净时放行：分类器只报告「需要干净工作区」这一事实，Hook 在用一次只读的 `git status --porcelain --untracked-files=no` 确认后才返回允许；未跟踪文件不计入（不会被 fast-forward 触碰），脏工作区以 `VIBE_HARNESS_SYNC_DIRTY_TREE` 拒绝，状态不可读时以 `VIBE_HARNESS_SYNC_STATE_UNAVAILABLE` 拒绝。`git pull` 的其他形式（含 `--rebase`）会写工作区，仍按 `workspaceWrite` 走 Execution Envelope。apply_patch 的载荷是文件内容而非 shell 命令，只按补丁目标路径判定写入范围，不做命令替换、重定向或续行检查。
 
 本地宿主函数工具是一份显式名单：它们不触碰工作区，但名字里没有可推断的读动词（<code>update_plan</code> 是宿主本地清单，<code>view_image</code> 返回像素），未列名时会落到「无法判定」并要求 Execution Envelope。会改动宿主状态的工具不进这份名单——<code>write_stdin</code>、<code>create_thread</code>、<code>fork_thread</code>、<code>automation_update</code>、<code>handoff_thread</code>、<code>set_thread_*</code>、<code>send_message_to_thread</code>、<code>followup_task</code> 以及一切未列名的工具仍走 Envelope 路径（无 Envelope 即拒绝）。相对上一轮，<code>update_plan</code>、<code>view_image</code> 与 <code>Agent</code> 由「不判定」变为「放行」，<code>write_stdin</code>、<code>create_thread</code> 与 <code>automation_update</code> 由「不判定」变为「拒绝」。
 
@@ -120,7 +121,7 @@ RTK 路由仅在 Codex、显式选择 RTK 插件并启用对应设置时生效�
 
 Execution Envelope 将一次用户请求绑定到 <code>requestId</code>、<code>sessionId</code>、<code>mode</code>、目标 Issue、独立 effect 授权和终止条件。v1 公开合同位于 <code>docs/schemas/execution-envelope.schema.json</code>，新增的 v2 位于 <code>docs/schemas/execution-envelope-v2.schema.json</code>。Hook 接受宿主注入的 <code>execution_envelope</code> / <code>executionEnvelope</code>，或父进程注入的 <code>VIBE_HARNESS_EXECUTION_ENVELOPE</code>；项目文件、install-state 和 Agent 命令都不是授权根。
 
-v1 保持原 schema 与 validator，仅作为 contract-only/degraded 兼容路径；它不能授权 hostWrite、externalWrite、凭据、高风险间接写入或 worktree 拓扑变化。v2 增加 riskClass、精确 workspace identity、允许写入根、外部目标、可选的 <code>scope.linear</code> team/project 目标、宿主 enforcement 证明和带 HEAD/续跑计数的 checkpoint。普通项目内低风险写入仍可使用兼容路径；高风险或不可分类调用即使未设置 <code>VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED</code> 也必须提供 high-risk v2 Envelope，否则 fail-closed。
+v1 保持原 schema 与 validator，仅作为 contract-only/degraded 兼容路径；它不能授权 hostWrite、externalWrite、凭据、高风险间接写入或 worktree 拓扑变化。v2 增加 riskClass、精确 workspace identity、允许写入根、外部目标、可选的 <code>scope.linear</code> team/project 目标、宿主 enforcement 证明和带 HEAD/续跑计数的 checkpoint。普通项目内低风险写入仍可使用兼容路径；高风险调用即使未设置 <code>VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED</code> 也必须提供 high-risk v2 Envelope，否则 fail-closed。效果无法安全判定的调用（`unclassified-effect`）不属于这一类：它一律以 <code>EXECUTION_ENVELOPE_UNKNOWN_EFFECT</code> 拒绝，带 high-risk v2 Envelope 也不能放行，只能改写为已登记的只读命令。
 
 v2 的 hostContext 只能由宿主注入。高风险执行要求新鲜的宿主证明、进程隔离和与 effect 匹配的 filesystem、approval、network 边界；项目配置不得生成、持久化或扩大这些字段。活动任务的 worktree root、git common dir、git dir、branch 和 base SHA 不可变；<code>git worktree move</code> 始终拒绝，合法提交只允许把 checkpoint HEAD 前移到已验证后代。
 
