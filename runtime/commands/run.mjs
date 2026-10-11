@@ -2752,7 +2752,20 @@ async function worktreeLandReportUnlocked(projectDir, args) {
           if (!recorded) {
             provenanceRecorded = false;
             if (!failedStep) {
-              markFailed({ id: 'merge', status: 'blocked', code: 'LAND_PROVENANCE_UNRECORDED', detail: 'record the finalized verification evidence for the primary checkout' });
+              // The fast-forward already moved the target, so the branch is put
+              // back: a blocked result has to leave the target exactly as
+              // retryable as it found it, otherwise the next attempt sees an
+              // already-landed change with no valid completion evidence. The
+              // primary checkout was proven clean and on this branch just above.
+              const restored = await runGit(['reset', '--hard', targetHead.stdout.trim()], primary.path);
+              markFailed({
+                id: 'merge', status: 'blocked',
+                code: restored.ok ? 'LAND_PROVENANCE_UNRECORDED' : 'LAND_PROVENANCE_UNRECORDED_AND_UNRESTORED',
+                ...(restored.ok ? {} : { error: boundedOutput(restored.stderr || restored.error?.message || 'the target branch could not be restored', projectDir) }),
+                detail: restored.ok
+                  ? 'record the finalized verification evidence for the primary checkout'
+                  : `git reset --hard ${targetHead.stdout.trim()} in ${primary.path}`,
+              });
             }
           }
         }
