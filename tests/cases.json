@@ -2726,6 +2726,19 @@
       "addedAt": "2026-09-16"
     },
     {
+      "id": "C-codex-adapter-005",
+      "layer": "component",
+      "file": "tests/component/codex-adapter.test.js",
+      "ordinal": 5,
+      "name": "本仓库 Codex Hook 配置仅保留官方模板的受管处理器",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-10-11"
+    },
+    {
       "id": "C-docs-projection-001",
       "layer": "component",
       "file": "tests/component/docs-projection.test.js",

@@ -62,3 +62,10 @@ test('git-deliver Codex metadata disables implicit invocation', async () => {
   const metadata = await readFile(path.join(rootDir, 'skills/core/git-deliver/agents/openai.yaml'), 'utf8');
   assert.match(metadata, /allow_implicit_invocation: false/u);
 });
+
+test('本仓库 Codex Hook 配置仅保留官方模板的受管处理器', async () => {
+  const template = await readFile(path.join(rootDir, 'adapters/codex/hooks.template.json'), 'utf8');
+  const configured = await readJson(path.join(rootDir, '.codex/hooks.json'));
+
+  assert.deepEqual(configured, JSON.parse(renderTemplate(template)));
+});
