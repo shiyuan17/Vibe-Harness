@@ -9109,6 +9109,19 @@
       "addedAt": "2026-09-16"
     },
     {
+      "id": "I-hook-runtime-048",
+      "layer": "integration",
+      "file": "tests/integration/hook-runtime.test.js",
+      "ordinal": 48,
+      "name": "Hook CLI ${scenario.name} 不回显或落盘合成敏感输入",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-10-11"
+    },
+    {
       "id": "I-install-dry-run-001",
       "layer": "integration",
       "file": "tests/integration/install-dry-run.test.js",

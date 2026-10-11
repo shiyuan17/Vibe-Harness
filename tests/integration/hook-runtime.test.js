@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -27,8 +27,9 @@ import { inspectRtkHook, routeRtkCommand } from '../../runtime/hooks/lib/rtk.mjs
 
 const hookCliPath = path.resolve('runtime/hooks/codex-hook.mjs');
 
-async function runHookCli(stdin, args = ['--host', 'codex', '--expected-event', 'PreToolUse']) {
+async function runHookCli(stdin, args = ['--host', 'codex', '--expected-event', 'PreToolUse'], environment = {}) {
   const child = spawn(process.execPath, [hookCliPath, ...args], {
+    env: { ...process.env, ...environment },
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
   });
@@ -1609,3 +1610,47 @@ test('resolveExecutable maps node to the running executable and routes npm shims
   // Unknown programs pass through unchanged.
   assert.deepEqual(resolveExecutable('git'), { command: 'git', preArgs: [] });
 });
+
+for (const scenario of [
+  { name: '只读放行', toolName: 'Bash', toolInput: { command: 'git status --short' }, decision: undefined },
+  { name: '缺授权拒绝', toolName: 'Write', toolInput: { file_path: 'src/example.js', content: 'fixture' }, decision: 'deny' },
+]) {
+  test(`Hook CLI ${scenario.name} 不回显或落盘合成敏感输入`, async () => {
+    await withProject(async (target) => {
+      const isolatedTemp = path.join(target, 'isolated-temp');
+      await mkdir(isolatedTemp);
+      const before = (await readdir(target, { recursive: true })).sort();
+      const markers = {
+        session: 'synthetic-session-canary',
+        authorization: 'synthetic-authorization-canary',
+        cookie: 'synthetic-cookie-canary',
+        description: 'synthetic-request-canary',
+      };
+      const request = input(target, {
+        session_id: markers.session,
+        tool_name: scenario.toolName,
+        tool_input: {
+          ...scenario.toolInput,
+          authorization: markers.authorization,
+          cookie: markers.cookie,
+          description: markers.description,
+        },
+      });
+      const result = await runHookCli(JSON.stringify(request), undefined, {
+        TEMP: isolatedTemp,
+        TMP: isolatedTemp,
+        TMPDIR: isolatedTemp,
+        VIBE_HARNESS_EXECUTION_ENVELOPE: undefined,
+        VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED: '1',
+      });
+
+      assert.equal(result.code, 0);
+      assert.equal(JSON.parse(result.stdout).hookSpecificOutput?.permissionDecision, scenario.decision);
+      for (const marker of Object.values(markers)) {
+        assert.equal(`${result.stdout}${result.stderr}`.includes(marker), false, `不得回显合成标记：${marker}`);
+      }
+      assert.deepEqual(await readdir(isolatedTemp), []);
+      assert.deepEqual((await readdir(target, { recursive: true })).sort(), before);
+    });
+  });
+}
