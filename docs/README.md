@@ -19,6 +19,8 @@
 - [ADR-0009：develop required fast gate](adr/ADR-0009-develop-required-fast-gate.md)
 - [ADR-0010：Symphony 持久授权与原子领单宿主](adr/ADR-0010-symphony-hosted-linear-dispatch.md)
 - [Evidence-bound delivery and owned service lifecycle](adr/ADR-0011-delivery-lifecycle.md)
+- [Develop accepts direct local landings without a server gate](adr/ADR-0013-develop-direct-push-without-server-gate.md)
+- [Single-reviewer high-risk review receipt](adr/ADR-0012-single-reviewer-review-receipt.md)
 - [ADR Schema](schemas/adr.schema.json)
 - [Execution Envelope v1 Schema](schemas/execution-envelope.schema.json)
 - [Execution Envelope v2 Schema](schemas/execution-envelope-v2.schema.json)

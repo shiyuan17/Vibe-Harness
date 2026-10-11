@@ -84,6 +84,10 @@ jobs:
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           release-type: node
+          # The repository default branch becomes `develop` (ADR-0013), but
+          # releases still promote `develop → main`; without an explicit target
+          # branch release-please would open release PRs against `develop`.
+          target-branch: main
           package-name: "@jw/vibe-harness"
           changelog-sections: |
             [
