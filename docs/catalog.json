@@ -1319,6 +1319,17 @@
       ]
     },
     {
+      "path": "docs/adr/ADR-0013-develop-direct-push-without-server-gate.md",
+      "kind": "architecture",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
+    },
+    {
       "path": "docs/specs/delivery-lifecycle.md",
       "kind": "spec",
       "status": "implemented",

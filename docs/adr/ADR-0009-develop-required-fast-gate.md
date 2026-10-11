@@ -1,7 +1,7 @@
 ---
 id: ADR-0009
 title: Required fast gate for develop merges
-status: accepted
+status: superseded
 date: 2026-09-27
 review-date: 2026-10-25
 owner: vibe-harness-maintainers
@@ -9,7 +9,7 @@ decision-makers: [vibe-harness-maintainers]
 consulted: [linear-workflow-users]
 informed: [vibe-harness-contributors]
 supersedes: []
-superseded-by: null
+superseded-by: ADR-0013
 ---
 
 # Required fast gate for develop merges
