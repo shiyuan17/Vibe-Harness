@@ -63,9 +63,13 @@ function boundedDiagnostic(value, targetDir, maxLength = 480) {
 
 function focusedReview({ changedPaths = [], selectedChecks = [], results = [] } = {}) {
   const selectedCheckIds = selectedChecks.map((item) => item.id ?? item.command).filter(Boolean);
+  // Only an explicit marker counts as a review. The planner emits a selection
+  // reason for every selected check, so a reason explains a selection but can
+  // never be the evidence that someone reviewed the check — accepting it would
+  // let the acceptance gate attest itself.
   const reviewedCheckIds = results
     .filter((item) => ['passed', 'reused'].includes(item.status))
-    .filter((item) => item.reviewed === true || item.relevance === 'reviewed' || (item.selectionReasons ?? []).length > 0)
+    .filter((item) => item.reviewed === true || item.relevance === 'reviewed')
     .map((item) => item.id ?? item.command)
     .filter(Boolean);
   return {
@@ -836,6 +840,16 @@ export async function runVerificationPlan({
       report.ok = false;
       report.error = { code: 'PROJECT_VERIFICATION_INPUTS_CHANGED', message: 'Verification inputs changed while checks were running.' };
       report.verification.inputsStable = false;
+      // The acceptance was computed from the inputs the checks ran against; once
+      // those changed it no longer describes this workspace, so it is blocked
+      // here instead of leaving `ok: false` next to an `accepted` status.
+      if (report.verification.acceptance) {
+        report.verification.acceptance = {
+          ...report.verification.acceptance,
+          status: 'blocked',
+          reasonCode: 'VERIFICATION_INPUTS_CHANGED',
+        };
+      }
     }
     await storeVerificationReceipt(targetDir, cacheContext, {
       ...report.verification, status: report.ok && focused.results.every((item) => item.status === 'passed') ? 'passed' : 'failed',

@@ -14,7 +14,6 @@ import {
   deriveValidationTiers,
   normalizeTierOption,
   readProjectTierFacts,
-  resolveExecutionTier,
   resolveValidationTiers,
 } from './lib/validation-tiers.js';
 import { estimateVerificationCost, normalizeVerificationScope } from './lib/verification-contract.js';
@@ -129,7 +128,27 @@ async function main() {
     tierSource: resolvedTiers.tierSource,
     scope,
   });
-  const execution = resolveExecutionTier({ tier, explicit: tierExplicit, tiers: resolvedTiers.tiers });
+  // The risk plan answers "what does this change affect"; passing the tier into
+  // the same builder answers "which declared commands that layer pays for". A
+  // tier run must select every command the cumulative layer declares, not only
+  // the ones the change surface happened to surface: on an ordinary
+  // scripts/docs change, `--tier deep` would otherwise silently omit a
+  // declared integration or e2e command because it never entered the risk
+  // plan. The risk plan stays the relevance surface, so its derived checks
+  // keep running and keep being reported as deferred.
+  const tierPlan = await buildVerificationPlan({
+    changedPaths: paths,
+    commandStatus: {},
+    config,
+    changedDetails,
+    targetDir: process.cwd(),
+    tiers: resolvedTiers.tiers,
+    tierSource: resolvedTiers.tierSource,
+    scope,
+    tier,
+    tierExplicit,
+  });
+  const execution = { tier: tierPlan.executionTier ?? tier, fallback: tierPlan.tierFallback };
   tier = execution.tier ?? tier;
   // The risk plan answers "what does this change affect"; the cost layer
   // answers "which of that evidence do I pay for now". The fast layer is the
@@ -138,14 +157,24 @@ async function main() {
   const tierOf = (item) => item.costTier ?? 'standard';
   // The plan's own deferred evidence (the slimmed high branch) joins the pool:
   // an escalated tier still pays for it, a quick run still reports it deferred.
-  const pool = [...plan.selectedChecks, ...(plan.deferredChecks ?? [])];
+  const pool = [
+    ...plan.selectedChecks,
+    ...(plan.deferredChecks ?? []),
+    ...(tierPlan.selectedChecks ?? []),
+    ...(tierPlan.deferredChecks ?? []),
+  ];
   const poolSeen = new Set();
+  const considered = [];
   const commands = [];
   const deferredChecks = [];
   for (const item of pool) {
-    const key = item.id ?? item.command;
+    // The two plans name the same declared command differently (the risk plan
+    // derives an id, the tier plan uses the declared script), so the pool is
+    // de-duplicated by the command that would actually run.
+    const key = item.command ?? item.id;
     if (poolSeen.has(key)) continue;
     poolSeen.add(key);
+    considered.push(item);
     if (activeTiers.has(tierOf(item))) commands.push(item);
     else deferredChecks.push({ ...item });
   }
@@ -154,7 +183,7 @@ async function main() {
   const notes = plan.selectionReasons;
   const impactMapping = buildImpactMapping(paths, commands);
   const selectedIds = new Set(commands.map((item) => item.id));
-  const skippedChecks = [...plan.skippedChecks.filter((item) => !selectedIds.has(item.id)), ...pool
+  const skippedChecks = [...plan.skippedChecks.filter((item) => !selectedIds.has(item.id)), ...considered
     .filter((item) => !selectedIds.has(item.id))
     .map((item) => ({ id: item.id, status: 'not_selected' }))];
   const selectedCost = estimateVerificationCost(commands, config);
@@ -166,12 +195,15 @@ async function main() {
     estimatedChecks: selectedCost.estimatedChecks,
     escalation: { ...plan.escalation, nextTier, required: plan.escalation.required || deferredChecks.length > 0 },
   };
-  const selectionReasonsByCheck = plan.selectionReasonsByCheck ?? Object.fromEntries(
-    [...plan.selectedChecks, ...(plan.deferredChecks ?? [])].map((item) => [
-      item.id ?? item.command,
-      [...(item.selectionReasons ?? (item.reason ? [item.reason] : []))],
-    ]),
-  );
+  const selectionReasonsByCheck = {
+    ...(tierPlan.selectionReasonsByCheck ?? {}),
+    ...(plan.selectionReasonsByCheck ?? Object.fromEntries(
+      [...plan.selectedChecks, ...(plan.deferredChecks ?? [])].map((item) => [
+        item.id ?? item.command,
+        [...(item.selectionReasons ?? (item.reason ? [item.reason] : []))],
+      ]),
+    )),
+  };
   if (!run && json) {
     console.log(JSON.stringify({
       ...plan,

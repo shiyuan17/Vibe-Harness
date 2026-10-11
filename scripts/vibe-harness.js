@@ -342,6 +342,23 @@ function toolSummaryLines(tools = {}, recommendations = []) {
   });
 }
 
+/**
+ * Record a blocking strict-Hook refusal on a completion receipt.
+ *
+ * The Hook block is a delivery fact rather than a verification detail: the
+ * receipt is `blocked` (never `passed`) and names the refusal, so a consumer
+ * cannot read it as complete delivery evidence while the report is invalid.
+ */
+function withHookBlock(receipt, hookFailure) {
+  if (!hookFailure) return receipt;
+  return {
+    ...receipt,
+    status: 'blocked',
+    unverified: [...new Set([...(receipt.unverified ?? []), `hook:${hookFailure.code ?? 'HOOK_POLICY_BLOCKED'}`])],
+    remainingRisks: [...new Set([...(receipt.remainingRisks ?? []), hookFailure.message ?? 'Strict Hook enforcement blocks delivery.'])],
+  };
+}
+
 function emitReport(report, args, { error = false } = {}) {
   const targetDir = path.resolve(args.project ?? process.cwd());
   const normalized = sanitizePublicReport(normalizeReport(report), targetDir);
@@ -576,6 +593,7 @@ async function install(args) {
     ? null
     : defaultWorktreeMirrors({
         plugins: [...new Set([...(config.plugins ?? []), ...(requestedPlugins ?? [])])],
+        targets: projectTargets(config),
         target: adapterId,
       });
   const seedMirrors = Boolean(mirrorsSeed && mirrorsSeed.length > 0);
@@ -1117,13 +1135,17 @@ async function verify(args) {
   });
   emitReport({
     ...verificationReport,
-    delivery: { profile: delivery.profile, stage: 'verify' },
-    ...(delivery.requireReceipt ? { completion: completionReceipt({
-      ...verificationReport, status: verificationReport.ok ? 'passed' : 'blocked',
+    // The strict-Hook block belongs to the delivery result, so the completion
+    // receipt is built from the effective status and carries the block as an
+    // unverified item. A receipt that said `passed` while the report was blocked
+    // by an unenforced Hook would be consumed as successful delivery evidence.
+    ...(delivery.requireReceipt ? { completion: withHookBlock(completionReceipt({
+      ...verificationReport, status: verificationReport.ok && !blockingHookFailure ? 'passed' : 'blocked',
       checks: verificationReport.results,
       scope: planned.scope, selectedChecks: verificationReport.verification?.selectedChecks,
       deferredChecks: verificationReport.verification?.deferredChecks,
-    }, delivery) } : {}),
+    }, delivery), blockingHookFailure) } : {}),
+    delivery: { profile: delivery.profile, stage: 'verify' },
     ...(blockingHookFailure ? { ok: false } : {}),
     deferredChecks: verificationReport.verification?.deferredChecks ?? [],
     deferredMicroChecks: verificationReport.verification?.deferredMicroChecks ?? planned.deferredMicroChecks ?? [],

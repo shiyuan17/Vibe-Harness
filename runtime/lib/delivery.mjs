@@ -131,8 +131,27 @@ export function validateCompletion(receipt, delivery, current = null) {
       || Date.parse(verification.finishedAt) > Date.now() || verification.snapshotComparison !== 'match'
       || !['verified', 'passed', 'completed'].includes(verification.status)
       || !nonempty(verification.fingerprint)) errors.push('current verification evidence is missing');
-    if (!verification?.acceptance || verification.acceptance.status !== 'accepted') {
+    // `--receipt` loads caller-supplied JSON, so the acceptance payload is only
+    // evidence while it is internally consistent with the verification it
+    // cites: it must name the selected checks, overlap the reviewed set, and
+    // carry the same fingerprint. A self-asserted `status: 'accepted'` on its
+    // own would let a handcrafted receipt claim a review that never happened.
+    const acceptance = verification?.acceptance;
+    const acceptanceIds = [...ids];
+    if (!acceptance || acceptance.status !== 'accepted') {
       errors.push('reviewed relevant check and final acceptance evidence are missing');
+    } else {
+      const selectedIds = Array.isArray(acceptance.selectedCheckIds) ? acceptance.selectedCheckIds : [];
+      const reviewedIds = Array.isArray(verification.review?.reviewedCheckIds) ? verification.review.reviewedCheckIds : [];
+      if (selectedIds.length === 0) errors.push('acceptance evidence does not name the selected checks');
+      const outside = acceptanceIds.filter((id) => !selectedIds.includes(id));
+      if (outside.length > 0) errors.push(`acceptance entries are not part of the selected checks: ${outside.join(', ')}`);
+      if (verification.review?.status !== 'relevant' || !reviewedIds.some((id) => acceptanceIds.includes(id))) {
+        errors.push('acceptance evidence does not cite a reviewed relevant check');
+      }
+      if (!nonempty(acceptance.finalFingerprint) || acceptance.finalFingerprint !== verification.fingerprint) {
+        errors.push('acceptance evidence does not match the verification fingerprint');
+      }
     }
     if (current && (receipt.source?.head !== current.snapshot.head
       || verification?.fingerprint !== current.fingerprint || !current.fingerprint)) errors.push('verification fingerprint is stale');

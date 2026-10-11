@@ -157,6 +157,8 @@ export async function inspectRuntimeHookSelfCheck(adapter, targetDir, { configur
     return { status: 'unsupported', code: 'HOOK_SELF_CHECK_UNSUPPORTED' };
   }
   if (!configured) return { status: 'not-installed', code: 'HOOK_SELF_CHECK_NOT_INSTALLED' };
+  const wiring = await inspectInstalledHookWiring(adapter, targetDir);
+  if (wiring.status !== 'pass') return wiring;
   try {
     const result = await evaluateHook(selfCheckPayload(adapter.id, targetDir), {
       expectedEvent: 'PreToolUse',
@@ -169,6 +171,40 @@ export async function inspectRuntimeHookSelfCheck(adapter, targetDir, { configur
     const stableCodes = new Set(Object.values(HOOK_FAILURE_CODES));
     return { status: 'degraded', code: stableCodes.has(error?.code) ? error.code : 'HOOK_SELF_CHECK_FAILED' };
   }
+}
+
+/**
+ * The installed Hook surface this self-check is allowed to speak about.
+ *
+ * The synthetic request below runs the pack's own evaluator, so it proves
+ * something about the target only while the installed handler *is* that
+ * evaluator and the target's configuration points at it. An empty or miswired
+ * `hooks.json`, or a stale/tampered `.agents` handler, would otherwise still
+ * report `pass` and be read as enforcement evidence.
+ */
+async function inspectInstalledHookWiring(adapter, targetDir) {
+  const configTarget = hookConfigTarget(adapter);
+  const installedHandler = path.join(targetDir, runtimeHookEntryPath);
+  const packHandler = path.join(path.resolve(import.meta.dirname, '..', '..'), 'runtime', 'hooks', 'codex-hook.mjs');
+  if (!(await pathExists(installedHandler))) {
+    return { status: 'degraded', code: 'HOOK_SELF_CHECK_HANDLER_MISSING' };
+  }
+  const [installedHash, packHash] = await Promise.all([
+    hashFile(installedHandler).catch(() => null),
+    hashFile(packHandler).catch(() => null),
+  ]);
+  if (installedHash === null || packHash === null) {
+    return { status: 'degraded', code: 'HOOK_SELF_CHECK_HANDLER_UNVERIFIED' };
+  }
+  if (installedHash !== packHash) {
+    return { status: 'degraded', code: 'HOOK_SELF_CHECK_HANDLER_DRIFT' };
+  }
+  if (configTarget) {
+    const config = await readFile(path.join(targetDir, configTarget), 'utf8').catch(() => null);
+    const wired = config !== null && runtimeHookEntryPath.split('/').every((segment) => config.includes(segment));
+    if (!wired) return { status: 'degraded', code: 'HOOK_SELF_CHECK_CONFIG_UNWIRED' };
+  }
+  return { status: 'pass', code: 'HOOK_SELF_CHECK_WIRING_VERIFIED' };
 }
 
 /**
