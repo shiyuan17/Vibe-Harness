@@ -210,7 +210,16 @@ test('Playwright tool directory must resolve to the project declaration', async 
     await symlink(outside, path.join(targetDir, '.tools-link'), 'junction');
     await assert.rejects(
       inspectPlaywrightTool({ targetDir, toolDir: path.join(targetDir, '.tools-link/playwright-cli') }),
-      /must resolve to the target project's declared tool path/u,
+      /must be the target project's declared tool path/u,
+    );
+    // An absent declaration plus a caller-supplied directory must not fail open:
+    // the lexical path itself has to be the declared one, because the executable
+    // this tool runs is read from that directory.
+    const undeclared = path.join(root, 'undeclared-project');
+    await mkdir(path.join(undeclared, '.agents/runtime/tools/elsewhere'), { recursive: true });
+    await assert.rejects(
+      inspectPlaywrightTool({ targetDir: undeclared, toolDir: path.join(undeclared, '.agents/runtime/tools/elsewhere') }),
+      /must be the target project's declared tool path/u,
     );
     // The project's own declaration is still the accepted shape.
     assert.equal((await inspectPlaywrightTool({ targetDir })).status, 'pending');

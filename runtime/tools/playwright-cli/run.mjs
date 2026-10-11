@@ -78,12 +78,23 @@ async function assertRuntimePathsSafe(paths) {
   // artifacts and state directories above.
   assertInside(paths.targetDir, paths.toolDir, 'Playwright tool directory');
   const normalize = (value) => (process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value));
+  const resolvedTool = path.resolve(paths.toolDir);
   const declared = path.join(path.resolve(paths.targetDir), ...PLAYWRIGHT_TOOL_RELATIVE_DIR.split('/'));
+  // Identity first, reachability second: the tool directory has to *be* the
+  // declared `.agents` path, so an absent declared path plus a caller-supplied
+  // directory cannot supply the executable this tool runs.
+  if (normalize(resolvedTool) !== normalize(declared)) {
+    throw new Error('Playwright tool directory must be the target project\'s declared tool path.');
+  }
   const [canonicalTool, canonicalDeclared] = await Promise.all([
-    realpath(path.resolve(paths.toolDir)).catch(() => null),
+    realpath(resolvedTool).catch(() => null),
     realpath(declared).catch(() => null),
   ]);
-  if (canonicalTool !== null && canonicalDeclared !== null && normalize(canonicalTool) !== normalize(canonicalDeclared)) {
+  // Only a declaration that resolves — and resolves to the same place under both
+  // spellings — counts as verified; a half-resolved pair is not evidence that
+  // the canonical tool directory is the declared one.
+  if ((canonicalTool === null) !== (canonicalDeclared === null)
+    || (canonicalTool !== null && normalize(canonicalTool) !== normalize(canonicalDeclared))) {
     throw new Error('Playwright tool directory must resolve to the target project\'s declared tool path.');
   }
 }
