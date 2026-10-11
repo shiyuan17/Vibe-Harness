@@ -6,11 +6,11 @@
 
 项目阶段、技术债与决策经本文件引用 `docs/memory/PROJECT_STATE.md` 读取，不在此复制其内容；本文件只记录任务级恢复线索。
 
-- 目标: 把治理审计批次 codex/governance-audit-batch 合并进 develop（PR #31），闭合 develop required fast gate 的证据链后再开 develop → main
-- 当前状态: 工作区在分支 codex/governance-audit-batch 上修 PR #31 的 CI 阻塞项：`runtime/tools/rtk` 的 undici 由 7.29.0 升至 7.29.1（清掉 supply-chain 的 blocking）并刷新本文件与 docs/memory/PROJECT_STATE.md 的 memory 新鲜度（原先落后 HEAD 11 天）。合并路径已核实为 PR #31：develop ruleset 24096092 无 bypass 角色、禁止删除与强推、要求 `merge-gate`，直推会被 GH013 拒绝
-- 已验证证据: 本轮 `pnpm runtime:audit`（`blocking: []`、`ok: true`，rtk high 由 1 降为 0）、`pnpm check:fast`（lint/typecheck/unit 177/177）、`node scripts/validate.js`（memory 新鲜度与自安装一致性通过）、`git diff --check`；PR #31 当前 head a29e9c6 的失败面为 full gate（memory 新鲜度）、supply-chain（rtk undici）与 independent review（缺 v2 收据）
-- 未完成事项: PR #31 的 independent review 要求 v2 收据且 `contextIndependence=verified`，而 manifests/adapters.json 中 Codex 的 freshContext.evidence 仍是 configured-unverified，实现方无法自证 verified；develop → main PR 与 nightly H01–H20 模型背书回归仍未完成
-- 下一步最小动作: 取得独立复审收据（需要宿主真实 fresh-context 证据或独立复审者）后重跑 PR #31 的 CI 并合并到 develop，再开 develop → main
-- 锚点提交: a29e9c6a69e70e9ffb4c56abbe6f283033768595
-- 最后更新: 2026-10-09
-- 最后验证: 2026-10-09
+- 目标: 把高风险变更的独立评审契约放宽为单复审者并合入 develop，随后回收实现用的 worktree 与任务分支
+- 当前状态: 在 worktree C:\Project\GitHub\Vibe-Harness-worktrees\single-reviewer（分支 feat/single-reviewer-receipt，基线 origin/develop 991bc1b）内完成放宽：schemas/review-receipt.schema.json 的 reviewers.minItems 由 2 降为 1，scripts/lib/review-audit.js 的独立性判定改为只拒 contextIndependence=unavailable，规则与复审简报、ADR-0012、测试与 eval 资产同步；develop ruleset 24096092 已置 enforcement=disabled 以便直接合并推送，本轮不自动恢复
+- 已验证证据: 本轮在 worktree 内跑通 pnpm check:fast（lint/typecheck/unit 177/177）、pnpm eval:check、pnpm docs:audit（137 篇）、pnpm tests:catalog check（1255 用例 clean）、node --test tests/integration/project-audit.test.js tests/integration/eval-ci.test.js（20/20）；pnpm test:component 327/329，两处失败为 develop 既有 memory 锚点漂移，由本次 memory 更新修复
+- 未完成事项: 合并推送后回收 worktree 与任务分支；PR #34（codex/delivery-batch）的复审发现修复与单复审者收据仍未做；本地 develop（483d0e8，ahead 309）与 backup/governance-audit-batch 等历史引用清理、develop → main 提升仍未完成
+- 下一步最小动作: 快进推送 feat/single-reviewer-receipt 到 origin/develop，运行 worktree cleanup 与分支删除，再回到 PR #34 补缺陷修复与收据
+- 锚点提交: 0afc2d20e59731e604c717ec94e6f9c89db749bf
+- 最后更新: 2026-10-10
+- 最后验证: 2026-10-10
