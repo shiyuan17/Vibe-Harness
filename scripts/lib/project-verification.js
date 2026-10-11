@@ -61,16 +61,19 @@ function boundedDiagnostic(value, targetDir, maxLength = 480) {
   return sanitized.length > maxLength ? sanitized.slice(0, maxLength - 3) + '...' : sanitized;
 }
 
-function focusedReview({ changedPaths = [], selectedChecks = [], results = [] } = {}) {
+function focusedReview({ changedPaths = [], selectedChecks = [], results = [], reviewedIds = [] } = {}) {
   const selectedCheckIds = selectedChecks.map((item) => item.id ?? item.command).filter(Boolean);
-  // Only an explicit marker counts as a review. The planner emits a selection
-  // reason for every selected check, so a reason explains a selection but can
-  // never be the evidence that someone reviewed the check — accepting it would
-  // let the acceptance gate attest itself.
+  // Only the caller's declaration counts as a review. Neither the planner's
+  // selection reasons nor a per-check flag the runner sets on itself can be the
+  // evidence that someone reviewed the check — accepting either would let the
+  // acceptance gate attest its own relevance.
+  const declared = reviewedIds.includes('all') || reviewedIds.includes('*')
+    ? new Set(selectedCheckIds)
+    : new Set(reviewedIds.filter((id) => selectedCheckIds.includes(id)));
   const reviewedCheckIds = results
     .filter((item) => ['passed', 'reused'].includes(item.status))
-    .filter((item) => item.reviewed === true || item.relevance === 'reviewed')
     .map((item) => item.id ?? item.command)
+    .filter((id) => declared.has(id))
     .filter(Boolean);
   return {
     status: reviewedCheckIds.length > 0 ? 'relevant' : selectedCheckIds.length > 0 ? 'unreviewed' : 'blocked',
@@ -78,6 +81,35 @@ function focusedReview({ changedPaths = [], selectedChecks = [], results = [] } 
     selectedCheckIds,
     ...(reviewedCheckIds.length ? { reviewedCheckIds } : {}),
     reasonCode: reviewedCheckIds.length ? 'RELEVANT_CHECK_REVIEWED' : 'NO_REVIEWED_RELEVANT_CHECK',
+  };
+}
+
+/**
+ * The review of a reused receipt, re-anchored to the current plan.
+ *
+ * The cached review is caller-supplied or written by an earlier run, so it is
+ * only evidence while it stays inside the checks this plan selected: an id the
+ * current plan does not select is dropped rather than normalized into a
+ * plausible `relevant`.
+ */
+function normalizedCachedReview(review, selectedCheckIds, changedPaths) {
+  if (!review || typeof review !== 'object') {
+    return { status: 'unreviewed', changedPaths: [...changedPaths], selectedCheckIds, reasonCode: 'LEGACY_V3_RECEIPT' };
+  }
+  const reviewedIds = (Array.isArray(review.reviewedCheckIds) ? review.reviewedCheckIds : [])
+    .filter((id) => typeof id === 'string' && selectedCheckIds.includes(id));
+  const status = review.status === 'relevant' && reviewedIds.length > 0
+    ? 'relevant'
+    : review.status === 'blocked' ? 'blocked' : 'unreviewed';
+  return {
+    ...review,
+    status,
+    changedPaths: [...changedPaths],
+    selectedCheckIds,
+    ...(reviewedIds.length ? { reviewedCheckIds: reviewedIds } : {}),
+    reasonCode: typeof review.reasonCode === 'string' && review.reasonCode.trim()
+      ? review.reasonCode
+      : status === 'relevant' ? 'RELEVANT_CHECK_REVIEWED' : 'REVIEW_NOT_RECORDED',
   };
 }
 
@@ -614,6 +646,7 @@ export async function runFocusedProjectVerification({
     changedPaths: focused.changedPaths,
     selectedChecks: focused.commands,
     results,
+    reviewedIds: focused.reviewedIds ?? [],
   });
   return {
     ...(error ? { error } : {}),
@@ -668,6 +701,7 @@ export async function runVerificationPlan({
   reuse = false,
   commandStatus = {},
   plan,
+  reviewed = [],
   signal = undefined,
   targetDir,
   timeoutMs = DEFAULT_PROJECT_VERIFICATION_TIMEOUT_MS,
@@ -677,6 +711,10 @@ export async function runVerificationPlan({
   const confirmed = cached?.receipt ? await verificationCacheContext(targetDir, plan) : null;
   const hit = cached?.receipt && confirmed?.key === cacheContext.key;
   if (!hit) await storeVerificationReceipt(targetDir, cacheContext, { status: 'running' });
+  const selectedCheckIds = (plan.selectedChecks ?? []).map((item) => item.id ?? item.command);
+  const reusedReview = hit
+    ? normalizedCachedReview(cached.receipt.review, selectedCheckIds, plan.changedPaths ?? [])
+    : null;
   const focused = hit ? {
     ok: true,
     error: undefined,
@@ -687,19 +725,18 @@ export async function runVerificationPlan({
       after: { ...confirmed.snapshot.snapshot, fingerprint: confirmed.snapshot.fingerprint },
       evidence: { commandExecution: { status: 'passed', reused: true } },
       changeBoundary: { status: 'unverified' },
-      review: cached.receipt.review ?? {
-        status: 'unreviewed',
-        changedPaths: [...(plan.changedPaths ?? [])],
-        selectedCheckIds: (plan.selectedChecks ?? []).map((item) => item.id ?? item.command),
-        reasonCode: 'LEGACY_V3_RECEIPT',
-      },
-      acceptance: {
-        status: 'blocked',
-        reasonCode: cached.receipt.review?.status === 'relevant' ? 'FINAL_SNAPSHOT_MISMATCH' : 'NO_REVIEWED_RELEVANT_CHECK',
+      review: reusedReview,
+      // A hit proves the command set, inputs and snapshot are unchanged, so a
+      // current receipt with a relevant review is accepted; a deferred layer
+      // still blocks it. Reporting `blocked` unconditionally would deny a valid
+      // reuse while claiming the snapshot mismatched.
+      acceptance: focusedAcceptance({
+        review: reusedReview,
+        commandsPassed: true,
+        snapshotComparison: 'match',
         finalFingerprint: confirmed.snapshot.fingerprint,
-        selectedCheckIds: (plan.selectedChecks ?? []).map((item) => item.id ?? item.command),
-        reviewStatus: cached.receipt.review?.status ?? 'unreviewed',
-      },
+        deferredCount: (plan.deferredChecks ?? []).length,
+      }),
       recovery: { status: 'not-needed' },
     },
   } : await runFocusedProjectVerification({
@@ -710,6 +747,7 @@ export async function runVerificationPlan({
       notes: plan.selectionReasons ?? [],
       impactMapping: plan.impactMapping,
       baseSha: plan.baseSha,
+      reviewedIds: reviewed,
       scope: plan.scope,
     },
     requireStable: false,
@@ -768,6 +806,12 @@ export async function runVerificationPlan({
       focused.error = { code: 'PROJECT_VERIFICATION_FAILED', message: verificationOutput(message, targetDir) };
     }
   }
+  // The final context is read before the report is assembled so the write
+  // evidence a completion receipt is validated against is the state the caller
+  // receives: the context above belongs to the state the checks started from,
+  // and any check that writes (even without changing content) would leave it
+  // stale before the receipt is ever consumed.
+  const afterContext = hit ? null : await verificationCacheContext(targetDir, plan);
   const report = {
     ...focused,
     results,
@@ -776,6 +820,7 @@ export async function runVerificationPlan({
       schemaVersion: 3,
       engine: 'vibe-harness-cli',
       ...cacheContext.fingerprints,
+      ...(afterContext ? { writeFingerprint: afterContext.fingerprints.writeFingerprint } : {}),
       cache: {
         status: hit ? 'hit' : reuse ? 'miss' : 'not_requested',
         reason: cached?.reason ?? cacheContext.reason,
@@ -835,7 +880,6 @@ export async function runVerificationPlan({
     };
   }
   if (!hit) {
-    const afterContext = await verificationCacheContext(targetDir, plan);
     if (afterContext.key !== cacheContext.key) {
       report.ok = false;
       report.error = { code: 'PROJECT_VERIFICATION_INPUTS_CHANGED', message: 'Verification inputs changed while checks were running.' };

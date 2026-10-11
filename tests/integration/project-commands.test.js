@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
@@ -28,6 +28,85 @@ async function runRootCli(args) {
   const result = await execFileAsync(process.execPath, [cliPath, ...args], { cwd: rootDir });
   return JSON.parse(result.stdout);
 }
+
+/**
+ * A project the CLI can verify end to end: committed, configured to require a
+ * completion receipt, and installed so the preflight sees a consistent state.
+ *
+ * `validationCommands` defaults to one plain slot; pass `{ checks: [...] }`
+ * to declare explicitly deterministic checks, which is what makes the receipt
+ * store usable for `--reuse`.
+ */
+async function installedProject(project, { validationCommands = { test: 'node -e 0' } } = {}) {
+  for (const args of [['init', '-q', '-b', 'main'], ['config', 'user.name', 'Fixture'], ['config', 'user.email', 'fixture@example.invalid'], ['config', 'core.hooksPath', '.git/no-hooks']]) {
+    await execFileAsync('git', args, { cwd: project });
+  }
+  await execFileAsync(process.execPath, [cliPath, 'init', '--project', project, '--target', 'codex', '--profile', 'full'], { cwd: rootDir });
+  const configPath = path.join(project, 'vibe-harness.config.json');
+  const config = JSON.parse(await readFile(configPath, 'utf8'));
+  config.validationCommands = validationCommands;
+  config.delivery = { default: 'managed-mr', profiles: { 'managed-mr': { merge: 'squash', cleanup: 'evidence-compatible', requireReceipt: true } } };
+  await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+  // The receipt store only works when the project ignores it.
+  await writeFile(path.join(project, '.gitignore'), '.vibe-harness/\n', 'utf8');
+  await execFileAsync('git', ['add', '.'], { cwd: project });
+  await execFileAsync('git', ['commit', '-qm', 'fixture'], { cwd: project });
+  await execFileAsync(process.execPath, [
+    cliPath, 'install', '--project', project, '--target', 'codex', '--profile', 'full',
+    '--write', '--confirm-red-zone', '--allow-degraded', '--output', 'json',
+  ], { cwd: rootDir });
+}
+
+test('CLI verify 只承认显式 --reviewed 作为完成审阅证据', async () => {
+  const project = await tempProject();
+  try {
+    await installedProject(project);
+    // Without the declaration the checked commands are not review evidence, so
+    // the receipt the CLI reports stays blocked instead of self-attesting.
+    const unreviewed = await runRootCli(['verify', '--project', project, '--allow-manual', '--output', 'json']);
+    assert.equal(unreviewed.completion.status, 'blocked', JSON.stringify(unreviewed.completion));
+    assert.equal(unreviewed.completion.verificationAcceptance.status, 'blocked');
+
+    const reviewed = await runRootCli(['verify', '--project', project, '--allow-manual', '--output', 'json', '--reviewed', 'all']);
+    assert.equal(reviewed.completion.verificationAcceptance.status, 'accepted', JSON.stringify(reviewed.completion));
+    assert.equal(reviewed.completion.status, 'passed');
+    assert.ok(reviewed.completion.review.reviewedCheckIds.length > 0);
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
+
+test('CLI verify --reuse 只复用与当前计划一致的审阅证据', async () => {
+  const project = await tempProject();
+  try {
+    await installedProject(project, { validationCommands: { checks: [{ id: 'test', command: 'node -e 0', deterministic: true }] } });
+    // The first run declares the review explicitly and records it in the
+    // ignored receipt store; the second run reuses that receipt.
+    const first = await runRootCli(['verify', '--project', project, '--allow-manual', '--output', 'json', '--reviewed', 'all', '--reuse']);
+    assert.equal(first.completion.verificationAcceptance.status, 'accepted', JSON.stringify(first.completion));
+    const reused = await runRootCli(['verify', '--project', project, '--allow-manual', '--output', 'json', '--reuse']);
+    assert.equal(reused.verification.cache.status, 'hit', JSON.stringify(reused.verification.cache));
+    assert.equal(reused.completion.verificationAcceptance.status, 'accepted', JSON.stringify(reused.completion.verificationAcceptance));
+
+    // A receipt whose review names a check the current plan does not select is
+    // an inconsistent claim: the cache hit alone must not carry it into the
+    // acceptance, so the run stays blocked.
+    const receiptDirectory = path.join(project, '.vibe-harness/verification/receipts');
+    const [receiptFile] = await readdir(receiptDirectory);
+    const receiptPath = path.join(receiptDirectory, receiptFile);
+    const receipt = JSON.parse(await readFile(receiptPath, 'utf8'));
+    await writeFile(receiptPath, JSON.stringify({
+      ...receipt,
+      review: { ...receipt.review, reviewedCheckIds: ['browser'], status: 'relevant' },
+    }), 'utf8');
+    const tampered = await runRootCli(['verify', '--project', project, '--allow-manual', '--output', 'json', '--reuse']);
+    assert.equal(tampered.verification.cache.status, 'hit');
+    assert.equal(tampered.completion.verificationAcceptance.status, 'blocked', JSON.stringify(tampered.completion.verificationAcceptance));
+    assert.equal(tampered.completion.status, 'blocked');
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
 
 test('project command context and environment report facts without executing project checks', async () => {
   const project = await tempProject();

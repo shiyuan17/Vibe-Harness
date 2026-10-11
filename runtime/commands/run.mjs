@@ -532,20 +532,12 @@ async function verificationTaskBinding(projectDir, taskId) {
  * Only an explicit marker makes a passed check `relevant`. The planner emits a
  * selection reason for every selected check, so that reason explains a
  * selection but can never be the evidence that a review happened — treating it
- * as evidence would make the acceptance gate attest itself. `--reviewed`
- * carries the caller's declaration; `check.reviewed` is the same declaration
- * when a focused entrypoint marks the commands it ran.
+ * as evidence would make the acceptance gate attest itself. A cached receipt
+ * is not evidence either: its review describes the run that produced it, so it
+ * is recomputed against the declaration this invocation carries rather than
+ * inherited. `--reviewed` is the caller's declaration.
  */
-function verificationReview({ changedPaths = [], selectedNames = [], checks = {}, reviewed = [], legacyReview = null } = {}) {
-  if (legacyReview && typeof legacyReview === 'object') {
-    return {
-      ...legacyReview,
-      status: ['relevant', 'unreviewed', 'blocked'].includes(legacyReview.status) ? legacyReview.status : 'unreviewed',
-      changedPaths: Array.isArray(legacyReview.changedPaths) ? legacyReview.changedPaths : [...changedPaths],
-      selectedCheckIds: Array.isArray(legacyReview.selectedCheckIds) ? legacyReview.selectedCheckIds : [...selectedNames],
-      reasonCode: legacyReview.reasonCode ?? 'REVIEW_NOT_RECORDED',
-    };
-  }
+function verificationReview({ changedPaths = [], selectedNames = [], checks = {}, reviewed = [] } = {}) {
   const declared = new Set(reviewed);
   const reviewedCheckIds = selectedNames.filter((name) => {
     const check = checks[name];
@@ -553,7 +545,7 @@ function verificationReview({ changedPaths = [], selectedNames = [], checks = {}
     // decides; a run that executed checks needs a passed check to declare.
     if (check === undefined) return declared.has(name);
     return ['passed', 'reused'].includes(check?.status)
-      && (check?.reviewed === true || declared.has(name));
+      && declared.has(name);
   });
   return {
     status: reviewedCheckIds.length > 0 ? 'relevant' : selectedNames.length > 0 ? 'unreviewed' : 'blocked',
@@ -805,14 +797,12 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
             changedPaths: changeScope.changedPaths,
             selectedNames,
             reviewed: reviewedChecks.ids,
-            legacyReview: cached.receipt.review,
           }),
           acceptance: verificationAcceptance({
             review: verificationReview({
               changedPaths: changeScope.changedPaths,
               selectedNames,
               reviewed: reviewedChecks.ids,
-              legacyReview: cached.receipt.review,
             }),
             status: 'reused',
             snapshotComparison: 'match',
@@ -1013,6 +1003,11 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
       id: randomUUID(),
       finishedAt: new Date().toISOString(),
       fingerprint: after.fingerprint,
+      // The write evidence a completion receipt is validated against is the
+      // final one: `cacheContext.fingerprints` above carries the state the
+      // checks started from, which any check that writes (even without changing
+      // content) would leave stale before the receipt is ever consumed.
+      writeFingerprint: after.writeFingerprint ?? null,
       review,
       acceptance: verificationAcceptance({
         review,
@@ -2607,6 +2602,12 @@ async function worktreeLandReportUnlocked(projectDir, args) {
     } else {
       try {
         for (const root of settings.dependencyRoots) linkDependencyRoot(projectDir, candidatePath, settings, root);
+        // The governance surface is ignored by Git and therefore absent from a
+        // fresh candidate worktree, so a verification command that reaches the
+        // mirrored toolchain would fail here while passing in the source
+        // worktree. The candidate is torn down through `removeWorktreeLinks`,
+        // which removes these again before `git worktree remove`.
+        if ((settings.mirrors ?? []).length > 0) linkOrCopyMirrors(projectDir, candidatePath, settings.mirrors);
         // The isolated per-package overlays belong to the same resolution
         // surface as the dependency roots: without them a pnpm/Bun isolated
         // layout resolves in the source worktree and fails in the candidate,
@@ -2972,6 +2973,10 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
     }
     const services = item.path ? await teardownServices(projectDir, item.path) : { status: 'passed' };
     if (services.status !== 'passed') { registryResults.push({ ...item, status: 'blocked', services }); continue; }
+    // The teardown writes its worktree marker even without a registry entry, and
+    // this branch never removes the worktree afterwards, so the marker has to be
+    // released here or a later service start in the same path stays blocked.
+    if (item.path) releaseServiceTeardown(projectDir, item.path);
     const released = await releasePortRegistryEntry(projectDir, item.id);
     registryResults.push(released.released === true
       ? { ...item, status: 'passed' }
@@ -4110,7 +4115,18 @@ async function taskCheckReport(projectDir, args) {
   let deliveryGate = null;
   if (args.complete) {
     const delivery = resolveDelivery(await readProjectConfig(projectDir), args.delivery);
-    const receipt = args.receipt ? JSON.parse(await readFile(path.resolve(projectDir, args.receipt), 'utf8')) : read.anchor.completion;
+    let receipt;
+    try {
+      receipt = args.receipt ? JSON.parse(await readFile(path.resolve(projectDir, args.receipt), 'utf8')) : read.anchor.completion;
+    } catch (error) {
+      // A caller-supplied receipt that is missing or malformed is a delivery
+      // blocker, not a crash: the same report the invalid-receipt path returns.
+      return {
+        command: 'task', subcommand: 'check', taskId, status: 'blocked', complete: false,
+        code: 'DELIVERY_RECEIPT_UNREADABLE',
+        errors: [`completion receipt could not be read: ${boundedOutput(error.message, projectDir)}`],
+      };
+    }
     deliveryGate = validateCompletion(receipt, delivery, await gitFingerprint(projectDir));
     if (deliveryGate.status === 'blocked') return { command: 'task', subcommand: 'check', taskId, status: 'blocked', complete: false, code: 'DELIVERY_RECEIPT_REQUIRED', ...deliveryGate };
   }
@@ -5088,7 +5104,7 @@ export async function runCommand(argv, { cwd = process.cwd() } = {}) {
     codebaseMemory: 'run.mjs codebase-memory <status|refresh> --project <path>: status reports fresh|stale|missing from the index state stamp written by the runtime wrapper after a successful index_repository and never writes; refresh stays dry-run until --write and then rebuilds the semantic graph through the pinned project runtime',
     worktree: 'run.mjs worktree <list|check|bootstrap|land|cleanup|recover> --project <path>: bootstrap, land, cleanup and recover stay dry-run until --write; bootstrap allocates the next port block from .vibe-harness/worktree-ports.json, materializes worktree.provision.envFiles and runs worktree.provision.setupCommands (a red-zone target also needs --confirm-red-zone); land serializes writes through a shared Git common-dir lock, merges the attributed worktree in an isolated candidate (--no-ff), verifies it (quick tier by default, standard when the task anchor declares riskLevel full), then fast-forwards the primary checkout only when its baseline is unchanged; --write --no-verify is rejected; with --push it also pushes the target branch (upstream, else -u origin when origin is the sole remote) and deletes the worktree branch only after the push succeeds; cleanup refuses branches not merged into worktree.baseRef; recover reclaims clean attributed candidate residue and bootstrap crash residue but never deletes a branch that moved past the base ref',
     task: 'run.mjs task <init|update|status|list|plan-check|plan-sync|check|freeze-tests|rebaseline-tests> [task-id] --project <path>: anchors live in .vibe-harness/tasks/<task-id>.json and managed plans live in docs/plans/*.md; init accepts --plan-file, plan-check detects drift, plan-sync requires --reason, check gates readiness (check --unit <id> --dispatch answers whether the unit may be handed out now), freeze-tests requires a failed verification and --test-path, and rebaseline-tests additionally requires a protected approval receipt. Write commands stay dry-run until --write.',
-    reuse: 'run.mjs verify --project <path> [--task <task-id>] --reuse: returns status "reused" only for explicitly deterministic checks with matching v3 input fingerprints in the ignored receipt store; task anchors are optional and legacy receipts are not reused',
+    reuse: 'run.mjs verify --project <path> [--task <task-id>] --reuse: returns status "reused" only for explicitly deterministic checks with matching input fingerprints in the ignored receipt store; task anchors are optional and receipts of an older schema are not reused',
     verify: 'run.mjs verify --project <path> [--tier quick|standard|deep] [--scope affected|layer|full] [--async --tier deep] [--only lint,typecheck,test,eval] [--reviewed <check ids|all>] [--plan] or --micro <declared-id> [--plan]: Micro is explicit and never replaces unit/integration evidence; --micro is exclusive with tier, only, async, reuse and manual. --reviewed is the explicit relevance review of the selected checks and is the only evidence that makes a passed check count as reviewed.',
   };
   else throw new Error(`Unknown command: ${command}`);

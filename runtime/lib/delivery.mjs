@@ -149,6 +149,18 @@ export function validateCompletion(receipt, delivery, current = null) {
       if (verification.review?.status !== 'relevant' || !reviewedIds.some((id) => acceptanceIds.includes(id))) {
         errors.push('acceptance evidence does not cite a reviewed relevant check');
       }
+      // A subset test in one direction still lets a receipt name extra checks
+      // it never accepted, or accept a check it never reviewed: the reviewed set
+      // has to live inside the selection, and the acceptance has to cover it.
+      const outsideReview = reviewedIds.filter((id) => !selectedIds.includes(id));
+      if (outsideReview.length > 0) errors.push(`reviewed checks are not part of the selected checks: ${outsideReview.join(', ')}`);
+      const uncovered = [...new Set(reviewedIds)].filter((id) => !acceptanceIds.includes(id));
+      if (uncovered.length > 0) errors.push(`acceptance entries do not cover the reviewed checks: ${uncovered.join(', ')}`);
+      const reviewSelected = Array.isArray(verification.review?.selectedCheckIds) ? verification.review.selectedCheckIds : [];
+      if (reviewSelected.length > 0
+        && JSON.stringify([...reviewSelected].sort()) !== JSON.stringify([...selectedIds].sort())) {
+        errors.push('review and acceptance evidence disagree about the selected checks');
+      }
       if (!nonempty(acceptance.finalFingerprint) || acceptance.finalFingerprint !== verification.fingerprint) {
         errors.push('acceptance evidence does not match the verification fingerprint');
       }

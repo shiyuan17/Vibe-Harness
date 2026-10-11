@@ -21,13 +21,17 @@ function digest(value) {
 
 function normalizedReview(review, selectedIds = [], changedPaths = []) {
   const value = review && typeof review === 'object' ? review : {};
-  const selectedCheckIds = Array.isArray(value.selectedCheckIds)
-    ? value.selectedCheckIds.filter((item) => typeof item === 'string' && item.trim())
-    : [...selectedIds];
-  const reviewedCheckIds = Array.isArray(value.reviewedCheckIds)
-    ? value.reviewedCheckIds.filter((item) => typeof item === 'string' && item.trim())
-    : [];
-  const status = ['relevant', 'unreviewed', 'blocked'].includes(value.status) ? value.status : 'unreviewed';
+  const strings = (list) => (Array.isArray(list) ? list.filter((item) => typeof item === 'string' && item.trim()) : []);
+  // A cached or hand-supplied review is only evidence while it stays inside the
+  // verification it claims to describe: naming checks the plan never selected,
+  // or reviewing a check outside the selected set, is an inconsistent claim and
+  // is dropped rather than normalized into a plausible-looking `relevant`.
+  const claimedSelected = strings(value.selectedCheckIds);
+  const consistentSelected = claimedSelected.every((id) => selectedIds.includes(id));
+  const selectedCheckIds = claimedSelected.length > 0 && consistentSelected ? claimedSelected : [...selectedIds];
+  const reviewedCheckIds = strings(value.reviewedCheckIds).filter((id) => selectedCheckIds.includes(id));
+  const claimedStatus = ['relevant', 'unreviewed', 'blocked'].includes(value.status) ? value.status : 'unreviewed';
+  const status = claimedStatus === 'relevant' && (reviewedCheckIds.length === 0 || !consistentSelected) ? 'unreviewed' : claimedStatus;
   return {
     status,
     changedPaths: Array.isArray(value.changedPaths) ? value.changedPaths.filter((item) => typeof item === 'string') : [...changedPaths],
@@ -137,7 +141,10 @@ export async function findVerificationReceipt(projectDir, context) {
     if ((await lstat(file)).isSymbolicLink()) throw new Error('Receipt must not be a symbolic link.');
     if ((await stat(file)).size > 1024 * 1024) throw new Error('Receipt exceeds size limit.');
     const receipt = JSON.parse(await readFile(file, 'utf8'));
-    const valid = [3, VERIFICATION_RECEIPT_SCHEMA_VERSION].includes(receipt.schemaVersion)
+    // Only the current schema is reused: an older receipt was written under a
+    // context key that did not include the write evidence, so it can neither be
+    // found under the current key nor be proven to describe this workspace.
+    const valid = receipt.schemaVersion === VERIFICATION_RECEIPT_SCHEMA_VERSION
       && receipt.status === 'passed' && receipt.snapshotComparison === 'match'
       && receipt.id && receipt.finishedAt
       && Object.entries(context.fingerprints).every(([key, value]) => receipt[key] === value)
@@ -146,11 +153,7 @@ export async function findVerificationReceipt(projectDir, context) {
     return {
       status: 'hit',
       reason: 'all-input-fingerprints-match',
-      receipt: {
-        ...receipt,
-        review: normalizedReview(receipt.schemaVersion === 3 ? null : receipt.review, context.selectedIds, context.changedPaths),
-        legacy: receipt.schemaVersion === 3,
-      },
+      receipt: { ...receipt, review: normalizedReview(receipt.review, context.selectedIds, context.changedPaths) },
     };
   } catch {
     return { status: 'miss', reason: 'no-valid-matching-receipt', receipt: null };

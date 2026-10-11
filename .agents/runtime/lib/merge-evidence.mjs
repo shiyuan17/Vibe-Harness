@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { gitFingerprint } from './git-fingerprint.mjs';
 import { validateCompletion } from './delivery.mjs';
@@ -14,6 +15,24 @@ function patchId(project, before, after) {
   const result = git(project, ['patch-id', '--stable'], diff);
   if (!result) throw new Error('Empty patch cannot prove a squash merge');
   return result.split(/\s/u)[0];
+}
+
+/**
+ * The changed content of a diff, independent of hunk offsets.
+ *
+ * `git patch-id --stable` deliberately ignores whitespace, so a source patch
+ * that adds `a b` and a target patch that adds `ab` share one id. Hashing the
+ * exact `+`/`-` lines closes that gap while staying tolerant of a target branch
+ * that shifted the hunks: only the changed content has to match, not where it
+ * landed.
+ */
+function patchContentDigest(project, before, after) {
+  const diff = git(project, ['diff', '--no-ext-diff', '--no-textconv', '--binary', before, after, '--']);
+  const content = diff
+    .split('\n')
+    .filter((line) => /^(?:diff --git |new file mode|deleted file mode|old mode|new mode|rename from|rename to|similarity index|\+\+\+ |--- |\+|-)/u.test(line))
+    .join('\n');
+  return createHash('sha256').update(content).digest('hex');
 }
 
 export async function readMergeEvidence(project, { file, mr }) {
@@ -55,6 +74,8 @@ export async function validateMergeEvidence(project, worktree, evidence, { taskI
     const sourcePatch = patchId(project, evidence.sourceBase, sourceHead);
     const targetPatch = patchId(project, evidence.targetBefore, evidence.mergeCommit);
     if (sourcePatch !== targetPatch || sourcePatch !== evidence.patchId) throw new Error('Patch identity mismatch');
+    if (patchContentDigest(project, evidence.sourceBase, sourceHead)
+      !== patchContentDigest(project, evidence.targetBefore, evidence.mergeCommit)) throw new Error('Patch content mismatch');
     if (git(worktree, ['status', '--porcelain=v1', '--untracked-files=all'])) throw new Error('Dirty worktree');
     const current = await gitFingerprint(worktree);
     const completion = validateCompletion(receipt, delivery, current);

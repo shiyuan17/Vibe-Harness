@@ -26,13 +26,14 @@ import { buildVerificationPlan } from './lib/verification-plan.js';
 import { main as runMicroVerification } from './micro-verify.js';
 
 function printUsage() {
-  console.log('Usage: node scripts/verify-focused.js [--base <ref>] [--run] [--tier quick|standard|deep] [--scope affected|layer|full] [--micro <check-id>] [--json]');
+  console.log('Usage: node scripts/verify-focused.js [--base <ref>] [--run] [--tier quick|standard|deep] [--scope affected|layer|full] [--reviewed <check ids|all>] [--micro <check-id>] [--json]');
   console.log();
   console.log('Prints suggested focused verification commands for the current changes.');
   console.log('  --base <ref>  Diff against <ref> instead of HEAD (covers committed changes).');
   console.log('  --run         Execute the selected commands in order, stopping on first failure.');
   console.log('  --tier <t>    Cost layer to execute: quick (default), standard, or deep.');
   console.log('  --scope <s>   Evidence scope: affected, layer (default), or full.');
+  console.log('  --reviewed <ids|all>  Declare the relevance review of the selected checks; without it the receipt reports `unreviewed` and acceptance stays blocked.');
   console.log('  --micro <id>  Execute one declared micro check; mutually exclusive with --tier.');
   console.log('  --json        Emit suggestions or the complete focused-verification receipt as JSON.');
 }
@@ -52,6 +53,7 @@ async function main() {
   let tierExplicit = false;
   let scope = null;
   let micro = null;
+  const reviewedIds = [];
   for (let index = 0; index < args.length; index++) {
     if (args[index] === '--run') {
       run = true;
@@ -80,6 +82,10 @@ async function main() {
     } else if (args[index] === '--micro') {
       micro = args[++index];
       if (!micro) usageError('--micro requires a check id.');
+    } else if (args[index] === '--reviewed') {
+      const value = args[++index];
+      if (!value) usageError('--reviewed requires check ids or `all`.');
+      reviewedIds.push(...value.split(',').map((item) => item.trim()).filter(Boolean));
     } else if (args[index] === '--help' || args[index] === '-h') {
       printUsage();
       return;
@@ -170,8 +176,10 @@ async function main() {
   for (const item of pool) {
     // The two plans name the same declared command differently (the risk plan
     // derives an id, the tier plan uses the declared script), so the pool is
-    // de-duplicated by the command that would actually run.
-    const key = item.command ?? item.id;
+    // de-duplicated by the execution identity: the command plus the directory
+    // it runs in. Two declared checks may legitimately share a command in
+    // different working directories.
+    const key = `${item.cwd ?? '.'}\0${item.command ?? item.id}`;
     if (poolSeen.has(key)) continue;
     poolSeen.add(key);
     considered.push(item);
@@ -227,7 +235,11 @@ async function main() {
     report = await runFocusedProjectVerification({
       focused: {
         changedPaths: paths,
-        commands: commands.map((item) => ({ ...item, reviewed: true })),
+        // No `reviewed: true` here: the runner marking its own checks as
+        // reviewed would make the acceptance gate attest its own relevance.
+        // `--reviewed` is the caller's declaration.
+        commands: commands.map((item) => ({ ...item })),
+        reviewedIds,
         notes,
         impactMapping,
       },

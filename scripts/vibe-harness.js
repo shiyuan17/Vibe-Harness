@@ -413,6 +413,18 @@ function parseArgs(argv) {
         args[key] = [...(Array.isArray(args[key]) ? args[key] : []), ...values];
         continue;
       }
+      if (key === 'reviewed') {
+        // Repeatable, and comma-separated like `run.mjs verify --reviewed`, so a
+        // caller can name several checks without repeating the flag in an
+        // order-sensitive way.
+        const values = [];
+        while (index + 1 < argv.length && !argv[index + 1].startsWith('--')) {
+          values.push(argv[index + 1]);
+          index += 1;
+        }
+        args[key] = [...(Array.isArray(args[key]) ? args[key] : []), ...values.flatMap((value) => value.split(',')).map((value) => value.trim()).filter(Boolean)];
+        continue;
+      }
       const next = argv[index + 1];
       if (!next || next.startsWith('--')) {
         args[key] = true;
@@ -1130,6 +1142,7 @@ async function verify(args) {
     reuse: Boolean(args.reuse),
     commandStatus,
     plan: planned,
+    reviewed: Array.isArray(args.reviewed) ? args.reviewed : [],
     targetDir,
     timeoutMs: config.verification?.timeoutMs,
   });
