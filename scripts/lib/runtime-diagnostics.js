@@ -222,7 +222,7 @@ async function inspectInstalledHookWiring(adapter, targetDir) {
     } catch {
       return { status: 'degraded', code: 'HOOK_SELF_CHECK_CONFIG_UNWIRED' };
     }
-    const wiring = await inspectManagedHookWiring(adapter, config);
+    const wiring = await inspectManagedHookWiring(adapter, config, targetDir);
     if (wiring.status !== 'pass') return wiring;
   }
   return { status: 'pass', code: 'HOOK_SELF_CHECK_WIRING_VERIFIED' };
@@ -234,13 +234,15 @@ async function inspectInstalledHookWiring(adapter, targetDir) {
  * Both halves are read from the pack's own adapter template, so the comparison
  * is structural rather than textual: for every event the template guards, the
  * installed definition has to carry an entry — at the adapter's declared
- * configuration path, with the template's catch-all matcher where it declares
- * one — whose command is a *parsed* invocation of the managed handler naming
- * that event. A definition that keeps the managed command under an irrelevant
- * event, or that only mentions the handler path in prose, therefore cannot pass
- * while the guarded event runs something else.
+ * configuration path, with exactly the template's matcher (including its
+ * absence, which is how these templates state "every tool") — whose command is
+ * a *parsed* invocation of the managed handler naming the same canonical event,
+ * with the template's host and timeout. A definition that keeps the managed
+ * command under an irrelevant event, narrows the matcher, drops the host, or
+ * only mentions the handler path in prose, therefore cannot pass while the
+ * guarded event runs something else.
  */
-async function inspectManagedHookWiring(adapter, config) {
+async function inspectManagedHookWiring(adapter, config, targetDir) {
   const templatePath = path.join(path.resolve(import.meta.dirname, '..', '..'), 'adapters', adapter.id, 'hooks.template.json');
   const rawTemplate = await readFile(templatePath, 'utf8').catch(() => null);
   let template;
@@ -261,18 +263,58 @@ async function inspectManagedHookWiring(adapter, config) {
   if (installed === null) return { status: 'degraded', code: 'HOOK_SELF_CHECK_CONFIG_UNWIRED' };
   for (const [event, groups] of events) {
     if (!Array.isArray(groups)) return { status: 'degraded', code: 'HOOK_SELF_CHECK_WIRING_UNVERIFIED' };
+    // The host's configuration key is not necessarily the evaluator's event
+    // name (Cursor registers `preToolUse`), so both sides are compared after
+    // canonicalization. An alias the evaluator cannot canonicalize is not a
+    // guarded event this check can speak about.
+    const guardedEvent = canonicalHookEvent(event);
+    if (guardedEvent === null) return { status: 'degraded', code: 'HOOK_SELF_CHECK_WIRING_UNVERIFIED', event };
     const installedGroups = Array.isArray(installed[event]) ? installed[event] : [];
     for (const group of groups) {
       const expectedHooks = Array.isArray(group?.hooks) ? group.hooks : [];
+      if (expectedHooks.length === 0) return { status: 'degraded', code: 'HOOK_SELF_CHECK_WIRING_UNVERIFIED', event };
       const matched = installedGroups.some((candidate) => candidate !== null && typeof candidate === 'object'
-        && (group?.matcher === undefined || candidate.matcher === group.matcher)
+        // The matcher is part of the guarded surface: a template group that
+        // states no matcher guards every tool, so an installed group that adds
+        // one silently narrows the policy, and vice versa.
+        && candidate.matcher === group?.matcher
         && Array.isArray(candidate.hooks)
-        && expectedHooks.every((hook) => candidate.hooks.some((installedHook) => installedHook?.type === hook.type
-          && managedCommandEvent(installedHook?.command, adapter) === event)));
+        && expectedHooks.every((hook) => candidate.hooks.some((installedHook) =>
+          managedHookMatches(installedHook, hook, adapter, guardedEvent, targetDir))));
       if (!matched) return { status: 'degraded', code: 'HOOK_SELF_CHECK_CONFIG_UNWIRED', event };
     }
   }
   return { status: 'pass', code: 'HOOK_SELF_CHECK_WIRING_VERIFIED' };
+}
+
+/**
+ * Whether one installed Hook entry reproduces one template entry.
+ *
+ * `type` and `timeout` are execution-critical: the host runs the entry through
+ * its own schema, and a handler the host kills before it decides leaves the
+ * tool call unguarded. The command is compared as a parsed invocation of the
+ * managed entry for the event this group is registered under.
+ */
+function managedHookMatches(installedHook, hook, adapter, guardedEvent, targetDir) {
+  if (installedHook === null || typeof installedHook !== 'object' || Array.isArray(installedHook)) return false;
+  if (installedHook.type !== hook?.type) return false;
+  if (hook?.timeout !== undefined && installedHook.timeout !== hook.timeout) return false;
+  const requireHost = templateDeclaresHost(hook);
+  return managedCommandEvent(installedHook.command, adapter, { targetDir, requireHost }) === guardedEvent;
+}
+
+/**
+ * Whether the template entry's own command names a host.
+ *
+ * The templates that declare `--host` make it part of the managed invocation;
+ * Codex's template declares none, and the runtime then defaults to Codex.
+ */
+function templateDeclaresHost(hook) {
+  const templateCommand = String(hook?.command ?? '');
+  const placeholder = '{{hookBootstrapCommand}}';
+  const index = templateCommand.indexOf(placeholder);
+  const options = index === -1 ? templateCommand : templateCommand.slice(index + placeholder.length);
+  return commandOption(options, '--host') !== null;
 }
 
 /**
@@ -304,6 +346,36 @@ function hookEventMap(adapter, config, template) {
 // match, so the prefix is unescaped once here.
 const hookBootstrapPrefix = hookBootstrapCommand.replaceAll('\\"', '"');
 
+// The evaluator canonicalizes host event aliases before comparing them with the
+// configured event, so the configuration-key half of the comparison speaks the
+// alias vocabulary while the declared `--expected-event` has to be the canonical
+// name that comparison uses.
+const canonicalHookEvents = new Map([
+  ['pretooluse', 'PreToolUse'],
+  ['permissionrequest', 'PermissionRequest'],
+]);
+
+/** The evaluator's canonical guarded-event name for a host alias or key, or null. */
+function canonicalHookEvent(value) {
+  if (typeof value !== 'string') return null;
+  return canonicalHookEvents.get(value.replaceAll(/[_-]/gu, '').toLowerCase()) ?? null;
+}
+
+/**
+ * The canonical name itself, or null.
+ *
+ * `--expected-event` reaches the evaluator verbatim, where it is compared with
+ * the *canonicalized* payload event: a value that merely canonicalizes to the
+ * right name (Cursor's `preToolUse`) is a mismatch at runtime, which denies only
+ * for events the evaluator does not guard and otherwise leaves the tool call
+ * unguarded.
+ */
+function exactHookEvent(value) {
+  if (typeof value !== 'string') return null;
+  const canonical = canonicalHookEvents.get(value.replaceAll(/[_-]/gu, '').toLowerCase()) ?? null;
+  return canonical === value ? value : null;
+}
+
 /**
  * The `--expected-event` of a parsed managed invocation, or null.
  *
@@ -311,19 +383,32 @@ const hookBootstrapPrefix = hookBootstrapCommand.replaceAll('\\"', '"');
  * (matched as the exact prefix, never as a substring) and a host that names the
  * managed entry directly. The direct form is tokenized, so `echo .agents runtime
  * hooks codex-hook.mjs` has the wrong program and is not an invocation.
+ *
+ * @param {any} command
+ * @param {any} adapter
+ * @param {{targetDir?: string, requireHost?: boolean}} [options]
+ * @returns {string|null}
  */
-function managedCommandEvent(command, adapter) {
+function managedCommandEvent(command, adapter, { targetDir, requireHost = false } = {}) {
   if (typeof command !== 'string' || command.trim() === '') return null;
   const trimmed = command.trim();
   // The inline bootstrap is matched as an exact prefix, never as a substring.
   if (trimmed.startsWith(hookBootstrapPrefix)) {
-    return managedInvocationEvent(trimmed.slice(hookBootstrapPrefix.length), adapter);
+    return managedInvocationEvent(trimmed.slice(hookBootstrapPrefix.length), adapter, { requireHost });
   }
   const tokens = tokenizeCommand(trimmed);
+  if (tokens.length < 3) return null;
   if (!/^node(?:\.exe)?$/iu.test(tokens[0] ?? '')) return null;
-  const entry = String(tokens[1] ?? '').replaceAll('\\', '/');
-  if (!entry.endsWith(runtimeHookEntryPath)) return null;
-  return managedInvocationEvent(tokens.slice(1).join(' '), adapter);
+  // The entry has to *be* the managed handler inside this target: a suffix match
+  // would also accept `/tmp/.agents/runtime/hooks/codex-hook.mjs`, which the host
+  // would execute instead of the hashed installed surface.
+  const entry = tokens[1] ?? '';
+  if (entry === '' || entry.startsWith('-')) return null;
+  const resolvedTarget = path.resolve(targetDir ?? process.cwd());
+  const managedEntry = path.join(resolvedTarget, ...runtimeHookEntryPath.split('/'));
+  const samePath = (value) => (process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value));
+  if (samePath(path.resolve(resolvedTarget, entry)) !== samePath(managedEntry)) return null;
+  return managedInvocationEvent(tokens.slice(2), adapter, { requireHost });
 }
 
 /** Splits a command line into tokens, honouring simple quoting. */
@@ -331,13 +416,42 @@ function tokenizeCommand(command) {
   return [...command.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/gu)].map((match) => match[1] ?? match[2] ?? match[3]);
 }
 
-/** The guarded event a managed invocation declares, or null when it is malformed. */
-function managedInvocationEvent(args, adapter) {
-  const event = commandOption(args, '--expected-event');
+/**
+ * The guarded event a managed invocation declares, or null when it is malformed.
+ *
+ * Only the exact `--host <adapter>` / `--expected-event <event>` option pairs are
+ * accepted, so a trailing shell operator or redirection is not an invocation the
+ * host would run as the managed handler. A host that omits `--host` is accepted
+ * only where the template omits it (an explicit, matching host is equivalent),
+ * because omitting it changes input normalization and denial shape elsewhere.
+ *
+ * @param {string[]|string} args
+ * @param {any} adapter
+ * @param {{requireHost?: boolean}} [options]
+ * @returns {string|null}
+ */
+function managedInvocationEvent(args, adapter, { requireHost = false } = {}) {
+  const tokens = Array.isArray(args) ? args : tokenizeCommand(args);
+  let event = null;
+  let host = null;
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (token !== '--expected-event' && token !== '--host') return null;
+    const value = tokens[index + 1];
+    if (value === undefined) return null;
+    index += 1;
+    if (token === '--host') {
+      if (host !== null) return null;
+      host = value;
+      continue;
+    }
+    if (event !== null) return null;
+    event = exactHookEvent(value);
+    if (event === null) return null;
+  }
   if (event === null) return null;
-  const host = commandOption(args, '--host');
-  if (host !== null && typeof adapter?.id === 'string' && host !== adapter.id) return null;
-  return event;
+  if (requireHost) return host === adapter?.id ? event : null;
+  return host === null || host === adapter?.id ? event : null;
 }
 
 /** The value of one `--name <value>` option, or null when absent or malformed. */

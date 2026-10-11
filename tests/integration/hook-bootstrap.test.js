@@ -25,7 +25,9 @@ const adapterCases = [
   { adapter: 'claude', event: 'PermissionRequest', host: 'claude', templateEvent: 'PermissionRequest' },
   { adapter: 'qoder', event: 'PreToolUse', host: 'qoder', templateEvent: 'PreToolUse' },
   { adapter: 'zcode', event: 'PermissionRequest', host: 'zcode', templateEvent: 'PermissionRequest' },
-  { adapter: 'cursor', event: 'preToolUse', host: 'cursor', templateEvent: 'preToolUse' },
+  // Cursor's configuration key is the camelCase alias, but `--expected-event`
+  // is compared against the runtime's canonical event name.
+  { adapter: 'cursor', event: 'PreToolUse', host: 'cursor', templateEvent: 'preToolUse' },
   { adapter: 'antigravity', event: 'PreToolUse', host: 'antigravity', templateEvent: 'PreToolUse' },
 ];
 
@@ -173,6 +175,13 @@ test('Hook bootstrap payload stays single-line, shell-safe, and single-sourced',
     const command = await adapterHookCommand(adapterCase);
     assert.match(command, /^node -e "/u, adapterCase.adapter);
     assert.match(command, /" --(?: --host [a-z]+)? --expected-event [A-Za-z]+$/u, adapterCase.adapter);
+    // The managed runtime canonicalizes the host payload's event name before
+    // comparing it with `--expected-event`, so a template that passes the host
+    // alias (Cursor's `preToolUse`) makes the installed hook fail open with
+    // HOOK_EVENT_MISMATCH instead of denying.
+    const declared = command.match(/ --expected-event (\S+)$/u);
+    assert.ok(declared, adapterCase.adapter + ' must declare a guarded event');
+    assert.equal(declared[1], adapterCase.event, adapterCase.adapter);
     assert.equal(command.includes(source), true, adapterCase.adapter + ' must embed the single bootstrap source');
     assert.doesNotMatch(command, /[A-Za-z]:[\\/]/u);
     assert.doesNotMatch(command, /\$\(/u);

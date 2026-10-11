@@ -148,8 +148,8 @@ test('strict 策略把未证明的 Hook 执行从提示升级为阻断', async (
       // template, so the fixture has to reproduce the guarded-event surface:
       // the catch-all `PreToolUse` matcher and `PermissionRequest`.
       hooks: {
-        PermissionRequest: [{ hooks: [{ type: 'command', command: 'node .agents/runtime/hooks/codex-hook.mjs --host codex --expected-event PermissionRequest' }] }],
-        PreToolUse: [{ matcher: '.*', hooks: [{ type: 'command', command: 'node .agents/runtime/hooks/codex-hook.mjs --host codex --expected-event PreToolUse' }] }],
+        PermissionRequest: [{ hooks: [{ type: 'command', command: 'node .agents/runtime/hooks/codex-hook.mjs --host codex --expected-event PermissionRequest', timeout: 10 }] }],
+        PreToolUse: [{ matcher: '.*', hooks: [{ type: 'command', command: 'node .agents/runtime/hooks/codex-hook.mjs --host codex --expected-event PreToolUse', timeout: 10 }] }],
       },
     }, null, 2) + '\n', 'utf8');
 
