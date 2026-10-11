@@ -109,7 +109,7 @@ function renderListValue(value) {
  * every request and is what the resident line budget exists to prevent.
  *
  *
- * @param {{validationCommands?: {tiers?: {quick?: string[], standard?: string[], deep?: string[]}}}} data
+ * @param {{delivery?: {default?: string}, validationCommands?: {tiers?: {quick?: string[], standard?: string[], deep?: string[]}}}} data
  */
 export function buildManagedInstructionSections(data = {}) {
   const tick = String.fromCharCode(96);
@@ -137,7 +137,8 @@ export function buildManagedInstructionSections(data = {}) {
       + renderListValue(tiers.deep) + '）须显式升级，' + tick + '--full' + tick
       + ' 运行完整矩阵；未取得被延迟层证据前不得宣称集成、发布或整体完成。'
       + tick + 'vibe-harness validate --project' + tick + ' 只检查安装一致性；测试范围细则见 '
-      + tick + 'docs/rules/test-rules.md' + tick + '。',
+      + tick + 'docs/rules/test-rules.md' + tick + '。'
+      + (data.delivery ? '交付默认 ' + tick + data.delivery.default + tick + '；可用 --delivery 覆盖。新模式完整完成必须通过结构化收据检查，blocked 不得写成通过。' : ''),
   };
 }
 
