@@ -1,9 +1,10 @@
 import { spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { chmodSync, realpathSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { chmodSync, lstatSync, mkdirSync, realpathSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
+import path from 'node:path';
 
-import { signalTree as signalProcessTree, treeGone as processTreeGone } from './services.mjs';
+import { processStartIdentity, serviceSocketDirectory, signalTree as signalProcessTree, treeGone as processTreeGone } from './services.mjs';
 
 // A supervisor owns exactly one service process tree. The tree is started as a
 // detached process-group leader on Unix (`taskkill /t` is the Windows
@@ -20,6 +21,9 @@ const SOCKET_TIMEOUT_MS = 15000;
 // proofs is a poll interval rather than a fixed number of probes.
 const PROOF_POLL_MS = 200;
 const TERMINATION_SIGNALS = ['SIGTERM', 'SIGINT', 'SIGHUP', 'SIGBREAK'];
+// The launcher confirms that it persisted this service identity over the IPC
+// channel; without that acknowledgement the tree would have no recorded owner.
+const REGISTRATION_ACK_MS = 10000;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -45,8 +49,31 @@ function startService(input) {
   let reaping = null;
   let idle = null;
   const startedAt = new Date().toISOString();
-  const identity = { pid: child.pid, supervisorPid: process.pid, cwd, commandFingerprint: fingerprint, startedAt };
+  // The launcher persists this identity when the handshake cannot complete, and
+  // a supervisor that is already gone can only be reclaimed through it, so the
+  // OS start identity is captured here — while this process still owns the
+  // freshly spawned child — instead of being probed later from the registry,
+  // where a recycled PID would then be read as the recorded process.
+  const startIdentity = processStartIdentity(child.pid);
+  const identity = {
+    pid: child.pid,
+    supervisorPid: process.pid,
+    cwd,
+    commandFingerprint: fingerprint,
+    startedAt,
+    // Neither control endpoint carries OS-level authorization: a Unix socket is
+    // restricted after it already accepts, and a named pipe inherits the
+    // creating process's default ACL. The protocol therefore authenticates with
+    // a per-supervisor secret that only reaches the launcher over the private
+    // IPC channel.
+    controlToken: randomUUID(),
+    ...(startIdentity === 'missing' || startIdentity === 'unreadable' ? {} : { processStartTime: startIdentity }),
+  };
   const blocked = (reason) => ({ ...identity, status: 'blocked', reason });
+  /** True only for a request that presents every recorded ownership field. */
+  const ownsRequest = (request) => request.controlToken === identity.controlToken
+    && ['pid', 'supervisorPid', 'cwd', 'commandFingerprint', 'startedAt'].every((key) => request[key] === identity[key])
+    && (identity.processStartTime === undefined || request.processStartTime === identity.processStartTime);
 
   /** Signal the whole owned tree: the detached group on Unix, `taskkill /t` on Windows. */
   const signalTree = (signal) => signalProcessTree(child.pid, signal);
@@ -62,7 +89,14 @@ function startService(input) {
 
   const stayResident = () => {
     if (idle) return;
-    idle = setTimeout(() => server.close(() => process.exit(0)), IDLE_LIFETIME_MS);
+    // The idle expiry retires the supervisor only once the tree is proven gone:
+    // closing the endpoint on a surviving tree would leave a detached service
+    // behind with no handle that could ever stop it again.
+    idle = setTimeout(async () => {
+      idle = null;
+      if (await reapTree()) server.close(() => process.exit(0));
+      else stayResident();
+    }, IDLE_LIFETIME_MS);
     idle.unref();
   };
   /** Graceful signal, wait, forced kill, wait: the proof `stop`/`status` report. */
@@ -102,13 +136,18 @@ function startService(input) {
       if (!buffer.includes('\n')) return;
       let request;
       try { request = JSON.parse(buffer.trim()); } catch { socket.destroy(); return; }
+      // Every request — `status` included — has to present the ownership fields
+      // and the per-supervisor token: a `status` reply would otherwise hand a
+      // local user the exact fields a `stop` needs to authorize itself.
+      if (!ownsRequest(request)) {
+        reply(socket, blocked('ownership-mismatch')); return;
+      }
       if (request.action === 'status') {
         if (!exited) { reply(socket, { ...identity, status: 'running' }); return; }
         settle(socket, await reapTree());
         return;
       }
-      if (request.action !== 'stop' || stopping
-        || ['pid', 'supervisorPid', 'cwd', 'commandFingerprint', 'startedAt'].some((key) => request[key] !== identity[key])) {
+      if (request.action !== 'stop' || stopping) {
         reply(socket, blocked('ownership-mismatch')); return;
       }
       stopping = true;
@@ -124,8 +163,12 @@ function startService(input) {
    */
   const releaseAndExit = async (code) => {
     if (idle) { clearTimeout(idle); idle = null; }
-    await reapTree();
-    process.exit(code);
+    // Exiting on the signal alone would orphan a live tree and take away the
+    // only endpoint that can still retire it, so the supervisor leaves only
+    // after the tree is proven gone; a surviving tree keeps it resident so a
+    // later `stop` can retry the proof.
+    if (await reapTree()) { process.exit(code); return; }
+    stayResident();
   };
   for (const signal of TERMINATION_SIGNALS.filter((name) => name !== 'SIGBREAK' || process.platform === 'win32')) {
     process.on(signal, () => { void releaseAndExit(0); });
@@ -145,7 +188,14 @@ function startService(input) {
   child.once('error', () => { server.close(); process.exit(1); });
   child.once('exit', () => {
     exited = true;
-    stayResident();
+    // The root child's exit is the moment the tree needs reaping, not proof
+    // that it is gone: a launcher that exits after spawning a server leaves
+    // descendants only the tree probe can see, and nothing else would signal
+    // them if no client ever asks for `status` or `stop`.
+    void (async () => {
+      if (await reapTree()) server.close(() => process.exit(0));
+      else stayResident();
+    })();
   });
   child.once('spawn', () => {
     // The launcher needs the service identity before the endpoint can answer:
@@ -163,17 +213,67 @@ function startService(input) {
       try { process.send?.({ ...identity, status: 'blocked', reason: 'control-endpoint-unavailable' }); } catch { /* the launcher is gone */ }
       stayResident();
     });
-    server.listen(input.endpoint, () => {
-      // The unix control socket sits in the shared temp directory, where any
-      // local user can enumerate it. The unauthenticated status/stop protocol
-      // reveals the ownership fields and `connect(2)` only needs write
-      // permission, so a socket that cannot be restricted to its owner is
-      // treated like a bind failure instead of being published as it is.
-      if (process.platform !== 'win32') {
-        try { chmodSync(input.endpoint, 0o600); } catch { server.emit('error', new Error('Service control socket could not be restricted to its owner.')); return; }
+    // A Unix socket is created by `listen()` before any permission can be
+    // applied to it, and `connect(2)` only needs write permission, so the
+    // endpoint is published inside a directory only this user can traverse:
+    // there is no interval in which another local user can enumerate or connect
+    // to it. A socket that cannot live there is treated like a bind failure
+    // instead of being published with broader permissions.
+    const endpointDirectory = process.platform === 'win32' ? null : path.dirname(input.endpoint);
+    if (endpointDirectory !== null && endpointDirectory !== serviceSocketDirectory()) {
+      server.emit('error', new Error('Service control endpoint must live in this user\'s socket directory.'));
+      return;
+    }
+    if (endpointDirectory !== null) {
+      try {
+        mkdirSync(endpointDirectory, { recursive: true, mode: 0o700 });
+        const info = lstatSync(endpointDirectory);
+        if (info.isSymbolicLink() || !info.isDirectory()) throw new Error('socket directory is not a directory');
+        chmodSync(endpointDirectory, 0o700);
+      } catch {
+        server.emit('error', new Error('Service control socket directory could not be restricted to its owner.'));
+        return;
       }
-      try { process.send?.({ ...identity, status: 'running' }); } catch { /* the handshake is already abandoned */ }
-      process.disconnect?.();
+    }
+    server.listen(input.endpoint, () => {
+      if (endpointDirectory !== null) {
+        try { chmodSync(input.endpoint, 0o600); } catch {
+          // The server is already accepting connections; it must not stay
+          // listening as an endpoint with the permissions it was created with.
+          server.close(() => server.emit('error', new Error('Service control socket could not be restricted to its owner.')));
+          return;
+        }
+      }
+      // The launcher confirms that the identity was persisted before this
+      // supervisor lets go of the channel. Until then the tree has no recorded
+      // owner, so a launcher that dies — or never answers — leaves a service
+      // nothing could later stop, and the tree is reaped instead.
+      let acked = false;
+      const abandon = async () => {
+        if (acked) return;
+        acked = true;
+        clearTimeout(ackTimer);
+        process.removeListener('message', onAck);
+        process.removeListener('disconnect', onDisconnect);
+        server.close();
+        if (endpointDirectory !== null) { try { rmSync(input.endpoint, { force: true }); } catch { /* already gone */ } }
+        if (await reapTree()) { process.exit(1); return; }
+        stayResident();
+      };
+      const onAck = (message) => {
+        if (message?.action !== 'registered') return;
+        acked = true;
+        clearTimeout(ackTimer);
+        process.removeListener('message', onAck);
+        process.removeListener('disconnect', onDisconnect);
+        process.disconnect?.();
+      };
+      const onDisconnect = () => { void abandon(); };
+      const ackTimer = setTimeout(() => { void abandon(); }, REGISTRATION_ACK_MS);
+      ackTimer.unref();
+      process.on('message', onAck);
+      process.on('disconnect', onDisconnect);
+      try { process.send?.({ ...identity, status: 'running' }); } catch { void abandon(); }
     });
   });
 }

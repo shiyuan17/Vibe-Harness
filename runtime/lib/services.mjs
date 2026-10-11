@@ -32,6 +32,14 @@ const SUPERVISOR_UNREACHABLE = new Set([
 ]);
 const ORPHAN_REAP_STAGE_MS = 2500;
 const PROBE_TIMEOUT_MS = 20000;
+// Every field a supervisor echoes back and a caller has to prove it recorded.
+// `processStartTime` is the OS start identity of the owned root, and
+// `controlToken` is the per-supervisor secret the control endpoint requires, so
+// a local user who can enumerate the endpoint cannot replay the ownership
+// fields learnt from a `status` reply to authorize a `stop`.
+export const SUPERVISOR_IDENTITY_KEYS = Object.freeze([
+  'pid', 'supervisorPid', 'cwd', 'commandFingerprint', 'startedAt', 'processStartTime', 'controlToken',
+]);
 // The start handshake covers spawning the service, binding the control endpoint
 // and answering it; the abort that follows asks the same supervisor to prove the
 // tree gone before a failed start is reported as clean.
@@ -41,16 +49,57 @@ const SUPERVISOR_ABORT_TIMEOUT_MS = 30000;
 // group can: `WMI` is walked from the recorded root, because a launcher that
 // exits while the server it spawned keeps running leaves descendants whose
 // only link to the root is that parent field.
+// The walk runs over two snapshots separated by a settle delay: one snapshot is
+// a race, because a descendant created after it was taken is absent from it and
+// an empty set would then be read as "the tree is gone". Unioning two
+// observations makes an empty answer mean "nothing was observed twice".
 const WINDOWS_TREE_PROBE = [
   '$root = <PID>',
-  '$all = @(Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId)',
+  'function Snapshot { @(Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId) }',
   "$ids = New-Object 'System.Collections.Generic.HashSet[int]'",
   '[void]$ids.Add([int]$root)',
-  'do { $added = 0; foreach ($process in $all) { if ($ids.Contains([int]$process.ParentProcessId) -and $ids.Add([int]$process.ProcessId)) { $added += 1 } } } while ($added -gt 0)',
+  'for ($pass = 0; $pass -lt 2; $pass += 1) {',
+  '  $all = @(Snapshot)',
+  '  do { $added = 0; foreach ($process in $all) { if ($ids.Contains([int]$process.ParentProcessId) -and $ids.Add([int]$process.ProcessId)) { $added += 1 } } } while ($added -gt 0)',
+  '  if ($pass -eq 0) { Start-Sleep -Milliseconds 150 }',
+  '}',
   '$live = @()',
   'foreach ($id in $ids) { if (Get-Process -Id $id -ErrorAction SilentlyContinue) { $live += $id } }',
   'Write-Output ($live -join ",")',
 ].join('\n');
+
+// The Unix control socket is published inside a directory only its owner can
+// traverse. The socket file is created by `listen()` before any chmod can run,
+// so a shared temp directory would leave a window in which another local user
+// can enumerate and connect to an endpoint that has no other authorization.
+const SOCKET_DIRECTORY_PREFIX = 'vibe-harness-sockets-';
+
+/** The owner-only directory the Unix control sockets live in. */
+export function serviceSocketDirectory() {
+  const owner = typeof process.getuid === 'function' ? process.getuid() : 'default';
+  return path.join(tmpdir(), `${SOCKET_DIRECTORY_PREFIX}${owner}`);
+}
+
+/** A control endpoint name in this user's namespace. */
+export function serviceEndpoint(namespace = randomUUID()) {
+  return process.platform === 'win32'
+    ? `\\\\.\\pipe\\vibe-harness-${namespace}`
+    : path.join(serviceSocketDirectory(), `vibe-harness-${namespace}.sock`);
+}
+
+/**
+ * True only for an endpoint this user's supervisor could have published.
+ *
+ * The registry is caller-readable state, so the endpoint name in it is
+ * untrusted input: anything else may name an unrelated socket owned by someone
+ * else whose `stop` would then be authorized by this process.
+ */
+function validServiceEndpoint(endpoint) {
+  if (typeof endpoint !== 'string' || endpoint === '') return false;
+  if (process.platform === 'win32') return /^\\\\\.\\pipe\\vibe-harness-[0-9a-f-]{1,64}$/iu.test(endpoint);
+  return path.dirname(endpoint) === serviceSocketDirectory()
+    && /^vibe-harness-[0-9a-f-]{1,64}\.sock$/iu.test(path.basename(endpoint));
+}
 
 /**
  * Every live PID of the process tree rooted at `rootPid`, or null.
@@ -116,15 +165,41 @@ export function processStartIdentity(pid) {
     const value = String(result.stdout ?? '').trim();
     return value === '' ? 'unreadable' : value;
   }
-  const result = spawnSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', timeout: PROBE_TIMEOUT_MS, windowsHide: true });
+  if (process.platform === 'linux') {
+    // `/proc/<pid>/stat` field 22 is the process start time in clock ticks
+    // since boot: a kernel token, so a recycled PID cannot reproduce it. The
+    // command name is free-form and may contain spaces or parentheses, so the
+    // fixed fields are read after the last `)`.
+    let stat;
+    try {
+      stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    } catch (error) {
+      return error.code === 'ENOENT' ? 'missing' : 'unreadable';
+    }
+    const close = stat.lastIndexOf(')');
+    const startTicks = close === -1 ? undefined : stat.slice(close + 2).trim().split(' ')[19];
+    return startTicks !== undefined && /^[0-9]+$/u.test(startTicks) ? `linux-start:${startTicks}` : 'unreadable';
+  }
+  // Other Unix hosts expose no kernel start token through a portable command.
+  // `lstart` alone is one-second precision, which is not a non-reusable
+  // identity under PID churn, so the identity is composed of the start time
+  // together with the parent and the executable: a recycled PID would have to
+  // match all three to be mistaken for the recorded process.
+  const result = spawnSync('ps', ['-o', 'lstart=', '-o', 'ppid=', '-o', 'comm=', '-p', String(pid)], { encoding: 'utf8', timeout: PROBE_TIMEOUT_MS, windowsHide: true });
   if (result.error || result.status !== 0) return 'missing';
-  const value = String(result.stdout ?? '').trim();
+  const value = String(result.stdout ?? '').trim().replace(/\s+/gu, ' ');
   return value === '' ? 'missing' : value;
 }
 export function signalTree(pid, signal) {
   if (!Number.isSafeInteger(pid) || pid <= 0) return;
   if (process.platform === 'win32') {
-    spawnSync('taskkill.exe', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore', windowsHide: true, timeout: 4000 });
+    // `taskkill /t` walks down from the recorded root, so it cannot retire a
+    // descendant whose direct parent already exited: the PIDs the tree probe
+    // can still observe are signalled directly instead of relying on the root.
+    const observed = windowsTreePids(pid) ?? [];
+    for (const target of observed.length > 0 ? observed : [pid]) {
+      spawnSync('taskkill.exe', ['/pid', String(target), '/t', '/f'], { stdio: 'ignore', windowsHide: true, timeout: 4000 });
+    }
     return;
   }
   try { process.kill(-pid, signal); } catch { /* the group is already gone */ }
@@ -145,7 +220,10 @@ async function reclaimTree(entry) {
   // be read at all — may belong to an unrelated process by now, and signalling
   // it would be worse than reporting blocked.
   const identity = processStartIdentity(entry.pid);
-  if (identity === 'missing') return true;
+  // A missing root PID is not proof the tree is gone: a launcher or group
+  // leader can exit while the descendants it spawned keep the group alive, and
+  // that tree is exactly what a restart must not shadow.
+  if (identity === 'missing') return treeGone(entry.pid);
   if (identity === 'unreadable' || typeof entry.processStartTime !== 'string' || entry.processStartTime !== identity) return false;
   const waitGone = async (budgetMs) => {
     const deadline = Date.now() + budgetMs;
@@ -174,20 +252,24 @@ function writeRegistry(file, registry) {
 }
 
 export function serviceOwnership(entry, observed) {
-  return ['pid', 'supervisorPid', 'cwd', 'commandFingerprint', 'startedAt'].every((key) => entry[key] !== undefined && entry[key] === observed[key])
-    && Number.isSafeInteger(entry.pid) && entry.pid > 0 && observed.status === 'running';
+  // Every recorded field has to be echoed: `controlToken` is what keeps a local
+  // user who can reach the endpoint from replaying the ownership fields of a
+  // `status` reply into a `stop`. Fields this version could not read when the
+  // entry was written (the OS start identity) are only compared when present.
+  const matches = SUPERVISOR_IDENTITY_KEYS.every((key) => (entry[key] === undefined && observed[key] === undefined)
+    || (entry[key] !== undefined && entry[key] === observed[key]));
+  return matches && Number.isSafeInteger(entry.pid) && entry.pid > 0 && observed.status === 'running';
 }
 function request(entry, action) {
   return new Promise((resolve) => {
     if (entry.status === 'stopped' && entry.teardownStatus === 'passed') { resolve({ status: 'stopped' }); return; }
-    if (!Number.isSafeInteger(entry.pid) || entry.pid <= 0 || typeof entry.endpoint !== 'string'
-      || !(entry.endpoint.startsWith('\\\\.\\pipe\\vibe-harness-') || entry.endpoint.startsWith(path.join(tmpdir(), 'vibe-harness-')))) {
+    if (!Number.isSafeInteger(entry.pid) || entry.pid <= 0 || !validServiceEndpoint(entry.endpoint)) {
       resolve({ status: 'blocked', reason: 'invalid-supervisor-endpoint' }); return;
     }
     const socket = createConnection(entry.endpoint);
     let buffer = '';
     const timer = setTimeout(() => { socket.destroy(); resolve({ status: 'blocked', reason: 'supervisor-timeout' }); }, 7000);
-    socket.on('connect', () => socket.write(JSON.stringify({ action, ...Object.fromEntries(['pid', 'supervisorPid', 'cwd', 'commandFingerprint', 'startedAt'].map((key) => [key, entry[key]])) }) + '\n'));
+    socket.on('connect', () => socket.write(JSON.stringify({ action, ...Object.fromEntries(SUPERVISOR_IDENTITY_KEYS.map((key) => [key, entry[key]])) }) + '\n'));
     socket.on('data', (chunk) => {
       buffer += chunk.toString();
       if (buffer.length > 8192) { clearTimeout(timer); socket.destroy(); resolve({ status: 'blocked' }); return; }
@@ -264,11 +346,14 @@ function ipcRequest(child, message, timeoutMs) {
  * is asked to do the reaping — it owns the tree — and the identity the caller
  * already received is the fallback for a channel that is already closed.
  */
-async function abortStart(child, spawned) {
+async function abortStart(child, spawned, spawnedStartTime) {
   const reply = await ipcRequest(child, { action: 'abort' }, SUPERVISOR_ABORT_TIMEOUT_MS);
   if (reply.status === 'stopped') return { status: 'stopped' };
   if (spawned && Number.isSafeInteger(spawned.pid) && spawned.pid > 0) {
-    const gone = await reclaimTree({ pid: spawned.pid, processStartTime: processStartIdentity(spawned.pid) });
+    // Only the identity captured when `spawned` was received is usable: probing
+    // the PID here could read a replacement process that took the number over
+    // while the abort waited, and reclaiming would then signal a stranger.
+    const gone = await reclaimTree({ pid: spawned.pid, processStartTime: spawnedStartTime });
     if (gone) return { status: 'stopped' };
   }
   return { status: 'blocked', reason: reply.reason ?? 'service-tree-unproven' };
@@ -335,17 +420,26 @@ export async function serviceReport(project, args, tokenize) {
     if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('A registered port or --port is required');
     const entry = { taskId: args.task?.[0] ?? assignment?.id ?? 'local', serviceId: service.id, worktree, port, commandFingerprint: fingerprint, cwd, status: 'planned', teardownStatus: 'unverified', stopOnTeardown: service.stopOnTeardown };
     if (!args.write) return { status: 'planned', processes: [entry] };
-    const endpoint = process.platform === 'win32' ? `\\\\.\\pipe\\vibe-harness-${randomUUID()}` : path.join(tmpdir(), `vibe-harness-${randomUUID()}.sock`);
+    const endpoint = serviceEndpoint();
     const child = spawn(process.execPath, [fileURLToPath(new URL('./service-supervisor.mjs', import.meta.url))], { cwd, detached: true, windowsHide: true, stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
     // The supervisor reports the service identity as soon as the tree is spawned
     // and the endpoint only once it answers, so a handshake that times out still
     // leaves the caller with the identity needed to reclaim what it started.
     let spawned = null;
+    let spawnedStartTime = null;
     const identity = await new Promise((resolve) => {
       const timer = setTimeout(() => settle({ status: 'timeout' }), SUPERVISOR_START_TIMEOUT_MS);
       const settle = (message) => { clearTimeout(timer); child.removeListener('message', onMessage); resolve(message); };
       const onMessage = (message) => {
-        if (message?.status === 'spawned') { spawned = message; return; }
+        if (message?.status === 'spawned') {
+          spawned = message;
+          // Captured here, while the child is still the process this start
+          // spawned: reading the OS identity later — after a 30 s abort wait —
+          // could read a recycled PID and authorize signalling a stranger.
+          spawnedStartTime = typeof message.processStartTime === 'string'
+            ? message.processStartTime : processStartIdentity(message.pid);
+          return;
+        }
         if (message && typeof message === 'object') settle(message);
       };
       child.on('message', onMessage);
@@ -355,7 +449,7 @@ export async function serviceReport(project, args, tokenize) {
     });
     child.unref();
     if (identity.status !== 'running') {
-      const aborted = await abortStart(child, spawned);
+      const aborted = await abortStart(child, spawned, spawnedStartTime);
       if (aborted.status !== 'stopped') {
         // The tree could not be proven gone, so it is registered as blocked: a
         // later start or teardown reclaims it through the identity recorded
@@ -367,7 +461,10 @@ export async function serviceReport(project, args, tokenize) {
       }
       return { status: 'blocked', reason: 'service-supervisor-start-failed', processes: [entry] };
     }
-    const startIdentity = processStartIdentity(identity.pid);
+    // The supervisor read the OS start identity at spawn time; that value is
+    // authoritative here because the child may already have exited and had its
+    // PID reused by now.
+    const startIdentity = typeof identity.processStartTime === 'string' ? identity.processStartTime : processStartIdentity(identity.pid);
     Object.assign(entry, identity, {
       endpoint,
       // The PID alone is only safe to signal while it can still be told apart
@@ -375,7 +472,24 @@ export async function serviceReport(project, args, tokenize) {
       ...(startIdentity === 'missing' || startIdentity === 'unreadable' ? {} : { processStartTime: startIdentity }),
     });
     registry.processes.push(entry);
-    try { writeRegistry(file, registry); } catch (error) { await stopEntry(entry, true); throw error; }
+    try {
+      writeRegistry(file, registry);
+    } catch (error) {
+      // The service is live while its registration could not be persisted, so
+      // the stop result is not optional: a discarded `blocked` would orphan a
+      // tree that no later start or teardown could discover.
+      const stopped = await stopEntry(entry, true);
+      Object.assign(entry, stopped);
+      if (stopped.status === 'stopped') throw error;
+      try { writeRegistry(file, registry); } catch { /* the registry is still unwritable */ }
+      throw Object.assign(new Error(`${error.message}; the started service tree is not proven stopped (${stopped.reason ?? 'service-tree-survives'})`), {
+        code: 'SERVICE_START_PERSIST_FAILED', processes: [entry],
+      });
+    }
+    // The supervisor holds the IPC channel until this acknowledgement, so a
+    // launcher that dies before the identity is durable gets its tree reaped
+    // instead of leaving a live service nothing could stop.
+    try { child.send({ action: 'registered' }); } catch { /* the supervisor already left */ }
     let healthy = false;
     const healthcheck = service.healthcheck.replaceAll('${PORT}', String(port));
     for (let attempt = 0; attempt < 10; attempt += 1) { try { healthy = (await fetch(healthcheck, { redirect: 'error', signal: AbortSignal.timeout(400) })).ok; } catch {} if (healthy) break; await new Promise((resolve) => setTimeout(resolve, 100)); }
@@ -395,16 +509,36 @@ export async function teardownServices(project, worktree, write = true) {
     // creates the first registry entry, and without either barrier it would
     // survive the worktree removal that the caller performs after `passed`.
     const registry = readRegistry(file); const results = [];
+    const touched = [];
     for (const entry of registry.processes.filter((item) => path.resolve(item.worktree) === path.resolve(worktree) && item.status !== 'stopped')) {
       const result = entry.stopOnTeardown ? await stopEntry(entry, write) : { ...entry, status: 'blocked', reason: 'service-opted-out-of-teardown' };
-      results.push(result); if (write) Object.assign(entry, result);
+      results.push(result); touched.push(entry); if (write) Object.assign(entry, result);
+    }
+    // A `stopped` result is only teardown evidence while the whole tree is
+    // observably gone. The reclaim fallback is fail-closed, but the read-back
+    // here is what proves it to the caller: a root PID that went missing is not
+    // proof that the group it led is gone, and this is the boundary that
+    // authorizes removing the worktree and releasing its port.
+    if (write) {
+      results.forEach((result, index) => {
+        if (result.status !== 'stopped' || !Number.isSafeInteger(result.pid) || result.pid <= 0) return;
+        if (treeGone(result.pid)) return;
+        Object.assign(result, { status: 'blocked', teardownStatus: 'blocked', reason: 'service-tree-survives' });
+        Object.assign(touched[index], result);
+      });
     }
     if (write && results.length) writeRegistry(file, registry);
     const status = results.some((entry) => entry.status === 'blocked') ? 'blocked' : 'passed';
     // Written before the lock is released so a concurrent `service start`
     // cannot slip between teardown and the caller's worktree removal.
     if (write && status === 'passed') {
-      writeFileSync(marker, JSON.stringify({ createdAt: new Date().toISOString(), worktree: path.resolve(worktree) }, null, 2) + '\n', { flag: 'w', mode: 0o600 });
+      // The marker name is deterministic and lives in a directory the worktree
+      // controls, so writing through an existing symlink would let a crafted
+      // marker redirect this write over any file the invoking user can write.
+      // An exclusively created temporary file plus a rename never follows one.
+      const temporary = `${marker}.${randomUUID()}.tmp`;
+      writeFileSync(temporary, JSON.stringify({ createdAt: new Date().toISOString(), worktree: path.resolve(worktree) }, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
+      renameSync(temporary, marker);
     }
     return { status, processes: results };
   };
