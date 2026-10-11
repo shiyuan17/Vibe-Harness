@@ -97,6 +97,14 @@ test('交付配置兼容旧项目并拒绝未知模式和不安全服务', () =>
   assert.throws(() => resolveDelivery({}, 'unknown'));
   assert.throws(() => validateDeliveryConfig({ delivery: { default: 'missing', profiles: {} } }));
   assert.throws(() => validateDeliveryConfig({ worktree: { provision: { services: [{ id: 'web', cwd: '../outside', command: 'node server.mjs', healthcheck: 'http://127.0.0.1:1', stopOnTeardown: true }] } } }));
+  // The healthcheck has to probe this service's allocated port: a fixed port, or
+  // a placeholder used only in the path or query, would let an unrelated server
+  // that already listens there satisfy the probe.
+  const service = (healthcheck) => ({ worktree: { provision: { services: [{ id: 'web', cwd: '.', command: 'node server.mjs', healthcheck, stopOnTeardown: true }] } } });
+  assert.equal(validateDeliveryConfig(service('http://127.0.0.1:${PORT}/health')), undefined);
+  assert.throws(() => validateDeliveryConfig(service('http://127.0.0.1:3000')), /allocated \$\{PORT\}/u);
+  assert.throws(() => validateDeliveryConfig(service('http://127.0.0.1:3000/${PORT}')), /URL port/u);
+  assert.throws(() => validateDeliveryConfig(service('http://127.0.0.1:3000?port=${PORT}')), /URL port/u);
   assert.equal(overrideWarnings({ projectRules: { exceptions: [{ id: 'shadow' }] } })[0].status, 'stale');
 });
 

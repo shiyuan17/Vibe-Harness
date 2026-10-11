@@ -31,9 +31,16 @@ export function validateDeliveryConfig(config) {
         || ids.has(service.id) || !nonempty(service.command)
         || !nonempty(service.cwd) || /^(?:[/\\]|[A-Za-z]:)|(?:^|[/\\])\.\.(?:[/\\]|$)/u.test(service.cwd)
         || !nonempty(service.healthcheck) || typeof service.stopOnTeardown !== 'boolean') throw new Error('Invalid or duplicate managed service');
+      // The probe has to hit this service's allocated port: a fixed port, or a
+      // placeholder used only in the path or query, would let an unrelated
+      // server that already listens there satisfy the health check.
+      if (!service.healthcheck.includes('${PORT}')) {
+        throw new Error('Service healthcheck must target the allocated ${PORT}');
+      }
       const url = new URL(service.healthcheck.replaceAll('${PORT}', '12345'));
       if (url.protocol !== 'http:' || !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
         || url.username || url.password) throw new Error('Service healthcheck must use loopback HTTP without credentials');
+      if (url.port !== '12345') throw new Error('Service healthcheck must place ${PORT} in the URL port');
       ids.add(service.id);
     }
   }
