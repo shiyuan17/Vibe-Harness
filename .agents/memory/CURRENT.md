@@ -6,11 +6,11 @@
 
 项目阶段、技术债与决策经本文件引用 `docs/memory/PROJECT_STATE.md` 读取，不在此复制其内容；本文件只记录任务级恢复线索。
 
-- 目标: 把高风险变更的独立评审契约放宽为单复审者并合入 develop，随后回收实现用的 worktree 与任务分支
-- 当前状态: 在 worktree C:\Project\GitHub\Vibe-Harness-worktrees\single-reviewer（分支 feat/single-reviewer-receipt，基线 origin/develop 991bc1b）内完成放宽：schemas/review-receipt.schema.json 的 reviewers.minItems 由 2 降为 1，scripts/lib/review-audit.js 的独立性判定改为只拒 contextIndependence=unavailable，规则与复审简报、ADR-0012、测试与 eval 资产同步；develop ruleset 24096092 已置 enforcement=disabled 以便直接合并推送，本轮不自动恢复
-- 已验证证据: 本轮在 worktree 内跑通 pnpm check:fast（lint/typecheck/unit 177/177）、pnpm eval:check、pnpm docs:audit（137 篇）、pnpm tests:catalog check（1255 用例 clean）、node --test tests/integration/project-audit.test.js tests/integration/eval-ci.test.js（20/20）；pnpm test:component 327/329，两处失败为 develop 既有 memory 锚点漂移，由本次 memory 更新修复
-- 未完成事项: 合并推送后回收 worktree 与任务分支；PR #34（codex/delivery-batch）的复审发现修复与单复审者收据仍未做；本地 develop（483d0e8，ahead 309）与 backup/governance-audit-batch 等历史引用清理、develop → main 提升仍未完成
-- 下一步最小动作: 快进推送 feat/single-reviewer-receipt 到 origin/develop，运行 worktree cleanup 与分支删除，再回到 PR #34 补缺陷修复与收据
-- 锚点提交: 0afc2d20e59731e604c717ec94e6f9c89db749bf
-- 最后更新: 2026-10-10
-- 最后验证: 2026-10-10
+- 目标: 对齐本地 develop 与 origin/develop 的分叉，放开 develop 的本地 no-ff 直落与直推，放宽 hook 对 git 同步命令的封锁，随后回灌 BL-CNAS
+- 当前状态: 在 develop 对账 worktree（C:\Project\GitHub\Vibe-Harness-develop）先把 origin/develop 的 6 个提交合并回本地 develop，再把任务分支 codex/git-sync-develop-policy no-ff 合并进来：ADR-0013 取代 ADR-0009、develop 移出人工审批与受保护分支清单、land 目标守卫收窄为 main|master|release* 并显式白名单放行 develop、hook 只读分类新增 fetch/ls-remote/stash list/submodule status 且 pull 仅 --ff-only 且工作区干净时放行；主检出仍被 PR #34 的 codex/delivery-batch 会话占用，其未提交改动未被触碰
+- 已验证证据: 合并后 develop 的树与已全额验证的任务分支树完全一致（aba6d77）；任务 worktree 内跑通 pnpm check:fast、pnpm check（0 error）、pnpm test:component（331/331）、pnpm test:integration（628 通过 0 失败）、pnpm validate、pnpm docs:audit、pnpm tests:catalog check、pnpm eval:check 与 git diff --check；合并后 develop 内 pnpm check 仅剩本次 memory 刷新一项
+- 未完成事项: 推送 develop 到 origin 并回收任务 worktree 与分支；BL-CNAS 回灌与 hook/land 干跑验收；GitHub 默认分支切到 develop（release-please 已固定 target-branch: main）；PR #34（codex/delivery-batch）复审发现修复与单复审者收据；develop → main 提升与 nightly 背书回归
+- 下一步最小动作: 快进推送 develop 到 origin，随后运行 worktree cleanup 与任务分支删除，再做 BL-CNAS install --upgrade --write 与 hook 干跑断言
+- 锚点提交: cdd7b6b58d83873cfbe5b7017a8579890cfb0ff9
+- 最后更新: 2026-10-12
+- 最后验证: 2026-10-12
