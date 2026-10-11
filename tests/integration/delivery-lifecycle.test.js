@@ -10,7 +10,7 @@ import test from 'node:test';
 import { runCommand } from '../../runtime/commands/run.mjs';
 import { gitFingerprint } from '../../runtime/lib/git-fingerprint.mjs';
 import { deliveryProfiles, completionReceipt, resolveDelivery, validateCompletion, validateDeliveryConfig, overrideWarnings } from '../../runtime/lib/delivery.mjs';
-import { processStartIdentity, releaseServiceTeardown, serviceOwnership, teardownServices, treeGone } from '../../runtime/lib/services.mjs';
+import { processStartIdentity, releaseServiceTeardown, serviceOwnership, teardownServices, treeGone, windowsConfirmedMembers } from '../../runtime/lib/services.mjs';
 
 function git(project, ...args) {
   return execFileSync('git', args, { cwd: project, encoding: 'utf8', windowsHide: true }).trim();
@@ -116,7 +116,10 @@ test('完成收据四态不将 blocked 或缺字段转换为通过', () => {
   assert.equal(validateCompletion(null, resolveDelivery({})).status, 'passed');
   assert.equal(validateCompletion(null, resolveDelivery({})).warnings.length, 1);
   const owner = { pid: 1, supervisorPid: 2, cwd: '/fixture', commandFingerprint: 'hash', startedAt: 'now' };
-  assert.equal(serviceOwnership(owner, { ...owner, status: 'running' }), true);
+  // An entry without the control token and the OS start identity proves no
+  // ownership at all, so a reply that omits the same fields cannot authorize
+  // acting on it.
+  assert.equal(serviceOwnership(owner, { ...owner, status: 'running' }), false);
   assert.equal(serviceOwnership(owner, { ...owner, pid: 3, status: 'running' }), false);
   // The registry is caller-readable, so the ownership fields a local user can
   // learn from a `status` reply must not authorize a `stop` on their own: the
@@ -657,6 +660,48 @@ test('冒名端点回答 stopped 时不作为回收证据', async () => {
     assert.equal(treeGone(child.pid), false);
   } finally {
     impostor.close();
+    killTree(child.pid);
+    await remove(project);
+  }
+});
+
+test('Windows 成员探针不把登记过的身份拼进脚本', () => {
+  const identity = "x'; Remove-Item -Recurse -Force C:\\; '";
+  const probeCommands = [];
+  const probe = (command) => { probeCommands.push(command); return '4321'; };
+  // The identity comes from the caller-readable registry, so the probe must not
+  // carry it as PowerShell source: a tampered entry would otherwise run whatever
+  // it contains as the user who starts the next service command.
+  assert.deepEqual(windowsConfirmedMembers([{ pid: 4321, startIdentity: identity }], { probe }), [{ pid: 4321, startIdentity: identity }]);
+  assert.equal(probeCommands.length, 1);
+  assert.equal(probeCommands[0].includes(identity), false);
+  const payload = probeCommands[0].match(/'([A-Za-z0-9+/=]+)'/u)?.[1] ?? '';
+  assert.deepEqual(JSON.parse(Buffer.from(payload, 'base64').toString('utf8')), [{ pid: 4321, startIdentity: identity }]);
+});
+
+test('start 不带 --write 时不回收既有登记也不改注册表', async () => {
+  const { project, config } = await fixture();
+  const child = spawnDetachedFixture();
+  const endpoint = unreachableEndpoint();
+  try {
+    await declareService(project, config, servingScript);
+    await writeServiceRegistry(project, {
+      taskId: 'local', serviceId: 'web', worktree: realpathSync(project), port: 9,
+      commandFingerprint: 'fingerprint', cwd: realpathSync(project), status: 'running',
+      teardownStatus: 'unverified', stopOnTeardown: true, pid: child.pid, supervisorPid: 1,
+      startedAt: '2026-01-01T00:00:00.000Z', endpoint, controlToken: 'token-a',
+      processStartTime: processStartIdentity(child.pid),
+    });
+    const registryFile = path.join(project, '.vibe-harness', 'processes.json');
+    const before = await readFile(registryFile, 'utf8');
+    const planned = await command(project, 'runtime', 'service', 'start', '--service', 'web', '--port', '9');
+    // Reclaiming signals a process tree and rewrites the registry, so a start
+    // without `--write` reports what it would reclaim instead of doing it.
+    assert.equal(planned.report.status, 'planned', JSON.stringify(planned.report));
+    assert.equal(planned.report.reason, 'service-reclaim-required');
+    assert.equal(treeGone(child.pid), false);
+    assert.equal(await readFile(registryFile, 'utf8'), before);
+  } finally {
     killTree(child.pid);
     await remove(project);
   }

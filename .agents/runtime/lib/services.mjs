@@ -81,14 +81,20 @@ const WINDOWS_TREE_PROBE = [
 // The tree probe above only walks the ancestry of the recorded root, so a
 // descendant whose intermediate parent exited is no longer reachable through it.
 // Members observed while the tree was alive are therefore kept by the caller and
-// asked about as `pid=start-identity` pairs: a recycled PID is then rejected by
-// the identity instead of being killed as if it were part of this tree.
+// asked about as `{pid, startIdentity}` records: a recycled PID is then rejected
+// by the identity instead of being killed as if it were part of this tree.
+//
+// The records travel as base64 of their JSON. They come from the registry and
+// from supervisor replies that a local user can read and edit, and the probe is
+// PowerShell source: interpolating an identity into it would let a tampered
+// registry run commands. Decoding a fixed script from an opaque payload keeps
+// every field out of the code path.
 const WINDOWS_MEMBER_PROBE = [
+  "$json = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('<MEMBERS>'))",
   '$live = @()',
-  'foreach ($item in @(<MEMBERS>)) {',
-  "  $parts = $item -split '=', 2",
-  '  $process = Get-Process -Id ([int]$parts[0]) -ErrorAction SilentlyContinue',
-  "  if ($process -and $process.StartTime.ToUniversalTime().ToString('o') -eq $parts[1]) { $live += [int]$parts[0] }",
+  'foreach ($item in @(ConvertFrom-Json $json)) {',
+  '  $process = Get-Process -Id ([int]$item.pid) -ErrorAction SilentlyContinue',
+  "  if ($process -and $process.StartTime.ToUniversalTime().ToString('o') -eq $item.startIdentity) { $live += [int]$item.pid }",
   '}',
   'Write-Output ($live -join ",")',
 ].join('\n');
@@ -229,7 +235,7 @@ export function windowsConfirmedMembers(members, { probe = undefined } = {}) {
   const targets = validTreeMembers(members);
   if (targets.length === 0) return [];
   const run = windowsProbeRunner(probe);
-  const encoded = targets.map((member) => `'${member.pid}=${member.startIdentity}'`).join(',');
+  const encoded = Buffer.from(JSON.stringify(targets), 'utf8').toString('base64');
   try {
     const alive = parsePidList(run(WINDOWS_MEMBER_PROBE.replace('<MEMBERS>', encoded)));
     return targets.filter((member) => alive.includes(member.pid));
@@ -410,9 +416,10 @@ function teardownMarkerPath(file, worktree) {
  * The lock file already serializes writers, so the only failure left is a
  * replacement the OS refuses: on Windows a destination that another handle has
  * open (an indexer, a scanner) is locked for a moment, which is why the rename
- * is retried and finally falls back to copying the content over the destination
- * — that leaves the registry present either way, instead of reporting a failed
- * start while the service it just spawned stays live.
+ * is retried and the exhausted path then still replaces the destination by name
+ * — after proving it is a regular file. Copying over the destination is not the
+ * fallback: `copyFileSync` follows a destination symlink, so a registry swapped
+ * for a link after it was read would be written through to an arbitrary file.
  */
 async function writeRegistry(file, registry) {
   mkdirSync(path.dirname(file), { recursive: true });
@@ -424,14 +431,21 @@ async function writeRegistry(file, registry) {
       return;
     } catch (error) {
       if (attempt >= REGISTRY_RENAME_ATTEMPTS) {
-        try {
-          copyFileSync(temporary, file);
-          unlinkSync(temporary);
-          return;
-        } catch (fallbackError) {
+        const existing = lstatSync(file, { throwIfNoEntry: false });
+        if (existing && !existing.isFile()) {
           try { unlinkSync(temporary); } catch { /* the temporary file is gone */ }
-          throw fallbackError;
+          throw error;
         }
+        try {
+          unlinkSync(file);
+        } catch { /* the destination is already gone */ }
+        try {
+          renameSync(temporary, file);
+        } catch {
+          try { unlinkSync(temporary); } catch { /* the temporary file is gone */ }
+          throw error;
+        }
+        return;
       }
       await sleep(25 * (attempt + 1));
     }
@@ -448,16 +462,20 @@ async function writeRegistry(file, registry) {
  * prove the same identity before they are believed.
  */
 function identityProven(entry, observed) {
-  const matches = SUPERVISOR_IDENTITY_KEYS.every((key) => (entry[key] === undefined && observed[key] === undefined)
-    || (entry[key] !== undefined && entry[key] === observed[key]));
+  // Every field has to be present on both sides: an "absent on both sides"
+  // exception would let a tampered or legacy entry without `controlToken` (or
+  // without the OS start identity) be answered by whatever process binds the
+  // recorded endpoint and omits the same fields, so the reply would authorize an
+  // action while proving nothing.
+  const matches = SUPERVISOR_IDENTITY_KEYS.every((key) => entry[key] !== undefined
+    && observed[key] !== undefined && entry[key] === observed[key]);
   return matches && Number.isSafeInteger(entry.pid) && entry.pid > 0;
 }
 
 export function serviceOwnership(entry, observed) {
   // `controlToken` is what keeps a local user who can reach the endpoint from
-  // replaying the ownership fields of a `status` reply into a `stop`. Fields
-  // this version could not read when the entry was written (the OS start
-  // identity) are only compared when present.
+  // replaying the ownership fields of a `status` reply into a `stop`, and every
+  // field has to be present on both sides for the same reason.
   return identityProven(entry, observed) && observed.status === 'running';
 }
 function request(entry, action) {
@@ -492,6 +510,14 @@ async function stopEntry(entry, write) {
   // `stopped` reply is only accepted from the supervisor the entry recorded.
   const withEvidence = (value, observed) => (Array.isArray(observed?.treeMembers)
     ? { ...value, treeMembers: validTreeMembers(observed.treeMembers) } : value);
+  // The tree evidence of every sample seen in this call, so a reclaim that
+  // cannot ask the supervisor again still asks about descendants that an
+  // ancestry walk can no longer reach.
+  const trackedWith = (...sources) => {
+    const members = new Map();
+    for (const source of sources) for (const member of validTreeMembers(source)) members.set(member.pid, member);
+    return [...members.values()];
+  };
   const observed = await request(entry, 'status');
   if (observed.status === 'stopped') {
     // The endpoint name is per user, not per supervisor, so after the recorded
@@ -499,6 +525,9 @@ async function stopEntry(entry, write) {
     // `stopped` for a tree that is still serving. Only the identity proves who
     // answered, exactly as it does for `running`.
     if (!identityProven(entry, observed)) return withEvidence({ ...entry, status: 'blocked', teardownStatus: 'blocked', reason: 'ownership-unproven' }, observed);
+    if (!treeGone(entry.pid, { tracked: trackedWith(entry.treeMembers, observed.treeMembers) })) {
+      return withEvidence({ ...entry, status: 'blocked', teardownStatus: 'blocked', reason: 'service-tree-survives' }, observed);
+    }
     return withEvidence({ ...entry, status: 'stopped', teardownStatus: write ? 'passed' : 'unverified' }, observed);
   }
   if (SUPERVISOR_UNREACHABLE.has(observed.reason)) {
@@ -515,10 +544,22 @@ async function stopEntry(entry, write) {
   const stopped = await request(entry, 'stop');
   if (stopped.status === 'stopped') {
     if (!identityProven(entry, stopped)) return withEvidence({ ...entry, status: 'blocked', teardownStatus: 'blocked', reason: 'ownership-unproven' }, stopped);
+    // The identity proves who answered, not that the tree is really gone: a
+    // process that binds the recorded endpoint can echo the recorded fields and
+    // answer `stopped` for a tree that is still serving. The answer is therefore
+    // only evidence together with an observation that no part of the recorded
+    // tree is left.
+    const tracked = trackedWith(entry.treeMembers, observed.treeMembers, stopped.treeMembers);
+    if (!treeGone(entry.pid, { tracked })) {
+      return withEvidence({ ...entry, status: 'blocked', teardownStatus: 'blocked', reason: 'service-tree-survives' }, stopped);
+    }
     return withEvidence({ ...entry, status: 'stopped', teardownStatus: 'passed' }, stopped);
   }
   if (SUPERVISOR_UNREACHABLE.has(stopped.reason)) {
-    return await reclaimTree(entry)
+    // The successful `status` reply above is newer evidence than the registry
+    // entry, so its tree members travel into the reclaim: on Windows a
+    // descendant whose launcher exited is only known through those samples.
+    return await reclaimTree({ ...entry, treeMembers: trackedWith(entry.treeMembers, observed.treeMembers) })
       ? { ...entry, status: 'stopped', teardownStatus: 'passed' }
       : { ...entry, status: 'blocked', teardownStatus: 'blocked', reason: 'service-tree-survives' };
   }
@@ -619,6 +660,11 @@ export async function serviceReport(project, args, tokenize) {
       if (observed.status === 'running' && serviceOwnership(registered, observed)) {
         return { status: 'blocked', reason: 'service-already-registered', processes: [registered] };
       }
+      // Reclaiming signals a process and rewrites the registry, so a start
+      // without `--write` only reports what it would have to reclaim: the
+      // dry-run answer is the caller's chance to see the plan before any of it
+      // happens.
+      if (!args.write) return { status: 'planned', reason: 'service-reclaim-required', processes: [registered] };
       const retired = await stopEntry(registered, true);
       Object.assign(registered, retired);
       // Persisted before the replacement is started: a registration that is
