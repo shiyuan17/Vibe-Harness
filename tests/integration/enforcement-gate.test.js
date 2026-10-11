@@ -2,7 +2,7 @@ import '../helpers/offline-tools.js';
 
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -139,9 +139,10 @@ test('strict 策略把未证明的 Hook 执行从提示升级为阻断', async (
     const codex = await adapterEntry('codex');
     await mkdir(path.join(target, '.codex'), { recursive: true });
     // The self-check only speaks for an installed handler that matches the pack
-    // and is referenced by the host configuration, so the fixture installs it.
+    // and is referenced by the host configuration, so the fixture installs the
+    // whole Hook surface the entry statically imports.
     await mkdir(path.join(target, '.agents', 'runtime', 'hooks'), { recursive: true });
-    await copyFile(path.join(rootDir, 'runtime/hooks/codex-hook.mjs'), path.join(target, '.agents/runtime/hooks/codex-hook.mjs'));
+    await cp(path.join(rootDir, 'runtime/hooks'), path.join(target, '.agents', 'runtime', 'hooks'), { recursive: true });
     await writeFile(path.join(target, '.codex', 'hooks.json'), JSON.stringify({
       hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: 'node .agents/runtime/hooks/codex-hook.mjs --host codex --expected-event PreToolUse' }] }] },
     }, null, 2) + '\n', 'utf8');

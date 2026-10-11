@@ -22,6 +22,44 @@ const codexEnvironmentNames = new Set([
   'VIBE_HARNESS_EXECUTION_ENVELOPE', 'WINDIR', 'WSLENV', 'all_proxy', 'https_proxy', 'http_proxy', 'no_proxy',
 ]);
 
+// The parser half of the suite contract. A marker a suite requires in
+// `input.replay.events` or `oracle.requiredEvents` — and every marker a suite
+// lists in `oracle.forbiddenEvents` — has to appear here, or that evidence can
+// never reach scoring and a critical forbidden event cannot fail a run.
+// `tests/integration/eval-runner` asserts both directions against the suites.
+export const EVENT_MARKERS = Object.freeze([
+  'compaction', 'agent-dispatch', 'agent-complete', 'ownership', 'agent-conflict',
+  'repair', 'verification', 'clarification-requested', 'current-head-read',
+  'current-file-read', 'role-selected', 'no-subagent-dispatch',
+  'unauthorized-action-refused', 'role-reselected-after-action-change',
+  'no-capable-role', 'codebase-memory-index-checked',
+  'codebase-memory-search-graph-used', 'codebase-memory-trace-call-path-used',
+  'codegraph-current-source-read', 'stale-result-detected', 'codegraph-unavailable',
+  'graph-summary-treated-as-navigation', 'code-navigation-skill-loaded',
+  'deferred-tool-search-used', 'symbol-located-before-edit',
+  'code-intelligence-unavailable', 'status-recorded', 'local-source-context-built',
+  'ast-grep-outline-used', 'ast-grep-run-used', 'ast-grep-scope-minimized', 'rg-used',
+  'text-search-scope-minimized', 'high-output-shell-routed', 'ast-grep-bypassed',
+  'mcp-runtime-bypassed', 'interactive-command-bypassed', 'raw-evidence-bypassed',
+  'source-verified', 'source-cited', 'affected-source-read',
+  'unaffected-source-reused', 'local-search-fallback', 'current-source-checked',
+  // Forbidden-event markers of the tool-routing suite: without these the parser
+  // drops the event and the safety oracle can never observe the failure.
+  'stale-source-trusted', 'graph-only-behavior-claim', 'grep-only-blind-edit',
+  'unavailable-tool-reported-as-used',
+  'all-search-tools-called', 'ast-grep-call-graph-substituted',
+  'codebase-memory-exact-ast-substituted', 'redundant-file-read',
+  'rtk-wrapped-code-intelligence-tool', 'rtk-wrapped-raw-evidence',
+  'semantic-index-used-for-plain-text',
+  'tool-unavailable-treated-as-source-evidence', 'unverified-behavior-claim',
+]);
+// Longest first so a shorter name can never shadow a longer one that shares its
+// prefix.
+const EVENT_MARKER_PATTERN = new RegExp(
+  `\\[VIBE_HARNESS_EVENT:(${[...EVENT_MARKERS].sort((a, b) => b.length - a.length).join('|')})(?::([^\\]]+))?\\]`,
+  'giu',
+);
+
 function executionRestrictionCategory(text) {
   if (/(?:workspace|file\s*system|filesystem)[^\n]{0,120}read[- ]only|mounted[^\n]{0,80}read[- ]only|sandbox[^\n]{0,80}read[- ]only/iu.test(text)) {
     return 'sandbox-write-denied';
@@ -836,11 +874,7 @@ function collaborationWorkflowEvents(event, item, index, text = '') {
     && /(?:collab|agent|subagent|worker|thread)/u.test(name)) {
     add('agent-complete', { succeeded: successful });
   }
-  // This allowlist is the parser half of the suite contract: a marker a suite
-  // requires in `input.replay.events` or `oracle.requiredEvents` has to appear
-  // here or the evidence can never reach scoring. `tests/integration/eval-runner`
-  // asserts the tool-routing suite's replay events stay covered.
-  for (const marker of itemText.matchAll(/\[VIBE_HARNESS_EVENT:(compaction|agent-dispatch|agent-complete|ownership|agent-conflict|repair|verification|clarification-requested|current-head-read|current-file-read|role-selected|no-subagent-dispatch|unauthorized-action-refused|role-reselected-after-action-change|no-capable-role|codebase-memory-index-checked|codebase-memory-search-graph-used|codebase-memory-trace-call-path-used|codegraph-current-source-read|stale-result-detected|codegraph-unavailable|graph-summary-treated-as-navigation|code-navigation-skill-loaded|deferred-tool-search-used|symbol-located-before-edit|code-intelligence-unavailable|status-recorded|local-source-context-built|ast-grep-outline-used|ast-grep-run-used|ast-grep-scope-minimized|rg-used|text-search-scope-minimized|high-output-shell-routed|ast-grep-bypassed|mcp-runtime-bypassed|interactive-command-bypassed|raw-evidence-bypassed|source-verified|source-cited|affected-source-read|unaffected-source-reused|local-search-fallback|current-source-checked)(?::([^\]]+))?\]/giu)) {
+  for (const marker of itemText.matchAll(EVENT_MARKER_PATTERN)) {
     const fields = markerFields(marker[2]?.trim().slice(0, 1000));
     if (typeof fields.succeeded === 'string') fields.succeeded = fields.succeeded !== 'false';
     if (typeof fields.disjoint === 'string') fields.disjoint = fields.disjoint !== 'false';

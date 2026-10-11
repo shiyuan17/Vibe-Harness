@@ -1476,12 +1476,16 @@ test('host compaction case without an injected Execution Envelope is rejected by
   }
 });
 
-test('tool-routing suite 的 replay 事件都能被 marker 解析', async () => {
+test('tool-routing suite 的 required 与 forbidden 事件都能被 marker 解析', async () => {
   const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-tool-routing.json'));
   const markers = new Set();
   for (const item of suite.cases ?? []) {
     for (const event of item.input?.replay?.events ?? []) markers.add(event);
     for (const event of item.oracle?.requiredEvents ?? []) markers.add(event.value);
+    // The forbidden events are the ones a fail-open parser would silently
+    // accept: if the parser drops the marker, the safety oracle can never fail
+    // a run that emitted it.
+    for (const event of item.oracle?.forbiddenEvents ?? []) markers.add(event.value);
   }
   assert.ok(markers.size > 0, 'the suite declares replay markers');
 

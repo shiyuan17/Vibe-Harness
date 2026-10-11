@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import path from 'node:path';
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 
 import { pathExists } from './manifest.js';
 import { readHostHookState } from './host-hook-state.js';
@@ -184,27 +184,96 @@ export async function inspectRuntimeHookSelfCheck(adapter, targetDir, { configur
  */
 async function inspectInstalledHookWiring(adapter, targetDir) {
   const configTarget = hookConfigTarget(adapter);
-  const installedHandler = path.join(targetDir, runtimeHookEntryPath);
-  const packHandler = path.join(path.resolve(import.meta.dirname, '..', '..'), 'runtime', 'hooks', 'codex-hook.mjs');
-  if (!(await pathExists(installedHandler))) {
-    return { status: 'degraded', code: 'HOOK_SELF_CHECK_HANDLER_MISSING' };
-  }
-  const [installedHash, packHash] = await Promise.all([
-    hashFile(installedHandler).catch(() => null),
-    hashFile(packHandler).catch(() => null),
-  ]);
-  if (installedHash === null || packHash === null) {
+  const entryDir = path.posix.dirname(runtimeHookEntryPath);
+  const installedHooksDir = path.join(targetDir, ...entryDir.split('/'));
+  const packHooksDir = path.join(path.resolve(import.meta.dirname, '..', '..'), 'runtime', 'hooks');
+  // The handler is not a single module: `codex-hook.mjs` statically imports the
+  // policy, context and envelope modules beside it, so a self-check that hashes
+  // only the entry would pass while a tampered or missing dependency changes
+  // behavior. The whole installed Hook directory is compared to the pack.
+  const modules = await listFiles(packHooksDir).catch(() => null);
+  if (modules === null || modules.length === 0) {
     return { status: 'degraded', code: 'HOOK_SELF_CHECK_HANDLER_UNVERIFIED' };
   }
-  if (installedHash !== packHash) {
-    return { status: 'degraded', code: 'HOOK_SELF_CHECK_HANDLER_DRIFT' };
+  for (const relative of modules) {
+    const installed = path.join(installedHooksDir, relative);
+    if (!(await pathExists(installed))) {
+      return { status: 'degraded', code: 'HOOK_SELF_CHECK_HANDLER_MISSING' };
+    }
+    const [installedHash, packHash] = await Promise.all([
+      hashFile(installed).catch(() => null),
+      hashFile(path.join(packHooksDir, relative)).catch(() => null),
+    ]);
+    if (installedHash === null || packHash === null) {
+      return { status: 'degraded', code: 'HOOK_SELF_CHECK_HANDLER_UNVERIFIED' };
+    }
+    if (installedHash !== packHash) {
+      return { status: 'degraded', code: 'HOOK_SELF_CHECK_HANDLER_DRIFT' };
+    }
   }
   if (configTarget) {
-    const config = await readFile(path.join(targetDir, configTarget), 'utf8').catch(() => null);
-    const wired = config !== null && runtimeHookEntryPath.split('/').every((segment) => config.includes(segment));
-    if (!wired) return { status: 'degraded', code: 'HOOK_SELF_CHECK_CONFIG_UNWIRED' };
+    const raw = await readFile(path.join(targetDir, configTarget), 'utf8').catch(() => null);
+    // Parsing is the point: raw substring membership would accept unrelated
+    // prose, invalid JSON, or a command that merely echoes the path.
+    let config;
+    try {
+      config = raw === null ? null : JSON.parse(raw);
+    } catch {
+      return { status: 'degraded', code: 'HOOK_SELF_CHECK_CONFIG_UNWIRED' };
+    }
+    if (config === null || !hookCommands(config).some(commandInvokesHandler)) {
+      return { status: 'degraded', code: 'HOOK_SELF_CHECK_CONFIG_UNWIRED' };
+    }
   }
   return { status: 'pass', code: 'HOOK_SELF_CHECK_WIRING_VERIFIED' };
+}
+
+/** Every `command` string of the parsed configuration, in declaration order. */
+function hookCommands(node, found = []) {
+  if (Array.isArray(node)) {
+    for (const item of node) hookCommands(item, found);
+  } else if (node !== null && typeof node === 'object') {
+    for (const [key, value] of Object.entries(node)) {
+      if (key === 'command' && typeof value === 'string') found.push(value);
+      else hookCommands(value, found);
+    }
+  }
+  return found;
+}
+
+const expectedCommandSegments = runtimeHookEntryPath.split('/');
+
+/**
+ * True when a configured command launches this managed entry.
+ *
+ * Two shapes are legitimate. A host may name the entry as one path token
+ * (`node .agents/runtime/hooks/codex-hook.mjs`), or the inline bootstrap the
+ * installer single-sources may assemble it from separately quoted segments
+ * (`path.join(root, '.agents', 'runtime', 'hooks', 'codex-hook.mjs')`). Both
+ * are checked for the file itself, so prose, a command that only echoes the
+ * path words without quotes, or a command naming a different file is not
+ * treated as wiring.
+ */
+function commandInvokesHandler(command) {
+  if (command.replaceAll(/["'\s,]/gu, '').includes(runtimeHookEntryPath)) return true;
+  let cursor = 0;
+  for (const segment of expectedCommandSegments) {
+    const index = command.indexOf(`'${segment}'`, cursor);
+    if (index === -1) return false;
+    cursor = index + segment.length + 2;
+  }
+  return true;
+}
+
+async function listFiles(root, prefix = '') {
+  const entries = await readdir(path.join(root, prefix), { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    const relative = prefix === '' ? entry.name : `${prefix}/${entry.name}`;
+    if (entry.isDirectory()) files.push(...await listFiles(root, relative));
+    else if (entry.isFile()) files.push(relative);
+  }
+  return files;
 }
 
 /**

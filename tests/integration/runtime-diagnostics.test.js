@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -123,7 +123,7 @@ test('runtime Hook enforcement requires independent host evidence', async () => 
     // pack and is referenced by the host configuration.
     await mkdir(path.join(target, '.codex'), { recursive: true });
     await mkdir(path.join(target, '.agents', 'runtime', 'hooks'), { recursive: true });
-    await copyFile(path.resolve('runtime/hooks/codex-hook.mjs'), path.join(target, '.agents/runtime/hooks/codex-hook.mjs'));
+    await cp(path.resolve('runtime/hooks'), path.join(target, '.agents', 'runtime', 'hooks'), { recursive: true });
     await writeFile(path.join(target, '.codex', 'hooks.json'), JSON.stringify({
       hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: 'node .agents/runtime/hooks/codex-hook.mjs --host codex --expected-event PreToolUse' }] }] },
     }, null, 2) + '\n', 'utf8');
@@ -177,14 +177,57 @@ test('Hook 自检拒绝缺失、漂移或未接线的已安装 handler', async (
       { status: 'degraded', code: 'HOOK_SELF_CHECK_HANDLER_DRIFT' },
     );
 
-    await copyFile(path.resolve('runtime/hooks/codex-hook.mjs'), handler);
+    // The self-check compares the whole installed Hook directory: the handler
+    // imports the policy/context/envelope modules beside it, so the fixture
+    // installs the pack's full surface.
+    await cp(path.resolve('runtime/hooks'), path.join(target, '.agents', 'runtime', 'hooks'), { recursive: true });
     await writeFile(path.join(target, '.codex', 'hooks.json'), '{}\n', 'utf8');
     assert.deepEqual(
       await inspectRuntimeHookSelfCheck(adapter, target, { configured: true }),
       { status: 'degraded', code: 'HOOK_SELF_CHECK_CONFIG_UNWIRED' },
     );
 
+    // The entry module alone is not the handler: a missing dependency beside it
+    // changes behavior, so the whole directory is compared.
+    const dependency = path.join(target, '.agents/runtime/hooks/lib/policy.mjs');
+    const dependencySource = await readFile(dependency, 'utf8');
+    await rm(dependency, { force: true });
+    assert.deepEqual(
+      await inspectRuntimeHookSelfCheck(adapter, target, { configured: true }),
+      { status: 'degraded', code: 'HOOK_SELF_CHECK_HANDLER_MISSING' },
+    );
+    await writeFile(dependency, `${dependencySource}\n`, 'utf8');
+    assert.deepEqual(
+      await inspectRuntimeHookSelfCheck(adapter, target, { configured: true }),
+      { status: 'degraded', code: 'HOOK_SELF_CHECK_HANDLER_DRIFT' },
+    );
+    await cp(path.resolve('runtime/hooks'), path.join(target, '.agents', 'runtime', 'hooks'), { recursive: true });
+
+    // A configuration the host cannot parse, and a command that only mentions
+    // the path words without invoking the entry, are both unwired.
+    await writeFile(path.join(target, '.codex', 'hooks.json'), '{ not json\n', 'utf8');
+    assert.deepEqual(
+      await inspectRuntimeHookSelfCheck(adapter, target, { configured: true }),
+      { status: 'degraded', code: 'HOOK_SELF_CHECK_CONFIG_UNWIRED' },
+    );
+    await writeFile(path.join(target, '.codex', 'hooks.json'), JSON.stringify({
+      hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: 'echo .agents runtime hooks codex-hook.mjs' }] }] },
+    }, null, 2) + '\n', 'utf8');
+    assert.deepEqual(
+      await inspectRuntimeHookSelfCheck(adapter, target, { configured: true }),
+      { status: 'degraded', code: 'HOOK_SELF_CHECK_CONFIG_UNWIRED' },
+    );
+
     await writeFile(path.join(target, '.codex', 'hooks.json'), wired, 'utf8');
+    assert.equal((await inspectRuntimeHookSelfCheck(adapter, target, { configured: true })).status, 'pass');
+
+    // The installer single-sources an inline bootstrap that assembles the entry
+    // path from separately quoted segments, so that shipped shape has to count
+    // as wiring as well.
+    const bootstrap = await readFile(path.resolve('scripts/lib/hook-bootstrap.cjs'), 'utf8');
+    await writeFile(path.join(target, '.codex', 'hooks.json'), JSON.stringify({
+      hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: `node -e "${bootstrap}" -- --expected-event PreToolUse` }] }] },
+    }, null, 2) + '\n', 'utf8');
     assert.equal((await inspectRuntimeHookSelfCheck(adapter, target, { configured: true })).status, 'pass');
   } finally {
     await rm(target, { force: true, recursive: true });
