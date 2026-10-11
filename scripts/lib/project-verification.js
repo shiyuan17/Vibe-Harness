@@ -905,6 +905,11 @@ export async function runVerificationPlan({
     }
     await storeVerificationReceipt(targetDir, cacheContext, {
       ...report.verification, status: report.ok && focused.results.every((item) => item.status === 'passed') ? 'passed' : 'failed',
+    }, {
+      // The per-check commands this run reported, so a later completion receipt
+      // can be checked against them instead of being taken on its own word.
+      checks: Object.entries(/** @type {any} */ (focused).checks ?? {})
+        .map(([id, check]) => ({ id, command: check?.command })),
     }).catch(() => false);
   }
   return report;

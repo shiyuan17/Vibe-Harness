@@ -1023,6 +1023,11 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
   };
   report.cache.stored = await storeVerificationReceipt(projectDir, cacheContext, {
     ...report.verification, status: executed.length === selectedNames.length ? report.status : 'unverified',
+    // The per-check commands this run reported, so the acceptance entries a
+    // completion receipt cites can be checked against them instead of being
+    // taken on the receipt's word.
+  }, {
+    checks: Object.entries(report.checks ?? {}).map(([id, check]) => ({ id, command: check?.command })),
   }).catch(() => false);
   return report;
 }
@@ -2604,6 +2609,9 @@ async function worktreeLandReportUnlocked(projectDir, args) {
   };
 
   let landReceipt = null;
+  // True while the completion receipt returned to the caller is backed by a
+  // durable provenance record; a receipt without one is not handed over.
+  let provenanceRecorded = true;
   let candidatePath = null;
   let candidateHeadSha = null;
   const targetHead = await runGit(['rev-parse', `refs/heads/${targetBranch}`], primary.path);
@@ -2735,7 +2743,18 @@ async function worktreeLandReportUnlocked(projectDir, args) {
               : {}),
           };
           landReceipt.source = { ...landReceipt.source, head: candidateHeadSha, fingerprint: anchored.fingerprint };
-          await recordFinalVerification(primary.path, landReceipt.verification);
+          const recorded = await recordFinalVerification(primary.path, landReceipt.verification,
+            { checks: landReceipt.acceptance });
+          // The completion receipt is only valid through this record, so a
+          // failure to write it has to stop the landing here: reporting `passed`
+          // with a receipt whose provenance can never be attested would hand the
+          // caller evidence the tool itself would reject.
+          if (!recorded) {
+            provenanceRecorded = false;
+            if (!failedStep) {
+              markFailed({ id: 'merge', status: 'blocked', code: 'LAND_PROVENANCE_UNRECORDED', detail: 'record the finalized verification evidence for the primary checkout' });
+            }
+          }
         }
         if (!removed.removed) {
           markFailed({ id: 'merge', status: 'failed', code: 'LAND_CANDIDATE_CLEANUP_FAILED', candidatePath: removed.residual, error: removed.reason, detail: 'remove isolated candidate worktree' });
@@ -2765,6 +2784,23 @@ async function worktreeLandReportUnlocked(projectDir, args) {
   if (!failedStep) {
     const services = await teardownServices(projectDir, entry.path);
     if (services.status !== 'passed') markFailed({ id: 'services', status: 'blocked', code: 'SERVICE_TEARDOWN_BLOCKED', services });
+    else {
+      // Stopping a managed service can flush tracked or untracked state into the
+      // source worktree while it shuts down, and the completion receipt describes
+      // the candidate — not the source — so the source is read again here: the
+      // removal below must not delete work that appeared after the last check.
+      const sourceAfterTeardown = await runGit(['status', '--porcelain=v1', '--untracked-files=all'], entry.path);
+      if (!sourceAfterTeardown.ok || sourceAfterTeardown.stdout.trim() !== '') {
+        // The worktree survives the block, so the teardown marker it would keep
+        // `service start` out with is released again.
+        releaseServiceTeardown(projectDir, entry.path);
+        markFailed({
+          id: 'services', status: 'blocked', code: 'LAND_SOURCE_WORKTREE_DIRTY',
+          error: boundedOutput(sourceAfterTeardown.stderr || sourceAfterTeardown.error?.message || 'the source worktree is not clean after service teardown', projectDir),
+          detail: `git status --porcelain=v1 --untracked-files=all in ${entry.path}`,
+        });
+      }
+    }
   }
   if (!failedStep) {
     const removedLinks = removeWorktreeLinks(projectDir, entry.path, settings);
@@ -2811,7 +2847,7 @@ async function worktreeLandReportUnlocked(projectDir, args) {
     targetBranch,
     tier,
     ...(tierEscalation ? { tierEscalation } : {}),
-    ...(landReceipt ? { completion: landReceipt } : {}),
+    ...(landReceipt && provenanceRecorded ? { completion: landReceipt } : {}),
     write: true,
     results: [{ ...baseResult, pushed, branchDeleted: steps.some((step) => step.id === 'delete-branch' && step.status === 'passed'), portBlockReleased: steps.some((step) => step.id === 'cleanup' && step.status === 'passed' && step.portBlockReleased === true), status: landStatus, steps }],
   };

@@ -79,6 +79,15 @@ test('CLI verify 只承认显式 --reviewed 作为完成审阅证据', async () 
     // record this run wrote, so the gate can be satisfied after the fact.
     const attestation = await attestCompletionProvenance(project, reviewed.completion);
     assert.equal(attestation.ok, true, JSON.stringify(attestation));
+    // The record store is inside the project, so a caller can rewrite it: only a
+    // record whose authentication still matches counts as tool-written evidence.
+    const directory = path.join(project, '.vibe-harness/verification/receipts');
+    const [file] = await readdir(directory);
+    const recordPath = path.join(directory, file);
+    const stored = JSON.parse(await readFile(recordPath, 'utf8'));
+    await writeFile(recordPath, JSON.stringify({ ...stored, writeFingerprint: 'forged' }), 'utf8');
+    const forged = await attestCompletionProvenance(project, reviewed.completion);
+    assert.equal(forged.ok, false, JSON.stringify(forged));
   } finally {
     await rm(project, { recursive: true, force: true });
   }

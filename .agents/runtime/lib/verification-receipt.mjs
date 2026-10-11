@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
@@ -10,6 +11,15 @@ import { verificationCwd } from './verification-plan.mjs';
 const execute = promisify(execFile);
 const RECEIPTS = '.vibe-harness/verification/receipts';
 export const VERIFICATION_RECEIPT_SCHEMA_VERSION = 4;
+// The record store lives inside the project it describes, so the caller that
+// supplies a handcrafted completion receipt can also write a matching record by
+// hand. Each record is therefore authenticated with a per-user key kept outside
+// the project: a record without that authentication is not provenance. The key
+// is a file only this user can read, which is the strongest boundary available
+// without an external secret service; it is created lazily and never leaves the
+// machine.
+const KEY_DIRECTORY = '.vibe-harness';
+const KEY_FILE = 'verification-key.json';
 const INPUTS = [
   'vibe-harness.config.json', 'package.json', 'bun.lock', 'bun.lockb', 'pnpm-lock.yaml', 'package-lock.json', 'yarn.lock',
   'pom.xml', 'mvnw', 'mvnw.cmd', '.mvn/wrapper/maven-wrapper.properties',
@@ -17,6 +27,129 @@ const INPUTS = [
 
 function digest(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
+
+let cachedKey;
+
+/**
+ * The per-user key that authenticates this tool's own records, or null.
+ *
+ * Null means the key cannot be held outside the project (no home directory, or
+ * it cannot be written), and every record then fails authentication: a store
+ * that cannot be authenticated is not provenance, and reporting it as verified
+ * would be worse than reporting none.
+ */
+async function authenticationKey() {
+  if (cachedKey !== undefined) return cachedKey;
+  let directory;
+  try {
+    directory = path.join(homedir(), KEY_DIRECTORY);
+  } catch {
+    cachedKey = null;
+    return cachedKey;
+  }
+  const file = path.join(directory, KEY_FILE);
+  const read = async () => {
+    try {
+      const existing = JSON.parse(await readFile(file, 'utf8'));
+      return typeof existing?.key === 'string' && /^[0-9a-f]{64}$/u.test(existing.key) ? existing.key : null;
+    } catch {
+      return null;
+    }
+  };
+  cachedKey = await read();
+  if (cachedKey !== null) return cachedKey;
+  try {
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    await writeFile(file, `${JSON.stringify({ key: randomBytes(32).toString('hex'), createdAt: new Date().toISOString() })}\n`,
+      { flag: 'wx', mode: 0o600 });
+  } catch {
+    // Another process may have created it between the read and the write.
+  }
+  cachedKey = await read();
+  return cachedKey;
+}
+
+/**
+ * The bytes a record is authenticated over: everything it carries except the
+ * authentication itself, in the order it was written.
+ */
+function authenticationPayload(record) {
+  const { mac, ...rest } = record;
+  return JSON.stringify(rest);
+}
+
+function authenticate(record, key) {
+  return createHmac('sha256', key).update(authenticationPayload(record)).digest('hex');
+}
+
+/**
+ * True only for a record this user's tool wrote.
+ *
+ * `readRecord` returns the parsed record for a valid one, or null with the
+ * reason it was rejected: an unauthenticated or tampered file is not evidence
+ * this process can build a completion claim on.
+ */
+async function readRecord(file) {
+  const record = JSON.parse(await readFile(file, 'utf8'));
+  const key = await authenticationKey();
+  if (key === null) return { record: null, reason: 'unauthenticated-store' };
+  if (typeof record?.mac !== 'string' || record.mac !== authenticate(record, key)) {
+    return { record: null, reason: 'record-authentication-mismatch' };
+  }
+  return { record, reason: null };
+}
+
+/** The acceptance evidence a completion receipt has to reproduce, or null. */
+function acceptanceProjection(acceptance, selectedIds = []) {
+  if (acceptance === null || typeof acceptance !== 'object' || Array.isArray(acceptance)) return null;
+  const selected = (Array.isArray(acceptance.selectedCheckIds) ? acceptance.selectedCheckIds : [])
+    .filter((id) => typeof id === 'string' && id.trim());
+  return {
+    status: ['accepted', 'blocked', 'unverified'].includes(acceptance.status) ? acceptance.status : 'unverified',
+    selectedCheckIds: [...new Set(selected)].sort(),
+    finalFingerprint: typeof acceptance.finalFingerprint === 'string' ? acceptance.finalFingerprint : null,
+    ...(selected.some((id) => !selectedIds.includes(id)) ? { outsideSelection: true } : {}),
+  };
+}
+
+/**
+ * The review evidence a completion receipt has to reproduce.
+ *
+ * Only the verdict and the check ids it covers are part of this: they are what
+ * `validateCompletion` reads, while the changed paths a review carries describe
+ * the plan rather than the decision.
+ */
+function reviewProjection(review) {
+  if (review === null || typeof review !== 'object' || Array.isArray(review)) return null;
+  const ids = (value) => [...new Set((Array.isArray(value) ? value : []).filter((id) => typeof id === 'string' && id.trim()))].sort();
+  return {
+    status: typeof review.status === 'string' ? review.status : 'unreviewed',
+    reasonCode: typeof review.reasonCode === 'string' ? review.reasonCode : null,
+    selectedCheckIds: ids(review.selectedCheckIds),
+    reviewedCheckIds: ids(review.reviewedCheckIds),
+  };
+}
+
+function sameProjection(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+/**
+ * The per-check commands a run reported, keyed by check id.
+ *
+ * A completion receipt's acceptance entries name a command as their evidence,
+ * and a receipt could otherwise cite a recorded check id while replacing that
+ * command with a stronger one that never ran. `null` means the run published no
+ * per-check data, which is not "any command matches" — it is simply nothing to
+ * compare.
+ */
+function commandEvidence(checks) {
+  if (!Array.isArray(checks)) return null;
+  const entries = checks
+    .filter((check) => check !== null && typeof check === 'object' && typeof check.id === 'string' && check.id !== '')
+    .map((check) => [check.id, typeof check.command === 'string' && check.command !== '' ? check.command : null]);
+  return entries.length > 0 ? Object.fromEntries(entries) : null;
 }
 
 function normalizedReview(review, selectedIds = [], changedPaths = []) {
@@ -153,7 +286,10 @@ export async function findVerificationReceipt(projectDir, context) {
     const file = path.join(directory, `${context.key}.json`);
     if ((await lstat(file)).isSymbolicLink()) throw new Error('Receipt must not be a symbolic link.');
     if ((await stat(file)).size > 1024 * 1024) throw new Error('Receipt exceeds size limit.');
-    const receipt = JSON.parse(await readFile(file, 'utf8'));
+    // An unauthenticated or tampered record is not a cache hit: replaying it
+    // would report checks as run that this tool has no record of running.
+    const { record: receipt } = await readRecord(file);
+    if (receipt === null) return { status: 'miss', reason: 'receipt-authentication-failed', receipt: null };
     // Only the current schema is reused: an older receipt was written under a
     // context key that did not include the write evidence, so it can neither be
     // found under the current key nor be proven to describe this workspace.
@@ -176,7 +312,7 @@ export async function findVerificationReceipt(projectDir, context) {
   }
 }
 
-export async function storeVerificationReceipt(projectDir, context, receipt) {
+export async function storeVerificationReceipt(projectDir, context, receipt, { checks = null } = {}) {
   if (!context.recordable) return false;
   if (receipt.status !== 'passed' || receipt.snapshotComparison !== 'match') {
     const directory = await receiptDirectory(projectDir);
@@ -185,12 +321,31 @@ export async function storeVerificationReceipt(projectDir, context, receipt) {
   }
   const directory = await receiptDirectory(projectDir, true);
   if (!directory) return false;
+  const key = await authenticationKey();
+  if (key === null) return false;
+  // The fingerprints stored are the ones the *run* finalized, not the ones it
+  // started from: `attestCompletionProvenance` compares them with the completion
+  // receipt, which describes the workspace after the checks ran. The pre-run
+  // context stays the cache key, which is why a run that wrote to the workspace
+  // cannot be replayed against a workspace it did not verify.
+  const fingerprint = typeof receipt.fingerprint === 'string' ? receipt.fingerprint : context.fingerprints.fingerprint;
+  const writeFingerprint = typeof receipt.writeFingerprint === 'string'
+    ? receipt.writeFingerprint : context.fingerprints.writeFingerprint;
+  const review = normalizedReview(receipt.review, context.selectedIds, context.changedPaths);
   const summary = {
     schemaVersion: VERIFICATION_RECEIPT_SCHEMA_VERSION, engine: receipt.engine, id: receipt.id, startedAt: receipt.startedAt, finishedAt: receipt.finishedAt,
     status: 'passed', snapshotComparison: 'match', selectedChecks: context.selectedIds, cacheable: context.available === true,
-    review: normalizedReview(receipt.review, context.selectedIds, context.changedPaths),
+    review,
+    // The acceptance is what makes a completion acceptable, so the record has to
+    // carry it: without it a caller could cite a real verification and then
+    // replace the acceptance that verification produced.
+    acceptance: acceptanceProjection(receipt.acceptance, context.selectedIds),
+    checks: commandEvidence(checks),
     ...context.fingerprints,
+    fingerprint,
+    writeFingerprint,
   };
+  summary.mac = authenticate(summary, key);
   const temporary = path.join(directory, `${context.key}.${randomUUID()}.tmp`);
   await writeFile(temporary, `${JSON.stringify(summary)}\n`, { flag: 'wx', mode: 0o600 });
   await rename(temporary, path.join(directory, `${context.key}.json`));
@@ -229,10 +384,14 @@ export async function attestCompletionProvenance(projectDir, receipt) {
     try {
       if ((await lstat(file)).isSymbolicLink()) continue;
       if ((await stat(file)).size > 1024 * 1024) continue;
-      record = JSON.parse(await readFile(file, 'utf8'));
+      // A record this tool did not write is not provenance, whoever wrote it:
+      // the store lives in the project, so only the authentication kept outside
+      // it separates a real run from a handcrafted file.
+      record = (await readRecord(file)).record;
     } catch {
       continue;
     }
+    if (record === null) continue;
     if (record?.id !== id) continue;
     const problems = [];
     if (record.schemaVersion !== VERIFICATION_RECEIPT_SCHEMA_VERSION) problems.push('record-schema');
@@ -240,6 +399,25 @@ export async function attestCompletionProvenance(projectDir, receipt) {
     if (record.fingerprint !== verification.fingerprint) problems.push('content-fingerprint');
     if (record.writeFingerprint !== verification.writeFingerprint) problems.push('write-fingerprint');
     if (cited !== null && JSON.stringify(record.selectedChecks) !== JSON.stringify(cited)) problems.push('selected-checks');
+    // The review and the acceptance are what make a completion *acceptable*, so
+    // they are compared with the normalization the record was written under: a
+    // receipt may cite a real verification id and fingerprints, but it cannot
+    // replace the relevance review or the acceptance that run produced.
+    const recordedReview = record.review ?? null;
+    const claimedReview = normalizedReview(verification.review, record.selectedChecks ?? [],
+      recordedReview?.changedPaths ?? []);
+    if (!sameProjection(reviewProjection(claimedReview), reviewProjection(recordedReview))) problems.push('review-evidence');
+    if (!sameProjection(acceptanceProjection(verification.acceptance, record.selectedChecks ?? []), record.acceptance ?? null)) {
+      problems.push('acceptance-evidence');
+    }
+    // The command each acceptance entry names is its own evidence, so it has to
+    // be the command this run reported for that check: citing a recorded check id
+    // with a stronger command that never ran is otherwise invisible here.
+    const recordedCommands = record.checks !== null && typeof record.checks === 'object' ? record.checks : null;
+    const unbound = recordedCommands === null ? [] : (Array.isArray(receipt?.acceptance) ? receipt.acceptance : [])
+      .filter((item) => typeof item?.command === 'string' && item.command !== '' && recordedCommands[item.id] !== item.command)
+      .map((item) => item.id);
+    if (unbound.length > 0) problems.push(`acceptance-command:${unbound.join('|')}`);
     return problems.length === 0
       ? { ok: true, reason: 'recorded-verification-matched', record: name }
       : { ok: false, reason: `recorded-verification-mismatch:${problems.join(',')}`, record: name };
@@ -256,11 +434,14 @@ export async function attestCompletionProvenance(projectDir, receipt) {
  * carrying the finalized fingerprints. It is never marked reusable: the
  * evidence it holds was produced by a run in a different directory.
  */
-export async function recordFinalVerification(projectDir, verification) {
+export async function recordFinalVerification(projectDir, verification, { checks = null } = {}) {
   const id = typeof verification?.id === 'string' ? verification.id.trim() : '';
   if (!id) return false;
   const directory = await receiptDirectory(projectDir, true);
   if (!directory) return false;
+  const key = await authenticationKey();
+  if (key === null) return false;
+  const selectedChecks = Array.isArray(verification.acceptance?.selectedCheckIds) ? verification.acceptance.selectedCheckIds : [];
   const record = {
     schemaVersion: VERIFICATION_RECEIPT_SCHEMA_VERSION,
     cacheable: false,
@@ -268,11 +449,19 @@ export async function recordFinalVerification(projectDir, verification) {
     id,
     status: 'passed',
     snapshotComparison: 'match',
-    selectedChecks: Array.isArray(verification.acceptance?.selectedCheckIds) ? verification.acceptance.selectedCheckIds : [],
+    selectedChecks,
+    // A finalized record is provenance for a receipt that was produced elsewhere,
+    // so it has to bind the same review and acceptance evidence that receipt
+    // cites — otherwise the record would attest the fingerprints alone and the
+    // acceptance could be replaced afterwards.
+    review: normalizedReview(verification.review, selectedChecks, []),
+    acceptance: acceptanceProjection(verification.acceptance, selectedChecks),
+    checks: commandEvidence(checks),
     fingerprint: verification.fingerprint ?? null,
     writeFingerprint: verification.writeFingerprint ?? null,
     finalizedAt: verification.finalizedAt ?? null,
   };
+  record.mac = authenticate(record, key);
   const name = `${digest([record.id, record.fingerprint, record.writeFingerprint])}.json`;
   const temporary = path.join(directory, `${name}.${randomUUID()}.tmp`);
   try {
