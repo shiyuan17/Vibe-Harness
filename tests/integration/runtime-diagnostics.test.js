@@ -345,6 +345,31 @@ test('Hook 自检拒绝缺失、漂移或未接线的已安装 handler', async (
   }
 });
 
+test('Hook 自检不把嵌套在别的仓库里的项目当作已接线', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'vibe-harness-hook-nested-'));
+  const target = path.join(root, 'project');
+  try {
+    await execFileAsync('git', ['init'], { cwd: root });
+    const adapters = JSON.parse(await readFile(path.resolve('manifests/adapters.json'), 'utf8'));
+    const adapter = adapters.items.find((item) => item.id === 'codex');
+    await mkdir(path.join(target, '.codex'), { recursive: true });
+    await mkdir(path.join(target, '.agents', 'runtime', 'hooks'), { recursive: true });
+    await cp(path.resolve('runtime/hooks'), path.join(target, '.agents', 'runtime', 'hooks'), { recursive: true });
+    const bootstrap = await readFile(path.resolve('scripts/lib/hook-bootstrap.cjs'), 'utf8');
+    await writeFile(path.join(target, '.codex', 'hooks.json'), JSON.stringify(codexHookConfig(
+      (event) => `node -e "${bootstrap.replace(/\r?\n$/u, '')}" -- --expected-event ${event}`,
+    ), null, 2) + '\n', 'utf8');
+    // The bootstrap walks up to the first `.git`, so a target nested inside an
+    // outer repository would run that repository's handler while this check only
+    // ever hashed the one under the target.
+    const report = await inspectRuntimeHookSelfCheck(adapter, target, { configured: true });
+    assert.equal(report.status, 'degraded', JSON.stringify(report));
+    assert.equal(report.code, 'HOOK_SELF_CHECK_CONFIG_UNWIRED');
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
+});
+
 test('Hook 自检按规范事件名与模板 host 参数判定接线', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-hook-cursor-'));
   try {

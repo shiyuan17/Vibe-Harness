@@ -17,6 +17,24 @@ const configFileName = 'playwright-cli.config.json';
 const lockDirName = 'playwright-cli.lock';
 const cliRelativePath = 'node_modules/@playwright/cli/playwright-cli.js';
 const browsersRelativeDir = 'node_modules/playwright-core/.local-browsers';
+// The canonical directories that own this module. Node resolves the entry
+// symlink before loading it, so `import.meta.url` already names the checkout the
+// running code really lives in. A worktree reaches this file through its own
+// `.agents` junction, which is why the junction is validated by comparing what
+// it resolves to against *this* directory rather than by the linked
+// directory's name: a checkout that merely calls a directory `.agents` would
+// otherwise be accepted and could supply the lockfile installed and the CLI
+// executed here.
+const moduleFilePath = await realpath(fileURLToPath(import.meta.url))
+  .catch(() => fileURLToPath(import.meta.url));
+const canonicalToolDir = path.dirname(moduleFilePath);
+// Only a module that really lives inside an installed `.agents` tree has one
+// owning `.agents` root; in the source layout (this module under `runtime/`) the
+// answer is "none", and a `.agents` junction then has no legitimate meaning and
+// is rejected rather than accepted.
+const moduleAgentsCandidate = path.resolve(canonicalToolDir, '..', '..', '..');
+const canonicalAgentsDir = path.basename(moduleAgentsCandidate) === '.agents' ? moduleAgentsCandidate : null;
+const normalizePath = (value) => (process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value));
 const baseEnvironmentNames = new Set([
   'APPDATA', 'COMSPEC', 'HOME', 'LANG', 'LC_ALL', 'LC_CTYPE', 'LOCALAPPDATA', 'PATH', 'Path',
   'PATHEXT', 'PROGRAMDATA', 'ProgramData', 'SHELL', 'SystemRoot', 'TEMP', 'TMP', 'TMPDIR',
@@ -77,7 +95,7 @@ async function assertRuntimePathsSafe(paths) {
   // worktree's own junction keeps working. Project-local state stays under the
   // artifacts and state directories above.
   assertInside(paths.targetDir, paths.toolDir, 'Playwright tool directory');
-  const normalize = (value) => (process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value));
+  const normalize = normalizePath;
   const resolvedTool = path.resolve(paths.toolDir);
   const declared = path.join(path.resolve(paths.targetDir), ...PLAYWRIGHT_TOOL_RELATIVE_DIR.split('/'));
   // Identity first, reachability second: the tool directory has to *be* the
@@ -119,9 +137,13 @@ async function assertRuntimePathsSafe(paths) {
     }
     if (index > 0) throw new Error('Playwright tool directory must not traverse a symbolic link, junction, or reparse point.');
     const linked = await realpath(current).catch(() => null);
-    if (linked === null || path.basename(linked) !== segment
-      || !(await stat(path.join(path.dirname(linked), '.git')).then(() => true).catch(() => false))) {
-      throw new Error('The .agents mirror must point at a checkout of this project.');
+    // The mirror is only a mirror of *this* checkout when it resolves to the
+    // canonical `.agents` directory that owns the running module. A redirect to
+    // a different checkout — one whose directory merely happens to be named
+    // `.agents` and which has a `.git` next to it — would otherwise decide which
+    // lockfile is installed and which CLI is executed.
+    if (linked === null || normalize(linked) !== normalize(canonicalAgentsDir)) {
+      throw new Error('The .agents mirror must point at this project\'s canonical .agents directory.');
     }
     current = linked;
   }
@@ -378,8 +400,7 @@ const invocation = process.argv[1] ? path.resolve(process.argv[1]) : null;
 const invokedPath = invocation
   ? await realpath(invocation).catch(() => invocation)
   : null;
-const modulePath = await realpath(fileURLToPath(import.meta.url))
-  .catch(() => fileURLToPath(import.meta.url));
+const modulePath = moduleFilePath;
 
 /**
  * The project a lexically-invoked entry belongs to.
@@ -407,12 +428,32 @@ export function projectDirFromInvocation(invocationPath) {
 
 if (invokedPath !== null && invokedPath === modulePath) {
   const projectDir = invocation ? projectDirFromInvocation(invocation) : null;
-  try {
-    await runPlaywrightCli(process.argv.slice(2), projectDir
-      ? { targetDir: projectDir, toolDir: path.join(projectDir, PLAYWRIGHT_TOOL_RELATIVE_DIR) }
-      : {});
-  } catch (error) {
-    console.error(JSON.stringify({ error: { code: error.code ?? 'PLAYWRIGHT_CLI_ERROR', message: error.message }, ok: false }));
+  // The lexical project is only usable while its declared tool directory really
+  // resolves to the directory that holds this module. Without that, a checkout
+  // whose `.agents` tree is an ordinary directory — or whose `run.mjs` alone is
+  // a symlink back here — would pass its own lockfile to `npm ci` and have its
+  // own `node_modules/@playwright/cli` executed.
+  const lexicalToolDir = projectDir === null
+    ? null
+    : await realpath(path.join(projectDir, ...PLAYWRIGHT_TOOL_RELATIVE_DIR.split('/'))).catch(() => null);
+  if (projectDir !== null
+    && (lexicalToolDir === null || normalizePath(lexicalToolDir) !== normalizePath(canonicalToolDir))) {
+    console.error(JSON.stringify({
+      error: {
+        code: 'PLAYWRIGHT_CLI_ERROR',
+        message: 'The invoked tool directory does not resolve to this project\'s canonical .agents tool path.',
+      },
+      ok: false,
+    }));
     process.exitCode = 1;
+  } else {
+    try {
+      await runPlaywrightCli(process.argv.slice(2), projectDir
+        ? { targetDir: projectDir, toolDir: path.join(projectDir, PLAYWRIGHT_TOOL_RELATIVE_DIR) }
+        : {});
+    } catch (error) {
+      console.error(JSON.stringify({ error: { code: error.code ?? 'PLAYWRIGHT_CLI_ERROR', message: error.message }, ok: false }));
+      process.exitCode = 1;
+    }
   }
 }

@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { promisify } from 'node:util';
 import path from 'node:path';
 import { readdir, readFile } from 'node:fs/promises';
@@ -392,6 +393,8 @@ function exactHookEvent(value) {
 function managedCommandEvent(command, adapter, { targetDir, requireHost = false } = {}) {
   if (typeof command !== 'string' || command.trim() === '') return null;
   const trimmed = command.trim();
+  const resolvedTarget = path.resolve(targetDir ?? process.cwd());
+  const samePath = (value) => (process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value));
   // The inline bootstrap is matched as an exact prefix, never as a substring.
   if (trimmed.startsWith(hookBootstrapPrefix)) {
     const remainder = trimmed.slice(hookBootstrapPrefix.length);
@@ -399,7 +402,18 @@ function managedCommandEvent(command, adapter, { targetDir, requireHost = false 
     // parses here as a valid option while the shell hands Node a longer token it
     // never accepts. The prefix only counts as a whole token when whitespace
     // separates it from the rest of the command line.
-    return /^\s/u.test(remainder) ? managedInvocationEvent(remainder, adapter, { requireHost }) : null;
+    if (!/^\s/u.test(remainder)) return null;
+    // The bootstrap does not run a handler *under* the target: it walks upward
+    // to the first directory holding a `.git` entry and runs *that* root's
+    // handler. The hashes above therefore only describe what the host executes
+    // when the target is itself that root; a project nested inside an outer
+    // repository would otherwise be reported as guarded while the outer
+    // handler — which this check never looked at — is what decides. A target
+    // with no repository at all is left to the bootstrap, which denies every
+    // tool call rather than resolving someone else's handler.
+    const root = effectiveGitRoot(resolvedTarget);
+    if (root !== null && samePath(root) !== samePath(resolvedTarget)) return null;
+    return managedInvocationEvent(remainder, adapter, { requireHost });
   }
   const tokens = tokenizeCommand(trimmed);
   if (tokens.length < 3) return null;
@@ -409,11 +423,30 @@ function managedCommandEvent(command, adapter, { targetDir, requireHost = false 
   // would execute instead of the hashed installed surface.
   const entry = tokens[1] ?? '';
   if (entry === '' || entry.startsWith('-')) return null;
-  const resolvedTarget = path.resolve(targetDir ?? process.cwd());
   const managedEntry = path.join(resolvedTarget, ...runtimeHookEntryPath.split('/'));
-  const samePath = (value) => (process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value));
   if (samePath(path.resolve(resolvedTarget, entry)) !== samePath(managedEntry)) return null;
   return managedInvocationEvent(tokens.slice(2), adapter, { requireHost });
+}
+
+/**
+ * The repository root the inline bootstrap resolves for one directory, or null.
+ *
+ * This mirrors the bootstrap's own resolution (`scripts/lib/hook-bootstrap.cjs`)
+ * rather than `git rev-parse`: the bootstrap looks for a `.git` entry while
+ * walking upward, so a worktree's `.git` file and a submodule's `.git` file both
+ * count, exactly as they do there.
+ *
+ * @param {string} startDir
+ * @returns {string|null}
+ */
+function effectiveGitRoot(startDir) {
+  let current = path.resolve(startDir);
+  for (;;) {
+    if (existsSync(path.join(current, '.git'))) return current;
+    const parent = path.dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
 }
 
 /** Splits a command line into tokens, honouring simple quoting. */
