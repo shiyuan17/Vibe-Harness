@@ -192,12 +192,27 @@ test('verify-focused --run 默认只执行快速层并把更深检查标为 defe
     await writeFile(path.join(dir, 'package.json'), JSON.stringify({ ...packageJson, version: '0.0.1' }));
 
     const scriptPath = path.resolve(import.meta.dirname, '../../scripts/verify-focused.js');
-    const fast = JSON.parse((await execFileAsync(process.execPath, [scriptPath, '--run', '--json'], {
-      cwd: dir,
-      maxBuffer: 1024 * 1024 * 8,
-    })).stdout);
+    // A `--run` whose plan leaves layers deferred exits non-zero on purpose, so
+    // the report is read from the failed invocation's stdout as well.
+    const runFocused = async (extraArgs = []) => {
+      try {
+        const result = await execFileAsync(process.execPath, [scriptPath, '--run', '--json', ...extraArgs], {
+          cwd: dir,
+          maxBuffer: 1024 * 1024 * 8,
+        });
+        return JSON.parse(result.stdout);
+      } catch (error) {
+        return JSON.parse(String(error.stdout ?? '{}'));
+      }
+    };
+    const fast = await runFocused();
 
-    assert.equal(fast.ok, true);
+    // Every command that ran passed, but the run left layers deferred, so its
+    // receipt is blocked and the verdict is not `ok`: an exit status of 0 here
+    // would read as "this change is fully verified" while it is not.
+    assert.equal(fast.verification.acceptance.status, 'blocked');
+    assert.equal(fast.verification.acceptance.reasonCode, 'DEFERRED_CHECKS');
+    assert.equal(fast.ok, false);
     assert.equal(fast.verification.executionTier, 'quick');
     assert.equal(fast.verification.scopeStatus, 'partial');
     assert.equal(fast.verification.nextTier, 'standard');
@@ -215,7 +230,7 @@ test('verify-focused --run 默认只执行快速层并把更深检查标为 defe
     assert.match(fast.results[0].stdout, /unit-ran/u);
     for (const tier of ['quick', 'standard']) {
       const preview = JSON.parse((await execFileAsync(process.execPath, [scriptPath, '--json', '--tier', tier], { cwd: dir })).stdout);
-      const executed = JSON.parse((await execFileAsync(process.execPath, [scriptPath, '--run', '--json', '--tier', tier], { cwd: dir })).stdout);
+      const executed = await runFocused(['--tier', tier]);
       assert.deepEqual(executed.verification.selectedChecks, preview.selectedChecks);
       assert.deepEqual(executed.verification.deferredChecks, preview.deferredChecks);
       assert.deepEqual(executed.verification.skippedChecks, preview.skippedChecks);
@@ -225,10 +240,7 @@ test('verify-focused --run 默认只执行快速层并把更深检查标为 defe
       assert.equal(preview.selectedChecks.some((check) => check.command === 'pnpm test:component'), tier === 'standard');
     }
 
-    const deep = JSON.parse((await execFileAsync(process.execPath, [scriptPath, '--run', '--json', '--tier', 'deep'], {
-      cwd: dir,
-      maxBuffer: 1024 * 1024 * 8,
-    })).stdout);
+    const deep = await runFocused(['--tier', 'deep']);
 
     assert.equal(deep.ok, true);
     assert.equal(deep.verification.executionTier, 'deep');

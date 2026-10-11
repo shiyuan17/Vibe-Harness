@@ -353,10 +353,15 @@ export async function buildVerificationPlan({
     configuredCommands: config.validationCommands,
   });
   const effective = resolveValidationTiers({ configuredTiers: config.validationCommands?.tiers, derived });
-  const costTiers = tiers ?? effective.tiers;
+  // One table answers every tier question: the caller's table when given, the
+  // derived/configured one otherwise. Using the raw argument for resolution
+  // while the fallback only reached the cost lookup would let `--tier deep` on a
+  // project without an explicit tier table resolve against nothing and silently
+  // omit the requested layer.
+  const effectiveTiers = tiers ?? effective.tiers;
   tierSource ??= effective.tierSource;
   const tierForCommand = (command) => command
-    ? Object.entries(costTiers).find(([, commands]) => commands.some(
+    ? Object.entries(effectiveTiers).find(([, commands]) => commands.some(
       (candidate) => verificationCommandIdentity(candidate) === verificationCommandIdentity(command),
     ))?.[0]
     : undefined;
@@ -521,7 +526,7 @@ export async function buildVerificationPlan({
   // paid for when the caller asks for them.
   // `--full` is itself an explicit request for every declared layer, so it
   // never falls back to a cheaper layer.
-  const resolved = tier ? resolveExecutionTier({ explicit: tierExplicit || full, tier, tiers }) : null;
+  const resolved = tier ? resolveExecutionTier({ explicit: tierExplicit || full, tier, tiers: effectiveTiers }) : null;
   // An explicit `--tier` is honored exactly, including a layer the project
   // declares as empty: the caller asked for that layer, so the run reports the
   // gap instead of silently falling back to the legacy slot commands. An
@@ -534,7 +539,7 @@ export async function buildVerificationPlan({
   const tierSelection = resolved?.tier ? selectTierChecks({
     commandStatus,
     tier: resolved.tier,
-    tiers,
+    tiers: effectiveTiers,
     metadata: config.validationCommands?.checks ?? [],
     projectDir: targetDir,
     only,
@@ -603,7 +608,7 @@ export async function buildVerificationPlan({
     ...risk,
     deferredChecks,
     executionTier: resolved?.tier ?? null,
-    nextTier: resolved?.tier ? nextNonEmptyTier(resolved.tier, tiers) : null,
+    nextTier: resolved?.tier ? nextNonEmptyTier(resolved.tier, effectiveTiers) : null,
     planMode: full ? 'full' : (resolved?.tier ? 'tier:' + resolved.tier : 'auto'),
     riskSelectedChecks: riskChecks.map((item) => ({ id: item.id, command: item.command })),
     selectedChecks: selectedWithMetadata,
@@ -614,7 +619,7 @@ export async function buildVerificationPlan({
     escalation: {
       required: escalationRequired,
       reason: escalationRequired ? (scopeConfidence !== 'complete' ? `impact mapping is ${scopeConfidence}` : 'deferred evidence remains') : null,
-      nextTier: resolved?.tier ? nextNonEmptyTier(resolved.tier, tiers) : (minimumTier === 'micro' ? 'unit' : 'integration'),
+      nextTier: resolved?.tier ? nextNonEmptyTier(resolved.tier, effectiveTiers) : (minimumTier === 'micro' ? 'unit' : 'integration'),
     },
     skippedChecks: known.filter((id) => !selectedIds.has(id)).map((id) => ({ id, status: 'not_selected' })),
     selectionReasons: [...new Set(reasons)],

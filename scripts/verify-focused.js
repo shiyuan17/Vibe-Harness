@@ -275,6 +275,10 @@ async function main() {
         status: 'blocked',
         reasonCode: 'DEFERRED_CHECKS',
       };
+      // A receipt blocked for deferred layers cannot be the completion evidence,
+      // so the exit status reports the same verdict as the receipt instead of
+      // letting a caller read `ok` as "this run completed the change".
+      report.ok = false;
     }
     if (json) console.log(JSON.stringify(report, null, 2));
     if (!report.ok) process.exitCode = 1;
@@ -299,10 +303,15 @@ async function main() {
 
   if (!run) return;
 
-  for (const item of commands) {
+  for (const [index, item] of commands.entries()) {
     console.log(`\n$ ${item.command}`);
     try {
-      const result = report.results.find((entry) => entry.command === item.command);
+      // The runner records one result per command in the order it was given, so
+      // the same position is this command's own result. A lookup by command
+      // alone would hand a repeated command in another working directory the
+      // other check's output and status.
+      const result = report.results[index];
+      if (!result) throw new Error(`No result was recorded for: ${item.command}`);
       if (result.stdout) process.stdout.write(result.stdout + (result.stdout.endsWith('\n') ? '' : '\n'));
       if (result.stderr) process.stderr.write(result.stderr + (result.stderr.endsWith('\n') ? '' : '\n'));
       if (result.status !== 'passed') throw result;
