@@ -7,6 +7,7 @@ import test from 'node:test';
 import { productIdentity, readProductEnv } from '../../scripts/lib/product-identity.js';
 import { assertNoUnsupportedLegacyAssets, resolveProjectConfigLocation, resolveProjectStateLocation } from '../../scripts/lib/project-layout.js';
 import { writeDefaultProjectConfig } from '../../scripts/lib/project-config.js';
+import { installPresetForId } from '../../scripts/lib/install-preset.js';
 import { stateFilePath, writeInstallState } from '../../scripts/lib/install-state.js';
 import { renderManagedInstructionBlock } from '../../scripts/lib/template-renderer.js';
 import { mergeManagedMcpBlock } from '../../scripts/lib/tool-provisioning.js';
@@ -62,6 +63,29 @@ test('fresh configuration and state use Vibe-Harness paths only', async () => {
     assert.equal(stateFilePath(target), path.join(target, '.vibe-harness', 'install-state.json'));
     const state = JSON.parse(await readFile(stateFilePath(target), 'utf8'));
     assert.equal(state.storageNamespace, 'vibe-harness');
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('多目标安装的默认镜像覆盖每个目标与 preset 插件面', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-mirror-targets-'));
+  try {
+    const written = await writeDefaultProjectConfig({
+      preset: 'everything',
+      profile: installPresetForId('everything').profile,
+      projectDir: target,
+      target: 'codex',
+      targets: ['codex', 'zcode', 'opencode'],
+    });
+    const config = JSON.parse(await readFile(written.path, 'utf8'));
+    assert.deepEqual(config.targets, ['codex', 'zcode', 'opencode']);
+    // The install surface is the whole target list plus the preset's plugins:
+    // deriving it from the first target would leave a multi-host project unable
+    // to reach its own adapter and plugin files inside a worktree.
+    for (const mirror of ['.agents', '.codex', '.opencode', 'opencode.json', '.zcode', '.codegraph', '.serena/project.yml']) {
+      assert.ok(config.worktree.mirrors.includes(mirror), `${mirror} missing from ${JSON.stringify(config.worktree.mirrors)}`);
+    }
   } finally {
     await rm(target, { force: true, recursive: true });
   }

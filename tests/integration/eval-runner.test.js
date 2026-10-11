@@ -1475,3 +1475,30 @@ test('host compaction case without an injected Execution Envelope is rejected by
     ]);
   }
 });
+
+test('tool-routing suite 的 replay 事件都能被 marker 解析', async () => {
+  const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-tool-routing.json'));
+  const markers = new Set();
+  for (const item of suite.cases ?? []) {
+    for (const event of item.input?.replay?.events ?? []) markers.add(event);
+    for (const event of item.oracle?.requiredEvents ?? []) markers.add(event.value);
+  }
+  assert.ok(markers.size > 0, 'the suite declares replay markers');
+
+  // A marker the suite requires but the runner cannot parse is evidence that
+  // can never reach scoring, so every declared event is replayed through the
+  // same parser the eval run uses.
+  const stdout = [...markers].map((marker) => JSON.stringify({
+    type: 'item.completed',
+    item: { type: 'agent_message', text: `[VIBE_HARNESS_EVENT:${marker}]` },
+  })).join('\n');
+  const kinds = new Set(transcript(stdout).workflowEvents.map((event) => event.kind));
+  assert.deepEqual([...markers].filter((marker) => !kinds.has(marker)), []);
+  // Negative control: an unknown marker proves the assertion above is not
+  // satisfied by the parser accepting anything it is handed.
+  const unknown = transcript(JSON.stringify({
+    type: 'item.completed',
+    item: { type: 'agent_message', text: '[VIBE_HARNESS_EVENT:not-a-declared-marker]' },
+  }));
+  assert.equal(unknown.workflowEvents.some((event) => event.kind === 'not-a-declared-marker'), false);
+});

@@ -26,6 +26,7 @@ import {
 } from '../../runtime/tools/rtk/run.mjs';
 import { buildRtkRuntimeEnvironment, prepareRtkRuntimeEnvironment } from '../../runtime/lib/rtk-environment.mjs';
 import { normalizeAstGrepArgs } from '../../runtime/tools/ast-grep/args.mjs';
+import { projectDirFromInvocation } from '../../runtime/tools/playwright-cli/run.mjs';
 import { componentEnvironment, phaseRequest, resolveAstGrepPlatformPackage } from '../../scripts/lib/tool-provisioning/environment.js';
 import { publicFailure } from '../../scripts/lib/tool-provisioning/runtime-probe.js';
 import { writeToolState } from '../../scripts/lib/tool-provisioning/tool-state.js';
@@ -1067,4 +1068,16 @@ test('failed optional-tool provisioning degrades health and allow-degraded prese
   } finally {
     await rm(target, { force: true, recursive: true });
   }
+});
+
+test('playwright-cli 从词法调用路径推导所属项目', () => {
+  // A worktree reaches the tool through its `.agents` junction, so
+  // `import.meta.url` resolves into the shared primary checkout. The lexical
+  // invocation path is the only one that names the project that ran it.
+  const projectDir = path.resolve('fixture-project');
+  const invocation = path.join(projectDir, '.agents', 'runtime', 'tools', 'playwright-cli', 'run.mjs');
+  assert.equal(projectDirFromInvocation(invocation), projectDir);
+  // A path that is not the declared tool entry names no project.
+  assert.equal(projectDirFromInvocation(path.join(projectDir, 'scripts', 'run.mjs')), null);
+  assert.equal(projectDirFromInvocation(path.join(projectDir, '.agents', 'runtime', 'tools', 'playwright-cli')), null);
 });

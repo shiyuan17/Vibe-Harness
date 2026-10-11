@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 import { removeTemporaryDirectory } from '../../scripts/lib/temp-cleanup.js';
 import { runCommand } from '../../runtime/commands/run.mjs';
+import { expandMirrors, linkOrCopyMirrors, removeMirrorLinks } from '../../runtime/lib/worktree-mirrors.mjs';
 
 // `run.mjs worktree` is the installed entry point for worktree provisioning and
 // cleanup under docs/rules/git-rules.md §Worktree: read-only by default,
@@ -963,6 +964,41 @@ test('worktree land 默认 dry-run:输出按序步骤计划且不落盘', async 
   }
 });
 
+test('land 预检：收据要求显式审阅并把层升到无 deferred 的声明层', async () => {
+  const fixture = await makeLandFixture({
+    validationCommands: { tiers: { quick: ['node --version'], standard: ['node --version --no-warnings'] } },
+  });
+  try {
+    await bootstrapWithWork(fixture);
+    const base = ['worktree', 'land', '--project', fixture.repo, '--delivery', 'local-land', '--task', 'ENG-1', '--json'];
+    // A completion receipt needs a relevance review the planner can never
+    // attest on its own, so the preflight refuses this landing.
+    const missingReview = await runCommand(base, { cwd: fixture.repo });
+    assert.equal(missingReview.report.status, 'blocked', JSON.stringify(missingReview.report));
+    const blockers = missingReview.report.blockers ?? missingReview.report.results?.[0]?.blockers ?? [];
+    assert.ok(
+      blockers.some((line) => /explicit relevance review/u.test(line)),
+      JSON.stringify(missingReview.report),
+    );
+    // An explicitly named layer that still leaves declared checks deferred can
+    // never produce an acceptable receipt, so it is a preflight blocker.
+    const explicit = await runCommand([...base, '--tier', 'quick', '--reviewed', 'all'], { cwd: fixture.repo });
+    assert.equal(explicit.report.status, 'blocked');
+    assert.ok(
+      (explicit.report.blockers ?? explicit.report.results?.[0]?.blockers ?? []).some((line) => /deferred check/u.test(line)),
+      JSON.stringify(explicit.report),
+    );
+    // Unnamed: the landing escalates to the cheapest layer with no deferred
+    // evidence and records the escalation.
+    const escalated = await runCommand([...base, '--reviewed', 'all'], { cwd: fixture.repo });
+    assert.equal(escalated.report.status, 'planned', JSON.stringify(escalated.report));
+    assert.equal(escalated.report.tier, 'standard');
+    assert.deepEqual(escalated.report.tierEscalation, { from: 'quick', to: 'standard' });
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
 test('worktree land --push 无 --write 直接拒绝', async () => {
   const fixture = await makeLandFixture();
   try {
@@ -1157,6 +1193,50 @@ test('验证门禁失败时中止:主检出不改变并保留任务分支', asyn
     assert.equal(await git(fixture.repo, ['branch', '--list', 'feat/ENG-1-scaffold', '--format=%(refname:short)']), 'feat/ENG-1-scaffold');
   } finally {
     await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('镜像展开与拆除按两侧计算并拒绝链接祖先', async () => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), 'vibe-harness-mirrors-')));
+  const main = path.join(root, 'main');
+  const worktree = path.join(root, 'worktree');
+  try {
+    await mkdir(path.join(main, 'tools/alpha'), { recursive: true });
+    await mkdir(path.join(main, 'tools/beta'), { recursive: true });
+    await mkdir(path.join(main, 'notes'), { recursive: true });
+    await writeFile(path.join(main, 'notes/readme.md'), 'notes\n', 'utf8');
+    await mkdir(worktree, { recursive: true });
+
+    // A wildcard expands against the main checkout: the declarations alone.
+    assert.deepEqual(expandMirrors(main, ['tools/*']), ['tools/alpha', 'tools/beta']);
+
+    // Inside the worktree those leaves are links, so `Dirent.isDirectory()` is
+    // false for them: the worktree side is only visible when links are followed.
+    await linkOrCopyMirrors(main, worktree, ['tools/*']);
+    assert.deepEqual(expandMirrors(worktree, ['tools/*']), []);
+    assert.deepEqual(expandMirrors(worktree, ['tools/*'], { followDirectoryLinks: true }), ['tools/alpha', 'tools/beta']);
+
+    // A nested declaration whose parent is already a link would be written
+    // through the link into the main checkout, so it is reported instead.
+    const nested = await linkOrCopyMirrors(main, worktree, ['notes', 'notes/readme.md']);
+    const nestedByMirror = new Map(nested.map((item) => [item.mirror, item]));
+    assert.equal(nestedByMirror.get('notes').status, 'linked');
+    // A nested declaration already visible through the parent link is never
+    // re-projected: writing it would go through the link into the main checkout.
+    assert.equal(nestedByMirror.get('notes/readme.md').status, 'present');
+    assert.equal(await readFile(path.join(main, 'notes/readme.md'), 'utf8'), 'notes\n');
+
+    // The main checkout loses a wildcard leaf after bootstrap; the link inside
+    // the worktree is only discoverable by expanding the worktree side, and it
+    // still has to come down without the main checkout being touched.
+    await rm(path.join(main, 'tools/beta'), { recursive: true, force: true });
+    const removed = removeMirrorLinks(main, worktree, ['tools/*']);
+    assert.deepEqual([...removed].sort(), ['tools/alpha', 'tools/beta']);
+    assert.equal(existsSync(path.join(worktree, 'tools/alpha')), false);
+    assert.equal(existsSync(path.join(worktree, 'tools/beta')), false);
+    assert.equal(existsSync(path.join(main, 'tools/alpha')), true);
+  } finally {
+    await removeTemporaryDirectory(root);
   }
 });
 

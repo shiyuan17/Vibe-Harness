@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
 
-import { FRESH_CONTEXT_MODES, hookDefinitionDrift, inspectFreshContext, inspectMemory, inspectRuntimeHooks, runtimeHookWarnings } from '../../scripts/lib/runtime-diagnostics.js';
+import { FRESH_CONTEXT_MODES, hookDefinitionDrift, inspectFreshContext, inspectMemory, inspectRuntimeHookSelfCheck, inspectRuntimeHooks, runtimeHookWarnings } from '../../scripts/lib/runtime-diagnostics.js';
 import { readHostHookState } from '../../scripts/lib/host-hook-state.js';
 
 const execFileAsync = promisify(execFile);
@@ -119,8 +119,14 @@ test('runtime Hook enforcement requires independent host evidence', async () => 
   try {
     const adapters = JSON.parse(await readFile(path.resolve('manifests/adapters.json'), 'utf8'));
     const adapter = adapters.items.find((item) => item.id === 'codex');
+    // Enforcement is only provable for an installed handler that matches the
+    // pack and is referenced by the host configuration.
     await mkdir(path.join(target, '.codex'), { recursive: true });
-    await writeFile(path.join(target, '.codex', 'hooks.json'), '{}\n', 'utf8');
+    await mkdir(path.join(target, '.agents', 'runtime', 'hooks'), { recursive: true });
+    await copyFile(path.resolve('runtime/hooks/codex-hook.mjs'), path.join(target, '.agents/runtime/hooks/codex-hook.mjs'));
+    await writeFile(path.join(target, '.codex', 'hooks.json'), JSON.stringify({
+      hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: 'node .agents/runtime/hooks/codex-hook.mjs --host codex --expected-event PreToolUse' }] }] },
+    }, null, 2) + '\n', 'utf8');
 
     const unverified = await inspectRuntimeHooks(adapter, target);
     assert.equal(unverified.enforced, false);
@@ -142,6 +148,44 @@ test('runtime Hook enforcement requires independent host evidence', async () => 
     assert.equal(enforced.status, 'enforced');
     assert.equal(enforced.activation.status, 'verified');
     assert.deepEqual(runtimeHookWarnings(enforced), []);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('Hook 自检拒绝缺失、漂移或未接线的已安装 handler', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-hook-wiring-'));
+  try {
+    const adapters = JSON.parse(await readFile(path.resolve('manifests/adapters.json'), 'utf8'));
+    const adapter = adapters.items.find((item) => item.id === 'codex');
+    await mkdir(path.join(target, '.codex'), { recursive: true });
+    await mkdir(path.join(target, '.agents', 'runtime', 'hooks'), { recursive: true });
+    const handler = path.join(target, '.agents/runtime/hooks/codex-hook.mjs');
+    const wired = JSON.stringify({
+      hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: 'node .agents/runtime/hooks/codex-hook.mjs --host codex --expected-event PreToolUse' }] }] },
+    }, null, 2) + '\n';
+
+    await writeFile(path.join(target, '.codex', 'hooks.json'), wired, 'utf8');
+    assert.deepEqual(
+      await inspectRuntimeHookSelfCheck(adapter, target, { configured: true }),
+      { status: 'degraded', code: 'HOOK_SELF_CHECK_HANDLER_MISSING' },
+    );
+
+    await writeFile(handler, '// tampered handler\n', 'utf8');
+    assert.deepEqual(
+      await inspectRuntimeHookSelfCheck(adapter, target, { configured: true }),
+      { status: 'degraded', code: 'HOOK_SELF_CHECK_HANDLER_DRIFT' },
+    );
+
+    await copyFile(path.resolve('runtime/hooks/codex-hook.mjs'), handler);
+    await writeFile(path.join(target, '.codex', 'hooks.json'), '{}\n', 'utf8');
+    assert.deepEqual(
+      await inspectRuntimeHookSelfCheck(adapter, target, { configured: true }),
+      { status: 'degraded', code: 'HOOK_SELF_CHECK_CONFIG_UNWIRED' },
+    );
+
+    await writeFile(path.join(target, '.codex', 'hooks.json'), wired, 'utf8');
+    assert.equal((await inspectRuntimeHookSelfCheck(adapter, target, { configured: true })).status, 'pass');
   } finally {
     await rm(target, { force: true, recursive: true });
   }
