@@ -32,6 +32,9 @@ const SUPERVISOR_UNREACHABLE = new Set([
 ]);
 const ORPHAN_REAP_STAGE_MS = 2500;
 const PROBE_TIMEOUT_MS = 20000;
+// Asking the recorded port whether the service it started is still serving: a
+// refusal is the answer, a timeout or any other failure is "cannot tell".
+const PORT_PROBE_TIMEOUT_MS = 1000;
 // Replacements of the registry file are retried instead of failing the command:
 // Windows keeps a destination that another handle has open (an indexer or a
 // scanner) locked for a moment, and a start that could not persist its own
@@ -59,21 +62,50 @@ const SUPERVISOR_ABORT_TIMEOUT_MS = 30000;
 // a race, because a descendant created after it was taken is absent from it and
 // an empty set would then be read as "the tree is gone". Unioning two
 // observations makes an empty answer mean "nothing was observed twice".
+// The probe travels as base64 of its request, like the member probe below: the
+// expected root identity comes from the registry, which a local user can edit,
+// and interpolating it into PowerShell source would make a tampered entry
+// executable. Decoding a fixed script keeps every field out of the code path.
+//
+// Two things are decided inside the probe, where the observations are made:
+//   * the recorded root identity is compared before the walk, so a recycled PID
+//     never becomes the root of a walk (the tree such a number leads is not this
+//     tree's to observe or kill), and
+//   * each member is admitted with the time of the snapshot it was seen in, so a
+//     PID read again at the end of the walk has to be the process that was
+//     observed then — a replacement created after that snapshot is not a member.
 const WINDOWS_TREE_PROBE = [
-  '$root = <PID>',
+  "$request = ConvertFrom-Json ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('<REQUEST>')))",
+  '$root = [int]$request.root',
+  '$expected = [string]$request.startIdentity',
+  "if ($expected -ne '') {",
+  '  $rootProcess = Get-Process -Id $root -ErrorAction SilentlyContinue',
+  '  if ($rootProcess) {',
+  "    try { $rootActual = $rootProcess.StartTime.ToUniversalTime().ToString('o') } catch { $rootActual = '' }",
+  "    if ($rootActual -ne '' -and $rootActual -ne $expected) { Write-Error 'root-process-reused'; exit 1 }",
+  '  }',
+  '}',
   'function Snapshot { @(Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId) }',
   "$ids = New-Object 'System.Collections.Generic.HashSet[int]'",
+  '$seen = @{}',
+  '$probeStart = (Get-Date).ToUniversalTime()',
   '[void]$ids.Add([int]$root)',
+  '$seen[[int]$root] = $probeStart',
   'for ($pass = 0; $pass -lt 2; $pass += 1) {',
+  '  $stamp = (Get-Date).ToUniversalTime()',
   '  $all = @(Snapshot)',
-  '  do { $added = 0; foreach ($process in $all) { if ($ids.Contains([int]$process.ParentProcessId) -and $ids.Add([int]$process.ProcessId)) { $added += 1 } } } while ($added -gt 0)',
+  '  do { $added = 0; foreach ($process in $all) { if ($ids.Contains([int]$process.ParentProcessId) -and $ids.Add([int]$process.ProcessId)) { $added += 1; $seen[[int]$process.ProcessId] = $stamp } } } while ($added -gt 0)',
   '  if ($pass -eq 0) { Start-Sleep -Milliseconds 150 }',
   '}',
   '$live = @()',
   'foreach ($id in $ids) {',
   '  $process = Get-Process -Id $id -ErrorAction SilentlyContinue',
   '  if (-not $process) { continue }',
-  "  try { $live += \"$id=\" + $process.StartTime.ToUniversalTime().ToString('o') } catch { $live += \"$id=\" }",
+  '  try {',
+  '    $started = $process.StartTime.ToUniversalTime()',
+  "    if ($started -gt $seen[$id]) { if ($id -eq $root) { Write-Error 'root-process-reused'; exit 1 } else { continue } }",
+  "    $live += \"$id=\" + $started.ToString('o')",
+  '  } catch { $live += "$id=" }',
   '}',
   'Write-Output ($live -join ",")',
 ].join('\n');
@@ -132,8 +164,23 @@ function parseMemberRecords(output) {
 }
 
 /** The PowerShell program of one Windows tree walk, so callers can run it async. */
-export function windowsTreeProbeCommand(rootPid) {
-  return WINDOWS_TREE_PROBE.replace('<PID>', String(rootPid));
+export function windowsTreeProbeCommand(rootPid, startIdentity = '') {
+  const request = Buffer.from(JSON.stringify({
+    root: rootPid,
+    startIdentity: typeof startIdentity === 'string' ? startIdentity : '',
+  }), 'utf8').toString('base64');
+  return WINDOWS_TREE_PROBE.replace('<REQUEST>', request);
+}
+
+/**
+ * A recorded start identity as a value the tree probe can compare, or ''.
+ *
+ * `missing` and `unreadable` are the probes' non-token answers: they travel in
+ * the control protocol, but comparing them would either always fail or always
+ * pass, so only a real token is handed to the walk.
+ */
+export function startIdentityToken(value) {
+  return typeof value === 'string' && value !== '' && value !== 'missing' && value !== 'unreadable' ? value : '';
 }
 
 /** The members described by one tree-walk output. */
@@ -200,12 +247,12 @@ function validServiceEndpoint(endpoint) {
  * identity read in the same snapshot, so a later decision about that PID can be
  * made against the process it was, not the number it was.
  */
-export function windowsTreeMembers(rootPid, { probe = undefined } = {}) {
+export function windowsTreeMembers(rootPid, { probe = undefined, startIdentity = '' } = {}) {
   if (!Number.isSafeInteger(rootPid) || rootPid <= 0) return [];
   const run = windowsProbeRunner(probe);
   let output;
   try {
-    output = run(windowsTreeProbeCommand(rootPid));
+    output = run(windowsTreeProbeCommand(rootPid, startIdentity));
   } catch {
     return null;
   }
@@ -218,8 +265,8 @@ export function windowsTreeMembers(rootPid, { probe = undefined } = {}) {
  * The PID-only view of `windowsTreeMembers`, for callers that only need the
  * liveness answer.
  */
-export function windowsTreePids(rootPid, { probe = undefined } = {}) {
-  const members = windowsTreeMembers(rootPid, { probe });
+export function windowsTreePids(rootPid, { probe = undefined, startIdentity = '' } = {}) {
+  const members = windowsTreeMembers(rootPid, { probe, startIdentity });
   return members === null ? null : members.map((member) => member.pid);
 }
 
@@ -255,8 +302,8 @@ export function windowsConfirmedMembers(members, { probe = undefined } = {}) {
  * those processes — and the result is the union of the current walk and the
  * recorded members that still match their own identity.
  */
-export function windowsTreeLive(rootPid, tracked = [], { probe = undefined } = {}) {
-  const walked = windowsTreeMembers(rootPid, { probe });
+export function windowsTreeLive(rootPid, tracked = [], { probe = undefined, startIdentity = '' } = {}) {
+  const walked = windowsTreeMembers(rootPid, { probe, startIdentity });
   if (walked === null) return null;
   const known = validTreeMembers(tracked).filter((member) => !walked.some((candidate) => candidate.pid === member.pid));
   if (known.length === 0) return walked;
@@ -271,11 +318,19 @@ export function windowsTreeLive(rootPid, tracked = [], { probe = undefined } = {
  * the group still exists and merely cannot be signalled by this user. Windows
  * answers from the tree probe above, so a root that exited while a descendant
  * survived is not reported as gone.
+ *
+ * A recorded root identity turns a recycled PID into an unanswerable probe: the
+ * tree a replacement number leads is not this tree's, so nothing is concluded
+ * about it (the walk refuses instead of reporting it as gone).
+ *
+ * A PID that is not a positive integer answers nothing: an entry recorded
+ * without one describes a tree whose start was never proven gone, so reading it
+ * as "gone" would let a later start shadow a service that is still serving.
  */
-export function treeGone(pid, { probe = undefined, tracked = [] } = {}) {
-  if (!Number.isSafeInteger(pid) || pid <= 0) return true;
+export function treeGone(pid, { probe = undefined, tracked = [], startIdentity = '' } = {}) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
   if (process.platform === 'win32') {
-    const live = windowsTreeLive(pid, tracked, { probe });
+    const live = windowsTreeLive(pid, tracked, { probe, startIdentity });
     return live !== null && live.length === 0;
   }
   try {
@@ -343,10 +398,10 @@ export function processStartIdentity(pid) {
  * answer: the recorded PID may have been reused, and a transient probe failure
  * is not evidence that this process owns it.
  */
-export function signalTree(pid, signal, { tracked = [], probe = undefined } = {}) {
+export function signalTree(pid, signal, { tracked = [], probe = undefined, startIdentity = '' } = {}) {
   if (!Number.isSafeInteger(pid) || pid <= 0) return false;
   if (process.platform === 'win32') {
-    const observed = windowsTreeLive(pid, tracked, { probe });
+    const observed = windowsTreeLive(pid, tracked, { probe, startIdentity });
     if (observed === null || observed.length === 0) return false;
     // A member whose identity could not be read is not signalled: a number that
     // cannot be told apart from a recycled one is not this tree's to kill. The
@@ -365,6 +420,46 @@ export function signalTree(pid, signal, { tracked = [], probe = undefined } = {}
     return false; // the group is already gone
   }
 }
+/**
+ * True when something accepts TCP connections on `port`, false when nothing
+ * does, null when the question cannot be answered.
+ *
+ * Only asked where a Windows ancestry walk cannot answer — a recorded root that
+ * is already gone leaves nothing to walk — so the port is the remaining
+ * observable that says whether the service this entry started is still serving.
+ * A refused or unroutable connection is the "nothing is listening" answer; any
+ * other failure is reported as unknown, which keeps the entry blocked.
+ */
+function portListening(port, { host = '127.0.0.1', timeoutMs = PORT_PROBE_TIMEOUT_MS } = {}) {
+  return new Promise((resolve) => {
+    if (!Number.isInteger(port) || port < 1 || port > 65535) { resolve(null); return; }
+    const socket = createConnection({ host, port });
+    let settled = false;
+    const finish = (value, { abort = true } = {}) => {
+      if (settled) return;
+      settled = true;
+      if (abort) {
+        socket.destroy();
+      } else {
+        // A listener that answered the probe is closed politely: draining the
+        // reply and half-closing avoids the RST an abort with unread data in
+        // flight provokes, which the service would observe as a spurious
+        // `ECONNRESET` inside its own accept loop.
+        socket.on('data', () => {});
+        socket.end();
+        socket.unref();
+      }
+      resolve(value);
+    };
+    socket.setTimeout(timeoutMs, () => finish(null));
+    socket.once('connect', () => finish(true, { abort: false }));
+    socket.once('error', (error) => {
+      const code = error?.code;
+      finish(code === 'ECONNREFUSED' || code === 'EHOSTUNREACH' || code === 'ENETUNREACH' ? false : null);
+    });
+  });
+}
+
 /**
  * Retire a service whose supervisor can no longer answer for it.
  *
@@ -389,20 +484,36 @@ async function reclaimTree(entry) {
   // A missing root PID is not proof the tree is gone: a launcher or group
   // leader can exit while the descendants it spawned keep the group alive, and
   // that tree is exactly what a restart must not shadow.
-  if (identity === 'missing') return treeGone(entry.pid, { tracked });
+  if (identity === 'missing') {
+    // Unix answers from the process group, which the descendants stay in even
+    // after its leader exited, so `ESRCH` is proof there.
+    if (process.platform !== 'win32') return treeGone(entry.pid, { tracked });
+    // Windows has no process group, and the ancestry walk starts at the recorded
+    // root: with that root gone the walk answers nothing, so an empty answer is
+    // the absence of a probe rather than evidence about a descendant. Two
+    // observables remain, and both have to agree before the entry is retired:
+    // the members recorded while the tree was alive are asked about by their own
+    // identity (an ancestry walk can no longer reach them), and the recorded port
+    // is asked whether anything still accepts connections on it — a service that
+    // outlived its root is exactly what a replacement must not shadow.
+    const alive = windowsConfirmedMembers(tracked);
+    if (alive === null || alive.length > 0) return false;
+    return await portListening(entry.port) === false;
+  }
   if (identity === 'unreadable' || typeof entry.processStartTime !== 'string' || entry.processStartTime !== identity) return false;
   const waitGone = async (budgetMs) => {
     const deadline = Date.now() + budgetMs;
     for (;;) {
-      if (treeGone(entry.pid, { tracked })) return true;
+      if (treeGone(entry.pid, { tracked, startIdentity: startIdentityToken(entry.processStartTime) })) return true;
       if (Date.now() >= deadline) return false;
       await new Promise((resolve) => setTimeout(resolve, Math.min(200, Math.max(1, deadline - Date.now()))));
     }
   };
-  if (treeGone(entry.pid, { tracked })) return true;
-  signalTree(entry.pid, 'SIGTERM', { tracked });
+  const recordedIdentity = startIdentityToken(entry.processStartTime);
+  if (treeGone(entry.pid, { tracked, startIdentity: recordedIdentity })) return true;
+  signalTree(entry.pid, 'SIGTERM', { tracked, startIdentity: recordedIdentity });
   if (await waitGone(ORPHAN_REAP_STAGE_MS)) return true;
-  signalTree(entry.pid, 'SIGKILL', { tracked });
+  signalTree(entry.pid, 'SIGKILL', { tracked, startIdentity: recordedIdentity });
   return waitGone(ORPHAN_REAP_STAGE_MS);
 }
 function teardownMarkerPath(file, worktree) {
@@ -525,7 +636,10 @@ async function stopEntry(entry, write) {
     // `stopped` for a tree that is still serving. Only the identity proves who
     // answered, exactly as it does for `running`.
     if (!identityProven(entry, observed)) return withEvidence({ ...entry, status: 'blocked', teardownStatus: 'blocked', reason: 'ownership-unproven' }, observed);
-    if (!treeGone(entry.pid, { tracked: trackedWith(entry.treeMembers, observed.treeMembers) })) {
+    if (!treeGone(entry.pid, {
+      tracked: trackedWith(entry.treeMembers, observed.treeMembers),
+      startIdentity: startIdentityToken(entry.processStartTime),
+    })) {
       return withEvidence({ ...entry, status: 'blocked', teardownStatus: 'blocked', reason: 'service-tree-survives' }, observed);
     }
     return withEvidence({ ...entry, status: 'stopped', teardownStatus: write ? 'passed' : 'unverified' }, observed);
@@ -550,7 +664,7 @@ async function stopEntry(entry, write) {
     // only evidence together with an observation that no part of the recorded
     // tree is left.
     const tracked = trackedWith(entry.treeMembers, observed.treeMembers, stopped.treeMembers);
-    if (!treeGone(entry.pid, { tracked })) {
+    if (!treeGone(entry.pid, { tracked, startIdentity: startIdentityToken(entry.processStartTime) })) {
       return withEvidence({ ...entry, status: 'blocked', teardownStatus: 'blocked', reason: 'service-tree-survives' }, stopped);
     }
     return withEvidence({ ...entry, status: 'stopped', teardownStatus: 'passed' }, stopped);
@@ -584,7 +698,13 @@ function ipcRequest(child, message, timeoutMs) {
       child.removeListener('message', onMessage);
       resolve(value);
     };
-    const onMessage = (reply) => finish(reply && typeof reply === 'object' ? reply : { status: 'unreachable' });
+    // The startup handshake shares this channel, so a `spawned` or `running`
+    // message queued before the abort was sent must not be mistaken for its
+    // answer: only the terminal abort result settles this wait.
+    const onMessage = (reply) => {
+      if (reply?.status === 'spawned' || reply?.status === 'running') return;
+      finish(reply && typeof reply === 'object' ? reply : { status: 'unreachable' });
+    };
     const timer = setTimeout(() => finish({ status: 'unreachable' }), timeoutMs);
     // The handshake channel is the only handle while the control endpoint does
     // not exist yet, so an unanswered abort ends as unreachable, never as gone.
@@ -608,7 +728,14 @@ async function abortStart(child, spawned, spawnedStartTime) {
     // Only the identity captured when `spawned` was received is usable: probing
     // the PID here could read a replacement process that took the number over
     // while the abort waited, and reclaiming would then signal a stranger.
-    const gone = await reclaimTree({ pid: spawned.pid, processStartTime: spawnedStartTime });
+    const gone = await reclaimTree({
+      pid: spawned.pid,
+      processStartTime: spawnedStartTime,
+      // Every member already reported travels with the abort: this reclaim
+      // cannot ask the supervisor again, and on Windows a descendant whose
+      // intermediate parent exited is only reachable through those samples.
+      treeMembers: spawned.treeMembers,
+    });
     if (gone) return { status: 'stopped' };
   }
   return { status: 'blocked', reason: reply.reason ?? 'service-tree-unproven' };
@@ -729,7 +856,12 @@ export async function serviceReport(project, args, tokenize) {
       endpoint,
       // The PID alone is only safe to signal while it can still be told apart
       // from a recycled one, so the OS start identity is recorded alongside it.
-      ...(startIdentity === 'missing' || startIdentity === 'unreadable' ? {} : { processStartTime: startIdentity }),
+      // The probes' non-token answers are recorded like a token: the control
+      // protocol compares every field on both sides, and a field present on one
+      // side only would leave every later status and stop unprovable —
+      // `identityProven()` refuses exactly that. Whether the recorded value can
+      // authorize acting on the number is decided where it is used.
+      processStartTime: startIdentity,
     });
     registry.processes.push(entry);
     try {
@@ -782,7 +914,10 @@ export async function teardownServices(project, worktree, write = true) {
     if (write) {
       results.forEach((result, index) => {
         if (result.status !== 'stopped' || !Number.isSafeInteger(result.pid) || result.pid <= 0) return;
-        if (treeGone(result.pid, { tracked: validTreeMembers(result.treeMembers) })) return;
+        if (treeGone(result.pid, {
+          tracked: validTreeMembers(result.treeMembers),
+          startIdentity: startIdentityToken(result.processStartTime),
+        })) return;
         Object.assign(result, { status: 'blocked', teardownStatus: 'blocked', reason: 'service-tree-survives' });
         Object.assign(touched[index], result);
       });

@@ -10,7 +10,7 @@ import test from 'node:test';
 import { runCommand } from '../../runtime/commands/run.mjs';
 import { gitFingerprint } from '../../runtime/lib/git-fingerprint.mjs';
 import { deliveryProfiles, completionReceipt, resolveDelivery, validateCompletion, validateDeliveryConfig, overrideWarnings } from '../../runtime/lib/delivery.mjs';
-import { processStartIdentity, releaseServiceTeardown, serviceOwnership, teardownServices, treeGone, windowsConfirmedMembers } from '../../runtime/lib/services.mjs';
+import { processStartIdentity, releaseServiceTeardown, serviceOwnership, startIdentityToken, teardownServices, treeGone, windowsConfirmedMembers, windowsTreeProbeCommand } from '../../runtime/lib/services.mjs';
 
 function git(project, ...args) {
   return execFileSync('git', args, { cwd: project, encoding: 'utf8', windowsHide: true }).trim();
@@ -320,6 +320,13 @@ test('squash 清理拒绝缺证据、漂移、脏目录和 patch 不一致后接
     git(project, 'commit', '--allow-empty', '-qm', 'target drift');
     assert.equal((await command(project, ...options, '--merge-evidence', evidenceFile)).report.status, 'blocked');
     git(project, 'reset', '--hard', targetAfter);
+    // Creating and removing the dirty file is itself a write the receipt gate
+    // can see — the worktree directory carries the timestamps of both — so the
+    // accepted receipt has to be the one verification ends in, after the probe.
+    const refreshed = (await command(worktree, 'verify', '--delivery', 'managed-mr', '--reviewed', 'all')).report.completion;
+    refreshed.delivery.stage = 'complete';
+    refreshed.target.head = targetAfter;
+    await writeFile(receiptFile, JSON.stringify(refreshed));
     const result = await command(project, ...options, '--merge-evidence', evidenceFile, '--write');
     assert.equal(result.report.status, 'passed', JSON.stringify(result.report));
     assert.equal(git(project, 'rev-parse', 'feature'), sourceHead);
@@ -677,6 +684,87 @@ test('Windows 成员探针不把登记过的身份拼进脚本', () => {
   assert.equal(probeCommands[0].includes(identity), false);
   const payload = probeCommands[0].match(/'([A-Za-z0-9+/=]+)'/u)?.[1] ?? '';
   assert.deepEqual(JSON.parse(Buffer.from(payload, 'base64').toString('utf8')), [{ pid: 4321, startIdentity: identity }]);
+});
+
+test('Windows 树探针把登记过的身份当作数据而不是脚本', () => {
+  const identity = "x'; Remove-Item -Recurse -Force C:\\; '";
+  const command = windowsTreeProbeCommand(4321, identity);
+  // The expected root identity comes from the registry a local user can edit, so
+  // it travels as the decoded request payload; the walk then refuses a root whose
+  // identity does not match instead of describing the tree a recycled PID leads.
+  assert.equal(command.includes(identity), false);
+  const payload = command.match(/'([A-Za-z0-9+/=]+)'/u)?.[1] ?? '';
+  assert.deepEqual(JSON.parse(Buffer.from(payload, 'base64').toString('utf8')), { root: 4321, startIdentity: identity });
+  // A registry that recorded no usable token asks for the walk without the gate
+  // rather than comparing a value the probe can never match.
+  const withoutGate = windowsTreeProbeCommand(4321);
+  const emptyPayload = withoutGate.match(/'([A-Za-z0-9+/=]+)'/u)?.[1] ?? '';
+  assert.deepEqual(JSON.parse(Buffer.from(emptyPayload, 'base64').toString('utf8')), { root: 4321, startIdentity: '' });
+});
+
+test('只有真实起始身份参与比较，无效 PID 既不算存活也不算消失', () => {
+  // `missing` and `unreadable` are the probes' non-token answers: they have to
+  // travel in the control protocol but cannot authorize acting on a number.
+  assert.equal(startIdentityToken('missing'), '');
+  assert.equal(startIdentityToken('unreadable'), '');
+  assert.equal(startIdentityToken(undefined), '');
+  assert.equal(startIdentityToken('linux-start:41'), 'linux-start:41');
+  // An entry without a usable PID describes a tree whose start was never proven
+  // gone, so reading it as "gone" would authorize a shadowing start.
+  assert.equal(treeGone(0), false);
+  assert.equal(treeGone(-1), false);
+  assert.equal(treeGone(Number.NaN), false);
+});
+
+test('Windows 缺失根进程时按端口证据判断旧服务是否仍在服务', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('缺失根进程的端口证据只替代 Windows 的祖先遍历');
+    return;
+  }
+  const { project } = await fixture();
+  const child = spawnDetachedFixture();
+  const port = await freePort();
+  // The probe half-closes as soon as it sees the port answer, and a socket that
+  // is reset while a reply is still in flight reports the failure here rather
+  // than to the caller, so the fixture has to absorb it the way a service would.
+  const holder = createServer((socket) => {
+    socket.on('error', () => {});
+    socket.end('ok');
+  });
+  try {
+    // A root that exited can no longer be walked for descendants, so the
+    // registration is retired only when nothing is still serving its port: a
+    // service that outlived its root must not be shadowed by a replacement.
+    // The registration describes a root that is already gone, so the PID has to
+    // stop answering the identity probe before the test writes it.
+    killTree(child.pid);
+    for (let attempt = 0; attempt < 50 && processStartIdentity(child.pid) !== 'missing'; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.equal(processStartIdentity(child.pid), 'missing');
+    await writeServiceRegistry(project, {
+      taskId: 'local', serviceId: 'web', worktree: realpathSync(project), port,
+      commandFingerprint: 'fingerprint', cwd: realpathSync(project), status: 'running',
+      teardownStatus: 'unverified', stopOnTeardown: true, pid: child.pid, supervisorPid: 1,
+      startedAt: '2026-01-01T00:00:00.000Z', endpoint: unreachableEndpoint(),
+      processStartTime: 'a-different-process',
+    });
+    await new Promise((resolve, reject) => {
+      holder.once('error', reject);
+      holder.listen(port, '127.0.0.1', resolve);
+    });
+    const serving = await command(project, 'runtime', 'service', 'stop', '--service', 'web', '--write');
+    assert.equal(serving.report.status, 'blocked', JSON.stringify(serving.report));
+    assert.equal(serving.report.processes[0].reason, 'service-tree-survives');
+    await new Promise((resolve) => holder.close(resolve));
+    const retired = await command(project, 'runtime', 'service', 'stop', '--service', 'web', '--write');
+    assert.equal(retired.report.status, 'passed', JSON.stringify(retired.report));
+    assert.equal(retired.report.processes[0].teardownStatus, 'passed');
+  } finally {
+    holder.close();
+    killTree(child.pid);
+    await remove(project);
+  }
 });
 
 test('start 不带 --write 时不回收既有登记也不改注册表', async () => {

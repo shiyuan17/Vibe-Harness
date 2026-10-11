@@ -4,7 +4,7 @@ import { chmodSync, lstatSync, mkdirSync, realpathSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import path from 'node:path';
 
-import { parseTreeMembers, processStartIdentity, serviceSocketDirectory, signalTree as signalProcessTree, treeGone as processTreeGone, windowsTreeProbeCommand } from './services.mjs';
+import { parseTreeMembers, processStartIdentity, serviceSocketDirectory, signalTree as signalProcessTree, startIdentityToken as recordedIdentityToken, treeGone as processTreeGone, windowsTreeProbeCommand } from './services.mjs';
 
 // A supervisor owns exactly one service process tree. The tree is started as a
 // detached process-group leader on Unix (`taskkill /t` is the Windows
@@ -29,6 +29,11 @@ const REGISTRATION_ACK_MS = 10000;
 // PIDs seen here are the only handle left on it later.
 const TREE_SAMPLE_MS = 400;
 const TREE_SAMPLE_TIMEOUT_MS = 20000;
+// The OS start identity is captured before the first reply leaves, and the probe
+// is retried: a process the platform has not made observable yet would otherwise
+// be recorded as unreadable for the whole lifetime of the supervisor.
+const IDENTITY_CAPTURE_ATTEMPTS = 10;
+const IDENTITY_CAPTURE_INTERVAL_MS = 50;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -54,12 +59,6 @@ function startService(input) {
   let reaping = null;
   let idle = null;
   const startedAt = new Date().toISOString();
-  // The launcher persists this identity when the handshake cannot complete, and
-  // a supervisor that is already gone can only be reclaimed through it, so the
-  // OS start identity is captured here — while this process still owns the
-  // freshly spawned child — instead of being probed later from the registry,
-  // where a recycled PID would then be read as the recorded process.
-  const startIdentity = processStartIdentity(child.pid);
   const identity = {
     pid: child.pid,
     supervisorPid: process.pid,
@@ -72,7 +71,39 @@ function startService(input) {
     // a per-supervisor secret that only reaches the launcher over the private
     // IPC channel.
     controlToken: randomUUID(),
-    ...(startIdentity === 'missing' || startIdentity === 'unreadable' ? {} : { processStartTime: startIdentity }),
+    // Present in every identity-bearing reply, sentinel included: the launcher
+    // persists exactly these fields and proves every one of them against this
+    // supervisor's later replies, so a field filled in on one side only would
+    // make the service unprovable — and therefore unmanageable — instead of
+    // merely unverified. The value is settled before the first reply leaves.
+    processStartTime: processStartIdentity(child.pid),
+  };
+  /**
+   * The recorded value as an actionable OS identity, or null.
+   *
+   * `missing` and `unreadable` are the probes' non-token answers. They travel in
+   * the protocol like any other value, but only a real token tells "the process
+   * this supervisor spawned" apart from a recycled number, so only a real token
+   * authorizes acting on `child.pid`.
+   */
+  const identityToken = () => (typeof identity.processStartTime === 'string'
+    && identity.processStartTime !== 'missing' && identity.processStartTime !== 'unreadable'
+    ? identity.processStartTime
+    : null);
+  /**
+   * The OS start identity of the freshly spawned child, probed until it answers.
+   *
+   * This is the value the launcher persists, so it is captured here — while this
+   * process still owns the child — instead of being probed later from the
+   * registry, where a recycled PID would then be read as the recorded process.
+   */
+  const captureStartIdentity = async () => {
+    for (let attempt = 0; attempt < IDENTITY_CAPTURE_ATTEMPTS; attempt += 1) {
+      const value = processStartIdentity(child.pid);
+      if (value !== 'missing' && value !== 'unreadable') return value;
+      await sleep(IDENTITY_CAPTURE_INTERVAL_MS);
+    }
+    return processStartIdentity(child.pid);
   };
   /** Every member this supervisor has observed while the tree was alive. */
   const trackedMembers = new Map();
@@ -92,7 +123,7 @@ function startService(input) {
     // blocking here would delay the very registration this evidence protects.
     if (process.platform !== 'win32' || sampling) return;
     sampling = true;
-    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', windowsTreeProbeCommand(child.pid)], {
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', windowsTreeProbeCommand(child.pid, identityToken() ?? '')], {
       encoding: 'utf8', timeout: TREE_SAMPLE_TIMEOUT_MS, windowsHide: true, maxBuffer: 1024 * 1024,
     }, (error, stdout) => {
       sampling = false;
@@ -107,7 +138,7 @@ function startService(input) {
   /** True only for a request that presents every recorded ownership field. */
   const ownsRequest = (request) => request.controlToken === identity.controlToken
     && ['pid', 'supervisorPid', 'cwd', 'commandFingerprint', 'startedAt'].every((key) => request[key] === identity[key])
-    && (identity.processStartTime === undefined || request.processStartTime === identity.processStartTime);
+    && request.processStartTime === identity.processStartTime;
 
   /**
    * Whether `child.pid` may still be acted on: 'owned' (this service),
@@ -122,15 +153,21 @@ function startService(input) {
    * identities, so descendants remain actionable.
    */
   const rootState = () => {
-    if (identity.processStartTime === undefined) return process.platform === 'win32' ? 'unverifiable' : 'owned';
+    const token = identityToken();
+    // Without a token the number cannot be told apart from a recycled one, so
+    // Windows signals nothing through it. Unix does not need the token for that
+    // decision: the detached process group is what is signalled, and it outlives
+    // its leader — which is why a platform whose probe only answers `unreadable`
+    // (macOS) still supervises its tree here.
+    if (token === null) return process.platform === 'win32' ? 'unverifiable' : 'owned';
     const current = processStartIdentity(child.pid);
     if (current === 'missing') return 'owned';
     if (current === 'unreadable') return 'unverifiable';
-    return current === identity.processStartTime ? 'owned' : 'reused';
+    return current === token ? 'owned' : 'reused';
   };
   /** Signal the whole owned tree: the detached group on Unix, `taskkill /t` on Windows. */
   const signalTree = (signal) => (rootState() === 'owned'
-    ? signalProcessTree(child.pid, signal, { tracked: memberEvidence() })
+    ? signalProcessTree(child.pid, signal, { tracked: memberEvidence(), startIdentity: recordedIdentityToken(identity.processStartTime) })
     : false);
   /**
    * True only while some part of the owned tree can still be observed.
@@ -141,7 +178,7 @@ function startService(input) {
    * tree is gone.
    */
   const treeGone = () => (rootState() === 'owned'
-    ? processTreeGone(child.pid, { tracked: memberEvidence() })
+    ? processTreeGone(child.pid, { tracked: memberEvidence(), startIdentity: recordedIdentityToken(identity.processStartTime) })
     : false);
 
   const stayResident = () => {
@@ -207,7 +244,11 @@ function startService(input) {
         reply(socket, { status: 'blocked', reason: 'ownership-mismatch' }); return;
       }
       if (request.action === 'status') {
-        if (!exited) { reply(socket, { ...identity, status: 'running' }); return; }
+        // Every identity-bearing reply carries the sampled tree evidence: a
+        // `status` refresh is often the last message a launcher ever receives
+        // from this supervisor, and the reclaim that follows it has no other way
+        // to learn about descendants an ancestry walk can no longer reach.
+        if (!exited) { reply(socket, evidencePayload({ status: 'running' })); return; }
         settle(socket, await reapTree());
         return;
       }
@@ -261,7 +302,11 @@ function startService(input) {
       else stayResident();
     })();
   });
-  child.once('spawn', () => {
+  child.once('spawn', async () => {
+    // The identity is settled before the first reply leaves: the launcher keeps
+    // what `spawned` carries, and that same value has to answer every later
+    // ownership check this supervisor makes.
+    identity.processStartTime = await captureStartIdentity();
     // The launcher needs the service identity before the endpoint can answer:
     // that identity is what lets it reclaim this tree if the handshake times out.
     try { process.send?.(evidencePayload({ status: 'spawned' })); } catch { /* the handshake is already abandoned */ }
