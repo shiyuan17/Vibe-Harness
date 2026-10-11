@@ -219,6 +219,24 @@ async function receiptDirectory(projectDir, create = false) {
   return current;
 }
 
+/**
+ * Create the receipt store before a run takes its first snapshot.
+ *
+ * The store lives inside the project it describes, so creating it is itself a
+ * write to that workspace: `mkdir .vibe-harness` moves the repository root's
+ * timestamps, and a store created *after* the first snapshot would leave the run
+ * publishing write evidence that no longer describes the workspace it measured —
+ * the receipt it stores could then never be reused, not even by an identical run.
+ * Only an ignored store is created (the same gate `storeVerificationReceipt`
+ * uses); a project that does not ignore it is left untouched.
+ *
+ * @param {string} projectDir
+ * @returns {Promise<boolean>} true once the store directory exists
+ */
+export async function prepareVerificationReceiptStore(projectDir) {
+  return (await receiptDirectory(projectDir, true)) !== null;
+}
+
 export async function verificationCacheContext(projectDir, plan, snapshot = undefined) {
   const state = snapshot ?? await gitFingerprint(projectDir);
   const root = await realpath(projectDir);
@@ -279,8 +297,17 @@ export async function verificationCacheContext(projectDir, plan, snapshot = unde
   const recordable = state.fingerprint !== null && writeEvidenceAvailable;
   const available = recordable && deterministic && !warm
     && toolsAvailable && !inputs.some(([, value]) => value === 'unreadable');
+  // The cache key deliberately leaves the write evidence out. The checks a run
+  // executes may write on every run — an ignored report such as
+  // `.vibe-harness/observed-tests` or a scratch file the run removes again — and
+  // a key computed over that evidence would differ from the one the recorded run
+  // was stored under, so the receipt could never be reused. The evidence still
+  // travels in `fingerprints`, so a hit has to match the exact workspace state the
+  // recorded run ended in: a write between two runs still invalidates the reuse,
+  // and `attestCompletionProvenance` keeps binding the same value.
+  const key = digest({ ...fingerprints, writeFingerprint: null });
   return {
-    fingerprints, key: digest(fingerprints), available, recordable, snapshot: state,
+    fingerprints, key, available, recordable, snapshot: state,
     reason: !deterministic ? 'checks-not-explicitly-deterministic' : warm ? 'warm-environment-not-attested'
       : !state.fingerprint ? 'snapshot-unavailable' : !writeEvidenceAvailable ? 'write-snapshot-unavailable'
         : !toolsAvailable ? 'toolchain-unavailable' : 'no-matching-receipt',

@@ -269,6 +269,10 @@ test('verify-focused --run terminates a hanging command with project timeout rec
     await writeFile(path.join(dir, 'package.json'), JSON.stringify({
       name: 'verify-focused-timeout-fixture',
       private: true,
+        // The project declares its manager, so the reported command comes from
+        // the same resolution `deriveVerificationTiers` uses instead of the
+        // lockfile-less fallback.
+        packageManager: 'pnpm@10.0.0',
       scripts: { 'test:unit': 'node -e "setInterval(() => {}, 1000)"' },
     }));
     await writeFile(path.join(dir, 'vibe-harness.config.json'), JSON.stringify({

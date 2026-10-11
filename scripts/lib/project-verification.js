@@ -8,7 +8,7 @@ import { assertSafeCommand } from './shell-command.js';
 import { terminateProcessTree } from './process-tree.js';
 import { maxDiagnosticOutput, redactDiagnosticText } from './tool-provisioning/subprocess.js';
 import { verificationCheckEvidence, verificationContextEnvironment, verificationCwd } from '../../runtime/lib/verification-plan.mjs';
-import { findVerificationReceipt, storeVerificationReceipt, verificationCacheContext } from '../../runtime/lib/verification-receipt.mjs';
+import { findVerificationReceipt, prepareVerificationReceiptStore, storeVerificationReceipt, verificationCacheContext } from '../../runtime/lib/verification-receipt.mjs';
 
 const execFileAsync = promisify(execFile);
 export const DEFAULT_PROJECT_VERIFICATION_TIMEOUT_MS = 120_000;
@@ -811,6 +811,14 @@ export async function runVerificationPlan({
   // receives: the context above belongs to the state the checks started from,
   // and any check that writes (even without changing content) would leave it
   // stale before the receipt is ever consumed.
+    // Writing the receipt is itself a write to the workspace — the first one
+    // creates the project's `.vibe-harness` directory and moves the repository
+    // root's timestamps — so the store is created here, before the snapshot the
+    // receipt publishes, and only for the run that is about to store one: a run
+    // that stores nothing leaves no store behind.
+    const willStore = !hit && focused.ok === true
+      && focused.results.every((item) => item.status === 'passed');
+    if (willStore) await prepareVerificationReceiptStore(targetDir).catch(() => false);
   const afterContext = hit ? null : await verificationCacheContext(targetDir, plan);
   const report = {
     ...focused,

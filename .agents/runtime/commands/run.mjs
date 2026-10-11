@@ -26,7 +26,7 @@ import { parseLinearPlanBlock } from '../lib/linear-planning.mjs';
 import {
   resolveVerificationTiers, selectVerificationChecks, verificationChanges, verificationCheckEvidence, verificationContextEnvironment, verificationCwd,
 } from '../lib/verification-plan.mjs';
-import { attestCompletionProvenance, findVerificationReceipt, recordFinalVerification, storeVerificationReceipt, verificationCacheContext } from '../lib/verification-receipt.mjs';
+import { attestCompletionProvenance, findVerificationReceipt, prepareVerificationReceiptStore, recordFinalVerification, storeVerificationReceipt, verificationCacheContext } from '../lib/verification-receipt.mjs';
 import { completionReceipt, overrideWarnings, resolveDelivery, validateCompletion } from '../lib/delivery.mjs';
 import { readMergeEvidence, validateMergeEvidence } from '../lib/merge-evidence.mjs';
 import { releaseServiceTeardown, serviceReport, teardownServices } from '../lib/services.mjs';
@@ -933,12 +933,6 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
       environment: { mode: environmentMode, status: environmentStatus },
     };
   }
-  const after = await gitFingerprint(projectDir);
-  const afterContext = await verificationCacheContext(projectDir, receiptPlan, after);
-  const inputsStable = cacheContext.key === afterContext.key;
-  const stable = before.fingerprint !== null && after.fingerprint !== null
-    ? before.fingerprint === after.fingerprint
-    : null;
   // `blocked` (unsafe/manual/missing executable) is a distinct terminal
   // status: it means the check never produced evidence, which is a different
   // statement than a check that ran and failed.
@@ -946,6 +940,19 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
   const blocked = Object.values(checks).some((item) => item.status === 'blocked');
   const executed = selectedNames.filter((name) => checks[name]?.status === 'passed');
   const checksNotRun = executed.length < selectedNames.length;
+    // Writing the receipt is itself a write to the workspace — the first one
+    // creates the project's `.vibe-harness` directory and moves the repository
+    // root's timestamps — so the store is created before the snapshot the receipt
+    // publishes, and only for the run that is about to store one: a run that
+    // stores nothing leaves no store behind.
+    const willStore = !failed && !blocked && !checksNotRun && executed.length > 0;
+    if (willStore) await prepareVerificationReceiptStore(projectDir).catch(() => false);
+    const after = await gitFingerprint(projectDir);
+    const afterContext = await verificationCacheContext(projectDir, receiptPlan, after);
+    const inputsStable = cacheContext.key === afterContext.key;
+    const stable = before.fingerprint !== null && after.fingerprint !== null
+      ? before.fingerprint === after.fingerprint
+      : null;
   const finalStatus = failed || stable === false || !inputsStable ? 'failed' : blocked ? 'blocked' : executed.length === 0 ? 'unverified' : 'passed';
   const review = verificationReview({
     changedPaths: changeScope.changedPaths,
