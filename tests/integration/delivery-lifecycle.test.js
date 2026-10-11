@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readlink, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createServer } from 'node:net';
@@ -409,6 +409,103 @@ test('子模块内已脏路径的再次写入会改变写指纹', async (t) => {
   } finally {
     await remove(root);
   }
+});
+
+test('嵌套子模块内的写入会改变写指纹', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'vibe-delivery-submodule-deep-'));
+  const inner = path.join(root, 'inner');
+  const outer = path.join(root, 'outer');
+  const project = path.join(root, 'main');
+  try {
+    for (const dir of [inner, outer, project]) {
+      await mkdir(dir, { recursive: true });
+      git(dir, 'init', '-q', '-b', 'target');
+      git(dir, 'config', 'user.name', 'Fixture');
+      git(dir, 'config', 'user.email', 'fixture@example.invalid');
+    }
+    await writeFile(path.join(inner, 'inner.txt'), 'one\n');
+    git(inner, 'add', '.');
+    git(inner, 'commit', '-qm', 'inner base');
+    await writeFile(path.join(outer, 'outer.txt'), 'outer\n');
+    git(outer, 'add', '.');
+    git(outer, 'commit', '-qm', 'outer base');
+    try {
+      const allowFileProtocol = ['-c', 'protocol.file.allow=always'];
+      execFileSync('git', [...allowFileProtocol, 'submodule', 'add', inner.split(path.sep).join('/'), 'nested/sub'], { cwd: outer, encoding: 'utf8', windowsHide: true });
+      git(outer, 'commit', '-qm', 'add nested submodule');
+      execFileSync('git', [...allowFileProtocol, 'submodule', 'add', outer.split(path.sep).join('/'), 'vendor/outer'], { cwd: project, encoding: 'utf8', windowsHide: true });
+      execFileSync('git', [...allowFileProtocol, 'submodule', 'update', '--init', '--recursive', '--checkout'], { cwd: project, encoding: 'utf8', windowsHide: true });
+      git(project, 'commit', '-qm', 'add outer submodule');
+    } catch (error) {
+      t.skip(`当前环境无法添加嵌套子模块: ${error.message.split('\n')[0]}`);
+      return;
+    }
+    const deepest = path.join(project, 'vendor', 'outer', 'nested', 'sub', 'inner.txt');
+    await writeFile(deepest, 'two\n');
+    const dirty = await gitFingerprint(project);
+    assert.equal(typeof dirty.writeFingerprint, 'string');
+    // Rewriting an already-dirty path below the second gitlink changes neither
+    // the superproject's porcelain status nor the gitlink directory metadata, so
+    // only a recursive walk of every gitlink can see it.
+    await writeFile(deepest, 'three\n');
+    const rewritten = await gitFingerprint(project);
+    assert.notEqual(rewritten.writeFingerprint, dirty.writeFingerprint);
+  } finally {
+    await remove(root);
+  }
+});
+
+test('删除 tracked 文件后写指纹记下删除时刻', async () => {
+  const { project } = await fixture();
+  try {
+    await mkdir(path.join(project, 'nested'));
+    await writeFile(path.join(project, 'nested', 'gone.txt'), 'x\n');
+    git(project, 'add', 'nested/gone.txt');
+    git(project, 'commit', '-qm', 'tracked file');
+    const before = await gitFingerprint(project);
+    assert.equal(typeof before.writeFingerprint, 'string');
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    await rm(path.join(project, 'nested', 'gone.txt'));
+    const after = await gitFingerprint(project);
+    assert.equal(typeof after.writeFingerprint, 'string');
+    assert.notEqual(after.writeFingerprint, before.writeFingerprint);
+    // A deleted path has no metadata of its own, so the deletion is dated by the
+    // deepest surviving ancestor. Without that evidence `latestWriteAt` would
+    // stay older than the deletion and a receipt taken before it would still look
+    // current.
+    const parent = await stat(path.join(project, 'nested'));
+    assert.ok(after.latestWriteAt >= parent.mtimeMs - 1, `${after.latestWriteAt} < ${parent.mtimeMs}`);
+    assert.ok(after.latestWriteAt > before.latestWriteAt, `${after.latestWriteAt} <= ${before.latestWriteAt}`);
+  } finally { await remove(project); }
+});
+
+test('指向目录的 tracked 符号链接使写指纹 fail closed', async (t) => {
+  const { project } = await fixture();
+  try {
+    await mkdir(path.join(project, 'real-dir'));
+    await writeFile(path.join(project, 'real-dir', 'inner.txt'), 'one\n');
+    try {
+      await symlink('real-dir', path.join(project, 'dir-link'), 'dir');
+    } catch (error) {
+      t.skip(`当前环境无法创建目录符号链接: ${error.code}`);
+      return;
+    }
+    git(project, 'add', '.');
+    git(project, 'commit', '-qm', 'directory link');
+    const staged = git(project, 'ls-files', '-s', 'dir-link');
+    if (!staged.startsWith('120000')) {
+      t.skip('当前 Git 未把目录符号链接记录为链接');
+      return;
+    }
+    const snapshot = await gitFingerprint(project);
+    // Writing a child through the link changes neither the link nor the target
+    // directory metadata, so there is no surface left to observe and the write
+    // fingerprint has to be dropped rather than published as current.
+    assert.equal(snapshot.writeFingerprint, null);
+    assert.equal(snapshot.latestWriteAt, null);
+    assert.equal(typeof snapshot.fingerprint, 'string');
+  } finally { await remove(project); }
 });
 
 test('supervisor 崩溃后重新启动回收旧服务树而非复用登记', async () => {

@@ -40,12 +40,17 @@ function patchId(project, before, after) {
  * exact `+`/`-` lines closes that gap while staying tolerant of a target branch
  * that shifted the hunks: only the changed content has to match, not where it
  * landed.
+ *
+ * Git's `\ No newline at end of file` marker is part of that content, not
+ * decoration: a patch that ends a file without a trailing newline differs from
+ * one that adds the same line with a newline, and `patch-id` ignores exactly
+ * that difference.
  */
 function patchContentDigest(project, before, after) {
   const diff = gitRaw(project, ['diff', '--no-ext-diff', '--no-textconv', '--binary', before, after, '--']);
   const content = diff
     .split('\n')
-    .filter((line) => /^(?:diff --git |new file mode|deleted file mode|old mode|new mode|rename from|rename to|similarity index|\+\+\+ |--- |\+|-)/u.test(line))
+    .filter((line) => /^(?:diff --git |new file mode|deleted file mode|old mode|new mode|rename from|rename to|similarity index|\+\+\+ |--- |\+|-|\\ No newline at end of file$)/u.test(line))
     .join('\n');
   return createHash('sha256').update(content).digest('hex');
 }
@@ -91,7 +96,11 @@ export async function validateMergeEvidence(project, worktree, evidence, { taskI
     if (sourcePatch !== targetPatch || sourcePatch !== evidence.patchId) throw new Error('Patch identity mismatch');
     if (patchContentDigest(project, evidence.sourceBase, sourceHead)
       !== patchContentDigest(project, evidence.targetBefore, evidence.mergeCommit)) throw new Error('Patch content mismatch');
-    if (git(worktree, ['status', '--porcelain=v1', '--untracked-files=all'])) throw new Error('Dirty worktree');
+    // The cleanliness gate owns the removal decision, so it cannot be weakened
+    // by the repository's own configuration: `submodule.<name>.ignore` (or
+    // `.gitmodules`) would hide uncommitted submodule work from this status and
+    // let the cleanup delete it.
+    if (git(worktree, ['status', '--porcelain=v1', '--untracked-files=all', '--ignore-submodules=none'])) throw new Error('Dirty worktree');
     const current = await gitFingerprint(worktree);
     const completion = validateCompletion(receipt, delivery, current,
       { provenance: await attestCompletionProvenance(worktree, receipt) });
@@ -104,7 +113,7 @@ export async function validateMergeEvidence(project, worktree, evidence, { taskI
     const final = await gitFingerprint(worktree);
     if (git(project, ['rev-parse', '--verify', targetRef]) !== evidence.targetAfter
       || git(worktree, ['rev-parse', 'HEAD']) !== sourceHead
-      || git(worktree, ['status', '--porcelain=v1', '--untracked-files=all'])
+      || git(worktree, ['status', '--porcelain=v1', '--untracked-files=all', '--ignore-submodules=none'])
       || final.fingerprint !== current.fingerprint
       || final.writeFingerprint !== current.writeFingerprint) throw new Error('Refs or worktree changed during evidence validation');
     return { status: 'passed', evidence };
