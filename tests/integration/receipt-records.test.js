@@ -426,4 +426,16 @@ test('atomic claim is provider-gated, idempotent, fenced, and lease-aware', () =
     }), { capabilities, now: afterExpiry }),
     (error) => error.code === 'LEASE_EXPIRED',
   );
+  // A lease that cannot be parsed is not "still active": every comparison
+  // against `NaN` is false, so an unreconciled claim would otherwise fall
+  // through to `claimed` and be replaced silently.
+  assert.throws(
+    () => atomicClaim({ ...first.claim, leaseExpiresAt: 'not-a-timestamp' }, request, { capabilities, now }),
+    (error) => error.code === 'LEASE_EXPIRED',
+  );
+  // The same fail-closed rule applies to the clock the caller supplies.
+  assert.throws(
+    () => atomicClaim(null, request, { capabilities, now: new Date('not-a-timestamp') }),
+    (error) => error instanceof TypeError && /now must be a valid date/u.test(error.message),
+  );
 });
