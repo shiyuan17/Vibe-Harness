@@ -414,9 +414,19 @@ export async function attestCompletionProvenance(projectDir, receipt) {
     // be the command this run reported for that check: citing a recorded check id
     // with a stronger command that never ran is otherwise invisible here.
     const recordedCommands = record.checks !== null && typeof record.checks === 'object' ? record.checks : null;
-    const unbound = recordedCommands === null ? [] : (Array.isArray(receipt?.acceptance) ? receipt.acceptance : [])
-      .filter((item) => typeof item?.command === 'string' && item.command !== '' && recordedCommands[item.id] !== item.command)
-      .map((item) => item.id);
+    const claimed = (Array.isArray(receipt?.acceptance) ? receipt.acceptance : [])
+      .filter((item) => item !== null && typeof item === 'object' && !Array.isArray(item));
+    // A run that published no per-check commands cannot bind anything, so a
+    // receipt that still claims entries is not provable; and an entry that names
+    // a command has to name the recorded one, while an entry that names only a
+    // criterion cannot stand in for a check whose command was recorded.
+    const unbound = recordedCommands === null
+      ? (claimed.length > 0 ? ['acceptance-command-evidence-missing'] : [])
+      : claimed
+        .filter((item) => (typeof item.command === 'string' && item.command !== ''
+          ? recordedCommands[item.id] !== item.command
+          : Object.hasOwn(recordedCommands, item.id)))
+        .map((item) => item.id);
     if (unbound.length > 0) problems.push(`acceptance-command:${unbound.join('|')}`);
     return problems.length === 0
       ? { ok: true, reason: 'recorded-verification-matched', record: name }

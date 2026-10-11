@@ -907,9 +907,10 @@ export async function runVerificationPlan({
       ...report.verification, status: report.ok && focused.results.every((item) => item.status === 'passed') ? 'passed' : 'failed',
     }, {
       // The per-check commands this run reported, so a later completion receipt
-      // can be checked against them instead of being taken on its own word.
-      checks: Object.entries(/** @type {any} */ (focused).checks ?? {})
-        .map(([id, check]) => ({ id, command: check?.command })),
+      // can be checked against them instead of being taken on its own word. The
+      // commands live on the results this run returned, keyed by check id.
+      checks: (focused.results ?? [])
+        .map((item) => ({ id: item.id ?? item.command, command: item.command })),
     }).catch(() => false);
   }
   return report;

@@ -88,6 +88,21 @@ test('CLI verify 只承认显式 --reviewed 作为完成审阅证据', async () 
     await writeFile(recordPath, JSON.stringify({ ...stored, writeFingerprint: 'forged' }), 'utf8');
     const forged = await attestCompletionProvenance(project, reviewed.completion);
     assert.equal(forged.ok, false, JSON.stringify(forged));
+    // A receipt may not relabel a recorded check as a manual criterion: the
+    // command is the evidence, and a criterion cannot stand in for it.
+    const relabelled = structuredClone(reviewed.completion);
+    relabelled.acceptance = relabelled.acceptance.map((item, index) => (index === 0
+      ? { id: item.id, status: 'passed', criterion: 'reviewed by hand', scope: item.scope }
+      : item));
+    const criterion = await attestCompletionProvenance(project, relabelled);
+    assert.equal(criterion.ok, false, JSON.stringify(criterion));
+    // Neither may it cite a stronger command than the one this run reported.
+    const replaced = structuredClone(reviewed.completion);
+    replaced.acceptance = replaced.acceptance.map((item, index) => (index === 0
+      ? { ...item, command: 'pnpm verify:all' }
+      : item));
+    const command = await attestCompletionProvenance(project, replaced);
+    assert.equal(command.ok, false, JSON.stringify(command));
   } finally {
     await rm(project, { recursive: true, force: true });
   }
