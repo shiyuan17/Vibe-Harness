@@ -97,6 +97,34 @@ async function assertRuntimePathsSafe(paths) {
     || (canonicalTool !== null && normalize(canonicalTool) !== normalize(canonicalDeclared))) {
     throw new Error('Playwright tool directory must resolve to the target project\'s declared tool path.');
   }
+  // Identity alone still leaves every link below `.agents` in play: `npm ci` and
+  // the browser download run from this directory, so a link anywhere between the
+  // project root and the tool directory would redirect them outside the project.
+  // The mirror junction at `.agents` is the one documented indirection — it
+  // points at another checkout of this same project — and nothing below it may
+  // be a link.
+  let current = path.resolve(paths.targetDir);
+  for (const [index, segment] of PLAYWRIGHT_TOOL_RELATIVE_DIR.split('/').entries()) {
+    current = path.join(current, segment);
+    let info = null;
+    try {
+      info = await lstat(current);
+    } catch (error) {
+      if (error.code === 'ENOENT') break;
+      throw error;
+    }
+    if (!info.isSymbolicLink()) {
+      if (!info.isDirectory()) throw new Error('Playwright tool directory must be a directory.');
+      continue;
+    }
+    if (index > 0) throw new Error('Playwright tool directory must not traverse a symbolic link, junction, or reparse point.');
+    const linked = await realpath(current).catch(() => null);
+    if (linked === null || path.basename(linked) !== segment
+      || !(await stat(path.join(path.dirname(linked), '.git')).then(() => true).catch(() => false))) {
+      throw new Error('The .agents mirror must point at a checkout of this project.');
+    }
+    current = linked;
+  }
 }
 
 async function pathExists(filePath) {

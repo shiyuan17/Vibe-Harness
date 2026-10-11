@@ -291,10 +291,9 @@ async function installRtk(toolDir) {
   }
 }
 
-async function run(args, toolDir) {
+async function run(args, toolDir, projectRoot) {
   const binaryName = process.platform === 'win32' ? 'rtk.exe' : 'rtk';
   const binary = path.join(toolDir, 'bin', binaryName);
-  const projectRoot = path.resolve(toolDir, '../../../..');
   const env = await prepareRtkRuntimeEnvironment(projectRoot, process.env);
   const child = spawn(binary, args, { cwd: process.cwd(), env, shell: false, stdio: 'inherit', windowsHide: true });
   child.once('error', (error) => { process.stderr.write(`${error.message}\n`); process.exitCode = 1; });
@@ -305,20 +304,29 @@ const [command, ...args] = process.argv.slice(2);
 // A Worktree reaches this entry through its `.agents` junction, so the entry
 // path is compared by realpath: a plain resolve comparison made the RTK entry
 // exit 0 without running the wrapped command.
-const invokedPath = process.argv[1]
-  ? await realpath(process.argv[1]).catch(() => path.resolve(process.argv[1]))
+const lexicalEntry = process.argv[1] ? path.resolve(process.argv[1]) : null;
+const invokedPath = lexicalEntry
+  ? await realpath(lexicalEntry).catch(() => lexicalEntry)
   : null;
 const modulePath = await realpath(fileURLToPath(import.meta.url))
   .catch(() => fileURLToPath(import.meta.url));
 if (invokedPath !== null && invokedPath === modulePath) {
   const toolDir = path.dirname(fileURLToPath(import.meta.url));
+  // The project this invocation belongs to is the one whose entry path was
+  // invoked, not the checkout the module resolves to: `import.meta.url` is
+  // canonicalized through the `.agents` junction, so a Worktree would otherwise
+  // write RTK's state under the shared main checkout and mix the two projects'
+  // command history.
+  const projectRoot = lexicalEntry
+    ? path.resolve(path.dirname(lexicalEntry), '../../../..')
+    : path.resolve(toolDir, '../../../..');
   if (command === 'install') {
     installRtk(toolDir).then((result) => console.log(JSON.stringify(result))).catch((error) => {
       console.error(error.message);
       process.exitCode = 1;
     });
   } else {
-    run([command, ...args].filter((item) => item !== undefined), toolDir).catch((error) => {
+    run([command, ...args].filter((item) => item !== undefined), toolDir, projectRoot).catch((error) => {
       console.error(error.message);
       process.exitCode = 1;
     });
