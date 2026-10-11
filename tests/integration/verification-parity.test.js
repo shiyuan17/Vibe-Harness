@@ -436,3 +436,27 @@ test('额外命令的缺失与手动授权在两个引擎保持阻塞语义', as
     assert.equal(allowedCli.ok, true);
   });
 });
+
+test('聚焦入口与两种引擎共享部分配置的显式成本归属', async () => {
+  await fixture(async (project) => {
+    await writeFile(path.join(project, 'package.json'), JSON.stringify({
+      packageManager: 'pnpm@10.33.0',
+      scripts: { 'test:unit': 'node --test', 'test:component': 'node --test' },
+    }));
+    const config = {
+      validationCommands: { tiers: { standard: ['pnpm test:component'] } },
+      projectRules: { mode: 'off' },
+    };
+    await writeFile(path.join(project, 'vibe-harness.config.json'), JSON.stringify(config));
+    const profile = await detectProjectProfile({ config, targetDir: project });
+    const focused = await buildVerificationPlan({ config, targetDir: project, changedPaths: ['scripts/helper.js'] });
+    const cli = selectTierChecks({ tier: 'quick', tiers: profile.validationTiers, projectDir: project });
+    const runtime = await runCommand(['verify', '--project', project, '--tier', 'quick', '--plan']);
+    assert.equal(runtime.exitCode, 0);
+    const component = focused.selectedChecks.find((check) => check.id === 'component');
+    assert.equal(component.costTier, 'standard');
+    assert.equal(cli.deferredChecks.find((check) => check.command === component.command).costTier, component.costTier);
+    assert.equal(runtime.report.deferredChecks.find((check) => check.command === component.command).tier, component.costTier);
+    assert.deepEqual(runtime.report.selectedChecks.map((id) => runtime.report.checks[id].command), ['pnpm test:unit']);
+  });
+});

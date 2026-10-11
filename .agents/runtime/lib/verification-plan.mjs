@@ -166,12 +166,17 @@ export function resolveVerificationTiers({ config = {}, projectDir = process.cwd
     ...readVerificationTierFacts(projectDir, config.packageManager),
     configuredCommands: config.validationCommands,
   }).tiers;
+  const explicitCommands = new Set(VERIFICATION_TIERS.flatMap((tier) => (
+    Array.isArray(declared[tier]) ? declared[tier].filter((command) => typeof command === 'string').map((command) => verificationCommandIdentity(command)) : []
+  )));
   return Object.fromEntries(VERIFICATION_TIERS.map((tier) => {
     const commands = Object.hasOwn(declared, tier) ? declared[tier] : fallback[tier];
     if (!Array.isArray(commands) || commands.some((command) => typeof command !== 'string' || !command.trim())) {
       throw new Error(`validationCommands.tiers.${tier} must contain non-empty command strings.`);
     }
-    return [tier, [...new Set(commands.map((command) => command.trim()))]];
+    return [tier, [...new Set(commands
+      .filter((command) => Object.hasOwn(declared, tier) || !explicitCommands.has(verificationCommandIdentity(command)))
+      .map((command) => command.trim()))]];
   }));
 }
 

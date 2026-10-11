@@ -5,14 +5,19 @@
 import { pathToFileURL } from 'node:url';
 
 import { readProjectConfig } from './lib/project-config.js';
+import { resolveProjectConfigLocation } from './lib/project-layout.js';
 import { runFocusedProjectVerification } from './lib/project-verification.js';
 import {
   DEFAULT_VALIDATION_TIER,
   VALIDATION_TIERS,
   cumulativeTierNames,
+  deriveValidationTiers,
   normalizeTierOption,
+  readProjectTierFacts,
+  resolveExecutionTier,
+  resolveValidationTiers,
 } from './lib/validation-tiers.js';
-import { normalizeVerificationScope } from './lib/verification-contract.js';
+import { estimateVerificationCost, normalizeVerificationScope } from './lib/verification-contract.js';
 import {
   buildImpactMapping,
   collectChangedDetails,
@@ -102,15 +107,30 @@ async function main() {
     // collectChangedPaths already provides the actionable failure for a bad
     // repository; the selector can still produce a path-only safe plan.
   }
-  const config = await readProjectConfig(process.cwd());
+  const config = await resolveProjectConfigLocation(process.cwd())
+    ? await readProjectConfig(process.cwd())
+    : {};
+  const tierFacts = await readProjectTierFacts(process.cwd(), config.packageManager);
+  const derivedTiers = deriveValidationTiers({
+    ...tierFacts,
+    configuredCommands: config.validationCommands,
+  });
+  const resolvedTiers = resolveValidationTiers({
+    configuredTiers: config.validationCommands?.tiers,
+    derived: derivedTiers,
+  });
   const plan = await buildVerificationPlan({
     changedPaths: paths,
     commandStatus: {},
     config,
     changedDetails,
     targetDir: process.cwd(),
+    tiers: resolvedTiers.tiers,
+    tierSource: resolvedTiers.tierSource,
     scope,
   });
+  const execution = resolveExecutionTier({ tier, explicit: tierExplicit, tiers: resolvedTiers.tiers });
+  tier = execution.tier ?? tier;
   // The risk plan answers "what does this change affect"; the cost layer
   // answers "which of that evidence do I pay for now". The fast layer is the
   // default, and the deferred checks stay visible instead of disappearing.
@@ -132,7 +152,20 @@ async function main() {
   const nextTier = VALIDATION_TIERS.find((name) => deferredChecks.some((item) => tierOf(item) === name)) ?? null;
   const scopeStatus = deferredChecks.length > 0 ? 'partial' : 'complete';
   const notes = plan.selectionReasons;
-  const impactMapping = buildImpactMapping(paths, plan.selectedChecks);
+  const impactMapping = buildImpactMapping(paths, commands);
+  const selectedIds = new Set(commands.map((item) => item.id));
+  const skippedChecks = [...plan.skippedChecks.filter((item) => !selectedIds.has(item.id)), ...pool
+    .filter((item) => !selectedIds.has(item.id))
+    .map((item) => ({ id: item.id, status: 'not_selected' }))];
+  const selectedCost = estimateVerificationCost(commands, config);
+  const selection = {
+    selectedChecks: commands,
+    tierFallback: execution.fallback,
+    skippedChecks: [...new Map(skippedChecks.map((item) => [item.id, item])).values()],
+    estimatedCostMs: selectedCost.estimatedDurationMs,
+    estimatedChecks: selectedCost.estimatedChecks,
+    escalation: { ...plan.escalation, nextTier, required: plan.escalation.required || deferredChecks.length > 0 },
+  };
   const selectionReasonsByCheck = plan.selectionReasonsByCheck ?? Object.fromEntries(
     [...plan.selectedChecks, ...(plan.deferredChecks ?? [])].map((item) => [
       item.id ?? item.command,
@@ -142,6 +175,7 @@ async function main() {
   if (!run && json) {
     console.log(JSON.stringify({
       ...plan,
+      ...selection,
       deferredChecks,
       executionTier: tier,
       impactMapping,
@@ -151,10 +185,7 @@ async function main() {
       scope: plan.scope,
       scopeConfidence: plan.scopeConfidence,
       budgetMs: plan.budgetMs,
-      estimatedCostMs: plan.estimatedCostMs,
-      estimatedChecks: plan.estimatedChecks,
       environment: plan.environment,
-      selectedChecks: commands,
       selectionReasonsByCheck,
     }, null, 2));
     return;
@@ -173,6 +204,7 @@ async function main() {
     });
     report.verification = {
       ...report.verification,
+      ...selection,
       deferredChecks,
       executionTier: tier,
       riskLevel: plan.riskLevel,
@@ -183,12 +215,9 @@ async function main() {
       scope: plan.scope,
       scopeConfidence: plan.scopeConfidence,
       budgetMs: plan.budgetMs,
-      estimatedCostMs: plan.estimatedCostMs,
-      estimatedChecks: plan.estimatedChecks,
       environment: plan.environment,
-      selectedChecks: plan.selectedChecks.map((item) => ({ ...item })),
+      tierSource: plan.tierSource,
       selectionReasonsByCheck,
-      skippedChecks: plan.skippedChecks.map((item) => ({ ...item })),
       fallbackUsed: plan.fallbackUsed,
       selectionReasons: [...plan.selectionReasons],
     };

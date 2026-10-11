@@ -42,8 +42,13 @@ async function enforcementProject(adapterId, policy, { targets, withChecks = fal
   config.hooks = { ...config.hooks, enforcement: policy };
   if (targets) config.targets = [...targets];
   if (withChecks) {
+    // Declare the configured commands without a tier block so the flat form
+    // seeds the fast layer, exactly like tests/integration/project-verification.test.js.
+    // Spreading the init default here would declare `tiers: {quick: [], ...}`
+    // and an explicitly empty layer stays disabled, which would leave every
+    // check unselected and defeat this test's premise (checks pass, only the
+    // enforcement gate fails the run).
     config.validationCommands = {
-      ...config.validationCommands,
       lint: 'node -e 0',
       typecheck: 'node -e 0',
       test: 'node -e 0',

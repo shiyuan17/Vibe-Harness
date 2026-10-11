@@ -1972,6 +1972,19 @@
       "addedAt": "2026-09-16"
     },
     {
+      "id": "U-validation-tiers-019",
+      "layer": "unit",
+      "file": "tests/unit/validation-tiers.test.js",
+      "ordinal": 19,
+      "name": "显式命令归属优先于缺失层的推导归属",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-10-10"
+    },
+    {
       "id": "U-verification-contract-001",
       "layer": "unit",
       "file": "tests/unit/verification-contract.test.js",
@@ -2191,6 +2204,19 @@
       "source": "declared",
       "status": "active",
       "addedAt": "2026-09-19"
+    },
+    {
+      "id": "U-verification-plan-016",
+      "layer": "unit",
+      "file": "tests/unit/verification-plan.test.js",
+      "ordinal": 16,
+      "name": "聚焦成本层遵守项目配置并保留原检查归属：${fixture.name}",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-10-10"
     },
     {
       "id": "U-verification-queue-001",
@@ -14400,6 +14426,19 @@
       "addedAt": "2026-09-28"
     },
     {
+      "id": "I-verification-parity-023",
+      "layer": "integration",
+      "file": "tests/integration/verification-parity.test.js",
+      "ordinal": 23,
+      "name": "聚焦入口与两种引擎共享部分配置的显式成本归属",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-10-10"
+    },
+    {
       "id": "I-verify-focused-001",
       "layer": "integration",
       "file": "tests/integration/verify-focused.test.js",
@@ -14489,6 +14528,19 @@
       "source": "declared",
       "status": "active",
       "addedAt": "2026-09-23"
+    },
+    {
+      "id": "I-verify-focused-008",
+      "layer": "integration",
+      "file": "tests/integration/verify-focused.test.js",
+      "ordinal": 8,
+      "name": "聚焦预览保留推导与空层语义：${fixture.name}",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-10-10"
     },
     {
       "id": "I-worktree-audit-001",

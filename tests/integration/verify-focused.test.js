@@ -161,6 +161,16 @@ test('verify-focused --run 默认只执行快速层并把更深检查标为 defe
     };
     const packageJson = { name: 'verify-focused-tier-fixture', private: true, scripts };
     await writeFile(path.join(dir, 'package.json'), JSON.stringify(packageJson));
+    await writeFile(path.join(dir, 'vibe-harness.config.json'), JSON.stringify({
+      packageManager: 'pnpm',
+      validationCommands: {
+        tiers: {
+          quick: ['pnpm test:unit'],
+          standard: ['pnpm test:component', 'pnpm test:integration'],
+          deep: ['pnpm test:e2e', 'pnpm smoke:lifecycle'],
+        },
+      },
+    }));
     for (const name of ['unit', 'component', 'integration', 'e2e', 'smoke']) {
       await writeFile(
         path.join(dir, `run-${name}.mjs`),
@@ -193,14 +203,25 @@ test('verify-focused --run 默认只执行快速层并把更深检查标为 defe
     assert.equal(fast.verification.nextTier, 'standard');
     assert.deepEqual(
       fast.verification.focused.commands.map((item) => item.command),
-      ['pnpm test:unit', 'pnpm test:component'],
+      ['pnpm test:unit'],
     );
-    assert.deepEqual(fast.verification.deferredChecks.map((item) => item.costTier), ['standard', 'deep']);
+    assert.deepEqual(fast.verification.deferredChecks.map((item) => item.costTier), ['standard', 'standard', 'deep']);
     assert.deepEqual(
       fast.results.map((item) => [item.command, item.status]),
-      [['pnpm test:unit', 'passed'], ['pnpm test:component', 'passed']],
+      [['pnpm test:unit', 'passed']],
     );
     assert.match(fast.results[0].stdout, /unit-ran/u);
+    for (const tier of ['quick', 'standard']) {
+      const preview = JSON.parse((await execFileAsync(process.execPath, [scriptPath, '--json', '--tier', tier], { cwd: dir })).stdout);
+      const executed = JSON.parse((await execFileAsync(process.execPath, [scriptPath, '--run', '--json', '--tier', tier], { cwd: dir })).stdout);
+      assert.deepEqual(executed.verification.selectedChecks, preview.selectedChecks);
+      assert.deepEqual(executed.verification.deferredChecks, preview.deferredChecks);
+      assert.deepEqual(executed.verification.skippedChecks, preview.skippedChecks);
+      assert.deepEqual(executed.verification.selectionReasonsByCheck, preview.selectionReasonsByCheck);
+      assert.equal(executed.verification.nextTier, preview.nextTier);
+      assert.deepEqual(executed.results.map((check) => check.command), preview.selectedChecks.map((check) => check.command));
+      assert.equal(preview.selectedChecks.some((check) => check.command === 'pnpm test:component'), tier === 'standard');
+    }
 
     const deep = JSON.parse((await execFileAsync(process.execPath, [scriptPath, '--run', '--json', '--tier', 'deep'], {
       cwd: dir,
@@ -302,3 +323,37 @@ test('impact mapping narrows e2e and smoke appends to their actual surfaces', ()
   assert.deepEqual(workflow.e2e, ['pnpm test:e2e']);
   assert.deepEqual(workflow.smoke, ['pnpm smoke:lifecycle']);
 });
+
+for (const fixture of [
+  { name: '部分配置', tiers: { standard: ['pnpm test:component'] }, defaultTier: 'quick', defaultIds: ['test'], quickIds: ['test'] },
+  { name: '显式空快速层', tiers: { quick: [], standard: ['pnpm test:component'], deep: [] }, defaultTier: 'standard', defaultIds: ['component'], quickIds: [] },
+  { name: '全部显式为空', tiers: { quick: [], standard: [], deep: [] }, defaultTier: 'quick', defaultIds: [], quickIds: [] },
+  { name: '未声明成本层', tiers: undefined, defaultTier: 'quick', defaultIds: ['test', 'component'], quickIds: ['test', 'component'] },
+]) {
+  test(`聚焦预览保留推导与空层语义：${fixture.name}`, async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'verify-focused-config-'));
+    const git = (...args) => execFileAsync('git', ['-C', dir, ...args]);
+    try {
+      await git('init');
+      await writeFile(path.join(dir, 'package.json'), JSON.stringify({
+        scripts: { 'test:unit': 'node --test', 'test:component': 'node --test' },
+      }));
+      await writeFile(path.join(dir, 'vibe-harness.config.json'), JSON.stringify({
+        packageManager: 'pnpm', validationCommands: { tiers: fixture.tiers },
+      }));
+      await git('add', '.');
+      await git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-m', 'base');
+      await mkdir(path.join(dir, 'scripts'));
+      await writeFile(path.join(dir, 'scripts/helper.js'), 'export const value = 1;\n');
+      const scriptPath = path.resolve(import.meta.dirname, '../../scripts/verify-focused.js');
+      const preview = JSON.parse((await execFileAsync(process.execPath, [scriptPath, '--json'], { cwd: dir })).stdout);
+      const quick = JSON.parse((await execFileAsync(process.execPath, [scriptPath, '--json', '--tier', 'quick'], { cwd: dir })).stdout);
+      assert.equal(preview.executionTier, fixture.defaultTier);
+      assert.deepEqual(preview.selectedChecks.map((check) => check.id), fixture.defaultIds);
+      assert.deepEqual(quick.selectedChecks.map((check) => check.id), fixture.quickIds);
+      assert.equal(quick.tierFallback, null);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+}

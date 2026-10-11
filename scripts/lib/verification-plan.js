@@ -3,10 +3,14 @@ import path from 'node:path';
 
 import {
   VALIDATION_TIER_BLOCKING_SCOPE,
+  deriveValidationTiers,
   nextNonEmptyTier,
+  readProjectTierFacts,
   resolveExecutionTier,
+  resolveValidationTiers,
   selectTierChecks,
 } from './validation-tiers.js';
+import { verificationCommandIdentity } from '../../runtime/lib/verification-plan.mjs';
 import { TEST_FILE_PATTERN } from './test-enumeration.js';
 import { LIFECYCLE_PATHS } from './change-impact.js';
 import {
@@ -344,6 +348,18 @@ export async function buildVerificationPlan({
   const paths = changedPaths.map(normalize);
   const risk = classifyVerificationRisk(paths, { changedDetails, riskZones: config.riskZones });
   const scripts = await projectScripts(targetDir);
+  const derived = deriveValidationTiers({
+    ...await readProjectTierFacts(targetDir, config.packageManager),
+    configuredCommands: config.validationCommands,
+  });
+  const effective = resolveValidationTiers({ configuredTiers: config.validationCommands?.tiers, derived });
+  const costTiers = tiers ?? effective.tiers;
+  tierSource ??= effective.tierSource;
+  const tierForCommand = (command) => command
+    ? Object.entries(costTiers).find(([, commands]) => commands.some(
+      (candidate) => verificationCommandIdentity(candidate) === verificationCommandIdentity(command),
+    ))?.[0]
+    : undefined;
   // The coverage map comes from the caller or from the target's own ledger;
   // it is only consulted in tier-less (change-driven) plans.
   const coverage = covers === undefined ? await readLedgerCovers(targetDir) : covers;
@@ -368,6 +384,9 @@ export async function buildVerificationPlan({
   const configured = (name) => {
     const declaredCheck = validationCheckMap(config).get(name);
     if (declaredCheck?.command) return declaredCheck.command;
+    if (typeof config.validationCommands?.[name] === 'string' && config.validationCommands[name].trim()) {
+      return config.validationCommands[name].trim();
+    }
     if (commandStatus[name]?.status && commandStatus[name].status !== 'not_configured') {
       return commandStatus[name].command;
     }
@@ -475,12 +494,26 @@ export async function buildVerificationPlan({
     'lint', 'typecheck', 'validate', 'test', 'component', 'eval', 'docs', 'eval-check', 'skills',
     'integration', 'e2e', 'matrix', 'smoke',
   ];
-  const riskChecks = checks.map((item) => ({
-    ...item,
-    blockingScope: VALIDATION_TIER_BLOCKING_SCOPE[costTierForCheck(item.id)],
-    costTier: costTierForCheck(item.id),
-    ...(commandStatus[item.id]?.status ? { status: commandStatus[item.id].status } : {}),
-  }));
+  const withCost = (item) => {
+    const originalCommand = configured(item.id) ?? item.command;
+    const declaredTier = tierForCommand(originalCommand) ?? tierForCommand(item.command);
+    const derivedTier = Object.entries(derived.tiers).find(([, commands]) => commands.some(
+      (candidate) => verificationCommandIdentity(candidate) === verificationCommandIdentity(originalCommand),
+    ))?.[0] ?? (scriptFallback[item.id] ? costTierForCheck(item.id) : undefined);
+    const fallbackTier = derivedTier ?? costTierForCheck(item.id);
+    const declared = config.validationCommands?.tiers ?? {};
+    const disabled = !declaredTier && Object.hasOwn(declared, fallbackTier)
+      && (scriptFallback[item.id] || declared[fallbackTier].length === 0);
+    if (disabled && !full && !risk.fallbackUsed) return null;
+    const costTier = declaredTier ?? derivedTier ?? costTierForCheck(item.id);
+    return {
+      ...item,
+      blockingScope: VALIDATION_TIER_BLOCKING_SCOPE[costTier],
+      costTier,
+      ...(commandStatus[item.id]?.status ? { status: commandStatus[item.id].status } : {}),
+    };
+  };
+  const riskChecks = checks.map(withCost).filter(Boolean);
   // A tier run answers "how much evidence do I pay for now": it selects the
   // configured commands of the cumulative layers and reports the rest as
   // deferred, so a fast pass can never be mistaken for a complete one. An
@@ -524,12 +557,7 @@ export async function buildVerificationPlan({
     ? []
     : [
         ...(tierSelection?.deferredChecks ?? []),
-        ...(tierSelection ? [] : deferredEvidence.map((item) => ({
-          ...item,
-          blockingScope: VALIDATION_TIER_BLOCKING_SCOPE[costTierForCheck(item.id)],
-          costTier: costTierForCheck(item.id),
-          ...(commandStatus[item.id]?.status ? { status: commandStatus[item.id].status } : {}),
-        }))),
+        ...(tierSelection ? [] : deferredEvidence.map(withCost).filter(Boolean)),
       ].filter((item) => !selectedIds.has(item.id));
   const metadata = validationCheckMap(config);
   const selectedWithMetadata = selectedChecks.map((item) => {

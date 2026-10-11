@@ -130,7 +130,9 @@ export function resolveValidationTiers({ configuredTiers, derived } = {}) {
         : ['显式配置为空数组，该层被禁用'];
       continue;
     }
-    tierReasons[tier] = [...(derivedReasons[tier] ?? [])];
+    tierReasons[tier] = (derivedReasons[tier] ?? []).filter((reason) => (
+      tiers[tier].some((command) => reason.startsWith(`${command} ← `))
+    ));
   }
 
   const tierSource = validationTiersDeclared(configured)

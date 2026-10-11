@@ -334,3 +334,32 @@ test('tier 计划不收窄测试命令以保持层命令同一性', async () => 
     await rm(target, { force: true, recursive: true });
   }
 });
+
+for (const fixture of [
+  { name: '完整配置', tiers: { quick: ['pnpm test:unit'], standard: ['pnpm test:component'], deep: [] }, expected: ['test', 'component'], componentTier: 'standard' },
+  { name: '部分配置', tiers: { standard: ['pnpm test:component'] }, expected: ['test', 'component'], componentTier: 'standard' },
+  { name: '显式空层', tiers: { quick: [], standard: ['pnpm test:component'], deep: [] }, expected: ['component'], componentTier: 'standard' },
+  { name: '无成本层', tiers: undefined, expected: ['test', 'component'], componentTier: 'quick' },
+]) {
+  test(`聚焦成本层遵守项目配置并保留原检查归属：${fixture.name}`, async () => {
+    const target = await targetWithScripts();
+    try {
+      const plan = await buildVerificationPlan({
+        changedPaths: ['scripts/lib/helper.js'],
+        targetDir: target,
+        config: { validationCommands: { tiers: fixture.tiers } },
+        scope: 'affected',
+        covers: {
+          'tests/unit/alpha.test.js': ['scripts/lib/helper.js'],
+          'tests/component/alpha.test.js': ['scripts/lib/helper.js'],
+        },
+      });
+      assert.deepEqual(plan.selectedChecks.map((check) => check.id), fixture.expected);
+      const component = plan.selectedChecks.find((check) => check.id === 'component');
+      assert.equal(component.costTier, fixture.componentTier);
+      assert.equal(component.command, 'node --test tests/component/alpha.test.js');
+    } finally {
+      await rm(target, { force: true, recursive: true });
+    }
+  });
+}
