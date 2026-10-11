@@ -1,10 +1,10 @@
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { chmodSync, lstatSync, mkdirSync, realpathSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import path from 'node:path';
 
-import { processStartIdentity, serviceSocketDirectory, signalTree as signalProcessTree, treeGone as processTreeGone } from './services.mjs';
+import { parseTreeMembers, processStartIdentity, serviceSocketDirectory, signalTree as signalProcessTree, treeGone as processTreeGone, windowsTreeProbeCommand } from './services.mjs';
 
 // A supervisor owns exactly one service process tree. The tree is started as a
 // detached process-group leader on Unix (`taskkill /t` is the Windows
@@ -24,6 +24,11 @@ const TERMINATION_SIGNALS = ['SIGTERM', 'SIGINT', 'SIGHUP', 'SIGBREAK'];
 // The launcher confirms that it persisted this service identity over the IPC
 // channel; without that acknowledgement the tree would have no recorded owner.
 const REGISTRATION_ACK_MS = 10000;
+// A Windows tree is sampled while it is alive: a descendant whose intermediate
+// parent exits can no longer be connected to the root by parent fields, so the
+// PIDs seen here are the only handle left on it later.
+const TREE_SAMPLE_MS = 400;
+const TREE_SAMPLE_TIMEOUT_MS = 20000;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -69,14 +74,64 @@ function startService(input) {
     controlToken: randomUUID(),
     ...(startIdentity === 'missing' || startIdentity === 'unreadable' ? {} : { processStartTime: startIdentity }),
   };
-  const blocked = (reason) => ({ ...identity, status: 'blocked', reason });
+  /** Every member this supervisor has observed while the tree was alive. */
+  const trackedMembers = new Map();
+  const memberEvidence = () => [...trackedMembers.values()];
+  // The tree evidence travels with every identity-bearing reply: the launcher
+  // records it in the registry, and the reclaim path needs it once this
+  // supervisor is gone.
+  const evidencePayload = (fields) => ({
+    ...identity,
+    ...(trackedMembers.size > 0 ? { treeMembers: memberEvidence() } : {}),
+    ...fields,
+  });
+  let sampling = false;
+  const sampleTree = () => {
+    // Sampled asynchronously: the walk spawns a PowerShell process and the
+    // supervisor's own event loop is what answers the launcher's handshake, so
+    // blocking here would delay the very registration this evidence protects.
+    if (process.platform !== 'win32' || sampling) return;
+    sampling = true;
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', windowsTreeProbeCommand(child.pid)], {
+      encoding: 'utf8', timeout: TREE_SAMPLE_TIMEOUT_MS, windowsHide: true, maxBuffer: 1024 * 1024,
+    }, (error, stdout) => {
+      sampling = false;
+      if (error) return;
+      for (const member of parseTreeMembers(stdout)) trackedMembers.set(member.pid, member);
+    });
+  };
+  const sampleTimer = process.platform === 'win32' ? setInterval(sampleTree, TREE_SAMPLE_MS) : null;
+  sampleTimer?.unref?.();
+  sampleTree();
+  const blocked = (reason) => evidencePayload({ status: 'blocked', reason });
   /** True only for a request that presents every recorded ownership field. */
   const ownsRequest = (request) => request.controlToken === identity.controlToken
     && ['pid', 'supervisorPid', 'cwd', 'commandFingerprint', 'startedAt'].every((key) => request[key] === identity[key])
     && (identity.processStartTime === undefined || request.processStartTime === identity.processStartTime);
 
+  /**
+   * Whether `child.pid` may still be acted on: 'owned' (this service),
+   * 'reused' (the number now belongs to an unrelated process) or
+   * 'unverifiable' (no identity was captured, or it cannot be read now).
+   *
+   * Windows recycles PIDs, so a tree walk or `taskkill` started from a number
+   * that can no longer be matched would describe — and then terminate — an
+   * unrelated tree; both other answers therefore block every tree action instead
+   * of guessing. A root that is *gone* is still 'owned': on Unix the process
+   * group it led outlives it, and on Windows the recorded members carry their own
+   * identities, so descendants remain actionable.
+   */
+  const rootState = () => {
+    if (identity.processStartTime === undefined) return process.platform === 'win32' ? 'unverifiable' : 'owned';
+    const current = processStartIdentity(child.pid);
+    if (current === 'missing') return 'owned';
+    if (current === 'unreadable') return 'unverifiable';
+    return current === identity.processStartTime ? 'owned' : 'reused';
+  };
   /** Signal the whole owned tree: the detached group on Unix, `taskkill /t` on Windows. */
-  const signalTree = (signal) => signalProcessTree(child.pid, signal);
+  const signalTree = (signal) => (rootState() === 'owned'
+    ? signalProcessTree(child.pid, signal, { tracked: memberEvidence() })
+    : false);
   /**
    * True only while some part of the owned tree can still be observed.
    *
@@ -85,7 +140,9 @@ function startService(input) {
    * see, so the root child's exit decides *when* to reap, never whether the
    * tree is gone.
    */
-  const treeGone = () => processTreeGone(child.pid);
+  const treeGone = () => (rootState() === 'owned'
+    ? processTreeGone(child.pid, { tracked: memberEvidence() })
+    : false);
 
   const stayResident = () => {
     if (idle) return;
@@ -112,9 +169,9 @@ function startService(input) {
     reaping = attempt.finally(() => { reaping = null; });
     return reaping;
   };
-  const reply = (socket, payload) => socket.end(`${JSON.stringify(payload)}\n`);
+  const reply = (socket, body) => socket.end(`${JSON.stringify(body)}\n`);
   const settle = (socket, gone) => {
-    reply(socket, gone ? { ...identity, status: 'stopped' } : blocked('descendants-survive'));
+    reply(socket, gone ? evidencePayload({ status: 'stopped' }) : blocked('descendants-survive'));
     // A terminal "stopped" ends this supervisor: an exited service must not keep
     // a detached node process and its endpoint resident. A surviving tree keeps
     // being served so `stop` can retry, bounded by the idle lifetime below.
@@ -125,7 +182,7 @@ function startService(input) {
   const abort = async () => {
     const gone = await reapTree();
     if (!gone) stayResident();
-    return gone ? { ...identity, status: 'stopped' } : blocked('descendants-survive');
+    return gone ? evidencePayload({ status: 'stopped' }) : blocked('descendants-survive');
   };
   const server = createServer((socket) => {
     let buffer = '';
@@ -136,11 +193,18 @@ function startService(input) {
       if (!buffer.includes('\n')) return;
       let request;
       try { request = JSON.parse(buffer.trim()); } catch { socket.destroy(); return; }
+      // Valid JSON is not necessarily an object: `null`, a string or an array
+      // would make the ownership comparison below read fields off a non-object
+      // and throw inside this callback, which nothing observes.
+      if (request === null || typeof request !== 'object' || Array.isArray(request)) { socket.destroy(); return; }
       // Every request — `status` included — has to present the ownership fields
       // and the per-supervisor token: a `status` reply would otherwise hand a
       // local user the exact fields a `stop` needs to authorize itself.
       if (!ownsRequest(request)) {
-        reply(socket, blocked('ownership-mismatch')); return;
+        // A refused request gets a reason and nothing else: echoing the identity
+        // would hand the fields of the refusal back to whoever asked — including
+        // the control token a later `stop` would need.
+        reply(socket, { status: 'blocked', reason: 'ownership-mismatch' }); return;
       }
       if (request.action === 'status') {
         if (!exited) { reply(socket, { ...identity, status: 'running' }); return; }
@@ -148,7 +212,7 @@ function startService(input) {
         return;
       }
       if (request.action !== 'stop' || stopping) {
-        reply(socket, blocked('ownership-mismatch')); return;
+        reply(socket, { status: 'blocked', reason: 'ownership-mismatch' }); return;
       }
       stopping = true;
       settle(socket, await reapTree());
@@ -200,7 +264,7 @@ function startService(input) {
   child.once('spawn', () => {
     // The launcher needs the service identity before the endpoint can answer:
     // that identity is what lets it reclaim this tree if the handshake times out.
-    try { process.send?.({ ...identity, status: 'spawned' }); } catch { /* the handshake is already abandoned */ }
+    try { process.send?.(evidencePayload({ status: 'spawned' })); } catch { /* the handshake is already abandoned */ }
     // A bind failure, or a control socket that cannot be restricted to its
     // owner, must not orphan the tree: the same proof `stop` uses runs before
     // the caller is told anything.
@@ -210,7 +274,7 @@ function startService(input) {
       // Descendants survived both signals. Exiting here would leave them with no
       // owner and no handle, so the supervisor stays resident and reports the
       // surviving tree to the launcher over IPC instead of exiting.
-      try { process.send?.({ ...identity, status: 'blocked', reason: 'control-endpoint-unavailable' }); } catch { /* the launcher is gone */ }
+      try { process.send?.(evidencePayload({ status: 'blocked', reason: 'control-endpoint-unavailable' })); } catch { /* the launcher is gone */ }
       stayResident();
     });
     // A Unix socket is created by `listen()` before any permission can be
@@ -273,7 +337,7 @@ function startService(input) {
       ackTimer.unref();
       process.on('message', onAck);
       process.on('disconnect', onDisconnect);
-      try { process.send?.({ ...identity, status: 'running' }); } catch { void abandon(); }
+      try { process.send?.(evidencePayload({ status: 'running' })); } catch { void abandon(); }
     });
   });
 }

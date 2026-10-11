@@ -619,6 +619,41 @@ test('服务登记身份一致时才回收进程树', async () => {
   }
 });
 
+test('冒名端点回答 stopped 时不作为回收证据', async () => {
+  const { project } = await fixture();
+  const child = spawnDetachedFixture();
+  const endpoint = unreachableEndpoint();
+  const impostor = createServer((socket) => { socket.end(`${JSON.stringify({ status: 'stopped' })}\n`); });
+  try {
+    await new Promise((resolve, reject) => {
+      impostor.once('error', reject);
+      impostor.listen(endpoint, resolve);
+    });
+    await writeServiceRegistry(project, {
+      taskId: 'local', serviceId: 'web', worktree: realpathSync(project), port: 9,
+      commandFingerprint: 'fingerprint', cwd: realpathSync(project), status: 'running',
+      teardownStatus: 'unverified', stopOnTeardown: true, pid: child.pid, supervisorPid: 1,
+      startedAt: '2026-01-01T00:00:00.000Z', endpoint, controlToken: 'token-a',
+      processStartTime: processStartIdentity(child.pid),
+    });
+    const stopped = await command(project, 'runtime', 'service', 'stop', '--service', 'web', '--write');
+    // The endpoint name is per user, not per supervisor: after the recorded
+    // supervisor exits, another process can bind it and answer `stopped` for a
+    // tree that is still serving, so the reply has to prove the recorded identity.
+    assert.equal(stopped.report.status, 'blocked', JSON.stringify(stopped.report));
+    assert.equal(stopped.report.processes[0].reason, 'ownership-unproven');
+    assert.equal(stopped.report.processes[0].teardownStatus, 'blocked');
+    const registry = JSON.parse(await readFile(path.join(project, '.vibe-harness', 'processes.json'), 'utf8'));
+    assert.notEqual(registry.processes[0].status, 'stopped');
+    // The unrelated process that holds the recorded PID was never signalled.
+    assert.equal(treeGone(child.pid), false);
+  } finally {
+    impostor.close();
+    killTree(child.pid);
+    await remove(project);
+  }
+});
+
 test('service stop 不带 --write 时不发信号', async () => {
   const { project } = await fixture();
   const child = spawnDetachedFixture();
