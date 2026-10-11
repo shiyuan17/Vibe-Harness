@@ -68,8 +68,13 @@ async function assertRuntimePathsSafe(paths) {
   for (const [label, candidate] of [
     ['Playwright artifacts directory', paths.artifactsDir],
     ['Playwright state directory', paths.stateDir],
-    ['Playwright tool directory', paths.toolDir],
   ]) await assertSafeRuntimePath(paths.targetDir, candidate, label);
+  // The tool directory is the declared `.agents` mirror, so a worktree reaches
+  // it through that project's junction and the realpath belongs to the shared
+  // main checkout by design. Project-local state stays under the artifacts and
+  // state directories above; the lexical containment check is what keeps this
+  // project's tool path from being redirected elsewhere.
+  assertInside(paths.targetDir, paths.toolDir, 'Playwright tool directory');
 }
 
 async function pathExists(filePath) {
@@ -319,14 +324,38 @@ export async function runPlaywrightCli(args, options = {}) {
 
 // A Worktree reaches this entry through its `.agents` junction, so the entry
 // path is compared by realpath instead of by the path string it was called with.
-const invokedPath = process.argv[1]
-  ? await realpath(process.argv[1]).catch(() => path.resolve(process.argv[1]))
+const invocation = process.argv[1] ? path.resolve(process.argv[1]) : null;
+const invokedPath = invocation
+  ? await realpath(invocation).catch(() => invocation)
   : null;
 const modulePath = await realpath(fileURLToPath(import.meta.url))
   .catch(() => fileURLToPath(import.meta.url));
+
+/**
+ * The project a lexically-invoked entry belongs to.
+ *
+ * `import.meta.url` resolves through the worktree's `.agents` junction into the
+ * primary checkout, so the path-derived defaults would provision and write with
+ * the primary checkout as `cwd`. The invocation path is the lexical one, and it
+ * names the worktree that actually ran the command.
+ */
+export function projectDirFromInvocation(invocationPath) {
+  const segments = [...PLAYWRIGHT_TOOL_RELATIVE_DIR.split('/'), 'run.mjs'];
+  const suffix = path.normalize(path.join(...segments));
+  const candidate = path.normalize(invocationPath);
+  const comparable = process.platform === 'win32' ? candidate.toLowerCase() : candidate;
+  const expected = process.platform === 'win32' ? suffix.toLowerCase() : suffix;
+  if (!comparable.endsWith(expected)) return null;
+  const projectDir = candidate.slice(0, candidate.length - suffix.length).replace(/[\\/]+$/u, '');
+  return projectDir === '' ? null : projectDir;
+}
+
 if (invokedPath !== null && invokedPath === modulePath) {
+  const projectDir = invocation ? projectDirFromInvocation(invocation) : null;
   try {
-    await runPlaywrightCli(process.argv.slice(2));
+    await runPlaywrightCli(process.argv.slice(2), projectDir
+      ? { targetDir: projectDir, toolDir: path.join(projectDir, PLAYWRIGHT_TOOL_RELATIVE_DIR) }
+      : {});
   } catch (error) {
     console.error(JSON.stringify({ error: { code: error.code ?? 'PLAYWRIGHT_CLI_ERROR', message: error.message }, ok: false }));
     process.exitCode = 1;

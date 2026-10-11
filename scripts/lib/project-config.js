@@ -5,7 +5,7 @@ import path from 'node:path';
 import { pathExists } from './manifest.js';
 import { renderTemplate } from './template-renderer.js';
 import { parsePluginsOption, resolveModuleSelection } from './module-selection.js';
-import { installPresetForId, parsePresetOption } from './install-preset.js';
+import { expandInstallPreset, installPresetForId, parsePresetOption } from './install-preset.js';
 import { assertPortableRelativePath } from './manifest.js';
 import { readRedZoneManifestSync } from './red-zone.js';
 import { validateJsonAgainstSchema } from './schema-validation.js';
@@ -49,16 +49,19 @@ const PLUGIN_WORKTREE_MIRRORS = {
 };
 
 /**
- * The `worktree.mirrors` default for one resolved install surface: the
- * adapter directory plus the plugin directories a project enabled. Order is
+ * The `worktree.mirrors` default for one resolved install surface: every
+ * selected adapter's directory plus the plugin directories a project enabled.
+ * The install surface is the whole target list — deriving it from the first
+ * target would leave a multi-host project unable to reach `.zcode`,
+ * `opencode.json`, `.codegraph` or the Serena files inside a worktree. Order is
  * stable and de-duplicated so the written config is deterministic.
  */
-export function defaultWorktreeMirrors({ plugins = [], target = 'codex' } = {}) {
+export function defaultWorktreeMirrors({ plugins = [], target = 'codex', targets = null } = {}) {
   const mirrors = [];
   const add = (items) => {
     for (const item of items ?? []) if (!mirrors.includes(item)) mirrors.push(item);
   };
-  add(TARGET_WORKTREE_MIRRORS[target]);
+  for (const name of Array.isArray(targets) && targets.length > 0 ? targets : [target]) add(TARGET_WORKTREE_MIRRORS[name]);
   for (const plugin of plugins) add(PLUGIN_WORKTREE_MIRRORS[plugin]);
   return mirrors;
 }
@@ -179,7 +182,7 @@ export function profileToCatalogProfile(profile) {
   return profile;
 }
 
-export function createDefaultProjectConfig(projectDir, target = 'codex', profile = 'core') {
+export function createDefaultProjectConfig(projectDir, target = 'codex', profile = 'core', { plugins = [], targets = null } = {}) {
   const projectName = path.basename(path.resolve(projectDir));
   return {
     ...defaultProjectConfig,
@@ -191,7 +194,7 @@ export function createDefaultProjectConfig(projectDir, target = 'codex', profile
     // every isolation unit beside the repository, never inside it.
     worktree: {
       ...defaultProjectConfig.worktree,
-      mirrors: defaultWorktreeMirrors({ target }),
+      mirrors: defaultWorktreeMirrors({ plugins, targets: targets ?? [target] }),
       root: `../${projectName}-worktrees`,
     },
   };
@@ -239,7 +242,14 @@ export async function writeDefaultProjectConfig({ force = false, preset, project
     throw new Error('preset ' + presetId + ' requires profile ' + presetProfile + ', received ' + profile + '.');
   }
   const config = {
-    ...createDefaultProjectConfig(projectDir, selectedTargets[0], profile),
+    // The resolved preset's plugin surface belongs to the initial config: the
+    // install step skips the mirror seed once `worktree.mirrors` exists, so a
+    // preset-based init that recorded only the adapter directories would never
+    // project the plugin surfaces into a worktree.
+    ...createDefaultProjectConfig(projectDir, selectedTargets[0], profile, {
+      plugins: presetId ? expandInstallPreset(presetId).plugins : [],
+      targets: selectedTargets,
+    }),
     ...(presetId ? { preset: presetId } : {}),
     targets: [...selectedTargets],
   };

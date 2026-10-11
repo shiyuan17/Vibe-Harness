@@ -29,7 +29,7 @@ import {
 import { findVerificationReceipt, storeVerificationReceipt, verificationCacheContext } from '../lib/verification-receipt.mjs';
 import { completionReceipt, overrideWarnings, resolveDelivery, validateCompletion } from '../lib/delivery.mjs';
 import { readMergeEvidence, validateMergeEvidence } from '../lib/merge-evidence.mjs';
-import { serviceReport, teardownServices } from '../lib/services.mjs';
+import { releaseServiceTeardown, serviceReport, teardownServices } from '../lib/services.mjs';
 
 import { parseWorktreeList, pathKey, resolveWorktreeRoot, summarizeWorktreeAudit, validateWorktrees } from '../lib/worktree-audit.mjs';
 import {
@@ -136,7 +136,7 @@ function parseArgs(argv) {
     ['clear-blockers', 'clearBlockers'],
   ]);
   const booleanFlags = new Set(['json', 'plan', 'async', 'allow-manual', 'no-numbers', 'no-verify', 'strict', 'write', 'help', 'confirm-red-zone', 'reuse', 'push', 'complete', 'dispatch', 'clear-blockers']);
-  const valueFlags = new Set(['project', 'base', 'only', 'timeout', 'output', 'tier', 'scope', 'micro', 'task', 'base-ref', 'branch-prefix', 'file', 'from', 'to', 'spec', 'root', 'title', 'goal', 'risk-level', 'stage', 'unit', 'unit-status', 'acceptance', 'decision', 'blocker', 'failure', 'next-action', 'verification', 'plan-file', 'reason', 'approval', 'test-path']);
+  const valueFlags = new Set(['project', 'base', 'only', 'reviewed', 'timeout', 'output', 'tier', 'scope', 'micro', 'task', 'base-ref', 'branch-prefix', 'file', 'from', 'to', 'spec', 'root', 'title', 'goal', 'risk-level', 'stage', 'unit', 'unit-status', 'acceptance', 'decision', 'blocker', 'failure', 'next-action', 'verification', 'plan-file', 'reason', 'approval', 'test-path']);
   for (const flag of ['delivery', 'receipt', 'merge-evidence', 'mr', 'service', 'port']) valueFlags.add(flag);
   // Repeatable flags collect into arrays so one invocation can carry several
   // values (task ids, acceptance items, decisions, blockers, failures, unit updates).
@@ -184,6 +184,7 @@ function parseArgs(argv) {
       args[key] = parsed;
     } else if (key === 'project' || key === 'base') args[key] = value;
     else if (key === 'only') args.only = value.split(',').map((item) => item.trim()).filter(Boolean);
+    else if (key === 'reviewed') args.reviewed = (args.reviewed ?? []).concat(value.split(',').map((item) => item.trim()).filter(Boolean));
     else if (key === 'timeout') args.timeout = Number.parseInt(value, 10);
     else if (key === 'output') args.output = value;
     else if (key === 'tier') args.tier = value;
@@ -352,6 +353,52 @@ function parseVerifyScope(value) {
   throw new Error(`--scope must be one of ${VERIFY_SCOPES.join(', ')}; received ${JSON.stringify(value)}.`);
 }
 
+/**
+ * Resolve the caller's relevance-review declaration against the selected
+ * checks. `all` (or `*`) declares the whole selection; a named check that was
+ * not selected is a caller error rather than a silently ignored token.
+ *
+ * @returns {{ids: string[], blocked: string|null}}
+ */
+function resolveReviewedChecks(reviewed, selectedNames) {
+  const declared = Array.isArray(reviewed) ? reviewed : [];
+  if (declared.includes('all') || declared.includes('*')) return { ids: [...selectedNames], blocked: null };
+  const unknown = declared.filter((id) => !selectedNames.includes(id));
+  if (unknown.length > 0) {
+    return { ids: [], blocked: `--reviewed names checks that are not selected: ${unknown.join(', ')}; selected: ${selectedNames.join(', ') || 'none'}` };
+  }
+  return { ids: [...new Set(declared)], blocked: null };
+}
+
+/**
+ * Resolve the layer a receipt-required landing verifies at.
+ *
+ * `verificationAcceptance` refuses `accepted` while a declared layer is still
+ * deferred, so a landing that needs a completion receipt cannot default to a
+ * cheap layer of a project that declares higher ones. An unnamed tier
+ * escalates to the cheapest layer with no deferred evidence; an explicit
+ * `--tier` is honored exactly and reported as a preflight blocker instead.
+ *
+ * @returns {{blocked: string|null, deferredCount: number, escalatedFrom: string|null, selectedNames: string[], tier: string}}
+ */
+function resolveReceiptTier({ commands, config, explicit, projectDir, tier }) {
+  const planAt = (candidate) => resolveVerifyTierPlan({ commands, config, tier: candidate, only: null, projectDir, explicit: true });
+  const planned = planAt(tier);
+  const base = { deferredCount: planned.deferredChecks.length, escalatedFrom: null, selectedNames: planned.selectedNames, tier: planned.tier };
+  if (planned.deferredChecks.length === 0) return { ...base, blocked: null };
+  const cleanLayers = VERIFY_TIERS.slice(VERIFY_TIERS.indexOf(tier) + 1)
+    .map(planAt)
+    .filter((plan) => plan.deferredChecks.length === 0);
+  if (explicit || cleanLayers.length === 0) {
+    const usable = cleanLayers.map((plan) => plan.tier).join(', ') || 'none';
+    return {
+      ...base,
+      blocked: `--tier ${tier} leaves ${planned.deferredChecks.length} deferred check(s) (${planned.deferredChecks.map((item) => item.name).join(', ')}); an accepted completion receipt needs a layer with no deferred evidence (${usable})`,
+    };
+  }
+  return { blocked: null, deferredCount: 0, escalatedFrom: tier, selectedNames: cleanLayers[0].selectedNames, tier: cleanLayers[0].tier };
+}
+
 function resolveVerifyTierPlan({ commands, config, tier, only, projectDir, explicit = false }) {
   const tiers = resolveVerificationTiers({ config, projectDir });
   const requestedTier = tier;
@@ -479,7 +526,17 @@ async function verificationTaskBinding(projectDir, taskId) {
   };
 }
 
-function verificationReview({ changedPaths = [], selectedNames = [], checks = {}, selectionReasonsByCheck = {}, legacyReview = null } = {}) {
+/**
+ * The relevance review of one verification run.
+ *
+ * Only an explicit marker makes a passed check `relevant`. The planner emits a
+ * selection reason for every selected check, so that reason explains a
+ * selection but can never be the evidence that a review happened — treating it
+ * as evidence would make the acceptance gate attest itself. `--reviewed`
+ * carries the caller's declaration; `check.reviewed` is the same declaration
+ * when a focused entrypoint marks the commands it ran.
+ */
+function verificationReview({ changedPaths = [], selectedNames = [], checks = {}, reviewed = [], legacyReview = null } = {}) {
   if (legacyReview && typeof legacyReview === 'object') {
     return {
       ...legacyReview,
@@ -489,10 +546,14 @@ function verificationReview({ changedPaths = [], selectedNames = [], checks = {}
       reasonCode: legacyReview.reasonCode ?? 'REVIEW_NOT_RECORDED',
     };
   }
+  const declared = new Set(reviewed);
   const reviewedCheckIds = selectedNames.filter((name) => {
     const check = checks[name];
+    // A reused receipt carries no per-check result, so the declaration alone
+    // decides; a run that executed checks needs a passed check to declare.
+    if (check === undefined) return declared.has(name);
     return ['passed', 'reused'].includes(check?.status)
-      && (check?.reviewed === true || (selectionReasonsByCheck[name] ?? []).length > 0);
+      && (check?.reviewed === true || declared.has(name));
   });
   return {
     status: reviewedCheckIds.length > 0 ? 'relevant' : selectedNames.length > 0 ? 'unreviewed' : 'blocked',
@@ -660,6 +721,12 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
   for (const check of tierPlan.allChecks) configured.commands[check.id] = check.command;
   const selectedNames = tierPlan.selectedNames;
   const deferredNames = new Set(tierPlan.deferredChecks.map((item) => item.name));
+  // `--reviewed` is the explicit relevance review; without it the report can
+  // only say `unreviewed` and the acceptance evidence stays blocked.
+  const reviewedChecks = resolveReviewedChecks(args.reviewed, selectedNames);
+  if (reviewedChecks.blocked) {
+    return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'failed', error: reviewedChecks.blocked, checks: {} };
+  }
   if (scope === 'affected' && changeScope.selectionMode === 'changed' && changeScope.changedPaths.length === 0) {
     return {
       schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify',
@@ -737,14 +804,14 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
           review: verificationReview({
             changedPaths: changeScope.changedPaths,
             selectedNames,
-            selectionReasonsByCheck: tierPlan.selectionReasonsByCheck,
+            reviewed: reviewedChecks.ids,
             legacyReview: cached.receipt.review,
           }),
           acceptance: verificationAcceptance({
             review: verificationReview({
               changedPaths: changeScope.changedPaths,
               selectedNames,
-              selectionReasonsByCheck: tierPlan.selectionReasonsByCheck,
+              reviewed: reviewedChecks.ids,
               legacyReview: cached.receipt.review,
             }),
             status: 'reused',
@@ -894,7 +961,7 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
     changedPaths: changeScope.changedPaths,
     selectedNames,
     checks,
-    selectionReasonsByCheck: tierPlan.selectionReasonsByCheck,
+    reviewed: reviewedChecks.ids,
   });
   const snapshotComparison = stable === null ? 'unknown' : stable ? 'match' : 'changed';
   const verificationStatus = stable === false || !inputsStable
@@ -1482,6 +1549,17 @@ function removeDependencyLinks(worktreePath, settings) {
     rmSync(modules, { force: true, recursive: true });
     removed.push(`${root}/node_modules`);
   }
+  // The isolated per-package overlays of `linkPackageRoots` are the same kind of
+  // bootstrap artifact and hold junctions into the main checkout, so they are
+  // removed with the roots; leaving them behind is what makes `git worktree
+  // remove` stop half way on Windows.
+  for (const pkg of settings.workspacePackages ?? []) {
+    const modules = path.join(worktreePath, pkg.dir, 'node_modules');
+    if (!existsSync(modules)) continue;
+    if (!(lstatSync(modules).isDirectory() || lstatSync(modules).isSymbolicLink())) continue;
+    rmSync(modules, { force: true, recursive: true });
+    removed.push(`${pkg.dir}/node_modules`);
+  }
   return removed;
 }
 
@@ -1493,10 +1571,10 @@ function removeDependencyLinks(worktreePath, settings) {
  * removal reach the main checkout's `.agents`. Copied files and real
  * directories are left for Git so checkout content is never deleted here.
  */
-function removeWorktreeLinks(worktreePath, settings) {
+function removeWorktreeLinks(projectDir, worktreePath, settings) {
   return [
     ...removeDependencyLinks(worktreePath, settings),
-    ...removeMirrorLinks(worktreePath, settings.mirrors ?? []),
+    ...removeMirrorLinks(projectDir, worktreePath, settings.mirrors ?? []),
   ];
 }
 
@@ -2046,7 +2124,7 @@ async function worktreeBootstrapReport(projectDir, args) {
         // A directory junction left in the failed worktree could make the
         // forced removal descend into the main checkout, so the links are torn
         // down first exactly as the cleanup and land paths do.
-        removeWorktreeLinks(plan.worktreePath, settings);
+        removeWorktreeLinks(projectDir, plan.worktreePath, settings);
         await runGit(['worktree', 'remove', '--force', plan.worktreePath], projectDir);
         await runGit(['worktree', 'prune'], projectDir);
         const branchHead = await runGit(['rev-parse', `refs/heads/${plan.branch}`], projectDir);
@@ -2161,13 +2239,14 @@ async function worktreeCleanupReport(projectDir, args) {
         continue;
       }
     }
-    const removedLinks = removeWorktreeLinks(entry.path, settings);
+    const removedLinks = removeWorktreeLinks(projectDir, entry.path, settings);
     const removed = await runGit(['worktree', 'remove', entry.path], projectDir);
     if (!removed.ok) {
       results.push({ branch: entry.branch, error: boundedOutput(removed.stderr || removed.error?.message || 'git worktree remove failed', projectDir), id: task.id, path: normalizeSlashes(entry.path), removedLinks, status: 'failed' });
       continue;
     }
     await runGit(['worktree', 'prune'], projectDir);
+    releaseServiceTeardown(projectDir, entry.path);
     // The block is released inside the same lock that hands it out; the branch
     // itself is still never deleted here.
     const released = await releasePortRegistryEntry(projectDir, task.id);
@@ -2270,7 +2349,7 @@ async function cleanupLandCandidate(projectDir, candidatePath, { abort = false }
   if (abort) await runGit(['merge', '--abort'], candidatePath);
   const config = await readProjectConfig(projectDir);
   const settings = resolveWorktreeSettings(projectDir, config, {});
-  if (!settings.error) removeWorktreeLinks(candidatePath, settings);
+  if (!settings.error) removeWorktreeLinks(projectDir, candidatePath, settings);
   const status = await runGit(['status', '--porcelain=v1'], candidatePath);
   if (!status.ok || status.stdout.trim() !== '') {
     return {
@@ -2288,6 +2367,7 @@ async function cleanupLandCandidate(projectDir, candidatePath, { abort = false }
     };
   }
   await runGit(['worktree', 'prune'], projectDir);
+  releaseServiceTeardown(projectDir, candidatePath);
   return { removed: true, residual: null };
 }
 
@@ -2325,6 +2405,7 @@ async function worktreeLandReportUnlocked(projectDir, args) {
   const config = await readProjectConfig(projectDir);
   const settings = resolveWorktreeSettings(projectDir, config, args);
   if (settings.error) return failure(settings.error);
+  const delivery = resolveDelivery(config, args.delivery);
   const { entries, reason } = await worktreeEntries(projectDir);
   if (reason) return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'land', status: 'unavailable', error: reason };
   const primary = entries.find((item) => item.primary) ?? null;
@@ -2423,6 +2504,26 @@ async function worktreeLandReportUnlocked(projectDir, args) {
   } catch (error) {
     return failure(error.message);
   }
+  // A completion receipt is only accepted when no declared layer is left
+  // deferred, and its acceptance names the checks the caller reviewed as
+  // relevant. Both are preflight facts: a landing that cannot produce them is
+  // reported here instead of after the merge candidate was built and tested.
+  let tierEscalation = null;
+  if (delivery.requireReceipt && args.verify !== false) {
+    const configured = configuredChecks(config, projectDir);
+    if (configured.error) return failure(configured.error);
+    const receiptTier = resolveReceiptTier({ commands: configured.commands, config, explicit: args.tier !== undefined, projectDir, tier });
+    if (receiptTier.blocked) blockers.push(receiptTier.blocked);
+    else tier = receiptTier.tier;
+    if (receiptTier.escalatedFrom) tierEscalation = { from: receiptTier.escalatedFrom, to: receiptTier.tier };
+    if (receiptTier.selectedNames.length > 0) {
+      const reviewed = resolveReviewedChecks(args.reviewed, receiptTier.selectedNames);
+      if (reviewed.blocked) blockers.push(reviewed.blocked);
+      else if (reviewed.ids.length === 0) {
+        blockers.push(`a completion receipt (delivery.${delivery.profile}) requires the explicit relevance review of the checks this change is verified by: pass --reviewed <${receiptTier.selectedNames.join('|')}|all> after reading the changed paths against them`);
+      }
+    }
+  }
   // Push policy mirrors $git-deliver: plain push when an upstream exists;
   // without one the branch may only start tracking when origin is the sole
   // remote and the branch is not protected.
@@ -2464,6 +2565,7 @@ async function worktreeLandReportUnlocked(projectDir, args) {
       blockers,
       targetBranch,
       tier,
+      ...(tierEscalation ? { tierEscalation } : {}),
       write: Boolean(args.write),
       results: [{ ...baseResult, status: 'blocked', steps: stepPlans.map((step) => ({ ...step, status: 'blocked' })) }],
     };
@@ -2476,6 +2578,7 @@ async function worktreeLandReportUnlocked(projectDir, args) {
       status: 'planned',
       targetBranch,
       tier,
+      ...(tierEscalation ? { tierEscalation } : {}),
       write: false,
       results: [{ ...baseResult, status: 'planned', steps: stepPlans.map((step) => ({ ...step, status: 'planned' })) }],
     };
@@ -2504,6 +2607,12 @@ async function worktreeLandReportUnlocked(projectDir, args) {
     } else {
       try {
         for (const root of settings.dependencyRoots) linkDependencyRoot(projectDir, candidatePath, settings, root);
+        // The isolated per-package overlays belong to the same resolution
+        // surface as the dependency roots: without them a pnpm/Bun isolated
+        // layout resolves in the source worktree and fails in the candidate,
+        // so `worktree land` would reject a mergeable branch. The cleanup path
+        // removes them again through `removeDependencyLinks`.
+        linkPackageRoots(projectDir, candidatePath, settings);
         for (const relative of new Set([settings.ports.envFile, ...settings.provision.envFiles])) {
           const source = safeWorktreeFile(entry.path, relative, 'worktree candidate env');
           const target = safeWorktreeFile(candidatePath, relative, 'worktree candidate env');
@@ -2536,8 +2645,7 @@ async function worktreeLandReportUnlocked(projectDir, args) {
         } else {
           candidateHeadSha = candidateHead.stdout.trim();
           steps.push({ id: 'merge', status: alreadyMerged ? 'skipped' : 'passed', detail: alreadyMerged ? `${entry.branch} is already merged into ${targetBranch}` : `merged ${entry.branch} in isolated candidate worktree` });
-          const verify = await verifyProject(candidatePath, { tier, task: [taskId], only: null, reuse: false, allowManual: false });
-          const delivery = resolveDelivery(config, args.delivery);
+          const verify = await verifyProject(candidatePath, { tier, task: [taskId], only: null, reuse: false, allowManual: false, reviewed: args.reviewed });
           if (delivery.requireReceipt) {
             landReceipt = completionReceipt(verify, delivery, { rollback: `git revert -m 1 ${candidateHeadSha}` });
             landReceipt.delivery.stage = 'complete';
@@ -2616,10 +2724,11 @@ async function worktreeLandReportUnlocked(projectDir, args) {
     if (services.status !== 'passed') markFailed({ id: 'services', status: 'blocked', code: 'SERVICE_TEARDOWN_BLOCKED', services });
   }
   if (!failedStep) {
-    const removedLinks = removeWorktreeLinks(entry.path, settings);
+    const removedLinks = removeWorktreeLinks(projectDir, entry.path, settings);
     const removed = await runGit(['worktree', 'remove', entry.path], projectDir);
     if (removed.ok) {
       await runGit(['worktree', 'prune'], projectDir);
+      releaseServiceTeardown(projectDir, entry.path);
       const released = await releasePortRegistryEntry(projectDir, taskId);
       steps.push({ id: 'cleanup', status: 'passed', removedLinks, portBlockReleased: released.released === true, detail: `worktree removed; links ${removedLinks.length}` });
     } else {
@@ -2654,6 +2763,7 @@ async function worktreeLandReportUnlocked(projectDir, args) {
     ...(failedStep?.code ? { code: failedStep.code } : {}),
     targetBranch,
     tier,
+    ...(tierEscalation ? { tierEscalation } : {}),
     ...(landReceipt ? { completion: landReceipt } : {}),
     write: true,
     results: [{ ...baseResult, pushed, branchDeleted: steps.some((step) => step.id === 'delete-branch' && step.status === 'passed'), portBlockReleased: steps.some((step) => step.id === 'cleanup' && step.status === 'passed' && step.portBlockReleased === true), status: landStatus, steps }],
@@ -2802,7 +2912,7 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
     }
     const services = await teardownServices(projectDir, item.path);
     if (services.status !== 'passed') { results.push({ ...item, status: 'blocked', services }); continue; }
-    const removedLinks = removeWorktreeLinks(item.path, settings);
+    const removedLinks = removeWorktreeLinks(projectDir, item.path, settings);
     const removed = await runGit(['worktree', 'remove', '--force', item.path], projectDir);
     if (!removed.ok) {
       results.push({
@@ -2814,6 +2924,7 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
       });
       continue;
     }
+    releaseServiceTeardown(projectDir, item.path);
     const branchDeleted = (await runGit(['branch', '--delete', '--force', item.branch], projectDir)).ok;
     const released = item.registryEntryId !== null
       ? await releasePortRegistryEntry(projectDir, item.registryEntryId)
@@ -4978,7 +5089,7 @@ export async function runCommand(argv, { cwd = process.cwd() } = {}) {
     worktree: 'run.mjs worktree <list|check|bootstrap|land|cleanup|recover> --project <path>: bootstrap, land, cleanup and recover stay dry-run until --write; bootstrap allocates the next port block from .vibe-harness/worktree-ports.json, materializes worktree.provision.envFiles and runs worktree.provision.setupCommands (a red-zone target also needs --confirm-red-zone); land serializes writes through a shared Git common-dir lock, merges the attributed worktree in an isolated candidate (--no-ff), verifies it (quick tier by default, standard when the task anchor declares riskLevel full), then fast-forwards the primary checkout only when its baseline is unchanged; --write --no-verify is rejected; with --push it also pushes the target branch (upstream, else -u origin when origin is the sole remote) and deletes the worktree branch only after the push succeeds; cleanup refuses branches not merged into worktree.baseRef; recover reclaims clean attributed candidate residue and bootstrap crash residue but never deletes a branch that moved past the base ref',
     task: 'run.mjs task <init|update|status|list|plan-check|plan-sync|check|freeze-tests|rebaseline-tests> [task-id] --project <path>: anchors live in .vibe-harness/tasks/<task-id>.json and managed plans live in docs/plans/*.md; init accepts --plan-file, plan-check detects drift, plan-sync requires --reason, check gates readiness (check --unit <id> --dispatch answers whether the unit may be handed out now), freeze-tests requires a failed verification and --test-path, and rebaseline-tests additionally requires a protected approval receipt. Write commands stay dry-run until --write.',
     reuse: 'run.mjs verify --project <path> [--task <task-id>] --reuse: returns status "reused" only for explicitly deterministic checks with matching v3 input fingerprints in the ignored receipt store; task anchors are optional and legacy receipts are not reused',
-    verify: 'run.mjs verify --project <path> [--tier quick|standard|deep] [--scope affected|layer|full] [--async --tier deep] [--only lint,typecheck,test,eval] [--plan] or --micro <declared-id> [--plan]: Micro is explicit and never replaces unit/integration evidence; --micro is exclusive with tier, only, async, reuse and manual.',
+    verify: 'run.mjs verify --project <path> [--tier quick|standard|deep] [--scope affected|layer|full] [--async --tier deep] [--only lint,typecheck,test,eval] [--reviewed <check ids|all>] [--plan] or --micro <declared-id> [--plan]: Micro is explicit and never replaces unit/integration evidence; --micro is exclusive with tier, only, async, reuse and manual. --reviewed is the explicit relevance review of the selected checks and is the only evidence that makes a passed check count as reviewed.',
   };
   else throw new Error(`Unknown command: ${command}`);
   if (command !== 'help') {
