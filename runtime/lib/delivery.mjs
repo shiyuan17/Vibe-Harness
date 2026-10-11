@@ -85,6 +85,22 @@ export function completionReceipt(report, delivery, { rollback = 'Restore the pr
   const deferred = (report.deferredChecks ?? []).map((check) => check.id ?? check.name ?? check);
   const acceptanceEvidence = report.verification?.acceptance ?? null;
   const acceptanceBlocked = !acceptanceEvidence || acceptanceEvidence.status !== 'accepted';
+  // `verify` emits a completion *draft* (delivery.stage stays `verify`): the
+  // caller still has to add the acceptance evidence only it can attest — a
+  // relevance review, a browser or database check — before `validateCompletion`
+  // will accept a `complete` receipt. A draft whose evidence was simply not
+  // supplied is therefore `unverified`; `blocked` is reserved for evidence that
+  // contradicts completion (a failed check, or a workspace that changed under
+  // passing checks and so cannot be attributed the results). Both states fail
+  // closed — `validateCompletion` accepts only `passed` — while the top-level
+  // CLI verdict (see `verify` in scripts/vibe-harness.js) turns only the
+  // refuting state into `invalid`, so an ordinary partial run is not reported
+  // as a failed delivery.
+  const absentEvidenceReasons = new Set(['DEFERRED_CHECKS', 'NO_REVIEWED_RELEVANT_CHECK']);
+  const unobservableWorkspace = acceptanceEvidence?.reasonCode === 'FINAL_SNAPSHOT_MISMATCH'
+    && report.verification?.snapshotComparison !== 'mismatch';
+  const evidenceAbsent = acceptanceBlocked
+    && (absentEvidenceReasons.has(acceptanceEvidence?.reasonCode) || unobservableWorkspace);
   const review = report.verification?.review ?? null;
   const unverified = [
     ...acceptance.filter((item) => item.status !== 'passed').map((item) => item.id),
@@ -94,7 +110,7 @@ export function completionReceipt(report, delivery, { rollback = 'Restore the pr
   return {
     delivery: { profile: delivery.profile, stage: 'verify' },
     status: acceptanceBlocked
-      ? 'blocked'
+      ? evidenceAbsent ? 'unverified' : 'blocked'
       : ['passed', 'failed', 'blocked'].includes(report.status) ? report.status : report.status === 'reused' ? 'passed' : 'unverified',
     acceptance,
     unverified,
@@ -108,10 +124,20 @@ export function completionReceipt(report, delivery, { rollback = 'Restore the pr
   };
 }
 
-export function validateCompletion(receipt, delivery, current = null) {
+export function validateCompletion(receipt, delivery, current = null, { provenance = null } = {}) {
   const errors = [];
   if (!object(receipt)) errors.push('completion receipt is missing');
   else {
+    // `--receipt` loads caller-supplied JSON, so self-consistency alone is not
+    // evidence: a handcrafted receipt can copy the current head, content and
+    // write fingerprints from a real run and then assert accepted acceptance
+    // for checks that never ran. The cited verification therefore also has to
+    // resolve to the tool's own durable record
+    // (`attestCompletionProvenance`); a missing attestation fails closed
+    // because the default is "not attested".
+    if (provenance?.ok !== true) {
+      errors.push(`completion receipt provenance is unverified (${provenance?.reason ?? 'not attested'})`);
+    }
     if (receipt.delivery?.profile !== delivery.profile || receipt.delivery?.stage !== 'complete') errors.push('delivery profile/stage mismatch');
     if (receipt.status !== 'passed') errors.push('completion status is not passed');
     if (!Array.isArray(receipt.acceptance) || !receipt.acceptance.length) errors.push('acceptance is missing');
@@ -144,8 +170,15 @@ export function validateCompletion(receipt, delivery, current = null) {
       const selectedIds = Array.isArray(acceptance.selectedCheckIds) ? acceptance.selectedCheckIds : [];
       const reviewedIds = Array.isArray(verification.review?.reviewedCheckIds) ? verification.review.reviewedCheckIds : [];
       if (selectedIds.length === 0) errors.push('acceptance evidence does not name the selected checks');
+      const uniqueSelectedIds = [...new Set(selectedIds)];
+      if (uniqueSelectedIds.length !== selectedIds.length) errors.push('acceptance evidence repeats a selected check');
       const outside = acceptanceIds.filter((id) => !selectedIds.includes(id));
       if (outside.length > 0) errors.push(`acceptance entries are not part of the selected checks: ${outside.join(', ')}`);
+      // Every selected check has to carry its own acceptance entry: an
+      // acceptance that cites only the passing ones would hide a failed or
+      // unverified selection behind a plausible subset.
+      const omitted = uniqueSelectedIds.filter((id) => !acceptanceIds.includes(id));
+      if (omitted.length > 0) errors.push(`selected checks are missing acceptance entries: ${omitted.join(', ')}`);
       if (verification.review?.status !== 'relevant' || !reviewedIds.some((id) => acceptanceIds.includes(id))) {
         errors.push('acceptance evidence does not cite a reviewed relevant check');
       }

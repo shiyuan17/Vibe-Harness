@@ -1139,27 +1139,46 @@ async function verify(args) {
   }
   const verificationReport = await runVerificationPlan({
     allowManual: Boolean(args['allow-manual']),
-    reuse: Boolean(args.reuse),
+    // A cache hit reconstructs the review from the stored receipt instead of
+    // this caller's `--reviewed` declaration, which would let a declaration
+    // from an earlier invocation authorize a receipt-required completion. Reuse
+    // therefore stays off wherever a completion receipt is required.
+    reuse: Boolean(args.reuse) && !delivery.requireReceipt,
     commandStatus,
     plan: planned,
     reviewed: Array.isArray(args.reviewed) ? args.reviewed : [],
     targetDir,
     timeoutMs: config.verification?.timeoutMs,
   });
+  const completion = delivery.requireReceipt
+    ? withHookBlock(completionReceipt({
+      ...verificationReport, status: verificationReport.ok && !blockingHookFailure ? 'passed' : 'blocked',
+      checks: verificationReport.results,
+      scope: planned.scope, selectedChecks: verificationReport.verification?.selectedChecks,
+      deferredChecks: verificationReport.verification?.deferredChecks,
+    }, delivery), blockingHookFailure)
+    : null;
+  // The completion draft is built for every receipt-required delivery, and a
+  // draft the evidence *refutes* must not be reported `ready`: a consumer that
+  // read only the ordinary report status would otherwise treat a blocked
+  // completion as a successful delivery. `completionReceipt` keeps absent
+  // evidence (deferred layers, a review this caller never declared, a workspace
+  // it could not observe) as `unverified`, so this gate fires exactly when the
+  // commands contradict the completion claim — including a workspace that
+  // changed under passing checks, where the commands alone would read green.
+  // Whether the draft is `passed` is what `task check --complete` and
+  // `worktree land/cleanup` re-derive from a `complete` receipt.
+  const completionBlocked = completion !== null && completion.status === 'blocked';
+  const reportOk = verificationReport.ok && !blockingHookFailure && !completionBlocked;
   emitReport({
     ...verificationReport,
     // The strict-Hook block belongs to the delivery result, so the completion
     // receipt is built from the effective status and carries the block as an
     // unverified item. A receipt that said `passed` while the report was blocked
     // by an unenforced Hook would be consumed as successful delivery evidence.
-    ...(delivery.requireReceipt ? { completion: withHookBlock(completionReceipt({
-      ...verificationReport, status: verificationReport.ok && !blockingHookFailure ? 'passed' : 'blocked',
-      checks: verificationReport.results,
-      scope: planned.scope, selectedChecks: verificationReport.verification?.selectedChecks,
-      deferredChecks: verificationReport.verification?.deferredChecks,
-    }, delivery), blockingHookFailure) } : {}),
+    ...(completion ? { completion } : {}),
     delivery: { profile: delivery.profile, stage: 'verify' },
-    ...(blockingHookFailure ? { ok: false } : {}),
+    ...(reportOk ? {} : { ok: false }),
     deferredChecks: verificationReport.verification?.deferredChecks ?? [],
     deferredMicroChecks: verificationReport.verification?.deferredMicroChecks ?? planned.deferredMicroChecks ?? [],
     selectedMicroChecks: verificationReport.verification?.selectedMicroChecks ?? planned.selectedMicroChecks ?? [],
@@ -1176,14 +1195,14 @@ async function verify(args) {
     scope: 'project',
     verificationScope: planned.scope ?? null,
     scopeStatus: verificationReport.verification?.scopeStatus ?? 'complete',
-    status: verificationReport.ok && !blockingHookFailure ? 'ready' : 'invalid',
+    status: reportOk ? 'ready' : 'invalid',
     strictEnforcementRefusals: target.strictEnforcementRefusals ?? [],
     ...(args.verbose ? { targetDir } : {}),
     tierFallback: verificationReport.verification?.tierFallback ?? null,
     tierSource: verificationReport.verification?.tierSource ?? null,
     warnings: [...hookPolicyWarnings, ...delivery.warnings, ...overrideWarnings(config)],
-  }, args, { error: !verificationReport.ok || Boolean(blockingHookFailure) });
-  if (!verificationReport.ok || blockingHookFailure) process.exitCode = 1;
+  }, args, { error: !reportOk });
+  if (!reportOk) process.exitCode = 1;
 }
 
 async function baseline(args) {

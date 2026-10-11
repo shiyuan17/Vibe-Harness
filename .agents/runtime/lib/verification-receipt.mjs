@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { lstat, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
@@ -123,10 +123,23 @@ export async function verificationCacheContext(projectDir, plan, snapshot = unde
   const deterministic = commands.length > 0 && commands.every((check) => check.deterministic);
   const warm = config.verification?.environment?.mode === 'warm';
   const toolsAvailable = Object.values(tools).every((value) => value !== null);
-  const available = state.fingerprint !== null && deterministic && !warm && toolsAvailable && !inputs.some(([, value]) => value === 'unreadable');
+  // The write evidence is part of the schema-v4 contract: a run that cannot
+  // produce it must not be stored or reused, or a receipt would be replayed
+  // against a workspace whose writes were never fingerprinted.
+  const writeEvidenceAvailable = typeof state.writeFingerprint === 'string' && state.writeFingerprint.length > 0;
+  // Two different questions: whether a run may be *cached* (all inputs fixed
+  // and deterministic) and whether it may be *recorded* as provenance for a
+  // completion receipt. Recording only needs the workspace evidence the receipt
+  // is later checked against, so a non-deterministic or warm run still leaves
+  // the durable record a receipt has to match.
+  const recordable = state.fingerprint !== null && writeEvidenceAvailable;
+  const available = recordable && deterministic && !warm
+    && toolsAvailable && !inputs.some(([, value]) => value === 'unreadable');
   return {
-    fingerprints, key: digest(fingerprints), available, snapshot: state,
-    reason: !deterministic ? 'checks-not-explicitly-deterministic' : warm ? 'warm-environment-not-attested' : !state.fingerprint ? 'snapshot-unavailable' : !toolsAvailable ? 'toolchain-unavailable' : 'no-matching-receipt',
+    fingerprints, key: digest(fingerprints), available, recordable, snapshot: state,
+    reason: !deterministic ? 'checks-not-explicitly-deterministic' : warm ? 'warm-environment-not-attested'
+      : !state.fingerprint ? 'snapshot-unavailable' : !writeEvidenceAvailable ? 'write-snapshot-unavailable'
+        : !toolsAvailable ? 'toolchain-unavailable' : 'no-matching-receipt',
     selectedIds: commands.map((check) => check.id),
     changedPaths: [...(plan.changedPaths ?? [])],
   };
@@ -146,6 +159,9 @@ export async function findVerificationReceipt(projectDir, context) {
     // found under the current key nor be proven to describe this workspace.
     const valid = receipt.schemaVersion === VERIFICATION_RECEIPT_SCHEMA_VERSION
       && receipt.status === 'passed' && receipt.snapshotComparison === 'match'
+      // Only a record this tool marked reusable may be replayed as a cache hit;
+      // a provenance record written for a finalized workspace is not one.
+      && receipt.cacheable === true
       && receipt.id && receipt.finishedAt
       && Object.entries(context.fingerprints).every(([key, value]) => receipt[key] === value)
       && JSON.stringify(receipt.selectedChecks) === JSON.stringify(context.selectedIds);
@@ -161,7 +177,7 @@ export async function findVerificationReceipt(projectDir, context) {
 }
 
 export async function storeVerificationReceipt(projectDir, context, receipt) {
-  if (!context.available) return false;
+  if (!context.recordable) return false;
   if (receipt.status !== 'passed' || receipt.snapshotComparison !== 'match') {
     const directory = await receiptDirectory(projectDir);
     if (directory) await rm(path.join(directory, `${context.key}.json`), { force: true });
@@ -171,12 +187,100 @@ export async function storeVerificationReceipt(projectDir, context, receipt) {
   if (!directory) return false;
   const summary = {
     schemaVersion: VERIFICATION_RECEIPT_SCHEMA_VERSION, engine: receipt.engine, id: receipt.id, startedAt: receipt.startedAt, finishedAt: receipt.finishedAt,
-    status: 'passed', snapshotComparison: 'match', selectedChecks: context.selectedIds,
+    status: 'passed', snapshotComparison: 'match', selectedChecks: context.selectedIds, cacheable: context.available === true,
     review: normalizedReview(receipt.review, context.selectedIds, context.changedPaths),
     ...context.fingerprints,
   };
   const temporary = path.join(directory, `${context.key}.${randomUUID()}.tmp`);
   await writeFile(temporary, `${JSON.stringify(summary)}\n`, { flag: 'wx', mode: 0o600 });
   await rename(temporary, path.join(directory, `${context.key}.json`));
+  return true;
+}
+
+/**
+ * Match a completion receipt's cited verification against the tool's own record.
+ *
+ * `--receipt` is caller-supplied JSON, so internal consistency alone cannot
+ * establish that the verification ran here or that the checks it names passed:
+ * a handcrafted receipt can copy the current head, content and write
+ * fingerprints from a real run and then assert `accepted` acceptance for
+ * checks that never ran. This reads the durable record `storeVerificationReceipt`
+ * wrote and requires the cited verification id to resolve to a record whose
+ * fingerprints and selected checks describe the same run. The store is
+ * tool-written state, so an unreadable or absent record fails closed.
+ */
+export async function attestCompletionProvenance(projectDir, receipt) {
+  const verification = receipt?.verification;
+  const id = typeof verification?.id === 'string' ? verification.id.trim() : '';
+  if (!id) return { ok: false, reason: 'receipt-cites-no-verification-id' };
+  const directory = await receiptDirectory(projectDir);
+  if (!directory) return { ok: false, reason: 'verification-record-store-unavailable' };
+  let names;
+  try {
+    names = await readdir(directory);
+  } catch {
+    return { ok: false, reason: 'verification-record-store-unreadable' };
+  }
+  const cited = Array.isArray(verification.acceptance?.selectedCheckIds) ? verification.acceptance.selectedCheckIds : null;
+  for (const name of names) {
+    if (!/^[0-9a-f]{64}\.json$/u.test(name)) continue;
+    const file = path.join(directory, name);
+    let record;
+    try {
+      if ((await lstat(file)).isSymbolicLink()) continue;
+      if ((await stat(file)).size > 1024 * 1024) continue;
+      record = JSON.parse(await readFile(file, 'utf8'));
+    } catch {
+      continue;
+    }
+    if (record?.id !== id) continue;
+    const problems = [];
+    if (record.schemaVersion !== VERIFICATION_RECEIPT_SCHEMA_VERSION) problems.push('record-schema');
+    if (record.status !== 'passed' || record.snapshotComparison !== 'match') problems.push('record-status');
+    if (record.fingerprint !== verification.fingerprint) problems.push('content-fingerprint');
+    if (record.writeFingerprint !== verification.writeFingerprint) problems.push('write-fingerprint');
+    if (cited !== null && JSON.stringify(record.selectedChecks) !== JSON.stringify(cited)) problems.push('selected-checks');
+    return problems.length === 0
+      ? { ok: true, reason: 'recorded-verification-matched', record: name }
+      : { ok: false, reason: `recorded-verification-mismatch:${problems.join(',')}`, record: name };
+  }
+  return { ok: false, reason: 'no-recorded-verification-matches-the-cited-id' };
+}
+
+/**
+ * Persist a provenance record for a verification whose own workspace is gone.
+ *
+ * `worktree land` verifies an isolated candidate and then removes it, while the
+ * completion receipt it returns describes the primary checkout. The record is
+ * therefore written for the workspace the receipt will be validated against,
+ * carrying the finalized fingerprints. It is never marked reusable: the
+ * evidence it holds was produced by a run in a different directory.
+ */
+export async function recordFinalVerification(projectDir, verification) {
+  const id = typeof verification?.id === 'string' ? verification.id.trim() : '';
+  if (!id) return false;
+  const directory = await receiptDirectory(projectDir, true);
+  if (!directory) return false;
+  const record = {
+    schemaVersion: VERIFICATION_RECEIPT_SCHEMA_VERSION,
+    cacheable: false,
+    engine: 'vibe-harness-finalized',
+    id,
+    status: 'passed',
+    snapshotComparison: 'match',
+    selectedChecks: Array.isArray(verification.acceptance?.selectedCheckIds) ? verification.acceptance.selectedCheckIds : [],
+    fingerprint: verification.fingerprint ?? null,
+    writeFingerprint: verification.writeFingerprint ?? null,
+    finalizedAt: verification.finalizedAt ?? null,
+  };
+  const name = `${digest([record.id, record.fingerprint, record.writeFingerprint])}.json`;
+  const temporary = path.join(directory, `${name}.${randomUUID()}.tmp`);
+  try {
+    await writeFile(temporary, `${JSON.stringify(record)}\n`, { flag: 'wx', mode: 0o600 });
+    await rename(temporary, path.join(directory, name));
+  } catch {
+    await rm(temporary, { force: true });
+    return false;
+  }
   return true;
 }

@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 
 import { runCommand } from '../../runtime/commands/run.mjs';
+import { attestCompletionProvenance } from '../../runtime/lib/verification-receipt.mjs';
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '../..');
@@ -62,35 +63,43 @@ test('CLI verify 只承认显式 --reviewed 作为完成审阅证据', async () 
   try {
     await installedProject(project);
     // Without the declaration the checked commands are not review evidence, so
-    // the receipt the CLI reports stays blocked instead of self-attesting.
+    // the receipt the CLI reports stays incomplete instead of self-attesting.
+    // The caller never supplied the evidence, so the draft records it as
+    // unverified rather than blocked: nothing contradicts the completion, and
+    // only `passed` completes a delivery.
     const unreviewed = await runRootCli(['verify', '--project', project, '--allow-manual', '--output', 'json']);
-    assert.equal(unreviewed.completion.status, 'blocked', JSON.stringify(unreviewed.completion));
+    assert.equal(unreviewed.completion.status, 'unverified', JSON.stringify(unreviewed.completion));
     assert.equal(unreviewed.completion.verificationAcceptance.status, 'blocked');
 
     const reviewed = await runRootCli(['verify', '--project', project, '--allow-manual', '--output', 'json', '--reviewed', 'all']);
     assert.equal(reviewed.completion.verificationAcceptance.status, 'accepted', JSON.stringify(reviewed.completion));
     assert.equal(reviewed.completion.status, 'passed');
     assert.ok(reviewed.completion.review.reviewedCheckIds.length > 0);
+    // The receipt a receipt-required delivery accepts has to resolve to the
+    // record this run wrote, so the gate can be satisfied after the fact.
+    const attestation = await attestCompletionProvenance(project, reviewed.completion);
+    assert.equal(attestation.ok, true, JSON.stringify(attestation));
   } finally {
     await rm(project, { recursive: true, force: true });
   }
 });
 
-test('CLI verify --reuse 只复用与当前计划一致的审阅证据', async () => {
+test('CLI verify 在需要完成收据时关闭 --reuse，收据只认本次声明', async () => {
   const project = await tempProject();
   try {
     await installedProject(project, { validationCommands: { checks: [{ id: 'test', command: 'node -e 0', deterministic: true }] } });
-    // The first run declares the review explicitly and records it in the
-    // ignored receipt store; the second run reuses that receipt.
+    // A cache hit reconstructs the review from the stored receipt instead of
+    // this caller's `--reviewed`, so reuse would let an earlier invocation's
+    // declaration authorize this run. It is refused wherever a completion
+    // receipt is required, and the run falls back to a real execution.
     const first = await runRootCli(['verify', '--project', project, '--allow-manual', '--output', 'json', '--reviewed', 'all', '--reuse']);
     assert.equal(first.completion.verificationAcceptance.status, 'accepted', JSON.stringify(first.completion));
-    const reused = await runRootCli(['verify', '--project', project, '--allow-manual', '--output', 'json', '--reuse']);
-    assert.equal(reused.verification.cache.status, 'hit', JSON.stringify(reused.verification.cache));
-    assert.equal(reused.completion.verificationAcceptance.status, 'accepted', JSON.stringify(reused.completion.verificationAcceptance));
+    const rerun = await runRootCli(['verify', '--project', project, '--allow-manual', '--output', 'json', '--reviewed', 'all', '--reuse']);
+    assert.equal(rerun.verification.cache.status, 'not_requested', JSON.stringify(rerun.verification.cache));
+    assert.equal(rerun.completion.verificationAcceptance.status, 'accepted', JSON.stringify(rerun.completion.verificationAcceptance));
 
-    // A receipt whose review names a check the current plan does not select is
-    // an inconsistent claim: the cache hit alone must not carry it into the
-    // acceptance, so the run stays blocked.
+    // A stored review the current plan does not select is not evidence for this
+    // run, so a reuse attempt without this caller's declaration stays blocked.
     const receiptDirectory = path.join(project, '.vibe-harness/verification/receipts');
     const [receiptFile] = await readdir(receiptDirectory);
     const receiptPath = path.join(receiptDirectory, receiptFile);
@@ -99,10 +108,15 @@ test('CLI verify --reuse 只复用与当前计划一致的审阅证据', async (
       ...receipt,
       review: { ...receipt.review, reviewedCheckIds: ['browser'], status: 'relevant' },
     }), 'utf8');
-    const tampered = await runRootCli(['verify', '--project', project, '--allow-manual', '--output', 'json', '--reuse']);
-    assert.equal(tampered.verification.cache.status, 'hit');
-    assert.equal(tampered.completion.verificationAcceptance.status, 'blocked', JSON.stringify(tampered.completion.verificationAcceptance));
-    assert.equal(tampered.completion.status, 'blocked');
+    const undeclared = await runRootCli(['verify', '--project', project, '--allow-manual', '--output', 'json', '--reuse']);
+    assert.equal(undeclared.verification.cache.status, 'not_requested');
+    assert.equal(undeclared.completion.verificationAcceptance.status, 'blocked', JSON.stringify(undeclared.completion.verificationAcceptance));
+    assert.equal(undeclared.completion.status, 'unverified');
+    // The run itself passed and reported the missing evidence, so the ordinary
+    // report status stays valid for the layer that ran instead of claiming the
+    // delivery failed.
+    assert.equal(undeclared.ok, true);
+    assert.equal(undeclared.status, 'ready');
   } finally {
     await rm(project, { recursive: true, force: true });
   }

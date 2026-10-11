@@ -110,10 +110,22 @@ test('完成收据四态不将 blocked 或缺字段转换为通过', () => {
   const owner = { pid: 1, supervisorPid: 2, cwd: '/fixture', commandFingerprint: 'hash', startedAt: 'now' };
   assert.equal(serviceOwnership(owner, { ...owner, status: 'running' }), true);
   assert.equal(serviceOwnership(owner, { ...owner, pid: 3, status: 'running' }), false);
+  // The registry is caller-readable, so the ownership fields a local user can
+  // learn from a `status` reply must not authorize a `stop` on their own: the
+  // per-supervisor control token is what the caller has to have recorded.
+  const owned = { ...owner, controlToken: 'token-a', processStartTime: 'linux-start:41' };
+  assert.equal(serviceOwnership(owned, { ...owned, status: 'running' }), true);
+  assert.equal(serviceOwnership(owned, { ...owned, controlToken: 'token-b', status: 'running' }), false);
+  assert.equal(serviceOwnership(owned, { ...owned, processStartTime: 'linux-start:42', status: 'running' }), false);
+  assert.equal(serviceOwnership(owned, { ...owned, status: 'stopped' }), false);
 });
 
 test('完成收据不接受自证的验收证据', () => {
   const delivery = resolveDelivery({}, 'managed-mr');
+  // The provenance gate is exercised on its own below; here the receipt shapes
+  // are compared on their internal consistency, so the attestation that the
+  // cited verification resolves to the tool's record is supplied directly.
+  const attested = { provenance: { ok: true, reason: 'recorded-verification-matched' } };
   const receipt = () => ({
     delivery: { profile: 'managed-mr', stage: 'complete' },
     status: 'passed',
@@ -136,17 +148,18 @@ test('完成收据不接受自证的验收证据', () => {
 
   // A self-asserted `accepted` that names nothing and cites no review is the
   // shape a handcrafted receipt would take.
-  const forged = validateCompletion(receipt(), delivery);
+  const forged = validateCompletion(receipt(), delivery, null, attested);
   assert.equal(forged.status, 'blocked');
   assert.ok(forged.errors.some((line) => /does not name the selected checks/u.test(line)), forged.errors.join('; '));
   assert.ok(forged.errors.some((line) => /does not cite a reviewed relevant check/u.test(line)), forged.errors.join('; '));
+  assert.ok(!forged.errors.some((line) => /provenance/u.test(line)), forged.errors.join('; '));
 
   // A mismatched final fingerprint is the same class of unproven claim.
   const tampered = receipt();
   tampered.verification.acceptance.selectedCheckIds = ['test'];
   tampered.verification.review.reviewedCheckIds = ['test'];
   tampered.verification.acceptance.finalFingerprint = 'other';
-  const stale = validateCompletion(tampered, delivery);
+  const stale = validateCompletion(tampered, delivery, null, attested);
   assert.ok(stale.errors.some((line) => /does not match the verification fingerprint/u.test(line)), stale.errors.join('; '));
 
   // A review that names a check outside the selection, or an acceptance that
@@ -156,7 +169,7 @@ test('完成收据不接受自证的验收证据', () => {
   outsideSelection.verification.acceptance.selectedCheckIds = ['test'];
   outsideSelection.verification.acceptance.finalFingerprint = 'fingerprint';
   outsideSelection.verification.review.reviewedCheckIds = ['test', 'browser'];
-  const uncovered = validateCompletion(outsideSelection, delivery);
+  const uncovered = validateCompletion(outsideSelection, delivery, null, attested);
   assert.ok(uncovered.errors.some((line) => /reviewed checks are not part of the selected checks/u.test(line)), uncovered.errors.join('; '));
   assert.ok(uncovered.errors.some((line) => /acceptance entries do not cover the reviewed checks/u.test(line)), uncovered.errors.join('; '));
 
@@ -165,13 +178,62 @@ test('完成收据不接受自证的验收证据', () => {
   disagreed.verification.acceptance.finalFingerprint = 'fingerprint';
   disagreed.verification.review.selectedCheckIds = ['lint'];
   disagreed.verification.review.reviewedCheckIds = ['test'];
-  assert.ok(validateCompletion(disagreed, delivery).errors.some((line) => /disagree about the selected checks/u.test(line)));
+  assert.ok(validateCompletion(disagreed, delivery, null, attested).errors.some((line) => /disagree about the selected checks/u.test(line)));
+
+  // An acceptance that cites only the passing selections hides a failed or
+  // unverified one, so every selected check needs its own entry.
+  const partial = receipt();
+  partial.verification.acceptance.selectedCheckIds = ['test', 'eval'];
+  partial.verification.review.reviewedCheckIds = ['test', 'eval'];
+  partial.verification.review.selectedCheckIds = ['test', 'eval'];
+  const omitted = validateCompletion(partial, delivery, null, attested);
+  assert.ok(omitted.errors.some((line) => /selected checks are missing acceptance entries: eval/u.test(line)), omitted.errors.join('; '));
+
+  // A repeated id inflates the selection the same way a missing entry hides it.
+  const duplicated = receipt();
+  duplicated.verification.acceptance.selectedCheckIds = ['test', 'test'];
+  duplicated.verification.review.reviewedCheckIds = ['test'];
+  duplicated.verification.review.selectedCheckIds = ['test', 'test'];
+  assert.ok(validateCompletion(duplicated, delivery, null, attested).errors.some((line) => /repeats a selected check/u.test(line)));
 
   // The consistent shape is accepted.
   const consistent = receipt();
   consistent.verification.acceptance.selectedCheckIds = ['test'];
   consistent.verification.review.reviewedCheckIds = ['test'];
-  assert.equal(validateCompletion(consistent, delivery).status, 'passed');
+  assert.equal(validateCompletion(consistent, delivery, null, attested).status, 'passed');
+});
+
+test('完成收据必须能对上工具自己写的验证记录', () => {
+  const delivery = resolveDelivery({}, 'managed-mr');
+  const consistent = {
+    delivery: { profile: 'managed-mr', stage: 'complete' },
+    status: 'passed',
+    acceptance: [{ id: 'test', status: 'passed', command: 'node --version', scope: 'layer' }],
+    unverified: [],
+    remainingRisks: [],
+    rollback: 'git revert HEAD',
+    source: { head: 'head', fingerprint: 'fingerprint' },
+    target: { head: 'base' },
+    verification: {
+      id: 'forgeable',
+      finishedAt: new Date().toISOString(),
+      snapshotComparison: 'match',
+      status: 'passed',
+      fingerprint: 'fingerprint',
+      writeFingerprint: 'write-fingerprint',
+      acceptance: { status: 'accepted', selectedCheckIds: ['test'], finalFingerprint: 'fingerprint' },
+      review: { status: 'relevant', reviewedCheckIds: ['test'] },
+    },
+  };
+  // `--receipt` is caller-supplied JSON: without the attestation that its cited
+  // verification id resolves to a record this tool wrote, the receipt fails
+  // closed even though every field is internally consistent.
+  const unproven = validateCompletion(consistent, delivery);
+  assert.equal(unproven.status, 'blocked');
+  assert.ok(unproven.errors.some((line) => /provenance is unverified/u.test(line)), unproven.errors.join('; '));
+  assert.equal(validateCompletion(consistent, delivery, null, { provenance: { ok: true } }).status, 'passed');
+  const mismatched = validateCompletion(consistent, delivery, null, { provenance: { ok: false, reason: 'recorded-verification-mismatch:write-fingerprint' } });
+  assert.ok(mismatched.errors.some((line) => /write-fingerprint/u.test(line)), mismatched.errors.join('; '));
 });
 
 test('checkpoint dry-run 无写入且恢复报告 HEAD 和工作区漂移', async () => {
@@ -214,7 +276,11 @@ test('squash 清理拒绝缺证据、漂移、脏目录和 patch 不一致后接
     // A completion receipt is only accepted with an explicit relevance review:
     // the selection reasons the planner emits are not review evidence.
     const unreviewed = (await command(worktree, 'verify', '--delivery', 'managed-mr')).report;
-    assert.equal(unreviewed.completion.status, 'blocked');
+    // `verify` emits a draft: this caller never supplied the review, so nothing
+    // refutes the run — the draft is `unverified` while the acceptance evidence
+    // it cites is blocked and the review is unreviewed. Only `passed` completes
+    // a delivery.
+    assert.equal(unreviewed.completion.status, 'unverified');
     assert.equal(unreviewed.completion.verificationAcceptance.status, 'blocked');
     assert.equal(unreviewed.completion.review.status, 'unreviewed');
     assert.deepEqual(unreviewed.completion.review.reviewedCheckIds ?? [], []);
@@ -306,6 +372,42 @@ test('tracked 符号链接改指向会改变写指纹', async (t) => {
     assert.notEqual(after.writeFingerprint, before.writeFingerprint);
   } finally {
     await remove(project);
+  }
+});
+
+test('子模块内已脏路径的再次写入会改变写指纹', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'vibe-delivery-submodule-'));
+  const source = path.join(root, 'submodule-source');
+  const project = path.join(root, 'main');
+  try {
+    await mkdir(source, { recursive: true });
+    await mkdir(project, { recursive: true });
+    for (const dir of [source, project]) {
+      git(dir, 'init', '-q', '-b', 'target');
+      git(dir, 'config', 'user.name', 'Fixture');
+      git(dir, 'config', 'user.email', 'fixture@example.invalid');
+    }
+    await writeFile(path.join(source, 'inner.txt'), 'one\n');
+    git(source, 'add', '.');
+    git(source, 'commit', '-qm', 'submodule base');
+    try {
+      execFileSync('git', ['-c', 'protocol.file.allow=always', 'submodule', 'add', source.split(path.sep).join('/'), 'vendor/sub'], { cwd: project, encoding: 'utf8', windowsHide: true });
+    } catch (error) {
+      t.skip(`当前环境无法添加子模块: ${error.message.split('\n')[0]}`);
+      return;
+    }
+    git(project, 'commit', '-qm', 'add submodule');
+    const inner = path.join(project, 'vendor', 'sub', 'inner.txt');
+    await writeFile(inner, 'two\n');
+    const dirty = await gitFingerprint(project);
+    assert.equal(typeof dirty.writeFingerprint, 'string');
+    // HEAD and the porcelain status are unchanged by this second write, so only
+    // the metadata of the paths inside the submodule can see it.
+    await writeFile(inner, 'three\n');
+    const rewritten = await gitFingerprint(project);
+    assert.notEqual(rewritten.writeFingerprint, dirty.writeFingerprint);
+  } finally {
+    await remove(root);
   }
 });
 

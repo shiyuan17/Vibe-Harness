@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -15,6 +15,11 @@ import {
   runFocusedProjectVerification,
   runProjectVerification,
 } from '../../scripts/lib/project-verification.js';
+import {
+  attestCompletionProvenance,
+  findVerificationReceipt,
+  recordFinalVerification,
+} from '../../runtime/lib/verification-receipt.mjs';
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '../..');
@@ -940,6 +945,45 @@ test('异步验证使用一致的内容指纹，变化使排队和通过收据�
     const invalidated = await consumeVerificationQueue(target);
     assert.deepEqual(invalidated.map((receipt) => receipt.status), ['stale', 'stale']);
     assert.ok(invalidated.every((receipt) => /identity/iu.test(receipt.staleReason)));
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('最终化验证记录只作溯源证据，不被当作可复用收据', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-finalized-'));
+  try {
+    await writeFile(path.join(target, '.gitignore'), '.vibe-harness/\n', 'utf8');
+    await initializeGitProject(target);
+    const verification = {
+      id: 'finalized-verification',
+      finishedAt: new Date().toISOString(),
+      finalizedAt: new Date().toISOString(),
+      snapshotComparison: 'match',
+      status: 'passed',
+      fingerprint: 'content-fingerprint',
+      writeFingerprint: 'write-fingerprint',
+      acceptance: { status: 'accepted', selectedCheckIds: ['test'], finalFingerprint: 'content-fingerprint' },
+    };
+    assert.equal(await recordFinalVerification(target, verification), true);
+    // The record is what lets a completion receipt cite a verification whose
+    // own workspace is gone, so it has to resolve to the fingerprints it names.
+    assert.equal((await attestCompletionProvenance(target, { verification })).ok, true);
+    const tampered = await attestCompletionProvenance(target, { verification: { ...verification, writeFingerprint: 'other' } });
+    assert.equal(tampered.ok, false);
+    assert.match(tampered.reason, /write-fingerprint/u);
+    // Only a record the run marked reusable may be replayed as a cache hit; a
+    // provenance record is not one, even under its own key.
+    const directory = path.join(target, '.vibe-harness/verification/receipts');
+    const [recordName] = await readdir(directory);
+    const hit = await findVerificationReceipt(target, {
+      available: true,
+      key: recordName.replace(/\.json$/u, ''),
+      fingerprints: { fingerprint: 'content-fingerprint', writeFingerprint: 'write-fingerprint' },
+      selectedIds: ['test'],
+      changedPaths: [],
+    });
+    assert.equal(hit.status, 'miss', JSON.stringify(hit));
   } finally {
     await rm(target, { force: true, recursive: true });
   }

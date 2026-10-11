@@ -821,6 +821,14 @@ export async function runVerificationPlan({
       engine: 'vibe-harness-cli',
       ...cacheContext.fingerprints,
       ...(afterContext ? { writeFingerprint: afterContext.fingerprints.writeFingerprint } : {}),
+      // `acceptance.finalFingerprint` is compared with the fingerprint published
+      // right above, and delivery validation compares that one with a fresh
+      // `gitFingerprint` of the same workspace. The focused report derives its
+      // value from `createProjectSnapshot`, a different hash for a dirty
+      // worktree, so the acceptance is re-anchored to the published source.
+      ...(hit || !focused.verification?.acceptance ? {} : {
+        acceptance: { ...focused.verification.acceptance, finalFingerprint: cacheContext.fingerprints.fingerprint },
+      }),
       cache: {
         status: hit ? 'hit' : reuse ? 'miss' : 'not_requested',
         reason: cached?.reason ?? cacheContext.reason,

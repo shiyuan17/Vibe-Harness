@@ -26,7 +26,7 @@ import { parseLinearPlanBlock } from '../lib/linear-planning.mjs';
 import {
   resolveVerificationTiers, selectVerificationChecks, verificationChanges, verificationCheckEvidence, verificationContextEnvironment, verificationCwd,
 } from '../lib/verification-plan.mjs';
-import { findVerificationReceipt, storeVerificationReceipt, verificationCacheContext } from '../lib/verification-receipt.mjs';
+import { attestCompletionProvenance, findVerificationReceipt, recordFinalVerification, storeVerificationReceipt, verificationCacheContext } from '../lib/verification-receipt.mjs';
 import { completionReceipt, overrideWarnings, resolveDelivery, validateCompletion } from '../lib/delivery.mjs';
 import { readMergeEvidence, validateMergeEvidence } from '../lib/merge-evidence.mjs';
 import { releaseServiceTeardown, serviceReport, teardownServices } from '../lib/services.mjs';
@@ -2188,7 +2188,12 @@ async function worktreeCleanupReport(projectDir, args) {
     if (delivery.requireReceipt) {
       try {
         receipt = args.receipt ? JSON.parse(await readFile(path.resolve(projectDir, args.receipt), 'utf8')) : null;
-        const gate = validateCompletion(receipt, delivery, await gitFingerprint(entry.path));
+        // `--receipt` is caller-supplied JSON, so the gate also has to resolve
+        // the cited verification against the record this tool wrote: a
+        // self-consistent receipt can otherwise assert acceptance for checks
+        // that never ran.
+        const gate = validateCompletion(receipt, delivery, await gitFingerprint(entry.path),
+          { provenance: await attestCompletionProvenance(entry.path, receipt) });
         if (gate.status !== 'passed') blocked.push(...gate.errors);
         const target = await runGit(['rev-parse', '--verify', settings.baseRef], projectDir);
         if (!target.ok || receipt?.target?.head !== target.stdout.trim()) blocked.push('completion receipt target is stale');
@@ -2223,13 +2228,23 @@ async function worktreeCleanupReport(projectDir, args) {
     }
     const services = await teardownServices(projectDir, entry.path);
     if (services.status !== 'passed') {
+      // This worktree is not removed, so the teardown marker must not keep
+      // `service start` permanently blocked for it: the developer has to be able
+      // to restart services and re-verify.
+      releaseServiceTeardown(projectDir, entry.path);
       results.push({ id: task.id, status: 'blocked', blockers: ['Managed service teardown failed'], services });
       continue;
     }
     if (delivery.requireReceipt) {
-      const finalReceipt = validateCompletion(receipt, delivery, await gitFingerprint(entry.path));
+      const finalReceipt = validateCompletion(receipt, delivery, await gitFingerprint(entry.path),
+        { provenance: await attestCompletionProvenance(entry.path, receipt) });
       const finalTarget = await runGit(['rev-parse', '--verify', settings.baseRef], projectDir);
       if (finalReceipt.status !== 'passed' || !finalTarget.ok || finalTarget.stdout.trim() !== receipt.target.head) {
+        // The evidence changed while the services were being torn down, so the
+        // worktree survives; releasing the marker is what lets its owner start
+        // services again instead of being locked out of a worktree that is
+        // still there.
+        releaseServiceTeardown(projectDir, entry.path);
         results.push({ id: task.id, status: 'blocked', blockers: ['Evidence changed during service teardown'] });
         continue;
       }
@@ -2237,6 +2252,7 @@ async function worktreeCleanupReport(projectDir, args) {
     const removedLinks = removeWorktreeLinks(projectDir, entry.path, settings);
     const removed = await runGit(['worktree', 'remove', entry.path], projectDir);
     if (!removed.ok) {
+      releaseServiceTeardown(projectDir, entry.path);
       results.push({ branch: entry.branch, error: boundedOutput(removed.stderr || removed.error?.message || 'git worktree remove failed', projectDir), id: task.id, path: normalizeSlashes(entry.path), removedLinks, status: 'failed' });
       continue;
     }
@@ -2652,7 +2668,10 @@ async function worktreeLandReportUnlocked(projectDir, args) {
             landReceipt.delivery.stage = 'complete';
             landReceipt.target.head = candidateHeadSha;
           }
-          const completionGate = delivery.requireReceipt ? validateCompletion(landReceipt, delivery, await gitFingerprint(candidatePath)) : null;
+          const completionGate = delivery.requireReceipt
+            ? validateCompletion(landReceipt, delivery, await gitFingerprint(candidatePath),
+              { provenance: await attestCompletionProvenance(candidatePath, landReceipt) })
+            : null;
           const verifyOk = PASS_STATUSES.includes(verify.status) && completionGate?.status !== 'blocked';
           const checkLines = Object.entries(verify.checks ?? {})
             .filter(([, item]) => item?.status && item.status !== 'not_configured')
@@ -2695,6 +2714,29 @@ async function worktreeLandReportUnlocked(projectDir, args) {
         markFailed({ id: 'merge', status: 'failed', code: 'LAND_FINALIZE_FAILED', error: boundedOutput(finalized.stderr || finalized.error?.message || 'candidate could not be fast-forwarded into the primary checkout', projectDir), candidatePath: removed.residual, detail: `git merge --ff-only ${candidateHeadSha}` });
       } else {
         const removed = await cleanupLandCandidate(projectDir, candidatePath);
+        // The receipt returned by this command describes the primary checkout,
+        // but the write evidence it carries was read in the candidate worktree,
+        // whose metadata the removal just destroyed. Re-anchoring it to the
+        // primary after the fast-forward — and recording that evidence where
+        // the receipt will be validated — keeps the command from returning a
+        // receipt that its own gate then has to reject as stale.
+        if (delivery.requireReceipt && landReceipt?.verification) {
+          const finalizedAt = new Date().toISOString();
+          const anchored = await gitFingerprint(primary.path);
+          landReceipt.verification = {
+            ...landReceipt.verification,
+            verifiedAt: landReceipt.verification.finishedAt,
+            finishedAt: finalizedAt,
+            finalizedAt,
+            fingerprint: anchored.fingerprint,
+            writeFingerprint: anchored.writeFingerprint,
+            ...(landReceipt.verification.acceptance
+              ? { acceptance: { ...landReceipt.verification.acceptance, finalFingerprint: anchored.fingerprint } }
+              : {}),
+          };
+          landReceipt.source = { ...landReceipt.source, head: candidateHeadSha, fingerprint: anchored.fingerprint };
+          await recordFinalVerification(primary.path, landReceipt.verification);
+        }
         if (!removed.removed) {
           markFailed({ id: 'merge', status: 'failed', code: 'LAND_CANDIDATE_CLEANUP_FAILED', candidatePath: removed.residual, error: removed.reason, detail: 'remove isolated candidate worktree' });
         } else {
@@ -2733,6 +2775,10 @@ async function worktreeLandReportUnlocked(projectDir, args) {
       const released = await releasePortRegistryEntry(projectDir, taskId);
       steps.push({ id: 'cleanup', status: 'passed', removedLinks, portBlockReleased: released.released === true, detail: `worktree removed; links ${removedLinks.length}` });
     } else {
+      // The worktree survives the failed removal, so it must not stay locked
+      // out of `service start` by a teardown marker written for a removal that
+      // never happened.
+      releaseServiceTeardown(projectDir, entry.path);
       markFailed({ id: 'cleanup', status: 'failed', code: 'LAND_CLEANUP_FAILED', removedLinks, error: boundedOutput(removed.stderr || removed.error?.message || 'git worktree remove failed', projectDir), detail: `git worktree remove ${entry.path}` });
     }
   }
@@ -4127,7 +4173,8 @@ async function taskCheckReport(projectDir, args) {
         errors: [`completion receipt could not be read: ${boundedOutput(error.message, projectDir)}`],
       };
     }
-    deliveryGate = validateCompletion(receipt, delivery, await gitFingerprint(projectDir));
+    deliveryGate = validateCompletion(receipt, delivery, await gitFingerprint(projectDir),
+      { provenance: await attestCompletionProvenance(projectDir, receipt) });
     if (deliveryGate.status === 'blocked') return { command: 'task', subcommand: 'check', taskId, status: 'blocked', complete: false, code: 'DELIVERY_RECEIPT_REQUIRED', ...deliveryGate };
   }
   const units = Array.isArray(read.anchor.units) ? read.anchor.units.filter((unit) => unit && typeof unit === 'object') : [];
