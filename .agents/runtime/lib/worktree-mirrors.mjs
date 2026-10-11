@@ -222,7 +222,17 @@ export function linkOrCopyMirrors(projectDir, worktreePath, mirrors) {
       results.push({ mirror, status: 'skipped', reason: `a parent inside the worktree is a link: ${linked[0]}` });
       continue;
     }
-    if (existsSync(target)) {
+    // `existsSync` is false for a dangling symlink while the link still occupies
+    // the path: `copyFileSync` would then follow it and write outside the
+    // worktree, so any existing entry — dangling links included — counts as
+    // present and is never overwritten.
+    let targetStats = null;
+    try {
+      targetStats = lstatSync(target);
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+    if (targetStats !== null) {
       results.push({ mirror, status: 'present' });
       continue;
     }
@@ -255,7 +265,22 @@ function linkTargetsMainCheckout(projectDir, target, mirror) {
     return false;
   }
   const resolved = path.isAbsolute(raw) ? raw : path.resolve(path.dirname(target), raw);
-  return pathKey(resolved) === pathKey(path.join(projectDir, mirror));
+  return canonicalPathKey(resolved) === canonicalPathKey(path.join(projectDir, mirror));
+}
+
+/**
+ * `pathKey` of a path with the Windows extended-length namespace removed.
+ *
+ * A Windows junction reports its target in extended-length form
+ * (`\\?\C:\repo\.agents`, or `\\?\UNC\server\share\...`), which the ordinary
+ * form of the same path never matches lexically, so a bootstrap-created
+ * junction would otherwise be left in place by the teardown.
+ */
+function canonicalPathKey(value) {
+  const unwrapped = process.platform === 'win32'
+    ? String(value).replace(/^\\\\\?\\UNC\\/iu, '\\\\').replace(/^\\\\\?\\/u, '')
+    : String(value);
+  return pathKey(unwrapped);
 }
 
 /**
