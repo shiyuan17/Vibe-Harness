@@ -40,16 +40,62 @@ function parseStatus(value) {
 }
 
 /**
+ * Write evidence for one tracked/untracked path list.
+ *
+ * Returns `null` when any path cannot be read: an unavailable path cannot be
+ * hashed as if it were unchanged, so the caller drops the whole write
+ * fingerprint instead of accepting stale evidence.
+ */
+async function pathWriteEvidence(root, files) {
+  const records = [];
+  let latestWriteAt = 0;
+  for (const file of [...new Set(files)].sort()) {
+    const absolute = path.join(root, file);
+    try {
+      const info = await lstat(absolute);
+      if (info.isSymbolicLink()) {
+        // A tracked symbolic link is write evidence twice over: retargeting it
+        // changes the link text and the link's own metadata, while a write
+        // through it changes the metadata of what it resolves to. A directory
+        // target is the one case that cannot be followed — writing a child does
+        // not change the directory's own metadata — so it is recorded as an
+        // unusable target instead of a checked one.
+        let resolved;
+        try {
+          const target = await stat(absolute);
+          resolved = target.isDirectory() ? 'directory-target' : [target.mtimeMs, target.ctimeMs, target.size];
+        } catch (error) {
+          if (error.code !== 'ENOENT') return null;
+          resolved = 'dangling';
+        }
+        records.push([file, 'link', info.mtimeMs, info.ctimeMs, info.size, await readlink(absolute), resolved]);
+        latestWriteAt = Math.max(latestWriteAt, info.mtimeMs, info.ctimeMs);
+        continue;
+      }
+      records.push([file, info.mtimeMs, info.ctimeMs, info.size]);
+      latestWriteAt = Math.max(latestWriteAt, info.mtimeMs, info.ctimeMs);
+    } catch (error) {
+      if (error.code !== 'ENOENT') return null;
+      records.push([file, 'missing']);
+    }
+  }
+  return { latestWriteAt, records };
+}
+
+/**
  * Write evidence for tracked submodules.
  *
- * `git ls-files` reports a submodule as a single gitlink path, so the file
- * walk above records only that directory's own metadata and a write inside the
+ * `git ls-files` reports a submodule as a single gitlink path, so the top-level
+ * walk records only that directory's own metadata and a write inside the
  * submodule would leave the write fingerprint unchanged. Each submodule is
- * therefore asked for its own HEAD and status.
+ * therefore asked for its own HEAD, status and per-path metadata; HEAD plus a
+ * porcelain status is not enough on its own, because editing a path that is
+ * already reported as modified leaves both unchanged. Returns `null` when the
+ * submodule surface cannot be read, so the caller fails closed.
  */
 async function submoduleEvidence(projectDir) {
   const staged = await git(['ls-files', '--stage', '-z'], projectDir);
-  if (!staged.ok) return [];
+  if (!staged.ok) return null;
   const paths = [...new Set(staged.stdout.split('\0').filter(Boolean)
     .filter((record) => record.startsWith('160000 '))
     .map((record) => record.slice(record.indexOf('\t') + 1))
@@ -58,11 +104,15 @@ async function submoduleEvidence(projectDir) {
   for (const relative of paths) {
     const head = await git(['-C', relative, 'rev-parse', 'HEAD'], projectDir);
     if (!head.ok) {
-      evidence.push([relative, 'uninitialized']);
+      evidence.push({ head: 'uninitialized', latestWriteAt: 0, path: relative, writes: [] });
       continue;
     }
     const status = await git(['-C', relative, 'status', '--porcelain=v1', '-z', '--untracked-files=all'], projectDir);
-    evidence.push([relative, head.stdout.trim(), status.ok ? status.stdout : 'unreadable']);
+    const nested = await git(['-C', relative, 'ls-files', '-z', '--cached', '--others', '--exclude-standard'], projectDir);
+    if (!status.ok || !nested.ok) return null;
+    const writes = await pathWriteEvidence(path.join(projectDir, relative), nested.stdout.split('\0').filter(Boolean));
+    if (writes === null) return null;
+    evidence.push({ head: head.stdout.trim(), latestWriteAt: writes.latestWriteAt, path: relative, status: status.stdout, writes: writes.records });
   }
   return evidence;
 }
@@ -112,27 +162,11 @@ export async function gitFingerprint(projectDir) {
   let writeFingerprint = null;
   let latestWriteAt = null;
   if (tracked.ok) {
-    const files = [...new Set(tracked.stdout.split('\0').filter(Boolean))].sort();
-    const metadata = await Promise.all(files.map(async (file) => {
-      const absolute = path.join(projectDir, file);
-      try {
-        const info = await lstat(absolute);
-        // A tracked symbolic link is part of the write evidence twice over: the
-        // link text and its own metadata change when it is retargeted, and the
-        // metadata of what it resolves to changes when a write goes through it.
-        // Following the link with `stat()` alone would miss the first case.
-        if (info.isSymbolicLink()) {
-          const target = await stat(absolute).catch((error) => (error.code === 'ENOENT' ? 'dangling' : 'unreadable'));
-          const resolved = typeof target === 'string' ? target : [target.mtimeMs, target.ctimeMs, target.size];
-          return [file, 'link', await readlink(absolute), resolved];
-        }
-        return [file, info.mtimeMs, info.ctimeMs, info.size];
-      } catch (error) { return [file, error.code === 'ENOENT' ? 'missing' : 'unreadable']; }
-    }));
+    const files = await pathWriteEvidence(projectDir, tracked.stdout.split('\0').filter(Boolean));
     const submodules = await submoduleEvidence(projectDir);
-    if (!metadata.some((item) => item[1] === 'unreadable' || item[3] === 'unreadable') && !submodules.some((item) => item[2] === 'unreadable')) {
-      writeFingerprint = createHash('sha256').update(JSON.stringify([...metadata, ...submodules])).digest('hex');
-      latestWriteAt = metadata.reduce((latest, item) => typeof item[1] === 'number' ? Math.max(latest, item[1]) : latest, 0);
+    if (files !== null && submodules !== null) {
+      writeFingerprint = createHash('sha256').update(JSON.stringify([...files.records, ...submodules])).digest('hex');
+      latestWriteAt = submodules.reduce((latest, item) => Math.max(latest, item.latestWriteAt), files.latestWriteAt);
     }
   }
   return { snapshot, fingerprint: hash.digest('hex'), writeFingerprint, latestWriteAt };

@@ -562,10 +562,17 @@ export async function buildVerificationPlan({
   const metadata = validationCheckMap(config);
   const selectedWithMetadata = selectedChecks.map((item) => {
     const configured = metadata.get(item.id);
-    return configured
-      ? { ...item, deterministic: configured.deterministic, ...(configured.estimatedDurationMs !== undefined
-        ? { estimatedDurationMs: configured.estimatedDurationMs } : {}) }
-      : item;
+    if (!configured) return item;
+    return {
+      ...item,
+      // The tier plan resolves the same declaration from the configuration, so
+      // its execution identity has to match here too: without the configured
+      // directory the same check would run from the repository root as well,
+      // and the focused entrypoint would execute it twice.
+      cwd: configured.cwd ?? item.cwd ?? '.',
+      deterministic: configured.deterministic,
+      ...(configured.estimatedDurationMs !== undefined ? { estimatedDurationMs: configured.estimatedDurationMs } : {}),
+    };
   });
   const selectionReasonsByCheck = Object.fromEntries([...selectedWithMetadata, ...deferredChecks].map((item) => [
     item.id ?? item.command,

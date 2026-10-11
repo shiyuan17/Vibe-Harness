@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { gitFingerprint } from './git-fingerprint.mjs';
 import { validateCompletion } from './delivery.mjs';
+import { attestCompletionProvenance } from './verification-receipt.mjs';
 
 function git(project, args, input = undefined) {
   const result = spawnSync('git', args, { cwd: project, input, encoding: 'utf8', windowsHide: true, timeout: 15000, maxBuffer: 16 * 1024 * 1024 });
@@ -10,8 +11,22 @@ function git(project, args, input = undefined) {
   return result.stdout.trim();
 }
 
+/**
+ * Raw stdout of one Git command.
+ *
+ * Command outputs that carry content — a diff's changed lines — must not be
+ * trimmed: `+value   ` and `+value` are different patches, and trimming the
+ * final line would make the exact-content digest agree with `patch-id`'s
+ * whitespace-insensitive identity again.
+ */
+function gitRaw(project, args, input = undefined) {
+  const result = spawnSync('git', args, { cwd: project, input, encoding: 'utf8', windowsHide: true, timeout: 15000, maxBuffer: 16 * 1024 * 1024 });
+  if (result.status !== 0 || result.error) throw new Error('Git evidence could not be read');
+  return result.stdout;
+}
+
 function patchId(project, before, after) {
-  const diff = git(project, ['diff', '--no-ext-diff', '--no-textconv', '--binary', before, after, '--']);
+  const diff = gitRaw(project, ['diff', '--no-ext-diff', '--no-textconv', '--binary', before, after, '--']);
   const result = git(project, ['patch-id', '--stable'], diff);
   if (!result) throw new Error('Empty patch cannot prove a squash merge');
   return result.split(/\s/u)[0];
@@ -27,7 +42,7 @@ function patchId(project, before, after) {
  * landed.
  */
 function patchContentDigest(project, before, after) {
-  const diff = git(project, ['diff', '--no-ext-diff', '--no-textconv', '--binary', before, after, '--']);
+  const diff = gitRaw(project, ['diff', '--no-ext-diff', '--no-textconv', '--binary', before, after, '--']);
   const content = diff
     .split('\n')
     .filter((line) => /^(?:diff --git |new file mode|deleted file mode|old mode|new mode|rename from|rename to|similarity index|\+\+\+ |--- |\+|-)/u.test(line))
@@ -78,11 +93,20 @@ export async function validateMergeEvidence(project, worktree, evidence, { taskI
       !== patchContentDigest(project, evidence.targetBefore, evidence.mergeCommit)) throw new Error('Patch content mismatch');
     if (git(worktree, ['status', '--porcelain=v1', '--untracked-files=all'])) throw new Error('Dirty worktree');
     const current = await gitFingerprint(worktree);
-    const completion = validateCompletion(receipt, delivery, current);
+    const completion = validateCompletion(receipt, delivery, current,
+      { provenance: await attestCompletionProvenance(worktree, receipt) });
     if (completion.status !== 'passed') throw new Error(completion.errors.join('; '));
     if (receipt.target?.head !== evidence.targetAfter) throw new Error('Receipt target does not match merge evidence');
+    // The receipt was validated against the state read above; a concurrent write
+    // after that read would leave the refs unchanged while the accepted evidence
+    // is already stale, so the worktree state is read once more before the
+    // validation is reported as passed.
+    const final = await gitFingerprint(worktree);
     if (git(project, ['rev-parse', '--verify', targetRef]) !== evidence.targetAfter
-      || git(worktree, ['rev-parse', 'HEAD']) !== sourceHead) throw new Error('Refs changed during evidence validation');
+      || git(worktree, ['rev-parse', 'HEAD']) !== sourceHead
+      || git(worktree, ['status', '--porcelain=v1', '--untracked-files=all'])
+      || final.fingerprint !== current.fingerprint
+      || final.writeFingerprint !== current.writeFingerprint) throw new Error('Refs or worktree changed during evidence validation');
     return { status: 'passed', evidence };
   } catch (error) {
     return { status: 'blocked', code: 'MERGE_EVIDENCE_BLOCKED', reason: error.message };
