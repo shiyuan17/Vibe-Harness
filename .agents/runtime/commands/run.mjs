@@ -2095,7 +2095,19 @@ async function worktreeCleanupReport(projectDir, args) {
  * Without --write the report is the ordered plan; without --push the branch
  * survives with a suggested command instead of being deleted.
  */
-const LAND_PROTECTED_BRANCH_PATTERN = /^(?:main|master|develop|release(?:[-/].+)?)$/iu;
+// Branches a direct local land must never merge into because a server-side
+// review or release gate protects them. `develop` is deliberately excluded
+// (ADR-0013): the integration branch accepts direct no-ff landings so a task
+// branch does not need a round-trip through an MR. The allowlist below records
+// that decision explicitly so a later widening of the pattern cannot silently
+// re-block it, and `isLandProtectedBranch` keeps the target rejection and the
+// tracking-push allowance sourced from the same predicate.
+const LAND_PROTECTED_BRANCH_PATTERN = /^(?:main|master|release(?:[-/].+)?)$/iu;
+const LAND_PROTECTED_BRANCH_ALLOWLIST = new Set(['develop']);
+function isLandProtectedBranch(branch) {
+  if (LAND_PROTECTED_BRANCH_ALLOWLIST.has(String(branch ?? '').toLowerCase())) return false;
+  return LAND_PROTECTED_BRANCH_PATTERN.test(branch);
+}
 
 async function gitCommonDir(projectDir) {
   const result = await runGit(['rev-parse', '--git-common-dir'], projectDir);
@@ -2232,7 +2244,7 @@ async function worktreeLandReportUnlocked(projectDir, args) {
   if (targetBranch !== primary.branch) {
     return failure(`land merges into the primary checkout's current branch ${primary.branch}; check out ${args.baseRef} first or omit --base-ref`);
   }
-  if (LAND_PROTECTED_BRANCH_PATTERN.test(targetBranch)) {
+  if (isLandProtectedBranch(targetBranch)) {
     return failure(`target branch ${targetBranch} is a protected or shared branch; land refuses to merge into it`, 'LAND_TARGET_PROTECTED');
   }
   const registryInfo = readPortRegistry(projectDir);
@@ -2324,7 +2336,7 @@ async function worktreeLandReportUnlocked(projectDir, args) {
   const remotes = await runGit(['remote'], projectDir);
   const remoteList = remotes.ok ? remotes.stdout.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean) : [];
   const pushCommand = hasUpstream ? 'git push'
-    : remoteList.length === 1 && remoteList[0] === 'origin' && !LAND_PROTECTED_BRANCH_PATTERN.test(targetBranch)
+    : remoteList.length === 1 && remoteList[0] === 'origin' && !isLandProtectedBranch(targetBranch)
       ? `git push -u origin ${targetBranch}`
       : null;
   if (args.push && pushCommand === null) {

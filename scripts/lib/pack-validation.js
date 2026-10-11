@@ -981,7 +981,7 @@ export const CONTENT_QUALITY_CHECKS = [
       SHARED_RULE_PHRASES.gitFlowDefault,
       SHARED_RULE_PHRASES.gitFlowHotfix,
       SHARED_RULE_PHRASES.developRequiredFastGate,
-      '稳定的 fast gate 聚合检查',
+      '不再把稳定 fast gate 作为服务器端 required gate',
       SHARED_RULE_PHRASES.releaseGateBranches,
       '项目在发布边界配置的完整 required check',
       // 3 Definition of Ready
@@ -1071,7 +1071,10 @@ export const CONTENT_QUALITY_CHECKS = [
       SHARED_RULE_PHRASES.gitFlowDefault,
       SHARED_RULE_PHRASES.gitFlowHotfix,
       SHARED_RULE_PHRASES.developRequiredFastGate,
-      '必须先通过 required fast gate',
+      // ADR-0013 removed the develop fast gate: the rule now states the
+      // withdrawal and the land allow-list instead of the old requirement.
+      '不再作为集成分支的合并门禁',
+      '由显式白名单允许直落',
       '紧急旁路必须有明确过期时间、授权人和审计记录',
       // 协作工作流引用必须带条件语气：未安装 linear-workflow 的项目同样成立。
       '若项目已安装该规则',

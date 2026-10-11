@@ -47,7 +47,7 @@ Vibe-Harness 不通过 Stop Hook、运行时脚本或任何默认流程自动执
 | 回滚 | 回滚方式 |
 
 - `$git-deliver` 只在已有 upstream 时普通推送；无 upstream 时，仅在唯一明确远端为 origin 且当前分支非保护或共享分支时建立跟踪并普通推送，否则停止确认。
-- main、master、develop、release、仓库识别出的保护或共享分支不得由 `$git-deliver` 自动推送。强制推送、删除远端引用和历史重写不属于该 Skill 授权范围。
+- main、master、release、仓库识别出的保护分支不得由 `$git-deliver` 自动推送。`develop` 已按 ADR-0013 移出保护清单：任务分支与 land 落地可直接 `git push`／`git push -u origin develop`，不需要人工审批或服务器端 required gate。强制推送、删除远端引用和历史重写不属于该 Skill 授权范围。
 - 未获提交授权时，不得把未提交状态描述为失败；应交付改动清单和验证证据。
 
 分组交付的执行步骤见宿主 Skill 根目录下已安装的 `git-deliver` Skill 入口，两者描述同一提交授权边界，修改须同步。
@@ -69,8 +69,8 @@ Vibe-Harness 不通过 Stop Hook、运行时脚本或任何默认流程自动执
 - 默认分支模型：`feat/*、fix/* → develop → main`；紧急修复：`hotfix/* → main → develop`。该模型在项目显式建立对应分支后生效；尚未创建 `develop` 或迁移未完成的仓库，以实际默认分支和已声明目标 ref 为准，不按设想中的分支开始工作。
 - 普通任务 PR 使用 squash merge；`develop → main` 的发布提升与 `main → develop` 的回同步使用 merge commit。squash 在目标分支生成的提交主题来自 PR/MR 标题，因此标题与提交主题使用同一 Conventional Commit 语法。
 - `main` 只接受同仓库 `develop`、`hotfix/*` 和 release-please 的 PR，不使用长期 `release/*` 分支；目标项目已配置 `release/*` 时按其保护规则处理。
-- `develop` 必须配置稳定的 fast gate 聚合检查，至少覆盖 lint、typecheck、unit，并按变更影响追加 component/integration；发布边界继续使用完整 required CI。
-- 普通任务 PR 仍可由 Writer 在 envelope 授权 `mergeRequestWrite` 后自行 squash merge，但必须先通过 `develop` required fast gate；`Ready to Merge` 仍只用于带发布门禁目标。
+- `develop` 不配置服务器端 required gate（ADR-0013）：稳定 fast gate 聚合检查不再作为集成分支的合并门禁，集成分支接受本地 `worktree land` 的 no-ff 直落与任务分支直推，质量责任由本地候选合并验证（lint、typecheck、unit，并按变更影响追加 component/integration）与提交前检查承担；发布边界继续使用完整 required CI。
+- 普通任务 PR 仍可由 Writer 在 envelope 授权 `mergeRequestWrite` 后自行 squash merge；`Ready to Merge` 仍只用于带发布门禁目标。
 - 合并前的本地验证必须建立在合并时的最新 `origin/develop` 之上：目标 ref 已前进时重跑受影响检查，或改用 merge queue 在最新 base 上重跑；高风险变更的 Independent Review Receipt 缺失、过期、与 diff 不匹配或结论为 negative 时不得自行落地合并。
 - 多个任务可以隔离开发，但不得同时写入同一集成目标：任务 worktree 只负责开发隔离，Parent 负责依赖顺序、冲突归属和 fan-in；共享分支 PR 在远端 merge queue 以最新目标基线重验后顺序合并。队列未启用的仓库继续遵守当前授权和人工顺序集成，不得声称远端队列门禁已生效。
 - 紧急旁路必须有明确过期时间、授权人和审计记录；不得以 advisory、跳过检查或本地标记静默绕过 required gate。
@@ -78,12 +78,12 @@ Vibe-Harness 不通过 Stop Hook、运行时脚本或任何默认流程自动执
 ## 分支与 PR/MR
 
 - 默认分支名使用 `<type>/<short-topic>`，只用小写字母、数字和连字符；Linear 工作流下使用 `<type>/<ISSUE-ID>-<slug>`，与项目 worktree 校验入口的分支命名校验一致；已有任务分支或用户指定分支优先。
-- main、master、develop、release 和其他共享分支上的提交与推送遵循仓库保护和人工审批。
+- main、master、release 及其他仍受保护分支上的提交与推送遵循仓库保护和人工审批；`develop` 不在其列，可按 ADR-0013 直推与直落。
 - PR/MR 包含摘要、风险、验证、回滚和审查备注；高风险 PR/MR 说明红区确认和独立审查状态。
 - PR/MR 标题使用 `<type>(<scope>): <描述>`，因为 squash 合并用它生成目标分支上的提交主题。
 - 单个 PR/MR 尽量只承载一个逻辑目的，超出可审查规模时拆分；确需一次交付的，在描述中说明无法拆分的原因。
 - Linear 工作流下必须给出可解析的精确目标远端 ref；只有解析结果确为仓库默认分支时才可写“默认分支”。开始实现前记录目标 ref 和 base SHA，分支与 worktree 必须从该基线创建。
-- Linear 普通任务默认以 `origin/develop` 为基线；只有 hotfix 以 `origin/main` 为基线。发布提升和回同步使用 `Refs <ISSUE-ID>`，不得用 closing magic word 重复关闭已完成开发 Issue。普通任务 closing PR 合入 `develop` 即为 Done，但必须先通过 required fast gate。
+- Linear 普通任务默认以 `origin/develop` 为基线；只有 hotfix 以 `origin/main` 为基线。发布提升和回同步使用 `Refs <ISSUE-ID>`，不得用 closing magic word 重复关闭已完成开发 Issue。普通任务 closing PR 合入 `develop` 即为 Done。
 - 顺序执行且工作区干净时，任务分支可在当前 clone 创建；并发 Agent、脏工作区、存在无关改动或明确要求隔离时，必须使用仓库外 worktree。该优化不改变“一任务一分支一 closing PR/MR”。
 - 创建 PR/MR 前重新读取远端目标 ref 和 source HEAD，校验提供方所选 base 等于已声明目标 ref，并计算 merge-base。merge-base 必须等于冻结 base SHA，或是该 SHA 在同一目标 ref 历史上的已验证后代；否则停止创建并报告基线不一致。
 - GitHub PR 与 GitLab MR 的标题、source、target、描述和 closing 语义都必须在创建后重读确认。Linear 分支和标题保留 Issue ID；closing 描述使用 `Fixes <ISSUE-ID>`，只有提供方配置并经重读确认的等价语法才可替代；closing 词不放在 commit 中。
@@ -93,7 +93,7 @@ Vibe-Harness 不通过 Stop Hook、运行时脚本或任何默认流程自动执
 - 只改写自己尚未推送的提交；共享分支上已推送的历史不得通过 rebase、amend 或 force push 修改。
 - 需要同步尚未推送的分支时优先用 `--force-with-lease` 而不是 `--force`，推送前重新读取远端 SHA 确认没有被他人更新。
 - 任务分支落后于目标 ref 时默认 rebase 到最新目标 ref；仓库明确要求 merge 同步时按其约定执行，并记录选择。
-- 拉取更新使用 `--ff-only` 或 rebase，不用会产生隐式 merge commit 的默认 `git pull`。
+- 拉取更新使用 `--ff-only` 或 rebase，不用会产生隐式 merge commit 的默认 `git pull`。只读同步类命令（`git fetch`、`git ls-remote`、`git stash list`、`git submodule status`、带 `--ff-only` 的 `git pull`）由 hook 放行；`pull --ff-only` 额外要求跟踪工作区干净（脏工作区拒绝并报 `VIBE_HARNESS_SYNC_DIRTY_TREE`），裸 `git pull` 判为会写工作区的 `workspaceWrite`。
 - 已推到共享分支的错误变更用 revert 加修复提交处理，保留可审计历史；不使用 reset、checkout 或历史改写抹掉已发布内容。
 
 ## 安全与敏感数据
@@ -122,7 +122,7 @@ Vibe-Harness 自身使用 Conventional Commits、commitlint、pre-commit、pre-p
 - worktree 放在仓库外部，避免被构建和依赖扫描。
 - 子 Agent 只在分配的 worktree、分支和写入范围内工作；审查任务默认只读。
 - worktree 的引导、审计与清理使用项目脚本入口 `node .agents/runtime/commands/run.mjs worktree <list|check|bootstrap|land|recover|cleanup> --project . --json`；默认只读，只有追加 `--write` 才落盘，`cleanup` 在分支未并入 `worktree.baseRef` 或工作区不干净时直接拒绝，并且从不删除分支。不带 `--write` 的 `bootstrap` 即逐任务列出步骤的计划预览，项目面不设单独 plan 子命令；`--help`（或 `help` 子命令）给出该入口自身的命令面说明。
-- `worktree land` 把归因 worktree 闭环回收进主检出当前分支：默认 dry-run 输出按序步骤计划；`--write` 在 Git common dir 独占锁内重新核对工作区、来源与目标基线及任务锚点，随后在仓库外临时候选 worktree 中执行「合并（`--no-ff`，已并入则跳过）→ 验证（默认 quick，锚点 `riskLevel=full` 时 standard）」，通过且目标与来源 HEAD、主检出与候选状态均未变化后才快进主检出；随后按授权推送、清理任务 worktree 与端口登记，并仅在推送成功后删除任务分支。候选合并冲突或验证失败不移动主检出，任务 worktree 保留；锁超时和基线变化阻塞本次落地，残留锁不自动清理。门禁 fail-closed：目标分支非保护分支（main、master、develop、release*）、关联任务锚点单元全部完成；目标默认是主检出当前分支，`--base-ref` 仅作意图断言。不带 `--push` 时不推送不删分支，`--write --no-verify` 拒绝执行，单独的 dry-run 仍可预览旧参数。
+- `worktree land` 把归因 worktree 闭环回收进主检出当前分支：默认 dry-run 输出按序步骤计划；`--write` 在 Git common dir 独占锁内重新核对工作区、来源与目标基线及任务锚点，随后在仓库外临时候选 worktree 中执行「合并（`--no-ff`，已并入则跳过）→ 验证（默认 quick，锚点 `riskLevel=full` 时 standard）」，通过且目标与来源 HEAD、主检出与候选状态均未变化后才快进主检出；随后按授权推送、清理任务 worktree 与端口登记，并仅在推送成功后删除任务分支。候选合并冲突或验证失败不移动主检出，任务 worktree 保留；锁超时和基线变化阻塞本次落地，残留锁不自动清理。门禁 fail-closed：目标分支非保护分支（main、master、release*；`develop` 按 ADR-0013 由显式白名单允许直落）、关联任务锚点单元全部完成；目标默认是主检出当前分支，`--base-ref` 仅作意图断言。不带 `--push` 时不推送不删分支，`--write --no-verify` 拒绝执行，单独的 dry-run 仍可预览旧参数。
 - 临时候选 worktree 只有在工作区干净时自动移除；异常残留由 `worktree recover` 报告，`--write` 仅清理有归因、干净的候选。脏候选与疑似残留锁由操作者核对，不强制删除；本地 `land` 不创建远端合并队列，也不能代替共享分支 required checks。
 - 崩溃残留走专门入口：目录已消失但 Git 元数据与分支绑定仍在的 worktree 由 `worktree check` 报为 `WORKTREE_PRUNABLE_RESIDUE` 错误并阻塞审计通过。`worktree recover` 默认只出计划，追加 `--write` 后按序移除不完整 worktree（端口 env 文件在位且登记在册时跳过，仅当分支未离开基线且工作区干净时连同分支与端口登记一起移除）、prunable 残留（一次 `git worktree prune`）、孤立分支与孤立端口登记。分支删除仅在存在归因证据（端口登记表条目或 prunable 清单）、分支 HEAD 等于 `worktree.baseRef` 解析出的基线 SHA 且该分支不是基线本身时发生；无引用的用户占位分支、带未并入提交的分支与登记面之外的外来 worktree 一律不动。`recover` 的分支删除仅限上述证据门——这不与「merge-back 完成前不删除分支」冲突：被删分支从未持有任何提交。该入口的另一处分支删除只发生在 `land` 的推送成功之后，且使用自带未合并拒绝保险的 `git branch -d`。
 - worktree 工具分两个入口：上述项目面入口是安装交付内唯一的写入面，负责创建、依赖链接与清理；Vibe-Harness 源仓库的开发面另有只读审计 CLI（`scripts/worktree.js`，`list|check|plan`，按登记任务核对分支命名与 merge-back 事实，永不执行写入、也永不创建 worktree），不随安装交付——目标项目不引入第二个 worktree 写入口。

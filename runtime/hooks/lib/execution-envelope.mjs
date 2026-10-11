@@ -343,7 +343,7 @@ function gitInvocation(segment) {
   return { args: args.slice(index + 1), command: args[index]?.toLowerCase() ?? '' };
 }
 
-function classifyGit(segment, effects) {
+function classifyGit(segment, effects, hints) {
   const invocation = gitInvocation(segment);
   if (!invocation) return null;
   const { args, command } = invocation;
@@ -402,6 +402,28 @@ function classifyGit(segment, effects) {
     if (['add', 'remove', 'rename', 'set-head', 'set-branches', 'set-url'].includes(operation)) effects.add('workspaceWrite');
     else if (operation === 'prune') effects.add('gitBranch');
     return operation === '' || ['add', 'remove', 'rename', 'set-head', 'set-branches', 'set-url', 'get-url', 'show', 'prune'].includes(operation);
+  }
+  // Reading remote state never touches the working tree.
+  if (command === 'fetch' || command === 'ls-remote') return true;
+  if (command === 'pull') {
+    if (lowerArgs.includes('--ff-only')) {
+      // A fast-forward-only pull is a plain sync: it cannot create a merge
+      // commit and git itself refuses to overwrite local modifications. The
+      // hook still requires a clean tracked working tree before allowing one
+      // (VIBE_HARNESS_SYNC_DIRTY_TREE), which this classification reports
+      // through `cleanTreeRequired`.
+      if (hints) hints.cleanTreeRequired = true;
+      return true;
+    }
+    // Every other pull form may create a merge commit or rebase local work, so
+    // it stays a workspace write that an Execution Envelope can authorize.
+    effects.add('workspaceWrite');
+    return true;
+  }
+  // Only the printing forms of these two sub-commands are read-only; every
+  // other form keeps falling through to the unclassified (fail-closed) path.
+  if (command === 'stash' || command === 'submodule') {
+    return lowerArgs.includes(command === 'stash' ? 'list' : 'status');
   }
   if (['status', 'diff', 'log', 'show', 'rev-parse', 'rev-list', 'ls-files', 'ls-tree', 'cat-file', 'grep', 'blame', 'shortlog', 'describe', 'name-rev', 'for-each-ref'].includes(command)) return true;
   return false;
@@ -533,6 +555,10 @@ export function classifyExecutionEffects(input) {
   const effects = new Set();
   const externalTargets = [];
   const highRiskReasons = new Set();
+  // Classification is pure, so the working-tree fact a `git pull --ff-only`
+  // depends on is reported out as a requirement instead of being probed here;
+  // the hook decides it with one read-only `git status` right before allowing.
+  const hints = { cleanTreeRequired: false };
   const toolName = String(input.toolName ?? '');
   const command = commandFrom(input);
   const structuredPaths = collectStructuredPaths(input.toolInput);
@@ -556,7 +582,7 @@ export function classifyExecutionEffects(input) {
     }
     addUrlTargets(command, externalTargets);
     for (const segment of shellSegments(command)) {
-      if (classifyGit(segment, effects) === true) continue;
+      if (classifyGit(segment, effects, hints) === true) continue;
       const supabase = classifySupabase(segment, effects, externalTargets);
       if (supabase !== null) {
         highRiskReasons.add('credentialed-external-cli');
@@ -593,6 +619,7 @@ export function classifyExecutionEffects(input) {
   if (effects.has('credentialUse')) highRiskReasons.add('credential-use');
   if (unknown) highRiskReasons.add('unclassified-effect');
   return {
+    cleanTreeRequired: hints.cleanTreeRequired,
     credentialPersistence: credentialCommandPattern.test(command) && effects.has('workspaceWrite'),
     effects: EXECUTION_EFFECTS_V2.filter((effect) => effects.has(effect)),
     externalTargets,
