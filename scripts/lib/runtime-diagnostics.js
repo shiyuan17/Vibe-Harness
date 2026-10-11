@@ -394,7 +394,12 @@ function managedCommandEvent(command, adapter, { targetDir, requireHost = false 
   const trimmed = command.trim();
   // The inline bootstrap is matched as an exact prefix, never as a substring.
   if (trimmed.startsWith(hookBootstrapPrefix)) {
-    return managedInvocationEvent(trimmed.slice(hookBootstrapPrefix.length), adapter, { requireHost });
+    const remainder = trimmed.slice(hookBootstrapPrefix.length);
+    // The prefix ends in `--`, so a directly concatenated `--expected-event`
+    // parses here as a valid option while the shell hands Node a longer token it
+    // never accepts. The prefix only counts as a whole token when whitespace
+    // separates it from the rest of the command line.
+    return /^\s/u.test(remainder) ? managedInvocationEvent(remainder, adapter, { requireHost }) : null;
   }
   const tokens = tokenizeCommand(trimmed);
   if (tokens.length < 3) return null;

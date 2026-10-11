@@ -331,6 +331,15 @@ test('Hook 自检拒绝缺失、漂移或未接线的已安装 handler', async (
       (event) => `node -e "${bootstrap.replace(/\r?\n$/u, '')}" -- --expected-event ${event}`,
     ), null, 2) + '\n', 'utf8');
     assert.equal((await inspectRuntimeHookSelfCheck(adapter, target, { configured: true })).status, 'pass');
+    // The prefix ends in `--`, so the payload has to be a separate token: a
+    // concatenated `--expected-event` parses here while the shell hands Node a
+    // longer token it never accepts, and the hook would not run at all.
+    await writeFile(path.join(target, '.codex', 'hooks.json'), JSON.stringify(codexHookConfig(
+      (event) => `node -e "${bootstrap.replace(/\r?\n$/u, '')}" ----expected-event ${event}`,
+    ), null, 2) + '\n', 'utf8');
+    const concatenated = await inspectRuntimeHookSelfCheck(adapter, target, { configured: true });
+    assert.equal(concatenated.status, 'degraded');
+    assert.equal(concatenated.code, 'HOOK_SELF_CHECK_CONFIG_UNWIRED');
   } finally {
     await rm(target, { force: true, recursive: true });
   }
