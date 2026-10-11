@@ -12,7 +12,7 @@ review kind 根据 base diff、当前 head、变更指纹、高风险路径和�
 
 approved 要求 Reviewer 与实现者身份、context ID 均不同，readOnly 为 true，最终验证绑定当前 head 且 stable 为 true，并且没有未解决的 High 或 Critical finding。收据文件本身不参与变更指纹，避免自引用；任何其他新提交或工作树变更都会使旧收据失效。
 
-v1 回执保持可读，但只对普通变更成立：高风险变更一律要求 v2，v1 回执在高风险下报 `REVIEW_SCHEMA_V2_REQUIRED`，不能支持 approved。v2 是高风险变更的双复审契约：Schema 结构上要求同时给出两个 `reviewers`（身份与 contextId 互不相同）与 `contextIndependence`，并且只有宿主验证的 `contextIndependence=verified` 才支持 approved，`attested` 与 `unavailable` 只能作为降级信息。少一个复审者或缺少独立性声明时，收据本身就不成立，而不是仅在审计时降级。
+v1 回执保持可读，但只对普通变更成立：高风险变更一律要求 v2，v1 回执在高风险下报 `REVIEW_SCHEMA_V2_REQUIRED`，不能支持 approved。v2 是高风险变更的复审契约：Schema 结构上要求至少给出一个 `reviewers` 条目（身份与 contextId 均不得等于实施者）与 `contextIndependence`；`attested` 声明支持 approved，`unavailable` 不支持。缺少复审者或缺少独立性声明时，收据本身就不成立，而不是仅在审计时降级。
 
 收据绑定 `pull_request.base.sha` 与 `pull_request.head.sha`：independent-review job 检出 PR head 提交，复审者不依赖 GitHub 临时 merge commit 也能复算 changeFingerprint。取不到比对 base 的 diff 时审计 fail-closed，不再退化成空变更集。
 

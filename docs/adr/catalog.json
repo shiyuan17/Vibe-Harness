@@ -38,6 +38,10 @@
       "path": "docs/adr/ADR-0009-develop-required-fast-gate.md"
     },
     {
+      "id": "ADR-0012",
+      "path": "docs/adr/ADR-0012-single-reviewer-review-receipt.md"
+    },
+    {
       "id": "ADR-0010",
       "path": "docs/adr/ADR-0010-symphony-hosted-linear-dispatch.md"
     },
