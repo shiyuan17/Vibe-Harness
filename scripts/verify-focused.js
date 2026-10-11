@@ -163,9 +163,13 @@ async function main() {
   const tierOf = (item) => item.costTier ?? 'standard';
   // The plan's own deferred evidence (the slimmed high branch) joins the pool:
   // an escalated tier still pays for it, a quick run still reports it deferred.
+  // The risk plan alone is the relevance surface: it is what decides that a
+  // change "affects" e2e or lifecycle smoke. The cost tier only decides which
+  // of those checks is paid for now, so the tier plan's own additions enter the
+  // execution pool without being reported as impact-mapped evidence.
+  const impactChecks = [...plan.selectedChecks, ...(plan.deferredChecks ?? [])];
   const pool = [
-    ...plan.selectedChecks,
-    ...(plan.deferredChecks ?? []),
+    ...impactChecks,
     ...(tierPlan.selectedChecks ?? []),
     ...(tierPlan.deferredChecks ?? []),
   ];
@@ -189,7 +193,7 @@ async function main() {
   const nextTier = VALIDATION_TIERS.find((name) => deferredChecks.some((item) => tierOf(item) === name)) ?? null;
   const scopeStatus = deferredChecks.length > 0 ? 'partial' : 'complete';
   const notes = plan.selectionReasons;
-  const impactMapping = buildImpactMapping(paths, commands);
+  const impactMapping = buildImpactMapping(paths, impactChecks);
   const selectedIds = new Set(commands.map((item) => item.id));
   const skippedChecks = [...plan.skippedChecks.filter((item) => !selectedIds.has(item.id)), ...considered
     .filter((item) => !selectedIds.has(item.id))

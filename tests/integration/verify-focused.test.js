@@ -394,6 +394,12 @@ test('普通脚本改动下 --tier deep 仍选中该层声明的全部命令', a
     assert.ok(commands.includes('pnpm test:e2e'), JSON.stringify(commands));
     assert.ok(commands.includes('pnpm smoke:lifecycle'), JSON.stringify(commands));
     assert.deepEqual(preview.deferredChecks, []);
+    // The tier decides what runs, not what the change is considered to affect:
+    // an ordinary scripts path must not be reported as impact-mapped to e2e or
+    // lifecycle smoke just because the deep layer pays for those commands.
+    const mapping = preview.impactMapping.find((item) => item.source === 'scripts/helper.js');
+    assert.deepEqual(mapping.e2e, []);
+    assert.deepEqual(mapping.smoke, []);
   } finally {
     await rm(dir, { force: true, recursive: true });
   }
