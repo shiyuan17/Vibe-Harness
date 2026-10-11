@@ -228,12 +228,17 @@ function buildAudit(options) {
   }));
   const { baseRefResolved, map } = resolveIntegration(options.repo, baseRef, tasks);
   const portFacts = readPortFacts(repositoryRoot, entries);
+  // The mirror declaration and the mirror source live in the main checkout, so
+  // they are read from the primary worktree entry: the invoking path may itself
+  // be a linked worktree, whose own root would make a stale local directory look
+  // like a valid mirror (its source and target would be the same path).
+  const primaryRoot = entries.find((entry) => entry.primary)?.path ?? repositoryRoot;
   const audit = validateWorktrees(listing, {
     baseRef,
     branchPrefix: options.branchPrefix ?? undefined,
     dirty: options.deep ? readDirty(repositoryRoot, entries) : new Map(),
     integration: map,
-    mirrorEvidence: worktreeMirrorEvidence(repositoryRoot, entries, readProjectWorktreeSettings(repositoryRoot).mirrors),
+    mirrorEvidence: worktreeMirrorEvidence(primaryRoot, entries, readProjectWorktreeSettings(primaryRoot).mirrors),
     portProblems: portFacts.flat,
     portSummary: portFacts.summary,
     repositoryRoot,
