@@ -975,15 +975,26 @@ test('worktree land --push 无 --write 直接拒绝', async () => {
   }
 });
 
-test('worktree land 拒绝合入保护分支', async () => {
+test('worktree land 拒绝合入保护分支但允许 develop 直落', async () => {
   const fixture = await makeWorkspaceFixture();
   try {
     await bootstrapWithWork(fixture);
-    const result = await runCommand(['worktree', 'land', '--project', fixture.repo, '--json'], { cwd: fixture.repo });
-    assert.equal(result.exitCode, 1);
-    assert.equal(result.report.status, 'failed');
-    assert.equal(result.report.code, 'LAND_TARGET_PROTECTED');
+    // main、master 与 release/* 仍受保护：本地 land 不得绕过发布边界门禁。
+    for (const branch of ['main', 'master', 'release/1.0.0']) {
+      if (branch !== 'main') await git(fixture.repo, ['checkout', '-q', '-b', branch]);
+      const result = await runCommand(['worktree', 'land', '--project', fixture.repo, '--json'], { cwd: fixture.repo });
+      assert.equal(result.exitCode, 1, branch);
+      assert.equal(result.report.status, 'failed', branch);
+      assert.equal(result.report.code, 'LAND_TARGET_PROTECTED', branch);
+    }
     assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
+
+    // develop 按 ADR-0013 允许本地 no-ff 直落：dry-run 给出落地计划而不是拒绝。
+    await git(fixture.repo, ['checkout', '-q', '-b', 'develop']);
+    const planned = await runCommand(['worktree', 'land', '--project', fixture.repo, '--json'], { cwd: fixture.repo });
+    assert.equal(planned.exitCode, 0, JSON.stringify(planned.report));
+    assert.equal(planned.report.status, 'planned');
+    assert.equal(planned.report.targetBranch, 'develop');
   } finally {
     await removeTemporaryDirectory(fixture.root);
   }
