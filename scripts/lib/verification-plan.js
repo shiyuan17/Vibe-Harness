@@ -348,11 +348,21 @@ export async function buildVerificationPlan({
   const paths = changedPaths.map(normalize);
   const risk = classifyVerificationRisk(paths, { changedDetails, riskZones: config.riskZones });
   const scripts = await projectScripts(targetDir);
+  const tierFacts = await readProjectTierFacts(targetDir, config.packageManager);
   const derived = deriveValidationTiers({
-    ...await readProjectTierFacts(targetDir, config.packageManager),
+    ...tierFacts,
     configuredCommands: config.validationCommands,
   });
   const effective = resolveValidationTiers({ configuredTiers: config.validationCommands?.tiers, derived });
+  // The risk fallbacks name the same scripts as the derived tiers, so they are
+  // built from the same package manager: handing an npm or yarn project a `pnpm`
+  // command for a script it declares by another name would make the plan fail
+  // before merge, and would give one script two identities once a tier plan and
+  // this plan are merged.
+  const packageManager = typeof tierFacts.packageManager === 'string' && tierFacts.packageManager
+    ? tierFacts.packageManager
+    : 'pnpm';
+  const packageCommand = (scriptName) => `${packageManager}${packageManager === 'npm' ? ' run' : ''} ${scriptName}`;
   // One table answers every tier question: the caller's table when given, the
   // derived/configured one otherwise. Using the raw argument for resolution
   // while the fallback only reached the cost lookup would let `--tier deep` on a
@@ -396,11 +406,11 @@ export async function buildVerificationPlan({
       return commandStatus[name].command;
     }
     const scriptName = scriptFallback[name];
-    return scriptName && scripts[scriptName] ? 'pnpm ' + scriptName : null;
+    return scriptName && scripts[scriptName] ? packageCommand(scriptName) : null;
   };
   const addConfigured = (name, reason) => {
     const fallbackScript = scriptFallback[name];
-    const command = configured(name) ?? (scripts[fallbackScript] ? `pnpm ${fallbackScript}` : null);
+    const command = configured(name) ?? (scripts[fallbackScript] ? packageCommand(fallbackScript) : null);
       if (command) addCheck(checks, command, reason, name, scripts);
   };
   // Test layers can narrow below the layer script when the change is fully
@@ -430,18 +440,18 @@ export async function buildVerificationPlan({
     // visible as deferred checks until the caller escalates. `--full` and the
     // unknown fallback keep paying the whole matrix up front (fail-safe).
     const slim = !full && !risk.fallbackUsed;
-    if (scripts.validate) addCheck(checks, 'pnpm validate', '完整验证的原子配置校验', 'validate', scripts);
+    if (scripts.validate) addCheck(checks, packageCommand('validate'), '完整验证的原子配置校验', 'validate', scripts);
     const syncNames = slim ? ['lint', 'typecheck', 'test', 'component'] : ['lint', 'typecheck', 'test', 'component', 'eval'];
     for (const name of syncNames) addConfigured(name, `完整验证：项目配置的 ${name}`);
-      if (scripts['test:integration']) addCheck(checks, 'pnpm test:integration', '高风险或完整验证的集成回归', 'integration', scripts);
+      if (scripts['test:integration']) addCheck(checks, packageCommand('test:integration'), '高风险或完整验证的集成回归', 'integration', scripts);
       if (scripts['smoke:lifecycle'] && (!slim || risk.lifecycle)) {
-        addCheck(checks, 'pnpm smoke:lifecycle', '生命周期、安装或 Hook 回归', 'smoke', scripts);
+        addCheck(checks, packageCommand('smoke:lifecycle'), '生命周期、安装或 Hook 回归', 'smoke', scripts);
       }
     if (slim) {
       const evalCommand = configured('eval');
       if (evalCommand) deferredEvidence.push({ command: evalCommand, id: 'eval', reason: '高风险变更的深度层证据，显式升级后执行' });
       if (!risk.lifecycle && scripts['smoke:lifecycle']) {
-        deferredEvidence.push({ command: 'pnpm smoke:lifecycle', id: 'smoke', reason: '高风险变更的深度层证据，显式升级后执行' });
+        deferredEvidence.push({ command: packageCommand('smoke:lifecycle'), id: 'smoke', reason: '高风险变更的深度层证据，显式升级后执行' });
       }
       reasons.push('高风险同步证据保留到 integration；eval 与 smoke 为深度层证据，显式升级后执行');
     }
@@ -452,13 +462,13 @@ export async function buildVerificationPlan({
       reasons.push('无变更，运行项目基线检查');
     }
     if (risk.impactGroups.includes('docs') && !risk.impactGroups.some((group) => ['rules', 'schemas'].includes(group))) {
-       if (scripts['docs:audit']) addCheck(checks, 'pnpm docs:audit', '文档目录审计', 'docs', scripts);
+       if (scripts['docs:audit']) addCheck(checks, packageCommand('docs:audit'), '文档目录审计', 'docs', scripts);
       reasons.push('普通文档变更');
     }
     if (risk.impactGroups.includes('rules')) {
       addConfigured('test', '规则行为锁定测试');
       addConfigured('component', '规则契约与资产测试');
-       if (scripts['eval:check']) addCheck(checks, 'pnpm eval:check', '规则契约与 reference 校验', 'eval-check', scripts);
+       if (scripts['eval:check']) addCheck(checks, packageCommand('eval:check'), '规则契约与 reference 校验', 'eval-check', scripts);
       reasons.push('规则或治理内容变更');
     }
     if (risk.impactGroups.includes('tests')) {
@@ -467,12 +477,12 @@ export async function buildVerificationPlan({
       if (risk.riskLevel === 'quick') reasons.push('单个测试文件变更');
     }
     if (risk.impactGroups.includes('eval')) {
-       if (scripts['eval:check']) addCheck(checks, 'pnpm eval:check', 'Eval 契约校验', 'eval-check', scripts);
+       if (scripts['eval:check']) addCheck(checks, packageCommand('eval:check'), 'Eval 契约校验', 'eval-check', scripts);
       addConfigured('component', 'Eval 资产与契约测试');
     }
     if (risk.impactGroups.includes('skills')) {
-       if (scripts['skills:audit']) addCheck(checks, 'pnpm skills:audit', 'Skill 元数据审计', 'skills', scripts);
-       if (scripts['eval:check']) addCheck(checks, 'pnpm eval:check', 'Skill Eval 契约校验', 'eval-check', scripts);
+       if (scripts['skills:audit']) addCheck(checks, packageCommand('skills:audit'), 'Skill 元数据审计', 'skills', scripts);
+       if (scripts['eval:check']) addCheck(checks, packageCommand('eval:check'), 'Skill Eval 契约校验', 'eval-check', scripts);
     }
     if (risk.impactGroups.includes('scripts')) {
       addTestLayer('test', '脚本相关单元测试', 'unit');
@@ -484,8 +494,8 @@ export async function buildVerificationPlan({
       if (risk.riskLevel === 'quick') reasons.push('低影响配置变更');
     }
     if (risk.impactGroups.includes('schemas') || risk.impactGroups.includes('manifests')) {
-       if (scripts['lint']) addCheck(checks, 'pnpm lint', 'Schema/manifest 静态与契约校验', 'lint', scripts);
-       if (scripts['validate']) addCheck(checks, 'pnpm validate', 'Schema/manifest 验证', 'validate', scripts);
+       if (scripts['lint']) addCheck(checks, packageCommand('lint'), 'Schema/manifest 静态与契约校验', 'lint', scripts);
+       if (scripts['validate']) addCheck(checks, packageCommand('validate'), 'Schema/manifest 验证', 'validate', scripts);
     }
     reasons.push(...(risk.impactGroups.length ? [] : ['无可识别变更，保持最小验证']));
   }

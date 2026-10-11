@@ -43,13 +43,19 @@ const TARGET_WORKTREE_MIRRORS = {
   claude: ['.claude'],
   gemini: ['.gemini'],
   cursor: ['.cursor'],
-  qoder: ['.qoder'],
+  // Qoder keeps its MCP configuration in `.mcp.json` beside `.qoder`
+  // (manifests/adapters.json), so the worktree needs both to reach the same
+  // code-navigation setup the primary checkout has.
+  qoder: ['.qoder', '.mcp.json'],
   zcode: ['.zcode'],
   // Antigravity keeps both its instructions and its skills under `.agents`
   // (manifests/adapters.json), so an Antigravity-only project reaches the same
   // mirror as Codex.
   antigravity: ['.agents'],
-  opencode: ['.opencode', 'opencode.json'],
+  // OpenCode resolves its MCP target to `opencode.json` or, when that is not the
+  // one in use, to the alternate `opencode.jsonc`; a project using either has to
+  // reach it inside a worktree. A missing optional mirror is skipped.
+  opencode: ['.opencode', 'opencode.json', 'opencode.jsonc'],
 };
 const PLUGIN_WORKTREE_MIRRORS = {
   codegraph: ['.codegraph'],
