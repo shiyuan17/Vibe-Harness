@@ -56,6 +56,10 @@
     {
       "id": "ADR-0014",
       "path": "docs/adr/ADR-0014-service-teardown-best-effort.md"
+    },
+    {
+      "id": "ADR-0015",
+      "path": "docs/adr/ADR-0015-explicit-develop-flow.md"
     }
   ]
 }

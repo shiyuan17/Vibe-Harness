@@ -22,6 +22,7 @@
 - [Single-reviewer high-risk review receipt](adr/ADR-0012-single-reviewer-review-receipt.md)
 - [Develop accepts direct local landings without a server gate](adr/ADR-0013-develop-direct-push-without-server-gate.md)
 - [Worktree 落地与清理的服务 teardown 改为 best-effort](adr/ADR-0014-service-teardown-best-effort.md)
+- [显式 develop flow（gd-flow 与 lwflow）](adr/ADR-0015-explicit-develop-flow.md)
 - [ADR Schema](schemas/adr.schema.json)
 - [Execution Envelope v1 Schema](schemas/execution-envelope.schema.json)
 - [Execution Envelope v2 Schema](schemas/execution-envelope-v2.schema.json)

@@ -1349,6 +1349,17 @@
         "maintainer",
         "auditor"
       ]
+    },
+    {
+      "path": "docs/adr/ADR-0015-explicit-develop-flow.md",
+      "kind": "architecture",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
     }
   ]
 }

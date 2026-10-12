@@ -22,6 +22,7 @@
 - **ADR-0012** Single-reviewer high-risk review receipt - accepted - Single-reviewer high-risk review receipt - [ADR](../adr/ADR-0012-single-reviewer-review-receipt.md)
 - **ADR-0013** Develop accepts direct local landings without a server gate - accepted - Direct no-ff landings onto develop without a server-side required gate; ADR-0009's develop fast gate is withdrawn. - [ADR](../adr/ADR-0013-develop-direct-push-without-server-gate.md)
 - **ADR-0014** Worktree 落地与清理的服务 teardown 改为 best-effort - accepted - worktree land/cleanup/recover 仍尝试停止登记服务，但无法证明停止不再阻塞合并落地或工作区移除 - [ADR](../adr/ADR-0014-service-teardown-best-effort.md)
+- **ADR-0015** 显式 develop flow（gd-flow 与 lwflow） - accepted - 新增 gd-flow 与 lwflow 两个显式 develop flow Skill，固化只由显式调用触发的本地落地入口，不改默认交付。 - [ADR](../adr/ADR-0015-explicit-develop-flow.md)
 
 ## 纪律
 
