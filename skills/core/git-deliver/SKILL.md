@@ -7,6 +7,8 @@ description: Use only when the user explicitly invokes $git-deliver or explicitl
 
 显式调用本 Skill 才启用分组提交并普通推送的交付流程；普通提交与当前分支普通推送本身不以此 Skill 为唯一入口，也不需要独立授权。分支模型与安全停止边界见 `docs/rules/git-rules.md`，两者修改须同步；仍遵守红区和人工确认边界。
 
+独立的 gd-flow / $gd-flow 才启用 worktree → `develop` 本地 land；普通 `$git-deliver` 不切换该模式、不创建 worktree 或合并。
+
 ## 执行
 
 1. 检查工作区、当前分支、远端、upstream 和相关 diff；把任务前已有、并发产生或归属不明的改动排除，无法安全拆分时停止。
@@ -18,7 +20,7 @@ description: Use only when the user explicitly invokes $git-deliver or explicitl
 
 ## 停止边界
 
-- 不在 main、master、release 或仓库识别出的保护/共享分支上自动推送；develop 按 ADR-0013 可直推，但仍须核实当前仓库的分支保护与远端事实。
+- 不在 main、master、release 或仓库识别出的保护/共享分支上自动推送；develop 可直推，但仍须核实当前仓库的分支保护与远端事实。
 - 不执行 force push、历史改写、远端引用删除、PR 创建、合并、打标签或发布；这些操作需要独立明确授权。
 - 未显式调用本 Skill 时，不自动选择分组交付流程；普通提交或推送按任务需要和 `git-rules.md` 的安全边界判定。
 

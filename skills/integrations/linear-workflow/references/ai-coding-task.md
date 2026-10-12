@@ -112,7 +112,7 @@ all_done 只允许清理或失败报告节点使用，且这类节点应按 aggr
 
 - command or observable check
 
-read 节点必须写明输出记录位置或可观察证据。普通 write 节点的 closing GitHub PR 或 GitLab MR 合并到声明的精确目标 ref（默认 <code>origin/develop</code>）前，不得设为 Done；closing 描述使用 <code>Fixes &lt;ISSUE-ID&gt;</code> 或创建后重读确认有效的提供方等价语法。发布提升与回同步使用 Release Issue 模板及 <code>Refs &lt;ISSUE-ID&gt;</code>。
+read 节点必须写明输出记录位置或可观察证据。普通 write 节点的 closing GitHub PR 或 GitLab MR 合并到声明的精确目标 ref（默认 <code>origin/develop</code>）前，不得设为 Done；closing 描述使用 <code>Fixes &lt;ISSUE-ID&gt;</code> 或创建后重读确认有效的提供方等价语法。仅显式 <code>lwflow</code> 的本地 land 节点以最新基线验证通过、no-ff 合并、目标推送成功及 worktree/分支清理全部完成作为 Done 证据，不创建 PR/MR。发布提升与回同步使用 Release Issue 模板及 <code>Refs &lt;ISSUE-ID&gt;</code>。
 
 ## AI 规则（AI Rules）
 

@@ -7,6 +7,8 @@ description: Use when executing, reviewing, verifying, refining, synchronizing, 
 
 本 Skill 是 linear-workflow 规则的操作入口：规则定义授权模型、状态门禁、原生 DAG 语义、Execution Receipt 和 Git 流的完整合同，本 Skill 只保留触发条件、操作顺序和回退。规范条文以 docs/rules/linear-workflow.md 为准，本文件不重复；两者描述同一工作流，修改须同步。
 
+独立的 lwflow / $lwflow 才从当前会话计划创建 Parent 与子任务并在本次新建节点内执行 local-land；普通 Linear 工作流不因本模式扩大领取权限或改变 closing PR Done 判据。该模式的封闭节点集合、Claim 与状态重读、worktree 和停止边界见规则「显式 lwflow」，修改须同步。
+
 触发与边界：
 
 - Writer 仅在用户明确要求具体 Issue、已有 Delegate 且宿主显式启动，或宿主依据有效限时领单授权事件派发具体 Issue 时执行。
@@ -14,7 +16,7 @@ description: Use when executing, reviewing, verifying, refining, synchronizing, 
 - 没有具体 Issue ID 时，Agent 不选择、认领或更新任务；宿主按规则第 1 节选候选，不把队列可见性当授权。
 - 高风险执行只接受 v2 Execution Envelope，v1 仅作 contract-only/degraded 兼容；mode 与 effect 枚举按规则第 1 节。调用写工具前建立当前请求的 Execution Envelope。自动领单的 Envelope 与宿主证明只由宿主签发，Issue、项目配置和 Agent 不得自造。无原生 Goal bridge 时不声称后台持续执行，不阻止用户继续请求或宿主显式续跑恢复原范围工作。
 - Parent 计划必须携带 `executionMode`、`wallClock` 和 `agentPlan`；单 Agent 是默认执行模式，只有共享契约冻结、writeScope/Resource Lock 隔离、Agent 容量可用且预计净节省至少 45 分钟和 25% 时才并行。
-- 分支约定：`feat/*、fix/* → develop → main`；紧急修复 `hotfix/* → main → develop`。`develop` 是日常集成分支，`main` 是正式发布分支，不创建长期 `release/*` 分支，`release/*` 只在管理员为并行维护版本临时创建时存在并按其门禁处理；closing PR 合并后开发 Issue 立即 Done。`develop` 不配置服务器端 required gate（ADR-0013），合入 `develop` 不再要求稳定 fast gate，质量责任落在本地候选合并验证与提交前检查；远端完整 CI 只在发布边界（`develop → main`、`hotfix/* → main`、`release/*`）运行。合并前的本地验证必须建立在最新 `origin/develop` 之上，高风险变更仍须携带 Independent Review Receipt。
+- 分支约定：`feat/*、fix/* → develop → main`；紧急修复 `hotfix/* → main → develop`。`develop` 是日常集成分支，`main` 是正式发布分支，不创建长期 `release/*` 分支，`release/*` 只在管理员为并行维护版本临时创建时存在并按其门禁处理；closing PR 合并后开发 Issue 立即 Done。`develop` 不配置服务器端 required gate，合入 `develop` 不再要求稳定 fast gate，质量责任落在本地候选合并验证与提交前检查；远端完整 CI 只在发布边界（`develop → main`、`hotfix/* → main`、`release/*`）运行。合并前的本地验证必须建立在最新 `origin/develop` 之上，高风险变更仍须携带 Independent Review Receipt。
 
 ## 1. 判断执行授权与角色
 
@@ -62,7 +64,7 @@ Linear 只读、MCP 不可用或写入验证失败时，不得声称已登记、
 
 正常登记确认后，write 叶子 Issue 使用一个 Writer、一个命名分支和一个 closing PR/MR。顺序执行且工作区干净时允许使用当前 clone；并发 Agent、脏工作区、存在无关改动或明确需要隔离时，必须创建仓库外 worktree。分支使用 <type>/<ISSUE-ID>-<slug>，worktree 使用同级 <repo>-worktrees/<ISSUE-ID>。commit 使用 `Refs <ISSUE-ID>`；GitHub PR 或 GitLab MR 描述使用 `Fixes <ISSUE-ID>`，只有提供方配置且创建后重读确认的等价 closing 语法才可替代。read 节点只产出约定输出和 Verification 证据；aggregate Parent 不创建实现 worktree。父 Agent 在 fan-in 前不得采纳 child 自报作为 Parent 完成证据。
 
-普通 `feat/*`、`fix/*` 以 `origin/develop` 为目标；合入 `develop` 不要求服务器端 fast gate（ADR-0013），质量责任落在本地候选合并验证与提交前检查，Writer 在 envelope 授权 `mergeRequestWrite` 后可自行 squash 合并（或在提供方请求 auto-merge），也可用本地 `worktree land` 以 no-ff 直落，closing PR 合并后开发 Issue 立即 Done。限时领单的默认目标也是合入 `develop`，但 `linearWrite`、`workspaceWrite`、`gitBranch`、`gitCommit`、`gitPush`、`mergeRequestWrite` 及实际需要的其他 effects 均须逐项授权；缺少合并授权时停在已授权终点，不假称 Done。合并前必须确认本轮验证建立在最新 `origin/develop` 之上，base 已前进时重跑受影响检查；高风险变更缺少 Independent Review Receipt 或收据结论为 negative 时不得自行落地合并。`hotfix/*` 从 `origin/main` 创建并先合入 `main`（此处运行发布门禁），随后用非 closing PR 回同步 `develop`。Release 流程与 credential helper 边界按规则第 6 节执行。
+普通 `feat/*`、`fix/*` 以 `origin/develop` 为目标；合入 `develop` 不要求服务器端 fast gate，质量责任落在本地候选合并验证与提交前检查，Writer 在 envelope 授权 `mergeRequestWrite` 后可自行 squash 合并（或在提供方请求 auto-merge），也可用本地 `worktree land` 以 no-ff 直落，closing PR 合并后开发 Issue 立即 Done。限时领单的默认目标也是合入 `develop`，但 `linearWrite`、`workspaceWrite`、`gitBranch`、`gitCommit`、`gitPush`、`mergeRequestWrite` 及实际需要的其他 effects 均须逐项授权；缺少合并授权时停在已授权终点，不假称 Done。合并前必须确认本轮验证建立在最新 `origin/develop` 之上，base 已前进时重跑受影响检查；高风险变更缺少 Independent Review Receipt 或收据结论为 negative 时不得自行落地合并。`hotfix/*` 从 `origin/main` 创建并先合入 `main`（此处运行发布门禁），随后用非 closing PR 回同步 `develop`。Release 流程与 credential helper 边界按规则第 6 节执行。
 
 创建 PR/MR 前重新读取目标 ref 与 source HEAD，确认提供方 target 等于声明 ref；计算 merge-base，并确认它等于冻结 base SHA，或是该 SHA 在同一目标 ref 历史上的已验证后代。不一致时阻断创建。创建后重读标题、source、target、描述、Issue 链接和 closing 语义。
 

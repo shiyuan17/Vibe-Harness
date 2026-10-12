@@ -8,7 +8,7 @@ Linear 保存工作状态、责任、委派与依赖；GitHub 或 GitLab 保存�
 
 - **默认路径**：Linear 保存状态、责任、委派与依赖，代码、提交与合并证据在 Git；先确认本轮 Issue 与授权，再实现、验证、登记。
 - **授权**：用户明确指定 Issue、宿主启动已委派的 Issue，或宿主凭有效限时领单授权派发具体 Issue，才可登记与执行；Ready、Todo 或队列可见本身不构成 execute 授权。
-- **状态**：常规代码路径在 `develop` 上只走 Todo → In Progress → In Review → Done；只有带门禁目标（`main`、`release/*`）经过 Ready to Merge。`develop` 不配置服务器端 fast gate（ADR-0013），质量责任落在本地候选合并验证与提交前检查。
+- **状态**：常规代码路径在 `develop` 上只走 Todo → In Progress → In Review → Done；只有带门禁目标（`main`、`release/*`）经过 Ready to Merge。`develop` 不配置服务器端 fast gate，质量责任落在本地候选合并验证与提交前检查。
 - **快车道不豁免高风险证据**：`develop` 不依赖服务器端门禁，高风险路径变更仍须携带 Risk Evidence 与 Independent Review Receipt。
 - **墙钟规划**：Parent 计划必须记录单/并行墙钟估算、协调与 fan-in 成本、关键路径和 Agent 容量；单 Agent 是默认执行模式，只有隔离证明和净节省门槛同时满足时才并行。
 - **继续读全文的信号**：Execution Envelope v2 字段、Definition of Ready、原生 DAG 投影、Receipt 生命周期、并发与隔离、终止与交付。
@@ -16,6 +16,14 @@ Linear 保存工作状态、责任、委派与依赖；GitHub 或 GitLab 保存�
 以下为完整规则，仅当任务超出卡片或命中升级触发时继续读取。
 
 ## 1 授权模型
+
+### 显式 lwflow
+
+仅在用户明确调用 `lwflow` / `$lwflow` 时，才从**当前会话的既定任务计划**创建 Linear Parent aggregate 与 read/write 子任务 DAG；该调用明确授权本次计划范围内的 Parent、子任务、原生 blocked-by / blocks 关系及状态/Receipt 写入、worktree、任务提交、普通推送和合并到 `develop`，不授权 PR/MR、force push、历史改写或 `main`。普通 Linear 工作流的既有授权与 closing PR Done 语义不变。本节与已安装的 `lwflow` Skill 描述同一模式，修改须同步。
+
+先核对团队、仓库、Parent/子任务 Scope、共享合同 owner、验收、验证和依赖，生成 Parent `linear-plan`；按“读取 → 校验 → 写入 → 重读确认”逐项同步 Parent、子任务和原生关系，使用稳定幂等键，在结果不明时按原键重读，不盲目重建。保存本次成功创建且重读确认的 Issue ID 封闭集合；部分创建失败须保留清单和已创建现场。只从该集合领取依赖就绪节点，不扫描、轮询或领取其他 Ready/Todo Issue；领取依旧需要宿主持久 provider 原子 Claim、Delegate、v3 Start Receipt 与重读确认，不能用 Linear 写后重读冒充跨实例互斥。Linear 不可写、缺 v2 宿主证明或 Claim 不可用时 fail-closed，不进入本地 worktree 工作。
+
+默认单 Agent，按原生依赖拓扑串行实施。每个 write 节点强制使用从最新 `origin/develop` 建立的仓库外 worktree 与 `<type>/<ISSUE-ID>-<slug>` 分支，提交关联 `Refs <ISSUE-ID>`，然后按 `git-rules.md`「显式 develop flow」用本次 `--delivery local-land` 落地。此模式不创建 closing PR/MR：write 节点 Done 的四项必要证据是最新 `origin/develop` 基线验证通过、no-ff 合并成功、目标分支推送成功、worktree 和本地分支清理完成；逐项重读，任何一项失败均保留现场和未完成状态。read 节点仍凭输出与 Verification，Parent 仍须全部必需节点成功及实际合并结果的 Fan-in Verification。普通 PR/MR 路径仍以 closing 合并为 Done，不用本地证据代替。
 
 后续 v1 字段列表仅是兼容基线。高风险 Linear 执行必须使用 Execution Envelope v2，冻结 riskClass、workspace identity、允许写入根、无凭据 external targets 和宿主 enforcement 证明；v1 不授权凭据、hostWrite、externalWrite、高风险间接写入或 worktree 拓扑变化。每次自动续跑核对宿主实际提供的 Goal/thread 状态、最新用户输入、当前 Issue、cwd、worktree、branch、HEAD 和 blocker；授权沿用、局部暂停和无进展时的诊断按 governance-core 执行，Goal 状态变更使用宿主合同。Goal 完成后不得由当前运行自动审计或选取下一 Ready 节点；新的逐 Issue 运行只可由宿主重新核验限时授权并派发。
 
@@ -48,9 +56,9 @@ Agent 手工写状态必须执行“读取当前值 → 校验允许转换 → �
 
 `release/*` 不是日常分支：只有管理员为并行维护历史版本或合规窗口临时创建时才存在，Agent 不创建、不切换也不推送该分支；它一旦存在就按带门禁目标处理，review、CI 与契约要求与 `main` 相同。
 
-`develop` 是日常集成分支：不再把稳定 fast gate 作为服务器端 required gate（ADR-0013），接受本地 `worktree land` 的 no-ff 直落与任务分支直推；不要求人工审批。质量责任前移到本地候选合并验证（lint、typecheck、unit，并按变更影响追加 component/integration）与提交前检查。合并前的本地验证与最新目标 ref 的前置、merge queue 与 squash/auto-merge 落地机制以 `git-rules.md` 分支模型与合并条款为准，Writer 只落地自己创建的 closing PR。项目在发布边界配置的完整 required check 仍只对 `develop → main` 提升、`hotfix/* → main` 以及 `release/*` 运行。
+`develop` 是日常集成分支：不再把稳定 fast gate 作为服务器端 required gate，接受本地 `worktree land` 的 no-ff 直落与任务分支直推；不要求人工审批。质量责任前移到本地候选合并验证（lint、typecheck、unit，并按变更影响追加 component/integration）与提交前检查。合并前的本地验证与最新目标 ref 的前置、merge queue 与 squash/auto-merge 落地机制以 `git-rules.md` 分支模型与合并条款为准，Writer 只落地自己创建的 closing PR。项目在发布边界配置的完整 required check 仍只对 `develop → main` 提升、`hotfix/* → main` 以及 `release/*` 运行。
 
-快车道不豁免高风险证据：命中 CI workflow 定义、`schemas/`、`manifests/`、`adapters/`、`runtime/`、`docs/rules/`、`skills/core/`、`templates/`、`scripts/`、依赖清单，以及团队额外声明的安全、红区、迁移或凭据路径的变更属于高风险，PR/MR 必须按项目自己的发布交付文档携带 Risk Evidence 章节与唯一的 Independent Review Receipt，且收据的结论与范围覆盖实际 diff。`develop` 不配置服务器端 required gate（ADR-0013），基础检查由本地候选合并验证承担；高风险收据缺失、与 diff 不匹配、过期或结论为 negative 时，Writer 不得自行落地合并，只报告事实并停在 PR/MR ready for review。
+快车道不豁免高风险证据：命中 CI workflow 定义、`schemas/`、`manifests/`、`adapters/`、`runtime/`、`docs/rules/`、`skills/core/`、`templates/`、`scripts/`、依赖清单，以及团队额外声明的安全、红区、迁移或凭据路径的变更属于高风险，PR/MR 必须按项目自己的发布交付文档携带 Risk Evidence 章节与唯一的 Independent Review Receipt，且收据的结论与范围覆盖实际 diff。`develop` 不配置服务器端 required gate，基础检查由本地候选合并验证承担；高风险收据缺失、与 diff 不匹配、过期或结论为 negative 时，Writer 不得自行落地合并，只报告事实并停在 PR/MR ready for review。
 
 一个 write 叶子 Issue 对应一个 Writer；按隔离条件使用当前 clone 或仓库外 worktree，并且只绑定一个命名分支和一个 closing PR/MR。顺序执行且工作区干净时允许在当前 clone 创建任务分支；存在并发 Agent、脏工作区、当前分支含无关改动或任务明确要求隔离时，必须使用仓库外 worktree。read 叶子只绑定一个执行 Agent、约定输出与 Verification 证据，不要求实现 worktree、分支或 PR/MR。存在子 Issue 的 Parent 是 aggregate，不直接实现。独立旧 Issue 可无 Parent，并按 kind=write、trigger=all_success、resourceLocks=None 处理，无需迁移。
 
