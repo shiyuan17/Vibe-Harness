@@ -11,6 +11,6 @@
 - 已验证证据: develop 门禁 pnpm check（0 error）、pnpm test:integration、pnpm validate、pnpm docs:audit（141 篇）、pnpm tests:catalog check、pnpm eval:check 与 git diff --check 全部通过；hook 干跑 18/18 通过（fetch/ls-remote/stash list/submodule status 放行；脏工作区 pull --ff-only 以 VIBE_HARNESS_SYNC_DIRTY_TREE 拒绝；裸 pull 判定为 workspaceWrite；reset --hard、clean -fd、checkout -- .、submodule update --init 仍拒绝）；land 干跑中 develop 已越过保护门（改为报无归属 worktree），main/master/release 仍报 LAND_TARGET_PROTECTED
 - 未完成事项: BL-CNAS 回灌被 fail-closed 拒绝（.cbmignore 与 .githooks/pre-commit、.githooks/pre-push、.codex/hooks.json 和 install-state 记录不一致，需先人工对齐受管文件）；PR #34（codex/delivery-batch）复审发现修复与单复审者收据；develop → main 提升与 nightly 背书回归；backup/governance-audit-batch 等陈旧分支清理
 - 下一步最小动作: 与 BL-CNAS 侧确认受管文件漂移的处理方式（对齐内容或在其仓库提交中重记基线）后重跑 install --upgrade --write 与 validate，再补 hook 干跑；随后回到 PR #34 闭合批次
-- 锚点提交: b58a53a14ed23e4e708b9298d124b8863bd36b65
+- 锚点提交: fa2ccb2461d3852f2c2a5dc6ea99cae307730a0a
 - 最后更新: 2026-10-12
 - 最后验证: 2026-10-12
