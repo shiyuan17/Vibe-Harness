@@ -6,11 +6,11 @@
 
 项目阶段、技术债与决策经本文件引用 `docs/memory/PROJECT_STATE.md` 读取，不在此复制其内容；本文件只记录任务级恢复线索。
 
-- 目标: 对齐本地 develop 与 origin/develop 的分叉，放开 develop 的本地 no-ff 直落与直推，放宽 hook 对 git 同步命令的封锁，并把结果回灌下游项目
-- 当前状态: 交付已落地并推送：develop 先合并 origin/develop 的 6 个提交，再把任务分支 codex/git-sync-develop-policy no-ff 合并进来（ADR-0013 取代 ADR-0009；land 目标守卫收窄为 main|master|release* 并显式白名单放行 develop；hook 只读分类新增 fetch/ls-remote/stash list/submodule status，pull 仅 --ff-only 且要求工作区干净）；GitHub 默认分支已切到 develop，release-please 固定 target-branch: main，develop ruleset 24096092 保持 disabled、main ruleset 20501924 保持 active；任务 worktree 与分支已回收，端口 block 已释放
-- 已验证证据: develop 门禁 pnpm check（0 error）、pnpm test:integration、pnpm validate、pnpm docs:audit（141 篇）、pnpm tests:catalog check、pnpm eval:check 与 git diff --check 全部通过；hook 干跑 18/18 通过（fetch/ls-remote/stash list/submodule status 放行；脏工作区 pull --ff-only 以 VIBE_HARNESS_SYNC_DIRTY_TREE 拒绝；裸 pull 判定为 workspaceWrite；reset --hard、clean -fd、checkout -- .、submodule update --init 仍拒绝）；land 干跑中 develop 已越过保护门（改为报无归属 worktree），main/master/release 仍报 LAND_TARGET_PROTECTED
-- 未完成事项: BL-CNAS 回灌被 fail-closed 拒绝（.cbmignore 与 .githooks/pre-commit、.githooks/pre-push、.codex/hooks.json 和 install-state 记录不一致，需先人工对齐受管文件）；PR #34（codex/delivery-batch）复审发现修复与单复审者收据；develop → main 提升与 nightly 背书回归；backup/governance-audit-batch 等陈旧分支清理
-- 下一步最小动作: 与 BL-CNAS 侧确认受管文件漂移的处理方式（对齐内容或在其仓库提交中重记基线）后重跑 install --upgrade --write 与 validate，再补 hook 干跑；随后回到 PR #34 闭合批次
-- 锚点提交: fa2ccb2461d3852f2c2a5dc6ea99cae307730a0a
+- 目标: 修复 gd-flow／lwflow 引入的 eval reference 漂移（config／rules／skills 三组），并补齐这两个显式 develop flow 的交付记录（ADR-0015、CHANGELOG 与恢复锚点），完成 codex/delivery-batch 的 PR #34 收尾批次
+- 当前状态: 本批已按序落地：先用官方入口五步再生成 eval reference 与行为产物（run status passed、overallScore 1、criticalPassRate 1、skills 文件数 135→144），再新增 ADR-0015 与四个投影、CHANGELOG Unreleased 条目与恢复锚点；按 chore(eval) → docs(adr+changelog) → docs(memory) 三批提交并推送到 codex/delivery-batch（PR #34 已有 upstream），尚未合并，也未改动规则、Skill 与 runtime 行为
+- 已验证证据: pnpm eval:check（ok true、errors 空）、pnpm eval:replay（passed）、pnpm eval:behavioral（passed）、pnpm eval:sync（drift 0）、pnpm check 全绿（含 eval-contract、adr-validation、memory-entry、memory-freshness、docs-projection）、pnpm docs:audit（143 篇）、pnpm docs:sync、pnpm pack:contract 与 git diff --check 全部通过；reference 旧文件备份于 .vibe-harness/backups/2026-10-12T11-31-32-131Z/ 与 2026-10-12T11-31-39-420Z/、2026-10-12T11-31-42-192Z/
+- 未完成事项: PR #34（codex/delivery-batch）推送后的复审、单复审者收据与合并；BL-CNAS 回灌仍被 fail-closed 拒绝（.cbmignore 与 .githooks/pre-commit、.githooks/pre-push、.codex/hooks.json 和 install-state 记录不一致，需先人工对齐受管文件）；develop → main 提升与 nightly H01–H20 背书回归；backup/governance-audit-batch 等陈旧分支清理
+- 下一步最小动作: 推送本批三提交后复核 PR #34 的检查与单复审者收据并推进合并；随后与 BL-CNAS 侧确认受管文件漂移的处理方式（对齐内容或在其仓库提交中重记基线），重跑 install --upgrade --write 与 validate 并补 hook 干跑
+- 锚点提交: 755750d6d4ac05f12faa66710f87bda3d3949f32
 - 最后更新: 2026-10-12
 - 最后验证: 2026-10-12
