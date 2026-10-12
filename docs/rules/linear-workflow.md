@@ -28,7 +28,7 @@ Linear 保存工作状态、责任、委派与依赖；GitHub 或 GitLab 保存�
 - 显式执行指令只授权当前 Issue 的最小身份登记，不授权修改 Assignee、Priority、Contract、Project、Cycle、Parent 或 relations。已有其他 Delegate、fallback Agent 标签或活动运行时，必须停止并请求显式 release 或 handoff。
 - Reviewer 和 Verifier 只读，不写 Receipt、不修改 Delegate 或 fallback 标签，也不取得实现所有权。
 
-每个请求在任何写入前都必须按 `governance-core.md` 的「授权与 Execution Envelope」建立 Execution Envelope：mode 只允许 inspect、plan、linear-sync、execute、monitor，effect 枚举与各 mode 上限以该条款为准（v1 为 linearWrite、workspaceWrite、gitBranch、gitCommit、gitPush、mergeRequestWrite、credentialUse；v2 另加 hostWrite、externalWrite），并分别列入 allowedEffects 或 forbiddenEffects。`mergeRequestWrite` 显式覆盖创建或更新 PR/MR 与落地该 PR/MR 的合并（squash merge 或 auto-merge）；合并到声明目标 ref 是独立于实现、分支、提交和推送的动作。linear-sync 只允许本轮明确要求的 Linear 写入，必须禁止代码、worktree/分支、提交、推送、PR/MR 和凭据 effect。Ready、Todo、依赖满足或队列可见只表示执行条件满足，不构成 execute 授权；当前 terminalCondition 达成后结束本次运行，只有宿主重新核验有效限时授权，才可为下一个 Issue 显式启动新运行。
+除 `git-rules.md` 限定的普通提交与当前分支普通推送外，每个请求在写入前都必须按 `governance-core.md` 的「授权与 Execution Envelope」建立 Execution Envelope：mode 只允许 inspect、plan、linear-sync、execute、monitor，effect 枚举与各 mode 上限以该条款为准（v1 为 linearWrite、workspaceWrite、gitBranch、gitCommit、gitPush、mergeRequestWrite、credentialUse；v2 另加 hostWrite、externalWrite）。`gitCommit`／`gitPush` 保留兼容字段但不必逐项列入 allowedEffects；已有有效 Envelope 中的 forbiddenEffects 始终优先，其余 effect 分别授权。`mergeRequestWrite` 显式覆盖创建或更新 PR/MR 与落地该 PR/MR 的合并（squash merge 或 auto-merge）；合并到声明目标 ref 是独立于实现、分支、提交和推送的动作。linear-sync 对 Envelope 覆盖的非 Git 操作仅允许本轮明确要求的 Linear 写入；普通提交和推送按 `git-rules.md` 的限定例外处理且不会自动执行。Ready、Todo、依赖满足或队列可见只表示执行条件满足，不构成 execute 授权；当前 terminalCondition 达成后结束本次运行，只有宿主重新核验有效限时授权，才可为下一个 Issue 显式启动新运行。
 
 ## 2 状态模型与责任
 

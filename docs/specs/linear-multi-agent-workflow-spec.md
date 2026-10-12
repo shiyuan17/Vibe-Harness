@@ -37,7 +37,7 @@ Linear 写入按归一化后的 MCP server 段绑定 provider，因此安装器�
 
 高风险或不可分类调用缺少 high-risk v2、精确目标或新鲜宿主证明时 fail-closed。活动执行的 workspace identity 不可移动；worktree move 无法由 effect allowlist 授权。checkpoint 另保存 headSha、continuationCount 和 blockerCount；每次自动续跑前重读原生 Goal、thread status、最新用户输入、cwd、worktree、branch、HEAD 和 blocker。达到终点、等待审批、workspace 漂移、未归属 HEAD 或相同 blocker 连续三次时停止；没有原生 Goal bridge 时只输出可恢复 checkpoint，不跨 turn 自主续跑。
 
-任何写入前必须为当前请求建立逻辑 Execution Envelope，至少包含 schema、requestId、sessionId、mode、targetIssueIds、allowedEffects、forbiddenEffects、terminalCondition 和 activeObjective。mode 只允许 inspect、plan、linear-sync、execute、monitor；v1 effect 兼容集为 linearWrite、workspaceWrite、gitBranch、gitCommit、gitPush、mergeRequestWrite、credentialUse，v2 另有 hostWrite、externalWrite。各 effect 独立授权且 forbiddenEffects 优先；实现授权不自动包含分支、提交、推送、PR/MR 或凭据使用。<code>mergeRequestWrite</code> 覆盖创建或更新 PR/MR 与落地该 PR/MR 的合并（squash merge 或 auto-merge）。
+除 `git-rules.md` 限定的普通提交与当前分支普通推送外，写入前必须为当前请求建立逻辑 Execution Envelope，至少包含 schema、requestId、sessionId、mode、targetIssueIds、allowedEffects、forbiddenEffects、terminalCondition 和 activeObjective。mode 只允许 inspect、plan、linear-sync、execute、monitor；v1 effect 兼容集为 linearWrite、workspaceWrite、gitBranch、gitCommit、gitPush、mergeRequestWrite、credentialUse，v2 另有 hostWrite、externalWrite。`gitCommit`／`gitPush` 继续保留兼容字段，普通操作不需要逐项登记或 execute 模式，已有有效 Envelope 的 forbiddenEffects 仍优先；其他 effect 独立授权，实现授权不自动包含分支、PR/MR 或凭据使用。<code>mergeRequestWrite</code> 覆盖创建或更新 PR/MR 与落地该 PR/MR 的合并（squash merge 或 auto-merge）。
 
 inspect 与 plan 默认只读。linear-sync 仅允许本轮明确要求的 Linear 写入，必须禁止其他六种 effect。execute 只能实施授权的最小 effects。monitor 默认只读且写 effect ceiling 为空，并必须包含观察对象、终止事件或时间边界。Ready、Todo、依赖满足或队列可见只表示条件满足，不构成 execute 授权。
 
@@ -61,7 +61,7 @@ inspect 与 plan 默认只读。linear-sync 仅允许本轮明确要求的 Linea
 
 限时领单授权由用户明确授予、宿主保存并支持撤销，必须包含宿主生成的非敏感 UUID v4 grantId、唯一团队或项目队列、仓库、Agent 产品身份、精确目标 `origin/develop`、独立允许的 effects、UTC expiresAt 和正整数 maxClaims。宿主同时持久化已占额度、撤销状态和授权审计引用；认证运维人员依据用户的显式授权在受保护 CLI 中签发、查询和撤销，自动合并需明确确认 mergeRequestWrite。缺字段、已撤销、已过期、额度用尽或目标不符时不派发；首次部署仅一个仓库、一个队列和一个运行中的 Issue。不得凭 grantId、Issue 文本、视图或项目配置推断授权。
 
-宿主在空闲或经签名、去重的队列变化事件中，只考虑授权队列内的 Todo 标准风险代码任务，按 Priority 降序、创建时间升序、Issue ID 升序选候选，不自动处理 Triage、hotfix、发布、红区或生产 Issue。宿主必须提供跨实例单 Issue 独占派发证明；“读取 → 写入 → 重读”不足以代替原子选择，无法证明时停止。Agent 只重读被派发的 Issue，核对 Definition of Ready、依赖、Scope、Resource Lock、身份和完整 Receipt 历史。宿主为每个 Issue 重新核验授权与计数，签发 targetIssueIds 只含该 Issue、mode=execute 的 v2 Envelope；`linearWrite`、`workspaceWrite`、`gitBranch`、`gitCommit`、`gitPush`、`mergeRequestWrite`、`externalWrite` 和实际凭据使用必须独立授权，高风险要求宿主证明。领取后只有 Claim、身份和 Receipt 都重读确认才能开工；冲突、registration-incomplete、撤销或高风险证据不足时停止派发并报告，不能自动释放或重派。
+宿主在空闲或经签名、去重的队列变化事件中，只考虑授权队列内的 Todo 标准风险代码任务，按 Priority 降序、创建时间升序、Issue ID 升序选候选，不自动处理 Triage、hotfix、发布、红区或生产 Issue。宿主必须提供跨实例单 Issue 独占派发证明；“读取 → 写入 → 重读”不足以代替原子选择，无法证明时停止。Agent 只重读被派发的 Issue，核对 Definition of Ready、依赖、Scope、Resource Lock、身份和完整 Receipt 历史。宿主为每个 Issue 重新核验授权与计数，签发 targetIssueIds 只含该 Issue、mode=execute 的 v2 Envelope；`linearWrite`、`workspaceWrite`、`gitBranch`、`mergeRequestWrite`、`externalWrite` 和实际凭据使用必须独立授权，普通 `gitCommit`／`gitPush` 按 `git-rules.md` 的限定例外处理，高风险要求宿主证明。领取后只有 Claim、身份和 Receipt 都重读确认才能开工；冲突、registration-incomplete、撤销或高风险证据不足时停止派发并报告，不能自动释放或重派。
 
 ## 身份与执行记录
 

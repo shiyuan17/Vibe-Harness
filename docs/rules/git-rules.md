@@ -4,7 +4,7 @@ Git 规则的目标是保护用户改动、保持提交可审查，并确保 wor
 
 ## Fast Path 卡片
 
-- **默认路径**：编辑前后核对 `git status --short`，只暂存本任务改动，一个逻辑变更一个 commit；`gitBranch`、`gitCommit`、`gitPush`、`mergeRequestWrite` 互不隐含，授权覆盖时才执行，未授权只报告状态与建议命令。
+- **默认路径**：编辑前后核对 `git status --short`，只暂存本任务改动，一个逻辑变更一个 commit；已验证且归属明确的本地提交与当前分支普通推送可按需执行，不是完成任务的默认动作；建分支、PR/MR、凭据等仍按各自授权边界执行。
 - **提交信息**：主题 `<type>(<scope>): <描述>`，正文写为什么改与被否决的方案；不用 `--no-verify`，不伪造署名 trailer。
 - **不变量**：归属不清的改动视为用户改动，不覆盖、不暂存、不提交；凭据、私钥与个人敏感数据不进入提交、提交信息或 PR/MR。
 - **继续读全文的信号**：历史改写、force push、共享分支与门禁、worktree 隔离、合并落地、冲突处理、Hook 或跨仓协作。
@@ -24,18 +24,18 @@ managed-mr 的 land 只读取已合入 MR 的证据，不本地合并或推送�
 - 仅在并发工作可能冲突、脏工作区与任务范围重叠、跨仓协作或明确需要独立构建与验证环境时使用独立 worktree；普通单 Agent 局部修复不因任务类型自动创建 worktree。
 - 分批交付前再次检查 working tree 和 staged diff，明确包含、排除、验证、风险和回滚方式。
 
-## 提交授权
+## 提交与推送边界
 
-当前请求必须按 Execution Envelope 分别授权 `workspaceWrite`、`gitBranch`、`gitCommit`、`gitPush`、`mergeRequestWrite` 和 `credentialUse`。
+当前任务范围内的本地普通提交与当前分支普通推送无需独立授权、逐项登记 `gitCommit`／`gitPush`，也无需任务级 Execution Envelope 或 `execute` 模式证明。用户显式禁止时不得执行；已有有效 Envelope 的 `forbiddenEffects` 优先。`workspaceWrite`、`gitBranch`、`mergeRequestWrite`、`credentialUse` 仍按 `governance-core.md` 独立授权。
 
-- 任一 effect 都不隐含其他 effect：实现授权不等于建分支、提交、推送或创建 PR/MR，提交授权也不等于推送或创建 PR/MR；`forbiddenEffects` 始终优先。
-- 完整 mode 与 effect 枚举以 `governance-core.md` 的「授权与 Execution Envelope」条款为准；本清单是 Git 域不含 `linearWrite` 的子集。
+- 提交不自动触发推送；普通任务完成也不要求提交或推送。只有任务交付确需远端可见、推送目标明确且安全时才按需推送；两者都不隐含建分支、PR/MR、凭据转用或发布授权。
+- `gitCommit` 与 `gitPush` 保留为兼容的 effect 和观测事件。Hook 仅豁免直接、单一、可判定的普通 `git commit -m`／`git push`；复合命令、危险参数、无效 Envelope、远端或目标分支无法核实时不享受豁免。Hook 不能推断暂存内容归属，提交前仍须人工核对本任务 diff；不得绕过宿主权限、Git Hook 与服务端保护。
 
-Vibe-Harness 不通过 Stop Hook、运行时脚本或任何默认流程自动执行 `git commit` 或 `git push`。提交和推送必须由用户在当前任务中明确授权；显式调用 `$git-deliver` 或明确指定该 Skill，视为对当前仓库、当前任务相关改动的分组提交和当前分支普通推送授权。没有授权时只报告 working tree 状态和建议命令。
+Vibe-Harness 不通过 Stop Hook、运行时脚本或任何默认流程自动执行 `git commit` 或 `git push`。`$git-deliver` 是显式调用的分组提交与普通推送流程，不是唯一允许执行提交或推送的入口。
 
-`worktree land --write --push` 是显式调用即授权在该入口的投影：它不执行 commit，只把已提交内容合并进主检出当前分支，并按与 `$git-deliver` 相同的推送策略（upstream 存在则普通推送；无 upstream 仅在唯一远端为 origin 且目标分支非保护或共享分支时建立跟踪）普通推送目标分支。不带 `--push` 的 `land` 不构成推送授权，收据只给出建议命令。
+`worktree land --write --push` 是该入口的显式推送开关：它不执行 commit，只把已提交内容合并进主检出当前分支，并按与 `$git-deliver` 相同的推送策略（upstream 存在则普通推送；无 upstream 仅在唯一远端为 origin 且目标分支非保护或共享分支时建立跟踪）普通推送目标分支。不带 `--push` 的 `land` 不推送，收据只给出建议命令；普通 Git 命令的按需推送例外不改变该入口的参数语义。
 
-获得授权后仍须先给出或核对提交分组：
+按需提交前仍须先给出或核对提交分组：
 
 | 字段 | 内容 |
 | --- | --- |
@@ -48,9 +48,9 @@ Vibe-Harness 不通过 Stop Hook、运行时脚本或任何默认流程自动执
 
 - `$git-deliver` 只在已有 upstream 时普通推送；无 upstream 时，仅在唯一明确远端为 origin 且当前分支非保护或共享分支时建立跟踪并普通推送，否则停止确认。
 - main、master、release、仓库识别出的保护分支不得由 `$git-deliver` 自动推送。`develop` 已按 ADR-0013 移出保护清单：任务分支与 land 落地可直接 `git push`／`git push -u origin develop`，不需要人工审批或服务器端 required gate。强制推送、删除远端引用和历史重写不属于该 Skill 授权范围。
-- 未获提交授权时，不得把未提交状态描述为失败；应交付改动清单和验证证据。
+- 未提交不等于任务失败；应交付改动清单和验证证据。
 
-分组交付的执行步骤见宿主 Skill 根目录下已安装的 `git-deliver` Skill 入口，两者描述同一提交授权边界，修改须同步。
+显式分组交付的执行步骤见宿主 Skill 根目录下已安装的 `git-deliver` Skill 入口，两者共享归属、验证和推送安全边界，修改须同步。
 
 ## 提交内容与信息
 
@@ -113,7 +113,7 @@ Git credential helper 只可由其已配置的 Git transport 透明调用。仅�
 
 ## 参考实现边界
 
-Vibe-Harness 自身使用 Conventional Commits、commitlint、pre-commit、pre-push、lint 和测试作为可审查的参考实现；这些检查只在用户明确授权提交后由 Git 正常触发，不构成自动提交授权。
+Vibe-Harness 自身使用 Conventional Commits、commitlint、pre-commit、pre-push、lint 和测试作为可审查的参考实现；这些检查在实际提交或推送时由 Git 正常触发，不构成自动执行提交或推送的指令。
 
 ## Worktree
 

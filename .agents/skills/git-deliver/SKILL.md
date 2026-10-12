@@ -5,7 +5,7 @@ description: Use only when the user explicitly invokes $git-deliver or explicitl
 
 # 分批提交并推送
 
-把显式调用视为对当前仓库、当前任务相关改动执行普通 Git commit 和 push 的授权；提交授权、分支模型与停止边界见 `docs/rules/git-rules.md`，两者描述同一提交授权边界，修改须同步；仍遵守红区和人工确认边界。
+显式调用本 Skill 才启用分组提交并普通推送的交付流程；普通提交与当前分支普通推送本身不以此 Skill 为唯一入口，也不需要独立授权。分支模型与安全停止边界见 `docs/rules/git-rules.md`，两者修改须同步；仍遵守红区和人工确认边界。
 
 ## 执行
 
@@ -18,9 +18,9 @@ description: Use only when the user explicitly invokes $git-deliver or explicitl
 
 ## 停止边界
 
-- 不在 main、master、develop、release 或仓库识别出的保护/共享分支上自动推送。
+- 不在 main、master、release 或仓库识别出的保护/共享分支上自动推送；develop 按 ADR-0013 可直推，但仍须核实当前仓库的分支保护与远端事实。
 - 不执行 force push、历史改写、远端引用删除、PR 创建、合并、打标签或发布；这些操作需要独立明确授权。
-- 未显式调用本 Skill 时，不把普通完成请求解释为提交或推送授权。
+- 未显式调用本 Skill 时，不自动选择分组交付流程；普通提交或推送按任务需要和 `git-rules.md` 的安全边界判定。
 
 ## 交付
 
