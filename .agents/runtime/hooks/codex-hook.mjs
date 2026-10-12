@@ -1,15 +1,18 @@
 #!/usr/bin/env node
+import { execFile } from 'node:child_process';
 import { realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 
 import { findProjectRoot, readHookSettings } from './lib/context.mjs';
 import { evaluateFrozenTestWrite } from './lib/frozen-test-writes.mjs';
-import { evaluateExecutionEnvelope } from './lib/execution-envelope.mjs';
+import { classifyExecutionEffects, evaluateExecutionEnvelope } from './lib/execution-envelope.mjs';
 import { analyzeToolRequest, commandFrom, createHostHookResult, normalizeHostHookInput } from './lib/policy.mjs';
 import { isReadOnlyToolName } from './lib/read-only-commands.mjs';
 import { inspectRtkHook, routeRtkCommand } from './lib/rtk.mjs';
 
+const execFileAsync = promisify(execFile);
 const MAX_INPUT_BYTES = 1024 * 1024;
 // The host kills a Hook that outlives its own timeout (10s in the installed
 // configuration) and then continues the tool call, so the runtime keeps its own
@@ -86,6 +89,45 @@ async function readStdin() {
   } catch {
     throw hookFailure(HOOK_FAILURE_CODES.invalidJson);
   }
+}
+
+/**
+ * A fast-forward-only pull never rewrites local commits, but git still refuses
+ * to run it while tracked files carry uncommitted changes. The effect
+ * classifier reports that requirement instead of probing the filesystem, so
+ * the hook resolves it here with one read-only `git status` right before it can
+ * return an allow. Untracked files stay out of the check: a fast-forward does
+ * not touch them, so a checkout that only carries untracked files is still safe
+ * to sync. Any failure to read the state (no repository, git unavailable,
+ * timeout) fails closed rather than assuming a clean tree.
+ *
+ * @param {{cwd?: string, toolInput?: unknown, toolName?: string}} input
+ * @returns {Promise<{action: string, reason: string, reasonCode: string} | null>}
+ */
+async function evaluateSyncWorkingTreeGuard(input) {
+  if (classifyExecutionEffects(input).cleanTreeRequired !== true) return null;
+  let stdout;
+  try {
+    ({ stdout } = await execFileAsync('git', ['status', '--porcelain', '--untracked-files=no'], {
+      cwd: input.cwd,
+      timeout: 3000,
+      windowsHide: true,
+    }));
+  } catch {
+    return {
+      action: 'deny',
+      reason: 'A fast-forward-only pull could not confirm a clean working tree, so the sync was refused.',
+      reasonCode: 'VIBE_HARNESS_SYNC_STATE_UNAVAILABLE',
+    };
+  }
+  if (String(stdout).trim() !== '') {
+    return {
+      action: 'deny',
+      reason: 'A fast-forward-only pull needs a clean tracked working tree; commit or stash the pending changes first.',
+      reasonCode: 'VIBE_HARNESS_SYNC_DIRTY_TREE',
+    };
+  }
+  return null;
 }
 
 /**
@@ -166,6 +208,10 @@ export async function evaluateHook(rawInput, {
   }
   const rootDir = await findProjectRoot(input.cwd);
   const settings = await readHookSettings(rootDir);
+  const syncDecision = await evaluateSyncWorkingTreeGuard(input);
+  if (syncDecision !== null) {
+    return createHostHookResult(host, input.event, syncDecision, { durationMs: elapsedMs() });
+  }
   const frozenTestDecision = await evaluateFrozenTestWrite(input, rootDir);
   if (frozenTestDecision.action === 'deny') {
     return emitTelemetry(createHostHookResult(host, input.event, frozenTestDecision, { durationMs: elapsedMs() }), frozenTestDecision);

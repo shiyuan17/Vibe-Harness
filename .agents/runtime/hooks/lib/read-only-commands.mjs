@@ -99,10 +99,21 @@ const READ_ONLY_CLI_RULES = new Map([
     verbs: ['checks', 'diff', 'list', 'status', 'version', 'view'],
   }],
   ['git', {
+    // `fetch` and `ls-remote` read remote state; `stash list` and
+    // `submodule status` print local state. A bare `pull` is different — it
+    // can create a merge commit — so it qualifies only with an explicit
+    // --ff-only, which `flagVerbs` expresses as a positive requirement (the
+    // argument guards above can only withdraw an existing verdict).
+    flagVerbs: { pull: [/^--ff-only$/iu] },
+    nouns: {
+      stash: ['list'],
+      submodule: ['status'],
+    },
     verbs: [
-      'blame', 'cat-file', 'check-ignore', 'describe', 'diff', 'for-each-ref',
-      'grep', 'log', 'ls-files', 'ls-tree', 'name-rev', 'rev-list',
-      'rev-parse', 'shortlog', 'show', 'status', 'symbolic-ref', 'version',
+      'blame', 'cat-file', 'check-ignore', 'describe', 'diff', 'fetch',
+      'for-each-ref', 'grep', 'log', 'ls-files', 'ls-remote', 'ls-tree',
+      'name-rev', 'rev-list', 'rev-parse', 'shortlog', 'show', 'status',
+      'symbolic-ref', 'version',
     ],
   }],
   ['glab', {
@@ -273,6 +284,12 @@ function isReadOnlyCliRule(rule, args) {
   const [first, second] = positional;
   if (WRITE_SUBCOMMAND_PATTERN.test(first)) return false;
   if (second !== undefined && WRITE_SUBCOMMAND_PATTERN.test(second)) return false;
+  // A flag-verb qualifies only when every required flag is present, so
+  // `git pull` keeps its effectful grade while `git pull --ff-only` is a plain
+  // sync. This is the positive counterpart to the argument guards above.
+  if (rule.flagVerbs && Object.hasOwn(rule.flagVerbs, first)) {
+    return rule.flagVerbs[first].every((pattern) => args.some((argument) => pattern.test(argument)));
+  }
   if (rule.verbPrefix && (rule.verbPrefix.test(first) || (second !== undefined && rule.verbPrefix.test(second)))) return true;
   if (rule.verbs?.includes(first)) return true;
   const nouns = rule.nouns ?? {};
