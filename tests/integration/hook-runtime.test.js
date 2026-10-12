@@ -471,6 +471,87 @@ test('Execution Envelope accepts trusted payload and environment injection', asy
   });
 });
 
+test('ordinary Git delivery needs no envelope or per-effect grant', async () => {
+  await withProject(async (target) => {
+    initializeGitProject(target);
+    execFileSync('git', ['switch', '-c', 'feature/safe-delivery'], { cwd: target, stdio: 'ignore', windowsHide: true });
+    const remote = path.join(target, 'origin.git');
+    execFileSync('git', ['init', '--bare', remote], { cwd: target, stdio: 'ignore', windowsHide: true });
+    execFileSync('git', ['remote', 'add', 'origin', remote], { cwd: target, stdio: 'ignore', windowsHide: true });
+
+    for (const command of ['git commit -m "verified change"', 'git push origin feature/safe-delivery']) {
+      assert.deepEqual(await evaluateCodexHook(input(target, { tool_input: { command } }), {
+        environment: { VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED: '1' },
+      }), {}, command);
+      assert.deepEqual(await evaluateCodexHook(input(target, {
+        execution_envelope: executionEnvelope({ mode: 'plan', targetIssueIds: [], allowedEffects: [] }),
+        tool_input: { command },
+      })), {}, command);
+      const forbiddenEffect = command.includes('commit') ? 'gitCommit' : 'gitPush';
+      const forbidden = await evaluateCodexHook(input(target, {
+        execution_envelope: executionEnvelope({ forbiddenEffects: [forbiddenEffect] }),
+        tool_input: { command },
+      }));
+      assert.match(forbidden.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_EFFECT_FORBIDDEN/u);
+      const invalid = await evaluateCodexHook(input(target, {
+        execution_envelope: { schema: 'invalid' },
+        tool_input: { command },
+      }));
+      assert.match(invalid.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_INVALID/u);
+      const readOnly = await evaluateCodexHook(input(target, { tool_input: { command } }), {
+        environment: { VIBE_HARNESS_PERMISSION_PRESET: 'analysis' },
+      });
+      assert.notDeepEqual(readOnly, {}, command);
+    }
+
+    for (const command of [
+      'git commit --amend -m change',
+      'git commit -a -m change',
+      'git commit --no-verify -m change',
+      'git push --force origin feature/safe-delivery',
+      'git push origin :feature/safe-delivery',
+      'git push origin feature/safe-delivery --tags',
+      'git commit -m change && git push origin feature/safe-delivery',
+      'git commit -m change && node scripts/custom-operation.mjs',
+      'git push unknown feature/safe-delivery',
+    ]) {
+      const result = await evaluateCodexHook(input(target, { tool_input: { command } }), {
+        environment: { VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED: '1' },
+      });
+      assert.notDeepEqual(result, {}, command);
+    }
+
+    execFileSync('git', ['config', 'remote.origin.push', 'refs/heads/*:refs/heads/*'], { cwd: target, stdio: 'ignore', windowsHide: true });
+    const ambiguousRefspec = await evaluateCodexHook(input(target, {
+      tool_input: { command: 'git push origin feature/safe-delivery' },
+    }), { environment: { VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED: '1' } });
+    assert.match(ambiguousRefspec.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u);
+    execFileSync('git', ['config', '--unset', 'remote.origin.push'], { cwd: target, stdio: 'ignore', windowsHide: true });
+
+    const missingUpstream = await evaluateCodexHook(input(target, {
+      tool_input: { command: 'git push' },
+    }), { environment: { VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED: '1' } });
+    assert.match(missingUpstream.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u);
+    execFileSync('git', ['config', 'branch.feature/safe-delivery.remote', 'origin'], { cwd: target, stdio: 'ignore', windowsHide: true });
+    execFileSync('git', ['config', 'branch.feature/safe-delivery.merge', 'refs/heads/feature/safe-delivery'], { cwd: target, stdio: 'ignore', windowsHide: true });
+    assert.deepEqual(await evaluateCodexHook(input(target, {
+      tool_input: { command: 'git push' },
+    }), { environment: { VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED: '1' } }), {});
+    assert.deepEqual(await evaluateCodexHook(input(target, {
+      tool_input: { command: 'git push -u origin feature/safe-delivery' },
+    }), { environment: { VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED: '1' } }), {});
+
+    execFileSync('git', ['switch', 'main'], { cwd: target, stdio: 'ignore', windowsHide: true });
+    const protectedPush = await evaluateCodexHook(input(target, { tool_input: { command: 'git push origin main' } }));
+    assert.match(protectedPush.hookSpecificOutput.permissionDecisionReason, /PROTECTED/u);
+    execFileSync('git', ['switch', '-c', 'release-candidate'], { cwd: target, stdio: 'ignore', windowsHide: true });
+    const releasePush = await evaluateCodexHook(input(target, {
+      tool_input: { command: 'git push origin release-candidate' },
+    }));
+    assert.match(releasePush.hookSpecificOutput.permissionDecisionReason, /PROTECTED/u);
+  });
+});
+
 test('Execution Envelope rejects invalid, mismatched, and required-missing authorization', async () => {
   await withProject(async (target) => {
     const invalid = await evaluateCodexHook(input(target, {
@@ -540,7 +621,7 @@ test('Execution Envelope forbidden effects override allowlists and mode ceilings
       execution_envelope: executionEnvelope({ mode: 'linear-sync', allowedEffects: ['gitCommit'] }),
       tool_input: { command: 'git commit -m change' },
     }));
-    assert.match(linearSyncCommit.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MODE_VIOLATION/u);
+    assert.deepEqual(linearSyncCommit, {});
 
     const linearSyncUnknown = await evaluateCodexHook(input(target, {
       execution_envelope: executionEnvelope({ mode: 'linear-sync', allowedEffects: [] }),
@@ -676,8 +757,6 @@ test('Execution Envelope classifies ordinary Git, Linear, and credential operati
     for (const [command, effect] of [
       ['git branch feature/ENG-123-envelope', 'gitBranch'],
       ['git switch -c feature/ENG-123-envelope', 'gitBranch'],
-      ['git commit -m "change Refs ENG-123"', 'gitCommit'],
-      ['git push origin feature/ENG-123-envelope', 'gitPush'],
     ]) {
       const denied = await evaluateCodexHook(input(target, {
         execution_envelope: executionEnvelope(),
@@ -870,8 +949,6 @@ test('Execution Envelope classifies scripts, merge requests, and target Issue sc
 
     for (const command of [
       'git switch existing',
-      'git commit -m change',
-      'git push origin feature/without-issue',
     ]) {
       const targetUnverified = await evaluateCodexHook(input(target, {
         execution_envelope: executionEnvelope({ allowedEffects: ['gitBranch', 'gitCommit', 'gitPush'] }),

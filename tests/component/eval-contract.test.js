@@ -231,7 +231,7 @@ test('OBS-RULE-002 requires project-linked logging and forbids invented infrastr
   );
 });
 
-test('git-deliver canaries pin explicit authorization and safe push boundaries', async () => {
+test('git-deliver canaries pin explicit routing and safe push boundaries', async () => {
   const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-online-canary.json'));
   const cases = Object.fromEntries(
     suite.cases
@@ -250,7 +250,11 @@ test('git-deliver canaries pin explicit authorization and safe push boundaries',
   );
   assert.deepEqual(
     cases['EVAL-GIT-DELIVER-002'].oracle.forbiddenEvents.map((item) => item.value),
-    ['git-deliver-selected', 'git-commit-invoked', 'git-push-invoked'],
+    ['git-deliver-selected', 'git-push-invoked'],
+  );
+  assert.deepEqual(
+    cases['EVAL-GIT-DELIVER-002'].oracle.requiredOutputFragments.map((item) => item.value),
+    ['NO_GIT_DELIVER', 'OPTIONAL_COMMIT', 'OPTIONAL_PUSH'],
   );
   assert.deepEqual(
     cases['EVAL-GIT-DELIVER-003'].oracle.requiredOutputFragments.map((item) => item.value),

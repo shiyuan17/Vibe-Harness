@@ -94,9 +94,9 @@ function fakeEnvelope({ allowedEffects = [], mode = 'execute', riskClass = 'stan
 
 test('mode effect ceiling agrees with runtime enforcement for every mode', () => {
   const cases = [
-    { effect: 'gitCommit', input: { toolInput: { command: 'git commit -m ENG-123' }, toolName: 'Shell' }, mode: 'plan' },
+    { effect: 'gitBranch', input: { toolInput: { command: 'git branch feature/ENG-123' }, toolName: 'Shell' }, mode: 'plan' },
     { effect: 'workspaceWrite', input: { toolInput: { command: 'Set-Content ENG-123.txt ok' }, toolName: 'Shell' }, mode: 'monitor' },
-    { effect: 'gitCommit', input: { toolInput: { command: 'git commit -m ENG-123' }, toolName: 'Shell' }, mode: 'linear-sync' },
+    { effect: 'gitBranch', input: { toolInput: { command: 'git branch feature/ENG-123' }, toolName: 'Shell' }, mode: 'linear-sync' },
     { effect: 'linearWrite', input: { toolInput: { id: 'ENG-123' }, toolName: 'mcp__linear__save_issue' }, mode: 'linear-sync' },
     { effect: 'gitCommit', input: { toolInput: { command: 'git commit -m ENG-123' }, toolName: 'Shell' }, mode: 'execute' },
     { effect: 'linearWrite', input: { toolInput: { id: 'ENG-123' }, toolName: 'mcp__linear__save_issue' }, mode: 'execute' },
