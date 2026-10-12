@@ -1055,6 +1055,42 @@ test('Hook denies destructive Git operations and global Agent configuration writ
   });
 });
 
+test('Hook CLI passes sync-class Git reads and guards pull --ff-only on a clean tracked tree', async () => {
+  await withProject(async (target) => {
+    // Remote and local inspection never needs an Envelope, so the CLI answers
+    // with its allow shape for every one of them.
+    for (const command of ['git fetch --all --prune', 'git ls-remote origin', 'git stash list', 'git submodule status', 'git submodule status --recursive']) {
+      const result = await runHookCli(JSON.stringify(input(target, { tool_input: { command } })));
+      assert.equal(result.code, 0, command);
+      assert.deepEqual(JSON.parse(result.stdout), {}, command);
+    }
+
+    // Without a readable repository the clean-tree guard fails closed instead
+    // of assuming the working tree is clean.
+    const unavailable = await runHookCli(JSON.stringify(input(target, { tool_input: { command: 'git pull --ff-only' } })));
+    assert.match(hookCliReason(unavailable.stdout), /VIBE_HARNESS_SYNC_STATE_UNAVAILABLE/u);
+
+    // A clean tracked tree allows the fast-forward pull.
+    initializeGitProject(target);
+    const clean = await runHookCli(JSON.stringify(input(target, { tool_input: { command: 'git pull --ff-only' } })));
+    assert.deepEqual(JSON.parse(clean.stdout), {});
+
+    // A staged or modified tracked file makes git refuse the fast-forward, so
+    // the Hook refuses it first with a stable reason code.
+    await writeFile(path.join(target, 'tracked.txt'), 'draft\n', 'utf8');
+    execFileSync('git', ['add', 'tracked.txt'], { cwd: target, stdio: 'ignore', windowsHide: true });
+    const dirty = await runHookCli(JSON.stringify(input(target, { tool_input: { command: 'git pull --ff-only' } })));
+    assert.match(hookCliReason(dirty.stdout), /VIBE_HARNESS_SYNC_DIRTY_TREE/u);
+
+    // Untracked files do not block a fast-forward, so they stay outside the
+    // guard: once the file is no longer staged the pull is allowed again.
+    execFileSync('git', ['reset'], { cwd: target, stdio: 'ignore', windowsHide: true });
+    await writeFile(path.join(target, 'untracked.txt'), 'notes\n', 'utf8');
+    const untracked = await runHookCli(JSON.stringify(input(target, { tool_input: { command: 'git pull --ff-only' } })));
+    assert.deepEqual(JSON.parse(untracked.stdout), {});
+  });
+});
+
 test('Cursor, Qoder, and ZCode normalize host payloads and deny destructive commands', async () => {
   await withProject(async (target) => {
     const fixtures = [

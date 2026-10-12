@@ -26,6 +26,10 @@ const SHELL_READ_ONLY_COMMANDS = [
   'rg -n sandbox_mode docs',
   'git --version',
   'git status --short',
+  'git fetch --all --prune',
+  'git ls-remote origin',
+  'git stash list',
+  'git submodule status',
   'gh pr view 12',
   'glab mr list',
   'codex --version',
@@ -145,7 +149,15 @@ test('interpreters and non-Node toolchains keep the standard workspace-write gra
 
 test('unclassified commands still require an Execution Envelope', async () => {
   await withProject(async (target) => {
-    for (const command of ['ssh example.test', 'codex exec run tests', 'terraform destroy -auto-approve']) {
+    for (const command of [
+      'ssh example.test',
+      'codex exec run tests',
+      'terraform destroy -auto-approve',
+      // Only `stash list` and `submodule status` are read-only; every other
+      // sub-command of those two nouns keeps failing closed.
+      'git stash push -m wip',
+      'git submodule update --init',
+    ]) {
       const normalized = request(target, { tool_input: { command } });
       const classification = classifyExecutionEffects(normalized);
       assert.equal(classification.unknown, true, command);
@@ -155,6 +167,47 @@ test('unclassified commands still require an Execution Envelope', async () => {
       assert.equal(result.hookSpecificOutput.permissionDecision, 'deny', command);
       assert.match(result.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u, command);
       assert.match(result.hookSpecificOutput.permissionDecisionReason, /不可判定/u, command);
+    }
+  });
+});
+
+test('sync-class git commands pass as read-only while pull --ff-only keeps a clean-tree guard', async () => {
+  await withProject(async (target) => {
+    // Remote and local inspection never touches the working tree, so no
+    // Envelope and no extra guard applies.
+    for (const command of ['git fetch --all --prune', 'git ls-remote origin', 'git stash list', 'git submodule status']) {
+      const classification = classifyExecutionEffects(request(target, { tool_input: { command } }));
+      assert.equal(classification.readOnly, true, command);
+      assert.equal(classification.cleanTreeRequired, false, command);
+      assert.deepEqual(await evaluateCodexHook(input(target, { tool_input: { command } })), {}, command);
+    }
+
+    // `pull --ff-only` is read-only but the classifier reports that it needs a
+    // clean tracked tree; the Hook resolves that fact itself. A target without
+    // a readable repository fails closed instead of assuming a clean tree.
+    const ffOnly = classifyExecutionEffects(request(target, { tool_input: { command: 'git pull --ff-only' } }));
+    assert.equal(ffOnly.readOnly, true);
+    assert.equal(ffOnly.cleanTreeRequired, true);
+    const unavailable = await evaluateCodexHook(input(target, { tool_input: { command: 'git pull --ff-only' } }));
+    assert.equal(unavailable.hookSpecificOutput.permissionDecision, 'deny');
+    assert.match(unavailable.hookSpecificOutput.permissionDecisionReason, /VIBE_HARNESS_SYNC_STATE_UNAVAILABLE/u);
+
+    // A bare pull and every other pull form write the working tree, so they
+    // grade as a standard workspace write instead of riding the read-only set.
+    // Without a project-level Envelope requirement that is still allowed, but
+    // as soon as an Envelope is demanded the call is denied for the missing
+    // authorization — the same path every other workspace write takes.
+    for (const command of ['git pull', 'git pull --rebase']) {
+      const classification = classifyExecutionEffects(request(target, { tool_input: { command } }));
+      assert.equal(classification.readOnly, false, command);
+      assert.deepEqual(classification.effects, ['workspaceWrite'], command);
+      assert.deepEqual(await evaluateCodexHook(input(target, { tool_input: { command } })), {}, command);
+      const denied = await evaluateCodexHook(
+        input(target, { tool_input: { command } }),
+        { environment: { VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED: '1' } },
+      );
+      assert.equal(denied.hookSpecificOutput.permissionDecision, 'deny', command);
+      assert.match(denied.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u, command);
     }
   });
 });
