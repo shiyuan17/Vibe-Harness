@@ -52,6 +52,10 @@
     {
       "id": "ADR-0013",
       "path": "docs/adr/ADR-0013-develop-direct-push-without-server-gate.md"
+    },
+    {
+      "id": "ADR-0014",
+      "path": "docs/adr/ADR-0014-service-teardown-best-effort.md"
     }
   ]
 }

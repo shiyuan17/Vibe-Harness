@@ -21,6 +21,7 @@
 - **ADR-0011** Evidence-bound delivery and owned service lifecycle - proposed - Evidence-bound delivery and owned service lifecycle - [ADR](../adr/ADR-0011-delivery-lifecycle.md)
 - **ADR-0012** Single-reviewer high-risk review receipt - accepted - Single-reviewer high-risk review receipt - [ADR](../adr/ADR-0012-single-reviewer-review-receipt.md)
 - **ADR-0013** Develop accepts direct local landings without a server gate - accepted - Direct no-ff landings onto develop without a server-side required gate; ADR-0009's develop fast gate is withdrawn. - [ADR](../adr/ADR-0013-develop-direct-push-without-server-gate.md)
+- **ADR-0014** Worktree 落地与清理的服务 teardown 改为 best-effort - accepted - worktree land/cleanup/recover 仍尝试停止登记服务，但无法证明停止不再阻塞合并落地或工作区移除 - [ADR](../adr/ADR-0014-service-teardown-best-effort.md)
 
 ## 纪律
 

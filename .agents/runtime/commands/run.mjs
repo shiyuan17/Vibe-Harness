@@ -2238,15 +2238,11 @@ async function worktreeCleanupReport(projectDir, args) {
       results.push({ id: task.id, status: 'blocked', blockers: ['Worktree or target changed before cleanup'] });
       continue;
     }
+    // Teardown is best effort: an unprovable teardown is reported on the result
+    // below instead of keeping a merged worktree in place. The marker it writes
+    // is released by whichever path ends this item, so `service start` is only
+    // held back while the worktree is actually about to be removed.
     const services = await teardownServices(projectDir, entry.path);
-    if (services.status !== 'passed') {
-      // This worktree is not removed, so the teardown marker must not keep
-      // `service start` permanently blocked for it: the developer has to be able
-      // to restart services and re-verify.
-      releaseServiceTeardown(projectDir, entry.path);
-      results.push({ id: task.id, status: 'blocked', blockers: ['Managed service teardown failed'], services });
-      continue;
-    }
     if (delivery.requireReceipt) {
       const finalReceipt = validateCompletion(receipt, delivery, await gitFingerprint(entry.path),
         { provenance: await attestCompletionProvenance(entry.path, receipt) });
@@ -2265,7 +2261,7 @@ async function worktreeCleanupReport(projectDir, args) {
     const removed = await runGit(['worktree', 'remove', entry.path], projectDir);
     if (!removed.ok) {
       releaseServiceTeardown(projectDir, entry.path);
-      results.push({ branch: entry.branch, error: boundedOutput(removed.stderr || removed.error?.message || 'git worktree remove failed', projectDir), id: task.id, path: normalizeSlashes(entry.path), removedLinks, status: 'failed' });
+      results.push({ branch: entry.branch, error: boundedOutput(removed.stderr || removed.error?.message || 'git worktree remove failed', projectDir), id: task.id, path: normalizeSlashes(entry.path), removedLinks, ...(services.status !== 'passed' ? { services } : {}), status: 'failed' });
       continue;
     }
     await runGit(['worktree', 'prune'], projectDir);
@@ -2280,6 +2276,7 @@ async function worktreeCleanupReport(projectDir, args) {
       portBlockReleased: released.released === true,
       remainingDirectory: existsSync(entry.path),
       removedLinks,
+      ...(services.status !== 'passed' ? { services } : {}),
       status: 'passed',
     });
   }
@@ -2633,6 +2630,9 @@ async function worktreeLandReportUnlocked(projectDir, args) {
   let provenanceRecorded = true;
   let candidatePath = null;
   let candidateHeadSha = null;
+  // The best-effort service teardown outcome, carried on the cleanup step when
+  // ownership could not be proven instead of blocking the landing.
+  let servicesTeardown = null;
   const targetHead = await runGit(['rev-parse', `refs/heads/${targetBranch}`], primary.path);
   if (!targetHead.ok) {
     markFailed({ id: 'merge', status: 'failed', code: 'LAND_TARGET_HEAD_UNRESOLVED', error: boundedOutput(targetHead.stderr || targetHead.error?.message || 'target branch head could not be resolved', projectDir), detail: `resolve ${targetBranch}` });
@@ -2812,26 +2812,26 @@ async function worktreeLandReportUnlocked(projectDir, args) {
   }
 
   // Step 4: cleanup. The worktree removal must precede the branch delete below
-  // because a checked-out branch cannot be deleted.
+  // because a checked-out branch cannot be deleted. Service teardown is best
+  // effort rather than a gate: it is still attempted because a stopping service
+  // can flush tracked or untracked state into the source worktree, but a
+  // teardown that cannot be proven no longer keeps a merged worktree in place —
+  // its outcome is reported on the cleanup step instead.
   if (!failedStep) {
-    const services = await teardownServices(projectDir, entry.path);
-    if (services.status !== 'passed') markFailed({ id: 'services', status: 'blocked', code: 'SERVICE_TEARDOWN_BLOCKED', services });
-    else {
-      // Stopping a managed service can flush tracked or untracked state into the
-      // source worktree while it shuts down, and the completion receipt describes
-      // the candidate — not the source — so the source is read again here: the
-      // removal below must not delete work that appeared after the last check.
-      const sourceAfterTeardown = await runGit(['status', '--porcelain=v1', '--untracked-files=all'], entry.path);
-      if (!sourceAfterTeardown.ok || sourceAfterTeardown.stdout.trim() !== '') {
-        // The worktree survives the block, so the teardown marker it would keep
-        // `service start` out with is released again.
-        releaseServiceTeardown(projectDir, entry.path);
-        markFailed({
-          id: 'services', status: 'blocked', code: 'LAND_SOURCE_WORKTREE_DIRTY',
-          error: boundedOutput(sourceAfterTeardown.stderr || sourceAfterTeardown.error?.message || 'the source worktree is not clean after service teardown', projectDir),
-          detail: `git status --porcelain=v1 --untracked-files=all in ${entry.path}`,
-        });
-      }
+    servicesTeardown = await teardownServices(projectDir, entry.path);
+    // The completion receipt describes the candidate — not the source — so the
+    // source is read again here: the removal below must not delete work that
+    // appeared while services were being stopped.
+    const sourceAfterTeardown = await runGit(['status', '--porcelain=v1', '--untracked-files=all'], entry.path);
+    if (!sourceAfterTeardown.ok || sourceAfterTeardown.stdout.trim() !== '') {
+      // The worktree survives the block, so the teardown marker it would keep
+      // `service start` out with is released again.
+      releaseServiceTeardown(projectDir, entry.path);
+      markFailed({
+        id: 'services', status: 'blocked', code: 'LAND_SOURCE_WORKTREE_DIRTY',
+        error: boundedOutput(sourceAfterTeardown.stderr || sourceAfterTeardown.error?.message || 'the source worktree is not clean after service teardown', projectDir),
+        detail: `git status --porcelain=v1 --untracked-files=all in ${entry.path}`,
+      });
     }
   }
   if (!failedStep) {
@@ -2841,7 +2841,14 @@ async function worktreeLandReportUnlocked(projectDir, args) {
       await runGit(['worktree', 'prune'], projectDir);
       releaseServiceTeardown(projectDir, entry.path);
       const released = await releasePortRegistryEntry(projectDir, taskId);
-      steps.push({ id: 'cleanup', status: 'passed', removedLinks, portBlockReleased: released.released === true, detail: `worktree removed; links ${removedLinks.length}` });
+      steps.push({
+        id: 'cleanup',
+        status: 'passed',
+        removedLinks,
+        portBlockReleased: released.released === true,
+        detail: `worktree removed; links ${removedLinks.length}`,
+        ...(servicesTeardown && servicesTeardown.status !== 'passed' ? { services: servicesTeardown } : {}),
+      });
     } else {
       // The worktree survives the failed removal, so it must not stay locked
       // out of `service start` by a teardown marker written for a removal that
@@ -3025,8 +3032,10 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
       results.push({ ...item, status: 'planned' });
       continue;
     }
+    // A teardown that cannot be proven is reported on the item and does not
+    // keep crash residue in place: `recover` only ever removes worktrees whose
+    // provisioning never completed.
     const services = await teardownServices(projectDir, item.path);
-    if (services.status !== 'passed') { results.push({ ...item, status: 'blocked', services }); continue; }
     const removedLinks = removeWorktreeLinks(projectDir, item.path, settings);
     const removed = await runGit(['worktree', 'remove', '--force', item.path], projectDir);
     if (!removed.ok) {
@@ -3035,6 +3044,7 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
         code: 'WORKTREE_RECOVER_REMOVE_FAILED',
         error: boundedOutput(removed.stderr || removed.error?.message || 'git worktree remove failed', projectDir),
         removedLinks,
+        ...(services.status !== 'passed' ? { services } : {}),
         status: 'failed',
       });
       continue;
@@ -3053,6 +3063,7 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
       branchDeleted,
       portBlockReleased: released.released === true,
       removedLinks,
+      ...(services.status !== 'passed' ? { services } : {}),
       status: errors.length === 0 ? 'passed' : 'failed',
     });
   }
@@ -3086,18 +3097,18 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
       continue;
     }
     const services = item.path ? await teardownServices(projectDir, item.path) : { status: 'passed' };
-    if (services.status !== 'passed') { registryResults.push({ ...item, status: 'blocked', services }); continue; }
     // The teardown writes its worktree marker even without a registry entry, and
     // this branch never removes the worktree afterwards, so the marker has to be
     // released here or a later service start in the same path stays blocked.
     if (item.path) releaseServiceTeardown(projectDir, item.path);
     const released = await releasePortRegistryEntry(projectDir, item.id);
     registryResults.push(released.released === true
-      ? { ...item, status: 'passed' }
+      ? { ...item, ...(services.status !== 'passed' ? { services } : {}), status: 'passed' }
       : {
         ...item,
         code: 'WORKTREE_RECOVER_RELEASE_FAILED',
         error: released.reason ?? released.error ?? 'registry entry not released',
+        ...(services.status !== 'passed' ? { services } : {}),
         status: 'failed',
       });
   }

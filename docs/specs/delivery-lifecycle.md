@@ -52,7 +52,7 @@ merge evidence 的必需字段：sourceBase、sourceHead、targetRef、targetBef
 
 `runtime service start --service <id> [--port <n>] --write` 使用登记端口（或显式端口），`status` 只读，`stop --write` 停止服务。主检出的 `.vibe-harness/processes.json` 记录 task/service/PID/worktree/port/startedAt/fingerprint/status/teardownStatus 与 supervisor 端点。registry 使用排他锁和原子替换；不跟随 registry 链接。只有实际启动的 supervisor 可持有子进程归属，stop 核对 PID、cwd、fingerprint、启动时间，不因 registry 写了一个 PID 就直接 kill。
 
-健康探测仅 loopback HTTP，不跟随重定向。服务异常退出或 supervisor 不可达时 fail closed，不把“根 PID 不存在”当作所有后代已停止。stopOnTeardown=false 的活跃服务会阻止工作区清理，不静默留下进程。当前不提供 daemon 自动重启、凭据注入或任意进程发现。
+健康探测仅 loopback HTTP，不跟随重定向。`stop`/`status` 对无法证明归属的服务 fail closed，不把“根 PID 不存在”当作所有后代已停止。`worktree land`、`worktree cleanup` 与 `worktree recover` 的服务 teardown 是 best-effort：仍尝试按登记停止服务，但无法证明停止不再阻止合并落地或工作区移除，结果写入对应步骤与结果项的 `services` 字段供人工核对。当前不提供 daemon 自动重启、凭据注入或任意进程发现。
 
 ## 迁移与回滚
 
