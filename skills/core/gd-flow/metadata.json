@@ -1,0 +1,1 @@
+{"id":"gd-flow","kind":"core","entry":"SKILL.md","triggers":["gd-flow","$gd-flow"],"outputs":["develop 本地合并与推送证据","worktree 清理结果"]}

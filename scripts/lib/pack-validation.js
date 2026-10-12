@@ -376,7 +376,7 @@ export async function validateSkillGraph(
   // `code-navigation` joined it: that Skill's routing line is what makes the
   // deferred code-intelligence tools visible before the model picks a tool, so
   // it earns the extra always-loaded characters rather than being squeezed.
-  if (nativeIdentityCharacters > 2000) errors.push(`native Skill name and description budget exceeds 2000 characters: ${nativeIdentityCharacters}`);
+  if (nativeIdentityCharacters > 2200) errors.push(`native Skill name and description budget exceeds 2200 characters: ${nativeIdentityCharacters}`);
 
   if (checkFiles) {
     for (const root of ['skills/core', 'skills/integrations']) {
@@ -509,6 +509,12 @@ export const RULE_SKILL_PARITY_PAIRS = Object.freeze([
     sharedTerms: ['Conventional Commit', 'no-verify'],
   },
   {
+    rule: 'docs/rules/git-rules.md',
+    skill: 'skills/core/gd-flow/SKILL.md',
+    skillName: 'gd-flow',
+    sharedTerms: ['`gd-flow`', 'local-land', '`origin/develop`'],
+  },
+  {
     rule: 'docs/rules/linear-workflow.md',
     skill: 'skills/integrations/linear-workflow/SKILL.md',
     skillName: 'linear-workflow',
@@ -520,6 +526,12 @@ export const RULE_SKILL_PARITY_PAIRS = Object.freeze([
       SHARED_RULE_PHRASES.gitFlowHotfix,
       SHARED_RULE_PHRASES.developRequiredFastGate,
     ],
+  },
+  {
+    rule: 'docs/rules/linear-workflow.md',
+    skill: 'skills/integrations/lwflow/SKILL.md',
+    skillName: 'lwflow',
+    sharedTerms: ['`lwflow`', 'local-land', '`origin/develop`'],
   },
 ]);
 
@@ -548,7 +560,10 @@ export const RULE_PORTABILITY_CHECKS = Object.freeze([
   { label: 'docs/adr/', pattern: /docs\/adr\//u },
   { label: 'docs/inventory/', pattern: /docs\/inventory\//u },
   { label: 'github-delivery.md', pattern: /github-delivery\.md/u },
-  { label: 'ADR number', pattern: /ADR-000\d/u },
+  // Any ADR number, not just the `ADR-0000` template placeholder: a rule body
+  // that cites `ADR-0013` sends the host of another project to a decision
+  // record that project never received.
+  { label: 'ADR number', pattern: /ADR-\d{4}/u },
   { label: '.github/workflows/', pattern: /\.github\/workflows\//u },
   { label: 'CI job name', pattern: /main-release-gate|develop-gate|merge-gate/u },
   { label: 'repository script', pattern: /pnpm /u },

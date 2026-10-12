@@ -4,7 +4,7 @@
 
 New configurations default to `delivery.default: managed-mr` (squash). `--delivery local-land` selects local no-ff delivery; `inspect-only` prevents writes and verification execution. Existing configurations without delivery retain legacy behavior with a migration warning. Installation profiles and delivery profiles are independent.
 
-Use the installed runtime's `task checkpoint`, `task event`, `runtime service start|status|stop`, and `worktree cleanup --receipt <file> --merge-evidence <file>` (or `--mr <iid>`). Mutations require `--write`. Cleanup requires current evidence, a clean source and matching target/patch identities; missing GitLab access or unproven process ownership stays blocked. Host compaction/message events require a real bridge; shipping the command does not install a listener.
+Use the installed runtime's `task checkpoint`, `task event`, `runtime service start|status|stop`, and `worktree cleanup --receipt <file> --merge-evidence <file>` (or `--mr <iid>`). Mutations require `--write`. Cleanup requires current evidence, a clean source and matching target/patch identities; missing GitLab access stays blocked, while `runtime service stop` refuses a registration whose ownership cannot be proven. Worktree land/cleanup/recover only attempt service teardown: an unproven teardown is reported on the receipt and no longer blocks the removal. Host compaction/message events require a real bridge; shipping the command does not install a listener.
 
 See [delivery lifecycle](docs/specs/delivery-lifecycle.md) for configuration and migration details.
 
@@ -156,14 +156,16 @@ A single Agent handles work by default. Explicit `open-code-review`, browser ver
 
 ## Profiles and roles
 
-The core profile installs ten native Skills; full installs thirteen and enables seven role personas by default. The role system uses single-primary-role dynamic switching: each atomic action activates exactly one role and may stack at most one domain Skill; it is not a fixed seven-stage pipeline.
+The core profile installs eleven native Skills; full installs fourteen and enables seven role personas by default. The role system uses single-primary-role dynamic switching: each atomic action activates exactly one role and may stack at most one domain Skill; it is not a fixed seven-stage pipeline.
 
 | Profile | Installed surface |
 | --- | --- |
 | `minimal` | Platform instructions, safety boundaries, Git/Test rules, and optional task/delivery templates |
-| `core` | `minimal` plus common engineering rules, ten native Skills, project-local deterministic scripts, and offline Eval |
-| `full` | `core` plus three native Skills, online Eval, and supported platform safety Hooks, for thirteen native Skills total |
+| `core` | `minimal` plus common engineering rules, eleven native Skills, project-local deterministic scripts, and offline Eval |
+| `full` | `core` plus three native Skills, online Eval, and supported platform safety Hooks, for fourteen native Skills total |
 | `docs-only` | Rules, templates, and schemas without runtime, Skills, MCP, or Hooks |
+
+Invoke `$gd-flow` explicitly to implement in an external worktree, then locally merge and push `develop`. With the writable Linear plugin installed, `$lwflow` first syncs the current plan as a parent/task DAG and executes only those newly created nodes. Neither adds a shell command nor changes the default delivery profile; an unclean primary checkout or unavailable write/Claim capability stops the flow.
 
 External tools remain explicit `--plugin` choices. Every host configuration file is a red-zone write and requires `--confirm-red-zone`.
 

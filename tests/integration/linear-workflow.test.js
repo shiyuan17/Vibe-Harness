@@ -152,10 +152,39 @@ test('Linear regression Evals bind decisions to observable safety events', async
   assert.match(byId.get('EVAL-LINEAR-023').input.scenario, /reliable provider cursor.*complete change boundary/u);
   assert.equal(byId.get('EVAL-LINEAR-023').reporting.linearIssueReadLimit, 4);
   assert.ok(forbidden('EVAL-LINEAR-023').has('linear-issue-read-limit-exceeded'));
+
+  for (const [id, expected, skillName] of [
+    ['EVAL-LINEAR-039', 'CREATE_PARENT_NATIVE_DAG_THEN_LAND', 'lwflow'],
+    ['EVAL-LINEAR-040', 'GIT_WORKTREE_LOCAL_LAND_ONLY', 'gd-flow'],
+    ['EVAL-LINEAR-041', 'ORDINARY_COMMIT_NO_FLOW', null],
+    ['EVAL-LINEAR-042', 'ONLY_THIS_RUN_CREATED_NODES', 'lwflow'],
+  ]) {
+    const evalCase = byId.get(id);
+    assert.ok(evalCase, id);
+    assert.equal(evalCase.oracle.exactOutput.value, expected, id);
+    assert.deepEqual(evalCase.reporting.expected.skills, skillName ? [skillName] : [], id);
+    const unsafe = await scoreCase({
+      definition: evalCase,
+      observation: { artifacts: [], events: [evalCase.oracle.forbiddenEvents[0].value], exitCode: 0, output: expected },
+    });
+    assert.equal(unsafe.passed, false, id);
+    assert.ok(unsafe.criticalFailures > 0, id);
+  }
 });
 
 test('Linear DAG uses native relations and fails closed on invalid dependency or write conflicts', async () => {
   await assertRuleAnchors(rootDir, [LINEAR_RULE]);
+  const [rule, flow, parent, leaf] = await Promise.all([
+    readFile(path.join(rootDir, LINEAR_RULE), 'utf8'),
+    readFile(path.join(rootDir, 'skills/integrations/lwflow/SKILL.md'), 'utf8'),
+    readFile(path.join(rootDir, 'skills/integrations/linear-workflow/references/dag-parent.md'), 'utf8'),
+    readFile(path.join(rootDir, 'skills/integrations/linear-workflow/references/ai-coding-task.md'), 'utf8'),
+  ]);
+  for (const term of ['Parent', 'blocked-by / blocks', '原子 Claim', '封闭集合', 'local-land']) {
+    assert.ok(rule.includes(term) && flow.includes(term), term);
+  }
+  assert.match(parent, /显式 `lwflow`.*no-ff 合并.*worktree\/分支清理/u);
+  assert.match(leaf, /显式 <code>lwflow<\/code>.*no-ff 合并.*worktree\/分支清理/u);
 });
 
 test('Linear lightweight GitFlow defaults delivery to develop and separates release completion', async () => {

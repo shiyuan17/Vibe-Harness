@@ -25,12 +25,14 @@ function findPair(skillName) {
   return pair;
 }
 
-test('规则与 Skill parity 映射表锁定五对常驻配对', () => {
+test('规则与 Skill parity 映射表锁定七对常驻配对', () => {
   assert.deepEqual(RULE_SKILL_PARITY_PAIRS.map((pair) => pair.rule), [
     'docs/rules/api-rules.md',
     'docs/rules/eval-driven-development.md',
     'docs/rules/frontend-rules.md',
     'docs/rules/git-rules.md',
+    'docs/rules/git-rules.md',
+    'docs/rules/linear-workflow.md',
     'docs/rules/linear-workflow.md',
   ]);
   assert.deepEqual(RULE_SKILL_PARITY_PAIRS.map((pair) => pair.skill), [
@@ -38,7 +40,9 @@ test('规则与 Skill parity 映射表锁定五对常驻配对', () => {
     'skills/core/eval-driven-development/SKILL.md',
     'skills/core/frontend-design/SKILL.md',
     'skills/core/git-deliver/SKILL.md',
+    'skills/core/gd-flow/SKILL.md',
     'skills/integrations/linear-workflow/SKILL.md',
+    'skills/integrations/lwflow/SKILL.md',
   ]);
 });
 
@@ -46,6 +50,12 @@ test('全部配对保持双向引用、同步声明与共享措辞', async () =>
   const contents = await loadPairContents();
   for (const pair of RULE_SKILL_PARITY_PAIRS) {
     assert.deepEqual(ruleSkillParityViolations(pair, contents), [], `${pair.rule} ↔ ${pair.skill}`);
+  }
+  for (const [skillName, term] of [['gd-flow', 'local-land'], ['lwflow', '`lwflow`']]) {
+    const pair = findPair(skillName);
+    const mutated = new Map(contents);
+    mutated.set(pair.skill, contents.get(pair.skill).replaceAll(term, 'missing-mode'));
+    assert.ok(ruleSkillParityViolations(pair, mutated).some((message) => message.includes(term)), skillName);
   }
 });
 

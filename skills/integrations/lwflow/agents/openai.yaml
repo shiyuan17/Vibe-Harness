@@ -1,0 +1,6 @@
+interface:
+  display_name: "LW Flow"
+  short_description: "Sync a plan to Linear and deliver its develop DAG"
+  default_prompt: "Use $lwflow to sync this plan to Linear and execute only its new tasks."
+policy:
+  allow_implicit_invocation: false

@@ -740,6 +740,24 @@
     },
     {
       "group": "skills-core",
+      "source": "skills/core/gd-flow/SKILL.md",
+      "target": ".agents/skills/gd-flow/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/gd-flow/metadata.json",
+      "target": ".agents/skills/gd-flow/metadata.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/gd-flow/agents/openai.yaml",
+      "target": ".agents/skills/gd-flow/agents/openai.yaml",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
       "source": "skills/core/eval-driven-development/SKILL.md",
       "target": ".agents/skills/eval-driven-development/SKILL.md",
       "contentStrategy": "replace"
@@ -838,6 +856,24 @@
       "group": "skills-linear",
       "source": "skills/integrations/linear-workflow/SKILL.md",
       "target": ".agents/skills/linear-workflow/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-linear",
+      "source": "skills/integrations/lwflow/SKILL.md",
+      "target": ".agents/skills/lwflow/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-linear",
+      "source": "skills/integrations/lwflow/metadata.json",
+      "target": ".agents/skills/lwflow/metadata.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-linear",
+      "source": "skills/integrations/lwflow/agents/openai.yaml",
+      "target": ".agents/skills/lwflow/agents/openai.yaml",
       "contentStrategy": "replace"
     },
     {

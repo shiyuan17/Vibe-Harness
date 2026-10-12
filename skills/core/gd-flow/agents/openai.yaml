@@ -1,0 +1,6 @@
+interface:
+  display_name: "GD Flow"
+  short_description: "Deliver through a worktree and local develop merge"
+  default_prompt: "Use $gd-flow to deliver this task through a worktree into develop."
+policy:
+  allow_implicit_invocation: false

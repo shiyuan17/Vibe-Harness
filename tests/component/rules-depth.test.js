@@ -17,10 +17,10 @@ import { scanForForbiddenTerms } from '../../scripts/lib/redaction.js';
 import { assertRuleAnchors } from '../helpers/governed-docs.js';
 
 const rootDir = path.resolve(import.meta.dirname, '../..');
-const coreSkills = ['clarify-requirements', 'define-goal', 'task-decomposition', 'git-deliver', 'systematic-debugging', 'bug-finding', 'stale-cleanup', 'eval-driven-development', 'security-and-hardening', 'code-navigation'];
+const coreSkills = ['clarify-requirements', 'define-goal', 'task-decomposition', 'git-deliver', 'gd-flow', 'systematic-debugging', 'bug-finding', 'stale-cleanup', 'eval-driven-development', 'security-and-hardening', 'code-navigation'];
 const fullSkills = [...coreSkills, 'api-and-interface-design', 'frontend-design', 'runtime-cross-repo-rollout'];
 
-test('canonical governance and thirteen native Skills are declared', async () => {
+test('canonical governance and fourteen native Skills are declared', async () => {
   const manifests = await loadAllManifests(rootDir);
   const rules = new Set(manifests.rules.items.map((item) => item.id));
   for (const id of ['governance-core', 'git-rules', 'test-rules', 'agent-skill-routing']) assert.equal(rules.has(id), true);
@@ -171,10 +171,14 @@ test('portable rules stay free of repository-private references', async () => {
   const pack = await mkdtemp(path.join(tmpdir(), 'vibe-rules-portability-'));
   try {
     await mkdir(path.join(pack, 'docs/rules'), { recursive: true });
-    await writeFile(path.join(pack, 'docs/rules/portable.md'), '# Portable\n\n见 CONTRIBUTING.md 与 pnpm verify:focused。\n', 'utf8');
+    // A concrete ADR number is as repository-private as a doc path: the host of
+    // another project would be sent to a decision record it never received, so
+    // the gate must catch `ADR-0013` and not only the `ADR-0000` placeholder.
+    await writeFile(path.join(pack, 'docs/rules/portable.md'), '# Portable\n\n见 CONTRIBUTING.md 与 pnpm verify:focused。\n\n决策见 ADR-0013。\n', 'utf8');
     const errors = await validateRulePortability(pack);
     assert.ok(errors.some((error) => error.includes('CONTRIBUTING.md')), JSON.stringify(errors));
     assert.ok(errors.some((error) => error.includes('repository script')), JSON.stringify(errors));
+    assert.ok(errors.some((error) => error.includes('ADR number')), JSON.stringify(errors));
   } finally {
     await rm(pack, { force: true, recursive: true });
   }
@@ -211,7 +215,7 @@ test('sibling rule references must resolve inside docs/rules', async () => {
 
 // Four full-repo install plans are I/O-bound and exceed the runner's default
 // budget under the suite's --test-concurrency (25.2s solo on 2026-09-19).
-test('profiles install zero, ten, or thirteen native Skills at intended tiers', { timeout: 120000 }, async () => {
+test('profiles install zero, eleven, or fourteen native Skills at intended tiers', { timeout: 120000 }, async () => {
   for (const [profile, expected] of [['minimal', []], ['docs-only', []], ['core', coreSkills], ['full', fullSkills]]) {
     const plan = await createInstallPlan({ dryRun: true, profile, rootDir, targetDir: path.join(rootDir, `.tmp-depth-${profile}`) });
     const targets = new Set(plan.actions.map((item) => item.relativeTarget));

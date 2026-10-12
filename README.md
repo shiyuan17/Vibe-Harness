@@ -159,14 +159,16 @@ node .agents/runtime/commands/run.mjs patch --project . --spec <spec.json>
 
 ## Profiles and roles
 
-core 安装十个原生 Skills，full 安装十三个原生 Skills，并默认启用七个角色人格。角色系统采用“单主角色动态切换”：每个原子动作只激活一个角色，可叠加至多一个领域 Skill；它不是固定七阶段流水线。
+core 安装十一个原生 Skills，full 安装十四个原生 Skills，并默认启用七个角色人格。角色系统采用“单主角色动态切换”：每个原子动作只激活一个角色，可叠加至多一个领域 Skill；它不是固定七阶段流水线。
 
 | Profile | 安装内容 |
 | --- | --- |
 | `minimal` | 平台说明、安全边界、Git/Test 规则和可选任务/交付模板 |
-| `core` | `minimal` 加通用工程规则、十个原生 Skills、项目内确定性脚本和离线 Eval |
-| `full` | `core` 加三个原生 Skills、在线 Eval 和已支持宿主的安全 Hook，共十三个原生 Skills |
+| `core` | `minimal` 加通用工程规则、十一个原生 Skills、项目内确定性脚本和离线 Eval |
+| `full` | `core` 加三个原生 Skills、在线 Eval 和已支持宿主的安全 Hook，共十四个原生 Skills |
 | `docs-only` | 规则、模板和 schemas，不安装 runtime、Skills、MCP 或 Hook |
+
+显式调用 `$gd-flow` 可在仓库外 worktree 实现并本地合入、推送 `develop`；安装可写 Linear 插件后显式调用 `$lwflow` 可先把当前计划同步为 Parent/子任务 DAG，再仅执行本次节点。两者不新增终端命令，也不修改默认 delivery；主检出不干净或缺少必要写入/Claim 能力时停止。
 
 外部工具仍只通过 `--plugin` 显式启用。所有宿主配置文件均属于红区写入，需要 `--confirm-red-zone`。
 
