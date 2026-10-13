@@ -60,6 +60,10 @@
     {
       "id": "ADR-0015",
       "path": "docs/adr/ADR-0015-explicit-develop-flow.md"
+    },
+    {
+      "id": "ADR-0016",
+      "path": "docs/adr/ADR-0016-gd-flow-linear-boundary.md"
     }
   ]
 }
