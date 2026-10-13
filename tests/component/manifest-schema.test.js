@@ -14,7 +14,7 @@ import {
 } from '../../scripts/lib/manifest.js';
 import { resolveAdapterEntry } from '../../scripts/lib/adapter.js';
 import { moduleCatalog } from '../../scripts/lib/module-selection.js';
-import { validateCapabilityMatrix, validateInstructionBudget, validatePack, validateSelfInstalledArtifacts, validateSkillGraph, validateSkillMetadataQuality } from '../../scripts/lib/pack-validation.js';
+import { validateCapabilityMatrix, validateInstructionBudget, validatePack, validateSelfInstalledArtifacts, validateSkillExecutionBoundaries, validateSkillGraph, validateSkillMetadataQuality, validateSkillPortability } from '../../scripts/lib/pack-validation.js';
 import {
   pluginProviderCatalog,
   validatePluginProviderCatalog,
@@ -526,4 +526,95 @@ test('instruction budget flags oversized content', async () => {
   const oversized = Buffer.alloc(4 * 5000 + 1, 'a').toString('utf8');
   const tokenEstimate = Math.ceil(Buffer.byteLength(oversized, 'utf8') / 4);
   assert.ok(tokenEstimate > 5000, 'synthetic payload must exceed the error threshold');
+});
+
+test('Skill 可移植性拒绝入口与嵌套参考中的外部委托和私有路径', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-skill-portability-'));
+  try {
+    const skill = path.join(target, 'skills/core/example');
+    await mkdir(path.join(skill, 'references/nested'), { recursive: true });
+    const fixtures = [
+      ['按 ADR-0042 执行。', 'ADR number'],
+      ['参考 `docs/adr/ADR-0001-safety.md`。', 'private documentation path'],
+      ['参考 `../../specs/execution.md`。', 'private documentation path'],
+      ['参考 `adr/decision.md`。', 'private documentation path'],
+      ['参考 `docs/private-policy.md`。', 'private documentation path'],
+      ['按 ADR 执行。', 'external specification delegation'],
+      ['以 `docs/rules/example.md` 的规则为准。', 'external specification delegation'],
+      ['需要宿主 v2 执行证明。', 'version-only proof'],
+      ['[说明](https://example.org/guide)', 'external documentation link'],
+      ['[spec]: https://example.org/spec', 'external documentation link'],
+      ['参见 https://example.org/spec', 'external documentation link'],
+      ['工具连接端点：https://mcp.example.org/mcp；[规范](https://example.org/spec)', 'external documentation link'],
+      ['`node scripts/private-check.js`', 'private implementation path'],
+      ['`tests/fixtures/private/sample.json`', 'private implementation path'],
+      ['`C:/Users/example/repo/private.md`', 'absolute project path'],
+      ['`pnpm verify:focused --run`', 'declare target-project command'],
+      ['```sh\npnpm private:check\n```', 'declare target-project command'],
+    ];
+    for (const file of ['SKILL.md', 'references/nested/contract.md']) {
+      for (const [body, expected] of fixtures) {
+        await writeFile(path.join(skill, file), body);
+        const errors = await validateSkillPortability(target);
+        assert.ok(errors.some((error) => error.includes(file) && error.includes(expected)), `${file}: ${body}\n${errors.join('\n')}`);
+      }
+      await writeFile(path.join(skill, file), '');
+    }
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('Skill 可移植性允许协议标识、操作端点、内部参考与声明后的项目命令', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-skill-portable-'));
+  try {
+    const dir = path.join(target, 'skills/integrations/example');
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, 'SKILL.md'), [
+      '同步归属：`docs/rules/governance-core.md`；修改须同步。',
+      '[字段示例](references/contract.md)',
+      '`vibe-harness.execution-envelope/v2`、`vibe-harness.linear-execution/v3` 与 `/v1`。',
+      '`schema`、`claimId`、`fencingToken`；高风险核对工作区与宿主信息，缺失则停止。',
+      '工具连接端点：https://mcp.example.org/mcp',
+      '[API endpoint](https://service.example.net/rpc)',
+      '```sh',
+      'node .agents/runtime/tools/playwright-cli/run.mjs open http://127.0.0.1:3000',
+      'curl https://api.example.org/health',
+      '```',
+      '项目命令声明：`pnpm test:unit`；执行前确认目标项目 package.json scripts 已声明。',
+      '验证：`pnpm test:unit`。',
+      '`vibe-harness audit --project <path> --kind cleanup`',
+      '`pnpm exec prettier --check .`',
+      '目标项目路径示例：`src/settings/**`，执行前替换为实际路径。',
+    ].join('\n'));
+    assert.deepEqual(await validateSkillPortability(target), []);
+    assert.deepEqual(await validateSkillPortability(rootDir), []);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('Skill 授权、工作区核验、宿主信息和受阻处理缺失时仍失败', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-skill-boundaries-'));
+  try {
+    const files = ['skills/core/gd-flow/SKILL.md', 'skills/integrations/lwflow/SKILL.md', 'skills/integrations/linear-workflow/SKILL.md'];
+    const originals = new Map();
+    for (const file of files) {
+      const content = await readFile(path.join(rootDir, file), 'utf8');
+      originals.set(file, content);
+      await mkdir(path.dirname(path.join(target, file)), { recursive: true });
+      await writeFile(path.join(target, file), content);
+    }
+    assert.deepEqual(await validateSkillExecutionBoundaries(target), []);
+    for (const file of files) {
+      for (const term of ['allowedEffects', 'allowedWriteRoots', 'source=host', 'process=isolated', 'Agent 不得自造', '缺授权', '暂停', '不得靠重复询问用户解除', 'contract-only/degraded']) {
+        await writeFile(path.join(target, file), originals.get(file).replaceAll(term, 'REMOVED'));
+        const errors = await validateSkillExecutionBoundaries(target);
+        assert.ok(errors.some((error) => error.includes(file) && error.endsWith(term)), `${file}: must reject missing ${term}`);
+      }
+      await writeFile(path.join(target, file), originals.get(file));
+    }
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
 });

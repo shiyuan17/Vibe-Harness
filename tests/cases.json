@@ -5248,6 +5248,45 @@
       "addedAt": "2026-09-16"
     },
     {
+      "id": "C-manifest-schema-024",
+      "layer": "component",
+      "file": "tests/component/manifest-schema.test.js",
+      "ordinal": 24,
+      "name": "Skill 可移植性拒绝入口与嵌套参考中的外部委托和私有路径",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-10-13"
+    },
+    {
+      "id": "C-manifest-schema-025",
+      "layer": "component",
+      "file": "tests/component/manifest-schema.test.js",
+      "ordinal": 25,
+      "name": "Skill 可移植性允许协议标识、操作端点、内部参考与声明后的项目命令",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-10-13"
+    },
+    {
+      "id": "C-manifest-schema-026",
+      "layer": "component",
+      "file": "tests/component/manifest-schema.test.js",
+      "ordinal": 26,
+      "name": "Skill 授权、工作区核验、宿主信息和受阻处理缺失时仍失败",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-10-13"
+    },
+    {
       "id": "C-memory-entry-001",
       "layer": "component",
       "file": "tests/component/memory-entry.test.js",
@@ -6000,6 +6039,45 @@
       "source": "migration",
       "status": "active",
       "addedAt": "2026-09-16"
+    },
+    {
+      "id": "C-rules-depth-012",
+      "layer": "component",
+      "file": "tests/component/rules-depth.test.js",
+      "ordinal": 12,
+      "name": "RULE-SELF-CONTAINED-001：外部规范与空泛版本证明不能代替规则正文",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-10-13"
+    },
+    {
+      "id": "C-rules-depth-013",
+      "layer": "component",
+      "file": "tests/component/rules-depth.test.js",
+      "ordinal": 13,
+      "name": "规则内部引用、能力入口、操作路径与机器协议标识不误报",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-10-13"
+    },
+    {
+      "id": "C-rules-depth-014",
+      "layer": "component",
+      "file": "tests/component/rules-depth.test.js",
+      "ordinal": 14,
+      "name": "授权、宿主核验、拒绝与独立工作要求缺失时仍阻断规则校验",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-10-13"
     },
     {
       "id": "C-rules-index-001",

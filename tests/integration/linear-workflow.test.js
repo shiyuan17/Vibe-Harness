@@ -61,9 +61,11 @@ test('Linear execution receipt separates accountability, product identity, and r
   const receiptReference = await readFile(path.join(rootDir, 'skills/integrations/linear-workflow/references/execution-receipt.md'), 'utf8');
   for (const key of START_RECEIPT_KEYS_V3) {
     assert.ok(spec.includes(key) || skill.includes(key) || hostReference.includes(key) || receiptReference.includes(key), key);
+    assert.ok(skill.includes(key), `Skill entry must directly document ${key}`);
   }
   assert.ok(spec.includes(START_RECEIPT_SCHEMA_V3));
-  assert.match(skill, /宿主在持久提供方上原子 Claim[\s\S]*登记原生 Delegate[\s\S]*不可变 v3 Start Receipt/u);
+  assert.ok(skill.includes(START_RECEIPT_SCHEMA_V3));
+  assert.match(skill, /宿主在持久提供方上原子 Claim[\s\S]*登记原生 Delegate[\s\S]*追加不可变 Start Receipt[\s\S]*重新读取并逐字段确认/u);
   assert.match(hostReference, /进程内 claimed 集合[\s\S]*不能直接承载自动领单/u);
   assert.match(hostReference, /过期 Claim 不能|lease 过期或 fencing 失配/u);
 });

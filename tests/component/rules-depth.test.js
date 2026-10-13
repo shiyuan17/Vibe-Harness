@@ -250,3 +250,84 @@ test('reusable assets stay generic and source mapping points to existing assets'
   assert.match(mapping, /Skill descriptions/u);
   assert.equal((await readJson(path.join(rootDir, 'manifests/profiles.json'))).items.length, 4);
 });
+
+test('RULE-SELF-CONTAINED-001：外部规范与空泛版本证明不能代替规则正文', async () => {
+  const pack = await mkdtemp(path.join(tmpdir(), 'vibe-rules-self-contained-'));
+  try {
+    await mkdir(path.join(pack, 'docs/rules'), { recursive: true });
+    const samples = [
+      ['外部文档路径', '见 docs/specs/execution.md。', 'docs/specs/'],
+      ['相对规格路径', '[执行规格](../specs/execution.md)', 'relative specification path'],
+      ['架构文档路径', '见 docs/architecture.md。', 'architecture document'],
+      ['交付模板跳转', '按 docs/templates/delivery.md 的三字段交付。', 'delivery template reference'],
+      ['决策编号', '按 ADR-0013 执行。', 'ADR number'],
+      ['决策术语代替要求', '按 ADR 执行。', 'external specification delegation'],
+      ['站外依据', '- https://example.com/rules', 'external documentation link'],
+      ['自动链接', '<https://example.com/rules>', 'external documentation link'],
+      ['站外链接', '[规范](https://example.com/rules)', 'external documentation link'],
+      ['引用式链接', '[规范]: https://example.com/rules', 'external documentation link'],
+      ['行内站外依据', '请参见 https://example.com/rules。', 'external documentation link'],
+      ['版本证明', '宿主 V2 证明缺失时停止。', 'version-only proof'],
+      ['版本宿主证明', '缺 v2 宿主证明时停止。', 'version-only proof'],
+      ['版本代替要求', '高风险调用需要可验证 v2。', 'version-only proof'],
+      ['插件规格跳转', '版本与入口以显式工具插件规格为准。', 'external specification delegation'],
+      ['决策索引跳转', '以其 ADR 索引作为触发清单与流程来源。', 'external specification delegation'],
+    ];
+    for (const [name, content, label] of samples) {
+      await writeFile(path.join(pack, 'docs/rules/example.md'), `# 示例\n\n${content}\n`, 'utf8');
+      const errors = await validateRulePortability(pack);
+      assert.ok(errors.some((error) => error.includes(label)), `${name}: ${JSON.stringify(errors)}`);
+    }
+  } finally {
+    await rm(pack, { force: true, recursive: true });
+  }
+});
+
+test('规则内部引用、能力入口、操作路径与机器协议标识不误报', async () => {
+  const pack = await mkdtemp(path.join(tmpdir(), 'vibe-rules-identifiers-'));
+  try {
+    await mkdir(path.join(pack, 'docs/rules'), { recursive: true });
+    const content = [
+      '# 示例',
+      '授权边界见 `governance-core.md`，测试见 docs/rules/test-rules.md。',
+      '按需调用 `api-and-interface-design`，写项目文件的工具为 `manage_adr`。',
+      '高风险记录使用 `vibe-harness.execution-envelope/v2`；旧协议 `vibe-harness.linear-execution/v1` 只读解析。',
+      'UUID v4 是标识格式；CLI 锁定版本 0.11.0，服务支持 /api/v2。',
+      '核对 `.agents/roles/index.md`，计划保存为 `docs/plans/<task-id>.md`。',
+      '检查命令：`curl https://example.com/health`，以实际退出码为证据。',
+      '项目配置 `validationCommands.micro` 和 `allowedEffects` 不构成授权。',
+    ].join('\n');
+    await writeFile(path.join(pack, 'docs/rules/example.md'), content, 'utf8');
+    assert.deepEqual(await validateRulePortability(pack), []);
+  } finally {
+    await rm(pack, { force: true, recursive: true });
+  }
+});
+
+test('授权、宿主核验、拒绝与独立工作要求缺失时仍阻断规则校验', async () => {
+  const pack = await mkdtemp(path.join(tmpdir(), 'vibe-rules-safety-'));
+  const file = 'docs/rules/governance-core.md';
+  try {
+    await mkdir(path.join(pack, 'docs/rules'), { recursive: true });
+    const content = await readFile(path.join(rootDir, file), 'utf8');
+    await writeFile(path.join(pack, file), content, 'utf8');
+    await assertRuleAnchors(pack, [file]);
+    for (const term of [
+      '每个写入动作都要有覆盖该动作的授权',
+      'hostContext 必须由宿主提供',
+      'canonicalCwd、worktreeRoot、gitCommonDir、gitDir、branch、baseRef、baseSha、initialHeadSha、allowedWriteRoots',
+      '高风险或不可分类调用缺少有效授权记录、工作区核验或宿主核验信息时 fail-closed',
+      'Agent 不得自填这些信息冒充宿主核验',
+      '保留不依赖该操作的安全工作',
+    ]) {
+      await writeFile(path.join(pack, file), content.replaceAll(term, '已删除约束'), 'utf8');
+      await assert.rejects(
+        assertRuleAnchors(pack, [file]),
+        (error) => error instanceof assert.AssertionError && error.message.includes(term),
+        term,
+      );
+    }
+  } finally {
+    await rm(pack, { force: true, recursive: true });
+  }
+});

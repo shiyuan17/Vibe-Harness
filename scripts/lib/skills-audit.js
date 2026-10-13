@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { readJson } from './manifest.js';
-import { validateSkillGraph, validateSkillMetadataQuality } from './pack-validation.js';
+import { validateSkillExecutionBoundaries, validateSkillGraph, validateSkillMetadataQuality, validateSkillPortability } from './pack-validation.js';
 
 export async function runSkillsAudit(rootDir, options = {}) {
   const [manifest, profiles, installMap] = await Promise.all([
@@ -23,6 +23,8 @@ export async function runSkillsAudit(rootDir, options = {}) {
   const errors = [
     ...await validateSkillMetadataQuality(rootDir, manifest.items),
     ...await validateSkillGraph(rootDir, manifest.items, profiles.items, { installEntries: installMap.entries }),
+    ...await validateSkillPortability(rootDir),
+    ...await validateSkillExecutionBoundaries(rootDir),
   ];
   return { counts, errors, items: manifest.items, lengths };
 }
