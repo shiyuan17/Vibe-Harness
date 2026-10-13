@@ -4,8 +4,8 @@
     { "id": "clarify-requirements", "source": "skills/core/clarify-requirements/SKILL.md", "metadata": "skills/core/clarify-requirements/metadata.json", "kind": "native", "requiresSkills": [], "optionalSkills": [], "requiresTools": [] },
     { "id": "define-goal", "source": "skills/core/define-goal/SKILL.md", "metadata": "skills/core/define-goal/metadata.json", "kind": "native", "requiresSkills": [], "optionalSkills": [], "requiresTools": [] },
     { "id": "task-decomposition", "source": "skills/core/task-decomposition/SKILL.md", "metadata": "skills/core/task-decomposition/metadata.json", "kind": "native", "requiresSkills": [], "optionalSkills": [], "requiresTools": [] },
-    { "id": "git-deliver", "source": "skills/core/git-deliver/SKILL.md", "metadata": "skills/core/git-deliver/metadata.json", "kind": "native", "requiresSkills": [], "optionalSkills": [], "requiresTools": [] },
-    { "id": "gd-flow", "source": "skills/core/gd-flow/SKILL.md", "metadata": "skills/core/gd-flow/metadata.json", "kind": "native", "requiresSkills": [], "optionalSkills": [], "requiresTools": [] },
+    { "id": "vb-git-split-push", "source": "skills/core/vb-git-split-push/SKILL.md", "metadata": "skills/core/vb-git-split-push/metadata.json", "kind": "native", "requiresSkills": [], "optionalSkills": [], "requiresTools": [] },
+    { "id": "vb-git-develop-flow", "source": "skills/core/vb-git-develop-flow/SKILL.md", "metadata": "skills/core/vb-git-develop-flow/metadata.json", "kind": "native", "requiresSkills": [], "optionalSkills": [], "requiresTools": [] },
     { "id": "systematic-debugging", "source": "skills/core/systematic-debugging/SKILL.md", "metadata": "skills/core/systematic-debugging/metadata.json", "kind": "native", "requiresSkills": [], "optionalSkills": [], "requiresTools": [] },
     { "id": "bug-finding", "source": "skills/core/bug-finding/SKILL.md", "metadata": "skills/core/bug-finding/metadata.json", "kind": "native", "requiresSkills": [], "optionalSkills": [], "requiresTools": [] },
     { "id": "stale-cleanup", "source": "skills/core/stale-cleanup/SKILL.md", "metadata": "skills/core/stale-cleanup/metadata.json", "kind": "native", "requiresSkills": [], "optionalSkills": [], "requiresTools": [] },
@@ -18,6 +18,6 @@
     { "id": "browser-verification", "source": "skills/integrations/browser-verification/SKILL.md", "metadata": "skills/integrations/browser-verification/metadata.json", "kind": "integration", "requiresSkills": [], "optionalSkills": [], "requiresTools": ["managed Playwright CLI or Chrome DevTools MCP"] },
     { "id": "agentmemory", "source": "skills/integrations/agentmemory/SKILL.md", "metadata": "skills/integrations/agentmemory/metadata.json", "kind": "integration", "requiresSkills": [], "optionalSkills": [], "requiresTools": ["agentmemory MCP or HTTP API"] },
     { "id": "linear-workflow", "source": "skills/integrations/linear-workflow/SKILL.md", "metadata": "skills/integrations/linear-workflow/metadata.json", "kind": "integration", "requiresSkills": [], "optionalSkills": [], "requiresTools": ["Linear MCP or user-provided Linear issue context"] },
-    { "id": "lwflow", "source": "skills/integrations/lwflow/SKILL.md", "metadata": "skills/integrations/lwflow/metadata.json", "kind": "integration", "requiresSkills": [], "optionalSkills": [], "requiresTools": ["writable Linear MCP and persistent atomic Claim provider"] }
+    { "id": "vb-linear-worktree-develop", "source": "skills/integrations/vb-linear-worktree-develop/SKILL.md", "metadata": "skills/integrations/vb-linear-worktree-develop/metadata.json", "kind": "integration", "requiresSkills": [], "optionalSkills": [], "requiresTools": ["writable Linear MCP and persistent atomic Claim provider"] }
   ]
 }

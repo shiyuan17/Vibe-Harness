@@ -2556,7 +2556,7 @@ async function worktreeLandReportUnlocked(projectDir, args) {
       }
     }
   }
-  // Push policy mirrors $git-deliver: plain push when an upstream exists;
+  // Push policy mirrors $vb-git-split-push: plain push when an upstream exists;
   // without one the branch may only start tracking when origin is the sole
   // remote and the branch is not protected.
   const upstream = await runGit(['for-each-ref', `refs/heads/${targetBranch}`, '--format=%(upstream:short)'], projectDir);

@@ -82,10 +82,10 @@
       "evaluation": { "required": true, "suites": ["evals/suites/vibe-harness-core.json", "evals/suites/vibe-harness-online-canary.json"] }
     },
     {
-      "id": "git-deliver",
+      "id": "vb-git-split-push",
       "source": "explicit project-local Git delivery Skill",
       "disposition": "generalize",
-      "targets": ["skills/core/git-deliver/SKILL.md", "docs/rules/git-rules.md", "manifests/skills.json", "adapters/install-map.json"],
+      "targets": ["skills/core/vb-git-split-push/SKILL.md", "docs/rules/git-rules.md", "manifests/skills.json", "adapters/install-map.json"],
       "tests": ["tests/integration/skill-closure.test.js", "tests/component/rules-depth.test.js", "tests/matrix/cross-platform-adapters.test.js", "tests/integration/mvp-spec.test.js"],
       "profiles": ["core", "full"],
       "docs": ["README.md", "README.en.md", "docs/inventory/skills-optimization-zh.md"],

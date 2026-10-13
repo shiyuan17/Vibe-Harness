@@ -1,11 +1,13 @@
 ---
-name: gd-flow
-description: Use only when the user explicitly invokes gd-flow or $gd-flow to deliver a task through an isolated worktree and local merge into develop; never create a PR/MR or change the default delivery profile.
+name: vb-git-develop-flow
+description: Use only when explicitly requested as Vb Git Develop Flow, $vb-git-develop-flow, or legacy gd-flow to deliver through an isolated worktree into develop; never create a PR/MR or change the default delivery profile.
 ---
 
-# Git develop 本地交付
+# Vb Git Develop Flow
 
-`gd-flow` / `$gd-flow` 是显式本地交付入口，不是普通提交或 `$git-deliver` 的别名。只处理本轮任务；不创建 PR/MR，不改项目默认 delivery 配置。同步归属：`docs/rules/git-rules.md` 的「显式 develop flow」，修改须同步。
+调用标识：`vb-git-develop-flow` / `$vb-git-develop-flow`；显示名：`Vb Git Develop Flow`。兼容旧触发词 gd-flow / `$gd-flow`，均选择本 Skill，不安装重复入口。
+
+`vb-git-develop-flow` / `$vb-git-develop-flow` 是显式本地交付入口，不是普通提交或 `$vb-git-split-push` 的别名。只处理本轮任务；不创建 PR/MR，不改项目默认 delivery 配置。同步归属：`docs/rules/git-rules.md` 的「显式 develop flow」，修改须同步。
 
 写入前逐项核对：
 

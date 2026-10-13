@@ -1,11 +1,13 @@
 ---
-name: lwflow
-description: Use only when the user explicitly invokes lwflow or $lwflow to sync the current plan as a Linear parent and task DAG, then deliver only those tasks through isolated develop worktrees.
+name: vb-linear-worktree-develop
+description: Use only when explicitly requested as Vb Linear Worktree Develop, $vb-linear-worktree-develop, or legacy lwflow to sync a plan to Linear and deliver only its new tasks through develop worktrees; excludes ordinary Linear queries.
 ---
 
-# Linear 计划交付
+# Vb Linear Worktree Develop
 
-`lwflow` / `$lwflow` 只处理当前会话已确定的任务计划；不是普通 Linear 查询或自动领单。同步归属：`docs/rules/linear-workflow.md` 的「显式 lwflow」及 `docs/rules/git-rules.md` 的「显式 develop flow」，修改须同步。必须有可写 Linear connector、有效执行授权、工作区与宿主核验信息及持久 provider 原子 Claim；缺一则停止，不伪造同步或领取。回退边界：Linear 只读、不可达或不能确认写入时不执行本模式，不转为未登记的本地执行。每次本地落地仅临时使用 `--delivery local-land`，不改默认交付配置。
+调用标识：`vb-linear-worktree-develop` / `$vb-linear-worktree-develop`；显示名：`Vb Linear Worktree Develop`。兼容旧触发词 `lwflow` / `$lwflow`，均选择本 Skill，不安装重复入口。
+
+`vb-linear-worktree-develop` / `$vb-linear-worktree-develop` 只处理当前会话已确定的任务计划；不是普通 Linear 查询或自动领单。同步归属：`docs/rules/linear-workflow.md` 的「显式 vb-linear-worktree-develop」及 `docs/rules/git-rules.md` 的「显式 develop flow」，修改须同步。必须有可写 Linear connector、有效执行授权、工作区与宿主核验信息及持久 provider 原子 Claim；缺一则停止，不伪造同步或领取。回退边界：Linear 只读、不可达或不能确认写入时不执行本模式，不转为未登记的本地执行。每次本地落地仅临时使用 `--delivery local-land`，不改默认交付配置。
 
 执行前逐项核对：
 

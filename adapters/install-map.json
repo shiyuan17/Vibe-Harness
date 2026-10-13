@@ -722,38 +722,38 @@
     },
     {
       "group": "skills-core",
-      "source": "skills/core/git-deliver/SKILL.md",
-      "target": ".agents/skills/git-deliver/SKILL.md",
+      "source": "skills/core/vb-git-split-push/SKILL.md",
+      "target": ".agents/skills/vb-git-split-push/SKILL.md",
       "contentStrategy": "replace"
     },
     {
       "group": "skills-core",
-      "source": "skills/core/git-deliver/metadata.json",
-      "target": ".agents/skills/git-deliver/metadata.json",
+      "source": "skills/core/vb-git-split-push/metadata.json",
+      "target": ".agents/skills/vb-git-split-push/metadata.json",
       "contentStrategy": "replace"
     },
     {
       "group": "skills-core",
-      "source": "skills/core/git-deliver/agents/openai.yaml",
-      "target": ".agents/skills/git-deliver/agents/openai.yaml",
+      "source": "skills/core/vb-git-split-push/agents/openai.yaml",
+      "target": ".agents/skills/vb-git-split-push/agents/openai.yaml",
       "contentStrategy": "replace"
     },
     {
       "group": "skills-core",
-      "source": "skills/core/gd-flow/SKILL.md",
-      "target": ".agents/skills/gd-flow/SKILL.md",
+      "source": "skills/core/vb-git-develop-flow/SKILL.md",
+      "target": ".agents/skills/vb-git-develop-flow/SKILL.md",
       "contentStrategy": "replace"
     },
     {
       "group": "skills-core",
-      "source": "skills/core/gd-flow/metadata.json",
-      "target": ".agents/skills/gd-flow/metadata.json",
+      "source": "skills/core/vb-git-develop-flow/metadata.json",
+      "target": ".agents/skills/vb-git-develop-flow/metadata.json",
       "contentStrategy": "replace"
     },
     {
       "group": "skills-core",
-      "source": "skills/core/gd-flow/agents/openai.yaml",
-      "target": ".agents/skills/gd-flow/agents/openai.yaml",
+      "source": "skills/core/vb-git-develop-flow/agents/openai.yaml",
+      "target": ".agents/skills/vb-git-develop-flow/agents/openai.yaml",
       "contentStrategy": "replace"
     },
     {
@@ -860,20 +860,20 @@
     },
     {
       "group": "skills-linear",
-      "source": "skills/integrations/lwflow/SKILL.md",
-      "target": ".agents/skills/lwflow/SKILL.md",
+      "source": "skills/integrations/vb-linear-worktree-develop/SKILL.md",
+      "target": ".agents/skills/vb-linear-worktree-develop/SKILL.md",
       "contentStrategy": "replace"
     },
     {
       "group": "skills-linear",
-      "source": "skills/integrations/lwflow/metadata.json",
-      "target": ".agents/skills/lwflow/metadata.json",
+      "source": "skills/integrations/vb-linear-worktree-develop/metadata.json",
+      "target": ".agents/skills/vb-linear-worktree-develop/metadata.json",
       "contentStrategy": "replace"
     },
     {
       "group": "skills-linear",
-      "source": "skills/integrations/lwflow/agents/openai.yaml",
-      "target": ".agents/skills/lwflow/agents/openai.yaml",
+      "source": "skills/integrations/vb-linear-worktree-develop/agents/openai.yaml",
+      "target": ".agents/skills/vb-linear-worktree-develop/agents/openai.yaml",
       "contentStrategy": "replace"
     },
     {

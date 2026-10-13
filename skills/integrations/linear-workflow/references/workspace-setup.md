@@ -8,7 +8,7 @@
 
 默认分支流为 <code>feat/*、fix/* → develop → main</code>，hotfix 为 <code>hotfix/* → main → develop</code>。GitHub 默认分支设为 <code>develop</code>，release-please 明确固定 <code>target-branch: main</code>；普通开发 Issue 合入 <code>develop</code> 后即 Done，发布等待由独立 Release Issue 跟踪。合入 <code>develop</code> 不要求服务器端 fast gate，质量责任落在本地候选合并验证与提交前检查，完整 CI 只在发布边界（<code>develop → main</code>、<code>hotfix/* → main</code>、<code>release/*</code>）运行；合并前的本地验证必须建立在最新 <code>origin/develop</code> 之上。<code>release/*</code> 不是日常分支，只在管理员为并行维护历史版本时临时创建，出现时按与 <code>main</code> 相同的门禁处理。
 
-关闭 Linear 的 Parent/Sub-issue 自动关闭。普通 write 子任务仍须由 closing PR/MR 合并证明完成；显式 `lwflow` 的本地 land 子任务须另证最新基线验证、no-ff 合并、推送和 worktree/分支清理；aggregate Parent 仍须通过 Fan-in Verification，任何子任务状态变化都不得绕过这些条件。
+关闭 Linear 的 Parent/Sub-issue 自动关闭。普通 write 子任务仍须由 closing PR/MR 合并证明完成；显式 `vb-linear-worktree-develop` 的本地 land 子任务须另证最新基线验证、no-ff 合并、推送和 worktree/分支清理；aggregate Parent 仍须通过 Fan-in Verification，任何子任务状态变化都不得绕过这些条件。
 
 Triage 建议开启 priority-before-exit，使 Issue 离开 Triage 前必须设置 Priority；Triage Rules 自动路由属可选配置。
 
@@ -37,7 +37,7 @@ Triage 是团队收件箱，进入的 Issue 默认不进入常规视图，必须
 - 发布使用 release-issue.md 的 aggregate 模板。<code>develop → main</code> 与 <code>main → develop</code> PR 使用 <code>Refs &lt;ISSUE-ID&gt;</code>，不得再次 closing 已完成开发 Issue。
 - 建议开启“复制分支名即移入 Started 状态”，使分支创建自记录为 In Progress。
 - 状态自动化和 Agent 手工回写都不得用旧计划覆盖实时状态。手工写入按“读 -> 校验转换 -> 写 -> 重读”执行；后退或纠错需单独授权和原因，不得把 In Progress、In Review 或 Ready to Merge 退回 Todo 以恢复 Ready 统计。
-- 普通 write 节点 Done 只在 closing PR/MR 合并到声明的精确目标 ref 后成立；仅显式 `lwflow` 节点可凭完整的本地 land 推送和清理证据成立；aggregate Parent 还需全部必需节点成功和 Fan-in Verification 通过。
+- 普通 write 节点 Done 只在 closing PR/MR 合并到声明的精确目标 ref 后成立；仅显式 `vb-linear-worktree-develop` 节点可凭完整的本地 land 推送和清理证据成立；aggregate Parent 还需全部必需节点成功和 Fan-in Verification 通过。
 
 ## Agent 身份回退
 

@@ -68,7 +68,7 @@ Fan-in 必须在所有必需后代进入终态后，从实际合并结果重新�
 
 Parent 只有同时满足以下条件才可 Done：
 
-1. 每个 required write descendant 的 closing GitHub PR 或 GitLab MR 已合并到声明的精确目标 ref；仅显式 `lwflow` 的本地 land 节点可改用最新 `origin/develop` 基线验证、no-ff 合并、推送成功和 worktree/分支清理的完整证据。
+1. 每个 required write descendant 的 closing GitHub PR 或 GitLab MR 已合并到声明的精确目标 ref；仅显式 `vb-linear-worktree-develop` 的本地 land 节点可改用最新 `origin/develop` 基线验证、no-ff 合并、推送成功和 worktree/分支清理的完整证据。
 2. 每个 required read descendant 的约定输出和 Verification 证据已记录。
 3. 每个 required aggregate descendant 满足自身 trigger，并通过自身 Fan-in Verification。
 4. Root 的 Fan-in Verification 通过并留下事实证据。

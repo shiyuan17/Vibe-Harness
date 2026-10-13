@@ -7,7 +7,7 @@ description: Use when executing, reviewing, verifying, refining, synchronizing, 
 
 本 Skill 直接定义执行所需的授权、状态、依赖、登记与交付要求。同步归属：`docs/rules/linear-workflow.md`；两者描述同一工作流，修改须同步。
 
-只有显式调用 lwflow / $lwflow 才从当前会话计划创建 Parent 与子任务，并在本次新建 ID 的封闭集合内执行 local-land；不得领取集合外任务。该模式要求可写 Linear、原子 Claim、状态重读、仓库外 worktree，以及最新 `origin/develop` 验证、no-ff 合并、推送和清理成功后才能 Done；Linear 不可写或任一步失败则保留现场、停止当前节点及依赖后继，不回退未登记执行。它不创建 PR/MR、不操作 main、不改默认 delivery 配置，也不改变普通 closing PR 的 Done 判据；修改须同步。
+只有显式调用 vb-linear-worktree-develop / $vb-linear-worktree-develop 才从当前会话计划创建 Parent 与子任务，并在本次新建 ID 的封闭集合内执行 local-land；不得领取集合外任务。该模式要求可写 Linear、原子 Claim、状态重读、仓库外 worktree，以及最新 `origin/develop` 验证、no-ff 合并、推送和清理成功后才能 Done；Linear 不可写或任一步失败则保留现场、停止当前节点及依赖后继，不回退未登记执行。它不创建 PR/MR、不操作 main、不改默认 delivery 配置，也不改变普通 closing PR 的 Done 判据；修改须同步。
 
 触发与边界：
 

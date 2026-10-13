@@ -1,0 +1,1 @@
+{"id":"vb-linear-worktree-develop","kind":"integration","optional":true,"triggers":["vb-linear-worktree-develop","$vb-linear-worktree-develop","Vb Linear Worktree Develop","lwflow","$lwflow"],"outputs":["Linear Parent 与子任务 DAG","逐节点本地 land 证据"]}
