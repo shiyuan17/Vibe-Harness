@@ -25,7 +25,3 @@ probe 是项目内可选的轻量代码检索工具（Tier 1 Lightweight Context
 
 - probe 不可用或结果与源码冲突时，退回 `rg` 与直接文件阅读，并记录 `tool: probe`、替代命令和覆盖限制。
 - 检索结果只是候选线索；行为主张必须由源码、测试、命令输出或实际产物支持。
-
-## 规范依据
-
-- https://github.com/probelabs/probe

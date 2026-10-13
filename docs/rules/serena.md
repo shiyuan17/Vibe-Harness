@@ -32,7 +32,6 @@ serena 是项目内可选的语言服务器（LSP）语义工具（Tier 2 Semant
 - 语言后端不可用、LSP 启动失败或结果与源码冲突时，退回 `rg` 与直接文件阅读，并记录 `tool: serena`、语言、状态、替代命令和覆盖限制。
 - 语义查询结果只是导航线索；行为主张必须由源码、测试、命令输出或实际产物支持。
 
-## 规范依据
+## 安装边界
 
-- https://github.com/oraios/serena
-- 上游安装方式为 `uv tool install -p 3.13 serena-agent`，且上游警示不要经 marketplace 安装。
+- 仅在明确安装需求下使用 `uv tool install -p 3.13 serena-agent`，不经 marketplace 安装；仍须遵守项目及宿主的安装授权边界，不因普通符号定位任务自动安装。

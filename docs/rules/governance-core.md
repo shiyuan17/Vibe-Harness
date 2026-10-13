@@ -8,7 +8,7 @@
 - **档位判定**：只读、解释、文档或微小非行为变化 → 快速；可逆的本地行为改动 → 轻量；安全、迁移、生产、发布、外部写入、公共契约、红区、不可逆或跨仓 → 完整。
 - **升级触发**（满足其一才执行；触发是必要而非充分，仍按最小充分选择并记录原因）：用户显式要求；局部事实无法界定影响面或无法缩小范围；风险升到完整档；命中公共契约、安全、迁移、发布或红区；项目 CI、发布门禁或外部要求。高成本动作不默认执行，也不因在此列出而成为流程：全仓扫描、完整 Spec/Plan/Tasks、多 Agent、Worktree、全量测试与 E2E、全量 Build/Lint/Typecheck、深度 Code Review 与 Red Team、全量文档更新、长时 Benchmark 与性能测试。Parent 计划另须记录 active work、external wait/block、coordination/fan-in、verification 和单/并行墙钟估算，净节省未达 45 分钟及 25% 时保持单 Agent。
 - **硬边界速查**：只在授权范围内行动；红区、凭据、生产、外部写入与不可逆操作须有明确授权；敏感数据不入回复、日志或提交；不编造证据，未经验证不得声称完成。
-- **代码上下文**：改动既有代码或需要跨文件符号、调用链、影响面与架构时，先用 `code-navigation` Skill 建立上下文（其中含 deferred 代码智能工具的加载步骤与降级路径）；单文件文本、配置与日志仍用 rg。
+- **代码上下文**：改动既有代码或需要跨文件符号、调用链、影响面与架构时，先加载 `code-navigation` Skill 建立上下文；发现可用工具并定位调用方与影响面，索引陈旧时用当前源码补齐，工具缺失时回退仓库搜索；单文件文本、配置与日志仍用 rg。
 - **锚点触发**：预计执行超过 60 分钟或发生第一次上下文压缩才建状态锚点；已建锚点后再次压缩，先更新锚点再继续写入。
 - **验证档位**：默认只执行快速层；`vibe-harness verify --tier standard|deep` 显式升级、`--full` 完整矩阵；快速层通过不得宣称集成、发布或整体完成。
 
@@ -53,10 +53,13 @@
 | --- | --- |
 | inspect、plan、monitor | 空；monitor 还须有终点或时间边界 |
 | linear-sync | 仅 `linearWrite` |
-| execute | v1 的七个 effect：linearWrite、workspaceWrite、gitBranch、gitCommit、gitPush、mergeRequestWrite、credentialUse；v2 另加 hostWrite、externalWrite |
+| execute | linearWrite、workspaceWrite、gitBranch、gitCommit、gitPush、mergeRequestWrite、credentialUse、hostWrite、externalWrite；宿主、外部、凭据及其他高风险操作还须满足下列核验要求 |
 
-- v1 合同保持兼容，但只作为 contract-only/degraded 路径，不能授权 hostWrite、externalWrite、凭据、高风险间接写入、红区或 worktree 拓扑变化。高风险任务必须使用 v2，除 v1 字段外冻结 riskClass、canonical cwd、worktree root、Git common dir、git dir、branch、base ref/SHA、initial HEAD、allowed write roots、无凭据 external targets 与宿主注入的 filesystem/approval/process/network 证明。
-- 普通项目内低风险写入保持低摩擦；高风险或不可分类调用缺少可验证 v2 时 fail-closed。缺少宿主证明是能力阻塞，不能通过重复询问用户或由 Agent 自造证明解除；保留不依赖该操作的安全工作。
+- **执行授权记录**：Execution Envelope 绑定本轮 requestId、sessionId、目标 Issue、mode、activeObjective、allowedEffects、forbiddenEffects 和 terminalCondition。高风险操作使用 `vibe-harness.execution-envelope/v2`，并冻结 riskClass、工作区范围和宿主核验信息；版本标识只用于机器解析，不代替以下要求。
+- **工作区与目标核验**：记录并核对 canonicalCwd、worktreeRoot、gitCommonDir、gitDir、branch、baseRef、baseSha、initialHeadSha、allowedWriteRoots；externalTargets 只记录目标类型、标识与环境，不含凭据。身份不符、目标越界或基线漂移时暂停受影响写入，先核对再恢复。
+- **宿主核验信息**：hostContext 必须由宿主提供，source 为 host，并包含 filesystem（文件系统权限）、approval（批准能力）、process（进程隔离）、network（网络范围）和 observedAt（观测时间）。高风险操作要求 riskClass 为 high、process 为 isolated；Agent 不得自填这些信息冒充宿主核验。
+- **兼容边界**：`vibe-harness.execution-envelope/v1` 只作为 contract-only/degraded 路径，支持表中除 hostWrite、externalWrite 外的七个 effect，但不能据此授权凭据、高风险间接写入、红区或 worktree 拓扑变化。
+- **能力受阻**：普通项目内低风险写入保持低摩擦；高风险或不可分类调用缺少有效授权记录、工作区核验或宿主核验信息时 fail-closed。缺少宿主核验信息是能力阻塞，不能通过重复询问用户或由 Agent 自造核验信息解除；保留不依赖该操作的安全工作。
 - **拆分判定**：按实际依赖、写入隔离和独立并行收益决定是否拆分，不按信号数量或公共契约变化强制拆分。只有子任务边界清晰、合并可控且预期并行收益超过协调开销时才拆分；单 Agent 可以稳定完成的任务直接实施。实际使用两个以上协作单元时才按协作规则维护必要依赖和写入归属，简单任务不创建 DAG。用户请求拆分建议时解释判断即可，不强制输出执行判定字段。Plan 只描述实施方式，不构成新增授权；宿主 Plan 模式保持只读，退出后沿用仍有效的实施授权。
 - **Execution Envelope 与跨域任务**：实际跨域协作时明确共享 API/schema 的唯一写入归属和 fan-in 验收；并发写入需要隔离时分配独立 workspace，不因命中多个领域强制拆分。单 Agent 默认；仅独立切片/只读探查/隔离验证可多 Agent，最多 2 个写、4 个读，父 Agent 负责 fan-in/冲突/最终验证/Linear 交付，容量不足则串行；只读记录墙钟、Active/Blocked/Coordination、Fan-out/Fan-in、WIP/Cycle/Lead 与重试/冲突/返工率，不改变授权、优先级或生命周期。
 
@@ -66,7 +69,6 @@
 - **轻量**：可逆的本地行为改动；运行与受影响范围匹配的检查。
 - **完整**：安全、数据迁移、生产、发布、外部写入、公共契约、红区、不可逆或跨仓变更；扩大验证范围并准备回滚。
 - **档位与验证收据**：状态锚点的 riskLevel 是建议层——快速/轻量档的单元完成主张由快速层收据支撑，完整档由 standard 层收据支撑；唯一硬消费是 `worktree land` 验证门（锚点声明 full 时升 standard 层）。
-
 - **关键修改的关系链**：共享逻辑、公共契约、公共 API、数据模型、安装器/适配器/manifest schema、安全或红区路径等关键修改实施前必须查找关系链并明示风险等级与影响范围——依赖链（调用方、实现方、配置/文档/测试引用）、契约链（消费方与兼容性、迁移影响）、测试链（覆盖受影响行为的测试，无覆盖先补 characterization test 或缩小范围）、文档链（规则、模板、catalog、README 同步，不一致就地修正或记录后续）。项目已安装 codebase-memory-mcp 时可优先使用语义图，已安装 ast-grep 时可用于结构匹配，否则使用仓库搜索和直接阅读，工具结果不替代源码与测试证据；按需要说明风险、影响范围、未覆盖路径和回滚方式，不因完整档自动增加人工门。
 
 ## 验证与证据
@@ -109,8 +111,8 @@ REPL/Micro 验证遵循最小权限和证据降级原则：只有项目配置中
 - 不编造事实、命令结果或完成证据；没有本轮有效验证不得声称完成。
 - 规划、压缩、恢复、重试、重连和中途状态询问不撤销原任务，也不扩大授权；回应用户后继续未完成工作，除非用户取消、改变目标或缩小范围。
 - 恢复后按风险核对当前输入、相关文件和工作区身份，已有原生 Goal 时读取其当前状态；不存在该能力时不把读取它作为普通任务的前置条件。不把任务 Markdown、记忆或旧摘要当授权。
-- 有原生 Goal API 时，其 objective/status/budget 是生命周期真值，状态变更、预算和自动续跑遵循宿主真实工具合同；不自造字段或用本地计数覆盖宿主判据。达到整个请求的 terminalCondition 后停止，不自动启动补充审计或范围外节点；已授权多步骤任务中，一个内部步骤完成不等于整个请求完成。Linear 限时领单授权是宿主保存的独立、有界授权：当前 Issue 的终点仍结束当前运行，只有宿主重新核验未撤销且未过期的授权后，才能以新的逐 Issue v2 Envelope 启动下一次运行，不能沿用旧 Goal 或 Envelope。
-- 没有原生 Goal bridge 时不声称已启动后台持续执行；当前调用、用户继续请求或宿主显式续跑仍可恢复原范围的工作。Vibe-Harness 只交付合同，不假定宿主有常驻状态服务或完整 Hook enforcement；需要 v2 时遵守宿主证明要求。Hook 只约束可观察调用，不能证明未暴露远程工具安全。
+- 有原生 Goal API 时，其 objective/status/budget 是生命周期真值，状态变更、预算和自动续跑遵循宿主真实工具合同；不自造字段或用本地计数覆盖宿主判据。达到整个请求的 terminalCondition 后停止，不自动启动补充审计或范围外节点；已授权多步骤任务中，一个内部步骤完成不等于整个请求完成。Linear 限时领单授权是宿主保存的独立、有界授权：当前 Issue 的终点仍结束当前运行。只有宿主重新核验授权未撤销且未过期，并为下一 Issue 单独签发包含工作区范围和宿主核验信息的执行授权记录后，才能启动下一次运行，不能沿用旧 Goal 或 Envelope。
+- 没有原生 Goal bridge 时不声称已启动后台持续执行；当前调用、用户继续请求或宿主显式续跑仍可恢复原范围的工作。Vibe-Harness 只交付合同，不假定宿主有常驻状态服务或完整 Hook enforcement；高风险操作仍须满足本文件的工作区与宿主核验要求。Hook 只约束可观察调用，不能证明未暴露远程工具安全。
 
 ## 批准与恢复
 
@@ -118,7 +120,7 @@ REPL/Micro 验证遵循最小权限和证据降级原则：只有项目配置中
 - 可发现事实继续调查；普通实现分歧自行按证据解决；真实高影响产品分歧按澄清规则处理。已关闭的决定不再追加通用设计或最终确认。
 - 区分无变化重试、基于新证据的修复和不可重试的权限拒绝。无变化重试须有界，连续无进展时诊断或换路；修复后重跑受影响检查，不因累计三次失败自动结束任务。不重放结果不明的非幂等外部操作，应先读取真实状态。
 - 等待批准、缺少必要能力、依赖失败或发现 workspace/HEAD 漂移时，先暂停受影响操作及其依赖并核对归属；可安全隔离的独立工作继续。共享状态完整性受损或授权无法可靠确认时才扩大暂停范围。无可行路径且需要用户输入或外部状态改变时报告具体阻塞，宿主 Goal 状态按其工具合同更新。
-- v2 checkpoint 保留 headSha、continuationCount 和 blockerCount，并按合同恢复工作区身份、允许 effects 和终点；这些字段不成为所有普通任务的固定流程。
+- 带工作区与宿主核验的执行授权记录在 checkpoint 中保留 headSha、continuationCount 和 blockerCount；恢复时核对工作区身份、允许 effects 和终点，缺失或不一致时先只读核对。这些字段不成为所有普通任务的固定流程。
 
 ## 任务与协作
 
@@ -127,11 +129,9 @@ REPL/Micro 验证遵循最小权限和证据降级原则：只有项目配置中
 - 受管计划的完成主张必须引用与验收主张匹配的证据：实际命令、退出码、结果摘要、代码/计划指纹，以及适用的构建、Lint、截图、HTTP 响应或 Diff；未运行、不适用或缺失证据不得改判为 passed。`verify --task <task-id>` 写出的收据自带任务与计划关联（任务 id、阶段、计划路径、修订与摘要），把它记回锚点时任务不匹配会被 `VIBE_HARNESS_VERIFICATION_TASK_MISMATCH` 拒绝。
 - 缺陷冻结只能由真实失败的验证收据建立；重建冻结基线必须由宿主注入的受保护 CI/评审批准信号放行。冻结路径与任务锚点的写入由 PreToolUse 机器门禁拦截（锚点属控制面，只认 `run.mjs` 受管子命令的写入）：结构化写请求或补丁头按解析出的目标拒绝；shell 侧按「写形命令点名冻结资产，或解析出的写入目标命中冻结资产」拒绝，写动词清单与只读分类共用同一真值源，重定向按目标解析（因此运行冻结测试并把输出重定向到别处仍然可用），项目内符号链接别名按真实路径拦截。命令检查无法跟随任意代码，目标不可解析的任意代码写入属已声明边界，必须如实声明而不是宣称完整防护。本地 JSON、自报 `trust` 字段或 Agent 身份不能授权解冻；缺少受保护信号时保持 blocked。
 - 规则升级顺序：违反后果严重且可由机器判断的约束，优先落成 Hook（PreToolUse 拒绝、PermissionRequest 确认或 Git Hook），Rules 只保留判断口径、例外与人工判据；只写 Rules 而留下可绕过路径视为未完成。
-- 高风险 v2 独立评审至少提供一个与实施者身份和 context 都不同的 reviewer，并声明 `contextIndependence`；`attested` 声明可支持 approved 完成主张（须写明证据来源），`unavailable` 不能支持。
+- 高风险独立评审至少提供一个与实施者身份和 context 都不同的 reviewer，并声明 `contextIndependence`；`attested` 声明可支持 approved 完成主张（须写明证据来源），`unavailable` 不能支持。评审必须覆盖当前实际 diff，不能用实施者自评或仅更换 contextId 代替独立上下文。
 - Eval reference 写入同样要求显式确认与宿主 `VIBE_HARNESS_PROTECTED_APPROVAL=1`，不得由 `eval:check` 漂移提示自动提升。
-
 - 两个以上协作单元存在顺序依赖、并行写入或共享契约时，按 ai-collab-rules.md 使用轻量 Task DAG；简单任务不创建 DAG。
 - 只派发依赖已满足且无写入范围或逻辑资源冲突的 ready 节点，并在每次 write 派发前重验证 DAG、依赖、Scope、锁、HEAD 和工作区身份；冲突节点必须串行或由唯一节点独占。
 - 父 Agent 保持唯一编排和最终交付责任，并在 fan-in 后重新读取实际工作区与 diff，在最后一次实质写入后运行与完成主张匹配的集成验证；child 自报只证明其局部范围。
-
-宿主按 description 加载当前需要的领域 Skill；可按需补充互补能力，不预加载无关 Skill，不建立固定流程链。Skill 不改变授权、安全边界或证据标准。
+- 宿主按 description 加载当前需要的领域 Skill；可按需补充互补能力，不预加载无关 Skill，不建立固定流程链。Skill 不改变授权、安全边界或证据标准。

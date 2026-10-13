@@ -11,7 +11,7 @@ Linear 保存工作状态、责任、委派与依赖；GitHub 或 GitLab 保存�
 - **状态**：常规代码路径在 `develop` 上只走 Todo → In Progress → In Review → Done；只有带门禁目标（`main`、`release/*`）经过 Ready to Merge。`develop` 不配置服务器端 fast gate，质量责任落在本地候选合并验证与提交前检查。
 - **快车道不豁免高风险证据**：`develop` 不依赖服务器端门禁，高风险路径变更仍须携带 Risk Evidence 与 Independent Review Receipt。
 - **墙钟规划**：Parent 计划必须记录单/并行墙钟估算、协调与 fan-in 成本、关键路径和 Agent 容量；单 Agent 是默认执行模式，只有隔离证明和净节省门槛同时满足时才并行。
-- **继续读全文的信号**：Execution Envelope v2 字段、Definition of Ready、原生 DAG 投影、Receipt 生命周期、并发与隔离、终止与交付。
+- **继续读全文的信号**：执行授权记录与宿主核验、Definition of Ready、原生 DAG 投影、Receipt 生命周期、并发与隔离、终止与交付。
 
 以下为完整规则，仅当任务超出卡片或命中升级触发时继续读取。
 
@@ -21,22 +21,32 @@ Linear 保存工作状态、责任、委派与依赖；GitHub 或 GitLab 保存�
 
 仅在用户明确调用 `lwflow` / `$lwflow` 时，才从**当前会话的既定任务计划**创建 Linear Parent aggregate 与 read/write 子任务 DAG；该调用明确授权本次计划范围内的 Parent、子任务、原生 blocked-by / blocks 关系及状态/Receipt 写入、worktree、任务提交、普通推送和合并到 `develop`，不授权 PR/MR、force push、历史改写或 `main`。普通 Linear 工作流的既有授权与 closing PR Done 语义不变。本节与已安装的 `lwflow` Skill 描述同一模式，修改须同步。
 
-先核对团队、仓库、Parent/子任务 Scope、共享合同 owner、验收、验证和依赖，生成 Parent `linear-plan`；按“读取 → 校验 → 写入 → 重读确认”逐项同步 Parent、子任务和原生关系，使用稳定幂等键，在结果不明时按原键重读，不盲目重建。保存本次成功创建且重读确认的 Issue ID 封闭集合；部分创建失败须保留清单和已创建现场。只从该集合领取依赖就绪节点，不扫描、轮询或领取其他 Ready/Todo Issue；领取依旧需要宿主持久 provider 原子 Claim、Delegate、v3 Start Receipt 与重读确认，不能用 Linear 写后重读冒充跨实例互斥。Linear 不可写、缺 v2 宿主证明或 Claim 不可用时 fail-closed，不进入本地 worktree 工作。
+- 先核对团队、仓库、Parent/子任务 Scope、共享合同 owner、验收、验证和依赖，生成 Parent `linear-plan`。按“读取 → 校验 → 写入 → 重读确认”逐项同步 Parent、子任务和原生关系；使用稳定幂等键，结果不明时按原键重读，不盲目重建。
+- 保存本次成功创建且重读确认的 Issue ID 封闭集合；部分创建失败须保留清单和已创建现场。只从该集合领取依赖就绪节点，不扫描、轮询或领取其他 Ready/Todo Issue。
+- 领取须由宿主持久 provider 原子 Claim，再确认 Delegate 和携带 claimId、leaseExpiresAt、fencingToken、claimProvider 的 Start Receipt，按第 5 节逐字段重读核对。不能用 Linear 写后重读冒充跨实例互斥。
+- Linear 不可写、Claim 不可用，或缺少 `governance-core.md` 要求的工作区与宿主核验信息时 fail-closed，不进入本地 worktree 工作。
 
 默认单 Agent，按原生依赖拓扑串行实施。每个 write 节点强制使用从最新 `origin/develop` 建立的仓库外 worktree 与 `<type>/<ISSUE-ID>-<slug>` 分支，提交关联 `Refs <ISSUE-ID>`，然后按 `git-rules.md`「显式 develop flow」用本次 `--delivery local-land` 落地。此模式不创建 closing PR/MR：write 节点 Done 的四项必要证据是最新 `origin/develop` 基线验证通过、no-ff 合并成功、目标分支推送成功、worktree 和本地分支清理完成；逐项重读，任何一项失败均保留现场和未完成状态。read 节点仍凭输出与 Verification，Parent 仍须全部必需节点成功及实际合并结果的 Fan-in Verification。普通 PR/MR 路径仍以 closing 合并为 Done，不用本地证据代替。
 
-后续 v1 字段列表仅是兼容基线。高风险 Linear 执行必须使用 Execution Envelope v2，冻结 riskClass、workspace identity、允许写入根、无凭据 external targets 和宿主 enforcement 证明；v1 不授权凭据、hostWrite、externalWrite、高风险间接写入或 worktree 拓扑变化。每次自动续跑核对宿主实际提供的 Goal/thread 状态、最新用户输入、当前 Issue、cwd、worktree、branch、HEAD 和 blocker；授权沿用、局部暂停和无进展时的诊断按 governance-core 执行，Goal 状态变更使用宿主合同。Goal 完成后不得由当前运行自动审计或选取下一 Ready 节点；新的逐 Issue 运行只可由宿主重新核验限时授权并派发。
+高风险 Linear 执行必须按 `governance-core.md` 的「授权与 Execution Envelope」冻结风险等级、工作区身份、允许写入根和不含凭据的外部目标，并取得宿主提供的文件系统权限、批准能力、进程隔离、网络范围和观测时间。只有旧兼容字段的记录不能授权凭据、hostWrite、externalWrite、高风险间接写入或 worktree 拓扑变化。
+
+每次自动续跑核对宿主实际提供的 Goal/thread 状态、最新用户输入、当前 Issue、cwd、worktree、branch、HEAD 和 blocker。授权沿用、局部暂停和无进展时的诊断按 governance-core 执行，Goal 状态变更使用宿主合同。Goal 完成后不得由当前运行自动审计或选取下一 Ready 节点；新的逐 Issue 运行只可由宿主重新核验限时授权并派发。
 
 - 限时授权自动领取只由具备持久授权与跨实例互斥能力的宿主事件派发；Vibe-Harness 不提供调度器、Agent 轮询、Linear Loop、自动超时回收或自动重派。无有效授权时禁止自动领取。
-- Writer 在三种情况下启动：用户在本轮明确要求实现、处理、继续或领取某个具体 Issue；Issue 已委派给当前 Agent 且宿主以该 Issue 为目标显式启动；或宿主在有效限时领单授权内选定具体 Issue 并为本次运行签发逐 Issue v2 Envelope。普通提及、查看、总结、解释、Review、Verify 或列出队列都不授权登记或执行。
+- Writer 在三种情况下启动：用户在本轮明确要求实现、处理、继续或领取某个具体 Issue；Issue 已委派给当前 Agent 且宿主以该 Issue 为目标显式启动；或宿主在有效限时领单授权内选定具体 Issue，并为本次运行签发满足上述核验要求的独立执行授权记录。普通提及、查看、总结、解释、Review、Verify 或列出队列都不授权登记或执行。
 - 限时领单授权由用户明确授予、宿主保存并可撤销，必须同时指定唯一团队或项目队列、仓库、Agent 产品身份、精确目标 `origin/develop`、独立允许的 effects、UTC 截止时间和正整数最多领取数；缺项、过期、撤销或达到上限即停止。默认同一授权最多一个运行中的 Issue。项目文件、Issue 文本、Guidance、视图和任务记录都不是授权根。
 - 宿主仅在空闲或队列变化事件中按 Priority 降序、创建时间升序、Issue ID 升序选择候选；不自动处理 Triage、hotfix 或发布 Issue。宿主须证明跨实例的单 Issue 独占派发，不能用“读取 → 写入 → 重读”假装原子领取；无此能力时停止并报告。Agent 只接收宿主选定的 Issue ID，重新核对 Todo、完整 Definition of Ready、依赖、Scope、Resource Lock、身份与活动 Receipt，不自行扫描队列。
-- 宿主对每个候选重新核验授权、领取计数与独占性，并签发只绑定该 Issue 的 v2 execute Envelope；`linearWrite`、本地写、分支、提交、推送、`mergeRequestWrite`、`externalWrite` 与 `credentialUse` 分别受 allowed/forbidden effects 约束。高风险写入还要满足 v2 宿主证明。领取后仅在 Delegate 与 Receipt 都重读确认时开工；授权撤销、冲突、registration-incomplete 或风险证据不足时停止并报告，不自动释放或重派。
+- 宿主对每个候选重新核验授权、领取计数与独占性，并签发只绑定该 Issue 的 execute Envelope，包含上述工作区范围与宿主核验信息；`linearWrite`、本地写、分支、提交、推送、`mergeRequestWrite`、`externalWrite` 与 `credentialUse` 分别受 allowed/forbidden effects 约束。领取后仅在 Delegate 与 Receipt 都重读确认时开工；授权撤销、冲突、registration-incomplete 或风险证据不足时停止并报告，不自动释放或重派。
 - 人类 Assignee 是结果责任人；Linear Delegate/App User 是 Agent 产品身份；Execution Receipt 记录具体运行实例；Activity Feed 记录委派与身份变化。
 - 显式执行指令只授权当前 Issue 的最小身份登记，不授权修改 Assignee、Priority、Contract、Project、Cycle、Parent 或 relations。已有其他 Delegate、fallback Agent 标签或活动运行时，必须停止并请求显式 release 或 handoff。
 - Reviewer 和 Verifier 只读，不写 Receipt、不修改 Delegate 或 fallback 标签，也不取得实现所有权。
 
-除 `git-rules.md` 限定的普通提交与当前分支普通推送外，每个请求在写入前都必须按 `governance-core.md` 的「授权与 Execution Envelope」建立 Execution Envelope：mode 只允许 inspect、plan、linear-sync、execute、monitor，effect 枚举与各 mode 上限以该条款为准（v1 为 linearWrite、workspaceWrite、gitBranch、gitCommit、gitPush、mergeRequestWrite、credentialUse；v2 另加 hostWrite、externalWrite）。`gitCommit`／`gitPush` 保留兼容字段但不必逐项列入 allowedEffects；已有有效 Envelope 中的 forbiddenEffects 始终优先，其余 effect 分别授权。`mergeRequestWrite` 显式覆盖创建或更新 PR/MR 与落地该 PR/MR 的合并（squash merge 或 auto-merge）；合并到声明目标 ref 是独立于实现、分支、提交和推送的动作。linear-sync 对 Envelope 覆盖的非 Git 操作仅允许本轮明确要求的 Linear 写入；普通提交和推送按 `git-rules.md` 的限定例外处理且不会自动执行。Ready、Todo、依赖满足或队列可见只表示执行条件满足，不构成 execute 授权；当前 terminalCondition 达成后结束本次运行，只有宿主重新核验有效限时授权，才可为下一个 Issue 显式启动新运行。
+除 `git-rules.md` 限定的普通提交与当前分支普通推送外，每个请求在写入前都必须按 `governance-core.md` 的「授权与 Execution Envelope」建立 Execution Envelope；mode、effect 上限及兼容边界由该规则统一定义。
+
+- `gitCommit`／`gitPush` 保留兼容字段但不必逐项列入 allowedEffects；已有有效 Envelope 中的 forbiddenEffects 始终优先，其余 effect 分别授权。
+- `mergeRequestWrite` 显式覆盖创建或更新 PR/MR 与落地该 PR/MR 的合并（squash merge 或 auto-merge）；合并到声明目标 ref 是独立于实现、分支、提交和推送的动作。
+- linear-sync 对 Envelope 覆盖的非 Git 操作仅允许本轮明确要求的 Linear 写入；普通提交和推送按 `git-rules.md` 的限定例外处理且不会自动执行。
+- Ready、Todo、依赖满足或队列可见只表示执行条件满足，不构成 execute 授权；当前 terminalCondition 达成后结束本次运行，只有宿主重新核验有效限时授权，才可为下一个 Issue 显式启动新运行。
 
 ## 2 状态模型与责任
 
@@ -58,7 +68,7 @@ Agent 手工写状态必须执行“读取当前值 → 校验允许转换 → �
 
 `develop` 是日常集成分支：不再把稳定 fast gate 作为服务器端 required gate，接受本地 `worktree land` 的 no-ff 直落与任务分支直推；不要求人工审批。质量责任前移到本地候选合并验证（lint、typecheck、unit，并按变更影响追加 component/integration）与提交前检查。合并前的本地验证与最新目标 ref 的前置、merge queue 与 squash/auto-merge 落地机制以 `git-rules.md` 分支模型与合并条款为准，Writer 只落地自己创建的 closing PR。项目在发布边界配置的完整 required check 仍只对 `develop → main` 提升、`hotfix/* → main` 以及 `release/*` 运行。
 
-快车道不豁免高风险证据：命中 CI workflow 定义、`schemas/`、`manifests/`、`adapters/`、`runtime/`、`docs/rules/`、`skills/core/`、`templates/`、`scripts/`、依赖清单，以及团队额外声明的安全、红区、迁移或凭据路径的变更属于高风险，PR/MR 必须按项目自己的发布交付文档携带 Risk Evidence 章节与唯一的 Independent Review Receipt，且收据的结论与范围覆盖实际 diff。`develop` 不配置服务器端 required gate，基础检查由本地候选合并验证承担；高风险收据缺失、与 diff 不匹配、过期或结论为 negative 时，Writer 不得自行落地合并，只报告事实并停在 PR/MR ready for review。
+快车道不豁免高风险证据：命中 CI workflow 定义、`schemas/`、`manifests/`、`adapters/`、`runtime/`、`docs/rules/`、`skills/core/`、`templates/`、`scripts/`、依赖清单，以及团队额外声明的安全、红区、迁移或凭据路径的变更属于高风险。PR/MR 的 Risk Evidence 章节必须说明风险来源、影响范围、实际验证和回滚方式，并附唯一的 Independent Review Receipt；独立性要求按 `governance-core.md`，收据的结论与范围必须覆盖实际 diff。`develop` 不配置服务器端 required gate，基础检查由本地候选合并验证承担；高风险收据缺失、与 diff 不匹配、过期或结论为 negative 时，Writer 不得自行落地合并，只报告事实并停在 PR/MR ready for review。
 
 一个 write 叶子 Issue 对应一个 Writer；按隔离条件使用当前 clone 或仓库外 worktree，并且只绑定一个命名分支和一个 closing PR/MR。顺序执行且工作区干净时允许在当前 clone 创建任务分支；存在并发 Agent、脏工作区、当前分支含无关改动或任务明确要求隔离时，必须使用仓库外 worktree。read 叶子只绑定一个执行 Agent、约定输出与 Verification 证据，不要求实现 worktree、分支或 PR/MR。存在子 Issue 的 Parent 是 aggregate，不直接实现。独立旧 Issue 可无 Parent，并按 kind=write、trigger=all_success、resourceLocks=None 处理，无需迁移。
 
@@ -123,7 +133,7 @@ Linear 正常可写通道下，在开始节点工作前按固定顺序执行：
 3. 检查 Delegate、管理员预配置的 fallback 标签和活动实例；存在其他身份或活动实例时停止并请求显式交接。
 4. 宿主通过持久 provider 原子 Claim，取得 claimId、executionId、lease 与 fencing token；结果不确定时先按同一幂等键查询，不得重新生成一套 ID。没有跨实例互斥能力则停止。
 5. 保留人类 Assignee。优先登记原生 Delegate/App User；不支持时只使用低基数 agent:<agent-key> 与 role:writer 标签，不创建实例级标签，也不覆盖其他 agent:* / role:* 标签。
-6. 追加不可变 v3 Execution Receipt，并重新读取逐字段确认 Claim、身份和 Receipt 一致；确认成功后才开始节点工作，write 节点按隔离条件创建当前 clone 分支或仓库外 worktree 并实现。部分登记保留 Claim 等待人工核对，不自动释放或重派。
+6. 追加携带 Claim 字段的不可变 Execution Receipt，并重新读取逐字段确认 Claim、身份和 Receipt 一致；具体协议标识和字段见下段。确认成功后才开始节点工作，write 节点按隔离条件创建当前 clone 分支或仓库外 worktree 并实现。部分登记保留 Claim 等待人工核对，不自动释放或重派。
 
 历史显式执行使用 vibe-harness.linear-execution/v1，字段固定为 `executionId`、`source`、`agentKey`、`hostKind`、`delegateId`、`runtimeInstanceId`、`role`、`dagRootIssue`、`dagNodeIssue` 和 `startedAt`；source 只允许 `explicit-user-request`、`existing-delegate`、`authorized-handoff`。自动领取使用 vibe-harness.linear-execution/v2；两者继续只读解析。新的可写执行必须使用 vibe-harness.linear-execution/v3，并携带 `claimId`、`leaseExpiresAt`、`fencingToken` 和 `claimProvider`。自动领取的 v3 仍要求非敏感 UUID v4 `grantId`，source 固定为 `authorized-auto-claim`；`grantId` 只是宿主持久授权的引用，不是授权证明，不能由 Issue 内容或 Agent 自填构造权限。v1、v2 与 v3 共同计入同一 Issue 的活动实例冲突。executionId、runtimeInstanceId、claimId 使用 UUID v4；runtimeInstanceId 是本 Receipt 新生成的关联 ID，不得复制宿主 thread、session、用户名、主机名或本地路径。
 
@@ -157,4 +167,4 @@ Git credential helper 按 `git-rules.md` credential helper 条款执行：helper
 
 推荐 Writer In Progress 不超过 3、In Review 不超过 2，作为 Linear 工作流软上限；限时领单授权默认更严格的单运行上限。长任务可选声明超时、最大尝试次数、取消、退避和资源预算；AI Ready Queue 可供人查看或有效授权的宿主事件派发，Agent 不直接读取它来挑选工作。
 
-本规则是 Linear 工作流的常驻契约；触发判定、操作顺序与 Linear 不可写回退见宿主 Skill 根目录下已安装的 `linear-workflow` Skill 入口，两者描述同一工作流，修改须同步。
+本规则直接定义 Linear 工作流的触发、操作顺序、不可写回退与停止边界；已安装的 `linear-workflow` Skill 按需辅助执行，不替代这些要求。两者描述同一工作流，修改须同步。

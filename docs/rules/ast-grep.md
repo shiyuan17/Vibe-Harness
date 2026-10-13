@@ -25,11 +25,6 @@ ast-grep 是项目内可选的结构化代码搜索工具。它用于按语法�
 
 canonical 查询形式为：`node .agents/runtime/tools/ast-grep/run.mjs --lang typescript -p PATTERN src`。
 
-## 规范依据
-
-- https://ast-grep.github.io/advanced/prompting.html
-- https://ast-grep.github.io/guide/outline-code.html
-
 ## 降级与证据
 
 - 工具状态为 `pending`、`degraded` 或 `unsupported` 时，明确记录 `tool: ast-grep`、状态、回退到的 `rg` 命令和覆盖限制。

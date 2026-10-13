@@ -46,7 +46,7 @@ case 可声明 `flaky: true` 以保留抖动诊断信息，但 critical 失败�
 | online / Harness Evals | 声明条件下指定模型与宿主的可观察行为 | 未声明条件的普适结论 |
 | `stub-behavioral` | 当前资产下确定性运行时组件的行为合同（Hook 红区/权限判定、聚焦验证 blocked/failed 语义），随资产指纹漂移 | 模型提示遵从、多轮行为或宿主真机行为 |
 
-Harness Evals 是行为评测的规范架构（Scenario v3 / Result v3、RED → GREEN → Pressure → Regression、verifier 负控）；legacy `evals/` 只作为兼容资产来源，不复制也不推断缺失证据。
+Harness Evals 使用 Scenario v3 / Result v3 的机器协议，按 RED → GREEN → Pressure → Regression 顺序组织；legacy `evals/` 只作为兼容资产来源，不复制也不推断缺失证据。协议版本只用于解析和兼容，不代替本规则列出的失败、负控、基线和证据要求。
 
 ## 产物与写入边界
 
@@ -67,4 +67,4 @@ execution fixture 用 `allowedWritePaths` 声明唯一允许的 workspace 相对
 
 ## 与其他契约的关系
 
-本规则是常驻契约；按需展开的执行步骤见宿主 Skill 根目录下已安装的 `eval-driven-development` Skill 入口，两者描述同一门禁，修改须同步。评测命令入口与行为评测架构以项目自己的评测文档为准。
+本规则直接定义评测的失败场景、负控、基线、比较、证据保存和停止边界；已安装的 `eval-driven-development` Skill 仅提供按需操作辅助，不替代这些要求。两者描述同一门禁，修改须同步。评测命令入口以项目当前配置和实际可用命令为准。

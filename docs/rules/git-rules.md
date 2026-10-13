@@ -17,12 +17,12 @@ managed-mr 的 land 只读取已合入 MR 的证据，不本地合并或推送�
 
 ## 显式 develop flow
 
-仅显式 `gd-flow` / `$gd-flow` 或 `lwflow` / `$lwflow` 走此模式；普通 `$git-deliver`、普通 Linear Issue 和项目默认 delivery 不变。两者只对本次 `worktree land` 使用 `--delivery local-land`；`gd-flow` 不创建 PR/MR，`lwflow` 的 Linear 范围见 `linear-workflow.md`（若项目已安装该规则）。本节与已安装的 `gd-flow` Skill 描述同一合同，修改须同步。
+仅显式 `gd-flow` / `$gd-flow` 或 `lwflow` / `$lwflow` 走此模式；普通 `$git-deliver`、普通 Linear Issue 和项目默认 delivery 不变。两者只对本次 `worktree land` 使用 `--delivery local-land`；`gd-flow` 不创建 PR/MR，`lwflow` 的 Linear 范围见 `linear-workflow.md`（若项目已安装该规则）。已安装的 `gd-flow` Skill 按需辅助执行本节的分支、隔离、验证和清理要求；两者描述同一合同，修改须同步。
 
 - 先确认主检出当前分支是 `develop`、工作树与暂存区都干净、远端可普通推送；已有无关改动不能被暂存、覆盖、stash 或合并进 flow。`git fetch origin develop` 后要求本地 `develop` 能仅以 fast-forward 更新到最新 `origin/develop`；失败则停止，不代替用户切换分支或处理别人的 worktree。
 - 固定顺序为创建仓库外 worktree → 在其中创建任务分支 → 实现与聚焦验证 → 提交归属明确的改动 → 从最新 `origin/develop` 基线执行 `worktree land --write --delivery local-land --push` → 只有推送成功后才清理 worktree 和本地任务分支。`worktree bootstrap --task <id>:<branch> --base-ref origin/develop` 将前两步原子化；不通过手工 `git worktree remove` 绕过镜像 teardown。`worktree land --base-ref develop` 只断言主检出当前分支，不负责 checkout。
 - land 前再次读取目标远端 SHA、主检出与任务分支 HEAD，并确认本轮验证针对最新目标基线；验证期间目标前进则暂停、重建候选与重验。高风险变更保留独立审查要求；land 的 relevance review、受管验证及任务锚点门禁不得跳过。不带 `--push` 的 land 不满足该 flow 完成条件。
-- 合并冲突、验证失败、目标分支漂移、推送失败、清理失败或宿主 v2 证明缺失时保留可恢复现场并报告各阶段事实，不 force push、不强制删除、不自动回滚。推送成功而清理失败时属于“已推送、清理未完成”，不得重复合并。
+- 合并冲突、验证失败、目标分支漂移、推送失败或清理失败时，暂停受影响步骤，保留可恢复现场并报告各阶段事实，不 force push、不强制删除、不自动回滚。worktree 拓扑变化还必须具备 `governance-core.md` 定义的工作区与宿主核验信息；缺失时不得继续。推送成功而清理失败时属于“已推送、清理未完成”，不得重复合并。
 
 ## 启动与归属
 
@@ -41,7 +41,7 @@ managed-mr 的 land 只读取已合入 MR 的证据，不本地合并或推送�
 - `$git-deliver` 与 `worktree land --write --push` 只在已有 upstream 时普通推送；无 upstream 时仅在唯一明确远端为 origin 且目标分支非保护或共享分支时建立跟踪并推送，否则停止确认。`land` 不执行 commit，只把已提交内容合并进主检出当前分支；不带 `--push` 时不推送，收据只给出建议命令。
 - main、master、release 与仓库识别出的保护分支不得由 `$git-deliver` 自动推送；`develop` 已移出保护清单，任务分支与 land 落地可直接 `git push`／`git push -u origin develop`，不需要人工审批或服务器端 required gate。强制推送、删除远端引用与历史重写不属于该 Skill 授权范围。
 - 按需提交前须核对提交分组：验收点与建议 commit message、包含文件、排除文件、验证（命令及结果）、风险（低／中／高与理由）、回滚方式。
-- 未提交不等于任务失败，应交付改动清单和验证证据；显式分组交付的步骤见已安装的 `git-deliver` Skill 入口，两者共享归属、验证和推送安全边界，修改须同步。
+- 未提交不等于任务失败，应交付改动清单和验证证据；显式分组交付时只暂存归属明确的改动，先运行与完成主张匹配的验证，再按本节的推送安全边界执行。已安装的 `git-deliver` Skill 提供操作辅助，两者共享归属、验证和推送安全边界，修改须同步。
 
 ## 提交内容与信息
 
@@ -54,7 +54,7 @@ managed-mr 的 land 只读取已合入 MR 的证据，不本地合并或推送�
 
 ## 分支模型与合并
 
-分支模型、合并语义与门禁边界以本节为唯一规范来源；Linear 工作流把这些机制绑定到 Issue 状态、Receipt 与分支命名，以 `linear-workflow.md`（若项目已安装该规则）为准，仓库侧以项目自己的发布交付文档为准。发现不一致时先判定条款所属域，再修正漂移一侧。
+分支模型、合并语义与门禁边界以本节为唯一规范来源；Linear 的 Issue 状态、Receipt 与分支命名绑定见 `linear-workflow.md`（若项目已安装该规则）。执行前核对实际远端分支、保护配置、required checks 和合并策略；不以文档声明代替已生效配置。发现不一致时先判定条款所属域，再修正漂移一侧。
 
 - 默认分支模型：`feat/*、fix/* → develop → main`；紧急修复：`hotfix/* → main → develop`。该模型在项目显式建立对应分支后生效，尚未创建 `develop` 或迁移未完成的仓库以实际默认分支和已声明目标 ref 为准。
 - 普通任务 PR 使用 squash merge；`develop → main` 的提升与 `main → develop` 的回同步使用 merge commit。squash 在目标分支生成的提交主题来自 PR/MR 标题，因此标题与提交主题使用同一 Conventional Commit 语法。
