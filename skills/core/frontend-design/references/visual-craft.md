@@ -1,6 +1,6 @@
 # 视觉工艺
 
-视觉细节的具象技术与约定。令牌骨架见 `design-tokens.md`；组件状态变体见 `component-states.md`；强制门禁见 `docs/rules/frontend-rules.md`。
+视觉细节的具象技术与约定。令牌骨架见 `design-tokens.md`；组件状态变体见 `component-states.md`；同步归属：`docs/rules/frontend-rules.md`；执行前核对本 Skill 入口的适用底线。
 
 ## 投影与边框
 

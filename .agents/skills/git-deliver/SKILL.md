@@ -5,7 +5,7 @@ description: Use only when the user explicitly invokes $git-deliver or explicitl
 
 # 分批提交并推送
 
-显式调用本 Skill 才启用分组提交并普通推送的交付流程；普通提交与当前分支普通推送本身不以此 Skill 为唯一入口，也不需要独立授权。分支模型与安全停止边界见 `docs/rules/git-rules.md`，两者修改须同步；仍遵守红区和人工确认边界。
+显式调用本 Skill 才启用分组提交并普通推送的交付流程；普通提交与当前分支普通推送本身不以此 Skill 为唯一入口，也不需要独立授权。同步归属：`docs/rules/git-rules.md`，两者修改须同步。用户显式禁止、红区、凭据、生产或不可逆操作缺授权时停止受影响动作；普通提交/推送不需要任务级 Envelope 或 execute 模式，但不能绕过宿主、Git Hook 或服务端限制。
 
 独立的 gd-flow / $gd-flow 才启用 worktree → `develop` 本地 land；普通 `$git-deliver` 不切换该模式、不创建 worktree 或合并。
 
@@ -22,7 +22,7 @@ description: Use only when the user explicitly invokes $git-deliver or explicitl
 
 - 不在 main、master、release 或仓库识别出的保护/共享分支上自动推送；develop 可直推，但仍须核实当前仓库的分支保护与远端事实。
 - 不执行 force push、历史改写、远端引用删除、PR 创建、合并、打标签或发布；这些操作需要独立明确授权。
-- 未显式调用本 Skill 时，不自动选择分组交付流程；普通提交或推送按任务需要和 `git-rules.md` 的安全边界判定。
+- 未显式调用本 Skill 时，不自动选择分组交付流程；普通提交或推送按任务需要执行上述归属、分支、验证和失败保留检查。
 
 ## 交付
 

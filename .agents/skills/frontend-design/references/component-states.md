@@ -1,6 +1,6 @@
 # 组件状态变体与契约
 
-每个交互组件必须覆盖完整状态变体，并通过令牌引用定义样式。强制门禁见 `docs/rules/frontend-rules.md`；令牌骨架见 `design-tokens.md`。
+每个交互组件必须覆盖完整状态变体，并通过令牌引用定义样式。同步归属：`docs/rules/frontend-rules.md`；执行前核对本 Skill 入口的适用底线；令牌骨架见 `design-tokens.md`。
 
 ## 必须状态清单
 

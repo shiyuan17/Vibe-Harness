@@ -28,10 +28,12 @@ description: Use before modifying or reasoning about existing code that spans fi
 - 意图式「找做某事的代码」：probe 的 search。
 - 跨文件符号关系、调用链与改动影响面：codebase-memory 的 search_graph / trace_path / detect_changes。
 
-分工、预算与边界以既有规则为准：docs/rules/codegraph.md、docs/rules/serena.md、docs/rules/probe.md、docs/rules/codebase-memory-mcp.md。结构化语法模式用 ast-grep（docs/rules/ast-grep.md），高噪声命令输出压缩用 rtk（docs/rules/rtk.md）；这两项不由本 Skill 接管。
+一次问题默认选一个入口；先限定项目、问题和所需符号，结果不足再收窄查询，不并行重复扫描。同一任务、同一工作区已确认新鲜的索引不重复检查；陈旧图仅用于定位，再用当前源码补齐受影响事实，不自动全量重建。索引刷新须有覆盖授权。结构化语法匹配用 ast-grep，命令输出压缩可用 rtk；压缩输出不能代替失败明细或原始验证证据。
+
+同步归属：`docs/rules/codegraph.md`、`docs/rules/serena.md`、`docs/rules/probe.md`、`docs/rules/codebase-memory-mcp.md`、`docs/rules/ast-grep.md`、`docs/rules/rtk.md`。
 
 ## 降级与证据
 
-- 工具不可用、索引 stale 或 missing、结果与源码冲突时，说明缺少代码图能力并回退到 rg 与直接文件阅读。
+- 工具不可用或索引 missing 时，说明缺少代码图能力并回退到 rg 与直接文件阅读；索引 stale 或与源码冲突时，图只作导航，当前源码决定事实。
 - 回退时记录工具名、状态、替代命令与覆盖限制；不假装调用，也不把「工具缺失」当作源码证据。
 - 图关系与摘要是导航线索，不是行为证据；行为主张必须回到源码、测试或命令输出核验。

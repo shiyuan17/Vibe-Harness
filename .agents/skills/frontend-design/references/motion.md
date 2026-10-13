@@ -1,5 +1,5 @@
 # 动效工艺
-动效的具象实现技术与约束。强制门禁见 `docs/rules/frontend-rules.md`；组件状态变体见 `component-states.md`。
+动效的具象实现技术与约束。同步归属：`docs/rules/frontend-rules.md`；执行前核对本 Skill 入口的适用底线；组件状态变体见 `component-states.md`。
 
 ## 优先级与实现
 

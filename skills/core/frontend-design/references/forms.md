@@ -1,6 +1,6 @@
 # 表单工艺
 
-表单工程的具象模式与契约。强制门禁见 `docs/rules/frontend-rules.md`；组件状态变体见 `component-states.md`。
+表单工程的具象模式与契约。同步归属：`docs/rules/frontend-rules.md`；执行前核对本 Skill 入口的适用底线；组件状态变体见 `component-states.md`。
 
 ## 提交行为
 

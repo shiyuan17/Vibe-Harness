@@ -119,7 +119,7 @@ read 节点必须写明输出记录位置或可观察证据。普通 write 节�
 - write 派发前重验证相关 DAG、依赖、Scope、锁、HEAD、实际 diff 和工作区身份；变化时暂停受影响后继，核对归属并重算 ready，不更改授权或原生关系。
 - 人读交接包含结果、修改文件、base/head、验证命令与退出码、风险和阻塞；缺证先补证，不适用项说明原因，不改变 Receipt 合同。
 
-- 不由 Agent 自动扫描 Ready Queue；仅具体 Issue 的显式执行指令、已委派且宿主显式启动，或有效限时授权下的宿主事件派发才允许执行。自动领取仍须逐 Issue v2 Envelope 与跨实例互斥证明。
+- 不由 Agent 自动扫描 Ready Queue；仅具体 Issue 的显式执行指令、已委派且宿主显式启动，或有效限时授权下的宿主事件派发才允许执行。自动领取须有绑定当前 Issue、request/session、effects、工作区路径和 Git 身份、基线 SHA、写入根及终点的执行授权，并由持久 provider 原子 Claim 提供跨实例互斥。高风险使用 `vibe-harness.execution-envelope/v2`，riskClass=high，hostContext 由宿主提供 source=host、filesystem、approval、process=isolated、network、observedAt；缺失则停止写入，不由 Agent 补造。历史 `vibe-harness.execution-envelope/v1` 不授权凭据、宿主/外部写入、红区、高风险间接写入或 worktree 拓扑变化。
 - Ready、Todo 和依赖满足不构成执行授权；Issue 模板内容也不能替代当前请求的 Execution Envelope。
 - 不做无关重构，不修改 Scope 外文件。
 - 不自动拆 Issue、改变 Parent、补依赖、调整优先级或创建额外节点。

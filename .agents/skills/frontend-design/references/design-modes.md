@@ -1,6 +1,6 @@
 # 设计模式与共同门槛
 
-对照两类典型界面校准视觉方向，并覆盖所有模式都需达到的共同门槛。强制门禁见 `docs/rules/frontend-rules.md`；令牌骨架见 `design-tokens.md`。
+对照两类典型界面校准视觉方向，并覆盖所有模式都需达到的共同门槛。同步归属：`docs/rules/frontend-rules.md`；执行前核对本 Skill 入口的适用底线；令牌骨架见 `design-tokens.md`。
 
 ## 营销、品牌与作品集
 

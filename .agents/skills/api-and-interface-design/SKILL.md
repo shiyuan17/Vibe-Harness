@@ -7,7 +7,7 @@ description: Use for public APIs, schemas, events, config, or consumed module bo
 
 以现有契约和调用方为真值，先固定边界再实现。
 
-常驻契约见 `docs/rules/api-rules.md`；本 Skill 是按需展开的执行步骤，两者描述同一契约，修改须同步。
+同步归属：`docs/rules/api-rules.md`；两者描述同一契约，修改须同步。
 
 ## 执行
 
@@ -17,6 +17,8 @@ description: Use for public APIs, schemas, events, config, or consumed module bo
 4. 优先做可加的兼容演进；改名、改类型、改语义或收紧校验时设计迁移、弃用路径与回滚。
 5. 同步 mapper、mock、文档和两侧契约测试。
 6. 用真实调用路径证明生产者与消费者一致，不以单侧测试替代。
+
+契约来源、owner、兼容性或迁移决定未定时，暂停依赖该决定的实现，列出缺口并继续可独立核验的部分；未完成两侧验证时不得声称集成通过。
 
 ## 交付
 

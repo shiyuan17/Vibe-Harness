@@ -1,6 +1,6 @@
 # 性能工艺
 
-前端性能的具象技术与预算。强制门禁见 `docs/rules/frontend-rules.md`；组件状态变体见 `component-states.md`。
+前端性能的具象技术与预算。同步归属：`docs/rules/frontend-rules.md`；执行前核对本 Skill 入口的适用底线；组件状态变体见 `component-states.md`。
 
 ## 测量与设备矩阵
 
