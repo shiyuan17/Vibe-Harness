@@ -1,11 +1,11 @@
 ---
 name: gd-flow
-description: Use only when the user explicitly invokes gd-flow or $gd-flow to deliver a task through an isolated worktree and local merge into develop; never access Linear or create a PR.
+description: Use only when the user explicitly invokes gd-flow or $gd-flow to deliver a task through an isolated worktree and local merge into develop; never create a PR/MR or change the default delivery profile.
 ---
 
 # Git develop 本地交付
 
-`gd-flow` / `$gd-flow` 是显式 Git-only 入口，不是普通提交或 `$git-deliver` 的别名。只处理本轮任务；不访问 Linear、不扫描任务队列、不创建 PR/MR，不改项目默认 delivery 配置。具体 Git 边界见 `docs/rules/git-rules.md` 的「显式 develop flow」，修改须同步。
+`gd-flow` / `$gd-flow` 是显式本地交付入口，不是普通提交或 `$git-deliver` 的别名。只处理本轮任务；不创建 PR/MR，不改项目默认 delivery 配置。具体 Git 边界见 `docs/rules/git-rules.md` 的「显式 develop flow」，修改须同步。
 
 1. 核对授权、归属、远端和主检出：当前分支必须是干净的 `develop`，无未归属改动；确认远端允许普通推送。`git fetch origin develop` 后仅在可快进时将本地 `develop` 更新到最新 `origin/develop`。无法核实或无法快进则停止，绝不切换/清理别人的工作区。
 2. 明确任务范围与分支名，从已核实的 `origin/develop` 执行 `node .agents/runtime/commands/run.mjs worktree bootstrap --project <main-repo> --base-ref origin/develop --task <task-id>:<type>/<slug> --write --json`。bootstrap 在仓库外 worktree 内创建任务分支；仅在该 worktree 为会话根且所需 v2 宿主证明可用时写入。先 dry-run，不能把计划预览当成创建成功。

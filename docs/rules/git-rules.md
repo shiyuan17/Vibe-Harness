@@ -17,7 +17,7 @@ managed-mr 的 land 只读取已合入 MR 的证据，不本地合并或推送�
 
 ## 显式 develop flow
 
-仅显式 `gd-flow` / `$gd-flow` 或 `lwflow` / `$lwflow` 走此模式；普通 `$git-deliver`、普通 Linear Issue 和项目默认 delivery 不变。两者只对本次 `worktree land` 使用 `--delivery local-land`；`gd-flow` 不访问 Linear、不扫描任务队列、不创建 PR/MR，`lwflow` 的 Linear 范围见 `linear-workflow.md`（若项目已安装该规则）。本节与已安装的 `gd-flow` Skill 描述同一合同，修改须同步。
+仅显式 `gd-flow` / `$gd-flow` 或 `lwflow` / `$lwflow` 走此模式；普通 `$git-deliver`、普通 Linear Issue 和项目默认 delivery 不变。两者只对本次 `worktree land` 使用 `--delivery local-land`；`gd-flow` 不创建 PR/MR，`lwflow` 的 Linear 范围见 `linear-workflow.md`（若项目已安装该规则）。本节与已安装的 `gd-flow` Skill 描述同一合同，修改须同步。
 
 - 先确认主检出当前分支是 `develop`、工作树与暂存区都干净、远端可普通推送；已有无关改动不能被暂存、覆盖、stash 或合并进 flow。`git fetch origin develop` 后要求本地 `develop` 能仅以 fast-forward 更新到最新 `origin/develop`；失败则停止，不代替用户切换分支或处理别人的 worktree。
 - 固定顺序为创建仓库外 worktree → 在其中创建任务分支 → 实现与聚焦验证 → 提交归属明确的改动 → 从最新 `origin/develop` 基线执行 `worktree land --write --delivery local-land --push` → 只有推送成功后才清理 worktree 和本地任务分支。`worktree bootstrap --task <id>:<branch> --base-ref origin/develop` 将前两步原子化；不通过手工 `git worktree remove` 绕过镜像 teardown。`worktree land --base-ref develop` 只断言主检出当前分支，不负责 checkout。
