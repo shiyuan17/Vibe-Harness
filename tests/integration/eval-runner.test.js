@@ -232,7 +232,7 @@ test('transcript records only explicit structured handoffs', () => {
 const installedSkillOwners = [
   'agentmemory', 'api-and-interface-design', 'bug-finding', 'clarify-requirements',
   'code-navigation', 'define-goal', 'eval-driven-development', 'frontend-design', 'runtime-cross-repo-rollout',
-  'security-and-hardening', 'stale-cleanup', 'systematic-debugging', 'task-decomposition', 'git-deliver', 'gd-flow',
+  'security-and-hardening', 'stale-cleanup', 'systematic-debugging', 'task-decomposition', 'vb-git-split-push', 'vb-git-develop-flow',
 ].map((id) => ({ kind: 'skill', id }));
 
 function coverageEpisode(overrides = {}) {

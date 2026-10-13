@@ -17,7 +17,7 @@ import { scanForForbiddenTerms } from '../../scripts/lib/redaction.js';
 import { assertRuleAnchors } from '../helpers/governed-docs.js';
 
 const rootDir = path.resolve(import.meta.dirname, '../..');
-const coreSkills = ['clarify-requirements', 'define-goal', 'task-decomposition', 'git-deliver', 'gd-flow', 'systematic-debugging', 'bug-finding', 'stale-cleanup', 'eval-driven-development', 'security-and-hardening', 'code-navigation'];
+const coreSkills = ['clarify-requirements', 'define-goal', 'task-decomposition', 'vb-git-split-push', 'vb-git-develop-flow', 'systematic-debugging', 'bug-finding', 'stale-cleanup', 'eval-driven-development', 'security-and-hardening', 'code-navigation'];
 const fullSkills = [...coreSkills, 'api-and-interface-design', 'frontend-design', 'runtime-cross-repo-rollout'];
 
 test('canonical governance and fourteen native Skills are declared', async () => {

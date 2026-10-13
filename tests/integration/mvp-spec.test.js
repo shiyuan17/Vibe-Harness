@@ -356,7 +356,7 @@ test('core profile installs eleven native skills without mcp, memory, or hooks',
 
     assert.equal(targets.includes('docs/rules/governance-core.md'), true);
     assert.equal(targets.includes('docs/rules/codebase-memory-mcp.md'), false);
-    for (const skill of ['clarify-requirements', 'define-goal', 'task-decomposition', 'git-deliver', 'gd-flow', 'systematic-debugging', 'stale-cleanup', 'eval-driven-development', 'security-and-hardening', 'code-navigation']) {
+    for (const skill of ['clarify-requirements', 'define-goal', 'task-decomposition', 'vb-git-split-push', 'vb-git-develop-flow', 'systematic-debugging', 'stale-cleanup', 'eval-driven-development', 'security-and-hardening', 'code-navigation']) {
       assert.equal(targets.includes(`.agents/skills/${skill}/SKILL.md`), true);
     }
     assert.equal(targets.includes('.agents/skills/agentmemory/SKILL.md'), false);

@@ -231,7 +231,7 @@ test('OBS-RULE-002 requires project-linked logging and forbids invented infrastr
   );
 });
 
-test('git-deliver canaries pin explicit routing and safe push boundaries', async () => {
+test('vb-git-split-push canaries pin explicit routing and safe push boundaries', async () => {
   const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-online-canary.json'));
   const cases = Object.fromEntries(
     suite.cases

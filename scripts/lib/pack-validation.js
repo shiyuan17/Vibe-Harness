@@ -176,7 +176,7 @@ function containsCjk(text) {
 // Host routing selects skills by matching the request text against the
 // description, so a description that mixes English and Chinese prose halves the
 // tokens either language can match. Embedded technical tokens (command names
-// such as $git-deliver, tool names such as Playwright) are unavoidable; the
+// such as $vb-git-split-push, tool names such as Playwright) are unavoidable; the
 // check only fails when the minority script carries a meaningful share of the
 // letters.
 function hasMixedScriptDescription(description) {
@@ -504,15 +504,15 @@ export const RULE_SKILL_PARITY_PAIRS = Object.freeze([
   },
   {
     rule: 'docs/rules/git-rules.md',
-    skill: 'skills/core/git-deliver/SKILL.md',
-    skillName: 'git-deliver',
+    skill: 'skills/core/vb-git-split-push/SKILL.md',
+    skillName: 'vb-git-split-push',
     sharedTerms: ['Conventional Commit', 'no-verify'],
   },
   {
     rule: 'docs/rules/git-rules.md',
-    skill: 'skills/core/gd-flow/SKILL.md',
-    skillName: 'gd-flow',
-    sharedTerms: ['`gd-flow`', 'local-land', '`origin/develop`'],
+    skill: 'skills/core/vb-git-develop-flow/SKILL.md',
+    skillName: 'vb-git-develop-flow',
+    sharedTerms: ['`vb-git-develop-flow`', 'local-land', '`origin/develop`'],
   },
   {
     rule: 'docs/rules/linear-workflow.md',
@@ -529,9 +529,9 @@ export const RULE_SKILL_PARITY_PAIRS = Object.freeze([
   },
   {
     rule: 'docs/rules/linear-workflow.md',
-    skill: 'skills/integrations/lwflow/SKILL.md',
-    skillName: 'lwflow',
-    sharedTerms: ['`lwflow`', 'local-land', '`origin/develop`'],
+    skill: 'skills/integrations/vb-linear-worktree-develop/SKILL.md',
+    skillName: 'vb-linear-worktree-develop',
+    sharedTerms: ['`vb-linear-worktree-develop`', 'local-land', '`origin/develop`'],
   },
 ]);
 
@@ -694,8 +694,8 @@ const RULE_CROSS_REFERENCE_PATTERN = /`([a-z0-9]+(?:-[a-z0-9]+)*\.md)`/gu;
  * modules that already own them.
  */
 const SKILL_EXECUTION_BOUNDARY_CHECKS = [
-  'skills/core/gd-flow/SKILL.md',
-  'skills/integrations/lwflow/SKILL.md',
+  'skills/core/vb-git-develop-flow/SKILL.md',
+  'skills/integrations/vb-linear-worktree-develop/SKILL.md',
   'skills/integrations/linear-workflow/SKILL.md',
 ].map((file) => ({
   file,

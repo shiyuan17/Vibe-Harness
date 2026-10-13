@@ -597,7 +597,7 @@ test('Skill 可移植性允许协议标识、操作端点、内部参考与声�
 test('Skill 授权、工作区核验、宿主信息和受阻处理缺失时仍失败', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-skill-boundaries-'));
   try {
-    const files = ['skills/core/gd-flow/SKILL.md', 'skills/integrations/lwflow/SKILL.md', 'skills/integrations/linear-workflow/SKILL.md'];
+    const files = ['skills/core/vb-git-develop-flow/SKILL.md', 'skills/integrations/vb-linear-worktree-develop/SKILL.md', 'skills/integrations/linear-workflow/SKILL.md'];
     const originals = new Map();
     for (const file of files) {
       const content = await readFile(path.join(rootDir, file), 'utf8');

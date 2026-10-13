@@ -630,7 +630,7 @@ for (const adapter of [
       assert.equal(doctor.roles[adapter.id].roleCount, 7);
       assert.equal(doctor.roles[adapter.id].status, 'configured-unverified');
       assert.equal(await exists(path.join(target, adapter.id === 'claude' ? '.claude/agents/chief-architect.md' : '.gemini/agents/chief-architect.md')), true);
-      for (const skill of ['clarify-requirements', 'define-goal', 'task-decomposition', 'git-deliver', 'gd-flow', 'systematic-debugging', 'bug-finding', 'stale-cleanup', 'eval-driven-development', 'security-and-hardening', 'code-navigation', 'api-and-interface-design', 'frontend-design', 'runtime-cross-repo-rollout']) {
+      for (const skill of ['clarify-requirements', 'define-goal', 'task-decomposition', 'vb-git-split-push', 'vb-git-develop-flow', 'systematic-debugging', 'bug-finding', 'stale-cleanup', 'eval-driven-development', 'security-and-hardening', 'code-navigation', 'api-and-interface-design', 'frontend-design', 'runtime-cross-repo-rollout']) {
         assert.equal(await exists(path.join(target, adapter.skills, skill, 'SKILL.md')), true);
         assert.equal(await exists(path.join(target, adapter.skills, skill, 'agents/openai.yaml')), false);
       }
