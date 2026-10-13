@@ -4303,13 +4303,13 @@
       "layer": "component",
       "file": "tests/component/harness-evals-scenarios.test.js",
       "ordinal": 1,
-      "name": "the Internal Eval catalog contains H01-H20 with valid pressure and fixture contracts",
-      "legacy": true,
+      "name": "the Internal Eval catalog contains H01-H23 with valid pressure and fixture contracts",
+      "legacy": false,
       "risk": "standard",
       "owner": "maintainers",
-      "source": "migration",
+      "source": "declared",
       "status": "active",
-      "addedAt": "2026-09-16"
+      "addedAt": "2026-10-12"
     },
     {
       "id": "C-harness-evals-scenarios-002",
@@ -4394,6 +4394,19 @@
       "layer": "component",
       "file": "tests/component/harness-evals-scenarios.test.js",
       "ordinal": 8,
+      "name": "H21-H23 require their reasoning evidence before accepting the repair trace",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-10-12"
+    },
+    {
+      "id": "C-harness-evals-scenarios-009",
+      "layer": "component",
+      "file": "tests/component/harness-evals-scenarios.test.js",
+      "ordinal": 9,
       "name": "scenario verifier accepts structured H14/H15/H17/H18 workflow evidence and rejects bad ordering",
       "legacy": true,
       "risk": "standard",
@@ -4403,10 +4416,10 @@
       "addedAt": "2026-09-16"
     },
     {
-      "id": "C-harness-evals-scenarios-009",
+      "id": "C-harness-evals-scenarios-010",
       "layer": "component",
       "file": "tests/component/harness-evals-scenarios.test.js",
-      "ordinal": 9,
+      "ordinal": 10,
       "name": "Internal and External results validate against the same v3 result schema",
       "legacy": true,
       "risk": "standard",
