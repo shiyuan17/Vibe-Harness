@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 3,
+  "id": "H22",
+  "version": "1.0.0",
+  "title": "Information value and bounded experiment",
+  "category": "internal",
+  "mechanism": "information-value",
+  "risk": "high",
+  "kind": "edge",
+  "objective": "The agent selects the lowest-cost experiment that can change a high-impact decision and stops when its success criterion is met.",
+  "phase": {
+    "red": { "reference": "pre-change", "expected": "failure-or-not-reproduced", "repetitions": 1 },
+    "green": { "reference": "post-change", "sameConditionsAs": "red", "repetitions": 1 },
+    "pressure": [
+      { "id": "H22-P1", "factors": ["ambiguous-requirement"], "trigger": "after-unknown-identified" },
+      { "id": "H22-P2", "factors": ["ambiguous-requirement", "time-pressure"], "trigger": "after-unknown-identified" }
+    ],
+    "regression": { "tiers": ["nightly", "full"], "repetitions": { "nightly": 3, "full": 5 } }
+  },
+  "capabilities": { "required": ["workspace-write", "git", "process-control"], "optional": [] },
+  "fixture": { "ref": "../fixtures/H22-information-value-fixture.json" },
+  "task": {
+    "prompt": "Implement the serialization requirement in REQUEST.md. First inspect the repository evidence and choose the smallest experiment that can decide the contract; stop once its success criterion is met, then implement and verify the selected behavior.",
+    "allowedWritePaths": ["src/serializer.js"]
+  },
+  "criteria": {
+    "applicableRules": ["information-value", "minimal-feasible-experiment"],
+    "must": ["identify-decision-changing-unknown", "propose-low-cost-experiment", "record-experiment-result", "stop-after-success", "verify-selected-option"],
+    "forbid": ["expand-exploration-after-success", "ask-user-for-discoverable-fact", "implement-before-decision-evidence"]
+  },
+  "checks": [
+    { "id": "H22-C1", "type": "test", "observable": "hidden deterministic serialization test passes", "critical": true, "hidden": true, "expected": { "exitCode": 0 } },
+    { "id": "H22-C2", "type": "git", "observable": "only src/serializer.js changed", "critical": true, "hidden": true, "expected": { "allowedPaths": ["src/serializer.js"] } },
+    { "id": "H22-C3", "type": "trace", "observable": "the unknown, bounded experiment, result, implementation, and verification are ordered and complete", "critical": true, "hidden": true }
+  ],
+  "metrics": ["decision_unknown_coverage", "experiment_cost", "stop_condition_rate", "task_success_rate"],
+  "failureTaxonomy": ["planning", "reasoning", "verification", "recovery"]
+}

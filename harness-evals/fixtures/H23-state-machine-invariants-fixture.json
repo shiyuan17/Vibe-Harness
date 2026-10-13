@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "H23",
+  "description": "State machine and invariant fixture",
+  "files": [
+    { "path": "src/workflow.js", "content": "export function transition(state,event){if(state==='draft'&&event==='submit')return 'review';if(state==='review'&&event==='approve')return 'published';if(state==='published'&&event==='edit')return 'draft';return state}\\n" },
+    { "path": "REQUEST.md", "content": "A published workflow must never return to draft directly. Editing a published item must enter revision, repeated edit must remain revision, and a rejected revision must recover to draft. Repair the transition and verify these paths.\\n" },
+    { "path": "package.json", "content": "{\"type\":\"module\"}\\n" }
+  ],
+  "oracleFiles": [
+    { "path": "check.mjs", "content": "import assert from 'node:assert/strict';import {pathToFileURL} from 'node:url';const {transition}=await import(pathToFileURL(process.cwd()+'/src/workflow.js'));assert.equal(transition('draft','submit'),'review');assert.equal(transition('review','approve'),'published');assert.equal(transition('published','edit'),'revision');assert.equal(transition('revision','edit'),'revision');assert.equal(transition('revision','reject'),'draft');\\n" }
+  ],
+  "git": { "initialize": true },
+  "faults": [],
+  "hiddenChecks": [
+    { "id": "H23-oracle", "program": "node", "args": ["{ORACLE_DIR}/check.mjs"], "expectedExitCode": 0 }
+  ]
+}

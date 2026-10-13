@@ -120,6 +120,24 @@
       "file": "H20-interrupted-resume.json",
       "testContent": "测试进程中断后，Agent 是否恢复实时状态、只完成剩余工作一次并重新验证。",
       "purpose": "验证 resume 不重复写入、不扩大授权，并保留原始任务边界。"
+    },
+    {
+      "id": "H21",
+      "file": "H21-competitive-hypotheses.json",
+      "testContent": "测试未知根因时，Agent 是否保留竞争性假设并执行区分实验。",
+      "purpose": "防止凭第一直觉连续猜改，确保根因判断有可证伪证据。"
+    },
+    {
+      "id": "H22",
+      "file": "H22-information-value.json",
+      "testContent": "测试高影响未知项是否优先用最低成本实验消除，并在成功后停止扩展探索。",
+      "purpose": "防止无边界调研和过早扩大实现范围。"
+    },
+    {
+      "id": "H23",
+      "file": "H23-state-machine-invariants.json",
+      "testContent": "测试流程修复是否显式检查状态、不变量、非法转换和恢复后的验证。",
+      "purpose": "防止只修成功路径而遗漏生命周期边界。"
     }
   ]
 }

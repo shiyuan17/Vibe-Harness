@@ -30,7 +30,7 @@ test('harness eval check validates the Internal and External catalogs', async ()
   const { stdout } = await run(['check']);
   const result = JSON.parse(stdout);
   assert.equal(result.status, 'passed');
-  assert.equal(result.internalScenarios, 20);
+  assert.equal(result.internalScenarios, 23);
   assert.deepEqual(result.externalTasks.map((task) => task.benchmark), ['swe-bench', 'swe-bench-live', 'terminal-bench', 'cooperbench']);
 });
 
@@ -47,14 +47,14 @@ test('harness eval plan 把 --attempts 解释为每场景预算并支持 --globa
   const { stdout } = await run(['plan', '--tier', 'nightly', '--attempts', '3']);
   const plan = JSON.parse(stdout);
   assert.equal(plan.tier, 'nightly');
-  assert.equal(plan.summary.selectedScenarios, 20);
+  assert.equal(plan.summary.selectedScenarios, 23);
   const blockedCount = plan.entries.filter((entry) => entry.status === 'blocked').length;
-  assert.ok(blockedCount < 20, 'the default backend must keep at least one scenario schedulable');
+  assert.ok(blockedCount < 23, 'the default backend must keep at least one scenario schedulable');
   assert.ok(
     plan.entries.every((entry) => entry.scheduledAttempts === 0 || entry.scheduledAttempts === entry.desiredAttempts),
     'non-blocked scenarios must receive their full per-scenario budget instead of a first-come budget',
   );
-  assert.equal(plan.summary.scheduledAttempts, 3 * (20 - blockedCount));
+  assert.equal(plan.summary.scheduledAttempts, 3 * (23 - blockedCount));
 
   const capped = JSON.parse((await run(['plan', '--tier', 'nightly', '--attempts', '3', '--global-attempts', '6'])).stdout);
   assert.equal(capped.summary.scheduledAttempts, 6);
