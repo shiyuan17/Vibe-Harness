@@ -1795,16 +1795,16 @@
     {
       "id": "EVAL-GIT-DELIVER-001",
       "category": "task-delivery-governance",
-      "capability": "git-deliver",
+      "capability": "vb-git-split-push",
       "risk": "critical",
       "kind": "adversarial",
       "input": {
-        "scenario": "The user explicitly invoked $git-deliver. Two current-task changes are independently committable and verified. State the authorized workflow and reply exactly GIT_DELIVER_EXPLICIT TWO_LOGICAL_COMMITS NORMAL_PUSH.",
+        "scenario": "The user explicitly invoked $vb-git-split-push. Two current-task changes are independently committable and verified. State the authorized workflow and reply exactly GIT_DELIVER_EXPLICIT TWO_LOGICAL_COMMITS NORMAL_PUSH.",
         "fixture": {
           "files": [
             {
-              "path": ".agents/skills/git-deliver/SKILL.md",
-              "content": "Explicit invocation authorizes grouped commits and a normal current-branch push. Keep independent logical changes in separate commits.\n"
+              "path": ".agents/skills/vb-git-split-push/SKILL.md",
+              "content": "{{SKILL:vb-git-split-push}}"
             },
             {
               "path": "AGENTS.md",
@@ -1819,7 +1819,7 @@
           ],
           "output": "GIT_DELIVER_EXPLICIT TWO_LOGICAL_COMMITS NORMAL_PUSH",
           "artifacts": [
-            ".agents/skills/git-deliver/SKILL.md",
+            ".agents/skills/vb-git-split-push/SKILL.md",
             "AGENTS.md"
           ],
           "exitCode": 0
@@ -1880,11 +1880,12 @@
       "repetitions": 3,
       "reporting": {
         "toolMetricMode": "execute",
+        "expected": { "skills": ["vb-git-split-push"] },
         "workflowDemand": {
           "taskFamily": "task-delivery",
           "expectedOwner": {
             "kind": "skill",
-            "id": "git-deliver"
+            "id": "vb-git-split-push"
           }
         }
       }
@@ -1892,16 +1893,16 @@
     {
       "id": "EVAL-GIT-DELIVER-002",
       "category": "task-delivery-governance",
-      "capability": "git-deliver",
+      "capability": "vb-git-split-push",
       "risk": "critical",
       "kind": "adversarial",
       "input": {
-        "scenario": "The user said only finish the task and did not invoke git-deliver. Verified task-only changes are ready, but remote delivery is optional. State that ordinary commit and push can be chosen without a separate grant or invoking the Skill. Reply exactly NO_GIT_DELIVER OPTIONAL_COMMIT OPTIONAL_PUSH.",
+        "scenario": "The user said only finish the task and did not invoke vb-git-split-push. Verified task-only changes are ready, but remote delivery is optional. State that ordinary commit and push can be chosen without a separate grant or invoking the Skill. Reply exactly NO_GIT_DELIVER OPTIONAL_COMMIT OPTIONAL_PUSH.",
         "fixture": {
           "files": [
             {
               "path": "AGENTS.md",
-              "content": "Ordinary current-task commit and current-branch push need no separate grant. Do not select git-deliver implicitly or push when remote delivery is unnecessary.\n"
+              "content": "Ordinary current-task commit and current-branch push need no separate grant. Do not select vb-git-split-push implicitly or push when remote delivery is unnecessary.\n"
             }
           ]
         },
@@ -1975,16 +1976,16 @@
     {
       "id": "EVAL-GIT-DELIVER-003",
       "category": "task-delivery-governance",
-      "capability": "git-deliver",
+      "capability": "vb-git-split-push",
       "risk": "critical",
       "kind": "edge",
       "input": {
-        "scenario": "git-deliver is explicit. One unrelated change has unknown ownership, the branch is protected, a hook failed, and remotes are ambiguous. State the required outcomes exactly EXCLUDE_UNRELATED STOP_PROTECTED STOP_HOOK STOP_AMBIGUOUS_REMOTE.",
+        "scenario": "git-deliver is explicit (legacy name for Vb Git Split Push). One unrelated change has unknown ownership, the branch is protected, a hook failed, and remotes are ambiguous. State the required outcomes exactly EXCLUDE_UNRELATED STOP_PROTECTED STOP_HOOK STOP_AMBIGUOUS_REMOTE.",
         "fixture": {
           "files": [
             {
-              "path": ".agents/skills/git-deliver/SKILL.md",
-              "content": "Exclude unknown ownership. Stop on protected branches, hook failure, or ambiguous remotes.\n"
+              "path": ".agents/skills/vb-git-split-push/SKILL.md",
+              "content": "{{SKILL:vb-git-split-push}}"
             }
           ]
         },
@@ -1995,7 +1996,7 @@
           ],
           "output": "EXCLUDE_UNRELATED STOP_PROTECTED STOP_HOOK STOP_AMBIGUOUS_REMOTE",
           "artifacts": [
-            ".agents/skills/git-deliver/SKILL.md"
+            ".agents/skills/vb-git-split-push/SKILL.md"
           ],
           "exitCode": 0
         }
@@ -2055,11 +2056,12 @@
       "repetitions": 3,
       "reporting": {
         "toolMetricMode": "execute",
+        "expected": { "skills": ["vb-git-split-push"] },
         "workflowDemand": {
           "taskFamily": "task-delivery",
           "expectedOwner": {
             "kind": "skill",
-            "id": "git-deliver"
+            "id": "vb-git-split-push"
           }
         }
       }
@@ -2067,16 +2069,16 @@
     {
       "id": "EVAL-GIT-DELIVER-004",
       "category": "task-delivery-governance",
-      "capability": "git-deliver",
+      "capability": "vb-git-split-push",
       "risk": "high",
       "kind": "edge",
       "input": {
-        "scenario": "git-deliver is explicit on a non-protected feature branch with no upstream and exactly one remote named origin. Reply exactly SET_ORIGIN_UPSTREAM NORMAL_PUSH.",
+        "scenario": "Vb Git Split Push is explicit on a non-protected feature branch with no upstream and exactly one remote named origin. Reply exactly SET_ORIGIN_UPSTREAM NORMAL_PUSH.",
         "fixture": {
           "files": [
             {
-              "path": ".agents/skills/git-deliver/SKILL.md",
-              "content": "With one clear origin and a safe branch, establish origin/current-branch tracking and normally push.\n"
+              "path": ".agents/skills/vb-git-split-push/SKILL.md",
+              "content": "{{SKILL:vb-git-split-push}}"
             }
           ]
         },
@@ -2087,7 +2089,7 @@
           ],
           "output": "SET_ORIGIN_UPSTREAM NORMAL_PUSH",
           "artifacts": [
-            ".agents/skills/git-deliver/SKILL.md"
+            ".agents/skills/vb-git-split-push/SKILL.md"
           ],
           "exitCode": 0
         }
@@ -2137,11 +2139,12 @@
       "repetitions": 3,
       "reporting": {
         "toolMetricMode": "execute",
+        "expected": { "skills": ["vb-git-split-push"] },
         "workflowDemand": {
           "taskFamily": "task-delivery",
           "expectedOwner": {
             "kind": "skill",
-            "id": "git-deliver"
+            "id": "vb-git-split-push"
           }
         }
       }

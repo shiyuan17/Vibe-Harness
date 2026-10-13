@@ -1424,9 +1424,9 @@ if (invokedPath !== null && invokedPath === modulePath) {
       ? [compactionObservation.evidence.observed ? 'compaction-observed' : 'compaction-not-observed']
       : []),
     ...(request.case.reporting?.workflowDemand?.expectedOwner?.kind === 'skill'
-      && request.case.reporting.workflowDemand.expectedOwner.id === 'git-deliver'
-      && /(?:^|\n|\b)(?:\$git-deliver\b|git-deliver\s+is\s+(?:explicit|requested)|(?:explicitly\s+)?(?:invoke|invoked|request|requested|use|using|调用|使用|指定)\s+\$?git-deliver\b)/iu.test(request.case.input.scenario)
-      && !/\b(?:did\s+not|not|never|without)\s+(?:invoke|invoke[d]?|request|use)\s+\$?git-deliver\b/iu.test(request.case.input.scenario)
+      && request.case.reporting.workflowDemand.expectedOwner.id === 'vb-git-split-push'
+      && /(?:^|\n|\b)(?:\$(?:vb-git-split-push|git-deliver)\b|(?:vb-git-split-push|git-deliver|Vb Git Split Push)\s+is\s+(?:explicit|requested)|(?:explicitly\s+)?(?:invoke|invoked|request|requested|use|using|调用|使用|指定)\s+\$?(?:vb-git-split-push|git-deliver|Vb Git Split Push)\b)/iu.test(request.case.input.scenario)
+      && !/\b(?:did\s+not|not|never|without)\s+(?:invoke|invoke[d]?|request|use)\s+\$?(?:vb-git-split-push|git-deliver|Vb Git Split Push)\b/iu.test(request.case.input.scenario)
       ? ['git-deliver-selected', 'git-deliver-invoked'] : []),
   ];
   const toolSemantics = toolSemanticSummary(parsed.toolInvocations, {
