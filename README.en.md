@@ -165,7 +165,17 @@ The core profile installs eleven native Skills; full installs fourteen and enabl
 | `full` | `core` plus three native Skills, online Eval, and supported platform safety Hooks, for fourteen native Skills total |
 | `docs-only` | Rules, templates, and schemas without runtime, Skills, MCP, or Hooks |
 
-Invoke `$gd-flow` explicitly to implement in an external worktree, then locally merge and push `develop`. With the writable Linear plugin installed, `$lwflow` first syncs the current plan as a parent/task DAG and executes only those newly created nodes. Neither adds a shell command nor changes the default delivery profile; an unclean primary checkout or unavailable write/Claim capability stops the flow.
+Explicit delivery Skills use `Vb …` display names and `vb-…` invocation IDs:
+
+| Display name | Invocation | Legacy trigger |
+| --- | --- | --- |
+| Vb Git Split Push | `$vb-git-split-push` | `$git-deliver` |
+| Vb Git Develop Flow | `$vb-git-develop-flow` | `$gd-flow` |
+| Vb Linear Worktree Develop | `$vb-linear-worktree-develop` | `$lwflow` |
+
+Split Push reuses git-deliver: commit logical groups under the project's Git rules, then normally push the current branch after verification. It does not create worktrees or merge. Old names remain compatibility triggers; upgrades migrate managed Skill files and preserve locally edited copies as conflicts.
+
+Invoke `$vb-git-develop-flow` explicitly to implement in an external worktree, then locally merge and push `develop`. With the writable Linear plugin installed, `$vb-linear-worktree-develop` first syncs the current plan as a parent/task DAG and executes only those newly created nodes. Neither adds a shell command nor changes the default delivery profile; an unclean primary checkout or unavailable write/Claim capability stops the flow.
 
 External tools remain explicit `--plugin` choices. Every host configuration file is a red-zone write and requires `--confirm-red-zone`.
 

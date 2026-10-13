@@ -15,17 +15,19 @@ Skill 是宿主按 description 直接选择的领域能力包：description 是�
 
 ## 路由判定
 
+显式交付入口统一使用 `vb-` 前缀的小写连字符调用标识，显示名使用 `Vb` 加空格分词：`Vb Git Split Push`（`vb-git-split-push`）、`Vb Git Develop Flow`（`vb-git-develop-flow`）、`Vb Linear Worktree Develop`（`vb-linear-worktree-develop`）。旧触发词 `git-deliver`、`gd-flow`、`lwflow`（含 `$` 形式）分别映射到这三个 Skill；它们只是兼容触发词，不是独立安装入口。显式显示名也选择对应 Skill，普通完成、提交或 Linear 查询不自动启用这些流程。
+
 宿主依据每个 SKILL.md 的 description 直接选择能力，不使用 Router 或流程 Skill 链；Skill 只补充领域知识，不覆盖项目规则、人工确认或安全边界。
 
 - 判定顺序：授权与安全边界（governance-core）> 用户本轮显式指定或显式调用的 Skill > 职责最窄且匹配的领域 Skill > 按需补充的互补 Skill。
 - 命中 Skill 触发场景时，先显式读取该 Skill 的 SKILL.md 再按其内容行动，不凭记忆或印象替代读取；宿主路由漏选时仍可按场景显式读取兜底。
 - 一个原子动作只路由一个主 Skill；多个 Skill 同时匹配时取职责最具体者，不叠加流程链掩盖歧义。
-- 当前任务改动的普通提交与当前分支普通推送可按 `git-rules.md` 无独立授权地按需执行；显式调用 `$git-deliver` 或明确指定该 Skill 才选择其分组交付流程，普通完成请求不自动触发提交或推送。
+- 当前任务改动的普通提交与当前分支普通推送可按 `git-rules.md` 无独立授权地按需执行；显式调用 `$vb-git-split-push` 或明确指定该 Skill 才选择其分组交付流程，普通完成请求不自动触发提交或推送。
 - 高影响产品决定使用 `clarify-requirements`：仅处理当轮可关闭的解阻或显式需求发现，不持久化目标。
 - 用户明确要求编写、优化或激活跨任务持续目标时使用 `define-goal`：产出可激活的 Goal Brief，不处理当轮解阻。
 - 用户要求拆分已有计划、建立 Task DAG 或生成节点执行提示词时使用 `task-decomposition`：产出拆分判定、Goal/DAG 和宿主无关的单节点提示词；不自动派发或执行任务。简单单 Agent 任务不创建 DAG。
-- 仅在用户显式调用 `$git-deliver` 或明确指定 `git-deliver` Skill 时使用：整理当前任务改动、按逻辑分组提交并安全地普通推送当前分支。
-- 用户显式调用 `gd-flow` / `$gd-flow` 时只选择该显式本地交付 Skill：仓库外 worktree、本地 `develop` land 与推送清理；普通提交和 `$git-deliver` 不触发它。用户显式调用 `lwflow` / `$lwflow` 时只选择该 Linear 集成 Skill：从当前计划同步 Parent/DAG，仅领取本次新建节点并逐节点本地 land；普通 Linear 请求不触发它。两者的 `--delivery local-land` 仅覆盖本轮，不修改项目默认配置。
+- 仅在用户显式调用 `$vb-git-split-push` 或明确指定 `vb-git-split-push` Skill 时使用：整理当前任务改动、按逻辑分组提交并安全地普通推送当前分支。
+- 用户显式调用 `vb-git-develop-flow` / `$vb-git-develop-flow` 时只选择该显式本地交付 Skill：仓库外 worktree、本地 `develop` land 与推送清理；普通提交和 `$vb-git-split-push` 不触发它。用户显式调用 `vb-linear-worktree-develop` / `$vb-linear-worktree-develop` 时只选择该 Linear 集成 Skill：从当前计划同步 Parent/DAG，仅领取本次新建节点并逐节点本地 land；普通 Linear 请求不触发它。两者的 `--delivery local-land` 仅覆盖本轮，不修改项目默认配置。
 - 出现具体故障、报错或测试失败且根因未知时使用 `systematic-debugging`：先证明根因再修复；根因已知或已有既定修复时不触发；Agent 规则、Skill、提示或 Hook 行为变化使用 `eval-driven-development`。
 - 只读审查现有项目的逻辑、流程、状态、一致性与接口缺陷时使用 `bug-finding`：面向没有具体失败症状的存量代码，产出证据化审查报告，不修改源码、配置、依赖或数据；要定位具体失败的根因时改用 `systematic-debugging`。
 - 识别或清理死代码、无用引用、过期文档、孤儿资源、陈旧记忆与过期索引时使用 `stale-cleanup`：默认只读并区分已确认项与候选线索，删除只在用户显式要求并逐项确认后执行；它不替代 `bug-finding` 的缺陷根因定位。
@@ -37,4 +39,4 @@ Skill 是宿主按 description 直接选择的领域能力包：description 是�
 - 按需加载最匹配的领域 Skill，确需互补知识时补充加载，不建立固定流程链；能力不可用时使用项目规则和确定性验证，不模拟工具或结果。
 - description 或触发边界变化视为路由行为变更：用真实任务或 Eval 观察漏触发与误触发，再回改 description 或收敛边界，不靠新增 Router 解决。
 
-计划、测试、Review、任务记录和普通交付由 Agent 按请求直接完成，不自动创建额外流程、角色或门禁；普通完成请求不得隐式选择 `$git-deliver`，提交或推送仅在任务需要且符合 `git-rules.md` 的安全条件时按需执行。红区、权限、凭据、生产、其他外部写入和不可逆操作遵循 governance-core 的授权与批准规则；已有覆盖授权不重复确认。
+计划、测试、Review、任务记录和普通交付由 Agent 按请求直接完成，不自动创建额外流程、角色或门禁；普通完成请求不得隐式选择 `$vb-git-split-push`，提交或推送仅在任务需要且符合 `git-rules.md` 的安全条件时按需执行。红区、权限、凭据、生产、其他外部写入和不可逆操作遵循 governance-core 的授权与批准规则；已有覆盖授权不重复确认。

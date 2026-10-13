@@ -17,7 +17,9 @@ managed-mr 的 land 只读取已合入 MR 的证据，不本地合并或推送�
 
 ## 显式 develop flow
 
-仅显式 `gd-flow` / `$gd-flow` 或 `lwflow` / `$lwflow` 走此模式；普通 `$git-deliver`、普通 Linear Issue 和项目默认 delivery 不变。两者只对本次 `worktree land` 使用 `--delivery local-land`；`gd-flow` 不创建 PR/MR，`lwflow` 的 Linear 范围见 `linear-workflow.md`（若项目已安装该规则）。已安装的 `gd-flow` Skill 按需辅助执行本节的分支、隔离、验证和清理要求；两者描述同一合同，修改须同步。
+调用名称统一为 `Vb Git Develop Flow`（`vb-git-develop-flow`）与 `Vb Linear Worktree Develop`（`vb-linear-worktree-develop`），旧触发词 `gd-flow` / `$gd-flow`、`lwflow` / `$lwflow` 分别兼容对应入口。`Vb Git Split Push`（`vb-git-split-push`，兼容 `git-deliver` / `$git-deliver`）仅负责当前分支分批提交与普通推送。
+
+仅显式 `vb-git-develop-flow` / `$vb-git-develop-flow` 或 `vb-linear-worktree-develop` / `$vb-linear-worktree-develop` 走此模式；普通 `$vb-git-split-push`、普通 Linear Issue 和项目默认 delivery 不变。两者只对本次 `worktree land` 使用 `--delivery local-land`；`vb-git-develop-flow` 不创建 PR/MR，`vb-linear-worktree-develop` 的 Linear 范围见 `linear-workflow.md`（若项目已安装该规则）。已安装的 `vb-git-develop-flow` Skill 按需辅助执行本节的分支、隔离、验证和清理要求；两者描述同一合同，修改须同步。
 
 - 先确认主检出当前分支是 `develop`、工作树与暂存区都干净、远端可普通推送；已有无关改动不能被暂存、覆盖、stash 或合并进 flow。`git fetch origin develop` 后要求本地 `develop` 能仅以 fast-forward 更新到最新 `origin/develop`；失败则停止，不代替用户切换分支或处理别人的 worktree。
 - 固定顺序为创建仓库外 worktree → 在其中创建任务分支 → 实现与聚焦验证 → 提交归属明确的改动 → 从最新 `origin/develop` 基线执行 `worktree land --write --delivery local-land --push` → 只有推送成功后才清理 worktree 和本地任务分支。`worktree bootstrap --task <id>:<branch> --base-ref origin/develop` 将前两步原子化；不通过手工 `git worktree remove` 绕过镜像 teardown。`worktree land --base-ref develop` 只断言主检出当前分支，不负责 checkout。
@@ -37,15 +39,16 @@ managed-mr 的 land 只读取已合入 MR 的证据，不本地合并或推送�
 
 - 提交不自动触发推送，普通任务完成也不要求提交或推送；只有交付确需远端可见、目标明确且安全时才推送，两者都不隐含建分支、PR/MR、凭据转用或发布授权。
 - Hook 只豁免直接、单一、可判定的 `git commit -m`／`git push`；复合命令、危险参数、无效 Envelope、远端或目标分支无法核实时不豁免，Hook 也不能推断暂存内容归属，提交前仍须人工核对本任务 diff。
-- Vibe-Harness 不通过 Stop Hook、运行时脚本或默认流程自动执行 `git commit`／`git push`；`$git-deliver` 是显式调用的分组提交与普通推送流程，不是唯一入口。
-- `$git-deliver` 与 `worktree land --write --push` 只在已有 upstream 时普通推送；无 upstream 时仅在唯一明确远端为 origin 且目标分支非保护或共享分支时建立跟踪并推送，否则停止确认。`land` 不执行 commit，只把已提交内容合并进主检出当前分支；不带 `--push` 时不推送，收据只给出建议命令。
-- main、master、release 与仓库识别出的保护分支不得由 `$git-deliver` 自动推送；`develop` 已移出保护清单，任务分支与 land 落地可直接 `git push`／`git push -u origin develop`，不需要人工审批或服务器端 required gate。强制推送、删除远端引用与历史重写不属于该 Skill 授权范围。
+- Vibe-Harness 不通过 Stop Hook、运行时脚本或默认流程自动执行 `git commit`／`git push`；`$vb-git-split-push` 是显式调用的分组提交与普通推送流程，不是唯一入口。
+- `$vb-git-split-push` 与 `worktree land --write --push` 只在已有 upstream 时普通推送；无 upstream 时仅在唯一明确远端为 origin 且目标分支非保护或共享分支时建立跟踪并推送，否则停止确认。`land` 不执行 commit，只把已提交内容合并进主检出当前分支；不带 `--push` 时不推送，收据只给出建议命令。
+- main、master、release 与仓库识别出的保护分支不得由 `$vb-git-split-push` 自动推送；`develop` 已移出保护清单，任务分支与 land 落地可直接 `git push`／`git push -u origin develop`，不需要人工审批或服务器端 required gate。强制推送、删除远端引用与历史重写不属于该 Skill 授权范围。
 - 按需提交前须核对提交分组：验收点与建议 commit message、包含文件、排除文件、验证（命令及结果）、风险（低／中／高与理由）、回滚方式。
-- 未提交不等于任务失败，应交付改动清单和验证证据；显式分组交付时只暂存归属明确的改动，先运行与完成主张匹配的验证，再按本节的推送安全边界执行。已安装的 `git-deliver` Skill 提供操作辅助，两者共享归属、验证和推送安全边界，修改须同步。
+- 未提交不等于任务失败，应交付改动清单和验证证据；显式分组交付时只暂存归属明确的改动，先运行与完成主张匹配的验证，再按本节的推送安全边界执行。已安装的 `vb-git-split-push` Skill 提供操作辅助，两者共享归属、验证和推送安全边界，修改须同步。
 
 ## 提交内容与信息
 
 - 每个 commit 只承载一个逻辑变更；重构与功能变更默认拆开，提交后的状态应能通过该变更对应的聚焦检查。
+- 分批提交前读取项目 Git 规范与 commitlint 配置；支撑同一逻辑变更的测试和文档随该变更提交。默认逐组提交、全部验证通过后统一推送；显式要求逐批推送时，每组验证并提交后推送，任一批失败即停止后续批次。
 - 提交主题使用 `<type>(<scope>): <描述>`，常用类型为 feat、fix、docs、refactor、test、chore 和 eval；项目配置 commitlint 时其配置是类型枚举、长度和大小写的唯一事实来源。
 - 提交正文说明为什么改、影响面和被否决的方案；破坏性变更用 `feat!:` 或 `BREAKING CHANGE:` footer 显式声明，不靠正文措辞暗示。
 - Issue 关联写进 PR/MR 描述与 `Refs <ISSUE-ID>` 等 trailer，closing magic word 不放进 commit；完整语义以 `linear-workflow.md`（若项目已安装该规则）为准。

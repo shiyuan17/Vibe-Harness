@@ -17,9 +17,9 @@ Linear 保存工作状态、责任、委派与依赖；GitHub 或 GitLab 保存�
 
 ## 1 授权模型
 
-### 显式 lwflow
+### 显式 vb-linear-worktree-develop
 
-仅在用户明确调用 `lwflow` / `$lwflow` 时，才从**当前会话的既定任务计划**创建 Linear Parent aggregate 与 read/write 子任务 DAG；该调用明确授权本次计划范围内的 Parent、子任务、原生 blocked-by / blocks 关系及状态/Receipt 写入、worktree、任务提交、普通推送和合并到 `develop`，不授权 PR/MR、force push、历史改写或 `main`。普通 Linear 工作流的既有授权与 closing PR Done 语义不变。本节与已安装的 `lwflow` Skill 描述同一模式，修改须同步。
+仅在用户明确调用 `vb-linear-worktree-develop` / `$vb-linear-worktree-develop` 时，才从**当前会话的既定任务计划**创建 Linear Parent aggregate 与 read/write 子任务 DAG；该调用明确授权本次计划范围内的 Parent、子任务、原生 blocked-by / blocks 关系及状态/Receipt 写入、worktree、任务提交、普通推送和合并到 `develop`，不授权 PR/MR、force push、历史改写或 `main`。普通 Linear 工作流的既有授权与 closing PR Done 语义不变。本节与已安装的 `vb-linear-worktree-develop` Skill 描述同一模式，修改须同步。
 
 - 先核对团队、仓库、Parent/子任务 Scope、共享合同 owner、验收、验证和依赖，生成 Parent `linear-plan`。按“读取 → 校验 → 写入 → 重读确认”逐项同步 Parent、子任务和原生关系；使用稳定幂等键，结果不明时按原键重读，不盲目重建。
 - 保存本次成功创建且重读确认的 Issue ID 封闭集合；部分创建失败须保留清单和已创建现场。只从该集合领取依赖就绪节点，不扫描、轮询或领取其他 Ready/Todo Issue。

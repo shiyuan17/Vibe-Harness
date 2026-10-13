@@ -168,7 +168,17 @@ core 安装十一个原生 Skills，full 安装十四个原生 Skills，并默�
 | `full` | `core` 加三个原生 Skills、在线 Eval 和已支持宿主的安全 Hook，共十四个原生 Skills |
 | `docs-only` | 规则、模板和 schemas，不安装 runtime、Skills、MCP 或 Hook |
 
-显式调用 `$gd-flow` 可在仓库外 worktree 实现并本地合入、推送 `develop`；安装可写 Linear 插件后显式调用 `$lwflow` 可先把当前计划同步为 Parent/子任务 DAG，再仅执行本次节点。两者不新增终端命令，也不修改默认 delivery；主检出不干净或缺少必要写入/Claim 能力时停止。
+三个显式交付 Skill 统一采用显示名 `Vb …` 和调用标识 `vb-…`：
+
+| 显示名称 | 调用标识 | 兼容旧触发词 |
+| --- | --- | --- |
+| Vb Git Split Push | `$vb-git-split-push` | `$git-deliver` |
+| Vb Git Develop Flow | `$vb-git-develop-flow` | `$gd-flow` |
+| Vb Linear Worktree Develop | `$vb-linear-worktree-develop` | `$lwflow` |
+
+Split Push 复用原 git-deliver 能力，按项目 Git 规范和逻辑变更分批提交，验证通过后普通推送当前分支；不创建 worktree 或执行合并。旧名称仅作兼容触发词；升级安装会迁移受管旧 Skill 文件，本地修改过的副本由安装器保留并报告冲突。
+
+显式调用 `$vb-git-develop-flow` 可在仓库外 worktree 实现并本地合入、推送 `develop`；安装可写 Linear 插件后显式调用 `$vb-linear-worktree-develop` 可先把当前计划同步为 Parent/子任务 DAG，再仅执行本次节点。两者不新增终端命令，也不修改默认 delivery；主检出不干净或缺少必要写入/Claim 能力时停止。
 
 外部工具仍只通过 `--plugin` 显式启用。所有宿主配置文件均属于红区写入，需要 `--confirm-red-zone`。
 
