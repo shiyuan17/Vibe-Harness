@@ -263,6 +263,54 @@ test('a project under the user profile keeps its own .codex path outside the glo
   }
 });
 
+test('host-managed worktrees under the Agent home are a checkout, not global configuration', () => {
+  // The host materializes its managed worktrees at
+  // `<home>/.codex/worktrees/<worktree>/<repo>`, which is a workspace checkout
+  // rather than configuration. A session rooted in one writes into its own
+  // project, so the home-relative global rule must not swallow it — while the
+  // home's real configuration and that checkout's own control-plane and
+  // red-zone paths keep their verdicts.
+  const worktree = path.join(homedir(), '.codex', 'worktrees', 'managed-worktree', 'project');
+  const decide = (overrides, { cwd = worktree, projectRoot = worktree } = {}) => analyzeToolRequest(
+    request(cwd, overrides),
+    policyOptions(projectRoot),
+  );
+
+  for (const allowed of [
+    { tool_input: { file_path: path.join(worktree, 'frontend', 'apps', 'web', 'src', 'main.ts') }, tool_name: 'Write' },
+    { tool_input: { command: `Write-Output probe > "${path.join(worktree, 'notes.md')}"` } },
+    { tool_input: { command: `rm -rf "${path.join(worktree, 'dist')}"` } },
+  ]) {
+    assert.deepEqual(decide(allowed), { action: 'allow' });
+  }
+
+  for (const relative of ['config.toml', 'hooks.json', path.join('skills', 'x', 'SKILL.md')]) {
+    const decision = decide({ tool_input: { file_path: path.join(homedir(), '.codex', relative) }, tool_name: 'Write' });
+    assert.equal(decision.reasonCode, 'GLOBAL_AGENT_CONFIG', relative);
+  }
+
+  const controlPlane = decide({
+    tool_input: { file_path: path.join(worktree, '.agents', 'runtime', 'hooks', 'lib', 'policy.mjs') },
+    tool_name: 'Write',
+  });
+  assert.equal(controlPlane.reasonCode, 'CONTROL_PLANE_WRITE');
+
+  const redZone = decide({
+    tool_input: { file_path: path.join(worktree, '.env') },
+    tool_name: 'Write',
+  });
+  assert.equal(redZone.reasonCode, 'RED_ZONE');
+
+  // A session rooted elsewhere still cannot reach into a managed worktree:
+  // cross-root writes stay project-boundary violations.
+  const elsewhere = path.join(tmpdir(), 'vibe-harness-managed-worktree-cross-root');
+  const crossRoot = decide(
+    { tool_input: { file_path: path.join(worktree, 'src', 'main.ts') }, tool_name: 'Write' },
+    { cwd: elsewhere, projectRoot: elsewhere },
+  );
+  assert.equal(crossRoot.reasonCode, 'PROJECT_BOUNDARY');
+});
+
 test('apply_patch payloads are not analysed as shell commands', async () => {
   await withProject(async (target) => {
     const tick = String.fromCharCode(96);

@@ -74,7 +74,12 @@ const VERIFY_TIERS = ['quick', 'standard', 'deep'];
 const VERIFY_SCOPES = ['affected', 'layer', 'full'];
 const DEFAULT_VERIFY_SCOPE = 'layer';
 const DEFAULT_VERIFY_TIER = 'quick';
-const LAND_LOCK_TIMEOUT_MS = 5_000;
+// A peer `worktree land` holds the shared lock across its merge, verification
+// and cleanup, so the wait budget is sized for a full landing instead of a
+// filesystem round trip: a second land retries until this deadline and only
+// then reports LAND_LOCK_TIMEOUT. The parent-owned environment knob can only
+// shorten it, which is how tests hold the lock on purpose.
+const LAND_LOCK_TIMEOUT_MS = 180_000;
 const LAND_LOCK_RETRY_MS = 50;
 // Report statuses that map to wrapper exit code 0.
 const PASS_STATUSES = ['passed', 'ready', 'planned', 'reused'];
@@ -2321,6 +2326,21 @@ async function gitCommonDir(projectDir) {
   return { ok: true, path: path.resolve(projectDir, result.stdout.trim()) };
 }
 
+/**
+ * The wall-clock budget a land waits for a peer's shared lock. Resolved per
+ * call so the parent-owned knob also applies to in-process callers; it can only
+ * shorten the deadline, never widen it. Exported as the machine-readable
+ * contract for that default and clamp.
+ *
+ * @param {NodeJS.ProcessEnv} [environment]
+ * @returns {number}
+ */
+export function landLockTimeoutMs(environment = process.env) {
+  const override = Number(environment.VIBE_HARNESS_LAND_LOCK_TIMEOUT_MS);
+  if (!Number.isFinite(override) || override <= 0) return LAND_LOCK_TIMEOUT_MS;
+  return Math.min(LAND_LOCK_TIMEOUT_MS, Math.floor(override));
+}
+
 async function withWorktreeLandLock(projectDir, action) {
   const common = await gitCommonDir(projectDir);
   if (!common.ok) {
@@ -2334,7 +2354,8 @@ async function withWorktreeLandLock(projectDir, action) {
     };
   }
   const lockPath = path.join(common.path, 'vibe-harness-worktree-land.lock');
-  const deadline = Date.now() + LAND_LOCK_TIMEOUT_MS;
+  const timeoutMs = landLockTimeoutMs();
+  const deadline = Date.now() + timeoutMs;
   let held = false;
   for (;;) {
     try {
@@ -2361,7 +2382,7 @@ async function withWorktreeLandLock(projectDir, action) {
           subcommand: 'land',
           status: 'blocked',
           code: 'LAND_LOCK_TIMEOUT',
-          blockers: [`${normalizeSlashes(lockPath)} is held by another land operation after ${LAND_LOCK_TIMEOUT_MS}ms; inspect the owner before removing the lock`],
+          blockers: [`${normalizeSlashes(lockPath)} is held by another land operation after ${timeoutMs}ms; inspect the owner before removing the lock`],
         };
       }
       await delay(LAND_LOCK_RETRY_MS);

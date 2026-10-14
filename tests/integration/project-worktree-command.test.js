@@ -9,7 +9,7 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
 import { removeTemporaryDirectory } from '../../scripts/lib/temp-cleanup.js';
-import { runCommand } from '../../runtime/commands/run.mjs';
+import { landLockTimeoutMs, runCommand } from '../../runtime/commands/run.mjs';
 import { expandMirrors, linkOrCopyMirrors, removeMirrorLinks } from '../../runtime/lib/worktree-mirrors.mjs';
 
 // `run.mjs worktree` is the installed entry point for worktree provisioning and
@@ -1374,9 +1374,21 @@ test('两个进程同时 land 同一目标时第二个因共享锁超时且不�
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
     assert.equal(existsSync(marker), true);
-    const second = await runCommand(['worktree', 'land', '--project', fixture.repo, '--write', '--json'], { cwd: fixture.repo });
+    // The default budget is sized for a full verified landing, so the test
+    // shortens the parent-owned knob instead of waiting it out (the first land
+    // is already holding the lock in its own process).
+    process.env.VIBE_HARNESS_LAND_LOCK_TIMEOUT_MS = '300';
+    let second;
+    try {
+      second = await runCommand(['worktree', 'land', '--project', fixture.repo, '--write', '--json'], { cwd: fixture.repo });
+    } finally {
+      delete process.env.VIBE_HARNESS_LAND_LOCK_TIMEOUT_MS;
+    }
     assert.equal(second.report.status, 'blocked');
     assert.equal(second.report.code, 'LAND_LOCK_TIMEOUT');
+    // The receipt names the budget the caller asked for, so a shortened wait is
+    // distinguishable from the default one.
+    assert.match(second.report.blockers.join('; '), /held by another land operation after 300ms/u);
     assert.equal(await git(fixture.repo, ['rev-list', '--count', 'feat/landing-zone']), '1');
     const firstResult = JSON.parse((await first).stdout);
     assert.equal(firstResult.status, 'passed', JSON.stringify(firstResult));
@@ -1384,6 +1396,17 @@ test('两个进程同时 land 同一目标时第二个因共享锁超时且不�
   } finally {
     await removeTemporaryDirectory(fixture.root);
   }
+});
+
+test('land 锁等待预算默认 180 秒且只能被父进程环境变量缩短', () => {
+  assert.equal(landLockTimeoutMs({}), 180_000);
+  assert.equal(landLockTimeoutMs({ VIBE_HARNESS_LAND_LOCK_TIMEOUT_MS: '300' }), 300);
+  // The knob can only shorten the wait: a wider or unusable value keeps the
+  // default instead of letting a caller extend a lock hold indefinitely.
+  assert.equal(landLockTimeoutMs({ VIBE_HARNESS_LAND_LOCK_TIMEOUT_MS: '600000' }), 180_000);
+  assert.equal(landLockTimeoutMs({ VIBE_HARNESS_LAND_LOCK_TIMEOUT_MS: 'not-a-number' }), 180_000);
+  assert.equal(landLockTimeoutMs({ VIBE_HARNESS_LAND_LOCK_TIMEOUT_MS: '0' }), 180_000);
+  assert.equal(landLockTimeoutMs({ VIBE_HARNESS_LAND_LOCK_TIMEOUT_MS: '-5' }), 180_000);
 });
 
 test('等待锁期间目标前进时以新 HEAD 创建候选并保留两项改动', async () => {
