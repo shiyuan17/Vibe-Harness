@@ -342,6 +342,7 @@ test('minimal profile installs the fallback kernel without skills', async () => 
     assert.equal(targets.includes('.codex/hooks.json'), false);
     assert.equal(targets.some((item) => item.startsWith('docs/workflows/')), false);
     assert.equal(agents.includes('codebase-memory-mcp'), false);
+    assert.equal(agents.includes('search_code'), false);
     assert.equal(agents.includes('agentmemory'), false);
   } finally {
     await rm(target, { force: true, recursive: true });
@@ -583,6 +584,7 @@ test('rendered AGENTS surface matches minimal, core, and full profile installs',
     const fullAgents = full.report.previewFiles.find((file) => file.target === 'AGENTS.md').content;
     assert.equal(minimalAgents.includes('.agents/skills/'), false);
     assert.equal(minimalAgents.includes('codebase-memory-mcp'), false);
+    assert.equal(minimalAgents.includes('search_code'), false);
     assert.equal(minimalAgents.includes('agentmemory'), false);
     assert.equal(minimalAgents.includes('docs/rules/skill-routing.md'), false);
     assert.equal(minimalAgents.includes('docs/rules/agent-skill-routing.md'), true);
