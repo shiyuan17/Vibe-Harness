@@ -6,11 +6,11 @@
 
 项目阶段、技术债与决策经本文件引用 `docs/memory/PROJECT_STATE.md` 读取，不在此复制其内容；本文件只记录任务级恢复线索。
 
-- 目标: 修复 gd-flow／lwflow 引入的 eval reference 漂移（config／rules／skills 三组），并补齐这两个显式 develop flow 的交付记录（ADR-0015、CHANGELOG 与恢复锚点），完成 codex/delivery-batch 的 PR #34 收尾批次
-- 当前状态: 本批已按序落地：先用官方入口五步再生成 eval reference 与行为产物（run status passed、overallScore 1、criticalPassRate 1、skills 文件数 135→144），再新增 ADR-0015 与四个投影、CHANGELOG Unreleased 条目与恢复锚点；按 chore(eval) → docs(adr+changelog) → docs(memory) 三批提交并推送到 codex/delivery-batch（PR #34 已有 upstream），尚未合并，也未改动规则、Skill 与 runtime 行为
-- 已验证证据: pnpm eval:check（ok true、errors 空）、pnpm eval:replay（passed）、pnpm eval:behavioral（passed）、pnpm eval:sync（drift 0）、pnpm check 全绿（含 eval-contract、adr-validation、memory-entry、memory-freshness、docs-projection）、pnpm docs:audit（143 篇）、pnpm docs:sync、pnpm pack:contract 与 git diff --check 全部通过；reference 旧文件备份于 .vibe-harness/backups/2026-10-12T11-31-32-131Z/ 与 2026-10-12T11-31-39-420Z/、2026-10-12T11-31-42-192Z/
-- 未完成事项: PR #34（codex/delivery-batch）推送后的复审、单复审者收据与合并；BL-CNAS 回灌仍被 fail-closed 拒绝（.cbmignore 与 .githooks/pre-commit、.githooks/pre-push、.codex/hooks.json 和 install-state 记录不一致，需先人工对齐受管文件）；develop → main 提升与 nightly H01–H20 背书回归；backup/governance-audit-batch 等陈旧分支清理
-- 下一步最小动作: 推送本批三提交后复核 PR #34 的检查与单复审者收据并推进合并；随后与 BL-CNAS 侧确认受管文件漂移的处理方式（对齐内容或在其仓库提交中重记基线），重跑 install --upgrade --write 与 validate 并补 hook 干跑
-- 锚点提交: 755750d6d4ac05f12faa66710f87bda3d3949f32
-- 最后更新: 2026-10-12
-- 最后验证: 2026-10-12
+- 目标: 交付工具退役批次——退役 rtk、ast-grep、codegraph、serena、probe 与 codebase-memory 的本地安装面，codebase-memory-mcp 收敛为仅分发使用规范——并按逻辑分组提交后推送到 codex/delivery-batch
+- 当前状态: 本批已按 feat(runtime)! → docs(rules+readme+changelog) → test(validation) → eval(assets) 四组提交（2b9f9f5、93533a3、c3e8f5c、b3617f0），工作区干净、尚未推送；提交前修正 tests/integration/project-profile.test.js 中残留的 core 分发旧断言（core 现随 rules-core 分发 codebase-memory-mcp 规则）；工具退役批次的状态锚点为 .vibe-harness/tasks/tool-retirement.json（stage=verify）
+- 已验证证据: pnpm check（lint、ESLint、typecheck、validate、tests:catalog check、unit、component 339/339）、pnpm test:integration（647 例、646 通过、1 跳过、0 失败）、pnpm eval:check、pnpm docs:audit（139 篇文档）与 git diff --check 通过；组件层的 memory-entry、memory-freshness 与 docs-projection 随本次 memory 更新复跑
+- 未完成事项: 本次推送与 PR #34 复审；BL-CNAS 回灌仍被 fail-closed 拒绝（.cbmignore 与 .githooks/pre-commit、.githooks/pre-push、.codex/hooks.json 和 install-state 记录不一致，需先人工对齐受管文件）；develop → main 提升与 nightly H01–H20 背书回归；backup/governance-audit-batch 等陈旧分支清理；工具退役未改动宿主 Hook 启用状态，在线 Agent 行为未验证
+- 下一步最小动作: 推送四提交后复核 PR #34 的检查与单复审者收据并推进合并；随后与 BL-CNAS 侧确认受管文件漂移的处理方式（对齐内容或在其仓库提交中重记基线），重跑 install --upgrade --write 与 validate 并补 hook 干跑
+- 锚点提交: b3617f0cd7a87701d23d582dfb55d0903aca3980
+- 最后更新: 2026-10-14
+- 最后验证: 2026-10-14
