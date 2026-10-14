@@ -342,6 +342,7 @@ test('minimal profile installs the fallback kernel without skills', async () => 
     assert.equal(targets.includes('.codex/hooks.json'), false);
     assert.equal(targets.some((item) => item.startsWith('docs/workflows/')), false);
     assert.equal(agents.includes('codebase-memory-mcp'), false);
+    assert.equal(agents.includes('search_code'), false);
     assert.equal(agents.includes('agentmemory'), false);
   } finally {
     await rm(target, { force: true, recursive: true });
@@ -368,6 +369,7 @@ test('core profile installs eleven native skills without mcp, memory, or hooks',
     assert.equal(targets.includes('.agents/skills/skill-authoring-check/SKILL.md'), false);
     assert.equal(agents.includes('通用安装'), true);
     assert.equal(agents.includes('codebase-memory-mcp'), true);
+    assert.equal(agents.includes('已索引范围内的文本检索先用 search_code'), true);
     assert.equal(agents.includes('agentmemory'), false);
     assert.equal(agents.includes('.agents/memory/'), false);
     assert.equal(agents.includes('.codex/hooks.json'), false);
@@ -403,6 +405,7 @@ test('full profile adds three domain skills and hooks without memory or tool plu
     assert.equal(fullTargets.some((item) => item.startsWith('docs/workflows/')), false);
     assert.equal(fullAgents.includes('完整能力安装'), true);
     assert.equal(fullAgents.includes('codebase-memory-mcp'), true);
+    assert.equal(fullAgents.includes('已索引范围内的文本检索先用 search_code'), true);
     assert.equal(fullAgents.includes('agentmemory'), false);
     assert.equal(fullAgents.includes('.agents/memory/'), false);
     assert.equal(fullAgents.includes('.codex/hooks.json'), true);
@@ -581,6 +584,7 @@ test('rendered AGENTS surface matches minimal, core, and full profile installs',
     const fullAgents = full.report.previewFiles.find((file) => file.target === 'AGENTS.md').content;
     assert.equal(minimalAgents.includes('.agents/skills/'), false);
     assert.equal(minimalAgents.includes('codebase-memory-mcp'), false);
+    assert.equal(minimalAgents.includes('search_code'), false);
     assert.equal(minimalAgents.includes('agentmemory'), false);
     assert.equal(minimalAgents.includes('docs/rules/skill-routing.md'), false);
     assert.equal(minimalAgents.includes('docs/rules/agent-skill-routing.md'), true);
