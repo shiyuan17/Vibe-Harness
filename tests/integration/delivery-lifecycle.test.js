@@ -877,3 +877,24 @@ test('无 registry 的 teardown 仍取锁并留下启动屏障', async () => {
     await remove(project);
   }
 });
+
+test('工作区在运行中变化时完成草稿判为 blocked 而不是缺证据', () => {
+  const delivery = resolveDelivery({}, 'managed-mr');
+  const draft = (snapshotComparison) => completionReceipt({
+    status: 'passed',
+    selectedChecks: ['test'],
+    checks: { test: { status: 'passed', command: 'node --test' } },
+    verification: {
+      snapshotComparison,
+      acceptance: { status: 'blocked', reasonCode: 'FINAL_SNAPSHOT_MISMATCH' },
+    },
+  }, delivery);
+  // A workspace that demonstrably changed under passing checks refutes the run,
+  // so the draft is `blocked` and the CLI verdict has to fail with it. Only a
+  // comparison the run could not make at all is absent evidence, which stays
+  // `unverified`; reading every mismatch as unobservable would silently make
+  // the refuting state unreachable.
+  assert.equal(draft('changed').status, 'blocked');
+  assert.equal(draft('unknown').status, 'unverified');
+  assert.equal(draft('unavailable').status, 'unverified');
+});

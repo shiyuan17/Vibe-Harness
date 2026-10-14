@@ -104,8 +104,15 @@ export function completionReceipt(report, delivery, { rollback = 'Restore the pr
   // refuting state into `invalid`, so an ordinary partial run is not reported
   // as a failed delivery.
   const absentEvidenceReasons = new Set(['DEFERRED_CHECKS', 'NO_REVIEWED_RELEVANT_CHECK']);
+  // `snapshotComparison` is `match`/`changed`/`unknown`/`unavailable`; there is
+  // no bare `mismatch` value to compare against. A `changed` workspace is what
+  // refutes attribution — the run cannot claim the results it reported — while
+  // `unknown`/`unavailable` only mean the comparison could not be made at all.
+  // Folding both into absent evidence would leave the `blocked` branch below
+  // unreachable and report a workspace that changed under passing checks as
+  // merely unverified, so `verify` would still exit ok.
   const unobservableWorkspace = acceptanceEvidence?.reasonCode === 'FINAL_SNAPSHOT_MISMATCH'
-    && report.verification?.snapshotComparison !== 'mismatch';
+    && ['unknown', 'unavailable'].includes(report.verification?.snapshotComparison);
   const evidenceAbsent = acceptanceBlocked
     && (absentEvidenceReasons.has(acceptanceEvidence?.reasonCode) || unobservableWorkspace);
   const review = report.verification?.review ?? null;
