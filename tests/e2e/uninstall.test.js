@@ -76,7 +76,7 @@ test('uninstall preserves an existing empty codebase-memory ignore file', async 
     await writeFile(path.join(target, '.cbmignore'), '', 'utf8');
     await runCli([
       'install', '--project', target, '--target', 'codex', '--profile', 'full',
-      '--plugin', 'codebase-memory', '--write', '--force', '--confirm-red-zone',
+      '--write', '--confirm-red-zone',
     ]);
 
     await runCli([

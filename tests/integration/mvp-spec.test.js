@@ -355,7 +355,9 @@ test('core profile installs eleven native skills without mcp, memory, or hooks',
     const agents = report.previewFiles.find((file) => file.target === 'AGENTS.md').content;
 
     assert.equal(targets.includes('docs/rules/governance-core.md'), true);
-    assert.equal(targets.includes('docs/rules/codebase-memory-mcp.md'), false);
+    assert.equal(targets.includes('docs/rules/codebase-memory-mcp.md'), true);
+    assert.equal(targets.some((item) => item.startsWith('.agents/runtime/tools/codebase-memory-mcp/')), false);
+    assert.equal(targets.includes('.codex/config.toml'), false);
     for (const skill of ['clarify-requirements', 'define-goal', 'task-decomposition', 'vb-git-split-push', 'vb-git-develop-flow', 'systematic-debugging', 'stale-cleanup', 'eval-driven-development', 'security-and-hardening', 'code-navigation']) {
       assert.equal(targets.includes(`.agents/skills/${skill}/SKILL.md`), true);
     }
@@ -365,7 +367,7 @@ test('core profile installs eleven native skills without mcp, memory, or hooks',
     assert.equal(targets.includes('.agents/skills/api-and-interface-design/SKILL.md'), false);
     assert.equal(targets.includes('.agents/skills/skill-authoring-check/SKILL.md'), false);
     assert.equal(agents.includes('通用安装'), true);
-    assert.equal(agents.includes('codebase-memory-mcp'), false);
+    assert.equal(agents.includes('codebase-memory-mcp'), true);
     assert.equal(agents.includes('agentmemory'), false);
     assert.equal(agents.includes('.agents/memory/'), false);
     assert.equal(agents.includes('.codex/hooks.json'), false);
@@ -383,11 +385,13 @@ test('full profile adds three domain skills and hooks without memory or tool plu
     const fullAgents = full.report.previewFiles.find((file) => file.target === 'AGENTS.md').content;
 
     assert.equal(fullTargets.length > coreTargets.length, true);
-    assert.equal(coreTargets.includes('docs/rules/codebase-memory-mcp.md'), false);
+    assert.equal(coreTargets.includes('docs/rules/codebase-memory-mcp.md'), true);
     assert.equal(coreTargets.includes('.agents/skills/agentmemory/SKILL.md'), false);
     assert.equal(coreTargets.some((item) => item.startsWith('.agents/memory/')), false);
     assert.equal(coreTargets.includes('.codex/hooks.json'), false);
-    assert.equal(fullTargets.includes('docs/rules/codebase-memory-mcp.md'), false);
+    assert.equal(fullTargets.includes('docs/rules/codebase-memory-mcp.md'), true);
+    assert.equal(fullTargets.some((item) => item.startsWith('.agents/runtime/tools/codebase-memory-mcp/')), false);
+    assert.equal(fullTargets.includes('.codex/config.toml'), false);
     assert.equal(fullTargets.includes('.agents/skills/agentmemory/SKILL.md'), false);
     assert.equal(fullTargets.includes('.agents/skills/handoff/SKILL.md'), false);
     assert.equal(fullTargets.includes('.agents/memory/README.md'), false);
@@ -398,7 +402,7 @@ test('full profile adds three domain skills and hooks without memory or tool plu
     assert.equal(fullTargets.includes('.agents/skills/runtime-cross-repo-rollout/SKILL.md'), true);
     assert.equal(fullTargets.some((item) => item.startsWith('docs/workflows/')), false);
     assert.equal(fullAgents.includes('完整能力安装'), true);
-    assert.equal(fullAgents.includes('codebase-memory-mcp'), false);
+    assert.equal(fullAgents.includes('codebase-memory-mcp'), true);
     assert.equal(fullAgents.includes('agentmemory'), false);
     assert.equal(fullAgents.includes('.agents/memory/'), false);
     assert.equal(fullAgents.includes('.codex/hooks.json'), true);
@@ -433,16 +437,16 @@ test('only the everything preset makes a full install carry linear and memory', 
     assert.equal(report.preset, 'everything');
     assert.equal(report.profile, 'full');
     assert.equal(report.requestedPlugins.includes('linear'), true);
-    assert.equal(report.requestedPlugins.length, 10);
+    assert.equal(report.requestedPlugins.length, 4);
     assert.equal(report.requestedModules.includes('memory'), true);
     assert.equal(targets.includes('docs/rules/linear-workflow.md'), true);
     assert.equal(targets.includes('.agents/skills/linear-workflow/SKILL.md'), true);
     assert.equal(targets.includes('.agents/skills/agentmemory/SKILL.md'), true);
     assert.equal(targets.includes('.agents/memory/README.md'), true);
     assert.equal(targets.includes('docs/memory/PROJECT_STATE.md'), true);
-    assert.equal(targets.includes('docs/rules/codegraph.md'), true);
-    assert.equal(targets.includes('docs/rules/serena.md'), true);
-    assert.equal(targets.includes('docs/rules/probe.md'), true);
+    assert.equal(targets.includes('docs/rules/codegraph.md'), false);
+    assert.equal(targets.includes('docs/rules/serena.md'), false);
+    assert.equal(targets.includes('docs/rules/probe.md'), false);
     assert.equal(agents.includes('agentmemory'), true);
   } finally {
     await rm(full.target, { force: true, recursive: true });
@@ -583,13 +587,13 @@ test('rendered AGENTS surface matches minimal, core, and full profile installs',
     assert.equal(minimalAgents.includes('.codex/hooks.json'), false);
     assert.equal(coreAgents.includes('.agents/skills/'), true);
     assert.equal(coreAgents.includes('通用安装'), true);
-    assert.equal(coreAgents.includes('codebase-memory-mcp'), false);
+    assert.equal(coreAgents.includes('codebase-memory-mcp'), true);
     assert.equal(coreAgents.includes('agentmemory'), false);
     assert.equal(coreAgents.includes('.agents/memory/'), false);
     assert.equal(coreAgents.includes('.codex/hooks.json'), false);
     assert.equal(fullAgents.includes('.agents/skills/'), true);
     assert.equal(fullAgents.includes('完整能力安装'), true);
-    assert.equal(fullAgents.includes('codebase-memory-mcp'), false);
+    assert.equal(fullAgents.includes('codebase-memory-mcp'), true);
     assert.equal(fullAgents.includes('agentmemory'), false);
     assert.equal(fullAgents.includes('.agents/memory/'), false);
     assert.equal(fullAgents.includes('.codex/hooks.json'), true);

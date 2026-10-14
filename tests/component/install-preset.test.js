@@ -80,7 +80,7 @@ test('everything expands to the full profile, every stable plugin, linear and me
   assert.deepEqual(expanded, {
     allowPreview: true,
     modules: ['agents', 'rules', 'templates', 'skills', 'evals', 'project-scripts', 'hooks', 'roles', 'memory'],
-    plugins: [...pluginModules, 'linear', 'codegraph', 'serena', 'probe'],
+    plugins: [...pluginModules, 'linear'],
     preset: 'everything',
     profile: 'full',
     provision: true,
@@ -89,7 +89,7 @@ test('everything expands to the full profile, every stable plugin, linear and me
   // the aggregate preset, so `everything` and `--plugin all` keep distinct
   // contracts.
   assert.deepEqual(expanded.plugins.filter((moduleId) => !pluginModules.includes(moduleId)), [
-    'linear', 'codegraph', 'serena', 'probe',
+    'linear',
   ]);
   assert.throws(() => expandInstallPreset('unknown'), /Unknown preset: unknown/u);
   assert.throws(() => parsePresetOption(''), /--preset requires a preset id/u);
@@ -102,27 +102,27 @@ test('resolveInstallSurface expands the preset and keeps explicit selection othe
   assert.equal(presetSurface.allowPreview, true);
   assert.equal(presetSurface.provision, true);
   assert.equal(presetSurface.provisionSource, 'preset');
-  assert.deepEqual(presetSurface.plugins, [...pluginModules, 'linear', 'codegraph', 'serena', 'probe']);
+  assert.deepEqual(presetSurface.plugins, [...pluginModules, 'linear']);
 
   const cliSurface = resolveInstallSurface({ args: { preset: 'everything' }, config: projectConfig({ profile: 'core' }) });
   assert.equal(cliSurface.preset, 'everything');
   assert.equal(cliSurface.profile, 'full');
 
   const explicitSurface = resolveInstallSurface({
-    args: { plugin: ['rtk'], profile: 'core' },
+    args: { plugin: ['playwright'], profile: 'core' },
     config: projectConfig({ profile: 'core' }),
   });
   assert.equal(explicitSurface.preset, null);
-  assert.deepEqual(explicitSurface.plugins, ['rtk']);
+  assert.deepEqual(explicitSurface.plugins, ['playwright']);
   assert.equal(explicitSurface.allowPreview, false);
   assert.equal(explicitSurface.provision, false);
   assert.equal(explicitSurface.provisionSource, 'none');
 
   const stateSurface = resolveInstallSurface({
     config: projectConfig({ profile: 'core' }),
-    installState: { requestedModules: ['agents'], requestedPlugins: ['ast-grep'] },
+    installState: { requestedModules: ['agents'], requestedPlugins: ['open-code-review'] },
   });
-  assert.deepEqual(stateSurface.plugins, ['ast-grep']);
+  assert.deepEqual(stateSurface.plugins, ['open-code-review']);
   assert.deepEqual(stateSurface.modules, ['agents']);
 });
 
@@ -152,7 +152,7 @@ test('preset selection rejects conflicting CLI selection and mismatched config',
 test('project config accepts the preset only on its own install surface', () => {
   assert.equal(validateProjectConfig(projectConfig({ preset: 'everything' })), true);
   assert.throws(
-    () => validateProjectConfig(projectConfig({ preset: 'everything', plugins: ['rtk'] })),
+    () => validateProjectConfig(projectConfig({ preset: 'everything', plugins: ['playwright'] })),
     /remove plugins or drop the preset/u,
   );
   assert.throws(

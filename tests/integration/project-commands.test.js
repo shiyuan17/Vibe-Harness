@@ -314,9 +314,9 @@ test('help 覆盖含 worktree、slice、patch 与 task 在内的全部项目命�
   assert.equal(result.exitCode, 0);
   assert.equal(
     result.report.usage,
-    'run.mjs <env|context|changes|verify|worktree|slice|patch|task|codebase-memory> [--project <path>] [--json]（--project 缺省为当前目录）',
+    'run.mjs <env|context|changes|verify|worktree|slice|patch|task> [--project <path>] [--json]（--project 缺省为当前目录）',
   );
-  assert.match(result.report.codebaseMemory, /codebase-memory <status\|refresh>/u);
+  assert.equal(result.report.codebaseMemory, undefined);
   assert.match(result.report.worktree, /worktree <list\|check\|bootstrap\|land\|cleanup\|recover>/u);
   assert.match(result.report.worktree, /dry-run until --write/u);
   assert.match(result.report.worktree, /land serializes writes through a shared Git common-dir lock/u);

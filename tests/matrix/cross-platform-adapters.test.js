@@ -58,45 +58,7 @@ test('installed surface joins Hook lines with newlines', () => {
   assert.doesNotMatch(surface.hooksLine, /。- /u);
 });
 
-test('rule-only tool plugins render their capability routes in the discovery line', () => {
-  const baseline = createInstalledSurface({
-    profile: 'core',
-    targets: ['AGENTS.md'],
-  });
-  assert.equal(
-    baseline.discoveryLine.startsWith(
-      '先按问题类型选工具，默认只用一个与当前问题最匹配的入口：单文件文本、配置和日志使用 rg 与直接文件阅读。',
-    ),
-    true,
-  );
-  // Freshness is reused per task/workspace, and a stale index may still be used
-  // to locate work as long as the affected facts are confirmed against source.
-  assert.equal(baseline.discoveryLine.includes('同一任务、同一工作区内已确认新鲜的索引不重复检查'), true);
-  assert.equal(baseline.discoveryLine.includes('不自动全量重建，也不把旧图当作当前事实'), true);
 
-  const surface = createInstalledSurface({
-    profile: 'core',
-    targets: ['AGENTS.md', 'docs/rules/codegraph.md', 'docs/rules/serena.md', 'docs/rules/probe.md'],
-  });
-  assert.equal(surface.discoveryLine.includes('自然语言意图检索用 probe（--max-results ≤ 50、--max-tokens ≤ 10000）'), true);
-  assert.equal(surface.discoveryLine.includes('实时 symbol、引用、定义与类型解析用 serena（同时激活 ≤ 2 个 Worktree）'), true);
-  assert.equal(surface.discoveryLine.includes('多跳调用链与影响面查询用 codegraph（默认 Base Index + Git Diff，不为每个 Worktree 重建索引）'), true);
-  // Routes follow the tier ladder (probe → serena → codegraph) with the rg fallback last.
-  const probeIndex = surface.discoveryLine.indexOf('自然语言意图检索用 probe');
-  const serenaIndex = surface.discoveryLine.indexOf('实时 symbol、引用、定义与类型解析用 serena');
-  const codegraphIndex = surface.discoveryLine.indexOf('多跳调用链与影响面查询用 codegraph');
-  const rgIndex = surface.discoveryLine.indexOf('单文件文本、配置和日志使用 rg');
-  assert.ok(probeIndex < serenaIndex && serenaIndex < codegraphIndex && codegraphIndex < rgIndex);
-
-  // Each rule-only plugin is detected independently from its rule file alone.
-  const onlyCodegraph = createInstalledSurface({
-    profile: 'core',
-    targets: ['AGENTS.md', 'docs/rules/codegraph.md'],
-  });
-  assert.equal(onlyCodegraph.discoveryLine.includes('用 codegraph'), true);
-  assert.equal(onlyCodegraph.discoveryLine.includes('用 serena'), false);
-  assert.equal(onlyCodegraph.discoveryLine.includes('用 probe'), false);
-});
 
 test('角色文件按触发场景加载，不作为常驻启动步骤', async () => {
   const surface = createInstalledSurface({
@@ -277,7 +239,7 @@ test('Antigravity structured MCP and Hook config preserves users, conflicts by n
       custom: true,
       mcpServers: {
         'custom-server': { command: 'custom' },
-        'vibe-harness-codebase-memory-mcp': { command: 'user-owned' },
+        'vibe-harness-chrome-devtools': { command: 'user-owned' },
       },
     }, null, 2) + '\n', 'utf8');
     await writeFile(hooksPath, JSON.stringify({
@@ -290,7 +252,7 @@ test('Antigravity structured MCP and Hook config preserves users, conflicts by n
     const installArgs = [
       'install', '--project', target, '--target', 'antigravity', '--profile', 'full',
       '--modules', 'agents,rules,templates,skills,evals,hooks,memory',
-      '--plugin', 'codebase-memory', '--allow-preview',
+      '--plugin', 'chrome-devtools', '--allow-preview',
     ];
 
     const preview = await run([...installArgs, '--dry-run', '--verbose']);
@@ -305,7 +267,7 @@ test('Antigravity structured MCP and Hook config preserves users, conflicts by n
     const mcp = JSON.parse(await readFile(mcpPath, 'utf8'));
     assert.equal(mcp.custom, true);
     assert.deepEqual(mcp.mcpServers['custom-server'], { command: 'custom' });
-    assert.notEqual(mcp.mcpServers['vibe-harness-codebase-memory-mcp'].command, 'user-owned');
+    assert.notEqual(mcp.mcpServers['vibe-harness-chrome-devtools'].command, 'user-owned');
     const hooks = JSON.parse(await readFile(hooksPath, 'utf8'));
     assert.equal(hooks.custom, true);
     assert.equal(hooks['vibe-harness'].UserEvent[0].hooks[0].command, 'custom');
@@ -323,7 +285,7 @@ test('Antigravity structured MCP and Hook config preserves users, conflicts by n
   }
 });
 
-test('all eight full adapters share one runtime, memory library, and root-scoped index contract', async () => {
+test('所有 full adapter 共享 runtime、记忆与受管浏览器配置', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-all-full-shared-'));
   const targets = ['codex', 'claude', 'gemini', 'cursor', 'qoder', 'zcode', 'antigravity', 'opencode'];
   try {
@@ -334,13 +296,13 @@ test('all eight full adapters share one runtime, memory library, and root-scoped
     const installed = await run([
       'install', '--project', target, '--profile', 'full',
       '--modules', 'agents,rules,templates,skills,evals,hooks,memory',
-      '--plugin', 'codebase-memory', '--allow-preview', '--write', '--confirm-red-zone',
+      '--plugin', 'chrome-devtools', '--allow-preview', '--write', '--confirm-red-zone',
     ]);
-    assert.equal(installed.plannedToolActions.filter((action) => action.id === 'codebaseMemoryMcp').length, 1);
+    assert.equal(installed.plannedToolActions.filter((action) => action.id === 'chromeDevtoolsMcp').length, 1);
 
     const state = JSON.parse(await readFile(path.join(target, '.vibe-harness/install-state.json'), 'utf8'));
     assert.equal(new Set(state.files.map((file) => file.target)).size, state.files.length);
-    const runtimeFiles = state.files.filter((file) => file.target.startsWith('.agents/runtime/tools/codebase-memory-mcp/'));
+    const runtimeFiles = state.files.filter((file) => file.target.startsWith('.agents/runtime/tools/chrome-devtools-mcp/'));
     assert.equal(runtimeFiles.length > 0, true);
     assert.equal(runtimeFiles.every((file) => file.owners.length === 1 && file.owners[0] === 'shared'), true);
     const memoryFiles = state.files.filter((file) => file.target.startsWith('.agents/memory/'));
@@ -348,18 +310,18 @@ test('all eight full adapters share one runtime, memory library, and root-scoped
     assert.equal(memoryFiles.every((file) => file.owners.length === 1 && file.owners[0] === 'shared'), true);
 
     const mcpPaths = ['.cursor/mcp.json', '.mcp.json', '.zcode/config.json', '.agents/mcp_config.json', 'opencode.json'];
-    const indexedRoots = [];
+    const updateChecks = [];
     for (const relativePath of mcpPaths) {
       const hostConfig = JSON.parse(await readFile(path.join(target, relativePath), 'utf8'));
       const serialized = JSON.stringify(hostConfig);
-      assert.match(serialized, /vibe-harness-codebase-memory-mcp/u);
+      assert.match(serialized, /vibe-harness-chrome-devtools/u);
       JSON.stringify(hostConfig, (key, value) => {
-        if (key === 'CBM_ALLOWED_ROOT') indexedRoots.push(value);
+        if (key === 'CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS') updateChecks.push(value);
         return value;
       });
     }
-    assert.equal(indexedRoots.length, mcpPaths.length);
-    assert.deepEqual([...new Set(indexedRoots)], [target]);
+    assert.equal(updateChecks.length, mcpPaths.length);
+    assert.deepEqual([...new Set(updateChecks)], ['1']);
 
     await run(['uninstall', '--project', target, '--all-targets', '--write', '--confirm-red-zone']);
   } finally {
@@ -374,9 +336,11 @@ test('doctor reports nested legacy installations without modifying them', async 
     await run(['install', '--project', target, '--profile', 'minimal', '--write']);
     const nested = path.join(target, 'packages', 'legacy-app');
     const nestedStatePath = path.join(nested, '.vibe-harness', 'install-state.json');
+    const externalIndexPath = path.join(nested, '.vibe-harness', 'tool-state', 'codebase-memory-mcp', 'graph.db');
     await mkdir(path.dirname(nestedStatePath), { recursive: true });
     await mkdir(path.join(nested, '.agents', 'runtime'), { recursive: true });
-    await mkdir(path.join(nested, '.vibe-harness', 'tool-state', 'codebase-memory-mcp'), { recursive: true });
+    await mkdir(path.dirname(externalIndexPath), { recursive: true });
+    await writeFile(externalIndexPath, 'user-owned index', 'utf8');
     await writeFile(nestedStatePath, JSON.stringify({
       adapter: 'codex',
       files: [],
@@ -393,10 +357,11 @@ test('doctor reports nested legacy installations without modifying them', async 
     assert.equal(doctor.nestedInstallations[0].path, nested);
     assert.equal(doctor.nestedInstallations[0].stateVersion, 4);
     assert.equal(doctor.nestedInstallations[0].duplicateRuntime, true);
-    assert.equal(doctor.nestedInstallations[0].duplicateIndex, true);
+    assert.equal(Object.hasOwn(doctor.nestedInstallations[0], 'duplicateIndex'), false);
     assert.equal(doctor.nestedInstallMigration.length, 4);
     assert.match(doctor.nestedInstallMigration.at(-1), /uninstall.*--all-targets --write/iu);
     assert.equal(await exists(nestedStatePath), true);
+    assert.equal(await readFile(externalIndexPath, 'utf8'), 'user-owned index');
   } finally {
     await rm(target, { force: true, recursive: true });
   }
@@ -545,11 +510,11 @@ for (const adapter of [
         if (profile === 'full') {
           await mkdir(path.dirname(path.join(target, adapter.config)), { recursive: true });
           await writeFile(path.join(target, adapter.config), '{\n  "custom": true\n}\n', 'utf8');
-          const preview = await run([...installArgs, '--plugin', 'codebase-memory', '--allow-preview', '--dry-run']);
+          const preview = await run([...installArgs, '--plugin', 'chrome-devtools', '--allow-preview', '--dry-run']);
           assert.equal(preview.actions.some((action) => action.relativeTarget === adapter.config && action.redZone), true);
-          const blocked = await fail([...installArgs, '--plugin', 'codebase-memory', '--allow-preview', '--write']);
+          const blocked = await fail([...installArgs, '--plugin', 'chrome-devtools', '--allow-preview', '--write']);
           assert.match(blocked.error.message, /red-zone confirmation/iu);
-          await run([...installArgs, '--plugin', 'codebase-memory', '--allow-preview', '--write', '--confirm-red-zone']);
+          await run([...installArgs, '--plugin', 'chrome-devtools', '--allow-preview', '--write', '--confirm-red-zone']);
         } else {
           await run([...installArgs, '--write']);
         }
@@ -560,14 +525,14 @@ for (const adapter of [
           const hostConfig = JSON.parse(await readFile(path.join(target, adapter.config), 'utf8'));
           assert.equal(hostConfig.custom, true);
           const mcpConfig = JSON.parse(await readFile(path.join(target, adapter.mcpConfig), 'utf8'));
-          assert.match(JSON.stringify(mcpConfig), /vibe-harness-codebase-memory-mcp/u);
+          assert.match(JSON.stringify(mcpConfig), /vibe-harness-chrome-devtools/u);
           assert.equal(
             adapter.skills
               ? await exists(path.join(target, adapter.skills, 'clarify-requirements', 'SKILL.md'))
               : await exists(path.join(target, '.zcode/skills')),
             Boolean(adapter.skills),
           );
-          await run([...installArgs, '--plugin', 'codebase-memory', '--allow-preview', '--write', '--upgrade', '--confirm-red-zone']);
+          await run([...installArgs, '--plugin', 'chrome-devtools', '--allow-preview', '--write', '--upgrade', '--confirm-red-zone']);
         }
 
         await run(['uninstall', '--project', target, '--all-targets', '--write', ...(profile === 'full' ? ['--confirm-red-zone'] : [])]);

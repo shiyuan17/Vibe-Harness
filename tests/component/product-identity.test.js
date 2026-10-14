@@ -83,7 +83,7 @@ test('多目标安装的默认镜像覆盖每个目标与 preset 插件面', asy
     // The install surface is the whole target list plus the preset's plugins:
     // deriving it from the first target would leave a multi-host project unable
     // to reach its own adapter and plugin files inside a worktree.
-    for (const mirror of ['.agents', '.codex', '.opencode', 'opencode.json', '.zcode', '.codegraph', '.serena/project.yml']) {
+    for (const mirror of ['.agents', '.codex', '.opencode', 'opencode.json', '.zcode']) {
       assert.ok(config.worktree.mirrors.includes(mirror), `${mirror} missing from ${JSON.stringify(config.worktree.mirrors)}`);
     }
   } finally {

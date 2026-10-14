@@ -39,7 +39,7 @@ async function runAllowIncomplete(args) {
 function installArgs(target, extra = []) {
   return [
     'install', '--project', target, '--target', 'opencode', '--profile', 'core',
-    '--plugin', 'codebase-memory', ...extra,
+    '--plugin', 'chrome-devtools', ...extra,
   ];
 }
 
@@ -134,7 +134,7 @@ test('OpenCode JSONC MCP lifecycle preserves comments, formatting, trailing comm
       '  "theme": "system",',
       '  "mcp": {',
       '    "custom": { "type": "remote", "url": "https://example.invalid" },',
-      '    "vibe-harness-codebase-memory-mcp": { "type": "local", "command": ["user-owned"] },',
+      '    "vibe-harness-chrome-devtools": { "type": "local", "command": ["user-owned"] },',
       '  },',
       '}',
       '',
@@ -154,11 +154,11 @@ test('OpenCode JSONC MCP lifecycle preserves comments, formatting, trailing comm
     const errors = [];
     const config = parse(content, errors, { allowTrailingComma: true, disallowComments: false });
     assert.deepEqual(errors, []);
-    const server = config.mcp['vibe-harness-codebase-memory-mcp'];
+    const server = config.mcp['vibe-harness-chrome-devtools'];
     assert.equal(server.type, 'local');
     assert.equal(server.command[0], process.execPath);
-    assert.match(server.command[1], /codebase-memory-mcp[\\/]run\.mjs$/u);
-    assert.equal(server.environment.CBM_ALLOWED_ROOT, target);
+    assert.match(server.command[1], /chrome-devtools-mcp[\\/]run\.mjs$/u);
+    assert.equal(server.environment.CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS, '1');
     assert.equal(server.enabled, true);
 
     const state = JSON.parse(await readFile(path.join(target, '.vibe-harness/install-state.json'), 'utf8'));
@@ -178,7 +178,7 @@ test('OpenCode JSONC MCP lifecycle preserves comments, formatting, trailing comm
     const remainingConfig = parse(remaining, [], { allowTrailingComma: true, disallowComments: false });
     assert.equal(remainingConfig.theme, 'system');
     assert.equal(Object.hasOwn(remainingConfig.mcp, 'custom'), true);
-    assert.equal(Object.hasOwn(remainingConfig.mcp, 'vibe-harness-codebase-memory-mcp'), false);
+    assert.equal(Object.hasOwn(remainingConfig.mcp, 'vibe-harness-chrome-devtools'), false);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
@@ -217,7 +217,7 @@ test('OpenCode created config is removed by rollback and uninstall while modifie
     await run([...installArgs(modifiedTarget), '--write', '--confirm-red-zone']);
     const configPath = path.join(modifiedTarget, 'opencode.json');
     const config = JSON.parse(await readFile(configPath, 'utf8'));
-    config.mcp['vibe-harness-codebase-memory-mcp'].enabled = false;
+    config.mcp['vibe-harness-chrome-devtools'].enabled = false;
     await writeFile(configPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
     const result = await runAllowIncomplete(['uninstall', '--project', modifiedTarget, '--all-targets', '--write', '--confirm-red-zone']);
     assert.deepEqual(result.skipped, [{ reason: 'managed-block-modified', target: 'opencode.json' }]);

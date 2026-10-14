@@ -9,16 +9,12 @@ import { promisify } from 'node:util';
 import { parse as parseToml } from '@iarna/toml';
 
 import { createInstallPlan, previewInstallPlan } from '../../scripts/lib/install-planner.js';
-import { codebaseMemoryCacheDir } from '../../runtime/tools/codebase-memory-mcp/cache-path.mjs';
 import { resolveOcrEndpoint } from '../../scripts/lib/ocr-config.js';
 import {
   createToolProvisioningPlan,
-  mergeManagedCbmIgnoreBlock,
   inspectProfileTools,
   mergeManagedMcpBlock,
   provisionProfileTools,
-  repairCodebaseMemoryBinary,
-  removeManagedCbmIgnoreBlock,
   runMcpHandshake,
 } from '../../scripts/lib/tool-provisioning.js';
 
@@ -37,66 +33,13 @@ const offlineEnv = {
   npm_config_offline: 'true',
 };
 const PROFILE_TOOL_MODULES = [
-  'codebase-memory',
   'playwright',
   'chrome-devtools',
   'open-code-review',
 ];
 
-// 0.11.0 prints a human-readable block by default and only wraps it in an MCP
-// envelope for `--json`; index_repository puts JSON inside that envelope while
-// index_status puts the `key: value` block there. Both shapes appear below.
-function codebaseMemoryJsonEnvelope(payload) {
-  return JSON.stringify({
-    content: [{ text: JSON.stringify(payload), type: 'text' }],
-    isError: false,
-  });
-}
-
-function codebaseMemoryTextEnvelope(fields) {
-  return JSON.stringify({
-    content: [{ text: Object.entries(fields).map(([key, value]) => `${key}: ${value}`).join('\n'), type: 'text' }],
-    isError: false,
-  });
-}
-
-async function successfulToolOutput(request, targetDir, { materializeCodebaseMemoryRuntime = true } = {}) {
-  if (request.component === 'codebaseMemoryMcp'
-    && request.phase === 'binary-install'
-    && materializeCodebaseMemoryRuntime) {
-    await seedCodebaseMemoryRuntime(request.cwd);
-  }
-  if (request.component === 'codebaseMemoryMcp' && request.phase === 'index') {
-    return {
-      stdout: codebaseMemoryJsonEnvelope({
-        edges: 13,
-        nodes: 21,
-        project: 'vibe-harness-target',
-        status: 'indexed',
-      }),
-    };
-  }
-  if (request.component === 'codebaseMemoryMcp' && request.phase === 'index-verify') {
-    return {
-      stdout: codebaseMemoryTextEnvelope({
-        edges: 13,
-        indexed_at: '2026-01-01T00:00:00Z',
-        nodes: 21,
-        project: 'vibe-harness-target',
-        root_path: path.resolve(targetDir).replaceAll('\\', '/'),
-        status: 'ready',
-      }),
-    };
-  }
+async function successfulToolOutput() {
   return { stdout: '{}' };
-}
-
-async function seedCodebaseMemoryRuntime(toolDir) {
-  const packageDir = path.join(toolDir, 'node_modules/codebase-memory-mcp');
-  const binary = process.platform === 'win32' ? 'codebase-memory-mcp.exe' : 'codebase-memory-mcp';
-  await mkdir(path.join(packageDir, 'bin'), { recursive: true });
-  await writeFile(path.join(packageDir, 'bin.js'), 'runtime shim\n', 'utf8');
-  await writeFile(path.join(packageDir, 'bin', binary), 'runtime binary\n', 'utf8');
 }
 
 async function seedChromeDevtoolsRuntime(toolDir) {
@@ -161,14 +104,14 @@ test('managed MCP block preserves local TOML and refuses duplicate unmanaged ser
   const result = mergeManagedMcpBlock(local, {
     agentmemory: { args: ['memory.mjs'], command: 'node', env: { HOME: 'project-home' } },
     'chrome-devtools': { args: ['chrome.mjs'], command: 'node', env: { CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS: '1' } },
-    'codebase-memory-mcp': { args: ['codebase.mjs'], command: 'node', env: { CBM_ALLOWED_ROOT: 'project' } },
+    'fixture-service': { args: ['fixture.mjs'], command: 'node', env: {} },
   });
 
   assert.equal(result.content.includes('model = "gpt-5"'), true);
   assert.equal(result.content.includes('command = "user-memory"'), true);
   assert.equal(result.content.includes('command = "user-chrome"'), true);
   assert.equal(result.content.includes('# VIBE_HARNESS:MCP:START'), true);
-  assert.equal(result.content.includes('[mcp_servers.codebase-memory-mcp]'), true);
+  assert.equal(result.content.includes('[mcp_servers.fixture-service]'), true);
   assert.equal(result.content.includes('[mcp_servers.chrome-devtools]'), false);
   assert.equal(result.content.includes('[mcp_servers.agentmemory]\ncommand = "node"'), false);
   assert.deepEqual(result.conflicts, ['agentmemory', 'chrome-devtools']);
@@ -251,7 +194,7 @@ test('provisioning continues after one component fails and never persists comman
       allowPreview: true,
       commandRunner: async (request) => {
         calls.push(request);
-        if (request.component === 'codebaseMemoryMcp' && request.phase === 'index') {
+        if (request.component === 'chromeDevtoolsMcp' && request.phase === 'browser-smoke') {
           throw Object.assign(new Error('token=super-secret-token failed'), {
             code: 'TOOL_COMMAND_FAILED',
             exitCode: 23,
@@ -264,7 +207,7 @@ test('provisioning continues after one component fails and never persists comman
               'tokenUri=https://token-only@example.test/resource',
               'passwordUri=https://:password-only@example.test/resource',
               'You can install manually: https://example.test/install',
-              'Try reinstalling: npm install -g codebase-memory-mcp',
+              'Try reinstalling: npm install -g chrome-devtools',
             ].join('\n'),
             stdout: 'retrying index',
           });
@@ -277,12 +220,12 @@ test('provisioning continues after one component fails and never persists comman
       targetDir,
     });
 
-    assert.equal(report.codebaseMemoryMcp.status, 'degraded');
-    assert.deepEqual(report.codebaseMemoryMcp.diagnostic, {
+    assert.equal(report.chromeDevtoolsMcp.status, 'degraded');
+    assert.deepEqual(report.chromeDevtoolsMcp.diagnostic, {
       code: 'TOOL_COMMAND_FAILED',
       exitCode: 23,
       message: 'connect ETIMEDOUT for <project>: Bearer [REDACTED]',
-      phase: 'index',
+      phase: 'browser-smoke',
       stderrTail: [
         'connect ETIMEDOUT for <project>: Bearer [REDACTED]',
         'path=<project>',
@@ -292,7 +235,7 @@ test('provisioning continues after one component fails and never persists comman
         'tokenUri=https://example.test/resource',
         'passwordUri=https://example.test/resource',
         'You can install manually: https://example.test/install',
-        'Try reinstalling: npm install -g codebase-memory-mcp',
+        'Try reinstalling: npm install -g chrome-devtools',
       ].join('\n'),
       stdoutTail: 'retrying index',
       truncated: false,
@@ -300,36 +243,6 @@ test('provisioning continues after one component fails and never persists comman
     assert.equal(report.playwrightCli.status, 'ready');
     assert.equal(report.openCodeReview.status, 'ready');
     assert.equal(calls.some((call) => call.component === 'openCodeReview' && call.phase === 'llm-test'), true);
-    const index = calls.find((call) => call.component === 'codebaseMemoryMcp' && call.phase === 'index');
-    assert.deepEqual(calls
-      .filter((call) => call.component === 'codebaseMemoryMcp')
-      .map((call) => call.phase)
-      .slice(0, 5), [
-      'dependency-install',
-      'binary-install',
-      'cache-precheck',
-      'configure-auto-index',
-      'configure-auto-watch',
-    ]);
-    const configureAutoIndex = calls.find((call) => call.component === 'codebaseMemoryMcp' && call.phase === 'configure-auto-index');
-    const configureAutoWatch = calls.find((call) => call.component === 'codebaseMemoryMcp' && call.phase === 'configure-auto-watch');
-    assert.deepEqual(configureAutoIndex.args.slice(1), ['config', 'set', 'auto_index', 'false']);
-    assert.deepEqual(configureAutoWatch.args.slice(1), ['config', 'set', 'auto_watch', 'false']);
-    assert.deepEqual(index.args.slice(1), [
-      'cli', 'index_repository',
-      '--repo-path', '.',
-      '--mode', 'moderate',
-      '--persistence', 'false',
-      '--json',
-    ]);
-    assert.equal(index.env.CBM_ALLOWED_ROOT, targetDir);
-    // The graph cache is private to the user; a project-local cache fails
-    // 0.11.0's DACL check on the usual Windows drive layout.
-    assert.equal(index.env.CBM_CACHE_DIR.startsWith(targetDir), false);
-    assert.equal(index.env.CBM_CACHE_DIR.includes('codebase-memory-mcp'), true);
-    assert.equal(path.isAbsolute(index.env.CBM_CACHE_DIR), true);
-    assert.equal(index.env.CBM_MEM_BUDGET_MB, '2048');
-    assert.equal(index.env.CBM_WORKERS, '2');
     const state = await readFile(path.join(targetDir, '.vibe-harness/tool-state/tools.json'), 'utf8');
     assert.equal(state.includes('connect ETIMEDOUT for <project>'), true);
     assert.equal(state.includes('super-secret-token'), false);
@@ -346,191 +259,9 @@ test('provisioning continues after one component fails and never persists comman
   }
 });
 
-test('codebase-memory index verification gates ready status and persists only a sanitized summary', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-index-verify-'));
-  const calls = [];
-  try {
-    const report = await provisionProfileTools({
-      commandRunner: async (request) => {
-        calls.push(request);
-        return successfulToolOutput(request, targetDir);
-      },
-      env: { OPENAI_API_KEY: 'configured' },
-      profile: 'full',
-      resolvedModules: ['codebase-memory'],
-      targetDir,
-    });
-
-    const verify = calls.find((call) => call.component === 'codebaseMemoryMcp' && call.phase === 'index-verify');
-    assert.deepEqual(verify.args.slice(1), ['cli', 'index_status', '--project', 'vibe-harness-target', '--json']);
-    assert.deepEqual(report.codebaseMemoryMcp.index, {
-      edges: 13,
-      indexedAt: '2026-01-01T00:00:00Z',
-      mode: 'moderate',
-      nodes: 21,
-      status: 'ready',
-    });
-
-    const state = await readFile(path.join(targetDir, '.vibe-harness/tool-state/tools.json'), 'utf8');
-    assert.equal(state.includes('vibe-harness-target'), false);
-    assert.equal(state.includes(targetDir), false);
-  } finally {
-    await rm(targetDir, { force: true, recursive: true });
-  }
-});
-
-test('codebase-memory 拒绝空校验输出、根路径不匹配与缺少快照时间的索引状态', async () => {
-  for (const [name, verifyOutput, expectedCode] of [
-    ['empty-output', '', 'INDEX_OUTPUT_INVALID'],
-    ['wrong-root', () => codebaseMemoryTextEnvelope({
-      edges: 13,
-      indexed_at: '2026-01-01T00:00:00Z',
-      nodes: 21,
-      root_path: 'C:/other-project',
-      status: 'ready',
-    }), 'INDEX_ROOT_MISMATCH'],
-    // The 0.9.0 `git` block is gone: `indexed_at` is the field that proves the
-    // runtime reported a real snapshot instead of reading the live HEAD.
-    ['missing-indexed-at', (caseDir) => codebaseMemoryTextEnvelope({
-      edges: 13,
-      nodes: 21,
-      root_path: path.resolve(caseDir).replaceAll('\\', '/'),
-      status: 'ready',
-    }), 'INDEX_STATUS_INVALID'],
-    ['invalid-counts', (caseDir) => codebaseMemoryTextEnvelope({
-      edges: 13,
-      indexed_at: '2026-01-01T00:00:00Z',
-      nodes: 'many',
-      root_path: path.resolve(caseDir).replaceAll('\\', '/'),
-      status: 'ready',
-    }), 'INDEX_STATUS_INVALID'],
-  ]) {
-    const targetDir = await mkdtemp(path.join(tmpdir(), `vibe-harness-index-${name}-`));
-    try {
-      const report = await provisionProfileTools({
-        commandRunner: async (request) => {
-          if (request.component === 'codebaseMemoryMcp' && request.phase === 'index-verify') {
-            return { stdout: typeof verifyOutput === 'function' ? verifyOutput(targetDir) : verifyOutput };
-          }
-          return successfulToolOutput(request, targetDir);
-        },
-        env: { OPENAI_API_KEY: 'configured' },
-        profile: 'full',
-        resolvedModules: ['codebase-memory'],
-        targetDir,
-      });
-
-      assert.equal(report.codebaseMemoryMcp.status, 'degraded');
-      assert.equal(report.codebaseMemoryMcp.phase, 'index-verify');
-      assert.equal(report.codebaseMemoryMcp.code, expectedCode);
-      const state = await readFile(path.join(targetDir, '.vibe-harness/tool-state/tools.json'), 'utf8');
-      assert.equal(state.includes('C:/other-project'), false);
-    } finally {
-      await rm(targetDir, { force: true, recursive: true });
-    }
-  }
-});
-
-test('codebase-memory rejects index output that does not identify an indexed project', async () => {
-  for (const [indexOutput, expectedCode] of [
-    ['', 'INDEX_OUTPUT_INVALID'],
-    [JSON.stringify({ status: 'indexed' }), 'INDEX_RESULT_INVALID'],
-    [JSON.stringify({ project: 'vibe-harness-target', status: 'failed' }), 'INDEX_RESULT_INVALID'],
-    // 0.11.0 wraps index_repository's JSON in the MCP envelope, so the reader
-    // has to look inside `content[0].text` before judging the result.
-    [codebaseMemoryJsonEnvelope({ project: 'vibe-harness-target', status: 'error', hint: 'no sources' }), 'INDEX_RESULT_INVALID'],
-  ]) {
-    const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-index-result-'));
-    try {
-      const report = await provisionProfileTools({
-        commandRunner: async (request) => request.component === 'codebaseMemoryMcp' && request.phase === 'index'
-          ? { stdout: indexOutput }
-          : successfulToolOutput(request, targetDir),
-        env: { OPENAI_API_KEY: 'configured' },
-        profile: 'full',
-        resolvedModules: ['codebase-memory'],
-        targetDir,
-      });
-      assert.equal(report.codebaseMemoryMcp.status, 'degraded');
-      assert.equal(report.codebaseMemoryMcp.phase, 'index');
-      assert.equal(report.codebaseMemoryMcp.code, expectedCode);
-    } finally {
-      await rm(targetDir, { force: true, recursive: true });
-    }
-  }
-});
-
-test('real codebase-memory provisioning creates a verified project-local index', {
-  skip: process.env.VIBE_HARNESS_REAL_TOOL_INTEGRATION !== '1',
-}, async (testContext) => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-index-integration-'));
-  const toolDir = path.join(targetDir, '.agents/runtime/tools/codebase-memory-mcp');
-  const runtimeSource = path.join(rootDir, 'runtime/tools/codebase-memory-mcp');
-  try {
-    const locator = process.platform === 'win32' ? ['where.exe', ['codebase-memory-mcp']] : ['which', ['codebase-memory-mcp']];
-    let systemBinary;
-    try {
-      const { stdout } = await execFileAsync(locator[0], locator[1]);
-      systemBinary = stdout.split(/\r?\n/u).map((line) => line.trim()).find(Boolean);
-      const { stdout: versionOutput } = await execFileAsync(systemBinary, ['--version']);
-      if (!versionOutput.includes('0.11.0')) {
-        testContext.skip('requires a local codebase-memory-mcp 0.11.0 binary fixture');
-        return;
-      }
-    } catch {
-      testContext.skip('requires a local codebase-memory-mcp 0.11.0 binary fixture');
-      return;
-    }
-
-    await mkdir(toolDir, { recursive: true });
-    await writeFile(path.join(targetDir, 'example.js'), 'export const indexedValue = 42;\n', 'utf8');
-    for (const file of ['package.json', 'package-lock.json', 'run.mjs', 'path-alias.mjs', 'cache-path.mjs', 'index-state.mjs', 'project-root.mjs']) {
-      await copyFile(path.join(runtimeSource, file), path.join(toolDir, file));
-    }
-
-    const report = await provisionProfileTools({
-      commandRunner: async (request) => {
-        if (request.phase === 'binary-install') {
-          const binary = process.platform === 'win32' ? 'codebase-memory-mcp.exe' : 'codebase-memory-mcp';
-          const binaryDir = path.join(toolDir, 'node_modules/codebase-memory-mcp/bin');
-          await mkdir(binaryDir, { recursive: true });
-          await copyFile(systemBinary, path.join(binaryDir, binary));
-        }
-        if (request.phase === 'mcp-handshake') {
-          await runMcpHandshake(request);
-          return { stderr: '', stdout: '' };
-        }
-        const { stderr, stdout } = await execFileAsync(request.command, request.args, {
-          cwd: request.cwd,
-          env: request.env,
-          maxBuffer: 1024 * 1024,
-          timeout: request.timeout,
-        });
-        return { stderr, stdout };
-      },
-      env: { ...process.env, VIBE_HARNESS_TOOL_TIMEOUT_MS: '60000' },
-      profile: 'full',
-      resolvedModules: ['codebase-memory'],
-      targetDir,
-    });
-    assert.equal(report.codebaseMemoryMcp.status, 'ready', JSON.stringify(report.codebaseMemoryMcp));
-    assert.equal(report.codebaseMemoryMcp.index.status, 'ready');
-    assert.equal(report.codebaseMemoryMcp.index.nodes > 0, true);
-    const state = await readFile(path.join(targetDir, '.vibe-harness/tool-state/tools.json'), 'utf8');
-    assert.equal(state.includes(targetDir), false);
-    await assert.rejects(readFile(path.join(targetDir, '.codebase-memory/graph.db.zst')), /ENOENT/u);
-  } finally {
-    await rm(targetDir, { force: true, recursive: true });
-    // The real runtime writes its graph outside the project, so this run cleans
-    // the private cache directory it created instead of leaving an orphan.
-    await rm(codebaseMemoryCacheDir(targetDir), { force: true, recursive: true });
-  }
-});
-
 test('every full-profile tool persists a sanitized diagnostic for its failed phase', async () => {
   const failures = [
-    ['codebaseMemoryMcp', 'index'],
-    ['codebaseMemoryMcp', 'index-verify'],
+    ['chromeDevtoolsMcp', 'browser-smoke'],
     ['playwrightCli', 'browser-install'],
     ['openCodeReview', 'llm-test'],
   ];
@@ -607,15 +338,15 @@ test('OCR without credentials is pending-config and inspect restores persisted s
       env: {},
       ocrHomeDir: path.join(tmpdir(), 'vibe-harness-no-ocr-config'),
       profile: 'full',
-      resolvedModules: ['codebase-memory', 'open-code-review'],
+      resolvedModules: ['chrome-devtools', 'open-code-review'],
       targetDir,
     });
-    const inspected = await inspectProfileTools('full', targetDir, ['codebase-memory', 'open-code-review']);
+    const inspected = await inspectProfileTools('full', targetDir, ['chrome-devtools', 'open-code-review']);
 
     assert.equal(report.openCodeReview.status, 'pending-config');
     assert.equal(report.openCodeReview.phase, 'llm-config');
     assert.equal(inspected.openCodeReview.status, 'pending-config');
-    assert.equal(inspected.codebaseMemoryMcp.version, '0.11.0');
+    assert.equal(inspected.chromeDevtoolsMcp.version, '1.6.0');
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }
@@ -653,83 +384,6 @@ test('unchanged OCR pending-config is reused until credentials become available'
   }
 });
 
-test('ready tools reuse package phases while codebase-memory reindexes and verifies every install', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tools-reuse-'));
-  const plan = createToolProvisioningPlan({ allowPreview: true, profile: 'full', resolvedModules: PROFILE_TOOL_MODULES, targetDir });
-  const calls = [];
-  const runner = async (request) => {
-    calls.push(request);
-    return successfulToolOutput(request, targetDir);
-  };
-  const env = { OPENAI_API_KEY: 'configured' };
-  try {
-    for (const tool of plan) {
-      await mkdir(tool.toolDir, { recursive: true });
-      await writeFile(path.join(tool.toolDir, 'package-lock.json'), `${tool.id}\n`, 'utf8');
-    }
-    await seedCodebaseMemoryRuntime(plan.find((tool) => tool.id === 'codebaseMemoryMcp').toolDir);
-    await seedChromeDevtoolsRuntime(plan.find((tool) => tool.id === 'chromeDevtoolsMcp').toolDir);
-    await provisionProfileTools({ allowPreview: true, commandRunner: runner, env, profile: 'full', resolvedModules: PROFILE_TOOL_MODULES, targetDir });
-    const firstCallCount = calls.length;
-    await provisionProfileTools({ allowPreview: true, commandRunner: runner, env, profile: 'full', resolvedModules: PROFILE_TOOL_MODULES, targetDir });
-    const repeatedCalls = calls.slice(firstCallCount);
-    assert.deepEqual(repeatedCalls.map((call) => [call.component, call.phase]), [
-      ['codebaseMemoryMcp', 'cache-precheck'],
-      ['codebaseMemoryMcp', 'configure-auto-index'],
-      ['codebaseMemoryMcp', 'configure-auto-watch'],
-      ['codebaseMemoryMcp', 'index'],
-      ['codebaseMemoryMcp', 'index-verify'],
-      ['codebaseMemoryMcp', 'mcp-handshake'],
-      ['chromeDevtoolsMcp', 'browser-smoke'],
-    ]);
-
-    const openCodeReview = plan.find((tool) => tool.id === 'openCodeReview');
-    await writeFile(path.join(openCodeReview.toolDir, 'package-lock.json'), 'changed\n', 'utf8');
-    const beforeChangedLock = calls.length;
-    await provisionProfileTools({ allowPreview: true, commandRunner: runner, env, profile: 'full', resolvedModules: PROFILE_TOOL_MODULES, targetDir });
-    const newCalls = calls.slice(beforeChangedLock);
-    assert.deepEqual(newCalls.filter((call) => call.component === 'codebaseMemoryMcp').map((call) => call.phase), [
-      'cache-precheck', 'configure-auto-index', 'configure-auto-watch', 'index', 'index-verify', 'mcp-handshake',
-    ]);
-    assert.equal(newCalls.some((call) => call.component === 'openCodeReview'), true);
-  } finally {
-    await rm(targetDir, { force: true, recursive: true });
-  }
-});
-
-test('a missing codebase-memory runtime bypasses package reuse and reinstalls before indexing', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tools-runtime-repair-'));
-  const plan = createToolProvisioningPlan({ profile: 'full', resolvedModules: ['codebase-memory'], targetDir });
-  const codebaseMemory = plan.find((tool) => tool.id === 'codebaseMemoryMcp');
-  const binary = process.platform === 'win32' ? 'codebase-memory-mcp.exe' : 'codebase-memory-mcp';
-  const calls = [];
-  const runner = async (request) => {
-    calls.push(request);
-    return successfulToolOutput(request, targetDir);
-  };
-  try {
-    for (const tool of plan) {
-      await mkdir(tool.toolDir, { recursive: true });
-      await writeFile(path.join(tool.toolDir, 'package-lock.json'), `${tool.id}\n`, 'utf8');
-    }
-    await seedCodebaseMemoryRuntime(codebaseMemory.toolDir);
-    await provisionProfileTools({ commandRunner: runner, env: { OPENAI_API_KEY: 'configured' }, profile: 'full', resolvedModules: ['codebase-memory'], targetDir });
-
-    await rm(path.join(codebaseMemory.toolDir, 'node_modules/codebase-memory-mcp/bin', binary), { force: true });
-    const beforeRepair = calls.length;
-    await provisionProfileTools({ commandRunner: runner, env: { OPENAI_API_KEY: 'configured' }, profile: 'full', resolvedModules: ['codebase-memory'], targetDir });
-
-    assert.deepEqual(calls.slice(beforeRepair)
-      .filter((call) => call.component === 'codebaseMemoryMcp')
-      .map((call) => call.phase), [
-      'dependency-install', 'binary-install', 'cache-precheck', 'configure-auto-index',
-      'configure-auto-watch', 'index', 'index-verify', 'mcp-handshake',
-    ]);
-  } finally {
-    await rm(targetDir, { force: true, recursive: true });
-  }
-});
-
 test('a missing Chrome DevTools runtime bypasses dependency reuse before browser smoke', async () => {
   const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-chrome-runtime-repair-'));
   const plan = createToolProvisioningPlan({ profile: 'full', resolvedModules: ['chrome-devtools'], targetDir });
@@ -755,99 +409,6 @@ test('a missing Chrome DevTools runtime bypasses dependency reuse before browser
   }
 });
 
-test('a successful codebase-memory binary install repairs a still-missing runtime before configuration', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tools-runtime-false-success-'));
-  const plan = createToolProvisioningPlan({ profile: 'full', resolvedModules: ['codebase-memory'], targetDir });
-  const codebaseMemory = plan.find((tool) => tool.id === 'codebaseMemoryMcp');
-  const calls = [];
-  let repairCalls = 0;
-  try {
-    await mkdir(codebaseMemory.toolDir, { recursive: true });
-    await writeFile(path.join(codebaseMemory.toolDir, 'package-lock.json'), 'codebaseMemoryMcp\n', 'utf8');
-    await mkdir(path.join(codebaseMemory.toolDir, 'node_modules/codebase-memory-mcp'), { recursive: true });
-    await writeFile(
-      path.join(codebaseMemory.toolDir, 'node_modules/codebase-memory-mcp/bin.js'),
-      'runtime shim\n',
-      'utf8',
-    );
-
-    const report = await provisionProfileTools({
-      codebaseMemoryRepair: async (spec) => {
-        repairCalls += 1;
-        await seedCodebaseMemoryRuntime(spec.toolDir);
-        return true;
-      },
-      commandRunner: async (request) => {
-        calls.push(request);
-        return successfulToolOutput(request, targetDir, { materializeCodebaseMemoryRuntime: false });
-      },
-      env: {},
-      profile: 'full',
-      resolvedModules: ['codebase-memory'],
-      targetDir,
-    });
-
-    assert.equal(report.codebaseMemoryMcp.status, 'ready');
-    assert.equal(repairCalls, 1);
-    assert.deepEqual(calls.map((call) => call.phase), [
-      'dependency-install', 'binary-install', 'cache-precheck', 'configure-auto-index',
-      'configure-auto-watch', 'index', 'index-verify', 'mcp-handshake',
-    ]);
-  } finally {
-    await rm(targetDir, { force: true, recursive: true });
-  }
-});
-
-test('codebase-memory provisioning fixes resource limits even when the parent environment overrides them', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tools-resource-defaults-'));
-  const plan = createToolProvisioningPlan({ profile: 'full', resolvedModules: ['codebase-memory'], targetDir });
-  const codebaseMemory = plan.find((tool) => tool.id === 'codebaseMemoryMcp');
-  const calls = [];
-  try {
-    await mkdir(codebaseMemory.toolDir, { recursive: true });
-    await writeFile(path.join(codebaseMemory.toolDir, 'package-lock.json'), 'codebaseMemoryMcp\n', 'utf8');
-    const report = await provisionProfileTools({
-      commandRunner: async (request) => {
-        calls.push(request);
-        if (request.phase === 'binary-install') await seedCodebaseMemoryRuntime(codebaseMemory.toolDir);
-        return successfulToolOutput(request, targetDir);
-      },
-      env: { CBM_MEM_BUDGET_MB: '99999', CBM_WORKERS: '999' },
-      profile: 'full',
-      resolvedModules: ['codebase-memory'],
-      targetDir,
-    });
-
-    assert.equal(report.codebaseMemoryMcp.status, 'ready');
-    for (const request of calls) {
-      assert.equal(request.env.CBM_MEM_BUDGET_MB, '2048');
-      assert.equal(request.env.CBM_WORKERS, '2');
-    }
-  } finally {
-    await rm(targetDir, { force: true, recursive: true });
-  }
-});
-
-test('codebase-memory PATH repair rejects an untrusted binary before copying it', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tools-untrusted-runtime-'));
-  const spec = createToolProvisioningPlan({ profile: 'full', resolvedModules: ['codebase-memory'], targetDir })[0];
-  const untrustedBinary = path.join(targetDir, 'codebase-memory-mcp.exe');
-  try {
-    await writeFile(untrustedBinary, 'untrusted binary\n', 'utf8');
-    const repaired = await repairCodebaseMemoryBinary(spec, {
-      locateBinary: async () => untrustedBinary,
-      platform: 'win32',
-    });
-    assert.equal(repaired, false);
-    await assert.rejects(
-      readFile(path.join(spec.toolDir, 'node_modules/codebase-memory-mcp/bin/codebase-memory-mcp.exe')),
-      /ENOENT/u,
-    );
-  } finally {
-    await rm(targetDir, { force: true, recursive: true });
-  }
-});
-
 test('managed MCP block is idempotent and replaces only its own previous content', () => {
   const first = mergeManagedMcpBlock('', {
     agentmemory: { args: ['old.mjs'], command: 'node', env: {} },
@@ -867,20 +428,20 @@ test('MCP configuration conflicts retain an actionable diagnostic', async () => 
   try {
     const report = await provisionProfileTools({
       commandRunner: async (request) => successfulToolOutput(request, targetDir),
-      mcpConflicts: ['codebase-memory-mcp'],
+      mcpConflicts: ['chrome-devtools'],
       env: { OPENAI_API_KEY: 'configured' },
       profile: 'full',
-      resolvedModules: ['codebase-memory'],
+      resolvedModules: ['chrome-devtools'],
       targetDir,
     });
 
-    assert.deepEqual(report.codebaseMemoryMcp.diagnostic, {
+    assert.deepEqual(report.chromeDevtoolsMcp.diagnostic, {
       code: 'MCP_CONFIG_CONFLICT',
-      message: 'An unmanaged MCP server already uses the codebase-memory-mcp name.',
+      message: 'An unmanaged MCP server already uses the chrome-devtools name.',
       phase: 'mcp-config',
       truncated: false,
     });
-    assert.equal(report.codebaseMemoryMcp.status, 'degraded');
+    assert.equal(report.chromeDevtoolsMcp.status, 'degraded');
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }
@@ -913,13 +474,13 @@ test('MCP configuration conflicts tell summary users to resolve the duplicate se
     await runCli(['init', '--project', targetDir]);
     const configPath = path.join(targetDir, '.codex/config.toml');
     await mkdir(path.dirname(configPath), { recursive: true });
-    await writeFile(configPath, '[mcp_servers.codebase-memory-mcp]\ncommand = "user-managed"\n', 'utf8');
+    await writeFile(configPath, '[mcp_servers.chrome-devtools]\ncommand = "user-managed"\n', 'utf8');
     const projectConfigPath = path.join(targetDir, 'vibe-harness.config.json');
     const projectConfig = JSON.parse(await readFile(projectConfigPath, 'utf8'));
     await writeFile(projectConfigPath, `${JSON.stringify({ ...projectConfig, profile: 'full' }, null, 2)}\n`, 'utf8');
 
     const report = await runCli(
-      ['install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--plugin', '-codebase-memory-mcp', '--write', '--provision', '--confirm-red-zone', '--allow-degraded'],
+      ['install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--plugin', '-chrome-devtools', '--write', '--provision', '--confirm-red-zone', '--allow-degraded'],
       { env: offlineEnv, timeout: 120_000 },
     );
     const summary = await runCliSummary(
@@ -927,9 +488,9 @@ test('MCP configuration conflicts tell summary users to resolve the duplicate se
       { env: offlineEnv },
     );
 
-    assert.equal(report.tools.codebaseMemoryMcp.code, 'MCP_CONFIG_CONFLICT');
-    assert.match(summary, /reason: An unmanaged MCP server already uses the codebase-memory-mcp name\./u);
-    assert.match(summary, /next: Remove or rename the unmanaged MCP server for codebaseMemoryMcp, then retry provisioning\./u);
+    assert.equal(report.tools.chromeDevtoolsMcp.code, 'MCP_CONFIG_CONFLICT');
+    assert.match(summary, /reason: An unmanaged MCP server already uses the chrome-devtools name\./u);
+    assert.match(summary, /next: Remove or rename the unmanaged MCP server for chromeDevtoolsMcp, then retry provisioning\./u);
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }
@@ -944,24 +505,19 @@ test('full install map includes project-local runtimes and managed Codex MCP con
     const fullTargets = full.actions.map((action) => action.relativeTarget);
     const coreTargets = core.actions.map((action) => action.relativeTarget);
 
-    assert.equal(fullTargets.includes('.agents/runtime/tools/codebase-memory-mcp/package-lock.json'), true);
-    assert.equal(fullTargets.includes('.cbmignore'), true);
+    assert.equal(fullTargets.includes('.cbmignore'), false);
     assert.equal(fullTargets.includes('.agents/runtime/tools/chrome-devtools-mcp/package-lock.json'), true);
     assert.equal(fullTargets.includes('.agents/runtime/tools/open-code-review/package-lock.json'), true);
     assert.equal(fullTargets.includes('.codex/config.toml'), true);
     assert.equal(coreTargets.includes('.codex/config.toml'), false);
-    assert.equal(coreTargets.some((target) => target.includes('codebase-memory-mcp/package-lock.json')), false);
-    assert.equal(full.generatedDirectories.some((item) => item.target.endsWith('codebase-memory-mcp/node_modules')), true);
+    assert.equal(coreTargets.some((target) => target.includes('chrome-devtools/package-lock.json')), false);
+    assert.equal(full.generatedDirectories.some((item) => item.target.endsWith('chrome-devtools/node_modules')), false);
     assert.equal(full.generatedDirectories.some((item) => item.target.endsWith('chrome-devtools-mcp/node_modules')), true);
-    assert.equal(full.generatedDirectories.some((item) => item.target === '.vibe-harness/tool-state/codebase-memory-mcp'), true);
+    assert.equal(full.generatedDirectories.some((item) => item.target === '.vibe-harness/tool-state/chrome-devtools'), false);
 
     const config = (await previewInstallPlan(full)).find((file) => file.target === '.codex/config.toml');
-    const cbmignore = (await previewInstallPlan(full)).find((file) => file.target === '.cbmignore');
     assert.equal(full.actions.find((action) => action.relativeTarget === '.codex/config.toml').redZone, true);
-    assert.match(config.content, /# VIBE_HARNESS:MCP:START[\s\S]*mcp_servers\.chrome-devtools[\s\S]*mcp_servers\.codebase-memory-mcp/u);
-    assert.match(config.content, /CBM_MEM_BUDGET_MB = "2048"/u);
-    assert.match(config.content, /CBM_WORKERS = "2"/u);
-    assert.match(cbmignore.content, /# VIBE_HARNESS:CBM:START[\s\S]*\/\.agents\/[\s\S]*# VIBE_HARNESS:CBM:END/u);
+    assert.match(config.content, /# VIBE_HARNESS:MCP:START[\s\S]*mcp_servers\.chrome-devtools/u);
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }
@@ -972,15 +528,14 @@ test('full CLI dry-run includes all explicitly selected stable tools', async () 
   try {
     await runCli(['init', '--project', targetDir]);
     const report = await runCli(
-      ['install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--plugin', '-codebase-memory-mcp', 'playwright-cli', 'chrome-devtools-mcp', 'open-code-review', '--dry-run'],
+      ['install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--plugin', 'playwright-cli', 'chrome-devtools-mcp', 'open-code-review', '--dry-run'],
       { env: { ...process.env, ANTHROPIC_API_KEY: '', OCR_LLM_MODEL: '', OCR_LLM_TOKEN: '', OCR_LLM_URL: '', OPENAI_API_KEY: '' } },
     );
 
     assert.deepEqual(report.plannedToolActions.map((item) => item.id), [
-      'codebaseMemoryMcp', 'playwrightCli', 'chromeDevtoolsMcp', 'openCodeReview',
+      'playwrightCli', 'chromeDevtoolsMcp', 'openCodeReview',
     ]);
     assert.deepEqual(report.deferredToolActions, []);
-    assert.equal(report.tools.codebaseMemoryMcp.status, 'pending');
     assert.equal(report.tools.playwrightCli.status, 'pending');
     assert.equal(['pending', 'pending-config'].includes(report.tools.openCodeReview.status), true);
     await assert.rejects(readFile(path.join(targetDir, '.vibe-harness/tool-state/tools.json'), 'utf8'), /ENOENT/u);
@@ -1003,47 +558,6 @@ test('tool command cancellation terminates the child before rejecting', async ()
   setTimeout(() => controller.abort(), 50);
 
   await assert.rejects(running, (error) => error.code === 'TOOL_CANCELLED');
-});
-
-test('codebase-memory ignore block preserves user rules and requires force for unmanaged files', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-cbmignore-'));
-  try {
-    const userContent = '# user rules\n/keep-private/\n';
-    await writeFile(path.join(targetDir, '.cbmignore'), userContent, 'utf8');
-
-    const blocked = await createInstallPlan({
-      dryRun: true,
-      force: false,
-      profile: 'full',
-      requestedPlugins: ['codebase-memory'],
-      rootDir,
-      targetDir,
-    });
-    assert.equal(blocked.actions.find((action) => action.relativeTarget === '.cbmignore').kind, 'conflict');
-
-    const forced = await createInstallPlan({
-      dryRun: true,
-      force: true,
-      profile: 'full',
-      requestedPlugins: ['codebase-memory'],
-      rootDir,
-      targetDir,
-    });
-    const preview = (await previewInstallPlan(forced)).find((file) => file.target === '.cbmignore');
-    assert.match(preview.content, /# user rules[\s\S]*\/keep-private\/[\s\S]*# VIBE_HARNESS:CBM:START/u);
-    assert.equal(removeManagedCbmIgnoreBlock(preview.content), userContent);
-
-    const updated = mergeManagedCbmIgnoreBlock(preview.content, '/.agents/\n/.vibe-harness/');
-    assert.equal((updated.match(/# VIBE_HARNESS:CBM:START/gu) ?? []).length, 1);
-    assert.match(updated, /\/keep-private\/[\s\S]*\/\.agents\/[\s\S]*\/\.vibe-harness\//u);
-
-    assert.throws(
-      () => mergeManagedCbmIgnoreBlock(`${preview.content}\n${preview.content}`, '/.agents/'),
-      /multiple Vibe-Harness codebase-memory ignore blocks/iu,
-    );
-  } finally {
-    await rm(targetDir, { force: true, recursive: true });
-  }
 });
 
 test('MCP handshake cancellation terminates the process and rejects as TOOL_CANCELLED', async () => {
@@ -1089,91 +603,6 @@ test('tool processes receive only base variables and tool-specific credentials',
     assert.equal(openCodeReview.env.VIBE_HARNESS_SECRET_SENTINEL, undefined);
     assert.equal(openCodeReview.env.OPENAI_API_KEY, 'ocr-only-secret');
     assert.equal(openCodeReview.env.PATH ?? openCodeReview.env.Path, process.env.PATH ?? process.env.Path);
-  } finally {
-    await rm(targetDir, { force: true, recursive: true });
-  }
-});
-
-test('codebase-memory 前检只把 DACL 拒绝当作缓存判定', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-cache-precheck-dacl-'));
-  try {
-    const calls = [];
-    const report = await provisionProfileTools({
-      commandRunner: async (request) => {
-        calls.push(request.phase);
-        if (request.component === 'codebaseMemoryMcp' && request.phase === 'cache-precheck') {
-          throw Object.assign(new Error('Tool command failed.'), {
-            code: 'TOOL_COMMAND_FAILED',
-            stderr: 'codebase-memory-mcp: secure CLI coordination could not be created (cache-private): '
-              + 'C:\\: DACL entry 0 grants mutation rights 0x00010112 to untrusted identity (Users S-1-5-32-545)',
-          });
-        }
-        return successfulToolOutput(request, targetDir);
-      },
-      env: {},
-      profile: 'full',
-      resolvedModules: ['codebase-memory'],
-      targetDir,
-    });
-
-    assert.equal(report.codebaseMemoryMcp.status, 'degraded');
-    assert.equal(report.codebaseMemoryMcp.code, 'CBM_CACHE_DIR_NOT_PRIVATE');
-    assert.equal(calls.includes('index'), false);
-  } finally {
-    await rm(targetDir, { force: true, recursive: true });
-  }
-});
-
-test('codebase-memory 前检的非 DACL 失败不降级，索引阶段仍是判定者', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-cache-precheck-skip-'));
-  try {
-    const calls = [];
-    const report = await provisionProfileTools({
-      commandRunner: async (request) => {
-        calls.push(request.phase);
-        if (request.component === 'codebaseMemoryMcp' && request.phase === 'cache-precheck') {
-          throw Object.assign(new Error('Tool command timed out.'), {
-            code: 'TOOL_TIMEOUT',
-            stderr: 'level=warn msg=mem.allocator.preloading_completed still_preloading=false',
-          });
-        }
-        return successfulToolOutput(request, targetDir);
-      },
-      env: {},
-      profile: 'full',
-      resolvedModules: ['codebase-memory'],
-      targetDir,
-    });
-
-    assert.equal(report.codebaseMemoryMcp.status, 'ready');
-    assert.equal(calls.includes('index'), true);
-    assert.equal(calls.includes('index-verify'), true);
-  } finally {
-    await rm(targetDir, { force: true, recursive: true });
-  }
-});
-
-test('codebase-memory maps allowed-root path failures to a stable diagnostic code', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-index-path-'));
-  try {
-    const report = await provisionProfileTools({
-      commandRunner: async (request) => {
-        if (request.component === 'codebaseMemoryMcp' && request.phase === 'index') {
-          throw Object.assign(new Error('repo_path is outside the allowed root'), {
-            code: 'TOOL_COMMAND_FAILED',
-            stderr: 'repo_path is outside the allowed root',
-          });
-        }
-        return successfulToolOutput(request, targetDir);
-      },
-      env: { OPENAI_API_KEY: 'configured' },
-      profile: 'full',
-      resolvedModules: ['codebase-memory'],
-      targetDir,
-    });
-
-    assert.equal(report.codebaseMemoryMcp.code, 'INDEX_PATH_OUTSIDE_ALLOWED_ROOT');
-    assert.match(report.codebaseMemoryMcp.diagnostic.message, /outside the allowed root/iu);
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }
@@ -1296,67 +725,6 @@ test('MCP browser probe reports initialize and tools/list JSON-RPC errors as pro
   }
 });
 
-test('codebase-memory automatically rebuilds a corrupt cache on the next provision attempt', async () => {
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-index-corrupt-'));
-  const calls = [];
-  try {
-    await mkdir(path.join(targetDir, '.codebase-memory'), { recursive: true });
-    await writeFile(path.join(targetDir, '.codebase-memory/graph.db.zst'), 'corrupt', 'utf8');
-    const report = await provisionProfileTools({
-      commandRunner: async (request) => {
-        calls.push(request);
-        if (request.component === 'codebaseMemoryMcp' && request.phase === 'index' && calls.filter((item) => item.phase === 'index').length === 1) {
-          throw Object.assign(new Error('index database is corrupt; needs reindex'), {
-            code: 'TOOL_COMMAND_FAILED',
-            stderr: 'index database is corrupt; needs reindex',
-          });
-        }
-        return successfulToolOutput(request, targetDir);
-      },
-      env: { OPENAI_API_KEY: 'configured' },
-      profile: 'full',
-      resolvedModules: ['codebase-memory'],
-      targetDir,
-    });
-
-    const indexCalls = calls.filter((request) => request.phase === 'index');
-    assert.equal(indexCalls.length, 2);
-    // The retry re-pins the same private cache directory it just cleared so the
-    // rebuild cannot silently fall back to another location.
-    assert.equal(indexCalls[1].env.CBM_CACHE_DIR, indexCalls[0].env.CBM_CACHE_DIR);
-    assert.equal(indexCalls[1].env.CBM_CACHE_DIR.includes('codebase-memory-mcp'), true);
-    await assert.rejects(readFile(path.join(targetDir, '.codebase-memory/graph.db.zst')), /ENOENT/u);
-    assert.equal(report.codebaseMemoryMcp.status, 'ready');
-  } finally {
-    await rm(targetDir, { force: true, recursive: true });
-  }
-});
-
-test('codebase-memory uses the same relative repo path for ASCII, spaced, and Unicode roots', async () => {
-  for (const name of ['ascii', 'space path', '中文路径']) {
-    const targetDir = await mkdtemp(path.join(tmpdir(), `vibe-harness-index-${name}-`));
-    const calls = [];
-    try {
-      await provisionProfileTools({
-        commandRunner: async (request) => {
-          calls.push(request);
-          return successfulToolOutput(request, targetDir);
-        },
-        env: { OPENAI_API_KEY: 'configured' },
-        profile: 'full',
-        resolvedModules: ['codebase-memory'],
-        targetDir,
-      });
-      const index = calls.find((request) => request.phase === 'index');
-      assert.equal(index.args[index.args.indexOf('--repo-path') + 1], '.');
-      assert.equal(index.cwd, targetDir);
-      assert.equal(index.env.CBM_ALLOWED_ROOT, targetDir);
-    } finally {
-      await rm(targetDir, { force: true, recursive: true });
-    }
-  }
-});
-
 test('OCR endpoint resolver prioritizes complete explicit credentials', async () => {
   const result = await resolveOcrEndpoint({
     env: {
@@ -1474,11 +842,6 @@ test('installed tool wrappers enforce runtime environment allowlists', async () 
       expected: { openai: 'ocr-secret' },
       runtime: 'open-code-review',
     },
-    {
-      entry: 'node_modules/codebase-memory-mcp/bin.js',
-      expected: { cbmMemory: '2048', cbmRoot: targetDir, cbmWorkers: '2' },
-      runtime: 'codebase-memory-mcp',
-    },
   ];
   try {
     for (const item of cases) {
@@ -1486,14 +849,6 @@ test('installed tool wrappers enforce runtime environment allowlists', async () 
       const entryPath = path.join(runtimeDir, item.entry);
       await mkdir(path.dirname(entryPath), { recursive: true });
       await copyFile(path.join(rootDir, `runtime/tools/${item.runtime}/run.mjs`), path.join(runtimeDir, 'run.mjs'));
-      if (item.runtime === 'codebase-memory-mcp') {
-        for (const module of ['path-alias.mjs', 'cache-path.mjs', 'index-state.mjs', 'project-root.mjs']) {
-          await copyFile(
-            path.join(rootDir, 'runtime/tools/codebase-memory-mcp', module),
-            path.join(runtimeDir, module),
-          );
-        }
-      }
       if (item.runtime === 'open-code-review') {
         await copyFile(
           path.join(rootDir, 'runtime/tools/open-code-review/ocr-config.mjs'),
@@ -1534,7 +889,7 @@ test('cancelled provisioning preserves an interrupted process marker for doctor'
         },
         env: process.env,
         profile: 'full',
-        resolvedModules: ['codebase-memory'],
+        resolvedModules: ['chrome-devtools'],
         signal: controller.signal,
         targetDir,
       }),
@@ -1544,7 +899,7 @@ test('cancelled provisioning preserves an interrupted process marker for doctor'
     const markerText = await readFile(path.join(targetDir, '.vibe-harness/tool-state/provisioning.json'), 'utf8');
     const marker = JSON.parse(markerText);
     assert.equal(marker.status, 'interrupted');
-    assert.equal(marker.currentTool, 'codebaseMemoryMcp');
+    assert.equal(marker.currentTool, 'chromeDevtoolsMcp');
     assert.equal(markerText.includes('must-not-leak'), false);
 
     const doctor = await runCli(['doctor', '--project', targetDir, '--allow-degraded']);
@@ -1562,7 +917,7 @@ test('doctor reports a stale active marker whose parent process is gone', async 
   const writeMarker = async (parentPid) => {
     await mkdir(path.dirname(markerPath), { recursive: true });
     await writeFile(markerPath, `${JSON.stringify({
-      currentTool: 'codebaseMemoryMcp',
+      currentTool: 'chromeDevtoolsMcp',
       parentPid,
       startedAt: '2026-09-19T00:00:00.000Z',
       status: 'active',
@@ -1699,7 +1054,7 @@ test('full write degrades unavailable tools and rollback removes only the manage
     await writeFile(configPath, 'model = "gpt-5"\n', 'utf8');
 
     const report = await runCli(
-      ['install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--plugin', '-codebase-memory-mcp', 'playwright-cli', 'chrome-devtools-mcp', 'open-code-review', '--write', '--provision', '--confirm-red-zone', '--allow-degraded'],
+      ['install', '--project', targetDir, '--target', 'codex', '--profile', 'full', '--plugin', 'playwright-cli', 'chrome-devtools-mcp', 'open-code-review', '--write', '--provision', '--confirm-red-zone', '--allow-degraded'],
       { env: offlineEnv, timeout: 120_000 },
     );
     const config = await readFile(configPath, 'utf8');
@@ -1728,9 +1083,9 @@ test('full write degrades unavailable tools and rollback removes only the manage
     assert.equal(doctor.status, 'degraded');
     assert.equal(doctor.ok, false);
     const degradedRecommendation = doctor.recommendations.find(
-      (recommendation) => recommendation.tool === 'codebaseMemoryMcp',
+      (recommendation) => recommendation.tool === 'chromeDevtoolsMcp',
     );
-    assert.equal(degradedRecommendation.phase, doctor.tools.codebaseMemoryMcp.phase);
+    assert.equal(degradedRecommendation.phase, doctor.tools.chromeDevtoolsMcp.phase);
     assert.equal(degradedRecommendation.action, 'retry-provision');
     assert.match(degradedRecommendation.command, /provision --project <project> --target codex --profile full --write/u);
     assert.equal(JSON.stringify(degradedRecommendation).includes(targetDir), false);
@@ -1739,7 +1094,7 @@ test('full write degrades unavailable tools and rollback removes only the manage
       ['doctor', '--project', targetDir, '--profile', 'full', '--allow-degraded', '--output', 'summary'],
       { env: offlineEnv },
     );
-    assert.match(summary, /tool: codebaseMemoryMcp/u);
+    assert.match(summary, /tool: chromeDevtoolsMcp/u);
     assert.match(summary, /phase: dependency-install/u);
     assert.match(summary, /reason: Offline test fixture\./u);
     assert.match(summary, /next: vibe-harness provision --project <project> --target codex --profile full --write/u);

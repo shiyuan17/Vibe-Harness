@@ -350,7 +350,7 @@ test('core project install renders project-specific rules without local memory l
     const projectRules = report.previewFiles.find((file) => file.target === 'docs/rules/project-specific-rules.md').content;
 
     assert.equal(targets.includes('docs/rules/project-specific-rules.md'), true);
-    assert.equal(targets.includes('docs/rules/codebase-memory-mcp.md'), false);
+    assert.equal(targets.includes('docs/rules/codebase-memory-mcp.md'), true);
     assert.equal(targets.includes('.agents/skills/agentmemory/SKILL.md'), false);
     assert.equal(targets.includes('.agents/memory/README.md'), false);
     assert.equal(targets.includes('.agents/memory/observations.md'), false);

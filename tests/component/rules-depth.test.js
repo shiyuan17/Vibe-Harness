@@ -73,10 +73,10 @@ test('OBS-RULE-001 observability guidance stays concise and enforces behavior', 
 
 test('generic rules constrain process while retaining safety boundaries', async () => {
   const names = [
-    'ai-collab-rules', 'ast-grep', 'chrome-devtools-mcp', 'codebase-memory-mcp',
-    'codegraph', 'coding-rules', 'frontend-rules', 'git-rules', 'log-management',
-    'probe', 'project-directory', 'release-rules', 'role-routing', 'rtk',
-    'serena', 'test-rules', 'troubleshooting',
+    'ai-collab-rules', 'chrome-devtools-mcp', 'codebase-memory-mcp',
+    'coding-rules', 'frontend-rules', 'git-rules', 'log-management',
+    'project-directory', 'release-rules', 'role-routing',
+    'test-rules', 'troubleshooting',
   ];
   await assertRuleAnchors(rootDir, names.map((name) => `docs/rules/${name}.md`));
 
@@ -84,24 +84,21 @@ test('generic rules constrain process while retaining safety boundaries', async 
   // is a gate a future edit could reintroduce by accident.
   const rejected = new Map([
     ['codebase-memory-mcp', /full\/internal profile|full profile.*安装/u],
-    ['codegraph', /为每个 Worktree 自动重建完整索引|索引重建无需串行/u],
     ['frontend-rules', /设计令牌系统必须存在|超过 50 项列表虚拟化|启用 CSP 与可信类型/u],
-    ['probe', /取代 `rg` 与 ast-grep|无限制全仓扫描/u],
     ['project-directory', /跨模块边界变化必须创建 ADR/u],
     ['git-rules', /一个实现任务对应一个命名分支 worktree/u],
     ['release-rules', /tgz|SHA256|npm publish/u],
-    ['serena', /优先用 serena 完成写入|serena 实例常驻所有 Worktree/u],
   ]);
   for (const [name, pattern] of rejected) {
     const content = await readFile(path.join(rootDir, 'docs/rules', name + '.md'), 'utf8');
     assert.doesNotMatch(content, pattern, name);
   }
 
-  const codegraph = await readFile(path.join(rootDir, 'docs/rules/codegraph.md'), 'utf8');
-  assert.match(codegraph, /当前源码.*视为已读/u);
-  assert.match(codegraph, /索引陈旧|变更信号/u);
-  assert.match(codegraph, /工具不可用.*回退/u);
-  assert.match(codegraph, /图关系.*源码.*行为证据/u);
+  const graphRule = await readFile(path.join(rootDir, 'docs/rules/codebase-memory-mcp.md'), 'utf8');
+  assert.match(graphRule, /当前源码/u);
+  assert.match(graphRule, /索引陈旧/u);
+  assert.match(graphRule, /工具不可用.*回退/u);
+  assert.match(graphRule, /不替代源码、测试和命令证据/u);
 
   const contributing = await readFile(path.join(rootDir, 'CONTRIBUTING.md'), 'utf8');
   assert.match(contributing, /证据层级 L0-L6.*成本档.*运行范围/u);

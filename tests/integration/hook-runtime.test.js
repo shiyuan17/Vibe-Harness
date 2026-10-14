@@ -23,7 +23,6 @@ import {
 import { analyzeToolRequest, createHostHookResult, normalizeCodexHookInput, supportedCodexHookEvents } from '../../runtime/hooks/lib/policy.mjs';
 import { validateJsonAgainstSchema } from '../../scripts/lib/schema-validation.js';
 import { HOOK_COVERAGE_LIMITATIONS } from '../../scripts/lib/runtime-diagnostics.js';
-import { inspectRtkHook, routeRtkCommand } from '../../runtime/hooks/lib/rtk.mjs';
 
 const hookCliPath = path.resolve('runtime/hooks/codex-hook.mjs');
 
@@ -227,52 +226,9 @@ test('Execution Envelope v2 is additive and reports its enforcement grade', asyn
   });
 });
 
-test('RTK hook resolves the canonical project-local runtime path', async () => {
-  await withProject(async (target) => {
-    const stateDir = path.join(target, '.vibe-harness', 'tool-state');
-    const runner = path.join(target, '.agents', 'runtime', 'tools', 'rtk', 'run.mjs');
-    const binary = path.join(target, '.agents', 'runtime', 'tools', 'rtk', 'bin', process.platform === 'win32' ? 'rtk.exe' : 'rtk');
-    await mkdir(stateDir, { recursive: true });
-    await mkdir(path.dirname(binary), { recursive: true });
-    await writeFile(path.join(stateDir, 'tools.json'), JSON.stringify({ tools: { rtk: { status: 'ready', version: '0.45.0' } } }), 'utf8');
-    await writeFile(runner, 'fixture\n', 'utf8');
-    await writeFile(binary, 'fixture\n', 'utf8');
 
-    const state = await inspectRtkHook(target, { enabled: true });
-    assert.equal(state.status, 'ready');
-    assert.equal(state.runner, runner);
-    assert.equal(state.binary, binary);
-  });
-});
 
-test('RTK routing bypasses project code-intelligence tools, interactive commands, and raw evidence', async () => {
-  const calls = [];
-  const runner = async (binary, command) => {
-    calls.push({ binary, command });
-    return { code: 0, stdout: 'rtk git status', timedOut: false };
-  };
-  const options = {
-    mode: 'guarded',
-    projectRoot: process.cwd(),
-    rtk: { binary: 'rtk', enabled: true, status: 'ready' },
-    runner,
-  };
-  for (const command of [
-    'node .agents/runtime/tools/ast-grep/run.mjs outline src',
-    'node .agents/runtime/tools/codebase-memory-mcp/run.mjs',
-    'Get-Content build.log',
-    'ssh example.test',
-  ]) {
-    const result = await routeRtkCommand({ toolInput: { command }, toolName: 'Bash' }, options);
-    assert.equal(result.action, 'allow', command);
-  }
-  assert.equal(calls.length, 0);
 
-  const routed = await routeRtkCommand({ toolInput: { command: 'git status' }, toolName: 'Bash' }, options);
-  assert.equal(routed.action, 'deny');
-  assert.match(routed.retryCommand, /runtime\/tools\/rtk\/run\.mjs/u);
-  assert.equal(calls.length, 1);
-});
 
 test('Hook supports only safety events and allows ordinary project commands', async () => {
   assert.deepEqual([...supportedCodexHookEvents].sort(), ['PermissionRequest', 'PreToolUse']);
@@ -1268,7 +1224,6 @@ test('Hook settings contain safety configuration only', async () => {
       mode: 'guarded',
       permissionPreset: null,
       redZonePaths: DEFAULT_RED_ZONE_PATHS,
-      rtkEnabled: false,
     });
   });
 });
@@ -1281,7 +1236,6 @@ test('Hook reads allowedEgressHosts from project configuration', async () => {
       mode: 'guarded',
       permissionPreset: null,
       redZonePaths: DEFAULT_RED_ZONE_PATHS,
-      rtkEnabled: false,
     });
   }, {});
   await withProject(async (target) => {
@@ -1310,7 +1264,6 @@ test('Hook settings apply repository configuration only as a restriction without
       mode: 'guarded',
       permissionPreset: null,
       redZonePaths: DEFAULT_RED_ZONE_PATHS,
-      rtkEnabled: false,
     });
   } finally {
     await rm(target, { force: true, recursive: true });
