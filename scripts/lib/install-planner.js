@@ -108,7 +108,7 @@ function toolDiscoveryLine({ hasCodebaseMemoryMcp = false, hasCodeNavigationSkil
     ? '宿主提供 codebase-memory-mcp 时，用 list_projects 匹配项目根、index_status 检查状态，并用 check_index_coverage 核对证据路径；'
     : '';
   return '先按问题类型选工具：' + skillLead + graphRoute
-    + '单文件文本、配置和日志使用 rg 与直接文件阅读。工具缺失或覆盖不足时回退当前源码；'
+    + '已索引范围内的文本检索先用 search_code，索引外、配置和日志使用 rg 与直接文件阅读。工具缺失或覆盖不足时回退当前源码；'
     + '不自动安装、升级或全量重建索引，不把 ready 或空结果当成完整覆盖证据。';
 }
 
