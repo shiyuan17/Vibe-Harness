@@ -174,7 +174,7 @@ test('退役拒绝通过目录链接删除工作区外文件', async () => {
 
 test('外部图规范覆盖注册标识、缺口、分页和无安装假设', async () => {
   const rule = await readFile(path.join(rootDir, 'docs/rules/codebase-memory-mcp.md'), 'utf8');
-  for (const token of ['list_projects', 'index_status', 'check_index_coverage', '分页', '未知工具', '不锁定版本', '不假设共享主检出索引']) assert.ok(rule.includes(token), token);
+  for (const token of ['list_projects', 'index_status', 'check_index_coverage', '分页', '未知工具', '不锁定版本', '不假设共享主检出索引', 'search_code', 'get_graph_schema', 'get_file_outline', 'compare_graphs', 'trace_call_path', '.cbmignore']) assert.ok(rule.includes(token), token);
   assert.doesNotMatch(rule, /0\.11\.0|CBM_CACHE_DIR|codebase-memory refresh|codegraph\.md/u);
   assert.equal(mcpToolPolicy('mcp__codebase_memory_mcp__search_graph'), 'read-only');
   assert.equal(mcpToolPolicy('mcp__codebase_memory_mcp__index_repository'), 'workspace-write');

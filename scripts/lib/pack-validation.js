@@ -1235,7 +1235,7 @@ export const CONTENT_QUALITY_CHECKS = [
   },
   {
     file: 'docs/rules/codebase-memory-mcp.md',
-    terms: ['规则存在不代表工具已安装', '不锁定版本', 'list_projects', 'check_index_coverage', '分页', '未知工具', '不自动安装、升级或全量重建'],
+    terms: ['规则存在不代表工具已安装', '不锁定版本', 'list_projects', 'check_index_coverage', '分页', '未知工具', '不自动安装、升级或全量重建', 'search_code', 'get_graph_schema', 'get_file_outline', 'compare_graphs', 'trace_call_path', '.cbmignore'],
   },
   {
     file: 'docs/rules/api-rules.md',
