@@ -10,7 +10,7 @@ import test from 'node:test';
 import { runCommand } from '../../runtime/commands/run.mjs';
 import { gitFingerprint } from '../../runtime/lib/git-fingerprint.mjs';
 import { deliveryProfiles, completionReceipt, resolveDelivery, validateCompletion, validateDeliveryConfig, overrideWarnings } from '../../runtime/lib/delivery.mjs';
-import { processStartIdentity, releaseServiceTeardown, serviceOwnership, startIdentityToken, teardownServices, treeGone, windowsConfirmedMembers, windowsTreeProbeCommand } from '../../runtime/lib/services.mjs';
+import { processStartIdentity, releaseServiceTeardown, serviceEndpoint, serviceOwnership, serviceSocketDirectory, startIdentityToken, teardownServices, treeGone, windowsConfirmedMembers, windowsTreeProbeCommand } from '../../runtime/lib/services.mjs';
 
 function git(project, ...args) {
   return execFileSync('git', args, { cwd: project, encoding: 'utf8', windowsHide: true }).trim();
@@ -640,7 +640,11 @@ test('服务登记身份一致时才回收进程树', async () => {
 test('冒名端点回答 stopped 时不作为回收证据', async () => {
   const { project } = await fixture();
   const child = spawnDetachedFixture();
-  const endpoint = unreachableEndpoint();
+  // The recorded endpoint lives in this user's socket directory: anything else
+  // is rejected as un-publishable before it is ever asked, so an impostor that
+  // bound one of those would exercise the rejection path instead of this one.
+  const endpoint = serviceEndpoint();
+  await mkdir(serviceSocketDirectory(), { recursive: true, mode: 0o700 });
   const impostor = createServer((socket) => { socket.end(`${JSON.stringify({ status: 'stopped' })}\n`); });
   try {
     await new Promise((resolve, reject) => {

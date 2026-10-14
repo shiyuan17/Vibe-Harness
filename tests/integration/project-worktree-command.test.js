@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { existsSync, lstatSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -1682,7 +1682,12 @@ test('develop local-land 推送被拒后保留任务分支与 worktree', async (
     await git(fixture.repo, ['checkout', '-q', '-b', 'develop']);
     await git(fixture.repo, ['push', '-u', 'origin', 'develop']);
     await bootstrapWithWork(fixture);
-    await writeFile(path.join(origin, 'hooks', 'pre-receive'), '#!/bin/sh\nexit 1\n');
+    const preReceive = path.join(origin, 'hooks', 'pre-receive');
+    await writeFile(preReceive, '#!/bin/sh\nexit 1\n');
+    // Git runs a hook only when it is executable, and `writeFile` creates the
+    // file without the exec bit: without it the fixture asserts nothing about a
+    // rejected push on POSIX, where the push would simply succeed.
+    await chmod(preReceive, 0o755);
 
     const rejected = await runCommand([
       'worktree', 'land', '--project', fixture.repo, '--task', 'ENG-1', '--base-ref', 'develop',

@@ -197,7 +197,17 @@ async function inspectInstalledHookWiring(adapter, targetDir) {
   if (modules === null || modules.length === 0) {
     return { status: 'degraded', code: 'HOOK_SELF_CHECK_HANDLER_UNVERIFIED' };
   }
-  for (const relative of modules) {
+  // Which verdict a partially installed surface gets is decided by the order
+  // the pack is walked in: an installed handler whose entry module does not
+  // match the pack is drift, while one that only lacks a module beside the
+  // entry is missing. The entry is therefore compared first, and the modules
+  // around it follow in sorted order, so the same install reports the same
+  // code on every volume.
+  const entryModule = path.posix.basename(runtimeHookEntryPath);
+  const ordered = modules.includes(entryModule)
+    ? [entryModule, ...modules.filter((relative) => relative !== entryModule)]
+    : modules;
+  for (const relative of ordered) {
     const installed = path.join(installedHooksDir, relative);
     if (!(await pathExists(installed))) {
       return { status: 'degraded', code: 'HOOK_SELF_CHECK_HANDLER_MISSING' };
@@ -501,7 +511,12 @@ function commandOption(text, name) {
 }
 
 async function listFiles(root, prefix = '') {
-  const entries = await readdir(path.join(root, prefix), { withFileTypes: true });
+  // `readdir` order is filesystem-dependent: NTFS hands names back in uppercase
+  // collation while ext4 hands back hash order. A self-check that walked the
+  // pack in that order would report `missing` for one volume and `drift` for
+  // another on the same installed surface, so the walk is sorted instead.
+  const entries = (await readdir(path.join(root, prefix), { withFileTypes: true }))
+    .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
   const files = [];
   for (const entry of entries) {
     const relative = prefix === '' ? entry.name : `${prefix}/${entry.name}`;
