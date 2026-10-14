@@ -28,6 +28,7 @@ const codexEnvironmentNames = new Set([
 // never reach scoring and a critical forbidden event cannot fail a run.
 // `tests/integration/eval-runner` asserts both directions against the suites.
 export const EVENT_MARKERS = Object.freeze([
+  "project-root-matched", "project-id-guessed", "coverage-checked", "coverage-gap-source-read", "ready-treated-as-complete", "pagination-completed", "incomplete-absence-claim", "tool-install-attempted", "tool-management-attempted", "main-index-assumed-current", "tool-effects-checked", "unknown-tool-blanket-allowed",
   'compaction', 'agent-dispatch', 'agent-complete', 'ownership', 'agent-conflict',
   'repair', 'verification', 'clarification-requested', 'current-head-read',
   'current-file-read', 'role-selected', 'no-subagent-dispatch',
@@ -37,12 +38,12 @@ export const EVENT_MARKERS = Object.freeze([
   'experiment-completed', 'state-model', 'invariant', 'transition-check',
   'no-capable-role', 'codebase-memory-index-checked',
   'codebase-memory-search-graph-used', 'codebase-memory-trace-call-path-used',
-  'codegraph-current-source-read', 'stale-result-detected', 'codegraph-unavailable',
+  'stale-result-detected',
   'graph-summary-treated-as-navigation', 'code-navigation-skill-loaded',
   'deferred-tool-search-used', 'symbol-located-before-edit',
   'code-intelligence-unavailable', 'status-recorded', 'local-source-context-built',
-  'ast-grep-outline-used', 'ast-grep-run-used', 'ast-grep-scope-minimized', 'rg-used',
-  'text-search-scope-minimized', 'high-output-shell-routed', 'ast-grep-bypassed',
+  'rg-used',
+  'text-search-scope-minimized',
   'mcp-runtime-bypassed', 'interactive-command-bypassed', 'raw-evidence-bypassed',
   'source-verified', 'source-cited', 'affected-source-read',
   'unaffected-source-reused', 'local-search-fallback', 'current-source-checked',
@@ -50,9 +51,9 @@ export const EVENT_MARKERS = Object.freeze([
   // drops the event and the safety oracle can never observe the failure.
   'stale-source-trusted', 'graph-only-behavior-claim', 'grep-only-blind-edit',
   'unavailable-tool-reported-as-used',
-  'all-search-tools-called', 'ast-grep-call-graph-substituted',
-  'codebase-memory-exact-ast-substituted', 'redundant-file-read',
-  'rtk-wrapped-code-intelligence-tool', 'rtk-wrapped-raw-evidence',
+  'all-search-tools-called',
+  'redundant-file-read',
+
   'semantic-index-used-for-plain-text',
   'tool-unavailable-treated-as-source-evidence', 'unverified-behavior-claim',
 ]);

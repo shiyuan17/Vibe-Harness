@@ -10,7 +10,6 @@ import { evaluateFrozenTestWrite } from './lib/frozen-test-writes.mjs';
 import { classifyExecutionEffects, evaluateExecutionEnvelope } from './lib/execution-envelope.mjs';
 import { analyzeToolRequest, commandFrom, createHostHookResult, normalizeHostHookInput } from './lib/policy.mjs';
 import { isReadOnlyToolName } from './lib/read-only-commands.mjs';
-import { inspectRtkHook, routeRtkCommand } from './lib/rtk.mjs';
 
 const execFileAsync = promisify(execFile);
 const MAX_INPUT_BYTES = 1024 * 1024;
@@ -132,7 +131,7 @@ async function evaluateSyncWorkingTreeGuard(input) {
 
 /**
  * @param {unknown} rawInput
- * @param {{environment?: NodeJS.ProcessEnv, expectedEvent?: string | null, host?: string, now?: number | Date, telemetry?: (event: {host: string, event: string | null, action: string, reasonCode?: string | null, durationMs: number, startupMs: number | null, policyMs: number | null, timeout: boolean, failure: string | null}) => void, rtkRunner?: (binary: string, command: string, options?: {cwd?: string, maxOutputBytes?: number, timeoutMs?: number}) => Promise<Record<string, any>>}} options
+ * @param {{environment?: NodeJS.ProcessEnv, expectedEvent?: string | null, host?: string, now?: number | Date, telemetry?: (event: {host: string, event: string | null, action: string, reasonCode?: string | null, durationMs: number, startupMs: number | null, policyMs: number | null, timeout: boolean, failure: string | null}) => void}} options
  */
 export async function evaluateHook(rawInput, {
   environment = process.env,
@@ -140,7 +139,6 @@ export async function evaluateHook(rawInput, {
   host = 'codex',
   now,
   telemetry,
-  rtkRunner,
 } = {}) {
   const startedAt = process.hrtime.bigint();
   const elapsedMs = () => Number((process.hrtime.bigint() - startedAt) / 1_000_000n);
@@ -199,7 +197,7 @@ export async function evaluateHook(rawInput, {
   startupAt = process.hrtime.bigint();
   // Read-only tools with no command payload can never reach a deny verdict in
   // policy (the write gate misses them), the envelope (read-only
-  // classification) or RTK routing (empty command), so they skip project-root
+  // classification), so they skip project-root
   // resolution and settings loading. The cwd check above still fails closed
   // first, and this answer matches createHostHookResult's allow shape for
   // every host.
@@ -258,17 +256,10 @@ export async function evaluateHook(rawInput, {
   }
   if (host !== 'codex') return emitTelemetry({}, { action: 'allow' });
 
-  const rtk = await inspectRtkHook(rootDir, { enabled: settings.rtkEnabled });
-  const rtkDecision = await routeRtkCommand(input, {
-    mode: settings.mode,
-    projectRoot: rootDir,
-    rtk,
-    ...(rtkRunner ? { runner: rtkRunner } : {}),
-  });
-  return emitTelemetry(createHostHookResult(host, input.event, rtkDecision, { durationMs: elapsedMs() }), rtkDecision);
+  return emitTelemetry(createHostHookResult(host, input.event, safetyDecision, { durationMs: elapsedMs() }), safetyDecision);
 }
 
-/** @param {unknown} rawInput @param {{environment?: NodeJS.ProcessEnv, expectedEvent?: string | null, now?: number | Date, rtkRunner?: (binary: string, command: string, options?: {cwd?: string, maxOutputBytes?: number, timeoutMs?: number}) => Promise<Record<string, any>>}} options */
+/** @param {unknown} rawInput @param {{environment?: NodeJS.ProcessEnv, expectedEvent?: string | null, now?: number | Date}} options */
 export async function evaluateCodexHook(rawInput, options = {}) {
   return evaluateHook(rawInput, { ...options, host: 'codex' });
 }

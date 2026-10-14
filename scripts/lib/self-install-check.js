@@ -33,10 +33,6 @@ export async function checkSelfInstallConformance(rootDir, { targetDir = rootDir
   const renderData = { ...config, profile, projectProfile, targets, validationCommands };
   const requestedModules = config.modules ?? installState.requestedModules;
   const requestedPlugins = config.plugins ?? installState.requestedPlugins ?? [];
-  const rtkHooksEnabled = requestedPlugins.includes('rtk')
-    && (Object.hasOwn(config.hooks?.rtk ?? {}, 'enabled')
-      ? Boolean(config.hooks.rtk.enabled)
-      : Boolean(installState.rtkHooksEnabled));
   const planOptions = {
     allowPreview: true,
     managedAgentsBlock: true,
@@ -45,7 +41,6 @@ export async function checkSelfInstallConformance(rootDir, { targetDir = rootDir
     requestedModules,
     requestedPlugins,
     rootDir,
-    rtkHooksEnabled,
     selectedTargets: targets,
     targetDir,
     targets,

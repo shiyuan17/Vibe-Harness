@@ -1,3 +1,4 @@
+import { assertActiveToolSelection } from './retired-tools.js';
 import {
   assertPluginProviderCatalog,
   pluginProviderCatalog,
@@ -18,13 +19,7 @@ export const moduleCatalog = {
   memory: { dependencies: ['skills'], groups: ['templates-memory', 'skills-memory'] },
   playwright: { dependencies: ['skills'], groups: ['skills-browser', 'tools-playwright'] },
   'chrome-devtools': { dependencies: ['skills'], groups: ['rules-chrome-devtools', 'skills-browser', 'tools-chrome-devtools', 'mcp-config'] },
-  'codebase-memory': { dependencies: ['agents', 'rules'], groups: ['rules-codebase-memory', 'tools-codebase-memory', 'mcp-config'] },
   'open-code-review': { dependencies: ['skills'], groups: ['tools-open-code-review'] },
-  rtk: { dependencies: ['agents', 'rules'], groups: ['rules-rtk', 'tools-rtk'] },
-  'ast-grep': { dependencies: ['agents', 'rules'], groups: ['rules-ast-grep', 'tools-ast-grep'] },
-  codegraph: { dependencies: ['agents', 'rules'], groups: ['rules-codegraph'] },
-  serena: { dependencies: ['agents', 'rules'], groups: ['rules-serena'] },
-  probe: { dependencies: ['agents', 'rules'], groups: ['rules-probe'] },
   linear: { dependencies: ['skills'], groups: ['rules-linear', 'skills-linear', 'templates-linear', 'mcp-config'] },
   'linear-readonly': { dependencies: ['skills'], groups: ['rules-linear', 'skills-linear', 'templates-linear', 'mcp-config'] },
   hooks: { dependencies: ['agents'], groups: ['hooks'] },
@@ -74,6 +69,7 @@ export function parsePluginsOption(value) {
     return [];
   }
   const plugins = tokens.map((token) => {
+    assertActiveToolSelection(token);
     const plugin = pluginProviderForAlias(token)?.moduleId;
     if (!plugin) throw new Error(`Unknown plugin: ${token}`);
     return plugin;
@@ -101,6 +97,7 @@ function validateModules(requestedModules) {
   const unique = new Set(requestedModules);
   if (unique.size !== requestedModules.length) throw new Error('modules contains a duplicate module.');
   for (const id of requestedModules) {
+    assertActiveToolSelection(id);
     if (!Object.hasOwn(moduleCatalog, id)) throw new Error(`Unknown module: ${id}`);
   }
 }
@@ -120,14 +117,13 @@ function resolveDependencies(moduleIds) {
   return selected;
 }
 
-/** @param {{profile?: string, profileGroups?: string[], requestedModules?: string[], requestedPlugins?: any, rolesEnabled?: boolean, rtkHooksEnabled?: boolean}} options */
+/** @param {{profile?: string, profileGroups?: string[], requestedModules?: string[], requestedPlugins?: any, rolesEnabled?: boolean}} options */
 export function resolveModuleSelection({
   profile,
   profileGroups = [],
   requestedModules,
   requestedPlugins,
   rolesEnabled,
-  rtkHooksEnabled = false,
 }) {
   const customModules = requestedModules !== undefined && requestedModules !== null;
   if (customModules) validateModules(requestedModules);
@@ -150,12 +146,8 @@ export function resolveModuleSelection({
   if (conflict) {
     throw new Error(conflict[0].cliName + ' and ' + conflict[1].cliName + ' are mutually exclusive.');
   }
-  if (rtkHooksEnabled && !plugins.includes('rtk')) {
-    throw new Error('RTK hook integration requires the rtk plugin. Select --plugin -rtk.');
-  }
   const pluginSelection = resolveDependencies(plugins);
-  const integrationSelection = resolveDependencies(rtkHooksEnabled ? ['hooks'] : []);
-  const selected = new Set([...baseSelection, ...pluginSelection, ...integrationSelection]);
+  const selected = new Set([...baseSelection, ...pluginSelection]);
   const resolvedModules = Object.keys(moduleCatalog).filter((id) => selected.has(id));
   const requested = new Set(customModules ? requestedModules : baseModules);
   const allowedGroups = customModules || profileGroups.length === 0
@@ -164,7 +156,6 @@ export function resolveModuleSelection({
   if (baseSelection.has('roles')) allowedGroups.add('roles');
   else allowedGroups.delete('roles');
   for (const group of [...pluginSelection].flatMap((id) => moduleCatalog[id].groups)) allowedGroups.add(group);
-  for (const group of [...integrationSelection].flatMap((id) => moduleCatalog[id].groups)) allowedGroups.add(group);
   return {
     allowedGroups,
     implicitModules: resolvedModules.filter((id) => !requested.has(id) && !plugins.includes(id)),

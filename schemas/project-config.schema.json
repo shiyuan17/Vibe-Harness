@@ -2,39 +2,114 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Vibe-Harness 项目配置",
   "type": "object",
-  "required": ["projectName", "language", "packageManager", "profile", "validationCommands"],
+  "required": [
+    "projectName",
+    "language",
+    "packageManager",
+    "profile",
+    "validationCommands"
+  ],
   "properties": {
-    "projectName": { "type": "string", "minLength": 1 },
+    "projectName": {
+      "type": "string",
+      "minLength": 1
+    },
     "forbiddenProjectTerms": {
       "type": "array",
-      "items": { "type": "string", "minLength": 1 },
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
       "uniqueItems": true
     },
-    "language": { "type": "string", "enum": ["zh-CN", "en-US"] },
-    "packageManager": { "type": "string", "minLength": 1 },
-    "target": { "type": "string", "enum": ["codex", "claude", "gemini", "cursor", "qoder", "zcode", "antigravity", "opencode"] },
+    "language": {
+      "type": "string",
+      "enum": [
+        "zh-CN",
+        "en-US"
+      ]
+    },
+    "packageManager": {
+      "type": "string",
+      "minLength": 1
+    },
+    "target": {
+      "type": "string",
+      "enum": [
+        "codex",
+        "claude",
+        "gemini",
+        "cursor",
+        "qoder",
+        "zcode",
+        "antigravity",
+        "opencode"
+      ]
+    },
     "targets": {
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": { "type": "string", "enum": ["codex", "claude", "gemini", "cursor", "qoder", "zcode", "antigravity", "opencode"] }
+      "items": {
+        "type": "string",
+        "enum": [
+          "codex",
+          "claude",
+          "gemini",
+          "cursor",
+          "qoder",
+          "zcode",
+          "antigravity",
+          "opencode"
+        ]
+      }
     },
-    "profile": { "type": "string", "enum": ["minimal", "core", "full", "docs-only"] },
+    "profile": {
+      "type": "string",
+      "enum": [
+        "minimal",
+        "core",
+        "full",
+        "docs-only"
+      ]
+    },
     "delivery": {
       "type": "object",
-      "required": ["default", "profiles"],
+      "required": [
+        "default",
+        "profiles"
+      ],
       "properties": {
-        "default": { "type": "string", "minLength": 1 },
+        "default": {
+          "type": "string",
+          "minLength": 1
+        },
         "profiles": {
           "type": "object",
           "additionalProperties": {
             "type": "object",
-            "required": ["requireReceipt"],
+            "required": [
+              "requireReceipt"
+            ],
             "properties": {
-              "merge": { "enum": ["squash", "no-ff"] },
-              "cleanup": { "enum": ["evidence-compatible", "ancestor"] },
-              "requireReceipt": { "type": "boolean" },
-              "write": { "type": "boolean" }
+              "merge": {
+                "enum": [
+                  "squash",
+                  "no-ff"
+                ]
+              },
+              "cleanup": {
+                "enum": [
+                  "evidence-compatible",
+                  "ancestor"
+                ]
+              },
+              "requireReceipt": {
+                "type": "boolean"
+              },
+              "write": {
+                "type": "boolean"
+              }
             },
             "additionalProperties": false
           }
@@ -42,30 +117,106 @@
       },
       "additionalProperties": false
     },
-    "preset": { "type": "string", "enum": ["everything"] },
+    "preset": {
+      "type": "string",
+      "enum": [
+        "everything"
+      ]
+    },
     "modules": {
       "type": "array",
-      "items": { "type": "string", "minLength": 1 },
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
       "uniqueItems": true
     },
     "plugins": {
       "type": "array",
-      "items": { "type": "string", "enum": ["rtk", "ast-grep", "codebase-memory", "chrome-devtools", "playwright", "open-code-review", "codegraph", "serena", "probe"] },
+      "items": {
+        "type": "string",
+        "enum": [
+          "chrome-devtools",
+          "playwright",
+          "open-code-review"
+        ]
+      },
       "uniqueItems": true
     },
     "validationCommands": {
       "type": "object",
       "properties": {
-        "lint": { "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }] },
-        "typecheck": { "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }] },
-        "test": { "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }] },
-        "eval": { "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }] },
+        "lint": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "typecheck": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "test": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "eval": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "tiers": {
           "type": "object",
           "properties": {
-            "quick": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
-            "standard": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
-            "deep": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+            "quick": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            },
+            "standard": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            },
+            "deep": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            }
           },
           "additionalProperties": false
         },
@@ -74,20 +225,53 @@
           "uniqueItems": true,
           "items": {
             "type": "object",
-            "required": ["id"],
+            "required": [
+              "id"
+            ],
             "properties": {
-              "id": { "type": "string", "minLength": 1 },
-              "command": { "type": "string", "minLength": 1 },
-              "cwd": { "type": "string", "minLength": 1 },
-              "layer": { "type": "string", "minLength": 1 },
-              "costTier": { "type": "string", "enum": ["quick", "standard", "deep"] },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "command": {
+                "type": "string",
+                "minLength": 1
+              },
+              "cwd": {
+                "type": "string",
+                "minLength": 1
+              },
+              "layer": {
+                "type": "string",
+                "minLength": 1
+              },
+              "costTier": {
+                "type": "string",
+                "enum": [
+                  "quick",
+                  "standard",
+                  "deep"
+                ]
+              },
               "scopes": {
                 "type": "array",
                 "uniqueItems": true,
-                "items": { "type": "string", "enum": ["affected", "layer", "full"] }
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "affected",
+                    "layer",
+                    "full"
+                  ]
+                }
               },
-              "estimatedDurationMs": { "type": "integer", "minimum": 0 },
-              "deterministic": { "type": "boolean" }
+              "estimatedDurationMs": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "deterministic": {
+                "type": "boolean"
+              }
             },
             "additionalProperties": false
           }
@@ -97,29 +281,134 @@
           "uniqueItems": true,
           "items": {
             "type": "object",
-            "required": ["id"],
+            "required": [
+              "id"
+            ],
             "properties": {
-              "id": { "type": "string", "minLength": 1 },
-              "command": { "type": "string", "minLength": 1 },
-              "kind": { "type": "string", "enum": ["module", "rule", "pure"] },
-              "entry": { "type": "string", "minLength": 1, "pattern": "^(?![A-Za-z]:)(?![/\\\\])[^\\\\]*$" },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "command": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "module",
+                  "rule",
+                  "pure"
+                ]
+              },
+              "entry": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^(?![A-Za-z]:)(?![/\\\\])[^\\\\]*$"
+              },
               "args": {},
-              "costTier": { "type": "string", "enum": ["quick", "standard", "deep"] },
-              "scopes": { "type": "array", "uniqueItems": true, "items": { "type": "string", "enum": ["affected", "layer", "full"] } },
-              "maxDurationMs": { "type": "integer", "minimum": 1, "maximum": 120000 },
-              "maxOutputBytes": { "type": "integer", "minimum": 256, "maximum": 1048576 },
-              "outputLimit": { "type": "integer", "minimum": 256, "maximum": 1048576 },
-              "deterministic": { "type": "boolean" },
-              "network": { "type": "string", "enum": ["deny"] },
-              "workspaceWrite": { "type": "string", "enum": ["deny"] },
-              "allowedEnv": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" } },
-              "expectedExitCodes": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "integer" } },
-              "promotableTo": { "type": ["string", "null"], "enum": ["unit", "probe", null] },
-              "environment": { "type": "string", "enum": ["cold", "warm"] }
+              "costTier": {
+                "type": "string",
+                "enum": [
+                  "quick",
+                  "standard",
+                  "deep"
+                ]
+              },
+              "scopes": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "affected",
+                    "layer",
+                    "full"
+                  ]
+                }
+              },
+              "maxDurationMs": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 120000
+              },
+              "maxOutputBytes": {
+                "type": "integer",
+                "minimum": 256,
+                "maximum": 1048576
+              },
+              "outputLimit": {
+                "type": "integer",
+                "minimum": 256,
+                "maximum": 1048576
+              },
+              "deterministic": {
+                "type": "boolean"
+              },
+              "network": {
+                "type": "string",
+                "enum": [
+                  "deny"
+                ]
+              },
+              "workspaceWrite": {
+                "type": "string",
+                "enum": [
+                  "deny"
+                ]
+              },
+              "allowedEnv": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "pattern": "^[A-Z][A-Z0-9_]*$"
+                }
+              },
+              "expectedExitCodes": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": "integer"
+                }
+              },
+              "promotableTo": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "unit",
+                  "probe",
+                  null
+                ]
+              },
+              "environment": {
+                "type": "string",
+                "enum": [
+                  "cold",
+                  "warm"
+                ]
+              }
             },
             "anyOf": [
-              { "required": ["command"], "not": { "required": ["kind"] } },
-              { "required": ["kind", "entry"] }
+              {
+                "required": [
+                  "command"
+                ],
+                "not": {
+                  "required": [
+                    "kind"
+                  ]
+                }
+              },
+              {
+                "required": [
+                  "kind",
+                  "entry"
+                ]
+              }
             ],
             "additionalProperties": false
           }
@@ -129,22 +418,72 @@
     },
     "verification": {
       "type": "object",
-      "required": ["timeoutMs"],
+      "required": [
+        "timeoutMs"
+      ],
       "properties": {
-        "timeoutMs": { "type": "integer", "minimum": 1000, "maximum": 3600000 },
-        "defaultScope": { "type": "string", "enum": ["affected", "layer", "full"] },
-        "budgetMs": { "type": ["integer", "null"], "minimum": 0 },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 3600000
+        },
+        "defaultScope": {
+          "type": "string",
+          "enum": [
+            "affected",
+            "layer",
+            "full"
+          ]
+        },
+        "budgetMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
         "environment": {
           "type": "object",
           "properties": {
-            "mode": { "type": "string", "enum": ["cold", "warm"] },
-            "provider": { "type": "string", "minLength": 1 },
-            "start": { "type": "string", "minLength": 1 },
-            "health": { "type": "string", "minLength": 1 },
-            "stop": { "type": "string", "minLength": 1 },
-            "reuseKey": { "type": "string", "minLength": 1 },
-            "ttlMs": { "type": "integer", "minimum": 1000, "maximum": 86400000 },
-            "fallback": { "type": "string", "enum": ["cold", "blocked"] }
+            "mode": {
+              "type": "string",
+              "enum": [
+                "cold",
+                "warm"
+              ]
+            },
+            "provider": {
+              "type": "string",
+              "minLength": 1
+            },
+            "start": {
+              "type": "string",
+              "minLength": 1
+            },
+            "health": {
+              "type": "string",
+              "minLength": 1
+            },
+            "stop": {
+              "type": "string",
+              "minLength": 1
+            },
+            "reuseKey": {
+              "type": "string",
+              "minLength": 1
+            },
+            "ttlMs": {
+              "type": "integer",
+              "minimum": 1000,
+              "maximum": 86400000
+            },
+            "fallback": {
+              "type": "string",
+              "enum": [
+                "cold",
+                "blocked"
+              ]
+            }
           },
           "additionalProperties": false
         }
@@ -156,11 +495,17 @@
       "properties": {
         "allowedEgressHosts": {
           "type": "array",
-          "items": { "type": "string", "minLength": 1 }
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         },
         "enforcement": {
           "type": "string",
-          "enum": ["advisory", "strict"]
+          "enum": [
+            "advisory",
+            "strict"
+          ]
         },
         "permissionPreset": {
           "type": "string",
@@ -168,15 +513,10 @@
         },
         "redZonePaths": {
           "type": "array",
-          "items": { "type": "string", "minLength": 1 }
-        },
-        "rtk": {
-          "type": "object",
-          "required": ["enabled"],
-          "properties": {
-            "enabled": { "type": "boolean" }
-          },
-          "additionalProperties": false
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       },
       "additionalProperties": false
@@ -184,13 +524,37 @@
     "riskZones": {
       "type": "object",
       "properties": {
-        "red": { "type": "array", "items": { "type": "string", "minLength": 1 } },
-        "yellow": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "red": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "yellow": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
         "pathPatterns": {
           "type": "object",
           "properties": {
-            "red": { "type": "array", "items": { "type": "string", "minLength": 1 } },
-            "yellow": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+            "red": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "yellow": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
           },
           "additionalProperties": false
         }
@@ -199,30 +563,67 @@
     },
     "crossRepo": {
       "type": "object",
-      "required": ["enabled", "backendRepo"],
+      "required": [
+        "enabled",
+        "backendRepo"
+      ],
       "properties": {
-        "enabled": { "type": "boolean" },
-        "backendRepo": { "type": "string" }
+        "enabled": {
+          "type": "boolean"
+        },
+        "backendRepo": {
+          "type": "string"
+        }
       },
       "additionalProperties": false
     },
     "projectRules": {
       "type": "object",
       "properties": {
-        "mode": { "type": "string", "enum": ["auto", "manual", "off"] },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "manual",
+            "off"
+          ]
+        },
         "exceptions": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["id"],
+            "required": [
+              "id"
+            ],
             "properties": {
-              "id": { "type": "string", "minLength": 1 },
-              "owner": { "type": "string", "minLength": 1 },
-              "approvedAt": { "type": "string", "minLength": 1 },
-              "expiresAt": { "type": "string", "minLength": 1 },
-              "reviewCadence": { "type": "string", "minLength": 1 },
-              "rollbackCondition": { "type": "string", "minLength": 1 },
-              "successMetric": { "type": "string", "minLength": 1 }
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "owner": {
+                "type": "string",
+                "minLength": 1
+              },
+              "approvedAt": {
+                "type": "string",
+                "minLength": 1
+              },
+              "expiresAt": {
+                "type": "string",
+                "minLength": 1
+              },
+              "reviewCadence": {
+                "type": "string",
+                "minLength": 1
+              },
+              "rollbackCondition": {
+                "type": "string",
+                "minLength": 1
+              },
+              "successMetric": {
+                "type": "string",
+                "minLength": 1
+              }
             },
             "additionalProperties": false
           }
@@ -230,23 +631,89 @@
         "overrides": {
           "type": "object",
           "properties": {
-            "codingStandards": { "type": "string", "minLength": 1 },
-            "directoryGuidance": { "type": "string", "minLength": 1 },
-            "reviewGuidance": { "type": "string", "minLength": 1 },
-            "stackSummary": { "type": "string", "minLength": 1 },
-            "verificationSummary": { "type": "string", "minLength": 1 },
-            "vcsSummary": { "type": "string", "minLength": 1 },
-            "vcsStatusCommand": { "type": "string", "minLength": 1 },
-            "packageManager": { "type": "string", "minLength": 1 },
+            "codingStandards": {
+              "type": "string",
+              "minLength": 1
+            },
+            "directoryGuidance": {
+              "type": "string",
+              "minLength": 1
+            },
+            "reviewGuidance": {
+              "type": "string",
+              "minLength": 1
+            },
+            "stackSummary": {
+              "type": "string",
+              "minLength": 1
+            },
+            "verificationSummary": {
+              "type": "string",
+              "minLength": 1
+            },
+            "vcsSummary": {
+              "type": "string",
+              "minLength": 1
+            },
+            "vcsStatusCommand": {
+              "type": "string",
+              "minLength": 1
+            },
+            "packageManager": {
+              "type": "string",
+              "minLength": 1
+            },
             "logging": {
               "type": "object",
               "properties": {
-                "frameworks": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
-                "configFiles": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
-                "sources": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
-                "queries": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
-                "correlationFields": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
-                "verification": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+                "frameworks": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "configFiles": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "sources": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "queries": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "correlationFields": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "verification": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
               },
               "additionalProperties": false
             }
@@ -258,35 +725,64 @@
     },
     "clarification": {
       "type": "object",
-      "required": ["posture"],
+      "required": [
+        "posture"
+      ],
       "properties": {
-        "posture": { "type": "string", "enum": ["action-leaning", "balanced", "conservative"] }
+        "posture": {
+          "type": "string",
+          "enum": [
+            "action-leaning",
+            "balanced",
+            "conservative"
+          ]
+        }
       },
       "additionalProperties": false
     },
     "memory": {
       "type": "object",
-      "required": ["enabled", "path"],
+      "required": [
+        "enabled",
+        "path"
+      ],
       "properties": {
-        "enabled": { "type": "boolean" },
-        "path": { "type": "string", "minLength": 1 }
+        "enabled": {
+          "type": "boolean"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        }
       },
       "additionalProperties": false
     },
     "worktree": {
       "type": "object",
       "properties": {
-        "root": { "type": "string", "minLength": 1 },
-        "baseRef": { "type": "string", "minLength": 1 },
+        "root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "baseRef": {
+          "type": "string",
+          "minLength": 1
+        },
         "dependencyRoots": {
           "type": "array",
           "uniqueItems": true,
-          "items": { "type": "string", "minLength": 1 }
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         },
         "localPackages": {
           "type": "array",
           "uniqueItems": true,
-          "items": { "type": "string", "minLength": 1 }
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         },
         "mirrors": {
           "type": "array",
@@ -300,15 +796,30 @@
         "ports": {
           "type": "object",
           "properties": {
-            "base": { "type": "integer", "minimum": 1, "maximum": 65535 },
-            "blockSize": { "type": "integer", "minimum": 1, "maximum": 1000 },
+            "base": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            "blockSize": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
             "variables": {
               "type": "array",
               "minItems": 1,
               "uniqueItems": true,
-              "items": { "type": "string", "pattern": "^(?:[A-Z][A-Z0-9]*_)*PORT(?:_[A-Z0-9]+)*$" }
+              "items": {
+                "type": "string",
+                "pattern": "^(?:[A-Z][A-Z0-9]*_)*PORT(?:_[A-Z0-9]+)*$"
+              }
             },
-            "envFile": { "type": "string", "minLength": 1, "pattern": "^[^/\\\\][^\\\\]*$" }
+            "envFile": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^/\\\\][^\\\\]*$"
+            }
           },
           "additionalProperties": false
         },
@@ -319,25 +830,51 @@
               "type": "array",
               "items": {
                 "type": "object",
-                "required": ["id", "command", "cwd", "healthcheck", "stopOnTeardown"],
+                "required": [
+                  "id",
+                  "command",
+                  "cwd",
+                  "healthcheck",
+                  "stopOnTeardown"
+                ],
                 "properties": {
-                  "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$" },
-                  "command": { "type": "string", "minLength": 1 },
-                  "cwd": { "type": "string", "minLength": 1 },
-                  "healthcheck": { "type": "string", "minLength": 1 },
-                  "stopOnTeardown": { "type": "boolean" }
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,63}$"
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "cwd": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "healthcheck": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "stopOnTeardown": {
+                    "type": "boolean"
+                  }
                 },
                 "additionalProperties": false
               }
             },
             "setupCommands": {
               "type": "array",
-              "items": { "type": "string", "minLength": 1 }
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
             },
             "envFiles": {
               "type": "array",
               "uniqueItems": true,
-              "items": { "type": "string", "minLength": 1 }
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
             }
           },
           "additionalProperties": false
@@ -348,11 +885,16 @@
     "roles": {
       "type": "object",
       "properties": {
-        "enabled": { "type": "boolean" },
+        "enabled": {
+          "type": "boolean"
+        },
         "disabled": {
           "type": "array",
           "uniqueItems": true,
-          "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]{2,63}$" }
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{2,63}$"
+          }
         },
         "overrides": {
           "type": "object",
@@ -360,8 +902,20 @@
             "type": "object",
             "minProperties": 1,
             "properties": {
-              "promptPath": { "type": "string", "pattern": "^docs/agent-roles/[a-zA-Z0-9][a-zA-Z0-9._-]*\\.md$" },
-              "permissionPreset": { "type": "string", "enum": ["analysis", "implementation", "verification", "security-review", "release-readiness"] }
+              "promptPath": {
+                "type": "string",
+                "pattern": "^docs/agent-roles/[a-zA-Z0-9][a-zA-Z0-9._-]*\\.md$"
+              },
+              "permissionPreset": {
+                "type": "string",
+                "enum": [
+                  "analysis",
+                  "implementation",
+                  "verification",
+                  "security-review",
+                  "release-readiness"
+                ]
+              }
             },
             "additionalProperties": false
           }
@@ -370,20 +924,77 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["id", "name", "description", "promptPath", "permissionPreset", "routing"],
+            "required": [
+              "id",
+              "name",
+              "description",
+              "promptPath",
+              "permissionPreset",
+              "routing"
+            ],
             "properties": {
-              "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{2,63}$" },
-              "name": { "type": "string", "minLength": 1, "maxLength": 64 },
-              "description": { "type": "string", "minLength": 1, "maxLength": 256 },
-              "promptPath": { "type": "string", "pattern": "^docs/agent-roles/[a-zA-Z0-9][a-zA-Z0-9._-]*\\.md$" },
-              "permissionPreset": { "type": "string", "enum": ["analysis", "implementation", "verification", "security-review", "release-readiness"] },
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{2,63}$"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "description": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "promptPath": {
+                "type": "string",
+                "pattern": "^docs/agent-roles/[a-zA-Z0-9][a-zA-Z0-9._-]*\\.md$"
+              },
+              "permissionPreset": {
+                "type": "string",
+                "enum": [
+                  "analysis",
+                  "implementation",
+                  "verification",
+                  "security-review",
+                  "release-readiness"
+                ]
+              },
               "routing": {
                 "type": "object",
-                "required": ["when", "avoid"],
+                "required": [
+                  "when",
+                  "avoid"
+                ],
                 "properties": {
-                  "when": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 160 } },
-                  "avoid": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 160 } },
-                  "mode": { "type": "string", "enum": ["auto", "explicit"] }
+                  "when": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 160
+                    }
+                  },
+                  "avoid": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 160
+                    }
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "auto",
+                      "explicit"
+                    ]
+                  }
                 },
                 "additionalProperties": false
               }
@@ -396,34 +1007,83 @@
     },
     "evaluations": {
       "type": "object",
-      "required": ["enabled", "suites", "reference", "thresholds", "onlineRunner", "repetitions"],
+      "required": [
+        "enabled",
+        "suites",
+        "reference",
+        "thresholds",
+        "onlineRunner",
+        "repetitions"
+      ],
       "properties": {
-        "enabled": { "type": "boolean" },
+        "enabled": {
+          "type": "boolean"
+        },
         "suites": {
           "type": "array",
-          "items": { "type": "string", "minLength": 1 }
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         },
-        "reference": { "type": "string", "minLength": 1 },
+        "reference": {
+          "type": "string",
+          "minLength": 1
+        },
         "thresholds": {
           "type": "object",
-          "required": ["criticalPassRate", "overallScore", "maxCapabilityRegression"],
+          "required": [
+            "criticalPassRate",
+            "overallScore",
+            "maxCapabilityRegression"
+          ],
           "properties": {
-            "criticalPassRate": { "type": "number", "minimum": 0, "maximum": 1 },
-            "overallScore": { "type": "number", "minimum": 0, "maximum": 1 },
-            "maxCapabilityRegression": { "type": "number", "minimum": 0, "maximum": 1 }
+            "criticalPassRate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "overallScore": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "maxCapabilityRegression": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
           },
           "additionalProperties": false
         },
-        "onlineRunner": { "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }] },
-        "repetitions": { "type": "integer", "minimum": 1, "maximum": 3 }
+        "onlineRunner": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "repetitions": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        }
       },
       "additionalProperties": false
     },
     "installedSurface": {
       "type": "object",
       "properties": {
-        "skillsLine": { "type": "string" },
-        "hooksLine": { "type": "string" }
+        "skillsLine": {
+          "type": "string"
+        },
+        "hooksLine": {
+          "type": "string"
+        }
       },
       "additionalProperties": false
     }

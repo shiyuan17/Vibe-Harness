@@ -58,8 +58,6 @@ const TARGET_WORKTREE_MIRRORS = {
   opencode: ['.opencode', 'opencode.json', 'opencode.jsonc'],
 };
 const PLUGIN_WORKTREE_MIRRORS = {
-  codegraph: ['.codegraph'],
-  serena: ['.serena/project.yml', '.serena/.gitignore'],
 };
 
 /**
@@ -67,7 +65,7 @@ const PLUGIN_WORKTREE_MIRRORS = {
  * selected adapter's directory plus the plugin directories a project enabled.
  * The install surface is the whole target list — deriving it from the first
  * target would leave a multi-host project unable to reach `.zcode`,
- * `opencode.json`, `.codegraph` or the Serena files inside a worktree. Order is
+ * `opencode.json` and other declared files inside a worktree. Order is
  * stable and de-duplicated so the written config is deterministic.
  */
 export function defaultWorktreeMirrors({ plugins = [], target = 'codex', targets = null } = {}) {
@@ -473,7 +471,7 @@ export function validateProjectConfig(config) {
     resolveModuleSelection({ requestedModules: config.modules, rolesEnabled: config.roles?.enabled });
   }
   if (Object.hasOwn(config, 'plugins')) {
-    parsePluginsOption(config.plugins);
+    if (!Array.isArray(config.plugins) || config.plugins.length > 0) parsePluginsOption(config.plugins);
   }
   assertObject(config.validationCommands, 'validationCommands');
   assertOptionalCommand(config.validationCommands.lint, 'validationCommands.lint');
@@ -566,12 +564,7 @@ export function validateProjectConfig(config) {
         throw new Error('hooks.enforcement must be advisory or strict');
       }
     }
-    if (Object.hasOwn(config.hooks, 'rtk')) {
-      assertObject(config.hooks.rtk, 'hooks.rtk');
-      if (typeof config.hooks.rtk.enabled !== 'boolean') {
-        throw new Error('hooks.rtk.enabled must be boolean');
-      }
-    }
+    if (Object.hasOwn(config.hooks, 'rtk')) throw new Error('hooks.rtk has been retired; run install --upgrade.');
   }
   if (Object.hasOwn(config, 'projectRules')) {
     assertObject(config.projectRules, 'projectRules');

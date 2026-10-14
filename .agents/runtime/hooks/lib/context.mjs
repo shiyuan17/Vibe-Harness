@@ -176,9 +176,8 @@ export async function readHookSettings(rootDir) {
       mode: 'guarded',
       permissionPreset: readPermissionPreset(config),
       redZonePaths: await readRedZonePaths(rootDir, config),
-      rtkEnabled: Object.hasOwn(config.hooks?.rtk ?? {}, 'enabled') ? config.hooks.rtk.enabled : Boolean(state?.rtkHooksEnabled),
     };
   } catch {
-    return { allowedWriteRoots: [], allowedEgressHosts: [], mode: 'guarded', permissionPreset: null, redZonePaths: DEFAULT_RED_ZONE_PATHS, rtkEnabled: false };
+    return { allowedWriteRoots: [], allowedEgressHosts: [], mode: 'guarded', permissionPreset: null, redZonePaths: DEFAULT_RED_ZONE_PATHS };
   }
 }

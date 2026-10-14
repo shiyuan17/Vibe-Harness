@@ -1,256 +1,28 @@
 import { createHash } from 'node:crypto';
-import { copyFile, mkdir, readFile, rm } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { assertInsideDir, assertSafePathInside, pathExists } from '../manifest.js';
 import { resolveOcrEndpoint } from '../ocr-config.js';
 import { inspectPlaywrightTool } from '../../../runtime/tools/playwright-cli/run.mjs';
-import { resolveRtkAsset } from '../../../runtime/tools/rtk/run.mjs';
-import {
-  codebaseMemoryCacheRoot,
-  codebaseMemoryLegacyCacheDir,
-} from '../../../runtime/tools/codebase-memory-mcp/cache-path.mjs';
 import { projectStateDir } from '../project-layout.js';
-
-import { allowedEnvironment, createToolProvisioningPlan, detectLinuxLibc, hasOcrCredentials, phaseRequest, resolveCodebaseMemoryCacheDir, resolveToolNativePackage } from './environment.js';
+import { createToolProvisioningPlan, hasOcrCredentials, phaseRequest } from './environment.js';
 import { readToolState } from './tool-state.js';
-import {
-  boundedTimeout,
-  createDiagnostic,
-  execFileAsync,
-  maxDiagnosticOutput,
-  sanitizeDiagnosticValue,
-  sanitizeRegistryUrl,
-} from './subprocess.js';
+import { boundedTimeout, createDiagnostic, sanitizeDiagnosticValue } from './subprocess.js';
 
-const codebaseMemoryWindowsBinaryHashes = new Map([
-  // 0.11.0 ships one portable Windows binary; the hash pins the exact asset the
-  // provisioning repair step is allowed to install.
-  ['0.11.0', '7edcd3807ebcfd85ec1968985964080f2589748da2fc3c7ce9261eebab31ff04'],
-]);
-
-const publicAstGrepDiagnosticCodes = new Set([
-  'AST_GREP_BINARY_HASH_MISMATCH',
-  'AST_GREP_BINARY_HASH_MISSING',
-  'AST_GREP_FINGERPRINT_MISMATCH',
-  'AST_GREP_OPTIONAL_PACKAGE_MISSING',
-  'AST_GREP_RUNTIME_MISSING',
-  'AST_GREP_STATE_VERSION_MISMATCH',
-  'AST_GREP_UNSUPPORTED_PLATFORM',
-  'AST_GREP_VERSION_MISMATCH',
-]);
-
-const publicRtkDiagnosticCodes = new Set([
-  'RTK_ARCHIVE_UNSAFE_PATH',
-  'RTK_BINARY_HASH_MISMATCH',
-  'RTK_BINARY_MISSING',
-  'RTK_CHECKSUM_MISMATCH',
-  'RTK_DB_PATH',
-  'RTK_DOWNLOAD_FAILED',
-  'RTK_DOWNLOAD_TIMEOUT',
-  'RTK_DOWNLOAD_TOO_LARGE',
-  'RTK_EXTRACT_FAILED',
-  'RTK_INSTALL_LOCK_TIMEOUT',
-  'RTK_PROXY_CONFIG_INVALID',
-  'RTK_RUNTIME_MISSING',
-  'RTK_UNSUPPORTED_PLATFORM',
-  'RTK_VERSION_MISMATCH',
-]);
-
-const publicIndexDiagnosticCodes = new Set([
-  'CBM_CACHE_DIR_NOT_PRIVATE',
-  'INDEX_CACHE_RESET_REFUSED',
-  'INDEX_NOT_READY',
-  'INDEX_OUTPUT_INVALID',
-  'INDEX_RESULT_INVALID',
-  'INDEX_ROOT_MISMATCH',
-  'INDEX_STATUS_INVALID',
-]);
-
-const unsupportedPlatformCodes = new Set([
-  'AST_GREP_UNSUPPORTED_PLATFORM',
-  'RTK_UNSUPPORTED_PLATFORM',
-]);
-
-function specializedDiagnosticCode(output, spec, phase) {
-  const lower = String(output).toLowerCase();
-  if (spec?.id === 'openCodeReview' && lower.includes('protocol_not_supported')) return 'OPEN_CODE_REVIEW_PROTOCOL_UNSUPPORTED';
-  if (spec?.id === 'rtk' && phase === 'binary-install' && lower.includes('timeout')) return 'RTK_DOWNLOAD_TIMEOUT';
-  if (phase === 'dependency-install' && ['eai_again', 'econnrefused', 'econnreset', 'etimedout', 'enetunreach', 'enotfound', 'proxy', 'registry'].some((item) => lower.includes(item))) return 'TOOL_DEPENDENCY_NETWORK_ERROR';
-  return null;
-}
-
-function diagnosticCode(error, spec, phase) {
-  const specialized = specializedDiagnosticCode([error?.message, error?.stderr, error?.stdout].filter(Boolean).join('\n'), spec, phase);
-  if (specialized) return specialized;
-  const output = `${error?.message ?? ''}\n${error?.stderr ?? ''}\n${error?.stdout ?? ''}`;
-  // 0.11.0 refuses a cache directory whose path chain grants mutation rights to
-  // an untrusted identity (for example `C:\` inheriting `Authenticated
-  // Users:(M)`). The upstream wording is the only stable signal it exposes, so
-  // the precheck phase turns it into a first-class diagnostic code.
-  if (/secure\s+CLI\s+coordination\s+could\s+not\s+be\s+created|DACL\s+entry\s+\d+\s+grants\s+mutation\s+rights/iu.test(output)) {
-    return 'CBM_CACHE_DIR_NOT_PRIVATE';
-  }
-  if (/repo_path\s+is\s+outside\s+the\s+allowed\s+root/iu.test(output)) return 'INDEX_PATH_OUTSIDE_ALLOWED_ROOT';
-  if (/(?:index|database|graph).*(?:corrupt|invalid)|corrupt.*(?:index|database|graph)|需要重新索引/iu.test(output)) {
-    return 'INDEX_CORRUPT_REINDEX_REQUIRED';
-  }
-  if (typeof error?.code === 'string'
-    && (error.code.startsWith('TOOL_')
-      || publicAstGrepDiagnosticCodes.has(error.code)
-      || publicIndexDiagnosticCodes.has(error.code)
-      || publicRtkDiagnosticCodes.has(error.code))) {
-    return error.code;
-  }
-  return 'TOOL_PROVISION_FAILED';
-}
-
-export function publicFailure(spec, phase, error, targetDir, { arch = process.arch, env = process.env, platform = process.platform } = {}) {
-  const code = diagnosticCode(error, spec, phase);
-  const diagnosticError = Object.assign(new Error(error?.message ?? ''), error, { code });
-  const diagnostic = createDiagnostic(diagnosticError, phase, targetDir);
-  if (['rtk', 'astGrep'].includes(spec.id)) diagnostic.provisioning = {
-    arch,
-    libc: platform === 'linux' ? detectLinuxLibc() : null,
-    nativePackage: resolveToolNativePackage(spec, { arch, platform }),
-    npmOptional: spec.id === 'astGrep' ? 'include=optional' : 'not-applicable',
-    registry: sanitizeRegistryUrl(env?.npm_config_registry ?? 'https://registry.npmjs.org/'),
-  };
-  return {
-    code,
-    diagnostic: sanitizeDiagnosticValue(diagnostic, targetDir),
-    phase,
-    status: unsupportedPlatformCodes.has(code) ? 'unsupported' : 'degraded',
-    version: spec.version,
-  };
+export function publicFailure(spec, phase, error, targetDir) {
+  const output = [error?.message, error?.stderr, error?.stdout].filter(Boolean).join('\n').toLowerCase();
+  const code = spec.id === 'openCodeReview' && output.includes('protocol_not_supported')
+    ? 'OPEN_CODE_REVIEW_PROTOCOL_UNSUPPORTED'
+    : phase === 'dependency-install' && ['eai_again', 'econnrefused', 'econnreset', 'etimedout', 'enetunreach', 'enotfound', 'proxy', 'registry'].some(item => output.includes(item))
+      ? 'TOOL_DEPENDENCY_NETWORK_ERROR'
+      : typeof error?.code === 'string' && error.code.startsWith('TOOL_') ? error.code : 'TOOL_PROVISION_FAILED';
+  const diagnostic = createDiagnostic(Object.assign(new Error(error?.message ?? ''), error, { code }), phase, targetDir);
+  return { code, diagnostic: sanitizeDiagnosticValue(diagnostic, targetDir), phase, status: 'degraded', version: spec.version };
 }
 
 export function ready(spec, phase = 'ready', details = {}) {
   return { ...details, phase, status: 'ready', version: spec.version };
-}
-
-function toolContractError(code, message) {
-  return Object.assign(new Error(message), { code });
-}
-
-function coerceScalar(value) {
-  const trimmed = value.trim();
-  if (trimmed === 'true') return true;
-  if (trimmed === 'false') return false;
-  if (/^-?\d+$/u.test(trimmed)) return Number.parseInt(trimmed, 10);
-  if (trimmed.length >= 2
-    && ((trimmed.startsWith('"') && trimmed.endsWith('"'))
-      || (trimmed.startsWith("'") && trimmed.endsWith("'")))) {
-    return trimmed.slice(1, -1);
-  }
-  return trimmed;
-}
-
-/**
- * Parse the human-readable `key: value` block 0.11.0 prints when `--json` only
- * wraps the text in an MCP envelope. Nested sections are indented and therefore
- * never match the column-zero pattern, so `parse_partial:` and friends are
- * skipped instead of being reported as empty values.
- */
-function parseKeyValueText(text) {
-  const result = {};
-  let found = false;
-  for (const line of String(text ?? '').split(/\r?\n/gu)) {
-    const match = /^([A-Za-z_][A-Za-z0-9_.-]*):(?:[ \t]*(.*))?$/u.exec(line);
-    if (!match) continue;
-    found = true;
-    const value = (match[2] ?? '').trim();
-    if (value === '') continue;
-    result[match[1]] = coerceScalar(value);
-  }
-  return found ? result : null;
-}
-
-/** Parse the text of an MCP result envelope, tolerating JSON and text bodies. */
-function parseEnvelopeText(text) {
-  const trimmed = String(text ?? '').trim();
-  if (trimmed === '') return null;
-  if (trimmed.startsWith('{')) {
-    try {
-      return JSON.parse(trimmed);
-    } catch {
-      return parseKeyValueText(trimmed);
-    }
-  }
-  return parseKeyValueText(trimmed);
-}
-
-/**
- * Read one tool result from a CLI run. The accepted shapes are the three the
- * pinned runtime can emit: a flat JSON object (legacy 0.9.0), an MCP envelope
- * whose `content[0].text` carries JSON (`--json`, index_repository), and an MCP
- * envelope whose text is the human-readable block (`--json`, index_status).
- */
-function parseCommandJson(output, code, message) {
-  const line = String(output?.stdout ?? '')
-    .split(/\r?\n/gu)
-    .map((item) => item.trim())
-    .findLast((item) => item.startsWith('{'));
-  if (line) {
-    try {
-      const parsed = JSON.parse(line);
-      const inner = parsed?.content?.[0]?.text;
-      if (typeof inner === 'string') {
-        const nested = parseEnvelopeText(inner);
-        if (nested) return nested;
-      }
-      return parsed;
-    } catch {
-      // Fall through to the plain-text reader below.
-    }
-  }
-  const textResult = parseKeyValueText(output?.stdout);
-  if (textResult) return textResult;
-  throw toolContractError(code, message);
-}
-
-function normalizedProjectPath(value) {
-  const resolved = path.resolve(String(value));
-  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
-}
-
-function validateIndexResult(output) {
-  const result = parseCommandJson(output, 'INDEX_OUTPUT_INVALID', 'Index command did not return valid JSON.');
-  const hint = typeof result.hint === 'string' ? result.hint : '';
-  if (/(?:integrity|database).*(?:corrupt|failed)|corrupt.*(?:index|database)|重新索引|re-?run.*index/iu.test(hint)) {
-    throw toolContractError('INDEX_CORRUPT_REINDEX_REQUIRED', 'Index database is corrupt; re-index is required.');
-  }
-  if (result.status !== 'indexed' || typeof result.project !== 'string' || !result.project.trim()) {
-    throw toolContractError('INDEX_RESULT_INVALID', 'Index command did not confirm an indexed project.');
-  }
-  return result.project;
-}
-
-function validateIndexStatus(output, targetDir) {
-  const result = parseCommandJson(output, 'INDEX_OUTPUT_INVALID', 'Index verification did not return valid JSON.');
-  if (result.status !== 'ready') {
-    throw toolContractError('INDEX_NOT_READY', 'Indexed project is not ready.');
-  }
-  if (typeof result.root_path !== 'string'
-    || normalizedProjectPath(result.root_path) !== normalizedProjectPath(targetDir)) {
-    throw toolContractError('INDEX_ROOT_MISMATCH', 'Indexed project root does not match the target project.');
-  }
-  if (!Number.isInteger(result.nodes) || result.nodes < 0
-    || !Number.isInteger(result.edges) || result.edges < 0) {
-    throw toolContractError('INDEX_STATUS_INVALID', 'Index verification did not return valid graph counts.');
-  }
-  // `indexed_at` is the snapshot time 0.11.0 added; it replaces the 0.9.0
-  // `git` block, whose HEAD was read live and therefore proved nothing.
-  if (typeof result.indexed_at !== 'string' || result.indexed_at.trim() === '') {
-    throw toolContractError('INDEX_STATUS_INVALID', 'Index verification did not report when the graph was indexed.');
-  }
-  return {
-    edges: result.edges,
-    indexedAt: result.indexed_at,
-    mode: 'moderate',
-    nodes: result.nodes,
-    status: 'ready',
-  };
 }
 
 export function withProvisioningMetadata(spec, state, startedAt, { reused = false } = {}) {
@@ -271,148 +43,23 @@ export function withProvisioningMetadata(spec, state, startedAt, { reused = fals
   };
 }
 
-export function withOptionalToolIdentity(spec, state, platform, arch) {
-  if (!['rtk', 'astGrep'].includes(spec.id)) return state;
-  return {
-    ...state,
-    platform: `${platform}-${arch}`,
-    source: state.source ?? spec.source ?? `npm:${spec.packageName}@${spec.version}`,
-  };
-}
-
-/**
- * Drop the codebase-memory graph for one project so a corrupt index can be
- * rebuilt from scratch.
- *
- * The 0.11.0 cache lives outside the project, so the reset is only allowed
- * when the resolved directory is exactly this project's entry under the
- * private cache root (or a legacy in-project cache). Both in-project leftovers
- * of older layouts are cleared on the same pass.
- *
- * @param {string} targetDir
- * @param {NodeJS.ProcessEnv} env
- * @returns {Promise<string>} the cache directory that was removed
- */
-export async function resetCodebaseMemoryCache(targetDir, env = process.env) {
-  const effectiveEnv = { ...process.env, ...env };
-  const cacheDir = path.resolve(resolveCodebaseMemoryCacheDir(targetDir, effectiveEnv));
-  const allowedRoots = [path.resolve(targetDir), path.resolve(codebaseMemoryCacheRoot(effectiveEnv))];
-  const insideOwnedRoot = allowedRoots.some((root) => {
-    const relative = path.relative(root, cacheDir);
-    return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
-  });
-  if (!insideOwnedRoot) {
-    throw toolContractError(
-      'INDEX_CACHE_RESET_REFUSED',
-      `Refusing to reset the codebase-memory cache outside the project or the private cache root: ${cacheDir}`,
-    );
-  }
-  await rm(cacheDir, { force: true, recursive: true });
-  const legacyCacheDir = codebaseMemoryLegacyCacheDir(targetDir);
-  await assertSafePathInside(targetDir, legacyCacheDir, 'codebase-memory legacy cache');
-  await rm(legacyCacheDir, { force: true, recursive: true });
-  const projectIndexDir = path.join(targetDir, '.codebase-memory');
-  await assertSafePathInside(targetDir, projectIndexDir, 'codebase-memory project index');
-  await rm(projectIndexDir, { force: true, recursive: true });
-  return cacheDir;
-}
-
-export async function runToolPhases(
-  spec,
-  commandRunner,
-  env,
-  targetDir,
-  phases = spec.phases,
-  signal,
-  ocrResolution,
-  codebaseMemoryRepair = repairCodebaseMemoryBinary,
-  { arch = process.arch, platform = process.platform } = {},
-) {
-  /** @type {Record<string, any>} */
-  const context = {};
-  const retriedCorruptIndex = new Set();
+export async function runToolPhases(spec, commandRunner, env, targetDir, phases = spec.phases, signal, ocrResolution) {
   for (const phase of phases) {
     if (spec.id === 'openCodeReview' && phase === 'llm-test' && !hasOcrCredentials(env)) {
       return {
         ...(ocrResolution?.diagnostic ? { diagnostic: ocrResolution.diagnostic } : {}),
-        phase: 'llm-config',
-        status: 'pending-config',
-        version: spec.version,
+        phase: 'llm-config', status: 'pending-config', version: spec.version,
       };
     }
     try {
-      if (spec.id === 'astGrep' && phase === 'dependency-install') {
-        const nativePackage = resolveToolNativePackage(spec, { arch, platform });
-        if (!nativePackage) throw toolContractError('AST_GREP_UNSUPPORTED_PLATFORM', 'ast-grep has no native package for this platform.');
-      }
-      const request = /** @type {Record<string, any>} */ (await phaseRequest(spec, phase, targetDir, env, { ...context, arch, platform }));
-      request.signal = signal;
-      request.timeout = boundedTimeout(env, request.timeout);
-      const output = await commandRunner(request);
-      if (spec.id === 'astGrep' && phase === 'dependency-install') {
-        const nativePackage = resolveToolNativePackage(spec, { arch, platform });
-        const packagePath = path.join(spec.toolDir, 'node_modules', nativePackage, 'package.json');
-        if (!(await pathExists(packagePath))) throw toolContractError('AST_GREP_OPTIONAL_PACKAGE_MISSING', 'ast-grep optional native package was not installed.');
-      }
-      if (spec.id === 'codebaseMemoryMcp'
-        && phase === 'binary-install'
-        && !(await codebaseMemoryRuntimeAvailable(spec))
-        && !(await codebaseMemoryRepair(spec))) {
-        throw toolContractError(
-          'BINARY_INSTALL_INCOMPLETE',
-          'codebase-memory-mcp binary install completed without a usable runtime.',
-        );
-      }
-      if (phase === 'index') context.indexProject = validateIndexResult(output);
-      if (phase === 'index-verify') context.index = validateIndexStatus(output, targetDir);
+      const request = await phaseRequest(spec, phase, targetDir, env);
+      await commandRunner({ ...request, signal, timeout: boundedTimeout(env, request.timeout) });
     } catch (error) {
-      // The cache precheck exists to turn an unusable cache directory into the
-      // stable `CBM_CACHE_DIR_NOT_PRIVATE` diagnostic. Any other precheck
-      // failure (a launcher download, a transient timeout) is not a cache
-      // verdict: the index phases open the same directory with their own budget
-      // and contract, so they stay the authority on whether indexing works.
-      if (phase === 'cache-precheck' && diagnosticCode(error, spec, phase) !== 'CBM_CACHE_DIR_NOT_PRIVATE') continue;
-      if (spec.id === 'codebaseMemoryMcp'
-        && phase === 'binary-install'
-        && /(?:binary\s+not\s+found|download\s+failed|install\s+failed)/iu.test(`${error?.message ?? ''}\n${error?.stderr ?? ''}`)
-        && await codebaseMemoryRepair(spec)) {
-        continue;
-      }
-      if (spec.id === 'codebaseMemoryMcp'
-        && phase === 'index'
-        && /(?:binary\s+not\s+found|download\s+failed|install\s+failed)/iu.test(`${error?.message ?? ''}\n${error?.stderr ?? ''}`)
-        && await codebaseMemoryRepair(spec)) {
-        const retryRequest = /** @type {Record<string, any>} */ (await phaseRequest(spec, phase, targetDir, env, context));
-        retryRequest.signal = signal;
-        retryRequest.timeout = boundedTimeout(env, retryRequest.timeout);
-        const retryOutput = await commandRunner(retryRequest);
-        context.indexProject = validateIndexResult(retryOutput);
-        continue;
-      }
-      if (spec.id === 'codebaseMemoryMcp'
-        && phase === 'index'
-        && diagnosticCode(error, spec, phase) === 'INDEX_CORRUPT_REINDEX_REQUIRED'
-        && !retriedCorruptIndex.has(phase)) {
-        retriedCorruptIndex.add(phase);
-        // Pin the cleaned directory for the retry so it does not fall back to a
-        // directory the resolver would otherwise recompute differently.
-        context.codebaseMemoryCacheDir = await resetCodebaseMemoryCache(targetDir, env);
-        const retryRequest = /** @type {Record<string, any>} */ (await phaseRequest(spec, phase, targetDir, env, context));
-        retryRequest.signal = signal;
-        retryRequest.timeout = boundedTimeout(env, retryRequest.timeout);
-        try {
-          const retryOutput = await commandRunner(retryRequest);
-          context.indexProject = validateIndexResult(retryOutput);
-          continue;
-        } catch (retryError) {
-          error = retryError;
-        }
-      }
       error.phase = phase;
       throw error;
     }
   }
-  return ready(spec, 'ready', context.index ? { index: context.index } : {});
+  return ready(spec);
 }
 
 export async function lockFingerprint(spec) {
@@ -422,13 +69,6 @@ export async function lockFingerprint(spec) {
   return createHash('sha256').update(await readFile(fingerprintPath)).digest('hex');
 }
 
-async function codebaseMemoryRuntimeAvailable(spec) {
-  const packageDir = path.join(spec.toolDir, 'node_modules/codebase-memory-mcp');
-  const binary = process.platform === 'win32' ? 'codebase-memory-mcp.exe' : 'codebase-memory-mcp';
-  return await pathExists(path.join(packageDir, 'bin.js'))
-    && await pathExists(path.join(packageDir, 'bin', binary));
-}
-
 export async function chromeDevtoolsRuntimeAvailable(spec) {
   return pathExists(path.join(
     spec.toolDir,
@@ -436,230 +76,15 @@ export async function chromeDevtoolsRuntimeAvailable(spec) {
   ));
 }
 
-function astGrepBinaryPath(spec, platform = process.platform) {
-  const binaryName = platform === 'win32' ? 'ast-grep.exe' : 'ast-grep';
-  return path.join(spec.toolDir, 'node_modules/@ast-grep/cli', binaryName);
-}
-
-async function astGrepRuntimeAvailable(spec, platform = process.platform, arch = process.arch) {
-  const nativePackage = resolveToolNativePackage(spec, { arch, platform });
-  if (!nativePackage) return false;
-  return await pathExists(path.join(spec.toolDir, 'node_modules', nativePackage, 'package.json'))
-    && await pathExists(astGrepBinaryPath(spec, platform));
-}
-
-function rtkBinaryPath(spec, platform = process.platform) {
-  const binaryName = platform === 'win32' ? 'rtk.exe' : 'rtk';
-  return path.join(spec.toolDir, 'bin', binaryName);
-}
-
-async function rtkRuntimeAvailable(spec, platform = process.platform, arch = process.arch) {
-  try {
-    resolveRtkAsset({ platform, arch });
-  } catch {
-    return false;
-  }
-  return pathExists(rtkBinaryPath(spec, platform));
-}
-
-async function optionalRuntimeHash(spec, platform = process.platform) {
-  const binary = spec.id === 'rtk' ? rtkBinaryPath(spec, platform) : astGrepBinaryPath(spec, platform);
-  await assertSafePathInside(spec.toolDir, binary, `${spec.id} runtime binary`);
-  if (!(await pathExists(binary))) return null;
-  return createHash('sha256').update(await readFile(binary)).digest('hex');
-}
-
-export async function reusableOptionalRuntime(spec, previousTool, platform, arch) {
-  if (previousTool?.version !== spec.version || !previousTool?.binarySha256) return false;
-  if (spec.id === 'rtk' && !(await rtkRuntimeAvailable(spec, platform, arch))) return false;
-  if (spec.id === 'astGrep' && !(await astGrepRuntimeAvailable(spec, platform, arch))) return false;
-  return await optionalRuntimeHash(spec, platform) === previousTool.binarySha256;
-}
-
-async function locateCodebaseMemoryBinary() {
-  const { stdout } = await execFileAsync('where.exe', ['codebase-memory-mcp'], { windowsHide: true });
-  return stdout.split(/\r?\n/u).map((line) => line.trim()).find(Boolean);
-}
-
-export async function repairCodebaseMemoryBinary(spec, {
-  locateBinary = locateCodebaseMemoryBinary,
-  platform = process.platform,
-} = {}) {
-  if (platform !== 'win32') return false;
-  try {
-    const source = await locateBinary();
-    if (!source) return false;
-    const expectedHash = codebaseMemoryWindowsBinaryHashes.get(spec.version);
-    if (!expectedHash) return false;
-    const sourceHash = createHash('sha256').update(await readFile(source)).digest('hex');
-    if (sourceHash !== expectedHash) return false;
-    const destination = path.join(spec.toolDir, 'node_modules/codebase-memory-mcp/bin/codebase-memory-mcp.exe');
-    await assertSafePathInside(spec.toolDir, destination, 'codebase-memory binary');
-    await mkdir(path.dirname(destination), { recursive: true });
-    await copyFile(source, destination);
-    const destinationHash = createHash('sha256').update(await readFile(destination)).digest('hex');
-    return destinationHash === expectedHash;
-  } catch {
-    return false;
-  }
-}
-
-export async function defaultRuntimeVersionRunner(request) {
-  return execFileAsync(request.command, request.args, {
-    cwd: request.cwd,
-    env: request.env,
-    maxBuffer: maxDiagnosticOutput,
-    timeout: 5_000,
-    windowsHide: true,
-  });
-}
-
-/** @param {any} spec @param {string} code @param {string} message @param {string} targetDir @param {{arch?: NodeJS.Architecture, platform?: NodeJS.Platform}} options */
-function inspectedRuntimeFailure(spec, code, message, targetDir, { arch, platform } = {}) {
-  const error = toolContractError(code, message);
-  return {
-    ...publicFailure(spec, 'runtime-check', error, targetDir, { arch, platform }),
-    code,
-  };
-}
-
-function exactVersionPattern(version) {
-  const escaped = version.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
-  return new RegExp(`(?:^|\\s|v)${escaped}(?:\\s|$)`, 'u');
-}
-
-export async function verifyProvisionedOptionalRuntime(spec, targetDir, {
-  arch,
-  env,
-  platform,
-  runtimeVersionRunner,
-}) {
-  const prefix = spec.id === 'rtk' ? 'RTK' : 'AST_GREP';
-  const available = spec.id === 'rtk'
-    ? await rtkRuntimeAvailable(spec, platform, arch)
-    : await astGrepRuntimeAvailable(spec, platform, arch);
-  if (!available) {
-    throw toolContractError(`${prefix}_RUNTIME_MISSING`, `The project-local ${spec.id} binary is missing after installation.`);
-  }
-  const command = spec.id === 'rtk' ? rtkBinaryPath(spec, platform) : astGrepBinaryPath(spec, platform);
-  let result;
-  try {
-    result = await runtimeVersionRunner({
-      args: ['--version'],
-      command,
-      cwd: targetDir,
-      env: allowedEnvironment(spec, env),
-    });
-  } catch {
-    throw toolContractError(`${prefix}_RUNTIME_INVALID`, `The project-local ${spec.id} binary failed its provisioning version check.`);
-  }
-  const output = `${result?.stdout ?? ''}\n${result?.stderr ?? ''}`;
-  if (!exactVersionPattern(spec.version).test(output)) {
-    throw toolContractError(`${prefix}_VERSION_MISMATCH`, `The project-local ${spec.id} binary did not report pinned version ${spec.version}.`);
-  }
-  const binarySha256 = await optionalRuntimeHash(spec, platform);
-  if (!binarySha256) {
-    throw toolContractError(`${prefix}_RUNTIME_MISSING`, `The project-local ${spec.id} binary disappeared after its version check.`);
-  }
-  return binarySha256;
-}
-
-async function inspectReadyRuntime(spec, saved, fingerprint, targetDir, {
-  arch,
-  platform,
-}) {
-  const prefix = spec.id === 'rtk' ? 'RTK' : 'AST_GREP';
-  if (saved.version !== spec.version) {
-    return inspectedRuntimeFailure(
-      spec,
-      `${prefix}_STATE_VERSION_MISMATCH`,
-      `The recorded ${spec.id} version does not match the pinned version; provision the tool again.`,
-      targetDir, { arch, platform },
-    );
-  }
-  const available = spec.id === 'rtk'
-    ? await rtkRuntimeAvailable(spec, platform, arch)
-    : await astGrepRuntimeAvailable(spec, platform, arch);
-  if (!available) {
-    return inspectedRuntimeFailure(
-      spec,
-      `${prefix}_RUNTIME_MISSING`,
-      spec.id === 'rtk'
-        ? 'The project-local RTK binary is missing; provision the tool again or use the original command directly.'
-        : 'The project-local ast-grep binary is missing; provision the tool again or use rg/project search and record the fallback.',
-      targetDir, { arch, platform },
-    );
-  }
-  const currentFingerprint = await lockFingerprint(spec);
-  if (!fingerprint || !currentFingerprint || fingerprint !== currentFingerprint) {
-    return inspectedRuntimeFailure(
-      spec,
-      `${prefix}_FINGERPRINT_MISMATCH`,
-      `The project-local ${spec.id} package metadata no longer matches the provisioned state; provision the tool again.`,
-      targetDir, { arch, platform },
-    );
-  }
-  if (!saved.binarySha256) {
-    return inspectedRuntimeFailure(
-      spec,
-      `${prefix}_BINARY_HASH_MISSING`,
-      `The recorded ${spec.id} state has no verified binary hash; provision the tool again.`,
-      targetDir, { arch, platform },
-    );
-  }
-  const currentHash = await optionalRuntimeHash(spec, platform);
-  if (currentHash !== saved.binarySha256) {
-    return inspectedRuntimeFailure(
-      spec,
-      `${prefix}_BINARY_HASH_MISMATCH`,
-      `The project-local ${spec.id} binary no longer matches its provisioning hash; provision the tool again.`,
-      targetDir, { arch, platform },
-    );
-  }
-  return saved;
-}
-
-export async function inspectProfileTools(profile, targetDir, resolvedModules, toolIds, {
-  allowPreview = false,
-  arch = process.arch,
-  platform = process.platform,
-} = {}) {
+export async function inspectProfileTools(profile, targetDir, resolvedModules, toolIds, { allowPreview = false } = {}) {
   const statePath = path.join(await projectStateDir(targetDir), 'tool-state/tools.json');
   assertInsideDir(targetDir, statePath, 'tool state');
   await assertSafePathInside(targetDir, statePath, 'tool state');
   const state = await readToolState(targetDir);
   const tools = {};
   for (const spec of createToolProvisioningPlan({ allowPreview, profile, resolvedModules, targetDir, toolIds })) {
-    await assertSafePathInside(targetDir, spec.toolDir, `${spec.id} tool directory`);
-    const saved = state?.tools?.[spec.id];
-    if (spec.id === 'rtk') {
-      try {
-        resolveRtkAsset({ platform, arch });
-        tools[spec.id] = saved ?? { phase: 'install', status: 'pending', version: spec.version };
-        if (tools[spec.id].status === 'ready') {
-          tools[spec.id] = await inspectReadyRuntime(
-            spec,
-            tools[spec.id],
-            state?.fingerprints?.[spec.id],
-            targetDir,
-            { arch, platform },
-          );
-        }
-      } catch (error) {
-        tools[spec.id] = publicFailure(spec, 'install', error, targetDir, { arch, env: process.env, platform });
-      }
-    } else if (spec.id === 'astGrep') {
-      tools[spec.id] = saved ?? { phase: 'install', status: 'pending', version: spec.version };
-      if (tools[spec.id].status === 'ready') {
-        tools[spec.id] = await inspectReadyRuntime(
-          spec,
-          tools[spec.id],
-          state?.fingerprints?.[spec.id],
-          targetDir,
-          { arch, platform },
-        );
-      }
-    } else if (spec.id === 'playwrightCli') {
+    await assertSafePathInside(targetDir, spec.toolDir, spec.id + ' tool directory');
+    if (spec.id === 'playwrightCli') {
       const inspected = await inspectPlaywrightTool({ targetDir, toolDir: spec.toolDir });
       tools[spec.id] = {
         phase: inspected.status === 'ready' ? 'ready' : 'first-use',
@@ -667,11 +92,10 @@ export async function inspectProfileTools(profile, targetDir, resolvedModules, t
         version: spec.version,
       };
     } else {
-      tools[spec.id] = saved ?? (spec.id === 'openCodeReview' && !(await resolveOcrEndpoint({ env: process.env })).env
+      tools[spec.id] = state?.tools?.[spec.id] ?? (spec.id === 'openCodeReview' && !(await resolveOcrEndpoint({ env: process.env })).env
         ? { phase: 'llm-config', status: 'pending-config', version: spec.version }
         : { phase: 'install', status: 'pending', version: spec.version });
     }
-    tools[spec.id] = withOptionalToolIdentity(spec, tools[spec.id], platform, arch);
   }
   return tools;
 }
@@ -686,5 +110,3 @@ export function toolWarnings(tools) {
       tool: id,
     }));
 }
-
-export { codebaseMemoryRuntimeAvailable };

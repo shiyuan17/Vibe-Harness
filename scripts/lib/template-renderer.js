@@ -30,7 +30,6 @@ function renderHookBootstrapCommand() {
 export const hookBootstrapCommand = renderHookBootstrapCommand();
 
 const defaultTemplateData = {
-  codebaseMemoryStateDirectory: '.vibe-harness',
   hookBootstrapCommand,
   installedSurface: {
     clarificationPostureLine: '',

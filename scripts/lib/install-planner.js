@@ -33,7 +33,7 @@ import {
   PLAYWRIGHT_GENERATED_RELATIVE_DIR,
   PLAYWRIGHT_TOOL_RELATIVE_DIR,
 } from '../../runtime/tools/playwright-cli/run.mjs';
-import { codebaseMemoryCacheDir } from '../../runtime/tools/codebase-memory-mcp/cache-path.mjs';
+import { retiredToolGroups } from './retired-tools.js';
 import {
   extractManagedCbmIgnoreBlock,
   extractManagedMcpBlock,
@@ -102,52 +102,14 @@ async function packageVersion(rootDir) {
   return pkg.version;
 }
 
-/** Command surface for the freshness check the installed plan can actually run. */
-function codebaseMemoryStatusCommand(hasProjectScripts) {
-  return hasProjectScripts
-    ? '`node .agents/runtime/commands/run.mjs codebase-memory status --project . --json`'
-    : '`codebase-memory status`';
-}
-
-function toolDiscoveryLine(installedProviderModules, { hasProjectScripts = false, hasCodeNavigationSkill = false } = {}) {
-  const routes = [];
-  if (hasPluginCapability(installedProviderModules, 'code-intelligence.semantic-graph')) {
-    routes.push('跨文件符号关系、调用链、影响面或架构问题先用 codebase-memory-mcp 的 status 命令（'
-      + codebaseMemoryStatusCommand(hasProjectScripts)
-      + '）确认索引新鲜度，过期或缺失时再 refresh 并查询语义图');
-  }
-  if (hasPluginCapability(installedProviderModules, 'code-search.structural')) {
-    routes.push('本地 AST 结构、语法模式和规则调试使用项目内 ast-grep');
-  }
-  if (hasPluginCapability(installedProviderModules, 'code-search.natural-language')) {
-    routes.push('自然语言意图检索用 probe（--max-results ≤ 50、--max-tokens ≤ 10000）');
-  }
-  if (hasPluginCapability(installedProviderModules, 'code-intelligence.lsp-navigation')) {
-    routes.push('实时 symbol、引用、定义与类型解析用 serena（同时激活 ≤ 2 个 Worktree）');
-  }
-  if (hasPluginCapability(installedProviderModules, 'code-intelligence.call-graph')) {
-    routes.push('多跳调用链与影响面查询用 codegraph（默认 Base Index + Git Diff，不为每个 Worktree 重建索引）');
-  }
-  routes.push('单文件文本、配置和日志使用 rg 与直接文件阅读');
-  const rtkBoundary = hasPluginCapability(installedProviderModules, 'shell.output-compression')
-    ? ' RTK 只压缩符合条件的 Shell 输出，不参与检索工具选择。'
+function toolDiscoveryLine({ hasCodebaseMemoryMcp = false, hasCodeNavigationSkill = false } = {}) {
+  const skillLead = hasCodeNavigationSkill ? '跨文件上下文先用 code-navigation Skill 建立；' : '';
+  const graphRoute = hasCodebaseMemoryMcp
+    ? '宿主提供 codebase-memory-mcp 时，用 list_projects 匹配项目根、index_status 检查状态，并用 check_index_coverage 核对证据路径；'
     : '';
-  // One route per question, not one route per tool: naming every capability in
-  // the same turn is what pushes agents to run several index tools to prove the
-  // same fact. The default is a single best-matching entry, and the freshness
-  // sentence stops the same task/workspace from re-checking an index it just
-  // confirmed.
-  // The code-navigation Skill is the always-loaded trigger that makes the
-  // deferred code-intelligence tools visible before the model picks a tool.
-  // When it is installed it leads the routing sentence; when it is not, the
-  // line is byte-identical to before so the rg-only baseline stays intact.
-  const codeNavigationLead = hasCodeNavigationSkill
-    ? '跨文件上下文（符号、调用链、影响面、架构）先用 code-navigation Skill 建立，再按其内容选择下面对应的单一入口；'
-    : '';
-  return '先按问题类型选工具，默认只用一个与当前问题最匹配的入口：' + codeNavigationLead + routes.join('；') + '。'
-    + '同一任务、同一工作区内已确认新鲜的索引不重复检查；索引陈旧时先用旧图定位，'
-    + '再用当前源码补齐受影响事实，不自动全量重建，也不把旧图当作当前事实。'
-    + rtkBoundary;
+  return '先按问题类型选工具：' + skillLead + graphRoute
+    + '单文件文本、配置和日志使用 rg 与直接文件阅读。工具缺失或覆盖不足时回退当前源码；'
+    + '不自动安装、升级或全量重建索引，不把 ready 或空结果当成完整覆盖证据。';
 }
 
 export function createInstalledSurface({ clarificationPosture = 'balanced', customModules = false, hookConfigTargets = [], memoryPath = '.agents/memory', profile, projectRuleSources = [], ruleIndex = [], skillRoots = [], targets }) {
@@ -164,22 +126,9 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
   const detectedSkillRoots = [...new Set(installedTargets
     .filter((target) => isSkillRootTarget(target))
     .map((target) => target.split('/skills/')[0] + '/skills'))];
-  const hasRtkTool = hasTarget('.agents/runtime/tools/rtk/run.mjs');
-  const hasAstGrepTool = hasTarget('.agents/runtime/tools/ast-grep/run.mjs');
   const hasProjectScripts = hasTarget('.agents/runtime/commands/run.mjs');
   const hasCodebaseMemoryMcp = hasTarget('docs/rules/codebase-memory-mcp.md');
-  const hasCodegraphRule = hasTarget('docs/rules/codegraph.md');
-  const hasSerenaRule = hasTarget('docs/rules/serena.md');
-  const hasProbeRule = hasTarget('docs/rules/probe.md');
   const hasRoles = hasTarget('.agents/roles/index.md');
-  const installedProviderModules = [
-    hasRtkTool ? 'rtk' : null,
-    hasAstGrepTool ? 'ast-grep' : null,
-    hasCodebaseMemoryMcp ? 'codebase-memory' : null,
-    hasCodegraphRule ? 'codegraph' : null,
-    hasSerenaRule ? 'serena' : null,
-    hasProbeRule ? 'probe' : null,
-  ].filter(Boolean);
   const normalizedMemoryPath = memoryPath.replaceAll('\\', '/').replace(/\/+$/u, '');
   const hasLocalMemory = installedTargets.includes(`${normalizedMemoryPath}/README.md`);
   const hasGovernanceMemory = hasPrefix('docs/memory/');
@@ -200,9 +149,7 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
       ? `- 需求澄清姿态：\`${clarificationPosture}\`（action-leaning 偏向采用最小可逆默认值直接推进；balanced 按规则判断；conservative 对尚未解决的高影响分歧更谨慎）。`
       : '',
     codebaseMemoryMcpLine: hasCodebaseMemoryMcp
-      ? '- codebase-memory-mcp 规则位于 `docs/rules/codebase-memory-mcp.md`；跨文件符号、调用链、影响面或架构问题先运行 '
-        + codebaseMemoryStatusCommand(hasProjectScripts)
-        + '，再按需 refresh 语义图，单文件文本、配置和日志仍用 rg。'
+      ? '- codebase-memory-mcp 使用规范位于 `docs/rules/codebase-memory-mcp.md`；仅使用宿主已提供的工具，不负责安装、配置、版本、索引或缓存管理。'
       : '',
     discoveryLine: hasTarget('docs/rules/codebase-memory-mcp.md')
       ? '若 `codebase-memory-mcp` 可用，先确认索引状态并用于结构化定位；不可用时说明并退回仓库搜索。'
@@ -233,16 +180,16 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
     skillsLine: detectedSkillRoots.length > 0 ? `- Skills 位于 ${detectedSkillRoots.map((root) => `\`${root}/\``).join('、')}。` : '',
     templatesLine: hasPrefix('docs/templates/') ? '- 模板位于 `docs/templates/`。' : '',
     toolingLine: hasPrefix('.agents/runtime/tools/')
-      ? `- 项目内工具位于 \`.agents/runtime/tools/\`；使用 \`vibe-harness doctor --project <path>\` 查看初始化状态。${hasTarget('docs/rules/chrome-devtools-mcp.md') ? ' Chrome DevTools MCP 规则位于 \`docs/rules/chrome-devtools-mcp.md\`。' : ''}${hasRtkTool ? ' RTK 规则位于 \`docs/rules/rtk.md\`。' : ''}${hasAstGrepTool ? ' ast-grep 规则位于 \`docs/rules/ast-grep.md\`。' : ''}${hasProjectScripts ? ' 项目级确定性脚本：\`node .agents/runtime/commands/run.mjs <env|context|changes|verify|worktree|slice|patch|task|codebase-memory> --project . --json\`。' : ''}`
-      : (hasProjectScripts ? '- 项目级确定性脚本：`node .agents/runtime/commands/run.mjs <env|context|changes|verify|worktree|slice|patch|task|codebase-memory> --project . --json`。' : ''),
+      ? `- 项目内工具位于 \`.agents/runtime/tools/\`；使用 \`vibe-harness doctor --project <path>\` 查看初始化状态。${hasTarget('docs/rules/chrome-devtools-mcp.md') ? ' Chrome DevTools MCP 规则位于 \`docs/rules/chrome-devtools-mcp.md\`。' : ''}${hasProjectScripts ? ' 项目级确定性脚本：\`node .agents/runtime/commands/run.mjs <env|context|changes|verify|worktree|slice|patch|task> --project . --json\`。' : ''}`
+      : (hasProjectScripts ? '- 项目级确定性脚本：`node .agents/runtime/commands/run.mjs <env|context|changes|verify|worktree|slice|patch|task> --project . --json`。' : ''),
   };
   if (installedSurface.memoryLoadLine) {
     installedSurface.memoryLoadLine = '仅当需要恢复项目状态且已获授权时读 Memory body，'
       + installedSurface.memoryLoadLine
       + ' 专项 Skill 限制 Memory 证据边界时，只确认路径存在与元数据，不读正文。';
   }
-  installedSurface.discoveryLine = toolDiscoveryLine(installedProviderModules, {
-    hasProjectScripts,
+  installedSurface.discoveryLine = toolDiscoveryLine({
+    hasCodebaseMemoryMcp,
     hasCodeNavigationSkill: hasSkill('code-navigation/SKILL.md'),
   });
   if (hasRoles) {
@@ -290,7 +237,6 @@ function sourceForEntry(entrySource, renderData) {
 }
 
 function createManagedMcpServers(targetDir, resolvedModules) {
-  const codebaseTool = path.join(targetDir, '.agents/runtime/tools/codebase-memory-mcp/run.mjs');
   const chromeDevtoolsTool = path.join(targetDir, '.agents/runtime/tools/chrome-devtools-mcp/run.mjs');
   const servers = {};
   if (hasPluginCapability(resolvedModules, 'browser.devtools')) servers['chrome-devtools'] = {
@@ -299,20 +245,6 @@ function createManagedMcpServers(targetDir, resolvedModules) {
       env: {
         CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS: '1',
         CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS: '1',
-      },
-    };
-  if (hasPluginCapability(resolvedModules, 'code-intelligence.semantic-graph')) servers['codebase-memory-mcp'] = {
-      args: [codebaseTool],
-      command: process.execPath,
-      env: {
-        CBM_ALLOWED_ROOT: targetDir,
-        // The graph cache is private to the user, not the repository:
-        // 0.11.0 refuses a cache under a path chain that grants mutation
-        // rights to an untrusted identity, which rules out project-local
-        // caches for the usual drive layouts.
-        CBM_CACHE_DIR: codebaseMemoryCacheDir(path.resolve(targetDir)),
-        CBM_MEM_BUDGET_MB: '2048',
-        CBM_WORKERS: '2',
       },
     };
   if (hasPluginCapability(resolvedModules, 'work-management.read-write')) servers.linear = {
@@ -466,7 +398,7 @@ async function planAdapterConfigActions(ctx) {
   return actions;
 }
 
-/** @param {{adapterId?: string, allowPreview?: boolean, configUpdate?: any, dryRun?: boolean, enforcementPolicy?: string, force?: boolean, managedAgentsBlock?: boolean, preserveRetired?: boolean, profile?: string, requestedModules?: string[], requestedPlugins?: any, rtkHooksEnabled?: boolean, renderData?: Record<string, any>, rootDir: string, ruleIndex?: Array<{ id: string, source: string, title: string }>, targetDir: string, upgrade?: boolean}} options */
+/** @param {{adapterId?: string, allowPreview?: boolean, configUpdate?: any, dryRun?: boolean, enforcementPolicy?: string, force?: boolean, managedAgentsBlock?: boolean, preserveRetired?: boolean, profile?: string, requestedModules?: string[], requestedPlugins?: any, renderData?: Record<string, any>, rootDir: string, ruleIndex?: Array<{ id: string, source: string, title: string }>, targetDir: string, upgrade?: boolean}} options */
 export async function createInstallPlan({
   adapterId = 'codex',
   allowPreview = false,
@@ -480,7 +412,6 @@ export async function createInstallPlan({
   requestedModules,
   requestedPlugins,
   ruleIndex,
-  rtkHooksEnabled = false,
   renderData = {},
   rootDir,
   targetDir,
@@ -493,7 +424,6 @@ export async function createInstallPlan({
     requestedModules,
     requestedPlugins,
     rolesEnabled: renderData.roles?.enabled,
-    rtkHooksEnabled,
   });
   const allowedGroups = moduleSelection.allowedGroups;
   const state = await readInstallState(path.resolve(targetDir));
@@ -546,6 +476,23 @@ export async function createInstallPlan({
 
   const actions = await planEntryActions(ctx);
   actions.push(...await planAdapterConfigActions(ctx));
+
+  if (upgrade) {
+    for (const action of actions) {
+      const previous = managed.get(action.relativeTarget);
+      if (previous && retiredToolGroups.has(previous.group) && action.kind === 'user-modified') {
+        action.kind = 'retire-modified';
+      }
+      if (!previous || (!isManagedToml(action.contentStrategy) && !isManagedJson(action.contentStrategy)) || !(await pathExists(action.target))) continue;
+      const content = await readFile(action.target, 'utf8');
+      const payload = isManagedToml(previous.contentStrategy)
+        ? extractManagedMcpBlock(content)
+        : isManagedJson(previous.contentStrategy) ? managedJsonPayload(content, previous.managedJson) : '';
+      if (payload.includes('codebase-memory') && (preserveRetired || hashManagedBlock(payload) !== previous.managedBlockHash)) {
+        action.kind = 'retire-modified';
+      }
+    }
+  }
 
   actions.push(...await planUpgradeRetirements(ctx, actions));
 
@@ -643,10 +590,8 @@ export async function createInstallPlan({
       ...roleProjection.diagnostics,
       roles: roleProjection.roles,
     } : null,
-    rtkHooksEnabled,
     renderData: withDefaultTemplateData({
       ...renderData,
-      codebaseMemoryStateDirectory: stateDirectory,
       installedSurface: renderData.installedSurface ?? installedSurface,
     }),
     redZoneConfirmed: false,
@@ -742,7 +687,6 @@ export async function createMultiTargetInstallPlan({ selectedTargets, targets, .
     ...options,
     adapterId,
     ruleIndex: resolvedRuleIndex,
-    rtkHooksEnabled: adapterId === 'codex' && Boolean(options.rtkHooksEnabled),
     renderData: { ...options.renderData, target: adapterId, targets: configuredTargets },
   })));
   if (plans.length === 0) throw new Error('At least one install target is required.');
@@ -996,18 +940,25 @@ async function planUpgradeRetirements(ctx, entryActions) {
     assertInsideDir(targetDir, target, 'obsolete managed target');
     await assertSafePathInside(targetDir, target, 'obsolete managed target');
     if (!(await pathExists(target))) continue;
+    const managedBlock = isManagedJson(managedFile.contentStrategy) || isManagedToml(managedFile.contentStrategy) || isManagedIgnore(managedFile.contentStrategy);
+    const content = managedBlock ? await readFile(target, 'utf8') : null;
     const currentHash = isManagedJson(managedFile.contentStrategy)
-      ? managedJsonHash(await readFile(target, 'utf8'), managedFile.managedJson)
-      : await hashFile(target);
+      ? managedJsonHash(content, managedFile.managedJson)
+      : isManagedToml(managedFile.contentStrategy)
+        ? hashManagedBlock(extractManagedMcpBlock(content))
+        : isManagedIgnore(managedFile.contentStrategy)
+          ? hashManagedBlock(extractManagedCbmIgnoreBlock(content)) : await hashFile(target);
+    const expectedHash = managedBlock ? managedFile.managedBlockHash : managedFile.targetHash;
+    const retireKind = isManagedJson(managedFile.contentStrategy) ? 'retire-managed-json'
+      : isManagedToml(managedFile.contentStrategy) ? 'retire-managed-mcp'
+        : isManagedIgnore(managedFile.contentStrategy) ? 'retire-managed-ignore' : 'retire';
     actions.push({
       created: Boolean(managedFile.originalCreated ?? managedFile.created),
       discard: true,
-      expectedHash: managedFile.targetHash,
+      expectedHash,
       group: managedFile.group,
-      kind: currentHash === (isManagedJson(managedFile.contentStrategy) ? managedFile.managedBlockHash : managedFile.targetHash)
-        ? (isManagedJson(managedFile.contentStrategy) ? 'retire-managed-json' : 'retire')
-        : 'retire-modified',
-      ...(isManagedJson(managedFile.contentStrategy) ? { expectedHash: managedFile.managedBlockHash, managedJson: managedFile.managedJson } : {}),
+      kind: currentHash === expectedHash ? retireKind : 'retire-modified',
+      ...(isManagedJson(managedFile.contentStrategy) ? { managedJson: managedFile.managedJson } : {}),
       redZone: Boolean(managedFile.redZone),
       relativeTarget,
       target,
@@ -1095,9 +1046,9 @@ async function planDeselectedModuleRetirements(ctx, plannedTargets) {
   const { allowedGroups, moduleSelection, state, targetDir } = ctx;
   const actions = [];
   const currentModules = new Set(moduleSelection.resolvedModules);
-  const removedGroups = new Set((state?.resolvedModules ?? [])
+  const removedGroups = new Set([...retiredToolGroups, ...(state?.resolvedModules ?? [])
     .filter((id) => !currentModules.has(id) && Object.hasOwn(moduleCatalog, id))
-    .flatMap((id) => moduleCatalog[id].groups));
+    .flatMap((id) => moduleCatalog[id].groups)]);
   for (const managedFile of state?.files ?? []) {
     const relativeTarget = managedFile.target.replaceAll('\\', '/');
     if (!removedGroups.has(managedFile.group)
@@ -1157,6 +1108,7 @@ async function planGeneratedDirectoryRetirements(ctx, actions) {
     .filter((action) => action.discard && action.kind === 'retire')
     .map((action) => [action.relativeTarget, action.expectedHash]));
   for (const directory of state?.generatedDirectories ?? []) {
+    if (/\/tools\/(?:codebase-memory-mcp|rtk|ast-grep)\//u.test(directory.ownerTarget.replaceAll('\\', '/'))) continue;
     const expectedOwnerHash = retiringOwners.get(directory.ownerTarget);
     if (!expectedOwnerHash) continue;
     assertPortableRelativePath(directory.target, 'deselected generated directory');
@@ -1188,7 +1140,7 @@ function computeGeneratedDirectories(ctx, actions) {
       }]
     : [];
   const stateDirectory = path.basename(path.dirname(stateFilePath(path.resolve(targetDir))));
-  for (const component of ['chrome-devtools-mcp', 'codebase-memory-mcp', 'open-code-review', 'rtk', 'ast-grep']) {
+  for (const component of ['chrome-devtools-mcp', 'open-code-review']) {
     const ownerTarget = `.agents/runtime/tools/${component}/package.json`;
     if (actions.some((action) => action.kind === 'write' && action.relativeTarget === ownerTarget)) {
       generatedDirectories.push({ ownerTarget, target: `.agents/runtime/tools/${component}/node_modules` });
@@ -1200,13 +1152,9 @@ function computeGeneratedDirectories(ctx, actions) {
       generatedDirectories.push({
         ownerTarget,
         projectScoped: true,
-        target: `${stateDirectory}/tool-state/npm-cache/${component === 'chrome-devtools-mcp' ? 'chromeDevtoolsMcp' : component === 'codebase-memory-mcp' ? 'codebaseMemoryMcp' : component === 'open-code-review' ? 'openCodeReview' : component === 'ast-grep' ? 'astGrep' : component}`,
+        target: `${stateDirectory}/tool-state/npm-cache/${component === 'chrome-devtools-mcp' ? 'chromeDevtoolsMcp' : component === 'open-code-review' ? 'openCodeReview' : component}`,
       });
     }
-  }
-  const rtkOwnerTarget = '.agents/runtime/tools/rtk/package.json';
-  if (actions.some((action) => action.kind === 'write' && action.relativeTarget === rtkOwnerTarget)) {
-    generatedDirectories.push({ ownerTarget: rtkOwnerTarget, target: '.agents/runtime/tools/rtk/bin' });
   }
   return generatedDirectories;
 }
@@ -1273,7 +1221,7 @@ export async function previewInstallPlan(plan, { includeContent = true } = {}) {
   return previewFiles;
 }
 
-/** @param {{adapterId?: string, allowPreview?: boolean, managedAgentsBlock?: boolean, profile?: string, requestedModules?: string[], requestedPlugins?: any, rtkHooksEnabled?: boolean, renderData?: Record<string, any>, rootDir: string, targetDir: string}} options */
+/** @param {{adapterId?: string, allowPreview?: boolean, managedAgentsBlock?: boolean, profile?: string, requestedModules?: string[], requestedPlugins?: any, renderData?: Record<string, any>, rootDir: string, targetDir: string}} options */
 export async function diffTargetInstall({
   adapterId = 'codex',
   allowPreview = true,
@@ -1281,7 +1229,6 @@ export async function diffTargetInstall({
   profile = 'core',
   requestedModules,
   requestedPlugins,
-  rtkHooksEnabled = false,
   renderData = {},
   rootDir,
   targetDir,
@@ -1293,7 +1240,6 @@ export async function diffTargetInstall({
     requestedModules,
     requestedPlugins,
     rolesEnabled: renderData.roles?.enabled,
-    rtkHooksEnabled,
   });
   const allowedGroups = moduleSelection.allowedGroups;
   const roleProjection = moduleSelection.resolvedModules.includes('roles')
@@ -1514,7 +1460,6 @@ export async function diffMultiTargetInstall({ aggregatePlan, selectedTargets, t
     await diffTargetInstall({
       ...options,
       adapterId,
-      rtkHooksEnabled: adapterId === 'codex' && Boolean(options.rtkHooksEnabled),
       renderData: { ...renderData, target: adapterId, targets },
     }),
   ])));
@@ -1696,6 +1641,9 @@ async function prepareApplyContext(plan, transactionId) {
   const retiredFiles = [...(previousState?.retiredFiles ?? [])];
   const discardedTargets = new Set();
   if (plan.configUpdate) {
+    if (await pathExists(plan.configUpdate.path)) {
+      await backupFile({ backupId, target: plan.configUpdate.path, targetDir: plan.targetDir });
+    }
     await writeFile(plan.configUpdate.path, `${JSON.stringify(plan.configUpdate.config, null, 2)}\n`, 'utf8');
   }
   const baseline = await applyBaselinePlan(plan.baselinePlan);
@@ -1836,6 +1784,7 @@ async function executeRetireActions(plan, ctx) {
         skipped.push({ reason: 'managed-block-modified', target: action.relativeTarget });
         continue;
       }
+      await backupFile({ backupId, target: action.target, targetDir: plan.targetDir });
       const remaining = removeManagedMcpBlock(content);
       if (remaining) await writeFile(action.target, remaining, 'utf8');
       else await rm(action.target, { force: true });
@@ -1855,6 +1804,7 @@ async function executeRetireActions(plan, ctx) {
           skipped.push({ reason: 'managed-block-modified', target: action.relativeTarget });
           continue;
         }
+        await backupFile({ backupId, target: action.target, targetDir: plan.targetDir });
         remaining = removeManagedJsonConfig(content, action.managedJson);
       } catch {
         skipped.push({ reason: 'managed-block-modified', target: action.relativeTarget });
@@ -1877,6 +1827,7 @@ async function executeRetireActions(plan, ctx) {
         skipped.push({ reason: 'managed-block-modified', target: action.relativeTarget });
         continue;
       }
+      await backupFile({ backupId, target: action.target, targetDir: plan.targetDir });
       const remaining = removeManagedCbmIgnoreBlock(content);
       if (remaining) await writeFile(action.target, remaining, 'utf8');
       else if (action.created) await rm(action.target, { force: true });
@@ -1900,9 +1851,7 @@ async function executeRetireActions(plan, ctx) {
       skipped.push({ reason: 'target-modified', target: action.relativeTarget });
       continue;
     }
-    const backup = action.discard
-      ? null
-      : await backupFile({ backupId, target: action.target, targetDir: plan.targetDir });
+    const backup = await backupFile({ backupId, target: action.target, targetDir: plan.targetDir });
     await rm(action.target, { force: true });
     try {
       await rmdir(path.dirname(action.target));
@@ -1959,7 +1908,6 @@ function mergeInstallState(plan, ctx, retireResult) {
     requestedModules: plan.requestedModules,
     requestedPlugins: plan.requestedPlugins,
     resolvedModules: plan.resolvedModules,
-    rtkHooksEnabled: plan.rtkHooksEnabled,
     retiredFiles,
     stateVersion: 5,
     transactionId: ctx.transactionId,

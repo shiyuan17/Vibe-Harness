@@ -3,14 +3,14 @@
 // docs/rules/git-rules.md §Worktree keeps every worktree outside the repository
 // and shares the main checkout's tool surface with it. The dependency links
 // (`linkDependencyRoot`) only cover `node_modules`; the ignored governance
-// surface — `.agents` (Skills, runtime, ast-grep, rtk), `.codex` (hooks plus the
-// project MCP block), `.serena`, `.codegraph` and the adapter directories — is
+// surface — `.agents` (Skills and runtime), `.codex` (hooks plus the
+// project MCP block), the adapter directories — is
 // also ignored and therefore absent from a fresh worktree unless it is
 // projected. This module declares that projection: a directory is linked to the
 // main checkout's same path, a file is copied once when missing.
 //
 // The projection is the only thing that makes the code-navigation toolchain
-// (codegraph, serena, probe, codebase-memory-mcp) reachable inside a worktree,
+// (host configuration and tools) reachable inside a worktree,
 // so it is a fact of the worktree's provisioning state rather than a merge-back
 // fact. `worktree check` reports a missing or stale mirror without blocking the
 // cleanup of an already-merged worktree.
@@ -19,7 +19,7 @@
 // main checkout and never follows a directory link to remove its target: Node's
 // recursive removal unlinks a reparse point instead of descending into it, so
 // `removeMirrorLinks` can tear a worktree down without touching the main
-// checkout's `.agents` or `.codegraph`.
+// checkout's `.agents`.
 import {
   copyFileSync,
   existsSync,
@@ -171,7 +171,7 @@ export function expandMirrors(projectDir, mirrors, { followDirectoryLinks = fals
  * The link segments that stand between `root` and a nested mirror's leaf.
  *
  * `mkdirSync` and `copyFileSync` follow an existing link, so creating
- * `.serena/project.yml` under a worktree whose `.serena` is still a link to the
+ * `opencode.json` under a worktree whose `.host-config` is still a link to the
  * main checkout would write outside the worktree. Catching the ancestors here is
  * the only check that sees it: a lexical containment test cannot.
  *
@@ -198,7 +198,7 @@ function linkedAncestors(root, relative) {
  * A directory is linked to the main checkout's same path; a file is copied only
  * when the worktree side is missing. Anything already present is reported
  * `present` and never overwritten, so a developer's local editor state inside
- * `.serena/` survives a re-run. A mirror the main checkout does not have is
+ * `.host-config/` survives a re-run. A mirror the main checkout does not have is
  * reported `skipped` — a missing optional surface must not fail the bootstrap.
  *
  * @returns {{mirror: string, status: 'linked'|'copied'|'present'|'skipped', reason?: string}[]}

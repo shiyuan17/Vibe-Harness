@@ -42,4 +42,4 @@ The installed command starts with `node`, so it depends on a `node` binary on th
 
 Codex uses manual trust. Project-file consistency cannot prove runtime activation; validate and doctor keep the status unknown and direct the user to /hooks. Configuration-file hosts report configured-unverified until checked in the host. Unsupported hosts report unsupported.
 
-hooks.mode supports off, observe, and guarded; only the frozen-test-asset gate above keeps applying when the project turns the mode off. Optional RTK routing uses the same safety boundary and requires explicit project configuration. The runtime never changes global Agent configuration or local Git core.hooksPath.
+hooks.mode supports off, observe, and guarded; only the frozen-test-asset gate above keeps applying when the project turns the mode off. The runtime never changes global Agent configuration or local Git core.hooksPath.

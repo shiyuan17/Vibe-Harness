@@ -41,7 +41,7 @@ export const WORKTREE_PORT_CODES = Object.freeze([
 ]);
 
 // Mirror-projection facts are provisioning state too: a declared governance
-// surface (`.agents`, `.codex`, `.serena`, `.codegraph`) that a worktree does
+// surface (`.agents`, `.codex`) that a worktree does
 // not project blocks the tools in that worktree, but it must not stop the
 // removal of an already-merged worktree.
 export const WORKTREE_MIRROR_CODES = Object.freeze([
