@@ -615,6 +615,43 @@ test('服务登记指向复用 PID 时不发信号并保持 blocked', async () =
   }
 });
 
+test('服务登记用同目录别名拼写时仍算作了本工作区', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('大小写与 8.3 短名这类同目录别名只存在于 Windows');
+    return;
+  }
+  const { project } = await fixture();
+  const child = spawnDetachedFixture();
+  try {
+    // Windows accepts more than one spelling for one directory, and the
+    // registry is caller-readable state, so a registration written for this
+    // worktree can name it in a different case. It still names this worktree:
+    // the identity comparison has to be made on the canonical directory, or
+    // the entry is silently treated as another worktree's and a stop reports
+    // `service-not-registered` for a service that is still registered here.
+    const canonical = realpathSync(project);
+    const alias = canonical.toUpperCase();
+    assert.notEqual(alias, canonical);
+    await writeServiceRegistry(project, {
+      taskId: 'local', serviceId: 'web', worktree: alias, port: 9,
+      commandFingerprint: 'fingerprint', cwd: alias, status: 'running',
+      teardownStatus: 'unverified', stopOnTeardown: true, pid: child.pid, supervisorPid: 1,
+      startedAt: '2026-01-01T00:00:00.000Z', endpoint: unreachableEndpoint(),
+      // The recorded start time belongs to another process, so the entry is
+      // selected while nothing may be signalled on its behalf.
+      processStartTime: 'a-different-process',
+    });
+    const stopped = await command(project, 'runtime', 'service', 'stop', '--service', 'web', '--write');
+    assert.equal(stopped.report.status, 'blocked', JSON.stringify(stopped.report));
+    assert.equal(stopped.report.processes.length, 1, JSON.stringify(stopped.report));
+    assert.equal(stopped.report.processes[0].serviceId, 'web');
+    assert.equal(treeGone(child.pid), false);
+  } finally {
+    killTree(child.pid);
+    await remove(project);
+  }
+});
+
 test('服务登记身份一致时才回收进程树', async () => {
   const { project } = await fixture();
   const child = spawnDetachedFixture();

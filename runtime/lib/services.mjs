@@ -516,8 +516,40 @@ async function reclaimTree(entry) {
   signalTree(entry.pid, 'SIGKILL', { tracked, startIdentity: recordedIdentity });
   return waitGone(ORPHAN_REAP_STAGE_MS);
 }
+/**
+ * The canonical spelling of a worktree path, for comparing one recorded path
+ * against another.
+ *
+ * Windows exposes a single directory under more than one name: an 8.3 short
+ * name (`RUNNER~1`), a junction, or a case the caller typed differently. The
+ * ordinary realpath walk keeps whichever spelling it was handed, so a registry
+ * entry written for this worktree can carry a different string than the path
+ * this command resolved for the same directory — and comparing the two as text
+ * would report a registered service as belonging to another worktree. The
+ * native call returns the canonical spelling, and the longest existing ancestor
+ * is canonicalized with the rest appended, so a worktree that has already been
+ * removed keeps a stable key instead of falling back to a typed alias.
+ */
+function canonicalWorktree(value) {
+  const typed = path.resolve(String(value ?? ''));
+  const suffix = [];
+  let current = typed;
+  for (;;) {
+    try {
+      const canonical = realpathSync.native ? realpathSync.native(current) : realpathSync(current);
+      return suffix.length === 0 ? canonical : path.join(canonical, ...suffix);
+    } catch (error) {
+      if (error.code !== 'ENOENT') return typed;
+      const parent = path.dirname(current);
+      if (parent === current) return typed;
+      suffix.unshift(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
 function teardownMarkerPath(file, worktree) {
-  const resolved = path.resolve(worktree);
+  const resolved = canonicalWorktree(worktree);
   const key = process.platform === 'win32' ? resolved.toLowerCase() : resolved;
   return path.join(path.dirname(file), `teardown-${createHash('sha256').update(key).digest('hex').slice(0, 16)}.json`);
 }
@@ -747,12 +779,12 @@ export async function serviceReport(project, args, tokenize) {
   const config = JSON.parse(readFileSync(path.join(project, 'vibe-harness.config.json'), 'utf8'));
   validateDeliveryConfig(config);
   const file = registryPath(project);
-  const worktree = realpathSync(project);
+  const worktree = canonicalWorktree(project);
   const marker = teardownMarkerPath(file, worktree);
   const operation = async () => {
     const registry = readRegistry(file);
     if (action !== 'start') {
-      const selected = registry.processes.filter((entry) => entry.worktree === worktree && (!args.service || entry.serviceId === args.service));
+      const selected = registry.processes.filter((entry) => canonicalWorktree(entry.worktree) === worktree && (!args.service || entry.serviceId === args.service));
       if (args.service && !selected.length) return { status: 'blocked', reason: 'service-not-registered', processes: [] };
       const results = [];
       for (const entry of selected) {
@@ -778,7 +810,7 @@ export async function serviceReport(project, args, tokenize) {
     if (path.relative(worktree, cwd).startsWith('..') || path.isAbsolute(path.relative(worktree, cwd))) throw new Error('Service cwd escapes worktree');
     const tokens = tokenize(service.command);
     const fingerprint = createHash('sha256').update(JSON.stringify([cwd, tokens])).digest('hex');
-    for (const registered of registry.processes.filter((item) => item.worktree === worktree && item.serviceId === service.id && item.status !== 'stopped')) {
+    for (const registered of registry.processes.filter((item) => canonicalWorktree(item.worktree) === worktree && item.serviceId === service.id && item.status !== 'stopped')) {
       // A live service is what "already registered" refuses: a start must never
       // silently replace a service that is still answering. Only a registration
       // whose supervisor can no longer answer for it is reclaimed, so a crashed
@@ -902,7 +934,8 @@ export async function teardownServices(project, worktree, write = true) {
     // survive the worktree removal that the caller performs after `passed`.
     const registry = readRegistry(file); const results = [];
     const touched = [];
-    for (const entry of registry.processes.filter((item) => path.resolve(item.worktree) === path.resolve(worktree) && item.status !== 'stopped')) {
+    const worktreeKey = canonicalWorktree(worktree);
+    for (const entry of registry.processes.filter((item) => canonicalWorktree(item.worktree) === worktreeKey && item.status !== 'stopped')) {
       const result = entry.stopOnTeardown ? await stopEntry(entry, write) : { ...entry, status: 'blocked', reason: 'service-opted-out-of-teardown' };
       results.push(result); touched.push(entry); if (write) Object.assign(entry, result);
     }
