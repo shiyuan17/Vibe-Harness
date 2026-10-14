@@ -5,35 +5,22 @@ description: Use before modifying or reasoning about existing code that spans fi
 
 # 跨文件代码上下文
 
-在改动既有代码或解释其行为之前，把「谁调用谁、这次改动会影响谁」变成可核对的上下文。本 Skill 负责把仓库级语义工具接进来，并给出工具不可用时的降级路径；它不改变授权、安全边界和证据标准。
+在改动既有代码或解释其行为之前，建立可核对的符号、调用链和影响面上下文。本 Skill 使用宿主提供的 codebase-memory-mcp，不负责工具安装、配置、版本或索引缓存管理。
 
-## 触发
+## 使用方式
 
-- 需要跨文件定位符号、定义、引用或实现。
-- 需要追多跳调用链、影响面或架构概览。
-- 准备修改既有代码，但还不确定调用方与被影响范围。
-- 单文件文本、配置、日志检索不需要本 Skill，直接用 rg；已经定位到根因的修复也不需要。
+1. 首先发现 deferred 的 codebase-memory MCP 查询工具；清单未展示不等于工具不可用。确实不可用时说明限制，回退 rg 与当前源码。
+2. 用 `list_projects` 返回的根路径匹配当前工作区，使用实际注册标识；不猜目录名或 ID 算法，不默认共享主检出索引。用 `index_status` 检查可用性和实际提供的新鲜度信号。
+3. 按问题选择单一入口：`search_graph` 定位符号，`trace_path` 追调用链，`detect_changes` 辅助影响分析，`get_architecture` 获取架构；关系复杂时按需使用 `query_graph`。
+4. 候选路径明确后，调用 `check_index_coverage` 覆盖全部证据路径；否定或穷尽主张还须核对相关 scope、分页及动态关系限制。`ready`、空结果和未记录缺口不证明完整覆盖。
+5. 用 `get_code_snippet` 或当前源码核对关键结论。覆盖缺失、陈旧、pending 或 unknown 时，以 rg 和直接阅读补齐对应范围；记录仍未覆盖的部分。
 
-## 首次调用：先让工具可见
+## 边界
 
-宿主可能把下列 MCP 工具标记为 deferred，首轮工具清单里看不到。看不到时先按名加载再调用，不要因为「清单里没有」就退回纯文本检索：
+- 单文件文本、配置和日志使用 rg；不为了完整流程运行无关图查询。
+- 同一任务、同一工作区复用已核对的状态；源码、generation 或工作区变化时核对受影响范围。
+- 不自动安装、升级、修改 MCP 配置或全量重建索引；查询失败不触发索引删除。
+- 图结果是导航线索，行为主张必须有当前源码、测试或命令证据；未读完分页不得声称不存在、死代码或完整影响面。
+- 只读查询、索引缓存操作、项目文件写入和删除索引按实际副作用分别处理，未知工具不整体放行。
 
-1. 按名加载，例如用 tool_search 查询 "codegraph_explore serena find_symbol probe search codebase-memory search_graph"。
-2. 加载成功后再按下面的分工调用；某工具确实不存在时按「降级与证据」处理，不假装调用。
-
-## 工具分工
-
-- 仓库级、多跳调用链与自然语言探索：codegraph 的 codegraph_explore（默认入口）。
-- 实时符号、引用、定义与类型解析：serena 的 find_symbol / find_referencing_symbols / find_implementations。
-- 意图式「找做某事的代码」：probe 的 search。
-- 跨文件符号关系、调用链与改动影响面：codebase-memory 的 search_graph / trace_path / detect_changes。
-
-一次问题默认选一个入口；先限定项目、问题和所需符号，结果不足再收窄查询，不并行重复扫描。同一任务、同一工作区已确认新鲜的索引不重复检查；陈旧图仅用于定位，再用当前源码补齐受影响事实，不自动全量重建。索引刷新须有覆盖授权。结构化语法匹配用 ast-grep，命令输出压缩可用 rtk；压缩输出不能代替失败明细或原始验证证据。
-
-同步归属：`docs/rules/codegraph.md`、`docs/rules/serena.md`、`docs/rules/probe.md`、`docs/rules/codebase-memory-mcp.md`、`docs/rules/ast-grep.md`、`docs/rules/rtk.md`。
-
-## 降级与证据
-
-- 工具不可用或索引 missing 时，说明缺少代码图能力并回退到 rg 与直接文件阅读；索引 stale 或与源码冲突时，图只作导航，当前源码决定事实。
-- 回退时记录工具名、状态、替代命令与覆盖限制；不假装调用，也不把「工具缺失」当作源码证据。
-- 图关系与摘要是导航线索，不是行为证据；行为主张必须回到源码、测试或命令输出核验。
+同步归属：`docs/rules/codebase-memory-mcp.md`。

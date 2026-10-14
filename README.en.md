@@ -66,7 +66,7 @@ pnpm vibe-harness validate --project ../full-project
 pnpm vibe-harness doctor --project ../full-project
 ```
 
-`--preset everything` expands to `profile=full`, the six stable tool plugins with a runtime, the rule-only `codegraph`/`serena`/`probe` plugins, the linear-mcp read-write endpoint, and the memory module, and implies preview capability plus post-install provision. It does not change the contract that `--plugin all` still ships only the six stable plugins with a runtime and excludes Linear along with the three rule-only plugins. Red-zone writes still require the explicit `--confirm-red-zone`. The init config is:
+`--preset everything` expands to full, the three managed runtime plugins, Linear read-write and memory. `--plugin all` selects only the three runtime plugins. Red-zone writes still require `--confirm-red-zone`.
 
 ```json
 {
@@ -90,21 +90,19 @@ In the prompts below, select every adapter the project actually uses and store t
 
 ### core (recommended)
 
-    Install the Vibe-Harness core profile into TARGET_PROJECT_ABSOLUTE_PATH, then install and enable codebase-memory-mcp and create its initial code index. You are working from the Vibe-Harness repository: first check the Node.js and pnpm versions and install this repository's dependencies; select the codex, claude, or gemini adapter for the current Agent host. If the target has no vibe-harness.config.json, initialize it with the selected adapter and core profile; if its configuration or existing install state does not match, stop and report the mismatch, and never use --force. Both the install dry-run and write must explicitly select --plugin codebase-memory-mcp. Inspect the dry-run for conflicts, out-of-project writes, overwrites, and red-zone actions before using --write. I explicitly authorize this installation to write the project-scoped MCP red-zone configuration planned by that plugin; use --confirm-red-zone for the write. Preview provision, then run provision --write to install and enable the pinned project-local runtime, disable auto_index and auto_watch, build the index, verify that it belongs to the target project and is ready, and complete the MCP handshake. Finish with validate --project and doctor --project. Report complete success only when the installation is consistent and codebaseMemoryMcp is ready; otherwise report the failed phase and recovery command. Do not modify global Agent, MCP, or Git configuration.
+    Install the core profile into TARGET_PROJECT_ABSOLUTE_PATH. Inspect the dry-run first; use --write only for approved project-local changes and --confirm-red-zone for red-zone writes. Do not use --force or change global configuration. codebase-memory-mcp is externally managed: install only its usage rules, not the tool, MCP configuration or index. Finish with validate and doctor.
 
 ### full
 
-    Install the Vibe-Harness full profile into TARGET_PROJECT_ABSOLUTE_PATH, then install and enable codebase-memory-mcp and create its initial code index. You are working from the Vibe-Harness repository: first check the Node.js and pnpm versions and install this repository's dependencies; select the codex, claude, or gemini adapter for the current Agent host. If the target has no vibe-harness.config.json, initialize it with the selected adapter and full profile; if its configuration or existing install state does not match, stop and report the mismatch, and never use --force. Both the install dry-run and write must explicitly select --plugin codebase-memory-mcp. Inspect the dry-run for conflicts, out-of-project writes, overwrites, and red-zone actions before using --write. I explicitly authorize this full installation to write its planned project-scoped Hook and MCP red-zone configuration; use --confirm-red-zone for the write. Preview provision, then run provision --write to install and enable the pinned project-local runtime, disable auto_index and auto_watch, build the index, verify that it belongs to the target project and is ready, and complete the MCP handshake. Finish with validate --project and doctor --project. Report complete success only when the installation is consistent and codebaseMemoryMcp is ready; otherwise report the failed phase and recovery command. Do not modify global Agent, MCP, or Git configuration.
+    Install the full profile into TARGET_PROJECT_ABSOLUTE_PATH. Inspect the dry-run first; use --write only for approved project-local changes and --confirm-red-zone for red-zone writes. Do not use --force or change global configuration. codebase-memory-mcp is externally managed: install only its usage rules, not the tool, MCP configuration or index. Finish with validate and doctor.
 
-The core and full quick prompts explicitly add codebase-memory-mcp; this does not change the profile contract that external tools must be selected with --plugin. The equivalent manual core install is:
+Core and full include the external codebase-memory-mcp usage rules without installing a tool. Equivalent core installation:
 
 ```bash
 pnpm install
 pnpm vibe-harness init --project ../some-project --target codex --profile core
-pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin codebase-memory-mcp --dry-run
-pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin codebase-memory-mcp --write --confirm-red-zone
-pnpm vibe-harness provision --project ../some-project --target codex --profile core --dry-run
-pnpm vibe-harness provision --project ../some-project --target codex --profile core --write
+pnpm vibe-harness install --project ../some-project --target codex --profile core --dry-run
+pnpm vibe-harness install --project ../some-project --target codex --profile core --write --confirm-red-zone
 pnpm vibe-harness validate --project ../some-project
 pnpm vibe-harness verify --project ../some-project --plan
 pnpm vibe-harness verify --project ../some-project --full
@@ -144,7 +142,7 @@ node .agents/runtime/commands/run.mjs patch --project . --spec <spec.json>
 
 Install a project only once. The targets array declares every host. Without --target, install, upgrade, verify, validate, doctor, and diff process all targets. With --target, a command selects one host still present in configuration or install-state and never adds it implicitly.
 
-Common rules, runtime, memory, Evals, and the codebase-memory index have one shared owner at the project root. Host instructions, native Skills, MCP, and Hooks use adapter:id projection owners. Do not repeat installation in a project subdirectory to simulate multi-host support.
+Common rules, runtime, memory, and Evals have one shared owner at the project root. Host instructions, native Skills, MCP, and Hooks use adapter:id projection owners. Do not repeat installation in a project subdirectory to simulate multi-host support.
 
 ## Execution model
 
@@ -271,11 +269,11 @@ Legacy `governance.mode`, `governance.workflow`, `hooks.completionGate`, and `va
 
 The Linear workflow is a separate external integration: linear-mcp uses the read-write endpoint and linear-mcp-readonly uses the read-only endpoint. They are mutually exclusive and neither is selected by plugin all. Codex, Cursor, Qoder, ZCode, Antigravity, and OpenCode receive project-scoped Remote MCP configuration. Claude and Gemini receive the same rules and Skill but report manual MCP setup as a degraded capability. The installer writes no token or OAuth credential; complete the host's native Linear authentication after configuration.
 
-Optional plugins are `rtk`, `ast-grep`, `codebase-memory-mcp`, `chrome-devtools-mcp`, `playwright-cli`, `open-code-review`, `codegraph`, `serena`, and `probe`. `codegraph`, `serena`, and `probe` are rule-only plugins: the installer ships the rule file only, never installs or configures the external tool itself, and hosts provide the MCP/CLI on their own. Agentmemory runtime is suspended (upstream High vulnerabilities) and is not a `--plugin` choice; install the `memory` module via `--modules memory` if you need memory capability.
+Managed runtime plugins are `chrome-devtools-mcp`, `playwright-cli`, and `open-code-review`. codebase-memory-mcp usage rules ship with common rules; the user or host manages the tool independently.
 
 ```bash
-pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin -rtk --dry-run
-pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin -rtk ast-grep --write
+pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin chrome-devtools-mcp --dry-run
+pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin chrome-devtools-mcp playwright-cli --write
 pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin linear-mcp --write --confirm-red-zone
 pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin linear-mcp-readonly --write --confirm-red-zone
 pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin none --write
@@ -312,7 +310,7 @@ The preserve-retired option keeps assets that an upgrade would retire and report
 - Existing project files are preserved unless `--force` is explicit. Project-owned managed seeds (`docs/memory/*`, `.agents/memory/*`) keep the project's drifted content, re-record it as the baseline, and are reported through `retainedProjectOwned` (`reason: project-owned-drift`) and the `PROJECT_OWNED_FILE_RETAINED` warning; drifted harness-owned files still fail closed with `Refusing to upgrade user-modified file`.
 - Every mutation requires `--write`; red-zone writes require explicit confirmation.
 - The installer does not modify global Agent configuration or `.git/config`.
-- Codex, Cursor, Qoder, and ZCode Hooks normalize their `PreToolUse` and permission events through the same safety policy to block dangerous Git, global configuration writes, credential exfiltration, red-zone file uploads, out-of-project writes, and (when an `allowedEgressHosts` allowlist is configured) non-allowlisted network egress. RTK Hook routing remains Codex-only.
+- Codex, Cursor, Qoder, and ZCode Hooks normalize their `PreToolUse` and permission events through the same safety policy to block dangerous Git, global configuration writes, credential exfiltration, red-zone file uploads, out-of-project writes, and (when an `allowedEgressHosts` allowlist is configured) non-allowlisted network egress.
 - Completion claims must match fresh evidence; narrow the claim and report risk when verification is unavailable.
 
 ## Roles

@@ -34,7 +34,7 @@ Vibe-Harness 是跨平台、项目级的 AI coding 资产包。它使用 Node.js
 
 <code>manifests/plugin-providers.json</code> 是可选插件身份与能力关系的内部真值：capability 表示消费方需要的稳定能力，provider 表示实现该能力的具体产品，module 表示安装器交付的资产与依赖闭包。安装器、provisioning、MCP 投影和生成指令通过 catalog 解析 provider，不再各自维护插件别名与 tool-to-module 映射。
 
-Provider 只声明 <code>cli</code>、<code>local-mcp</code> 或 <code>remote-mcp</code> transport；不同 transport 的参数、返回值、错误和生命周期保持各自合同，不抽象为统一执行接口。RTK 属于输出压缩能力，不是代码搜索 provider；ast-grep 与 codebase-memory-mcp 分别提供结构搜索和语义图能力，<code>rg</code> 仍是未受管的文本搜索与 fallback。当前不存在自动组合这些工具的 hybrid provider，Agent 继续按安装后的能力和专项规则选择工具。
+Provider 只声明 <code>cli</code>、<code>local-mcp</code> 或 <code>remote-mcp</code> transport；不同 transport 的参数、返回值、错误和生命周期保持各自合同，不抽象为统一执行接口。codebase-memory-mcp 仅提供外部工具使用规范，不属于受管 provider；<code>rg</code> 仍是文本搜索与 fallback。Agent 按宿主实际能力选择工具并核对覆盖。
 
 Catalog 不改变外部项目配置和状态合同。<code>plugins</code>、<code>requestedPlugins</code>、<code>resolvedModules</code>、CLI 别名、输出字段及 install-state schemaVersion 保持不变；Linear 读写与只读 provider 继续互斥且不随 <code>plugin all</code> 展开。
 
@@ -48,7 +48,7 @@ Catalog 不改变外部项目配置和状态合同。<code>plugins</code>、<cod
 2. 每个 projection plan 只生成该宿主的指令、原生 Skills、MCP 与 Hook 配置。
 3. 相同路径和相同内容合并 owners；不同内容竞争同一路径时在 dry-run 阶段确定性报 conflict。
 4. Codex、Cursor、Qoder、ZCode 和 OpenCode 合并到 AGENTS.md 的唯一宿主中立受管块；Claude、Gemini 和 Antigravity 使用各自入口。
-5. 工具 probe、provisioning 和 codebase-memory 根索引按项目根去重一次。
+5. 工具检查和 provisioning按项目根去重一次。
 
 install-state stateVersion 5 使用 targets 取代 adapter。files、generatedFiles、generatedDirectories 和 retiredFiles 记录 owners，取值为 shared 或 adapter:id。旧 state v4 可读，并在标准升级事务中迁移。
 

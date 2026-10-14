@@ -43,7 +43,7 @@ Shell 分段与读写谓词同样来自该模块，因此同一条命令在策�
 
 本地宿主函数工具是一份显式名单：它们不触碰工作区，但名字里没有可推断的读动词（<code>update_plan</code> 是宿主本地清单，<code>view_image</code> 返回像素），未列名时会落到「无法判定」并要求 Execution Envelope。会改动宿主状态的工具不进这份名单——<code>write_stdin</code>、<code>create_thread</code>、<code>fork_thread</code>、<code>automation_update</code>、<code>handoff_thread</code>、<code>set_thread_*</code>、<code>send_message_to_thread</code>、<code>followup_task</code> 以及一切未列名的工具仍走 Envelope 路径（无 Envelope 即拒绝）。相对上一轮，<code>update_plan</code>、<code>view_image</code> 与 <code>Agent</code> 由「不判定」变为「放行」，<code>write_stdin</code>、<code>create_thread</code> 与 <code>automation_update</code> 由「不判定」变为「拒绝」。
 
-MCP 工具先按「服务器 + 工具名」查显式合同表，再回退到「服务器 + 动词」分类。显式表覆盖项目内固定版本的 codebase-memory-mcp：13 个只读工具（<code>search_graph</code>、<code>query_graph</code>、<code>trace_path</code>、<code>get_code_snippet</code>、<code>get_file_outline</code>、<code>get_graph_schema</code>、<code>compare_graphs</code>、<code>get_architecture</code>、<code>search_code</code>、<code>list_projects</code>、<code>index_status</code>、<code>check_index_coverage</code>、<code>detect_changes</code>）与两个只重写工具自身图缓存的可逆工具（<code>index_repository</code>、<code>ingest_traces</code>）直接放行；<code>manage_adr</code> 写项目文件，按 workspaceWrite 需要 Execution Envelope；<code>delete_project</code> 删除整个项目索引，属高风险，保持拒绝。显式表同样登记 codegraph 服务器：默认暴露的 <code>codegraph_explore</code> 与经 CODEGRAPH_MCP_TOOLS 启用的 <code>codegraph_search</code>、<code>codegraph_callers</code>、<code>codegraph_callees</code>、<code>codegraph_impact</code>、<code>codegraph_node</code>、<code>codegraph_files</code>、<code>codegraph_status</code> 及无前缀短名全部按只读放行；codegraph 的索引变更动词（init、index、sync、unlock、serve）不进表，CLI 侧只放行只读的 <code>codegraph status</code> 查询，索引变更保持 Execution Envelope 路径。表外工具仍按动词判定：get、list、search、read、find、view、inspect、query、status、state、show、open 等只读与 UI 动词放行；write、create、update、delete、send、post、execute、run、apply、install 等写与执行动词，以及无法判定的工具名，保持既有 Execution Envelope 路径。显式表解决的是按动词猜名会误判的那一类工具名（<code>trace_path</code> 没有读动词，<code>index_repository</code> 没有写动词），动词表继续覆盖未登记服务器。
+MCP 工具先按「服务器 + 工具名」查显式合同表。外部 codebase-memory-mcp 的已知只读查询直接放行；index_repository、ingest_traces 等索引写入以及 manage_adr 等项目写入按 workspaceWrite 要求 Execution Envelope；delete_project 属高风险删除。该服务器未登记的工具不按读动词猜测，也不整体放行；工具版本、安装与索引生命周期由用户或宿主管理。其他服务器仍沿用通用动词分类，写入、执行或无法判定的调用进入既有 Execution Envelope 路径。
 
 拒绝输出保留稳定的英文 reasonCode（机器契约），message 使用中文并给出最小可行动作，并区分「不可判定，需要 Execution Envelope」与「明确禁止」两类。
 
@@ -115,7 +115,6 @@ strict 把两类「声明 ≠ 执行」的缺口转为硬结论：
 
 网络出口默认允许普通依赖和 Git 操作，但始终阻止凭据引用与红区文件上传。非空 allowlist 是能力授予，不是内容安全保证。
 
-RTK 路由仅在 Codex、显式选择 RTK 插件并启用对应设置时生效；安全策略始终先执行。
 
 ## Execution Envelope
 

@@ -80,14 +80,9 @@
 
 ### 工具与集成
 
-- [codebase-memory-mcp](rules/codebase-memory-mcp.md)
+- [codebase-memory-mcp](rules/codebase-memory-mcp.md) ⚡
 - [Chrome DevTools MCP](rules/chrome-devtools-mcp.md)
 - [Linear 工作流](rules/linear-workflow.md) ⚡
-- [RTK](rules/rtk.md)
-- [ast-grep](rules/ast-grep.md)
-- [codegraph 仓库索引探索规则](rules/codegraph.md)
-- [serena 语义符号导航规则](rules/serena.md)
-- [probe 轻量代码检索规则](rules/probe.md)
 
 ### 发布与排障
 
