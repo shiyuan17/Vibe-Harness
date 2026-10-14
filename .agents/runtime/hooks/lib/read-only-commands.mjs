@@ -75,7 +75,6 @@ const READ_ONLY_CLI_RULES = new Map([
     verbPrefix: /^(?:describe|get|list)-/iu,
     verbs: ['head', 'help', 'ls'],
   }],
-  ['codegraph', { verbs: ['status'] }],
   ['codex', { nouns: { features: ['list'], mcp: ['get', 'list'] } }],
   ['docker', {
     nouns: {
@@ -137,7 +136,6 @@ const READ_ONLY_CLI_RULES = new Map([
       'version',
     ],
   }],
-  ['probe', { verbs: ['query', 'search'] }],
   ['terraform', {
     nouns: { state: ['list', 'show'], workspace: ['list', 'show'] },
     verbs: ['output', 'plan', 'providers', 'show', 'validate', 'version'],
@@ -399,22 +397,6 @@ export function isWorkspaceToolName(toolName) {
 /**
  * Explicit, server-scoped MCP tool decisions.
  *
- * The verb table below guesses intent from the words in a tool name, which is
- * all a Hook can do for a server it has never seen. A server whose surface this
- * repository pins does not need guessing: every name in the table is answered
- * from the tool's own contract, so `trace_path` (no read verb) is no longer
- * "unclassified" and `index_repository` (no write verb either) is no longer
- * forced through an Execution Envelope.
- *
- * `read-only` covers tools that cannot change persistent state, plus the
- * reversible graph writes the pinned runtime documents (`index_repository`
- * and `ingest_traces`): they rewrite the tool's own cache, are idempotent, and
- * never touch the project. `workspace-write` mutates project files, and
- * `high-risk` is deliberate data loss.
- *
- * The pinned codebase-memory-mcp surface is listed as its own name/value table
- * so a single source answers both the policy lookup and the documentation.
- *
  * @type {ReadonlyArray<readonly [string, 'read-only' | 'workspace-write' | 'high-risk']>}
  */
 const CODEBASE_MEMORY_TOOL_DECISIONS = [
@@ -426,9 +408,9 @@ const CODEBASE_MEMORY_TOOL_DECISIONS = [
   ['get_code_snippet', 'read-only'],
   ['get_file_outline', 'read-only'],
   ['get_graph_schema', 'read-only'],
-  ['index_repository', 'read-only'],
+  ['index_repository', 'workspace-write'],
   ['index_status', 'read-only'],
-  ['ingest_traces', 'read-only'],
+  ['ingest_traces', 'workspace-write'],
   ['list_projects', 'read-only'],
   ['manage_adr', 'workspace-write'],
   ['query_graph', 'read-only'],
@@ -437,36 +419,9 @@ const CODEBASE_MEMORY_TOOL_DECISIONS = [
   ['trace_path', 'read-only'],
 ];
 
-/**
- * The codegraph server's core query tools (explore/callers/callees/impact/
- * node/files) carry none of the shared read verbs, so they are registered
- * explicitly instead of relying on verb matching; index-mutating verbs stay
- * out of the table on purpose. Both the `codegraph_`-prefixed live names and
- * the bare short names are covered.
- *
- * @type {ReadonlyArray<readonly [string, 'read-only' | 'workspace-write' | 'high-risk']>}
- */
-const CODEGRAPH_TOOL_DECISIONS = [
-  ['callers', 'read-only'],
-  ['callees', 'read-only'],
-  ['codegraph_callers', 'read-only'],
-  ['codegraph_callees', 'read-only'],
-  ['codegraph_explore', 'read-only'],
-  ['codegraph_files', 'read-only'],
-  ['codegraph_impact', 'read-only'],
-  ['codegraph_node', 'read-only'],
-  ['codegraph_search', 'read-only'],
-  ['codegraph_status', 'read-only'],
-  ['explore', 'read-only'],
-  ['files', 'read-only'],
-  ['impact', 'read-only'],
-  ['node', 'read-only'],
-];
-
 /** @type {Map<string, Map<string, 'read-only' | 'workspace-write' | 'high-risk'>>} */
 const MCP_TOOL_DECISIONS = new Map([
   ['codebase-memory-mcp', new Map(CODEBASE_MEMORY_TOOL_DECISIONS)],
-  ['codegraph', new Map(CODEGRAPH_TOOL_DECISIONS)],
 ]);
 
 /**
@@ -518,6 +473,8 @@ export function classifyMcpToolName(toolName) {
   const policy = mcpToolPolicy(toolName);
   if (policy === 'read-only') return true;
   if (policy !== null) return false;
+  const parsed = parseMcpToolName(toolName);
+  if (parsed && MCP_TOOL_DECISIONS.has(parsed.server)) return false;
   if (MCP_WRITE_VERB_PATTERN.test(toolName)) return false;
   if (MCP_READ_VERB_PATTERN.test(toolName)) return true;
   return false;

@@ -62,15 +62,22 @@ export function atomicClaim(current, request, {
   assertAtomicCapability(capabilities);
   assertRequest(request);
   const currentClaim = current ?? null;
-  if (currentClaim && Date.parse(currentClaim.leaseExpiresAt) <= now.getTime()) {
-    throw claimError('LEASE_EXPIRED', 'expired claim requires explicit reconciliation; it cannot be replaced automatically');
+  const nowMs = now.getTime();
+  if (!Number.isFinite(nowMs)) throw new TypeError('now must be a valid date');
+  // A lease that cannot be parsed is not "still active": `Date.parse` returns
+  // NaN and every comparison against it is false, so an unreadable lease would
+  // fall through to `claimable` and silently replace an unreconciled claim.
+  // Both an expired and an unreadable lease have to be reconciled explicitly.
+  const currentLeaseExpiresAt = currentClaim ? Date.parse(currentClaim.leaseExpiresAt) : Number.NaN;
+  if (currentClaim && (!Number.isFinite(currentLeaseExpiresAt) || currentLeaseExpiresAt <= nowMs)) {
+    throw claimError('LEASE_EXPIRED', 'expired or unreadable claim requires explicit reconciliation; it cannot be replaced automatically');
   }
   if (currentClaim
     && currentClaim.issueId === request.issueId
     && currentClaim.idempotencyKey === request.idempotencyKey) {
     return { status: 'idempotent', claim: currentClaim };
   }
-  if (currentClaim && Date.parse(currentClaim.leaseExpiresAt) > now.getTime()) {
+  if (currentClaim) {
     throw claimError('CLAIM_CONFLICT', `Issue ${request.issueId} already has an active claim`);
   }
   if (currentClaim && currentClaim.fencingToken === request.fencingToken) {

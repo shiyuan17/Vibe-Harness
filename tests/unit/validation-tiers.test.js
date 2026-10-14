@@ -269,3 +269,15 @@ test('selectTierChecks 让重复命令停留在最低层', () => {
   assert.deepEqual(selection.selectedChecks.map((item) => item.id), ['lint']);
   assert.deepEqual(selection.deferredChecks, []);
 });
+
+test('显式命令归属优先于缺失层的推导归属', () => {
+  const resolved = resolveValidationTiers({
+    configuredTiers: { standard: ['pnpm test:component'] },
+    derived: {
+      tiers: { quick: ['pnpm test:unit', 'pnpm test:component'], standard: ['pnpm test:integration'], deep: [] },
+      reasons: { quick: [], standard: [], deep: [] },
+    },
+  });
+  assert.deepEqual(resolved.tiers.quick, ['pnpm test:unit']);
+  assert.deepEqual(resolved.tiers.standard, ['pnpm test:component']);
+});

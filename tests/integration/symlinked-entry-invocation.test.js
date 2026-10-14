@@ -33,11 +33,6 @@ const ENTRIES = [
     entry: 'runtime/hooks/git-hook.mjs',
     label: 'git-hook',
   },
-  {
-    args: ['git', 'log', '--oneline', '-1'],
-    entry: 'runtime/tools/rtk/run.mjs',
-    label: 'rtk',
-  },
 ];
 
 // The Hook reason carries its measured duration, so the two runs are compared

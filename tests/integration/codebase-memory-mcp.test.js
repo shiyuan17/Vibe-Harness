@@ -1,399 +1,237 @@
 import '../helpers/offline-tools.js';
-
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { access, copyFile, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
 
-import {
-  aliasPathForRoot,
-  replaceAliasInStatusOutput,
-} from '../../runtime/tools/codebase-memory-mcp/path-alias.mjs';
-import { codebaseMemoryProjectSlug } from '../../runtime/tools/codebase-memory-mcp/cache-path.mjs';
+import { applyInstallPlan, createInstallPlan, previewInstallPlan } from '../../scripts/lib/install-planner.js';
+import { parsePluginsOption } from '../../scripts/lib/module-selection.js';
+import { migrateRetiredTools } from '../../scripts/lib/retired-tools.js';
+import { extractManagedMcpBlock, mergeManagedMcpBlock } from '../../scripts/lib/tool-provisioning.js';
+import { managedJsonPayload } from '../../scripts/lib/managed-json-config.js';
+import { classifyMcpToolName, mcpToolPolicy } from '../../runtime/hooks/lib/read-only-commands.mjs';
 
-const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '../..');
-const cliPath = path.join(rootDir, 'scripts/vibe-harness.js');
+const execute = promisify(execFile);
+const digest = content => createHash('sha256').update(content).digest('hex');
 
-async function exists(filePath) {
-  try {
-    await access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
+async function runCli(targetDir, args) {
+  const { stdout } = await execute(process.execPath, [path.join(rootDir, 'scripts/vibe-harness.js'), ...args, '--project', targetDir], {
+    cwd: rootDir, env: { ...process.env, VIBE_HARNESS_TEST_OFFLINE: '1' }, maxBuffer: 16 * 1024 * 1024,
+  });
+  return JSON.parse(stdout);
 }
 
-test('Vibe-Harness removes the CodeGraph CLI integration and doctor report', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-doctor-'));
-  try {
-    const help = await execFileAsync(process.execPath, [cliPath, 'help']);
-    assert.equal(help.stdout.toLowerCase().includes('codegraph'), false);
-    await execFileAsync(process.execPath, [cliPath, 'init', '--project', target]);
+async function exists(filename) {
+  try { await access(filename); return true; } catch { return false; }
+}
 
-    let doctor;
+async function legacyFixture({ modified = false, shared = false, target = 'codex' } = {}) {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-tool-retirement-'));
+  await runCli(targetDir, ['init', '--target', target, '--profile', 'core']);
+  await runCli(targetDir, ['install', '--write', '--confirm-red-zone']);
+  const statePath = path.join(targetDir, '.vibe-harness/install-state.json');
+  const state = JSON.parse(await readFile(statePath, 'utf8'));
+  const configPath = path.join(targetDir, 'vibe-harness.config.json');
+  const config = JSON.parse(await readFile(configPath, 'utf8'));
+  config.plugins = ['rtk', 'ast-grep', 'codegraph', 'serena', 'probe', 'codebase-memory'];
+  if (shared) config.plugins.push('chrome-devtools');
+  config.hooks = { ...config.hooks, rtk: { enabled: true } };
+  config.worktree = { ...config.worktree, mirrors: ['.agents', '.custom-external-index'] };
+  await writeFile(configPath, JSON.stringify(config, null, 2) + '\n');
+  state.requestedPlugins = [...config.plugins];
+  state.resolvedModules.push(...config.plugins);
+  state.rtkHooksEnabled = true;
+  const artifacts = [
+    ['docs/rules/rtk.md', 'rules-rtk', '# old rule\n'],
+    ['docs/rules/codegraph.md', 'rules-codegraph', '# old graph rule\n'],
+    ['.agents/runtime/tools/codebase-memory-mcp/run.mjs', 'tools-codebase-memory', 'old wrapper\n'],
+    ['.agents/runtime/tools/codebase-memory-mcp/package.json', 'tools-codebase-memory', '{"private":true}\n'],
+  ];
+  for (const [relativeTarget, group, content] of artifacts) {
+    const filename = path.join(targetDir, relativeTarget);
+    await mkdir(path.dirname(filename), { recursive: true });
+    await writeFile(filename, content);
+    state.files.push({ target: relativeTarget, source: relativeTarget, sourceHash: digest(content), targetHash: digest(content), group, created: true, redZone: false, owner: 'vibe-harness', owners: ['shared'] });
+  }
+  const mcpPath = target === 'codex' ? '.codex/config.toml' : target === 'cursor' ? '.cursor/mcp.json' : '.mcp.json';
+  const server = { args: ['old-wrapper.mjs'], command: 'node', env: {} };
+  const active = shared ? { 'chrome-devtools': { args: ['chrome.mjs'], command: 'node', env: {} } } : {};
+  const mcpContent = target === 'codex'
+    ? mergeManagedMcpBlock('model = "local"\n[mcp_servers.external]\ncommand = "external"\n', { ...active, 'codebase-memory-mcp': server }).content
+    : JSON.stringify({ mcpServers: { external: { command: 'external' }, ...Object.fromEntries(Object.entries(active).map(([name, value]) => ['vibe-harness-' + name, value])), 'vibe-harness-codebase-memory-mcp': server } }, null, 2) + '\n';
+  await mkdir(path.dirname(path.join(targetDir, mcpPath)), { recursive: true });
+  await writeFile(path.join(targetDir, mcpPath), mcpContent);
+  const descriptor = { hookMarker: 'Vibe-Harness', mcpPath: ['mcpServers'], serverPrefix: 'vibe-harness-' };
+  state.files.push({
+    target: mcpPath, source: mcpPath, targetHash: digest(mcpContent), sourceHash: digest(mcpContent),
+    group: 'mcp-config', created: false, redZone: true, owner: 'vibe-harness', owners: ['adapter:' + target],
+    contentStrategy: target === 'codex' ? 'managed-toml-block' : 'managed-json-object',
+    ...(target === 'codex' ? {} : { managedJson: descriptor }),
+    managedBlockHash: digest(target === 'codex' ? extractManagedMcpBlock(mcpContent) : managedJsonPayload(mcpContent, descriptor)),
+  });
+  const ignoreContent = 'user-rule\n# VIBE_HARNESS:CBM:START\n/.agents/\n# VIBE_HARNESS:CBM:END\n';
+  await writeFile(path.join(targetDir, '.cbmignore'), ignoreContent);
+  state.files.push({
+    target: '.cbmignore', source: 'legacy-ignore', sourceHash: digest(ignoreContent), targetHash: digest(ignoreContent),
+    managedBlockHash: digest('# VIBE_HARNESS:CBM:START\n/.agents/\n# VIBE_HARNESS:CBM:END'),
+    group: 'tools-codebase-memory', created: false, redZone: false, contentStrategy: 'managed-ignore-block',
+  });
+  state.generatedDirectories ??= [];
+  state.generatedDirectories.push({
+    ownerTarget: '.agents/runtime/tools/codebase-memory-mcp/package.json',
+    target: '.vibe-harness/tool-state/codebase-memory-mcp', projectScoped: true,
+  });
+  await mkdir(path.join(targetDir, '.vibe-harness/tool-state/codebase-memory-mcp'), { recursive: true });
+  await writeFile(path.join(targetDir, '.vibe-harness/tool-state/codebase-memory-mcp/index.db'), 'external-index');
+  await writeFile(path.join(targetDir, 'unmanaged-tool.txt'), 'user-owned');
+  if (modified) {
+    await writeFile(path.join(targetDir, 'docs/rules/rtk.md'), '# user-edited\n');
+    await writeFile(path.join(targetDir, mcpPath), mcpContent.replace('old-wrapper.mjs', 'user-wrapper.mjs'));
+  }
+  await writeFile(statePath, JSON.stringify(state, null, 2) + '\n');
+  return { targetDir, statePath, configPath, mcpPath };
+}
+
+for (const profile of ['minimal', 'core', 'full', 'docs-only']) {
+  test(`新安装 ${profile} 只分发适用的外部图规范`, async () => {
+    const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-external-graph-'));
     try {
-      doctor = await execFileAsync(process.execPath, [cliPath, 'doctor', '--project', target]);
-    } catch (error) {
-      doctor = error;
-    }
-    const report = JSON.parse(doctor.stdout || doctor.stderr);
-    assert.equal(Object.hasOwn(report, 'codegraph'), false);
-    assert.equal(await exists(path.join(rootDir, 'scripts/lib/codegraph.js')), false);
-  } finally {
-    await rm(target, { force: true, recursive: true });
-  }
-});
-
-test('codebase-memory-mcp rule uses MCP tools and a repository-search fallback without global writes', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-codebase-memory-profile-'));
-  const rulePath = path.join(rootDir, 'docs/rules/codebase-memory-mcp.md');
-  const ruleSource = await readFile(rulePath, 'utf8');
-  const marker = String.fromCharCode(96);
-  const rule = ruleSource.replaceAll('<code>', marker).replaceAll('</code>', marker);
-  const agents = await readFile(path.join(rootDir, 'adapters/codex/AGENTS.template.md'), 'utf8');
-
-  try {
-    // The documented surface is the one 0.11.0 actually exposes. A rule that
-    // names an unreachable tool makes its first step unexecutable.
-    for (const tool of [
-      'index_repository', 'index_status', 'list_projects', 'check_index_coverage',
-      'search_graph', 'query_graph', 'trace_path', 'get_code_snippet',
-      'detect_changes', 'get_architecture', 'manage_adr',
-    ]) {
-      assert.equal(rule.includes(`\`${tool}\``), true, `${tool} should be documented`);
-    }
-    assert.equal(rule.includes('trace_call_path'), false);
-    assert.match(rule, /codebase-memory status --project \. --json/u);
-    assert.match(rule, /refresh --project \. --write/u);
-    assert.match(rule, /search_graph.*trace_path.*get_code_snippet/su);
-    assert.match(rule, /MCP.*不可用.*(?:rg|仓库搜索)/su);
-    assert.match(rule, /不得.*(?:全局|Agent).*配置/su);
-    assert.equal(rule.includes('codebase-memory-mcp install'), false);
-    assert.equal(agents.includes('codebase-memory-mcp'), false);
-    assert.equal(agents.toLowerCase().includes('codegraph'), false);
-    // The 2024 removal took out the CLI-era integration (scripts/lib/codegraph.js,
-    // doctor and help enumeration). What ships today is the MCP-era optional
-    // rule-only plugin, so the rule file is expected on disk.
-    assert.equal(await exists(path.join(rootDir, 'docs/rules/codegraph.md')), true);
-
-    await execFileAsync(process.execPath, [cliPath, 'init', '--project', target]);
-    const core = await execFileAsync(process.execPath, [cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'core', '--dry-run', '--verbose'], { maxBuffer: 8 * 1024 * 1024 });
-    const full = await execFileAsync(process.execPath, [cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'full', '--dry-run', '--verbose'], { maxBuffer: 8 * 1024 * 1024 });
-    const selected = await execFileAsync(process.execPath, [cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'full', '--plugin', '-codebase-memory-mcp', '--dry-run', '--verbose'], { maxBuffer: 8 * 1024 * 1024 });
-    const coreAgents = JSON.parse(core.stdout).previewFiles.find((file) => file.target === 'AGENTS.md').content;
-    const fullAgents = JSON.parse(full.stdout).previewFiles.find((file) => file.target === 'AGENTS.md').content;
-    const selectedAgents = JSON.parse(selected.stdout).previewFiles.find((file) => file.target === 'AGENTS.md').content;
-
-    assert.equal(coreAgents.includes('codebase-memory-mcp'), false);
-    assert.equal(fullAgents.includes('codebase-memory-mcp'), false);
-    assert.equal(selectedAgents.includes('codebase-memory-mcp'), true);
-
-    // The rule-only tool plugins stay opt-in: no profile installs them, and each
-    // explicit --plugin selection installs the rule file plus its index line.
-    for (const plugin of ['codegraph', 'serena', 'probe']) {
-      assert.equal(coreAgents.includes(plugin), false, `core should not install ${plugin}`);
-      assert.equal(fullAgents.includes(plugin), false, `full should not install ${plugin}`);
-
-      const pluginInstall = await execFileAsync(process.execPath, [cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'core', '--plugin', plugin, '--dry-run', '--verbose'], { maxBuffer: 8 * 1024 * 1024 });
-      const pluginPreview = JSON.parse(pluginInstall.stdout).previewFiles;
-      const pluginAgents = pluginPreview.find((file) => file.target === 'AGENTS.md').content;
-      assert.equal(pluginPreview.some((file) => file.target === `docs/rules/${plugin}.md`), true, `${plugin} rule file should install`);
-      assert.equal(pluginAgents.includes(`${plugin}（`), true, `${plugin} should render in the rules index`);
-    }
-  } finally {
-    await rm(target, { force: true, recursive: true });
-  }
-});
-
-test('codebase-memory uses a stable Windows alias for the same Unicode root', () => {
-  const root = 'D:\\projects\\web-ui\\组件\\code\\sample-admin';
-  const first = aliasPathForRoot(root);
-  const second = aliasPathForRoot(root);
-
-  assert.equal(first, second);
-  assert.match(path.basename(first), /^vibe-harness-cbm-[a-f0-9]{16}$/u);
-  assert.notEqual(aliasPathForRoot(`${root}-other`), first);
-});
-
-test('codebase-memory preserves valid JSON when replacing a Windows alias in status output', () => {
-  const alias = 'C:\\Users\\test\\AppData\\Local\\Temp\\vibe-harness-cbm-0123456789abcdef';
-  const target = 'D:\\projects\\web-ui\\组件\\code\\sample-admin';
-  const output = JSON.stringify({ root_path: alias, status: 'ready' });
-  const parsed = JSON.parse(replaceAliasInStatusOutput(output, alias, target));
-
-  assert.equal(parsed.root_path, target);
-  assert.equal(parsed.status, 'ready');
-});
-
-test('codebase-memory 0.11.0 信封输出在别名替换后仍是有效 JSON', () => {
-  const alias = 'C:\\Users\\test\\AppData\\Local\\Temp\\vibe-harness-cbm-0123456789abcdef';
-  const target = 'D:\\projects\\web-ui\\组件\\code\\sample-admin';
-  // 0.11.0 `--json` wraps the human-readable block, and it reports Windows
-  // paths with forward slashes.
-  const statusText = [
-    'project: sample',
-    'nodes: 3',
-    'edges: 4',
-    'status: ready',
-    `root_path: ${alias.replaceAll('\\', '/')}`,
-    'indexed_at: 2026-01-01T00:00:00Z',
-  ].join('\n');
-  const envelope = JSON.stringify({ content: [{ text: statusText, type: 'text' }], isError: false });
-  const rewritten = replaceAliasInStatusOutput(envelope, alias, target);
-
-  assert.equal(rewritten.includes('vibe-harness-cbm-0123456789abcdef'), false);
-  assert.equal(rewritten.includes(target.replaceAll('\\', '/')), true);
-  assert.equal(JSON.parse(rewritten).isError, false);
-});
-
-const gitEnv = {
-  ...process.env,
-  GIT_AUTHOR_EMAIL: 'test@example.test',
-  GIT_AUTHOR_NAME: 'Test',
-  GIT_COMMITTER_EMAIL: 'test@example.test',
-  GIT_COMMITTER_NAME: 'Test',
-};
-
-async function gitProject(args, cwd) {
-  return execFileAsync('git', args, { cwd, env: gitEnv, maxBuffer: 1024 * 1024, windowsHide: true });
+      const plan = await createInstallPlan({ rootDir, targetDir, profile });
+      const targets = plan.actions.map(action => action.relativeTarget);
+      assert.equal(targets.includes('docs/rules/codebase-memory-mcp.md'), profile !== 'minimal');
+      assert.equal(targets.some(value => /tools\/(rtk|ast-grep|codebase-memory-mcp)\//u.test(value)), false);
+      assert.equal(targets.includes('.cbmignore'), false);
+      const preview = await previewInstallPlan(plan);
+      assert.doesNotMatch(JSON.stringify(preview), /codebase-memory (?:status|refresh)|CBM_CACHE_DIR|rtk-hooks/u);
+    } finally { await rm(targetDir, { force: true, recursive: true }); }
+  });
 }
 
-/**
- * Hermetic private-cache root: the CLI resolves `%LOCALAPPDATA%` (Windows) or
- * `$XDG_CACHE_HOME` (POSIX) from its own environment, so pointing both at a
- * temporary directory keeps the assertions away from the operator's real cache.
- */
-function privateCacheEnv(base, cacheHome) {
-  return { ...base, LOCALAPPDATA: cacheHome, XDG_CACHE_HOME: cacheHome };
-}
-
-function privateCacheDir(targetDir, cacheHome) {
-  return path.join(cacheHome, 'vibe-harness', 'codebase-memory-mcp', codebaseMemoryProjectSlug(targetDir));
-}
-
-/** Run a CLI command whose receipt is JSON on stdout or on stderr on failure. */
-async function runCliJson(args, options = {}) {
-  let result;
-  try {
-    result = await execFileAsync(process.execPath, [cliPath, ...args], {
-      maxBuffer: 8 * 1024 * 1024,
-      windowsHide: true,
-      ...options,
-    });
-  } catch (error) {
-    result = error;
+test('退役插件拒绝新请求且 all 只包含三个受管工具', () => {
+  assert.deepEqual(parsePluginsOption('all'), ['chrome-devtools', 'playwright', 'open-code-review']);
+  for (const name of ['rtk', 'ast-grep', 'codegraph', 'serena', 'probe', 'codebase-memory-mcp']) {
+    assert.throws(() => parsePluginsOption(name), /retired/u);
   }
-  return JSON.parse(result.stdout || result.stderr);
+  const result = migrateRetiredTools({ modules: ['rules', 'rtk'], plugins: ['codebase-memory', 'playwright'], hooks: { rtk: { enabled: true }, enforcement: 'strict' } });
+  assert.deepEqual(result.config, { modules: ['rules'], plugins: ['playwright'], hooks: { enforcement: 'strict' } });
+  const preset = { preset: 'everything', profile: 'full' };
+  assert.deepEqual(migrateRetiredTools(preset, { requestedPlugins: ['rtk', 'codebase-memory'] }).config, preset);
+});
+
+for (const target of ['codex', 'cursor']) {
+  test(`共享 ${target} MCP 配置只退役旧服务`, async () => {
+    const fixture = await legacyFixture({ target, shared: true });
+    try {
+      await runCli(fixture.targetDir, ['install', '--upgrade', '--write', '--confirm-red-zone']);
+      const content = await readFile(path.join(fixture.targetDir, fixture.mcpPath), 'utf8');
+      assert.match(content, /external/u);
+      assert.match(content, /chrome-devtools/u);
+      assert.doesNotMatch(content, /codebase-memory/u);
+    } finally { await rm(fixture.targetDir, { force: true, recursive: true }); }
+  });
+  test(`共享 ${target} MCP 配置有用户修改时整体保留`, async () => {
+    const fixture = await legacyFixture({ target, shared: true, modified: true });
+    try {
+      const before = await readFile(path.join(fixture.targetDir, fixture.mcpPath), 'utf8');
+      const report = await runCli(fixture.targetDir, ['install', '--upgrade', '--write', '--confirm-red-zone']);
+      assert.equal(await readFile(path.join(fixture.targetDir, fixture.mcpPath), 'utf8'), before);
+      assert.ok(report.skipped.some(item => item.target === fixture.mcpPath));
+    } finally { await rm(fixture.targetDir, { force: true, recursive: true }); }
+  });
 }
 
-/**
- * The freshness contract end to end: the wrapper stamps the HEAD it indexed and
- * the project command compares that stamp with the current HEAD. The runtime is
- * a fixture here, so the test stays hermetic while still exercising the real
- * wrapper, the real state file and the real command.
- */
-test('wrapper 落盘已索引 HEAD，项目命令据此报告 missing、fresh 与 stale', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-cbm-state-'));
-  const toolDir = path.join(target, '.agents/runtime/tools/codebase-memory-mcp');
-  const commandPath = path.join(target, '.agents/runtime/commands/run.mjs');
-  const cacheDir = path.join(target, '..', `${path.basename(target)}-private-cache`);
-  const runtimeSource = path.join(rootDir, 'runtime/tools/codebase-memory-mcp');
-  const env = { ...process.env, CBM_ALLOWED_ROOT: target, CBM_CACHE_DIR: path.resolve(cacheDir) };
-  const runStatus = async () => {
-    const { stdout } = await execFileAsync(
-      process.execPath,
-      [commandPath, 'codebase-memory', 'status', '--project', '.', '--json'],
-      { cwd: target, env, maxBuffer: 4 * 1024 * 1024, windowsHide: true },
-    );
-    return JSON.parse(stdout);
-  };
+for (const operation of ['rollback', 'uninstall']) {
+  test(`${operation} 旧安装不清理索引目录`, async () => {
+    const fixture = await legacyFixture();
+    try {
+      await runCli(fixture.targetDir, [operation, '--write', '--confirm-red-zone', ...(operation === 'uninstall' ? ['--all-targets'] : [])]);
+      assert.equal(await readFile(path.join(fixture.targetDir, '.vibe-harness/tool-state/codebase-memory-mcp/index.db'), 'utf8'), 'external-index');
+    } finally { await rm(fixture.targetDir, { force: true, recursive: true }); }
+  });
+}
 
+test('退役拒绝通过目录链接删除工作区外文件', async () => {
+  const fixture = await legacyFixture();
+  const outside = await mkdtemp(path.join(tmpdir(), 'vibe-harness-external-runtime-'));
+  const link = path.join(fixture.targetDir, '.agents/runtime/tools/codebase-memory-mcp');
   try {
-    await mkdir(toolDir, { recursive: true });
-    await mkdir(path.join(target, '.agents/runtime/commands'), { recursive: true });
-    for (const file of ['run.mjs', 'path-alias.mjs', 'cache-path.mjs', 'index-state.mjs', 'project-root.mjs']) {
-      await copyFile(path.join(runtimeSource, file), path.join(toolDir, file));
-    }
-    // The project command imports the shared runtime library, so the fixture
-    // mirrors the installed layout instead of a single file.
-    await mkdir(path.join(target, '.agents/runtime'), { recursive: true });
-    await cp(path.join(rootDir, 'runtime/lib'), path.join(target, '.agents/runtime/lib'), { recursive: true });
-    await copyFile(path.join(rootDir, 'runtime/commands/run.mjs'), commandPath);
-    const packageDir = path.join(toolDir, 'node_modules/codebase-memory-mcp');
-    await mkdir(packageDir, { recursive: true });
-    await writeFile(path.join(packageDir, 'package.json'), JSON.stringify({ name: 'codebase-memory-mcp', version: '0.11.0' }), 'utf8');
-    await writeFile(path.join(packageDir, 'bin.js'), [
-      "const args = process.argv.slice(2);",
-      "const tool = args[args.indexOf('cli') + 1] ?? '';",
-      "const envelope = (text) => JSON.stringify({ content: [{ text, type: 'text' }], isError: false });",
-      "if (tool === 'index_repository') {",
-      "  process.stdout.write(envelope(JSON.stringify({ edges: 7, nodes: 9, project: 'fixture-project', status: 'indexed' })) + '\\n');",
-      "} else if (tool === 'list_projects') {",
-      "  process.stdout.write(envelope('projects: 0  (cols: name root_path branch)\\ntotal: 0\\n') + '\\n');",
-      "} else {",
-      "  process.stdout.write(envelope('project: fixture-project\\nnodes: 9\\nedges: 7\\nstatus: ready\\nindexed_at: 2026-01-01T00:00:00Z\\n') + '\\n');",
-      "}",
-    ].join('\n'), 'utf8');
-
-    await writeFile(path.join(target, 'indexed.js'), 'export const first = 1;\n', 'utf8');
-    await gitProject(['init', '--initial-branch=main'], target);
-    await gitProject(['add', '.'], target);
-    await gitProject(['-c', 'commit.gpgsign=false', 'commit', '-m', 'first'], target);
-    const firstHead = (await gitProject(['rev-parse', 'HEAD'], target)).stdout.trim();
-
-    const beforeIndex = await runStatus();
-    assert.equal(beforeIndex.status, 'missing');
-    assert.equal(beforeIndex.reason, 'no-index-state');
-    assert.equal(beforeIndex.headSha, firstHead);
-
-    const wrapperPath = path.join(toolDir, 'run.mjs');
-    await execFileAsync(process.execPath, [
-      wrapperPath, 'cli', 'index_repository', '--repo-path', '.', '--mode', 'moderate', '--persistence', 'false', '--json',
-    ], { cwd: target, env, maxBuffer: 4 * 1024 * 1024, windowsHide: true });
-
-    const state = JSON.parse(await readFile(
-      path.join(target, '.vibe-harness/tool-state/codebase-memory-mcp/index-state.json'),
-      'utf8',
-    ));
-    assert.equal(state.headSha, firstHead);
-    assert.equal(state.nodes, 9);
-    assert.equal(state.edges, 7);
-    assert.equal(state.runtimeVersion, '0.11.0');
-    assert.equal(state.project, 'fixture-project');
-    assert.equal(state.schemaVersion, 1);
-
-    const fresh = await runStatus();
-    assert.equal(fresh.status, 'fresh');
-    assert.equal(fresh.reason, 'head-sha-match');
-    assert.equal(fresh.indexedHeadSha, firstHead);
-
-    await writeFile(path.join(target, 'second.js'), 'export const second = 2;\n', 'utf8');
-    await gitProject(['add', '.'], target);
-    await gitProject(['-c', 'commit.gpgsign=false', 'commit', '-m', 'second'], target);
-    const secondHead = (await gitProject(['rev-parse', 'HEAD'], target)).stdout.trim();
-
-    const stale = await runStatus();
-    assert.equal(stale.status, 'stale');
-    assert.equal(stale.reason, 'head-sha-changed');
-    assert.equal(stale.headSha, secondHead);
-    assert.equal(stale.indexedHeadSha, firstHead);
-    assert.equal(Array.isArray(stale.guidance), true);
-
-    const refreshed = JSON.parse((await execFileAsync(process.execPath, [
-      commandPath, 'codebase-memory', 'refresh', '--project', '.', '--write', '--json',
-    ], { cwd: target, env, maxBuffer: 8 * 1024 * 1024, windowsHide: true })).stdout);
-    assert.equal(refreshed.action, 'refresh');
-    assert.equal(refreshed.status, 'fresh');
-    assert.equal(refreshed.refresh.indexRepository.status, 'passed');
-
-    const planned = JSON.parse((await execFileAsync(process.execPath, [
-      commandPath, 'codebase-memory', 'refresh', '--project', '.', '--json',
-    ], { cwd: target, env, maxBuffer: 4 * 1024 * 1024, windowsHide: true })).stdout);
-    assert.equal(planned.status, 'planned');
-    assert.equal(planned.dryRun, true);
-    assert.equal(planned.steps.length, 2);
+    await writeFile(path.join(outside, 'run.mjs'), 'outside-owned');
+    await rm(link, { recursive: true });
+    await symlink(outside, link, process.platform === 'win32' ? 'junction' : 'dir');
+    await assert.rejects(runCli(fixture.targetDir, ['install', '--upgrade', '--write', '--confirm-red-zone']), /outside|symlink|symbolic|escape/iu);
+    assert.equal(await readFile(path.join(outside, 'run.mjs'), 'utf8'), 'outside-owned');
   } finally {
-    await rm(target, { force: true, recursive: true });
-    await rm(path.resolve(cacheDir), { force: true, recursive: true });
+    await rm(link, { force: true });
+    await rm(fixture.targetDir, { force: true, recursive: true });
+    await rm(outside, { force: true, recursive: true });
   }
 });
 
-/**
- * The cache moved out of the project, so nothing in the repository tree tells
- * a user where the graph is or whether it still matches HEAD. doctor answers
- * both questions and flags the pre-0.11.0 copies that would otherwise keep
- * serving an outdated graph.
- */
-test('doctor 报告外移缓存位置、状态戳新鲜度与陈旧副本', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-cbm-cache-doctor-'));
-  const cacheHome = await mkdtemp(path.join(tmpdir(), 'vibe-harness-cbm-cache-home-'));
-  const userHome = await mkdtemp(path.join(tmpdir(), 'vibe-harness-cbm-user-home-'));
-  const env = { ...privateCacheEnv(process.env, cacheHome), HOME: userHome, USERPROFILE: userHome };
-  const runDoctor = () => runCliJson(['doctor', '--project', target, '--allow-degraded'], { env });
-  try {
-    await runCliJson(['init', '--project', target], { env });
-    // A projected runtime is what makes the cache report relevant for a project.
-    await mkdir(path.join(target, '.agents/runtime/tools/codebase-memory-mcp'), { recursive: true });
-    await writeFile(path.join(target, '.agents/runtime/tools/codebase-memory-mcp/run.mjs'), 'export {};\n', 'utf8');
-    await writeFile(path.join(target, 'app.js'), 'export const app = 1;\n', 'utf8');
-    await gitProject(['init', '--initial-branch=main'], target);
-    await gitProject(['add', '.'], target);
-    await gitProject(['-c', 'commit.gpgsign=false', 'commit', '-m', 'first'], target);
-    const headSha = (await gitProject(['rev-parse', 'HEAD'], target)).stdout.trim();
-
-    const cacheDir = privateCacheDir(target, cacheHome);
-    await mkdir(cacheDir, { recursive: true });
-    const legacyUserCache = path.join(userHome, '.cache', 'codebase-memory-mcp');
-    await mkdir(legacyUserCache, { recursive: true });
-    const statePath = path.join(target, '.vibe-harness/tool-state/codebase-memory-mcp/index-state.json');
-    await mkdir(path.dirname(statePath), { recursive: true });
-    await writeFile(statePath, JSON.stringify({
-      edges: 7,
-      headSha,
-      indexedAt: '2026-01-01T00:00:00Z',
-      nodes: 9,
-      project: 'fixture-project',
-      rootPath: target,
-      runtimeVersion: '0.11.0',
-    }), 'utf8');
-
-    const fresh = await runDoctor();
-    assert.equal(fresh.codebaseMemoryCache.cacheDir, cacheDir);
-    assert.equal(fresh.codebaseMemoryCache.cacheDirExists, true);
-    assert.equal(fresh.codebaseMemoryCache.explicitCacheDir, false);
-    assert.equal(fresh.codebaseMemoryCache.freshness.state, 'fresh');
-    assert.equal(fresh.codebaseMemoryCache.indexState.indexedAt, '2026-01-01T00:00:00Z');
-    assert.deepEqual(fresh.codebaseMemoryCache.staleCopies, [{ kind: 'user-level', path: legacyUserCache }]);
-    assert.equal(
-      fresh.warnings.some((warning) => warning.code === 'CODEBASE_MEMORY_CACHE_STALE_COPY'),
-      true,
-    );
-
-    await writeFile(path.join(target, 'second.js'), 'export const second = 2;\n', 'utf8');
-    await gitProject(['add', '.'], target);
-    await gitProject(['-c', 'commit.gpgsign=false', 'commit', '-m', 'second'], target);
-    const stale = await runDoctor();
-    assert.equal(stale.codebaseMemoryCache.freshness.state, 'stale');
-    assert.equal(stale.codebaseMemoryCache.freshness.reason, 'head-sha-changed');
-    assert.equal(
-      stale.warnings.some((warning) => warning.code === 'CODEBASE_MEMORY_INDEX_STALE'),
-      true,
-    );
-  } finally {
-    await rm(target, { force: true, recursive: true });
-    await rm(cacheHome, { force: true, recursive: true });
-    await rm(userHome, { force: true, recursive: true });
-  }
+test('外部图规范覆盖注册标识、缺口、分页和无安装假设', async () => {
+  const rule = await readFile(path.join(rootDir, 'docs/rules/codebase-memory-mcp.md'), 'utf8');
+  for (const token of ['list_projects', 'index_status', 'check_index_coverage', '分页', '未知工具', '不锁定版本', '不假设共享主检出索引']) assert.ok(rule.includes(token), token);
+  assert.doesNotMatch(rule, /0\.11\.0|CBM_CACHE_DIR|codebase-memory refresh|codegraph\.md/u);
+  assert.equal(mcpToolPolicy('mcp__codebase_memory_mcp__search_graph'), 'read-only');
+  assert.equal(mcpToolPolicy('mcp__codebase_memory_mcp__index_repository'), 'workspace-write');
+  assert.equal(mcpToolPolicy('mcp__codebase_memory_mcp__delete_project'), 'high-risk');
+  assert.equal(mcpToolPolicy('mcp__codebase_memory_mcp__unknown_operation'), null);
+  assert.equal(classifyMcpToolName('mcp__codebase_memory_mcp__get_and_rewrite_index'), false);
 });
 
-test('uninstall 在 runtime 离开项目时清理外移缓存，dry-run 只报告计划', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-cbm-cache-uninstall-'));
-  const cacheHome = await mkdtemp(path.join(tmpdir(), 'vibe-harness-cbm-cache-uninstall-home-'));
-  const env = privateCacheEnv(process.env, cacheHome);
+for (const target of ['codex', 'claude']) {
+  test(`升级 ${target} 安全退役受管资产并保留外部数据`, async () => {
+    const fixture = await legacyFixture({ target });
+    try {
+      const before = await readFile(fixture.configPath, 'utf8');
+      const preview = await runCli(fixture.targetDir, ['install', '--upgrade']);
+      assert.ok(preview.retiredToolConfiguration.includes('hooks.rtk'));
+      assert.equal(await readFile(fixture.configPath, 'utf8'), before);
+      await assert.rejects(runCli(fixture.targetDir, ['install', '--upgrade', '--write']), /confirm-red-zone/u);
+      const applied = await runCli(fixture.targetDir, ['install', '--upgrade', '--write', '--confirm-red-zone']);
+      assert.ok(applied.retired.includes('docs/rules/rtk.md'));
+      assert.equal(await exists(path.join(fixture.targetDir, '.agents/runtime/tools/codebase-memory-mcp/run.mjs')), false);
+      const mcp = await readFile(path.join(fixture.targetDir, fixture.mcpPath), 'utf8');
+      assert.ok(mcp.includes('external'));
+      assert.ok(!mcp.includes('codebase-memory'));
+      assert.equal(await readFile(path.join(fixture.targetDir, '.cbmignore'), 'utf8'), 'user-rule\n');
+      assert.equal(await readFile(path.join(fixture.targetDir, '.vibe-harness/tool-state/codebase-memory-mcp/index.db'), 'utf8'), 'external-index');
+      assert.equal(await readFile(path.join(fixture.targetDir, 'unmanaged-tool.txt'), 'utf8'), 'user-owned');
+      const config = JSON.parse(await readFile(fixture.configPath, 'utf8'));
+      assert.deepEqual(config.plugins, []);
+      assert.equal(config.hooks.rtk, undefined);
+      assert.deepEqual(config.worktree.mirrors, ['.agents', '.custom-external-index']);
+      const repeated = await runCli(fixture.targetDir, ['install', '--upgrade', '--write', '--confirm-red-zone']);
+      assert.deepEqual(repeated.retiredToolConfiguration, []);
+      assert.equal(JSON.parse(await readFile(fixture.statePath, 'utf8')).rtkHooksEnabled, undefined);
+    } finally { await rm(fixture.targetDir, { force: true, recursive: true }); }
+  });
+}
+
+test('升级保留修改过的旧规则与 MCP 块', async () => {
+  const fixture = await legacyFixture({ modified: true });
   try {
-    await runCliJson(['init', '--project', target], { env });
-    await runCliJson(['install', '--project', target, '--target', 'codex', '--profile', 'core', '--write'], { env });
-    const cacheDir = privateCacheDir(target, cacheHome);
-    await mkdir(cacheDir, { recursive: true });
+    const report = await runCli(fixture.targetDir, ['install', '--upgrade', '--write', '--confirm-red-zone']);
+    assert.ok(report.skipped.some(item => item.target === 'docs/rules/rtk.md'));
+    assert.equal(await readFile(path.join(fixture.targetDir, 'docs/rules/rtk.md'), 'utf8'), '# user-edited\n');
+    assert.match(await readFile(path.join(fixture.targetDir, fixture.mcpPath), 'utf8'), /user-wrapper/u);
+  } finally { await rm(fixture.targetDir, { force: true, recursive: true }); }
+});
 
-    const planned = await runCliJson(['uninstall', '--project', target, '--all-targets', '--dry-run'], { env });
-    assert.equal(planned.cacheCleanup.planned, true);
-    assert.equal(planned.cacheCleanup.dir, cacheDir);
-    assert.equal(await exists(cacheDir), true);
-
-    const applied = await runCliJson(
-      ['uninstall', '--project', target, '--all-targets', '--write', '--confirm-red-zone'],
-      { env },
-    );
-    assert.equal(applied.cacheCleanup.removed, true);
-    assert.equal(applied.cacheCleanup.dir, cacheDir);
-    assert.equal(await exists(cacheDir), false);
-  } finally {
-    await rm(target, { force: true, recursive: true });
-    await rm(cacheHome, { force: true, recursive: true });
-  }
+test('preserve-retired 保留旧资产且升级失败恢复原文件', async () => {
+  const fixture = await legacyFixture();
+  try {
+    const report = await runCli(fixture.targetDir, ['install', '--upgrade', '--write', '--confirm-red-zone', '--preserve-retired']);
+    assert.ok(report.retained.includes('docs/rules/rtk.md'));
+    const plan = await createInstallPlan({ rootDir, targetDir: fixture.targetDir, profile: 'core', upgrade: true, dryRun: false });
+    plan.redZoneConfirmed = true;
+    const before = await readFile(path.join(fixture.targetDir, 'AGENTS.md'), 'utf8');
+    await assert.rejects(applyInstallPlan(plan, { afterFileWrite() { throw new Error('injected failure'); } }), /injected failure/u);
+    assert.equal(await readFile(path.join(fixture.targetDir, 'AGENTS.md'), 'utf8'), before);
+    assert.equal(await exists(path.join(fixture.targetDir, 'docs/rules/rtk.md')), true);
+  } finally { await rm(fixture.targetDir, { force: true, recursive: true }); }
 });

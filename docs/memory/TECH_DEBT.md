@@ -4,7 +4,7 @@
 
 <!-- 渲染说明：此模板含 render 占位符，安装时由 template-renderer 输出，内容不与 docs/memory/TECH_DEBT.md 逐字对应；实时技术债记录见 docs/memory/TECH_DEBT.md。占位符：Vibe-Harness。 -->
 
-最后更新：2026-09-19
+最后更新：2026-10-12
 
 ## TD-2026-09-11-2 Eval 资产指纹分组不覆盖 adapters
 
@@ -152,3 +152,10 @@
 - 影响：成本数据已采集、已聚合，但项目评估结论与成本无关；无消费方时先建管线只增加评测表面，不产生决策价值。
 - Owner：Vibe-Harness 维护者。
 - 关闭条件：出现真实成本决策诉求（canary 预算调优、模型/供应商选择、按 suite 的成本回归对比）时，基于既有 `trialSummaries.tokenUsage` 与 eval-report 聚合结果把成本维度接入 `project-evaluation` 并定义阈值，无需新埋点。
+
+## TD-2026-10-12-1 服务自行退出后的登记回收在机器负载下误判为 unproven
+
+- 证据：`tests/integration/delivery-lifecycle.test.js:550`（断言点在 `:557`）的「服务自行退出后登记可被回收并重新启动」在 2026-10-12 git-rules 清理批次中三次全量 `pnpm test:integration`（脚本并发 2）各失败一次，签名恒为 `service-start-unproven` 且进程项 `reason` 为 `service-tree-unproven`（期待 `passed`）。同一文件单独运行 26/26 通过；与 `adr-scaffold`、`autonomy-eval`、`cleanup-audit` 三文件并发（并发 2）45/45 通过；注入 11 个 CPU 占用进程后同一文件单独运行稳定复现（25/26，同一签名）；同一文件清单改用 `--test-concurrency=1` 全量运行 674 用例、673 通过、0 失败、1 既有跳过。失败路径在 `runtime/lib/services.mjs` 的 supervisor 启动/中止握手（`:715` 的 `abortStart`、`:818` 的 `SUPERVISOR_START_TIMEOUT_MS = 20000`、`:847` 的 `service-start-unproven` 分支与 `:34` 的 `PROBE_TIMEOUT_MS = 20000`），该文件与 `runtime/commands/run.mjs` 的服务段在本批次均未改动（本批只改 `worktree cleanup|land|recover` 对 teardown 结果的处理），因此失败与改动面解耦。
+- 影响：本机或 CI 在高负载下会给服务归属证明路径产生与被测行为无关的红灯，容易被误读为归属校验失效；按 `docs/rules/test-rules.md` 的「flaky 隔离须绑定可核对的技术债 ID」，绑定关闭条件之前该用例的重跑通过不得作为服务路径的完成证据。
+- Owner：Vibe-Harness 维护者。
+- 关闭条件：让该握手判据与机器负载解耦（例如把 supervisor 的 `spawned` 确认从单次墙钟超时改为可核对的轮询/事件确认，或用收据声明的超时区间替代绝对耗时断言），并在注入 CPU 负载的复现条件下连续 10 次全量 `pnpm test:integration` 不再出现该失败后关闭。

@@ -6,6 +6,7 @@ import {
   classifyMcpToolName,
   commandTokens,
   commandWrites,
+  hasUnsafeShellConstruct,
   isReadOnlyShellSegment,
   isReadOnlyToolName,
   isWorkspaceToolName,
@@ -998,6 +999,62 @@ function invalidEnvelopeDecision(status) {
   return deny('EXECUTION_ENVELOPE_INVALID', 'Execution Envelope 不符合受支持契约，已拒绝。请按 docs/schemas/execution-envelope-v2.schema.json 重新签发（缺失字段或版本不匹配都会命中此项）。');
 }
 
+function ordinaryGitDelivery(input, classification) {
+  if (classification.unknown || classification.risk !== 'standard'
+    || classification.effects.length !== 1
+    || !['gitCommit', 'gitPush'].includes(classification.effects[0])
+    || classification.workspaceTargets.length > 0
+    || classification.externalTargets.length > 0
+    || classification.hostTargets.length > 0) return null;
+  const command = commandFrom(input);
+  if (shellSegments(command).length !== 1 || commandWrites(command) || hasUnsafeShellConstruct(command)) return null;
+  const invocation = shellInvocation(command);
+  if (!invocation || invocation.name !== 'git' || invocation.tokens.length !== invocation.args.length + 1) return null;
+  const [operation, ...args] = invocation.args;
+  if (operation === 'commit') {
+    if (args.length < 2 || args.length % 2 !== 0) return null;
+    for (let index = 0; index < args.length; index += 2) {
+      if (!['-m', '--message'].includes(args[index]) || !args[index + 1]) return null;
+    }
+    return 'gitCommit';
+  }
+  if (operation !== 'push') return null;
+  const currentBranch = gitOutput(input.cwd, ['branch', '--show-current']);
+  if (!currentBranch) return null;
+  if (/^(?:main$|master$|release)/iu.test(currentBranch)) {
+    return deny('GIT_DELIVERY_PROTECTED_BRANCH', '保护分支不得直接推送，请使用已批准的集成流程。');
+  }
+  const remotes = gitOutput(input.cwd, ['remote']).split(/\r?\n/u).filter(Boolean);
+  let remote;
+  let destination;
+  if (args.length === 0) {
+    const pushDefault = gitOutput(input.cwd, ['config', '--get', 'push.default']);
+    if (pushDefault && !['simple', 'upstream', 'current'].includes(pushDefault)) return null;
+    remote = gitOutput(input.cwd, ['config', '--get', `branch.${currentBranch}.remote`]);
+    destination = gitOutput(input.cwd, ['config', '--get', `branch.${currentBranch}.merge`]);
+    if (destination !== `refs/heads/${currentBranch}`) return null;
+    const remoteDefault = gitOutput(input.cwd, ['config', '--get', 'remote.pushDefault']);
+    if (remoteDefault && remoteDefault !== remote) return null;
+  } else {
+    const refspec = args[0] === '-u' || args[0] === '--set-upstream' ? args.slice(1) : args;
+    if (refspec.length !== 2 || refspec[1] !== currentBranch) return null;
+    [remote, destination] = refspec;
+  }
+  if (!remote || !remotes.includes(remote) || remote === '.') return null;
+  if (destination !== currentBranch && destination !== `refs/heads/${currentBranch}`) return null;
+  if (gitOutput(input.cwd, ['remote', 'get-url', '--push', '--all', remote]).split(/\r?\n/u).filter(Boolean).length !== 1
+    || gitOutput(input.cwd, ['config', '--get-all', `remote.${remote}.push`])
+    || gitOutput(input.cwd, ['config', '--get', `remote.${remote}.mirror`]) === 'true'
+    || gitOutput(input.cwd, ['config', '--get', 'push.followTags']) === 'true') return null;
+  return 'gitPush';
+}
+
+function containsGitDelivery(input) {
+  return shellSegments(commandFrom(input)).some((segment) => (
+    ['commit', 'push'].includes(gitInvocation(segment)?.command)
+  ));
+}
+
 /** @param {Record<string, any>} input @param {{environment?: NodeJS.ProcessEnv, now?: number | Date, permissionPreset?: string | null}} options */
 export function evaluateExecutionEnvelope(input, { environment = process.env, now = Date.now(), permissionPreset = environment.VIBE_HARNESS_PERMISSION_PRESET ?? null } = {}) {
   const classification = classifyExecutionEffects(input);
@@ -1009,10 +1066,14 @@ export function evaluateExecutionEnvelope(input, { environment = process.env, no
   if (presetDeniesClassification(permissionPreset, classification)) {
     return deny('ROLE_PERMISSION_PRESET', '当前角色权限预设为只读，该调用带有副作用或无法安全判定，已拒绝。请改用只读命令，或在允许写入的角色与主会话中执行。');
   }
+  const delivery = ordinaryGitDelivery(input, classification);
+  if (delivery && typeof delivery !== 'string') return delivery;
   const required = environment.VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED === '1';
   const candidate = envelopeInput(input, environment);
   if (!candidate.present) {
     if (classification.readOnly) return { action: 'allow' };
+    if (delivery) return { action: 'allow' };
+    if (containsGitDelivery(input)) return invalidEnvelopeDecision('missing');
     if (!required && classification.risk !== 'high') return { action: 'allow' };
     return invalidEnvelopeDecision('missing');
   }
@@ -1032,6 +1093,7 @@ export function evaluateExecutionEnvelope(input, { environment = process.env, no
   if (forbidden) {
     return deny('EXECUTION_ENVELOPE_EFFECT_FORBIDDEN', '活动 Envelope 明确禁止执行效果 ' + forbidden + '，已拒绝。请改用不含该效果的实现，或重新签发不含该禁止项的 Envelope。');
   }
+  if (delivery) return { action: 'allow' };
   const ceiling = (version === 1 ? modeCeilingsV1 : modeCeilingsV2).get(envelope.mode);
   const modeViolation = classification.effects.find((effect) => !ceiling.has(effect));
   if (modeViolation) {

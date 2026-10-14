@@ -5,7 +5,6 @@ import test from 'node:test';
 
 import { createToolProvisioningPlan } from '../../scripts/lib/tool-provisioning/environment.js';
 import { auditRuntimeTools, resolveNpmAuditInvocation } from '../../scripts/lib/runtime-audit.js';
-import { resolveRtkAsset } from '../../runtime/tools/rtk/run.mjs';
 
 const rootDir = path.resolve(import.meta.dirname, '../..');
 
@@ -29,29 +28,24 @@ test('runtime audit mirrors the installed dependency surface for every tool', as
   });
 
   assert.equal(report.ok, true);
-  assert.equal(report.tools.length, 6);
+  assert.equal(report.tools.length, 3);
   const chromeDevtools = calls.find((call) => call.id === 'chrome-devtools-mcp' && call.surface === 'installed');
   const playwright = calls.find((call) => call.id === 'playwright-cli' && call.surface === 'installed');
-  const rtk = calls.find((call) => call.id === 'rtk' && call.surface === 'installed');
   assert.ok(chromeDevtools, 'Chrome DevTools MCP dependency surface should be audited');
-  assert.ok(rtk, 'RTK dependency surface should be audited');
   assert.equal(playwright.args.includes('--omit=dev'), false);
   assert.equal(calls.every((call) => call.surface === 'installed'), true);
 });
 
 test('runtime package versions match provisioning contracts', async () => {
   const directoryById = {
-    astGrep: 'ast-grep',
     chromeDevtoolsMcp: 'chrome-devtools-mcp',
-    codebaseMemoryMcp: 'codebase-memory-mcp',
     openCodeReview: 'open-code-review',
     playwrightCli: 'playwright-cli',
-    rtk: 'rtk',
   };
   const plan = createToolProvisioningPlan({
     allowPreview: true,
     profile: 'full',
-    resolvedModules: ['ast-grep', 'chrome-devtools', 'codebase-memory', 'open-code-review', 'playwright', 'rtk'],
+    resolvedModules: ['chrome-devtools', 'open-code-review', 'playwright'],
     targetDir: rootDir,
   });
   assert.equal(plan.length, Object.keys(directoryById).length);
@@ -60,14 +54,8 @@ test('runtime package versions match provisioning contracts', async () => {
       path.join(rootDir, 'runtime/tools', directoryById[spec.id], 'package.json'),
       'utf8',
     ));
-    if (spec.id === 'rtk') {
-      assert.equal(packageJson.version, spec.version);
-      assert.equal(resolveRtkAsset().version, spec.version);
-      assert.equal(spec.source, 'github:rtk-ai/rtk@v' + spec.version);
-    } else {
       const dependencies = { ...packageJson.dependencies, ...packageJson.devDependencies };
       assert.equal(dependencies[spec.packageName], spec.version, spec.id + ' version drift');
-    }
   }
 });
 
@@ -88,7 +76,7 @@ test('runtime audit blocks high findings but reports moderate findings', async (
     runAudit: async ({ id }) => {
       const findings = id === 'open-code-review'
           ? { moderate: 2 }
-          : id === 'codebase-memory-mcp'
+          : id === 'chrome-devtools-mcp'
             ? { high: 1 }
             : {};
       return { exitCode: findings.high || findings.critical ? 1 : 0, stderr: '', stdout: JSON.stringify(auditPayload(findings)) };
@@ -96,7 +84,7 @@ test('runtime audit blocks high findings but reports moderate findings', async (
   });
 
   assert.equal(report.ok, false);
-  assert.deepEqual(report.blocking, [{ critical: 0, high: 1, id: 'codebase-memory-mcp' }]);
+  assert.deepEqual(report.blocking, [{ critical: 0, high: 1, id: 'chrome-devtools-mcp' }]);
   assert.deepEqual(report.warnings, [{ id: 'open-code-review', moderate: 2 }]);
 });
 

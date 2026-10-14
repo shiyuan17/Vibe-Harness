@@ -23,9 +23,18 @@ const scripts = {
   'skills:audit': 'node ./scripts/skills-audit.js',
 };
 
+/**
+ * A project fixture that declares the layer scripts.
+ *
+ * The lockfile is part of the fixture: the scripts and the tier tables below are
+ * written as `pnpm …`, and a package manager is resolved from the lockfile, so
+ * without one the fixture would describe an npm project whose declared tier
+ * commands belong to another manager.
+ */
 async function targetWithScripts() {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-plan-'));
   await writeFile(path.join(target, 'package.json'), JSON.stringify({ scripts }) + '\n', 'utf8');
+  await writeFile(path.join(target, 'pnpm-lock.yaml'), 'lockfileVersion: 9.0\n', 'utf8');
   return target;
 }
 
@@ -266,6 +275,24 @@ test('成本层缺省解析为快速层而 --full 保留完整矩阵', async () 
   }
 });
 
+test('风险计划的回退命令使用项目解析出的包管理器', async () => {
+  // A package.json without a lockfile is an npm project for the derived tiers,
+  // so the risk fallbacks have to name the same scripts the same way: `pnpm …`
+  // would be a command this project cannot run and an identity its own tier
+  // table never declared.
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-plan-'));
+  try {
+    await writeFile(path.join(target, 'package.json'), JSON.stringify({ scripts }) + '\n', 'utf8');
+    const plan = await buildVerificationPlan({ changedPaths: ['scripts/lib/helper.js'], targetDir: target });
+    const commands = plan.selectedChecks.map((item) => item.command);
+    assert.equal(commands.includes('npm run test:unit'), true, JSON.stringify(commands));
+    assert.equal(commands.includes('npm run test:component'), true, JSON.stringify(commands));
+    assert.equal(commands.some((command) => command.startsWith('pnpm ')), false, JSON.stringify(commands));
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
 test('被覆盖映射完整归因的脚本变更收窄为文件级测试命令', async () => {
   const target = await targetWithScripts();
   try {
@@ -334,3 +361,32 @@ test('tier 计划不收窄测试命令以保持层命令同一性', async () => 
     await rm(target, { force: true, recursive: true });
   }
 });
+
+for (const fixture of [
+  { name: '完整配置', tiers: { quick: ['pnpm test:unit'], standard: ['pnpm test:component'], deep: [] }, expected: ['test', 'component'], componentTier: 'standard' },
+  { name: '部分配置', tiers: { standard: ['pnpm test:component'] }, expected: ['test', 'component'], componentTier: 'standard' },
+  { name: '显式空层', tiers: { quick: [], standard: ['pnpm test:component'], deep: [] }, expected: ['component'], componentTier: 'standard' },
+  { name: '无成本层', tiers: undefined, expected: ['test', 'component'], componentTier: 'quick' },
+]) {
+  test(`聚焦成本层遵守项目配置并保留原检查归属：${fixture.name}`, async () => {
+    const target = await targetWithScripts();
+    try {
+      const plan = await buildVerificationPlan({
+        changedPaths: ['scripts/lib/helper.js'],
+        targetDir: target,
+        config: { validationCommands: { tiers: fixture.tiers } },
+        scope: 'affected',
+        covers: {
+          'tests/unit/alpha.test.js': ['scripts/lib/helper.js'],
+          'tests/component/alpha.test.js': ['scripts/lib/helper.js'],
+        },
+      });
+      assert.deepEqual(plan.selectedChecks.map((check) => check.id), fixture.expected);
+      const component = plan.selectedChecks.find((check) => check.id === 'component');
+      assert.equal(component.costTier, fixture.componentTier);
+      assert.equal(component.command, 'node --test tests/component/alpha.test.js');
+    } finally {
+      await rm(target, { force: true, recursive: true });
+    }
+  });
+}

@@ -246,6 +246,7 @@ export async function createRollbackPlan({ dryRun = true, redZoneConfirmed = fal
 
   const actions = [];
   for (const directory of state.generatedDirectories ?? []) {
+    if (/\/tools\/(?:codebase-memory-mcp|rtk|ast-grep)\//u.test(directory.ownerTarget.replaceAll('\\', '/'))) continue;
     assertPortableRelativePath(directory.target, 'install-state generated directory');
     assertPortableRelativePath(directory.ownerTarget, 'install-state generated directory owner');
     const target = path.join(targetDir, directory.target);
@@ -569,6 +570,7 @@ export async function createUninstallPlan({ allTargets = false, configUpdate = n
   }
 
   for (const directory of selectedDirectories) {
+    if (/\/tools\/(?:codebase-memory-mcp|rtk|ast-grep)\//u.test(directory.ownerTarget.replaceAll('\\', '/'))) continue;
     assertPortableRelativePath(directory.target, 'install-state generated directory');
     assertPortableRelativePath(directory.ownerTarget, 'install-state generated directory owner');
     const target = path.join(targetDir, directory.target);

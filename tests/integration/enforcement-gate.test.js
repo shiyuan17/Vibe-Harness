@@ -2,7 +2,7 @@ import '../helpers/offline-tools.js';
 
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -42,8 +42,13 @@ async function enforcementProject(adapterId, policy, { targets, withChecks = fal
   config.hooks = { ...config.hooks, enforcement: policy };
   if (targets) config.targets = [...targets];
   if (withChecks) {
+    // Declare the configured commands without a tier block so the flat form
+    // seeds the fast layer, exactly like tests/integration/project-verification.test.js.
+    // Spreading the init default here would declare `tiers: {quick: [], ...}`
+    // and an explicitly empty layer stays disabled, which would leave every
+    // check unselected and defeat this test's premise (checks pass, only the
+    // enforcement gate fails the run).
     config.validationCommands = {
-      ...config.validationCommands,
       lint: 'node -e 0',
       typecheck: 'node -e 0',
       test: 'node -e 0',
@@ -133,7 +138,20 @@ test('strict 策略把未证明的 Hook 执行从提示升级为阻断', async (
   try {
     const codex = await adapterEntry('codex');
     await mkdir(path.join(target, '.codex'), { recursive: true });
-    await writeFile(path.join(target, '.codex', 'hooks.json'), '{}\n', 'utf8');
+    // The self-check only speaks for an installed handler that matches the pack
+    // and is referenced by the host configuration, so the fixture installs the
+    // whole Hook surface the entry statically imports.
+    await mkdir(path.join(target, '.agents', 'runtime', 'hooks'), { recursive: true });
+    await cp(path.join(rootDir, 'runtime/hooks'), path.join(target, '.agents', 'runtime', 'hooks'), { recursive: true });
+    await writeFile(path.join(target, '.codex', 'hooks.json'), JSON.stringify({
+      // The self-check compares the installed definition against the adapter
+      // template, so the fixture has to reproduce the guarded-event surface:
+      // the catch-all `PreToolUse` matcher and `PermissionRequest`.
+      hooks: {
+        PermissionRequest: [{ hooks: [{ type: 'command', command: 'node .agents/runtime/hooks/codex-hook.mjs --host codex --expected-event PermissionRequest', timeout: 10 }] }],
+        PreToolUse: [{ matcher: '.*', hooks: [{ type: 'command', command: 'node .agents/runtime/hooks/codex-hook.mjs --host codex --expected-event PreToolUse', timeout: 10 }] }],
+      },
+    }, null, 2) + '\n', 'utf8');
 
     const unverified = await inspectRuntimeHooks(codex, target);
     assert.equal(unverified.enforced, false);
@@ -445,6 +463,41 @@ test('CLI verify 在 strict 阻断下即使检查全绿也判 invalid', async ()
         assert.equal(blocking.blocking, true);
         // The configured checks themselves passed; only the gate fails the run.
         assert.equal(report.results.lint.status, 'passed');
+        return true;
+      },
+    );
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('strict 阻断下的完成收据标记为 blocked 并记录 Hook 未验证项', async () => {
+  const target = await enforcementProject('codex', 'strict', { withChecks: true });
+  try {
+    const configPath = path.join(target, 'vibe-harness.config.json');
+    const config = JSON.parse(await readFile(configPath, 'utf8'));
+    config.delivery = {
+      default: 'managed-mr',
+      profiles: { 'managed-mr': { merge: 'squash', cleanup: 'evidence-compatible', requireReceipt: true } },
+    };
+    await writeFile(configPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
+    await execFileAsync(process.execPath, [
+      cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'full',
+      '--write', '--confirm-red-zone', '--allow-degraded', '--output', 'json',
+    ]);
+    await assert.rejects(
+      execFileAsync(process.execPath, [
+        cliPath, 'verify', '--project', target, '--allow-manual', '--output', 'json',
+      ]),
+      (error) => {
+        const report = JSON.parse(error.stderr);
+        // A receipt that read `passed` while the Hook gate blocked the run would
+        // be consumed as successful delivery evidence.
+        assert.equal(report.completion.status, 'blocked');
+        assert.ok(
+          report.completion.unverified.some((item) => /^hook:/u.test(item)),
+          JSON.stringify(report.completion.unverified),
+        );
         return true;
       },
     );

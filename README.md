@@ -69,7 +69,7 @@ pnpm vibe-harness validate --project ../full-project
 pnpm vibe-harness doctor --project ../full-project
 ```
 
-`--preset everything` 展开为 `profile=full`、六个带 runtime 的稳定工具插件、rule-only 的 `codegraph`／`serena`／`probe`、linear-mcp 读写端点与 memory 模块，并隐含放行预览能力和安装后 provision；它不改变 `--plugin all` 仍只含六个带 runtime 的稳定工具、不含 Linear 与三个 rule-only 插件的既有语义。红区写入仍必须显式使用 `--confirm-red-zone`。init 写入的配置：
+`--preset everything` 展开为 full、三个受管 runtime 插件、Linear 读写与 memory；`--plugin all` 仅选择三个 runtime 插件。红区写入仍需 `--confirm-red-zone`。
 
 ```json
 {
@@ -93,21 +93,19 @@ pnpm vibe-harness doctor --project ../full-project
 
 ### core（推荐）
 
-    将 Vibe-Harness core profile 安装到 TARGET_PROJECT_ABSOLUTE_PATH，并安装、启用 codebase-memory-mcp 后建立初始代码索引。你正在 Vibe-Harness 仓库中执行：先检查 Node.js 与 pnpm 版本并安装本仓库依赖；根据当前 Agent 宿主选择 codex、claude 或 gemini adapter。若目标项目不存在 vibe-harness.config.json，则用所选 adapter 和 core profile 初始化；若配置或已有安装状态不匹配，停止并报告，禁止使用 --force。install 的 dry-run 和正式安装都必须显式选择 --plugin codebase-memory-mcp；先检查 dry-run 的冲突、越界写入、覆盖和红区计划，通过后再使用 --write。我明确授权本次安装写入由该插件规划的项目级 MCP 红区配置，正式安装时使用 --confirm-red-zone。安装后先预览 provision，再使用 provision --write 安装并启用项目内固定版本 runtime、关闭 auto_index 与 auto_watch、建立索引、验证索引属于目标项目且状态 ready，并完成 MCP handshake。最后运行 validate --project 和 doctor --project；只有安装一致且 codebaseMemoryMcp 状态为 ready 时才报告完整成功，否则报告失败阶段和恢复命令。不得修改全局 Agent、MCP 或 Git 配置。
+    在 TARGET_PROJECT_ABSOLUTE_PATH 安装 core profile。先检查 dry-run，再对授权范围使用 --write，红区追加 --confirm-red-zone；不使用 --force，不修改全局配置。codebase-memory-mcp 仅分发使用规范，不安装工具、不写 MCP 配置、不构建索引。最后执行 validate 和 doctor。
 
 ### full
 
-    将 Vibe-Harness full profile 安装到 TARGET_PROJECT_ABSOLUTE_PATH，并安装、启用 codebase-memory-mcp 后建立初始代码索引。你正在 Vibe-Harness 仓库中执行：先检查 Node.js 与 pnpm 版本并安装本仓库依赖；根据当前 Agent 宿主选择 codex、claude 或 gemini adapter。若目标项目不存在 vibe-harness.config.json，则用所选 adapter 和 full profile 初始化；若配置或已有安装状态不匹配，停止并报告，禁止使用 --force。install 的 dry-run 和正式安装都必须显式选择 --plugin codebase-memory-mcp；先检查 dry-run 的冲突、越界写入、覆盖和红区计划，通过后再使用 --write。我明确授权本次 full 安装写入其规划的项目级 Hook 与 MCP 红区配置，正式安装时使用 --confirm-red-zone。安装后先预览 provision，再使用 provision --write 安装并启用项目内固定版本 runtime、关闭 auto_index 与 auto_watch、建立索引、验证索引属于目标项目且状态 ready，并完成 MCP handshake。最后运行 validate --project 和 doctor --project；只有安装一致且 codebaseMemoryMcp 状态为 ready 时才报告完整成功，否则报告失败阶段和恢复命令。不得修改全局 Agent、MCP 或 Git 配置。
+    在 TARGET_PROJECT_ABSOLUTE_PATH 安装 full profile。先检查 dry-run，再对授权范围使用 --write，红区追加 --confirm-red-zone；不使用 --force，不修改全局配置。codebase-memory-mcp 仅分发使用规范，不安装工具、不写 MCP 配置、不构建索引。最后执行 validate 和 doctor。
 
-core 和 full 的快速提示词显式增加 codebase-memory-mcp；这不会改变 profile 本身“外部工具必须通过 --plugin 选择”的合同。手动执行等价的 core 安装：
+core/full 包含外部 codebase-memory-mcp 使用规范，不安装工具。等价 core 安装：
 
 ```bash
 pnpm install
 pnpm vibe-harness init --project ../some-project --target codex --profile core
-pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin codebase-memory-mcp --dry-run
-pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin codebase-memory-mcp --write --confirm-red-zone
-pnpm vibe-harness provision --project ../some-project --target codex --profile core --dry-run
-pnpm vibe-harness provision --project ../some-project --target codex --profile core --write
+pnpm vibe-harness install --project ../some-project --target codex --profile core --dry-run
+pnpm vibe-harness install --project ../some-project --target codex --profile core --write --confirm-red-zone
 pnpm vibe-harness validate --project ../some-project
 pnpm vibe-harness verify --project ../some-project --plan
 pnpm vibe-harness verify --project ../some-project --full
@@ -147,7 +145,7 @@ node .agents/runtime/commands/run.mjs patch --project . --spec <spec.json>
 
 同一个项目只安装一次。配置中的 targets 数组声明全部宿主；不带 --target 的 install、upgrade、verify、validate、doctor 和 diff 处理全部目标，带 --target 时只选择配置或 install-state 中仍存在的一个宿主，绝不隐式追加。
 
-公共规则、runtime、memory、Eval 和 codebase-memory 索引在项目根以 shared owner 维护一份；宿主入口、原生 Skills、MCP 和 Hook 以 adapter:id owner 维护投影。不要在项目子目录重复安装来模拟多宿主支持。
+公共规则、runtime、memory 和 Eval在项目根以 shared owner 维护一份；宿主入口、原生 Skills、MCP 和 Hook 以 adapter:id owner 维护投影。不要在项目子目录重复安装来模拟多宿主支持。
 
 ## 执行模型
 
@@ -159,14 +157,26 @@ node .agents/runtime/commands/run.mjs patch --project . --spec <spec.json>
 
 ## Profiles and roles
 
-core 安装十个原生 Skills，full 安装十三个原生 Skills，并默认启用七个角色人格。角色系统采用“单主角色动态切换”：每个原子动作只激活一个角色，可叠加至多一个领域 Skill；它不是固定七阶段流水线。
+core 安装十一个原生 Skills，full 安装十四个原生 Skills，并默认启用七个角色人格。角色系统采用“单主角色动态切换”：每个原子动作只激活一个角色，可叠加至多一个领域 Skill；它不是固定七阶段流水线。
 
 | Profile | 安装内容 |
 | --- | --- |
 | `minimal` | 平台说明、安全边界、Git/Test 规则和可选任务/交付模板 |
-| `core` | `minimal` 加通用工程规则、十个原生 Skills、项目内确定性脚本和离线 Eval |
-| `full` | `core` 加三个原生 Skills、在线 Eval 和已支持宿主的安全 Hook，共十三个原生 Skills |
+| `core` | `minimal` 加通用工程规则、十一个原生 Skills、项目内确定性脚本和离线 Eval |
+| `full` | `core` 加三个原生 Skills、在线 Eval 和已支持宿主的安全 Hook，共十四个原生 Skills |
 | `docs-only` | 规则、模板和 schemas，不安装 runtime、Skills、MCP 或 Hook |
+
+三个显式交付 Skill 统一采用显示名 `Vb …` 和调用标识 `vb-…`：
+
+| 显示名称 | 调用标识 | 兼容旧触发词 |
+| --- | --- | --- |
+| Vb Git Split Push | `$vb-git-split-push` | `$git-deliver` |
+| Vb Git Develop Flow | `$vb-git-develop-flow` | `$gd-flow` |
+| Vb Linear Worktree Develop | `$vb-linear-worktree-develop` | `$lwflow` |
+
+Split Push 复用原 git-deliver 能力，按项目 Git 规范和逻辑变更分批提交，验证通过后普通推送当前分支；不创建 worktree 或执行合并。旧名称仅作兼容触发词；升级安装会迁移受管旧 Skill 文件，本地修改过的副本由安装器保留并报告冲突。
+
+显式调用 `$vb-git-develop-flow` 可在仓库外 worktree 实现并本地合入、推送 `develop`；安装可写 Linear 插件后显式调用 `$vb-linear-worktree-develop` 可先把当前计划同步为 Parent/子任务 DAG，再仅执行本次节点。两者不新增终端命令，也不修改默认 delivery；主检出不干净或缺少必要写入/Claim 能力时停止。
 
 外部工具仍只通过 `--plugin` 显式启用。所有宿主配置文件均属于红区写入，需要 `--confirm-red-zone`。
 
@@ -262,11 +272,11 @@ ZCode 尚未公开项目级 Skill 的磁盘路径，因此 Vibe-Harness 不会�
 
 Linear 工作流是单独的外部集成：linear-mcp 使用读写端点，linear-mcp-readonly 使用只读端点，两者互斥且都不会被 plugin all 选中。Codex、Cursor、Qoder、ZCode、Antigravity 和 OpenCode 会生成项目级 Remote MCP 配置；Claude 与 Gemini 安装相同规则和 Skill，但报告 MCP 手工配置降级。安装器不写入 Token 或 OAuth 凭据，配置完成后仍需按宿主提示完成 Linear 原生认证。
 
-可选插件包括 `rtk`、`ast-grep`、`codebase-memory-mcp`、`chrome-devtools-mcp`、`playwright-cli`、`open-code-review`、`codegraph`、`serena` 和 `probe`。其中 `codegraph`、`serena`、`probe` 是纯规则插件：安装器只写入对应规则，不安装也不配置外部工具本身，MCP/CLI 由宿主环境自行准备。Agentmemory runtime 因上游 High 漏洞暂停提供，不作为 `--plugin` 选项；如需记忆能力，请通过 `--modules memory` 安装 memory 模块。
+受管 runtime 插件为 `chrome-devtools-mcp`、`playwright-cli` 和 `open-code-review`。codebase-memory-mcp 使用规范随通用规则分发，工具由用户或宿主独立管理。
 
 ```bash
-pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin -rtk --dry-run
-pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin -rtk ast-grep --write
+pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin chrome-devtools-mcp --dry-run
+pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin chrome-devtools-mcp playwright-cli --write
 pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin linear-mcp --write --confirm-red-zone
 pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin linear-mcp-readonly --write --confirm-red-zone
 pnpm vibe-harness install --project ../some-project --target codex --profile core --plugin none --write

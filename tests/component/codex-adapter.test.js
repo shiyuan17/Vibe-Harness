@@ -17,8 +17,8 @@ test('codex adapter declares AGENTS, rules, templates, skills, and hooks mapping
   assert.ok(targets.includes('docs/templates/task.md'));
   assert.ok(targets.includes('.agents/skills/clarify-requirements/SKILL.md'));
   assert.ok(targets.includes('.agents/skills/clarify-requirements/agents/openai.yaml'));
-  assert.ok(targets.includes('.agents/skills/git-deliver/SKILL.md'));
-  assert.ok(targets.includes('.agents/skills/git-deliver/agents/openai.yaml'));
+  assert.ok(targets.includes('.agents/skills/vb-git-split-push/SKILL.md'));
+  assert.ok(targets.includes('.agents/skills/vb-git-split-push/agents/openai.yaml'));
   assert.ok(targets.includes('.codex/hooks.json'));
   assert.ok(targets.includes('docs/schemas/execution-envelope.schema.json'));
   assert.ok(targets.includes('docs/schemas/execution-envelope-v2.schema.json'));
@@ -58,7 +58,28 @@ test('Codex Hook projection embeds one bootstrap source and no duplicated Window
   }
 });
 
-test('git-deliver Codex metadata disables implicit invocation', async () => {
-  const metadata = await readFile(path.join(rootDir, 'skills/core/git-deliver/agents/openai.yaml'), 'utf8');
-  assert.match(metadata, /allow_implicit_invocation: false/u);
+test('Vb 交付入口统一显示名称和调用标识并保持显式触发及旧名称兼容', async () => {
+  for (const [kind, id, displayName, legacy] of [
+    ['core', 'vb-git-split-push', 'Vb Git Split Push', 'git-deliver'],
+    ['core', 'vb-git-develop-flow', 'Vb Git Develop Flow', 'gd-flow'],
+    ['integrations', 'vb-linear-worktree-develop', 'Vb Linear Worktree Develop', 'lwflow'],
+  ]) {
+    const directory = path.join(rootDir, 'skills', kind, id);
+    const ui = await readFile(path.join(directory, 'agents/openai.yaml'), 'utf8');
+    const metadata = await readJson(path.join(directory, 'metadata.json'));
+    assert.ok(ui.includes(`display_name: "${displayName}"`), id);
+    assert.ok(ui.includes(`Use $${id} `), id);
+    assert.match(ui, /allow_implicit_invocation: false/u);
+    assert.equal(metadata.id, id);
+    for (const trigger of [id, `$${id}`, displayName, legacy, `$${legacy}`]) {
+      assert.ok(metadata.triggers.includes(trigger), `${id}: ${trigger}`);
+    }
+  }
+});
+
+test('本仓库 Codex Hook 配置仅保留官方模板的受管处理器', async () => {
+  const template = await readFile(path.join(rootDir, 'adapters/codex/hooks.template.json'), 'utf8');
+  const configured = await readJson(path.join(rootDir, '.codex/hooks.json'));
+
+  assert.deepEqual(configured, JSON.parse(renderTemplate(template)));
 });

@@ -52,6 +52,18 @@
     {
       "id": "ADR-0013",
       "path": "docs/adr/ADR-0013-develop-direct-push-without-server-gate.md"
+    },
+    {
+      "id": "ADR-0014",
+      "path": "docs/adr/ADR-0014-service-teardown-best-effort.md"
+    },
+    {
+      "id": "ADR-0015",
+      "path": "docs/adr/ADR-0015-explicit-develop-flow.md"
+    },
+    {
+      "id": "ADR-0016",
+      "path": "docs/adr/ADR-0016-gd-flow-linear-boundary.md"
     }
   ]
 }

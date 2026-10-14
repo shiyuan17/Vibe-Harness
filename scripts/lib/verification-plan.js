@@ -3,10 +3,14 @@ import path from 'node:path';
 
 import {
   VALIDATION_TIER_BLOCKING_SCOPE,
+  deriveValidationTiers,
   nextNonEmptyTier,
+  readProjectTierFacts,
   resolveExecutionTier,
+  resolveValidationTiers,
   selectTierChecks,
 } from './validation-tiers.js';
+import { verificationCommandIdentity } from '../../runtime/lib/verification-plan.mjs';
 import { TEST_FILE_PATTERN } from './test-enumeration.js';
 import { LIFECYCLE_PATHS } from './change-impact.js';
 import {
@@ -218,8 +222,14 @@ async function projectScripts(targetDir) {
 function addCheck(checks, command, reason, id = command, scripts = {}) {
   if (!command) return;
   const check = (checkId, checkCommand) => {
-    if (!checkCommand || checks.some((item) => item.id === checkId || item.command === checkCommand)) return;
-    checks.push({ id: checkId, command: checkCommand, reason });
+    if (!checkCommand) return;
+    const existing = checks.find((item) => item.id === checkId || item.command === checkCommand);
+    if (existing) {
+      existing.selectionReasons = [...new Set([...(existing.selectionReasons ?? []), reason])];
+      existing.reason = existing.selectionReasons.join('；');
+      return;
+    }
+    checks.push({ id: checkId, command: checkCommand, reason, selectionReasons: [reason] });
   };
   // `pnpm check` is an aggregate in this repository (L1 unit + L2 component).
   // Expand it into atomic checks so the plan cannot execute a layer twice.
@@ -338,6 +348,33 @@ export async function buildVerificationPlan({
   const paths = changedPaths.map(normalize);
   const risk = classifyVerificationRisk(paths, { changedDetails, riskZones: config.riskZones });
   const scripts = await projectScripts(targetDir);
+  const tierFacts = await readProjectTierFacts(targetDir, config.packageManager);
+  const derived = deriveValidationTiers({
+    ...tierFacts,
+    configuredCommands: config.validationCommands,
+  });
+  const effective = resolveValidationTiers({ configuredTiers: config.validationCommands?.tiers, derived });
+  // The risk fallbacks name the same scripts as the derived tiers, so they are
+  // built from the same package manager: handing an npm or yarn project a `pnpm`
+  // command for a script it declares by another name would make the plan fail
+  // before merge, and would give one script two identities once a tier plan and
+  // this plan are merged.
+  const packageManager = typeof tierFacts.packageManager === 'string' && tierFacts.packageManager
+    ? tierFacts.packageManager
+    : 'pnpm';
+  const packageCommand = (scriptName) => `${packageManager}${packageManager === 'npm' ? ' run' : ''} ${scriptName}`;
+  // One table answers every tier question: the caller's table when given, the
+  // derived/configured one otherwise. Using the raw argument for resolution
+  // while the fallback only reached the cost lookup would let `--tier deep` on a
+  // project without an explicit tier table resolve against nothing and silently
+  // omit the requested layer.
+  const effectiveTiers = tiers ?? effective.tiers;
+  tierSource ??= effective.tierSource;
+  const tierForCommand = (command) => command
+    ? Object.entries(effectiveTiers).find(([, commands]) => commands.some(
+      (candidate) => verificationCommandIdentity(candidate) === verificationCommandIdentity(command),
+    ))?.[0]
+    : undefined;
   // The coverage map comes from the caller or from the target's own ledger;
   // it is only consulted in tier-less (change-driven) plans.
   const coverage = covers === undefined ? await readLedgerCovers(targetDir) : covers;
@@ -362,15 +399,18 @@ export async function buildVerificationPlan({
   const configured = (name) => {
     const declaredCheck = validationCheckMap(config).get(name);
     if (declaredCheck?.command) return declaredCheck.command;
+    if (typeof config.validationCommands?.[name] === 'string' && config.validationCommands[name].trim()) {
+      return config.validationCommands[name].trim();
+    }
     if (commandStatus[name]?.status && commandStatus[name].status !== 'not_configured') {
       return commandStatus[name].command;
     }
     const scriptName = scriptFallback[name];
-    return scriptName && scripts[scriptName] ? 'pnpm ' + scriptName : null;
+    return scriptName && scripts[scriptName] ? packageCommand(scriptName) : null;
   };
   const addConfigured = (name, reason) => {
     const fallbackScript = scriptFallback[name];
-    const command = configured(name) ?? (scripts[fallbackScript] ? `pnpm ${fallbackScript}` : null);
+    const command = configured(name) ?? (scripts[fallbackScript] ? packageCommand(fallbackScript) : null);
       if (command) addCheck(checks, command, reason, name, scripts);
   };
   // Test layers can narrow below the layer script when the change is fully
@@ -400,18 +440,18 @@ export async function buildVerificationPlan({
     // visible as deferred checks until the caller escalates. `--full` and the
     // unknown fallback keep paying the whole matrix up front (fail-safe).
     const slim = !full && !risk.fallbackUsed;
-    if (scripts.validate) addCheck(checks, 'pnpm validate', '完整验证的原子配置校验', 'validate', scripts);
+    if (scripts.validate) addCheck(checks, packageCommand('validate'), '完整验证的原子配置校验', 'validate', scripts);
     const syncNames = slim ? ['lint', 'typecheck', 'test', 'component'] : ['lint', 'typecheck', 'test', 'component', 'eval'];
     for (const name of syncNames) addConfigured(name, `完整验证：项目配置的 ${name}`);
-      if (scripts['test:integration']) addCheck(checks, 'pnpm test:integration', '高风险或完整验证的集成回归', 'integration', scripts);
+      if (scripts['test:integration']) addCheck(checks, packageCommand('test:integration'), '高风险或完整验证的集成回归', 'integration', scripts);
       if (scripts['smoke:lifecycle'] && (!slim || risk.lifecycle)) {
-        addCheck(checks, 'pnpm smoke:lifecycle', '生命周期、安装或 Hook 回归', 'smoke', scripts);
+        addCheck(checks, packageCommand('smoke:lifecycle'), '生命周期、安装或 Hook 回归', 'smoke', scripts);
       }
     if (slim) {
       const evalCommand = configured('eval');
       if (evalCommand) deferredEvidence.push({ command: evalCommand, id: 'eval', reason: '高风险变更的深度层证据，显式升级后执行' });
       if (!risk.lifecycle && scripts['smoke:lifecycle']) {
-        deferredEvidence.push({ command: 'pnpm smoke:lifecycle', id: 'smoke', reason: '高风险变更的深度层证据，显式升级后执行' });
+        deferredEvidence.push({ command: packageCommand('smoke:lifecycle'), id: 'smoke', reason: '高风险变更的深度层证据，显式升级后执行' });
       }
       reasons.push('高风险同步证据保留到 integration；eval 与 smoke 为深度层证据，显式升级后执行');
     }
@@ -422,13 +462,13 @@ export async function buildVerificationPlan({
       reasons.push('无变更，运行项目基线检查');
     }
     if (risk.impactGroups.includes('docs') && !risk.impactGroups.some((group) => ['rules', 'schemas'].includes(group))) {
-       if (scripts['docs:audit']) addCheck(checks, 'pnpm docs:audit', '文档目录审计', 'docs', scripts);
+       if (scripts['docs:audit']) addCheck(checks, packageCommand('docs:audit'), '文档目录审计', 'docs', scripts);
       reasons.push('普通文档变更');
     }
     if (risk.impactGroups.includes('rules')) {
       addConfigured('test', '规则行为锁定测试');
       addConfigured('component', '规则契约与资产测试');
-       if (scripts['eval:check']) addCheck(checks, 'pnpm eval:check', '规则契约与 reference 校验', 'eval-check', scripts);
+       if (scripts['eval:check']) addCheck(checks, packageCommand('eval:check'), '规则契约与 reference 校验', 'eval-check', scripts);
       reasons.push('规则或治理内容变更');
     }
     if (risk.impactGroups.includes('tests')) {
@@ -437,12 +477,12 @@ export async function buildVerificationPlan({
       if (risk.riskLevel === 'quick') reasons.push('单个测试文件变更');
     }
     if (risk.impactGroups.includes('eval')) {
-       if (scripts['eval:check']) addCheck(checks, 'pnpm eval:check', 'Eval 契约校验', 'eval-check', scripts);
+       if (scripts['eval:check']) addCheck(checks, packageCommand('eval:check'), 'Eval 契约校验', 'eval-check', scripts);
       addConfigured('component', 'Eval 资产与契约测试');
     }
     if (risk.impactGroups.includes('skills')) {
-       if (scripts['skills:audit']) addCheck(checks, 'pnpm skills:audit', 'Skill 元数据审计', 'skills', scripts);
-       if (scripts['eval:check']) addCheck(checks, 'pnpm eval:check', 'Skill Eval 契约校验', 'eval-check', scripts);
+       if (scripts['skills:audit']) addCheck(checks, packageCommand('skills:audit'), 'Skill 元数据审计', 'skills', scripts);
+       if (scripts['eval:check']) addCheck(checks, packageCommand('eval:check'), 'Skill Eval 契约校验', 'eval-check', scripts);
     }
     if (risk.impactGroups.includes('scripts')) {
       addTestLayer('test', '脚本相关单元测试', 'unit');
@@ -454,8 +494,8 @@ export async function buildVerificationPlan({
       if (risk.riskLevel === 'quick') reasons.push('低影响配置变更');
     }
     if (risk.impactGroups.includes('schemas') || risk.impactGroups.includes('manifests')) {
-       if (scripts['lint']) addCheck(checks, 'pnpm lint', 'Schema/manifest 静态与契约校验', 'lint', scripts);
-       if (scripts['validate']) addCheck(checks, 'pnpm validate', 'Schema/manifest 验证', 'validate', scripts);
+       if (scripts['lint']) addCheck(checks, packageCommand('lint'), 'Schema/manifest 静态与契约校验', 'lint', scripts);
+       if (scripts['validate']) addCheck(checks, packageCommand('validate'), 'Schema/manifest 验证', 'validate', scripts);
     }
     reasons.push(...(risk.impactGroups.length ? [] : ['无可识别变更，保持最小验证']));
   }
@@ -469,12 +509,26 @@ export async function buildVerificationPlan({
     'lint', 'typecheck', 'validate', 'test', 'component', 'eval', 'docs', 'eval-check', 'skills',
     'integration', 'e2e', 'matrix', 'smoke',
   ];
-  const riskChecks = checks.map((item) => ({
-    ...item,
-    blockingScope: VALIDATION_TIER_BLOCKING_SCOPE[costTierForCheck(item.id)],
-    costTier: costTierForCheck(item.id),
-    ...(commandStatus[item.id]?.status ? { status: commandStatus[item.id].status } : {}),
-  }));
+  const withCost = (item) => {
+    const originalCommand = configured(item.id) ?? item.command;
+    const declaredTier = tierForCommand(originalCommand) ?? tierForCommand(item.command);
+    const derivedTier = Object.entries(derived.tiers).find(([, commands]) => commands.some(
+      (candidate) => verificationCommandIdentity(candidate) === verificationCommandIdentity(originalCommand),
+    ))?.[0] ?? (scriptFallback[item.id] ? costTierForCheck(item.id) : undefined);
+    const fallbackTier = derivedTier ?? costTierForCheck(item.id);
+    const declared = config.validationCommands?.tiers ?? {};
+    const disabled = !declaredTier && Object.hasOwn(declared, fallbackTier)
+      && (scriptFallback[item.id] || declared[fallbackTier].length === 0);
+    if (disabled && !full && !risk.fallbackUsed) return null;
+    const costTier = declaredTier ?? derivedTier ?? costTierForCheck(item.id);
+    return {
+      ...item,
+      blockingScope: VALIDATION_TIER_BLOCKING_SCOPE[costTier],
+      costTier,
+      ...(commandStatus[item.id]?.status ? { status: commandStatus[item.id].status } : {}),
+    };
+  };
+  const riskChecks = checks.map(withCost).filter(Boolean);
   // A tier run answers "how much evidence do I pay for now": it selects the
   // configured commands of the cumulative layers and reports the rest as
   // deferred, so a fast pass can never be mistaken for a complete one. An
@@ -482,7 +536,7 @@ export async function buildVerificationPlan({
   // paid for when the caller asks for them.
   // `--full` is itself an explicit request for every declared layer, so it
   // never falls back to a cheaper layer.
-  const resolved = tier ? resolveExecutionTier({ explicit: tierExplicit || full, tier, tiers }) : null;
+  const resolved = tier ? resolveExecutionTier({ explicit: tierExplicit || full, tier, tiers: effectiveTiers }) : null;
   // An explicit `--tier` is honored exactly, including a layer the project
   // declares as empty: the caller asked for that layer, so the run reports the
   // gap instead of silently falling back to the legacy slot commands. An
@@ -495,7 +549,7 @@ export async function buildVerificationPlan({
   const tierSelection = resolved?.tier ? selectTierChecks({
     commandStatus,
     tier: resolved.tier,
-    tiers,
+    tiers: effectiveTiers,
     metadata: config.validationCommands?.checks ?? [],
     projectDir: targetDir,
     only,
@@ -518,21 +572,27 @@ export async function buildVerificationPlan({
     ? []
     : [
         ...(tierSelection?.deferredChecks ?? []),
-        ...(tierSelection ? [] : deferredEvidence.map((item) => ({
-          ...item,
-          blockingScope: VALIDATION_TIER_BLOCKING_SCOPE[costTierForCheck(item.id)],
-          costTier: costTierForCheck(item.id),
-          ...(commandStatus[item.id]?.status ? { status: commandStatus[item.id].status } : {}),
-        }))),
+        ...(tierSelection ? [] : deferredEvidence.map(withCost).filter(Boolean)),
       ].filter((item) => !selectedIds.has(item.id));
   const metadata = validationCheckMap(config);
   const selectedWithMetadata = selectedChecks.map((item) => {
     const configured = metadata.get(item.id);
-    return configured
-      ? { ...item, deterministic: configured.deterministic, ...(configured.estimatedDurationMs !== undefined
-        ? { estimatedDurationMs: configured.estimatedDurationMs } : {}) }
-      : item;
+    if (!configured) return item;
+    return {
+      ...item,
+      // The tier plan resolves the same declaration from the configuration, so
+      // its execution identity has to match here too: without the configured
+      // directory the same check would run from the repository root as well,
+      // and the focused entrypoint would execute it twice.
+      cwd: configured.cwd ?? item.cwd ?? '.',
+      deterministic: configured.deterministic,
+      ...(configured.estimatedDurationMs !== undefined ? { estimatedDurationMs: configured.estimatedDurationMs } : {}),
+    };
   });
+  const selectionReasonsByCheck = Object.fromEntries([...selectedWithMetadata, ...deferredChecks].map((item) => [
+    item.id ?? item.command,
+    [...new Set(item.selectionReasons ?? (item.reason ? [item.reason] : []))],
+  ]));
   const cost = estimateVerificationCost(selectedWithMetadata, config);
   const scopeConfidence = verificationScopeConfidence({
     changedPaths: paths,
@@ -558,17 +618,18 @@ export async function buildVerificationPlan({
     ...risk,
     deferredChecks,
     executionTier: resolved?.tier ?? null,
-    nextTier: resolved?.tier ? nextNonEmptyTier(resolved.tier, tiers) : null,
+    nextTier: resolved?.tier ? nextNonEmptyTier(resolved.tier, effectiveTiers) : null,
     planMode: full ? 'full' : (resolved?.tier ? 'tier:' + resolved.tier : 'auto'),
     riskSelectedChecks: riskChecks.map((item) => ({ id: item.id, command: item.command })),
     selectedChecks: selectedWithMetadata,
+    selectionReasonsByCheck,
     minimumTier,
     selectedMicroChecks,
     deferredMicroChecks,
     escalation: {
       required: escalationRequired,
       reason: escalationRequired ? (scopeConfidence !== 'complete' ? `impact mapping is ${scopeConfidence}` : 'deferred evidence remains') : null,
-      nextTier: resolved?.tier ? nextNonEmptyTier(resolved.tier, tiers) : (minimumTier === 'micro' ? 'unit' : 'integration'),
+      nextTier: resolved?.tier ? nextNonEmptyTier(resolved.tier, effectiveTiers) : (minimumTier === 'micro' ? 'unit' : 'integration'),
     },
     skippedChecks: known.filter((id) => !selectedIds.has(id)).map((id) => ({ id, status: 'not_selected' })),
     selectionReasons: [...new Set(reasons)],

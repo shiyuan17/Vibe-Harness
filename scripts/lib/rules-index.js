@@ -69,8 +69,7 @@ export async function loadRuleIndex(rootDir) {
  * line is a routing index for one project: listing a rule that the selected
  * profile, module or plugin did not install sends the host to a file that is
  * not there, and it advertises capabilities the project does not have (for
- * example the optional `codebase-memory-mcp`, `rtk`, `ast-grep` and
- * `chrome-devtools-mcp` rules in a minimal install). The caller owns the
+ * example the optional `chrome-devtools-mcp` rules in a minimal install). The caller owns the
  * installed target set; this helper only applies it, so the index and the rest
  * of the installed surface are derived from the same plan.
  *
@@ -141,7 +140,7 @@ const RULE_GROUPS = [
     label: '工程',
   },
   {
-    ids: ['codebase-memory-mcp', 'chrome-devtools-mcp', 'linear-workflow', 'rtk', 'ast-grep', 'codegraph', 'serena', 'probe'],
+    ids: ['codebase-memory-mcp', 'chrome-devtools-mcp', 'linear-workflow'],
     label: '工具与集成',
   },
   { ids: ['release-rules', 'troubleshooting'], label: '发布与排障' },

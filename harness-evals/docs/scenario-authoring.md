@@ -8,7 +8,7 @@ A Harness scenario is a falsifiable experiment against one primary mechanism. It
 
 Every file under `harness-evals/scenarios/` uses `schemaVersion: 3` and contains:
 
-- stable `id` (`H01` through `H20` for the initial set), semantic `version`, title, category, mechanism, risk, kind, and objective;
+- stable `id` (`H01` through `H23` for the current set), semantic `version`, title, category, mechanism, risk, kind, and objective;
 - `phase.red`, `phase.green`, at least one `phase.pressure` entry, and `phase.regression`;
 - required and optional backend capabilities;
 - a relative fixture reference and a task prompt with allowed write paths;

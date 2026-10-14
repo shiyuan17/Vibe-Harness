@@ -79,6 +79,27 @@ installer 集成验证应覆盖已有文件拒写、红区确认、目标路径�
 
 风险计划的 `unknown` 分支必须 fail-safe 回退到 high；普通文档、单个测试文件和纯函数脚本不得仅因目录名自动触发 integration/smoke。验证收据保留 `riskLevel`、`planMode`、`impactGroups`、`selectedChecks`、`skippedChecks`、`executionTier`、`tierSource`、`scopeStatus`、`deferredChecks`、`nextTier`、`tierFallback`、`fallbackUsed` 和 `selectionReasons`。
 
+### Hook 配置变更交付示例
+
+例如移除项目级 Codex 临时调试 probe：先确认覆盖该红区修改的明确授权，只删除独立调试处理器，保留受管 `PreToolUse`、`PermissionRequest` 的命令、匹配规则、超时与失败拒绝逻辑。比较解析后的配置而非 JSON 排版；历史日志、全局配置和用户其他改动不在该修复范围。
+
+先运行 Codex adapter、Hook bootstrap、Hook runtime 与 enforcement gate 的聚焦用例，再运行 `node .agents/runtime/commands/run.mjs verify --project . --tier standard --json`。新增用例同步台账，并执行 `pnpm tests:catalog check`、`pnpm docs:audit` 和 `git diff --check`。最后一次实质修改使旧证据失效；复用只能经过现有收据指纹校验，不手工修改生成收据的审定或接受状态。
+
+按 [交付模板](templates/delivery.md) 的现有 completion 字段记录以下内容，不新增 schema；表内是填写要求，不是已通过的执行记录：
+
+| 现有字段 | 本例应填写的证据与边界 |
+| --- | --- |
+| `delivery.profile/stage`、`status` | 沿用实际交付模式；验证草稿保持 `stage=verify`，不因测试通过自动改成完整完成。 |
+| `acceptance` | 分别记录配置移除、隐私与拒绝回归、宿主生效；每项绑定实际命令或人工判据、范围及 `passed/failed/blocked/unverified`。 |
+| `verification` | 引用本轮 `id`、`finishedAt`、检查集合、选择理由、相关性审定、前后修订与指纹、`snapshotComparison`；失败时保留诊断和最终状态的同检查复验。 |
+| `source/target` | 使用实际来源和目标指纹；无远端证据时不声称已合并或发布。 |
+| `unverified`、`remainingRisks` | 列出深度层延期、未审定检查及未观察的宿主激活；`unreviewed/blocked/stale/queued/running` 均不能转述为通过。 |
+| `rollback` | 只恢复受管安全处理器，不恢复原始输入 probe，不降低沙箱或处理旧日志。 |
+
+宿主生效独立于 CLI 用例：按宿主支持的方式重新加载配置后，用无副作用调用核对实际应用；合成拒绝输入仅验证处理器，不执行被测危险指令。无法观察宿主激活时交付为“配置修复及本地验证完成，宿主激活未验证”。短任务不因此强制创建任务锚点；已有锚点沿用 `task check <id> --complete --receipt <file>`，缺证据不得绕过完成门。
+
+本次优化的后续观察与修复交付分开：交付后 14 天内，在前 3 个自然发生的代码变更任务中沿用现有交付记录，记录最终变更与相关验证是否绑定、失败是否经诊断并复验、本地验证与实际接受是否区分。不制造任务、不新增自动监控或台账；目标是样本中没有无证据完成主张。至少两个独立可比任务才评估实际使用；缺少修复前可比基线时不宣称效率提升，窗口结束仍缺样本则记录“证据不足”。
+
 ## 测试实现（本仓库）
 
 `docs/rules/test-rules.md` 是运行器无关的行为契约；以下事实只描述 Vibe-Harness 自身仓库，随规则安装到目标项目时不构成对运行器、依赖或超时的要求：

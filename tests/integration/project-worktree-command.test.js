@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { existsSync, lstatSync } from 'node:fs';
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -9,7 +9,8 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
 import { removeTemporaryDirectory } from '../../scripts/lib/temp-cleanup.js';
-import { runCommand } from '../../runtime/commands/run.mjs';
+import { landLockTimeoutMs, runCommand } from '../../runtime/commands/run.mjs';
+import { expandMirrors, linkOrCopyMirrors, removeMirrorLinks } from '../../runtime/lib/worktree-mirrors.mjs';
 
 // `run.mjs worktree` is the installed entry point for worktree provisioning and
 // cleanup under docs/rules/git-rules.md §Worktree: read-only by default,
@@ -409,7 +410,7 @@ test('worktree cleanup refuses an unmerged worktree and keeps the branch', async
     assert.deepEqual(cleaned.report.results[0].removedLinks, ['frontend/node_modules']);
     assert.equal(cleaned.report.results[0].remainingDirectory, false);
     assert.equal(await entryExists(fixture.repo, fixture.worktreePath), false);
-    assert.equal(await git(fixture.repo, ['branch', '--list', 'feat/ENG-1-scaffold']), 'feat/ENG-1-scaffold');
+    assert.equal(await git(fixture.repo, ['branch', '--list', 'feat/ENG-1-scaffold', '--format=%(refname:short)']), 'feat/ENG-1-scaffold');
     // The main checkout's dependencies are untouched by the teardown.
     const mainDependency = path.join(fixture.repo, 'frontend/node_modules/dep-a/package.json');
     assert.equal(JSON.parse(await readFile(mainDependency, 'utf8')).name, 'dep-a');
@@ -939,6 +940,35 @@ async function bootstrapWithWork(fixture) {
   await git(fixture.worktreePath, ['commit', '-q', '-m', 'feat: work']);
 }
 
+/**
+ * Register one managed service for `worktreePath` that opts out of teardown.
+ *
+ * `stopOnTeardown: false` is the registration the worktree commands cannot
+ * prove stopped — `teardownServices` refuses it without touching a process — so
+ * the fixture needs no real service tree and no signalling.
+ */
+async function registerOptedOutService(project, worktreePath) {
+  const resolved = await realpath(worktreePath);
+  await mkdir(path.join(project, '.vibe-harness'), { recursive: true });
+  await writeJson(path.join(project, '.vibe-harness', 'processes.json'), {
+    schemaVersion: 1,
+    processes: [{
+      commandFingerprint: 'fixture',
+      cwd: resolved,
+      pid: 1,
+      port: 1,
+      serviceId: 'web',
+      startedAt: '2026-01-01T00:00:00.000Z',
+      status: 'running',
+      stopOnTeardown: false,
+      supervisorPid: 1,
+      taskId: path.basename(worktreePath),
+      teardownStatus: 'unverified',
+      worktree: resolved,
+    }],
+  });
+}
+
 test('worktree land 默认 dry-run:输出按序步骤计划且不落盘', async () => {
   const fixture = await makeLandFixture();
   try {
@@ -958,6 +988,41 @@ test('worktree land 默认 dry-run:输出按序步骤计划且不落盘', async 
     assert.equal(await git(fixture.repo, ['rev-list', '--count', 'feat/landing-zone']), '1');
     assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
     assert.equal((await readRegistry(fixture.repo)).entries.length, 1);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('land 预检：收据要求显式审阅并把层升到无 deferred 的声明层', async () => {
+  const fixture = await makeLandFixture({
+    validationCommands: { tiers: { quick: ['node --version'], standard: ['node --version --no-warnings'] } },
+  });
+  try {
+    await bootstrapWithWork(fixture);
+    const base = ['worktree', 'land', '--project', fixture.repo, '--delivery', 'local-land', '--task', 'ENG-1', '--json'];
+    // A completion receipt needs a relevance review the planner can never
+    // attest on its own, so the preflight refuses this landing.
+    const missingReview = await runCommand(base, { cwd: fixture.repo });
+    assert.equal(missingReview.report.status, 'blocked', JSON.stringify(missingReview.report));
+    const blockers = missingReview.report.blockers ?? missingReview.report.results?.[0]?.blockers ?? [];
+    assert.ok(
+      blockers.some((line) => /explicit relevance review/u.test(line)),
+      JSON.stringify(missingReview.report),
+    );
+    // An explicitly named layer that still leaves declared checks deferred can
+    // never produce an acceptable receipt, so it is a preflight blocker.
+    const explicit = await runCommand([...base, '--tier', 'quick', '--reviewed', 'all'], { cwd: fixture.repo });
+    assert.equal(explicit.report.status, 'blocked');
+    assert.ok(
+      (explicit.report.blockers ?? explicit.report.results?.[0]?.blockers ?? []).some((line) => /deferred check/u.test(line)),
+      JSON.stringify(explicit.report),
+    );
+    // Unnamed: the landing escalates to the cheapest layer with no deferred
+    // evidence and records the escalation.
+    const escalated = await runCommand([...base, '--reviewed', 'all'], { cwd: fixture.repo });
+    assert.equal(escalated.report.status, 'planned', JSON.stringify(escalated.report));
+    assert.equal(escalated.report.tier, 'standard');
+    assert.deepEqual(escalated.report.tierEscalation, { from: 'quick', to: 'standard' });
   } finally {
     await removeTemporaryDirectory(fixture.root);
   }
@@ -1171,6 +1236,57 @@ test('验证门禁失败时中止:主检出不改变并保留任务分支', asyn
   }
 });
 
+test('镜像展开与拆除按两侧计算并拒绝链接祖先', async () => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), 'vibe-harness-mirrors-')));
+  const main = path.join(root, 'main');
+  const worktree = path.join(root, 'worktree');
+  try {
+    await mkdir(path.join(main, 'tools/alpha'), { recursive: true });
+    await mkdir(path.join(main, 'tools/beta'), { recursive: true });
+    await mkdir(path.join(main, 'notes'), { recursive: true });
+    await writeFile(path.join(main, 'notes/readme.md'), 'notes\n', 'utf8');
+    await mkdir(worktree, { recursive: true });
+
+    // A wildcard expands against the main checkout: the declarations alone.
+    assert.deepEqual(expandMirrors(main, ['tools/*']), ['tools/alpha', 'tools/beta']);
+
+    // Inside the worktree those leaves are links, so `Dirent.isDirectory()` is
+    // false for them: the worktree side is only visible when links are followed.
+    await linkOrCopyMirrors(main, worktree, ['tools/*']);
+    assert.deepEqual(expandMirrors(worktree, ['tools/*']), []);
+    assert.deepEqual(expandMirrors(worktree, ['tools/*'], { followDirectoryLinks: true }), ['tools/alpha', 'tools/beta']);
+
+    // A nested declaration whose parent is already a link would be written
+    // through the link into the main checkout, so it is reported instead.
+    const nested = await linkOrCopyMirrors(main, worktree, ['notes', 'notes/readme.md']);
+    const nestedByMirror = new Map(nested.map((item) => [item.mirror, item]));
+    assert.equal(nestedByMirror.get('notes').status, 'linked');
+    // A nested declaration reached through the parent link is never re-projected:
+    // the ancestor check runs before the existence check, so it is reported as
+    // skipped instead of being mistaken for a mirror the worktree owns.
+    assert.equal(nestedByMirror.get('notes/readme.md').status, 'skipped');
+    assert.equal(await readFile(path.join(main, 'notes/readme.md'), 'utf8'), 'notes\n');
+
+    // The main checkout loses a wildcard leaf after bootstrap; the link inside
+    // the worktree is only discoverable by expanding the worktree side, and it
+    // still has to come down without the main checkout being touched.
+    await rm(path.join(main, 'tools/beta'), { recursive: true, force: true });
+    // A link the developer made by hand is not this bootstrap's projection: it
+    // stays for `git worktree remove` even though the wildcard reaches it.
+    const handMade = path.join(root, 'elsewhere');
+    await mkdir(handMade, { recursive: true });
+    await symlink(handMade, path.join(worktree, 'tools/custom'), 'junction');
+    const removed = removeMirrorLinks(main, worktree, ['tools/*']);
+    assert.deepEqual([...removed].sort(), ['tools/alpha', 'tools/beta']);
+    assert.equal(existsSync(path.join(worktree, 'tools/alpha')), false);
+    assert.equal(existsSync(path.join(worktree, 'tools/beta')), false);
+    assert.equal(lstatSync(path.join(worktree, 'tools/custom')).isSymbolicLink(), true);
+    assert.equal(existsSync(path.join(main, 'tools/alpha')), true);
+  } finally {
+    await removeTemporaryDirectory(root);
+  }
+});
+
 test('--no-verify 可预览但拒绝写入', async () => {
   const fixture = await makeLandFixture({
     extraFiles: { 'fail.mjs': 'process.exit(1);\n' },
@@ -1258,9 +1374,21 @@ test('两个进程同时 land 同一目标时第二个因共享锁超时且不�
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
     assert.equal(existsSync(marker), true);
-    const second = await runCommand(['worktree', 'land', '--project', fixture.repo, '--write', '--json'], { cwd: fixture.repo });
+    // The default budget is sized for a full verified landing, so the test
+    // shortens the parent-owned knob instead of waiting it out (the first land
+    // is already holding the lock in its own process).
+    process.env.VIBE_HARNESS_LAND_LOCK_TIMEOUT_MS = '300';
+    let second;
+    try {
+      second = await runCommand(['worktree', 'land', '--project', fixture.repo, '--write', '--json'], { cwd: fixture.repo });
+    } finally {
+      delete process.env.VIBE_HARNESS_LAND_LOCK_TIMEOUT_MS;
+    }
     assert.equal(second.report.status, 'blocked');
     assert.equal(second.report.code, 'LAND_LOCK_TIMEOUT');
+    // The receipt names the budget the caller asked for, so a shortened wait is
+    // distinguishable from the default one.
+    assert.match(second.report.blockers.join('; '), /held by another land operation after 300ms/u);
     assert.equal(await git(fixture.repo, ['rev-list', '--count', 'feat/landing-zone']), '1');
     const firstResult = JSON.parse((await first).stdout);
     assert.equal(firstResult.status, 'passed', JSON.stringify(firstResult));
@@ -1268,6 +1396,17 @@ test('两个进程同时 land 同一目标时第二个因共享锁超时且不�
   } finally {
     await removeTemporaryDirectory(fixture.root);
   }
+});
+
+test('land 锁等待预算默认 180 秒且只能被父进程环境变量缩短', () => {
+  assert.equal(landLockTimeoutMs({}), 180_000);
+  assert.equal(landLockTimeoutMs({ VIBE_HARNESS_LAND_LOCK_TIMEOUT_MS: '300' }), 300);
+  // The knob can only shorten the wait: a wider or unusable value keeps the
+  // default instead of letting a caller extend a lock hold indefinitely.
+  assert.equal(landLockTimeoutMs({ VIBE_HARNESS_LAND_LOCK_TIMEOUT_MS: '600000' }), 180_000);
+  assert.equal(landLockTimeoutMs({ VIBE_HARNESS_LAND_LOCK_TIMEOUT_MS: 'not-a-number' }), 180_000);
+  assert.equal(landLockTimeoutMs({ VIBE_HARNESS_LAND_LOCK_TIMEOUT_MS: '0' }), 180_000);
+  assert.equal(landLockTimeoutMs({ VIBE_HARNESS_LAND_LOCK_TIMEOUT_MS: '-5' }), 180_000);
 });
 
 test('等待锁期间目标前进时以新 HEAD 创建候选并保留两项改动', async () => {
@@ -1422,6 +1561,143 @@ test('不带 --push 的 land 不写远端引用且保留任务分支', async () 
     assert.equal(result.report.results[0].branchDeleted, false);
     assert.equal(await git(origin, ['branch', '--list', 'feat/landing-zone']), '');
     assert.equal(await git(fixture.repo, ['branch', '--list', 'feat/ENG-1-scaffold', '--format=%(refname:short)']), 'feat/ENG-1-scaffold');
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+// Stopping registered services before a worktree is removed stays a best-effort
+// step: a teardown that cannot be proven is evidence to report, not a gate over
+// a merge that already passed verification (docs/adr/ADR-0014-service-teardown-best-effort.md).
+// The `stopOnTeardown: false` registration below is exactly the case that used
+// to block `land` with SERVICE_TEARDOWN_BLOCKED.
+test('land 在服务 teardown 无法证明停止时仍完成落地并写入 services 结果', async () => {
+  const fixture = await makeLandFixture();
+  try {
+    await bootstrapWithWork(fixture);
+    await registerOptedOutService(fixture.repo, fixture.worktreePath);
+    const written = await runCommand(['worktree', 'land', '--project', fixture.repo, '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(written.exitCode, 0, JSON.stringify(written.report));
+    assert.equal(written.report.status, 'passed', JSON.stringify(written.report));
+    assert.deepEqual(
+      written.report.results[0].steps.map((step) => [step.id, step.status]),
+      [['merge', 'passed'], ['verify', 'passed'], ['push', 'skipped'], ['cleanup', 'passed'], ['delete-branch', 'skipped']],
+    );
+    const cleanup = written.report.results[0].steps[3];
+    assert.equal(cleanup.services.status, 'blocked');
+    assert.equal(cleanup.services.processes[0].reason, 'service-opted-out-of-teardown');
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), false);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('cleanup 在服务 teardown 无法证明停止时仍移除工作区并报告 services', async () => {
+  const fixture = await makeWorkspaceFixture();
+  try {
+    await runCommand([
+      'worktree', 'bootstrap', '--project', fixture.repo, '--task', 'ENG-1:feat/ENG-1-scaffold', '--write', '--json',
+    ], { cwd: fixture.repo });
+    await writeFile(path.join(fixture.worktreePath, 'work.txt'), 'done\n', 'utf8');
+    await git(fixture.worktreePath, ['add', '.']);
+    await git(fixture.worktreePath, ['commit', '-q', '-m', 'feat: work']);
+    await git(fixture.repo, ['merge', '--no-ff', '-q', '-m', 'merge ENG-1', 'feat/ENG-1-scaffold']);
+    await registerOptedOutService(fixture.repo, fixture.worktreePath);
+
+    const cleaned = await runCommand([
+      'worktree', 'cleanup', '--project', fixture.repo, '--task', 'ENG-1', '--write', '--json',
+    ], { cwd: fixture.repo });
+    assert.equal(cleaned.exitCode, 0, JSON.stringify(cleaned.report));
+    assert.equal(cleaned.report.results[0].status, 'passed');
+    assert.equal(cleaned.report.results[0].services.status, 'blocked');
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), false);
+    assert.equal(await git(fixture.repo, ['branch', '--list', 'feat/ENG-1-scaffold']), 'feat/ENG-1-scaffold');
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('recover 在服务 teardown 无法证明停止时仍回收崩溃残留', async () => {
+  const fixture = await makeWorkspaceFixture();
+  try {
+    await runCommand([
+      'worktree', 'bootstrap', '--project', fixture.repo, '--task', 'ENG-2:feat/ENG-2-scaffold', '--write', '--json',
+    ], { cwd: fixture.repo });
+    const worktreePath = path.join(fixture.root, 'repo-worktrees', 'ENG-2');
+    // A bootstrap that died before the locked env write leaves the worktree
+    // clean, still at the base ref and missing the port env file.
+    await rm(path.join(worktreePath, '.vibe-harness/worktree.env'));
+    await registerOptedOutService(fixture.repo, worktreePath);
+
+    const recovered = await runCommand(['worktree', 'recover', '--project', fixture.repo, '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(recovered.exitCode, 0, JSON.stringify(recovered.report));
+    assert.equal(recovered.report.status, 'passed', JSON.stringify(recovered.report));
+    assert.equal(recovered.report.results[0].status, 'passed');
+    assert.equal(recovered.report.results[0].services.status, 'blocked');
+    assert.equal(await entryExists(fixture.repo, worktreePath), false);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('显式 develop local-land 从 origin/develop 引导并在推送后清理', async () => {
+  const fixture = await makeWorkspaceFixture({ validationCommands: { test: 'node --version' }, worktree: { baseRef: 'origin/develop' } });
+  try {
+    const origin = path.join(fixture.root, 'origin.git');
+    await git(fixture.root, ['init', '--bare', '-q', origin]);
+    await git(fixture.repo, ['remote', 'add', 'origin', origin]);
+    await git(fixture.repo, ['checkout', '-q', '-b', 'develop']);
+    await git(fixture.repo, ['push', '-u', 'origin', 'develop']);
+    const boot = await runCommand([
+      'worktree', 'bootstrap', '--project', fixture.repo, '--base-ref', 'origin/develop',
+      '--task', 'ENG-1:feat/ENG-1-scaffold', '--write', '--json',
+    ], { cwd: fixture.repo });
+    assert.equal(boot.report.status, 'passed', JSON.stringify(boot.report));
+    await writeFile(path.join(fixture.worktreePath, 'work.txt'), 'done\n');
+    await git(fixture.worktreePath, ['add', 'work.txt']);
+    await git(fixture.worktreePath, ['commit', '-q', '-m', 'feat: work']);
+
+    const landed = await runCommand([
+      'worktree', 'land', '--project', fixture.repo, '--task', 'ENG-1', '--base-ref', 'develop',
+      '--delivery', 'local-land', '--reviewed', 'all', '--write', '--push', '--json',
+    ], { cwd: fixture.repo });
+    assert.equal(landed.report.status, 'passed', JSON.stringify(landed.report));
+    assert.deepEqual(landed.report.results[0].steps.map((step) => [step.id, step.status]), [
+      ['merge', 'passed'], ['verify', 'passed'], ['push', 'passed'], ['cleanup', 'passed'], ['delete-branch', 'passed'],
+    ]);
+    assert.equal(await git(origin, ['rev-parse', 'refs/heads/develop']), await git(fixture.repo, ['rev-parse', 'develop']));
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), false);
+    assert.equal(await git(fixture.repo, ['branch', '--list', 'feat/ENG-1-scaffold']), '');
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('develop local-land 推送被拒后保留任务分支与 worktree', async () => {
+  const fixture = await makeWorkspaceFixture({ validationCommands: { test: 'node --version' }, worktree: { baseRef: 'origin/develop' } });
+  try {
+    const origin = path.join(fixture.root, 'origin.git');
+    await git(fixture.root, ['init', '--bare', '-q', origin]);
+    await git(fixture.repo, ['remote', 'add', 'origin', origin]);
+    await git(fixture.repo, ['checkout', '-q', '-b', 'develop']);
+    await git(fixture.repo, ['push', '-u', 'origin', 'develop']);
+    await bootstrapWithWork(fixture);
+    const preReceive = path.join(origin, 'hooks', 'pre-receive');
+    await writeFile(preReceive, '#!/bin/sh\nexit 1\n');
+    // Git runs a hook only when it is executable, and `writeFile` creates the
+    // file without the exec bit: without it the fixture asserts nothing about a
+    // rejected push on POSIX, where the push would simply succeed.
+    await chmod(preReceive, 0o755);
+
+    const rejected = await runCommand([
+      'worktree', 'land', '--project', fixture.repo, '--task', 'ENG-1', '--base-ref', 'develop',
+      '--delivery', 'local-land', '--reviewed', 'all', '--write', '--push', '--json',
+    ], { cwd: fixture.repo });
+    assert.equal(rejected.report.status, 'failed', JSON.stringify(rejected.report));
+    assert.equal(rejected.report.results[0].steps.find((step) => step.id === 'push').code, 'LAND_PUSH_FAILED');
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
+    assert.equal(await git(fixture.repo, ['branch', '--list', 'feat/ENG-1-scaffold', '--format=%(refname:short)']), 'feat/ENG-1-scaffold');
+    assert.notEqual(await git(origin, ['rev-parse', 'refs/heads/develop']), await git(fixture.repo, ['rev-parse', 'develop']));
   } finally {
     await removeTemporaryDirectory(fixture.root);
   }

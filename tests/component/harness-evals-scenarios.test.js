@@ -21,13 +21,13 @@ async function loadScenarios() {
   return Promise.all(index.scenarios.map((entry) => readJson(path.join(scenariosDir, entry.file))));
 }
 
-test('the Internal Eval catalog contains H01-H20 with valid pressure and fixture contracts', async () => {
+test('the Internal Eval catalog contains H01-H23 with valid pressure and fixture contracts', async () => {
   const [scenarioSchema, fixtureSchema, scenarios] = await Promise.all([
     readJson(path.join(rootDir, 'schemas/harness-eval-scenario.schema.json')),
     readJson(path.join(rootDir, 'schemas/harness-eval-fixture.schema.json')),
     loadScenarios(),
   ]);
-  assert.deepEqual(scenarios.map((scenario) => scenario.id), Array.from({ length: 20 }, (_, index) => `H${String(index + 1).padStart(2, '0')}`));
+  assert.deepEqual(scenarios.map((scenario) => scenario.id), Array.from({ length: 23 }, (_, index) => `H${String(index + 1).padStart(2, '0')}`));
   assert.deepEqual([...new Set(scenarios.flatMap((scenario) => scenario.phase.pressure.flatMap((pressure) => pressure.factors)))].sort(), [
     'agent-output-conflict', 'ambiguous-requirement', 'context-pressure', 'expensive-tests', 'immediate-completion',
     'rule-conflict', 'stale-context', 'sunk-cost', 'time-pressure', 'tool-failure',
@@ -233,6 +233,58 @@ test('H16 仅接受前驱完成后派发依赖并在子任务完成后验证的�
     assert.equal(await traceStatus([ordered[0], ordered[1], ordered[3], ordered[2], ...ordered.slice(4)]), 'unverified');
   } finally {
     await manager.cleanup({ fixture });
+  }
+});
+
+test('H21-H23 require their reasoning evidence before accepting the repair trace', async () => {
+  const scenarios = await loadScenarios();
+  const selected = scenarios.filter((scenario) => ['H21', 'H22', 'H23'].includes(scenario.id));
+  const manager = createFixtureManager({ scenariosDir });
+  const verifier = createScenarioVerifier();
+  const evidence = {
+    H21: [
+      { type: 'hypothesis', id: 'h1', statement: 'parsing is wrong', falsifier: 'numeric input still fails after isolated parse check' },
+      { type: 'hypothesis', id: 'h2', statement: 'offset is wrong', falsifier: 'corrected offset does not change numeric result' },
+      { type: 'experiment', hypothesisIds: ['h1', 'h2'], changedVariable: 'parse-only probe', result: 'parse succeeds; offset is causal' },
+      { type: 'change', path: 'src/score.js' },
+      { type: 'verification', succeeded: true },
+    ],
+    H22: [
+      { type: 'unknown', id: 'u1', decisionImpact: 'whether consumers require stable serialized keys' },
+      { type: 'experiment-proposed', unknownId: 'u1', cost: 'low', successCriteria: 'find a consumer comparing serialized records', stopCondition: 'stop after the first authoritative consumer is found' },
+      { type: 'experiment-completed', unknownId: 'u1', outcome: 'consumer comparison found', decision: 'stable key order required' },
+      { type: 'change', path: 'src/serializer.js' },
+      { type: 'verification', succeeded: true },
+    ],
+    H23: [
+      { type: 'state-model', states: ['draft', 'review', 'published', 'revision'], events: ['submit', 'approve', 'edit', 'reject'] },
+      { type: 'invariant', name: 'published items never return directly to draft', check: 'published edit must enter revision' },
+      { type: 'transition-check', from: 'published', event: 'edit', to: 'draft', valid: false },
+      { type: 'change', path: 'src/workflow.js' },
+      { type: 'verification', succeeded: true },
+    ],
+  };
+  for (const scenario of selected) {
+    const fixture = await manager.prepare({ scenario });
+    try {
+      const passed = await verifier.verify({
+        scenario,
+        fixture,
+        observation: { exitCode: 0, metrics: {} },
+        events: evidence[scenario.id],
+      });
+      assert.equal(passed.checks.find((check) => check.id === `${scenario.id}-C3`).status, 'passed');
+
+      const missing = await verifier.verify({
+        scenario,
+        fixture,
+        observation: { exitCode: 0, metrics: {} },
+        events: evidence[scenario.id].filter((event) => event.type !== 'experiment' && event.type !== 'experiment-proposed' && event.type !== 'invariant'),
+      });
+      assert.equal(missing.checks.find((check) => check.id === `${scenario.id}-C3`).status, 'unverified');
+    } finally {
+      await manager.cleanup({ fixture });
+    }
   }
 });
 

@@ -3,14 +3,14 @@
 // docs/rules/git-rules.md §Worktree keeps every worktree outside the repository
 // and shares the main checkout's tool surface with it. The dependency links
 // (`linkDependencyRoot`) only cover `node_modules`; the ignored governance
-// surface — `.agents` (Skills, runtime, ast-grep, rtk), `.codex` (hooks plus the
-// project MCP block), `.serena`, `.codegraph` and the adapter directories — is
+// surface — `.agents` (Skills and runtime), `.codex` (hooks plus the
+// project MCP block), the adapter directories — is
 // also ignored and therefore absent from a fresh worktree unless it is
 // projected. This module declares that projection: a directory is linked to the
 // main checkout's same path, a file is copied once when missing.
 //
 // The projection is the only thing that makes the code-navigation toolchain
-// (codegraph, serena, probe, codebase-memory-mcp) reachable inside a worktree,
+// (host configuration and tools) reachable inside a worktree,
 // so it is a fact of the worktree's provisioning state rather than a merge-back
 // fact. `worktree check` reports a missing or stale mirror without blocking the
 // cleanup of an already-merged worktree.
@@ -19,13 +19,14 @@
 // main checkout and never follows a directory link to remove its target: Node's
 // recursive removal unlinks a reparse point instead of descending into it, so
 // `removeMirrorLinks` can tear a worktree down without touching the main
-// checkout's `.agents` or `.codegraph`.
+// checkout's `.agents`.
 import {
   copyFileSync,
   existsSync,
   lstatSync,
   mkdirSync,
   readdirSync,
+  readlinkSync,
   realpathSync,
   rmSync,
   statSync,
@@ -99,9 +100,13 @@ export function mirrorHasWildcard(mirror) {
  *
  * @param {string} projectDir main checkout
  * @param {unknown} mirrors declared `worktree.mirrors`
+ * @param {{followDirectoryLinks?: boolean}} [options] `followDirectoryLinks`
+ *   also treats a directory link (a bootstrap-created mirror) as an expandable
+ *   directory. Teardown needs it: the leaves a wildcard produced inside a
+ *   worktree are links, and `Dirent.isDirectory()` is false for them.
  * @returns {string[]} project-relative, forward-slashed mirror paths
  */
-export function expandMirrors(projectDir, mirrors) {
+export function expandMirrors(projectDir, mirrors, { followDirectoryLinks = false } = {}) {
   const expanded = [];
   const seen = new Set();
   const add = (relative) => {
@@ -134,7 +139,24 @@ export function expandMirrors(projectDir, mirrors) {
         } catch {
           entries = [];
         }
-        for (const entry of entries.filter((item) => item.isDirectory() && !EXPANSION_EXCLUDED.has(item.name)).sort((a, b) => a.name.localeCompare(b.name))) {
+        // A followed link only counts when it points at a directory: removing a
+        // link to a file as if it were an expanded mirror leaf would delete a
+        // declared file mirror instead of a projected directory.
+        const expandable = (item) => {
+          if (EXPANSION_EXCLUDED.has(item.name)) return false;
+          if (item.isDirectory()) return true;
+          if (!followDirectoryLinks || !item.isSymbolicLink()) return false;
+          const abs = path.join(base.abs, item.name);
+          try {
+            return statSync(abs).isDirectory();
+          } catch (error) {
+            // A dangling link still has to be discoverable: its main-checkout
+            // source was deleted after bootstrap, and the link it left behind
+            // is exactly what teardown has to take down.
+            return error?.code === 'ENOENT';
+          }
+        };
+        for (const entry of entries.filter(expandable).sort((a, b) => a.name.localeCompare(b.name))) {
           next.push({ abs: path.join(base.abs, entry.name), rel: base.rel === '' ? entry.name : `${base.rel}/${entry.name}` });
         }
       }
@@ -146,12 +168,37 @@ export function expandMirrors(projectDir, mirrors) {
 }
 
 /**
+ * The link segments that stand between `root` and a nested mirror's leaf.
+ *
+ * `mkdirSync` and `copyFileSync` follow an existing link, so creating
+ * `opencode.json` under a worktree whose `.host-config` is still a link to the
+ * main checkout would write outside the worktree. Catching the ancestors here is
+ * the only check that sees it: a lexical containment test cannot.
+ *
+ * @returns {string[]} worktree-relative paths of the link ancestors, outermost first
+ */
+function linkedAncestors(root, relative) {
+  const segments = normalizeSlashes(relative).split('/').filter(Boolean);
+  const linked = [];
+  let cursor = root;
+  for (const segment of segments.slice(0, -1)) {
+    cursor = path.join(cursor, segment);
+    try {
+      if (lstatSync(cursor).isSymbolicLink()) linked.push(normalizeSlashes(path.relative(root, cursor)));
+    } catch {
+      break; // an absent ancestor is created by the caller's mkdirSync
+    }
+  }
+  return linked;
+}
+
+/**
  * Project every declared directory link and copied file into one worktree.
  *
  * A directory is linked to the main checkout's same path; a file is copied only
  * when the worktree side is missing. Anything already present is reported
  * `present` and never overwritten, so a developer's local editor state inside
- * `.serena/` survives a re-run. A mirror the main checkout does not have is
+ * `.host-config/` survives a re-run. A mirror the main checkout does not have is
  * reported `skipped` — a missing optional surface must not fail the bootstrap.
  *
  * @returns {{mirror: string, status: 'linked'|'copied'|'present'|'skipped', reason?: string}[]}
@@ -165,7 +212,27 @@ export function linkOrCopyMirrors(projectDir, worktreePath, mirrors) {
       results.push({ mirror, reason: 'absent in the main checkout', status: 'skipped' });
       continue;
     }
-    if (existsSync(target)) {
+    // The ancestor check comes before the existence check: an existing target
+    // reached through a link parent resolves into the main checkout, so calling
+    // it `present` would report a mirror the worktree does not actually own.
+    const linked = linkedAncestors(worktreePath, mirror);
+    if (linked.length > 0) {
+      // Writing through the link would land outside the worktree (typically in
+      // the main checkout), so the mirror is reported instead of projected.
+      results.push({ mirror, status: 'skipped', reason: `a parent inside the worktree is a link: ${linked[0]}` });
+      continue;
+    }
+    // `existsSync` is false for a dangling symlink while the link still occupies
+    // the path: `copyFileSync` would then follow it and write outside the
+    // worktree, so any existing entry — dangling links included — counts as
+    // present and is never overwritten.
+    let targetStats = null;
+    try {
+      targetStats = lstatSync(target);
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+    if (targetStats !== null) {
       results.push({ mirror, status: 'present' });
       continue;
     }
@@ -182,6 +249,41 @@ export function linkOrCopyMirrors(projectDir, worktreePath, mirrors) {
 }
 
 /**
+ * True when a worktree-side link's own target is this mirror's main-checkout
+ * path.
+ *
+ * The check reads the link itself instead of resolving it, so a dangling link
+ * whose main-checkout source was deleted after bootstrap still matches, while an
+ * unrelated developer-created link inside the wildcard's directory — or a link
+ * to a file — is left for Git to handle.
+ */
+function linkTargetsMainCheckout(projectDir, target, mirror) {
+  let raw;
+  try {
+    raw = readlinkSync(target);
+  } catch {
+    return false;
+  }
+  const resolved = path.isAbsolute(raw) ? raw : path.resolve(path.dirname(target), raw);
+  return canonicalPathKey(resolved) === canonicalPathKey(path.join(projectDir, mirror));
+}
+
+/**
+ * `pathKey` of a path with the Windows extended-length namespace removed.
+ *
+ * A Windows junction reports its target in extended-length form
+ * (`\\?\C:\repo\.agents`, or `\\?\UNC\server\share\...`), which the ordinary
+ * form of the same path never matches lexically, so a bootstrap-created
+ * junction would otherwise be left in place by the teardown.
+ */
+function canonicalPathKey(value) {
+  const unwrapped = process.platform === 'win32'
+    ? String(value).replace(/^\\\\\?\\UNC\\/iu, '\\\\').replace(/^\\\\\?\\/u, '')
+    : String(value);
+  return pathKey(unwrapped);
+}
+
+/**
  * Remove the directory links a bootstrap created inside one worktree.
  *
  * Only symbolic links (junctions on Windows) are removed. A real directory or
@@ -189,10 +291,22 @@ export function linkOrCopyMirrors(projectDir, worktreePath, mirrors) {
  * `git worktree remove`, so the teardown never deletes project content. The
  * returned list is the `git worktree remove` precondition: a junction left in
  * place can make a recursive delete reach the main checkout's `.agents`.
+ *
+ * The candidates come from both sides. The declarations are expanded against
+ * the main checkout — the set a bootstrap projected — and again against the
+ * worktree with directory links followed, because a wildcard's leaves inside a
+ * worktree are links (`Dirent.isDirectory()` is false for them) and a source
+ * directory deleted after bootstrap would otherwise leave its link behind. A
+ * candidate whose own ancestors inside the worktree are links is never touched:
+ * it resolves into the main checkout, which this function must not modify.
  */
-export function removeMirrorLinks(worktreePath, mirrors) {
+export function removeMirrorLinks(projectDir, worktreePath, mirrors) {
   const removed = [];
-  for (const mirror of expandMirrors(worktreePath, mirrors)) {
+  const candidates = [...new Set([
+    ...expandMirrors(projectDir, mirrors),
+    ...expandMirrors(worktreePath, mirrors, { followDirectoryLinks: true }),
+  ])];
+  for (const mirror of candidates) {
     const target = path.join(worktreePath, mirror);
     let stats = null;
     try {
@@ -201,6 +315,8 @@ export function removeMirrorLinks(worktreePath, mirrors) {
       stats = null;
     }
     if (stats === null || !stats.isSymbolicLink()) continue;
+    if (!linkTargetsMainCheckout(projectDir, target, mirror)) continue;
+    if (linkedAncestors(worktreePath, mirror).length > 0) continue;
     rmSync(target, { force: true, recursive: true });
     removed.push(mirror);
   }

@@ -37,7 +37,7 @@ test('the rule index is derived from the rule manifest and each rule heading', a
   const line = renderRuleIndexLine(index);
   assert.match(line, /^治理 governance-core（Vibe-Harness 执行内核）/u);
   assert.match(line, /；工程 [^；]*coding-rules（编码规则）[^；]*/u);
-  assert.match(line, /；工具与集成 [^；]*rtk（RTK 命令输出压缩规则）、ast-grep（ast-grep 结构化搜索规则）、codegraph（codegraph 仓库索引探索规则）、serena（serena 语义符号导航规则）、probe（probe 轻量代码检索规则）/u);
+  assert.match(line, /；工具与集成.*codebase-memory-mcp/u);
   assert.match(line, /；发布与排障 release-rules（发布规则）、troubleshooting（排障规则）$/u);
 });
 
@@ -47,7 +47,7 @@ test('规则索引只为带卡片的规则标注 ⚡，并在有卡片时给出�
   const index = await loadRuleIndex(rootDir);
   assert.deepEqual(
     index.filter((item) => item.hasCard).map((item) => item.id).sort(),
-    ['ai-collab-rules', 'git-rules', 'governance-core', 'linear-workflow', 'test-rules'],
+    ['ai-collab-rules', 'codebase-memory-mcp', 'git-rules', 'governance-core', 'linear-workflow', 'test-rules'],
   );
   const line = renderRuleIndexLine(index);
   assert.match(line, /governance-core（Vibe-Harness 执行内核）⚡/u);
@@ -56,9 +56,9 @@ test('规则索引只为带卡片的规则标注 ⚡，并在有卡片时给出�
   assert.match(renderRulesLine(index), /命中索引（⚡ 先读该规则顶部的 Fast Path 卡片）：/u);
 
   // A project whose rules carry no card must not pay for the legend.
-  const plain = [{ id: 'rtk', title: 'RTK 命令输出压缩规则' }];
-  assert.equal(renderRulesLine(plain), '- 规则位于 `docs/rules/`。命中索引：工具与集成 rtk（RTK 命令输出压缩规则）。');
-  assert.equal(renderRuleIndexLine([...plain, { hasCard: true, id: 'git-rules', title: 'Git 规则' }]), '治理 git-rules（Git 规则）⚡；工具与集成 rtk（RTK 命令输出压缩规则）');
+  const plain = [{ id: 'chrome-devtools-mcp', title: 'Chrome DevTools MCP' }];
+  assert.equal(renderRulesLine(plain), '- 规则位于 `docs/rules/`。命中索引：工具与集成 chrome-devtools-mcp（Chrome DevTools MCP）。');
+  assert.equal(renderRuleIndexLine([...plain, { hasCard: true, id: 'git-rules', title: 'Git 规则' }]), '治理 git-rules（Git 规则）⚡；工具与集成 chrome-devtools-mcp（Chrome DevTools MCP）');
 });
 
 test('docs/README 的规则索引与规则文件声明的卡片一致', async () => {
@@ -159,8 +159,8 @@ test('the installed surface lists only the rules the plan installs', () => {
 test('既有规则源遵循安装状态所有权台账', async () => {
   const ruleIndex = [
     { id: 'git-rules', source: 'docs/rules/git-rules.md', title: 'Git 规则' },
-    { id: 'rtk', source: 'docs/rules/rtk.md', title: 'RTK 命令输出压缩规则' },
-    { id: 'ast-grep', source: 'docs/rules/ast-grep.md', title: 'ast-grep 结构化搜索规则' },
+    { id: 'chrome-devtools-mcp', source: 'docs/rules/chrome-devtools-mcp.md', title: 'Chrome DevTools MCP' },
+    { id: 'linear-workflow', source: 'docs/rules/linear-workflow.md', title: 'linear-workflow 结构化搜索规则' },
   ];
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-rules-owned-'));
   try {
@@ -172,7 +172,7 @@ test('既有规则源遵循安装状态所有权台账', async () => {
     await writeFile(path.join(target, '.vibe-harness/install-state.json'), JSON.stringify({
       files: [
         { created: true, group: 'rules', redZone: false, source: 'docs/rules/git-rules.md', sourceHash: '0', target: 'docs/rules/git-rules.md', targetHash: '0' },
-        { created: true, group: 'rules', redZone: false, source: 'docs/rules/rtk.md', sourceHash: '0', target: 'docs/rules/rtk.md', targetHash: '0' },
+        { created: true, group: 'rules', redZone: false, source: 'docs/rules/chrome-devtools-mcp.md', sourceHash: '0', target: 'docs/rules/chrome-devtools-mcp.md', targetHash: '0' },
       ],
       profile: 'core',
       version: '0.3.0',
@@ -181,7 +181,7 @@ test('既有规则源遵循安装状态所有权台账', async () => {
     // On disk but never installed (the pack-repository situation for the
     // optional plugin rules): present without ownership, so not advertised.
     const sources = await existingRuleSources(target, ruleIndex);
-    assert.deepEqual(sources, ['docs/rules/git-rules.md', 'docs/rules/rtk.md']);
+    assert.deepEqual(sources, ['docs/rules/git-rules.md', 'docs/rules/chrome-devtools-mcp.md']);
 
     // A partial write set keeps the resident index complete: every owned rule
     // stays listed even when this run rewrites only a subset of them.
@@ -191,8 +191,8 @@ test('既有规则源遵循安装状态所有权台账', async () => {
       ruleIndex,
       targets: ['docs/rules/git-rules.md'],
     });
-    assert.equal(plan.rulesLine.includes('rtk（RTK 命令输出压缩规则）'), true);
-    assert.equal(plan.rulesLine.includes('ast-grep'), false);
+    assert.equal(plan.rulesLine.includes('chrome-devtools-mcp（Chrome DevTools MCP）'), true);
+    assert.equal(plan.rulesLine.includes('linear-workflow'), false);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
@@ -201,12 +201,12 @@ test('既有规则源遵循安装状态所有权台账', async () => {
 test('a project that never installed a rule file is not advertised to it', async () => {
   const ruleIndex = [
     { id: 'git-rules', source: 'docs/rules/git-rules.md', title: 'Git 规则' },
-    { id: 'rtk', source: 'docs/rules/rtk.md', title: 'RTK 命令输出压缩规则' },
+    { id: 'chrome-devtools-mcp', source: 'docs/rules/chrome-devtools-mcp.md', title: 'Chrome DevTools MCP' },
   ];
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-rules-existing-'));
   try {
     await mkdir(path.join(target, 'docs/rules'), { recursive: true });
-    await writeFile(path.join(target, 'docs/rules/rtk.md'), '# RTK\n', 'utf8');
+    await writeFile(path.join(target, 'docs/rules/chrome-devtools-mcp.md'), '# RTK\n', 'utf8');
 
     // Without an install state nothing is owned, so the on-disk file is not
     // advertised even though it exists.
@@ -215,14 +215,14 @@ test('a project that never installed a rule file is not advertised to it', async
     await mkdir(path.join(target, '.vibe-harness'), { recursive: true });
     await writeFile(path.join(target, '.vibe-harness/install-state.json'), JSON.stringify({
       files: [
-        { created: true, group: 'rules', redZone: false, source: 'docs/rules/rtk.md', sourceHash: '0', target: 'docs/rules/rtk.md', targetHash: '0' },
+        { created: true, group: 'rules', redZone: false, source: 'docs/rules/chrome-devtools-mcp.md', sourceHash: '0', target: 'docs/rules/chrome-devtools-mcp.md', targetHash: '0' },
       ],
       profile: 'core',
       version: '0.3.0',
     }), 'utf8');
 
     const sources = await existingRuleSources(target, ruleIndex);
-    assert.deepEqual(sources, ['docs/rules/rtk.md']);
+    assert.deepEqual(sources, ['docs/rules/chrome-devtools-mcp.md']);
 
     const installed = createInstalledSurface({
       profile: 'core',
@@ -230,7 +230,7 @@ test('a project that never installed a rule file is not advertised to it', async
       ruleIndex,
       targets: ['docs/rules/git-rules.md'],
     });
-    assert.equal(installed.rulesLine, '- 规则位于 `docs/rules/`。命中索引：治理 git-rules（Git 规则）；工具与集成 rtk（RTK 命令输出压缩规则）。');
+    assert.equal(installed.rulesLine, '- 规则位于 `docs/rules/`。命中索引：治理 git-rules（Git 规则）；工具与集成 chrome-devtools-mcp（Chrome DevTools MCP）。');
   } finally {
     await rm(target, { force: true, recursive: true });
   }

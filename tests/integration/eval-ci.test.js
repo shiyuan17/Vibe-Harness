@@ -135,22 +135,23 @@ test('online canary suite contains critical product scenarios', async () => {
   assert.deepEqual(demands.map((item) => item.expectedOwner.kind).sort(), ['builtin', 'builtin', 'skill', 'skill', 'skill', 'skill', 'skill']);
 });
 
-test('offline routing eval covers browser, rtk, and ast-grep tool routing', async () => {
+test('离线路由评测覆盖浏览器和外部代码图边界', async () => {
   const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-core.json'));
   const scenarios = suite.cases.filter((item) => item.category === 'skill-routing')
     .map((item) => item.input.scenario).join('\n');
   assert.match(scenarios, /Chrome DevTools MCP/iu);
-  assert.match(scenarios, /RTK/iu);
-  assert.match(scenarios, /ast-grep/iu);
+  assert.match(scenarios, /External MCP/iu);
+  assert.match(scenarios, /check_index_coverage/iu);
 });
 
-test('dedicated tool routing eval covers codebase memory, ast-grep, rg, and RTK boundaries', async () => {
+test('专用工具评测覆盖注册、缺口、分页与管理边界', async () => {
   const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-tool-routing.json'));
   const scenarios = suite.cases.map((item) => item.input.scenario).join('\n');
-  assert.match(scenarios, /cross-file callers/iu);
-  assert.match(scenarios, /local AST pattern/iu);
-  assert.match(scenarios, /plain-text matching/iu);
-  assert.match(scenarios, /RTK.*ast-grep.*MCP runtime.*raw-evidence/iu);
+  assert.match(scenarios, /registered id/iu);
+  assert.match(scenarios, /check_index_coverage/iu);
+  assert.match(scenarios, /scoped text search/iu);
+  assert.match(scenarios, /has_more/iu);
+  assert.match(scenarios, /Do not upgrade the tool/iu);
 });
 
 test('offline install lifecycle eval covers Vibe-Harness legacy upgrade and red-zone confirmation', async () => {

@@ -26,10 +26,10 @@ import { parseLinearPlanBlock } from '../lib/linear-planning.mjs';
 import {
   resolveVerificationTiers, selectVerificationChecks, verificationChanges, verificationCheckEvidence, verificationContextEnvironment, verificationCwd,
 } from '../lib/verification-plan.mjs';
-import { findVerificationReceipt, storeVerificationReceipt, verificationCacheContext } from '../lib/verification-receipt.mjs';
+import { attestCompletionProvenance, findVerificationReceipt, prepareVerificationReceiptStore, recordFinalVerification, storeVerificationReceipt, verificationCacheContext } from '../lib/verification-receipt.mjs';
 import { completionReceipt, overrideWarnings, resolveDelivery, validateCompletion } from '../lib/delivery.mjs';
 import { readMergeEvidence, validateMergeEvidence } from '../lib/merge-evidence.mjs';
-import { serviceReport, teardownServices } from '../lib/services.mjs';
+import { releaseServiceTeardown, serviceReport, teardownServices } from '../lib/services.mjs';
 
 import { parseWorktreeList, pathKey, resolveWorktreeRoot, summarizeWorktreeAudit, validateWorktrees } from '../lib/worktree-audit.mjs';
 import {
@@ -74,7 +74,12 @@ const VERIFY_TIERS = ['quick', 'standard', 'deep'];
 const VERIFY_SCOPES = ['affected', 'layer', 'full'];
 const DEFAULT_VERIFY_SCOPE = 'layer';
 const DEFAULT_VERIFY_TIER = 'quick';
-const LAND_LOCK_TIMEOUT_MS = 5_000;
+// A peer `worktree land` holds the shared lock across its merge, verification
+// and cleanup, so the wait budget is sized for a full landing instead of a
+// filesystem round trip: a second land retries until this deadline and only
+// then reports LAND_LOCK_TIMEOUT. The parent-owned environment knob can only
+// shorten it, which is how tests hold the lock on purpose.
+const LAND_LOCK_TIMEOUT_MS = 180_000;
 const LAND_LOCK_RETRY_MS = 50;
 // Report statuses that map to wrapper exit code 0.
 const PASS_STATUSES = ['passed', 'ready', 'planned', 'reused'];
@@ -136,7 +141,7 @@ function parseArgs(argv) {
     ['clear-blockers', 'clearBlockers'],
   ]);
   const booleanFlags = new Set(['json', 'plan', 'async', 'allow-manual', 'no-numbers', 'no-verify', 'strict', 'write', 'help', 'confirm-red-zone', 'reuse', 'push', 'complete', 'dispatch', 'clear-blockers']);
-  const valueFlags = new Set(['project', 'base', 'only', 'timeout', 'output', 'tier', 'scope', 'micro', 'task', 'base-ref', 'branch-prefix', 'file', 'from', 'to', 'spec', 'root', 'title', 'goal', 'risk-level', 'stage', 'unit', 'unit-status', 'acceptance', 'decision', 'blocker', 'failure', 'next-action', 'verification', 'plan-file', 'reason', 'approval', 'test-path']);
+  const valueFlags = new Set(['project', 'base', 'only', 'reviewed', 'timeout', 'output', 'tier', 'scope', 'micro', 'task', 'base-ref', 'branch-prefix', 'file', 'from', 'to', 'spec', 'root', 'title', 'goal', 'risk-level', 'stage', 'unit', 'unit-status', 'acceptance', 'decision', 'blocker', 'failure', 'next-action', 'verification', 'plan-file', 'reason', 'approval', 'test-path']);
   for (const flag of ['delivery', 'receipt', 'merge-evidence', 'mr', 'service', 'port']) valueFlags.add(flag);
   // Repeatable flags collect into arrays so one invocation can carry several
   // values (task ids, acceptance items, decisions, blockers, failures, unit updates).
@@ -184,6 +189,7 @@ function parseArgs(argv) {
       args[key] = parsed;
     } else if (key === 'project' || key === 'base') args[key] = value;
     else if (key === 'only') args.only = value.split(',').map((item) => item.trim()).filter(Boolean);
+    else if (key === 'reviewed') args.reviewed = (args.reviewed ?? []).concat(value.split(',').map((item) => item.trim()).filter(Boolean));
     else if (key === 'timeout') args.timeout = Number.parseInt(value, 10);
     else if (key === 'output') args.output = value;
     else if (key === 'tier') args.tier = value;
@@ -352,6 +358,52 @@ function parseVerifyScope(value) {
   throw new Error(`--scope must be one of ${VERIFY_SCOPES.join(', ')}; received ${JSON.stringify(value)}.`);
 }
 
+/**
+ * Resolve the caller's relevance-review declaration against the selected
+ * checks. `all` (or `*`) declares the whole selection; a named check that was
+ * not selected is a caller error rather than a silently ignored token.
+ *
+ * @returns {{ids: string[], blocked: string|null}}
+ */
+function resolveReviewedChecks(reviewed, selectedNames) {
+  const declared = Array.isArray(reviewed) ? reviewed : [];
+  if (declared.includes('all') || declared.includes('*')) return { ids: [...selectedNames], blocked: null };
+  const unknown = declared.filter((id) => !selectedNames.includes(id));
+  if (unknown.length > 0) {
+    return { ids: [], blocked: `--reviewed names checks that are not selected: ${unknown.join(', ')}; selected: ${selectedNames.join(', ') || 'none'}` };
+  }
+  return { ids: [...new Set(declared)], blocked: null };
+}
+
+/**
+ * Resolve the layer a receipt-required landing verifies at.
+ *
+ * `verificationAcceptance` refuses `accepted` while a declared layer is still
+ * deferred, so a landing that needs a completion receipt cannot default to a
+ * cheap layer of a project that declares higher ones. An unnamed tier
+ * escalates to the cheapest layer with no deferred evidence; an explicit
+ * `--tier` is honored exactly and reported as a preflight blocker instead.
+ *
+ * @returns {{blocked: string|null, deferredCount: number, escalatedFrom: string|null, selectedNames: string[], tier: string}}
+ */
+function resolveReceiptTier({ commands, config, explicit, projectDir, tier }) {
+  const planAt = (candidate) => resolveVerifyTierPlan({ commands, config, tier: candidate, only: null, projectDir, explicit: true });
+  const planned = planAt(tier);
+  const base = { deferredCount: planned.deferredChecks.length, escalatedFrom: null, selectedNames: planned.selectedNames, tier: planned.tier };
+  if (planned.deferredChecks.length === 0) return { ...base, blocked: null };
+  const cleanLayers = VERIFY_TIERS.slice(VERIFY_TIERS.indexOf(tier) + 1)
+    .map(planAt)
+    .filter((plan) => plan.deferredChecks.length === 0);
+  if (explicit || cleanLayers.length === 0) {
+    const usable = cleanLayers.map((plan) => plan.tier).join(', ') || 'none';
+    return {
+      ...base,
+      blocked: `--tier ${tier} leaves ${planned.deferredChecks.length} deferred check(s) (${planned.deferredChecks.map((item) => item.name).join(', ')}); an accepted completion receipt needs a layer with no deferred evidence (${usable})`,
+    };
+  }
+  return { blocked: null, deferredCount: 0, escalatedFrom: tier, selectedNames: cleanLayers[0].selectedNames, tier: cleanLayers[0].tier };
+}
+
 function resolveVerifyTierPlan({ commands, config, tier, only, projectDir, explicit = false }) {
   const tiers = resolveVerificationTiers({ config, projectDir });
   const requestedTier = tier;
@@ -362,16 +414,31 @@ function resolveVerifyTierPlan({ commands, config, tier, only, projectDir, expli
   const plan = selectVerificationChecks({
     tier, tiers, commandStatus, metadata: config.validationCommands?.checks ?? [], projectDir, only,
   });
+  const selectionReasonsByCheck = Object.fromEntries(plan.allChecks.map((check) => [
+    check.id,
+    [`${check.costTier} 层检查覆盖 ${check.cwd && check.cwd !== '.' ? check.cwd : '项目根目录'}；请求执行层为 ${tier}`],
+  ]));
+  const selectedChecks = plan.selectedChecks.map((check) => ({
+    ...check,
+    selectionReasons: selectionReasonsByCheck[check.id] ?? [check.reason ?? `${check.costTier} 层验证命令`],
+  }));
+  const deferredChecks = plan.deferredChecks.map((check) => ({
+    ...check,
+    selectionReasons: selectionReasonsByCheck[check.id] ?? [check.reason ?? `${check.costTier} 层验证命令`],
+  }));
   return {
     ...plan,
+    selectedChecks,
+    deferredChecks: deferredChecks.map((check) => ({
+      name: check.id, tier: check.costTier, command: check.command,
+      ...(check.cwd !== '.' ? { cwd: check.cwd } : {}),
+      selectionReasons: check.selectionReasons,
+    })),
     tier,
     tierFallback: tier === requestedTier ? null : { from: requestedTier, to: tier, reason: '请求层为空，使用最便宜的非空层' },
     slotTiers: Object.fromEntries(plan.allChecks.map((check) => [check.id, check.costTier])),
-    selectedNames: plan.selectedChecks.map((check) => check.id),
-    deferredChecks: plan.deferredChecks.map((check) => ({
-      name: check.id, tier: check.costTier, command: check.command,
-      ...(check.cwd !== '.' ? { cwd: check.cwd } : {}),
-    })),
+    selectedNames: selectedChecks.map((check) => check.id),
+    selectionReasonsByCheck,
   };
 }
 
@@ -461,6 +528,54 @@ async function verificationTaskBinding(projectDir, taskId) {
     planFile: typeof anchor.planFile === 'string' ? anchor.planFile : null,
     planRevision: typeof anchor.planRevision === 'string' ? anchor.planRevision : null,
     planDigest: typeof anchor.planDigest === 'string' ? anchor.planDigest : null,
+  };
+}
+
+/**
+ * The relevance review of one verification run.
+ *
+ * Only an explicit marker makes a passed check `relevant`. The planner emits a
+ * selection reason for every selected check, so that reason explains a
+ * selection but can never be the evidence that a review happened — treating it
+ * as evidence would make the acceptance gate attest itself. A cached receipt
+ * is not evidence either: its review describes the run that produced it, so it
+ * is recomputed against the declaration this invocation carries rather than
+ * inherited. `--reviewed` is the caller's declaration.
+ */
+function verificationReview({ changedPaths = [], selectedNames = [], checks = {}, reviewed = [] } = {}) {
+  const declared = new Set(reviewed);
+  const reviewedCheckIds = selectedNames.filter((name) => {
+    const check = checks[name];
+    // A reused receipt carries no per-check result, so the declaration alone
+    // decides; a run that executed checks needs a passed check to declare.
+    if (check === undefined) return declared.has(name);
+    return ['passed', 'reused'].includes(check?.status)
+      && declared.has(name);
+  });
+  return {
+    status: reviewedCheckIds.length > 0 ? 'relevant' : selectedNames.length > 0 ? 'unreviewed' : 'blocked',
+    changedPaths: [...changedPaths],
+    selectedCheckIds: [...selectedNames],
+    ...(reviewedCheckIds.length ? { reviewedCheckIds } : {}),
+    reasonCode: reviewedCheckIds.length ? 'RELEVANT_CHECK_REVIEWED' : 'NO_REVIEWED_RELEVANT_CHECK',
+  };
+}
+
+function verificationAcceptance({ review, status, snapshotComparison, inputsStable, fingerprint, selectedNames = [], deferredCount = 0 } = {}) {
+  const passed = status === 'verified' || status === 'passed' || status === 'reused';
+  const stable = snapshotComparison === 'match' && inputsStable !== false && typeof fingerprint === 'string' && fingerprint.length > 0;
+  const relevant = review?.status === 'relevant' && (review.reviewedCheckIds ?? []).some((id) => selectedNames.includes(id));
+  let reasonCode = 'ACCEPTED';
+  if (!passed) reasonCode = 'VERIFICATION_NOT_PASSED';
+  else if (deferredCount > 0) reasonCode = 'DEFERRED_CHECKS';
+  else if (!stable) reasonCode = 'FINAL_SNAPSHOT_MISMATCH';
+  else if (!relevant) reasonCode = review?.status === 'blocked' ? 'REVIEW_BLOCKED' : 'NO_REVIEWED_RELEVANT_CHECK';
+  return {
+    status: passed && stable && relevant && deferredCount === 0 ? 'accepted' : 'blocked',
+    reasonCode,
+    finalFingerprint: typeof fingerprint === 'string' ? fingerprint : null,
+    selectedCheckIds: [...selectedNames],
+    reviewStatus: review?.status ?? 'unreviewed',
   };
 }
 
@@ -603,6 +718,12 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
   for (const check of tierPlan.allChecks) configured.commands[check.id] = check.command;
   const selectedNames = tierPlan.selectedNames;
   const deferredNames = new Set(tierPlan.deferredChecks.map((item) => item.name));
+  // `--reviewed` is the explicit relevance review; without it the report can
+  // only say `unreviewed` and the acceptance evidence stays blocked.
+  const reviewedChecks = resolveReviewedChecks(args.reviewed, selectedNames);
+  if (reviewedChecks.blocked) {
+    return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'failed', error: reviewedChecks.blocked, checks: {} };
+  }
   if (scope === 'affected' && changeScope.selectionMode === 'changed' && changeScope.changedPaths.length === 0) {
     return {
       schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify',
@@ -660,6 +781,7 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
         schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'reused',
         tier: tierPlan.tier, scope, ...changeScope, scopeConfidence: scope === 'full' ? 'complete' : 'unknown',
         checks: reusedChecks, selectedChecks: selectedNames, deferredChecks: tierPlan.deferredChecks, nextTier: tierPlan.nextTier,
+        selectionReasonsByCheck: tierPlan.selectionReasonsByCheck,
         minimumTier: null,
         selectedMicroChecks: [], deferredMicroChecks: [], estimatedCostMs: estimateSelectedCost(selectedNames),
         cache: { status: 'hit', reason: cached.reason }, environment: { mode: environmentMode, status: 'reused' },
@@ -668,7 +790,32 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
           command: commandSet, beforeHead: before.snapshot.head, afterHead: confirmed.snapshot.head,
           ...(anchor?.verification.id === cached.receipt.id ? { taskId: anchor.taskId, unitId: anchor.unitId } : {}),
         },
-        verification: { ...cached.receipt, engine: VERIFY_ENGINE, before: before.snapshot, after: confirmed.snapshot, stable: true },
+        verification: {
+          ...cached.receipt,
+          schemaVersion: 3,
+          engine: VERIFY_ENGINE,
+          before: before.snapshot,
+          after: confirmed.snapshot,
+          stable: true,
+          snapshotComparison: 'match',
+          review: verificationReview({
+            changedPaths: changeScope.changedPaths,
+            selectedNames,
+            reviewed: reviewedChecks.ids,
+          }),
+          acceptance: verificationAcceptance({
+            review: verificationReview({
+              changedPaths: changeScope.changedPaths,
+              selectedNames,
+              reviewed: reviewedChecks.ids,
+            }),
+            status: 'reused',
+            snapshotComparison: 'match',
+            fingerprint: before.fingerprint,
+            selectedNames,
+            deferredCount: tierPlan.deferredChecks.length,
+          }),
+        },
       };
     }
   }
@@ -755,6 +902,7 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
       status: 'unverified',
       checks,
       selectedChecks: selectedNames,
+      selectionReasonsByCheck: tierPlan.selectionReasonsByCheck,
       minimumTier: null,
       selectedMicroChecks: [],
       deferredMicroChecks: [],
@@ -781,6 +929,7 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
       timeoutMs,
       checks,
       selectedChecks: selectedNames,
+      selectionReasonsByCheck: tierPlan.selectionReasonsByCheck,
       minimumTier: null,
       selectedMicroChecks: [],
       deferredMicroChecks: [],
@@ -789,12 +938,6 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
       environment: { mode: environmentMode, status: environmentStatus },
     };
   }
-  const after = await gitFingerprint(projectDir);
-  const afterContext = await verificationCacheContext(projectDir, receiptPlan, after);
-  const inputsStable = cacheContext.key === afterContext.key;
-  const stable = before.fingerprint !== null && after.fingerprint !== null
-    ? before.fingerprint === after.fingerprint
-    : null;
   // `blocked` (unsafe/manual/missing executable) is a distinct terminal
   // status: it means the check never produced evidence, which is a different
   // statement than a check that ran and failed.
@@ -802,6 +945,36 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
   const blocked = Object.values(checks).some((item) => item.status === 'blocked');
   const executed = selectedNames.filter((name) => checks[name]?.status === 'passed');
   const checksNotRun = executed.length < selectedNames.length;
+    // Writing the receipt is itself a write to the workspace — the first one
+    // creates the project's `.vibe-harness` directory and moves the repository
+    // root's timestamps — so the store is created before the snapshot the receipt
+    // publishes, and only for the run that is about to store one: a run that
+    // stores nothing leaves no store behind.
+    const willStore = !failed && !blocked && !checksNotRun && executed.length > 0;
+    if (willStore) await prepareVerificationReceiptStore(projectDir).catch(() => false);
+    const after = await gitFingerprint(projectDir);
+    const afterContext = await verificationCacheContext(projectDir, receiptPlan, after);
+    const inputsStable = cacheContext.key === afterContext.key;
+    const stable = before.fingerprint !== null && after.fingerprint !== null
+      ? before.fingerprint === after.fingerprint
+      : null;
+  const finalStatus = failed || stable === false || !inputsStable ? 'failed' : blocked ? 'blocked' : executed.length === 0 ? 'unverified' : 'passed';
+  const review = verificationReview({
+    changedPaths: changeScope.changedPaths,
+    selectedNames,
+    checks,
+    reviewed: reviewedChecks.ids,
+  });
+  const snapshotComparison = stable === null ? 'unknown' : stable ? 'match' : 'changed';
+  const verificationStatus = stable === false || !inputsStable
+    ? 'workspace_changed'
+    : failed
+      ? 'checks_failed'
+      : blocked
+        ? 'checks_blocked'
+        : checksNotRun
+          ? 'checks_not_run'
+          : 'verified';
   const report = {
     schemaVersion: VERIFY_SCHEMA_VERSION,
     engine: VERIFY_ENGINE,
@@ -813,12 +986,13 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
     impactGroups: [],
     deferredChecks: tierPlan.deferredChecks,
     nextTier: tierPlan.nextTier,
-    status: failed || stable === false || !inputsStable ? 'failed' : blocked ? 'blocked' : executed.length === 0 ? 'unverified' : 'passed',
+    status: finalStatus,
     skippedChecks: selectedNames.filter((name) => checks[name]?.status === 'not_selected').map((name) => ({ id: name, reason: checks[name].reason })),
     ...changeScope,
     timeoutMs,
     checks,
     selectedChecks: selectedNames,
+    selectionReasonsByCheck: tierPlan.selectionReasonsByCheck,
     minimumTier: null,
     selectedMicroChecks: [],
     deferredMicroChecks: [],
@@ -834,26 +1008,38 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
       after: after.snapshot,
       stable,
       inputsStable,
-      snapshotComparison: stable === null ? 'unknown' : stable ? 'match' : 'changed',
-      status: stable === false || !inputsStable
-        ? 'workspace_changed'
-        : failed
-          ? 'checks_failed'
-          : blocked
-            ? 'checks_blocked'
-            : checksNotRun
-              ? 'checks_not_run'
-              : 'verified',
+      snapshotComparison,
+      status: verificationStatus,
       // Receipt identity: governance-core.md references these fields when a
       // delivery cites `vibe-harness verify --project`.
       id: randomUUID(),
       finishedAt: new Date().toISOString(),
       fingerprint: after.fingerprint,
+      // The write evidence a completion receipt is validated against is the
+      // final one: `cacheContext.fingerprints` above carries the state the
+      // checks started from, which any check that writes (even without changing
+      // content) would leave stale before the receipt is ever consumed.
+      writeFingerprint: after.writeFingerprint ?? null,
+      review,
+      acceptance: verificationAcceptance({
+        review,
+        status: verificationStatus,
+        snapshotComparison,
+        inputsStable,
+        fingerprint: after.fingerprint,
+        selectedNames,
+        deferredCount: tierPlan.deferredChecks.length,
+      }),
       ...(taskBinding ? { task: taskBinding } : {}),
     },
   };
   report.cache.stored = await storeVerificationReceipt(projectDir, cacheContext, {
     ...report.verification, status: executed.length === selectedNames.length ? report.status : 'unverified',
+    // The per-check commands this run reported, so the acceptance entries a
+    // completion receipt cites can be checked against them instead of being
+    // taken on the receipt's word.
+  }, {
+    checks: Object.entries(report.checks ?? {}).map(([id, check]) => ({ id, command: check?.command })),
   }).catch(() => false);
   return report;
 }
@@ -1077,7 +1263,7 @@ function readWorktreeConfig(config) {
     value[key] = raw[key].map((item) => item.trim());
   }
   // `mirrors` projects the ignored governance surface (`.agents`, `.codex`,
-  // `.serena`, `.codegraph`) into every worktree. A declared path must be
+  // `.host-config`, `.codegraph`) into every worktree. A declared path must be
   // project-relative and may use at most one whole-segment `*` wildcard.
   if (raw.mirrors !== undefined) {
     if (!Array.isArray(raw.mirrors)) {
@@ -1375,6 +1561,17 @@ function removeDependencyLinks(worktreePath, settings) {
     rmSync(modules, { force: true, recursive: true });
     removed.push(`${root}/node_modules`);
   }
+  // The isolated per-package overlays of `linkPackageRoots` are the same kind of
+  // bootstrap artifact and hold junctions into the main checkout, so they are
+  // removed with the roots; leaving them behind is what makes `git worktree
+  // remove` stop half way on Windows.
+  for (const pkg of settings.workspacePackages ?? []) {
+    const modules = path.join(worktreePath, pkg.dir, 'node_modules');
+    if (!existsSync(modules)) continue;
+    if (!(lstatSync(modules).isDirectory() || lstatSync(modules).isSymbolicLink())) continue;
+    rmSync(modules, { force: true, recursive: true });
+    removed.push(`${pkg.dir}/node_modules`);
+  }
   return removed;
 }
 
@@ -1386,10 +1583,10 @@ function removeDependencyLinks(worktreePath, settings) {
  * removal reach the main checkout's `.agents`. Copied files and real
  * directories are left for Git so checkout content is never deleted here.
  */
-function removeWorktreeLinks(worktreePath, settings) {
+function removeWorktreeLinks(projectDir, worktreePath, settings) {
   return [
     ...removeDependencyLinks(worktreePath, settings),
-    ...removeMirrorLinks(worktreePath, settings.mirrors ?? []),
+    ...removeMirrorLinks(projectDir, worktreePath, settings.mirrors ?? []),
   ];
 }
 
@@ -1702,7 +1899,7 @@ function worktreeBootstrapPlan(projectDir, settings, task, repositoryRoot, { con
   });
   // The governance surface (`worktree.mirrors`) is projected before the port
   // and env files so a declared mirror that also holds a copied file (for
-  // example `.serena/project.yml`) is in place ahead of the env materialization.
+  // example `opencode.json`) is in place ahead of the env materialization.
   steps.push({
     kind: 'mirror-governance',
     mirrors: expandMirrors(projectDir, settings.mirrors),
@@ -1939,7 +2136,7 @@ async function worktreeBootstrapReport(projectDir, args) {
         // A directory junction left in the failed worktree could make the
         // forced removal descend into the main checkout, so the links are torn
         // down first exactly as the cleanup and land paths do.
-        removeWorktreeLinks(plan.worktreePath, settings);
+        removeWorktreeLinks(projectDir, plan.worktreePath, settings);
         await runGit(['worktree', 'remove', '--force', plan.worktreePath], projectDir);
         await runGit(['worktree', 'prune'], projectDir);
         const branchHead = await runGit(['rev-parse', `refs/heads/${plan.branch}`], projectDir);
@@ -2008,7 +2205,12 @@ async function worktreeCleanupReport(projectDir, args) {
     if (delivery.requireReceipt) {
       try {
         receipt = args.receipt ? JSON.parse(await readFile(path.resolve(projectDir, args.receipt), 'utf8')) : null;
-        const gate = validateCompletion(receipt, delivery, await gitFingerprint(entry.path));
+        // `--receipt` is caller-supplied JSON, so the gate also has to resolve
+        // the cited verification against the record this tool wrote: a
+        // self-consistent receipt can otherwise assert acceptance for checks
+        // that never ran.
+        const gate = validateCompletion(receipt, delivery, await gitFingerprint(entry.path),
+          { provenance: await attestCompletionProvenance(entry.path, receipt) });
         if (gate.status !== 'passed') blocked.push(...gate.errors);
         const target = await runGit(['rev-parse', '--verify', settings.baseRef], projectDir);
         if (!target.ok || receipt?.target?.head !== target.stdout.trim()) blocked.push('completion receipt target is stale');
@@ -2041,26 +2243,34 @@ async function worktreeCleanupReport(projectDir, args) {
       results.push({ id: task.id, status: 'blocked', blockers: ['Worktree or target changed before cleanup'] });
       continue;
     }
+    // Teardown is best effort: an unprovable teardown is reported on the result
+    // below instead of keeping a merged worktree in place. The marker it writes
+    // is released by whichever path ends this item, so `service start` is only
+    // held back while the worktree is actually about to be removed.
     const services = await teardownServices(projectDir, entry.path);
-    if (services.status !== 'passed') {
-      results.push({ id: task.id, status: 'blocked', blockers: ['Managed service teardown failed'], services });
-      continue;
-    }
     if (delivery.requireReceipt) {
-      const finalReceipt = validateCompletion(receipt, delivery, await gitFingerprint(entry.path));
+      const finalReceipt = validateCompletion(receipt, delivery, await gitFingerprint(entry.path),
+        { provenance: await attestCompletionProvenance(entry.path, receipt) });
       const finalTarget = await runGit(['rev-parse', '--verify', settings.baseRef], projectDir);
       if (finalReceipt.status !== 'passed' || !finalTarget.ok || finalTarget.stdout.trim() !== receipt.target.head) {
+        // The evidence changed while the services were being torn down, so the
+        // worktree survives; releasing the marker is what lets its owner start
+        // services again instead of being locked out of a worktree that is
+        // still there.
+        releaseServiceTeardown(projectDir, entry.path);
         results.push({ id: task.id, status: 'blocked', blockers: ['Evidence changed during service teardown'] });
         continue;
       }
     }
-    const removedLinks = removeWorktreeLinks(entry.path, settings);
+    const removedLinks = removeWorktreeLinks(projectDir, entry.path, settings);
     const removed = await runGit(['worktree', 'remove', entry.path], projectDir);
     if (!removed.ok) {
-      results.push({ branch: entry.branch, error: boundedOutput(removed.stderr || removed.error?.message || 'git worktree remove failed', projectDir), id: task.id, path: normalizeSlashes(entry.path), removedLinks, status: 'failed' });
+      releaseServiceTeardown(projectDir, entry.path);
+      results.push({ branch: entry.branch, error: boundedOutput(removed.stderr || removed.error?.message || 'git worktree remove failed', projectDir), id: task.id, path: normalizeSlashes(entry.path), removedLinks, ...(services.status !== 'passed' ? { services } : {}), status: 'failed' });
       continue;
     }
     await runGit(['worktree', 'prune'], projectDir);
+    releaseServiceTeardown(projectDir, entry.path);
     // The block is released inside the same lock that hands it out; the branch
     // itself is still never deleted here.
     const released = await releasePortRegistryEntry(projectDir, task.id);
@@ -2071,6 +2281,7 @@ async function worktreeCleanupReport(projectDir, args) {
       portBlockReleased: released.released === true,
       remainingDirectory: existsSync(entry.path),
       removedLinks,
+      ...(services.status !== 'passed' ? { services } : {}),
       status: 'passed',
     });
   }
@@ -2115,6 +2326,21 @@ async function gitCommonDir(projectDir) {
   return { ok: true, path: path.resolve(projectDir, result.stdout.trim()) };
 }
 
+/**
+ * The wall-clock budget a land waits for a peer's shared lock. Resolved per
+ * call so the parent-owned knob also applies to in-process callers; it can only
+ * shorten the deadline, never widen it. Exported as the machine-readable
+ * contract for that default and clamp.
+ *
+ * @param {NodeJS.ProcessEnv} [environment]
+ * @returns {number}
+ */
+export function landLockTimeoutMs(environment = process.env) {
+  const override = Number(environment.VIBE_HARNESS_LAND_LOCK_TIMEOUT_MS);
+  if (!Number.isFinite(override) || override <= 0) return LAND_LOCK_TIMEOUT_MS;
+  return Math.min(LAND_LOCK_TIMEOUT_MS, Math.floor(override));
+}
+
 async function withWorktreeLandLock(projectDir, action) {
   const common = await gitCommonDir(projectDir);
   if (!common.ok) {
@@ -2128,7 +2354,8 @@ async function withWorktreeLandLock(projectDir, action) {
     };
   }
   const lockPath = path.join(common.path, 'vibe-harness-worktree-land.lock');
-  const deadline = Date.now() + LAND_LOCK_TIMEOUT_MS;
+  const timeoutMs = landLockTimeoutMs();
+  const deadline = Date.now() + timeoutMs;
   let held = false;
   for (;;) {
     try {
@@ -2155,7 +2382,7 @@ async function withWorktreeLandLock(projectDir, action) {
           subcommand: 'land',
           status: 'blocked',
           code: 'LAND_LOCK_TIMEOUT',
-          blockers: [`${normalizeSlashes(lockPath)} is held by another land operation after ${LAND_LOCK_TIMEOUT_MS}ms; inspect the owner before removing the lock`],
+          blockers: [`${normalizeSlashes(lockPath)} is held by another land operation after ${timeoutMs}ms; inspect the owner before removing the lock`],
         };
       }
       await delay(LAND_LOCK_RETRY_MS);
@@ -2175,7 +2402,7 @@ async function cleanupLandCandidate(projectDir, candidatePath, { abort = false }
   if (abort) await runGit(['merge', '--abort'], candidatePath);
   const config = await readProjectConfig(projectDir);
   const settings = resolveWorktreeSettings(projectDir, config, {});
-  if (!settings.error) removeWorktreeLinks(candidatePath, settings);
+  if (!settings.error) removeWorktreeLinks(projectDir, candidatePath, settings);
   const status = await runGit(['status', '--porcelain=v1'], candidatePath);
   if (!status.ok || status.stdout.trim() !== '') {
     return {
@@ -2193,6 +2420,7 @@ async function cleanupLandCandidate(projectDir, candidatePath, { abort = false }
     };
   }
   await runGit(['worktree', 'prune'], projectDir);
+  releaseServiceTeardown(projectDir, candidatePath);
   return { removed: true, residual: null };
 }
 
@@ -2230,6 +2458,7 @@ async function worktreeLandReportUnlocked(projectDir, args) {
   const config = await readProjectConfig(projectDir);
   const settings = resolveWorktreeSettings(projectDir, config, args);
   if (settings.error) return failure(settings.error);
+  const delivery = resolveDelivery(config, args.delivery);
   const { entries, reason } = await worktreeEntries(projectDir);
   if (reason) return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'land', status: 'unavailable', error: reason };
   const primary = entries.find((item) => item.primary) ?? null;
@@ -2328,7 +2557,27 @@ async function worktreeLandReportUnlocked(projectDir, args) {
   } catch (error) {
     return failure(error.message);
   }
-  // Push policy mirrors $git-deliver: plain push when an upstream exists;
+  // A completion receipt is only accepted when no declared layer is left
+  // deferred, and its acceptance names the checks the caller reviewed as
+  // relevant. Both are preflight facts: a landing that cannot produce them is
+  // reported here instead of after the merge candidate was built and tested.
+  let tierEscalation = null;
+  if (delivery.requireReceipt && args.verify !== false) {
+    const configured = configuredChecks(config, projectDir);
+    if (configured.error) return failure(configured.error);
+    const receiptTier = resolveReceiptTier({ commands: configured.commands, config, explicit: args.tier !== undefined, projectDir, tier });
+    if (receiptTier.blocked) blockers.push(receiptTier.blocked);
+    else tier = receiptTier.tier;
+    if (receiptTier.escalatedFrom) tierEscalation = { from: receiptTier.escalatedFrom, to: receiptTier.tier };
+    if (receiptTier.selectedNames.length > 0) {
+      const reviewed = resolveReviewedChecks(args.reviewed, receiptTier.selectedNames);
+      if (reviewed.blocked) blockers.push(reviewed.blocked);
+      else if (reviewed.ids.length === 0) {
+        blockers.push(`a completion receipt (delivery.${delivery.profile}) requires the explicit relevance review of the checks this change is verified by: pass --reviewed <${receiptTier.selectedNames.join('|')}|all> after reading the changed paths against them`);
+      }
+    }
+  }
+  // Push policy mirrors $vb-git-split-push: plain push when an upstream exists;
   // without one the branch may only start tracking when origin is the sole
   // remote and the branch is not protected.
   const upstream = await runGit(['for-each-ref', `refs/heads/${targetBranch}`, '--format=%(upstream:short)'], projectDir);
@@ -2369,6 +2618,7 @@ async function worktreeLandReportUnlocked(projectDir, args) {
       blockers,
       targetBranch,
       tier,
+      ...(tierEscalation ? { tierEscalation } : {}),
       write: Boolean(args.write),
       results: [{ ...baseResult, status: 'blocked', steps: stepPlans.map((step) => ({ ...step, status: 'blocked' })) }],
     };
@@ -2381,6 +2631,7 @@ async function worktreeLandReportUnlocked(projectDir, args) {
       status: 'planned',
       targetBranch,
       tier,
+      ...(tierEscalation ? { tierEscalation } : {}),
       write: false,
       results: [{ ...baseResult, status: 'planned', steps: stepPlans.map((step) => ({ ...step, status: 'planned' })) }],
     };
@@ -2395,8 +2646,14 @@ async function worktreeLandReportUnlocked(projectDir, args) {
   };
 
   let landReceipt = null;
+  // True while the completion receipt returned to the caller is backed by a
+  // durable provenance record; a receipt without one is not handed over.
+  let provenanceRecorded = true;
   let candidatePath = null;
   let candidateHeadSha = null;
+  // The best-effort service teardown outcome, carried on the cleanup step when
+  // ownership could not be proven instead of blocking the landing.
+  let servicesTeardown = null;
   const targetHead = await runGit(['rev-parse', `refs/heads/${targetBranch}`], primary.path);
   if (!targetHead.ok) {
     markFailed({ id: 'merge', status: 'failed', code: 'LAND_TARGET_HEAD_UNRESOLVED', error: boundedOutput(targetHead.stderr || targetHead.error?.message || 'target branch head could not be resolved', projectDir), detail: `resolve ${targetBranch}` });
@@ -2409,6 +2666,18 @@ async function worktreeLandReportUnlocked(projectDir, args) {
     } else {
       try {
         for (const root of settings.dependencyRoots) linkDependencyRoot(projectDir, candidatePath, settings, root);
+        // The governance surface is ignored by Git and therefore absent from a
+        // fresh candidate worktree, so a verification command that reaches the
+        // mirrored toolchain would fail here while passing in the source
+        // worktree. The candidate is torn down through `removeWorktreeLinks`,
+        // which removes these again before `git worktree remove`.
+        if ((settings.mirrors ?? []).length > 0) linkOrCopyMirrors(projectDir, candidatePath, settings.mirrors);
+        // The isolated per-package overlays belong to the same resolution
+        // surface as the dependency roots: without them a pnpm/Bun isolated
+        // layout resolves in the source worktree and fails in the candidate,
+        // so `worktree land` would reject a mergeable branch. The cleanup path
+        // removes them again through `removeDependencyLinks`.
+        linkPackageRoots(projectDir, candidatePath, settings);
         for (const relative of new Set([settings.ports.envFile, ...settings.provision.envFiles])) {
           const source = safeWorktreeFile(entry.path, relative, 'worktree candidate env');
           const target = safeWorktreeFile(candidatePath, relative, 'worktree candidate env');
@@ -2441,14 +2710,16 @@ async function worktreeLandReportUnlocked(projectDir, args) {
         } else {
           candidateHeadSha = candidateHead.stdout.trim();
           steps.push({ id: 'merge', status: alreadyMerged ? 'skipped' : 'passed', detail: alreadyMerged ? `${entry.branch} is already merged into ${targetBranch}` : `merged ${entry.branch} in isolated candidate worktree` });
-          const verify = await verifyProject(candidatePath, { tier, task: [taskId], only: null, reuse: false, allowManual: false });
-          const delivery = resolveDelivery(config, args.delivery);
+          const verify = await verifyProject(candidatePath, { tier, task: [taskId], only: null, reuse: false, allowManual: false, reviewed: args.reviewed });
           if (delivery.requireReceipt) {
             landReceipt = completionReceipt(verify, delivery, { rollback: `git revert -m 1 ${candidateHeadSha}` });
             landReceipt.delivery.stage = 'complete';
             landReceipt.target.head = candidateHeadSha;
           }
-          const completionGate = delivery.requireReceipt ? validateCompletion(landReceipt, delivery, await gitFingerprint(candidatePath)) : null;
+          const completionGate = delivery.requireReceipt
+            ? validateCompletion(landReceipt, delivery, await gitFingerprint(candidatePath),
+              { provenance: await attestCompletionProvenance(candidatePath, landReceipt) })
+            : null;
           const verifyOk = PASS_STATUSES.includes(verify.status) && completionGate?.status !== 'blocked';
           const checkLines = Object.entries(verify.checks ?? {})
             .filter(([, item]) => item?.status && item.status !== 'not_configured')
@@ -2491,6 +2762,53 @@ async function worktreeLandReportUnlocked(projectDir, args) {
         markFailed({ id: 'merge', status: 'failed', code: 'LAND_FINALIZE_FAILED', error: boundedOutput(finalized.stderr || finalized.error?.message || 'candidate could not be fast-forwarded into the primary checkout', projectDir), candidatePath: removed.residual, detail: `git merge --ff-only ${candidateHeadSha}` });
       } else {
         const removed = await cleanupLandCandidate(projectDir, candidatePath);
+        // The receipt returned by this command describes the primary checkout,
+        // but the write evidence it carries was read in the candidate worktree,
+        // whose metadata the removal just destroyed. Re-anchoring it to the
+        // primary after the fast-forward — and recording that evidence where
+        // the receipt will be validated — keeps the command from returning a
+        // receipt that its own gate then has to reject as stale.
+        if (delivery.requireReceipt && landReceipt?.verification) {
+          const finalizedAt = new Date().toISOString();
+          const anchored = await gitFingerprint(primary.path);
+          landReceipt.verification = {
+            ...landReceipt.verification,
+            verifiedAt: landReceipt.verification.finishedAt,
+            finishedAt: finalizedAt,
+            finalizedAt,
+            fingerprint: anchored.fingerprint,
+            writeFingerprint: anchored.writeFingerprint,
+            ...(landReceipt.verification.acceptance
+              ? { acceptance: { ...landReceipt.verification.acceptance, finalFingerprint: anchored.fingerprint } }
+              : {}),
+          };
+          landReceipt.source = { ...landReceipt.source, head: candidateHeadSha, fingerprint: anchored.fingerprint };
+          const recorded = await recordFinalVerification(primary.path, landReceipt.verification,
+            { checks: landReceipt.acceptance });
+          // The completion receipt is only valid through this record, so a
+          // failure to write it has to stop the landing here: reporting `passed`
+          // with a receipt whose provenance can never be attested would hand the
+          // caller evidence the tool itself would reject.
+          if (!recorded) {
+            provenanceRecorded = false;
+            if (!failedStep) {
+              // The fast-forward already moved the target, so the branch is put
+              // back: a blocked result has to leave the target exactly as
+              // retryable as it found it, otherwise the next attempt sees an
+              // already-landed change with no valid completion evidence. The
+              // primary checkout was proven clean and on this branch just above.
+              const restored = await runGit(['reset', '--hard', targetHead.stdout.trim()], primary.path);
+              markFailed({
+                id: 'merge', status: 'blocked',
+                code: restored.ok ? 'LAND_PROVENANCE_UNRECORDED' : 'LAND_PROVENANCE_UNRECORDED_AND_UNRESTORED',
+                ...(restored.ok ? {} : { error: boundedOutput(restored.stderr || restored.error?.message || 'the target branch could not be restored', projectDir) }),
+                detail: restored.ok
+                  ? 'record the finalized verification evidence for the primary checkout'
+                  : `git reset --hard ${targetHead.stdout.trim()} in ${primary.path}`,
+              });
+            }
+          }
+        }
         if (!removed.removed) {
           markFailed({ id: 'merge', status: 'failed', code: 'LAND_CANDIDATE_CLEANUP_FAILED', candidatePath: removed.residual, error: removed.reason, detail: 'remove isolated candidate worktree' });
         } else {
@@ -2515,19 +2833,48 @@ async function worktreeLandReportUnlocked(projectDir, args) {
   }
 
   // Step 4: cleanup. The worktree removal must precede the branch delete below
-  // because a checked-out branch cannot be deleted.
+  // because a checked-out branch cannot be deleted. Service teardown is best
+  // effort rather than a gate: it is still attempted because a stopping service
+  // can flush tracked or untracked state into the source worktree, but a
+  // teardown that cannot be proven no longer keeps a merged worktree in place —
+  // its outcome is reported on the cleanup step instead.
   if (!failedStep) {
-    const services = await teardownServices(projectDir, entry.path);
-    if (services.status !== 'passed') markFailed({ id: 'services', status: 'blocked', code: 'SERVICE_TEARDOWN_BLOCKED', services });
+    servicesTeardown = await teardownServices(projectDir, entry.path);
+    // The completion receipt describes the candidate — not the source — so the
+    // source is read again here: the removal below must not delete work that
+    // appeared while services were being stopped.
+    const sourceAfterTeardown = await runGit(['status', '--porcelain=v1', '--untracked-files=all'], entry.path);
+    if (!sourceAfterTeardown.ok || sourceAfterTeardown.stdout.trim() !== '') {
+      // The worktree survives the block, so the teardown marker it would keep
+      // `service start` out with is released again.
+      releaseServiceTeardown(projectDir, entry.path);
+      markFailed({
+        id: 'services', status: 'blocked', code: 'LAND_SOURCE_WORKTREE_DIRTY',
+        error: boundedOutput(sourceAfterTeardown.stderr || sourceAfterTeardown.error?.message || 'the source worktree is not clean after service teardown', projectDir),
+        detail: `git status --porcelain=v1 --untracked-files=all in ${entry.path}`,
+      });
+    }
   }
   if (!failedStep) {
-    const removedLinks = removeWorktreeLinks(entry.path, settings);
+    const removedLinks = removeWorktreeLinks(projectDir, entry.path, settings);
     const removed = await runGit(['worktree', 'remove', entry.path], projectDir);
     if (removed.ok) {
       await runGit(['worktree', 'prune'], projectDir);
+      releaseServiceTeardown(projectDir, entry.path);
       const released = await releasePortRegistryEntry(projectDir, taskId);
-      steps.push({ id: 'cleanup', status: 'passed', removedLinks, portBlockReleased: released.released === true, detail: `worktree removed; links ${removedLinks.length}` });
+      steps.push({
+        id: 'cleanup',
+        status: 'passed',
+        removedLinks,
+        portBlockReleased: released.released === true,
+        detail: `worktree removed; links ${removedLinks.length}`,
+        ...(servicesTeardown && servicesTeardown.status !== 'passed' ? { services: servicesTeardown } : {}),
+      });
     } else {
+      // The worktree survives the failed removal, so it must not stay locked
+      // out of `service start` by a teardown marker written for a removal that
+      // never happened.
+      releaseServiceTeardown(projectDir, entry.path);
       markFailed({ id: 'cleanup', status: 'failed', code: 'LAND_CLEANUP_FAILED', removedLinks, error: boundedOutput(removed.stderr || removed.error?.message || 'git worktree remove failed', projectDir), detail: `git worktree remove ${entry.path}` });
     }
   }
@@ -2559,7 +2906,8 @@ async function worktreeLandReportUnlocked(projectDir, args) {
     ...(failedStep?.code ? { code: failedStep.code } : {}),
     targetBranch,
     tier,
-    ...(landReceipt ? { completion: landReceipt } : {}),
+    ...(tierEscalation ? { tierEscalation } : {}),
+    ...(landReceipt && provenanceRecorded ? { completion: landReceipt } : {}),
     write: true,
     results: [{ ...baseResult, pushed, branchDeleted: steps.some((step) => step.id === 'delete-branch' && step.status === 'passed'), portBlockReleased: steps.some((step) => step.id === 'cleanup' && step.status === 'passed' && step.portBlockReleased === true), status: landStatus, steps }],
   };
@@ -2705,9 +3053,11 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
       results.push({ ...item, status: 'planned' });
       continue;
     }
+    // A teardown that cannot be proven is reported on the item and does not
+    // keep crash residue in place: `recover` only ever removes worktrees whose
+    // provisioning never completed.
     const services = await teardownServices(projectDir, item.path);
-    if (services.status !== 'passed') { results.push({ ...item, status: 'blocked', services }); continue; }
-    const removedLinks = removeWorktreeLinks(item.path, settings);
+    const removedLinks = removeWorktreeLinks(projectDir, item.path, settings);
     const removed = await runGit(['worktree', 'remove', '--force', item.path], projectDir);
     if (!removed.ok) {
       results.push({
@@ -2715,10 +3065,12 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
         code: 'WORKTREE_RECOVER_REMOVE_FAILED',
         error: boundedOutput(removed.stderr || removed.error?.message || 'git worktree remove failed', projectDir),
         removedLinks,
+        ...(services.status !== 'passed' ? { services } : {}),
         status: 'failed',
       });
       continue;
     }
+    releaseServiceTeardown(projectDir, item.path);
     const branchDeleted = (await runGit(['branch', '--delete', '--force', item.branch], projectDir)).ok;
     const released = item.registryEntryId !== null
       ? await releasePortRegistryEntry(projectDir, item.registryEntryId)
@@ -2732,6 +3084,7 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
       branchDeleted,
       portBlockReleased: released.released === true,
       removedLinks,
+      ...(services.status !== 'passed' ? { services } : {}),
       status: errors.length === 0 ? 'passed' : 'failed',
     });
   }
@@ -2765,14 +3118,18 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
       continue;
     }
     const services = item.path ? await teardownServices(projectDir, item.path) : { status: 'passed' };
-    if (services.status !== 'passed') { registryResults.push({ ...item, status: 'blocked', services }); continue; }
+    // The teardown writes its worktree marker even without a registry entry, and
+    // this branch never removes the worktree afterwards, so the marker has to be
+    // released here or a later service start in the same path stays blocked.
+    if (item.path) releaseServiceTeardown(projectDir, item.path);
     const released = await releasePortRegistryEntry(projectDir, item.id);
     registryResults.push(released.released === true
-      ? { ...item, status: 'passed' }
+      ? { ...item, ...(services.status !== 'passed' ? { services } : {}), status: 'passed' }
       : {
         ...item,
         code: 'WORKTREE_RECOVER_RELEASE_FAILED',
         error: released.reason ?? released.error ?? 'registry entry not released',
+        ...(services.status !== 'passed' ? { services } : {}),
         status: 'failed',
       });
   }
@@ -3904,8 +4261,20 @@ async function taskCheckReport(projectDir, args) {
   let deliveryGate = null;
   if (args.complete) {
     const delivery = resolveDelivery(await readProjectConfig(projectDir), args.delivery);
-    const receipt = args.receipt ? JSON.parse(await readFile(path.resolve(projectDir, args.receipt), 'utf8')) : read.anchor.completion;
-    deliveryGate = validateCompletion(receipt, delivery, await gitFingerprint(projectDir));
+    let receipt;
+    try {
+      receipt = args.receipt ? JSON.parse(await readFile(path.resolve(projectDir, args.receipt), 'utf8')) : read.anchor.completion;
+    } catch (error) {
+      // A caller-supplied receipt that is missing or malformed is a delivery
+      // blocker, not a crash: the same report the invalid-receipt path returns.
+      return {
+        command: 'task', subcommand: 'check', taskId, status: 'blocked', complete: false,
+        code: 'DELIVERY_RECEIPT_UNREADABLE',
+        errors: [`completion receipt could not be read: ${boundedOutput(error.message, projectDir)}`],
+      };
+    }
+    deliveryGate = validateCompletion(receipt, delivery, await gitFingerprint(projectDir),
+      { provenance: await attestCompletionProvenance(projectDir, receipt) });
     if (deliveryGate.status === 'blocked') return { command: 'task', subcommand: 'check', taskId, status: 'blocked', complete: false, code: 'DELIVERY_RECEIPT_REQUIRED', ...deliveryGate };
   }
   const units = Array.isArray(read.anchor.units) ? read.anchor.units.filter((unit) => unit && typeof unit === 'object') : [];
@@ -4519,259 +4888,10 @@ function taskSummary(report) {
   return lines.join('\n');
 }
 
-/**
- * Shared codebase-memory helpers shipped with the tool runtime. They are the
- * same modules the wrapper, the managed MCP block and the provisioning phases
- * resolve their paths through, so this command cannot report a cache or a
- * state file the tool never uses. The lookup is lazy because the runtime only
- * exists when the plugin (or an equivalent project copy) was installed.
- *
- * @returns {Promise<{cachePath: any, indexState: any, projectRoot: any} | null>}
- */
-let codebaseMemoryHelperModules;
-async function codebaseMemoryHelpers() {
-  codebaseMemoryHelperModules ??= (async () => {
-    const base = new URL('../tools/codebase-memory-mcp/', import.meta.url);
-    try {
-      const [cachePath, indexState, projectRoot] = await Promise.all([
-        import(new URL('cache-path.mjs', base).href),
-        import(new URL('index-state.mjs', base).href),
-        import(new URL('project-root.mjs', base).href),
-      ]);
-      return { cachePath, indexState, projectRoot };
-    } catch (error) {
-      if (error?.code === 'ERR_MODULE_NOT_FOUND') return null;
-      throw error;
-    }
-  })();
-  return codebaseMemoryHelperModules;
-}
-
-function codebaseMemoryWrapperPath(projectDir) {
-  return path.join(projectDir, '.agents/runtime/tools/codebase-memory-mcp/run.mjs');
-}
-
-async function codebaseMemoryRuntimeInstalled(projectDir) {
-  try {
-    await access(codebaseMemoryWrapperPath(projectDir));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function codebaseMemoryEnvironment(indexRoot, helpers) {
-  return {
-    ...process.env,
-    CBM_ALLOWED_ROOT: indexRoot,
-    CBM_CACHE_DIR: helpers.cachePath.codebaseMemoryCacheDir(indexRoot),
-    CBM_MEM_BUDGET_MB: '2048',
-    CBM_WORKERS: '2',
-  };
-}
-
-/**
- * The freshness stamp is the only durable answer to "is this graph current?".
- * `index_status` reports the live HEAD, and the pinned runtime keeps
- * auto_index/auto_watch off, so a graph nobody rebuilt after a commit must
- * report stale instead of ready.
- */
-async function codebaseMemoryStatus(projectDir, helpers) {
-  const facts = helpers.projectRoot.resolveGitFacts(projectDir);
-  const sourceRoot = facts?.root ?? path.resolve(projectDir);
-  const indexRoot = facts?.mainRoot ?? path.resolve(projectDir);
-  const worktreeMapped = Boolean(facts?.isWorktree);
-  const state = await helpers.indexState.readIndexState(helpers.cachePath.codebaseMemoryIndexStatePath(indexRoot));
-  const freshness = helpers.indexState.evaluateIndexFreshness(state, { headSha: facts?.headSha ?? null });
-  const report = {
-    branch: facts?.branch ?? null,
-    cacheDir: state?.cacheDir ?? helpers.cachePath.codebaseMemoryCacheDir(indexRoot),
-    edges: state?.edges ?? null,
-    headSha: facts?.headSha ?? null,
-    indexedAt: state?.indexedAt ?? null,
-    indexedHeadSha: state?.headSha ?? null,
-    indexStatePath: helpers.indexState.indexStateRelativePath(indexRoot),
-    mode: state?.mode ?? null,
-    nodes: state?.nodes ?? null,
-    project: state?.project ?? null,
-    reason: freshness.reason,
-    rootPath: indexRoot,
-    runtimeInstalled: await codebaseMemoryRuntimeInstalled(projectDir),
-    runtimeVersion: state?.runtimeVersion ?? null,
-    sourceRoot,
-    status: freshness.state,
-    worktreeMapped,
-  };
-  if (worktreeMapped) {
-    report.worktreeNote = '索引映射到主检出；worktree 未提交的新文件与新符号不在图中，需用 rg 补充核验。';
-  }
-  if (freshness.state === 'fresh') return report;
-  report.guidance = freshness.state === 'missing'
-    ? ['尚未记录索引状态；运行 `node .agents/runtime/commands/run.mjs codebase-memory refresh --project . --write` 建立索引并写入状态戳。']
-    : ['HEAD 已变化，索引图早于当前提交；重新运行 `... codebase-memory refresh --project . --write`，或仅用 rg 补充核验后再决定是否重建。'];
-  if (freshness.state === 'missing' && report.runtimeInstalled) {
-    report.probe = await codebaseMemoryProbe(projectDir, indexRoot, helpers);
-    if (report.probe.matched) {
-      // A graph exists for this project but nothing recorded which HEAD it
-      // covers; report stale instead of claiming the project was never indexed.
-      report.status = 'stale';
-      report.reason = 'index-without-state-stamp';
-    }
-  }
-  return report;
-}
-
-/**
- * Ask the runtime whether it already holds a graph for the project root. The
- * probe is deliberately shallow: it only matches the reported `root_path`, so
- * a missing stamp stays distinguishable from a genuinely absent index.
- */
-async function codebaseMemoryProbe(projectDir, indexRoot, helpers) {
-  const wrapper = codebaseMemoryWrapperPath(projectDir);
-  const expected = indexRoot.replaceAll('\\', '/').replace(/\/+$/u, '');
-  try {
-    const { stdout } = await execFileAsync(process.execPath, [wrapper, 'cli', 'list_projects', '--json'], {
-      cwd: indexRoot,
-      env: codebaseMemoryEnvironment(indexRoot, helpers),
-      maxBuffer: 4 * 1024 * 1024,
-      timeout: 60_000,
-      windowsHide: true,
-    });
-    const haystack = process.platform === 'win32' ? stdout.toLowerCase() : stdout;
-    const needle = process.platform === 'win32' ? expected.toLowerCase() : expected;
-    return { matched: haystack.includes(needle), probe: 'list_projects' };
-  } catch (error) {
-    return {
-      matched: false,
-      probe: 'list_projects',
-      probeError: boundedOutput(String(error?.message ?? error), projectDir),
-    };
-  }
-}
-
-async function runCodebaseMemoryWrapper(wrapper, args, cwd, env, timeoutMs) {
-  try {
-    const { stderr, stdout } = await execFileAsync(process.execPath, [wrapper, ...args], {
-      cwd,
-      env,
-      maxBuffer: 8 * 1024 * 1024,
-      timeout: timeoutMs,
-      windowsHide: true,
-    });
-    return { status: 'passed', stderr: boundedOutput(stderr, cwd), stdout: boundedOutput(stdout, cwd) };
-  } catch (error) {
-    return {
-      code: error?.killed ? 'TIMEOUT' : 'COMMAND_FAILED',
-      exitCode: typeof error?.code === 'number' ? error.code : null,
-      status: 'failed',
-      stderr: boundedOutput(String(error?.stderr ?? error?.message ?? error), cwd),
-      stdout: boundedOutput(String(error?.stdout ?? ''), cwd),
-    };
-  }
-}
-
-async function codebaseMemoryRefresh(projectDir, args, helpers) {
-  const current = await codebaseMemoryStatus(projectDir, helpers);
-  if (!current.runtimeInstalled) {
-    return {
-      action: 'refresh',
-      command: 'codebase-memory',
-      guidance: ['codebase-memory runtime 未安装；先运行 `vibe-harness provision --project <path> --write`。'],
-      reason: 'runtime-not-installed',
-      rootPath: current.rootPath,
-      sourceRoot: current.sourceRoot,
-      status: 'unavailable',
-      worktreeMapped: current.worktreeMapped,
-    };
-  }
-  const steps = [
-    'cli index_repository --repo-path . --mode moderate --persistence false --json',
-    'cli index_status --project <project> --json',
-  ];
-  if (!args.write) {
-    return {
-      action: 'refresh',
-      command: 'codebase-memory',
-      current,
-      dryRun: true,
-      rootPath: current.rootPath,
-      sourceRoot: current.sourceRoot,
-      status: 'planned',
-      steps,
-      worktreeMapped: current.worktreeMapped,
-    };
-  }
-  const wrapper = codebaseMemoryWrapperPath(projectDir);
-  const env = codebaseMemoryEnvironment(current.rootPath, helpers);
-  const indexRun = await runCodebaseMemoryWrapper(
-    wrapper,
-    ['cli', 'index_repository', '--repo-path', '.', '--mode', 'moderate', '--persistence', 'false', '--json'],
-    current.rootPath,
-    env,
-    900_000,
-  );
-  const refreshed = await codebaseMemoryStatus(projectDir, helpers);
-  const verify = refreshed.runtimeInstalled && indexRun.status === 'passed'
-    ? await runCodebaseMemoryWrapper(
-      wrapper,
-      ['cli', 'index_status', '--project', refreshed.project ?? path.basename(current.rootPath), '--json'],
-      current.rootPath,
-      env,
-      120_000,
-    )
-    : null;
-  return {
-    ...refreshed,
-    action: 'refresh',
-    refresh: {
-      indexRepository: { ...indexRun, stdout: undefined },
-      verify: verify ? { ...verify, stdout: undefined } : null,
-    },
-  };
-}
-
-async function codebaseMemoryReport(projectDir, args) {
-  const action = args._[1] ?? 'status';
-  if (!['status', 'refresh'].includes(action)) throw new Error(`Unknown codebase-memory subcommand: ${action}`);
-  const helpers = await codebaseMemoryHelpers();
-  const defaults = { action, command: 'codebase-memory', schemaVersion: SCHEMA_VERSION };
-  if (!helpers) {
-    return {
-      ...defaults,
-      guidance: ['codebase-memory runtime 未安装；先运行 `vibe-harness provision --project <path> --write`。'],
-      reason: 'runtime-not-installed',
-      status: 'unavailable',
-    };
-  }
-  const report = action === 'refresh'
-    ? await codebaseMemoryRefresh(projectDir, args, helpers)
-    : await codebaseMemoryStatus(projectDir, helpers);
-  return { ...defaults, ...report };
-}
-
 function summary(report) {
   if (report.command === 'slice') return report.error ? `command: slice\nstatus: failed\nerror: ${report.error}` : report.text;
   if (report.command === 'patch') return patchSummary(report);
   if (report.command === 'task') return taskSummary(report);
-  if (report.command === 'codebase-memory') {
-    const lines = [`command: codebase-memory ${report.action ?? 'status'}`.trim(), `status: ${report.status}`];
-    if (report.reason) lines.push(`reason: ${report.reason}`);
-    if (report.rootPath) lines.push(`root: ${report.rootPath}`);
-    if (report.sourceRoot && report.sourceRoot !== report.rootPath) lines.push(`sourceRoot: ${report.sourceRoot}`);
-    if (report.headSha) lines.push(`head: ${report.headSha}`);
-    if (report.indexedHeadSha) lines.push(`indexedHead: ${report.indexedHeadSha}`);
-    if (report.indexedAt) lines.push(`indexedAt: ${report.indexedAt}`);
-    if (Number.isInteger(report.nodes)) lines.push(`graph: ${report.nodes} nodes / ${report.edges} edges`);
-    if (report.cacheDir) lines.push(`cache: ${report.cacheDir}`);
-    if (report.dryRun) for (const step of report.steps ?? []) lines.push(`step: ${step}`);
-    if (report.refresh) for (const [name, item] of Object.entries(report.refresh)) {
-      if (item) lines.push(`${name}: ${item.status}${item.code ? ` (${item.code})` : ''}`);
-    }
-    for (const item of report.guidance ?? []) lines.push(`next: ${item}`);
-    if (report.worktreeNote) lines.push(report.worktreeNote);
-    if (report.error) lines.push(`error: ${report.error}`);
-    return lines.join('\n');
-  }
   if (report.command === 'worktree') {
     const lines = [`command: worktree ${report.subcommand ?? ''}`.trim()];
     if (report.error) lines.push(`error: ${report.error}`);
@@ -4820,7 +4940,6 @@ function summary(report) {
   // surfaced under --json, so the summary path answered --help with nothing.
   if (report.command === 'help') {
     lines.push(report.usage);
-    if (report.codebaseMemory) lines.push(report.codebaseMemory);
     if (report.worktree) lines.push(report.worktree);
     if (report.task) lines.push(report.task);
     if (report.reuse) lines.push(report.reuse);
@@ -4870,20 +4989,18 @@ export async function runCommand(argv, { cwd = process.cwd() } = {}) {
   else if (command === 'patch') report = await patchReport(projectDir, args);
   else if (command === 'task') report = await taskReport(projectDir, args);
   else if (command === 'runtime' && args._[1] === 'service') report = await serviceReport(projectDir, args, assertSafeCommand);
-  else if (command === 'codebase-memory') report = await codebaseMemoryReport(projectDir, args);
   else if (command === 'help') report = {
     schemaVersion: SCHEMA_VERSION,
     command,
     status: 'ready',
-    usage: 'run.mjs <env|context|changes|verify|worktree|slice|patch|task|codebase-memory> [--project <path>] [--json]（--project 缺省为当前目录）',
+    usage: 'run.mjs <env|context|changes|verify|worktree|slice|patch|task> [--project <path>] [--json]（--project 缺省为当前目录）',
     delivery: '--delivery managed-mr|local-land|inspect-only overrides delivery.default. managed-mr land/cleanup requires --receipt <file> and --merge-evidence <file> or --mr <iid> when source is not an ancestor.',
     services: 'run.mjs runtime service <start|status|stop> --project <path> [--service <id>] [--port <number>] [--write]; only registered supervisor-owned processes can be stopped.',
     checkpoint: 'task checkpoint <id> --reason <text> [--write]; task event <id> --reason pre-compaction|resume|continue|pre-delivery|pre-verify [--write]. Host lifecycle events need an actual host bridge; events are not inferred from tool calls.',
-    codebaseMemory: 'run.mjs codebase-memory <status|refresh> --project <path>: status reports fresh|stale|missing from the index state stamp written by the runtime wrapper after a successful index_repository and never writes; refresh stays dry-run until --write and then rebuilds the semantic graph through the pinned project runtime',
     worktree: 'run.mjs worktree <list|check|bootstrap|land|cleanup|recover> --project <path>: bootstrap, land, cleanup and recover stay dry-run until --write; bootstrap allocates the next port block from .vibe-harness/worktree-ports.json, materializes worktree.provision.envFiles and runs worktree.provision.setupCommands (a red-zone target also needs --confirm-red-zone); land serializes writes through a shared Git common-dir lock, merges the attributed worktree in an isolated candidate (--no-ff), verifies it (quick tier by default, standard when the task anchor declares riskLevel full), then fast-forwards the primary checkout only when its baseline is unchanged; --write --no-verify is rejected; with --push it also pushes the target branch (upstream, else -u origin when origin is the sole remote) and deletes the worktree branch only after the push succeeds; cleanup refuses branches not merged into worktree.baseRef; recover reclaims clean attributed candidate residue and bootstrap crash residue but never deletes a branch that moved past the base ref',
     task: 'run.mjs task <init|update|status|list|plan-check|plan-sync|check|freeze-tests|rebaseline-tests> [task-id] --project <path>: anchors live in .vibe-harness/tasks/<task-id>.json and managed plans live in docs/plans/*.md; init accepts --plan-file, plan-check detects drift, plan-sync requires --reason, check gates readiness (check --unit <id> --dispatch answers whether the unit may be handed out now), freeze-tests requires a failed verification and --test-path, and rebaseline-tests additionally requires a protected approval receipt. Write commands stay dry-run until --write.',
-    reuse: 'run.mjs verify --project <path> [--task <task-id>] --reuse: returns status "reused" only for explicitly deterministic checks with matching v3 input fingerprints in the ignored receipt store; task anchors are optional and legacy receipts are not reused',
-    verify: 'run.mjs verify --project <path> [--tier quick|standard|deep] [--scope affected|layer|full] [--async --tier deep] [--only lint,typecheck,test,eval] [--plan] or --micro <declared-id> [--plan]: Micro is explicit and never replaces unit/integration evidence; --micro is exclusive with tier, only, async, reuse and manual.',
+    reuse: 'run.mjs verify --project <path> [--task <task-id>] --reuse: returns status "reused" only for explicitly deterministic checks with matching input fingerprints in the ignored receipt store; task anchors are optional and receipts of an older schema are not reused',
+    verify: 'run.mjs verify --project <path> [--tier quick|standard|deep] [--scope affected|layer|full] [--async --tier deep] [--only lint,typecheck,test,eval] [--reviewed <check ids|all>] [--plan] or --micro <declared-id> [--plan]: Micro is explicit and never replaces unit/integration evidence; --micro is exclusive with tier, only, async, reuse and manual. --reviewed is the explicit relevance review of the selected checks and is the only evidence that makes a passed check count as reviewed.',
   };
   else throw new Error(`Unknown command: ${command}`);
   if (command !== 'help') {
@@ -4891,12 +5008,7 @@ export async function runCommand(argv, { cwd = process.cwd() } = {}) {
     report.warnings = [...(report.warnings ?? []), ...delivery.warnings, ...overrideWarnings(config)];
     if (command === 'verify' && delivery.requireReceipt) report.completion = completionReceipt(report, delivery);
   }
-  // A freshness verdict is the answer to a question, not a failed command:
-  // `stale` and `missing` still exit 0 so callers can read the receipt, while
-  // an unavailable runtime or an execution failure keeps the failure exit.
-  const exitCode = command === 'codebase-memory'
-    ? (['failed', 'unavailable'].includes(report.status) ? 1 : 0)
-    : (PASS_STATUSES.includes(report.status) || (report.status === 'unverified' && report.noChanges === true) ? 0 : 1);
+  const exitCode = PASS_STATUSES.includes(report.status) || (report.status === 'unverified' && report.noChanges === true) ? 0 : 1;
   return { args, report, exitCode };
 }
 

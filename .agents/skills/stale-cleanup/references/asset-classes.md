@@ -13,7 +13,7 @@
 
 - 确定性证据：`CLEANUP_REFERENCE_MISSING`，来源是生产源码、规则或文档中指向仓库内相对路径的链接与引用。
 - 处理顺序：先判断引用方是否应更新（路径改名、文档搬迁），再判断目标是否应恢复；两者都不成立时才考虑删除引用方描述的内容。
-- 忽略面：`docs/archive/`、`audit-reports/`、`docs/inventory/`、`CHANGELOG.md` 等历史记录，测试夹具路径，以及 `<...>`、`*`、`${}` 等未解析占位符。
+- 忽略面：项目明确声明的归档、审计、历史清单和变更日志，测试夹具路径，以及 `<...>`、`*`、`${}` 等未解析占位符；不因示例中的路径在当前项目不存在就删除历史记录。
 
 ## 过期文档
 
@@ -36,7 +36,7 @@
 
 ## 过期索引
 
-- 仓库内索引：文档 catalog、归档与 ADR 索引、`.agents/evals/` 镜像、install-state 登记。由 `audit --kind cleanup` 与 `pnpm docs:audit`、`pnpm eval:sync` 核对。
+- 仓库内索引：文档 catalog、归档与决策记录索引、`.agents/evals/` 镜像、install-state 登记。使用 `vibe-harness audit --project <path> --kind cleanup` 和目标项目已声明的文档、镜像校验命令，核对路径存在、源与副本一致、登记项未失效；未声明命令时只读逐项核对并报告覆盖限制。
 - 代码索引：`.codebase-memory/artifact.json` 记录构建时的 commit 与时间，扫描器据此报出 `CLEANUP_INDEX_STALE`（含 commit 漂移与超过半年的索引）；产物缺失或不可读时报 `CLEANUP_INDEX_UNAVAILABLE`，不推断索引状态。
 - codebase-memory-mcp 语义查询：`list_projects`、`index_status`、`index_repository` 由 Agent 在工具可用时使用，用来确认项目归属与新鲜度；CLI 扫描器只读磁盘产物，因此 `CLEANUP_INDEX_UNAVAILABLE` 表示本次未覆盖这一类判定，不代表索引过期。
 - 重建优先于删除：索引重建成本低、收益明确；删除索引只在确认项目已迁移或索引归属其他项目时考虑。

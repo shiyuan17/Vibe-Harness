@@ -173,7 +173,7 @@ export function resolveInstallSurface({ args = {}, config = {}, installState } =
         : (config.modules ?? installState?.requestedModules),
       plugins: args.plugin !== undefined
         ? parsePluginsOption(args.plugin)
-        : (config.plugins ? parsePluginsOption(config.plugins) : installState?.requestedPlugins),
+        : (config.plugins ? (config.plugins.length > 0 ? parsePluginsOption(config.plugins) : []) : installState?.requestedPlugins),
       preset: null,
       profile: args.profile ?? config.profile,
       provision: Boolean(args.provision),

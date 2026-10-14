@@ -263,6 +263,54 @@ test('a project under the user profile keeps its own .codex path outside the glo
   }
 });
 
+test('host-managed worktrees under the Agent home are a checkout, not global configuration', () => {
+  // The host materializes its managed worktrees at
+  // `<home>/.codex/worktrees/<worktree>/<repo>`, which is a workspace checkout
+  // rather than configuration. A session rooted in one writes into its own
+  // project, so the home-relative global rule must not swallow it — while the
+  // home's real configuration and that checkout's own control-plane and
+  // red-zone paths keep their verdicts.
+  const worktree = path.join(homedir(), '.codex', 'worktrees', 'managed-worktree', 'project');
+  const decide = (overrides, { cwd = worktree, projectRoot = worktree } = {}) => analyzeToolRequest(
+    request(cwd, overrides),
+    policyOptions(projectRoot),
+  );
+
+  for (const allowed of [
+    { tool_input: { file_path: path.join(worktree, 'frontend', 'apps', 'web', 'src', 'main.ts') }, tool_name: 'Write' },
+    { tool_input: { command: `Write-Output probe > "${path.join(worktree, 'notes.md')}"` } },
+    { tool_input: { command: `rm -rf "${path.join(worktree, 'dist')}"` } },
+  ]) {
+    assert.deepEqual(decide(allowed), { action: 'allow' });
+  }
+
+  for (const relative of ['config.toml', 'hooks.json', path.join('skills', 'x', 'SKILL.md')]) {
+    const decision = decide({ tool_input: { file_path: path.join(homedir(), '.codex', relative) }, tool_name: 'Write' });
+    assert.equal(decision.reasonCode, 'GLOBAL_AGENT_CONFIG', relative);
+  }
+
+  const controlPlane = decide({
+    tool_input: { file_path: path.join(worktree, '.agents', 'runtime', 'hooks', 'lib', 'policy.mjs') },
+    tool_name: 'Write',
+  });
+  assert.equal(controlPlane.reasonCode, 'CONTROL_PLANE_WRITE');
+
+  const redZone = decide({
+    tool_input: { file_path: path.join(worktree, '.env') },
+    tool_name: 'Write',
+  });
+  assert.equal(redZone.reasonCode, 'RED_ZONE');
+
+  // A session rooted elsewhere still cannot reach into a managed worktree:
+  // cross-root writes stay project-boundary violations.
+  const elsewhere = path.join(tmpdir(), 'vibe-harness-managed-worktree-cross-root');
+  const crossRoot = decide(
+    { tool_input: { file_path: path.join(worktree, 'src', 'main.ts') }, tool_name: 'Write' },
+    { cwd: elsewhere, projectRoot: elsewhere },
+  );
+  assert.equal(crossRoot.reasonCode, 'PROJECT_BOUNDARY');
+});
+
 test('apply_patch payloads are not analysed as shell commands', async () => {
   await withProject(async (target) => {
     const tick = String.fromCharCode(96);
@@ -453,7 +501,7 @@ test('host tools that mutate host state or drive another agent still require an 
 test('read-only MCP tools pass while write-class MCP tools still need an Envelope', async () => {
   await withProject(async (target) => {
     const reads = [
-      'mcp__codebase_memory_mcp__status',
+      'mcp__codebase_memory_mcp__index_status',
       'mcp__codebase_memory_mcp__search_graph',
       'mcp__codex_app__open_in_codex',
       'mcp__codex_app__list_projects',
@@ -495,7 +543,6 @@ test('codebase-memory 工具面按显式契约判定，不按动词猜测', asyn
       'get_graph_schema', 'compare_graphs', 'get_architecture', 'search_code',
       'list_projects', 'index_status', 'check_index_coverage', 'detect_changes',
       // Reversible tool-state writes: they only rewrite the tool's own cache.
-      'index_repository', 'ingest_traces',
     ];
     for (const tool of readOnly) {
       for (const server of ['codebase-memory-mcp', 'codebase_memory_mcp', 'vibe-harness-codebase-memory-mcp']) {
@@ -533,51 +580,9 @@ test('codebase-memory 工具面按显式契约判定，不按动词猜测', asyn
   });
 });
 
-test('codegraph 查询面按显式表放行，索引变更动词保持 Envelope 门禁', async () => {
-  await withProject(async (target) => {
-    // The live server exposes `codegraph_`-prefixed tool names, and none of
-    // explore/callers/callees/impact/node/files carries a read verb, so the
-    // explicit per-server table — not verb guessing — is what keeps the plugin
-    // usable without an Execution Envelope. The bare short names fall back to
-    // the same table (callers…node) or the read verbs (search, status).
-    const readOnly = [
-      'codegraph_explore', 'codegraph_search', 'codegraph_callers', 'codegraph_callees',
-      'codegraph_impact', 'codegraph_node', 'codegraph_files', 'codegraph_status',
-      'explore', 'search', 'callers', 'callees', 'impact', 'node', 'files', 'status',
-    ];
-    for (const tool of readOnly) {
-      const toolName = `mcp__codegraph__${tool}`;
-      const classification = classifyExecutionEffects(request(target, { tool_input: {}, tool_name: toolName }));
-      assert.equal(classification.readOnly, true, toolName);
-      assert.equal(classification.unknown, false, toolName);
-      assert.deepEqual(classification.effects, [], toolName);
-      assert.deepEqual(await evaluateCodexHook(input(target, { tool_input: {}, tool_name: toolName })), {}, toolName);
-    }
 
-    // Index-mutating verbs stay out of the table: `sync` and `unlock` match
-    // write verbs, `init`/`index`/`serve` match neither pattern, and all of
-    // them fail closed until an Execution Envelope covers the call.
-    for (const tool of ['init', 'index', 'sync', 'unlock', 'serve']) {
-      const toolName = `mcp__codegraph__${tool}`;
-      assert.equal(classifyExecutionEffects(request(target, { tool_input: {}, tool_name: toolName })).unknown, true, toolName);
-      const result = await evaluateCodexHook(input(target, { tool_input: {}, tool_name: toolName }));
-      assert.equal(result.hookSpecificOutput.permissionDecision, 'deny', toolName);
-      assert.match(result.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u, toolName);
-    }
 
-    // CLI: the freshness probe is read-only; index mutations are not.
-    assert.equal(isReadOnlyShellSegment('codegraph status'), true);
-    assert.deepEqual(await evaluateCodexHook(input(target, { tool_input: { command: 'codegraph status' } })), {});
-    for (const command of ['codegraph init', 'codegraph index', 'codegraph sync']) {
-      assert.equal(isReadOnlyShellSegment(command), false, command);
-      const result = await evaluateCodexHook(input(target, { tool_input: { command } }));
-      assert.equal(result.hookSpecificOutput.permissionDecision, 'deny', command);
-      assert.match(result.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u, command);
-    }
-  });
-});
-
-test('serena 语义导航只读面按动词放行，写入与执行类工具保持 Envelope 门禁', async () => {
+test('未登记语义服务的只读动词放行，写入与执行保持门禁', async () => {
   await withProject(async (target) => {
     // Serena has no explicit MCP table entry: every navigation tool the rule
     // references starts with a read verb (find/get/read/list/search), so the
@@ -588,7 +593,7 @@ test('serena 语义导航只读面按动词放行，写入与执行类工具保�
       'read_file', 'search_for_pattern', 'find_file', 'list_dir',
     ];
     for (const tool of readOnly) {
-      for (const server of ['serena', 'serena_agent']) {
+      for (const server of ['semantic_fixture', 'semantic_fixture_alias']) {
         const toolName = `mcp__${server}__${tool}`;
         const classification = classifyExecutionEffects(request(target, { tool_input: {}, tool_name: toolName }));
         assert.equal(classification.readOnly, true, toolName);
@@ -599,9 +604,9 @@ test('serena 语义导航只读面按动词放行，写入与执行类工具保�
     }
 
     // Shell execution and content replacement stay on the Envelope path: the
-    // rule never widens them just because serena is present.
+    // rule never widens them just because the server is present.
     for (const tool of ['execute_shell_command', 'replace_content']) {
-      const toolName = `mcp__serena__${tool}`;
+      const toolName = `mcp__semantic_fixture__${tool}`;
       assert.equal(classifyExecutionEffects(request(target, { tool_input: {}, tool_name: toolName })).unknown, true, toolName);
       const result = await evaluateCodexHook(input(target, { tool_input: {}, tool_name: toolName }));
       assert.equal(result.hookSpecificOutput.permissionDecision, 'deny', toolName);
@@ -610,12 +615,9 @@ test('serena 语义导航只读面按动词放行，写入与执行类工具保�
   });
 });
 
-test('probe 检索入口与 fd 默认放行，agent 模式与 exec 旗标保持 Envelope 门禁', async () => {
+test('fd 默认放行，exec 旗标保持 Envelope 门禁', async () => {
   await withProject(async (target) => {
     const readOnly = [
-      'probe search "auth middleware" src',
-      'probe query "how does indexing work" --max-results 50 --max-tokens 10000',
-      'probe --version',
       'fd "\\.md$" docs',
     ];
     for (const command of readOnly) {
@@ -626,7 +628,7 @@ test('probe 检索入口与 fd 默认放行，agent 模式与 exec 旗标保持 
     // `probe agent` opens an interactive editing session and `fd -x` /
     // `fd --exec-batch` run a command per match, so both stay behind the
     // Envelope instead of riding the read-only prefix.
-    for (const command of ['probe agent', 'fd -x ls', 'fd --exec-batch rg pattern']) {
+    for (const command of ['fd -x ls', 'fd --exec-batch rg pattern']) {
       assert.equal(isReadOnlyShellSegment(command), false, command);
       const result = await evaluateCodexHook(input(target, { tool_input: { command } }));
       assert.equal(result.hookSpecificOutput.permissionDecision, 'deny', command);

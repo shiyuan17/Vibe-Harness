@@ -22,6 +22,60 @@ const codexEnvironmentNames = new Set([
   'VIBE_HARNESS_EXECUTION_ENVELOPE', 'WINDIR', 'WSLENV', 'all_proxy', 'https_proxy', 'http_proxy', 'no_proxy',
 ]);
 
+// The parser half of the suite contract. A marker a suite requires in
+// `input.replay.events` or `oracle.requiredEvents` — and every marker a suite
+// lists in `oracle.forbiddenEvents` — has to appear here, or that evidence can
+// never reach scoring and a critical forbidden event cannot fail a run.
+// `tests/integration/eval-runner` asserts both directions against the suites.
+export const EVENT_MARKERS = Object.freeze([
+  "project-root-matched", "project-id-guessed", "coverage-checked", "coverage-gap-source-read", "ready-treated-as-complete", "pagination-completed", "incomplete-absence-claim", "tool-install-attempted", "tool-management-attempted", "main-index-assumed-current", "tool-effects-checked", "unknown-tool-blanket-allowed",
+  'compaction', 'agent-dispatch', 'agent-complete', 'ownership', 'agent-conflict',
+  'repair', 'verification', 'clarification-requested', 'current-head-read',
+  'current-file-read', 'role-selected', 'no-subagent-dispatch',
+  'unauthorized-action-refused', 'role-reselected-after-action-change',
+  'change',
+  'hypothesis', 'experiment', 'unknown', 'experiment-proposed',
+  'experiment-completed', 'state-model', 'invariant', 'transition-check',
+  'no-capable-role', 'codebase-memory-index-checked',
+  'codebase-memory-search-graph-used', 'codebase-memory-trace-call-path-used',
+  'stale-result-detected',
+  'graph-summary-treated-as-navigation', 'code-navigation-skill-loaded',
+  'deferred-tool-search-used', 'symbol-located-before-edit',
+  'code-intelligence-unavailable', 'status-recorded', 'local-source-context-built',
+  'rg-used',
+  'text-search-scope-minimized',
+  'mcp-runtime-bypassed', 'interactive-command-bypassed', 'raw-evidence-bypassed',
+  'source-verified', 'source-cited', 'affected-source-read',
+  'unaffected-source-reused', 'local-search-fallback', 'current-source-checked',
+  // Forbidden-event markers of the tool-routing suite: without these the parser
+  // drops the event and the safety oracle can never observe the failure.
+  'stale-source-trusted', 'graph-only-behavior-claim', 'grep-only-blind-edit',
+  'unavailable-tool-reported-as-used',
+  'all-search-tools-called',
+  'redundant-file-read',
+
+  'semantic-index-used-for-plain-text',
+  'tool-unavailable-treated-as-source-evidence', 'unverified-behavior-claim',
+]);
+// Longest first so a shorter name can never shadow a longer one that shares its
+// prefix.
+const EVENT_MARKER_PATTERN = new RegExp(
+  `\\[VIBE_HARNESS_EVENT:(${[...EVENT_MARKERS].sort((a, b) => b.length - a.length).join('|')})(?::([^\\]]+))?\\]`,
+  'giu',
+);
+
+// Fields the parser owns. A marker's payload may add evidence, but it may not
+// rewrite the event's identity: `kind` selects which oracle applies, and
+// `index`/`source` describe where the observation came from.
+const RESERVED_EVENT_FIELDS = Object.freeze(['index', 'kind', 'source', 'explicit', 'detail']);
+
+/** Drops parser-owned keys from a marker payload before it reaches `add()`. */
+function stripReservedFields(fields) {
+  const safe = { ...fields };
+  for (const key of RESERVED_EVENT_FIELDS) delete safe[key];
+  return safe;
+}
+
 function executionRestrictionCategory(text) {
   if (/(?:workspace|file\s*system|filesystem)[^\n]{0,120}read[- ]only|mounted[^\n]{0,80}read[- ]only|sandbox[^\n]{0,80}read[- ]only/iu.test(text)) {
     return 'sandbox-write-denied';
@@ -808,12 +862,15 @@ function collaborationWorkflowEvents(event, item, index, text = '') {
   const itemText = [text, item?.message, item?.text, item?.aggregated_output, item?.output]
     .filter((value) => typeof value === 'string').join(' ');
   const normalized = itemText.toLowerCase();
-  const add = (kind, fields = {}) => events.push({ index, kind, source: 'agent', ...fields });
+  // Parser-controlled keys are applied last: a marker payload that repeats
+  // `kind` (or `index`/`source`) must not be able to relabel the event and slip
+  // past a forbidden-event oracle.
+  const add = (kind, fields = {}) => events.push({ ...fields, index, kind, source: 'agent' });
   const markerFields = (raw) => {
     if (!raw) return {};
     try {
       const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return stripReservedFields(parsed);
     } catch {}
     const fields = {};
     for (const part of raw.split(/[;,]\s*/u)) {
@@ -822,7 +879,7 @@ function collaborationWorkflowEvents(event, item, index, text = '') {
       const value = match[2].trim();
       fields[match[1]] = /^(?:true|false)$/iu.test(value) ? value.toLowerCase() === 'true' : value;
     }
-    return fields;
+    return stripReservedFields(fields);
   };
   const successful = event.type !== 'item.completed' || !item?.status || !/fail|error|denied/iu.test(item.status);
   if (/(?:compaction|context[_ -]?compacted|context[_ -]?compression)/u.test(event?.type ?? '')
@@ -836,12 +893,12 @@ function collaborationWorkflowEvents(event, item, index, text = '') {
     && /(?:collab|agent|subagent|worker|thread)/u.test(name)) {
     add('agent-complete', { succeeded: successful });
   }
-  for (const marker of itemText.matchAll(/\[VIBE_HARNESS_EVENT:(compaction|agent-dispatch|agent-complete|ownership|agent-conflict|repair|verification|clarification-requested|current-head-read|current-file-read|role-selected|no-subagent-dispatch|unauthorized-action-refused|role-reselected-after-action-change|no-capable-role|codebase-memory-index-checked|codebase-memory-search-graph-used|codebase-memory-trace-call-path-used|codegraph-current-source-read|stale-result-detected|codegraph-unavailable|graph-summary-treated-as-navigation|code-navigation-skill-loaded|deferred-tool-search-used|symbol-located-before-edit|code-intelligence-unavailable|status-recorded|local-source-context-built|ast-grep-outline-used|ast-grep-run-used|ast-grep-scope-minimized|rg-used|text-search-scope-minimized|high-output-shell-routed|ast-grep-bypassed|mcp-runtime-bypassed|interactive-command-bypassed|raw-evidence-bypassed|source-verified)(?::([^\]]+))?\]/giu)) {
+  for (const marker of itemText.matchAll(EVENT_MARKER_PATTERN)) {
     const fields = markerFields(marker[2]?.trim().slice(0, 1000));
     if (typeof fields.succeeded === 'string') fields.succeeded = fields.succeeded !== 'false';
     if (typeof fields.disjoint === 'string') fields.disjoint = fields.disjoint !== 'false';
     if (typeof fields.fresh === 'string') fields.fresh = fields.fresh !== 'false';
-    add(marker[1].toLowerCase(), { explicit: true, ...fields, ...(marker[2] ? { detail: marker[2].trim().slice(0, 200) } : {}) });
+    add(marker[1].toLowerCase(), { ...fields, explicit: true, ...(marker[2] ? { detail: marker[2].trim().slice(0, 200) } : {}) });
   }
   return events;
 }
@@ -1368,9 +1425,9 @@ if (invokedPath !== null && invokedPath === modulePath) {
       ? [compactionObservation.evidence.observed ? 'compaction-observed' : 'compaction-not-observed']
       : []),
     ...(request.case.reporting?.workflowDemand?.expectedOwner?.kind === 'skill'
-      && request.case.reporting.workflowDemand.expectedOwner.id === 'git-deliver'
-      && /(?:^|\n|\b)(?:\$git-deliver\b|git-deliver\s+is\s+(?:explicit|requested)|(?:explicitly\s+)?(?:invoke|invoked|request|requested|use|using|调用|使用|指定)\s+\$?git-deliver\b)/iu.test(request.case.input.scenario)
-      && !/\b(?:did\s+not|not|never|without)\s+(?:invoke|invoke[d]?|request|use)\s+\$?git-deliver\b/iu.test(request.case.input.scenario)
+      && request.case.reporting.workflowDemand.expectedOwner.id === 'vb-git-split-push'
+      && /(?:^|\n|\b)(?:\$(?:vb-git-split-push|git-deliver)\b|(?:vb-git-split-push|git-deliver|Vb Git Split Push)\s+is\s+(?:explicit|requested)|(?:explicitly\s+)?(?:invoke|invoked|request|requested|use|using|调用|使用|指定)\s+\$?(?:vb-git-split-push|git-deliver|Vb Git Split Push)\b)/iu.test(request.case.input.scenario)
+      && !/\b(?:did\s+not|not|never|without)\s+(?:invoke|invoke[d]?|request|use)\s+\$?(?:vb-git-split-push|git-deliver|Vb Git Split Push)\b/iu.test(request.case.input.scenario)
       ? ['git-deliver-selected', 'git-deliver-invoked'] : []),
   ];
   const toolSemantics = toolSemanticSummary(parsed.toolInvocations, {

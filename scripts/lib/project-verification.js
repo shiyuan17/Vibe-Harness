@@ -8,7 +8,7 @@ import { assertSafeCommand } from './shell-command.js';
 import { terminateProcessTree } from './process-tree.js';
 import { maxDiagnosticOutput, redactDiagnosticText } from './tool-provisioning/subprocess.js';
 import { verificationCheckEvidence, verificationContextEnvironment, verificationCwd } from '../../runtime/lib/verification-plan.mjs';
-import { findVerificationReceipt, storeVerificationReceipt, verificationCacheContext } from '../../runtime/lib/verification-receipt.mjs';
+import { findVerificationReceipt, prepareVerificationReceiptStore, storeVerificationReceipt, verificationCacheContext } from '../../runtime/lib/verification-receipt.mjs';
 
 const execFileAsync = promisify(execFile);
 export const DEFAULT_PROJECT_VERIFICATION_TIMEOUT_MS = 120_000;
@@ -59,6 +59,77 @@ function verificationOutput(value, targetDir) {
 function boundedDiagnostic(value, targetDir, maxLength = 480) {
   const sanitized = verificationOutput(value, targetDir).replace(/\s+/gu, ' ').trim();
   return sanitized.length > maxLength ? sanitized.slice(0, maxLength - 3) + '...' : sanitized;
+}
+
+function focusedReview({ changedPaths = [], selectedChecks = [], results = [], reviewedIds = [] } = {}) {
+  const selectedCheckIds = selectedChecks.map((item) => item.id ?? item.command).filter(Boolean);
+  // Only the caller's declaration counts as a review. Neither the planner's
+  // selection reasons nor a per-check flag the runner sets on itself can be the
+  // evidence that someone reviewed the check — accepting either would let the
+  // acceptance gate attest its own relevance.
+  const declared = reviewedIds.includes('all') || reviewedIds.includes('*')
+    ? new Set(selectedCheckIds)
+    : new Set(reviewedIds.filter((id) => selectedCheckIds.includes(id)));
+  const reviewedCheckIds = results
+    .filter((item) => ['passed', 'reused'].includes(item.status))
+    .map((item) => item.id ?? item.command)
+    .filter((id) => declared.has(id))
+    .filter(Boolean);
+  return {
+    status: reviewedCheckIds.length > 0 ? 'relevant' : selectedCheckIds.length > 0 ? 'unreviewed' : 'blocked',
+    changedPaths: [...changedPaths],
+    selectedCheckIds,
+    ...(reviewedCheckIds.length ? { reviewedCheckIds } : {}),
+    reasonCode: reviewedCheckIds.length ? 'RELEVANT_CHECK_REVIEWED' : 'NO_REVIEWED_RELEVANT_CHECK',
+  };
+}
+
+/**
+ * The review of a reused receipt, re-anchored to the current plan.
+ *
+ * The cached review is caller-supplied or written by an earlier run, so it is
+ * only evidence while it stays inside the checks this plan selected: an id the
+ * current plan does not select is dropped rather than normalized into a
+ * plausible `relevant`.
+ */
+function normalizedCachedReview(review, selectedCheckIds, changedPaths) {
+  if (!review || typeof review !== 'object') {
+    return { status: 'unreviewed', changedPaths: [...changedPaths], selectedCheckIds, reasonCode: 'LEGACY_V3_RECEIPT' };
+  }
+  const reviewedIds = (Array.isArray(review.reviewedCheckIds) ? review.reviewedCheckIds : [])
+    .filter((id) => typeof id === 'string' && selectedCheckIds.includes(id));
+  const status = review.status === 'relevant' && reviewedIds.length > 0
+    ? 'relevant'
+    : review.status === 'blocked' ? 'blocked' : 'unreviewed';
+  return {
+    ...review,
+    status,
+    changedPaths: [...changedPaths],
+    selectedCheckIds,
+    ...(reviewedIds.length ? { reviewedCheckIds: reviewedIds } : {}),
+    reasonCode: typeof review.reasonCode === 'string' && review.reasonCode.trim()
+      ? review.reasonCode
+      : status === 'relevant' ? 'RELEVANT_CHECK_REVIEWED' : 'REVIEW_NOT_RECORDED',
+  };
+}
+
+/** @param {{review?: any, commandsPassed?: boolean, snapshotComparison?: string, finalFingerprint?: string|null, deferredCount?: number}} options */
+function focusedAcceptance({ review, commandsPassed, snapshotComparison, finalFingerprint, deferredCount = 0 } = {}) {
+  const stable = commandsPassed && snapshotComparison === 'match' && typeof finalFingerprint === 'string' && finalFingerprint.length > 0;
+  const relevant = review?.status === 'relevant' && (review.reviewedCheckIds ?? []).length > 0;
+  return {
+    status: stable && relevant && deferredCount === 0 ? 'accepted' : 'blocked',
+    reasonCode: !commandsPassed
+      ? 'VERIFICATION_NOT_PASSED'
+      : deferredCount > 0
+        ? 'DEFERRED_CHECKS'
+      : snapshotComparison !== 'match' || !finalFingerprint
+        ? 'FINAL_SNAPSHOT_MISMATCH'
+        : relevant ? 'ACCEPTED' : 'NO_REVIEWED_RELEVANT_CHECK',
+    finalFingerprint: finalFingerprint ?? null,
+    selectedCheckIds: [...(review?.selectedCheckIds ?? [])],
+    reviewStatus: review?.status ?? 'unreviewed',
+  };
 }
 
 function normalizedTimeoutMs(timeoutMs) {
@@ -482,6 +553,7 @@ export async function runFocusedProjectVerification({
     if (item.status === 'missing' || ((item.status === 'manual' || manual) && !allowManual)) {
       results.push({
         ...item,
+        ...(item.selectionReasons ? { selectionReasons: [...item.selectionReasons] } : {}),
         status: 'blocked',
         verificationId: id,
         next: { command: 'pnpm verify --project .' },
@@ -570,6 +642,12 @@ export async function runFocusedProjectVerification({
       message: 'Git snapshot evidence is unavailable; focused checks passed, but this receipt cannot satisfy a stability-required completion.',
     };
   }
+  const review = focusedReview({
+    changedPaths: focused.changedPaths,
+    selectedChecks: focused.commands,
+    results,
+    reviewedIds: focused.reviewedIds ?? [],
+  });
   return {
     ...(error ? { error } : {}),
     ok: !error,
@@ -597,6 +675,13 @@ export async function runFocusedProjectVerification({
         resultsAfterFinalChange: hasFinalChange,
         status: hasFinalChange && snapshotComparison === 'match' && commandsPassed ? 'verified' : 'unverified',
       },
+      review,
+      acceptance: focusedAcceptance({
+        review,
+        commandsPassed,
+        snapshotComparison,
+        finalFingerprint: after.fingerprint,
+      }),
       deliveryBoundaries: {
         ci: 'unverified',
         rollback: 'unverified',
@@ -616,6 +701,7 @@ export async function runVerificationPlan({
   reuse = false,
   commandStatus = {},
   plan,
+  reviewed = [],
   signal = undefined,
   targetDir,
   timeoutMs = DEFAULT_PROJECT_VERIFICATION_TIMEOUT_MS,
@@ -625,6 +711,10 @@ export async function runVerificationPlan({
   const confirmed = cached?.receipt ? await verificationCacheContext(targetDir, plan) : null;
   const hit = cached?.receipt && confirmed?.key === cacheContext.key;
   if (!hit) await storeVerificationReceipt(targetDir, cacheContext, { status: 'running' });
+  const selectedCheckIds = (plan.selectedChecks ?? []).map((item) => item.id ?? item.command);
+  const reusedReview = hit
+    ? normalizedCachedReview(cached.receipt.review, selectedCheckIds, plan.changedPaths ?? [])
+    : null;
   const focused = hit ? {
     ok: true,
     error: undefined,
@@ -635,6 +725,18 @@ export async function runVerificationPlan({
       after: { ...confirmed.snapshot.snapshot, fingerprint: confirmed.snapshot.fingerprint },
       evidence: { commandExecution: { status: 'passed', reused: true } },
       changeBoundary: { status: 'unverified' },
+      review: reusedReview,
+      // A hit proves the command set, inputs and snapshot are unchanged, so a
+      // current receipt with a relevant review is accepted; a deferred layer
+      // still blocks it. Reporting `blocked` unconditionally would deny a valid
+      // reuse while claiming the snapshot mismatched.
+      acceptance: focusedAcceptance({
+        review: reusedReview,
+        commandsPassed: true,
+        snapshotComparison: 'match',
+        finalFingerprint: confirmed.snapshot.fingerprint,
+        deferredCount: (plan.deferredChecks ?? []).length,
+      }),
       recovery: { status: 'not-needed' },
     },
   } : await runFocusedProjectVerification({
@@ -645,6 +747,7 @@ export async function runVerificationPlan({
       notes: plan.selectionReasons ?? [],
       impactMapping: plan.impactMapping,
       baseSha: plan.baseSha,
+      reviewedIds: reviewed,
       scope: plan.scope,
     },
     requireStable: false,
@@ -703,6 +806,20 @@ export async function runVerificationPlan({
       focused.error = { code: 'PROJECT_VERIFICATION_FAILED', message: verificationOutput(message, targetDir) };
     }
   }
+  // The final context is read before the report is assembled so the write
+  // evidence a completion receipt is validated against is the state the caller
+  // receives: the context above belongs to the state the checks started from,
+  // and any check that writes (even without changing content) would leave it
+  // stale before the receipt is ever consumed.
+    // Writing the receipt is itself a write to the workspace — the first one
+    // creates the project's `.vibe-harness` directory and moves the repository
+    // root's timestamps — so the store is created here, before the snapshot the
+    // receipt publishes, and only for the run that is about to store one: a run
+    // that stores nothing leaves no store behind.
+    const willStore = !hit && focused.ok === true
+      && focused.results.every((item) => item.status === 'passed');
+    if (willStore) await prepareVerificationReceiptStore(targetDir).catch(() => false);
+  const afterContext = hit ? null : await verificationCacheContext(targetDir, plan);
   const report = {
     ...focused,
     results,
@@ -711,6 +828,15 @@ export async function runVerificationPlan({
       schemaVersion: 3,
       engine: 'vibe-harness-cli',
       ...cacheContext.fingerprints,
+      ...(afterContext ? { writeFingerprint: afterContext.fingerprints.writeFingerprint } : {}),
+      // `acceptance.finalFingerprint` is compared with the fingerprint published
+      // right above, and delivery validation compares that one with a fresh
+      // `gitFingerprint` of the same workspace. The focused report derives its
+      // value from `createProjectSnapshot`, a different hash for a dirty
+      // worktree, so the acceptance is re-anchored to the published source.
+      ...(hit || !focused.verification?.acceptance ? {} : {
+        acceptance: { ...focused.verification.acceptance, finalFingerprint: cacheContext.fingerprints.fingerprint },
+      }),
       cache: {
         status: hit ? 'hit' : reuse ? 'miss' : 'not_requested',
         reason: cached?.reason ?? cacheContext.reason,
@@ -749,6 +875,9 @@ export async function runVerificationPlan({
         : focused.verification.recovery,
       scopeStatus: deferredChecks.length > 0 || focused.results.some((item) => item.status === 'not_selected') ? 'partial' : 'complete',
       selectedChecks: (plan.selectedChecks ?? []).map((item) => ({ ...item })),
+      selectionReasonsByCheck: plan.selectionReasonsByCheck ?? Object.fromEntries(
+        (plan.selectedChecks ?? []).map((item) => [item.id ?? item.command, [...(item.selectionReasons ?? (item.reason ? [item.reason] : []))]]),
+      ),
       skippedChecks: [
         ...(plan.skippedChecks ?? []).map((item) => ({ ...item })),
         ...focused.results.filter((item) => item.status === 'not_selected').map((item) => ({ id: item.id, reason: item.reason })),
@@ -759,15 +888,37 @@ export async function runVerificationPlan({
       tierSource: plan.tierSource ?? null,
     },
   };
+  if (deferredChecks.length > 0 && report.verification.acceptance) {
+    report.verification.acceptance = {
+      ...report.verification.acceptance,
+      status: 'blocked',
+      reasonCode: 'DEFERRED_CHECKS',
+    };
+  }
   if (!hit) {
-    const afterContext = await verificationCacheContext(targetDir, plan);
     if (afterContext.key !== cacheContext.key) {
       report.ok = false;
       report.error = { code: 'PROJECT_VERIFICATION_INPUTS_CHANGED', message: 'Verification inputs changed while checks were running.' };
       report.verification.inputsStable = false;
+      // The acceptance was computed from the inputs the checks ran against; once
+      // those changed it no longer describes this workspace, so it is blocked
+      // here instead of leaving `ok: false` next to an `accepted` status.
+      if (report.verification.acceptance) {
+        report.verification.acceptance = {
+          ...report.verification.acceptance,
+          status: 'blocked',
+          reasonCode: 'VERIFICATION_INPUTS_CHANGED',
+        };
+      }
     }
     await storeVerificationReceipt(targetDir, cacheContext, {
       ...report.verification, status: report.ok && focused.results.every((item) => item.status === 'passed') ? 'passed' : 'failed',
+    }, {
+      // The per-check commands this run reported, so a later completion receipt
+      // can be checked against them instead of being taken on its own word. The
+      // commands live on the results this run returned, keyed by check id.
+      checks: (focused.results ?? [])
+        .map((item) => ({ id: item.id ?? item.command, command: item.command })),
     }).catch(() => false);
   }
   return report;

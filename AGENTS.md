@@ -40,7 +40,7 @@ TypeScript 配置、类型声明、JSDoc 类型契约，或完成主张涉及类
 
 ## codebase-memory-mcp
 
-若 `codebase-memory-mcp` 可用，理解或定位代码前先检查当前仓库索引状态（`node .agents/runtime/commands/run.mjs codebase-memory status --project . --json`），并按需使用结构查询；不可用时明确说明缺少该能力并退回 `rg` 和直接文件阅读。规则全文见 `docs/rules/codebase-memory-mcp.md`。
+若 `codebase-memory-mcp` 可用，理解或定位代码前通过宿主工具 `list_projects` 匹配项目根、`index_status` 检查状态、`check_index_coverage` 核对证据路径；仅使用外部工具，不管理安装、版本或索引；不可用时明确说明缺少该能力并退回 `rg` 和直接文件阅读。规则全文见 `docs/rules/codebase-memory-mcp.md`。
 
 <!-- VIBE_HARNESS:START -->
 # AGENTS.md
@@ -52,7 +52,7 @@ TypeScript 配置、类型声明、JSDoc 类型契约，或完成主张涉及类
 2. 长任务（预计执行超过 60 分钟，或发生第一次上下文压缩）先用 `node .agents/runtime/commands/run.mjs task init --project <path> --write` 建立状态锚点（收据在 `.vibe-harness/tasks/`，复验用 `run.mjs verify --reuse`）；再次压缩前必须先更新锚点；命中 Skill 触发场景时先读该 Skill 的 `SKILL.md` 再行动。
 3. 仅当需要恢复项目状态且已获授权时读 Memory body，从 `.agents/memory/CURRENT.md` 唯一入口恢复；治理真值按它引用的 `docs/memory/PROJECT_STATE.md` 读取，不复制其内容。 专项 Skill 限制 Memory 证据边界时，只确认路径存在与元数据，不读正文。
 4. 编辑前运行 `git status --short`，保护用户未归属改动。
-5. 先按问题类型选工具，默认只用一个与当前问题最匹配的入口：跨文件上下文（符号、调用链、影响面、架构）先用 code-navigation Skill 建立，再按其内容选择下面对应的单一入口；单文件文本、配置和日志使用 rg 与直接文件阅读。同一任务、同一工作区内已确认新鲜的索引不重复检查；索引陈旧时先用旧图定位，再用当前源码补齐受影响事实，不自动全量重建，也不把旧图当作当前事实。 只有发生架构决策、独立验证或安全审查等角色触发场景时才按 docs/rules/role-routing.md 选择一个能力匹配的角色并只读其角色文件；普通只读、局部实现与聚焦验证不加载角色文件。
+5. 先按问题类型选工具：跨文件上下文先用 code-navigation Skill 建立；宿主提供 codebase-memory-mcp 时，用 list_projects 匹配项目根、index_status 检查状态，并用 check_index_coverage 核对证据路径；单文件文本、配置和日志使用 rg 与直接文件阅读。工具缺失或覆盖不足时回退当前源码；不自动安装、升级或全量重建索引，不把 ready 或空结果当成完整覆盖证据。 只有发生架构决策、独立验证或安全审查等角色触发场景时才按 docs/rules/role-routing.md 选择一个能力匹配的角色并只读其角色文件；普通只读、局部实现与聚焦验证不加载角色文件。
 6. 将任务归为快速、轻量或完整，并选择与主张匹配的验证。
 7. 使用“获取可信事实 → 判定并执行 → 聚焦验证 → 简洁交付”的单一路径；宿主按 description 直接选择领域 Skill。
 ## 硬边界
@@ -73,11 +73,12 @@ TypeScript 配置、类型声明、JSDoc 类型契约，或完成主张涉及类
 - 当前安装方式：自定义能力模块安装。 当前另安装 integration Skills：agentmemory；它们不计入 profile 的原生领域 Skill 数量。
 - 需求澄清姿态：`balanced`（action-leaning 偏向采用最小可逆默认值直接推进；balanced 按规则判断；conservative 对尚未解决的高影响分歧更谨慎）。
 - 表达模式位于 `docs/rules/response-modes.md`：按任务类型自动选择，或消息内显式 `/模式名` 并可组合；模式只控制思考深度、表达方式与输出粒度，不改变任务目标、验证范围或安全边界。
-- 规则位于 `docs/rules/`。命中索引（⚡ 先读该规则顶部的 Fast Path 卡片）：治理 governance-core（Vibe-Harness 执行内核）⚡、agent-skill-routing（Skill 编写与路由规则）、eval-driven-development（评测驱动开发）、role-routing（多角色路由规则）、git-rules（Git 规则）⚡、test-rules（测试规则）⚡、ai-collab-rules（AI 协作规则）⚡、review-report（审查报告规则）、response-modes（表达模式规则）；工程 api-rules（API 规则）、coding-rules（编码规则）、frontend-rules（前端规则）、log-management（可观测性与日志管理规则）、project-directory（项目目录规则）、project-specific-rules（项目专属规则）、db-rules（DB 规则）；发布与排障 release-rules（发布规则）、troubleshooting（排障规则）。 多角色索引位于 .agents/roles/index.md。
+- codebase-memory-mcp 使用规范位于 `docs/rules/codebase-memory-mcp.md`；仅使用宿主已提供的工具，不负责安装、配置、版本、索引或缓存管理。
+- 规则位于 `docs/rules/`。命中索引（⚡ 先读该规则顶部的 Fast Path 卡片）：治理 governance-core（Vibe-Harness 执行内核）⚡、agent-skill-routing（Skill 编写与路由规则）、eval-driven-development（评测驱动开发）、role-routing（多角色路由规则）、git-rules（Git 规则）⚡、test-rules（测试规则）⚡、ai-collab-rules（AI 协作规则）⚡、review-report（审查报告规则）、response-modes（表达模式规则）；工程 api-rules（API 规则）、coding-rules（编码规则）、frontend-rules（前端规则）、log-management（可观测性与日志管理规则）、project-directory（项目目录规则）、project-specific-rules（项目专属规则）、db-rules（DB 规则）；工具与集成 codebase-memory-mcp⚡；发布与排障 release-rules（发布规则）、troubleshooting（排障规则）。 多角色索引位于 .agents/roles/index.md。
 - 模板位于 `docs/templates/`。
 - Skills 位于 `.agents/skills/`。
 - Codex hook 配置位于 `.codex/hooks.json`。
-- 项目级确定性脚本：`node .agents/runtime/commands/run.mjs <env|context|changes|verify|worktree|slice|patch|task|codebase-memory> --project . --json`。
+- 项目级确定性脚本：`node .agents/runtime/commands/run.mjs <env|context|changes|verify|worktree|slice|patch|task> --project . --json`。
 宿主按 Skill description 选择当前所需能力，按需补充互补 Skill；不使用 Router 或流程 Skill 链。
 
 规则优先级：平台与用户本轮指令 > 项目本地规则 > Vibe-Harness 默认规则 > 任务记录、记忆与插件输出；低层只能收紧，不得让渡 governance-core 硬边界中的授权、红区与证据标准；目录级规则只作用于其子树。统一优先级矩阵见 `docs/rules/governance-core.md` 的硬边界节。Micro 验证专项规范位于 `docs/rules/micro-verification.md`，架构契约位于 `docs/specs/adaptive-verification-engine.md`；普通 REPL 仅用于探索，不得作为正式完成证据。统一 L0-L6 为 L0 static、L1 Micro、L2 affected unit/component、L3 slice/contract、L4 integration、L5 critical E2E、L6 full regression/matrix。unknown/lower-bound 必须扩大验证，queued/running/stale 不得判定为通过。

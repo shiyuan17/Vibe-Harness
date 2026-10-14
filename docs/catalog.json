@@ -361,7 +361,11 @@
       "kind": "spec",
       "status": "implemented",
       "language": "en",
-      "audiences": ["maintainer", "contributor", "auditor"]
+      "audiences": [
+        "maintainer",
+        "contributor",
+        "auditor"
+      ]
     },
     {
       "path": "docs/specs/vibe-harness-tooling-modules-spec.md",
@@ -390,14 +394,22 @@
       "kind": "spec",
       "status": "implemented",
       "language": "zh-CN",
-      "audiences": ["maintainer", "contributor", "auditor"]
+      "audiences": [
+        "maintainer",
+        "contributor",
+        "auditor"
+      ]
     },
     {
       "path": "docs/rules/micro-verification.md",
       "kind": "agent-rules",
       "status": "current",
       "language": "zh-CN",
-      "audiences": ["agent", "maintainer", "auditor"]
+      "audiences": [
+        "agent",
+        "maintainer",
+        "auditor"
+      ]
     },
     {
       "path": "docs/inventory/source-rules-mapping.md",
@@ -683,140 +695,211 @@
       "kind": "index",
       "status": "current",
       "language": "en",
-      "audiences": ["contributor", "maintainer", "auditor"]
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
     },
     {
       "path": "docs/schemas/adr.schema.json",
       "kind": "spec",
       "status": "current",
       "language": "en",
-      "audiences": ["contributor", "maintainer", "auditor"]
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
     },
     {
       "path": "schemas/adr.schema.json",
       "kind": "spec",
       "status": "current",
       "language": "en",
-      "audiences": ["contributor", "maintainer"]
+      "audiences": [
+        "contributor",
+        "maintainer"
+      ]
     },
     {
       "path": "docs/schemas/execution-envelope.schema.json",
       "kind": "spec",
       "status": "current",
       "language": "en",
-      "audiences": ["contributor", "maintainer", "auditor"]
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
     },
     {
       "path": "docs/schemas/execution-envelope-v2.schema.json",
       "kind": "spec",
       "status": "current",
       "language": "en",
-      "audiences": ["contributor", "maintainer", "auditor"]
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
     },
     {
       "path": "docs/schemas/project-verification.schema.json",
       "kind": "spec",
       "status": "current",
       "language": "en",
-      "audiences": ["contributor", "maintainer", "auditor"]
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
     },
     {
       "path": "schemas/execution-envelope.schema.json",
       "kind": "spec",
       "status": "current",
       "language": "en",
-      "audiences": ["contributor", "maintainer"]
+      "audiences": [
+        "contributor",
+        "maintainer"
+      ]
     },
     {
       "path": "schemas/execution-envelope-v2.schema.json",
       "kind": "spec",
       "status": "current",
       "language": "en",
-      "audiences": ["contributor", "maintainer"]
+      "audiences": [
+        "contributor",
+        "maintainer"
+      ]
     },
     {
       "path": "schemas/project-verification.schema.json",
       "kind": "spec",
       "status": "current",
       "language": "en",
-      "audiences": ["contributor", "maintainer"]
+      "audiences": [
+        "contributor",
+        "maintainer"
+      ]
     },
     {
       "path": "docs/schemas/role-pack.schema.json",
       "kind": "spec",
       "status": "current",
       "language": "en",
-      "audiences": ["contributor", "maintainer", "auditor"]
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
     },
     {
       "path": "schemas/role-pack.schema.json",
       "kind": "spec",
       "status": "current",
       "language": "en",
-      "audiences": ["contributor", "maintainer"]
+      "audiences": [
+        "contributor",
+        "maintainer"
+      ]
     },
     {
       "path": "docs/schemas/project-config.schema.json",
       "kind": "spec",
       "status": "current",
       "language": "en",
-      "audiences": ["contributor", "maintainer", "auditor"]
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
     },
     {
       "path": "schemas/project-config.schema.json",
       "kind": "spec",
       "status": "current",
       "language": "en",
-      "audiences": ["contributor", "maintainer", "user"]
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "user"
+      ]
     },
     {
       "path": "docs/schemas/harness-eval-scenario.schema.json",
       "kind": "spec",
       "status": "current",
       "language": "en",
-      "audiences": ["contributor", "maintainer", "auditor"]
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
     },
     {
       "path": "schemas/harness-eval-scenario.schema.json",
       "kind": "spec",
       "status": "current",
       "language": "en",
-      "audiences": ["contributor", "maintainer"]
+      "audiences": [
+        "contributor",
+        "maintainer"
+      ]
     },
     {
       "path": "docs/schemas/harness-eval-fixture.schema.json",
       "kind": "spec",
       "status": "current",
       "language": "en",
-      "audiences": ["contributor", "maintainer", "auditor"]
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
     },
     {
       "path": "schemas/harness-eval-fixture.schema.json",
       "kind": "spec",
       "status": "current",
       "language": "en",
-      "audiences": ["contributor", "maintainer"]
+      "audiences": [
+        "contributor",
+        "maintainer"
+      ]
     },
     {
       "path": "docs/schemas/harness-eval-result.schema.json",
       "kind": "spec",
       "status": "current",
       "language": "en",
-      "audiences": ["contributor", "maintainer", "auditor"]
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
     },
     {
       "path": "schemas/harness-eval-result.schema.json",
       "kind": "spec",
       "status": "current",
       "language": "en",
-      "audiences": ["contributor", "maintainer"]
+      "audiences": [
+        "contributor",
+        "maintainer"
+      ]
     },
     {
       "path": "templates/adr/adr-template.md",
       "kind": "plan",
       "status": "current",
       "language": "bilingual",
-      "audiences": ["contributor", "maintainer"]
+      "audiences": [
+        "contributor",
+        "maintainer"
+      ]
     },
     {
       "path": "docs/memory/ARCHITECTURE.md",
@@ -909,25 +992,24 @@
       ]
     },
     {
-      "path": "docs/rules/ast-grep.md",
-      "kind": "agent-rules",
-      "status": "current",
-      "language": "zh-CN",
-      "audiences": ["agent", "maintainer"]
-    },
-    {
       "path": "docs/rules/chrome-devtools-mcp.md",
       "kind": "agent-rules",
       "status": "current",
       "language": "zh-CN",
-      "audiences": ["agent", "maintainer"]
+      "audiences": [
+        "agent",
+        "maintainer"
+      ]
     },
     {
       "path": "docs/rules/codebase-memory-mcp.md",
       "kind": "agent-rules",
       "status": "current",
       "language": "zh-CN",
-      "audiences": ["agent", "maintainer"]
+      "audiences": [
+        "agent",
+        "maintainer"
+      ]
     },
     {
       "path": "docs/rules/coding-rules.md",
@@ -1050,13 +1132,6 @@
       ]
     },
     {
-      "path": "docs/rules/rtk.md",
-      "kind": "agent-rules",
-      "status": "current",
-      "language": "zh-CN",
-      "audiences": ["agent", "maintainer"]
-    },
-    {
       "path": "docs/rules/troubleshooting.md",
       "kind": "agent-rules",
       "status": "current",
@@ -1091,21 +1166,31 @@
       "kind": "plan",
       "status": "current",
       "language": "zh-CN",
-      "audiences": ["agent", "maintainer"]
+      "audiences": [
+        "agent",
+        "maintainer"
+      ]
     },
     {
       "path": "docs/templates/verification-plan.md",
       "kind": "plan",
       "status": "current",
       "language": "zh-CN",
-      "audiences": ["agent", "maintainer"]
+      "audiences": [
+        "agent",
+        "maintainer"
+      ]
     },
     {
       "path": "docs/templates/verification-receipt.md",
       "kind": "plan",
       "status": "current",
       "language": "zh-CN",
-      "audiences": ["agent", "maintainer", "auditor"]
+      "audiences": [
+        "agent",
+        "maintainer",
+        "auditor"
+      ]
     },
     {
       "path": "docs/adr/ADR-0007-dag-result-unverified.md",
@@ -1214,39 +1299,6 @@
       ]
     },
     {
-      "path": "docs/rules/codegraph.md",
-      "kind": "agent-rules",
-      "status": "current",
-      "language": "zh-CN",
-      "audiences": [
-        "agent",
-        "contributor",
-        "maintainer"
-      ]
-    },
-    {
-      "path": "docs/rules/probe.md",
-      "kind": "agent-rules",
-      "status": "current",
-      "language": "zh-CN",
-      "audiences": [
-        "agent",
-        "contributor",
-        "maintainer"
-      ]
-    },
-    {
-      "path": "docs/rules/serena.md",
-      "kind": "agent-rules",
-      "status": "current",
-      "language": "zh-CN",
-      "audiences": [
-        "agent",
-        "contributor",
-        "maintainer"
-      ]
-    },
-    {
       "path": "docs/templates/plan.md",
       "kind": "plan",
       "status": "current",
@@ -1308,11 +1360,12 @@
       ]
     },
     {
-      "path": "docs/specs/delivery-lifecycle.md",
-      "kind": "spec",
-      "status": "implemented",
+      "path": "docs/adr/ADR-0012-single-reviewer-review-receipt.md",
+      "kind": "architecture",
+      "status": "current",
       "language": "zh-CN",
       "audiences": [
+        "contributor",
         "maintainer",
         "auditor"
       ]
@@ -1329,10 +1382,42 @@
       ]
     },
     {
-      "path": "docs/adr/ADR-0012-single-reviewer-review-receipt.md",
+      "path": "docs/specs/delivery-lifecycle.md",
+      "kind": "spec",
+      "status": "implemented",
+      "language": "zh-CN",
+      "audiences": [
+        "maintainer",
+        "auditor"
+      ]
+    },
+    {
+      "path": "docs/adr/ADR-0014-service-teardown-best-effort.md",
       "kind": "architecture",
       "status": "current",
-      "language": "en",
+      "language": "zh-CN",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
+    },
+    {
+      "path": "docs/adr/ADR-0015-explicit-develop-flow.md",
+      "kind": "architecture",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
+    },
+    {
+      "path": "docs/adr/ADR-0016-gd-flow-linear-boundary.md",
+      "kind": "architecture",
+      "status": "current",
+      "language": "zh-CN",
       "audiences": [
         "contributor",
         "maintainer",

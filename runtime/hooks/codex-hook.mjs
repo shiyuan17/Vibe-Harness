@@ -10,7 +10,6 @@ import { evaluateFrozenTestWrite } from './lib/frozen-test-writes.mjs';
 import { classifyExecutionEffects, evaluateExecutionEnvelope } from './lib/execution-envelope.mjs';
 import { analyzeToolRequest, commandFrom, createHostHookResult, normalizeHostHookInput } from './lib/policy.mjs';
 import { isReadOnlyToolName } from './lib/read-only-commands.mjs';
-import { inspectRtkHook, routeRtkCommand } from './lib/rtk.mjs';
 
 const execFileAsync = promisify(execFile);
 const MAX_INPUT_BYTES = 1024 * 1024;
@@ -132,41 +131,78 @@ async function evaluateSyncWorkingTreeGuard(input) {
 
 /**
  * @param {unknown} rawInput
- * @param {{environment?: NodeJS.ProcessEnv, expectedEvent?: string | null, host?: string, now?: number | Date, rtkRunner?: (binary: string, command: string, options?: {cwd?: string, maxOutputBytes?: number, timeoutMs?: number}) => Promise<Record<string, any>>}} options
+ * @param {{environment?: NodeJS.ProcessEnv, expectedEvent?: string | null, host?: string, now?: number | Date, telemetry?: (event: {host: string, event: string | null, action: string, reasonCode?: string | null, durationMs: number, startupMs: number | null, policyMs: number | null, timeout: boolean, failure: string | null}) => void}} options
  */
 export async function evaluateHook(rawInput, {
   environment = process.env,
   expectedEvent,
   host = 'codex',
   now,
-  rtkRunner,
+  telemetry,
 } = {}) {
   const startedAt = process.hrtime.bigint();
   const elapsedMs = () => Number((process.hrtime.bigint() - startedAt) / 1_000_000n);
+  let startupAt = null;
+  const emitTelemetry = (result, decision = null, failure = null) => {
+    if (typeof telemetry !== 'function') return result;
+    const durationMs = elapsedMs();
+    const startupMs = startupAt === null ? null : Number((startupAt - startedAt) / 1_000_000n);
+    const policyMs = startupAt === null ? null : Math.max(0, durationMs - startupMs);
+    try {
+      telemetry({
+        host,
+        event: typeof result?.hookSpecificOutput?.hookEventName === 'string'
+          ? result.hookSpecificOutput.hookEventName
+          : expectedEvent ?? null,
+        action: decision?.action
+          ?? (host === 'antigravity'
+            ? result?.decision
+            : result?.hookSpecificOutput?.permissionDecision
+              ?? result?.hookSpecificOutput?.decision?.behavior)
+          ?? 'allow',
+        ...(decision?.reasonCode ? { reasonCode: decision.reasonCode } : {}),
+        durationMs,
+        startupMs,
+        policyMs,
+        timeout: decision?.reasonCode === HOOK_FAILURE_CODES.budgetExceeded,
+        failure,
+      });
+    } catch {
+    }
+    return result;
+  };
   let input;
   try {
     input = normalizeHostHookInput(rawInput, { expectedEvent, fallbackCwd: process.cwd(), host });
   } catch {
-    throw hookFailure(HOOK_FAILURE_CODES.inputInvalid);
+    const failure = hookFailure(HOOK_FAILURE_CODES.inputInvalid);
+    emitTelemetry({}, { action: 'deny', reasonCode: failure.code }, failure.code);
+    throw failure;
   }
   if (expectedEvent && input.event !== expectedEvent) {
-    throw hookFailure(HOOK_FAILURE_CODES.eventMismatch);
+    const failure = hookFailure(HOOK_FAILURE_CODES.eventMismatch);
+    emitTelemetry({}, { action: 'deny', reasonCode: failure.code }, failure.code);
+    throw failure;
   }
   try {
     const contextStat = await stat(input.cwd);
     if (!contextStat.isDirectory()) throw hookFailure(HOOK_FAILURE_CODES.projectContextUnavailable);
   } catch (error) {
-    if (error?.code === HOOK_FAILURE_CODES.projectContextUnavailable) throw error;
-    throw hookFailure(HOOK_FAILURE_CODES.projectContextUnavailable);
+    const failure = error?.code === HOOK_FAILURE_CODES.projectContextUnavailable
+      ? error
+      : hookFailure(HOOK_FAILURE_CODES.projectContextUnavailable);
+    emitTelemetry({}, { action: 'deny', reasonCode: failure.code }, failure.code);
+    throw failure;
   }
+  startupAt = process.hrtime.bigint();
   // Read-only tools with no command payload can never reach a deny verdict in
   // policy (the write gate misses them), the envelope (read-only
-  // classification) or RTK routing (empty command), so they skip project-root
+  // classification), so they skip project-root
   // resolution and settings loading. The cwd check above still fails closed
   // first, and this answer matches createHostHookResult's allow shape for
   // every host.
   if (isReadOnlyToolName(String(input.toolName ?? '')) && commandFrom(input) === '') {
-    return host === 'antigravity' ? { decision: 'allow' } : {};
+    return emitTelemetry(host === 'antigravity' ? { decision: 'allow' } : {}, { action: 'allow' });
   }
   const rootDir = await findProjectRoot(input.cwd);
   const settings = await readHookSettings(rootDir);
@@ -176,7 +212,7 @@ export async function evaluateHook(rawInput, {
   }
   const frozenTestDecision = await evaluateFrozenTestWrite(input, rootDir);
   if (frozenTestDecision.action === 'deny') {
-    return createHostHookResult(host, input.event, frozenTestDecision, { durationMs: elapsedMs() });
+    return emitTelemetry(createHostHookResult(host, input.event, frozenTestDecision, { durationMs: elapsedMs() }), frozenTestDecision);
   }
   // The host injects the acting role's permission preset through the parent-
   // owned environment; the project config can also declare one. The host
@@ -189,7 +225,7 @@ export async function evaluateHook(rawInput, {
   const envelopeConfigured = Object.hasOwn(input, 'executionEnvelope')
     || Object.hasOwn(environment, 'VIBE_HARNESS_EXECUTION_ENVELOPE')
     || environment.VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED === '1';
-  if (settings.mode === 'off' && !envelopeConfigured && !hostPreset) return {};
+  if (settings.mode === 'off' && !envelopeConfigured && !hostPreset) return emitTelemetry({}, { action: 'allow' });
   const permissionPreset = hostPreset ?? settings.permissionPreset ?? null;
 
   const safetyDecision = analyzeToolRequest(input, {
@@ -201,7 +237,7 @@ export async function evaluateHook(rawInput, {
     redZonePaths: settings.redZonePaths,
   });
   if (safetyDecision.action === 'deny') {
-    return createHostHookResult(host, input.event, safetyDecision, { durationMs: elapsedMs() });
+    return emitTelemetry(createHostHookResult(host, input.event, safetyDecision, { durationMs: elapsedMs() }), safetyDecision);
   }
   const envelopeDecision = evaluateExecutionEnvelope(input, {
     environment,
@@ -209,28 +245,21 @@ export async function evaluateHook(rawInput, {
     ...(now === undefined ? {} : { now }),
   });
   if (envelopeDecision.action !== 'allow') {
-    return createHostHookResult(host, input.event, envelopeDecision, { durationMs: elapsedMs() });
+    return emitTelemetry(createHostHookResult(host, input.event, envelopeDecision, { durationMs: elapsedMs() }), envelopeDecision);
   }
   if (safetyDecision.action !== 'allow' || input.event === 'PermissionRequest') {
-    return createHostHookResult(host, input.event, safetyDecision, { durationMs: elapsedMs() });
+    return emitTelemetry(createHostHookResult(host, input.event, safetyDecision, { durationMs: elapsedMs() }), safetyDecision);
   }
 
   if (host === 'antigravity') {
-    return createHostHookResult(host, input.event, safetyDecision, { durationMs: elapsedMs() });
+    return emitTelemetry(createHostHookResult(host, input.event, safetyDecision, { durationMs: elapsedMs() }), safetyDecision);
   }
-  if (host !== 'codex') return {};
+  if (host !== 'codex') return emitTelemetry({}, { action: 'allow' });
 
-  const rtk = await inspectRtkHook(rootDir, { enabled: settings.rtkEnabled });
-  const rtkDecision = await routeRtkCommand(input, {
-    mode: settings.mode,
-    projectRoot: rootDir,
-    rtk,
-    ...(rtkRunner ? { runner: rtkRunner } : {}),
-  });
-  return createHostHookResult(host, input.event, rtkDecision, { durationMs: elapsedMs() });
+  return emitTelemetry(createHostHookResult(host, input.event, safetyDecision, { durationMs: elapsedMs() }), safetyDecision);
 }
 
-/** @param {unknown} rawInput @param {{environment?: NodeJS.ProcessEnv, expectedEvent?: string | null, now?: number | Date, rtkRunner?: (binary: string, command: string, options?: {cwd?: string, maxOutputBytes?: number, timeoutMs?: number}) => Promise<Record<string, any>>}} options */
+/** @param {unknown} rawInput @param {{environment?: NodeJS.ProcessEnv, expectedEvent?: string | null, now?: number | Date}} options */
 export async function evaluateCodexHook(rawInput, options = {}) {
   return evaluateHook(rawInput, { ...options, host: 'codex' });
 }

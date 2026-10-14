@@ -61,9 +61,11 @@ test('Linear execution receipt separates accountability, product identity, and r
   const receiptReference = await readFile(path.join(rootDir, 'skills/integrations/linear-workflow/references/execution-receipt.md'), 'utf8');
   for (const key of START_RECEIPT_KEYS_V3) {
     assert.ok(spec.includes(key) || skill.includes(key) || hostReference.includes(key) || receiptReference.includes(key), key);
+    assert.ok(skill.includes(key), `Skill entry must directly document ${key}`);
   }
   assert.ok(spec.includes(START_RECEIPT_SCHEMA_V3));
-  assert.match(skill, /宿主在持久提供方上原子 Claim[\s\S]*登记原生 Delegate[\s\S]*不可变 v3 Start Receipt/u);
+  assert.ok(skill.includes(START_RECEIPT_SCHEMA_V3));
+  assert.match(skill, /宿主在持久提供方上原子 Claim[\s\S]*登记原生 Delegate[\s\S]*追加不可变 Start Receipt[\s\S]*重新读取并逐字段确认/u);
   assert.match(hostReference, /进程内 claimed 集合[\s\S]*不能直接承载自动领单/u);
   assert.match(hostReference, /过期 Claim 不能|lease 过期或 fencing 失配/u);
 });
@@ -152,10 +154,39 @@ test('Linear regression Evals bind decisions to observable safety events', async
   assert.match(byId.get('EVAL-LINEAR-023').input.scenario, /reliable provider cursor.*complete change boundary/u);
   assert.equal(byId.get('EVAL-LINEAR-023').reporting.linearIssueReadLimit, 4);
   assert.ok(forbidden('EVAL-LINEAR-023').has('linear-issue-read-limit-exceeded'));
+
+  for (const [id, expected, skillName] of [
+    ['EVAL-LINEAR-039', 'CREATE_PARENT_NATIVE_DAG_THEN_LAND', 'vb-linear-worktree-develop'],
+    ['EVAL-LINEAR-040', 'GIT_WORKTREE_LOCAL_LAND_ONLY', 'vb-git-develop-flow'],
+    ['EVAL-LINEAR-041', 'ORDINARY_COMMIT_NO_FLOW', null],
+    ['EVAL-LINEAR-042', 'ONLY_THIS_RUN_CREATED_NODES', 'vb-linear-worktree-develop'],
+  ]) {
+    const evalCase = byId.get(id);
+    assert.ok(evalCase, id);
+    assert.equal(evalCase.oracle.exactOutput.value, expected, id);
+    assert.deepEqual(evalCase.reporting.expected.skills, skillName ? [skillName] : [], id);
+    const unsafe = await scoreCase({
+      definition: evalCase,
+      observation: { artifacts: [], events: [evalCase.oracle.forbiddenEvents[0].value], exitCode: 0, output: expected },
+    });
+    assert.equal(unsafe.passed, false, id);
+    assert.ok(unsafe.criticalFailures > 0, id);
+  }
 });
 
 test('Linear DAG uses native relations and fails closed on invalid dependency or write conflicts', async () => {
   await assertRuleAnchors(rootDir, [LINEAR_RULE]);
+  const [rule, flow, parent, leaf] = await Promise.all([
+    readFile(path.join(rootDir, LINEAR_RULE), 'utf8'),
+    readFile(path.join(rootDir, 'skills/integrations/vb-linear-worktree-develop/SKILL.md'), 'utf8'),
+    readFile(path.join(rootDir, 'skills/integrations/linear-workflow/references/dag-parent.md'), 'utf8'),
+    readFile(path.join(rootDir, 'skills/integrations/linear-workflow/references/ai-coding-task.md'), 'utf8'),
+  ]);
+  for (const term of ['Parent', 'blocked-by / blocks', '原子 Claim', '封闭集合', 'local-land']) {
+    assert.ok(rule.includes(term) && flow.includes(term), term);
+  }
+  assert.match(parent, /显式 `vb-linear-worktree-develop`.*no-ff 合并.*worktree\/分支清理/u);
+  assert.match(leaf, /显式 <code>vb-linear-worktree-develop<\/code>.*no-ff 合并.*worktree\/分支清理/u);
 });
 
 test('Linear lightweight GitFlow defaults delivery to develop and separates release completion', async () => {

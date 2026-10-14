@@ -7,12 +7,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 
 import { inspectValidationCommands } from './lib/command-status.js';
 import { inspectGitHooks } from './lib/git-hooks.js';
-import {
-  CODEBASE_MEMORY_CACHE_STALE_COPY,
-  codebaseMemoryRuntimePresent,
-  describeCodebaseMemoryCache,
-  removeCodebaseMemoryCache,
-} from './lib/codebase-memory-cache.js';
+import { migrateRetiredTools } from './lib/retired-tools.js';
 import {
   applyRollbackPlan,
   applyUninstallPlan,
@@ -109,21 +104,6 @@ function healthReport({ baseOk = true, profile, tools = {} }) {
 function applyHealthExit(status, args) {
   if (status === 'invalid') process.exitCode = 1;
   if (status === 'degraded' && !args['allow-degraded']) process.exitCode = 2;
-}
-
-function rtkHooksReport(enabled, tools = {}, source = 'unknown') {
-  if (!enabled) return { enabled: false, source, status: 'disabled', reason: 'RTK hooks are disabled.' };
-  const state = tools.rtk;
-  if (state?.status === 'ready') {
-    return { enabled: true, source, status: 'ready', reason: 'Project-local RTK runtime is ready.' };
-  }
-  const status = state?.status ?? 'degraded';
-  return {
-    enabled: true,
-    source,
-    status,
-    reason: state?.diagnostic?.message ?? `Project-local RTK runtime is ${status}. Original commands remain available.`,
-  };
 }
 
 function toolStateRelativePath(targetDir) {
@@ -258,67 +238,8 @@ function summaryText(value, maxLength = 480) {
   return compact.length > maxLength ? `${compact.slice(0, maxLength - 3)}...` : compact;
 }
 
-function optionalToolFallback(tool) {
-  if (tool === 'rtk') return '直接使用原命令并记录该回退。';
-  if (tool === 'astGrep') return '改用 rg 或项目搜索命令并记录该回退。';
-  return null;
-}
-
-/**
- * Cache facts are only reported for projects that actually resolve the tool,
- * so an unrelated project never grows a diagnostic about a cache it does not
- * use. The report covers the location, the freshness stamp and any cache left
- * behind by the pre-0.11.0 layout (those copies are never deleted silently).
- */
-async function inspectCodebaseMemoryCache(targetDir, tools = {}) {
-  if (!tools?.codebaseMemoryMcp && !(await codebaseMemoryRuntimePresent(targetDir))) return null;
-  return describeCodebaseMemoryCache(targetDir);
-}
-
-function codebaseMemoryCacheWarnings(cache) {
-  if (!cache) return [];
-  const warnings = [];
-  if (cache.staleCopies.length > 0) {
-    warnings.push({
-      code: CODEBASE_MEMORY_CACHE_STALE_COPY,
-      message: 'Stale codebase-memory index copies exist at '
-        + cache.staleCopies.map((item) => `${item.path} (${item.kind})`).join(', ')
-        + '; doctor only reports them and never deletes them.',
-    });
-  }
-  if (cache.indexState && cache.freshness.state !== 'fresh') {
-    warnings.push({
-      code: 'CODEBASE_MEMORY_INDEX_STALE',
-      message: 'The codebase-memory index stamp predates the current HEAD ('
-        + cache.freshness.reason
-        + '); rebuild it through the project command `codebase-memory refresh --project . --write`.',
-    });
-  }
-  return warnings;
-}
-
-function planRemovesCodebaseMemoryRuntime(actions = []) {
-  return actions.some((action) => String(action?.target ?? action?.relativeTarget ?? '')
-    .replaceAll('\\', '/')
-    .includes('.agents/runtime/tools/codebase-memory-mcp/'));
-}
-
-/**
- * Cleanup runs only when the runtime leaves the project: a targeted uninstall
- * that keeps another adapter keeps the cache, and a dry run reports the
- * intended directory without touching the disk.
- */
-async function cleanupCodebaseMemoryCache({ actions = [], dryRun, targetDir }) {
-  const runtimeRemoved = !(await codebaseMemoryRuntimePresent(targetDir))
-    || planRemovesCodebaseMemoryRuntime(actions);
-  if (!runtimeRemoved) return null;
-  const cleanup = await removeCodebaseMemoryCache(targetDir, { dryRun });
-  return cleanup.reason === 'absent' ? null : cleanup;
-}
-
 function toolSummaryLines(tools = {}, recommendations = []) {
   return Object.entries(tools).flatMap(([tool, state]) => {
-    const fallback = optionalToolFallback(tool);
     const diagnostic = state.diagnostic;
     const details = diagnostic?.stderrTail ?? diagnostic?.stdoutTail;
     const recommendation = recommendations.find((item) => item.tool === tool);
@@ -337,9 +258,26 @@ function toolSummaryLines(tools = {}, recommendations = []) {
       ...(details && details !== diagnostic?.message ? [`details: ${summaryText(details)}`] : []),
       ...(diagnostic?.exitCode !== undefined ? [`exitCode: ${diagnostic.exitCode}`] : []),
       ...(diagnostic?.truncated ? ['detailsTruncated: true'] : []),
-      ...(recommendation?.command || recommendation?.message || fallback ? [`next: ${recommendation?.action === 'fallback' ? recommendation.message : (recommendation?.command ?? recommendation?.message ?? fallback)}`] : []),
+      ...(recommendation?.command || recommendation?.message ? [`next: ${recommendation.command ?? recommendation.message}`] : []),
     ];
   });
+}
+
+/**
+ * Record a blocking strict-Hook refusal on a completion receipt.
+ *
+ * The Hook block is a delivery fact rather than a verification detail: the
+ * receipt is `blocked` (never `passed`) and names the refusal, so a consumer
+ * cannot read it as complete delivery evidence while the report is invalid.
+ */
+function withHookBlock(receipt, hookFailure) {
+  if (!hookFailure) return receipt;
+  return {
+    ...receipt,
+    status: 'blocked',
+    unverified: [...new Set([...(receipt.unverified ?? []), `hook:${hookFailure.code ?? 'HOOK_POLICY_BLOCKED'}`])],
+    remainingRisks: [...new Set([...(receipt.remainingRisks ?? []), hookFailure.message ?? 'Strict Hook enforcement blocks delivery.'])],
+  };
 }
 
 function emitReport(report, args, { error = false } = {}) {
@@ -349,7 +287,6 @@ function emitReport(report, args, { error = false } = {}) {
   if (!['json', 'summary'].includes(output)) throw new Error(`Unknown output format: ${output}`);
   if (output === 'summary') {
     const lines = [
-      ...(normalized.rtkHooks ? ['rtkHooksSource: ' + normalized.rtkHooks.source] : []),
       ...(normalized.runtimeHooks ? ['runtimeHooks: ' + normalized.runtimeHooks.activation.status + ' (' + normalized.runtimeHooks.activation.mechanism + ')'] : []),
       ...(normalized.memory ? ['memory: runtime=' + normalized.memory.runtime.status + ', durable=' + normalized.memory.durable.status] : []),
       ...(normalized.preset ? ['preset: ' + normalized.preset] : []),
@@ -361,8 +298,6 @@ function emitReport(report, args, { error = false } = {}) {
         : []),
       ...(normalized.profile ? [`profile: ${normalized.profile}`] : []),
       ...(Array.isArray(normalized.requestedPlugins) ? [`plugins: ${normalized.requestedPlugins.length ? normalized.requestedPlugins.join(',') : 'none'}`] : []),
-      ...(normalized.rtkHooks ? [`rtkHooks: ${normalized.rtkHooks.status} (enabled=${normalized.rtkHooks.enabled})`] : []),
-      ...(normalized.rtkHooks && normalized.rtkHooks.status !== 'ready' ? [`rtkHooksReason: ${summaryText(normalized.rtkHooks.reason)}`] : []),
       ...(typeof normalized.target === 'string' ? [`target: ${normalized.target}`] : []),
       ...(normalized.dryRun !== undefined ? [`dryRun: ${normalized.dryRun}`] : []),
       `warnings: ${normalized.warnings.length}`,
@@ -396,6 +331,18 @@ function parseArgs(argv) {
         args[key] = [...(Array.isArray(args[key]) ? args[key] : []), ...values];
         continue;
       }
+      if (key === 'reviewed') {
+        // Repeatable, and comma-separated like `run.mjs verify --reviewed`, so a
+        // caller can name several checks without repeating the flag in an
+        // order-sensitive way.
+        const values = [];
+        while (index + 1 < argv.length && !argv[index + 1].startsWith('--')) {
+          values.push(argv[index + 1]);
+          index += 1;
+        }
+        args[key] = [...(Array.isArray(args[key]) ? args[key] : []), ...values.flatMap((value) => value.split(',')).map((value) => value.trim()).filter(Boolean)];
+        continue;
+      }
       const next = argv[index + 1];
       if (!next || next.startsWith('--')) {
         args[key] = true;
@@ -424,43 +371,6 @@ function resolveCommandTargets(config, state, requestedTarget) {
     return { configured, selected: [requestedTarget] };
   }
   return { configured, selected: configured };
-}
-
-function parseRtkHooksOption(value) {
-  if (value === 'on') return true;
-  if (value === 'off') return false;
-  throw new Error('--rtk-hooks must be on or off.');
-}
-
-function resolveRtkHooksSetting({ adapterId, args = {}, config, installState, requestedPlugins = [], targets = [adapterId] }) {
-  const configured = Object.hasOwn(config.hooks?.rtk ?? {}, 'enabled');
-  const rtkSelected = requestedPlugins.includes('rtk');
-  let enabled;
-  let source;
-  if (args['rtk-hooks'] !== undefined) {
-    enabled = parseRtkHooksOption(args['rtk-hooks']);
-    source = 'cli';
-  } else if (configured) {
-    enabled = config.hooks.rtk.enabled;
-    source = 'project-config';
-  } else if (installState) {
-    enabled = Boolean(installState.rtkHooksEnabled && rtkSelected);
-    source = 'install-state';
-  } else {
-    enabled = Boolean(rtkSelected && targets.includes('codex'));
-    source = enabled ? 'fresh-install-default' : 'default-disabled';
-  }
-  if (enabled && !targets.includes('codex')) {
-    throw new Error('RTK hooks are only supported for the codex target.');
-  }
-  if (enabled && !rtkSelected) {
-    throw new Error('RTK hook integration requires the rtk plugin. Select --plugin -rtk.');
-  }
-  return { enabled, source };
-}
-
-function resolveRtkHooksEnabled(options) {
-  return resolveRtkHooksSetting(options).enabled;
 }
 
 async function init(args) {
@@ -496,9 +406,10 @@ async function init(args) {
 
 async function install(args) {
   if (!args.project) throw new Error('install requires --project <path>; legacy --target path and --apply were removed.');
+  if (Object.hasOwn(args, 'rtk-hooks')) throw new Error('--rtk-hooks has been retired; use install --upgrade to migrate existing configuration.');
   const allowedOptions = new Set([
     '_', 'allow-degraded', 'allow-preview', 'confirm-red-zone', 'dry-run', 'force', 'modules', 'output',
-    'plugin', 'preset', 'preserve-retired', 'profile', 'project', 'provision', 'rtk-hooks', 'target', 'upgrade', 'verbose', 'write',
+    'plugin', 'preset', 'preserve-retired', 'profile', 'project', 'provision', 'target', 'upgrade', 'verbose', 'write',
   ]);
   const unknownOption = Object.keys(args).find((key) => !allowedOptions.has(key));
   if (unknownOption) throw new Error(`Unknown install option: --${unknownOption}`);
@@ -520,7 +431,8 @@ async function install(args) {
     });
   }
   const sourceConfig = await readRequiredProjectConfig(targetDir);
-  const config = sourceConfig;
+  const toolMigration = args.upgrade ? migrateRetiredTools(sourceConfig, existingState) : { config: sourceConfig, removed: [] };
+  const config = toolMigration.config;
   const enforcementPolicy = resolveEnforcementPolicy(config);
   const { configured: targets, selected: selectedTargets } = resolveCommandTargets(config, existingState, args.target);
   const adapterId = selectedTargets[0];
@@ -545,15 +457,6 @@ async function install(args) {
   };
   const requestedModules = installSurface.modules;
   const requestedPlugins = installSurface.plugins;
-  const rtkHooksSetting = resolveRtkHooksSetting({
-    adapterId,
-    args,
-    config,
-    installState: existingState,
-    requestedPlugins: requestedPlugins ?? [],
-    targets,
-  });
-  const rtkHooksEnabled = rtkHooksSetting.enabled;
 
   const migratedConfig = migrateLegacyProjectConfig(config);
   const writePreset = Boolean(installSurface.preset)
@@ -576,10 +479,11 @@ async function install(args) {
     ? null
     : defaultWorktreeMirrors({
         plugins: [...new Set([...(config.plugins ?? []), ...(requestedPlugins ?? [])])],
+        targets: projectTargets(config),
         target: adapterId,
       });
   const seedMirrors = Boolean(mirrorsSeed && mirrorsSeed.length > 0);
-  const configUpdate = migrateTarget || writePreset || tierMigration || seedMirrors
+  const configUpdate = toolMigration.removed.length > 0 || migrateTarget || writePreset || tierMigration || seedMirrors
     ? {
         config: {
           ...migratedConfig,
@@ -607,6 +511,9 @@ async function install(args) {
       'Refusing to persist worktree.mirrors in vibe-harness.config.json without explicit red-zone confirmation; retry with --confirm-red-zone.',
     );
   }
+  if (toolMigration.removed.length > 0 && !dryRunRequested && !args['confirm-red-zone']) {
+    throw new Error('Retiring tool configuration requires --confirm-red-zone.');
+  }
   const plan = await createMultiTargetInstallPlan({
     configUpdate,
     allowPreview: installSurface.allowPreview,
@@ -618,7 +525,6 @@ async function install(args) {
     requestedModules,
     requestedPlugins,
     preserveRetired: Boolean(args['preserve-retired']),
-    rtkHooksEnabled,
     renderData,
     rootDir,
     selectedTargets,
@@ -785,7 +691,6 @@ async function install(args) {
     preserveRetired: plan.preserveRetired,
     resolvedModules: plan.resolvedModules,
     roleProjections: plan.roleProjections ?? {},
-    rtkHooks: rtkHooksReport(plan.rtkHooksEnabled, tools, rtkHooksSetting.source),
     runtimeHooks,
     requiresRedZoneConfirmation: plan.dryRun
       && !args['confirm-red-zone']
@@ -797,6 +702,7 @@ async function install(args) {
     recommendations: toolRecommendations(tools, profile, { adapterId, mvp: isMvpMode }),
     warnings,
     retired: result.retired,
+    retiredToolConfiguration: toolMigration.removed,
     retained: result.retained,
     retainedProjectOwned,
     skipped: result.skipped,
@@ -817,14 +723,6 @@ async function validate(args) {
     const requestedModules = installSurface.modules;
     const requestedPlugins = installSurface.plugins;
     const adapter = await resolveAdapter(rootDir, selectedTargets[0]);
-    const rtkHooksSetting = resolveRtkHooksSetting({
-      adapterId: adapter.id,
-      config,
-      installState,
-      requestedPlugins: requestedPlugins ?? [],
-      targets,
-    });
-    const rtkHooksEnabled = rtkHooksSetting.enabled;
     const projectProfile = await detectProjectProfile({ config, targetDir });
     const validationCommands = validationCommandView(projectProfile, config);
     const plan = await createMultiTargetInstallPlan({
@@ -836,7 +734,6 @@ async function validate(args) {
       profile: installSurface.profile,
       requestedModules,
       requestedPlugins,
-      rtkHooksEnabled,
       renderData: { ...config, projectProfile, validationCommands },
       rootDir,
       selectedTargets,
@@ -857,7 +754,6 @@ async function validate(args) {
       profile: installSurface.profile,
       requestedModules,
       requestedPlugins,
-      rtkHooksEnabled,
       renderData: { ...config, projectProfile, validationCommands },
       rootDir,
       selectedTargets,
@@ -905,7 +801,6 @@ async function validate(args) {
     });
     let health = healthReport({ profile: installSurface.profile, tools });
     const runtimeHooks = await inspectRuntimeHooks(adapter, targetDir);
-    const codebaseMemoryCache = await inspectCodebaseMemoryCache(targetDir, tools);
     // Missing tiers stay a hint, not a failure: the effective tiers are derived
     // from the project scripts, and the plan reports which source was used.
     const tiersMissing = !validationTiersDeclared(config.validationCommands?.tiers);
@@ -919,7 +814,6 @@ async function validate(args) {
       }),
       ...strictEnforcementWarnings(target.strictEnforcementRefusals),
       ...roleRuntimeWarnings(target.adapters),
-      ...codebaseMemoryCacheWarnings(codebaseMemoryCache),
       ...(tiersMissing ? [{
         code: 'VALIDATION_TIERS_NOT_CONFIGURED',
         message: 'Add validationCommands.tiers (quick/standard/deep) or declare the matching package scripts; verify falls back to the detected project commands.',
@@ -930,12 +824,10 @@ async function validate(args) {
     }
     emitReport({
       ...health,
-      ...(codebaseMemoryCache ? { codebaseMemoryCache } : {}),
       commandStatus,
       enforcementPolicy,
       strictEnforcementRefusals: target.strictEnforcementRefusals ?? [],
       recommendations: toolRecommendations(tools, installSurface.profile, { adapterId: adapter.id, mvp: true }),
-      rtkHooks: rtkHooksReport(rtkHooksEnabled, tools, rtkHooksSetting.source),
       runtimeHooks,
       roles: roleRuntimeReport(target.adapters),
       scope: 'project',
@@ -976,13 +868,6 @@ async function verify(args) {
   const requestedModules = installSurface.modules;
   const requestedPlugins = installSurface.plugins;
   const adapter = await resolveAdapter(rootDir, selectedTargets[0]);
-  const rtkHooksEnabled = resolveRtkHooksEnabled({
-    adapterId: adapter.id,
-    config,
-    installState,
-    requestedPlugins: requestedPlugins ?? [],
-    targets,
-  });
   const projectProfile = await detectProjectProfile({ config, targetDir });
   const validationCommands = validationCommandView(projectProfile, config);
   const renderData = { ...config, projectProfile, validationCommands };
@@ -993,7 +878,6 @@ async function verify(args) {
     profile: installSurface.profile,
     requestedModules,
     requestedPlugins,
-    rtkHooksEnabled,
     renderData,
     rootDir,
     selectedTargets,
@@ -1109,22 +993,46 @@ async function verify(args) {
   }
   const verificationReport = await runVerificationPlan({
     allowManual: Boolean(args['allow-manual']),
-    reuse: Boolean(args.reuse),
+    // A cache hit reconstructs the review from the stored receipt instead of
+    // this caller's `--reviewed` declaration, which would let a declaration
+    // from an earlier invocation authorize a receipt-required completion. Reuse
+    // therefore stays off wherever a completion receipt is required.
+    reuse: Boolean(args.reuse) && !delivery.requireReceipt,
     commandStatus,
     plan: planned,
+    reviewed: Array.isArray(args.reviewed) ? args.reviewed : [],
     targetDir,
     timeoutMs: config.verification?.timeoutMs,
   });
-  emitReport({
-    ...verificationReport,
-    delivery: { profile: delivery.profile, stage: 'verify' },
-    ...(delivery.requireReceipt ? { completion: completionReceipt({
-      ...verificationReport, status: verificationReport.ok ? 'passed' : 'blocked',
+  const completion = delivery.requireReceipt
+    ? withHookBlock(completionReceipt({
+      ...verificationReport, status: verificationReport.ok && !blockingHookFailure ? 'passed' : 'blocked',
       checks: verificationReport.results,
       scope: planned.scope, selectedChecks: verificationReport.verification?.selectedChecks,
       deferredChecks: verificationReport.verification?.deferredChecks,
-    }, delivery) } : {}),
-    ...(blockingHookFailure ? { ok: false } : {}),
+    }, delivery), blockingHookFailure)
+    : null;
+  // The completion draft is built for every receipt-required delivery, and a
+  // draft the evidence *refutes* must not be reported `ready`: a consumer that
+  // read only the ordinary report status would otherwise treat a blocked
+  // completion as a successful delivery. `completionReceipt` keeps absent
+  // evidence (deferred layers, a review this caller never declared, a workspace
+  // it could not observe) as `unverified`, so this gate fires exactly when the
+  // commands contradict the completion claim — including a workspace that
+  // changed under passing checks, where the commands alone would read green.
+  // Whether the draft is `passed` is what `task check --complete` and
+  // `worktree land/cleanup` re-derive from a `complete` receipt.
+  const completionBlocked = completion !== null && completion.status === 'blocked';
+  const reportOk = verificationReport.ok && !blockingHookFailure && !completionBlocked;
+  emitReport({
+    ...verificationReport,
+    // The strict-Hook block belongs to the delivery result, so the completion
+    // receipt is built from the effective status and carries the block as an
+    // unverified item. A receipt that said `passed` while the report was blocked
+    // by an unenforced Hook would be consumed as successful delivery evidence.
+    ...(completion ? { completion } : {}),
+    delivery: { profile: delivery.profile, stage: 'verify' },
+    ...(reportOk ? {} : { ok: false }),
     deferredChecks: verificationReport.verification?.deferredChecks ?? [],
     deferredMicroChecks: verificationReport.verification?.deferredMicroChecks ?? planned.deferredMicroChecks ?? [],
     selectedMicroChecks: verificationReport.verification?.selectedMicroChecks ?? planned.selectedMicroChecks ?? [],
@@ -1141,14 +1049,14 @@ async function verify(args) {
     scope: 'project',
     verificationScope: planned.scope ?? null,
     scopeStatus: verificationReport.verification?.scopeStatus ?? 'complete',
-    status: verificationReport.ok && !blockingHookFailure ? 'ready' : 'invalid',
+    status: reportOk ? 'ready' : 'invalid',
     strictEnforcementRefusals: target.strictEnforcementRefusals ?? [],
     ...(args.verbose ? { targetDir } : {}),
     tierFallback: verificationReport.verification?.tierFallback ?? null,
     tierSource: verificationReport.verification?.tierSource ?? null,
     warnings: [...hookPolicyWarnings, ...delivery.warnings, ...overrideWarnings(config)],
-  }, args, { error: !verificationReport.ok || Boolean(blockingHookFailure) });
-  if (!verificationReport.ok || blockingHookFailure) process.exitCode = 1;
+  }, args, { error: !reportOk });
+  if (!reportOk) process.exitCode = 1;
 }
 
 async function baseline(args) {
@@ -1194,13 +1102,6 @@ async function baseline(args) {
       code: 'BASELINE_INSTALL_INVALID',
     });
   }
-  const rtkHooksEnabled = resolveRtkHooksEnabled({
-    adapterId: adapter.id,
-    config,
-    installState,
-    requestedPlugins: requestedPlugins ?? [],
-    targets,
-  });
   const validationCommands = validationCommandView(projectProfile, config);
   const renderData = { ...config, projectProfile, validationCommands };
   const target = await diffMultiTargetInstall({
@@ -1209,7 +1110,6 @@ async function baseline(args) {
     profile: config.profile,
     requestedModules,
     requestedPlugins,
-    rtkHooksEnabled,
     renderData,
     rootDir,
     targetDir,
@@ -1312,27 +1212,11 @@ function toolRecommendations(tools, profile, { adapterId = 'codex' } = {}) {
   const retryCommand = `vibe-harness provision --project <project> --target ${adapterId} --profile ${profile} --write`;
   return Object.entries(tools).flatMap(([tool, state]) => {
     const toolRetryCommand = retryCommand + ' --tool ' + tool;
-    const fallback = optionalToolFallback(tool);
-    if (fallback && ['pending', 'degraded', 'unsupported'].includes(state.status)) {
+    if (state.status === 'unsupported') {
+      const fallback = 'Use the project-supported fallback and record the limitation.';
       return [{
         action: 'fallback',
         ...(state.code ? { code: state.code } : {}),
-        ...(state.status === 'degraded' ? { command: toolRetryCommand } : {}),
-        ...(state.diagnostic ? { diagnostic: state.diagnostic } : {}),
-        message: `${tool} is ${state.status} during ${state.phase}. ${fallback}`,
-        phase: state.phase,
-        tool,
-      }];
-    }
-    if (state.status === 'unsupported') {
-      const fallback = tool === 'rtk'
-        ? 'Use the original command without RTK and record the fallback.'
-        : tool === 'astGrep'
-          ? 'Use rg or the project search command and record the fallback.'
-          : 'Use the project-supported fallback and record the limitation.';
-      return [{
-        action: 'fallback',
-        code: state.code,
         message: `${tool} is unsupported on this platform. ${fallback}`,
         phase: state.phase,
         tool,
@@ -1354,9 +1238,7 @@ function toolRecommendations(tools, profile, { adapterId = 'codex' } = {}) {
         code: state.code,
         command: toolRetryCommand,
         ...(state.diagnostic ? { diagnostic: state.diagnostic } : {}),
-        message: ['rtk', 'astGrep'].includes(tool)
-          ? `${tool} is unavailable; retry provisioning after checking the pinned download or package, or use the documented fallback.`
-          : `Retry ${tool} provisioning after checking network access and the reported phase.`,
+        message: `Retry ${tool} provisioning after checking network access and the reported phase.`,
         phase: state.phase,
         tool,
       }];
@@ -1385,14 +1267,6 @@ async function doctor(args) {
   const installSurface = resolveInstallSurface({ args, config, installState });
   const profile = validateProfileName(installSurface.profile);
   const requestedPlugins = installSurface.plugins ?? [];
-  const rtkHooksSetting = resolveRtkHooksSetting({
-    adapterId: selectedTargets[0],
-    config,
-    installState,
-    requestedPlugins,
-    targets,
-  });
-  const rtkHooksEnabled = rtkHooksSetting.enabled;
   const managedAgentsBlock = installState?.files?.some(
     (file) => ['managed-block', 'managed-instruction-block'].includes(file.contentStrategy),
   );
@@ -1422,7 +1296,6 @@ async function doctor(args) {
     profile,
     requestedModules: installState?.requestedModules,
     requestedPlugins,
-    rtkHooksEnabled,
     renderData,
     rootDir,
     selectedTargets,
@@ -1441,7 +1314,6 @@ async function doctor(args) {
   });
   if (runtimeHooks.selfCheck?.status === 'degraded') health = { ok: false, status: 'degraded' };
   const memory = await inspectMemory(config, installState, targetDir);
-  const codebaseMemoryCache = await inspectCodebaseMemoryCache(targetDir, tools);
   const warnings = [
     ...overrideWarnings(config),
     ...toolWarnings(tools),
@@ -1457,7 +1329,6 @@ async function doctor(args) {
     }),
     ...strictEnforcementWarnings(target?.strictEnforcementRefusals),
     ...roleRuntimeWarnings(target?.adapters),
-    ...codebaseMemoryCacheWarnings(codebaseMemoryCache),
     ...(pack.instructionBudgetWarnings ?? []).map((message) => ({
       code: 'INSTRUCTION_BUDGET',
       message,
@@ -1468,7 +1339,6 @@ async function doctor(args) {
   }
   emitReport({
     ...health,
-    ...(codebaseMemoryCache ? { codebaseMemoryCache } : {}),
     enforcementPolicy,
     gitHooks,
     memory,
@@ -1480,7 +1350,6 @@ async function doctor(args) {
     previewCapabilities: installState?.previewCapabilities ?? [],
     requestedPlugins,
     resolvedModules: installState?.resolvedModules ?? [],
-    rtkHooks: rtkHooksReport(rtkHooksEnabled, tools, rtkHooksSetting.source),
     runtimeHooks,
     roles: roleRuntimeReport(target?.adapters),
     provisioningProcess,
@@ -1517,13 +1386,6 @@ async function diff(args) {
   const validationCommands = validationCommandView(projectProfile, config);
   const renderData = { ...config, profile, projectProfile, validationCommands };
   const requestedPlugins = installSurface.plugins;
-  const rtkHooksEnabled = resolveRtkHooksEnabled({
-    adapterId: selectedTargets[0],
-    config,
-    installState,
-    requestedPlugins,
-    targets,
-  });
   const report = await diffMultiTargetInstall({
     allowPreview: true,
     enforcementPolicy,
@@ -1531,7 +1393,6 @@ async function diff(args) {
     profile,
     requestedModules: installSurface.modules ?? installState?.requestedModules,
     requestedPlugins,
-    rtkHooksEnabled,
     renderData,
     rootDir,
     selectedTargets,
@@ -1559,17 +1420,9 @@ async function rollback(args) {
     targetDir: path.resolve(args.project),
   });
   const result = await applyRollbackPlan(plan);
-  // The rollback restores the pre-install surface, so the private cache the
-  // runtime wrote afterwards would otherwise survive as an orphan.
-  const cacheCleanup = await cleanupCodebaseMemoryCache({
-    actions: plan.actions,
-    dryRun: !args.write,
-    targetDir: path.resolve(args.project),
-  });
   printRawReport({
     actions: plan.actions,
     applied: result.applied,
-    ...(cacheCleanup ? { cacheCleanup } : {}),
     dryRun: plan.dryRun,
     retainedState: result.retainedState,
     skipped: result.skipped,
@@ -1615,11 +1468,9 @@ async function uninstall(args) {
     targetDir,
   });
   const result = await applyUninstallPlan(plan);
-  const cacheCleanup = await cleanupCodebaseMemoryCache({ actions: plan.actions, dryRun: !args.write, targetDir });
   printRawReport({
     actions: plan.actions,
     applied: result.applied,
-    ...(cacheCleanup ? { cacheCleanup } : {}),
     dryRun: plan.dryRun,
     retainedState: result.retainedState,
     skipped: result.skipped,
@@ -1732,7 +1583,7 @@ async function recover(args) {
 }
 
 async function printUsage() {
-  console.log('用法：vibe-harness <init|install|provision|recover|uninstall|validate|verify|baseline|eval|audit|doctor|diff|rollback> [--project path] [--target codex|claude|gemini|cursor|qoder|zcode|antigravity|opencode] [--targets codex,zcode,opencode (仅 init)] [--all-targets] [--profile minimal|core|full|docs-only] [--preset everything] [--modules list] [--plugin -all|-rtk|linear-mcp|linear-mcp-readonly ...] [--rtk-hooks on|off] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--full] [--tier quick|standard|deep] [--scope affected|layer|full] [--async] [--plan] [--force] [--upgrade] [--preserve-retired] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded] [--provision]');
+  console.log('用法：vibe-harness <init|install|provision|recover|uninstall|validate|verify|baseline|eval|audit|doctor|diff|rollback> [--project path] [--target codex|claude|gemini|cursor|qoder|zcode|antigravity|opencode] [--targets codex,zcode,opencode (仅 init)] [--all-targets] [--profile minimal|core|full|docs-only] [--preset everything] [--modules list] [--plugin -all|linear-mcp|linear-mcp-readonly ...] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--full] [--tier quick|standard|deep] [--scope affected|layer|full] [--async] [--plan] [--force] [--upgrade] [--preserve-retired] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded] [--provision]');
   console.log('所有项目命令使用 --project <path>；--target 只选择 adapter，--targets 只在 init 时声明多宿主目标，--write 执行真实写入。旧版 --apply 和取路径值的 --target 已移除。');
 }
 

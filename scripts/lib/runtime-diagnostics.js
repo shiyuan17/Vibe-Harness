@@ -1,11 +1,13 @@
 import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { promisify } from 'node:util';
 import path from 'node:path';
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 
 import { pathExists } from './manifest.js';
 import { readHostHookState } from './host-hook-state.js';
 import { hashFile } from './install-state.js';
+import { hookBootstrapCommand } from './template-renderer.js';
 import { evaluateHook, HOOK_FAILURE_CODES } from '../../runtime/hooks/codex-hook.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -157,6 +159,8 @@ export async function inspectRuntimeHookSelfCheck(adapter, targetDir, { configur
     return { status: 'unsupported', code: 'HOOK_SELF_CHECK_UNSUPPORTED' };
   }
   if (!configured) return { status: 'not-installed', code: 'HOOK_SELF_CHECK_NOT_INSTALLED' };
+  const wiring = await inspectInstalledHookWiring(adapter, targetDir);
+  if (wiring.status !== 'pass') return wiring;
   try {
     const result = await evaluateHook(selfCheckPayload(adapter.id, targetDir), {
       expectedEvent: 'PreToolUse',
@@ -172,11 +176,362 @@ export async function inspectRuntimeHookSelfCheck(adapter, targetDir, { configur
 }
 
 /**
+ * The installed Hook surface this self-check is allowed to speak about.
+ *
+ * The synthetic request below runs the pack's own evaluator, so it proves
+ * something about the target only while the installed handler *is* that
+ * evaluator and the target's configuration points at it. An empty or miswired
+ * `hooks.json`, or a stale/tampered `.agents` handler, would otherwise still
+ * report `pass` and be read as enforcement evidence.
+ */
+async function inspectInstalledHookWiring(adapter, targetDir) {
+  const configTarget = hookConfigTarget(adapter);
+  const entryDir = path.posix.dirname(runtimeHookEntryPath);
+  const installedHooksDir = path.join(targetDir, ...entryDir.split('/'));
+  const packHooksDir = path.join(path.resolve(import.meta.dirname, '..', '..'), 'runtime', 'hooks');
+  // The handler is not a single module: `codex-hook.mjs` statically imports the
+  // policy, context and envelope modules beside it, so a self-check that hashes
+  // only the entry would pass while a tampered or missing dependency changes
+  // behavior. The whole installed Hook directory is compared to the pack.
+  const modules = await listFiles(packHooksDir).catch(() => null);
+  if (modules === null || modules.length === 0) {
+    return { status: 'degraded', code: 'HOOK_SELF_CHECK_HANDLER_UNVERIFIED' };
+  }
+  // Which verdict a partially installed surface gets is decided by the order
+  // the pack is walked in: an installed handler whose entry module does not
+  // match the pack is drift, while one that only lacks a module beside the
+  // entry is missing. The entry is therefore compared first, and the modules
+  // around it follow in sorted order, so the same install reports the same
+  // code on every volume.
+  const entryModule = path.posix.basename(runtimeHookEntryPath);
+  const ordered = modules.includes(entryModule)
+    ? [entryModule, ...modules.filter((relative) => relative !== entryModule)]
+    : modules;
+  for (const relative of ordered) {
+    const installed = path.join(installedHooksDir, relative);
+    if (!(await pathExists(installed))) {
+      return { status: 'degraded', code: 'HOOK_SELF_CHECK_HANDLER_MISSING' };
+    }
+    const [installedHash, packHash] = await Promise.all([
+      hashFile(installed).catch(() => null),
+      hashFile(path.join(packHooksDir, relative)).catch(() => null),
+    ]);
+    if (installedHash === null || packHash === null) {
+      return { status: 'degraded', code: 'HOOK_SELF_CHECK_HANDLER_UNVERIFIED' };
+    }
+    if (installedHash !== packHash) {
+      return { status: 'degraded', code: 'HOOK_SELF_CHECK_HANDLER_DRIFT' };
+    }
+  }
+  if (configTarget) {
+    const raw = await readFile(path.join(targetDir, configTarget), 'utf8').catch(() => null);
+    // Parsing is the point: raw substring membership would accept unrelated
+    // prose, invalid JSON, or a command that merely echoes the path.
+    let config;
+    try {
+      config = raw === null ? null : JSON.parse(raw);
+    } catch {
+      return { status: 'degraded', code: 'HOOK_SELF_CHECK_CONFIG_UNWIRED' };
+    }
+    const wiring = await inspectManagedHookWiring(adapter, config, targetDir);
+    if (wiring.status !== 'pass') return wiring;
+  }
+  return { status: 'pass', code: 'HOOK_SELF_CHECK_WIRING_VERIFIED' };
+}
+
+/**
+ * The guarded-event surface the installed Hook definition has to reproduce.
+ *
+ * Both halves are read from the pack's own adapter template, so the comparison
+ * is structural rather than textual: for every event the template guards, the
+ * installed definition has to carry an entry — at the adapter's declared
+ * configuration path, with exactly the template's matcher (including its
+ * absence, which is how these templates state "every tool") — whose command is
+ * a *parsed* invocation of the managed handler naming the same canonical event,
+ * with the template's host and timeout. A definition that keeps the managed
+ * command under an irrelevant event, narrows the matcher, drops the host, or
+ * only mentions the handler path in prose, therefore cannot pass while the
+ * guarded event runs something else.
+ */
+async function inspectManagedHookWiring(adapter, config, targetDir) {
+  const templatePath = path.join(path.resolve(import.meta.dirname, '..', '..'), 'adapters', adapter.id, 'hooks.template.json');
+  const rawTemplate = await readFile(templatePath, 'utf8').catch(() => null);
+  let template;
+  try {
+    template = rawTemplate === null ? null : JSON.parse(rawTemplate);
+  } catch {
+    template = undefined;
+  }
+  if (template === undefined || template === null || typeof template !== 'object' || Array.isArray(template)) {
+    return { status: 'degraded', code: 'HOOK_SELF_CHECK_WIRING_UNVERIFIED' };
+  }
+  const wrapperInvalid = template.hooks !== undefined && (template.hooks === null || typeof template.hooks !== 'object' || Array.isArray(template.hooks));
+  const events = wrapperInvalid ? [] : Object.entries(template.hooks ?? template);
+  if (events.length === 0) {
+    return { status: 'degraded', code: 'HOOK_SELF_CHECK_WIRING_UNVERIFIED' };
+  }
+  const installed = hookEventMap(adapter, config, template);
+  if (installed === null) return { status: 'degraded', code: 'HOOK_SELF_CHECK_CONFIG_UNWIRED' };
+  for (const [event, groups] of events) {
+    if (!Array.isArray(groups)) return { status: 'degraded', code: 'HOOK_SELF_CHECK_WIRING_UNVERIFIED' };
+    // The host's configuration key is not necessarily the evaluator's event
+    // name (Cursor registers `preToolUse`), so both sides are compared after
+    // canonicalization. An alias the evaluator cannot canonicalize is not a
+    // guarded event this check can speak about.
+    const guardedEvent = canonicalHookEvent(event);
+    if (guardedEvent === null) return { status: 'degraded', code: 'HOOK_SELF_CHECK_WIRING_UNVERIFIED', event };
+    const installedGroups = Array.isArray(installed[event]) ? installed[event] : [];
+    for (const group of groups) {
+      const expectedHooks = Array.isArray(group?.hooks) ? group.hooks : [];
+      if (expectedHooks.length === 0) return { status: 'degraded', code: 'HOOK_SELF_CHECK_WIRING_UNVERIFIED', event };
+      const matched = installedGroups.some((candidate) => candidate !== null && typeof candidate === 'object'
+        // The matcher is part of the guarded surface: a template group that
+        // states no matcher guards every tool, so an installed group that adds
+        // one silently narrows the policy, and vice versa.
+        && candidate.matcher === group?.matcher
+        && Array.isArray(candidate.hooks)
+        && expectedHooks.every((hook) => candidate.hooks.some((installedHook) =>
+          managedHookMatches(installedHook, hook, adapter, guardedEvent, targetDir))));
+      if (!matched) return { status: 'degraded', code: 'HOOK_SELF_CHECK_CONFIG_UNWIRED', event };
+    }
+  }
+  return { status: 'pass', code: 'HOOK_SELF_CHECK_WIRING_VERIFIED' };
+}
+
+/**
+ * Whether one installed Hook entry reproduces one template entry.
+ *
+ * `type` and `timeout` are execution-critical: the host runs the entry through
+ * its own schema, and a handler the host kills before it decides leaves the
+ * tool call unguarded. The command is compared as a parsed invocation of the
+ * managed entry for the event this group is registered under.
+ */
+function managedHookMatches(installedHook, hook, adapter, guardedEvent, targetDir) {
+  if (installedHook === null || typeof installedHook !== 'object' || Array.isArray(installedHook)) return false;
+  if (installedHook.type !== hook?.type) return false;
+  if (hook?.timeout !== undefined && installedHook.timeout !== hook.timeout) return false;
+  const requireHost = templateDeclaresHost(hook);
+  return managedCommandEvent(installedHook.command, adapter, { targetDir, requireHost }) === guardedEvent;
+}
+
+/**
+ * Whether the template entry's own command names a host.
+ *
+ * The templates that declare `--host` make it part of the managed invocation;
+ * Codex's template declares none, and the runtime then defaults to Codex.
+ */
+function templateDeclaresHost(hook) {
+  const templateCommand = String(hook?.command ?? '');
+  const placeholder = '{{hookBootstrapCommand}}';
+  const index = templateCommand.indexOf(placeholder);
+  const options = index === -1 ? templateCommand : templateCommand.slice(index + placeholder.length);
+  return commandOption(options, '--host') !== null;
+}
+
+/**
+ * The event map inside an installed definition.
+ *
+ * The managed block is written at the adapter's declared configuration path,
+ * and a template that carries its own single `hooks` wrapper (`codex`, which
+ * declares no `projectConfig` at all and therefore installs the template
+ * verbatim) adds one further level. Both levels are derived from the template,
+ * so a definition that keeps the managed command one level off the guarded
+ * events cannot be read as wired.
+ */
+function hookEventMap(adapter, config, template) {
+  const declared = adapter?.projectConfig?.hooks?.path;
+  const wrapper = template.hooks !== undefined && Object.keys(template).length === 1 ? ['hooks'] : [];
+  const segments = [...(Array.isArray(declared) ? declared : []), ...wrapper];
+  let current = config;
+  for (const segment of segments) {
+    if (current === null || typeof current !== 'object' || Array.isArray(current)) return null;
+    current = current[segment];
+  }
+  return current !== null && typeof current === 'object' && !Array.isArray(current) ? current : null;
+}
+
+// The installer single-sources an inline bootstrap as `node -e "<payload>" --`,
+// but the placeholder is substituted into the JSON template as raw text, so the
+// constant carries JSON-escaped quotes while the *parsed* command carries real
+// ones. Comparing the parsed command against the escaped constant would never
+// match, so the prefix is unescaped once here.
+const hookBootstrapPrefix = hookBootstrapCommand.replaceAll('\\"', '"');
+
+// The evaluator canonicalizes host event aliases before comparing them with the
+// configured event, so the configuration-key half of the comparison speaks the
+// alias vocabulary while the declared `--expected-event` has to be the canonical
+// name that comparison uses.
+const canonicalHookEvents = new Map([
+  ['pretooluse', 'PreToolUse'],
+  ['permissionrequest', 'PermissionRequest'],
+]);
+
+/** The evaluator's canonical guarded-event name for a host alias or key, or null. */
+function canonicalHookEvent(value) {
+  if (typeof value !== 'string') return null;
+  return canonicalHookEvents.get(value.replaceAll(/[_-]/gu, '').toLowerCase()) ?? null;
+}
+
+/**
+ * The canonical name itself, or null.
+ *
+ * `--expected-event` reaches the evaluator verbatim, where it is compared with
+ * the *canonicalized* payload event: a value that merely canonicalizes to the
+ * right name (Cursor's `preToolUse`) is a mismatch at runtime, which denies only
+ * for events the evaluator does not guard and otherwise leaves the tool call
+ * unguarded.
+ */
+function exactHookEvent(value) {
+  if (typeof value !== 'string') return null;
+  const canonical = canonicalHookEvents.get(value.replaceAll(/[_-]/gu, '').toLowerCase()) ?? null;
+  return canonical === value ? value : null;
+}
+
+/**
+ * The `--expected-event` of a parsed managed invocation, or null.
+ *
+ * Two shapes are legitimate: the inline bootstrap the installer single-sources
+ * (matched as the exact prefix, never as a substring) and a host that names the
+ * managed entry directly. The direct form is tokenized, so `echo .agents runtime
+ * hooks codex-hook.mjs` has the wrong program and is not an invocation.
+ *
+ * @param {any} command
+ * @param {any} adapter
+ * @param {{targetDir?: string, requireHost?: boolean}} [options]
+ * @returns {string|null}
+ */
+function managedCommandEvent(command, adapter, { targetDir, requireHost = false } = {}) {
+  if (typeof command !== 'string' || command.trim() === '') return null;
+  const trimmed = command.trim();
+  const resolvedTarget = path.resolve(targetDir ?? process.cwd());
+  const samePath = (value) => (process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value));
+  // The inline bootstrap is matched as an exact prefix, never as a substring.
+  if (trimmed.startsWith(hookBootstrapPrefix)) {
+    const remainder = trimmed.slice(hookBootstrapPrefix.length);
+    // The prefix ends in `--`, so a directly concatenated `--expected-event`
+    // parses here as a valid option while the shell hands Node a longer token it
+    // never accepts. The prefix only counts as a whole token when whitespace
+    // separates it from the rest of the command line.
+    if (!/^\s/u.test(remainder)) return null;
+    // The bootstrap does not run a handler *under* the target: it walks upward
+    // to the first directory holding a `.git` entry and runs *that* root's
+    // handler. The hashes above therefore only describe what the host executes
+    // when the target is itself that root; a project nested inside an outer
+    // repository would otherwise be reported as guarded while the outer
+    // handler — which this check never looked at — is what decides. A target
+    // with no repository at all is left to the bootstrap, which denies every
+    // tool call rather than resolving someone else's handler.
+    const root = effectiveGitRoot(resolvedTarget);
+    if (root !== null && samePath(root) !== samePath(resolvedTarget)) return null;
+    return managedInvocationEvent(remainder, adapter, { requireHost });
+  }
+  const tokens = tokenizeCommand(trimmed);
+  if (tokens.length < 3) return null;
+  if (!/^node(?:\.exe)?$/iu.test(tokens[0] ?? '')) return null;
+  // The entry has to *be* the managed handler inside this target: a suffix match
+  // would also accept `/tmp/.agents/runtime/hooks/codex-hook.mjs`, which the host
+  // would execute instead of the hashed installed surface.
+  const entry = tokens[1] ?? '';
+  if (entry === '' || entry.startsWith('-')) return null;
+  const managedEntry = path.join(resolvedTarget, ...runtimeHookEntryPath.split('/'));
+  if (samePath(path.resolve(resolvedTarget, entry)) !== samePath(managedEntry)) return null;
+  return managedInvocationEvent(tokens.slice(2), adapter, { requireHost });
+}
+
+/**
+ * The repository root the inline bootstrap resolves for one directory, or null.
+ *
+ * This mirrors the bootstrap's own resolution (`scripts/lib/hook-bootstrap.cjs`)
+ * rather than `git rev-parse`: the bootstrap looks for a `.git` entry while
+ * walking upward, so a worktree's `.git` file and a submodule's `.git` file both
+ * count, exactly as they do there.
+ *
+ * @param {string} startDir
+ * @returns {string|null}
+ */
+function effectiveGitRoot(startDir) {
+  let current = path.resolve(startDir);
+  for (;;) {
+    if (existsSync(path.join(current, '.git'))) return current;
+    const parent = path.dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+}
+
+/** Splits a command line into tokens, honouring simple quoting. */
+function tokenizeCommand(command) {
+  return [...command.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/gu)].map((match) => match[1] ?? match[2] ?? match[3]);
+}
+
+/**
+ * The guarded event a managed invocation declares, or null when it is malformed.
+ *
+ * Only the exact `--host <adapter>` / `--expected-event <event>` option pairs are
+ * accepted, so a trailing shell operator or redirection is not an invocation the
+ * host would run as the managed handler. A host that omits `--host` is accepted
+ * only where the template omits it (an explicit, matching host is equivalent),
+ * because omitting it changes input normalization and denial shape elsewhere.
+ *
+ * @param {string[]|string} args
+ * @param {any} adapter
+ * @param {{requireHost?: boolean}} [options]
+ * @returns {string|null}
+ */
+function managedInvocationEvent(args, adapter, { requireHost = false } = {}) {
+  const tokens = Array.isArray(args) ? args : tokenizeCommand(args);
+  let event = null;
+  let host = null;
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (token !== '--expected-event' && token !== '--host') return null;
+    const value = tokens[index + 1];
+    if (value === undefined) return null;
+    index += 1;
+    if (token === '--host') {
+      if (host !== null) return null;
+      host = value;
+      continue;
+    }
+    if (event !== null) return null;
+    event = exactHookEvent(value);
+    if (event === null) return null;
+  }
+  if (event === null) return null;
+  if (requireHost) return host === adapter?.id ? event : null;
+  return host === null || host === adapter?.id ? event : null;
+}
+
+/** The value of one `--name <value>` option, or null when absent or malformed. */
+function commandOption(text, name) {
+  const match = new RegExp(`(?:^|\\s)${name}\\s+(?:"([^"]*)"|'([^']*)'|(\\S+))`, 'u').exec(text);
+  if (match === null) return null;
+  const value = match[1] ?? match[2] ?? match[3];
+  return value === undefined || value === '' || value.startsWith('--') ? null : value;
+}
+
+async function listFiles(root, prefix = '') {
+  // `readdir` order is filesystem-dependent: NTFS hands names back in uppercase
+  // collation while ext4 hands back hash order. A self-check that walked the
+  // pack in that order would report `missing` for one volume and `drift` for
+  // another on the same installed surface, so the walk is sorted instead.
+  const entries = (await readdir(path.join(root, prefix), { withFileTypes: true }))
+    .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
+  const files = [];
+  for (const entry of entries) {
+    const relative = prefix === '' ? entry.name : `${prefix}/${entry.name}`;
+    if (entry.isDirectory()) files.push(...await listFiles(root, relative));
+    else if (entry.isFile()) files.push(relative);
+  }
+  return files;
+}
+
+/**
  * @param {any} adapter
  * @param {string} targetDir
  * @param {{hostEvidence?: Record<string, any>, hostHookState?: Record<string, any> | null, selfCheck?: boolean}} options
  */
-export async function inspectRuntimeHooks(adapter, targetDir, { hostEvidence = {}, hostHookState = null, selfCheck = false } = {}) {
+export async function inspectRuntimeHooks(adapter, targetDir, { hostEvidence = {}, hostHookState = null, selfCheck = true } = {}) {
   const configTarget = hookConfigTarget(adapter);
   const configured = Boolean(configTarget && await pathExists(path.join(targetDir, configTarget)));
   const filesInstalled = await pathExists(path.join(targetDir, runtimeHookEntryPath));
@@ -216,11 +571,50 @@ export async function inspectRuntimeHooks(adapter, targetDir, { hostEvidence = {
   const hostContextVerified = ['sandbox', 'approval', 'process', 'network']
     .every((field) => hostEvidence[field] === true);
   const envelopeRequired = hostEvidence.envelopeRequired === true;
+  const selfCheckResult = selfCheck
+    ? await inspectRuntimeHookSelfCheck(adapter, targetDir, { configured })
+    : null;
   const enforced = configured
     && activated === true
     && envelopeRequired
     && hostContextVerified
-    && authority.highRiskEnforcement === 'host-required';
+    && authority.highRiskEnforcement === 'host-required'
+    && selfCheckResult?.status === 'pass';
+  const enforcementReasonCode = !supported
+    ? 'HOST_HOOK_UNSUPPORTED'
+    : !configured
+      ? 'HOOK_NOT_CONFIGURED'
+      : activated !== true
+        ? 'HOST_HOOK_NOT_ACTIVATED'
+        : !envelopeRequired
+          ? 'EXECUTION_ENVELOPE_UNPROVEN'
+          : !hostContextVerified
+            ? 'HOST_CAPABILITIES_UNPROVEN'
+            : authority.highRiskEnforcement !== 'host-required'
+              ? 'ADAPTER_ENFORCEMENT_NOT_HOST_REQUIRED'
+              : selfCheckResult?.status !== 'pass'
+                ? (selfCheckResult?.code ?? 'HOOK_SELF_CHECK_UNVERIFIED')
+                : 'ENFORCED';
+  const diagnosticStatus = enforced
+    ? 'enforced'
+    : !supported
+      ? 'unsupported'
+      : !configured
+        ? 'not-configured'
+        : selfCheckResult?.status === 'degraded'
+          ? 'degraded'
+          : activated === true
+            ? 'verified'
+            : 'configured-unverified';
+  const checkedAt = new Date().toISOString();
+  const hostEvidenceSummary = {
+    activated: hostEvidence.activated === true,
+    envelopeRequired,
+    sandbox: hostEvidence.sandbox === true,
+    approval: hostEvidence.approval === true,
+    process: hostEvidence.process === true,
+    network: hostEvidence.network === true,
+  };
   if (activated === true) {
     status = 'verified';
     verification = 'Host evidence confirms the Hook is activated for this project.';
@@ -249,19 +643,24 @@ export async function inspectRuntimeHooks(adapter, targetDir, { hostEvidence = {
     freshContext: inspectFreshContext(adapter),
     host: adapter.id,
     pathResolution: 'git-root',
-    status: enforced ? 'enforced' : (!supported ? 'unsupported' : (!configured ? 'not-configured' : 'configured-unverified')),
+    status: diagnosticStatus,
     supported,
     activation: { mechanism, status, verification },
+    hostEvidence: hostEvidenceSummary,
+    enforcementReasonCode,
+    evidenceSource: enforced
+      ? 'host-and-self-check'
+      : selfCheckResult ? 'project-config-and-self-check' : configured ? 'project-config' : 'none',
+    checkedAt,
     hostHookState: trustState
       ? {
-          configPath: trustState.configPath,
           entries: { ...trustState.entries },
           reason: trustState.reason,
           status: trustState.status,
         }
       : null,
   };
-  if (selfCheck) report.selfCheck = await inspectRuntimeHookSelfCheck(adapter, targetDir, { configured });
+  if (selfCheckResult) report.selfCheck = selfCheckResult;
   return report;
 }
 

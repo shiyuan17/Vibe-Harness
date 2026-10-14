@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
 import test from 'node:test';
 
 import { runCommand } from '../../runtime/commands/run.mjs';
+import { attestCompletionProvenance } from '../../runtime/lib/verification-receipt.mjs';
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '../..');
@@ -28,6 +29,122 @@ async function runRootCli(args) {
   const result = await execFileAsync(process.execPath, [cliPath, ...args], { cwd: rootDir });
   return JSON.parse(result.stdout);
 }
+
+/**
+ * A project the CLI can verify end to end: committed, configured to require a
+ * completion receipt, and installed so the preflight sees a consistent state.
+ *
+ * `validationCommands` defaults to one plain slot; pass `{ checks: [...] }`
+ * to declare explicitly deterministic checks, which is what makes the receipt
+ * store usable for `--reuse`.
+ */
+async function installedProject(project, { validationCommands = { test: 'node -e 0' } } = {}) {
+  for (const args of [['init', '-q', '-b', 'main'], ['config', 'user.name', 'Fixture'], ['config', 'user.email', 'fixture@example.invalid'], ['config', 'core.hooksPath', '.git/no-hooks']]) {
+    await execFileAsync('git', args, { cwd: project });
+  }
+  await execFileAsync(process.execPath, [cliPath, 'init', '--project', project, '--target', 'codex', '--profile', 'full'], { cwd: rootDir });
+  const configPath = path.join(project, 'vibe-harness.config.json');
+  const config = JSON.parse(await readFile(configPath, 'utf8'));
+  config.validationCommands = validationCommands;
+  config.delivery = { default: 'managed-mr', profiles: { 'managed-mr': { merge: 'squash', cleanup: 'evidence-compatible', requireReceipt: true } } };
+  await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+  // The receipt store only works when the project ignores it.
+  await writeFile(path.join(project, '.gitignore'), '.vibe-harness/\n', 'utf8');
+  await execFileAsync('git', ['add', '.'], { cwd: project });
+  await execFileAsync('git', ['commit', '-qm', 'fixture'], { cwd: project });
+  await execFileAsync(process.execPath, [
+    cliPath, 'install', '--project', project, '--target', 'codex', '--profile', 'full',
+    '--write', '--confirm-red-zone', '--allow-degraded', '--output', 'json',
+  ], { cwd: rootDir });
+}
+
+test('CLI verify 只承认显式 --reviewed 作为完成审阅证据', async () => {
+  const project = await tempProject();
+  try {
+    await installedProject(project);
+    // Without the declaration the checked commands are not review evidence, so
+    // the receipt the CLI reports stays incomplete instead of self-attesting.
+    // The caller never supplied the evidence, so the draft records it as
+    // unverified rather than blocked: nothing contradicts the completion, and
+    // only `passed` completes a delivery.
+    const unreviewed = await runRootCli(['verify', '--project', project, '--allow-manual', '--output', 'json']);
+    assert.equal(unreviewed.completion.status, 'unverified', JSON.stringify(unreviewed.completion));
+    assert.equal(unreviewed.completion.verificationAcceptance.status, 'blocked');
+
+    const reviewed = await runRootCli(['verify', '--project', project, '--allow-manual', '--output', 'json', '--reviewed', 'all']);
+    assert.equal(reviewed.completion.verificationAcceptance.status, 'accepted', JSON.stringify(reviewed.completion));
+    assert.equal(reviewed.completion.status, 'passed');
+    assert.ok(reviewed.completion.review.reviewedCheckIds.length > 0);
+    // The receipt a receipt-required delivery accepts has to resolve to the
+    // record this run wrote, so the gate can be satisfied after the fact.
+    const attestation = await attestCompletionProvenance(project, reviewed.completion);
+    assert.equal(attestation.ok, true, JSON.stringify(attestation));
+    // The record store is inside the project, so a caller can rewrite it: only a
+    // record whose authentication still matches counts as tool-written evidence.
+    const directory = path.join(project, '.vibe-harness/verification/receipts');
+    const [file] = await readdir(directory);
+    const recordPath = path.join(directory, file);
+    const stored = JSON.parse(await readFile(recordPath, 'utf8'));
+    await writeFile(recordPath, JSON.stringify({ ...stored, writeFingerprint: 'forged' }), 'utf8');
+    const forged = await attestCompletionProvenance(project, reviewed.completion);
+    assert.equal(forged.ok, false, JSON.stringify(forged));
+    // A receipt may not relabel a recorded check as a manual criterion: the
+    // command is the evidence, and a criterion cannot stand in for it.
+    const relabelled = structuredClone(reviewed.completion);
+    relabelled.acceptance = relabelled.acceptance.map((item, index) => (index === 0
+      ? { id: item.id, status: 'passed', criterion: 'reviewed by hand', scope: item.scope }
+      : item));
+    const criterion = await attestCompletionProvenance(project, relabelled);
+    assert.equal(criterion.ok, false, JSON.stringify(criterion));
+    // Neither may it cite a stronger command than the one this run reported.
+    const replaced = structuredClone(reviewed.completion);
+    replaced.acceptance = replaced.acceptance.map((item, index) => (index === 0
+      ? { ...item, command: 'pnpm verify:all' }
+      : item));
+    const command = await attestCompletionProvenance(project, replaced);
+    assert.equal(command.ok, false, JSON.stringify(command));
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
+
+test('CLI verify 在需要完成收据时关闭 --reuse，收据只认本次声明', async () => {
+  const project = await tempProject();
+  try {
+    await installedProject(project, { validationCommands: { checks: [{ id: 'test', command: 'node -e 0', deterministic: true }] } });
+    // A cache hit reconstructs the review from the stored receipt instead of
+    // this caller's `--reviewed`, so reuse would let an earlier invocation's
+    // declaration authorize this run. It is refused wherever a completion
+    // receipt is required, and the run falls back to a real execution.
+    const first = await runRootCli(['verify', '--project', project, '--allow-manual', '--output', 'json', '--reviewed', 'all', '--reuse']);
+    assert.equal(first.completion.verificationAcceptance.status, 'accepted', JSON.stringify(first.completion));
+    const rerun = await runRootCli(['verify', '--project', project, '--allow-manual', '--output', 'json', '--reviewed', 'all', '--reuse']);
+    assert.equal(rerun.verification.cache.status, 'not_requested', JSON.stringify(rerun.verification.cache));
+    assert.equal(rerun.completion.verificationAcceptance.status, 'accepted', JSON.stringify(rerun.completion.verificationAcceptance));
+
+    // A stored review the current plan does not select is not evidence for this
+    // run, so a reuse attempt without this caller's declaration stays blocked.
+    const receiptDirectory = path.join(project, '.vibe-harness/verification/receipts');
+    const [receiptFile] = await readdir(receiptDirectory);
+    const receiptPath = path.join(receiptDirectory, receiptFile);
+    const receipt = JSON.parse(await readFile(receiptPath, 'utf8'));
+    await writeFile(receiptPath, JSON.stringify({
+      ...receipt,
+      review: { ...receipt.review, reviewedCheckIds: ['browser'], status: 'relevant' },
+    }), 'utf8');
+    const undeclared = await runRootCli(['verify', '--project', project, '--allow-manual', '--output', 'json', '--reuse']);
+    assert.equal(undeclared.verification.cache.status, 'not_requested');
+    assert.equal(undeclared.completion.verificationAcceptance.status, 'blocked', JSON.stringify(undeclared.completion.verificationAcceptance));
+    assert.equal(undeclared.completion.status, 'unverified');
+    // The run itself passed and reported the missing evidence, so the ordinary
+    // report status stays valid for the layer that ran instead of claiming the
+    // delivery failed.
+    assert.equal(undeclared.ok, true);
+    assert.equal(undeclared.status, 'ready');
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
 
 test('project command context and environment report facts without executing project checks', async () => {
   const project = await tempProject();
@@ -128,7 +245,12 @@ test('verify 默认延迟深层插槽并支持 --tier deep 显式升级', async 
     assert.equal(quick.report.tier, 'quick');
     assert.equal(quick.report.checks.lint.status, 'passed');
     assert.equal(quick.report.checks.eval.status, 'deferred');
-    assert.deepEqual(quick.report.deferredChecks, [{ name: 'eval', tier: 'deep', command: 'node -e "process.exitCode=0"' }]);
+    assert.deepEqual(quick.report.deferredChecks, [{
+      name: 'eval',
+      tier: 'deep',
+      command: 'node -e "process.exitCode=0"',
+      selectionReasons: ['deep 层检查覆盖 项目根目录；请求执行层为 quick'],
+    }]);
     assert.equal(quick.report.nextTier, 'deep');
 
     const deep = await runCommand(['verify', '--project', '.', '--tier', 'deep', '--json'], { cwd: project });
@@ -158,7 +280,12 @@ test('verify 按声明的 validationCommands.tiers 解析插槽层级', async ()
     const quick = await runCommand(['verify', '--project', '.', '--tier', 'quick', '--json'], { cwd: project });
     assert.equal(quick.report.status, 'unverified');
     assert.equal(quick.report.checks.test.status, 'deferred');
-    assert.deepEqual(quick.report.deferredChecks, [{ name: 'test', tier: 'deep', command: 'node -e "process.exit(0)"' }]);
+    assert.deepEqual(quick.report.deferredChecks, [{
+      name: 'test',
+      tier: 'deep',
+      command: 'node -e "process.exit(0)"',
+      selectionReasons: ['deep 层检查覆盖 项目根目录；请求执行层为 quick'],
+    }]);
     // `--only` is an explicit per-check selection and wins over tier deferral.
     const explicit = await runCommand(['verify', '--project', '.', '--only', 'test', '--json'], { cwd: project });
     assert.equal(explicit.report.status, 'passed');
@@ -187,9 +314,9 @@ test('help 覆盖含 worktree、slice、patch 与 task 在内的全部项目命�
   assert.equal(result.exitCode, 0);
   assert.equal(
     result.report.usage,
-    'run.mjs <env|context|changes|verify|worktree|slice|patch|task|codebase-memory> [--project <path>] [--json]（--project 缺省为当前目录）',
+    'run.mjs <env|context|changes|verify|worktree|slice|patch|task> [--project <path>] [--json]（--project 缺省为当前目录）',
   );
-  assert.match(result.report.codebaseMemory, /codebase-memory <status\|refresh>/u);
+  assert.equal(result.report.codebaseMemory, undefined);
   assert.match(result.report.worktree, /worktree <list\|check\|bootstrap\|land\|cleanup\|recover>/u);
   assert.match(result.report.worktree, /dry-run until --write/u);
   assert.match(result.report.worktree, /land serializes writes through a shared Git common-dir lock/u);

@@ -3,26 +3,19 @@ import { mkdir } from 'node:fs/promises';
 import { assertSafePathInside } from './manifest.js';
 import { resolveOcrEndpoint } from './ocr-config.js';
 import { preparePlaywrightTool } from '../../runtime/tools/playwright-cli/run.mjs';
-import { resolveRtkAsset } from '../../runtime/tools/rtk/run.mjs';
 import { readProductEnv } from './product-identity.js';
 
-import { createToolProvisioningPlan, componentEnvironment, hasOcrCredentials } from './tool-provisioning/environment.js';
+import { createToolProvisioningPlan, componentEnvironment, hasOcrCredentials, toolSpecs } from './tool-provisioning/environment.js';
 import { inspectProvisioningMarker, readToolState, removeProvisioningMarker, writeProvisioningMarker, writeToolState } from './tool-provisioning/tool-state.js';
 import { boundedTimeout, defaultCommandRunner, defaultPhaseRunner, runMcpHandshake, runToolCommand } from './tool-provisioning/subprocess.js';
 import {
   chromeDevtoolsRuntimeAvailable,
-  codebaseMemoryRuntimeAvailable,
-  defaultRuntimeVersionRunner,
   inspectProfileTools,
   lockFingerprint,
   publicFailure,
   ready,
-  repairCodebaseMemoryBinary,
-  reusableOptionalRuntime,
   runToolPhases,
   toolWarnings,
-  verifyProvisionedOptionalRuntime,
-  withOptionalToolIdentity,
   withProvisioningMetadata,
 } from './tool-provisioning/runtime-probe.js';
 import {
@@ -44,13 +37,12 @@ export {
   createToolProvisioningPlan,
   runToolCommand,
   runMcpHandshake,
-  repairCodebaseMemoryBinary,
   inspectProvisioningMarker,
   inspectProfileTools,
   toolWarnings,
 };
 
-export async function provisionProfileTools({ allowPreview = false, arch = process.arch, codebaseMemoryRepair = repairCodebaseMemoryBinary, commandRunner, env = process.env, force = false, mcpConflicts = [], ocrHomeDir, platform = process.platform, profile, resolvedModules, runtimeVersionRunner = defaultRuntimeVersionRunner, signal, targetDir, toolIds }) {
+export async function provisionProfileTools({ allowPreview = false, commandRunner, env = process.env, force = false, mcpConflicts = [], ocrHomeDir, profile, resolvedModules, signal, targetDir, toolIds }) {
   const ctx = await buildProvisionContext({
     allowPreview, env, ocrHomeDir, profile, resolvedModules, targetDir, toolIds, commandRunner,
   });
@@ -72,17 +64,16 @@ export async function provisionProfileTools({ allowPreview = false, arch = proce
       if (signal?.aborted) throw Object.assign(new Error('Tool provisioning was cancelled.'), { code: 'TOOL_CANCELLED' });
       await assertSafePathInside(targetDir, spec.toolDir, `${spec.id} tool directory`);
       await provisionSingleTool(spec, {
-        arch, codebaseMemoryRepair, ctx, env, fingerprints, force, mcpConflicts,
+        ctx, fingerprints, force, mcpConflicts,
         ocrResolution: ctx.ocrResolution,
-        platform, previous, provisionEnv: ctx.provisionEnv, runtimeVersionRunner, signal, startedAt, targetDir, tools,
+        previous, provisionEnv: ctx.provisionEnv, signal, startedAt, targetDir, tools,
       });
     }
-    for (const spec of plan) {
-      if (tools[spec.id]) tools[spec.id] = withOptionalToolIdentity(spec, tools[spec.id], platform, arch);
-    }
     applyMcpConflictDegradation(tools, mcpConflicts);
-    const persistedTools = toolIds?.length ? { ...(previous?.tools ?? {}), ...tools } : tools;
-    const persistedFingerprints = toolIds?.length ? { ...(previous?.fingerprints ?? {}), ...fingerprints } : fingerprints;
+    const activeIds = new Set(toolSpecs.map(spec => spec.id));
+    const activeEntries = values => Object.fromEntries(Object.entries(values ?? {}).filter(([id]) => activeIds.has(id)));
+    const persistedTools = toolIds?.length ? { ...activeEntries(previous?.tools), ...tools } : tools;
+    const persistedFingerprints = toolIds?.length ? { ...activeEntries(previous?.fingerprints), ...fingerprints } : fingerprints;
     await writeToolState(targetDir, persistedTools, persistedFingerprints);
     await removeProvisioningMarker(targetDir);
     return tools;
@@ -116,8 +107,8 @@ async function buildProvisionContext({ allowPreview, env, ocrHomeDir, profile, r
 }
 
 async function provisionSingleTool(spec, {
-  arch, codebaseMemoryRepair, ctx, env, fingerprints, force, mcpConflicts, ocrResolution, platform, previous, provisionEnv,
-  runtimeVersionRunner, signal, startedAt, targetDir, tools,
+  ctx, fingerprints, force, mcpConflicts, ocrResolution, previous, provisionEnv,
+  signal, startedAt, targetDir, tools,
 }) {
   if (spec.mode === 'lazy') {
     tools[spec.id] = withProvisioningMetadata(
@@ -127,25 +118,13 @@ async function provisionSingleTool(spec, {
     );
     return;
   }
-  if (spec.id === 'rtk') {
-    try {
-      resolveRtkAsset({ platform, arch });
-    } catch (error) {
-      tools[spec.id] = withProvisioningMetadata(
-        spec,
-        publicFailure(spec, 'binary-install', error, targetDir, { arch, env: provisionEnv, platform }),
-        startedAt,
-      );
-      return;
-    }
-  }
   await mkdir(spec.toolDir, { recursive: true });
   const fingerprint = await lockFingerprint(spec);
   fingerprints[spec.id] = fingerprint;
   const { phases, reusable } = await evaluateToolReusability(spec, {
-    env, force, mcpConflicts, platform, arch, previous, provisionEnv, fingerprint,
+    force, mcpConflicts, previous, provisionEnv, fingerprint,
   });
-  if (reusable && !['chromeDevtoolsMcp', 'codebaseMemoryMcp'].includes(spec.id)) {
+  if (reusable && spec.id !== 'chromeDevtoolsMcp') {
     tools[spec.id] = withProvisioningMetadata(spec, previous?.tools?.[spec.id], startedAt, { reused: true });
     return;
   }
@@ -159,8 +138,6 @@ async function provisionSingleTool(spec, {
         phases,
         signal,
         ocrResolution,
-        codebaseMemoryRepair,
-        { arch, platform },
       );
     } else if (spec.id === 'playwrightCli') {
       const runCommand = async (command, args, options) => defaultCommandRunner({
@@ -169,7 +146,7 @@ async function provisionSingleTool(spec, {
         cwd: options.cwd,
         env: options.env,
         signal,
-        timeout: boundedTimeout(env, 600_000),
+        timeout: boundedTimeout(provisionEnv, 600_000),
       });
       const result = await preparePlaywrightTool({
         env: await componentEnvironment(spec, targetDir, provisionEnv),
@@ -187,50 +164,25 @@ async function provisionSingleTool(spec, {
         phases,
         signal,
         ocrResolution,
-        codebaseMemoryRepair,
-        { arch, platform },
       );
     }
   } catch (error) {
     if (signal?.aborted || error.code === 'TOOL_CANCELLED') throw error;
     const phase = spec.phases.find((item) => item === error?.phase) ?? 'provision';
-    tools[spec.id] = publicFailure(spec, phase, error, targetDir, { arch, env: provisionEnv, platform });
-  }
-  if (tools[spec.id].status === 'ready' && ['rtk', 'astGrep'].includes(spec.id)) {
-    try {
-      tools[spec.id] = {
-        ...tools[spec.id],
-        binarySha256: await verifyProvisionedOptionalRuntime(
-          spec,
-          targetDir,
-          { arch, env: provisionEnv, platform, runtimeVersionRunner },
-        ),
-      };
-    } catch (error) {
-      tools[spec.id] = publicFailure(spec, 'version-check', error, targetDir, { arch, env: provisionEnv, platform });
-    }
+    tools[spec.id] = publicFailure(spec, phase, error, targetDir);
   }
   tools[spec.id] = withProvisioningMetadata(spec, tools[spec.id], startedAt);
 }
 
 async function evaluateToolReusability(spec, {
-  env, force, mcpConflicts = [], platform, arch, previous, provisionEnv, fingerprint,
+  force, mcpConflicts = [], previous, provisionEnv, fingerprint,
 }) {
   const previousTool = previous?.tools?.[spec.id];
   const reusableStatus = previousTool?.status === 'ready'
     || (spec.id === 'openCodeReview' && previousTool?.status === 'pending-config' && !hasOcrCredentials(provisionEnv));
-  const reusableRuntime = spec.id === 'codebaseMemoryMcp'
-    ? await codebaseMemoryRuntimeAvailable(spec)
-    : spec.id === 'chromeDevtoolsMcp'
-      ? await chromeDevtoolsRuntimeAvailable(spec)
-      : spec.id === 'astGrep'
-        ? await reusableOptionalRuntime(spec, previousTool, platform, arch)
-        : spec.id === 'rtk'
-          ? await reusableOptionalRuntime(spec, previousTool, platform, arch)
-          : true;
+  const reusableRuntime = spec.id === 'chromeDevtoolsMcp' ? await chromeDevtoolsRuntimeAvailable(spec) : true;
   const mcpServerName = {
     chromeDevtoolsMcp: 'chrome-devtools',
-    codebaseMemoryMcp: 'codebase-memory-mcp',
   }[spec.id];
   const reusable = (
     !force
@@ -249,7 +201,6 @@ async function evaluateToolReusability(spec, {
 function applyMcpConflictDegradation(tools, mcpConflicts) {
   const conflictIds = {
     'chrome-devtools': 'chromeDevtoolsMcp',
-    'codebase-memory-mcp': 'codebaseMemoryMcp',
   };
   for (const conflict of mcpConflicts) {
     const id = conflictIds[conflict];

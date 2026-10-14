@@ -28,7 +28,7 @@ pnpm eval:harness:fast
 
 | 路径 | 职责 |
 | --- | --- |
-| [`scenarios/`](scenarios/) | Canonical Scenario v3 定义。当前包含 H01-H20，每个场景声明目标、Fixture、能力要求、压力阶段、检查项和失败分类。 |
+| [`scenarios/`](scenarios/) | Canonical Scenario v3 定义。当前包含 H01-H23，每个场景声明目标、Fixture、能力要求、压力阶段、检查项和失败分类。 |
 | [`fixtures/`](fixtures/) | 一次性工作区的 Manifest 和 Materializer。负责创建文件、Git、分支、进程及确定性故障，并隐藏写入白名单和检查资产。 |
 | [`runners/`](runners/) | 评测生命周期控制，包括准备、执行、预算、能力预检、取消、恢复、证据收集和清理；`codex-cli.js` 提供 Codex CLI 后端。 |
 | [`verifiers/`](verifiers/) | 独立验证器。`deterministic.js` 执行单项可重复检查，`scenario.js` 汇总场景结果；验证器不依赖 Agent 自报。 |
@@ -120,7 +120,7 @@ pnpm eval:harness:nightly
 pnpm eval:harness:full
 ```
 
-Fast 适合 PR 级契约检查和少量关键场景；Nightly 覆盖 H01-H20 及压力变体；Full 在此基础上加入固定的外部 benchmark 样本和明确预算的模型/Agent 矩阵。
+Fast 适合 PR 级契约检查和少量关键场景；Nightly 覆盖 H01-H23 及压力变体；Full 在此基础上加入固定的外部 benchmark 样本和明确预算的模型/Agent 矩阵。
 
 ## 场景集合
 

@@ -21,7 +21,6 @@ async function describeNestedInstall(projectDir, statePath) {
     ? state.targets
     : typeof state.adapter === 'string' ? [state.adapter] : [];
   return {
-    duplicateIndex: await pathExists(path.join(projectDir, '.vibe-harness', 'tool-state', 'codebase-memory-mcp')),
     duplicateRuntime: await pathExists(path.join(projectDir, '.agents', 'runtime')),
     path: projectDir,
     statePath,

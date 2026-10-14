@@ -141,23 +141,12 @@ test('online role and tool routing suites declare their fixture and reporting co
   ]);
   assert.equal(roles.cases.length, 10);
   assert.equal(roles.cases.every((item) => item.reporting?.expected?.rules?.includes('role-routing')), true);
-  assert.deepEqual(tools.cases.map((item) => item.input.fixture.allowedWritePaths), [
-    ['semantic-routing-evidence.json'],
-    ['ast-routing-evidence.json'],
-    ['text-routing-evidence.json'],
-    ['rtk-routing-decision.json'],
-    ['fresh-source-evidence.json'],
-    ['stale-source-evidence.json'],
-    ['fallback-evidence.json'],
-    ['graph-boundary-evidence.json'],
-    ['discovery-evidence.json'],
-    ['discovery-fallback-evidence.json'],
-  ]);
+  assert.deepEqual(tools.cases.map((item) => item.input.fixture.allowedWritePaths), Array.from({ length: 8 }, () => ['graph-evidence.json']));
 });
 
-test('core suite contains exactly 40 generic cases in the required category split', async () => {
+test('核心套件包含 39 个治理与外部工具用例', async () => {
   const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-core.json'));
-  assert.equal(suite.cases.length, 40);
+  assert.equal(suite.cases.length, 39);
   const counts = suite.cases.reduce((result, item) => ({
     ...result,
     [item.category]: (result[item.category] ?? 0) + 1,
@@ -165,11 +154,11 @@ test('core suite contains exactly 40 generic cases in the required category spli
   assert.deepEqual(counts, {
     'install-lifecycle': 6,
     'task-delivery-governance': 4,
-    'skill-routing': 21,
-    'safety-isolation': 9,
+    'skill-routing': 22,
+    'safety-isolation': 7,
   });
   const ids = new Set(suite.cases.map((item) => item.id));
-  assert.equal(ids.size, 40);
+  assert.equal(ids.size, 39);
   for (const id of ['EVAL-GOV-EVIDENCE-005', 'EVAL-GOV-DEGRADED-006', 'EVAL-GOV-SENSITIVE-007', 'EVAL-GOV-ANALYSIS-008']) {
     assert.equal(ids.has(id), true);
   }
@@ -231,7 +220,7 @@ test('OBS-RULE-002 requires project-linked logging and forbids invented infrastr
   );
 });
 
-test('git-deliver canaries pin explicit authorization and safe push boundaries', async () => {
+test('vb-git-split-push canaries pin explicit routing and safe push boundaries', async () => {
   const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-online-canary.json'));
   const cases = Object.fromEntries(
     suite.cases
@@ -250,7 +239,11 @@ test('git-deliver canaries pin explicit authorization and safe push boundaries',
   );
   assert.deepEqual(
     cases['EVAL-GIT-DELIVER-002'].oracle.forbiddenEvents.map((item) => item.value),
-    ['git-deliver-selected', 'git-commit-invoked', 'git-push-invoked'],
+    ['git-deliver-selected', 'git-push-invoked'],
+  );
+  assert.deepEqual(
+    cases['EVAL-GIT-DELIVER-002'].oracle.requiredOutputFragments.map((item) => item.value),
+    ['NO_GIT_DELIVER', 'OPTIONAL_COMMIT', 'OPTIONAL_PUSH'],
   );
   assert.deepEqual(
     cases['EVAL-GIT-DELIVER-003'].oracle.requiredOutputFragments.map((item) => item.value),
@@ -410,21 +403,12 @@ test('lightweight DAG canaries use canonical rules and semantic oracles without 
   assert.match(cases.find((item) => item.id === 'EVAL-DAG-013').input.scenario, /Canceled, Duplicate, Won't Fix.*incompatible edits/su);
 });
 
-test('RTK and ast-grep rules have reference-backed fallback and evidence cases', async () => {
+test('外部图使用规范有基线支持且禁止工具管理', async () => {
   const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-core.json'));
-  const rtk = suite.cases.find((item) => item.id === 'EVAL-TOOL-RTK-001');
-  const rtkIsolation = suite.cases.find((item) => item.id === 'EVAL-TOOL-RTK-006');
-  const astGrep = suite.cases.find((item) => item.id === 'EVAL-TOOL-AST-001');
-  const astGrepQuery = suite.cases.find((item) => item.id === 'EVAL-TOOL-AST-002');
-  const astGrepDebug = suite.cases.find((item) => item.id === 'EVAL-TOOL-AST-003');
-  assert.equal(rtk.capability, 'rtk-output-compression');
-  assert.equal(rtk.oracle.forbiddenEvents.some((item) => item.value === 'rtk-used-for-sensitive-command'), true);
-  assert.equal(rtkIsolation.oracle.forbiddenEvents.some((item) => item.value === 'sensitive-output-persisted'), true);
-  assert.equal(astGrep.capability, 'ast-grep-structured-search');
-  assert.equal(astGrep.oracle.requiredEvents.some((item) => item.value === 'source-and-tests-verified'), true);
-  assert.equal(astGrep.oracle.forbiddenEvents.some((item) => item.value === 'unverified-structural-match-accepted'), true);
-  assert.equal(astGrepQuery.oracle.requiredEvents.some((item) => item.value === 'ast-grep-language-selected'), true);
-  assert.equal(astGrepDebug.oracle.requiredEvents.some((item) => item.value === 'ast-grep-debug-query-used'), true);
+  const cases = suite.cases.filter(item => item.id.startsWith('EVAL-TOOL-EXTERNAL-'));
+  assert.equal(cases.length, 8);
+  assert.ok(cases.some(item => item.oracle.forbiddenEvents.some(event => event.value === 'tool-management-attempted')));
+  assert.ok(cases.some(item => item.oracle.requiredEvents.some(event => event.value === 'coverage-checked')));
 });
 
 test('EVAL-WORKFLOW-DEMAND-001 schemas accept workflow demand and sanitized task episodes', async () => {
@@ -472,7 +456,7 @@ test('EVAL-WORKFLOW-DEMAND-001 schemas accept workflow demand and sanitized task
   assert.doesNotMatch(JSON.stringify(run.trialSummaries), /prompt|sessionId|commandText|toolOutput/iu);
 });
 
-test('tool routing eval keeps syntax, semantics, text, and output compression distinct', async () => {
+test('外部图路由评测区分覆盖、分页、文本与管理边界', async () => {
   const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-tool-routing.json'));
   assert.deepEqual(validateEvalSuiteSemantics(suite), []);
   const run = await buildOfflineRun(suite);
@@ -488,21 +472,19 @@ test('tool routing eval keeps syntax, semantics, text, and output compression di
     'EVAL-TOOL-ROUTING-006',
     'EVAL-TOOL-ROUTING-007',
     'EVAL-TOOL-ROUTING-008',
-    'EVAL-TOOL-ROUTING-009',
-    'EVAL-TOOL-ROUTING-010',
   ]);
   const serialized = JSON.stringify(suite);
   for (const fragment of [
     'codebase-memory-index-checked',
-    'ast-grep-outline-used',
+    'coverage-checked',
     'rg-used',
-    'high-output-shell-routed',
-    'rtk-wrapped-code-intelligence-tool',
+    'pagination-completed',
+    'tool-management-attempted',
   ]) {
     assert.match(serialized, new RegExp(fragment, 'u'));
   }
-  for (const definition of suite.cases.slice(4)) {
-    assert.deepEqual(definition.reporting.expected.rules, ['codegraph']);
+  for (const definition of suite.cases) {
+    assert.deepEqual(definition.reporting.expected.rules, ['codebase-memory-mcp']);
     const observation = definition.input.replay;
     assert.equal((await scoreCase({ definition, observation })).passed, true, definition.id);
     const missingEvidence = { ...observation, events: [] };

@@ -201,6 +201,71 @@ function checkTrace(definition, context) {
       return { passed: true, evidence: { childFailureObserved: true, repairObserved: true, recoveryVerification: true } };
     }
   }
+  if (mechanism === 'competitive-hypotheses') {
+    const hypotheses = ordered.filter(({ event }) => event.type === 'hypothesis'
+      && typeof event.id === 'string'
+      && typeof event.statement === 'string'
+      && typeof event.falsifier === 'string');
+    const hypothesisIds = new Set(hypotheses.map(({ event }) => event.id));
+    const experiment = ordered.find(({ event, index }) => event.type === 'experiment'
+      && Array.isArray(event.hypothesisIds)
+      && event.hypothesisIds.length >= 2
+      && event.hypothesisIds.every((id) => hypothesisIds.has(id))
+      && typeof event.changedVariable === 'string'
+      && typeof event.result === 'string'
+      && index > (hypotheses.at(-1)?.index ?? -1));
+    const change = firstIndex('change', undefined, experiment?.index ?? -1);
+    const verified = firstIndex('verification', (event) => event.succeeded === true, change);
+    if (hypotheses.length >= 2 && hypothesisIds.size >= 2 && experiment && change >= 0 && verified >= 0) {
+      return { passed: true, evidence: { hypothesisCount: hypotheses.length, distinguishingExperiment: true, causalChange: true, verificationObserved: true } };
+    }
+    return { unverified: true, code: 'COMPETING_HYPOTHESES_EVIDENCE_MISSING' };
+  }
+  if (mechanism === 'information-value') {
+    const unknown = ordered.find(({ event }) => event.type === 'unknown'
+      && typeof event.id === 'string'
+      && typeof event.decisionImpact === 'string');
+    const proposal = ordered.find(({ event, index }) => event.type === 'experiment-proposed'
+      && event.unknownId === unknown?.event.id
+      && typeof event.cost === 'string'
+      && typeof event.successCriteria === 'string'
+      && typeof event.stopCondition === 'string'
+      && index > (unknown?.index ?? -1));
+    const completed = ordered.find(({ event, index }) => event.type === 'experiment-completed'
+      && event.unknownId === unknown?.event.id
+      && typeof event.outcome === 'string'
+      && typeof event.decision === 'string'
+      && index > (proposal?.index ?? -1));
+    const change = firstIndex('change', undefined, completed?.index ?? -1);
+    const verified = firstIndex('verification', (event) => event.succeeded === true, change);
+    if (unknown && proposal && completed && change >= 0 && verified >= 0) {
+      return { passed: true, evidence: { decisionChangingUnknown: true, lowCostExperiment: true, stoppingCondition: true, verificationObserved: true } };
+    }
+    return { unverified: true, code: 'INFORMATION_VALUE_EVIDENCE_MISSING' };
+  }
+  if (mechanism === 'state-machine-invariants') {
+    const model = ordered.find(({ event }) => event.type === 'state-model'
+      && Array.isArray(event.states)
+      && event.states.length > 0
+      && Array.isArray(event.events)
+      && event.events.length > 0);
+    const invariant = ordered.find(({ event, index }) => event.type === 'invariant'
+      && typeof event.name === 'string'
+      && typeof event.check === 'string'
+      && index > (model?.index ?? -1));
+    const transition = ordered.find(({ event, index }) => event.type === 'transition-check'
+      && typeof event.from === 'string'
+      && typeof event.event === 'string'
+      && typeof event.to === 'string'
+      && event.valid === false
+      && index > (invariant?.index ?? -1));
+    const change = firstIndex('change', undefined, transition?.index ?? -1);
+    const verified = firstIndex('verification', (event) => event.succeeded === true, change);
+    if (model && invariant && transition && change >= 0 && verified >= 0) {
+      return { passed: true, evidence: { stateModel: true, invariantDeclared: true, invalidTransitionChecked: true, verificationObserved: true } };
+    }
+    return { unverified: true, code: 'STATE_MACHINE_EVIDENCE_MISSING' };
+  }
   if (['stale-context', 'agent-handoff', 'subagent-failure', 'duplicate-work', 'worktree-conflict', 'multi-agent-dependency'].includes(mechanism)) {
     return { unverified: true, code: 'TRACE_SEMANTIC_EVIDENCE_MISSING' };
   }

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "id": "vibe-harness-core-offline-reference",
-  "approvedAt": "2026-10-11T16:12:33.359Z",
+  "approvedAt": "2026-10-14T09:42:48.215Z",
   "suite": {
     "id": "vibe-harness-core",
     "version": "2.2.0"
@@ -9,29 +9,29 @@
   "mode": "offline",
   "proof": "contract-replay",
   "fingerprint": {
-    "suiteHash": "83deb942c4b141aecf647705c2893b1dc7a4ae3e3164e312b3d3fb1c92d6fc87",
+    "suiteHash": "3a37e2549d5ea91300afd50da49b47f17d9b75ab23c0d89d8a92be98988d680a",
     "runner": "offline-replay@1",
     "model": "fixture",
     "agent": "offline",
     "configHash": "fixture-v1",
     "assets": {
-      "aggregateHash": "edb82ed5537ea84c0d38d15674f77620d4d7c15adb8ebc985b6d4a2d7e54daaf",
+      "aggregateHash": "d1a2ae8a0f83959a4ebdb001049f90f629ae367aa920ba3eae87b19a7c21c0f8",
       "groups": {
         "config": {
           "fileCount": 42,
-          "hash": "114184caa6a866fafe0d31df40150abf797d449ac771d1a1ebd032bdeb0cfc42"
+          "hash": "25a47f72f4d14c518ae697529f15962ced0b563e9e08aa52234483bcb42a7955"
         },
         "hooks": {
-          "fileCount": 21,
-          "hash": "3d38a98de5bb33a75eb9f85c14481b76e4c997ccc7f32be8cf7beccbf6e35783"
+          "fileCount": 19,
+          "hash": "fb82aac72de6637f7a49b2d2e576e1f1642973323896028c08e2c2c6cfee81b4"
         },
         "rules": {
-          "fileCount": 50,
-          "hash": "ffaa5a6ef34e38711d2bb7b61ce12ec75000e4e7c8d2d7614e5b827f3db073e0"
+          "fileCount": 45,
+          "hash": "d85923775c028aa8d8753bcec103b88539536095da3557899322c4e9430506da"
         },
         "skills": {
-          "fileCount": 135,
-          "hash": "e18a101d7c04fea2eefd0567751f99a150532c6eedffa2cf020a1ec385f5dd53"
+          "fileCount": 144,
+          "hash": "92faaea5641dcb17f198b8ada9a4c9cff55196063b00434dde07a6b4dcef30c2"
         }
       }
     }
@@ -41,12 +41,6 @@
       "id": "api-and-interface-design",
       "caseCount": 1,
       "passedCount": 1,
-      "score": 1
-    },
-    {
-      "id": "ast-grep-structured-search",
-      "caseCount": 3,
-      "passedCount": 3,
       "score": 1
     },
     {
@@ -140,12 +134,6 @@
       "score": 1
     },
     {
-      "id": "rtk-output-compression",
-      "caseCount": 6,
-      "passedCount": 6,
-      "score": 1
-    },
-    {
       "id": "runtime-cross-repo-rollout",
       "caseCount": 1,
       "passedCount": 1,
@@ -161,6 +149,12 @@
       "id": "systematic-debugging",
       "caseCount": 2,
       "passedCount": 2,
+      "score": 1
+    },
+    {
+      "id": "tool-routing-contract",
+      "caseCount": 8,
+      "passedCount": 8,
       "score": 1
     }
   ],

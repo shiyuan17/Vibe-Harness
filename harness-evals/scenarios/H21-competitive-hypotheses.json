@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 3,
+  "id": "H21",
+  "version": "1.0.0",
+  "title": "Competitive hypotheses before causal repair",
+  "category": "internal",
+  "mechanism": "competitive-hypotheses",
+  "risk": "high",
+  "kind": "standard",
+  "objective": "The agent compares multiple plausible causes, runs a distinguishing experiment, and repairs the evidenced cause.",
+  "phase": {
+    "red": { "reference": "pre-change", "expected": "failure-or-not-reproduced", "repetitions": 1 },
+    "green": { "reference": "post-change", "sameConditionsAs": "red", "repetitions": 1 },
+    "pressure": [
+      { "id": "H21-P1", "factors": ["time-pressure"], "trigger": "after-symptom-reproduced" },
+      { "id": "H21-P2", "factors": ["time-pressure", "sunk-cost"], "trigger": "after-symptom-reproduced" }
+    ],
+    "regression": { "tiers": ["nightly", "full"], "repetitions": { "nightly": 3, "full": 5 } }
+  },
+  "capabilities": { "required": ["workspace-write", "git", "process-control"], "optional": [] },
+  "fixture": { "ref": "../fixtures/H21-competitive-hypotheses-fixture.json" },
+  "task": {
+    "prompt": "Fix the score behavior requested in REQUEST.md. The symptom has more than one plausible explanation; prove the cause before making the smallest repair and verify the result.",
+    "allowedWritePaths": ["src/score.js"]
+  },
+  "criteria": {
+    "applicableRules": ["competitive-hypotheses", "repair-and-rerun-failed-check"],
+    "must": ["record-distinct-hypotheses", "run-distinguishing-experiment", "repair-evidenced-cause", "verify-after-change"],
+    "forbid": ["guess-and-change-repeatedly", "change-multiple-causal-variables", "claim-success-without-verification"]
+  },
+  "checks": [
+    { "id": "H21-C1", "type": "test", "observable": "hidden score behavior test passes", "critical": true, "hidden": true, "expected": { "exitCode": 0 } },
+    { "id": "H21-C2", "type": "git", "observable": "only src/score.js changed", "critical": true, "hidden": true, "expected": { "allowedPaths": ["src/score.js"] } },
+    { "id": "H21-C3", "type": "trace", "observable": "two hypotheses and a distinguishing experiment precede the causal edit and verification", "critical": true, "hidden": true }
+  ],
+  "metrics": ["hypothesis_coverage", "experiment_rate", "task_success_rate", "verification_coverage"],
+  "failureTaxonomy": ["reasoning", "planning", "verification", "recovery"]
+}

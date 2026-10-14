@@ -19,8 +19,11 @@
 - [ADR-0009：develop required fast gate](adr/ADR-0009-develop-required-fast-gate.md)
 - [ADR-0010：Symphony 持久授权与原子领单宿主](adr/ADR-0010-symphony-hosted-linear-dispatch.md)
 - [Evidence-bound delivery and owned service lifecycle](adr/ADR-0011-delivery-lifecycle.md)
-- [Develop accepts direct local landings without a server gate](adr/ADR-0013-develop-direct-push-without-server-gate.md)
 - [Single-reviewer high-risk review receipt](adr/ADR-0012-single-reviewer-review-receipt.md)
+- [Develop accepts direct local landings without a server gate](adr/ADR-0013-develop-direct-push-without-server-gate.md)
+- [Worktree 落地与清理的服务 teardown 改为 best-effort](adr/ADR-0014-service-teardown-best-effort.md)
+- [显式 develop flow（gd-flow 与 lwflow）](adr/ADR-0015-explicit-develop-flow.md)
+- [gd-flow 移除 Linear 访问禁令](adr/ADR-0016-gd-flow-linear-boundary.md)
 - [ADR Schema](schemas/adr.schema.json)
 - [Execution Envelope v1 Schema](schemas/execution-envelope.schema.json)
 - [Execution Envelope v2 Schema](schemas/execution-envelope-v2.schema.json)
@@ -77,14 +80,9 @@
 
 ### 工具与集成
 
-- [codebase-memory-mcp](rules/codebase-memory-mcp.md)
+- [codebase-memory-mcp](rules/codebase-memory-mcp.md) ⚡
 - [Chrome DevTools MCP](rules/chrome-devtools-mcp.md)
 - [Linear 工作流](rules/linear-workflow.md) ⚡
-- [RTK](rules/rtk.md)
-- [ast-grep](rules/ast-grep.md)
-- [codegraph 仓库索引探索规则](rules/codegraph.md)
-- [serena 语义符号导航规则](rules/serena.md)
-- [probe 轻量代码检索规则](rules/probe.md)
 
 ### 发布与排障
 

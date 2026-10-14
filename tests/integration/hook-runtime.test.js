@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -23,12 +23,12 @@ import {
 import { analyzeToolRequest, createHostHookResult, normalizeCodexHookInput, supportedCodexHookEvents } from '../../runtime/hooks/lib/policy.mjs';
 import { validateJsonAgainstSchema } from '../../scripts/lib/schema-validation.js';
 import { HOOK_COVERAGE_LIMITATIONS } from '../../scripts/lib/runtime-diagnostics.js';
-import { inspectRtkHook, routeRtkCommand } from '../../runtime/hooks/lib/rtk.mjs';
 
 const hookCliPath = path.resolve('runtime/hooks/codex-hook.mjs');
 
-async function runHookCli(stdin, args = ['--host', 'codex', '--expected-event', 'PreToolUse']) {
+async function runHookCli(stdin, args = ['--host', 'codex', '--expected-event', 'PreToolUse'], environment = {}) {
   const child = spawn(process.execPath, [hookCliPath, ...args], {
+    env: { ...process.env, ...environment },
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
   });
@@ -226,52 +226,9 @@ test('Execution Envelope v2 is additive and reports its enforcement grade', asyn
   });
 });
 
-test('RTK hook resolves the canonical project-local runtime path', async () => {
-  await withProject(async (target) => {
-    const stateDir = path.join(target, '.vibe-harness', 'tool-state');
-    const runner = path.join(target, '.agents', 'runtime', 'tools', 'rtk', 'run.mjs');
-    const binary = path.join(target, '.agents', 'runtime', 'tools', 'rtk', 'bin', process.platform === 'win32' ? 'rtk.exe' : 'rtk');
-    await mkdir(stateDir, { recursive: true });
-    await mkdir(path.dirname(binary), { recursive: true });
-    await writeFile(path.join(stateDir, 'tools.json'), JSON.stringify({ tools: { rtk: { status: 'ready', version: '0.45.0' } } }), 'utf8');
-    await writeFile(runner, 'fixture\n', 'utf8');
-    await writeFile(binary, 'fixture\n', 'utf8');
 
-    const state = await inspectRtkHook(target, { enabled: true });
-    assert.equal(state.status, 'ready');
-    assert.equal(state.runner, runner);
-    assert.equal(state.binary, binary);
-  });
-});
 
-test('RTK routing bypasses project code-intelligence tools, interactive commands, and raw evidence', async () => {
-  const calls = [];
-  const runner = async (binary, command) => {
-    calls.push({ binary, command });
-    return { code: 0, stdout: 'rtk git status', timedOut: false };
-  };
-  const options = {
-    mode: 'guarded',
-    projectRoot: process.cwd(),
-    rtk: { binary: 'rtk', enabled: true, status: 'ready' },
-    runner,
-  };
-  for (const command of [
-    'node .agents/runtime/tools/ast-grep/run.mjs outline src',
-    'node .agents/runtime/tools/codebase-memory-mcp/run.mjs',
-    'Get-Content build.log',
-    'ssh example.test',
-  ]) {
-    const result = await routeRtkCommand({ toolInput: { command }, toolName: 'Bash' }, options);
-    assert.equal(result.action, 'allow', command);
-  }
-  assert.equal(calls.length, 0);
 
-  const routed = await routeRtkCommand({ toolInput: { command: 'git status' }, toolName: 'Bash' }, options);
-  assert.equal(routed.action, 'deny');
-  assert.match(routed.retryCommand, /runtime\/tools\/rtk\/run\.mjs/u);
-  assert.equal(calls.length, 1);
-});
 
 test('Hook supports only safety events and allows ordinary project commands', async () => {
   assert.deepEqual([...supportedCodexHookEvents].sort(), ['PermissionRequest', 'PreToolUse']);
@@ -470,6 +427,87 @@ test('Execution Envelope accepts trusted payload and environment injection', asy
   });
 });
 
+test('ordinary Git delivery needs no envelope or per-effect grant', async () => {
+  await withProject(async (target) => {
+    initializeGitProject(target);
+    execFileSync('git', ['switch', '-c', 'feature/safe-delivery'], { cwd: target, stdio: 'ignore', windowsHide: true });
+    const remote = path.join(target, 'origin.git');
+    execFileSync('git', ['init', '--bare', remote], { cwd: target, stdio: 'ignore', windowsHide: true });
+    execFileSync('git', ['remote', 'add', 'origin', remote], { cwd: target, stdio: 'ignore', windowsHide: true });
+
+    for (const command of ['git commit -m "verified change"', 'git push origin feature/safe-delivery']) {
+      assert.deepEqual(await evaluateCodexHook(input(target, { tool_input: { command } }), {
+        environment: { VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED: '1' },
+      }), {}, command);
+      assert.deepEqual(await evaluateCodexHook(input(target, {
+        execution_envelope: executionEnvelope({ mode: 'plan', targetIssueIds: [], allowedEffects: [] }),
+        tool_input: { command },
+      })), {}, command);
+      const forbiddenEffect = command.includes('commit') ? 'gitCommit' : 'gitPush';
+      const forbidden = await evaluateCodexHook(input(target, {
+        execution_envelope: executionEnvelope({ forbiddenEffects: [forbiddenEffect] }),
+        tool_input: { command },
+      }));
+      assert.match(forbidden.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_EFFECT_FORBIDDEN/u);
+      const invalid = await evaluateCodexHook(input(target, {
+        execution_envelope: { schema: 'invalid' },
+        tool_input: { command },
+      }));
+      assert.match(invalid.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_INVALID/u);
+      const readOnly = await evaluateCodexHook(input(target, { tool_input: { command } }), {
+        environment: { VIBE_HARNESS_PERMISSION_PRESET: 'analysis' },
+      });
+      assert.notDeepEqual(readOnly, {}, command);
+    }
+
+    for (const command of [
+      'git commit --amend -m change',
+      'git commit -a -m change',
+      'git commit --no-verify -m change',
+      'git push --force origin feature/safe-delivery',
+      'git push origin :feature/safe-delivery',
+      'git push origin feature/safe-delivery --tags',
+      'git commit -m change && git push origin feature/safe-delivery',
+      'git commit -m change && node scripts/custom-operation.mjs',
+      'git push unknown feature/safe-delivery',
+    ]) {
+      const result = await evaluateCodexHook(input(target, { tool_input: { command } }), {
+        environment: { VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED: '1' },
+      });
+      assert.notDeepEqual(result, {}, command);
+    }
+
+    execFileSync('git', ['config', 'remote.origin.push', 'refs/heads/*:refs/heads/*'], { cwd: target, stdio: 'ignore', windowsHide: true });
+    const ambiguousRefspec = await evaluateCodexHook(input(target, {
+      tool_input: { command: 'git push origin feature/safe-delivery' },
+    }), { environment: { VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED: '1' } });
+    assert.match(ambiguousRefspec.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u);
+    execFileSync('git', ['config', '--unset', 'remote.origin.push'], { cwd: target, stdio: 'ignore', windowsHide: true });
+
+    const missingUpstream = await evaluateCodexHook(input(target, {
+      tool_input: { command: 'git push' },
+    }), { environment: { VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED: '1' } });
+    assert.match(missingUpstream.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u);
+    execFileSync('git', ['config', 'branch.feature/safe-delivery.remote', 'origin'], { cwd: target, stdio: 'ignore', windowsHide: true });
+    execFileSync('git', ['config', 'branch.feature/safe-delivery.merge', 'refs/heads/feature/safe-delivery'], { cwd: target, stdio: 'ignore', windowsHide: true });
+    assert.deepEqual(await evaluateCodexHook(input(target, {
+      tool_input: { command: 'git push' },
+    }), { environment: { VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED: '1' } }), {});
+    assert.deepEqual(await evaluateCodexHook(input(target, {
+      tool_input: { command: 'git push -u origin feature/safe-delivery' },
+    }), { environment: { VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED: '1' } }), {});
+
+    execFileSync('git', ['switch', 'main'], { cwd: target, stdio: 'ignore', windowsHide: true });
+    const protectedPush = await evaluateCodexHook(input(target, { tool_input: { command: 'git push origin main' } }));
+    assert.match(protectedPush.hookSpecificOutput.permissionDecisionReason, /PROTECTED/u);
+    execFileSync('git', ['switch', '-c', 'release-candidate'], { cwd: target, stdio: 'ignore', windowsHide: true });
+    const releasePush = await evaluateCodexHook(input(target, {
+      tool_input: { command: 'git push origin release-candidate' },
+    }));
+    assert.match(releasePush.hookSpecificOutput.permissionDecisionReason, /PROTECTED/u);
+  });
+});
+
 test('Execution Envelope rejects invalid, mismatched, and required-missing authorization', async () => {
   await withProject(async (target) => {
     const invalid = await evaluateCodexHook(input(target, {
@@ -539,7 +577,7 @@ test('Execution Envelope forbidden effects override allowlists and mode ceilings
       execution_envelope: executionEnvelope({ mode: 'linear-sync', allowedEffects: ['gitCommit'] }),
       tool_input: { command: 'git commit -m change' },
     }));
-    assert.match(linearSyncCommit.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MODE_VIOLATION/u);
+    assert.deepEqual(linearSyncCommit, {});
 
     const linearSyncUnknown = await evaluateCodexHook(input(target, {
       execution_envelope: executionEnvelope({ mode: 'linear-sync', allowedEffects: [] }),
@@ -675,8 +713,6 @@ test('Execution Envelope classifies ordinary Git, Linear, and credential operati
     for (const [command, effect] of [
       ['git branch feature/ENG-123-envelope', 'gitBranch'],
       ['git switch -c feature/ENG-123-envelope', 'gitBranch'],
-      ['git commit -m "change Refs ENG-123"', 'gitCommit'],
-      ['git push origin feature/ENG-123-envelope', 'gitPush'],
     ]) {
       const denied = await evaluateCodexHook(input(target, {
         execution_envelope: executionEnvelope(),
@@ -869,8 +905,6 @@ test('Execution Envelope classifies scripts, merge requests, and target Issue sc
 
     for (const command of [
       'git switch existing',
-      'git commit -m change',
-      'git push origin feature/without-issue',
     ]) {
       const targetUnverified = await evaluateCodexHook(input(target, {
         execution_envelope: executionEnvelope({ allowedEffects: ['gitBranch', 'gitCommit', 'gitPush'] }),
@@ -1190,7 +1224,6 @@ test('Hook settings contain safety configuration only', async () => {
       mode: 'guarded',
       permissionPreset: null,
       redZonePaths: DEFAULT_RED_ZONE_PATHS,
-      rtkEnabled: false,
     });
   });
 });
@@ -1203,7 +1236,6 @@ test('Hook reads allowedEgressHosts from project configuration', async () => {
       mode: 'guarded',
       permissionPreset: null,
       redZonePaths: DEFAULT_RED_ZONE_PATHS,
-      rtkEnabled: false,
     });
   }, {});
   await withProject(async (target) => {
@@ -1232,7 +1264,6 @@ test('Hook settings apply repository configuration only as a restriction without
       mode: 'guarded',
       permissionPreset: null,
       redZonePaths: DEFAULT_RED_ZONE_PATHS,
-      rtkEnabled: false,
     });
   } finally {
     await rm(target, { force: true, recursive: true });
@@ -1645,3 +1676,47 @@ test('resolveExecutable maps node to the running executable and routes npm shims
   // Unknown programs pass through unchanged.
   assert.deepEqual(resolveExecutable('git'), { command: 'git', preArgs: [] });
 });
+
+for (const scenario of [
+  { name: '只读放行', toolName: 'Bash', toolInput: { command: 'git status --short' }, decision: undefined },
+  { name: '缺授权拒绝', toolName: 'Write', toolInput: { file_path: 'src/example.js', content: 'fixture' }, decision: 'deny' },
+]) {
+  test(`Hook CLI ${scenario.name} 不回显或落盘合成敏感输入`, async () => {
+    await withProject(async (target) => {
+      const isolatedTemp = path.join(target, 'isolated-temp');
+      await mkdir(isolatedTemp);
+      const before = (await readdir(target, { recursive: true })).sort();
+      const markers = {
+        session: 'synthetic-session-canary',
+        authorization: 'synthetic-authorization-canary',
+        cookie: 'synthetic-cookie-canary',
+        description: 'synthetic-request-canary',
+      };
+      const request = input(target, {
+        session_id: markers.session,
+        tool_name: scenario.toolName,
+        tool_input: {
+          ...scenario.toolInput,
+          authorization: markers.authorization,
+          cookie: markers.cookie,
+          description: markers.description,
+        },
+      });
+      const result = await runHookCli(JSON.stringify(request), undefined, {
+        TEMP: isolatedTemp,
+        TMP: isolatedTemp,
+        TMPDIR: isolatedTemp,
+        VIBE_HARNESS_EXECUTION_ENVELOPE: undefined,
+        VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED: '1',
+      });
+
+      assert.equal(result.code, 0);
+      assert.equal(JSON.parse(result.stdout).hookSpecificOutput?.permissionDecision, scenario.decision);
+      for (const marker of Object.values(markers)) {
+        assert.equal(`${result.stdout}${result.stderr}`.includes(marker), false, `不得回显合成标记：${marker}`);
+      }
+      assert.deepEqual(await readdir(isolatedTemp), []);
+      assert.deepEqual((await readdir(target, { recursive: true })).sort(), before);
+    });
+  });
+}

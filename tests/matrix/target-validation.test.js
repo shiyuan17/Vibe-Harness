@@ -182,7 +182,11 @@ test('everything preset plans the full surface for every target before writing',
     assert.equal(report.profile, 'full');
     assert.deepEqual(report.targets, ['codex', 'zcode', 'opencode']);
     assert.equal(report.requestedPlugins.includes('linear'), true);
-    assert.equal(report.requestedPlugins.length, 10);
+    // The retired local tool wrapper layer contributes no provider any more, so
+    // the full surface is the preset's `plugins.all` set plus the Linear
+    // integration. Naming the providers keeps a silent shrink or swap visible,
+    // where a bare count would only show that some number changed.
+    assert.deepEqual([...report.requestedPlugins].sort(), ['chrome-devtools', 'linear', 'open-code-review', 'playwright']);
     assert.equal(report.requestedModules.includes('memory'), true);
     assert.deepEqual(report.provisioning, { executed: false, requested: true, source: 'preset' });
     assert.equal(report.requiresRedZoneConfirmation, true);

@@ -1,6 +1,6 @@
 # 内容与可访问性
 
-内容呈现与可访问性的具象技术。强制门禁见 `docs/rules/frontend-rules.md`；组件状态变体见 `component-states.md`。
+内容呈现与可访问性的具象技术。同步归属：`docs/rules/frontend-rules.md`；执行前核对本 Skill 入口的适用底线；组件状态变体见 `component-states.md`。
 
 ## 语义优先
 

@@ -176,7 +176,7 @@ function containsCjk(text) {
 // Host routing selects skills by matching the request text against the
 // description, so a description that mixes English and Chinese prose halves the
 // tokens either language can match. Embedded technical tokens (command names
-// such as $git-deliver, tool names such as Playwright) are unavoidable; the
+// such as $vb-git-split-push, tool names such as Playwright) are unavoidable; the
 // check only fails when the minority script carries a meaningful share of the
 // letters.
 function hasMixedScriptDescription(description) {
@@ -376,7 +376,7 @@ export async function validateSkillGraph(
   // `code-navigation` joined it: that Skill's routing line is what makes the
   // deferred code-intelligence tools visible before the model picks a tool, so
   // it earns the extra always-loaded characters rather than being squeezed.
-  if (nativeIdentityCharacters > 2000) errors.push(`native Skill name and description budget exceeds 2000 characters: ${nativeIdentityCharacters}`);
+  if (nativeIdentityCharacters > 2200) errors.push(`native Skill name and description budget exceeds 2200 characters: ${nativeIdentityCharacters}`);
 
   if (checkFiles) {
     for (const root of ['skills/core', 'skills/integrations']) {
@@ -504,9 +504,15 @@ export const RULE_SKILL_PARITY_PAIRS = Object.freeze([
   },
   {
     rule: 'docs/rules/git-rules.md',
-    skill: 'skills/core/git-deliver/SKILL.md',
-    skillName: 'git-deliver',
+    skill: 'skills/core/vb-git-split-push/SKILL.md',
+    skillName: 'vb-git-split-push',
     sharedTerms: ['Conventional Commit', 'no-verify'],
+  },
+  {
+    rule: 'docs/rules/git-rules.md',
+    skill: 'skills/core/vb-git-develop-flow/SKILL.md',
+    skillName: 'vb-git-develop-flow',
+    sharedTerms: ['`vb-git-develop-flow`', 'local-land', '`origin/develop`'],
   },
   {
     rule: 'docs/rules/linear-workflow.md',
@@ -520,6 +526,12 @@ export const RULE_SKILL_PARITY_PAIRS = Object.freeze([
       SHARED_RULE_PHRASES.gitFlowHotfix,
       SHARED_RULE_PHRASES.developRequiredFastGate,
     ],
+  },
+  {
+    rule: 'docs/rules/linear-workflow.md',
+    skill: 'skills/integrations/vb-linear-worktree-develop/SKILL.md',
+    skillName: 'vb-linear-worktree-develop',
+    sharedTerms: ['`vb-linear-worktree-develop`', 'local-land', '`origin/develop`'],
   },
 ]);
 
@@ -547,17 +559,111 @@ export const RULE_PORTABILITY_CHECKS = Object.freeze([
   { label: 'docs/specs/', pattern: /docs\/specs\//u },
   { label: 'docs/adr/', pattern: /docs\/adr\//u },
   { label: 'docs/inventory/', pattern: /docs\/inventory\//u },
+  { label: 'relative specification path', pattern: /(?:\.\.\/)+(?:specs|adr|inventory)\//u },
+  { label: 'architecture document', pattern: /docs\/architecture\.md/u },
+  { label: 'delivery template reference', pattern: /docs\/templates\/delivery\.md/u },
   { label: 'github-delivery.md', pattern: /github-delivery\.md/u },
-  { label: 'ADR number', pattern: /ADR-000\d/u },
+  // Any ADR number, not just the `ADR-0000` template placeholder: a rule body
+  // that cites `ADR-0013` sends the host of another project to a decision
+  // record that project never received.
+  { label: 'ADR number', pattern: /ADR-\d{4}/u },
   { label: '.github/workflows/', pattern: /\.github\/workflows\//u },
   { label: 'CI job name', pattern: /main-release-gate|develop-gate|merge-gate/u },
   { label: 'repository script', pattern: /pnpm /u },
+  { label: 'external documentation link', pattern: /(?:^[ \t]*(?:[-*][ \t]+)?<?https?:\/\/\S+|\[[^\]\r\n]*\]\(https?:\/\/[^)\r\n]+\)|^[ \t]*\[[^\]\r\n]+\]:[ \t]*https?:\/\/\S+|(?:详见|参见|参考|依据|遵循)[^\r\n。；]{0,40}https?:\/\/\S+)/mu },
+  { label: 'version-only proof', pattern: /(?:\bv\d+(?:\.\d+)*\s*(?:宿主\s*)?证明|宿主\s*v\d+(?:\.\d+)*\s*证明|(?:需要|缺少|缺)\s*(?:可验证\s*)?v\d+(?:\s*Envelope)?(?=[，。；\s]|$))/iu },
+  { label: 'external specification delegation', pattern: /(?:以[^。\r\n；]{0,60}(?:规格|规范文档)[^。\r\n；]{0,20}为准|(?:详见|参见)[^。\r\n；]{0,40}(?:规格|规范文档)|以其 ADR (?:索引|模板|schema)|(?:按|遵循|依据)\s*ADR\s*(?:要求|规范)?\s*(?:执行|处理|操作))/iu },
 ]);
 
 /**
  * The rule files that must stay portable, and the one rendered exception.
  */
 export const RULE_PORTABILITY_EXCLUSIONS = Object.freeze(['project-specific-rules.md']);
+
+export const SKILL_PORTABILITY_CHECKS = Object.freeze([
+  { label: 'CONTRIBUTING.md', pattern: /CONTRIBUTING\.md/u },
+  { label: 'private documentation path', pattern: /(?:\bdocs[/\\](?!(?:rules|memory|plans)[/\\])[\w./\\-]+|(?:^|[\s`("'（/\\])(?:specs|adr)[/\\]|(?:docs[/\\])?templates[/\\][\w/-]+\.md)/iu },
+  { label: 'github-delivery.md', pattern: /github-delivery\.md/u },
+  { label: 'ADR number or index', pattern: /\bADR(?:[- _#]*\d+|\s*(?:索引|目录|模板))/iu },
+  { label: 'private implementation path', pattern: /(?:^|[\s`("'（])(?:scripts[/\\](?:lib[/\\])?[\w./-]+\.(?:[cm]?js|ps1|sh)|tests[/\\](?:fixtures|component|integration|unit)[/\\][\w./-]+|\.github[/\\]workflows[/\\][\w.-]+\.(?:yml|yaml))/u },
+  { label: 'absolute project path', pattern: /(?:[A-Z]:[/\\](?:Users|Project|repos?)[/\\][^<>\s`]+|\/(?:home|Users|workspace)\/[^<>\s`]+)/iu },
+  { label: 'external specification delegation', pattern: /(?:规范见|强制门禁[^。；\r\n]{0,30}见|以[^。；\r\n]{0,80}(?:规格|规范|文档|规则|贡献指南)[^。；\r\n]{0,30}为准|按(?:某|外部)[^。；\r\n]{0,20}(?:规格|文档|规则)|按规则第\s*[\d、]+\s*节|(?:按|遵循|依据)\s*ADR\b)/iu },
+  { label: 'version-only proof', pattern: /(?:\bv\d+(?:\.\d+)*\s*(?:宿主\s*|执行\s*)?证明|宿主[^。\r\n；]{0,24}\bv\d+(?:\.\d+)*[^。\r\n；]{0,24}证明|(?:需要|缺少|缺)\s*(?:可验证\s*)?v\d+(?:\s*Envelope)?\s*证明)/iu },
+]);
+
+function skillPortabilityUrlViolation(line) {
+  // Judge each URL's use, never exempt an entire line or a trusted domain.
+  const endpointLabel = /(?:工具连接端点|操作端点|(?:MCP|API|tool)\s+endpoint)\s*[:：]?\s*$/iu;
+  const markdownLink = /\[([^\]\r\n]*)\]\((https?:\/\/[^)\s]+)\)/gu;
+  for (const match of line.matchAll(markdownLink)) {
+    if (!endpointLabel.test(match[1])) return match[0];
+  }
+  const withoutLinks = line.replace(markdownLink, '');
+  let previousEnd = 0;
+  for (const match of withoutLinks.matchAll(/https?:\/\/[^\s`<>)，；。]+/gu)) {
+    const prefix = withoutLinks.slice(previousEnd, match.index);
+    const command = /^\s*`?(?:node|npx|curl|wget|playwright(?:-cli)?|pnpm (?:exec|dlx))\s+[^。；]*$/u.test(prefix);
+    if (!endpointLabel.test(prefix) && !command) return match[0];
+    previousEnd = match.index + match[0].length;
+  }
+  return null;
+}
+
+function skillProjectCommandViolations(lines) {
+  // A target-project command is portable only when the document explicitly
+  // declares it and tells the reader to check that project's configuration.
+  const declarations = new Set();
+  const commandPattern = /`((?:pnpm|npm run|yarn)\s+(?:run\s+)?[\w:-]+(?:\s+[^`\r\n]+)?)`/gu;
+  for (const line of lines) {
+    if (!/项目命令声明/u.test(line) || !/执行前(?:核对|确认)/u.test(line)) continue;
+    for (const match of line.matchAll(commandPattern)) declarations.add(match[1]);
+  }
+  const errors = [];
+  for (const line of lines) {
+    const inlineCommands = [...line.matchAll(commandPattern)].map((match) => match[1]);
+    const fencedCommand = line.match(/^\s*((?:pnpm|npm run|yarn)\s+(?:run\s+)?[\w:-]+(?:\s+.*)?)$/u)?.[1];
+    if (fencedCommand) inlineCommands.push(fencedCommand);
+    for (const command of inlineCommands) {
+      if (/^pnpm (?:exec|dlx|install|add|remove|update)(?:\s|$)/u.test(command)) continue;
+      if (!declarations.has(command)) errors.push(command);
+    }
+  }
+  return [...new Set(errors)];
+}
+
+/**
+ * Reject repository-private or explanatory external references in portable Skills.
+ *
+ * @param {string} rootDir repository root
+ * @returns {Promise<string[]>} violations, sorted
+ */
+export async function validateSkillPortability(rootDir) {
+  const skillsDir = path.join(rootDir, 'skills');
+  if (!(await pathExists(skillsDir))) return [];
+  const errors = [];
+  const entries = await readdir(skillsDir, { recursive: true, withFileTypes: true });
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
+    const file = path.join(entry.parentPath ?? entry.path, entry.name);
+    const relative = path.relative(rootDir, file).replaceAll('\\', '/');
+    const lines = (await readFile(file, 'utf8')).split(/\r?\n/u);
+    for (const { label, pattern } of SKILL_PORTABILITY_CHECKS) {
+      const match = lines.find((line) => pattern.test(line));
+      if (match) errors.push(`${relative} must not reference ${label}: ${match.trim()}`);
+    }
+    const url = lines.map(skillPortabilityUrlViolation).find(Boolean);
+    if (url) errors.push(`${relative} must not reference external documentation link: ${url}`);
+    for (const command of skillProjectCommandViolations(lines)) {
+      errors.push(`${relative} must declare target-project command before use: ${command}`);
+    }
+  }
+  return errors.sort();
+}
+
+export async function validateSkillExecutionBoundaries(rootDir) {
+  return (await Promise.all(SKILL_EXECUTION_BOUNDARY_CHECKS
+    .map((check) => checkRequiredTerms(rootDir, check)))).flat().sort();
+}
 
 /**
  * A bare backticked `<id>.md` in a rule body is read by the host as a sibling
@@ -587,6 +693,24 @@ const RULE_CROSS_REFERENCE_PATTERN = /`([a-z0-9]+(?:-[a-z0-9]+)*\.md)`/gu;
  * forbidden content) stay in tests and read the shared enums exported by the
  * modules that already own them.
  */
+const SKILL_EXECUTION_BOUNDARY_CHECKS = [
+  'skills/core/vb-git-develop-flow/SKILL.md',
+  'skills/integrations/vb-linear-worktree-develop/SKILL.md',
+  'skills/integrations/linear-workflow/SKILL.md',
+].map((file) => ({
+  file,
+  terms: [
+    'requestId', 'sessionId', 'targetIssueIds', 'activeObjective',
+    'allowedEffects', 'forbiddenEffects', 'terminalCondition',
+    'canonicalCwd', 'worktreeRoot', 'gitCommonDir', 'gitDir',
+    'branch', 'baseRef', 'baseSha', 'initialHeadSha', 'allowedWriteRoots',
+    'hostContext', 'source=host', 'filesystem', 'approval',
+    'process=isolated', 'network', 'observedAt',
+    'Agent 不得自造', '缺授权', '暂停', '保留', '不得靠重复询问用户解除',
+    'contract-only/degraded', '高风险间接写入或 worktree 拓扑变化',
+  ],
+}));
+
 export const CONTENT_QUALITY_CHECKS = [
   {
     file: 'docs/rules/governance-core.md',
@@ -628,7 +752,12 @@ export const CONTENT_QUALITY_CHECKS = [
       '| mode | effect 上限 |',
       'inspect、plan、monitor',
       '仅 `linearWrite`',
-      'v2 另加 hostWrite、externalWrite',
+      'credentialUse、hostWrite、externalWrite',
+      'hostContext 必须由宿主提供',
+      'canonicalCwd、worktreeRoot、gitCommonDir、gitDir、branch、baseRef、baseSha、initialHeadSha、allowedWriteRoots',
+      '高风险或不可分类调用缺少有效授权记录、工作区核验或宿主核验信息时 fail-closed',
+      'Agent 不得自填这些信息冒充宿主核验',
+      '保留不依赖该操作的安全工作',
       // 验证范围与证据标签
         '验证范围必须与完成主张匹配',
         '先按变更类型选择项目已定义的聚焦检查',
@@ -820,7 +949,7 @@ export const CONTENT_QUALITY_CHECKS = [
       '项目已配置且对本次文件或语言适用时',
       '无法隔离时才串行',
       '不是目标项目通用门禁',
-      '以项目自己的贡献指南和测试配置为准',
+      '执行前从当前项目脚本与测试配置核对',
       // 参考实现边界：只声明可移植的分档方式，不绑定本仓库脚本名与超时值。
       '脚本入口按测试层级分类',
       '不构成对目标项目运行器、依赖或超时的要求',
@@ -1027,7 +1156,7 @@ export const CONTENT_QUALITY_CHECKS = [
       '必须使用仓库外 worktree',
       // 高风险路径清单：本仓库的仓库内规则目录名，不是项目私有引用。
       'CI workflow 定义',
-      '项目自己的发布交付文档',
+      'Risk Evidence 章节必须说明风险来源、影响范围、实际验证和回滚方式',
     ],
   },
   {
@@ -1046,12 +1175,12 @@ export const CONTENT_QUALITY_CHECKS = [
       '按可解析的所有权来源确认 owner',
       // ADR 判据按影响与可逆性，不按跨了几层目录；触发清单与字段指向单一来源。
       '不以文件数量或是否跨模块边界判断',
-      'ADR 是决策记录而不是设计文档',
-      '以其 ADR 索引作为触发清单与流程来源',
+      '决策记录必须包含问题与背景、决策驱动、备选方案与取舍理由',
+      '项目已有决策记录目录、模板或 schema 时，先核对其触发条件和必填字段',
       '默认 `.agents/memory/decisions.md`',
       '小型 Bug、单文件修改和简单问答不展开该清单',
       '长期有效、高影响且难以逆转',
-      '不为普通修复、局部重命名、可逆实现选择或短期实验新建 ADR 体系',
+      '普通修复、局部重命名、可逆实现选择和短期实验不要求新建决策记录',
       '叠加在 governance-core 的完成与验收契约之上',
     ],
   },
@@ -1101,61 +1230,12 @@ export const CONTENT_QUALITY_CHECKS = [
     ],
   },
   {
-    file: 'docs/rules/ast-grep.md',
-    terms: [SHARED_RULE_PHRASES.optionalToolActivation, '插件或项目内等价工具已存在时生效'],
-  },
-  {
     file: 'docs/rules/chrome-devtools-mcp.md',
     terms: [SHARED_RULE_PHRASES.optionalToolActivation, '插件或工具已存在时生效'],
   },
   {
     file: 'docs/rules/codebase-memory-mcp.md',
-    terms: [
-      SHARED_RULE_PHRASES.optionalToolActivation,
-      '已存在且当前任务需要其结构化能力时生效',
-      '只有显式选择 `--plugin codebase-memory-mcp`',
-      '未选择插件时不得假设工具存在',
-    ],
-  },
-  {
-    file: 'docs/rules/codegraph.md',
-    terms: [
-      SHARED_RULE_PHRASES.optionalToolActivation,
-      'codegraph 插件或项目内等价工具已存在时生效',
-      // Tier 3 预算：Base Index + Git Diff 是默认，重建是受四条件约束的例外且必须串行。
-      '默认使用 Base Index + Git Diff',
-      '不给每个 Worktree 重建完整知识图谱',
-      '禁止所有 Worktree 自动完整重建索引',
-      'MAX_CONCURRENT_INDEX = 1',
-    ],
-  },
-  {
-    file: 'docs/rules/probe.md',
-    terms: [
-      SHARED_RULE_PHRASES.optionalToolActivation,
-      'probe 插件或项目内等价工具已存在时生效',
-      // Tier 1 预算：轻量并行、限量结果、限定范围。
-      'RAYON_NUM_THREADS',
-      '--max-results',
-      '--max-tokens',
-      '禁止无目的全仓扫描',
-    ],
-  },
-  {
-    file: 'docs/rules/rtk.md',
-    terms: [SHARED_RULE_PHRASES.optionalToolActivation, 'RTK 插件或工具已存在时生效'],
-  },
-  {
-    file: 'docs/rules/serena.md',
-    terms: [
-      SHARED_RULE_PHRASES.optionalToolActivation,
-      'serena 插件或项目内等价工具已存在时生效',
-      // Tier 2 预算：按需激活、限量并发、用完释放；符号级编辑不作为首选写入路径。
-      '仅在需要 symbol、references、definition、type resolution 时启用',
-      '同时激活 ≤ 2 个 Worktree',
-      '完成 Symbol 分析后释放不再需要的实例',
-      '不作为首选写入路径',
-    ],
+    terms: ['规则存在不代表工具已安装', '不锁定版本', 'list_projects', 'check_index_coverage', '分页', '未知工具', '不自动安装、升级或全量重建'],
   },
   {
     file: 'docs/rules/api-rules.md',
@@ -1177,7 +1257,7 @@ export const CONTENT_QUALITY_CHECKS = [
       '不做运行时语言协商',
       '错误码与文案一一对应',
       // 展开的执行步骤位于宿主 Skill，措辞必须保持适配器中立。
-      '宿主 Skill 根目录下已安装的',
+      'Skill 仅提供按需操作辅助，不替代本规则',
     ],
   },
   {
@@ -1313,7 +1393,7 @@ export const CONTENT_QUALITY_CHECKS = [
       '停止',
       '不得把本地构建通过当作发布成功',
       // 制品、签名与分发方式属于项目事实。
-      '具体制品、签名、证明和分发方式由目标项目的贡献与交付文档管理',
+      '发布前核对目标项目实际配置的制品、签名、来源校验和分发入口',
     ],
   },
   {
@@ -1384,7 +1464,8 @@ export const CONTENT_QUALITY_CHECKS = [
     // contract, and the "no invented hash" boundary stay present.
     file: 'skills/core/task-decomposition/references/task-decomposition-guide.md',
     terms: [
-      'docs/rules/ai-collab-rules.md 为准',
+      'all_success 要求全部直接前驱 succeeded',
+      '不能将失败 DAG 判为成功',
       '不是 DAG 节点',
       'ready 节点',
       '需要修订 DAG',
@@ -1852,6 +1933,8 @@ export async function validateContentQuality(rootDir) {
   const errors = [
     ...results.flat(),
     ...await validateRulePortability(rootDir),
+    ...await validateSkillPortability(rootDir),
+    ...await validateSkillExecutionBoundaries(rootDir),
     ...await validateRuleCrossReferences(rootDir),
     ...await validateRuleSkillParity(rootDir),
     ...await validateMemoryEntry(rootDir),

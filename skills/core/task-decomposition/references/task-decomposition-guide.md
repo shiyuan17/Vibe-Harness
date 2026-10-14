@@ -2,7 +2,7 @@
 
 `task-decomposition` Skill 的操作参考：回答要不要拆、按什么拆、节点怎么声明、什么时候能派发，以及单节点提示词怎么写。
 
-本文件是操作参考；节点字段、状态与 ready 规则以 docs/rules/ai-collab-rules.md 为准，授权与验证以 docs/rules/governance-core.md 为准，冲突时规则优先，不另立第二真值。
+本文件写明节点字段、状态、派发、授权与验证要求。同步归属：`docs/rules/ai-collab-rules.md` 与 `docs/rules/governance-core.md`；修改时核对一致性。
 
 规划只读：Plan 不构成新增写入、提交、推送或外部授权；本 Skill 不自动创建 Goal、不派发子 Agent、不执行后继节点。用户已授权实施的计划在宿主允许执行后持续推进，不追加形式化最终确认。
 
@@ -56,19 +56,20 @@ Goal Brief 描述期望终态与整体验收，不是 DAG 节点，也不占用�
 
 ## 节点契约与可选字段
 
-字段名与取值以规则为准：id、kind、output、dependsOn、trigger、writeScope、resourceLocks、verification、result。
+每个节点包含 id（唯一标识）、kind（read / write / aggregate）、output、dependsOn（前驱 ID）、trigger、writeScope、resourceLocks、verification、result。
 
 - 节点声明必要依赖、输入、写入归属（writeScope）、共享资源（resourceLocks）、可验收输出与验证方式。
 - 只读节点的 writeScope 为空；trigger 默认 all_success。
 - result 使用 pending、ready、running、unverified、succeeded、failed、blocked、skipped 或 cancelled。
 - unverified 与 blocked 是非终态；Linear 的 Canceled、Duplicate、Won't Fix 只作外部终态并按非 succeeded 处理。
 - skipped 只用于没有任何后继依赖其成功的节点；会阻塞后继的节点不得标记 skipped。
+- all_success 要求全部直接前驱 succeeded；all_done 仅用于 aggregate、清理或失败报告节点，要求全部直接前驱已终结，不能将失败 DAG 判为成功。
 
 writeScope 只接受项目相对精确路径，或末尾为 `/**` 的目录范围；拒绝绝对路径、UNC、空路径、`..` 与其他复杂 glob。
 
 可选字段，仅长任务填写，普通单 Agent 任务不填：节点超时、最大尝试次数、取消、退避、资源与 token 预算。
 
-派发前可用 `pnpm task-dag check --file <dag.json> [--require-ready]` 校验节点契约、依赖边与环、writeScope 与 resourceLocks 冲突；该命令只校验结构与隔离事实，不替代人读判断。
+派发前校验节点契约、依赖边与环、writeScope 与 resourceLocks 冲突。项目命令声明：`pnpm task-dag check --file <dag.json> [--require-ready]`；执行前确认目标项目已在 package.json 声明 task-dag 校验脚本，且支持这些参数。未声明时逐项只读核对，不强加本仓库脚本，也不声称命令已执行；结构校验不能替代人读判断。
 
 ## Ready 与完成判定（质量检查）
 
@@ -90,7 +91,7 @@ fail-closed 结果：
 
 验证要求与节点风险和完成主张成比例，不默认全仓检查或全矩阵：
 
-- 节点提示词只携带该节点变更路径的聚焦验证——按路径自动选择受影响的检查层（本项目为 `pnpm verify:focused --run`），不携带全仓 check；全仓检查保留给阶段收尾、合并前或显式高风险节点。
+- 节点提示词只携带该节点变更路径的聚焦验证：从目标项目已声明的验证命令中选择受影响的检查层，不携带全仓 check；全仓检查保留给阶段收尾、合并前或显式高风险节点。
 - e2e、matrix 与生命周期 smoke 只进入发布边界、CI full 门禁或高风险节点的验收判据；普通节点不要求，也不因目录名自动触发。
 - fan-in 父节点在合并后跑一次集成验证覆盖子节点的合并面；集成验证不在每个子节点重复。
 - 任务锚点的 riskLevel 是建议层：快速/轻量档的单元完成主张由快速层收据支撑，完整档由 standard 层收据支撑；只有显式收尾门禁（如 `worktree land` 验证门）把它升级为硬门禁。
@@ -121,14 +122,14 @@ fan-in：父 Agent 在合并后重新读取工作区与实际 diff，核对写�
 
 ## 复审与验证简报
 
-派发 verifier／reviewer 节点时，用 `docs/templates/review-brief.md` 作为宿主无关的简报骨架，把输入限制为四类，不附加实施会话的推理或结论：
+派发 verifier／reviewer 节点时，简报只提供以下四类输入，不附加实施会话的推理或结论：
 
 - 规则与验收：适用规则、绑定计划 `docs/plans/<task-id>.md`（含机器可读执行块给出的单元、依赖、允许范围与验收 ID）、验收判据。
 - 被审对象：diff，以及测试命令与结果、Build 输出、Lint 输出、截图、HTTP 响应、Diff 等原始证据指针。
 - 边界：复审范围、明确不看的内容、已知未验证项与已声明覆盖边界。
 - 输出契约：只报影响正确性的发现，每条给出严重度、证据、影响的验收 ID 与建议动作，并单独声明 `contextIndependence`。
 
-独立复审必须使用宿主真实支持的 fresh context：继承实施会话、复用实施者自评或另一个复审者的结论都不构成独立；宿主只能提供继承上下文时记降级并缩小完成主张，不得声称已完成独立复审。完成主张的证据类型按 `docs/templates/evidence.md` 选择，只报“已完成、测试通过”而不给命令、结果与退出码的回传按无效证据处理。
+独立复审必须使用宿主真实支持的 fresh context：继承实施会话、复用实施者自评或另一个复审者的结论都不构成独立；宿主只能提供继承上下文时记降级并缩小完成主张，不得声称已完成独立复审。每项完成主张附实际命令、结果和退出码；按主张追加 Build、Lint、截图、HTTP 响应或 Diff，并声明未验证边界。只报“已完成、测试通过”而不给命令、结果与退出码的回传按无效证据处理。
 
 ## 反模式
 
@@ -152,8 +153,8 @@ fan-in：父 Agent 在合并后重新读取工作区与实际 diff，核对写�
 
 | id | kind | output | dependsOn | writeScope | resourceLocks | verification |
 | --- | --- | --- | --- | --- | --- | --- |
-| n1 | write | 新 settings 读写接口与模块 A 迁移 | None | `src/settings/**`, `src/module-a/**` | contract:settings | `pnpm test:unit` 退出码 0 |
-| n2 | write | 模块 B 接入新接口 | n1 | `src/module-b/**` | None | `pnpm test:unit` 退出码 0 |
+| n1 | write | 新 settings 读写接口与模块 A 迁移 | None | `src/settings/**`, `src/module-a/**` | contract:settings | 项目已声明的单测命令退出码 0 |
+| n2 | write | 模块 B 接入新接口 | n1 | `src/module-b/**` | None | 项目已声明的单测命令退出码 0 |
 
 此时只有 n1 是 ready 节点。n1 的提示词示例：
 
@@ -162,5 +163,5 @@ fan-in：父 Agent 在合并后重新读取工作区与实际 diff，核对写�
 - 可用工具与来源：读写仓库文件、检索现有配置调用方、运行项目单测。
 - 边界：只修改 `src/settings/**` 与 `src/module-a/**`；明确不做什么——不改 `src/module-b/**`，不改变现有配置项的默认值，不替父 Agent 决定 B 端迁移顺序。
 - 输入：现有配置读取实现、调用方清单、已冻结的接口契约快照（方法名、参数与错误语义）。
-- 验收：`pnpm test:unit` 退出码 0，且新增接口的调用方测试覆盖模块 A 的全部读取路径。
+- 验收：项目已声明的单测命令退出码 0，且新增接口的调用方测试覆盖模块 A 的全部读取路径；表中的示例路径须替换为实际路径。
 - 回传：结果、实际修改文件、base/head、验证命令与退出码、未决风险与阻塞原因。

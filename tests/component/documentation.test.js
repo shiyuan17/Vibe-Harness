@@ -149,14 +149,10 @@ test('README quick start exposes three profile prompts with the plugin indexing 
     const full = quickStart.match(/^### full\s+ {4}([^\n]+)/mu)?.[1] ?? '';
     assert.doesNotMatch(minimal, /codebase-memory-mcp/u);
     for (const prompt of [core, full]) {
-      assert.match(prompt, /--plugin codebase-memory-mcp/u);
+      assert.match(prompt, /codebase-memory-mcp/u);
       assert.match(prompt, /--confirm-red-zone/u);
-      assert.match(prompt, /provision --write/u);
-      assert.match(prompt, /auto_index/u);
-      assert.match(prompt, /auto_watch/u);
-      assert.match(prompt, /codebaseMemoryMcp/u);
-      assert.match(prompt, /ready/u);
-      assert.match(prompt, /doctor --project/u);
+      assert.match(prompt, /doctor/u);
+      assert.doesNotMatch(prompt, /--plugin codebase-memory-mcp|provision --write|auto_index|auto_watch/u);
     }
   }
 });

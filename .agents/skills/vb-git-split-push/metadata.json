@@ -1,0 +1,1 @@
+{"id":"vb-git-split-push","kind":"core","entry":"SKILL.md","triggers":["vb-git-split-push","$vb-git-split-push","Vb Git Split Push","git-deliver","$git-deliver","使用 vb-git-split-push Skill","use vb-git-split-push Skill"],"outputs":["分组提交记录","普通推送结果"]}

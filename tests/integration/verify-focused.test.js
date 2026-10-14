@@ -161,6 +161,16 @@ test('verify-focused --run 默认只执行快速层并把更深检查标为 defe
     };
     const packageJson = { name: 'verify-focused-tier-fixture', private: true, scripts };
     await writeFile(path.join(dir, 'package.json'), JSON.stringify(packageJson));
+    await writeFile(path.join(dir, 'vibe-harness.config.json'), JSON.stringify({
+      packageManager: 'pnpm',
+      validationCommands: {
+        tiers: {
+          quick: ['pnpm test:unit'],
+          standard: ['pnpm test:component', 'pnpm test:integration'],
+          deep: ['pnpm test:e2e', 'pnpm smoke:lifecycle'],
+        },
+      },
+    }));
     for (const name of ['unit', 'component', 'integration', 'e2e', 'smoke']) {
       await writeFile(
         path.join(dir, `run-${name}.mjs`),
@@ -182,40 +192,67 @@ test('verify-focused --run 默认只执行快速层并把更深检查标为 defe
     await writeFile(path.join(dir, 'package.json'), JSON.stringify({ ...packageJson, version: '0.0.1' }));
 
     const scriptPath = path.resolve(import.meta.dirname, '../../scripts/verify-focused.js');
-    const fast = JSON.parse((await execFileAsync(process.execPath, [scriptPath, '--run', '--json'], {
-      cwd: dir,
-      maxBuffer: 1024 * 1024 * 8,
-    })).stdout);
+    // A `--run` whose plan leaves layers deferred exits non-zero on purpose, so
+    // the report is read from the failed invocation's stdout as well.
+    const runFocused = async (extraArgs = []) => {
+      try {
+        const result = await execFileAsync(process.execPath, [scriptPath, '--run', '--json', ...extraArgs], {
+          cwd: dir,
+          maxBuffer: 1024 * 1024 * 8,
+        });
+        return JSON.parse(result.stdout);
+      } catch (error) {
+        return JSON.parse(String(error.stdout ?? '{}'));
+      }
+    };
+    const fast = await runFocused();
 
-    assert.equal(fast.ok, true);
+    // Every command that ran passed, but the run left layers deferred, so its
+    // receipt is blocked and the verdict is not `ok`: an exit status of 0 here
+    // would read as "this change is fully verified" while it is not.
+    assert.equal(fast.verification.acceptance.status, 'blocked');
+    assert.equal(fast.verification.acceptance.reasonCode, 'DEFERRED_CHECKS');
+    assert.equal(fast.ok, false);
     assert.equal(fast.verification.executionTier, 'quick');
     assert.equal(fast.verification.scopeStatus, 'partial');
     assert.equal(fast.verification.nextTier, 'standard');
     assert.deepEqual(
       fast.verification.focused.commands.map((item) => item.command),
-      ['pnpm test:unit', 'pnpm test:component'],
+      ['pnpm test:unit'],
     );
-    assert.deepEqual(fast.verification.deferredChecks.map((item) => item.costTier), ['standard', 'deep']);
+    // The deep layer declares two commands; both stay visible as deferred here
+    // instead of only the one the risk surface happened to derive.
+    assert.deepEqual(fast.verification.deferredChecks.map((item) => item.costTier), ['standard', 'standard', 'deep', 'deep']);
     assert.deepEqual(
       fast.results.map((item) => [item.command, item.status]),
-      [['pnpm test:unit', 'passed'], ['pnpm test:component', 'passed']],
+      [['pnpm test:unit', 'passed']],
     );
     assert.match(fast.results[0].stdout, /unit-ran/u);
+    for (const tier of ['quick', 'standard']) {
+      const preview = JSON.parse((await execFileAsync(process.execPath, [scriptPath, '--json', '--tier', tier], { cwd: dir })).stdout);
+      const executed = await runFocused(['--tier', tier]);
+      assert.deepEqual(executed.verification.selectedChecks, preview.selectedChecks);
+      assert.deepEqual(executed.verification.deferredChecks, preview.deferredChecks);
+      assert.deepEqual(executed.verification.skippedChecks, preview.skippedChecks);
+      assert.deepEqual(executed.verification.selectionReasonsByCheck, preview.selectionReasonsByCheck);
+      assert.equal(executed.verification.nextTier, preview.nextTier);
+      assert.deepEqual(executed.results.map((check) => check.command), preview.selectedChecks.map((check) => check.command));
+      assert.equal(preview.selectedChecks.some((check) => check.command === 'pnpm test:component'), tier === 'standard');
+    }
 
-    const deep = JSON.parse((await execFileAsync(process.execPath, [scriptPath, '--run', '--json', '--tier', 'deep'], {
-      cwd: dir,
-      maxBuffer: 1024 * 1024 * 8,
-    })).stdout);
+    const deep = await runFocused(['--tier', 'deep']);
 
     assert.equal(deep.ok, true);
     assert.equal(deep.verification.executionTier, 'deep');
     assert.equal(deep.verification.scopeStatus, 'complete');
     assert.deepEqual(deep.verification.deferredChecks, []);
+    // `--tier deep` pays for every command the deep layer declares, including
+    // the e2e command the risk surface did not derive for this change.
     assert.deepEqual(
       deep.results.map((item) => item.command),
-      ['pnpm test:unit', 'pnpm test:component', 'pnpm test:integration', 'pnpm smoke:lifecycle'],
+      ['pnpm test:unit', 'pnpm test:component', 'pnpm test:integration', 'pnpm smoke:lifecycle', 'pnpm test:e2e'],
     );
-    assert.deepEqual(deep.results.map((item) => item.status), ['passed', 'passed', 'passed', 'passed']);
+    assert.deepEqual(deep.results.map((item) => item.status), ['passed', 'passed', 'passed', 'passed', 'passed']);
   } finally {
     await rm(dir, { force: true, recursive: true });
   }
@@ -232,6 +269,10 @@ test('verify-focused --run terminates a hanging command with project timeout rec
     await writeFile(path.join(dir, 'package.json'), JSON.stringify({
       name: 'verify-focused-timeout-fixture',
       private: true,
+        // The project declares its manager, so the reported command comes from
+        // the same resolution `deriveVerificationTiers` uses instead of the
+        // lockfile-less fallback.
+        packageManager: 'pnpm@10.0.0',
       scripts: { 'test:unit': 'node -e "setInterval(() => {}, 1000)"' },
     }));
     await writeFile(path.join(dir, 'vibe-harness.config.json'), JSON.stringify({
@@ -301,4 +342,81 @@ test('impact mapping narrows e2e and smoke appends to their actual surfaces', ()
   const workflow = mapping.get('.github/workflows/ci.yml');
   assert.deepEqual(workflow.e2e, ['pnpm test:e2e']);
   assert.deepEqual(workflow.smoke, ['pnpm smoke:lifecycle']);
+});
+
+for (const fixture of [
+  { name: '部分配置', tiers: { standard: ['pnpm test:component'] }, defaultTier: 'quick', defaultIds: ['test'], quickIds: ['test'] },
+  { name: '显式空快速层', tiers: { quick: [], standard: ['pnpm test:component'], deep: [] }, defaultTier: 'standard', defaultIds: ['component'], quickIds: [] },
+  { name: '全部显式为空', tiers: { quick: [], standard: [], deep: [] }, defaultTier: 'quick', defaultIds: [], quickIds: [] },
+  { name: '未声明成本层', tiers: undefined, defaultTier: 'quick', defaultIds: ['test', 'component'], quickIds: ['test', 'component'] },
+]) {
+  test(`聚焦预览保留推导与空层语义：${fixture.name}`, async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'verify-focused-config-'));
+    const git = (...args) => execFileAsync('git', ['-C', dir, ...args]);
+    try {
+      await git('init');
+      await writeFile(path.join(dir, 'package.json'), JSON.stringify({
+        scripts: { 'test:unit': 'node --test', 'test:component': 'node --test' },
+      }));
+      await writeFile(path.join(dir, 'vibe-harness.config.json'), JSON.stringify({
+        packageManager: 'pnpm', validationCommands: { tiers: fixture.tiers },
+      }));
+      await git('add', '.');
+      await git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-m', 'base');
+      await mkdir(path.join(dir, 'scripts'));
+      await writeFile(path.join(dir, 'scripts/helper.js'), 'export const value = 1;\n');
+      const scriptPath = path.resolve(import.meta.dirname, '../../scripts/verify-focused.js');
+      const preview = JSON.parse((await execFileAsync(process.execPath, [scriptPath, '--json'], { cwd: dir })).stdout);
+      const quick = JSON.parse((await execFileAsync(process.execPath, [scriptPath, '--json', '--tier', 'quick'], { cwd: dir })).stdout);
+      assert.equal(preview.executionTier, fixture.defaultTier);
+      assert.deepEqual(preview.selectedChecks.map((check) => check.id), fixture.defaultIds);
+      assert.deepEqual(quick.selectedChecks.map((check) => check.id), fixture.quickIds);
+      assert.equal(quick.tierFallback, null);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+}
+
+test('普通脚本改动下 --tier deep 仍选中该层声明的全部命令', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'verify-focused-declared-'));
+  const git = (...args) => execFileAsync('git', ['-C', dir, ...args]);
+  try {
+    await git('init');
+    await writeFile(path.join(dir, 'package.json'), JSON.stringify({
+      name: 'verify-focused-declared-fixture',
+      private: true,
+      scripts: { 'test:unit': 'node -e "0"', 'test:e2e': 'node -e "0"', 'smoke:lifecycle': 'node -e "0"' },
+    }));
+    await writeFile(path.join(dir, 'vibe-harness.config.json'), JSON.stringify({
+      packageManager: 'pnpm',
+      validationCommands: {
+        tiers: { quick: ['pnpm test:unit'], standard: [], deep: ['pnpm test:e2e', 'pnpm smoke:lifecycle'] },
+      },
+    }));
+    await git('add', '.');
+    await git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-m', 'base');
+    await mkdir(path.join(dir, 'scripts'), { recursive: true });
+    await writeFile(path.join(dir, 'scripts/helper.js'), 'export const value = 1;\n');
+
+    const scriptPath = path.resolve(import.meta.dirname, '../../scripts/verify-focused.js');
+    const preview = JSON.parse((await execFileAsync(process.execPath, [scriptPath, '--json', '--tier', 'deep'], {
+      cwd: dir,
+      maxBuffer: 1024 * 1024 * 8,
+    })).stdout);
+    // The declared deep layer is what `--tier deep` pays for: a change surface
+    // that never derives e2e or lifecycle smoke must not silently drop them.
+    const commands = preview.selectedChecks.map((item) => item.command);
+    assert.ok(commands.includes('pnpm test:e2e'), JSON.stringify(commands));
+    assert.ok(commands.includes('pnpm smoke:lifecycle'), JSON.stringify(commands));
+    assert.deepEqual(preview.deferredChecks, []);
+    // The tier decides what runs, not what the change is considered to affect:
+    // an ordinary scripts path must not be reported as impact-mapped to e2e or
+    // lifecycle smoke just because the deep layer pays for those commands.
+    const mapping = preview.impactMapping.find((item) => item.source === 'scripts/helper.js');
+    assert.deepEqual(mapping.e2e, []);
+    assert.deepEqual(mapping.smoke, []);
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
 });

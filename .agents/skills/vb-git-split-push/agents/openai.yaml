@@ -1,0 +1,6 @@
+interface:
+  display_name: "Vb Git Split Push"
+  short_description: "Split task changes into verified commits and push"
+  default_prompt: "Use $vb-git-split-push to group the current task's changes into verified Conventional Commits and push the current branch."
+policy:
+  allow_implicit_invocation: false

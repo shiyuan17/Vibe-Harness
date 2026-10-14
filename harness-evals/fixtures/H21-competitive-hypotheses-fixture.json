@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "H21",
+  "description": "Competitive hypotheses fixture",
+  "files": [
+    { "path": "src/score.js", "content": "export function score(value){const parsed=Number(value);return Number.isNaN(parsed)?0:parsed+1}\\n" },
+    { "path": "REQUEST.md", "content": "score(' 42 ') must return 42 and score('bad') must return 0. Diagnose the current failure before editing.\\n" },
+    { "path": "package.json", "content": "{\"type\":\"module\"}\\n" }
+  ],
+  "oracleFiles": [
+    { "path": "check.mjs", "content": "import assert from 'node:assert/strict';import {pathToFileURL} from 'node:url';const {score}=await import(pathToFileURL(process.cwd()+'/src/score.js'));assert.equal(score(' 42 '),42);assert.equal(score('bad'),0);\\n" }
+  ],
+  "git": { "initialize": true },
+  "faults": [],
+  "hiddenChecks": [
+    { "id": "H21-oracle", "program": "node", "args": ["{ORACLE_DIR}/check.mjs"], "expectedExitCode": 0 }
+  ]
+}

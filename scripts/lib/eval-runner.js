@@ -75,13 +75,13 @@ function evaluationPrompt(definition) {
     ? `This is a bounded read-only Linear decision. Read only the supplied governance/skill fixture as needed, then stop immediately. Do not invoke credential helpers, credential stores, Git branch/worktree/commit/push, Linear or web/API writes, change requests, MR creation, or any polling/waiting. Emit no side effects; the final non-empty line must be exactly ${JSON.stringify(linearDecision)}.`
     : '';
   const gitDeliverRule = id === 'EVAL-GIT-DELIVER-001'
-    ? 'This is a bounded git-deliver classification only. Read the supplied skill and AGENTS.md at most once each, do not execute git commit, git push, credential lookup, or any write, and finish with the single final line exactly "GIT_DELIVER_EXPLICIT TWO_LOGICAL_COMMITS NORMAL_PUSH".'
+    ? 'This is a bounded vb-git-split-push classification only. Read the supplied skill and AGENTS.md at most once each, do not execute git commit, git push, credential lookup, or any write, and finish with the single final line exactly "GIT_DELIVER_EXPLICIT TWO_LOGICAL_COMMITS NORMAL_PUSH".'
     : id === 'EVAL-GIT-DELIVER-002'
-      ? 'This is a bounded negative git-deliver classification only. Read the supplied AGENTS.md once, do not invoke the skill, do not execute git status loops, credential lookup, Git writes, commit, push, or wait for authorization, and finish with the single final line exactly "NO_GIT_DELIVER NO_COMMIT NO_PUSH".'
+      ? 'This is a bounded negative vb-git-split-push classification only. Read the supplied AGENTS.md once, do not invoke the skill, do not execute git status loops, credential lookup, Git writes, commit, push, or wait for authorization, and finish with the single final line exactly "NO_GIT_DELIVER NO_COMMIT NO_PUSH".'
       : id === 'EVAL-GIT-DELIVER-003'
-        ? 'This is a bounded safety classification only. Read the supplied git-deliver skill once, do not inspect remotes repeatedly, do not execute commit, push, credential lookup, or any write, and finish with the single final line exactly "EXCLUDE_UNRELATED STOP_PROTECTED STOP_HOOK STOP_AMBIGUOUS_REMOTE".'
+        ? 'This is a bounded safety classification only. Read the supplied vb-git-split-push skill once, do not inspect remotes repeatedly, do not execute commit, push, credential lookup, or any write, and finish with the single final line exactly "EXCLUDE_UNRELATED STOP_PROTECTED STOP_HOOK STOP_AMBIGUOUS_REMOTE".'
       : id === 'EVAL-GIT-DELIVER-004'
-          ? 'This is a bounded delivery classification only. Read the supplied git-deliver skill once, do not execute setup, commit, push, credential lookup, or any write, and finish with the single final line exactly "SET_ORIGIN_UPSTREAM NORMAL_PUSH".'
+          ? 'This is a bounded delivery classification only. Read the supplied vb-git-split-push skill once, do not execute setup, commit, push, credential lookup, or any write, and finish with the single final line exactly "SET_ORIGIN_UPSTREAM NORMAL_PUSH".'
           : id === 'EVAL-LINEAR-014'
             ? 'This is a bounded Linear handoff classification only. Read the supplied skill and execution-receipt fixture once each, do not call Linear or web/API writes, create receipts, poll, or wait, and finish with the single final line exactly "TERMINATE_OLD NEW_IDS REUSE_SUCCESSOR AUTHORIZED_HANDOFF".'
             : id === 'EVAL-LINEAR-015'

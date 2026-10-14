@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "H22",
+  "description": "Information value fixture",
+  "files": [
+    { "path": "src/serializer.js", "content": "export function serialize(value){return JSON.stringify(value)}\\n" },
+    { "path": "REQUEST.md", "content": "A consumer compares serialized records across runs. Inspect the repository evidence and use the lowest-cost experiment to decide whether stable key order is required. Then make serialize({b:2,a:1}) return '{\\\"a\\\":1,\\\"b\\\":2}'.\\n" },
+    { "path": "src/consumer.js", "content": "import {serialize} from './serializer.js';export function cacheKey(value){return serialize(value)}\\n" },
+    { "path": "package.json", "content": "{\"type\":\"module\"}\\n" }
+  ],
+  "oracleFiles": [
+    { "path": "check.mjs", "content": "import assert from 'node:assert/strict';import {pathToFileURL} from 'node:url';const {serialize}=await import(pathToFileURL(process.cwd()+'/src/serializer.js'));assert.equal(serialize({b:2,a:1}),'{\\\"a\\\":1,\\\"b\\\":2}');\\n" }
+  ],
+  "git": { "initialize": true },
+  "faults": [],
+  "hiddenChecks": [
+    { "id": "H22-oracle", "program": "node", "args": ["{ORACLE_DIR}/check.mjs"], "expectedExitCode": 0 }
+  ]
+}

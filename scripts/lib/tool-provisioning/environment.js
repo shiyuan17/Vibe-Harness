@@ -9,58 +9,8 @@ import {
 import { projectStateDir } from '../project-layout.js';
 
 import { npmInvocation } from './subprocess.js';
-import { codebaseMemoryCacheDir } from '../../../runtime/tools/codebase-memory-mcp/cache-path.mjs';
-
-export function detectLinuxLibc() {
-  if (process.platform !== 'linux') return null;
-  try {
-    const report = process.report?.getReport?.();
-    const header = typeof report === 'object' && report !== null && 'header' in report
-      ? /** @type {Record<string, any>} */ (report).header
-      : null;
-    return header && typeof header === 'object' && header.glibcVersionRuntime ? 'gnu' : 'musl';
-  } catch {
-    return null;
-  }
-}
-
-export function resolveAstGrepPlatformPackage({ arch = process.arch, libc = detectLinuxLibc(), platform = process.platform } = {}) {
-  const packages = {
-    darwin: { arm64: '@ast-grep/cli-darwin-arm64', x64: '@ast-grep/cli-darwin-x64' },
-    linux: {
-      arm64: libc === 'gnu' ? '@ast-grep/cli-linux-arm64-gnu' : null,
-      x64: libc === 'gnu' ? '@ast-grep/cli-linux-x64-gnu' : null,
-    },
-    win32: {
-      arm64: '@ast-grep/cli-win32-arm64-msvc',
-      ia32: '@ast-grep/cli-win32-ia32-msvc',
-      x64: '@ast-grep/cli-win32-x64-msvc',
-    },
-  };
-  return packages[platform]?.[arch] ?? null;
-}
-
-export function resolveToolNativePackage(spec, { arch = process.arch, libc = detectLinuxLibc(), platform = process.platform } = {}) {
-  return spec.nativePackageResolver?.({ arch, libc, platform }) ?? null;
-}
 
 const toolSpecs = [
-  {
-    id: 'codebaseMemoryMcp',
-    packageName: 'codebase-memory-mcp',
-    phases: [
-      'dependency-install',
-      'binary-install',
-      'cache-precheck',
-      'configure-auto-index',
-      'configure-auto-watch',
-      'index',
-      'index-verify',
-      'mcp-handshake',
-    ],
-    relativeDir: '.agents/runtime/tools/codebase-memory-mcp',
-    version: '0.11.0',
-  },
   {
     id: 'playwrightCli',
     packageName: '@playwright/cli',
@@ -81,23 +31,6 @@ const toolSpecs = [
     phases: ['dependency-install', 'llm-test'],
     relativeDir: '.agents/runtime/tools/open-code-review',
     version: '1.7.7',
-  },
-  {
-    id: 'rtk',
-    packageName: 'rtk-ai/rtk',
-    phases: ['dependency-install', 'binary-install'],
-    relativeDir: '.agents/runtime/tools/rtk',
-    source: 'github:rtk-ai/rtk@v0.45.0',
-    version: '0.45.0',
-  },
-  {
-    id: 'astGrep',
-    packageName: '@ast-grep/cli',
-    nativePackageResolver: resolveAstGrepPlatformPackage,
-    npmInstallArgs: ['--include=optional'],
-    phases: ['dependency-install', 'binary-install'],
-    relativeDir: '.agents/runtime/tools/ast-grep',
-    version: '0.45.1',
   },
 ];
 
@@ -182,157 +115,22 @@ export function allowedEnvironment(spec, env) {
   return Object.fromEntries(Object.entries(env).filter(([name]) => allowedNames.has(name)));
 }
 
-/**
- * Cache location for the codebase-memory runtime.
- *
- * The per-user private root is the single source of truth shared with the
- * wrapper and the managed MCP block; an explicit `CBM_CACHE_DIR` still wins so
- * an operator can pin the location. `process.env` supplies the platform base
- * directories when a caller passes a narrowed environment.
- *
- * @param {string} targetDir
- * @param {NodeJS.ProcessEnv} env
- * @returns {string}
- */
-export function resolveCodebaseMemoryCacheDir(targetDir, env = process.env) {
-  return codebaseMemoryCacheDir(targetDir, { ...process.env, ...env }, process.platform);
-}
-
-/** @param {any} spec @param {string} targetDir @param {NodeJS.ProcessEnv} env @param {{codebaseMemoryCacheDir?: string}} options */
-export async function componentEnvironment(spec, targetDir, env, { codebaseMemoryCacheDir } = {}) {
+export async function componentEnvironment(spec, targetDir, env) {
   const stateRoot = path.join(await projectStateDir(targetDir), 'tool-state');
   const npmCache = path.join(stateRoot, 'npm-cache', spec.id);
   const baseEnv = allowedEnvironment(spec, env);
-  if (spec.id === 'codebaseMemoryMcp') {
-    return {
-      ...baseEnv,
-      CBM_ALLOWED_ROOT: targetDir,
-      CBM_CACHE_DIR: codebaseMemoryCacheDir ?? resolveCodebaseMemoryCacheDir(targetDir, env),
-      CBM_MEM_BUDGET_MB: '2048',
-      CBM_WORKERS: '2',
-      npm_config_cache: npmCache,
-    };
-  }
   if (spec.id === 'openCodeReview') {
     const home = path.join(stateRoot, 'open-code-review/home');
     return { ...baseEnv, HOME: home, USERPROFILE: home, npm_config_cache: npmCache };
   }
-  if (spec.id === 'rtk') {
-    return {
-      ...baseEnv,
-      npm_config_cache: npmCache,
-      npm_config_registry: baseEnv.npm_config_registry ?? 'https://registry.npmjs.org/',
-    };
-  }
-  if (spec.id === 'astGrep') {
-    return {
-      ...baseEnv,
-      npm_config_cache: npmCache,
-      npm_config_include: 'optional',
-      npm_config_optional: 'true',
-      npm_config_registry: baseEnv.npm_config_registry ?? 'https://registry.npmjs.org/',
-    };
-  }
   return { ...baseEnv, npm_config_cache: npmCache };
 }
 
-export async function phaseRequest(spec, phase, targetDir, env, context = {}) {
-  const componentEnv = await componentEnvironment(spec, targetDir, env, context);
+export async function phaseRequest(spec, phase, targetDir, env) {
+  const componentEnv = await componentEnvironment(spec, targetDir, env);
   if (phase === 'dependency-install') {
     const npmArgs = ['ci', '--no-audit', '--no-fund', '--ignore-scripts', ...(spec.npmInstallArgs ?? [])];
     return { ...await npmInvocation(npmArgs), component: spec.id, cwd: spec.toolDir, env: componentEnv, phase, timeout: 600_000 };
-  }
-  if (phase === 'binary-install' && spec.id === 'rtk') {
-    return {
-      args: [path.join(spec.toolDir, 'run.mjs'), 'install'],
-      command: process.execPath,
-      component: spec.id,
-      cwd: targetDir,
-      env: componentEnv,
-      phase,
-      timeout: 600_000,
-    };
-  }
-  if (phase === 'binary-install' && spec.id === 'astGrep') {
-    return {
-      args: [path.join(spec.toolDir, 'node_modules/@ast-grep/cli/postinstall.js')],
-      command: process.execPath,
-      component: spec.id,
-      cwd: spec.toolDir,
-      env: componentEnv,
-      phase,
-      timeout: 120_000,
-    };
-  }
-  if (phase === 'binary-install') {
-    return {
-      args: [path.join(spec.toolDir, 'node_modules/codebase-memory-mcp/install.js')],
-      command: process.execPath,
-      component: spec.id,
-      cwd: spec.toolDir,
-      env: componentEnv,
-      phase,
-      timeout: 600_000,
-    };
-  }
-  if (phase === 'index') {
-    return {
-    args: [
-        path.join(spec.toolDir, 'run.mjs'),
-        'cli',
-        'index_repository',
-        '--repo-path',
-        '.',
-        '--mode',
-        'moderate',
-        '--persistence',
-        'false',
-        '--json',
-      ],
-      command: process.execPath,
-      component: spec.id,
-      cwd: targetDir,
-      env: componentEnv,
-      phase,
-      timeout: 600_000,
-    };
-  }
-  // 0.11.0 refuses a cache directory whose path chain grants mutation rights
-  // to an untrusted identity. Probe the cache once before the tool spends any
-  // work on it so the failure carries a stable diagnostic code.
-  if (phase === 'cache-precheck') {
-    return {
-      args: [
-        path.join(spec.toolDir, 'run.mjs'),
-        'cli',
-        'list_projects',
-        '--json',
-      ],
-      command: process.execPath,
-      component: spec.id,
-      cwd: targetDir,
-      env: componentEnv,
-      phase,
-      timeout: 120_000,
-    };
-  }
-  if (phase === 'index-verify') {
-    return {
-      args: [
-        path.join(spec.toolDir, 'run.mjs'),
-        'cli',
-        'index_status',
-        '--project',
-        context.indexProject,
-        '--json',
-      ],
-      command: process.execPath,
-      component: spec.id,
-      cwd: targetDir,
-      env: componentEnv,
-      phase,
-      timeout: 120_000,
-    };
   }
   if (phase === 'llm-test') {
     return {
@@ -354,23 +152,6 @@ export async function phaseRequest(spec, phase, targetDir, env, context = {}) {
       env: componentEnv,
       phase,
       timeout: 600_000,
-    };
-  }
-  if (phase === 'configure-auto-index' || phase === 'configure-auto-watch') {
-    return {
-      args: [
-        path.join(spec.toolDir, 'run.mjs'),
-        'config',
-        'set',
-        phase === 'configure-auto-index' ? 'auto_index' : 'auto_watch',
-        'false',
-      ],
-      command: process.execPath,
-      component: spec.id,
-      cwd: targetDir,
-      env: componentEnv,
-      phase,
-      timeout: 120_000,
     };
   }
   if (phase === 'browser-smoke') {
