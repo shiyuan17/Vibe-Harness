@@ -27,7 +27,17 @@
     "metrics": { "type": "object", "minProperties": 1 },
     "evidence": { "type": "object", "required": ["trace"], "properties": { "trace": { "type": "object", "required": ["state", "refs"], "properties": { "state": { "enum": ["value", "partial", "unavailable"] }, "refs": { "type": "array" }, "missingReason": { "type": "string" } }, "additionalProperties": false } }, "additionalProperties": false },
     "failures": { "type": "array", "items": { "type": "object" } },
-    "analysis": { "type": "object", "required": ["schemaVersion", "traceState", "findings"], "properties": { "schemaVersion": { "const": 1 }, "traceState": { "enum": ["available", "unavailable"] }, "findings": { "type": "array", "items": { "type": "object" } } }, "additionalProperties": false },
+    "analysis": {
+      "type": "object",
+      "required": ["schemaVersion", "traceState", "findings"],
+      "properties": {
+        "schemaVersion": { "enum": [1, 2] },
+        "traceState": { "enum": ["available", "unavailable"] },
+        "findings": { "type": "array", "items": { "type": "object" } },
+        "diagnostics": { "$ref": "#/$defs/diagnostics" }
+      },
+      "additionalProperties": false
+    },
     "official": {},
     "external": { "type": "object" },
     "kind": { "const": "external-benchmark" },
@@ -38,5 +48,47 @@
     "passed": { "type": "boolean" },
     "trace": { "type": "object" }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "dimension": {
+      "type": "object",
+      "required": ["state", "items"],
+      "properties": {
+        "state": { "enum": ["observed", "unverified", "unavailable"] },
+        "reason": { "type": "string" },
+        "items": { "type": "array", "items": { "type": "object" } }
+      },
+      "additionalProperties": false
+    },
+    "diagnostics": {
+      "type": "object",
+      "required": ["state", "firstDeviation", "evidenceSources", "ruleLoads", "repeatedReads", "toolFailures", "waits", "verificationGaps"],
+      "properties": {
+        "state": { "enum": ["available", "unavailable"] },
+        "firstDeviation": {
+          "type": "object",
+          "required": ["state"],
+          "properties": { "state": { "enum": ["observed", "unavailable"] } },
+          "additionalProperties": true
+        },
+        "evidenceSources": {
+          "type": "object",
+          "required": ["state"],
+          "properties": {
+            "state": { "enum": ["observed", "unavailable"] },
+            "reason": { "type": "string" },
+            "note": { "type": "string" },
+            "counts": { "type": ["object", "null"] }
+          },
+          "additionalProperties": false
+        },
+        "ruleLoads": { "$ref": "#/$defs/dimension" },
+        "repeatedReads": { "$ref": "#/$defs/dimension" },
+        "toolFailures": { "$ref": "#/$defs/dimension" },
+        "waits": { "$ref": "#/$defs/dimension" },
+        "verificationGaps": { "$ref": "#/$defs/dimension" }
+      },
+      "additionalProperties": false
+    }
+  }
 }
