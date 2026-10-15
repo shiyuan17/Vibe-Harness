@@ -230,7 +230,7 @@ test('event markers keep array, nested, and quoted payloads and reject malformed
   assert.equal(malformed.succeeded, undefined);
 });
 
-test('event markers match whatever the letter case of the prefix', () => {
+test('事件标记匹配不区分前缀大小写', () => {
   // The parser this suite replaced used a `giu` regexp, so a `[vibe_harness_event:...]`
   // marker used to be parsed and stripped. Matching the prefix case-sensitively drops
   // the event silently and leaves the raw marker in the visible output.

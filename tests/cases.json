@@ -8450,7 +8450,7 @@
       "layer": "integration",
       "file": "tests/integration/eval-runner.test.js",
       "ordinal": 8,
-      "name": "event markers match whatever the letter case of the prefix",
+      "name": "事件标记匹配不区分前缀大小写",
       "legacy": false,
       "risk": "standard",
       "owner": "maintainers",
