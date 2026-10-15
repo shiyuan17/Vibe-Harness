@@ -410,6 +410,13 @@
       "disposition": "generalize",
       "targets": [
         "runtime/commands/run.mjs",
+        "runtime/lib/cli-output.mjs",
+        "runtime/lib/cli-runtime.mjs",
+        "runtime/lib/verification-plan-support.mjs",
+        "runtime/lib/task-command.mjs",
+        "runtime/lib/verification-command.mjs",
+        "runtime/lib/file-edit-command.mjs",
+        "runtime/lib/worktree-command.mjs",
         "runtime/lib/worktree-audit.mjs",
         "runtime/lib/worktree-ports.mjs",
         "scripts/lib/project-verification.js",
