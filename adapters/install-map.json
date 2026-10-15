@@ -402,6 +402,18 @@
       "contentStrategy": "replace"
     },
     {
+      "group": "runtime-project-scripts",
+      "source": "runtime/lib/verification-command.mjs",
+      "target": ".agents/runtime/lib/verification-command.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
+      "source": "runtime/lib/file-edit-command.mjs",
+      "target": ".agents/runtime/lib/file-edit-command.mjs",
+      "contentStrategy": "replace"
+    },
+    {
       "group": "runtime-eval-online",
       "source": "runtime/evals/codex-runner.mjs",
       "target": ".agents/runtime/evals/codex-runner.mjs",
