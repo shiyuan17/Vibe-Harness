@@ -214,6 +214,51 @@ test('event-triggered Pressure resumes the same session and persists trigger evi
   assert.deepEqual(observation.events.map((event) => event.type), ['change', 'pressure', 'verification']);
 });
 
+const rolePromptFor = async (id, prompt) => {
+  let captured = null;
+  const backend = createCodexCliBackend({
+    rootDir: path.resolve(import.meta.dirname, '../..'),
+    resolveRuntime: async () => ({
+      backend: 'native', cliVersion: 'codex-test',
+      environment: { CODEX_MODEL: 'gpt-test', VIBE_HARNESS_EVAL_RUNTIME_HASH: 'runtime' },
+    }),
+    invokeRunner: async (request) => {
+      captured = request.case.input.scenario;
+      return { output: '', traceEvents: [], events: [], metrics: {}, exitCode: 0 };
+    },
+  });
+  const backendState = await backend.prepare({ budget: { attemptLimit: 1 } });
+  await backend.run({
+    executionId: `role-prompt-${id}`,
+    scenario: {
+      id,
+      task: { prompt, allowedWritePaths: [] },
+      criteria: { applicableRules: ['role-routing'] },
+    },
+    fixture: { workspace: path.resolve(import.meta.dirname, '../..') },
+    condition: {}, input: {}, budget: { wallTimeMs: 1000 }, attempt: { ordinal: 1 }, backendState,
+  });
+  return captured;
+};
+
+test('natural role prompts never carry the expected answer while explicit cases may', async () => {
+  const [architecture, explicit] = await Promise.all([
+    rolePromptFor('EVAL-ROLE-ARCHITECT-001', 'Decide compatibility for a public schema change.'),
+    rolePromptFor('EVAL-ROLE-EXPLICIT-001', 'The user explicitly asks the enabled test-lead to inspect the change.'),
+  ]);
+  assert.doesNotMatch(architecture, /chief-architect/u);
+  assert.match(architecture, /\[VIBE_HARNESS_EVENT:role-selected:/u);
+  assert.match(architecture, /the role you actually selected/u);
+  assert.match(explicit, /test-lead/u);
+});
+
+test('a disabled-role prompt asks for a refusal without naming the disabled role', async () => {
+  const prompt = await rolePromptFor('EVAL-ROLE-DISABLED-001', 'The next action is implementation.');
+  assert.match(prompt, /no-capable-role/u);
+  assert.match(prompt, /NEUTRAL_AGENT/u);
+  assert.doesNotMatch(prompt, /senior-engineer/u);
+});
+
 test('runner exposes lifecycle methods and preserves failed attempts for collection', async () => {
   const calls = [];
   let invocation = 0;

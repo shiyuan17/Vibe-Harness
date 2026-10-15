@@ -283,6 +283,18 @@ async function runCommand(args) {
   const outputDir = path.resolve(args['output-dir'] ?? path.join(rootDir, 'harness-evals/reports/generated', runId));
   const traceRoot = path.join(rootDir, 'harness-evals/traces/runs', runId);
   const harnessHash = await hashPaths(harnessSource.root, ['docs/rules', 'skills/core', 'templates', 'adapters']);
+  // The harness under test is only one half of a measurement. The parser, the
+  // verifier, the prompt builder, the metrics and the result model decide what a
+  // trace means, and they live in the reviewing checkout rather than in the
+  // projected harness. Hashing them keeps a scoring-semantics change from being
+  // reported as a behavioral improvement between two otherwise identical runs.
+  const implementationHash = await hashPaths(rootDir, [
+    'harness-evals/lib',
+    'harness-evals/metrics',
+    'harness-evals/runners',
+    'harness-evals/verifiers',
+    'runtime/evals',
+  ]);
   const results = [];
   for (const entry of plan.entries) {
     const scenario = byId.get(entry.scenarioId);
@@ -298,6 +310,7 @@ async function runCommand(args) {
     const wallTimeMs = scenarioWallTimeMs(scenario, args);
     const fingerprint = {
       measurement: {
+        implementationHash,
         scenarioHash: createHash('sha256').update(JSON.stringify(scenario)).digest('hex'),
         fixtureHash: createHash('sha256').update(fixtureManifest).digest('hex'),
         model: runtime?.environment.CODEX_MODEL ?? 'unavailable',
