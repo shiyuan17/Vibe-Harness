@@ -33,7 +33,7 @@ Triage 是团队收件箱，进入的 Issue 默认不进入常规视图，必须
 - Parent/Sub-issue 只表示分解，blocked-by / blocks 才表示执行依赖，related 永不表示依赖。
 - Reviewer 和 Verifier 只读，不登记 Receipt 或修改 Delegate。
 - 每个 Issue 的 Target branch 填写可解析的精确远端 ref；“默认分支”只有确为实现基线时才有效。分支格式为 <type>/<ISSUE-ID>-<slug>，worktree 位于仓库同级的 <repo>-worktrees/<ISSUE-ID>。commit 使用 <code>Refs &lt;ISSUE-ID&gt;</code>，closing GitHub PR 或 GitLab MR 使用 <code>Fixes &lt;ISSUE-ID&gt;</code>；只有提供方配置且创建后重读确认的等价语法才可替代。
-- 普通功能和修复使用 <code>origin/develop</code>；hotfix 使用 <code>origin/main</code>。顺序执行且工作区干净时允许当前 clone 的任务分支；并发、脏工作区或需要隔离时使用仓库外 worktree。
+- 普通功能和修复使用 <code>origin/develop</code>；hotfix 使用 <code>origin/main</code>。顺序执行且工作区干净时允许当前 clone 的任务分支；并发、脏工作区或需要隔离时使用隔离 worktree：宿主提供 worktree 能力时优先用宿主 worktree，需要治理面投影、端口分段或依赖链接时使用仓库外 worktree。
 - 发布使用 release-issue.md 的 aggregate 模板。<code>develop → main</code> 与 <code>main → develop</code> PR 使用 <code>Refs &lt;ISSUE-ID&gt;</code>，不得再次 closing 已完成开发 Issue。
 - 建议开启“复制分支名即移入 Started 状态”，使分支创建自记录为 In Progress。
 - 状态自动化和 Agent 手工回写都不得用旧计划覆盖实时状态。手工写入按“读 -> 校验转换 -> 写 -> 重读”执行；后退或纠错需单独授权和原因，不得把 In Progress、In Review 或 Ready to Merge 退回 Todo 以恢复 Ready 统计。

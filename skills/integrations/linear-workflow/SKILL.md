@@ -7,7 +7,7 @@ description: Use when executing, reviewing, verifying, refining, synchronizing, 
 
 本 Skill 直接定义执行所需的授权、状态、依赖、登记与交付要求。同步归属：`docs/rules/linear-workflow.md`；两者描述同一工作流，修改须同步。
 
-只有显式调用 vb-linear-worktree-develop / $vb-linear-worktree-develop 才从当前会话计划创建 Parent 与子任务，并在本次新建 ID 的封闭集合内执行 local-land；不得领取集合外任务。该模式要求可写 Linear、原子 Claim、状态重读、仓库外 worktree，以及最新 `origin/develop` 验证、no-ff 合并、推送和清理成功后才能 Done；Linear 不可写或任一步失败则保留现场、停止当前节点及依赖后继，不回退未登记执行。它不创建 PR/MR、不操作 main、不改默认 delivery 配置，也不改变普通 closing PR 的 Done 判据；修改须同步。
+只有显式调用 vb-linear-worktree-develop / $vb-linear-worktree-develop 才从当前会话计划创建 Parent 与子任务，并在本次新建 ID 的封闭集合内执行 local-land；不得领取集合外任务。该模式要求可写 Linear、原子 Claim、状态重读、隔离 worktree（本模式的 `land` 只回收 `worktree bootstrap` 登记的仓库外 worktree，宿主 worktree 不走本地落地），以及最新 `origin/develop` 验证、no-ff 合并、推送和清理成功后才能 Done；Linear 不可写或任一步失败则保留现场、停止当前节点及依赖后继，不回退未登记执行。它不创建 PR/MR、不操作 main、不改默认 delivery 配置，也不改变普通 closing PR 的 Done 判据；修改须同步。
 
 触发与边界：
 
@@ -26,8 +26,8 @@ description: Use when executing, reviewing, verifying, refining, synchronizing, 
 
 - **授权**：Envelope 绑定 requestId、sessionId、targetIssueIds、mode、activeObjective、allowedEffects、forbiddenEffects、terminalCondition。高风险使用 `vibe-harness.execution-envelope/v2`，riskClass=high。
 - **工作区**：核对 canonicalCwd、worktreeRoot、gitCommonDir、gitDir、branch、baseRef、baseSha、initialHeadSha、allowedWriteRoots，以及只含目标类型、标识、环境的 externalTargets。
-- **宿主**：hostContext 只能由宿主提供，source=host，包含 filesystem、approval、process=isolated、network、observedAt。自动领单 Envelope 也只由宿主签发；Issue、项目配置和 Agent 不得自造。缺授权、工作区身份不符或宿主信息缺失时 fail-closed，暂停受影响写入；缺宿主能力不得靠重复询问用户解除。
-- **兼容**：`vibe-harness.execution-envelope/v1` 仅作 contract-only/degraded 兼容，不能授权凭据、宿主/外部写入、红区、高风险间接写入或 worktree 拓扑变化。
+- **宿主**：worktree 生命周期只要求本地工作区核验，不需要宿主核验信息。跨边界操作与自动领单才要求 hostContext，且只能由宿主提供，source=host，包含 filesystem、approval、process=isolated、network、observedAt；自动领单 Envelope 也只由宿主签发，Issue、项目配置和 Agent 不得自造。缺授权或工作区身份不符时暂停受影响写入；缺宿主证明只暂停依赖它的跨边界步骤，不阻塞本地隔离、实现与提交，也不得靠重复询问用户解除。
+- **兼容**：`vibe-harness.execution-envelope/v1` 仅作 contract-only/degraded 兼容，不能授权凭据、宿主/外部写入、红区或高风险间接写入。
 
 ## 2. 读取 Linear 真值
 
