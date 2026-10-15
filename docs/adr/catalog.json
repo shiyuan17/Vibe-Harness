@@ -64,6 +64,10 @@
     {
       "id": "ADR-0016",
       "path": "docs/adr/ADR-0016-gd-flow-linear-boundary.md"
+    },
+    {
+      "id": "ADR-0017",
+      "path": "docs/adr/ADR-0017-worktree-lifecycle-local-verification.md"
     }
   ]
 }

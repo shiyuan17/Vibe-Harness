@@ -24,6 +24,7 @@
 - **ADR-0014** Worktree 落地与清理的服务 teardown 改为 best-effort - accepted - worktree land/cleanup/recover 仍尝试停止登记服务，但无法证明停止不再阻塞合并落地或工作区移除 - [ADR](../adr/ADR-0014-service-teardown-best-effort.md)
 - **ADR-0015** 显式 develop flow（gd-flow 与 lwflow） - accepted - 新增 gd-flow 与 lwflow 两个显式 develop flow Skill，固化只由显式调用触发的本地落地入口，不改默认交付。 - [ADR](../adr/ADR-0015-explicit-develop-flow.md)
 - **ADR-0016** gd-flow 移除 Linear 访问禁令 - accepted - gd-flow 只约束交付动作，不再禁止访问 Linear；Linear 读写回到 linear-workflow 与授权边界 - [ADR](../adr/ADR-0016-gd-flow-linear-boundary.md)
+- **ADR-0017** worktree 生命周期门禁收敛：宿主 worktree 优先与本地核验授权 - accepted - worktree 生命周期改为本地核验授权、宿主 worktree 优先，宿主证明只保留给跨边界效果 - [ADR](../adr/ADR-0017-worktree-lifecycle-local-verification.md)
 
 ## 纪律
 
