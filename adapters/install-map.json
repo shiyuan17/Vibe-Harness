@@ -378,6 +378,18 @@
       "contentStrategy": "replace"
     },
     {
+      "group": "runtime-project-scripts",
+      "source": "runtime/lib/cli-output.mjs",
+      "target": ".agents/runtime/lib/cli-output.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
+      "source": "runtime/lib/cli-runtime.mjs",
+      "target": ".agents/runtime/lib/cli-runtime.mjs",
+      "contentStrategy": "replace"
+    },
+    {
       "group": "runtime-eval-online",
       "source": "runtime/evals/codex-runner.mjs",
       "target": ".agents/runtime/evals/codex-runner.mjs",

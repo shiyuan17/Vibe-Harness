@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { execFile, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   closeSync,
@@ -11,27 +11,43 @@ import {
   openSync,
   readdirSync,
   readFileSync,
-  realpathSync,
   rmSync,
   writeSync,
   writeFileSync,
 } from 'node:fs';
-import { access, readFile, readdir, realpath } from 'node:fs/promises';
+import { readFile, readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { promisify } from 'node:util';
+
 import { runMicroCheck } from '../lib/micro-runner.mjs';
-import { gitFingerprint, gitSnapshot } from '../lib/git-fingerprint.mjs';
+import { gitFingerprint } from '../lib/git-fingerprint.mjs';
 import { parseLinearPlanBlock } from '../lib/linear-planning.mjs';
 import {
-  resolveVerificationTiers, selectVerificationChecks, verificationChanges, verificationCheckEvidence, verificationContextEnvironment, verificationCwd,
+  resolveVerificationTiers,
+  selectVerificationChecks,
+  verificationChanges,
+  verificationCheckEvidence,
+  verificationContextEnvironment,
+  verificationCwd,
 } from '../lib/verification-plan.mjs';
-import { attestCompletionProvenance, findVerificationReceipt, prepareVerificationReceiptStore, recordFinalVerification, storeVerificationReceipt, verificationCacheContext } from '../lib/verification-receipt.mjs';
+import {
+  attestCompletionProvenance,
+  findVerificationReceipt,
+  prepareVerificationReceiptStore,
+  recordFinalVerification,
+  storeVerificationReceipt,
+  verificationCacheContext,
+} from '../lib/verification-receipt.mjs';
 import { completionReceipt, overrideWarnings, resolveDelivery, validateCompletion } from '../lib/delivery.mjs';
 import { readMergeEvidence, validateMergeEvidence } from '../lib/merge-evidence.mjs';
 import { releaseServiceTeardown, serviceReport, teardownServices } from '../lib/services.mjs';
-
-import { parseWorktreeList, pathKey, resolveWorktreeRoot, summarizeWorktreeAudit, validateWorktrees } from '../lib/worktree-audit.mjs';
+import {
+  parseWorktreeList,
+  pathKey,
+  resolveWorktreeRoot,
+  summarizeWorktreeAudit,
+  validateWorktrees,
+} from '../lib/worktree-audit.mjs';
 import {
   ensureRealDirectory,
   expandMirrors,
@@ -55,8 +71,14 @@ import {
   validatePortRegistry,
 } from '../lib/worktree-ports.mjs';
 
-const execFileAsync = promisify(execFile);
-const SCHEMA_VERSION = 1;
+import { MAX_OUTPUT_CHARS, boundedOutput, normalizePath, redactText, summary } from '../lib/cli-output.mjs';
+import { CHECK_ORDER, CONFIG_FILE, DEFAULT_TIMEOUT_MS, MAX_OUTPUT_BYTES, MAX_TIMEOUT_MS, MIN_TIMEOUT_MS, PASS_STATUSES, SCHEMA_VERSION, assertSafeCommand, changesReport, delay, envReport, isInsidePath, normalizeSlashes, packageManager, parseArgs, probeExecutable, projectContext, readJsonIfExists, readProjectConfig, runFile, runGit, safeRealpath, stableStringify } from '../lib/cli-runtime.mjs';
+
+// The entry file keeps its published surface across the split: host adapters and
+// tests import `runCommand`, `main` and these helpers from this path, so the
+// moved declarations are re-exported instead of duplicated.
+export { assertSafeCommand };
+
 // Verify receipts are their own contract: v2 keeps `blocked` a distinct
 // terminal status instead of folding it into `failed`, adds the cost-tier
 // surface (tier, deferredChecks, nextTier) and stamps the producing engine so
@@ -64,12 +86,6 @@ const SCHEMA_VERSION = 1;
 // engine 'vibe-harness-cli') can be told apart from this one.
 const VERIFY_SCHEMA_VERSION = 2;
 const VERIFY_ENGINE = 'vibe-harness-runtime';
-const DEFAULT_TIMEOUT_MS = 120_000;
-const MIN_TIMEOUT_MS = 1_000;
-const MAX_TIMEOUT_MS = 3_600_000;
-const MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
-const MAX_OUTPUT_CHARS = 8 * 1024;
-const CHECK_ORDER = ['lint', 'typecheck', 'test', 'eval'];
 const VERIFY_TIERS = ['quick', 'standard', 'deep'];
 const VERIFY_SCOPES = ['affected', 'layer', 'full'];
 const DEFAULT_VERIFY_SCOPE = 'layer';
@@ -81,244 +97,11 @@ const DEFAULT_VERIFY_TIER = 'quick';
 // shorten it, which is how tests hold the lock on purpose.
 const LAND_LOCK_TIMEOUT_MS = 180_000;
 const LAND_LOCK_RETRY_MS = 50;
-// Report statuses that map to wrapper exit code 0.
-const PASS_STATUSES = ['passed', 'ready', 'planned', 'reused'];
-const CONFIG_FILE = 'vibe-harness.config.json';
-
-const shellControlPattern = /(?:&&|\|\||[;|&<>`$])|\$\(/u;
-const sensitiveKeyPattern = /(?:api[-_]?key|auth(?:orization|token)?|cookie|credential|password|secret|session|token|username)/iu;
-
-function normalizePath(value) {
-  return String(value).replaceAll('\\', '/');
-}
-
-function redactText(value, targetDir) {
-  if (value === undefined || value === null) return '';
-  const projectPath = path.resolve(targetDir);
-  let result = String(value);
-  for (const variant of [projectPath, normalizePath(projectPath)]) {
-    result = result.replace(new RegExp(variant.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'giu'), '<project>');
-  }
-  return result
-    .replace(/Bearer\s+[^\s]+/giu, 'Bearer [REDACTED]')
-    .replace(/([?&](?:api[-_]?key|password|secret|token)=)[^&#\s]+/giu, '$1[REDACTED]')
-    .replace(/\b([a-z0-9_-]*(?:api[-_]?key|auth(?:orization|token)?|cookie|credential|password|secret|session|token|username)[a-z0-9_-]*=)[^\s/]+/giu, '$1[REDACTED]')
-    .trim();
-}
-
-function boundedOutput(value, targetDir) {
-  const text = redactText(value, targetDir);
-  return text.length > MAX_OUTPUT_CHARS ? text.slice(-MAX_OUTPUT_CHARS) : text;
-}
-
-function splitCommand(command) {
-  if (typeof command !== 'string' || command.trim() === '') throw new Error('Command is empty.');
-  const tokens = [];
-  const pattern = /"([^"]*)"|'([^']*)'|([^\s]+)/gu;
-  for (const match of command.matchAll(pattern)) tokens.push(match[1] ?? match[2] ?? match[3]);
-  if (tokens.length === 0) throw new Error('Command is empty.');
-  return tokens;
-}
-
-export function assertSafeCommand(command) {
-  const tokens = splitCommand(command);
-  for (const token of tokens) {
-    if (shellControlPattern.test(token)) {
-      const error = new Error('Command contains shell metacharacters and cannot be executed safely.');
-      error.code = 'VIBE_HARNESS_UNSAFE_COMMAND';
-      throw error;
-    }
-  }
-  return tokens;
-}
-
-function parseArgs(argv) {
-  const args = { _: [], json: false, plan: false, allowManual: false, only: null, task: [], acceptance: [], decision: [], blocker: [], failure: [], unitStatus: [] };
-  const aliases = new Map([
-    ['allow-manual', 'allowManual'],
-    ['no-numbers', 'numbers'],
-    ['no-verify', 'verify'],
-    ['clear-blockers', 'clearBlockers'],
-  ]);
-  const booleanFlags = new Set(['json', 'plan', 'async', 'allow-manual', 'no-numbers', 'no-verify', 'strict', 'write', 'help', 'confirm-red-zone', 'reuse', 'push', 'complete', 'dispatch', 'clear-blockers']);
-  const valueFlags = new Set(['project', 'base', 'only', 'reviewed', 'timeout', 'output', 'tier', 'scope', 'micro', 'task', 'base-ref', 'branch-prefix', 'file', 'from', 'to', 'spec', 'root', 'title', 'goal', 'risk-level', 'stage', 'unit', 'unit-status', 'acceptance', 'decision', 'blocker', 'failure', 'next-action', 'verification', 'plan-file', 'reason', 'approval', 'test-path']);
-  for (const flag of ['delivery', 'receipt', 'merge-evidence', 'mr', 'service', 'port']) valueFlags.add(flag);
-  // Repeatable flags collect into arrays so one invocation can carry several
-  // values (task ids, acceptance items, decisions, blockers, failures, unit updates).
-  const arrayFlags = new Map([
-    ['task', args.task],
-    ['test-path', args.testPath ??= []],
-    ['acceptance', args.acceptance],
-    ['decision', args.decision],
-    ['blocker', args.blocker],
-    ['failure', args.failure],
-    ['unit-status', args.unitStatus],
-  ]);
-  for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index];
-    if (!token.startsWith('--')) {
-      args._.push(token);
-      continue;
-    }
-    const raw = token.slice(2);
-    const equals = raw.indexOf('=');
-    const key = equals >= 0 ? raw.slice(0, equals) : raw;
-    if (key === 'paths') {
-      const values = [];
-      while (index + 1 < argv.length && !argv[index + 1].startsWith('--')) values.push(argv[++index]);
-      if (!values.length) throw new Error('--paths requires at least one path.');
-      args.paths = [...(args.paths ?? []), ...values];
-      continue;
-    }
-    if (equals === -1 && booleanFlags.has(key)) {
-      // `--no-*` flags turn their aliased key off; every other flag turns on.
-      const offFlags = new Set(['no-numbers', 'no-verify']);
-      args[aliases.get(key) ?? (key === 'confirm-red-zone' ? 'confirmRedZone' : key)] = offFlags.has(key) ? false : true;
-      continue;
-    }
-    if (!valueFlags.has(key)) throw new Error(`Unknown option: --${key}`);
-    const value = equals >= 0 ? raw.slice(equals + 1) : argv[++index];
-    if (!value || value.startsWith('--')) throw new Error(`Option --${key} requires a value.`);
-    if (arrayFlags.has(key)) arrayFlags.get(key).push(value);
-    else if (key === 'base-ref') args.baseRef = value;
-    else if (key === 'branch-prefix') args.branchPrefix = value;
-    else if (key === 'file' || key === 'spec' || key === 'root') args[key] = value;
-    else if (key === 'from' || key === 'to') {
-      const parsed = Number.parseInt(value, 10);
-      if (!Number.isInteger(parsed)) throw new Error(`Option --${key} requires an integer.`);
-      args[key] = parsed;
-    } else if (key === 'project' || key === 'base') args[key] = value;
-    else if (key === 'only') args.only = value.split(',').map((item) => item.trim()).filter(Boolean);
-    else if (key === 'reviewed') args.reviewed = (args.reviewed ?? []).concat(value.split(',').map((item) => item.trim()).filter(Boolean));
-    else if (key === 'timeout') args.timeout = Number.parseInt(value, 10);
-    else if (key === 'output') args.output = value;
-    else if (key === 'tier') args.tier = value;
-    else if (key === 'scope') args.scope = value;
-    else if (key === 'micro') args.micro = value;
-    else if (key === 'risk-level') args.riskLevel = value;
-    else if (key === 'next-action') args.nextAction = value;
-    else if (key === 'title' || key === 'goal' || key === 'stage' || key === 'unit' || key === 'verification' || key === 'reason' || key === 'approval') args[key] = value;
-    else if (key === 'plan-file') args.planFile = value;
-    else if (['delivery', 'receipt', 'merge-evidence', 'mr', 'service', 'port'].includes(key)) args[key] = value;
-    else throw new Error(`Unknown option: --${key}`);
-  }
-  return args;
-}
-
-async function readJsonIfExists(filePath) {
-  try {
-    return { exists: true, value: JSON.parse(await readFile(filePath, 'utf8')), error: null };
-  } catch (error) {
-    if (error?.code === 'ENOENT') return { exists: false, value: null, error: null };
-    return { exists: true, value: null, error: redactText(error.message, path.dirname(filePath)) };
-  }
-}
-
-async function runFile(program, args, { cwd, timeoutMs = 10_000 } = {}) {
-  try {
-    const result = await execFileAsync(program, args, {
-      cwd,
-      env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
-      maxBuffer: 1024 * 1024,
-      shell: false,
-      timeout: timeoutMs,
-      windowsHide: true,
-    });
-    return { ok: true, stdout: result.stdout, stderr: result.stderr };
-  } catch (error) {
-    return { ok: false, error, stdout: error.stdout ?? '', stderr: error.stderr ?? '' };
-  }
-}
-
-async function probeExecutable(program, cwd) {
-  if (path.isAbsolute(program)) {
-    try {
-      await access(program);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-  const locator = process.platform === 'win32' ? 'where.exe' : 'which';
-  const result = await runFile(locator, [program], { cwd, timeoutMs: 5_000 });
-  return result.ok;
-}
-
-async function runGit(args, cwd) {
-  return runFile('git', args, { cwd, timeoutMs: 15_000 });
-}
-
-function parseNameStatus(value) {
-  const records = String(value ?? '').split('\0').filter(Boolean);
-  const changes = [];
-  for (let index = 0; index < records.length; index += 1) {
-    const record = records[index];
-    const parts = record.split('\t');
-    const status = parts[0] ?? '';
-    if (parts.length > 1) {
-      changes.push({ status, path: normalizePath(parts[1]) });
-      continue;
-    }
-    const pathValue = normalizePath(records[++index] ?? '');
-    if (/^[RC]\d{3}$/u.test(status)) {
-      const newPath = normalizePath(records[++index] ?? '');
-      changes.push({ status, path: newPath, oldPath: pathValue });
-    } else if (/^[A-Z?]{1,2}$/u.test(status)) {
-      changes.push({ status, path: pathValue });
-    }
-  }
-  return changes;
-}
-
-function packageManager(packageJson, projectDir) {
-  if (typeof packageJson?.packageManager === 'string') return packageJson.packageManager.split('@')[0];
-  if (packageJson?.engines?.pnpm) return 'pnpm';
-  return null;
-}
-
-async function projectContext(projectDir) {
-  const packageInfo = await readJsonIfExists(path.join(projectDir, 'package.json'));
-  const configInfo = await readJsonIfExists(path.join(projectDir, CONFIG_FILE));
-  const config = configInfo.value && typeof configInfo.value === 'object' && !Array.isArray(configInfo.value)
-    ? configInfo.value
-    : {};
-  const entries = await readdir(projectDir, { withFileTypes: true }).catch(() => []);
-  const topLevel = entries
-    .filter((entry) => !['.git', '.agents', '.vibe-harness', 'node_modules'].includes(entry.name))
-    .map((entry) => ({ name: entry.name, type: entry.isDirectory() ? 'directory' : 'file' }))
-    .sort((left, right) => left.name.localeCompare(right.name))
-    .slice(0, 200);
-  const commands = config.validationCommands && typeof config.validationCommands === 'object'
-    ? config.validationCommands
-    : {};
-  return {
-    project: '.',
-    package: {
-      exists: packageInfo.exists,
-      name: typeof packageInfo.value?.name === 'string' ? packageInfo.value.name : null,
-      packageManager: packageManager(packageInfo.value, projectDir),
-      scripts: packageInfo.value?.scripts && typeof packageInfo.value.scripts === 'object'
-        ? Object.keys(packageInfo.value.scripts).sort()
-        : [],
-    },
-    config: {
-      path: CONFIG_FILE,
-      exists: configInfo.exists,
-      validJson: configInfo.exists && !configInfo.error,
-      profile: typeof config.profile === 'string' ? config.profile : null,
-      targets: Array.isArray(config.targets) ? config.targets : [],
-      validationChecks: CHECK_ORDER.filter((name) => typeof commands[name] === 'string' && commands[name].trim()),
-    },
-    topLevel,
-  };
-}
-
 function timeoutValue(value) {
   return Number.isInteger(value) && value >= MIN_TIMEOUT_MS && value <= MAX_TIMEOUT_MS
     ? value
     : DEFAULT_TIMEOUT_MS;
 }
-
 function configuredChecks(config, projectDir = undefined) {
   const raw = config?.validationCommands;
   if (raw === undefined) return { commands: {}, error: null };
@@ -343,21 +126,18 @@ function configuredChecks(config, projectDir = undefined) {
   }
   return { commands, definitions: {}, error: null };
 }
-
 function parseVerifyTier(value) {
   const token = typeof value === 'string' ? value.trim().toLowerCase() : '';
   if (token === '') return DEFAULT_VERIFY_TIER;
   if (VERIFY_TIERS.includes(token)) return token;
   throw new Error(`--tier must be one of ${VERIFY_TIERS.join(', ')}; received ${JSON.stringify(value)}.`);
 }
-
 function parseVerifyScope(value) {
   const token = typeof value === 'string' ? value.trim().toLowerCase() : '';
   if (token === '') return DEFAULT_VERIFY_SCOPE;
   if (VERIFY_SCOPES.includes(token)) return token;
   throw new Error(`--scope must be one of ${VERIFY_SCOPES.join(', ')}; received ${JSON.stringify(value)}.`);
 }
-
 /**
  * Resolve the caller's relevance-review declaration against the selected
  * checks. `all` (or `*`) declares the whole selection; a named check that was
@@ -374,7 +154,6 @@ function resolveReviewedChecks(reviewed, selectedNames) {
   }
   return { ids: [...new Set(declared)], blocked: null };
 }
-
 /**
  * Resolve the layer a receipt-required landing verifies at.
  *
@@ -403,7 +182,6 @@ function resolveReceiptTier({ commands, config, explicit, projectDir, tier }) {
   }
   return { blocked: null, deferredCount: 0, escalatedFrom: tier, selectedNames: cleanLayers[0].selectedNames, tier: cleanLayers[0].tier };
 }
-
 function resolveVerifyTierPlan({ commands, config, tier, only, projectDir, explicit = false }) {
   const tiers = resolveVerificationTiers({ config, projectDir });
   const requestedTier = tier;
@@ -441,15 +219,12 @@ function resolveVerifyTierPlan({ commands, config, tier, only, projectDir, expli
     selectionReasonsByCheck,
   };
 }
-
 function manualCommand(command) {
   return command.startsWith('manual:') ? command.slice('manual:'.length).trim() : null;
 }
-
 function displayCommand(command, targetDir) {
   return boundedOutput(command, targetDir);
 }
-
 async function executeCommand(command, targetDir, timeoutMs, redactionRoot = targetDir, environment = {}) {
   const tokens = assertSafeCommand(command);
   let [program, ...args] = tokens;
@@ -507,7 +282,6 @@ async function executeCommand(command, targetDir, timeoutMs, redactionRoot = tar
     });
   });
 }
-
 /**
  * The task and plan association a verification receipt carries. A receipt that
  * names the task and the plan revision it verified can be traced back to the
@@ -530,7 +304,6 @@ async function verificationTaskBinding(projectDir, taskId) {
     planDigest: typeof anchor.planDigest === 'string' ? anchor.planDigest : null,
   };
 }
-
 /**
  * The relevance review of one verification run.
  *
@@ -560,7 +333,6 @@ function verificationReview({ changedPaths = [], selectedNames = [], checks = {}
     reasonCode: reviewedCheckIds.length ? 'RELEVANT_CHECK_REVIEWED' : 'NO_REVIEWED_RELEVANT_CHECK',
   };
 }
-
 function verificationAcceptance({ review, status, snapshotComparison, inputsStable, fingerprint, selectedNames = [], deferredCount = 0 } = {}) {
   const passed = status === 'verified' || status === 'passed' || status === 'reused';
   const stable = snapshotComparison === 'match' && inputsStable !== false && typeof fingerprint === 'string' && fingerprint.length > 0;
@@ -578,7 +350,6 @@ function verificationAcceptance({ review, status, snapshotComparison, inputsStab
     reviewStatus: review?.status ?? 'unreviewed',
   };
 }
-
 async function verifyProject(projectDir, args, { planOnly = false } = {}) {
   const startedAt = new Date().toISOString();
   if (args.micro !== undefined) {
@@ -1043,38 +814,6 @@ async function verifyProject(projectDir, args, { planOnly = false } = {}) {
   }).catch(() => false);
   return report;
 }
-
-async function envReport(projectDir) {
-  const context = await projectContext(projectDir);
-  const programs = new Set(['node', 'git']);
-  if (context.package.packageManager) programs.add(context.package.packageManager);
-  const availability = {};
-  for (const program of programs) availability[program] = await probeExecutable(program, projectDir);
-  return {
-    schemaVersion: SCHEMA_VERSION,
-    command: 'env',
-    status: 'ready',
-    node: process.version,
-    platform: process.platform,
-    arch: process.arch,
-    executables: availability,
-    config: context.config,
-  };
-}
-
-async function changesReport(projectDir, args) {
-  const snapshot = await gitSnapshot(projectDir);
-  const report = { schemaVersion: SCHEMA_VERSION, command: 'changes', status: snapshot.available ? 'ready' : 'unavailable', ...snapshot };
-  delete report.root;
-  if (args.base && snapshot.available) {
-    const diff = await runGit(['diff', '--name-status', '-z', '--find-renames', `${args.base}...HEAD`], projectDir);
-    report.base = args.base;
-    report.baseDiff = diff.ok ? parseNameStatus(diff.stdout) : [];
-    if (!diff.ok) report.baseDiffError = boundedOutput(diff.stderr || diff.error?.message, projectDir);
-  }
-  return report;
-}
-
 // --- worktree / slice / patch (P0) -----------------------------------------
 //
 // These commands replace the throwaway scripts an agent used to write into the
@@ -1086,22 +825,6 @@ async function changesReport(projectDir, args) {
 const IGNORED_SCAN_DIRECTORIES = new Set([
   '.agents', '.git', '.turbo', '.vibe-harness', 'build', 'coverage', 'dist', 'node_modules', 'out', 'target',
 ]);
-
-async function readProjectConfig(projectDir) {
-  const info = await readJsonIfExists(path.join(projectDir, CONFIG_FILE));
-  return info.value && typeof info.value === 'object' && !Array.isArray(info.value) ? info.value : {};
-}
-
-function normalizeSlashes(value) {
-  return String(value).replaceAll('\\', '/').replace(/\/+$/u, '');
-}
-
-function isInsidePath(candidate, parent) {
-  const child = pathKey(candidate);
-  const base = pathKey(parent);
-  return child !== base && child.startsWith(`${base}/`);
-}
-
 function safeWorktreeFile(root, relative, label) {
   const target = path.resolve(root, relative);
   const canonicalRoot = safeRealpath(root);
@@ -1125,15 +848,6 @@ function safeWorktreeFile(root, relative, label) {
   }
   return target;
 }
-
-function safeRealpath(target) {
-  try {
-    return realpathSync.native ? realpathSync.native(target) : realpathSync(target);
-  } catch {
-    return null;
-  }
-}
-
 function listDirectories(dir) {
   try {
     return readdirSync(dir, { withFileTypes: true })
@@ -1144,13 +858,11 @@ function listDirectories(dir) {
     return [];
   }
 }
-
 function workspacePatterns(packageJson) {
   const raw = packageJson?.workspaces;
   const patterns = Array.isArray(raw) ? raw : Array.isArray(raw?.packages) ? raw.packages : [];
   return patterns.filter((item) => typeof item === 'string' && item.trim() !== '');
 }
-
 function expandWorkspacePattern(rootDir, pattern) {
   const normalized = normalizeSlashes(pattern).replace(/^\.\//u, '');
   if (normalized.endsWith('/**')) {
@@ -1176,7 +888,6 @@ function expandWorkspacePattern(rootDir, pattern) {
   }
   return [path.resolve(rootDir, normalized)];
 }
-
 /**
  * A directory that owns its own `.git` entry is a separate checkout: a linked
  * worktree, a submodule, or a vendored clone. Its workspace topology belongs to
@@ -1186,7 +897,6 @@ function expandWorkspacePattern(rootDir, pattern) {
 function isNestedCheckout(dir) {
   return existsSync(path.join(dir, '.git'));
 }
-
 function readPackageJsonSync(dir) {
   try {
     return JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
@@ -1194,7 +904,6 @@ function readPackageJsonSync(dir) {
     return null;
   }
 }
-
 /**
  * Discover workspace roots and the local packages they declare.
  *
@@ -1242,7 +951,6 @@ function discoverWorkspaceTopology(projectDir) {
   }
   return { packages, roots };
 }
-
 function readWorktreeConfig(config) {
   const raw = config?.worktree;
   if (raw === undefined) return { value: {}, error: null };
@@ -1345,7 +1053,6 @@ function readWorktreeConfig(config) {
   }
   return { value, error: null };
 }
-
 function resolveWorktreeSettings(projectDir, projectConfig, args) {
   const parsed = readWorktreeConfig(projectConfig);
   if (parsed.error) return { error: parsed.error };
@@ -1391,7 +1098,6 @@ function resolveWorktreeSettings(projectDir, projectConfig, args) {
     workspacePackages: discovered.packages,
   };
 }
-
 async function worktreeEntries(projectDir) {
   const top = await runGit(['rev-parse', '--show-toplevel'], projectDir);
   if (!top.ok) return { entries: [], repositoryRoot: null, reason: 'not-a-git-worktree' };
@@ -1399,7 +1105,6 @@ async function worktreeEntries(projectDir) {
   if (!listing.ok) return { entries: [], repositoryRoot: normalizePath(top.stdout.trim()), reason: 'worktree-list-failed' };
   return { entries: parseWorktreeList(listing.stdout), repositoryRoot: normalizePath(top.stdout.trim()), reason: null };
 }
-
 async function worktreeDirtyMap(entries) {
   const dirty = new Map();
   for (const entry of entries) {
@@ -1409,7 +1114,6 @@ async function worktreeDirtyMap(entries) {
   }
   return dirty;
 }
-
 async function resolveWorktreeIntegration(projectDir, entries, baseRef) {
   const map = new Map();
   const probe = await runGit(['rev-parse', '--verify', '--quiet', baseRef], projectDir);
@@ -1428,7 +1132,6 @@ async function resolveWorktreeIntegration(projectDir, entries, baseRef) {
   }
   return { baseRefResolved: true, map };
 }
-
 function packagesForRoot(settings, root) {
   // A package belongs to a dependency root either because its own `workspaces`
   // declaration discovered it there, or because the configured root contains
@@ -1437,14 +1140,12 @@ function packagesForRoot(settings, root) {
   return settings.localPackages.filter((item) => item.root === root
     || (normalizeSlashes(root) !== '.' && isInsidePath(item.abs, path.resolve(settings.projectDir, root))));
 }
-
 // Content-addressed dependency stores that must travel with an overlay: bun
 // (`bun install` writes `.bun`) and pnpm (`.pnpm`) resolve packages through
 // these point directories, so skipping them leaves a worktree unable to run
 // vitest/tsc. Build caches (`.cache`, `.vite`, `.vite-temp`) stay skipped
 // because they are regenerated and must never be shared between worktrees.
 const OVERLAY_POINT_ENTRIES = new Set(['.bin', '.bun', '.pnpm']);
-
 /** Link one overlay entry (top-level, or under a scope) from its source. */
 function linkOverlayEntry({ localPackages, mainModules, name, scope = null, worktreeModules, worktreePath }) {
   const target = scope === null ? path.join(worktreeModules, name) : path.join(worktreeModules, scope, name);
@@ -1457,7 +1158,6 @@ function linkOverlayEntry({ localPackages, mainModules, name, scope = null, work
   }
   linkDirectory(scope === null ? path.join(mainModules, name) : path.join(mainModules, scope, name), target);
 }
-
 /**
  * Overlay one `node_modules` directory against the main checkout.
  *
@@ -1487,7 +1187,6 @@ function overlayModulesDirectory({ localPackages, mainModules, worktreeModules, 
     }
   }
 }
-
 /** Link one dependency root of a worktree against the main checkout. */
 function linkDependencyRoot(projectDir, worktreePath, settings, root) {
   const mainModules = path.join(projectDir, root, 'node_modules');
@@ -1502,7 +1201,6 @@ function linkDependencyRoot(projectDir, worktreePath, settings, root) {
   overlayModulesDirectory({ localPackages, mainModules, worktreeModules, worktreePath });
   return { action: 'linked', localPackages: localPackages.map((item) => item.name), mode: 'overlay', root };
 }
-
 /**
  * Overlay the isolated `node_modules` of one workspace package.
  *
@@ -1524,7 +1222,6 @@ function linkPackageRoot(projectDir, worktreePath, settings, pkg) {
   });
   return { dir: pkg.dir, package: pkg.name, status: 'linked' };
 }
-
 /** Project the per-package `node_modules` overlays of every workspace package. */
 function linkPackageRoots(projectDir, worktreePath, settings) {
   const results = [];
@@ -1534,7 +1231,6 @@ function linkPackageRoots(projectDir, worktreePath, settings) {
   }
   return results;
 }
-
 function listFilesOf(dir) {
   try {
     return readdirSync(dir, { withFileTypes: true }).filter((entry) => !entry.isDirectory()).map((entry) => entry.name);
@@ -1542,7 +1238,6 @@ function listFilesOf(dir) {
     return [];
   }
 }
-
 /**
  * Remove the dependency links a bootstrap created inside one worktree.
  *
@@ -1574,7 +1269,6 @@ function removeDependencyLinks(worktreePath, settings) {
   }
   return removed;
 }
-
 /**
  * Remove every link a bootstrap created inside one worktree.
  *
@@ -1589,7 +1283,6 @@ function removeWorktreeLinks(projectDir, worktreePath, settings) {
     ...removeMirrorLinks(projectDir, worktreePath, settings.mirrors ?? []),
   ];
 }
-
 /** Filesystem evidence for the dependency links of every worktree. */
 function worktreeDependencyEvidence(projectDir, entries, settings) {
   const evidence = new Map();
@@ -1627,14 +1320,8 @@ function worktreeDependencyEvidence(projectDir, entries, settings) {
   }
   return evidence;
 }
-
 const PORT_LOCK_TIMEOUT_MS = 5_000;
 const PORT_LOCK_RETRY_MS = 50;
-
-function delay(ms) {
-  return new Promise((resolve) => { setTimeout(resolve, ms); });
-}
-
 /**
  * Red-zone membership for a project-relative path.
  *
@@ -1653,7 +1340,6 @@ function isRedZonePath(relativePath, patterns) {
   }
   return false;
 }
-
 /** Exclusive lock file around every registry read/modify/write. */
 async function withPortRegistryLock(projectDir, action, { timeoutMs = PORT_LOCK_TIMEOUT_MS } = {}) {
   const lockPath = path.join(projectDir, PORT_LOCK_RELATIVE_PATH);
@@ -1688,14 +1374,12 @@ async function withPortRegistryLock(projectDir, action, { timeoutMs = PORT_LOCK_
     }
   }
 }
-
 function writePortRegistry(projectDir, registry) {
   const file = path.join(projectDir, PORT_REGISTRY_RELATIVE_PATH);
   mkdirSync(path.dirname(file), { recursive: true });
   const entries = [...registry.entries].sort((left, right) => left.block - right.block || left.id.localeCompare(right.id));
   writeFileSync(file, `${JSON.stringify({ ...registry, entries }, null, 2)}\n`, 'utf8');
 }
-
 /**
  * Allocate or reuse the worktree's port block from the main checkout registry.
  *
@@ -1738,7 +1422,6 @@ function planPortAssignment(projectDir, settings, { branch, id, path: worktreePa
     reused: Boolean(existing),
   };
 }
-
 function releasePortRegistryEntry(projectDir, id) {
   return withPortRegistryLock(projectDir, async () => {
     const info = readPortRegistry(projectDir);
@@ -1749,7 +1432,6 @@ function releasePortRegistryEntry(projectDir, id) {
     return { released: true };
   });
 }
-
 function parseWorktreeTask(value) {
   const parts = String(value).split(':');
   const [id, branch, ...rest] = parts;
@@ -1760,13 +1442,11 @@ function parseWorktreeTask(value) {
     path: rest.length > 0 ? rest.join(':') : null,
   };
 }
-
 async function worktreeListReport(projectDir) {
   const { entries, reason, repositoryRoot } = await worktreeEntries(projectDir);
   if (reason) return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'list', status: 'unavailable', error: reason, worktrees: [] };
   return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'list', status: 'ready', repositoryRoot, worktrees: entries };
 }
-
 async function worktreeCheckReport(projectDir, args) {
   const config = await readProjectConfig(projectDir);
   const settings = resolveWorktreeSettings(projectDir, config, args);
@@ -1836,7 +1516,6 @@ async function worktreeCheckReport(projectDir, args) {
     unknownLocalPackages: settings.unknownLocalPackages,
   };
 }
-
 /**
  * Six-step bootstrap plan: worktree add, dependency links, port allocation plus
  * env file, declared env files, declared setup commands, toolchain probe.
@@ -1938,7 +1617,6 @@ function worktreeBootstrapPlan(projectDir, settings, task, repositoryRoot, { con
     worktreePath,
   };
 }
-
 function readWorktreeRedZone(projectDir) {
   try {
     const config = JSON.parse(readFileSync(path.join(projectDir, CONFIG_FILE), 'utf8'));
@@ -1947,7 +1625,6 @@ function readWorktreeRedZone(projectDir) {
     return [];
   }
 }
-
 function projectPackageManager(projectDir) {
   try {
     const packageJson = JSON.parse(readFileSync(path.join(projectDir, 'package.json'), 'utf8'));
@@ -1956,7 +1633,6 @@ function projectPackageManager(projectDir) {
     return null;
   }
 }
-
 /** True when one declared mirror projects `relative` (exact, directory or wildcard). */
 function mirrorsCover(projectDir, mirrors, relative) {
   const target = normalizeSlashes(relative).replace(/^\.\//u, '');
@@ -1972,7 +1648,6 @@ function mirrorsCover(projectDir, mirrors, relative) {
   }
   return false;
 }
-
 /**
  * Warnings a bootstrap receipt carries about the projected surface.
  *
@@ -1986,7 +1661,6 @@ function worktreeBootstrapWarnings(projectDir, settings) {
   if (mirrorsCover(projectDir, settings.mirrors, '.codex/hooks.json')) warnings.push('WORKTREE_HOOK_TRUST_REQUIRED');
   return warnings;
 }
-
 /** Run the declared setup commands inside the new worktree. */
 async function runSetupCommands(commands, worktreePath, projectDir, timeoutMs) {
   const results = [];
@@ -2011,7 +1685,6 @@ async function runSetupCommands(commands, worktreePath, projectDir, timeoutMs) {
   }
   return { error: null, results, step: null };
 }
-
 async function worktreeBootstrapReport(projectDir, args) {
   const config = await readProjectConfig(projectDir);
   const settings = resolveWorktreeSettings(projectDir, config, args);
@@ -2167,7 +1840,6 @@ async function worktreeBootstrapReport(projectDir, args) {
     write: Boolean(args.write),
   };
 }
-
 async function worktreeCleanupReport(projectDir, args) {
   if (args.write && !args.cleanupLocked) {
     return withWorktreeLandLock(projectDir, () => worktreeCleanupReport(projectDir, { ...args, cleanupLocked: true }));
@@ -2295,7 +1967,6 @@ async function worktreeCleanupReport(projectDir, args) {
     write: Boolean(args.write),
   };
 }
-
 /**
  * Land a finished worktree back onto the primary checkout's current branch
  * (docs/rules/git-rules.md §Worktree): merge --no-ff, run the verify gate,
@@ -2319,13 +1990,11 @@ function isLandProtectedBranch(branch) {
   if (LAND_PROTECTED_BRANCH_ALLOWLIST.has(String(branch ?? '').toLowerCase())) return false;
   return LAND_PROTECTED_BRANCH_PATTERN.test(branch);
 }
-
 async function gitCommonDir(projectDir) {
   const result = await runGit(['rev-parse', '--git-common-dir'], projectDir);
   if (!result.ok || result.stdout.trim() === '') return { ok: false, error: boundedOutput(result.stderr || result.error?.message || 'cannot resolve git common dir', projectDir) };
   return { ok: true, path: path.resolve(projectDir, result.stdout.trim()) };
 }
-
 /**
  * The wall-clock budget a land waits for a peer's shared lock. Resolved per
  * call so the parent-owned knob also applies to in-process callers; it can only
@@ -2340,7 +2009,6 @@ export function landLockTimeoutMs(environment = process.env) {
   if (!Number.isFinite(override) || override <= 0) return LAND_LOCK_TIMEOUT_MS;
   return Math.min(LAND_LOCK_TIMEOUT_MS, Math.floor(override));
 }
-
 async function withWorktreeLandLock(projectDir, action) {
   const common = await gitCommonDir(projectDir);
   if (!common.ok) {
@@ -2396,7 +2064,6 @@ async function withWorktreeLandLock(projectDir, action) {
     }
   }
 }
-
 async function cleanupLandCandidate(projectDir, candidatePath, { abort = false } = {}) {
   if (!candidatePath) return { removed: true, residual: null };
   if (abort) await runGit(['merge', '--abort'], candidatePath);
@@ -2423,7 +2090,6 @@ async function cleanupLandCandidate(projectDir, candidatePath, { abort = false }
   releaseServiceTeardown(projectDir, candidatePath);
   return { removed: true, residual: null };
 }
-
 async function worktreeLandReport(projectDir, args) {
   const delivery = resolveDelivery(await readProjectConfig(projectDir), args.delivery);
   if (args.write && args.task[0]) {
@@ -2449,7 +2115,6 @@ async function worktreeLandReport(projectDir, args) {
   if (!args.write) return worktreeLandReportUnlocked(projectDir, args);
   return withWorktreeLandLock(projectDir, () => worktreeLandReportUnlocked(projectDir, args));
 }
-
 async function worktreeLandReportUnlocked(projectDir, args) {
   const failure = (error, code) => ({ schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'land', status: 'failed', ...(code ? { code } : {}), error });
   if (args.push && !args.write) {
@@ -2912,7 +2577,6 @@ async function worktreeLandReportUnlocked(projectDir, args) {
     results: [{ ...baseResult, pushed, branchDeleted: steps.some((step) => step.id === 'delete-branch' && step.status === 'passed'), portBlockReleased: steps.some((step) => step.id === 'cleanup' && step.status === 'passed' && step.portBlockReleased === true), status: landStatus, steps }],
   };
 }
-
 /**
  * Crash recovery for worktree provisioning (docs/rules/git-rules.md §Worktree).
  *
@@ -2931,7 +2595,6 @@ async function worktreeRecoverReport(projectDir, args) {
   const result = await withWorktreeLandLock(projectDir, () => worktreeRecoverReportUnlocked(projectDir, args));
   return result.subcommand === 'land' ? { ...result, subcommand: 'recover' } : result;
 }
-
 async function worktreeRecoverReportUnlocked(projectDir, args) {
   const config = await readProjectConfig(projectDir);
   const settings = resolveWorktreeSettings(projectDir, config, args);
@@ -3164,7 +2827,6 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
     write: Boolean(args.write),
   };
 }
-
 async function worktreeReport(projectDir, args) {
   const subcommand = args._[1] ?? 'check';
   if (subcommand === 'list') return worktreeListReport(projectDir);
@@ -3175,18 +2837,15 @@ async function worktreeReport(projectDir, args) {
   if (subcommand === 'recover') return worktreeRecoverReport(projectDir, args);
   throw new Error(`Unknown worktree subcommand: ${subcommand} (expected list, check, bootstrap, land, cleanup or recover)`);
 }
-
 function detectEol(text) {
   return text.includes('\r\n') ? '\r\n' : '\n';
 }
-
 function splitLines(text) {
   const hadTrailingNewline = text.endsWith('\n');
   const lines = text.split('\n').map((line) => (line.endsWith('\r') ? line.slice(0, -1) : line));
   if (hadTrailingNewline) lines.pop();
   return { hadTrailingNewline, lines };
 }
-
 async function sliceReport(projectDir, args) {
   if (!args.file) return { schemaVersion: SCHEMA_VERSION, command: 'slice', status: 'failed', error: 'slice needs --file <path>' };
   const file = path.resolve(projectDir, args.file);
@@ -3223,7 +2882,6 @@ async function sliceReport(projectDir, args) {
     totalLines: lines.length,
   };
 }
-
 function applyPatchOps(lines, ops, specDir) {
   const applied = [];
   let current = [...lines];
@@ -3287,7 +2945,6 @@ function applyPatchOps(lines, ops, specDir) {
   }
   return { applied, lines: current };
 }
-
 async function patchReport(projectDir, args) {
   if (!args.spec) return { schemaVersion: SCHEMA_VERSION, command: 'patch', status: 'failed', error: 'patch needs --spec <spec.json>' };
   const specPath = path.resolve(projectDir, args.spec);
@@ -3357,18 +3014,6 @@ async function patchReport(projectDir, args) {
     written: true,
   };
 }
-
-function patchSummary(report) {
-  const lines = [`command: ${report.command}`, `status: ${report.status}`];
-  if (report.file) lines.push(`file: ${report.file}`);
-  if (report.error) lines.push(`error: ${report.error}`);
-  for (const op of report.ops ?? []) {
-    lines.push(`op[${op.index}] ${op.kind}: ${op.status}${op.startLine ? ` at line ${op.startLine}` : ''}`);
-  }
-  if (report.written === false && report.status !== 'failed') lines.push('dry run: pass --write to apply');
-  return lines.join('\n');
-}
-
 // --- task anchors ------------------------------------------------------------
 //
 // `task` persists one JSON anchor per long-running task under
@@ -3397,7 +3042,6 @@ const PLAN_REQUIRED_SECTIONS = [
   ['plan', /(?:^|\n)\s*(?:#{1,6}\s*)?(?:实施顺序|实施计划|plan\s+of\s+work|concrete\s+steps)\s*:?\s*$/imu],
   ['acceptance', /(?:^|\n)\s*(?:#{1,6}\s*)?(?:验收(?:方式|测试与完成标准)?|validation\s+and\s+acceptance)\s*:?\s*$/imu],
 ];
-
 function validateTaskId(taskId) {
   if (typeof taskId !== 'string' || !TASK_ID_PATTERN.test(taskId) || WINDOWS_RESERVED_NAMES.test(taskId)) {
     throw Object.assign(
@@ -3407,15 +3051,12 @@ function validateTaskId(taskId) {
   }
   return taskId;
 }
-
 function taskAnchorPath(projectDir, taskId) {
   return path.join(projectDir, TASKS_RELATIVE_DIR, `${taskId}.json`);
 }
-
 function taskAnchorRelativePath(taskId) {
   return `${TASKS_RELATIVE_DIR}/${taskId}.json`;
 }
-
 function planRelativePath(projectDir, value) {
   const candidate = path.resolve(projectDir, String(value));
   const relative = path.relative(path.resolve(projectDir), candidate).replaceAll('\\', '/');
@@ -3427,7 +3068,6 @@ function planRelativePath(projectDir, value) {
   }
   return { absolute: candidate, relative };
 }
-
 async function readManagedPlan(projectDir, value) {
   const location = planRelativePath(projectDir, value);
   let resolvedPath;
@@ -3458,7 +3098,6 @@ async function readManagedPlan(projectDir, value) {
     revision: digest.slice(0, 12),
   };
 }
-
 /**
  * Machine-readable execution block. A `plan-units` fence lists what may change
  * (`allowedScope`), what must never change (`protectedAssets`) and, per unit,
@@ -3468,11 +3107,9 @@ async function readManagedPlan(projectDir, value) {
  * history.
  */
 const PLAN_UNIT_BLOCK_PATTERN = /```(?:json[ \t]+)?plan-units[ \t]*\r?\n([\s\S]*?)```/u;
-
 function normalizePlanPath(value) {
   return String(value).replaceAll('\\', '/').replace(/^\.\//u, '').replace(/\/+$/u, '').toLowerCase();
 }
-
 /**
  * Scope entry match. `dir/**` covers the directory itself and everything below
  * it; any other entry is an exact path. Comparison is case-insensitive because
@@ -3488,7 +3125,6 @@ function scopeMatches(pattern, candidate) {
   }
   return target === normalized;
 }
-
 function scopeIntersects(left, right) {
   const first = normalizePlanPath(left);
   const second = normalizePlanPath(right);
@@ -3500,7 +3136,6 @@ function scopeIntersects(left, right) {
   if (second.endsWith('/**')) return scopeIntersects(second, first);
   return first === second || first.startsWith(`${second}/`) || second.startsWith(`${first}/`);
 }
-
 /** Acceptance IDs are the first column of the acceptance section's table. */
 function planAcceptanceIds(content) {
   const section = /(?:^|\n)#{1,6}[ \t]*(?:验收(?:方式|测试与完成标准)?|validation and acceptance)[^\n]*\n([\s\S]*?)(?=\n#{1,6}[ \t]|$)/iu.exec(content);
@@ -3510,7 +3145,6 @@ function planAcceptanceIds(content) {
   }
   return ids;
 }
-
 function planUnitProblems(block, acceptanceIds) {
   const problems = [];
   const warnings = [];
@@ -3599,7 +3233,6 @@ function planUnitProblems(block, acceptanceIds) {
   }
   return { problems, units, warnings };
 }
-
 function planExecutionUnits(content) {
   const match = PLAN_UNIT_BLOCK_PATTERN.exec(content);
   if (!match) {
@@ -3624,7 +3257,6 @@ function planExecutionUnits(content) {
   const validated = planUnitProblems(block, planAcceptanceIds(content));
   return { present: true, problems: validated.problems, units: validated.units, warnings: validated.warnings };
 }
-
 /** The unit graph of the plan's execution block, derived from a plan-check summary. */
 function planUnitGraph(planCheck) {
   const dependencies = planCheck?.units?.dependencies;
@@ -3634,7 +3266,6 @@ function planUnitGraph(planCheck) {
     id,
   }));
 }
-
 /**
  * Direct and transitive predecessors of one plan unit, classified by the
  * anchor's unit status. `failed` and `blocked` are the states that stop a
@@ -3666,7 +3297,6 @@ function unitPredecessorState(planUnits, anchorUnits, unitId, isVerified = () =>
   }
   return { blocked, checked, failed, unfinished };
 }
-
 /** Declared dependents of the given units, so a blocked plan names its nodes. */
 function planDependentUnits(planUnits, unitIds) {
   const waiting = new Set(unitIds);
@@ -3675,7 +3305,6 @@ function planDependentUnits(planUnits, unitIds) {
     .map((unit) => unit.id)
     .sort();
 }
-
 async function taskPlanCheckReport(projectDir, taskId) {
   try {
     validateTaskId(taskId);
@@ -3784,7 +3413,6 @@ async function taskPlanCheckReport(projectDir, taskId) {
     plan: { path: plan.path, revision: plan.revision, digest: plan.digest, missing: [] },
   };
 }
-
 async function readTaskAnchor(projectDir, taskId) {
   validateTaskId(taskId);
   const filePath = taskAnchorPath(projectDir, taskId);
@@ -3822,21 +3450,10 @@ async function readTaskAnchor(projectDir, taskId) {
   }
   return { exists: true, anchor, filePath };
 }
-
 function writeTaskAnchor(filePath, anchor) {
   mkdirSync(path.dirname(filePath), { recursive: true });
   writeFileSync(filePath, `${JSON.stringify(anchor, null, 2)}\n`, 'utf8');
 }
-
-function stableStringify(value) {
-  if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(',')}]`;
-  if (value && typeof value === 'object') {
-    const keys = Object.keys(value).sort();
-    return `{${keys.map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
-
 // Idempotency probe: updatedAt and sessions grow with every real write, so
 // they are excluded when deciding whether an update changed anything.
 function anchorSignature(anchor) {
@@ -3845,11 +3462,9 @@ function anchorSignature(anchor) {
   delete clone.sessions;
   return stableStringify(clone);
 }
-
 function taskFailure(subcommand, message, code) {
   return { schemaVersion: SCHEMA_VERSION, command: 'task', subcommand, status: 'failed', ...(code ? { code } : {}), error: message };
 }
-
 function upsertTaskUnit(units, unitId) {
   let unit = units.find((item) => item && item.id === unitId);
   if (!unit) {
@@ -3858,7 +3473,6 @@ function upsertTaskUnit(units, unitId) {
   }
   return unit;
 }
-
 function parseVerificationReceipt(value, projectDir) {
   let raw = String(value).trim();
   if (!raw.startsWith('{')) {
@@ -3890,7 +3504,6 @@ function parseVerificationReceipt(value, projectDir) {
   }
   return receipt;
 }
-
 function parseJsonArgument(value, projectDir, label) {
   let raw = String(value ?? '').trim();
   if (!raw.startsWith('{')) {
@@ -3911,7 +3524,6 @@ function parseJsonArgument(value, projectDir, label) {
     });
   }
 }
-
 function projectRelativePath(projectDir, value) {
   const candidate = path.resolve(projectDir, String(value));
   const relative = path.relative(path.resolve(projectDir), candidate).replaceAll('\\', '/');
@@ -3920,7 +3532,6 @@ function projectRelativePath(projectDir, value) {
   }
   return relative;
 }
-
 // A red light only counts as red-test evidence when a test run failed on its
 // own assertions. Lint or typecheck complaints, a missing dependency, a syntax
 // error, a timeout and a run that executed zero tests all mean the check never
@@ -3931,7 +3542,6 @@ const NON_RED_SIGNATURES = [
   { code: 'VIBE_HARNESS_RED_EVIDENCE_SYNTAX', pattern: /\bSyntaxError\b/u, reason: 'a syntax error' },
   { code: 'VIBE_HARNESS_RED_EVIDENCE_EMPTY', pattern: /(?:^|\n)\s*# tests 0\b|(?:^|\n)\s*Ran 0 tests\b|no test files found|0 passing/u, reason: 'zero executed tests' },
 ];
-
 /** True when a failing check's command names the frozen asset it produced red. */
 function commandCoversPaths(command, paths) {
   const tokens = String(command ?? '').split(/\s+/u).map((token) => token.replace(/^["']|["']$/gu, ''));
@@ -3945,7 +3555,6 @@ function commandCoversPaths(command, paths) {
     return new RegExp(`^(?:${pattern})(?:/.*)?$`, 'u').test(normalizePlanPath(frozenPath));
   }));
 }
-
 /**
  * Extract the red evidence a freeze may cite, or refuse the receipt.
  *
@@ -4003,7 +3612,6 @@ function redEvidenceFromReceipt(receipt, paths) {
     exitCode: typeof item.exitCode === 'number' ? item.exitCode : null,
   }));
 }
-
 function freezeEntryFromReceipt(receipt, paths, { taskId = null } = {}) {
   const redChecks = redEvidenceFromReceipt(receipt, paths);
   const verification = receipt.verification ?? {};
@@ -4028,7 +3636,6 @@ function freezeEntryFromReceipt(receipt, paths, { taskId = null } = {}) {
     frozenAt: new Date().toISOString(),
   };
 }
-
 function approvedRebaseline(value, projectDir) {
   const approval = parseJsonArgument(value, projectDir, 'approval');
   if (!approval || typeof approval !== 'object' || Array.isArray(approval)
@@ -4051,7 +3658,6 @@ function approvedRebaseline(value, projectDir) {
     trust: 'verified',
   };
 }
-
 // A unit's verification.command records the command SET that produced the
 // receipt (`name=command` lines in CHECK_ORDER) so `verify --reuse` can compare
 // it against the currently configured selection.
@@ -4080,14 +3686,12 @@ function taskVerificationFromReceipt(receipt) {
     ...(typeof binding?.planDigest === 'string' ? { planDigest: binding.planDigest } : {}),
   };
 }
-
 function verificationCommandSet(commands, selectedNames, projectDir, definitions = {}) {
   return selectedNames
     .filter((name) => typeof commands[name] === 'string')
     .map((name) => `${name}=${displayCommand(commands[name], projectDir)}${definitions[name]?.cwd && definitions[name].cwd !== '.' ? ` [cwd=${definitions[name].cwd}]` : ''}`)
     .join('\n');
 }
-
 function currentUnitVerification(unit, fingerprint, configured, projectDir) {
   if (unit?.verification?.status !== 'passed' || !fingerprint || unit.verification.fingerprint !== fingerprint || configured.error) return false;
   const commandLines = unit.verification.command?.split('\n').filter(Boolean) ?? [];
@@ -4095,7 +3699,6 @@ function currentUnitVerification(unit, fingerprint, configured, projectDir) {
   return commandLines.length > 0 && names.every((name) => Object.hasOwn(configured.commands, name))
     && unit.verification.command === verificationCommandSet(configured.commands, names, projectDir, configured.definitions);
 }
-
 async function findReusableVerification(projectDir, taskId, { fingerprint, commandSet }) {
   if (typeof fingerprint !== 'string') return null;
   const taskIds = [];
@@ -4133,7 +3736,6 @@ async function findReusableVerification(projectDir, taskId, { fingerprint, comma
   }
   return best;
 }
-
 async function taskInitReport(projectDir, args) {
   const taskId = args._[2];
   if (taskId === undefined) {
@@ -4201,7 +3803,6 @@ async function taskInitReport(projectDir, args) {
     anchor,
   };
 }
-
 async function taskPlanSyncReport(projectDir, args) {
   const taskId = args._[2];
   if (taskId === undefined) return taskFailure('plan-sync', 'task plan-sync needs a task id: task plan-sync <task-id> --reason <text>');
@@ -4250,7 +3851,6 @@ async function taskPlanSyncReport(projectDir, args) {
     reason: args.reason.trim(),
   };
 }
-
 async function taskCheckReport(projectDir, args) {
   const taskId = args._[2];
   if (taskId === undefined) return taskFailure('check', 'task check needs a task id: task check <task-id> [--unit <unit-id>] [--dispatch] [--complete]');
@@ -4386,7 +3986,6 @@ async function taskCheckReport(projectDir, args) {
     plan: planCheck.plan ?? null,
   };
 }
-
 async function taskFreezeTestsReport(projectDir, args, { rebaseline = false } = {}) {
   const subcommand = rebaseline ? 'rebaseline-tests' : 'freeze-tests';
   const taskId = args._[2];
@@ -4449,7 +4048,6 @@ async function taskFreezeTestsReport(projectDir, args, { rebaseline = false } = 
     freeze,
   };
 }
-
 async function taskUpdateReport(projectDir, args) {
   const taskId = args._[2];
   if (taskId === undefined) {
@@ -4625,7 +4223,6 @@ async function taskUpdateReport(projectDir, args) {
     anchor,
   };
 }
-
 // The anchor's riskLevel names the verification tier a completion claim
 // needs: quick/light units close on a quick-tier focused receipt, full units
 // need standard-tier evidence. Advisory only — the worktree land verify gate
@@ -4639,7 +4236,6 @@ function taskRiskLevelAdvisory(riskLevel) {
   }
   return null;
 }
-
 function taskResumeHint(taskId, anchor, pendingUnits) {
   const parts = [
     `read ${taskAnchorRelativePath(taskId)} and the current diff (git status --porcelain plus git diff) first`,
@@ -4656,7 +4252,6 @@ function taskResumeHint(taskId, anchor, pendingUnits) {
   if (typeof anchor.nextAction === 'string' && anchor.nextAction !== '') parts.push(`next action: ${anchor.nextAction}`);
   return `${parts.join('; ')}.`;
 }
-
 async function buildTaskCheckpoint(projectDir, anchor, reason) {
   const current = await gitFingerprint(projectDir);
   return {
@@ -4668,7 +4263,6 @@ async function buildTaskCheckpoint(projectDir, anchor, reason) {
       .sort((left, right) => String(right.finishedAt).localeCompare(String(left.finishedAt)))[0] ?? null,
   };
 }
-
 async function taskRecoveryState(projectDir, anchor) {
   const current = await buildTaskCheckpoint(projectDir, anchor, 'recovery-inspection');
   const previous = anchor.latestCheckpoint;
@@ -4677,7 +4271,6 @@ async function taskRecoveryState(projectDir, anchor) {
   return { status: drift.length ? 'blocked' : 'passed', drift, current,
     guidance: 'Compare current changes and reconcile the existing unit before resuming; do not replan the goal.' };
 }
-
 async function taskCheckpointReport(projectDir, args) {
   const taskId = args._[2];
   if (!args.reason?.trim()) return taskFailure('checkpoint', '--reason is required');
@@ -4690,7 +4283,6 @@ async function taskCheckpointReport(projectDir, args) {
   return { schemaVersion: SCHEMA_VERSION, command: 'task', subcommand: 'checkpoint', taskId,
     status: args.write ? 'passed' : 'planned', written: Boolean(args.write), latestCheckpoint: checkpoint };
 }
-
 async function taskEventReport(projectDir, args) {
   const reason = args.reason;
   if (!['pre-compaction', 'resume', 'continue', 'pre-delivery', 'pre-verify'].includes(reason)) return taskFailure('event', 'Unsupported checkpoint event');
@@ -4706,7 +4298,6 @@ async function taskEventReport(projectDir, args) {
   if (reason === 'continue' && count < 2) return { command: 'task', subcommand: 'event', status: args.write ? 'passed' : 'planned', continuationCount: count, checkpointed: false };
   return { ...await taskCheckpointReport(projectDir, args), subcommand: 'event', continuationCount: count };
 }
-
 async function taskStatusReport(projectDir, args) {
   const taskId = args._[2];
   if (taskId === undefined) {
@@ -4753,7 +4344,6 @@ async function taskStatusReport(projectDir, args) {
     recovery: await taskRecoveryState(projectDir, anchor),
   };
 }
-
 async function taskListReport(projectDir) {
   let entries = [];
   try {
@@ -4808,7 +4398,6 @@ async function taskListReport(projectDir) {
     tasks,
   };
 }
-
 async function taskReport(projectDir, args) {
   const subcommand = args._[1] ?? null;
   try {
@@ -4838,123 +4427,6 @@ async function taskReport(projectDir, args) {
     };
   }
 }
-
-function taskSummary(report) {
-  const lines = [`command: task ${report.subcommand ?? ''}`.trim(), `status: ${report.status}`];
-  if (report.error) {
-    lines.push(`error: ${report.error}`);
-    return lines.join('\n');
-  }
-  if (report.path) lines.push(`path: ${report.path}`);
-  if (report.taskId) lines.push(`taskId: ${report.taskId}`);
-  if (report.subcommand === 'init' || report.subcommand === 'update') {
-    const anchor = report.anchor ?? {};
-    lines.push(`title: ${anchor.title ?? ''}`);
-    lines.push(`stage: ${anchor.stage ?? ''}`);
-    lines.push(`riskLevel: ${anchor.riskLevel ?? ''}`);
-    if (report.subcommand === 'update') {
-      lines.push(`changed: ${report.changed ? 'yes' : 'no'}`);
-      if ((report.changes ?? []).length > 0) lines.push(`changes: ${report.changes.join(', ')}`);
-    }
-    lines.push(`units: ${Array.isArray(anchor.units) ? anchor.units.length : 0}`);
-    lines.push(`decisions: ${Array.isArray(anchor.decisions) ? anchor.decisions.length : 0}`);
-    lines.push(`blockers: ${Array.isArray(anchor.blockers) ? anchor.blockers.length : 0}`);
-    if (anchor.nextAction) lines.push(`nextAction: ${anchor.nextAction}`);
-    if (report.written === false && report.status !== 'failed') lines.push('dry run: pass --write to apply');
-    return lines.join('\n');
-  }
-  if (report.subcommand === 'status') {
-    lines.push(`stage: ${report.stage ?? ''}`);
-    lines.push(`goal: ${report.goal ?? ''}`);
-    for (const unit of report.units ?? []) {
-      lines.push(`unit ${unit.id}: ${unit.status ?? 'unknown'}${unit.verification ? ' (verified)' : ''}`);
-    }
-    if ((report.pendingUnits ?? []).length > 0) lines.push(`pendingUnits: ${report.pendingUnits.join(', ')}`);
-    if (report.nextAction) lines.push(`nextAction: ${report.nextAction}`);
-    lines.push(`resumeHint: ${report.resumeHint}`);
-    return lines.join('\n');
-  }
-  if (report.subcommand === 'list') {
-    lines.push(`count: ${report.count}`);
-    for (const item of report.tasks ?? []) {
-      if (item.status === 'invalid') {
-        lines.push(`task ${item.taskId}: invalid (${item.error})`);
-        continue;
-      }
-      lines.push(`task ${item.taskId}: ${item.stage ?? 'unknown'} (${item.unitCount} units, ${item.doneUnits} done, ${item.blockerCount} blockers)`);
-    }
-    return lines.join('\n');
-  }
-  return lines.join('\n');
-}
-
-function summary(report) {
-  if (report.command === 'slice') return report.error ? `command: slice\nstatus: failed\nerror: ${report.error}` : report.text;
-  if (report.command === 'patch') return patchSummary(report);
-  if (report.command === 'task') return taskSummary(report);
-  if (report.command === 'worktree') {
-    const lines = [`command: worktree ${report.subcommand ?? ''}`.trim()];
-    if (report.error) lines.push(`error: ${report.error}`);
-    // The check subcommand already prints a `status:` line through its audit
-    // summary, so only the other subcommands carry the receipt status here.
-    if (report.summary) lines.push(report.summary);
-    else lines.push(`status: ${report.status}`);
-    // land reports one result whose steps carry their own ids and evidence,
-    // which the generic result rows below (built for bootstrap/cleanup) do not
-    // know how to print.
-    if (report.subcommand === 'land') {
-      if (report.targetBranch) lines.push(`target: ${report.targetBranch}`);
-      if (report.tier) lines.push(`tier: ${report.tier}`);
-      for (const blocker of report.blockers ?? []) lines.push(`blocker: ${blocker}`);
-      for (const item of report.results ?? []) {
-        lines.push(`${item.status}: ${item.id} branch ${item.branch} (${item.path})`);
-        for (const step of item.steps ?? []) {
-          lines.push(`  ${step.id}: ${step.status}${step.detail ? ` (${step.detail})` : ''}${step.error ? ` - ${step.error}` : ''}`);
-          if (step.code) lines.push(`    code: ${step.code}`);
-          if (step.tier) lines.push(`    tier: ${step.tier}`);
-        }
-      }
-      return lines.join('\n');
-    }
-    for (const entry of report.worktrees ?? []) {
-      lines.push(`worktree: ${entry.path} ${entry.branch ?? '(detached)'}${entry.integrated === true ? ' [merged]' : entry.integrated === false ? ' [merge-back pending]' : ''}`);
-    }
-    for (const item of report.results ?? []) {
-      lines.push(`${item.status}: ${item.id ?? item.path ?? ''} ${item.error ?? ''} ${(item.blockers ?? []).join('; ')}`.trim());
-      if (item.code) lines.push(`  code: ${item.code}`);
-      if (item.allocation) {
-        const ports = Object.entries(item.allocation.ports ?? {}).map(([name, port]) => `${name}=${port}`).join(' ');
-        lines.push(`  ports: ${item.allocation.envFile} block ${item.allocation.block}${ports ? ` (${ports})` : ''}`);
-      } else if (item.ports) {
-        const ports = Object.entries(item.ports).map(([name, port]) => `${name}=${port}`).join(' ');
-        lines.push(`  ports: block${ports ? ` (${ports})` : ''}`);
-      }
-      for (const step of item.steps ?? []) lines.push(`  ${step.kind}${step.command ? `: ${step.command}` : step.root ? `: ${step.root} (${step.mode})` : ''}`);
-      for (const file of item.envFiles ?? []) lines.push(`  env-file ${file.file}: ${file.status}${file.reason ? ` (${file.reason})` : ''}`);
-      for (const command of item.setupCommands ?? []) lines.push(`  setup ${command.command}: ${command.status}`);
-    }
-    return lines.join('\n');
-  }
-  const lines = [`command: ${report.command}`, `status: ${report.status}`];
-  // The help receipt carries the usage contract; without this block it only
-  // surfaced under --json, so the summary path answered --help with nothing.
-  if (report.command === 'help') {
-    lines.push(report.usage);
-    if (report.worktree) lines.push(report.worktree);
-    if (report.task) lines.push(report.task);
-    if (report.reuse) lines.push(report.reuse);
-    if (report.verify) lines.push(report.verify);
-  }
-  if (report.command === 'verify') {
-    if (report.tier) lines.push(`tier: ${report.tier}`);
-    for (const [name, item] of Object.entries(report.checks ?? {})) lines.push(`${name}: ${item.status}`);
-    if (report.nextTier) lines.push(`nextTier: ${report.nextTier}`);
-    if (report.reused) lines.push(`reused: ${report.reused.taskId}/${report.reused.unitId}${report.reused.id ? ` receipt ${report.reused.id}` : ''}`);
-  }
-  if (report.error) lines.push(`error: ${report.error}`);
-  return lines.join('\n');
-}
-
 export async function runCommand(argv, { cwd = process.cwd() } = {}) {
   const args = parseArgs(argv);
   const command = args.help ? 'help' : (args._[0] ?? 'help');
@@ -5011,7 +4483,6 @@ export async function runCommand(argv, { cwd = process.cwd() } = {}) {
   const exitCode = PASS_STATUSES.includes(report.status) || (report.status === 'unverified' && report.noChanges === true) ? 0 : 1;
   return { args, report, exitCode };
 }
-
 export async function main(argv = process.argv.slice(2)) {
   try {
     const result = await runCommand(argv);
@@ -5024,7 +4495,6 @@ export async function main(argv = process.argv.slice(2)) {
     process.exitCode = 1;
   }
 }
-
 const entryPath = process.argv[1] ? await realpath(process.argv[1]).catch(() => path.resolve(process.argv[1])) : null;
 const modulePath = await realpath(fileURLToPath(import.meta.url)).catch(() => fileURLToPath(import.meta.url));
 if (entryPath && pathToFileURL(entryPath).href === pathToFileURL(modulePath).href) {
