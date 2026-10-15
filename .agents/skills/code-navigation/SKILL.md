@@ -24,3 +24,9 @@ description: Use before modifying or reasoning about existing code that spans fi
 - 只读查询、索引缓存操作、项目文件写入和删除索引按实际副作用分别处理，未知工具不整体放行。
 
 同步归属：`docs/rules/codebase-memory-mcp.md`。
+
+## 正反例
+
+- 该用：改动跨多个文件，必须先定位符号、调用方或影响面再动手。
+- 不该用：单文件文本、配置或日志查询（直接 rg）；根因或改动点已定位，只需按结论改一处。
+- 工具不可用：宿主没有提供 codebase-memory-mcp，或索引未覆盖目标路径时，如实说明限制并回退 rg 与当前源码；不自动安装、升级或重建索引。
