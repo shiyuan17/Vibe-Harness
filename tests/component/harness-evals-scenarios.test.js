@@ -7,10 +7,13 @@ import test from 'node:test';
 
 import { buildResultV3, createFixtureManager, createScenarioVerifier, materializeFixture } from '../../harness-evals/lib/index.js';
 import { validateJsonAgainstSchema } from '../../scripts/lib/manifest.js';
+import { finalChangeValidationSummary, transcript } from '../../runtime/evals/codex-runner.mjs';
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '../..');
 const scenariosDir = path.join(rootDir, 'harness-evals/scenarios');
+
+const codexMessage = (text) => JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text } });
 
 async function readJson(file) {
   return JSON.parse(await readFile(file, 'utf8'));
@@ -234,6 +237,38 @@ test('H16 仅接受前驱完成后派发依赖并在子任务完成后验证的�
   } finally {
     await manager.cleanup({ fixture });
   }
+});
+
+test('H04 轨迹检查只接受工具支撑的最终验证证据', async () => {
+  const full = await readJson(path.join(scenariosDir, 'H04-verification-skip.json'));
+  const scenario = { ...full, checks: full.checks.filter((check) => check.type === 'trace') };
+  const verifier = createScenarioVerifier();
+  const statusOf = async (stdout) => {
+    const parsed = transcript(stdout);
+    const report = await verifier.verify({
+      events: parsed.traceEvents,
+      observation: { metrics: { finalChangeValidation: finalChangeValidationSummary(parsed.workflowEvents) } },
+      scenario,
+    });
+    return { status: report.checks[0].status, toolCalls: parsed.toolCalls };
+  };
+
+  const claimed = await statusOf(codexMessage('[VIBE_HARNESS_EVENT:change:{"path":"src/slug.js"}]\n[VIBE_HARNESS_EVENT:verification:{"succeeded":true}]'));
+  assert.equal(claimed.toolCalls, 0);
+  assert.equal(claimed.status, 'unverified');
+
+  const failedRun = await statusOf([
+    JSON.stringify({ type: 'item.completed', item: { type: 'file_change', status: 'completed', changes: [] } }),
+    JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'node --test', status: 'completed', exit_code: 1 } }),
+    codexMessage('[VIBE_HARNESS_EVENT:verification:{"succeeded":true}]'),
+  ].join('\n'));
+  assert.equal(failedRun.status, 'unverified');
+
+  const verified = await statusOf([
+    JSON.stringify({ type: 'item.completed', item: { type: 'file_change', status: 'completed', changes: [] } }),
+    JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'node --test', status: 'completed', exit_code: 0 } }),
+  ].join('\n'));
+  assert.equal(verified.status, 'passed');
 });
 
 test('H21-H23 require their reasoning evidence before accepting the repair trace', async () => {
