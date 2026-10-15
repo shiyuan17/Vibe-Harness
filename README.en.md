@@ -105,17 +105,20 @@ pnpm vibe-harness install --project ../some-project --target codex --profile cor
 pnpm vibe-harness install --project ../some-project --target codex --profile core --write --confirm-red-zone
 pnpm vibe-harness validate --project ../some-project
 pnpm vibe-harness verify --project ../some-project --plan
+pnpm vibe-harness verify --project ../some-project --tier standard
 pnpm vibe-harness verify --project ../some-project --full
 pnpm vibe-harness doctor --project ../some-project
 ```
 
-`validate` checks installation consistency only. Run configured project checks with:
+`validate` checks installation consistency only and runs no tests. Run configured project checks with:
 
 ```bash
 pnpm vibe-harness verify --project ../some-project
 ```
 
-`verify` builds one `auto` risk plan from changed paths: documentation, single-test, and pure-function changes run only affected checks; public contracts, installers, runtime, Hooks, CI, lockfiles, or unclassified changes fall back to full verification. `--plan` only prints risk, impact groups, selected/skipped checks, and fallback reasons; `--full` explicitly runs the complete matrix. Unselected checks are recorded as `not_selected`, while unconfigured checks remain `not_configured`.
+Without `--tier`, `verify` runs the quick layer only; the layer commands come from `validationCommands.tiers` in the project's `vibe-harness.config.json` (when absent they are derived from package scripts, and only a project that yields nothing falls back to the changed-path `auto` risk plan). The quick layer is the default path, so the standard and deep layers must be requested explicitly: `--tier standard|deep` accumulates layers, and `--full` runs the complete matrix and is mutually exclusive with `--tier`. `--plan` only previews the plan — scope and cost layer, selected checks, the deferred `deferredChecks` with their next-tier entry `nextTier`, and unselected checks marked `not_selected` (unconfigured ones stay `not_configured`) — and executes nothing.
+
+The three verdicts do not substitute for each other: `validate` proves installation consistency only, a quick `verify` proves the current work unit is not broken, and integration, release, or overall completion needs the matching `--tier standard|deep` or `--full` evidence; a quick-layer pass is recorded as `scopeStatus: partial`, so nothing may be reported as complete before the deferred layers carry evidence.
 
 Verification JSON also includes the run ID, timestamps, and a non-persisted Git worktree fingerprint. A worktree change during checks returns PROJECT_VERIFICATION_STALE.
 

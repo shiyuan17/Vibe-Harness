@@ -108,17 +108,20 @@ pnpm vibe-harness install --project ../some-project --target codex --profile cor
 pnpm vibe-harness install --project ../some-project --target codex --profile core --write --confirm-red-zone
 pnpm vibe-harness validate --project ../some-project
 pnpm vibe-harness verify --project ../some-project --plan
+pnpm vibe-harness verify --project ../some-project --tier standard
 pnpm vibe-harness verify --project ../some-project --full
 pnpm vibe-harness doctor --project ../some-project
 ```
 
-`validate` 只检查安装一致性。执行项目验证使用：
+`validate` 只检查安装一致性，不执行任何测试。执行项目验证使用：
 
 ```bash
 pnpm vibe-harness verify --project ../some-project
 ```
 
-`verify` 默认按 changed paths 生成唯一的 `auto` 风险计划：文档、单测试和纯函数改动只运行受影响检查；公共契约、安装器、runtime、Hook、CI、锁文件或无法分类的改动回退到完整验证。`--plan` 只输出风险等级、影响分组、选中/跳过检查和回退原因；`--full` 显式运行完整矩阵。未选中的检查在收据中标记为 `not_selected`，未配置项保持 `not_configured`。
+`verify` 不带 `--tier` 时默认只执行快速层，层命令来自项目 `vibe-harness.config.json` 的 `validationCommands.tiers`（未声明时按包脚本推导，完全推导不出才退回 changed paths 驱动的 `auto` 风险计划）。快速层是默认路径，中等层与深度层必须显式升级：`--tier standard|deep` 按层累计，`--full` 运行完整矩阵并与 `--tier` 互斥。`--plan` 只预览计划——范围与成本层、选中检查、被延迟的 `deferredChecks` 与其下一层入口 `nextTier`、以及标记为 `not_selected` 的未选中项（未配置项保持 `not_configured`）——不执行任何命令。
+
+三种结论互不替代：`validate` 只证明安装一致，快速层 `verify` 只证明当前实施单元未被破坏，集成、发布或整体完成必须取得 `--tier standard|deep` 或 `--full` 的对应证据；快速层通过时收据标注 `scopeStatus: partial`，未取得被延迟层证据前不得对外宣称完成。
 
 验证 JSON 还包含本轮 ID、时间和非持久化 Git 工作树指纹；检查期间工作树变化时返回 PROJECT_VERIFICATION_STALE。
 
