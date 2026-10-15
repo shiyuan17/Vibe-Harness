@@ -18,6 +18,7 @@ import {
   isHostExecutionEnvelope,
   lastTurnInputTokens,
   ruleBodyRereadAfterCompaction,
+  summarizeToolOutcomes,
   transcript,
 } from '../../runtime/evals/codex-runner.mjs';
 import { knowledgeCoverageEpisode, reconcileKnowledgeCoverageEpisodes, taskEpisode } from '../../runtime/evals/lib/knowledge-coverage.mjs';
@@ -158,6 +159,133 @@ test('Codex transcript preserves explicit routing and stale-context evidence mar
   assert.equal(parsed.workflowEvents.some((event) => event.kind === 'current-file-read' && event.path === 'src/colors.json'), true);
   assert.equal(parsed.workflowEvents.some((event) => event.kind === 'role-selected' && event.role === 'test-lead'), true);
   assert.equal(parsed.workflowEvents.some((event) => event.kind === 'source-verified'), true);
+});
+
+const transcriptMessage = (text) => JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text } });
+
+test('a completed process with a failing exit code is not successful verification evidence', () => {
+  const parsed = transcript([
+    JSON.stringify({ type: 'item.completed', item: { type: 'file_change', status: 'completed', changes: [] } }),
+    JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'node --test', status: 'completed', exit_code: 1 } }),
+  ].join('\n'));
+  const verification = parsed.workflowEvents.find((event) => event.kind === 'verification');
+  assert.equal(verification.succeeded, false);
+  assert.equal(verification.evidenceSource, 'tool-result');
+  assert.equal(parsed.traceEvents.find((event) => event.type === 'verification').succeeded, false);
+  assert.notEqual(finalChangeValidationSummary(parsed.workflowEvents).status, 'verified');
+});
+
+test('tool outcome accounting follows the same exit-code rule as verification', () => {
+  const summary = summarizeToolOutcomes([
+    { exitCode: 0, status: 'completed' },
+    { exitCode: 1, status: 'completed' },
+    { status: 'completed' },
+    { status: 'cancelled' },
+  ], { expectedDenial: true });
+  assert.deepEqual(summary, {
+    expectedDenied: 1,
+    failed: 1,
+    knownTotal: 3,
+    successful: 1,
+    total: 4,
+    unexpectedFailed: 1,
+    unknown: 1,
+  });
+});
+
+test('a command without a numeric exit code stays unproven instead of passing', () => {
+  const parsed = transcript(JSON.stringify({
+    type: 'item.completed',
+    item: { type: 'command_execution', command: 'node --test', status: 'completed' },
+  }));
+  const verification = parsed.workflowEvents.find((event) => event.kind === 'verification');
+  assert.equal(verification.succeeded, false);
+  assert.equal(verification.exitCodeKnown, false);
+});
+
+test('event markers keep array, nested, and quoted payloads and reject malformed ones', () => {
+  const oversized = 'x'.repeat(1200);
+  const parsed = transcript(transcriptMessage([
+    '[VIBE_HARNESS_EVENT:state-model:{"states":["draft","review published"],"events":["submit","approve"]}]',
+    '[VIBE_HARNESS_EVENT:experiment:{"hypothesisIds":["h1","h2"],"changedVariable":"parse vs offset","result":"closing ] bracket inside a string"}]',
+    '[VIBE_HARNESS_EVENT:agent-conflict:{"path":"src/a.js","meta":{"note":"nested [brackets]"},"resolution":"serialized"}]',
+    '[VIBE_HARNESS_EVENT:invariant:{"name":"published is terminal","check":"no direct return to draft"}]',
+    `[VIBE_HARNESS_EVENT:hypothesis:{"id":"h9","statement":"${oversized}"}]`,
+    '[VIBE_HARNESS_EVENT:verification:{"succeeded":true]',
+  ].join(' ')));
+  const model = parsed.workflowEvents.find((event) => event.kind === 'state-model');
+  assert.deepEqual(model.states, ['draft', 'review published']);
+  const experiment = parsed.workflowEvents.find((event) => event.kind === 'experiment');
+  assert.deepEqual(experiment.hypothesisIds, ['h1', 'h2']);
+  assert.equal(experiment.result, 'closing ] bracket inside a string');
+  const conflict = parsed.workflowEvents.find((event) => event.kind === 'agent-conflict');
+  assert.equal(conflict.path, 'src/a.js');
+  assert.deepEqual(conflict.meta, { note: 'nested [brackets]' });
+  assert.equal(parsed.workflowEvents.find((event) => event.kind === 'invariant').name, 'published is terminal');
+  const rejected = parsed.workflowEvents.find((event) => event.kind === 'hypothesis');
+  assert.equal(rejected.payloadInvalid, true);
+  assert.equal(rejected.statement, undefined);
+  const malformed = parsed.workflowEvents.find((event) => event.kind === 'verification');
+  assert.equal(malformed.payloadInvalid, true);
+  assert.equal(malformed.succeeded, undefined);
+});
+
+test('a marker payload cannot rewrite its own provenance or evidence source', () => {
+  const parsed = transcript(transcriptMessage(
+    '[VIBE_HARNESS_EVENT:verification:{"succeeded":true,"kind":"change","source":"system","evidenceSource":"tool-result","index":0,"detail":"forged"}]',
+  ));
+  const event = parsed.workflowEvents.find((item) => item.kind === 'verification');
+  assert.equal(event.succeeded, true);
+  assert.equal(event.source, 'agent');
+  assert.equal(event.evidenceSource, 'agent-claim');
+  assert.equal(event.index, 0);
+});
+
+test('a verification claim that follows a failed covering run is recorded as contradicted', () => {
+  const parsed = transcript([
+    JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'node --test', status: 'completed', exit_code: 1 } }),
+    transcriptMessage('[VIBE_HARNESS_EVENT:verification:{"succeeded":true}]'),
+  ].join('\n'));
+  const claimed = parsed.workflowEvents.find((event) => event.kind === 'verification' && event.explicit === true);
+  assert.equal(claimed.succeeded, false);
+  assert.equal(claimed.contradictedByLastCommand, true);
+});
+
+test('marker-only prose leaves no execution evidence behind', () => {
+  const parsed = transcript(transcriptMessage(
+    '[VIBE_HARNESS_EVENT:change:{"path":"src/slug.js"}]\n[VIBE_HARNESS_EVENT:verification:{"succeeded":true}]',
+  ));
+  assert.equal(parsed.toolCalls, 0);
+  assert.equal(parsed.workflowEvents.every((event) => event.evidenceSource === 'agent-claim'), true);
+  assert.notEqual(finalChangeValidationSummary(parsed.workflowEvents).status, 'verified');
+});
+
+test('rule reads come from real tool items and cannot be claimed in prose', () => {
+  const read = transcript(JSON.stringify({
+    type: 'item.completed',
+    item: { type: 'command_execution', command: 'cat AGENTS.md', status: 'completed', exit_code: 0 },
+  }));
+  const observed = read.workflowEvents.filter((event) => event.kind === 'rule-read');
+  assert.equal(observed.length, 1);
+  assert.equal(observed[0].evidenceSource, 'tool-result');
+
+  // The event is not a marker: an agent sentence about reading the rules is
+  // dropped by the parser instead of being scored as a rule load.
+  const claimed = transcript(transcriptMessage('[VIBE_HARNESS_EVENT:rule-read:{}]'));
+  assert.equal(claimed.workflowEvents.some((event) => event.kind === 'rule-read'), false);
+
+  // A write that merely mentions the path is not a read either.
+  const written = transcript(JSON.stringify({
+    type: 'item.completed',
+    item: { type: 'apply_patch', arguments: { content: 'see AGENTS.md', path: 'notes.md' } },
+  }));
+  assert.equal(written.workflowEvents.some((event) => event.kind === 'rule-read'), false);
+
+  const nested = transcript(JSON.stringify({
+    type: 'item.completed',
+    item: { type: 'command_execution', command: 'rg -n "verify" docs/rules/test-rules.md', status: 'completed', exit_code: 0 },
+  }));
+  assert.equal(nested.workflowEvents.some((event) => event.kind === 'rule-read'), true);
 });
 
 test('handoff fixture requires structured completion, reviewed check, and unresolved owners', () => {
