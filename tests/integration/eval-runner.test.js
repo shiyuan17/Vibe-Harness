@@ -21,7 +21,7 @@ import {
   summarizeToolOutcomes,
   transcript,
 } from '../../runtime/evals/codex-runner.mjs';
-import { knowledgeCoverageEpisode, reconcileKnowledgeCoverageEpisodes, taskEpisode } from '../../runtime/evals/lib/knowledge-coverage.mjs';
+import { knowledgeCoverageEpisode, lifecycleDecision, reconcileKnowledgeCoverageEpisodes, taskEpisode } from '../../runtime/evals/lib/knowledge-coverage.mjs';
 
 const rootDir = path.resolve(import.meta.dirname, '../..');
 
@@ -1651,4 +1651,189 @@ test('marker 载荷不能改写事件身份字段', () => {
   const event = parsed.workflowEvents.find((item) => item.kind === 'stale-source-trusted');
   assert.equal(event.source, 'agent');
   assert.notEqual(event.index, 99);
+});
+
+// ---------------------------------------------------------------------------
+// Host projection contracts
+// ---------------------------------------------------------------------------
+// The host projection is what the configured Codex host really receives: the
+// argv of every launch, the environment the runner injects, and the events the
+// runner derives from the request instead of from the agent's own summary.
+// These cases keep the five invocation shapes distinguishable.
+
+const projectionSessionId = '11111111-1111-4111-8111-111111111111';
+
+const projectionFakeCodex = [
+  "import { appendFile, mkdir } from 'node:fs/promises';",
+  "import path from 'node:path';",
+  "import { fileURLToPath } from 'node:url';",
+  'const directory = path.dirname(fileURLToPath(import.meta.url));',
+  'const args = process.argv.slice(2);',
+  "const emit = (value) => process.stdout.write(JSON.stringify(value) + '\\n');",
+  "if (args.includes('--version')) {",
+  "  process.stdout.write('fake-codex@projection\\n');",
+  '} else {',
+  "  await appendFile(path.join(directory, 'calls.jsonl'), JSON.stringify({",
+  '    args,',
+  "    envelope: process.env.VIBE_HARNESS_EXECUTION_ENVELOPE ?? null,",
+  "  }) + '\\n');",
+  "  const sessions = path.join(process.env.CODEX_HOME, 'sessions', '2026', '09', '14');",
+  '  await mkdir(sessions, { recursive: true });',
+  "  const rollout = path.join(sessions, 'rollout-fixture-11111111-1111-4111-8111-111111111111.jsonl');",
+  "  if (args[1] === 'resume') {",
+  "    await appendFile(rollout, JSON.stringify({ type: 'compacted', payload: { message: 'summary' } }) + '\\n');",
+  "    emit({ type: 'item.completed', item: { type: 'agent_message', text: 'resumed turn recorded' } });",
+  '  } else {',
+  "    await appendFile(rollout, JSON.stringify({ type: 'event_msg', payload: { type: 'token_count', info: { last_token_usage: { total_tokens: 9000 }, model_context_window: 258400 } } }) + '\\n');",
+  "    emit({ type: 'thread.started', thread_id: '11111111-1111-4111-8111-111111111111' });",
+  "    emit({ type: 'item.completed', item: { type: 'agent_message', text: 'first turn recorded' } });",
+  '  }',
+  "  emit({ type: 'turn.completed', usage: { input_tokens: 9000, output_tokens: 5 } });",
+  '}',
+].join('\n');
+
+const projectionEnvelope = {
+  activeObjective: 'Keep the projection contract.',
+  allowedEffects: ['workspaceWrite'],
+  checkpoint: { headSha: 'a'.repeat(40) },
+  forbiddenEffects: ['gitCommit'],
+  hostContext: { source: 'host' },
+  mode: 'execute',
+  requestId: 'eval-projection',
+  schema: 'vibe-harness.execution-envelope/v2',
+  scope: { workspace: { root: 'C:/tmp' } },
+  sessionId: 'eval-projection',
+  terminalCondition: 'The contract is pinned.',
+};
+
+const projectionCase = (id, scenario) => ({
+  id,
+  input: { fixture: { files: [] }, scenario },
+  oracle: {},
+});
+
+async function runProjectionRequest(definition, options = {}) {
+  const workspace = await mkdtemp(path.join(tmpdir(), 'vibe-harness-projection-'));
+  const fakeRoot = await mkdtemp(path.join(tmpdir(), 'vibe-harness-projection-codex-'));
+  const codex = path.join(fakeRoot, 'fake-codex.mjs');
+  await writeFile(codex, projectionFakeCodex, 'utf8');
+  try {
+    const result = await runProcess(process.execPath, [path.join(rootDir, 'runtime/evals/codex-runner.mjs')], {
+      cwd: rootDir,
+      env: {
+        ...process.env,
+        CODEX_MODEL: 'fixture',
+        VIBE_HARNESS_CODEX_COMMAND: codex,
+        VIBE_HARNESS_EVAL_CODEX_BACKEND: 'native',
+      },
+      input: JSON.stringify({
+        case: definition,
+        configHash: 'fixture-projection',
+        schemaVersion: 2,
+        workspace,
+        ...(options.hostEnvelope ? { hostEnvelope: options.hostEnvelope } : {}),
+        ...(options.sessionId ? { sessionId: options.sessionId } : {}),
+      }),
+    });
+    assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+    const records = (await readFile(path.join(fakeRoot, 'calls.jsonl'), 'utf8'))
+      .trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
+    return { observation: JSON.parse(result.stdout), records, workspace };
+  } finally {
+    await Promise.all([
+      rm(fakeRoot, { force: true, recursive: true }),
+      rm(workspace, { force: true, recursive: true }),
+    ]);
+  }
+}
+
+test('宿主投影合同：首轮、续聊与恢复三种会话形态的调用投影彼此可区分', async () => {
+  const firstScenario = '自然路由任务：检查 "src/colors.json" 并给出结论 [无显式指令]。';
+  const first = await runProjectionRequest(projectionCase('EVAL-HOST-PROJECTION-FIRST', firstScenario));
+  assert.equal(first.records.length, 1, '首轮只启动一次 Codex 进程');
+  assert.equal(first.records[0].args[0], 'exec');
+  assert.equal(first.records[0].args.includes('resume'), false);
+  assert.equal(first.records[0].args.includes('--ephemeral'), false, 'schemaVersion 2 不再用 --ephemeral 丢弃会话');
+  assert.equal(first.records[0].args[first.records[0].args.indexOf('-C') + 1], first.workspace);
+  // 情景文本只能经 argv 到达宿主，宿主无法改写或归一化提示词。
+  assert.equal(first.records[0].args.at(-1), firstScenario);
+  assert.equal(first.records[0].envelope, null);
+  assert.equal(first.observation.sessionId, projectionSessionId);
+
+  const followUpScenario = '继续：把结论写成小结。';
+  const followUp = await runProjectionRequest(projectionCase('EVAL-HOST-PROJECTION-FOLLOW-UP', followUpScenario), {
+    sessionId: projectionSessionId,
+  });
+  assert.equal(followUp.records.length, 1);
+  assert.deepEqual(followUp.records[0].args.slice(0, 2), ['exec', 'resume']);
+  assert.equal(followUp.records[0].args.includes(projectionSessionId), true);
+  assert.equal(followUp.records[0].args.at(-1), followUpScenario);
+  assert.equal(followUp.records[0].args.includes('--sandbox'), false, '续聊复用已记录的会话，不重述 sandbox');
+  assert.equal(followUp.observation.sessionId, projectionSessionId);
+
+  const resumePrompt = '宿主已压缩上下文，请完成剩余步骤。';
+  const recoveryDefinition = {
+    id: 'EVAL-HOST-PROJECTION-RECOVERY',
+    input: {
+      compaction: {
+        autoCompactTokenLimit: 12_000,
+        completedFacts: ['first turn recorded'],
+        contextWindow: 16_000,
+        nextAction: '完成剩余步骤',
+        resumePrompt,
+      },
+      fixture: { files: [] },
+      scenario: '完成剩余步骤。',
+    },
+    oracle: {},
+  };
+  const recovery = await runProjectionRequest(recoveryDefinition, { hostEnvelope: projectionEnvelope });
+  assert.equal(recovery.records.length, 2, '恢复是唯一会自动启动第二轮调用的形态');
+  assert.equal(recovery.records[0].envelope, JSON.stringify(projectionEnvelope));
+  assert.equal(recovery.records[1].envelope, JSON.stringify(projectionEnvelope));
+  assert.deepEqual(recovery.records[1].args.slice(0, 2), ['exec', 'resume']);
+  assert.equal(recovery.records[1].args.at(-1), resumePrompt);
+  assert.equal(recovery.records[1].args.includes('model_context_window=16000'), true);
+  assert.equal(recovery.records[1].args.includes('model_auto_compact_token_limit=8500'), true);
+  assert.equal(recovery.observation.metrics.compaction.resumed, true);
+  assert.equal(recovery.observation.metrics.compaction.observed, true);
+  assert.equal(recovery.observation.metrics.compaction.limit, 8500);
+  assert.equal(recovery.observation.metrics.compaction.residentEstimate, 9000);
+  assert.equal(recovery.observation.metrics.compaction.window, 16_000);
+});
+
+test('宿主投影合同：显式调用来自请求投影，不应触发任务时不新增调用', async () => {
+  const explicitDefinition = {
+    id: 'EVAL-HOST-PROJECTION-EXPLICIT',
+    input: { fixture: { files: [] }, scenario: 'The user explicitly invoked $vb-git-split-push. Two current-task changes are independently committable and verified.' },
+    oracle: {},
+    reporting: { workflowDemand: { expectedOwner: { id: 'vb-git-split-push', kind: 'skill' }, taskFamily: 'task-delivery' } },
+  };
+  const explicit = await runProjectionRequest(explicitDefinition);
+  // 假宿主从不提及该 Skill，因此事件只能来自请求投影，而不是 Agent 自报。
+  assert.equal(explicit.observation.events.includes('git-deliver-selected'), true, JSON.stringify(explicit.observation.events));
+  assert.equal(explicit.observation.events.includes('git-deliver-invoked'), true);
+  assert.doesNotMatch(explicit.observation.output, /vb-git-split-push/u);
+
+  const declined = await runProjectionRequest({
+    ...explicitDefinition,
+    id: 'EVAL-HOST-PROJECTION-DECLINED',
+    input: { fixture: { files: [] }, scenario: 'The user said only finish the task and did not invoke vb-git-split-push.' },
+  });
+  assert.equal(declined.observation.events.includes('git-deliver-selected'), false, JSON.stringify(declined.observation.events));
+  assert.equal(declined.observation.events.includes('git-deliver-invoked'), false);
+
+  // 不应触发任务：没有新输入的续聊在宿主侧必须停止，而不是再开一个任务。
+  assert.deepEqual(lifecycleDecision({ goalStatus: 'active', hasNewInput: false }), { action: 'stop', reason: 'no-new-input' });
+  assert.deepEqual(lifecycleDecision({ goalStatus: 'active', hasNewInput: true }), { action: 'continue', reason: 'new-input' });
+  assert.deepEqual(lifecycleDecision({ goalStatus: 'active', hasNewInput: true, continuationRequested: true }), { action: 'continue', reason: 'explicit-continuation' });
+  assert.deepEqual(lifecycleDecision({ goalStatus: 'complete' }), { action: 'stop', reason: 'terminal-condition' });
+
+  // 普通对话请求只投影一次调用，且不派生任何任务形状事件。
+  const conversational = await runProjectionRequest(projectionCase('EVAL-HOST-PROJECTION-NO-TASK', '无需新输入时的简短答复。'));
+  assert.equal(conversational.records.length, 1);
+  assert.equal(conversational.records[0].args.includes('resume'), false);
+  for (const event of ['verification', 'hidden-tests-passed', 'workspace-write-invoked', 'git-deliver-selected']) {
+    assert.equal(conversational.observation.events.includes(event), false, event);
+  }
 });
