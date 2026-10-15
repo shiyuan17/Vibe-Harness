@@ -1,21 +1,26 @@
 # Vibe-Harness
 
-### 交付与生命周期
-
-新项目默认 `delivery.default = managed-mr`（squash）；可用 `--delivery local-land` 选择 no-ff 或 `--delivery inspect-only` 只读。旧配置不声明 delivery 时保留 legacy，仅提示迁移。安装 profile 与 delivery profile 是不同维度。
-
-- `node .agents/runtime/commands/run.mjs worktree cleanup --project . --task <id> --delivery managed-mr --receipt <completion.json> --merge-evidence <merge.json>` 默认预览；`--write` 才清理。可用 `--mr <iid>` 读取 GitLab merge evidence，读取失败 blocked。
-- `node .agents/runtime/commands/run.mjs task checkpoint <id> --project . --reason pre-compaction --write` 保存恢复状态；`task event <id> --reason resume|continue|pre-compaction` 是宿主显式事件入口，不代表已安装宿主监听。
-- `node .agents/runtime/commands/run.mjs runtime service start --project . --service frontend --port 5173 --write` 启动配置声明的服务；`status` 只读，`stop --write` 仅停止可证明归属的登记服务。
-- 新模式完整完成须完整收据、当前指纹和全部必需验收通过；验证命令通过不等于 MR、浏览器、数据库或发布通过。
-
-配置示例与迁移边界见 [交付生命周期规格](docs/specs/delivery-lifecycle.md)。
-
 [English](README.en.md) | [简体中文](README.md)
 
-Vibe-Harness 为 Codex、Claude Code、Gemini CLI、Cursor、Qoder、ZCode、Antigravity 和 OpenCode 安装项目级规则、领域 Skills、可选 Eval、显式工具插件和安全 Hook。它只写目标项目，不修改全局 Agent 配置。
+Vibe-Harness 为 Codex、Claude Code、Gemini CLI、Cursor、Qoder、ZCode、Antigravity 和 OpenCode 安装项目级规则、领域 Skills、可选 Eval、显式工具插件和安全 Hook。它面向长期在真实项目里使用 AI Agent 的个人与团队：把「Agent 直接改代码」固定成一条可复核的证据链，让完成主张绑定验证结果，而不是绑定对话措辞。它只写目标项目，不修改全局 Agent 配置。
 
 默认执行路径只有一条：`获取可信事实 -> 判定并执行 -> 聚焦验证 -> 简洁交付`。判定只用于按证据、歧义和复杂度选择直接实施、继续查证、澄清、请求授权、规划或拆分；快速、轻量、完整三档只用于选择风险控制和验证强度。
+
+## 首次使用：从 core 开始
+
+推荐入口是 `core`：它装上规则、领域 Skills、项目级确定性脚本与安全 Hook，够跑完一个真实任务，又不必先接受全量工具插件带来的额外暴露面。`full` 与 `--preset everything` 是明确的进阶选项，见「完整能力（进阶）」；只想装最小规则面时再考虑 `minimal`。
+
+第一次安装按三步走，命令见下方「快速开始」的 core 提示词：先 dry-run 看写入清单，确认没有冲突与越界覆盖后再 `--write`（红区追加 `--confirm-red-zone`），最后 `validate` 核对安装一致性并跑一次快速层 `verify`。
+
+### 一个任务示例
+
+在装好 core 的项目里提一个具体任务，例如「把这个模块的错误处理改为返回 Result，并补上失败路径的测试」。可复核的完成形态是：Agent 说明改了哪些文件、为什么，给出本轮实际执行的验证命令与结果，并且验证发生在最后一次改动之后；未执行的层保持未执行，不会被说成已完成。
+
+### 成功判据
+
+- `validate` 报告安装一致；快速层 `verify` 执行完并被记为 `scopeStatus: partial`，被延迟的层与下一层入口在收据里列出。
+- 完成主张绑定验证之后的证据；集成、发布或整体完成另有 `--tier standard|deep` 或 `--full` 的证据。
+- 没有证据的能力不会被宣称已生效——例如宿主 Hook 未触发时不声称它已拦截，图工具不可用时如实说明回退到源码检索。
 
 ## 在已安装项目启用 Micro
 
@@ -46,7 +51,7 @@ Vibe-Harness 为 Codex、Claude Code、Gemini CLI、Cursor、Qoder、ZCode、Ant
 
 使用 `node .agents/runtime/commands/run.mjs verify --project . --micro normalize-example --plan --json` 查看计划，去掉 `--plan` 才执行。未声明 ID 和旧 `command` 格式在受管入口被拒绝；普通 REPL 仅供探索。Micro 通过只证明局部观察，任务完成仍须运行受影响的正式测试；不可信 probe 的网络隔离不能仅靠 Node 权限模型，细节见 [Micro 规则](docs/rules/micro-verification.md)。
 
-## 全量安装（推荐）
+## 完整能力（进阶）
 
 一条提示词即可完成 full profile、全部稳定工具插件、Linear 读写集成与 memory 资产的多宿主安装，不必再逐个启用插件、Linear 或宿主：
 
@@ -108,17 +113,20 @@ pnpm vibe-harness install --project ../some-project --target codex --profile cor
 pnpm vibe-harness install --project ../some-project --target codex --profile core --write --confirm-red-zone
 pnpm vibe-harness validate --project ../some-project
 pnpm vibe-harness verify --project ../some-project --plan
+pnpm vibe-harness verify --project ../some-project --tier standard
 pnpm vibe-harness verify --project ../some-project --full
 pnpm vibe-harness doctor --project ../some-project
 ```
 
-`validate` 只检查安装一致性。执行项目验证使用：
+`validate` 只检查安装一致性，不执行任何测试。执行项目验证使用：
 
 ```bash
 pnpm vibe-harness verify --project ../some-project
 ```
 
-`verify` 默认按 changed paths 生成唯一的 `auto` 风险计划：文档、单测试和纯函数改动只运行受影响检查；公共契约、安装器、runtime、Hook、CI、锁文件或无法分类的改动回退到完整验证。`--plan` 只输出风险等级、影响分组、选中/跳过检查和回退原因；`--full` 显式运行完整矩阵。未选中的检查在收据中标记为 `not_selected`，未配置项保持 `not_configured`。
+`verify` 不带 `--tier` 时默认只执行快速层，层命令来自项目 `vibe-harness.config.json` 的 `validationCommands.tiers`（未声明时按包脚本推导，完全推导不出才退回 changed paths 驱动的 `auto` 风险计划）。快速层是默认路径，中等层与深度层必须显式升级：`--tier standard|deep` 按层累计，`--full` 运行完整矩阵并与 `--tier` 互斥。`--plan` 只预览计划——范围与成本层、选中检查、被延迟的 `deferredChecks` 与其下一层入口 `nextTier`、以及标记为 `not_selected` 的未选中项（未配置项保持 `not_configured`）——不执行任何命令。
+
+三种结论互不替代：`validate` 只证明安装一致，快速层 `verify` 只证明当前实施单元未被破坏，集成、发布或整体完成必须取得 `--tier standard|deep` 或 `--full` 的对应证据；快速层通过时收据标注 `scopeStatus: partial`，未取得被延迟层证据前不得对外宣称完成。
 
 验证 JSON 还包含本轮 ID、时间和非持久化 Git 工作树指纹；检查期间工作树变化时返回 PROJECT_VERIFICATION_STALE。
 
@@ -140,6 +148,17 @@ node .agents/runtime/commands/run.mjs patch --project . --spec <spec.json>
 `verify --plan` 只预览已配置检查，不执行命令；脚本不提供任意命令执行接口，不自动修改配置或联网。验证命令来自 `vibe-harness.config.json` 的 `validationCommands`，失败、超时、危险命令和验证期间工作树变化都会明确报告。成本分层按「最小充分成本」默认走快：`verify` 不带 `--tier` 时只执行快速层（随改动同步、失败阻塞当前实施单元），中等层与深度层必须显式升级——`--tier standard|deep` 选定成本层，`--full` 运行完整风险矩阵与全部声明层。快速层通过时收据标注 `scopeStatus: partial` 并列出被延迟的检查与下一层入口，未取得被延迟层的证据前不得宣称集成、发布或整体完成。
 
 `worktree`、`slice` 和 `patch` 默认只读：`worktree check` 汇总隔离单元、merge-back、依赖链接与端口登记事实并给出 `cleanupAllowed` 建议；`worktree bootstrap` 按六步（`worktree add` → 依赖链接 → 端口分段与 env 文件 → 声明的 envFiles → 声明的 setupCommands → 工具链探针）执行，默认只出计划、追加 `--write` 才落盘，目标命中 `hooks.redZonePaths` 时还需 `--confirm-red-zone`；端口按主检出 `.vibe-harness/worktree-ports.json` 的登记表分段并由 `.vibe-harness/worktree-ports.lock` 串行化，主检出缺 `node_modules` 时 bootstrap 以 `blocked` 结束而不是静默继续。`worktree cleanup` 只在追加 `--write` 时落盘，且 cleanup 在分支尚未并入 `worktree.baseRef` 或工作区不干净时拒绝执行、绝不删除分支；`worktree recover` 清理崩溃残留——引导中断留下的不完整 worktree、目录已消失的 prunable 绑定与带归因证据的孤立分支/端口登记——同样默认只出计划，分支删除仅限从未离开基线的证据门内；`slice` 打印指定行区间，`patch` 按 spec 在内存中完成带守卫的区间或序列替换，全部通过后才写盘。三者替代 `node -e` 内联片段与项目内一次性脚本。
+
+## 交付与生命周期
+
+新项目默认 `delivery.default = managed-mr`（squash）；可用 `--delivery local-land` 选择 no-ff 或 `--delivery inspect-only` 只读。旧配置不声明 delivery 时保留 legacy，仅提示迁移。安装 profile 与 delivery profile 是不同维度。
+
+- `node .agents/runtime/commands/run.mjs worktree cleanup --project . --task <id> --delivery managed-mr --receipt <completion.json> --merge-evidence <merge.json>` 默认预览；`--write` 才清理。可用 `--mr <iid>` 读取 GitLab merge evidence，读取失败 blocked。
+- `node .agents/runtime/commands/run.mjs task checkpoint <id> --project . --reason pre-compaction --write` 保存恢复状态；`task event <id> --reason resume|continue|pre-compaction` 是宿主显式事件入口，不代表已安装宿主监听。
+- `node .agents/runtime/commands/run.mjs runtime service start --project . --service frontend --port 5173 --write` 启动配置声明的服务；`status` 只读，`stop --write` 仅停止可证明归属的登记服务。
+- 新模式完整完成须完整收据、当前指纹和全部必需验收通过；验证命令通过不等于 MR、浏览器、数据库或发布通过。
+
+配置示例与迁移边界见 [交付生命周期规格](docs/specs/delivery-lifecycle.md)。
 
 ## 多宿主安装
 

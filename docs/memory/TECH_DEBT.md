@@ -4,7 +4,7 @@
 
 <!-- 渲染说明：此模板含 render 占位符，安装时由 template-renderer 输出，内容不与 docs/memory/TECH_DEBT.md 逐字对应；实时技术债记录见 docs/memory/TECH_DEBT.md。占位符：Vibe-Harness。 -->
 
-最后更新：2026-10-12
+最后更新：2026-10-15
 
 ## TD-2026-09-11-2 Eval 资产指纹分组不覆盖 adapters
 
@@ -140,6 +140,8 @@
 - 关闭条件：先用真实任务或 `vibe-harness-response-modes` Eval 采集各模式触发/误触发/保底命中的观察数据，按数据给出核心模式集合与命名收敛方案（含 eval fixture 同步），再实施目录收敛；锚点强制更新档若要机器可核对，需在 `.vibe-harness/tasks/` 锚点 schema 中记录累计压缩次数并在 `task update` 校验。
 
 ## TD-2026-09-19-4 run.mjs 拆分延期（P2-G 结构收敛批次决策）
+
+2026-10-15 run.mjs 拆分批次已关闭本条目的 run.mjs 部分。`runtime/commands/run.mjs` 由 2,140 行收敛为 90 行，只保留文件头、import、`runCommand`、`main` 与入口守卫；抽出七个模块到 `runtime/lib/`：`cli-output.mjs`（输出格式化与公共错误映射）、`cli-runtime.mjs`（运行时共享）、`verification-plan-support.mjs` 与 `verification-command.mjs`（验证计划、执行及收据处理）、`worktree-command.mjs`（worktree 检查、生命周期及落地报告）、`task-command.mjs`（task 状态转换与恢复）、`file-edit-command.mjs`（文件编辑命令）；入口对外导出保持 `runCommand`、`main`、`assertSafeCommand`、`landLockTimeoutMs`，参数、默认值、退出码、JSON 字段、收据格式、锁、取消与恢复语义不变。四处登记面按原计划全部落地：`adapters/install-map.json` 的 `runtime-project-scripts` 组新条目、`.agents/runtime/lib/` 字节一致 dogfood 副本、`manifests/capabilities.json` 的 project-deterministic-scripts targets 与 `tests/cases.json` 台账同步。关闭证据：`pnpm test:integration` 667 用例／664 通过／0 失败／3 既有跳过；`pnpm test:matrix` 97/97；`pnpm smoke:lifecycle`（full-dry-run／full-write／full-validate／full-doctor）全 exit 0；`node scripts/validate.js` 与 `pnpm pack:contract` exit 0（自安装一致性与分发契约）；ESLint 全库 0 error／243 既有 warning，新模块逐文件无新增告警。仍开部分：同批次一并延期的 `scripts/vibe-harness.js` 与 `scripts/lib/install-planner.js` 同类拆分未实施，本条目保留。
 
 - 证据：`runtime/commands/run.mjs` 约 2,984 行，其中 task 锚点块 `:2082-2629`（约 548 行）与 codebase-memory 块 `:2631-2859`（约 229 行）是两个可辨识的拆分候选。拆分不是机械代码搬运：task 块与父作用域双向耦合——向内消费 `SCHEMA_VERSION`（:41）、`CHECK_ORDER`（:54）、`PASS_STATUSES`（:62）、`normalizePath`（:68）、`displayCommand`、`boundedOutput` 六个父级标识符，向外导出 `findReusableVerification` 与 `verificationCommandSet`，被 `verify --reuse` 在 `run.mjs:526-528` 消费；抽出为 `runtime/lib/` 模块属于接口设计任务（需下沉共享常量或反转依赖注入）。若落地，登记面有四处：硬性两处——`adapters/install-map.json` 的 `runtime-project-scripts` 组新条目（contentStrategy `replace`）与 `.agents/runtime/lib/` 字节一致 dogfood 副本（`scripts/lib/pack-validation.js` 的 `validateSelfInstalledArtifacts` 校验）；软性两处——`manifests/capabilities.json` 的 project-deterministic-scripts targets 与 `tests/cases.json` 台账自动同步。2026-09-19 P2 批次决策延期：落在约 180 文件未提交变更集之上无行为收益，且需连带 dogfood 重装与全套自装/组件/矩阵再验证。同批次一并延期的还有 `scripts/vibe-harness.js` 与 `scripts/lib/install-planner.js` 的同类拆分。
 - 影响：单文件体积继续支撑全部项目级确定性命令，评审与冲突合并成本随批次累积；四槽层表面的既有约束（TD-2026-09-19-1）使拆分延期的风险可控（无行为合同依赖文件布局）。

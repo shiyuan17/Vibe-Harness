@@ -1,18 +1,26 @@
 # Vibe-Harness
 
-### Delivery lifecycle
-
-New configurations default to `delivery.default: managed-mr` (squash). `--delivery local-land` selects local no-ff delivery; `inspect-only` prevents writes and verification execution. Existing configurations without delivery retain legacy behavior with a migration warning. Installation profiles and delivery profiles are independent.
-
-Use the installed runtime's `task checkpoint`, `task event`, `runtime service start|status|stop`, and `worktree cleanup --receipt <file> --merge-evidence <file>` (or `--mr <iid>`). Mutations require `--write`. Cleanup requires current evidence, a clean source and matching target/patch identities; missing GitLab access stays blocked, while `runtime service stop` refuses a registration whose ownership cannot be proven. Worktree land/cleanup/recover only attempt service teardown: an unproven teardown is reported on the receipt and no longer blocks the removal. Host compaction/message events require a real bridge; shipping the command does not install a listener.
-
-See [delivery lifecycle](docs/specs/delivery-lifecycle.md) for configuration and migration details.
-
 [English](README.en.md) | [简体中文](README.md)
 
-Vibe-Harness installs project-scoped rules, domain Skills, optional Evals, explicit tool plugins, and safety Hooks for Codex, Claude Code, Gemini CLI, Cursor, Qoder, ZCode, Antigravity, and OpenCode. It writes only inside the target project and never changes global Agent configuration.
+Vibe-Harness installs project-scoped rules, domain Skills, optional Evals, explicit tool plugins, and safety Hooks for Codex, Claude Code, Gemini CLI, Cursor, Qoder, ZCode, Antigravity, and OpenCode. It is aimed at people and teams who use AI Agents on real projects for the long run: it turns "the Agent edits the code directly" into a reviewable chain of evidence, so completion claims bind to verification results instead of to wording. It writes only inside the target project and never changes global Agent configuration.
 
 There is one default execution path: `gather trustworthy facts -> decide and execute -> focused verification -> concise delivery`. The decision selects direct implementation, further investigation, clarification, authorization, planning, or task splitting according to evidence, ambiguity, and complexity. Quick, light, and full are risk levels used only to choose safeguards and verification depth.
+
+## First use: start with core
+
+The recommended entry point is `core`: it installs the rules, domain Skills, project-local deterministic scripts, and safety Hooks, which is enough to run a real task without first accepting the extra exposure of the full tool plugin set. `full` and `--preset everything` are explicit advanced options, see "Full capabilities (advanced)"; choose `minimal` only when you want the smallest rules surface.
+
+The first installation is three steps, with the commands in the core prompt under "Quick start" below: dry-run to see the write list, use `--write` once conflicts and out-of-scope overwrites are ruled out (adding `--confirm-red-zone` for red-zone files), then run `validate` for installation consistency plus one quick-layer `verify`.
+
+### One task example
+
+Give the installed project a concrete task, for example "change this module's error handling to return a Result and add tests for the failure paths". The reviewable shape of completion is: the Agent states which files changed and why, gives the verification command it actually ran and its result, and the verification happened after the last change; layers that did not run stay unrun and are never described as complete.
+
+### Success criteria
+
+- `validate` reports installation consistency; the quick-layer `verify` runs and is recorded as `scopeStatus: partial`, with the deferred layers and the next-tier entry listed on the receipt.
+- Completion claims bind to evidence produced after the verification; integration, release, or overall completion carries separate `--tier standard|deep` or `--full` evidence.
+- A capability without evidence is never reported as active — for example, a host Hook that never fired is not described as intercepting, and a missing graph tool is reported as a fallback to source search.
 
 ## Micro in an installed project
 
@@ -43,7 +51,7 @@ Declare a reviewed `validationCommands.micro` entry in the target project's conf
 
 Run `node .agents/runtime/commands/run.mjs verify --project . --micro normalize-example --plan --json`, then omit `--plan` to execute. This requires Node 22+ and a Git worktree; legacy `command` entries are rejected by the installed runtime. Micro proves only a local observation, not task completion. Node permissions do not enforce network isolation for untrusted probes; see [Micro verification rules](docs/rules/micro-verification.md).
 
-## Full installation (recommended)
+## Full capabilities (advanced)
 
 One prompt installs the full profile, every stable tool plugin, the Linear read-write integration, and the memory assets across multiple hosts, so plugins, Linear, and hosts do not have to be selected one by one:
 
@@ -105,17 +113,20 @@ pnpm vibe-harness install --project ../some-project --target codex --profile cor
 pnpm vibe-harness install --project ../some-project --target codex --profile core --write --confirm-red-zone
 pnpm vibe-harness validate --project ../some-project
 pnpm vibe-harness verify --project ../some-project --plan
+pnpm vibe-harness verify --project ../some-project --tier standard
 pnpm vibe-harness verify --project ../some-project --full
 pnpm vibe-harness doctor --project ../some-project
 ```
 
-`validate` checks installation consistency only. Run configured project checks with:
+`validate` checks installation consistency only and runs no tests. Run configured project checks with:
 
 ```bash
 pnpm vibe-harness verify --project ../some-project
 ```
 
-`verify` builds one `auto` risk plan from changed paths: documentation, single-test, and pure-function changes run only affected checks; public contracts, installers, runtime, Hooks, CI, lockfiles, or unclassified changes fall back to full verification. `--plan` only prints risk, impact groups, selected/skipped checks, and fallback reasons; `--full` explicitly runs the complete matrix. Unselected checks are recorded as `not_selected`, while unconfigured checks remain `not_configured`.
+Without `--tier`, `verify` runs the quick layer only; the layer commands come from `validationCommands.tiers` in the project's `vibe-harness.config.json` (when absent they are derived from package scripts, and only a project that yields nothing falls back to the changed-path `auto` risk plan). The quick layer is the default path, so the standard and deep layers must be requested explicitly: `--tier standard|deep` accumulates layers, and `--full` runs the complete matrix and is mutually exclusive with `--tier`. `--plan` only previews the plan — scope and cost layer, selected checks, the deferred `deferredChecks` with their next-tier entry `nextTier`, and unselected checks marked `not_selected` (unconfigured ones stay `not_configured`) — and executes nothing.
+
+The three verdicts do not substitute for each other: `validate` proves installation consistency only, a quick `verify` proves the current work unit is not broken, and integration, release, or overall completion needs the matching `--tier standard|deep` or `--full` evidence; a quick-layer pass is recorded as `scopeStatus: partial`, so nothing may be reported as complete before the deferred layers carry evidence.
 
 Verification JSON also includes the run ID, timestamps, and a non-persisted Git worktree fingerprint. A worktree change during checks returns PROJECT_VERIFICATION_STALE.
 
@@ -137,6 +148,14 @@ node .agents/runtime/commands/run.mjs patch --project . --spec <spec.json>
 `verify --plan` previews configured checks without executing them. The script has no arbitrary command option, does not edit configuration, and does not use the network. Commands come from `validationCommands` in `vibe-harness.config.json`; failures, timeouts, unsafe commands, and worktree changes during verification are reported explicitly. Cost tiers default to the fast path: without `--tier`, `verify` runs only the quick layer (it follows implementation and blocks the current work unit), and the standard and deep layers have to be asked for with `--tier standard|deep` or `--full` for the complete matrix. A passing quick-layer run reports `scopeStatus: partial` and lists the deferred checks plus the next layer, so it can never be read as integration, release, or overall completion.
 
 `worktree`, `slice`, and `patch` are read-only by default. `worktree check` reports isolation units, merge-back state, dependency links, and the port registration facts plus a `cleanupAllowed` advisory. `worktree bootstrap` runs six steps (`worktree add` -> dependency links -> port block and env file -> declared envFiles -> declared setupCommands -> toolchain probe), prints the plan unless `--write` is passed, and additionally needs `--confirm-red-zone` when a target matches `hooks.redZonePaths`; ports are segmented by the main checkout's `.vibe-harness/worktree-ports.json` registry under the `.vibe-harness/worktree-ports.lock` exclusive lock, and a main checkout without `node_modules` ends the bootstrap as `blocked` instead of continuing silently. `worktree cleanup` only writes when `--write` is passed, refuses while a branch has not landed in `worktree.baseRef` or the worktree is dirty, and never deletes a branch. `worktree recover` clears crash residue — incomplete worktrees left by an interrupted bootstrap, prunable bindings whose directory is gone, and orphaned branches or port registrations with attribution evidence; it also only prints a plan unless `--write` is passed, and branch deletion stays behind the evidence gates for branches that never left the baseline. `slice` prints a line range; `patch` applies guarded range or sequence edits in memory and writes only after every operation passed. They replace inline `node -e` snippets and one-off scripts inside a project.
+
+## Delivery lifecycle
+
+New configurations default to `delivery.default: managed-mr` (squash). `--delivery local-land` selects local no-ff delivery; `inspect-only` prevents writes and verification execution. Existing configurations without delivery retain legacy behavior with a migration warning. Installation profiles and delivery profiles are independent.
+
+Use the installed runtime's `task checkpoint`, `task event`, `runtime service start|status|stop`, and `worktree cleanup --receipt <file> --merge-evidence <file>` (or `--mr <iid>`). Mutations require `--write`. Cleanup requires current evidence, a clean source and matching target/patch identities; missing GitLab access stays blocked, while `runtime service stop` refuses a registration whose ownership cannot be proven. Worktree land/cleanup/recover only attempt service teardown: an unproven teardown is reported on the receipt and no longer blocks the removal. Host compaction/message events require a real bridge; shipping the command does not install a listener.
+
+See [delivery lifecycle](docs/specs/delivery-lifecycle.md) for configuration and migration details.
 
 ## Multi-host installation
 

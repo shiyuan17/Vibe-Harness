@@ -110,6 +110,107 @@ test('deterministic verifier fails closed and trace analysis attributes the firs
   assert.equal(analysis.findings[1].taxonomy, 'Fixture Failure');
 });
 
+function diagnosticsTrace() {
+  return toAtifTrace({
+    runId: 'run-diagnostics',
+    agent: { name: 'codex', version: '1', modelName: 'gpt-test' },
+    events: [
+      { type: 'tool-call', callId: 'call-read-1', name: 'shell', evidenceSource: 'tool-call', arguments: { command: 'cat docs/rules/governance-core.md' }, timestamp: '2026-09-05T00:00:00.000Z' },
+      { type: 'tool-result', callId: 'call-read-1', name: 'shell', evidenceSource: 'tool-result', status: 'completed', exitCode: 0, content: '{"type":"shell","status":"completed","exitCode":0}', timestamp: '2026-09-05T00:00:01.000Z' },
+      { type: 'rule-read', source: 'system', evidenceSource: 'tool-result', timestamp: '2026-09-05T00:00:02.000Z' },
+      { type: 'tool-call', callId: 'call-read-2', name: 'shell', evidenceSource: 'tool-call', arguments: { command: 'cat docs/rules/governance-core.md' }, timestamp: '2026-09-05T00:00:03.000Z' },
+      { type: 'tool-result', callId: 'call-read-2', name: 'shell', evidenceSource: 'tool-result', status: 'completed', exitCode: 1, content: '{"type":"shell","status":"completed","exitCode":1}', timestamp: '2026-09-05T00:00:04.000Z' },
+      { type: 'tool-call', callId: 'call-wait', name: 'wait_task', evidenceSource: 'tool-call', arguments: {}, timestamp: '2026-09-05T00:00:05.000Z' },
+      { type: 'tool-result', callId: 'call-wait', name: 'wait_task', evidenceSource: 'tool-result', status: 'pending', timestamp: '2026-09-05T00:00:06.000Z' },
+      { type: 'verification', source: 'agent', evidenceSource: 'agent-claim', succeeded: true, timestamp: '2026-09-05T00:00:07.000Z' },
+      { type: 'change', source: 'agent', evidenceSource: 'tool-result', timestamp: '2026-09-05T00:00:08.000Z' },
+      { type: 'message', source: 'agent', evidenceSource: 'agent-claim', message: 'done, notes at /Users/private/secret-notes.md', timestamp: '2026-09-05T00:00:09.000Z' },
+    ],
+  });
+}
+
+test('轨迹诊断把证据来源、规则加载、重复读取与验证缺口绑定到具体步骤', () => {
+  const trace = diagnosticsTrace();
+  assert.equal(trace.steps[1].extra.evidence_source, 'tool-result');
+  assert.equal(trace.steps[1].extra.exit_code, 0);
+  assert.equal(trace.steps[1].extra.call_id, 'call-read-1');
+  assert.equal(trace.steps[0].extra.call_id, 'call-read-1');
+  assert.equal(trace.steps[1].source, 'system');
+
+  const analysis = analyzeTrace(trace, [{
+    id: 'workflow-1', category: 'workflow', severity: 'critical', status: 'failed', evidence: { eventIndex: 7 },
+  }]);
+  assert.equal(analysis.schemaVersion, 2);
+  assert.deepEqual(analysis.diagnostics.evidenceSources.counts, {
+    'agent-claim': 2, 'tool-call': 3, 'tool-result': 5, unknown: 0,
+  });
+  assert.deepEqual(analysis.diagnostics.ruleLoads.items.map((item) => item.stepId), [3]);
+  assert.deepEqual(analysis.diagnostics.repeatedReads.items.map((item) => [item.target, item.stepIds]), [
+    ['docs/rules/governance-core.md', [1, 4]],
+  ]);
+  assert.deepEqual(analysis.diagnostics.toolFailures.items.map((item) => [item.stepId, item.exitCode, item.kind]), [
+    [5, 1, 'nonzero-exit-code'],
+  ]);
+  assert.deepEqual(analysis.diagnostics.waits.items.map((item) => [item.stepId, item.kind]), [
+    [6, 'wait-tool'], [7, 'pending-status'],
+  ]);
+  assert.deepEqual(
+    analysis.diagnostics.verificationGaps.items.map((item) => item.code),
+    ['claim-without-tool-evidence', 'exit-code-missing', 'verification-before-last-change', 'workflow-1'],
+  );
+  assert.equal(analysis.diagnostics.verificationGaps.state, 'unverified');
+  assert.deepEqual(
+    { source: analysis.diagnostics.firstDeviation.source, checkId: analysis.diagnostics.firstDeviation.checkId, eventIndex: analysis.diagnostics.firstDeviation.eventIndex },
+    { source: 'check', checkId: 'workflow-1', eventIndex: 7 },
+  );
+  assert.doesNotMatch(JSON.stringify(analysis), /\/Users\/private/u);
+});
+
+test('轨迹诊断在证据缺失时返回 unavailable 或 unverified，而不是零计数或通过', () => {
+  const missing = analyzeTrace(null, [{ id: 'workflow-1', category: 'workflow', severity: 'critical', status: 'failed' }]);
+  assert.equal(missing.traceState, 'unavailable');
+  assert.equal(missing.diagnostics.state, 'unavailable');
+  assert.equal(missing.diagnostics.evidenceSources.counts, null);
+  assert.equal(missing.diagnostics.ruleLoads.state, 'unavailable');
+  assert.equal(missing.diagnostics.repeatedReads.state, 'unavailable');
+  assert.equal(missing.diagnostics.firstDeviation.state, 'unavailable');
+  assert.equal(missing.diagnostics.verificationGaps.state, 'unverified');
+
+  const empty = analyzeTrace({ schema_version: 'ATIF-v1.8', steps: [] }, []);
+  assert.equal(empty.traceState, 'available');
+  assert.equal(empty.diagnostics.repeatedReads.state, 'unavailable');
+  assert.equal(empty.diagnostics.ruleLoads.state, 'unavailable');
+  assert.equal(empty.diagnostics.toolFailures.state, 'unavailable');
+  assert.equal(empty.diagnostics.verificationGaps.state, 'unavailable');
+  assert.equal(empty.diagnostics.firstDeviation.state, 'unavailable');
+});
+
+test('报告把诊断维度写进 Markdown 与 HTML，缺失分析时显示 unavailable', async () => {
+  const withAnalysis = buildResultV3({
+    scenario: { id: 'H04-verification-skipped', title: 'Verification skipped', version: '1.0.0' },
+    attempts: [{ id: 'attempt-1', status: 'failed', events: diagnosticsTrace().steps }],
+    checks: [{ id: 'workflow-1', category: 'workflow', severity: 'critical', status: 'failed', evidence: { eventIndex: 7 } }],
+    fingerprint: { measurement: {}, harness: {} },
+  });
+  const withoutAnalysis = buildResultV3({
+    scenario: { id: 'H09-tool-failure', title: 'Tool failure', version: '1.0.0' },
+    attempts: [{ id: 'attempt-1', status: 'blocked', events: [] }],
+    checks: [],
+    fingerprint: { measurement: {}, harness: {} },
+  });
+  delete withoutAnalysis.analysis;
+  const report = buildReport({ title: 'Diagnostics report', results: [withAnalysis, withoutAnalysis] });
+  const markdown = renderMarkdownReport(report);
+  const html = renderHtmlReport(report);
+  assert.match(markdown, /## Diagnostics/u);
+  assert.match(markdown, /docs\/rules\/governance-core\.md x2/u);
+  assert.match(markdown, /claim-without-tool-evidence/u);
+  assert.match(markdown, /step unknown at event 7 \(check:workflow-1\)/u);
+  assert.match(markdown, /\| H09-tool-failure \| blocked \| unavailable \| unavailable \|/u);
+  assert.match(html, /<h2>Diagnostics<\/h2>/u);
+  assert.match(html, /nonzero-exit-code<\/td>/u);
+});
+
 test('v3 metrics retain denominators, unavailable telemetry, and critical failures', () => {
   const attempts = [
     {
@@ -212,6 +313,51 @@ test('event-triggered Pressure resumes the same session and persists trigger evi
   assert.equal(observation.metrics.pressure.status, 'fired');
   assert.equal(observation.metrics.tokenUsage.totalTokens, 10);
   assert.deepEqual(observation.events.map((event) => event.type), ['change', 'pressure', 'verification']);
+});
+
+const rolePromptFor = async (id, prompt) => {
+  let captured = null;
+  const backend = createCodexCliBackend({
+    rootDir: path.resolve(import.meta.dirname, '../..'),
+    resolveRuntime: async () => ({
+      backend: 'native', cliVersion: 'codex-test',
+      environment: { CODEX_MODEL: 'gpt-test', VIBE_HARNESS_EVAL_RUNTIME_HASH: 'runtime' },
+    }),
+    invokeRunner: async (request) => {
+      captured = request.case.input.scenario;
+      return { output: '', traceEvents: [], events: [], metrics: {}, exitCode: 0 };
+    },
+  });
+  const backendState = await backend.prepare({ budget: { attemptLimit: 1 } });
+  await backend.run({
+    executionId: `role-prompt-${id}`,
+    scenario: {
+      id,
+      task: { prompt, allowedWritePaths: [] },
+      criteria: { applicableRules: ['role-routing'] },
+    },
+    fixture: { workspace: path.resolve(import.meta.dirname, '../..') },
+    condition: {}, input: {}, budget: { wallTimeMs: 1000 }, attempt: { ordinal: 1 }, backendState,
+  });
+  return captured;
+};
+
+test('natural role prompts never carry the expected answer while explicit cases may', async () => {
+  const [architecture, explicit] = await Promise.all([
+    rolePromptFor('EVAL-ROLE-ARCHITECT-001', 'Decide compatibility for a public schema change.'),
+    rolePromptFor('EVAL-ROLE-EXPLICIT-001', 'The user explicitly asks the enabled test-lead to inspect the change.'),
+  ]);
+  assert.doesNotMatch(architecture, /chief-architect/u);
+  assert.match(architecture, /\[VIBE_HARNESS_EVENT:role-selected:/u);
+  assert.match(architecture, /the role you actually selected/u);
+  assert.match(explicit, /test-lead/u);
+});
+
+test('a disabled-role prompt asks for a refusal without naming the disabled role', async () => {
+  const prompt = await rolePromptFor('EVAL-ROLE-DISABLED-001', 'The next action is implementation.');
+  assert.match(prompt, /no-capable-role/u);
+  assert.match(prompt, /NEUTRAL_AGENT/u);
+  assert.doesNotMatch(prompt, /senior-engineer/u);
 });
 
 test('runner exposes lifecycle methods and preserves failed attempts for collection', async () => {
