@@ -56,10 +56,10 @@
 | execute | linearWrite、workspaceWrite、gitBranch、gitCommit、gitPush、mergeRequestWrite、credentialUse、hostWrite、externalWrite；宿主、外部、凭据及其他高风险操作还须满足下列核验要求 |
 
 - **执行授权记录**：Execution Envelope 绑定本轮 requestId、sessionId、目标 Issue、mode、activeObjective、allowedEffects、forbiddenEffects 和 terminalCondition。高风险操作使用 `vibe-harness.execution-envelope/v2`，并冻结 riskClass、工作区范围和宿主核验信息；版本标识只用于机器解析，不代替以下要求。
-- **工作区与目标核验**：记录并核对 canonicalCwd、worktreeRoot、gitCommonDir、gitDir、branch、baseRef、baseSha、initialHeadSha、allowedWriteRoots；externalTargets 只记录目标类型、标识与环境，不含凭据。身份不符、目标越界或基线漂移时暂停受影响写入，先核对再恢复。
-- **宿主核验信息**：hostContext 必须由宿主提供，source 为 host，并包含 filesystem（文件系统权限）、approval（批准能力）、process（进程隔离）、network（网络范围）和 observedAt（观测时间）。高风险操作要求 riskClass 为 high、process 为 isolated；Agent 不得自填这些信息冒充宿主核验。
-- **兼容边界**：`vibe-harness.execution-envelope/v1` 只作为 contract-only/degraded 路径，支持表中除 hostWrite、externalWrite 外的七个 effect，但不能据此授权凭据、高风险间接写入、红区或 worktree 拓扑变化。
-- **能力受阻**：普通项目内低风险写入保持低摩擦；高风险或不可分类调用缺少有效授权记录、工作区核验或宿主核验信息时 fail-closed。缺少宿主核验信息是能力阻塞，不能通过重复询问用户或由 Agent 自造核验信息解除；保留不依赖该操作的安全工作。
+- **工作区与目标核验**：记录并核对 canonicalCwd、worktreeRoot、gitCommonDir、gitDir、branch、baseRef、baseSha、initialHeadSha、allowedWriteRoots；externalTargets 只记录目标类型、标识与环境，不含凭据。身份不符、目标越界或基线漂移时暂停受影响写入，先核对再恢复。worktree 生命周期只要求本地工作区核验加本轮用户显式请求：创建隔离工作区、在其中实现与验证、回收与清理都以运行时能核对的 Git 事实（冻结基线 SHA、任务分支、干净工作树、写入根、无归属不明的改动）判定，不需要宿主证明，也不因此取得 hostWrite、externalWrite 或凭据授权。
+- **宿主核验信息**：宿主核验只用于跨边界效果——hostWrite、externalWrite、credentialUse、红区与高风险间接写入。这类操作要求 `vibe-harness.execution-envelope/v2` 且 hostContext 必须由宿主提供，source 为 host，并包含 filesystem（文件系统权限）、approval（批准能力）、process（进程隔离）、network（网络范围）和 observedAt（观测时间），riskClass 为 high、process 为 isolated；Agent 不得自填这些信息冒充宿主核验。
+- **兼容边界**：`vibe-harness.execution-envelope/v1` 只作为 contract-only/degraded 路径，支持表中除 hostWrite、externalWrite 外的七个 effect，但不能据此授权凭据、高风险间接写入或红区；worktree 生命周期按工作区效果（`workspaceWrite`、`gitBranch`）授权，不需要宿主核验。
+- **能力受阻**：普通项目内低风险写入保持低摩擦；高风险或不可分类调用缺少有效授权记录、工作区核验或宿主核验信息时 fail-closed。缺少宿主核验信息是能力阻塞，不能通过重复询问用户或由 Agent 自造核验信息解除，且只阻塞依赖该证明的跨边界步骤：工作区内部建立隔离工作区、实现、聚焦验证与提交继续推进，不据此停止整个请求，也不把整轮工作降级为主检出直改。保留不依赖该操作的安全工作。
 - **拆分判定**：按实际依赖、写入隔离和独立并行收益决定是否拆分，不按信号数量或公共契约变化强制拆分。只有子任务边界清晰、合并可控且预期并行收益超过协调开销时才拆分；单 Agent 可以稳定完成的任务直接实施。实际使用两个以上协作单元时才按协作规则维护必要依赖和写入归属，简单任务不创建 DAG。用户请求拆分建议时解释判断即可，不强制输出执行判定字段。Plan 只描述实施方式，不构成新增授权；宿主 Plan 模式保持只读，退出后沿用仍有效的实施授权。
 - **Execution Envelope 与跨域任务**：实际跨域协作时明确共享 API/schema 的唯一写入归属和 fan-in 验收；并发写入需要隔离时分配独立 workspace，不因命中多个领域强制拆分。单 Agent 默认；仅独立切片/只读探查/隔离验证可多 Agent，最多 2 个写、4 个读，父 Agent 负责 fan-in/冲突/最终验证/Linear 交付，容量不足则串行；只读记录墙钟、Active/Blocked/Coordination、Fan-out/Fan-in、WIP/Cycle/Lead 与重试/冲突/返工率，不改变授权、优先级或生命周期。
 

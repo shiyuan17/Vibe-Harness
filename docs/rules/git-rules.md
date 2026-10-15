@@ -22,9 +22,9 @@ managed-mr 的 land 只读取已合入 MR 的证据，不本地合并或推送�
 仅显式 `vb-git-develop-flow` / `$vb-git-develop-flow` 或 `vb-linear-worktree-develop` / `$vb-linear-worktree-develop` 走此模式；普通 `$vb-git-split-push`、普通 Linear Issue 和项目默认 delivery 不变。两者只对本次 `worktree land` 使用 `--delivery local-land`；`vb-git-develop-flow` 不创建 PR/MR，`vb-linear-worktree-develop` 的 Linear 范围见 `linear-workflow.md`（若项目已安装该规则）。已安装的 `vb-git-develop-flow` Skill 按需辅助执行本节的分支、隔离、验证和清理要求；两者描述同一合同，修改须同步。
 
 - 先确认主检出当前分支是 `develop`、工作树与暂存区都干净、远端可普通推送；已有无关改动不能被暂存、覆盖、stash 或合并进 flow。`git fetch origin develop` 后要求本地 `develop` 能仅以 fast-forward 更新到最新 `origin/develop`；失败则停止，不代替用户切换分支或处理别人的 worktree。
-- 固定顺序为创建仓库外 worktree → 在其中创建任务分支 → 实现与聚焦验证 → 提交归属明确的改动 → 从最新 `origin/develop` 基线执行 `worktree land --write --delivery local-land --push` → 只有推送成功后才清理 worktree 和本地任务分支。`worktree bootstrap --task <id>:<branch> --base-ref origin/develop` 将前两步原子化；不通过手工 `git worktree remove` 绕过镜像 teardown。`worktree land --base-ref develop` 只断言主检出当前分支，不负责 checkout。
+- 固定顺序为建立隔离工作区 → 在其中创建任务分支 → 实现与聚焦验证 → 提交归属明确的改动 → 从最新 `origin/develop` 基线回收进主检出 `develop` → 只有推送成功后才清理工作区和本地任务分支。隔离工作区优先用宿主 worktree：以宿主能力从已核实的 `origin/develop` 基线创建，创建后核对它的基线等于冻结 SHA，并让宿主把会话根切到该 worktree 后再写入。只有项目声明了 `worktree.mirrors`、`worktree.ports` 或 `worktree.provision`（需要治理面投影、端口分段或逐包依赖链接）时才改用 `worktree bootstrap --task <id>:<branch> --base-ref origin/develop`，它把入口创建与分支创建原子化；不通过手工 `git worktree remove` 绕过镜像 teardown。`worktree land --base-ref develop` 只断言主检出当前分支，不负责 checkout。
 - land 前再次读取目标远端 SHA、主检出与任务分支 HEAD，并确认本轮验证针对最新目标基线；验证期间目标前进则暂停、重建候选与重验。高风险变更保留独立审查要求；land 的 relevance review、受管验证及任务锚点门禁不得跳过。不带 `--push` 的 land 不满足该 flow 完成条件。
-- 合并冲突、验证失败、目标分支漂移、推送失败或清理失败时，暂停受影响步骤，保留可恢复现场并报告各阶段事实，不 force push、不强制删除、不自动回滚。worktree 拓扑变化还必须具备 `governance-core.md` 定义的工作区与宿主核验信息；缺失时不得继续。推送成功而清理失败时属于“已推送、清理未完成”，不得重复合并。
+- 该 flow 只要求本地核验：工作区身份、冻结的基线 SHA、任务分支、干净工作树、写入根和归属明确的改动都由运行时按 Git 事实核对；worktree 生命周期（创建、实现、回收、清理）不需要 `governance-core.md` 的宿主核验信息，缺少宿主证明不构成停止理由。`worktree land --write --delivery local-land --push` 只回收由 `worktree bootstrap` 创建且已登记的 worktree；宿主 worktree 不进入该登记表，改为主检出仍与最新 `origin/develop` 一致时推送本轮任务分支，或按项目 delivery 配置走 PR/MR，由目标分支既有流程合并。合并冲突、验证失败、目标分支漂移、推送失败或清理失败时，暂停受影响步骤，保留可恢复现场并报告各阶段事实，不 force push、不强制删除、不自动回滚。推送成功而清理失败时属于“已推送、清理未完成”，不得重复合并。
 
 ## 启动与归属
 
@@ -108,7 +108,7 @@ Vibe-Harness 自身使用 Conventional Commits、commitlint、pre-commit、pre-p
 
 ## Worktree
 
-- 一个隔离单元对应一个命名分支和明确写入范围，worktree 放在仓库外部、数量不是并行目标；不需要隔离时直接在当前工作区保护用户改动，子 Agent 只在分配的 worktree、分支和写入范围内工作，审查任务默认只读。
+- 一个隔离单元对应一个命名分支和明确写入范围，worktree 放在仓库外部、数量不是并行目标；宿主提供 worktree 能力时优先用宿主 worktree，并让宿主把会话根切到该 worktree，只有需要治理面投影、端口分段或依赖链接时才改用下列脚本入口。不需要隔离时直接在当前工作区保护用户改动，子 Agent 只在分配的 worktree、分支和写入范围内工作，审查任务默认只读。
 - 派发前明确目标分支、依赖和共享契约的唯一写入者；writeScope 或资源重叠的任务按依赖顺序推进，过期基线与语义冲突由任务责任人解决，集成失败只暂停相关任务和后继。
 - 引导、审计与清理走项目脚本入口 `node .agents/runtime/commands/run.mjs worktree <list|check|bootstrap|land|recover|cleanup> --project . --json`：默认只读，只有追加 `--write` 才落盘；`cleanup` 在分支未并入 `worktree.baseRef` 或工作区不干净时拒绝，且从不删除分支；不带 `--write` 的 `bootstrap` 是步骤计划预览，`--help` 给出该入口自身的命令面说明。该入口是安装交付内唯一的 worktree 写入面（创建、依赖链接与清理）；源仓库开发面另有只读审计 CLI（`scripts/worktree.js`，`list|check|plan`），不随安装交付，目标项目不引入第二个写入口。
 - `worktree land` 把归因 worktree 闭环回收进主检出当前分支：dry-run 只出计划；`--write` 在 Git common dir 独占锁内重新核对工作区、来源与目标基线及任务锚点，在仓库外临时候选 worktree 中执行「合并（`--no-ff`，已并入则跳过）→ 验证（默认 quick，锚点 `riskLevel=full` 时 standard）」，通过且目标与来源 HEAD、主检出与候选状态均未变化后才快进主检出，随后按授权推送、清理任务 worktree 与端口登记，并仅在推送成功后删除任务分支。合并冲突或验证失败不移动主检出并保留任务 worktree；锁超时与基线变化阻塞本次落地，残留锁不自动清理。门禁 fail-closed：目标是非保护分支（main、master、release*；`develop` 由显式白名单允许直落）、关联任务锚点单元全部完成；`--base-ref` 仅作意图断言，不带 `--push` 时不推送不删分支，`--write --no-verify` 拒绝执行。

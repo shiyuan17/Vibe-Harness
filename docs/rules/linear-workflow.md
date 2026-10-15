@@ -24,11 +24,11 @@ Linear 保存工作状态、责任、委派与依赖；GitHub 或 GitLab 保存�
 - 先核对团队、仓库、Parent/子任务 Scope、共享合同 owner、验收、验证和依赖，生成 Parent `linear-plan`。按“读取 → 校验 → 写入 → 重读确认”逐项同步 Parent、子任务和原生关系；使用稳定幂等键，结果不明时按原键重读，不盲目重建。
 - 保存本次成功创建且重读确认的 Issue ID 封闭集合；部分创建失败须保留清单和已创建现场。只从该集合领取依赖就绪节点，不扫描、轮询或领取其他 Ready/Todo Issue。
 - 领取须由宿主持久 provider 原子 Claim，再确认 Delegate 和携带 claimId、leaseExpiresAt、fencingToken、claimProvider 的 Start Receipt，按第 5 节逐字段重读核对。不能用 Linear 写后重读冒充跨实例互斥。
-- Linear 不可写、Claim 不可用，或缺少 `governance-core.md` 要求的工作区与宿主核验信息时 fail-closed，不进入本地 worktree 工作。
+- Linear 不可写或 Claim 不可用时 fail-closed，不进入本地 worktree 工作。worktree 生命周期只要求 `governance-core.md` 的工作区核验（身份、冻结基线、分支、干净工作树、写入根）加本轮显式调用，不需要宿主核验信息；宿主核验只用于跨边界操作，缺失时暂停对应步骤而不阻塞本地隔离、实现与提交。
 
-默认单 Agent，按原生依赖拓扑串行实施。每个 write 节点强制使用从最新 `origin/develop` 建立的仓库外 worktree 与 `<type>/<ISSUE-ID>-<slug>` 分支，提交关联 `Refs <ISSUE-ID>`，然后按 `git-rules.md`「显式 develop flow」用本次 `--delivery local-land` 落地。此模式不创建 closing PR/MR：write 节点 Done 的四项必要证据是最新 `origin/develop` 基线验证通过、no-ff 合并成功、目标分支推送成功、worktree 和本地分支清理完成；逐项重读，任何一项失败均保留现场和未完成状态。read 节点仍凭输出与 Verification，Parent 仍须全部必需节点成功及实际合并结果的 Fan-in Verification。普通 PR/MR 路径仍以 closing 合并为 Done，不用本地证据代替。
+默认单 Agent，按原生依赖拓扑串行实施。每个 write 节点强制使用从最新 `origin/develop` 建立的隔离 worktree 与 `<type>/<ISSUE-ID>-<slug>` 分支：本模式用本次 `--delivery local-land` 落地，而该落地只回收 `worktree bootstrap` 创建并登记的仓库外 worktree，因此用该入口建立隔离工作区；宿主 worktree 不进入本地落地，只按项目 delivery 走推送或 PR/MR 的独立路径。提交关联 `Refs <ISSUE-ID>`。此模式不创建 closing PR/MR：write 节点 Done 的四项必要证据是最新 `origin/develop` 基线验证通过、no-ff 合并成功、目标分支推送成功、worktree 和本地分支清理完成；逐项重读，任何一项失败均保留现场和未完成状态。read 节点仍凭输出与 Verification，Parent 仍须全部必需节点成功及实际合并结果的 Fan-in Verification。普通 PR/MR 路径仍以 closing 合并为 Done，不用本地证据代替。
 
-高风险 Linear 执行必须按 `governance-core.md` 的「授权与 Execution Envelope」冻结风险等级、工作区身份、允许写入根和不含凭据的外部目标，并取得宿主提供的文件系统权限、批准能力、进程隔离、网络范围和观测时间。只有旧兼容字段的记录不能授权凭据、hostWrite、externalWrite、高风险间接写入或 worktree 拓扑变化。
+高风险 Linear 执行的跨边界部分必须按 `governance-core.md` 的「授权与 Execution Envelope」冻结风险等级、工作区身份、允许写入根和不含凭据的外部目标，并取得宿主提供的文件系统权限、批准能力、进程隔离、网络范围和观测时间；worktree 生命周期属于工作区内部操作，只要求工作区核验，不因缺少宿主证据而停止。只有旧兼容字段的记录不能授权凭据、hostWrite、externalWrite 或高风险间接写入。
 
 每次自动续跑核对宿主实际提供的 Goal/thread 状态、最新用户输入、当前 Issue、cwd、worktree、branch、HEAD 和 blocker。授权沿用、局部暂停和无进展时的诊断按 governance-core 执行，Goal 状态变更使用宿主合同。Goal 完成后不得由当前运行自动审计或选取下一 Ready 节点；新的逐 Issue 运行只可由宿主重新核验限时授权并派发。
 
