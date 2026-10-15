@@ -6058,13 +6058,13 @@
       "layer": "component",
       "file": "tests/component/rules-depth.test.js",
       "ordinal": 14,
-      "name": "授权、宿主核验、拒绝与独立工作要求缺失时仍阻断规则校验",
+      "name": "授权、宿主核验、本地核验、拒绝与独立工作要求缺失时仍阻断规则校验",
       "legacy": false,
       "risk": "standard",
       "owner": "maintainers",
       "source": "declared",
       "status": "active",
-      "addedAt": "2026-10-13"
+      "addedAt": "2026-10-15"
     },
     {
       "id": "C-rules-index-001",
@@ -9555,6 +9555,19 @@
       "layer": "integration",
       "file": "tests/integration/hook-runtime.test.js",
       "ordinal": 48,
+      "name": "worktree 生命周期命令无 Envelope 放行，跨边界效果仍 fail-closed",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-10-15"
+    },
+    {
+      "id": "I-hook-runtime-049",
+      "layer": "integration",
+      "file": "tests/integration/hook-runtime.test.js",
+      "ordinal": 49,
       "name": "Hook CLI ${scenario.name} 不回显或落盘合成敏感输入",
       "legacy": false,
       "risk": "standard",

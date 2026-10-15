@@ -1677,6 +1677,44 @@ test('resolveExecutable maps node to the running executable and routes npm shims
   assert.deepEqual(resolveExecutable('git'), { command: 'git', preArgs: [] });
 });
 
+test('worktree 生命周期命令无 Envelope 放行，跨边界效果仍 fail-closed', async () => {
+  await withProject(async (target) => {
+    initializeGitProject(target);
+    // Creating, listing, pruning, and reclaiming a worktree is a
+    // workspace-internal effect (`gitBranch`). It must not require a
+    // host-issued Execution Envelope, otherwise a host worktree can never be
+    // created in the first place.
+    const lifecycle = [
+      'git worktree add ../feature-worktree -b feat/example',
+      'git worktree remove ../feature-worktree',
+      'git worktree prune',
+      'git worktree list',
+      'node .agents/runtime/commands/run.mjs worktree bootstrap --project . --task t:feat/example --base-ref origin/develop --json',
+      'node .agents/runtime/commands/run.mjs worktree land --project . --task t:feat/example --base-ref develop --delivery local-land --write --push --json',
+    ];
+    for (const command of lifecycle) {
+      assert.deepEqual(await evaluateCodexHook(input(target, { tool_input: { command } })), {}, command);
+    }
+
+    // Moving another worktree's root stays an immutable-workspace operation.
+    const moved = await evaluateCodexHook(input(target, {
+      tool_input: { command: 'git worktree move current elsewhere' },
+    }));
+    assert.match(moved.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING|WORKTREE_MOVE_FORBIDDEN/u);
+
+    // Cross-boundary effects keep failing closed without a host-issued envelope.
+    const crossBoundary = [
+      "node -e \"require('node:fs').writeFileSync('payload.txt','x')\"",
+      'supabase projects list',
+      'supabase db push --project-ref project-ref',
+    ];
+    for (const command of crossBoundary) {
+      const decision = await evaluateCodexHook(input(target, { tool_input: { command } }));
+      assert.match(decision.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u, command);
+    }
+  });
+});
+
 for (const scenario of [
   { name: '只读放行', toolName: 'Bash', toolInput: { command: 'git status --short' }, decision: undefined },
   { name: '缺授权拒绝', toolName: 'Write', toolInput: { file_path: 'src/example.js', content: 'fixture' }, decision: 'deny' },

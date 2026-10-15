@@ -606,14 +606,35 @@ test('Skill 授权、工作区核验、宿主信息和受阻处理缺失时仍�
       await writeFile(path.join(target, file), content);
     }
     assert.deepEqual(await validateSkillExecutionBoundaries(target), []);
+    // Shared fail-closed wording: every boundary skill keeps stating the
+    // envelope vocabulary, the workspace identity and the blocked handling.
+    const sharedTerms = ['allowedEffects', 'allowedWriteRoots', 'Agent 不得自造', '缺授权', '暂停', 'contract-only/degraded'];
+    // Local verification and entry selection replace host-issued proof for the
+    // worktree lifecycle in all three skills.
+    const localVerificationTerms = ['worktree 生命周期', '宿主 worktree', 'origin/develop', 'worktree bootstrap'];
+    // Host-issued context stays mandatory only where cross-boundary effects and
+    // host-dispatched claims are in scope.
+    const hostContextTerms = ['hostContext', 'source=host', 'process=isolated', 'observedAt'];
+    const perFileTerms = new Map([
+      ['skills/core/vb-git-develop-flow/SKILL.md', [...sharedTerms, ...localVerificationTerms, '用户在本轮显式调用', '会话根']],
+      ['skills/integrations/vb-linear-worktree-develop/SKILL.md', [...sharedTerms, ...localVerificationTerms, ...hostContextTerms]],
+      ['skills/integrations/linear-workflow/SKILL.md', [...sharedTerms, ...localVerificationTerms, ...hostContextTerms]],
+    ]);
     for (const file of files) {
-      for (const term of ['allowedEffects', 'allowedWriteRoots', 'source=host', 'process=isolated', 'Agent 不得自造', '缺授权', '暂停', '不得靠重复询问用户解除', 'contract-only/degraded']) {
+      for (const term of perFileTerms.get(file)) {
         await writeFile(path.join(target, file), originals.get(file).replaceAll(term, 'REMOVED'));
         const errors = await validateSkillExecutionBoundaries(target);
         assert.ok(errors.some((error) => error.includes(file) && error.endsWith(term)), `${file}: must reject missing ${term}`);
       }
       await writeFile(path.join(target, file), originals.get(file));
     }
+    // Positive control: the workspace-internal flow no longer needs a
+    // host-issued isolation proof, so dropping that wording there is not a
+    // violation — otherwise creating a worktree would stay blocked.
+    const flowSkill = 'skills/core/vb-git-develop-flow/SKILL.md';
+    await writeFile(path.join(target, flowSkill), originals.get(flowSkill).replaceAll('process=isolated', 'REMOVED'));
+    assert.deepEqual(await validateSkillExecutionBoundaries(target), []);
+    await writeFile(path.join(target, flowSkill), originals.get(flowSkill));
   } finally {
     await rm(target, { force: true, recursive: true });
   }

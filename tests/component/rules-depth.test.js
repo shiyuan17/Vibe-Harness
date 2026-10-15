@@ -301,7 +301,7 @@ test('规则内部引用、能力入口、操作路径与机器协议标识不�
   }
 });
 
-test('授权、宿主核验、拒绝与独立工作要求缺失时仍阻断规则校验', async () => {
+test('授权、宿主核验、本地核验、拒绝与独立工作要求缺失时仍阻断规则校验', async () => {
   const pack = await mkdtemp(path.join(tmpdir(), 'vibe-rules-safety-'));
   const file = 'docs/rules/governance-core.md';
   try {
@@ -315,6 +315,11 @@ test('授权、宿主核验、拒绝与独立工作要求缺失时仍阻断规�
       'canonicalCwd、worktreeRoot、gitCommonDir、gitDir、branch、baseRef、baseSha、initialHeadSha、allowedWriteRoots',
       '高风险或不可分类调用缺少有效授权记录、工作区核验或宿主核验信息时 fail-closed',
       'Agent 不得自填这些信息冒充宿主核验',
+      // worktree 生命周期改为本地核验授权后，删掉这些措辞必须判失败，
+      // 否则规则又会把建 worktree 绑回不可获得的宿主证明。
+      'worktree 生命周期只要求本地工作区核验',
+      '宿主核验只用于跨边界效果',
+      '不据此停止整个请求',
       '保留不依赖该操作的安全工作',
     ]) {
       await writeFile(path.join(pack, file), content.replaceAll(term, '已删除约束'), 'utf8');
