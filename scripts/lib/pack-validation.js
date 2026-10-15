@@ -693,21 +693,54 @@ const RULE_CROSS_REFERENCE_PATTERN = /`([a-z0-9]+(?:-[a-z0-9]+)*\.md)`/gu;
  * forbidden content) stay in tests and read the shared enums exported by the
  * modules that already own them.
  */
-const SKILL_EXECUTION_BOUNDARY_CHECKS = [
+const SKILL_EXECUTION_BOUNDARY_FILES = [
   'skills/core/vb-git-develop-flow/SKILL.md',
   'skills/integrations/vb-linear-worktree-develop/SKILL.md',
   'skills/integrations/linear-workflow/SKILL.md',
-].map((file) => ({
+];
+
+/**
+ * Envelope, workspace-verification and fail-closed wording that every one of
+ * these skills keeps stating. Host-issued isolation proof is deliberately not
+ * here: worktree lifecycle is a workspace-internal effect that the runtime
+ * verifies locally, so no skill may be forced to demand it before creating a
+ * worktree.
+ */
+const SKILL_EXECUTION_BOUNDARY_SHARED_TERMS = [
+  'requestId', 'sessionId', 'targetIssueIds', 'activeObjective',
+  'allowedEffects', 'forbiddenEffects', 'terminalCondition',
+  'canonicalCwd', 'worktreeRoot', 'gitCommonDir', 'gitDir',
+  'branch', 'baseRef', 'baseSha', 'initialHeadSha', 'allowedWriteRoots',
+  'Agent 不得自造', '缺授权', '暂停', '不得靠重复询问用户解除',
+  'contract-only/degraded', '高风险间接写入', '红区',
+];
+
+const SKILL_EXECUTION_BOUNDARY_HOST_CONTEXT_TERMS = [
+  'worktree 生命周期', '宿主 worktree', 'origin/develop', 'worktree bootstrap',
+  '跨边界', 'hostContext', 'source=host', 'filesystem', 'approval',
+  'process=isolated', 'network', 'observedAt',
+];
+
+/**
+ * Per-file additions. The two Linear modes still bound their cross-boundary
+ * effects and host-dispatched claims with a host-issued `hostContext`; the
+ * workspace-internal develop flow states the local verification and the
+ * host-worktree-first entry instead.
+ */
+const SKILL_EXECUTION_BOUNDARY_FILE_TERMS = {
+  'skills/core/vb-git-develop-flow/SKILL.md': [
+    '用户在本轮显式调用', '会话根', 'worktree 生命周期', '宿主 worktree',
+    'origin/develop', 'worktree bootstrap', '跨边界',
+  ],
+  'skills/integrations/vb-linear-worktree-develop/SKILL.md': SKILL_EXECUTION_BOUNDARY_HOST_CONTEXT_TERMS,
+  'skills/integrations/linear-workflow/SKILL.md': SKILL_EXECUTION_BOUNDARY_HOST_CONTEXT_TERMS,
+};
+
+const SKILL_EXECUTION_BOUNDARY_CHECKS = SKILL_EXECUTION_BOUNDARY_FILES.map((file) => ({
   file,
   terms: [
-    'requestId', 'sessionId', 'targetIssueIds', 'activeObjective',
-    'allowedEffects', 'forbiddenEffects', 'terminalCondition',
-    'canonicalCwd', 'worktreeRoot', 'gitCommonDir', 'gitDir',
-    'branch', 'baseRef', 'baseSha', 'initialHeadSha', 'allowedWriteRoots',
-    'hostContext', 'source=host', 'filesystem', 'approval',
-    'process=isolated', 'network', 'observedAt',
-    'Agent 不得自造', '缺授权', '暂停', '保留', '不得靠重复询问用户解除',
-    'contract-only/degraded', '高风险间接写入或 worktree 拓扑变化',
+    ...SKILL_EXECUTION_BOUNDARY_SHARED_TERMS,
+    ...(SKILL_EXECUTION_BOUNDARY_FILE_TERMS[file] ?? []),
   ],
 }));
 
@@ -753,10 +786,15 @@ export const CONTENT_QUALITY_CHECKS = [
       'inspect、plan、monitor',
       '仅 `linearWrite`',
       'credentialUse、hostWrite、externalWrite',
+      // worktree 生命周期是工作区内部操作：授权来自本轮显式请求与运行时能
+      // 核对的 Git 事实，宿主核验只留在真正的跨边界效果上。
+      'worktree 生命周期只要求本地工作区核验',
+      '宿主核验只用于跨边界效果',
       'hostContext 必须由宿主提供',
       'canonicalCwd、worktreeRoot、gitCommonDir、gitDir、branch、baseRef、baseSha、initialHeadSha、allowedWriteRoots',
       '高风险或不可分类调用缺少有效授权记录、工作区核验或宿主核验信息时 fail-closed',
       'Agent 不得自填这些信息冒充宿主核验',
+      '不据此停止整个请求',
       '保留不依赖该操作的安全工作',
       // 验证范围与证据标签
         '验证范围必须与完成主张匹配',
