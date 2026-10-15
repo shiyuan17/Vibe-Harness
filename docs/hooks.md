@@ -47,7 +47,7 @@ MCP 工具先按「服务器 + 工具名」查显式合同表。外部 codebase-
 
 拒绝输出保留稳定的英文 reasonCode（机器契约），message 使用中文并给出最小可行动作，并区分「不可判定，需要 Execution Envelope」与「明确禁止」两类。
 
-项目内的 .codex、.claude、.cursor、.gemini 目录不是全局 Agent 配置；只有位于家目录之下、紧跟家目录的配置目录才命中全局配置规则，读取这些目录不视为写入。
+项目内的 .codex、.claude、.cursor、.gemini 目录不是全局 Agent 配置；只有位于家目录之下、紧跟家目录的配置目录才命中全局配置规则，读取这些目录不视为写入。宿主管理的 worktree 物化在家目录下的 `.codex/worktrees/<worktree>/<repo>`，该子树是检出而不是配置：以它为会话根时按该检出的项目边界、控制面与红区规则判定写入；豁免只覆盖字面量 `worktrees` 段，`~/.codex/config.toml`、`~/.codex/hooks.json`、`~/.codex/skills/**` 等仍命中全局配置规则，主检出会话跨根写该 worktree 仍按项目边界拒绝。
 
 Gemini 与 OpenCode 的 Hook 机制不被支持（`hookActivation: unsupported`）。Gemini 在 `--allow-preview` 下仍会把 Hook 文件落到 `.agents/runtime/hooks/`，多宿主项目中这些文件也可能由其他目标共装，但它们不会被该宿主激活；OpenCode 不安装项目 Hook。OpenCode 的配置文件仍属于默认红区，其他已安装的 stable Hook 可在多宿主项目中保护这些路径；这不代表 OpenCode 自身拥有 Hook 防护。install／validate／doctor 对这种「文件已落盘、宿主不支持激活」的状态以 `HOOK_ACTIVATION_UNSUPPORTED` 警告按宿主归因透出，报告字段 `runtimeHooks.filesInstalled` 区分「文件在盘」与「宿主支持」。
 

@@ -21,7 +21,15 @@ const pathKeyPattern = /^(?:file_?path|path|target|destination|directory(?:_?pat
 // directory are global: `%USERPROFILE%\.codex`, `~/.claude` and friends. A
 // project that merely lives under the user profile (for example a temporary
 // project) keeps its own `.codex` and must not be treated as global config.
-const globalAgentConfigPattern = /(?:~|\$(?:\{)?HOME(?:\})?|\$env:(?:HOME|USERPROFILE)|%USERPROFILE%|[A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/][^\\/]+|[\\/](?:home|Users)[\\/][^\\/]+)[\\/'"]\.(?:codex|claude|cursor|gemini)(?:[\\/'"]|$)/iu;
+// The host's managed worktrees are the one subtree of that home config
+// directory that holds a checkout instead of configuration:
+// `~/.codex/worktrees/<worktree>/<repo>` is where the host materializes an
+// isolated worktree, so a session rooted there writes into its own project and
+// those writes are judged by the project-boundary, control-plane and red-zone
+// rules of that checkout. Only the literal `worktrees` segment is exempt, so
+// `~/.codex/config.toml`, `~/.codex/hooks.json` and a project's own
+// `.codex/hooks.json` keep their existing verdicts.
+const globalAgentConfigPattern = /(?:~|\$(?:\{)?HOME(?:\})?|\$env:(?:HOME|USERPROFILE)|%USERPROFILE%|[A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/][^\\/]+|[\\/](?:home|Users)[\\/][^\\/]+)[\\/'"]\.(?:codex|claude|cursor|gemini)(?!(?:[\\/'"]|$)worktrees(?:[\\/'"]|$))(?:[\\/'"]|$)/iu;
 const networkCommandPattern = /\b(?:curl|wget|iwr|irm|Invoke-WebRequest|Invoke-RestMethod)\b/iu;
 const secretReferencePattern = /(?:\$\{?[A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|PAT|CRED)[A-Z0-9_]*\}?|\$env:[A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|PAT|CRED)[A-Z0-9_]*|%[A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD)[A-Z0-9_]*%|Authorization\s*:[^\r\n]*(?:KEY|TOKEN|SECRET|Bearer)|-[HUu]\s+["']?[^"'\s]*(?:KEY|TOKEN|SECRET|PASSWORD|PAT|CRED))/iu;
 const egressUploadFlags = new Set(['-F', '--form', '-d', '--data', '--data-binary', '--data-raw', '-T', '--upload-file', '-K', '--config']);

@@ -10,7 +10,7 @@ import test from 'node:test';
 import { runCommand } from '../../runtime/commands/run.mjs';
 import { gitFingerprint } from '../../runtime/lib/git-fingerprint.mjs';
 import { deliveryProfiles, completionReceipt, resolveDelivery, validateCompletion, validateDeliveryConfig, overrideWarnings } from '../../runtime/lib/delivery.mjs';
-import { processStartIdentity, releaseServiceTeardown, serviceOwnership, startIdentityToken, teardownServices, treeGone, windowsConfirmedMembers, windowsTreeProbeCommand } from '../../runtime/lib/services.mjs';
+import { processStartIdentity, releaseServiceTeardown, serviceEndpoint, serviceOwnership, serviceSocketDirectory, startIdentityToken, teardownServices, treeGone, windowsConfirmedMembers, windowsTreeProbeCommand } from '../../runtime/lib/services.mjs';
 
 function git(project, ...args) {
   return execFileSync('git', args, { cwd: project, encoding: 'utf8', windowsHide: true }).trim();
@@ -615,6 +615,43 @@ test('服务登记指向复用 PID 时不发信号并保持 blocked', async () =
   }
 });
 
+test('服务登记用同目录别名拼写时仍算作了本工作区', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('大小写与 8.3 短名这类同目录别名只存在于 Windows');
+    return;
+  }
+  const { project } = await fixture();
+  const child = spawnDetachedFixture();
+  try {
+    // Windows accepts more than one spelling for one directory, and the
+    // registry is caller-readable state, so a registration written for this
+    // worktree can name it in a different case. It still names this worktree:
+    // the identity comparison has to be made on the canonical directory, or
+    // the entry is silently treated as another worktree's and a stop reports
+    // `service-not-registered` for a service that is still registered here.
+    const canonical = realpathSync(project);
+    const alias = canonical.toUpperCase();
+    assert.notEqual(alias, canonical);
+    await writeServiceRegistry(project, {
+      taskId: 'local', serviceId: 'web', worktree: alias, port: 9,
+      commandFingerprint: 'fingerprint', cwd: alias, status: 'running',
+      teardownStatus: 'unverified', stopOnTeardown: true, pid: child.pid, supervisorPid: 1,
+      startedAt: '2026-01-01T00:00:00.000Z', endpoint: unreachableEndpoint(),
+      // The recorded start time belongs to another process, so the entry is
+      // selected while nothing may be signalled on its behalf.
+      processStartTime: 'a-different-process',
+    });
+    const stopped = await command(project, 'runtime', 'service', 'stop', '--service', 'web', '--write');
+    assert.equal(stopped.report.status, 'blocked', JSON.stringify(stopped.report));
+    assert.equal(stopped.report.processes.length, 1, JSON.stringify(stopped.report));
+    assert.equal(stopped.report.processes[0].serviceId, 'web');
+    assert.equal(treeGone(child.pid), false);
+  } finally {
+    killTree(child.pid);
+    await remove(project);
+  }
+});
+
 test('服务登记身份一致时才回收进程树', async () => {
   const { project } = await fixture();
   const child = spawnDetachedFixture();
@@ -640,7 +677,11 @@ test('服务登记身份一致时才回收进程树', async () => {
 test('冒名端点回答 stopped 时不作为回收证据', async () => {
   const { project } = await fixture();
   const child = spawnDetachedFixture();
-  const endpoint = unreachableEndpoint();
+  // The recorded endpoint lives in this user's socket directory: anything else
+  // is rejected as un-publishable before it is ever asked, so an impostor that
+  // bound one of those would exercise the rejection path instead of this one.
+  const endpoint = serviceEndpoint();
+  await mkdir(serviceSocketDirectory(), { recursive: true, mode: 0o700 });
   const impostor = createServer((socket) => { socket.end(`${JSON.stringify({ status: 'stopped' })}\n`); });
   try {
     await new Promise((resolve, reject) => {
@@ -835,4 +876,25 @@ test('无 registry 的 teardown 仍取锁并留下启动屏障', async () => {
     await releaseServiceTeardown(project, realpathSync(project));
     await remove(project);
   }
+});
+
+test('工作区在运行中变化时完成草稿判为 blocked 而不是缺证据', () => {
+  const delivery = resolveDelivery({}, 'managed-mr');
+  const draft = (snapshotComparison) => completionReceipt({
+    status: 'passed',
+    selectedChecks: ['test'],
+    checks: { test: { status: 'passed', command: 'node --test' } },
+    verification: {
+      snapshotComparison,
+      acceptance: { status: 'blocked', reasonCode: 'FINAL_SNAPSHOT_MISMATCH' },
+    },
+  }, delivery);
+  // A workspace that demonstrably changed under passing checks refutes the run,
+  // so the draft is `blocked` and the CLI verdict has to fail with it. Only a
+  // comparison the run could not make at all is absent evidence, which stays
+  // `unverified`; reading every mismatch as unobservable would silently make
+  // the refuting state unreachable.
+  assert.equal(draft('changed').status, 'blocked');
+  assert.equal(draft('unknown').status, 'unverified');
+  assert.equal(draft('unavailable').status, 'unverified');
 });
