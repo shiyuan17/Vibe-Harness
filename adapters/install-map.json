@@ -390,6 +390,18 @@
       "contentStrategy": "replace"
     },
     {
+      "group": "runtime-project-scripts",
+      "source": "runtime/lib/verification-plan-support.mjs",
+      "target": ".agents/runtime/lib/verification-plan-support.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
+      "source": "runtime/lib/task-command.mjs",
+      "target": ".agents/runtime/lib/task-command.mjs",
+      "contentStrategy": "replace"
+    },
+    {
       "group": "runtime-eval-online",
       "source": "runtime/evals/codex-runner.mjs",
       "target": ".agents/runtime/evals/codex-runner.mjs",
