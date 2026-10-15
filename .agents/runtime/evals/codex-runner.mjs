@@ -1174,6 +1174,12 @@ export function transcript(stdout) {
             source: 'system',
             evidenceSource: 'tool-result',
             callId: event.item.id ?? event.item.call_id ?? event.item.tool_call_id ?? `tool-${traceEvents.length + 1}`,
+            // The outcome travels as fields as well as JSON so a reader does not have
+            // to parse the projection back out of `content` to tell a failed command
+            // from a passing one.
+            name: event.item.type,
+            ...(typeof outcome.status === 'string' ? { status: outcome.status } : {}),
+            ...(Number.isInteger(outcome.exitCode) ? { exitCode: outcome.exitCode } : {}),
             content: JSON.stringify(outcome),
             timestamp: event.timestamp ?? new Date(traceEvents.length).toISOString(),
           });

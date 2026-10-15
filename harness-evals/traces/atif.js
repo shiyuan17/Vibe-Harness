@@ -63,6 +63,17 @@ function stepFromEvent(event, index) {
     timestamp: event.timestamp ?? new Date(0).toISOString(),
     source: event.source ?? (event.type === 'tool-result' ? 'system' : 'agent'),
   };
+  // Evidence provenance and the observable outcome travel as projected extra
+  // fields. `source` keeps its ATIF meaning (who produced the step), so a
+  // downstream reader can still tell a host observation from an Agent claim
+  // without reinterpreting the existing role.
+  const provenance = {
+    evidence_source: typeof event.evidenceSource === 'string' ? event.evidenceSource : null,
+    ...(event.callId === undefined ? {} : { call_id: stableRunId(event.callId) }),
+    ...(typeof event.status === 'string' ? { status: event.status } : {}),
+    ...(Number.isInteger(event.exitCode) ? { exit_code: event.exitCode } : {}),
+    ...(typeof event.command === 'string' ? { command: event.command } : {}),
+  };
   if (event.type === 'tool-call') {
     return {
       ...base,
@@ -74,7 +85,12 @@ function stepFromEvent(event, index) {
         arguments: event.arguments ?? (event.query === undefined ? {} : { query: event.query }),
         ...(event.extra ? { extra: event.extra } : {}),
       }],
-      extra: { harness_event_type: event.type, ...(event.harness ?? {}) },
+      extra: {
+        harness_event_type: event.type,
+        tool_name: event.name ?? null,
+        ...provenance,
+        ...(event.harness ?? {}),
+      },
     };
   }
   if (event.type === 'tool-result') {
@@ -89,7 +105,12 @@ function stepFromEvent(event, index) {
           ...(event.extra ? { extra: event.extra } : {}),
         }],
       },
-      extra: { harness_event_type: event.type, ...(event.harness ?? {}) },
+      extra: {
+        harness_event_type: event.type,
+        tool_name: event.name ?? null,
+        ...provenance,
+        ...(event.harness ?? {}),
+      },
     };
   }
   return {
@@ -104,7 +125,11 @@ function stepFromEvent(event, index) {
         ...(Number.isFinite(event.metrics.costUsd) ? { cost_usd: event.metrics.costUsd } : {}),
       },
     } : {}),
-    extra: { harness_event_type: event.type ?? 'message', ...(event.harness ?? {}) },
+    extra: {
+      harness_event_type: event.type ?? 'message',
+      ...provenance,
+      ...(event.harness ?? {}),
+    },
   };
 }
 
@@ -190,6 +215,265 @@ const TAXONOMY = new Map([
   ['collector', 'Collector Failure'],
 ]);
 
+// --- Diagnostics -------------------------------------------------------------
+//
+// One report surface for the questions a failed run has to answer: where did it
+// first deviate, where did each conclusion come from, which rules were actually
+// read, what was read twice, which tools failed, where did the run wait, and
+// which completion claims lack verification. Every entry carries the step or
+// call it came from, and a missing observation is reported as `unavailable` or
+// `unverified` — never as a zero count or a pass.
+
+const FAILED_TOOL_STATUS = /^(?:cancelled|declined|denied|rejected|timed_?out|timeout|aborted|interrupted|error|failed|failure)$/iu;
+const PENDING_TOOL_STATUS = /^(?:pending|waiting|queued|in_?progress|running)$/iu;
+const WAIT_TOOL_PATTERN = /(?:^|[-_])(?:wait|sleep|poll|delay|timeout)(?:$|[-_])/iu;
+const READ_COMMAND_PATTERN = /^\s*(?:[A-Za-z]:)?[^\s]*[\\/]?\s*\b(?:cat|bat|head|tail|less|more|type|get-content|gc|rg|grep|findstr|select-string)\b/iu;
+const READ_TOOL_PATTERN = /read|view|open|fetch|get/iu;
+const RULE_PATH_PATTERN = /(?:AGENTS\.md|CLAUDE\.md|GEMINI\.md|\.agents[\\/]rules[\\/]|docs[\\/]rules[\\/])/iu;
+function stepExtra(step) {
+  return step && typeof step.extra === 'object' && step.extra !== null ? step.extra : {};
+}
+
+function stepToolCall(step) {
+  return Array.isArray(step?.tool_calls) && step.tool_calls.length > 0 ? step.tool_calls[0] : null;
+}
+
+function stepTarget(step) {
+  const call = stepToolCall(step);
+  const extra = stepExtra(step);
+  return {
+    callId: extra.call_id ?? call?.tool_call_id ?? null,
+    stepId: Number.isInteger(step?.step_id) ? step.step_id : null,
+    toolName: extra.tool_name ?? call?.function_name ?? null,
+    kind: typeof extra.harness_event_type === 'string' ? extra.harness_event_type : 'unknown',
+  };
+}
+
+function stepCommand(step) {
+  const call = stepToolCall(step);
+  const args = call?.arguments;
+  if (typeof args?.command === 'string') return args.command;
+  if (typeof args?.invocation === 'string') return args.invocation;
+  const extra = stepExtra(step);
+  if (typeof extra.command === 'string') return extra.command;
+  return null;
+}
+
+function readTarget(step) {
+  const command = stepCommand(step);
+  if (command && READ_COMMAND_PATTERN.test(command)) return command.trim().split(/\s+/u).at(-1) ?? command.trim();
+  const toolName = String(stepToolCall(step)?.function_name ?? '');
+  if (READ_TOOL_PATTERN.test(toolName) && command) return command.trim();
+  return null;
+}
+
+function buildEvidenceSources(steps) {
+  const counts = { 'agent-claim': 0, 'tool-call': 0, 'tool-result': 0, unknown: 0 };
+  for (const step of steps) {
+    const source = stepExtra(step).evidence_source;
+    if (source === 'agent-claim' || source === 'tool-call' || source === 'tool-result') counts[source] += 1;
+    else counts.unknown += 1;
+  }
+  return {
+    state: 'observed',
+    counts,
+    note: 'unknown counts steps written before provenance was recorded or by a producer that does not set it',
+  };
+}
+
+function buildRuleLoads(steps) {
+  const items = steps
+    .filter((step) => stepExtra(step).harness_event_type === 'rule-read'
+      || (stepExtra(step).evidence_source === 'tool-result' && RULE_PATH_PATTERN.test(String(stepCommand(step) ?? ''))))
+    .map((step) => stepTarget(step));
+  const toolRecords = steps.filter((step) => stepExtra(step).evidence_source === 'tool-result').length;
+  if (toolRecords === 0) {
+    return { state: 'unavailable', reason: 'no tool results in the trace', items: [] };
+  }
+  return { state: 'observed', items };
+}
+
+function buildRepeatedReads(steps) {
+  const reads = new Map();
+  for (const step of steps) {
+    const target = readTarget(step);
+    if (!target) continue;
+    const entry = reads.get(target) ?? { target, stepIds: [] };
+    const { stepId } = stepTarget(step);
+    if (stepId !== null) entry.stepIds.push(stepId);
+    reads.set(target, entry);
+  }
+  const items = [...reads.values()].filter((entry) => entry.stepIds.length > 1);
+  if (steps.length === 0) return { state: 'unavailable', reason: 'trace has no steps', items: [] };
+  return { state: 'observed', items };
+}
+
+function buildToolFailures(steps) {
+  const items = [];
+  for (const step of steps) {
+    const extra = stepExtra(step);
+    if (extra.evidence_source !== 'tool-result') continue;
+    const status = typeof extra.status === 'string' ? extra.status : null;
+    const exitCode = Number.isInteger(extra.exit_code) ? extra.exit_code : null;
+    const failed = (exitCode !== null && exitCode !== 0) || (status !== null && FAILED_TOOL_STATUS.test(status));
+    if (!failed) continue;
+    items.push({
+      ...stepTarget(step),
+      status,
+      exitCode,
+      kind: exitCode !== null && exitCode !== 0 ? 'nonzero-exit-code' : 'failed-status',
+    });
+  }
+  const toolRecords = steps.filter((step) => stepExtra(step).evidence_source === 'tool-result').length;
+  if (toolRecords === 0) return { state: 'unavailable', reason: 'no tool results in the trace', items: [] };
+  return { state: 'observed', items };
+}
+
+function buildWaits(steps) {
+  const items = [];
+  for (const step of steps) {
+    const extra = stepExtra(step);
+    const target = stepTarget(step);
+    if (extra.evidence_source === 'tool-call' && WAIT_TOOL_PATTERN.test(String(target.toolName ?? ''))) {
+      items.push({ ...target, kind: 'wait-tool' });
+      continue;
+    }
+    if (typeof extra.status === 'string' && PENDING_TOOL_STATUS.test(extra.status)) {
+      items.push({ ...target, kind: 'pending-status' });
+    }
+  }
+  if (steps.length === 0) return { state: 'unavailable', reason: 'trace has no steps', items: [] };
+  return { state: 'observed', items };
+}
+
+function buildVerificationGaps(steps, checks) {
+  const items = [];
+  const verificationSteps = steps.filter((step) => stepExtra(step).harness_event_type === 'verification');
+  const changeSteps = steps.filter((step) => stepExtra(step).harness_event_type === 'change');
+  const lastChangeId = changeSteps.length > 0 ? changeSteps.at(-1).step_id : null;
+  const coveringResults = new Set(steps
+    .filter((step) => stepExtra(step).evidence_source === 'tool-result' && stepExtra(step).exit_code === 0)
+    .map((step) => stepExtra(step).call_id)
+    .filter(Boolean));
+  for (const step of verificationSteps) {
+    const target = stepTarget(step);
+    const extra = stepExtra(step);
+    if (extra.evidence_source !== 'tool-result') {
+      items.push({ ...target, code: 'claim-without-tool-evidence', evidenceStrength: 'insufficient',
+        message: 'a verification claim is recorded without a tool result backing it' });
+    }
+    if (!Number.isInteger(extra.exit_code) && extra.status === undefined) {
+      items.push({ ...target, code: 'exit-code-missing', evidenceStrength: 'unverified',
+        message: 'the verification record has no numeric exit code, so success cannot be proven' });
+    }
+    if (lastChangeId !== null && target.stepId !== null && target.stepId < lastChangeId) {
+      items.push({ ...target, code: 'verification-before-last-change', evidenceStrength: 'deterministic',
+        message: 'this run happened before the last recorded change, so it cannot support a completion claim' });
+    }
+    if (target.callId && !coveringResults.has(target.callId) && extra.exit_code !== 0) {
+      items.push({ ...target, code: 'no-passing-covering-run', evidenceStrength: 'unverified',
+        message: 'no tool result with exit code 0 covers this verification record' });
+    }
+  }
+  for (const check of checks) {
+    if (!['failed', 'blocked', 'unverified'].includes(check.status)) continue;
+    items.push({
+      checkId: check.id,
+      code: check.code ?? check.id,
+      evidenceStrength: check.evidence ? 'deterministic' : 'insufficient',
+      message: `check ${check.id} is ${check.status}`,
+      stepId: Number.isInteger(check.evidence?.eventIndex) ? check.evidence.eventIndex + 1 : null,
+      callId: null,
+      toolName: null,
+      kind: 'check',
+    });
+  }
+  if (steps.length === 0 && checks.length === 0) {
+    return { state: 'unavailable', reason: 'neither a trace nor checks were supplied', items: [] };
+  }
+  return { state: items.length === 0 ? 'observed' : 'unverified', items };
+}
+
+function buildFirstDeviation(steps, checks, findings) {
+  const fromCheck = findings.find((finding) => Number.isInteger(finding.firstDeviation?.eventIndex));
+  if (fromCheck) {
+    return {
+      state: 'observed',
+      source: 'check',
+      checkId: fromCheck.checkId,
+      eventIndex: fromCheck.firstDeviation.eventIndex,
+      stepId: null,
+      callId: null,
+      message: `${fromCheck.taxonomy} reported by check ${fromCheck.checkId}`,
+    };
+  }
+  const gaps = buildVerificationGaps(steps, []);
+  const firstGap = gaps.items.find((item) => item.stepId !== null);
+  if (firstGap) {
+    return {
+      state: 'observed',
+      source: 'trace',
+      checkId: firstGap.checkId ?? null,
+      eventIndex: null,
+      stepId: firstGap.stepId,
+      callId: firstGap.callId,
+      message: firstGap.message,
+    };
+  }
+  const failure = buildToolFailures(steps).items[0];
+  if (failure) {
+    return {
+      state: 'observed',
+      source: 'trace',
+      checkId: null,
+      eventIndex: null,
+      stepId: failure.stepId,
+      callId: failure.callId,
+      message: `tool ${failure.toolName ?? 'unknown'} failed (${failure.kind})`,
+    };
+  }
+  return {
+    state: 'unavailable',
+    reason: steps.length === 0 ? 'trace has no steps' : 'no deviation evidence in the trace or checks',
+    source: null,
+    checkId: null,
+    eventIndex: null,
+    stepId: null,
+    callId: null,
+    message: null,
+  };
+}
+
+function buildDiagnostics(trace, checks, findings) {
+  const steps = Array.isArray(trace?.steps) ? trace.steps : null;
+  if (steps === null) {
+    const unavailable = { state: 'unavailable', reason: 'trace is unavailable', items: [] };
+    return {
+      state: 'unavailable',
+      firstDeviation: {
+        state: 'unavailable', reason: 'trace is unavailable', source: null, checkId: null,
+        eventIndex: null, stepId: null, callId: null, message: null,
+      },
+      evidenceSources: { state: 'unavailable', reason: 'trace is unavailable', counts: null },
+      ruleLoads: unavailable,
+      repeatedReads: unavailable,
+      toolFailures: unavailable,
+      waits: unavailable,
+      verificationGaps: buildVerificationGaps([], checks),
+    };
+  }
+  return {
+    state: 'available',
+    firstDeviation: buildFirstDeviation(steps, checks, findings),
+    evidenceSources: buildEvidenceSources(steps),
+    ruleLoads: buildRuleLoads(steps),
+    repeatedReads: buildRepeatedReads(steps),
+    toolFailures: buildToolFailures(steps),
+    waits: buildWaits(steps),
+    verificationGaps: buildVerificationGaps(steps, checks),
+  };
+}
+
 export function analyzeTrace(trace, checks = []) {
   const failedOrBlocked = checks.filter((check) => ['failed', 'blocked', 'unverified'].includes(check.status));
   const findings = failedOrBlocked.map((check) => ({
@@ -204,9 +488,12 @@ export function analyzeTrace(trace, checks = []) {
     evidenceStrength: check.evidence ? 'deterministic' : 'insufficient',
     suggestedValidation: check.suggestedValidation ?? null,
   }));
-  return {
-    schemaVersion: 1,
+  // The whole analysis — findings and diagnostics — passes the shared redactor so a
+  // report never leaks a session path or secret through a newly added field.
+  return redactTraceValue({
+    schemaVersion: 2,
     traceState: trace?.schema_version === 'ATIF-v1.8' || Array.isArray(trace?.steps) ? 'available' : 'unavailable',
-    findings: redactTraceValue(findings),
-  };
+    findings,
+    diagnostics: buildDiagnostics(trace, checks, findings),
+  });
 }
