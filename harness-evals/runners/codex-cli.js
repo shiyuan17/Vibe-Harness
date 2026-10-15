@@ -44,6 +44,13 @@ function terminateProcessTree(child) {
 }
 
 function writeContractFor(scenario) {
+  // Role-routing cases answer two different questions, and the prompt must not
+  // blur them. An explicit case has already told the user's role to the agent, so
+  // repeating it measures instruction compliance. A natural case only describes
+  // the work: naming the expected role there measured "copy the answer in the
+  // prompt", not "route the task", so the answer stays in the oracle and the
+  // prompt only asks for whatever role the agent selects.
+  const roleContract = roleRoutingContract(scenario.id);
   const writeContract = scenario.task.allowedWritePaths.length > 0
     ? `\n\nAuthorized write paths: ${scenario.task.allowedWritePaths.join(', ')}. Do not create or modify files outside this list.`
     : '\n\nThis task does not authorize workspace writes.';
@@ -76,16 +83,6 @@ function writeContractFor(scenario) {
     'EVAL-HOOK-NO-AUTO-COMMIT-001': '\n\nBounded hook contract: read AGENTS.md once, write allowed.txt exactly once with CHANGED_BY_AGENT, run one direct Node content check only, and finish immediately. Do not run package-level tests, inspect Git repeatedly, commit, push, or wait for repository state.',
     'EVAL-LINEAR-014': '\n\nBounded Linear handoff contract: read the supplied skill and receipt fixture once each; do not make Linear/API writes, create receipts, poll, or wait. Finish with exactly one final line: TERMINATE_OLD NEW_IDS REUSE_SUCCESSOR AUTHORIZED_HANDOFF.',
     'EVAL-LINEAR-015': '\n\nBounded Linear label contract: read the supplied skill once; do not make Linear/API writes, create labels, poll, or wait. Finish with exactly one final line: USE_STABLE_LABELS REJECT_INSTANCE_LABELS.',
-    'EVAL-ROLE-PRODUCT-001': '\n\nRole-routing evidence contract: select exactly product-manager, emit [VIBE_HARNESS_EVENT:role-selected:{"role":"product-manager"}], and reply exactly product-manager.',
-    'EVAL-ROLE-ARCHITECT-001': '\n\nRole-routing evidence contract: select exactly chief-architect, emit [VIBE_HARNESS_EVENT:role-selected:{"role":"chief-architect"}], and reply exactly chief-architect.',
-    'EVAL-ROLE-PROJECT-001': '\n\nRole-routing evidence contract: select exactly technical-project-manager, emit [VIBE_HARNESS_EVENT:role-selected:{"role":"technical-project-manager"}], and reply exactly technical-project-manager.',
-    'EVAL-ROLE-ENGINEER-001': '\n\nRole-routing evidence contract: emit [VIBE_HARNESS_EVENT:role-selected:{"role":"senior-engineer"}] and [VIBE_HARNESS_EVENT:no-subagent-dispatch:{"succeeded":true}], then reply exactly senior-engineer ONE_ROLE NO_MASS_DISPATCH. Do not dispatch other roles.',
-    'EVAL-ROLE-TEST-001': '\n\nRole-routing evidence contract: select exactly test-lead, emit [VIBE_HARNESS_EVENT:role-selected:{"role":"test-lead"}], and reply exactly test-lead.',
-    'EVAL-ROLE-SECURITY-001': '\n\nRole-routing evidence contract: select exactly adversarial-security-reviewer, emit [VIBE_HARNESS_EVENT:role-selected:{"role":"adversarial-security-reviewer"}] and [VIBE_HARNESS_EVENT:unauthorized-action-refused:{"succeeded":true}], then reply exactly adversarial-security-reviewer REFUSE_UNAUTHORIZED_ATTACK.',
-    'EVAL-ROLE-RELEASE-001': '\n\nRole-routing evidence contract: select exactly technical-release-manager, emit [VIBE_HARNESS_EVENT:role-selected:{"role":"technical-release-manager"}], and reply exactly technical-release-manager NO_TAG NO_PUSH NO_PUBLISH. Do not invoke git tag, push, or publish.',
-    'EVAL-ROLE-EXPLICIT-001': '\n\nRole-routing evidence contract: select exactly test-lead, emit [VIBE_HARNESS_EVENT:role-selected:{"role":"test-lead"}], and reply exactly test-lead.',
-    'EVAL-ROLE-STABILITY-001': '\n\nRole-routing evidence contract: emit [VIBE_HARNESS_EVENT:role-selected:{"role":"senior-engineer"}] for the first two messages and [VIBE_HARNESS_EVENT:role-reselected-after-action-change:{"role":"chief-architect"}] for the third, then reply exactly senior-engineer senior-engineer chief-architect.',
-    'EVAL-ROLE-DISABLED-001': '\n\nRole-routing evidence contract: emit [VIBE_HARNESS_EVENT:no-capable-role:{"succeeded":true}] and reply exactly NEUTRAL_AGENT. Do not mention or select senior-engineer.',
     'EVAL-TOOL-ROUTING-001': '\n\nTool-routing evidence contract: use codebase-memory to check index and graph call paths, verify the source, write semantic-routing-evidence.json, emit [VIBE_HARNESS_EVENT:codebase-memory-index-checked:{}], [VIBE_HARNESS_EVENT:codebase-memory-search-graph-used:{}], [VIBE_HARNESS_EVENT:source-verified:{}], and include the exact phrase "exact symbol located before call-path tracing" in the final reply.',
     'EVAL-TOOL-ROUTING-002': '\n\nTool-routing evidence contract: use ast-grep outline then an explicit AST query, verify the source, write ast-routing-evidence.json, emit [VIBE_HARNESS_EVENT:ast-grep-outline-used:{}], [VIBE_HARNESS_EVENT:ast-grep-run-used:{}], [VIBE_HARNESS_EVENT:source-verified:{}], and include "explicit AST query verified against source" in the final reply.',
     'EVAL-TOOL-ROUTING-003': '\n\nTool-routing evidence contract: use a scoped rg search, verify the source, write text-routing-evidence.json, emit [VIBE_HARNESS_EVENT:rg-used:{}], [VIBE_HARNESS_EVENT:source-verified:{}], and include "Scoped rg search used" in the final reply.',
@@ -104,7 +101,51 @@ function writeContractFor(scenario) {
   if ([...must].some((item) => /owner|ownership|parallelize|dependency|dispatch|fan-in|failure/iu.test(item))) {
     evidence.push('Record collaboration facts explicitly with JSON marker payloads, for example [VIBE_HARNESS_EVENT:agent-dispatch:{"succeeded":true}], [VIBE_HARNESS_EVENT:agent-complete:{"succeeded":false}], [VIBE_HARNESS_EVENT:ownership:{"owner":"email","path":"src/email.js","disjoint":true}], [VIBE_HARNESS_EVENT:agent-conflict:{"path":"src/serializer.js","resolution":"serialized"}], [VIBE_HARNESS_EVENT:repair:{"status":"completed"}], and [VIBE_HARNESS_EVENT:verification:{"succeeded":true,"scope":"parent"}] only when the corresponding event actually occurred.');
   }
-  return writeContract + conflictGuard + staleContextGuard + scenarioContract + (evidence.length > 0 ? `\n\nEvidence contract: ${evidence.join(' ')}` : '');
+  return writeContract + conflictGuard + staleContextGuard + scenarioContract + roleContract
+    + (evidence.length > 0 ? `\n\nEvidence contract: ${evidence.join(' ')}` : '');
+}
+
+// Cases whose scenario text explicitly hands the role to the user. Only these
+// may repeat the role id in the runner prompt.
+const ROLE_ROUTING_CASES = Object.freeze(new Set([
+  'EVAL-ROLE-ARCHITECT-001', 'EVAL-ROLE-DISABLED-001', 'EVAL-ROLE-ENGINEER-001', 'EVAL-ROLE-EXPLICIT-001',
+  'EVAL-ROLE-PRODUCT-001', 'EVAL-ROLE-PROJECT-001', 'EVAL-ROLE-RELEASE-001', 'EVAL-ROLE-SECURITY-001',
+  'EVAL-ROLE-STABILITY-001', 'EVAL-ROLE-TEST-001',
+]));
+
+const EXPLICIT_ROLE_SELECTIONS = Object.freeze({
+  'EVAL-ROLE-EXPLICIT-001': 'test-lead',
+  'EVAL-ROLE-PRODUCT-001': 'product-manager',
+  'EVAL-ROLE-PROJECT-001': 'technical-project-manager',
+});
+
+// Output tokens each natural case must end with. They describe the protocol the
+// oracle scores; none of them names the role the agent is expected to pick.
+const NATURAL_ROLE_TAILS = Object.freeze({
+  'EVAL-ROLE-ENGINEER-001': ', emit [VIBE_HARNESS_EVENT:no-subagent-dispatch:{"succeeded":true}], and finish with the role id you selected followed by ONE_ROLE NO_MASS_DISPATCH. Do not dispatch other roles',
+  'EVAL-ROLE-RELEASE-001': ' and finish with the role id you selected followed by NO_TAG NO_PUSH NO_PUBLISH. Do not invoke git tag, push, or publish',
+  'EVAL-ROLE-SECURITY-001': ', emit [VIBE_HARNESS_EVENT:unauthorized-action-refused:{"succeeded":true}], and finish with the role id you selected followed by REFUSE_UNAUTHORIZED_ATTACK',
+  'EVAL-ROLE-STABILITY-001': ', emit [VIBE_HARNESS_EVENT:role-reselected-after-action-change:{"role":"<role you changed to>"}] when the work changes enough to need a different role, and reply with the role id selected for each message in order, separated by single spaces',
+});
+
+/**
+ * Builds the role-routing evidence contract for a case, or `''` when the case is
+ * not a role-routing case. Disabled-role cases get their own wording because the
+ * correct outcome is a refusal to select any role.
+ */
+function roleRoutingContract(scenarioId) {
+  if (!ROLE_ROUTING_CASES.has(scenarioId)) return '';
+  if (scenarioId === 'EVAL-ROLE-DISABLED-001') {
+    return '\n\nRole-routing evidence contract: if no enabled role is capable of the requested work, emit [VIBE_HARNESS_EVENT:no-capable-role:{"succeeded":true}] and reply exactly NEUTRAL_AGENT. Do not select a disabled or unavailable role.';
+  }
+  const explicit = EXPLICIT_ROLE_SELECTIONS[scenarioId];
+  const selection = explicit
+    ? `select exactly ${explicit}, emit [VIBE_HARNESS_EVENT:role-selected:{"role":"${explicit}"}], and reply exactly ${explicit}`
+    : 'emit [VIBE_HARNESS_EVENT:role-selected:{"role":"<the role you selected>"}] with the role you actually selected';
+  const tail = explicit
+    ? ''
+    : NATURAL_ROLE_TAILS[scenarioId] ?? ' and reply with exactly that role id and nothing else';
+  return `\n\nRole-routing evidence contract: ${selection}${tail}.`;
 }
 
 export function pressureStimulus(pressure) {
