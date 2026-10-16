@@ -176,13 +176,25 @@ node .agents/runtime/commands/run.mjs patch --project . --spec <spec.json>
 
 ## Profiles and roles
 
-core 安装十一个原生 Skills，full 安装十四个原生 Skills，并默认启用七个角色人格。角色系统采用“单主角色动态切换”：每个原子动作只激活一个角色，可叠加至多一个领域 Skill；它不是固定七阶段流水线。
+### 深度问题发现
+
+core/full 提供 `find-question`（显示名 Vb Find Question）。在 Agent 中调用 `$find-question` 执行只读深查；终端命令仅准备审查包，不运行模型或宣称发现能力已验证。
+
+```bash
+vb find question --project ../some-project
+vibe-harness find question --project ../some-project --scope src --depth deep --focus authorization,lifecycle --output json
+pnpm vb find question --project ../some-project --report audit-reports/review-plan.md --write
+```
+
+`vb` 与 `vibe-harness` 是同一 npm bin 入口（包的 bin 在 PATH 中时可裸用）；在本仓库用 `pnpm vb`，无需修改全局配置。默认 deep、Markdown stdout、不写盘、不联网；`--json` 等价于 `--output json`。`--scope` 是项目内实际文件/目录，可用逗号分隔，不接受 glob；`--focus` 取值、排除策略、报告写入边界及证据限制见 [项目审计](docs/audits.md)。
+
+core 安装十二个原生 Skills，full 安装十五个原生 Skills，并默认启用七个角色人格。角色系统采用“单主角色动态切换”：每个原子动作只激活一个角色，可叠加至多一个领域 Skill；它不是固定七阶段流水线。
 
 | Profile | 安装内容 |
 | --- | --- |
 | `minimal` | 平台说明、安全边界、Git/Test 规则和可选任务/交付模板 |
-| `core` | `minimal` 加通用工程规则、十一个原生 Skills、项目内确定性脚本和离线 Eval |
-| `full` | `core` 加三个原生 Skills、在线 Eval 和已支持宿主的安全 Hook，共十四个原生 Skills |
+| `core` | `minimal` 加通用工程规则、十二个原生 Skills、项目内确定性脚本和离线 Eval |
+| `full` | `core` 加三个原生 Skills、在线 Eval 和已支持宿主的安全 Hook，共十五个原生 Skills |
 | `docs-only` | 规则、模板和 schemas，不安装 runtime、Skills、MCP 或 Hook |
 
 三个显式交付 Skill 统一采用显示名 `Vb …` 和调用标识 `vb-…`：

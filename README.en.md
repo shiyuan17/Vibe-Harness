@@ -173,13 +173,25 @@ A single Agent handles work by default. Explicit `open-code-review`, browser ver
 
 ## Profiles and roles
 
-The core profile installs eleven native Skills; full installs fourteen and enables seven role personas by default. The role system uses single-primary-role dynamic switching: each atomic action activates exactly one role and may stack at most one domain Skill; it is not a fixed seven-stage pipeline.
+### Deep defect discovery
+
+Core/full include `find-question` (Vb Find Question). Invoke `$find-question` in the Agent for a read-only review. The CLI only prepares a review packet; it does not run a model or produce verified findings.
+
+```bash
+vb find question --project ../some-project
+vibe-harness find question --project ../some-project --scope src --depth deep --focus authorization,lifecycle --output json
+pnpm vb find question --project ../some-project --report audit-reports/review-plan.md --write
+```
+
+Both bin names share the same entrypoint; bare `vb` requires the package bin on PATH. From this repository use `pnpm vb`, without global configuration changes. Defaults: deep, Markdown stdout, no writes or network. `--json` aliases `--output json`; scope accepts project-relative existing paths separated by commas, not globs. See [audits](docs/audits.md) for focus IDs, exclusions and evidence boundaries.
+
+The core profile installs twelve native Skills; full installs fifteen and enables seven role personas by default. The role system uses single-primary-role dynamic switching: each atomic action activates exactly one role and may stack at most one domain Skill; it is not a fixed seven-stage pipeline.
 
 | Profile | Installed surface |
 | --- | --- |
 | `minimal` | Platform instructions, safety boundaries, Git/Test rules, and optional task/delivery templates |
-| `core` | `minimal` plus common engineering rules, eleven native Skills, project-local deterministic scripts, and offline Eval |
-| `full` | `core` plus three native Skills, online Eval, and supported platform safety Hooks, for fourteen native Skills total |
+| `core` | `minimal` plus common engineering rules, twelve native Skills, project-local deterministic scripts, and offline Eval |
+| `full` | `core` plus three native Skills, online Eval, and supported platform safety Hooks, for fifteen native Skills total |
 | `docs-only` | Rules, templates, and schemas without runtime, Skills, MCP, or Hooks |
 
 Explicit delivery Skills use `Vb …` display names and `vb-…` invocation IDs:
