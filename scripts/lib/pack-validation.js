@@ -512,7 +512,7 @@ export const RULE_SKILL_PARITY_PAIRS = Object.freeze([
     rule: 'docs/rules/git-rules.md',
     skill: 'skills/core/vb-git-develop-flow/SKILL.md',
     skillName: 'vb-git-develop-flow',
-    sharedTerms: ['`vb-git-develop-flow`', 'local-land', '`origin/develop`'],
+    sharedTerms: ['`vb-git-develop-flow`', 'local-land', '`origin/develop`', '--target-mode remote', '显式复制'],
   },
   {
     rule: 'docs/rules/linear-workflow.md',
@@ -531,7 +531,7 @@ export const RULE_SKILL_PARITY_PAIRS = Object.freeze([
     rule: 'docs/rules/linear-workflow.md',
     skill: 'skills/integrations/vb-linear-worktree-develop/SKILL.md',
     skillName: 'vb-linear-worktree-develop',
-    sharedTerms: ['`vb-linear-worktree-develop`', 'local-land', '`origin/develop`'],
+    sharedTerms: ['`vb-linear-worktree-develop`', 'local-land', '`origin/develop`', '--target-mode remote', '主检出'],
   },
 ]);
 
