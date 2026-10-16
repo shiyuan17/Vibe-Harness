@@ -57,7 +57,7 @@ export function parseArgs(argv) {
     ['clear-blockers', 'clearBlockers'],
   ]);
   const booleanFlags = new Set(['json', 'plan', 'async', 'allow-manual', 'no-numbers', 'no-verify', 'strict', 'write', 'help', 'confirm-red-zone', 'reuse', 'push', 'complete', 'dispatch', 'clear-blockers']);
-  const valueFlags = new Set(['project', 'base', 'only', 'reviewed', 'timeout', 'output', 'tier', 'scope', 'micro', 'task', 'base-ref', 'branch-prefix', 'file', 'from', 'to', 'spec', 'root', 'title', 'goal', 'risk-level', 'stage', 'unit', 'unit-status', 'acceptance', 'decision', 'blocker', 'failure', 'next-action', 'verification', 'plan-file', 'reason', 'approval', 'test-path']);
+  const valueFlags = new Set(['project', 'base', 'only', 'reviewed', 'timeout', 'output', 'tier', 'scope', 'micro', 'task', 'base-ref', 'target-mode', 'branch-prefix', 'file', 'from', 'to', 'spec', 'root', 'title', 'goal', 'risk-level', 'stage', 'unit', 'unit-status', 'acceptance', 'decision', 'blocker', 'failure', 'next-action', 'verification', 'plan-file', 'reason', 'approval', 'test-path']);
   for (const flag of ['delivery', 'receipt', 'merge-evidence', 'mr', 'service', 'port']) valueFlags.add(flag);
   // Repeatable flags collect into arrays so one invocation can carry several
   // values (task ids, acceptance items, decisions, blockers, failures, unit updates).
@@ -97,6 +97,7 @@ export function parseArgs(argv) {
     if (!value || value.startsWith('--')) throw new Error(`Option --${key} requires a value.`);
     if (arrayFlags.has(key)) arrayFlags.get(key).push(value);
     else if (key === 'base-ref') args.baseRef = value;
+    else if (key === 'target-mode') args.targetMode = value;
     else if (key === 'branch-prefix') args.branchPrefix = value;
     else if (key === 'file' || key === 'spec' || key === 'root') args[key] = value;
     else if (key === 'from' || key === 'to') {
