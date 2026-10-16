@@ -63,9 +63,21 @@ export const EVENT_MARKERS = Object.freeze([
 // oracle ever saw it. The scanner tracks quotes, escapes, and bracket depth so a
 // `]` inside a string or a nested structure cannot end the payload early.
 const MARKER_PREFIX = '[VIBE_HARNESS_EVENT:';
+// The prefix is matched case-insensitively. The regexp parser this replaced
+// used the `giu` flags, and event names are lowercased before lookup, so a
+// literal search would silently drop `[vibe_harness_event:...]` markers and
+// leave their raw text inside the visible output.
+const MARKER_PREFIX_PATTERN = /\[VIBE_HARNESS_EVENT:/giu;
 const MARKER_NAME_CHARACTER = /[A-Za-z0-9_-]/;
 const EVENT_MARKER_NAMES = new Set(EVENT_MARKERS);
 export const MARKER_PAYLOAD_LIMIT = 1000;
+
+/** Locates the next marker prefix at or after `from`, ignoring letter case. */
+function findMarkerPrefix(text, from) {
+  MARKER_PREFIX_PATTERN.lastIndex = from;
+  const match = MARKER_PREFIX_PATTERN.exec(text);
+  return match ? match.index : -1;
+}
 
 /**
  * Scans a marker payload from `start` until the `]` that closes the marker at
@@ -110,7 +122,7 @@ export function matchEventMarkers(text) {
   if (typeof text !== 'string' || text.length === 0) return markers;
   let cursor = 0;
   while (cursor < text.length) {
-    const start = text.indexOf(MARKER_PREFIX, cursor);
+    const start = findMarkerPrefix(text, cursor);
     if (start < 0) break;
     let nameEnd = start + MARKER_PREFIX.length;
     while (nameEnd < text.length && MARKER_NAME_CHARACTER.test(text[nameEnd])) nameEnd += 1;
