@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Vibe-Harness Find Question 审查包",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "command",
+    "status",
+    "readOnly",
+    "generatedAt",
+    "project",
+    "baseline",
+    "scope",
+    "depth",
+    "focus",
+    "strategy",
+    "exclusions",
+    "checks",
+    "evidence",
+    "report",
+    "limitations",
+    "findings"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "command": { "type": "string", "const": "find question" },
+    "status": { "type": "string", "const": "planned" },
+    "readOnly": { "type": "boolean", "const": true },
+    "generatedAt": { "type": "string", "minLength": 1 },
+    "project": { "type": "string", "minLength": 1 },
+    "baseline": {
+      "type": "object",
+      "required": ["headSha", "worktreeStatus"],
+      "properties": {
+        "headSha": { "type": ["string", "null"], "pattern": "^[a-f0-9]{40,64}$" },
+        "worktreeStatus": { "type": "string", "enum": ["clean", "dirty", "unknown"] }
+      },
+      "additionalProperties": false
+    },
+    "scope": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "uniqueItems": true },
+    "depth": { "type": "string", "enum": ["quick", "standard", "deep"] },
+    "strategy": { "type": "string", "minLength": 1 },
+    "exclusions": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "uniqueItems": true },
+    "focus": { "type": "array", "items": { "type": "string", "enum": ["contract-field", "logic-rule", "reference-consumer", "data-consistency", "configuration", "authorization", "lifecycle", "api-observability"] }, "minItems": 1, "uniqueItems": true },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "questions"],
+        "properties": {
+          "id": { "type": "string", "enum": ["contract-field", "logic-rule", "reference-consumer", "data-consistency", "configuration", "authorization", "lifecycle", "api-observability"] },
+          "title": { "type": "string", "minLength": 1 },
+          "questions": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "required": ["labels", "requirements"],
+      "properties": {
+        "labels": { "type": "array", "items": { "type": "string", "enum": ["已确认事实", "静态结论", "待验证假设", "验证受阻"] }, "minItems": 4, "maxItems": 4, "uniqueItems": true },
+        "requirements": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+      },
+      "additionalProperties": false
+    },
+    "report": {
+      "type": "object",
+      "required": ["format", "path", "written"],
+      "properties": {
+        "format": { "type": "string", "const": "markdown" },
+        "path": { "type": "string", "pattern": "^audit-reports/[a-zA-Z0-9][a-zA-Z0-9._-]*\\.md$" },
+        "written": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "limitations": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "findings": { "type": "array", "maxItems": 0 }
+  },
+  "additionalProperties": false
+}

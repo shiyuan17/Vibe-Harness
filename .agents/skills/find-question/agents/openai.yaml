@@ -1,0 +1,6 @@
+interface:
+  display_name: "Vb Find Question"
+  short_description: "Deep read-only cross-layer defect discovery"
+  default_prompt: "Use $find-question to perform a deep, read-only cross-layer review and produce evidence-based findings plus a remediation plan."
+policy:
+  allow_implicit_invocation: true

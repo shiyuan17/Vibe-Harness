@@ -70,11 +70,11 @@ test('workflow scan reports malformed inventoried assets as findings', async () 
   }
 });
 
-test('skill scan reports inventory and kind coverage separately from workflow assets', async () => {
+test('Skill 扫描分别报告十九项资产和原生集成分类覆盖', async () => {
   const report = skillScanSummary(await runSkillsAudit(rootDir));
-  assert.equal(report.inventoryCount, 18);
-  assert.equal(report.scannedCount, 18);
-  assert.deepEqual(report.byKind, { native: 14, integration: 4 });
+  assert.equal(report.inventoryCount, 19);
+  assert.equal(report.scannedCount, 19);
+  assert.deepEqual(report.byKind, { native: 15, integration: 4 });
   assert.equal(report.status, 'clean');
   assert.deepEqual(report.findings, []);
 });

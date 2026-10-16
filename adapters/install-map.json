@@ -14,6 +14,42 @@
       "contentStrategy": "replace"
     },
     {
+      "group": "skills-core",
+      "source": "skills/core/find-question/SKILL.md",
+      "target": ".agents/skills/find-question/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/find-question/metadata.json",
+      "target": ".agents/skills/find-question/metadata.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/find-question/agents/openai.yaml",
+      "target": ".agents/skills/find-question/agents/openai.yaml",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/find-question/references/check-matrix.md",
+      "target": ".agents/skills/find-question/references/check-matrix.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/find-question/references/industry-practices.md",
+      "target": ".agents/skills/find-question/references/industry-practices.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "schemas-core",
+      "source": "schemas/find-question-packet.schema.json",
+      "target": "docs/schemas/find-question-packet.schema.json",
+      "contentStrategy": "replace"
+    },
+    {
       "group": "rules-minimal",
       "source": "docs/rules/agent-skill-routing.md",
       "target": "docs/rules/agent-skill-routing.md",
@@ -484,6 +520,12 @@
       "group": "evals-online",
       "source": "evals/suites/vibe-harness-response-modes.json",
       "target": ".agents/evals/suites/vibe-harness-response-modes.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "evals-online",
+      "source": "evals/suites/vibe-harness-find-question.json",
+      "target": ".agents/evals/suites/vibe-harness-find-question.json",
       "contentStrategy": "replace"
     },
     {

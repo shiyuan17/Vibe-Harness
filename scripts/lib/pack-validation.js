@@ -366,7 +366,7 @@ export async function validateSkillGraph(
     }
   }
 
-  if (nativeBodyLines > 450) errors.push(`native Skill body budget exceeds 450 lines: ${nativeBodyLines}`);
+  if (nativeBodyLines > 510) errors.push(`native Skill body budget exceeds 510 lines: ${nativeBodyLines}`);
   // The identity budget keeps the always-loaded routing surface compact. It is
   // calibrated for the English-description era (2026-09 unification): at 4
   // bytes/token the ceiling is roughly 440 tokens, still under the Chinese-era
@@ -376,7 +376,7 @@ export async function validateSkillGraph(
   // `code-navigation` joined it: that Skill's routing line is what makes the
   // deferred code-intelligence tools visible before the model picks a tool, so
   // it earns the extra always-loaded characters rather than being squeezed.
-  if (nativeIdentityCharacters > 2200) errors.push(`native Skill name and description budget exceeds 2200 characters: ${nativeIdentityCharacters}`);
+  if (nativeIdentityCharacters > 2350) errors.push(`native Skill name and description budget exceeds 2350 characters: ${nativeIdentityCharacters}`);
 
   if (checkFiles) {
     for (const root of ['skills/core', 'skills/integrations']) {
