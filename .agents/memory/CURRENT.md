@@ -6,11 +6,11 @@
 
 项目阶段、技术债与决策经本文件引用 `docs/memory/PROJECT_STATE.md` 读取，不在此复制其内容；本文件只记录任务级恢复线索。
 
-- 目标: 交付工具退役批次——退役 rtk、ast-grep、codegraph、serena、probe 与 codebase-memory 的本地安装面，codebase-memory-mcp 收敛为仅分发使用规范——并按逻辑分组提交后推送到 codex/delivery-batch
-- 当前状态: 本批已按 feat(runtime)! → docs(rules+readme+changelog) → test(validation) → eval(assets) 四组提交（2b9f9f5、93533a3、c3e8f5c、b3617f0），工作区干净、尚未推送；提交前修正 tests/integration/project-profile.test.js 中残留的 core 分发旧断言（core 现随 rules-core 分发 codebase-memory-mcp 规则）；工具退役批次的状态锚点为 .vibe-harness/tasks/tool-retirement.json（stage=verify）
-- 已验证证据: pnpm check（lint、ESLint、typecheck、validate、tests:catalog check、unit、component 339/339）、pnpm test:integration（647 例、646 通过、1 跳过、0 失败）、pnpm eval:check、pnpm docs:audit（139 篇文档）与 git diff --check 通过；组件层的 memory-entry、memory-freshness 与 docs-projection 随本次 memory 更新复跑
-- 未完成事项: 本次推送与 PR #34 复审；BL-CNAS 回灌仍被 fail-closed 拒绝（.cbmignore 与 .githooks/pre-commit、.githooks/pre-push、.codex/hooks.json 和 install-state 记录不一致，需先人工对齐受管文件）；develop → main 提升与 nightly H01–H20 背书回归；backup/governance-audit-batch 等陈旧分支清理；工具退役未改动宿主 Hook 启用状态，在线 Agent 行为未验证
-- 下一步最小动作: 推送四提交后复核 PR #34 的检查与单复审者收据并推进合并；随后与 BL-CNAS 侧确认受管文件漂移的处理方式（对齐内容或在其仓库提交中重记基线），重跑 install --upgrade --write 与 validate 并补 hook 干跑
-- 锚点提交: b3617f0cd7a87701d23d582dfb55d0903aca3980
-- 最后更新: 2026-10-14
-- 最后验证: 2026-10-14
+- 目标: 交付 find-question 深度跨层审查能力批次——新增原生 Skill、只读审查包准备命令、packet schema、合成缺陷行为套件与发布文档，并按逻辑分组提交后推送到 codex/delivery-batch
+- 当前状态: 本批已按 feat(skills+cli)（3f7928a）→ docs(find-question)（1c520c7）→ chore(eval)（f516a47）三组提交并推送到 codex/delivery-batch；offline reference 于 2026-10-16 经显式授权按资产指纹提升（drift 仅 config／rules／skills 三组，与本次资产变更一一对应，hooks 组未变）；本文件与 docs/memory/PROJECT_STATE.md 随第四组 docs(memory) 提交刷新；工作区干净
+- 已验证证据: pnpm verify:focused --run --tier quick（validate、lint、typecheck、unit 190 例）、pnpm eval:check、pnpm eval:sync（8 项投影零漂移）、pnpm eval:replay、pnpm eval:behavioral、pnpm skills:audit（native 15、integration 4、inventory 19）、pnpm tests:catalog check 与 pnpm docs:audit（140 篇文档）通过；标准层刷新前为组件 347/349、集成 640/671，失败项全部由本条目落后 HEAD 2 天触发的记忆新鲜度门禁派生，随本次刷新复跑收口
+- 未完成事项: 记忆刷新后的标准层复跑与第四组提交推送；沿用上一轮登记但本轮未复核的项：PR #34 收尾、BL-CNAS 回灌的受管文件漂移、develop → main 提升与 nightly H01–H20 回归、陈旧分支清理；find-question 检出率改善缺同条件新旧对比，在线 Agent 行为未验证
+- 下一步最小动作: 提交 docs(memory) 并推送本批四组提交后复核远端分支与 CI；若要主张 find-question 能力改善，先补同条件新旧对比再动 reference
+- 锚点提交: f516a47a51f29bed0afcf387b41599ab5d2fb743
+- 最后更新: 2026-10-16
+- 最后验证: 2026-10-16
