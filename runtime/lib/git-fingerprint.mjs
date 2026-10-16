@@ -4,6 +4,8 @@ import { lstat, readdir, readFile, readlink, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
+import { gitTimeoutMs } from './git-timeouts.mjs';
+
 const execFileAsync = promisify(execFile);
 // Nested gitlinks are followed to this depth and no further: past it the write
 // surface cannot be bounded any more, so the whole write fingerprint is dropped
@@ -19,7 +21,7 @@ async function git(args, projectDir) {
       // megabytes of NUL-separated names; a truncated read would silently turn
       // into "no write evidence", which validateCompletion() reads as a new write.
       maxBuffer: 64 * 1024 * 1024,
-      timeout: 15_000,
+      timeout: gitTimeoutMs(),
       windowsHide: true,
     });
     return { ok: true, stdout: result.stdout };
@@ -41,7 +43,7 @@ async function gitBytes(args, projectDir) {
       cwd: projectDir,
       encoding: 'buffer',
       maxBuffer: 64 * 1024 * 1024,
-      timeout: 15_000,
+      timeout: gitTimeoutMs(),
       windowsHide: true,
     });
     return { ok: true, stdout: Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout ?? '') };

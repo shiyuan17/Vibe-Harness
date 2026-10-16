@@ -61,6 +61,7 @@ import {
 
 import { boundedOutput, normalizePath } from './cli-output.mjs';
 import { CONFIG_FILE, PASS_STATUSES, SCHEMA_VERSION, assertSafeCommand, delay, isInsidePath, normalizeSlashes, packageManager, probeExecutable, readProjectConfig, runFile, runGit, safeRealpath } from './cli-runtime.mjs';
+import { gitTimeoutMs } from './git-timeouts.mjs';
 import { TASK_UNIT_FAILURE_STATUSES, planDependentUnits, planUnitGraph, readTaskAnchor, taskAnchorRelativePath, taskCheckpointReport, taskPlanCheckReport } from './task-command.mjs';
 import { verifyProject } from './verification-command.mjs';
 import { configuredChecks, executeCommand, parseVerifyTier, resolveReceiptTier, resolveReviewedChecks, timeoutValue } from './verification-plan-support.mjs';
@@ -359,7 +360,7 @@ function resolveWorktreeSettings(projectDir, projectConfig, args) {
 async function worktreeEntries(projectDir) {
   const top = await runGit(['rev-parse', '--show-toplevel'], projectDir);
   if (!top.ok) return { entries: [], repositoryRoot: null, reason: 'not-a-git-worktree' };
-  const listing = await runFile('git', ['worktree', 'list', '--porcelain', '-z'], { cwd: projectDir, timeoutMs: 15_000 });
+  const listing = await runFile('git', ['worktree', 'list', '--porcelain', '-z'], { cwd: projectDir, timeoutMs: gitTimeoutMs() });
   if (!listing.ok) return { entries: [], repositoryRoot: normalizePath(top.stdout.trim()), reason: 'worktree-list-failed' };
   return { entries: parseWorktreeList(listing.stdout), repositoryRoot: normalizePath(top.stdout.trim()), reason: null };
 }

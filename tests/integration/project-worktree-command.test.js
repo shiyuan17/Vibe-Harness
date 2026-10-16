@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 import { removeTemporaryDirectory } from '../../scripts/lib/temp-cleanup.js';
 import { landLockTimeoutMs, runCommand } from '../../runtime/commands/run.mjs';
+import { GIT_TIMEOUT_MS, MAX_GIT_TIMEOUT_MS, MIN_GIT_TIMEOUT_MS, gitTimeoutMs } from '../../runtime/lib/git-timeouts.mjs';
 import { expandMirrors, linkOrCopyMirrors, removeMirrorLinks } from '../../runtime/lib/worktree-mirrors.mjs';
 
 // `run.mjs worktree` is the installed entry point for worktree provisioning and
@@ -1890,5 +1891,39 @@ test('develop local-land 推送被拒后保留任务分支与 worktree', async (
     assert.notEqual(await git(origin, ['rev-parse', 'refs/heads/develop']), await git(fixture.repo, ['rev-parse', 'develop']));
   } finally {
     await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('Git 子进程预算默认 120 秒且可被父进程环境变量收紧或放大', () => {
+  assert.equal(GIT_TIMEOUT_MS, 120_000);
+  assert.equal(gitTimeoutMs({}), 120_000);
+  assert.equal(gitTimeoutMs({ VIBE_HARNESS_GIT_TIMEOUT_MS: '1000' }), MIN_GIT_TIMEOUT_MS);
+  assert.equal(gitTimeoutMs({ VIBE_HARNESS_GIT_TIMEOUT_MS: '180000' }), 180_000);
+  // Unlike the land-lock budget this knob may widen the window: the measured
+  // failure is a volume slower than the default (a `git worktree add` killed
+  // mid-flight), not a stale lock that a caller must not extend.
+  assert.equal(gitTimeoutMs({ VIBE_HARNESS_GIT_TIMEOUT_MS: '3600000' }), MAX_GIT_TIMEOUT_MS);
+  for (const unusable of ['999', '3600001', '180000.5', 'not-a-number', '0', '-5', '']) {
+    assert.equal(gitTimeoutMs({ VIBE_HARNESS_GIT_TIMEOUT_MS: unusable }), GIT_TIMEOUT_MS, unusable);
+  }
+  // `runGit` resolves the default parameter, so it must read the live
+  // environment rather than a value captured at import time.
+  process.env.VIBE_HARNESS_GIT_TIMEOUT_MS = '240000';
+  try {
+    assert.equal(gitTimeoutMs(), 240_000);
+  } finally {
+    delete process.env.VIBE_HARNESS_GIT_TIMEOUT_MS;
+  }
+});
+
+test('每个 Git 调用都取共享预算而不是自带 15 秒字面量', async () => {
+  const libDir = fileURLToPath(new URL('../../runtime/lib/', import.meta.url));
+  for (const name of ['cli-runtime.mjs', 'git-fingerprint.mjs', 'verification-plan.mjs', 'worktree-command.mjs']) {
+    const source = await readFile(path.join(libDir, name), 'utf8');
+    assert.match(source, /gitTimeoutMs/u, `${name} must resolve the shared Git budget`);
+    // The private literal is the exact shape that made `worktree land` fail on a
+    // slow volume: the call is killed mid-flight and the caller then reads the
+    // empty result as "no fact available" instead of as a timeout.
+    assert.doesNotMatch(source, /15_000/u, `${name} must not keep its own Git budget`);
   }
 });

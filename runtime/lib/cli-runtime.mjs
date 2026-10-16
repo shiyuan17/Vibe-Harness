@@ -14,6 +14,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 
 import { gitSnapshot } from './git-fingerprint.mjs';
+import { gitTimeoutMs } from './git-timeouts.mjs';
 import { pathKey } from './worktree-audit.mjs';
 
 import { boundedOutput, normalizePath, redactText } from './cli-output.mjs';
@@ -158,7 +159,10 @@ export async function probeExecutable(program, cwd) {
   return result.ok;
 }
 export async function runGit(args, cwd) {
-  return runFile('git', args, { cwd, timeoutMs: 15_000 });
+  // Every Git call the runtime makes shares one budget: a call killed mid-flight
+  // reports `ok: false`, which the worktree and verification paths read as a
+  // missing fact rather than as a failure of the operation being checked.
+  return runFile('git', args, { cwd, timeoutMs: gitTimeoutMs() });
 }
 function parseNameStatus(value) {
   const records = String(value ?? '').split('\0').filter(Boolean);

@@ -3,6 +3,8 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 
+import { gitTimeoutMs } from './git-timeouts.mjs';
+
 export const VERIFICATION_TIERS = ['quick', 'standard', 'deep'];
 export const SLOT_TIERS = Object.freeze({ lint: 'quick', typecheck: 'quick', test: 'quick', eval: 'deep' });
 export const SCRIPT_PATTERNS = Object.freeze({
@@ -32,7 +34,7 @@ export function verificationPaths(projectDir, values) {
 
 export function verificationChanges(projectDir, { paths = undefined, base = undefined } = {}) {
   const git = (args) => execFileSync('git', args, {
-    cwd: projectDir, encoding: 'utf8', windowsHide: true, timeout: 15_000,
+    cwd: projectDir, encoding: 'utf8', windowsHide: true, timeout: gitTimeoutMs(),
     env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' }, stdio: ['ignore', 'pipe', 'pipe'],
   });
   let baseSha;

@@ -427,6 +427,12 @@
     },
     {
       "group": "runtime-project-scripts",
+      "source": "runtime/lib/git-timeouts.mjs",
+      "target": ".agents/runtime/lib/git-timeouts.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
       "source": "runtime/lib/verification-plan-support.mjs",
       "target": ".agents/runtime/lib/verification-plan-support.mjs",
       "contentStrategy": "replace"
