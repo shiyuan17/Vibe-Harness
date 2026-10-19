@@ -28,7 +28,7 @@ test('manifests expose adapters, profiles, rules, and skills', async () => {
   assert.deepEqual(Object.keys(manifests).sort(), ['adapters', 'profiles', 'roles', 'rules', 'skills']);
   assert.equal(manifests.rules.items.some((item) => item.id === 'governance-core'), true);
   assert.equal(manifests.rules.items.some((item) => item.id === 'chrome-devtools-mcp'), true);
-  assert.equal(manifests.skills.items.filter((item) => item.kind === 'native').length, 15);
+  assert.equal(manifests.skills.items.filter((item) => item.kind === 'native').length, 16);
   assert.deepEqual(manifests.profiles.items.map((item) => item.id), ['minimal', 'core', 'full', 'docs-only']);
 });
 
@@ -104,7 +104,7 @@ test('adapter manifest v5 requires execution authority and the fixed Hook contra
   const manifest = await readJson(path.join(rootDir, 'manifests/adapters.json'));
   const schema = await readJson(path.join(rootDir, 'schemas/adapter-pack.schema.json'));
   const expected = {
-    codex: ['stable', 'stable', 'not-projected', 'manual-trust'],
+    codex: ['stable', 'not-projected', 'not-projected', 'manual-trust'],
     claude: ['stable', 'stable', 'not-projected', 'config-file'],
     gemini: ['unsupported', 'unsupported', 'unsupported', 'unsupported'],
     cursor: ['stable', 'unsupported', 'unsupported', 'config-file'],

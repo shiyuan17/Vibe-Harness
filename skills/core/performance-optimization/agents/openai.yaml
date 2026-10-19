@@ -1,0 +1,6 @@
+interface:
+  display_name: "Performance Optimization"
+  short_description: "Measure repeat cost, optimize safely, and prove the improvement"
+  default_prompt: "Use $performance-optimization to establish a baseline, identify repeated work and contention, implement the safest optimization, and compare before/after evidence."
+policy:
+  allow_implicit_invocation: true

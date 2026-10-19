@@ -17,10 +17,10 @@ import { scanForForbiddenTerms } from '../../scripts/lib/redaction.js';
 import { assertRuleAnchors } from '../helpers/governed-docs.js';
 
 const rootDir = path.resolve(import.meta.dirname, '../..');
-const coreSkills = ['clarify-requirements', 'define-goal', 'task-decomposition', 'vb-git-split-push', 'vb-git-develop-flow', 'systematic-debugging', 'bug-finding', 'find-question', 'stale-cleanup', 'eval-driven-development', 'security-and-hardening', 'code-navigation'];
+const coreSkills = ['clarify-requirements', 'define-goal', 'task-decomposition', 'vb-git-split-push', 'vb-git-develop-flow', 'systematic-debugging', 'performance-optimization', 'bug-finding', 'find-question', 'stale-cleanup', 'eval-driven-development', 'security-and-hardening', 'code-navigation'];
 const fullSkills = [...coreSkills, 'api-and-interface-design', 'frontend-design', 'runtime-cross-repo-rollout'];
 
-test('清单声明规范治理规则与十五个原生 Skills', async () => {
+test('清单声明规范治理规则与十六个原生 Skills', async () => {
   const manifests = await loadAllManifests(rootDir);
   const rules = new Set(manifests.rules.items.map((item) => item.id));
   for (const id of ['governance-core', 'git-rules', 'test-rules', 'agent-skill-routing']) assert.equal(rules.has(id), true);
@@ -212,7 +212,7 @@ test('sibling rule references must resolve inside docs/rules', async () => {
 
 // Four full-repo install plans are I/O-bound and exceed the runner's default
 // budget under the suite's --test-concurrency (25.2s solo on 2026-09-19).
-test('profile 按预期分别安装零或十二或十五个原生 Skills', { timeout: 120000 }, async () => {
+test('profile 按预期分别安装零或十三或十六个原生 Skills', { timeout: 120000 }, async () => {
   for (const [profile, expected] of [['minimal', []], ['docs-only', []], ['core', coreSkills], ['full', fullSkills]]) {
     const plan = await createInstallPlan({ dryRun: true, profile, rootDir, targetDir: path.join(rootDir, `.tmp-depth-${profile}`) });
     const targets = new Set(plan.actions.map((item) => item.relativeTarget));

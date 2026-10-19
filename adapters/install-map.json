@@ -385,6 +385,12 @@
     },
     {
       "group": "runtime-project-scripts",
+      "source": "runtime/lib/verification-lock.mjs",
+      "target": ".agents/runtime/lib/verification-lock.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
       "source": "runtime/lib/git-fingerprint.mjs",
       "target": ".agents/runtime/lib/git-fingerprint.mjs",
       "contentStrategy": "replace"
@@ -753,6 +759,42 @@
       "group": "skills-core",
       "source": "skills/core/systematic-debugging/find-polluter.sh",
       "target": ".agents/skills/systematic-debugging/find-polluter.sh",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/performance-optimization/SKILL.md",
+      "target": ".agents/skills/performance-optimization/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/performance-optimization/metadata.json",
+      "target": ".agents/skills/performance-optimization/metadata.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/performance-optimization/agents/openai.yaml",
+      "target": ".agents/skills/performance-optimization/agents/openai.yaml",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/performance-optimization/references/command-budget.md",
+      "target": ".agents/skills/performance-optimization/references/command-budget.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/performance-optimization/references/cache-and-receipts.md",
+      "target": ".agents/skills/performance-optimization/references/cache-and-receipts.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/performance-optimization/references/verification-strategy.md",
+      "target": ".agents/skills/performance-optimization/references/verification-strategy.md",
       "contentStrategy": "replace"
     },
     {

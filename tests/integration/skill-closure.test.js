@@ -11,7 +11,7 @@ import { runSkillsAudit } from '../../scripts/lib/skills-audit.js';
 
 const rootDir = path.resolve(import.meta.dirname, '../..');
 const execFileAsync = promisify(execFile);
-const coreSkills = ['clarify-requirements', 'define-goal', 'task-decomposition', 'vb-git-split-push', 'vb-git-develop-flow', 'systematic-debugging', 'bug-finding', 'find-question', 'stale-cleanup', 'eval-driven-development', 'security-and-hardening', 'code-navigation'];
+const coreSkills = ['clarify-requirements', 'define-goal', 'task-decomposition', 'vb-git-split-push', 'vb-git-develop-flow', 'systematic-debugging', 'performance-optimization', 'bug-finding', 'find-question', 'stale-cleanup', 'eval-driven-development', 'security-and-hardening', 'code-navigation'];
 const fullSkills = ['api-and-interface-design', 'frontend-design', 'runtime-cross-repo-rollout'];
 const nativeSkills = [...coreSkills, ...fullSkills];
 const retiredSkills = [
@@ -20,11 +20,11 @@ const retiredSkills = [
   'loop-planning', 'subagent-driven-development',
 ];
 
-test('清单声明十五个原生和四个显式集成 Skills', async () => {
+test('清单声明十六个原生和四个显式集成 Skills', async () => {
   const manifest = await readJson(path.join(rootDir, 'manifests/skills.json'));
   assert.deepEqual(manifest.items.filter((item) => item.kind === 'native').map((item) => item.id), nativeSkills);
   assert.deepEqual(manifest.items.filter((item) => item.kind === 'integration').map((item) => item.id), ['browser-verification', 'agentmemory', 'linear-workflow', 'vb-linear-worktree-develop']);
-  assert.equal(manifest.items.length, 19);
+  assert.equal(manifest.items.length, 20);
   for (const item of manifest.items) {
     assert.deepEqual(item.requiresSkills, []);
     assert.deepEqual(item.optionalSkills, []);
@@ -75,7 +75,7 @@ test('native Skill descriptions, bodies, resources, and OpenAI metadata stay wit
   assert.ok(identityCharacters <= 2350);
 });
 
-test('core 和 full 分别安装十二和十五个原生 Skills', async () => {
+test('core 和 full 分别安装十三和十六个原生 Skills', async () => {
   for (const [profile, expected] of [['core', coreSkills], ['full', nativeSkills]]) {
     const plan = await createInstallPlan({ dryRun: true, profile, rootDir, targetDir: path.join(rootDir, `.tmp-skills-${profile}`) });
     const installed = plan.actions
@@ -147,8 +147,8 @@ test('retirement catalog covers every removed Router and flow Skill', async () =
 
 test('skills audit derives the compact inventory and executes the graph validator', async () => {
   const { stdout } = await execFileAsync(process.execPath, ['scripts/skills-audit.js'], { cwd: rootDir });
-  assert.match(stdout, /总数：19/u);
-  assert.match(stdout, /native：15/u);
+  assert.match(stdout, /总数：20/u);
+  assert.match(stdout, /native：16/u);
   assert.match(stdout, /integration：4/u);
   assert.deepEqual((await runSkillsAudit(rootDir)).errors, []);
 });

@@ -382,7 +382,7 @@ test('transcript records only explicit structured handoffs', () => {
 
 const installedSkillOwners = [
   'agentmemory', 'api-and-interface-design', 'bug-finding', 'clarify-requirements',
-  'code-navigation', 'define-goal', 'eval-driven-development', 'find-question', 'frontend-design', 'runtime-cross-repo-rollout',
+  'code-navigation', 'define-goal', 'eval-driven-development', 'find-question', 'frontend-design', 'performance-optimization', 'runtime-cross-repo-rollout',
   'security-and-hardening', 'stale-cleanup', 'systematic-debugging', 'task-decomposition', 'vb-git-split-push', 'vb-git-develop-flow',
 ].map((id) => ({ kind: 'skill', id }));
 
@@ -430,7 +430,7 @@ test('knowledge coverage distinguishes existing coverage, missing evidence, and 
   assert.equal(confirmed.promotionStatus, 'eligible-for-owner-review');
 });
 
-test('知识覆盖候选清单匹配已安装的十六个项目 Skills', async () => {
+test('知识覆盖候选清单匹配已安装的项目 Skills', async () => {
   const installed = (await readdir(path.join(rootDir, '.agents/skills'), { withFileTypes: true }))
     .filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
   assert.deepEqual(installed, installedSkillOwners.map((owner) => owner.id).sort());

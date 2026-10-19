@@ -1,6 +1,6 @@
 ---
 name: code-navigation
-description: Use before modifying or reasoning about existing code that spans files: locate symbols, trace call paths, and map impact. Not for single-file text, config, or log lookup, or already-located root causes.
+description: Use before changing cross-file code: locate symbols, trace calls, and map impact; not for single-file or config lookup.
 ---
 
 # 跨文件代码上下文
