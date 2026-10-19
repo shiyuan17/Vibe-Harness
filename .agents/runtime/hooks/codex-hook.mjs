@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { execFile } from 'node:child_process';
+import { appendFileSync, lstatSync, mkdirSync, readFileSync } from 'node:fs';
 import { realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -131,7 +132,7 @@ async function evaluateSyncWorkingTreeGuard(input) {
 
 /**
  * @param {unknown} rawInput
- * @param {{environment?: NodeJS.ProcessEnv, expectedEvent?: string | null, host?: string, now?: number | Date, telemetry?: (event: {host: string, event: string | null, action: string, reasonCode?: string | null, durationMs: number, startupMs: number | null, policyMs: number | null, timeout: boolean, failure: string | null}) => void}} options
+ * @param {{environment?: NodeJS.ProcessEnv, expectedEvent?: string | null, host?: string, now?: number | Date, telemetry?: (event: {hookId: string, rootDir?: string | null, host: string, event: string | null, mode: string | null, profile: string | null, enforcement: string | null, action: string, reasonCode?: string | null, wouldBlock: boolean, suppressed: boolean, durationMs: number, startupMs: number | null, policyMs: number | null, timeout: boolean, failure: string | null}) => void}} options
  */
 export async function evaluateHook(rawInput, {
   environment = process.env,
@@ -143,6 +144,8 @@ export async function evaluateHook(rawInput, {
   const startedAt = process.hrtime.bigint();
   const elapsedMs = () => Number((process.hrtime.bigint() - startedAt) / 1_000_000n);
   let startupAt = null;
+  let settings = null;
+  let projectRoot = null;
   const emitTelemetry = (result, decision = null, failure = null) => {
     if (typeof telemetry !== 'function') return result;
     const durationMs = elapsedMs();
@@ -150,10 +153,17 @@ export async function evaluateHook(rawInput, {
     const policyMs = startupAt === null ? null : Math.max(0, durationMs - startupMs);
     try {
       telemetry({
+        hookId: `vibe-harness.${host}.${typeof result?.hookSpecificOutput?.hookEventName === 'string'
+          ? result.hookSpecificOutput.hookEventName
+          : input?.event ?? expectedEvent ?? 'unknown'}`,
+        rootDir: projectRoot,
         host,
         event: typeof result?.hookSpecificOutput?.hookEventName === 'string'
           ? result.hookSpecificOutput.hookEventName
-          : expectedEvent ?? null,
+          : input?.event ?? expectedEvent ?? null,
+        mode: settings?.mode ?? null,
+        profile: settings?.profile ?? null,
+        enforcement: settings?.enforcement ?? null,
         action: decision?.action
           ?? (host === 'antigravity'
             ? result?.decision
@@ -161,6 +171,8 @@ export async function evaluateHook(rawInput, {
               ?? result?.hookSpecificOutput?.decision?.behavior)
           ?? 'allow',
         ...(decision?.reasonCode ? { reasonCode: decision.reasonCode } : {}),
+        wouldBlock: decision?.wouldBlock === true || decision?.action === 'deny',
+        suppressed: decision?.suppressed === true,
         durationMs,
         startupMs,
         policyMs,
@@ -205,10 +217,14 @@ export async function evaluateHook(rawInput, {
     return emitTelemetry(host === 'antigravity' ? { decision: 'allow' } : {}, { action: 'allow' });
   }
   const rootDir = await findProjectRoot(input.cwd);
-  const settings = await readHookSettings(rootDir);
+  projectRoot = rootDir;
+  settings = await readHookSettings(rootDir);
   const syncDecision = await evaluateSyncWorkingTreeGuard(input);
   if (syncDecision !== null) {
-    return createHostHookResult(host, input.event, syncDecision, { durationMs: elapsedMs() });
+    return emitTelemetry(
+      createHostHookResult(host, input.event, syncDecision, { durationMs: elapsedMs() }),
+      syncDecision,
+    );
   }
   const frozenTestDecision = await evaluateFrozenTestWrite(input, rootDir);
   if (frozenTestDecision.action === 'deny') {
@@ -233,6 +249,7 @@ export async function evaluateHook(rawInput, {
     allowedEgressHosts: settings.allowedEgressHosts,
     mode: settings.mode,
     permissionPreset,
+    profile: settings.profile,
     projectRoot: rootDir,
     redZonePaths: settings.redZonePaths,
   });
@@ -264,6 +281,43 @@ export async function evaluateCodexHook(rawInput, options = {}) {
   return evaluateHook(rawInput, { ...options, host: 'codex' });
 }
 
+/**
+ * Append one bounded decision record per invocation. The sink deliberately
+ * carries only the stable ids, posture and timing fields; tool arguments and
+ * command text never reach the file. Telemetry is best-effort: a read-only or
+ * full disk must not turn a safe decision into a Hook failure.
+ */
+function defaultTelemetrySink(event) {
+  if (process.env.VIBE_HARNESS_HOOK_TELEMETRY === '0') return;
+  if (typeof event?.rootDir !== 'string' || event.rootDir === '') return;
+  try {
+    // Keep hook telemetry beside the repository metadata (shared by every
+    // worktree) instead of polluting the checkout, and never invent a store in
+    // a directory that is not a Git worktree.
+    const dotGit = path.join(event.rootDir, '.git');
+    const info = lstatSync(dotGit);
+    let gitDirectory = dotGit;
+    if (info.isFile()) {
+      const pointer = readFileSync(dotGit, 'utf8').match(/^gitdir:\s*(.+)$/mu)?.[1]?.trim();
+      if (!pointer) return;
+      gitDirectory = path.resolve(event.rootDir, pointer);
+      try {
+        const commonPointer = readFileSync(path.join(gitDirectory, 'commondir'), 'utf8').trim();
+        if (commonPointer !== '') gitDirectory = path.resolve(gitDirectory, commonPointer);
+      } catch {
+        // Older Git layouts may not expose `commondir`; the worktree Git
+        // directory is still a valid per-worktree telemetry sink.
+      }
+    }
+    const directory = path.join(gitDirectory, 'vibe-harness', 'hooks');
+    mkdirSync(directory, { recursive: true });
+    const { rootDir, ...record } = event;
+    appendFileSync(path.join(directory, 'telemetry.jsonl'), `${JSON.stringify(record)}\n`, { encoding: 'utf8', mode: 0o600 });
+  } catch {
+    // Telemetry is not a decision input.
+  }
+}
+
 // A Worktree reaches this entry through its `.agents` junction, so the entry
 // path is compared by realpath: a plain resolve/URL comparison made a Worktree
 // session skip every safety decision and return no result at all.
@@ -289,7 +343,7 @@ if (hookEntryPath !== null && hookEntryPath === hookModulePath) {
     process.exit(0);
   }, hookBudgetMs);
   try {
-    const result = await evaluateHook(await readStdin(), { expectedEvent, host });
+    const result = await evaluateHook(await readStdin(), { expectedEvent, host, telemetry: defaultTelemetrySink });
     answer(result);
   } catch {
     answer(hookFailureResult(host, expectedEvent));

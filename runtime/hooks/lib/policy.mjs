@@ -15,6 +15,31 @@ export const supportedCodexHookEvents = new Set([
   'PermissionRequest',
 ]);
 
+// A profile may suppress ordinary policy friction, never the boundaries that
+// protect credentials, the project boundary, the control plane, destructive
+// Git, global Agent configuration, frozen acceptance assets, the Execution
+// Envelope, or an acting role's permission ceiling. Codes not listed here are
+// ordinary policy risks: they can be downgraded to warnings or telemetry by
+// mode/profile, but a hard boundary always stays a deny.
+export const HARD_BOUNDARY_REASON_CODES = Object.freeze(new Set([
+  'UNSAFE_SHELL_CONSTRUCT',
+  'DESTRUCTIVE_GIT',
+  'GLOBAL_AGENT_CONFIG',
+  'CREDENTIAL_EXFILTRATION',
+  'CONTROL_PLANE_WRITE',
+  'PROJECT_BOUNDARY',
+  'ROLE_PERMISSION_PRESET',
+  'FROZEN_TEST_WRITE',
+  'FROZEN_TEST_WRITE_TARGET_UNKNOWN',
+  'FROZEN_TEST_STATE_UNAVAILABLE',
+  'EXECUTION_ENVELOPE',
+  'EXECUTION_ENVELOPE_REQUIRED',
+]));
+
+export function isHardBoundaryReason(reasonCode) {
+  return typeof reasonCode === 'string' && HARD_BOUNDARY_REASON_CODES.has(reasonCode);
+}
+
 const writeToolPattern = /(?:apply_patch|write|edit|delete|remove|move|rename|create)/iu;
 const pathKeyPattern = /^(?:file_?path|path|target|destination|directory(?:_?path)?|dir)$/iu;
 // Only the Agent configuration directories that sit directly under a home
@@ -593,16 +618,41 @@ export function analyzeToolRequest(input, {
   allowedEgressHosts = [],
   mode = 'guarded',
   permissionPreset = null,
+  profile = 'standard',
   projectRoot = input.cwd,
   redZonePaths = [],
 } = {}) {
   if (mode === 'off') return { action: 'allow' };
   const risk = classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts, redZonePaths, permissionPreset);
   if (!risk) return { action: 'allow' };
-  if (risk.level === 'warn' || mode === 'observe') {
-    return { action: 'warn', reason: risk.reason, reasonCode: risk.reasonCode };
+  const wouldBlock = risk.level === 'deny';
+  const hard = isHardBoundaryReason(risk.reasonCode);
+  // `minimal` keeps hard boundaries and drops the ordinary checks entirely:
+  // the decision is an allow with telemetry metadata, so no policy text is
+  // injected into the model context for a risk the profile chose to observe.
+  if (profile === 'minimal' && !hard) {
+    return {
+      action: 'allow',
+      suppressed: true,
+      wouldBlock,
+      reason: risk.reason,
+      reasonCode: risk.reasonCode,
+    };
   }
-  return { action: 'deny', reason: risk.reason, reasonCode: risk.reasonCode };
+  // `observe` only lowers ordinary policy. A hard boundary stays a deny in
+  // every mode except the host's own off switch.
+  if (hard) {
+    return { action: 'deny', wouldBlock: true, reason: risk.reason, reasonCode: risk.reasonCode };
+  }
+  // `strict` keeps every detected risk blocking even under `observe`; it is the
+  // explicit way to opt out of ordinary warning-only behaviour.
+  if (profile === 'strict') {
+    return { action: 'deny', wouldBlock: true, reason: risk.reason, reasonCode: risk.reasonCode };
+  }
+  if (risk.level === 'warn' || mode === 'observe') {
+    return { action: 'warn', wouldBlock, reason: risk.reason, reasonCode: risk.reasonCode };
+  }
+  return { action: 'deny', wouldBlock: true, reason: risk.reason, reasonCode: risk.reasonCode };
 }
 
 /** @param {string} event @param {Record<string, any>} decision @param {{durationMs?: number}} options */

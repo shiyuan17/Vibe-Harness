@@ -6,7 +6,11 @@ export function adapterSafetyPosture(adapter) {
   const reasons = [];
   const preToolUse = adapter.hookEvents?.preToolUse || 'unsupported';
   const permissionRequest = adapter.hookEvents?.permissionRequest || 'unsupported';
-  if (preToolUse !== 'stable' || permissionRequest !== 'stable') {
+  // A host may intentionally project only PreToolUse. That is one complete
+  // safety decision at the earliest point, not a missing second gate; the
+  // PermissionRequest event is optional and no longer required in isolation.
+  const permissionCovered = permissionRequest === 'stable' || permissionRequest === 'not-projected';
+  if (preToolUse !== 'stable' || !permissionCovered) {
     reasons.push('hookEvents=' + preToolUse + '/' + permissionRequest + ': runtime red-zone, egress, and credential policies are not fully enforced');
   }
   if (!adapter.redZonePrefixes || adapter.redZonePrefixes.length === 0) {

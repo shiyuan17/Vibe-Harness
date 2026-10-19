@@ -23,16 +23,13 @@ function state(...targets) {
 }
 
 /**
- * A `.codex/hooks.json` that reproduces the pack's guarded-event surface: the
- * catch-all `PreToolUse` matcher and `PermissionRequest`, each invoking the
- * managed entry for the event it is registered under. The self-check compares
- * the installed definition against the adapter template, so a fixture that
- * wires only one event is (correctly) degraded.
+ * A `.codex/hooks.json` that reproduces the pack's guarded-event surface. Codex
+ * registers one catch-all `PreToolUse` entry only; registering a second
+ * approval-time event would launch a redundant Hook process per tool call.
  */
 function codexHookConfig(command = (event) => `node .agents/runtime/hooks/codex-hook.mjs --host codex --expected-event ${event}`) {
   return {
     hooks: {
-      PermissionRequest: [{ hooks: [{ type: 'command', command: command('PermissionRequest'), timeout: 10 }] }],
       PreToolUse: [{ matcher: '.*', hooks: [{ type: 'command', command: command('PreToolUse'), timeout: 10 }] }],
     },
   };
@@ -230,13 +227,13 @@ test('Hook 自检拒绝缺失、漂移或未接线的已安装 handler', async (
     }, null, 2) + '\n', 'utf8');
     assert.deepEqual(
       await inspectRuntimeHookSelfCheck(adapter, target, { configured: true }),
-      unwired('PermissionRequest'),
+      unwired('PreToolUse'),
     );
 
     // A managed command registered under the wrong event — or under an event
     // the host does not guard at all — is not wiring for the event that runs.
     await writeFile(path.join(target, '.codex', 'hooks.json'), JSON.stringify(codexHookConfig(
-      (event) => `node .agents/runtime/hooks/codex-hook.mjs --host codex --expected-event ${event === 'PreToolUse' ? 'PermissionRequest' : event}`,
+      () => 'node .agents/runtime/hooks/codex-hook.mjs --host codex --expected-event PermissionRequest',
     ), null, 2) + '\n', 'utf8');
     assert.deepEqual(
       await inspectRuntimeHookSelfCheck(adapter, target, { configured: true }),
@@ -246,7 +243,6 @@ test('Hook 自检拒绝缺失、漂移或未接线的已安装 handler', async (
       hooks: {
         Stop: [{ hooks: [{ type: 'command', command: 'node .agents/runtime/hooks/codex-hook.mjs --host codex --expected-event PreToolUse', timeout: 10 }] }],
         PreToolUse: [{ matcher: '.*', hooks: [{ type: 'command', command: 'echo guard', timeout: 10 }] }],
-        PermissionRequest: [{ hooks: [{ type: 'command', command: 'node .agents/runtime/hooks/codex-hook.mjs --host codex --expected-event PermissionRequest', timeout: 10 }] }],
       },
     }, null, 2) + '\n', 'utf8');
     assert.deepEqual(
@@ -267,25 +263,10 @@ test('Hook 自检拒绝缺失、漂移或未接线的已安装 handler', async (
       unwired('PreToolUse'),
     );
 
-    // The same holds in the other direction: a template group that states no
-    // matcher guards every tool, so an installed group that adds one narrows the
-    // policy the template declared.
-    await writeFile(path.join(target, '.codex', 'hooks.json'), JSON.stringify({
-      hooks: {
-        PermissionRequest: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'node .agents/runtime/hooks/codex-hook.mjs --host codex --expected-event PermissionRequest', timeout: 10 }] }],
-        PreToolUse: codexHookConfig().hooks.PreToolUse,
-      },
-    }, null, 2) + '\n', 'utf8');
-    assert.deepEqual(
-      await inspectRuntimeHookSelfCheck(adapter, target, { configured: true }),
-      unwired('PermissionRequest'),
-    );
-
     // `timeout` is execution-critical: a handler the host kills before it
     // decides leaves the tool call unguarded.
     await writeFile(path.join(target, '.codex', 'hooks.json'), JSON.stringify({
       hooks: {
-        PermissionRequest: codexHookConfig().hooks.PermissionRequest,
         PreToolUse: [{ matcher: '.*', hooks: [{ type: 'command', command: 'node .agents/runtime/hooks/codex-hook.mjs --host codex --expected-event PreToolUse', timeout: 0 }] }],
       },
     }, null, 2) + '\n', 'utf8');
@@ -298,7 +279,6 @@ test('Hook 自检拒绝缺失、漂移或未接线的已安装 handler', async (
     // installed handler this project hashed, so it cannot count as wiring.
     await writeFile(path.join(target, '.codex', 'hooks.json'), JSON.stringify({
       hooks: {
-        PermissionRequest: codexHookConfig().hooks.PermissionRequest,
         PreToolUse: [{ matcher: '.*', hooks: [{ type: 'command', command: 'node /tmp/.agents/runtime/hooks/codex-hook.mjs --host codex --expected-event PreToolUse', timeout: 10 }] }],
       },
     }, null, 2) + '\n', 'utf8');
@@ -311,7 +291,6 @@ test('Hook 自检拒绝缺失、漂移或未接线的已安装 handler', async (
     // managed invocation this check parsed.
     await writeFile(path.join(target, '.codex', 'hooks.json'), JSON.stringify({
       hooks: {
-        PermissionRequest: codexHookConfig().hooks.PermissionRequest,
         PreToolUse: [{ matcher: '.*', hooks: [{ type: 'command', command: 'node .agents/runtime/hooks/codex-hook.mjs --host codex --expected-event PreToolUse > /tmp/out.txt', timeout: 10 }] }],
       },
     }, null, 2) + '\n', 'utf8');

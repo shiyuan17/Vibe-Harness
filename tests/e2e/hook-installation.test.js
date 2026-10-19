@@ -10,6 +10,8 @@ import test from 'node:test';
 import { promisify } from 'node:util';
 
 import { defaultProjectConfig, defaultRedZonePaths, validateProjectConfig } from '../../scripts/lib/project-config.js';
+import { hashManagedBlock } from '../../scripts/lib/managed-block.js';
+import { managedJsonPayload } from '../../scripts/lib/managed-json-config.js';
 import { DEFAULT_RED_ZONE_PATHS } from '../../runtime/hooks/lib/context.mjs';
 import { scanStagedDiff } from '../../.agents/runtime/hooks/git-hook.mjs';
 
@@ -118,8 +120,8 @@ test('full Codex install writes only safety Hook events through the Git-root boo
     assert.equal(installed.runtimeHooks.activation.status, 'unknown');
     assert.equal(installed.warnings.some((warning) => warning.code === 'HOOK_ACTIVATION_UNVERIFIED'), true);
     const hooks = JSON.parse(await readFile(path.join(target, '.codex/hooks.json'), 'utf8')).hooks;
-    assert.deepEqual(Object.keys(hooks).sort(), ['PermissionRequest', 'PreToolUse']);
-    const safetyCommands = ['PreToolUse', 'PermissionRequest'].flatMap((event) =>
+    assert.deepEqual(Object.keys(hooks).sort(), ['PreToolUse']);
+    const safetyCommands = ['PreToolUse'].flatMap((event) =>
       hooks[event].flatMap((group) => group.hooks.map((hook) => hook.command)));
     for (const command of safetyCommands) {
       // The root is resolved by walking up to `.git`, so the installed command
@@ -136,7 +138,6 @@ test('full Codex install writes only safety Hook events through the Git-root boo
     const orphanDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-hook-orphan-'));
     try {
       const denials = {
-        PermissionRequest: (decision) => decision.hookSpecificOutput.decision.behavior,
         PreToolUse: (decision) => decision.hookSpecificOutput.permissionDecision,
       };
       for (const [event, readDecision] of Object.entries(denials)) {
@@ -234,6 +235,55 @@ test('upgrade retires an unmodified auto-commit runtime and preserves a modified
     } finally {
       await rm(target, { force: true, recursive: true });
     }
+  }
+});
+
+test('upgrade retires the managed Codex PermissionRequest projection', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-hook-projection-retire-'));
+  try {
+    await execFileAsync(process.execPath, [
+      cliPath, 'init', '--project', target, '--target', 'codex', '--profile', 'full',
+    ]);
+    await execFileAsync(process.execPath, [
+      cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'full',
+      '--write', '--confirm-red-zone',
+    ]);
+    const hooksPath = path.join(target, '.codex/hooks.json');
+    const statePath = path.join(target, '.vibe-harness/install-state.json');
+    const configured = JSON.parse(await readFile(hooksPath, 'utf8'));
+    const managedLegacy = {
+      hooks: [{
+        command: 'node .agents/runtime/hooks/codex-hook.mjs --host codex --expected-event PermissionRequest',
+        statusMessage: 'Vibe-Harness safety policy',
+        timeout: 10,
+        type: 'command',
+      }],
+    };
+    configured.hooks.PermissionRequest = [managedLegacy];
+    const legacyContent = `${JSON.stringify(configured, null, 2)}\n`;
+    await writeFile(hooksPath, legacyContent, 'utf8');
+    const state = JSON.parse(await readFile(statePath, 'utf8'));
+    const entry = state.files.find((file) => file.target === '.codex/hooks.json');
+    entry.managedBlockHash = hashManagedBlock(managedJsonPayload(legacyContent, {
+      hookMarker: 'Vibe-Harness safety policy',
+      hooksPath: ['hooks'],
+      mcpPath: null,
+      serverPrefix: 'vibe-harness-',
+    }));
+    entry.targetHash = sha256(legacyContent);
+    await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+
+    const upgraded = JSON.parse((await execFileAsync(process.execPath, [
+      cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'full',
+      '--upgrade', '--write', '--confirm-red-zone',
+    ])).stdout);
+    assert.equal(upgraded.status, 'ready', JSON.stringify(upgraded));
+    const rewritten = JSON.parse(await readFile(hooksPath, 'utf8'));
+    assert.deepEqual(Object.keys(rewritten.hooks).sort(), ['PreToolUse']);
+    assert.equal(rewritten.hooks.PreToolUse.length, 1);
+    assert.equal(Object.hasOwn(rewritten.hooks, 'PermissionRequest'), false);
+  } finally {
+    await rm(target, { force: true, recursive: true });
   }
 });
 

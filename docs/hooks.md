@@ -8,7 +8,7 @@ Vibe-Harness Hook 只执行项目级安全策略，并叠加一道只读门禁�
 
 | 宿主 | PreToolUse | PermissionRequest | Stop | 激活方式 |
 | --- | --- | --- | --- | --- |
-| Codex | stable | stable | not-projected | manual-trust |
+| Codex | stable | not-projected | not-projected | manual-trust |
 | Claude Code | stable | stable | not-projected | config-file |
 | Gemini | unsupported | unsupported | unsupported | unsupported |
 | Cursor | stable | unsupported | unsupported | config-file |
@@ -17,7 +17,7 @@ Vibe-Harness Hook 只执行项目级安全策略，并叠加一道只读门禁�
 | Antigravity | preview | unsupported | unsupported | config-file |
 | OpenCode | unsupported | unsupported | unsupported | unsupported |
 
-PreToolUse 阻止危险 Git、全局 Agent 配置写入、凭据外传、红区文件上传、项目边界外写入、控制面直写与冻结测试资产写入。PermissionRequest 对相同硬边界执行拒绝；其他审批仍由宿主控制。
+PreToolUse 阻止危险 Git、全局 Agent 配置写入、凭据外传、红区文件上传、项目边界外写入、控制面直写与冻结测试资产写入。仍投影 PermissionRequest 的宿主对相同硬边界执行拒绝；其他审批仍由宿主控制。Codex 只投影 PreToolUse：同一调用不再同时启动 `PreToolUse` 与 `PermissionRequest` 两个 Hook 进程，升级安装会清理旧版受管 `PermissionRequest` 条目。
 
 Codex 投影的 PreToolUse <code>matcher</code> 为 <code>.*</code>，即对宿主上报的每个工具名求值（不再枚举 Bash、Edit、Write、ApplyPatch、apply_patch 与 mcp__.*）：宿主新增的工具不会因为不在枚举里而静默跳过策略。宿主把含正则元字符的 matcher 按未锚定的 JavaScript 正则求值，这与 Claude Code 文档中的匹配路径一致，也正是选择 <code>.*</code> 而不是依赖 <code>*</code> 特殊语义的原因。
 
@@ -111,7 +111,27 @@ strict 把两类「声明 ≠ 执行」的缺口转为硬结论：
 
 ## 配置与超时
 
-安全事件在宿主侧的 timeout 为 10 秒，受管运行时另保有 5 秒内部预算（见「失败契约」）；运行时固定为 guarded，并在无法安全判定时 fail-closed。项目配置只允许收紧出口 allowlist 和额外 red-zone，不提供运行模式或写入根配置。
+安全事件在宿主侧的 timeout 为 10 秒，受管运行时另保有 5 秒内部预算（见「失败契约」）。项目可在 `hooks` 中声明 `mode`、`profile` 和 `enforcement`；默认仍为 `guarded + standard + advisory`，无法安全判定时 fail-closed。
+
+`hooks.mode`：
+
+| mode | 普通策略风险 | 安全硬边界 |
+| --- | --- | --- |
+| `guarded`（默认） | 按风险等级允许、告警或拒绝 | 拒绝 |
+| `observe` | 降为 warning 或 telemetry，不阻断 | 拒绝 |
+| `off` | 不评估普通策略 | 冻结测试资产门禁、宿主注入的 Execution Envelope 与角色权限仍然生效 |
+
+`hooks.profile`：
+
+| profile | 保留范围 |
+| --- | --- |
+| `minimal` | 只保留硬边界；普通红区、文档命名、非关键 push 策略、TODO/console 等记为 telemetry-only，不注入模型上下文 |
+| `standard`（默认） | 普通策略按 guarded/observe 语义处理 |
+| `strict` | 即使 `mode=observe`，普通风险仍阻断 |
+
+安全硬边界包括凭据/密钥外传、项目边界外写入、明显破坏性 Git、全局 Agent 配置修改、冻结测试写入、控制面直写、Execution Envelope 违规与角色权限违规。普通非 allowlist 网络访问不是硬边界：它只在 guarded/standard 下按普通策略处理，真正的凭据外传仍由 `CREDENTIAL_EXFILTRATION` 拒绝。
+
+每次决策向 `.git/vibe-harness/hooks/telemetry.jsonl`（worktree 通过 Git common dir 共享）追加一行记录，包含稳定 hook id、host、event、mode/profile/enforcement、action、reasonCode、`wouldBlock`、`suppressed`、耗时和错误；不记录工具参数、命令正文或敏感环境值。设置 `VIBE_HARNESS_HOOK_TELEMETRY=0` 可关闭该记录。项目配置仍不能扩大写入根，出口 allowlist 和额外 red-zone 只会收紧策略。
 
 网络出口默认允许普通依赖和 Git 操作，但始终阻止凭据引用与红区文件上传。非空 allowlist 是能力授予，不是内容安全保证。
 
@@ -134,7 +154,7 @@ Hooks are defense in depth, not a complete machine-security boundary. Command-st
 
 <code>doctor</code> and project <code>validate</code> report <code>supported</code>, <code>configured</code>, <code>activated</code>, <code>enforced</code>, <code>envelopeSupport</code>, <code>executionAuthority</code>, and <code>coverageLimitations</code>. <code>activated</code> remains null when project files cannot prove host runtime state. <code>enforced</code> becomes true only when the host independently proves Hook activation, required Envelope enforcement, sandbox, approval, process isolation, and network control. Adapter capability support never substitutes for this per-task evidence. Legacy activation, declaredEvents, pathResolution, and selfCheck fields remain available for compatibility.
 
-Repository configuration can only tighten policy. Runtime mode is always guarded, write roots are not expanded by project configuration, configured red-zone paths are added to the built-in control-plane list, and an egress allowlist narrows permitted hosts. Repository-local install state records installation history but is not an authorization root.
+Repository configuration can lower ordinary policy friction through `hooks.mode` and `hooks.profile`, but it can never widen a write root, disable a hard safety boundary, or turn an unverifiable decision into an allow. Configured red-zone paths are added to the built-in control-plane list, and an egress allowlist narrows permitted hosts. Repository-local install state records installation history but is not an authorization root.
 
 Direct writes to vibe-harness.config.json, .vibe-harness/install-state.json, managed Hook runtime files, or adapter Hook/MCP configuration are denied. Update these files only through a transactional Vibe-Harness installer operation with the required write and red-zone confirmation flags.
 

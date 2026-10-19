@@ -20,7 +20,6 @@ const bootstrapSourcePath = path.join(rootDir, 'scripts/lib/hook-bootstrap.cjs')
 // rebuilding the command by hand.
 const adapterCases = [
   { adapter: 'codex', event: 'PreToolUse', host: 'codex', templateEvent: 'PreToolUse', wrapped: true },
-  { adapter: 'codex', event: 'PermissionRequest', host: 'codex', templateEvent: 'PermissionRequest', wrapped: true },
   { adapter: 'claude', event: 'PreToolUse', host: 'claude', templateEvent: 'PreToolUse' },
   { adapter: 'claude', event: 'PermissionRequest', host: 'claude', templateEvent: 'PermissionRequest' },
   { adapter: 'qoder', event: 'PreToolUse', host: 'qoder', templateEvent: 'PreToolUse' },

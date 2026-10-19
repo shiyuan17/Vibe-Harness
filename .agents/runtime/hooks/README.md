@@ -4,15 +4,25 @@ The Hook runtime applies project-scoped safety policy, plus one read-only gate t
 
 ## Event contract
 
-The single source of truth is manifests/adapters.json. PreToolUse is stable on Codex, Claude, Cursor, Qoder, and ZCode; preview on Antigravity; unsupported on Gemini and OpenCode. PermissionRequest is stable on Codex, Claude, Qoder, and ZCode and unsupported elsewhere. Stop is not-projected on Codex and Claude Code (the hosts support the event, this project installs no Stop hook) and unsupported on the remaining hosts; "not-projected" and "unsupported" are different conclusions.
+The single source of truth is manifests/adapters.json. PreToolUse is stable on Codex, Claude, Cursor, Qoder, and ZCode; preview on Antigravity; unsupported on Gemini and OpenCode. PermissionRequest is stable on Claude, Qoder, and ZCode, not-projected on Codex, and unsupported elsewhere. Codex projects only one PreToolUse entry per tool call; upgrading removes the legacy managed PermissionRequest projection. Stop is not-projected on Codex and Claude Code (the hosts support the event, this project installs no Stop hook) and unsupported on the remaining hosts; "not-projected" and "unsupported" are different conclusions.
 
-PreToolUse enforces destructive-Git, global-configuration, credential, egress, red-zone, project-boundary, control-plane, and frozen-test-asset controls. PermissionRequest enforces the same hard boundaries while leaving ordinary approval to the host.
+PreToolUse enforces destructive-Git, global-configuration, credential, egress, red-zone, project-boundary, control-plane, and frozen-test-asset controls. A host that still projects PermissionRequest enforces the same hard boundaries while leaving ordinary approval to the host.
 
 A project's own `.codex`, `.claude`, `.cursor` and `.gemini` directories are not global Agent configuration, and only a configuration directory directly under the user profile is; the one subtree of that profile directory that holds a checkout is the host's managed worktrees at `<home>/.codex/worktrees/<worktree>/<repo>`. A session rooted in such a worktree is judged by that checkout's project-boundary, control-plane and red-zone rules; the exemption covers the literal `worktrees` segment only, so `~/.codex/config.toml`, `~/.codex/hooks.json` and `~/.codex/skills/**` keep their global-configuration verdicts.
 
 PreToolUse matches every tool name, so a tool the host introduces later is judged instead of silently skipping the policy. Tools that cannot touch the workspace — a plan or image viewer, the sub-agent tools, the read-only thread and automation tools, and every tool whose name already reads as a read verb — are classified as read-only and pass. Tools that mutate host state, and every tool the classifier does not name, keep the Execution Envelope path.
 
 When hooks are active, high-risk effects require an Execution Envelope even without explicit injection. A host-injected envelope or parent-owned VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED=1 also enforces the envelope for other effectful calls, including when hooks.mode is off. Low-risk project writes do not require an envelope when neither is present. The required switch is deliberately parent-owned; repository files are not an authorization root. Without host injection and durable request/checkpoint state, the installed Hook remains defense in depth and must not be reported as complete host-level execution authorization.
+
+## Modes and profiles
+
+`hooks.mode` accepts `off`, `observe`, and `guarded` (default); `hooks.profile` accepts `minimal`, `standard` (default), and `strict`. `guarded + standard` preserves the historical blocking behaviour.
+
+`observe` lowers ordinary policy risks to warnings but never lowers a hard safety boundary: credential exfiltration, writes outside the project boundary, clearly destructive Git, global Agent configuration changes, control-plane writes, frozen acceptance-test writes, Execution Envelope violations, and role-permission violations still deny. A non-allowlisted network destination is ordinary policy, not a hard boundary; only an actual credential reference or red-zone upload is denied by the credential/egress gate.
+
+`minimal` keeps the same hard boundaries and drops ordinary checks entirely: the decision is an allow carrying `suppressed` telemetry, so no ordinary policy text is injected into model context. `strict` keeps ordinary risks blocking even under `observe`. `off` skips the ordinary safety policy; the frozen-test gate, a host-injected Execution Envelope, and a host-injected role preset still apply.
+
+Every decision appends one record to `.git/vibe-harness/hooks/telemetry.jsonl` through the Git common directory so every worktree shares it. Records carry the stable hook id, host, event, mode/profile/enforcement, action, reasonCode, `wouldBlock`, `suppressed`, duration and failure; they never carry tool arguments, command text, or environment values. Set `VIBE_HARNESS_HOOK_TELEMETRY=0` to disable the sink. Telemetry is best effort and never changes the decision.
 
 ## Git read-only and sync commands
 
