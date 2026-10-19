@@ -6,6 +6,7 @@ import path from 'node:path';
 import { gitTimeoutMs } from './git-timeouts.mjs';
 
 export const VERIFICATION_TIERS = ['quick', 'standard', 'deep'];
+const TIER_RANK = Object.freeze(Object.fromEntries(VERIFICATION_TIERS.map((tier, index) => [tier, index])));
 export const SLOT_TIERS = Object.freeze({ lint: 'quick', typecheck: 'quick', test: 'quick', eval: 'deep' });
 export const SCRIPT_PATTERNS = Object.freeze({
   quick: [/^lint$/u, /^(?:check:type|typecheck|ts:check)$/u, /^test:unit$/u, /^test:component$/u],
@@ -113,6 +114,86 @@ export function verificationCheckId(command, commandStatus = {}) {
     .toLowerCase() || 'check';
 }
 
+/**
+ * Validate and apply the explicit subsumption graph declared by verification
+ * checks. A broad check may cover a narrower one only when the declaration is
+ * unambiguous: the target exists, both run from the same cwd, the coverer is at
+ * least as expensive, and the graph contains no self-edge or cycle.
+ *
+ * @param {Array<Record<string, any>>} allChecks
+ * @param {{prune?: boolean, eligibleIds?: Set<string>|null}} options
+ */
+export function applyVerificationSubsumption(allChecks, { prune = true, eligibleIds = null } = {}) {
+  const byId = new Map(allChecks.map((check) => [check.id, check]));
+  const direct = new Map();
+  for (const check of allChecks) {
+    const values = check.subsumes;
+    if (values === undefined) continue;
+    if (!Array.isArray(values) || values.some((value) => typeof value !== 'string' || !value.trim())) {
+      throw new Error(`validationCommands.checks.${check.id}.subsumes must be an array of non-empty check ids.`);
+    }
+    const targets = [...new Set(values.map((value) => value.trim()))];
+    for (const targetId of targets) {
+      if (targetId === check.id) {
+        throw new Error(`validationCommands.checks.${check.id}.subsumes cannot reference itself.`);
+      }
+      const target = byId.get(targetId);
+      if (!target) {
+        throw new Error(`validationCommands.checks.${check.id}.subsumes references unknown check: ${targetId}`);
+      }
+      if (check.cwd !== target.cwd) {
+        throw new Error(`validationCommands.checks.${check.id}.subsumes cannot cover ${targetId} from a different cwd.`);
+      }
+      if (TIER_RANK[check.costTier] < TIER_RANK[target.costTier]) {
+        throw new Error(`validationCommands.checks.${check.id}.subsumes cannot be covered by a lower cost tier: ${targetId}`);
+      }
+    }
+    direct.set(check.id, targets);
+  }
+
+  const visiting = new Set();
+  const visited = new Set();
+  const visit = (id, trail) => {
+    if (visiting.has(id)) {
+      throw new Error(`validationCommands.checks.${id}.subsumes forms a cycle: ${[...trail, id].join(' -> ')}`);
+    }
+    if (visited.has(id)) return;
+    visiting.add(id);
+    for (const target of direct.get(id) ?? []) visit(target, [...trail, id]);
+    visiting.delete(id);
+    visited.add(id);
+  };
+  for (const id of direct.keys()) visit(id, []);
+
+  const transitiveCoverers = new Map(allChecks.map((check) => [check.id, new Set()]));
+  const collect = (id, seen = new Set()) => {
+    if (seen.has(id)) return new Set();
+    const nextSeen = new Set(seen).add(id);
+    const result = new Set();
+    for (const target of direct.get(id) ?? []) {
+      result.add(target);
+      for (const nested of collect(target, nextSeen)) result.add(nested);
+    }
+    return result;
+  };
+  for (const check of allChecks) transitiveCoverers.set(check.id, collect(check.id));
+
+  const selectedIds = eligibleIds ?? new Set(allChecks.map((check) => check.id));
+  const subsumedBy = new Map();
+  if (prune) {
+    for (const check of allChecks) {
+      const coverers = allChecks
+        .filter((candidate) => candidate.id !== check.id
+          && selectedIds.has(candidate.id)
+          && transitiveCoverers.get(candidate.id)?.has(check.id))
+        .sort((left, right) => TIER_RANK[right.costTier] - TIER_RANK[left.costTier]
+          || left.id.localeCompare(right.id));
+      if (coverers.length > 0) subsumedBy.set(check.id, coverers[0].id);
+    }
+  }
+  return { direct, subsumedBy, transitiveCoverers };
+}
+
 export function deriveVerificationTiers({ packageManager = 'pnpm', scripts = {}, configuredCommands = {}, stacks = {} } = {}) {
   const tiers = { quick: [], standard: [], deep: [] };
   const reasons = { quick: [], standard: [], deep: [] };
@@ -184,6 +265,7 @@ export function resolveVerificationTiers({ config = {}, projectDir = process.cwd
 
 export function selectVerificationChecks({
   tier = 'quick', tiers = {}, commandStatus = {}, metadata = [], projectDir, only = null,
+  pruneSubsumed = true,
 }) {
   if (!VERIFICATION_TIERS.includes(tier)) throw new Error(`Unknown verification tier: ${tier}`);
   if (!Array.isArray(metadata)) throw new Error('validationCommands.checks must be an array.');
@@ -247,9 +329,18 @@ export function selectVerificationChecks({
     throw new Error(`Unknown checks: ${only.join(', ')}`);
   }
   const active = new Set(VERIFICATION_TIERS.slice(0, VERIFICATION_TIERS.indexOf(tier) + 1));
+  const eligibleIds = only
+    ? new Set(only)
+    : new Set(allChecks.filter((check) => active.has(check.costTier)).map((check) => check.id));
+  const subsumption = applyVerificationSubsumption(allChecks, {
+    prune: pruneSubsumed && !only,
+    eligibleIds,
+  });
+  const subsumedBy = subsumption.subsumedBy;
   const selectedCommands = new Set();
   const selectedChecks = allChecks.filter((check) => {
     if (!(only ? only.includes(check.id) : active.has(check.costTier))) return false;
+    if (!only && pruneSubsumed && subsumedBy.has(check.id)) return false;
     const identity = verificationCommandIdentity(check.command, check.cwd);
     if (selectedCommands.has(identity)) return false;
     selectedCommands.add(identity);
@@ -257,6 +348,27 @@ export function selectVerificationChecks({
   });
   const selected = new Set(selectedChecks.map((check) => check.id));
   const deferredChecks = allChecks.filter((check) => !selected.has(check.id) && !active.has(check.costTier));
+  const subsumedChecks = allChecks
+    .filter((check) => subsumedBy.has(check.id))
+    .map((check) => ({
+      id: check.id,
+      costTier: check.costTier,
+      command: check.command,
+      subsumedBy: subsumedBy.get(check.id),
+      selectionReasons: [`subsumed-by:${subsumedBy.get(check.id)}`],
+    }));
   const nextTier = VERIFICATION_TIERS.find((name) => deferredChecks.some((check) => check.costTier === name)) ?? null;
-  return { selectedChecks, deferredChecks, allChecks, nextTier };
+  return {
+    selectedChecks: selectedChecks.map((check) => ({
+      ...check,
+      ...(subsumption.subsumedBy.has(check.id) ? { subsumedBy: subsumption.subsumedBy.get(check.id) } : {}),
+    })),
+    deferredChecks,
+    allChecks: allChecks.map((check) => ({
+      ...check,
+      ...(subsumption.subsumedBy.has(check.id) ? { subsumedBy: subsumption.subsumedBy.get(check.id) } : {}),
+    })),
+    subsumedChecks,
+    nextTier,
+  };
 }

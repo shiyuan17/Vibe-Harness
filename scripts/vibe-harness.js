@@ -999,11 +999,10 @@ async function verify(args) {
   }
   const verificationReport = await runVerificationPlan({
     allowManual: Boolean(args['allow-manual']),
-    // A cache hit reconstructs the review from the stored receipt instead of
-    // this caller's `--reviewed` declaration, which would let a declaration
-    // from an earlier invocation authorize a receipt-required completion. Reuse
-    // therefore stays off wherever a completion receipt is required.
-    reuse: Boolean(args.reuse) && !delivery.requireReceipt,
+    // Reuse is allowed for receipt-required deliveries, but the review is
+    // re-evaluated against this invocation's declaration; an old receipt never
+    // authorizes a new completion by itself.
+    reuse: Boolean(args.reuse),
     commandStatus,
     plan: planned,
     reviewed: Array.isArray(args.reviewed) ? args.reviewed : [],

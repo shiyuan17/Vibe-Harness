@@ -261,6 +261,80 @@ test('selectTierChecks 选择累计层并延迟更深层', () => {
   assert.equal(deep.selectedChecks.length, 4);
 });
 
+test('selectTierChecks 只在覆盖者进入当前累计层时裁剪被覆盖检查', () => {
+  const tiers = {
+    quick: ['pnpm lint:changed', 'pnpm lint'],
+    standard: [],
+    deep: [],
+  };
+  const metadata = [
+    { id: 'lint-changed', command: 'pnpm lint:changed', costTier: 'quick' },
+    { id: 'lint', command: 'pnpm lint', costTier: 'quick', subsumes: ['lint-changed'] },
+  ];
+
+  const quick = selectTierChecks({ tier: 'quick', tiers, metadata });
+  assert.deepEqual(quick.selectedChecks.map((item) => item.id), ['lint']);
+  assert.deepEqual(quick.subsumedChecks, [{
+    id: 'lint-changed',
+    costTier: 'quick',
+    command: 'pnpm lint:changed',
+    subsumedBy: 'lint',
+    selectionReasons: ['subsumed-by:lint'],
+  }]);
+
+  const only = selectTierChecks({ tier: 'quick', tiers, metadata, only: ['lint-changed'] });
+  assert.deepEqual(only.selectedChecks.map((item) => item.id), ['lint-changed']);
+  assert.deepEqual(only.subsumedChecks, []);
+});
+
+test('selectTierChecks 拒绝未知、自引用、循环、跨 cwd 与降级覆盖', () => {
+  const tiers = { quick: ['pnpm a', 'pnpm b'], standard: [], deep: [] };
+  const base = {
+    id: 'a', command: 'pnpm a', costTier: 'standard', cwd: '.',
+  };
+  assert.throws(
+    () => selectTierChecks({ tier: 'quick', tiers, metadata: [{ ...base, subsumes: ['missing'] }] }),
+    /unknown check: missing/u,
+  );
+  assert.throws(
+    () => selectTierChecks({ tier: 'quick', tiers, metadata: [{ ...base, subsumes: ['a'] }] }),
+    /cannot reference itself/u,
+  );
+  assert.throws(
+    () => selectTierChecks({
+      tier: 'quick',
+      tiers,
+      metadata: [
+        { ...base, subsumes: ['b'] },
+        { id: 'b', command: 'pnpm b', costTier: 'standard', subsumes: ['a'] },
+      ],
+    }),
+    /forms a cycle/u,
+  );
+  assert.throws(
+    () => selectTierChecks({
+      tier: 'quick',
+      tiers,
+      metadata: [
+        { ...base, subsumes: ['b'] },
+        { id: 'b', command: 'pnpm b', costTier: 'quick', cwd: 'frontend' },
+      ],
+    }),
+    /different cwd/u,
+  );
+  assert.throws(
+    () => selectTierChecks({
+      tier: 'standard',
+      tiers: { quick: ['pnpm a'], standard: ['pnpm b'], deep: [] },
+      metadata: [
+        { ...base, costTier: 'quick', subsumes: ['b'] },
+        { id: 'b', command: 'pnpm b', costTier: 'standard' },
+      ],
+    }),
+    /lower cost tier/u,
+  );
+});
+
 test('selectTierChecks 让重复命令停留在最低层', () => {
   const selection = selectTierChecks({
     tier: 'quick',

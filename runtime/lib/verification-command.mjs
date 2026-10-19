@@ -12,7 +12,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { runMicroCheck } from './micro-runner.mjs';
-import { gitFingerprint } from './git-fingerprint.mjs';
+import { gitFingerprint, gitTreeFingerprint } from './git-fingerprint.mjs';
 import {
   verificationChanges,
   verificationCheckEvidence,
@@ -21,10 +21,13 @@ import {
 } from './verification-plan.mjs';
 import {
   findVerificationReceipt,
+  findVerificationCheckReceipt,
   prepareVerificationReceiptStore,
+  storeVerificationCheckReceipt,
   storeVerificationReceipt,
   verificationCacheContext,
 } from './verification-receipt.mjs';
+import { acquireVerificationLock } from './verification-lock.mjs';
 
 import { boundedOutput } from './cli-output.mjs';
 import { CHECK_ORDER, CONFIG_FILE, assertSafeCommand, probeExecutable, readJsonIfExists } from './cli-runtime.mjs';
@@ -238,7 +241,10 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
   const before = planOnly ? null : await gitFingerprint(projectDir);
   const receiptPlan = { ...changeScope, selectedChecks: tierPlan.selectedChecks, deferredChecks: tierPlan.deferredChecks, tier: tierPlan.tier, scope };
   const cacheContext = planOnly ? null : await verificationCacheContext(projectDir, receiptPlan, before);
-  const cached = !planOnly && args.reuse ? await findVerificationReceipt(projectDir, cacheContext) : null;
+  const cacheLookupStartedAt = Date.now();
+  const wholeRunCache = !planOnly && args.reuse && cacheContext?.mode !== 'tree-content';
+  const cached = wholeRunCache ? await findVerificationReceipt(projectDir, cacheContext) : null;
+  const cacheLookupMs = Date.now() - cacheLookupStartedAt;
   if (cached?.receipt) {
     const confirmedContext = await verificationCacheContext(projectDir, receiptPlan);
     const confirmed = confirmedContext.snapshot;
@@ -254,11 +260,12 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
       return {
         schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'reused',
         tier: tierPlan.tier, scope, ...changeScope, scopeConfidence: scope === 'full' ? 'complete' : 'unknown',
-        checks: reusedChecks, selectedChecks: selectedNames, deferredChecks: tierPlan.deferredChecks, nextTier: tierPlan.nextTier,
+        checks: reusedChecks, selectedChecks: selectedNames, deferredChecks: tierPlan.deferredChecks,
+        subsumedChecks: tierPlan.subsumedChecks ?? [], nextTier: tierPlan.nextTier,
         selectionReasonsByCheck: tierPlan.selectionReasonsByCheck,
         minimumTier: null,
         selectedMicroChecks: [], deferredMicroChecks: [], estimatedCostMs: estimateSelectedCost(selectedNames),
-        cache: { status: 'hit', reason: cached.reason }, environment: { mode: environmentMode, status: 'reused' },
+        cache: { status: 'hit', reason: cached.reason, lookupMs: cacheLookupMs }, environment: { mode: environmentMode, status: 'reused' },
         reused: {
           id: cached.receipt.id, finishedAt: cached.receipt.finishedAt, fingerprint: before.fingerprint,
           command: commandSet, beforeHead: before.snapshot.head, afterHead: confirmed.snapshot.head,
@@ -276,12 +283,16 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
             changedPaths: changeScope.changedPaths,
             selectedNames,
             reviewed: reviewedChecks.ids,
+            reviewPolicy: args.reviewPolicy,
+            targetBranch: args.targetBranch,
           }),
           acceptance: verificationAcceptance({
             review: verificationReview({
               changedPaths: changeScope.changedPaths,
               selectedNames,
               reviewed: reviewedChecks.ids,
+              reviewPolicy: args.reviewPolicy,
+              targetBranch: args.targetBranch,
             }),
             status: 'reused',
             snapshotComparison: 'match',
@@ -293,9 +304,44 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
       };
     }
   }
+  const checkCache = new Map();
+  if (!planOnly && args.reuse && cacheContext?.mode === 'tree-content') {
+    for (const check of cacheContext.perCheck ?? []) {
+      if (!selectedNames.includes(check.id)) continue;
+      checkCache.set(check.id, await findVerificationCheckReceipt(projectDir, check, {
+        ttlMs: config.verification?.reuse?.ttlMs,
+      }));
+    }
+  }
+  const selectedPlanChecks = tierPlan.selectedChecks ?? [];
+  const heavyWork = tier === 'deep' || selectedPlanChecks.some((check) => check.costTier === 'deep'
+    || /(?:^|\s)(?:mvn|mvnw|gradle|gradlew)(?:\s|$)/iu.test(check.command ?? ''));
+  let verificationLease = null;
+  if (!planOnly && heavyWork && selectedNames.some((name) => checkCache.get(name)?.status !== 'hit')) {
+    verificationLease = await acquireVerificationLock(projectDir);
+    if (!verificationLease.ok) {
+      return {
+        schemaVersion: VERIFY_SCHEMA_VERSION,
+        engine: VERIFY_ENGINE,
+        command: 'verify',
+        tier: tierPlan.tier,
+        scope,
+        status: 'blocked',
+        code: 'VERIFICATION_BUSY',
+        error: verificationLease.reason === 'verification-lock-held'
+          ? 'another deep or backend-wide verification holds this repository; wait for it to finish or expire before retrying'
+          : `heavy verification lock is unavailable (${verificationLease.reason})`,
+        lock: { path: verificationLease.path, holder: verificationLease.holder ?? null },
+        checks: {},
+      };
+    }
+  }
+  try {
   if (!planOnly) await storeVerificationReceipt(projectDir, cacheContext, { status: 'running' });
   let selectedCount = 0;
   let stopped = false;
+  let reusedCount = 0;
+  let treeChangedDuringRun = false;
   for (const name of checkOrder) {
     const command = configured.commands[name];
     if (!command) {
@@ -311,6 +357,18 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
     selectedCount += 1;
     if (stopped) {
       checks[name] = { status: 'not_run', command: displayCommand(command, projectDir), reason: 'previous-check-failed' };
+      continue;
+    }
+    const cachedCheck = treeChangedDuringRun ? null : checkCache.get(name);
+    if (cachedCheck?.status === 'hit') {
+      checks[name] = {
+        status: 'reused',
+        command: displayCommand(command, projectDir),
+        cwd: checkMetadata.get(name)?.cwd ?? '.',
+        cache: { status: 'hit', reason: cachedCheck.reason },
+        finishedAt: cachedCheck.receipt.finishedAt,
+      };
+      reusedCount += 1;
       continue;
     }
     const manual = manualCommand(command);
@@ -336,22 +394,29 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
       continue;
     }
     let result;
+    const checkStartedAt = Date.now();
     try {
       result = await executeCommand(executableCommand, cwd.absolute, timeoutMs, projectDir, verificationContextEnvironment({ ...changeScope, scope }));
     } catch (error) {
       result = { status: 'blocked', code: 'UNSAFE_COMMAND', exitCode: null, stderr: boundedOutput(error.message, projectDir) };
     }
+    const durationMs = Date.now() - checkStartedAt;
     checks[name] = {
       status: result.status,
       code: result.code,
       command: displayCommand(command, projectDir),
       cwd: cwd.relative,
       exitCode: result.exitCode,
+      durationMs,
       ...(result.stdout ? { stdout: result.stdout } : {}),
       ...(result.stderr ? { stderr: result.stderr } : {}),
       ...(result.status === 'passed' ? verificationCheckEvidence(result.stdout, result.stderr) : {}),
     };
     stopped = checks[name].status === 'failed';
+    if (!stopped && cacheContext.mode === 'tree-content') {
+      const currentTree = await gitTreeFingerprint(projectDir);
+      if (currentTree !== cacheContext.treeContentFingerprint) treeChangedDuringRun = true;
+    }
   }
   for (const name of CHECK_ORDER) {
     if (only) break;
@@ -372,6 +437,7 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
       riskLevel: null,
       impactGroups: [],
       deferredChecks: tierPlan.deferredChecks,
+      subsumedChecks: tierPlan.subsumedChecks ?? [],
       nextTier: tierPlan.nextTier,
       status: 'unverified',
       checks,
@@ -397,6 +463,7 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
       riskLevel: null,
       impactGroups: [],
       deferredChecks: tierPlan.deferredChecks,
+      subsumedChecks: tierPlan.subsumedChecks ?? [],
       nextTier: tierPlan.nextTier,
       status: Object.values(checks).some((check) => check.status === 'blocked') ? 'blocked' : 'planned',
       ...changeScope,
@@ -418,13 +485,15 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
   const failed = Object.values(checks).some((item) => item.status === 'failed');
   const blocked = Object.values(checks).some((item) => item.status === 'blocked');
   const executed = selectedNames.filter((name) => checks[name]?.status === 'passed');
-  const checksNotRun = executed.length < selectedNames.length;
+  const reused = selectedNames.filter((name) => checks[name]?.status === 'reused');
+  const completed = [...executed, ...reused];
+  const checksNotRun = completed.length < selectedNames.length;
     // Writing the receipt is itself a write to the workspace — the first one
     // creates the project's `.vibe-harness` directory and moves the repository
     // root's timestamps — so the store is created before the snapshot the receipt
     // publishes, and only for the run that is about to store one: a run that
     // stores nothing leaves no store behind.
-    const willStore = !failed && !blocked && !checksNotRun && executed.length > 0;
+    const willStore = !failed && !blocked && !checksNotRun && completed.length > 0;
     if (willStore) await prepareVerificationReceiptStore(projectDir).catch(() => false);
     const after = await gitFingerprint(projectDir);
     const afterContext = await verificationCacheContext(projectDir, receiptPlan, after);
@@ -432,12 +501,20 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
     const stable = before.fingerprint !== null && after.fingerprint !== null
       ? before.fingerprint === after.fingerprint
       : null;
-  const finalStatus = failed || stable === false || !inputsStable ? 'failed' : blocked ? 'blocked' : executed.length === 0 ? 'unverified' : 'passed';
+  const finalStatus = failed || stable === false || !inputsStable
+    ? 'failed'
+    : blocked
+      ? 'blocked'
+      : completed.length === 0
+        ? 'unverified'
+        : reused.length === selectedNames.length ? 'reused' : 'passed';
   const review = verificationReview({
     changedPaths: changeScope.changedPaths,
     selectedNames,
     checks,
     reviewed: reviewedChecks.ids,
+    reviewPolicy: args.reviewPolicy,
+    targetBranch: args.targetBranch,
   });
   const snapshotComparison = stable === null ? 'unknown' : stable ? 'match' : 'changed';
   const verificationStatus = stable === false || !inputsStable
@@ -449,6 +526,56 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
         : checksNotRun
           ? 'checks_not_run'
           : 'verified';
+  // Each check owns its cache record. A later non-deterministic check that
+  // fails or misses must not discard a deterministic check that already passed
+  // on this exact tree, so the store gate is the workspace evidence (stable
+  // tree and inputs), not the aggregate run status. A check whose own identity
+  // changed between the start and end of the run is still skipped.
+  const checkReceipts = [];
+  if (stable === true && inputsStable && !treeChangedDuringRun) {
+    for (const name of executed) {
+      const checkContext = (cacheContext.perCheck ?? []).find((check) => check.id === name);
+      const afterCheckContext = (afterContext.perCheck ?? []).find((check) => check.id === name);
+      if (!checkContext) continue;
+      if (!checkContext.available || afterCheckContext?.key !== checkContext.key) {
+        checkReceipts.push({
+          id: name,
+          stored: false,
+          reason: afterCheckContext?.key !== checkContext.key ? 'check-inputs-changed' : checkContext.reason,
+        });
+        continue;
+      }
+      checkReceipts.push({
+        id: name,
+        stored: await storeVerificationCheckReceipt(projectDir, checkContext,
+          { finishedAt: new Date().toISOString() }).catch(() => false),
+      });
+    }
+  }
+  const cacheStatus = args.reuse
+    ? reused.length === selectedNames.length ? 'hit' : reused.length > 0 ? 'partial' : 'miss'
+    : 'not_requested';
+  const checkCacheReport = Object.fromEntries((cacheContext.perCheck ?? []).map((check) => {
+    const cachedCheck = checkCache.get(check.id);
+    return [check.id, {
+      status: !args.reuse ? 'not_requested'
+        : cachedCheck?.status === 'hit' ? 'hit'
+          : cachedCheck?.status === 'miss' ? 'miss'
+            : check.available ? 'not_looked_up' : 'not_cacheable',
+      reason: cachedCheck?.reason ?? check.reason ?? null,
+      scope: check.cacheScope,
+    }];
+  }));
+  // In tree-content mode every selected check is looked up independently, so
+  // the aggregate reason must describe the actual per-check outcome rather than
+  // claiming the whole plan was non-deterministic when only one check missed.
+  const treeContentReason = () => {
+    if (!args.reuse) return null;
+    if (cacheStatus === 'hit') return 'all-selected-checks-hit';
+    if (cacheStatus === 'partial') return 'some-selected-checks-hit';
+    return Object.values(checkCacheReport).find((item) => item.status !== 'hit')?.reason
+      ?? 'no-matching-check-receipt';
+  };
   const report = {
     schemaVersion: VERIFY_SCHEMA_VERSION,
     engine: VERIFY_ENGINE,
@@ -459,6 +586,7 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
     riskLevel: null,
     impactGroups: [],
     deferredChecks: tierPlan.deferredChecks,
+    subsumedChecks: tierPlan.subsumedChecks ?? [],
     nextTier: tierPlan.nextTier,
     status: finalStatus,
     skippedChecks: selectedNames.filter((name) => checks[name]?.status === 'not_selected').map((name) => ({ id: name, reason: checks[name].reason })),
@@ -471,7 +599,15 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
     selectedMicroChecks: [],
     deferredMicroChecks: [],
     estimatedCostMs: estimateSelectedCost(selectedNames),
-    cache: { status: args.reuse ? 'miss' : 'not_requested', reason: cached?.reason ?? cacheContext?.reason, stored: false },
+    cache: {
+      status: cacheStatus,
+      reason: cacheContext?.mode === 'tree-content'
+        ? treeContentReason() : cached?.reason ?? cacheContext?.reason,
+      stored: false,
+      lookupMs: cacheLookupMs,
+      ...(cacheContext?.mode === 'tree-content' ? { checks: checkCacheReport } : {}),
+      checkReceipts,
+    },
     environment: { mode: environmentMode, status: environmentStatus },
     verification: {
       schemaVersion: 3,
@@ -508,7 +644,8 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
     },
   };
   report.cache.stored = await storeVerificationReceipt(projectDir, cacheContext, {
-    ...report.verification, status: executed.length === selectedNames.length ? report.status : 'unverified',
+    ...report.verification,
+    status: completed.length === selectedNames.length && ['passed', 'reused'].includes(report.status) ? 'passed' : 'unverified',
     // The per-check commands this run reported, so the acceptance entries a
     // completion receipt cites can be checked against them instead of being
     // taken on the receipt's word.
@@ -516,4 +653,7 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
     checks: Object.entries(report.checks ?? {}).map(([id, check]) => ({ id, command: check?.command })),
   }).catch(() => false);
   return report;
+  } finally {
+    verificationLease?.release?.();
+  }
 }

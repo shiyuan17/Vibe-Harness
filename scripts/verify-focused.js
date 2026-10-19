@@ -321,7 +321,9 @@ async function main() {
       process.exit(typeof error.exitCode === 'number' ? error.exitCode : 1);
     }
   }
-  console.log('\nFocused verification passed.');
+  console.log(report.ok
+    ? '\nFocused verification passed.'
+    : '\nFocused verification selected checks passed; the receipt remains blocked by deferred evidence.');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();

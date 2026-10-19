@@ -275,6 +275,43 @@ test('成本层缺省解析为快速层而 --full 保留完整矩阵', async () 
   }
 });
 
+test('默认层计划应用 subsumes，--full 与 --only 永不裁剪', async () => {
+  const target = await targetWithScripts();
+  const config = {
+    validationCommands: {
+      tiers: { quick: ['pnpm lint', 'pnpm lint --changed'], standard: [], deep: [] },
+      checks: [
+        { id: 'lint', command: 'pnpm lint', costTier: 'quick', subsumes: ['lint-changed'] },
+        { id: 'lint-changed', command: 'pnpm lint --changed', costTier: 'quick' },
+      ],
+    },
+  };
+  try {
+    const pruned = await buildVerificationPlan({
+      changedPaths: ['src/app.js'], config, targetDir: target, tier: 'deep',
+    });
+    assert.deepEqual(pruned.selectedChecks.map((check) => check.id), ['lint']);
+    assert.deepEqual(pruned.subsumedChecks.map((check) => [check.id, check.subsumedBy]), [['lint-changed', 'lint']]);
+    assert.deepEqual(pruned.selectionReasonsByCheck['lint-changed'], ['subsumed-by:lint']);
+
+    const full = await buildVerificationPlan({
+      changedPaths: ['src/app.js'], config, targetDir: target, tier: 'deep', full: true,
+    });
+    const fullIds = full.selectedChecks.map((check) => check.id);
+    assert.ok(fullIds.includes('lint'));
+    assert.ok(fullIds.includes('lint-changed'));
+    assert.deepEqual(full.subsumedChecks, []);
+
+    const explicitOnly = await buildVerificationPlan({
+      changedPaths: ['src/app.js'], config, targetDir: target, tier: 'deep', only: ['lint-changed'],
+    });
+    assert.deepEqual(explicitOnly.selectedChecks.map((check) => check.id), ['lint-changed']);
+    assert.deepEqual(explicitOnly.subsumedChecks, []);
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
 test('风险计划的回退命令使用项目解析出的包管理器', async () => {
   // A package.json without a lockfile is an npm project for the derived tiers,
   // so the risk fallbacks have to name the same scripts the same way: `pnpm …`

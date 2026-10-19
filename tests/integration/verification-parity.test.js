@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -12,6 +12,7 @@ import { buildVerificationPlan } from '../../scripts/lib/verification-plan.js';
 import { runVerificationPlan } from '../../scripts/lib/project-verification.js';
 import { detectProjectProfile } from '../../scripts/lib/project-profile.js';
 import { verificationCheckEvidence } from '../../runtime/lib/verification-plan.mjs';
+import { verificationCacheContext, findVerificationCheckReceipt, storeVerificationCheckReceipt } from '../../runtime/lib/verification-receipt.mjs';
 
 const execute = promisify(execFile);
 
@@ -26,6 +27,18 @@ async function fixture(callback) {
 
 async function configure(project, validationCommands) {
   await writeFile(path.join(project, 'vibe-harness.config.json'), JSON.stringify({ validationCommands }));
+}
+
+async function configureTreeContent(project, checks) {
+  await writeFile(path.join(project, 'vibe-harness.config.json'), JSON.stringify({
+    validationCommands: { tiers: { quick: checks.map((check) => check.command), standard: [], deep: [] }, checks },
+    verification: { reuse: { mode: 'tree-content', envAllowlist: ['VIBE_TEST_ALLOWED'] } },
+  }));
+}
+
+async function checkCacheDirectory(project) {
+  const common = (await execute('git', ['rev-parse', '--git-common-dir'], { cwd: project })).stdout.trim();
+  return path.join(project, common, 'vibe-harness', 'verification-cache', 'v5');
 }
 
 for (const tier of ['quick', 'standard', 'deep']) {
@@ -145,7 +158,7 @@ async function reusableFixture(project, deterministic = true) {
   await execute('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '--quiet', '-m', 'fixture'], { cwd: project });
 }
 
-test('无锚点验证复用 v3 收据且未跟踪源码变化使其失效', async () => {
+test('无锚点验证复用已认证收据且未跟踪源码变化使其失效', async () => {
   await fixture(async (project) => {
     await reusableFixture(project);
     const first = await runCommand(['verify', '--project', project]);
@@ -160,6 +173,274 @@ test('无锚点验证复用 v3 收据且未跟踪源码变化使其失效', asyn
     assert.equal(changed.report.status, 'passed');
     assert.equal(changed.report.cache.status, 'miss');
     assert.equal(await readFile(path.join(project, 'runs.txt'), 'utf8'), 'run\nrun\n');
+  });
+});
+
+test('tree-content 缓存跨 worktree 与空提交 HEAD 复用并在未跟踪内容变化时失效', async () => {
+  await fixture(async (project) => {
+    await writeFile(path.join(project, '.gitignore'), '.vibe-harness/\nruns.txt\n');
+    await writeFile(path.join(project, 'check.mjs'), "import { appendFileSync } from 'node:fs'; appendFileSync('runs.txt', 'run\\n');\n");
+    await configureTreeContent(project, [{ id: 'test', command: 'node check.mjs', deterministic: true, cacheScope: 'tree' }]);
+    await execute('git', ['init', '--quiet'], { cwd: project });
+    await execute('git', ['add', '.'], { cwd: project });
+    await execute('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '--quiet', '-m', 'fixture'], { cwd: project });
+    const first = await runCommand(['verify', '--project', project]);
+    assert.equal(first.report.status, 'passed', JSON.stringify(first.report));
+    assert.equal(await readFile(path.join(project, 'runs.txt'), 'utf8'), 'run\n');
+
+    const parent = await mkdtemp(path.join(tmpdir(), 'verification-worktree-'));
+    const worktree = path.join(parent, 'checkout');
+    try {
+      await execute('git', ['worktree', 'add', '--detach', worktree, 'HEAD'], { cwd: project });
+      // Different HEAD, identical tree content: the tree-scoped check is still
+      // addressed by what the code says, not by the commit that carries it.
+      await execute('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '--allow-empty', '--quiet', '-m', 'empty'], { cwd: worktree });
+      const second = await runCommand(['verify', '--project', worktree, '--reuse']);
+      assert.equal(second.report.status, 'reused', JSON.stringify(second.report));
+      assert.equal(second.report.checks.test.status, 'reused');
+      await assert.rejects(readFile(path.join(worktree, 'runs.txt')));
+
+      await writeFile(path.join(worktree, 'new-source.js'), 'export const value = 1;\n');
+      const changed = await runCommand(['verify', '--project', worktree, '--reuse']);
+      assert.equal(changed.report.status, 'passed');
+      assert.equal(changed.report.cache.status, 'miss');
+      assert.equal(await readFile(path.join(worktree, 'runs.txt'), 'utf8'), 'run\n');
+    } finally {
+      await execute('git', ['worktree', 'remove', '--force', worktree], { cwd: project }).catch(() => {});
+      await rm(parent, { force: true, recursive: true });
+    }
+  });
+});
+
+test('非确定性检查 miss 不使已命中的 tree-scope 检查失效', async () => {
+  await fixture(async (project) => {
+    await writeFile(path.join(project, '.gitignore'), '.vibe-harness/\nfront.runs\nback.runs\n');
+    await writeFile(path.join(project, 'front.mjs'), "import { appendFileSync } from 'node:fs'; appendFileSync('front.runs', 'run\\n');\n");
+    await writeFile(path.join(project, 'back.mjs'), "import { appendFileSync } from 'node:fs'; appendFileSync('back.runs', 'run\\n');\n");
+    await configureTreeContent(project, [
+      { id: 'front', command: 'node front.mjs', deterministic: true, cacheScope: 'tree' },
+      { id: 'back', command: 'node back.mjs', deterministic: false, cacheScope: 'tree' },
+    ]);
+    await execute('git', ['init', '--quiet'], { cwd: project });
+    await execute('git', ['add', '.'], { cwd: project });
+    await execute('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '--quiet', '-m', 'fixture'], { cwd: project });
+    const first = await runCommand(['verify', '--project', project, '--reuse']);
+    assert.equal(first.report.status, 'passed', JSON.stringify(first.report));
+    const second = await runCommand(['verify', '--project', project, '--reuse']);
+    assert.equal(second.report.cache.status, 'partial', JSON.stringify(second.report.cache));
+    assert.equal(second.report.checks.front.status, 'reused');
+    assert.equal(second.report.checks.back.status, 'passed');
+    assert.equal(await readFile(path.join(project, 'front.runs'), 'utf8'), 'run\n');
+    assert.equal(await readFile(path.join(project, 'back.runs'), 'utf8'), 'run\nrun\n');
+  });
+});
+
+test('非确定性检查失败不阻止已通过的确定性检查写入逐检查缓存', async () => {
+  await fixture(async (project) => {
+    await writeFile(path.join(project, '.gitignore'), '.vibe-harness/\nfront.runs\nback.runs\nback.fail\n');
+    await writeFile(path.join(project, 'front.mjs'), "import { appendFileSync } from 'node:fs'; appendFileSync('front.runs', 'run\\n');\n");
+    await writeFile(path.join(project, 'back.mjs'), [
+      "import { appendFileSync, existsSync } from 'node:fs';",
+      "appendFileSync('back.runs', 'run\\n');",
+      "if (existsSync('back.fail')) process.exit(1);",
+      '',
+    ].join('\n'));
+    await configureTreeContent(project, [
+      { id: 'front', command: 'node front.mjs', deterministic: true, cacheScope: 'tree' },
+      { id: 'back', command: 'node back.mjs', deterministic: false, cacheScope: 'tree' },
+    ]);
+    await execute('git', ['init', '--quiet'], { cwd: project });
+    await execute('git', ['add', '.'], { cwd: project });
+    await execute('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '--quiet', '-m', 'fixture'], { cwd: project });
+    // The marker is ignored, so failing the back check changes neither the
+    // committed tree nor the tree-content fingerprint.
+    await writeFile(path.join(project, 'back.fail'), '1\n');
+    const first = await runCommand(['verify', '--project', project, '--reuse']);
+    assert.equal(first.report.status, 'failed', JSON.stringify(first.report));
+    assert.equal(first.report.cache.status, 'miss');
+    assert.deepEqual(
+      first.report.cache.checkReceipts.find((item) => item.id === 'front'),
+      { id: 'front', stored: true },
+      JSON.stringify(first.report.cache.checkReceipts),
+    );
+    assert.equal(first.report.cache.checks.front.status, 'miss');
+    assert.match(first.report.cache.checks.back.reason, /not-explicitly-deterministic/u);
+    assert.equal(await readFile(path.join(project, 'front.runs'), 'utf8'), 'run\n');
+
+    await rm(path.join(project, 'back.fail'));
+    const second = await runCommand(['verify', '--project', project, '--reuse']);
+    assert.equal(second.report.status, 'passed', JSON.stringify(second.report));
+    assert.equal(second.report.cache.status, 'partial', JSON.stringify(second.report.cache));
+    assert.equal(second.report.checks.front.status, 'reused');
+    assert.equal(second.report.checks.back.status, 'passed');
+    assert.equal(await readFile(path.join(project, 'front.runs'), 'utf8'), 'run\n');
+    assert.equal(await readFile(path.join(project, 'back.runs'), 'utf8'), 'run\nrun\n');
+  });
+});
+
+test('tree-content allowlist 只让列出的环境变化失效', async () => {
+  await fixture(async (project) => {
+    await writeFile(path.join(project, '.gitignore'), '.vibe-harness/\nruns.txt\n');
+    await writeFile(path.join(project, 'check.mjs'), "import { appendFileSync } from 'node:fs'; appendFileSync('runs.txt', 'run\\n');\n");
+    await configureTreeContent(project, [{ id: 'test', command: 'node check.mjs', deterministic: true, cacheScope: 'tree' }]);
+    await execute('git', ['init', '--quiet'], { cwd: project });
+    await execute('git', ['add', '.'], { cwd: project });
+    await execute('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '--quiet', '-m', 'fixture'], { cwd: project });
+    const previousAllowed = process.env.VIBE_TEST_ALLOWED;
+    const previousOther = process.env.VIBE_TEST_OTHER;
+    try {
+      process.env.VIBE_TEST_ALLOWED = 'one';
+      process.env.VIBE_TEST_OTHER = 'alpha';
+      const first = await runCommand(['verify', '--project', project]);
+      assert.equal(first.report.status, 'passed', JSON.stringify(first.report));
+      process.env.VIBE_TEST_OTHER = 'beta';
+      const ignored = await runCommand(['verify', '--project', project, '--reuse']);
+      assert.equal(ignored.report.status, 'reused', JSON.stringify(ignored.report));
+      process.env.VIBE_TEST_ALLOWED = 'two';
+      const allowed = await runCommand(['verify', '--project', project, '--reuse']);
+      assert.equal(allowed.report.status, 'passed', JSON.stringify(allowed.report));
+      assert.equal(await readFile(path.join(project, 'runs.txt'), 'utf8'), 'run\nrun\n');
+    } finally {
+      if (previousAllowed === undefined) delete process.env.VIBE_TEST_ALLOWED;
+      else process.env.VIBE_TEST_ALLOWED = previousAllowed;
+      if (previousOther === undefined) delete process.env.VIBE_TEST_OTHER;
+      else process.env.VIBE_TEST_OTHER = previousOther;
+    }
+  });
+});
+
+test('selection scope 的 base 变化不会跨基线复用检查收据', async () => {
+  await fixture(async (project) => {
+    await writeFile(path.join(project, 'check.mjs'), 'process.exit(0);\n');
+    await configureTreeContent(project, [{ id: 'selected', command: 'node check.mjs', deterministic: true, cacheScope: 'selection' }]);
+    await execute('git', ['init', '--quiet'], { cwd: project });
+    await execute('git', ['add', '.'], { cwd: project });
+    await execute('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '--quiet', '-m', 'fixture'], { cwd: project });
+    const head = (await execute('git', ['rev-parse', 'HEAD'], { cwd: project })).stdout.trim();
+    const base = { selectedChecks: [{ id: 'selected', command: 'node check.mjs', cwd: '.', costTier: 'quick', deterministic: true, cacheScope: 'selection' }], tier: 'quick', scope: 'affected' };
+    const first = await verificationCacheContext(project, { ...base, baseSha: head, changedPaths: ['src/a.js'] });
+    const storedContext = first.perCheck[0];
+    assert.equal(storedContext.available, true, JSON.stringify(first));
+    assert.equal(await storeVerificationCheckReceipt(project, storedContext), true);
+    assert.equal((await findVerificationCheckReceipt(project, storedContext)).status, 'hit');
+    const otherBase = await verificationCacheContext(project, { ...base, baseSha: head, changedPaths: ['src/b.js'] });
+    assert.equal((await findVerificationCheckReceipt(project, otherBase.perCheck[0])).status, 'miss');
+  });
+});
+
+test('被篡改的第 5 版检查收据按 miss 处理', async () => {
+  await fixture(async (project) => {
+    await writeFile(path.join(project, '.gitignore'), '.vibe-harness/\n');
+    await writeFile(path.join(project, 'check.mjs'), 'process.exit(0);\n');
+    await configureTreeContent(project, [{ id: 'test', command: 'node check.mjs', deterministic: true, cacheScope: 'tree' }]);
+    await execute('git', ['init', '--quiet'], { cwd: project });
+    await execute('git', ['add', '.'], { cwd: project });
+    await execute('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '--quiet', '-m', 'fixture'], { cwd: project });
+    const first = await runCommand(['verify', '--project', project]);
+    assert.equal(first.report.status, 'passed', JSON.stringify(first.report));
+    const common = (await execute('git', ['rev-parse', '--git-common-dir'], { cwd: project })).stdout.trim();
+    const directory = path.join(project, common, 'vibe-harness', 'verification-cache', 'v5');
+    const [name] = (await readdir(directory)).filter((file) => file.endsWith('.json'));
+    const file = path.join(directory, name);
+    const record = JSON.parse(await readFile(file, 'utf8'));
+    await writeFile(file, JSON.stringify({ ...record, status: 'failed' }));
+    const second = await runCommand(['verify', '--project', project, '--reuse']);
+    assert.equal(second.report.status, 'passed');
+    assert.equal(second.report.cache.status, 'miss');
+  });
+});
+
+test('旧版检查收据不会被自动复用', async () => {
+  await fixture(async (project) => {
+    await writeFile(path.join(project, '.gitignore'), '.vibe-harness/\nruns.txt\n');
+    await writeFile(path.join(project, 'check.mjs'), "import { appendFileSync } from 'node:fs'; appendFileSync('runs.txt', 'run\\n');\n");
+    await configureTreeContent(project, [{ id: 'test', command: 'node check.mjs', deterministic: true, cacheScope: 'tree' }]);
+    await execute('git', ['init', '--quiet'], { cwd: project });
+    await execute('git', ['add', '.'], { cwd: project });
+    await execute('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '--quiet', '-m', 'fixture'], { cwd: project });
+    const first = await runCommand(['verify', '--project', project]);
+    assert.equal(first.report.status, 'passed', JSON.stringify(first.report));
+    const directory = await checkCacheDirectory(project);
+    const [name] = (await readdir(directory)).filter((file) => file.endsWith('.json'));
+    const file = path.join(directory, name);
+    const record = JSON.parse(await readFile(file, 'utf8'));
+    await writeFile(file, JSON.stringify({ ...record, schemaVersion: 4 }));
+    const second = await runCommand(['verify', '--project', project, '--reuse']);
+    assert.equal(second.report.status, 'passed', JSON.stringify(second.report));
+    assert.equal(second.report.cache.status, 'miss');
+    assert.equal(await readFile(path.join(project, 'runs.txt'), 'utf8'), 'run\nrun\n');
+  });
+});
+
+test('检查收据缓存目录是符号链接时按 miss 处理', async () => {
+  await fixture(async (project) => {
+    await writeFile(path.join(project, '.gitignore'), '.vibe-harness/\nruns.txt\n');
+    await writeFile(path.join(project, 'check.mjs'), "import { appendFileSync } from 'node:fs'; appendFileSync('runs.txt', 'run\\n');\n");
+    await configureTreeContent(project, [{ id: 'test', command: 'node check.mjs', deterministic: true, cacheScope: 'tree' }]);
+    await execute('git', ['init', '--quiet'], { cwd: project });
+    await execute('git', ['add', '.'], { cwd: project });
+    await execute('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '--quiet', '-m', 'fixture'], { cwd: project });
+    const first = await runCommand(['verify', '--project', project]);
+    assert.equal(first.report.status, 'passed', JSON.stringify(first.report));
+    const directory = await checkCacheDirectory(project);
+    const outside = await mkdtemp(path.join(tmpdir(), 'verification-cache-outside-'));
+    try {
+      await rm(directory, { recursive: true, force: true });
+      await symlink(outside, directory, process.platform === 'win32' ? 'junction' : 'dir');
+      const second = await runCommand(['verify', '--project', project, '--reuse']);
+      assert.equal(second.report.status, 'passed', JSON.stringify(second.report));
+      assert.equal(second.report.cache.status, 'miss');
+      assert.equal(await readFile(path.join(project, 'runs.txt'), 'utf8'), 'run\nrun\n');
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+});
+
+test('检查收据不可读时按 miss 处理', async () => {
+  await fixture(async (project) => {
+    await writeFile(path.join(project, '.gitignore'), '.vibe-harness/\nruns.txt\n');
+    await writeFile(path.join(project, 'check.mjs'), "import { appendFileSync } from 'node:fs'; appendFileSync('runs.txt', 'run\\n');\n");
+    await configureTreeContent(project, [{ id: 'test', command: 'node check.mjs', deterministic: true, cacheScope: 'tree' }]);
+    await execute('git', ['init', '--quiet'], { cwd: project });
+    await execute('git', ['add', '.'], { cwd: project });
+    await execute('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '--quiet', '-m', 'fixture'], { cwd: project });
+    const first = await runCommand(['verify', '--project', project]);
+    assert.equal(first.report.status, 'passed', JSON.stringify(first.report));
+    const directory = await checkCacheDirectory(project);
+    const [name] = (await readdir(directory)).filter((file) => file.endsWith('.json'));
+    const file = path.join(directory, name);
+    await rm(file, { force: true });
+    await mkdir(file);
+    const second = await runCommand(['verify', '--project', project, '--reuse']);
+    assert.equal(second.report.status, 'passed', JSON.stringify(second.report));
+    assert.equal(second.report.cache.status, 'miss');
+    assert.equal(await readFile(path.join(project, 'runs.txt'), 'utf8'), 'run\nrun\n');
+  });
+});
+
+test('过期检查收据在 lookup 时被清理并判为 miss', async () => {
+  await fixture(async (project) => {
+    await writeFile(path.join(project, 'check.mjs'), 'process.exit(0);\n');
+    await configureTreeContent(project, [{ id: 'test', command: 'node check.mjs', deterministic: true, cacheScope: 'tree' }]);
+    await execute('git', ['init', '--quiet'], { cwd: project });
+    await execute('git', ['add', '.'], { cwd: project });
+    await execute('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '--quiet', '-m', 'fixture'], { cwd: project });
+    const head = (await execute('git', ['rev-parse', 'HEAD'], { cwd: project })).stdout.trim();
+    const plan = {
+      selectedChecks: [{ id: 'test', command: 'node check.mjs', cwd: '.', costTier: 'quick', deterministic: true, cacheScope: 'tree' }],
+      tier: 'quick', scope: 'affected', baseSha: head, changedPaths: [],
+    };
+    const context = await verificationCacheContext(project, plan);
+    const check = context.perCheck[0];
+    assert.equal(await storeVerificationCheckReceipt(project, check), true);
+    const file = path.join(await checkCacheDirectory(project), `${check.key}.json`);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const expired = await findVerificationCheckReceipt(project, check, { ttlMs: 1 });
+    assert.equal(expired.status, 'miss');
+    assert.equal(expired.reason, 'check-receipt-expired');
+    await assert.rejects(readFile(file));
   });
 });
 

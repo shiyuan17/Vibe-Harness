@@ -108,18 +108,16 @@ test('CLI verify 只承认显式 --reviewed 作为完成审阅证据', async () 
   }
 });
 
-test('CLI verify 在需要完成收据时关闭 --reuse，收据只认本次声明', async () => {
+test('CLI verify 在需要完成收据时仍可复用，但审查只认本次声明', async () => {
   const project = await tempProject();
   try {
     await installedProject(project, { validationCommands: { checks: [{ id: 'test', command: 'node -e 0', deterministic: true }] } });
-    // A cache hit reconstructs the review from the stored receipt instead of
-    // this caller's `--reviewed`, so reuse would let an earlier invocation's
-    // declaration authorize this run. It is refused wherever a completion
-    // receipt is required, and the run falls back to a real execution.
+    // A cache hit never replays the stored review verdict: this invocation's
+    // `--reviewed` declaration is applied to the reused check set again.
     const first = await runRootCli(['verify', '--project', project, '--allow-manual', '--output', 'json', '--reviewed', 'all', '--reuse']);
     assert.equal(first.completion.verificationAcceptance.status, 'accepted', JSON.stringify(first.completion));
     const rerun = await runRootCli(['verify', '--project', project, '--allow-manual', '--output', 'json', '--reviewed', 'all', '--reuse']);
-    assert.equal(rerun.verification.cache.status, 'not_requested', JSON.stringify(rerun.verification.cache));
+    assert.equal(rerun.verification.cache.status, 'hit', JSON.stringify(rerun.verification.cache));
     assert.equal(rerun.completion.verificationAcceptance.status, 'accepted', JSON.stringify(rerun.completion.verificationAcceptance));
 
     // A stored review the current plan does not select is not evidence for this
@@ -133,7 +131,9 @@ test('CLI verify 在需要完成收据时关闭 --reuse，收据只认本次声�
       review: { ...receipt.review, reviewedCheckIds: ['browser'], status: 'relevant' },
     }), 'utf8');
     const undeclared = await runRootCli(['verify', '--project', project, '--allow-manual', '--output', 'json', '--reuse']);
-    assert.equal(undeclared.verification.cache.status, 'not_requested');
+    // The tampered record fails authentication, so the run executes again and
+    // still has no review declaration from this caller.
+    assert.equal(undeclared.verification.cache.status, 'miss');
     assert.equal(undeclared.completion.verificationAcceptance.status, 'blocked', JSON.stringify(undeclared.completion.verificationAcceptance));
     assert.equal(undeclared.completion.status, 'unverified');
     // The run itself passed and reported the missing evidence, so the ordinary
