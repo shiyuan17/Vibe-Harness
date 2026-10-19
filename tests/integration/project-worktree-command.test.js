@@ -47,6 +47,8 @@ async function makeWorkspaceFixture({
   installDependencies = true,
   trackContracts = true,
   validationCommands = null,
+  verification = null,
+  delivery = null,
   worktree = {},
 } = {}) {
   // The runtime reports canonical paths for the project it is pointed at, and
@@ -84,6 +86,8 @@ async function makeWorkspaceFixture({
     },
     ...(hooks ? { hooks } : {}),
     ...(validationCommands ? { validationCommands } : {}),
+    ...(verification ? { verification } : {}),
+    ...(delivery ? { delivery } : {}),
   });
   for (const [relative, content] of Object.entries(extraFiles)) {
     const target = path.join(repo, relative);
@@ -926,8 +930,11 @@ test('worktree recover leaves touched, dirty and foreign worktrees alone', async
 // the protected branches the fixture repo starts on) and configure a trivial
 // passing check so the verify gate has real evidence to run.
 
-async function makeLandFixture({ extraFiles = {}, validationCommands = { test: 'node --version' }, worktree = {} } = {}) {
-  const fixture = await makeWorkspaceFixture({ extraFiles, validationCommands, worktree });
+async function makeLandFixture({
+  extraFiles = {}, validationCommands = { test: 'node --version' }, verification = null,
+  delivery = null, worktree = {},
+} = {}) {
+  const fixture = await makeWorkspaceFixture({ extraFiles, validationCommands, verification, delivery, worktree });
   await git(fixture.repo, ['checkout', '-q', '-b', 'feat/landing-zone']);
   return fixture;
 }
@@ -1029,6 +1036,84 @@ test('land 预检：收据要求显式审阅并把层升到无 deferred 的声�
   }
 });
 
+test('develop + reviewPolicy:none land 不需要 --reviewed 且仍产出完整完成收据', async () => {
+  const fixture = await makeLandFixture({
+    delivery: {
+      default: 'local-land',
+      profiles: {
+        'local-land': {
+          merge: 'no-ff',
+          cleanup: 'ancestor',
+          requireReceipt: true,
+          reviewPolicy: 'none',
+        },
+      },
+    },
+  });
+  try {
+    await bootstrapWithWork(fixture);
+    await git(fixture.repo, ['checkout', '-q', '-b', 'develop']);
+    const planned = await runCommand([
+      'worktree', 'land', '--project', fixture.repo, '--json',
+    ], { cwd: fixture.repo });
+    assert.equal(planned.report.status, 'planned', JSON.stringify(planned.report));
+    assert.equal(planned.report.targetBranch, 'develop');
+
+    const written = await runCommand([
+      'worktree', 'land', '--project', fixture.repo, '--write', '--json',
+    ], { cwd: fixture.repo });
+    assert.equal(written.exitCode, 0, JSON.stringify(written.report));
+    assert.equal(written.report.status, 'passed', JSON.stringify(written.report));
+    assert.equal(written.report.completion.verification.review.status, 'not_required');
+    assert.equal(written.report.completion.verification.review.reasonCode, 'REVIEW_NOT_REQUIRED');
+    assert.equal(written.report.completion.verification.review.reviewPolicy, 'none');
+    assert.equal(written.report.completion.verification.review.targetBranch, 'develop');
+    assert.equal(written.report.completion.verification.acceptance.status, 'accepted');
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('land 在相同代码树的候选 worktree 复用已通过的确定性检查', async () => {
+  const counter = path.join(tmpdir(), `vibe-harness-land-cache-${process.pid}-${Date.now()}.txt`);
+  const previousCounter = process.env.VIBE_HARNESS_TEST_COUNTER;
+  const fixture = await makeLandFixture({
+    extraFiles: {
+      'check.mjs': "import { appendFileSync } from 'node:fs'; appendFileSync(process.env.VIBE_HARNESS_TEST_COUNTER, 'run\\n');\n",
+    },
+    validationCommands: {
+      test: 'node check.mjs',
+      tiers: { quick: ['node check.mjs'], standard: [], deep: [] },
+      checks: [{ id: 'test', command: 'node check.mjs', deterministic: true, cacheScope: 'tree' }],
+    },
+    verification: { reuse: { mode: 'tree-content' } },
+  });
+  try {
+    process.env.VIBE_HARNESS_TEST_COUNTER = counter;
+    await bootstrapWithWork(fixture);
+    const verified = await runCommand([
+      'verify', '--project', fixture.worktreePath, '--tier', 'quick', '--reuse', '--json',
+    ], { cwd: fixture.worktreePath });
+    assert.equal(verified.report.status, 'passed', JSON.stringify(verified.report));
+    assert.equal(await readFile(counter, 'utf8'), 'run\n');
+
+    const landed = await runCommand([
+      'worktree', 'land', '--project', fixture.repo, '--delivery', 'local-land',
+      '--reviewed', 'all', '--write', '--json',
+    ], { cwd: fixture.repo });
+    assert.equal(landed.exitCode, 0, JSON.stringify(landed.report));
+    assert.equal(landed.report.status, 'passed', JSON.stringify(landed.report));
+    assert.equal(landed.report.results[0].steps[1].status, 'passed');
+    assert.equal(landed.report.timingsMs.checks.find((check) => check.id === 'test').status, 'reused');
+    assert.equal(await readFile(counter, 'utf8'), 'run\n');
+  } finally {
+    if (previousCounter === undefined) delete process.env.VIBE_HARNESS_TEST_COUNTER;
+    else process.env.VIBE_HARNESS_TEST_COUNTER = previousCounter;
+    await rm(counter, { force: true });
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
 test('worktree land --push 无 --write 直接拒绝', async () => {
   const fixture = await makeLandFixture();
   try {
@@ -1094,6 +1179,12 @@ test('脏工作区与未完成锚点单元都把 land 置为 blocked', async () 
     const dirtyPrimary = await runCommand(['worktree', 'land', '--project', fixture.repo, '--json'], { cwd: fixture.repo });
     assert.equal(dirtyPrimary.report.status, 'blocked');
     assert.match(dirtyPrimary.report.blockers.join('; '), /the primary checkout has uncommitted changes/u);
+    assert.equal(dirtyPrimary.report.preflight.primaryCheckout.dirty, true);
+    assert.equal(dirtyPrimary.report.preflight.primaryCheckout.untrackedChangeCount, 1);
+    assert.ok(dirtyPrimary.report.preflight.primaryCheckout.changes.some((change) => change.path === 'primary-wip.txt'));
+    assert.equal(typeof dirtyPrimary.report.preflight.baseline.targetHead, 'string');
+    assert.equal(typeof dirtyPrimary.report.preflight.baseline.mergeBase, 'string');
+    assert.equal(typeof dirtyPrimary.report.preflight.baseline.baseRefDrift, 'boolean');
     await rm(path.join(fixture.repo, 'primary-wip.txt'));
 
     // An anchor with a unit still in progress means the slice is not done
@@ -1189,6 +1280,86 @@ test('land --write 合并、验证并清理,但不推送不删分支', async () 
     assert.equal(await git(fixture.repo, ['branch', '--list', 'feat/ENG-1-scaffold', '--format=%(refname:short)']), 'feat/ENG-1-scaffold');
     assert.deepEqual((await readRegistry(fixture.repo)).entries, []);
   } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('land 候选合并不执行表单 Hook，并报告分项耗时', async () => {
+  const marker = path.join(tmpdir(), `vibe-harness-form-hook-${Date.now()}.marker`);
+  const normalizedMarker = marker.replaceAll('\\', '/');
+  const fixture = await makeLandFixture({
+    extraFiles: { '.githooks/post-merge': `#!/bin/sh\ntouch "${normalizedMarker}"\n` },
+  });
+  try {
+    await chmod(path.join(fixture.repo, '.githooks/post-merge'), 0o755);
+    await git(fixture.repo, ['config', 'core.hooksPath', '.githooks']);
+    await bootstrapWithWork(fixture);
+    const written = await runCommand(['worktree', 'land', '--project', fixture.repo, '--delivery', 'local-land', '--reviewed', 'all', '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(written.exitCode, 0, JSON.stringify(written.report));
+    assert.equal(written.report.status, 'passed', JSON.stringify(written.report));
+    assert.equal(existsSync(marker), false, 'candidate merge must not run repository form hooks');
+    assert.equal(typeof written.report.timingsMs.setupMs, 'number');
+    assert.equal(typeof written.report.timingsMs.mergeMs, 'number');
+    assert.equal(typeof written.report.timingsMs.verifyMs, 'number');
+    assert.equal(typeof written.report.timingsMs.cleanupMs, 'number');
+  } finally {
+    await rm(marker, { force: true });
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('land 预检报告残留 candidate 与缺失依赖根', async () => {
+  const fixture = await makeLandFixture();
+  try {
+    await bootstrapWithWork(fixture);
+    const residue = path.join(fixture.root, '.vibe-harness-land-ENG-1-residual');
+    await mkdir(residue, { recursive: true });
+    const planned = await runCommand(['worktree', 'land', '--project', fixture.repo, '--task', 'ENG-1', '--json'], { cwd: fixture.repo });
+    assert.equal(planned.exitCode, 1);
+    assert.equal(planned.report.status, 'blocked');
+    assert.ok(planned.report.preflight.residualCandidates.some((candidate) => candidate.includes('.vibe-harness-land-ENG-1-residual')));
+    assert.ok(planned.report.blockers.some((line) => /residual land candidate/u.test(line)));
+    await rm(residue, { recursive: true, force: true });
+    await rm(path.join(fixture.repo, 'frontend/node_modules'), { recursive: true, force: true });
+    const blocked = await runCommand(['worktree', 'land', '--project', fixture.repo, '--task', 'ENG-1', '--json'], { cwd: fixture.repo });
+    assert.equal(blocked.report.status, 'blocked');
+    assert.ok(blocked.report.preflight.dependencyBlockers.some((item) => ['LAND_DEPENDENCY_ROOT_MISSING', 'LAND_DEPENDENCY_JUNCTION_BROKEN'].includes(item.code)));
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('land 预检在 deep 验证锁被持有时 blocked 且不创建候选', async () => {
+  const fixture = await makeLandFixture({
+    validationCommands: {
+      tiers: {
+        quick: ['node --version'],
+        standard: ['node --version --no-warnings'],
+        deep: ['node --version --no-warnings'],
+      },
+    },
+  });
+  const lockPath = path.join(fixture.repo, '.git', 'vibe-harness-deep-verify.lock');
+  try {
+    await bootstrapWithWork(fixture);
+    await writeJson(lockPath, {
+      schemaVersion: 1,
+      nonce: 'fixture',
+      pid: process.pid,
+      startedAt: new Date().toISOString(),
+      heartbeatAt: new Date().toISOString(),
+      leaseMs: 10 * 60 * 1000,
+    });
+    const blocked = await runCommand([
+      'worktree', 'land', '--project', fixture.repo, '--delivery', 'local-land',
+      '--tier', 'deep', '--reviewed', 'all', '--json',
+    ], { cwd: fixture.repo });
+    assert.equal(blocked.report.status, 'blocked', JSON.stringify(blocked.report));
+    assert.equal(blocked.report.preflight.deepLock.held, true);
+    assert.ok(blocked.report.blockers.some((line) => /deep or backend-wide verification/u.test(line)));
+    assert.equal(await git(fixture.repo, ['rev-list', '--count', 'feat/landing-zone']), '1');
+  } finally {
+    await rm(lockPath, { force: true });
     await removeTemporaryDirectory(fixture.root);
   }
 });

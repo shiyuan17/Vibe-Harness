@@ -26,7 +26,8 @@ import path from 'node:path';
 
 import { gitFingerprint } from './git-fingerprint.mjs';
 import { attestCompletionProvenance, recordFinalVerification } from './verification-receipt.mjs';
-import { completionReceipt, resolveDelivery, validateCompletion } from './delivery.mjs';
+import { verificationLockStatus } from './verification-lock.mjs';
+import { completionReceipt, isReviewRequired, resolveDelivery, validateCompletion } from './delivery.mjs';
 import { readMergeEvidence, validateMergeEvidence } from './merge-evidence.mjs';
 import { releaseServiceTeardown, teardownServices } from './services.mjs';
 import {
@@ -1260,6 +1261,67 @@ async function gitCommonDir(projectDir) {
   if (!result.ok || result.stdout.trim() === '') return { ok: false, error: boundedOutput(result.stderr || result.error?.message || 'cannot resolve git common dir', projectDir) };
   return { ok: true, path: path.resolve(projectDir, result.stdout.trim()) };
 }
+
+/**
+ * Merge without repository hooks.
+ *
+ * A candidate merge must not run formatters, generators or installers that a
+ * developer wired into pre-commit/post-merge: those write through the shared
+ * dependency junctions and turn a read-only merge into a mutation of the main
+ * checkout's `node_modules`. `--no-verify` covers commit hooks; an empty
+ * `core.hooksPath` also covers post-merge/checkout hooks and the LEFTHOOK/HUSKY
+ * switches cover managers that ignore Git's hooks directory.
+ */
+async function runIsolatedGit(projectDir, args, cwd = projectDir) {
+  const common = await gitCommonDir(projectDir);
+  const hooksDirectory = common.ok ? path.join(common.path, 'vibe-harness-empty-hooks') : null;
+  if (hooksDirectory) {
+    try {
+      mkdirSync(hooksDirectory, { recursive: true });
+    } catch {
+      // A hooks directory that cannot be created leaves the empty -c value in
+      // place; Git then reports the failure instead of silently running hooks.
+    }
+  }
+  return runGit(['-c', hooksDirectory ? `core.hooksPath=${hooksDirectory}` : 'core.hooksPath=', ...args], cwd, {
+    env: { LEFTHOOK: '0', HUSKY: '0' },
+  });
+}
+
+function candidateResidue(settings, taskId) {
+  const parent = path.dirname(settings.root);
+  const prefix = `.vibe-harness-land-${taskId}-`.toLowerCase();
+  try {
+    return readdirSync(parent, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && entry.name.toLowerCase().startsWith(prefix))
+      .map((entry) => path.join(parent, entry.name));
+  } catch {
+    return [];
+  }
+}
+
+function dependencyRootBlockers(projectDir, worktreePath, settings) {
+  if ((settings.provision?.setupCommands ?? []).length > 0) return [];
+  const blockers = [];
+  for (const root of settings.dependencyRoots) {
+    for (const [label, base] of [['main checkout', projectDir], ['worktree', worktreePath]]) {
+      const modules = path.join(base, root, 'node_modules');
+      if (!existsSync(modules)) {
+        blockers.push({ code: 'LAND_DEPENDENCY_ROOT_MISSING', root, location: label, message: `${root === '.' ? '' : `${root}/`}node_modules is absent in the ${label} ${normalizeSlashes(base)}; install dependencies or declare worktree.provision.setupCommands before landing` });
+        continue;
+      }
+      try {
+        const info = lstatSync(modules);
+        if (info.isSymbolicLink() && !safeRealpath(modules)) {
+          blockers.push({ code: 'LAND_DEPENDENCY_JUNCTION_BROKEN', root, location: label, message: `${root === '.' ? '' : `${root}/`}node_modules is a broken link in the ${label} ${normalizeSlashes(base)}` });
+        }
+      } catch (error) {
+        blockers.push({ code: 'LAND_DEPENDENCY_ROOT_UNREADABLE', root, location: label, message: `${root === '.' ? '' : `${root}/`}node_modules cannot be inspected in the ${label}: ${error.message}` });
+      }
+    }
+  }
+  return blockers;
+}
 /**
  * The wall-clock budget a land waits for a peer's shared lock. Resolved per
  * call so the parent-owned knob also applies to in-process callers; it can only
@@ -1425,6 +1487,8 @@ async function worktreeLandReportUnlocked(projectDir, args) {
   if (isLandProtectedBranch(targetBranch)) {
     return failure(`target branch ${targetBranch} is a protected or shared branch; land refuses to merge into it`, 'LAND_TARGET_PROTECTED');
   }
+  const reviewPolicy = delivery.reviewPolicy ?? 'required';
+  const reviewRequired = isReviewRequired({ reviewPolicy, targetBranch });
   const remoteTracking = remoteMode ? await runGit(['rev-parse', '--verify', 'refs/remotes/origin/develop'], projectDir) : null;
   const remoteHead = remoteMode ? await remoteDevelopHead(projectDir) : null;
   if (remoteMode && (!remoteHead.ok || !remoteTracking.ok || remoteTracking.stdout.trim() !== remoteHead.sha)) {
@@ -1466,8 +1530,39 @@ async function worktreeLandReportUnlocked(projectDir, args) {
   const branchHead = await runGit(['rev-parse', `refs/heads/${entry.branch}`], projectDir);
   if (!branchHead.ok) return failure(`branch ${entry.branch} is not a local ref; land cannot attribute its commits`);
   const branchHeadSha = branchHead.stdout.trim();
+  const primaryHead = await runGit(['rev-parse', 'HEAD'], primary.path);
+  const targetHeadBeforeLand = await runGit(['rev-parse', `refs/heads/${targetBranch}`], primary.path);
+  const baselineMergeBase = await runGit(['merge-base', branchHeadSha, targetBranch], projectDir);
+  const baselineDivergence = await runGit(['rev-list', '--left-right', '--count', `${targetBranch}...${branchHeadSha}`], projectDir);
+  const configuredBaseHead = await runGit(['rev-parse', '--verify', settings.baseRef], projectDir);
+  const [targetAhead = null, sourceAhead = null] = baselineDivergence.ok
+    ? baselineDivergence.stdout.trim().split(/\s+/u).map((value) => Number.parseInt(value, 10))
+    : [];
+  const baseline = {
+    baseRef: settings.baseRef,
+    baseRefHead: configuredBaseHead.ok ? configuredBaseHead.stdout.trim() : null,
+    targetBranch,
+    targetHead: targetHeadBeforeLand.ok ? targetHeadBeforeLand.stdout.trim() : null,
+    sourceHead: branchHeadSha,
+    mergeBase: baselineMergeBase.ok ? baselineMergeBase.stdout.trim() : null,
+    targetAhead: Number.isInteger(targetAhead) ? targetAhead : null,
+    sourceAhead: Number.isInteger(sourceAhead) ? sourceAhead : null,
+    // The branch was cut from an older target tip when the configured base has
+    // moved past its merge-base. This is a fact to report, not a blocker: the
+    // isolated candidate still merges into the current target and is verified.
+    baseRefDrift: Boolean(configuredBaseHead.ok && baselineMergeBase.ok
+      && configuredBaseHead.stdout.trim() !== baselineMergeBase.stdout.trim()),
+  };
 
   const blockers = [];
+  const landStartedAt = Date.now();
+  const timingsMs = {};
+  const residualCandidates = candidateResidue(settings, taskId);
+  if (residualCandidates.length > 0) {
+    blockers.push(`residual land candidate worktree(s) exist for ${taskId}: ${residualCandidates.map(normalizeSlashes).join(', ')}; inspect and remove them before retrying`);
+  }
+  const dependencyBlockers = dependencyRootBlockers(projectDir, entry.path, settings);
+  for (const blocker of dependencyBlockers) blockers.push(blocker.message);
   const worktreeStatus = await runGit(['status', '--porcelain=v1'], entry.path);
   const sourceFingerprint = remoteMode && worktreeStatus.ok ? await gitFingerprint(entry.path) : null;
   if (!worktreeStatus.ok) blockers.push('the worktree status could not be read');
@@ -1476,6 +1571,27 @@ async function worktreeLandReportUnlocked(projectDir, args) {
   const primaryFingerprint = remoteMode && primaryStatus.ok ? await gitFingerprint(primary.path) : null;
   if (!primaryStatus.ok) blockers.push('the primary checkout status could not be read');
   else if (!remoteMode && primaryStatus.stdout.trim() !== '') blockers.push('the primary checkout has uncommitted changes');
+  const primaryStatusLines = primaryStatus.ok
+    ? primaryStatus.stdout.split(/\r?\n/u).map((line) => line.trimEnd()).filter(Boolean)
+    : [];
+  const primaryDifferences = primaryStatusLines.map((line) => ({
+    status: line.slice(0, 2).trim(),
+    path: line.slice(3),
+  }));
+  const primaryTrackedDiff = await runGit(['diff', '--shortstat', '--no-ext-diff'], primary.path);
+  const primaryStagedDiff = await runGit(['diff', '--cached', '--shortstat', '--no-ext-diff'], primary.path);
+  const primaryCheckout = {
+    branch: primary.branch,
+    head: primaryHead.ok ? primaryHead.stdout.trim() : null,
+    dirty: primaryStatusLines.length > 0,
+    changeCount: primaryDifferences.length,
+    trackedChangeCount: primaryDifferences.filter((change) => change.status !== '??').length,
+    untrackedChangeCount: primaryDifferences.filter((change) => change.status === '??').length,
+    changes: primaryDifferences.slice(0, 50),
+    changesTruncated: primaryDifferences.length > 50,
+    unstagedSummary: primaryTrackedDiff.ok ? primaryTrackedDiff.stdout.trim() : null,
+    stagedSummary: primaryStagedDiff.ok ? primaryStagedDiff.stdout.trim() : null,
+  };
   // An anchor with unfinished units means the work is not done yet; landing it
   // anyway would merge a half-finished slice into the target branch.
   let anchorInfo = null;
@@ -1522,6 +1638,7 @@ async function worktreeLandReportUnlocked(projectDir, args) {
   // relevant. Both are preflight facts: a landing that cannot produce them is
   // reported here instead of after the merge candidate was built and tested.
   let tierEscalation = null;
+  let deepLockStatus = null;
   if (delivery.requireReceipt && args.verify !== false) {
     const configured = configuredChecks(config, projectDir);
     if (configured.error) return failure(configured.error);
@@ -1529,12 +1646,19 @@ async function worktreeLandReportUnlocked(projectDir, args) {
     if (receiptTier.blocked) blockers.push(receiptTier.blocked);
     else tier = receiptTier.tier;
     if (receiptTier.escalatedFrom) tierEscalation = { from: receiptTier.escalatedFrom, to: receiptTier.tier };
-    if (receiptTier.selectedNames.length > 0) {
+    if (reviewRequired && receiptTier.selectedNames.length > 0) {
       const reviewed = resolveReviewedChecks(args.reviewed, receiptTier.selectedNames);
       if (reviewed.blocked) blockers.push(reviewed.blocked);
       else if (reviewed.ids.length === 0) {
         blockers.push(`a completion receipt (delivery.${delivery.profile}) requires the explicit relevance review of the checks this change is verified by: pass --reviewed <${receiptTier.selectedNames.join('|')}|all> after reading the changed paths against them`);
       }
+    }
+  }
+  if (tier === 'deep') {
+    const lock = await verificationLockStatus(projectDir);
+    deepLockStatus = { held: Boolean(lock.ok && lock.held), stale: lock.stale === true, path: lock.path ?? null, holder: lock.holder ?? null };
+    if (lock.ok && lock.held) {
+      blockers.push(`a deep or backend-wide verification already holds ${normalizeSlashes(lock.path)}${lock.holder?.pid ? ` (pid ${lock.holder.pid})` : ''}; wait for it to finish before building another candidate`);
     }
   }
   // Push policy mirrors $vb-git-split-push: plain push when an upstream exists;
@@ -1584,6 +1708,7 @@ async function worktreeLandReportUnlocked(projectDir, args) {
       ...(remoteMode ? { targetMode, targetRef: 'origin/develop', targetBefore: remoteHead.sha } : {}),
       tier,
       ...(tierEscalation ? { tierEscalation } : {}),
+      preflight: { primaryCheckout, baseline, residualCandidates: residualCandidates.map(normalizeSlashes), dependencyBlockers, deepLock: deepLockStatus },
       write: Boolean(args.write),
       results: [{ ...baseResult, status: 'blocked', steps: stepPlans.map((step) => ({ ...step, status: 'blocked' })) }],
     };
@@ -1599,6 +1724,7 @@ async function worktreeLandReportUnlocked(projectDir, args) {
       ...(remoteMode ? { targetRef: 'origin/develop', targetBefore: remoteHead.sha, primaryUnchanged: true } : {}),
       tier,
       ...(tierEscalation ? { tierEscalation } : {}),
+      preflight: { primaryCheckout, baseline, residualCandidates: residualCandidates.map(normalizeSlashes), dependencyBlockers, deepLock: deepLockStatus },
       write: false,
       results: [{ ...baseResult, status: 'planned', steps: stepPlans.map((step) => ({ ...step, status: 'planned' })) }],
     };
@@ -1630,7 +1756,8 @@ async function worktreeLandReportUnlocked(projectDir, args) {
   } else {
     const candidateBaseSha = targetHead.stdout.trim();
     candidatePath = path.join(path.dirname(settings.root), `.vibe-harness-land-${taskId}-${randomUUID()}`);
-    const added = await runGit(['worktree', 'add', '--detach', candidatePath, candidateBaseSha], projectDir);
+    const setupStartedAt = Date.now();
+    const added = await runIsolatedGit(projectDir, ['worktree', 'add', '--detach', candidatePath, candidateBaseSha]);
     if (!added.ok) {
       markFailed({ id: 'merge', status: 'failed', code: 'LAND_CANDIDATE_CREATE_FAILED', error: boundedOutput(added.stderr || added.error?.message || 'candidate worktree creation failed', projectDir), detail: `git worktree add --detach ${candidatePath} ${candidateBaseSha}` });
     } else {
@@ -1660,8 +1787,13 @@ async function worktreeLandReportUnlocked(projectDir, args) {
         const removed = await cleanupLandCandidate(projectDir, candidatePath);
         markFailed({ id: 'merge', status: 'failed', code: 'LAND_CANDIDATE_SETUP_FAILED', error: error.message, candidatePath: removed.residual, detail: 'prepare isolated candidate dependencies' });
       }
+      timingsMs.setupMs = Date.now() - setupStartedAt;
       let candidateMerge = { ok: true };
-      if (!failedStep && !alreadyMerged) candidateMerge = await runGit(['merge', '--no-ff', '--no-edit', entry.branch], candidatePath);
+      const mergeStartedAt = Date.now();
+      if (!failedStep && !alreadyMerged) {
+        candidateMerge = await runIsolatedGit(projectDir, ['merge', '--no-ff', '--no-edit', '--no-verify', entry.branch], candidatePath);
+      }
+      timingsMs.mergeMs = Date.now() - mergeStartedAt;
       if (!failedStep && !candidateMerge.ok) {
         const removed = await cleanupLandCandidate(projectDir, candidatePath, { abort: true });
         markFailed({
@@ -1680,15 +1812,30 @@ async function worktreeLandReportUnlocked(projectDir, args) {
         } else {
           candidateHeadSha = candidateHead.stdout.trim();
           steps.push({ id: 'merge', status: alreadyMerged ? 'skipped' : 'passed', detail: alreadyMerged ? `${entry.branch} is already merged into ${targetBranch}` : `merged ${entry.branch} in isolated candidate worktree` });
-          const verify = await verifyProject(candidatePath, { tier, task: [taskId], only: null, reuse: false, allowManual: false, reviewed: args.reviewed });
+          const verifyStartedAt = Date.now();
+          const verify = await verifyProject(candidatePath, {
+            tier, task: [taskId], only: null, reuse: true, allowManual: false, reviewed: args.reviewed,
+            reviewPolicy, targetBranch,
+          });
+          timingsMs.verifyMs = Date.now() - verifyStartedAt;
+          timingsMs.cacheLookupMs = verify.cache?.lookupMs ?? null;
+          timingsMs.checks = Object.entries(verify.checks ?? {}).map(([id, item]) => ({
+            id,
+            status: item?.status ?? null,
+            durationMs: item?.durationMs ?? null,
+          }));
           if (delivery.requireReceipt) {
-            landReceipt = completionReceipt(verify, delivery, { rollback: `git revert -m 1 ${candidateHeadSha}` });
+            landReceipt = completionReceipt(verify, delivery, {
+              rollback: `git revert -m 1 ${candidateHeadSha}`,
+              targetBranch,
+              reviewPolicy,
+            });
             landReceipt.delivery.stage = 'complete';
             landReceipt.target.head = candidateHeadSha;
           }
           const completionGate = delivery.requireReceipt
             ? validateCompletion(landReceipt, delivery, await gitFingerprint(candidatePath),
-              { provenance: await attestCompletionProvenance(candidatePath, landReceipt) })
+              { provenance: await attestCompletionProvenance(candidatePath, landReceipt), targetBranch })
             : null;
           const verifyOk = PASS_STATUSES.includes(verify.status) && completionGate?.status !== 'blocked';
           const checkLines = Object.entries(verify.checks ?? {})
@@ -1753,7 +1900,9 @@ async function worktreeLandReportUnlocked(projectDir, args) {
         steps[steps.findIndex((step) => step.id === 'merge')].detail = `candidate verified at ${candidateHeadSha}; primary checkout unchanged`;
       }
     } else {
-      const finalized = await runGit(['merge', '--ff-only', candidateHeadSha], primary.path);
+      const finalizeStartedAt = Date.now();
+      const finalized = await runIsolatedGit(projectDir, ['merge', '--ff-only', candidateHeadSha], primary.path);
+      timingsMs.finalizeMs = Date.now() - finalizeStartedAt;
       if (!finalized.ok) {
         const removed = await cleanupLandCandidate(projectDir, candidatePath);
         markFailed({ id: 'merge', status: 'failed', code: 'LAND_FINALIZE_FAILED', error: boundedOutput(finalized.stderr || finalized.error?.message || 'candidate could not be fast-forwarded into the primary checkout', projectDir), candidatePath: removed.residual, detail: `git merge --ff-only ${candidateHeadSha}` });
@@ -1826,7 +1975,9 @@ async function worktreeLandReportUnlocked(projectDir, args) {
       markFailed({ id: 'push', status: 'blocked', code: 'LAND_BASELINE_CHANGED',
         detail: 'remote develop or task HEAD changed before push; preserve the source and retry verification' });
     }
+    const pushStartedAt = Date.now();
     const pushedResult = failedStep ? { ok: false } : await runGit(pushArgs, remoteMode ? candidatePath : primary.path);
+    timingsMs.pushMs = Date.now() - pushStartedAt;
     const remoteAfter = remoteMode ? await remoteDevelopHead(projectDir) : null;
     remoteConfirmed = remoteMode && remoteAfter.ok && remoteAfter.sha === candidateHeadSha;
     if (failedStep) {
@@ -1857,6 +2008,7 @@ async function worktreeLandReportUnlocked(projectDir, args) {
         detail: 'origin/develop no longer points to the verified candidate; preserve the task worktree' });
     }
   }
+  const cleanupStartedAt = Date.now();
   if (!failedStep) {
     servicesTeardown = await teardownServices(projectDir, entry.path);
     // The completion receipt describes the candidate — not the source — so the
@@ -1901,6 +2053,7 @@ async function worktreeLandReportUnlocked(projectDir, args) {
       markFailed({ id: 'cleanup', status: 'failed', code: 'LAND_CLEANUP_FAILED', removedLinks, error: boundedOutput(removed.stderr || removed.error?.message || 'git worktree remove failed', projectDir), detail: `git worktree remove ${entry.path}` });
     }
   }
+  timingsMs.cleanupMs = Date.now() - cleanupStartedAt;
 
   // Step 5: delete the branch — only after a successful push, and `-d` still
   // refuses a branch that is not fully merged.
@@ -1926,6 +2079,7 @@ async function worktreeLandReportUnlocked(projectDir, args) {
   const landStatus = stepFailures.some((step) => step.status === 'blocked') && !stepFailures.some((step) => step.status === 'failed')
     ? 'blocked'
     : stepFailures.length > 0 ? 'failed' : 'passed';
+  timingsMs.totalMs = Date.now() - landStartedAt;
   return {
     schemaVersion: SCHEMA_VERSION,
     command: 'worktree',
@@ -1942,6 +2096,7 @@ async function worktreeLandReportUnlocked(projectDir, args) {
       ...(failedStep && candidatePath && existsSync(candidatePath) ? { candidatePath: normalizeSlashes(candidatePath) } : {}) } : {}),
     tier,
     ...(tierEscalation ? { tierEscalation } : {}),
+    timingsMs,
     ...(landReceipt && provenanceRecorded ? { completion: landReceipt } : {}),
     write: true,
     results: [{ ...baseResult, pushed, branchDeleted: steps.some((step) => step.id === 'delete-branch' && step.status === 'passed'), portBlockReleased: steps.some((step) => step.id === 'cleanup' && step.status === 'passed' && step.portBlockReleased === true), status: landStatus, steps }],

@@ -1,11 +1,15 @@
 export const deliveryProfiles = Object.freeze({
-  'managed-mr': { merge: 'squash', cleanup: 'evidence-compatible', requireReceipt: true },
-  'local-land': { merge: 'no-ff', cleanup: 'ancestor', requireReceipt: true },
+  'managed-mr': { merge: 'squash', cleanup: 'evidence-compatible', requireReceipt: true, reviewPolicy: 'required' },
+  'local-land': { merge: 'no-ff', cleanup: 'ancestor', requireReceipt: true, reviewPolicy: 'required' },
   'inspect-only': { write: false, requireReceipt: false },
 });
 
 const nonempty = (value) => typeof value === 'string' && value.trim() !== '';
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+export function isReviewRequired({ reviewPolicy = 'required', targetBranch = null } = {}) {
+  return !(reviewPolicy === 'none' && targetBranch === 'develop');
+}
 
 export function validateDeliveryConfig(config) {
   if (config.delivery !== undefined) {
@@ -15,6 +19,7 @@ export function validateDeliveryConfig(config) {
     for (const [name, profile] of Object.entries(delivery.profiles)) {
       if (!/^[a-z][a-z0-9-]{0,63}$/u.test(name) || !object(profile)
         || typeof profile.requireReceipt !== 'boolean'
+        || (profile.reviewPolicy !== undefined && !['required', 'none'].includes(profile.reviewPolicy))
         || (profile.write !== undefined && typeof profile.write !== 'boolean')
         || (profile.write !== false && (!['squash', 'no-ff'].includes(profile.merge)
           || !['ancestor', 'evidence-compatible'].includes(profile.cleanup)))
@@ -59,11 +64,11 @@ export function validateDeliveryConfig(config) {
 export function resolveDelivery(config, requested) {
   validateDeliveryConfig(config);
   const name = requested ?? config.delivery?.default;
-  if (!name) return { profile: 'legacy', requireReceipt: false, warnings: [{ code: 'DELIVERY_LEGACY', message: 'Legacy delivery; declare delivery.default to enable structured completion receipts.' }] };
+  if (!name) return { profile: 'legacy', requireReceipt: false, reviewPolicy: 'required', warnings: [{ code: 'DELIVERY_LEGACY', message: 'Legacy delivery; declare delivery.default to enable structured completion receipts.' }] };
   const profiles = config.delivery?.profiles ?? {};
   const profile = Object.hasOwn(profiles, name) ? profiles[name] : requested && Object.hasOwn(deliveryProfiles, name) ? deliveryProfiles[name] : null;
   if (!profile || !nonempty(name)) throw new Error(`Unknown delivery profile: ${String(name)}`);
-  return { ...profile, profile: name, warnings: [] };
+  return { reviewPolicy: 'required', ...profile, profile: name, warnings: [] };
 }
 
 export function overrideWarnings(config, now = Date.now()) {
@@ -79,7 +84,10 @@ export function overrideWarnings(config, now = Date.now()) {
   });
 }
 
-export function completionReceipt(report, delivery, { rollback = 'Restore the pre-task state using the recorded source fingerprint; no merge was performed.' } = {}) {
+export function completionReceipt(report, delivery, {
+  rollback = 'Restore the pre-task state using the recorded source fingerprint; no merge was performed.',
+  targetBranch = null,
+} = {}) {
   const selected = report.selectedChecks ?? Object.keys(report.checks ?? {});
   const acceptance = selected.map((value) => {
     const id = typeof value === 'string' ? value : value.id ?? value.name;
@@ -122,7 +130,7 @@ export function completionReceipt(report, delivery, { rollback = 'Restore the pr
     ...(acceptanceBlocked ? [`review:${acceptanceEvidence?.reasonCode ?? 'NO_ACCEPTANCE_EVIDENCE'}`] : []),
   ];
   return {
-    delivery: { profile: delivery.profile, stage: 'verify' },
+    delivery: { profile: delivery.profile, stage: 'verify', targetBranch },
     status: acceptanceBlocked
       ? evidenceAbsent ? 'unverified' : 'blocked'
       : ['passed', 'failed', 'blocked'].includes(report.status) ? report.status : report.status === 'reused' ? 'passed' : 'unverified',
@@ -138,7 +146,7 @@ export function completionReceipt(report, delivery, { rollback = 'Restore the pr
   };
 }
 
-export function validateCompletion(receipt, delivery, current = null, { provenance = null } = {}) {
+export function validateCompletion(receipt, delivery, current = null, { provenance = null, targetBranch = null } = {}) {
   const errors = [];
   if (!object(receipt)) errors.push('completion receipt is missing');
   else {
@@ -153,6 +161,7 @@ export function validateCompletion(receipt, delivery, current = null, { provenan
       errors.push(`completion receipt provenance is unverified (${provenance?.reason ?? 'not attested'})`);
     }
     if (receipt.delivery?.profile !== delivery.profile || receipt.delivery?.stage !== 'complete') errors.push('delivery profile/stage mismatch');
+    if ((receipt.delivery?.targetBranch ?? null) !== (targetBranch ?? null)) errors.push('delivery target branch mismatch');
     if (receipt.status !== 'passed') errors.push('completion status is not passed');
     if (!Array.isArray(receipt.acceptance) || !receipt.acceptance.length) errors.push('acceptance is missing');
     const ids = new Set();
@@ -193,7 +202,13 @@ export function validateCompletion(receipt, delivery, current = null, { provenan
       // unverified selection behind a plausible subset.
       const omitted = uniqueSelectedIds.filter((id) => !acceptanceIds.includes(id));
       if (omitted.length > 0) errors.push(`selected checks are missing acceptance entries: ${omitted.join(', ')}`);
-      if (verification.review?.status !== 'relevant' || !reviewedIds.some((id) => acceptanceIds.includes(id))) {
+      const reviewNotRequired = verification.review?.status === 'not_required'
+        && verification.review?.reviewPolicy === 'none'
+        && verification.review?.targetBranch === 'develop'
+        && targetBranch === 'develop'
+        && delivery.reviewPolicy === 'none';
+      if (!reviewNotRequired && (verification.review?.status !== 'relevant'
+        || !reviewedIds.some((id) => acceptanceIds.includes(id)))) {
         errors.push('acceptance evidence does not cite a reviewed relevant check');
       }
       // A subset test in one direction still lets a receipt name extra checks

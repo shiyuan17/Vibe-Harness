@@ -10,6 +10,7 @@
 import { spawn } from 'node:child_process';
 
 import { resolveVerificationTiers, selectVerificationChecks } from './verification-plan.mjs';
+import { isReviewRequired } from './delivery.mjs';
 
 import { MAX_OUTPUT_CHARS, boundedOutput } from './cli-output.mjs';
 import { CHECK_ORDER, DEFAULT_TIMEOUT_MS, MAX_OUTPUT_BYTES, MAX_TIMEOUT_MS, MIN_TIMEOUT_MS, assertSafeCommand } from './cli-runtime.mjs';
@@ -221,7 +222,20 @@ export async function executeCommand(command, targetDir, timeoutMs, redactionRoo
  * is recomputed against the declaration this invocation carries rather than
  * inherited. `--reviewed` is the caller's declaration.
  */
-export function verificationReview({ changedPaths = [], selectedNames = [], checks = {}, reviewed = [] } = {}) {
+export function verificationReview({
+  changedPaths = [], selectedNames = [], checks = {}, reviewed = [],
+  reviewPolicy = 'required', targetBranch = null,
+} = {}) {
+  if (!isReviewRequired({ reviewPolicy, targetBranch })) {
+    return {
+      status: 'not_required',
+      changedPaths: [...changedPaths],
+      selectedCheckIds: [...selectedNames],
+      reasonCode: 'REVIEW_NOT_REQUIRED',
+      reviewPolicy: 'none',
+      targetBranch: 'develop',
+    };
+  }
   const declared = new Set(reviewed);
   const reviewedCheckIds = selectedNames.filter((name) => {
     const check = checks[name];
@@ -237,19 +251,26 @@ export function verificationReview({ changedPaths = [], selectedNames = [], chec
     selectedCheckIds: [...selectedNames],
     ...(reviewedCheckIds.length ? { reviewedCheckIds } : {}),
     reasonCode: reviewedCheckIds.length ? 'RELEVANT_CHECK_REVIEWED' : 'NO_REVIEWED_RELEVANT_CHECK',
+    reviewPolicy: 'required',
   };
 }
 export function verificationAcceptance({ review, status, snapshotComparison, inputsStable, fingerprint, selectedNames = [], deferredCount = 0 } = {}) {
   const passed = status === 'verified' || status === 'passed' || status === 'reused';
   const stable = snapshotComparison === 'match' && inputsStable !== false && typeof fingerprint === 'string' && fingerprint.length > 0;
   const relevant = review?.status === 'relevant' && (review.reviewedCheckIds ?? []).some((id) => selectedNames.includes(id));
+  const reviewNotRequired = review?.status === 'not_required'
+    && review?.reviewPolicy === 'none'
+    && review?.targetBranch === 'develop';
   let reasonCode = 'ACCEPTED';
   if (!passed) reasonCode = 'VERIFICATION_NOT_PASSED';
   else if (deferredCount > 0) reasonCode = 'DEFERRED_CHECKS';
   else if (!stable) reasonCode = 'FINAL_SNAPSHOT_MISMATCH';
-  else if (!relevant) reasonCode = review?.status === 'blocked' ? 'REVIEW_BLOCKED' : 'NO_REVIEWED_RELEVANT_CHECK';
+  else if (!relevant && !reviewNotRequired) {
+    reasonCode = review?.status === 'blocked' ? 'REVIEW_BLOCKED'
+      : review?.status === 'not_required' ? 'REVIEW_POLICY_CONTEXT_INVALID' : 'NO_REVIEWED_RELEVANT_CHECK';
+  }
   return {
-    status: passed && stable && relevant && deferredCount === 0 ? 'accepted' : 'blocked',
+    status: passed && stable && (relevant || reviewNotRequired) && deferredCount === 0 ? 'accepted' : 'blocked',
     reasonCode,
     finalFingerprint: typeof fingerprint === 'string' ? fingerprint : null,
     selectedCheckIds: [...selectedNames],

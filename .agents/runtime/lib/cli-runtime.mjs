@@ -130,11 +130,11 @@ export async function readJsonIfExists(filePath) {
     return { exists: true, value: null, error: redactText(error.message, path.dirname(filePath)) };
   }
 }
-export async function runFile(program, args, { cwd, timeoutMs = 10_000 } = {}) {
+export async function runFile(program, args, { cwd, timeoutMs = 10_000, env = {} } = {}) {
   try {
     const result = await execFileAsync(program, args, {
       cwd,
-      env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
+      env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', ...env },
       maxBuffer: 1024 * 1024,
       shell: false,
       timeout: timeoutMs,
@@ -158,11 +158,11 @@ export async function probeExecutable(program, cwd) {
   const result = await runFile(locator, [program], { cwd, timeoutMs: 5_000 });
   return result.ok;
 }
-export async function runGit(args, cwd) {
+export async function runGit(args, cwd, options = {}) {
   // Every Git call the runtime makes shares one budget: a call killed mid-flight
   // reports `ok: false`, which the worktree and verification paths read as a
   // missing fact rather than as a failure of the operation being checked.
-  return runFile('git', args, { cwd, timeoutMs: gitTimeoutMs() });
+  return runFile('git', args, { cwd, timeoutMs: gitTimeoutMs(), ...options });
 }
 function parseNameStatus(value) {
   const records = String(value ?? '').split('\0').filter(Boolean);

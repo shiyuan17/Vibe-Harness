@@ -9,7 +9,8 @@ import { createServer } from 'node:net';
 import test from 'node:test';
 import { runCommand } from '../../runtime/commands/run.mjs';
 import { gitFingerprint } from '../../runtime/lib/git-fingerprint.mjs';
-import { deliveryProfiles, completionReceipt, resolveDelivery, validateCompletion, validateDeliveryConfig, overrideWarnings } from '../../runtime/lib/delivery.mjs';
+import { deliveryProfiles, completionReceipt, isReviewRequired, resolveDelivery, validateCompletion, validateDeliveryConfig, overrideWarnings } from '../../runtime/lib/delivery.mjs';
+import { verificationAcceptance, verificationReview } from '../../runtime/lib/verification-plan-support.mjs';
 import { processStartIdentity, releaseServiceTeardown, serviceEndpoint, serviceOwnership, serviceSocketDirectory, startIdentityToken, teardownServices, treeGone, windowsConfirmedMembers, windowsTreeProbeCommand } from '../../runtime/lib/services.mjs';
 
 function git(project, ...args) {
@@ -212,6 +213,111 @@ test('完成收据不接受自证的验收证据', () => {
   consistent.verification.acceptance.selectedCheckIds = ['test'];
   consistent.verification.review.reviewedCheckIds = ['test'];
   assert.equal(validateCompletion(consistent, delivery, null, attested).status, 'passed');
+});
+
+test('reviewPolicy:none 只为 develop 免审，其他分支与伪造上下文仍被阻断', () => {
+  const config = {
+    delivery: {
+      default: 'local-land',
+      profiles: { 'local-land': { merge: 'no-ff', cleanup: 'ancestor', requireReceipt: true, reviewPolicy: 'none' } },
+    },
+  };
+  const delivery = resolveDelivery(config);
+  assert.equal(delivery.reviewPolicy, 'none');
+  assert.equal(isReviewRequired({ reviewPolicy: 'none', targetBranch: 'develop' }), false);
+  assert.equal(isReviewRequired({ reviewPolicy: 'none', targetBranch: 'main' }), true);
+  assert.equal(isReviewRequired({ reviewPolicy: 'required', targetBranch: 'develop' }), true);
+
+  const receipt = () => ({
+    delivery: { profile: 'local-land', stage: 'complete', targetBranch: 'develop' },
+    status: 'passed',
+    acceptance: [{ id: 'test', status: 'passed', command: 'node --version', scope: 'layer' }],
+    unverified: [],
+    remainingRisks: [],
+    rollback: 'git revert HEAD',
+    source: { head: 'head', fingerprint: 'fingerprint' },
+    target: { head: 'base' },
+    verification: {
+      id: 'verification',
+      finishedAt: new Date().toISOString(),
+      snapshotComparison: 'match',
+      status: 'passed',
+      fingerprint: 'fingerprint',
+      acceptance: {
+        status: 'accepted',
+        selectedCheckIds: ['test'],
+        finalFingerprint: 'fingerprint',
+      },
+      review: {
+        status: 'not_required',
+        reasonCode: 'REVIEW_NOT_REQUIRED',
+        reviewPolicy: 'none',
+        targetBranch: 'develop',
+        selectedCheckIds: ['test'],
+        reviewedCheckIds: [],
+      },
+    },
+  });
+  const attested = { provenance: { ok: true, reason: 'recorded-verification-matched' } };
+  assert.equal(validateCompletion(receipt(), delivery, null, { ...attested, targetBranch: 'develop' }).status, 'passed');
+
+  const main = receipt();
+  main.delivery.targetBranch = 'main';
+  const mainGate = validateCompletion(main, delivery, null, { ...attested, targetBranch: 'main' });
+  assert.equal(mainGate.status, 'blocked');
+  assert.ok(mainGate.errors.some((line) => /does not cite a reviewed relevant check/u.test(line)), mainGate.errors.join('; '));
+
+  const forged = receipt();
+  forged.verification.review.targetBranch = 'main';
+  forged.delivery.targetBranch = 'main';
+  const forgedGate = validateCompletion(forged, delivery, null, { ...attested, targetBranch: 'main' });
+  assert.equal(forgedGate.status, 'blocked');
+
+  const wrongPolicy = resolveDelivery({ delivery: { default: 'local-land', profiles: { 'local-land': { merge: 'no-ff', cleanup: 'ancestor', requireReceipt: true } } } });
+  assert.equal(validateCompletion(receipt(), wrongPolicy, null, { ...attested, targetBranch: 'develop' }).status, 'blocked');
+});
+
+test('免审验证据记录 not_required 而不是伪装的 relevant', () => {
+  const review = verificationReview({
+    changedPaths: ['src/app.js'],
+    selectedNames: ['lint', 'test'],
+    checks: { lint: { status: 'passed' }, test: { status: 'passed' } },
+    reviewed: [],
+    reviewPolicy: 'none',
+    targetBranch: 'develop',
+  });
+  assert.equal(review.status, 'not_required');
+  assert.equal(review.reasonCode, 'REVIEW_NOT_REQUIRED');
+  assert.equal(review.reviewPolicy, 'none');
+  assert.equal(review.targetBranch, 'develop');
+  const accepted = verificationAcceptance({
+    review,
+    status: 'verified',
+    snapshotComparison: 'match',
+    inputsStable: true,
+    fingerprint: 'fingerprint',
+    selectedNames: ['lint', 'test'],
+    deferredCount: 0,
+  });
+  assert.equal(accepted.status, 'accepted');
+  assert.equal(accepted.reasonCode, 'ACCEPTED');
+
+  const otherBranch = verificationReview({
+    selectedNames: ['lint'], checks: { lint: { status: 'passed' } },
+    reviewPolicy: 'none', targetBranch: 'main',
+  });
+  assert.equal(otherBranch.status, 'unreviewed');
+  const blocked = verificationAcceptance({
+    review: { ...review, targetBranch: 'main' },
+    status: 'verified',
+    snapshotComparison: 'match',
+    inputsStable: true,
+    fingerprint: 'fingerprint',
+    selectedNames: ['lint', 'test'],
+    deferredCount: 0,
+  });
+  assert.equal(blocked.status, 'blocked');
+  assert.equal(blocked.reasonCode, 'REVIEW_POLICY_CONTEXT_INVALID');
 });
 
 test('完成收据必须能对上工具自己写的验证记录', () => {
