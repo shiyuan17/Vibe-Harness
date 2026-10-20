@@ -82,3 +82,7 @@
 ## Next action
 
 ## Risks
+
+## Rework observation (only for actual rework or an explicit pilot)
+
+Use the delivery template's definitions and record once, here or in delivery: event ID and original acceptance item; primary cause (requirement misunderstanding / scope omission / implementation / verification / environment / integration / unknown); earliest missed detection point; repair and prevention evidence; duration (blank if unknown). New requirements are separate; no feedback is not acceptance. This creates no additional anchor or completion gate.

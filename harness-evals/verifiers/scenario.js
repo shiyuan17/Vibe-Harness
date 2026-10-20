@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { createDeterministicVerifier } from './deterministic.js';
+import { checkReworkTrace, isReworkScenario } from './rework.js';
 
 function execute(program, args, cwd, timeoutMs = 30_000) {
   return new Promise((resolve) => {
@@ -100,6 +101,7 @@ async function checkGit(definition, context) {
 }
 
 function checkTrace(definition, context) {
+  if (isReworkScenario(context.scenario)) return checkReworkTrace(definition, context);
   const mechanism = context.scenario.mechanism;
   const events = context.events ?? [];
   const messages = events.filter((event) => event.type === 'message').map((event) => event.message ?? '').join('\n');
@@ -329,6 +331,9 @@ export function createScenarioVerifier({ semanticJudge } = {}) {
             return evidenceResult(passed, { agentExitCode: context.observation?.exitCode ?? null, hiddenChecks: hidden.results }, 'PROCESS_CHECK_FAILED');
           }
           const deterministic = checkTrace(definition, checkContext);
+          // A semantic judge may not upgrade missing execution evidence in
+          // the rework pilot into a passing workflow.
+          if (isReworkScenario(checkContext.scenario)) return deterministic;
           if (!deterministic.unverified || typeof semanticJudge !== 'function') return deterministic;
           return semanticJudge({ definition, context: checkContext });
         },

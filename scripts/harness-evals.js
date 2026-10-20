@@ -215,6 +215,12 @@ async function planCommand(args, backendCapabilities) {
       impactMap: await readJson(path.join(rootDir, 'harness-evals/regressions/impact-map.json')),
       allScenarioIds: catalog.scenarios.map((scenario) => scenario.id),
     });
+    const manualIds = new Set(catalog.scenarios.filter((scenario) => scenario.manualOnly === true).map((scenario) => scenario.id));
+    impact = {
+      ...impact,
+      manualOnlyExcluded: impact.selectedScenarioIds.filter((id) => manualIds.has(id)),
+      selectedScenarioIds: impact.selectedScenarioIds.filter((id) => !manualIds.has(id)),
+    };
     scenarioIds = impact.selectedScenarioIds;
   }
   const plan = planHarnessEval({

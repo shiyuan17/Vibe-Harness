@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "id": "H27",
+  "description": "关键假设与切片反馈：公开合成 fixture，检查入口只读",
+  "files": [
+    {
+      "path": "src/decode.js",
+      "content": "export function decode(value){return Number(value)}\n"
+    },
+    {
+      "path": "REQUEST.md",
+      "content": "The service used to return a number string but now returns a JSON object with an amount field. The adapter must accept both forms. The probe exercises the service sample; the acceptance test covers the consumer.\n"
+    },
+    {
+      "path": "package.json",
+      "content": "{\"type\": \"module\", \"scripts\": {\"probe\": \"node test/probe.test.mjs\", \"acceptance\": \"node test/acceptance.test.mjs\"}}\n"
+    },
+    {
+      "path": "test/probe.test.mjs",
+      "content": "import assert from 'node:assert/strict';import {decode} from '../src/decode.js';\nassert.equal(decode('{\"amount\":7}'),7);\n"
+    },
+    {
+      "path": "test/acceptance.test.mjs",
+      "content": "import assert from 'node:assert/strict';import {decode} from '../src/decode.js';\nassert.equal(decode('{\"amount\":7}'),7);assert.equal(decode('4'),4);\n"
+    }
+  ],
+  "oracleFiles": [
+    {
+      "path": "check.mjs",
+      "content": "import assert from 'node:assert/strict';import {pathToFileURL} from 'node:url';const {decode}=await import(pathToFileURL(process.cwd()+'/src/decode.js'));\nassert.equal(decode('{\"amount\":7}'),7);assert.equal(decode('4'),4);\n"
+    }
+  ],
+  "git": {
+    "initialize": true
+  },
+  "faults": [],
+  "hiddenChecks": [
+    {
+      "id": "H27-oracle",
+      "program": "node",
+      "args": [
+        "{ORACLE_DIR}/check.mjs"
+      ],
+      "expectedExitCode": 0
+    }
+  ]
+}

@@ -27,6 +27,7 @@
 ## Implement (implement)
 
 - Input: the implementation plan and its authorization scope; the state anchor for long tasks.
+- Inner loop: clarify acceptance → test a decision-changing unknown only when present → implement one behavioral slice → focused validation → extend the next slice. A slice may span files. Check the riskiest real consumer, installation, or host boundary early; do not manufacture experiments or require E2E for every slice.
 - Output: actual changes; implementation unit status, decisions made, and blockers updated into the anchor or the task record.
 - Exit criteria: all implementation units are complete or explicitly blocked; no disposable files are left without an owner.
 - New session: update the anchor before the context approaches a compaction boundary; a new session resumes from the anchor plus the current diff instead of re-reading rule bodies.
@@ -35,9 +36,10 @@
 
 ## Verify (verify)
 
-- Input: the implemented workspace and the completion claim.
+- Input: the workspace already validated slice by slice and the completion claim; this stage checks the final combined state rather than postponing inner-loop feedback.
 - Output: verification receipts — actual commands or manual criteria with results, each bound to passed, failed, blocked, or unverified.
 - Exit criteria: verification scope matches the completion claim; failures are fixed and the same or an equivalent check rerun after the last substantive change.
+- Acceptance alignment: check the original requirements and preserved behavior for omissions. Reuse managed-plan acceptance IDs to link requirements, criteria, units, and evidence. Small tasks use a short summary, not a new matrix or anchor.
 - New session: once receipts are durable (task record or project verification receipts) they can be cited across sessions; after a check passes, do not re-verify without new changes, failures, or unresolved doubts.
 - Fan-out: result retrieval and evidence gathering; conclusions come from this run's actual command output, never from sub-agent claims.
 - Stop: when required verification is blocked, report the concrete gap and stop — do not write partial completion as complete; retries without change stay bounded.

@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "id": "H28",
+  "description": "重复猜改：公开合成 fixture，检查入口只读",
+  "files": [
+    {
+      "path": "src/score.js",
+      "content": "export function score(value){return Number.parseInt(value,10)}\n"
+    },
+    {
+      "path": "REQUEST.md",
+      "content": "score('2.5') must return 2.5 and score('bad') must return 0. Two previous repairs changed whitespace handling and the integer radix; the same fractional-value assertion still failed. Their changes are already in the supplied source. The diagnose script contrasts the parsing operations; no root cause has been established.\n"
+    },
+    {
+      "path": "package.json",
+      "content": "{\"type\": \"module\", \"scripts\": {\"diagnose\": \"node test/diagnose.test.mjs\", \"acceptance\": \"node test/acceptance.test.mjs\"}}\n"
+    },
+    {
+      "path": "test/diagnose.test.mjs",
+      "content": "import assert from 'node:assert/strict';import {score} from '../src/score.js';\nassert.equal(Number('2.5'),2.5);assert.equal(Number.parseInt('2.5',10),2);assert.ok(Number.isNaN(Number('bad')));\n"
+    },
+    {
+      "path": "test/acceptance.test.mjs",
+      "content": "import assert from 'node:assert/strict';import {score} from '../src/score.js';\nassert.equal(score('2.5'),2.5);assert.equal(score('bad'),0);assert.equal(score(' 3 '),3);\n"
+    }
+  ],
+  "oracleFiles": [
+    {
+      "path": "check.mjs",
+      "content": "import assert from 'node:assert/strict';import {pathToFileURL} from 'node:url';const {score}=await import(pathToFileURL(process.cwd()+'/src/score.js'));\nassert.equal(score('2.5'),2.5);assert.equal(score('bad'),0);assert.equal(score(' 3 '),3);\n"
+    }
+  ],
+  "git": {
+    "initialize": true
+  },
+  "faults": [],
+  "hiddenChecks": [
+    {
+      "id": "H28-oracle",
+      "program": "node",
+      "args": [
+        "{ORACLE_DIR}/check.mjs"
+      ],
+      "expectedExitCode": 0
+    }
+  ]
+}

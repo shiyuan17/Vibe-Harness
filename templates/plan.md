@@ -77,6 +77,8 @@ Parent 计划必须先估算单 Agent 与受限并行的墙钟时间，再决定
 
 为每项验收提供唯一 ID、实际命令或人工判据、预期结果和所需证据。
 
+行为修改同时说明用户可观察结果、保留行为和关键例子；复用已给出的要求，不重新确认。验收 ID 表示用户要求，不是检查 ID：一个检查可覆盖多个要求，必须说明对应关系。交付沿用本表 ID，关联实施单元与当前证据；不能只用“所有选中检查通过”替代原始需求完整性。
+
 | 验收 ID | 判据 | 命令或操作 | 预期结果 | 证据 |
 |---|---|---|---|---|
 | A-001 |  |  |  |  |
@@ -86,6 +88,8 @@ Parent 计划必须先估算单 Agent 与受限并行的墙钟时间，再决定
 下面的机器可读执行块是交接与派发的契约：评审者、CI 与 `task plan-check` 只读这一段，就能判断“允许改什么、先做什么、每步由哪条验收兜底”。
 `allowedScope` 是本次允许写入的边界，`protectedAssets` 是绝不允许写入的资产；`units[].files` 越界或命中受保护资产、`dependsOn` 指向不存在的单元或成环、`acceptance` 引用了验收表里没有的 ID，`plan-check` 都会拒绝，并按 `VIBE_HARNESS_PLAN_SCOPE_VIOLATION` / `VIBE_HARNESS_PLAN_DEPENDENCY_INVALID` / `VIBE_HARNESS_PLAN_ACCEPTANCE_UNBOUND` 报告原因。
 旧计划可以暂时不含该执行块（只记为 `VIBE_HARNESS_PLAN_UNITS_MISSING` 警告），但新增计划必须填写。
+
+`task plan-check` / `task check` 的 `acceptanceCoverage` 是告警型覆盖诊断，不新增门禁：规划阶段只检查声明映射，完成检查补充单元与证据缺口；`--unit` 只代表该单元范围。缺失旧执行块或仅有人工判据时明确无法机械核对，不能把映射完整解释为行为通过，也不自动迁移旧计划。
 
 ```plan-units
 {

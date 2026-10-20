@@ -126,7 +126,7 @@ Nightly runs use three independent repetitions by default. Comparisons use paire
 The run tiers are:
 
 - **Fast/PR:** schema, verifier negative controls, legacy replay, impact selection, and selected trusted critical online scenarios when credentials are available.
-- **Nightly:** H01-H20, pressure variants, legacy canary/execution suites, and single/native-multi comparisons.
+- **Nightly:** H01-H23, pressure variants, legacy canary/execution suites, and single/native-multi comparisons. H24-H29 use optional `manualOnly: true` and run only under explicit scenario selection; default and impact-derived plans expose their exclusion without adding CI gates.
 - **Full/Release:** the complete Internal set plus pinned SWE-bench, Terminal-Bench, and CooperBench samples and an explicitly budgeted model/agent matrix.
 
 Single-agent and multi-agent runs share the task, initial commit, model, permissions, and aggregate token/cost budget. Multi-agent is beneficial only when it improves success, speed, cost, or context isolation without violating quality guardrails.

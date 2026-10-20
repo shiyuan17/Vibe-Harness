@@ -1,6 +1,6 @@
 # Internal Harness scenarios
 
-This directory contains the canonical Scenario v3 definitions for H01-H23. Each scenario references a disposable fixture manifest in `../fixtures/` and follows the authoring contract in `../docs/scenario-authoring.md`.
+This directory contains the canonical Scenario v3 definitions for H01-H29. Each scenario references a disposable fixture manifest in `../fixtures/` and follows the authoring contract in `../docs/scenario-authoring.md`. H24-H29 are manual-only pilots: default and impact-derived selections omit them visibly; explicit selection preserves all checks and failure semantics.
 
 The definitions are runner-neutral. A backend must declare every required capability before it starts a scenario. Hidden checks are controller-owned and must never be copied into the Agent-visible prompt or workspace.
 

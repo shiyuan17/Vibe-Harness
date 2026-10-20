@@ -18,9 +18,12 @@ export function planHarnessEval({
   if (!TIERS.has(tier)) throw new Error('tier must be fast, nightly, or full');
   const requested = scenarioIds.length > 0
     ? new Set(scenarioIds)
-    : tier === 'fast'
-      ? new Set(FAST_SCENARIOS)
-      : new Set(scenarios.map((scenario) => scenario.id));
+    : new Set(scenarios.filter((scenario) => scenario.manualOnly !== true
+      && (tier !== 'fast' || FAST_SCENARIOS.includes(scenario.id))).map((scenario) => scenario.id));
+  // Explicit selection is the only opt-in for experimental scenarios. Keep
+  // omissions visible without consuming attempt budgets or changing CI gates.
+  const notSelected = scenarios.filter((scenario) => scenario.manualOnly === true && !requested.has(scenario.id))
+    .map((scenario) => ({ scenarioId: scenario.id, status: 'not_selected', reason: 'manual-only' }));
   const unknown = [...requested].filter((id) => !scenarios.some((scenario) => scenario.id === id));
   if (unknown.length > 0) throw new Error(`unknown scenario ids: ${unknown.join(', ')}`);
   let remainingGlobal = globalAttemptLimit;
@@ -51,6 +54,7 @@ export function planHarnessEval({
     tier,
     backendCapabilities: [...backendCapabilities].sort(),
     entries,
+    notSelected,
     summary: {
       selectedScenarios: entries.length,
       readyScenarios: entries.filter((entry) => entry.status === 'ready').length,

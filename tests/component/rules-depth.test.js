@@ -20,6 +20,34 @@ const rootDir = path.resolve(import.meta.dirname, '../..');
 const coreSkills = ['clarify-requirements', 'define-goal', 'task-decomposition', 'vb-git-split-push', 'vb-git-develop-flow', 'systematic-debugging', 'performance-optimization', 'bug-finding', 'find-question', 'stale-cleanup', 'eval-driven-development', 'security-and-hardening', 'code-navigation'];
 const fullSkills = [...coreSkills, 'api-and-interface-design', 'frontend-design', 'runtime-cross-repo-rollout'];
 
+test('返修预防入口可达且不恢复强制规划或角色流程', async () => {
+  const read = (relative) => readFile(path.join(rootDir, relative), 'utf8');
+  const governance = (await read('docs/rules/governance-core.md')).split(FAST_PATH_CARD_DIVIDER)[0];
+  const testing = (await read('docs/rules/test-rules.md')).split(FAST_PATH_CARD_DIVIDER)[0];
+  for (const fragment of ['最小验收', '用户可观察结果', '保留的行为', '关键例子', '验证方式', '不新增文件或确认', '只读与纯文案跳过']) {
+    assert.ok(governance.includes(fragment), fragment);
+  }
+  assert.match(testing, /缺陷修复入口.*真实红灯.*最终修改后复验/u);
+  assert.match(testing, /继续读全文的信号.*缺陷复现与测试资产保护/u);
+  const troubleshooting = await read('docs/rules/troubleshooting.md');
+  const debugging = await read('skills/core/systematic-debugging/SKILL.md');
+  for (const text of [troubleshooting, debugging]) {
+    for (const fragment of ['两次修复仍失败', '没有新的区分性证据', '根因已明确则继续修复', '基础设施重试不计入修复次数', '不是硬门禁或自动终止']) {
+      assert.ok(text.includes(fragment), fragment);
+    }
+  }
+  assert.match(await read('templates/workflow.md'), /行为切片 → 聚焦验证 → 扩展下一切片/u);
+  assert.match(await read('templates/workflow.en-US.md'), /behavioral slice → focused validation → extend the next slice/u);
+  for (const [file, pattern] of [
+    ['templates/delivery.md', /无反馈不算首次验收成功/u],
+    ['templates/delivery.en-US.md', /No feedback is not acceptance/u],
+    ['templates/task.md', /未知留空/u],
+    ['templates/task.en-US.md', /blank if unknown/u],
+    ['templates/plan.md', /acceptanceCoverage.*告警型/u],
+    ['templates/plan.en-US.md', /acceptanceCoverage.*advisory/u],
+  ]) assert.match(await read(file), pattern);
+});
+
 test('清单声明规范治理规则与十六个原生 Skills', async () => {
   const manifests = await loadAllManifests(rootDir);
   const rules = new Set(manifests.rules.items.map((item) => item.id));

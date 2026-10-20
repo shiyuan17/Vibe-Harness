@@ -312,7 +312,7 @@ export function planDependentUnits(planUnits, unitIds) {
     .map((unit) => unit.id)
     .sort();
 }
-export async function taskPlanCheckReport(projectDir, taskId) {
+async function taskPlanCheckCore(projectDir, taskId) {
   try {
     validateTaskId(taskId);
   } catch (error) {
@@ -419,6 +419,135 @@ export async function taskPlanCheckReport(projectDir, taskId) {
     },
     plan: { path: plan.path, revision: plan.revision, digest: plan.digest, missing: [] },
   };
+}
+
+function emptyAcceptanceCoverage(unitId, complete, planOnly) {
+  return {
+    mode: 'advisory',
+    phase: planOnly ? 'plan' : complete ? 'completion' : 'task',
+    scope: { kind: unitId ? 'unit' : 'task', unitId },
+    availability: 'unavailable',
+    mappingStatus: 'unknown',
+    evidenceStatus: complete ? 'unavailable' : 'not_checked',
+    semanticCoverage: 'not_evaluated',
+    items: [],
+    gaps: [],
+  };
+}
+
+function acceptanceGap(report, code, message, fields = {}) {
+  report.gaps.push({ severity: 'warning', code, message, ...fields });
+}
+
+function acceptanceMappingItems(plan, selected, ids, report) {
+  for (const id of ids) {
+    // The table's third column is command/action, not a new executable input.
+    const row = plan.content.split(/\r?\n/u).find((line) =>
+      line.trim().startsWith('|') && line.split('|')[1]?.trim().toUpperCase() === id);
+    const action = row?.split('|')[3]?.trim().replace(/^`|`$/gu, '') ?? '';
+    const commandCriterion = /^(?:node|pnpm|npm|yarn|bun|deno|python3?|pytest|go|cargo|dotnet|mvn|gradle|make|bash|sh|pwsh)(?:\s|$)/u.test(action);
+    const unitIds = selected.filter((unit) => unit.acceptance.includes(id)).map((unit) => unit.id);
+    report.items.push({ acceptanceId: id, unitIds,
+      criterionKind: commandCriterion ? 'command' : 'manual-or-unknown', evidence: [] });
+    if (!unitIds.length) acceptanceGap(report, 'ACCEPTANCE_UNCLAIMED',
+      'acceptance is not claimed by a declared unit', { acceptanceId: id });
+    if (!commandCriterion) acceptanceGap(report, 'ACCEPTANCE_MANUAL_OR_UNKNOWN',
+      'criterion cannot be mechanically verified', { acceptanceId: id });
+  }
+}
+
+function acceptanceUnitEvidence(report, anchor, { taskId, plan, complete, current, config, projectDir }) {
+  const anchorUnits = new Map((anchor.units ?? []).map((unit) => [unit.id, unit]));
+  for (const item of report.items) for (const unitId of item.unitIds) {
+    const actual = anchorUnits.get(unitId);
+    const fields = { acceptanceId: item.acceptanceId, unitId };
+    if (!actual) acceptanceGap(report, 'ACCEPTANCE_UNIT_MISSING', 'declared unit is absent from the task anchor', fields);
+    if (!complete) continue;
+    const verification = actual?.verification;
+    const valid = Boolean(actual && actual.status === 'done'
+      && currentUnitVerification(actual, current.fingerprint, config, projectDir)
+      && typeof verification.id === 'string' && verification.id.length > 0
+      && Number.isFinite(Date.parse(verification.finishedAt ?? verification.at))
+      && (!verification.taskId || verification.taskId === taskId)
+      && (!verification.planDigest || verification.planDigest === plan.digest));
+    item.evidence.push({
+      unitId, verificationId: verification?.id ?? null,
+      checkIds: typeof verification?.command === 'string'
+        ? verification.command.split('\n').filter(Boolean).map((line) => line.split('=')[0]) : [],
+      finishedAt: verification?.finishedAt ?? verification?.at ?? null,
+      status: valid ? 'linked' : 'missing-or-stale',
+    });
+    if (!valid) acceptanceGap(report, 'ACCEPTANCE_EVIDENCE_MISSING_OR_STALE', 'unit has no current completion evidence', fields);
+  }
+}
+
+function summarizeAcceptanceCoverage(report, complete) {
+  const codes = new Set(report.gaps.map((gap) => gap.code));
+  const unknownCriteria = codes.has('ACCEPTANCE_MANUAL_OR_UNKNOWN');
+  const mappingGaps = codes.has('ACCEPTANCE_UNCLAIMED') || codes.has('ACCEPTANCE_UNIT_MISSING');
+  const evidenceGaps = codes.has('ACCEPTANCE_EVIDENCE_MISSING_OR_STALE');
+  report.availability = unknownCriteria
+    ? report.items.every((item) => item.criterionKind === 'manual-or-unknown') ? 'unavailable' : 'partial'
+    : 'available';
+  report.mappingStatus = mappingGaps ? 'gaps' : 'complete';
+  if (complete) report.evidenceStatus = evidenceGaps || mappingGaps ? 'gaps' : unknownCriteria ? 'unavailable' : 'linked';
+  return report;
+}
+
+// Advisory projection only: never participates in status, dispatch, receipt
+// validation, or exit-code decisions. Legacy/unparseable input stays unknown.
+async function acceptanceCoverageReport(projectDir, taskId, { unitId = null, complete = false, planOnly = false } = {}) {
+  const report = emptyAcceptanceCoverage(unitId, complete, planOnly);
+  const unavailable = (message) => {
+    acceptanceGap(report, 'ACCEPTANCE_COVERAGE_UNAVAILABLE', message);
+    return report;
+  };
+  try {
+    const read = await readTaskAnchor(projectDir, taskId);
+    if (!read.exists || !read.anchor.planFile) {
+      return unavailable('no managed plan; requirements cannot be mechanically checked');
+    }
+    const plan = await readManagedPlan(projectDir, read.anchor.planFile);
+    const parsed = planExecutionUnits(plan.content);
+    if (plan.digest !== read.anchor.planDigest || plan.missing.length || !parsed.present || parsed.problems.length) {
+      return unavailable('plan is stale, invalid, or has no execution block');
+    }
+    const ids = [...planAcceptanceIds(plan.content)];
+    if (!ids.length) {
+      return unavailable('no parseable acceptance IDs; manual criteria require human evidence');
+    }
+    const selected = unitId ? parsed.units.filter((unit) => unit.id === unitId) : parsed.units;
+    if (unitId && !selected.length) {
+      return unavailable('requested unit is not declared by the plan');
+    }
+    const targetIds = unitId ? ids.filter((id) => selected.some((unit) => unit.acceptance.includes(id))) : ids;
+    acceptanceMappingItems(plan, selected, targetIds, report);
+    if (!planOnly) {
+      acceptanceUnitEvidence(report, read.anchor, {
+        taskId, plan, complete, projectDir,
+        current: complete ? await gitFingerprint(projectDir) : null,
+        config: complete ? configuredChecks(await readProjectConfig(projectDir), projectDir) : null,
+      });
+    }
+    return summarizeAcceptanceCoverage(report, complete);
+  } catch {
+    // Optional diagnostics must not turn a legacy success into a new failure.
+    // Do not echo arbitrary file content or exception messages into warnings.
+    unavailable('coverage inputs could not be read or resolved');
+    return { ...report, availability: 'unavailable', mappingStatus: 'unknown',
+      evidenceStatus: complete ? 'unavailable' : 'not_checked' };
+  }
+}
+
+function withAcceptanceCoverage(report, acceptanceCoverage) {
+  return { ...report, acceptanceCoverage,
+    warnings: [...(report.warnings ?? []).filter((item) => !String(item.code).startsWith('ACCEPTANCE_')),
+      ...acceptanceCoverage.gaps] };
+}
+
+export async function taskPlanCheckReport(projectDir, taskId) {
+  const report = await taskPlanCheckCore(projectDir, taskId);
+  return withAcceptanceCoverage(report, await acceptanceCoverageReport(projectDir, taskId, { planOnly: true }));
 }
 export async function readTaskAnchor(projectDir, taskId) {
   validateTaskId(taskId);
@@ -859,6 +988,12 @@ async function taskPlanSyncReport(projectDir, args) {
   };
 }
 async function taskCheckReport(projectDir, args) {
+  const report = await taskCheckCore(projectDir, args);
+  return withAcceptanceCoverage(report, await acceptanceCoverageReport(projectDir, args._[2], {
+    unitId: args.unit ?? null, complete: Boolean(args.complete),
+  }));
+}
+async function taskCheckCore(projectDir, args) {
   const taskId = args._[2];
   if (taskId === undefined) return taskFailure('check', 'task check needs a task id: task check <task-id> [--unit <unit-id>] [--dispatch] [--complete]');
   const planCheck = await taskPlanCheckReport(projectDir, taskId);

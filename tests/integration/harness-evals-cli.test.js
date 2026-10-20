@@ -30,7 +30,7 @@ test('harness eval check validates the Internal and External catalogs', async ()
   const { stdout } = await run(['check']);
   const result = JSON.parse(stdout);
   assert.equal(result.status, 'passed');
-  assert.equal(result.internalScenarios, 23);
+  assert.equal(result.internalScenarios, 29);
   assert.deepEqual(result.externalTasks.map((task) => task.benchmark), ['swe-bench', 'swe-bench-live', 'terminal-bench', 'cooperbench']);
 });
 
@@ -48,6 +48,8 @@ test('harness eval plan 把 --attempts 解释为每场景预算并支持 --globa
   const plan = JSON.parse(stdout);
   assert.equal(plan.tier, 'nightly');
   assert.equal(plan.summary.selectedScenarios, 23);
+  assert.deepEqual(plan.notSelected.map((entry) => entry.scenarioId), ['H24', 'H25', 'H26', 'H27', 'H28', 'H29']);
+  assert.ok(plan.notSelected.every((entry) => entry.status === 'not_selected' && entry.reason === 'manual-only'));
   const blockedCount = plan.entries.filter((entry) => entry.status === 'blocked').length;
   assert.ok(blockedCount < 23, 'the default backend must keep at least one scenario schedulable');
   assert.ok(
@@ -65,6 +67,15 @@ test('harness eval plan 把 --attempts 解释为每场景预算并支持 --globa
 test('harness eval plan 拒绝非法的尝试预算参数', async () => {
   await assert.rejects(run(['plan', '--tier', 'fast', '--attempts', '0']), /--attempts must be a positive integer/u);
   await assert.rejects(run(['plan', '--tier', 'fast', '--global-attempts', 'abc']), /--global-attempts must be a positive integer/u);
+});
+
+test('返修试点只在显式选择时运行且影响面回退不隐式启用', async () => {
+  const implicit = JSON.parse((await run(['plan', '--tier', 'nightly', '--changed', 'unknown/file'])).stdout);
+  assert.equal(implicit.entries.some((entry) => /^H2[4-9]$/u.test(entry.scenarioId)), false);
+  assert.equal(implicit.notSelected.length, 6);
+  const explicit = JSON.parse((await run(['run', '--dry-run', '--tier', 'nightly', '--scenario', 'H24,H29', '--attempts', '3'])).stdout);
+  assert.deepEqual(explicit.entries.map((entry) => entry.scenarioId), ['H24', 'H29']);
+  assert.ok(explicit.entries.every((entry) => entry.scheduledAttempts === 3));
 });
 
 test('RED dry runs require and resolve an immutable pre-change Harness revision', async () => {

@@ -533,6 +533,21 @@ test('harness eval 计划区分 blocked 与预算耗尽且 blocked 不消耗预�
   assert.equal(plan.summary.scheduledAttempts, 3);
 });
 
+test('manualOnly 场景只接受显式选择且不消耗默认预算', () => {
+  const scenarios = ['H01', 'H24'].map((id) => ({
+    id, manualOnly: id === 'H24', capabilities: { required: [] },
+    phase: { regression: { repetitions: { nightly: 3, full: 5 } } },
+  }));
+  for (const tier of ['nightly', 'full']) {
+    const plan = planHarnessEval({ scenarios, tier });
+    assert.deepEqual(plan.entries.map((entry) => entry.scenarioId), ['H01']);
+    assert.deepEqual(plan.notSelected, [{ scenarioId: 'H24', status: 'not_selected', reason: 'manual-only' }]);
+  }
+  const explicit = planHarnessEval({ scenarios, tier: 'nightly', scenarioIds: ['H24'] });
+  assert.equal(explicit.entries[0].scheduledAttempts, 3);
+  assert.deepEqual(explicit.notSelected, []);
+});
+
 test('harness eval 结果把 blocked 与 failed 区分为不同终态', () => {
   const blocked = buildResultV3({
     scenario: { id: 'H15', title: 'Capability missing', version: '1.0.0' },
