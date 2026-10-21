@@ -17,6 +17,34 @@ managed-mr 的 land 只读取已合入 MR 的证据，不本地合并或推送�
 
 ## 显式 develop flow
 
+#### Develop Flow vs 普通提交决策树
+
+回答以下问题，判定是否需要使用 `vb-git-develop-flow`：
+
+```
+Question 1: 是否涉及公共契约或公开 API 变更？
+  ├─ Yes → 必须 develop flow
+  └─ No  → 继续 Question 2
+
+Question 2: 是否涉及安全相关或红区文件修改？
+  ├─ Yes → 必须 develop flow
+  └─ No  → 继续 Question 3
+
+Question 3: 是否并行多个独立的功能分支？
+  ├─ Yes → 考虑 develop flow
+  └─ No  → 使用普通本地提交与推送
+
+结论：
+- 快速档（仅改 develop 分支）→ 普通提交与推送
+- 轻量档（跨相邻模块）→ 可用普通提交或 develop flow
+- 完整档（公共契约、安全、迁移）→ 必须 develop flow
+```
+
+**使用指南**：
+- 普通本地提交与推送无需独立授权，满足当前任务范围
+- Develop flow 适用于需要隔离工作区、验证与合并的场景
+- 两者都保持"一个逻辑变更一个 commit"的规则
+
 调用名称统一为 `Vb Git Develop Flow`（`vb-git-develop-flow`）与 `Vb Linear Worktree Develop`（`vb-linear-worktree-develop`），旧触发词 `gd-flow` / `$gd-flow`、`lwflow` / `$lwflow` 分别兼容对应入口。`Vb Git Split Push`（`vb-git-split-push`，兼容 `git-deliver` / `$git-deliver`）仅负责当前分支分批提交与普通推送。
 
 仅显式 `vb-git-develop-flow` / `$vb-git-develop-flow` 或 `vb-linear-worktree-develop` / `$vb-linear-worktree-develop` 走此模式；普通 `$vb-git-split-push`、普通 Linear Issue 和项目默认 delivery 不变。两者只对本次 `worktree land` 使用 `--delivery local-land`；`vb-git-develop-flow` 不创建 PR/MR，`vb-linear-worktree-develop` 的 Linear 范围见 `linear-workflow.md`（若项目已安装该规则）。已安装的 `vb-git-develop-flow` Skill 按需辅助执行本节的分支、隔离、验证和清理要求；两者描述同一合同，修改须同步。

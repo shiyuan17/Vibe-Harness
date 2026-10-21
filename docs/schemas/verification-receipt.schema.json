@@ -1,0 +1,211 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Vibe-Harness Verification Receipt",
+  "description": "Standard structure for recording verification/validation execution results across all tiers (fast/standard/deep)",
+  "type": "object",
+  "required": [
+    "id",
+    "executedAt",
+    "riskLevel",
+    "selectedChecks",
+    "results"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique identifier for this verification receipt (UUID or similar)",
+      "pattern": "^[a-z0-9-]+$"
+    },
+    "executedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when verification was executed"
+    },
+    "riskLevel": {
+      "type": "string",
+      "enum": ["fast", "standard", "deep", "full"],
+      "description": "Verification tier that was executed"
+    },
+    "selectedChecks": {
+      "type": "array",
+      "description": "List of checks that were selected and executed",
+      "items": {
+        "type": "object",
+        "required": ["name", "command"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Check identifier (e.g., 'lint', 'unit-test', 'integration')"
+          },
+          "command": {
+            "type": "string",
+            "description": "Actual command executed"
+          },
+          "passed": {
+            "type": "boolean",
+            "description": "Whether the check passed"
+          },
+          "exitCode": {
+            "type": "integer",
+            "description": "Exit code of the check command"
+          },
+          "duration": {
+            "type": "number",
+            "description": "Execution time in seconds"
+          },
+          "subsumedBy": {
+            "type": "string",
+            "description": "If this check was subsumed by another, the ID of the covering check"
+          }
+        }
+      }
+    },
+    "skippedChecks": {
+      "type": "array",
+      "description": "Checks that were skipped and why",
+      "items": {
+        "type": "object",
+        "required": ["name", "reason"],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "subsumed-by-higher-level",
+              "environment-unavailable",
+              "not-applicable-to-changes",
+              "explicitly-declined",
+              "timeout",
+              "dependency-failed"
+            ]
+          }
+        }
+      }
+    },
+    "results": {
+      "type": "object",
+      "required": ["summary", "overallStatus"],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "description": "Human-readable summary of verification results"
+        },
+        "overallStatus": {
+          "type": "string",
+          "enum": ["passed", "failed", "blocked", "unverified"],
+          "description": "Overall verification conclusion"
+        },
+        "failedCommand": {
+          "type": "string",
+          "description": "The first command that failed (if any)"
+        },
+        "failureReason": {
+          "type": "string",
+          "description": "Explanation of why verification failed or was blocked"
+        },
+        "unverifiedItems": {
+          "type": "array",
+          "description": "Items that could not be verified",
+          "items": {
+            "type": "object",
+            "properties": {
+              "item": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "relationToPrior": {
+      "type": "object",
+      "description": "Relationship to previous verification state",
+      "properties": {
+        "baselineCommit": {
+          "type": "string",
+          "description": "Previous baseline commit SHA"
+        },
+        "currentCommit": {
+          "type": "string",
+          "description": "Current commit SHA"
+        },
+        "changesSinceBaseline": {
+          "type": "object",
+          "properties": {
+            "filesChanged": {
+              "type": "integer"
+            },
+            "insertions": {
+              "type": "integer"
+            },
+            "deletions": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    "cacheScope": {
+      "type": "string",
+      "enum": ["workspace", "tree-content", "selection"],
+      "description": "Cache reuse scope for this verification"
+    },
+    "evidenceStrength": {
+      "type": "array",
+      "description": "Confidence labels for verification results",
+      "items": {
+        "type": "object",
+        "properties": {
+          "aspect": {
+            "type": "string",
+            "enum": [
+              "已确认事实",
+              "静态结论",
+              "待验证假设",
+              "验证受阻"
+            ],
+            "description": "Evidence strength classification (Chinese: Confirmed Fact, Static Conclusion, Unverified Assumption, Verification Blocked)"
+          },
+          "details": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "remainingRisks": {
+      "type": "array",
+      "description": "Known risks or gaps in verification coverage",
+      "items": {
+        "type": "string"
+      }
+    },
+    "nextActions": {
+      "type": "array",
+      "description": "Recommended next steps",
+      "items": {
+        "type": "string"
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Additional context",
+      "properties": {
+        "agentId": {
+          "type": "string"
+        },
+        "workingDirectory": {
+          "type": "string"
+        },
+        "environment": {
+          "type": "object",
+          "description": "Relevant environment variables (non-sensitive)"
+        }
+      }
+    }
+  }
+}
