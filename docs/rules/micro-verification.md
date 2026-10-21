@@ -6,6 +6,8 @@ Micro Verification 是验证阶梯的 L1：用于对已声明的模块入口、�
 
 ## 声明契约
 
+> **配置前提**：以下声明契约适用于已在 `vibe-harness.config.json` 的 `validationCommands` 下声明了 `micro` 节的项目。当前 config 若无 `micro` 节，`verify --micro` 不生效；无需为此阻塞验证流程，按 `tiers` 命令执行即可。
+
 项目配置中的 `validationCommands.micro` 必须使用结构化声明：`id`、`kind`、项目相对 `entry`、结构化 `args`、`costTier`、`scopes`、`maxDurationMs`、`maxOutputBytes`、`deterministic`、`network`、`workspaceWrite`、`allowedEnv`、`expectedExitCodes` 和 `promotableTo`。默认拒绝网络、凭据和工作区写入。
 
 旧 `command` 只作为源仓库 `verify:micro --run` 迁移兼容层；已安装项目的受管 `verify --micro` 拒绝它，不得复用缓存、进入异步队列或作为新项目配置格式。

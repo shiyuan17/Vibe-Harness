@@ -2,7 +2,7 @@
 
 ## Fast Path 卡片
 
-- **默认方式**：单 Agent 完成获取事实、实现、验证与交付；协作与 worktree 隔离只在明确需求或可独立并行的工作单元存在时触发，成本触发条件见 `governance-core.md` 的「成本与升级」。
+- **默认方式**：单 Agent 完成获取事实、实现、验证与交付；协作与 worktree 隔离只在明确需求或可独立并行的工作单元存在时触发，成本触发条件（含具体门槛值）以 `governance-core.md` 的「成本与升级」节为准。
 - **三档判据**：写路径单 Agent（默认）；只读探查可 fan-out，需显式声明；并行写仅当跨模块且 `writeScope` 不重叠，共享契约永远唯一写者。
 - **轻量 Task DAG**：仅在实际使用两个以上协作单元时声明节点字段 `id`、`kind`、`output`、`dependsOn`、`writeScope`、`resourceLocks`、`verification`、`result`；不由 Vibe-Harness 解析，也不形成固定完成门禁。
 - **结果语义**：只有全部直接前驱 `succeeded` 才满足 all_success；失败不得改判为成功，未终结节点不得视为已终结。
@@ -35,11 +35,11 @@ Question 2: 工作单元是否完全独立（无数据依赖、无写入范围�
   ├─ Yes → 继续 Question 3
   └─ No  → 结束（必须单 Agent，共享数据永远唯一写者）
 
-Question 3: 预计并行执行时间是否 > 45 分钟？
+Question 3: 预计并行执行时间是否 > 45 分钟？（具体门槛以 governance-core.md「成本与升级」为准）
   ├─ Yes → 继续 Question 4
   └─ No  → 结束（工作量太小，不值得）
 
-Question 4: 预期节省是否 > 25%（墙钟时间）？
+Question 4: 预期节省是否 > 25%（墙钟时间）？（具体门槛以 governance-core.md「成本与升级」为准）
   ├─ Yes → 编制轻量 Task DAG 并派发
   └─ No  → 结束（成本节省不足，保持单 Agent）
 ```

@@ -53,6 +53,15 @@
 - 按 package.json scripts、pom.xml 或 solution 配置选择与改动匹配的验证。
 - 仅在用户明确要求 Review 或显式调用 Review 工具时执行；Vibe-Harness 不自动创建审查角色或完成门禁。
 
+## 禁用词（forbiddenProjectTerms）
+
+`vibe-harness.config.json` 的 `forbiddenProjectTerms` 列出了不得出现在本项目通用核心资产（`rules/`、`templates/`、`skills/core`、`adapters/`、`manifests/`、`schemas/` 等目录）中的项目专有标识。
+
+- **触发时机**：安装器写入通用核心目录时、`vibe-harness validate --project` 一致性检查时，以及 `pnpm check` 中的结构校验阶段。
+- **检查机制**：由 PreToolUse Hook 和安装器代码拦截；命中时报错并阻止写入，不静默跳过。
+- **禁用词来源**：禁用词列表由 `vibe-harness.config.json` 的 `forbiddenProjectTerms` 字段声明；本文件不重复列举具体值，以 config 为单一事实来源。
+- **维护规则**：通用资产不得包含 config 中声明的禁用词；项目专有示例只允许存放于 `project-specific-rules.md`、`docs/plans/`、`evals/` 等归项目所有的目录，不进入 Pack 打包的通用核心目录。新增或移除禁用词须同步更新 `vibe-harness.config.json`，不在本文件单独声明。
+
 ## 本地治理条款
 
 > 本节归项目所有：首次安装后由项目维护，升级会原样保留。声明本项目的本地治理取值时，请逐条写明「Pack 默认 / 本项目取值 / 依据与证据」；若本项目取值比 Pack 默认更宽松，追加「owner 确认」状态，避免把放宽写成默认事实。项目未声明时，本文件其余部分与 Pack 默认一致。

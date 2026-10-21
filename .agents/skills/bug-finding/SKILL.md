@@ -1,6 +1,6 @@
 ---
 name: bug-finding
-description: Use when reviewing existing code for latent logic, flow, feature, state, consistency, requirement, or API bugs with no failing symptom—read-only audit, not root-cause debugging.
+description: Use when reviewing existing code for latent logic, flow, feature, state, consistency, requirement, or API bugs with no failing symptom—read-only audit, not root-cause debugging; not cross-layer config/auth/lifecycle consistency (→ find-question).
 ---
 
 # Bug 查找审查

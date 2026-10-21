@@ -1,5 +1,17 @@
 # Skill 编写与路由规则
 
+## Fast Path 卡片
+
+- **默认路径**：宿主按 SKILL.md frontmatter description 直接路由，无需读取正文；description 是唯一预加载路由真值。命中触发场景后先显式读取 SKILL.md 正文再行动，不凭记忆替代读取。
+- **核心约束**：Skill 只补充领域知识，不改变授权、安全边界或证据标准；一个原子动作只路由一个主 Skill；description 唯一、单行、≤300 字符、第三人称、能力+触发场景前置。
+- **常见误触发排除**：`systematic-debugging` ≠ 根因已知的修复（直接实施）；`bug-finding` ≠ 有具体失败症状（→ systematic-debugging）；`vb-git-develop-flow` ≠ 普通提交（需显式调用）；`clarify-requirements` ≠ 可发现事实（继续只读探索即可）；`find-question` ≠ 业务逻辑缺陷（→ bug-finding）。
+- **显式交付入口**：统一使用 `vb-` 前缀调用标识；旧触发词（`gd-flow`、`git-deliver`、`lwflow`）保持兼容映射，不新增独立入口。
+- **继续读全文的信号**：需要完整路由规则（32条触发/排除边界）；编写或修改 Skill；需要理解编写契约（frontmatter 格式、渐进披露要求）；处理 Skill 触发歧义或重叠。
+
+以下为完整规则，仅当任务超出卡片或命中升级触发时继续读取。
+
+---
+
 Skill 是宿主按 description 直接选择的领域能力包：description 是唯一预加载的路由信息，SKILL.md 正文按需加载。Skill 只补充当前任务需要的领域知识，不改变授权、安全边界或证据标准。
 
 ## 编写契约
