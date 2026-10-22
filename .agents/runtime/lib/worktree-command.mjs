@@ -2232,7 +2232,13 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
   const branchUntouched = async (branch) => {
     if (baseSha === null) return false;
     const head = await runGit(['rev-parse', `refs/heads/${branch}`], projectDir);
-    return head.ok && head.stdout.trim() === baseSha;
+    if (!head.ok) return false;
+    const branchSha = head.stdout.trim();
+    if (branchSha === baseSha) return true;
+    // The branch is safe to remove when its head is an ancestor of the current
+    // base: the base has moved forward, but the branch contains no unique work.
+    const containedByBase = await runGit(['merge-base', '--is-ancestor', branchSha, baseSha], projectDir);
+    return containedByBase.ok;
   };
 
   const prunable = entries.filter((entry) => !entry.primary && entry.prunable);

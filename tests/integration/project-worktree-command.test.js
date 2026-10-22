@@ -881,6 +881,26 @@ test('worktree recover removes an incomplete worktree but never a user branch', 
   }
 });
 
+test('worktree recover removes an untouched incomplete branch after the base advances', async () => {
+  const fixture = await makeWorkspaceFixture();
+  try {
+    await runCommand([
+      'worktree', 'bootstrap', '--project', fixture.repo, '--task', 'ENG-1:feat/ENG-1-scaffold', '--write', '--json',
+    ], { cwd: fixture.repo });
+    await rm(path.join(fixture.worktreePath, '.vibe-harness/worktree.env'));
+    await git(fixture.repo, ['commit', '-q', '--allow-empty', '-m', 'chore: advance base']);
+
+    const written = await runCommand(['worktree', 'recover', '--project', fixture.repo, '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(written.exitCode, 0, JSON.stringify(written.report));
+    assert.equal(written.report.status, 'passed');
+    assert.equal(written.report.results[0].branchDeleted, true);
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), false);
+    assert.equal(await git(fixture.repo, ['branch', '--list', 'feat/ENG-1-scaffold']), '');
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
 test('worktree recover leaves touched, dirty and foreign worktrees alone', async () => {
   const fixture = await makeWorkspaceFixture();
   try {
