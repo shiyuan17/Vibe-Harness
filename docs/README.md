@@ -60,7 +60,7 @@
 ### 治理
 
 - [执行内核](rules/governance-core.md) ⚡
-- [Skill 编写与路由](rules/agent-skill-routing.md)
+- [Skill 编写与路由](rules/agent-skill-routing.md) ⚡
 - [Eval](rules/eval-driven-development.md)
 - [角色路由](rules/role-routing.md)
 - [Git](rules/git-rules.md) ⚡
@@ -68,7 +68,7 @@
 - [Micro Verification](rules/micro-verification.md)
 - [AI 协作](rules/ai-collab-rules.md) ⚡
 - [审查报告规则](rules/review-report.md)
-- [表达模式规则](rules/response-modes.md)
+- [表达模式规则](rules/response-modes.md) ⚡
 
 ### 工程
 
