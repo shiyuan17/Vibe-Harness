@@ -1,6 +1,6 @@
 ---
 name: find-question
-description: Use for deep cross-layer audits of fields, config, authorization and lifecycle, or vb find question; not symptom debugging.
+description: Use for cross-layer field, config, authorization and lifecycle audits; not logic bugs or symptom debugging, or vb find question.
 ---
 
 # 深度问题发现审查

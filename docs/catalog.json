@@ -1434,6 +1434,26 @@
         "maintainer",
         "auditor"
       ]
+    },
+    {
+      "path": "docs/inventory/governance-enhancement-2025.md",
+      "kind": "inventory",
+      "status": "reference",
+      "language": "zh-CN",
+      "audiences": [
+        "auditor",
+        "maintainer"
+      ]
+    },
+    {
+      "path": "docs/specs/risk-tier-quantified.md",
+      "kind": "spec",
+      "status": "implemented",
+      "language": "zh-CN",
+      "audiences": [
+        "maintainer",
+        "auditor"
+      ]
     }
   ]
 }

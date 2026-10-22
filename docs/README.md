@@ -51,6 +51,7 @@
 - [Linear 多 Agent 工作流规格](specs/linear-multi-agent-workflow-spec.md)
 - [Adaptive Verification Engine 规格](specs/adaptive-verification-engine.md)
 - [交付生命周期与兼容迁移](specs/delivery-lifecycle.md)
+- [快速/轻量/完整档位量化判定](specs/risk-tier-quantified.md)
 
 ## 规则
 
@@ -135,6 +136,7 @@ inventory 快照规则：含计数口径的条目必须标注快照日期与再�
 - [Vibe-Harness 与 Superpowers 系统审查](inventory/harness-superpowers-comparison.md)
 - [表达模式层调研](inventory/response-mode-investigation.md)
 - [治理规范与工作流审计（2026-09）](inventory/governance-audit-2026-09.md)
+- [Vibe-Harness 治理框架增强 — 2025年变更记录](inventory/governance-enhancement-2025.md)
 
 ## 历史
 

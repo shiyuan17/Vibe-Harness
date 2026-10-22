@@ -44,7 +44,7 @@ Question 3: 是否并行多个独立的功能分支？
 - 普通本地提交与推送无需独立授权，满足当前任务范围
 - Develop flow 适用于需要隔离工作区、验证与合并的场景
 - 两者都保持"一个逻辑变更一个 commit"的规则
-- **完整执行合同**（5步流程、授权核对项、入口选择条件、Envelope 兼容说明）见 `.agents/skills/vb-git-develop-flow/SKILL.md`；本节只保留判定原则，修改须同步。
+- **完整执行合同**（5步流程、授权核对项、入口选择条件、Envelope 兼容说明）见 `vb-git-develop-flow` Skill；本节只保留判定原则，修改须同步。
 
 调用名称统一为 `Vb Git Develop Flow`（`vb-git-develop-flow`）与 `Vb Linear Worktree Develop`（`vb-linear-worktree-develop`），旧触发词 `gd-flow` / `$gd-flow`、`lwflow` / `$lwflow` 分别兼容对应入口。`Vb Git Split Push`（`vb-git-split-push`，兼容 `git-deliver` / `$git-deliver`）仅负责当前分支分批提交与普通推送。
 

@@ -1,4 +1,4 @@
-# Vibe-Harness 治理框架增强 — 2025年变更日志
+# Vibe-Harness 治理框架增强 — 2025年变更记录
 
 ## 概述
 
@@ -8,15 +8,16 @@
 
 ## 新增文件
 
-### 1. `docs/schemas/verification-receipt.schema.json`
+### 1. `schemas/verification-receipt.schema.json`
 **目的**：标准化验证收据格式
+- `docs/schemas/verification-receipt.schema.json` 是面向文档消费者的同步投影
 - JSON Schema Draft-07 标准结构
 - 完整的字段定义（ID、时间戳、风险等级、检查列表、结果）
 - 支持被覆盖检查（subsumes）和缓存复用范围（cacheScope）
 - 关键字段：`overallStatus`（passed/failed/blocked/unverified）、`evidenceStrength`、`remainingRisks`
 - 用于验证收据一致化记录与可重复性评估
 
-### 2. `docs/schemas/risk-tier-quantified.md`
+### 2. `docs/specs/risk-tier-quantified.md`
 **目的**：提供快速/轻量/完整档位的量化判定
 - **判定矩阵表**：按修改行数、文件数、影响范围、共享比例、API变更等12个维度量化
 - **快速档**：行数<50、文件数≤2、单模块、无API变更、完全可逆、验证<5分钟
@@ -29,15 +30,10 @@
 
 ## 修改文件
 
-### 1. `docs/rules/governance-core.md`（第71行后插入）
-**新增**：「验证层级与完成主张对应关系」表
-- 4列表格：完成主张 | 最小充分验证层 | 快速层通过能宣称 | 验收收据类型
-- 覆盖5种场景：
-  - 单元本地实现 → L0-L1 → 仅本轮实现完成
-  - 集成就绪 → L3-L4 → 集成可用（不含发布）
-  - 发布准备 → L5-L6 → 完整验证就绪
-  - 本地提交/推送 → L2 → 代码审查通过
-  - 跨仓协作 → L4 → 集成验收通过
+### 1. `docs/rules/governance-core.md`
+**新增**：验证层级与完成主张的驻留摘要
+- 快速层只支持单元内完成；集成、发布等主张必须取得对应标准或深度证据
+- 完整量化矩阵放在规格文档，避免扩大常驻治理面
 
 **关键原则**：
 - 快速层（L0-L1）通过 **不能** 宣称集成或发布就绪
@@ -125,7 +121,7 @@
 ## 使用路径
 
 ### 快速开始
-1. **判定变更档位**：查 `risk-tier-quantified.md` 的决策流程
+1. **判定变更档位**：查 `docs/specs/risk-tier-quantified.md` 的决策流程
 2. **选择验证策略**：按档位查 `test-rules.md`
 3. **记录验收收据**：参考 `verification-receipt.schema.json` 的结构
 4. **宣称完成**：对标 `governance-core.md` 的表格，确保宣称与验证层级匹配
