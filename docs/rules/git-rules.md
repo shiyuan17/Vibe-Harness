@@ -11,7 +11,123 @@ Git 规则的目的是保护用户改动、让提交可审查、确保 worktree 
 
 以下为完整规则，仅当任务超出卡片或命中升级触发时继续读取。
 
+## 多 Worktree 并发合并：两阶段 Land 协议
+
+### 问题背景
+
+在多 worktree 并发开发中，传统全局锁设计会导致严重的落地延迟与阶段性阻塞：
+
+- **合并验证的锁持有时间过长**：验证可能持续数分钟，而传统实现在整个合并生命周期内持有全局锁，导致 N 个并发 worktree 对同一目标分支的落地在验证阶段完全序列化。
+- **跨 ref 的不必要竞争**：不同目标分支（如 `feat/A` 和 `feat/B`）的 worktree 对同一全局锁竞争，尽管它们操作的分支完全独立。
+
+### 两阶段 Land 协议（Two-Phase Land）
+
+新设计将合并落地分为两个独立阶段，释放 Phase 1 的锁约束：
+
+#### Phase 1：候选构建与验证（Lock-Free，完全并行）
+
+每个 worktree 独立执行，无需持有任何全局或共享锁：
+
+1. **隔离候选构建**：在临时独立 worktree（命名为 `.vibe-harness-land-{taskId}-{uuid}`）中构建候选提交
+2. **隔离验证**：在该临时 worktree 中执行完整验证（可能运行数分钟），验证通过后候选 commit SHA 已确定
+3. **Baseline 变化感知**：记录目标 ref 的初始 HEAD，后续步骤会对比
+
+**并行特性**：
+- 多个 worktree 目标同一 ref（如 `develop`）的 Phase 1 **完全并行**执行，互不阻塞
+- 多个 worktree 目标不同 ref（如 `feat/A` 和 `feat/B`）的 Phase 1 **完全并行**执行
+
+#### Phase 2：Baseline 重检、快进与推送（Per-Target-Ref 锁，秒级持有）
+
+Phase 1 完成后，获取 **per-target-ref 锁**（而非全局锁），仅锁定最后的 Git 写操作：
+
+1. **获取 Phase 2 锁**：计算目标 ref 的锁路径（hash-based，`vibe-harness-land-{refHash}.lock`），使用指数退避重试获取
+   - 初始重试间隔 50ms，指数增长（上限 2s）以减少 N 个等待者对锁文件的 thundering-herd 冲击
+   - 锁 TTL 为 60s（Phase 2 仅涉及几秒的 Git 操作，无需心跳续期）
+
+2. **Baseline 重检**：在锁内重新读取目标 ref 的当前 HEAD
+   - 如果 HEAD 已变化（Phase 1 期间有其他 worktree 落地），丢弃候选、返回 `LAND_BASELINE_CHANGED`
+   - 调用方重试 Phase 1 与 Phase 2（最多 `LAND_MAX_ATTEMPTS = 3` 次）
+
+3. **快进、提交、推送与清理**：如果 Baseline 一致，执行快进、push、清理临时 worktree，所有操作在锁内完成
+
+**Per-Ref 锁的特性**：
+- 目标 `develop` 和 `feat/X` 的 worktree 各持有独立锁，互不竞争
+- 同一 ref 的多个 worktree 在 Phase 2 序列化，但 Phase 1 期间完全并行
+- 锁持有时间典型为 <5 秒（仅 Git 写操作），不再包含多分钟的验证
+
+### 版本词汇
+
+| 术语 | 含义 | 备注 |
+|------|------|------|
+| **Phase 1** | 候选构建 + 验证（无锁） | 完全并行，无竞争 |
+| **Phase 2** | Baseline 重检 + 快进 + 推送（per-ref 锁） | 秒级锁持有，细粒度竞争 |
+| **Per-Ref 锁** | 按目标分支的独立锁（hash 路径） | 不同 ref 无竞争，同 ref 序列化仅在 Phase 2 |
+| **Baseline 变化** | Phase 1 期间目标 ref 被其他 worktree 推进 | 触发重试循环，最多 3 次 |
+| **指数退避** | 锁获取重试的等待间隔（50ms → 2s） | 减少 thundering-herd，lease-lock 内部实现 |
+| **Lease Lock** | 带 TTL（60s）的文件锁实现 | 支持重试、指数退避、自动过期 |
+
+### 代码层面
+
+#### 常量定义
+
+```javascript
+const LAND_LOCK_TIMEOUT_MS = 180_000;        // Phase 2 等待总预算（3 分钟）
+const LAND_PHASE2_LEASE_MS = 60_000;         // Phase 2 锁 TTL（60 秒）
+const LAND_LOCK_RETRY_MS = 50;               // 初始重试间隔（指数增长）
+const LAND_MAX_ATTEMPTS = 3;                 // 基线变化重试上限
+```
+
+#### 核心函数
+
+- `targetRefLockPath(gitCommonDir, targetRef)`：计算 per-ref 锁的文件路径
+- `acquirePhase2Lock(projectDir, targetRef)`：获取 Phase 2 锁，返回锁路径或阻塞结果
+- `worktreeLandReportTwoPhase(projectDir, args)`：两阶段入口，处理基线变化重试
+- `worktreeLandReportUnlocked(projectDir, args)`：Phase 1 + Phase 2 的核心逻辑，在 Phase 2 边界获取锁
+
+### 效果
+
+| 场景 | 传统全局锁 | 两阶段 Per-Ref 锁 |
+|------|-----------|------------------|
+| 3 个 worktree 并发到同一 ref | 全部序列化（验证时间 × 3） | Phase 1 并行，Phase 2 序列化（验证时间 × 1 + 5s × 3） |
+| 3 个 worktree 到不同 ref | 仍全部序列化 | 完全并行（验证时间 × 1） |
+| 锁竞争冲击 | 高（同时到达） | 低（指数退避，thundering-herd 缓解） |
+
 ## Delivery Profile 清理边界
+
+managed-mr 的 land 只读取已合入 MR 的证据，不本地合并或推送；ancestor 快速路径保留。squash 清理须绑定 sourceBase/sourceHead、targetRef/targetBefore/targetAfter、mergeMethod/mergeCommit、patchId 和 taskId，并重读目标引用、核对整个 source diff 与单父 squash commit 的 stable patch-id、干净工作树以及当前完成收据；缺失、漂移或不一致一律 blocked。GitLab `--mr` 读取失败不得猜测已合并。cleanup 保留分支，不自动强删 squash source 分支。
+
+## 显式 develop flow
+
+#### Develop Flow vs 普通提交决策树
+
+回答以下问题，判定是否需要使用 `vb-git-develop-flow`：
+
+```
+Question 1: 是否涉及公共契约或公开 API 变更？
+  ├─ Yes → 必须 develop flow
+  └─ No  → 继续 Question 2
+
+Question 2: 是否涉及安全相关或红区文件修改？
+  ├─ Yes → 必须 develop flow
+  └─ No  → 继续 Question 3
+
+Question 3: 是否并行多个独立的功能分支？
+  ├─ Yes → 考虑 develop flow
+  └─ No  → 使用普通本地提交与推送
+
+结论：
+- 快速档（仅改 develop 分支）→ 普通提交与推送
+- 轻量档（跨相邻模块）→ 可用普通提交或 develop flow
+- 完整档（公共契约、安全、迁移）→ 必须 develop flow
+```
+
+**使用指南**：
+- 普通本地提交与推送无需独立授权，满足当前任务范围
+- Develop flow 适用于需要隔离工作区、验证与合并的场景
+- 两者都保持"一个逻辑变更一个 commit"的规则
+- **完整执行合同**（5步流程、授权核对项、入口选择条件、Envelope 兼容说明）见 `vb-git-develop-flow` Skill；本节只保留判定原则，修改须同步。
+
+调用名称统一为 `Vb Git Develop Flow`（`vb-git-develop-flow`）与 `Vb Linear Worktree Develop`（`vb-linear-worktree-develop`），旧触发词 `gd-flow` / `$gd-flow`、`lwflow` / `$lwflow` 分别兼容对应入口。`Vb Git Split Push`（`vb-git-split-push`，兼容 `git-deliver` / `$git-deliver`）仅负责当前分支分批提交与普通推送。
 
 managed-mr 的 land 只读取已合入 MR 的证据，不本地合并或推送；ancestor 快速路径保留。squash 清理须绑定 sourceBase/sourceHead、targetRef/targetBefore/targetAfter、mergeMethod/mergeCommit、patchId 和 taskId，并重读目标引用、核对整个 source diff 与单父 squash commit 的 stable patch-id、干净工作树以及当前完成收据；缺失、漂移或不一致一律 blocked。GitLab `--mr` 读取失败不得猜测已合并。cleanup 保留分支，不自动强删 squash source 分支。
 

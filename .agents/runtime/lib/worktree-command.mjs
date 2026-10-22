@@ -7,7 +7,7 @@
 // Extracted verbatim from `runtime/commands/run.mjs` so that file keeps only
 // argument parsing, dispatch and output selection. Behaviour, field names and
 // exit codes are unchanged; only the module boundary moved.
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import {
   closeSync,
   copyFileSync,
@@ -66,15 +66,23 @@ import { gitTimeoutMs } from './git-timeouts.mjs';
 import { TASK_UNIT_FAILURE_STATUSES, planDependentUnits, planUnitGraph, readTaskAnchor, taskAnchorRelativePath, taskCheckpointReport, taskPlanCheckReport } from './task-command.mjs';
 import { verifyProject } from './verification-command.mjs';
 import { configuredChecks, executeCommand, parseVerifyTier, resolveReceiptTier, resolveReviewedChecks, timeoutValue } from './verification-plan-support.mjs';
+import { acquireLease, acquireLeaseWithRetry, releaseLease } from './lease-lock.mjs';
 
-// A peer `worktree land` holds the shared lock across its merge, verification
-// and cleanup, so the wait budget is sized for a full landing instead of a
-// filesystem round trip: a second land retries until this deadline and only
-// then reports LAND_LOCK_TIMEOUT. The parent-owned environment knob can only
-// shorten it, which is how tests hold the lock on purpose.
+// Two-phase land lock design.
+//
+// Phase 1 (lock-free): build candidate + verify. Multiple worktrees targeting
+// different refs run fully in parallel; same-ref ones also verify in parallel.
+// Phase 2 (lock held): re-check baseline, fast-forward, push, cleanup.
+//   Lock is per target-ref; independent targets never contend.
+//   Held only for Git writes, typically <5 seconds.
+//
+// LAND_LOCK_TIMEOUT_MS : legacy env-knob ceiling for Phase 2 wait budget.
+// LAND_PHASE2_LEASE_MS : Phase 2 lock TTL (60 s covers all Git writes).
+// LAND_LOCK_RETRY_MS   : initial Phase 2 wait interval; grows exponentially.
 const LAND_LOCK_TIMEOUT_MS = 180_000;
-const LAND_LOCK_RETRY_MS = 50;
-// --- worktree / slice / patch (P0) -----------------------------------------
+const LAND_PHASE2_LEASE_MS = 60_000; // Phase 2 lock TTL
+const LAND_LOCK_RETRY_MS = 50; // initial backoff; grows exponentially via lease-lock
+const LAND_MAX_ATTEMPTS = 3; // Maximum retries on LAND_BASELINE_CHANGED
 //
 // These commands replace the throwaway scripts an agent used to write into the
 // project itself: `git worktree add` plus a hand-built `node_modules` junction
@@ -1336,6 +1344,60 @@ export function landLockTimeoutMs(environment = process.env) {
   if (!Number.isFinite(override) || override <= 0) return LAND_LOCK_TIMEOUT_MS;
   return Math.min(LAND_LOCK_TIMEOUT_MS, Math.floor(override));
 }
+
+function targetRefLockPath(gitCommonDirPath, targetRef) {
+  const refHash = createHash('sha1')
+    .update(targetRef)
+    .digest('hex')
+    .slice(0, 12);
+  return path.join(gitCommonDirPath, `vibe-harness-land-${refHash}.lock`);
+}
+
+async function acquirePhase2Lock(projectDir, targetRef) {
+  const common = await gitCommonDir(projectDir);
+  if (!common.ok) {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      command: 'worktree',
+      subcommand: 'land',
+      status: 'blocked',
+      code: 'LAND_LOCK_UNAVAILABLE',
+      blockers: [common.error],
+    };
+  }
+  const lockPath = targetRefLockPath(common.path, targetRef);
+  const waitMs = landLockTimeoutMs();
+  const result = await acquireLeaseWithRetry(lockPath, {
+    timeoutMs: waitMs,
+    retryMs: LAND_LOCK_RETRY_MS,
+    leaseMs: LAND_PHASE2_LEASE_MS,
+  });
+  if (!result.ok) {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      command: 'worktree',
+      subcommand: 'land',
+      status: 'blocked',
+      code: 'LAND_LOCK_TIMEOUT',
+      blockers: [`${normalizeSlashes(lockPath)} held by another operation`],
+    };
+  }
+  return { held: true, lockPath };
+}
+
+async function worktreeLandReportTwoPhase(projectDir, args) {
+  for (let attempt = 1; attempt <= LAND_MAX_ATTEMPTS; attempt++) {
+    const result = await worktreeLandReportUnlocked(projectDir, args);
+    if (result.code !== 'LAND_BASELINE_CHANGED') {
+      return result;
+    }
+    if (attempt < LAND_MAX_ATTEMPTS) {
+      await delay(150 * attempt);
+    }
+  }
+  return { status: 'blocked', code: 'LAND_BASELINE_CHANGED_REPEATEDLY' };
+}
+
 async function withWorktreeLandLock(projectDir, action) {
   const common = await gitCommonDir(projectDir);
   if (!common.ok) {
@@ -1453,7 +1515,7 @@ async function worktreeLandReport(projectDir, args) {
     };
   }
   if (!args.write) return worktreeLandReportUnlocked(projectDir, args);
-  return withWorktreeLandLock(projectDir, () => worktreeLandReportUnlocked(projectDir, args));
+  return worktreeLandReportTwoPhase(projectDir, args);
 }
 async function worktreeLandReportUnlocked(projectDir, args) {
   const failure = (error, code) => ({ schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'land', status: 'failed', ...(code ? { code } : {}), error });
