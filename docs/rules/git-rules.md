@@ -13,6 +13,21 @@ Git 规则的目的是保护用户改动、让提交可审查、确保 worktree 
 
 ## 多 Worktree 并发合并：两阶段 Land 协议
 
+### 词汇定义
+
+在两阶段 land 协议中，worktree 有明确的角色分类：
+
+| 词汇 | 定义 | 生命周期 | 用途 |
+|------|------|---------|------|
+| **Candidate worktree** | 隔离的临时 worktree，用于构建和验证待落地的提交 | Phase 1 期间创建，Phase 1 完成后清理 | 验证即将 fast-forward 的提交，不修改任何分支状态 |
+| **Task worktree** | 用户创建的持久 worktree，对应一个长期工作分支（如 `feat/X`） | 手动创建，用户维护期间持续存在 | 用户在上面进行开发工作，最终落地到目标分支 |
+| **Primary worktree** | 仓库的主检出点（git 的默认工作树） | 持续存在 | 维护仓库状态，更新 baseline 分支 |
+
+**两阶段 land 的角色划分**：
+- **Candidate worktree** 由 land 命令内部创建，完全隔离，验证通过后被清理
+- **Task worktree** 是用户主动创建的开发环境，不被 land 命令清理，继续存在供后续工作使用
+- **Primary worktree** 是 `git worktree list` 显示为主分支（通常是 `develop`）的那一个
+
 ### 问题背景
 
 在多 worktree 并发开发中，传统全局锁设计会导致严重的落地延迟与阶段性阻塞：
@@ -43,12 +58,32 @@ Phase 1 完成后，获取 **per-target-ref 锁**（而非全局锁），仅锁�
 1. **获取 Phase 2 锁**：计算目标 ref 的锁路径（hash-based，`vibe-harness-land-{refHash}.lock`），使用指数退避重试获取
    - 初始重试间隔 50ms，指数增长（上限 2s）以减少 N 个等待者对锁文件的 thundering-herd 冲击
    - 锁 TTL 为 60s（Phase 2 仅涉及几秒的 Git 操作，无需心跳续期）
+   - **锁文件位置**：`{git-common-dir}/vibe-harness-land-{refHash}.lock`（如 `.git/vibe-harness-land-a1b2c3d4e5f6.lock`）
 
 2. **Baseline 重检**：在锁内重新读取目标 ref 的当前 HEAD
    - 如果 HEAD 已变化（Phase 1 期间有其他 worktree 落地），丢弃候选、返回 `LAND_BASELINE_CHANGED`
    - 调用方重试 Phase 1 与 Phase 2（最多 `LAND_MAX_ATTEMPTS = 3` 次）
 
 3. **快进、提交、推送与清理**：如果 Baseline 一致，执行快进、push、清理临时 worktree，所有操作在锁内完成
+
+### 残留锁处理
+
+当 land 操作异常中止或进程崩溃时，锁文件可能残留。处理步骤：
+
+1. **检查锁持有者**：使用 `cat {lock-file}` 查看锁内记录的 PID 和时间戳
+   - 若 PID 对应进程已退出或距今超过 60s，锁已过期可安全删除
+   - 若 PID 对应活跃进程，确认该进程是否仍在执行 land 操作，避免删除实际持有的锁
+
+2. **删除过期锁**：
+   ```bash
+   rm .git/vibe-harness-land-{refHash}.lock
+   ```
+   仅在确认锁已过期或持有者进程已死亡后执行
+
+3. **恢复候选 worktree**：若临时候选 worktree 残留（`.vibe-harness-land-{taskId}-{uuid}`），使用 `git worktree remove` 清理：
+   ```bash
+   git worktree remove .vibe-harness-land-{taskId}-{uuid}
+   ```
 
 **Per-Ref 锁的特性**：
 - 目标 `develop` 和 `feat/X` 的 worktree 各持有独立锁，互不竞争
@@ -65,6 +100,7 @@ Phase 1 完成后，获取 **per-target-ref 锁**（而非全局锁），仅锁�
 | **Baseline 变化** | Phase 1 期间目标 ref 被其他 worktree 推进 | 触发重试循环，最多 3 次 |
 | **指数退避** | 锁获取重试的等待间隔（50ms → 2s） | 减少 thundering-herd，lease-lock 内部实现 |
 | **Lease Lock** | 带 TTL（60s）的文件锁实现 | 支持重试、指数退避、自动过期 |
+| **--target-mode remote** | 仅使用 `git fetch` 读取目标分支状态，不执行本地快进 | Phase 1 在远端检查 baseline；Phase 2 仍需本地快进能力 |
 
 ### 代码层面
 
@@ -116,6 +152,10 @@ Question 3: 是否并行多个独立的功能分支？
   └─ No  → 使用普通本地提交与推送
 
 结论：
+
+**参考**：该决策树对应风险档位表；详见 `docs/specs/risk-tier-quantified.md`。
+
+**成本与升级门槛**：并行模式的成本与节省决策详见 `docs/rules/governance-core.md`「成本与升级」章节；单一真值源为该文件中的 45 分钟和 25% 要求。
 - 快速档（仅改 develop 分支）→ 普通提交与推送
 - 轻量档（跨相邻模块）→ 可用普通提交或 develop flow
 - 完整档（公共契约、安全、迁移）→ 必须 develop flow
@@ -164,12 +204,34 @@ Question 3: 是否并行多个独立的功能分支？
 
 调用名称统一为 `Vb Git Develop Flow`（`vb-git-develop-flow`）与 `Vb Linear Worktree Develop`（`vb-linear-worktree-develop`），旧触发词 `gd-flow` / `$gd-flow`、`lwflow` / `$lwflow` 分别兼容对应入口。`Vb Git Split Push`（`vb-git-split-push`，兼容 `git-deliver` / `$git-deliver`）仅负责当前分支分批提交与普通推送。
 
+### Linear 降级路径
+
+当 develop flow 因网络中断、冲突无法自动解决、或其他阻塞原因无法继续时，支持降级回普通 git 提交与推送流程：
+
+1. **保留现有工作**：develop flow 在降级前会保留当前 worktree 的分支及所有本地提交，不自动清理
+2. **手动分批提交**：使用 `Vb Git Split Push` 或普通 `git add` + `git commit` + `git push` 完成剩余工作
+3. **重新发起 develop flow**：修复阻塞（如解决合并冲突、等待网络恢复）后，可以重新在同一 task worktree 上发起 develop flow，使用最新的 baseline 继续流程
+
 仅显式 `vb-git-develop-flow` / `$vb-git-develop-flow` 或 `vb-linear-worktree-develop` / `$vb-linear-worktree-develop` 走此模式；普通 `$vb-git-split-push`、普通 Linear Issue 和项目默认 delivery 不变。两者只对本次 `worktree land` 使用 `--delivery local-land`；`vb-git-develop-flow` 不创建 PR/MR，`vb-linear-worktree-develop` 的 Linear 范围见 `linear-workflow.md`（若项目已安装该规则）。已安装的 `vb-git-develop-flow` Skill 按需辅助执行本节的分支、隔离、验证和清理要求；两者描述同一合同，修改须同步。
 
 - 先确认主检出当前分支是 `develop`、工作树与暂存区都干净、远端可普通推送；已有无关改动不能被暂存、覆盖、stash 或合并进 flow。`git fetch origin develop` 后要求本地 `develop` 能仅以 fast-forward 更新到最新 `origin/develop`；失败则停止，不代替用户切换分支或处理别人的 worktree。远端落地模式（`--target-mode remote`）不更新主检出，因此主检出允许已有改动，但仍要求本地 `develop` 没有未推送提交或分叉。
 - 固定顺序为建立隔离工作区 → 在其中创建任务分支 → 实现与聚焦验证 → 提交归属明确的改动 → 从最新 `origin/develop` 基线回收进主检出 `develop` → 只有推送成功后才清理工作区和本地任务分支。隔离工作区优先用宿主 worktree：以宿主能力从已核实的 `origin/develop` 基线创建，创建后核对它的基线等于冻结 SHA，并让宿主把会话根切到该 worktree 后再写入。只有项目声明了 `worktree.mirrors`、`worktree.ports` 或 `worktree.provision`（需要治理面投影、端口分段或逐包依赖链接）时才改用 `worktree bootstrap --task <id>:<branch> --base-ref origin/develop`，它把入口创建与分支创建原子化；不通过手工 `git worktree remove` 绕过镜像 teardown。`worktree land --base-ref develop` 只断言主检出当前分支，不负责 checkout。需要把候选直接推送到远端 `develop` 而不更新主检出时，改用 `worktree land --base-ref develop --delivery local-land --target-mode remote --write --push`；只有 delivery profile 的 `reviewPolicy` 不为 `none` 时才补 `--reviewed <checks>`，`reviewPolicy:"none"` 且目标分支恰为 `develop` 时必须省略，不能伪造 relevance review。仅将确认归属的改动逐组显式复制/应用到任务 worktree，同一文件混有无关改动时按片段选取，冲突即停止；land 在已核实的 `origin/develop` 基线上建立 detached 候选、no-ff 合并并验证，再用非强制 refspec 推送。
 - land 前再次读取目标远端 SHA、主检出与任务分支 HEAD，并确认本轮验证针对最新目标基线；验证期间目标前进则暂停、重建候选与重验。delivery profile 的 `reviewPolicy` 默认 `required`，此时 relevance review、受管验证及任务锚点门禁不得跳过；只有 `reviewPolicy:"none"` 且目标分支恰为 `develop` 时免人工 relevance review，验证收据、写指纹、provenance 与合并树证据仍全部保留。合并到 `main`、`release/*` 或其他保护分支始终要求审查。不带 `--push` 的 land 不满足该 flow 完成条件。远端落地还须证明推送后远端 SHA 等于已验证候选，且主检出未更新、原改动保留；本地 `develop` 可能落后于远端，后续另行核对整理。
 - 该 flow 只要求本地核验：工作区身份、冻结的基线 SHA、任务分支、干净工作树、写入根和归属明确的改动都由运行时按 Git 事实核对；worktree 生命周期（创建、实现、回收、清理）不需要 `governance-core.md` 的宿主核验信息，缺少宿主证明不构成停止理由。`worktree land --write --delivery local-land --push` 只回收由 `worktree bootstrap` 创建且已登记的 worktree；宿主 worktree 不进入该登记表，改为主检出仍与最新 `origin/develop` 一致时推送本轮任务分支，或按项目 delivery 配置走 PR/MR，由目标分支既有流程合并。合并冲突、验证失败、目标分支漂移、推送失败或清理失败时，暂停受影响步骤，保留可恢复现场并报告各阶段事实，不 force push、不强制删除、不自动回滚。推送成功而清理失败时属于“已推送、清理未完成”，不得重复合并。
+
+### Source 分支生命周期
+
+在提升（promotion）流程中，source 分支（发起 PR 或 MR 的分支）的生命周期应该明确定义，避免悬空或错误清理：
+
+1. **创建阶段**：发起 PR/MR 时，source 分支由 develop flow 创建或指定
+2. **验证阶段**：PR/MR 在目标分支上验证通过，可能需要多次推送迭代
+3. **落地阶段**：PR/MR 合并落地后，source 分支的处理方式：
+   - **Squash 模式**：source 分支可以保留（供历史参考）或手动删除
+   - **非 Squash 模式**：source 分支保留在仓库中，作为历史记录的一部分
+4. **清理策略**：
+   - 不自动强删 source 分支（`git branch -D`）
+   - 用户或 CI 可以在 PR/MR 关闭后手动选择删除
+   - 对于 squash 落地，cleanup 配置保留分支而不删除
 
 ## 启动与归属
 

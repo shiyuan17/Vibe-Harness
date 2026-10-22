@@ -153,10 +153,12 @@ export async function acquireLeaseWithRetry(lockPath, {
 } = {}) {
   const deadline = Date.now() + timeoutMs;
   let currentRetryMs = retryMs;
+  let heldRecord = null;
   for (;;) {
     const result = acquireLease(lockPath, { leaseMs });
     if (result.held) {
-      return { ok: true, record: result.record };
+      heldRecord = result.record;
+      return { ok: true, record: heldRecord };
     }
     if (Date.now() >= deadline) {
       return {
@@ -164,6 +166,12 @@ export async function acquireLeaseWithRetry(lockPath, {
         code: 'LEASE_TIMEOUT',
         error: `lock held after ${timeoutMs}ms`,
       };
+    }
+    // Renew heartbeat on the held record every ~60% of lease window
+    // so a single long operation (like verification) doesn't lose the lease
+    // if Phase 1 exceeds the initial TTL expectation.
+    if (heldRecord && Date.now() - Date.parse(heldRecord.heartbeatAt) > leaseMs * 0.6) {
+      updateHeartbeat(lockPath);
     }
     await delay(currentRetryMs);
     // Exponential backoff capped at maxRetryMs: N concurrent landers on the
