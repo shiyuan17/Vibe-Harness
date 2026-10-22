@@ -63,6 +63,7 @@ import {
 import { boundedOutput, normalizePath } from './cli-output.mjs';
 import { CONFIG_FILE, PASS_STATUSES, SCHEMA_VERSION, assertSafeCommand, delay, isInsidePath, normalizeSlashes, packageManager, probeExecutable, readProjectConfig, runFile, runGit, safeRealpath } from './cli-runtime.mjs';
 import { gitTimeoutMs } from './git-timeouts.mjs';
+import { acquireLeaseWithRetry, releaseLease } from './lease-lock.mjs';
 import { TASK_UNIT_FAILURE_STATUSES, planDependentUnits, planUnitGraph, readTaskAnchor, taskAnchorRelativePath, taskCheckpointReport, taskPlanCheckReport } from './task-command.mjs';
 import { verifyProject } from './verification-command.mjs';
 import { configuredChecks, executeCommand, parseVerifyTier, resolveReceiptTier, resolveReviewedChecks, timeoutValue } from './verification-plan-support.mjs';
@@ -600,38 +601,34 @@ function isRedZonePath(relativePath, patterns) {
   }
   return false;
 }
-/** Exclusive lock file around every registry read/modify/write. */
+
+/**
+ * Exclusive lock file around every registry read/modify/write.
+ *
+ * Uses the shared lease-lock pattern: PID + heartbeat + grace window.
+ * This replaces the old `wx` mode lock that could be permanently stale.
+ */
 async function withPortRegistryLock(projectDir, action, { timeoutMs = PORT_LOCK_TIMEOUT_MS } = {}) {
   const lockPath = path.join(projectDir, PORT_LOCK_RELATIVE_PATH);
   mkdirSync(path.dirname(lockPath), { recursive: true });
-  const deadline = Date.now() + timeoutMs;
-  let held = false;
-  for (;;) {
-    try {
-      const handle = openSync(lockPath, 'wx');
-      writeSync(handle, `${process.pid}\n${new Date().toISOString()}\n`);
-      closeSync(handle);
-      held = true;
-      break;
-    } catch (error) {
-      if (error.code !== 'EEXIST') return { error: `cannot create ${PORT_LOCK_RELATIVE_PATH}: ${error.code ?? error.message}` };
-      if (Date.now() >= deadline) {
-        return {
-          code: 'WORKTREE_PORT_LOCK_TIMEOUT',
-          error: `${PORT_LOCK_RELATIVE_PATH} is held by another process after ${timeoutMs}ms; the lock is never removed automatically`,
-        };
-      }
-      await delay(PORT_LOCK_RETRY_MS);
-    }
+
+  const result = await acquireLeaseWithRetry(lockPath, {
+    timeoutMs,
+    retryMs: PORT_LOCK_RETRY_MS,
+    leaseMs: 10_000, // Port locks are typically short-lived
+  });
+
+  if (!result.ok) {
+    return {
+      code: 'WORKTREE_PORT_LOCK_TIMEOUT',
+      error: `${PORT_LOCK_RELATIVE_PATH} is held after ${timeoutMs}ms`,
+    };
   }
+
   try {
     return await action();
   } finally {
-    if (held) {
-      try {
-        rmSync(lockPath, { force: true });
-      } catch { /* the lock is advisory; a failed unlink is reported by the next bootstrap */ }
-    }
+    releaseLease(lockPath);
   }
 }
 function writePortRegistry(projectDir, registry) {
