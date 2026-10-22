@@ -153,7 +153,7 @@ Question 3: 是否并行多个独立的功能分支？
 
 结论：
 
-**参考**：该决策树对应风险档位表；详见 `docs/specs/risk-tier-quantified.md`。
+**参考**：该决策树对应 `docs/rules/governance-core.md` 的「风险档位」。
 
 **成本与升级门槛**：并行模式的成本与节省决策详见 `docs/rules/governance-core.md`「成本与升级」章节；单一真值源为该文件中的 45 分钟和 25% 要求。
 - 快速档（仅改 develop 分支）→ 普通提交与推送

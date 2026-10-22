@@ -155,6 +155,7 @@ export function releaseLease(lockPath) {
  */
 export async function acquireLeaseWithRetry(lockPath, { timeoutMs = 180_000, retryMs = 50, leaseMs = DEFAULT_LEASE_MS } = {}) {
   const deadline = Date.now() + timeoutMs;
+  let currentRetryMs = retryMs;
   for (;;) {
     const result = acquireLease(lockPath, { leaseMs });
     if (result.held) {
@@ -167,6 +168,7 @@ export async function acquireLeaseWithRetry(lockPath, { timeoutMs = 180_000, ret
         error: `lock held after ${timeoutMs}ms`,
       };
     }
-    await delay(retryMs);
+    await delay(currentRetryMs);
+    currentRetryMs = Math.min(Math.ceil(currentRetryMs * 1.5), 2_000);
   }
 }

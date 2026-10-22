@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, lstatSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -26,6 +27,11 @@ import { expandMirrors, linkOrCopyMirrors, removeMirrorLinks } from '../../runti
 const execFileAsync = promisify(execFile);
 const gitIdentity = ['-c', 'user.email=fixture@example.invalid', '-c', 'user.name=Fixture'];
 const runtimePath = fileURLToPath(new URL('../../runtime/commands/run.mjs', import.meta.url));
+
+function landLockPath(repo, targetRef) {
+  const refHash = createHash('sha1').update(targetRef).digest('hex').slice(0, 12);
+  return path.join(repo, '.git', `vibe-harness-land-${refHash}.lock`);
+}
 
 async function git(cwd, args) {
   const { stdout } = await execFileAsync('git', [...gitIdentity, ...args], { cwd, windowsHide: true });
@@ -1529,42 +1535,31 @@ test('无 upstream 且远端面不满足推送策略时 --push 被 blocked', asy
   }
 });
 
-test('两个进程同时 land 同一目标时第二个因共享锁超时且不改动目标', async () => {
-  const fixture = await makeLandFixture({
-    extraFiles: {
-      'slow.mjs': "import { writeFileSync } from 'node:fs'; import path from 'node:path'; writeFileSync(path.resolve('..', 'landing-ready'), 'ready'); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 8000);\n",
-    },
-    validationCommands: { test: 'node slow.mjs' },
-  });
+test('Phase 2 目标锁被占用时在缩短的预算内 blocked 且不改动目标', async () => {
+  const fixture = await makeLandFixture();
   try {
     await bootstrapWithWork(fixture);
-    const first = execFileAsync(process.execPath, [
-      runtimePath, 'worktree', 'land', '--project', fixture.repo, '--write', '--json',
-    ], { cwd: fixture.repo, windowsHide: true });
-    const marker = path.join(fixture.root, 'landing-ready');
-    for (let attempt = 0; attempt < 200 && !existsSync(marker); attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-    assert.equal(existsSync(marker), true);
-    // The default budget is sized for a full verified landing, so the test
-    // shortens the parent-owned knob instead of waiting it out (the first land
-    // is already holding the lock in its own process).
+    const lockPath = landLockPath(fixture.repo, 'feat/landing-zone');
+    const now = new Date().toISOString();
+    await writeFile(lockPath, JSON.stringify({
+      heartbeatAt: now,
+      leaseMs: 60_000,
+      pid: process.pid,
+      startedAt: now,
+    }), 'utf8');
     process.env.VIBE_HARNESS_LAND_LOCK_TIMEOUT_MS = '300';
-    let second;
+    let blocked;
     try {
-      second = await runCommand(['worktree', 'land', '--project', fixture.repo, '--write', '--json'], { cwd: fixture.repo });
+      blocked = await runCommand(['worktree', 'land', '--project', fixture.repo, '--write', '--json'], { cwd: fixture.repo });
     } finally {
       delete process.env.VIBE_HARNESS_LAND_LOCK_TIMEOUT_MS;
     }
-    assert.equal(second.report.status, 'blocked');
-    assert.equal(second.report.code, 'LAND_LOCK_TIMEOUT');
-    // The receipt names the budget the caller asked for, so a shortened wait is
-    // distinguishable from the default one.
-    assert.match(second.report.blockers.join('; '), /held by another land operation after 300ms/u);
+    assert.equal(blocked.report.status, 'blocked', JSON.stringify(blocked.report));
+    assert.equal(blocked.report.code, 'LAND_LOCK_TIMEOUT');
+    const mergeStep = blocked.report.results[0].steps.find((step) => step.id === 'merge' && step.status === 'blocked');
+    assert.match(mergeStep.blockers?.join('; ') ?? '', /after 300ms/u, JSON.stringify(blocked.report));
     assert.equal(await git(fixture.repo, ['rev-list', '--count', 'feat/landing-zone']), '1');
-    const firstResult = JSON.parse((await first).stdout);
-    assert.equal(firstResult.status, 'passed', JSON.stringify(firstResult));
-    assert.equal(await git(fixture.repo, ['rev-list', '--count', 'feat/landing-zone']), '3');
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
   } finally {
     await removeTemporaryDirectory(fixture.root);
   }
@@ -1585,11 +1580,22 @@ test('等待锁期间目标前进时以新 HEAD 创建候选并保留两项改�
   const fixture = await makeLandFixture();
   try {
     await bootstrapWithWork(fixture);
-    const lockPath = path.join(fixture.repo, '.git', 'vibe-harness-worktree-land.lock');
-    await writeFile(lockPath, 'held\n', 'utf8');
+    const lockPath = landLockPath(fixture.repo, 'feat/landing-zone');
+    const now = new Date().toISOString();
+    await writeFile(lockPath, JSON.stringify({
+      heartbeatAt: now,
+      leaseMs: 60_000,
+      pid: process.pid,
+      startedAt: now,
+    }), 'utf8');
     const landing = execFileAsync(process.execPath, [
       runtimePath, 'worktree', 'land', '--project', fixture.repo, '--write', '--json',
-    ], { cwd: fixture.repo, windowsHide: true });
+    ], {
+      cwd: fixture.repo,
+      env: { ...process.env, VIBE_HARNESS_LAND_LOCK_TIMEOUT_MS: '5000' },
+      windowsHide: true,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 500));
     await writeFile(path.join(fixture.repo, 'other.txt'), 'independent\n', 'utf8');
     await git(fixture.repo, ['add', 'other.txt']);
     await git(fixture.repo, ['commit', '-q', '-m', 'feat: other']);
@@ -1603,7 +1609,7 @@ test('等待锁期间目标前进时以新 HEAD 创建候选并保留两项改�
   }
 });
 
-test('验证期间目标 HEAD 前进时阻断落地并保留任务 worktree', async () => {
+test('验证期间目标 HEAD 前进时自动重试并在新基线上完成落地', async () => {
   const fixture = await makeLandFixture({
     extraFiles: {
       'slow.mjs': "import { writeFileSync } from 'node:fs'; import path from 'node:path'; writeFileSync(path.resolve('..', 'landing-ready'), 'ready'); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2000);\n",
@@ -1623,11 +1629,12 @@ test('验证期间目标 HEAD 前进时阻断落地并保留任务 worktree', as
     await writeFile(path.join(fixture.repo, 'other.txt'), 'independent\n', 'utf8');
     await git(fixture.repo, ['add', 'other.txt']);
     await git(fixture.repo, ['commit', '-q', '-m', 'feat: other']);
-    const result = JSON.parse((await landing.catch((error) => error)).stdout);
-    assert.equal(result.status, 'blocked', JSON.stringify(result));
-    assert.equal(result.results[0].steps.at(-1).code, 'LAND_BASELINE_CHANGED');
-    assert.equal(await git(fixture.repo, ['rev-list', '--count', 'feat/landing-zone']), '2');
-    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
+    const result = JSON.parse((await landing).stdout);
+    assert.equal(result.status, 'passed', JSON.stringify(result));
+    assert.equal(await git(fixture.repo, ['rev-list', '--count', 'feat/landing-zone']), '4');
+    assert.equal((await readFile(path.join(fixture.repo, 'other.txt'), 'utf8')).trim(), 'independent');
+    assert.equal((await readFile(path.join(fixture.repo, 'work.txt'), 'utf8')).trim(), 'done');
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), false);
   } finally {
     await removeTemporaryDirectory(fixture.root);
   }

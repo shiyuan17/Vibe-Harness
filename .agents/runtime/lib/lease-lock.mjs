@@ -65,31 +65,43 @@ export function readLease(lockPath) {
  * the lease is already held or cannot be created.
  */
 export function acquireLease(lockPath, { leaseMs = DEFAULT_LEASE_MS } = {}) {
-  const existing = readLease(lockPath);
-  if (existing.stale === false) {
-    // Lease is still held.
-    return {
-      held: false,
-      reason: `lock held by pid ${existing.pid}`,
-    };
-  }
-  try {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
     const record = {
       pid: process.pid,
       startedAt: new Date().toISOString(),
       heartbeatAt: new Date().toISOString(),
       leaseMs,
     };
-    const handle = openSync(lockPath, 'w');
-    writeSync(handle, `${JSON.stringify(record, null, 2)}\n`);
-    closeSync(handle);
-    return { held: true, record };
-  } catch (error) {
-    return {
-      held: false,
-      reason: error.message,
-    };
+    try {
+      const handle = openSync(lockPath, 'wx');
+      writeSync(handle, `${JSON.stringify(record, null, 2)}\n`);
+      closeSync(handle);
+      return { held: true, record };
+    } catch (error) {
+      if (error.code !== 'EEXIST') {
+        return {
+          held: false,
+          reason: error.message,
+        };
+      }
+      const existing = readLease(lockPath);
+      if (!existing.stale) {
+        return {
+          held: false,
+          reason: `lock held by pid ${existing.pid}`,
+        };
+      }
+      // Reclaim only an expired or dead holder's lock, then retry exclusive
+      // creation. The `wx` open remains the acquisition decision, so two
+      // reclaimers cannot both believe they hold the lease.
+      try {
+        rmSync(lockPath, { force: true });
+      } catch (removeError) {
+        return { held: false, reason: removeError.message };
+      }
+    }
   }
+  return { held: false, reason: 'lock changed while acquiring' };
 }
 
 /**
@@ -140,25 +152,14 @@ export function releaseLease(lockPath) {
  *
  * Similar to the withLock pattern but returns early on success rather than
  * running an action callback.
- *
- * The retry interval grows exponentially (capped at `maxRetryMs`) so that many
- * concurrent waiters on the same lock do not busy-poll in lockstep. The initial
- * `retryMs` is still used for the first probe so single-waiter latency stays low.
  */
-export async function acquireLeaseWithRetry(lockPath, {
-  timeoutMs = 180_000,
-  retryMs = 50,
-  maxRetryMs = 2_000,
-  leaseMs = DEFAULT_LEASE_MS,
-} = {}) {
+export async function acquireLeaseWithRetry(lockPath, { timeoutMs = 180_000, retryMs = 50, leaseMs = DEFAULT_LEASE_MS } = {}) {
   const deadline = Date.now() + timeoutMs;
   let currentRetryMs = retryMs;
-  let heldRecord = null;
   for (;;) {
     const result = acquireLease(lockPath, { leaseMs });
     if (result.held) {
-      heldRecord = result.record;
-      return { ok: true, record: heldRecord };
+      return { ok: true, record: result.record };
     }
     if (Date.now() >= deadline) {
       return {
@@ -167,16 +168,7 @@ export async function acquireLeaseWithRetry(lockPath, {
         error: `lock held after ${timeoutMs}ms`,
       };
     }
-    // Renew heartbeat on the held record every ~60% of lease window
-    // so a single long operation (like verification) doesn't lose the lease
-    // if Phase 1 exceeds the initial TTL expectation.
-    if (heldRecord && Date.now() - Date.parse(heldRecord.heartbeatAt) > leaseMs * 0.6) {
-      updateHeartbeat(lockPath);
-    }
     await delay(currentRetryMs);
-    // Exponential backoff capped at maxRetryMs: N concurrent landers on the
-    // same target ref no longer all poll every 50ms, which both wastes cycles
-    // and amplifies contention on the lock file itself.
-    currentRetryMs = Math.min(Math.ceil(currentRetryMs * 1.5), maxRetryMs);
+    currentRetryMs = Math.min(Math.ceil(currentRetryMs * 1.5), 2_000);
   }
 }

@@ -7,7 +7,7 @@
 // Extracted verbatim from `runtime/commands/run.mjs` so that file keeps only
 // argument parsing, dispatch and output selection. Behaviour, field names and
 // exit codes are unchanged; only the module boundary moved.
-import { randomUUID, createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   closeSync,
   copyFileSync,
@@ -63,26 +63,21 @@ import {
 import { boundedOutput, normalizePath } from './cli-output.mjs';
 import { CONFIG_FILE, PASS_STATUSES, SCHEMA_VERSION, assertSafeCommand, delay, isInsidePath, normalizeSlashes, packageManager, probeExecutable, readProjectConfig, runFile, runGit, safeRealpath } from './cli-runtime.mjs';
 import { gitTimeoutMs } from './git-timeouts.mjs';
+import { acquireLeaseWithRetry, releaseLease } from './lease-lock.mjs';
 import { TASK_UNIT_FAILURE_STATUSES, planDependentUnits, planUnitGraph, readTaskAnchor, taskAnchorRelativePath, taskCheckpointReport, taskPlanCheckReport } from './task-command.mjs';
 import { verifyProject } from './verification-command.mjs';
 import { configuredChecks, executeCommand, parseVerifyTier, resolveReceiptTier, resolveReviewedChecks, timeoutValue } from './verification-plan-support.mjs';
-import { acquireLease, acquireLeaseWithRetry, releaseLease } from './lease-lock.mjs';
 
-// Two-phase land lock design.
-//
-// Phase 1 (lock-free): build candidate + verify. Multiple worktrees targeting
-// different refs run fully in parallel; same-ref ones also verify in parallel.
-// Phase 2 (lock held): re-check baseline, fast-forward, push, cleanup.
-//   Lock is per target-ref; independent targets never contend.
-//   Held only for Git writes, typically <5 seconds.
-//
-// LAND_LOCK_TIMEOUT_MS : legacy env-knob ceiling for Phase 2 wait budget.
-// LAND_PHASE2_LEASE_MS : Phase 2 lock TTL (60 s covers all Git writes).
-// LAND_LOCK_RETRY_MS   : initial Phase 2 wait interval; grows exponentially.
+// A peer `worktree land` holds the shared lock across its merge, verification
+// and cleanup, so the wait budget is sized for a full landing instead of a
+// filesystem round trip: a second land retries until this deadline and only
+// then reports LAND_LOCK_TIMEOUT. The parent-owned environment knob can only
+// shorten it, which is how tests hold the lock on purpose.
 const LAND_LOCK_TIMEOUT_MS = 180_000;
-const LAND_PHASE2_LEASE_MS = 60_000; // Phase 2 lock TTL
-const LAND_LOCK_RETRY_MS = 50; // initial backoff; grows exponentially via lease-lock
-const LAND_MAX_ATTEMPTS = 3; // Maximum retries on LAND_BASELINE_CHANGED
+const LAND_PHASE2_LEASE_MS = 60_000;
+const LAND_LOCK_RETRY_MS = 50;
+const LAND_MAX_ATTEMPTS = 3;
+// --- worktree / slice / patch (P0) -----------------------------------------
 //
 // These commands replace the throwaway scripts an agent used to write into the
 // project itself: `git worktree add` plus a hand-built `node_modules` junction
@@ -608,38 +603,34 @@ function isRedZonePath(relativePath, patterns) {
   }
   return false;
 }
-/** Exclusive lock file around every registry read/modify/write. */
+
+/**
+ * Exclusive lock file around every registry read/modify/write.
+ *
+ * Uses the shared lease-lock pattern: PID + heartbeat + grace window.
+ * This replaces the old `wx` mode lock that could be permanently stale.
+ */
 async function withPortRegistryLock(projectDir, action, { timeoutMs = PORT_LOCK_TIMEOUT_MS } = {}) {
   const lockPath = path.join(projectDir, PORT_LOCK_RELATIVE_PATH);
   mkdirSync(path.dirname(lockPath), { recursive: true });
-  const deadline = Date.now() + timeoutMs;
-  let held = false;
-  for (;;) {
-    try {
-      const handle = openSync(lockPath, 'wx');
-      writeSync(handle, `${process.pid}\n${new Date().toISOString()}\n`);
-      closeSync(handle);
-      held = true;
-      break;
-    } catch (error) {
-      if (error.code !== 'EEXIST') return { error: `cannot create ${PORT_LOCK_RELATIVE_PATH}: ${error.code ?? error.message}` };
-      if (Date.now() >= deadline) {
-        return {
-          code: 'WORKTREE_PORT_LOCK_TIMEOUT',
-          error: `${PORT_LOCK_RELATIVE_PATH} is held by another process after ${timeoutMs}ms; the lock is never removed automatically`,
-        };
-      }
-      await delay(PORT_LOCK_RETRY_MS);
-    }
+
+  const result = await acquireLeaseWithRetry(lockPath, {
+    timeoutMs,
+    retryMs: PORT_LOCK_RETRY_MS,
+    leaseMs: 10_000, // Port locks are typically short-lived
+  });
+
+  if (!result.ok) {
+    return {
+      code: 'WORKTREE_PORT_LOCK_TIMEOUT',
+      error: `${PORT_LOCK_RELATIVE_PATH} is held after ${timeoutMs}ms`,
+    };
   }
+
   try {
     return await action();
   } finally {
-    if (held) {
-      try {
-        rmSync(lockPath, { force: true });
-      } catch { /* the lock is advisory; a failed unlink is reported by the next bootstrap */ }
-    }
+    releaseLease(lockPath);
   }
 }
 function writePortRegistry(projectDir, registry) {
@@ -1346,10 +1337,7 @@ export function landLockTimeoutMs(environment = process.env) {
 }
 
 function targetRefLockPath(gitCommonDirPath, targetRef) {
-  const refHash = createHash('sha1')
-    .update(targetRef)
-    .digest('hex')
-    .slice(0, 12);
+  const refHash = createHash('sha1').update(targetRef).digest('hex').slice(0, 12);
   return path.join(gitCommonDirPath, `vibe-harness-land-${refHash}.lock`);
 }
 
@@ -1366,9 +1354,9 @@ async function acquirePhase2Lock(projectDir, targetRef) {
     };
   }
   const lockPath = targetRefLockPath(common.path, targetRef);
-  const waitMs = landLockTimeoutMs();
+  const timeoutMs = landLockTimeoutMs();
   const result = await acquireLeaseWithRetry(lockPath, {
-    timeoutMs: waitMs,
+    timeoutMs,
     retryMs: LAND_LOCK_RETRY_MS,
     leaseMs: LAND_PHASE2_LEASE_MS,
   });
@@ -1379,25 +1367,11 @@ async function acquirePhase2Lock(projectDir, targetRef) {
       subcommand: 'land',
       status: 'blocked',
       code: 'LAND_LOCK_TIMEOUT',
-      blockers: [`${normalizeSlashes(lockPath)} held by another operation`],
+      blockers: [`${normalizeSlashes(lockPath)} is held by another land operation after ${timeoutMs}ms`],
     };
   }
   return { held: true, lockPath };
 }
-
-async function worktreeLandReportTwoPhase(projectDir, args) {
-  for (let attempt = 1; attempt <= LAND_MAX_ATTEMPTS; attempt++) {
-    const result = await worktreeLandReportUnlocked(projectDir, args);
-    if (result.code !== 'LAND_BASELINE_CHANGED') {
-      return result;
-    }
-    if (attempt < LAND_MAX_ATTEMPTS) {
-      await delay(150 * attempt);
-    }
-  }
-  return { status: 'blocked', code: 'LAND_BASELINE_CHANGED_REPEATEDLY' };
-}
-
 async function withWorktreeLandLock(projectDir, action) {
   const common = await gitCommonDir(projectDir);
   if (!common.ok) {
@@ -1517,7 +1491,44 @@ async function worktreeLandReport(projectDir, args) {
   if (!args.write) return worktreeLandReportUnlocked(projectDir, args);
   return worktreeLandReportTwoPhase(projectDir, args);
 }
-async function worktreeLandReportUnlocked(projectDir, args) {
+
+/**
+ * Build and verify a candidate without blocking peer worktrees, then acquire
+ * the target-ref lease for the short baseline check, merge, push and cleanup.
+ * A baseline change releases the lease, cleans the candidate and retries from
+ * the newly observed target head.
+ */
+async function worktreeLandReportTwoPhase(projectDir, args) {
+  let lastResult = null;
+  let retryArgs = args;
+  for (let attempt = 1; attempt <= LAND_MAX_ATTEMPTS; attempt += 1) {
+    let phase2 = null;
+    try {
+      lastResult = await worktreeLandReportUnlocked(projectDir, retryArgs, {
+        beforeFinalize: async (targetRef) => {
+          phase2 = await acquirePhase2Lock(projectDir, targetRef);
+          return phase2;
+        },
+      });
+    } finally {
+      if (phase2?.held) releaseLease(phase2.lockPath);
+    }
+    if (lastResult.code !== 'LAND_BASELINE_CHANGED') return lastResult;
+    if (attempt < LAND_MAX_ATTEMPTS) {
+      // A retry must keep the target chosen by the first attempt. Without this
+      // pin, a checkout switched during verification could redirect the merge.
+      retryArgs = { ...retryArgs, baseRef: lastResult.targetBranch ?? retryArgs.baseRef };
+      await delay(100 * attempt);
+    }
+  }
+  return {
+    ...lastResult,
+    retryCount: LAND_MAX_ATTEMPTS - 1,
+    guidance: `target branch changed ${LAND_MAX_ATTEMPTS - 1} times during land; inspect the target before retrying`,
+  };
+}
+
+async function worktreeLandReportUnlocked(projectDir, args, { beforeFinalize = null } = {}) {
   const failure = (error, code) => ({ schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'land', status: 'failed', ...(code ? { code } : {}), error });
   const targetMode = args.targetMode ?? 'primary';
   if (!['primary', 'remote'].includes(targetMode)) return failure(`unknown --target-mode ${targetMode} (expected primary or remote)`, 'LAND_TARGET_MODE_INVALID');
@@ -1544,7 +1555,10 @@ async function worktreeLandReportUnlocked(projectDir, args) {
   // naming a different branch fails instead of switching the user's checkout.
   const targetBranch = args.baseRef ?? primary.branch;
   if (targetBranch !== primary.branch) {
-    return failure(`land merges into the primary checkout's current branch ${primary.branch}; check out ${args.baseRef} first or omit --base-ref`);
+    return failure(
+      `land merges into the primary checkout's current branch ${primary.branch}; check out ${args.baseRef} first or omit --base-ref`,
+      'LAND_BASELINE_CHANGED',
+    );
   }
   if (isLandProtectedBranch(targetBranch)) {
     return failure(`target branch ${targetBranch} is a protected or shared branch; land refuses to merge into it`, 'LAND_TARGET_PROTECTED');
@@ -1911,6 +1925,24 @@ async function worktreeLandReportUnlocked(projectDir, args) {
             markFailed({ id: 'verify', status: 'failed', code: 'LAND_VERIFY_FAILED', tier: verify.tier, error: verify.error ?? `verify ended ${verify.status}${checkLines ? ` (${checkLines})` : ''}`, candidatePath: removed.residual, detail: `verify --tier ${tier} on isolated candidate` });
           }
         }
+      }
+    }
+  }
+
+  if (!failedStep) {
+    if (beforeFinalize && !failedStep) {
+      const phase2 = await beforeFinalize(targetBranch);
+      if (!phase2?.held) {
+        const removed = await cleanupLandCandidate(projectDir, candidatePath);
+        markFailed({
+          id: 'merge',
+          status: 'blocked',
+          code: phase2?.code ?? 'LAND_LOCK_UNAVAILABLE',
+          blockers: phase2?.blockers ?? ['target-ref lease could not be acquired'],
+          ...(removed.residual ? { candidatePath: removed.residual } : {}),
+          ...(removed.reason ? { error: removed.reason } : {}),
+          detail: `acquire Phase 2 lease for ${targetBranch}`,
+        });
       }
     }
   }
