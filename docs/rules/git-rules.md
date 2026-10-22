@@ -19,13 +19,13 @@ Git 规则的目的是保护用户改动、让提交可审查、确保 worktree 
 
 | 词汇 | 定义 | 生命周期 | 用途 |
 |------|------|---------|------|
-| **Candidate worktree** | 隔离的临时 worktree，用于构建和验证待落地的提交 | Phase 1 期间创建，Phase 1 完成后清理 | 验证即将 fast-forward 的提交，不修改任何分支状态 |
-| **Task worktree** | 用户创建的持久 worktree，对应一个长期工作分支（如 `feat/X`） | 手动创建，用户维护期间持续存在 | 用户在上面进行开发工作，最终落地到目标分支 |
+| **Candidate worktree** | 隔离的临时 worktree，用于构建和验证待落地的提交 | land 最终化后清理；推送结果不确定时保留供检查或恢复 | 验证即将 fast-forward 的提交，不修改任何分支状态 |
+| **Task worktree** | 用户创建的 worktree，对应一个工作分支（如 `feat/X`） | land 进入清理阶段时尝试移除；此前失败时保留，分支仅在成功推送后删除 | 用户在上面进行开发工作，最终落地到目标分支 |
 | **Primary worktree** | 仓库的主检出点（git 的默认工作树） | 持续存在 | 维护仓库状态，更新 baseline 分支 |
 
 **两阶段 land 的角色划分**：
-- **Candidate worktree** 由 land 命令内部创建，完全隔离，验证通过后被清理
-- **Task worktree** 是用户主动创建的开发环境，不被 land 命令清理，继续存在供后续工作使用
+- **Candidate worktree** 由 land 命令内部创建，完全隔离；在安全可确认的最终化路径中清理，推送结果不确定时保留
+- **Task worktree** 是用户主动创建的开发环境；land 进入清理阶段后尝试移除该 worktree，不带 `--push` 时保留分支
 - **Primary worktree** 是 `git worktree list` 显示为主分支（通常是 `develop`）的那一个
 
 ### 问题背景
@@ -39,9 +39,9 @@ Git 规则的目的是保护用户改动、让提交可审查、确保 worktree 
 
 新设计将合并落地分为两个独立阶段，释放 Phase 1 的锁约束：
 
-#### Phase 1：候选构建与验证（Lock-Free，完全并行）
+#### Phase 1：候选构建与验证（无目标 ref 锁，可并行）
 
-每个 worktree 独立执行，无需持有任何全局或共享锁：
+每个 land 独立执行，不获取全局锁或目标 ref 锁；它持有唯一候选活动租约，防止 `worktree recover --write` 同时清理该候选。该租约不序列化 land 操作：
 
 1. **隔离候选构建**：在临时独立 worktree（命名为 `.vibe-harness-land-{taskId}-{uuid}`）中构建候选提交
 2. **隔离验证**：在该临时 worktree 中执行完整验证（可能运行数分钟），验证通过后候选 commit SHA 已确定
@@ -51,56 +51,56 @@ Git 规则的目的是保护用户改动、让提交可审查、确保 worktree 
 - 多个 worktree 目标同一 ref（如 `develop`）的 Phase 1 **完全并行**执行，互不阻塞
 - 多个 worktree 目标不同 ref（如 `feat/A` 和 `feat/B`）的 Phase 1 **完全并行**执行
 
-#### Phase 2：Baseline 重检、快进与推送（Per-Target-Ref 锁，秒级持有）
+#### Phase 2：Baseline 重检与最终化（Per-Target-Ref 锁）
 
-Phase 1 完成后，获取 **per-target-ref 锁**（而非全局锁），仅锁定最后的 Git 写操作：
+Phase 1 验证完成后，获取 **per-target-ref 锁**（而非全局锁）。候选活动租约继续持有；目标 ref 锁从基线复核一直持有到 land 返回，覆盖目标写入和后续清理：
 
-1. **获取 Phase 2 锁**：计算目标 ref 的锁路径（hash-based，`vibe-harness-land-{refHash}.lock`），使用指数退避重试获取
+1. **获取 Phase 2 锁**：按目标 ref 计算 SHA-256 锁路径，并同时获取旧 SHA-1 锁路径以兼容已启动的旧运行时；使用指数退避重试获取
    - 初始重试间隔 50ms，指数增长（上限 2s）以减少 N 个等待者对锁文件的 thundering-herd 冲击
-   - 锁 TTL 为 60s（Phase 2 仅涉及几秒的 Git 操作，无需心跳续期）
-   - **锁文件位置**：`{git-common-dir}/vibe-harness-land-{refHash}.lock`（如 `.git/vibe-harness-land-a1b2c3d4e5f6.lock`）
+   - Phase 2 租约 TTL 为 60s，并定期心跳续期；锁等待预算默认 180s
+   - **锁文件位置**：`{git-common-dir}/vibe-harness-land-{refHash}.lock`（当前 SHA-256 名称取 24 个十六进制字符，同时协调旧 SHA-1 名称）
 
 2. **Baseline 重检**：在锁内重新读取目标 ref 的当前 HEAD
    - 如果 HEAD 已变化（Phase 1 期间有其他 worktree 落地），丢弃候选、返回 `LAND_BASELINE_CHANGED`
    - 调用方重试 Phase 1 与 Phase 2（最多 `LAND_MAX_ATTEMPTS = 3` 次）
 
-3. **快进、提交、推送与清理**：如果 Baseline 一致，执行快进、push、清理临时 worktree，所有操作在锁内完成
+3. **快进、推送与清理**：如果 Baseline 一致，执行快进、完成收据记录、可选 push、服务 teardown、移除 task worktree 与端口登记、必要时删除已推送分支；这些步骤都在目标 ref 锁内完成。锁等待超时、租约丢失或基线变化会阻止后续目标写入，候选清理仍可尝试。
 
 ### 残留锁处理
 
 当 land 操作异常中止或进程崩溃时，锁文件可能残留。处理步骤：
 
-1. **检查锁持有者**：使用 `cat {lock-file}` 查看锁内记录的 PID 和时间戳
-   - 若 PID 对应进程已退出或距今超过 60s，锁已过期可安全删除
-   - 若 PID 对应活跃进程，确认该进程是否仍在执行 land 操作，避免删除实际持有的锁
+1. **检查锁持有者**：读取锁记录中的 PID、心跳时间和租约时长；当前租约会由 `lease-lock` 自动回收，人工检查时先确认持有者和对应操作
+   - 当前 SHA-256 Phase 2 锁在心跳租约过期或持有进程退出后可回收
+   - 旧 SHA-1 兼容锁和旧格式全局锁在持有 PID 仍存活时继续视为占用，即使旧记录没有心跳
 
 2. **删除过期锁**：
    ```bash
-   rm .git/vibe-harness-land-{refHash}.lock
+   rm .git/vibe-harness-land-{sha256-refHash}.lock
    ```
-   仅在确认锁已过期或持有者进程已死亡后执行
+   仅在确认租约已过期或持有者进程已死亡后执行；正常情况下由后续 land 获取流程回收
 
-3. **恢复候选 worktree**：若临时候选 worktree 残留（`.vibe-harness-land-{taskId}-{uuid}`），使用 `git worktree remove` 清理：
+3. **恢复候选 worktree**：若临时候选 worktree 残留（`.vibe-harness-land-{taskId}-{uuid}`），先用 `worktree recover` 检查归属、活动租约和工作区状态，再清理：
    ```bash
-   git worktree remove .vibe-harness-land-{taskId}-{uuid}
+   node .agents/runtime/commands/run.mjs worktree recover --project . --write --json
    ```
 
 **Per-Ref 锁的特性**：
 - 目标 `develop` 和 `feat/X` 的 worktree 各持有独立锁，互不竞争
-- 同一 ref 的多个 worktree 在 Phase 2 序列化，但 Phase 1 期间完全并行
-- 锁持有时间典型为 <5 秒（仅 Git 写操作），不再包含多分钟的验证
+- 同一 ref 的多个 worktree 在 Phase 2 最终化期间序列化；Phase 1 验证可并行，recover 会跳过活动候选
+- 锁覆盖基线复核、快进、可选推送和 task worktree 清理，时长取决于本地与远端 Git 操作及服务 teardown
 
 ### 版本词汇
 
 | 术语 | 含义 | 备注 |
 |------|------|------|
-| **Phase 1** | 候选构建 + 验证（无锁） | 完全并行，无竞争 |
-| **Phase 2** | Baseline 重检 + 快进 + 推送（per-ref 锁） | 秒级锁持有，细粒度竞争 |
+| **Phase 1** | 候选构建 + 验证（仅唯一候选活动租约） | 不持有目标 ref 锁，不同 land 可并行 |
+| **Phase 2** | Baseline 重检 + 快进 + 推送与清理（per-ref 锁） | 持有至 land 返回，租约由心跳续期 |
 | **Per-Ref 锁** | 按目标分支的独立锁（hash 路径） | 不同 ref 无竞争，同 ref 序列化仅在 Phase 2 |
 | **Baseline 变化** | Phase 1 期间目标 ref 被其他 worktree 推进 | 触发重试循环，最多 3 次 |
 | **指数退避** | 锁获取重试的等待间隔（50ms → 2s） | 减少 thundering-herd，lease-lock 内部实现 |
-| **Lease Lock** | 带 TTL（60s）的文件锁实现 | 支持重试、指数退避、自动过期 |
-| **--target-mode remote** | 仅使用 `git fetch` 读取目标分支状态，不执行本地快进 | Phase 1 在远端检查 baseline；Phase 2 仍需本地快进能力 |
+| **Lease Lock** | 带 PID、TTL 与心跳的文件锁实现 | 支持指数退避；活跃持有者续租，死进程锁可回收 |
+| **--target-mode remote** | 使用 `git ls-remote` 读取目标分支状态，不更新本地 remote-tracking ref | Phase 1 检查远端 baseline；Phase 2 向远端推送，不更新本地主检出 |
 
 ### 代码层面
 
@@ -115,16 +115,16 @@ const LAND_MAX_ATTEMPTS = 3;                 // 基线变化重试上限
 
 #### 核心函数
 
-- `targetRefLockPath(gitCommonDir, targetRef)`：计算 per-ref 锁的文件路径
-- `acquirePhase2Lock(projectDir, targetRef)`：获取 Phase 2 锁，返回锁路径或阻塞结果
+- `targetRefLockPaths(gitCommonDir, targetRef)`：计算 SHA-256 per-ref 锁，并同时持有旧 SHA-1 路径以兼容已启动的旧运行时
+- `acquirePhase2Lock(projectDir, targetRef)`：获取 Phase 2 租约，返回锁路径或阻塞结果
 - `worktreeLandReportTwoPhase(projectDir, args)`：两阶段入口，处理基线变化重试
-- `worktreeLandReportUnlocked(projectDir, args)`：Phase 1 + Phase 2 的核心逻辑，在 Phase 2 边界获取锁
+- `worktreeLandReportUnlocked(projectDir, args)`：建立候选活动租约，在 Phase 2 边界获取目标 ref 锁
 
 ### 效果
 
 | 场景 | 传统全局锁 | 两阶段 Per-Ref 锁 |
 |------|-----------|------------------|
-| 3 个 worktree 并发到同一 ref | 全部序列化（验证时间 × 3） | Phase 1 并行，Phase 2 序列化（验证时间 × 1 + 5s × 3） |
+| 3 个 worktree 并发到同一 ref | 全部序列化（验证时间 × 3） | Phase 1 验证并行，Phase 2 最终化序列化（验证时间 × 1 + 最终化时间 × 3） |
 | 3 个 worktree 到不同 ref | 仍全部序列化 | 完全并行（验证时间 × 1） |
 | 锁竞争冲击 | 高（同时到达） | 低（指数退避，thundering-herd 缓解） |
 
@@ -318,7 +318,7 @@ Vibe-Harness 自身使用 Conventional Commits、commitlint、pre-commit、pre-p
 - 一个隔离单元对应一个命名分支和明确写入范围，worktree 放在仓库外部、数量不是并行目标；宿主提供 worktree 能力时优先用宿主 worktree，并让宿主把会话根切到该 worktree，只有需要治理面投影、端口分段或依赖链接时才改用下列脚本入口。不需要隔离时直接在当前工作区保护用户改动，子 Agent 只在分配的 worktree、分支和写入范围内工作，审查任务默认只读。
 - 派发前明确目标分支、依赖和共享契约的唯一写入者；writeScope 或资源重叠的任务按依赖顺序推进，过期基线与语义冲突由任务责任人解决，集成失败只暂停相关任务和后继。
 - 引导、审计与清理走项目脚本入口 `node .agents/runtime/commands/run.mjs worktree <list|check|bootstrap|land|recover|cleanup> --project . --json`：默认只读，只有追加 `--write` 才落盘；`cleanup` 在分支未并入 `worktree.baseRef` 或工作区不干净时拒绝，且从不删除分支；不带 `--write` 的 `bootstrap` 是步骤计划预览，`--help` 给出该入口自身的命令面说明。该入口是安装交付内唯一的 worktree 写入面（创建、依赖链接与清理）；源仓库开发面另有只读审计 CLI（`scripts/worktree.js`，`list|check|plan`），不随安装交付，目标项目不引入第二个写入口。
-- `worktree land` 把归因 worktree 闭环回收进主检出当前分支：dry-run 只出计划；`--write` 在 Git common dir 独占锁内重新核对工作区、来源与目标基线及任务锚点，在仓库外临时候选 worktree 中执行「合并（`--no-ff`，已并入则跳过）→ 复用逐检查收据并验证（默认 quick，锚点 `riskLevel=full` 时 standard）」，通过且目标与来源 HEAD、主检出与候选状态均未变化后才快进主检出，随后按授权推送、清理任务 worktree 与端口登记，并仅在推送成功后删除任务分支。候选合并使用空 hooks path、`LEFTHOOK=0`、`HUSKY=0` 和 `--no-verify`，防止表单/Git Hook 改写共享依赖；这不是用户提交绕过 Hook 的授权。合并冲突或验证失败不移动主检出并保留任务 worktree；锁等待预算默认 180 秒（一次 land 在合并、验证与清理全程持有共享锁），父进程可用 `VIBE_HARNESS_LAND_LOCK_TIMEOUT_MS` 缩短但不能延长，锁超时与基线变化阻塞本次落地，残留锁不自动清理。预检同时报告主检出差分、基线漂移、残留 candidate、深任务验证锁、依赖根与 junction 完整性；同一仓库的 deep/后端全量验证由 Git common dir 租约锁串行。门禁 fail-closed：目标是可直落的分支（main、master、release* 仍要求明确审查上下文；`develop` 由显式白名单允许直落，且仅在有显式 `reviewPolicy:"none"` 时免 relevance review）、关联任务锚点单元全部完成且 completion receipt 仍完整；`--base-ref` 仅作意图断言，不带 `--push` 时不推送不删分支，`--write --no-verify` 拒绝执行。
+- `worktree land` 把归因 worktree 闭环回收进主检出当前分支：dry-run 只出计划；`--write` 先在候选活动租约保护下建立仓库外临时候选，执行「合并（`--no-ff`，已并入则跳过）→ 复用逐检查收据并验证（默认 quick，锚点 `riskLevel=full` 时 standard）」，再取得目标 ref 租约并重新核对工作区、来源与目标基线及任务锚点；通过且目标与来源 HEAD、主检出与候选状态均未变化后才快进主检出，随后按授权推送、清理任务 worktree 与端口登记，并仅在推送成功后删除任务分支。候选合并使用空 hooks path、`LEFTHOOK=0`、`HUSKY=0` 和 `--no-verify`，防止表单/Git Hook 改写共享依赖；这不是用户提交绕过 Hook 的授权。合并冲突或验证失败不移动主检出并保留任务 worktree；Phase 2 锁等待预算默认 180 秒，`VIBE_HARNESS_LAND_LOCK_TIMEOUT_MS` 只能缩短等待。租约持有期间定期续期；死进程或已过期的锁由 lease-lock 判定后回收，仍存活的旧格式全局锁按 PID 保持占用。基线变化阻塞本次落地，Phase 1 活动候选会被 `worktree recover --write` 报为 blocked 且不会移除；普通残留候选仍须归因且干净才可回收。预检同时报告主检出差分、基线漂移、残留 candidate、深任务验证锁、依赖根与 junction 完整性；同一仓库的 deep/后端全量验证由 Git common dir 租约锁串行。门禁 fail-closed：目标是可直落的分支（main、master、release* 仍要求明确审查上下文；`develop` 由显式白名单允许直落，且仅在有显式 `reviewPolicy:"none"` 时免 relevance review）、关联任务锚点单元全部完成且 completion receipt 仍完整；`--base-ref` 仅作意图断言，不带 `--push` 时不推送不删分支，`--write --no-verify` 拒绝执行。
 - 临时候选 worktree 只在工作区干净时自动移除，异常残留由 `worktree recover` 报告、`--write` 只清理有归因且干净的候选，脏候选与疑似残留锁由操作者核对；本地 `land` 不创建远端合并队列，也不能代替共享分支 required checks。
 - 目录已消失但 Git 元数据与分支绑定仍在的 worktree 由 `worktree check` 报 `WORKTREE_PRUNABLE_RESIDUE` 并阻塞审计通过。`worktree recover --write` 按序移除不完整 worktree（端口 env 文件在位且登记在册时跳过，仅当分支未离开基线且工作区干净时连同分支与端口登记一起移除）、prunable 残留（一次 `git worktree prune`）、孤立分支与孤立端口登记；分支删除只在存在归因证据（端口登记表条目或 prunable 清单）、分支 HEAD 等于 `worktree.baseRef` 解析出的基线 SHA 且该分支不是基线本身时发生，无引用的用户占位分支、带未并入提交的分支与登记面之外的外来 worktree 一律不动。该证据门不与「merge-back 完成前不删除分支」冲突（被删分支从未持有任何提交）；另一处分支删除只发生在 `land` 推送成功之后，并使用自带未合并拒绝保险的 `git branch -d`。
 - 依赖链接（`node_modules` junction 或 symlink）由 `worktree bootstrap` 建立并对每个本地包逐项 realpath 断言，断言失败时回滚本次新建的 worktree；`.bin`/`.bun`/`.pnpm` 等内容寻址 store 与各自带 `node_modules` 的 workspace 包由 overlay 投影，构建缓存 `.cache`/`.vite`/`.vite-temp` 跳过；`worktree check` 报告依赖链接缺失或指回主检出的事实。

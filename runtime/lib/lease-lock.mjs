@@ -7,7 +7,8 @@
 //
 // This module extracts the pattern so both locks share the same implementation.
 
-import { closeSync, openSync, readFileSync, rmSync, writeSync } from 'node:fs';
+import { closeSync, openSync, readFileSync, rmSync, statSync, writeSync } from 'node:fs';
+import { basename } from 'node:path';
 import { delay } from './cli-runtime.mjs';
 
 export const DEFAULT_LEASE_MS = 10 * 60 * 1000; // 10 minutes for land lock
@@ -33,27 +34,54 @@ function processAlive(pid) {
  */
 export function readLease(lockPath) {
   try {
-    const record = JSON.parse(readFileSync(lockPath, 'utf8'));
+    const contents = readFileSync(lockPath, 'utf8');
+    let record;
+    let legacy = false;
+    try {
+      record = JSON.parse(contents);
+    } catch {
+      const match = /^(\d+)\r?\n([^\r\n]+)\r?\n?$/u.exec(contents);
+      const pid = match ? Number(match[1]) : NaN;
+      const timestamp = match?.[2] ?? '';
+      if (!Number.isSafeInteger(pid) || !Number.isFinite(Date.parse(timestamp))) throw new Error('invalid legacy lock');
+      record = { pid, startedAt: timestamp, heartbeatAt: timestamp };
+      legacy = true;
+    }
     const heartbeat = Date.parse(record?.heartbeatAt ?? record?.startedAt ?? '');
     const leaseMs = Number.isInteger(record?.leaseMs) && record.leaseMs > 0
       ? record.leaseMs : DEFAULT_LEASE_MS;
     const expired = !Number.isFinite(heartbeat) || Date.now() - heartbeat > leaseMs;
     const alive = processAlive(record?.pid);
+    const activeLandPath = /^vibe-harness-land-(?:[0-9a-f]{12}|candidate-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.lock$/iu
+      .test(basename(lockPath));
     return {
       record,
       pid: record?.pid ?? null,
       expired,
       alive,
-      stale: expired || !alive,
+      // The old worktree-wide format had no lease. The SHA-1 compatibility and
+      // candidate activity paths also protect operations spanning runtimes or
+      // long verification, so a live PID must retain those locks.
+      stale: !alive || (!legacy && !activeLandPath && expired),
     };
   } catch {
-    // Unreadable or missing file is treated as stale (no holder).
+    // A peer can observe the exclusive file between creation and its first
+    // write, or while a heartbeat rewrites it. Do not reclaim a fresh partial
+    // record; a genuinely abandoned malformed file is reclaimable after the
+    // short grace window. A missing file remains immediately reclaimable.
+    let stale = true;
+    try {
+      stale = Date.now() - statSync(lockPath).mtimeMs > DEFAULT_GRACE_MS;
+    } catch (error) {
+      // Only absence is safe to reclaim; permission failures are uncertain.
+      stale = error?.code === 'ENOENT';
+    }
     return {
       record: null,
       pid: null,
       expired: false,
       alive: false,
-      stale: true,
+      stale,
     };
   }
 }
@@ -81,6 +109,7 @@ export function acquireLease(lockPath, { leaseMs = DEFAULT_LEASE_MS } = {}) {
       if (error.code !== 'EEXIST') {
         return {
           held: false,
+          code: 'LEASE_UNAVAILABLE',
           reason: error.message,
         };
       }
@@ -97,7 +126,7 @@ export function acquireLease(lockPath, { leaseMs = DEFAULT_LEASE_MS } = {}) {
       try {
         rmSync(lockPath, { force: true });
       } catch (removeError) {
-        return { held: false, reason: removeError.message };
+        return { held: false, code: 'LEASE_UNAVAILABLE', reason: removeError.message };
       }
     }
   }
@@ -127,6 +156,35 @@ export function updateHeartbeat(lockPath) {
   } catch {
     return false;
   }
+}
+
+/**
+ * Keep a held lease alive until the returned handle is stopped.
+ *
+ * `lost` becomes true when the file is missing, unreadable, or no longer
+ * belongs to this process; callers should stop before starting another
+ * destructive step after that point.
+ */
+export function startLeaseHeartbeat(lockPath, { heartbeatMs = DEFAULT_HEARTBEAT_MS } = {}) {
+  const intervalMs = Number.isFinite(heartbeatMs) && heartbeatMs > 0
+    ? Math.max(1, Math.floor(heartbeatMs))
+    : DEFAULT_HEARTBEAT_MS;
+  let lost = false;
+  const timer = setInterval(() => {
+    if (!updateHeartbeat(lockPath)) {
+      lost = true;
+      clearInterval(timer);
+    }
+  }, intervalMs);
+  timer.unref?.();
+  return {
+    get lost() {
+      return lost;
+    },
+    stop() {
+      clearInterval(timer);
+    },
+  };
 }
 
 /**
@@ -160,6 +218,9 @@ export async function acquireLeaseWithRetry(lockPath, { timeoutMs = 180_000, ret
     const result = acquireLease(lockPath, { leaseMs });
     if (result.held) {
       return { ok: true, record: result.record };
+    }
+    if (result.code === 'LEASE_UNAVAILABLE') {
+      return { ok: false, code: result.code, error: result.reason };
     }
     if (Date.now() >= deadline) {
       return {

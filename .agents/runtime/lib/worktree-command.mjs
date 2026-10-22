@@ -9,16 +9,13 @@
 // exit codes are unchanged; only the module boundary moved.
 import { createHash, randomUUID } from 'node:crypto';
 import {
-  closeSync,
   copyFileSync,
   existsSync,
   lstatSync,
   mkdirSync,
-  openSync,
   readdirSync,
   readFileSync,
   rmSync,
-  writeSync,
   writeFileSync,
 } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -63,7 +60,15 @@ import {
 import { boundedOutput, normalizePath } from './cli-output.mjs';
 import { CONFIG_FILE, PASS_STATUSES, SCHEMA_VERSION, assertSafeCommand, delay, isInsidePath, normalizeSlashes, packageManager, probeExecutable, readProjectConfig, runFile, runGit, safeRealpath } from './cli-runtime.mjs';
 import { gitTimeoutMs } from './git-timeouts.mjs';
-import { acquireLeaseWithRetry, releaseLease } from './lease-lock.mjs';
+import {
+  acquireLease,
+  acquireLeaseWithRetry,
+  DEFAULT_HEARTBEAT_MS,
+  DEFAULT_LEASE_MS,
+  readLease,
+  releaseLease,
+  startLeaseHeartbeat,
+} from './lease-lock.mjs';
 import { TASK_UNIT_FAILURE_STATUSES, planDependentUnits, planUnitGraph, readTaskAnchor, taskAnchorRelativePath, taskCheckpointReport, taskPlanCheckReport } from './task-command.mjs';
 import { verifyProject } from './verification-command.mjs';
 import { configuredChecks, executeCommand, parseVerifyTier, resolveReceiptTier, resolveReviewedChecks, timeoutValue } from './verification-plan-support.mjs';
@@ -1337,8 +1342,54 @@ export function landLockTimeoutMs(environment = process.env) {
 }
 
 function targetRefLockPath(gitCommonDirPath, targetRef) {
-  const refHash = createHash('sha1').update(targetRef).digest('hex').slice(0, 12);
+  const refHash = createHash('sha256').update(targetRef).digest('hex').slice(0, 24);
   return path.join(gitCommonDirPath, `vibe-harness-land-${refHash}.lock`);
+}
+
+function targetRefLockPaths(gitCommonDirPath, targetRef) {
+  const legacyHash = createHash('sha1').update(targetRef).digest('hex').slice(0, 12);
+  const legacyPath = path.join(gitCommonDirPath, `vibe-harness-land-${legacyHash}.lock`);
+  const currentPath = targetRefLockPath(gitCommonDirPath, targetRef);
+  // Keep the old path as a compatibility fence so an already-running runtime
+  // using the SHA-1 name still coordinates with this process.
+  return [...new Set([legacyPath, currentPath])];
+}
+
+function landCandidateActivityLockPath(gitCommonDirPath, candidateId) {
+  return path.join(gitCommonDirPath, `vibe-harness-land-candidate-${candidateId}.lock`);
+}
+
+function leaseHeartbeatIntervalMs(leaseMs) {
+  return Math.max(1, Math.min(DEFAULT_HEARTBEAT_MS, Math.floor(leaseMs / 3)));
+}
+
+function startLeaseHeartbeats(lockPaths, leaseMs) {
+  return lockPaths.map((lockPath) => startLeaseHeartbeat(lockPath, {
+    heartbeatMs: leaseHeartbeatIntervalMs(leaseMs),
+  }));
+}
+
+async function acquireLandCandidateActivityLease(projectDir, candidateId) {
+  const common = await gitCommonDir(projectDir);
+  if (!common.ok) {
+    return { held: false, code: 'LAND_CANDIDATE_LOCK_UNAVAILABLE', blockers: [common.error] };
+  }
+  const lockPath = landCandidateActivityLockPath(common.path, candidateId);
+  const result = acquireLease(lockPath, { leaseMs: DEFAULT_LEASE_MS });
+  if (!result.held) {
+    return {
+      held: false,
+      code: 'LAND_CANDIDATE_LOCK_UNAVAILABLE',
+      blockers: [`cannot acquire candidate activity lease ${normalizeSlashes(lockPath)}: ${result.reason ?? 'lock is held'}`],
+    };
+  }
+  const heartbeat = startLeaseHeartbeats([lockPath], DEFAULT_LEASE_MS)[0];
+  return {
+    held: true,
+    lockPath,
+    leaseHealthy: () => !heartbeat.lost,
+    stopHeartbeat: () => heartbeat.stop(),
+  };
 }
 
 async function acquirePhase2Lock(projectDir, targetRef) {
@@ -1353,24 +1404,30 @@ async function acquirePhase2Lock(projectDir, targetRef) {
       blockers: [common.error],
     };
   }
-  const lockPath = targetRefLockPath(common.path, targetRef);
+  const lockPaths = targetRefLockPaths(common.path, targetRef);
   const timeoutMs = landLockTimeoutMs();
-  const result = await acquireLeaseWithRetry(lockPath, {
-    timeoutMs,
-    retryMs: LAND_LOCK_RETRY_MS,
-    leaseMs: LAND_PHASE2_LEASE_MS,
-  });
-  if (!result.ok) {
-    return {
-      schemaVersion: SCHEMA_VERSION,
-      command: 'worktree',
-      subcommand: 'land',
-      status: 'blocked',
-      code: 'LAND_LOCK_TIMEOUT',
-      blockers: [`${normalizeSlashes(lockPath)} is held by another land operation after ${timeoutMs}ms`],
-    };
+  const deadline = Date.now() + timeoutMs;
+  const heldPaths = [];
+  for (const lockPath of lockPaths) {
+    const result = await acquireLeaseWithRetry(lockPath, {
+      timeoutMs: Math.max(0, deadline - Date.now()),
+      retryMs: LAND_LOCK_RETRY_MS,
+      leaseMs: LAND_PHASE2_LEASE_MS,
+    });
+    if (!result.ok) {
+      for (const heldPath of heldPaths) releaseLease(heldPath);
+      return {
+        schemaVersion: SCHEMA_VERSION,
+        command: 'worktree',
+        subcommand: 'land',
+        status: 'blocked',
+        code: result.code === 'LEASE_UNAVAILABLE' ? 'LAND_LOCK_UNAVAILABLE' : 'LAND_LOCK_TIMEOUT',
+        blockers: [`${normalizeSlashes(lockPath)} could not be acquired${result.code === 'LEASE_UNAVAILABLE' ? `: ${result.error}` : ` after ${timeoutMs}ms`}`],
+      };
+    }
+    heldPaths.push(lockPath);
   }
-  return { held: true, lockPath };
+  return { held: true, lockPaths, leaseMs: LAND_PHASE2_LEASE_MS };
 }
 async function withWorktreeLandLock(projectDir, action) {
   const common = await gitCommonDir(projectDir);
@@ -1386,53 +1443,40 @@ async function withWorktreeLandLock(projectDir, action) {
   }
   const lockPath = path.join(common.path, 'vibe-harness-worktree-land.lock');
   const timeoutMs = landLockTimeoutMs();
-  const deadline = Date.now() + timeoutMs;
-  let held = false;
-  for (;;) {
-    try {
-      const handle = openSync(lockPath, 'wx');
-      writeSync(handle, `${process.pid}\n${new Date().toISOString()}\n`);
-      closeSync(handle);
-      held = true;
-      break;
-    } catch (error) {
-      if (error.code !== 'EEXIST') {
-        return {
-          schemaVersion: SCHEMA_VERSION,
-          command: 'worktree',
-          subcommand: 'land',
-          status: 'blocked',
-          code: 'LAND_LOCK_UNAVAILABLE',
-          blockers: [`cannot create shared land lock: ${error.code ?? error.message}`],
-        };
-      }
-      if (Date.now() >= deadline) {
-        return {
-          schemaVersion: SCHEMA_VERSION,
-          command: 'worktree',
-          subcommand: 'land',
-          status: 'blocked',
-          code: 'LAND_LOCK_TIMEOUT',
-          blockers: [`${normalizeSlashes(lockPath)} is held by another land operation after ${timeoutMs}ms; inspect the owner before removing the lock`],
-        };
-      }
-      await delay(LAND_LOCK_RETRY_MS);
-    }
+  const result = await acquireLeaseWithRetry(lockPath, {
+    timeoutMs,
+    retryMs: LAND_LOCK_RETRY_MS,
+    leaseMs: DEFAULT_LEASE_MS,
+  });
+  if (!result.ok) {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      command: 'worktree',
+      subcommand: 'land',
+      status: 'blocked',
+      code: result.code === 'LEASE_UNAVAILABLE' ? 'LAND_LOCK_UNAVAILABLE' : 'LAND_LOCK_TIMEOUT',
+      blockers: [result.code === 'LEASE_UNAVAILABLE'
+        ? `cannot create shared land lock: ${result.error}`
+        : `${normalizeSlashes(lockPath)} is held by another land operation after ${timeoutMs}ms; inspect the owner before removing the lock`],
+    };
   }
+  const heartbeat = startLeaseHeartbeats([lockPath], DEFAULT_LEASE_MS)[0];
   try {
     return await action();
   } finally {
-    if (held) {
-      try { rmSync(lockPath, { force: true }); } catch { /* keep the lock for manual recovery if removal is uncertain */ }
-    }
+    heartbeat.stop();
+    releaseLease(lockPath);
   }
 }
-async function cleanupLandCandidate(projectDir, candidatePath, { abort = false } = {}) {
+async function cleanupLandCandidate(projectDir, candidatePath, { abort = false, settings = null } = {}) {
   if (!candidatePath) return { removed: true, residual: null };
   if (abort) await runGit(['merge', '--abort'], candidatePath);
-  const config = await readProjectConfig(projectDir);
-  const settings = resolveWorktreeSettings(projectDir, config, {});
-  if (!settings.error) removeWorktreeLinks(projectDir, candidatePath, settings);
+  let resolvedSettings = settings;
+  if (!resolvedSettings) {
+    const config = await readProjectConfig(projectDir);
+    resolvedSettings = resolveWorktreeSettings(projectDir, config, {});
+  }
+  if (!resolvedSettings.error) removeWorktreeLinks(projectDir, candidatePath, resolvedSettings);
   const status = await runGit(['status', '--porcelain=v1'], candidatePath);
   if (!status.ok || status.stdout.trim() !== '') {
     return {
@@ -1503,15 +1547,34 @@ async function worktreeLandReportTwoPhase(projectDir, args) {
   let retryArgs = args;
   for (let attempt = 1; attempt <= LAND_MAX_ATTEMPTS; attempt += 1) {
     let phase2 = null;
+    let phase2Heartbeats = [];
+    const candidateActivities = [];
     try {
       lastResult = await worktreeLandReportUnlocked(projectDir, retryArgs, {
         beforeFinalize: async (targetRef) => {
           phase2 = await acquirePhase2Lock(projectDir, targetRef);
-          return phase2;
+          if (!phase2.held) return phase2;
+          phase2Heartbeats = startLeaseHeartbeats(phase2.lockPaths, phase2.leaseMs);
+          return {
+            ...phase2,
+            leaseHealthy: () => phase2Heartbeats.every((heartbeat) => !heartbeat.lost),
+          };
+        },
+        onCandidateStart: async (candidateId) => {
+          const activity = await acquireLandCandidateActivityLease(projectDir, candidateId);
+          if (activity.held) candidateActivities.push(activity);
+          return activity;
         },
       });
     } finally {
-      if (phase2?.held) releaseLease(phase2.lockPath);
+      for (const heartbeat of phase2Heartbeats) heartbeat.stop();
+      if (phase2?.held) {
+        for (const lockPath of phase2.lockPaths) releaseLease(lockPath);
+      }
+      for (const activity of candidateActivities) {
+        activity.stopHeartbeat();
+        releaseLease(activity.lockPath);
+      }
     }
     if (lastResult.code !== 'LAND_BASELINE_CHANGED') return lastResult;
     if (attempt < LAND_MAX_ATTEMPTS) {
@@ -1528,7 +1591,7 @@ async function worktreeLandReportTwoPhase(projectDir, args) {
   };
 }
 
-async function worktreeLandReportUnlocked(projectDir, args, { beforeFinalize = null } = {}) {
+async function worktreeLandReportUnlocked(projectDir, args, { beforeFinalize = null, onCandidateStart = null } = {}) {
   const failure = (error, code) => ({ schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'land', status: 'failed', ...(code ? { code } : {}), error });
   const targetMode = args.targetMode ?? 'primary';
   if (!['primary', 'remote'].includes(targetMode)) return failure(`unknown --target-mode ${targetMode} (expected primary or remote)`, 'LAND_TARGET_MODE_INVALID');
@@ -1820,6 +1883,8 @@ async function worktreeLandReportUnlocked(projectDir, args, { beforeFinalize = n
   let provenanceRecorded = true;
   let candidatePath = null;
   let candidateHeadSha = null;
+  let candidateLeaseHealthy = () => true;
+  let phase2Lease = null;
   let remoteConfirmed = false;
   let pushUncertain = false;
   // The best-effort service teardown outcome, carried on the cleanup step when
@@ -1831,12 +1896,27 @@ async function worktreeLandReportUnlocked(projectDir, args, { beforeFinalize = n
     markFailed({ id: 'merge', status: 'failed', code: 'LAND_TARGET_HEAD_UNRESOLVED', error: boundedOutput(targetHead.stderr || targetHead.error?.message || 'target branch head could not be resolved', projectDir), detail: `resolve ${targetBranch}` });
   } else {
     const candidateBaseSha = targetHead.stdout.trim();
-    candidatePath = path.join(path.dirname(settings.root), `.vibe-harness-land-${taskId}-${randomUUID()}`);
+    const candidateId = randomUUID();
+    candidatePath = path.join(path.dirname(settings.root), `.vibe-harness-land-${taskId}-${candidateId}`);
+    const candidateActivity = onCandidateStart
+      ? await onCandidateStart(candidateId)
+      : { held: true, leaseHealthy: () => true };
+    if (!candidateActivity?.held) {
+      markFailed({
+        id: 'merge',
+        status: 'blocked',
+        code: candidateActivity?.code ?? 'LAND_CANDIDATE_LOCK_UNAVAILABLE',
+        blockers: candidateActivity?.blockers ?? ['candidate activity lease could not be acquired'],
+        detail: `protect candidate ${candidateId} from concurrent recovery`,
+      });
+    } else if (candidateActivity.leaseHealthy) {
+      candidateLeaseHealthy = candidateActivity.leaseHealthy;
+    }
     const setupStartedAt = Date.now();
-    const added = await runIsolatedGit(projectDir, ['worktree', 'add', '--detach', candidatePath, candidateBaseSha]);
-    if (!added.ok) {
+    const added = failedStep ? { ok: false } : await runIsolatedGit(projectDir, ['worktree', 'add', '--detach', candidatePath, candidateBaseSha]);
+    if (!failedStep && !added.ok) {
       markFailed({ id: 'merge', status: 'failed', code: 'LAND_CANDIDATE_CREATE_FAILED', error: boundedOutput(added.stderr || added.error?.message || 'candidate worktree creation failed', projectDir), detail: `git worktree add --detach ${candidatePath} ${candidateBaseSha}` });
-    } else {
+    } else if (!failedStep) {
       try {
         for (const root of settings.dependencyRoots) linkDependencyRoot(projectDir, candidatePath, settings, root);
         // The governance surface is ignored by Git and therefore absent from a
@@ -1860,7 +1940,7 @@ async function worktreeLandReportUnlocked(projectDir, args, { beforeFinalize = n
           }
         }
       } catch (error) {
-        const removed = await cleanupLandCandidate(projectDir, candidatePath);
+        const removed = await cleanupLandCandidate(projectDir, candidatePath, { settings });
         markFailed({ id: 'merge', status: 'failed', code: 'LAND_CANDIDATE_SETUP_FAILED', error: error.message, candidatePath: removed.residual, detail: 'prepare isolated candidate dependencies' });
       }
       timingsMs.setupMs = Date.now() - setupStartedAt;
@@ -1871,7 +1951,7 @@ async function worktreeLandReportUnlocked(projectDir, args, { beforeFinalize = n
       }
       timingsMs.mergeMs = Date.now() - mergeStartedAt;
       if (!failedStep && !candidateMerge.ok) {
-        const removed = await cleanupLandCandidate(projectDir, candidatePath, { abort: true });
+        const removed = await cleanupLandCandidate(projectDir, candidatePath, { abort: true, settings });
         markFailed({
           id: 'merge',
           status: 'failed',
@@ -1883,7 +1963,7 @@ async function worktreeLandReportUnlocked(projectDir, args, { beforeFinalize = n
       } else if (!failedStep) {
         const candidateHead = await runGit(['rev-parse', 'HEAD'], candidatePath);
         if (!candidateHead.ok) {
-          const removed = await cleanupLandCandidate(projectDir, candidatePath);
+          const removed = await cleanupLandCandidate(projectDir, candidatePath, { settings });
           markFailed({ id: 'merge', status: 'failed', code: 'LAND_CANDIDATE_HEAD_UNRESOLVED', error: boundedOutput(candidateHead.stderr || candidateHead.error?.message || 'candidate HEAD could not be resolved', projectDir), candidatePath: removed.residual, detail: 'resolve candidate HEAD' });
         } else {
           candidateHeadSha = candidateHead.stdout.trim();
@@ -1921,7 +2001,7 @@ async function worktreeLandReportUnlocked(projectDir, args, { beforeFinalize = n
           if (verifyOk) {
             steps.push({ id: 'verify', status: 'passed', tier: verify.tier, receipt: verify.verification?.id ?? null, detail: `verify isolated candidate ${verify.status}${checkLines ? ` (${checkLines})` : ''}` });
           } else {
-            const removed = await cleanupLandCandidate(projectDir, candidatePath);
+            const removed = await cleanupLandCandidate(projectDir, candidatePath, { settings });
             markFailed({ id: 'verify', status: 'failed', code: 'LAND_VERIFY_FAILED', tier: verify.tier, error: verify.error ?? `verify ended ${verify.status}${checkLines ? ` (${checkLines})` : ''}`, candidatePath: removed.residual, detail: `verify --tier ${tier} on isolated candidate` });
           }
         }
@@ -1929,16 +2009,28 @@ async function worktreeLandReportUnlocked(projectDir, args, { beforeFinalize = n
     }
   }
 
+  if (!failedStep && !candidateLeaseHealthy()) {
+    const removed = await cleanupLandCandidate(projectDir, candidatePath, { settings });
+    markFailed({
+      id: 'merge',
+      status: 'blocked',
+      code: 'LAND_CANDIDATE_LOCK_LOST',
+      candidatePath: removed.residual,
+      error: removed.reason,
+      detail: 'candidate activity lease was lost during land verification',
+    });
+  }
+
   if (!failedStep) {
     if (beforeFinalize && !failedStep) {
-      const phase2 = await beforeFinalize(targetBranch);
-      if (!phase2?.held) {
-        const removed = await cleanupLandCandidate(projectDir, candidatePath);
+      phase2Lease = await beforeFinalize(targetBranch);
+      if (!phase2Lease?.held) {
+        const removed = await cleanupLandCandidate(projectDir, candidatePath, { settings });
         markFailed({
           id: 'merge',
           status: 'blocked',
-          code: phase2?.code ?? 'LAND_LOCK_UNAVAILABLE',
-          blockers: phase2?.blockers ?? ['target-ref lease could not be acquired'],
+          code: phase2Lease?.code ?? 'LAND_LOCK_UNAVAILABLE',
+          blockers: phase2Lease?.blockers ?? ['target-ref lease could not be acquired'],
           ...(removed.residual ? { candidatePath: removed.residual } : {}),
           ...(removed.reason ? { error: removed.reason } : {}),
           detail: `acquire Phase 2 lease for ${targetBranch}`,
@@ -1948,18 +2040,32 @@ async function worktreeLandReportUnlocked(projectDir, args, { beforeFinalize = n
   }
 
   if (!failedStep) {
-    const targetNow = remoteMode ? await remoteDevelopHead(projectDir)
-      : await runGit(['rev-parse', `refs/heads/${targetBranch}`], primary.path);
-    const sourceNow = await runGit(['rev-parse', `refs/heads/${entry.branch}`], projectDir);
-    const primaryNow = await runGit(['status', '--porcelain=v1'], primary.path);
-    const primaryFingerprintNow = remoteMode ? await gitFingerprint(primary.path) : null;
-    const localTargetNow = remoteMode ? await runGit(['rev-parse', `refs/heads/${targetBranch}`], projectDir) : null;
-    const primaryBranchNow = await runGit(['symbolic-ref', '--quiet', '--short', 'HEAD'], primary.path);
-    const sourceStatusNow = await runGit(['status', '--porcelain=v1'], entry.path);
-    const sourceFingerprintNow = remoteMode ? await gitFingerprint(entry.path) : null;
-    const candidateNow = candidatePath ? await runGit(['status', '--porcelain=v1'], candidatePath) : { ok: false };
-    const candidateHeadNow = candidatePath ? await runGit(['rev-parse', 'HEAD'], candidatePath) : { ok: false };
+    const [
+      targetNow,
+      sourceNow,
+      primaryNow,
+      primaryFingerprintNow,
+      localTargetNow,
+      primaryBranchNow,
+      sourceStatusNow,
+      sourceFingerprintNow,
+      candidateNow,
+      candidateHeadNow,
+    ] = await Promise.all([
+      remoteMode ? remoteDevelopHead(projectDir) : runGit(['rev-parse', `refs/heads/${targetBranch}`], primary.path),
+      runGit(['rev-parse', `refs/heads/${entry.branch}`], projectDir),
+      runGit(['status', '--porcelain=v1'], primary.path),
+      remoteMode ? gitFingerprint(primary.path) : Promise.resolve(null),
+      remoteMode ? runGit(['rev-parse', `refs/heads/${targetBranch}`], projectDir) : Promise.resolve(null),
+      runGit(['symbolic-ref', '--quiet', '--short', 'HEAD'], primary.path),
+      runGit(['status', '--porcelain=v1'], entry.path),
+      remoteMode ? gitFingerprint(entry.path) : Promise.resolve(null),
+      candidatePath ? runGit(['status', '--porcelain=v1'], candidatePath) : Promise.resolve({ ok: false }),
+      candidatePath ? runGit(['rev-parse', 'HEAD'], candidatePath) : Promise.resolve({ ok: false }),
+    ]);
     const baselineBlockers = [];
+    if (phase2Lease?.held && phase2Lease.leaseHealthy?.() === false) baselineBlockers.push('target-ref lease was lost while land was running');
+    if (!candidateLeaseHealthy()) baselineBlockers.push('candidate activity lease was lost while land was running');
     if (!targetNow.ok || (remoteMode ? targetNow.sha : targetNow.stdout.trim()) !== targetHead.stdout.trim()) baselineBlockers.push(`target branch ${targetBranch} changed while land was running`);
     if (!sourceNow.ok || sourceNow.stdout.trim() !== branchHeadSha) baselineBlockers.push(`source branch ${entry.branch} changed while land was running`);
     if (!primaryBranchNow.ok || primaryBranchNow.stdout.trim() !== targetBranch) baselineBlockers.push('the primary checkout switched branches while land was running');
@@ -1975,7 +2081,7 @@ async function worktreeLandReportUnlocked(projectDir, args, { beforeFinalize = n
     if (!candidateNow.ok || candidateNow.stdout.trim() !== '') baselineBlockers.push('the candidate worktree is not clean after verification');
     if (!candidateHeadNow.ok || candidateHeadNow.stdout.trim() !== candidateHeadSha) baselineBlockers.push('the candidate HEAD changed during verification');
     if (baselineBlockers.length > 0) {
-      const removed = await cleanupLandCandidate(projectDir, candidatePath);
+      const removed = await cleanupLandCandidate(projectDir, candidatePath, { settings });
       markFailed({ id: 'merge', status: 'blocked', code: 'LAND_BASELINE_CHANGED', blockers: baselineBlockers, candidatePath: removed.residual, detail: 'baseline changed after isolated verification; retry from the current target' });
     } else if (remoteMode) {
       // The receipt describes the verified candidate, not the dirty primary.
@@ -1993,15 +2099,25 @@ async function worktreeLandReportUnlocked(projectDir, args, { beforeFinalize = n
       if (!failedStep) {
         steps[steps.findIndex((step) => step.id === 'merge')].detail = `candidate verified at ${candidateHeadSha}; primary checkout unchanged`;
       }
+    } else if (phase2Lease?.held && phase2Lease.leaseHealthy?.() === false) {
+      const removed = await cleanupLandCandidate(projectDir, candidatePath, { settings });
+      markFailed({
+        id: 'merge',
+        status: 'blocked',
+        code: 'LAND_LOCK_LOST',
+        candidatePath: removed.residual,
+        error: removed.reason,
+        detail: 'target-ref lease was lost before fast-forwarding the verified candidate',
+      });
     } else {
       const finalizeStartedAt = Date.now();
       const finalized = await runIsolatedGit(projectDir, ['merge', '--ff-only', candidateHeadSha], primary.path);
       timingsMs.finalizeMs = Date.now() - finalizeStartedAt;
       if (!finalized.ok) {
-        const removed = await cleanupLandCandidate(projectDir, candidatePath);
+        const removed = await cleanupLandCandidate(projectDir, candidatePath, { settings });
         markFailed({ id: 'merge', status: 'failed', code: 'LAND_FINALIZE_FAILED', error: boundedOutput(finalized.stderr || finalized.error?.message || 'candidate could not be fast-forwarded into the primary checkout', projectDir), candidatePath: removed.residual, detail: `git merge --ff-only ${candidateHeadSha}` });
       } else {
-        const removed = await cleanupLandCandidate(projectDir, candidatePath);
+        const removed = await cleanupLandCandidate(projectDir, candidatePath, { settings });
         // The receipt returned by this command describes the primary checkout,
         // but the write evidence it carries was read in the candidate worktree,
         // whose metadata the removal just destroyed. Re-anchoring it to the
@@ -2062,23 +2178,29 @@ async function worktreeLandReportUnlocked(projectDir, args, { beforeFinalize = n
   if (!failedStep && args.push) {
     const pushArgs = remoteMode ? ['push', 'origin', `${candidateHeadSha}:refs/heads/develop`]
       : hasUpstream ? ['push'] : ['push', '-u', 'origin', targetBranch];
-    const remoteBeforePush = remoteMode ? await remoteDevelopHead(projectDir) : null;
     const sourceBeforePush = remoteMode ? await runGit(['rev-parse', `refs/heads/${entry.branch}`], projectDir) : null;
-    if (remoteMode && (!remoteBeforePush.ok || remoteBeforePush.sha !== remoteHead.sha
-      || !sourceBeforePush.ok || sourceBeforePush.stdout.trim() !== branchHeadSha)) {
+    if (phase2Lease?.held && phase2Lease.leaseHealthy?.() === false) {
+      markFailed({ id: 'push', status: 'blocked', code: 'LAND_LOCK_LOST',
+        detail: 'target-ref lease was lost before push; preserve the source and inspect the target' });
+    } else if (remoteMode && (!sourceBeforePush.ok || sourceBeforePush.stdout.trim() !== branchHeadSha)) {
       markFailed({ id: 'push', status: 'blocked', code: 'LAND_BASELINE_CHANGED',
-        detail: 'remote develop or task HEAD changed before push; preserve the source and retry verification' });
+        detail: 'task HEAD changed before push; preserve the source and retry verification' });
     }
     const pushStartedAt = Date.now();
+    // A normal non-forced push atomically rejects a target that moved after
+    // the locked baseline check, so another pre-push ls-remote is redundant.
     const pushedResult = failedStep ? { ok: false } : await runGit(pushArgs, remoteMode ? candidatePath : primary.path);
     timingsMs.pushMs = Date.now() - pushStartedAt;
-    const remoteAfter = remoteMode ? await remoteDevelopHead(projectDir) : null;
-    remoteConfirmed = remoteMode && remoteAfter.ok && remoteAfter.sha === candidateHeadSha;
+    const remoteAfter = remoteMode && !failedStep ? await remoteDevelopHead(projectDir) : null;
+    remoteConfirmed = remoteMode && Boolean(remoteAfter?.ok && remoteAfter.sha === candidateHeadSha);
     if (failedStep) {
       // A changed baseline is not a push attempt.
     } else if (pushedResult.ok && (!remoteMode || remoteConfirmed) || remoteMode && remoteConfirmed) {
       pushed = true;
       steps.push({ id: 'push', status: 'passed', detail: remoteMode ? `origin/develop confirmed at ${candidateHeadSha}` : pushCommand });
+    } else if (remoteMode && remoteAfter.ok && remoteAfter.sha !== remoteHead.sha) {
+      markFailed({ id: 'push', status: 'blocked', code: 'LAND_BASELINE_CHANGED',
+        detail: 'origin/develop advanced while the verified candidate was being prepared; preserve the source and retry verification' });
     } else {
       pushUncertain = remoteMode && (!remoteAfter.ok || pushedResult.ok);
       markFailed({ id: 'push', status: 'failed', code: pushUncertain ? 'LAND_PUSH_UNCONFIRMED' : 'LAND_PUSH_FAILED',
@@ -2095,12 +2217,9 @@ async function worktreeLandReportUnlocked(projectDir, args, { beforeFinalize = n
   // can flush tracked or untracked state into the source worktree, but a
   // teardown that cannot be proven no longer keeps a merged worktree in place —
   // its outcome is reported on the cleanup step instead.
-  if (!failedStep && remoteMode) {
-    const beforeCleanup = await remoteDevelopHead(projectDir);
-    if (!beforeCleanup.ok || beforeCleanup.sha !== candidateHeadSha) {
-      markFailed({ id: 'cleanup', status: 'blocked', code: 'LAND_REMOTE_CONFIRMATION_LOST',
-        detail: 'origin/develop no longer points to the verified candidate; preserve the task worktree' });
-    }
+  if (!failedStep && phase2Lease?.held && phase2Lease.leaseHealthy?.() === false) {
+    markFailed({ id: 'cleanup', status: 'blocked', code: 'LAND_LOCK_LOST',
+      detail: 'target-ref lease was lost before removing the source worktree' });
   }
   const cleanupStartedAt = Date.now();
   if (!failedStep) {
@@ -2123,6 +2242,10 @@ async function worktreeLandReportUnlocked(projectDir, args, { beforeFinalize = n
         detail: `git status --porcelain=v1 --untracked-files=all in ${entry.path}`,
       });
     }
+  }
+  if (!failedStep && phase2Lease?.held && phase2Lease.leaseHealthy?.() === false) {
+    markFailed({ id: 'cleanup', status: 'blocked', code: 'LAND_LOCK_LOST',
+      detail: 'target-ref lease was lost during service teardown; preserve the source worktree' });
   }
   if (!failedStep) {
     const removedLinks = removeWorktreeLinks(projectDir, entry.path, settings);
@@ -2152,19 +2275,24 @@ async function worktreeLandReportUnlocked(projectDir, args, { beforeFinalize = n
   // Step 5: delete the branch — only after a successful push, and `-d` still
   // refuses a branch that is not fully merged.
   if (!failedStep && args.push && pushed) {
-    const stillMerged = await runGit(['merge-base', '--is-ancestor', branchHeadSha, remoteMode ? candidateHeadSha : targetBranch], projectDir);
-    if (!stillMerged.ok) {
-      markFailed({ id: 'delete-branch', status: 'failed', code: 'LAND_BRANCH_NOT_MERGED', error: `branch ${entry.branch} is not merged into ${targetBranch}`, detail: `git branch -d ${entry.branch}` });
+    if (phase2Lease?.held && phase2Lease.leaseHealthy?.() === false) {
+      markFailed({ id: 'delete-branch', status: 'blocked', code: 'LAND_LOCK_LOST',
+        detail: 'target-ref lease was lost before deleting the source branch' });
     } else {
-      const deleted = await runGit(['branch', '--delete', entry.branch], remoteMode ? candidatePath : projectDir);
-      if (deleted.ok) steps.push({ id: 'delete-branch', status: 'passed', detail: `branch ${entry.branch} deleted` });
-      else markFailed({ id: 'delete-branch', status: 'failed', code: 'LAND_BRANCH_DELETE_FAILED', error: boundedOutput(deleted.stderr || deleted.error?.message || 'git branch --delete failed', projectDir), detail: `git branch -d ${entry.branch}` });
+      const stillMerged = await runGit(['merge-base', '--is-ancestor', branchHeadSha, remoteMode ? candidateHeadSha : targetBranch], projectDir);
+      if (!stillMerged.ok) {
+        markFailed({ id: 'delete-branch', status: 'failed', code: 'LAND_BRANCH_NOT_MERGED', error: `branch ${entry.branch} is not merged into ${targetBranch}`, detail: `git branch -d ${entry.branch}` });
+      } else {
+        const deleted = await runGit(['branch', '--delete', entry.branch], remoteMode ? candidatePath : projectDir);
+        if (deleted.ok) steps.push({ id: 'delete-branch', status: 'passed', detail: `branch ${entry.branch} deleted` });
+        else markFailed({ id: 'delete-branch', status: 'failed', code: 'LAND_BRANCH_DELETE_FAILED', error: boundedOutput(deleted.stderr || deleted.error?.message || 'git branch --delete failed', projectDir), detail: `git branch -d ${entry.branch}` });
+      }
     }
   } else if (!failedStep) {
     steps.push({ id: 'delete-branch', status: 'skipped', detail: `branch ${entry.branch} kept without --push; delete after pushing with: git branch -d ${entry.branch}` });
   }
   if (remoteMode && candidatePath && existsSync(candidatePath) && !pushUncertain) {
-    const removed = await cleanupLandCandidate(projectDir, candidatePath);
+    const removed = await cleanupLandCandidate(projectDir, candidatePath, { settings });
     if (!removed.removed) markFailed({ id: 'candidate-cleanup', status: 'failed', code: 'LAND_CANDIDATE_CLEANUP_FAILED',
       candidatePath: removed.residual, error: removed.reason, detail: 'remove isolated candidate after landing attempt' });
   }
@@ -2245,13 +2373,33 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
   const liveEntries = entries.filter((entry) => !entry.prunable);
   const candidateRoot = path.dirname(settings.root);
   const candidatePattern = /^\.vibe-harness-land-(.+)-([0-9a-f]{8}-[0-9a-f-]{27,})$/iu;
+  const candidateCommon = await gitCommonDir(projectDir);
+  if (args.write && !candidateCommon.ok) {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      command: 'worktree',
+      subcommand: 'recover',
+      status: 'blocked',
+      code: 'WORKTREE_RECOVER_CANDIDATE_STATE_UNKNOWN',
+      blockers: [candidateCommon.error],
+    };
+  }
   const candidates = [];
   for (const entry of liveEntries) {
     if (!entry.detached || !entry.path || pathKey(path.dirname(entry.path)) !== pathKey(candidateRoot)) continue;
     const match = candidatePattern.exec(path.basename(entry.path));
     if (!match || !(registry?.entries ?? []).some((item) => item.id === match[1])) continue;
     const state = await runGit(['status', '--porcelain=v1'], entry.path);
-    candidates.push({ path: entry.path, id: match[1], clean: state.ok && state.stdout.trim() === '', status: 'planned' });
+    const activityLease = candidateCommon.ok
+      ? readLease(landCandidateActivityLockPath(candidateCommon.path, match[2]))
+      : null;
+    candidates.push({
+      path: entry.path,
+      id: match[1],
+      clean: state.ok && state.stdout.trim() === '',
+      activeLand: Boolean(activityLease && !activityLease.stale),
+      status: 'planned',
+    });
   }
 
   // Incomplete worktrees: a bootstrap that died between `git worktree add` and
@@ -2323,6 +2471,14 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
   const results = [];
   const candidateResults = [];
   for (const item of candidates) {
+    if (item.activeLand) {
+      candidateResults.push({
+        ...item,
+        status: args.write ? 'blocked' : 'planned',
+        reason: 'candidate belongs to an active land operation; retry after it finishes',
+      });
+      continue;
+    }
     if (!item.clean) {
       candidateResults.push({ ...item, status: 'blocked', reason: 'candidate is dirty; inspect it before manual cleanup' });
       continue;
@@ -2331,7 +2487,7 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
       candidateResults.push(item);
       continue;
     }
-    const removed = await cleanupLandCandidate(projectDir, item.path);
+    const removed = await cleanupLandCandidate(projectDir, item.path, { settings });
     candidateResults.push(removed.removed
       ? { ...item, status: 'passed' }
       : { ...item, status: 'failed', code: 'WORKTREE_RECOVER_CANDIDATE_FAILED', error: removed.reason });

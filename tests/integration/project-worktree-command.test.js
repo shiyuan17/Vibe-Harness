@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync } from 'node:fs';
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -31,6 +31,12 @@ const runtimePath = fileURLToPath(new URL('../../runtime/commands/run.mjs', impo
 function landLockPath(repo, targetRef) {
   const refHash = createHash('sha1').update(targetRef).digest('hex').slice(0, 12);
   return path.join(repo, '.git', `vibe-harness-land-${refHash}.lock`);
+}
+
+function landLockPaths(repo, targetRef) {
+  const legacy = landLockPath(repo, targetRef);
+  const currentHash = createHash('sha256').update(targetRef).digest('hex').slice(0, 24);
+  return [legacy, path.join(repo, '.git', `vibe-harness-land-${currentHash}.lock`)];
 }
 
 async function git(cwd, args) {
@@ -881,26 +887,6 @@ test('worktree recover removes an incomplete worktree but never a user branch', 
   }
 });
 
-test('worktree recover removes an untouched incomplete branch after the base advances', async () => {
-  const fixture = await makeWorkspaceFixture();
-  try {
-    await runCommand([
-      'worktree', 'bootstrap', '--project', fixture.repo, '--task', 'ENG-1:feat/ENG-1-scaffold', '--write', '--json',
-    ], { cwd: fixture.repo });
-    await rm(path.join(fixture.worktreePath, '.vibe-harness/worktree.env'));
-    await git(fixture.repo, ['commit', '-q', '--allow-empty', '-m', 'chore: advance base']);
-
-    const written = await runCommand(['worktree', 'recover', '--project', fixture.repo, '--write', '--json'], { cwd: fixture.repo });
-    assert.equal(written.exitCode, 0, JSON.stringify(written.report));
-    assert.equal(written.report.status, 'passed');
-    assert.equal(written.report.results[0].branchDeleted, true);
-    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), false);
-    assert.equal(await git(fixture.repo, ['branch', '--list', 'feat/ENG-1-scaffold']), '');
-  } finally {
-    await removeTemporaryDirectory(fixture.root);
-  }
-});
-
 test('worktree recover leaves touched, dirty and foreign worktrees alone', async () => {
   const fixture = await makeWorkspaceFixture();
   try {
@@ -1559,18 +1545,24 @@ test('Phase 2 目标锁被占用时在缩短的预算内 blocked 且不改动目
   const fixture = await makeLandFixture();
   try {
     await bootstrapWithWork(fixture);
-    const lockPath = landLockPath(fixture.repo, 'feat/landing-zone');
+    const [legacyLockPath, currentLockPath] = landLockPaths(fixture.repo, 'feat/landing-zone');
     const now = new Date().toISOString();
-    await writeFile(lockPath, JSON.stringify({
+    const lockContents = JSON.stringify({
       heartbeatAt: now,
       leaseMs: 60_000,
       pid: process.pid,
       startedAt: now,
-    }), 'utf8');
+    });
+    await writeFile(legacyLockPath, lockContents, 'utf8');
     process.env.VIBE_HARNESS_LAND_LOCK_TIMEOUT_MS = '300';
     let blocked;
     try {
       blocked = await runCommand(['worktree', 'land', '--project', fixture.repo, '--write', '--json'], { cwd: fixture.repo });
+      await rm(legacyLockPath, { force: true });
+      await writeFile(currentLockPath, lockContents, 'utf8');
+      const blockedBySha256 = await runCommand(['worktree', 'land', '--project', fixture.repo, '--write', '--json'], { cwd: fixture.repo });
+      assert.equal(blockedBySha256.report.status, 'blocked', JSON.stringify(blockedBySha256.report));
+      assert.equal(blockedBySha256.report.code, 'LAND_LOCK_TIMEOUT');
     } finally {
       delete process.env.VIBE_HARNESS_LAND_LOCK_TIMEOUT_MS;
     }
@@ -1629,7 +1621,7 @@ test('等待锁期间目标前进时以新 HEAD 创建候选并保留两项改�
   }
 });
 
-test('验证期间目标 HEAD 前进时自动重试并在新基线上完成落地', async () => {
+test('验证期间目标 HEAD 前进时自动重试且 recover 保留活动候选', async () => {
   const fixture = await makeLandFixture({
     extraFiles: {
       'slow.mjs': "import { writeFileSync } from 'node:fs'; import path from 'node:path'; writeFileSync(path.resolve('..', 'landing-ready'), 'ready'); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2000);\n",
@@ -1646,10 +1638,27 @@ test('验证期间目标 HEAD 前进时自动重试并在新基线上完成落�
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
     assert.equal(existsSync(marker), true);
+    const candidateName = (await readdir(fixture.root))
+      .find((name) => name.startsWith('.vibe-harness-land-ENG-1-'));
+    assert.ok(candidateName, 'land candidate exists while its verification command is running');
+    const candidatePath = path.join(fixture.root, candidateName);
+    const recovered = await runCommand([
+      'worktree', 'recover', '--project', fixture.repo, '--write', '--json',
+    ], { cwd: fixture.repo });
+    const recoveryCandidate = recovered.report.candidates.find((item) => path.basename(item.path) === candidateName);
+    const candidatePreserved = await entryExists(fixture.repo, candidatePath);
     await writeFile(path.join(fixture.repo, 'other.txt'), 'independent\n', 'utf8');
     await git(fixture.repo, ['add', 'other.txt']);
     await git(fixture.repo, ['commit', '-q', '-m', 'feat: other']);
-    const result = JSON.parse((await landing).stdout);
+    const landingResult = await landing.then(
+      ({ stdout }) => JSON.parse(stdout),
+      (error) => ({ status: 'failed', error: error.message }),
+    );
+    assert.equal(recovered.report.status, 'failed', JSON.stringify(recovered.report));
+    assert.equal(recoveryCandidate?.status, 'blocked', JSON.stringify(recovered.report));
+    assert.match(recoveryCandidate?.reason ?? '', /active land operation/u);
+    assert.equal(candidatePreserved, true, 'recover must leave the active candidate alone');
+    const result = landingResult;
     assert.equal(result.status, 'passed', JSON.stringify(result));
     assert.equal(await git(fixture.repo, ['rev-list', '--count', 'feat/landing-zone']), '4');
     assert.equal((await readFile(path.join(fixture.repo, 'other.txt'), 'utf8')).trim(), 'independent');
@@ -2123,5 +2132,109 @@ test('每个 Git 调用都取共享预算而不是自带 15 秒字面量', async
     // slow volume: the call is killed mid-flight and the caller then reads the
     // empty result as "no fact available" instead of as a timeout.
     assert.doesNotMatch(source, /15_000/u, `${name} must not keep its own Git budget`);
+  }
+});
+
+test('短 TTL 的活动租约会被心跳续期', async () => {
+  const fixture = await makeWorkspaceFixture({ installDependencies: false });
+  const lockPath = path.join(fixture.repo, '.git', 'heartbeat-test.lock');
+  let heartbeat = null;
+  let releaseLease = null;
+  try {
+    const leaseLock = await import('../../runtime/lib/lease-lock.mjs');
+    const acquired = leaseLock.acquireLease(lockPath, { leaseMs: 80 });
+    assert.equal(acquired.held, true);
+    releaseLease = leaseLock.releaseLease;
+    assert.equal(typeof leaseLock.startLeaseHeartbeat, 'function');
+    heartbeat = leaseLock.startLeaseHeartbeat(lockPath, { heartbeatMs: 10 });
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    assert.equal(leaseLock.readLease(lockPath).stale, false, 'heartbeat keeps the short lease from expiring');
+    assert.equal(heartbeat.lost, false);
+  } finally {
+    heartbeat?.stop();
+    releaseLease?.(lockPath);
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('worktree land 运行时源码与自安装副本保持一致', async () => {
+  const filePairs = [
+    ['runtime/lib/worktree-command.mjs', '.agents/runtime/lib/worktree-command.mjs'],
+    ['runtime/lib/lease-lock.mjs', '.agents/runtime/lib/lease-lock.mjs'],
+  ];
+  for (const [sourceRelative, mirrorRelative] of filePairs) {
+    const source = fileURLToPath(new URL(`../../${sourceRelative}`, import.meta.url));
+    const mirror = fileURLToPath(new URL(`../../${mirrorRelative}`, import.meta.url));
+    assert.equal(await readFile(source, 'utf8'), await readFile(mirror, 'utf8'), `${mirrorRelative} must mirror ${sourceRelative}`);
+  }
+});
+
+test('recover 回收死进程的旧格式锁并等待存活持有者', async () => {
+  const fixture = await makeWorkspaceFixture({ installDependencies: false });
+  const lockPath = path.join(fixture.repo, '.git', 'vibe-harness-worktree-land.lock');
+  const previousTimeout = process.env.VIBE_HARNESS_LAND_LOCK_TIMEOUT_MS;
+  try {
+    process.env.VIBE_HARNESS_LAND_LOCK_TIMEOUT_MS = '300';
+    await writeFile(lockPath, `0\n${new Date().toISOString()}\n`, 'utf8');
+    const recovered = await runCommand([
+      'worktree', 'recover', '--project', fixture.repo, '--write', '--json',
+    ], { cwd: fixture.repo });
+    assert.equal(recovered.report.status, 'passed', JSON.stringify(recovered.report));
+    assert.equal(existsSync(lockPath), false, 'dead legacy lock is reclaimed and released');
+
+    const liveLock = `${process.pid}\n${new Date().toISOString()}\n`;
+    await writeFile(lockPath, liveLock, 'utf8');
+    const blocked = await runCommand([
+      'worktree', 'recover', '--project', fixture.repo, '--write', '--json',
+    ], { cwd: fixture.repo });
+    assert.equal(blocked.report.status, 'blocked', JSON.stringify(blocked.report));
+    assert.equal(blocked.report.code, 'LAND_LOCK_TIMEOUT');
+    assert.equal(await readFile(lockPath, 'utf8'), liveLock, 'a live legacy lock must remain untouched');
+  } finally {
+    if (previousTimeout === undefined) delete process.env.VIBE_HARNESS_LAND_LOCK_TIMEOUT_MS;
+    else process.env.VIBE_HARNESS_LAND_LOCK_TIMEOUT_MS = previousTimeout;
+    await rm(lockPath, { force: true });
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('recover 在基线前进后移除未修改的不完整分支', async () => {
+  const fixture = await makeWorkspaceFixture();
+  try {
+    await runCommand([
+      'worktree', 'bootstrap', '--project', fixture.repo, '--task', 'ENG-1:feat/ENG-1-scaffold', '--write', '--json',
+    ], { cwd: fixture.repo });
+    await rm(path.join(fixture.worktreePath, '.vibe-harness/worktree.env'));
+    await git(fixture.repo, ['commit', '-q', '--allow-empty', '-m', 'chore: advance base']);
+
+    const written = await runCommand(['worktree', 'recover', '--project', fixture.repo, '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(written.exitCode, 0, JSON.stringify(written.report));
+    assert.equal(written.report.status, 'passed');
+    assert.equal(written.report.results[0].branchDeleted, true);
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), false);
+    assert.equal(await git(fixture.repo, ['branch', '--list', 'feat/ENG-1-scaffold']), '');
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('新建租约的短暂不完整记录不会被并发获取者回收', async () => {
+  const fixture = await makeWorkspaceFixture({ installDependencies: false });
+  const lockPath = path.join(fixture.repo, '.git', 'partial-lease-test.lock');
+  try {
+    const { acquireLease, readLease, releaseLease } = await import('../../runtime/lib/lease-lock.mjs');
+    await writeFile(lockPath, '{"pid":', 'utf8');
+    assert.equal(readLease(lockPath).stale, false, 'a fresh partial record may still be in flight');
+    assert.equal(acquireLease(lockPath).held, false, 'the peer must not replace a fresh partial record');
+    assert.equal(await readFile(lockPath, 'utf8'), '{"pid":');
+
+    const old = new Date(Date.now() - 10_000);
+    await utimes(lockPath, old, old);
+    assert.equal(readLease(lockPath).stale, true, 'a crashed partial record becomes reclaimable');
+    assert.equal(acquireLease(lockPath).held, true);
+    assert.equal(releaseLease(lockPath), true);
+  } finally {
+    await rm(lockPath, { force: true });
+    await removeTemporaryDirectory(fixture.root);
   }
 });
