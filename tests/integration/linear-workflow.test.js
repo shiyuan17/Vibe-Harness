@@ -65,7 +65,11 @@ test('Linear execution receipt separates accountability, product identity, and r
   }
   assert.ok(spec.includes(START_RECEIPT_SCHEMA_V3));
   assert.ok(skill.includes(START_RECEIPT_SCHEMA_V3));
-  assert.match(skill, /宿主在持久提供方上原子 Claim[\s\S]*登记原生 Delegate[\s\S]*追加不可变 Start Receipt[\s\S]*重新读取并逐字段确认/u);
+  assert.match(skill, /显式单次运行默认不需要 Claim/u);
+  assert.match(skill, /自动派发必须.*Claim 和 Grant/u);
+  assert.match(skill, /追加不可变 Start Receipt/u);
+  assert.match(skill, /重新读取并逐字段确认/u);
+  assert.match(skill, /用户不需要填写.*claimId.*grantId.*fencingToken/u);
   assert.match(hostReference, /进程内 claimed 集合[\s\S]*不能直接承载自动领单/u);
   assert.match(hostReference, /过期 Claim 不能|lease 过期或 fencing 失配/u);
 });
@@ -187,6 +191,31 @@ test('Linear DAG uses native relations and fails closed on invalid dependency or
   }
   assert.match(parent, /显式 `vb-linear-worktree-develop`.*no-ff 合并.*worktree\/分支清理/u);
   assert.match(leaf, /显式 <code>vb-linear-worktree-develop<\/code>.*no-ff 合并.*worktree\/分支清理/u);
+});
+
+test('explicit Linear flow separates authorization from Claim and does not require user-supplied fields', async () => {
+  await assertRuleAnchors(rootDir, [
+    LINEAR_RULE,
+    LINEAR_SKILL,
+  ]);
+  const [rule, skill, entry, receipt, spec] = await Promise.all([
+    readFile(path.join(rootDir, LINEAR_RULE), 'utf8'),
+    readFile(path.join(rootDir, LINEAR_SKILL), 'utf8'),
+    readFile(path.join(rootDir, 'skills/integrations/vb-linear-worktree-develop/SKILL.md'), 'utf8'),
+    readFile(path.join(rootDir, 'skills/integrations/linear-workflow/references/execution-receipt.md'), 'utf8'),
+    readFile(path.join(rootDir, 'docs/specs/linear-multi-agent-workflow-spec.md'), 'utf8'),
+  ]);
+  for (const content of [rule, skill, entry, receipt]) {
+    assert.match(content, /显式.*不.*Claim|显式.*不需要.*Claim/u);
+    assert.match(content, /explicit-user-request/u);
+  }
+  assert.ok(rule.includes('| 宿主自动派发 |') && rule.includes('必须由宿主提供方原子 Claim'));
+  assert.match(entry, /用户不填写.*claimId.*grantId/u);
+  assert.match(receipt, /显式单次执行使用 v1.*不要求 Claim 或 Grant/u);
+  assert.match(rule, /显式调用 `vb-linear-worktree-develop`.*当前已确定的计划/u);
+  assert.match(rule, /普通显式 Issue 执行.*只授权当前 Issue 的最小身份登记/u);
+  assert.match(spec, /普通显式 Issue 执行只包含当前 Issue 的最小身份登记/u);
+  assert.match(spec, /只有显式调用 `vb-linear-worktree-develop` 才额外覆盖/u);
 });
 
 test('Linear lightweight GitFlow defaults delivery to develop and separates release completion', async () => {
@@ -549,7 +578,7 @@ test('Linear wall-clock orchestration keeps planning contracts aligned and fails
   }
 
   const suite = JSON.parse(await readFile(path.join(rootDir, 'evals/suites/linear-workflow-online.json'), 'utf8'));
-  assert.equal(suite.version, '1.5.0');
+  assert.equal(suite.version, '1.6.0');
   const byId = new Map(suite.cases.map((item) => [item.id, item]));
   const expected = new Map([
     ['EVAL-LINEAR-031', 'SINGLE_AGENT_COORDINATION_COST'],

@@ -25,6 +25,7 @@
 - [显式 develop flow（gd-flow 与 lwflow）](adr/ADR-0015-explicit-develop-flow.md)
 - [gd-flow 移除 Linear 访问禁令](adr/ADR-0016-gd-flow-linear-boundary.md)
 - [worktree 生命周期门禁收敛：宿主 worktree 优先与本地核验授权](adr/ADR-0017-worktree-lifecycle-local-verification.md)
+- [显式 Linear 执行与宿主自动派发的授权/Claim 分离](adr/ADR-0018-explicit-linear-claim-boundary.md)
 - [ADR Schema](schemas/adr.schema.json)
 - [Execution Envelope v1 Schema](schemas/execution-envelope.schema.json)
 - [Execution Envelope v2 Schema](schemas/execution-envelope-v2.schema.json)

@@ -8,6 +8,7 @@
 // analysis over one Issue's comment history. Posting to Linear stays with the
 // caller; nothing here fabricates a write.
 import { randomUUID } from 'node:crypto';
+import { verifyProviderClaim } from './linear-claim.js';
 
 export const START_RECEIPT_SCHEMA = 'vibe-harness.linear-execution/v1';
 export const START_RECEIPT_SCHEMA_V2 = 'vibe-harness.linear-execution/v2';
@@ -76,7 +77,9 @@ function isNonEmptyString(value) {
 }
 
 function isUtcTimestamp(value) {
-  return typeof value === 'string' && utcTimestampPattern.test(value) && Number.isFinite(Date.parse(value));
+  if (typeof value !== 'string' || !utcTimestampPattern.test(value)) return false;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === value.slice(0, 10);
 }
 
 function collector() {
@@ -123,6 +126,14 @@ function checkNullableString(value, label, push) {
   if (value === undefined) return;
   if (value !== null && !isNonEmptyString(value)) {
     push('RECEIPT_FIELD_TYPE', `${label} must be a non-empty string or null`, 'error');
+  }
+}
+
+function checkBoundedString(value, label, maxLength, push) {
+  if (!isNonEmptyString(value)) {
+    push('RECEIPT_FIELD_TYPE', `${label} must be a non-empty string`, 'error');
+  } else if (value.length > maxLength) {
+    push('RECEIPT_FIELD_TOO_LONG', `${label} must be at most ${maxLength} characters`, 'error');
   }
 }
 
@@ -214,8 +225,8 @@ export function validateStartReceipt(value) {
   if (claimed) {
     checkUuid(value.grantId, 'grantId', push);
     checkUuid(value.claimId, 'claimId', push);
-    checkNullableString(value.fencingToken, 'fencingToken', push);
-    checkNullableString(value.claimProvider, 'claimProvider', push);
+    checkBoundedString(value.fencingToken, 'fencingToken', 256, push);
+    checkBoundedString(value.claimProvider, 'claimProvider', 128, push);
     checkTimestamp(value.leaseExpiresAt, 'leaseExpiresAt', push);
     if (value.source === 'authorized-auto-claim' && value.grantId === undefined) {
       push('RECEIPT_CLAIM_GRANT_MISSING', 'v3 auto-claim receipts require grantId', 'error');
@@ -372,7 +383,7 @@ export function handoffClaimsComplete(value) {
  *
  * @param {Record<string, any>} [options]
  */
-export function buildStartReceipt({
+function assembleStartReceipt({
   agentKey,
   dagNodeIssue,
   dagRootIssue = null,
@@ -414,6 +425,32 @@ export function buildStartReceipt({
       claimProvider,
     } : {}),
   };
+}
+
+/** The public, untrusted builder can only mint an explicit v1 Receipt. */
+export function buildStartReceipt(options = {}) {
+  if (options.schema !== undefined && options.schema !== START_RECEIPT_SCHEMA
+    || options.source === AUTO_CLAIM_RECEIPT_SOURCE
+    || ['grantId', 'claimId', 'leaseExpiresAt', 'fencingToken', 'claimProvider']
+      .some((key) => options[key] !== undefined)) {
+    throw new TypeError('Claim-bearing Receipts require an authoritative host provider');
+  }
+  return assembleStartReceipt(options);
+}
+
+/**
+ * Host-only v3 construction. The injected provider must be the authoritative
+ * persistent service; passing a comment or user JSON is not a provider read.
+ * @param {Record<string, any>} options
+ * @param {{name:string, capabilities:{atomicClaim:boolean,fencing:boolean}, readClaim:Function}} provider
+ * @param {{idempotencyKey:string, now?:Date}} verification
+ */
+export async function buildVerifiedClaimReceipt(options, provider, verification) {
+  const receipt = assembleStartReceipt({ ...options, schema: START_RECEIPT_SCHEMA_V3 });
+  const validation = validateStartReceipt(receipt);
+  if (!validation.ok) throw new TypeError(`invalid v3 Receipt: ${validation.problems.map((item) => item.code).join(', ')}`);
+  await verifyProviderClaim(receipt, provider, verification);
+  return receipt;
 }
 
 /**
@@ -618,6 +655,12 @@ export function analyzeReceiptLedger(input, { issue = null } = {}) {
   const active = [...receipts.entries()].filter(([executionId]) => !eventsByExecution.has(executionId));
   const activeByIssue = new Map();
   for (const [executionId, entry] of active) {
+    if (entry.record.schema === START_RECEIPT_SCHEMA_V3) {
+      pendings.push({
+        code: 'RECEIPT_CLAIM_UNVERIFIED',
+        message: `execution ${executionId} has Claim fields in a comment but requires a live authoritative provider check before it can be resumed`,
+      });
+    }
     const issueKey = isNonEmptyString(entry.record.dagNodeIssue) ? entry.record.dagNodeIssue.toUpperCase() : '(unknown issue)';
     activeByIssue.set(issueKey, [...(activeByIssue.get(issueKey) ?? []), executionId]);
   }

@@ -41,5 +41,18 @@
     "fencingToken": { "type": "string", "minLength": 1, "maxLength": 256 },
     "claimProvider": { "type": "string", "minLength": 1, "maxLength": 128 }
   },
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "source": { "enum": ["explicit-user-request", "existing-delegate", "authorized-handoff"] }
+      }
+    },
+    {
+      "type": "object",
+      "properties": { "source": { "const": "authorized-auto-claim" } },
+      "required": ["grantId"]
+    }
+  ],
   "additionalProperties": false
 }

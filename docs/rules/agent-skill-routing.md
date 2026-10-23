@@ -48,7 +48,7 @@ Skill 是宿主按 description 直接选择的领域能力包：description 是�
 - 信任边界使用 `security-and-hardening`；公共契约使用 `api-and-interface-design`；前端体验使用 `frontend-design`；跨仓运行时使用 `runtime-cross-repo-rollout`。
 - 页面交互、console、network、性能、响应式、可访问性或视觉验收使用 browser-verification integration Skill；它仅由 playwright 或 chrome-devtools plugin 显式安装，不计入 profile 的原生领域 Skill 数量。未安装时使用项目已有的浏览器验证入口。
 - 提及 Linear Issue，或请求委派、执行、审查、核验、解释与状态同步时使用 linear-workflow integration Skill；它仅由 linear-mcp 或 linear-mcp-readonly 显式安装。普通提及、查询、Review 或 Verify 只触发规则选择，不授权登记领取。
-- Writer 仅在具体 Issue 的明确执行指令、已有 Delegate 的宿主显式启动，或宿主依据有效限时领单授权派发具体 Issue 时登记。限时授权派发必须逐 Issue 签发绑定工作区范围的执行授权记录，并由宿主提供核验信息、原子 Claim 与跨实例独占性；具体核验和领取步骤分别见 `governance-core.md`、`linear-workflow.md`。队列可见与配置文件不是授权；未安装集成能力时只能使用用户提供的 Issue 上下文，不声称已读取或同步 Linear。
+- Writer 仅在具体 Issue 的明确执行指令、用户显式调用 `vb-linear-worktree-develop` 处理当前计划、已有 Delegate 的宿主显式启动，或宿主依据有效限时领单授权派发具体 Issue 时登记。专用流程的授权限于其明确列出的计划范围；普通 Linear 请求不继承该范围。限时授权派发必须逐 Issue 签发绑定工作区范围的执行授权记录，并由宿主提供核验信息、原子 Claim 与跨实例独占性；具体核验和领取步骤分别见 `governance-core.md`、`linear-workflow.md`。队列可见与配置文件不是授权；未安装集成能力时只能使用用户提供的 Issue 上下文，不声称已读取或同步 Linear。
 - 按需加载最匹配的领域 Skill，确需互补知识时补充加载，不建立固定流程链；能力不可用时使用项目规则和确定性验证，不模拟工具或结果。
 - description 或触发边界变化视为路由行为变更：用真实任务或 Eval 观察漏触发与误触发，再回改 description 或收敛边界，不靠新增 Router 解决。
 

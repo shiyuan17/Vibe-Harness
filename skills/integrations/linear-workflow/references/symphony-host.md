@@ -1,6 +1,6 @@
 # Symphony 宿主接入边界
 
-本参考是 Vibe-Harness 与 Symphony Elixir fork 的接线合同，不是可运行的调度器、Grant 签发入口或生产启用证明。Symphony 的原始轮询、进程内 claimed 集合、自动 retry、`linear_graphql` 原始 mutation 和宽权限 workspace hook 均不能直接承载自动领单。只有宿主完成下列约束并通过跨仓与真实接口验证后，才可启用自动模式。
+本参考是 Vibe-Harness 与 Symphony Elixir fork 的接线合同，不是可运行的调度器、Grant 签发入口或生产启用证明。Symphony 的原始轮询、进程内 claimed 集合、自动 retry、`linear_graphql` 原始 mutation 和宽权限 workspace hook 均不能直接承载自动领单。只有宿主完成下列约束并通过跨仓与真实接口验证后，才可启用自动模式。它只描述自动派发的 Claim 域，不是显式 `vb-linear-worktree-develop` 调用的前置条件；显式调用使用 v1 `explicit-user-request` Receipt 并沿用普通活动实例冲突检查。
 
 ## 签发和派发
 
@@ -11,13 +11,13 @@
 ## 原子 Claim 与登记
 
 - PostgreSQL 同一事务核验未撤销、未过期的 Grant、剩余额度、精确队列和仓库、单 Grant 并发上限及单 Issue 唯一活动 Claim；成功预留时占用一次额度，失败后不得自动返还。数据库唯一约束与条件更新提供跨进程互斥，并产生新的递增 fencing token。纯状态转换函数或进程内锁不能代替数据库事务。
-- 每次执行使用稳定的 `executionId`、`claimId` 和幂等键。结果不确定时先按键查询；同键同内容才可视为重试成功，不得新建第二次执行。先 Claim，再登记 Delegate 与不可变 v3 Start Receipt，最后重读并逐字段确认。v3 的自动领单 source 固定 `authorized-auto-claim`，带非敏感 `grantId`、Claim 元数据与宿主 provider 标识；历史 v1/v2 只读解析。
+- 自动执行使用稳定的 `executionId`、`claimId` 和幂等键。结果不确定时先按键查询；同键同内容才可视为重试成功，不得新建第二次执行。先 Claim，再登记 Delegate 与不可变 v3 Start Receipt，最后重读并逐字段确认。v3 的自动领单 source 固定 `authorized-auto-claim`，带非敏感 `grantId`、Claim 元数据与宿主 provider 标识；历史 v1/v2 只读解析。用户不提供这些字段，宿主负责生成和注入。
 - 执行结束只追加一条终止事件记录：`schema`、`eventId`、`executionId`、`eventType`、`successorExecutionId`、`occurredAt` 六个字段，`eventType` 为 `local-work-completed`，`successorExecutionId` 必须存在且为 `null`。release、abort 与 handoff 是独立的宿主决定，不由该路径产生。
 - Claim、身份或 Receipt 有任何冲突、部分登记、分页不完整、lease 过期或 fencing 失配即停止写入并进入人工核对，保留 worktree、分支、PR 和台账；不得靠过期自动释放、替换或重派。正常续 turn 在同一运行时复用 ID，新的运行时必须显式 handoff 或 release。
 
 ## 执行隔离与终点
 
-- 宿主逐 Issue 签发 `vibe-harness.execution-envelope/v2`，riskClass=high，绑定 requestId、sessionId、targetIssueIds、mode=execute、activeObjective、allowedEffects、forbiddenEffects、terminalCondition。冻结并核对 canonicalCwd、worktreeRoot、gitCommonDir、gitDir、branch、baseRef、baseSha、initialHeadSha、allowedWriteRoots；externalTargets 只含目标类型、标识和环境。hostContext 由宿主提供 source=host、filesystem、approval、process=isolated、network、observedAt，Agent 不得自造。启动、续跑和每次外部写入前核验 Grant、Claim、lease、fencing、Envelope 与当前 Issue；缺失、不符或能力不足即 fail-closed，暂停受影响操作并保留现场，不能靠重复询问用户解除宿主能力阻塞。`vibe-harness.execution-envelope/v1` 仅兼容 contract-only/degraded，不授权凭据、宿主/外部写入、红区、高风险间接写入或 worktree 拓扑变化。
+- 宿主逐 Issue 签发 `vibe-harness.execution-envelope/v2`，riskClass=high，绑定 requestId、sessionId、targetIssueIds、mode=execute、activeObjective、allowedEffects、forbiddenEffects、terminalCondition。冻结并核对 canonicalCwd、worktreeRoot、gitCommonDir、gitDir、branch、baseRef、baseSha、initialHeadSha、allowedWriteRoots；externalTargets 只含目标类型、标识和环境。hostContext 由宿主提供 source=host、filesystem、approval、process=isolated、network、observedAt，Agent 不得自造。启动、续跑和每次外部写入前核验 Grant、Claim、lease、fencing、Envelope 与当前 Issue；缺失、不符或能力不足即 fail-closed，暂停受影响操作并保留现场，不能靠重复询问用户解除宿主能力阻塞。`vibe-harness.execution-envelope/v1` 仅兼容 contract-only/degraded，不授权 credentialUse、宿主/外部写入、红区、高风险间接写入或移动活动任务当前绑定的 workspace identity。
 - Agent 不持有 Linear/Git 原始写凭据，不暴露可调用任意 mutation 的宿主 `linear_graphql`。经最小权限代理按当前 Issue 与 effect 执行 Linear、Git push 和 PR/MR 操作：宿主侧只提供逐操作的 effect allowlist 判定（`linear_set_delegate`/`linear_append_receipt`/`linear_append_event` 属 `linearWrite`，`git_push_branch` 属 `gitPush`，`git_create_closing_pr`/`git_squash_merge` 属 `mergeRequestWrite`），禁止 effect 优先于任何放行回调，Worker 侧只拿到冻结上下文（Issue、Claim、fencing、工作区身份、Envelope 摘要、目标 SHA、worktree 路径、镜像与命令），不含 provider 句柄。Worker 与生命周期 hook 均须受 OS 文件系统和默认拒绝网络出口约束，避免 shell 或 API 直连绕过。
 - 只有本次运行创建的 closing PR/MR、最新 `origin/develop` 验证、稳定 fast gate 和适用的独立评审证据均成立，且 Grant/Envelope 允许 `mergeRequestWrite`，才可 squash 合并。重读合并证据后才报告 Done；PR 创建或本地验证通过不等于 Done。异常、撤销或证据不足时停止该 Grant 的后续派发。
 

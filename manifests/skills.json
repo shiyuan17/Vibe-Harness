@@ -20,6 +20,6 @@
     { "id": "browser-verification", "source": "skills/integrations/browser-verification/SKILL.md", "metadata": "skills/integrations/browser-verification/metadata.json", "kind": "integration", "requiresSkills": [], "optionalSkills": [], "requiresTools": ["managed Playwright CLI or Chrome DevTools MCP"] },
     { "id": "agentmemory", "source": "skills/integrations/agentmemory/SKILL.md", "metadata": "skills/integrations/agentmemory/metadata.json", "kind": "integration", "requiresSkills": [], "optionalSkills": [], "requiresTools": ["agentmemory MCP or HTTP API"] },
     { "id": "linear-workflow", "source": "skills/integrations/linear-workflow/SKILL.md", "metadata": "skills/integrations/linear-workflow/metadata.json", "kind": "integration", "requiresSkills": [], "optionalSkills": [], "requiresTools": ["Linear MCP or user-provided Linear issue context"] },
-    { "id": "vb-linear-worktree-develop", "source": "skills/integrations/vb-linear-worktree-develop/SKILL.md", "metadata": "skills/integrations/vb-linear-worktree-develop/metadata.json", "kind": "integration", "requiresSkills": [], "optionalSkills": [], "requiresTools": ["writable Linear MCP and persistent atomic Claim provider"] }
+    { "id": "vb-linear-worktree-develop", "source": "skills/integrations/vb-linear-worktree-develop/SKILL.md", "metadata": "skills/integrations/vb-linear-worktree-develop/metadata.json", "kind": "integration", "requiresSkills": [], "optionalSkills": [], "requiresTools": ["writable Linear MCP or user-provided Linear issue context"] }
   ]
 }

@@ -1436,6 +1436,17 @@
       ]
     },
     {
+      "path": "docs/adr/ADR-0018-explicit-linear-claim-boundary.md",
+      "kind": "architecture",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
+    },
+    {
       "path": "docs/inventory/governance-enhancement-2025.md",
       "kind": "inventory",
       "status": "reference",

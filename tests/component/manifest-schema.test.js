@@ -639,3 +639,11 @@ test('Skill 授权、工作区核验、宿主信息和受阻处理缺失时仍�
     await rm(target, { force: true, recursive: true });
   }
 });
+
+test('vb-linear-worktree-develop does not advertise a user-facing Claim provider prerequisite', async () => {
+  const manifest = JSON.parse(await readFile(path.join(rootDir, 'manifests/skills.json'), 'utf8'));
+  const item = manifest.items.find((entry) => entry.id === 'vb-linear-worktree-develop');
+  assert.ok(item);
+  assert.equal(item.requiresTools.some((tool) => /persistent atomic Claim provider/iu.test(tool)), false);
+  assert.ok(item.requiresTools.some((tool) => /Linear MCP|Linear issue context/iu.test(tool)));
+});

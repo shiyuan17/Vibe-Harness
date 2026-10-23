@@ -68,6 +68,10 @@
     {
       "id": "ADR-0017",
       "path": "docs/adr/ADR-0017-worktree-lifecycle-local-verification.md"
+    },
+    {
+      "id": "ADR-0018",
+      "path": "docs/adr/ADR-0018-explicit-linear-claim-boundary.md"
     }
   ]
 }

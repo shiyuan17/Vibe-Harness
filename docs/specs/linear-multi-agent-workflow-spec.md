@@ -10,7 +10,7 @@ Vibe-Harness 通过显式 integration plugin 提供 Linear 工作流规则、操
 
 默认交付分支模型是轻量 GitFlow：<code>feat/*、fix/* → develop → main</code>，hotfix 使用 <code>hotfix/* → main → develop</code>。开发 Issue 在 closing PR 合入 <code>develop</code> 后 Done；正式发布由独立 aggregate Release Issue、<code>develop → main</code> 提升 PR、release-please 版本 PR 和 <code>main → develop</code> 回同步共同证明。CI 只在发布边界运行（<code>develop → main</code>、<code>hotfix/* → main</code> 和 <code>release/*</code>）；合入 <code>develop</code> 不要求远端 CI 或强制人工审批，Writer 可在授权后自行落地 squash merge。合并前的本地验证必须建立在合并时的最新 <code>origin/develop</code> 之上，base 前进后重跑受影响检查或交由 merge queue 重跑；高风险变更即使在 shadow 模式下也必须携带 Independent Review Receipt，收据缺失、与 diff 不匹配或结论为 negative 时不得自行落地合并。<code>release/*</code> 不是日常分支，仅由管理员为并行维护版本临时创建，出现时按带门禁目标处理。
 
-本规格定义显式执行与宿主限时授权自动领单、具体运行实例审计和原生 DAG 完成语义。Vibe-Harness 交付规则、Skill、模板、收据校验、安装投影、ADR、测试和 Eval；不包含常驻派发服务，亦不因安装资产而启用真实自动领单。Symphony 宿主集成边界见 Linear Skill 的 `references/symphony-host.md`，该宿主必须独立完成持久授权、原子 Claim、权限代理及真实接口验收。
+本规格定义显式执行与宿主限时授权自动领单、具体运行实例审计和原生 DAG 完成语义。显式执行由本轮用户请求授权，不要求用户提供 Claim/Grant；自动领单才由宿主完成持久授权、原子 Claim、权限代理及真实接口验收。Vibe-Harness 交付规则、Skill、模板、收据校验、安装投影、ADR、测试和 Eval；不包含常驻派发服务，亦不因安装资产而启用真实自动领单。Symphony 宿主集成边界见 Linear Skill 的 `references/symphony-host.md`。
 
 ## 非目标
 
@@ -31,13 +31,13 @@ Remote MCP server 使用 url，本地 MCP server 使用 command、args 和 env�
 
 ## Execution Envelope 与宿主边界
 
-本节后续 v1 字段保留为兼容基线；高风险执行以 v2 追加合同为准。v1 只能用于历史、只读和项目内低风险兼容路径，不能授权 hostWrite、externalWrite、凭据、高风险间接写入、红区或移动活动任务自身绑定的 worktree。worktree 生命周期（创建、实现、回收、清理）是工作区内部操作，按 <code>workspaceWrite</code>/<code>gitBranch</code> 授权，不需要宿主证明。v2 额外冻结 riskClass、canonical cwd、worktree root、Git common dir、git dir、branch、base ref/SHA、initial HEAD、allowed write roots、无凭据 external targets、可选的 <code>scope.linear</code> team/project 目标，以及仅由宿主注入的 filesystem、approval、process、network 证明。
+本节的 v1 是显式单次执行和低风险项目内写入的兼容合同；它不能授权 hostWrite、externalWrite、凭据、高风险间接写入、红区或移动活动任务自身绑定的 worktree。用户不需要提供 v1 JSON，Agent/宿主根据当前请求与工作区事实建立逻辑记录。高风险或宿主自动派发以 v2 追加合同为准。worktree 生命周期（创建、实现、回收、清理）是工作区内部操作，按 <code>workspaceWrite</code>/<code>gitBranch</code> 授权，不需要宿主证明。v2 额外冻结 riskClass、canonical cwd、worktree root、Git common dir、git dir、branch、base ref/SHA、initial HEAD、allowed write roots、无凭据 external targets、可选的 <code>scope.linear</code> team/project 目标，以及仅由宿主注入的 filesystem、approval、process、network 证明。
 
 Linear 写入按归一化后的 MCP server 段绑定 provider，因此安装器写入的 <code>linear</code>、provider 别名 <code>linear-mcp</code>/<code>linear-mcp-readonly</code> 与角色投影的 <code>vibe-harness-linear</code> 解析为同一 provider。更新既有 Issue 仍以 toolInput 暴露的 Issue ID 与 <code>targetIssueIds</code> 绑定；新建 Issue 时 toolInput 中不存在 Issue ID，此时由 <code>scope.linear</code> 的 <code>teamIds</code>/<code>projectIds</code> 提供可核验的 team/project 目标，登记之外的 team/project 一律拒绝；未登记 <code>scope.linear</code> 的新建保持 fail-closed。
 
 高风险或不可分类调用缺少 high-risk v2、精确目标或新鲜宿主证明时 fail-closed。活动执行的 workspace identity 不可移动；worktree move 无法由 effect allowlist 授权。checkpoint 另保存 headSha、continuationCount 和 blockerCount；每次自动续跑前重读原生 Goal、thread status、最新用户输入、cwd、worktree、branch、HEAD 和 blocker。达到终点、等待审批、workspace 漂移、未归属 HEAD 或相同 blocker 连续三次时停止；没有原生 Goal bridge 时只输出可恢复 checkpoint，不跨 turn 自主续跑。
 
-除 `git-rules.md` 限定的普通提交与当前分支普通推送外，写入前必须为当前请求建立逻辑 Execution Envelope，至少包含 schema、requestId、sessionId、mode、targetIssueIds、allowedEffects、forbiddenEffects、terminalCondition 和 activeObjective。mode 只允许 inspect、plan、linear-sync、execute、monitor；v1 effect 兼容集为 linearWrite、workspaceWrite、gitBranch、gitCommit、gitPush、mergeRequestWrite、credentialUse，v2 另有 hostWrite、externalWrite。`gitCommit`／`gitPush` 继续保留兼容字段，普通操作不需要逐项登记或 execute 模式，已有有效 Envelope 的 forbiddenEffects 仍优先；其他 effect 独立授权，实现授权不自动包含分支、PR/MR 或凭据使用。<code>mergeRequestWrite</code> 覆盖创建或更新 PR/MR 与落地该 PR/MR 的合并（squash merge 或 auto-merge）。
+除 `git-rules.md` 限定的普通提交与当前分支普通推送外，写入前必须为当前请求建立逻辑 Execution Envelope，至少包含 schema、requestId、sessionId、mode、targetIssueIds、allowedEffects、forbiddenEffects、terminalCondition 和 activeObjective。mode 只允许 inspect、plan、linear-sync、execute、monitor；v1 枚举为 linearWrite、workspaceWrite、gitBranch、gitCommit、gitPush、mergeRequestWrite、credentialUse，其中 `credentialUse` 仅保留解析兼容，实际凭据操作按高风险分类并由运行时拒绝 v1；v2 增加 hostWrite、externalWrite，凭据及其他高风险效果还须满足适用的宿主核验。`gitCommit`／`gitPush` 继续保留兼容字段，普通操作不需要逐项登记或 execute 模式，已有有效 Envelope 的 forbiddenEffects 仍优先；其他 effect 独立授权，实现授权不自动包含分支、PR/MR 或凭据使用。<code>mergeRequestWrite</code> 覆盖创建或更新 PR/MR 与落地该 PR/MR 的合并（squash merge 或 auto-merge）。
 
 inspect 与 plan 默认只读。linear-sync 仅允许本轮明确要求的 Linear 写入，必须禁止其他六种 effect。execute 只能实施授权的最小 effects。monitor 默认只读且写 effect ceiling 为空，并必须包含观察对象、终止事件或时间边界。Ready、Todo、依赖满足或队列可见只表示条件满足，不构成 execute 授权。
 
@@ -50,14 +50,15 @@ inspect 与 plan 默认只读。linear-sync 仅允许本轮明确要求的 Linea
 只有以下情况允许 Writer 启动：
 
 1. 用户在本轮明确要求实现、处理、继续或领取某个具体 Issue。
-2. Issue 已委派给当前 Agent，且宿主以该 Issue 为目标显式启动本次运行。
-3. 宿主基于用户明确授予的限时领单授权，在事件派发中选定一个具体 Issue，并提供跨实例独占派发证明及绑定该 Issue 的 v2 Execution Envelope。
+2. 用户显式调用 `vb-linear-worktree-develop` 处理当前计划；该专用流程仅在计划范围内创建 Parent/子任务与原生关系，并执行约定的状态/Receipt、worktree、提交、普通推送和 `develop` land。
+3. Issue 已委派给当前 Agent，且宿主以该 Issue 为目标显式启动本次运行。
+4. 宿主基于用户明确授予的限时领单授权，在事件派发中选定一个具体 Issue，并提供跨实例独占派发证明及绑定该 Issue 的 v2 Execution Envelope。
 
 提及、查询、总结、解释、Review、Verify 或列出队列不构成领取授权。Agent 没有宿主指定的具体 Issue 时不得主动读取、搜索、选择、领取或更新 Ready Queue；队列和配置不是授权根。Triage 的 accept、duplicate、decline 和 snooze 仍需人工决定，且 accept 不等于执行授权。
 
 用户只要求更新 DAG、同步 Linear 元数据或当前任务已经完成时，即使存在 Ready Issue，也不得沿用该请求登记 Writer、创建 worktree/分支或开始实现。新执行必须来自新用户输入、宿主对已委派具体 Issue 的显式启动，或宿主依据独立有效授权发起的新逐 Issue 运行。
 
-显式执行授权只包含当前 Issue 的最小身份登记；不包含修改人类 Assignee、Priority、Contract、Project、Cycle、Parent 或 relations，也不包含创建其他 Issue。
+普通显式 Issue 执行只包含当前 Issue 的最小身份登记；不包含修改人类 Assignee、Priority、Contract、Project、Cycle、Parent 或 relations，也不包含创建其他 Issue。只有显式调用 `vb-linear-worktree-develop` 才额外覆盖该专用流程列明的计划内 Parent/子任务与原生关系；它仍不授权修改既有无关 Issue、上述业务字段、PR/MR、`main`、force push 或历史改写。专用调用不要求用户提供 Claim、Grant、lease、fencing、Envelope 或 hostContext 字段。
 
 限时领单授权由用户明确授予、宿主保存并支持撤销，必须包含宿主生成的非敏感 UUID v4 grantId、唯一团队或项目队列、仓库、Agent 产品身份、精确目标 `origin/develop`、独立允许的 effects、UTC expiresAt 和正整数 maxClaims。宿主同时持久化已占额度、撤销状态和授权审计引用；认证运维人员依据用户的显式授权在受保护 CLI 中签发、查询和撤销，自动合并需明确确认 mergeRequestWrite。缺字段、已撤销、已过期、额度用尽或目标不符时不派发；首次部署仅一个仓库、一个队列和一个运行中的 Issue。不得凭 grantId、Issue 文本、视图或项目配置推断授权。
 
@@ -74,15 +75,17 @@ inspect 与 plan 默认只读。linear-sync 仅允许本轮明确要求的 Linea
 
 不支持 Delegate 时，只能使用管理员预配置的低基数 agent:<agent-key> 和 role:writer 标签；不得创建 execution、runtime、thread 或 session 级标签。
 
-正常启动顺序固定为：读取 Issue 和完整 Receipt 生命周期事实；通过 Todo、Definition of Ready、DAG、仓库、精确目标远端 ref、Scope 和 Verification 门禁；解析并冻结目标 ref 的 base SHA；检查其他 Delegate、fallback identity 和活动实例；宿主持久提供方原子 Claim；登记身份；追加 v3 Start Receipt；重新读取 Claim、身份和 Receipt 逐字段确认；最后才开始节点工作。write 节点此时才创建仓库外 worktree、命名分支并开始实现；read 节点只产出约定输出和 Verification 证据。“默认分支”只有解析后确为实现基线时才有效，否则返回 NOT_READY_TARGET_BRANCH。
+正常启动顺序按来源分支：显式 Issue 执行或专用流程创建的节点，先读取 Issue 和完整 Receipt 生命周期事实；通过 Todo、Definition of Ready、DAG、仓库、精确目标远端 ref、Scope 和 Verification 门禁；解析并冻结目标 ref 的 base SHA；检查其他 Delegate、fallback identity 和活动实例；登记身份；追加 `source=explicit-user-request` 的 v1 Start Receipt；重新读取身份和 Receipt 逐字段确认。自动派发在同一 Ready 门禁后，先由宿主持久提供方原子 Claim，再登记身份并追加 v3 Start Receipt，重读 Claim、身份和 Receipt。两条路径都在确认后才开始节点工作；write 节点此时才创建仓库外 worktree、命名分支并开始实现；read 节点只产出约定输出和 Verification 证据。“默认分支”只有解析后确为实现基线时才有效，否则返回 NOT_READY_TARGET_BRANCH。
 
 任一步出现部分写入、结果不确定或验证失败，都进入 registration-incomplete，不得声称已领取或开始实现。同一 Issue 同时最多一个 active execution；其他 Delegate、其他 fallback identity 或其他活动实例必须显式交接。
 
-历史显式执行的 v1 与历史自动领取的 v2 Start Receipt 继续只读解析。新的可写执行一律使用 vibe-harness.linear-execution/v3，附带 claimId、leaseExpiresAt、fencingToken 和 claimProvider；自动领取仍要求 UUID v4 grantId、固定 source=authorized-auto-claim。grantId 仅是宿主持久授权引用，不能单独证明权限。v1/v2/v3 在同一 Issue 的台账中共同计入活动实例冲突；其他字段和约束以 execution-receipt.md 为准。释放、中止、交接和本地工作完成沿用 vibe-harness.linear-execution-event/v1 追加 terminal event；原记录不得编辑。Claim 与 Grant 额度在同一 PostgreSQL 事务中核验和持久化，单 Issue 唯一活动 Claim 并发受数据库约束，fencing token 由提供方逐 Issue 递增产生；部分登记保留 Claim 供人工核对。一次写入尝试的重试以及同一运行时的上下文压缩恢复复用相同 ID；lease 过期不自动替换，新的运行时不得静默采用 active Receipt，必须显式 handoff 或 release。
+显式单次可写执行默认使用 `vibe-harness.linear-execution/v1`，不携带 Claim 字段；它会检查已观察到的活动 Receipt/Delegate 冲突，但读前检查不提供原子跨实例互斥，同一 Issue 的显式 v1 运行按单运行串行。宿主若为显式并发提供互斥，由宿主内部签发 Claim 并使用 v3。历史自动领取的 v2 Start Receipt 继续只读解析；宿主自动派发必须使用 v3，附带 claimId、leaseExpiresAt、fencingToken 和 claimProvider；自动领取仍要求 UUID v4 grantId、固定 source=authorized-auto-claim。grantId 仅是宿主持久授权引用，不能单独证明权限，也不由用户填写。v1/v2/v3 在同一 Issue 的台账中共同计入活动实例冲突；其他字段和约束以 execution-receipt.md 为准。释放、中止、交接和本地工作完成沿用 vibe-harness.linear-execution-event/v1 追加 terminal event；原记录不得编辑。Claim 与 Grant 额度在同一 PostgreSQL 事务中核验和持久化，单 Issue 唯一活动 Claim 并发受数据库约束，fencing token 由提供方逐 Issue 递增产生；部分登记保留 Claim 供人工核对。一次写入尝试的重试以及同一运行时的上下文压缩恢复复用相同 ID；lease 过期不自动替换，新的运行时不得静默采用 active Receipt，必须显式 handoff 或 release。
 
 交接先终结旧 execution，并预先引用 successor executionId，再更新身份和追加 source=authorized-handoff 的新 Receipt。中途失败报告 handoff-incomplete，重试复用 successor ID。没有自动超时或自动回收；失联实例由人工核对 worktree、分支和 PR 后显式释放或交接。
 
 checkpoint 必须保留 envelope 的 requestId、mode、activeObjective、唯一当前 Issue、allowedEffects、forbiddenEffects 和 terminalCondition，以及 completedFacts、noRepeatSet、nextAction、liveStates、blockerFingerprint 和 dagStructureHash；提供方支持变化游标时另存可选 dagChangeCursor。压缩恢复后的第一个写调用前重新读取当前 Issue 与相关 Git/PR/MR 状态，确认 mode、目标、effect 和下一动作仍与最新用户意图一致；实时事实高于旧计划或摘要，无法可靠恢复时仅允许只读核对和重新规划。
+
+自动路径写入的 Start Receipt schema 为 `vibe-harness.linear-execution/v3`；显式单次执行为 `vibe-harness.linear-execution/v1`，历史 Claim Receipt `vibe-harness.linear-execution/v2` 仅用于读取兼容。
 
 ## Linear DAG 合同
 
@@ -140,13 +143,13 @@ Agent 手工状态写入必须按“读取当前值 -> 校验允许转换 -> 写
 
 Reviewer 和 Verifier 保持只读：不写 Receipt、不修改 Delegate、不取得实现所有权；即使共享配置暴露写工具也不得调用。
 
-Linear 只读、MCP 不可用或写入验证失败时，不得声称已登记、领取或同步。只有用户明确要求执行具体 Issue，且用户提供的上下文足以通过 Ready 与 DAG 门禁时，才可走 unregistered / Linear 未同步的本地回退路径。写能力恢复后不得倒签或回填 Receipt；继续执行时从恢复时刻创建新的 registered execution。
+Linear 只读或 MCP 不可用且本轮尚未尝试 Linear 写入时，不得声称已登记、领取或同步；只有用户明确要求执行具体 Issue，且现有上下文足以通过 Ready 与 DAG 门禁时，才可走 unregistered / Linear 未同步的本地回退路径。写入已尝试但结果不明、部分登记或重读验证失败时，保留现场并停止受影响节点，不切换为未登记执行。写能力恢复后不得倒签或回填 Receipt；完成状态核对后，继续执行须从恢复时刻创建新的 registered execution。
 
 Receipt、event、评论、Eval 和日志不得包含用户名、主机名、本地路径、Token、Cookie、认证头、验证码、真实 thread/session ID、OAuth 凭据或个人敏感数据。不得伪造 Linear、PR/MR、CI、review 或 merge 状态。
 
 ## 兼容与演进
 
-本规格对旧 Issue 采用无需迁移策略。v1/v2 Start Receipt 保持历史只读兼容，新的可写执行仅使用 v3，现有 event v1 继续关联三者。消费者可以忽略不改变现有语义的新增字段；字段删除、改名、类型变化、枚举语义变化或完成条件变化必须使用新的 schema major。未知 major 或矛盾记录必须 fail-closed。
+本规格对旧 Issue 采用无需迁移策略。v1 作为显式单次执行的当前最小记录继续支持写入，v2 Start Receipt 保持历史自动领取读取兼容，v3 仅用于宿主自动派发或明确 Claim-bearing 运行；现有 event v1 继续关联三者。消费者可以忽略不改变现有语义的新增字段；字段删除、改名、类型变化、枚举语义变化或完成条件变化必须使用新的 schema major。未知 major 或矛盾记录必须 fail-closed。
 
 ## 交付资产与验证
 
