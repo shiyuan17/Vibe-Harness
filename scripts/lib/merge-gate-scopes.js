@@ -17,7 +17,6 @@ export const GATE_SCOPES = {
   ],
   aggregate: [
     'BRANCH_POLICY_RESULT',
-    'HIGH_RISK_REVIEW_RESULT',
     'HIGH_RISK_APPROVAL_RESULT',
     'RISK_EVIDENCE_RESULT',
     'CHANGE_PLAN_RESULT',

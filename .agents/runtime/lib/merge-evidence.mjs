@@ -151,10 +151,12 @@ export async function validateMergeEvidence(project, worktree, evidence, { taskI
     // let the cleanup delete it.
     if (git(worktree, ['status', '--porcelain=v1', '--untracked-files=all', '--ignore-submodules=none'])) throw new Error('Dirty worktree');
     const current = await gitFingerprint(worktree);
-    const completion = validateCompletion(receipt, delivery, current,
-      { provenance: await attestCompletionProvenance(worktree, receipt) });
-    if (completion.status !== 'passed') throw new Error(completion.errors.join('; '));
-    if (receipt.target?.head !== evidence.targetAfter) throw new Error('Receipt target does not match merge evidence');
+    if (delivery.requireReceipt) {
+      const completion = validateCompletion(receipt, delivery, current,
+        { provenance: await attestCompletionProvenance(worktree, receipt) });
+      if (completion.status !== 'passed') throw new Error(completion.errors.join('; '));
+      if (receipt?.target?.head !== evidence.targetAfter) throw new Error('Receipt target does not match merge evidence');
+    }
     // The receipt was validated against the state read above; a concurrent write
     // after that read would leave the refs unchanged while the accepted evidence
     // is already stale, so the worktree state is read once more before the

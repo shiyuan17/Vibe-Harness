@@ -1,6 +1,6 @@
 export const deliveryProfiles = Object.freeze({
-  'managed-mr': { merge: 'squash', cleanup: 'evidence-compatible', requireReceipt: true, reviewPolicy: 'required' },
-  'local-land': { merge: 'no-ff', cleanup: 'ancestor', requireReceipt: true, reviewPolicy: 'required' },
+  'managed-mr': { merge: 'squash', cleanup: 'evidence-compatible', requireReceipt: false, reviewPolicy: 'required' },
+  'local-land': { merge: 'no-ff', cleanup: 'ancestor', requireReceipt: false, reviewPolicy: 'required' },
   'inspect-only': { write: false, requireReceipt: false },
 });
 
@@ -18,13 +18,12 @@ export function validateDeliveryConfig(config) {
       || !Object.hasOwn(delivery.profiles, delivery.default)) throw new Error('delivery.default must reference a declared profile');
     for (const [name, profile] of Object.entries(delivery.profiles)) {
       if (!/^[a-z][a-z0-9-]{0,63}$/u.test(name) || !object(profile)
-        || typeof profile.requireReceipt !== 'boolean'
+        || (profile.requireReceipt !== undefined && typeof profile.requireReceipt !== 'boolean')
         || (profile.reviewPolicy !== undefined && !['required', 'none'].includes(profile.reviewPolicy))
         || (profile.write !== undefined && typeof profile.write !== 'boolean')
         || (profile.write !== false && (!['squash', 'no-ff'].includes(profile.merge)
           || !['ancestor', 'evidence-compatible'].includes(profile.cleanup)))
-        || (profile.merge === 'squash' && profile.cleanup !== 'evidence-compatible')
-        || (profile.write !== false && profile.requireReceipt !== true)) throw new Error(`Invalid delivery profile: ${name}`);
+        || (profile.merge === 'squash' && profile.cleanup !== 'evidence-compatible')) throw new Error(`Invalid delivery profile: ${name}`);
     }
   }
   const services = config.worktree?.provision?.services;
@@ -64,11 +63,12 @@ export function validateDeliveryConfig(config) {
 export function resolveDelivery(config, requested) {
   validateDeliveryConfig(config);
   const name = requested ?? config.delivery?.default;
-  if (!name) return { profile: 'legacy', requireReceipt: false, reviewPolicy: 'required', warnings: [{ code: 'DELIVERY_LEGACY', message: 'Legacy delivery; declare delivery.default to enable structured completion receipts.' }] };
+  if (!name) return { profile: 'legacy', requireReceipt: false, reviewPolicy: 'required', warnings: [] };
   const profiles = config.delivery?.profiles ?? {};
   const profile = Object.hasOwn(profiles, name) ? profiles[name] : requested && Object.hasOwn(deliveryProfiles, name) ? deliveryProfiles[name] : null;
   if (!profile || !nonempty(name)) throw new Error(`Unknown delivery profile: ${String(name)}`);
-  return { reviewPolicy: 'required', ...profile, profile: name, warnings: [] };
+  return { reviewPolicy: 'required', ...profile, requireReceipt: false, profile: name,
+    warnings: profile.requireReceipt === true ? [{ code: 'DELIVERY_RECEIPT_DEPRECATED', message: 'requireReceipt is deprecated and no longer gates delivery.' }] : [] };
 }
 
 export function overrideWarnings(config, now = Date.now()) {

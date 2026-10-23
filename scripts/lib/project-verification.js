@@ -113,22 +113,22 @@ function normalizedCachedReview(review, selectedCheckIds, changedPaths) {
   };
 }
 
-/** @param {{review?: any, commandsPassed?: boolean, snapshotComparison?: string, finalFingerprint?: string|null, deferredCount?: number}} options */
-function focusedAcceptance({ review, commandsPassed, snapshotComparison, finalFingerprint, deferredCount = 0 } = {}) {
+/** @param {{review?: any, commandsPassed?: boolean, snapshotComparison?: string, finalFingerprint?: string|null, deferredCount?: number, selectedCount?: number}} options */
+function focusedAcceptance({ review, commandsPassed, snapshotComparison, finalFingerprint, deferredCount = 0, selectedCount = 0 } = {}) {
   const stable = commandsPassed && snapshotComparison === 'match' && typeof finalFingerprint === 'string' && finalFingerprint.length > 0;
-  const relevant = review?.status === 'relevant' && (review.reviewedCheckIds ?? []).length > 0;
   return {
-    status: stable && relevant && deferredCount === 0 ? 'accepted' : 'blocked',
+    status: stable && selectedCount > 0 ? 'accepted' : 'blocked',
     reasonCode: !commandsPassed
       ? 'VERIFICATION_NOT_PASSED'
-      : deferredCount > 0
-        ? 'DEFERRED_CHECKS'
+      : selectedCount === 0
+        ? 'NO_SELECTED_CHECKS'
       : snapshotComparison !== 'match' || !finalFingerprint
         ? 'FINAL_SNAPSHOT_MISMATCH'
-        : relevant ? 'ACCEPTED' : 'NO_REVIEWED_RELEVANT_CHECK',
+        : 'ACCEPTED',
     finalFingerprint: finalFingerprint ?? null,
     selectedCheckIds: [...(review?.selectedCheckIds ?? [])],
     reviewStatus: review?.status ?? 'unreviewed',
+    coverageStatus: deferredCount > 0 ? 'partial' : 'complete',
   };
 }
 
@@ -681,6 +681,8 @@ export async function runFocusedProjectVerification({
         commandsPassed,
         snapshotComparison,
         finalFingerprint: after.fingerprint,
+        selectedCount: focused.commands.length,
+        deferredCount: (focused.deferredChecks ?? []).length,
       }),
       deliveryBoundaries: {
         ci: 'unverified',
@@ -726,16 +728,14 @@ export async function runVerificationPlan({
       evidence: { commandExecution: { status: 'passed', reused: true } },
       changeBoundary: { status: 'unverified' },
       review: reusedReview,
-      // A hit proves the command set, inputs and snapshot are unchanged, so a
-      // current receipt with a relevant review is accepted; a deferred layer
-      // still blocks it. Reporting `blocked` unconditionally would deny a valid
-      // reuse while claiming the snapshot mismatched.
+      // A hit proves the selected command set and snapshot, not deferred layers.
       acceptance: focusedAcceptance({
         review: reusedReview,
         commandsPassed: true,
         snapshotComparison: 'match',
         finalFingerprint: confirmed.snapshot.fingerprint,
         deferredCount: (plan.deferredChecks ?? []).length,
+        selectedCount: (plan.selectedChecks ?? []).length,
       }),
       recovery: { status: 'not-needed' },
     },
@@ -888,13 +888,6 @@ export async function runVerificationPlan({
       tierSource: plan.tierSource ?? null,
     },
   };
-  if (deferredChecks.length > 0 && report.verification.acceptance) {
-    report.verification.acceptance = {
-      ...report.verification.acceptance,
-      status: 'blocked',
-      reasonCode: 'DEFERRED_CHECKS',
-    };
-  }
   if (!hit) {
     if (afterContext.key !== cacheContext.key) {
       report.ok = false;

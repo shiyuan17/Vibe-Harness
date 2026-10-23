@@ -78,7 +78,7 @@
 
 - `deep` 或后端全量验证在同一仓库同时只允许一个，使用 Git common dir 下的本地租约锁；持有者退出或租约过期后才可回收，不因等待时间长而强删活跃租约。`land` 预检发现锁被持有时 blocked，避免候选 worktree 与主检出争用依赖和端口。
 - `worktree land` 默认复用已通过的逐检查证据（`reuse:true`），但 completion receipt 的审查结论必须按本次调用的目标分支和政策重新计算，不能继承旧收据。合并候选内禁用表单/Git Hook（空 hooks path、`LEFTHOOK=0`、`HUSKY=0`、`--no-verify`），避免改写共享依赖。
-- `land` 的完成证据必须覆盖合并后的最终树：所有选中检查通过、无 deferred、最终树与写指纹稳定、provenance 可验证、候选合并结果经过验证。任一项不满足仍 blocked。
+- `land` 的验证判据覆盖合并后的稳定最终候选树：请求层级实际选中的检查非空且均通过，输入与候选指纹一致；失败、空选择、未知范围或输入变化不可算通过。未选的高层检查列为 deferred，不阻止所请求层级，也不得宣称那些层级已完成。持久收据/provenance 写盘不是合并门禁。
 
 ## REPL / Micro Verification
 

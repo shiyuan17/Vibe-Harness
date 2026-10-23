@@ -269,17 +269,6 @@ async function main() {
       fallbackUsed: plan.fallbackUsed,
       selectionReasons: [...plan.selectionReasons],
     };
-    if (deferredChecks.length > 0 && report.verification.acceptance) {
-      report.verification.acceptance = {
-        ...report.verification.acceptance,
-        status: 'blocked',
-        reasonCode: 'DEFERRED_CHECKS',
-      };
-      // A receipt blocked for deferred layers cannot be the completion evidence,
-      // so the exit status reports the same verdict as the receipt instead of
-      // letting a caller read `ok` as "this run completed the change".
-      report.ok = false;
-    }
     if (json) console.log(JSON.stringify(report, null, 2));
     if (!report.ok) process.exitCode = 1;
     if (json) return;

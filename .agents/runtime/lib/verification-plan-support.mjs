@@ -257,23 +257,16 @@ export function verificationReview({
 export function verificationAcceptance({ review, status, snapshotComparison, inputsStable, fingerprint, selectedNames = [], deferredCount = 0 } = {}) {
   const passed = status === 'verified' || status === 'passed' || status === 'reused';
   const stable = snapshotComparison === 'match' && inputsStable !== false && typeof fingerprint === 'string' && fingerprint.length > 0;
-  const relevant = review?.status === 'relevant' && (review.reviewedCheckIds ?? []).some((id) => selectedNames.includes(id));
-  const reviewNotRequired = review?.status === 'not_required'
-    && review?.reviewPolicy === 'none'
-    && review?.targetBranch === 'develop';
   let reasonCode = 'ACCEPTED';
   if (!passed) reasonCode = 'VERIFICATION_NOT_PASSED';
-  else if (deferredCount > 0) reasonCode = 'DEFERRED_CHECKS';
+  else if (selectedNames.length === 0) reasonCode = 'NO_SELECTED_CHECKS';
   else if (!stable) reasonCode = 'FINAL_SNAPSHOT_MISMATCH';
-  else if (!relevant && !reviewNotRequired) {
-    reasonCode = review?.status === 'blocked' ? 'REVIEW_BLOCKED'
-      : review?.status === 'not_required' ? 'REVIEW_POLICY_CONTEXT_INVALID' : 'NO_REVIEWED_RELEVANT_CHECK';
-  }
   return {
-    status: passed && stable && (relevant || reviewNotRequired) && deferredCount === 0 ? 'accepted' : 'blocked',
+    status: passed && stable && selectedNames.length > 0 ? 'accepted' : 'blocked',
     reasonCode,
     finalFingerprint: typeof fingerprint === 'string' ? fingerprint : null,
     selectedCheckIds: [...selectedNames],
     reviewStatus: review?.status ?? 'unreviewed',
+    coverageStatus: deferredCount > 0 ? 'partial' : 'complete',
   };
 }

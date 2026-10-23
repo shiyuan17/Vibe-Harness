@@ -56,7 +56,12 @@ async function verificationTaskBinding(projectDir, taskId) {
     planDigest: typeof anchor.planDigest === 'string' ? anchor.planDigest : null,
   };
 }
+export function verificationProgress(args, phase, detail = {}) {
+  args.onProgress?.({ kind: 'vibe-harness.progress', command: 'verify', phase,
+    at: new Date().toISOString(), ...detail });
+}
 export async function verifyProject(projectDir, args, { planOnly = false } = {}) {
+  args = { reuse: args.micro === undefined, ...args };
   const startedAt = new Date().toISOString();
   if (args.micro !== undefined) {
     if (args.tier || args.only || args.async || args.reuse || args.allowManual) {
@@ -236,7 +241,9 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
       stateMachine: ['queued', 'running', 'passed', 'failed', 'blocked', 'stale'],
     };
     writeFileSync(path.join(queueDir, `${queueId}.json`), JSON.stringify(queue, null, 2) + '\n', 'utf8');
-    return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'queued', tier, scope, scopeConfidence: scope === 'full' ? 'complete' : 'unknown', riskLevel: null, impactGroups: [], queue };
+    return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'queued',
+      code: 'VERIFICATION_QUEUED_NO_LOCAL_CONSUMER', guidance: 'Queued is not completion; a separately configured CI consumer must claim and report this id.',
+      tier, scope, scopeConfidence: scope === 'full' ? 'complete' : 'unknown', riskLevel: null, impactGroups: [], queue };
   }
   const before = planOnly ? null : await gitFingerprint(projectDir);
   const receiptPlan = { ...changeScope, selectedChecks: tierPlan.selectedChecks, deferredChecks: tierPlan.deferredChecks, tier: tierPlan.tier, scope };
@@ -318,8 +325,10 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
     || /(?:^|\s)(?:mvn|mvnw|gradle|gradlew)(?:\s|$)/iu.test(check.command ?? ''));
   let verificationLease = null;
   if (!planOnly && heavyWork && selectedNames.some((name) => checkCache.get(name)?.status !== 'hit')) {
+    verificationProgress(args, 'lock-wait', { tier: tierPlan.tier });
     verificationLease = await acquireVerificationLock(projectDir);
     if (!verificationLease.ok) {
+      verificationProgress(args, 'lock-blocked', { reason: verificationLease.reason });
       return {
         schemaVersion: VERIFY_SCHEMA_VERSION,
         engine: VERIFY_ENGINE,
@@ -337,6 +346,7 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
     }
   }
   try {
+  verificationProgress(args, 'plan', { tier: tierPlan.tier, selected: selectedNames, deferredCount: tierPlan.deferredChecks.length, cacheLookupMs });
   if (!planOnly) await storeVerificationReceipt(projectDir, cacheContext, { status: 'running' });
   let selectedCount = 0;
   let stopped = false;
@@ -369,6 +379,7 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
         finishedAt: cachedCheck.receipt.finishedAt,
       };
       reusedCount += 1;
+      verificationProgress(args, 'check-reused', { check: name });
       continue;
     }
     const manual = manualCommand(command);
@@ -395,12 +406,20 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
     }
     let result;
     const checkStartedAt = Date.now();
+    verificationProgress(args, 'check-start', { check: name, timeoutMs });
+    const heartbeat = args.onProgress ? setInterval(() => verificationProgress(args, 'heartbeat', {
+      check: name, elapsedMs: Date.now() - checkStartedAt, timeoutMs,
+    }), 30_000) : null;
+    heartbeat?.unref();
     try {
       result = await executeCommand(executableCommand, cwd.absolute, timeoutMs, projectDir, verificationContextEnvironment({ ...changeScope, scope }));
     } catch (error) {
       result = { status: 'blocked', code: 'UNSAFE_COMMAND', exitCode: null, stderr: boundedOutput(error.message, projectDir) };
+    } finally {
+      if (heartbeat) clearInterval(heartbeat);
     }
     const durationMs = Date.now() - checkStartedAt;
+    verificationProgress(args, 'check-end', { check: name, status: result.status, durationMs, exitCode: result.exitCode });
     checks[name] = {
       status: result.status,
       code: result.code,
@@ -652,6 +671,8 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
   }, {
     checks: Object.entries(report.checks ?? {}).map(([id, check]) => ({ id, command: check?.command })),
   }).catch(() => false);
+  verificationProgress(args, 'complete', { status: report.status, tier: report.tier, selectedCount: selectedNames.length,
+    deferredCount: tierPlan.deferredChecks.length });
   return report;
   } finally {
     verificationLease?.release?.();

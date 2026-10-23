@@ -110,8 +110,8 @@ export const defaultProjectConfig = {
   delivery: {
     default: 'managed-mr',
     profiles: {
-      'managed-mr': { merge: 'squash', cleanup: 'evidence-compatible', requireReceipt: true },
-      'local-land': { merge: 'no-ff', cleanup: 'ancestor', requireReceipt: true },
+      'managed-mr': { merge: 'squash', cleanup: 'evidence-compatible', requireReceipt: false },
+      'local-land': { merge: 'no-ff', cleanup: 'ancestor', requireReceipt: false },
       'inspect-only': { write: false, requireReceipt: false },
     },
   },

@@ -1179,8 +1179,8 @@ export const CONTENT_QUALITY_CHECKS = [
       'vibe-harness.linear-execution/v1',
       '原 Receipt 不得编辑',
       'released、aborted、handed-off、local-work-completed',
-      '同一 Issue 最多一个 active execution',
-      '结果不确定时先重读',
+      '同一 Issue 的显式 v1 执行按单运行串行',
+      '结果不确定时显式 v1 路径复用同一 executionId 重读',
       '幂等成功',
       '用户名、主机名、本地路径、Token、Cookie、会话凭据或个人敏感数据',
       '不得声称已登记领取',
@@ -1193,8 +1193,8 @@ export const CONTENT_QUALITY_CHECKS = [
       '顺序执行且工作区干净时允许在当前 clone 创建任务分支',
       '必须使用仓库外 worktree',
       // 高风险路径清单：本仓库的仓库内规则目录名，不是项目私有引用。
-      'CI workflow 定义',
-      'Risk Evidence 章节必须说明风险来源、影响范围、实际验证和回滚方式',
+      '命中 CI workflow、schema、runtime',
+      'Risk Evidence 说明风险来源、实际验证、deferred 与回滚方式',
     ],
   },
   {
@@ -1241,7 +1241,7 @@ export const CONTENT_QUALITY_CHECKS = [
       // ADR-0013 removed the develop fast gate: the rule now states the
       // withdrawal and the land allow-list instead of the old requirement.
       '不再作为集成分支的合并门禁',
-      '由显式白名单允许直落',
+      '目标 ref 最终化按短租约串行',
       '紧急旁路必须有明确过期时间、授权人和审计记录',
       // 协作工作流引用必须带条件语气：未安装 linear-workflow 的项目同样成立。
       '若项目已安装该规则',

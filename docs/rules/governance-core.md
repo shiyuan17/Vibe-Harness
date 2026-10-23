@@ -55,10 +55,11 @@
 | linear-sync | 仅 `linearWrite` |
 | execute | linearWrite、workspaceWrite、gitBranch、gitCommit、gitPush、mergeRequestWrite、credentialUse、hostWrite、externalWrite；宿主、外部、凭据及其他高风险操作还须满足下列核验要求 |
 
-- **执行授权记录**：Execution Envelope 绑定本轮 requestId、sessionId、目标 Issue、mode、activeObjective、allowedEffects、forbiddenEffects 和 terminalCondition。高风险操作使用 `vibe-harness.execution-envelope/v2`，并冻结 riskClass、工作区范围和宿主核验信息；版本标识只用于机器解析，不代替以下要求。
+- **授权来源**：本轮用户请求与可信宿主权限是执行依据；Execution Envelope 可选作迁移元数据，不是本地普通任务、验证或 land 的完成收据门禁。
+- **授权与 Claim 分离**：用户明确调用、宿主显式启动或宿主自动派发是授权来源；Claim、Grant、lease 和 fencing token 是并发互斥/自动派发撤销记录，不是用户需要填写的授权材料。显式单次执行默认使用内部生成的 `explicit-user-request` v1 Receipt，不要求用户提供 Claim 或 Envelope 字段；宿主可为显式并发运行内部提供 Claim，自动派发必须由宿主签发和持久化 Claim/Grant。Agent 不伪造宿主字段，也不得把缺少 Claim 当作显式单次请求缺少授权。
 - **工作区与目标核验**：记录并核对 canonicalCwd、worktreeRoot、gitCommonDir、gitDir、branch、baseRef、baseSha、initialHeadSha、allowedWriteRoots；externalTargets 只记录目标类型、标识与环境，不含凭据。身份不符、目标越界或基线漂移时暂停受影响写入，先核对再恢复。worktree 生命周期只要求本地工作区核验加本轮用户显式请求：创建隔离工作区、在其中实现与验证、回收与清理都以运行时能核对的 Git 事实（冻结基线 SHA、任务分支、干净工作树、写入根、无归属不明的改动）判定，不需要宿主证明，也不因此取得 hostWrite、externalWrite 或凭据授权。
 - **宿主核验信息**：宿主核验只用于跨边界效果——hostWrite、externalWrite、credentialUse、红区与高风险间接写入。这类操作要求 `vibe-harness.execution-envelope/v2` 且 hostContext 必须由宿主提供，source 为 host，并包含 filesystem（文件系统权限）、approval（批准能力）、process（进程隔离）、network（网络范围）和 observedAt（观测时间），riskClass 为 high、process 为 isolated；Agent 不得自填这些信息冒充宿主核验。
-- **兼容边界**：`vibe-harness.execution-envelope/v1` 只作为 contract-only/degraded 路径，支持表中除 hostWrite、externalWrite 外的七个 effect，但不能据此授权凭据、高风险间接写入或红区；worktree 生命周期按工作区效果（`workspaceWrite`、`gitBranch`）授权，不需要宿主核验。
+- **证据来源与兼容**：项目内 JSON、环境变量或自报 hostContext 不构成宿主认证；跨边界效果在没有可信宿主能力时只阻止相应操作。旧 v1/v2 Envelope 仅只读兼容，OCR 外发仍需独立 dataEgress 授权；独立审查可以观察但不是普通 land 的必需收据。
 - **能力受阻**：普通项目内低风险写入保持低摩擦；高风险或不可分类调用缺少有效授权记录、工作区核验或宿主核验信息时 fail-closed。缺少宿主核验信息是能力阻塞，不能通过重复询问用户或由 Agent 自造核验信息解除，且只阻塞依赖该证明的跨边界步骤：工作区内部建立隔离工作区、实现、聚焦验证与提交继续推进，不据此停止整个请求，也不把整轮工作降级为主检出直改。保留不依赖该操作的安全工作。
 - **拆分判定**：按实际依赖、写入隔离和独立并行收益决定是否拆分，不按信号数量或公共契约变化强制拆分。只有子任务边界清晰、合并可控且预期并行收益超过协调开销时才拆分；单 Agent 可以稳定完成的任务直接实施。实际使用两个以上协作单元时才按协作规则维护必要依赖和写入归属，简单任务不创建 DAG。用户请求拆分建议时解释判断即可，不强制输出执行判定字段。Plan 只描述实施方式，不构成新增授权；宿主 Plan 模式保持只读，退出后沿用仍有效的实施授权。
 - **Execution Envelope 与跨域任务**：实际跨域协作时明确共享 API/schema 的唯一写入归属和 fan-in 验收；并发写入需要隔离时分配独立 workspace，不因命中多个领域强制拆分。单 Agent 默认；仅独立切片/只读探查/隔离验证可多 Agent，最多 2 个写、4 个读，父 Agent 负责 fan-in/冲突/最终验证/Linear 交付，容量不足则串行；只读记录墙钟、Active/Blocked/Coordination、Fan-out/Fan-in、WIP/Cycle/Lead 与重试/冲突/返工率，不改变授权、优先级或生命周期。
@@ -67,7 +68,7 @@
 
 - **快速**：只读、解释、文档、纯文案/按钮标签与微小非行为变化；通常只需静态核对或无需命令验证，不编写用例，不触发测试套件。
 - **轻量**：可逆的本地行为改动；运行与受影响范围匹配的检查。
-- **完整**：安全、数据迁移、生产、发布、外部写入、公共契约、红区、不可逆或跨仓变更；扩大验证范围并准备回滚。**档位与验证收据**：riskLevel 是建议层，快速/轻量档的单元完成主张由快速层收据支撑，完整档由 standard 层收据支撑；唯一硬消费是 `worktree land` 验证门。快速层只支持单元内完成，集成或发布主张必须取得标准/深度证据；完整量化矩阵见档位量化规格，验收状态固定为 passed、failed、blocked、unverified。
+- **完整**：安全、迁移、发布、公共契约或跨仓任务按实际影响面选择至少相应契约/集成切片；风险档位是建议，不因收据自动升 deep。请求层级的实际选中检查在稳定候选上通过仅证明该层；deferred 不阻断本层，也不支持未取得的集成或发布主张。
 - **关键修改的关系链**：共享逻辑、公共契约、公共 API、数据模型、安装器/适配器/manifest schema、安全或红区路径等关键修改实施前必须查找关系链并明示风险等级与影响范围——依赖链（调用方、实现方、配置/文档/测试引用）、契约链（消费方与兼容性、迁移影响）、测试链（覆盖受影响行为的测试，无覆盖先补 characterization test 或缩小范围）、文档链（规则、模板、catalog、README 同步，不一致就地修正或记录后续）。宿主提供 codebase-memory-mcp 时可优先使用语义图并核对证据路径覆盖，否则使用仓库搜索和直接阅读，工具结果不替代源码与测试证据；按需要说明风险、影响范围、未覆盖路径和回滚方式，不因完整档自动增加人工门。
 ## 验证与证据
 
@@ -88,7 +89,7 @@ REPL/Micro 验证遵循最小权限和证据降级原则：只有项目配置中
 
 ## 交付与证据标签
 
-项目声明 `delivery` 时，`delivery.default` 选择交付模式，命令行 `--delivery` 仅覆盖本次；缺省配置保留 legacy 行为并提示迁移。managed-mr 保留 squash MR，不以本地 no-ff 替代；local-land 使用 ancestor；inspect-only 禁止写入和执行验证命令。新模式完整完成须有 passed/failed/blocked/unverified 四态验收、实际命令或人工判据、范围、未验证项、剩余风险、回滚与 source/target 指纹。全部必需项 passed 且收据仍新鲜才可完整完成，旧任务缺字段只兼容告警。验证通过后的新写入使收据不可复用，即使内容后来还原。
+项目声明 `delivery` 时，`delivery.default` 选择交付模式，命令行 `--delivery` 仅覆盖本次；旧 `requireReceipt` 兼容读取并提示退役，不再构成完成或合并门禁。managed-mr 保留 squash MR 的目标合并证据，local-land 校验最终候选树和目标 SHA。实际失败、空选集、未知范围、运行中或输入变化不能标作通过；延迟高层检查列为 deferred，持久收据只供可选诊断/缓存，不是验收授权。
 
 已建锚点的任务使用 `task checkpoint <id> --reason <text> --write` 保存 HEAD、工作区、改动、单元、最后验证、blocker 与 nextAction。`task event` 接收 pre-compaction、resume、continue、pre-delivery、pre-verify；第二次 continue 才 checkpoint；resume 先核对漂移，不重写计划。受管 verify 和显式 task 的 land 在运行前记录 checkpoint。压缩、恢复与用户消息只在宿主真实投递事件时自动触发；未安装宿主 bridge 时由 Agent 显式调用，不声称已监听事件。
 

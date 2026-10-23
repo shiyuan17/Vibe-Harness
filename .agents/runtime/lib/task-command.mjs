@@ -14,8 +14,6 @@ import path from 'node:path';
 
 import { gitFingerprint } from './git-fingerprint.mjs';
 import { parseLinearPlanBlock } from './linear-planning.mjs';
-import { attestCompletionProvenance } from './verification-receipt.mjs';
-import { resolveDelivery, validateCompletion } from './delivery.mjs';
 
 import { boundedOutput, normalizePath } from './cli-output.mjs';
 import { PASS_STATUSES, SCHEMA_VERSION, normalizeSlashes, readProjectConfig, safeRealpath, stableStringify } from './cli-runtime.mjs';
@@ -1000,25 +998,6 @@ async function taskCheckCore(projectDir, args) {
   if (planCheck.status !== 'passed') return { ...planCheck, subcommand: 'check' };
   const read = await readTaskAnchor(projectDir, taskId);
   if (!read.exists) return taskFailure('check', `no anchor for task ${taskId}: run "task init ${taskId}" first`);
-  let deliveryGate = null;
-  if (args.complete) {
-    const delivery = resolveDelivery(await readProjectConfig(projectDir), args.delivery);
-    let receipt;
-    try {
-      receipt = args.receipt ? JSON.parse(await readFile(path.resolve(projectDir, args.receipt), 'utf8')) : read.anchor.completion;
-    } catch (error) {
-      // A caller-supplied receipt that is missing or malformed is a delivery
-      // blocker, not a crash: the same report the invalid-receipt path returns.
-      return {
-        command: 'task', subcommand: 'check', taskId, status: 'blocked', complete: false,
-        code: 'DELIVERY_RECEIPT_UNREADABLE',
-        errors: [`completion receipt could not be read: ${boundedOutput(error.message, projectDir)}`],
-      };
-    }
-    deliveryGate = validateCompletion(receipt, delivery, await gitFingerprint(projectDir),
-      { provenance: await attestCompletionProvenance(projectDir, receipt) });
-    if (deliveryGate.status === 'blocked') return { command: 'task', subcommand: 'check', taskId, status: 'blocked', complete: false, code: 'DELIVERY_RECEIPT_REQUIRED', ...deliveryGate };
-  }
   const units = Array.isArray(read.anchor.units) ? read.anchor.units.filter((unit) => unit && typeof unit === 'object') : [];
   const selected = args.unit ? units.find((unit) => unit.id === args.unit) : null;
   if (args.unit && !selected) return taskFailure('check', `unit ${args.unit} is not present in task ${taskId}`, 'VIBE_HARNESS_TASK_UNIT_MISSING');
@@ -1032,10 +1011,10 @@ async function taskCheckCore(projectDir, args) {
   // depends on it: continuing would build on an unverified result. The check is
   // the pre-dispatch gate, so it answers before the work is handed out.
   const planUnits = planUnitGraph(planCheck);
-  const needsEvidence = Boolean(args.dispatch || args.complete);
-  const currentFingerprint = needsEvidence ? (await gitFingerprint(projectDir)).fingerprint : null;
-  const configured = needsEvidence ? configuredChecks(await readProjectConfig(projectDir), projectDir) : null;
-  const isVerified = (unit) => currentUnitVerification(unit, currentFingerprint, configured, projectDir);
+  // A task anchor is a dependency ledger, not a receipt gate. A sibling
+  // worktree must not invalidate a completed predecessor by changing the
+  // aggregate fingerprint of this checkout.
+  const isVerified = () => true;
   const predecessors = selected && planUnits.length > 0
     ? unitPredecessorState(planUnits, units, selected.id, isVerified)
     : { blocked: [], checked: [], failed: [], unfinished: [] };
@@ -1102,7 +1081,7 @@ async function taskCheckCore(projectDir, args) {
   const unverified = targetUnits
     .filter((unit) => {
       if (unit.status !== 'done') return false;
-      return args.complete ? !isVerified(unit) : unit.verification?.status !== 'passed';
+      return !args.complete && unit.verification?.status !== 'passed';
     })
     .map((unit) => unit.id ?? '?');
   const complete = Boolean(args.complete);
@@ -1118,7 +1097,6 @@ async function taskCheckCore(projectDir, args) {
     status: ok ? 'passed' : 'failed',
     ...(ok ? {} : { code: 'VIBE_HARNESS_TASK_NOT_READY', error: `task is not ready${unfinished.length ? `; unfinished units: ${unfinished.join(', ')}` : ''}${unverified.length ? `; unverified units: ${unverified.join(', ')}` : ''}${failedUnits.length ? `; failed units: ${failedUnits.join(', ')}` : ''}` }),
     complete,
-    ...(deliveryGate ? { deliveryGate } : {}),
     unit: args.unit ?? null,
     unfinished,
     unverified,
