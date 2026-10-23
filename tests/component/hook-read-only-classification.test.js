@@ -529,7 +529,7 @@ test('read-only MCP tools pass while write-class MCP tools still need an Envelop
       if (toolName === 'mcp__filesystem__write_file') assert.deepEqual(result, {}, toolName);
       else {
         assert.equal(result.hookSpecificOutput.permissionDecision, 'deny', toolName);
-        assert.match(result.hookSpecificOutput.permissionDecisionReason, /HOST_AUTHORIZATION_REQUIRED/u, toolName);
+        assert.match(result.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u, toolName);
       }
     }
   });

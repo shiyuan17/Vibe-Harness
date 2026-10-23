@@ -558,9 +558,9 @@ test('Execution Envelope ignores stale local envelopes but rejects mismatched de
     assert.deepEqual(readOnly, {});
 
     const unknown = await evaluateCodexHook(input(target, {
-      tool_input: { command: 'node scripts/custom-operation.mjs' },
+      tool_input: { command: 'ssh example.test' },
     }), { environment: { VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED: '1' } });
-    assert.match(unknown.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u);
+    assert.match(unknown.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_UNKNOWN_EFFECT/u);
   });
 });
 
@@ -621,7 +621,7 @@ test('high-risk commands require a scoped v2 envelope and host enforcement', asy
     ];
     for (const command of commands) {
       const missing = await evaluateCodexHook(input(target, { tool_input: { command } }));
-      assert.match(missing.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u, command);
+      assert.match(missing.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_(?:MISSING|UNKNOWN_EFFECT)/u, command);
       const legacy = await evaluateCodexHook(input(target, {
         execution_envelope: executionEnvelope({ allowedEffects: ['workspaceWrite'] }),
         tool_input: { command },
@@ -1861,7 +1861,7 @@ test('worktree 生命周期命令无 Envelope 放行，跨边界效果仍 fail-c
 
 for (const scenario of [
   { name: '只读放行', toolName: 'Bash', toolInput: { command: 'git status --short' }, decision: undefined },
-  { name: '缺授权拒绝', toolName: 'Write', toolInput: { file_path: 'src/example.js', content: 'fixture' }, decision: 'deny' },
+  { name: '缺授权拒绝', toolName: 'mcp__linear__save_issue', toolInput: { id: 'ENG-123' }, decision: 'deny' },
 ]) {
   test(`Hook CLI ${scenario.name} 不回显或落盘合成敏感输入`, async () => {
     await withProject(async (target) => {

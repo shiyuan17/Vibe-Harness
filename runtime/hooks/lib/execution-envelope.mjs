@@ -1119,21 +1119,24 @@ export function evaluateExecutionEnvelope(input, { environment = process.env, no
   const delivery = ordinaryGitDelivery(input, classification);
   if (delivery && typeof delivery !== 'string') return delivery;
   const candidate = envelopeInput(input, environment);
-  const required = environment.VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED === '1';
   const crossingHostBoundary = classification.effects.some((effect) => [
     'hostWrite', 'externalWrite', 'dataEgress', 'credentialUse', 'linearWrite', 'mergeRequestWrite',
   ].includes(effect));
   if (!candidate.present) {
     if (classification.readOnly || delivery) return { action: 'allow' };
+    if (classification.unknown) {
+      return deny('EXECUTION_ENVELOPE_UNKNOWN_EFFECT',
+        '该调用效果无法安全判定，属于「不可判定」，需要可核验的宿主授权；只读命令无需 Envelope。');
+    }
     if (containsGitDelivery(input)) {
       return deny('GIT_DELIVERY_UNVERIFIED', '仅可直接执行经核验的单一普通提交或非强制推送；复合、改写或目标不明的 Git 交付已拒绝。');
     }
-    if (!required && !crossingHostBoundary && classification.risk !== 'high') return { action: 'allow' };
+    if (!crossingHostBoundary && classification.risk !== 'high') return { action: 'allow' };
     return invalidEnvelopeDecision('missing');
   }
   const nowMs = now instanceof Date ? now.getTime() : Number(now);
   const parsed = parseExecutionEnvelope(candidate.value);
-  const localOptional = !required && !containsGitDelivery(input)
+  const localOptional = !containsGitDelivery(input)
     && !crossingHostBoundary && classification.risk !== 'high';
   if (!parsed) {
     return classification.readOnly || localOptional ? { action: 'allow' } : invalidEnvelopeDecision('invalid');
