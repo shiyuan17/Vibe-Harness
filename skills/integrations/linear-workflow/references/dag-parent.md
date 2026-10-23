@@ -68,7 +68,7 @@ Fan-in 必须在所有必需后代进入终态后，从实际合并结果重新�
 
 Parent 只有同时满足以下条件才可 Done：
 
-1. 每个 required write descendant 的 closing GitHub PR 或 GitLab MR 已合并到声明的精确目标 ref；仅显式 `vb-linear-worktree-develop` 的本地 land 节点可改用最新 `origin/develop` 基线验证、no-ff 合并、推送成功和 worktree/分支清理的完整证据。
+1. 每个 required write descendant 的 closing GitHub PR 或 GitLab MR 已合并到声明的精确目标 ref；仅显式 `vb-linear-worktree-develop` 的本地 land 节点可改用最新 `origin/develop` 基线验证、候选 no-ff 合并验证、主检出本地 develop ff-only 更新及精确远端推送确认的完整证据；清理结果单列，不阻塞 Done，残留资源仍占用。
 2. 每个 required read descendant 的约定输出和 Verification 证据已记录。
 3. 每个 required aggregate descendant 满足自身 trigger，并通过自身 Fan-in Verification。
 4. Root 的 Fan-in Verification 通过并留下事实证据。
@@ -86,3 +86,5 @@ Parent 只有同时满足以下条件才可 Done：
 - 每次派发 write 节点前重验证 DAG 版本或 hash、依赖、Scope、锁、HEAD 和工作区身份；变化时暂停后继并重新计算 ready 集合。
 - 子节点交接至少报告结果、修改文件、base/head、验证命令与退出码、风险和阻塞；交接信息不构成授权。
 - 只读取当前 Issue 及必要依赖/冲突范围；保存 dagStructureHash 和可用的 dagChangeCursor。只有两者共同证明结构未变才增量读取；没有可靠游标时允许一次有界重读相关完整范围，仍不完整则 fail-closed，不反复遍历全项目。
+
+显式 local-land：候选验证 → 主检出本地 develop ff-only 更新 → 精确远端推送确认即 Done / succeeded；清理失败不阻塞后继，但残留路径/端口/resourceLocks 继续占用。Start/Terminal Receipt 可选，无宿主 Claim 仍可执行，同 Issue 不重复并行；不扫描队列抢单。普通 PR/MR 仍需 In Review 与 closing 合并证据，Parent 必需全部后代成功及最终组合行为的 fan-in 验证。

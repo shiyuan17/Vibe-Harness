@@ -1,7 +1,7 @@
 ---
 id: ADR-0008
 title: Bounded host-dispatched Linear auto-claim
-status: accepted
+status: superseded
 date: 2026-09-26
 review-date: 2027-03-26
 owner: vibe-harness-maintainers
@@ -9,7 +9,7 @@ decision-makers: [vibe-harness-maintainers]
 consulted: [linear-workflow-users]
 informed: [vibe-harness-contributors]
 supersedes: [ADR-0001]
-superseded-by: null
+superseded-by: ADR-0019
 ---
 
 # Bounded host-dispatched Linear auto-claim

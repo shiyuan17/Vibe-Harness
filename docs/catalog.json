@@ -1465,6 +1465,17 @@
         "maintainer",
         "auditor"
       ]
+    },
+    {
+      "path": "docs/adr/ADR-0019-local-first-explicit-delivery.md",
+      "kind": "architecture",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
     }
   ]
 }

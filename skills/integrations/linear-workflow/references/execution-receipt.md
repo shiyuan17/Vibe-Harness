@@ -1,5 +1,8 @@
 # Linear 执行回执（Execution Receipt）
 
+> 历史兼容参考：显式执行不要求 Claim 或 Start/Terminal Receipt，活动自动队列派发已退役。本页的 v1/v2/v3、Claim/Grant 与宿主自动派发协议只用于解释历史记录、冲突和交接，不是当前执行入口或门槛。同一 Issue 不得重复并行；历史活动 Receipt、Delegate 和工作区仍须核对。当前规则以 linear-workflow 和 git-rules 为准。
+
+
 Execution Receipt 是 Linear Issue 上不可变、追加式的结构化评论，用来记录具体 Agent 运行实例。人类 Assignee 表示结果责任人，Delegate/App User 表示 Agent 产品身份，Receipt 表示运行实例，Linear Activity Feed 表示委派或身份变更历史。
 
 每条结构化评论只包含一个独立 JSON 对象，不混入自由文本。Receipt 和 terminal event 一经写入不得编辑或删除；解释或修正只能追加新评论。

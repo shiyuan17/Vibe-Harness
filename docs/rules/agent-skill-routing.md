@@ -39,7 +39,7 @@ Skill 是宿主按 description 直接选择的领域能力包：description 是�
 - 用户明确要求编写、优化或激活跨任务持续目标时使用 `define-goal`：产出可激活的 Goal Brief，不处理当轮解阻。
 - 用户要求拆分已有计划、建立 Task DAG 或生成节点执行提示词时使用 `task-decomposition`：产出拆分判定、Goal/DAG 和宿主无关的单节点提示词；不自动派发或执行任务。简单单 Agent 任务不创建 DAG。
 - 仅在用户显式调用 `$vb-git-split-push` 或明确指定 `vb-git-split-push` Skill 时使用：整理当前任务改动、按逻辑分组提交并安全地普通推送当前分支。
-- 用户显式调用 `vb-git-develop-flow` / `$vb-git-develop-flow` 时只选择该显式本地交付 Skill：宿主 worktree 或仓库外 worktree、本地 `develop` land 与推送清理；普通提交和 `$vb-git-split-push` 不触发它。用户显式调用 `vb-linear-worktree-develop` / `$vb-linear-worktree-develop` 时只选择该 Linear 集成 Skill：从当前计划同步 Parent/DAG，仅领取本次新建节点并逐节点本地 land；普通 Linear 请求不触发它。两者的 `--delivery local-land` 仅覆盖本轮，不修改项目默认配置。
+- 用户显式调用 `vb-git-develop-flow` / `$vb-git-develop-flow` 时只选择该显式本地交付 Skill：bootstrap 登记的仓库外 worktree、本地 `develop` land 与推送清理；普通提交和 `$vb-git-split-push` 不触发它。用户显式调用 `vb-linear-worktree-develop` / `$vb-linear-worktree-develop` 时只选择该 Linear 集成 Skill：从当前计划同步 Parent/DAG，仅领取本次新建节点并逐节点本地 land；普通 Linear 请求不触发它。两者的 `--delivery local-land` 仅覆盖本轮，不修改项目默认配置。
 - 出现具体故障、报错或测试失败且根因未知时使用 `systematic-debugging`：先证明根因再修复；根因已知或已有既定修复时不触发；Agent 规则、Skill、提示或 Hook 行为变化使用 `eval-driven-development`。
 - 用户调用 vb find question、$find-question 或要求跨层字段、配置、授权、生命周期深度审查时，优先使用已安装的 find-question：主动证伪候选，输出证据化问题与整改计划；CLI 只生成 planned 审查包，不证明已审查。普通潜在缺陷继续使用 bug-finding，具体失败症状的根因定位使用 systematic-debugging；没有安装该 Skill 时沿用项目规则和审查模板，不模拟调用。
 - 只读审查现有项目的逻辑、流程、状态、一致性与接口缺陷时使用 `bug-finding`：面向没有具体失败症状的存量代码，产出证据化审查报告，不修改源码、配置、依赖或数据；要定位具体失败的根因时改用 `systematic-debugging`。
@@ -48,7 +48,7 @@ Skill 是宿主按 description 直接选择的领域能力包：description 是�
 - 信任边界使用 `security-and-hardening`；公共契约使用 `api-and-interface-design`；前端体验使用 `frontend-design`；跨仓运行时使用 `runtime-cross-repo-rollout`。
 - 页面交互、console、network、性能、响应式、可访问性或视觉验收使用 browser-verification integration Skill；它仅由 playwright 或 chrome-devtools plugin 显式安装，不计入 profile 的原生领域 Skill 数量。未安装时使用项目已有的浏览器验证入口。
 - 提及 Linear Issue，或请求委派、执行、审查、核验、解释与状态同步时使用 linear-workflow integration Skill；它仅由 linear-mcp 或 linear-mcp-readonly 显式安装。普通提及、查询、Review 或 Verify 只触发规则选择，不授权登记领取。
-- Writer 仅在具体 Issue 的明确执行指令、用户显式调用 `vb-linear-worktree-develop` 处理当前计划、已有 Delegate 的宿主显式启动，或宿主依据有效限时领单授权派发具体 Issue 时登记。专用流程的授权限于其明确列出的计划范围；普通 Linear 请求不继承该范围。限时授权派发必须逐 Issue 签发绑定工作区范围的执行授权记录，并由宿主提供核验信息、原子 Claim 与跨实例独占性；具体核验和领取步骤分别见 `governance-core.md`、`linear-workflow.md`。队列可见与配置文件不是授权；未安装集成能力时只能使用用户提供的 Issue 上下文，不声称已读取或同步 Linear。
+- Writer 仅在显式具体 Issue、已授权当前计划或宿主明确启动的既有委派 Issue 内执行。计划内可接续，不扫描队列；不要求 Claim 或 Start/Terminal Receipt。历史活动记录仍参与冲突检查，规则见 `linear-workflow.md`；未安装集成能力时只使用用户提供上下文，不声称已同步 Linear。
 - 按需加载最匹配的领域 Skill，确需互补知识时补充加载，不建立固定流程链；能力不可用时使用项目规则和确定性验证，不模拟工具或结果。
 - description 或触发边界变化视为路由行为变更：用真实任务或 Eval 观察漏触发与误触发，再回改 description 或收敛边界，不靠新增 Router 解决。
 

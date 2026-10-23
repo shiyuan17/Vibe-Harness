@@ -4,7 +4,7 @@
 
 - **默认方式**：单 Agent 完成获取事实、实现、验证与交付；协作与 worktree 隔离只在明确需求或可独立并行的工作单元存在时触发，成本触发条件（含具体门槛值）以 `governance-core.md` 的「成本与升级」节为准。
 - **三档判据**：写路径单 Agent（默认）；只读探查可 fan-out，需显式声明；并行写仅当跨模块且 `writeScope` 不重叠，共享契约永远唯一写者。
-- **轻量 Task DAG**：仅在实际使用两个以上协作单元时声明节点字段 `id`、`kind`、`output`、`dependsOn`、`writeScope`、`resourceLocks`、`verification`、`result`；不由 Vibe-Harness 解析，也不形成固定完成门禁。
+- **轻量 Task DAG**：已有 Linear DAG 必须遵循；普通固定步骤不强制完整 DAG，实际使用两个以上协作单元时声明节点字段 `id`、`kind`、`output`、`dependsOn`、`writeScope`、`resourceLocks`、`verification`、`result`；不由 Vibe-Harness 解析，也不形成固定完成门禁。
 - **结果语义**：只有全部直接前驱 `succeeded` 才满足 all_success；失败不得改判为成功，未终结节点不得视为已终结。
 - **继续读全文的信号**：节点状态与触发、ready 与冲突判定、派发失败与交接、Linear 投影或事实与安全边界。
 
@@ -35,18 +35,18 @@ Question 2: 工作单元是否完全独立（无数据依赖、无写入范围�
   ├─ Yes → 继续 Question 3
   └─ No  → 结束（必须单 Agent，共享数据永远唯一写者）
 
-Question 3: 预计并行执行时间是否 > 45 分钟？（具体门槛以 governance-core.md「成本与升级」为准）
+Question 3: 预计净节省是否至少 45 分钟？（具体门槛以 governance-core.md「成本与升级」为准）
   ├─ Yes → 继续 Question 4
   └─ No  → 结束（工作量太小，不值得）
 
-Question 4: 预期节省是否 > 25%（墙钟时间）？（具体门槛以 governance-core.md「成本与升级」为准）
+Question 4: 预期净节省是否至少 25%（墙钟时间）？（具体门槛以 governance-core.md「成本与升级」为准）
   ├─ Yes → 编制轻量 Task DAG 并派发
   └─ No  → 结束（成本节省不足，保持单 Agent）
 ```
 
 **关键约束**：
 - 最多 2 个写 Agent；纯读操作可 fan-out，不超过 4 个只读 Agent
-- 所有写入必须按 DAG 序列化，不尝试真正并发修改
+- 有依赖或共享资源的写入按 DAG 串行；隔离且 ready 的写单元可受限并行，最终集成由父 Agent 串行负责
 - 父 Agent 保持唯一编排和最终验证责任
 - 共享契约（API、数据模型、安装器）永远唯一写者
 
@@ -113,6 +113,7 @@ cancelled：
 | `resourceLocks` | 逻辑与基础设施级共享资源：API、schema、manifest、迁移、版本或发布状态，包管理器 store 与 lockfile、构建与测试缓存、端口与容器、测试数据库、外部 API 配额，以及同一 clone 的 Git 操作；端口与容器这类基础设施锁以项目登记表为事实 |
 | `verification` | 聚焦验证：命令或人工判据、责任方（child 或 parent）与通过标准 |
 | `result` | 统一状态，见下 |
+| `cleanupPending` | 可选布尔值，默认 false；true 保留残留资源占用，不改变成功节点的 result |
 
 模板中留空的字段写 `None`；写范围一律使用 `writeScope` 的写法。
 
@@ -167,7 +168,7 @@ Linear 状态到本地 `result` 的映射固定如下，只作本地解释，不
 | Todo（已通过 Definition of Ready） | `ready` | Ready 门禁、依赖与资源条件满足 |
 | Todo（未通过 Ready） | `pending` 或 `blocked` | 按依赖与冲突事实判定 |
 | In Progress / In Review / Ready to Merge | `running` | 已开始但未完成验证 |
-| Done（有对应 kind 的 closing PR/MR、输出或 fan-in 证据） | `succeeded` | 合并、输出或 fan-in 证据 |
+| Done（有对应 kind 的 closing PR/MR、local-land、输出或 fan-in 证据） | `succeeded` | closing 合并，或显式 local-land 候选验证、本地合并与精确远端确认；read 输出或 aggregate fan-in 证据 |
 | Done（缺证据） | `unverified` | 结论存在但缺完成证据，需要补证或改判；只按事实报告，不回写平台状态 |
 | Canceled / Won't Fix | `cancelled` | 外部终态 |
 | Duplicate | `skipped` | 外部终态；替代 Issue 成功不自动使原节点 `succeeded` |
@@ -176,11 +177,11 @@ Linear 状态到本地 `result` 的映射固定如下，只作本地解释，不
 - 超时、预算耗尽或瞬时失败重试耗尽且工作未完成时记为 blocked 并报告原因，不自动续派；确认的行为失败记为 failed，明确取消记为 cancelled，均非成功。取消和超时后先确认原调用是否仍在运行及副作用状态，不释放未知状态的写入归属或重复非幂等写入。长任务可设更小的尝试上限；宿主预算和权限仍是硬边界，默认瞬时尝试上限为三次。退避遵守 Retry-After，未提供时使用有界退避；不新增后台重试或自动回收服务。
 - 本地并发计算实际 running 的读写节点，而非 ready 队列长度；软上限可按项目策略调整，但不得突破宿主容量、限流或明确预算，能力不明时不自动提高。两个消费方读取同一已稳定契约并不等于两个共享契约写入者，可在上游已成功、writeScope 和资源隔离后并行。
 
-已有 Linear DAG 是外部工作真值，不受“仅在本地协作时创建轻量 DAG”的限制。映射时，顶层 Parent 是 DAG Root，Sub-issue 是节点，Parent/Sub-issue 只表示分解；dependsOn 只能从原生 blocked-by / blocks 关系派生，related 不是执行边，描述中的依赖清单也不是第二真值。执行者由 Delegate + Execution Receipt 表示，Scope 投影为 writeScope，DAG Metadata 可提供 kind、trigger 和 resourceLocks。
+已有 Linear DAG 是外部工作真值，不受“仅在本地协作时创建轻量 DAG”的限制。映射时，顶层 Parent 是 DAG Root，Sub-issue 是节点，Parent/Sub-issue 只表示分解；dependsOn 只能从原生 blocked-by / blocks 关系派生，related 不是执行边，描述中的依赖清单也不是第二真值。执行者由必要 Delegate/身份表示，Execution Receipt 可选，Scope 投影为 writeScope，DAG Metadata 可提供 kind、trigger 和 resourceLocks。
 
-Agent 必须检测环、不可见或未解决依赖，以及 writeScope（Linear 的 Scope）与 Resource Lock 冲突，但不得在没有授权时创建、删除或修改 Linear relations。存在子 Issue 的 Parent 是 aggregate；write 叶子由 closing PR 合并证明成功，read 叶子由输出与 Verification 证据证明成功。Parent 只有在全部必需后代成功且 Fan-in Verification 通过后才 Done；Linear 的 Parent/Sub-issue 自动关闭必须禁用，all_done 报告节点成功也不能掩盖必需后代失败。
+Agent 必须检测环、不可见或未解决依赖，以及 writeScope（Linear 的 Scope）与 Resource Lock 冲突，但不得在没有授权时创建、删除或修改 Linear relations。存在子 Issue 的 Parent 是 aggregate；write 叶子由 closing PR 合并，或显式 local-land 候选验证、本地合并及远端推送确认共同证明成功；清理失败 `integrated_cleanup_pending` 不阻塞 succeeded 和后继，但残留资源继续占用，冲突资源不得复用，read 叶子由输出与 Verification 证据证明成功。Parent 只有在全部必需后代成功且 Fan-in Verification 通过后才 Done；Linear 的 Parent/Sub-issue 自动关闭必须禁用，all_done 报告节点成功也不能掩盖必需后代失败。
 
-轻量 Task DAG 默认建议同一时刻 ready 写节点并发不超过 2、只读探查不超过 4；这是可由宿主并发能力、API 限流、项目资源和任务预算覆盖的软上限，不等同于 Linear 活跃 Issue 上限；并行度实际上限由可复核的 diff 规模、人类复核带宽与 token 预算决定，默认值是上限而不是目标，多 Agent 的 token 成本显著高于单 Agent。Linear 工作流另建议 Writer In Progress 不超过 3、In Review 不超过 2。子 Agent 默认不再派生子 Agent（最大派生深度 1），确需进一步拆分时回传 blocked 与拆分请求，由父 Agent 决定是否创建兄弟节点。fan-in 多个子 Agent 后若父 Agent 上下文接近压缩边界，先压缩已采纳子 Agent 的原始证据指针，保留结论、已定决策及其理由与未决项再继续派发，压缩不得丢弃未完成依赖或未验证假设。
+轻量 Task DAG 默认建议同一时刻实际 running 写节点并发不超过 2、只读探查不超过 4；这是可由宿主并发能力、API 限流、项目资源和任务预算覆盖的软上限，不等同于 Linear 活跃 Issue 上限；并行度实际上限由可复核的 diff 规模、人类复核带宽与 token 预算决定，默认值是上限而不是目标，多 Agent 的 token 成本显著高于单 Agent。Linear 工作流另建议 Writer In Progress 不超过 3、In Review 不超过 2。子 Agent 默认不再派生子 Agent（最大派生深度 1），确需进一步拆分时回传 blocked 与拆分请求，由父 Agent 决定是否创建兄弟节点。fan-in 多个子 Agent 后若父 Agent 上下文接近压缩边界，先压缩已采纳子 Agent 的原始证据指针，保留结论、已定决策及其理由与未决项再继续派发，压缩不得丢弃未完成依赖或未验证假设。
 
 ## 事实与安全
 
@@ -195,3 +196,5 @@ Agent 必须检测环、不可见或未解决依赖，以及 writeScope（Linear
 ## 验证与交付
 
 验证与主张匹配：局部改动运行聚焦检查，跨模块或高风险改动扩大到集成与回滚验证。使用子 Agent 时，父 Agent 在交付报告中说明分工与各单元回传结果，以便复核指向。独立验证者必须使用宿主真实支持的 fresh context：不得继承实施会话、实施者自评或另一复审者结论；仅创建新的 `contextId` 不能证明独立。用户显式要求独立复审时，可派发只读、独立上下文的复审子 Agent（限定只读工具集）对照验收标准与 diff 核验，其结论是辅助证据而非完成门禁，父 Agent 仍负最终交付责任；完整档涉及安全、红区或公共契约时可派发两个独立复审子 Agent 并对账分歧，先用事实和验证消解分歧，仅对仍需用户决定的产品或授权问题请求澄清，不以多数票覆盖证据。最终交付报告结果、实际变更和本轮验证；仅在存在时报告未验证项、风险或后续动作。
+
+本地 DAG 投影可用可选 `cleanupPending: true` 标记残留，节点 result 仍为 succeeded；task-dag check 据此保留 writeScope/resourceLocks 占用，阻止冲突资源复用，独立后继和 Parent fan-in 不受清理状态阻塞。清理确认后改为 false；该字段是工作区事实投影，不是第二依赖真值。

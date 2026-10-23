@@ -1,6 +1,6 @@
 export const deliveryProfiles = Object.freeze({
   'managed-mr': { merge: 'squash', cleanup: 'evidence-compatible', requireReceipt: false, reviewPolicy: 'required' },
-  'local-land': { merge: 'no-ff', cleanup: 'ancestor', requireReceipt: false, reviewPolicy: 'required' },
+  'local-land': { merge: 'no-ff', cleanup: 'ancestor', requireReceipt: false, reviewPolicy: 'none' },
   'inspect-only': { write: false, requireReceipt: false },
 });
 

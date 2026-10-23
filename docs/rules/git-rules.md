@@ -132,58 +132,26 @@ const LAND_MAX_ATTEMPTS = 3;                 // 基线变化重试上限
 
 managed-mr 的 land 只读取已合入 MR 的证据，不本地合并或推送；ancestor 快速路径保留。squash 清理须绑定 sourceBase/sourceHead、targetRef/targetBefore/targetAfter、mergeMethod/mergeCommit、patchId 和 taskId，并重读目标引用、核对整个 source diff 与单父 squash commit 的 stable patch-id、干净工作树以及当前完成收据；缺失、漂移或不一致一律 blocked。GitLab `--mr` 读取失败不得猜测已合并。cleanup 保留分支，不自动强删 squash source 分支。
 
-## 显式 develop flow
+### 显式 develop flow
 
-#### Develop Flow vs 普通提交决策树
+仅用户显式调用 `vb-git-develop-flow` / `$vb-git-develop-flow` 或 `vb-linear-worktree-develop` / `$vb-linear-worktree-develop` 才选择此模式；风险等级只影响验证与必要隔离，不自动选择 flow。普通提交、`vb-git-split-push`、普通 Linear Issue 与项目默认 delivery 保持各自入口，不创建额外流程。
 
-回答以下问题，判定是否需要使用 `vb-git-develop-flow`：
+本节定义 local-land 交付合同，Skill 只保留入口、操作顺序和停止边界。默认使用 `worktree bootstrap` 创建并登记的仓库外 worktree；当前不提供宿主 worktree 导入登记。只提交本任务已归属的改动，核对 canonicalCwd、gitCommonDir、gitDir、分支、HEAD、基线与写入根；已有改动不得覆盖、stash 或夹带。
 
-```
-Question 1: 是否涉及公共契约或公开 API 变更？
-  ├─ Yes → 必须 develop flow
-  └─ No  → 继续 Question 2
+单任务与 batch 使用同一落地顺序：
 
-Question 2: 是否涉及安全相关或红区文件修改？
-  ├─ Yes → 必须 develop flow
-  └─ No  → 继续 Question 3
+1. 核对任务归属、源 HEAD、主检出与实际目标。主检出必须在 develop 且干净；有无关改动时保留任务树并暂停落地，不替用户 checkout。
+2. 冻结 origin 唯一实际 push URL 与 `refs/heads/develop`；拒绝多 push URL、mirror 或目标不明。获取该精确目标最新基线，本地 develop 仅允许快进同步，不夹带无法归属的未推送提交。
+3. 从冻结基线建立 detached 候选，no-ff 合入任务分支并完成按风险选择的必要验证；独立审查可选，项目明确的审查要求、Hook 与分支保护继续生效。
+4. 候选构建/验证可并行，同一目标 ref 最终化串行。取得目标锁后重核源、候选、主检出、实际 push URL 和远端基线。
+5. **先**将已验证候选以 ff-only 更新到主检出本地 develop，确认 HEAD 等于候选 SHA；**再**以显式非强制 refspec 推送该 SHA 到被冻结地址的 `refs/heads/develop`，覆盖 pushDefault、pushRemote 和默认 refspec；重读精确远端确认 SHA。
+6. 推送确认即代码集成完成，随后安全清理。清理失败返回成功并标记 `integrated_cleanup_pending`，报告残留；残留路径、端口与资源锁继续占用，清理重试不重放合并或推送。
 
-Question 3: 是否并行多个独立的功能分支？
-  ├─ Yes → 考虑 develop flow
-  └─ No  → 使用普通本地提交与推送
+`--target-mode primary` 保留；`remote` 已退役，任何写入前必须明确拒绝并提示迁移。`--base-ref develop` 是当前分支断言，不是分支切换。不带 `--push` 只证明本地合并，不满足完整 flow 的远端完成条件。
 
-结论：
+恢复记录保存在 Git common dir，绑定源 HEAD、冻结基线、候选 SHA、精确目标及阶段，不依赖 Linear Receipt。冲突或验证失败保留源与候选，本地 develop 不动；最终化前基线前进释放锁、按有界重试重建候选，只重跑失效检查。本地已合并而推送失败保留本地合并与源，重试核对原候选；结果不明先查询精确远端。远端分叉保留现场并报告重新集成，不自动 reset、rebase、force push 或删除源。推送确认后的清理失败不阻塞 Linear Done、succeeded 或依赖后继，但资源冲突仍阻塞资源复用。仍有 land 事务的源工作区只能经 `land --resume` 恢复；通用 cleanup 不得绕过事务直接清理。
 
-**参考**：该决策树对应 `docs/rules/governance-core.md` 的「风险档位」。
-
-**成本与升级门槛**：并行模式的成本与节省决策详见 `docs/rules/governance-core.md`「成本与升级」章节；单一真值源为该文件中的 45 分钟和 25% 要求。
-- 快速档（仅改 develop 分支）→ 普通提交与推送
-- 轻量档（跨相邻模块）→ 可用普通提交或 develop flow
-- 完整档（公共契约、安全、迁移）→ 按实际隔离和集成需要选择；不自动强制 develop flow
-```
-
-**使用指南**：
-- 普通本地提交与推送无需独立授权，满足当前任务范围
-- Develop flow 适用于需要隔离工作区、验证与合并的场景
-- 两者都保持"一个逻辑变更一个 commit"的规则
-- **完整执行合同**（5步流程、授权核对项、入口选择条件、Envelope 兼容说明）见 `vb-git-develop-flow` Skill；本节只保留判定原则，修改须同步。
-- `vb-git-develop-flow` 的显式调用授权本轮本地交付计划；`vb-linear-worktree-develop` 还覆盖本轮计划所需的有界 Linear Issue/DAG/状态/Receipt 同步。两者都不要求用户填写 Claim/Grant/fencing/Envelope 字段；显式 Linear 单次运行默认使用内部 v1 Receipt，宿主可为并发运行内部提供 Claim/v3 Receipt，自动派发必须由宿主原子 Claim。
-
-调用名称统一为 `Vb Git Develop Flow`（`vb-git-develop-flow`）与 `Vb Linear Worktree Develop`（`vb-linear-worktree-develop`），旧触发词 `gd-flow` / `$gd-flow`、`lwflow` / `$lwflow` 分别兼容对应入口。`Vb Git Split Push`（`vb-git-split-push`，兼容 `git-deliver` / `$git-deliver`）仅负责当前分支分批提交与普通推送。
-
-### Linear 降级路径
-
-当 develop flow 因网络中断、冲突无法自动解决、或其他阻塞原因无法继续时，支持降级回普通 git 提交与推送流程：
-
-1. **保留现有工作**：develop flow 在降级前会保留当前 worktree 的分支及所有本地提交，不自动清理
-2. **手动分批提交**：使用 `Vb Git Split Push` 或普通 `git add` + `git commit` + `git push` 完成剩余工作
-3. **重新发起 develop flow**：修复阻塞（如解决合并冲突、等待网络恢复）后，可以重新在同一 task worktree 上发起 develop flow，使用最新的 baseline 继续流程
-
-仅显式 `vb-git-develop-flow` / `$vb-git-develop-flow` 或 `vb-linear-worktree-develop` / `$vb-linear-worktree-develop` 走此模式；普通 `$vb-git-split-push`、普通 Linear Issue 和项目默认 delivery 不变。两者只对本次 `worktree land` 使用 `--delivery local-land`；`vb-git-develop-flow` 不创建 PR/MR，`vb-linear-worktree-develop` 的 Linear 范围见 `linear-workflow.md`（若项目已安装该规则）。已安装的 `vb-git-develop-flow` Skill 按需辅助执行本节的分支、隔离、验证和清理要求；两者描述同一合同，修改须同步。
-
-- 先确认主检出当前分支是 `develop`、工作树与暂存区都干净、远端可普通推送；已有无关改动不能被暂存、覆盖、stash 或合并进 flow。`git fetch origin develop` 后要求本地 `develop` 能仅以 fast-forward 更新到最新 `origin/develop`；失败则停止，不代替用户切换分支或处理别人的 worktree。远端落地模式（`--target-mode remote`）不更新主检出，因此主检出允许已有改动，但仍要求本地 `develop` 没有未推送提交或分叉。
-- 固定顺序为建立隔离工作区 → 在其中创建任务分支 → 实现与聚焦验证 → 提交归属明确的改动 → 从最新 `origin/develop` 基线回收进主检出 `develop` → 只有推送成功后才清理工作区和本地任务分支。隔离工作区优先用宿主 worktree：以宿主能力从已核实的 `origin/develop` 基线创建，创建后核对它的基线等于冻结 SHA，并让宿主把会话根切到该 worktree 后再写入。只有项目声明了 `worktree.mirrors`、`worktree.ports` 或 `worktree.provision`（需要治理面投影、端口分段或逐包依赖链接）时才改用 `worktree bootstrap --task <id>:<branch> --base-ref origin/develop`，它把入口创建与分支创建原子化；不通过手工 `git worktree remove` 绕过镜像 teardown。`worktree land --base-ref develop` 只断言主检出当前分支，不负责 checkout。需要把候选直接推送到远端 `develop` 而不更新主检出时，改用 `worktree land --base-ref develop --delivery local-land --target-mode remote --write --push`；只有 delivery profile 的 `reviewPolicy` 不为 `none` 时才补 `--reviewed <checks>`，`reviewPolicy:"none"` 且目标分支恰为 `develop` 时必须省略，不能伪造 relevance review。仅将确认归属的改动逐组显式复制/应用到任务 worktree，同一文件混有无关改动时按片段选取，冲突即停止；land 在已核实的 `origin/develop` 基线上建立 detached 候选、no-ff 合并并验证，再用非强制 refspec 推送。
-- land 前再次读取目标远端 SHA、主检出与任务分支 HEAD，并确认本轮验证针对最新目标基线；验证期间目标前进则暂停、重建候选与重验。delivery profile 的 `reviewPolicy` 默认 `required`，此时 relevance review、受管验证及任务锚点门禁不得跳过；只有 `reviewPolicy:"none"` 且目标分支恰为 `develop` 时免人工 relevance review，验证收据、写指纹、provenance 与合并树证据仍全部保留。合并到 `main`、`release/*` 或其他保护分支始终要求审查。不带 `--push` 的 land 不满足该 flow 完成条件。远端落地还须证明推送后远端 SHA 等于已验证候选，且主检出未更新、原改动保留；本地 `develop` 可能落后于远端，后续另行核对整理。
-- 该 flow 只要求本地核验：工作区身份、冻结的基线 SHA、任务分支、干净工作树、写入根和归属明确的改动都由运行时按 Git 事实核对；worktree 生命周期（创建、实现、回收、清理）不需要 `governance-core.md` 的宿主核验信息，缺少宿主证明不构成停止理由。`worktree land --write --delivery local-land --push` 只回收由 `worktree bootstrap` 创建且已登记的 worktree；宿主 worktree 不进入该登记表，改为主检出仍与最新 `origin/develop` 一致时推送本轮任务分支，或按项目 delivery 配置走 PR/MR，由目标分支既有流程合并。合并冲突、验证失败、目标分支漂移、推送失败或清理失败时，暂停受影响步骤，保留可恢复现场并报告各阶段事实，不 force push、不强制删除、不自动回滚。推送成功而清理失败时属于“已推送、清理未完成”，不得重复合并。
+worktree 内部生命周期按本轮授权与本地 Git 事实核验，缺少宿主证明不阻塞已授权本地隔离和实现；跨边界、凭据、红区与外部写入按 governance-core。此模式不创建 PR/MR，不操作 main；Linear 仅在专用入口的当前计划范围同步。
 
 ### Source 分支生命周期
 
@@ -213,8 +181,8 @@ Question 3: 是否并行多个独立的功能分支？
 - 提交不自动触发推送，普通任务完成也不要求提交或推送；只有交付确需远端可见、目标明确且安全时才推送，两者都不隐含建分支、PR/MR、凭据转用或发布授权。
 - Hook 只豁免直接、单一、可判定的 `git commit -m`／`git push`；复合命令、危险参数、无效 Envelope、远端或目标分支无法核实时不豁免，Hook 也不能推断暂存内容归属，提交前仍须人工核对本任务 diff。
 - Vibe-Harness 不通过 Stop Hook、运行时脚本或默认流程自动执行 `git commit`／`git push`；`$vb-git-split-push` 是显式调用的分组提交与普通推送流程，不是唯一入口。
-- `$vb-git-split-push` 与 `worktree land --write --push` 只在已有 upstream 时普通推送；无 upstream 时仅在唯一明确远端为 origin 且目标分支非保护或共享分支时建立跟踪并推送，否则停止确认。`land` 不执行 commit，只把已提交内容合并进主检出当前分支；不带 `--push` 时不推送，收据只给出建议命令。
-- main、master、release 与仓库识别出的保护分支不得由 `$vb-git-split-push` 自动推送；`develop` 已移出保护清单，任务分支与 land 落地可直接 `git push`／`git push -u origin develop`，不需要人工审批或服务器端 required gate。强制推送、删除远端引用与历史重写不属于该 Skill 授权范围。
+- split-push 从已核实 upstream 解析唯一实际 push URL 与精确 ref；无 upstream 仅在唯一 origin 且非保护目标时显式建立跟踪。冻结 SHA，用 `git push --no-force <actual-push-url> <sha>:<exact-ref>` 并重读远端 SHA；拒绝多地址、mirror 和目标不明。land 固定 origin/develop，不使用裸 push 或 upstream 推断。
+- main、master、release 与实际目标的保护/共享分支不得由 split-push 自动推送；不能仅凭当前分支名判断。develop 仍遵循项目实际保护策略，任何普通推送须核实精确目标；强推、远端删除和历史重写不在范围。
 - 按需提交前须核对提交分组：验收点与建议 commit message、包含文件、排除文件、验证（命令及结果）、风险（低／中／高与理由）、回滚方式。
 - 分批验证必须绑定当前批次的 staged snapshot：提交前记录文件清单与 patch/blob 指纹并复核 staged diff。验证命令读取工作树而非 index，须确认验证相关路径的工作树内容与 index 一致；否则用补丁拆分或隔离 checkout 对齐验证对象，不得把对未暂存内容的结果算作当前快照证据。提交后记录 commit SHA；工作树或暂存区变化后不得复用上一批收据，必须针对新快照重跑聚焦验证。
 - 未提交不等于任务失败，应交付改动清单和验证证据；显式分组交付时只暂存归属明确的改动，先运行与完成主张匹配的验证，再按本节的推送安全边界执行。已安装的 `vb-git-split-push` Skill 提供操作辅助，两者共享归属、验证和推送安全边界，修改须同步。
@@ -236,7 +204,7 @@ Question 3: 是否并行多个独立的功能分支？
 - 默认分支模型：`feat/*、fix/* → develop → main`；紧急修复：`hotfix/* → main → develop`。该模型在项目显式建立对应分支后生效，尚未创建 `develop` 或迁移未完成的仓库以实际默认分支和已声明目标 ref 为准。
 - 普通任务 PR 使用 squash merge；`develop → main` 的提升与 `main → develop` 的回同步使用 merge commit。squash 在目标分支生成的提交主题来自 PR/MR 标题，因此标题与提交主题使用同一 Conventional Commit 语法。
 - `main` 只接受同仓库 `develop`、`hotfix/*` 和 release-please 的 PR，不使用长期 `release/*` 分支；目标项目已配置 `release/*` 时按其保护规则处理。
-- `develop` 不配置服务器端 required gate：稳定 fast gate 聚合检查不再作为集成分支的合并门禁，集成分支接受本地 `worktree land` 的 no-ff 直落与任务分支直推，质量责任由本地候选合并验证（lint、typecheck、unit，并按变更影响追加 component/integration）与提交前检查承担；发布边界继续使用完整 required CI。
+- 本仓库默认 `develop` 不配置服务器端 required gate；其他项目明确的审查和分支保护仍须遵守：稳定 fast gate 聚合检查不再作为集成分支的合并门禁，集成分支接受本地 `worktree land` 的 no-ff 直落与任务分支直推，质量责任由本地候选合并验证（lint、typecheck、unit，并按变更影响追加 component/integration）与提交前检查承担；发布边界继续使用完整 required CI。
 - 普通任务 PR 仍可由 Writer 在 envelope 授权 `mergeRequestWrite` 后自行 squash merge；`Ready to Merge` 仍只用于带发布门禁目标。
 - 合并前的本地验证必须建立在合并时的最新 `origin/develop` 之上；目标 ref 前进时重建最终候选，只重跑新输入失效的必要检查。独立审查可以观察和报告，但不构成普通 land 的收据门禁；目标分支平台保护及可信宿主授权仍独立生效。
 - 不同写节点可在各自 worktree 并行实现与聚焦验证；共享契约只设一名 writer。目标 ref 最终化按短租约串行，Parent 只对最终组合行为做必要的 fan-in 验证，不重复每个只读节点的矩阵；远端 merge queue 未启用不得声称已有队列门禁。
@@ -250,7 +218,7 @@ Question 3: 是否并行多个独立的功能分支？
 - 单个 PR/MR 尽量只承载一个逻辑目的，超出可审查规模时拆分；确需一次交付的在描述中说明无法拆分的原因。
 - Linear 工作流下必须给出可解析的精确目标远端 ref，只有解析结果确为仓库默认分支时才可写“默认分支”；开始实现前记录目标 ref 和 base SHA，分支与 worktree 必须从该基线创建。
 - Linear 普通任务默认以 `origin/develop` 为基线，只有 hotfix 以 `origin/main` 为基线；发布提升和回同步使用 `Refs <ISSUE-ID>`，不得用 closing magic word 重复关闭已完成开发 Issue；普通任务 closing PR 合入 `develop` 即为 Done。
-- 顺序执行且工作区干净时，任务分支可在当前 clone 创建；并发 Agent、脏工作区、存在无关改动或明确要求隔离时必须使用仓库外 worktree。该优化不改变“一任务一分支一 closing PR/MR”。
+- 顺序执行且工作区干净时，任务分支可在当前 clone 创建；并发 Agent、脏工作区、存在无关改动或明确要求隔离时必须使用仓库外 worktree。普通 PR/MR 路径遵守“一任务一分支一 closing PR/MR”；显式 local-land 以本地合并和推送确认完成。
 - 创建 PR/MR 前重新读取远端目标 ref 和 source HEAD，校验提供方所选 base 等于已声明目标 ref 并计算 merge-base：merge-base 必须等于冻结 base SHA，或是该 SHA 在同一目标 ref 历史上的已验证后代，否则停止创建并报告基线不一致。
 - GitHub PR 与 GitLab MR 的标题、source、target、描述和 closing 语义都必须在创建后重读确认；Linear 分支与标题保留 Issue ID，closing 描述使用 `Fixes <ISSUE-ID>`，只有提供方配置并经重读确认的等价语法才可替代，closing 词不放进 commit。
 

@@ -32,7 +32,7 @@ Parent 计划必须先估算单 Agent 与受限并行的墙钟时间，再决定
 
 ```linear-plan
 {
-  "schema": "vibe-harness.linear-plan/v1",
+  "schema": "vibe-harness.linear-plan/v2",
   "executionMode": "auto",
   "wallClock": {
     "budgetMinutes": 600,
@@ -41,15 +41,15 @@ Parent 计划必须先估算单 Agent 与受限并行的墙钟时间，再决定
     "activeWorkMinutes": 390,
     "verificationMinutes": 90,
     "singleAgentMinutes": 585,
-    "parallelAgentMinutes": 432,
+    "parallelAgentMinutes": 612,
     "coordinationMinutes": 30,
     "fanInMinutes": 45,
     "finalIntegrationMinutes": 60,
     "uncertaintyBufferRatio": 0.2,
     "units": [
-      { "id": "U1", "activeMinutes": 120, "verificationMinutes": 30 },
-      { "id": "U3", "activeMinutes": 150, "verificationMinutes": 30 },
-      { "id": "U5", "activeMinutes": 120, "verificationMinutes": 30 }
+      { "id": "U1", "kind": "write", "dependsOn": [], "activeMinutes": 120, "verificationMinutes": 30 },
+      { "id": "U3", "kind": "write", "dependsOn": [], "activeMinutes": 150, "verificationMinutes": 30 },
+      { "id": "U5", "kind": "write", "dependsOn": [], "activeMinutes": 120, "verificationMinutes": 30 }
     ],
     "criticalPath": ["U3"],
     "confidence": "medium"
@@ -57,6 +57,9 @@ Parent 计划必须先估算单 Agent 与受限并行的墙钟时间，再决定
   "agentPlan": {
     "maxWriteAgents": 2,
     "maxReadAgents": 4,
+    "maxAgents": 2,
+    "isolationProven": false,
+    "sharedContractFrozen": false,
     "fanInOwner": "parent-agent"
   }
 }

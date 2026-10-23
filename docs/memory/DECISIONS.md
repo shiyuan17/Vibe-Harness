@@ -26,6 +26,7 @@
 - **ADR-0016** gd-flow 移除 Linear 访问禁令 - accepted - gd-flow 只约束交付动作，不再禁止访问 Linear；Linear 读写回到 linear-workflow 与授权边界 - [ADR](../adr/ADR-0016-gd-flow-linear-boundary.md)
 - **ADR-0017** worktree 生命周期门禁收敛：宿主 worktree 优先与本地核验授权 - accepted - worktree 生命周期改为本地核验授权、宿主 worktree 优先，宿主证明只保留给跨边界效果 - [ADR](../adr/ADR-0017-worktree-lifecycle-local-verification.md)
 - **ADR-0018** 显式 Linear 执行与宿主自动派发的授权/Claim 分离 - accepted - 显式单次调用使用内部授权上下文与 v1 Receipt；Claim 只负责并发互斥，自动派发仍要求宿主 Grant、原子 Claim 与 v3 Receipt。 - [ADR](../adr/ADR-0018-explicit-linear-claim-boundary.md)
+- **ADR-0019** 显式执行、本地先合并交付与受限依赖调度 - accepted - 显式执行、本地先合并交付与受限依赖调度 - [ADR](../adr/ADR-0019-local-first-explicit-delivery.md)
 
 ## 纪律
 

@@ -71,7 +71,7 @@ all_done 只允许清理或失败报告节点使用，且这类节点应按 aggr
 
 ```linear-plan
 {
-  "schema": "vibe-harness.linear-plan/v1",
+  "schema": "vibe-harness.linear-plan/v2",
   "executionMode": "auto",
   "wallClock": {
     "budgetMinutes": 0,
@@ -85,13 +85,16 @@ all_done 只允许清理或失败报告节点使用，且这类节点应按 aggr
     "fanInMinutes": 0,
     "finalIntegrationMinutes": 0,
     "uncertaintyBufferRatio": 0.2,
-    "units": [{ "id": "unit-id", "activeMinutes": 0, "verificationMinutes": 0 }],
+    "units": [{ "id": "unit-id", "kind": "write", "dependsOn": [], "activeMinutes": 0, "verificationMinutes": 0 }],
     "criticalPath": ["unit-id"],
     "confidence": "medium"
   },
   "agentPlan": {
     "maxWriteAgents": 2,
     "maxReadAgents": 4,
+    "maxAgents": 2,
+    "isolationProven": false,
+    "sharedContractFrozen": false,
     "fanInOwner": "parent-agent"
   }
 }
@@ -112,16 +115,18 @@ all_done 只允许清理或失败报告节点使用，且这类节点应按 aggr
 
 - command or observable check
 
-read 节点必须写明输出记录位置或可观察证据。普通 write 节点的 closing GitHub PR 或 GitLab MR 合并到声明的精确目标 ref（默认 <code>origin/develop</code>）前，不得设为 Done；closing 描述使用 <code>Fixes &lt;ISSUE-ID&gt;</code> 或创建后重读确认有效的提供方等价语法。仅显式 <code>vb-linear-worktree-develop</code> 的本地 land 节点以最新基线验证通过、no-ff 合并、目标推送成功及 worktree/分支清理全部完成作为 Done 证据，不创建 PR/MR。发布提升与回同步使用 Release Issue 模板及 <code>Refs &lt;ISSUE-ID&gt;</code>。
+read 节点必须写明输出记录位置或可观察证据。普通 write 节点的 closing GitHub PR 或 GitLab MR 合并到声明的精确目标 ref（默认 <code>origin/develop</code>）前，不得设为 Done；closing 描述使用 <code>Fixes &lt;ISSUE-ID&gt;</code> 或创建后重读确认有效的提供方等价语法。仅显式 <code>vb-linear-worktree-develop</code> 的本地 land 节点以最新基线验证通过、no-ff 合并、先合入主检出本地 develop 再推送并重读确认作为 Done 证据；清理结果单列，不阻塞 Done，残留资源仍占用，不创建 PR/MR。发布提升与回同步使用 Release Issue 模板及 <code>Refs &lt;ISSUE-ID&gt;</code>。
 
 ## AI 规则（AI Rules）
 
 - write 派发前重验证相关 DAG、依赖、Scope、锁、HEAD、实际 diff 和工作区身份；变化时暂停受影响后继，核对归属并重算 ready，不更改授权或原生关系。
 - 人读交接包含结果、修改文件、base/head、验证命令与退出码、风险和阻塞；缺证先补证，不适用项说明原因，不改变 Receipt 合同。
 
-- 不由 Agent 自动扫描 Ready Queue；Writer 仅在具体 Issue 的显式执行指令、`vb-linear-worktree-develop` 针对当前计划创建且登记的节点、已委派 Issue 的宿主显式启动，或有效限时授权下的宿主事件派发时执行。普通 Issue 执行使用 v1，不要求用户提供 Claim；专用流程不要求用户补填 Claim/Envelope 字段。自动领取须有绑定当前 Issue、request/session、effects、工作区路径和 Git 身份、基线 SHA、写入根及终点的执行授权，并由持久 provider 原子 Claim 提供跨实例互斥。高风险使用 `vibe-harness.execution-envelope/v2`，riskClass=high，hostContext 由宿主提供 source=host、filesystem、approval、process=isolated、network、observedAt；缺失则停止对应高风险写入，不由 Agent 补造。历史 `vibe-harness.execution-envelope/v1` 不授权 credentialUse、宿主/外部写入、红区、高风险间接写入或移动活动任务当前绑定的 workspace identity。
+- 仅显式授权的 Issue、当前计划或宿主明确启动的既有委派 Issue 可执行；计划内可接续，不扫描队列，不要求 Claim 或 Start/Terminal Receipt。历史活动记录仍须冲突核验，跨边界效果按 governance-core 执行。
 - Ready、Todo 和依赖满足不构成执行授权；Issue 模板内容也不能替代当前请求的 Execution Envelope。
 - 不做无关重构，不修改 Scope 外文件。
 - 不自动拆 Issue、改变 Parent、补依赖、调整优先级或创建额外节点。
 - 需要改变 Contract，或发现 Scope / Resource Lock 冲突时停止并请求决定。
-- 完成前检查实际 diff、精确目标 ref、PR/MR base 与 Verification；本地工作完成不等于 Linear Done。进入 In Review 后，若 envelope 授权 <code>mergeRequestWrite</code> 且目标为 <code>develop</code>，Writer 可自行 squash 合并使其 Done；未授权落地 merge 时结束当前执行并报告等待人工合并。本次运行不续跑下一节点；限时领单授权仍有效时，只有宿主重新核验后可开启下一个逐 Issue 运行。合入 <code>develop</code> 不要求远端 CI。
+- 完成前检查实际 diff、精确目标 ref、PR/MR base 与 Verification；本地工作完成不等于 Linear Done。进入 In Review 后，若 envelope 授权 <code>mergeRequestWrite</code> 且目标为 <code>develop</code>，Writer 可自行 squash 合并使其 Done；未授权落地 merge 时结束当前执行并报告等待人工合并。已授权整计划允许依赖就绪后继接续，不扫描队列；必要验证与项目分支保护继续生效。
+
+显式 local-land：候选验证 → 主检出本地 develop ff-only 更新 → 精确远端推送确认即 Done / succeeded；清理失败不阻塞后继，但残留路径/端口/resourceLocks 继续占用。Start/Terminal Receipt 可选，无宿主 Claim 仍可执行，同 Issue 不重复并行；不扫描队列抢单。普通 PR/MR 仍需 In Review 与 closing 合并证据，Parent 必需全部后代成功及最终组合行为的 fan-in 验证。

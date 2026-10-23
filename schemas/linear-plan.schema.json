@@ -3,10 +3,28 @@
   "$id": "https://vibe-harness.invalid/schemas/linear-plan.schema.json",
   "title": "Vibe-Harness Linear planning contract",
   "type": "object",
-  "required": ["schema", "executionMode", "wallClock", "agentPlan"],
+  "required": [
+    "schema",
+    "executionMode",
+    "wallClock",
+    "agentPlan"
+  ],
   "properties": {
-    "schema": { "type": "string", "const": "vibe-harness.linear-plan/v1" },
-    "executionMode": { "type": "string", "enum": ["auto", "single", "parallel"] },
+    "schema": {
+      "type": "string",
+      "enum": [
+        "vibe-harness.linear-plan/v1",
+        "vibe-harness.linear-plan/v2"
+      ]
+    },
+    "executionMode": {
+      "type": "string",
+      "enum": [
+        "auto",
+        "single",
+        "parallel"
+      ]
+    },
     "wallClock": {
       "type": "object",
       "required": [
@@ -25,49 +43,177 @@
         "confidence"
       ],
       "properties": {
-        "budgetMinutes": { "type": "number", "minimum": 0 },
-        "sharedPreparationMinutes": { "type": "number", "minimum": 0 },
-        "externalWaitBlockMinutes": { "type": "number", "minimum": 0 },
-        "activeWorkMinutes": { "type": "number", "minimum": 0 },
-        "verificationMinutes": { "type": "number", "minimum": 0 },
-        "singleAgentMinutes": { "type": "number", "minimum": 0 },
-        "parallelAgentMinutes": { "type": "number", "minimum": 0 },
-        "coordinationMinutes": { "type": "number", "minimum": 0 },
-        "fanInMinutes": { "type": "number", "minimum": 0 },
-        "finalIntegrationMinutes": { "type": "number", "minimum": 0 },
-        "uncertaintyBufferRatio": { "type": "number", "minimum": 0 },
+        "budgetMinutes": {
+          "type": "number",
+          "minimum": 0
+        },
+        "sharedPreparationMinutes": {
+          "type": "number",
+          "minimum": 0
+        },
+        "externalWaitBlockMinutes": {
+          "type": "number",
+          "minimum": 0
+        },
+        "activeWorkMinutes": {
+          "type": "number",
+          "minimum": 0
+        },
+        "verificationMinutes": {
+          "type": "number",
+          "minimum": 0
+        },
+        "singleAgentMinutes": {
+          "type": "number",
+          "minimum": 0
+        },
+        "parallelAgentMinutes": {
+          "type": "number",
+          "minimum": 0
+        },
+        "coordinationMinutes": {
+          "type": "number",
+          "minimum": 0
+        },
+        "fanInMinutes": {
+          "type": "number",
+          "minimum": 0
+        },
+        "finalIntegrationMinutes": {
+          "type": "number",
+          "minimum": 0
+        },
+        "uncertaintyBufferRatio": {
+          "type": "number",
+          "minimum": 0
+        },
         "units": {
           "type": "array",
           "minItems": 1,
           "items": {
             "type": "object",
-            "required": ["id", "activeMinutes", "verificationMinutes"],
+            "required": [
+              "id",
+              "activeMinutes",
+              "verificationMinutes"
+            ],
             "properties": {
-              "id": { "type": "string", "minLength": 1 },
-              "activeMinutes": { "type": "number", "minimum": 0 },
-              "verificationMinutes": { "type": "number", "minimum": 0 }
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "activeMinutes": {
+                "type": "number",
+                "minimum": 0
+              },
+              "verificationMinutes": {
+                "type": "number",
+                "minimum": 0
+              },
+              "kind": {
+                "enum": [
+                  "read",
+                  "write"
+                ]
+              },
+              "dependsOn": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
             },
             "additionalProperties": false
           }
         },
         "criticalPath": {
           "type": "array",
-          "items": { "type": "string", "minLength": 1 }
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         },
-        "confidence": { "type": "string", "enum": ["low", "medium", "high"] }
+        "confidence": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        }
       },
       "additionalProperties": false
     },
     "agentPlan": {
       "type": "object",
-      "required": ["maxWriteAgents", "maxReadAgents", "fanInOwner"],
+      "required": [
+        "maxWriteAgents",
+        "maxReadAgents",
+        "fanInOwner"
+      ],
       "properties": {
-        "maxWriteAgents": { "type": "integer", "minimum": 1, "maximum": 2 },
-        "maxReadAgents": { "type": "integer", "minimum": 1, "maximum": 4 },
-        "fanInOwner": { "type": "string", "const": "parent-agent" }
+        "maxWriteAgents": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2
+        },
+        "maxReadAgents": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4
+        },
+        "fanInOwner": {
+          "type": "string",
+          "const": "parent-agent"
+        },
+        "maxAgents": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 6
+        },
+        "isolationProven": {
+          "type": "boolean"
+        },
+        "sharedContractFrozen": {
+          "type": "boolean"
+        }
       },
       "additionalProperties": false
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schema": {
+            "const": "vibe-harness.linear-plan/v2"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "agentPlan": {
+            "required": [
+              "maxAgents"
+            ]
+          },
+          "wallClock": {
+            "properties": {
+              "units": {
+                "items": {
+                  "required": [
+                    "kind",
+                    "dependsOn"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

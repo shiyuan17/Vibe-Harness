@@ -1,5 +1,8 @@
 # Symphony 宿主接入边界
 
+> 历史兼容参考：显式执行不要求 Claim 或 Start/Terminal Receipt，活动自动队列派发已退役。本页的 v1/v2/v3、Claim/Grant 与宿主自动派发协议只用于解释历史记录、冲突和交接，不是当前执行入口或门槛。同一 Issue 不得重复并行；历史活动 Receipt、Delegate 和工作区仍须核对。当前规则以 linear-workflow 和 git-rules 为准。
+
+
 本参考是 Vibe-Harness 与 Symphony Elixir fork 的接线合同，不是可运行的调度器、Grant 签发入口或生产启用证明。Symphony 的原始轮询、进程内 claimed 集合、自动 retry、`linear_graphql` 原始 mutation 和宽权限 workspace hook 均不能直接承载自动领单。只有宿主完成下列约束并通过跨仓与真实接口验证后，才可启用自动模式。它只描述自动派发的 Claim 域，不是显式 `vb-linear-worktree-develop` 调用的前置条件；显式调用使用 v1 `explicit-user-request` Receipt 并沿用普通活动实例冲突检查。
 
 ## 签发和派发

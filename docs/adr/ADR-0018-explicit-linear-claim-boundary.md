@@ -1,7 +1,7 @@
 ---
 id: ADR-0018
 title: 显式 Linear 执行与宿主自动派发的授权/Claim 分离
-status: accepted
+status: superseded
 date: 2026-10-22
 review-date: 2027-04-22
 owner: vibe-harness-maintainers
@@ -9,7 +9,7 @@ decision-makers: [vibe-harness-maintainers]
 consulted: [linear-workflow-users]
 informed: [vibe-harness-contributors]
 supersedes: [ADR-0015]
-superseded-by: null
+superseded-by: ADR-0019
 ---
 
 # 显式 Linear 执行与宿主自动派发的授权/Claim 分离
