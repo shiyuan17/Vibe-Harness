@@ -55,6 +55,26 @@ function isConfigured(environment) {
   return isComplete(environment) || Boolean(environment.OCR_LLM_TOKEN);
 }
 
+function unsupportedProtocol(environment) {
+  const protocol = nonEmpty(environment?.OCR_LLM_PROTOCOL);
+  return protocol && !['openai', 'anthropic'].includes(protocol.toLowerCase())
+    ? { code: 'OCR_PROTOCOL_UNSUPPORTED', message: 'The configured model protocol is not supported by Open Code Review.' }
+    : null;
+}
+
+function invalidEndpoint(environment) {
+  if (!environment?.OCR_LLM_URL) return null;
+  try {
+    const url = new URL(environment.OCR_LLM_URL);
+    if (url.protocol === 'https:' && !url.username && !url.password && !url.hash && !url.search) return null;
+  } catch { /* invalid URL */ }
+  return { code: 'OCR_ENDPOINT_INVALID', message: 'A credential-free HTTPS model endpoint is required.' };
+}
+
+function invalidConfiguration(environment) {
+  return unsupportedProtocol(environment) ?? invalidEndpoint(environment);
+}
+
 function pending(diagnostics = []) {
   return {
     diagnostic: diagnostics[0] ?? {
@@ -153,6 +173,7 @@ export async function resolveOcrEndpoint({ env = process.env, homeDir, readText 
     url: env.OCR_LLM_URL,
     useAnthropic: env.OCR_USE_ANTHROPIC,
   });
+  if (invalidConfiguration(explicit)) return pending([invalidConfiguration(explicit)]);
   if (isComplete(explicit)) return { env: explicit, source: 'explicit', status: 'ready' };
 
   const resolvedHome = homeDir ?? nonEmpty(env.USERPROFILE) ?? nonEmpty(env.HOME) ?? homedir();
@@ -174,6 +195,7 @@ export async function resolveOcrEndpoint({ env = process.env, homeDir, readText 
           token: provider?.api_key ?? provider?.apiKey ?? provider?.token,
           url: provider?.url ?? provider?.base_url ?? provider?.baseUrl,
         });
+        if (invalidConfiguration(configured)) return pending([invalidConfiguration(configured)]);
         if (isComplete(configured)) return { env: configured, source: 'opencodereview', status: 'ready' };
         diagnostics.push({ code: 'OCR_CONFIG_INCOMPLETE', message: 'Open Code Review configuration is incomplete.' });
       }
@@ -183,6 +205,7 @@ export async function resolveOcrEndpoint({ env = process.env, homeDir, readText 
   }
 
   const compatible = resolveCompatibilityEnvironment(env);
+  if (invalidConfiguration(compatible)) return pending([invalidConfiguration(compatible)]);
   if (compatible) return { env: compatible, source: 'compat-env', status: 'ready' };
 
   // The global Codex config (~/.codex/config.toml) holds the user's real LLM
@@ -201,6 +224,7 @@ export async function resolveOcrEndpoint({ env = process.env, homeDir, readText 
         if (config.error) diagnostics.push(config.error);
         else {
           const codex = resolveCodexEnvironment(config, env);
+          if (invalidConfiguration(codex)) return pending([invalidConfiguration(codex)]);
           if (isComplete(codex)) return { env: codex, source: 'codex', status: 'ready' };
           diagnostics.push({ code: 'CODEX_CONFIG_INCOMPLETE', message: 'Codex provider configuration is incomplete.' });
         }

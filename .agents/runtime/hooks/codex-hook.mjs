@@ -9,6 +9,7 @@ import { promisify } from 'node:util';
 import { findProjectRoot, readHookSettings } from './lib/context.mjs';
 import { evaluateFrozenTestWrite } from './lib/frozen-test-writes.mjs';
 import { classifyExecutionEffects, evaluateExecutionEnvelope } from './lib/execution-envelope.mjs';
+import { readLegacyCompatibility } from './lib/legacy-envelope-compat.mjs';
 import { analyzeToolRequest, commandFrom, createHostHookResult, normalizeHostHookInput } from './lib/policy.mjs';
 import { isReadOnlyToolName } from './lib/read-only-commands.mjs';
 
@@ -171,6 +172,8 @@ export async function evaluateHook(rawInput, {
               ?? result?.hookSpecificOutput?.decision?.behavior)
           ?? 'allow',
         ...(decision?.reasonCode ? { reasonCode: decision.reasonCode } : {}),
+        ...(decision?.requestId ? { requestId: decision.requestId } : {}),
+        ...(decision?.compatibilityExpiresAt ? { compatibilityExpiresAt: decision.compatibilityExpiresAt } : {}),
         wouldBlock: decision?.wouldBlock === true || decision?.action === 'deny',
         suppressed: decision?.suppressed === true,
         durationMs,
@@ -258,22 +261,24 @@ export async function evaluateHook(rawInput, {
   }
   const envelopeDecision = evaluateExecutionEnvelope(input, {
     environment,
+    legacyCompatibility: readLegacyCompatibility(),
     permissionPreset,
     ...(now === undefined ? {} : { now }),
   });
   if (envelopeDecision.action !== 'allow') {
     return emitTelemetry(createHostHookResult(host, input.event, envelopeDecision, { durationMs: elapsedMs() }), envelopeDecision);
   }
+  const reportedDecision = envelopeDecision.reasonCode ? envelopeDecision : safetyDecision;
   if (safetyDecision.action !== 'allow' || input.event === 'PermissionRequest') {
-    return emitTelemetry(createHostHookResult(host, input.event, safetyDecision, { durationMs: elapsedMs() }), safetyDecision);
+    return emitTelemetry(createHostHookResult(host, input.event, safetyDecision, { durationMs: elapsedMs() }), reportedDecision);
   }
 
   if (host === 'antigravity') {
-    return emitTelemetry(createHostHookResult(host, input.event, safetyDecision, { durationMs: elapsedMs() }), safetyDecision);
+    return emitTelemetry(createHostHookResult(host, input.event, safetyDecision, { durationMs: elapsedMs() }), reportedDecision);
   }
-  if (host !== 'codex') return emitTelemetry({}, { action: 'allow' });
+  if (host !== 'codex') return emitTelemetry({}, reportedDecision);
 
-  return emitTelemetry(createHostHookResult(host, input.event, safetyDecision, { durationMs: elapsedMs() }), safetyDecision);
+  return emitTelemetry(createHostHookResult(host, input.event, safetyDecision, { durationMs: elapsedMs() }), reportedDecision);
 }
 
 /** @param {unknown} rawInput @param {{environment?: NodeJS.ProcessEnv, expectedEvent?: string | null, now?: number | Date}} options */

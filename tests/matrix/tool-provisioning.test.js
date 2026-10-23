@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -756,7 +756,7 @@ test('OCR endpoint resolver reads the active user config before Codex fallback',
           api_key: 'ocr-user-token',
           model: 'ocr-user-model',
           protocol: 'openai',
-          url: 'http://ocr-user.example/v1',
+          url: 'https://ocr-user.example/v1',
           auth_header: 'authorization',
           extra_headers: 'X-Org-ID=org-123',
           timeout_sec: 45,
@@ -773,7 +773,7 @@ test('OCR endpoint resolver reads the active user config before Codex fallback',
 
     const result = await resolveOcrEndpoint({ env: {}, homeDir });
     assert.equal(result.source, 'opencodereview');
-    assert.equal(result.env.OCR_LLM_URL, 'http://ocr-user.example/v1/chat/completions');
+    assert.equal(result.env.OCR_LLM_URL, 'https://ocr-user.example/v1/chat/completions');
     assert.equal(result.env.OCR_LLM_MODEL, 'ocr-user-model');
     assert.equal(result.env.OCR_LLM_TOKEN, 'ocr-user-token');
     assert.equal(result.env.OCR_LLM_PROTOCOL, 'openai');
@@ -833,6 +833,50 @@ test('OCR endpoint resolver returns pending-config and redacted diagnostics for 
   }
 });
 
+test('OCR rejects unsupported protocols before launching a child and redacts its endpoint credentials', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-ocr-protocol-'));
+  try {
+    await copyFile(path.join(rootDir, 'runtime/tools/open-code-review/run.mjs'), path.join(targetDir, 'run.mjs'));
+    await copyFile(path.join(rootDir, 'runtime/tools/open-code-review/ocr-config.mjs'), path.join(targetDir, 'ocr-config.mjs'));
+    const env = {
+      ...process.env, OCR_LLM_URL: 'https://private-token@model.example/v1',
+      OCR_LLM_MODEL: 'review-model', OCR_LLM_TOKEN: 'private-token',
+      OCR_LLM_PROTOCOL: 'openai-responses',
+    };
+    await assert.rejects(execFileAsync(process.execPath, [path.join(targetDir, 'run.mjs')], { env }), (error) => {
+      assert.match(error.stderr, /OCR_PROTOCOL_UNSUPPORTED/u);
+      assert.equal(error.stderr.includes('private-token'), false);
+      assert.equal(error.stderr.includes('START_FAILED'), false);
+      return true;
+    });
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
+test('OCR rejects non-HTTPS or credential-bearing endpoints before launching a child', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-ocr-endpoint-'));
+  try {
+    await copyFile(path.join(rootDir, 'runtime/tools/open-code-review/run.mjs'), path.join(targetDir, 'run.mjs'));
+    await copyFile(path.join(rootDir, 'runtime/tools/open-code-review/ocr-config.mjs'), path.join(targetDir, 'ocr-config.mjs'));
+    const entryDir = path.join(targetDir, 'node_modules/@alibaba-group/open-code-review/bin');
+    await mkdir(entryDir, { recursive: true });
+    const marker = path.join(targetDir, 'spawned');
+    await writeFile(path.join(entryDir, 'ocr.js'), `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'spawned');`, 'utf8');
+    for (const url of ['http://model.example/v1', 'https://private-token@model.example/v1', 'not-a-url']) {
+      const env = { ...process.env, OCR_LLM_URL: url, OCR_LLM_MODEL: 'review-model', OCR_LLM_TOKEN: 'private-token', OCR_LLM_PROTOCOL: 'openai' };
+      await assert.rejects(execFileAsync(process.execPath, [path.join(targetDir, 'run.mjs')], { env }), (error) => {
+        assert.match(error.stderr, /OCR_ENDPOINT_INVALID/u);
+        assert.equal(error.stderr.includes('private-token'), false);
+        return true;
+      });
+      await assert.rejects(stat(marker), { code: 'ENOENT' });
+    }
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
+  }
+});
+
 test('installed tool wrappers enforce runtime environment allowlists', async () => {
   const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-runtime-env-'));
   const fixtureSource = 'console.log(JSON.stringify({ cbmRoot: process.env.CBM_ALLOWED_ROOT, cbmMemory: process.env.CBM_MEM_BUDGET_MB, cbmWorkers: process.env.CBM_WORKERS, openai: process.env.OPENAI_API_KEY, sentinel: process.env.VIBE_HARNESS_SECRET_SENTINEL }));\n';
@@ -865,6 +909,10 @@ test('installed tool wrappers enforce runtime environment allowlists', async () 
           CBM_WORKERS: '2',
           VIBE_HARNESS_SECRET_SENTINEL: 'must-not-leak',
           OPENAI_API_KEY: 'ocr-secret',
+          OCR_LLM_URL: 'https://model.example/v1/chat/completions',
+          OCR_LLM_MODEL: 'review-model',
+          OCR_LLM_TOKEN: 'fixture-token',
+          OCR_LLM_PROTOCOL: 'openai',
         },
       });
       const observed = JSON.parse(stdout);

@@ -15,6 +15,7 @@ import {
   EXECUTION_ENVELOPE_SCHEMA,
   EXECUTION_ENVELOPE_SCHEMA_V2,
   classifyExecutionEffects,
+  evaluateExecutionEnvelope,
   inspectWorkspaceIdentity,
   parseExecutionEnvelope,
   validateExecutionEnvelope,
@@ -95,6 +96,29 @@ function executionEnvelope(overrides = {}) {
     ...overrides,
   };
 }
+
+test('本地可分类写入不依赖 Envelope 收据，跨边界写入仍拒绝项目 JSON 自授权', async () => {
+  await withProject(async (target) => {
+    const local = input(target, { tool_name: 'Write', tool_input: { file_path: 'src/app.js' } });
+    for (const payload of [
+      local,
+      { ...local, execution_envelope: { schema: 'invalid' } },
+      { ...local, execution_envelope: executionEnvelope({ expiresAt: '2000-01-01T00:00:00Z' }) },
+    ]) {
+      assert.equal(evaluateExecutionEnvelope({
+        cwd: target, sessionId: 'session', toolName: 'Write',
+        toolInput: payload.tool_input,
+        executionEnvelope: payload.execution_envelope,
+      }).action, 'allow');
+    }
+    const external = evaluateExecutionEnvelope({
+      cwd: target, sessionId: 'session', toolName: 'mcp__linear__save_issue',
+      toolInput: { id: 'ENG-123', status: 'Done' },
+      executionEnvelope: executionEnvelope({ allowedEffects: ['externalWrite'] }),
+    });
+    assert.equal(external.action, 'deny');
+  });
+});
 
 function initializeGitProject(target) {
   execFileSync('git', ['init', '-b', 'main'], { cwd: target, stdio: 'ignore', windowsHide: true });
@@ -197,7 +221,7 @@ test('Execution Envelope v2 is additive and reports its enforcement grade', asyn
       riskClass: 'standard',
       version: 1,
     });
-    assert.equal(parseExecutionEnvelope(envelope).enforcementGrade, 'host-verified/high-risk');
+    assert.equal(parseExecutionEnvelope(envelope).enforcementGrade, 'host-declared/high-risk');
     assert.equal(validateExecutionEnvelopeV2({ ...envelope, riskClass: 'critical' }), false);
     assert.equal(validateExecutionEnvelopeV2({ ...envelope, hostContext: { ...envelope.hostContext, source: 'project' } }), false);
 
@@ -401,7 +425,7 @@ test('Hook 拒绝经项目内符号链接到达的红区、控制面与冻结资
   });
 });
 
-test('Execution Envelope accepts trusted payload and environment injection', async () => {
+test('Execution Envelope accepts a valid scoped payload and environment injection', async () => {
   await withProject(async (target) => {
     const payloadAllowed = await evaluateCodexHook(input(target, {
       execution_envelope: executionEnvelope({ allowedEffects: ['workspaceWrite'] }),
@@ -481,13 +505,13 @@ test('ordinary Git delivery needs no envelope or per-effect grant', async () => 
     const ambiguousRefspec = await evaluateCodexHook(input(target, {
       tool_input: { command: 'git push origin feature/safe-delivery' },
     }), { environment: { VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED: '1' } });
-    assert.match(ambiguousRefspec.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u);
+    assert.match(ambiguousRefspec.hookSpecificOutput.permissionDecisionReason, /GIT_DELIVERY_UNVERIFIED|EXECUTION_ENVELOPE_MISSING/u);
     execFileSync('git', ['config', '--unset', 'remote.origin.push'], { cwd: target, stdio: 'ignore', windowsHide: true });
 
     const missingUpstream = await evaluateCodexHook(input(target, {
       tool_input: { command: 'git push' },
     }), { environment: { VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED: '1' } });
-    assert.match(missingUpstream.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u);
+    assert.match(missingUpstream.hookSpecificOutput.permissionDecisionReason, /GIT_DELIVERY_UNVERIFIED|EXECUTION_ENVELOPE_MISSING/u);
     execFileSync('git', ['config', 'branch.feature/safe-delivery.remote', 'origin'], { cwd: target, stdio: 'ignore', windowsHide: true });
     execFileSync('git', ['config', 'branch.feature/safe-delivery.merge', 'refs/heads/feature/safe-delivery'], { cwd: target, stdio: 'ignore', windowsHide: true });
     assert.deepEqual(await evaluateCodexHook(input(target, {
@@ -508,14 +532,14 @@ test('ordinary Git delivery needs no envelope or per-effect grant', async () => 
   });
 });
 
-test('Execution Envelope rejects invalid, mismatched, and required-missing authorization', async () => {
+test('Execution Envelope ignores stale local envelopes but rejects mismatched delivery authorization', async () => {
   await withProject(async (target) => {
     const invalid = await evaluateCodexHook(input(target, {
       execution_envelope: executionEnvelope({ schema: 'vibe-harness.execution-envelope/v2' }),
       tool_input: { file_path: 'src/app.js' },
       tool_name: 'Write',
     }));
-    assert.match(invalid.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_INVALID/u);
+    assert.deepEqual(invalid, {});
 
     const mismatch = await evaluateCodexHook(input(target, {
       execution_envelope: executionEnvelope({ sessionId: 'another-session' }),
@@ -526,7 +550,7 @@ test('Execution Envelope rejects invalid, mismatched, and required-missing autho
     const missing = await evaluateCodexHook(input(target, {
       tool_input: { command: 'git push origin feature' },
     }), { environment: { VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED: '1' } });
-    assert.match(missing.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u);
+    assert.match(missing.hookSpecificOutput.permissionDecisionReason, /GIT_DELIVERY_UNVERIFIED|EXECUTION_ENVELOPE_MISSING/u);
 
     const readOnly = await evaluateCodexHook(input(target), {
       environment: { VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED: '1' },
@@ -607,7 +631,7 @@ test('high-risk commands require a scoped v2 envelope and host enforcement', asy
         execution_envelope: executionEnvelopeV2(target, { allowedEffects: ['workspaceWrite'] }),
         tool_input: { command },
       }));
-      if (command.startsWith('node ')) assert.deepEqual(allowed, {}, command);
+      if (command.startsWith('node ')) assert.match(allowed.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_HOST_PROOF_UNVERIFIED/u, command);
       else assert.match(allowed.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_UNKNOWN_EFFECT/u, command);
     }
 
@@ -645,19 +669,19 @@ test('Supabase commands bind credential, workspace, and external effects', async
       execution_envelope: envelopeFor(['credentialUse']),
       tool_input: { command: 'supabase projects list' },
     }));
-    assert.deepEqual(listAllowed, {});
+    assert.match(listAllowed.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_HOST_PROOF_UNVERIFIED/u);
 
     const linkAllowed = await evaluateCodexHook(input(target, {
       execution_envelope: envelopeFor(['credentialUse', 'workspaceWrite'], [projectTarget]),
       tool_input: { command: 'supabase link --project-ref project-ref' },
     }));
-    assert.deepEqual(linkAllowed, {});
+    assert.match(linkAllowed.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_HOST_PROOF_UNVERIFIED/u);
 
     const pushAllowed = await evaluateCodexHook(input(target, {
       execution_envelope: envelopeFor(['credentialUse', 'externalWrite'], [projectTarget]),
       tool_input: { command: 'supabase db push --project-ref project-ref' },
     }));
-    assert.deepEqual(pushAllowed, {});
+    assert.match(pushAllowed.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_HOST_PROOF_UNVERIFIED/u);
 
     const pushUnverified = await evaluateCodexHook(input(target, {
       execution_envelope: envelopeFor(['credentialUse', 'externalWrite'], [projectTarget]),
@@ -670,6 +694,66 @@ test('Supabase commands bind credential, workspace, and external effects', async
       tool_input: { command: 'supabase db push --project-ref another-project' },
     }));
     assert.match(wrongTarget.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_EXTERNAL_TARGET_MISMATCH/u);
+  });
+});
+
+test('OCR fixed entrypoint binds data egress, credentials, Issue and model endpoint without issuing host proof', async () => {
+  await withProject(async (target) => {
+    initializeGitProject(target);
+    const command = 'node .agents/runtime/commands/run.mjs review ocr --task ENG-123 --target https://model.example/v1';
+    const classified = classifyExecutionEffects({ cwd: target, toolName: 'Bash', toolInput: { command } });
+    assert.deepEqual(classified.effects, ['dataEgress', 'credentialUse']);
+    assert.deepEqual(classified.externalTargets, [{ kind: 'model-endpoint', id: 'https://model.example', environment: 'remote' }]);
+    assert.equal(classified.unknown, false);
+    for (const unsafe of ['ocr review', 'node .agents/runtime/commands/run.mjs review other --task ENG-123',
+      'node .agents/runtime/commands/run.mjs review ocr --task ENG-123',
+      `${command} --write`]) {
+      assert.equal(classifyExecutionEffects({ cwd: target, toolName: 'Bash', toolInput: { command: unsafe } }).unknown, true, unsafe);
+    }
+    const envelope = executionEnvelopeV2(target, { allowedEffects: ['dataEgress', 'credentialUse'], expiresAt: new Date(Date.now() + 60_000).toISOString() });
+    envelope.scope.externalTargets = classified.externalTargets;
+    const request = { cwd: target, sessionId: 'session', toolName: 'Bash', toolInput: { command }, executionEnvelope: envelope };
+    const hookMissing = await evaluateCodexHook(input(target, { tool_input: { command } }));
+    assert.match(hookMissing.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u);
+    const hookForged = await evaluateCodexHook(input(target, { tool_input: { command }, execution_envelope: envelope }));
+    assert.match(hookForged.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_HOST_PROOF_UNVERIFIED/u);
+    assert.equal(evaluateExecutionEnvelope(request).reasonCode, 'EXECUTION_ENVELOPE_HOST_PROOF_UNVERIFIED');
+    assert.equal(evaluateExecutionEnvelope(request, { legacyCompatibility: {
+      acknowledgedRisk: 'unverified-v2-host-context', enabledAt: new Date(Date.now() - 1000).toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    } }).reasonCode, 'EXECUTION_ENVELOPE_HOST_PROOF_UNVERIFIED');
+    assert.equal(evaluateExecutionEnvelope({ ...request, sessionId: 'other' }).reasonCode, 'EXECUTION_ENVELOPE_SESSION_MISMATCH');
+    assert.equal(evaluateExecutionEnvelope({ ...request, executionEnvelope: { ...envelope, targetIssueIds: ['OTHER-1'] } }).reasonCode, 'EXECUTION_ENVELOPE_TARGET_MISMATCH');
+    assert.equal(evaluateExecutionEnvelope({ ...request, executionEnvelope: { ...envelope, forbiddenEffects: ['dataEgress'] } }).reasonCode, 'EXECUTION_ENVELOPE_EFFECT_FORBIDDEN');
+    assert.equal(evaluateExecutionEnvelope({ ...request, executionEnvelope: { ...envelope, expiresAt: '2020-01-01T00:00:00Z' } }).reasonCode, 'EXECUTION_ENVELOPE_EXPIRED');
+    assert.equal(evaluateExecutionEnvelope({ ...request, executionEnvelope: {
+      ...envelope, scope: { ...envelope.scope, externalTargets: [] },
+    } }).reasonCode, 'EXECUTION_ENVELOPE_EXTERNAL_TARGET_MISMATCH');
+  });
+});
+
+test('legacy v2 high-risk compatibility requires an explicit bounded window and never authenticates proof', async () => {
+  await withProject(async (target) => {
+    initializeGitProject(target);
+    const envelope = executionEnvelopeV2(target, {
+      allowedEffects: ['workspaceWrite'], expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    const request = { cwd: target, sessionId: 'session', toolName: 'Bash',
+      toolInput: { command: "node -e \"require('node:fs').writeFileSync('x','y')\"" },
+      executionEnvelope: envelope };
+    const now = Date.now();
+    const policy = {
+      acknowledgedRisk: 'unverified-v2-host-context',
+      enabledAt: new Date(now - 1000).toISOString(),
+      expiresAt: new Date(now + 120_000).toISOString(),
+    };
+    assert.equal(evaluateExecutionEnvelope(request).reasonCode, 'EXECUTION_ENVELOPE_HOST_PROOF_UNVERIFIED');
+    assert.equal(evaluateExecutionEnvelope(request, { legacyCompatibility: policy }).reasonCode, 'EXECUTION_ENVELOPE_LEGACY_COMPAT');
+    for (const invalid of [
+      { ...policy, expiresAt: new Date(now - 1).toISOString() },
+      { ...policy, expiresAt: new Date(now + 31 * 24 * 60 * 60 * 1000).toISOString() },
+      { ...policy, acknowledgedRisk: 'unknown' },
+    ]) assert.equal(evaluateExecutionEnvelope(request, { legacyCompatibility: invalid }).reasonCode, 'EXECUTION_ENVELOPE_HOST_PROOF_UNVERIFIED');
   });
 });
 

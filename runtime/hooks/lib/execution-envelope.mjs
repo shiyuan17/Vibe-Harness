@@ -29,7 +29,7 @@ export const EXECUTION_EFFECTS = Object.freeze([
   'mergeRequestWrite', 'credentialUse',
 ]);
 export const EXECUTION_EFFECTS_V2 = Object.freeze([
-  'linearWrite', 'workspaceWrite', 'hostWrite', 'externalWrite', 'gitBranch',
+  'linearWrite', 'workspaceWrite', 'hostWrite', 'externalWrite', 'dataEgress', 'gitBranch',
   'gitCommit', 'gitPush', 'mergeRequestWrite', 'credentialUse',
 ]);
 
@@ -273,7 +273,8 @@ export function parseExecutionEnvelope(value) {
       && value.hostContext.source === 'host'
       && value.hostContext.process === 'isolated';
     return {
-      enforcementGrade: enforced ? 'host-verified/high-risk' : 'scoped/standard',
+      // A JSON field cannot authenticate its own origin.
+      enforcementGrade: enforced ? 'host-declared/high-risk' : 'scoped/standard',
       envelope: value,
       riskClass: value.riskClass,
       version: 2,
@@ -439,6 +440,34 @@ function classifyArbitraryRuntime(segment, effects) {
   return true;
 }
 
+// Only this fixed entrypoint has a bounded, inspectable effect surface.
+// Arbitrary `ocr` or `node` invocations do not inherit this classification.
+function classifyOcrReview(segment, effects, targets) {
+  const invocation = shellInvocation(segment);
+  if (!invocation || invocation.name !== 'node') return null;
+  const args = invocation.args;
+  if (!/^(?:\.agents[\\/])?runtime[\\/]commands[\\/]run\.mjs$/iu.test(args[0] ?? '')
+    || args[1] !== 'review' || args[2] !== 'ocr') return null;
+  const tail = args.slice(3);
+  if (tail.length !== 4 || tail[0] !== '--task'
+    || !/^[A-Z][A-Z0-9]{0,15}-[0-9]{1,10}$/u.test(tail[1])
+    || tail[2] !== '--target') return false;
+  let url;
+  try { url = new URL(tail[3]); } catch { return false; }
+  if (url.protocol !== 'https:' || url.username || url.password || url.hash || url.search) return false;
+  effects.add('dataEgress');
+  effects.add('credentialUse');
+  targets.push({ kind: 'model-endpoint', id: url.origin, environment: 'remote' });
+  return true;
+}
+
+function isUnrecognizedReviewCommand(segment) {
+  const invocation = shellInvocation(segment);
+  return invocation?.name === 'node'
+    && /^(?:\.agents[\\/])?runtime[\\/]commands[\\/]run\.mjs$/iu.test(invocation.args[0] ?? '')
+    && invocation.args[1] === 'review';
+}
+
 function cliInvocation(segment, executable) {
   const invocation = shellInvocation(segment);
   if (!invocation || invocation.name !== executable) return null;
@@ -581,8 +610,15 @@ export function classifyExecutionEffects(input) {
       effects.add('workspaceWrite');
       highRiskReasons.add('indirect-runtime-write');
     }
-    addUrlTargets(command, externalTargets);
-    for (const segment of shellSegments(command)) {
+    const segments = shellSegments(command);
+    const review = segments.length === 1 ? classifyOcrReview(segments[0], effects, externalTargets) : null;
+    if (review === false) unknown = true;
+    if (review === null) addUrlTargets(command, externalTargets);
+    for (const segment of review === null ? segments : []) {
+      if (isUnrecognizedReviewCommand(segment)) {
+        unknown = true;
+        continue;
+      }
       if (classifyGit(segment, effects, hints) === true) continue;
       const supabase = classifySupabase(segment, effects, externalTargets);
       if (supabase !== null) {
@@ -617,6 +653,7 @@ export function classifyExecutionEffects(input) {
     if (workspaceTargets.length === hostTargets.length) effects.delete('workspaceWrite');
   }
   if (effects.has('externalWrite')) highRiskReasons.add('external-write');
+  if (effects.has('dataEgress')) highRiskReasons.add('data-egress');
   if (effects.has('credentialUse')) highRiskReasons.add('credential-use');
   if (unknown) highRiskReasons.add('unclassified-effect');
   return {
@@ -700,7 +737,7 @@ function visibleIssueTargets(input, targetBoundEffects) {
   const identifiers = targetBoundEffects.includes('linearWrite')
     ? directIssueTargets(input.toolInput)
     : new Set();
-  if (targetBoundEffects.some((effect) => ['gitBranch', 'gitCommit', 'gitPush'].includes(effect))) {
+  if (targetBoundEffects.some((effect) => ['gitBranch', 'gitCommit', 'gitPush', 'dataEgress'].includes(effect))) {
     addIssueIdentifiers(commandFrom(input), identifiers);
   }
   if (targetBoundEffects.includes('mergeRequestWrite')) {
@@ -801,7 +838,7 @@ function linearScopeDecision(input, classification, envelope) {
 
 function targetDecision(input, classification, envelope) {
   const targetBoundEffects = classification.effects.filter((effect) => [
-    'linearWrite', 'gitBranch', 'gitCommit', 'gitPush', 'mergeRequestWrite',
+    'linearWrite', 'gitBranch', 'gitCommit', 'gitPush', 'mergeRequestWrite', 'dataEgress',
   ].includes(effect));
   if (targetBoundEffects.length === 0) return null;
   const visibleTargets = visibleIssueTargets(input, targetBoundEffects);
@@ -930,7 +967,7 @@ function workspaceDecision(input, classification, envelope) {
 
 function externalTargetDecision(classification, envelope) {
   if (classification.externalTargets.length === 0) {
-    return classification.effects.includes('externalWrite')
+    return classification.effects.some((effect) => ['externalWrite', 'dataEgress'].includes(effect))
       ? deny('EXECUTION_ENVELOPE_EXTERNAL_TARGET_UNVERIFIED', '该外部写操作没有暴露可核验的目标，无法确认授权范围，已拒绝。请在命令中写明完整的目标地址或资源标识。')
       : null;
   }
@@ -954,22 +991,22 @@ function highRiskDecision(classification, envelope, nowMs) {
   }
   const host = envelope.hostContext;
   if (host.source !== 'host' || host.process !== 'isolated') {
-    return deny('EXECUTION_ENVELOPE_HOST_CONTEXT_INSUFFICIENT', '高风险执行要求宿主提供进程隔离证明，当前 hostContext 不满足，已拒绝。请由宿主注入 source=host 且 process=isolated 的证明。');
+    return deny('EXECUTION_ENVELOPE_HOST_CONTEXT_INSUFFICIENT', '高风险调用的进程隔离声明不满足结构要求，已拒绝；hostContext 本身不构成可信宿主证明。');
   }
   const observedAt = Date.parse(host.observedAt);
   if (observedAt > nowMs || nowMs - observedAt > 5 * 60 * 1000) {
-    return deny('EXECUTION_ENVELOPE_HOST_CONTEXT_STALE', '宿主强制证据已过期（超过 5 分钟），已拒绝。请让宿主重新采集并注入 hostContext。');
+    return deny('EXECUTION_ENVELOPE_HOST_CONTEXT_STALE', 'hostContext 观测时间已过期（超过 5 分钟），已拒绝；刷新声明也不等于可信宿主证明。');
   }
   if (classification.effects.includes('workspaceWrite') && host.filesystem === 'read-only') {
     return deny('EXECUTION_ENVELOPE_FILESYSTEM_INSUFFICIENT', '宿主文件系统边界为只读，不允许工作区写入，已拒绝。请在允许写入的宿主边界内重试。');
   }
   if (classification.effects.includes('hostWrite') && host.filesystem !== 'unrestricted') {
-    return deny('EXECUTION_ENVELOPE_FILESYSTEM_INSUFFICIENT', '宿主目录写入要求显式的 unrestricted 文件系统边界，已拒绝。请让宿主重新签发对应边界。');
+    return deny('EXECUTION_ENVELOPE_FILESYSTEM_INSUFFICIENT', '宿主目录写入要求声明 unrestricted 文件系统边界，当前不满足，已拒绝。');
   }
-  if (classification.effects.includes('externalWrite') && host.network === 'offline') {
-    return deny('EXECUTION_ENVELOPE_NETWORK_INSUFFICIENT', '外部写操作要求启用宿主网络边界，当前为 offline，已拒绝。请让宿主重新签发网络边界。');
+  if (classification.effects.some((effect) => ['externalWrite', 'dataEgress'].includes(effect)) && host.network === 'offline') {
+    return deny('EXECUTION_ENVELOPE_NETWORK_INSUFFICIENT', '外部写入或数据外发要求非 offline 网络边界，当前不满足，已拒绝。');
   }
-  const approvalEffects = new Set(['hostWrite', 'externalWrite', 'credentialUse']);
+  const approvalEffects = new Set(['hostWrite', 'externalWrite', 'dataEgress', 'credentialUse']);
   if (classification.effects.some((effect) => approvalEffects.has(effect)) && host.approval !== 'interactive') {
     return deny('EXECUTION_ENVELOPE_APPROVAL_REQUIRED', '宿主写入、外部写入与凭据使用要求交互式审批，当前 approval 不满足，已拒绝。请提供交互式审批或缩小该请求范围。');
   }
@@ -1055,8 +1092,21 @@ function containsGitDelivery(input) {
   ));
 }
 
-/** @param {Record<string, any>} input @param {{environment?: NodeJS.ProcessEnv, now?: number | Date, permissionPreset?: string | null}} options */
-export function evaluateExecutionEnvelope(input, { environment = process.env, now = Date.now(), permissionPreset = environment.VIBE_HARNESS_PERMISSION_PRESET ?? null } = {}) {
+function legacyCompatibilityActive(classification, legacyCompatibility, nowMs) {
+  if (!legacyCompatibility || classification.credentialPersistence
+    || classification.effects.some((effect) => [
+      'hostWrite', 'externalWrite', 'dataEgress', 'credentialUse', 'linearWrite', 'mergeRequestWrite',
+    ].includes(effect))) return false;
+  if (legacyCompatibility.acknowledgedRisk !== 'unverified-v2-host-context') return false;
+  const enabledAt = Date.parse(legacyCompatibility.enabledAt);
+  const expiresAt = Date.parse(legacyCompatibility.expiresAt);
+  return Number.isFinite(enabledAt) && Number.isFinite(expiresAt)
+    && enabledAt <= nowMs && expiresAt > nowMs
+    && expiresAt - enabledAt <= 30 * 24 * 60 * 60 * 1000;
+}
+
+/** @param {Record<string, any>} input @param {{environment?: NodeJS.ProcessEnv, now?: number | Date, permissionPreset?: string | null, legacyCompatibility?: {acknowledgedRisk: string, enabledAt: string, expiresAt: string} | null}} options */
+export function evaluateExecutionEnvelope(input, { environment = process.env, now = Date.now(), permissionPreset = environment.VIBE_HARNESS_PERMISSION_PRESET ?? null, legacyCompatibility = null } = {}) {
   const classification = classifyExecutionEffects(input);
   // The role permission ceiling applies before any envelope parsing: a signed
   // envelope can never escalate a role above its preset tier.
@@ -1068,45 +1118,54 @@ export function evaluateExecutionEnvelope(input, { environment = process.env, no
   }
   const delivery = ordinaryGitDelivery(input, classification);
   if (delivery && typeof delivery !== 'string') return delivery;
-  const required = environment.VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED === '1';
   const candidate = envelopeInput(input, environment);
+  const required = environment.VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED === '1';
+  const crossingHostBoundary = classification.effects.some((effect) => [
+    'hostWrite', 'externalWrite', 'dataEgress', 'credentialUse', 'linearWrite', 'mergeRequestWrite',
+  ].includes(effect));
   if (!candidate.present) {
-    if (classification.readOnly) return { action: 'allow' };
-    if (delivery) return { action: 'allow' };
-    if (containsGitDelivery(input)) return invalidEnvelopeDecision('missing');
-    if (!required && classification.risk !== 'high') return { action: 'allow' };
+    if (classification.readOnly || delivery) return { action: 'allow' };
+    if (containsGitDelivery(input)) {
+      return deny('GIT_DELIVERY_UNVERIFIED', '仅可直接执行经核验的单一普通提交或非强制推送；复合、改写或目标不明的 Git 交付已拒绝。');
+    }
+    if (!required && !crossingHostBoundary && classification.risk !== 'high') return { action: 'allow' };
     return invalidEnvelopeDecision('missing');
   }
+  const nowMs = now instanceof Date ? now.getTime() : Number(now);
   const parsed = parseExecutionEnvelope(candidate.value);
+  const localOptional = !required && !containsGitDelivery(input)
+    && !crossingHostBoundary && classification.risk !== 'high';
   if (!parsed) {
-    return classification.readOnly ? { action: 'allow' } : invalidEnvelopeDecision('invalid');
+    return classification.readOnly || localOptional ? { action: 'allow' } : invalidEnvelopeDecision('invalid');
   }
   const { envelope, version } = parsed;
   if (envelope.sessionId !== input.sessionId) {
-    return classification.readOnly ? { action: 'allow' } : invalidEnvelopeDecision('session-mismatch');
+    return classification.readOnly || localOptional ? { action: 'allow' } : invalidEnvelopeDecision('session-mismatch');
   }
-  const nowMs = now instanceof Date ? now.getTime() : Number(now);
   if (envelope.expiresAt && Date.parse(envelope.expiresAt) <= nowMs) {
-    return classification.readOnly ? { action: 'allow' } : invalidEnvelopeDecision('expired');
+    return classification.readOnly || localOptional ? { action: 'allow' } : invalidEnvelopeDecision('expired');
   }
   const forbidden = classification.effects.find((effect) => envelope.forbiddenEffects.includes(effect));
   if (forbidden) {
-    return deny('EXECUTION_ENVELOPE_EFFECT_FORBIDDEN', '活动 Envelope 明确禁止执行效果 ' + forbidden + '，已拒绝。请改用不含该效果的实现，或重新签发不含该禁止项的 Envelope。');
+    return deny('EXECUTION_ENVELOPE_EFFECT_FORBIDDEN', `活动 Envelope 明确禁止执行效果 ${forbidden}，已拒绝。`);
   }
   if (delivery) return { action: 'allow' };
   const ceiling = (version === 1 ? modeCeilingsV1 : modeCeilingsV2).get(envelope.mode);
   const modeViolation = classification.effects.find((effect) => !ceiling.has(effect));
   if (modeViolation) {
-    return deny('EXECUTION_ENVELOPE_MODE_VIOLATION', '执行模式 ' + envelope.mode + ' 不允许效果 ' + modeViolation + '，已拒绝。请改用允许该效果的模式（例如 execute）或缩小调用范围。');
+    return deny('EXECUTION_ENVELOPE_MODE_VIOLATION',
+      `执行模式 ${envelope.mode} 不允许效果 ${modeViolation}，已拒绝。请改用允许该效果的模式或缩小调用范围。`);
   }
   if (classification.credentialPersistence) {
-    return deny('EXECUTION_ENVELOPE_CREDENTIAL_PERSISTENCE', '禁止把凭据助手输出直接落盘，已拒绝。请改为只读取所需字段，不要把凭据写入文件。');
+    return deny('EXECUTION_ENVELOPE_CREDENTIAL_PERSISTENCE', '禁止把凭据助手输出直接落盘，已拒绝。');
   }
   if (version === 1 && classification.risk === 'high') {
-    return deny('EXECUTION_ENVELOPE_V1_INSUFFICIENT', 'Execution Envelope v1 无法授权高风险、宿主、外部、凭据或 worktree 拓扑效果，已拒绝。请改用 v2 high-risk Envelope。');
+    return deny('EXECUTION_ENVELOPE_V1_INSUFFICIENT',
+      'Execution Envelope v1 无法授权高风险、宿主、外部、凭据或 worktree 拓扑效果，已拒绝。请改用 v2 high-risk Envelope。');
   }
   if (classification.unknown) {
-    return deny('EXECUTION_ENVELOPE_UNKNOWN_EFFECT', '该调用的效果无法安全判定，属于「不可判定」，需要 Execution Envelope 才能执行。请改写为已登记的只读命令，或由宿主注入覆盖该调用的 Envelope。');
+    return deny('EXECUTION_ENVELOPE_UNKNOWN_EFFECT',
+      '该调用效果无法安全判定，属于「不可判定」，需要可核验的宿主授权；只读命令无需 Envelope。');
   }
   if (version === 2 && classification.risk === 'high') {
     const riskDecision = highRiskDecision(classification, envelope, nowMs);
@@ -1114,7 +1173,8 @@ export function evaluateExecutionEnvelope(input, { environment = process.env, no
   }
   const missing = classification.effects.find((effect) => !envelope.allowedEffects.includes(effect));
   if (missing) {
-    return deny('EXECUTION_ENVELOPE_EFFECT_NOT_ALLOWED', '活动 Envelope 未授权执行效果 ' + missing + '，已拒绝。请在 Envelope 的 allowedEffects 中登记该效果后重试。');
+    return deny('EXECUTION_ENVELOPE_EFFECT_NOT_ALLOWED',
+      `活动 Envelope 未授权执行效果 ${missing}，已拒绝。请登记该效果后重试。`);
   }
   const targetMismatch = targetDecision(input, classification, envelope);
   if (targetMismatch) return targetMismatch;
@@ -1123,6 +1183,21 @@ export function evaluateExecutionEnvelope(input, { environment = process.env, no
     if (workspaceMismatch) return workspaceMismatch;
     const externalMismatch = externalTargetDecision(classification, envelope);
     if (externalMismatch) return externalMismatch;
+  }
+  if (version === 2 && classification.risk === 'high') {
+    if (legacyCompatibilityActive(classification, legacyCompatibility, nowMs)) {
+      return {
+        action: 'allow',
+        reasonCode: 'EXECUTION_ENVELOPE_LEGACY_COMPAT',
+        compatibilityExpiresAt: legacyCompatibility.expiresAt,
+        requestId: envelope.requestId,
+      };
+    }
+    return {
+      ...deny('EXECUTION_ENVELOPE_HOST_PROOF_UNVERIFIED',
+        'hostContext 等调用方 JSON 不能证明宿主授权；高风险调用需要可信宿主 Broker 的一次性证明，已拒绝。'),
+      requestId: envelope.requestId,
+    };
   }
   return { action: 'allow' };
 }

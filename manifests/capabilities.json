@@ -412,6 +412,7 @@
         "runtime/commands/run.mjs",
         "runtime/lib/cli-output.mjs",
         "runtime/lib/cli-runtime.mjs",
+        "runtime/lib/review-command.mjs",
         "runtime/lib/verification-plan-support.mjs",
         "runtime/lib/task-command.mjs",
         "runtime/lib/verification-command.mjs",
@@ -454,6 +455,7 @@
       "targets": [
         "runtime/hooks/codex-hook.mjs",
         "runtime/hooks/lib/execution-envelope.mjs",
+        "runtime/hooks/lib/legacy-envelope-compat.mjs",
         "runtime/hooks/lib/policy.mjs",
         "runtime/hooks/lib/read-only-commands.mjs",
         "runtime/hooks/lib/context.mjs"
@@ -483,6 +485,7 @@
         "schemas/execution-envelope.schema.json",
         "schemas/execution-envelope-v2.schema.json",
         "runtime/hooks/lib/execution-envelope.mjs",
+        "runtime/hooks/lib/legacy-envelope-compat.mjs",
         "runtime/hooks/codex-hook.mjs",
         "docs/rules/governance-core.md",
         "docs/rules/linear-workflow.md",

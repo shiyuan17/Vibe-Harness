@@ -433,6 +433,12 @@
     },
     {
       "group": "runtime-project-scripts",
+      "source": "runtime/lib/review-command.mjs",
+      "target": ".agents/runtime/lib/review-command.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
       "source": "runtime/lib/git-timeouts.mjs",
       "target": ".agents/runtime/lib/git-timeouts.mjs",
       "contentStrategy": "replace"
@@ -465,6 +471,12 @@
       "group": "runtime-project-scripts",
       "source": "runtime/lib/worktree-command.mjs",
       "target": ".agents/runtime/lib/worktree-command.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
+      "source": "runtime/lib/lease-lock.mjs",
+      "target": ".agents/runtime/lib/lease-lock.mjs",
       "contentStrategy": "replace"
     },
     {
@@ -1214,6 +1226,13 @@
       "group": "hooks",
       "source": "runtime/hooks/lib/execution-envelope.mjs",
       "target": ".agents/runtime/hooks/lib/execution-envelope.mjs",
+      "contentStrategy": "replace",
+      "redZone": true
+    },
+    {
+      "group": "hooks",
+      "source": "runtime/hooks/lib/legacy-envelope-compat.mjs",
+      "target": ".agents/runtime/hooks/lib/legacy-envelope-compat.mjs",
       "contentStrategy": "replace",
       "redZone": true
     },

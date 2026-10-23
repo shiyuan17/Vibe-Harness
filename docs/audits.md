@@ -10,6 +10,8 @@ memory kind 检查空模板、无效日期、失效文件引用，以及引用�
 
 review kind 根据 base diff、当前 head、变更指纹、高风险路径和最终 verification receipt 验证独立审查。收据可由已安装的 open-code-review、宿主原生 Reviewer 或人工 Reviewer 生成，再通过 --receipt PROJECT_RELATIVE_PATH 提供；审计器只校验标准 JSON，不调用 Reviewer，也不把结构化身份声明描述为密码学认证。
 
+`node .agents/runtime/commands/run.mjs review ocr --task <ISSUE-ID> --target <https-model-endpoint>` 仅为受限预检：它核对配置与模型目标，缺少可信宿主 Broker 时返回 `HOST_BROKER_REQUIRED`，不签发 Envelope 或启动带凭据的 OCR。OCR 仅支持其实际实现的 `openai`（Chat Completions）与 `anthropic` 协议；`openai-responses` 等不支持协议返回脱敏的 `OCR_PROTOCOL_UNSUPPORTED`，无配置或非 HTTPS／带凭据端点也不会启动。全局 Codex 凭据仍须显式设置 `OCR_ALLOW_CODEX_CONFIG=1`，且 opt-in 不等于高风险外发授权。可改由真正独立、只读的宿主原生 Reviewer 出具符合下述契约的回执。
+
 approved 要求 Reviewer 与实现者身份、context ID 均不同，readOnly 为 true，最终验证绑定当前 head 且 stable 为 true，并且没有未解决的 High 或 Critical finding。收据文件本身不参与变更指纹，避免自引用；任何其他新提交或工作树变更都会使旧收据失效。
 
 v1 回执保持可读，但只对普通变更成立：高风险变更一律要求 v2，v1 回执在高风险下报 `REVIEW_SCHEMA_V2_REQUIRED`，不能支持 approved。v2 是高风险变更的复审契约：Schema 结构上要求至少给出一个 `reviewers` 条目（身份与 contextId 均不得等于实施者）与 `contextIndependence`；`attested` 声明支持 approved，`unavailable` 不支持。缺少复审者或缺少独立性声明时，收据本身就不成立，而不是仅在审计时降级。

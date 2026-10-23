@@ -120,7 +120,9 @@ test('envelope drafts freeze the real workspace identity and never fabricate hos
       terminalCondition: 'wave 2 scripts landed',
     });
   assert.equal(plan.valid, false);
-  assert.deepEqual(plan.hostInjectedFields, ['requestId', 'sessionId', 'hostContext']);
+  assert.deepEqual(plan.hostInjectedFields, ['sessionId', 'hostContext']);
+  assert.match(plan.envelope.requestId, /^[0-9a-f-]{36}$/u);
+  assert.ok(Date.parse(plan.envelope.expiresAt) > Date.now());
   assert.equal(plan.hostProof.status, 'absent');
   assert.equal(plan.envelope.schema, 'vibe-harness.execution-envelope/v2');
   assert.equal(plan.envelope.hostContext, null);
@@ -131,7 +133,7 @@ test('envelope drafts freeze the real workspace identity and never fabricate hos
   assert.equal(plan.envelope.scope.workspace.canonicalCwd.toLowerCase().endsWith(path.basename(fixture.root).toLowerCase()), true);
   const codes = plan.problems.map((problem) => problem.code);
   assert.equal(codes.includes('HOST_PROOF_ABSENT'), true);
-  assert.equal(codes.includes('REQUEST_ID_MISSING'), true);
+  assert.equal(codes.includes('REQUEST_ID_MISSING'), false);
   assert.equal(codes.includes('BASE_REF_UNRESOLVED'), true);
 
   const complete = buildEnvelopeDraft({
@@ -204,7 +206,9 @@ test('envelope checks fail closed on ceiling, conflict and expiry problems', asy
   const workspace = inspectWorkspaceIdentity(fixture.root);
   const check = (envelope) => checkEnvelope(envelope, { cwd: fixture.root, workspace });
   const valid = buildEnvelopeDraft({ activeObjective: 'high risk', allowedEffects: ['hostWrite'], baseRef: 'HEAD', cwd: fixture.root, hostContext: hostProof(), mode: 'execute', requestId: 'req-2', riskClass: 'high', sessionId: 'session-1', targetIssueIds: ['ENG-123'], terminalCondition: 'high risk' });
-  assert.equal(valid.enforcementGrade, 'host-verified/high-risk');
+  assert.equal(valid.enforcementGrade, 'host-declared/high-risk');
+  assert.equal(valid.valid, false);
+  assert.equal(valid.problems.some((problem) => problem.code === 'HOST_PROOF_UNVERIFIED'), true);
 
   const validEnvelope = buildEnvelopeDraft({
     activeObjective: 'check fixture',
@@ -351,7 +355,7 @@ test('envelope CLI plans a draft, injects host proof and checks the result', asy
     assert.equal(draft.code, 1);
     const plan = JSON.parse(draft.stdout);
     assert.equal(plan.valid, false);
-    assert.deepEqual(plan.hostInjectedFields, ['requestId', 'sessionId', 'hostContext']);
+    assert.deepEqual(plan.hostInjectedFields, ['sessionId', 'hostContext']);
     assert.equal(plan.envelope.scope.workspace.branch, FIXTURE_BRANCH);
 
     const hostFile = path.join(outDir, 'host-context.json');
