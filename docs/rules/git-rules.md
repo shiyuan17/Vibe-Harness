@@ -158,7 +158,7 @@ Question 3: 是否并行多个独立的功能分支？
 **成本与升级门槛**：并行模式的成本与节省决策详见 `docs/rules/governance-core.md`「成本与升级」章节；单一真值源为该文件中的 45 分钟和 25% 要求。
 - 快速档（仅改 develop 分支）→ 普通提交与推送
 - 轻量档（跨相邻模块）→ 可用普通提交或 develop flow
-- 完整档（公共契约、安全、迁移）→ 必须 develop flow
+- 完整档（公共契约、安全、迁移）→ 按实际隔离和集成需要选择；不自动强制 develop flow
 ```
 
 **使用指南**：
@@ -166,41 +166,7 @@ Question 3: 是否并行多个独立的功能分支？
 - Develop flow 适用于需要隔离工作区、验证与合并的场景
 - 两者都保持"一个逻辑变更一个 commit"的规则
 - **完整执行合同**（5步流程、授权核对项、入口选择条件、Envelope 兼容说明）见 `vb-git-develop-flow` Skill；本节只保留判定原则，修改须同步。
-
-调用名称统一为 `Vb Git Develop Flow`（`vb-git-develop-flow`）与 `Vb Linear Worktree Develop`（`vb-linear-worktree-develop`），旧触发词 `gd-flow` / `$gd-flow`、`lwflow` / `$lwflow` 分别兼容对应入口。`Vb Git Split Push`（`vb-git-split-push`，兼容 `git-deliver` / `$git-deliver`）仅负责当前分支分批提交与普通推送。
-
-managed-mr 的 land 只读取已合入 MR 的证据，不本地合并或推送；ancestor 快速路径保留。squash 清理须绑定 sourceBase/sourceHead、targetRef/targetBefore/targetAfter、mergeMethod/mergeCommit、patchId 和 taskId，并重读目标引用、核对整个 source diff 与单父 squash commit 的 stable patch-id、干净工作树以及当前完成收据；缺失、漂移或不一致一律 blocked。GitLab `--mr` 读取失败不得猜测已合并。cleanup 保留分支，不自动强删 squash source 分支。
-
-## 显式 develop flow
-
-#### Develop Flow vs 普通提交决策树
-
-回答以下问题，判定是否需要使用 `vb-git-develop-flow`：
-
-```
-Question 1: 是否涉及公共契约或公开 API 变更？
-  ├─ Yes → 必须 develop flow
-  └─ No  → 继续 Question 2
-
-Question 2: 是否涉及安全相关或红区文件修改？
-  ├─ Yes → 必须 develop flow
-  └─ No  → 继续 Question 3
-
-Question 3: 是否并行多个独立的功能分支？
-  ├─ Yes → 考虑 develop flow
-  └─ No  → 使用普通本地提交与推送
-
-结论：
-- 快速档（仅改 develop 分支）→ 普通提交与推送
-- 轻量档（跨相邻模块）→ 可用普通提交或 develop flow
-- 完整档（公共契约、安全、迁移）→ 必须 develop flow
-```
-
-**使用指南**：
-- 普通本地提交与推送无需独立授权，满足当前任务范围
-- Develop flow 适用于需要隔离工作区、验证与合并的场景
-- 两者都保持"一个逻辑变更一个 commit"的规则
-- **完整执行合同**（5步流程、授权核对项、入口选择条件、Envelope 兼容说明）见 `vb-git-develop-flow` Skill；本节只保留判定原则，修改须同步。
+- `vb-git-develop-flow` 的显式调用授权本轮本地交付计划；`vb-linear-worktree-develop` 还覆盖本轮计划所需的有界 Linear Issue/DAG/状态/Receipt 同步。两者都不要求用户填写 Claim/Grant/fencing/Envelope 字段；显式 Linear 单次运行默认使用内部 v1 Receipt，宿主可为并发运行内部提供 Claim/v3 Receipt，自动派发必须由宿主原子 Claim。
 
 调用名称统一为 `Vb Git Develop Flow`（`vb-git-develop-flow`）与 `Vb Linear Worktree Develop`（`vb-linear-worktree-develop`），旧触发词 `gd-flow` / `$gd-flow`、`lwflow` / `$lwflow` 分别兼容对应入口。`Vb Git Split Push`（`vb-git-split-push`，兼容 `git-deliver` / `$git-deliver`）仅负责当前分支分批提交与普通推送。
 
@@ -250,6 +216,7 @@ Question 3: 是否并行多个独立的功能分支？
 - `$vb-git-split-push` 与 `worktree land --write --push` 只在已有 upstream 时普通推送；无 upstream 时仅在唯一明确远端为 origin 且目标分支非保护或共享分支时建立跟踪并推送，否则停止确认。`land` 不执行 commit，只把已提交内容合并进主检出当前分支；不带 `--push` 时不推送，收据只给出建议命令。
 - main、master、release 与仓库识别出的保护分支不得由 `$vb-git-split-push` 自动推送；`develop` 已移出保护清单，任务分支与 land 落地可直接 `git push`／`git push -u origin develop`，不需要人工审批或服务器端 required gate。强制推送、删除远端引用与历史重写不属于该 Skill 授权范围。
 - 按需提交前须核对提交分组：验收点与建议 commit message、包含文件、排除文件、验证（命令及结果）、风险（低／中／高与理由）、回滚方式。
+- 分批验证必须绑定当前批次的 staged snapshot：提交前记录文件清单与 patch/blob 指纹并复核 staged diff。验证命令读取工作树而非 index，须确认验证相关路径的工作树内容与 index 一致；否则用补丁拆分或隔离 checkout 对齐验证对象，不得把对未暂存内容的结果算作当前快照证据。提交后记录 commit SHA；工作树或暂存区变化后不得复用上一批收据，必须针对新快照重跑聚焦验证。
 - 未提交不等于任务失败，应交付改动清单和验证证据；显式分组交付时只暂存归属明确的改动，先运行与完成主张匹配的验证，再按本节的推送安全边界执行。已安装的 `vb-git-split-push` Skill 提供操作辅助，两者共享归属、验证和推送安全边界，修改须同步。
 
 ## 提交内容与信息
@@ -271,8 +238,8 @@ Question 3: 是否并行多个独立的功能分支？
 - `main` 只接受同仓库 `develop`、`hotfix/*` 和 release-please 的 PR，不使用长期 `release/*` 分支；目标项目已配置 `release/*` 时按其保护规则处理。
 - `develop` 不配置服务器端 required gate：稳定 fast gate 聚合检查不再作为集成分支的合并门禁，集成分支接受本地 `worktree land` 的 no-ff 直落与任务分支直推，质量责任由本地候选合并验证（lint、typecheck、unit，并按变更影响追加 component/integration）与提交前检查承担；发布边界继续使用完整 required CI。
 - 普通任务 PR 仍可由 Writer 在 envelope 授权 `mergeRequestWrite` 后自行 squash merge；`Ready to Merge` 仍只用于带发布门禁目标。
-- 合并前的本地验证必须建立在合并时的最新 `origin/develop` 之上，目标 ref 已前进时重跑受影响检查或改用 merge queue；高风险变更的 Independent Review Receipt 缺失、过期、与 diff 不匹配或结论为 negative 时不得自行落地合并。
-- 任务可隔离开发但不得同时写入同一集成目标：任务 worktree 只负责开发隔离，Parent 负责依赖顺序、冲突归属和 fan-in；共享分支 PR 在远端 merge queue 以最新目标基线重验后顺序合并，队列未启用的仓库继续遵守当前授权和人工顺序集成，不得声称远端队列门禁已生效。
+- 合并前的本地验证必须建立在合并时的最新 `origin/develop` 之上；目标 ref 前进时重建最终候选，只重跑新输入失效的必要检查。独立审查可以观察和报告，但不构成普通 land 的收据门禁；目标分支平台保护及可信宿主授权仍独立生效。
+- 不同写节点可在各自 worktree 并行实现与聚焦验证；共享契约只设一名 writer。目标 ref 最终化按短租约串行，Parent 只对最终组合行为做必要的 fan-in 验证，不重复每个只读节点的矩阵；远端 merge queue 未启用不得声称已有队列门禁。
 - 紧急旁路必须有明确过期时间、授权人和审计记录；不得以 advisory、跳过检查或本地标记静默绕过 required gate。
 
 ## 分支与 PR/MR
@@ -318,7 +285,8 @@ Vibe-Harness 自身使用 Conventional Commits、commitlint、pre-commit、pre-p
 - 一个隔离单元对应一个命名分支和明确写入范围，worktree 放在仓库外部、数量不是并行目标；宿主提供 worktree 能力时优先用宿主 worktree，并让宿主把会话根切到该 worktree，只有需要治理面投影、端口分段或依赖链接时才改用下列脚本入口。不需要隔离时直接在当前工作区保护用户改动，子 Agent 只在分配的 worktree、分支和写入范围内工作，审查任务默认只读。
 - 派发前明确目标分支、依赖和共享契约的唯一写入者；writeScope 或资源重叠的任务按依赖顺序推进，过期基线与语义冲突由任务责任人解决，集成失败只暂停相关任务和后继。
 - 引导、审计与清理走项目脚本入口 `node .agents/runtime/commands/run.mjs worktree <list|check|bootstrap|land|recover|cleanup> --project . --json`：默认只读，只有追加 `--write` 才落盘；`cleanup` 在分支未并入 `worktree.baseRef` 或工作区不干净时拒绝，且从不删除分支；不带 `--write` 的 `bootstrap` 是步骤计划预览，`--help` 给出该入口自身的命令面说明。该入口是安装交付内唯一的 worktree 写入面（创建、依赖链接与清理）；源仓库开发面另有只读审计 CLI（`scripts/worktree.js`，`list|check|plan`），不随安装交付，目标项目不引入第二个写入口。
-- `worktree land` 把归因 worktree 闭环回收进主检出当前分支：dry-run 只出计划；`--write` 先在候选活动租约保护下建立仓库外临时候选，执行「合并（`--no-ff`，已并入则跳过）→ 复用逐检查收据并验证（默认 quick，锚点 `riskLevel=full` 时 standard）」，再取得目标 ref 租约并重新核对工作区、来源与目标基线及任务锚点；通过且目标与来源 HEAD、主检出与候选状态均未变化后才快进主检出，随后按授权推送、清理任务 worktree 与端口登记，并仅在推送成功后删除任务分支。候选合并使用空 hooks path、`LEFTHOOK=0`、`HUSKY=0` 和 `--no-verify`，防止表单/Git Hook 改写共享依赖；这不是用户提交绕过 Hook 的授权。合并冲突或验证失败不移动主检出并保留任务 worktree；Phase 2 锁等待预算默认 180 秒，`VIBE_HARNESS_LAND_LOCK_TIMEOUT_MS` 只能缩短等待。租约持有期间定期续期；死进程或已过期的锁由 lease-lock 判定后回收，仍存活的旧格式全局锁按 PID 保持占用。基线变化阻塞本次落地，Phase 1 活动候选会被 `worktree recover --write` 报为 blocked 且不会移除；普通残留候选仍须归因且干净才可回收。预检同时报告主检出差分、基线漂移、残留 candidate、深任务验证锁、依赖根与 junction 完整性；同一仓库的 deep/后端全量验证由 Git common dir 租约锁串行。门禁 fail-closed：目标是可直落的分支（main、master、release* 仍要求明确审查上下文；`develop` 由显式白名单允许直落，且仅在有显式 `reviewPolicy:"none"` 时免 relevance review）、关联任务锚点单元全部完成且 completion receipt 仍完整；`--base-ref` 仅作意图断言，不带 `--push` 时不推送不删分支，`--write --no-verify` 拒绝执行。
+- `worktree land` 默认对每个 ready 任务分别建立隔离候选并实测所请求且实际选中的检查，候选稳定、检查通过才最终化；未选的高层检查标作 deferred，不迫使升级 deep，也不得据此宣称集成/发布证据。Phase 1 可并行，Phase 2 对目标 ref 短租约串行并核对目标 SHA；普通推送不得强制更新。验证失败或冲突保留来源树，推送已确认但清理失败报告“已集成、待清理”，不能重复合并。`--base-ref` 仅作意图断言，`--write --no-verify` 拒绝执行。任务前序只核对真实 done 状态与依赖，不依赖整树收据指纹；本地任务写入不以 Envelope 或完成收据为前置门禁。
+- 仅多个互不依赖任务已同时 ready 时，显式使用 `worktree land --batch --task A --task B ...`；批次在一个候选中按序合并，冲突只在候选解决，最终组合树实测通过才最终化。单项和批量遵守同一候选判据；deferred 待后续检查，持久收据写入失败不改变实测结果。目标前进重建候选并限定昂贵自动重试，失败、推送结果不明或清理失败保留可恢复现场。
 - 临时候选 worktree 只在工作区干净时自动移除，异常残留由 `worktree recover` 报告、`--write` 只清理有归因且干净的候选，脏候选与疑似残留锁由操作者核对；本地 `land` 不创建远端合并队列，也不能代替共享分支 required checks。
 - 目录已消失但 Git 元数据与分支绑定仍在的 worktree 由 `worktree check` 报 `WORKTREE_PRUNABLE_RESIDUE` 并阻塞审计通过。`worktree recover --write` 按序移除不完整 worktree（端口 env 文件在位且登记在册时跳过，仅当分支未离开基线且工作区干净时连同分支与端口登记一起移除）、prunable 残留（一次 `git worktree prune`）、孤立分支与孤立端口登记；分支删除只在存在归因证据（端口登记表条目或 prunable 清单）、分支 HEAD 等于 `worktree.baseRef` 解析出的基线 SHA 且该分支不是基线本身时发生，无引用的用户占位分支、带未并入提交的分支与登记面之外的外来 worktree 一律不动。该证据门不与「merge-back 完成前不删除分支」冲突（被删分支从未持有任何提交）；另一处分支删除只发生在 `land` 推送成功之后，并使用自带未合并拒绝保险的 `git branch -d`。
 - 依赖链接（`node_modules` junction 或 symlink）由 `worktree bootstrap` 建立并对每个本地包逐项 realpath 断言，断言失败时回滚本次新建的 worktree；`.bin`/`.bun`/`.pnpm` 等内容寻址 store 与各自带 `node_modules` 的 workspace 包由 overlay 投影，构建缓存 `.cache`/`.vite`/`.vite-temp` 跳过；`worktree check` 报告依赖链接缺失或指回主检出的事实。

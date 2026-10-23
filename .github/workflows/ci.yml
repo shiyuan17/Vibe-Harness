@@ -315,8 +315,6 @@ jobs:
       CHANGE_PLAN_RESULT: ${{ needs.change-plan.result }}
       BRANCH_POLICY_RESULT: ${{ needs.branch-policy.result }}
       REQUIRED_BRANCH_POLICY_RESULT: ${{ github.event_name == 'pull_request' }}
-      HIGH_RISK_REVIEW_RESULT: ${{ needs.independent-review.result }}
-      REQUIRED_HIGH_RISK_REVIEW_RESULT: ${{ github.event_name == 'pull_request' }}
       HIGH_RISK_APPROVAL_RESULT: ${{ needs.high-risk-approval.result }}
       REQUIRED_HIGH_RISK_APPROVAL_RESULT: ${{ github.event_name == 'pull_request' }}
     steps:

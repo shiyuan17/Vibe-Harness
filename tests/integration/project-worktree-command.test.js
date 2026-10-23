@@ -960,6 +960,240 @@ async function bootstrapWithWork(fixture) {
   await git(fixture.worktreePath, ['commit', '-q', '-m', 'feat: work']);
 }
 
+async function bootstrapBatchSecond(fixture, content, name = 'second.txt') {
+  const secondPath = path.join(fixture.root, 'repo-worktrees', 'ENG-2');
+  const bootstrapped = await runCommand([
+    'worktree', 'bootstrap', '--project', fixture.repo, '--task', 'ENG-2:feat/ENG-2-scaffold', '--write', '--json',
+  ], { cwd: fixture.repo });
+  assert.equal(bootstrapped.report.status, 'passed', JSON.stringify(bootstrapped.report));
+  await writeFile(path.join(secondPath, name), content);
+  await git(secondPath, ['add', name]);
+  await git(secondPath, ['commit', '-q', '-m', 'feat: second']);
+  return secondPath;
+}
+
+test('batch land merges two sources into one verified final tree without deep escalation', async () => {
+  const counter = path.join(tmpdir(), `land-batch-${process.pid}-${Date.now()}.txt`);
+  const fixture = await makeLandFixture({
+    extraFiles: { 'verify.mjs': "import { appendFileSync } from 'node:fs'; appendFileSync(process.env.BATCH_VERIFY_COUNTER, 'run\\n');\n" },
+    validationCommands: { tiers: { quick: ['node verify.mjs'], deep: ['node --version'] } },
+  });
+  const previous = process.env.BATCH_VERIFY_COUNTER;
+  try {
+    process.env.BATCH_VERIFY_COUNTER = counter;
+    await bootstrapWithWork(fixture);
+    const second = await bootstrapBatchSecond(fixture, 'two\n');
+    const result = await runCommand(['worktree', 'land', '--project', fixture.repo,
+      '--batch', '--task', 'ENG-1', '--task', 'ENG-2', '--delivery', 'local-land', '--reviewed', 'all', '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(result.report.status, 'passed', JSON.stringify(result.report));
+    assert.equal(result.report.tier, undefined);
+    assert.equal(result.report.integration.tier, 'quick');
+    assert.equal(result.report.integration.completion, 'pending_ci');
+    assert.equal((await readFile(counter, 'utf8')).trim(), 'run');
+    assert.equal((await readFile(path.join(fixture.repo, 'work.txt'), 'utf8')).trim(), 'done');
+    assert.equal((await readFile(path.join(fixture.repo, 'second.txt'), 'utf8')).trim(), 'two');
+    assert.equal(await entryExists(fixture.repo, second), true, 'without --push task worktrees are retained');
+  } finally {
+    if (previous === undefined) delete process.env.BATCH_VERIFY_COUNTER;
+    else process.env.BATCH_VERIFY_COUNTER = previous;
+    await rm(counter, { force: true });
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('batch conflict retains candidate for agent resolution and resumes without moving target early', async () => {
+  const fixture = await makeLandFixture({ extraFiles: { 'shared.txt': 'base\n' } });
+  try {
+    await bootstrapWithWork(fixture);
+    await writeFile(path.join(fixture.worktreePath, 'shared.txt'), 'first\n');
+    await git(fixture.worktreePath, ['add', 'shared.txt']);
+    await git(fixture.worktreePath, ['commit', '-q', '-m', 'feat: first shared']);
+    const second = await bootstrapBatchSecond(fixture, 'second\n', 'shared.txt');
+    const before = await git(fixture.repo, ['rev-parse', 'HEAD']);
+    const options = ['worktree', 'land', '--project', fixture.repo, '--batch',
+      '--task', 'ENG-1', '--task', 'ENG-2', '--delivery', 'local-land', '--reviewed', 'all', '--write', '--json'];
+    const conflict = await runCommand(options, { cwd: fixture.repo });
+    assert.equal(conflict.report.code, 'LAND_BATCH_CONFLICT', JSON.stringify(conflict.report));
+    assert.equal(await git(fixture.repo, ['rev-parse', 'HEAD']), before);
+    assert.equal(await entryExists(fixture.repo, second), true);
+    const candidate = conflict.report.candidatePath;
+    const unresolved = await runCommand(['worktree', 'land', '--project', fixture.repo,
+      '--batch', '--resume', conflict.report.batchId, '--delivery', 'local-land', '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(unresolved.report.code, 'LAND_BATCH_CONFLICT_UNRESOLVED', JSON.stringify(unresolved.report));
+    await writeFile(path.join(candidate, 'shared.txt'), 'first\nsecond\n');
+    await git(candidate, ['add', 'shared.txt']);
+    const resumed = await runCommand(['worktree', 'land', '--project', fixture.repo,
+      '--batch', '--resume', conflict.report.batchId, '--delivery', 'local-land', '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(resumed.report.status, 'passed', JSON.stringify(resumed.report));
+    assert.equal((await readFile(path.join(fixture.repo, 'shared.txt'), 'utf8')).trim().replaceAll('\r\n', '\n'), 'first\nsecond');
+    assert.equal(resumed.report.integration.conflicts.length, 1);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('batch can resolve two successive conflicts before a single final verification', async () => {
+  const fixture = await makeLandFixture({ extraFiles: { 'shared.txt': 'base\n' } });
+  try {
+    await bootstrapWithWork(fixture);
+    await writeFile(path.join(fixture.worktreePath, 'shared.txt'), 'first\n');
+    await git(fixture.worktreePath, ['add', 'shared.txt']);
+    await git(fixture.worktreePath, ['commit', '-q', '-m', 'feat: first shared']);
+    await bootstrapBatchSecond(fixture, 'second\n', 'shared.txt');
+    const thirdPath = path.join(fixture.root, 'repo-worktrees', 'ENG-3');
+    const bootstrapped = await runCommand(['worktree', 'bootstrap', '--project', fixture.repo,
+      '--task', 'ENG-3:feat/ENG-3-scaffold', '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(bootstrapped.report.status, 'passed');
+    await writeFile(path.join(thirdPath, 'shared.txt'), 'third\n');
+    await git(thirdPath, ['add', 'shared.txt']);
+    await git(thirdPath, ['commit', '-q', '-m', 'feat: third shared']);
+    const first = await runCommand(['worktree', 'land', '--project', fixture.repo, '--batch',
+      '--task', 'ENG-1', '--task', 'ENG-2', '--task', 'ENG-3', '--delivery', 'local-land',
+      '--reviewed', 'all', '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(first.report.code, 'LAND_BATCH_CONFLICT', JSON.stringify(first.report));
+    await writeFile(first.report.candidatePath + '/shared.txt', 'first\nsecond\n');
+    await git(first.report.candidatePath, ['add', 'shared.txt']);
+    const second = await runCommand(['worktree', 'land', '--project', fixture.repo,
+      '--batch', '--resume', first.report.batchId, '--delivery', 'local-land', '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(second.report.code, 'LAND_BATCH_CONFLICT', JSON.stringify(second.report));
+    assert.equal(second.report.task, 'ENG-3');
+    await writeFile(second.report.candidatePath + '/shared.txt', 'first\nsecond\nthird\n');
+    await git(second.report.candidatePath, ['add', 'shared.txt']);
+    const done = await runCommand(['worktree', 'land', '--project', fixture.repo,
+      '--batch', '--resume', first.report.batchId, '--delivery', 'local-land', '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(done.report.status, 'passed', JSON.stringify(done.report));
+    assert.equal(done.report.integration.conflicts.length, 2);
+    assert.equal((await readFile(path.join(fixture.repo, 'shared.txt'), 'utf8')).trim().replaceAll('\r\n', '\n'), 'first\nsecond\nthird');
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('batch verification failure preserves target and both source worktrees', async () => {
+  const fixture = await makeLandFixture({ validationCommands: { test: 'node missing-batch-check.mjs' } });
+  try {
+    await bootstrapWithWork(fixture);
+    const second = await bootstrapBatchSecond(fixture, 'two\n');
+    const before = await git(fixture.repo, ['rev-parse', 'HEAD']);
+    const result = await runCommand(['worktree', 'land', '--project', fixture.repo,
+      '--batch', '--task', 'ENG-1', '--task', 'ENG-2', '--delivery', 'local-land',
+      '--reviewed', 'all', '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(result.report.code, 'LAND_BATCH_VERIFY_FAILED', JSON.stringify(result.report));
+    assert.equal(await git(fixture.repo, ['rev-parse', 'HEAD']), before);
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
+    assert.equal(await entryExists(fixture.repo, second), true);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('batch resumed after target advance rebuilds and verifies a new candidate', async () => {
+  const fixture = await makeLandFixture({ extraFiles: { 'shared.txt': 'base\n' } });
+  try {
+    await bootstrapWithWork(fixture);
+    await writeFile(path.join(fixture.worktreePath, 'shared.txt'), 'first\n');
+    await git(fixture.worktreePath, ['add', 'shared.txt']);
+    await git(fixture.worktreePath, ['commit', '-q', '-m', 'feat: first shared']);
+    await bootstrapBatchSecond(fixture, 'second\n', 'shared.txt');
+    const conflict = await runCommand(['worktree', 'land', '--project', fixture.repo,
+      '--batch', '--task', 'ENG-1', '--task', 'ENG-2', '--delivery', 'local-land',
+      '--reviewed', 'all', '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(conflict.report.code, 'LAND_BATCH_CONFLICT', JSON.stringify(conflict.report));
+    await writeFile(path.join(fixture.repo, 'other.txt'), 'new baseline\n');
+    await git(fixture.repo, ['add', 'other.txt']);
+    await git(fixture.repo, ['commit', '-q', '-m', 'feat: advance target']);
+    const resumed = await runCommand(['worktree', 'land', '--project', fixture.repo,
+      '--batch', '--resume', conflict.report.batchId, '--delivery', 'local-land', '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(resumed.report.code, 'LAND_BATCH_CONFLICT', JSON.stringify(resumed.report));
+    assert.notEqual(resumed.report.candidatePath, conflict.report.candidatePath);
+    assert.equal((await readFile(path.join(fixture.repo, 'other.txt'), 'utf8')).trim(), 'new baseline');
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('batch push failure does not advance the local target or remove sources', async () => {
+  const fixture = await makeLandFixture();
+  try {
+    await bootstrapWithWork(fixture);
+    const second = await bootstrapBatchSecond(fixture, 'two\n');
+    const before = await git(fixture.repo, ['rev-parse', 'HEAD']);
+    const result = await runCommand(['worktree', 'land', '--project', fixture.repo,
+      '--batch', '--task', 'ENG-1', '--task', 'ENG-2', '--delivery', 'local-land',
+      '--reviewed', 'all', '--write', '--push', '--json'], { cwd: fixture.repo });
+    assert.equal(result.report.code, 'LAND_BATCH_PUSH_UNCONFIRMED', JSON.stringify(result.report));
+    assert.equal(await git(fixture.repo, ['rev-parse', 'HEAD']), before);
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
+    assert.equal(await entryExists(fixture.repo, second), true);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('batch confirmed push cleans both source worktrees and branches', async () => {
+  const fixture = await makeLandFixture();
+  try {
+    const origin = path.join(fixture.root, 'origin.git');
+    await git(fixture.root, ['init', '--bare', '-q', origin]);
+    await git(fixture.repo, ['remote', 'add', 'origin', origin]);
+    await git(fixture.repo, ['push', '-u', 'origin', 'feat/landing-zone']);
+    await bootstrapWithWork(fixture);
+    const second = await bootstrapBatchSecond(fixture, 'two\n');
+    const result = await runCommand(['worktree', 'land', '--project', fixture.repo,
+      '--batch', '--task', 'ENG-1', '--task', 'ENG-2', '--delivery', 'local-land',
+      '--reviewed', 'all', '--write', '--push', '--json'], { cwd: fixture.repo });
+    assert.equal(result.report.status, 'passed', JSON.stringify(result.report));
+    assert.equal(await git(origin, ['rev-parse', 'refs/heads/feat/landing-zone']), await git(fixture.repo, ['rev-parse', 'HEAD']));
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), false);
+    assert.equal(await entryExists(fixture.repo, second), false);
+    assert.equal((await git(fixture.repo, ['branch', '--list', 'feat/ENG-*-scaffold'])).trim(), '');
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('batch reports cleanup failure after confirmed push without replaying the merge', async () => {
+  const fixture = await makeLandFixture();
+  try {
+    const origin = path.join(fixture.root, 'origin.git');
+    await git(fixture.root, ['init', '--bare', '-q', origin]);
+    await git(fixture.repo, ['remote', 'add', 'origin', origin]);
+    await git(fixture.repo, ['push', '-u', 'origin', 'feat/landing-zone']);
+    await bootstrapWithWork(fixture);
+    const second = await bootstrapBatchSecond(fixture, 'two\n');
+    await git(fixture.repo, ['worktree', 'lock', second]);
+    const result = await runCommand(['worktree', 'land', '--project', fixture.repo,
+      '--batch', '--task', 'ENG-1', '--task', 'ENG-2', '--delivery', 'local-land',
+      '--reviewed', 'all', '--write', '--push', '--json'], { cwd: fixture.repo });
+    assert.equal(result.report.code, 'LAND_BATCH_CLEANUP_INCOMPLETE', JSON.stringify(result.report));
+    assert.equal(result.report.pushed, true);
+    assert.equal(await git(origin, ['rev-parse', 'refs/heads/feat/landing-zone']), await git(fixture.repo, ['rev-parse', 'HEAD']));
+    assert.equal(await entryExists(fixture.repo, second), true);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('batch rejects an explicit quick tier for high-risk paths', async () => {
+  const fixture = await makeLandFixture();
+  try {
+    await bootstrapWithWork(fixture);
+    const second = await bootstrapBatchSecond(fixture, 'contract\n', 'schemas.json');
+    // A top-level contract file is not a risk directory; place one under the
+    // declared public contract boundary to exercise the source-diff guard.
+    await mkdir(path.join(second, 'schemas'), { recursive: true });
+    await writeFile(path.join(second, 'schemas', 'model.json'), '{}\n');
+    await git(second, ['add', 'schemas/model.json']);
+    await git(second, ['commit', '-q', '-m', 'feat: contract']);
+    const result = await runCommand(['worktree', 'land', '--project', fixture.repo,
+      '--batch', '--task', 'ENG-1', '--task', 'ENG-2', '--delivery', 'local-land',
+      '--reviewed', 'all', '--tier', 'quick', '--json'], { cwd: fixture.repo });
+    assert.equal(result.report.code, 'LAND_BATCH_RISK_TIER', JSON.stringify(result.report));
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
 /**
  * Register one managed service for `worktreePath` that opts out of teardown.
  *
@@ -1013,42 +1247,26 @@ test('worktree land 默认 dry-run:输出按序步骤计划且不落盘', async 
   }
 });
 
-test('land 预检：收据要求显式审阅并把层升到无 deferred 的声明层', async () => {
+test('land 预检不因收据或 deferred 自动升级，只执行请求的层级', async () => {
   const fixture = await makeLandFixture({
     validationCommands: { tiers: { quick: ['node --version'], standard: ['node --version --no-warnings'] } },
   });
   try {
     await bootstrapWithWork(fixture);
     const base = ['worktree', 'land', '--project', fixture.repo, '--delivery', 'local-land', '--task', 'ENG-1', '--json'];
-    // A completion receipt needs a relevance review the planner can never
-    // attest on its own, so the preflight refuses this landing.
     const missingReview = await runCommand(base, { cwd: fixture.repo });
-    assert.equal(missingReview.report.status, 'blocked', JSON.stringify(missingReview.report));
-    const blockers = missingReview.report.blockers ?? missingReview.report.results?.[0]?.blockers ?? [];
-    assert.ok(
-      blockers.some((line) => /explicit relevance review/u.test(line)),
-      JSON.stringify(missingReview.report),
-    );
-    // An explicitly named layer that still leaves declared checks deferred can
-    // never produce an acceptable receipt, so it is a preflight blocker.
+    assert.equal(missingReview.report.status, 'planned', JSON.stringify(missingReview.report));
+    assert.equal(missingReview.report.tier, 'quick');
     const explicit = await runCommand([...base, '--tier', 'quick', '--reviewed', 'all'], { cwd: fixture.repo });
-    assert.equal(explicit.report.status, 'blocked');
-    assert.ok(
-      (explicit.report.blockers ?? explicit.report.results?.[0]?.blockers ?? []).some((line) => /deferred check/u.test(line)),
-      JSON.stringify(explicit.report),
-    );
-    // Unnamed: the landing escalates to the cheapest layer with no deferred
-    // evidence and records the escalation.
-    const escalated = await runCommand([...base, '--reviewed', 'all'], { cwd: fixture.repo });
-    assert.equal(escalated.report.status, 'planned', JSON.stringify(escalated.report));
-    assert.equal(escalated.report.tier, 'standard');
-    assert.deepEqual(escalated.report.tierEscalation, { from: 'quick', to: 'standard' });
+    assert.equal(explicit.report.status, 'planned', JSON.stringify(explicit.report));
+    assert.equal(explicit.report.tier, 'quick');
+    assert.equal(explicit.report.tierEscalation, undefined);
   } finally {
     await removeTemporaryDirectory(fixture.root);
   }
 });
 
-test('develop + reviewPolicy:none land 不需要 --reviewed 且仍产出完整完成收据', async () => {
+test('develop land 不需要审阅或完成收据，但必须实测最终候选', async () => {
   const fixture = await makeLandFixture({
     delivery: {
       default: 'local-land',
@@ -1076,11 +1294,8 @@ test('develop + reviewPolicy:none land 不需要 --reviewed 且仍产出完整�
     ], { cwd: fixture.repo });
     assert.equal(written.exitCode, 0, JSON.stringify(written.report));
     assert.equal(written.report.status, 'passed', JSON.stringify(written.report));
-    assert.equal(written.report.completion.verification.review.status, 'not_required');
-    assert.equal(written.report.completion.verification.review.reasonCode, 'REVIEW_NOT_REQUIRED');
-    assert.equal(written.report.completion.verification.review.reviewPolicy, 'none');
-    assert.equal(written.report.completion.verification.review.targetBranch, 'develop');
-    assert.equal(written.report.completion.verification.acceptance.status, 'accepted');
+    assert.equal(written.report.completion, undefined);
+    assert.equal(written.report.results[0].steps.find((step) => step.id === 'verify').status, 'passed');
   } finally {
     await removeTemporaryDirectory(fixture.root);
   }
@@ -1919,8 +2134,7 @@ test('脏主检出从核实的 origin/develop 引导，分批提交后仅远端�
     assert.equal(landed.report.status, 'passed', JSON.stringify(landed.report));
     const remoteHead = await git(origin, ['rev-parse', 'refs/heads/develop']);
     assert.equal(landed.report.targetAfter, remoteHead);
-    assert.equal(landed.report.completion.target.head, remoteHead);
-    assert.equal(landed.report.completion.target.before, originalHead);
+    assert.equal(landed.report.completion, undefined);
     assert.equal(await git(fixture.repo, ['rev-parse', 'develop']), originalHead);
     assert.equal(await git(fixture.repo, ['status', '--porcelain=v1']), dirtyBefore);
     assert.equal(await readFile(path.join(fixture.repo, 'work.txt'), 'utf8'), 'unrelated local edit\n');
