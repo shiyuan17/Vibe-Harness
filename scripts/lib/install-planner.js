@@ -398,7 +398,7 @@ async function planAdapterConfigActions(ctx) {
   return actions;
 }
 
-/** @param {{adapterId?: string, allowPreview?: boolean, configUpdate?: any, dryRun?: boolean, enforcementPolicy?: string, force?: boolean, managedAgentsBlock?: boolean, preserveRetired?: boolean, profile?: string, requestedModules?: string[], requestedPlugins?: any, renderData?: Record<string, any>, rootDir: string, ruleIndex?: Array<{ id: string, source: string, title: string }>, targetDir: string, upgrade?: boolean}} options */
+/** @param {{adapterId?: string, allowPreview?: boolean, configUpdate?: any, dryRun?: boolean, enforcementPolicy?: string, force?: boolean, managedAgentsBlock?: boolean, preserveRetired?: boolean, preserveUserModified?: boolean, profile?: string, requestedModules?: string[], requestedPlugins?: any, renderData?: Record<string, any>, rootDir: string, ruleIndex?: Array<{ id: string, source: string, title: string }>, targetDir: string, upgrade?: boolean}} options */
 export async function createInstallPlan({
   adapterId = 'codex',
   allowPreview = false,
@@ -408,6 +408,7 @@ export async function createInstallPlan({
   force = false,
   managedAgentsBlock = false,
   preserveRetired = false,
+  preserveUserModified = false,
   profile = 'core',
   requestedModules,
   requestedPlugins,
@@ -417,6 +418,13 @@ export async function createInstallPlan({
   targetDir,
   upgrade = false,
 }) {
+  if (preserveUserModified && !upgrade) {
+    throw new Error('--preserve-user-modified requires --upgrade.');
+  }
+  if (preserveUserModified && force) {
+    throw new Error('--preserve-user-modified cannot be combined with --force.');
+  }
+
   const { adapter, installMap, selectedProfile, skillRoots, hookTargets } = await loadProfileInstallMap({ adapterId, allowPreview, profile, rootDir });
   const moduleSelection = resolveModuleSelection({
     profile,
@@ -443,6 +451,7 @@ export async function createInstallPlan({
     managedAgentsBlock,
     moduleSelection,
     preserveRetired,
+    preserveUserModified,
     renderData,
     rootDir,
     skillRoots,
@@ -582,6 +591,7 @@ export async function createInstallPlan({
     missingCapabilities: Object.entries(adapter.capabilities).filter(([, status]) => status === 'unsupported').map(([name]) => name),
     profile,
     preserveRetired,
+    preserveUserModified,
     previewCapabilities: Object.entries(adapter.capabilities).filter(([, status]) => status === 'preview').map(([name]) => name),
     requestedModules: moduleSelection.requestedModules,
     requestedPlugins: moduleSelection.requestedPlugins,
@@ -1571,10 +1581,17 @@ function retirementTargets(actions = []) {
 }
 
 function validatePlanGuards(plan) {
+  if (plan.preserveUserModified && !plan.upgrade) {
+    throw new Error('--preserve-user-modified requires --upgrade.');
+  }
+  if (plan.preserveUserModified && plan.force) {
+    throw new Error('--preserve-user-modified cannot be combined with --force.');
+  }
+
   // Project-owned seeds are reported as retained instead of blocking the plan;
   // every other managed target that drifted still fails closed here.
   const userModified = plan.actions.find((action) => action.kind === 'user-modified' && !action.projectOwned);
-  if (userModified) {
+  if (userModified && !plan.preserveUserModified) {
     throw new Error(`Refusing to upgrade user-modified file: ${userModified.target}`);
   }
 

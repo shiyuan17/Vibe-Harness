@@ -415,13 +415,22 @@ async function install(args) {
   if (Object.hasOwn(args, 'rtk-hooks')) throw new Error('--rtk-hooks has been retired; use install --upgrade to migrate existing configuration.');
   const allowedOptions = new Set([
     '_', 'allow-degraded', 'allow-preview', 'confirm-red-zone', 'dry-run', 'force', 'modules', 'output',
-    'plugin', 'preset', 'preserve-retired', 'profile', 'project', 'provision', 'target', 'upgrade', 'verbose', 'write',
+    'plugin', 'preset', 'preserve-retired', 'preserve-user-modified', 'profile', 'project', 'provision', 'skip-provision', 'target', 'upgrade', 'verbose', 'write',
   ]);
   const unknownOption = Object.keys(args).find((key) => !allowedOptions.has(key));
   if (unknownOption) throw new Error(`Unknown install option: --${unknownOption}`);
   const isMvpMode = true;
   const writeRequested = Boolean(args.write);
   const dryRunRequested = Boolean(args['dry-run']) || !writeRequested;
+  if (args['preserve-user-modified'] && !args.upgrade) {
+    throw new Error('--preserve-user-modified requires --upgrade.');
+  }
+  if (args['preserve-user-modified'] && args.force) {
+    throw new Error('--preserve-user-modified cannot be combined with --force.');
+  }
+  if (args['skip-provision'] && args.provision) {
+    throw new Error('Use --provision or --skip-provision, not both.');
+  }
   if (args.write && args['dry-run']) {
     throw new Error('Use --write or --dry-run, not both.');
   }
@@ -443,7 +452,10 @@ async function install(args) {
   const { configured: targets, selected: selectedTargets } = resolveCommandTargets(config, existingState, args.target);
   const adapterId = selectedTargets[0];
   const adapter = await resolveAdapter(rootDir, adapterId);
-  const installSurface = resolveInstallSurface({ args, config, installState: existingState });
+  const resolvedInstallSurface = resolveInstallSurface({ args, config, installState: existingState });
+  const installSurface = args['skip-provision']
+    ? { ...resolvedInstallSurface, provision: false, provisionSource: 'cli-skipped' }
+    : resolvedInstallSurface;
   const profile = validateProfileName(installSurface.profile);
   const effectiveConfig = {
     ...config,
@@ -531,6 +543,7 @@ async function install(args) {
     requestedModules,
     requestedPlugins,
     preserveRetired: Boolean(args['preserve-retired']),
+    preserveUserModified: Boolean(args['preserve-user-modified']),
     renderData,
     rootDir,
     selectedTargets,
@@ -605,6 +618,9 @@ async function install(args) {
   const retainedProjectOwned = (plan.actions ?? [])
     .filter((action) => action.projectContentRetained === true)
     .map((action) => ({ reason: 'project-owned-drift', target: action.relativeTarget }));
+  const retainedUserModified = (plan.actions ?? [])
+    .filter((action) => action.kind === 'user-modified' && !action.projectOwned)
+    .map((action) => ({ reason: 'user-modified-file-preserved', target: action.relativeTarget }));
   const warnings = [
     ...(provisionExecuted
       ? toolWarnings(tools)
@@ -617,6 +633,11 @@ async function install(args) {
       code: 'PROJECT_OWNED_FILE_RETAINED',
       message: 'Kept project-owned content and re-recorded it as the baseline: '
         + retainedProjectOwned.map((item) => item.target).join(', ') + '.',
+    }] : []),
+    ...(retainedUserModified.length > 0 ? [{
+      code: 'USER_MODIFIED_FILES_PRESERVED',
+      message: 'Preserved user-modified files without advancing their install-state baselines: '
+        + retainedUserModified.map((item) => item.target).join(', ') + '.',
     }] : []),
     ...(seedMirrors ? [{
       code: 'WORKTREE_MIRRORS_SEEDED',
@@ -695,6 +716,7 @@ async function install(args) {
     requestedModules: plan.requestedModules,
     requestedPlugins: plan.requestedPlugins,
     preserveRetired: plan.preserveRetired,
+    preserveUserModified: plan.preserveUserModified,
     resolvedModules: plan.resolvedModules,
     roleProjections: plan.roleProjections ?? {},
     runtimeHooks,
@@ -711,6 +733,7 @@ async function install(args) {
     retiredToolConfiguration: toolMigration.removed,
     retained: result.retained,
     retainedProjectOwned,
+    retainedUserModified,
     skipped: result.skipped,
     written: result.written,
   }, args);
@@ -1619,7 +1642,7 @@ async function recover(args) {
 }
 
 async function printUsage() {
-  console.log('用法：vibe-harness <init|install|provision|recover|uninstall|validate|verify|baseline|eval|audit|find question|doctor|diff|rollback> [--project path] [--target codex|claude|gemini|cursor|qoder|zcode|antigravity|opencode] [--targets codex,zcode,opencode (仅 init)] [--all-targets] [--profile minimal|core|full|docs-only] [--preset everything] [--modules list] [--plugin -all|linear-mcp|linear-mcp-readonly ...] [--tool id] [--write] [--dry-run] [--output json|summary|markdown] [--verbose] [--verify] [--full] [--tier quick|standard|deep] [--scope affected|layer|full] [--async] [--plan] [--force] [--upgrade] [--preserve-retired] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded] [--provision]');
+  console.log('用法：vibe-harness <init|install|provision|recover|uninstall|validate|verify|baseline|eval|audit|find question|doctor|diff|rollback> [--project path] [--target codex|claude|gemini|cursor|qoder|zcode|antigravity|opencode] [--targets codex,zcode,opencode (仅 init)] [--all-targets] [--profile minimal|core|full|docs-only] [--preset everything] [--modules list] [--plugin -all|linear-mcp|linear-mcp-readonly ...] [--tool id] [--write] [--dry-run] [--output json|summary|markdown] [--verbose] [--verify] [--full] [--tier quick|standard|deep] [--scope affected|layer|full] [--async] [--plan] [--force] [--upgrade] [--preserve-retired] [--preserve-user-modified] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded] [--provision|--skip-provision]');
   console.log('find question：默认 deep、只读生成审查包；支持 --scope、--focus、--output markdown|json、--report 和 --write。');
   console.log('所有项目命令使用 --project <path>；--target 只选择 adapter，--targets 只在 init 时声明多宿主目标，--write 执行真实写入。旧版 --apply 和取路径值的 --target 已移除。');
 }
