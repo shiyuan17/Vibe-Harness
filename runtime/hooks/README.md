@@ -30,7 +30,7 @@ Every decision appends one record to `.git/vibe-harness/hooks/telemetry.jsonl` t
 
 ## Worktree lifecycle
 
-Creating, listing, pruning, and reclaiming a worktree is a workspace-internal operation, not a host boundary crossing. `git worktree add`, `remove`, `prune`, `repair`, `lock`, `unlock` and `list` classify as workspace effects (`gitBranch`) and pass without an Execution Envelope, as does the managed entry point `node .agents/runtime/commands/run.mjs worktree <list|check|bootstrap|land|recover|cleanup>`. Only `git worktree move` stays an immutable-workspace operation and is denied without a high-risk v2 envelope. Host, external, credential, red-zone and unclassified effects keep their fail-closed behaviour, so this exemption does not widen any cross-boundary gate.
+Creating, listing, pruning, staging, publishing and reclaiming a worktree is a workspace-internal operation, not a host boundary crossing. `git worktree add`, `remove`, `prune`, `repair`, `lock`, `unlock` and `list` classify as workspace effects (`gitBranch`) and pass without an Execution Envelope, as does the managed entry point `node .agents/runtime/commands/run.mjs worktree <list|check|bootstrap|stage|publish|status|discard|land|recover|cleanup>`. Only `git worktree move` stays an immutable-workspace operation and is denied without a high-risk v2 envelope. Host, external, credential, red-zone and unclassified effects keep their fail-closed behaviour, so this exemption does not widen any cross-boundary gate.
 
 ## Frozen test assets
 

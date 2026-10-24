@@ -1,7 +1,7 @@
 ---
 id: ADR-0020
 title: 轻量交付边界、三档阻塞与验证执行时限
-status: accepted
+status: superseded
 date: 2026-10-24
 review-date: 2027-04-24
 owner: vibe-harness-maintainers
@@ -9,7 +9,7 @@ decision-makers: [vibe-harness-maintainers]
 consulted: [vibe-harness-contributors]
 informed: [linear-workflow-users]
 supersedes: [ADR-0017, ADR-0019]
-superseded-by: null
+superseded-by: ADR-0021
 ---
 
 # 轻量交付边界、三档阻塞与验证执行时限

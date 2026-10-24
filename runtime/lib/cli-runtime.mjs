@@ -81,6 +81,18 @@ export function parseArgs(argv) {
     const raw = token.slice(2);
     const equals = raw.indexOf('=');
     const key = equals >= 0 ? raw.slice(0, equals) : raw;
+    // `--batch` has two compatible forms: the historical boolean switch for a
+    // new combined candidate, and `--batch <id>` for a persisted transaction.
+    if (key === 'batch') {
+      const value = equals >= 0 ? raw.slice(equals + 1) : argv[index + 1];
+      if (equals >= 0 || value && !value.startsWith('--')) {
+        args.batch = value;
+        if (equals < 0) index += 1;
+      } else {
+        args.batch = true;
+      }
+      continue;
+    }
     if (key === 'paths') {
       const values = [];
       while (index + 1 < argv.length && !argv[index + 1].startsWith('--')) values.push(argv[++index]);

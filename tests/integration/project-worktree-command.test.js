@@ -15,14 +15,13 @@ import { GIT_TIMEOUT_MS, MAX_GIT_TIMEOUT_MS, MIN_GIT_TIMEOUT_MS, gitTimeoutMs } 
 import { expandMirrors, linkOrCopyMirrors, removeMirrorLinks } from '../../runtime/lib/worktree-mirrors.mjs';
 
 // `run.mjs worktree` is the installed entry point for worktree provisioning and
-// cleanup under docs/rules/git-rules.md §Worktree: read-only by default,
-// `--write` for real writes, no cleanup before merge-back and never a branch
-// delete. `worktree recover` removes crash residue, and a branch is deleted
-// only after being proven to sit at the base ref with a clean tree. `worktree
-// land` is the merge-back closure: merge into the primary checkout's current
-// branch, gate through verify, clean up, and — only with `--push` on top of
-// `--write` — push the target and delete the worktree branch. These tests pin
-// the receipt shape and the safety gates.
+// cleanup under docs/rules/git-rules.md §Worktree: read-only by default and
+// `--write` for real writes. `worktree stage` builds and verifies a local
+// candidate without fetching or moving the primary checkout. `worktree
+// publish` then rebuilds against the exact remote target when needed, confirms
+// the pushed SHA, and only then cleans up. Legacy `worktree land` remains a
+// compatibility path. These tests pin both flows, the receipt shape, and the
+// safety gates.
 
 const execFileAsync = promisify(execFile);
 const gitIdentity = ['-c', 'user.email=fixture@example.invalid', '-c', 'user.name=Fixture'];
@@ -1177,6 +1176,335 @@ test('local-land 拒绝脏主检出和未归属提交并保留源工作区', asy
   }
 });
 
+test('worktree stage 在脏主检出下只生成持久本地候选，不 fetch 也不移动远端', async () => {
+  const fixture = await makeDevelopLandFixture();
+  try {
+    const localBefore = await git(fixture.repo, ['rev-parse', 'develop']);
+    const remoteBefore = await git(fixture.origin, ['rev-parse', 'develop']);
+    await writeFile(path.join(fixture.repo, 'unrelated.txt'), 'preserve user work\n');
+    const staged = await runCommand(['worktree', 'stage', '--project', fixture.repo,
+      '--task', 'ENG-1', '--delivery', 'local-land', '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(staged.report.status, 'passed', JSON.stringify(staged.report));
+    assert.equal(staged.report.integrationStatus, 'local_staged');
+    assert.equal(staged.report.commandStatus, 'passed');
+    assert.equal(staged.report.remoteValidation, 'not_required');
+    assert.equal(staged.report.localRefSync, 'not_attempted');
+    assert.equal(await git(fixture.repo, ['rev-parse', 'develop']), localBefore);
+    assert.equal(await git(fixture.origin, ['rev-parse', 'develop']), remoteBefore);
+    assert.equal(await git(fixture.repo, ['rev-parse', staged.report.stagedRef]), staged.report.candidateHead);
+    assert.equal(await readFile(path.join(fixture.repo, 'unrelated.txt'), 'utf8'), 'preserve user work\n');
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
+
+    const status = await runCommand(['worktree', 'status', '--project', fixture.repo,
+      '--batch', staged.report.batchId, '--json'], { cwd: fixture.repo });
+    assert.equal(status.report.status, 'passed', JSON.stringify(status.report));
+    assert.equal(status.report.integrationStatus, 'local_staged');
+    assert.equal(status.report.stagedRefValid, true);
+
+    const statePath = path.join(fixture.repo, '.git',
+      `vibe-harness-land-batch-${staged.report.batchId}.json`);
+    const state = JSON.parse(await readFile(statePath, 'utf8'));
+    assert.equal(state.schemaVersion, 2);
+    assert.equal(typeof state.pushTarget.fingerprint, 'string');
+    assert.equal(Object.hasOwn(state.pushTarget, 'url'), false);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('worktree publish 基于最新远端重建验证，主检出脏时延迟本地同步并保留用户改动', async () => {
+  const fixture = await makeDevelopLandFixture();
+  try {
+    const localBefore = await git(fixture.repo, ['rev-parse', 'develop']);
+    const remoteBase = await git(fixture.origin, ['rev-parse', 'develop']);
+    const remoteTree = await git(fixture.origin, ['rev-parse', 'develop^{tree}']);
+    const remoteAdvance = await git(fixture.repo, [
+      'commit-tree', remoteTree, '-p', remoteBase, '-m', 'remote advance',
+    ]);
+    await git(fixture.repo, ['push', 'origin', `${remoteAdvance}:refs/heads/develop`]);
+    await writeFile(path.join(fixture.repo, 'unrelated.txt'), 'preserve user work\n');
+
+    const staged = await runCommand(['worktree', 'stage', '--project', fixture.repo,
+      '--task', 'ENG-1', '--delivery', 'local-land', '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(staged.report.integrationStatus, 'local_staged', JSON.stringify(staged.report));
+    const published = await runCommand(['worktree', 'publish', '--project', fixture.repo,
+      '--batch', staged.report.batchId, '--delivery', 'local-land', '--write', '--json'],
+    { cwd: fixture.repo });
+    assert.equal(published.report.status, 'passed', JSON.stringify(published.report));
+    assert.equal(published.report.integrationStatus, 'integrated', JSON.stringify(published.report));
+    assert.equal(published.report.localRefSync, 'deferred');
+    assert.equal(await git(fixture.repo, ['rev-parse', 'develop']), localBefore);
+    const remoteHead = await git(fixture.origin, ['rev-parse', 'develop']);
+    assert.equal(remoteHead, published.report.targetAfter);
+    assert.equal(await git(fixture.repo, ['merge-base', '--is-ancestor', remoteAdvance, remoteHead]), '');
+    assert.equal((await git(fixture.origin, ['show', 'develop:work.txt'])).trim(), 'done');
+    assert.equal(await readFile(path.join(fixture.repo, 'unrelated.txt'), 'utf8'), 'preserve user work\n');
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), false);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('worktree discard 回收未发布候选引用但保留任务工作区', async () => {
+  const fixture = await makeDevelopLandFixture();
+  try {
+    const staged = await runCommand(['worktree', 'stage', '--project', fixture.repo,
+      '--task', 'ENG-1', '--delivery', 'local-land', '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(staged.report.integrationStatus, 'local_staged', JSON.stringify(staged.report));
+    const discarded = await runCommand(['worktree', 'discard', '--project', fixture.repo,
+      '--batch', staged.report.batchId, '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(discarded.report.status, 'passed', JSON.stringify(discarded.report));
+    assert.equal(discarded.report.integrationStatus, 'not_integrated');
+    const refs = await git(fixture.repo, ['for-each-ref', '--format=%(refname)', 'refs/vibe-harness']);
+    assert.equal(refs, '');
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
+    assert.match(await git(fixture.repo, ['branch', '--list', 'feat/ENG-1-scaffold']), /feat\/ENG-1-scaffold/u);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('worktree stage 状态文件不落原始推送 URL 或凭据', async () => {
+  const fixture = await makeDevelopLandFixture();
+  try {
+    const token = 'stage-secret-token';
+    await git(fixture.repo, ['remote', 'set-url', '--push', 'origin',
+      `https://user:${token}@example.invalid/acme/repo.git`]);
+    const staged = await runCommand(['worktree', 'stage', '--project', fixture.repo,
+      '--task', 'ENG-1', '--delivery', 'local-land', '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(staged.report.integrationStatus, 'local_staged', JSON.stringify(staged.report));
+    const statePath = path.join(fixture.repo, '.git',
+      `vibe-harness-land-batch-${staged.report.batchId}.json`);
+    const raw = await readFile(statePath, 'utf8');
+    assert.equal(raw.includes(token), false);
+    assert.equal(raw.includes('https://'), false);
+    assert.match(raw, /"fingerprint": "[0-9a-f]{64}"/u);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('worktree discard 拒绝事务候选路径越界并保留现场', async () => {
+  const fixture = await makeDevelopLandFixture();
+  try {
+    const staged = await runCommand(['worktree', 'stage', '--project', fixture.repo,
+      '--task', 'ENG-1', '--delivery', 'local-land', '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(staged.report.integrationStatus, 'local_staged', JSON.stringify(staged.report));
+    const statePath = path.join(fixture.repo, '.git',
+      `vibe-harness-land-batch-${staged.report.batchId}.json`);
+    const state = JSON.parse(await readFile(statePath, 'utf8'));
+    state.candidate = path.join(fixture.root, 'outside',
+      `.vibe-harness-land-batch-${staged.report.batchId}`);
+    await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
+    const discarded = await runCommand(['worktree', 'discard', '--project', fixture.repo,
+      '--batch', staged.report.batchId, '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(discarded.report.code, 'LAND_BATCH_STATE_INVALID', JSON.stringify(discarded.report));
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
+    assert.equal(await git(fixture.repo, ['rev-parse', staged.report.stagedRef]), staged.report.candidateHead);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('worktree stage 可按显式分支接收宿主创建且未登记端口的 worktree', async () => {
+  const fixture = await makeDevelopLandFixture();
+  const hostWorktree = path.join(fixture.root, 'host-worktrees', 'ENG-host');
+  try {
+    await mkdir(path.dirname(hostWorktree), { recursive: true });
+    await git(fixture.repo, ['worktree', 'add', '-q', '-b', 'feat/ENG-host', hostWorktree, 'develop']);
+    await writeFile(path.join(hostWorktree, 'host.txt'), 'host work\n');
+    await git(hostWorktree, ['add', 'host.txt']);
+    await git(hostWorktree, ['commit', '-q', '-m', 'feat: host work']);
+    const staged = await runCommand(['worktree', 'stage', '--project', fixture.repo,
+      '--task', 'ENG-host:feat/ENG-host', '--delivery', 'local-land', '--write', '--json'],
+    { cwd: fixture.repo });
+    assert.equal(staged.report.integrationStatus, 'local_staged', JSON.stringify(staged.report));
+    assert.equal(staged.report.sourceBranch, 'feat/ENG-host');
+    assert.equal(await entryExists(fixture.repo, hostWorktree), true);
+    const published = await runCommand(['worktree', 'publish', '--project', fixture.repo,
+      '--batch', staged.report.batchId, '--delivery', 'local-land', '--write', '--json'],
+    { cwd: fixture.repo });
+    assert.equal(published.report.integrationStatus, 'integrated', JSON.stringify(published.report));
+    assert.equal(await entryExists(fixture.repo, hostWorktree), false);
+    assert.equal(await git(fixture.origin, ['show', 'develop:host.txt']), 'host work');
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('worktree publish 推送被拒后保留暂存状态并在远端未变时重试原候选', async () => {
+  const fixture = await makeDevelopLandFixture();
+  try {
+    const staged = await runCommand(['worktree', 'stage', '--project', fixture.repo,
+      '--task', 'ENG-1', '--delivery', 'local-land', '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(staged.report.integrationStatus, 'local_staged', JSON.stringify(staged.report));
+    const hook = path.join(fixture.origin, 'hooks', 'pre-receive');
+    await writeFile(hook, '#!/bin/sh\nexit 1\n');
+    await chmod(hook, 0o755);
+    const rejected = await runCommand(['worktree', 'publish', '--project', fixture.repo,
+      '--batch', staged.report.batchId, '--delivery', 'local-land', '--write', '--json'],
+    { cwd: fixture.repo });
+    assert.equal(rejected.report.code, 'LAND_PUSH_FAILED', JSON.stringify(rejected.report));
+    assert.equal(rejected.report.integrationStatus, 'not_integrated');
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
+    const status = await runCommand(['worktree', 'status', '--project', fixture.repo,
+      '--batch', staged.report.batchId, '--json'], { cwd: fixture.repo });
+    assert.equal(status.report.phase, 'push_uncertain');
+    assert.equal(status.report.stagedRefValid, true);
+    const discarded = await runCommand(['worktree', 'discard', '--project', fixture.repo,
+      '--batch', staged.report.batchId, '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(discarded.report.code, 'LAND_DISCARD_PUSH_UNCERTAIN', JSON.stringify(discarded.report));
+    await rm(hook);
+    const retried = await runCommand(['worktree', 'publish', '--project', fixture.repo,
+      '--batch', staged.report.batchId, '--delivery', 'local-land', '--write', '--json'],
+    { cwd: fixture.repo });
+    assert.equal(retried.report.integrationStatus, 'integrated', JSON.stringify(retried.report));
+    assert.equal(retried.report.targetAfter, staged.report.candidateHead);
+    assert.equal(await git(fixture.origin, ['rev-parse', 'develop']), staged.report.candidateHead);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('worktree publish 在远端回读前继续前进时确认候选祖先并同步实际远端 HEAD', async () => {
+  const fixture = await makeDevelopLandFixture();
+  try {
+    const hook = path.join(fixture.origin, 'hooks', 'post-receive');
+    await writeFile(hook, `#!/bin/sh
+while read old new ref; do
+  if [ "$ref" = "refs/heads/develop" ]; then
+    tree=$(git rev-parse "$new^{tree}") || exit 1
+    child=$(git -c user.name=Fixture -c user.email=fixture@example.invalid commit-tree "$tree" -p "$new" -m "remote follow-up") || exit 1
+    git update-ref refs/heads/develop "$child" "$new" || exit 1
+  fi
+done
+`);
+    await chmod(hook, 0o755);
+    const staged = await runCommand(['worktree', 'stage', '--project', fixture.repo,
+      '--task', 'ENG-1', '--delivery', 'local-land', '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(staged.report.integrationStatus, 'local_staged', JSON.stringify(staged.report));
+    const published = await runCommand(['worktree', 'publish', '--project', fixture.repo,
+      '--batch', staged.report.batchId, '--delivery', 'local-land', '--write', '--json'],
+    { cwd: fixture.repo });
+    assert.equal(published.report.integrationStatus, 'integrated', JSON.stringify(published.report));
+    assert.equal(published.report.remoteAdvanced, true, JSON.stringify(published.report));
+    assert.notEqual(published.report.targetAfter, staged.report.candidateHead);
+    assert.equal(await git(fixture.origin, ['rev-parse', 'develop']), published.report.targetAfter);
+    assert.equal(await git(fixture.repo, [
+      'merge-base', '--is-ancestor', staged.report.candidateHead, published.report.targetAfter,
+    ]), '');
+    assert.equal(published.report.localRefSync, 'updated');
+    assert.equal(await git(fixture.repo, ['rev-parse', 'develop']), published.report.targetAfter);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('worktree publish 在目标锁等待期间检测推送地址变化', async () => {
+  const fixture = await makeDevelopLandFixture();
+  try {
+    const staged = await runCommand(['worktree', 'stage', '--project', fixture.repo,
+      '--task', 'ENG-1', '--delivery', 'local-land', '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(staged.report.integrationStatus, 'local_staged', JSON.stringify(staged.report));
+    const [legacyLockPath] = landLockPaths(fixture.repo, 'develop');
+    const now = new Date().toISOString();
+    await writeFile(legacyLockPath, JSON.stringify({
+      heartbeatAt: now,
+      leaseMs: 60_000,
+      pid: process.pid,
+      startedAt: now,
+    }), 'utf8');
+    const publishing = execFileAsync(process.execPath, [
+      runtimePath, 'worktree', 'publish', '--project', fixture.repo,
+      '--batch', staged.report.batchId, '--delivery', 'local-land', '--write', '--json',
+    ], {
+      cwd: fixture.repo,
+      env: { ...process.env, VIBE_HARNESS_LAND_LOCK_TIMEOUT_MS: '5000' },
+      windowsHide: true,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    const changedOrigin = path.join(fixture.root, 'changed-origin.git');
+    await git(fixture.root, ['init', '--bare', '-q', changedOrigin]);
+    await git(fixture.repo, ['remote', 'set-url', '--push', 'origin', changedOrigin]);
+    await rm(legacyLockPath);
+    const result = await publishing.then(
+      ({ stdout }) => JSON.parse(stdout),
+      (error) => JSON.parse(error.stdout),
+    );
+    assert.equal(result.status, 'blocked', JSON.stringify(result));
+    assert.equal(result.code, 'LAND_PUSH_TARGET_CHANGED', JSON.stringify(result));
+    assert.equal(await git(fixture.origin, ['rev-parse', 'develop']), staged.report.targetBefore);
+    assert.equal(await git(changedOrigin, ['branch', '--list', 'develop']), '');
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('worktree publish 将本地目标领先发布候选报告为 diverged', async () => {
+  const fixture = await makeDevelopLandFixture();
+  try {
+    const staged = await runCommand(['worktree', 'stage', '--project', fixture.repo,
+      '--task', 'ENG-1', '--delivery', 'local-land', '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(staged.report.integrationStatus, 'local_staged', JSON.stringify(staged.report));
+    await git(fixture.repo, ['merge', '--ff-only', staged.report.candidateHead]);
+    await writeFile(path.join(fixture.repo, 'local-only.txt'), 'local only\n');
+    await git(fixture.repo, ['add', 'local-only.txt']);
+    await git(fixture.repo, ['commit', '-q', '-m', 'local: keep unpushed work']);
+    const localHead = await git(fixture.repo, ['rev-parse', 'develop']);
+    const published = await runCommand(['worktree', 'publish', '--project', fixture.repo,
+      '--batch', staged.report.batchId, '--delivery', 'local-land', '--write', '--json'],
+    { cwd: fixture.repo });
+    assert.equal(published.report.integrationStatus, 'integrated', JSON.stringify(published.report));
+    assert.equal(published.report.localRefSync, 'diverged', JSON.stringify(published.report));
+    assert.equal(await git(fixture.repo, ['rev-parse', 'develop']), localHead);
+    assert.equal(await git(fixture.origin, ['rev-parse', 'develop']), staged.report.candidateHead);
+    assert.equal(await readFile(path.join(fixture.repo, 'local-only.txt'), 'utf8'), 'local only\n');
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('worktree publish 清理待重试时保留暂存引用且不依赖远端地址', async () => {
+  const fixture = await makeDevelopLandFixture();
+  try {
+    const staged = await runCommand(['worktree', 'stage', '--project', fixture.repo,
+      '--task', 'ENG-1', '--delivery', 'local-land', '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(staged.report.integrationStatus, 'local_staged', JSON.stringify(staged.report));
+
+    process.env.VIBE_HARNESS_LAND_CLEANUP_TIMEOUT_MS = '1';
+    let pending;
+    try {
+      pending = await runCommand(['worktree', 'publish', '--project', fixture.repo,
+        '--batch', staged.report.batchId, '--delivery', 'local-land', '--write', '--json'],
+      { cwd: fixture.repo });
+    } finally {
+      delete process.env.VIBE_HARNESS_LAND_CLEANUP_TIMEOUT_MS;
+    }
+    assert.equal(pending.report.integrationStatus, 'integrated_cleanup_pending', JSON.stringify(pending.report));
+
+    const status = await runCommand(['worktree', 'status', '--project', fixture.repo,
+      '--batch', staged.report.batchId, '--json'], { cwd: fixture.repo });
+    assert.equal(status.report.integrationStatus, 'integrated_cleanup_pending');
+    assert.equal(status.report.stagedRefValid, true, JSON.stringify(status.report));
+    assert.equal(status.report.cleanupPending, true);
+
+    const changedOrigin = path.join(fixture.root, 'cleanup-origin.git');
+    await git(fixture.root, ['init', '--bare', '-q', changedOrigin]);
+    await git(fixture.repo, ['remote', 'set-url', '--push', 'origin', changedOrigin]);
+    const cleaned = await runCommand(['worktree', 'publish', '--project', fixture.repo,
+      '--batch', staged.report.batchId, '--delivery', 'local-land', '--write', '--json'],
+    { cwd: fixture.repo });
+    assert.equal(cleaned.report.status, 'passed', JSON.stringify(cleaned.report));
+    assert.equal(cleaned.report.integrationStatus, 'integrated');
+    assert.equal(await git(fixture.repo, ['for-each-ref', '--format=%(refname)', 'refs/vibe-harness']), '');
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), false);
+    assert.equal(await git(changedOrigin, ['branch', '--list', 'develop']), '');
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
 for (const mutation of ['baseline', 'candidate', 'primary-branch']) {
   test(`local-land 核对候选验证期间的 ${mutation} 变化`, async () => {
     const script = `
@@ -2149,6 +2477,9 @@ test('等待锁期间目标前进时以新 HEAD 创建候选并保留两项改�
   const fixture = await makeLandFixture();
   try {
     await bootstrapWithWork(fixture);
+    await writeFile(path.join(fixture.repo, 'other.txt'), 'independent\n', 'utf8');
+    await git(fixture.repo, ['add', 'other.txt']);
+    await git(fixture.repo, ['commit', '-q', '-m', 'feat: other']);
     const lockPath = landLockPath(fixture.repo, 'feat/landing-zone');
     const now = new Date().toISOString();
     await writeFile(lockPath, JSON.stringify({
@@ -2165,13 +2496,11 @@ test('等待锁期间目标前进时以新 HEAD 创建候选并保留两项改�
       windowsHide: true,
     });
     await new Promise((resolve) => setTimeout(resolve, 500));
-    await writeFile(path.join(fixture.repo, 'other.txt'), 'independent\n', 'utf8');
-    await git(fixture.repo, ['add', 'other.txt']);
-    await git(fixture.repo, ['commit', '-q', '-m', 'feat: other']);
+    await git(fixture.repo, ['commit', '--allow-empty', '-q', '-m', 'feat: advance target']);
     await rm(lockPath);
     const result = JSON.parse((await landing).stdout);
     assert.equal(result.status, 'passed', JSON.stringify(result));
-    assert.equal(await git(fixture.repo, ['rev-list', '--count', 'feat/landing-zone']), '4');
+    assert.equal(await git(fixture.repo, ['rev-list', '--count', 'feat/landing-zone']), '5');
     assert.equal((await readFile(path.join(fixture.repo, 'other.txt'), 'utf8')).trim(), 'independent');
   } finally {
     await removeTemporaryDirectory(fixture.root);

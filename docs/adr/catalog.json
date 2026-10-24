@@ -80,6 +80,10 @@
     {
       "id": "ADR-0020",
       "path": "docs/adr/ADR-0020-lightweight-delivery-blocking-and-verification-limits.md"
+    },
+    {
+      "id": "ADR-0021",
+      "path": "docs/adr/ADR-0021-staged-local-publish-delivery.md"
     }
   ]
 }
