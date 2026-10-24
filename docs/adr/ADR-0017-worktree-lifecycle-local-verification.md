@@ -1,14 +1,14 @@
 ---
 id: ADR-0017
 title: worktree 生命周期门禁收敛：宿主 worktree 优先与本地核验授权
-status: accepted
+status: superseded
 date: 2026-10-15
 owner: vibe-harness-maintainers
 decision-makers: [vibe-harness-maintainers]
 consulted: []
 informed: []
 supersedes: []
-superseded-by: null
+superseded-by: ADR-0020
 ---
 
 # worktree 生命周期门禁收敛：宿主 worktree 优先与本地核验授权

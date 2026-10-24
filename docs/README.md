@@ -27,6 +27,7 @@
 - [worktree 生命周期门禁收敛：宿主 worktree 优先与本地核验授权](adr/ADR-0017-worktree-lifecycle-local-verification.md)
 - [显式 Linear 执行与宿主自动派发的授权/Claim 分离](adr/ADR-0018-explicit-linear-claim-boundary.md)
 - [显式执行、本地先合并交付与受限依赖调度](adr/ADR-0019-local-first-explicit-delivery.md)
+- [轻量交付边界、三档阻塞与验证执行时限](adr/ADR-0020-lightweight-delivery-blocking-and-verification-limits.md)
 - [ADR Schema](schemas/adr.schema.json)
 - [Execution Envelope v1 Schema](schemas/execution-envelope.schema.json)
 - [Execution Envelope v2 Schema](schemas/execution-envelope-v2.schema.json)

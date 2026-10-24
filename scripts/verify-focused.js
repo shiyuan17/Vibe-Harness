@@ -243,6 +243,7 @@ async function main() {
         // reviewed would make the acceptance gate attest its own relevance.
         // `--reviewed` is the caller's declaration.
         commands: commands.map((item) => ({ ...item })),
+        deferredChecks,
         reviewedIds,
         notes,
         impactMapping,
@@ -305,7 +306,7 @@ async function main() {
       if (result.stderr) process.stderr.write(result.stderr + (result.stderr.endsWith('\n') ? '' : '\n'));
       if (result.status !== 'passed') throw result;
     } catch (error) {
-      console.error(`\nFocused verification failed at: ${item.command}`);
+      console.error(`\nFocused verification ${error.status ?? 'failed'} at: ${item.command}`);
       console.error('Recovery: ' + (error.next?.command ?? 'pnpm verify:focused --run'));
       process.exit(typeof error.exitCode === 'number' ? error.exitCode : 1);
     }

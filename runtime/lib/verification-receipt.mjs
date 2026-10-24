@@ -321,7 +321,12 @@ export async function verificationCacheContext(projectDir, plan, snapshot = unde
   // is later checked against, so a non-deterministic or warm run still leaves
   // the durable record a receipt has to match.
   const recordable = state.fingerprint !== null && writeEvidenceAvailable;
-  const available = recordable && deterministic && !warm
+  // Same-workspace reuse is bound to the exact content and environment
+  // fingerprints, so an ordinary command does not need to opt into
+  // determinism merely to avoid being rerun. Cross-worktree tree-content reuse
+  // is different: it drops the workspace identity and therefore remains
+  // opt-in for explicitly deterministic checks.
+  const available = recordable && (reuseMode !== 'tree-content' || deterministic) && !warm
     && toolsAvailable && !inputs.some(([, value]) => value === 'unreadable')
     && (reuseMode !== 'tree-content' || treeContentFingerprint !== null);
   // The cache key deliberately leaves the write evidence out. The checks a run

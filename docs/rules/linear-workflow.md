@@ -1,4 +1,4 @@
-# Linear 多 Agent 工作流
+# Linear 工作流
 
 Linear 保存工作状态、责任、委派与依赖；GitHub 或 GitLab 保存代码、提交、PR/MR、检查与合并状态。Agent 自报、Execution Receipt 或本地工作完成都不能替代代码与合并证据。
 
@@ -10,7 +10,7 @@ Linear 保存工作状态、责任、委派与依赖；GitHub 或 GitLab 保存�
 - **授权**：本轮用户请求授权且明确指定 Issue、显式调用 `vb-linear-worktree-develop` 执行当前计划、宿主启动已委派的 Issue，或宿主明确启动已授权的具体 Issue，才可登记与执行；Ready、Todo 或队列可见本身不构成 execute 授权。
 - **状态**：普通 PR/MR 在 `develop` 上走 Todo → In Progress → In Review → Done；显式 local-land 走 Todo → In Progress → Done；只有带门禁目标（`main`、`release/*`）经过 Ready to Merge。`develop` 不配置服务器端 fast gate，质量责任落在本地候选合并验证与提交前检查。
 - **快车道不豁免真实验证**：`develop` 不依赖服务器端门禁，高风险路径仍须按影响面完成必要的契约/集成切片并报告 deferred；独立审查可观察但不是强制收据。
-- **墙钟规划**：Parent 计划必须记录单/并行墙钟估算、协调与 fan-in 成本、关键路径和 Agent 容量；单 Agent 是默认执行模式，只有隔离证明和净节省门槛同时满足时才并行。
+- **计划与执行模式**：普通 Issue 和普通 Parent 只记录必要依赖与验收，不要求墙钟估算或 DAG。只有真实多 Agent 编排才按需加载 `task-decomposition` 的 reference 判断容量与并行收益。
 - **继续读全文的信号**：执行授权记录与宿主核验、Definition of Ready、原生 DAG 投影、Receipt 生命周期、并发与隔离、终止与交付。
 
 以下为完整规则，仅当任务超出卡片或命中升级触发时继续读取。
@@ -31,7 +31,7 @@ Linear 保存工作状态、责任、委派与依赖；GitHub 或 GitLab 保存�
 
 Linear 写入遵循读取 → 校验 → 写入 → 重读确认，结果不明先按同一幂等键重读，部分创建保留已确认 ID，不盲目新建。尚未尝试写入且现有上下文足以核对任务与依赖时，可继续本地工作并标记 `unregistered / Linear 未同步`；已尝试但结果未知时停止受影响同步与节点，保留现场。
 
-write 节点默认从核实的最新 `origin/develop` 经 `worktree bootstrap` 建立已登记的隔离工作区，提交 `Refs <ISSUE-ID>`；当前不提供宿主 worktree 导入登记。local-land 按 `git-rules.md` 的唯一交付合同：候选 no-ff 合并并验证 → 主检出本地 develop ff-only 更新 → 精确推送 → 重读远端 SHA → 安全清理。主检出须在 develop 且干净，有无关改动时保留任务树并暂停落地。`--target-mode remote` 退役，不得绕过本地合并。
+write 节点默认从核实的最新 `origin/develop` 经 `worktree bootstrap` 建立已登记的隔离工作区，提交 `Refs <ISSUE-ID>`；当前不提供宿主 worktree 导入登记。local-land 按 `git-rules.md` 的唯一交付合同：候选 no-ff 合并并验证 → 主检出本地 develop ff-only 更新 → 精确推送 → 重读远端 SHA → 安全清理。主检出须在 develop 且干净，有无关改动时保留任务树并暂停落地。`--target-mode primary` 是唯一模式；`--target-mode remote` 退役，不得绕过本地合并。
 
 local-land 的候选验证、本地合并和远端推送确认后，write 节点即可 Done / succeeded；清理失败单列 `integrated_cleanup_pending`，不阻塞依赖后继。残留路径、端口和 resourceLocks 继续占用，后继资源冲突时仍不得派发。read 以输出与 Verification 完成；aggregate Parent 须全部必需后代成功并通过最终组合行为的 fan-in 验证。普通 PR/MR 路径仍以 closing 合并证据完成。
 
@@ -100,13 +100,13 @@ Scope 是 writeScope 的 Linear 投影，路径验证按 `ai-collab-rules.md` wr
 
 DAG Parent 模板包含 Goal、整体 Acceptance Criteria、Shared Contract、Out of Scope、Fan-in Verification 和 Completion Policy。所有 descendant 默认必需；任一必需节点非 succeeded 时 Parent 不得 Done。关闭 Linear 的 Parent/Sub-issue 自动关闭，避免绕过 write 完成证据与 fan-in 验证。
 
-Parent 计划还必须包含 `executionMode`、`wallClock` 和 `agentPlan`。墙钟规划区分 active work、external wait/block、coordination/fan-in 和 verification；并行估算包含 20% 不确定性缓冲。只有至少两个 ready 单元、共享契约已有唯一 owner、writeScope 与 Resource Lock 完全隔离、真实 Agent 容量可用且预计净节省至少 45 分钟和 25% 时才选择 parallel，否则使用 single。默认最多 2 个并行写 Agent、4 个只读 Agent，并受宿主实际总槽位限制，`fanInOwner: parent-agent`，父 Agent 始终负责 fan-in、冲突处理、最终验证和 Linear 交付。
+单 Agent 是默认执行模式；普通 Parent 不要求 `wallClock`、Agent 容量或收益估算。只有实际派发多个 Agent 时才声明 `executionMode` 与 `agentPlan`；容量、读写上限和并行收益算法以 task-decomposition 的按需 reference 为唯一来源。父 Agent 始终负责 fan-in、冲突处理、最终验证和 Linear 交付。
 
 入口、数据或环境存在实质不确定性时，Parent/叶子计划可记录早期探查的待回答问题、方法、预计分钟数、退出条件和后续正式检查；无不确定性时不要求探查。探查时间只计入共享准备或叶子 active work 一次，不从 verification 或 Parent fan-in 中扣除；首轮规划仍以 30 分钟为默认时间盒，到时未解决则记录风险、重新估算，不无限延长。普通 REPL、临时脚本和人工观察仅帮助定位与选择测试，不写入验证收据；只有项目配置已声明的受管 Micro 才可产生 L1 收据。Micro 通过不替代叶子的聚焦测试或 Parent 一次性 fan-in 集成验证；探查失败、环境异常及 `unknown/lower-bound` 均不得解释为通过。
 
 规划和运行只记录只读运营指标：预计墙钟与实际墙钟、Active Time、Blocked Time、Coordination Time、Fan-out 节省、Fan-in 返工、WIP Age、Cycle Time、Lead Time、重试/冲突/返工率。指标用于改进后续估算，不自动重派、取消、释放、降级或改变 Linear 优先级。
 
-验收切片、依赖计划与多 Agent 并行分别判断；顺序切片也可由单 Agent 执行。已有 Linear DAG 必须遵循，普通固定步骤不强制完整 DAG。并行时按 Shared Contract → Parallel Candidate → Fan-in → Final Gate；共享契约变化、writeScope 越界、Resource Lock/数据库冲突、关键路径阻塞或并行节省低于协调成本时立即停止受影响派发并重新估算。
+验收切片、依赖计划与多 Agent 并行分别判断；顺序切片也可由单 Agent 执行。已有 Linear DAG 必须遵循，普通固定步骤不强制完整 DAG。只有真实并行时才按 Shared Contract → Parallel Candidate → Fan-in → Final Gate 编排；共享契约变化、writeScope 越界或 Resource Lock 冲突时停止受影响派发。
 
 同一用户请求优先读取当前 Issue 及其必要依赖范围，并保存 dagStructureHash；提供方支持变化游标时另存可选 dagChangeCursor。恢复时只有摘要与游标共同证明结构未变化，才只读取当前 Issue、PR/MR、HEAD 与变化节点；没有可靠游标或无法证明变化边界时，允许一次有界重新读取相关完整范围，仍不得无目的轮询或无限重复全量读取。`dagStructureHash` 覆盖节点 ID、Parent 边、blocked-by / blocks 边、kind、trigger、Scope、Resource Locks、Repository 和精确 Target branch ref，不覆盖 related 关系、评论活动与状态流转。
 
@@ -140,7 +140,7 @@ Git credential helper 按 `git-rules.md` credential helper 条款执行：helper
 
 ## 7 终止与交付
 
-默认 terminalCondition 为当前 Issue 的已授权交付结果；显式授权整计划时允许依赖就绪的计划内后继自动接续。普通 PR/MR write 保留 In Review 和 closing 合并证据；显式 local-land write 以验证、本地合并及精确远端确认 Done，不要求 PR。清理失败不改变代码集成成功，单列残留且保留资源占用；仅清理重试不得重放合并或推送。read 和 aggregate 按第 2 节完成。同步不可用时报告实际差异，不伪称 Linear 已 Done。不扫描队列抢单，不转入无限 monitor。
+默认 terminalCondition 为当前 Issue 的已授权交付结果；显式授权整计划时允许依赖就绪的计划内后继自动接续。普通 PR/MR write 保留 In Review 和 closing 合并证据；显式 local-land write 以验证、本地合并及精确远端确认 Done，不要求 PR。清理失败不改变代码集成成功，单列残留且保留资源占用；仅清理重试不得重放合并或推送。read 和 aggregate 按第 2 节完成。同步不可用时报告实际差异，不伪称 Linear 已 Done。不扫描 Ready 队列抢单，不转入无限 monitor。
 
 合并后回归：Done 之后发现缺陷时，默认新建回归 Issue，并以非 closing 语义（`Refs <ISSUE-ID>`）的 revert PR 恢复到目标分支；原 Issue 保持 Done，并追加关联 revert 与事实原因的评论。不得为掩盖回归把 In Progress、In Review 或 Done 退回 Todo；只有需要重新实现或重新计时才使用状态纠错授权并记录事实原因。发布边界的回滚证据仍按 `release-rules.md` 与 Release Issue 模板记录。
 

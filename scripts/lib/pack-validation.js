@@ -437,9 +437,9 @@ export const SHARED_RULE_PHRASES = Object.freeze({
   releaseOnlyCiBoundary: '只在发布边界',
   releaseGateBranches: '`main`、`release/*`',
   explicitIssueBoundary: '同一 Issue 不',
-  wallClockPlanning: '墙钟规划',
+  wallClockPlanning: '不要求墙钟估算',
   singleAgentDefault: '单 Agent 是默认执行模式',
-  fanInOwner: 'fanInOwner: parent-agent',
+  fanInOwner: '真实多 Agent',
   noAssertionWeakening: '降低断言、删除断言或无理由跳过相关测试绕过',
   // The kernel owns the substitution boundary and the delivery template
   // restates it; both files must carry the same sentence, so a reword in one
@@ -512,7 +512,7 @@ export const RULE_SKILL_PARITY_PAIRS = Object.freeze([
     rule: 'docs/rules/git-rules.md',
     skill: 'skills/core/vb-git-develop-flow/SKILL.md',
     skillName: 'vb-git-develop-flow',
-    sharedTerms: ['`vb-git-develop-flow`', 'local-land', '`origin/develop`', '--target-mode remote', '主检出'],
+    sharedTerms: ['`vb-git-develop-flow`', 'local-land', '`origin/develop`', '--target-mode primary', '主检出'],
   },
   {
     rule: 'docs/rules/linear-workflow.md',
@@ -531,7 +531,7 @@ export const RULE_SKILL_PARITY_PAIRS = Object.freeze([
     rule: 'docs/rules/linear-workflow.md',
     skill: 'skills/integrations/vb-linear-worktree-develop/SKILL.md',
     skillName: 'vb-linear-worktree-develop',
-    sharedTerms: ['`vb-linear-worktree-develop`', 'local-land', '`origin/develop`', '--target-mode remote', '主检出'],
+    sharedTerms: ['`vb-linear-worktree-develop`', 'local-land', '`origin/develop`', '--target-mode primary', '主检出'],
   },
 ]);
 
@@ -700,40 +700,28 @@ const SKILL_EXECUTION_BOUNDARY_FILES = [
 ];
 
 /**
- * Envelope, workspace-verification and fail-closed wording that every one of
- * these skills keeps stating. Host-issued isolation proof is deliberately not
- * here: worktree lifecycle is a workspace-internal effect that the runtime
- * verifies locally, so no skill may be forced to demand it before creating a
- * worktree.
+ * Stop-boundary wording that every entry-point Skill keeps stating. Detailed
+ * Execution Envelope fields live in governance-core; repeating the whole field
+ * list in Skills makes normal tasks pay the full governance text cost.
  */
 const SKILL_EXECUTION_BOUNDARY_SHARED_TERMS = [
-  'requestId', 'sessionId', 'targetIssueIds', 'activeObjective',
-  'allowedEffects', 'forbiddenEffects', 'terminalCondition',
-  'canonicalCwd', 'worktreeRoot', 'gitCommonDir', 'gitDir',
-  'branch', 'baseRef', 'baseSha', 'initialHeadSha', 'allowedWriteRoots',
-  'Agent 不得自造', '缺授权', '暂停', '不得靠重复询问用户解除',
-  'contract-only/degraded', '高风险间接写入', '红区',
-];
-
-const SKILL_EXECUTION_BOUNDARY_HOST_CONTEXT_TERMS = [
-  'worktree 生命周期', '宿主 worktree', 'origin/develop', 'worktree bootstrap',
-  '跨边界', 'hostContext', 'source=host', 'filesystem', 'approval',
-  'process=isolated', 'network', 'observedAt',
+  'Agent 不得自造', '缺授权', '暂停', 'contract-only/degraded',
+  '跨边界', 'worktree bootstrap', 'integrated_cleanup_pending',
 ];
 
 /**
- * Per-file additions. The two Linear modes still bound their cross-boundary
- * effects and host-dispatched claims with a host-issued `hostContext`; the
- * workspace-internal develop flow states the local verification and the
- * host-worktree-first entry instead.
+ * Entry-specific anchors stay limited to operation order and stop boundaries.
  */
 const SKILL_EXECUTION_BOUNDARY_FILE_TERMS = {
   'skills/core/vb-git-develop-flow/SKILL.md': [
-    '用户在本轮显式调用', '会话根', 'worktree 生命周期', '宿主 worktree',
-    'origin/develop', 'worktree bootstrap', '跨边界',
+    'origin/develop', '主检出', '推送确认即代码集成完成',
   ],
-  'skills/integrations/vb-linear-worktree-develop/SKILL.md': SKILL_EXECUTION_BOUNDARY_HOST_CONTEXT_TERMS,
-  'skills/integrations/linear-workflow/SKILL.md': SKILL_EXECUTION_BOUNDARY_HOST_CONTEXT_TERMS,
+  'skills/integrations/vb-linear-worktree-develop/SKILL.md': [
+    'origin/develop', '主检出', '推送确认后标记 Done',
+  ],
+  'skills/integrations/linear-workflow/SKILL.md': [
+    '不扫描 Ready 队列', '推送确认即代码集成完成',
+  ],
 };
 
 const SKILL_EXECUTION_BOUNDARY_CHECKS = SKILL_EXECUTION_BOUNDARY_FILES.map((file) => ({
@@ -762,7 +750,7 @@ export const CONTENT_QUALITY_CHECKS = [
       '清晰、已授权、证据充分',
       '任务 Markdown 是可选的人读记录',
       '验收切片、依赖计划和多 Agent 并行分别判断',
-      '净节省同时达到 45 分钟和 25%',
+      '任务耗时估算只用于选择 single/parallel',
       '宿主 Plan 模式保持只读',
       // 长任务状态锚点与阶段切分：量化触发、锚点建立、恢复纪律与交付收尾
       '长任务状态锚点与阶段切分',
@@ -997,14 +985,16 @@ export const CONTENT_QUALITY_CHECKS = [
       // 类型与断言有效性信号
       'WCAG 2.2 AA',
       '负控',
-      // 长命令与收据复用：墙钟预算与运行器超时双口径，复用前提与失效条件。
+      // 长命令与收据复用：可选整轮预算、逐项超时、复用前提与失效条件。
       '长命令与收据复用',
-      'Agent 墙钟预算',
-      '项目未声明上限时参考 10 分钟',
-      '超过上限按 blocked 处理',
+      '验证执行时间与任务耗时估算严格分离',
+      '`verification.timeoutMs`',
+      '`verification.budgetMs`',
+      '未配置 `budgetMs` 时没有隐式整轮截止',
+      '预算耗尽按 blocked 处理',
       '禁止原样整轮重跑',
       '端口与残留进程自检',
-      '同一指纹、同一命令集合、此后无实质写入',
+      '同一 workspace、同一计划、同一命令集合、同一内容指纹、此后无实质写入',
       '复用原收据，不重复执行',
       '有实质写入必须重跑',
       // 分层与用例约定：层级必须可机械核对，低层证据不得替代高层结论。
@@ -1018,11 +1008,7 @@ export const CONTENT_QUALITY_CHECKS = [
       // 测试金字塔与成本分层：规模分布、同步/异步阻塞范围、端到端准入与深度异步收据。
       '测试金字塔',
       '成本分层',
-      '单元测试是主体',
       '端到端只保留核心业务主链路和关键风险流程',
-      '失败阻塞当前实施单元',
-      '失败阻塞合并或完成声明',
-      '失败阻塞集成、发布或依赖该证据的完成声明',
       '完整聚合入口',
       'E2E 准入',
       '默认每个关键旅程保留 1–3 条',
@@ -1131,7 +1117,8 @@ export const CONTENT_QUALITY_CHECKS = [
       SHARED_RULE_PHRASES.explicitIssueBoundary,
       SHARED_RULE_PHRASES.wallClockPlanning,
       SHARED_RULE_PHRASES.singleAgentDefault,
-      SHARED_RULE_PHRASES.fanInOwner,
+      '不扫描 Ready 队列',
+      '真实多 Agent',
       '本轮用户请求授权',
       '显式调用',
       '不授权新任务',
@@ -1538,13 +1525,13 @@ export const CONTENT_QUALITY_CHECKS = [
     {
       file: 'skills/integrations/linear-workflow/SKILL.md',
       terms: [
-        '自动队列领单入口已退役',
-        'Agent 不扫描、轮询或订阅 Ready Queue',
+        '不扫描 Ready 队列',
         SHARED_RULE_PHRASES.explicitIssueBoundary,
         SHARED_RULE_PHRASES.wallClockPlanning,
         SHARED_RULE_PHRASES.singleAgentDefault,
         SHARED_RULE_PHRASES.fanInOwner,
-        '远端完整 CI 只在发布边界',
+        '项目明确的审查和分支保护继续生效',
+        '早期探查',
         SHARED_RULE_PHRASES.gitFlowDefault,
         SHARED_RULE_PHRASES.gitFlowHotfix,
         SHARED_RULE_PHRASES.developRequiredFastGate,

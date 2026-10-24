@@ -24,9 +24,10 @@
 - **ADR-0014** Worktree 落地与清理的服务 teardown 改为 best-effort - accepted - worktree land/cleanup/recover 仍尝试停止登记服务，但无法证明停止不再阻塞合并落地或工作区移除 - [ADR](../adr/ADR-0014-service-teardown-best-effort.md)
 - **ADR-0015** 显式 develop flow（gd-flow 与 lwflow） - superseded - 显式入口、本地 land 和默认交付边界继续有效；显式 Linear Claim 前置条件由 ADR-0018 替换。 - [ADR](../adr/ADR-0015-explicit-develop-flow.md)
 - **ADR-0016** gd-flow 移除 Linear 访问禁令 - accepted - gd-flow 只约束交付动作，不再禁止访问 Linear；Linear 读写回到 linear-workflow 与授权边界 - [ADR](../adr/ADR-0016-gd-flow-linear-boundary.md)
-- **ADR-0017** worktree 生命周期门禁收敛：宿主 worktree 优先与本地核验授权 - accepted - worktree 生命周期改为本地核验授权、宿主 worktree 优先，宿主证明只保留给跨边界效果 - [ADR](../adr/ADR-0017-worktree-lifecycle-local-verification.md)
+- **ADR-0017** worktree 生命周期门禁收敛：宿主 worktree 优先与本地核验授权 - superseded - 本地核验授权继续有效；宿主 worktree 优先等冲突条款由 ADR-0020 替代 - [ADR](../adr/ADR-0017-worktree-lifecycle-local-verification.md)
 - **ADR-0018** 显式 Linear 执行与宿主自动派发的授权/Claim 分离 - accepted - 显式单次调用使用内部授权上下文与 v1 Receipt；Claim 只负责并发互斥，自动派发仍要求宿主 Grant、原子 Claim 与 v3 Receipt。 - [ADR](../adr/ADR-0018-explicit-linear-claim-boundary.md)
-- **ADR-0019** 显式执行、本地先合并交付与受限依赖调度 - accepted - 显式执行、本地先合并交付与受限依赖调度 - [ADR](../adr/ADR-0019-local-first-explicit-delivery.md)
+- **ADR-0019** 显式执行、本地先合并交付与受限依赖调度 - superseded - 显式执行与本地先合并继续有效；清理锁范围、预算与恢复条款由 ADR-0020 收敛 - [ADR](../adr/ADR-0019-local-first-explicit-delivery.md)
+- **ADR-0020** 轻量交付边界、三档阻塞与验证执行时限 - accepted - 将安全、交付和执行受阻分离，解耦推送后清理，并只允许项目显式验证预算 - [ADR](../adr/ADR-0020-lightweight-delivery-blocking-and-verification-limits.md)
 
 ## 纪律
 

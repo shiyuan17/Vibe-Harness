@@ -67,7 +67,10 @@ export function resolveDelivery(config, requested) {
   const profiles = config.delivery?.profiles ?? {};
   const profile = Object.hasOwn(profiles, name) ? profiles[name] : requested && Object.hasOwn(deliveryProfiles, name) ? deliveryProfiles[name] : null;
   if (!profile || !nonempty(name)) throw new Error(`Unknown delivery profile: ${String(name)}`);
-  return { reviewPolicy: 'required', ...profile, requireReceipt: false, profile: name,
+  // A custom local-land projection inherits that profile's intentional
+  // review posture rather than the legacy "required" default.
+  const reviewPolicy = name === 'local-land' ? 'none' : 'required';
+  return { reviewPolicy, ...profile, requireReceipt: false, profile: name,
     warnings: profile.requireReceipt === true ? [{ code: 'DELIVERY_RECEIPT_DEPRECATED', message: 'requireReceipt is deprecated and no longer gates delivery.' }] : [] };
 }
 

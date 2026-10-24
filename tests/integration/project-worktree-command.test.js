@@ -827,7 +827,7 @@ test('worktree recover reports residue as an error and only --write prunes it', 
     );
     assert.equal((await readRegistry(fixture.repo)).entries.length, 1);
 
-    const written = await runCommand(['worktree', 'recover', '--project', fixture.repo, '--write', '--json'], { cwd: fixture.repo });
+    const written = await runCommand(['worktree', 'recover', '--project', fixture.repo, '--all', '--write', '--json'], { cwd: fixture.repo });
     assert.equal(written.exitCode, 0, JSON.stringify(written.report));
     assert.equal(written.report.status, 'passed');
     assert.equal(written.report.pruned, true);
@@ -863,7 +863,7 @@ test('worktree recover removes an incomplete worktree but never a user branch', 
     await rm(path.join(fixture.worktreePath, '.vibe-harness/worktree.env'));
     await git(fixture.repo, ['branch', 'user/feature']);
 
-    const written = await runCommand(['worktree', 'recover', '--project', fixture.repo, '--write', '--json'], { cwd: fixture.repo });
+    const written = await runCommand(['worktree', 'recover', '--project', fixture.repo, '--all', '--write', '--json'], { cwd: fixture.repo });
     assert.equal(written.exitCode, 0, JSON.stringify(written.report));
     assert.equal(written.report.status, 'passed');
     const [result] = written.report.results;
@@ -909,7 +909,7 @@ test('worktree recover leaves touched, dirty and foreign worktrees alone', async
     // A foreign worktree outside the configured root, never registered.
     await git(fixture.repo, ['worktree', 'add', '-q', '-b', 'user/foreign', path.join(fixture.root, 'elsewhere')]);
 
-    const written = await runCommand(['worktree', 'recover', '--project', fixture.repo, '--write', '--json'], { cwd: fixture.repo });
+    const written = await runCommand(['worktree', 'recover', '--project', fixture.repo, '--all', '--write', '--json'], { cwd: fixture.repo });
     assert.equal(written.exitCode, 0, JSON.stringify(written.report));
     assert.equal(written.report.status, 'passed');
     assert.deepEqual(written.report.results, []);
@@ -1154,7 +1154,16 @@ test('local-land 拒绝脏主检出和未归属提交并保留源工作区', asy
     const args = ['worktree', 'land', '--project', fixture.repo, '--task', 'ENG-1',
       '--delivery', 'local-land', '--write', '--push', '--json'];
     await writeFile(path.join(fixture.repo, 'unrelated.txt'), 'user work\n');
-    assert.equal((await runCommand(args, { cwd: fixture.repo })).report.code, 'LAND_BATCH_PRIMARY_DIRTY');
+    const dirty = await runCommand(args, { cwd: fixture.repo });
+    assert.equal(dirty.report.code, 'LAND_BATCH_PRIMARY_DIRTY');
+    const primaryCheckout = dirty.report.preflight.primaryCheckout;
+    assert.equal(primaryCheckout.branch, 'develop');
+    assert.equal(primaryCheckout.head, before);
+    assert.equal(primaryCheckout.dirty, true);
+    assert.equal(primaryCheckout.changeCount, 1);
+    assert.equal(primaryCheckout.changes[0].path, 'unrelated.txt');
+    assert.equal(primaryCheckout.changesTruncated, false);
+    assert.match(primaryCheckout.guidance, /Do not delete, stash, stage, or commit user work automatically/u);
     assert.equal(await git(fixture.repo, ['rev-parse', 'develop']), before);
     await git(fixture.repo, ['add', 'unrelated.txt']);
     await git(fixture.repo, ['commit', '-qm', 'unowned local work']);
@@ -1330,7 +1339,7 @@ test('batch verification failure preserves target and both source worktrees', as
     assert.equal(await entryExists(fixture.repo, second), true);
     // A real task named "batch" must not make the generic recovery pattern
     // mistake a retained transaction candidate for abandoned task residue.
-    await runCommand(['worktree', 'recover', '--project', fixture.repo, '--write', '--json'], { cwd: fixture.repo });
+    await runCommand(['worktree', 'recover', '--project', fixture.repo, '--all', '--write', '--json'], { cwd: fixture.repo });
     assert.equal(await entryExists(fixture.repo, result.report.candidatePath), true);
   } finally {
     await removeTemporaryDirectory(fixture.root);
@@ -1434,6 +1443,9 @@ test('batch reports cleanup failure after confirmed push without replaying the m
     await git(fixture.repo, ['commit', '-qm', 'later integration']);
     await git(fixture.repo, ['push', 'origin', 'develop']);
     const latest = await git(fixture.repo, ['rev-parse', 'HEAD']);
+    // Cleanup-only recovery must not be blocked by unrelated work in the
+    // primary checkout. The file also proves cleanup never stages or deletes it.
+    await writeFile(path.join(fixture.repo, 'unrelated.txt'), 'preserve user work\n');
     const hook = path.join(origin, 'hooks', 'pre-receive');
     const count = path.join(origin, 'unexpected-push');
     await writeFile(hook, '#!/bin/sh\necho unexpected >> unexpected-push\nexit 1\n');
@@ -1448,7 +1460,59 @@ test('batch reports cleanup failure after confirmed push without replaying the m
     assert.equal(existsSync(count), false, 'cleanup retry must never invoke push');
     assert.deepEqual((await readRegistry(fixture.repo)).entries, []);
     assert.equal(await entryExists(fixture.repo, second), false);
+    assert.equal(
+      await readFile(path.join(fixture.repo, 'unrelated.txt'), 'utf8'),
+      'preserve user work\n',
+    );
   } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('batch cleanup timeout is integrated pending and retries only cleanup', async () => {
+  const fixture = await makeLocalFixture({ remote: false });
+  try {
+    const origin = path.join(fixture.root, 'origin.git');
+    await git(fixture.root, ['init', '--bare', '-q', origin]);
+    await git(fixture.repo, ['remote', 'add', 'origin', origin]);
+    await git(fixture.repo, ['push', '-u', 'origin', 'develop']);
+    await bootstrapWithWork(fixture);
+    const second = await bootstrapBatchSecond(fixture, 'two\n');
+    const args = ['worktree', 'land', '--project', fixture.repo,
+      '--batch', '--task', 'ENG-1', '--task', 'ENG-2', '--delivery', 'local-land',
+      '--write', '--push', '--json'];
+
+    process.env.VIBE_HARNESS_LAND_CLEANUP_TIMEOUT_MS = '1';
+    const timedOut = await runCommand(args, { cwd: fixture.repo });
+    assert.equal(timedOut.exitCode, 0, JSON.stringify(timedOut.report));
+    assert.equal(timedOut.report.status, 'passed');
+    assert.equal(timedOut.report.integrationStatus, 'integrated_cleanup_pending');
+    assert.equal(timedOut.report.code, 'LAND_BATCH_CLEANUP_INCOMPLETE');
+    assert.ok(timedOut.report.cleanup.some((item) => item.code === 'LAND_CLEANUP_TIMEOUT'));
+    assert.equal(
+      await git(origin, ['rev-parse', 'refs/heads/develop']),
+      await git(fixture.repo, ['rev-parse', 'develop']),
+    );
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
+    assert.equal(await entryExists(fixture.repo, second), true);
+
+    delete process.env.VIBE_HARNESS_LAND_CLEANUP_TIMEOUT_MS;
+    const hook = path.join(origin, 'hooks', 'pre-receive');
+    const count = path.join(origin, 'unexpected-push');
+    await writeFile(hook, '#!/bin/sh\necho unexpected >> unexpected-push\nexit 1\n');
+    await chmod(hook, 0o755);
+    const retry = await runCommand([
+      'worktree', 'land', '--project', fixture.repo, '--batch', '--resume', timedOut.report.batchId,
+      '--delivery', 'local-land', '--write', '--push', '--json',
+    ], { cwd: fixture.repo });
+    assert.equal(retry.exitCode, 0, JSON.stringify(retry.report));
+    assert.equal(retry.report.integrationStatus, 'integrated');
+    assert.equal(existsSync(count), false, 'cleanup timeout retry must never invoke push');
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), false);
+    assert.equal(await entryExists(fixture.repo, second), false);
+    assert.deepEqual((await readRegistry(fixture.repo)).entries, []);
+  } finally {
+    delete process.env.VIBE_HARNESS_LAND_CLEANUP_TIMEOUT_MS;
     await removeTemporaryDirectory(fixture.root);
   }
 });
@@ -1536,6 +1600,9 @@ test('land 预检不因收据或 deferred 自动升级，只执行请求的层�
     const missingReview = await runCommand(base, { cwd: fixture.repo });
     assert.equal(missingReview.report.status, 'planned', JSON.stringify(missingReview.report));
     assert.equal(missingReview.report.tier, 'quick');
+    const ignoredReview = await runCommand([...base, '--reviewed', 'not-selected'], { cwd: fixture.repo });
+    assert.equal(ignoredReview.report.status, 'planned', JSON.stringify(ignoredReview.report));
+    assert.ok(ignoredReview.report.warnings.some((warning) => warning.code === 'LAND_REVIEW_METADATA_IGNORED'));
     const explicit = await runCommand([...base, '--tier', 'quick', '--reviewed', 'all'], { cwd: fixture.repo });
     assert.equal(explicit.report.status, 'planned', JSON.stringify(explicit.report));
     assert.equal(explicit.report.tier, 'quick');
@@ -1554,7 +1621,6 @@ test('develop land 不需要审阅或完成收据，但必须实测最终候选'
           merge: 'no-ff',
           cleanup: 'ancestor',
           requireReceipt: true,
-          reviewPolicy: 'none',
         },
       },
     },
@@ -1574,6 +1640,7 @@ test('develop land 不需要审阅或完成收据，但必须实测最终候选'
     assert.equal(written.exitCode, 0, JSON.stringify(written.report));
     assert.equal(written.report.status, 'passed', JSON.stringify(written.report));
     assert.equal(written.report.completion, undefined);
+    assert.equal(written.report.preflight, undefined);
     assert.equal(written.report.results[0].steps.find((step) => step.id === 'verify').status, 'passed');
   } finally {
     await removeTemporaryDirectory(fixture.root);
@@ -2133,7 +2200,7 @@ test('验证期间目标 HEAD 前进时自动重试且 recover 保留活动候�
     assert.ok(candidateName, 'land candidate exists while its verification command is running');
     const candidatePath = path.join(fixture.root, candidateName);
     const recovered = await runCommand([
-      'worktree', 'recover', '--project', fixture.repo, '--write', '--json',
+      'worktree', 'recover', '--project', fixture.repo, '--all', '--write', '--json',
     ], { cwd: fixture.repo });
     const recoveryCandidate = recovered.report.candidates.find((item) => path.basename(item.path) === candidateName);
     const candidatePreserved = await entryExists(fixture.repo, candidatePath);
@@ -2217,10 +2284,39 @@ test('recover 只回收归因且干净的中断候选 worktree', async () => {
     const planned = await runCommand(['worktree', 'recover', '--project', fixture.repo, '--json'], { cwd: fixture.repo });
     assert.equal(planned.report.candidates[0].status, 'planned');
     assert.equal(await entryExists(fixture.repo, candidate), true);
-    const recovered = await runCommand(['worktree', 'recover', '--project', fixture.repo, '--write', '--json'], { cwd: fixture.repo });
+    const recovered = await runCommand(['worktree', 'recover', '--project', fixture.repo, '--all', '--write', '--json'], { cwd: fixture.repo });
     assert.equal(recovered.report.candidates[0].status, 'passed');
     assert.equal(await entryExists(fixture.repo, candidate), false);
     assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('recover 写操作必须显式限域，--task 只处理目标任务', async () => {
+  const fixture = await makeLandFixture();
+  try {
+    await bootstrapWithWork(fixture);
+    const engOne = path.join(fixture.root, '.vibe-harness-land-ENG-1-00000000-0000-4000-8000-000000000010');
+    const engTwo = path.join(fixture.root, '.vibe-harness-land-ENG-2-00000000-0000-4000-8000-000000000011');
+    await git(fixture.repo, ['worktree', 'add', '--detach', engOne, 'HEAD']);
+    await git(fixture.repo, ['worktree', 'add', '--detach', engTwo, 'HEAD']);
+
+    const unscoped = await runCommand(
+      ['worktree', 'recover', '--project', fixture.repo, '--write', '--json'],
+      { cwd: fixture.repo },
+    );
+    assert.equal(unscoped.report.code, 'WORKTREE_RECOVER_SCOPE_REQUIRED', JSON.stringify(unscoped.report));
+    assert.equal(await entryExists(fixture.repo, engOne), true);
+    assert.equal(await entryExists(fixture.repo, engTwo), true);
+
+    const scoped = await runCommand(
+      ['worktree', 'recover', '--project', fixture.repo, '--task', 'ENG-1', '--write', '--json'],
+      { cwd: fixture.repo },
+    );
+    assert.equal(scoped.exitCode, 0, JSON.stringify(scoped.report));
+    assert.equal(await entryExists(fixture.repo, engOne), false);
+    assert.equal(await entryExists(fixture.repo, engTwo), true);
   } finally {
     await removeTemporaryDirectory(fixture.root);
   }
@@ -2235,7 +2331,7 @@ test('recover 保留脏候选与无法归因的 worktree', async () => {
     await git(fixture.repo, ['worktree', 'add', '--detach', candidate, 'HEAD']);
     await git(fixture.repo, ['worktree', 'add', '--detach', foreign, 'HEAD']);
     await writeFile(path.join(candidate, 'unowned.txt'), 'keep\n');
-    const recovered = await runCommand(['worktree', 'recover', '--project', fixture.repo, '--write', '--json'], { cwd: fixture.repo });
+    const recovered = await runCommand(['worktree', 'recover', '--project', fixture.repo, '--all', '--write', '--json'], { cwd: fixture.repo });
     assert.equal(recovered.report.status, 'failed');
     assert.equal(recovered.report.candidates[0].status, 'blocked');
     assert.equal(await entryExists(fixture.repo, candidate), true);
@@ -2327,7 +2423,7 @@ test('recover 在服务 teardown 无法证明停止时仍回收崩溃残留', as
     await rm(path.join(worktreePath, '.vibe-harness/worktree.env'));
     await registerOptedOutService(fixture.repo, worktreePath);
 
-    const recovered = await runCommand(['worktree', 'recover', '--project', fixture.repo, '--write', '--json'], { cwd: fixture.repo });
+    const recovered = await runCommand(['worktree', 'recover', '--project', fixture.repo, '--all', '--write', '--json'], { cwd: fixture.repo });
     assert.equal(recovered.exitCode, 0, JSON.stringify(recovered.report));
     assert.equal(recovered.report.status, 'passed', JSON.stringify(recovered.report));
     assert.equal(recovered.report.results[0].status, 'passed');
@@ -2379,6 +2475,12 @@ test('脏主检出暂停 local-land 并保留全部源资源', async () => {
     const result = await runCommand(['worktree', 'land', '--project', fixture.repo,
       '--task', 'ENG-1', '--delivery', 'local-land', '--write', '--push', '--json'], { cwd: fixture.repo });
     assert.equal(result.report.code, 'LAND_BATCH_PRIMARY_DIRTY');
+    assert.equal(result.report.preflight.primaryCheckout.branch, 'develop');
+    assert.equal(result.report.preflight.primaryCheckout.head, head);
+    assert.equal(result.report.preflight.primaryCheckout.dirty, true);
+    assert.equal(result.report.preflight.primaryCheckout.changeCount, 1);
+    assert.equal(result.report.preflight.primaryCheckout.changes[0].path, 'unrelated.txt');
+    assert.equal(result.report.preflight.primaryCheckout.changesTruncated, false);
     assert.equal(await git(fixture.repo, ['rev-parse', 'HEAD']), head);
     assert.equal(await git(fixture.origin, ['rev-parse', 'develop']), head);
     assert.equal(await readFile(path.join(fixture.repo, 'unrelated.txt'), 'utf8'), 'keep\n');
@@ -2493,7 +2595,7 @@ test('recover 回收死进程的旧格式锁并等待存活持有者', async () 
     process.env.VIBE_HARNESS_LAND_LOCK_TIMEOUT_MS = '300';
     await writeFile(lockPath, `0\n${new Date().toISOString()}\n`, 'utf8');
     const recovered = await runCommand([
-      'worktree', 'recover', '--project', fixture.repo, '--write', '--json',
+      'worktree', 'recover', '--project', fixture.repo, '--all', '--write', '--json',
     ], { cwd: fixture.repo });
     assert.equal(recovered.report.status, 'passed', JSON.stringify(recovered.report));
     assert.equal(existsSync(lockPath), false, 'dead legacy lock is reclaimed and released');
@@ -2501,7 +2603,7 @@ test('recover 回收死进程的旧格式锁并等待存活持有者', async () 
     const liveLock = `${process.pid}\n${new Date().toISOString()}\n`;
     await writeFile(lockPath, liveLock, 'utf8');
     const blocked = await runCommand([
-      'worktree', 'recover', '--project', fixture.repo, '--write', '--json',
+      'worktree', 'recover', '--project', fixture.repo, '--all', '--write', '--json',
     ], { cwd: fixture.repo });
     assert.equal(blocked.report.status, 'blocked', JSON.stringify(blocked.report));
     assert.equal(blocked.report.code, 'LAND_LOCK_TIMEOUT');
@@ -2523,7 +2625,7 @@ test('recover 在基线前进后移除未修改的不完整分支', async () => 
     await rm(path.join(fixture.worktreePath, '.vibe-harness/worktree.env'));
     await git(fixture.repo, ['commit', '-q', '--allow-empty', '-m', 'chore: advance base']);
 
-    const written = await runCommand(['worktree', 'recover', '--project', fixture.repo, '--write', '--json'], { cwd: fixture.repo });
+    const written = await runCommand(['worktree', 'recover', '--project', fixture.repo, '--all', '--write', '--json'], { cwd: fixture.repo });
     assert.equal(written.exitCode, 0, JSON.stringify(written.report));
     assert.equal(written.report.status, 'passed');
     assert.equal(written.report.results[0].branchDeleted, true);

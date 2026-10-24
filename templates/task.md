@@ -7,7 +7,7 @@
 - 阶段：review / plan / implement / verify
 - 风险等级：低 / 中 / 高
 - 执行模式：auto / single / parallel
-- 墙钟预算（分钟）：
+- 计划模式：single / parallel（仅真实多 Agent 时）
 - 关键路径：
 
 ## 来源
@@ -36,7 +36,7 @@
 
 > 需要把已有计划转为 Goal、Task DAG 和单节点执行提示词时，可调用 `task-decomposition`；默认先在回复中输出可复制结果，只有长任务恢复需要时才写入本记录。
 
-### 墙钟与 Agent 编排
+### Agent 编排（仅真实多 Agent 时填写）
 
 - active work：
 - external wait/block：
@@ -52,7 +52,7 @@
 - maxAgents：宿主实际总槽位
 - fanInOwner：parent-agent
 
-只有隔离证明、共享契约 owner、实际 Agent/workspace 容量和净节省门槛同时满足时才使用 parallel；否则记录为 single。无真实并行容量时不得把计划可并行写成已经并行。
+普通单 Agent 或普通 Parent 不填写本节，也不要求墙钟估算。真实多 Agent 时才按 `task-decomposition` 的按需 reference 计算实际容量与并行收益；无真实并行容量时不得把计划可并行写成已经并行。
 
 #### 早期探查（存在实质不确定性时选填）
 
@@ -65,7 +65,7 @@
 
 ## 实施任务拆分（仅判定为拆分时填写）
 
-> 按可观察增量拆验收切片，单 Agent 顺序任务也可拆；已有 Linear DAG 必须遵循，普通固定步骤不强制完整 DAG。多 Agent 并行另核对隔离、容量及净节省至少 45 分钟和 25%。每个任务有明确结果和验证，不要求单独提交。该表不由 Vibe-Harness 解析或作为完成门禁。
+> 按可观察增量拆验收切片，单 Agent 顺序任务也可拆；已有 Linear DAG 必须遵循，普通固定步骤不强制完整 DAG。只有真实多 Agent 并行时才按 `task-decomposition` 的按需 reference 核对隔离、容量和净收益。每个任务有明确结果和验证，不要求单独提交。该表不由 Vibe-Harness 解析或作为完成门禁。
 
 | 任务 | 目标 | 依赖 | 修改范围 | 约束 | 验收标准 | 验证方式 | 产出 |
 |---|---|---|---|---|---|---|---|

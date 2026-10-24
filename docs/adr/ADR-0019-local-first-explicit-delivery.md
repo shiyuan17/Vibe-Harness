@@ -1,7 +1,7 @@
 ---
 id: ADR-0019
 title: 显式执行、本地先合并交付与受限依赖调度
-status: accepted
+status: superseded
 date: 2026-10-23
 review-date: 2027-04-23
 owner: vibe-harness-maintainers
@@ -9,7 +9,7 @@ decision-makers: [vibe-harness-maintainers]
 consulted: [linear-workflow-users]
 informed: [vibe-harness-contributors]
 supersedes: [ADR-0008, ADR-0010, ADR-0018]
-superseded-by: null
+superseded-by: ADR-0020
 ---
 
 # 显式执行、本地先合并交付与受限依赖调度

@@ -25,7 +25,7 @@ import path from 'node:path';
 import { gitFingerprint } from './git-fingerprint.mjs';
 import { attestCompletionProvenance, recordFinalVerification } from './verification-receipt.mjs';
 import { verificationLockStatus } from './verification-lock.mjs';
-import { completionReceipt, isReviewRequired, resolveDelivery, validateCompletion } from './delivery.mjs';
+import { completionReceipt, resolveDelivery, validateCompletion } from './delivery.mjs';
 import { readMergeEvidence, validateMergeEvidence } from './merge-evidence.mjs';
 import { releaseServiceTeardown, teardownServices } from './services.mjs';
 import {
@@ -83,6 +83,7 @@ const LAND_LOCK_TIMEOUT_MS = 180_000;
 const LAND_PHASE2_LEASE_MS = 60_000;
 const LAND_LOCK_RETRY_MS = 50;
 const LAND_MAX_ATTEMPTS = 2;
+const DEFAULT_LAND_CLEANUP_TIMEOUT_MS = 30_000;
 // --- worktree / slice / patch (P0) -----------------------------------------
 //
 // These commands replace the throwaway scripts an agent used to write into the
@@ -367,10 +368,10 @@ function resolveWorktreeSettings(projectDir, projectConfig, args) {
     workspacePackages: discovered.packages,
   };
 }
-async function worktreeEntries(projectDir) {
-  const top = await runGit(['rev-parse', '--show-toplevel'], projectDir);
+async function worktreeEntries(projectDir, { timeoutMs = gitTimeoutMs() } = {}) {
+  const top = await runGit(['rev-parse', '--show-toplevel'], projectDir, { timeoutMs });
   if (!top.ok) return { entries: [], repositoryRoot: null, reason: 'not-a-git-worktree' };
-  const listing = await runFile('git', ['worktree', 'list', '--porcelain', '-z'], { cwd: projectDir, timeoutMs: gitTimeoutMs() });
+  const listing = await runFile('git', ['worktree', 'list', '--porcelain', '-z'], { cwd: projectDir, timeoutMs });
   if (!listing.ok) return { entries: [], repositoryRoot: normalizePath(top.stdout.trim()), reason: 'worktree-list-failed' };
   return { entries: parseWorktreeList(listing.stdout), repositoryRoot: normalizePath(top.stdout.trim()), reason: null };
 }
@@ -687,7 +688,7 @@ function planPortAssignment(projectDir, settings, { branch, id, path: worktreePa
     reused: Boolean(existing),
   };
 }
-function releasePortRegistryEntry(projectDir, id) {
+function releasePortRegistryEntry(projectDir, id, { timeoutMs = PORT_LOCK_TIMEOUT_MS } = {}) {
   return withPortRegistryLock(projectDir, async () => {
     const info = readPortRegistry(projectDir);
     if (!info.registry) return { released: false, reason: info.error ?? 'no registry' };
@@ -695,7 +696,7 @@ function releasePortRegistryEntry(projectDir, id) {
     if (entries.length === info.registry.entries.length) return { released: false, reason: 'no entry' };
     writePortRegistry(projectDir, { ...info.registry, entries });
     return { released: true };
-  });
+  }, { timeoutMs });
 }
 function parseWorktreeTask(value) {
   const parts = String(value).split(':');
@@ -1492,16 +1493,23 @@ async function withWorktreeLandLock(projectDir, action) {
     releaseLease(lockPath);
   }
 }
-async function cleanupLandCandidate(projectDir, candidatePath, { abort = false, settings = null } = {}) {
+async function cleanupLandCandidate(projectDir, candidatePath, {
+  abort = false,
+  settings = null,
+  timeoutMs = gitTimeoutMs(),
+} = {}) {
+  const candidateGit = (args, cwd = candidatePath) => runGit(args, cwd, {
+    timeoutMs: Math.max(1, Math.min(timeoutMs, gitTimeoutMs())),
+  });
   if (!candidatePath) return { removed: true, residual: null };
-  if (abort) await runGit(['merge', '--abort'], candidatePath);
+  if (abort) await candidateGit(['merge', '--abort']);
   let resolvedSettings = settings;
   if (!resolvedSettings) {
     const config = await readProjectConfig(projectDir);
     resolvedSettings = resolveWorktreeSettings(projectDir, config, {});
   }
   if (!resolvedSettings.error) removeWorktreeLinks(projectDir, candidatePath, resolvedSettings);
-  const status = await runGit(['status', '--porcelain=v1'], candidatePath);
+  const status = await candidateGit(['status', '--porcelain=v1']);
   if (!status.ok || status.stdout.trim() !== '') {
     return {
       removed: false,
@@ -1509,7 +1517,7 @@ async function cleanupLandCandidate(projectDir, candidatePath, { abort = false, 
       reason: status.ok ? 'candidate worktree is dirty after merge cleanup' : boundedOutput(status.stderr || status.error?.message || 'candidate status failed', projectDir),
     };
   }
-  const removed = await runGit(['worktree', 'remove', candidatePath], projectDir);
+  const removed = await candidateGit(['worktree', 'remove', candidatePath], projectDir);
   if (!removed.ok) {
     return {
       removed: false,
@@ -1517,7 +1525,7 @@ async function cleanupLandCandidate(projectDir, candidatePath, { abort = false, 
       reason: boundedOutput(removed.stderr || removed.error?.message || 'candidate worktree remove failed', projectDir),
     };
   }
-  await runGit(['worktree', 'prune'], projectDir);
+  await candidateGit(['worktree', 'prune'], projectDir);
   releaseServiceTeardown(projectDir, candidatePath);
   return { removed: true, residual: null };
 }
@@ -1578,18 +1586,56 @@ async function syncLandBaseline(projectDir, primary, endpoint, write) {
   return { sha: remote.sha };
 }
 
-// Used by both single-task and batch land, including crash/push/cleanup retry.
-async function finalizeLand(projectDir, primary, settings, state, file, leaseHealthy) {
+async function inspectPrimaryCheckout(primary) {
+  const [branch, head, status, trackedDiff, stagedDiff] = await Promise.all([
+    runGit(['symbolic-ref', '--quiet', '--short', 'HEAD'], primary.path),
+    runGit(['rev-parse', 'HEAD'], primary.path),
+    runGit(['status', '--porcelain=v1', '--untracked-files=all'], primary.path),
+    runGit(['diff', '--shortstat', '--no-ext-diff'], primary.path),
+    runGit(['diff', '--cached', '--shortstat', '--no-ext-diff'], primary.path),
+  ]);
+  const changes = status.ok
+    ? status.stdout.split(/\r?\n/u).map((line) => line.trimEnd()).filter(Boolean).map((line) => ({
+      status: line.slice(0, 2).trim(),
+      path: line.slice(3),
+    }))
+    : [];
+  return {
+    readable: status.ok,
+    branch: branch.ok ? branch.stdout.trim() : primary.branch,
+    head: head.ok ? head.stdout.trim() : null,
+    dirty: !status.ok || changes.length > 0,
+    changeCount: changes.length,
+    trackedChangeCount: changes.filter((change) => change.status !== '??').length,
+    untrackedChangeCount: changes.filter((change) => change.status === '??').length,
+    changes: changes.slice(0, 50),
+    changesTruncated: changes.length > 50,
+    unstagedSummary: trackedDiff.ok ? trackedDiff.stdout.trim() : null,
+    stagedSummary: stagedDiff.ok ? stagedDiff.stdout.trim() : null,
+    guidance: 'Preserve all changes. Do not delete, stash, stage, or commit user work automatically.',
+  };
+}
+
+function landCleanupTimeoutMs() {
+  const configured = Number.parseInt(process.env.VIBE_HARNESS_LAND_CLEANUP_TIMEOUT_MS ?? '', 10);
+  return Number.isInteger(configured) && configured > 0 ? configured : DEFAULT_LAND_CLEANUP_TIMEOUT_MS;
+}
+
+// Used by both single-task and batch land. The caller owns the target lease and
+// must release it immediately after this function confirms the push.
+async function finalizeLand(projectDir, primary, state, file, leaseHealthy) {
   const fail = (code, error, extra = {}) => batchFailure(code, error,
     { batchId: state.id, candidatePath: normalizeSlashes(state.candidate), resumable: true, ...extra });
-  const [branch, dirty, head] = await Promise.all([
-    runGit(['symbolic-ref', '--quiet', '--short', 'HEAD'], primary.path),
-    runGit(['status', '--porcelain=v1', '--untracked-files=all'], primary.path),
-    runGit(['rev-parse', 'HEAD'], primary.path),
-  ]);
-  if (!leaseHealthy() || !branch.ok || branch.stdout.trim() !== state.target
-    || !dirty.ok || dirty.stdout.trim() || !head.ok) return fail('LAND_BASELINE_CHANGED', 'Primary checkout or target lease changed');
-  const local = head.stdout.trim();
+  const primaryCheckout = await inspectPrimaryCheckout(primary);
+  const retainedFinalizedPhase = ['local_merged', 'push_uncertain', 'push_confirmed', 'cleanup_pending']
+    .includes(state.phase);
+  if (!leaseHealthy() || primaryCheckout.branch !== state.target
+    || (!retainedFinalizedPhase && primaryCheckout.dirty) || primaryCheckout.head === null) {
+    return fail('LAND_BASELINE_CHANGED', 'Primary checkout or target lease changed', {
+      preflight: { primaryCheckout },
+    });
+  }
+  const local = primaryCheckout.head;
   if (!['verified', 'local_merged', 'push_uncertain', 'push_confirmed', 'cleanup_pending'].includes(state.phase)
     || !state.integration || state.integration.head !== state.candidateHead) return fail('LAND_STATE_INVALID', 'Missing verified candidate state');
   const confirmedBefore = state.pushConfirmed === true;
@@ -1673,42 +1719,78 @@ async function finalizeLand(projectDir, primary, settings, state, file, leaseHea
       saveBatchState(file, state);
     }
   }
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    command: 'worktree',
+    subcommand: 'land',
+    status: 'passed',
+    integrationStatus: state.push ? 'integrated' : 'local_merged',
+    phase: state.phase,
+    batch: !state.single,
+    batchId: state.id,
+    targetBranch: state.target,
+    targetMode: 'primary',
+    localMerged: true,
+    pushed: state.push,
+    pushConfirmed: state.push,
+    targetAfter: state.candidateHead,
+    integration: state.integration,
+    candidatePath: existsSync(state.candidate) ? normalizeSlashes(state.candidate) : null,
+    timingsMs: {},
+  };
+}
+
+async function cleanupLand(projectDir, primary, settings, state, file) {
   const cleanupStartedAt = Date.now();
+  const deadline = cleanupStartedAt + landCleanupTimeoutMs();
+  const remainingMs = () => Math.max(1, deadline - Date.now());
+  const cleanupGit = (args, cwd = projectDir) => runGit(args, cwd, { timeoutMs: remainingMs() });
   const cleanup = [];
+  const timeoutItem = (id, reason = 'cleanup execution limit reached') => ({
+    ...(id ? { id } : {}),
+    status: 'blocked',
+    code: 'LAND_CLEANUP_TIMEOUT',
+    reason,
+  });
   if (state.push) {
     for (const source of state.sources) {
       const item = { id: source.id, status: 'passed', branchDeleted: false, portBlockReleased: false };
-      const sourceHead = await runGit(['rev-parse', '--verify', `refs/heads/${source.branch}`], projectDir);
+      if (Date.now() >= deadline) {
+        cleanup.push(timeoutItem(source.id));
+        continue;
+      }
+      const sourceHead = await cleanupGit(['rev-parse', '--verify', `refs/heads/${source.branch}`]);
       if (sourceHead.ok && sourceHead.stdout.trim() !== source.head) {
         cleanup.push({ ...item, status: 'blocked', reason: 'source HEAD changed' }); continue;
       }
       if (existsSync(source.path)) {
-        const currentEntries = await worktreeEntries(projectDir);
+        const currentEntries = await worktreeEntries(projectDir, { timeoutMs: remainingMs() });
         const owned = currentEntries.entries.some((entry) => !entry.primary && !entry.detached
           && entry.branch === source.branch && pathKey(entry.path) === pathKey(source.path));
-        const checkedHead = await runGit(['rev-parse', 'HEAD'], source.path);
+        const checkedHead = await cleanupGit(['rev-parse', 'HEAD'], source.path);
         if (currentEntries.reason || !owned || !checkedHead.ok || checkedHead.stdout.trim() !== source.head) {
           cleanup.push({ ...item, status: 'blocked', reason: 'source worktree identity changed' }); continue;
         }
-        const stopped = await teardownServices(projectDir, source.path);
-        const sourceStatus = await runGit(['status', '--porcelain=v1', '--untracked-files=all'], source.path);
-        if (stopped.status !== 'passed' || !sourceStatus.ok || sourceStatus.stdout.trim() || !leaseHealthy()) {
+        const stopped = await teardownServices(projectDir, source.path, true, { timeoutMs: remainingMs() });
+        const sourceStatus = await cleanupGit(['status', '--porcelain=v1', '--untracked-files=all'], source.path);
+        if (stopped.status !== 'passed' || !sourceStatus.ok || sourceStatus.stdout.trim() || Date.now() >= deadline) {
           releaseServiceTeardown(projectDir, source.path);
-          cleanup.push({ ...item, status: 'blocked', reason: 'source dirty, services still occupied, or lease lost' }); continue;
+          cleanup.push(Date.now() >= deadline ? timeoutItem(source.id)
+            : { ...item, status: 'blocked', reason: 'source dirty or services still occupied' }); continue;
         }
         removeWorktreeLinks(projectDir, source.path, settings);
-        const removed = await runGit(['worktree', 'remove', source.path], projectDir);
+        const removed = await cleanupGit(['worktree', 'remove', source.path]);
         releaseServiceTeardown(projectDir, source.path);
         if (!removed.ok) {
           cleanup.push({ ...item, status: 'blocked', reason: 'worktree removal failed; resource allocation retained' }); continue;
         }
       }
       if (sourceHead.ok) {
-        const deleted = await runGit(['branch', '-d', source.branch], primary.path);
+        const deleted = await cleanupGit(['branch', '-d', source.branch], primary.path);
         if (!deleted.ok) { cleanup.push({ ...item, status: 'blocked', reason: 'branch deletion failed' }); continue; }
       }
       item.branchDeleted = true;
-      const released = await releasePortRegistryEntry(projectDir, source.id);
+      const released = await releasePortRegistryEntry(projectDir, source.id, { timeoutMs: remainingMs() });
       const registryAfter = readPortRegistry(projectDir);
       item.portBlockReleased = released.released === true
         || !registryAfter.error && registryAfter.registry !== null
@@ -1720,9 +1802,13 @@ async function finalizeLand(projectDir, primary, settings, state, file, leaseHea
   const candidateCleanup = [];
   for (const candidate of [state.candidate, ...(state.previousCandidates ?? [])]) {
     if (!existsSync(candidate)) continue;
-    const dirtyCandidate = await runGit(['status', '--porcelain=v1', '--untracked-files=all'], candidate);
+    if (Date.now() >= deadline) {
+      candidateCleanup.push({ removed: false, residual: normalizeSlashes(candidate), reason: 'cleanup execution limit reached' });
+      continue;
+    }
+    const dirtyCandidate = await cleanupGit(['status', '--porcelain=v1', '--untracked-files=all'], candidate);
     candidateCleanup.push(dirtyCandidate.ok && !dirtyCandidate.stdout.trim()
-      ? await cleanupLandCandidate(projectDir, candidate, { settings })
+      ? await cleanupLandCandidate(projectDir, candidate, { settings, timeoutMs: remainingMs() })
       : { removed: false, residual: normalizeSlashes(candidate), reason: 'candidate dirty' });
   }
   const pending = cleanup.some((item) => item.status !== 'passed') || candidateCleanup.some((item) => !item.removed);
@@ -1731,14 +1817,14 @@ async function finalizeLand(projectDir, primary, settings, state, file, leaseHea
   saveBatchState(file, state);
   // Keep local-only state too: a later --push must use the original verified SHA.
   if (state.push && !pending) rmSync(file);
-  return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'land', status: 'passed',
+  return {
     integrationStatus: state.push ? pending ? 'integrated_cleanup_pending' : 'integrated' : 'local_merged',
     ...(pending ? { code: 'LAND_BATCH_CLEANUP_INCOMPLETE', warnings: [{ code: 'LAND_CLEANUP_PENDING', message: '已集成、待清理；重试只清理，残留资源保持占用。' }] } : {}),
-    batch: !state.single, batchId: state.id, targetBranch: state.target, targetMode: 'primary',
-    localMerged: true, pushed: state.push, pushConfirmed: state.push,
-    targetAfter: state.candidateHead, integration: state.integration, cleanup,
+    cleanup,
+    candidateCleanup,
     timingsMs: { cleanupMs: Date.now() - cleanupStartedAt },
-    candidatePath: existsSync(state.candidate) ? normalizeSlashes(state.candidate) : null };
+    candidatePath: existsSync(state.candidate) ? normalizeSlashes(state.candidate) : null,
+  };
 }
 async function batchSourcesStillValid(projectDir, state) {
   for (const source of state.sources) {
@@ -1940,8 +2026,7 @@ async function worktreeBatchLandUnlocked(projectDir, args, commonDir, sourceHeal
   if (!primary?.path || target !== 'develop' || primary.branch !== target || isLandProtectedBranch(target)) {
     return batchFailure('LAND_BATCH_TARGET', 'Local-land requires the primary checkout on develop');
   }
-  const primaryStatus = await runGit(['status', '--porcelain=v1'], primary.path);
-  if (!primaryStatus.ok || primaryStatus.stdout.trim()) return batchFailure('LAND_BATCH_PRIMARY_DIRTY', 'Primary checkout must be clean');
+  const primaryCheckout = await inspectPrimaryCheckout(primary);
   let pushTarget = null;
   if (args.resume === undefined) {
     pushTarget = await landPushTarget(projectDir, target);
@@ -1963,6 +2048,13 @@ async function worktreeBatchLandUnlocked(projectDir, args, commonDir, sourceHeal
       || pathKey(path.dirname(state.candidate)) !== pathKey(path.dirname(settings.root))
       || !['conflict', 'merged', 'merging', 'verified', 'local_merged', 'push_uncertain', 'push_confirmed', 'cleanup_pending'].includes(state.phase)) {
       return batchFailure('LAND_BATCH_STATE_INVALID', 'Batch candidate or target changed; inspect the retained state');
+    }
+    const retainedFinalizedPhase = ['local_merged', 'push_uncertain', 'push_confirmed', 'cleanup_pending']
+      .includes(state.phase);
+    if (!retainedFinalizedPhase && primaryCheckout.dirty) {
+      return batchFailure('LAND_BATCH_PRIMARY_DIRTY',
+        'Primary checkout must be clean; preserve the task worktree and reconcile the listed changes before landing',
+        { preflight: { primaryCheckout } });
     }
     if (args.rebuild && state.phase === 'verified') {
       const local = await runGit(['rev-parse', 'HEAD'], primary.path);
@@ -1989,9 +2081,19 @@ async function worktreeBatchLandUnlocked(projectDir, args, commonDir, sourceHeal
       const lock = await acquirePhase2Lock(projectDir, target);
       if (!lock.held) return batchFailure('LAND_BATCH_LOCK', 'Cannot acquire target ref lease');
       const heartbeats = startLeaseHeartbeats(lock.lockPaths, lock.leaseMs);
-      try { return await finalizeLand(projectDir, primary, settings, state, file,
-        () => sourceHealthy() && heartbeats.every((heartbeat) => !heartbeat.lost)); }
+      let finalized;
+      try {
+        finalized = await finalizeLand(projectDir, primary, state, file,
+          () => sourceHealthy() && heartbeats.every((heartbeat) => !heartbeat.lost));
+      }
       finally { for (const heartbeat of heartbeats) heartbeat.stop(); for (const file of lock.lockPaths) releaseLease(file); }
+      if (finalized.status !== 'passed') return finalized;
+      const cleaned = await cleanupLand(projectDir, primary, settings, state, file);
+      return {
+        ...finalized,
+        ...cleaned,
+        timingsMs: { ...finalized.timingsMs, ...cleaned.timingsMs },
+      };
     }
     if (!await batchSourcesStillValid(projectDir, state)) {
       return batchFailure('LAND_BATCH_SOURCE_CHANGED', 'A source branch or worktree changed; inspect and restart the batch',
@@ -2011,6 +2113,11 @@ async function worktreeBatchLandUnlocked(projectDir, args, commonDir, sourceHeal
       if (resolved) return resolved;
     }
   } else {
+    if (primaryCheckout.dirty) {
+      return batchFailure('LAND_BATCH_PRIMARY_DIRTY',
+        'Primary checkout must be clean; preserve the task worktree and reconcile the listed changes before landing',
+        { preflight: { primaryCheckout } });
+    }
     const registry = readPortRegistry(projectDir).registry;
     const sources = [];
     const blockers = [];
@@ -2065,9 +2172,6 @@ async function worktreeBatchLandUnlocked(projectDir, args, commonDir, sourceHeal
     if (configured.error) return batchFailure('LAND_BATCH_CHECKS', configured.error);
     const selected = resolveReceiptTier({ commands: configured.commands, config, explicit: true, projectDir, tier });
     const reviewed = resolveReviewedChecks(args.reviewed, selected.selectedNames);
-    if (reviewed.blocked || isReviewRequired({ reviewPolicy: delivery.reviewPolicy, targetBranch: target })
-      && reviewed.ids.length === 0) return batchFailure('LAND_BATCH_REVIEW',
-        reviewed.blocked ?? 'This target requires --reviewed for its selected checks');
     // The batch produces an integration receipt; deferred checks are an honest
     // CI obligation, not grounds to silently promote quick to deep.
     const head = await runGit(['rev-parse', `refs/heads/${target}`], primary.path);
@@ -2075,10 +2179,12 @@ async function worktreeBatchLandUnlocked(projectDir, args, commonDir, sourceHeal
     const id = randomUUID();
     const candidate = path.join(path.dirname(settings.root), `.vibe-harness-land-batch-${id}`);
     state = { schemaVersion: 1, id, target, baseHead: head.stdout.trim(), sources, tier,
-      selectedChecks: selected.selectedNames, reviewed: reviewed.ids, candidate, next: 0, resolved: 0, conflicts: [], phase: 'merging',
+      selectedChecks: selected.selectedNames, reviewed: reviewed.ids, reviewWarnings: reviewed.warnings,
+      candidate, next: 0, resolved: 0, conflicts: [], phase: 'merging',
       startedAt: new Date().toISOString(), single: Boolean(args.single), push: Boolean(args.push), pushTarget };
     if (!args.write) return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'land',
       status: 'planned', batch: true, targetBranch: target, tier, sources, selectedChecks: selected.selectedNames,
+      warnings: reviewed.warnings.map((message) => ({ code: 'LAND_REVIEW_METADATA_IGNORED', message })),
       deferredCount: selected.deferredCount, write: false };
     file = batchStatePath(commonDir, id);
     const candidateError = await prepareBatchCandidate(projectDir, state, settings);
@@ -2123,6 +2229,7 @@ async function worktreeBatchLandUnlocked(projectDir, args, commonDir, sourceHeal
   if (!lock.held) return batchFailure(lock.code ?? 'LAND_BATCH_LOCK', 'Cannot acquire target ref lease',
     { batchId: state.id, candidatePath: normalizeSlashes(state.candidate) });
   const heartbeats = startLeaseHeartbeats(lock.lockPaths, lock.leaseMs);
+  let finalized = null;
   try {
     const [freshTarget, freshCandidate, freshPrimary, freshBranch, freshFingerprint] = await Promise.all([
       runGit(['rev-parse', `refs/heads/${target}`], primary.path),
@@ -2164,14 +2271,32 @@ async function worktreeBatchLandUnlocked(projectDir, args, commonDir, sourceHeal
     saveBatchState(file, state);
     if (freshTarget.stdout.trim() !== state.baseHead) return batchFailure('LAND_BATCH_BASELINE_CHANGED',
       'Target advanced; release the lease before rebuilding', { batchId: state.id });
-    const result = await finalizeLand(projectDir, primary, settings, state, file,
+    finalized = await finalizeLand(projectDir, primary, state, file,
       () => sourceHealthy() && heartbeats.every((heartbeat) => !heartbeat.lost));
-    return { ...result, timingsMs: { ...timingsMs, ...result.timingsMs, totalMs: Date.now() - Date.parse(state.startedAt) } };
-
   } finally {
     for (const heartbeat of heartbeats) heartbeat.stop();
     for (const lockPath of lock.lockPaths) releaseLease(lockPath);
   }
+  if (finalized.status !== 'passed') {
+    return { ...finalized, timingsMs: { ...timingsMs, ...finalized.timingsMs, totalMs: Date.now() - Date.parse(state.startedAt) } };
+  }
+  // The target lock ends at the confirmed remote-SHA readback. Cleanup is a
+  // separate, bounded residual task and never holds the target ref hostage.
+  const cleaned = await cleanupLand(projectDir, primary, settings, state, file);
+  return {
+    ...finalized,
+    ...cleaned,
+    warnings: [...(state.reviewWarnings ?? []).map((message) => ({
+      code: 'LAND_REVIEW_METADATA_IGNORED',
+      message,
+    })), ...(cleaned.warnings ?? finalized.warnings ?? [])],
+    timingsMs: {
+      ...timingsMs,
+      ...finalized.timingsMs,
+      ...cleaned.timingsMs,
+      totalMs: Date.now() - Date.parse(state.startedAt),
+    },
+  };
 }
 async function worktreeLandReport(projectDir, args) {
   if (args.targetMode === 'remote') return batchFailure('LAND_REMOTE_MODE_RETIRED',
@@ -2301,6 +2426,7 @@ async function worktreeLandReportUnlocked(projectDir, args, { beforeFinalize = n
   const settings = resolveWorktreeSettings(projectDir, config, args);
   if (settings.error) return failure(settings.error);
   const delivery = resolveDelivery(config, args.delivery);
+  const reviewPolicy = delivery.reviewPolicy ?? 'none';
   const { entries, reason } = await worktreeEntries(projectDir);
   if (reason) return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'land', status: 'unavailable', error: reason };
   const primary = entries.find((item) => item.primary) ?? null;
@@ -2321,8 +2447,6 @@ async function worktreeLandReportUnlocked(projectDir, args, { beforeFinalize = n
   if (isLandProtectedBranch(targetBranch)) {
     return failure(`target branch ${targetBranch} is a protected or shared branch; land refuses to merge into it`, 'LAND_TARGET_PROTECTED');
   }
-  const reviewPolicy = delivery.reviewPolicy ?? 'required';
-  const reviewRequired = isReviewRequired({ reviewPolicy, targetBranch });
   const registryInfo = readPortRegistry(projectDir);
   const registry = registryInfo.registry ?? null;
   const attributed = entries.filter((item) => !item.primary && !item.prunable && !item.detached && typeof item.branch === 'string' && item.branch !== ''
@@ -2391,30 +2515,9 @@ async function worktreeLandReportUnlocked(projectDir, args, { beforeFinalize = n
   const worktreeStatus = await runGit(['status', '--porcelain=v1'], entry.path);
   if (!worktreeStatus.ok) blockers.push('the worktree status could not be read');
   else if (worktreeStatus.stdout.trim() !== '') blockers.push('the worktree has uncommitted changes');
-  const primaryStatus = await runGit(['status', '--porcelain=v1'], primary.path);
-  if (!primaryStatus.ok) blockers.push('the primary checkout status could not be read');
-  else if (primaryStatus.stdout.trim() !== '') blockers.push('the primary checkout has uncommitted changes');
-  const primaryStatusLines = primaryStatus.ok
-    ? primaryStatus.stdout.split(/\r?\n/u).map((line) => line.trimEnd()).filter(Boolean)
-    : [];
-  const primaryDifferences = primaryStatusLines.map((line) => ({
-    status: line.slice(0, 2).trim(),
-    path: line.slice(3),
-  }));
-  const primaryTrackedDiff = await runGit(['diff', '--shortstat', '--no-ext-diff'], primary.path);
-  const primaryStagedDiff = await runGit(['diff', '--cached', '--shortstat', '--no-ext-diff'], primary.path);
-  const primaryCheckout = {
-    branch: primary.branch,
-    head: primaryHead.ok ? primaryHead.stdout.trim() : null,
-    dirty: primaryStatusLines.length > 0,
-    changeCount: primaryDifferences.length,
-    trackedChangeCount: primaryDifferences.filter((change) => change.status !== '??').length,
-    untrackedChangeCount: primaryDifferences.filter((change) => change.status === '??').length,
-    changes: primaryDifferences.slice(0, 50),
-    changesTruncated: primaryDifferences.length > 50,
-    unstagedSummary: primaryTrackedDiff.ok ? primaryTrackedDiff.stdout.trim() : null,
-    stagedSummary: primaryStagedDiff.ok ? primaryStagedDiff.stdout.trim() : null,
-  };
+  const primaryCheckout = await inspectPrimaryCheckout(primary);
+  if (!primaryCheckout.readable) blockers.push('the primary checkout status could not be read');
+  else if (primaryCheckout.dirty) blockers.push('the primary checkout has uncommitted changes');
   // An anchor with unfinished units means the work is not done yet; landing it
   // anyway would merge a half-finished slice into the target branch.
   let anchorInfo = null;
@@ -2469,13 +2572,6 @@ async function worktreeLandReportUnlocked(projectDir, args, { beforeFinalize = n
     if (receiptTier.blocked) blockers.push(receiptTier.blocked);
     else tier = receiptTier.tier;
     if (receiptTier.escalatedFrom) tierEscalation = { from: receiptTier.escalatedFrom, to: receiptTier.tier };
-    if (reviewRequired && receiptTier.selectedNames.length > 0) {
-      const reviewed = resolveReviewedChecks(args.reviewed, receiptTier.selectedNames);
-      if (reviewed.blocked) blockers.push(reviewed.blocked);
-      else if (reviewed.ids.length === 0) {
-        blockers.push(`a completion receipt (delivery.${delivery.profile}) requires the explicit relevance review of the checks this change is verified by: pass --reviewed <${receiptTier.selectedNames.join('|')}|all> after reading the changed paths against them`);
-      }
-    }
   }
   if (tier === 'deep') {
     const lock = await verificationLockStatus(projectDir);
@@ -2905,6 +3001,18 @@ async function worktreeLandReportUnlocked(projectDir, args, { beforeFinalize = n
  * so no work can be lost.
  */
 async function worktreeRecoverReport(projectDir, args) {
+  if (args.task.length > 1) {
+    return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'recover', status: 'failed',
+      code: 'WORKTREE_RECOVER_SCOPE_INVALID', error: 'recover accepts at most one --task; use --all for an explicit global write' };
+  }
+  if (args.all && args.task.length > 0) {
+    return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'recover', status: 'failed',
+      code: 'WORKTREE_RECOVER_SCOPE_INVALID', error: 'recover cannot combine --all with --task' };
+  }
+  if (args.write && !args.all && args.task.length === 0) {
+    return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'recover', status: 'failed',
+      code: 'WORKTREE_RECOVER_SCOPE_REQUIRED', error: 'recover --write requires --task <id>; use --all only for an explicit global recovery' };
+  }
   if (!args.write) return worktreeRecoverReportUnlocked(projectDir, args);
   const result = await withWorktreeLandLock(projectDir, () => worktreeRecoverReportUnlocked(projectDir, args));
   return result.subcommand === 'land' ? { ...result, subcommand: 'recover' } : result;
@@ -2916,6 +3024,11 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
   const { entries, reason } = await worktreeEntries(projectDir);
   if (reason) return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'recover', status: 'unavailable', error: reason };
   const registry = readPortRegistry(projectDir).registry ?? null;
+  const taskId = args.task.length === 0 ? null : parseWorktreeTask(args.task[0]).id;
+  const inScope = (item = {}) => taskId === null
+    || item.id === taskId
+    || (item.path && path.basename(item.path) === taskId)
+    || item.branch === taskId;
   const registryEntryFor = (worktree) => (registry?.entries ?? []).find((item) => item.id === path.basename(worktree.path)
     || (item.path && pathKey(item.path) === pathKey(worktree.path))
     || (item.branch && item.branch === worktree.branch)) ?? null;
@@ -2936,7 +3049,7 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
     return containedByBase.ok;
   };
 
-  const prunable = entries.filter((entry) => !entry.primary && entry.prunable);
+  const prunable = entries.filter((entry) => !entry.primary && entry.prunable && inScope(entry));
   const liveEntries = entries.filter((entry) => !entry.prunable);
   const candidateRoot = path.dirname(settings.root);
   const candidatePattern = /^\.vibe-harness-land-(.+)-([0-9a-f]{8}-[0-9a-f-]{27,})$/iu;
@@ -2958,7 +3071,8 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
     // owned by land --resume, never by generic crash-residue recovery.
     if (/^\.vibe-harness-land-batch-/u.test(path.basename(entry.path))) continue;
     const match = candidatePattern.exec(path.basename(entry.path));
-    if (!match || !(registry?.entries ?? []).some((item) => item.id === match[1])) continue;
+    if (!match || (taskId !== null && match[1] !== taskId)
+      || !(registry?.entries ?? []).some((item) => item.id === match[1])) continue;
     const state = await runGit(['status', '--porcelain=v1'], entry.path);
     const activityLease = candidateCommon.ok
       ? readLease(landCandidateActivityLockPath(candidateCommon.path, match[2]))
@@ -2985,6 +3099,7 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
     if (!isInsidePath(entry.path, settings.root) && !registryEntry) continue;
     const envFilePresent = existsSync(path.join(entry.path, settings.ports.envFile));
     if (envFilePresent && registryEntry) continue;
+    if (!inScope({ id: registryEntry?.id ?? path.basename(entry.path), path: entry.path, branch: entry.branch })) continue;
     if (!await branchUntouched(entry.branch)) continue;
     const dirty = await runGit(['status', '--porcelain=v1'], entry.path);
     if (!dirty.ok || dirty.stdout.trim() !== '') continue;
@@ -3012,6 +3127,7 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
   if (branchListing.ok) {
     for (const branch of branchListing.stdout.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean)) {
       if (checkedOut.has(branch) || branch === settings.baseRef) continue;
+      if (!inScope({ branch })) continue;
       if (!await branchUntouched(branch)) continue;
       const evidence = (registry?.entries ?? []).some((item) => item.branch === branch) ? 'registry'
         : prunable.some((item) => item.branch === branch) ? 'prunable'
@@ -3027,6 +3143,7 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
   // own rollback instead.
   const orphanedRegistry = [];
   for (const item of registry?.entries ?? []) {
+    if (!inScope(item)) continue;
     const claimed = liveEntries.some((entry) => !entry.primary && (
       item.id === path.basename(entry.path)
       || (item.path && pathKey(item.path) === pathKey(entry.path))
@@ -3104,7 +3221,7 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
   }
 
   let pruned = null;
-  if (args.write && (prunable.length > 0 || incomplete.length > 0)) {
+  if (args.write && args.all && (prunable.length > 0 || incomplete.length > 0)) {
     pruned = (await runGit(['worktree', 'prune'], projectDir)).ok;
   }
 

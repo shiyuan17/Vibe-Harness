@@ -283,9 +283,10 @@ test('help 覆盖含 worktree、slice、patch 与 task 在内的全部项目命�
   assert.match(result.report.worktree, /worktree <list\|check\|bootstrap\|land\|cleanup\|recover>/u);
   assert.match(result.report.worktree, /writes require --write/u);
   assert.match(result.report.worktree, /verifies one combined candidate/u);
-  assert.match(result.report.worktree, /target-ref phase is serialized/u);
+  assert.match(result.report.worktree, /local ff-only, exact push and remote SHA readback/u);
+  assert.match(result.report.worktree, /cleanup runs after the lock is released/u);
   assert.match(result.report.task, /task <init\|update\|status\|list\|plan-check\|plan-sync\|check\|freeze-tests\|rebaseline-tests>/u);
-  assert.match(result.report.reuse, /--reuse/u);
+  assert.match(result.report.reuse, /--no-reuse/u);
 });
 
 test('the --help flag routes to the help receipt from any command position', async () => {
@@ -336,7 +337,7 @@ test('verify detects a content change to an already-dirty file', async () => {
 
     assert.equal(result.report.checks.test.status, 'passed');
     assert.equal(result.report.verification.stable, false);
-    assert.equal(result.report.verification.status, 'workspace_changed');
+    assert.equal(result.report.verification.status, 'stale');
     assert.equal(result.exitCode, 1);
   } finally {
     await rm(project, { recursive: true, force: true });

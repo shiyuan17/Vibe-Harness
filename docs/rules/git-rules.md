@@ -41,7 +41,7 @@ Git 规则的目的是保护用户改动、让提交可审查、确保 worktree 
 
 #### Phase 1：候选构建与验证（无目标 ref 锁，可并行）
 
-每个 land 独立执行，不获取全局锁或目标 ref 锁；它持有唯一候选活动租约，防止 `worktree recover --write` 同时清理该候选。该租约不序列化 land 操作：
+每个 land 的候选构建与验证独立执行，不获取全局锁或目标 ref 锁；它持有唯一候选活动租约，防止限域的 `worktree recover --task <taskId> --write` 同时清理该候选。该租约不序列化 Phase 1：
 
 1. **隔离候选构建**：在临时独立 worktree（命名为 `.vibe-harness-land-{taskId}-{uuid}`）中构建候选提交
 2. **隔离验证**：在该临时 worktree 中执行完整验证（可能运行数分钟），验证通过后候选 commit SHA 已确定
@@ -51,9 +51,9 @@ Git 规则的目的是保护用户改动、让提交可审查、确保 worktree 
 - 多个 worktree 目标同一 ref（如 `develop`）的 Phase 1 **完全并行**执行，互不阻塞
 - 多个 worktree 目标不同 ref（如 `feat/A` 和 `feat/B`）的 Phase 1 **完全并行**执行
 
-#### Phase 2：Baseline 重检与最终化（Per-Target-Ref 锁）
+#### Phase 2：Baseline 重检与最终化（短 Per-Target-Ref 锁）
 
-Phase 1 验证完成后，获取 **per-target-ref 锁**（而非全局锁）。候选活动租约继续持有；目标 ref 锁从基线复核一直持有到 land 返回，覆盖目标写入和后续清理：
+Phase 1 验证完成后，获取 **per-target-ref 锁**（而非全局锁）。候选活动租约继续持有；目标 ref 锁只覆盖基线复核、本地 ff-only、精确推送和远端 SHA 回读，推送确认后立即释放：
 
 1. **获取 Phase 2 锁**：按目标 ref 计算 SHA-256 锁路径，并同时获取旧 SHA-1 锁路径以兼容已启动的旧运行时；使用指数退避重试获取
    - 初始重试间隔 50ms，指数增长（上限 2s）以减少 N 个等待者对锁文件的 thundering-herd 冲击
@@ -64,7 +64,8 @@ Phase 1 验证完成后，获取 **per-target-ref 锁**（而非全局锁）。�
    - 如果 HEAD 已变化（Phase 1 期间有其他 worktree 落地），丢弃候选、返回 `LAND_BASELINE_CHANGED`
    - 调用方重试 Phase 1 与 Phase 2（最多 `LAND_MAX_ATTEMPTS = 3` 次）
 
-3. **快进、推送与清理**：如果 Baseline 一致，执行快进、完成收据记录、可选 push、服务 teardown、移除 task worktree 与端口登记、必要时删除已推送分支；这些步骤都在目标 ref 锁内完成。锁等待超时、租约丢失或基线变化会阻止后续目标写入，候选清理仍可尝试。
+3. **本地快进、精确推送与回读**：如果 Baseline 一致，先以 ff-only 更新主检出本地目标分支，再以显式非强制 refspec 推送冻结 SHA，并重读精确远端确认；推送确认后立即释放目标锁。
+4. **锁外清理**：服务 teardown、移除 task worktree、释放端口登记和删除已推送分支在锁外执行，使用独立有限时限。清理超时或失败返回 `integrated_cleanup_pending` 与成功退出码；残留资源继续占用，重试只清理，不重放合并或推送。
 
 ### 残留锁处理
 
@@ -80,27 +81,28 @@ Phase 1 验证完成后，获取 **per-target-ref 锁**（而非全局锁）。�
    ```
    仅在确认租约已过期或持有者进程已死亡后执行；正常情况下由后续 land 获取流程回收
 
-3. **恢复候选 worktree**：若临时候选 worktree 残留（`.vibe-harness-land-{taskId}-{uuid}`），先用 `worktree recover` 检查归属、活动租约和工作区状态，再清理：
+3. **恢复候选 worktree**：若临时候选 worktree 残留（`.vibe-harness-land-{taskId}-{uuid}`），先限域检查目标任务、活动租约和工作区状态，再清理：
    ```bash
-   node .agents/runtime/commands/run.mjs worktree recover --project . --write --json
+   node .agents/runtime/commands/run.mjs worktree recover --project . --task <taskId> --write --json
    ```
+   无选择器的 `recover --write` 必须拒绝；只有显式 `recover --all --write` 才能全局恢复。
 
 **Per-Ref 锁的特性**：
 - 目标 `develop` 和 `feat/X` 的 worktree 各持有独立锁，互不竞争
-- 同一 ref 的多个 worktree 在 Phase 2 最终化期间序列化；Phase 1 验证可并行，recover 会跳过活动候选
-- 锁覆盖基线复核、快进、可选推送和 task worktree 清理，时长取决于本地与远端 Git 操作及服务 teardown
+- 同一 ref 的多个 worktree 只在 Phase 2 最终化期间序列化；Phase 1 验证与锁定候选后的清理可并行，recover 会跳过活动候选
+- 锁覆盖基线复核、本地快进、精确推送与远端 SHA 回读；清理在锁外使用独立有限时限
 
 ### 版本词汇
 
 | 术语 | 含义 | 备注 |
 |------|------|------|
 | **Phase 1** | 候选构建 + 验证（仅唯一候选活动租约） | 不持有目标 ref 锁，不同 land 可并行 |
-| **Phase 2** | Baseline 重检 + 快进 + 推送与清理（per-ref 锁） | 持有至 land 返回，租约由心跳续期 |
+| **Phase 2** | Baseline 重检 + 本地快进 + 精确推送 + 远端回读（per-ref 锁） | 推送确认后立即释放；清理随后在锁外执行 |
 | **Per-Ref 锁** | 按目标分支的独立锁（hash 路径） | 不同 ref 无竞争，同 ref 序列化仅在 Phase 2 |
 | **Baseline 变化** | Phase 1 期间目标 ref 被其他 worktree 推进 | 触发重试循环，最多 3 次 |
 | **指数退避** | 锁获取重试的等待间隔（50ms → 2s） | 减少 thundering-herd，lease-lock 内部实现 |
 | **Lease Lock** | 带 PID、TTL 与心跳的文件锁实现 | 支持指数退避；活跃持有者续租，死进程锁可回收 |
-| **--target-mode remote** | 使用 `git ls-remote` 读取目标分支状态，不更新本地 remote-tracking ref | Phase 1 检查远端 baseline；Phase 2 向远端推送，不更新本地主检出 |
+| **--target-mode primary** | 更新主检出的本地目标分支，再从该本地状态精确推送 | 唯一受支持模式；`remote` 已退役并在任何写入前拒绝 |
 
 ### 代码层面
 
@@ -144,8 +146,8 @@ managed-mr 的 land 只读取已合入 MR 的证据，不本地合并或推送�
 2. 冻结 origin 唯一实际 push URL 与 `refs/heads/develop`；拒绝多 push URL、mirror 或目标不明。获取该精确目标最新基线，本地 develop 仅允许快进同步，不夹带无法归属的未推送提交。
 3. 从冻结基线建立 detached 候选，no-ff 合入任务分支并完成按风险选择的必要验证；独立审查可选，项目明确的审查要求、Hook 与分支保护继续生效。
 4. 候选构建/验证可并行，同一目标 ref 最终化串行。取得目标锁后重核源、候选、主检出、实际 push URL 和远端基线。
-5. **先**将已验证候选以 ff-only 更新到主检出本地 develop，确认 HEAD 等于候选 SHA；**再**以显式非强制 refspec 推送该 SHA 到被冻结地址的 `refs/heads/develop`，覆盖 pushDefault、pushRemote 和默认 refspec；重读精确远端确认 SHA。
-6. 推送确认即代码集成完成，随后安全清理。清理失败返回成功并标记 `integrated_cleanup_pending`，报告残留；残留路径、端口与资源锁继续占用，清理重试不重放合并或推送。
+5. **先**将已验证候选以 ff-only 更新到主检出本地 develop，确认 HEAD 等于候选 SHA；**再**以显式非强制 refspec 推送该 SHA 到被冻结地址的 `refs/heads/develop`，覆盖 pushDefault、pushRemote 和默认 refspec；重读精确远端确认 SHA。目标锁在回读确认后立即释放。
+6. 推送确认即代码集成完成，随后在锁外安全清理。清理使用独立有限执行时限，不纳入任务耗时估算；超时或失败返回成功并标记 `integrated_cleanup_pending`，报告残留。残留路径、端口与资源锁继续占用，清理重试不重放合并或推送。
 
 `--target-mode primary` 保留；`remote` 已退役，任何写入前必须明确拒绝并提示迁移。`--base-ref develop` 是当前分支断言，不是分支切换。不带 `--push` 只证明本地合并，不满足完整 flow 的远端完成条件。
 
@@ -250,13 +252,13 @@ Vibe-Harness 自身使用 Conventional Commits、commitlint、pre-commit、pre-p
 
 ## Worktree
 
-- 一个隔离单元对应一个命名分支和明确写入范围，worktree 放在仓库外部、数量不是并行目标；宿主提供 worktree 能力时优先用宿主 worktree，并让宿主把会话根切到该 worktree，只有需要治理面投影、端口分段或依赖链接时才改用下列脚本入口。不需要隔离时直接在当前工作区保护用户改动，子 Agent 只在分配的 worktree、分支和写入范围内工作，审查任务默认只读。
+- 一个隔离单元对应一个命名分支和明确写入范围，worktree 放在仓库外部、数量不是并行目标；当前 local-land 固定使用 `worktree bootstrap` 创建并登记的仓库外 worktree，不提供宿主 worktree 导入登记。不需要隔离时直接在当前工作区保护用户改动，子 Agent 只在分配的 worktree、分支和写入范围内工作，审查任务默认只读。
 - 派发前明确目标分支、依赖和共享契约的唯一写入者；writeScope 或资源重叠的任务按依赖顺序推进，过期基线与语义冲突由任务责任人解决，集成失败只暂停相关任务和后继。
 - 引导、审计与清理走项目脚本入口 `node .agents/runtime/commands/run.mjs worktree <list|check|bootstrap|land|recover|cleanup> --project . --json`：默认只读，只有追加 `--write` 才落盘；`cleanup` 在分支未并入 `worktree.baseRef` 或工作区不干净时拒绝，且从不删除分支；不带 `--write` 的 `bootstrap` 是步骤计划预览，`--help` 给出该入口自身的命令面说明。该入口是安装交付内唯一的 worktree 写入面（创建、依赖链接与清理）；源仓库开发面另有只读审计 CLI（`scripts/worktree.js`，`list|check|plan`），不随安装交付，目标项目不引入第二个写入口。
-- `worktree land` 默认对每个 ready 任务分别建立隔离候选并实测所请求且实际选中的检查，候选稳定、检查通过才最终化；未选的高层检查标作 deferred，不迫使升级 deep，也不得据此宣称集成/发布证据。Phase 1 可并行，Phase 2 对目标 ref 短租约串行并核对目标 SHA；普通推送不得强制更新。验证失败或冲突保留来源树，推送已确认但清理失败报告“已集成、待清理”，不能重复合并。`--base-ref` 仅作意图断言，`--write --no-verify` 拒绝执行。任务前序只核对真实 done 状态与依赖，不依赖整树收据指纹；本地任务写入不以 Envelope 或完成收据为前置门禁。
+- `worktree land` 默认对每个 ready 任务分别建立隔离候选并实测所请求且实际选中的检查，候选稳定、检查通过才最终化；未选的高层检查标作 deferred，不迫使升级 deep，也不得据此宣称集成/发布证据。Phase 1 可并行；Phase 2 对目标 ref 短租约串行，锁内只做基线复核、本地 ff-only、精确推送和远端 SHA 回读，确认后释锁，再在锁外做有限清理。普通推送不得强制更新。验证失败或冲突保留来源树，推送已确认但清理失败报告“已集成、待清理”，不能重复合并或推送。`--base-ref` 仅作意图断言，`--write --no-verify` 拒绝执行。任务前序只核对真实 done 状态与依赖，不依赖整树收据指纹；本地任务写入不以 Envelope 或完成收据为前置门禁。
 - 仅多个互不依赖任务已同时 ready 时，显式使用 `worktree land --batch --task A --task B ...`；批次在一个候选中按序合并，冲突只在候选解决，最终组合树实测通过才最终化。单项和批量遵守同一候选判据；deferred 待后续检查，持久收据写入失败不改变实测结果。目标前进重建候选并限定昂贵自动重试，失败、推送结果不明或清理失败保留可恢复现场。
 - 临时候选 worktree 只在工作区干净时自动移除，异常残留由 `worktree recover` 报告、`--write` 只清理有归因且干净的候选，脏候选与疑似残留锁由操作者核对；本地 `land` 不创建远端合并队列，也不能代替共享分支 required checks。
-- 目录已消失但 Git 元数据与分支绑定仍在的 worktree 由 `worktree check` 报 `WORKTREE_PRUNABLE_RESIDUE` 并阻塞审计通过。`worktree recover --write` 按序移除不完整 worktree（端口 env 文件在位且登记在册时跳过，仅当分支未离开基线且工作区干净时连同分支与端口登记一起移除）、prunable 残留（一次 `git worktree prune`）、孤立分支与孤立端口登记；分支删除只在存在归因证据（端口登记表条目或 prunable 清单）、分支 HEAD 等于 `worktree.baseRef` 解析出的基线 SHA 且该分支不是基线本身时发生，无引用的用户占位分支、带未并入提交的分支与登记面之外的外来 worktree 一律不动。该证据门不与「merge-back 完成前不删除分支」冲突（被删分支从未持有任何提交）；另一处分支删除只发生在 `land` 推送成功之后，并使用自带未合并拒绝保险的 `git branch -d`。
+- 目录已消失但 Git 元数据与分支绑定仍在的 worktree 由 `worktree check` 报 `WORKTREE_PRUNABLE_RESIDUE` 并阻塞审计通过。`worktree recover --task <taskId> --write` 按序移除目标任务的不完整 worktree（端口 env 文件在位且登记在册时跳过，仅当分支未离开基线且工作区干净时连同分支与端口登记一起移除）、prunable 残留（一次 `git worktree prune`）、孤立分支与孤立端口登记；只有显式 `worktree recover --all --write` 才允许全局回收。分支删除只在存在归因证据（端口登记表条目或 prunable 清单）、分支 HEAD 等于 `worktree.baseRef` 解析出的基线 SHA 且该分支不是基线本身时发生，无引用的用户占位分支、带未并入提交的分支与登记面之外的外来 worktree 一律不动。该证据门不与「merge-back 完成前不删除分支」冲突（被删分支从未持有任何提交）；另一处分支删除只发生在 `land` 推送成功之后，并使用自带未合并拒绝保险的 `git branch -d`。
 - 依赖链接（`node_modules` junction 或 symlink）由 `worktree bootstrap` 建立并对每个本地包逐项 realpath 断言，断言失败时回滚本次新建的 worktree；`.bin`/`.bun`/`.pnpm` 等内容寻址 store 与各自带 `node_modules` 的 workspace 包由 overlay 投影，构建缓存 `.cache`/`.vite`/`.vite-temp` 跳过；`worktree check` 报告依赖链接缺失或指回主检出的事实。
 - 多 worktree 并发时端口按登记表分段：`worktree.ports` 的 `base`、`blockSize`、`variables` 与 `envFile` 决定主检出保留 `[base, base+blockSize-1]`、第 n 个 worktree 占用 `[base+n*blockSize, base+(n+1)*blockSize-1]`、块内第 i 个变量取 `blockStart+i`；结果写主检出 `.vibe-harness/worktree-ports.json`，由 `.vibe-harness/worktree-ports.lock` 独占锁串行化，锁等待超时即 fail-closed 且不自动清理残留锁；端口冲突只按登记表与声明事实判定，不调用 `netstat`/`lsof` 推断分配。
 - worktree 环境补齐是声明式的：`worktree.provision.setupCommands` 与 `envFiles` 由 `bootstrap` 按「worktree add →（主检出缺依赖时先 setup）→ 依赖链接 → 包级 overlay → 治理面镜像 → 端口与 env 文件 → 声明的 envFiles →（否则 setup）→ 工具链探针」执行，默认只出计划、追加 `--write` 才落盘，命中 `hooks.redZonePaths` 时还需 `--confirm-red-zone`。主检出缺少依赖（依赖根的 `node_modules` 不存在）时 `bootstrap` 以 `blocked` 结束并给出建议命令，仅当声明 `setupCommands` 时才允许 worktree 自行补齐依赖（此时 setup 先于依赖链接执行）；`worktree check` 只核对文件系统事实，不推断某条命令是否执行过。

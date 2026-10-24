@@ -54,10 +54,11 @@ export function parseArgs(argv) {
   const aliases = new Map([
     ['allow-manual', 'allowManual'],
     ['no-numbers', 'numbers'],
+    ['no-reuse', 'noReuse'],
     ['no-verify', 'verify'],
     ['clear-blockers', 'clearBlockers'],
   ]);
-  const booleanFlags = new Set(['json', 'plan', 'async', 'allow-manual', 'no-numbers', 'no-verify', 'strict', 'write', 'help', 'confirm-red-zone', 'reuse', 'push', 'complete', 'dispatch', 'clear-blockers', 'batch']);
+  const booleanFlags = new Set(['json', 'plan', 'async', 'allow-manual', 'no-numbers', 'no-reuse', 'no-verify', 'strict', 'write', 'help', 'confirm-red-zone', 'reuse', 'push', 'complete', 'dispatch', 'clear-blockers', 'batch', 'all']);
   const valueFlags = new Set(['project', 'base', 'only', 'reviewed', 'timeout', 'output', 'progress', 'tier', 'scope', 'micro', 'task', 'target', 'base-ref', 'target-mode', 'branch-prefix', 'file', 'from', 'to', 'spec', 'root', 'title', 'goal', 'risk-level', 'stage', 'unit', 'unit-status', 'acceptance', 'decision', 'blocker', 'failure', 'next-action', 'verification', 'plan-file', 'reason', 'approval', 'test-path', 'resume']);
   for (const flag of ['delivery', 'receipt', 'merge-evidence', 'mr', 'service', 'port']) valueFlags.add(flag);
   // Repeatable flags collect into arrays so one invocation can carry several

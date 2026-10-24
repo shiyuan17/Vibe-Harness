@@ -40,13 +40,9 @@ all_success 要求全部直接前驱成功。all_done 只允许聚合终态、�
 
 不定义 optional node：Parent 下所有 descendant node 都是 required。多层 Parent 也必须是 aggregate。
 
-## 墙钟与 Agent 编排（Parent 必填）
+## Agent 编排（仅真实多 Agent 时填写）
 
-在本节之后追加一个 `linear-plan` JSON block，字段以
-`schemas/linear-plan.schema.json` 为准。`wallClock` 必须包含 active work、
-external wait/block、verification、coordination/fan-in、串行/并行估算和关键路径；
-`agentPlan.fanInOwner` 固定为 `parent-agent`。缺少该 block 的新 Parent 计划不得派发，
-旧 Parent 计划只允许读取并必须先迁移。
+普通 Parent 不要求 `wallClock`、Agent 容量、并行收益、Task DAG 或该计划块；只按可观察增量记录验收切片并遵循已有 Linear 原生依赖。只有实际派发多个 Agent 时才追加一个 `linear-plan` JSON block，字段以 `schemas/linear-plan.schema.json` 为准，并按 `task-decomposition` 的按需 reference 判断隔离、容量和收益。`agentPlan.fanInOwner` 固定为 `parent-agent`。旧 v1 计划可读，执行时保守采用 single，不要求为读取而批量迁移。
 
 ## 早期探查（存在实质不确定性时选填）
 

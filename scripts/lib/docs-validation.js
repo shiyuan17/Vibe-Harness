@@ -356,10 +356,14 @@ function validateCatalogRelationships(catalog) {
   const items = Array.isArray(catalog?.items) ? catalog.items : [];
   for (const item of items) {
     const relativePath = normalize(item.path ?? '');
+    // ADRs remain in docs/adr after supersession so the ADR validator can keep
+    // the replacement chain intact. Other historical documents still move to
+    // docs/archive.
+    const isInPlaceAdr = /^docs\/adr\/ADR-\d{4}-[^/]+\.md$/u.test(relativePath);
     if (itemsByPath.has(relativePath)) errors.push(`duplicate documentation path: ${relativePath}`);
     else itemsByPath.set(relativePath, item);
 
-    if (historicalStatuses.has(item.status) && !relativePath.startsWith('docs/archive/')) {
+    if (historicalStatuses.has(item.status) && !relativePath.startsWith('docs/archive/') && !isInPlaceAdr) {
       errors.push(`${relativePath} with status ${item.status} must be under docs/archive`);
     }
     if (
@@ -558,7 +562,8 @@ async function validateDocumentationUnchecked({ catalog, rootDir, today = new Da
     errors.push(...await validateCurrentDocumentContent({ content, enforceCurrent, file: relativePath, rootDir, today }));
 
     const marker = expectedStatusMarker(item);
-    if (marker && !marker.test(content)) errors.push(`${relativePath} does not declare ${item.status} status`);
+    const isInPlaceAdr = /^docs\/adr\/ADR-\d{4}-[^/]+\.md$/u.test(relativePath);
+    if (marker && !isInPlaceAdr && !marker.test(content)) errors.push(`${relativePath} does not declare ${item.status} status`);
     const lines = content.split(/\r?\n/u).length;
     if (relativePath.startsWith('docs/') && lines > 1500) errors.push(`${relativePath} exceeds 1500 line documentation budget`);
 

@@ -1,8 +1,10 @@
 # AI 协作规则
 
+仅在本轮确实使用两个以上协作单元时加载本规则。普通单 Agent 任务、顺序实施和固定步骤不读取本文件。
+
 ## Fast Path 卡片
 
-- **默认方式**：单 Agent 完成获取事实、实现、验证与交付；协作与 worktree 隔离只在明确需求或可独立并行的工作单元存在时触发，成本触发条件（含具体门槛值）以 `governance-core.md` 的「成本与升级」节为准。
+- **默认方式**：单 Agent 完成获取事实、实现、验证与交付；只有用户明确要求协作，或真实协作单元可独立执行时，才进入本规则。
 - **三档判据**：写路径单 Agent（默认）；只读探查可 fan-out，需显式声明；并行写仅当跨模块且 `writeScope` 不重叠，共享契约永远唯一写者。
 - **轻量 Task DAG**：已有 Linear DAG 必须遵循；普通固定步骤不强制完整 DAG，实际使用两个以上协作单元时声明节点字段 `id`、`kind`、`output`、`dependsOn`、`writeScope`、`resourceLocks`、`verification`、`result`；不由 Vibe-Harness 解析，也不形成固定完成门禁。
 - **结果语义**：只有全部直接前驱 `succeeded` 才满足 all_success；失败不得改判为成功，未终结节点不得视为已终结。
@@ -20,32 +22,9 @@
 | 只读探查、证据收集 | 可 fan-out，需显式声明 |
 | 并行写 | 仅当跨模块且 `writeScope` 不重叠时允许，需显式声明；共享契约永远唯一写者 |
 
-单 Agent 默认完成获取事实、实现、验证和交付。协作只由明确需求或可独立并行的工作单元触发。多 Agent 与 worktree 隔离属于 governance-core「成本与升级」列出的高成本动作：不满足该节触发条件时不得创建子 Agent 或隔离工作区，满足也不自动创建。
-
-#### 协作触发决策树
-
-回答以下问题，按流程判定是否需要多 Agent 协作：
-
-```
-Question 1: 是否有明确的用户多 Agent 需求或协作请求？
-  ├─ Yes → 记录需求，继续 Question 2
-  └─ No  → 结束（保持单 Agent）
-
-Question 2: 工作单元是否完全独立（无数据依赖、无写入范围冲突）？
-  ├─ Yes → 继续 Question 3
-  └─ No  → 结束（必须单 Agent，共享数据永远唯一写者）
-
-Question 3: 预计净节省是否至少 45 分钟？（具体门槛以 governance-core.md「成本与升级」为准）
-  ├─ Yes → 继续 Question 4
-  └─ No  → 结束（工作量太小，不值得）
-
-Question 4: 预期净节省是否至少 25%（墙钟时间）？（具体门槛以 governance-core.md「成本与升级」为准）
-  ├─ Yes → 编制轻量 Task DAG 并派发
-  └─ No  → 结束（成本节省不足，保持单 Agent）
-```
+单 Agent 默认完成获取事实、实现、验证和交付。协作只由明确需求或真实可独立执行的工作单元触发；容量、隔离门槛和并行收益算法以 task-decomposition 的按需 reference 为准，不进入普通任务主路径。
 
 **关键约束**：
-- 最多 2 个写 Agent；纯读操作可 fan-out，不超过 4 个只读 Agent
 - 有依赖或共享资源的写入按 DAG 串行；隔离且 ready 的写单元可受限并行，最终集成由父 Agent 串行负责
 - 父 Agent 保持唯一编排和最终验证责任
 - 共享契约（API、数据模型、安装器）永远唯一写者
@@ -140,10 +119,9 @@ cancelled：
 - 节点失败只阻塞依赖它且使用 all_success 的后继；已隔离且无失败依赖的独立节点可以继续。失败仅暂停受影响写节点及其依赖，已隔离的独立写节点仍可派发。共享契约冲突或工作区完整性受损时才停止全部写节点。
 - 瞬时网络、限流或无副作用工具故障最多尝试三次，并遵守可用的 Retry-After；权限和安全拒绝不得重试绕过；契约歧义先查明，确定性测试失败先修复再验证，非幂等外部写入结果不明时先重读状态。
 - 长任务可选声明节点超时、最大尝试次数、取消、退避和资源与 token 预算，普通单 Agent 任务不要求填写。
-- Parent 计划必须声明 `executionMode`、`wallClock` 和 `agentPlan`：记录 budget、单/并行估算、协调与 fan-in 成本、关键路径、置信度、并行写/读上限和 fan-in owner；规划必须区分 active work、external wait/block、coordination/fan-in、verification。
+- 实际派发多个 Agent 时才声明 `executionMode` 与 `agentPlan`；普通单 Agent 或普通 Parent 不要求墙钟估算。
 - 入口、数据或环境存在实质不确定性时，可在共享准备或单元 active work 内一次性计入限时早期探查，记录问题、方法、分钟数、退出条件和对应正式验证；首轮规划默认限时 30 分钟，超时仍不确定则记录风险并重新估算。无不确定性时不要求 REPL。普通 REPL、临时脚本和人工观察不是完成收据；仅已声明的受管 Micro 可提供局部 L1 收据，不能取代单元聚焦验证和 Parent fan-in，`unknown/lower-bound` 或环境异常不视为通过。
-- 单 Agent 是默认执行模式。只有至少两个 ready 单元、共享契约已有唯一 owner、writeScope 与 Resource Lock 完全隔离、真实 Agent/workspace 容量可用且预计净节省至少 45 分钟和 25% 时，才允许 `parallel`；否则 `auto` 必须降级为 `single`。
-- 并行默认最多 2 个写 Agent、4 个只读 Agent；共享 API、Schema、迁移、公共模板和最终集成保持单 owner。无容量、隔离证据、契约冻结或 fan-in 条件时不得声称并行已发生。
+- 单 Agent 是默认执行模式。只有真实并行容量、隔离证据、唯一共享契约 owner 和净收益都成立时才允许 `parallel`；具体容量与收益算法只在 task-decomposition reference 中按需计算。无容量、隔离证据、契约冻结或 fan-in 条件时不得声称并行已发生。
 - 只读记录预计墙钟与实际墙钟、Active Time、Blocked Time、Coordination Time、Fan-out 节省、Fan-in 返工、WIP Age、Cycle Time、Lead Time、重试/冲突/返工率；指标只用于调整后续规划，不自动重派、取消、释放、降级或改变优先级。
 - 每次派发 write 节点前重新确认 DAG 版本或 hash、依赖、writeScope、Resource Lock、HEAD 和工作区身份未变化；发生变化时暂停后继并重新计算 ready 集合。
 - 仅派发实际声明或使用端口/容器的 write 节点时，以登记表为端口/容器锁事实：读取主检出 `.vibe-harness/worktree-ports.json`（连同 `.vibe-harness/worktree-ports.lock`）确认端口块与容器不与其它 running 节点重叠，端口值从分配出的 env 文件读取而不是硬编码；此时登记表缺失、锁不可用或声明冲突才 fail-closed，不凭 `netstat`/`lsof` 输出或猜测推断；无关节点不创建空登记表。
@@ -181,7 +159,7 @@ Linear 状态到本地 `result` 的映射固定如下，只作本地解释，不
 
 Agent 必须检测环、不可见或未解决依赖，以及 writeScope（Linear 的 Scope）与 Resource Lock 冲突，但不得在没有授权时创建、删除或修改 Linear relations。存在子 Issue 的 Parent 是 aggregate；write 叶子由 closing PR 合并，或显式 local-land 候选验证、本地合并及远端推送确认共同证明成功；清理失败 `integrated_cleanup_pending` 不阻塞 succeeded 和后继，但残留资源继续占用，冲突资源不得复用，read 叶子由输出与 Verification 证据证明成功。Parent 只有在全部必需后代成功且 Fan-in Verification 通过后才 Done；Linear 的 Parent/Sub-issue 自动关闭必须禁用，all_done 报告节点成功也不能掩盖必需后代失败。
 
-轻量 Task DAG 默认建议同一时刻实际 running 写节点并发不超过 2、只读探查不超过 4；这是可由宿主并发能力、API 限流、项目资源和任务预算覆盖的软上限，不等同于 Linear 活跃 Issue 上限；并行度实际上限由可复核的 diff 规模、人类复核带宽与 token 预算决定，默认值是上限而不是目标，多 Agent 的 token 成本显著高于单 Agent。Linear 工作流另建议 Writer In Progress 不超过 3、In Review 不超过 2。子 Agent 默认不再派生子 Agent（最大派生深度 1），确需进一步拆分时回传 blocked 与拆分请求，由父 Agent 决定是否创建兄弟节点。fan-in 多个子 Agent 后若父 Agent 上下文接近压缩边界，先压缩已采纳子 Agent 的原始证据指针，保留结论、已定决策及其理由与未决项再继续派发，压缩不得丢弃未完成依赖或未验证假设。
+实际并行的读写容量、Agent 上限和净收益判据由 task-decomposition reference 按宿主容量计算；默认值是可降低上限而不是必须达到的目标。子 Agent 默认不再派生子 Agent，确需进一步拆分时回传 blocked 与拆分请求，由父 Agent 决定是否创建兄弟节点。fan-in 多个子 Agent 后若父 Agent 上下文接近压缩边界，先压缩已采纳子 Agent 的原始证据指针，保留结论、已定决策及其理由与未决项再继续派发，压缩不得丢弃未完成依赖或未验证假设。
 
 ## 事实与安全
 

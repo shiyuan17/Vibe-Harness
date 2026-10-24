@@ -67,7 +67,9 @@ all_done 只允许清理或失败报告节点使用，且这类节点应按 aggr
 
 独立旧 Issue 无需迁移，默认视为 Root=None、kind=write、trigger=all_success、resourceLocks=None。
 
-## 墙钟与 Agent 编排（Parent 必填）
+## Agent 编排（仅真实多 Agent 时填写）
+
+普通单 Agent 任务不要求 `wallClock`、Agent 容量、并行收益或该计划块。只有实际派发多个 Agent 且需要判断并行收益时，才按 `task-decomposition` 的按需 reference 填写；执行模式估算只用于选择 single/parallel，不代表任务完成期限，也不能触发中止。
 
 ```linear-plan
 {
@@ -100,7 +102,7 @@ all_done 只允许清理或失败报告节点使用，且这类节点应按 aggr
 }
 ```
 
-单 Agent 是默认执行模式。只有至少两个 ready 单元、共享 API/Schema/迁移已有唯一 owner、writeScope 与 Resource Lock 完全不重叠、真实 Agent/workspace 容量可用，且预计净节省至少 45 分钟和 25% 时，`auto` 才可选择 `parallel`；否则降级为 `single`。共享契约、数据库迁移、公共模板和最终集成只允许一个 owner 写入。
+单 Agent 是默认执行模式。`auto` 必须先解析为 `single` 或 `parallel` 再校验。容量、依赖、共享契约、隔离与净收益门槛只存在于 `task-decomposition` 的按需 reference；共享契约、数据库迁移、公共模板和最终集成只允许一个 owner 写入。
 
 ## 早期探查（存在实质不确定性时选填）
 

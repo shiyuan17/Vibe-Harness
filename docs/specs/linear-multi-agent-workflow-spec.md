@@ -120,7 +120,7 @@ Receipt、event、评论、Eval 和日志不得包含用户名、主机名、本
 
 旧 Issue 无需迁移，历史 v1/v2/v3 Receipt 继续可读，未知或矛盾记录暂停相关执行。新成本计划采用 linear-plan/v2，单元含 kind、dependsOn，agentPlan 含 maxAgents；依赖是原生关系的规划快照，派发前重核，不成为第二真值。v1 继续可读但执行保守采用 single，需并行收益评估时显式升级 v2。
 
-验收切片、依赖计划与多 Agent 并行分别判断。单 Agent 顺序任务也可按可观察增量拆片，普通固定步骤不强制完整 DAG；已有 Linear DAG 必须遵循。最多两个写、四个读并受实际总槽位限制；ready 按剩余依赖链耗时降序、ID 升序确定性调度，共享准备、等待、协调、fan-in 和最终集成只计一次，并行加入 20% 缓冲。至少两个 ready、隔离成立、真实容量可用，净节省同时达到 45 分钟和 25% 才并行；容量或依赖不完整按 single 保守估算，single 可比 parallel 更快，预算只覆盖实际所选方案，auto 先解析再校验。
+验收切片、依赖计划与多 Agent 并行分别判断。单 Agent 顺序任务也可按可观察增量拆片，普通固定步骤不强制完整 DAG；已有 Linear DAG 必须遵循。普通任务不计算容量、墙钟或并行收益；只有实际派发多个 Agent 时才按 task-decomposition 的按需 reference 判断隔离、容量和收益，容量或依赖不完整时保持 single。
 
 Git local-land 默认 bootstrap 登记隔离树，主检出须在 develop 且干净；冻结唯一 origin 实际 push URL、refs/heads/develop 与候选 SHA，拒绝多地址或 mirror。本地只快进同步，候选 no-ff 合并并验证后先本地再远端。阶段保存在 Git common dir；失败保留现场，基线前进有界重建，本地已合并推送失败重试原候选，结果不明先查精确远端，远端分叉不自动 reset/rebase/force push。确认后的重试只清理，remote 参数写前拒绝。
 

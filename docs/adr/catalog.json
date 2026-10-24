@@ -76,6 +76,10 @@
     {
       "id": "ADR-0019",
       "path": "docs/adr/ADR-0019-local-first-explicit-delivery.md"
+    },
+    {
+      "id": "ADR-0020",
+      "path": "docs/adr/ADR-0020-lightweight-delivery-blocking-and-verification-limits.md"
     }
   ]
 }

@@ -69,19 +69,26 @@ export function parseVerifyScope(value) {
 }
 /**
  * Resolve the caller's relevance-review declaration against the selected
- * checks. `all` (or `*`) declares the whole selection; a named check that was
- * not selected is a caller error rather than a silently ignored token.
+ * checks. `all` (or `*`) declares the whole selection. Unknown named entries
+ * are ignored metadata: they cannot affect whether the selected checks pass.
  *
- * @returns {{ids: string[], blocked: string|null}}
+ * @returns {{ids: string[], ignored: string[], blocked: null, warnings: string[]}}
  */
 export function resolveReviewedChecks(reviewed, selectedNames) {
   const declared = Array.isArray(reviewed) ? reviewed : [];
-  if (declared.includes('all') || declared.includes('*')) return { ids: [...selectedNames], blocked: null };
-  const unknown = declared.filter((id) => !selectedNames.includes(id));
-  if (unknown.length > 0) {
-    return { ids: [], blocked: `--reviewed names checks that are not selected: ${unknown.join(', ')}; selected: ${selectedNames.join(', ') || 'none'}` };
+  if (declared.includes('all') || declared.includes('*')) {
+    return { ids: [...selectedNames], ignored: [], blocked: null, warnings: [] };
   }
-  return { ids: [...new Set(declared)], blocked: null };
+  const unknown = declared.filter((id) => !selectedNames.includes(id));
+  const ids = [...new Set(declared.filter((id) => selectedNames.includes(id)))];
+  return {
+    ids,
+    ignored: unknown,
+    blocked: null,
+    warnings: unknown.length > 0
+      ? [`Ignored --reviewed entries that are not selected: ${unknown.join(', ')}`]
+      : [],
+  };
 }
 /**
  * Resolve the layer a receipt-required landing verifies at.
@@ -203,10 +210,10 @@ export async function executeCommand(command, targetDir, timeoutMs, redactionRoo
     };
     child.stdout?.on('data', (chunk) => append('stdout', chunk));
     child.stderr?.on('data', (chunk) => append('stderr', chunk));
-    child.once('error', (error) => finish({ status: 'failed', code: error.code ?? 'START_FAILED', exitCode: null }));
+    child.once('error', (error) => finish({ status: 'blocked', code: error.code ?? 'START_FAILED', exitCode: null }));
     child.once('close', (code, signal) => {
-      if (timedOut) finish({ status: 'failed', code: 'TIMEOUT', exitCode: null, signal });
-      else if (bytes > MAX_OUTPUT_BYTES) finish({ status: 'failed', code: 'OUTPUT_LIMIT', exitCode: null, signal });
+      if (timedOut) finish({ status: 'blocked', code: 'TIMEOUT', exitCode: null, signal });
+      else if (bytes > MAX_OUTPUT_BYTES) finish({ status: 'blocked', code: 'OUTPUT_LIMIT', exitCode: null, signal });
       else finish({ status: code === 0 ? 'passed' : 'failed', code: code === 0 ? null : 'COMMAND_FAILED', exitCode: code, signal });
     });
   });

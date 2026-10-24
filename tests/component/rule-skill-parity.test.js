@@ -51,7 +51,7 @@ test('全部配对保持双向引用、同步声明与共享措辞', async () =>
   for (const pair of RULE_SKILL_PARITY_PAIRS) {
     assert.deepEqual(ruleSkillParityViolations(pair, contents), [], `${pair.rule} ↔ ${pair.skill}`);
   }
-  for (const [skillName, term] of [['vb-git-develop-flow', '--target-mode remote'], ['vb-linear-worktree-develop', '--target-mode remote']]) {
+  for (const [skillName, term] of [['vb-git-develop-flow', '--target-mode primary'], ['vb-linear-worktree-develop', '--target-mode primary']]) {
     const pair = findPair(skillName);
     const mutated = new Map(contents);
     mutated.set(pair.skill, contents.get(pair.skill).replaceAll(term, 'missing-mode'));

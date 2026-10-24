@@ -444,12 +444,15 @@ test('过期检查收据在 lookup 时被清理并判为 miss', async () => {
   });
 });
 
-test('未显式声明确定性时不复用无锚点收据', async () => {
+test('普通验证默认同树复用且可显式要求重跑', async () => {
   await fixture(async (project) => {
     await reusableFixture(project, false);
     await runCommand(['verify', '--project', project]);
     const second = await runCommand(['verify', '--project', project, '--reuse']);
-    assert.equal(second.report.status, 'passed');
+    assert.equal(second.report.status, 'reused');
+    assert.equal(await readFile(path.join(project, 'runs.txt'), 'utf8'), 'run\n');
+    const forced = await runCommand(['verify', '--project', project, '--no-reuse']);
+    assert.equal(forced.report.status, 'passed');
     assert.equal(await readFile(path.join(project, 'runs.txt'), 'utf8'), 'run\nrun\n');
   });
 });
@@ -580,7 +583,7 @@ test('运行期间变更不写通过收据且配置损坏不会静默降级', as
     await reusableFixture(project);
     await writeFile(path.join(project, 'check.mjs'), "import { writeFileSync } from 'node:fs'; writeFileSync('changed.txt', String(Date.now()));\n");
     const result = await runCommand(['verify', '--project', project, '--reuse']);
-    assert.equal(result.report.status, 'failed');
+    assert.equal(result.report.status, 'stale');
     assert.equal(result.report.cache.stored, false);
     await writeFile(path.join(project, 'vibe-harness.config.json'), '{');
     const invalid = await runCommand(['verify', '--project', project, '--plan']);
@@ -605,7 +608,7 @@ test('旧版和失败收据不能复用且后续失败移除同状态旧通过�
     assert.equal(legacy.report.status, 'failed');
     await assert.rejects(readFile(file));
     await writeFile(file, JSON.stringify(receipt));
-    const failure = await runCommand(['verify', '--project', project]);
+    const failure = await runCommand(['verify', '--project', project, '--no-reuse']);
     assert.equal(failure.report.status, 'failed');
     await assert.rejects(readFile(file));
   });

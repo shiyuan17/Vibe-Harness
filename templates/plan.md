@@ -26,9 +26,9 @@
 
 按可独立验证的增量描述目标、修改位置、依赖和产物。每个增量必须在进入下一个依赖增量前完成验证。
 
-## 墙钟与 Agent 编排
+## 执行模式与 Agent 编排（仅真实多 Agent 时填写）
 
-Parent 计划必须先估算单 Agent 与受限并行的墙钟时间，再决定执行模式。规划必须区分 active work、external wait/block、coordination/fan-in 和 verification；墙钟预算是规划证据，不是完成授权或时间承诺。
+普通单 Agent 任务和普通 Parent 只写验收切片与顺序步骤，不要求 `wallClock`、Agent 容量、并行收益、Task DAG 或独立审查。已有 Linear DAG 时遵循原生关系；只有实际派发多个 Agent 且需要判断并行收益时，才按 `task-decomposition` 的按需 reference 填写下列计划块。执行模式估算只用于选择 single/parallel，不是任务完成期限，也不能触发中止。
 
 ```linear-plan
 {
@@ -65,7 +65,7 @@ Parent 计划必须先估算单 Agent 与受限并行的墙钟时间，再决定
 }
 ```
 
-`auto` 只有在至少两个 ready 单元、共享契约已有唯一 owner、writeScope 与 Resource Lock 完全隔离、真实 Agent/workspace 容量可用且预计净节省至少 45 分钟和 25% 时才选择 `parallel`，否则降级为 `single`。默认最多 2 个并行写 Agent、4 个只读 Agent；共享契约、数据库迁移、公共模板和最终集成只由一个 owner 写入。
+`auto` 必须先解析为 `single` 或 `parallel` 再校验。容量、依赖、共享契约、隔离与净收益门槛只存在于 `task-decomposition` 的按需 reference；共享契约、数据库迁移、公共模板和最终集成只由一个 owner 写入。
 
 ### 早期探查（存在实质不确定性时选填）
 

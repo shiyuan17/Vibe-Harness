@@ -5,36 +5,36 @@
   "suite": {
     "id": "vibe-harness-behavioral",
     "version": "1.0.0",
-    "hash": "53e5d1c5c87bdf7bca91331c405a6a8e530784b9b4f89c014129641472ee60cc",
+    "hash": "3d6e50ed2cfd341fd8fa7141090a9a5699fdf5539479c0ff3b7f7ae0aadddbf5",
     "path": "evals/suites/vibe-harness-behavioral.json"
   },
   "mode": "offline",
   "proof": "stub-behavioral",
   "status": "passed",
   "fingerprint": {
-    "suiteHash": "53e5d1c5c87bdf7bca91331c405a6a8e530784b9b4f89c014129641472ee60cc",
+    "suiteHash": "3d6e50ed2cfd341fd8fa7141090a9a5699fdf5539479c0ff3b7f7ae0aadddbf5",
     "runner": "stub-behavioral@1",
     "model": "stub",
     "agent": "stub-runtime",
     "configHash": "stub-v1",
     "assets": {
-      "aggregateHash": "870f0ca612fa71215963285c4fd8dfc9a364f7c0f7a5bd29f7ae80267911b850",
+      "aggregateHash": "089819263467d89f399306cbde5178c26098f2d77822f6c7bc028d2c0330cff1",
       "groups": {
         "config": {
           "fileCount": 44,
-          "hash": "fec95e238d43dffb7e239c6cd6c59c8b57e05f0660c18f7da8b696d5cc98f2f9"
+          "hash": "c15d9de06f1a3d717d0a3b40a9da13b34fae67e769717c5a891cf5642f6ee447"
         },
         "hooks": {
-          "fileCount": 19,
-          "hash": "321aa3e7051719235848ed202d6ca926cc45e6c80347fcbcb04e911a08833b10"
+          "fileCount": 21,
+          "hash": "5a223cbb2b3084140756d32b05278c265b776e1d1c8e0a9ade33f982e9e0adec"
         },
         "rules": {
           "fileCount": 45,
-          "hash": "ecfb4f3a314cac7b11c0399155336f719c7642edbb94f1c4d97779cb94b94fe6"
+          "hash": "93d91cf4d00d329f47ede480bbbf6d7348f022137bfd5af267732ed30f6bfb86"
         },
         "skills": {
           "fileCount": 166,
-          "hash": "6ed3829eec108dddcd2af1429896656441dfd050e03999258914251fc7010a66"
+          "hash": "01283ba7a8c09cd1b088d12b096d816e2e0915850832540cfcac0ffa0c0fcb74"
         }
       }
     }
@@ -417,7 +417,7 @@
           "kind": "required-output-fragment",
           "dimension": "evidenceQuality",
           "critical": false,
-          "expected": "\"code\":\"PROJECT_VERIFICATION_FAILED\"",
+          "expected": "\"code\":\"PROJECT_VERIFICATION_BLOCKED\"",
           "passed": true
         },
         {

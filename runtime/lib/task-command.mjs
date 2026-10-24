@@ -836,24 +836,24 @@ function currentUnitVerification(unit, fingerprint, configured, projectDir) {
 export async function findReusableVerification(projectDir, taskId, { fingerprint, commandSet }) {
   if (typeof fingerprint !== 'string') return null;
   const taskIds = [];
-  if (taskId) {
-    taskIds.push(taskId);
-  } else {
-    let entries = [];
-    try {
-      entries = await readdir(path.join(projectDir, TASKS_RELATIVE_DIR), { withFileTypes: true });
-    } catch (error) {
-      if (error?.code !== 'ENOENT') throw error;
-    }
-    for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
-      const candidate = entry.name.slice(0, -'.json'.length);
-      // Files this CLI could not have written are not anchors; skip them
-      // instead of failing an otherwise verifiable tree.
-      if (!TASK_ID_PATTERN.test(candidate) || WINDOWS_RESERVED_NAMES.test(candidate)) continue;
-      taskIds.push(candidate);
-    }
-    taskIds.sort((left, right) => left.localeCompare(right));
+  // The optional task id is a preference, not a gate: same-tree reuse is
+  // keyed by the content fingerprint and command set. Prefer the requested
+  // anchor when it exists, then fall back to every readable anchor so a typo,
+  // stale id, or anchor-less default invocation does not force another run.
+  if (taskId) taskIds.push(taskId);
+  let entries = [];
+  try {
+    entries = await readdir(path.join(projectDir, TASKS_RELATIVE_DIR), { withFileTypes: true });
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
+    const candidate = entry.name.slice(0, -'.json'.length);
+    // Files this CLI could not have written are not anchors; skip them
+    // instead of failing an otherwise verifiable tree.
+    if (!TASK_ID_PATTERN.test(candidate) || WINDOWS_RESERVED_NAMES.test(candidate)) continue;
+    if (!taskIds.includes(candidate)) taskIds.push(candidate);
   }
   let best = null;
   for (const id of taskIds) {
@@ -1011,10 +1011,14 @@ async function taskCheckCore(projectDir, args) {
   // depends on it: continuing would build on an unverified result. The check is
   // the pre-dispatch gate, so it answers before the work is handed out.
   const planUnits = planUnitGraph(planCheck);
-  // A task anchor is a dependency ledger, not a receipt gate. A sibling
-  // worktree must not invalidate a completed predecessor by changing the
-  // aggregate fingerprint of this checkout.
-  const isVerified = () => true;
+  // Completion evidence is different from the retired Receipt/Claim workflow
+  // gate: a unit marked done still has to be backed by a passing verification
+  // for the current tree and command set. Only evaluate it for questions that
+  // depend on completion so plain status reads stay inexpensive.
+  const needsEvidence = Boolean(args.dispatch || args.complete);
+  const currentFingerprint = needsEvidence ? (await gitFingerprint(projectDir)).fingerprint : null;
+  const configured = needsEvidence ? configuredChecks(await readProjectConfig(projectDir), projectDir) : null;
+  const isVerified = (unit) => currentUnitVerification(unit, currentFingerprint, configured, projectDir);
   const predecessors = selected && planUnits.length > 0
     ? unitPredecessorState(planUnits, units, selected.id, isVerified)
     : { blocked: [], checked: [], failed: [], unfinished: [] };
@@ -1081,7 +1085,7 @@ async function taskCheckCore(projectDir, args) {
   const unverified = targetUnits
     .filter((unit) => {
       if (unit.status !== 'done') return false;
-      return !args.complete && unit.verification?.status !== 'passed';
+      return args.complete ? !isVerified(unit) : unit.verification?.status !== 'passed';
     })
     .map((unit) => unit.id ?? '?');
   const complete = Boolean(args.complete);

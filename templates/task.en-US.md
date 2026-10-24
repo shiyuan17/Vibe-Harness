@@ -35,7 +35,7 @@
 
 ## Implementation task split (complete only when the plan is split)
 
-> Split acceptance slices by observable increments, including sequential work by one agent. Follow an existing Linear DAG; ordinary fixed steps need no full DAG. Parallel agents additionally require isolation, capacity, and net savings of at least 45 minutes and 25%. Each task needs a clear result and verification, without requiring a separate commit. Vibe-Harness does not parse this table or use it as a completion gate.
+> Split acceptance slices by observable increments, including sequential work by one agent. Follow an existing Linear DAG; ordinary fixed steps need no full DAG. Only explicitly requested multi-agent work consults the task-decomposition reference for isolation, capacity, and benefit. Each task needs a clear result and verification, without requiring a separate commit. Vibe-Harness does not parse this table or use it as a completion gate.
 
 | Task | Goal | Depends on | Change scope | Constraints | Acceptance criteria | Verification | Output |
 |---|---|---|---|---|---|---|---|

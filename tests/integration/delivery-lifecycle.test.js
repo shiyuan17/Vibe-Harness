@@ -215,7 +215,7 @@ test('完成收据不接受自证的验收证据', () => {
   assert.equal(validateCompletion(consistent, delivery, null, attested).status, 'passed');
 });
 
-test('reviewPolicy:none 只为 develop 免审，其他分支与伪造上下文仍被阻断', () => {
+test('local-land 未声明 reviewPolicy 时默认 none，显式 required 和其他分支仍阻断', () => {
   const config = {
     delivery: {
       default: 'local-land',
@@ -273,8 +273,12 @@ test('reviewPolicy:none 只为 develop 免审，其他分支与伪造上下文�
   const forgedGate = validateCompletion(forged, delivery, null, { ...attested, targetBranch: 'main' });
   assert.equal(forgedGate.status, 'blocked');
 
-  const wrongPolicy = { ...resolveDelivery({ delivery: { default: 'local-land', profiles: { 'local-land': { merge: 'no-ff', cleanup: 'ancestor', requireReceipt: true } } } }), requireReceipt: true };
-  assert.equal(validateCompletion(receipt(), wrongPolicy, null, { ...attested, targetBranch: 'develop' }).status, 'blocked');
+  const implicitNone = { ...resolveDelivery({ delivery: { default: 'local-land', profiles: { 'local-land': { merge: 'no-ff', cleanup: 'ancestor', requireReceipt: true } } } }), requireReceipt: true };
+  assert.equal(implicitNone.reviewPolicy, 'none');
+  assert.equal(validateCompletion(receipt(), implicitNone, null, { ...attested, targetBranch: 'develop' }).status, 'passed');
+
+  const explicitRequired = { ...resolveDelivery({ delivery: { default: 'local-land', profiles: { 'local-land': { merge: 'no-ff', cleanup: 'ancestor', requireReceipt: true, reviewPolicy: 'required' } } } }), requireReceipt: true };
+  assert.equal(validateCompletion(receipt(), explicitRequired, null, { ...attested, targetBranch: 'develop' }).status, 'blocked');
 });
 
 test('免审验证据记录 not_required 而不是伪装的 relevant', () => {

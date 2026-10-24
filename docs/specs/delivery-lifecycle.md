@@ -9,8 +9,8 @@
   "delivery": {
     "default": "managed-mr",
     "profiles": {
-      "managed-mr": { "merge": "squash", "cleanup": "evidence-compatible", "requireReceipt": true, "reviewPolicy": "required" },
-      "local-land": { "merge": "no-ff", "cleanup": "ancestor", "requireReceipt": true, "reviewPolicy": "required" },
+      "managed-mr": { "merge": "squash", "cleanup": "evidence-compatible", "requireReceipt": false, "reviewPolicy": "required" },
+      "local-land": { "merge": "no-ff", "cleanup": "ancestor", "requireReceipt": false, "reviewPolicy": "none" },
       "inspect-only": { "write": false, "requireReceipt": false }
     }
   },
@@ -32,25 +32,25 @@
 
 例外仅有 id 时故意为 stale。owner 必须由项目批准者确认；approvedAt/expiresAt 是实际批准和到期时间，reviewCadence、rollbackCondition、successMetric 是人工复核口径。不填虚构的批准值使门禁变绿。
 
-`reviewPolicy` 只取 `required`（默认）或 `none`。`none` 仅对目标分支恰为 `develop` 生效：`worktree land --base-ref develop` 不再要求 `--reviewed`，也不因缺少 `--reviewed` 阻塞；合并到 `main`、`release/*` 或其他保护分支仍要求明确审查。免审时 verification receipt 写 `status:"not_required"`、`reasonCode:"REVIEW_NOT_REQUIRED"`，不得伪装成 `relevant`。所有选中检查通过、无 deferred、最终树与写指纹稳定、provenance 可验证、候选合并结果经过验证仍缺一不可；非 `develop` 目标缺少明确 `required` review 上下文时，`not_required` 收据无效。
+`reviewPolicy` 只取 `required` 或 `none`。内置及自定义 `local-land` 配置未声明该字段时按 `none` 处理，不回落到旧版的 `required`；其他 profile 未声明时仍按 `required`。`--reviewed` 在普通 local-land 中只记录调用者查看了哪些验证项，不阻塞 land；项目明确规定的审查、必需审批、Hook 与分支保护继续独立生效。需要兼容旧收据的消费者仍可读取 `status:"not_required"`、`reasonCode:"REVIEW_NOT_REQUIRED"`，但不得把它伪装成 `relevant`。
 
 ## 收据与 squash
 
-`verify --delivery managed-mr --plan` 预览命令；实际验证输出 completion 草稿且 stage=verify。调用者将 MR、浏览器、数据库等真实验收补入 acceptance；不能删除仍未通过的必需项。完成收据必须包含 status、delivery.profile/stage、非空 acceptance（id/status/command 或 criterion/scope）、unverified、remainingRisks、rollback、source/target HEAD 或指纹、verification。
+`verify --delivery managed-mr --plan` 预览命令。需要 completion receipt 的显式消费者仍可读取 stage=verify 的草稿并补入 MR、浏览器、数据库等真实验收；不能删除仍未通过的必需项。收据包含 status、delivery.profile/stage、非空 acceptance（id/status/command 或 criterion/scope）、unverified、remainingRisks、rollback、source/target HEAD 或指纹、verification。
 
-完成检查为 `task check <id> --complete --receipt <file> --delivery <profile>`。worktree cleanup 使用同一判据，另验证干净树和当前 source 指纹。新模式不接受缺收据；旧任务缺收据只 warning，不重写历史。
+`task check <id> --complete --receipt <file> --delivery <profile>` 仍是显式收据消费者可调用的检查，但普通 local-land 不要求 Receipt。`worktree land` 的完成判据是候选验证、主检出本地合并、精确远端 SHA 回读；推送确认即代码集成完成，清理失败单列为 `integrated_cleanup_pending`。
 
 merge evidence 的必需字段：sourceBase、sourceHead、targetRef、targetBefore、targetAfter、mergeMethod、mergeCommit、patchId、taskId。单父 squash commit 的父必须等于 targetBefore，目标 ref 必须仍等于 targetAfter，sourceBase 必须是完整 source 分支的共同基点，source 与合入补丁 stable patch-id 一致；目标推进后必须重新采集证据，不能忽略漂移。`--mr <iid>` 通过已安装的 glab 只读获取，不 fetch/push、不传入或保存令牌。
 
 收据复用除 Git 内容、命令集、环境外还记录 tracked/非忽略文件的 mtime/ctime/size 写入指纹；同内容重写也使旧收据失效。忽略的运行产物不纳入工作树完成证据；命令声明仍应显式覆盖相关外部依赖。
 
-`worktree land` 使用 `reuse:true`，按代码树内容复用已通过的逐检查确定性证据；completion receipt 的审查结论必须按本次调用的目标分支和政策重新计算，不继承旧收据。候选 worktree 的受管 merge 使用空 hooks path、`LEFTHOOK=0`、`HUSKY=0` 和 `--no-verify`，避免表单/Git Hook 改写共享依赖。同一仓库的 deep/后端全量验证由 Git common dir 租约锁串行；land 预检检测主检出差分、基线漂移、残留 candidate、该锁、依赖根与 junction 完整性，并报告 setup/merge/verify/push/cleanup/total 与逐检查耗时。
+`worktree land` 使用 `reuse:true`，按代码树内容复用已通过的逐检查确定性证据；`--reviewed` 只记录本次检查的观察结果，不继承旧收据且不阻塞 land。候选 worktree 的受管 merge 使用空 hooks path、`LEFTHOOK=0`、`HUSKY=0` 和 `--no-verify`，避免表单/Git Hook 改写共享依赖。同一仓库的 deep/后端全量验证由 Git common dir 租约锁串行；land 预检检测主检出差分、基线漂移、残留 candidate、该锁、依赖根与 junction 完整性，并报告 setup/merge/verify/push/cleanup/total 与逐检查耗时。
 
 ## 恢复
 
 `task checkpoint <id> --reason <text> [--write]` 默认 dry-run；持久内容包括 at/reason/headSha/worktree/stage/activeUnits/blockers/nextAction、工作树 fingerprint 与最后验证。
 
-`task event <id> --reason pre-compaction|resume|continue|pre-delivery|pre-verify [--write]` 接收可观察宿主事件；continue 第二次才记录，resume 先核对当前状态，漂移 blocked，核对之后显式 checkpoint。verify 与指定 task 的 land 在受管入口自动 checkpoint。宿主没有暴露压缩或用户消息 hook 时，这些事件必须由 Agent/宿主桥接显式投递，不假设平台具备后台监听。
+`task event <id> --reason pre-compaction|resume|continue|pre-delivery|pre-verify [--write]` 接收可观察宿主事件；continue 第二次才记录，resume 先核对当前状态，漂移 blocked，核对之后显式 checkpoint。verify 与指定 task 的 land 在受管入口尝试 checkpoint，失败只告警且不重跑验证命令。宿主没有暴露压缩或用户消息 hook 时，这些事件必须由 Agent/宿主桥接显式投递，不假设平台具备后台监听。
 
 ## 服务归属
 

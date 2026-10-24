@@ -23,5 +23,6 @@ export const GATE_SCOPES = {
     'PRODUCT_RESULT',
     'SUPPLY_CHAIN_RESULT',
     'SECURITY_RESULT',
+    'HIGH_RISK_REVIEW_RESULT',
   ],
 };

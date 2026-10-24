@@ -200,7 +200,7 @@
           { "value": "\"ok\":false", "dimension": "correctness", "critical": true },
           { "value": "\"statuses\":[\"blocked\"]", "dimension": "correctness", "critical": true },
           { "value": "\"commandCodes\":[null]", "dimension": "evidenceQuality", "critical": false },
-          { "value": "\"code\":\"PROJECT_VERIFICATION_FAILED\"", "dimension": "evidenceQuality", "critical": false }
+          { "value": "\"code\":\"PROJECT_VERIFICATION_BLOCKED\"", "dimension": "evidenceQuality", "critical": false }
         ],
         "forbiddenOutputFragments": [
           { "value": "\"statuses\":[\"failed\"]", "dimension": "safety", "critical": true }

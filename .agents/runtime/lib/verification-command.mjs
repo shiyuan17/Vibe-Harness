@@ -61,11 +61,11 @@ export function verificationProgress(args, phase, detail = {}) {
     at: new Date().toISOString(), ...detail });
 }
 export async function verifyProject(projectDir, args, { planOnly = false } = {}) {
-  args = { reuse: args.micro === undefined, ...args };
+  args = { reuse: args.micro === undefined && !args.noReuse, ...args };
   const startedAt = new Date().toISOString();
   if (args.micro !== undefined) {
-    if (args.tier || args.only || args.async || args.reuse || args.allowManual) {
-      return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'blocked', code: 'MICRO_EXCLUSIVE', error: '--micro cannot be combined with --tier, --only, --async, --reuse, or --allow-manual.', checks: {} };
+    if (args.tier || args.only || args.async || args.reuse || args.allowManual || args.noReuse) {
+      return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'blocked', code: 'MICRO_EXCLUSIVE', error: '--micro cannot be combined with --tier, --only, --async, --reuse, --no-reuse, or --allow-manual.', checks: {} };
     }
     const configInfo = await readJsonIfExists(path.join(projectDir, CONFIG_FILE));
     if (configInfo.error) return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'blocked', error: configInfo.error, checks: {} };
@@ -129,8 +129,13 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
   }
   const config = configInfo.value && typeof configInfo.value === 'object' ? configInfo.value : {};
   const configured = configuredChecks(config);
+  if (args.reuse && args.noReuse) {
+    return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'blocked', code: 'REUSE_FLAGS_CONFLICT', error: '--reuse and --no-reuse cannot be combined.', checks: {} };
+  }
   const only = args.only;
   const timeoutMs = timeoutValue(args.timeout ?? config.verification?.timeoutMs);
+  const budgetMs = Number.isInteger(config.verification?.budgetMs) && config.verification.budgetMs > 0
+    ? config.verification.budgetMs : null;
   let scope;
   try {
     scope = parseVerifyScope(args.scope ?? config.verification?.defaultScope);
@@ -203,9 +208,10 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
   // `--reviewed` is the explicit relevance review; without it the report can
   // only say `unreviewed` and the acceptance evidence stays blocked.
   const reviewedChecks = resolveReviewedChecks(args.reviewed, selectedNames);
-  if (reviewedChecks.blocked) {
-    return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'failed', error: reviewedChecks.blocked, checks: {} };
-  }
+  const reviewWarnings = reviewedChecks.warnings.map((message) => ({
+    code: 'VERIFY_REVIEW_METADATA_IGNORED',
+    message,
+  }));
   if (scope === 'affected' && changeScope.selectionMode === 'changed' && changeScope.changedPaths.length === 0) {
     return {
       schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify',
@@ -268,6 +274,7 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
         schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'reused',
         tier: tierPlan.tier, scope, ...changeScope, scopeConfidence: scope === 'full' ? 'complete' : 'unknown',
         checks: reusedChecks, selectedChecks: selectedNames, deferredChecks: tierPlan.deferredChecks,
+        warnings: reviewWarnings,
         subsumedChecks: tierPlan.subsumedChecks ?? [], nextTier: tierPlan.nextTier,
         selectionReasonsByCheck: tierPlan.selectionReasonsByCheck,
         minimumTier: null,
@@ -352,6 +359,9 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
   let stopped = false;
   let reusedCount = 0;
   let treeChangedDuringRun = false;
+  let budgetStartedAt = null;
+  let budgetDeadline = null;
+  let budgetExhausted = false;
   for (const name of checkOrder) {
     const command = configured.commands[name];
     if (!command) {
@@ -406,13 +416,32 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
     }
     let result;
     const checkStartedAt = Date.now();
-    verificationProgress(args, 'check-start', { check: name, timeoutMs });
+    if (budgetMs !== null && budgetDeadline === null) {
+      budgetStartedAt = Date.now();
+      budgetDeadline = budgetStartedAt + budgetMs;
+    }
+    const remainingBudgetMs = budgetDeadline === null ? null : budgetDeadline - Date.now();
+    if (remainingBudgetMs !== null && remainingBudgetMs <= 0) {
+      checks[name] = {
+        status: 'blocked',
+        code: 'VERIFICATION_BUDGET_EXHAUSTED',
+        command: displayCommand(command, projectDir),
+        cwd: cwd.relative,
+        budgetMs,
+        elapsedMs: Date.now() - budgetStartedAt,
+      };
+      budgetExhausted = true;
+      stopped = true;
+      continue;
+    }
+    const effectiveTimeoutMs = remainingBudgetMs === null ? timeoutMs : Math.max(1, Math.min(timeoutMs, remainingBudgetMs));
+    verificationProgress(args, 'check-start', { check: name, timeoutMs: effectiveTimeoutMs, ...(budgetMs === null ? {} : { budgetMs }) });
     const heartbeat = args.onProgress ? setInterval(() => verificationProgress(args, 'heartbeat', {
       check: name, elapsedMs: Date.now() - checkStartedAt, timeoutMs,
     }), 30_000) : null;
     heartbeat?.unref();
     try {
-      result = await executeCommand(executableCommand, cwd.absolute, timeoutMs, projectDir, verificationContextEnvironment({ ...changeScope, scope }));
+      result = await executeCommand(executableCommand, cwd.absolute, effectiveTimeoutMs, projectDir, verificationContextEnvironment({ ...changeScope, scope }));
     } catch (error) {
       result = { status: 'blocked', code: 'UNSAFE_COMMAND', exitCode: null, stderr: boundedOutput(error.message, projectDir) };
     } finally {
@@ -431,7 +460,11 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
       ...(result.stderr ? { stderr: result.stderr } : {}),
       ...(result.status === 'passed' ? verificationCheckEvidence(result.stdout, result.stderr) : {}),
     };
-    stopped = checks[name].status === 'failed';
+    stopped = ['failed', 'blocked'].includes(checks[name].status);
+    if (budgetDeadline !== null && Date.now() >= budgetDeadline) {
+      budgetExhausted = true;
+      stopped = true;
+    }
     if (!stopped && cacheContext.mode === 'tree-content') {
       const currentTree = await gitTreeFingerprint(projectDir);
       if (currentTree !== cacheContext.treeContentFingerprint) treeChangedDuringRun = true;
@@ -495,6 +528,7 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
       deferredMicroChecks: [],
       estimatedCostMs: estimateSelectedCost(selectedNames),
       cache: { status: 'not_requested' },
+      warnings: reviewWarnings,
       environment: { mode: environmentMode, status: environmentStatus },
     };
   }
@@ -520,8 +554,10 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
     const stable = before.fingerprint !== null && after.fingerprint !== null
       ? before.fingerprint === after.fingerprint
       : null;
-  const finalStatus = failed || stable === false || !inputsStable
-    ? 'failed'
+  const finalStatus = stable === false || !inputsStable
+    ? 'stale'
+    : failed
+      ? 'failed'
     : blocked
       ? 'blocked'
       : completed.length === 0
@@ -537,7 +573,7 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
   });
   const snapshotComparison = stable === null ? 'unknown' : stable ? 'match' : 'changed';
   const verificationStatus = stable === false || !inputsStable
-    ? 'workspace_changed'
+    ? 'stale'
     : failed
       ? 'checks_failed'
       : blocked
@@ -611,6 +647,15 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
     skippedChecks: selectedNames.filter((name) => checks[name]?.status === 'not_selected').map((name) => ({ id: name, reason: checks[name].reason })),
     ...changeScope,
     timeoutMs,
+    budgetMs,
+    budget: budgetMs === null ? null : {
+      configuredMs: budgetMs,
+      elapsedMs: budgetStartedAt === null ? 0 : Math.max(0, Math.min(budgetMs, Date.now() - budgetStartedAt)),
+      exhausted: budgetExhausted,
+      notRunChecks: Object.entries(checks)
+        .filter(([, check]) => check?.code === 'VERIFICATION_BUDGET_EXHAUSTED' || check?.reason === 'previous-check-failed')
+        .map(([id]) => id),
+    },
     checks,
     selectedChecks: selectedNames,
     selectionReasonsByCheck: tierPlan.selectionReasonsByCheck,
@@ -627,6 +672,7 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
       ...(cacheContext?.mode === 'tree-content' ? { checks: checkCacheReport } : {}),
       checkReceipts,
     },
+    warnings: reviewWarnings,
     environment: { mode: environmentMode, status: environmentStatus },
     verification: {
       schemaVersion: 3,
@@ -662,9 +708,16 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
       ...(taskBinding ? { task: taskBinding } : {}),
     },
   };
+  const receiptStatus = stable === false || !inputsStable
+    ? 'stale'
+    : failed
+      ? 'failed'
+      : blocked
+        ? 'blocked'
+        : completed.length === selectedNames.length && ['passed', 'reused'].includes(report.status) ? 'passed' : 'unverified';
   report.cache.stored = await storeVerificationReceipt(projectDir, cacheContext, {
     ...report.verification,
-    status: completed.length === selectedNames.length && ['passed', 'reused'].includes(report.status) ? 'passed' : 'unverified',
+    status: receiptStatus,
     // The per-check commands this run reported, so the acceptance entries a
     // completion receipt cites can be checked against them instead of being
     // taken on the receipt's word.

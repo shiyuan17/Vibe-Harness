@@ -21,6 +21,27 @@ import { worktreeReport } from '../lib/worktree-command.mjs';
 export { assertSafeCommand };
 export { landLockTimeoutMs } from '../lib/worktree-command.mjs';
 
+async function refreshVerificationCheckpoint(projectDir, args, stage) {
+  try {
+    const anchor = await readTaskAnchor(projectDir, args.task[0]);
+    if (!anchor.exists) return null;
+    const checkpoint = await taskCheckpointReport(projectDir, {
+      ...args,
+      _: ['task', 'checkpoint', args.task[0]],
+      reason: stage,
+      write: true,
+    });
+    if (checkpoint.status === 'passed') return null;
+    throw new Error(checkpoint.error ?? `checkpoint returned ${checkpoint.status}`);
+  } catch (error) {
+    return {
+      code: 'VERIFICATION_CHECKPOINT_WARNING',
+      stage,
+      message: `Task checkpoint was not refreshed ${stage === 'pre-verify' ? 'before' : 'after'} verification: ${error.message}`,
+    };
+  }
+}
+
 export async function runCommand(argv, { cwd = process.cwd(), onProgress = null } = {}) {
   const args = parseArgs(argv);
   if (args.progress !== undefined && !['json', 'off'].includes(args.progress)) throw new Error('--progress must be json or off');
@@ -39,13 +60,10 @@ export async function runCommand(argv, { cwd = process.cwd(), onProgress = null 
   if (delivery.write === false && (args.write || args.push || (command === 'verify' && !args.plan) || ['patch'].includes(command))) {
     return { args, report: { command, status: 'blocked', code: 'DELIVERY_INSPECT_ONLY', error: 'inspect-only cannot execute commands or write' }, exitCode: 1 };
   }
+  const checkpointWarnings = [];
   if (command === 'verify' && !args.plan && args.task[0]) {
-    try {
-      const anchor = await readTaskAnchor(projectDir, args.task[0]);
-      if (anchor.exists) await taskCheckpointReport(projectDir, { ...args, _: ['task', 'checkpoint', args.task[0]], reason: 'pre-verify', write: true });
-    } catch (error) {
-      if (error.code !== 'VIBE_HARNESS_INVALID_TASK_ID') throw error;
-    }
+    const warning = await refreshVerificationCheckpoint(projectDir, args, 'pre-verify');
+    if (warning) checkpointWarnings.push(warning);
   }
   let report;
   if (command === 'env') report = await envReport(projectDir);
@@ -67,15 +85,19 @@ export async function runCommand(argv, { cwd = process.cwd(), onProgress = null 
     delivery: '--delivery managed-mr|local-land|inspect-only overrides delivery.default. managed-mr land/cleanup requires --receipt <file> and --merge-evidence <file> or --mr <iid> when source is not an ancestor.',
     services: 'run.mjs runtime service <start|status|stop> --project <path> [--service <id>] [--port <number>] [--write]; only registered supervisor-owned processes can be stopped.',
     checkpoint: 'task checkpoint <id> --reason <text> [--write]; task event <id> --reason pre-compaction|resume|continue|pre-delivery|pre-verify [--write]. Host lifecycle events need an actual host bridge; events are not inferred from tool calls.',
-    worktree: 'run.mjs worktree <list|check|bootstrap|land|cleanup|recover> --project <path>: writes require --write; ready tasks land independently by default, --batch --task A --task B explicitly verifies one combined candidate; --batch --resume <batch-id> continues agent-resolved conflicts. Selected checks must pass on the stable final candidate; deferred checks remain unclaimed. The target-ref phase is serialized.',
+    worktree: 'run.mjs worktree <list|check|bootstrap|land|cleanup|recover> --project <path>: writes require --write; ready tasks land independently by default, --batch --task A --task B explicitly verifies one combined candidate; --batch --resume <batch-id> continues agent-resolved conflicts. Selected checks must pass on the stable final candidate; deferred checks remain unclaimed. The target-ref phase covers baseline recheck, local ff-only, exact push and remote SHA readback; cleanup runs after the lock is released. recover --write requires --task <id>; only explicit recover --all --write performs global recovery.',
     task: 'run.mjs task <init|update|status|list|plan-check|plan-sync|check|freeze-tests|rebaseline-tests> [task-id] --project <path>: anchors live in .vibe-harness/tasks/<task-id>.json and managed plans live in docs/plans/*.md; init accepts --plan-file, plan-check detects drift, plan-sync requires --reason, check gates readiness (check --unit <id> --dispatch answers whether the unit may be handed out now), freeze-tests requires a failed verification and --test-path, and rebaseline-tests additionally requires a protected approval receipt. Write commands stay dry-run until --write.',
-    reuse: 'run.mjs verify --project <path> [--task <task-id>] --reuse: returns status "reused" only for explicitly deterministic checks with matching input fingerprints in the ignored receipt store; task anchors are optional and receipts of an older schema are not reused',
-    verify: 'run.mjs verify --project <path> [--tier quick|standard|deep] [--scope affected|layer|full] [--async --tier deep] [--only lint,typecheck,test,eval] [--progress json|off] [--plan] or --micro <declared-id> [--plan]: selected checks on a stable input are the requested tier evidence; deferred checks do not fail that tier. --async queues work but has no guaranteed local consumer and is not completion. --reviewed is optional observational metadata.',
+    reuse: 'run.mjs verify --project <path>: matching passing receipts are reused by default for the same workspace, plan and content fingerprint; --no-reuse forces execution.',
+    verify: 'run.mjs verify --project <path> [--tier quick|standard|deep] [--scope affected|layer|full] [--async --tier deep] [--only lint,typecheck,test,eval] [--progress json|off] [--no-reuse] [--plan] or --micro <declared-id> [--plan]: selected checks on a stable input are the requested tier evidence; deferred checks do not fail that tier. Each check uses verification.timeoutMs. An explicit verification.budgetMs caps only the selected check run. --async queues work but has no guaranteed local consumer and is not completion. --reviewed is optional observational metadata.',
   };
   else throw new Error(`Unknown command: ${command}`);
+  if (command === 'verify' && !args.plan && args.task[0]) {
+    const warning = await refreshVerificationCheckpoint(projectDir, args, 'post-verify');
+    if (warning) checkpointWarnings.push(warning);
+  }
   if (command !== 'help') {
     report.delivery ??= { profile: delivery.profile, stage: command };
-    report.warnings = [...(report.warnings ?? []), ...delivery.warnings, ...overrideWarnings(config)];
+    report.warnings = [...(report.warnings ?? []), ...checkpointWarnings, ...delivery.warnings, ...overrideWarnings(config)];
     if (command === 'verify' && delivery.requireReceipt) report.completion = completionReceipt(report, delivery);
   }
   const exitCode = PASS_STATUSES.includes(report.status) || (report.status === 'unverified' && report.noChanges === true) ? 0 : 1;

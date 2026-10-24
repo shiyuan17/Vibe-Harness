@@ -606,19 +606,35 @@ test('Skill 授权、工作区核验、宿主信息和受阻处理缺失时仍�
       await writeFile(path.join(target, file), content);
     }
     assert.deepEqual(await validateSkillExecutionBoundaries(target), []);
-    // Shared fail-closed wording: every boundary skill keeps stating the
-    // envelope vocabulary, the workspace identity and the blocked handling.
-    const sharedTerms = ['allowedEffects', 'allowedWriteRoots', 'Agent 不得自造', '缺授权', '暂停', 'contract-only/degraded'];
-    // Local verification and entry selection replace host-issued proof for the
-    // worktree lifecycle in all three skills.
-    const localVerificationTerms = ['worktree 生命周期', '宿主 worktree', 'origin/develop', 'worktree bootstrap'];
-    // Host-issued context stays mandatory only where cross-boundary effects and
-    // host-dispatched claims are in scope.
-    const hostContextTerms = ['hostContext', 'source=host', 'process=isolated', 'observedAt'];
+    // Entry Skills keep only the shared stop boundary and their operation-specific
+    // anchors. Full envelope fields and host proof remain in the resident rules.
+    const sharedTerms = [
+      'Agent 不得自造',
+      '缺授权',
+      '暂停',
+      'contract-only/degraded',
+      '跨边界',
+      'worktree bootstrap',
+      'integrated_cleanup_pending',
+    ];
     const perFileTerms = new Map([
-      ['skills/core/vb-git-develop-flow/SKILL.md', [...sharedTerms, ...localVerificationTerms, '用户在本轮显式调用', '会话根']],
-      ['skills/integrations/vb-linear-worktree-develop/SKILL.md', [...sharedTerms, ...localVerificationTerms, ...hostContextTerms]],
-      ['skills/integrations/linear-workflow/SKILL.md', [...sharedTerms, ...localVerificationTerms, ...hostContextTerms]],
+      ['skills/core/vb-git-develop-flow/SKILL.md', [
+        ...sharedTerms,
+        'origin/develop',
+        '主检出',
+        '推送确认即代码集成完成',
+      ]],
+      ['skills/integrations/vb-linear-worktree-develop/SKILL.md', [
+        ...sharedTerms,
+        'origin/develop',
+        '主检出',
+        '推送确认后标记 Done',
+      ]],
+      ['skills/integrations/linear-workflow/SKILL.md', [
+        ...sharedTerms,
+        '不扫描 Ready 队列',
+        '推送确认即代码集成完成',
+      ]],
     ]);
     for (const file of files) {
       for (const term of perFileTerms.get(file)) {

@@ -169,8 +169,11 @@ test('Linear DAG uses native relations and fails closed on invalid dependency or
     readFile(path.join(rootDir, 'skills/integrations/linear-workflow/references/dag-parent.md'), 'utf8'),
     readFile(path.join(rootDir, 'skills/integrations/linear-workflow/references/ai-coding-task.md'), 'utf8'),
   ]);
-  for (const term of ['Parent', 'blocked-by / blocks', '同一 Issue 不', '封闭集合', 'local-land']) {
-    assert.ok(rule.includes(term) && flow.includes(term), term);
+  for (const term of ['Parent', 'blocked-by / blocks']) {
+    assert.ok(rule.includes(term), term);
+  }
+  for (const term of ['同一 Issue 不', '封闭集合', 'local-land']) {
+    assert.ok(flow.includes(term), term);
   }
   assert.match(parent, /显式 `vb-linear-worktree-develop`.*本地 develop.*远端推送确认/u);
   assert.match(parent, /清理.*不阻塞 Done/u);
@@ -190,12 +193,13 @@ test('explicit Linear flow separates authorization from Claim and does not requi
     readFile(path.join(rootDir, 'skills/integrations/linear-workflow/references/execution-receipt.md'), 'utf8'),
     readFile(path.join(rootDir, 'docs/specs/linear-multi-agent-workflow-spec.md'), 'utf8'),
   ]);
-  for (const content of [rule, skill, entry, receipt]) {
+  for (const content of [rule, receipt]) {
     assert.match(content, /显式.*不.*Claim|显式.*不需要.*Claim/u);
     assert.match(content, /explicit-user-request/u);
   }
+  assert.match(skill, /显式.*不.*Claim|显式.*不需要.*Claim/u);
   assert.match(rule, /活动流程不再提供自动领单入口/u);
-  assert.match(entry, /用户不填写.*claimId.*grantId/u);
+  assert.match(entry, /显式执行不要求 Claim/u);
   assert.match(receipt, /显式单次执行使用 v1.*不要求 Claim 或 Grant/u);
   assert.match(rule, /显式调用 `vb-linear-worktree-develop`.*当前已确定的计划/u);
   assert.match(rule, /普通显式 Issue 执行.*只授权当前 Issue 的最小身份/u);
@@ -530,7 +534,7 @@ test('Linear auto-claim Evals distinguish valid host grants from unsafe dispatch
   }
 });
 
-test('Linear wall-clock orchestration keeps planning contracts aligned and fails closed', async () => {
+test('Linear keeps multi-agent cost planning opt-in and fails closed', async () => {
   const rule = await readFile(path.join(rootDir, LINEAR_RULE), 'utf8');
   const skill = await readFile(path.join(rootDir, LINEAR_SKILL), 'utf8');
   const planTemplate = await readFile(path.join(rootDir, 'docs/templates/plan.md'), 'utf8');
@@ -540,28 +544,31 @@ test('Linear wall-clock orchestration keeps planning contracts aligned and fails
     'utf8',
   );
   for (const content of [rule, skill, planTemplate, codingTemplate]) {
-    assert.match(content, /executionMode/u);
+    assert.match(content, /(?:执行模式|Agent 编排).*仅真实多 Agent|真实多 Agent/u);
+  }
+  for (const content of [rule, skill]) {
+    assert.match(content, /普通.*不要求.*墙钟/u);
+    assert.match(content, /单 Agent 是默认执行模式/u);
+    assert.match(content, /不扫描 Ready 队列/u);
+  }
+  for (const content of [planTemplate, codingTemplate]) {
+    assert.match(content, /仅真实多 Agent 时填写/u);
+    assert.match(content, /"executionMode":/u);
     assert.match(content, /(?:fanInOwner: parent-agent|"fanInOwner": "parent-agent")/u);
+    assert.match(content, /"wallClock":/u);
   }
   assert.match(taskTemplate, /执行模式：auto \/ single \/ parallel/u);
   assert.match(taskTemplate, /fanInOwner：parent-agent/u);
-  assert.match(rule, /`wallClock`/u);
-  assert.match(skill, /`wallClock`/u);
-  for (const template of [planTemplate, codingTemplate]) {
-    assert.match(template, /"wallClock":/u);
-  }
-  assert.match(taskTemplate, /墙钟预算（分钟）/u);
-  for (const content of [rule, skill]) {
-    assert.match(content, /Shared Contract/u);
-    assert.match(content, /Parallel Candidate/u);
-    assert.match(content, /Fan-in/u);
-    assert.match(content, /Final Gate/u);
-    assert.match(content, /Active Time/u);
-    assert.match(content, /Blocked Time/u);
-    assert.match(content, /Coordination Time/u);
-    assert.match(content, /WIP Age/u);
-    assert.match(content, /自动重派/u);
-  }
+  assert.match(taskTemplate, /普通单 Agent 或普通 Parent 不填写/u);
+  assert.match(rule, /Shared Contract/u);
+  assert.match(rule, /Parallel Candidate/u);
+  assert.match(rule, /Fan-in/u);
+  assert.match(rule, /Final Gate/u);
+  assert.match(rule, /Active Time/u);
+  assert.match(rule, /Blocked Time/u);
+  assert.match(rule, /Coordination Time/u);
+  assert.match(rule, /WIP Age/u);
+  assert.match(rule, /自动重派/u);
 
   const suite = JSON.parse(await readFile(path.join(rootDir, 'evals/suites/linear-workflow-online.json'), 'utf8'));
   assert.equal(suite.version, '1.7.0');

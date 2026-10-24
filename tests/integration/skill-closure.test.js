@@ -40,7 +40,7 @@ test('vb-git-split-push remains explicit and preserves Git safety boundaries', a
   ]);
   assert.equal(metadata.triggers.includes('$vb-git-split-push'), true);
   assert.match(openai, /allow_implicit_invocation: false/u);
-  for (const term of ['归属不明', 'staged diff', 'no-verify', 'upstream', 'origin', 'main', 'master', 'develop', 'release', 'force push', '推送失败时保留本地提交']) {
+  for (const term of ['归属不明', 'staged 对应的工作树快照', 'no-verify', 'upstream', '实际 push URL', '精确目标 ref', 'main', 'master', 'develop', 'release', 'force push', '失败保留本地提交']) {
     assert.match(content, new RegExp(term, 'u'));
   }
 });

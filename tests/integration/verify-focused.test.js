@@ -207,12 +207,11 @@ test('verify-focused --run 默认只执行快速层并把更深检查标为 defe
     };
     const fast = await runFocused();
 
-    // Every command that ran passed, but the run left layers deferred, so its
-    // receipt is blocked and the verdict is not `ok`: an exit status of 0 here
-    // would read as "this change is fully verified" while it is not.
-    assert.equal(fast.verification.acceptance.status, 'blocked');
-    assert.equal(fast.verification.acceptance.reasonCode, 'DEFERRED_CHECKS');
-    assert.equal(fast.ok, false);
+    // A quick execution can be accepted as evidence for its selected checks;
+    // deferred coverage remains explicit rather than becoming a delivery gate.
+    assert.equal(fast.verification.acceptance.status, 'accepted');
+    assert.equal(fast.verification.acceptance.coverageStatus, 'partial');
+    assert.equal(fast.ok, true);
     assert.equal(fast.verification.executionTier, 'quick');
     assert.equal(fast.verification.scopeStatus, 'partial');
     assert.equal(fast.verification.nextTier, 'standard');
@@ -291,7 +290,7 @@ test('verify-focused --run terminates a hanging command with project timeout rec
         maxBuffer: 1024 * 1024 * 8,
       }),
       (error) => {
-        assert.match(error.stderr, /Focused verification failed at: pnpm test:unit/u);
+        assert.match(error.stderr, /Focused verification blocked at: pnpm test:unit/u);
         assert.match(error.stderr, /Recovery: pnpm verify:focused --run/u);
         return true;
       },

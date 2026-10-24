@@ -552,7 +552,7 @@ test('命令集变化时 verify --reuse 回退为正常执行', async () => {
   }
 });
 
-test('缺少匹配锚点时 verify --reuse 回退且校验 task id', async () => {
+test('同树默认复用不要求指定任务锚点且仍校验 task id', async () => {
   const project = await tempProject();
   try {
     await writeConfig(project, { test: 'node -e "process.exit(0)"' });
@@ -561,9 +561,10 @@ test('缺少匹配锚点时 verify --reuse 回退且校验 task id', async () =>
     await recordReceipt(project, 'present', 'u1', first.report);
 
     const miss = await runCommand(['verify', '--project', '.', '--task', 'absent', '--reuse', '--json'], { cwd: project });
-    assert.equal(miss.report.status, 'passed');
-    assert.equal(miss.report.checks.test.status, 'passed');
-    assert.equal(miss.report.reused, undefined);
+    assert.equal(miss.report.status, 'reused');
+    assert.equal(miss.report.checks.test.status, 'reused');
+    assert.equal(miss.report.reused.id, first.report.verification.id);
+    assert.equal(miss.report.reused.taskId, 'present');
 
     const invalid = await runCommand(['verify', '--project', '.', '--task', 'a/b', '--reuse', '--json'], { cwd: project });
     assert.equal(invalid.exitCode, 1);
@@ -584,6 +585,33 @@ test('非 git 工作区中 verify --reuse 正常执行检查', async () => {
     assert.equal(result.report.checks.test.status, 'passed');
     assert.equal(result.report.verification.stable, null);
     assert.equal(result.report.reused, undefined);
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
+
+test('checkpoint 不可用时 verify 只告警且检查结果不变', async () => {
+  const project = await tempProject();
+  try {
+    await writeConfig(project, { test: 'node -e "process.exit(0)"' });
+    const initialized = await runCommand([
+      'task', 'init', 'checkpoint-warning', '--title', 'Checkpoint warning',
+      '--goal', 'Keep verification independent from anchor state', '--write', '--json',
+    ], { cwd: project });
+    assert.equal(initialized.report.status, 'passed');
+
+    const result = await runCommand([
+      'verify', '--project', '.', '--task', 'checkpoint-warning', '--no-reuse', '--json',
+    ], { cwd: project });
+    assert.equal(result.exitCode, 0, JSON.stringify(result.report));
+    assert.equal(result.report.status, 'passed');
+    assert.equal(result.report.checks.test.status, 'passed');
+    assert.deepEqual(
+      result.report.warnings
+        .filter((warning) => warning.code === 'VERIFICATION_CHECKPOINT_WARNING')
+        .map((warning) => warning.stage),
+      ['pre-verify', 'post-verify'],
+    );
   } finally {
     await rm(project, { recursive: true, force: true });
   }
@@ -627,12 +655,13 @@ test('verify --plan 优先于 --reuse', async () => {
   }
 });
 
-test('help 说明锚点目录与重放状态', async () => {
+test('help 说明锚点目录与默认复用入口', async () => {
   const result = await runCommand(['help', '--json'], { cwd: rootDir });
   assert.equal(result.exitCode, 0);
   assert.match(result.report.task, /\.vibe-harness\/tasks\/<task-id>\.json/u);
   assert.match(result.report.task, /task <init\|update\|status\|list\|plan-check\|plan-sync\|check\|freeze-tests\|rebaseline-tests>/u);
-  assert.match(result.report.reuse, /status "reused"/u);
+  assert.match(result.report.reuse, /reused by default/u);
+  assert.match(result.report.reuse, /--no-reuse/u);
 });
 
 test('受管计划绑定、漂移检查与 plan-sync 阻断更新', async () => {
