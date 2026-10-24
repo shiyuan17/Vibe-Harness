@@ -146,7 +146,7 @@ Linear 状态到本地 `result` 的映射固定如下，只作本地解释，不
 | Todo（已通过 Definition of Ready） | `ready` | Ready 门禁、依赖与资源条件满足 |
 | Todo（未通过 Ready） | `pending` 或 `blocked` | 按依赖与冲突事实判定 |
 | In Progress / In Review / Ready to Merge | `running` | 已开始但未完成验证 |
-| Done（有对应 kind 的 closing PR/MR、local-land、输出或 fan-in 证据） | `succeeded` | closing 合并，或显式 local-land 候选验证、本地合并与精确远端确认；read 输出或 aggregate fan-in 证据 |
+| Done（有对应 kind 的 closing PR/MR、local-land、输出或 fan-in 证据） | `succeeded` | closing 合并，或显式 local-land 的 stage 候选验证、publish 最新基线重建验证与精确远端确认；read 输出或 aggregate fan-in 证据 |
 | Done（缺证据） | `unverified` | 结论存在但缺完成证据，需要补证或改判；只按事实报告，不回写平台状态 |
 | Canceled / Won't Fix | `cancelled` | 外部终态 |
 | Duplicate | `skipped` | 外部终态；替代 Issue 成功不自动使原节点 `succeeded` |
@@ -157,7 +157,7 @@ Linear 状态到本地 `result` 的映射固定如下，只作本地解释，不
 
 已有 Linear DAG 是外部工作真值，不受“仅在本地协作时创建轻量 DAG”的限制。映射时，顶层 Parent 是 DAG Root，Sub-issue 是节点，Parent/Sub-issue 只表示分解；dependsOn 只能从原生 blocked-by / blocks 关系派生，related 不是执行边，描述中的依赖清单也不是第二真值。执行者由必要 Delegate/身份表示，Execution Receipt 可选，Scope 投影为 writeScope，DAG Metadata 可提供 kind、trigger 和 resourceLocks。
 
-Agent 必须检测环、不可见或未解决依赖，以及 writeScope（Linear 的 Scope）与 Resource Lock 冲突，但不得在没有授权时创建、删除或修改 Linear relations。存在子 Issue 的 Parent 是 aggregate；write 叶子由 closing PR 合并，或显式 local-land 候选验证、本地合并及远端推送确认共同证明成功；清理失败 `integrated_cleanup_pending` 不阻塞 succeeded 和后继，但残留资源继续占用，冲突资源不得复用，read 叶子由输出与 Verification 证据证明成功。Parent 只有在全部必需后代成功且 Fan-in Verification 通过后才 Done；Linear 的 Parent/Sub-issue 自动关闭必须禁用，all_done 报告节点成功也不能掩盖必需后代失败。
+Agent 必须检测环、不可见或未解决依赖，以及 writeScope（Linear 的 Scope）与 Resource Lock 冲突，但不得在没有授权时创建、删除或修改 Linear relations。存在子 Issue 的 Parent 是 aggregate；write 叶子由 closing PR 合并，或显式 local-land 的 stage 候选验证、publish 最新基线重建验证及精确远端推送确认共同证明成功；清理失败 `integrated_cleanup_pending` 不阻塞 succeeded 和后继，但残留资源继续占用，冲突资源不得复用，read 叶子由输出与 Verification 证据证明成功。Parent 只有在全部必需后代成功且 Fan-in Verification 通过后才 Done；Linear 的 Parent/Sub-issue 自动关闭必须禁用，all_done 报告节点成功也不能掩盖必需后代失败。
 
 实际并行的读写容量、Agent 上限和净收益判据由 task-decomposition reference 按宿主容量计算；默认值是可降低上限而不是必须达到的目标。子 Agent 默认不再派生子 Agent，确需进一步拆分时回传 blocked 与拆分请求，由父 Agent 决定是否创建兄弟节点。fan-in 多个子 Agent 后若父 Agent 上下文接近压缩边界，先压缩已采纳子 Agent 的原始证据指针，保留结论、已定决策及其理由与未决项再继续派发，压缩不得丢弃未完成依赖或未验证假设。
 

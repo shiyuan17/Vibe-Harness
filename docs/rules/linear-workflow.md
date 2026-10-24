@@ -31,9 +31,9 @@ Linear 保存工作状态、责任、委派与依赖；GitHub 或 GitLab 保存�
 
 Linear 写入遵循读取 → 校验 → 写入 → 重读确认，结果不明先按同一幂等键重读，部分创建保留已确认 ID，不盲目新建。尚未尝试写入且现有上下文足以核对任务与依赖时，可继续本地工作并标记 `unregistered / Linear 未同步`；已尝试但结果未知时停止受影响同步与节点，保留现场。
 
-write 节点默认从核实的最新 `origin/develop` 经 `worktree bootstrap` 建立已登记的隔离工作区，提交 `Refs <ISSUE-ID>`；当前不提供宿主 worktree 导入登记。local-land 按 `git-rules.md` 的唯一交付合同：候选 no-ff 合并并验证 → 主检出本地 develop ff-only 更新 → 精确推送 → 重读远端 SHA → 安全清理。主检出须在 develop 且干净，有无关改动时保留任务树并暂停落地。`--target-mode primary` 是唯一模式；`--target-mode remote` 退役，不得绕过本地合并。
+write 节点优先使用宿主或当前会话已创建的 worktree，并以 `--task <ISSUE-ID>:<branch>` 精确归因；没有可用隔离树时用 `worktree bootstrap` 创建已登记工作区。提交 `Refs <ISSUE-ID>` 后，local-land 按 `git-rules.md` 的 stage/publish 合同执行：`worktree stage` 从本地 develop 快照 no-ff 合并并验证，持久化为 `local_staged`；`worktree publish --batch <id>` 再对齐最新 `origin/develop`，需要时重建验证，精确推送并重读远端 SHA。主检出或宿主会话不必为 stage 单独登记端口，stage 也不要求主检出一个干净；主检出脏或落后只影响发布后的本地同步，保留用户改动。`--target-mode primary` 仅为旧 `worktree land` 兼容参数；`--target-mode remote` 退役，不得绕过 stage/publish。
 
-local-land 的候选验证、本地合并和远端推送确认后，write 节点即可 Done / succeeded；清理失败单列 `integrated_cleanup_pending`，不阻塞依赖后继。残留路径、端口和 resourceLocks 继续占用，后继资源冲突时仍不得派发。read 以输出与 Verification 完成；aggregate Parent 须全部必需后代成功并通过最终组合行为的 fan-in 验证。普通 PR/MR 路径仍以 closing 合并证据完成。
+local-land 的候选验证与精确远端推送确认后，write 节点即可 Done / succeeded；`local_staged` 只证明本地候选，不能单独支撑 Done。清理失败单列 `integrated_cleanup_pending`，不阻塞依赖后继。残留路径、端口和 resourceLocks 继续占用，后继资源冲突时仍不得派发。read 以输出与 Verification 完成；aggregate Parent 须全部必需后代成功并通过最终组合行为的 fan-in 验证。普通 PR/MR 路径仍以 closing 合并证据完成。
 
 风险只决定必要验证和隔离，不自动选择 develop flow；独立审查可选，项目明确规定的审查、Hook 与分支保护继续生效。worktree 内部操作按本轮授权和工作区事实执行，跨边界、凭据、红区与外部写入仍遵循 governance-core；不自造宿主证明。
 
@@ -47,7 +47,7 @@ local-land 的候选验证、本地合并和远端推送确认后，write 节点
 | In Progress | 必要身份与状态同步已确认且节点工作已经开始 | 开工事实（Receipt 可选）；write 节点还必须已创建任务分支（需要隔离时同时创建仓库外 worktree），Draft PR 仍保持此状态 | 自动化优先；缺少自动化且 envelope 允许 linearWrite 时 Writer 按协议手工回写 |
 | In Review | PR/MR 已退出 Draft 并进入审查 | 审查请求与提供方事实 | 自动化优先；同 In Progress 的手工回写条件 |
 | Ready to Merge | 仅用于带门禁的目标分支（`main`、`release/*`）：受保护分支要求的 review、CI、契约检查和必要 E2E 均通过；`develop` 路径不经过此状态 | branch protection 与 required checks 记录 | 自动化（基于门禁事实） |
-| Done | 完成证据全部成立 | write 叶子由 closing PR/MR 合并到声明的精确目标 ref，或显式 local-land 的候选验证、本地合并及远端确认共同证明；read 叶子由约定输出和 Verification 证据证明；aggregate Parent 由全部必需后代成功和 Fan-in Verification 证明 | closing 合并与 fan-in 验证触发的自动化 |
+| Done | 完成证据全部成立 | write 叶子由 closing PR/MR 合并到声明的精确目标 ref，或显式 local-land 的 stage 候选验证及 publish 远端确认共同证明；read 叶子由约定输出和 Verification 证据证明；aggregate Parent 由全部必需后代成功和 Fan-in Verification 证明 | closing 合并与 fan-in 验证触发的自动化 |
 
 Agent 手工写状态必须执行“读取当前值 → 校验允许转换 → 写入 → 重读确认”。实时状态和提供方事实优先于旧计划、任务模板、DAG 快照或压缩摘要；常规代码流在 `develop` 路径上只前进 Todo → In Progress → In Review → Done（closing PR 合入 `develop`），只有带门禁目标（`main`、`release/*`）才经过 Ready to Merge。任何后退、重开或纠错转换都需要单独的状态纠错授权并记录事实原因，尤其不得为恢复 Ready 清单或旧规划统计把 In Progress、In Review 或 Ready to Merge 退回 Todo。
 
@@ -55,11 +55,11 @@ Agent 手工写状态必须执行“读取当前值 → 校验允许转换 → �
 
 `release/*` 不是日常分支：只有管理员为并行维护历史版本或合规窗口临时创建时才存在，Agent 不创建、不切换也不推送该分支；它一旦存在就按带门禁目标处理，review、CI 与契约要求与 `main` 相同。
 
-`develop` 是日常集成分支：不再把稳定 fast gate 作为服务器端 required gate，接受本地 `worktree land` 的 no-ff 直落与任务分支直推；不要求人工审批。质量责任前移到本地候选合并验证（lint、typecheck、unit，并按变更影响追加 component/integration）与提交前检查。合并前的本地验证与最新目标 ref 的前置、merge queue 与 squash/auto-merge 落地机制以 `git-rules.md` 分支模型与合并条款为准，Writer 只落地自己创建的 closing PR。项目在发布边界配置的完整 required check 仍只对 `develop → main` 提升、`hotfix/* → main` 以及 `release/*` 运行。
+`develop` 是日常集成分支：不再把稳定 fast gate 作为服务器端 required gate，接受本地 `worktree stage` / `publish` 的 no-ff 直落与任务分支直推；不要求人工审批。质量责任前移到 stage 候选合并验证（lint、typecheck、unit，并按变更影响追加 component/integration）、publish 最新基线重建后的重验与提交前检查。publish 确认后，主检出本地 develop 仅做安全的 ff-only 同步；脏或领先时报告 `deferred` / `diverged`，不阻塞远端集成。合并前的本地验证与最新目标 ref 的前置、merge queue 与 squash/auto-merge 落地机制以 `git-rules.md` 分支模型与合并条款为准，Writer 只落地自己创建的 closing PR。项目在发布边界配置的完整 required check 仍只对 `develop → main` 提升、`hotfix/* → main` 以及 `release/*` 运行。
 
 快车道不豁免高风险验证：命中 CI workflow、schema、runtime、安全、红区、迁移或凭据路径时按真实影响面选择契约/集成切片；PR/MR 的 Risk Evidence 说明风险来源、实际验证、deferred 与回滚方式。独立审查作为非阻塞观察，不要求唯一 Independent Review Receipt；`develop` 的本地候选合并验证仍必须通过，`main`/发布分支既有平台保护不变。
 
-一个 write 叶子 Issue 对应一个 Writer；按隔离条件使用当前 clone 或仓库外 worktree，绑定一个命名分支；普通 PR/MR 路径绑定一个 closing PR/MR，显式 local-land 以候选验证、本地合并及远端确认完成。顺序执行且工作区干净时允许在当前 clone 创建任务分支；存在并发 Agent、脏工作区、当前分支含无关改动或任务明确要求隔离时，必须使用仓库外 worktree。read 叶子只绑定一个执行 Agent、约定输出与 Verification 证据，不要求实现 worktree、分支或 PR/MR。存在子 Issue 的 Parent 是 aggregate，不直接实现。独立旧 Issue 可无 Parent，并按 kind=write、trigger=all_success、resourceLocks=None 处理，无需迁移。
+一个 write 叶子 Issue 对应一个 Writer；按隔离条件使用当前 clone 或宿主/仓库外 worktree，绑定一个命名分支；普通 PR/MR 路径绑定一个 closing PR/MR，显式 local-land 以 stage 候选验证及 publish 远端确认完成。顺序执行且工作区干净时允许在当前 clone 创建任务分支；存在并发 Agent、脏工作区、当前分支含无关改动或任务明确要求隔离时，必须使用仓库外 worktree。read 叶子只绑定一个执行 Agent、约定输出与 Verification 证据，不要求实现 worktree、分支或 PR/MR。存在子 Issue 的 Parent 是 aggregate，不直接实现。独立旧 Issue 可无 Parent，并按 kind=write、trigger=all_success、resourceLocks=None 处理，无需迁移。
 
 ## 3 Definition of Ready
 
@@ -140,7 +140,7 @@ Git credential helper 按 `git-rules.md` credential helper 条款执行：helper
 
 ## 7 终止与交付
 
-默认 terminalCondition 为当前 Issue 的已授权交付结果；显式授权整计划时允许依赖就绪的计划内后继自动接续。普通 PR/MR write 保留 In Review 和 closing 合并证据；显式 local-land write 以验证、本地合并及精确远端确认 Done，不要求 PR。清理失败不改变代码集成成功，单列残留且保留资源占用；仅清理重试不得重放合并或推送。read 和 aggregate 按第 2 节完成。同步不可用时报告实际差异，不伪称 Linear 已 Done。不扫描 Ready 队列抢单，不转入无限 monitor。
+默认 terminalCondition 为当前 Issue 的已授权交付结果；显式授权整计划时允许依赖就绪的计划内后继自动接续。普通 PR/MR write 保留 In Review 和 closing 合并证据；显式 local-land write 以 stage 验证及 publish 精确远端确认 Done，不要求 PR。清理失败不改变代码集成成功，单列残留且保留资源占用；仅清理重试不得重放合并或推送。read 和 aggregate 按第 2 节完成。同步不可用时报告实际差异，不伪称 Linear 已 Done。不扫描 Ready 队列抢单，不转入无限 monitor。
 
 合并后回归：Done 之后发现缺陷时，默认新建回归 Issue，并以非 closing 语义（`Refs <ISSUE-ID>`）的 revert PR 恢复到目标分支；原 Issue 保持 Done，并追加关联 revert 与事实原因的评论。不得为掩盖回归把 In Progress、In Review 或 Done 退回 Todo；只有需要重新实现或重新计时才使用状态纠错授权并记录事实原因。发布边界的回滚证据仍按 `release-rules.md` 与 Release Issue 模板记录。
 

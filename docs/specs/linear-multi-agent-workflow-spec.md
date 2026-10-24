@@ -100,7 +100,7 @@ Git credential helper 只能由其配置的 Git transport 透明调用。提取�
 Agent 手工状态写入必须按“读取当前值 -> 校验允许转换 -> 写入 -> 重读确认”执行。实时状态与代码提供方事实优先于旧计划、DAG 快照或压缩摘要；常规代码流在 <code>develop</code> 路径上只前进 Todo -> In Progress -> In Review -> Done，只有带门禁目标才经过 Ready to Merge。任何后退、重开或纠错转换都需要单独状态纠错授权和事实原因，不得为了 Ready 清单或旧规划统计把 In Progress、In Review 或 Ready to Merge 退回 Todo。
 
 - 普通 write 叶子 Done：closing PR/MR 已合并到声明精确目标 ref，保留 In Review。
-- 显式 local-land write Done：Todo → In Progress → Done；候选必要验证通过，先 ff-only 更新主检出本地 develop，再显式非强制推送并精确重读远端确认。无需 PR，integrated_cleanup_pending 仍映射 succeeded 并释放依赖；清理状态单列，残留路径、端口及资源锁保持占用，禁止提前复用。
+- 显式 local-land write Done：Todo → In Progress → Done；stage 候选必要验证通过并持久化为 local_staged，publish 对齐最新远端、需要时重建验证，再显式非强制推送并精确重读远端确认。无需 PR；local_staged 本身不能 Done，integrated_cleanup_pending 仍映射 succeeded 并释放依赖；清理状态单列，残留路径、端口及资源锁保持占用，禁止提前复用。
 - read 节点 Done：约定输出和 Verification 证据已记录。
 - aggregate Parent Done：每个 required descendant 按自身 kind 成功，且自身与 Root 的 Fan-in Verification 通过并记录证据。
 
@@ -122,7 +122,7 @@ Receipt、event、评论、Eval 和日志不得包含用户名、主机名、本
 
 验收切片、依赖计划与多 Agent 并行分别判断。单 Agent 顺序任务也可按可观察增量拆片，普通固定步骤不强制完整 DAG；已有 Linear DAG 必须遵循。普通任务不计算容量、墙钟或并行收益；只有实际派发多个 Agent 时才按 task-decomposition 的按需 reference 判断隔离、容量和收益，容量或依赖不完整时保持 single。
 
-Git local-land 默认 bootstrap 登记隔离树，主检出须在 develop 且干净；冻结唯一 origin 实际 push URL、refs/heads/develop 与候选 SHA，拒绝多地址或 mirror。本地只快进同步，候选 no-ff 合并并验证后先本地再远端。阶段保存在 Git common dir；失败保留现场，基线前进有界重建，本地已合并推送失败重试原候选，结果不明先查精确远端，远端分叉不自动 reset/rebase/force push。确认后的重试只清理，remote 参数写前拒绝。
+Git local-land 优先接收宿主已创建的隔离树，并用精确 `--task <id>:<branch>` 归因；bootstrap 保留为 fallback。stage 从本地 develop 快照做 no-ff 合并并验证，写入 `refs/vibe-harness/staged/<batch-id>`，不 fetch、不移动主检出；publish 冻结唯一实际 push URL 与 refs/heads/develop，拒绝多地址或 mirror，远端前进时从新基线重建验证。推送确认后主检出本地 develop 仅在干净且可 ff-only 时同步，否则报告 deferred/diverged。事务保存在 Git common dir；失败保留现场，有界重试，结果不明先查精确远端，远端分叉不自动 reset/rebase/force push。确认后的重试只清理，remote 参数写前拒绝。
 
 ## 交付资产与验证
 

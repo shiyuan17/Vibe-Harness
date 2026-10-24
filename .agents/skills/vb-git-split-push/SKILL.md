@@ -7,7 +7,7 @@ description: Use only when explicitly requested as Vb Git Split Push, $vb-git-sp
 
 调用标识：`vb-git-split-push` / `$vb-git-split-push`；显示名 Vb Git Split Push。旧触发词 git-deliver / `$git-deliver` 指向同一入口。
 
-这是显式分组提交与普通推送入口，不创建 worktree、不合并 `develop`；本地 land 使用显式 develop flow。常驻合同见 `docs/rules/git-rules.md`；修改须同步。
+这是显式分组提交与普通推送入口，不创建 worktree、不合并 `develop`；local-land 交付使用显式 develop flow 的 `stage`/`publish`。常驻合同见 `docs/rules/git-rules.md`；修改须同步。
 
 ## 执行
 

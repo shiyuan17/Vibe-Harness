@@ -117,7 +117,7 @@ all_done 只允许清理或失败报告节点使用，且这类节点应按 aggr
 
 - command or observable check
 
-read 节点必须写明输出记录位置或可观察证据。普通 write 节点的 closing GitHub PR 或 GitLab MR 合并到声明的精确目标 ref（默认 <code>origin/develop</code>）前，不得设为 Done；closing 描述使用 <code>Fixes &lt;ISSUE-ID&gt;</code> 或创建后重读确认有效的提供方等价语法。仅显式 <code>vb-linear-worktree-develop</code> 的本地 land 节点以最新基线验证通过、no-ff 合并、先合入主检出本地 develop 再推送并重读确认作为 Done 证据；清理结果单列，不阻塞 Done，残留资源仍占用，不创建 PR/MR。发布提升与回同步使用 Release Issue 模板及 <code>Refs &lt;ISSUE-ID&gt;</code>。
+read 节点必须写明输出记录位置或可观察证据。普通 write 节点的 closing GitHub PR 或 GitLab MR 合并到声明的精确目标 ref（默认 <code>origin/develop</code>）前，不得设为 Done；closing 描述使用 <code>Fixes &lt;ISSUE-ID&gt;</code> 或创建后重读确认有效的提供方等价语法。仅显式 <code>vb-linear-worktree-develop</code> 的 local-land 节点以本地 develop 快照上的 stage no-ff 合并验证、publish 最新基线重建验证及精确推送后重读确认作为 Done 证据；主检出同步单列，清理结果单列且不阻塞 Done，残留资源仍占用，不创建 PR/MR。发布提升与回同步使用 Release Issue 模板及 <code>Refs &lt;ISSUE-ID&gt;</code>。
 
 ## AI 规则（AI Rules）
 
@@ -131,4 +131,4 @@ read 节点必须写明输出记录位置或可观察证据。普通 write 节�
 - 需要改变 Contract，或发现 Scope / Resource Lock 冲突时停止并请求决定。
 - 完成前检查实际 diff、精确目标 ref、PR/MR base 与 Verification；本地工作完成不等于 Linear Done。进入 In Review 后，若 envelope 授权 <code>mergeRequestWrite</code> 且目标为 <code>develop</code>，Writer 可自行 squash 合并使其 Done；未授权落地 merge 时结束当前执行并报告等待人工合并。已授权整计划允许依赖就绪后继接续，不扫描队列；必要验证与项目分支保护继续生效。
 
-显式 local-land：候选验证 → 主检出本地 develop ff-only 更新 → 精确远端推送确认即 Done / succeeded；清理失败不阻塞后继，但残留路径/端口/resourceLocks 继续占用。Start/Terminal Receipt 可选，无宿主 Claim 仍可执行，同 Issue 不重复并行；不扫描队列抢单。普通 PR/MR 仍需 In Review 与 closing 合并证据，Parent 必需全部后代成功及最终组合行为的 fan-in 验证。
+显式 local-land：stage 候选验证 → publish 对齐最新远程并重验 → 精确远端推送确认即 Done / succeeded；主检出本地同步独立报告。清理失败不阻塞后继，但残留路径/端口/resourceLocks 继续占用。Start/Terminal Receipt 可选，无宿主 Claim 仍可执行，同 Issue 不重复并行；不扫描队列抢单。普通 PR/MR 仍需 In Review 与 closing 合并证据，Parent 必需全部后代成功及最终组合行为的 fan-in 验证。
