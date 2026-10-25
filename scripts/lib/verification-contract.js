@@ -40,6 +40,9 @@ export function normalizeValidationChecks(value) {
       && (!Number.isInteger(item.estimatedDurationMs) || item.estimatedDurationMs < 0)) {
       throw new Error(`validationCommands.checks[${index}].estimatedDurationMs must be a non-negative integer`);
     }
+    if (item.resourceClass !== undefined && item.resourceClass !== 'repo-heavy') {
+      throw new Error(`validationCommands.checks[${index}].resourceClass must be repo-heavy`);
+    }
     if (item.deterministic !== undefined && typeof item.deterministic !== 'boolean') {
       throw new Error(`validationCommands.checks[${index}].deterministic must be boolean`);
     }
@@ -62,6 +65,7 @@ export function normalizeValidationChecks(value) {
       subsumes: [...new Set(subsumes.map((value) => value.trim()))],
       cwd: item.cwd ?? '.',
       ...(Number.isInteger(item.estimatedDurationMs) ? { estimatedDurationMs: item.estimatedDurationMs } : {}),
+      ...(item.resourceClass === 'repo-heavy' ? { resourceClass: 'repo-heavy' } : {}),
     };
   });
 }

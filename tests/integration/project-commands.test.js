@@ -282,11 +282,13 @@ test('help 覆盖含 worktree、slice、patch 与 task 在内的全部项目命�
   assert.equal(result.report.codebaseMemory, undefined);
   assert.match(result.report.worktree, /worktree <list\|check\|bootstrap\|stage\|publish\|status\|discard\|land\|cleanup\|recover>/u);
   assert.match(result.report.worktree, /writes require --write/u);
+  assert.match(result.report.worktree, /one repository FIFO under the Git common dir/u);
+  assert.match(result.report.worktree, /queue position and owners/u);
   assert.match(result.report.worktree, /stage --task <id> verifies a combined candidate/u);
   assert.match(result.report.worktree, /does not fetch or move the primary checkout/u);
-  assert.match(result.report.worktree, /publish --batch <id> refreshes the exact target/u);
-  assert.match(result.report.worktree, /pushes without force, and confirms the remote SHA/u);
-  assert.match(result.report.worktree, /cleanup runs after the lock is released/u);
+  assert.match(result.report.worktree, /publish --batch <id> re-enqueues, refreshes the exact target/u);
+  assert.match(result.report.worktree, /pushes without force, confirms the remote SHA and attempts safe local sync/u);
+  assert.match(result.report.worktree, /Non-critical cleanup runs after the FIFO is released/u);
   assert.match(result.report.task, /task <init\|update\|status\|list\|plan-check\|plan-sync\|check\|freeze-tests\|rebaseline-tests>/u);
   assert.match(result.report.reuse, /--no-reuse/u);
 });

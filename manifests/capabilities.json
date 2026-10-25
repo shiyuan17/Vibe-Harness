@@ -418,6 +418,7 @@
         "runtime/lib/verification-command.mjs",
         "runtime/lib/file-edit-command.mjs",
         "runtime/lib/worktree-command.mjs",
+        "runtime/lib/worktree-delivery-queue.mjs",
         "runtime/lib/worktree-audit.mjs",
         "runtime/lib/worktree-ports.mjs",
         "scripts/lib/project-verification.js",

@@ -475,6 +475,12 @@
     },
     {
       "group": "runtime-project-scripts",
+      "source": "runtime/lib/worktree-delivery-queue.mjs",
+      "target": ".agents/runtime/lib/worktree-delivery-queue.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
       "source": "runtime/lib/lease-lock.mjs",
       "target": ".agents/runtime/lib/lease-lock.mjs",
       "contentStrategy": "replace"

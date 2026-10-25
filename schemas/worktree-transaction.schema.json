@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://vibe-harness.invalid/schemas/worktree-transaction.schema.json",
-  "title": "Vibe-Harness worktree delivery transaction v2",
+  "title": "Vibe-Harness worktree delivery transaction v3",
   "type": "object",
   "required": [
     "schemaVersion",
@@ -11,12 +11,13 @@
     "sources",
     "candidate",
     "next",
-    "phase"
+    "phase",
+    "queue"
   ],
   "properties": {
     "schemaVersion": {
       "type": "integer",
-      "const": 2
+      "const": 3
     },
     "id": {
       "type": "string",
@@ -60,13 +61,45 @@
         "merging",
         "conflict",
         "merged",
+        "queued",
         "staged",
         "verified",
         "local_merged",
+        "publishing",
         "push_uncertain",
         "push_confirmed",
-        "cleanup_pending"
+        "cleanup_pending",
+        "recovery_required"
       ]
+    },
+    "queue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "ticketId", "state"],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "ticketId": {
+          "type": ["string", "null"]
+        },
+        "state": {
+          "type": "string",
+          "enum": ["queued", "running", "completed", "cancelled", "expired"]
+        },
+        "position": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "ahead": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "waitedMs": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
     },
     "commandStatus": {
       "type": "string",

@@ -60,7 +60,7 @@ export function verificationProgress(args, phase, detail = {}) {
   args.onProgress?.({ kind: 'vibe-harness.progress', command: 'verify', phase,
     at: new Date().toISOString(), ...detail });
 }
-export async function verifyProject(projectDir, args, { planOnly = false } = {}) {
+export async function verifyProject(projectDir, args, { planOnly = false, deliveryQueue = null } = {}) {
   args = { reuse: args.micro === undefined && !args.noReuse, ...args };
   const startedAt = new Date().toISOString();
   if (args.micro !== undefined) {
@@ -328,14 +328,21 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
     }
   }
   const selectedPlanChecks = tierPlan.selectedChecks ?? [];
-  const heavyWork = tier === 'deep' || selectedPlanChecks.some((check) => check.costTier === 'deep'
+  const heavyWork = tier === 'deep' || selectedPlanChecks.some((check) => check.resourceClass === 'repo-heavy'
+    || check.costTier === 'deep'
     || /(?:^|\s)(?:mvn|mvnw|gradle|gradlew)(?:\s|$)/iu.test(check.command ?? ''));
   let verificationLease = null;
   if (!planOnly && heavyWork && selectedNames.some((name) => checkCache.get(name)?.status !== 'hit')) {
-    verificationProgress(args, 'lock-wait', { tier: tierPlan.tier });
-    verificationLease = await acquireVerificationLock(projectDir);
+    if (deliveryQueue?.report) {
+      verificationLease = { ok: true, borrowed: true, queue: deliveryQueue.report };
+    } else {
+      verificationProgress(args, 'queue-wait', { tier: tierPlan.tier });
+      verificationLease = await acquireVerificationLock(projectDir, {
+        onProgress: (event) => args.onProgress?.(event),
+      });
+    }
     if (!verificationLease.ok) {
-      verificationProgress(args, 'lock-blocked', { reason: verificationLease.reason });
+      verificationProgress(args, 'queue-blocked', { reason: verificationLease.reason });
       return {
         schemaVersion: VERIFY_SCHEMA_VERSION,
         engine: VERIFY_ENGINE,
@@ -343,11 +350,9 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
         tier: tierPlan.tier,
         scope,
         status: 'blocked',
-        code: 'VERIFICATION_BUSY',
-        error: verificationLease.reason === 'verification-lock-held'
-          ? 'another deep or backend-wide verification holds this repository; wait for it to finish or expire before retrying'
-          : `heavy verification lock is unavailable (${verificationLease.reason})`,
-        lock: { path: verificationLease.path, holder: verificationLease.holder ?? null },
+        code: verificationLease.reason === 'WORKTREE_QUEUE_TIMEOUT' ? 'WORKTREE_QUEUE_TIMEOUT' : 'VERIFICATION_QUEUE_UNAVAILABLE',
+        error: `repository verification queue is unavailable (${verificationLease.reason})`,
+        queue: verificationLease.queue ?? null,
         checks: {},
       };
     }
@@ -674,6 +679,7 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
     },
     warnings: reviewWarnings,
     environment: { mode: environmentMode, status: environmentStatus },
+    queue: verificationLease?.queue ?? null,
     verification: {
       schemaVersion: 3,
       engine: VERIFY_ENGINE,
@@ -728,6 +734,6 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
     deferredCount: tierPlan.deferredChecks.length });
   return report;
   } finally {
-    verificationLease?.release?.();
+    if (!verificationLease?.borrowed) await verificationLease?.release?.();
   }
 }

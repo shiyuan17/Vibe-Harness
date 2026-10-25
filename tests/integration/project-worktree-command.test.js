@@ -13,6 +13,7 @@ import { removeTemporaryDirectory } from '../../scripts/lib/temp-cleanup.js';
 import { landLockTimeoutMs, runCommand } from '../../runtime/commands/run.mjs';
 import { GIT_TIMEOUT_MS, MAX_GIT_TIMEOUT_MS, MIN_GIT_TIMEOUT_MS, gitTimeoutMs } from '../../runtime/lib/git-timeouts.mjs';
 import { expandMirrors, linkOrCopyMirrors, removeMirrorLinks } from '../../runtime/lib/worktree-mirrors.mjs';
+import { acquireDeliveryTurn, releaseDeliveryTurn } from '../../runtime/lib/worktree-delivery-queue.mjs';
 
 // `run.mjs worktree` is the installed entry point for worktree provisioning and
 // cleanup under docs/rules/git-rules.md §Worktree: read-only by default and
@@ -1146,7 +1147,7 @@ test('local-land 推送期间远端分叉时保留本地合并和源工作区', 
   }
 });
 
-test('local-land 拒绝脏主检出和未归属提交并保留源工作区', async () => {
+test('local-land 推送不因脏主检出而停住，并延迟本地同步', async () => {
   const fixture = await makeDevelopLandFixture();
   try {
     const before = await git(fixture.repo, ['rev-parse', 'develop']);
@@ -1154,23 +1155,32 @@ test('local-land 拒绝脏主检出和未归属提交并保留源工作区', asy
       '--delivery', 'local-land', '--write', '--push', '--json'];
     await writeFile(path.join(fixture.repo, 'unrelated.txt'), 'user work\n');
     const dirty = await runCommand(args, { cwd: fixture.repo });
-    assert.equal(dirty.report.code, 'LAND_BATCH_PRIMARY_DIRTY');
-    const primaryCheckout = dirty.report.preflight.primaryCheckout;
-    assert.equal(primaryCheckout.branch, 'develop');
-    assert.equal(primaryCheckout.head, before);
-    assert.equal(primaryCheckout.dirty, true);
-    assert.equal(primaryCheckout.changeCount, 1);
-    assert.equal(primaryCheckout.changes[0].path, 'unrelated.txt');
-    assert.equal(primaryCheckout.changesTruncated, false);
-    assert.match(primaryCheckout.guidance, /Do not delete, stash, stage, or commit user work automatically/u);
+    assert.equal(dirty.report.status, 'passed', JSON.stringify(dirty.report));
+    assert.equal(dirty.report.integrationStatus, 'integrated');
+    assert.equal(dirty.report.localRefSync, 'deferred');
+    assert.equal(dirty.report.queue.state, 'completed');
     assert.equal(await git(fixture.repo, ['rev-parse', 'develop']), before);
-    await git(fixture.repo, ['add', 'unrelated.txt']);
+    assert.notEqual(await git(fixture.origin, ['rev-parse', 'develop']), before);
+    assert.equal(await readFile(path.join(fixture.repo, 'unrelated.txt'), 'utf8'), 'user work\n');
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('local-land 推送不吸收本地未归属提交，并报告本地目标分叉', async () => {
+  const fixture = await makeDevelopLandFixture();
+  try {
+    await writeFile(path.join(fixture.repo, 'unowned.txt'), 'local only\n');
+    await git(fixture.repo, ['add', 'unowned.txt']);
     await git(fixture.repo, ['commit', '-qm', 'unowned local work']);
     const ahead = await git(fixture.repo, ['rev-parse', 'develop']);
-    assert.equal((await runCommand(args, { cwd: fixture.repo })).report.code, 'LAND_LOCAL_TARGET_AHEAD');
+    const result = await runCommand(['worktree', 'land', '--project', fixture.repo, '--task', 'ENG-1',
+      '--delivery', 'local-land', '--write', '--push', '--json'], { cwd: fixture.repo });
+    assert.equal(result.report.status, 'passed', JSON.stringify(result.report));
+    assert.equal(result.report.integrationStatus, 'integrated');
+    assert.equal(result.report.localRefSync, 'diverged');
     assert.equal(await git(fixture.repo, ['rev-parse', 'develop']), ahead);
-    assert.equal(await git(fixture.origin, ['rev-parse', 'develop']), before);
-    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
+    assert.equal((await git(fixture.origin, ['show', 'develop:work.txt'])).trim(), 'done');
   } finally {
     await removeTemporaryDirectory(fixture.root);
   }
@@ -1204,7 +1214,8 @@ test('worktree stage 在脏主检出下只生成持久本地候选，不 fetch �
     const statePath = path.join(fixture.repo, '.git',
       `vibe-harness-land-batch-${staged.report.batchId}.json`);
     const state = JSON.parse(await readFile(statePath, 'utf8'));
-    assert.equal(state.schemaVersion, 2);
+    assert.equal(state.schemaVersion, 3);
+    assert.equal(state.queue.state, 'completed');
     assert.equal(typeof state.pushTarget.fingerprint, 'string');
     assert.equal(Object.hasOwn(state.pushTarget, 'url'), false);
   } finally {
@@ -1241,6 +1252,132 @@ test('worktree publish 基于最新远端重建验证，主检出脏时延迟本
     assert.equal(await readFile(path.join(fixture.repo, 'unrelated.txt'), 'utf8'), 'preserve user work\n');
     assert.equal(await entryExists(fixture.repo, fixture.worktreePath), false);
   } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('worktree stage 与 publish 复用同一仓库 FIFO，并在失败时释放给后续请求', async () => {
+  const fixture = await makeDevelopLandFixture();
+  const previousTimeout = process.env.VIBE_HARNESS_REPO_QUEUE_TIMEOUT_MS;
+  let held = null;
+  try {
+    held = await acquireDeliveryTurn(fixture.repo, { operation: 'land', timeoutMs: 1000 });
+    assert.equal(held.ok, true, JSON.stringify(held));
+    process.env.VIBE_HARNESS_REPO_QUEUE_TIMEOUT_MS = '150';
+    const blockedStage = await runCommand([
+      'worktree', 'stage', '--project', fixture.repo, '--task', 'ENG-1',
+      '--delivery', 'local-land', '--write', '--json',
+    ], { cwd: fixture.repo });
+    assert.equal(blockedStage.report.status, 'blocked', JSON.stringify(blockedStage.report));
+    assert.equal(blockedStage.report.code, 'WORKTREE_QUEUE_TIMEOUT');
+    assert.equal(blockedStage.report.queue.owner.operation, 'land');
+
+    await releaseDeliveryTurn(held, 'completed');
+    held = null;
+    process.env.VIBE_HARNESS_REPO_QUEUE_TIMEOUT_MS = '5000';
+    const staged = await runCommand([
+      'worktree', 'stage', '--project', fixture.repo, '--task', 'ENG-1',
+      '--delivery', 'local-land', '--write', '--json',
+    ], { cwd: fixture.repo });
+    assert.equal(staged.report.status, 'passed', JSON.stringify(staged.report));
+    assert.equal(staged.report.integrationStatus, 'local_staged');
+    assert.equal(staged.report.queue.state, 'completed');
+
+    const statePath = path.join(fixture.repo, '.git',
+      `vibe-harness-land-batch-${staged.report.batchId}.json`);
+    assert.equal(existsSync(statePath), true, JSON.stringify({
+      statePath,
+      gitEntries: await readdir(path.join(fixture.repo, '.git')),
+      staged: staged.report,
+    }));
+    const legacyV2 = JSON.parse(await readFile(statePath, 'utf8'));
+    legacyV2.schemaVersion = 2;
+    delete legacyV2.queue;
+    await writeJson(statePath, legacyV2);
+    const v2Status = await runCommand([
+      'worktree', 'status', '--project', fixture.repo, '--batch', staged.report.batchId, '--json',
+    ], { cwd: fixture.repo });
+    assert.equal(v2Status.report.integrationStatus, 'local_staged', JSON.stringify(v2Status.report));
+    await writeJson(statePath, { ...legacyV2, schemaVersion: 1 });
+
+    held = await acquireDeliveryTurn(fixture.repo, { operation: 'verify', timeoutMs: 1000 });
+    assert.equal(held.ok, true, JSON.stringify(held));
+    process.env.VIBE_HARNESS_REPO_QUEUE_TIMEOUT_MS = '150';
+    const blockedPublish = await runCommand([
+      'worktree', 'publish', '--project', fixture.repo, '--batch', staged.report.batchId,
+      '--delivery', 'local-land', '--write', '--json',
+    ], { cwd: fixture.repo });
+    assert.equal(blockedPublish.report.status, 'blocked', JSON.stringify(blockedPublish.report));
+    assert.equal(blockedPublish.report.code, 'WORKTREE_QUEUE_TIMEOUT');
+    assert.equal(blockedPublish.report.queue.owner.operation, 'verify');
+    const status = await runCommand([
+      'worktree', 'status', '--project', fixture.repo, '--batch', staged.report.batchId, '--json',
+    ], { cwd: fixture.repo });
+    assert.equal(status.report.integrationStatus, 'local_staged', JSON.stringify(status.report));
+
+    await releaseDeliveryTurn(held, 'completed');
+    held = null;
+    process.env.VIBE_HARNESS_REPO_QUEUE_TIMEOUT_MS = '5000';
+    const rejectHook = path.join(fixture.origin, 'hooks', 'pre-receive');
+    await writeFile(rejectHook, '#!/bin/sh\nexit 1\n');
+    await chmod(rejectHook, 0o755);
+    const rejectedPublish = await runCommand([
+      'worktree', 'publish', '--project', fixture.repo, '--batch', staged.report.batchId,
+      '--delivery', 'local-land', '--write', '--json',
+    ], { cwd: fixture.repo });
+    assert.equal(rejectedPublish.report.status, 'blocked', JSON.stringify(rejectedPublish.report));
+    assert.equal(rejectedPublish.report.queue.state, 'completed');
+    const upgraded = JSON.parse(await readFile(statePath, 'utf8'));
+    assert.equal(upgraded.schemaVersion, 3);
+    assert.equal(upgraded.phase, 'push_uncertain');
+    assert.equal(upgraded.queue.state, 'completed');
+
+    await rm(rejectHook);
+    const published = await runCommand([
+      'worktree', 'publish', '--project', fixture.repo, '--batch', staged.report.batchId,
+      '--delivery', 'local-land', '--write', '--json',
+    ], { cwd: fixture.repo });
+    assert.equal(published.report.status, 'passed', JSON.stringify(published.report));
+    assert.equal(published.report.integrationStatus, 'integrated');
+    assert.equal(published.report.queue.state, 'completed');
+    assert.equal(existsSync(statePath), false);
+  } finally {
+    if (previousTimeout === undefined) delete process.env.VIBE_HARNESS_REPO_QUEUE_TIMEOUT_MS;
+    else process.env.VIBE_HARNESS_REPO_QUEUE_TIMEOUT_MS = previousTimeout;
+    if (held) await releaseDeliveryTurn(held, 'cancelled');
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('交付事务中的 repo-heavy 检查借用队首租约且不会自锁', async () => {
+  const previousTimeout = process.env.VIBE_HARNESS_REPO_QUEUE_TIMEOUT_MS;
+  const fixture = await makeDevelopLandFixture({
+    extraFiles: { 'repo-heavy.mjs': "console.log('repo-heavy passed');\n" },
+    validationCommands: {
+      test: 'node repo-heavy.mjs',
+      tiers: { quick: ['node repo-heavy.mjs'], standard: [], deep: [] },
+      checks: [{
+        id: 'test',
+        command: 'node repo-heavy.mjs',
+        deterministic: true,
+        cacheScope: 'tree',
+        resourceClass: 'repo-heavy',
+      }],
+    },
+    verification: { reuse: { mode: 'tree-content' } },
+  });
+  try {
+    process.env.VIBE_HARNESS_REPO_QUEUE_TIMEOUT_MS = '1000';
+    const staged = await runCommand([
+      'worktree', 'stage', '--project', fixture.repo, '--task', 'ENG-1',
+      '--delivery', 'local-land', '--write', '--json',
+    ], { cwd: fixture.repo });
+    assert.equal(staged.report.status, 'passed', JSON.stringify(staged.report));
+    assert.equal(staged.report.integrationStatus, 'local_staged');
+    assert.equal(staged.report.queue.state, 'completed');
+  } finally {
+    if (previousTimeout === undefined) delete process.env.VIBE_HARNESS_REPO_QUEUE_TIMEOUT_MS;
+    else process.env.VIBE_HARNESS_REPO_QUEUE_TIMEOUT_MS = previousTimeout;
     await removeTemporaryDirectory(fixture.root);
   }
 });
@@ -1538,12 +1675,19 @@ if (!existsSync(marker)) {
         assert.equal((await readFile(path.join(fixture.repo, 'other.txt'), 'utf8')).trim(), 'new baseline');
         assert.equal((await readFile(path.join(fixture.repo, 'work.txt'), 'utf8')).trim(), 'done');
         assert.equal(await git(fixture.repo, ['rev-list', '--count', '--merges', 'develop']), '1');
-      } else {
+      } else if (mutation === 'candidate') {
         assert.notEqual(result.exitCode, 0, JSON.stringify(result.report));
-        assert.equal(result.report.code, mutation === 'candidate' ? 'LAND_BATCH_VERIFY_FAILED' : 'LAND_BATCH_SNAPSHOT_CHANGED');
+        assert.equal(result.report.code, 'LAND_BATCH_VERIFY_FAILED');
         assert.equal(await git(fixture.repo, ['rev-parse', 'develop']), before);
         assert.equal(await git(fixture.origin, ['rev-parse', 'develop']), before);
         assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
+      } else {
+        assert.equal(result.report.status, 'passed', JSON.stringify(result.report));
+        assert.equal(result.report.integrationStatus, 'integrated');
+        assert.equal(result.report.localRefSync, 'deferred');
+        assert.equal(await git(fixture.repo, ['symbolic-ref', '--short', 'HEAD']), 'feat/other-target');
+        assert.equal(await git(fixture.repo, ['rev-parse', 'develop']), before);
+        assert.notEqual(await git(fixture.origin, ['rev-parse', 'develop']), before);
       }
     } finally {
       if (previous === undefined) delete process.env.LAND_MUTATION_REPO;
@@ -1650,7 +1794,7 @@ test('batch can resolve two successive conflicts before a single final verificat
   }
 });
 
-test('batch verification failure preserves target and both source worktrees', async () => {
+test('batch verification failure records recovery state and can be collected after inspection', async () => {
   const fixture = await makeLocalFixture({ validationCommands: { test: 'node missing-batch-check.mjs' } });
   try {
     await bootstrapWithWork(fixture);
@@ -1667,8 +1811,9 @@ test('batch verification failure preserves target and both source worktrees', as
     assert.equal(await entryExists(fixture.repo, second), true);
     // A real task named "batch" must not make the generic recovery pattern
     // mistake a retained transaction candidate for abandoned task residue.
-    await runCommand(['worktree', 'recover', '--project', fixture.repo, '--all', '--write', '--json'], { cwd: fixture.repo });
-    assert.equal(await entryExists(fixture.repo, result.report.candidatePath), true);
+    const recovered = await runCommand(['worktree', 'recover', '--project', fixture.repo, '--all', '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(recovered.report.status, 'passed', JSON.stringify(recovered.report));
+    assert.equal(await existsSync(result.report.candidatePath), false);
   } finally {
     await removeTemporaryDirectory(fixture.root);
   }
@@ -2193,6 +2338,11 @@ test('land 候选合并不执行表单 Hook，并报告分项耗时', async () =
   });
   try {
     await chmod(path.join(fixture.repo, '.githooks/post-merge'), 0o755);
+    // POSIX records the executable bit as a tracked change. Commit the fixture
+    // mode before landing so this test observes hook isolation rather than the
+    // independent clean-primary-checkout gate.
+    await git(fixture.repo, ['add', '.githooks/post-merge']);
+    await git(fixture.repo, ['commit', '-q', '-m', 'fixture: executable hook']);
     await git(fixture.repo, ['config', 'core.hooksPath', '.githooks']);
     await bootstrapWithWork(fixture);
     const written = await runCommand(['worktree', 'land', '--project', fixture.repo, '--delivery', 'local-land', '--reviewed', 'all', '--write', '--json'], { cwd: fixture.repo });
@@ -2230,7 +2380,7 @@ test('land 预检报告残留 candidate 与缺失依赖根', async () => {
   }
 });
 
-test('land 预检在 deep 验证锁被持有时 blocked 且不创建候选', async () => {
+test('land 写入遇到仓库队列占用时在预算内返回且不创建候选', async () => {
   const fixture = await makeLocalFixture({
     validationCommands: {
       tiers: {
@@ -2240,27 +2390,25 @@ test('land 预检在 deep 验证锁被持有时 blocked 且不创建候选', asy
       },
     },
   });
-  const lockPath = path.join(fixture.repo, '.git', 'vibe-harness-deep-verify.lock');
+  let held = null;
+  const previousTimeout = process.env.VIBE_HARNESS_REPO_QUEUE_TIMEOUT_MS;
   try {
     await bootstrapWithWork(fixture);
-    await writeJson(lockPath, {
-      schemaVersion: 1,
-      nonce: 'fixture',
-      pid: process.pid,
-      startedAt: new Date().toISOString(),
-      heartbeatAt: new Date().toISOString(),
-      leaseMs: 10 * 60 * 1000,
-    });
+    held = await acquireDeliveryTurn(fixture.repo, { operation: 'land', timeoutMs: 1000 });
+    assert.equal(held.ok, true, JSON.stringify(held));
+    process.env.VIBE_HARNESS_REPO_QUEUE_TIMEOUT_MS = '150';
     const blocked = await runCommand([
       'worktree', 'land', '--project', fixture.repo, '--delivery', 'local-land',
-      '--tier', 'deep', '--reviewed', 'all', '--json',
+      '--tier', 'deep', '--reviewed', 'all', '--write', '--json',
     ], { cwd: fixture.repo });
     assert.equal(blocked.report.status, 'blocked', JSON.stringify(blocked.report));
-    assert.equal(blocked.report.preflight.deepLock.held, true);
-    assert.ok(blocked.report.blockers.some((line) => /deep or backend-wide verification/u.test(line)));
+    assert.equal(blocked.report.code, 'WORKTREE_QUEUE_TIMEOUT');
+    assert.equal(blocked.report.queue.owner.operation, 'land');
     assert.equal(await git(fixture.repo, ['rev-list', '--count', 'develop']), '1');
   } finally {
-    await rm(lockPath, { force: true });
+    if (previousTimeout === undefined) delete process.env.VIBE_HARNESS_REPO_QUEUE_TIMEOUT_MS;
+    else process.env.VIBE_HARNESS_REPO_QUEUE_TIMEOUT_MS = previousTimeout;
+    if (held) await releaseDeliveryTurn(held, 'cancelled');
     await removeTemporaryDirectory(fixture.root);
   }
 });
@@ -2796,25 +2944,20 @@ test('显式 develop local-land 从 origin/develop 引导并在推送后清理',
   }
 });
 
-test('脏主检出暂停 local-land 并保留全部源资源', async () => {
+test('脏主检出不阻塞 local-land 远端发布并保留用户文件', async () => {
   const fixture = await makeDevelopLandFixture();
   try {
     const head = await git(fixture.repo, ['rev-parse', 'HEAD']);
     await writeFile(path.join(fixture.repo, 'unrelated.txt'), 'keep\n');
     const result = await runCommand(['worktree', 'land', '--project', fixture.repo,
       '--task', 'ENG-1', '--delivery', 'local-land', '--write', '--push', '--json'], { cwd: fixture.repo });
-    assert.equal(result.report.code, 'LAND_BATCH_PRIMARY_DIRTY');
-    assert.equal(result.report.preflight.primaryCheckout.branch, 'develop');
-    assert.equal(result.report.preflight.primaryCheckout.head, head);
-    assert.equal(result.report.preflight.primaryCheckout.dirty, true);
-    assert.equal(result.report.preflight.primaryCheckout.changeCount, 1);
-    assert.equal(result.report.preflight.primaryCheckout.changes[0].path, 'unrelated.txt');
-    assert.equal(result.report.preflight.primaryCheckout.changesTruncated, false);
+    assert.equal(result.report.status, 'passed', JSON.stringify(result.report));
+    assert.equal(result.report.integrationStatus, 'integrated');
+    assert.equal(result.report.localRefSync, 'deferred');
     assert.equal(await git(fixture.repo, ['rev-parse', 'HEAD']), head);
-    assert.equal(await git(fixture.origin, ['rev-parse', 'develop']), head);
+    assert.notEqual(await git(fixture.origin, ['rev-parse', 'develop']), head);
     assert.equal(await readFile(path.join(fixture.repo, 'unrelated.txt'), 'utf8'), 'keep\n');
-    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
-    assert.equal((await readRegistry(fixture.repo)).entries.length, 1);
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), false);
   } finally { await removeTemporaryDirectory(fixture.root); }
 });
 
