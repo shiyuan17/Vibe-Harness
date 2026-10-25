@@ -1434,7 +1434,7 @@
         "maintainer",
         "auditor"
       ],
-      "supersededBy": "docs/adr/ADR-0021-staged-local-publish-delivery.md"
+      "supersededBy": "docs/adr/ADR-0022-repository-delivery-fifo.md"
     },
     {
       "path": "docs/adr/ADR-0018-explicit-linear-claim-boundary.md",
@@ -1477,7 +1477,7 @@
         "maintainer",
         "auditor"
       ],
-      "supersededBy": "docs/adr/ADR-0021-staged-local-publish-delivery.md"
+      "supersededBy": "docs/adr/ADR-0022-repository-delivery-fifo.md"
     },
     {
       "path": "docs/adr/ADR-0020-lightweight-delivery-blocking-and-verification-limits.md",
@@ -1489,10 +1489,22 @@
         "maintainer",
         "auditor"
       ],
-      "supersededBy": "docs/adr/ADR-0021-staged-local-publish-delivery.md"
+      "supersededBy": "docs/adr/ADR-0022-repository-delivery-fifo.md"
     },
     {
       "path": "docs/adr/ADR-0021-staged-local-publish-delivery.md",
+      "kind": "architecture",
+      "status": "superseded",
+      "language": "zh-CN",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ],
+      "supersededBy": "docs/adr/ADR-0022-repository-delivery-fifo.md"
+    },
+    {
+      "path": "docs/adr/ADR-0022-repository-delivery-fifo.md",
       "kind": "architecture",
       "status": "current",
       "language": "zh-CN",

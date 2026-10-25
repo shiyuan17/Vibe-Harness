@@ -273,6 +273,12 @@
                 "type": "integer",
                 "minimum": 0
               },
+              "resourceClass": {
+                "type": "string",
+                "enum": [
+                  "repo-heavy"
+                ]
+              },
               "deterministic": {
                 "type": "boolean"
               },

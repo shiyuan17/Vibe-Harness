@@ -84,6 +84,10 @@
     {
       "id": "ADR-0021",
       "path": "docs/adr/ADR-0021-staged-local-publish-delivery.md"
+    },
+    {
+      "id": "ADR-0022",
+      "path": "docs/adr/ADR-0022-repository-delivery-fifo.md"
     }
   ]
 }

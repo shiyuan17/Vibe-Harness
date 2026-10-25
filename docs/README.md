@@ -29,6 +29,7 @@
 - [显式执行、本地先合并交付与受限依赖调度](adr/ADR-0019-local-first-explicit-delivery.md)
 - [轻量交付边界、三档阻塞与验证执行时限](adr/ADR-0020-lightweight-delivery-blocking-and-verification-limits.md)
 - [本地暂存与远端发布两阶段 worktree 交付](adr/ADR-0021-staged-local-publish-delivery.md)
+- [仓库级 FIFO 串行化受管 Worktree 交付](adr/ADR-0022-repository-delivery-fifo.md)
 - [ADR Schema](schemas/adr.schema.json)
 - [Execution Envelope v1 Schema](schemas/execution-envelope.schema.json)
 - [Execution Envelope v2 Schema](schemas/execution-envelope-v2.schema.json)

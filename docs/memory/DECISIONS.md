@@ -28,7 +28,8 @@
 - **ADR-0018** 显式 Linear 执行与宿主自动派发的授权/Claim 分离 - accepted - 显式单次调用使用内部授权上下文与 v1 Receipt；Claim 只负责并发互斥，自动派发仍要求宿主 Grant、原子 Claim 与 v3 Receipt。 - [ADR](../adr/ADR-0018-explicit-linear-claim-boundary.md)
 - **ADR-0019** 显式执行、本地先合并交付与受限依赖调度 - superseded - 显式执行继续有效；本地先合并交付由 ADR-0021 的 stage/publish 两阶段收敛 - [ADR](../adr/ADR-0019-local-first-explicit-delivery.md)
 - **ADR-0020** 轻量交付边界、三档阻塞与验证执行时限 - superseded - 安全/交付/执行三档阻塞继续有效；交付时序由 ADR-0021 收敛 - [ADR](../adr/ADR-0020-lightweight-delivery-blocking-and-verification-limits.md)
-- **ADR-0021** 本地暂存与远端发布两阶段 worktree 交付 - accepted - 本地暂存与远端发布两阶段 worktree 交付 - [ADR](../adr/ADR-0021-staged-local-publish-delivery.md)
+- **ADR-0021** 本地暂存与远端发布两阶段 worktree 交付 - superseded - stage/publish 分离继续有效；候选并行与短 Per-Ref 锁假设由 ADR-0022 替代 - [ADR](../adr/ADR-0021-staged-local-publish-delivery.md)
+- **ADR-0022** 仓库级 FIFO 串行化受管 Worktree 交付 - accepted - 所有受管 merge、候选验证、共享 ref 更新、push 与本地同步按仓库级 FIFO 执行；重型独立 verify 共用队列 - [ADR](../adr/ADR-0022-repository-delivery-fifo.md)
 
 ## 纪律
 

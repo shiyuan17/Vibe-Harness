@@ -38,7 +38,7 @@
 
 `verify --delivery managed-mr --plan` 预览命令。需要 completion receipt 的显式消费者仍可读取 stage=verify 的草稿并补入 MR、浏览器、数据库等真实验收；不能删除仍未通过的必需项。收据包含 status、delivery.profile/stage、非空 acceptance（id/status/command 或 criterion/scope）、unverified、remainingRisks、rollback、source/target HEAD 或指纹、verification。
 
-`task check <id> --complete --receipt <file> --delivery <profile>` 仍是显式收据消费者可调用的检查，但普通 local-land 不要求 Receipt。新 local-land 流程分为 `worktree stage` 与 `worktree publish --batch <id>`：stage 只产生验证过的 `local_staged` 私有引用，不 fetch、不移动主检出；publish 基于最新远端基线重建、验证并精确推送，只有远端 SHA 回读确认候选到达远端才写 `integrated`。若另一发布在回读前继续推进目标，只要候选仍为精确远端 HEAD 的祖先，就记录实际 `remoteConfirmedHead` 与 `remoteAdvanced`，不误报分叉。主检出同步单列 `localRefSync`，清理失败单列 `integrated_cleanup_pending`。旧 `land` 调用在兼容窗口内保持候选验证、本地合并和远端回读语义。
+`task check <id> --complete --receipt <file> --delivery <profile>` 仍是显式收据消费者可调用的检查，但普通 local-land 不要求 Receipt。新 local-land 流程分为 `worktree stage` 与 `worktree publish --batch <id>`，两者以及兼容 `land` 共用 Git common dir 下的仓库级 FIFO。stage 在队首产生验证过的 `local_staged` 私有引用，不 fetch、不移动主检出，完成后释放队列；publish 作为新请求重新排队，基于最新远端基线重建、验证、精确推送并在释放前完成安全本地同步，只有远端 SHA 回读确认候选到达远端才写 `integrated`。若另一发布在回读前继续推进目标，只要候选仍为精确远端 HEAD 的祖先，就记录实际 `remoteConfirmedHead` 与 `remoteAdvanced`，不误报分叉。主检出同步单列 `localRefSync`，清理失败单列 `integrated_cleanup_pending`。旧 `land --push` 复用同一发布器，脏主检出只延迟本地同步。
 
 事务报告区分 `commandStatus`、`integrationStatus`、`remoteValidation` 与 `localRefSync`。`worktree status --batch <id>` 只读恢复，`discard` 只允许回收已确认未发布事务，推送结果不明时必须先核实远端或重试发布；v2 状态仅保存远端 ref、确认 HEAD 与 URL 指纹，不保存原始 push URL。事务 schema 见 [worktree-transaction.schema.json](../../schemas/worktree-transaction.schema.json)。
 
@@ -46,7 +46,7 @@ merge evidence 的必需字段：sourceBase、sourceHead、targetRef、targetBef
 
 收据复用除 Git 内容、命令集、环境外还记录 tracked/非忽略文件的 mtime/ctime/size 写入指纹；同内容重写也使旧收据失效。忽略的运行产物不纳入工作树完成证据；命令声明仍应显式覆盖相关外部依赖。
 
-`worktree stage` 与兼容 `land` 使用 `reuse:true`，按代码树内容复用已通过的逐检查确定性证据；`--reviewed` 只记录本次检查的观察结果，不继承旧收据且不阻塞交付。候选 worktree 的受管 merge 使用空 hooks path、`LEFTHOOK=0`、`HUSKY=0` 和 `--no-verify`，避免表单/Git Hook 改写共享依赖。同一仓库的 deep/后端全量验证由 Git common dir 租约锁串行；stage/publish 预检检测基线漂移、残留 candidate、该锁、依赖根与 junction 完整性，并报告 setup/merge/verify/push/local-sync/cleanup/total 与逐检查耗时。
+`worktree stage` 与兼容 `land` 使用 `reuse:true`，按代码树内容复用已通过的逐检查确定性证据；`--reviewed` 只记录本次检查的观察结果，不继承旧收据且不阻塞交付。候选 worktree 的受管 merge 使用空 hooks path、`LEFTHOOK=0`、`HUSKY=0` 和 `--no-verify`，避免表单/Git Hook 改写共享依赖。从创建候选与第一个受管 merge 开始，候选验证、共享 ref 更新、push 和本地 ff-only 同步共享同一仓库 FIFO；`deep`、`resourceClass: "repo-heavy"` 与 `mvn/gradle` 兼容识别均进入该队列，交付事务内的验证借用当前队首租约以避免死锁。stage/publish 预检检测基线漂移、残留 candidate、依赖根与 junction 完整性，并报告 setup/merge/verify/push/local-sync/cleanup/total 与逐检查耗时。
 
 ## 恢复
 

@@ -30,79 +30,100 @@ Git 规则的目的是保护用户改动、让提交可审查、确保 worktree 
 
 ### 问题背景
 
-在多 worktree 并发开发中，传统全局锁设计会导致严重的落地延迟与阶段性阻塞：
+在多 worktree 并发开发中，“候选合并与验证并行、最终 push 才抢锁”会把
+同一仓库的重型检查、共享状态和远端基线拆成两个不连续的临界区：
 
-- **合并验证的锁持有时间过长**：验证可能持续数分钟，而传统实现在整个合并生命周期内持有全局锁，导致 N 个并发 worktree 对同一目标分支的落地在验证阶段完全序列化。
-- **跨 ref 的不必要竞争**：不同目标分支（如 `feat/A` 和 `feat/B`）的 worktree 对同一全局锁竞争，尽管它们操作的分支完全独立。
+- **竞态窗口**：多个候选同时运行重型验证，目标在验证期间前进，最后只有 push 阶段短暂串行，最终可见结果仍依赖竞争时序。
+- **锁语义不完整**：自定义重型检查、候选重建、目标 ref 更新、push 与本地同步没有共享同一资源边界，容易造成漏锁、快速失败或脏主检出阻塞。
+- **恢复不完整**：并发事务、过期票和旧格式 lease 缺少统一的只读盘点与安全回收入口。
 
 ### 两阶段交付协议（stage/publish）
 
 stage 把“本地完成”从远端时序中解耦，publish 再完成最终集成：
 
-#### Phase 1：本地 stage（无目标 ref 锁，可并行）
+所有由 Vibe-Harness 管理的交付共享 Git common dir 下的仓库级 FIFO。
+短时互斥只用于分配单调票号；票按 `%012d-<uuid>.json` 保存，状态限定为
+`queued`、`running`、`completed`、`cancelled`、`expired`。只有队首取得
+运行租约，等待者持续心跳并报告 `queue-wait`、`queue-ready`、
+`queue-released`、前方数量和持有者。
 
-每个任务的候选构建与验证独立执行，不获取全局锁或目标 ref 锁；它持有唯一源活动租约，防止同一任务被并发交付：
+#### Phase 1：本地 stage（队首内完成候选）
 
-1. **隔离候选构建**：以本地 `refs/heads/develop` 快照为基线，在临时独立 worktree 中按任务顺序 no-ff 合入冻结提交；stage 不 fetch
-2. **隔离验证**：在该临时 worktree 中执行完整验证（可能运行数分钟），验证通过后候选 commit SHA 已确定
-3. **持久化本地结果**：候选 SHA 写入 `refs/vibe-harness/staged/<batch-id>`，事务记录冻结源 HEAD、本地基线和验证指纹，返回 `local_staged`
+参数校验、任务/分支检查、变更范围与远端地址解析可以在排队期间并行完成；
+从创建候选和第一个受管 `git merge` 开始，stage 持有队首租约：
 
-**并行特性**：
-- 多个 worktree 的 stage **完全并行**执行，互不阻塞
-- 主检出有无关改动或位于其他分支不阻塞 stage；stage 不 stash、覆盖、提交或移动主检出
+1. **隔离候选构建**：以本地 `refs/heads/develop` 快照为基线，在临时独立 worktree 中按任务顺序 no-ff 合入冻结提交；stage 不 fetch。
+2. **隔离验证**：在该临时 worktree 中执行完整验证，包括 `deep` 或
+   `resourceClass: "repo-heavy"` 检查；交付事务把当前队首租约传给内部验证，禁止再次排队。
+3. **持久化本地结果**：候选 SHA 写入 `refs/vibe-harness/staged/<batch-id>`，事务记录冻结源 HEAD、本地基线和验证指纹，返回 `local_staged` 后释放队列；候选目录清理等非关键收尾在队列外执行。
 
-#### Phase 2：远端 publish（短 Per-Target-Ref 锁）
+主检出有无关改动或位于其他分支不阻塞 stage；stage 不 stash、覆盖、提交或移动主检出。
 
-publish 查询最新精确远端。远端已从 stage 基线前进时，从新基线重新合入同一组冻结源提交并重新验证最终组合树；不移动主检出，也不在旧候选上叠加第二次 merge：
+#### Phase 2：远端 publish（重新排队）
 
-1. **获取 Phase 2 锁**：按目标 ref 计算 SHA-256 锁路径，并同时获取旧 SHA-1 锁路径以兼容已启动的旧运行时；使用指数退避重试获取
-   - 初始重试间隔 50ms，指数增长（上限 2s）以减少 N 个等待者对锁文件的 thundering-herd 冲击
-   - Phase 2 租约 TTL 为 60s，并定期心跳续期；锁等待预算默认 180s
-   - **锁文件位置**：`{git-common-dir}/vibe-harness-land-{refHash}.lock`（当前 SHA-256 名称取 24 个十六进制字符，同时协调旧 SHA-1 名称）
+publish 作为新请求重新排入同一 FIFO。队首读取最新精确远端；远端已从
+stage 基线前进时，从新基线重新合入同一组冻结源提交并重新验证最终组合树。
+它不移动主检出，也不在旧候选上叠加第二次 merge。
 
-2. **Baseline 重检**：在锁内重新读取目标 ref 的当前 HEAD，并重新解析唯一实际 push URL
-   - 如果 HEAD 或 push URL 已变化，释放锁并丢弃当前候选；远端前进时从新基线重建，最多 `LAND_MAX_ATTEMPTS = 3` 次
-   - 锁内同时核对暂存 ref、冻结源提交、事务租约与事务锁
+1. **Baseline 重检**：在队首租约内重新读取远端 SHA，并重新解析唯一实际
+   push URL；远端前进时从新基线重建并重验，最多
+   `LAND_MAX_ATTEMPTS = 3` 次。
+2. **精确推送与回读**：显式非强制 refspec 推送冻结候选 SHA，并重读精确
+   远端确认；候选等于远端 HEAD 或仍为其祖先才进入 `integrated`。
+3. **本地同步收口**：在释放队列前完成安全的 ff-only 本地同步；主检出不
+   在目标分支、脏或领先时记录 `deferred` / `diverged`，不改用户文件。
+4. **队外清理**：服务 teardown、worktree 移除、端口登记释放与分支删除在
+   释放队列后执行；失败返回 `integrated_cleanup_pending`，重试只清理。
 
-3. **精确推送与回读**：如果 Baseline 一致，以显式非强制 refspec 推送冻结候选 SHA，并重读精确远端确认；候选等于远端 HEAD 或仍为其祖先才算集成，另一端先继续前进时记录实际远端 HEAD 并保持已集成语义。推送确认后立即释放目标锁。
-4. **锁外清理**：服务 teardown、移除 task worktree、释放端口登记和删除已推送分支在锁外执行，使用独立有限时限。清理超时或失败返回 `integrated_cleanup_pending` 与成功退出码；残留资源继续占用，重试只清理，不重放合并或推送。
-5. **本地同步独立**：发布后若主检出在 `develop` 且干净，尝试 ff-only 同步并记录 `localRefSync: updated`；否则记录 `deferred` 或 `diverged`，不修改用户改动。远端 SHA 回读仍是 `integrated` 的唯一依据。
+冲突、验证失败或推送结果不确定时，事务先记录 `conflict`、
+`recovery_required` 或 `push_uncertain` 再释放队列；人工检查不得阻塞后续
+请求。队列等待默认 30 分钟，可用
+`VIBE_HARNESS_REPO_QUEUE_TIMEOUT_MS` 收紧；旧
+`VIBE_HARNESS_LAND_LOCK_TIMEOUT_MS` 作为兼容别名。
 
 ### 残留锁处理
 
-当 land 操作异常中止或进程崩溃时，锁文件可能残留。处理步骤：
+当交付进程异常中止时，队列票、事务 lease 或旧格式锁可能残留。处理步骤：
 
-1. **检查锁持有者**：读取锁记录中的 PID、心跳时间和租约时长；当前租约会由 `lease-lock` 自动回收，人工检查时先确认持有者和对应操作
-   - 当前 SHA-256 Phase 2 锁在心跳租约过期或持有进程退出后可回收
-   - 旧 SHA-1 兼容锁和旧格式全局锁在持有 PID 仍存活时继续视为占用，即使旧记录没有心跳
+1. **只读盘点**：`worktree recover --project . --json` 列出队列票、事务、
+   lease、staged ref、候选目录与旧格式 land 锁；活跃或无法判定的租约、
+   脏候选、`push_uncertain`、用户分支和非事务目录一律保留。
 
-2. **删除过期锁**：
+2. **显式全局回收**：
    ```bash
-   rm .git/vibe-harness-land-{sha256-refHash}.lock
+   node .agents/runtime/commands/run.mjs worktree recover --project . --all --write --json
    ```
-   仅在确认租约已过期或持有者进程已死亡后执行；正常情况下由后续 land 获取流程回收
+   仅回收心跳过期票、死进程 lease、已结束事务的干净候选与私有 ref。
+   活跃租约、脏候选和无法归属的内容继续报告并保留。
 
-3. **恢复候选 worktree**：若临时候选 worktree 残留（`.vibe-harness-land-{taskId}-{uuid}`），先限域检查目标任务、活动租约和工作区状态，再清理：
+3. **限域恢复候选 worktree**：若临时候选 worktree 残留在
+   `.vibe-harness-land-{taskId}-{uuid}`，先检查目标任务、活动租约和工作区状态：
    ```bash
    node .agents/runtime/commands/run.mjs worktree recover --project . --task <taskId> --write --json
    ```
    无选择器的 `recover --write` 必须拒绝；只有显式 `recover --all --write` 才能全局恢复。
 
-**Per-Ref 锁的特性**：
-- 目标 `develop` 和 `feat/X` 的 worktree 各持有独立锁，互不竞争
-- 同一 ref 的多个 worktree 只在 Phase 2 最终化期间序列化；Phase 1 验证与锁定候选后的清理可并行，recover 会跳过活动候选
-- 锁覆盖基线复核、本地快进、精确推送与远端 SHA 回读；清理在锁外使用独立有限时限
+**FIFO 的特性**：
+
+- 单台机器、单个 Git common dir 的仓库级顺序，不跨机器协调。
+- 不自动合批、不抢占、不按优先级插队；队首失败也要记录现场后释放。
+- 所有由 Vibe-Harness 管理的 merge、重建、交付候选验证、目标 ref 更新、
+  push 与本地 ff-only 同步共享同一租约；直接在其他终端执行的原生
+  `git merge` 不在可拦截范围内。
+- 自定义重型检查通过 `validationCommands.checks[].resourceClass:
+  "repo-heavy"` 声明；`deep` 与显式重型检查进入同一队列，`mvn/gradle`
+  命令行识别只作为兼容回退。
 
 ### 版本词汇
 
 | 术语 | 含义 | 备注 |
 |------|------|------|
-| **Phase 1** | 本地候选构建 + 验证 + 暂存 ref（仅唯一源活动租约） | 不 fetch、不持有目标 ref 锁 |
-| **Phase 2** | 最新远端重建 + Baseline 重检 + 精确推送 + 远端回读（per-ref 锁） | 推送确认后立即释放；本地同步与清理随后独立执行 |
-| **Per-Ref 锁** | 按目标分支的独立锁（hash 路径） | 不同 ref 无竞争，同 ref 序列化仅在 Phase 2 |
-| **Baseline 变化** | publish 期间目标 ref 被其他 worktree 推进 | 从新基线重建并重新验证，最多 3 次 |
-| **指数退避** | 锁获取重试的等待间隔（50ms → 2s） | 减少 thundering-herd，lease-lock 内部实现 |
-| **Lease Lock** | 带 PID、TTL 与心跳的文件锁实现 | 支持指数退避；活跃持有者续租，死进程锁可回收 |
+| **Phase 1** | 队首内构建、验证候选并持久化 staged ref | 不 fetch；暂存完成后释放队列 |
+| **Phase 2** | 重新排队、最新远端重建、验证、推送、回读与本地同步 | 推送确认和同步尝试完成后释放队列 |
+| **Delivery FIFO** | Git common dir 下的仓库级单调票队列 | 只有队首执行，等待者报告位置、前方数量与持有者 |
+| **Baseline 变化** | publish 期间远端目标前进 | 队首内从新基线重建并重新验证，最多 3 次 |
+| **Queue timeout** | 默认 30 分钟的等待预算 | 超时返回 `WORKTREE_QUEUE_TIMEOUT` 并保留票与现场 |
+| **Lease Lock** | 票记录中的 PID、心跳与 TTL | 死进程或过期票可盘点回收，活跃租约保留 |
 | **--target-mode primary** | 旧 `land` 兼容路径更新主检出的本地目标分支 | `remote` 已退役并在任何写入前拒绝；新流程不需要此参数 |
 
 ### 代码层面
@@ -110,28 +131,29 @@ publish 查询最新精确远端。远端已从 stage 基线前进时，从新�
 #### 常量定义
 
 ```javascript
-const LAND_LOCK_TIMEOUT_MS = 180_000;        // Phase 2 等待总预算（3 分钟）
-const LAND_PHASE2_LEASE_MS = 60_000;         // Phase 2 锁 TTL（60 秒）
-const LAND_LOCK_RETRY_MS = 50;               // 初始重试间隔（指数增长）
-const LAND_MAX_ATTEMPTS = 3;                 // 基线变化重试上限
+const DEFAULT_DELIVERY_QUEUE_TIMEOUT_MS = 30 * 60 * 1000;
+const QUEUE_TICKET_LEASE_MS = 60_000;
+const QUEUE_TICKET_HEARTBEAT_MS = 15_000;
+const LAND_MAX_ATTEMPTS = 3;
 ```
 
 #### 核心函数
 
-- `targetRefLockPaths(gitCommonDir, targetRef)`：计算 SHA-256 per-ref 锁，并同时持有旧 SHA-1 路径以兼容已启动的旧运行时
-- `acquirePhase2Lock(projectDir, targetRef)`：获取 Phase 2 租约，返回锁路径或阻塞结果
+- `enqueueDelivery` / `acquireDeliveryTurn`：分配单调票并等待队首租约
+- `releaseDeliveryTurn`：记录完成、取消或过期状态并推进队首
+- `inspectDeliveryQueue` / `reconcileDeliveryQueue`：只读盘点与显式回收过期票
 - `worktreeStageReport(projectDir, args)`：本地候选构建、验证和暂存入口
-- `worktreePublishReport(projectDir, args)`：最新远端重建、短锁发布和清理入口
+- `worktreePublishReport(projectDir, args)`：重新排队、最新远端重建、发布与清理入口
 - `worktreeStageStatusReport` / `worktreeDiscardReport`：只读恢复与未发布事务回收
 - `worktreeLandReportTwoPhase` / `worktreeLandReportUnlocked`：旧 `land` 兼容路径
 
 ### 效果
 
-| 场景 | 传统全局锁 | stage/publish Per-Ref 锁 |
-|------|-----------|------------------|
-| 3 个 worktree 并发到同一 ref | 全部序列化（验证时间 × 3） | stage 验证并行，publish 最终化串行（验证时间 × 1 + 最终化时间 × 3） |
-| 3 个 worktree 到不同 ref | 仍全部序列化 | stage 与 publish 均可并行（验证时间 × 1） |
-| 锁竞争冲击 | 高（同时到达） | 低（指数退避，thundering-herd 缓解） |
+| 场景 | 候选并行、push 抢锁 | 仓库级 FIFO |
+|------|-------------------|-------------|
+| 3 个 worktree 同时交付 | 可能并发 merge/验证并争抢最终 push | 按票号依次完成 merge、验证、重建、发布与同步 |
+| 远端在验证期间前进 | 旧候选与最终 push 之间出现竞态窗口 | 队首 publish 读取最新远端后重建重验 |
+| 进程崩溃或超时 | 锁与候选可能残留且难以判定 | 票和 lease 可盘点，死票与安全事务可显式回收 |
 
 ## Delivery Profile 清理边界
 
@@ -143,18 +165,18 @@ managed-mr 的 land 只读取已合入 MR 的证据，不本地合并或推送�
 
 本节定义 local-land 交付合同，Skill 只保留入口、操作顺序和停止边界。宿主创建的 worktree 通过 `--task <id>:<branch>` 的精确分支或路径归因，不要求先写入端口登记表；`worktree bootstrap` 保留为无宿主或需要受管端口时的 fallback。只提交本任务已归属的改动，核对 canonicalCwd、gitCommonDir、gitDir、分支、HEAD、基线与写入根；已有改动不得覆盖、stash 或夹带。
 
-单任务与 batch 使用同一落地顺序：
+单任务、batch 与兼容 `land` 使用同一落地顺序：
 
-1. **stage** 核对任务归属与冻结源 HEAD，从本地 `refs/heads/develop` 快照建立 detached 候选；不 fetch，不要求主检出干净，也不移动主检出或远端。主检出在其它分支或有无关改动只影响后续本地同步。
-2. 在候选 no-ff 合入冻结的任务提交并完成按风险选择的必要验证。通过后把候选 SHA 保存到 `refs/vibe-harness/staged/<batch-id>`，返回 `integrationStatus: local_staged`；源 worktree、分支和主检出改动全部保留。
+1. **stage** 在排队期间核对任务归属、冻结源 HEAD、变更范围与远端地址；取得仓库 FIFO 队首后，从本地 `refs/heads/develop` 快照建立 detached 候选。不 fetch，不要求主检出干净，也不移动主检出或远端。
+2. 在队列租约内把冻结任务提交 no-ff 合入候选并完成按风险选择的必要验证。通过后把候选 SHA 保存到 `refs/vibe-harness/staged/<batch-id>`，返回 `integrationStatus: local_staged`，随后释放队列；源 worktree、分支和主检出改动全部保留。
 3. **publish** 重新解析唯一实际 push URL 与精确 `refs/heads/develop`，只以地址 SHA-256 指纹持久化；远端前进时从最新基线重建同一组合并候选并重新验证，不在旧候选上叠加第二次 merge。
-4. 候选构建/验证可并行，同一目标 ref 最终化串行。短目标锁内重核远端 SHA、暂存引用、冻结源提交、事务租约和实际 push URL；不满足时释放锁并按有界上限重建，不强制推送。
-5. 以显式非强制 refspec 推送冻结候选 SHA 到精确远端 ref，并重读远端 SHA。候选等于远端 HEAD 或仍是其祖先时进入 `integrated`，记录 `remoteConfirmedHead` / `remoteAdvanced` 后立即释放目标锁；`remoteValidation` 独立表示远端 CI/MR 验证，不把待验证写成已通过。
-6. 发布后若主检出在目标分支且干净，尝试 ff-only 同步并将 `localRefSync` 记为 `updated`；否则记为 `deferred` 或 `diverged`，不得 stash、覆盖或提交用户改动。清理使用独立有限执行时限；超时或失败返回成功并标记 `integrated_cleanup_pending`，重试只清理，绝不重放合并或推送。
+4. publish 作为新请求重新排队。取得队首后核验远端 SHA、暂存引用、冻结源提交、事务租约和实际 push URL；不满足时按有界上限重建重验，不强制推送。
+5. 以显式非强制 refspec 推送冻结候选 SHA 到精确远端 ref，并重读远端 SHA。候选等于远端 HEAD 或仍是其祖先时进入 `integrated`，记录 `remoteConfirmedHead` / `remoteAdvanced`；`remoteValidation` 独立表示远端 CI/MR 验证。
+6. 推送确认后，在释放队首前尝试安全 ff-only 本地同步并将 `localRefSync` 记为 `updated`；否则记为 `deferred` 或 `diverged`，不得 stash、覆盖或提交用户改动。清理在队外使用独立有限执行时限；超时或失败返回成功并标记 `integrated_cleanup_pending`，重试只清理。
 
-`--target-mode primary` 仅保留在兼容的旧 `land` 路径；`remote` 已退役，任何写入前必须明确拒绝并提示迁移。`--base-ref develop` 是目标断言，不是分支切换。旧 `land` 不带 `--push` 只证明本地合并；新流程的 `stage` 只产生 `local_staged`，必须经 `publish` 回读远端 SHA 才算完整交付。
+`--target-mode primary` 仅保留在兼容的旧 `land` 路径；`remote` 已退役，任何写入前必须明确拒绝并提示迁移。`--base-ref develop` 是目标断言，不是分支切换。`land --push` 复用同一 FIFO 和最终发布器，脏主检出只使本地同步 `deferred`，不阻塞远端发布。旧 `land` 不带 `--push` 的本地 checkout merge 仍进入队列，并继续要求主检出干净。新流程的 `stage` 只产生 `local_staged`，必须经 `publish` 回读远端 SHA 才算完整交付。
 
-恢复记录保存在 Git common dir，绑定源 HEAD、冻结基线、候选 SHA、精确目标及阶段，不依赖 Linear Receipt。冲突或验证失败保留源与候选，主检出和远端不动；stage 后源提交漂移必须重新 stage，publish 不得静默换成新提交。推送结果不明先查询精确远端，确认候选已在远端时只继续清理，远端仍停在基线时可有界重推原候选，其它漂移保留现场。远端分叉不 reset、rebase、force push 或删除源。推送确认后的清理失败不阻塞 Linear Done、succeeded 或依赖后继，但资源冲突仍阻塞资源复用。仍有交付事务的源工作区只能经对应 `stage`/`publish`/`status`/`discard` 或旧 `land --resume` 恢复；通用 cleanup 不得绕过事务直接清理。
+恢复记录按 v3 保存在 Git common dir，增加 `queue`、`publishing` 与 `recovery_required` 等阶段字段，并继续读取 v1/v2 后在下次安全写入升级。记录绑定源 HEAD、冻结基线、候选 SHA、精确目标及阶段，不依赖 Linear Receipt。冲突、验证失败和 `push_uncertain` 先记录后释放队列；stage 后源提交漂移必须重新 stage，publish 不得静默换成新提交。推送结果不明先查询精确远端，确认候选已在远端时只继续清理，远端仍停在基线时可有界重推原候选。远端分叉不 reset、rebase、force push 或删除源。仍有交付事务的源工作区只能经对应 `stage`/`publish`/`status`/`discard` 或旧 `land --resume` 恢复；通用 cleanup 不得绕过事务直接清理。
 
 交付状态分层报告：`commandStatus` 表示本次命令结论，`integrationStatus` 表示本地暂存或远端集成，`remoteValidation` 表示远端检查，`localRefSync` 表示主检出同步。只有远端 SHA 回读确认候选已到达远端才可写 `integrated`；候选已被后续远端提交覆盖但仍是祖先时按实际远端 HEAD 同步。本地暂存只能写 `local_staged`；推送结果不明时 `discard` 必须拒绝。
 
@@ -260,9 +282,9 @@ Vibe-Harness 自身使用 Conventional Commits、commitlint、pre-commit、pre-p
 - 一个隔离单元对应一个命名分支和明确写入范围，worktree 放在仓库外部、数量不是并行目标；宿主创建的 worktree 可用 `--task <id>:<branch>` 直接归因，`worktree bootstrap` 只作为无宿主管理或需要受管端口时的 fallback。不需要隔离时直接在当前工作区保护用户改动，子 Agent 只在分配的 worktree、分支和写入范围内工作，审查任务默认只读。
 - 派发前明确目标分支、依赖和共享契约的唯一写入者；writeScope 或资源重叠的任务按依赖顺序推进，过期基线与语义冲突由任务责任人解决，集成失败只暂停相关任务和后继。
 - 引导、审计、交付与清理走项目脚本入口 `node .agents/runtime/commands/run.mjs worktree <list|check|bootstrap|stage|publish|status|discard|land|recover|cleanup> --project . --json`：默认只读，只有追加 `--write` 才落盘；`cleanup` 在分支未并入 `worktree.baseRef` 或工作区不干净时拒绝，且从不删除分支；不带 `--write` 的 `bootstrap` 是步骤计划预览，`--help` 给出该入口自身的命令面说明。该入口是安装交付内唯一的 worktree 写入面（创建、依赖链接与清理）；源仓库开发面另有只读审计 CLI（`scripts/worktree.js`，`list|check|plan`），不随安装交付，目标项目不引入第二个写入口。
-- `worktree stage` 建立并验证候选后持久化到 `refs/vibe-harness/staged/<batch-id>`，不 fetch、不要求主检出干净、不移动主检出；`worktree publish --batch <id>` 从最新远端基线重建最终候选并完成精确推送；`status` 只读报告恢复事实，`discard` 只丢弃已确认未发布事务并保留源工作区，推送结果不明时不得丢弃。旧 `worktree land` 在两阶段命令迁移期间保持兼容。所有候选验证都实测所请求且实际选中的检查；未选高层检查标作 deferred，不得据此宣称集成/发布证据。普通推送不得强制更新。验证失败或冲突保留来源树，推送已确认但清理失败报告“已集成、待清理”，不能重复合并或推送。`--base-ref` 仅作意图断言，`--write --no-verify` 拒绝执行。任务前序只核对真实 done 状态与依赖，不依赖整树收据指纹；本地任务写入不以 Envelope 或完成收据为前置门禁。
+- `worktree stage` 在仓库级 FIFO 队首建立并验证候选，随后持久化到 `refs/vibe-harness/staged/<batch-id>`，不 fetch、不要求主检出干净、不移动主检出；`worktree publish --batch <id>` 重新排队，从最新远端基线重建最终候选、精确推送、回读 SHA 并完成安全本地同步；`status` 只读报告恢复事实，`discard` 只丢弃已确认未发布事务并保留源工作区，推送结果不明时不得丢弃。旧 `worktree land` 在两阶段命令迁移期间保持兼容，并复用同一队列。所有候选验证都实测所请求且实际选中的检查；`deep` 或 `repo-heavy` 检查不再单独争抢另一把锁。验证失败、冲突或结果不明时记录事务后立即释放队列，清理在队外执行；不得据此宣称集成/发布证据。普通推送不得强制更新。`--base-ref` 仅作意图断言，`--write --no-verify` 拒绝执行。
 - 仅多个互不依赖任务已同时 ready 时，可向 `worktree stage` 传多个 `--task`；批次在一个候选中按序合并，冲突只在候选解决，最终组合树实测通过才暂存。单项和批量遵守同一候选判据；deferred 待后续检查，持久收据写入失败不改变实测结果。publish 遇到远端前进会重建候选并限定昂贵自动重试，失败、推送结果不明或清理失败保留可恢复现场。
-- 临时候选 worktree 只在工作区干净时自动移除，异常残留由 `worktree recover` 报告、`--write` 只清理有归因且干净的候选，脏候选与疑似残留锁由操作者核对；本地 `land` 不创建远端合并队列，也不能代替共享分支 required checks。
+- 临时候选 worktree 只在工作区干净时自动移除；异常残留由 `worktree recover` 只读盘点，`recover --all --write` 只回收无活动租约、归属明确且干净的票、事务候选与私有 ref，脏候选、`push_uncertain` 和无法判定对象继续保留。本地 FIFO 只保证单机单 Git common dir 的执行顺序，不能代替远端共享分支 required checks。
 - 目录已消失但 Git 元数据与分支绑定仍在的 worktree 由 `worktree check` 报 `WORKTREE_PRUNABLE_RESIDUE` 并阻塞审计通过。`worktree recover --task <taskId> --write` 按序移除目标任务的不完整 worktree（端口 env 文件在位且登记在册时跳过，仅当分支未离开基线且工作区干净时连同分支与端口登记一起移除）、prunable 残留（一次 `git worktree prune`）、孤立分支与孤立端口登记；只有显式 `worktree recover --all --write` 才允许全局回收。分支删除只在存在归因证据（端口登记表条目或 prunable 清单）、分支 HEAD 等于 `worktree.baseRef` 解析出的基线 SHA 且该分支不是基线本身时发生，无引用的用户占位分支、带未并入提交的分支与登记面之外的外来 worktree 一律不动。该证据门不与「merge-back 完成前不删除分支」冲突（被删分支从未持有任何提交）；另一处分支删除只发生在 `land` 推送成功之后，并使用自带未合并拒绝保险的 `git branch -d`。
 - 依赖链接（`node_modules` junction 或 symlink）由 `worktree bootstrap` 建立并对每个本地包逐项 realpath 断言，断言失败时回滚本次新建的 worktree；`.bin`/`.bun`/`.pnpm` 等内容寻址 store 与各自带 `node_modules` 的 workspace 包由 overlay 投影，构建缓存 `.cache`/`.vite`/`.vite-temp` 跳过；`worktree check` 报告依赖链接缺失或指回主检出的事实。
 - 多 worktree 并发时端口按登记表分段：`worktree.ports` 的 `base`、`blockSize`、`variables` 与 `envFile` 决定主检出保留 `[base, base+blockSize-1]`、第 n 个 worktree 占用 `[base+n*blockSize, base+(n+1)*blockSize-1]`、块内第 i 个变量取 `blockStart+i`；结果写主检出 `.vibe-harness/worktree-ports.json`，由 `.vibe-harness/worktree-ports.lock` 独占锁串行化，锁等待超时即 fail-closed 且不自动清理残留锁；端口冲突只按登记表与声明事实判定，不调用 `netstat`/`lsof` 推断分配。

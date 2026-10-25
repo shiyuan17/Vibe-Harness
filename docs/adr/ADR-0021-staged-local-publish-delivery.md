@@ -1,7 +1,7 @@
 ---
 id: ADR-0021
 title: 本地暂存与远端发布两阶段 worktree 交付
-status: accepted
+status: superseded
 date: 2026-10-24
 review-date: 2027-04-24
 owner: vibe-harness-maintainers
@@ -9,7 +9,7 @@ decision-makers: [vibe-harness-maintainers]
 consulted: [vibe-harness-contributors]
 informed: [linear-workflow-users]
 supersedes: [ADR-0020]
-superseded-by: null
+superseded-by: ADR-0022
 ---
 
 # 本地暂存与远端发布两阶段 worktree 交付
